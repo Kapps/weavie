@@ -280,7 +280,7 @@
 .remote-panel-head {
   padding: 2px 4px 8px;
   color: var(--dim);
-  font: 600 11px var(--ui-font);
+  font: 600 var(--font-hint-size) var(--font-chrome-family);
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
@@ -345,7 +345,7 @@
 .remote-agent-empty {
   margin-top: 6px;
   color: var(--dim);
-  font-size: 11px;
+  font-size: var(--font-hint-size);
   font-style: italic;
 }
 .remote-agent-sessions {
@@ -362,7 +362,7 @@
   border-radius: 8px;
   background: hsl(var(--chip-hue, 200) 45% 38%);
   color: #fff;
-  font: 600 11px var(--ui-font);
+  font: 600 var(--font-hint-size) var(--font-chrome-family);
   opacity: 0.85;
   cursor: pointer;
 }

@@ -16,9 +16,14 @@ import {
 } from "./agent-controls-store";
 
 // The dim strip under the composer. First segment is the merged model → effort / Fast control (its picker is a
-// cascading per-model submenu); the rest are provider-owned axes. Values are provider-neutral — the web
-// never learns their provider-specific meaning.
-export function AgentStatusLine(props: { backendId: string; slot: string | null }): JSX.Element {
+// cascading per-model submenu); the rest are provider-owned axes, the complete Review line counts, and PR status.
+export function AgentStatusLine(props: {
+  backendId: string;
+  reviewAdded: number;
+  reviewFileCount: number;
+  reviewRemoved: number;
+  slot: string | null;
+}): JSX.Element {
   const state = (): ReturnType<typeof agentControlState> => agentControlState(props.slot);
   const modelLabel = (): string => state().modelControl.valueLabel;
   const hasModel = (): boolean => state().modelControl.models.length > 0;
@@ -37,6 +42,11 @@ export function AgentStatusLine(props: { backendId: string; slot: string | null 
     commandsVersion();
     return `Open PR #${number} in browser${keyHint(CommandIds.openCurrentPr)}`;
   };
+  const reviewTitle = (): string => {
+    commandsVersion();
+    const files = props.reviewFileCount === 1 ? "1 file" : `${props.reviewFileCount} files`;
+    return `Open review — ${props.reviewAdded} lines added, ${props.reviewRemoved} removed across ${files}${keyHint(CommandIds.reviewOpen)}`;
+  };
   const axisTitle = (axis: ReturnType<typeof state>["axes"][number]): string => {
     commandsVersion();
     return `${axis.label}: ${axis.valueLabel} — click to change${
@@ -54,7 +64,14 @@ export function AgentStatusLine(props: { backendId: string; slot: string | null 
 
   return (
     <Show
-      when={hasModel() || state().axes.length > 0 || pullRequest() !== null || prError() !== null}
+      when={
+        hasModel() ||
+        state().axes.length > 0 ||
+        props.reviewAdded > 0 ||
+        props.reviewRemoved > 0 ||
+        pullRequest() !== null ||
+        prError() !== null
+      }
     >
       <div class="agent-status-line">
         <Show when={hasModel()}>
@@ -80,6 +97,19 @@ export function AgentStatusLine(props: { backendId: string; slot: string | null 
             </button>
           )}
         </For>
+        <Show when={props.reviewAdded > 0 || props.reviewRemoved > 0}>
+          <button
+            type="button"
+            class="agent-status-segment agent-status-review"
+            aria-label={reviewTitle()}
+            title={reviewTitle()}
+            onClick={() => void runCommandWithFeedback(CommandIds.reviewOpen)}
+          >
+            <span class="agent-status-review-added">+{props.reviewAdded}</span>
+            <span aria-hidden="true">/</span>
+            <span class="agent-status-review-removed">-{props.reviewRemoved}</span>
+          </button>
+        </Show>
         <Show when={pullRequest()}>
           {(pr) => (
             <button

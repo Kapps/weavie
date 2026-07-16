@@ -458,7 +458,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--dim);
-  font-size: 11px;
+  font-size: var(--font-hint-size);
 }
 
 .recent-row.selected .recent-dir {
@@ -511,7 +511,7 @@
 .editor-media-notice {
   padding: 1em;
   color: var(--dim);
-  font-size: 13px;
+  font-size: var(--font-metadata-size);
   text-align: center;
 }
 

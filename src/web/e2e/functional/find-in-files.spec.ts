@@ -35,6 +35,21 @@ async function caret(page: Page): Promise<{ lineNumber: number; column: number }
   return page.evaluate(() => (window as WeavieWindow).__WEAVIE_EDITOR__?.getPosition() ?? null);
 }
 
+async function typography(locator: import("@playwright/test").Locator): Promise<{
+  family: string;
+  size: number;
+  weight: string;
+}> {
+  return locator.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return {
+      family: style.fontFamily,
+      size: Number.parseFloat(style.fontSize),
+      weight: style.fontWeight,
+    };
+  });
+}
+
 // Opens hello.ts and selects `greet` on line 1 ("export function greet" → columns 17-22) via the handle,
 // so the selection is deterministic rather than driven by double-click hit-testing. openFile waits for the
 // editor to actually bind the model (data-active-file) before the selection is applied.
@@ -145,6 +160,43 @@ test("match-case / whole-word / regex chords and include-exclude globs shape the
   await expect(groups.filter({ hasText: "hello.ts" })).toHaveCount(1);
   await exclude.fill("hello.ts");
   await expect(page.locator(".search-empty")).toContainText("check the include/exclude filters");
+});
+
+test("code results follow editor typography while search chrome stays compact", async ({
+  page,
+}) => {
+  await openFile(page, "hello.ts");
+  await openSearch(page);
+  await page.locator(".search-input").fill("greet");
+
+  const editorLine = page.locator(".monaco-editor .view-line").first();
+  const preview = page.locator(".search-row-preview").first();
+  const metadata = page.locator(".search-group-name").first();
+  const input = page.locator(".search-input");
+  const hint = page.locator(".search-summary");
+  await expect(preview).toBeVisible();
+
+  const initialEditor = await typography(editorLine);
+  const initialResult = await typography(preview);
+  const publishedFamily = await page.evaluate(() =>
+    document.documentElement.style.getPropertyValue("--editor-font-family"),
+  );
+  expect(initialResult.family).toBe(publishedFamily);
+  expect(initialEditor.family.startsWith(publishedFamily)).toBe(true);
+  expect(initialResult.size).toBe(initialEditor.size);
+  expect(initialResult.weight).toBe(initialEditor.weight);
+  expect((await typography(metadata)).size).toBeCloseTo(initialEditor.size * 0.8125, 4);
+  expect((await typography(input)).size).toBe(12);
+  expect((await typography(hint)).size).toBe(11);
+
+  await page.keyboard.press("ControlOrMeta+=");
+  await expect.poll(async () => (await typography(preview)).size).toBe(initialEditor.size + 1);
+  await expect
+    .poll(async () => (await typography(metadata)).size)
+    .toBeCloseTo((initialEditor.size + 1) * 0.8125, 4);
+  expect((await typography(input)).size).toBe(12);
+
+  await page.keyboard.press("ControlOrMeta+0");
 });
 
 test("a session switch clears stale results so stepping can't open the previous worktree", async ({

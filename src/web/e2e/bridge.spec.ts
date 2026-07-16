@@ -2,31 +2,10 @@ import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
-import { MockHost } from "./mock-host";
+import { MockHost, mockSessionChip as sessionChip } from "./mock-host";
 
 // The built app from `vite build`; the e2e run builds it first (see the `e2e` npm script).
 const distDir = join(dirname(fileURLToPath(import.meta.url)), "..", "dist");
-
-function sessionChip(
-  id: string,
-  label: string,
-  providerId: "claude" | "codex",
-  active: boolean,
-  primary: boolean,
-) {
-  return {
-    id,
-    label,
-    active,
-    loaded: true,
-    primary,
-    providerId,
-    agentSurface: providerId === "codex" ? "structured" : "terminal",
-    status: "idle",
-    hue: 200,
-    monogram: label.slice(0, 1).toUpperCase(),
-  };
-}
 
 test.beforeAll(() => {
   if (!existsSync(join(distDir, "index.html"))) {
@@ -64,6 +43,69 @@ test.describe("remote bridge transport", () => {
     await expect(toast).toBeVisible();
   });
 
+  test("live fonts update normal DOM and source-shadow typography roles", async ({ page }) => {
+    await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
+    await host.waitForMessage("ready");
+
+    host.pushToWeb({
+      type: "source-loading",
+      target: "typography-source",
+      title: "Typography",
+      sourceId: "notion",
+    });
+    host.pushToWeb({
+      type: "source-doc",
+      target: "typography-source",
+      title: "Typography",
+      sourceId: "notion",
+      markdown: "Body with `code`.",
+      editedTime: "",
+    });
+    host.pushToWeb({ type: "prompt-source-token", sourceId: "notion", label: "Notion" });
+
+    const prose = page.locator(".editor-source .wv-source");
+    const sourceCode = prose.locator("code");
+    const promptInput = page.locator(".session-prompt-input");
+    await expect(sourceCode).toBeVisible();
+    await expect(promptInput).toBeVisible();
+
+    host.pushToWeb({
+      type: "fonts",
+      editor: { family: '"Courier New", monospace', size: 21, weight: "700" },
+      terminal: { family: "monospace", size: 13, weight: "normal" },
+    });
+
+    await expect
+      .poll(async () => {
+        const [content, prompt, proseStyle] = await Promise.all(
+          [sourceCode, promptInput, prose].map((locator) =>
+            locator.evaluate((element) => {
+              const style = getComputedStyle(element);
+              return { family: style.fontFamily, size: style.fontSize, weight: style.fontWeight };
+            }),
+          ),
+        );
+        return {
+          contentFamily: content.family,
+          contentWeight: content.weight,
+          promptFamily: prompt.family,
+          promptWeight: prompt.weight,
+          proseFamily: proseStyle.family,
+          proseSize: proseStyle.size,
+          proseWeight: proseStyle.weight,
+        };
+      })
+      .toEqual({
+        contentFamily: '"Courier New", monospace',
+        contentWeight: "700",
+        promptFamily: '"Courier New", monospace',
+        promptWeight: "700",
+        proseFamily: "Chivo, system-ui, sans-serif",
+        proseSize: "21px",
+        proseWeight: "400",
+      });
+  });
+
   test("a same-backend session switch reuses the live agent pane", async ({ page }) => {
     await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
     await host.waitForMessage("ready");
@@ -82,6 +124,71 @@ test.describe("remote bridge transport", () => {
       id: "local-feature",
       replayAgentState: false,
     });
+  });
+
+  test("Ctrl+Tab highlights the requested remote session without visiting its backend's stale active session", async ({
+    page,
+  }) => {
+    const remote = await MockHost.start({ distDir });
+    try {
+      await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
+      await host.waitForMessage("ready");
+      host.pushToWeb({
+        type: "session-list",
+        sessions: [sessionChip("ma", "MA", "claude", true, true)],
+      });
+      host.pushToWeb({
+        type: "remote-agents",
+        agents: [{ name: "devbox", url: remote.url, token: "runner-token" }],
+      });
+      await remote.waitForMessage("ready");
+      remote.pushToWeb({
+        type: "session-list",
+        sessions: [
+          sessionChip("fa", "FA", "claude", false, false),
+          sessionChip("td", "TD", "claude", false, false),
+          sessionChip("rt", "RT", "claude", true, false),
+        ],
+      });
+      host.pushToWeb({
+        type: "rail-state",
+        lastLocation: "local",
+        promoted: ["remote:devbox fa", "remote:devbox td", "remote:devbox rt"],
+      });
+      host.pushToWeb({
+        type: "commands",
+        commands: [
+          {
+            id: "weavie.session.next",
+            title: "Next Session",
+            runsIn: "web",
+            description: "Switch to the next session on the rail.",
+            aliases: [],
+            showInPalette: true,
+            keys: ["ctrl+Tab"],
+          },
+        ],
+        keybindings: [{ key: "ctrl+Tab", command: "weavie.session.next" }],
+      });
+      await expect(page.locator(".session-chip")).toHaveCount(4);
+
+      const switched = remote.waitForMessage("switch-session");
+      await page.evaluate(() =>
+        window.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "Tab",
+            ctrlKey: true,
+            bubbles: true,
+            cancelable: true,
+          }),
+        ),
+      );
+
+      expect(await switched).toMatchObject({ id: "fa", replayAgentState: true });
+      await expect(page.locator(".session-chip.active")).toHaveAttribute("title", /^FA @/);
+    } finally {
+      await remote.close();
+    }
   });
 
   test("a backend switch never mixes the incoming resource host with the outgoing media identity", async ({

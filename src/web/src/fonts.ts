@@ -48,7 +48,9 @@ export function onFontsChanged(handler: (config: FontConfig) => void): () => voi
 
 // Publish CSS font vars so DOM-rendered companions can track Monaco/xterm typography.
 function publishFontVars(config: FontConfig): void {
+  document.documentElement.style.setProperty("--editor-font-family", config.editor.family);
   document.documentElement.style.setProperty("--editor-font-size", `${config.editor.size}px`);
+  document.documentElement.style.setProperty("--editor-font-weight", config.editor.weight);
   document.documentElement.style.setProperty("--terminal-font-family", config.terminal.family);
   document.documentElement.style.setProperty("--terminal-font-size", `${config.terminal.size}px`);
   document.documentElement.style.setProperty("--terminal-font-weight", config.terminal.weight);

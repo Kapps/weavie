@@ -183,6 +183,8 @@ export interface EditorController {
   /** How many files are pending post-turn review (reactive), so the empty-state pane can surface a review cue
    * when no file is open. */
   parkedReviewCount(): number;
+  /** Added/removed lines across the complete Review diff, including faded kept changes. */
+  reviewLineCounts(): { added: number; removed: number };
   readonly inline: InlineDiffActions;
   readonly tabs: TabActions;
   readonly nav: NavActions;
@@ -209,6 +211,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   // How many files are pending post-turn review, so the empty-state pane can surface a "review changes" cue
   // when no file is open (the inline parked toolbar can't render without a mounted editor). See #125.
   const [parkedReviewCount, setParkedReviewCount] = createSignal(0);
+  const [reviewLineCounts, setReviewLineCounts] = createSignal({ added: 0, removed: 0 });
   // An open-file request that arrived before the editor was ready; replayed when it is.
   let pendingOpen: { path: string; line: number; preview?: boolean; scratch?: boolean } | undefined;
   // Files Claude changed since the last review, in document order; drives the toolbar's ← / → file walk.
@@ -737,6 +740,15 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   // stepping in (a nav key) opens the first change. Called wherever reviewFiles changes.
   const updateParkedReview = (): void => {
     setParkedReviewCount(reviewFiles.length);
+    setReviewLineCounts(
+      reviewFiles.reduce(
+        (total, file) => ({
+          added: total.added + file.added,
+          removed: total.removed + file.removed,
+        }),
+        { added: 0, removed: 0 },
+      ),
+    );
     // Publish the live review-walk set for e2e / diagnostics (read-only) — a failed PR-switch test attaches
     // exactly which files the navigator holds, so a leaked cross-PR mix is visible without walking it. `rev`
     // is a monotonic counter bumped on every change so a test can detect quiescence exactly (poll-sampling
@@ -1216,6 +1228,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     activeContent,
     reviewActive,
     parkedReviewCount,
+    reviewLineCounts,
     inline: {
       nextChange: () => inlineDiff?.nextChange() ?? false,
       prevChange: () => inlineDiff?.prevChange() ?? false,

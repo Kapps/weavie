@@ -15,6 +15,9 @@ export function AgentPane(props: {
   providerId: "claude" | "codex" | null;
   active: boolean;
   messages: AgentPaneUpdate[];
+  reviewAdded: number;
+  reviewFileCount: number;
+  reviewRemoved: number;
   shortcut: string;
   onFocus: () => void;
 }): JSX.Element {
@@ -181,7 +184,13 @@ export function AgentPane(props: {
           }
         }}
       />
-      <AgentStatusLine backendId={props.backendId} slot={props.slot} />
+      <AgentStatusLine
+        backendId={props.backendId}
+        reviewAdded={props.reviewAdded}
+        reviewFileCount={props.reviewFileCount}
+        reviewRemoved={props.reviewRemoved}
+        slot={props.slot}
+      />
     </div>
   );
 }

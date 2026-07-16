@@ -60,6 +60,7 @@ import {
   demoteSession,
   findSession,
   isPromoted,
+  projectSessionSwitch,
   promoteSession,
   type RailSession,
   railSessions,
@@ -483,6 +484,9 @@ export default function App(): JSX.Element {
   // Switch to a session by id. Flushes the outgoing session's pending editor session first so its tab set
   // isn't lost; the host processes both messages in order on the still-active session.
   const switchToSession = (session: RailSession): void => {
+    // Crossing backends otherwise exposes that backend's previously active chip until the switch reply arrives,
+    // making one Ctrl+Tab look like two rail steps. The host's next session-list remains authoritative.
+    projectSessionSwitch(session.backendId, session.id);
     flushEditorSession();
     // Crossing to another backend rebinds the page to it; its switch-session reply re-attaches terminals + editor.
     bindBackend(session.backendId, (didRebind) =>
@@ -731,6 +735,9 @@ export default function App(): JSX.Element {
           providerId={activeProviderId()}
           active={focusedKind() === AGENT_PANE_KIND}
           messages={focusedAgentMessages()}
+          reviewAdded={editor.reviewLineCounts().added}
+          reviewFileCount={editor.parkedReviewCount()}
+          reviewRemoved={editor.reviewLineCounts().removed}
           shortcut={paneShortcut(numberOf(kind))}
           onFocus={() => focusPane(kind)}
         />

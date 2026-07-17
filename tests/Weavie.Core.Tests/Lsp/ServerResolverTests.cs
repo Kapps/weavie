@@ -43,6 +43,48 @@ public sealed class ServerResolverTests {
 	}
 
 	[Fact]
+	public void FindInDirectory_FindsTheCommand_OrReturnsNull() {
+		string dir = Path.Combine(Path.GetTempPath(), $"weavie-resolver-dir-{Guid.NewGuid():N}");
+		Directory.CreateDirectory(dir);
+		string name = "weavie-dir-probe" + (OperatingSystem.IsWindows() ? ".exe" : "");
+		File.WriteAllText(Path.Combine(dir, name), "stub");
+		try {
+			Assert.Equal(Path.Combine(dir, name), ServerResolver.FindInDirectory(dir, "weavie-dir-probe"));
+			Assert.Null(ServerResolver.FindInDirectory(dir, "weavie-not-there"));
+		} finally {
+			Directory.Delete(dir, recursive: true);
+		}
+	}
+
+	[Fact]
+	public void Resolve_FallsBackToWeavieToolsDir_ForARecipeCandidate() {
+		// A Weavie-installed server (in ~/.weavie/tools, here redirected by TestRoot) resolves with no PATH change.
+		string command = $"weavie-tools-probe-{Guid.NewGuid():N}";
+		var descriptor = new LanguageServerDescriptor {
+			Id = "tools-probe",
+			DisplayName = "Tools Probe",
+			LanguageIds = ["toolsprobe"],
+			FileExtensions = [".toolsprobe"],
+			Candidates = [new ServerLaunchCandidate(command, ["--stdio"]) {
+				Install = new ServerInstallRecipe("npm", "some-package"),
+			}],
+		};
+		Assert.Null(ServerResolver.Resolve(descriptor));
+
+		string binDir = ToolchainInstall.BinDir("npm");
+		Directory.CreateDirectory(binDir);
+		string path = Path.Combine(binDir, command + (OperatingSystem.IsWindows() ? ".exe" : ""));
+		File.WriteAllText(path, "stub");
+		try {
+			var resolved = ServerResolver.Resolve(descriptor);
+			Assert.NotNull(resolved);
+			Assert.Equal(path, resolved!.ServerPath);
+		} finally {
+			File.Delete(path);
+		}
+	}
+
+	[Fact]
 	public void Catalog_ResolvesTypeScriptByLanguageId() {
 		Assert.NotNull(LanguageServerCatalog.ForLanguage("typescript"));
 		Assert.NotNull(LanguageServerCatalog.ForLanguage("javascriptreact"));

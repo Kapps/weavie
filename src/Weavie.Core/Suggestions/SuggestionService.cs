@@ -18,6 +18,7 @@ public sealed class SuggestionService {
 	private readonly Action<IReadOnlyList<SuggestionDefinition>> _push;
 	private readonly Func<bool> _probe;
 	private readonly Func<int> _pendingCorrections;
+	private readonly Func<IReadOnlyCollection<string>> _installableServers;
 	private readonly TimeSpan _probeTimeout;
 	private readonly Lock _gate = new();
 	private readonly HashSet<string> _snoozed = new(StringComparer.Ordinal);
@@ -29,7 +30,8 @@ public sealed class SuggestionService {
 	/// Creates the service and kicks off the off-the-hot-path <paramref name="probe"/> — the host-supplied walk
 	/// that classifies + auto-configures the workspace and reports whether it carries a build manifest.
 	/// <paramref name="probeTimeout"/> bounds it, failing open (card shown) if it doesn't finish in time.
-	/// <paramref name="pendingCorrections"/> supplies the correction ring's live count per evaluation.
+	/// <paramref name="pendingCorrections"/> and <paramref name="installableServers"/> supply the correction
+	/// ring's live count and the installable server-miss set per evaluation.
 	/// </summary>
 	public SuggestionService(
 		SuggestionRegistry registry,
@@ -40,7 +42,8 @@ public sealed class SuggestionService {
 		TimeSpan probeTimeout,
 		Action<IReadOnlyList<SuggestionDefinition>> push,
 		Func<bool> probe,
-		Func<int> pendingCorrections) {
+		Func<int> pendingCorrections,
+		Func<IReadOnlyCollection<string>> installableServers) {
 		ArgumentNullException.ThrowIfNull(registry);
 		ArgumentNullException.ThrowIfNull(settings);
 		ArgumentNullException.ThrowIfNull(fileSystem);
@@ -49,6 +52,7 @@ public sealed class SuggestionService {
 		ArgumentNullException.ThrowIfNull(push);
 		ArgumentNullException.ThrowIfNull(probe);
 		ArgumentNullException.ThrowIfNull(pendingCorrections);
+		ArgumentNullException.ThrowIfNull(installableServers);
 		_registry = registry;
 		_settings = settings;
 		_fileSystem = fileSystem;
@@ -58,6 +62,7 @@ public sealed class SuggestionService {
 		_push = push;
 		_probe = probe;
 		_pendingCorrections = pendingCorrections;
+		_installableServers = installableServers;
 		_ = RunProbeAsync();
 	}
 
@@ -71,6 +76,7 @@ public sealed class SuggestionService {
 				FileSystem = _fileSystem,
 				HasBuildManifest = _hasManifest,
 				PendingCorrectionCount = _pendingCorrections(),
+				InstallableServers = _installableServers(),
 			};
 			active = [.. _registry.Definitions.Where(d =>
 				!_snoozed.Contains(d.Id) && !IsDismissed(d) && d.IsRelevant(context))];

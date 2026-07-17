@@ -1,3 +1,4 @@
+using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Suggestions;
@@ -138,6 +139,40 @@ public sealed class SuggestionServiceTests : IDisposable {
 	}
 
 	[Fact]
+	public async Task InstallableServerMiss_OffersItsCard_WithTheServerArg() {
+		var harness = await StartAsync(EmptySettings(), NoManifest, static () => (string[])["go"]);
+
+		Assert.Contains("lsp.install.go", harness.ActiveIds());
+		Assert.DoesNotContain("lsp.install.typescript", harness.ActiveIds());
+		var install = harness.Active().Single(d => d.Id == "lsp.install.go").Actions[0];
+		Assert.Equal(CoreCommands.InstallLanguageServer, install.CommandId);
+		Assert.Equal("""{"server":"go"}""", install.ArgsJson);
+	}
+
+	[Fact]
+	public async Task InstallableServers_ReadFreshEachEvaluate() {
+		// The set shrinks the moment an install lands (Recompute + Evaluate): the card must go with it.
+		IReadOnlyCollection<string> installable = ["typescript"];
+		var harness = await StartAsync(EmptySettings(), NoManifest, () => installable);
+		Assert.Contains("lsp.install.typescript", harness.ActiveIds());
+
+		installable = [];
+		harness.Service.Evaluate();
+
+		Assert.DoesNotContain("lsp.install.typescript", harness.ActiveIds());
+	}
+
+	[Fact]
+	public async Task InstallCard_DismissForever_IsPerLanguage() {
+		var harness = await StartAsync(EmptySettings(), NoManifest, static () => (string[])["go", "csharp"]);
+
+		harness.Service.DismissForever("lsp.install.go");
+
+		Assert.DoesNotContain("lsp.install.go", harness.ActiveIds());
+		Assert.Contains("lsp.install.csharp", harness.ActiveIds());
+	}
+
+	[Fact]
 	public async Task CorrectionCount_ReadFreshEachEvaluate() {
 		// Unlike the one-shot manifest probe, the ring's count changes over time — each Evaluate re-reads the
 		// supplier, so the card appears the moment an append crosses the (here raised) threshold.
@@ -168,19 +203,24 @@ public sealed class SuggestionServiceTests : IDisposable {
 		StartAsync(settings, probe, new SuggestionDismissals(new InMemoryFileSystem(), "/state/suggestions.json"));
 
 	private static Task<Harness> StartAsync(SettingsStore settings, Func<bool> probe, SuggestionDismissals dismissals) =>
-		StartAsync(settings, probe, dismissals, FastProbe, static () => 0);
+		StartAsync(settings, probe, dismissals, FastProbe, static () => 0, static () => []);
 
 	private static Task<Harness> StartAsync(
 		SettingsStore settings, Func<bool> probe, SuggestionDismissals dismissals, TimeSpan probeTimeout) =>
-		StartAsync(settings, probe, dismissals, probeTimeout, static () => 0);
+		StartAsync(settings, probe, dismissals, probeTimeout, static () => 0, static () => []);
 
 	private static Task<Harness> StartAsync(SettingsStore settings, Func<bool> probe, Func<int> pendingCorrections) =>
 		StartAsync(settings, probe, new SuggestionDismissals(new InMemoryFileSystem(), "/state/suggestions.json"),
-			FastProbe, pendingCorrections);
+			FastProbe, pendingCorrections, static () => []);
+
+	private static Task<Harness> StartAsync(
+		SettingsStore settings, Func<bool> probe, Func<IReadOnlyCollection<string>> installableServers) =>
+		StartAsync(settings, probe, new SuggestionDismissals(new InMemoryFileSystem(), "/state/suggestions.json"),
+			FastProbe, static () => 0, installableServers);
 
 	private static async Task<Harness> StartAsync(
 		SettingsStore settings, Func<bool> probe, SuggestionDismissals dismissals, TimeSpan probeTimeout,
-		Func<int> pendingCorrections) {
+		Func<int> pendingCorrections, Func<IReadOnlyCollection<string>> installableServers) {
 		var pushes = new List<IReadOnlyList<SuggestionDefinition>>();
 		var first = new TaskCompletionSource();
 		var gate = new Lock();
@@ -194,16 +234,20 @@ public sealed class SuggestionServiceTests : IDisposable {
 
 		var service = new SuggestionService(
 			CoreSuggestions.CreateRegistry(), settings, new InMemoryFileSystem(), "/repo", dismissals, probeTimeout,
-			Push, probe, pendingCorrections);
+			Push, probe, pendingCorrections, installableServers);
 		await first.Task.WaitAsync(TimeSpan.FromSeconds(5));
-		IReadOnlyList<string> ActiveIds() {
+		IReadOnlyList<SuggestionDefinition> Active() {
 			lock (gate) {
-				return [.. pushes[^1].Select(d => d.Id)];
+				return pushes[^1];
 			}
 		}
 
-		return new Harness(service, ActiveIds, dismissals);
+		return new Harness(service, () => [.. Active().Select(d => d.Id)], Active, dismissals);
 	}
 
-	private sealed record Harness(SuggestionService Service, Func<IReadOnlyList<string>> ActiveIds, SuggestionDismissals Dismissals);
+	private sealed record Harness(
+		SuggestionService Service,
+		Func<IReadOnlyList<string>> ActiveIds,
+		Func<IReadOnlyList<SuggestionDefinition>> Active,
+		SuggestionDismissals Dismissals);
 }

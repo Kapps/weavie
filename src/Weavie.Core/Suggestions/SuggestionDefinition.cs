@@ -58,6 +58,13 @@ public sealed record SuggestionContext {
 	/// changes over time, so <see cref="SuggestionService"/> reads it fresh from a supplier each evaluation.
 	/// </summary>
 	public required int PendingCorrectionCount { get; init; }
+
+	/// <summary>
+	/// Descriptor ids of language servers that failed to start and that Weavie can install itself (the
+	/// toolchain is present). Like <see cref="PendingCorrectionCount"/> this changes over time, so it's read
+	/// fresh from a supplier each evaluation.
+	/// </summary>
+	public required IReadOnlyCollection<string> InstallableServers { get; init; }
 }
 
 /// <summary>

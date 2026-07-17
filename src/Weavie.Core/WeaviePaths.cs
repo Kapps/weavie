@@ -86,6 +86,12 @@ public static class WeaviePaths {
 	/// <summary>Where installed and built-in themes live: <c>~/.weavie/themes</c>.</summary>
 	public static string Themes { get; } = Path.Combine(Root, "themes");
 
+	/// <summary>
+	/// Where Weavie installs developer tools (language servers) for itself: <c>~/.weavie/tools</c>, one subdir
+	/// per toolchain. Weavie's own — an install here never touches the user's global toolset or PATH.
+	/// </summary>
+	public static string Tools { get; } = Path.Combine(Root, "tools");
+
 	/// <summary>Root for host-internal caches (e.g. the WebView2 user-data folder): <c>~/.weavie/internals</c>.</summary>
 	public static string Internals { get; } = Path.Combine(Root, "internals");
 

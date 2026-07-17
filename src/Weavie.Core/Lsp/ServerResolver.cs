@@ -10,13 +10,15 @@ namespace Weavie.Core.Lsp;
 public sealed record ResolvedCommand(string FileName, IReadOnlyList<string> Arguments, string ServerPath);
 
 /// <summary>
-/// Bring-your-own server resolution: finds a <see cref="LanguageServerDescriptor"/>'s server on <c>PATH</c>.
-/// Resolution follows the descriptor's candidate order; the first one found wins.
+/// Server resolution: finds a <see cref="LanguageServerDescriptor"/>'s server on <c>PATH</c> (bring-your-own
+/// wins), backstopped by Weavie's own tools folder for candidates Weavie can install itself. Resolution
+/// follows the descriptor's candidate order; the first one found wins.
 /// </summary>
 public static class ServerResolver {
 	/// <summary>
-	/// Resolves the first launchable candidate of <paramref name="descriptor"/> on <c>PATH</c>, or
-	/// <see langword="null"/> if none of its candidates are installed.
+	/// Resolves the first launchable candidate of <paramref name="descriptor"/> — on <c>PATH</c>, else (for a
+	/// recipe-carrying candidate) in its toolchain's Weavie-installed bin dir — or <see langword="null"/> if
+	/// none of its candidates are installed.
 	/// </summary>
 	/// <param name="descriptor">The language server recipe to resolve.</param>
 	public static ResolvedCommand? Resolve(LanguageServerDescriptor descriptor) {
@@ -24,6 +26,10 @@ public static class ServerResolver {
 
 		foreach (var candidate in descriptor.Candidates) {
 			string? path = FindOnPath(candidate.Command);
+			if (path is null && candidate.Install is { } recipe) {
+				path = FindInDirectory(ToolchainInstall.BinDir(recipe.Toolchain), candidate.Command);
+			}
+
 			if (path is not null) {
 				return BuildCommand(path, candidate.Arguments);
 			}
@@ -55,24 +61,49 @@ public static class ServerResolver {
 
 		string[] dirs = pathVar.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 		foreach (string dir in dirs) {
-			foreach (string name in ExtensionVariants(command)) {
-				string full;
-				try {
-					full = Path.Combine(dir, name);
-				} catch (ArgumentException) {
-					break; // a PATH entry with invalid path characters — skip the whole dir
-				}
+			string? full;
+			try {
+				full = FindInDirectory(dir, command);
+			} catch (ArgumentException) {
+				continue; // a PATH entry with invalid path characters — skip the whole dir
+			}
 
-				if (File.Exists(full)) {
-					return full;
-				}
+			if (full is not null) {
+				return full;
 			}
 		}
 
 		return null;
 	}
 
-	private static ResolvedCommand BuildCommand(string serverPath, IReadOnlyList<string> arguments) {
+	/// <summary>
+	/// Locates <paramref name="command"/> in <paramref name="directory"/> (probing the Windows extension
+	/// variants), returning its full path or <see langword="null"/>.
+	/// </summary>
+	/// <param name="directory">The directory to probe.</param>
+	/// <param name="command">A command name, no extension needed.</param>
+	public static string? FindInDirectory(string directory, string command) {
+		ArgumentException.ThrowIfNullOrEmpty(directory);
+		ArgumentException.ThrowIfNullOrEmpty(command);
+		foreach (string name in ExtensionVariants(command)) {
+			string full = Path.Combine(directory, name);
+			if (File.Exists(full)) {
+				return full;
+			}
+		}
+
+		return null;
+	}
+
+	/// <summary>
+	/// Wraps a resolved executable path into its launchable form: Windows cmd/bat shims route through
+	/// <c>cmd.exe /c</c> (<c>CreateProcess</c> can't start them directly), native executables pass through.
+	/// </summary>
+	/// <param name="serverPath">The resolved executable path.</param>
+	/// <param name="arguments">The arguments to pass it.</param>
+	public static ResolvedCommand BuildCommand(string serverPath, IReadOnlyList<string> arguments) {
+		ArgumentException.ThrowIfNullOrEmpty(serverPath);
+		ArgumentNullException.ThrowIfNull(arguments);
 		string ext = Path.GetExtension(serverPath);
 		bool isShim = ext.Equals(".cmd", StringComparison.OrdinalIgnoreCase)
 			|| ext.Equals(".bat", StringComparison.OrdinalIgnoreCase);

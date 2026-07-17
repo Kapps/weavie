@@ -45,6 +45,12 @@ public sealed class LspController : IAsyncDisposable {
 	}
 
 	/// <summary>
+	/// Raised when a start resolved its recipe but found no server installed — the exact moment the user opened
+	/// a file of a supported language and got nothing, which triggers the install-offer suggestion.
+	/// </summary>
+	public event Action<LanguageServerDescriptor>? Unresolved;
+
+	/// <summary>
 	/// Starts a server for <paramref name="server"/> bound to <paramref name="channel"/> (tagging its output with
 	/// <paramref name="slot"/>). An unknown recipe, a server not on <c>PATH</c>, or a channel id already bound to a
 	/// live server replies <c>lsp-exit</c> with the reason instead of spawning — a duplicate id silently accepted
@@ -65,6 +71,7 @@ public sealed class LspController : IAsyncDisposable {
 		if (command is null) {
 			string tried = string.Join(", ", descriptor.Candidates.Select(c => c.Command));
 			_bridge.PostToWeb(LspMessages.Exit(slot, channel, -1, $"{descriptor.DisplayName}: no language server on PATH (tried {tried})"));
+			Unresolved?.Invoke(descriptor);
 			return;
 		}
 

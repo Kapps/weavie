@@ -23,7 +23,7 @@ public sealed partial class HostCore {
 		_suggestions = new SuggestionService(
 			_suggestionRegistry, _settings, fileSystem, WorkspaceRoot, dismissals,
 			TimeSpan.FromMilliseconds(500), PushSuggestions, () => RunAutoConfigProbe(fileSystem),
-			() => _corrections.Count);
+			() => _corrections.Count, () => _installOffers.ActiveIds);
 	}
 
 	// Fan the active suggestion set out to every client, like the session list.

@@ -15,7 +15,7 @@ public static class LanguageServerCatalog {
 		LanguageIds = ["typescript", "typescriptreact", "javascript", "javascriptreact"],
 		FileExtensions = [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"],
 		Candidates = [
-			new("tsgo", ["--lsp", "-stdio"]),
+			new("tsgo", ["--lsp", "-stdio"]) { Install = new ServerInstallRecipe("npm", "@typescript/native-preview") },
 			new("vtsls", ["--stdio"]),
 			new("typescript-language-server", ["--stdio"]),
 		],
@@ -28,7 +28,7 @@ public static class LanguageServerCatalog {
 		DisplayName = "C#",
 		LanguageIds = ["csharp"],
 		FileExtensions = [".cs"],
-		Candidates = [new("csharp-ls", [])],
+		Candidates = [new("csharp-ls", []) { Install = new ServerInstallRecipe("dotnet", "csharp-ls") }],
 		RootMarkers = [".sln", ".slnx", ".csproj", ".git"],
 	};
 
@@ -38,7 +38,7 @@ public static class LanguageServerCatalog {
 		DisplayName = "Go",
 		LanguageIds = ["go"],
 		FileExtensions = [".go"],
-		Candidates = [new("gopls", [])],
+		Candidates = [new("gopls", []) { Install = new ServerInstallRecipe("go", "golang.org/x/tools/gopls@latest") }],
 		RootMarkers = ["go.work", "go.mod", ".git"],
 		// gopls emits no semantic tokens unless this is enabled in its settings.
 		DefaultSettingsJson = "{\"semanticTokens\":true}",

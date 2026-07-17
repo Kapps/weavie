@@ -1,5 +1,6 @@
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
+using Weavie.Core.Lsp;
 
 namespace Weavie.Core.Suggestions;
 
@@ -59,5 +60,34 @@ public static class CoreSuggestions {
 				new SuggestionAction { Label = "Don't ask again", Kind = SuggestionActionKind.DismissForever },
 			],
 		});
+
+		// One install card per catalog server Weavie can install itself, relevant once a file of its language
+		// actually failed to get a server (ServerInstallOffers gates on the toolchain being present). The
+		// install is deterministic — into ~/.weavie/tools, never the user's global toolset — and zero tokens.
+		foreach (var server in LanguageServerCatalog.All) {
+			var candidate = server.Candidates.FirstOrDefault(c => c.Install is not null);
+			if (candidate is null) {
+				continue;
+			}
+
+			string serverId = server.Id;
+			registry.Register(new SuggestionDefinition {
+				Id = $"lsp.install.{serverId}",
+				Title = $"Install the {server.DisplayName} language server?",
+				Body = $"Weavie can install {candidate.Command} into its own tools folder (not your global setup) "
+					+ $"for {server.DisplayName} diagnostics, hover, and go-to-definition.",
+				IsRelevant = ctx => ctx.InstallableServers.Contains(serverId),
+				Actions = [
+					new SuggestionAction {
+						Label = "Install",
+						Kind = SuggestionActionKind.RunCommand,
+						CommandId = CoreCommands.InstallLanguageServer,
+						ArgsJson = $"{{\"server\":\"{serverId}\"}}",
+					},
+					new SuggestionAction { Label = "Not now", Kind = SuggestionActionKind.Snooze },
+					new SuggestionAction { Label = "Don't ask again", Kind = SuggestionActionKind.DismissForever },
+				],
+			});
+		}
 	}
 }

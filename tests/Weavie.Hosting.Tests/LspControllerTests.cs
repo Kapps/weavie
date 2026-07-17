@@ -108,6 +108,8 @@ public sealed class LspControllerTests {
 		var bridge = new FakeHostBridge();
 		var launcher = new FakeLauncher();
 		var controller = NewController(bridge, launcher);
+		var unresolved = new List<LanguageServerDescriptor>();
+		controller.Unresolved += unresolved.Add;
 
 		controller.Start("s1", "nope", "ch1");
 
@@ -115,10 +117,12 @@ public sealed class LspControllerTests {
 		var exit = bridge.LastOfType("lsp-exit");
 		Assert.True(exit.HasValue);
 		Assert.Contains("recipe", exit!.Value.GetProperty("reason").GetString());
+		// An unknown selector is a protocol bug, not an installable miss — no install offer.
+		Assert.Empty(unresolved);
 	}
 
 	[Fact]
-	public void Server_not_on_path_posts_lsp_exit_without_spawning() {
+	public void Server_not_on_path_posts_lsp_exit_and_raises_Unresolved() {
 		var bridge = new FakeHostBridge();
 		var launcher = new FakeLauncher();
 		var controller = new LspController(
@@ -131,6 +135,8 @@ public sealed class LspControllerTests {
 				Candidates = [new("weavie-no-such-language-server-xyz", [])],
 			},
 			_ => { });
+		var unresolved = new List<LanguageServerDescriptor>();
+		controller.Unresolved += unresolved.Add;
 
 		controller.Start("s1", "ghost", "ch1");
 
@@ -138,6 +144,7 @@ public sealed class LspControllerTests {
 		var exit = bridge.LastOfType("lsp-exit");
 		Assert.True(exit.HasValue);
 		Assert.Contains("PATH", exit!.Value.GetProperty("reason").GetString());
+		Assert.Equal("ghost", Assert.Single(unresolved).Id);
 	}
 
 	[Fact]

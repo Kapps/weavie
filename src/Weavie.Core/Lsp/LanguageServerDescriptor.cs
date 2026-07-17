@@ -38,4 +38,11 @@ public sealed record LanguageServerDescriptor {
 /// </summary>
 /// <param name="Command">The executable/command name to resolve on <c>PATH</c> (no extension needed).</param>
 /// <param name="Arguments">Fixed arguments passed to the server (e.g. <c>--stdio</c>).</param>
-public sealed record ServerLaunchCandidate(string Command, IReadOnlyList<string> Arguments);
+public sealed record ServerLaunchCandidate(string Command, IReadOnlyList<string> Arguments) {
+	/// <summary>
+	/// How Weavie can install this candidate itself when it's missing (into <see cref="WeaviePaths.Tools"/>);
+	/// <see langword="null"/> means bring-your-own only. Recipe-carrying candidates also resolve from that
+	/// folder, so a Weavie-installed server is found without any PATH change.
+	/// </summary>
+	public ServerInstallRecipe? Install { get; init; }
+}

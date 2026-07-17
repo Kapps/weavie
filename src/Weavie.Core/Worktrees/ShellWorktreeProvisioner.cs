@@ -1,6 +1,4 @@
-using System.ComponentModel;
-using System.Diagnostics;
-using System.Text;
+using Weavie.Core.Processes;
 
 namespace Weavie.Core.Worktrees;
 
@@ -50,42 +48,19 @@ public sealed class ShellWorktreeProvisioner : IWorktreeProvisioner {
 		return result;
 	}
 
+	// A shell that couldn't start reports as a failed run (ToolProcess's exit -1), never a throw, so setup
+	// can't crash session creation nor teardown block removal.
 	private static async Task<WorktreeCommandResult> ExecuteAsync(string command, string worktreePath, CancellationToken ct) {
-		var info = new ProcessStartInfo {
-			FileName = OperatingSystem.IsWindows() ? "cmd.exe" : "/bin/sh",
-			WorkingDirectory = worktreePath,
-			RedirectStandardOutput = true,
-			RedirectStandardError = true,
-			UseShellExecute = false,
-			CreateNoWindow = true,
-			StandardOutputEncoding = Encoding.UTF8,
-			StandardErrorEncoding = Encoding.UTF8,
-		};
-		info.ArgumentList.Add(OperatingSystem.IsWindows() ? "/c" : "-c");
-		info.ArgumentList.Add(command);
-
-		using var process = new Process { StartInfo = info };
-		try {
-			process.Start();
-		} catch (Win32Exception ex) {
-			// Shell couldn't start: surface a failed run, not a throw, so setup can't crash session creation nor teardown block removal.
-			return new WorktreeCommandResult {
-				Ran = true,
-				ExitCode = -1,
-				StdErr = $"Unable to start the shell to run the command: {ex.Message}",
-			};
-		}
-
-		var stdoutTask = process.StandardOutput.ReadToEndAsync(ct);
-		var stderrTask = process.StandardError.ReadToEndAsync(ct);
-		await process.WaitForExitAsync(ct).ConfigureAwait(false);
-		string stdout = await stdoutTask.ConfigureAwait(false);
-		string stderr = await stderrTask.ConfigureAwait(false);
+		var result = await ToolProcess.RunAsync(new ToolProcessRequest(
+			OperatingSystem.IsWindows() ? "cmd.exe" : "/bin/sh",
+			[OperatingSystem.IsWindows() ? "/c" : "-c", command],
+			new Dictionary<string, string>(),
+			worktreePath), ct).ConfigureAwait(false);
 		return new WorktreeCommandResult {
 			Ran = true,
-			ExitCode = process.ExitCode,
-			StdOut = stdout,
-			StdErr = stderr,
+			ExitCode = result.ExitCode,
+			StdOut = result.StdOut,
+			StdErr = result.StdErr,
 		};
 	}
 }

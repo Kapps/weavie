@@ -53,6 +53,8 @@ public sealed partial class HostCore {
 		});
 		// /learn: prefill the correction-corpus analysis into the primary session (see HostCore.Learn.cs).
 		session.Commands.RegisterHandler(CoreCommands.LearnFromCorrections, (_, _) => Task.FromResult(RunLearn()));
+		// Deterministic language-server install (see HostCore.LspInstall.cs); its offers are fed below.
+		session.Commands.RegisterHandler(CoreCommands.InstallLanguageServer, InstallLanguageServersAsync);
 		// Connect Notion: open the token page in the browser and ask the page to show the token input (the user
 		// pastes it there; set-source-token validates + saves). Synchronous — the work happens on the page.
 		session.Commands.RegisterHandler(CoreCommands.ConnectNotion, (_, _) => {
@@ -123,6 +125,9 @@ public sealed partial class HostCore {
 				PushWatcherChangesToWeb(changes);
 			}
 		});
+		// A failed lsp-start (recipe known, nothing installed) feeds the workspace's install offers — the
+		// exact moment a user opened a file of that language and got no server.
+		session.Lsp.Unresolved += OnLspUnresolved;
 	}
 
 	private bool IsActiveSession(HostSession session) => ReferenceEquals(_session, session);

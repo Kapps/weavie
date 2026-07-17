@@ -302,6 +302,9 @@ public static class CoreCommands {
 	/// <summary>Opens Weavie's captured console output (host stdout/stderr) in a read-only tab, and returns the recent tail to Claude. Diagnostic; palette + Claude, no default keybinding.</summary>
 	public const string ViewLogs = "weavie.view.logs";
 
+	/// <summary>Installs a missing language server into Weavie's own tools folder (arg <c>server</c> picks one; omitted installs every offered miss); backs the install suggestion cards. Palette + Claude, no default keybinding.</summary>
+	public const string InstallLanguageServer = "weavie.lsp.installServer";
+
 	/// <summary>Builds a registry pre-loaded with the built-in commands.</summary>
 	public static CommandRegistry CreateRegistry() {
 		var registry = new CommandRegistry();
@@ -1489,6 +1492,21 @@ public static class CoreCommands {
 				+ "diagnostics log. When Claude runs it, the most recent lines come back too, so it can see errors that "
 				+ "would otherwise only appear in the terminal Weavie was launched from.",
 			Aliases = ["view logs", "show logs", "open logs", "diagnostics", "stdout", "console output", "log viewer"],
+		});
+
+		// Deterministic language-server install (Core-handled in HostCore.LspInstall.cs): fulfills the offers
+		// recorded from failed lsp-starts. Contextual — the install card is the primary affordance; palette +
+		// Claude reach it for retries, no default keybinding (like RestartClaude).
+		registry.Register(new CommandDefinition {
+			Id = InstallLanguageServer,
+			Title = "Install Missing Language Server",
+			RunsIn = CommandLocation.Core,
+			Category = "Editor",
+			Description = "Install a missing language server into Weavie's own tools folder (~/.weavie/tools) — "
+				+ "never your global toolset. Pass 'server' to pick one; omit it to install every offered one.",
+			Aliases = ["install language server", "install tsgo", "install gopls", "install csharp-ls",
+				"language support", "missing language server"],
+			ArgsSchemaJson = "{\"server\":{\"type\":\"string\",\"description\":\"Language server id (e.g. typescript, csharp, go); omit to install every offered missing server\"}}",
 		});
 
 		// Multi-session + worktree commands: Core-handled new/fork/close wired per host via

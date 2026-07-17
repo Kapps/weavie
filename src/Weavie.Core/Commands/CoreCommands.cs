@@ -116,6 +116,9 @@ public static class CoreCommands {
 	/// <summary>Jumps to the definition of the symbol at the editor cursor (the editor right-click "Go to Definition"); bound to <c>F12</c>.</summary>
 	public const string EditorGoToDefinition = "weavie.editor.goToDefinition";
 
+	/// <summary>Peeks the definition of the symbol at the editor cursor in an inline view (the editor right-click "Peek Definition"); bound to <c>Alt+F12</c> and Alt+Click.</summary>
+	public const string EditorPeekDefinition = "weavie.editor.peekDefinition";
+
 	/// <summary>Lists every reference to the symbol at the editor cursor (the editor right-click "Find All References"); bound to <c>Shift+F12</c>.</summary>
 	public const string EditorGoToReferences = "weavie.editor.goToReferences";
 
@@ -812,6 +815,19 @@ public static class CoreCommands {
 			Aliases = ["go to definition", "goto definition", "jump to definition", "definition"],
 			When = "editorFocused",
 			DefaultKeybindings = [new CommandKeybinding { Key = "F12" }],
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = EditorPeekDefinition,
+			Title = "Peek Definition",
+			RunsIn = CommandLocation.Web,
+			Category = "Navigation",
+			Description = "Show the definition of the symbol at the editor cursor in an inline peek view without "
+				+ "leaving the file; Alt+Click a symbol does the same. Does nothing when no definition is known "
+				+ "(e.g. no language server for the file).",
+			Aliases = ["peek definition", "peek", "preview definition", "show definition inline"],
+			When = "editorFocused",
+			DefaultKeybindings = [new CommandKeybinding { Key = "Alt+F12" }],
 		});
 
 		registry.Register(new CommandDefinition {

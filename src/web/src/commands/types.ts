@@ -81,6 +81,7 @@ export const CommandIds = {
   editorCut: "weavie.editor.cut",
   editorPaste: "weavie.editor.paste",
   editorGoToDefinition: "weavie.editor.goToDefinition",
+  editorPeekDefinition: "weavie.editor.peekDefinition",
   editorGoToReferences: "weavie.editor.goToReferences",
   editorRename: "weavie.editor.rename",
   toggleWindow: "weavie.window.toggle",

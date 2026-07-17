@@ -678,6 +678,7 @@ export default function App(): JSX.Element {
                   y: event.clientY,
                   entries: [
                     { commandId: CommandIds.editorGoToDefinition },
+                    { commandId: CommandIds.editorPeekDefinition },
                     { commandId: CommandIds.editorGoToReferences },
                     { commandId: CommandIds.editorRename },
                     { kind: "separator" },
@@ -1165,6 +1166,9 @@ export default function App(): JSX.Element {
       // providers do the work. triggerAction returns false with no editor mounted, so the chord falls through.
       registerCommand(CommandIds.editorGoToDefinition, () =>
         editor.triggerAction("editor.action.revealDefinition"),
+      ),
+      registerCommand(CommandIds.editorPeekDefinition, () =>
+        editor.triggerAction("editor.action.peekDefinition"),
       ),
       registerCommand(CommandIds.editorGoToReferences, () =>
         editor.triggerAction("editor.action.goToReferences"),

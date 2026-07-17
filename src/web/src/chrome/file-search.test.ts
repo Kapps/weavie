@@ -1,6 +1,6 @@
 import { Fzf } from "fzf";
 import { describe, expect, it } from "vitest";
-import { createFileFinder, type FileRow, rankFiles } from "./file-search";
+import { createFileFinder, type FileRow, rankFiles, splitPath } from "./file-search";
 
 // Well past the host's 20k index cap — the omnibar must stay snappy even if that ceiling is raised, and a
 // regression to scoring the whole index per keystroke (the old behaviour) shows up here as a blown budget.
@@ -146,18 +146,7 @@ describe("proximity to the active file", () => {
     "src/app/deep/nested/config.ts",
     "src/other/config.ts",
   ];
-  const finder = createFileFinder(
-    rels.map((rel) => {
-      const slash = rel.lastIndexOf("/");
-      return {
-        abs: `C:/proj/${rel}`,
-        rel,
-        leaf: rel.slice(slash + 1),
-        dir: slash >= 0 ? rel.slice(0, slash) : "",
-        leafStart: slash + 1,
-      };
-    }),
-  );
+  const finder = createFileFinder(rels.map((rel) => splitPath(`C:/proj/${rel}`, "C:/proj")));
   const dirsOf = (recent: readonly string[], currentDir: string | null): string[] =>
     rankFiles(finder, "config", recent, currentDir).map((s) => s.row.dir);
 

@@ -91,7 +91,7 @@ describe("omnibar file search over a huge workspace", () => {
       "zqwxnomatch",
     ]) {
       const start = performance.now();
-      rankFiles(finder, q, []);
+      rankFiles(finder, q, [], null);
       const ms = performance.now() - start;
       expect(ms, `query "${q}" took ${ms.toFixed(1)}ms`).toBeLessThan(400);
     }
@@ -107,7 +107,7 @@ describe("omnibar file search over a huge workspace", () => {
     const naiveMs = performance.now() - naiveStart;
 
     const fastStart = performance.now();
-    rankFiles(finder, "se", []);
+    rankFiles(finder, "se", [], null);
     const fastMs = performance.now() - fastStart;
 
     expect(fastMs * 4).toBeLessThan(naiveMs);
@@ -117,21 +117,74 @@ describe("omnibar file search over a huge workspace", () => {
     const word = "controller";
     const start = performance.now();
     for (let k = 1; k <= word.length; k++) {
-      rankFiles(finder, word.slice(0, k), []);
+      rankFiles(finder, word.slice(0, k), [], null);
     }
     const perKeystroke = (performance.now() - start) / word.length;
     expect(perKeystroke).toBeLessThan(160);
   });
 
   it("ranks an exact filename match first", () => {
-    expect(rankFiles(finder, "zebraquokkawidget", [])[0]?.row.leaf).toBe("ZebraQuokkaWidget.ts");
+    expect(rankFiles(finder, "zebraquokkawidget", [], null)[0]?.row.leaf).toBe(
+      "ZebraQuokkaWidget.ts",
+    );
   });
 
   it("ranks a basename's camelCase initials first", () => {
-    expect(rankFiles(finder, "zqw", [])[0]?.row.leaf).toBe("ZebraQuokkaWidget.ts");
+    expect(rankFiles(finder, "zqw", [], null)[0]?.row.leaf).toBe("ZebraQuokkaWidget.ts");
   });
 
   it("returns nothing when the query is not a subsequence of any path", () => {
-    expect(rankFiles(finder, "qqzzxxjjww", [])).toHaveLength(0);
+    expect(rankFiles(finder, "qqzzxxjjww", [], null)).toHaveLength(0);
+  });
+});
+
+describe("proximity to the active file", () => {
+  const rels = [
+    "config.ts",
+    "src/config.ts",
+    "src/app/config.ts",
+    "src/app/deep/nested/config.ts",
+    "src/other/config.ts",
+  ];
+  const finder = createFileFinder(
+    rels.map((rel) => {
+      const slash = rel.lastIndexOf("/");
+      return {
+        abs: `C:/proj/${rel}`,
+        rel,
+        leaf: rel.slice(slash + 1),
+        dir: slash >= 0 ? rel.slice(0, slash) : "",
+        leafStart: slash + 1,
+      };
+    }),
+  );
+  const dirsOf = (recent: readonly string[], currentDir: string | null): string[] =>
+    rankFiles(finder, "config", recent, currentDir).map((s) => s.row.dir);
+
+  it("ranks the config beside the active file first", () => {
+    expect(dirsOf([], "src/app")[0]).toBe("src/app");
+  });
+
+  it("orders equal matches by tree distance from the active folder", () => {
+    // From src/app: same dir (0), parent (1), then root / sibling / grandchild (all 2, length-tiebroken).
+    expect(dirsOf([], "src/app")).toEqual([
+      "src/app",
+      "src",
+      "",
+      "src/other",
+      "src/app/deep/nested",
+    ]);
+  });
+
+  it("prefers proximity over recency", () => {
+    expect(dirsOf(["C:/proj/src/other/config.ts"], "src/app")[0]).toBe("src/app");
+  });
+
+  it("falls back to recency when no file is active", () => {
+    expect(dirsOf(["C:/proj/src/other/config.ts"], null)[0]).toBe("src/other");
+  });
+
+  it("compares folders case-insensitively", () => {
+    expect(dirsOf([], "SRC/APP")[0]).toBe("src/app");
   });
 });

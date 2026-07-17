@@ -156,10 +156,33 @@ function leafOffset(item: FileRow, positions: Set<number>): number {
   return first < item.leafStart ? Number.MAX_SAFE_INTEGER : first - item.leafStart;
 }
 
+/// The repo-relative directory of the active file, in {@link FileRow.dir} form, for proximity ranking —
+/// null when nothing is open.
+export function activeDir(currentFile: string | null, root: string): string | null {
+  return currentFile === null ? null : splitPath(currentFile, root).dir;
+}
+
+// Tree distance between a candidate's directory and the active file's directory (hops up plus hops down
+// through their nearest common ancestor): 0 = same folder, 1 = parent or direct child, and so on. Segments
+// compare case-insensitively so differently-cased spellings of the same folder count as the same place.
+function dirDistance(dir: string, activeSegs: readonly string[]): number {
+  const segs = dir.length === 0 ? [] : dir.toLowerCase().split("/");
+  let common = 0;
+  while (
+    common < segs.length &&
+    common < activeSegs.length &&
+    segs[common] === activeSegs[common]
+  ) {
+    common++;
+  }
+  return segs.length + activeSegs.length - 2 * common;
+}
+
 /// Fuzzy-ranks the finder's files against `query` (best-first, uncapped). `recent` is most-recent-first
-/// absolute paths. Match quality stays primary; ties then break by where the match lands (filename-start beats
-/// mid-name beats directory-only), then recency, then path length — so the files you meant, and the ones you're
-/// working in, surface first.
+/// absolute paths; `currentDir` is the active file's directory (see {@link activeDir}), or null when nothing
+/// is open. Match quality stays primary; ties then break by where the match lands (filename-start beats
+/// mid-name beats directory-only), then by proximity to the active file, then recency, then path length — so
+/// among equally good matches the one beside the file you're in surfaces first.
 //
 // Two phases keep this O(survivors) per keystroke instead of fzf's O(index): a cheap subsequence scan
 // (`preFilter`) reduces the index to the matching files, then fzf's precision scorer (and its highlight
@@ -168,6 +191,7 @@ export function rankFiles(
   finder: FileFinder,
   query: string,
   recent: readonly string[],
+  currentDir: string | null,
 ): ScoredFile[] {
   const needle = query.toLowerCase();
   const matched: PreFiltered[] = [];
@@ -196,6 +220,8 @@ export function rankFiles(
 
   const fzf = new Fzf(candidates, { selector: (r) => r.rel, casing: "case-insensitive" });
   const rank = new Map(recent.map((abs, i) => [canonicalFsPath(abs), i] as const));
+  const activeSegs =
+    currentDir === null ? null : currentDir.length === 0 ? [] : currentDir.toLowerCase().split("/");
   // Compute each tiebreak key once per match, then sort — not inside the comparator, which would recompute
   // leafOffset and canonicalFsPath O(n log n) times.
   return fzf
@@ -205,12 +231,14 @@ export function rankFiles(
       positions: r.positions,
       score: r.score,
       leaf: leafOffset(r.item, r.positions),
+      proximity: activeSegs === null ? 0 : dirDistance(r.item.dir, activeSegs),
       recency: rank.get(canonicalFsPath(r.item.abs)) ?? Number.MAX_SAFE_INTEGER,
     }))
     .sort(
       (a, b) =>
         b.score - a.score ||
         a.leaf - b.leaf ||
+        a.proximity - b.proximity ||
         a.recency - b.recency ||
         a.row.rel.length - b.row.rel.length,
     )

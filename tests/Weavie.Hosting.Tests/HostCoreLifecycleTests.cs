@@ -2,6 +2,12 @@ using Xunit;
 
 namespace Weavie.Hosting.Tests;
 
+// Spins up real HostCore instances (some via TestHost.CreateUnstarted, deliberately unstarted for the race
+// below) — serialize with the other HostIntegration tests so concurrent Kestrel/thread startup doesn't
+// contend with them for OS threads/file descriptors under CI load. Flaked 2026-07-19 19:32 UTC missing this:
+// an OutOfMemoryException starting a Kestrel thread here, plus an unrelated "too many open files" in
+// CodexAppServerClientTests running concurrently. https://github.com/Kapps/weavie/actions/runs/29700647158/job/88229019983
+[Collection(TestCollections.HostIntegration)]
 public sealed class HostCoreLifecycleTests {
 	[Fact]
 	public async Task DisposeJoinsStartupBeforeStoppingTheHost() {

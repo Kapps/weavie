@@ -87,7 +87,8 @@ function RecentFilesMenu(props: {
     if (q.length === 0) {
       return rows.slice(0, MAX_ROWS);
     }
-    return rankFiles(createFileFinder(rows), q, recentFiles())
+    // No proximity bias here (currentDir null): a Recent menu stays most-recent-first among equal matches.
+    return rankFiles(createFileFinder(rows), q, recentFiles(), null)
       .slice(0, MAX_ROWS)
       .map((s) => s.row);
   });

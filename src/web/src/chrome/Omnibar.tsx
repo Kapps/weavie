@@ -30,6 +30,7 @@ import { canonicalFsPath, samePath } from "../editor/fs-path";
 import type { FlatSymbol, SymbolActions } from "../symbols/symbol-match";
 import { createSymbolSearch } from "../symbols/symbol-search";
 import {
+  activeDir,
   createFileFinder,
   type FileRow,
   rankFiles,
@@ -188,7 +189,12 @@ export function Omnibar(props: {
     if (!searchMode()) {
       return [];
     }
-    return rankFiles(fileFinder(), query().trim(), recentFiles());
+    return rankFiles(
+      fileFinder(),
+      query().trim(),
+      recentFiles(),
+      activeDir(props.currentFile, props.root ?? ""),
+    );
   });
 
   const view = createMemo<ScoredFile[]>(() => filtered().slice(0, VIEW_CAP));

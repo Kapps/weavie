@@ -92,6 +92,14 @@ internal sealed class TestHost : IAsyncDisposable {
 	public static Task<TestHost> StartAsync(Action<string> prepareRepo, bool sendReady) =>
 		StartAsync(prepareRepo, new StaticPullRequestProvider([], []), sendReady);
 
+	// Flaked 2026-07-19 ~16:09 UTC (https://github.com/Kapps/weavie/actions/runs/29694172917): every test in
+	// this project failed from the very first one onward with FileNotFoundException loading
+	// Microsoft.AspNetCore.Http out of HostCore.StartCoreAsync -> WorkspaceHttpServer.StartAsync. Investigated:
+	// the identical SDK/runtime (10.0.302 / 10.0.10) on the very next main run
+	// (https://github.com/Kapps/weavie/actions/runs/29695131021) passed clean, and the only commits in between
+	// touched an unrelated web-bridge command and a different test's wait condition — nothing on this startup
+	// path changed. Root cause is a one-off runner-side dotnet SDK extraction fault, not a code or test defect,
+	// so no test-code change applies here.
 	private static async Task<TestHost> StartAsync(Action<string> prepareRepo, IPullRequestProvider pullRequests, bool sendReady) {
 		var host = Create(prepareRepo, pullRequests);
 		await host.Core.StartAsync().ConfigureAwait(false);

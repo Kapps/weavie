@@ -120,6 +120,7 @@ static async Task<ClientWebSocket> ConnectMcpAsync(string? mcpConfigPath, Func<i
 	string url = server.GetProperty("url").GetString()!;
 
 	var ws = new ClientWebSocket();
+	ws.Options.AddSubProtocol("mcp"); // real claude offers protocols:["mcp"] on every ws transport
 	if (server.TryGetProperty("headers", out var headers)) {
 		foreach (var header in headers.EnumerateObject()) {
 			ws.Options.SetRequestHeader(header.Name, header.Value.GetString());
@@ -141,6 +142,7 @@ static async Task<ClientWebSocket> ConnectIdeAsync(Func<int> nextId) {
 	string token = await ReadIdeTokenAsync(lockPath).ConfigureAwait(false);
 
 	var ws = new ClientWebSocket();
+	ws.Options.AddSubProtocol("mcp");
 	ws.Options.SetRequestHeader("x-claude-code-ide-authorization", token);
 	await HandshakeAsync(ws, $"ws://127.0.0.1:{port}/", nextId, "ide").ConfigureAwait(false);
 	return ws;

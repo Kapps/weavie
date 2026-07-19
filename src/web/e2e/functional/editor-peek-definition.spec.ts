@@ -8,44 +8,7 @@ import { expect, test } from "../harness/fixtures";
 // LSP resolution. Where no provider can exist (plain text), the gesture must leave Monaco's built-in
 // alt+click multicursor untouched.
 
-// The slices of the editor / monaco handles this spec drives, declared structurally because e2e isn't in the
-// app tsconfig (mirrors editor-cursor.spec.ts).
-interface ModelHandle {
-  uri: unknown;
-  getLineContent(line: number): string;
-}
-interface EditorHandle {
-  getModel(): ModelHandle | null;
-  getScrolledVisiblePosition(position: { lineNumber: number; column: number }): {
-    top: number;
-    left: number;
-    height: number;
-  } | null;
-  getDomNode(): { getBoundingClientRect(): { left: number; top: number } } | null;
-  getSelections(): unknown[] | null;
-}
-interface MonacoHandle {
-  languages: {
-    registerDefinitionProvider(
-      selector: string,
-      provider: {
-        provideDefinition(model: ModelHandle): {
-          uri: unknown;
-          range: {
-            startLineNumber: number;
-            startColumn: number;
-            endLineNumber: number;
-            endColumn: number;
-          };
-        }[];
-      },
-    ): unknown;
-  };
-}
-type WeavieWindow = Window & {
-  __WEAVIE_EDITOR__?: EditorHandle;
-  __WEAVIE_MONACO__?: MonacoHandle;
-};
+import type { WeavieWindow } from "../harness/weavie-window";
 
 async function focusEditor(page: Page, name: string): Promise<void> {
   await openFile(page, name);
@@ -154,6 +117,40 @@ test("alt+click without a definition provider leaves Monaco's multicursor gestur
   // Monaco's default alt+click added a second cursor — the gesture declined and didn't swallow the click.
   await page.waitForFunction(
     () => ((window as WeavieWindow).__WEAVIE_EDITOR__?.getSelections() ?? []).length === 2,
+  );
+  await expect(page.locator(".monaco-editor .peekview-widget")).toHaveCount(0);
+});
+
+test("alt+click during a multicursor session adds a cursor instead of peeking", async ({
+  page,
+}) => {
+  await focusEditor(page, "hello.ts");
+  await registerGreetDefinition(page);
+
+  // Seed a two-cursor session; alt+clicking a word must then stay Monaco's add-cursor, not a peek.
+  await page.evaluate(() => {
+    const editor = (window as WeavieWindow).__WEAVIE_EDITOR__;
+    if (editor === undefined) {
+      throw new Error("editor handle not available");
+    }
+    editor.setSelections([
+      {
+        selectionStartLineNumber: 1,
+        selectionStartColumn: 1,
+        positionLineNumber: 1,
+        positionColumn: 1,
+      },
+      {
+        selectionStartLineNumber: 2,
+        selectionStartColumn: 3,
+        positionLineNumber: 2,
+        positionColumn: 3,
+      },
+    ]);
+  });
+  await altClick(page, await wordPoint(page, 5, "greet"));
+  await page.waitForFunction(
+    () => ((window as WeavieWindow).__WEAVIE_EDITOR__?.getSelections() ?? []).length === 3,
   );
   await expect(page.locator(".monaco-editor .peekview-widget")).toHaveCount(0);
 });

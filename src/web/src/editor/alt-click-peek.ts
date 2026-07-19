@@ -1,21 +1,29 @@
 // Alt+Click on a symbol peeks its definition inline, dispatching the peek-definition command. Gated so
-// Monaco's default alt-gestures survive wherever a peek can't happen: modifier combos, drags, non-word
-// targets, and files with no definition provider all fall through to multicursor / column select.
+// Monaco's default alt-gestures survive wherever a peek can't happen or the user is visibly mid-gesture:
+// modifier combos, drags, non-word targets, files with no definition provider, and an in-progress
+// multicursor session all fall through to multicursor / column select. Accepted cost: alt+click on a word
+// in a definition-backed file no longer ADDS a cursor — Ctrl+D, non-word targets, and an existing
+// multicursor session keep that gesture.
 
-import { getService, ILanguageFeaturesService } from "@codingame/monaco-vscode-api/services";
+import { StandaloneServices } from "@codingame/monaco-vscode-api";
+import { ILanguageFeaturesService } from "@codingame/monaco-vscode-api/vscode/vs/editor/common/services/languageFeatures.service";
 import { dispatchCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { monaco } from "./monaco-setup";
 
 /** Installs the Alt+Click peek-definition gesture on `editor`; dispose to uninstall. */
 export function installAltClickPeek(editor: monaco.editor.ICodeEditor): monaco.IDisposable {
+  // The container, not getDomNode(): the latter is null until a model attaches, the container always exists.
+  const dom = editor.getContainerDomNode();
   let pressed: monaco.IPosition | null = null;
 
-  // Resolves immediately: editor-host awaits service init before any editor (and thus any click) exists.
-  let features: ILanguageFeaturesService | undefined;
-  void getService(ILanguageFeaturesService).then((service) => {
-    features = service;
-  });
+  // Monaco adds the alt+click cursor BEFORE emitting onMouseDown, so the pre-click selection count — the
+  // "already mid-multicursor?" signal — is sampled by a capture-phase DOM listener that runs ahead of it.
+  let selectionsBeforeClick = 1;
+  const sample = (): void => {
+    selectionsBeforeClick = editor.getSelections()?.length ?? 1;
+  };
+  dom.addEventListener("mousedown", sample, { capture: true });
 
   // The clicked text position, or null when the event isn't a plain Alt+left-click on a word.
   const wordPosition = (e: monaco.editor.IEditorMouseEvent): monaco.IPosition | null => {
@@ -34,7 +42,7 @@ export function installAltClickPeek(editor: monaco.editor.ICodeEditor): monaco.I
   };
 
   const down = editor.onMouseDown((e) => {
-    pressed = wordPosition(e);
+    pressed = selectionsBeforeClick > 1 ? null : wordPosition(e);
   });
   const up = editor.onMouseUp((e) => {
     const from = pressed;
@@ -46,7 +54,10 @@ export function installAltClickPeek(editor: monaco.editor.ICodeEditor): monaco.I
     }
     // No definition provider for this model (e.g. plain text) — leave the click to Monaco's multicursor.
     const model = editor.getModel();
-    if (model === null || features === undefined || !features.definitionProvider.has(model)) {
+    if (
+      model === null ||
+      !StandaloneServices.get(ILanguageFeaturesService).definitionProvider.has(model)
+    ) {
       return;
     }
     editor.setPosition(at);
@@ -55,6 +66,7 @@ export function installAltClickPeek(editor: monaco.editor.ICodeEditor): monaco.I
 
   return {
     dispose: () => {
+      dom.removeEventListener("mousedown", sample, { capture: true });
       down.dispose();
       up.dispose();
     },

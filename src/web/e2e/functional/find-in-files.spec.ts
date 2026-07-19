@@ -7,19 +7,7 @@ import { expect, test } from "../harness/fixtures";
 // stepping from the editor, and the loud error strip for a bad regex. Real git grep over the seeded
 // workspace — deterministic, no claude involvement.
 
-// The live Monaco editor published for e2e (the full IStandaloneCodeEditor; declared structurally because
-// e2e sits outside the app tsconfig).
-interface EditorHandle {
-  focus(): void;
-  setSelection(range: {
-    startLineNumber: number;
-    startColumn: number;
-    endLineNumber: number;
-    endColumn: number;
-  }): void;
-  getPosition(): { lineNumber: number; column: number } | null;
-}
-type WeavieWindow = Window & { __WEAVIE_EDITOR__?: EditorHandle };
+import type { WeavieWindow } from "../harness/weavie-window";
 
 // Opens the search panel via its chord, retried like runCommand: a focused xterm/Monaco occasionally
 // swallows the first chord under load.

@@ -541,7 +541,11 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		session.ControlStateChanged += state => states.Add(state);
 
 		session.Start();
-		await WaitForAsync(() => session.ControlState.ModelControl.Models.Count > 0);
+		// Controls load across several responses; the review-pr skill (asserted below) arrives after the model
+		// list, so wait for it too rather than asserting on a half-loaded control state.
+		await WaitForAsync(() =>
+			session.ControlState.ModelControl.Models.Count > 0 &&
+			session.ControlState.Slash.Any(entry => entry.SkillName == "review-pr"));
 
 		var control = session.ControlState;
 		var model = control.ModelControl;
@@ -570,7 +574,10 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
 
 		session.Start();
-		await WaitForAsync(() => session.ControlState.ModelControl.Models.Count > 0);
+		// The collaborationMode axis (asserted below) loads on a later control response than the model list.
+		await WaitForAsync(() =>
+			session.ControlState.ModelControl.Models.Count > 0 &&
+			session.ControlState.Axes.Any(axis => axis.Id == "collaborationMode"));
 
 		var mode = session.ControlState.Axes.Single(axis => axis.Id == "collaborationMode");
 		Assert.Equal("default", mode.Value);
@@ -645,7 +652,10 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		await using var reopened = CreateSessionWithThreads(
 			new CapturingAgentEventSink(), reopenedMessages, threads, fileSystem);
 		reopened.Start();
-		await WaitForAsync(() => reopened.ControlState.ModelControl.Models.Count > 0);
+		// The restored collaborationMode axis lands on a later control-load response than the model list, so wait
+		// for the axis itself — waiting on the models could observe them first and assert before the axis exists.
+		await WaitForAsync(() =>
+			reopened.ControlState.Axes.Any(axis => axis.Id == "collaborationMode" && axis.Value == "plan"));
 
 		Assert.Equal("plan", reopened.ControlState.Axes.Single(axis => axis.Id == "collaborationMode").Value);
 	}

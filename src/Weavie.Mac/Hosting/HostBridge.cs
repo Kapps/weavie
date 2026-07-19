@@ -31,15 +31,12 @@ public sealed class HostBridge : NSObject, IWKScriptMessageHandler, IHostBridge 
 
 		string script = WebBridgeScript.Receive(json);
 
-		if (NSThread.IsMain) {
-			webView.EvaluateJavaScript(script, (_, error) => LogIfError(error));
-		} else {
-			// Must be async, NOT synchronous: a sync hop blocks the PTY read thread on the main thread, which may
-			// be parked in a blocking write() to a full PTY input buffer that only drains once the child reads
-			// stdin — which needs its stdout drained by this very read thread. Hard deadlock (frozen terminal).
-			NSApplication.SharedApplication.BeginInvokeOnMainThread(() =>
-				webView.EvaluateJavaScript(script, (_, error) => LogIfError(error)));
-		}
+		// Always defer, never evaluate inline: a push made while handling an inbound web message (a palette/shortcut
+		// command whose handler re-pushes a setting synchronously) would else re-enter EvaluateJavaScript from inside
+		// the WKScriptMessage handler, where WebKit never runs it. Non-blocking, so a non-main caller (the PTY read
+		// thread) never parks on a main-thread hop. Matches the Windows/Linux hosts, which likewise always defer.
+		NSApplication.SharedApplication.BeginInvokeOnMainThread(() =>
+			webView.EvaluateJavaScript(script, (_, error) => LogIfError(error)));
 	}
 
 	private static void LogIfError(NSError? error) {

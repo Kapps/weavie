@@ -167,11 +167,8 @@ public sealed class AgentSessionHostTests {
 	// hydrate delivered its content and wipe the pane. The pane must always converge to the authoritative
 	// transcript, whichever way the two interleave.
 	//
-	// Flaked 2026-07-16 05:11 UTC on CI (linux): OutOfMemoryException in Thread.StartCore while starting the
-	// race threads below — https://github.com/Kapps/weavie/actions/runs/29473255400/job/87540618650. Not
-	// reproducible locally after several reruns; the two threads below defaulted to 8MB Linux stacks each for
-	// trivial bodies, so gave them an explicit small stack to cut the memory pressure this loop puts on a
-	// contended CI runner.
+	// The racers run on pool threads: per-iteration `new Thread` starts (80 across the loop) hit
+	// pthread_create EAGAIN (surfaced as OutOfMemoryException) on contended CI runners.
 	[Fact]
 	public async Task ReplayPane_RacingHydrate_ConvergesToHydratedTranscript() {
 		await using var fixture = CreateFixture(static () => "slot-1", static (_, _) => { }, 0);
@@ -189,33 +186,20 @@ public sealed class AgentSessionHostTests {
 			}
 
 			bridge.Clear();
-			Exception? threadError = null;
-			var barrier = new Barrier(2);
-			var hydrate = new Thread(() => {
-				try {
-					barrier.SignalAndWait();
-					session.Emit(new AgentPaneMessage { Type = "transcript-reset", ProviderId = "codex" });
-					foreach (var message in hydrated) {
-						session.Emit(message);
-					}
-				} catch (Exception ex) {
-					threadError = ex;
+			using var barrier = new Barrier(2);
+			var hydrate = Task.Run(() => {
+				barrier.SignalAndWait();
+				session.Emit(new AgentPaneMessage { Type = "transcript-reset", ProviderId = "codex" });
+				foreach (var message in hydrated) {
+					session.Emit(message);
 				}
-			}, maxStackSize: 256 * 1024);
-			var replay = new Thread(() => {
-				try {
-					barrier.SignalAndWait();
-					host.ReplayPane();
-				} catch (Exception ex) {
-					threadError = ex;
-				}
-			}, maxStackSize: 256 * 1024);
-			hydrate.Start();
-			replay.Start();
-			hydrate.Join();
-			replay.Join();
+			});
+			var replay = Task.Run(() => {
+				barrier.SignalAndWait();
+				host.ReplayPane();
+			});
+			await Task.WhenAll(hydrate, replay);
 
-			Assert.Null(threadError);
 			Assert.Equal(hydrated.Select(message => message.ItemId), VisibleItemIds(bridge));
 		}
 	}

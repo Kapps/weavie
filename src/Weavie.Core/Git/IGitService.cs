@@ -52,6 +52,13 @@ public interface IGitService {
 	Task<IReadOnlyList<string>> ListBranchesAsync(string directory, CancellationToken ct = default);
 
 	/// <summary>
+	/// Every ref a diff can name — local branches then remote-tracking branches (e.g. <c>main</c>,
+	/// <c>origin/main</c>), minus each remote's symbolic <c>HEAD</c>. Unlike <see cref="ListBranchesAsync"/>
+	/// this is a diff target, not a checkout target, so it includes remotes and the checked-out branch.
+	/// </summary>
+	Task<IReadOnlyList<string>> ListRefsAsync(string directory, CancellationToken ct = default);
+
+	/// <summary>
 	/// The repository's default branch — <c>origin/HEAD</c>'s target if set, else <c>main</c> or
 	/// <c>master</c> if present, else <c>null</c>. The "branch off main" base.
 	/// </summary>

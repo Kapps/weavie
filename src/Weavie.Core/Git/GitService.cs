@@ -56,6 +56,32 @@ public sealed class GitService : IGitService {
 			.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)];
 	}
 
+	/// <inheritdoc/>
+	public async Task<IReadOnlyList<string>> ListRefsAsync(string directory, CancellationToken ct = default) {
+		ArgumentException.ThrowIfNullOrEmpty(directory);
+		// One for-each-ref over both scopes: heads sort before remotes ("h" < "r"), so the typeahead is local-first.
+		var result = await RunCheckedAsync(directory, ["for-each-ref", "--format=%(refname)", "refs/heads", "refs/remotes"], ct).ConfigureAwait(false);
+		const string remotesPrefix = "refs/remotes/";
+		var refs = new List<string>();
+		foreach (string line in result.StdOut.Replace("\r", "", StringComparison.Ordinal)
+			.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)) {
+			if (line.StartsWith(HeadsPrefix, StringComparison.Ordinal)) {
+				refs.Add(line[HeadsPrefix.Length..]);
+			} else if (line.StartsWith(remotesPrefix, StringComparison.Ordinal)) {
+				string name = line[remotesPrefix.Length..];
+				// Skip a remote's symbolic HEAD — exactly "<remote>/HEAD", no deeper slash — an alias, not a branch.
+				// A real branch that merely ends in HEAD (e.g. origin/feature/HEAD) has a deeper slash, so it stays.
+				bool isRemoteHead = name.EndsWith("/HEAD", StringComparison.Ordinal)
+					&& !name[..^"/HEAD".Length].Contains('/', StringComparison.Ordinal);
+				if (!isRemoteHead) {
+					refs.Add(name);
+				}
+			}
+		}
+
+		return refs;
+	}
+
 	/// <summary>
 	/// Whether <paramref name="name"/> is a syntactically valid git branch name — a subset of
 	/// <c>git check-ref-format</c>'s rules. Applied at the trust boundary before a (web-supplied) name reaches

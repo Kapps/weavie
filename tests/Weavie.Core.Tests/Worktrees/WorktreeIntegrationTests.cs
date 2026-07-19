@@ -172,6 +172,29 @@ public sealed class WorktreeIntegrationTests : IDisposable {
 	}
 
 	[Fact]
+	public async Task ListRefs_IncludesRemoteTrackingBranches_MinusRemoteHead() {
+		RunGit(_repo, "branch", "alpha", "main");
+		string head = RunGitOut(_repo, "rev-parse", "main").Trim();
+		// A remote-tracking branch + its symbolic HEAD, without a live remote — the state a fetch leaves behind.
+		RunGit(_repo, "update-ref", "refs/remotes/origin/master", head);
+		RunGit(_repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/master");
+		// A real remote branch whose last segment is literally HEAD — a diff target, not a symbolic alias.
+		RunGit(_repo, "update-ref", "refs/remotes/origin/feature/HEAD", head);
+
+		var refs = await _git.ListRefsAsync(_repo);
+
+		Assert.Contains("main", refs);
+		Assert.Contains("alpha", refs);
+		Assert.Contains("origin/master", refs);
+		// A deeper "…/HEAD" is a real branch, kept; only the remote's own symbolic HEAD alias is dropped.
+		Assert.Contains("origin/feature/HEAD", refs);
+		Assert.DoesNotContain("origin", refs);
+		Assert.DoesNotContain("origin/HEAD", refs);
+		// Local branches sort ahead of remotes, so the typeahead is local-first.
+		Assert.True(refs.ToList().IndexOf("main") < refs.ToList().IndexOf("origin/master"));
+	}
+
+	[Fact]
 	public async Task ExternallyCreatedWorktree_SurfacedAsUntracked() {
 		var manager = NewManager();
 		string manualPath = Path.Combine(_root, "manual");
@@ -248,7 +271,9 @@ public sealed class WorktreeIntegrationTests : IDisposable {
 		Assert.True(File.Exists(Path.Combine(target, "keep.txt")));
 	}
 
-	private static void RunGit(string workingDirectory, params string[] args) {
+	private static void RunGit(string workingDirectory, params string[] args) => RunGitOut(workingDirectory, args);
+
+	private static string RunGitOut(string workingDirectory, params string[] args) {
 		var info = new ProcessStartInfo {
 			FileName = "git",
 			WorkingDirectory = workingDirectory,
@@ -262,12 +287,14 @@ public sealed class WorktreeIntegrationTests : IDisposable {
 		}
 
 		using var process = Process.Start(info)!;
-		_ = process.StandardOutput.ReadToEnd();
+		string output = process.StandardOutput.ReadToEnd();
 		string error = process.StandardError.ReadToEnd();
 		process.WaitForExit();
 		if (process.ExitCode != 0) {
 			throw new InvalidOperationException($"git {string.Join(' ', args)} failed (exit {process.ExitCode}): {error.Trim()}");
 		}
+
+		return output;
 	}
 
 	// Runs a cmd.exe builtin (e.g. `mklink /J` to create a junction, which needs no elevation). Windows-only.

@@ -1,10 +1,11 @@
 import { createSignal, type JSX } from "solid-js";
 import { Portal } from "solid-js/web";
-import { activeBackendId, requestBranches } from "../bridge";
+import { activeBackendId, requestDiffRefs } from "../bridge";
 import { BranchTypeahead } from "./BranchTypeahead";
 
 // Prompt for "Diff Against…": name the ref to review the working tree against — a typeahead over the active
-// session's local branches, or any typed commit-ish (a tag, a SHA, HEAD~2). Enter diffs, Esc cancels.
+// session's local and remote-tracking branches (main, origin/main), or any typed commit-ish (a tag, a SHA,
+// HEAD~2). Enter diffs, Esc cancels.
 export function DiffAgainstPrompt(props: {
   onPick: (ref: string) => void;
   onCancel: () => void;
@@ -12,7 +13,7 @@ export function DiffAgainstPrompt(props: {
   const [ref, setRef] = createSignal("");
   const [branches, setBranches] = createSignal<string[]>([]);
 
-  void requestBranches(activeBackendId()).then(setBranches);
+  void requestDiffRefs(activeBackendId()).then(setBranches);
 
   const pick = (name: string): void => {
     if (name.length > 0) {

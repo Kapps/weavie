@@ -164,6 +164,20 @@ jobs:
             echo "::endgroup::"
           done
 
+      # `dotnet format`'s 13 sequential design-time builds above each leave a VBCSCompiler/MSBuild node-reuse
+      # server running in the background (the CLI's default perf optimization), so their memory stacks up
+      # across the whole loop instead of being freed between projects. Flaked 2026-07-19 16:05 UTC: the
+      # Hosting test run right after this step failed 141/318 tests with FileNotFoundException loading
+      # Microsoft.AspNetCore.Http (a shared-framework assembly, not a missing package) — consistent with the
+      # runner being memory-starved from those lingering servers, the same way a `new Thread`-per-iteration
+      # test flaked OOM on 2026-07-16 right after this same step (fixed by racing pool tasks instead, see
+      # AgentSessionHostTests.cs). https://github.com/Kapps/weavie/actions/runs/29694172917/job/88211947278
+      # Self-healed on the next few CI runs with no code change, confirming it's this step's resource buildup,
+      # not a regression — shut the servers down here so the two `dotnet test` invocations below start clean.
+      - name: Shut down .NET build servers
+        if: matrix.name == 'linux'
+        run: dotnet build-server shutdown
+
       # Tests run once, on Linux.
       - name: Test
         if: matrix.name == 'linux'

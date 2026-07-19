@@ -8,16 +8,7 @@ import { expect, test } from "../harness/fixtures";
 // These tests pin the caret to where the glyphs really are, read from the browser's own layout, and place the
 // caret deterministically through the editor handle (window.__WEAVIE_EDITOR__) rather than counting keystrokes.
 
-// The slice of the Monaco editor this spec drives, via the read-only handle the app publishes on window for
-// e2e / diagnostics. Declared structurally here so the spec stays self-contained (e2e isn't in the app
-// tsconfig, so it doesn't see the app-side global.d.ts declaration).
-interface EditorHandle {
-  focus(): void;
-  setPosition(position: { lineNumber: number; column: number }): void;
-  getPosition(): { lineNumber: number; column: number } | null;
-  getModel(): { getLineContent(line: number): string } | null;
-}
-type WeavieWindow = Window & { __WEAVIE_EDITOR__?: EditorHandle };
+import type { WeavieWindow } from "../harness/weavie-window";
 
 interface CaretSample {
   /** Viewport x of the painted caret's left edge. */

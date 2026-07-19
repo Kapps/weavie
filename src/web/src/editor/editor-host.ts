@@ -21,6 +21,7 @@ import {
 import { startLanguageServices } from "../lsp/lsp-client";
 import { installReferenceCommands } from "../lsp/reference-commands";
 import { installTestLenses } from "../tests/test-lens";
+import { installAltClickPeek } from "./alt-click-peek";
 import { setDirtyPath } from "./dirty-store";
 import { setEditorStatus } from "./editor-status-store";
 import { canonicalFsPath, uriHostPath } from "./fs-path";
@@ -242,6 +243,7 @@ export async function createEditorHost(
     editor.onDidChangeCursorSelection(updateStatus),
     editor.onDidChangeModel(updateStatus),
     editor.onDidChangeModel(reflectActiveFile),
+    installAltClickPeek(editor),
   ];
 
   // Mirror each working copy's dirty state into the dirty store so the tab strip shows an unsaved `*` (the error

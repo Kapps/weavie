@@ -20,6 +20,7 @@ public sealed class McpServerTests {
 
 	private static async Task<ClientWebSocket> ConnectAsync(int port, string? token) {
 		var client = new ClientWebSocket();
+		client.Options.AddSubProtocol("mcp"); // real claude offers protocols:["mcp"] on every ws transport
 		if (token is not null) {
 			client.Options.SetRequestHeader("x-claude-code-ide-authorization", token);
 		}
@@ -72,6 +73,33 @@ public sealed class McpServerTests {
 		await using var server = NewServer(FakeDiffPresenter.AlwaysKeep());
 		int port = server.Start();
 		await Assert.ThrowsAsync<WebSocketException>(() => ConnectAsync(port, "wrong-token"));
+	}
+
+	[Fact]
+	public async Task Connection_OfferingMcpSubProtocol_NegotiatesIt() {
+		// WHATWG WebSocket clients (claude's Bun runtime) fail the connection when their offered
+		// subprotocol isn't echoed in the 101, so the server must select "mcp" when offered.
+		await using var server = NewServer(FakeDiffPresenter.AlwaysKeep());
+		int port = server.Start();
+		using var ws = await ConnectAsync(port, Token);
+		Assert.Equal("mcp", ws.SubProtocol);
+	}
+
+	[Fact]
+	public async Task Connection_WithoutSubProtocol_StillInitializes() {
+		await using var server = NewServer(FakeDiffPresenter.AlwaysKeep());
+		int port = server.Start();
+		var ws = new ClientWebSocket();
+		ws.Options.SetRequestHeader("x-claude-code-ide-authorization", Token);
+		using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+		await ws.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), cts.Token);
+		using (ws) {
+			Assert.Null(ws.SubProtocol);
+			await SendAsync(ws, Request(1, "initialize",
+				"{\"protocolVersion\":\"2025-03-26\",\"capabilities\":{},\"clientInfo\":{\"name\":\"manual\",\"version\":\"1\"}}"));
+			using var response = await ReceiveAsync(ws);
+			Assert.Equal("weavie", response.RootElement.GetProperty("result").GetProperty("serverInfo").GetProperty("name").GetString());
+		}
 	}
 
 	[Fact]

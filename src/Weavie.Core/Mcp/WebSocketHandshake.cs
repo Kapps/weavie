@@ -100,14 +100,39 @@ internal static class WebSocketHandshake {
 		await stream.FlushAsync(ct).ConfigureAwait(false);
 	}
 
-	/// <summary>Completes the upgrade for <paramref name="webSocketKey"/> (writes 101 Switching Protocols + accept).</summary>
-	public static async Task WriteUpgradeAsync(NetworkStream stream, string webSocketKey, CancellationToken ct) {
+	/// <summary>
+	/// Returns <paramref name="supported"/> when the client's <c>Sec-WebSocket-Protocol</c> offer includes it,
+	/// else null. WHATWG clients (Claude Code's Bun WebSocket sends <c>protocols: ["mcp"]</c>) fail the whole
+	/// connection unless the 101 selects one of their offered subprotocols, so the server must echo it.
+	/// </summary>
+	public static string? SelectSubProtocol(IReadOnlyDictionary<string, string> headers, string supported) {
+		if (!headers.TryGetValue("sec-websocket-protocol", out string? offered)) {
+			return null;
+		}
+
+		foreach (string candidate in offered.Split(',')) {
+			if (string.Equals(candidate.Trim(), supported, StringComparison.Ordinal)) {
+				return supported;
+			}
+		}
+
+		return null;
+	}
+
+	/// <summary>
+	/// Completes the upgrade for <paramref name="webSocketKey"/> (writes 101 Switching Protocols + accept),
+	/// selecting <paramref name="subProtocol"/> when non-null.
+	/// </summary>
+	public static async Task WriteUpgradeAsync(
+		NetworkStream stream, string webSocketKey, string? subProtocol, CancellationToken ct) {
 		string accept = IdeLockFile.ComputeWebSocketAccept(webSocketKey);
+		string protocolLine = subProtocol is null ? string.Empty : $"Sec-WebSocket-Protocol: {subProtocol}\r\n";
 		string response =
 			"HTTP/1.1 101 Switching Protocols\r\n" +
 			"Upgrade: websocket\r\n" +
 			"Connection: Upgrade\r\n" +
-			$"Sec-WebSocket-Accept: {accept}\r\n\r\n";
+			$"Sec-WebSocket-Accept: {accept}\r\n" +
+			protocolLine + "\r\n";
 		await stream.WriteAsync(Encoding.ASCII.GetBytes(response), ct).ConfigureAwait(false);
 		await stream.FlushAsync(ct).ConfigureAwait(false);
 	}

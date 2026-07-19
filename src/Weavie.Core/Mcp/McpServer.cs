@@ -20,6 +20,9 @@ namespace Weavie.Core.Mcp;
 /// WebSocket upgrade (mitigating CVE-2025-52882).
 /// </summary>
 public sealed partial class McpServer : IAsyncDisposable {
+	// The WebSocket subprotocol Claude Code offers on both its ws-ide and ws MCP transports.
+	private const string McpSubProtocol = "mcp";
+
 	private readonly string _authToken;
 	private readonly IDiffPresenter _presenter;
 	private readonly IReadOnlyList<string> _workspaceFolders;
@@ -186,10 +189,11 @@ public sealed partial class McpServer : IAsyncDisposable {
 					return;
 				}
 
-				await WebSocketHandshake.WriteUpgradeAsync(stream, wsKey, ct).ConfigureAwait(false);
+				string? subProtocol = WebSocketHandshake.SelectSubProtocol(headers, McpSubProtocol);
+				await WebSocketHandshake.WriteUpgradeAsync(stream, wsKey, subProtocol, ct).ConfigureAwait(false);
 
 				using var ws = WebSocket.CreateFromStream(
-					stream, isServer: true, subProtocol: null, keepAliveInterval: TimeSpan.FromSeconds(30));
+					stream, isServer: true, subProtocol, keepAliveInterval: TimeSpan.FromSeconds(30));
 				Emit("client connected + authenticated");
 				_activeWebSocket = ws;
 				ClientConnected?.Invoke();

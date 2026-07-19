@@ -52,7 +52,11 @@ internal static class WebSocketHandshake {
 		foreach (string line in lines.Skip(1)) {
 			int colon = line.IndexOf(':', StringComparison.Ordinal);
 			if (colon > 0) {
-				headers[line[..colon].Trim()] = line[(colon + 1)..].Trim();
+				string name = line[..colon].Trim();
+				string value = line[(colon + 1)..].Trim();
+				// RFC 7230: repeated header lines equal one comma-joined list; merge so list-valued
+				// headers (e.g. Sec-WebSocket-Protocol) keep every offer.
+				headers[name] = headers.TryGetValue(name, out string? existing) ? $"{existing}, {value}" : value;
 			}
 		}
 

@@ -107,10 +107,18 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 
 		session.Submit(Submission("queued prompt", []));
 		session.Start();
-		// Flaked 2026-07-13 02:03 UTC under CI load: this path spans a subprocess spawn plus the
-		// initialize -> thread/resume -> turn/start round trips before the queued submission lands.
-		// https://github.com/Kapps/weavie/actions/runs/29218522631/job/86719007250
-		await WaitForAsync(() => messages.Any(message => message.Text == "queued prompt"), attempts: 400);
+		// This path spans a subprocess spawn plus the initialize -> thread/resume -> turn/start round trips
+		// before the queued submission lands, so its budget is wide, and a timeout reports how far the chain
+		// got (the fake server's per-RPC marker files + the pane messages received) — it has stalled on CI
+		// with the poll at full cadence while unreproducible locally (33 stress runs), so the next occurrence
+		// is diagnosable from the failure output alone or not at all.
+		// https://github.com/Kapps/weavie/actions/runs/29218522631/job/86719007250 (10 s poll, 2026-07-13)
+		// https://github.com/Kapps/weavie/actions/runs/29786092608/job/88497843435 (10 s poll, 2026-07-20)
+		await WaitForAsync(
+			() => messages.Any(message => message.Text == "queued prompt"),
+			attempts: 1200,
+			() => $"fake-server markers: [{string.Join(", ", Directory.GetFiles(_dir).Select(Path.GetFileName).Order())}]"
+				+ $"; pane messages: [{string.Join(", ", messages.Select(message => $"{message.Type}={message.Text}"))}]");
 
 		int history = messages.FindIndex(message => message.Text == "old answer");
 		int queued = messages.FindIndex(message => message.Text == "queued prompt");
@@ -1028,7 +1036,12 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 	// trips (initialize -> thread/resume -> turn/start), which cost more than the in-process assertions
 	// the default budget is sized for. Widening the shared 200-attempt default instead would double the
 	// failure-detection latency for every other test in this class on every CI run.
-	private static async Task WaitForAsync(Func<bool> done, int attempts) {
+	private static async Task WaitForAsync(Func<bool> done, int attempts) =>
+		await WaitForAsync(done, attempts, static () => string.Empty);
+
+	// The diagnose callback runs only on timeout and its report rides the exception — a CI-only stall that
+	// never reproduces locally is diagnosable from the failure output alone or not at all.
+	private static async Task WaitForAsync(Func<bool> done, int attempts, Func<string> diagnose) {
 		for (int i = 0; i < attempts; i++) {
 			if (done()) {
 				return;
@@ -1037,7 +1050,10 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 			await Task.Delay(25);
 		}
 
-		throw new TimeoutException("Condition was not met within the timeout.");
+		string detail = diagnose();
+		throw new TimeoutException(detail.Length == 0
+			? "Condition was not met within the timeout."
+			: $"Condition was not met within the timeout. {detail}");
 	}
 
 	private sealed class NullAgentEventSink : IAgentEventSink {

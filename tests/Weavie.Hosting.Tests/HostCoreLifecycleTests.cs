@@ -7,6 +7,11 @@ namespace Weavie.Hosting.Tests;
 // contend with them for OS threads/file descriptors under CI load. Flaked 2026-07-19 19:32 UTC missing this:
 // an OutOfMemoryException starting a Kestrel thread here, plus an unrelated "too many open files" in
 // CodexAppServerClientTests running concurrently. https://github.com/Kapps/weavie/actions/runs/29700647158/job/88229019983
+// Same root cause (missing this attribute) also caused an earlier, differently-shaped flake at 2026-07-19
+// 16:05 UTC on main: 141 unrelated Weavie.Hosting.Tests failed with FileNotFoundException loading
+// Microsoft.AspNetCore.Http, from resource exhaustion while this file's tests ran unserialized alongside
+// the HostIntegration batch. Confirmed fixed by this same attribute (no code change needed beyond it):
+// https://github.com/Kapps/weavie/actions/runs/29694172917/job/88211947278
 [Collection(TestCollections.HostIntegration)]
 public sealed class HostCoreLifecycleTests {
 	[Fact]

@@ -373,7 +373,7 @@ export function Omnibar(props: {
         if (request === null) {
           return;
         }
-        setQuery(MODE_PREFIX[request.mode]);
+        setQuery(MODE_PREFIX[request.mode] + request.query);
         // Capture the element we're stealing focus from BEFORE focusing the input: a programmatic focus()
         // delivers a null relatedTarget, so the input's onFocus can't record it, and close would drop focus.
         const active = document.activeElement as HTMLElement | null;
@@ -382,7 +382,14 @@ export function Omnibar(props: {
         }
         setOpen(true);
         props.onRequestIndex();
-        queueMicrotask(() => inputRef.focus());
+        queueMicrotask(() => {
+          inputRef.focus();
+          // A preloaded query (an ambiguous link's recovery search) is selected so typing replaces it; a bare
+          // mode prefix (">") must never be, or the first keystroke would wipe it and exit the mode.
+          if (request.query !== "") {
+            inputRef.select();
+          }
+        });
       },
       { defer: true },
     ),

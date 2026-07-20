@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Weavie.Core.Editor;
 using Weavie.Core.FileSystem;
+using Weavie.Core.Workspaces;
 using Xunit;
 
 namespace Weavie.Hosting.Tests;
@@ -10,6 +11,8 @@ namespace Weavie.Hosting.Tests;
 /// so a background session's <c>openFile</c> is held (not posted into the foreground) and a missing file is a
 /// skipped no-op rather than an error. The gate goes through the validated <see cref="FileProviderService"/>,
 /// so an out-of-workspace path is refused, not revealed. No content rides on the push — the web reads disk.
+/// A relative reference that doesn't resolve is recovered by suffix match against the workspace index: one hit
+/// opens, several preload Go-to-File, none toasts.
 /// </summary>
 public sealed class FileOpenerTests {
 	// A real worktree root is always fully rooted; "/ws" is drive-relative on Windows, where Path.GetFullPath
@@ -22,7 +25,7 @@ public sealed class FileOpenerTests {
 		var channel = new SessionEditorChannel(bridge);
 		var fs = new InMemoryFileSystem();
 		var files = new FileProviderService(fs, Workspace, Scratch);
-		return (new FileOpener(channel, files, bridge, Workspace), channel, bridge, fs);
+		return (new FileOpener(channel, files, bridge, new WorkspaceFileIndex(fs, Workspace)), channel, bridge, fs);
 	}
 
 	[Fact]
@@ -100,6 +103,71 @@ public sealed class FileOpenerTests {
 
 		Assert.Null(bridge.LastOfType("open-file")); // not found → no open-file, no crash
 		Assert.Contains("ghost.cs", bridge.LastOfType("notify")!.Value.GetProperty("message").GetString()); // …but the user hears why
+	}
+
+	[Fact]
+	public async Task RelativePathMissingItsLeadingFolders_OpensTheSuffixMatch() {
+		var (opener, channel, bridge, fs) = New();
+		fs.WriteAllText(Path.Combine(Workspace, "src", "web", "foo.ts"), "");
+		channel.Activate();
+
+		await opener.OpenAsync("web/foo.ts", line: 7, preview: true, scratch: false);
+
+		var msg = bridge.LastOfType("open-file")!.Value;
+		Assert.Equal(Path.Combine(Workspace, "src", "web", "foo.ts"), msg.GetProperty("path").GetString());
+		Assert.Equal(7, msg.GetProperty("line").GetInt32()); // the requested line survives the recovery
+		Assert.True(msg.GetProperty("preview").GetBoolean());
+	}
+
+	[Fact]
+	public async Task BareFilename_UniqueInTheWorkspace_Opens() {
+		var (opener, channel, bridge, fs) = New();
+		fs.WriteAllText(Path.Combine(Workspace, "src", "deep", "unique.cs"), "");
+		channel.Activate();
+
+		await opener.OpenAsync("unique.cs", line: 1, preview: false, scratch: false);
+
+		Assert.Equal(
+			Path.Combine(Workspace, "src", "deep", "unique.cs"),
+			bridge.LastOfType("open-file")!.Value.GetProperty("path").GetString());
+	}
+
+	[Fact]
+	public async Task AmbiguousReference_OpensGoToFilePreloadedInsteadOfGuessing() {
+		var (opener, channel, bridge, fs) = New();
+		fs.WriteAllText(Path.Combine(Workspace, "a", "foo.ts"), "");
+		fs.WriteAllText(Path.Combine(Workspace, "b", "foo.ts"), "");
+		channel.Activate();
+
+		await opener.OpenAsync("./foo.ts", line: 1, preview: false, scratch: false);
+
+		Assert.Null(bridge.LastOfType("open-file")); // two candidates — never open one arbitrarily
+		Assert.Null(bridge.LastOfType("notify"));
+		Assert.Equal("foo.ts", bridge.LastOfType("focus-omnibar")!.Value.GetProperty("query").GetString());
+	}
+
+	[Fact]
+	public async Task RelativePathWithNoSuffixMatch_ToastsAWarning() {
+		var (opener, channel, bridge, _) = New();
+		channel.Activate();
+
+		await opener.OpenAsync("nowhere/ghost.cs", line: 1, preview: false, scratch: false);
+
+		Assert.Null(bridge.LastOfType("open-file"));
+		Assert.Contains("ghost.cs", bridge.LastOfType("notify")!.Value.GetProperty("message").GetString());
+	}
+
+	[Fact]
+	public async Task Muted_HoldsTheAmbiguousReferenceOmnibarOpen_UntilActivate() {
+		var (opener, channel, bridge, fs) = New();
+		fs.WriteAllText(Path.Combine(Workspace, "a", "foo.ts"), "");
+		fs.WriteAllText(Path.Combine(Workspace, "b", "foo.ts"), "");
+
+		await opener.OpenAsync("foo.ts", line: 1, preview: false, scratch: false); // background session → held
+		Assert.Empty(bridge.Posted);
+
+		channel.Activate();
+		Assert.NotNull(bridge.LastOfType("focus-omnibar")); // surfaces with the session, not over the foreground
 	}
 
 	[Fact]

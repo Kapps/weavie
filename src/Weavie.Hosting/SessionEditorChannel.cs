@@ -24,8 +24,8 @@ public sealed class SessionEditorChannel {
 	}
 
 	/// <summary>
-	/// Posts a fire-and-forget editor message (open-file / close-tab) if this session is active, else buffers it
-	/// for replay when the session is next switched in.
+	/// Posts a fire-and-forget editor message (open-file / close-tab / focus-omnibar) if this session is active,
+	/// else buffers it for replay when the session is next switched in.
 	/// </summary>
 	public void Reveal(string message) {
 		lock (_gate) {

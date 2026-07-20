@@ -105,7 +105,7 @@ public sealed class HostSession : IAsyncDisposable {
 		// The session's gate for editor-mutating page messages: a muted (non-active) session holds its editor work
 		// instead of writing into the page's single, foreground-bound editor. Starts muted (HostCore activates it).
 		EditorChannel = new SessionEditorChannel(bridge);
-		FileOpener = new FileOpener(EditorChannel, FileProvider, bridge, workspaceRoot);
+		FileOpener = new FileOpener(EditorChannel, FileProvider, bridge, FileIndex);
 		DiffPresenter = new McpDiffPresenter(EditorChannel, FileProvider, FileOpener);
 		// Tracks the editor's active file + selection (fed by the page) so the provider integration can tell
 		// this session's agent what the user is looking at.

@@ -978,6 +978,9 @@ export default function App(): JSX.Element {
         setIndexRoot(message.root);
         setFileIndex(message.files);
         setIndexPending(message.pending === true);
+      } else if (message.type === "focus-omnibar") {
+        // A clicked file link matched several workspace files — open Go-to-File preloaded so the user picks.
+        focusOmnibar("file", message.query);
       } else if (message.type === "prompt-source-token") {
         // The host opened the source's token page in the browser; show the dialog to paste the token.
         setSourceTokenPrompt({ sourceId: message.sourceId, label: message.label });
@@ -1061,10 +1064,10 @@ export default function App(): JSX.Element {
       registerCommand(CommandIds.toggleFileBrowser, () => toggleBrowser()),
       // Terminal copy/paste (act on the focused xterm, clipboard via the host); gated terminalFocused.
       installTerminalClipboardCommands(),
-      registerCommand(CommandIds.focusOmnibarFiles, () => focusOmnibar("file")),
-      registerCommand(CommandIds.focusOmnibarCommands, () => focusOmnibar("command")),
-      registerCommand(CommandIds.goToSymbol, () => focusOmnibar("docSymbol")),
-      registerCommand(CommandIds.goToWorkspaceSymbol, () => focusOmnibar("wsSymbol")),
+      registerCommand(CommandIds.focusOmnibarFiles, () => focusOmnibar("file", "")),
+      registerCommand(CommandIds.focusOmnibarCommands, () => focusOmnibar("command", "")),
+      registerCommand(CommandIds.goToSymbol, () => focusOmnibar("docSymbol", "")),
+      registerCommand(CommandIds.goToWorkspaceSymbol, () => focusOmnibar("wsSymbol", "")),
       // Find in Files (Ctrl+Shift+F / palette): open the content-search panel seeded from the editor selection
       // (re-invoking while open re-seeds + refocuses the input).
       registerCommand(CommandIds.findInFiles, () => {

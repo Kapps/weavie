@@ -1,6 +1,7 @@
 using Weavie.Core.Diffs;
 using Weavie.Core.Editor;
 using Weavie.Core.FileSystem;
+using Weavie.Core.Workspaces;
 using Xunit;
 
 namespace Weavie.Hosting.Tests;
@@ -17,7 +18,8 @@ public sealed class McpDiffPresenterTests {
 		channel.Activate(); // active so the show-diff is posted and the test can read its id
 		var fs = new InMemoryFileSystem();
 		var files = new FileProviderService(fs, "/ws", "/scratch");
-		return (new McpDiffPresenter(channel, files, new FileOpener(channel, files, bridge, "/ws")), bridge);
+		var opener = new FileOpener(channel, files, bridge, new WorkspaceFileIndex(fs, "/ws"));
+		return (new McpDiffPresenter(channel, files, opener), bridge);
 	}
 
 	private static string DiffId(FakeHostBridge bridge) {

@@ -144,11 +144,12 @@ public static class ShellProtocol {
 
 	/// <summary>
 	/// Builds the <c>focus-omnibar</c> message: the page opens Go-to-File preloaded with <paramref name="query"/> —
-	/// the reveal for a clicked file link that suffix-matched several workspace files.
+	/// the reveal for a clicked file link that suffix-matched several workspace files. <paramref name="line"/> is
+	/// the link's 1-based line, applied to whichever candidate the user opens.
 	/// </summary>
-	public static string BuildFocusOmnibar(string query) {
+	public static string BuildFocusOmnibar(string query, int line) {
 		ArgumentException.ThrowIfNullOrEmpty(query);
-		return JsonSerializer.Serialize(new { type = "focus-omnibar", query });
+		return JsonSerializer.Serialize(new { type = "focus-omnibar", query, line = Math.Max(1, line) });
 	}
 
 	/// <summary>Builds the <c>recent-files</c> push (frecency-ranked absolute paths) for the omnibar's Recent section.</summary>

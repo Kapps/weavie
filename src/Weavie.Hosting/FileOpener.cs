@@ -92,7 +92,7 @@ public sealed class FileOpener {
 		}
 
 		if (matches.Count > 1) {
-			_channel.Reveal(ShellProtocol.BuildFocusOmnibar(PathSuffixMatcher.Normalize(path)));
+			_channel.Reveal(ShellProtocol.BuildFocusOmnibar(PathSuffixMatcher.Normalize(path), line));
 			return true;
 		}
 

@@ -790,8 +790,9 @@ export type WebBoundMessage =
   // empty and the omnibar shows a loading state instead of claiming the worktree has no files.
   | { type: "file-index"; root: string; files: string[]; pending?: boolean }
   // Host asks the page to open the omnibar's Go-to-File preloaded with a query — the reveal for a clicked
-  // file link that suffix-matched several workspace files (one match opens directly; none toasts).
-  | { type: "focus-omnibar"; query: string }
+  // file link that suffix-matched several workspace files (one match opens directly; none toasts). `line` is
+  // the link's 1-based line, applied to the candidate the user picks; absent from pre-line hosts.
+  | { type: "focus-omnibar"; query: string; line?: number }
   // Host answers find-in-files with the content-search matches, echoing the request `token` so the page can
   // drop a stale reply. `truncated` ⇒ the match cap was hit and the list is incomplete (surfaced in the panel).
   // `error` ⇒ the git search failed (e.g. a bad regex/glob); the panel shows it rather than "No results".

@@ -11,7 +11,7 @@ export function MacTitleBar(props: {
   currentFile: string | null;
   workspaceLabel: string;
   onToggleFiles: () => void;
-  onOpenFile: (abs: string) => void;
+  onOpenFile: (abs: string, line: number) => void;
   onRequestIndex: () => void;
   symbols: SymbolActions;
 }): JSX.Element {

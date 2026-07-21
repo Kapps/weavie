@@ -8,6 +8,7 @@ export type OmnibarMode = "file" | "command" | "docSymbol" | "wsSymbol";
 const [request, setRequest] = createSignal<{
   mode: OmnibarMode;
   query: string;
+  line: number;
   nonce: number;
 } | null>(null);
 
@@ -16,11 +17,17 @@ export const omnibarRequest = request;
 
 let nonce = 0;
 
-/**
- * Asks the omnibar to open + focus in the given mode (file quick-open, command palette, or symbol search).
- * `query` preloads the input after the mode prefix, selected so typing replaces it — "" for a plain open.
- */
-export function focusOmnibar(mode: OmnibarMode, query: string): void {
+/** Asks the omnibar to open + focus in the given mode (file quick-open, command palette, or symbol search). */
+export function focusOmnibar(mode: OmnibarMode): void {
   nonce += 1;
-  setRequest({ mode, query, nonce });
+  setRequest({ mode, query: "", line: 1, nonce });
+}
+
+/**
+ * Host-driven Go-to-File open for resolving an ambiguous file link: `query` preloads the input, selected so
+ * typing replaces it, and `line` (the link's 1-based line) applies to whichever file this omnibar session opens.
+ */
+export function focusOmnibarFileSearch(query: string, line: number): void {
+  nonce += 1;
+  setRequest({ mode: "file", query, line, nonce });
 }

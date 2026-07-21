@@ -13,7 +13,7 @@ import { expect, test } from "../harness/fixtures";
 test.use({
   fakeScript: {
     // Short lines: the claude pane is ~50 cols, and a soft-wrapped link can't be clicked as one row.
-    steps: [{ op: "print", text: "fix: services/payment.ts:9\r\nboth: config.ts:1\r\n" }],
+    steps: [{ op: "print", text: "fix: services/payment.ts:9\r\nboth: config.ts:3\r\n" }],
   },
 });
 
@@ -88,11 +88,14 @@ test("an ambiguous bare filename opens Go-to-File preloaded with the term and li
 }) => {
   for (const dir of ["client", "server"]) {
     await mkdir(join(weavie.workspace, "src", dir), { recursive: true });
-    await writeFile(join(weavie.workspace, "src", dir, "config.ts"), `export const ${dir} = 1;\n`);
+    await writeFile(
+      join(weavie.workspace, "src", dir, "config.ts"),
+      `// ${dir} config\n// settings\nexport const ${dir} = 1;\n`,
+    );
   }
   await awaitEditorReady(page);
 
-  await clickClaudeLink(page, "config.ts:1");
+  await clickClaudeLink(page, "config.ts:3");
 
   // Go-to-File opens preloaded with the normalized term…
   const input = page.locator(".tb-omnibar-input");
@@ -112,7 +115,8 @@ test("an ambiguous bare filename opens Go-to-File preloaded with the term and li
   );
   expect(dirs.sort()).toEqual(["src/client", "src/server"]);
 
-  // Picking one (keyboard, like a user) opens exactly that file.
+  // Picking one (keyboard, like a user) opens exactly that file, at the link's line — the `:3` rides the
+  // ambiguity resolution, not just the direct-open path.
   await input.press("ArrowDown");
   const picked = (await page.locator(".tb-omnibar-row.selected .tb-row-dir").innerText())
     .trim()
@@ -122,4 +126,7 @@ test("an ambiguous bare filename opens Go-to-File preloaded with the term and li
     "data-active-file",
     new RegExp(`[\\\\/]${picked.replaceAll("/", "[\\\\/]")}[\\\\/]config\\.ts$`),
   );
+  await expect
+    .poll(() => page.evaluate(() => window.__WEAVIE_EDITOR__?.getPosition()?.lineNumber))
+    .toBe(3);
 });

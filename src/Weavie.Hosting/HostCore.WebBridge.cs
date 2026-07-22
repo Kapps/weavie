@@ -897,9 +897,9 @@ public sealed partial class HostCore {
 	}
 
 	/// <summary>
-	/// After an undo/redo brings a change back, land the editor on it: open the first affected file at its first
-	/// pending hunk, so the keystroke visibly takes you to what changed instead of re-rendering in place. No-op
-	/// when the action left nothing pending (e.g. an undo that re-kept every hunk).
+	/// After an undo/redo, land the editor on the change it acted on: a per-hunk action opens at that hunk's
+	/// recorded line (still valid — the undo only runs while the file's current content is unchanged), a
+	/// file/set action at the first affected file's first pending hunk. No-op when nothing is left to show.
 	/// </summary>
 	private static void RevealHistoryChange(HostSession session, ReviewHistoryResult result) {
 		if (!result.Acted) {
@@ -908,7 +908,7 @@ public sealed partial class HostCore {
 
 		foreach (string path in result.Paths) {
 			if (session.Changes.GetTurn(path) is { } turn
-				&& LineDiff.FirstChangedLine(turn.BaselineText, turn.CurrentText) is { } line) {
+				&& (result.Line ?? LineDiff.FirstChangedLine(turn.BaselineText, turn.CurrentText)) is { } line) {
 				session.FileOpener.Open(path, line, preview: true, scratch: false);
 				return;
 			}

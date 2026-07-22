@@ -576,7 +576,10 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
       "weavie-inline-accepted-undo",
       "↶ undo",
       withShortcut("Undo keep", CommandIds.undoKeep),
-      () =>
+      () => {
+        // Pin the position to this hunk (it's on screen — the user just clicked it) so the restored bright
+        // hunk is what the counter names and Keep/Revert act on after the re-render.
+        editor.setPosition({ lineNumber: hunk.anchorLine, column: 1 });
         onUnkeep({
           acceptedStart: hunk.acceptedStart,
           acceptedEndExclusive: hunk.acceptedEndExclusive,
@@ -584,7 +587,8 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
           reviewEndExclusive: hunk.reviewEndExclusive,
           acceptedGuardText: hunk.acceptedGuardText,
           guardText: hunk.guardText,
-        }),
+        });
+      },
     );
     dom.append(kept, undo);
     return anchoredWidget(`weavie.accepted.${index}`, model, hunk.anchorLine, dom);
@@ -645,6 +649,20 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     editor.focus();
   };
 
+  // The line the review position keys on: the cursor while it's in view, else the viewport's vertical
+  // center — so after a manual scroll the counter, per-hunk Keep/Revert, and ↑/↓ all track what's on screen.
+  const reviewLine = (): number => {
+    const cursor = editor.getPosition()?.lineNumber ?? 1;
+    const ranges = editor.getVisibleRanges();
+    if (
+      ranges.length === 0 ||
+      ranges.some((r) => r.startLineNumber <= cursor && cursor <= r.endLineNumber)
+    ) {
+      return cursor;
+    }
+    return Math.round((ranges[0]!.startLineNumber + ranges[ranges.length - 1]!.endLineNumber) / 2);
+  };
+
   // Jump to the previous/next change hunk (by anchor line), wrapping. Walks all hunks (so a kept one can be
   // revisited), unlike the Keep loop. False when there's no diff to navigate.
   const goToChange = (direction: 1 | -1): boolean => {
@@ -652,7 +670,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
       return false;
     }
     const lines = currentHunks.map((h) => h.anchorLine);
-    const current = editor.getPosition()?.lineNumber ?? 1;
+    const current = reviewLine();
     let target: number;
     if (direction === 1) {
       target = lines.find((line) => line > current) ?? lines[0]!;
@@ -664,13 +682,13 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     return true;
   };
 
-  // The hunk the cursor is in (or the last starting at/before it), defaulting to the first — the subject of a
-  // per-hunk Keep / Revert.
-  const hunkAtCursor = (): Hunk | undefined => {
+  // The hunk at the review line (the last one starting at/before it), defaulting to the first — the subject of
+  // a per-hunk Keep / Revert and of the counter's `change j/M`.
+  const hunkAtReviewLine = (): Hunk | undefined => {
     if (currentHunks.length === 0) {
       return undefined;
     }
-    const line = editor.getPosition()?.lineNumber ?? 1;
+    const line = reviewLine();
     let hunk = currentHunks[0];
     for (const h of currentHunks) {
       if (h.anchorLine <= line) {
@@ -744,7 +762,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     if (currentOptions?.mode !== "applied" || currentOptions.onKeepHunk === undefined) {
       return false;
     }
-    const hunk = hunkAtCursor();
+    const hunk = hunkAtReviewLine();
     if (hunk !== undefined) {
       keepHunkNow(hunk);
     }
@@ -758,7 +776,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     if (currentOptions?.mode !== "applied" || currentOptions.onRevertHunk === undefined) {
       return false;
     }
-    const hunk = hunkAtCursor();
+    const hunk = hunkAtReviewLine();
     if (hunk !== undefined) {
       revertHunkNow(hunk);
     }
@@ -916,15 +934,15 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
   const scopeName = (scope: ReviewScope): string =>
     scope === "change" ? "Change" : scope === "file" ? "File" : "All";
 
-  // Repaint the applied toolbar's `file i/N · change j/M` subtitle + change dots for the hunk at the cursor.
-  // A cheap DOM-only update fired on cursor move (no full re-render); no-op outside applied mode.
+  // Repaint the applied toolbar's `file i/N · change j/M` subtitle + change dots for the hunk at the review
+  // line. A cheap DOM-only update fired on cursor move and scroll (no full re-render); no-op outside applied mode.
   const renderCounter = (): void => {
     const options = currentOptions;
     if (counterNode === undefined || options === undefined) {
       return;
     }
     const total = currentHunks.length;
-    const hunk = hunkAtCursor();
+    const hunk = hunkAtReviewLine();
     const idx = hunk === undefined ? -1 : currentHunks.indexOf(hunk);
     const labelPart = options.reviewLabel === undefined ? "" : `${options.reviewLabel} · `;
     const filePart =
@@ -1529,6 +1547,9 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
   const offFonts = onFontsChanged(renderActive);
   // Live-update the applied toolbar's change counter + dots as the cursor walks hunks (no full re-render).
   const onCursor = editor.onDidChangeCursorPosition(renderCounter);
+  // Manual scrolling moves the review position too (reviewLine follows the viewport once the cursor leaves
+  // it), so the counter tracks scroll as well as cursor moves.
+  const onScroll = editor.onDidScrollChange(renderCounter);
   // Close an open scope dropdown on any click outside it (capture so it beats the editor's own handlers).
   const onDocDown = (event: PointerEvent): void => {
     if (
@@ -1622,6 +1643,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
       document.removeEventListener("pointerdown", onDocDown, true);
       document.removeEventListener("keydown", onDocKey, true);
       onCursor.dispose();
+      onScroll.dispose();
       onModel.dispose();
       onContent.dispose();
       offFonts();

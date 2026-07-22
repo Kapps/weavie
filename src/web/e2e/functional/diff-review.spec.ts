@@ -39,6 +39,17 @@ async function focusFirstHunk(page: import("@playwright/test").Page): Promise<vo
   await page.keyboard.press(navChord("ArrowDown"));
 }
 
+// The caret line as the real editor reports it (window.__WEAVIE_EDITOR__ is the IStandaloneCodeEditor).
+const caretLine = (page: import("@playwright/test").Page): Promise<number | null> =>
+  page.evaluate(
+    () =>
+      (
+        window as Window & {
+          __WEAVIE_EDITOR__?: { getPosition(): { lineNumber: number } | null };
+        }
+      ).__WEAVIE_EDITOR__?.getPosition()?.lineNumber ?? null,
+  );
+
 test.describe("applied review — keep & undo", () => {
   test.use({ fakeScript: { steps: [...appliedEdit("hello.ts", TWO_HUNKS)] } });
 
@@ -60,17 +71,6 @@ test.describe("applied review — keep & undo", () => {
 test.describe("applied review — undo-keep reveals the restored hunk", () => {
   test.use({ fakeScript: { steps: [...appliedEdit("hello.ts", TWO_HUNKS)] } });
 
-  // The caret line as the real editor reports it (window.__WEAVIE_EDITOR__ is the IStandaloneCodeEditor).
-  const caretLine = (page: import("@playwright/test").Page): Promise<number | null> =>
-    page.evaluate(
-      () =>
-        (
-          window as Window & {
-            __WEAVIE_EDITOR__?: { getPosition(): { lineNumber: number } | null };
-          }
-        ).__WEAVIE_EDITOR__?.getPosition()?.lineNumber ?? null,
-    );
-
   // hunk 1 is the greeting (line 2, Hello→Hi there); hunk 2 is the call (line 6, console.log→console.warn).
   test("undoing a keep lands the editor back on the re-pended first hunk", async ({ page }) => {
     await openFile(page, "hello.ts");
@@ -87,6 +87,71 @@ test.describe("applied review — undo-keep reveals the restored hunk", () => {
     await page.keyboard.press("ControlOrMeta+Shift+Enter");
     await expect(page.locator(ADDED)).toHaveCount(2); // hunk 1 re-pended
     await expect.poll(() => caretLine(page)).toBe(2); // editor revealed the restored hunk
+  });
+
+  // The reveal must land on the hunk the undo ACTED on — it only coincides with the file's first pending
+  // hunk when the undone keep was the first hunk (the test above).
+  test("undoing a keep of the second hunk lands on it, not the file's first hunk", async ({
+    page,
+  }) => {
+    await openFile(page, "hello.ts");
+    await expect(page.locator(ADDED)).toHaveCount(2);
+
+    // Land on hunk 2 (line 6) and Keep it — the walk wraps the caret back to hunk 1.
+    await focusFirstHunk(page);
+    await page.keyboard.press(navChord("ArrowDown"));
+    await expect.poll(() => caretLine(page)).toBe(6);
+    await page.keyboard.press("ControlOrMeta+Enter");
+    await expect(page.locator(ADDED)).toHaveCount(1);
+    await expect.poll(() => caretLine(page)).toBe(2);
+
+    // Undo the keep — the editor lands on the restored hunk 2, not the still-pending hunk 1.
+    await page.keyboard.press("ControlOrMeta+Shift+Enter");
+    await expect(page.locator(ADDED)).toHaveCount(2);
+    await expect.poll(() => caretLine(page)).toBe(6);
+  });
+});
+
+// The review position tracks what's ON SCREEN: it keys to the cursor only while the cursor is in view; a
+// manual scroll moves it with the viewport, so the counter and Keep/Revert act on the visible hunk — never
+// on a hunk the caret was parked on before the scroll (which Keep would then silently act on and jump to).
+test.describe("applied review — manual scrolling retargets the review position", () => {
+  // long.ts is seeded (git-workspace.ts) as 160 comment lines; editing lines 2 and 110 gives two hunks more
+  // than a viewport apart, so scrolling to one puts the other (and a caret parked on it) off-screen.
+  const longEdit = (): string => {
+    const lines = Array.from({ length: 160 }, (_, i) => `// line ${i + 1}`);
+    lines[1] = "// line 2 EDITED";
+    lines[109] = "// line 110 EDITED";
+    return `${lines.join("\n")}\n`;
+  };
+  test.use({ fakeScript: { steps: [...appliedEdit("long.ts", longEdit())] } });
+
+  // Asserts ride the toolbar counter (computed from the full hunk set), not decoration counts — Monaco
+  // virtualizes the view, so an off-screen hunk's decorations aren't in the DOM at all.
+  test("scrolling away moves the counter and Keep to the visible hunk", async ({ page }) => {
+    await openFile(page, "long.ts");
+    await focusFirstHunk(page); // caret on hunk 1 (line 2)
+    await expect.poll(() => caretLine(page)).toBe(2);
+    const counter = page.locator(".weavie-inline-stack-sub");
+    await expect(counter).toContainText("change 1/2");
+
+    // Scroll to the bottom without touching the caret — the position follows the viewport to hunk 2.
+    await page.evaluate(() => {
+      const editor = (
+        window as Window & {
+          __WEAVIE_EDITOR__?: { setScrollTop(top: number): void; getScrollHeight(): number };
+        }
+      ).__WEAVIE_EDITOR__;
+      editor?.setScrollTop(editor.getScrollHeight());
+    });
+    await expect(counter).toContainText("change 2/2");
+    await expect.poll(() => caretLine(page)).toBe(2); // the caret itself never moved
+
+    // Keep acts on the visible hunk 2 (fading it), then walks to the remaining hunk 1 back at the top.
+    await page.keyboard.press("ControlOrMeta+Enter");
+    await expect(counter).toContainText("change 1/1");
+    await expect.poll(() => caretLine(page)).toBe(2);
+    await expect(page.locator(ADDED)).toHaveCount(1); // hunk 1, revealed at the top, is still bright
   });
 });
 

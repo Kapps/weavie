@@ -59,7 +59,7 @@ public sealed partial class SessionChangeTracker {
 
 				_redoStack.RemoveAt(i);
 				_undoStack.Add(action);
-				return ReviewHistoryResult.Done(action.TouchesDisk, Paths(action.After));
+				return ReviewHistoryResult.Done(action.TouchesDisk, Paths(action.After), action.Line);
 			}
 
 			return ReviewHistoryResult.Blocked(_redoStack.Count > 0);
@@ -91,22 +91,23 @@ public sealed partial class SessionChangeTracker {
 
 				_undoStack.RemoveAt(i);
 				_redoStack.Add(action);
-				return ReviewHistoryResult.Done(action.TouchesDisk, Paths(action.Before));
+				return ReviewHistoryResult.Done(action.TouchesDisk, Paths(action.Before), action.Line);
 			}
 
 			return ReviewHistoryResult.Blocked(sawKind);
 		}
 	}
 
-	// Records an undoable action; the caller (a mutator) supplies the pre-mutation snapshot and the paths it
-	// touched, and this re-snapshots them post-mutation. Pushing a new action invalidates the redo stack. Holds _gate.
-	private void Record(ReviewActionKind kind, bool touchesDisk, IReadOnlyList<PathState> before, IReadOnlyList<string> paths) {
+	// Records an undoable action; the caller (a mutator) supplies the pre-mutation snapshot, the current-side
+	// line it acted on (null for file/set scopes), and the paths it touched; this re-snapshots them
+	// post-mutation. Pushing a new action invalidates the redo stack. Holds _gate.
+	private void Record(ReviewActionKind kind, bool touchesDisk, int? line, IReadOnlyList<PathState> before, IReadOnlyList<string> paths) {
 		var after = new List<PathState>(paths.Count);
 		foreach (string path in paths) {
 			after.Add(Capture(path, touchesDisk));
 		}
 
-		_undoStack.Add(new ReviewAction(kind, touchesDisk, before, after));
+		_undoStack.Add(new ReviewAction(kind, touchesDisk, line, before, after));
 		_redoStack.Clear();
 	}
 
@@ -217,23 +218,27 @@ public sealed partial class SessionChangeTracker {
 		string Disk);
 
 	// One undoable review action: the snapshot of every affected path before and after, so it can be reversed or
-	// re-applied uniformly. TouchesDisk decides whether restoring also rewrites the file.
+	// re-applied uniformly. TouchesDisk decides whether restoring also rewrites the file. Line is the
+	// current-side line of the acted hunk (per-hunk actions only) — valid whenever the action is reversible,
+	// since StateHolds requires the current content unchanged.
 	private sealed record ReviewAction(
 		ReviewActionKind Kind,
 		bool TouchesDisk,
+		int? Line,
 		IReadOnlyList<PathState> Before,
 		IReadOnlyList<PathState> After);
 }
 
 /// <summary>
 /// The outcome of an undo/redo: whether it acted, whether the action wrote to disk (so the host knows to reload
-/// the file), the affected paths (to re-push their diffs), and whether it was blocked by a newer edit (vs simply
-/// having nothing to do).
+/// the file), the affected paths (to re-push their diffs), the current-side line the action acted on (per-hunk
+/// actions only — so the host lands the editor on the restored change, not the file's first hunk), and whether
+/// it was blocked by a newer edit (vs simply having nothing to do).
 /// </summary>
-public readonly record struct ReviewHistoryResult(bool Acted, bool TouchedDisk, IReadOnlyList<string> Paths, bool WasBlocked) {
-	/// <summary>An undo/redo that ran, naming the disk involvement and the paths it changed.</summary>
-	public static ReviewHistoryResult Done(bool touchedDisk, IReadOnlyList<string> paths) => new(true, touchedDisk, paths, false);
+public readonly record struct ReviewHistoryResult(bool Acted, bool TouchedDisk, IReadOnlyList<string> Paths, int? Line, bool WasBlocked) {
+	/// <summary>An undo/redo that ran, naming the disk involvement, the paths it changed, and the acted hunk's line (null for file/set scopes).</summary>
+	public static ReviewHistoryResult Done(bool touchedDisk, IReadOnlyList<string> paths, int? line) => new(true, touchedDisk, paths, line, false);
 
 	/// <summary>An undo/redo that didn't run — <paramref name="blocked"/> distinguishes "newer edit in the way" from "nothing to do".</summary>
-	public static ReviewHistoryResult Blocked(bool blocked) => new(false, false, [], blocked);
+	public static ReviewHistoryResult Blocked(bool blocked) => new(false, false, [], null, blocked);
 }

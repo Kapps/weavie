@@ -394,7 +394,7 @@ public sealed partial class SessionChangeTracker {
 				outcome = RevertHunkOutcome.Reverted;
 			}
 
-			Record(ReviewActionKind.Revert, touchesDisk: true, [before], [path]);
+			Record(ReviewActionKind.Revert, touchesDisk: true, currentRange.Start, [before], [path]);
 		}
 
 		RaiseCorrected(edits);
@@ -418,7 +418,7 @@ public sealed partial class SessionChangeTracker {
 			edits = RevertCorrections(path);
 			var before = Capture(path, withDisk: true);
 			outcome = RevertFileLocked(path);
-			Record(ReviewActionKind.Revert, touchesDisk: true, [before], [path]);
+			Record(ReviewActionKind.Revert, touchesDisk: true, line: null, [before], [path]);
 		}
 
 		RaiseCorrected(edits);
@@ -454,8 +454,8 @@ public sealed partial class SessionChangeTracker {
 				RevertFileLocked(path);
 			}
 
-			Record(ReviewActionKind.Revert, touchesDisk: true, before, paths);
-			result = ReviewHistoryResult.Done(true, paths);
+			Record(ReviewActionKind.Revert, touchesDisk: true, line: null, before, paths);
+			result = ReviewHistoryResult.Done(true, paths, null);
 		}
 
 		RaiseCorrected(edits);
@@ -522,7 +522,7 @@ public sealed partial class SessionChangeTracker {
 			baselineLines.InsertRange(baselineRange.Start - 1, currentSlice);
 			_reviewBaseline[path] = JoinLines(baselineLines, baselineRaw.Length > 0 ? baselineRaw : diskRaw);
 			SetPending(path, currentRange, false);
-			Record(ReviewActionKind.Keep, touchesDisk: false, [before], [path]);
+			Record(ReviewActionKind.Keep, touchesDisk: false, currentRange.Start, [before], [path]);
 			return true;
 		}
 	}
@@ -545,7 +545,7 @@ public sealed partial class SessionChangeTracker {
 			SetAllPending(path, false);
 			// No-op keep (already at baseline) records nothing, so its undo wouldn't surprise with an empty step.
 			if (!string.Equals(before.ReviewBaseline, current, StringComparison.Ordinal)) {
-				Record(ReviewActionKind.Keep, touchesDisk: false, [before], [path]);
+				Record(ReviewActionKind.Keep, touchesDisk: false, line: null, [before], [path]);
 			}
 		}
 	}

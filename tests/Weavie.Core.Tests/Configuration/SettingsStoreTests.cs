@@ -146,6 +146,29 @@ public sealed class SettingsStoreTests : IDisposable {
 	}
 
 	[Fact]
+	public void Set_UpdatesAKeyWrittenAsTableSyntax_InPlace() {
+		// A hand-edited (or agent-edited) file holds the key under a [table] header. Set must update that
+		// entry, not append a shadowed root-level duplicate that leaves the effective value stuck forever.
+		File.WriteAllText(FilePath, "[t]\nnum = 5\n");
+		using var store = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: false, WorkspaceFile);
+		Assert.Equal(5L, store.Resolve("t.num").Value);
+		var changes = new List<SettingChange>();
+		store.SettingChanged += changes.Add;
+
+		var result = store.Set("t.num", Json("7"));
+
+		Assert.True(result.Written);
+		Assert.Equal(7L, store.Resolve("t.num").Value);
+		var change = Assert.Single(changes);
+		Assert.Equal(7L, change.NewValue);
+
+		// The rewritten file must stay valid TOML and reload to the new value.
+		using var reloaded = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: false, WorkspaceFile);
+		Assert.False(reloaded.IsMalformed);
+		Assert.Equal(7L, reloaded.Resolve("t.num").Value);
+	}
+
+	[Fact]
 	public void Set_InjectsDescriptionComment_AboveNewKey() {
 		using var store = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: false, WorkspaceFile);
 		store.Set("t.str", Json("\"x\""));

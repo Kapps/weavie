@@ -90,15 +90,18 @@ internal sealed class SettingsFileLayer {
 		return false;
 	}
 
-	/// <summary>Sets <paramref name="definition"/>'s key = <paramref name="coerced"/> in the document, updating in
-	/// place or appending a new key self-documented with the definition's description. Rebuilds the model.</summary>
+	/// <summary>Sets <paramref name="definition"/>'s key = <paramref name="coerced"/> in the document, updating every
+	/// existing entry in place or appending a new key self-documented with the definition's description. Rebuilds the model.</summary>
 	public void SetValue(SettingDefinition definition, object? coerced) {
-		var valueSyntax = BuildValueSyntax(definition, coerced);
-		var existing = FindKeyValue(definition.Key);
-		if (existing is not null) {
-			existing.Value = valueSyntax;
+		var existing = FindEntries(definition.Key);
+		if (existing.Count > 0) {
+			// Update every form the key appears in — root dotted and nested under a hand-written [table] header —
+			// so a table entry can't keep shadowing the write. A fresh value node per entry: nodes are single-parent.
+			foreach (var (_, node) in existing) {
+				node.Value = BuildValueSyntax(definition, coerced);
+			}
 		} else {
-			var keyValue = new KeyValueSyntax(BuildKeySyntax(definition.Key), valueSyntax) {
+			var keyValue = new KeyValueSyntax(BuildKeySyntax(definition.Key), BuildValueSyntax(definition, coerced)) {
 				// Self-document a newly written key with its description; existing lines are never touched.
 				LeadingTrivia = [
 					new SyntaxTrivia(TokenKind.Comment, "# " + definition.Description),
@@ -114,18 +117,26 @@ internal sealed class SettingsFileLayer {
 	// Removes every user entry for `key` — the root-level dotted form and entries nested under a
 	// hand-edited [table] header. An emptied table header is left in place: pruning it risks dropping comments.
 	public bool RemoveKey(string key) {
-		bool removed = false;
-
-		var rootMatches = new List<KeyValueSyntax>();
-		foreach (var keyValue in _doc.KeyValues) {
-			if (keyValue.Key is { } syntax && string.Equals(DottedKeyName(syntax), key, StringComparison.Ordinal)) {
-				rootMatches.Add(keyValue);
-			}
+		var matches = FindEntries(key);
+		foreach (var (owner, node) in matches) {
+			owner.RemoveChild(node);
 		}
 
-		foreach (var match in rootMatches) {
-			_doc.KeyValues.RemoveChild(match);
-			removed = true;
+		if (matches.Count > 0) {
+			_model = _doc.ToModel();
+		}
+
+		return matches.Count > 0;
+	}
+
+	// Every entry for a dotted key, in both forms it can appear in — a root-level dotted key and an entry
+	// nested under a [table] header — paired with the list that owns it (for removal).
+	private List<(SyntaxList<KeyValueSyntax> Owner, KeyValueSyntax Node)> FindEntries(string key) {
+		var matches = new List<(SyntaxList<KeyValueSyntax>, KeyValueSyntax)>();
+		foreach (var keyValue in _doc.KeyValues) {
+			if (keyValue.Key is { } syntax && string.Equals(DottedKeyName(syntax), key, StringComparison.Ordinal)) {
+				matches.Add((_doc.KeyValues, keyValue));
+			}
 		}
 
 		foreach (var table in _doc.Tables) {
@@ -134,25 +145,15 @@ internal sealed class SettingsFileLayer {
 			}
 
 			string prefix = DottedKeyName(tableName);
-			var itemMatches = new List<KeyValueSyntax>();
 			foreach (var item in table.Items) {
 				if (item.Key is { } syntax
 					&& string.Equals($"{prefix}.{DottedKeyName(syntax)}", key, StringComparison.Ordinal)) {
-					itemMatches.Add(item);
+					matches.Add((table.Items, item));
 				}
 			}
-
-			foreach (var match in itemMatches) {
-				table.Items.RemoveChild(match);
-				removed = true;
-			}
 		}
 
-		if (removed) {
-			_model = _doc.ToModel();
-		}
-
-		return removed;
+		return matches;
 	}
 
 	/// <summary>Writes the document to disk atomically (temp file + replace), creating the directory if needed.</summary>
@@ -170,16 +171,6 @@ internal sealed class SettingsFileLayer {
 		} else {
 			File.Move(tmp, FilePath);
 		}
-	}
-
-	private KeyValueSyntax? FindKeyValue(string key) {
-		foreach (var keyValue in _doc.KeyValues) {
-			if (keyValue.Key is { } syntax && string.Equals(DottedKeyName(syntax), key, StringComparison.Ordinal)) {
-				return keyValue;
-			}
-		}
-
-		return null;
 	}
 
 	private static ValueSyntax BuildValueSyntax(SettingDefinition definition, object? coerced) =>

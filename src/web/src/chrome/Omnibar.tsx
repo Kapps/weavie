@@ -138,7 +138,7 @@ export function Omnibar(props: {
   root: string | null;
   currentFile: string | null;
   workspaceLabel: string;
-  onOpenFile: (abs: string) => void;
+  onOpenFile: (abs: string, line: number) => void;
   onRequestIndex: () => void;
   // The editor's Go-to-Symbol surface (query + live preview/commit), used by the @ / # modes.
   symbols: SymbolActions;
@@ -154,6 +154,10 @@ export function Omnibar(props: {
   // Element focused when the omnibar opened; restored on close so the focusin-derived `when`-context
   // (editorFocused/terminalFocused) and editor-gated chords like Ctrl+Tab keep matching. See App's onFocusIn.
   let priorFocus: HTMLElement | null = null;
+
+  // The 1-based line an open from this omnibar session reveals — a host-driven request resolving an
+  // ambiguous `file:line` link carries the link's line, applied to whichever candidate the user picks.
+  let pendingLine = 1;
 
   // The command catalog, kept live as the host pushes keybinding/catalog changes.
   const [commandList, setCommandList] = createSignal<CommandInfo[]>(getCommands());
@@ -374,6 +378,7 @@ export function Omnibar(props: {
           return;
         }
         setQuery(MODE_PREFIX[request.mode] + request.query);
+        pendingLine = request.line;
         // Capture the element we're stealing focus from BEFORE focusing the input: a programmatic focus()
         // delivers a null relatedTarget, so the input's onFocus can't record it, and close would drop focus.
         const active = document.activeElement as HTMLElement | null;
@@ -410,6 +415,7 @@ export function Omnibar(props: {
   const close = (): void => {
     setOpen(false);
     setQuery("");
+    pendingLine = 1;
     restorePriorFocus();
   };
 
@@ -419,6 +425,7 @@ export function Omnibar(props: {
   const dismiss = (): void => {
     setOpen(false);
     setQuery("");
+    pendingLine = 1;
     priorFocus = null;
   };
 
@@ -428,7 +435,7 @@ export function Omnibar(props: {
     }
     // Canonical (lowercase-drive) form the editor keys working copies by, so an already-open file is reused
     // instead of opening a second editor. See editor/fs-path.ts.
-    props.onOpenFile(canonicalFsPath(abs));
+    props.onOpenFile(canonicalFsPath(abs), pendingLine);
     close();
   };
 

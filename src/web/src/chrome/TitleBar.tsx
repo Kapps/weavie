@@ -20,7 +20,7 @@ export function TitleBar(props: {
   onWindowControl: (action: WindowControlAction) => void;
   onMenuAction: (action: MenuAction, path?: string) => void;
   onToggleFiles: () => void;
-  onOpenFile: (abs: string) => void;
+  onOpenFile: (abs: string, line: number) => void;
   onRequestIndex: () => void;
   symbols: SymbolActions;
 }): JSX.Element {

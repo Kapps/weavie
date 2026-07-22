@@ -139,11 +139,13 @@ public sealed class FileOpenerTests {
 		fs.WriteAllText(Path.Combine(Workspace, "b", "foo.ts"), "");
 		channel.Activate();
 
-		await opener.OpenAsync("./foo.ts", line: 1, preview: false, scratch: false);
+		await opener.OpenAsync("./foo.ts", line: 12, preview: false, scratch: false);
 
 		Assert.Null(bridge.LastOfType("open-file")); // two candidates — never open one arbitrarily
 		Assert.Null(bridge.LastOfType("notify"));
-		Assert.Equal("foo.ts", bridge.LastOfType("focus-omnibar")!.Value.GetProperty("query").GetString());
+		var focus = bridge.LastOfType("focus-omnibar")!.Value;
+		Assert.Equal("foo.ts", focus.GetProperty("query").GetString());
+		Assert.Equal(12, focus.GetProperty("line").GetInt32()); // the link's line applies to whichever candidate is picked
 	}
 
 	[Fact]

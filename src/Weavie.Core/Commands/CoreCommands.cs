@@ -239,13 +239,13 @@ public static class CoreCommands {
 	/// <summary>Opens the active preview's first image/diagram in a full-window lightbox (or advances an open one); bound to <c>$mod+Shift+z</c>.</summary>
 	public const string ZoomEmbed = "weavie.editor.zoomEmbed";
 
-	/// <summary>Increases the global font size; bound to <c>Ctrl+=</c> / <c>⌘=</c>.</summary>
+	/// <summary>Increases the editor and terminal font sizes (global plus any set per-surface override); bound to <c>Ctrl+=</c> / <c>⌘=</c>.</summary>
 	public const string IncreaseFontSize = "weavie.font.increase";
 
-	/// <summary>Decreases the global font size; bound to <c>Ctrl+-</c> / <c>⌘-</c>.</summary>
+	/// <summary>Decreases the editor and terminal font sizes (global plus any set per-surface override); bound to <c>Ctrl+-</c> / <c>⌘-</c>.</summary>
 	public const string DecreaseFontSize = "weavie.font.decrease";
 
-	/// <summary>Resets the global font size to the default; bound to <c>Ctrl+0</c> / <c>⌘0</c>.</summary>
+	/// <summary>Resets the editor and terminal font sizes to the default, clearing per-surface overrides; bound to <c>Ctrl+0</c> / <c>⌘0</c>.</summary>
 	public const string ResetFontSize = "weavie.font.reset";
 
 	/// <summary>Installs a color theme from the Open VSX registry (args <c>namespace</c>/<c>name</c>/<c>version</c>).</summary>
@@ -1319,9 +1319,9 @@ public static class CoreCommands {
 			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+z" }],
 		});
 
-		// Font zoom (handlers wired in Core by FontCommands): adjust the global font.size setting, which the web
-		// applies live to both the editor and terminal. The familiar browser-zoom chords; a matched binding
-		// preventDefaults, so the chord changes the app font instead of the page zoom.
+		// Font zoom (handlers wired in Core by FontCommands): step every size setting in effect — global font.size
+		// plus any set per-surface override — which the web applies live to the editor and terminal. The familiar
+		// browser-zoom chords; a matched binding preventDefaults, so the chord changes the app font, not page zoom.
 		registry.Register(new CommandDefinition {
 			Id = IncreaseFontSize,
 			Title = "Increase Font Size",

@@ -34,12 +34,15 @@ export function SessionRail(props: {
     );
     return match !== undefined ? formatKey(match.key) : "";
   };
-  // The chip's hover tooltip: its label + status (or unloaded hint), with the switch shortcut appended.
+  // The chip's hover tooltip: its label + status (or unloaded / connection-lost hint), with the switch
+  // shortcut appended.
   const chipTitle = (session: RailSession, index: number): string => {
     const where = session.isLocal ? "" : ` @ ${session.locationName}`;
-    const base = session.loaded
-      ? `${session.label}${where} — ${session.status}`
-      : `${session.label}${where} — unloaded (click to load)`;
+    const base = session.offline
+      ? `${session.label}${where} — connection lost (reconnecting…)`
+      : session.loaded
+        ? `${session.label}${where} — ${session.status}`
+        : `${session.label}${where} — unloaded (click to load)`;
     const shortcut = switchShortcut(index);
     return shortcut !== "" ? `${base} (${shortcut})` : base;
   };
@@ -69,7 +72,9 @@ export function SessionRail(props: {
               type="button"
               class={`session-chip status-${session.status}${session.active ? " active" : ""}${
                 session.loaded ? "" : " unloaded"
-              }${session.isLocal ? "" : " remote"}${session.pending ? " pending" : ""}`}
+              }${session.isLocal ? "" : " remote"}${session.pending ? " pending" : ""}${
+                session.offline ? " offline" : ""
+              }`}
               title={chipTitle(session, index())}
               ref={(el) => {
                 el.style.setProperty("--chip-hue", String(session.hue));

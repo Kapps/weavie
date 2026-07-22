@@ -22,6 +22,8 @@ vi.mock("../bridge", () => ({
   },
   onHostMessage: () => () => {},
   onBackendDisconnected: () => () => {},
+  backendPhase: () => "online",
+  onBackendPhase: () => () => {},
   postToBackend: () => {},
   connectBackend: () => {},
   disconnectBackend: () => {},
@@ -79,6 +81,7 @@ const chip = (id: string, active: boolean): RailSession => ({
   locationName: "default",
   isLocal: true,
   pending: false,
+  offline: false,
 });
 
 describe("stepRailTarget", () => {

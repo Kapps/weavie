@@ -18,6 +18,7 @@ import {
   activeBackendOffline,
   activeBackendPhase,
   backendName,
+  backendPhase,
   beginBackendHandoff,
   connectedBackends,
   currentEditorBinding,
@@ -497,6 +498,16 @@ export default function App(): JSX.Element {
   // Switch to a session by id. Flushes the outgoing session's pending editor session first so its tab set
   // isn't lost; the host processes both messages in order on the still-active session.
   const switchToSession = (session: RailSession): void => {
+    // A backend whose link is down can't serve the switch — refuse loudly at the click rather than paint
+    // the optimistic highlight and queue a frame that would replay as a stale navigation on reconnect.
+    if (backendPhase(session.backendId) !== "online") {
+      addToast(
+        "error",
+        `Can't switch to ${session.label} — ${backendLabel(session.backendId)} isn't reachable right now (reconnecting…).`,
+        `switch-offline:${session.backendId}`,
+      );
+      return;
+    }
     projectSessionSwitch(session.backendId, session.id);
     flushEditorSession();
     // Crossing to another backend rebinds the page to it; its switch-session reply re-attaches terminals + editor.
@@ -510,9 +521,11 @@ export default function App(): JSX.Element {
     );
   };
 
-  // The active backend's human name for the reconnecting banner ("the host" for the local headless link).
-  const connectionLabel = (): string =>
-    activeBackendId() === "local" ? "the host" : backendName(activeBackendId());
+  // A backend's human name for connection messages ("the host" for the local headless link).
+  const backendLabel = (id: string): string =>
+    id === LOCAL_BACKEND_ID ? "the host" : backendName(id);
+  // The active backend's human name for the reconnecting banner.
+  const connectionLabel = (): string => backendLabel(activeBackendId());
 
   // The location to preselect in the New Session prompt: the last-used backend if still connected, else
   // local (a remembered agent that failed to reconnect falls back rather than picking a dead id).
@@ -521,11 +534,11 @@ export default function App(): JSX.Element {
     return connectedBackends().some((b) => b.id === last) ? last : "local";
   };
 
-  // Switch to the next/prev LOADED rail chip stepRailTarget picks (dormant chips skipped); false falls the
-  // keystroke through when there's nothing to move to.
+  // Switch to the next/prev LOADED rail chip stepRailTarget picks (dormant and unreachable chips skipped);
+  // false falls the keystroke through when there's nothing to move to.
   const stepSession = (delta: number): boolean => {
     const target = stepRailTarget(
-      railSessions().filter((s) => s.loaded),
+      railSessions().filter((s) => s.loaded && !s.offline),
       delta,
     );
     if (target === null) {

@@ -2,10 +2,12 @@ import { createMemo, createSignal } from "solid-js";
 import {
   activeBackendId,
   backendName,
+  backendPhase,
   connectedBackends,
   editorBackendId,
   editorRailSessionId,
   onBackendDisconnected,
+  onBackendPhase,
   onHostMessage,
   onSessionMessage,
   type SessionChip,
@@ -31,6 +33,8 @@ export interface RailSession extends SessionChip {
   agentHue?: number;
   /** A host op (delete / load / unload) is in flight against this session — its chip shows a spinner. */
   pending: boolean;
+  /** The backend's link is down (socket opening/retrying) — the session can't be reached right now. */
+  offline: boolean;
 }
 
 /** A remote agent and its sessions, for the cloud panel. Offline = registered but not currently connected. */
@@ -127,6 +131,14 @@ onBackendDisconnected((backendId) => {
   }
 });
 
+// A backend whose link dropped can no longer commit an in-flight switch (the frame is gone and offline
+// frames are never buffered), so the optimistic highlight snaps back instead of sticking forever.
+onBackendPhase((backendId, phase) => {
+  if (phase !== "online" && projectedSwitch()?.backendId === backendId) {
+    setProjectedSwitch(null);
+  }
+});
+
 onHostMessage((message) => {
   if (message.type === "set-editor-session") {
     setProjectedSwitch(null);
@@ -147,6 +159,7 @@ const merged = createMemo<RailSession[]>(() => {
       continue;
     }
     const isLocal = backendId === "local";
+    const offline = backendPhase(backendId) !== "online";
     for (const chip of chips) {
       out.push({
         ...chip,
@@ -157,6 +170,7 @@ const merged = createMemo<RailSession[]>(() => {
           backendId === boundBackend &&
           (boundRailSession !== null ? chip.id === boundRailSession : chip.active),
         pending: pending.has(pendingKey(backendId, chip.id)),
+        offline,
       });
     }
   }

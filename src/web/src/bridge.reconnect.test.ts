@@ -522,6 +522,47 @@ describe("WebSocketTransport reconnect", () => {
     expect(resolveEndpoint).toHaveBeenCalledTimes(1);
   });
 
+  // Session switches are live navigation, not queueable work: one posted against a down link must be
+  // dropped, not buffered — a buffered switch would replay on reconnect and yank the page to a session
+  // the user gave up on. (The rail refuses the click upstream; this guards the transport seam.)
+  it("drops switch-session while the link is down instead of replaying it on reconnect", async () => {
+    const resolveEndpoint = vi.fn(() => Promise.resolve(endpoint("ws://host/weavie-bridge")));
+    bridge.connectBackend("remote:test", "Test", resolveEndpoint);
+    await vi.advanceTimersByTimeAsync(0);
+
+    const first = FakeWebSocket.instances[0];
+    first?.open();
+    first?.receiveHostInfo();
+    expect(bridge.backendPhase("remote:test")).toBe("online");
+
+    // Online: the switch posts through.
+    bridge.postToBackend("remote:test", {
+      type: "switch-session",
+      id: "s1",
+      replayAgentState: false,
+    });
+    expect(first?.sent.filter((frame) => frame.includes('"switch-session"'))).toHaveLength(1);
+
+    const transitions: string[] = [];
+    const offPhase = bridge.onBackendPhase((id, phase) => transitions.push(`${id}:${phase}`));
+    first?.drop();
+    expect(bridge.backendPhase("remote:test")).toBe("reconnecting");
+    expect(transitions).toEqual(["remote:test:reconnecting"]);
+    offPhase();
+
+    // Down: the switch is refused at the seam, not queued in the outbox.
+    bridge.postToBackend("remote:test", {
+      type: "switch-session",
+      id: "s2",
+      replayAgentState: false,
+    });
+
+    await vi.advanceTimersByTimeAsync(600);
+    const second = FakeWebSocket.instances[1];
+    second?.open();
+    expect(second?.sent.some((frame) => frame.includes('"switch-session"'))).toBe(false);
+  });
+
   it("correlates a ready queued before a socket that fails to open", async () => {
     const resolveEndpoint = vi.fn(() =>
       Promise.resolve({

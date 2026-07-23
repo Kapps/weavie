@@ -1,7 +1,7 @@
 # E2E flake analysis (Windows-dominated)
 
 Status: living document — root causes confirmed where noted, open where noted
-Last updated: 2026-07-04
+Last updated: 2026-07-23
 
 A forensic catalog of the e2e suite's flakes, their confirmed/suspected root causes, and the
 techniques that produced those findings. Retries are off by policy (a flake fails the run), so every
@@ -94,6 +94,24 @@ the WRONG set, which never equals `want`, so the poll times out and the test sti
 > which cannot miss a bounce. Note this flake was **not reproducible locally even at 10× CPU throttle +
 > oversubscription** — it is purely a slow-hosted-Windows-runner timing artifact, so the fix is validated
 > by soaking across Windows CI re-runs, not locally.
+
+## 2026-07-23 occurrence: #5 (session lifecycle @cross), run 29973556071
+
+Windows/`remote`, `session.spec.ts:10` (`create, switch, unload, and reopen sessions @cross`) — the
+`#splash` wait timed out at 40s during the auto `weavie` fixture's boot, before the test body ran at all.
+Landed on the merge of PR #440 ("Fail loudly when switching to a session on an unreachable backend");
+confirmed **not** a regression from that PR — its diff touches only `App.tsx`/`bridge.ts`/`SessionRail.tsx`/
+`session-store.ts` and a Codex test-helper rename, nothing on the boot path this fixture exercises before
+`use(host)`.
+
+No new datum: this run carries the same gap the "Guidance for the next agent" section below complains
+about — `console-errors.txt`/`weavie-host.log`/`viewport-layout.json` were never attached, because that
+capture code lived textually after `await use(host)` in `fixtures.ts`, which a setup-time throw (like this
+`#splash` timeout) skips entirely. Fixed in `fixtures.ts`: setup (`preNavigate` → `goto` → the `#splash`
+wait) and `use(host)` now run inside a `try`, with the diagnostic-dump + `host.stop()`/`page.close()` in a
+`finally` — so a **future** setup-time failure of this class attaches the same datum a test-body failure
+already did. This does not touch the 40s timeout or add a retry; it only makes the next occurrence
+diagnosable. Still waiting on that next occurrence to actually close the root cause.
 
 ## #4 — `net::ERR_NO_BUFFER_SPACE` (Windows socket/buffer pressure)
 

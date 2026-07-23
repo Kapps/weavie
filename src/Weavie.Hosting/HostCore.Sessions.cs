@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Weavie.Core;
 using Weavie.Core.Agents;
+using Weavie.Core.Changes;
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
 using Weavie.Core.Editor;
@@ -90,6 +91,11 @@ public sealed partial class HostCore {
 
 				PushReviewHistoryToWeb();
 			}));
+		session.Changes.ReviewProblemsChanged += () => _ui.Post(() => {
+			if (IsActiveSession(session)) {
+				PushReviewProblemsToWeb(session);
+			}
+		});
 		WireAttention(session);
 		session.Status.Changed += status => _ui.Post(() => {
 			if (IsActiveSession(session)) {
@@ -115,6 +121,15 @@ public sealed partial class HostCore {
 	}
 
 	private bool IsActiveSession(HostSession session) => ReferenceEquals(_session, session);
+
+	private bool IsLoadedSession(HostSession session) => LoadedSessions().Contains(session);
+
+	private void RefreshHydratedReviewComments(HostSession session) {
+		long reviewToken = session.Changes.ActiveReviewToken;
+		if (session.Changes.ActiveReviewIdentity is { PrNumber: > 0 } review && reviewToken > 0) {
+			_ = RefreshHydratedReviewCommentsAsync(session, review, reviewToken);
+		}
+	}
 
 	/// <summary>
 	/// The failure for a destructive delete/classify called without an id, else <c>null</c>. A no-id delete must
@@ -462,6 +477,7 @@ public sealed partial class HostCore {
 			// The structured agent pane's durable transcript (keyed by worktree, like the shell scrollback log)
 			// so its output restores across reload/unload/restart. Terminal-backed providers ignore it.
 			WeaviePaths.WorkspaceAgentPaneFile(Id, WorkspaceId.ForPath(cwd).Value),
+			WeaviePaths.WorkspaceReviewCheckpointFile(Id, WorkspaceId.ForPath(cwd).Value),
 			Guid.NewGuid().ToString("n")[..8],
 			_commandRegistry, _keybindings, _themeOverrides, _corrections, _platform.PtyLauncher, provider, _runtime);
 		// Persist the shell scrollback (keyed by worktree path, stable across reloads) so a reattaching client
@@ -487,6 +503,7 @@ public sealed partial class HostCore {
 	private void LoadSlot(SessionSlot slot) {
 		if (!slot.Loaded) {
 			slot.Session = CreateSession(slot.WorktreePath, slot.AgentProviderId);
+			RefreshHydratedReviewComments(slot.Session);
 		}
 
 		slot.Session!.BindTerminalsToSlot(slot.Id);
@@ -696,6 +713,14 @@ public sealed partial class HostCore {
 			// partial-failing and orphaning the directory (git deletes its own record mid-failure, unrecoverable).
 			await Task.Delay(TimeSpan.FromSeconds(1), CancellationToken.None).ConfigureAwait(false);
 			await worktrees.RemoveAsync(worktreePath, deleteBranch: false, force, CancellationToken.None).ConfigureAwait(false);
+			PurgeReviewComments(worktreePath);
+			Exception? checkpointFailure = null;
+			try {
+				new FileReviewCheckpointStore(
+					WeaviePaths.WorkspaceReviewCheckpointFile(Id, WorkspaceId.ForPath(worktreePath).Value)).Clear();
+			} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+				checkpointFailure = ex;
+			}
 			// Back on the UI thread for the slot-set mutation + rail push (the awaits above left it), so the
 			// removal can't interleave with a concurrent switch reading the slot set.
 			_ui.Post(() => {
@@ -703,6 +728,10 @@ public sealed partial class HostCore {
 				PushSessionList();
 				PersistSessionState();
 			});
+			if (checkpointFailure is not null) {
+				return CommandResult.Failure(
+					$"Deleted session '{label}', but couldn't remove its saved review state: {checkpointFailure.Message}");
+			}
 			return CommandResult.Success($"Deleted session '{label}': its worktree was removed and the branch kept.");
 		} catch (WorktreeDirtyException) {
 			return CommandResult.Failure(
@@ -784,22 +813,77 @@ public sealed partial class HostCore {
 	/// Tears down a slot's live backend, leaving it dormant (a faded chip): if it was active, binds the primary
 	/// first, then disposes its <see cref="HostSession"/> while keeping the slot so the worktree stays surfaced.
 	/// </summary>
-	private async Task UnloadSlotAsync(SessionSlot slot) {
+	private Task UnloadSlotAsync(SessionSlot slot) {
 		if (slot.Session is not { } session) {
-			return;
+			return Task.CompletedTask;
+		}
+		if (_sessionUnloads.TryGetValue(session, out var pending)) {
+			return pending;
 		}
 
-		if (ReferenceEquals(_sessions?.ActiveSlot, slot) && PrimarySlot() is { } primary) {
-			SwitchToSlot(primary, replayAgentState: true);
-		}
+		var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		_sessionUnloads[session] = completion.Task;
+		_ = CompleteUnloadSlotAsync(slot, session, completion);
+		return completion.Task;
+	}
 
-		// Detach and push the rail BEFORE the teardown: the chip fades the moment the session is dormant, not
-		// after process teardown finishes (Windows can take many seconds to release the children's handles).
-		slot.Session = null;
-		_mediaRoutes.Unregister(session.Id);
-		PushSessionList();
-		PersistSessionState();
-		await session.DisposeAsync().ConfigureAwait(false);
+	private async Task CompleteUnloadSlotAsync(
+		SessionSlot slot,
+		HostSession session,
+		TaskCompletionSource completion) {
+		try {
+			bool detached = false;
+			while (!detached) {
+				// The incoming projection mounts only after the page flushes outgoing working copies, so the old
+				// session stays path-routable until every save and its review checkpoint have settled.
+				var phase = new TaskCompletionSource<(Task? Projection, bool OwnsDetach)>(
+					TaskCreationOptions.RunContinuationsAsynchronously);
+				_ui.Post(() => {
+					try {
+						if (!ReferenceEquals(slot.Session, session)) {
+							phase.SetResult((null, false));
+							return;
+						}
+
+						if (ReferenceEquals(_sessions?.ActiveSlot, slot)) {
+							var primary = PrimarySlot()
+								?? throw new InvalidOperationException("An active worktree session requires a primary session.");
+							SwitchToSlot(primary, replayAgentState: true);
+							phase.SetResult((_editorProjectionMount, false));
+							return;
+						}
+
+						slot.Session = null;
+						_mediaRoutes.Unregister(session.Id);
+						PurgeReviewComments(session);
+						PushSessionList();
+						PersistSessionState();
+						phase.SetResult((null, true));
+					} catch (Exception ex) {
+						phase.SetException(ex);
+					}
+				});
+
+				var (projection, ownsDetach) = await phase.Task.ConfigureAwait(false);
+				if (projection is not null) {
+					await projection.ConfigureAwait(false);
+					continue;
+				}
+
+				if (!ownsDetach) {
+					completion.SetResult();
+					return;
+				}
+				detached = true;
+			}
+
+			await session.DisposeAsync().ConfigureAwait(false);
+			completion.SetResult();
+		} catch (Exception ex) {
+			completion.SetException(ex);
+		} finally {
+			_ui.Post(() => _sessionUnloads.Remove(session));
+		}
 	}
 
 	private SessionSlot? PrimarySlot() => _sessions?.Slots.FirstOrDefault(s => s.IsPrimary);
@@ -939,6 +1023,7 @@ public sealed partial class HostCore {
 					Session = CreateSession(record.Path, agentProviderId),
 				};
 				_sessions?.Add(slot, activate: false);
+				RefreshHydratedReviewComments(slot.Session!);
 				SwitchToSlot(slot, replayAgentState: true);
 				if (!string.IsNullOrWhiteSpace(prompt)) {
 					SeedFirstPrompt(slot.Session!, prompt);

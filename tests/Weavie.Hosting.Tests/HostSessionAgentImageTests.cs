@@ -60,6 +60,7 @@ public sealed class HostSessionAgentImageTests : IDisposable {
 			Path.Combine(_dir, "scratch"),
 			Path.Combine(_dir, "pasted"),
 			Path.Combine(_dir, "agent-pane.json"),
+			Path.Combine(_dir, "review.json"),
 			"slot-1",
 			commandRegistry,
 			new KeybindingStore(commandRegistry, Path.Combine(_dir, "keybindings.json"), enableWatcher: false),

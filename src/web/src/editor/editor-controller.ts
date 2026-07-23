@@ -264,7 +264,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   // Files Claude changed since the last review, in document order; drives the toolbar's ← / → file walk.
   let reviewFiles: ReviewFile[] = [];
   // Names the review in the toolbar/parked subtitle ("PR #12", "vs main"); empty for a plain post-turn review.
-  // Carried on the turn-changes push (from the host's active DiffReview), so the applied surface always names
+  // Carried on the turn-changes push (from the tracker's active ReviewIdentity), so the applied surface always names
   // what it's diffing against.
   let reviewLabel = "";
   // A PR file's review comments (+ the PR number to post replies against), keyed by normalized path. Merged into

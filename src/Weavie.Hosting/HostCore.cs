@@ -63,6 +63,8 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	private readonly SessionStore _sessionStore;
 	private readonly RecentFilesStore _recentFiles;
 	private readonly CorrectionCorpus _corrections;
+	private readonly Dictionary<HostSession, Task> _sessionUnloads = [];
+	private readonly HashSet<string> _projectedReviewProblemToastKeys = new(StringComparer.Ordinal);
 	private readonly WorkspaceMediaRoutes _mediaRoutes = new();
 	private readonly WorkspaceHttpServer _http;
 	// In-flight web commands invoked by Claude (runCommand → run-command): token → completion, settled by the
@@ -226,6 +228,7 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		// servers + git resolve from PATH. CreateSession wires its handlers + gated push subscriptions.
 		_primarySession = CreateSession(WorkspaceRoot, "claude");
 		_session = _primarySession;
+		RefreshHydratedReviewComments(_primarySession);
 		// Seed the primary session's in-memory editor state from its persisted store, so switching away and
 		// back restores the same tabs (secondary worktree sessions start empty and live only for the window).
 		_primarySession.EditorSession = _editorSession.Current;
@@ -488,6 +491,7 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		_sessions = null;
 		_session = null;
 		_primarySession = null;
+		Attempt(() => PurgeReviewComments(static _ => true));
 		if (sessions is not null) {
 			await AttemptAsync(() => sessions.DisposeAsync().AsTask()).ConfigureAwait(false);
 		} else if (primarySession is not null) {

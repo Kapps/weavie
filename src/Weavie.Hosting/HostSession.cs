@@ -53,6 +53,7 @@ public sealed class HostSession : IAsyncDisposable {
 		string scratchDir,
 		string pastedImagesDir,
 		string agentPaneTranscriptPath,
+		string reviewCheckpointPath,
 		string id,
 		CommandRegistry commandRegistry,
 		KeybindingStore keybindings,
@@ -68,6 +69,7 @@ public sealed class HostSession : IAsyncDisposable {
 		ArgumentException.ThrowIfNullOrEmpty(scratchDir);
 		ArgumentException.ThrowIfNullOrEmpty(pastedImagesDir);
 		ArgumentException.ThrowIfNullOrEmpty(agentPaneTranscriptPath);
+		ArgumentException.ThrowIfNullOrEmpty(reviewCheckpointPath);
 		ArgumentException.ThrowIfNullOrEmpty(id);
 		ArgumentNullException.ThrowIfNull(commandRegistry);
 		ArgumentNullException.ThrowIfNull(keybindings);
@@ -117,7 +119,9 @@ public sealed class HostSession : IAsyncDisposable {
 		Changes = new SessionChangeTracker(
 			fileSystem,
 			workspaceRoot,
-			path => BufferStore.IsWithinWorkspace(workspaceRoot, path) || BufferStore.IsWithinWorkspace(scratchDir, path));
+			path => BufferStore.IsWithinWorkspace(workspaceRoot, path) || BufferStore.IsWithinWorkspace(scratchDir, path),
+			new FileReviewCheckpointStore(reviewCheckpointPath));
+		FileSaved += Changes.RecordHandEdit;
 		// Mirrors the provider's edit mode (default/acceptEdits/plan), observed off the event stream — Weavie
 		// reflects it, never sets it. Drives the openDiff auto-keep + the post-turn review gating.
 		ObservedMode = new ObservedPermissionMode();
@@ -257,6 +261,12 @@ public sealed class HostSession : IAsyncDisposable {
 
 	/// <summary>Records every file changed this session (diff vs. each file's session baseline).</summary>
 	public SessionChangeTracker Changes { get; }
+
+	/// <summary>Raised after an editor save has reached disk successfully.</summary>
+	internal event Action<string, string>? FileSaved;
+
+	/// <summary>Publishes a completed editor save to session-owned observers.</summary>
+	internal void PublishFileSaved(string path, string content) => FileSaved?.Invoke(path, content);
 
 	/// <summary>Appends the user's corrections (editor saves over an agent hunk, and reverts) into the workspace's shared ring.</summary>
 	public CorrectionRecorder Corrections { get; }

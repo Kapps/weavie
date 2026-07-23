@@ -455,7 +455,8 @@ public sealed class WorktreeManagerTests {
 		public Task<IReadOnlyList<DiffFileChange>> DiffWorktreeAsync(string repositoryDirectory, string baseRef, CancellationToken ct = default) =>
 			Task.FromResult<IReadOnlyList<DiffFileChange>>([]);
 
-		public Task<string> ShowFileAtRefAsync(string repositoryDirectory, string reference, string path, CancellationToken ct = default) => Task.FromResult(string.Empty);
+		public Task<GitFileContent> ReadFileAtRefAsync(string repositoryDirectory, string reference, string path, CancellationToken ct = default) =>
+			Task.FromResult(new GitFileContent(string.Empty, false, true));
 
 		public Task<bool> BranchExistsAsync(string directory, string branch, CancellationToken ct = default) => Task.FromResult(Branches.Contains(branch));
 

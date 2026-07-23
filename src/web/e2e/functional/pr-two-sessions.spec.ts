@@ -3,7 +3,7 @@ import { expect, test } from "../harness/fixtures";
 import { awaitReviewSet, collectChangedFiles } from "../harness/navigator";
 
 // SCENARIO 2: two PR sessions open at once (#101: feature.ts + hello.ts; #102: widget.ts + notes.txt). Each
-// session must show ITS OWN changed files / merge-base diff — never the other PR's. _diffReviews is keyed by
+// session must show ITS OWN changed files / merge-base diff — never the other PR's. ReviewIdentity is owned by
 // worktree path and ActiveReview() resolves by the active session, so this is the core of that design.
 test.use({ prScenario: true });
 

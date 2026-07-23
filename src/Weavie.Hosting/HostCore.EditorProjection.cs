@@ -11,9 +11,11 @@ namespace Weavie.Hosting;
 public sealed partial class HostCore {
 	private readonly string _editorProjectionEpoch = Guid.NewGuid().ToString("n");
 	private readonly List<Action> _pendingEditorProjection = [];
+	private readonly List<TaskCompletionSource> _pendingEditorProjectionMounts = [];
 	private long _editorProjectionRevision;
 	private HostSession? _editorProjectionSession;
 	private string? _editorProjectionPageId;
+	private Task _editorProjectionMount = Task.CompletedTask;
 	private EditorProjectionState _editorProjectionState;
 	private bool _editorProjectionReplayAll;
 	private bool _legacyProjectionWasMounted;
@@ -55,6 +57,7 @@ public sealed partial class HostCore {
 
 	private void BeginEditorProjection(SessionSlot slot, string pageId, bool replayAll) {
 		var session = slot.Session ?? throw new InvalidOperationException("An unloaded session cannot own the editor projection.");
+		_editorProjectionMount = BeginEditorProjectionMount();
 		session.SetEditorOutputActive(false);
 		_editorProjectionSession = session;
 		_editorProjectionPageId = pageId;
@@ -76,6 +79,7 @@ public sealed partial class HostCore {
 	}
 
 	private void BeginLegacyEditorProjection(HostSession session, bool replayAll) {
+		_editorProjectionMount = BeginEditorProjectionMount();
 		bool alreadyMounted = _editorProjectionState == EditorProjectionState.Legacy
 			&& ReferenceEquals(_editorProjectionSession, session);
 		if (!alreadyMounted) {
@@ -116,6 +120,7 @@ public sealed partial class HostCore {
 		_editorProjectionReplayAll = false;
 		_legacyProjectionWasMounted = false;
 		_pendingEditorProjection.Clear();
+		CompleteEditorProjectionMounts();
 	}
 
 	private void MountEditorProjection(JsonElement root) {
@@ -168,6 +173,7 @@ public sealed partial class HostCore {
 		}
 
 		_legacyProjectionWasMounted = legacy;
+		CompleteEditorProjectionMounts();
 	}
 
 	private void ReleaseEditorProjection(JsonElement root) {
@@ -192,6 +198,20 @@ public sealed partial class HostCore {
 		_legacyProjectionWasMounted = false;
 		_pendingEditorProjection.Clear();
 		session?.SetEditorOutputActive(false);
+		CompleteEditorProjectionMounts();
+	}
+
+	private Task BeginEditorProjectionMount() {
+		var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		_pendingEditorProjectionMounts.Add(completion);
+		return completion.Task;
+	}
+
+	private void CompleteEditorProjectionMounts() {
+		foreach (var completion in _pendingEditorProjectionMounts) {
+			completion.TrySetResult();
+		}
+		_pendingEditorProjectionMounts.Clear();
 	}
 
 	private bool MatchesEditorProjection(JsonElement root) =>

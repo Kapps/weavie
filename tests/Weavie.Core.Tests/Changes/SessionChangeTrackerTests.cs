@@ -11,7 +11,7 @@ public sealed class SessionChangeTrackerTests {
 	// Scope every tracker under test to the "/w" worktree (the path every fixture file lives under), so an edit
 	// outside it is dropped — exercising the same scoping the host wires from the worktree + scratch roots.
 	private static SessionChangeTracker Tracker(IFileSystem fileSystem) =>
-		new(fileSystem, "/w", path => path.StartsWith("/w", StringComparison.Ordinal));
+		new(fileSystem, "/w", path => path.StartsWith("/w", StringComparison.Ordinal), NoopReviewCheckpointStore.Instance);
 
 	private static HookRequest Edit(HookEventKind evt, string path, string? cwd = null) => new() {
 		Event = evt,
@@ -337,7 +337,7 @@ public sealed class SessionChangeTrackerTests {
 		string path = Path.Combine(root, "src", "a.txt");
 		fileSystem.WriteAllText(path, "one\n");
 		var tracker = new SessionChangeTracker(
-			fileSystem, root, candidate => candidate.StartsWith(root, StringComparison.Ordinal));
+			fileSystem, root, candidate => candidate.StartsWith(root, StringComparison.Ordinal), NoopReviewCheckpointStore.Instance);
 
 		tracker.Observe(Edit(HookEventKind.PreToolUse, "src/a.txt"));
 		fileSystem.WriteAllText(path, "ONE\n");

@@ -21,7 +21,7 @@ public sealed class CorrectionRecorderTests {
 	private readonly CorrectionCorpus _corpus;
 
 	public CorrectionRecorderTests() {
-		_tracker = new SessionChangeTracker(_fs, _root, _ => true);
+		_tracker = new SessionChangeTracker(_fs, _root, _ => true, NoopReviewCheckpointStore.Instance);
 		_corpus = new CorrectionCorpus(_fs, Path.Combine(_root, "..", "state", "corrections.jsonl"));
 		_tracker.Corrected += new CorrectionRecorder(_corpus).Record;
 	}

@@ -1,7 +1,7 @@
 # Diff Against
 
 Status: implemented (comment authoring deferred — see [#218](https://github.com/Kapps/weavie/issues/218))
-Last updated: 2026-07-04
+Last updated: 2026-07-21
 
 Review the working tree against **any ref** — a branch, tag, commit, or expression like `HEAD~2` — through
 the **same accept/reject engine a turn uses** ([turn-review.md](turn-review.md)). No forge, no new session,
@@ -29,8 +29,9 @@ The turn-review engine (`SessionChangeTracker`) diffs each file's current disk c
 edits it (`CaptureBaseline`, off the hook stream). **Seed the baseline from a git ref instead** — the ref's
 merge-base with HEAD — and the entire Keep / Revert / keep-all / undo / faded-band machinery works unchanged.
 Because later Claude edits merely extend `_current` through the same hook path, **new-turn changes accumulate
-into the same set for free**. `SeedRefBaseline(path, refContent, diskContent, existedAtRef)` is the one new
-Core capability (it **overwrites** every baseline, so it composes with a racing `CaptureBaseline`).
+into the same set for free**. The producer builds every `ReviewSeed` off-thread, then `ArmReview` validates the
+whole set against disk and replaces the board in one tracker transaction. Per-file baseline seeding stays an
+internal tracker operation, so neither a racing `CaptureBaseline` nor a stale async arm can expose a partial set.
 
 ## Semantics
 
@@ -39,8 +40,9 @@ Core capability (it **overwrites** every baseline, so it composes with a racing 
   from itself. A ref *ahead* of HEAD therefore shows nothing of the other side — never a reversed diff.
 - **Current = the working tree** — the changed-file list is `git diff --numstat <base>` **plus
   untracked-but-not-ignored files** as all-added entries (`IGitService.DiffWorktreeAsync`); a brand-new file
-  is an uncommitted change, so it is never silently absent. Each file at the base (`ShowFileAtRefAsync`;
-  empty when absent there) is seeded as its review baseline, its disk content as `current`.
+  is an uncommitted change, so it is never silently absent. Each file at the base (`ReadFileAtRefAsync`, which
+  preserves existence separately from empty content) is seeded as its review baseline, its disk content as
+  `current`.
 - **Keep / Revert act, exactly as a turn** — **Keep** advances the review baseline over the hunk (no disk
   write; it slides to the faded band with an inline `↶ undo`); **Revert** writes the ref content back over
   the hunk **on disk** (an uncommitted backout you then commit). Reverting the last hunk of a file added
@@ -53,19 +55,21 @@ Core capability (it **overwrites** every baseline, so it composes with a racing 
 
 ## The shared review-diff surface
 
-`HostCore.DiffReviews.cs` owns the one review-per-session record (`DiffReview`, keyed by worktree — its
-merge-base, label, and, for a PR, forge repo + comments). Both producers **seed the session's change
-tracker** and then ride the shared turn-review messages; keep/revert need **no** review-specific host code
-(the existing `keep-hunk` / `reject-hunk` / … act on `session.Changes`):
+The session's `SessionChangeTracker` owns the one durable `ReviewIdentity` (merge-base, label, and optional
+PR/forge identity). `HostCore.DiffReviews.cs` owns only a token-keyed, re-fetchable PR-comment cache. Both
+producers atomically **arm and seed the tracker** and then ride the shared turn-review messages; keep/revert
+need **no** review-specific host code (the existing `keep-hunk` / `reject-hunk` / … act on
+`session.Changes`). See [persistent-reviews.md](persistent-reviews.md).
 
 ```mermaid
 flowchart LR
-  PR["open-pr flow<br/>(PrNumber > 0, forge comments)"] --> R[DiffReview · per worktree]
-  DA["diff-against &lt;ref&gt;<br/>(PrNumber 0, local only)"] --> R
-  R -->|SeedRefBaseline ×N| T[SessionChangeTracker]
+  PR["open-pr flow<br/>(PrNumber > 0, forge comments)"] --> A[atomic arm · monotonic token]
+  PR --> C
+  DA["diff-against &lt;ref&gt;<br/>(PrNumber 0, local only)"] --> A
+  A -->|ReviewIdentity + ReviewSeed[]| T[SessionChangeTracker]
   T -->|turn-changes · label + files| Web[inline-diff · applied mode]
   T -->|get-turn-diff → turn-diff · accepted/baseline/current| Web
-  R -->|review-comments · PR only| Web
+  C["re-fetchable comment cache<br/>review-lifetime fenced"] -->|review-comments · PR only| Web
   Web -->|keep-hunk / reject-hunk / … | T
 ```
 
@@ -79,7 +83,7 @@ flowchart LR
   switch-in re-surfaces the active review from the **persisted tracker** (`SurfaceActiveReviewOnSwitch`) — no
   per-switch git diff, so the stale-diff race the old fire-and-forget `pr-changes` had is gone.
 - **Keep-all drops a local ref review** (its label would otherwise cling to the next plain turn); a PR review
-  persists (its identity + comments outlive an equal tree).
+  identity persists while comments are re-fetched after hydration.
 
 ## Failure surfaces (all user-facing toasts)
 
@@ -101,7 +105,7 @@ composer is deferred until it moves to an app-level overlay outside the view-zon
 - `DiffAgainstTests` (Weavie.Hosting.Tests): the flow end-to-end over a real temp repo — HEAD/parent diffs,
   the `turn-diff` baseline/current pair, **a `revert-file` restoring the ref content on disk** (the
   accept/reject unification), unknown ref, empty-diff retraction, merge-base semantics.
-- `SessionChangeTrackerTests` (Weavie.Core.Tests): `SeedRefBaseline` reviews as an applied triple; Keep
+- `SessionChangeTrackerTests` (Weavie.Core.Tests): an atomic ref seed reviews as an applied triple; Keep
   advances the baseline with no disk write; Revert writes the ref over the current lines (a created-vs-ref
   file's revert deletes it); both `CaptureBaseline`↔`SeedRefBaseline` race orderings accumulate.
 - `diff-against.spec.ts` / `open-pr.spec.ts` (Playwright): the user journeys — Diff Against HEAD with a Reject

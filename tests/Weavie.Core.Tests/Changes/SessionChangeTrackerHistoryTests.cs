@@ -7,7 +7,7 @@ namespace Weavie.Core.Tests;
 /// <summary>Undo/redo history over review actions: keep/revert at hunk/file/all, reversed or re-applied.</summary>
 public sealed class SessionChangeTrackerHistoryTests {
 	private static SessionChangeTracker Tracker(IFileSystem fileSystem) =>
-		new(fileSystem, "/w", path => path.StartsWith("/w", StringComparison.Ordinal));
+		new(fileSystem, "/w", path => path.StartsWith("/w", StringComparison.Ordinal), NoopReviewCheckpointStore.Instance);
 
 	// Records a single-hunk change (baseline `from` -> current `to`) on a freshly-baselined file.
 	private static SessionChangeTracker Changed(InMemoryFileSystem fileSystem, string path, string from, string to) {

@@ -12,7 +12,7 @@ namespace Weavie.Core.Tests;
 /// </summary>
 public sealed class SessionChangeTrackerTurnBoundaryTests {
 	private static SessionChangeTracker Tracker(IFileSystem fileSystem) =>
-		new(fileSystem, "/w", path => path.StartsWith("/w", StringComparison.Ordinal));
+		new(fileSystem, "/w", path => path.StartsWith("/w", StringComparison.Ordinal), NoopReviewCheckpointStore.Instance);
 
 	private static readonly HookRequest NewPrompt = new() {
 		Event = HookEventKind.UserPromptSubmit,

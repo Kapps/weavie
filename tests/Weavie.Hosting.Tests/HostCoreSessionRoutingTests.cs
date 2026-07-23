@@ -67,13 +67,26 @@ public sealed class HostCoreSessionRoutingTests {
 	public async Task Ready_EndsItsSynchronousReplayWithBridgeReady() {
 		await using var host = await TestHost.StartAsync();
 		host.Bridge.Clear();
+		// Async enrichments may follow; the bridge marker is the tail of the synchronous replay contract.
+		int receiveThread = Environment.CurrentManagedThreadId;
+		var synchronousReplay = new List<string>();
+		void CaptureSynchronousPost(string json) {
+			if (Environment.CurrentManagedThreadId == receiveThread) {
+				synchronousReplay.Add(json);
+			}
+		}
 
-		host.Bridge.Receive($$"""{"type":"ready","bridgeId":"page-1","pageId":"{{TestHost.TestPageId}}"}""");
+		host.Bridge.MessagePosted += CaptureSynchronousPost;
+		try {
+			host.Bridge.Receive($$"""{"type":"ready","bridgeId":"page-1","pageId":"{{TestHost.TestPageId}}"}""");
+		} finally {
+			host.Bridge.MessagePosted -= CaptureSynchronousPost;
+		}
 
 		var info = host.Bridge.LastOfType("host-info");
 		Assert.True(info.HasValue);
 		Assert.Equal(1, info.Value.GetProperty("readyReplayProtocol").GetInt32());
-		using var tail = JsonDocument.Parse(host.Bridge.Posted[^1]);
+		using var tail = JsonDocument.Parse(synchronousReplay[^1]);
 		Assert.Equal("bridge-ready", tail.RootElement.GetProperty("type").GetString());
 		Assert.Equal("page-1", tail.RootElement.GetProperty("bridgeId").GetString());
 	}

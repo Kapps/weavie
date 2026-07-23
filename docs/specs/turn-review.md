@@ -1,7 +1,7 @@
 # Reviewing auto-applied changes (post-turn review)
 
 Status: in progress
-Last updated: 2026-06-24
+Last updated: 2026-07-21
 
 A keyboard-first flow for reviewing what Claude changed during an autonomous turn in an **auto-apply
 mode** (`acceptEdits` / `bypassPermissions`). Claude runs a full turn without stopping to ask; when it
@@ -13,7 +13,8 @@ There is **no separate review panel and no "show changes" list.** The review sur
 decorated in the files where they live, walked from that one toolbar. This builds directly on the
 hook-driven change tracker and the inline diff renderer that already exist. See
 [permission-modes-and-change-tracking.md](permission-modes-and-change-tracking.md) and
-[../concepts/hook-bridge.md](../concepts/hook-bridge.md) for the machinery this sits on.
+[../concepts/hook-bridge.md](../concepts/hook-bridge.md) for the machinery this sits on. Review decisions
+are durable per worktree; see [persistent-reviews.md](persistent-reviews.md).
 
 ## Thesis: review is post-hoc, so reject is the only action that touches disk
 
@@ -134,7 +135,7 @@ and it's race-free across a session switch by construction (parking never touche
 
 | Layer | Owner | Lifetime |
 |---|---|---|
-| Disk truth (file contents, review baseline + accepted anchor, the keep/revert/un-keep baseline advance, the revert write) | **Core** (`SessionChangeTracker` + host) | session |
+| Disk truth (file contents, review baseline + accepted anchor, the keep/revert/un-keep baseline advance, the revert write) | **Core** (`SessionChangeTracker` + host) | durable per worktree |
 | Hunk geometry (which lines are a change) + the faded band's model-line placement | **Web** (VSCode `linesDiffComputers`, `reviewToModelLine`) | recomputed per render |
 
 Both kept and reviewed-state are **Core-owned** now: a Keep advances `_reviewBaseline` (the same field a
@@ -252,10 +253,13 @@ inline-undo overlay — the nav and Keep/Revert only ever touch bright pending h
 
 Every keep and revert is **undoable**, so review is forgiving — a misfire (or the old "Ctrl+Backspace in
 Claude reverted a hunk" footgun) is one keystroke from recovery. The history lives in
-`SessionChangeTracker` (per session, so it survives switches like the baselines do) as a stack of
+`SessionChangeTracker` (per loaded session) as a stack of
 mementos: each keep/revert snapshots the affected paths' full review state — plus the on-disk content for
 reverts, which mutate the file — so the action can be **reversed** (undo) or **re-applied** (redo)
 uniformly.
+
+The resulting decision is checkpointed, but the memento stacks themselves are not restored after unload or
+restart; a hydrated review begins with empty undo/redo history. See [persistent-reviews.md](persistent-reviews.md).
 
 - **Undo keep** (`$mod+Shift+Enter`) rolls the review baseline back over the kept hunk, so it returns to
   the pending set. No disk write (keep never wrote).

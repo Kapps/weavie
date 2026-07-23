@@ -2,6 +2,11 @@ using Weavie.Core.FileSystem;
 
 namespace Weavie.Core.Editor;
 
+/// <summary>The typed outcome of an editor buffer save.</summary>
+/// <param name="Reply">The protocol reply sent back to the editor.</param>
+/// <param name="Succeeded">Whether the complete buffer reached disk.</param>
+public readonly record struct FileWriteResult(string Reply, bool Succeeded);
+
 /// <summary>
 /// Serves the editor's host-backed <c>file://</c> provider: answers <c>fs-stat</c>/<c>fs-read</c>/<c>fs-write</c>
 /// against the session filesystem, scoped to the workspace, returning reply JSON from <see cref="FileProviderProtocol"/>.
@@ -79,18 +84,18 @@ public sealed class FileProviderService {
 	}
 
 	/// <summary>Answers <c>fs-write</c>: persists the buffer to disk and returns the post-write etag, or an error.</summary>
-	public string Write(string id, string path, string content) {
+	public FileWriteResult Write(string id, string path, string content) {
 		ArgumentNullException.ThrowIfNull(content);
 		if (!IsAllowed(path)) {
-			return FileProviderProtocol.WriteError(id, "Path is outside the workspace.");
+			return new FileWriteResult(FileProviderProtocol.WriteError(id, "Path is outside the workspace."), false);
 		}
 
 		try {
 			_fileSystem.WriteAllText(path, content);
 			_fileSystem.TryGetStat(path, out var stat);
-			return FileProviderProtocol.WriteResult(id, stat);
+			return new FileWriteResult(FileProviderProtocol.WriteResult(id, stat), true);
 		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			return FileProviderProtocol.WriteError(id, ex.Message);
+			return new FileWriteResult(FileProviderProtocol.WriteError(id, ex.Message), false);
 		}
 	}
 

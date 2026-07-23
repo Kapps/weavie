@@ -8,7 +8,7 @@
 // open model is mapped to ITS OWN worktree's client by path, so a backgrounded worktree stays served correctly.
 
 import * as monaco from "monaco-editor";
-import { activeBackendId, onSessionMessage } from "../bridge";
+import { activeBackendId, LOCAL_BACKEND_ID, onSessionMessage } from "../bridge";
 import { isUnderRoot, uriHostPath, worktreeMatchBase } from "../editor/fs-path";
 import { initEditorServices } from "../editor/vscode-services";
 import { ensureClient, pruneForeignBackend, pruneUnloaded } from "./language-client-pool";
@@ -127,9 +127,9 @@ function startForOpenModels(): void {
   }
 }
 
-function recordConfig(config: WeavieLspConfig): void {
+function recordConfig(config: WeavieLspConfig, backendId: string): void {
   activeConfig = config;
-  slotConfigs.set(config.slot, { config, backendId: activeBackendId() });
+  slotConfigs.set(config.slot, { config, backendId });
 }
 
 function installHooks(): void {
@@ -170,20 +170,25 @@ export async function startLanguageServices(): Promise<void> {
   // touching monaco auto-initializes the standalone services, which then makes the editor host's initialize()
   // throw "Services are already initialized". initEditorServices() is idempotent, so this just enforces order.
   await initEditorServices();
-  recordConfig(config);
+  // The injected launch config always describes the page-serving backend — the local one by definition.
+  recordConfig(config, LOCAL_BACKEND_ID);
   installHooks();
   startForOpenModels();
 }
 
 /**
- * Rebind language services on a session switch: record the incoming session and ensure its clients, but KEEP
- * same-backend clients warm (only a backend switch strands them). Switching back reuses the warm client — no
- * cold re-index. See language-client-pool.ts for the pool + per-worktree provider scoping.
+ * Rebind language services on a session switch: record the incoming session (under `backendId`, the backend
+ * that pushed this config) and ensure its clients, but KEEP same-backend clients warm (only a backend switch
+ * strands them). Switching back reuses the warm client — no cold re-index. See language-client-pool.ts for
+ * the pool + per-worktree provider scoping.
  */
-export async function rebindLanguageServices(config: WeavieLspConfig): Promise<void> {
+export async function rebindLanguageServices(
+  config: WeavieLspConfig,
+  backendId: string,
+): Promise<void> {
   // Same init-order guard as startLanguageServices (see there): our init must precede any monaco.editor touch.
   await initEditorServices();
-  recordConfig(config);
+  recordConfig(config, backendId);
   installHooks();
   pruneForeignBackend(activeBackendId());
   startForOpenModels();

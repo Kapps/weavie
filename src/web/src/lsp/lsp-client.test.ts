@@ -17,6 +17,7 @@ interface FakeModel {
   onDidChangeLanguage(cb: () => void): { dispose(): void };
 }
 interface ChannelRec {
+  backendId: string;
   slot: string;
   server: string;
   onExit: (code: number, reason?: string) => void;
@@ -64,12 +65,13 @@ vi.mock("monaco-languageclient", () => ({
 
 vi.mock("./lsp-bridge-transport", () => ({
   openLspChannel: (
+    backendId: string,
     slot: string,
     server: string,
     _channelId: string,
     onExit: (code: number, reason?: string) => void,
   ) => {
-    const rec: ChannelRec = { slot, server, onExit, disposed: false };
+    const rec: ChannelRec = { backendId, slot, server, onExit, disposed: false };
     channels.list.push(rec);
     return {
       reader: {},
@@ -91,6 +93,7 @@ vi.mock("vscode-languageclient", () => ({
 vi.mock("../bridge", () => ({
   log: () => {},
   postToBackend: () => {},
+  LOCAL_BACKEND_ID: "local",
   activeBackendId: () => bus.backend,
   onSessionMessage: (h: (msg: unknown, backendId: string) => void) => {
     bus.sessionHandlers.push(h);
@@ -171,7 +174,7 @@ describe("warm language-client pool", () => {
 
     // Switch to B (same backend). B's tabs replace A's in the editor.
     monacoState.models = [model(`${ROOT_B}/Bar.cs`)];
-    await mod.rebindLanguageServices(csharpConfig("B", ROOT_B));
+    await mod.rebindLanguageServices(csharpConfig("B", ROOT_B), "local");
     await settle();
 
     // A's client stays warm — not disposed, no lsp-stop — while B's starts. Two warm clients, one per worktree.
@@ -187,12 +190,12 @@ describe("warm language-client pool", () => {
 
     // A → B (A's model removed from the editor) → back to A (its model reopens).
     monacoState.models = [model(`${ROOT_B}/Bar.cs`)];
-    await mod.rebindLanguageServices(csharpConfig("B", ROOT_B));
+    await mod.rebindLanguageServices(csharpConfig("B", ROOT_B), "local");
     await settle();
     const constructedAfterSwitch = mlc.instances.length;
 
     monacoState.models = [model(`${ROOT_A}/Foo.cs`)];
-    await mod.rebindLanguageServices(csharpConfig("A", ROOT_A));
+    await mod.rebindLanguageServices(csharpConfig("A", ROOT_A), "local");
     openModel(model(`${ROOT_A}/Foo.cs`));
     await settle();
 
@@ -208,7 +211,7 @@ describe("warm language-client pool", () => {
     await settle();
 
     // Switch to B but keep A's model open too (persistent-model case): both csharp clients live at once.
-    await mod.rebindLanguageServices(csharpConfig("B", ROOT_B));
+    await mod.rebindLanguageServices(csharpConfig("B", ROOT_B), "local");
     openModel(model(`${ROOT_B}/Bar.cs`));
     await settle();
     expect(liveClients()).toBe(2);
@@ -248,11 +251,15 @@ describe("warm language-client pool", () => {
     // The page binds to a remote backend; its session's config arrives on the new backend.
     bus.backend = "remote";
     monacoState.models = [model("/remote/w/Baz.cs")];
-    await mod.rebindLanguageServices(csharpConfig("R", "/remote/w"));
+    await mod.rebindLanguageServices(csharpConfig("R", "/remote/w"), "remote");
     await settle();
 
     expect(channelA?.disposed).toBe(true); // the local client was stranded and torn down
     expect(liveClients()).toBe(1); // only the remote client remains
+    // The remote session's channel was opened ON the remote backend — its frames route home, never to
+    // whichever backend is merely active (the misroute behind "lsp-data named slot ... isn't loaded").
+    expect(channels.list.at(-1)?.backendId).toBe("remote");
+    expect(channelA?.backendId).toBe("local");
   });
 
   it("does not spawn a duplicate when a stale reconnect fires after the client was replaced", async () => {
@@ -279,7 +286,7 @@ describe("warm language-client pool", () => {
     const mod = await import("./lsp-client");
     // Two sibling worktrees loaded, one a string-prefix of the other. No models open yet.
     await mod.startLanguageServices(); // records A = /repo/a (window config)
-    await mod.rebindLanguageServices(csharpConfig("B", "/repo/ab"));
+    await mod.rebindLanguageServices(csharpConfig("B", "/repo/ab"), "local");
     await settle();
 
     // A file under /repo/ab must bind to B (/repo/ab), never the prefix sibling A (/repo/a).
@@ -299,7 +306,7 @@ describe("warm language-client pool", () => {
     // Switch to a remote backend while A's local model lingers in the editor (models persist across switches).
     bus.backend = "remote";
     monacoState.models = [model(`${ROOT_A}/Foo.cs`), model("/remote/w/Baz.cs")];
-    await mod.rebindLanguageServices(csharpConfig("R", "/remote/w"));
+    await mod.rebindLanguageServices(csharpConfig("R", "/remote/w"), "remote");
     await settle();
 
     // Local A was pruned and NOT re-created over the wrong bridge by its lingering model; only remote is live.

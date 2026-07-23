@@ -38,6 +38,8 @@ const pageEpoch = Math.random().toString(36).slice(2, 10).padEnd(8, "0");
 // Backends told (once per page instance, before their first lsp-start) to drop channels from earlier epochs —
 // a fresh page owns none, so without the reset every reload leaks one live server per language.
 const epochReset = new Set<string>();
+// Servers whose document symbols already failed once this page — the toast fires once, not per refresh.
+const symbolFailureWarned = new Set<string>();
 
 function keyFor(backendId: string, slot: string, serverId: string): string {
   return `${backendId}\n${slot}\n${serverId}`;
@@ -226,9 +228,10 @@ function connect(key: string, params: EnsureClientParams, attempt: number): void
   }
   pool.set(key, entry);
 
-  // Open the bridge channel: the host spawns the server on lsp-start; its exit or failure-to-start arrives via
-  // onExit (carrying the host-side reason), routed through the same supervised reconnect as a dropped link.
-  const channel = openLspChannel(config.slot, server.id, channelId, (code, reason) => {
+  // Open the bridge channel on the backend that owns this slot: the host spawns the server on lsp-start; its
+  // exit or failure-to-start arrives via onExit (carrying the host-side reason), routed through the same
+  // supervised reconnect as a dropped link.
+  const channel = openLspChannel(backendId, config.slot, server.id, channelId, (code, reason) => {
     if (torn || !current()) {
       return;
     }
@@ -258,6 +261,29 @@ function connect(key: string, params: EnsureClientParams, attempt: number): void
       middleware: {
         workspace: {
           configuration: (params) => params.items.map(() => settings),
+        },
+        // A malformed symbol from the server (e.g. an empty name, which the protocol converter rejects with
+        // "name must not be falsy") must degrade to no outline for that file — not storm window.error on every
+        // breadcrumb/outline refresh. Warned once per server; each occurrence still logs.
+        provideDocumentSymbols: async (document, token, next) => {
+          try {
+            return await next(document, token);
+          } catch (err) {
+            // Routine request cancellation (rethrown by handleFailedRequest as the vscode shim's
+            // CancellationError, whose stable marker is name === "Canceled") is not a malformed response.
+            if (err instanceof Error && err.name === "Canceled") {
+              throw err;
+            }
+            log("error", `lsp: ${server.id} document symbols failed: ${describeError(err)}`);
+            if (!symbolFailureWarned.has(server.id)) {
+              symbolFailureWarned.add(server.id);
+              notify(
+                "warn",
+                `${server.id} returned document symbols Weavie couldn't read; the outline is unavailable for the affected file.`,
+              );
+            }
+            return [];
+          }
         },
       },
       // The client itself stays passive on errors; recovery is the host-supervised reconnect above.

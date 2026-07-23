@@ -922,7 +922,7 @@ export default function App(): JSX.Element {
       document.addEventListener("visibilitychange", () => startEditorOnce(), { once: true });
     }
 
-    const offHost = onHostMessage((message) => {
+    const offHost = onHostMessage((message, originBackendId) => {
       if (editor.handleMessage(message)) {
         return;
       }
@@ -968,11 +968,12 @@ export default function App(): JSX.Element {
         editor.setReviewFiles(message.files, message.label);
       } else if (message.type === "lsp-config") {
         // A session switch: re-point the language clients at the incoming session's LSP bridge (its own
-        // worktree root), tearing the previous session's clients down. Imported lazily — lsp-client pulls
+        // worktree root), tearing the previous session's clients down. The config is recorded under the
+        // backend that pushed it, so its clients' frames route home. Imported lazily — lsp-client pulls
         // Monaco, which must stay off the first-paint chunk.
         const config = message.config;
         void import("./lsp/lsp-client").then(({ rebindLanguageServices }) =>
-          rebindLanguageServices(config),
+          rebindLanguageServices(config, originBackendId),
         );
       } else if (message.type === "dir-listing") {
         setDirListings((prev) => ({ ...prev, [message.path]: message.entries }));

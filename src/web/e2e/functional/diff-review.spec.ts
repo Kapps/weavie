@@ -68,6 +68,28 @@ test.describe("applied review — keep & undo", () => {
   });
 });
 
+test.describe("applied review — resolving the last change exits the review", () => {
+  test.use({ fakeScript: { steps: [...appliedEdit("hello.ts", TWO_HUNKS)] } });
+
+  test("keeping every hunk one-by-one dismisses the review without keep-all", async ({ page }) => {
+    await openFile(page, "hello.ts");
+    await expect(page.locator(ADDED)).toHaveCount(2);
+
+    // Keep hunk 1 at scope = Change: the review stays up (hunk 2 is still bright, hunk 1 fades).
+    await focusFirstHunk(page);
+    await page.keyboard.press("ControlOrMeta+Enter");
+    await expect(page.locator(ADDED)).toHaveCount(1);
+    await expect(page.locator(SCOPE)).toBeVisible();
+
+    // Keep the LAST hunk: the review settles, commits (as keep-all would), and exits — no lingering
+    // toolbar with every change already approved, and the faded bands clear with the commit.
+    await page.keyboard.press("ControlOrMeta+Enter");
+    await expect(page.locator(TOOLBAR)).toHaveCount(0);
+    await expect(page.locator(ADDED)).toHaveCount(0);
+    await expect(page.locator(ACCEPTED)).toHaveCount(0);
+  });
+});
+
 test.describe("applied review — undo-keep reveals the restored hunk", () => {
   test.use({ fakeScript: { steps: [...appliedEdit("hello.ts", TWO_HUNKS)] } });
 
@@ -315,7 +337,16 @@ test.describe("applied review — Shift+Enter never types into the file (regress
 });
 
 test.describe("applied review — scope picker (keep whole file)", () => {
-  test.use({ fakeScript: { steps: [...appliedEdit("hello.ts", TWO_HUNKS)] } });
+  // A second changed file keeps the review unsettled: File-scope keep must FADE the kept file, not commit
+  // the review (with no other pending file, keeping the last one settles and exits — covered above).
+  test.use({
+    fakeScript: {
+      steps: [
+        ...appliedEdit("hello.ts", TWO_HUNKS),
+        ...appliedEdit("notes.txt", "just plain text\nand a second changed line\n"),
+      ],
+    },
+  });
 
   test("with scope = File, one Keep fades every hunk in the file (kept, not gone)", async ({
     page,
@@ -328,16 +359,19 @@ test.describe("applied review — scope picker (keep whole file)", () => {
     await page.locator(".weavie-inline-scope-item", { hasText: "This file" }).click();
     await page.locator(".weavie-inline-accept").click();
 
-    // No pending hunks remain, but the whole file is now faded-accepted (both hunks) with their inline undos —
-    // a fully-kept file still renders its faded band (it isn't bailed on for having no bright diff).
+    // No pending hunks remain HERE, but the whole file is now faded-accepted (both hunks) with their inline
+    // undos — a fully-kept file still renders its faded band while another file is pending.
     await expect(page.locator(ADDED)).toHaveCount(0);
     await expect(page.locator(ACCEPTED)).toHaveCount(2);
     await expect(page.locator(UNDO)).toHaveCount(2);
   });
+});
+
+test.describe("applied review — scope picker (keep all, single file)", () => {
+  test.use({ fakeScript: { steps: [...appliedEdit("hello.ts", TWO_HUNKS)] } });
 
   // A single-file review has no ← / → file axis, so "All files" reads as "All changes" — but it must still be
   // offered, because keep-all is the only toolbar scope that commits the review and closes the navigator.
-  // Without it a one-file review could only ever be faded (kept-but-uncommitted), never dismissed.
   test("with scope = All changes, one Keep commits the single-file review and closes the toolbar", async ({
     page,
   }) => {

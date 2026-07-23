@@ -11,7 +11,7 @@ namespace Weavie.Hosting.Tests;
 [Collection(TestCollections.HostIntegration)]
 public sealed class TurnKeepTests {
 	[Fact]
-	public async Task KeepFile_AdvancesBaseline_LeavingFileFadedInReviewSet() {
+	public async Task KeepFile_LastPendingFile_ExitsTheReview() {
 		await using var host = await TestHost.StartAsync();
 		var session = host.Core.ActiveSessionForTest() ?? throw new InvalidOperationException("no active session");
 		string path = Path.Combine(host.RepoRoot, "readme.txt");
@@ -24,13 +24,12 @@ public sealed class TurnKeepTests {
 		host.Bridge.Clear();
 		host.Send($$"""{"type":"keep-file","path":{{JsonSerializer.Serialize(path)}}}""");
 
-		// The file stays in the review set as a faded accepted band (no pending hunks) until keep-all commits it.
+		// Keeping the set's last pending file settles the review: it commits (as keep-all would) and exits.
 		Assert.Equal("hello\nworld\n", File.ReadAllText(path)); // disk untouched — keep is not a revert
-		var turn = session.Changes.GetTurn(path);
-		Assert.NotNull(turn);
-		Assert.Equal(turn!.BaselineText, turn.CurrentText);     // review baseline == current → nothing bright/pending
-		Assert.NotEqual(turn.AcceptedBaselineText, turn.CurrentText); // accepted anchor still behind → faded band remains
-		Assert.NotNull(host.Bridge.LastOfType("turn-changes")); // the review set was re-emitted
+		Assert.Empty(session.Changes.TurnChanges());
+		var files = host.Bridge.LastOfType("turn-changes");
+		Assert.NotNull(files); // the now-empty review set was re-emitted, so the page's toolbar goes away
+		Assert.Empty(files!.Value.GetProperty("files").EnumerateArray());
 	}
 
 	[Fact]
@@ -40,21 +39,22 @@ public sealed class TurnKeepTests {
 		string path = Path.Combine(host.RepoRoot, "readme.txt");
 
 		session.Changes.CaptureBaseline(path); // baseline = "hello\n"
-		File.WriteAllText(path, "hello\nworld\n"); // one added hunk: line 2
+		File.WriteAllText(path, "hello\nworld\nmore\n"); // one added band: lines 2-3
 		session.Changes.RecordChange(path);
 		Assert.Single(session.Changes.TurnChanges());
 
 		host.Bridge.Clear();
+		// Keep only line 2 of the added band; line 3 stays bright, so the review must NOT settle or commit.
 		host.Send($$"""
 			{"type":"keep-hunk","path":{{JsonSerializer.Serialize(path)}},"baselineStart":2,"baselineEndExclusive":2,"currentStart":2,"currentEndExclusive":3,"guardText":"world"}
 			""");
 
-		// The only hunk is now faded-accepted: no pending diff (review baseline == current), but the file stays.
-		Assert.Equal("hello\nworld\n", File.ReadAllText(path)); // disk untouched
+		Assert.Equal("hello\nworld\nmore\n", File.ReadAllText(path)); // disk untouched
 		var turn = session.Changes.GetTurn(path);
 		Assert.NotNull(turn);
-		Assert.Equal(turn!.BaselineText, turn.CurrentText);
-		Assert.NotEqual(turn.AcceptedBaselineText, turn.CurrentText);
+		Assert.Equal("hello\nworld\n", turn!.BaselineText);           // the baseline absorbed just the kept line
+		Assert.NotEqual(turn.BaselineText, turn.CurrentText);         // "more" still bright-pending
+		Assert.NotEqual(turn.AcceptedBaselineText, turn.BaselineText); // the kept line is a faded band
 		Assert.NotNull(host.Bridge.LastOfType("turn-changes"));
 	}
 
@@ -116,27 +116,33 @@ public sealed class TurnKeepTests {
 		await using var host = await TestHost.StartAsync();
 		var session = host.Core.ActiveSessionForTest() ?? throw new InvalidOperationException("no active session");
 		string path = Path.Combine(host.RepoRoot, "readme.txt");
+		string pending = Path.Combine(host.RepoRoot, "notes.txt");
 
 		session.Changes.CaptureBaseline(path);
 		File.WriteAllText(path, "hello\nworld\n");
 		session.Changes.RecordChange(path);
+		// A second file stays bright so the keep below leaves a faded band instead of settling the review.
+		session.Changes.CaptureBaseline(pending);
+		File.WriteAllText(pending, "note\n");
+		session.Changes.RecordChange(pending);
 		host.Send($$"""{"type":"keep-file","path":{{JsonSerializer.Serialize(path)}}}""");
-		Assert.Single(session.Changes.TurnChanges()); // kept: faded band only
+		Assert.Equal(2, session.Changes.TurnChanges().Count); // kept file faded + pending file bright
 
 		host.Bridge.Clear();
-		// A new prompt (the UserPromptSubmit hook) commits the accepted band: the file leaves the diff view.
+		// A new prompt (the UserPromptSubmit hook) commits the accepted band: the kept file leaves the diff view.
 		session.Changes.Observe(new Weavie.Core.Hooks.HookRequest {
 			Event = Weavie.Core.Hooks.HookEventKind.UserPromptSubmit,
 			ToolName = string.Empty,
 			ToolInputJson = "{}",
 		});
 
-		Assert.Empty(session.Changes.TurnChanges());
+		var remaining = Assert.Single(session.Changes.TurnChanges());
+		Assert.Equal(pending, remaining.Path);
 		var files = host.Bridge.LastOfType("turn-changes");
-		Assert.NotNull(files);
-		Assert.Empty(files!.Value.GetProperty("files").EnumerateArray()); // the trimmed (now empty) review set
+		Assert.NotNull(files); // the trimmed review set: only the still-pending file
+		Assert.Single(files!.Value.GetProperty("files").EnumerateArray());
 		var diff = host.Bridge.LastOfType("turn-diff");
-		Assert.NotNull(diff); // the file's inline markers clear: accepted == current
+		Assert.NotNull(diff); // the kept file's inline markers clear: accepted == current
 		Assert.Equal(diff!.Value.GetProperty("current").GetString(), diff.Value.GetProperty("acceptedBaseline").GetString());
 		var history = host.Bridge.LastOfType("review-history");
 		Assert.NotNull(history); // the commit cleared the undo history

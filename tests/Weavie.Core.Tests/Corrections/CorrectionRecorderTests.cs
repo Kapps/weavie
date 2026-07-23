@@ -433,6 +433,7 @@ public sealed class CorrectionRecorderTests {
 	public void UndoKeep_RestoresCorrectionProvenance() {
 		Boundary("p1");
 		AgentEdit("app.cs", "agent\n");
+		AgentEdit("other.cs", "other\n"); // stays bright so the keep doesn't settle (and commit) the review
 		_tracker.KeepFile(Abs("app.cs"));
 		Assert.True(_tracker.UndoLastKeep().Acted);
 

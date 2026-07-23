@@ -111,7 +111,10 @@ public sealed partial class HostCore {
 			PushSessionList();
 		});
 		session.FileChanges += changes => _ui.Post(() =>
-			DispatchEditorProjection(session, () => PushWatcherChangesToWeb(changes)));
+			DispatchEditorProjection(session, () => {
+				PushWatcherChangesToWeb(changes);
+				session.RefreshListedDirectories(changes); // the file browser re-lists the directories they landed in
+			}));
 	}
 
 	private bool IsActiveSession(HostSession session) => ReferenceEquals(_session, session);

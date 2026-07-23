@@ -66,4 +66,15 @@ public sealed class WorkspaceBrowserTests {
 
 		Assert.Empty(browser.List(ghost));
 	}
+
+	[Fact]
+	public void TryResolve_MatchesWhatListLists() {
+		// The freshness tracker keys watched directories by TryResolve, so it must mirror List's clamping exactly.
+		var browser = NewBrowser("/proj/src/main.cs");
+
+		Assert.Equal(browser.Root, browser.TryResolve(null));
+		Assert.Equal(browser.Root, browser.TryResolve("../secret")); // escape clamps to the root, like List
+		Assert.Equal(Path.Combine(browser.Root, "src"), browser.TryResolve(Path.Combine(browser.Root, "src")));
+		Assert.Null(browser.TryResolve("bad\0path")); // malformed → no listing to track
+	}
 }

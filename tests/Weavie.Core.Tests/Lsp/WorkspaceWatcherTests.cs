@@ -5,9 +5,9 @@ using Xunit;
 namespace Weavie.Core.Tests;
 
 /// <summary>
-/// Workspace watcher (feeds <c>workspace/didChangeWatchedFiles</c>): detects on-disk changes, filters
-/// to served extensions, skips noise directories, and reports deletions. Uses the real filesystem with
-/// generous polling, since FileSystemWatcher is asynchronous.
+/// Workspace watcher: detects on-disk file AND directory changes (every extension — consumers filter), skips
+/// noise directories, and reports deletions. Uses the real filesystem with generous polling, since
+/// FileSystemWatcher is asynchronous.
 /// </summary>
 public sealed class WorkspaceWatcherTests : IDisposable {
 	private readonly string _dir = Path.Combine(Path.GetTempPath(), $"weavie-watch-{Guid.NewGuid():N}");
@@ -20,7 +20,6 @@ public sealed class WorkspaceWatcherTests : IDisposable {
 	private WorkspaceWatcher NewWatcher() {
 		var watcher = new WorkspaceWatcher(
 			_dir,
-			new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".ts", ".cs" },
 			batch => {
 				foreach (var change in batch) {
 					_changes.Add(change);
@@ -44,25 +43,32 @@ public sealed class WorkspaceWatcherTests : IDisposable {
 		return predicate();
 	}
 
-	private bool HasChange(string fileName) {
-		string uri = new Uri(Path.Combine(_dir, fileName)).AbsoluteUri;
-		return _changes.Any(c => string.Equals(c.Uri, uri, StringComparison.OrdinalIgnoreCase));
+	private bool HasChange(string name) {
+		string path = Path.Combine(_dir, name);
+		return _changes.Any(c => string.Equals(c.Path, path, StringComparison.OrdinalIgnoreCase));
 	}
 
 	[Fact]
-	public async Task ReportsChange_ForWatchedExtension() {
+	public async Task ReportsChange_WithNativePath() {
 		using var watcher = NewWatcher();
 		await File.WriteAllTextAsync(Path.Combine(_dir, "a.ts"), "export const x = 1;\n");
 		Assert.True(await WaitForAsync(() => HasChange("a.ts")), "expected a change for a.ts");
 	}
 
 	[Fact]
-	public async Task IgnoresUnwatchedExtension() {
+	public async Task ReportsEveryExtension() {
 		using var watcher = NewWatcher();
 		await File.WriteAllTextAsync(Path.Combine(_dir, "notes.md"), "hello\n");
-		await File.WriteAllTextAsync(Path.Combine(_dir, "trigger.ts"), "export const y = 2;\n");
-		await WaitForAsync(() => HasChange("trigger.ts"));
-		Assert.False(HasChange("notes.md"), "markdown should be filtered out");
+		Assert.True(await WaitForAsync(() => HasChange("notes.md")), "expected a change for notes.md");
+	}
+
+	[Fact]
+	public async Task ReportsDirectoryCreation() {
+		using var watcher = NewWatcher();
+		Directory.CreateDirectory(Path.Combine(_dir, "newdir"));
+		Assert.True(
+			await WaitForAsync(() => _changes.Any(c => c.Kind == FileChangeKind.Created && HasChange("newdir"))),
+			"expected a Created change for newdir");
 	}
 
 	[Fact]
@@ -73,7 +79,7 @@ public sealed class WorkspaceWatcherTests : IDisposable {
 		await File.WriteAllTextAsync(Path.Combine(nested, "dep.ts"), "export const z = 3;\n");
 		await File.WriteAllTextAsync(Path.Combine(_dir, "real.ts"), "export const r = 4;\n");
 		await WaitForAsync(() => HasChange("real.ts"));
-		Assert.DoesNotContain(_changes, c => c.Uri.Contains("node_modules", StringComparison.OrdinalIgnoreCase));
+		Assert.DoesNotContain(_changes, c => c.Path.Contains("node_modules", StringComparison.OrdinalIgnoreCase));
 	}
 
 	[Fact]
@@ -84,7 +90,7 @@ public sealed class WorkspaceWatcherTests : IDisposable {
 		await Task.Delay(120);
 		File.Delete(path);
 		Assert.True(
-			await WaitForAsync(() => _changes.Any(c => c.Kind == FileChangeKind.Deleted && c.Uri.EndsWith("gone.ts", StringComparison.OrdinalIgnoreCase))),
+			await WaitForAsync(() => _changes.Any(c => c.Kind == FileChangeKind.Deleted && c.Path.EndsWith("gone.ts", StringComparison.OrdinalIgnoreCase))),
 			"expected a Deleted change for gone.ts");
 	}
 

@@ -49,10 +49,19 @@ public sealed partial class HostCore {
 			var messages = new List<string>();
 			bool allOk = true;
 			foreach (var offer in offers) {
+				// A busy toast persists for the whole (possibly minutes-long) install. On success it just clears —
+				// the command-feedback toast of the returned summary is the single success surface (a keyed info here
+				// would double it). A failure replaces it keyed with a persistent error carrying the tool's words.
 				string key = $"lsp-install-{offer.Descriptor.Id}";
-				_ui.Post(() => Notify("info", $"Installing {offer.Candidate.Command} into Weavie's tools folder… ({offer.Recipe.Toolchain})", key));
+				_ui.Post(() => Notify("busy", $"Installing {offer.Candidate.Command} into Weavie's tools folder… ({offer.Recipe.Toolchain})", key));
 				var result = await _serverInstaller.InstallAsync(offer, WorkspaceRoot, ct).ConfigureAwait(false);
-				_ui.Post(() => Notify(result.Ok ? "info" : "error", result.Message, key));
+				_ui.Post(() => {
+					if (result.Ok) {
+						ClearNotify(key);
+					} else {
+						Notify("error", result.Message, key);
+					}
+				});
 				messages.Add(result.Message);
 				allOk &= result.Ok;
 			}

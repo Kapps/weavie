@@ -56,6 +56,17 @@ public sealed class WorkspaceWatcherTests : IDisposable {
 	}
 
 	[Fact]
+	public async Task NewFile_CoalescesToCreated_NotChanged() {
+		// Creating a file fires Created + content-write Changed inside one debounce window; the batch must
+		// keep Created — consumers gate tree/index membership on it.
+		using var watcher = NewWatcher();
+		await File.WriteAllTextAsync(Path.Combine(_dir, "fresh.ts"), "export const f = 1;\n");
+		Assert.True(await WaitForAsync(() => HasChange("fresh.ts")), "expected a change for fresh.ts");
+		Assert.Contains(
+			_changes, c => c.Kind == FileChangeKind.Created && c.Path.EndsWith("fresh.ts", StringComparison.OrdinalIgnoreCase));
+	}
+
+	[Fact]
 	public async Task ReportsEveryExtension() {
 		using var watcher = NewWatcher();
 		await File.WriteAllTextAsync(Path.Combine(_dir, "notes.md"), "hello\n");

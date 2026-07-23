@@ -93,8 +93,13 @@ public sealed class WorkspaceWatcher : IDisposable {
 			return;
 		}
 
-		// Last-write-wins per path within a batch; coarse last-wins is fine for every consumer's refresh.
-		_pending[fullPath] = kind;
+		// Coalesce per path, preserving membership transitions: a Created followed by its content writes stays
+		// Created (consumers gate tree/index membership on it), and a Deleted→Created round-trip nets to
+		// Changed; otherwise the newest kind wins.
+		_pending.AddOrUpdate(fullPath, kind, (_, existing) =>
+			existing == FileChangeKind.Created && kind == FileChangeKind.Changed ? FileChangeKind.Created
+			: existing == FileChangeKind.Deleted && kind == FileChangeKind.Created ? FileChangeKind.Changed
+			: kind);
 		lock (_flushLock) {
 			// A watcher callback in flight during Dispose must not touch the disposed timer.
 			if (!_disposed) {

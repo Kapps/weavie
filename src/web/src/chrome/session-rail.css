@@ -54,6 +54,13 @@
 .session-chip.unloaded:hover {
   opacity: 0.75;
 }
+/* A chip whose backend link is down (socket opening/retrying): faded like a dormant chip — the session
+   can't be reached until the link is back (clicking refuses with a toast). Its marker greys out below,
+   after the status rules, so the stale last-known status colour never wins the cascade. */
+.session-chip.offline {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
 .session-chip-mono {
   pointer-events: none;
 }
@@ -225,6 +232,16 @@
 .session-chip.status-starting .session-chip-cloud {
   color: var(--busy);
   opacity: 0.6;
+}
+/* An offline chip's marker: greyed and still, whatever status the session last reported — that status is
+   stale until the link is back. Placed after the status rules so it wins their equal-specificity cascade. */
+.session-chip.offline .session-chip-dot {
+  background: var(--dim);
+  animation: none;
+}
+.session-chip.offline .session-chip-cloud {
+  color: var(--dim);
+  animation: none;
 }
 
 /* The cloud button at the rail bottom opens the remote-agents panel; only present once an agent is registered.

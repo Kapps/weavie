@@ -18,6 +18,7 @@ function railSession(over: Partial<RailSession>): RailSession {
     locationName: "default",
     isLocal: true,
     pending: false,
+    offline: false,
     ...over,
   };
 }

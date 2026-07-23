@@ -931,15 +931,25 @@ export function forgetEditorRequest(id: string): void {
 // reconnecting banner over the active panes; transitions also raise the one-shot connection toasts.
 export type BackendPhase = "connecting" | "online" | "reconnecting";
 const [phases, setPhases] = createSignal<Map<string, BackendPhase>>(new Map());
+type BackendPhaseHandler = (backendId: string, phase: BackendPhase) => void;
+const backendPhaseListeners = new Set<BackendPhaseHandler>();
 function setBackendPhase(id: string, phase: BackendPhase): void {
+  // Dedup inside the updater so the read stays untracked even under a reactive scope.
+  let changed = false;
   setPhases((prev) => {
     if (prev.get(id) === phase) {
       return prev;
     }
+    changed = true;
     const next = new Map(prev);
     next.set(id, phase);
     return next;
   });
+  if (changed) {
+    for (const listener of backendPhaseListeners) {
+      listener(id, phase);
+    }
+  }
 }
 function clearBackendPhase(id: string): void {
   setPhases((prev) => {
@@ -952,8 +962,20 @@ function clearBackendPhase(id: string): void {
   });
 }
 
+/** The live link state of `backendId`'s transport (online unless its socket is opening/retrying). */
+export const backendPhase = (backendId: string): BackendPhase =>
+  phases().get(backendId) ?? "online";
+
+/** Subscribe to backend link-phase transitions; returns the unsubscribe. */
+export function onBackendPhase(handler: BackendPhaseHandler): () => void {
+  backendPhaseListeners.add(handler);
+  return () => {
+    backendPhaseListeners.delete(handler);
+  };
+}
+
 /** The live link state of the backend currently driving the page (online unless its socket is opening/retrying). */
-export const activeBackendPhase = (): BackendPhase => phases().get(activeBackend()) ?? "online";
+export const activeBackendPhase = (): BackendPhase => backendPhase(activeBackend());
 /** True while the active backend's link is down (opening or reconnecting) — the panes can't reach their host. */
 export const activeBackendOffline = (): boolean => activeBackendPhase() !== "online";
 
@@ -1607,12 +1629,16 @@ export function backendName(id: string): string {
   return backends.get(id)?.info.name ?? id;
 }
 
-// Terminal keystrokes are live input, not queueable work: while a backend's link is down they are dropped
-// (the offline overlay is the user-facing signal), never buffered — replaying stale keystrokes (with their
-// Enters) into the PTY on reconnect would execute commands nobody is watching. Mirrors the LSP writer's
-// reject-while-offline.
+// Terminal keystrokes and session switches are live interaction, not queueable work: while a backend's link
+// is down they are dropped (the offline chip/overlay + refused-switch toast are the user-facing signal),
+// never buffered — replaying them on reconnect would execute stale input: keystrokes (with their Enters)
+// into a PTY nobody is watching, or a navigation that yanks the page to a session the user gave up on
+// minutes ago. Mirrors the LSP writer's reject-while-offline.
 function dropWhileOffline(backendId: string, message: HostBoundMessage): boolean {
-  return message.type === "term-input" && (phases().get(backendId) ?? "online") !== "online";
+  return (
+    (message.type === "term-input" || message.type === "switch-session") &&
+    backendPhase(backendId) !== "online"
+  );
 }
 
 /** Send to the active backend (the page's current backend). */

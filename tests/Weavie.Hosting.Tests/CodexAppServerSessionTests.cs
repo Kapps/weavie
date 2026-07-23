@@ -712,7 +712,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		await using var reopened = CreateSession(new CapturingAgentEventSink(), reopenedMessages);
 
 		reopened.Start();
-		await WaitForAsync(() => reopened.ControlState.ModelControl.Models.Count > 0);
+		await WaitForTurnControlsAsync(reopened);
 
 		var control = reopened.ControlState;
 		var current = CurrentModel(control);
@@ -810,7 +810,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
 
 		session.Start();
-		await WaitForAsync(() => session.ControlState.ModelControl.Models.Count > 0);
+		await WaitForTurnControlsAsync(session);
 
 		// thread/start carries no effort/serviceTier (the schema forbids effort there); they ride turn/start only.
 		using (var threadDoc = JsonDocument.Parse(File.ReadAllText(Path.Combine(_dir, "thread-start.json")))) {
@@ -853,7 +853,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
 
 		session.Start();
-		await WaitForAsync(() => session.ControlState.ModelControl.Models.Count > 0);
+		await WaitForTurnControlsAsync(session);
 
 		// Global defaults that gpt-5.4-mini supports neither: it has no service tier and no "high" effort.
 		_settings!.Set("codex.serviceTier", JsonDocument.Parse("\"priority\"").RootElement);
@@ -876,7 +876,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
 
 		session.Start();
-		await WaitForAsync(() => session.ControlState.ModelControl.Models.Count > 0);
+		await WaitForTurnControlsAsync(session);
 
 		// A value no model in the catalog offers is a typo, not a per-model gap: send it so Codex rejects it loudly
 		// instead of silently swallowing the misconfiguration.
@@ -908,6 +908,14 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 
 	private static JsonElement TurnSettings(JsonDocument document) =>
 		document.RootElement.GetProperty("params").GetProperty("collaborationMode").GetProperty("settings");
+
+	// A submit that asserts on TurnSettings must wait for BOTH control loads: the mode list lands on a later
+	// response than the model catalog, and a turn started in between goes out without collaborationMode at
+	// all (CurrentCollaborationMode returns null while the list is empty).
+	private static Task WaitForTurnControlsAsync(CodexAppServerSession session) =>
+		WaitForAsync(() =>
+			session.ControlState.ModelControl.Models.Count > 0 &&
+			session.ControlState.Axes.Any(axis => axis.Id == "collaborationMode"));
 
 	[Fact]
 	public async Task Submit_WithStagedSkill_SendsResolvedSkillInputItem() {

@@ -3,7 +3,12 @@ import type { AgentPaneUpdate } from "../bridge";
 import { liveKeyLabel } from "../commands/keys-live";
 import { CommandIds } from "../commands/types";
 import { AgentMarkdown } from "./AgentMarkdown";
-import { ApprovalActions, EditLocationActions, InputRequestActions } from "./AgentPaneActions";
+import {
+  ApprovalActions,
+  EditLocationActions,
+  InputRequestActions,
+  PlanActions,
+} from "./AgentPaneActions";
 import { AgentLinkedText } from "./AgentPaneLinks";
 import type { AgentActivityStep, AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 import { computeSectionLabels } from "./AgentTranscriptLabels";
@@ -118,7 +123,11 @@ function TranscriptEntry(props: {
     >
       <Show when={props.sectionLabel !== null || showEntryHeader(props.entry)}>
         <div class="agent-entry-head" title={entryTitle(props.entry)}>
-          <span class="agent-entry-label">{props.sectionLabel ?? entryLabel(props.entry)}</span>
+          <span class="agent-entry-label">
+            {props.entry.kind === "plan" && props.sectionLabel !== null
+              ? `${props.sectionLabel} · Plan`
+              : (props.sectionLabel ?? entryLabel(props.entry))}
+          </span>
           <Show when={props.entry.status !== null}>
             <small class="agent-entry-status">{props.entry.status}</small>
           </Show>
@@ -189,6 +198,9 @@ function EntryActions(props: {
           </Match>
           <Match when={message().type === "edit-location"}>
             <EditLocationActions target={message().text} />
+          </Match>
+          <Match when={message().type === "item-completed" && message().itemType === "plan"}>
+            <PlanActions message={message()} slot={props.slot} />
           </Match>
         </Switch>
       )}

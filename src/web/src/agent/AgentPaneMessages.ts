@@ -13,6 +13,7 @@ import type {
   AgentTranscriptEntry,
   AgentTranscriptTone,
 } from "./AgentPaneTranscriptTypes";
+import { planIdentity } from "./agent-plan";
 
 interface MutableActivity extends AgentTranscriptEntry {
   latestStepId: string | null;
@@ -139,9 +140,10 @@ function durableEntry(
     case "interrupted":
       return entry(message, sequence, "notice", "warning", "Interrupted", status);
     case "item-completed":
-      return message.itemType === "agentMessage"
-        ? entry(message, sequence, "message", "assistant", "Codex", null)
-        : null;
+      if (message.itemType === "agentMessage") {
+        return entry(message, sequence, "message", "assistant", "Codex", null);
+      }
+      return message.itemType === "plan" ? planEntry(message, sequence) : null;
     case "turn-completed": {
       const turnKey = paneTurnIdentity(message);
       return normalizeStatus(message.status) === "failed" &&
@@ -161,6 +163,21 @@ function durableEntry(
     default:
       return null;
   }
+}
+
+function planEntry(message: AgentPaneUpdate, sequence: number): AgentTranscriptEntry {
+  const identity = planIdentity(message);
+  return {
+    actionMessage: identity === null ? null : message,
+    details: [],
+    id: paneItemIdentity(message) ?? `plan-${sequence}`,
+    kind: "plan",
+    label: "Plan",
+    status: null,
+    summary: identity === null ? "Plan is unavailable" : "Ready to review in the editor",
+    text: null,
+    tone: "assistant",
+  };
 }
 
 function entry(
@@ -407,7 +424,7 @@ function clusterActivity(group: AgentTranscriptEntry[]): AgentTranscriptEntry[] 
 function lastAnchorIndex(entries: AgentTranscriptEntry[]): number {
   for (let i = entries.length - 1; i >= 0; i -= 1) {
     const entry = entries[i];
-    if (entry !== undefined && (isAssistantMessage(entry) || isPendingRequest(entry))) {
+    if (entry !== undefined && (isAssistantResult(entry) || isPendingRequest(entry))) {
       return i;
     }
   }
@@ -422,8 +439,8 @@ function isPendingRequest(entry: AgentTranscriptEntry): boolean {
   return entry.kind === "request" && entry.status === "pending";
 }
 
-function isAssistantMessage(entry: AgentTranscriptEntry): boolean {
-  return entry.kind === "message" && entry.tone === "assistant";
+function isAssistantResult(entry: AgentTranscriptEntry): boolean {
+  return entry.tone === "assistant" && (entry.kind === "message" || entry.kind === "plan");
 }
 
 function isUserMessage(entry: AgentTranscriptEntry): boolean {

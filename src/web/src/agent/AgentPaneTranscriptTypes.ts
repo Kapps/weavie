@@ -23,7 +23,7 @@ export interface AgentTranscriptEntry {
   actionMessage: AgentPaneUpdate | null;
   details: AgentActivityStep[];
   id: string;
-  kind: "activity" | "message" | "notice" | "request";
+  kind: "activity" | "message" | "notice" | "plan" | "request";
   label: string;
   status: string | null;
   summary: string | null;

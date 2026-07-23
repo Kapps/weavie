@@ -50,7 +50,9 @@ readline.createInterface({ input: process.stdin }).on("line", line => {
   } else if (message.method === "collaborationMode/list") {
     const plan = fs.existsSync("plan-model-mini")
       ? { name: "Plan", mode: "plan", model: "gpt-5.4-mini", reasoning_effort: "low" }
-      : { name: "Plan", mode: "plan", model: null, reasoning_effort: "medium" };
+      : { name: "Plan", mode: "plan", model: null,
+        reasoning_effort: fs.existsSync("plan-effort-invalid") ? "ultra"
+          : fs.existsSync("plan-effort-high") ? "high" : "medium" };
     const modes = fs.existsSync("modes-without-plan") ? [
       { name: "Default", mode: "default", model: null, reasoning_effort: null }
     ] : [

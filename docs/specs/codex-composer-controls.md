@@ -50,8 +50,9 @@ status line reflects it immediately.
 
 Collaboration mode is conversation-local rather than a workspace default. The session obtains the available
 presets from Codex's `collaborationMode/list`, stores the selected preset beside the resumed thread id, and
-sends its exact model/reasoning settings in `turn/start.collaborationMode`. A saved preset that Codex no longer
-advertises is shown as an error and blocks a new turn until the user selects an advertised mode.
+sends its model settings plus the effective reasoning effort in `turn/start.collaborationMode`. A mode's
+advertised effort supplies the fallback; a compatible saved/user-selected effort wins. A saved preset that Codex
+no longer advertises is shown as an error and blocks a new turn until the user selects an advertised mode.
 
 ```mermaid
 flowchart LR

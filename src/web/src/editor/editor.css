@@ -524,3 +524,62 @@
   overflow: auto;
   background: var(--bg);
 }
+
+/* A completed agent plan is a transient, read-only Markdown document. It uses the same prose roles as Preview,
+   while AgentMarkdown retains its strict safe-rendering/link-handling profile. */
+.editor-plan {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  overflow: auto;
+  padding: 1.5em 2em;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-prose-family);
+  font-size: var(--font-prose-size);
+  font-weight: var(--font-prose-weight);
+}
+
+.editor-plan:focus-visible {
+  outline: none;
+}
+
+.editor-plan-body {
+  max-width: 48rem;
+  margin: 0 auto;
+}
+
+.editor-plan-head {
+  margin-bottom: 1.6em;
+}
+
+.editor-plan-kicker {
+  display: block;
+  margin-bottom: 0.35em;
+  color: var(--dim);
+  font-size: var(--font-metadata-size);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.editor-plan h1 {
+  margin: 0;
+  color: var(--fg);
+  font-size: var(--font-prose-size);
+  font-weight: 650;
+  line-height: 1.25;
+}
+
+.editor-plan .agent-markdown {
+  max-width: none;
+  font-family: var(--font-prose-family);
+  font-size: var(--font-prose-size);
+  font-weight: var(--font-prose-weight);
+  line-height: 1.6;
+}
+
+.editor-plan-notice {
+  color: var(--dim);
+  font-size: var(--font-metadata-size);
+  text-align: center;
+}

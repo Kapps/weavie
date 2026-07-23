@@ -128,6 +128,39 @@ public sealed class AgentSessionHost : IAsyncDisposable {
 	/// <summary>Disposes provider integration after the terminal has already stopped.</summary>
 	public ValueTask DisposeProviderAsync() => Session.DisposeAsync();
 
+	internal bool TryGetCompletedPlan(string threadId, string turnId, string itemId, out AgentPlan plan) {
+		plan = default;
+		if (string.IsNullOrEmpty(threadId) || string.IsNullOrEmpty(turnId) || string.IsNullOrEmpty(itemId)) {
+			return false;
+		}
+
+		string key = AgentPaneIdentity.ItemKey(threadId, turnId, itemId)!;
+		lock (_paneGate) {
+			// A fresh stream for this identity supersedes its completed version until it reaches its own final item.
+			if (_paneItemIndexes.ContainsKey(key)) {
+				return false;
+			}
+
+			for (int index = _paneMessages.Count - 1; index >= 0; index--) {
+				var message = _paneMessages[index];
+				if (!string.Equals(AgentPaneIdentity.ItemKey(message), key, StringComparison.Ordinal)) {
+					continue;
+				}
+
+				if (message.Type != "item-completed"
+					|| !string.Equals(message.ItemType, "plan", StringComparison.Ordinal)
+					|| string.IsNullOrWhiteSpace(message.Text)) {
+					return false;
+				}
+
+				plan = new AgentPlan(key, "Plan", message.Text);
+				return true;
+			}
+		}
+
+		return false;
+	}
+
 	private void PublishControlState(AgentControlState state) =>
 		_bridge.PostToWeb(AgentControlsProtocol.Message(_context.CurrentSessionId(), _context.Workspace, state));
 

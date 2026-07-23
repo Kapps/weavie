@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, Code, Eye, Globe, Pin, X } from "lucide-solid";
+import { ChevronLeft, ChevronRight, Code, Eye, FileText, Globe, Pin, X } from "lucide-solid";
 import {
   createEffect,
   createMemo,
@@ -16,6 +16,7 @@ import { CommandIds } from "../commands/types";
 import { isDirtyPath } from "./dirty-store";
 import type { TabActions } from "./editor-controller";
 import { basename } from "./fs-path";
+import { agentPlan } from "./plan/plan-store";
 import { canPreview } from "./preview/preview-registry";
 import type { EditorSessionEntry } from "./session-types";
 import { sourceTabIcon } from "./source/source-icons";
@@ -33,7 +34,7 @@ interface TabView {
   dirty: boolean;
 }
 
-// A web tab shows its URL host; a source tab shows its doc title; a file tab shows its basename.
+// A web tab shows its URL host; source/plan tabs show their document title; file tabs show their basename.
 function tabLabel(view: TabView): string {
   if (view.kind === "web") {
     try {
@@ -44,6 +45,9 @@ function tabLabel(view: TabView): string {
   }
   if (view.kind === "source") {
     return sourceDoc(view.path)?.title || basename(view.path);
+  }
+  if (view.kind === "plan") {
+    return agentPlan(view.path)?.title || "Plan";
   }
   return basename(view.path);
 }
@@ -79,8 +83,12 @@ export function TabStrip(props: {
         ...(tab.kind !== undefined ? { kind: tab.kind } : {}),
         preview: tab.preview === true,
         pinned: tab.pinned === true,
-        // A web tab is never dirty (its path is a URL, not a file path).
-        dirty: tab.kind !== "web" && isDirtyPath(tab.path),
+        // Overlay tabs are never dirty: they have no local working copy.
+        dirty:
+          tab.kind !== "web" &&
+          tab.kind !== "source" &&
+          tab.kind !== "plan" &&
+          isDirtyPath(tab.path),
       }));
     },
     [],
@@ -150,9 +158,9 @@ export function TabStrip(props: {
       { commandId: CommandIds.closeAllTabs, args, label: "Close All" },
       { kind: "separator" },
       { commandId: CommandIds.togglePinTab, args, label: view.pinned ? "Unpin" : "Pin" },
-      // Copy fans out to the file's name / repo-relative / absolute path. File tabs only — a web tab's path is
-      // a URL, with no repo-relative form.
-      ...(view.kind === "web"
+      // Copy fans out to the file's name / repo-relative / absolute path. File tabs only — overlay tabs don't
+      // name a workspace path.
+      ...(view.kind === "web" || view.kind === "plan"
         ? []
         : [
             {
@@ -203,7 +211,7 @@ export function TabStrip(props: {
                   preview: view.preview,
                   pinned: view.pinned,
                 }}
-                title={view.path}
+                title={view.kind === "plan" ? tabLabel(view) : view.path}
               >
                 <button
                   type="button"
@@ -223,6 +231,9 @@ export function TabStrip(props: {
                     <Globe size={13} class="editor-tab-icon" />
                   </Show>
                   <Show when={view.kind === "source"}>{sourceTabIcon(view.path)}</Show>
+                  <Show when={view.kind === "plan"}>
+                    <FileText size={13} class="editor-tab-icon" />
+                  </Show>
                   <span class="editor-tab-label">{tabLabel(view)}</span>
                   <Show when={view.dirty}>
                     <span class="editor-tab-dirty" role="img" aria-label="Unsaved changes">

@@ -715,15 +715,13 @@ export async function createEditorHost(
       return;
     }
     const entry = session.open.find((open) => open.path === session.active);
-    // A web/source overlay tab has no Monaco model — never read its URL/target as a file. App renders the
-    // iframe/shadow-root over the (released) editor; showFile'ing the URL would read it as a path, which on
-    // Windows is a malformed read that surfaces a persistent "Unable to read file" toast rather than a swallowed
-    // FileNotFound. Mirrors applyActive's web/source guard for the rebind/restore path — including its media
-    // guard: a media file tab restores into the MediaPane overlay, never a text working copy.
+    // An overlay tab has no Monaco model — never read its target as a file. App renders it over the released editor.
+    // A media file likewise restores in MediaPane rather than as a text working copy.
     if (
       entry === undefined ||
       entry.kind === "web" ||
       entry.kind === "source" ||
+      entry.kind === "plan" ||
       mediaTypeOf(entry.path) !== null
     ) {
       return;

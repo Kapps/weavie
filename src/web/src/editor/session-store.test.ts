@@ -109,6 +109,20 @@ describe("openTab", () => {
     expect(store.openTabs()[0]).toMatchObject({ scratch: true });
     expect(store.openTabs()[0]?.preview).toBeFalsy();
   });
+
+  it("keeps a plan tab transient and out of the host's open-editor and persisted session views", () => {
+    seed([], null);
+    store.openTab("agent-plan:1", { kind: "plan" });
+
+    expect(store.openTabs()[0]).toMatchObject({ path: "agent-plan:1", kind: "plan" });
+    expect(openEditorsPushes().at(-1)?.editors).toEqual([]);
+
+    vi.advanceTimersByTime(300);
+    const changed = posted.find((m) => m.type === "editor-session-changed") as
+      | { session?: { active?: string | null; open?: Array<{ path: string }> } }
+      | undefined;
+    expect(changed?.session).toEqual({ active: null, open: [] });
+  });
 });
 
 describe("closeTab", () => {

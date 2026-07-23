@@ -25,3 +25,11 @@ internal delegate void ScriptMessageCallback(IntPtr manager, IntPtr jsResult, In
 /// <summary>WebKit <c>WebKitURISchemeRequestCallback</c>: <c>(WebKitURISchemeRequest*, userData)</c>.</summary>
 [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
 internal delegate void UriSchemeRequestCallback(IntPtr request, IntPtr userData);
+
+/// <summary>WebKit <c>decide-policy</c> handler: <c>(webView, WebKitPolicyDecision*, WebKitPolicyDecisionType, userData)</c> → TRUE (1) when handled.</summary>
+[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+internal delegate int PolicyDecisionCallback(IntPtr webView, IntPtr decision, int decisionType, IntPtr userData);
+
+/// <summary>WebKit <c>create</c> handler: <c>(webView, WebKitNavigationAction*, userData)</c> → the new web view, or NULL for none.</summary>
+[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+internal delegate IntPtr CreateWebViewCallback(IntPtr webView, IntPtr navigationAction, IntPtr userData);

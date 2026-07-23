@@ -72,6 +72,19 @@ internal static partial class WebKit {
 	[LibraryImport(Lib)]
 	internal static partial IntPtr webkit_javascript_result_get_js_value(IntPtr jsResult);
 
+	[LibraryImport(Lib)]
+	internal static partial IntPtr webkit_navigation_policy_decision_get_navigation_action(IntPtr decision);
+
+	[LibraryImport(Lib)]
+	internal static partial IntPtr webkit_navigation_action_get_request(IntPtr action);
+
+	/// <summary>Returns the request's URI as a borrowed <c>const gchar*</c> — read it with <c>Marshal.PtrToStringUTF8</c>, never free it.</summary>
+	[LibraryImport(Lib)]
+	internal static partial IntPtr webkit_uri_request_get_uri(IntPtr request);
+
+	[LibraryImport(Lib)]
+	internal static partial void webkit_policy_decision_ignore(IntPtr decision);
+
 	[LibraryImport(Jsc)]
 	internal static partial IntPtr jsc_value_to_string(IntPtr value);
 }

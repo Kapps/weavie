@@ -77,6 +77,9 @@ public static class CoreCommands {
 	/// <summary>Toggles the active structured agent between its Plan and default collaboration modes.</summary>
 	public const string TogglePlanMode = "weavie.agent.togglePlanMode";
 
+	/// <summary>Opens the newest completed plan for the focused agent.</summary>
+	public const string OpenAgentPlan = "weavie.agent.openPlan";
+
 	/// <summary>Opens the agent composer's model picker, or applies a <c>value</c> arg directly.</summary>
 	public const string SelectModel = "weavie.agent.selectModel";
 
@@ -661,6 +664,17 @@ public static class CoreCommands {
 			Aliases = ["plan mode", "toggle plan", "codex plan", "plan"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "shift+tab" }],
 			When = "agentFocused && !agentSlashMenuOpen && !agentControlPickerOpen",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = OpenAgentPlan,
+			Title = "Open Agent Plan",
+			RunsIn = CommandLocation.Web,
+			Category = "Agent",
+			Description = "Open the newest completed plan for the active agent in the editor.",
+			Aliases = ["open plan", "show plan", "agent plan", "codex plan"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "alt+p" }],
+			When = "agentFocused",
 		});
 
 		registry.Register(new CommandDefinition {

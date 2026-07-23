@@ -18,6 +18,7 @@ import {
   toggleAgentControl,
   toggleModelFast,
 } from "./agent-controls-store";
+import { planIdentityArgsSupplied, requestedPlan } from "./agent-plan";
 import {
   captureAgentImagePaste,
   composerState,
@@ -312,6 +313,23 @@ export function AgentComposer(props: {
 
   const offSubmit = registerCommand(CommandIds.agentSubmit, submit);
   const offInterrupt = registerCommand(CommandIds.agentInterrupt, interrupt);
+  const offOpenPlan = registerCommand(CommandIds.openAgentPlan, (args) => {
+    const slot = props.slot;
+    if (slot === null) {
+      return false;
+    }
+    const supplied = planIdentityArgsSupplied(args);
+    const plan = requestedPlan(args, props.messages);
+    if (plan === null) {
+      notify(
+        "info",
+        supplied ? "That plan is no longer available." : "No completed plan is available yet.",
+      );
+      return true;
+    }
+    postToBackend(props.backendId, { type: "open-agent-plan", slot, ...plan });
+    return true;
+  });
   const offTogglePlan = registerCommand(CommandIds.togglePlanMode, () => {
     const slot = props.slot;
     return slot !== null && toggleAgentControl(props.backendId, slot, CommandIds.togglePlanMode);
@@ -343,6 +361,7 @@ export function AgentComposer(props: {
   onCleanup(offNativePaste);
   onCleanup(offSubmit);
   onCleanup(offInterrupt);
+  onCleanup(offOpenPlan);
   onCleanup(offTogglePlan);
   onCleanup(offSelectModel);
   onCleanup(offSelectApproval);

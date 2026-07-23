@@ -540,6 +540,70 @@ describe("toAgentTranscript", () => {
     expect(transcript.map((entry) => entry.text)).toEqual(["hello", "Hello!"]);
   });
 
+  it("promotes a completed plan into an openable result while its delta stays provisional activity", () => {
+    const provisional = toAgentTranscript([
+      {
+        type: "plan-delta",
+        providerId: "codex",
+        threadId: "thread-1",
+        turnId: "turn-1",
+        itemId: "plan-1",
+        itemType: "plan",
+        text: "# Draft plan",
+      },
+    ]);
+    expect(provisional).toMatchObject([{ kind: "activity", label: "Working" }]);
+
+    const completed = toAgentTranscript([
+      {
+        type: "plan-delta",
+        providerId: "codex",
+        threadId: "thread-1",
+        turnId: "turn-1",
+        itemId: "plan-1",
+        itemType: "plan",
+        text: "# Draft plan",
+      },
+      {
+        type: "item-completed",
+        providerId: "codex",
+        threadId: "thread-1",
+        turnId: "turn-1",
+        itemId: "plan-1",
+        itemType: "plan",
+        text: "# Final plan",
+        status: "completed",
+      },
+    ]);
+
+    expect(completed).toHaveLength(1);
+    expect(completed[0]).toMatchObject({
+      kind: "plan",
+      label: "Plan",
+      summary: "Ready to review in the editor",
+      text: null,
+      tone: "assistant",
+    });
+    expect(completed[0]?.actionMessage).toMatchObject({
+      itemId: "plan-1",
+      threadId: "thread-1",
+      turnId: "turn-1",
+    });
+
+    const unavailable = toAgentTranscript([
+      {
+        type: "item-completed",
+        providerId: "codex",
+        threadId: "thread-1",
+        turnId: "turn-1",
+        itemId: "plan-2",
+        itemType: "plan",
+        text: " ",
+      },
+    ]);
+    expect(unavailable[0]).toMatchObject({ summary: "Plan is unavailable", actionMessage: null });
+  });
+
   it("assigns a unique id to every entry and nested step (the reconcile key precondition)", () => {
     const transcript = toAgentTranscript([
       { type: "user-message", providerId: "codex", turnId: "t1", itemId: "u1", text: "q1" },

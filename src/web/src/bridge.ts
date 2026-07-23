@@ -289,6 +289,15 @@ export type HostBoundMessage =
   | { type: "agent-set-control"; slot: string; axis: string; value: string }
   | { type: "agent-approval"; slot: string; requestId: string; decision: string }
   | { type: "agent-input"; slot: string; requestId: string; answers: Record<string, string[]> }
+  // Opens the final plan identified by this completed agent item. Its Markdown remains host-owned until the
+  // matching show-agent-plan push, so the transcript never needs to carry a second rendered copy.
+  | {
+      type: "open-agent-plan";
+      slot: string;
+      threadId: string;
+      turnId: string;
+      itemId: string;
+    }
   // Session rail → host: switch to a session (binds the page to it). Load/unload/delete are weavie.session.*
   // commands run via invoke-command (the delete classify→confirm→delete dance is the `classify` arg + `force`
   // on that one command, not its own messages). See docs/specs/command-responses.md.
@@ -546,6 +555,8 @@ export type WebBoundMessage =
   // host-side so a long transcript can't burst past the bridge's bounded outbox and get the page dropped.
   | { type: "agent-pane-batch"; slot: string; workspace: string; messages: AgentPaneUpdate[] }
   | { type: "agent-pane-reset"; slot: string; workspace: string }
+  // The final Markdown for one agent plan, opened as a transient read-only editor tab.
+  | { type: "show-agent-plan"; id: string; title: string; markdown: string }
   | { type: "agent-controls"; slot: string; workspace: string; state: AgentControlState }
   | {
       type: "agent-attachment-state";

@@ -118,6 +118,17 @@ public sealed partial class HostCore {
 					root.GetStringOrEmpty("requestId"),
 					ReadAgentInputAnswers(root));
 				break;
+			case "open-agent-plan": {
+					var planSession = StructuredSession(root.GetStringOrEmpty("slot"));
+					if (planSession is not null && !planSession.OpenAgentPlan(
+						root.GetStringOrEmpty("threadId"),
+						root.GetStringOrEmpty("turnId"),
+						root.GetStringOrEmpty("itemId"))) {
+						Notify("warn", "That plan is no longer available.");
+					}
+
+					break;
+				}
 			case "switch-session": {
 					string switchId = root.GetStringOrEmpty("id");
 					if (!string.IsNullOrEmpty(switchId) && _sessions?.Find(switchId) is { } target) {

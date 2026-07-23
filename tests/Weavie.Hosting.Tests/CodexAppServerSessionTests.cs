@@ -577,7 +577,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 	}
 
 	[Fact]
-	public async Task Controls_ExposeNativePlanMode_AndApplyItsPresetOnNextTurn() {
+	public async Task Controls_ExposeNativePlanMode_AndPreserveSelectedEffortOnNextTurn() {
 		List<AgentPaneMessage> messages = [];
 		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
 
@@ -597,7 +597,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		session.SetControl("effort", "high");
 		session.SetControl("collaborationMode", "plan");
 		Assert.Equal("Plan", session.ControlState.Axes.Single(axis => axis.Id == "collaborationMode").ValueLabel);
-		Assert.Equal("GPT-5.5 (Medium)", session.ControlState.ModelControl.ValueLabel);
+		Assert.Equal("GPT-5.5 (High)", session.ControlState.ModelControl.ValueLabel);
 
 		session.Submit(Submission("make a plan", []));
 		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "turn-start.json")));
@@ -607,12 +607,70 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		var settings = collaboration.GetProperty("settings");
 		Assert.Equal("plan", collaboration.GetProperty("mode").GetString());
 		Assert.Equal("gpt-5.5", settings.GetProperty("model").GetString());
-		Assert.Equal("medium", settings.GetProperty("reasoning_effort").GetString());
+		Assert.Equal("high", settings.GetProperty("reasoning_effort").GetString());
 		Assert.Equal(JsonValueKind.Null, settings.GetProperty("developer_instructions").ValueKind);
 	}
 
 	[Fact]
-	public async Task PlanMode_UsesTheModelAndEffortCodexAdvertises() {
+	public async Task PlanMode_UsesAdvertisedEffortWithoutASelection() {
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
+
+		session.Start();
+		await WaitForAsync(() => session.ControlState.Axes.Any(axis => axis.Id == "collaborationMode"));
+		session.SetControl("collaborationMode", "plan");
+
+		Assert.Equal("GPT-5.5 (Medium)", session.ControlState.ModelControl.ValueLabel);
+		session.Submit(Submission("make a plan", []));
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "turn-start.json")));
+
+		using var doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(_dir, "turn-start.json")));
+		Assert.Equal("medium", TurnSettings(doc).GetProperty("reasoning_effort").GetString());
+	}
+
+	[Fact]
+	public async Task PlanMode_UsesModelDefaultForUnsupportedAdvertisedEffort() {
+		File.WriteAllText(Path.Combine(_dir, "plan-effort-invalid"), string.Empty);
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
+
+		session.Start();
+		await WaitForAsync(() => session.ControlState.Axes.Any(axis => axis.Id == "collaborationMode"));
+		session.SetControl("collaborationMode", "plan");
+
+		Assert.Equal("GPT-5.5 (Medium)", session.ControlState.ModelControl.ValueLabel);
+		session.Submit(Submission("make a plan", []));
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "turn-start.json")));
+
+		using var doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(_dir, "turn-start.json")));
+		Assert.Equal("medium", TurnSettings(doc).GetProperty("reasoning_effort").GetString());
+	}
+
+	[Fact]
+	public async Task PlanMode_RestoresItsAdvertisedEffortForACompatibleModel() {
+		File.WriteAllText(Path.Combine(_dir, "plan-effort-high"), string.Empty);
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
+
+		session.Start();
+		await WaitForAsync(() => session.ControlState.Axes.Any(axis => axis.Id == "collaborationMode"));
+		session.SetControl("collaborationMode", "plan");
+		Assert.Equal("GPT-5.5 (High)", session.ControlState.ModelControl.ValueLabel);
+
+		session.SetControl("model", "gpt-5.4-mini");
+		Assert.Equal("GPT-5.4 mini (Low)", session.ControlState.ModelControl.ValueLabel);
+		session.SetControl("model", "gpt-5.5");
+		Assert.Equal("GPT-5.5 (High)", session.ControlState.ModelControl.ValueLabel);
+
+		session.Submit(Submission("make a plan", []));
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "turn-start.json")));
+
+		using var doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(_dir, "turn-start.json")));
+		Assert.Equal("high", TurnSettings(doc).GetProperty("reasoning_effort").GetString());
+	}
+
+	[Fact]
+	public async Task PlanMode_FallsBackForIncompatibleEffort_AndRestoresSelection() {
 		File.WriteAllText(Path.Combine(_dir, "plan-model-mini"), string.Empty);
 		List<AgentPaneMessage> messages = [];
 		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
@@ -626,7 +684,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		Assert.Equal("gpt-5.4-mini", session.ControlState.ModelControl.Value);
 		Assert.Equal("GPT-5.4 mini (Low)", session.ControlState.ModelControl.ValueLabel);
 		session.SetControl("model", "gpt-5.5");
-		Assert.Equal("GPT-5.5 (Low) ⚡", session.ControlState.ModelControl.ValueLabel);
+		Assert.Equal("GPT-5.5 (High) ⚡", session.ControlState.ModelControl.ValueLabel);
 		session.SetControl("collaborationMode", "default");
 		Assert.Equal("GPT-5.5 (High) ⚡", session.ControlState.ModelControl.ValueLabel);
 		session.SetControl("collaborationMode", "plan");
@@ -688,7 +746,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 	}
 
 	[Fact]
-	public async Task Controls_RememberSelections_ForNewCodexSessions() {
+	public async Task Controls_RememberSelections_ForNewCodexSessions_AndPlanMode() {
 		List<AgentPaneMessage> messages = [];
 		await using (var session = CreateSession(new CapturingAgentEventSink(), messages)) {
 			session.Start();
@@ -721,6 +779,8 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		Assert.True(current.FastOn);
 		Assert.Equal("never", control.Axes.Single(axis => axis.Id == "approvalPolicy").Value);
 		Assert.Equal("read-only", control.Axes.Single(axis => axis.Id == "sandbox").Value);
+		reopened.SetControl("collaborationMode", "plan");
+		Assert.Equal("GPT-5.5 (High) ⚡", reopened.ControlState.ModelControl.ValueLabel);
 
 		using (var thread = JsonDocument.Parse(File.ReadAllText(Path.Combine(_dir, "thread-start.json")))) {
 			var parameters = thread.RootElement.GetProperty("params");

@@ -1,7 +1,9 @@
 import { createMemo, createSignal, For, type JSX, Show } from "solid-js";
 import { type AgentInputQuestion, type AgentPaneUpdate, postToHost } from "../bridge";
 import { liveKeyLabel } from "../commands/keys-live";
+import { runCommandWithFeedback } from "../commands/registry";
 import { CommandIds } from "../commands/types";
+import { planIdentity } from "./agent-plan";
 import { inputQuestions } from "./input-questions";
 
 export function ApprovalActions(props: {
@@ -127,6 +129,36 @@ export function EditLocationActions(props: { target: string | null | undefined }
         Review
       </button>
     </div>
+  );
+}
+
+export function PlanActions(props: { message: AgentPaneUpdate; slot: string | null }): JSX.Element {
+  const identity = (): ReturnType<typeof planIdentity> => planIdentity(props.message);
+  const key = (): string => liveKeyLabel(CommandIds.openAgentPlan);
+  const open = (): void => {
+    const slot = props.slot;
+    const plan = identity();
+    if (slot === null || plan === null) {
+      return;
+    }
+    void runCommandWithFeedback(CommandIds.openAgentPlan, plan);
+  };
+
+  return (
+    <Show when={identity()}>
+      <div class="agent-approval-actions">
+        <button
+          type="button"
+          title={key() === "" ? "Open plan in editor" : `Open plan in editor (${key()})`}
+          onClick={open}
+        >
+          Open plan
+          <Show when={key() !== ""}>
+            <kbd class="agent-key-chip">{key()}</kbd>
+          </Show>
+        </button>
+      </div>
+    </Show>
   );
 }
 

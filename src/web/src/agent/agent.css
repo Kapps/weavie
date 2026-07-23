@@ -340,7 +340,8 @@
   padding: 0 8px;
 }
 
-.agent-entry-message.agent-tone-assistant.agent-entry-result {
+.agent-entry-message.agent-tone-assistant.agent-entry-result,
+.agent-entry-plan {
   padding: 7px 9px 8px;
   border-left: 3px solid var(--accent);
   background: color-mix(in srgb, var(--bar) 38%, var(--bg));
@@ -351,6 +352,10 @@
 }
 
 .agent-entry-result .agent-entry-label {
+  color: var(--accent);
+}
+
+.agent-entry-plan .agent-entry-label {
   color: var(--accent);
 }
 
@@ -736,6 +741,10 @@
 }
 
 .agent-entry-message.agent-tone-assistant .agent-entry-text + .agent-approval-actions {
+  margin-top: 7px;
+}
+
+.agent-entry-plan .agent-approval-actions {
   margin-top: 7px;
 }
 

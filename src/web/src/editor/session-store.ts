@@ -20,10 +20,10 @@ const [session, setSession] = createSignal<EditorSession | null>(null);
 
 export { editorBackendId, editorOwner };
 
-// Web/source tabs are web-only overlay surfaces — never reported to the host or persisted (the host would treat
-// their path as a file). Only real file tabs round-trip.
+// Overlay tabs are web-only surfaces — never reported to the host or persisted (the host would treat their path as
+// a file). Only real file tabs round-trip.
 const isFileTab = (entry: EditorSessionEntry): boolean =>
-  entry.kind !== "web" && entry.kind !== "source";
+  entry.kind !== "web" && entry.kind !== "source" && entry.kind !== "plan";
 
 // The pinned-first ordering invariant in one place: pinned tabs (in pin order) precede unpinned (in open
 // order). Every mutator routes its result through this stable partition, so no other code reorders tabs.
@@ -54,7 +54,7 @@ function emitOpenEditors(session: EditorSession): void {
   if (binding === null) {
     return;
   }
-  // Web/source tabs are web-only; they aren't reported to the host, so Claude's getOpenEditors never sees a path as a file.
+  // Overlay tabs are web-only; they aren't reported to the host, so Claude's getOpenEditors never sees a path as a file.
   postToEditorBinding(binding, {
     type: "open-editors-changed",
     ...editorAttribution(binding),
@@ -122,7 +122,7 @@ let postTimer: ReturnType<typeof setTimeout> | undefined;
 // Send a session to the host as editor-session-changed. Never sends file content — disk is the source of
 // truth. Flags are omitted when false so old files round-trip.
 function sendEditorSession(s: EditorSession, binding: EditorBinding): void {
-  // Web/source tabs are a web-only surface — never persisted host-side (the host would treat the path as a file).
+  // Overlay tabs are a web-only surface — never persisted host-side (the host would treat the path as a file).
   // They're dropped here, so they don't survive a reload / session switch (acceptable for v1).
   const files = s.open.filter(isFileTab);
   const open = files.map((entry) => ({
@@ -189,7 +189,7 @@ export function openTab(
     focus?: boolean;
     preview?: boolean;
     scratch?: boolean;
-    kind?: "web" | "source";
+    kind?: "web" | "source" | "plan";
   } = {},
 ): ActivateResult {
   const current = session() ?? { active: null, open: [] };

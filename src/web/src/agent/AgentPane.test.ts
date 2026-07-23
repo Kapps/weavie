@@ -29,6 +29,25 @@ describe("computeSectionLabels", () => {
     expect(computeSectionLabels(entries, false).get("done")).toBe("Results");
   });
 
+  it("treats a completed plan as the turn result", () => {
+    const entries: AgentTranscriptEntry[] = [
+      message("prompt", "user"),
+      {
+        actionMessage: null,
+        details: [],
+        id: "plan",
+        kind: "plan",
+        label: "Plan",
+        status: null,
+        summary: "Ready to review in the editor",
+        text: null,
+        tone: "assistant",
+      },
+    ];
+
+    expect(computeSectionLabels(entries, false).get("plan")).toBe("Results");
+  });
+
   it("keeps a prior turn's final assistant message labeled as results", () => {
     const entries = [
       message("first prompt", "user"),

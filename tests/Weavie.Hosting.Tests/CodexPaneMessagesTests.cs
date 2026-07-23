@@ -72,6 +72,17 @@ public sealed class CodexPaneMessagesTests {
 	}
 
 	[Fact]
+	public void AgentPlanProtocol_SerializesReadOnlyEditorDocument() {
+		string json = AgentPlanProtocol.Show(new AgentPlan("plan-key", "Plan", "# Ship it"));
+
+		using var doc = JsonDocument.Parse(json);
+		Assert.Equal("show-agent-plan", doc.RootElement.GetProperty("type").GetString());
+		Assert.Equal("plan-key", doc.RootElement.GetProperty("id").GetString());
+		Assert.Equal("Plan", doc.RootElement.GetProperty("title").GetString());
+		Assert.Equal("# Ship it", doc.RootElement.GetProperty("markdown").GetString());
+	}
+
+	[Fact]
 	public void FromRequest_CommandApproval_ShowsTheCommand() {
 		using var doc = JsonDocument.Parse(
 			"""{"id":"approval-1","method":"item/commandExecution/requestApproval","params":{"threadId":"thread_1","turnId":"turn_1","itemId":"item_1","command":"dotnet test tests/Weavie.Hosting.Tests","cwd":"/repo","reason":"Verify the change."}}""");
@@ -149,6 +160,20 @@ public sealed class CodexPaneMessagesTests {
 		Assert.NotNull(message);
 		Assert.Equal("plan-delta", message.Type);
 		Assert.Equal("- inspect", message.Text);
+	}
+
+	[Fact]
+	public void FromNotification_MapsCompletedPlanIntoCanonicalMarkdown() {
+		using var doc = JsonDocument.Parse(
+			"""{"method":"item/completed","params":{"threadId":"thread_1","turnId":"turn_1","item":{"id":"plan_1","type":"plan","status":"completed","text":"# Plan\n- inspect"}}}""");
+
+		var message = CodexPaneMessages.FromNotification("item/completed", "thread_1", doc.RootElement);
+
+		Assert.NotNull(message);
+		Assert.Equal("item-completed", message.Type);
+		Assert.Equal("plan", message.ItemType);
+		Assert.Equal("plan", message.Category);
+		Assert.Equal("# Plan\n- inspect", message.Text);
 	}
 
 	[Fact]

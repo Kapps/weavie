@@ -34,6 +34,12 @@ public sealed class TerminalControllerResyncTests {
 		Assert.Empty(h.Bridge.PostedOfType("term-reset"));
 	}
 
+	// Flaked 2026-07-23 on Linux CI: https://github.com/Kapps/weavie/actions/runs/29973556071
+	// (`System.IO.IOException: Too many open files` writing settings.toml.tmp in the Harness ctor). Not a
+	// leak in this test or its Harness (settings/controller are disposed correctly) — the assembly's ~20
+	// real SettingsStore-backed tests ran the process past the CI runner's default `ulimit -n` soft limit
+	// under xunit's parallelized classes. Fix: PosixFileLimitWarmup.cs raises the soft limit to the hard
+	// cap once at assembly load, the same call HostCore makes for the real app.
 	[Fact]
 	public void ShellOutputDuringResync_ReachesThePageExactlyOnce_ViaTheReplay() {
 		using var h = new Harness("shell", withScrollback: true);

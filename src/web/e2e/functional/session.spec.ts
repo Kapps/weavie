@@ -7,6 +7,15 @@ import { sessionWorktrees } from "../harness/git-workspace";
 // Session lifecycle through the rail + commands: create (fork a worktree session off the current one),
 // switch, unload, and reopen. Sessions and worktrees are a HostCore concern that differs structurally on
 // remote (the Runner provisions the worktree), so this runs @cross.
+//
+// Flaked 2026-07-23 on Windows CI (remote project): https://github.com/Kapps/weavie/actions/runs/29973556071
+// — the auto `weavie` fixture's boot-time `#splash` wait timed out at 40s before this test's body ever ran
+// (harness/fixtures.ts:82), so this is the pre-existing "setup class" flake in docs/specs/e2e-flake-analysis.md
+// (#4/#5), not a defect in this test. That doc's own next step was blocked: the fixture only attached
+// console-errors.txt/weavie-host.log/viewport-layout.json on a *test-body* failure, code placed after
+// `use(host)` — a setup-time throw skips it entirely, so this run landed with no diagnostic datum. Fixed the
+// fixture (try/finally around setup+use) so the next occurrence captures that datum instead of widening the
+// timeout or retrying, both of which the doc explicitly rules out.
 test("create, switch, unload, and reopen sessions @cross", async ({ page }) => {
   const chips = page.locator(".session-chip");
   await expect(chips).toHaveCount(1);

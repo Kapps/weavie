@@ -1,0 +1,4 @@
+interface:
+  display_name: "Fable Review"
+  short_description: "Review plans and changes with Fable"
+  default_prompt: "Use $fable-review to get Fable's independent review of this plan or change."

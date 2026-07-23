@@ -27,7 +27,11 @@ public sealed class AgentEventRouter : IAgentEventSink {
 	/// <inheritdoc/>
 	public AgentEventFeedback Observe(AgentEvent value) {
 		ArgumentNullException.ThrowIfNull(value);
-		_changes.Observe(value);
+		try {
+			_changes.Observe(value);
+		} catch (ReviewPersistenceException) {
+			// The tracker rolled back the review-only transition and raised its user-facing problem event.
+		}
 		_mode.Observe(value);
 		_status.Observe(value);
 		var locations = _changes.EditLocationsFor(value);

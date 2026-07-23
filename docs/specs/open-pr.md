@@ -12,8 +12,9 @@ or leave a new comment without leaving Weavie.
 >   **direct `#N` or pasted URL** that opens by number — the host resolves the branch refs via `GetAsync` (works
 >   for any PR, any state; a foreign-repo URL is refused).
 > - **Phase 2 — the PR diff in the review surface.** Opening a PR computes the `base…head` diff
->   (`IGitService.MergeBaseAsync`/`DiffRefsAsync`/`ShowFileAtRefAsync`) and **seeds the session's change
->   tracker** (`SeedRefBaseline`), so the PR reviews through the **same Keep/Revert engine as a turn** (walk
+>   (`IGitService.MergeBaseAsync`/`DiffRefsAsync`/`ReadFileAtRefAsync`) and **seeds the session's change
+>   tracker atomically** (`ArmReview` with the complete `ReviewSeed[]`), so the PR reviews through the
+>   **same Keep/Revert engine as a turn** (walk
 >   files ←/→, hunks ↑/↓; later Claude edits accumulate). See [diff-against.md](diff-against.md); the original
 >   read-only `pr` mode is superseded (Phase 2 section below).
 > - **Phase 3 — comments.** The forge-neutral `IReviewCommentStore` (GitHub impl + in-memory fake) loads a PR's
@@ -115,11 +116,11 @@ The work splits cleanly along what each piece actually needs:
 ```csharp
 Task FetchAsync(string repoDir, string remote, string refName, CancellationToken ct);                 // git fetch origin <ref>
 Task<IReadOnlyList<DiffFile>> DiffRefsAsync(string repoDir, string baseRef, string headRef, CancellationToken ct); // base...head, name + ±counts
-Task<string> ShowFileAtRefAsync(string repoDir, string refName, string path, CancellationToken ct);   // git show <ref>:<path> — the diff baseline
+Task<GitFileContent> ReadFileAtRefAsync(string repoDir, string refName, string path, CancellationToken ct); // text + existence at the ref
 Task<string?> GetRemoteUrlAsync(string repoDir, string remote, CancellationToken ct);                 // remote URL → forge + repo selection
 ```
 
-`DiffRefsAsync` feeds the `←`/`→` file axis (`pr-changes`); `ShowFileAtRefAsync` supplies each file's diff
+`DiffRefsAsync` feeds the `←`/`→` file axis (`pr-changes`); `ReadFileAtRefAsync` supplies each file's diff
 **baseline** (current comes from the worktree on disk). Three-dot `base...head` diffs against the merge-base,
 so it's exactly what GitHub shows.
 
@@ -284,7 +285,7 @@ PR) — instead a parallel, simpler message set feeds the same UI:
   one file's base→head pair plus the review comments anchored in it, the PR analogue of `turn-diff`.
 
 The host builds these by composition: `pr-changes` from `IGitService.DiffRefsAsync(base, head)`, and each
-`pr-diff` from `ShowFileAtRefAsync(base, path)` (baseline) + the worktree file (current) + `IReviewCommentStore.ListAsync`
+`pr-diff` from `ReadFileAtRefAsync(base, path)` (baseline) + the worktree file (current) + `IReviewCommentStore.ListAsync`
 (comments). The diff is pure git; only the comments touch the forge.
 
 ### Comments anchored on the diff
@@ -325,7 +326,7 @@ Per [integration-testing-strategy](integration-testing-strategy.md), stub the fo
 `FakeReviewProvider` (implementing `IPullRequestProvider` + `IReviewCommentStore`) returns canned PRs and
 comments so a full journey (picker → open-pr → fetch → branch checkout → diff render → comment → add) is
 deterministic and never touches the network — the forge analogue of the stubbed `claude`. The diff half needs
-no stub: `DiffRefsAsync` / `ShowFileAtRefAsync` run against a real throwaway git repo, like the existing
+no stub: `DiffRefsAsync` / `ReadFileAtRefAsync` run against a real throwaway git repo, like the existing
 worktree tests. Pure units cover URL→`RepoRef` normalization and the token-source precedence. The
 `npm run capture` recording drives the picker and the comment thread against the fake provider.
 
@@ -347,7 +348,7 @@ worktree tests. Pure units cover URL→`RepoRef` normalization and the token-sou
    the registered **GitHub source** (`fetch` → overview) opened as the pinned main tab, and **OAuth** (the
    source's host-run flow) with token discovery as the headless/convenience fallback. ← the first PR.
 2. **The PR diff in the review surface.** A `pr` mode in `inline-diff.ts` fed the `base…head` diff
-   (`pr-changes` / `pr-diff` from `DiffRefsAsync` + `ShowFileAtRefAsync`), `IReviewCommentStore.ListAsync` with
+   (`pr-changes` / `pr-diff` from `DiffRefsAsync` + `ReadFileAtRefAsync`), `IReviewCommentStore.ListAsync` with
    the comments anchored as view-zones on the hunks, the slot↔PR association + persistence, and `reveal-file`
    from the overview file list opening `pr` mode.
 3. **Adding comments.** `IReviewCommentStore.AddAsync` / `ReplyAsync`, the composer.

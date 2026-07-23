@@ -40,6 +40,29 @@ public static class SecureFile {
 	/// <summary>Writes UTF-8 <paramref name="text"/> to <paramref name="path"/> owner-only on POSIX.</summary>
 	public static void WriteAllText(string path, string text) => WriteAllBytes(path, Encoding.UTF8.GetBytes(text));
 
+	/// <summary>Atomically replaces a UTF-8 text file without exposing a wider-permission intermediate file.</summary>
+	public static void WriteAllTextAtomic(string path, string text) {
+		string fullPath = Path.GetFullPath(path);
+		string? directory = Path.GetDirectoryName(fullPath);
+		if (!string.IsNullOrEmpty(directory)) {
+			CreateDirectory(directory);
+		}
+
+		string temporary = $"{fullPath}.{Guid.NewGuid():n}.tmp";
+		try {
+			WriteAllText(temporary, text);
+			if (File.Exists(fullPath)) {
+				File.Replace(temporary, fullPath, null);
+			} else {
+				File.Move(temporary, fullPath);
+			}
+		} finally {
+			if (File.Exists(temporary)) {
+				File.Delete(temporary);
+			}
+		}
+	}
+
 	/// <summary>Restricts an existing file to the owner on POSIX (no-op on Windows or a missing file).</summary>
 	public static void Restrict(string path) {
 		if (!OperatingSystem.IsWindows() && File.Exists(path)) {

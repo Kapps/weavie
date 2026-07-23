@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Text;
+using Weavie.Core.FileSystem;
 
 namespace Weavie.Core.Git;
 
@@ -327,13 +328,19 @@ public sealed class GitService : IGitService {
 	}
 
 	/// <inheritdoc/>
-	public async Task<string> ShowFileAtRefAsync(string repositoryDirectory, string reference, string path, CancellationToken ct = default) {
+	public async Task<GitFileContent> ReadFileAtRefAsync(string repositoryDirectory, string reference, string path, CancellationToken ct = default) {
 		ArgumentException.ThrowIfNullOrEmpty(repositoryDirectory);
 		ArgumentException.ThrowIfNullOrEmpty(reference);
 		ArgumentException.ThrowIfNullOrEmpty(path);
-		// A non-zero exit means the file is absent at that ref (added in the PR) — an empty baseline, not an error.
-		var result = await RunAsync(repositoryDirectory, ["show", $"{reference}:{path}"], ct).ConfigureAwait(false);
-		return result.ExitCode == 0 ? result.StdOut : string.Empty;
+		// A non-zero exit means the file is absent at that ref (added in the review).
+		var result = await RunBytesAsync(repositoryDirectory, ["show", $"{reference}:{path}"], ct).ConfigureAwait(false);
+		if (result.ExitCode != 0) {
+			return new GitFileContent(string.Empty, false, true);
+		}
+
+		using var stream = new MemoryStream(result.StdOut, writable: false);
+		bool isText = TextFileReader.TryRead(stream, out string content);
+		return new GitFileContent(content, true, isText);
 	}
 
 	/// <summary>
@@ -495,6 +502,30 @@ public sealed class GitService : IGitService {
 	}
 
 	private static async Task<GitResult> RunAsync(string workingDirectory, IReadOnlyList<string> args, CancellationToken ct) {
+		using var process = StartGit(workingDirectory, args);
+		var stdoutTask = process.StandardOutput.ReadToEndAsync(ct);
+		var stderrTask = process.StandardError.ReadToEndAsync(ct);
+		await process.WaitForExitAsync(ct).ConfigureAwait(false);
+		string stdout = await stdoutTask.ConfigureAwait(false);
+		string stderr = await stderrTask.ConfigureAwait(false);
+		return new GitResult(process.ExitCode, stdout, stderr);
+	}
+
+	private static async Task<GitBytesResult> RunBytesAsync(
+		string workingDirectory,
+		IReadOnlyList<string> args,
+		CancellationToken ct) {
+		using var process = StartGit(workingDirectory, args);
+		using var stdout = new MemoryStream();
+		var stdoutTask = process.StandardOutput.BaseStream.CopyToAsync(stdout, ct);
+		var stderrTask = process.StandardError.ReadToEndAsync(ct);
+		await process.WaitForExitAsync(ct).ConfigureAwait(false);
+		await stdoutTask.ConfigureAwait(false);
+		await stderrTask.ConfigureAwait(false);
+		return new GitBytesResult(process.ExitCode, stdout.ToArray());
+	}
+
+	private static Process StartGit(string workingDirectory, IReadOnlyList<string> args) {
 		if (!Directory.Exists(workingDirectory)) {
 			throw new GitException($"Git working directory does not exist: {workingDirectory}");
 		}
@@ -513,20 +544,16 @@ public sealed class GitService : IGitService {
 			info.ArgumentList.Add(arg);
 		}
 
-		using var process = new Process { StartInfo = info };
+		var process = new Process { StartInfo = info };
 		try {
 			process.Start();
+			return process;
 		} catch (Win32Exception ex) {
+			process.Dispose();
 			throw new GitException($"Unable to start 'git' from '{workingDirectory}': {ex.Message}", ex);
 		}
-
-		var stdoutTask = process.StandardOutput.ReadToEndAsync(ct);
-		var stderrTask = process.StandardError.ReadToEndAsync(ct);
-		await process.WaitForExitAsync(ct).ConfigureAwait(false);
-		string stdout = await stdoutTask.ConfigureAwait(false);
-		string stderr = await stderrTask.ConfigureAwait(false);
-		return new GitResult(process.ExitCode, stdout, stderr);
 	}
 
 	private readonly record struct GitResult(int ExitCode, string StdOut, string StdErr);
+	private readonly record struct GitBytesResult(int ExitCode, byte[] StdOut);
 }

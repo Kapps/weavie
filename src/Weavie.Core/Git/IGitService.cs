@@ -135,8 +135,8 @@ public interface IGitService {
 	Task<IReadOnlyList<DiffFileChange>> DiffRefsAsync(string repositoryDirectory, string fromRef, string toRef, CancellationToken ct = default);
 
 	/// <summary>
-	/// The contents of <paramref name="path"/> at <paramref name="reference"/> (<c>git show ref:path</c>), or the
-	/// empty string when the file doesn't exist there — the diff baseline for a PR file (empty ⇒ added in the PR).
+	/// The content, existence, and text classification of <paramref name="path"/> at <paramref name="reference"/>
+	/// (<c>git show ref:path</c>) — the exact baseline for a PR/ref review file.
 	/// </summary>
-	Task<string> ShowFileAtRefAsync(string repositoryDirectory, string reference, string path, CancellationToken ct = default);
+	Task<GitFileContent> ReadFileAtRefAsync(string repositoryDirectory, string reference, string path, CancellationToken ct = default);
 }

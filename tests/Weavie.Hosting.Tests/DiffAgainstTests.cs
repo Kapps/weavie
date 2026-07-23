@@ -117,6 +117,23 @@ public sealed class DiffAgainstTests {
 	}
 
 	[Fact]
+	public async Task RevertingAChangedEmptyTrackedFile_PreservesItsExistence() {
+		await using var host = await TestHost.StartAsync(repo => {
+			File.WriteAllText(Path.Combine(repo, "empty.txt"), string.Empty);
+			Commit(repo, "track empty file");
+		});
+		string path = Path.Combine(host.RepoRoot, "empty.txt");
+		File.WriteAllText(path, "added\n");
+
+		host.Send("""{"type":"diff-against","ref":"HEAD"}""");
+		await Wait.ForAsync(() => host.Bridge.LastOfType("turn-changes"));
+		host.Send(JsonSerializer.Serialize(new { type = "revert-file", path }));
+
+		Assert.True(File.Exists(path));
+		Assert.Equal(string.Empty, File.ReadAllText(path));
+	}
+
+	[Fact]
 	public async Task GetTurnDiff_ForAnUntrackedPath_IsDropped() {
 		await using var host = await TestHost.StartAsync();
 		File.WriteAllText(Path.Combine(host.RepoRoot, "readme.txt"), "hello\nworld\n");
@@ -170,6 +187,26 @@ public sealed class DiffAgainstTests {
 		// the stale walk clears in the page.
 		var changes = await Wait.ForAsync(() => host.Bridge.LastOfType("turn-changes"));
 		Assert.Empty(changes.GetProperty("files").EnumerateArray());
+	}
+
+	[Fact]
+	public async Task DiffAgainst_NothingDiffers_DoesNotCommitAnOrdinaryPendingReview() {
+		await using var host = await TestHost.StartAsync();
+		string path = Path.Combine(host.RepoRoot, "readme.txt");
+		var tracker = host.Core.ActiveSessionForTest()!.Changes;
+		tracker.CaptureBaseline(path);
+		File.WriteAllText(path, "hello\nworld\n");
+		tracker.RecordChange(path);
+		Commit(host.RepoRoot, "commit pending agent edit");
+		host.Bridge.Clear();
+
+		host.Send("""{"type":"diff-against","ref":"HEAD"}""");
+
+		var toast = await Wait.ForAsync(() => host.Bridge.LastOfType("notify"));
+		Assert.Contains("No changes against 'HEAD'", toast.GetProperty("message").GetString());
+		var pending = Assert.IsType<Weavie.Core.Changes.FileChange>(tracker.GetTurn(path));
+		Assert.Equal("hello\n", pending.BaselineText);
+		Assert.Equal("hello\nworld\n", pending.CurrentText);
 	}
 
 	[Fact]

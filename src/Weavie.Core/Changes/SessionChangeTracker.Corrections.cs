@@ -24,10 +24,11 @@ public sealed partial class SessionChangeTracker {
 		ArgumentException.ThrowIfNullOrEmpty(path);
 		ArgumentNullException.ThrowIfNull(content);
 		List<CorrectionEdit> edits = [];
-		lock (_gate) {
+		MutateReview(rollbackOnFailure: false, () => {
+			var before = CaptureReviewPathStateLocked(path);
 			if (!_current.TryGetValue(path, out string? reviewCurrent)
 				|| !_provenance.TryGetValue(path, out var provenance)) {
-				return;
+				return ReviewUnchanged();
 			}
 
 			string[] beforeLines = LineDiff.SplitLines(provenance.Text);
@@ -48,12 +49,12 @@ public sealed partial class SessionChangeTracker {
 			}
 
 			RebaseProvenance(provenance, content, attributed);
-			if (attributed.Count == 0) {
-				return;
+			if (attributed.Count > 0) {
+				_current[path] = ApplyChanges(previousText, reviewCurrent, attributed);
 			}
 
-			_current[path] = ApplyChanges(previousText, reviewCurrent, attributed);
-		}
+			return ReviewPathChangedLocked(path, before) ? ReviewChanged(path) : ReviewUnchanged();
+		});
 
 		RaiseCorrected(edits);
 	}
@@ -74,9 +75,14 @@ public sealed partial class SessionChangeTracker {
 			RebaseProvenance(provenance, before, []);
 		}
 
-		var origin = new AgentOrigin(_currentPrompt, true, ++_nextOriginId);
 		string[] afterLines = LineDiff.SplitLines(after);
-		var changes = LineHunker.Hunks(LineDiff.SplitLines(before), afterLines)
+		var hunks = LineHunker.Hunks(LineDiff.SplitLines(before), afterLines);
+		if (hunks.Count == 0) {
+			return reviewCurrent;
+		}
+
+		var origin = new AgentOrigin(_currentPrompt, true, ++_nextOriginId);
+		var changes = hunks
 			.Select(hunk => new AttributedChange(hunk.BeforeRange, hunk.AfterRange, Lines(afterLines, hunk.AfterRange), origin))
 			.ToList();
 		string updated = ApplyChanges(before, reviewCurrent, changes);
@@ -281,18 +287,19 @@ public sealed partial class SessionChangeTracker {
 		return string.Join(target.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : "\n", targetLines);
 	}
 
-	private string ApplyReviewChange(string path, string before, string after) {
+	private PreparedReviewChange PrepareReviewChange(string path, string before, string after) {
 		if (!_provenance.TryGetValue(path, out var provenance)) {
-			return after;
+			return new PreparedReviewChange(after, null);
 		}
+		var preparedProvenance = provenance.Clone();
 		var marker = new AgentOrigin(null, false, long.MinValue);
 		string[] afterLines = LineDiff.SplitLines(after);
 		var changes = LineHunker.Hunks(LineDiff.SplitLines(before), afterLines)
 			.Select(hunk => new AttributedChange(hunk.BeforeRange, hunk.AfterRange, Lines(afterLines, hunk.AfterRange), marker))
 			.ToList();
 		string actual = ApplyChanges(before, provenance.Text, changes);
-		RebaseProvenance(provenance, actual, []);
-		return actual;
+		RebaseProvenance(preparedProvenance, actual, []);
+		return new PreparedReviewChange(actual, preparedProvenance);
 	}
 
 	private List<CorrectionEdit> CorrectionsForRevert(string path, LineRange currentRange, LineRange baselineRange) {
@@ -532,4 +539,5 @@ public sealed partial class SessionChangeTracker {
 		List<string> AfterLines,
 		AgentOrigin Origin);
 	private sealed record ProjectedChange(LineRange Range, List<string> AfterLines);
+	private sealed record PreparedReviewChange(string DiskContent, ProvenanceFile? Provenance);
 }

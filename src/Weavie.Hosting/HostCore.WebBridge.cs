@@ -318,11 +318,10 @@ public sealed partial class HostCore {
 				// rebind, which can land after _session flipped — routing by path saves them on the owning session.
 				if (ResolveFsSession(FsPath(root)) is { } writeSession) {
 					string writeContent = root.GetStringOrEmpty("content");
-					string writeReply = writeSession.FileProvider.Write(FsId(root), FsPath(root), writeContent);
-					_bridge.PostToWeb(writeReply);
-					// A save that reached disk over an agent hunk is a correction — captured here, at the save.
-					if (WroteOk(writeReply)) {
-						writeSession.Changes.RecordHandEdit(FsPath(root), writeContent);
+					var write = writeSession.FileProvider.Write(FsId(root), FsPath(root), writeContent);
+					_bridge.PostToWeb(write.Reply);
+					if (write.Succeeded) {
+						writeSession.PublishFileSaved(FsPath(root), writeContent);
 					}
 				} else {
 					_bridge.PostToWeb(FileProviderProtocol.WriteError(FsId(root), "Path is outside every session worktree."));
@@ -385,6 +384,8 @@ public sealed partial class HostCore {
 				_ = SearchInFilesAsync(root);
 				break;
 			case "ready":
+				// Async enrichments from an older socket replay cannot publish into this one.
+				long readyGeneration = Interlocked.Increment(ref _readyReplayGeneration);
 				// The page's bridge listener is live; push the persisted state to restore it. Must go on `ready`, not
 				// init — PostToWeb before navigation no-ops (window.__weavieReceive doesn't exist yet).
 				// Build identity first: a tab reconnecting to a worker updated under it compares this against its
@@ -403,7 +404,7 @@ public sealed partial class HostCore {
 				PushSessionList();
 				PushGitStatus();
 				PushPullRequestStatus();
-				PushRefLinkBase();
+				PushRefLinkBase(readyGeneration);
 				PushRemoteAgentsToWeb();
 				PushRailStateToWeb();
 				PushSearchStateToWeb();
@@ -769,6 +770,7 @@ public sealed partial class HostCore {
 			PushTurnChangesToWeb(); // threads the incoming session's review label (a PR/ref review follows its session)
 		}
 		PushReviewHistoryToWeb(); // the incoming session's undo history persists — reflect it on the toolbar
+		PushReviewProblemsToWeb(session);
 	}
 
 	/// <summary>
@@ -791,6 +793,33 @@ public sealed partial class HostCore {
 		}
 
 		PushReviewHistoryToWeb();
+		PushReviewProblemsToWeb(session);
+	}
+
+	private void PushReviewProblemsToWeb(HostSession session) {
+		var current = new HashSet<string>(StringComparer.Ordinal);
+		foreach (var problem in session.Changes.ReviewProblems) {
+			string key = ReviewProblemToastKey(session, problem.Path);
+			current.Add(key);
+			Notify(problem.Path.Length == 0 ? "error" : "warn", problem.Message, key);
+		}
+
+		foreach (string key in _projectedReviewProblemToastKeys.Except(current)) {
+			ClearNotify(key);
+		}
+		_projectedReviewProblemToastKeys.Clear();
+		_projectedReviewProblemToastKeys.UnionWith(current);
+	}
+
+	private static string ReviewProblemToastKey(HostSession session, string path) {
+		string subject = path.Length == 0 ? session.WorkspaceRoot : Path.Combine(session.WorkspaceRoot, path);
+		return $"review-state-{WorkspaceId.ForPath(session.WorkspaceRoot).Value}-{WorkspaceId.ForPath(subject).Value}";
+	}
+
+	private void NotifyReviewProblem(HostSession session, string message) {
+		string key = ReviewProblemToastKey(session, string.Empty);
+		Notify("error", message, key);
+		_projectedReviewProblemToastKeys.Add(key);
 	}
 
 	/// <summary>Pushes a live-refresh of one edited file via an <c>fs-change</c> (VSCode reloads the non-dirty model from disk).</summary>
@@ -831,11 +860,8 @@ public sealed partial class HostCore {
 			return;
 		}
 
-		session.Changes.AcceptTurn();
-		// Keep-all commits the board: a local "diff against" review is done, so drop it — else its label would
-		// cling to the next plain turn. A PR review persists (its identity + comments outlive an equal tree).
-		if (ActiveReview() is { PrNumber: 0 }) {
-			_diffReviews.TryRemove(session.WorkspaceRoot, out _);
+		if (!TryReviewMutation(session, session.Changes.AcceptTurn)) {
+			return;
 		}
 
 		_bridge.PostToWeb(ChangeMessages.TurnReset());
@@ -878,11 +904,19 @@ public sealed partial class HostCore {
 		}
 
 		string? kind = root.GetStringOrNull("kind");
-		var result = kind switch {
-			"keep" => session.Changes.UndoLastKeep(),
-			"revert" => session.Changes.UndoLastRevert(),
-			_ => session.Changes.UndoLast(),
-		};
+		ReviewHistoryResult result;
+		try {
+			if (!TryReviewMutation(session, () => kind switch {
+				"keep" => session.Changes.UndoLastKeep(),
+				"revert" => session.Changes.UndoLastRevert(),
+				_ => session.Changes.UndoLast(),
+			}, out result)) {
+				return;
+			}
+		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+			Notify("warn", $"Couldn't undo the review action: {ex.Message}");
+			return;
+		}
 		HandleHistory(result);
 		RevealHistoryChange(session, result);
 	}
@@ -890,7 +924,15 @@ public sealed partial class HostCore {
 	/// <summary>Redoes the most recently undone review action (the toolbar/palette Redo).</summary>
 	private void ReviewRedo() {
 		if (_session is { } session) {
-			var result = session.Changes.Redo();
+			ReviewHistoryResult result;
+			try {
+				if (!TryReviewMutation(session, session.Changes.Redo, out result)) {
+					return;
+				}
+			} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+				Notify("warn", $"Couldn't redo the review action: {ex.Message}");
+				return;
+			}
 			HandleHistory(result);
 			RevealHistoryChange(session, result);
 		}
@@ -1052,7 +1094,13 @@ public sealed partial class HostCore {
 		var currentRange = new LineRange(JsonInt(root, "currentStart"), JsonInt(root, "currentEndExclusive"));
 		string guardText = root.GetStringOrEmpty("guardText");
 
-		if (!session.Changes.KeepHunk(path, baselineRange, currentRange, guardText)) {
+		if (!TryReviewMutation(
+			session,
+			() => session.Changes.KeepHunk(path, baselineRange, currentRange, guardText),
+			out bool kept)) {
+			return;
+		}
+		if (!kept) {
 			Notify("warn", $"{Path.GetFileName(path)} changed — re-open to review.");
 			PushTurnDiffToWeb(path); // re-render so the stale hunk geometry is replaced
 			return;
@@ -1077,7 +1125,9 @@ public sealed partial class HostCore {
 			return;
 		}
 
-		session.Changes.KeepFile(path);
+		if (!TryReviewMutation(session, () => session.Changes.KeepFile(path))) {
+			return;
+		}
 		PushTurnDiffToWeb(path);  // every hunk is now faded-accepted (review baseline == current)
 		PushTurnChangesToWeb();   // the file's pending count drops, but it stays (faded) until keep-all
 		PushReviewHistoryToWeb(); // a keep is now undoable
@@ -1105,7 +1155,13 @@ public sealed partial class HostCore {
 		string acceptedGuardText = root.GetStringOrEmpty("acceptedGuardText");
 		string guardText = root.GetStringOrEmpty("guardText");
 
-		if (!session.Changes.UnkeepHunk(path, acceptedRange, reviewRange, acceptedGuardText, guardText)) {
+		if (!TryReviewMutation(
+			session,
+			() => session.Changes.UnkeepHunk(path, acceptedRange, reviewRange, acceptedGuardText, guardText),
+			out bool unkept)) {
+			return;
+		}
+		if (!unkept) {
 			Notify("warn", $"{Path.GetFileName(path)} changed — re-open to review.");
 			PushTurnDiffToWeb(path); // re-render so the stale hunk geometry is replaced
 			return;
@@ -1113,6 +1169,23 @@ public sealed partial class HostCore {
 
 		PushTurnDiffToWeb(path); // the hunk moves from the faded band back to the bright pending band
 		PushTurnChangesToWeb();  // its first-pending-line shifts (the file was already in the set)
+	}
+
+	private bool TryReviewMutation(HostSession session, Action mutation) =>
+		TryReviewMutation(session, () => {
+			mutation();
+			return true;
+		}, out _);
+
+	private bool TryReviewMutation<T>(HostSession session, Func<T> mutation, out T result) {
+		try {
+			result = mutation();
+			return true;
+		} catch (ReviewPersistenceException ex) {
+			NotifyReviewProblem(session, ex.Message);
+			result = default!;
+			return false;
+		}
 	}
 
 	/// <summary>
@@ -1451,13 +1524,6 @@ public sealed partial class HostCore {
 	/// <summary>The native <c>path</c> of an fs-stat/read/write request.</summary>
 	private static string FsPath(JsonElement root) =>
 		root.TryGetProperty("path", out var pathEl) ? pathEl.GetString() ?? string.Empty : string.Empty;
-
-	// Whether a FileProvider.Write reply reports the save reached disk, so a correction is only recorded for a
-	// write that actually landed (never for one rejected outside the worktree or failed by IO).
-	private static bool WroteOk(string writeReply) {
-		using var doc = JsonDocument.Parse(writeReply);
-		return doc.RootElement.TryGetProperty("ok", out var ok) && ok.ValueKind == JsonValueKind.True;
-	}
 
 	/// <summary>
 	/// Routes a terminal message to the controller for its <c>slot</c> (the session it names) and <c>session</c>

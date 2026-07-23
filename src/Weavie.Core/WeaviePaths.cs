@@ -204,4 +204,19 @@ public static class WeaviePaths {
 	/// <param name="worktreeDigest">A stable digest of the session's worktree path (e.g. <see cref="WorkspaceId.ForPath"/>).</param>
 	public static string WorkspaceAgentPaneFile(WorkspaceId id, string worktreeDigest) =>
 		Path.Combine(WorkspaceAgentPanesDir(id), $"{worktreeDigest}.json");
+
+	/// <summary>
+	/// A workspace's durable per-worktree review checkpoints:
+	/// <c>~/.weavie/workspaces/&lt;id&gt;/review-checkpoints</c>.
+	/// </summary>
+	public static string WorkspaceReviewCheckpointsDir(WorkspaceId id) => Path.Combine(WorkspaceDir(id), "review-checkpoints");
+
+	/// <summary>
+	/// The durable review checkpoint for one worktree:
+	/// <c>~/.weavie/workspaces/&lt;id&gt;/review-checkpoints/&lt;worktreeDigest&gt;.json</c>.
+	/// </summary>
+	/// <param name="id">The workspace whose checkpoint directory holds the file.</param>
+	/// <param name="worktreeDigest">The stable digest of the session's worktree path.</param>
+	public static string WorkspaceReviewCheckpointFile(WorkspaceId id, string worktreeDigest) =>
+		Path.Combine(WorkspaceReviewCheckpointsDir(id), $"{worktreeDigest}.json");
 }

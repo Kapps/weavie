@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Weavie.Core.Changes;
 using Weavie.Core.Git;
 using Weavie.Core.Review;
 using Weavie.Core.Sessions;
@@ -166,6 +167,7 @@ public sealed partial class HostCore {
 			return;
 		}
 
+		long token = session.Changes.BeginReviewArm();
 		string worktree = session.WorkspaceRoot;
 		var git = new GitService();
 		string? mergeBase = null;
@@ -192,36 +194,52 @@ public sealed partial class HostCore {
 		}
 
 		var repo = await ResolveOriginRepoAsync(CancellationToken.None).ConfigureAwait(false);
-		var review = new DiffReview(number, $"PR #{number}", headRef, mergeBase, headSha, repo, worktree);
-		await RefreshCommentsAsync(review).ConfigureAwait(false);
+		var review = new ReviewIdentity(number, $"PR #{number}", headRef, mergeBase, headSha, repo, worktree);
+		await RefreshCommentsAsync(session, review, token).ConfigureAwait(false);
 		IReadOnlyList<DiffFileChange> changes;
 		try {
 			changes = await ComputeReviewChangesAsync(review).ConfigureAwait(false);
 		} catch (GitException ex) {
+			RemoveReviewComments(session, review, token);
 			Notify("warn", $"Opened PR #{number}, but couldn't compute its diff: {ex.Message}", key);
 			return;
 		}
 
 		// Seed the change tracker so the PR reviews through the same accept/reject engine as a turn (opens + renders
 		// the first changed file; keep/revert + later Claude edits accumulate into the one set).
-		await SeedAndArmReviewAsync(review, session, changes).ConfigureAwait(false);
+		await SeedAndArmReviewAsync(review, session, changes, token).ConfigureAwait(false);
 		// The diff is now on screen — clear the "Opening PR…" spinner (the render itself is the success feedback).
 		ClearNotify(key);
 	}
 
-	/// <summary>Re-loads a PR's review comments into the review (best-effort; a forge error leaves the prior set).</summary>
-	private async Task RefreshCommentsAsync(DiffReview review) {
+	/// <summary>Re-loads a PR's immutable comment cache when its arm token is still relevant.</summary>
+	private async Task RefreshCommentsAsync(HostSession session, ReviewIdentity review, long token) {
 		if (review.Repo is not { } repo) {
 			return;
 		}
 
+		var refresh = BeginReviewCommentRefresh(session, review, token);
 		try {
-			var comments = await _reviewComments.ListAsync(repo, review.PrNumber, CancellationToken.None).ConfigureAwait(false);
-			review.Comments.Clear();
-			review.Comments.AddRange(comments);
+			var comments = await _reviewComments.ListAsync(repo, review.PrNumber, refresh.Cancellation).ConfigureAwait(false);
+			await CommitReviewCommentsAsync(session, review, token, refresh, comments).ConfigureAwait(false);
+		} catch (OperationCanceledException) when (refresh.Cancellation.IsCancellationRequested) {
+			// The session unloaded, the review was replaced, or the worktree was deleted.
 		} catch (Exception ex) when (ex is InvalidOperationException or HttpRequestException or TaskCanceledException) {
 			Log($"[weavie] pr #{review.PrNumber}: couldn't load comments: {ex.Message}");
 		}
+	}
+
+	private async Task RefreshHydratedReviewCommentsAsync(HostSession session, ReviewIdentity review, long token) {
+		await RefreshCommentsAsync(session, review, token).ConfigureAwait(false);
+		_ui.Post(() => {
+			if (!IsActiveSession(session) || !ReviewStillArmed(session, review, token)) {
+				return;
+			}
+
+			foreach (var change in session.Changes.TurnChanges()) {
+				PushReviewCommentsToWeb(session, review, token, change.Path);
+			}
+		});
 	}
 
 	/// <summary>
@@ -230,34 +248,53 @@ public sealed partial class HostCore {
 	/// <paramref name="inReplyTo"/>. Failure toasts and keeps the draft (the web doesn't clear it until success).
 	/// </summary>
 	private async Task AddPrCommentFromWebAsync(int number, string absolutePath, int line, string side, long inReplyTo, string body) {
-		if (string.IsNullOrWhiteSpace(body) || ActiveReview() is not { } review || review.PrNumber != number || review.Repo is not { } repo) {
+		if (string.IsNullOrWhiteSpace(body)
+			|| _session is not { } session
+			|| ActiveReview() is not { } review
+			|| review.PrNumber != number
+			|| review.Repo is not { } repo) {
+			return;
+		}
+		long token = session.Changes.ActiveReviewToken;
+		var commentKey = ReviewCommentKey(session, review, token);
+		var cancellation = AcquireReviewCommentCancellation(session, review, token, commentKey);
+		if (session.Changes.GetTurn(absolutePath) is null
+			|| cancellation.IsCancellationRequested
+			|| !ReviewStillArmed(session, review, token)) {
 			return;
 		}
 
 		try {
+			if (!IsActiveSession(session)
+				|| cancellation.IsCancellationRequested
+				|| !ReviewStillArmed(session, review, token)) {
+				return;
+			}
 			if (inReplyTo > 0) {
-				await _reviewComments.ReplyAsync(repo, number, inReplyTo, body, CancellationToken.None).ConfigureAwait(false);
+				await _reviewComments.ReplyAsync(repo, number, inReplyTo, body, cancellation).ConfigureAwait(false);
 			} else {
 				string relative = Path.GetRelativePath(review.Worktree, absolutePath).Replace('\\', '/');
 				string resolvedSide = side.Equals("left", StringComparison.OrdinalIgnoreCase) ? "left" : "right";
 				await _reviewComments.AddAsync(
 					repo, number, review.HeadSha,
-					new NewReviewComment { Path = relative, Line = line, Side = resolvedSide, Body = body }, CancellationToken.None).ConfigureAwait(false);
+					new NewReviewComment { Path = relative, Line = line, Side = resolvedSide, Body = body }, cancellation).ConfigureAwait(false);
 			}
+		} catch (OperationCanceledException) when (cancellation.IsCancellationRequested) {
+			return;
 		} catch (Exception ex) when (ex is InvalidOperationException or HttpRequestException or TaskCanceledException) {
 			Notify("warn", $"Couldn't post the comment: {ex.Message}");
 			return;
 		}
 
-		await RefreshCommentsAsync(review).ConfigureAwait(false);
+		await RefreshCommentsAsync(session, review, token).ConfigureAwait(false);
 		// Re-render the file's diff so the just-posted thread appears. Post-await, so hop to the UI thread and
 		// guard: a switch could have moved off this review while the forge round-tripped.
 		_ui.Post(() => {
-			if (!ReferenceEquals(ActiveReview(), review)) {
+			if (!IsActiveSession(session) || !ReviewStillArmed(session, review, token)) {
 				return;
 			}
 
-			PushReviewCommentsToWeb(review, absolutePath);
+			PushReviewCommentsToWeb(session, review, token, absolutePath);
 			PushTurnDiffToWeb(absolutePath);
 		});
 	}

@@ -735,9 +735,10 @@ export async function createEditorHost(
 
   await restoreSession();
 
-  // Rebind on a session switch: release the previous session's working copies, then reopen the incoming
-  // session's active tab via restoreSession. Non-active tabs reopen lazily when clicked.
+  // Rebind on a session switch: flush + release the previous session's working copies, then reopen the incoming
+  // session's active tab via restoreSession. The mount acknowledgement therefore proves the old saves settled.
   const rebindSession = async (): Promise<void> => {
+    await flushDirty();
     releaseAll();
     await restoreSession();
   };

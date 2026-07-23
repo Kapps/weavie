@@ -46,24 +46,35 @@ public sealed partial class SessionChangeTracker {
 	/// path blocks it). Moves it back onto the undo stack.
 	/// </summary>
 	public ReviewHistoryResult Redo() {
+		ReviewAction? candidate = null;
 		lock (_gate) {
 			for (int i = _redoStack.Count - 1; i >= 0; i--) {
-				var action = _redoStack[i];
-				if (!StateHolds(action.Before, action.TouchesDisk)) {
-					continue;
+				if (StateHolds(_redoStack[i].Before, _redoStack[i].TouchesDisk)) {
+					candidate = _redoStack[i];
+					break;
 				}
-
-				foreach (var state in action.After) {
-					RestoreState(state, action.TouchesDisk);
-				}
-
-				_redoStack.RemoveAt(i);
-				_undoStack.Add(action);
-				return ReviewHistoryResult.Done(action.TouchesDisk, Paths(action.After));
 			}
-
-			return ReviewHistoryResult.Blocked(_redoStack.Count > 0);
+			if (candidate is null) {
+				return ReviewHistoryResult.Blocked(_redoStack.Count > 0);
+			}
 		}
+
+		return MutateReviewWithProgress(rollbackOnFailure: !candidate.TouchesDisk, progress => {
+			int index = _redoStack.IndexOf(candidate);
+			if (index < 0 || !StateHolds(candidate.Before, candidate.TouchesDisk)) {
+				return ReviewUnchanged(ReviewHistoryResult.Blocked(_redoStack.Count > 0));
+			}
+			foreach (var state in candidate.After) {
+				RestoreState(state, candidate.TouchesDisk);
+				if (candidate.TouchesDisk) {
+					progress.Applied(state.Path);
+				}
+			}
+			_redoStack.RemoveAt(index);
+			_undoStack.Add(candidate);
+			var paths = Paths(candidate.After);
+			return ReviewChanged(ReviewHistoryResult.Done(candidate.TouchesDisk, paths), paths);
+		});
 	}
 
 	/// <summary>
@@ -72,8 +83,9 @@ public sealed partial class SessionChangeTracker {
 	/// Restores its pre-action state — for a revert that means rewriting the file — and moves it onto the redo stack.
 	/// </summary>
 	private ReviewHistoryResult Reverse(ReviewActionKind? kind) {
+		ReviewAction? candidate = null;
+		bool sawKind = false;
 		lock (_gate) {
-			bool sawKind = false;
 			for (int i = _undoStack.Count - 1; i >= 0; i--) {
 				var action = _undoStack[i];
 				if (kind is { } want && action.Kind != want) {
@@ -81,21 +93,32 @@ public sealed partial class SessionChangeTracker {
 				}
 
 				sawKind = true;
-				if (!StateHolds(action.After, action.TouchesDisk)) {
-					continue; // a later action moved one of these paths; undoing this one out of order is unsafe
+				if (StateHolds(action.After, action.TouchesDisk)) {
+					candidate = action;
+					break;
 				}
-
-				foreach (var state in action.Before) {
-					RestoreState(state, action.TouchesDisk);
-				}
-
-				_undoStack.RemoveAt(i);
-				_redoStack.Add(action);
-				return ReviewHistoryResult.Done(action.TouchesDisk, Paths(action.Before));
 			}
-
-			return ReviewHistoryResult.Blocked(sawKind);
+			if (candidate is null) {
+				return ReviewHistoryResult.Blocked(sawKind);
+			}
 		}
+
+		return MutateReviewWithProgress(rollbackOnFailure: !candidate.TouchesDisk, progress => {
+			int index = _undoStack.IndexOf(candidate);
+			if (index < 0 || !StateHolds(candidate.After, candidate.TouchesDisk)) {
+				return ReviewUnchanged(ReviewHistoryResult.Blocked(sawKind));
+			}
+			foreach (var state in candidate.Before) {
+				RestoreState(state, candidate.TouchesDisk);
+				if (candidate.TouchesDisk) {
+					progress.Applied(state.Path);
+				}
+			}
+			_undoStack.RemoveAt(index);
+			_redoStack.Add(candidate);
+			var paths = Paths(candidate.Before);
+			return ReviewChanged(ReviewHistoryResult.Done(candidate.TouchesDisk, paths), paths);
+		});
 	}
 
 	// Records an undoable action; the caller (a mutator) supplies the pre-mutation snapshot and the paths it
@@ -132,6 +155,14 @@ public sealed partial class SessionChangeTracker {
 	// Restores a captured snapshot: the tracker dictionaries, and — for a disk-mutating action — the file's
 	// content (or its absence). An untracked snapshot forgets the path entirely. Holds _gate.
 	private void RestoreState(PathState state, bool withDisk) {
+		if (withDisk) {
+			if (state.OnDisk) {
+				_fileSystem.WriteAllText(state.Path, state.Disk);
+			} else if (_fileSystem.FileExists(state.Path)) {
+				_fileSystem.DeleteFile(state.Path);
+			}
+		}
+
 		if (state.Tracked) {
 			_baseline[state.Path] = state.Baseline;
 			_current[state.Path] = state.Current;
@@ -148,15 +179,6 @@ public sealed partial class SessionChangeTracker {
 			Forget(state.Path);
 		}
 
-		if (!withDisk) {
-			return;
-		}
-
-		if (state.OnDisk) {
-			_fileSystem.WriteAllText(state.Path, state.Disk);
-		} else if (_fileSystem.FileExists(state.Path)) {
-			_fileSystem.DeleteFile(state.Path);
-		}
 	}
 
 	// Whether every snapshot still matches the live state on the fields an action mutates (current content, the
@@ -194,6 +216,15 @@ public sealed partial class SessionChangeTracker {
 
 		return paths;
 	}
+
+	private void InvalidateHistoryForPathLocked(string path) {
+		_undoStack.RemoveAll(action => Touches(action, path));
+		_redoStack.RemoveAll(action => Touches(action, path));
+	}
+
+	private static bool Touches(ReviewAction action, string path) =>
+		action.Before.Any(state => string.Equals(state.Path, path, StringComparison.Ordinal))
+			|| action.After.Any(state => string.Equals(state.Path, path, StringComparison.Ordinal));
 
 	// Whether a keep/revert action mutates disk. Keeps only advance the review baseline; reverts rewrite the file.
 	private enum ReviewActionKind {

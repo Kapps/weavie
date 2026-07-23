@@ -42,6 +42,7 @@ internal sealed class TestHost : IAsyncDisposable {
 		Core = core;
 		SourceHttp = sourceHttp;
 		SourcesDir = sourcesDir;
+		Bridge.MessagePosted += OnMessagePosted;
 	}
 
 	public FakeHostBridge Bridge { get; private set; }
@@ -63,7 +64,7 @@ internal sealed class TestHost : IAsyncDisposable {
 	/// <summary>The host's settings store, for a test to tweak a setting before it creates a session.</summary>
 	public SettingsStore Settings => _services.Settings;
 
-	/// <summary>Whether switch/acquire helpers immediately acknowledge the offered editor projection.</summary>
+	/// <summary>Whether each stamped editor-projection offer is immediately acknowledged.</summary>
 	public bool AutoMountEditorProjection { get; set; } = true;
 
 	/// <summary>Builds a temp git repo, starts a host over it, and delivers the page's <c>ready</c> message.</summary>
@@ -78,11 +79,21 @@ internal sealed class TestHost : IAsyncDisposable {
 
 	/// <summary>As <see cref="StartAsync(Action{string})"/>, with deterministic pull requests exposed by the host.</summary>
 	public static Task<TestHost> StartAsync(Action<string> prepareRepo, IReadOnlyList<PullRequestSummary> pullRequests) =>
-		StartAsync(prepareRepo, new StaticPullRequestProvider(pullRequests, []), sendReady: true);
+		StartAsync(
+			prepareRepo,
+			new StaticPullRequestProvider(pullRequests, []),
+			new StaticPullRequestProvider([], []),
+			sendReady: true);
 
 	/// <summary>As <see cref="StartAsync(Action{string})"/>, with a test-controlled pull request provider.</summary>
 	public static Task<TestHost> StartAsync(Action<string> prepareRepo, IPullRequestProvider pullRequests) =>
-		StartAsync(prepareRepo, pullRequests, sendReady: true);
+		StartAsync(prepareRepo, pullRequests, new StaticPullRequestProvider([], []), sendReady: true);
+
+	/// <summary>As <see cref="StartAsync(Action{string})"/>, with a test-controlled review-comment store.</summary>
+	public static Task<TestHost> StartWithReviewCommentsAsync(
+		Action<string> prepareRepo,
+		IReviewCommentStore reviewComments) =>
+		StartAsync(prepareRepo, new StaticPullRequestProvider([], []), reviewComments, sendReady: true);
 
 	/// <summary>
 	/// As <see cref="StartAsync(Action{string})"/>, but only delivers the page's <c>ready</c> message when
@@ -90,7 +101,11 @@ internal sealed class TestHost : IAsyncDisposable {
 	/// that a startup push is held rather than dropped), then call <c>Send</c> with a <c>ready</c> message.
 	/// </summary>
 	public static Task<TestHost> StartAsync(Action<string> prepareRepo, bool sendReady) =>
-		StartAsync(prepareRepo, new StaticPullRequestProvider([], []), sendReady);
+		StartAsync(
+			prepareRepo,
+			new StaticPullRequestProvider([], []),
+			new StaticPullRequestProvider([], []),
+			sendReady);
 
 	// Flaked 2026-07-19 ~16:09 UTC (https://github.com/Kapps/weavie/actions/runs/29694172917): every test in
 	// this project failed from the very first one onward with FileNotFoundException loading
@@ -100,8 +115,12 @@ internal sealed class TestHost : IAsyncDisposable {
 	// touched an unrelated web-bridge command and a different test's wait condition — nothing on this startup
 	// path changed. Root cause is a one-off runner-side dotnet SDK extraction fault, not a code or test defect,
 	// so no test-code change applies here.
-	private static async Task<TestHost> StartAsync(Action<string> prepareRepo, IPullRequestProvider pullRequests, bool sendReady) {
-		var host = Create(prepareRepo, pullRequests);
+	private static async Task<TestHost> StartAsync(
+		Action<string> prepareRepo,
+		IPullRequestProvider pullRequests,
+		IReviewCommentStore reviewComments,
+		bool sendReady) {
+		var host = Create(prepareRepo, pullRequests, reviewComments);
 		await host.Core.StartAsync().ConfigureAwait(false);
 		// `ready` triggers the initial layout / editor-session / session-list pushes (PostToWeb no-ops before this).
 		if (sendReady) {
@@ -112,9 +131,15 @@ internal sealed class TestHost : IAsyncDisposable {
 	}
 
 	/// <summary>Builds the real host graph without starting it, for startup/shutdown lifecycle tests.</summary>
-	public static TestHost CreateUnstarted() => Create(_ => { }, new StaticPullRequestProvider([], []));
+	public static TestHost CreateUnstarted() => Create(
+		_ => { },
+		new StaticPullRequestProvider([], []),
+		new StaticPullRequestProvider([], []));
 
-	private static TestHost Create(Action<string> prepareRepo, IPullRequestProvider pullRequests) {
+	private static TestHost Create(
+		Action<string> prepareRepo,
+		IPullRequestProvider pullRequests,
+		IReviewCommentStore reviewComments) {
 		string tempRoot = Path.Combine(Path.GetTempPath(), "weavie-host-it-" + Guid.NewGuid().ToString("n"));
 		string repo = Path.Combine(tempRoot, "repo");
 		Directory.CreateDirectory(repo);
@@ -130,7 +155,7 @@ internal sealed class TestHost : IAsyncDisposable {
 
 		var sourceHttp = new StubHttpMessageHandler();
 		string sourcesDir = Path.Combine(tempRoot, "sources");
-		var services = IsolatedServices(tempRoot, sourceHttp, sourcesDir, pullRequests);
+		var services = IsolatedServices(tempRoot, sourceHttp, sourcesDir, pullRequests, reviewComments);
 		var bridge = new FakeHostBridge();
 		var platform = new TestPlatform(bridge);
 		var core = new HostCore(
@@ -151,10 +176,10 @@ internal sealed class TestHost : IAsyncDisposable {
 	}
 
 	/// <summary>Creates a worktree-backed session on <paramref name="branch"/> (off main) and switches to it.</summary>
-	public async Task<CommandResult> CreateSessionAsync(string branch) =>
-		await MountAfterAsync(Core.NewSessionAsync(
+	public Task<CommandResult> CreateSessionAsync(string branch) =>
+		Core.NewSessionAsync(
 			new NewSessionRequest { Branch = branch, Base = "main", AttachExisting = false },
-			CancellationToken.None)).ConfigureAwait(false);
+			CancellationToken.None);
 
 	/// <summary>Sends a raw web message to the host (as the page would).</summary>
 	public void Send(string json) {
@@ -173,18 +198,6 @@ internal sealed class TestHost : IAsyncDisposable {
 			Bridge.Receive(JsonSerializer.Serialize(new { type = "acquire-editor", pageId = TestPageId }));
 		}
 		RememberLastProjection();
-		if (AutoMountEditorProjection && type is ("ready" or "switch-session")) {
-			MountEditorProjection();
-		}
-	}
-
-	private async Task<CommandResult> MountAfterAsync(Task<CommandResult> command) {
-		var result = await command.ConfigureAwait(false);
-		RememberLastProjection();
-		if (AutoMountEditorProjection) {
-			MountEditorProjection();
-		}
-		return result;
 	}
 
 	/// <summary>Acknowledges the most recently offered editor projection.</summary>
@@ -224,6 +237,23 @@ internal sealed class TestHost : IAsyncDisposable {
 		}
 	}
 
+	private void OnMessagePosted(string json) {
+		using var document = JsonDocument.Parse(json);
+		var root = document.RootElement;
+		if (!root.TryGetProperty("type", out var type) || type.GetString() != "set-editor-session") {
+			return;
+		}
+		if (!root.TryGetProperty("projectionRevision", out var revision)
+			|| revision.ValueKind != JsonValueKind.Number) {
+			return;
+		}
+
+		_lastProjection = root.Clone();
+		if (AutoMountEditorProjection) {
+			MountEditorProjection();
+		}
+	}
+
 	/// <summary>
 	/// Simulates a worker restart (what a runner auto-update respawn does): disposes the live core and brings a
 	/// fresh one up over the same repo — same workspace id, so it re-reads the persisted per-workspace stores.
@@ -239,6 +269,7 @@ internal sealed class TestHost : IAsyncDisposable {
 		await Core.DisposeAsync().ConfigureAwait(false);
 		beforeRestart();
 		Bridge = new FakeHostBridge();
+		Bridge.MessagePosted += OnMessagePosted;
 		_lastProjection = null;
 		Platform = new TestPlatform(Bridge);
 		Core = new HostCore(
@@ -255,7 +286,8 @@ internal sealed class TestHost : IAsyncDisposable {
 		string tempRoot,
 		StubHttpMessageHandler sourceHttp,
 		string sourcesDir,
-		IPullRequestProvider pullRequests) {
+		IPullRequestProvider pullRequests,
+		IReviewCommentStore reviewComments) {
 		var settings = CoreSettings.CreateStore(Path.Combine(tempRoot, "settings.toml"), enableWatcher: false);
 		var registry = CoreCommands.CreateRegistry();
 		var keybindings = new KeybindingStore(registry, Path.Combine(tempRoot, "keybindings.json"), enableWatcher: false);
@@ -278,7 +310,7 @@ internal sealed class TestHost : IAsyncDisposable {
 			RailState = railState,
 			SearchState = searchState,
 			PullRequests = pullRequests,
-			ReviewComments = new Weavie.Core.Review.StaticPullRequestProvider([], []),
+			ReviewComments = reviewComments,
 			Sources = BuildSourceConnector(sourceHttp, sourcesDir),
 			// A fresh, uninstalled buffer — tests never tee Console (that would hijack the xunit console).
 			LogBuffer = new LogBuffer(LogBuffer.DefaultCapacity),

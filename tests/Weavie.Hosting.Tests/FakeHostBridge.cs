@@ -14,6 +14,7 @@ internal sealed class FakeHostBridge : IHostBridge, IPageLifecycleHostBridge {
 
 	public event Action<string>? MessageReceived;
 	public event Action<string>? PageDisconnected;
+	public event Action<string>? MessagePosted;
 
 	/// <summary>Whether a live host is subscribed to inbound page messages.</summary>
 	public bool HasMessageReceiver => MessageReceived is not null;
@@ -22,6 +23,7 @@ internal sealed class FakeHostBridge : IHostBridge, IPageLifecycleHostBridge {
 		lock (_gate) {
 			_posted.Add(json);
 		}
+		MessagePosted?.Invoke(json);
 	}
 
 	/// <summary>Every message posted to the page, in order.</summary>

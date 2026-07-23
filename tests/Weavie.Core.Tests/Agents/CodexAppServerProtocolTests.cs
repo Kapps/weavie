@@ -313,7 +313,8 @@ public sealed class CodexAppServerProtocolTests {
 		var changes = new SessionChangeTracker(
 			fileSystem,
 			workspace,
-			_ => true);
+			_ => true,
+			NoopReviewCheckpointStore.Instance);
 		string startedJson = "{\"method\":\"item/started\",\"params\":{\"item\":{\"type\":\"fileChange\",\"id\":\"item_1\",\"status\":\"inProgress\",\"changes\":[{\"path\":"
 			+ pathJson + ",\"diff\":\"@@\",\"kind\":{\"type\":\"update\"}}]}}}";
 		string completedJson = "{\"method\":\"item/completed\",\"params\":{\"item\":{\"type\":\"fileChange\",\"id\":\"item_1\",\"status\":\"completed\",\"changes\":[{\"path\":"
@@ -338,7 +339,7 @@ public sealed class CodexAppServerProtocolTests {
 		string workspace = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "weavie-codex-command-reconcile"));
 		string file = Path.Combine(workspace, "created.txt");
 		var fileSystem = new InMemoryFileSystem();
-		var changes = new SessionChangeTracker(fileSystem, workspace, _ => true);
+		var changes = new SessionChangeTracker(fileSystem, workspace, _ => true, NoopReviewCheckpointStore.Instance);
 		string pathJson = JsonSerializer.Serialize(file);
 		string editJson = "{\"method\":\"item/completed\",\"params\":{\"item\":{\"type\":\"fileChange\",\"id\":\"item_1\",\"status\":\"completed\",\"changes\":[{\"path\":"
 			+ pathJson + ",\"diff\":\"@@\",\"kind\":{\"type\":\"add\"}}]}}}";
@@ -362,7 +363,11 @@ public sealed class CodexAppServerProtocolTests {
 	[InlineData("dynamicToolCall")]
 	public void UnstructuredToolLifecycle_NeverEnumeratesTheWorkspace(string type) {
 		var fileSystem = new NoEnumerationFileSystem();
-		var changes = new SessionChangeTracker(fileSystem, Path.GetFullPath(Path.GetTempPath()), _ => true);
+		var changes = new SessionChangeTracker(
+			fileSystem,
+			Path.GetFullPath(Path.GetTempPath()),
+			_ => true,
+			NoopReviewCheckpointStore.Instance);
 		string startedJson = $"{{\"method\":\"item/started\",\"params\":{{\"item\":{{\"type\":\"{type}\",\"id\":\"item_1\"}}}}}}";
 		string completedJson = $"{{\"method\":\"item/completed\",\"params\":{{\"item\":{{\"type\":\"{type}\",\"id\":\"item_1\"}}}}}}";
 

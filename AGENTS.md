@@ -120,10 +120,14 @@ run the full functional suite on `headless`, only the transport-sensitive delta 
   `--font-metadata-size` or `--font-hint-size`. Never add a feature-local font stack, raw content size, or
   invented font variable.
 
-- **Do the proper fix, not the smallest fix.** Optimize for the simplest correct architecture, not the fewest
-  changed lines. When a defect exposes a broken ownership boundary, race-prone protocol, or duplicated source
-  of truth, repair that design and cover its invariants instead of adding a local guard that leaves the same
-  class of failure elsewhere.
+- **Do the proper fix, not the smallest fix — and never stage a hack first.** Optimize for the simplest
+  correct architecture, not the fewest changed lines. When a defect exposes a broken ownership boundary,
+  race-prone protocol, or duplicated source of truth, repair that design and cover its invariants instead of
+  adding a local guard that leaves the same class of failure elsewhere. Never propose a quick patch "for now"
+  with the real fix deferred: this is agent-driven development — implementation bandwidth is not scarce, so
+  effort never justifies the wrong architecture. Prefer designs where the right behavior is automatic:
+  ownership, addressing, and lifecycle enforced by construction (types, owned objects, single sources of
+  truth) rather than by per-call-site discipline.
 - **Minimize lines of code.** Every line is a liability — to read, maintain, and break. Write the
   least code that does the job, prefer the plainest version of it, and delete more than you add when
   you can.

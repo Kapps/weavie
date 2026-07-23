@@ -156,11 +156,13 @@ chips and the switch pre-check keep their existing treatment. This deletes `drop
 two hardcoded types become the universal owned-plane rule) and closes the outbox-replay class at the
 root: an owned frame either sends now or visibly fails now.
 
-The one deliberate exception is explicit instead of transport-buried: `postReliable` for the acked
-agent-input protocol (`agent-submit`, `agent-attachment-upload/remove`) — tracked until the
-correlated `agent-*-state` ack, replayed on the owner's reconnect. `ReliableAgentFrames` moves from
-`WebSocketTransport` (which JSON-sniffs every frame today) into `SessionBus`; the transport goes back
-to dumb ordered bytes. Wire semantics unchanged.
+There is no auto-replay exception. `postReliable` (the acked agent-input protocol: `agent-submit`,
+`agent-attachment-upload/remove`) tracks the frame until its correlated `agent-*-state` ack — to
+*detect* loss, not to resend. A frame unacked when the link drops surfaces on the composer ("didn't
+reach the agent — resend?") with the draft preserved; resending is a user action. This is a
+deliberate behavior change: today `ReliableAgentFrames` silently replays on reconnect, which is the
+`switch-session` replay class aimed at a token-spending, worktree-mutating action. The transport
+class is deleted (it JSON-sniffs every frame today); the transport goes back to dumb ordered bytes.
 
 ## API sketches
 
@@ -199,7 +201,7 @@ export interface SessionBus {
   readonly slot: string;
   /** Stamps slot, sends on the owner's transport. False = refused (offline/closed), already logged. */
   post(message: SessionOutbound): boolean;
-  /** Tracked until its state ack, replayed on the owner's reconnect (the agent-input protocol). */
+  /** Tracked until its state ack to detect loss; never auto-replayed — loss surfaces for explicit resend. */
   postReliable(message: SessionReliableOutbound): void;
   on<T extends SessionInbound["type"]>(
     type: T,
@@ -233,7 +235,11 @@ as a prop/argument resolved once at their creation seam — `TerminalView` takes
 `AgentPaneActions`, and `paste-image`. Not Solid context (buses cross non-JSX modules like the LSP
 pool); not a field on `RailSession` (snapshot rows recreated per memo keep plain ids for rendering —
 the click path resolves `sessionBus(...)` at the action). `session-store` re-derives its `byBackend`
-map from the registry so `session-list` has one ingestion point.
+map from the registry so `session-list` has one ingestion point. Rendered session surfaces exist only
+for loaded sessions (the rail derives them), so their bus is non-null by construction; the only
+nullable lookups are user actions racing a load/unload, which refuse with the keyed toast.
+Optional-chained sends (`bus?.post`) are a silent fallback and banned — the phase-6 sweep rejects
+them.
 
 The ambient sender shrinks:
 
@@ -328,16 +334,21 @@ newer than the page.
 **Decision: additive-only frame evolution plus a `bridgeProtocol` capability on `host-info`, with a
 hard floor.**
 
-- The new fields (`slot` on review/scratch verbs, `slot` on `session-status`) are additive. An older
-  host ignores the unknown field and resolves `_session` — byte-for-byte today's behavior; the host's
-  absent-slot lane keeps older pages working against new hosts. These lanes are version
-  compatibility, documented as such, not silent fallbacks.
+- The new fields (`slot` on review/scratch verbs, `slot` on `session-status`) are additive on the
+  wire, but the *mutation class* never rides the compat lane: a new page does not send review,
+  scratch, or `diff-against` verbs to a pre-`bridgeProtocol` backend — those surfaces disable with a
+  visible "this runner is older — update it to review from here" state, because an old host would
+  ignore the slot and resolve `_session`, silently reintroducing the misroute this spec exists to
+  kill. Non-mutating verbs interoperate additively both ways, and the host's absent-slot lane keeps
+  older pages working against new hosts (an old page has today's behavior either way; updating the
+  page fixes it).
 - `host-info` gains `bridgeProtocol: 1`, recorded per backend. Below the page's current protocol: a
   persistent, visible "this runner is older — update it" marker on the backend (the offline-chip
   treatment, not a console log). Below the page's floor (`MIN_BRIDGE_PROTOCOL`, initially 0): the
   backend is refused at connect — transport disposed, loud keyed toast, chips never join the rail.
   Fail loudly, never half-work. The floor rises only on a genuinely breaking change; this spec ships
-  none.
+  none — the mutation-verb gating above handles this change's correctness skew without bricking old
+  runners.
 - A hard version gate for this change was rejected: it would brick every existing runner for a change
   whose legacy behavior is exactly the status quo. The floor machinery exists from day one so the
   first real break has a place to land.
@@ -363,11 +374,14 @@ hard floor.**
   optimistic-concurrency check remains the last line of defense; it stops being the only one. Legacy
   bindings (old host, no `railSessionId`) have no bus — review verbs fall back to slot-less frames on
   the binding's backend, scoped to old hosts only.
-- **Un-gating requires re-keying**: the active gate accidentally provides cross-backend dedup for
-  slot-keyed web stores. `agentPaneAccumulator` and the agent-pane message store key by `slot` alone;
-  local `main` and remote `main` would collide once background-backend frames deliver. Every per-slot
-  web store re-keys by `(backendId, slot)` — naturally "state lives per bus" — in the same phase that
-  un-gates the flow (`paneTitles` already keys this way; the pattern exists).
+- **Un-gating requires per-bus state, structurally**: the active gate accidentally provides
+  cross-backend dedup for slot-keyed web stores. `agentPaneAccumulator` and the agent-pane message
+  store key by `slot` alone; local `main` and remote `main` would collide once background-backend
+  frames deliver. The fix is not a re-keying sweep but ownership: session-scoped client state lives
+  in a per-bus container minted with the bus and dropped at close; aggregate views (attention,
+  status) iterate live buses instead of keying global maps. A module-level map keyed by a bare slot
+  is banned — the phase-6 sweep greps for it — so the mistake is structurally absent, not policed by
+  census.
 
 ## Files
 
@@ -380,7 +394,7 @@ Web — `bridge.ts` (1880 lines) splits along its seams:
   `BackendRequestOutbound`, `SessionOutbound`, `SessionReliableOutbound`, `LocalOutbound`, inbound
   unions) plus the lane tables — the single source of truth the demux and `PlaneOf` mirror.
 - `src/web/src/bridge/bus.ts` — `SessionBus`/`BackendBus`, the registry, `session-list` ingestion,
-  the demux hook, lifecycle events, the reliable-frame tracker, protocol-floor enforcement.
+  the demux hook, lifecycle events, the unacked-submission tracker, protocol-floor enforcement.
 - `src/web/src/bridge/view.ts` — `postView`, `postToLocalHost`, correlated view requests.
 - `src/web/src/bridge/projection.ts` — `EditorBinding`, the pending-backend commit,
   `postToEditorBinding`, `editorRequestBackends` (moved intact).
@@ -411,11 +425,12 @@ Host:
    (vitest, fake-socket style): stamped frame → right bus; no bus → single loud drop; arrival order
    preserved across interleaved lanes; `session-list` ingestion precedes delivery.
 3. **Terminals + agent onto SessionBus.** `TerminalView`/`paste-image`/composer/controls/
-   `AgentPaneActions` take the bus; per-slot stores re-key by `(backendId, slot)`;
-   `ReliableAgentFrames` moves transport→bus; `dropWhileOffline` deleted. *Tests* (two-backend
-   regression, `lsp-bridge-transport.test.ts` mold): an approval resolved after a handoff lands on
-   the owner; `term-input` during the owner's flap is refused, never replayed; remote `main` and
-   local `main` panes never cross.
+   `AgentPaneActions` take the bus; session-scoped stores move into per-bus containers;
+   `ReliableAgentFrames` is deleted and the composer gains the unacked-resend surface;
+   `dropWhileOffline` deleted. *Tests* (two-backend regression, `lsp-bridge-transport.test.ts`
+   mold): an approval resolved after a handoff lands on the owner; `term-input` during the owner's
+   flap is refused, never replayed; an `agent-submit` unacked at link drop is offered for resend,
+   not replayed; remote `main` and local `main` panes never cross.
 4. **Review/editor verbs onto the captured binding bus.** Slot-stamped review + scratch +
    `diff-against` + `diff-resolved` + `get-turn-diff`. *Tests*: the flagship headless journey (fake
    claude at `ResolveClaudeLaunch`): session A has a pending review; `keep-file`'s flush is held; a
@@ -426,18 +441,20 @@ Host:
    `set-source-token`, `source-save-edit`, `dismiss-suggestion`; `failPendingForBackend` folds into
    `BackendBus.request`. *Tests*: a command invoked on a disconnecting backend resolves `{ok:false}`;
    a source edit after a backend switch reaches the origin backend.
-6. **Deletions + enforcement.** Deleted outright: `postToHost`, `dropWhileOffline`, transport-level
-   `ReliableAgentFrames`, the `deliverFromHost` carve-out pile, `pruneForeignBackend` (owned flow
-   un-strands cross-backend clients; the pool tears down on `onClosed`), `pruneUnloaded`, every loose
-   `(backendId, slot)` prop pair, `postToBackend` from the public facade. A sweep proves no owned
-   type is constructible outside the bus module.
+6. **Deletions + enforcement.** Deleted outright: `postToHost`, `dropWhileOffline`, the
+   `deliverFromHost` carve-out pile, `pruneForeignBackend` (owned flow un-strands cross-backend
+   clients; the pool tears down on `onClosed`), `pruneUnloaded`, every loose `(backendId, slot)`
+   prop pair, `postToBackend` from the public facade. The sweep proves no owned type is
+   constructible outside the bus module, no module-level map keys by bare slot, and no send is
+   optional-chained.
 
 ## What does not change
 
 Core's per-session model (`HostSession`, `SessionChangeTracker`, `LspController`, `DiffPresenter`);
 the atomic editor projection and `SessionEditorChannel`; `ProcessSupervisor` and host lifecycle; one
 physical connection per backend; fs path-routing and per-request pinning; the local plane; the
-guard-text checks; the reliable agent-input wire protocol; terminal resync/replay.
+guard-text checks; terminal resync/replay. (The agent-input ack frames stay; only the silent
+reconnect replay goes — see the offline policy.)
 
 ## Risks and open questions
 
@@ -450,9 +467,10 @@ guard-text checks; the reliable agent-input wire protocol; terminal resync/repla
   warm behind a local switch possible. Default in this change: clients survive on their owner bus,
   `configForPath` still maps only mounted-backend files, so background-backend clients idle rather
   than answer. The memory-vs-latency call gets its own decision.
-- **Slot-keyed store census.** Phase 3 must enumerate every per-slot web store (agent accumulator,
-  composer drafts, controls, submission state, attention); the two-backend collision test asserts on
-  each. A missed one is exactly the silent cross-paint the gate used to hide.
+- **Per-bus state containers change store shapes.** Phase 3 moves every session-scoped store (agent
+  accumulator, composer drafts, controls, submission state, attention) into its bus's container; the
+  two-backend collision test asserts on each. The structural rule (no bare-slot maps, enforced by the
+  sweep) is what makes this permanent rather than a census that rots.
 - **`session-list` as the creation signal** assumes every owned-frame producer observes the slot
   first — verified for panes/composer (rail-derived) and the `ready`-replay order (session-list
   precedes resync). The demux's loud no-bus drop is the tripwire if a host path ever emits ahead of

@@ -9,6 +9,7 @@ using Weavie.Core.Review;
 using Weavie.Core.Search;
 using Weavie.Core.Sessions;
 using Weavie.Core.Sources;
+using Weavie.Core.Spelling;
 using Weavie.Core.Suggestions;
 using Weavie.Core.Theming;
 using Weavie.Hosting.Agents.Claude;
@@ -21,7 +22,7 @@ namespace Weavie.Hosting;
 /// theme overrides. Most hosts use <see cref="CreateDefault"/>; a multi-window host shares one instance across
 /// windows, so they're passed in rather than owned by the core.
 /// </summary>
-public sealed record HostServices {
+public sealed record HostServices : IDisposable {
 	/// <summary>User settings (<c>~/.weavie/settings.toml</c>) — the change hub the host reacts to.</summary>
 	public required SettingsStore Settings { get; init; }
 
@@ -76,6 +77,12 @@ public sealed record HostServices {
 	/// <summary>The process's captured console output (stdout/stderr teed into a bounded ring), backing the in-app log viewer.</summary>
 	public required LogBuffer LogBuffer { get; init; }
 
+	/// <summary>The immutable embedded Hunspell catalogs shared by every workspace in this host process.</summary>
+	public required SpellCatalog SpellingCatalog { get; init; }
+
+	/// <summary>The app-global custom dictionary (<c>~/.weavie/dictionary.txt</c>), shared by every workspace in this host process.</summary>
+	public required CustomDictionary UserDictionary { get; init; }
+
 	/// <summary>
 	/// Builds the standard single-process store set — settings + keybindings watched live, console logging
 	/// wired — for hosts that own exactly one workspace per process (Mac/Linux/Headless).
@@ -103,6 +110,8 @@ public sealed record HostServices {
 		railState.Log += Log;
 		var searchState = new SearchStateStore(new LocalFileSystem(), path: null);
 		searchState.Log += Log;
+		var spellingCatalog = SpellCatalog.LoadEmbedded();
+		var userDictionary = new CustomDictionary(WeaviePaths.UserDictionaryFile, enableWatcher: true);
 		var github = new GitHubReviewProvider(http: null, new GitHubTokenSource());
 		return new HostServices {
 			Settings = settings,
@@ -118,7 +127,16 @@ public sealed record HostServices {
 			ReviewComments = github,
 			Sources = SourceConnector.CreateDefault(),
 			LogBuffer = logBuffer,
+			SpellingCatalog = spellingCatalog,
+			UserDictionary = userDictionary,
 		};
+	}
+
+	/// <summary>Disposes the app-global watchers owned by this service set after every host window has closed.</summary>
+	public void Dispose() {
+		UserDictionary.Dispose();
+		Keybindings.Dispose();
+		Settings.Dispose();
 	}
 
 	private static void Log(string line) {

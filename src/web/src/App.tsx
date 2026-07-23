@@ -124,6 +124,7 @@ import {
   setSourceLoading,
   sourceDoc,
 } from "./editor/source/source-store";
+import type { SpellContext } from "./editor/spelling/spell-session";
 import { TabStrip } from "./editor/TabStrip";
 import { isPreviewMode, toggleViewMode } from "./editor/view-mode-store";
 import WebTabPane from "./editor/WebTabPane";
@@ -371,6 +372,69 @@ export default function App(): JSX.Element {
     confirm,
     promptScratchName,
   });
+  const editorContextEntries = (): ContextMenuEntry[] => [
+    { commandId: CommandIds.editorGoToDefinition },
+    { commandId: CommandIds.editorPeekDefinition },
+    { commandId: CommandIds.editorGoToReferences },
+    { commandId: CommandIds.editorRename },
+    { kind: "separator" },
+    { commandId: CommandIds.editorCut },
+    { commandId: CommandIds.editorCopy },
+    { commandId: CommandIds.editorPaste },
+    { kind: "separator" },
+    { commandId: CommandIds.focusOmnibarCommands, label: "Command Palette" },
+  ];
+  const spellMenuEntries = (context: SpellContext, suggestions: string[]): ContextMenuEntry[] => [
+    ...suggestions.map((replacement) => ({
+      commandId: CommandIds.spellingApplySuggestion,
+      label: replacement,
+      args: { ...context, replacement },
+    })),
+    ...(suggestions.length > 0 ? [{ kind: "separator" } as const] : []),
+    {
+      kind: "submenu" as const,
+      label: "Add to Dictionary",
+      entries: [
+        {
+          commandId: CommandIds.spellingAddToProjectDictionary,
+          label: "Project",
+          args: context,
+        },
+        {
+          commandId: CommandIds.spellingAddToUserDictionary,
+          label: "User",
+          args: context,
+        },
+      ],
+    },
+    { kind: "separator" },
+    ...editorContextEntries(),
+  ];
+  const openSpellMenu = (context: SpellContext, x: number, y: number): void => {
+    const initial: ContextMenuState = { x, y, entries: spellMenuEntries(context, []) };
+    setContextMenu(initial);
+    void editor.requestSpellSuggestions(context).then(
+      (suggestions) => {
+        if (contextMenu() === initial) {
+          setContextMenu({ x, y, entries: spellMenuEntries(context, suggestions) });
+        }
+      },
+      () => undefined,
+    );
+  };
+  const openEditorContextMenu = (event: MouseEvent): void => {
+    // Only when a document is mounted — the empty-state pane has no selection to act on.
+    if (openTabs().length === 0) {
+      return;
+    }
+    event.preventDefault();
+    const context = editor.spellContextAtClientPoint(event.clientX, event.clientY);
+    if (context !== null) {
+      openSpellMenu(context, event.clientX, event.clientY);
+      return;
+    }
+    setContextMenu({ x: event.clientX, y: event.clientY, entries: editorContextEntries() });
+  };
   // Find-in-files results open through the editor controller (preview tab, cursor on the match's column).
   setSearchOpener((match, focus) => editor.openMatch(match.path, match.line, match.column, focus));
 
@@ -680,29 +744,7 @@ export default function App(): JSX.Element {
               class="editor"
               role="application"
               ref={editorContainer}
-              onContextMenu={(event) => {
-                // Only when a document is mounted — the empty-state pane has no selection to act on.
-                if (openTabs().length === 0) {
-                  return;
-                }
-                event.preventDefault();
-                setContextMenu({
-                  x: event.clientX,
-                  y: event.clientY,
-                  entries: [
-                    { commandId: CommandIds.editorGoToDefinition },
-                    { commandId: CommandIds.editorPeekDefinition },
-                    { commandId: CommandIds.editorGoToReferences },
-                    { commandId: CommandIds.editorRename },
-                    { kind: "separator" },
-                    { commandId: CommandIds.editorCut },
-                    { commandId: CommandIds.editorCopy },
-                    { commandId: CommandIds.editorPaste },
-                    { kind: "separator" },
-                    { commandId: CommandIds.focusOmnibarCommands, label: "Command Palette" },
-                  ],
-                });
-              }}
+              onContextMenu={openEditorContextMenu}
             />
             {/* No file open: cover the blank Monaco host with an identity + keyboard-first starter actions. */}
             <Show when={openTabs().length === 0}>
@@ -1192,6 +1234,23 @@ export default function App(): JSX.Element {
         editor.triggerAction("editor.action.goToReferences"),
       ),
       registerCommand(CommandIds.editorRename, () => editor.triggerAction("editor.action.rename")),
+      registerCommand(CommandIds.spellingShowActions, () => {
+        const target = editor.spellContextAtCursor();
+        if (target === null) {
+          return false;
+        }
+        openSpellMenu(target.context, target.x, target.y);
+        return true;
+      }),
+      registerCommand(CommandIds.spellingAddToProjectDictionary, (args) =>
+        editor.addSpellWord("project", args),
+      ),
+      registerCommand(CommandIds.spellingAddToUserDictionary, (args) =>
+        editor.addSpellWord("user", args),
+      ),
+      registerCommand(CommandIds.spellingApplySuggestion, (args) =>
+        editor.applySpellSuggestion(args),
+      ),
       // New File (scratch buffer) + Save (scratch → name prompt; real file already autosaved).
       registerCommand(CommandIds.newFile, () => editor.newFile()),
       registerCommand(CommandIds.saveFile, () => editor.save()),

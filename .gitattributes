@@ -9,3 +9,8 @@
 *.png binary
 *.ico binary
 *.woff2 binary
+
+# Hunspell sources and their upstream notices preserve significant spacing verbatim.
+src/Weavie.Core/Spelling/Resources/*.aff -whitespace
+src/Weavie.Core/Spelling/Resources/README_en_US.txt -whitespace
+third-party/spelling/* -whitespace

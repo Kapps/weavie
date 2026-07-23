@@ -291,6 +291,18 @@ public sealed partial class HostCore {
 			case "open-editors-changed":
 				EditorMessageTarget(root, "open-editors-changed")?.UpdateOpenEditors(root);
 				break;
+			case "spell-check":
+				HandleSpellCheck(root);
+				break;
+			case "spell-suggest":
+				HandleSpellSuggest(root);
+				break;
+			case "spell-add-word":
+				HandleSpellAddWord(root);
+				break;
+			case "spell-restore":
+				HandleSpellRestore(root);
+				break;
 			case "get-turn-diff":
 				// A review step-in: render the file's diff, plus its comments when the active review is a PR (the
 				// web cleared them on the switch out, so re-push so the threads + Comment button reappear).
@@ -307,7 +319,14 @@ public sealed partial class HostCore {
 				break;
 			case "fs-read":
 				if (ResolveFsSession(FsPath(root)) is { } readSession) {
-					_bridge.PostToWeb(readSession.FileProvider.Read(FsId(root), FsPath(root)));
+					var read = readSession.FileProvider.ReadWithOutcome(FsId(root), FsPath(root));
+					if (read.Content is { } content) {
+						readSession.AuthoredLines.OnRead(FsPath(root), content);
+					} else if (read.Status == FileProviderReadStatus.NotFound) {
+						readSession.AuthoredLines.Forget(FsPath(root));
+					}
+
+					_bridge.PostToWeb(read.Response);
 				} else {
 					_bridge.PostToWeb(FileProviderProtocol.ReadNotFound(FsId(root)));
 				}
@@ -322,6 +341,7 @@ public sealed partial class HostCore {
 					_bridge.PostToWeb(writeReply);
 					// A save that reached disk over an agent hunk is a correction — captured here, at the save.
 					if (WroteOk(writeReply)) {
+						writeSession.AuthoredLines.OnWrite(FsPath(root), writeContent);
 						writeSession.Changes.RecordHandEdit(FsPath(root), writeContent);
 					}
 				} else {
@@ -407,6 +427,7 @@ public sealed partial class HostCore {
 				PushRemoteAgentsToWeb();
 				PushRailStateToWeb();
 				PushSearchStateToWeb();
+				PushSpellSettingsToWeb();
 				// Re-advertise the active session's LSP catalog so a reconnect (a remote bridge drop, a refresh)
 				// rebinds language clients on fresh channels — the resync the remote path needs. Background backends
 				// are suppressed page-side, so only the active backend rebinds. See docs/specs/lsp-over-bridge.md.
@@ -445,6 +466,7 @@ public sealed partial class HostCore {
 				if (_keybindings.IsMalformed) {
 					NotifyKeybindingsMalformed(true);
 				}
+				NotifyInitialSpellDictionaryErrors();
 
 				Ready?.Invoke();
 				// The WebSocket transport stays degraded until this ordered tail marker proves the complete synchronous
@@ -487,7 +509,13 @@ public sealed partial class HostCore {
 				break;
 			case "discard-scratch":
 				// The user closed (and confirmed discarding) a scratch buffer: delete its temp file.
-				_session?.Scratch.Delete(root.GetStringOrEmpty("path"));
+				if (_session is { } discardSession) {
+					string discardPath = root.GetStringOrEmpty("path");
+					if (discardSession.Scratch.Owns(discardPath)) {
+						discardSession.AuthoredLines.Forget(discardPath);
+						discardSession.Scratch.Delete(discardPath);
+					}
+				}
 				break;
 			case "add-remote-agent": {
 					// The web validated the runner (it owns the connection); persist the agent here so it survives
@@ -1383,8 +1411,14 @@ public sealed partial class HostCore {
 				return;
 			}
 
-			session.Scratch.Delete(scratchPath);
 			bool reopen = BufferStore.IsWithinWorkspace(session.WorkspaceRoot, target);
+			if (reopen) {
+				session.AuthoredLines.Move(scratchPath, target, content);
+			} else {
+				session.AuthoredLines.Forget(scratchPath);
+			}
+
+			session.Scratch.Delete(scratchPath);
 			if (!reopen) {
 				Notify("info", $"Saved {Path.GetFileName(target)} outside the workspace — it won't open in the editor.");
 			}
@@ -1432,6 +1466,7 @@ public sealed partial class HostCore {
 			return;
 		}
 
+		session.AuthoredLines.Move(scratchPath, target, content);
 		session.Scratch.Delete(scratchPath);
 		PostScratchSaved(scratchPath, target, reopen: true);
 	}

@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Weavie.Core;
 using Weavie.Core.Agents;
 using Weavie.Core.Changes;
 using Weavie.Core.Commands;
@@ -14,6 +15,7 @@ using Weavie.Core.Lsp;
 using Weavie.Core.Mcp;
 using Weavie.Core.Sessions;
 using Weavie.Core.Shell;
+using Weavie.Core.Spelling;
 using Weavie.Core.Theming;
 using Weavie.Core.Workspaces;
 using Weavie.Hosting.Agents;
@@ -60,7 +62,9 @@ public sealed class HostSession : IAsyncDisposable {
 		CorrectionCorpus corrections,
 		IPtyLauncher ptyLauncher,
 		IAgentProvider agentProvider,
-		HostRuntimeInfo runtime) {
+		HostRuntimeInfo runtime,
+		SpellCatalog spellingCatalog,
+		CustomDictionary userDictionary) {
 		ArgumentNullException.ThrowIfNull(bridge);
 		ArgumentNullException.ThrowIfNull(settings);
 		ArgumentNullException.ThrowIfNull(layout);
@@ -76,10 +80,14 @@ public sealed class HostSession : IAsyncDisposable {
 		ArgumentNullException.ThrowIfNull(ptyLauncher);
 		ArgumentNullException.ThrowIfNull(agentProvider);
 		ArgumentNullException.ThrowIfNull(runtime);
+		ArgumentNullException.ThrowIfNull(spellingCatalog);
+		ArgumentNullException.ThrowIfNull(userDictionary);
 
 		Id = id;
 		WorkspaceRoot = workspaceRoot;
 		_bridge = bridge;
+		ProjectDictionary = CustomDictionary.ForProject(workspaceRoot, enableWatcher: true);
+		SpellChecker = new SpellChecker(spellingCatalog, [userDictionary, ProjectDictionary]);
 
 		// Per-session command dispatcher over the app-global catalog: runCommand (MCP) and the web's
 		// invoke-command both route here. The core wires the WebInvoker + Core handlers once the session exists.
@@ -96,6 +104,7 @@ public sealed class HostSession : IAsyncDisposable {
 		PastedImages = new PastedImageStore(fileSystem, pastedImagesDir);
 		AgentAttachments = new AgentAttachmentStore(PastedImages);
 		FileProvider = new FileProviderService(fileSystem, workspaceRoot, scratchDir);
+		AuthoredLines = new AuthoredLineTracker();
 		Browser = new WorkspaceBrowser(fileSystem, workspaceRoot);
 		FileIndex = new WorkspaceFileIndex(fileSystem, workspaceRoot);
 		Shell = new TerminalController(
@@ -203,8 +212,17 @@ public sealed class HostSession : IAsyncDisposable {
 	/// <summary>The session's filesystem, used to persist the editor's autosaved buffers to disk.</summary>
 	public IFileSystem FileSystem { get; }
 
+	/// <summary>The project-scoped custom dictionary rooted at this session's worktree.</summary>
+	public CustomDictionary ProjectDictionary { get; }
+
+	/// <summary>Checks this session's editor text against the shared catalog and its user/project overlays.</summary>
+	public SpellChecker SpellChecker { get; }
+
 	/// <summary>Serves the editor's host-backed <c>file://</c> provider (workspace-scoped fs-stat/read/write).</summary>
 	public FileProviderService FileProvider { get; }
+
+	/// <summary>Tracks manually authored lines from this session's successful editor reads and writes.</summary>
+	public AuthoredLineTracker AuthoredLines { get; }
 
 	/// <summary>Owns this workspace's scratch (untitled-buffer) directory; New File creates a file here.</summary>
 	public ScratchStore Scratch { get; }
@@ -450,6 +468,7 @@ public sealed class HostSession : IAsyncDisposable {
 		}).ConfigureAwait(false);
 		await Agent.DisposeProviderAsync().ConfigureAwait(false);
 		_watcher.Dispose();
+		ProjectDictionary.Dispose();
 		// Pasted images are ephemeral prompt inputs — drop this session's on unload so they never accumulate.
 		PastedImages.Clear();
 		await Lsp.DisposeAsync().ConfigureAwait(false);

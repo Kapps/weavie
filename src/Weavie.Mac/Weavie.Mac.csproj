@@ -114,5 +114,6 @@
 
   <!-- Build + co-locate the standalone hook relay (into the .app's MonoBundle on macOS). -->
   <Import Project="..\HookRelay.targets" />
+  <Import Project="..\ThirdPartyNotices.targets" />
 
 </Project>

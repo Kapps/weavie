@@ -15,6 +15,7 @@ using Weavie.Core.Remote;
 using Weavie.Core.Search;
 using Weavie.Core.Sessions;
 using Weavie.Core.Shell;
+using Weavie.Core.Spelling;
 using Weavie.Core.Suggestions;
 using Weavie.Core.Theming;
 using Weavie.Core.Workspaces;
@@ -130,6 +131,8 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		_remoteAgents = services.RemoteAgents;
 		_railState = services.RailState;
 		_searchState = services.SearchState;
+		_spellCatalog = services.SpellingCatalog;
+		_userDictionary = services.UserDictionary;
 		_logBuffer = services.LogBuffer;
 		_pullRequests = services.PullRequests;
 		_reviewComments = services.ReviewComments;
@@ -298,6 +301,7 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		(FontSettings.Keys, "fonts", "__WEAVIE_FONTS__", FontSettings.BuildJson),
 		(NotificationSettings.Keys, "notification-prefs", "__WEAVIE_NOTIFICATIONS__", NotificationSettings.BuildJson),
 		(EditorSettings.Keys, "editorOptions", "__WEAVIE_EDITOR_OPTIONS__", EditorSettings.BuildJson),
+		(SpellSettings.Keys, "spell-settings", "__WEAVIE_SPELL_SETTINGS__", SpellSettings.BuildJson),
 		(AgentSettings.Keys, "agent-defaults", "__WEAVIE_AGENT__", AgentSettings.BuildJson),
 	];
 
@@ -316,10 +320,16 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	private void WireReactions() {
 		// A changed shell (ApplyMode.ReopensTerminal) reopens the active session's shell pane live.
 		_shellSettingSubscription = _settings.Subscribe("terminal.shell", _ => _ui.Post(() => _session?.Shell.Restart()));
+		WireSpellingReactions();
 
 		// Live settings groups + theme: re-push the resolved values so the web applies them in place.
 		// PostToWeb marshals to the UI thread and the stores are thread-safe, so call it directly.
 		_onSettingChanged = change => {
+			if (SpellSettings.Keys.Contains(change.Key)) {
+				Interlocked.Increment(ref _spellSettingsVersion);
+				CancelAllSpellRequests();
+			}
+
 			foreach (var (keys, messageType, _, build) in LiveSettingGroups) {
 				if (keys.Contains(change.Key)) {
 					_bridge.PostToWeb(build(_settings, messageType));
@@ -475,6 +485,7 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 			_hotkeys = null;
 		});
 		Attempt(() => _drainTick?.Cancel());
+		Attempt(CancelAllSpellRequests);
 		await AttemptAsync(StopPullRequestStatusAsync).ConfigureAwait(false);
 		Attempt(_sessionStore.Flush);
 
@@ -483,6 +494,7 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		}
 
 		_pendingWebCommands.Clear();
+		UnwireAllSpellingSessions();
 		var sessions = _sessions;
 		var primarySession = _primarySession;
 		_sessions = null;
@@ -518,6 +530,7 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 
 		_shellSettingSubscription?.Dispose();
 		_shellSettingSubscription = null;
+		DetachSpellingReactions();
 		if (_onSettingChanged is not null) {
 			_settings.SettingChanged -= _onSettingChanged;
 			_onSettingChanged = null;

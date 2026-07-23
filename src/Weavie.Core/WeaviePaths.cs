@@ -32,6 +32,15 @@ public static class WeaviePaths {
 	/// <summary>The user keybindings file: <c>~/.weavie/keybindings.json</c> (a list of {key, command, args?, when?} records).</summary>
 	public static string KeybindingsFile { get; } = Path.Combine(Root, "keybindings.json");
 
+	/// <summary>The user spell-check dictionary: <c>~/.weavie/dictionary.txt</c>.</summary>
+	public static string UserDictionaryFile { get; } = Path.Combine(Root, "dictionary.txt");
+
+	/// <summary>The shareable spell-check dictionary in <paramref name="workspaceRoot"/>: <c>.weavie/dictionary.txt</c>.</summary>
+	public static string ProjectDictionaryFile(string workspaceRoot) {
+		ArgumentException.ThrowIfNullOrEmpty(workspaceRoot);
+		return Path.Combine(workspaceRoot, ".weavie", "dictionary.txt");
+	}
+
 	/// <summary>The single-window layout (pane tree + window geometry): <c>~/.weavie/layout.json</c>. Backs the default store; per-workspace layouts live under <see cref="Workspaces"/>.</summary>
 	public static string LayoutFile { get; } = Path.Combine(Root, "layout.json");
 

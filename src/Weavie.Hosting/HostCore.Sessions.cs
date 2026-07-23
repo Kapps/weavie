@@ -66,6 +66,7 @@ public sealed partial class HostCore {
 		ThemeCommands.RegisterHandlers(session.Commands, _settings, _themeOverrides, VsixPicker);
 		FontCommands.RegisterHandlers(session.Commands, _settings);
 		SessionCommands.RegisterHandlers(session.Commands, this);
+		WireSpellingSession(session);
 
 		// Change/status events fire on hook-pipe and watcher threads; the guard AND the push run posted on the
 		// UI thread — where switches run and in-order with their message train — so a stale event can't check
@@ -463,7 +464,8 @@ public sealed partial class HostCore {
 			// so its output restores across reload/unload/restart. Terminal-backed providers ignore it.
 			WeaviePaths.WorkspaceAgentPaneFile(Id, WorkspaceId.ForPath(cwd).Value),
 			Guid.NewGuid().ToString("n")[..8],
-			_commandRegistry, _keybindings, _themeOverrides, _corrections, _platform.PtyLauncher, provider, _runtime);
+			_commandRegistry, _keybindings, _themeOverrides, _corrections, _platform.PtyLauncher, provider, _runtime,
+			_spellCatalog, _userDictionary);
 		// Persist the shell scrollback (keyed by worktree path, stable across reloads) so a reattaching client
 		// replays a coherent screen. Shell only — claude resumes its own conversation.
 		session.Shell.ScrollbackLogPath =
@@ -795,6 +797,7 @@ public sealed partial class HostCore {
 
 		// Detach and push the rail BEFORE the teardown: the chip fades the moment the session is dormant, not
 		// after process teardown finishes (Windows can take many seconds to release the children's handles).
+		UnwireSpellingSession(session);
 		slot.Session = null;
 		_mediaRoutes.Unregister(session.Id);
 		PushSessionList();

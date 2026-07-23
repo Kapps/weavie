@@ -125,6 +125,18 @@ public static class CoreCommands {
 	/// <summary>Renames the symbol at the editor cursor across the workspace (the editor right-click "Rename Symbol"); bound to <c>F2</c>.</summary>
 	public const string EditorRename = "weavie.editor.rename";
 
+	/// <summary>Shows spelling suggestions and dictionary actions for the issue at the editor cursor; bound to <c>F7</c>.</summary>
+	public const string SpellingShowActions = "weavie.spelling.showActions";
+
+	/// <summary>Adds the spelling issue at the editor cursor to the current project's dictionary.</summary>
+	public const string SpellingAddToProjectDictionary = "weavie.spelling.addToProjectDictionary";
+
+	/// <summary>Adds the spelling issue at the editor cursor to the user dictionary.</summary>
+	public const string SpellingAddToUserDictionary = "weavie.spelling.addToUserDictionary";
+
+	/// <summary>Applies a spelling suggestion to the issue at the editor cursor.</summary>
+	public const string SpellingApplySuggestion = "weavie.spelling.applySuggestion";
+
 	/// <summary>Toggles Weavie's window (focus it / minimize it); bound by default to the global hotkey <c>ctrl+`</c>.</summary>
 	public const string ToggleWindow = "weavie.window.toggle";
 
@@ -852,6 +864,53 @@ public static class CoreCommands {
 			Aliases = ["rename symbol", "rename", "refactor rename"],
 			When = "editorFocused",
 			DefaultKeybindings = [new CommandKeybinding { Key = "F2" }],
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = SpellingShowActions,
+			Title = "Show Spelling Actions",
+			RunsIn = CommandLocation.Web,
+			Category = "Editor",
+			Description = "Show spelling suggestions and dictionary actions for the misspelled word at the editor cursor.",
+			Aliases = ["spell actions", "spelling suggestions", "fix spelling", "spelling menu"],
+			When = "editorFocused",
+			DefaultKeybindings = [new CommandKeybinding { Key = "F7" }],
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = SpellingAddToProjectDictionary,
+			Title = "Add Spelling Word to Project Dictionary",
+			RunsIn = CommandLocation.Web,
+			Category = "Editor",
+			Description = "Add the misspelled word at the editor cursor to this project's shared dictionary.",
+			Aliases = ["add project dictionary", "project spelling dictionary", "ignore word in project"],
+			When = "editorFocused",
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+alt+p" }],
+			ArgsSchemaJson = "{\"word\":{\"type\":\"string\",\"description\":\"Word to add; omit to use the spelling issue at the editor cursor\"}}",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = SpellingAddToUserDictionary,
+			Title = "Add Spelling Word to User Dictionary",
+			RunsIn = CommandLocation.Web,
+			Category = "Editor",
+			Description = "Add the misspelled word at the editor cursor to your user dictionary across projects.",
+			Aliases = ["add user dictionary", "user spelling dictionary", "ignore word everywhere"],
+			When = "editorFocused",
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+alt+u" }],
+			ArgsSchemaJson = "{\"word\":{\"type\":\"string\",\"description\":\"Word to add; omit to use the spelling issue at the editor cursor\"}}",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = SpellingApplySuggestion,
+			Title = "Apply Spelling Suggestion",
+			RunsIn = CommandLocation.Web,
+			Category = "Editor",
+			Description = "Replace the spelling issue at the editor cursor with the supplied suggestion.",
+			Aliases = ["apply spelling suggestion", "replace misspelling"],
+			ShowInPalette = false,
+			When = "editorFocused",
+			ArgsSchemaJson = "{\"replacement\":{\"type\":\"string\",\"description\":\"Suggested replacement to apply\"}}",
 		});
 
 		// Toggle Weavie in/out of the foreground via the GLOBAL hotkey ctrl+` so it fires even when another app

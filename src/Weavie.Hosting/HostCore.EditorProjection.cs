@@ -54,6 +54,7 @@ public sealed partial class HostCore {
 	}
 
 	private void BeginEditorProjection(SessionSlot slot, string pageId, bool replayAll) {
+		CancelAllSpellRequests();
 		var session = slot.Session ?? throw new InvalidOperationException("An unloaded session cannot own the editor projection.");
 		session.SetEditorOutputActive(false);
 		_editorProjectionSession = session;
@@ -76,6 +77,7 @@ public sealed partial class HostCore {
 	}
 
 	private void BeginLegacyEditorProjection(HostSession session, bool replayAll) {
+		CancelAllSpellRequests();
 		bool alreadyMounted = _editorProjectionState == EditorProjectionState.Legacy
 			&& ReferenceEquals(_editorProjectionSession, session);
 		if (!alreadyMounted) {
@@ -109,6 +111,7 @@ public sealed partial class HostCore {
 	}
 
 	private void BindUnboundEditorProjection(HostSession session) {
+		CancelAllSpellRequests();
 		session.SetEditorOutputActive(false);
 		_editorProjectionSession = session;
 		_editorProjectionPageId = null;
@@ -185,6 +188,7 @@ public sealed partial class HostCore {
 	}
 
 	private void UnbindEditorProjection() {
+		CancelAllSpellRequests();
 		var session = _editorProjectionSession;
 		_editorProjectionState = EditorProjectionState.Unbound;
 		_editorProjectionPageId = null;

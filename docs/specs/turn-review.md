@@ -82,6 +82,12 @@ The vertical axis walks hunks; the horizontal axis walks files. A **stacked labe
 picker (This change / This file / All files, each annotated with its reach) chooses what the singular
 **Keep** / **Revert** buttons act on. The picker is **sticky** across files (reset only on a turn-reset).
 
+The **review position** — the hunk the counter names and a change-scoped Keep/Revert acts on — keys to
+the cursor **only while the cursor is in view**; once a manual scroll moves the cursor off-screen, the
+position follows the viewport (its center line). What you see is always what you act on: the counter
+tracks scrolling live, and Keep never acts on (or jumps back to) a hunk the caret was parked on
+off-screen.
+
 The plain **Keep** / **Revert** keys act at the toolbar's **sticky scope** — the same scope the buttons
 follow — so a keypress always matches what the picker shows. The modifier picks *direction*, not scope:
 `$mod+Shift+Enter` / `$mod+Shift+Backspace` **undo** the last keep / revert (see [Undo/redo](#undoredo)).
@@ -265,6 +271,10 @@ uniformly.
 - **Redo** (toolbar / palette, no key) re-applies the most recently undone action.
 - A `!terminalFocused` guard + an availability check let an undo chord **decline** (fall through) when
   there's nothing of that kind to undo.
+- An undo/redo **lands the editor on the change it acted on**: a per-hunk action records its current-side
+  line in the history (`ReviewHistoryResult.Line`, still valid because an action only reverses while the
+  file's current content is unchanged) and the host opens the file there; a file/set action opens the
+  first affected file at its first pending hunk.
 
 Undo is **guarded**: an action is reversible only while the paths it touched still match its post-action
 snapshot. A newer edit to the same file blocks the out-of-order undo (a toast, not a clobber) — the same

@@ -93,6 +93,33 @@ public sealed class SessionChangeTrackerHistoryTests {
 	}
 
 	[Fact]
+	public void UndoRedo_OfHunkAction_CarriesTheActedLine() {
+		var fileSystem = new InMemoryFileSystem();
+		var tracker = Changed(fileSystem, "/w/a.txt", "a\nb\nc\nd\n", "a\nb\nc\nD\n");
+		Assert.True(tracker.KeepHunk("/w/a.txt", new LineRange(4, 5), new LineRange(4, 5), "D"));
+
+		// The undo/redo name the hunk's current-side line, so the host lands on it — not the file's first hunk.
+		Assert.Equal(4, tracker.UndoLastKeep().Line);
+		Assert.Equal(4, tracker.Redo().Line);
+
+		tracker.UndoLastKeep();
+		Assert.Equal(RevertHunkOutcome.Reverted, tracker.RevertHunk("/w/a.txt", new LineRange(4, 5), new LineRange(4, 5), "D"));
+		Assert.Equal(4, tracker.UndoLastRevert().Line);
+	}
+
+	[Fact]
+	public void UndoRedo_OfFileScopeAction_CarriesNoLine() {
+		var fileSystem = new InMemoryFileSystem();
+		var tracker = Changed(fileSystem, "/w/a.txt", "a\nb\n", "a\nB\n");
+		tracker.KeepFile("/w/a.txt");
+
+		Assert.Null(tracker.UndoLastKeep().Line);
+
+		Assert.Equal(RevertHunkOutcome.Reverted, tracker.RevertFile("/w/a.txt"));
+		Assert.Null(tracker.UndoLastRevert().Line);
+	}
+
+	[Fact]
 	public void TypeSplit_UndoKeepIgnoresRevert_AndViceVersa() {
 		var fileSystem = new InMemoryFileSystem();
 		fileSystem.WriteAllText("/w/a.txt", "a\n");

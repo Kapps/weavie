@@ -33,6 +33,20 @@ public sealed class ToolProcessTests {
 	}
 
 	[Fact]
+	public async Task Cancel_KillsTheTool_AndThrowsPromptly() {
+		// The wait must not just be abandoned: the child (tree) is reaped, so the call returns promptly
+		// instead of after the tool's natural 30s runtime.
+		string wait = OperatingSystem.IsWindows() ? "ping -n 30 127.0.0.1 > nul" : "sleep 30";
+		using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(250));
+		var started = DateTimeOffset.UtcNow;
+
+		await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+			ToolProcess.RunAsync(Shell(wait, new Dictionary<string, string>()), cts.Token));
+
+		Assert.True(DateTimeOffset.UtcNow - started < TimeSpan.FromSeconds(15), "cancelled run should return promptly");
+	}
+
+	[Fact]
 	public async Task UnstartableTool_ReportsFailedRun_NotThrow() {
 		string missing = Path.Combine(Path.GetTempPath(), $"weavie-no-such-tool-{Guid.NewGuid():N}");
 		var result = await ToolProcess.RunAsync(

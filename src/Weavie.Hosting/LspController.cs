@@ -70,7 +70,7 @@ public sealed class LspController : IAsyncDisposable {
 		var command = ServerResolver.Resolve(descriptor);
 		if (command is null) {
 			string tried = string.Join(", ", descriptor.Candidates.Select(c => c.Command));
-			_bridge.PostToWeb(LspMessages.Exit(slot, channel, -1, $"{descriptor.DisplayName}: no language server on PATH (tried {tried})"));
+			_bridge.PostToWeb(LspMessages.Exit(slot, channel, -1, $"{descriptor.DisplayName}: no language server found on PATH or in Weavie's tools folder (tried {tried})"));
 			Unresolved?.Invoke(descriptor);
 			return;
 		}

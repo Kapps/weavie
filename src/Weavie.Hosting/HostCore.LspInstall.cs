@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Weavie.Core;
 using Weavie.Core.Commands;
 using Weavie.Core.Lsp;
 using Weavie.Core.Processes;
@@ -15,10 +16,12 @@ public sealed partial class HostCore {
 		ServerResolver.FindOnPath, ServerResolver.Resolve, ToolProcess.RunAsync, Log);
 	private int _installingServers; // single-flight: one install run at a time, across sessions
 
-	// A failed lsp-start: record the miss (gated on an honorable recipe) and surface its card.
+	// A failed lsp-start: record the miss (gated on an honorable recipe) and surface its card. Fires on a
+	// bridge thread; the Evaluate is posted so all suggestion pushes stay ordered on the UI thread and this
+	// one can't invert with the post-install Evaluate that removes the card.
 	private void OnLspUnresolved(LanguageServerDescriptor descriptor) {
 		if (_installOffers.RecordUnresolved(descriptor)) {
-			_suggestions?.Evaluate();
+			_ui.Post(() => _suggestions?.Evaluate());
 		}
 	}
 
@@ -46,6 +49,9 @@ public sealed partial class HostCore {
 		}
 
 		try {
+			// Installs run from Weavie's own tools root, NEVER the workspace: a cloned repo could ship a
+			// NuGet.config/.npmrc that redirects the toolchain's feed, hijacking the binary about to be launched.
+			Directory.CreateDirectory(WeaviePaths.Tools);
 			var messages = new List<string>();
 			bool allOk = true;
 			foreach (var offer in offers) {
@@ -54,7 +60,15 @@ public sealed partial class HostCore {
 				// would double it). A failure replaces it keyed with a persistent error carrying the tool's words.
 				string key = $"lsp-install-{offer.Descriptor.Id}";
 				_ui.Post(() => Notify("busy", $"Installing {offer.Candidate.Command} into Weavie's tools folder… ({offer.Recipe.Toolchain})", key));
-				var result = await _serverInstaller.InstallAsync(offer, WorkspaceRoot, ct).ConfigureAwait(false);
+				ServerInstallResult result;
+				try {
+					result = await _serverInstaller.InstallAsync(offer, WeaviePaths.Tools, ct).ConfigureAwait(false);
+				} catch (OperationCanceledException) {
+					// Settle the untimed spinner (a cancelled install must not leave a forever-"Installing…" lie).
+					_ui.Post(() => Notify("warn", $"Installing {offer.Candidate.Command} was cancelled.", key));
+					return CommandResult.Failure($"Installing {offer.Candidate.Command} was cancelled.");
+				}
+
 				_ui.Post(() => {
 					if (result.Ok) {
 						ClearNotify(key);
@@ -84,8 +98,8 @@ public sealed partial class HostCore {
 		}
 	}
 
-	// Parses {server?}. Absent/empty args is valid (install every offer); malformed JSON is a loud failure,
-	// never a silent fall-through that could install something other than asked.
+	// Parses {server?}. Absent args is valid (install every offer); malformed JSON or a present-but-invalid
+	// 'server' is a loud failure — never a silent fall-through that could install more than asked.
 	private static bool TryParseServerArg(string? argsJson, out string? server, out string? error) {
 		server = null;
 		error = null;
@@ -95,9 +109,16 @@ public sealed partial class HostCore {
 
 		try {
 			using var doc = JsonDocument.Parse(argsJson);
-			server = doc.RootElement.TryGetProperty("server", out var s) && s.ValueKind == JsonValueKind.String
-				? s.GetString()
-				: null;
+			if (!doc.RootElement.TryGetProperty("server", out var s)) {
+				return true;
+			}
+
+			if (s.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(s.GetString())) {
+				error = "Could not install: 'server' must be a non-empty string (e.g. \"go\"), or omitted to install every offered server.";
+				return false;
+			}
+
+			server = s.GetString();
 			return true;
 		} catch (JsonException ex) {
 			error = $"Could not install: invalid command arguments ({ex.Message}).";

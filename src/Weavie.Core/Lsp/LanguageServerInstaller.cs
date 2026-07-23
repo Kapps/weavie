@@ -41,7 +41,8 @@ public sealed class LanguageServerInstaller {
 
 	/// <summary>Installs <paramref name="offer"/>'s candidate and verifies it resolves.</summary>
 	/// <param name="offer">The offer to fulfill.</param>
-	/// <param name="workingDirectory">The directory the toolchain runs in.</param>
+	/// <param name="workingDirectory">The directory the toolchain runs in — a neutral one, never the workspace,
+	/// whose repo-shipped package-manager config (NuGet.config/.npmrc) could redirect the install's feed.</param>
 	/// <param name="ct">Cancels the install run.</param>
 	public async Task<ServerInstallResult> InstallAsync(ServerInstallOffer offer, string workingDirectory, CancellationToken ct) {
 		ArgumentNullException.ThrowIfNull(offer);
@@ -59,9 +60,7 @@ public sealed class LanguageServerInstaller {
 			command.FileName, command.Arguments, ToolchainInstall.Environment(offer.Recipe), workingDirectory), ct)
 			.ConfigureAwait(false);
 
-		string output = string.Join(
-			Environment.NewLine,
-			new[] { result.StdOut, result.StdErr }.Where(s => !string.IsNullOrWhiteSpace(s)));
+		string output = result.CombinedOutput;
 		_log($"[lsp-install] {offer.Recipe.Toolchain} install of {offer.Recipe.Package} exited {result.ExitCode}"
 			+ (output.Length > 0 ? Environment.NewLine + output : ""));
 

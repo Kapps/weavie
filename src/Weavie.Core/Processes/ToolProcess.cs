@@ -19,7 +19,12 @@ public sealed record ToolProcessRequest(
 /// <param name="ExitCode">The process exit code (0 = success).</param>
 /// <param name="StdOut">Captured standard output.</param>
 /// <param name="StdErr">Captured standard error.</param>
-public sealed record ToolProcessResult(int ExitCode, string StdOut, string StdErr);
+public sealed record ToolProcessResult(int ExitCode, string StdOut, string StdErr) {
+	/// <summary>Both streams joined for logging, skipping whichever is blank.</summary>
+	public string CombinedOutput => string.Join(
+		System.Environment.NewLine,
+		new[] { StdOut, StdErr }.Where(s => !string.IsNullOrWhiteSpace(s)));
+}
 
 /// <summary>
 /// Runs a one-shot tool to completion with its output captured. A transient helper, exempt from
@@ -57,7 +62,21 @@ public static class ToolProcess {
 
 		var stdoutTask = process.StandardOutput.ReadToEndAsync(ct);
 		var stderrTask = process.StandardError.ReadToEndAsync(ct);
-		await process.WaitForExitAsync(ct).ConfigureAwait(false);
+		try {
+			await process.WaitForExitAsync(ct).ConfigureAwait(false);
+		} catch (OperationCanceledException) {
+			// Cancellation only stops the wait — reap the whole tree so no detached tool keeps running/writing.
+			try {
+				process.Kill(entireProcessTree: true);
+			} catch (InvalidOperationException) {
+				// Already exited between the cancel and the kill.
+			} catch (Win32Exception) {
+				// Terminating or access denied — nothing more we can do; the wait is already abandoned.
+			}
+
+			throw;
+		}
+
 		return new ToolProcessResult(
 			process.ExitCode,
 			await stdoutTask.ConfigureAwait(false),

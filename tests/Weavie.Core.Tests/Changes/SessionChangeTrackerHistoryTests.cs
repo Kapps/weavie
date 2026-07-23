@@ -21,10 +21,11 @@ public sealed class SessionChangeTrackerHistoryTests {
 
 	[Fact]
 	public void UndoLastKeep_RestoresPendingHunk() {
+		// Two hunks so the keep doesn't settle the review (a settle commits and clears the history by design).
 		var fileSystem = new InMemoryFileSystem();
-		var tracker = Changed(fileSystem, "/w/a.txt", "a\nb\n", "a\nB\n");
+		var tracker = Changed(fileSystem, "/w/a.txt", "a\nb\nc\nd\n", "a\nB\nc\nD\n");
 		Assert.True(tracker.KeepHunk("/w/a.txt", new LineRange(2, 3), new LineRange(2, 3), "B"));
-		Assert.Equal("a\nB\n", tracker.GetTurn("/w/a.txt")!.BaselineText); // kept → review baseline == current (no pending hunk)
+		Assert.Equal("a\nB\nc\nd\n", tracker.GetTurn("/w/a.txt")!.BaselineText); // kept → baseline absorbed line 2
 		Assert.True(tracker.CanUndoKeep);
 
 		var result = tracker.UndoLastKeep();
@@ -33,8 +34,8 @@ public sealed class SessionChangeTrackerHistoryTests {
 		Assert.False(result.TouchedDisk); // keep + its undo never write disk
 		var change = tracker.GetTurn("/w/a.txt");
 		Assert.NotNull(change);
-		Assert.Equal("a\nb\n", change!.BaselineText); // baseline rolled back, hunk pending again
-		Assert.Equal("a\nB\n", change.CurrentText);
+		Assert.Equal("a\nb\nc\nd\n", change!.BaselineText); // baseline rolled back, hunk pending again
+		Assert.Equal("a\nB\nc\nD\n", change.CurrentText);
 		Assert.Single(tracker.TurnChanges());
 		Assert.False(tracker.CanUndoKeep);
 		Assert.True(tracker.CanRedo);
@@ -43,14 +44,14 @@ public sealed class SessionChangeTrackerHistoryTests {
 	[Fact]
 	public void Redo_AfterUndoKeep_ReappliesIt() {
 		var fileSystem = new InMemoryFileSystem();
-		var tracker = Changed(fileSystem, "/w/a.txt", "a\nb\n", "a\nB\n");
+		var tracker = Changed(fileSystem, "/w/a.txt", "a\nb\nc\nd\n", "a\nB\nc\nD\n");
 		tracker.KeepHunk("/w/a.txt", new LineRange(2, 3), new LineRange(2, 3), "B");
 		tracker.UndoLastKeep();
 
 		var result = tracker.Redo();
 
 		Assert.True(result.Acted);
-		Assert.Equal("a\nB\n", tracker.GetTurn("/w/a.txt")!.BaselineText); // kept again → review baseline == current
+		Assert.Equal("a\nB\nc\nd\n", tracker.GetTurn("/w/a.txt")!.BaselineText); // kept again
 		Assert.False(tracker.CanRedo);
 		Assert.True(tracker.CanUndoKeep);
 	}
@@ -94,8 +95,9 @@ public sealed class SessionChangeTrackerHistoryTests {
 
 	[Fact]
 	public void UndoRedo_OfHunkAction_CarriesTheActedLine() {
+		// A second hunk (line 2) stays bright throughout so no action settles the review mid-test.
 		var fileSystem = new InMemoryFileSystem();
-		var tracker = Changed(fileSystem, "/w/a.txt", "a\nb\nc\nd\n", "a\nb\nc\nD\n");
+		var tracker = Changed(fileSystem, "/w/a.txt", "a\nb\nc\nd\n", "a\nX\nc\nD\n");
 		Assert.True(tracker.KeepHunk("/w/a.txt", new LineRange(4, 5), new LineRange(4, 5), "D"));
 
 		// The undo/redo name the hunk's current-side line, so the host lands on it — not the file's first hunk.
@@ -109,8 +111,13 @@ public sealed class SessionChangeTrackerHistoryTests {
 
 	[Fact]
 	public void UndoRedo_OfFileScopeAction_CarriesNoLine() {
+		// A second pending file keeps the review unsettled, so the file-scope actions stay undoable.
 		var fileSystem = new InMemoryFileSystem();
 		var tracker = Changed(fileSystem, "/w/a.txt", "a\nb\n", "a\nB\n");
+		fileSystem.WriteAllText("/w/b.txt", "b0\n");
+		tracker.CaptureBaseline("/w/b.txt");
+		fileSystem.WriteAllText("/w/b.txt", "b1\n");
+		tracker.RecordChange("/w/b.txt");
 		tracker.KeepFile("/w/a.txt");
 
 		Assert.Null(tracker.UndoLastKeep().Line);
@@ -121,16 +128,21 @@ public sealed class SessionChangeTrackerHistoryTests {
 
 	[Fact]
 	public void TypeSplit_UndoKeepIgnoresRevert_AndViceVersa() {
+		// c.txt stays bright throughout so neither action settles the review.
 		var fileSystem = new InMemoryFileSystem();
 		fileSystem.WriteAllText("/w/a.txt", "a\n");
 		fileSystem.WriteAllText("/w/b.txt", "b\n");
+		fileSystem.WriteAllText("/w/c.txt", "c\n");
 		var tracker = Tracker(fileSystem);
 		tracker.CaptureBaseline("/w/a.txt");
 		tracker.CaptureBaseline("/w/b.txt");
+		tracker.CaptureBaseline("/w/c.txt");
 		fileSystem.WriteAllText("/w/a.txt", "A\n");
 		fileSystem.WriteAllText("/w/b.txt", "B\n");
+		fileSystem.WriteAllText("/w/c.txt", "C\n");
 		tracker.RecordChange("/w/a.txt");
 		tracker.RecordChange("/w/b.txt");
+		tracker.RecordChange("/w/c.txt");
 
 		tracker.KeepHunk("/w/a.txt", new LineRange(1, 2), new LineRange(1, 2), "A");   // a kept
 		tracker.RevertHunk("/w/b.txt", new LineRange(1, 2), new LineRange(1, 2), "B"); // b reverted
@@ -148,11 +160,11 @@ public sealed class SessionChangeTrackerHistoryTests {
 	[Fact]
 	public void Undo_BlockedByNewerEditToSamePath_DoesNotClobber() {
 		var fileSystem = new InMemoryFileSystem();
-		var tracker = Changed(fileSystem, "/w/a.txt", "a\nb\n", "a\nB\n");
-		tracker.KeepHunk("/w/a.txt", new LineRange(2, 3), new LineRange(2, 3), "B");
+		var tracker = Changed(fileSystem, "/w/a.txt", "a\nb\nc\nd\n", "a\nB\nc\nD\n");
+		tracker.KeepHunk("/w/a.txt", new LineRange(2, 3), new LineRange(2, 3), "B"); // hunk at line 4 stays bright
 
 		// A newer edit lands on the same file after the keep.
-		fileSystem.WriteAllText("/w/a.txt", "a\nB\nc\n");
+		fileSystem.WriteAllText("/w/a.txt", "a\nB\nc\nD\ne\n");
 		tracker.RecordChange("/w/a.txt");
 
 		var result = tracker.UndoLastKeep();
@@ -164,8 +176,8 @@ public sealed class SessionChangeTrackerHistoryTests {
 	[Fact]
 	public void AcceptTurn_IsTheCommitPoint_ClearsHistory() {
 		var fileSystem = new InMemoryFileSystem();
-		var tracker = Changed(fileSystem, "/w/a.txt", "a\n", "A\n");
-		tracker.KeepHunk("/w/a.txt", new LineRange(1, 2), new LineRange(1, 2), "A");
+		var tracker = Changed(fileSystem, "/w/a.txt", "a\nb\nc\nd\n", "a\nB\nc\nD\n");
+		tracker.KeepHunk("/w/a.txt", new LineRange(2, 3), new LineRange(2, 3), "B"); // hunk at line 4 stays bright
 		Assert.True(tracker.CanUndoKeep);
 
 		tracker.AcceptTurn();
@@ -173,6 +185,43 @@ public sealed class SessionChangeTrackerHistoryTests {
 		Assert.False(tracker.CanUndoKeep);
 		Assert.False(tracker.CanRedo);
 		Assert.False(tracker.UndoLastKeep().Acted); // nothing left to undo past the commit
+	}
+
+	[Fact]
+	public void KeepHunk_SettlingTheReview_CommitsAndClearsHistory() {
+		// Resolving the set's last pending hunk exits the review — the same commit point as keep-all, so the
+		// history clears with it (undoing past a commit would resurrect committed hunks via stale anchors).
+		var fileSystem = new InMemoryFileSystem();
+		var tracker = Changed(fileSystem, "/w/a.txt", "a\nb\n", "a\nB\n");
+
+		Assert.True(tracker.KeepHunk("/w/a.txt", new LineRange(2, 3), new LineRange(2, 3), "B"));
+
+		Assert.Empty(tracker.TurnChanges());
+		Assert.False(tracker.CanUndo);
+		Assert.False(tracker.CanRedo);
+	}
+
+	[Fact]
+	public void RevertAll_WithKeptHunkElsewhere_StaysUndoableAndUncommitted() {
+		// Revert-all is the bulk mistake-recovery gesture: even when it leaves only faded bands (which would
+		// settle a per-change resolution), it must NOT commit — it stays one undoable step.
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllText("/w/a.txt", "a\n");
+		fileSystem.WriteAllText("/w/b.txt", "b\n");
+		var tracker = Tracker(fileSystem);
+		tracker.CaptureBaseline("/w/a.txt");
+		tracker.CaptureBaseline("/w/b.txt");
+		fileSystem.WriteAllText("/w/a.txt", "A\n");
+		fileSystem.WriteAllText("/w/b.txt", "B\n");
+		tracker.RecordChange("/w/a.txt");
+		tracker.RecordChange("/w/b.txt");
+		tracker.KeepHunk("/w/a.txt", new LineRange(1, 2), new LineRange(1, 2), "A"); // a faded, b bright
+
+		Assert.True(tracker.RevertAll().Acted); // reverts b; only a's faded band remains
+
+		var faded = Assert.Single(tracker.TurnChanges());
+		Assert.Equal("/w/a.txt", faded.Path);
+		Assert.True(tracker.CanUndoRevert); // recoverable — the revert did not commit the review
 	}
 
 	[Fact]

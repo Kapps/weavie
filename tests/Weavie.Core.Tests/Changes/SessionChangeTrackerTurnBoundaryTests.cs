@@ -33,14 +33,21 @@ public sealed class SessionChangeTrackerTurnBoundaryTests {
 
 	[Fact]
 	public void NewPrompt_FullyKeptFile_LeavesTheReviewSet() {
-		var (_, tracker) = Edited("a\nb\n", "a\nB\n");
+		// b.txt stays bright so the keep doesn't settle the review — the fully-kept a.txt waits as a faded band
+		// for the boundary to commit it.
+		var (fileSystem, tracker) = Edited("a\nb\n", "a\nB\n");
+		fileSystem.WriteAllText("/w/b.txt", "b0\n");
+		tracker.CaptureBaseline("/w/b.txt");
+		fileSystem.WriteAllText("/w/b.txt", "b1\n");
+		tracker.RecordChange("/w/b.txt");
 		Assert.True(tracker.KeepHunk("/w/a.txt", new LineRange(2, 3), new LineRange(2, 3), "B"));
-		Assert.Single(tracker.TurnChanges()); // kept-but-uncommitted: the faded band holds the file in the set
+		Assert.Equal(2, tracker.TurnChanges().Count); // kept-but-uncommitted: the faded band holds a.txt in the set
 
 		tracker.Observe(NewPrompt);
 
-		Assert.Empty(tracker.TurnChanges()); // the boundary committed the band — the file drops from the diff view
-		Assert.Single(tracker.Changes());    // the session diff (b -> B) survives
+		var change = Assert.Single(tracker.TurnChanges()); // the boundary committed the band — a.txt dropped
+		Assert.Equal("/w/b.txt", change.Path);             // the pending file keeps accumulating
+		Assert.Equal(2, tracker.Changes().Count);          // both session diffs survive
 	}
 
 	[Fact]
@@ -58,7 +65,7 @@ public sealed class SessionChangeTrackerTurnBoundaryTests {
 
 	[Fact]
 	public void NewPrompt_WithKeptHunks_ClearsUndoHistory() {
-		var (_, tracker) = Edited("a\nb\n", "a\nB\n");
+		var (_, tracker) = Edited("a\nb\nc\nd\n", "a\nB\nc\nD\n"); // two hunks — the keep doesn't settle the set
 		Assert.True(tracker.KeepHunk("/w/a.txt", new LineRange(2, 3), new LineRange(2, 3), "B"));
 		Assert.True(tracker.CanUndoKeep);
 
@@ -71,7 +78,7 @@ public sealed class SessionChangeTrackerTurnBoundaryTests {
 
 	[Fact]
 	public void NewPrompt_RaisesAcceptedCommittedWithThePaths() {
-		var (_, tracker) = Edited("a\nb\n", "a\nB\n");
+		var (_, tracker) = Edited("a\nb\nc\nd\n", "a\nB\nc\nD\n"); // two hunks — the keep doesn't settle the set
 		Assert.True(tracker.KeepHunk("/w/a.txt", new LineRange(2, 3), new LineRange(2, 3), "B"));
 		IReadOnlyList<string>? committed = null;
 		tracker.AcceptedCommitted += paths => committed = paths;

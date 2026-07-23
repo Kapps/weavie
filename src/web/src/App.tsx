@@ -135,6 +135,7 @@ import { DEFAULT_LAYOUT_ROOT, layoutDocument, sendLayout } from "./layout/store"
 import type { LayoutNode } from "./layout/types";
 // Session-attention intake (sounds + OS notifications): module-load side effect, like the session store.
 import "./notifications/attention";
+import { installNavigationGuard } from "./navigation-guard";
 import { setNotifySink } from "./notify/notify";
 import { Suggestions } from "./notify/Suggestions";
 import { createToasts, Toasts } from "./notify/Toasts";
@@ -908,6 +909,8 @@ export default function App(): JSX.Element {
     // Apply the active theme to Weavie's chrome. The controller owns the active theme + override ops and
     // also drives Monaco + xterm; this pushes the chrome's CSS vars.
     applyChromeTheme();
+    // No click may ever navigate the app away — unhandled external links route to the OS browser instead.
+    installNavigationGuard(document, openUrlExternal);
     mark("shell-mounted");
 
     // Registered remote agents are connected by remote-agents.ts when the host pushes the persisted registry on

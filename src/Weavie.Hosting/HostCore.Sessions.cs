@@ -6,6 +6,7 @@ using Weavie.Core.Configuration;
 using Weavie.Core.Editor;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Git;
+using Weavie.Core.Lsp;
 using Weavie.Core.Sessions;
 using Weavie.Core.Theming;
 using Weavie.Core.Workspaces;
@@ -111,7 +112,16 @@ public sealed partial class HostCore {
 			PushSessionList();
 		});
 		session.FileChanges += changes => _ui.Post(() =>
-			DispatchEditorProjection(session, () => PushWatcherChangesToWeb(changes)));
+			DispatchEditorProjection(session, () => {
+				PushWatcherChangesToWeb(changes);
+				// The file browser re-lists the directories the changes landed in.
+				session.RefreshListedDirectories(changes);
+				// A created/deleted path changes the tree's membership: re-push the omnibar's file index too, so
+				// Go-to-File offers files the agent or terminal just made — even while the omnibar is open.
+				if (changes.Any(c => c.Kind != FileChangeKind.Changed)) {
+					PushFileIndexToWeb(invalidate: false);
+				}
+			}));
 	}
 
 	private bool IsActiveSession(HostSession session) => ReferenceEquals(_session, session);

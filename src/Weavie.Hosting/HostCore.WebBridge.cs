@@ -799,8 +799,9 @@ public sealed partial class HostCore {
 
 	/// <summary>
 	/// Pushes an <c>fs-change</c> removal for a file deleted mid-turn so the page closes its tab and clears the
-	/// inline marker (the <see cref="PushRefreshToWeb"/> counterpart). Reaches files the workspace watcher doesn't
-	/// (it filters by extension), so a created-then-deleted scratch file can't strand the ← / → walk on a dead path.
+	/// inline marker (the <see cref="PushRefreshToWeb"/> counterpart). Reaches files the workspace watcher can't
+	/// (a scratch buffer outside the worktree) and lands immediately rather than after the watcher's debounce, so
+	/// a created-then-deleted file can't strand the ← / → walk on a dead path.
 	/// </summary>
 	private void PushDeletionToWeb(string path) =>
 		_bridge.PostToWeb(FileProviderProtocol.Changed(path, "deleted"));

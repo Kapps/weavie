@@ -32,6 +32,7 @@ export interface ContextMenuState {
   x: number;
   y: number;
   header?: string;
+  busy?: boolean;
   entries: ContextMenuEntry[];
 }
 
@@ -57,6 +58,8 @@ function MenuPanel(props: {
   anchorRect?: DOMRect;
   // Focus the first row on mount (keyboard-opened submenu); a mouse-opened one leaves focus on the cursor.
   autoFocus?: boolean;
+  // An inert root menu can own focus while its final entries are being resolved.
+  busy?: boolean;
   // Close this panel and return focus to the row that opened it (the parent's ArrowLeft / Escape path).
   onCloseSelf?: () => void;
 }): JSX.Element {
@@ -103,6 +106,13 @@ function MenuPanel(props: {
 
   const onKeyDown = (event: KeyboardEvent): void => {
     const list = rows();
+    if (list.length === 0) {
+      if (props.busy && event.key !== "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+      return;
+    }
     const current = list.indexOf(document.activeElement as HTMLButtonElement);
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
@@ -156,7 +166,12 @@ function MenuPanel(props: {
     queueMicrotask(() => {
       clampToViewport();
       if (props.autoFocus) {
-        rows()[0]?.focus();
+        const first = rows()[0];
+        if (first !== undefined) {
+          first.focus();
+        } else if (props.busy) {
+          panelEl?.focus();
+        }
       }
     });
   });
@@ -169,13 +184,17 @@ function MenuPanel(props: {
   return (
     <div
       class="context-menu"
-      role="menu"
+      role={props.busy ? "status" : "menu"}
       ref={(el) => {
         panelEl = el;
         el.style.left = `${props.x}px`;
         el.style.top = `${props.y}px`;
       }}
-      onKeyDown={onKeyDown}
+      on:keydown={onKeyDown}
+      tabIndex={-1}
+      aria-busy={props.busy ? "true" : undefined}
+      aria-live={props.busy ? "polite" : undefined}
+      aria-atomic={props.busy ? "true" : undefined}
     >
       <Show when={props.header}>
         <div class="context-menu-header">{props.header}</div>
@@ -267,6 +286,7 @@ export function ContextMenu(props: { menu: ContextMenuState; onClose: () => void
         x={props.menu.x}
         y={props.menu.y}
         header={props.menu.header}
+        busy={props.menu.busy === true}
         autoFocus
         closeAll={props.onClose}
       />

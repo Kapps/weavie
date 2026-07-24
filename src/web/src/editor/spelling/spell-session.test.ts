@@ -58,6 +58,7 @@ vi.mock("../monaco-setup", () => ({
 import { SpellSession } from "./spell-session";
 
 interface FakeModel {
+  id: string;
   uri: { authority: string; path: string };
   onWillDispose(callback: () => void): { dispose(): void };
   getValue(): string;
@@ -77,6 +78,7 @@ function createHarness() {
   let version = 4;
   const setDecorations = vi.fn();
   const model: FakeModel = {
+    id: "model-a",
     uri: { authority: "", path: "/repo/file.md" },
     onWillDispose: () => ({ dispose: vi.fn() }),
     getValue: () => content,
@@ -231,7 +233,8 @@ describe("SpellSession", () => {
     session.track(harness.model as never);
     vi.advanceTimersByTime(150);
     session.handleDiagnostics(diagnostics(1));
-    const context = diagnostics(1).issues[0]!;
+    const context = { ...diagnostics(1).issues[0]!, modelId: harness.model.id };
+    expect(session.isCurrentContext(context)).toBe(true);
 
     const firstResult = session.requestSuggestions(context).catch((error: unknown) => error);
     const second = session.requestSuggestions(context);
@@ -248,6 +251,9 @@ describe("SpellSession", () => {
       }),
     );
 
+    harness.change("the", 5);
+    session.contentChanged(harness.model as never);
+    expect(session.isCurrentContext(context)).toBe(false);
     const secondRejection = expect(second).rejects.toThrow("The editor was disposed.");
     session.dispose();
     await secondRejection;

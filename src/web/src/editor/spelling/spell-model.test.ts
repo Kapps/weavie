@@ -32,6 +32,7 @@ describe("SpellModel", () => {
   it("accepts only diagnostics matching the current revision and word span", () => {
     const lines = ['const value = "teh";'];
     const model = {
+      id: "model-a",
       getVersionId: () => 4,
       getLineCount: () => lines.length,
       getLineContent: (line: number) => lines[line - 1],
@@ -58,10 +59,12 @@ describe("SpellModel", () => {
       ),
     ).toBe(true);
     expect(state.decorations()).toHaveLength(1);
-    expect(state.contextAt({ lineNumber: 1, column: 17 })).toEqual(issue);
-    expect(state.contextAt({ lineNumber: 1, column: issue.endColumn })).toEqual(issue);
+    const context = { ...issue, modelId: "model-a" };
+    expect(state.contextAt({ lineNumber: 1, column: 17 })).toEqual(context);
+    expect(state.contextAt({ lineNumber: 1, column: issue.endColumn })).toEqual(context);
     expect(state.contextAt({ lineNumber: 1, column: issue.endColumn + 1 })).toBeNull();
-    expect(state.isCurrentContext(issue)).toBe(true);
+    expect(state.isCurrentContext(context)).toBe(true);
+    expect(state.isCurrentContext({ ...context, modelId: "model-b" })).toBe(false);
 
     expect(state.applyDiagnostics([], 3)).toBe(false);
     expect(state.decorations()).toHaveLength(1);
@@ -69,6 +72,6 @@ describe("SpellModel", () => {
     expect(state.applyDiagnostics([issue], 4)).toBe(false);
     expect(state.decorations()).toHaveLength(0);
     lines[0] = 'const value = "the";';
-    expect(state.isCurrentContext(issue)).toBe(false);
+    expect(state.isCurrentContext(context)).toBe(false);
   });
 });

@@ -186,6 +186,8 @@ export interface EditorController {
   spellContextAtClientPoint(clientX: number, clientY: number): SpellContext | null;
   /** Resolves the spelling issue at the cursor plus a viewport anchor for keyboard-invoked actions. */
   spellContextAtCursor(): SpellMenuTarget | null;
+  /** Whether a spelling issue still belongs to the active editor model and diagnostics. */
+  isSpellContextCurrent(context: SpellContext): boolean;
   /** Lazily asks Core for corrections to a current spelling issue. */
   requestSpellSuggestions(context: SpellContext): Promise<string[]>;
   /** Applies a current spelling suggestion described by command args. */
@@ -1363,6 +1365,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     spellContextAtClientPoint: (clientX, clientY) =>
       host?.spelling.contextAtClientPoint(clientX, clientY) ?? null,
     spellContextAtCursor: () => host?.spelling.contextAtCursor() ?? null,
+    isSpellContextCurrent: (context) => host?.spelling.isCurrentContext(context) === true,
     requestSpellSuggestions: (context) =>
       host?.spelling.requestSuggestions(context) ??
       Promise.reject(new Error("The editor isn't ready.")),

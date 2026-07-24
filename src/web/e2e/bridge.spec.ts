@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { expect, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 import { MockHost, mockSessionChip as sessionChip } from "./mock-host";
 
 // The built app from `vite build`; the e2e run builds it first (see the `e2e` npm script).
@@ -14,6 +14,18 @@ test.beforeAll(() => {
     );
   }
 });
+
+async function showCustomTitleBar(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    window.__WEAVIE_SHELL__ = {
+      platform: "win",
+      titleBar: "custom",
+      workspaceLabel: "test",
+      recents: [],
+      buildNumber: "test",
+    };
+  });
+}
 
 test.describe("remote bridge transport", () => {
   let host: MockHost;
@@ -124,6 +136,176 @@ test.describe("remote bridge transport", () => {
       id: "local-feature",
       replayAgentState: false,
     });
+  });
+
+  test("Go to File hides the outgoing index and restores its cache when a switch is rejected", async ({
+    page,
+  }) => {
+    await showCustomTitleBar(page);
+    await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
+    await host.waitForMessage("ready");
+    const main = sessionChip("local-main", "main", "claude", true, true);
+    const feature = sessionChip("local-feature", "feature", "claude", false, false);
+    host.pushToWeb({ type: "session-list", sessions: [main, feature] });
+    host.pushToWeb({
+      type: "set-editor-session",
+      sessionId: "main-owner",
+      railSessionId: main.id,
+      session: { active: null, open: [] },
+    });
+    host.pushToWeb({
+      type: "file-index",
+      root: "/main",
+      files: ["/main/original.ts"],
+      railSessionId: main.id,
+    });
+
+    const input = page.locator(".tb-omnibar-input");
+    await input.click();
+    await input.fill("original");
+    await expect(page.locator(".tb-omnibar-row", { hasText: "original.ts" })).toBeVisible();
+    await page.keyboard.press("Escape");
+
+    await page.locator('.session-chip[title^="feature —"]').click();
+    await input.click();
+    await input.fill("latest");
+    await expect(page.locator(".tb-omnibar-empty")).toHaveText("Loading files…");
+
+    // The mounted session may refresh its hidden cache, but the pending target cannot expose it.
+    host.pushToWeb({
+      type: "file-index",
+      root: "/main",
+      files: ["/main/latest.ts"],
+      railSessionId: main.id,
+    });
+    await expect(page.locator(".tb-omnibar-row", { hasText: "latest.ts" })).toHaveCount(0);
+    await expect(page.locator(".tb-omnibar-empty")).toHaveText("Loading files…");
+
+    host.pushToWeb({ type: "session-list", sessions: [main] });
+    await expect(page.locator(".tb-omnibar-row", { hasText: "latest.ts" })).toBeVisible();
+    await expect(page.locator(".tb-omnibar-row", { hasText: "original.ts" })).toHaveCount(0);
+  });
+
+  test("a restored session never adopts an unowned index before its first host push", async ({
+    page,
+  }) => {
+    await showCustomTitleBar(page);
+    await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
+    await host.waitForMessage("ready");
+    const main = sessionChip("local-main", "main", "claude", false, true);
+    const restored = sessionChip("local-restored", "restored", "claude", true, false);
+    const other = sessionChip("local-other", "other", "claude", false, false);
+    host.pushToWeb({ type: "session-list", sessions: [main, restored, other] });
+    host.pushToWeb({
+      type: "set-editor-session",
+      sessionId: "restored-owner",
+      railSessionId: restored.id,
+      session: { active: null, open: [] },
+    });
+
+    const input = page.locator(".tb-omnibar-input");
+    await input.click();
+    await input.fill("restored");
+    await expect(page.locator(".tb-omnibar-empty")).toHaveText("Loading files…");
+
+    await page.locator('.session-chip[title^="other —"]').click();
+    host.pushToWeb({ type: "session-list", sessions: [main, restored] });
+    await input.click();
+    await input.fill("restored");
+    await expect(page.locator(".tb-omnibar-empty")).toHaveText("Loading files…");
+  });
+
+  test("a rapid switch retains the mounted index if the latest target is rejected", async ({
+    page,
+  }) => {
+    await showCustomTitleBar(page);
+    await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
+    await host.waitForMessage("ready");
+    const main = sessionChip("local-main", "main", "claude", true, true);
+    const first = sessionChip("local-first", "first", "claude", false, false);
+    const second = sessionChip("local-second", "second", "claude", false, false);
+    host.pushToWeb({ type: "session-list", sessions: [main, first, second] });
+    host.pushToWeb({
+      type: "set-editor-session",
+      sessionId: "main-owner",
+      railSessionId: main.id,
+      session: { active: null, open: [] },
+    });
+    host.pushToWeb({
+      type: "file-index",
+      root: "/main",
+      files: ["/main/main.ts"],
+      railSessionId: main.id,
+    });
+
+    await page.locator('.session-chip[title^="first —"]').click();
+    await page.locator('.session-chip[title^="second —"]').click();
+    const input = page.locator(".tb-omnibar-input");
+    await input.click();
+    await input.fill("second");
+    await expect(page.locator(".tb-omnibar-empty")).toHaveText("Loading files…");
+
+    host.pushToWeb({
+      type: "set-editor-session",
+      sessionId: "first-owner",
+      railSessionId: first.id,
+      session: { active: null, open: [] },
+    });
+    host.pushToWeb({
+      type: "session-list",
+      sessions: [{ ...main, active: false }, { ...first, active: true }, second],
+    });
+    host.pushToWeb({
+      type: "file-index",
+      root: "/first",
+      files: ["/first/first.ts"],
+      railSessionId: first.id,
+    });
+    await expect(page.locator(".tb-omnibar-empty")).toHaveText("Loading files…");
+
+    // The latest target disappears after the intermediate target mounted. Its cached index becomes visible.
+    host.pushToWeb({
+      type: "session-list",
+      sessions: [
+        { ...main, active: false },
+        { ...first, active: true },
+      ],
+    });
+    await input.fill("first");
+    await expect(page.locator(".tb-omnibar-row", { hasText: "first.ts" })).toBeVisible();
+    await expect(page.locator(".tb-omnibar-row", { hasText: "main.ts" })).toHaveCount(0);
+
+    // Retrying the latest target replaces that cache; an older host's unstamped final frame remains compatible.
+    host.pushToWeb({
+      type: "session-list",
+      sessions: [{ ...main, active: false }, { ...first, active: true }, second],
+    });
+    await page.locator('.session-chip[title^="second —"]').click();
+    await input.click();
+    await input.fill("second");
+    await expect(page.locator(".tb-omnibar-empty")).toHaveText("Loading files…");
+    host.pushToWeb({
+      type: "set-editor-session",
+      sessionId: "second-owner",
+      railSessionId: second.id,
+      session: { active: null, open: [] },
+    });
+    host.pushToWeb({
+      type: "session-list",
+      sessions: [{ ...main, active: false }, first, { ...second, active: true }],
+    });
+    host.pushToWeb({
+      type: "file-index",
+      root: "/second",
+      files: [],
+      pending: true,
+      railSessionId: second.id,
+    });
+    await expect(page.locator(".tb-omnibar-empty")).toHaveText("Loading files…");
+    // An older additive-protocol host omits railSessionId; its FIFO frame belongs to the mounted projection.
+    host.pushToWeb({ type: "file-index", root: "/second", files: ["/second/second.ts"] });
+    await expect(page.locator(".tb-omnibar-row", { hasText: "second.ts" })).toBeVisible();
+    await expect(page.locator(".tb-omnibar-row", { hasText: "first.ts" })).toHaveCount(0);
   });
 
   test("a removed switch target cannot leave the rail optimistically highlighted", async ({

@@ -7,8 +7,8 @@ export type SpellDictionaryChanged = Extract<WebBoundMessage, { type: "spell-dic
 
 export type SpellScope = "project" | "user";
 
-/** An active misspelling, retained only while its submitted revision and word span still match. */
-export type SpellContext = SpellIssue;
+/** An active misspelling owned by one Monaco model and retained only while its word span still matches. */
+export type SpellContext = SpellIssue & { modelId: string };
 
 export interface SpellMenuTarget {
   context: SpellContext;

@@ -857,7 +857,14 @@ export type WebBoundMessage =
   // Host answers request-file-index with the workspace root + every file's absolute path (for the omnibar).
   // `pending` = a session switch invalidated the index and the new worktree's walk is still running: files is
   // empty and the omnibar shows a loading state instead of claiming the worktree has no files.
-  | { type: "file-index"; root: string; files: string[]; pending?: boolean }
+  | {
+      type: "file-index";
+      root: string;
+      files: string[];
+      pending?: boolean;
+      /** Owning rail session. Absent only on older additive-protocol hosts. */
+      railSessionId?: string;
+    }
   // Host asks the page to open the omnibar's Go-to-File preloaded with a query — the reveal for a clicked
   // file link that suffix-matched several workspace files (one match opens directly; none toasts). `line` is
   // the link's 1-based line, applied to the candidate the user picks; absent from pre-line hosts.

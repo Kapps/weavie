@@ -70,6 +70,9 @@ export function wordForDictionary(
   if (context !== null) {
     return state?.isCurrentContext(context) === true ? context.word : null;
   }
+  if (hasContextLocationArgs(args)) {
+    return null;
+  }
   const explicitWord = directSpellWord(args);
   return explicitWord ?? state?.contextAt(editor.getPosition())?.word ?? null;
 }
@@ -82,12 +85,14 @@ function contextFromArgs(args: unknown): SpellContext | null {
   return typeof value.line === "number" &&
     typeof value.word === "string" &&
     typeof value.startColumn === "number" &&
-    typeof value.endColumn === "number"
+    typeof value.endColumn === "number" &&
+    typeof value.modelId === "string"
     ? {
         line: value.line,
         word: value.word,
         startColumn: value.startColumn,
         endColumn: value.endColumn,
+        modelId: value.modelId,
       }
     : null;
 }
@@ -97,7 +102,15 @@ function hasContextArgs(args: unknown): boolean {
     return false;
   }
   const value = args as Record<string, unknown>;
-  return ["line", "word", "startColumn", "endColumn"].some((name) => name in value);
+  return ["line", "word", "startColumn", "endColumn", "modelId"].some((name) => name in value);
+}
+
+function hasContextLocationArgs(args: unknown): boolean {
+  if (typeof args !== "object" || args === null) {
+    return false;
+  }
+  const value = args as Record<string, unknown>;
+  return ["line", "startColumn", "endColumn", "modelId"].some((name) => name in value);
 }
 
 function stringArg(args: unknown, name: string): string | null {

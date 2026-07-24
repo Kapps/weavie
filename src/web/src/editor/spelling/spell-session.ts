@@ -121,6 +121,10 @@ export class SpellSession {
     return contextAtCursor(this.editor, this.currentState(), this.settings.enabled);
   }
 
+  isCurrentContext(context: SpellContext): boolean {
+    return this.settings.enabled && this.currentState()?.isCurrentContext(context) === true;
+  }
+
   requestSuggestions(context: SpellContext): Promise<string[]> {
     const state = this.currentState();
     const binding = currentEditorBinding();

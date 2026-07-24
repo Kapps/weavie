@@ -48,18 +48,18 @@ export class SpellModel {
     if (position === null) {
       return null;
     }
-    return (
-      this.issues.find(
-        (issue) =>
-          issue.line === position.lineNumber &&
-          position.column >= issue.startColumn &&
-          position.column <= issue.endColumn,
-      ) ?? null
+    const issue = this.issues.find(
+      (candidate) =>
+        candidate.line === position.lineNumber &&
+        position.column >= candidate.startColumn &&
+        position.column <= candidate.endColumn,
     );
+    return issue === undefined ? null : { ...issue, modelId: this.model.id };
   }
 
   isCurrentContext(context: SpellContext): boolean {
     return (
+      context.modelId === this.model.id &&
       this.validIssue(context) &&
       this.issues.some(
         (issue) =>

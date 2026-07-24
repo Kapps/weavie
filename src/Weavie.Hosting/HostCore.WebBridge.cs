@@ -399,7 +399,7 @@ public sealed partial class HostCore {
 				break;
 			case "request-file-index":
 				// Build the omnibar's quick-open index from the active session's worktree, so switching re-roots "Go to File".
-				PushFileIndexToWeb(invalidate: false);
+				PushFileIndexToWeb();
 				break;
 			case "find-in-files":
 				_ = SearchInFilesAsync(root);
@@ -691,21 +691,12 @@ public sealed partial class HostCore {
 		_bridge.PostToWeb($"{{\"type\":\"lsp-config\",\"config\":{session.LspConfigJson}}}");
 
 	/// <summary>
-	/// Re-walks the active session's worktree and pushes its <c>file-index</c> so the omnibar's "Go to File" and
-	/// the file browser re-root to it. When <paramref name="invalidate"/> (a session switch), a pending (empty)
-	/// index posts first, in order with the switch's message train, so the page drops the outgoing session's
-	/// files immediately — during the walk the omnibar must show nothing rather than offer a stale file whose
-	/// path routes into the wrong worktree. A same-root refresh (the omnibar's open) keeps the current index
-	/// usable while the walk runs. The walk runs off the UI thread; its result is guarded + posted back on it,
-	/// so a slow walk from a stale session can't clobber the page's index after a further switch.
+	/// Re-walks the active session's worktree and pushes its <c>file-index</c>. The walk runs off the UI thread;
+	/// its result is guarded + posted back on it, so a stale session cannot clobber a later projection.
 	/// </summary>
-	private void PushFileIndexToWeb(bool invalidate) {
+	private void PushFileIndexToWeb() {
 		if (_session is not { } session) {
 			return;
-		}
-
-		if (invalidate) {
-			_bridge.PostToWeb(ShellProtocol.BuildFileIndexPending(session.FileIndex.Root));
 		}
 
 		_ = Task.Run(async () => {
@@ -713,11 +704,14 @@ public sealed partial class HostCore {
 				?? session.FileIndex.List();
 			_ui.Post(() => {
 				if (ReferenceEquals(_session, session)) {
-					_bridge.PostToWeb(ShellProtocol.BuildFileIndex(session.FileIndex.Root, files));
+					_bridge.PostToWeb(ShellProtocol.BuildFileIndex(session.FileIndex.Root, files, session.SlotId));
 				}
 			});
 		});
 	}
+
+	private void PushFileIndexPendingToWeb(HostSession session) =>
+		_bridge.PostToWeb(ShellProtocol.BuildFileIndexPending(session.FileIndex.Root, session.SlotId));
 
 	/// <summary>
 	/// The workspace's files as git sees them (tracked + untracked, .gitignore honored), as canonical absolute

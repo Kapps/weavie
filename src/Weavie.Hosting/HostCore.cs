@@ -243,7 +243,7 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		// Title bar: route the web title-bar messages to the shared controller, but only when the platform
 		// renders one (web custom chrome). Native-chrome hosts leave _shell null and those messages no-op.
 		if (_platform.Window is { } window) {
-			_shell = new ShellController(window, _primarySession.FileIndex, _bridge.PostToWeb);
+			_shell = new ShellController(window, _bridge.PostToWeb);
 		}
 
 		// Sessions: the worktree manager + slot set, the primary (always-loaded) slot, then reconcile

@@ -562,8 +562,8 @@ public sealed partial class HostCore {
 				session.Agent.ReplayState();
 			}
 		}
-		// Re-root the omnibar quick-open + file browser to this session's worktree.
-		PushFileIndexToWeb(invalidate: true);
+		// Populate the index whose owner/root the projection already announced.
+		PushFileIndexToWeb();
 		// Re-point the editor's language clients at this session's own LSP bridge (rooted at its worktree).
 		PushLspConfigToWeb(session);
 		PostSessionStatus(session.Status.Status);

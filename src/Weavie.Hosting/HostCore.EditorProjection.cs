@@ -74,6 +74,7 @@ public sealed partial class HostCore {
 			revision,
 			pageId,
 			Log));
+		PushFileIndexPendingToWeb(session);
 	}
 
 	private void BeginLegacyEditorProjection(HostSession session, bool replayAll) {
@@ -96,6 +97,7 @@ public sealed partial class HostCore {
 			session.WorkspaceRoot,
 			session.Id,
 			Log));
+		PushFileIndexPendingToWeb(session);
 
 		if (replayAll) {
 			if (alreadyMounted) {

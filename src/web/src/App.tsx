@@ -384,13 +384,7 @@ export default function App(): JSX.Element {
     { kind: "separator" },
     { commandId: CommandIds.focusOmnibarCommands, label: "Command Palette" },
   ];
-  const spellMenuEntries = (context: SpellContext, suggestions: string[]): ContextMenuEntry[] => [
-    ...suggestions.map((replacement) => ({
-      commandId: CommandIds.spellingApplySuggestion,
-      label: replacement,
-      args: { ...context, replacement },
-    })),
-    ...(suggestions.length > 0 ? [{ kind: "separator" } as const] : []),
+  const spellMenuTailEntries = (context: SpellContext): ContextMenuEntry[] => [
     {
       kind: "submenu" as const,
       label: "Add to Dictionary",
@@ -410,13 +404,28 @@ export default function App(): JSX.Element {
     { kind: "separator" },
     ...editorContextEntries(),
   ];
+  // The tail is created once per menu and reused after suggestions arrive, preserving focused row identity.
+  const spellMenuEntries = (
+    context: SpellContext,
+    suggestions: string[],
+    tail: ContextMenuEntry[],
+  ): ContextMenuEntry[] => [
+    ...suggestions.map((replacement) => ({
+      commandId: CommandIds.spellingApplySuggestion,
+      label: replacement,
+      args: { ...context, replacement },
+    })),
+    ...(suggestions.length > 0 ? [{ kind: "separator" } as const] : []),
+    ...tail,
+  ];
   const openSpellMenu = (context: SpellContext, x: number, y: number): void => {
-    const initial: ContextMenuState = { x, y, entries: spellMenuEntries(context, []) };
+    const tail = spellMenuTailEntries(context);
+    const initial: ContextMenuState = { x, y, entries: spellMenuEntries(context, [], tail) };
     setContextMenu(initial);
     void editor.requestSpellSuggestions(context).then(
       (suggestions) => {
         if (contextMenu() === initial) {
-          setContextMenu({ x, y, entries: spellMenuEntries(context, suggestions) });
+          setContextMenu({ x, y, entries: spellMenuEntries(context, suggestions, tail) });
         }
       },
       () => undefined,

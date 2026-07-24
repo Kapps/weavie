@@ -10,72 +10,65 @@ vi.mock("../monaco-setup", () => ({
         readonly endColumn: number,
       ) {}
     },
-    editor: { TrackedRangeStickiness: { NeverGrowsWhenTypingAtEdges: 0 } },
   },
 }));
 
 import { SpellModel } from "./spell-model";
 
-describe("SpellModel lifecycle", () => {
+describe("SpellModel", () => {
   it("releases Monaco listeners when its editor host is disposed", () => {
-    const contentListener = { dispose: vi.fn() };
     const disposalListener = { dispose: vi.fn() };
     const model = {
-      onDidChangeContent: vi.fn(() => contentListener),
       onWillDispose: vi.fn(() => disposalListener),
     };
-    const state = new SpellModel(
-      model as never,
-      () => "epoch",
-      () => "anchor",
-    );
+    const state = new SpellModel(model as never);
 
-    state.track(vi.fn(), vi.fn(), vi.fn(), vi.fn());
+    state.track(vi.fn());
     state.dispose();
 
-    expect(contentListener.dispose).toHaveBeenCalledOnce();
     expect(disposalListener.dispose).toHaveBeenCalledOnce();
   });
 
-  it("merges only exact restored lines and reuses live anchors", () => {
-    const lines = ["teh", "unchanged"];
-    const decorations = new Map<string, { startLineNumber: number }>();
-    let nextDecoration = 0;
-    let nextAnchor = 0;
+  it("accepts only diagnostics matching the current revision and word span", () => {
+    const lines = ['const value = "teh";'];
     const model = {
+      getVersionId: () => 4,
       getLineCount: () => lines.length,
       getLineContent: (line: number) => lines[line - 1],
       getLineMaxColumn: (line: number) => (lines[line - 1]?.length ?? 0) + 1,
-      getDecorationRange: (id: string) => decorations.get(id) ?? null,
-      deltaDecorations: vi.fn(
-        (oldIds: string[], additions: { range: { startLineNumber: number } }[]): string[] => {
-          for (const id of oldIds) {
-            decorations.delete(id);
-          }
-          return additions.map((addition) => {
-            const id = `decoration-${++nextDecoration}`;
-            decorations.set(id, { startLineNumber: addition.range.startLineNumber });
-            return id;
-          });
-        },
-      ),
+      getValueInRange: (range: {
+        startLineNumber: number;
+        startColumn: number;
+        endColumn: number;
+      }) => lines[range.startLineNumber - 1]?.slice(range.startColumn - 1, range.endColumn - 1),
     };
-    const state = new SpellModel(
-      model as never,
-      () => "epoch",
-      () => `anchor-${++nextAnchor}`,
-    );
+    const state = new SpellModel(model as never);
+    state.markSubmitted(4);
+    const issue = {
+      line: 1,
+      startColumn: 16,
+      endColumn: 19,
+      word: "teh",
+    };
 
     expect(
-      state.restoreAuthoredLines([
-        { line: 1, text: "teh" },
-        { line: 2, text: "different" },
-        { line: 3, text: "out of range" },
-      ]),
-    ).toEqual(["anchor-1"]);
-    expect(state.restoreAuthoredLines([{ line: 1, text: "teh" }])).toEqual(["anchor-1"]);
-    expect(state.restoreAuthoredLines([{ line: 2, text: "unchanged" }])).toEqual(["anchor-2"]);
-    expect([...state.anchors.keys()]).toEqual(["anchor-1", "anchor-2"]);
-    expect(model.deltaDecorations).toHaveBeenCalledTimes(2);
+      state.applyDiagnostics(
+        [issue, { ...issue, word: "the" }, { ...issue, startColumn: 15, endColumn: 18 }],
+        4,
+      ),
+    ).toBe(true);
+    expect(state.decorations()).toHaveLength(1);
+    expect(state.contextAt({ lineNumber: 1, column: 17 })).toEqual(issue);
+    expect(state.contextAt({ lineNumber: 1, column: issue.endColumn })).toEqual(issue);
+    expect(state.contextAt({ lineNumber: 1, column: issue.endColumn + 1 })).toBeNull();
+    expect(state.isCurrentContext(issue)).toBe(true);
+
+    expect(state.applyDiagnostics([], 3)).toBe(false);
+    expect(state.decorations()).toHaveLength(1);
+    state.clear();
+    expect(state.applyDiagnostics([issue], 4)).toBe(false);
+    expect(state.decorations()).toHaveLength(0);
+    lines[0] = 'const value = "the";';
+    expect(state.isCurrentContext(issue)).toBe(false);
   });
 });

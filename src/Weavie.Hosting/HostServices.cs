@@ -77,9 +77,6 @@ public sealed record HostServices : IDisposable {
 	/// <summary>The process's captured console output (stdout/stderr teed into a bounded ring), backing the in-app log viewer.</summary>
 	public required LogBuffer LogBuffer { get; init; }
 
-	/// <summary>The immutable embedded Hunspell catalogs shared by every workspace in this host process.</summary>
-	public required SpellCatalog SpellingCatalog { get; init; }
-
 	/// <summary>The app-global custom dictionary (<c>~/.weavie/dictionary.txt</c>), shared by every workspace in this host process.</summary>
 	public required CustomDictionary UserDictionary { get; init; }
 
@@ -110,7 +107,6 @@ public sealed record HostServices : IDisposable {
 		railState.Log += Log;
 		var searchState = new SearchStateStore(new LocalFileSystem(), path: null);
 		searchState.Log += Log;
-		var spellingCatalog = SpellCatalog.LoadEmbedded();
 		var userDictionary = new CustomDictionary(WeaviePaths.UserDictionaryFile, enableWatcher: true);
 		var github = new GitHubReviewProvider(http: null, new GitHubTokenSource());
 		return new HostServices {
@@ -127,7 +123,6 @@ public sealed record HostServices : IDisposable {
 			ReviewComments = github,
 			Sources = SourceConnector.CreateDefault(),
 			LogBuffer = logBuffer,
-			SpellingCatalog = spellingCatalog,
 			UserDictionary = userDictionary,
 		};
 	}

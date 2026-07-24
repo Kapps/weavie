@@ -2,9 +2,11 @@
 
 ## WeCantSpell.Hunspell 7.0.1
 
-Weavie uses [WeCantSpell.Hunspell](https://github.com/aarondandy/WeCantSpell.Hunspell) version 7.0.1
-without modification. The package carries the Hunspell MPL 1.1/GPL 2.0/LGPL 2.1 notice; Weavie elects
-the MPL 1.1 option. The exact notice distributed with the package is
+Weavie uses
+[WeCantSpell.Hunspell commit ab5709d95b2d23541984d22baa0ab2d1e783582f](https://github.com/aarondandy/WeCantSpell.Hunspell/tree/ab5709d95b2d23541984d22baa0ab2d1e783582f)
+as published in NuGet package version 7.0.1, without modification. The package carries the Hunspell
+MPL 1.1/GPL 2.0/LGPL 2.1 notice; Weavie elects the MPL 1.1 option. The exact notice distributed with
+the package is
 [`WeCantSpell.Hunspell-LICENSE.txt`](WeCantSpell.Hunspell-LICENSE.txt).
 
 ## LibreOffice English dictionaries

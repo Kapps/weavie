@@ -5,26 +5,18 @@ namespace Weavie.Core.Spelling;
 
 internal static class SpellVocabulary {
 	private const string ResourcePrefix = "Weavie.Core.Spelling.Resources.CSpell.";
-	private static readonly Lazy<FrozenSet<string>> Common = new(
-		() => Load("softwareTerms.txt", "software-tools.txt", "coding-compound-terms.txt", "webServices.txt"),
+	private static readonly Lazy<FrozenSet<string>> Words = new(
+		() => Load(
+			"softwareTerms.txt",
+			"software-tools.txt",
+			"coding-compound-terms.txt",
+			"webServices.txt",
+			"csharp.txt",
+			"typescript.txt",
+			"go.txt"),
 		LazyThreadSafetyMode.ExecutionAndPublication);
-	private static readonly Lazy<FrozenSet<string>> CSharp = new(
-		() => Load("csharp.txt"), LazyThreadSafetyMode.ExecutionAndPublication);
-	private static readonly Lazy<FrozenSet<string>> TypeScript = new(
-		() => Load("typescript.txt"), LazyThreadSafetyMode.ExecutionAndPublication);
-	private static readonly Lazy<FrozenSet<string>> Go = new(
-		() => Load("go.txt"), LazyThreadSafetyMode.ExecutionAndPublication);
-	private static readonly FrozenSet<string> Empty = Array.Empty<string>().ToFrozenSet(StringComparer.OrdinalIgnoreCase);
 
-	internal static bool Contains(string languageId, string word) =>
-		Common.Value.Contains(word) || LanguageWords(languageId).Contains(word);
-
-	private static FrozenSet<string> LanguageWords(string languageId) => languageId.ToLowerInvariant() switch {
-		"csharp" or "cs" => CSharp.Value,
-		"typescript" or "javascript" or "typescriptreact" or "javascriptreact" => TypeScript.Value,
-		"go" => Go.Value,
-		_ => Empty,
-	};
+	internal static bool Contains(string word) => Words.Value.Contains(word);
 
 	private static FrozenSet<string> Load(params string[] names) {
 		var words = new HashSet<string>(StringComparer.OrdinalIgnoreCase);

@@ -9,14 +9,14 @@ public sealed class CustomDictionary : IDisposable {
 	private static readonly FrozenSet<string> EmptyWords = Array.Empty<string>().ToFrozenSet(StringComparer.OrdinalIgnoreCase);
 
 	private readonly Lock _gate = new();
+	private readonly Lock _operationGate = new();
 	private readonly DictionaryStorage _storage;
+	private readonly DictionaryWatcher _watcher;
 	private readonly Mutex _writeMutex;
-	private readonly bool _watch;
-	private readonly Timer? _debounce;
 
 	private FrozenSet<string> _words = EmptyWords;
 	private SpellDictionaryException? _lastLoadError;
-	private FileSystemWatcher? _watcher;
+	private long _revision;
 	private bool _disposed;
 
 	/// <summary>Creates a user-scoped dictionary. User paths may use symbolic links.</summary>
@@ -32,26 +32,22 @@ public sealed class CustomDictionary : IDisposable {
 		_storage = storage;
 		FilePath = storage.FilePath;
 		_writeMutex = new Mutex(false, MutexName(FilePath));
-		_watch = enableWatcher;
-		_debounce = enableWatcher ? new Timer(OnDebounceElapsed, null, Timeout.Infinite, Timeout.Infinite) : null;
+		_watcher = new DictionaryWatcher(storage, enableWatcher, OnWatchedFileChanged);
 		try {
 			LoadInitialSnapshot();
-			SetWatcher();
+			RefreshWatcher();
 		} catch {
-			_debounce?.Dispose();
+			_watcher.Dispose();
 			_writeMutex.Dispose();
 			throw;
 		}
 	}
 
 	/// <summary>Raised after the in-memory word snapshot changes.</summary>
-	public event Action? Changed;
-
-	/// <summary>Raised after a watched external edit cannot be loaded; the previous good snapshot remains active.</summary>
-	public event Action<Exception>? LoadFailed;
+	public event Action<CustomDictionary>? Changed;
 
 	/// <summary>Raised when the current load error appears or is repaired. <c>null</c> means the file is valid again.</summary>
-	public event Action<SpellDictionaryException?>? LoadErrorChanged;
+	public event Action<CustomDictionary, SpellDictionaryException?>? LoadErrorChanged;
 
 	/// <summary>The dictionary's backing file.</summary>
 	public string FilePath { get; }
@@ -68,83 +64,107 @@ public sealed class CustomDictionary : IDisposable {
 		}
 	}
 
+	/// <summary>A monotonic version of the active word snapshot.</summary>
+	public long Revision => Volatile.Read(ref _revision);
+
 	/// <summary>Returns whether <paramref name="word"/> is present after NFC and apostrophe normalization.</summary>
 	public bool Contains(string word) => SpellWord.TryNormalize(word, out string normalized) && Words.Contains(normalized);
 
 	/// <summary>Adds <paramref name="word"/> if absent, creating the file and parent directory only for this write.</summary>
 	public void Add(string word) {
 		string normalized = SpellWord.RequireNormalized(word, nameof(word));
-		bool changed;
-		bool errorChanged;
+		lock (_operationGate) {
+			ThrowIfDisposed();
+			try {
+				AddCore(normalized);
+			} finally {
+				RefreshWatcher();
+			}
+		}
+	}
+
+	private void AddCore(string normalized) {
+		bool changed = false;
+		bool errorChanged = false;
+		bool readComplete = false;
+		Exception? failure = null;
 		EnterWriteMutex();
 		try {
-			var words = ReadWordsForAdd();
+			var words = _storage.ReadWords();
+			readComplete = true;
 			if (words.Add(normalized)) {
 				_storage.WriteWords(Ordered(words));
 			}
 
 			changed = ReplaceWords(Freeze(words));
 			errorChanged = ReplaceLoadError(null);
-			SetWatcher();
 		} catch (Exception ex) when (IsStorageFailure(ex)) {
-			throw new SpellDictionaryException($"Could not update spell dictionary '{FilePath}': {ex.Message}", ex);
+			failure = ex;
 		} finally {
 			_writeMutex.ReleaseMutex();
 		}
 
+		if (failure is not null) {
+			if (!readComplete) {
+				PublishLoadError(NewLoadFailure(failure));
+			}
+			throw new SpellDictionaryException($"Could not update spell dictionary '{FilePath}': {failure.Message}", failure);
+		}
+
 		if (changed) {
-			Changed?.Invoke();
+			Changed?.Invoke(this);
 		}
 		if (errorChanged) {
-			LoadErrorChanged?.Invoke(null);
+			LoadErrorChanged?.Invoke(this, null);
 		}
 	}
 
 	/// <summary>Reloads the backing file and raises <see cref="Changed"/> only when its normalized word set changed.</summary>
 	public void Reload() {
+		lock (_operationGate) {
+			ThrowIfDisposed();
+			try {
+				ReloadAndPublish();
+			} finally {
+				RefreshWatcher();
+			}
+		}
+	}
+
+	private void ReloadAndPublish() {
 		bool changed;
 		try {
 			changed = ReloadCore();
 		} catch (SpellDictionaryException ex) {
 			if (ReplaceLoadError(ex)) {
-				LoadErrorChanged?.Invoke(ex);
+				LoadErrorChanged?.Invoke(this, ex);
 			}
 			throw;
 		}
 
 		bool errorChanged = ReplaceLoadError(null);
 		if (changed) {
-			Changed?.Invoke();
+			Changed?.Invoke(this);
 		}
 		if (errorChanged) {
-			LoadErrorChanged?.Invoke(null);
+			LoadErrorChanged?.Invoke(this, null);
 		}
 	}
 
 	/// <inheritdoc/>
 	public void Dispose() {
-		FileSystemWatcher? watcher;
-		lock (_gate) {
-			if (_disposed) {
-				return;
+		lock (_operationGate) {
+			lock (_gate) {
+				if (_disposed) {
+					return;
+				}
+
+				_disposed = true;
 			}
 
-			_disposed = true;
-			watcher = _watcher;
-			_watcher = null;
+			_watcher.Dispose();
+			_writeMutex.Dispose();
 		}
-
-		if (watcher is not null) {
-			watcher.EnableRaisingEvents = false;
-			watcher.Changed -= OnFileEvent;
-			watcher.Created -= OnFileEvent;
-			watcher.Deleted -= OnFileEvent;
-			watcher.Renamed -= OnFileEvent;
-			watcher.Dispose();
-		}
-
-		_debounce?.Dispose();
-		_writeMutex.Dispose();
 	}
 
 	private void LoadInitialSnapshot() {
@@ -166,18 +186,6 @@ public sealed class CustomDictionary : IDisposable {
 		return ReplaceWords(words);
 	}
 
-	private HashSet<string> ReadWordsForAdd() {
-		try {
-			return _storage.ReadWords();
-		} catch (Exception ex) when (IsStorageFailure(ex)) {
-			var error = NewLoadFailure(ex);
-			if (ReplaceLoadError(error)) {
-				LoadErrorChanged?.Invoke(error);
-			}
-			throw;
-		}
-	}
-
 	private bool ReplaceWords(FrozenSet<string> words) {
 		lock (_gate) {
 			if (Words.SetEquals(words)) {
@@ -185,6 +193,7 @@ public sealed class CustomDictionary : IDisposable {
 			}
 
 			Volatile.Write(ref _words, words);
+			Interlocked.Increment(ref _revision);
 			return true;
 		}
 	}
@@ -200,57 +209,48 @@ public sealed class CustomDictionary : IDisposable {
 		}
 	}
 
-	private void SetWatcher() {
-		if (!_watch) {
-			return;
-		}
-
-		string? directory;
-		try {
-			directory = _storage.WatchDirectory();
-		} catch (Exception ex) when (IsStorageFailure(ex)) {
-			if (LastLoadError is null) {
-				var error = new SpellDictionaryException($"Could not watch spell dictionary '{FilePath}': {ex.Message}", ex);
-				if (ReplaceLoadError(error)) {
-					LoadErrorChanged?.Invoke(error);
-				}
-			}
-			return;
-		}
-
-		if (string.IsNullOrEmpty(directory)) {
-			return;
-		}
-
-		lock (_gate) {
-			if (_watcher is not null || _disposed) {
+	private void OnWatchedFileChanged(SpellDictionaryException? watchError) {
+		lock (_operationGate) {
+			if (IsDisposed()) {
 				return;
 			}
 
-			_watcher = new FileSystemWatcher(directory, Path.GetFileName(FilePath)) {
-				NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.Size,
-				EnableRaisingEvents = true,
-			};
-			_watcher.Changed += OnFileEvent;
-			_watcher.Created += OnFileEvent;
-			_watcher.Deleted += OnFileEvent;
-			_watcher.Renamed += OnFileEvent;
-		}
-	}
+			if (watchError is not null) {
+				PublishLoadError(watchError);
+			}
 
-	private void OnFileEvent(object sender, FileSystemEventArgs e) {
-		lock (_gate) {
-			if (!_disposed) {
-				_debounce?.Change(100, Timeout.Infinite);
+			try {
+				ReloadAndPublish();
+			} catch (SpellDictionaryException) {
+				// Reload already published LoadErrorChanged and retained the last good snapshot.
+			} finally {
+				RefreshWatcher();
 			}
 		}
 	}
 
-	private void OnDebounceElapsed(object? state) {
-		try {
-			Reload();
-		} catch (SpellDictionaryException ex) {
-			LoadFailed?.Invoke(ex);
+	private void RefreshWatcher() {
+		var error = _watcher.Refresh();
+		if (error is not null) {
+			PublishLoadError(error);
+		}
+	}
+
+	private bool IsDisposed() {
+		lock (_gate) {
+			return _disposed;
+		}
+	}
+
+	private void ThrowIfDisposed() {
+		if (IsDisposed()) {
+			throw new ObjectDisposedException(nameof(CustomDictionary));
+		}
+	}
+
+	private void PublishLoadError(SpellDictionaryException error) {
+		if (ReplaceLoadError(error)) {
+			LoadErrorChanged?.Invoke(this, error);
 		}
 	}
 

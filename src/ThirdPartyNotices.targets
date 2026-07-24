@@ -1,9 +1,6 @@
 <Project>
 
-  <!--
-    Third-party spelling notices ship with every host. Flat hosts keep them beside the executable;
-    macOS keeps them in the app bundle's Resources so the release zip carries the same material.
-  -->
+  <!-- Flat hosts ship spelling notices beside the executable; macOS puts them in the app bundle's Resources. -->
   <PropertyGroup>
     <_ThirdPartyNoticesDir>$(MSBuildThisFileDirectory)..\third-party\spelling\</_ThirdPartyNoticesDir>
     <_ThirdPartyNoticesDestination>third-party/spelling/</_ThirdPartyNoticesDestination>

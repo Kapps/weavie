@@ -131,7 +131,6 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		_remoteAgents = services.RemoteAgents;
 		_railState = services.RailState;
 		_searchState = services.SearchState;
-		_spellCatalog = services.SpellingCatalog;
 		_userDictionary = services.UserDictionary;
 		_logBuffer = services.LogBuffer;
 		_pullRequests = services.PullRequests;
@@ -326,8 +325,7 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		// PostToWeb marshals to the UI thread and the stores are thread-safe, so call it directly.
 		_onSettingChanged = change => {
 			if (SpellSettings.Keys.Contains(change.Key)) {
-				Interlocked.Increment(ref _spellSettingsVersion);
-				CancelAllSpellRequests();
+				CancelAllSpellOperations();
 			}
 
 			foreach (var (keys, messageType, _, build) in LiveSettingGroups) {
@@ -485,7 +483,6 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 			_hotkeys = null;
 		});
 		Attempt(() => _drainTick?.Cancel());
-		Attempt(CancelAllSpellRequests);
 		await AttemptAsync(StopPullRequestStatusAsync).ConfigureAwait(false);
 		Attempt(_sessionStore.Flush);
 
@@ -494,6 +491,8 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		}
 
 		_pendingWebCommands.Clear();
+		await AttemptAsync(StopAllSpellOperationsAsync).ConfigureAwait(false);
+		await AttemptAsync(StopAllSpellDictionaryWritesAsync).ConfigureAwait(false);
 		UnwireAllSpellingSessions();
 		var sessions = _sessions;
 		var primarySession = _primarySession;

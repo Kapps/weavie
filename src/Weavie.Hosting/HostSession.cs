@@ -1,7 +1,6 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using Weavie.Core;
 using Weavie.Core.Agents;
 using Weavie.Core.Changes;
 using Weavie.Core.Commands;
@@ -63,7 +62,6 @@ public sealed class HostSession : IAsyncDisposable {
 		IPtyLauncher ptyLauncher,
 		IAgentProvider agentProvider,
 		HostRuntimeInfo runtime,
-		SpellCatalog spellingCatalog,
 		CustomDictionary userDictionary) {
 		ArgumentNullException.ThrowIfNull(bridge);
 		ArgumentNullException.ThrowIfNull(settings);
@@ -80,14 +78,13 @@ public sealed class HostSession : IAsyncDisposable {
 		ArgumentNullException.ThrowIfNull(ptyLauncher);
 		ArgumentNullException.ThrowIfNull(agentProvider);
 		ArgumentNullException.ThrowIfNull(runtime);
-		ArgumentNullException.ThrowIfNull(spellingCatalog);
 		ArgumentNullException.ThrowIfNull(userDictionary);
 
 		Id = id;
 		WorkspaceRoot = workspaceRoot;
 		_bridge = bridge;
 		ProjectDictionary = CustomDictionary.ForProject(workspaceRoot, enableWatcher: true);
-		SpellChecker = new SpellChecker(spellingCatalog, [userDictionary, ProjectDictionary]);
+		SpellChecker = new SpellChecker(SpellCatalog.LoadEmbedded(), [userDictionary, ProjectDictionary]);
 
 		// Per-session command dispatcher over the app-global catalog: runCommand (MCP) and the web's
 		// invoke-command both route here. The core wires the WebInvoker + Core handlers once the session exists.
@@ -104,7 +101,6 @@ public sealed class HostSession : IAsyncDisposable {
 		PastedImages = new PastedImageStore(fileSystem, pastedImagesDir);
 		AgentAttachments = new AgentAttachmentStore(PastedImages);
 		FileProvider = new FileProviderService(fileSystem, workspaceRoot, scratchDir);
-		AuthoredLines = new AuthoredLineTracker();
 		Browser = new WorkspaceBrowser(fileSystem, workspaceRoot);
 		FileIndex = new WorkspaceFileIndex(fileSystem, workspaceRoot);
 		Shell = new TerminalController(
@@ -220,9 +216,6 @@ public sealed class HostSession : IAsyncDisposable {
 
 	/// <summary>Serves the editor's host-backed <c>file://</c> provider (workspace-scoped fs-stat/read/write).</summary>
 	public FileProviderService FileProvider { get; }
-
-	/// <summary>Tracks manually authored lines from this session's successful editor reads and writes.</summary>
-	public AuthoredLineTracker AuthoredLines { get; }
 
 	/// <summary>Owns this workspace's scratch (untitled-buffer) directory; New File creates a file here.</summary>
 	public ScratchStore Scratch { get; }

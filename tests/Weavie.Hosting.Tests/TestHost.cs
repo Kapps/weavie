@@ -169,7 +169,7 @@ internal sealed class TestHost : IAsyncDisposable {
 		}
 
 		if (type is "editor-session-changed" or "active-editor-changed" or "open-editors-changed"
-			or "spell-check" or "spell-suggest" or "spell-add-word" or "spell-restore") {
+			or "spell-document-changed" or "spell-suggest" or "spell-add-word") {
 			StampProjection(message);
 		}
 
@@ -273,7 +273,6 @@ internal sealed class TestHost : IAsyncDisposable {
 		var remoteAgents = new RemoteAgentStore(new LocalFileSystem(), Path.Combine(tempRoot, "remote-agents.json"));
 		var railState = new RailStateStore(new LocalFileSystem(), Path.Combine(tempRoot, "rail-state.json"));
 		var searchState = new SearchStateStore(new LocalFileSystem(), Path.Combine(tempRoot, "search-state.json"));
-		var spellingCatalog = SpellCatalog.LoadEmbedded();
 		var userDictionary = new CustomDictionary(Path.Combine(tempRoot, "dictionary.txt"), enableWatcher: false);
 		return new HostServices {
 			Settings = settings,
@@ -290,7 +289,6 @@ internal sealed class TestHost : IAsyncDisposable {
 			Sources = BuildSourceConnector(sourceHttp, sourcesDir),
 			// A fresh, uninstalled buffer — tests never tee Console (that would hijack the xunit console).
 			LogBuffer = new LogBuffer(LogBuffer.DefaultCapacity),
-			SpellingCatalog = spellingCatalog,
 			UserDictionary = userDictionary,
 		};
 	}

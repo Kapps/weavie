@@ -36,32 +36,28 @@ export function contextAtCursor(
       };
 }
 
-/** Applies a correction only when the menu/palette argument still names the live issue exactly. */
+/** Applies an explicit live issue, or the cursor issue for replacement-only command invocations. */
 export function applySuggestion(
   editor: monaco.editor.IStandaloneCodeEditor,
   state: SpellModel | null,
   args: unknown,
 ): boolean {
-  const context = contextFromArgs(args);
   const replacement = stringArg(args, "replacement");
-  if (
-    context === null ||
-    replacement === null ||
-    state === null ||
-    !state.isCurrentContext(context)
-  ) {
+  if (replacement === null || state === null) {
     return false;
   }
-  const line = state.anchorLine(context.anchorId);
-  return (
-    line !== null &&
-    editor.executeEdits("weavie-spelling", [
-      {
-        range: new monaco.Range(line, context.startColumn, line, context.endColumn),
-        text: replacement,
-      },
-    ])
-  );
+  const explicitContext = contextFromArgs(args);
+  const context =
+    explicitContext ?? (hasContextArgs(args) ? null : state.contextAt(editor.getPosition()));
+  if (context === null || !state.isCurrentContext(context)) {
+    return false;
+  }
+  return editor.executeEdits("weavie-spelling", [
+    {
+      range: new monaco.Range(context.line, context.startColumn, context.line, context.endColumn),
+      text: replacement,
+    },
+  ]);
 }
 
 /** Uses an explicit current issue when available, otherwise accepts a command's direct `word` argument. */
@@ -83,19 +79,25 @@ function contextFromArgs(args: unknown): SpellContext | null {
     return null;
   }
   const value = args as Record<string, unknown>;
-  return typeof value.anchorId === "string" &&
+  return typeof value.line === "number" &&
     typeof value.word === "string" &&
     typeof value.startColumn === "number" &&
-    typeof value.endColumn === "number" &&
-    typeof value.modelEpoch === "string"
+    typeof value.endColumn === "number"
     ? {
-        anchorId: value.anchorId,
+        line: value.line,
         word: value.word,
         startColumn: value.startColumn,
         endColumn: value.endColumn,
-        modelEpoch: value.modelEpoch,
       }
     : null;
+}
+
+function hasContextArgs(args: unknown): boolean {
+  if (typeof args !== "object" || args === null) {
+    return false;
+  }
+  const value = args as Record<string, unknown>;
+  return ["line", "word", "startColumn", "endColumn"].some((name) => name in value);
 }
 
 function stringArg(args: unknown, name: string): string | null {

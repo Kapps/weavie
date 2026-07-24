@@ -10,7 +10,7 @@ import {
   onSpellSettingsChanged,
   type SpellSettings,
 } from "../../spell-settings";
-import { uriHostPath } from "../fs-path";
+import { normalizePath, uriHostPath } from "../fs-path";
 import type { monaco } from "../monaco-setup";
 import {
   applySuggestion,
@@ -22,32 +22,23 @@ import { SpellModel } from "./spell-model";
 import { ownsSpellProjection } from "./spell-protocol";
 import type {
   SpellAddWordResult,
-  SpellCheckResult,
   SpellContext,
+  SpellDiagnostics,
   SpellDictionaryChanged,
   SpellMenuTarget,
-  SpellRestoreResult,
   SpellScope,
   SpellSuggestResult,
 } from "./spell-types";
 
 export type {
   SpellAddWordResult,
-  SpellCheckResult,
   SpellContext,
+  SpellDiagnostics,
   SpellDictionaryChanged,
   SpellMenuTarget,
-  SpellRestoreResult,
   SpellScope,
   SpellSuggestResult,
 } from "./spell-types";
-
-interface CheckRequest {
-  state: SpellModel;
-  modelEpoch: string;
-  locale: string;
-  lines: Map<string, string>;
-}
 
 interface SuggestRequest {
   state: SpellModel;
@@ -64,25 +55,17 @@ interface AddRequest {
   reject: (error: Error) => void;
 }
 
-interface RestoreRequest {
-  state: SpellModel;
-  modelEpoch: string;
-}
+const DOCUMENT_CHANGE_DELAY_MS = 150;
 
-const CHECK_DELAY_MS = 150;
-
-/** Coordinates Monaco's authored-line anchors with Core's spell-check and dictionary protocol. */
+/** Sends open working copies to Core and renders its versioned whole-document diagnostics. */
 export class SpellSession {
   private readonly states = new Map<monaco.editor.ITextModel, SpellModel>();
   private readonly underlines: monaco.editor.IEditorDecorationsCollection;
-  private readonly checks = new Map<string, CheckRequest>();
   private readonly suggestions = new Map<string, SuggestRequest>();
   private readonly additions = new Map<string, AddRequest>();
-  private readonly restores = new Map<string, RestoreRequest>();
   private readonly settingsSubscription: () => void;
+  private documentRevision = 0;
   private requestSequence = 0;
-  private anchorSequence = 0;
-  private epochSequence = 0;
   private settings = currentSpellSettings();
 
   constructor(private readonly editor: monaco.editor.IStandaloneCodeEditor) {
@@ -91,43 +74,34 @@ export class SpellSession {
     editor.onDidChangeModel(() => this.render());
   }
 
-  /** Starts tracking one real file model; reloads restore matching authored lines while dirty changes mark new ones. */
-  track(model: monaco.editor.ITextModel, isDirty: () => boolean): void {
+  track(model: monaco.editor.ITextModel): void {
     if (this.states.has(model)) {
       return;
     }
-    const state = new SpellModel(
-      model,
-      () => this.nextEpoch(),
-      () => `spell-anchor-${++this.anchorSequence}`,
-    );
+    const state = new SpellModel(model);
     this.states.set(model, state);
-    state.track(
-      isDirty,
-      () => {
-        this.render();
-        this.schedule(state);
-      },
-      () => {
-        this.render();
-        this.requestRestore(state);
-      },
-      () => {
-        this.forgetRestores(state);
-        this.states.delete(model);
-        this.render();
-      },
-    );
-    this.requestRestore(state);
+    state.track(() => {
+      this.states.delete(model);
+      this.render();
+    });
+    this.schedule(state);
+    this.render();
   }
 
-  /** A session handoff starts quiet even when a Monaco working copy happens to survive the swap. */
+  contentChanged(model: monaco.editor.ITextModel): void {
+    const state = this.states.get(model);
+    if (state === undefined) {
+      return;
+    }
+    state.clear();
+    this.render();
+    this.schedule(state);
+  }
+
   clearProjection(): void {
     for (const state of this.states.values()) {
       state.clear();
     }
-    this.checks.clear();
-    this.restores.clear();
     this.rejectAdditions("The editor session changed.");
     this.rejectSuggestions("The editor session changed.");
     this.render();
@@ -151,6 +125,7 @@ export class SpellSession {
     const state = this.currentState();
     const binding = currentEditorBinding();
     if (
+      !this.settings.enabled ||
       state === null ||
       binding === null ||
       binding.protocol !== "projection" ||
@@ -158,6 +133,7 @@ export class SpellSession {
     ) {
       return Promise.reject(new Error("The spelling target is no longer current."));
     }
+    this.rejectSuggestions("A newer spelling suggestion request replaced this one.");
     const requestId = this.nextRequest("suggest");
     return new Promise<string[]>((resolve, reject) => {
       this.suggestions.set(requestId, {
@@ -202,40 +178,21 @@ export class SpellSession {
     });
   }
 
-  handleCheckResult(message: SpellCheckResult): void {
-    const request = this.checks.get(message.requestId);
-    this.checks.delete(message.requestId);
-    if (
-      request === undefined ||
-      !this.ownsProjection(message) ||
-      request.modelEpoch !== message.modelEpoch ||
-      request.locale !== message.locale ||
-      message.locale !== this.settings.locale ||
-      request.state.modelEpoch !== message.modelEpoch
-    ) {
+  handleDiagnostics(message: SpellDiagnostics): void {
+    if (!this.ownsProjection(message)) {
       return;
     }
+    const pathKey = normalizePath(message.path);
     if (message.error !== undefined) {
       notify("warn", `Spell check failed: ${message.error}`, "spell-check");
-      return;
     }
-    const accepted = new Set<string>();
-    for (const [anchorId, text] of request.lines) {
-      if (
-        request.state.latestRequest.get(anchorId) === message.requestId &&
-        request.state.anchorText(anchorId) === text
-      ) {
-        accepted.add(anchorId);
-        request.state.issues.delete(anchorId);
+    for (const state of this.states.values()) {
+      if (this.pathKey(state) === pathKey) {
+        state.applyDiagnostics(
+          message.error === undefined ? message.issues : [],
+          message.documentRevision,
+        );
       }
-    }
-    for (const issue of message.issues) {
-      if (!accepted.has(issue.anchorId) || !request.state.validIssue(issue)) {
-        continue;
-      }
-      const issues = request.state.issues.get(issue.anchorId) ?? [];
-      issues.push(issue);
-      request.state.issues.set(issue.anchorId, issues);
     }
     this.render();
   }
@@ -273,49 +230,26 @@ export class SpellSession {
       request.reject(new Error("The spelling target is no longer current."));
       return;
     }
-    if (message.error !== undefined) {
-      request.reject(new Error(message.error));
+    if (!message.ok || message.error !== undefined) {
+      request.reject(new Error(message.error ?? "The word could not be added to the dictionary."));
       return;
     }
     notify("info", `Added “${request.word}” to the ${request.scope} dictionary.`);
     request.resolve();
   }
 
-  handleRestoreResult(message: SpellRestoreResult): void {
-    const request = this.restores.get(message.requestId);
-    this.restores.delete(message.requestId);
-    if (
-      request === undefined ||
-      !this.ownsProjection(message) ||
-      request.modelEpoch !== message.modelEpoch ||
-      request.state.modelEpoch !== message.modelEpoch
-    ) {
-      return;
-    }
-    for (const anchorId of request.state.restoreAuthoredLines(message.lines)) {
-      request.state.needsCheck.add(anchorId);
-    }
-    this.schedule(request.state);
-    this.render();
-  }
-
   handleDictionaryChanged(message: SpellDictionaryChanged): void {
     if (!this.ownsProjection(message)) {
       return;
     }
-    this.checks.clear();
     this.rejectSuggestions("The dictionary changed.");
-    for (const state of this.states.values()) {
-      for (const anchorId of state.anchors.keys()) {
-        state.needsCheck.add(anchorId);
-      }
-      this.schedule(state);
-    }
+    this.refreshDocuments();
   }
 
   dispose(): void {
     this.settingsSubscription();
-    this.clearProjection();
+    this.rejectAdditions("The editor was disposed.");
+    this.rejectSuggestions("The editor was disposed.");
     for (const state of this.states.values()) {
       state.dispose();
     }
@@ -325,85 +259,47 @@ export class SpellSession {
 
   private applySettings(settings: SpellSettings): void {
     this.settings = settings;
-    this.checks.clear();
-    this.restores.clear();
     this.rejectSuggestions("Spell-check settings changed.");
-    for (const state of this.states.values()) {
-      state.invalidate();
-      if (settings.enabled) {
-        this.requestRestore(state);
-        for (const anchorId of state.anchors.keys()) {
-          state.needsCheck.add(anchorId);
-        }
-        this.schedule(state);
-      }
-    }
-    this.render();
+    this.refreshDocuments();
   }
 
   private schedule(state: SpellModel): void {
-    if (this.settings.enabled && state.needsCheck.size > 0) {
-      state.schedule(() => this.check(state), CHECK_DELAY_MS);
+    if (this.settings.enabled) {
+      state.schedule(() => this.sendDocument(state), DOCUMENT_CHANGE_DELAY_MS);
     }
   }
 
-  private check(state: SpellModel): void {
+  private sendDocument(state: SpellModel): void {
     const binding = currentEditorBinding();
     if (
       !this.settings.enabled ||
       binding === null ||
       binding.protocol !== "projection" ||
-      state.needsCheck.size === 0
+      !this.states.has(state.model)
     ) {
       return;
     }
-    const lines = new Map<string, string>();
-    for (const anchorId of state.needsCheck) {
-      const text = state.anchorText(anchorId);
-      if (text !== null) {
-        lines.set(anchorId, text);
-      }
-    }
-    state.needsCheck.clear();
-    if (lines.size === 0) {
-      return;
-    }
-    const requestId = this.nextRequest("check");
-    for (const anchorId of lines.keys()) {
-      state.latestRequest.set(anchorId, requestId);
-    }
-    this.checks.set(requestId, {
-      state,
-      modelEpoch: state.modelEpoch,
-      locale: this.settings.locale,
-      lines,
-    });
+    const documentRevision = ++this.documentRevision;
+    state.markSubmitted(documentRevision);
     postToEditorBinding(binding, {
-      type: "spell-check",
-      requestId,
-      modelEpoch: state.modelEpoch,
+      type: "spell-document-changed",
       path: uriHostPath(state.model.uri),
-      languageId: state.model.getLanguageId(),
-      lines: [...lines].map(([anchorId, text]) => ({ anchorId, text })),
+      content: state.model.getValue(),
+      documentRevision,
       ...editorAttribution(binding),
     });
   }
 
-  private requestRestore(state: SpellModel): void {
-    const binding = currentEditorBinding();
-    if (!this.settings.enabled || binding === null || binding.protocol !== "projection") {
-      return;
+  private refreshDocuments(): void {
+    for (const state of this.states.values()) {
+      state.clear();
+      this.schedule(state);
     }
-    this.forgetRestores(state);
-    const requestId = this.nextRequest("restore");
-    this.restores.set(requestId, { state, modelEpoch: state.modelEpoch });
-    postToEditorBinding(binding, {
-      type: "spell-restore",
-      requestId,
-      modelEpoch: state.modelEpoch,
-      path: uriHostPath(state.model.uri),
-      ...editorAttribution(binding),
-    });
+    this.render();
+  }
+
+  private pathKey(state: SpellModel): string {
+    return normalizePath(uriHostPath(state.model.uri));
   }
 
   private currentState(): SpellModel | null {
@@ -434,19 +330,7 @@ export class SpellSession {
     this.additions.clear();
   }
 
-  private forgetRestores(state: SpellModel): void {
-    for (const [requestId, request] of this.restores) {
-      if (request.state === state) {
-        this.restores.delete(requestId);
-      }
-    }
-  }
-
   private nextRequest(kind: string): string {
     return `spell-${kind}-${++this.requestSequence}`;
-  }
-
-  private nextEpoch(): string {
-    return `spell-model-${++this.epochSequence}`;
   }
 }

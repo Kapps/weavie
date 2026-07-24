@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 
 namespace Weavie.Core.Spelling;
@@ -21,8 +22,14 @@ internal static class SpellWord {
 				continue;
 			}
 
+			if (IsCombiningMark(rune) && index > 0
+				&& (Rune.IsLetter(runes[index - 1]) || IsCombiningMark(runes[index - 1]))) {
+				continue;
+			}
+
 			if (rune.Value == '\'' && index > 0 && index < runes.Length - 1
-				&& Rune.IsLetter(runes[index - 1]) && Rune.IsLetter(runes[index + 1])) {
+				&& (Rune.IsLetter(runes[index - 1]) || IsCombiningMark(runes[index - 1]))
+				&& Rune.IsLetter(runes[index + 1])) {
 				continue;
 			}
 
@@ -32,6 +39,9 @@ internal static class SpellWord {
 
 		return true;
 	}
+
+	internal static bool IsCombiningMark(Rune rune) => Rune.GetUnicodeCategory(rune) is
+		UnicodeCategory.NonSpacingMark or UnicodeCategory.SpacingCombiningMark or UnicodeCategory.EnclosingMark;
 
 	internal static string RequireNormalized(string value, string paramName) {
 		ArgumentException.ThrowIfNullOrEmpty(value, paramName);

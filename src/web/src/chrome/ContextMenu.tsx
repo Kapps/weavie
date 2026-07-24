@@ -61,7 +61,7 @@ function MenuPanel(props: {
   onCloseSelf?: () => void;
 }): JSX.Element {
   let panelEl: HTMLDivElement | undefined;
-  const [openIndex, setOpenIndex] = createSignal<number | null>(null);
+  const [openEntry, setOpenEntry] = createSignal<ContextMenuSubmenu | null>(null);
   const [opener, setOpener] = createSignal<HTMLButtonElement | null>(null);
   const [anchorRect, setAnchorRect] = createSignal<DOMRect | null>(null);
   const [autoFocusChild, setAutoFocusChild] = createSignal(false);
@@ -69,27 +69,30 @@ function MenuPanel(props: {
   const rows = (): HTMLButtonElement[] =>
     panelEl ? [...panelEl.querySelectorAll<HTMLButtonElement>(".context-menu-item")] : [];
 
-  // The open fly-out as one value, so the render never reads a half-set (index without rect, or vice versa)
+  // The open fly-out as one value, so the render never reads a half-set (entry without rect, or vice versa)
   // mid-update — both signals are folded here and the panel renders only when the whole thing is present.
   const openFlyout = createMemo(() => {
-    const index = openIndex();
+    const entry = openEntry();
     const rect = anchorRect();
-    const entry = index === null ? undefined : props.entries[index];
-    if (rect === null || entry === undefined || entry.kind !== "submenu") {
+    if (rect === null || entry === null || !props.entries.includes(entry)) {
       return null;
     }
     return { entries: entry.entries, rect };
   });
 
-  const openSubmenu = (index: number, row: HTMLButtonElement, viaKeyboard: boolean): void => {
+  const openSubmenu = (
+    entry: ContextMenuSubmenu,
+    row: HTMLButtonElement,
+    viaKeyboard: boolean,
+  ): void => {
     setOpener(row);
     // The panel has already clamped, so the row's rect is final — capture it to anchor the fly-out.
     setAnchorRect(row.getBoundingClientRect());
     setAutoFocusChild(viaKeyboard);
-    setOpenIndex(index);
+    setOpenEntry(entry);
   };
   const collapseSubmenu = (): void => {
-    setOpenIndex(null);
+    setOpenEntry(null);
     setAnchorRect(null);
   };
   const closeSubmenu = (): void => {
@@ -115,9 +118,10 @@ function MenuPanel(props: {
     } else if (event.key === "ArrowRight") {
       const row = document.activeElement as HTMLButtonElement;
       const index = Number(row?.dataset.entryIndex);
-      if (Number.isInteger(index) && props.entries[index]?.kind === "submenu") {
+      const entry = props.entries[index];
+      if (Number.isInteger(index) && entry?.kind === "submenu") {
         event.preventDefault();
-        openSubmenu(index, row, true);
+        openSubmenu(entry, row, true);
       }
     } else if (event.key === "ArrowLeft" && props.onCloseSelf !== undefined) {
       event.preventDefault();
@@ -186,9 +190,9 @@ function MenuPanel(props: {
               class="context-menu-item context-menu-submenu"
               data-entry-index={index()}
               aria-haspopup="true"
-              aria-expanded={openIndex() === index()}
-              onMouseEnter={(e) => openSubmenu(index(), e.currentTarget, false)}
-              onClick={(e) => openSubmenu(index(), e.currentTarget, true)}
+              aria-expanded={openEntry() === entry}
+              onMouseEnter={(e) => openSubmenu(entry, e.currentTarget, false)}
+              onClick={(e) => openSubmenu(entry, e.currentTarget, true)}
             >
               <span>{entry.label}</span>
               <ChevronRight size={14} class="context-menu-chevron" />

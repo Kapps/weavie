@@ -3,6 +3,10 @@ using Weavie.Core.FileSystem;
 
 namespace Weavie.Core.Spelling;
 
+internal readonly record struct DictionaryWatchTarget(
+	string DirectoryPath,
+	string EntryPath);
+
 /// <summary>Owns dictionary file IO and the stricter path boundary for a project-scoped dictionary.</summary>
 internal sealed class DictionaryStorage {
 	private static readonly UTF8Encoding Utf8NoBom = new(encoderShouldEmitUTF8Identifier: false);
@@ -30,13 +34,15 @@ internal sealed class DictionaryStorage {
 
 	internal HashSet<string> ReadWords() {
 		ValidateProjectLocation(createDirectory: false);
-		if (!File.Exists(FilePath)) {
-			return NewWords();
-		}
-
-		string[] lines;
+		FileStream stream;
 		try {
-			lines = File.ReadAllLines(FilePath, Utf8NoBom);
+			stream = new FileStream(
+				FilePath,
+				FileMode.Open,
+				FileAccess.Read,
+				FileShare.ReadWrite | FileShare.Delete,
+				bufferSize: 4096,
+				FileOptions.SequentialScan);
 		} catch (FileNotFoundException) {
 			return NewWords();
 		} catch (DirectoryNotFoundException) {
@@ -44,17 +50,22 @@ internal sealed class DictionaryStorage {
 		}
 
 		var words = NewWords();
-		for (int index = 0; index < lines.Length; index++) {
-			string line = lines[index].Trim();
-			if (line.Length == 0 || line.StartsWith('#')) {
-				continue;
-			}
+		using (stream)
+		using (var reader = new StreamReader(stream, Utf8NoBom, detectEncodingFromByteOrderMarks: true)) {
+			int lineNumber = 0;
+			while (reader.ReadLine() is { } rawLine) {
+				lineNumber++;
+				string line = rawLine.Trim();
+				if (line.Length == 0 || line.StartsWith('#')) {
+					continue;
+				}
 
-			if (!SpellWord.TryNormalize(line, out string normalized)) {
-				throw new InvalidDataException($"Line {index + 1} is not a dictionary word.");
-			}
+				if (!SpellWord.TryNormalize(line, out string normalized)) {
+					throw new InvalidDataException($"Line {lineNumber} is not a dictionary word.");
+				}
 
-			words.Add(normalized);
+				words.Add(normalized);
+			}
 		}
 
 		return words;
@@ -65,11 +76,87 @@ internal sealed class DictionaryStorage {
 		WriteAtomically(target, words, _trustedProjectRoot is null ? Noop : VerifyProjectDestination);
 	}
 
-	internal string? WatchDirectory() {
-		ValidateProjectLocation(createDirectory: false);
-		string? directory = Path.GetDirectoryName(FilePath);
-		return string.IsNullOrEmpty(directory) || !Directory.Exists(directory) ? null : directory;
+	internal IReadOnlyList<DictionaryWatchTarget> WatchTargets() {
+		if (_trustedProjectRoot is not null) {
+			return [ProjectWatchTarget(_trustedProjectRoot)];
+		}
+
+		var alias = RequireWatchTarget(FilePath);
+		string resolved = ResolveUserTarget();
+		if (PathsEqual(resolved, FilePath)) {
+			return [alias];
+		}
+
+		var target = RequireWatchTarget(resolved);
+		return SameTarget(alias, target) ? [alias] : [alias, target];
 	}
+
+	internal DictionaryWatchTarget RecoveryWatchTarget() {
+		if (_trustedProjectRoot is null) {
+			return RequireWatchTarget(FilePath);
+		}
+
+		var root = new DirectoryInfo(_trustedProjectRoot);
+		if (IsPlainDirectory(root)) {
+			string dictionaryDirectory = Path.GetDirectoryName(FilePath)!;
+			return new DictionaryWatchTarget(root.FullName, dictionaryDirectory);
+		}
+
+		return RequireWatchTarget(_trustedProjectRoot);
+	}
+
+	internal static DictionaryWatchTarget ParentWatchTarget(string directoryPath) =>
+		RequireWatchTarget(directoryPath);
+
+	private DictionaryWatchTarget ProjectWatchTarget(string projectRoot) {
+		var root = new DirectoryInfo(projectRoot);
+		if (!IsPlainDirectory(root)) {
+			return RequireWatchTarget(projectRoot);
+		}
+
+		string dictionaryDirectory = Path.GetDirectoryName(FilePath)!;
+		var directory = new DirectoryInfo(dictionaryDirectory);
+		return IsPlainDirectory(directory)
+			? new DictionaryWatchTarget(dictionaryDirectory, FilePath)
+			: new DictionaryWatchTarget(projectRoot, dictionaryDirectory);
+	}
+
+	private static DictionaryWatchTarget RequireWatchTarget(string path) {
+		if (TryWatchTarget(path, out var target)) {
+			return target;
+		}
+
+		throw new DirectoryNotFoundException($"Spell dictionary path '{path}' has no watchable ancestor.");
+	}
+
+	private static bool TryWatchTarget(string path, out DictionaryWatchTarget target) {
+		string entry = Path.GetFullPath(path);
+		string? directory = Path.GetDirectoryName(entry);
+		while (directory is not null && !Directory.Exists(directory)) {
+			entry = directory;
+			directory = Path.GetDirectoryName(directory);
+		}
+
+		if (directory is null) {
+			target = default;
+			return false;
+		}
+
+		target = new DictionaryWatchTarget(directory, entry);
+		return true;
+	}
+
+	private static bool IsPlainDirectory(DirectoryInfo directory) {
+		if (!directory.Exists || directory.LinkTarget is not null) {
+			return false;
+		}
+
+		return !directory.Attributes.HasFlag(FileAttributes.ReparsePoint);
+	}
+
+	private static bool SameTarget(DictionaryWatchTarget left, DictionaryWatchTarget right) =>
+		PathsEqual(left.DirectoryPath, right.DirectoryPath)
+		&& PathsEqual(left.EntryPath, right.EntryPath);
 
 	private string PrepareWriteTarget() {
 		if (_trustedProjectRoot is not null) {
@@ -93,7 +180,9 @@ internal sealed class DictionaryStorage {
 			return FilePath;
 		}
 
-		return link.ResolveLinkTarget(returnFinalTarget: true)?.FullName ?? FilePath;
+		return (link.ResolveLinkTarget(returnFinalTarget: true)
+			?? link.ResolveLinkTarget(returnFinalTarget: false))?.FullName
+			?? FilePath;
 	}
 
 	private void VerifyProjectDestination() => ValidateProjectLocation(createDirectory: false);
@@ -149,6 +238,12 @@ internal sealed class DictionaryStorage {
 			throw new IOException($"The {description} '{entry.FullName}' must not be a symbolic link or reparse point.");
 		}
 	}
+
+	internal static bool PathsEqual(string left, string right) =>
+		string.Equals(
+			Path.GetFullPath(left),
+			Path.GetFullPath(right),
+			OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
 
 	private static void WriteAtomically(string filePath, IEnumerable<string> words, Action verifyDestination) {
 		string directory = Path.GetDirectoryName(filePath)

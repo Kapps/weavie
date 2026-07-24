@@ -235,26 +235,12 @@ export interface SpellSettings {
   locale: string;
 }
 
-/** One editor-authored line submitted for spell checking. */
-export interface SpellCheckLine {
-  anchorId: string;
-  text: string;
-}
-
 /** One misspelled UTF-16 span; columns are Monaco's 1-based, end-exclusive positions. */
 export interface SpellIssue {
-  anchorId: string;
+  line: number;
   startColumn: number;
   endColumn: number;
   word: string;
-}
-
-/** The projection that owns a host-to-web spelling reply. */
-export interface SpellProjection {
-  sessionId: string | null;
-  projectionEpoch: string;
-  projectionRevision: number;
-  projectionPageId: string;
 }
 
 /**
@@ -280,6 +266,9 @@ export interface ProjectionStamp {
   projectionRevision: number;
   projectionPageId: string;
 }
+
+/** The editor projection that owns a host-to-web spelling reply. */
+export type SpellProjection = ProjectionStamp;
 
 export interface EditorAttribution {
   sessionId: string | null;
@@ -402,14 +391,12 @@ export type HostBoundMessage =
   | { type: "fs-stat"; id: string; path: string }
   | { type: "fs-read"; id: string; path: string }
   | { type: "fs-write"; id: string; path: string; content: string }
-  // Changed-line spell check. Monaco supplies only explicitly dirty edited lines; Core owns dictionary lookup.
+  // An open Monaco working copy needs checking. Core checks the whole document and pushes versioned diagnostics.
   | ({
-      type: "spell-check";
-      requestId: string;
-      modelEpoch: string;
+      type: "spell-document-changed";
       path: string;
-      languageId: string;
-      lines: SpellCheckLine[];
+      content: string;
+      documentRevision: number;
     } & EditorAttribution)
   | ({ type: "spell-suggest"; requestId: string; word: string } & EditorAttribution)
   | ({
@@ -417,12 +404,6 @@ export type HostBoundMessage =
       requestId: string;
       word: string;
       scope: "project" | "user";
-    } & EditorAttribution)
-  | ({
-      type: "spell-restore";
-      requestId: string;
-      modelEpoch: string;
-      path: string;
     } & EditorAttribution)
   // Inline diff (acceptEdits mode): accept the whole turn's changes — clears the inline markers. The host
   // snapshots the per-turn baseline to current and re-pushes an (empty) turn diff.
@@ -726,11 +707,11 @@ export type WebBoundMessage =
   | { type: "editorOptions"; options: EditorOptionsSpec }
   // Host pushes the Core-resolved spelling setting. This is global configuration, not editor projection traffic.
   | ({ type: "spell-settings" } & SpellSettings)
-  // Spelling replies are projection-stamped: a late result must never decorate a different session's model.
+  // Spelling diagnostics are projection-stamped and document-versioned so stale work cannot decorate a model.
   | ({
-      type: "spell-check-result";
-      requestId: string;
-      modelEpoch: string;
+      type: "spell-diagnostics";
+      path: string;
+      documentRevision: number;
       locale: string;
       issues: SpellIssue[];
       error?: string;
@@ -750,17 +731,7 @@ export type WebBoundMessage =
       ok: boolean;
       error?: string;
     } & SpellProjection)
-  | ({
-      type: "spell-restore-result";
-      requestId: string;
-      modelEpoch: string;
-      version: number;
-      lines: { line: number; text: string }[];
-    } & SpellProjection)
-  | ({
-      type: "spell-dictionary-changed";
-      scope: "project" | "user";
-    } & SpellProjection)
+  | ({ type: "spell-dictionary-changed" } & SpellProjection)
   // Host pushes the workspace's test profile (raw test.profile JSON, "" when unconfigured) so the run-lens
   // provider refreshes; injected pre-nav as window.__WEAVIE_TEST_PROFILE__ and re-pushed on change.
   | { type: "test-profile"; profile: string }

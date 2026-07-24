@@ -54,8 +54,8 @@ public sealed partial class HostCore {
 	}
 
 	private void BeginEditorProjection(SessionSlot slot, string pageId, bool replayAll) {
-		CancelAllSpellRequests();
 		var session = slot.Session ?? throw new InvalidOperationException("An unloaded session cannot own the editor projection.");
+		CancelSpellOperationsForSession(_editorProjectionSession);
 		session.SetEditorOutputActive(false);
 		_editorProjectionSession = session;
 		_editorProjectionPageId = pageId;
@@ -77,9 +77,9 @@ public sealed partial class HostCore {
 	}
 
 	private void BeginLegacyEditorProjection(HostSession session, bool replayAll) {
-		CancelAllSpellRequests();
 		bool alreadyMounted = _editorProjectionState == EditorProjectionState.Legacy
 			&& ReferenceEquals(_editorProjectionSession, session);
+		CancelSpellOperationsForSession(_editorProjectionSession);
 		if (!alreadyMounted) {
 			session.SetEditorOutputActive(false);
 		}
@@ -111,7 +111,7 @@ public sealed partial class HostCore {
 	}
 
 	private void BindUnboundEditorProjection(HostSession session) {
-		CancelAllSpellRequests();
+		CancelSpellOperationsForSession(_editorProjectionSession);
 		session.SetEditorOutputActive(false);
 		_editorProjectionSession = session;
 		_editorProjectionPageId = null;
@@ -130,6 +130,7 @@ public sealed partial class HostCore {
 		}
 
 		if (_editorProjectionState == EditorProjectionState.Mounted) {
+			PushSpellSettingsToWeb();
 			PushReviewStateToWeb();
 			session.EditorChannel.Replay();
 			return;
@@ -152,6 +153,9 @@ public sealed partial class HostCore {
 			_editorProjectionState = EditorProjectionState.Mounted;
 		}
 
+		// Settings must precede queued diagnostics so the newly mounted backend validates them against
+		// the same locale and enabled state the host used.
+		PushSpellSettingsToWeb();
 		var pending = _pendingEditorProjection.ToArray();
 		_pendingEditorProjection.Clear();
 		foreach (var push in pending) {
@@ -188,8 +192,8 @@ public sealed partial class HostCore {
 	}
 
 	private void UnbindEditorProjection() {
-		CancelAllSpellRequests();
 		var session = _editorProjectionSession;
+		CancelSpellOperationsForSession(session);
 		_editorProjectionState = EditorProjectionState.Unbound;
 		_editorProjectionPageId = null;
 		_editorProjectionReplayAll = false;

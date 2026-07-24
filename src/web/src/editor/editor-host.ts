@@ -29,17 +29,7 @@ import { mediaTypeOf } from "./media/media-types";
 import { createEditor, monaco } from "./monaco-setup";
 import { leaveLine } from "./nav-history";
 import { captureViewState, editorSession, openTab, promote } from "./session-store";
-import {
-  type SpellAddWordResult,
-  type SpellCheckResult,
-  type SpellContext,
-  type SpellDictionaryChanged,
-  type SpellMenuTarget,
-  type SpellRestoreResult,
-  type SpellScope,
-  SpellSession,
-  type SpellSuggestResult,
-} from "./spelling/spell-session";
+import { SpellSession } from "./spelling/spell-session";
 import { initEditorServices, setOpenEditorSink } from "./vscode-services";
 
 // A resolved, refcounted model reference held for an open file. Disposing it drops a refcount; the model is
@@ -69,17 +59,7 @@ function nextPaint(): Promise<void> {
 /** The live editor, plus the operations the shell drives it with (open a file, review a diff, tear down). */
 export interface EditorHost {
   readonly editor: monaco.editor.IStandaloneCodeEditor;
-  spellContextAtClientPoint(clientX: number, clientY: number): SpellContext | null;
-  spellContextAtCursor(): SpellMenuTarget | null;
-  requestSpellSuggestions(context: SpellContext): Promise<string[]>;
-  applySpellSuggestion(args: unknown): boolean;
-  addSpellWord(scope: SpellScope, args: unknown): Promise<void>;
-  handleSpellCheckResult(message: SpellCheckResult): void;
-  handleSpellSuggestResult(message: SpellSuggestResult): void;
-  handleSpellAddWordResult(message: SpellAddWordResult): void;
-  handleSpellRestoreResult(message: SpellRestoreResult): void;
-  handleSpellDictionaryChanged(message: SpellDictionaryChanged): void;
-  clearSpellProjection(): void;
+  readonly spelling: SpellSession;
   /**
    * Switches the editor to a file working copy; `placement` reveals a 1-based `line` (optionally at `column`;
    * `focus: false` reveals without stealing focus) or restores the tab's saved view state. Resolves `true` when
@@ -390,7 +370,7 @@ export async function createEditorHost(
     if (!isUserFileModel(model)) {
       return;
     }
-    spelling.track(model, () => textFileService.isDirty(model.uri));
+    spelling.track(model);
     if (saveAttached.has(model)) {
       return;
     }
@@ -398,8 +378,10 @@ export async function createEditorHost(
     const key = model.uri.toString();
     disposables.push(
       model.onDidChangeContent(() => {
-        // Only a real user edit dirties the working copy; a host-driven reload/revert doesn't, so skip it.
-        if (!textFileService.isDirty(model.uri)) {
+        spelling.contentChanged(model);
+        const dirty = textFileService.isDirty(model.uri);
+        // Only a real user edit dirties the working copy; a host-driven reload/revert needs no save.
+        if (!dirty) {
           return;
         }
         // A real edit promotes a preview tab to persistent (no-op once persistent).
@@ -777,18 +759,7 @@ export async function createEditorHost(
   log("info", "editor host ready");
   return {
     editor,
-    spellContextAtClientPoint: (clientX, clientY) =>
-      spelling.contextAtClientPoint(clientX, clientY),
-    spellContextAtCursor: () => spelling.contextAtCursor(),
-    requestSpellSuggestions: (context) => spelling.requestSuggestions(context),
-    applySpellSuggestion: (args) => spelling.applySuggestion(args),
-    addSpellWord: (scope, args) => spelling.addWord(scope, args),
-    handleSpellCheckResult: (message) => spelling.handleCheckResult(message),
-    handleSpellSuggestResult: (message) => spelling.handleSuggestResult(message),
-    handleSpellAddWordResult: (message) => spelling.handleAddWordResult(message),
-    handleSpellRestoreResult: (message) => spelling.handleRestoreResult(message),
-    handleSpellDictionaryChanged: (message) => spelling.handleDictionaryChanged(message),
-    clearSpellProjection: () => spelling.clearProjection(),
+    spelling,
     show,
     closeFile,
     contentOf,

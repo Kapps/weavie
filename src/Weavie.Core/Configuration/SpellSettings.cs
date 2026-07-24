@@ -5,10 +5,10 @@ namespace Weavie.Core.Configuration;
 
 /// <summary>Live spell-check settings exposed through settings files and MCP.</summary>
 public static class SpellSettings {
-	/// <summary>Whether changed editor lines receive spelling decorations.</summary>
+	/// <summary>Whether open editor documents receive spelling decorations.</summary>
 	public const string Enabled = "spell.enabled";
 
-	/// <summary>The Hunspell locale used to check changed editor lines.</summary>
+	/// <summary>The Hunspell locale used to check open editor documents.</summary>
 	public const string Locale = "spell.locale";
 
 	/// <summary>Every spell-check setting key.</summary>
@@ -21,8 +21,8 @@ public static class SpellSettings {
 		registry.Register(new SettingDefinition {
 			Key = Enabled,
 			Kind = SettingKind.Bool,
-			Description = "Underline likely misspellings on lines you change in the editor. Existing and agent-authored "
-				+ "lines remain quiet; turn this off to hide spelling decorations.",
+			Description = "Underline likely misspellings throughout open editor documents. "
+				+ "Turn this off to hide spelling decorations.",
 			Aliases = ["spell check", "spelling", "typo underlines", "spell checker"],
 			Apply = ApplyMode.Live,
 			Default = true,
@@ -32,7 +32,7 @@ public static class SpellSettings {
 			Key = Locale,
 			Kind = SettingKind.String,
 			Description = "English dictionary locale used by spell check. Set it in settings.toml or through MCP; "
-				+ "a locale change immediately rechecks lines you have changed.",
+				+ "a locale change immediately rechecks open editor documents.",
 			Aliases = ["spell locale", "spelling locale", "dictionary locale", "english locale"],
 			AllowedValues = SpellLocales.Supported,
 			Apply = ApplyMode.Live,

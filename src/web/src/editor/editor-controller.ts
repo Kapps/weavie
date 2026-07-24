@@ -49,11 +49,10 @@ import {
 import type { EditorSessionEntry } from "./session-types";
 import type {
   SpellAddWordResult,
-  SpellCheckResult,
   SpellContext,
+  SpellDiagnostics,
   SpellDictionaryChanged,
   SpellMenuTarget,
-  SpellRestoreResult,
   SpellScope,
   SpellSuggestResult,
 } from "./spelling/spell-session";
@@ -66,9 +65,8 @@ const EDITOR_INIT_MS = 60_000;
 
 type SpellMessage =
   | SpellAddWordResult
-  | SpellCheckResult
+  | SpellDiagnostics
   | SpellDictionaryChanged
-  | SpellRestoreResult
   | SpellSuggestResult;
 
 export interface EditorControllerDeps {
@@ -227,32 +225,25 @@ export interface EditorController {
 export function createEditorController(deps: EditorControllerDeps): EditorController {
   // host + inlineDiff are set once the editor chunk loads and the editor is created (see start).
   let host: EditorHost | undefined;
-  const pendingSpellMessages: SpellMessage[] = [];
-  const deliverSpellMessage = (target: EditorHost, message: SpellMessage): void => {
-    switch (message.type) {
-      case "spell-check-result":
-        target.handleSpellCheckResult(message);
-        break;
-      case "spell-suggest-result":
-        target.handleSpellSuggestResult(message);
-        break;
-      case "spell-add-word-result":
-        target.handleSpellAddWordResult(message);
-        break;
-      case "spell-restore-result":
-        target.handleSpellRestoreResult(message);
-        break;
-      case "spell-dictionary-changed":
-        target.handleSpellDictionaryChanged(message);
-        break;
-    }
-  };
   const handleSpellMessage = (message: SpellMessage): void => {
-    if (host === undefined) {
-      pendingSpellMessages.push(message);
+    const spelling = host?.spelling;
+    if (spelling === undefined) {
       return;
     }
-    deliverSpellMessage(host, message);
+    switch (message.type) {
+      case "spell-diagnostics":
+        spelling.handleDiagnostics(message);
+        break;
+      case "spell-suggest-result":
+        spelling.handleSuggestResult(message);
+        break;
+      case "spell-add-word-result":
+        spelling.handleAddWordResult(message);
+        break;
+      case "spell-dictionary-changed":
+        spelling.handleDictionaryChanged(message);
+        break;
+    }
   };
   let inlineDiff: InlineDiff | undefined;
   let commentProse: CommentProse | undefined;
@@ -764,9 +755,6 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     void Promise.race([editorReady, initDeadline])
       .then(async (created) => {
         host = created;
-        for (const message of pendingSpellMessages.splice(0)) {
-          deliverSpellMessage(created, message);
-        }
         // inline-diff + comment-prose pull Monaco; import them here (the chunk is already loaded by the
         // editor host above) so they stay off the first-paint entry chunk.
         const [diff, prose, symbolMod] = await Promise.all([
@@ -1117,7 +1105,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         // Projection commit owns the complete editor/review surface. Clear the outgoing review immediately,
         // then serialize Monaco rebinds; only the rebind for the still-current immutable binding may mount.
         resetReviewProjection();
-        host?.clearSpellProjection();
+        host?.spelling.clearProjection();
         if (projectionReady && host !== undefined) {
           const binding = currentEditorBinding();
           if (binding !== null) {
@@ -1129,16 +1117,13 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
           }
         }
         return true;
-      case "spell-check-result":
+      case "spell-diagnostics":
         handleSpellMessage(message);
         return true;
       case "spell-suggest-result":
         handleSpellMessage(message);
         return true;
       case "spell-add-word-result":
-        handleSpellMessage(message);
-        return true;
-      case "spell-restore-result":
         handleSpellMessage(message);
         return true;
       case "spell-dictionary-changed":
@@ -1358,14 +1343,14 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       return true;
     },
     spellContextAtClientPoint: (clientX, clientY) =>
-      host?.spellContextAtClientPoint(clientX, clientY) ?? null,
-    spellContextAtCursor: () => host?.spellContextAtCursor() ?? null,
+      host?.spelling.contextAtClientPoint(clientX, clientY) ?? null,
+    spellContextAtCursor: () => host?.spelling.contextAtCursor() ?? null,
     requestSpellSuggestions: (context) =>
-      host?.requestSpellSuggestions(context) ??
+      host?.spelling.requestSuggestions(context) ??
       Promise.reject(new Error("The editor isn't ready.")),
-    applySpellSuggestion: (args) => host?.applySpellSuggestion(args) ?? false,
+    applySpellSuggestion: (args) => host?.spelling.applySuggestion(args) ?? false,
     addSpellWord: (scope, args) =>
-      host?.addSpellWord(scope, args) ??
+      host?.spelling.addWord(scope, args) ??
       Promise.reject(new Error("The spelling editor is not available.")),
     newFile,
     save,
@@ -1418,7 +1403,6 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     symbols,
     dispose: () => {
       window.clearTimeout(initTimer);
-      pendingSpellMessages.length = 0;
       if (navTimer !== undefined) {
         clearTimeout(navTimer);
       }

@@ -4,90 +4,106 @@ using Xunit;
 
 namespace Weavie.Hosting.Tests;
 
-/// <summary>Exercises the projection-safe HostCore bridge over the real embedded spell checker and dictionaries.</summary>
+/// <summary>Exercises host-owned whole-document spelling diagnostics and dictionary actions.</summary>
 [Collection(TestCollections.HostIntegration)]
 public sealed class HostCoreSpellingTests {
 	private static string Msg(object value) => JsonSerializer.Serialize(value);
 
 	[Fact]
-	public async Task Check_MapsCoreUtf16OffsetsIntoMonacoColumns() {
+	public async Task DocumentChanged_ChecksWholeDocumentAndEchoesBrowserDocumentRevision() {
 		await using var host = await TestHost.StartAsync();
+		string path = Path.Combine(host.RepoRoot, "readme.txt");
+		const long documentRevision = 17;
+		var projection = host.Bridge.LastOfType("set-editor-session")!.Value.Clone();
 		host.Bridge.Clear();
 
 		host.Send(Msg(new {
-			type = "spell-check",
-			requestId = "check-1",
-			modelEpoch = "model-1",
-			path = Path.Combine(host.RepoRoot, "readme.txt"),
-			languageId = "plaintext",
-			lines = new[] { new { anchorId = "line-1", text = "teh" } },
+			type = "spell-document-changed",
+			path,
+			content = "teh\nThis line is correct.\nrecieve",
+			documentRevision,
 		}));
 
-		var result = await Wait.ForAsync(() => ReplyByRequest(host, "spell-check-result", "check-1"));
-		var issue = Assert.Single(result.GetProperty("issues").EnumerateArray());
-		Assert.Equal("line-1", issue.GetProperty("anchorId").GetString());
-		Assert.Equal(1, issue.GetProperty("startColumn").GetInt32());
-		Assert.Equal(4, issue.GetProperty("endColumn").GetInt32());
-		Assert.Equal("teh", issue.GetProperty("word").GetString());
-		Assert.Equal("model-1", result.GetProperty("modelEpoch").GetString());
+		var result = await Wait.ForAsync(() => Diagnostics(host, path, documentRevision));
+		var issues = result.GetProperty("issues").EnumerateArray().ToArray();
+		Assert.Equal(Path.GetFullPath(path), result.GetProperty("path").GetString());
+		Assert.Equal(documentRevision, result.GetProperty("documentRevision").GetInt64());
+		Assert.Contains(issues, issue =>
+			issue.GetProperty("line").GetInt32() == 1
+			&& issue.GetProperty("startColumn").GetInt32() == 1
+			&& issue.GetProperty("endColumn").GetInt32() == 4
+			&& issue.GetProperty("word").GetString() == "teh");
+		Assert.Contains(issues, issue =>
+			issue.GetProperty("line").GetInt32() == 3
+			&& issue.GetProperty("word").GetString() == "recieve");
+		Assert.All(issues, issue => Assert.False(issue.TryGetProperty("lineText", out _)));
 		Assert.Equal("en-US", result.GetProperty("locale").GetString());
 		Assert.False(result.TryGetProperty("error", out _));
+		AssertProjection(projection, result);
 	}
 
 	[Fact]
-	public async Task Check_RejectsAStaleProjectionBeforeItReachesTheChecker() {
+	public async Task DocumentChanged_RequiresABrowserDocumentRevision() {
+		await using var host = await TestHost.StartAsync();
+		string path = Path.Combine(host.RepoRoot, "readme.txt");
+		host.Bridge.Clear();
+
+		host.Send(Msg(new {
+			type = "spell-document-changed",
+			path,
+			content = "teh",
+		}));
+		host.Send(Msg(new {
+			type = "spell-document-changed",
+			path,
+			content = "teh",
+			documentRevision = -1,
+		}));
+
+		Assert.Empty(host.Bridge.PostedOfType("spell-diagnostics"));
+	}
+
+	[Fact]
+	public async Task DocumentChanged_RejectsStaleProjectionAndOutsidePath() {
 		await using var host = await TestHost.StartAsync();
 		var stale = host.Bridge.LastOfType("set-editor-session")!.Value.Clone();
-		Assert.True((await host.CreateSessionAsync("feature")).Ok);
+		Assert.True((await host.CreateSessionAsync("spell-owner")).Ok);
 		host.Bridge.Clear();
 
 		host.Bridge.Receive(Msg(new {
-			type = "spell-check",
-			requestId = "stale",
-			modelEpoch = "model-1",
+			type = "spell-document-changed",
 			path = Path.Combine(host.RepoRoot, "readme.txt"),
-			languageId = "plaintext",
-			lines = new[] { new { anchorId = "line-1", text = "teh" } },
+			content = "teh",
+			documentRevision = 1,
 			sessionId = stale.GetProperty("sessionId").GetString(),
 			projectionEpoch = stale.GetProperty("projectionEpoch").GetString(),
 			projectionRevision = stale.GetProperty("projectionRevision").GetInt64(),
 			projectionPageId = stale.GetProperty("projectionPageId").GetString(),
 		}));
-
-		Assert.Empty(host.Bridge.PostedOfType("spell-check-result"));
-	}
-
-	[Fact]
-	public async Task BackgroundProjectDictionaryChange_DoesNotInvalidateTheActiveSessionRequest() {
-		await using var host = await TestHost.StartAsync();
-		string primaryId = host.PrimaryId;
-		Assert.True((await host.CreateSessionAsync("background-dictionary")).Ok);
-		var background = host.Core.ActiveSessionForTest()!;
-		host.Send(Msg(new { type = "switch-session", id = primaryId }));
-		host.Bridge.Clear();
-
-		// The long valid prefix guarantees this request cannot complete before B changes its own dictionary.
-		string text = string.Join(' ', Enumerable.Repeat("the", 20_000)) + " teh";
 		host.Send(Msg(new {
-			type = "spell-check",
-			requestId = "active-check",
-			modelEpoch = "model-1",
-			path = Path.Combine(host.RepoRoot, "readme.txt"),
-			languageId = "plaintext",
-			lines = new[] { new { anchorId = "line-1", text } },
+			type = "spell-document-changed",
+			path = Path.Combine(Path.GetTempPath(), "outside.txt"),
+			content = "teh",
+			documentRevision = 2,
 		}));
 
-		background.ProjectDictionary.Add("backgroundonlyword");
-
-		var result = await Wait.ForAsync(() => ReplyByRequest(host, "spell-check-result", "active-check"));
-		Assert.Contains(result.GetProperty("issues").EnumerateArray(), issue =>
-			issue.GetProperty("word").GetString() == "teh");
+		Assert.Empty(host.Bridge.PostedOfType("spell-diagnostics"));
 	}
 
 	[Fact]
-	public async Task AddWord_WritesTheRequestedScopeAndInvalidatesTheMountedProjection() {
+	public async Task AddWord_PersistsScopesSignalsTheBrowserAndRequiresResubmission() {
 		await using var host = await TestHost.StartAsync();
 		var session = host.Core.ActiveSessionForTest()!;
+		string path = Path.Combine(host.RepoRoot, "readme.txt");
+		const string content = "foobarquux quuxfoobar";
+		var projection = host.Bridge.LastOfType("set-editor-session")!.Value.Clone();
+		host.Send(Msg(new {
+			type = "spell-document-changed",
+			path,
+			content,
+			documentRevision = 4,
+		}));
+		await Wait.ForAsync(() => DiagnosticsWithIssueCount(host, path, documentRevision: 4, count: 2));
 		host.Bridge.Clear();
 
 		host.Send(Msg(new {
@@ -100,10 +116,19 @@ public sealed class HostCoreSpellingTests {
 		var projectResult = await Wait.ForAsync(() => ReplyByRequest(host, "spell-add-word-result", "project-word"));
 		Assert.False(projectResult.TryGetProperty("error", out _));
 		Assert.Contains("foobarquux", File.ReadAllLines(session.ProjectDictionary.FilePath));
-		var projectChanged = await Wait.ForAsync(() => DictionaryChanged(host, "project"));
-		Assert.Equal(session.Id, projectChanged.GetProperty("sessionId").GetString());
+		var projectChanged = await Wait.ForAsync(() => host.Bridge.LastOfType("spell-dictionary-changed"));
+		AssertProjection(projection, projectChanged);
+		Assert.Empty(host.Bridge.PostedOfType("spell-diagnostics"));
 
+		host.Send(Msg(new {
+			type = "spell-document-changed",
+			path,
+			content,
+			documentRevision = 5,
+		}));
+		await Wait.ForAsync(() => DiagnosticsWithIssueCount(host, path, documentRevision: 5, count: 1));
 		host.Bridge.Clear();
+
 		host.Send(Msg(new {
 			type = "spell-add-word",
 			requestId = "user-word",
@@ -114,104 +139,30 @@ public sealed class HostCoreSpellingTests {
 		var userResult = await Wait.ForAsync(() => ReplyByRequest(host, "spell-add-word-result", "user-word"));
 		Assert.False(userResult.TryGetProperty("error", out _));
 		Assert.Contains("quuxfoobar", File.ReadAllLines(host.UserDictionaryPath));
-		await Wait.ForAsync(() => DictionaryChanged(host, "user"));
-	}
+		var userChanged = await Wait.ForAsync(() => host.Bridge.LastOfType("spell-dictionary-changed"));
+		AssertProjection(projection, userChanged);
+		Assert.Empty(host.Bridge.PostedOfType("spell-diagnostics"));
 
-	[Fact]
-	public async Task Restore_UsesTheSuccessfulProviderReadAndReturnsOnlyAuthoredLines() {
-		await using var host = await TestHost.StartAsync();
-		var session = host.Core.ActiveSessionForTest()!;
-		string path = Path.Combine(host.RepoRoot, "readme.txt");
-		host.Bridge.Clear();
-
-		host.Send(Msg(new { type = "fs-read", id = "seed", path }));
-		host.Send(Msg(new { type = "fs-write", id = "write", path, content = "hello\nteh\n" }));
-		host.Bridge.Clear();
-		host.Send(Msg(new { type = "fs-read", id = "read", path }));
-
-		var read = host.Bridge.LastOfType("fs-read-result")!.Value;
-		Assert.True(read.GetProperty("ok").GetBoolean());
-		Assert.Equal("hello\nteh\n", read.GetProperty("content").GetString());
-		Assert.Equal([new Weavie.Core.Changes.AuthoredLine(2, "teh")], session.AuthoredLines.Snapshot(path)!.Lines);
-
-		host.Send(Msg(new { type = "spell-restore", requestId = "restore", modelEpoch = "model-1", path }));
-
-		var restored = await Wait.ForAsync(() => ReplyByRequest(host, "spell-restore-result", "restore"));
-		Assert.Equal("model-1", restored.GetProperty("modelEpoch").GetString());
-		Assert.True(restored.GetProperty("version").GetInt64() > 0);
-		var restoredLine = Assert.Single(restored.GetProperty("lines").EnumerateArray());
-		Assert.Equal(2, restoredLine.GetProperty("line").GetInt32());
-		Assert.Equal("teh", restoredLine.GetProperty("text").GetString());
-	}
-
-	[Fact]
-	public async Task MissingProviderRead_ForgetsAuthoredLines() {
-		await using var host = await TestHost.StartAsync();
-		var session = host.Core.ActiveSessionForTest()!;
-		string path = Path.Combine(host.RepoRoot, "readme.txt");
-
-		host.Send(Msg(new { type = "fs-read", id = "seed", path }));
-		host.Send(Msg(new { type = "fs-write", id = "write", path, content = "hello\nteh\n" }));
-		Assert.NotNull(session.AuthoredLines.Snapshot(path));
-
-		File.Delete(path);
-		host.Send(Msg(new { type = "fs-read", id = "missing", path }));
-
-		Assert.Null(session.AuthoredLines.Snapshot(path));
-	}
-
-	[Fact]
-	public async Task Restore_RejectsStaleProjectionAndOutOfScopePaths() {
-		await using var host = await TestHost.StartAsync();
-		var stale = host.Bridge.LastOfType("set-editor-session")!.Value.Clone();
-		Assert.True((await host.CreateSessionAsync("restore-owner")).Ok);
-		host.Bridge.Clear();
-
-		host.Bridge.Receive(Msg(new {
-			type = "spell-restore",
-			requestId = "stale",
-			modelEpoch = "model-1",
-			path = Path.Combine(host.RepoRoot, "readme.txt"),
-			sessionId = stale.GetProperty("sessionId").GetString(),
-			projectionEpoch = stale.GetProperty("projectionEpoch").GetString(),
-			projectionRevision = stale.GetProperty("projectionRevision").GetInt64(),
-			projectionPageId = stale.GetProperty("projectionPageId").GetString(),
+		host.Send(Msg(new {
+			type = "spell-document-changed",
+			path,
+			content,
+			documentRevision = 6,
 		}));
-
-		Assert.Empty(host.Bridge.PostedOfType("spell-restore-result"));
-
-		var session = host.Core.ActiveSessionForTest()!;
-		string outside = Path.Combine(Path.GetTempPath(), "weavie-restore-secret.txt");
-		session.AuthoredLines.OnWrite(outside, "secret");
-		host.Send(Msg(new { type = "spell-restore", requestId = "outside", modelEpoch = "model-1", path = outside }));
-
-		Assert.Empty(host.Bridge.PostedOfType("spell-restore-result"));
+		await Wait.ForAsync(() => DiagnosticsWithIssueCount(host, path, documentRevision: 6, count: 0));
 	}
 
 	[Fact]
-	public async Task ScratchSaveAndDiscard_TransferOrForgetAuthoredLines() {
+	public async Task SpellSettingChange_PushesConfigurationWithoutRecheckingTheDocument() {
 		await using var host = await TestHost.StartAsync();
-		var session = host.Core.ActiveSessionForTest()!;
-		string scratch = session.Scratch.CreateNew();
-		session.AuthoredLines.OnRead(scratch, "seed\n");
-		const string content = "seed\nteh\n";
-
-		host.Send(Msg(new { type = "save-scratch-named", path = scratch, name = "saved.txt", content }));
-
-		string saved = Path.Combine(host.RepoRoot, "saved.txt");
-		Assert.Null(session.AuthoredLines.Snapshot(scratch));
-		Assert.Equal([new Weavie.Core.Changes.AuthoredLine(2, "teh")], session.AuthoredLines.Snapshot(saved)!.Lines);
-
-		string discarded = session.Scratch.CreateNew();
-		session.AuthoredLines.OnWrite(discarded, "discard me");
-		host.Send(Msg(new { type = "discard-scratch", path = discarded }));
-
-		Assert.Null(session.AuthoredLines.Snapshot(discarded));
-	}
-
-	[Fact]
-	public async Task LocaleSetting_PushesTheNewResolvedConfiguration() {
-		await using var host = await TestHost.StartAsync();
+		string path = Path.Combine(host.RepoRoot, "readme.txt");
+		host.Send(Msg(new {
+			type = "spell-document-changed",
+			path,
+			content = "colour",
+			documentRevision = 9,
+		}));
+		await Wait.ForAsync(() => Diagnostics(host, path, documentRevision: 9));
 		host.Bridge.Clear();
 
 		host.Settings.Set(SpellSettings.Locale, JsonSerializer.SerializeToElement("en-GB"));
@@ -219,6 +170,125 @@ public sealed class HostCoreSpellingTests {
 		var settings = await Wait.ForAsync(() => host.Bridge.LastOfType("spell-settings"));
 		Assert.True(settings.GetProperty("enabled").GetBoolean());
 		Assert.Equal("en-GB", settings.GetProperty("locale").GetString());
+		Assert.Empty(host.Bridge.PostedOfType("spell-diagnostics"));
+
+		host.Send(Msg(new {
+			type = "spell-document-changed",
+			path,
+			content = "colour",
+			documentRevision = 10,
+		}));
+		var diagnostics = await Wait.ForAsync(() => Diagnostics(host, path, documentRevision: 10));
+		Assert.Equal("en-GB", diagnostics.GetProperty("locale").GetString());
+	}
+
+	[Fact]
+	public async Task ProjectionMount_ReplaysCurrentSettingsBeforeQueuedDiagnostics() {
+		await using var host = await TestHost.StartAsync();
+		host.Settings.Set(SpellSettings.Locale, JsonSerializer.SerializeToElement("en-GB"));
+		host.AutoMountEditorProjection = false;
+		Assert.True((await host.CreateSessionAsync("spell-settings-projection")).Ok);
+		string path = Path.Combine(host.Core.ActiveSessionForTest()!.WorkspaceRoot, "readme.txt");
+		host.Bridge.Clear();
+
+		host.Send(Msg(new {
+			type = "spell-document-changed",
+			path,
+			content = "colur",
+			documentRevision = 11,
+		}));
+		await Wait.ForAsync(() => host.Core.PendingSpellOperationCountForTest == 0 ? true : (bool?)null);
+		Assert.Empty(host.Bridge.PostedOfType("spell-settings"));
+		Assert.Empty(host.Bridge.PostedOfType("spell-diagnostics"));
+
+		host.MountEditorProjection();
+
+		await Wait.ForAsync(() => host.Bridge.LastOfType("spell-diagnostics"));
+		var spellingTypes = host.Bridge.Posted
+			.Select(static json => JsonDocument.Parse(json).RootElement.GetProperty("type").GetString())
+			.Where(static type => type is "spell-settings" or "spell-diagnostics");
+		Assert.Equal(["spell-settings", "spell-diagnostics"], spellingTypes);
+		var settings = Assert.Single(host.Bridge.PostedOfType("spell-settings"));
+		Assert.True(settings.GetProperty("enabled").GetBoolean());
+		Assert.Equal("en-GB", settings.GetProperty("locale").GetString());
+		Assert.Equal("en-GB", host.Bridge.LastOfType("spell-diagnostics")!.Value.GetProperty("locale").GetString());
+
+		host.Bridge.Clear();
+		host.MountEditorProjection();
+		Assert.Single(host.Bridge.PostedOfType("spell-settings"));
+	}
+
+	[Fact]
+	public async Task LegacyProjection_QueuesSuggestionResultUntilMonacoMount() {
+		await using var host = await TestHost.StartAsync(_ => { }, sendReady: false);
+		host.Bridge.Receive("""{"type":"ready"}""");
+		string sessionId = host.Bridge.LastOfType("set-editor-session")!.Value
+			.GetProperty("sessionId").GetString()!;
+		host.Bridge.Clear();
+
+		host.Bridge.Receive(Msg(new {
+			type = "spell-suggest",
+			sessionId,
+			requestId = "legacy-suggest",
+			word = "teh",
+		}));
+		await Wait.ForAsync(() => host.Core.PendingSpellOperationCountForTest == 0 ? true : (bool?)null);
+		Assert.Empty(host.Bridge.PostedOfType("spell-suggest-result"));
+
+		host.Bridge.Receive("""{"type":"monaco-ready"}""");
+
+		var result = await Wait.ForAsync(() =>
+			ReplyByRequest(host, "spell-suggest-result", "legacy-suggest"));
+		Assert.Contains("the", result.GetProperty("suggestions").EnumerateArray()
+			.Select(static suggestion => suggestion.GetString()), StringComparer.OrdinalIgnoreCase);
+		Assert.Equal(-1, result.GetProperty("projectionRevision").GetInt64());
+	}
+
+	[Fact]
+	public async Task OperationTeardown_WaitsForSupersededWorkToFinishUnwinding() {
+		await using var host = await TestHost.StartAsync();
+		var session = host.Core.ActiveSessionForTest()!;
+		var operations = new SpellOperationRegistry();
+		var first = operations.Begin(session, "document", "/first");
+		var second = operations.Begin(session, "document", "/first");
+		Assert.NotNull(first);
+		Assert.NotNull(second);
+
+		Assert.True(first.Token.IsCancellationRequested);
+		var stopping = operations.StopSessionAsync(session);
+		Assert.True(second.Token.IsCancellationRequested);
+		Assert.False(stopping.IsCompleted);
+		Assert.Null(operations.Begin(session, "document", "/late"));
+
+		operations.End(second);
+		Assert.False(stopping.IsCompleted);
+		operations.End(first);
+		await stopping;
+	}
+
+	[Fact]
+	public async Task DictionaryWriteTeardown_ClosesScopeBeforeAwaitingRegisteredWork() {
+		object scope = new();
+		var writes = new QuiescingTaskRegistry<object>();
+		var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		bool lateWorkStarted = false;
+		Assert.True(writes.TryRun(scope, async () => {
+			started.TrySetResult();
+			await release.Task;
+		}));
+		await started.Task;
+
+		var stopping = writes.StopScopeAsync(scope);
+
+		Assert.False(stopping.IsCompleted);
+		Assert.False(writes.TryRun(scope, () => {
+			lateWorkStarted = true;
+			return Task.CompletedTask;
+		}));
+		release.TrySetResult();
+		await stopping;
+		Assert.False(lateWorkStarted);
 	}
 
 	[Fact]
@@ -247,19 +317,23 @@ public sealed class HostCoreSpellingTests {
 		Assert.Null(session.ProjectDictionary.LastLoadError);
 	}
 
-	private static JsonElement? ReplyByRequest(TestHost host, string type, string requestId) {
-		foreach (var message in host.Bridge.PostedOfType(type)) {
-			if (message.GetProperty("requestId").GetString() == requestId) {
-				return message;
-			}
-		}
+	private static JsonElement? Diagnostics(TestHost host, string path, long documentRevision) =>
+		Latest(host, "spell-diagnostics", message =>
+			message.GetProperty("path").GetString() == Path.GetFullPath(path)
+			&& message.GetProperty("documentRevision").GetInt64() == documentRevision);
 
-		return null;
-	}
+	private static JsonElement? DiagnosticsWithIssueCount(TestHost host, string path, long documentRevision, int count) =>
+		Latest(host, "spell-diagnostics", message =>
+			message.GetProperty("path").GetString() == Path.GetFullPath(path)
+			&& message.GetProperty("documentRevision").GetInt64() == documentRevision
+			&& message.GetProperty("issues").GetArrayLength() == count);
 
-	private static JsonElement? DictionaryChanged(TestHost host, string scope) {
-		foreach (var message in host.Bridge.PostedOfType("spell-dictionary-changed")) {
-			if (message.GetProperty("scope").GetString() == scope) {
+	private static JsonElement? ReplyByRequest(TestHost host, string type, string requestId) =>
+		Latest(host, type, message => message.GetProperty("requestId").GetString() == requestId);
+
+	private static JsonElement? Latest(TestHost host, string type, Func<JsonElement, bool> predicate) {
+		foreach (var message in host.Bridge.PostedOfType(type).Reverse()) {
+			if (predicate(message)) {
 				return message;
 			}
 		}
@@ -269,12 +343,14 @@ public sealed class HostCoreSpellingTests {
 
 	private static JsonElement? DictionaryNotice(TestHost host, string scope) {
 		string key = $"spell-dictionary-{scope}-malformed";
-		foreach (var message in host.Bridge.PostedOfType("notify")) {
-			if (message.TryGetProperty("key", out var messageKey) && messageKey.GetString() == key) {
-				return message;
-			}
-		}
+		return Latest(host, "notify", message =>
+			message.TryGetProperty("key", out var messageKey) && messageKey.GetString() == key);
+	}
 
-		return null;
+	private static void AssertProjection(JsonElement projection, JsonElement message) {
+		Assert.Equal(projection.GetProperty("sessionId").GetString(), message.GetProperty("sessionId").GetString());
+		Assert.Equal(projection.GetProperty("projectionEpoch").GetString(), message.GetProperty("projectionEpoch").GetString());
+		Assert.Equal(projection.GetProperty("projectionRevision").GetInt64(), message.GetProperty("projectionRevision").GetInt64());
+		Assert.Equal(projection.GetProperty("projectionPageId").GetString(), message.GetProperty("projectionPageId").GetString());
 	}
 }

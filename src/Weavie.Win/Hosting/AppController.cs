@@ -105,7 +105,6 @@ internal sealed class AppController : ApplicationContext {
 			Console.Out.Flush();
 		};
 
-		SpellingCatalog = SpellCatalog.LoadEmbedded();
 		UserDictionary = new CustomDictionary(WeaviePaths.UserDictionaryFile, enableWatcher: true);
 
 		// Recent workspaces (~/.weavie/recents.json) drive reopen-last-on-launch and the Open Recent menu;
@@ -168,9 +167,6 @@ internal sealed class AppController : ApplicationContext {
 
 	/// <summary>App-global captured console output (stdout/stderr), backing the in-app log viewer; one buffer per process.</summary>
 	public LogBuffer LogBuffer { get; }
-
-	/// <summary>The immutable embedded Hunspell catalogs shared by every workspace window.</summary>
-	public SpellCatalog SpellingCatalog { get; }
 
 	/// <summary>The app-global custom dictionary shared by every workspace window.</summary>
 	public CustomDictionary UserDictionary { get; }

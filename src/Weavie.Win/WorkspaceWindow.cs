@@ -94,7 +94,6 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow, IHostPlatfor
 			ReviewComments = github,
 			Sources = Weavie.Core.Sources.SourceConnector.CreateDefault(),
 			LogBuffer = _app.LogBuffer,
-			SpellingCatalog = _app.SpellingCatalog,
 			UserDictionary = _app.UserDictionary,
 		}, workspaceRoot,
 		WorkspaceHttpServerOptions.Native(Path.Combine(AppContext.BaseDirectory, "wwwroot")),

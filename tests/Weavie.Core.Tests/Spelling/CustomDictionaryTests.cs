@@ -48,7 +48,7 @@ public sealed class CustomDictionaryTests : IDisposable {
 		File.WriteAllText(dictionaryPath, "first\n");
 		using var dictionary = new CustomDictionary(dictionaryPath, enableWatcher: false);
 		int changed = 0;
-		dictionary.Changed += () => changed++;
+		dictionary.Changed += _ => changed++;
 
 		File.WriteAllText(dictionaryPath, "second\n");
 		dictionary.Reload();
@@ -56,6 +56,145 @@ public sealed class CustomDictionaryTests : IDisposable {
 		Assert.False(dictionary.Contains("first"));
 		Assert.True(dictionary.Contains("second"));
 		Assert.Equal(1, changed);
+	}
+
+	[Fact]
+	public void Reload_ReadsThroughAHandleThatAllowsAtomicReplacement() {
+		string dictionaryPath = Path.Combine(_directory, "dictionary.txt");
+		Directory.CreateDirectory(_directory);
+		File.WriteAllText(dictionaryPath, "first\n");
+		using var dictionary = new CustomDictionary(dictionaryPath, enableWatcher: false);
+		using var shared = new FileStream(
+			dictionaryPath,
+			FileMode.Open,
+			FileAccess.ReadWrite,
+			FileShare.ReadWrite | FileShare.Delete);
+		shared.SetLength(0);
+		using (var writer = new StreamWriter(shared, leaveOpen: true)) {
+			writer.WriteLine("second");
+			writer.Flush();
+		}
+
+		dictionary.Reload();
+
+		Assert.True(dictionary.Contains("second"));
+		Assert.False(dictionary.Contains("first"));
+	}
+
+	[Fact]
+	public void InaccessibleUserDictionary_IsReportedInsteadOfTreatedAsEmpty() {
+		if (OperatingSystem.IsWindows()) {
+			return;
+		}
+
+		string parent = Path.Combine(_directory, "protected");
+		string dictionaryPath = Path.Combine(parent, "dictionary.txt");
+		Directory.CreateDirectory(parent);
+		File.WriteAllText(dictionaryPath, "visibleafterrepair\n");
+		var mode = File.GetUnixFileMode(parent);
+		File.SetUnixFileMode(parent, UnixFileMode.None);
+		CustomDictionary dictionary;
+		try {
+			dictionary = new CustomDictionary(dictionaryPath, enableWatcher: false);
+			Assert.NotNull(dictionary.LastLoadError);
+			Assert.Empty(dictionary.Words);
+		} finally {
+			File.SetUnixFileMode(parent, mode);
+		}
+
+		using (dictionary) {
+			dictionary.Reload();
+			Assert.True(dictionary.Contains("visibleafterrepair"));
+			Assert.Null(dictionary.LastLoadError);
+		}
+	}
+
+	[Fact]
+	public async Task ProjectWatcher_DetectsDictionaryCreatedAfterConstruction() {
+		string project = Path.Combine(_directory, "project");
+		Directory.CreateDirectory(project);
+		using var dictionary = CustomDictionary.ForProject(project, enableWatcher: true);
+		string dictionaryPath = Path.Combine(project, ".weavie", "dictionary.txt");
+
+		Directory.CreateDirectory(Path.GetDirectoryName(dictionaryPath)!);
+		File.WriteAllText(dictionaryPath, "createdlater\n");
+
+		Assert.True(await WaitForAsync(() => dictionary.Contains("createdlater")));
+	}
+
+	[Fact]
+	public async Task UserWatcher_ObservesTheResolvedSymlinkTarget() {
+		Directory.CreateDirectory(_directory);
+		string targetDirectory = Path.Combine(_directory, "target");
+		Directory.CreateDirectory(targetDirectory);
+		string target = Path.Combine(targetDirectory, "words.txt");
+		string dictionaryPath = Path.Combine(_directory, "dictionary.txt");
+		File.WriteAllText(target, "first\n");
+		File.CreateSymbolicLink(dictionaryPath, target);
+		using var dictionary = new CustomDictionary(dictionaryPath, enableWatcher: true);
+
+		File.WriteAllText(target, "second\n");
+
+		Assert.True(await WaitForAsync(() => dictionary.Contains("second")));
+		Assert.False(dictionary.Contains("first"));
+	}
+
+	[Fact]
+	public async Task UserWatcher_ObservesSymlinkRetargetingAndTheNewTarget() {
+		Directory.CreateDirectory(_directory);
+		string firstTarget = Path.Combine(_directory, "first.txt");
+		string secondTarget = Path.Combine(_directory, "second.txt");
+		string dictionaryPath = Path.Combine(_directory, "dictionary.txt");
+		File.WriteAllText(firstTarget, "first\n");
+		File.WriteAllText(secondTarget, "second\n");
+		File.CreateSymbolicLink(dictionaryPath, firstTarget);
+		using var dictionary = new CustomDictionary(dictionaryPath, enableWatcher: true);
+
+		string replacement = Path.Combine(_directory, "replacement.txt");
+		File.CreateSymbolicLink(replacement, secondTarget);
+		File.Move(replacement, dictionaryPath, overwrite: true);
+
+		Assert.True(await WaitForAsync(() => dictionary.Contains("second")));
+		Assert.False(dictionary.Contains("first"));
+
+		File.WriteAllText(secondTarget, "third\n");
+		Assert.True(await WaitForAsync(() => dictionary.Contains("third")));
+		Assert.False(dictionary.Contains("second"));
+	}
+
+	[Fact]
+	public async Task ProjectWatcher_RebuildsAfterDictionaryDirectoryIsReplaced() {
+		string project = Path.Combine(_directory, "project");
+		string dictionaryDirectory = Path.Combine(project, ".weavie");
+		string dictionaryPath = Path.Combine(dictionaryDirectory, "dictionary.txt");
+		Directory.CreateDirectory(dictionaryDirectory);
+		File.WriteAllText(dictionaryPath, "first\n");
+		using var dictionary = CustomDictionary.ForProject(project, enableWatcher: true);
+
+		Directory.Delete(dictionaryDirectory, recursive: true);
+		Assert.True(await WaitForAsync(() => !dictionary.Contains("first")));
+		Directory.CreateDirectory(dictionaryDirectory);
+		File.WriteAllText(dictionaryPath, "second\n");
+
+		Assert.True(await WaitForAsync(() => dictionary.Contains("second")));
+	}
+
+	[Fact]
+	public async Task ProjectWatcher_ReportsAndRecoversWhenDictionaryDirectoryWasAFile() {
+		string project = Path.Combine(_directory, "project");
+		Directory.CreateDirectory(project);
+		string dictionaryDirectory = Path.Combine(project, ".weavie");
+		string dictionaryPath = Path.Combine(dictionaryDirectory, "dictionary.txt");
+		File.WriteAllText(dictionaryDirectory, "not a directory");
+		using var dictionary = CustomDictionary.ForProject(project, enableWatcher: true);
+
+		Assert.NotNull(dictionary.LastLoadError);
+		File.Delete(dictionaryDirectory);
+		Directory.CreateDirectory(dictionaryDirectory);
+		File.WriteAllText(dictionaryPath, "repaired\n");
+
+		Assert.True(await WaitForAsync(() => dictionary.Contains("repaired")));
+		Assert.Null(dictionary.LastLoadError);
 	}
 
 	[Fact]
@@ -77,7 +216,7 @@ public sealed class CustomDictionaryTests : IDisposable {
 		File.WriteAllText(dictionaryPath, "valid\n");
 		using var dictionary = new CustomDictionary(dictionaryPath, enableWatcher: false);
 		var errors = new List<SpellDictionaryException?>();
-		dictionary.LoadErrorChanged += errors.Add;
+		dictionary.LoadErrorChanged += (_, error) => errors.Add(error);
 
 		File.WriteAllText(dictionaryPath, "not a word\n");
 		Assert.Throws<SpellDictionaryException>(dictionary.Reload);
@@ -180,5 +319,17 @@ public sealed class CustomDictionaryTests : IDisposable {
 		Assert.NotNull(dictionary.LastLoadError);
 		Assert.Throws<SpellDictionaryException>(() => dictionary.Add("escapedword"));
 		Assert.False(Directory.Exists(Path.Combine(realProject, ".weavie")));
+	}
+
+	private static async Task<bool> WaitForAsync(Func<bool> predicate) {
+		for (int attempt = 0; attempt < 100; attempt++) {
+			if (predicate()) {
+				return true;
+			}
+
+			await Task.Delay(50);
+		}
+
+		return predicate();
 	}
 }

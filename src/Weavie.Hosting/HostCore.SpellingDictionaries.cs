@@ -1,114 +1,80 @@
-using System.Collections.Concurrent;
 using Weavie.Core.Spelling;
 
 namespace Weavie.Hosting;
 
 public sealed partial class HostCore {
 	private readonly CustomDictionary _userDictionary;
-	private readonly ConcurrentDictionary<HostSession, ProjectDictionaryHandlers> _projectDictionaryHandlers = new();
-	private Action? _onUserDictionaryChanged;
-	private Action<SpellDictionaryException?>? _onUserDictionaryLoadErrorChanged;
-	private long _userDictionaryVersion;
-
-	private sealed class ProjectDictionaryHandlers {
-		public ProjectDictionaryHandlers(Action changed, Action<SpellDictionaryException?> loadErrorChanged) {
-			Changed = changed;
-			LoadErrorChanged = loadErrorChanged;
-		}
-
-		public Action Changed { get; }
-		public Action<SpellDictionaryException?> LoadErrorChanged { get; }
-		public long Version;
-	}
 
 	private readonly record struct SpellDictionaryVersions(
 		long UserVersion,
-		ProjectDictionaryHandlers Project,
 		long ProjectVersion);
 
 	private void WireSpellingReactions() {
-		_onUserDictionaryChanged = OnUserDictionaryChanged;
-		_userDictionary.Changed += _onUserDictionaryChanged;
-		_onUserDictionaryLoadErrorChanged = error => OnDictionaryLoadErrorChanged("user", error);
-		_userDictionary.LoadErrorChanged += _onUserDictionaryLoadErrorChanged;
+		_userDictionary.Changed += OnUserDictionaryChanged;
+		_userDictionary.LoadErrorChanged += OnUserDictionaryLoadErrorChanged;
 	}
 
 	private void DetachSpellingReactions() {
-		if (_onUserDictionaryChanged is not null) {
-			_userDictionary.Changed -= _onUserDictionaryChanged;
-			_onUserDictionaryChanged = null;
-		}
-
-		if (_onUserDictionaryLoadErrorChanged is not null) {
-			_userDictionary.LoadErrorChanged -= _onUserDictionaryLoadErrorChanged;
-			_onUserDictionaryLoadErrorChanged = null;
-		}
+		_userDictionary.Changed -= OnUserDictionaryChanged;
+		_userDictionary.LoadErrorChanged -= OnUserDictionaryLoadErrorChanged;
 	}
 
 	private void WireSpellingSession(HostSession session) {
-		void Changed() => OnProjectDictionaryChanged(session);
-		void LoadErrorChanged(SpellDictionaryException? error) => OnProjectDictionaryLoadErrorChanged(session, error);
-
-		var changed = (Action)Changed;
-		var loadErrorChanged = (Action<SpellDictionaryException?>)LoadErrorChanged;
-		if (!_projectDictionaryHandlers.TryAdd(session, new ProjectDictionaryHandlers(changed, loadErrorChanged))) {
-			throw new InvalidOperationException($"Spelling is already wired for session '{session.Id}'.");
-		}
-
-		session.ProjectDictionary.Changed += changed;
-		session.ProjectDictionary.LoadErrorChanged += loadErrorChanged;
+		session.ProjectDictionary.Changed += OnProjectDictionaryChanged;
+		session.ProjectDictionary.LoadErrorChanged += OnProjectDictionaryLoadErrorChanged;
 	}
 
 	private void UnwireSpellingSession(HostSession session) {
-		if (!_projectDictionaryHandlers.TryRemove(session, out var handlers)) {
-			return;
-		}
-
-		CancelSpellRequestsForSession(session);
-		session.ProjectDictionary.Changed -= handlers.Changed;
-		session.ProjectDictionary.LoadErrorChanged -= handlers.LoadErrorChanged;
+		session.ProjectDictionary.Changed -= OnProjectDictionaryChanged;
+		session.ProjectDictionary.LoadErrorChanged -= OnProjectDictionaryLoadErrorChanged;
 	}
 
 	private void UnwireAllSpellingSessions() {
-		foreach (var session in _projectDictionaryHandlers.Keys.ToArray()) {
+		foreach (var session in LoadedSessions()) {
 			UnwireSpellingSession(session);
 		}
 	}
 
-	private void OnUserDictionaryChanged() {
-		Interlocked.Increment(ref _userDictionaryVersion);
-		CancelAllSpellRequests();
+	private void OnUserDictionaryChanged(CustomDictionary _) {
+		CancelAllSpellOperations();
 		_ui.Post(() => {
 			if (_session is { } session) {
-				DispatchEditorProjection(session, () => PostSpellDictionaryChanged(session, "user"));
+				PostSpellDictionaryChanged(session);
 			}
 		});
 	}
 
-	private void OnProjectDictionaryChanged(HostSession session) {
-		if (!_projectDictionaryHandlers.TryGetValue(session, out var handlers)) {
-			return;
-		}
-
-		Interlocked.Increment(ref handlers.Version);
-		CancelSpellRequestsForSession(session);
+	private void OnProjectDictionaryChanged(CustomDictionary dictionary) {
 		_ui.Post(() => {
-			if (IsCurrentProjectDictionary(session, handlers)) {
-				DispatchEditorProjection(session, () => PostSpellDictionaryChanged(session, "project"));
+			if (SessionForProjectDictionary(dictionary) is { } session) {
+				CancelSpellOperationsForSession(session);
+				if (IsActiveSession(session)) {
+					PostSpellDictionaryChanged(session);
+				}
 			}
 		});
 	}
+
+	private void OnUserDictionaryLoadErrorChanged(
+		CustomDictionary _,
+		SpellDictionaryException? error) =>
+		OnDictionaryLoadErrorChanged("user", error);
 
 	private void OnDictionaryLoadErrorChanged(string scope, SpellDictionaryException? error) =>
 		_ui.Post(() => NotifyDictionaryLoadState(scope, error));
 
-	private void OnProjectDictionaryLoadErrorChanged(HostSession session, SpellDictionaryException? error) {
+	private void OnProjectDictionaryLoadErrorChanged(
+		CustomDictionary dictionary,
+		SpellDictionaryException? error) {
 		_ui.Post(() => {
-			if (IsActiveSession(session)) {
+			if (SessionForProjectDictionary(dictionary) is { } session && IsActiveSession(session)) {
 				NotifyDictionaryLoadState("project", error);
 			}
 		});
 	}
+
+	private HostSession? SessionForProjectDictionary(CustomDictionary dictionary) =>
+		LoadedSessions().FirstOrDefault(session => ReferenceEquals(session.ProjectDictionary, dictionary));
 
 	private void NotifyInitialSpellDictionaryErrors() {
 		if (_userDictionary.LastLoadError is { } userError) {
@@ -132,25 +98,10 @@ public sealed partial class HostCore {
 			key);
 	}
 
-	private bool TryCaptureSpellDictionaryVersions(HostSession session, out SpellDictionaryVersions versions) {
-		if (_projectDictionaryHandlers.TryGetValue(session, out var project)) {
-			versions = new SpellDictionaryVersions(
-				Volatile.Read(ref _userDictionaryVersion),
-				project,
-				Volatile.Read(ref project.Version));
-			return true;
-		}
-
-		versions = default;
-		return false;
-	}
+	private SpellDictionaryVersions CaptureSpellDictionaryVersions(HostSession session) =>
+		new(_userDictionary.Revision, session.ProjectDictionary.Revision);
 
 	private bool HasCurrentSpellDictionaryVersions(HostSession session, SpellDictionaryVersions versions) =>
-		versions.UserVersion == Volatile.Read(ref _userDictionaryVersion)
-		&& _projectDictionaryHandlers.TryGetValue(session, out var project)
-		&& ReferenceEquals(project, versions.Project)
-		&& versions.ProjectVersion == Volatile.Read(ref project.Version);
-
-	private bool IsCurrentProjectDictionary(HostSession session, ProjectDictionaryHandlers handlers) =>
-		_projectDictionaryHandlers.TryGetValue(session, out var current) && ReferenceEquals(current, handlers);
+		versions.UserVersion == _userDictionary.Revision
+		&& versions.ProjectVersion == session.ProjectDictionary.Revision;
 }

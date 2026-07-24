@@ -12,12 +12,10 @@ namespace Weavie.Hosting.Tests;
 
 public sealed class HostSessionAgentImageTests : IDisposable {
 	private readonly string _dir = Path.Combine(Path.GetTempPath(), "weavie-host-session-image-tests", Guid.NewGuid().ToString("N"));
-	private readonly SpellCatalog _spellingCatalog;
 	private readonly CustomDictionary _userDictionary;
 
 	public HostSessionAgentImageTests() {
 		Directory.CreateDirectory(_dir);
-		_spellingCatalog = SpellCatalog.LoadEmbedded();
 		_userDictionary = new CustomDictionary(Path.Combine(_dir, "dictionary.txt"), enableWatcher: false);
 	}
 
@@ -74,7 +72,6 @@ public sealed class HostSessionAgentImageTests : IDisposable {
 			new NoopPtyLauncher(),
 			new FakeStructuredProvider(structured),
 			new HostRuntimeInfo(HostTransport.Local, Managed: false, "test"),
-			_spellingCatalog,
 			_userDictionary);
 
 	private sealed class FakeStructuredProvider(RecordingStructuredSession session) : IAgentProvider {

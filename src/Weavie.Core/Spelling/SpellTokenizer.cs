@@ -9,7 +9,7 @@ internal static class SpellTokenizer {
 	internal static IEnumerable<SpellIssue> MisspelledParts(string text, Func<string, bool> isCorrect) {
 		int index = 0;
 		while (index < text.Length) {
-			if (!TryCandidateRune(text, index, out var rune, out int width)) {
+			if (!TryCandidateRune(text, index, out var rune, out int width) || SpellWord.IsCombiningMark(rune)) {
 				index += RuneWidth(text, index);
 				continue;
 			}
@@ -28,7 +28,7 @@ internal static class SpellTokenizer {
 			}
 
 			foreach (var part in Parts(text, start, index)) {
-				if (part.Length >= MinWordLength && !IsAllUpper(part.Word) && !isCorrect(part.Word)) {
+				if (HasMinimumLetters(part.Word) && !IsAllUpper(part.Word) && !isCorrect(part.Word)) {
 					yield return new SpellIssue(part.Start, part.Length, part.Word);
 				}
 			}
@@ -38,7 +38,7 @@ internal static class SpellTokenizer {
 	private static IEnumerable<Part> Parts(string text, int start, int end) {
 		int index = start;
 		while (index < end) {
-			if (!TryWordRune(text, index, out _, out int width)) {
+			if (!TryWordRune(text, index, out var rune, out int width) || SpellWord.IsCombiningMark(rune)) {
 				index += RuneWidth(text, index);
 				continue;
 			}
@@ -71,7 +71,9 @@ internal static class SpellTokenizer {
 				partStart = index;
 			}
 
-			previous = current;
+			if (!SpellWord.IsCombiningMark(current)) {
+				previous = current;
+			}
 			index = next;
 		}
 
@@ -97,6 +99,17 @@ internal static class SpellTokenizer {
 	private static bool IsHexCharacter(char value) => value is >= '0' and <= '9'
 		or >= 'a' and <= 'f' or >= 'A' and <= 'F';
 
+	private static bool HasMinimumLetters(string word) {
+		int count = 0;
+		foreach (var rune in word.EnumerateRunes()) {
+			if (Rune.IsLetter(rune) && ++count >= MinWordLength) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
 	private static bool IsAllUpper(string word) {
 		bool hasLetter = false;
 		foreach (var rune in word.EnumerateRunes()) {
@@ -112,18 +125,27 @@ internal static class SpellTokenizer {
 
 	private static bool TryCandidateRune(string text, int index, out Rune rune, out int width) {
 		Rune.DecodeFromUtf16(text.AsSpan(index), out rune, out width);
-		return Rune.IsLetterOrDigit(rune) || rune.Value is '_' or '-' or '\'' or 0x2019 or '.' or '/' or '\\' or ':' or '@' or '#';
+		return Rune.IsLetterOrDigit(rune) || SpellWord.IsCombiningMark(rune)
+			|| rune.Value is '_' or '-' or '\'' or 0x2019 or '.' or '/' or '\\' or ':' or '@' or '#';
 	}
 
 	private static bool TryWordRune(string text, int index, out Rune rune, out int width) {
 		Rune.DecodeFromUtf16(text.AsSpan(index), out rune, out width);
-		return Rune.IsLetter(rune) || rune.Value is '\'' or 0x2019;
+		return Rune.IsLetter(rune) || SpellWord.IsCombiningMark(rune) || rune.Value is '\'' or 0x2019;
 	}
 
 	private static int RuneWidth(string text, int index) => char.IsHighSurrogate(text[index]) && index + 1 < text.Length
 		&& char.IsLowSurrogate(text[index + 1]) ? 2 : 1;
 
 	private readonly record struct Part(int Start, int Length, string Word) {
-		internal static Part Create(string text, int start, int end) => new(start, end - start, text[start..end]);
+		internal static Part Create(string text, int start, int end) {
+			int wordEnd = IsPluralPossessive(text, start, end) ? end - 1 : end;
+			return new Part(start, wordEnd - start, text[start..wordEnd]);
+		}
+
+		private static bool IsPluralPossessive(string text, int start, int end) =>
+			end - start >= 2
+			&& text[end - 1] is '\'' or '\u2019'
+			&& text[end - 2] is 's' or 'S';
 	}
 }

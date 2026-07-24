@@ -465,7 +465,7 @@ public sealed partial class HostCore {
 			WeaviePaths.WorkspaceAgentPaneFile(Id, WorkspaceId.ForPath(cwd).Value),
 			Guid.NewGuid().ToString("n")[..8],
 			_commandRegistry, _keybindings, _themeOverrides, _corrections, _platform.PtyLauncher, provider, _runtime,
-			_spellCatalog, _userDictionary);
+			_userDictionary);
 		// Persist the shell scrollback (keyed by worktree path, stable across reloads) so a reattaching client
 		// replays a coherent screen. Shell only — claude resumes its own conversation.
 		session.Shell.ScrollbackLogPath =
@@ -802,6 +802,8 @@ public sealed partial class HostCore {
 		_mediaRoutes.Unregister(session.Id);
 		PushSessionList();
 		PersistSessionState();
+		await StopSpellOperationsForSessionAsync(session).ConfigureAwait(false);
+		await StopSpellDictionaryWritesForSessionAsync(session).ConfigureAwait(false);
 		await session.DisposeAsync().ConfigureAwait(false);
 	}
 

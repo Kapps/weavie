@@ -18,7 +18,7 @@ public sealed class SpellCheckerTests {
 	[Fact]
 	public void Check_SplitsIdentifiersAndKeepsUtf16Offsets() {
 		var issues = Checker().Check(
-			"🌱 recieveMessage", "typescript", SpellLocales.EnUs, CancellationToken.None);
+			"🌱 recieveMessage", SpellLocales.EnUs, CancellationToken.None);
 
 		var issue = Assert.Single(issues);
 		Assert.Equal("recieve", issue.Word);
@@ -27,10 +27,20 @@ public sealed class SpellCheckerTests {
 	}
 
 	[Fact]
+	public void Check_ReportsOffsetsAcrossTheWholeDocument() {
+		var issues = Checker().Check(
+			"first line\nsecond teh", SpellLocales.EnUs, CancellationToken.None);
+
+		var issue = Assert.Single(issues);
+		Assert.Equal("teh", issue.Word);
+		Assert.Equal(18, issue.Start);
+	}
+
+	[Fact]
 	public void Check_SkipsUrlsEmailsAcronymsAndDigitBearingTokens() {
 		var issues = Checker().Check(
 			"https://example.invalid/teh alpha@example.com HTTP version2 teh",
-			"typescript", SpellLocales.EnUs, CancellationToken.None);
+			SpellLocales.EnUs, CancellationToken.None);
 
 		var issue = Assert.Single(issues);
 		Assert.Equal("teh", issue.Word);
@@ -39,7 +49,58 @@ public sealed class SpellCheckerTests {
 	[Fact]
 	public void Check_NormalizesCurlyApostrophesWithoutChangingReportedText() {
 		var issues = Checker().Check(
-			"don’t teh", "plaintext", SpellLocales.EnUs, CancellationToken.None);
+			"don’t teh", SpellLocales.EnUs, CancellationToken.None);
+
+		var issue = Assert.Single(issues);
+		Assert.Equal("teh", issue.Word);
+	}
+
+	[Fact]
+	public void Check_RecognizesStraightAndCurlyPluralPossessives() {
+		var issues = Checker().Check(
+			"James' users' James’ users’ teh", SpellLocales.EnUs, CancellationToken.None);
+
+		var issue = Assert.Single(issues);
+		Assert.Equal("teh", issue.Word);
+	}
+
+	[Fact]
+	public void Check_KeepsDecomposedCombiningMarksInWordRanges() {
+		string directory = Path.Combine(Path.GetTempPath(), "weavie-spelling-tests", Guid.NewGuid().ToString("N"));
+		string dictionaryPath = Path.Combine(directory, "dictionary.txt");
+		const string known = "za\u0338z";
+		const string unknown = "zz\u0338zz";
+		try {
+			using var dictionary = new CustomDictionary(dictionaryPath, enableWatcher: false);
+			dictionary.Add(known);
+			var checker = new SpellChecker(SpellCatalog.LoadEmbedded(), [dictionary]);
+
+			var issues = checker.Check($"{known} {unknown}", SpellLocales.EnUs, CancellationToken.None);
+
+			var issue = Assert.Single(issues);
+			Assert.Equal(unknown, issue.Word);
+			Assert.Equal(known.Length + 1, issue.Start);
+			Assert.Equal(unknown.Length, issue.Length);
+		} finally {
+			if (Directory.Exists(directory)) {
+				Directory.Delete(directory, recursive: true);
+			}
+		}
+	}
+
+	[Fact]
+	public void Check_DoesNotCountCombiningMarksTowardMinimumWordLength() {
+		var issues = Checker().Check(
+			"a\u0338b teh", SpellLocales.EnUs, CancellationToken.None);
+
+		var issue = Assert.Single(issues);
+		Assert.Equal("teh", issue.Word);
+	}
+
+	[Fact]
+	public void Check_DoesNotStartAWordWithACombiningMarkAfterASeparator() {
+		var issues = Checker().Check(
+			"foo_\u0301bar teh", SpellLocales.EnUs, CancellationToken.None);
 
 		var issue = Assert.Single(issues);
 		Assert.Equal("teh", issue.Word);
@@ -55,12 +116,12 @@ public sealed class SpellCheckerTests {
 	}
 
 	[Theory]
-	[InlineData("kubernetes", "plaintext")]
-	[InlineData("angletype", "typescript")]
-	[InlineData("nint", "csharp")]
-	[InlineData("gopath", "go")]
-	public void Check_UsesEmbeddedSoftwareAndLanguageVocabulary(string word, string languageId) {
-		var issues = Checker().Check(word, languageId, SpellLocales.EnUs, CancellationToken.None);
+	[InlineData("kubernetes")]
+	[InlineData("angletype")]
+	[InlineData("nint")]
+	[InlineData("gopath")]
+	public void Check_UsesCombinedEmbeddedSoftwareVocabulary(string word) {
+		var issues = Checker().Check(word, SpellLocales.EnUs, CancellationToken.None);
 
 		Assert.Empty(issues);
 	}

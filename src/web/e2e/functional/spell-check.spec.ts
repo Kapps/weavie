@@ -7,7 +7,10 @@ import type { WeavieWindow } from "../harness/weavie-window";
 
 interface SpellFrame {
   type?: string;
-  lines?: { line?: number; text?: string }[];
+  path?: string;
+  content?: string;
+  documentRevision?: number;
+  issues?: { line?: number; word?: string }[];
 }
 
 const sent: SpellFrame[] = [];
@@ -42,82 +45,65 @@ test.beforeEach(() => {
   received.length = 0;
 });
 
-async function wordPoint(page: Page): Promise<{ x: number; y: number }> {
-  const point = await page.evaluate(() => {
-    const editor = (window as WeavieWindow).__WEAVIE_EDITOR__;
-    if (editor === undefined) {
-      return null;
-    }
-    editor.focus();
-    editor.setPosition({ lineNumber: 1, column: 2 });
-    const visible = editor.getScrolledVisiblePosition({ lineNumber: 1, column: 2 });
-    const rect = editor.getDomNode()?.getBoundingClientRect();
-    return visible === null || rect === null
-      ? null
-      : { x: rect.left + visible.left + 1, y: rect.top + visible.top + visible.height / 2 };
-  });
+async function wordPoint(
+  page: Page,
+  lineNumber: number,
+  column: number,
+): Promise<{ x: number; y: number }> {
+  const point = await page.evaluate(
+    ({ lineNumber, column }) => {
+      const editor = (window as WeavieWindow).__WEAVIE_EDITOR__;
+      if (editor === undefined) {
+        return null;
+      }
+      editor.focus();
+      editor.setPosition({ lineNumber, column });
+      const visible = editor.getScrolledVisiblePosition({ lineNumber, column });
+      const rect = editor.getDomNode()?.getBoundingClientRect();
+      return visible === null || rect === null
+        ? null
+        : { x: rect.left + visible.left + 1, y: rect.top + visible.top + visible.height / 2 };
+    },
+    { lineNumber, column },
+  );
   if (point === null) {
     throw new Error("The spelling target is not visible in Monaco.");
   }
   return point;
 }
 
-test("manual spelling marks edited lines, offers corrections, and persists a project word", async ({
+test("spelling checks an open document, offers corrections, and survives reload", async ({
   page,
   weavie,
 }) => {
   await openFile(page, "spell-check.txt");
   const underlines = page.locator(".monaco-editor .weavie-spell-issue");
-
-  // The seeded typo is intentionally quiet: only a manually changed line enters spell checking.
-  await expect(underlines).toHaveCount(0);
+  await expect(underlines).toHaveCount(1);
+  const updates = () => sent.filter((frame) => frame.type === "spell-document-changed");
+  const diagnostics = () => received.filter((frame) => frame.type === "spell-diagnostics");
+  await expect.poll(() => updates().length).toBe(1);
+  expect(updates()[0]?.content).toBe("teh\n");
+  expect(updates()[0]?.documentRevision).toBe(1);
+  const spellFile = join(weavie.workspace, "spell-check.txt");
 
   await page.evaluate(() => {
     const editor = (window as WeavieWindow).__WEAVIE_EDITOR__;
-    editor?.focus();
-    editor?.setPosition({ lineNumber: 1, column: 4 });
+    const model = editor?.getModel();
+    if (editor === undefined || model === null) {
+      throw new Error("The spelling model is unavailable.");
+    }
+    editor.focus();
+    editor.setPosition({ lineNumber: 1, column: model.getLineMaxColumn(1) });
   });
-  await page.keyboard.press("Space");
-
-  await expect(underlines).toHaveCount(1);
-  const checks = () => sent.filter((frame) => frame.type === "spell-check");
-  await expect.poll(() => checks().length).toBe(1);
-  expect(checks()[0]?.lines?.map((line) => line.text)).toEqual(["teh "]);
-  const spellFile = join(weavie.workspace, "spell-check.txt");
-  await expect.poll(async () => readFile(spellFile, "utf8")).toBe("teh \n");
-
-  const point = await wordPoint(page);
-  await page.mouse.click(point.x, point.y, { button: "right" });
+  await page.keyboard.press("F7");
   const menu = page.locator(".context-menu").first();
-  await expect(menu.getByRole("button", { name: /^the$/i })).toBeVisible();
   const dictionary = menu.getByRole("button", { name: "Add to Dictionary" });
-  await expect(dictionary).toHaveAttribute("aria-haspopup", "true");
-  await dictionary.hover();
-  const project = page.getByRole("button", { name: "Project" });
-  await expect(project).toBeVisible();
-  const checksBeforeDictionary = checks().length;
-  await project.click();
-
-  const dictionaryFile = join(weavie.workspace, ".weavie", "dictionary.txt");
-  await expect
-    .poll(async () => {
-      try {
-        return await readFile(dictionaryFile, "utf8");
-      } catch {
-        return "";
-      }
-    })
-    .toContain("teh");
-
-  // The dictionary update clears stale decorations, schedules the edited anchor again, and the real Core
-  // response confirms that the persisted project word is now accepted.
-  await expect.poll(() => checks().length).toBeGreaterThan(checksBeforeDictionary);
-  expect(
-    checks().every((frame) => frame.lines?.every((line) => line.text === "teh ") ?? false),
-  ).toBe(true);
-  await expect
-    .poll(() => received.filter((frame) => frame.type === "spell-check-result").length)
-    .toBeGreaterThan(checksBeforeDictionary);
+  await expect(dictionary).toBeFocused();
+  const correction = menu.getByRole("button", { name: /^the$/i });
+  await expect(correction).toBeVisible();
+  await expect(dictionary).toBeFocused();
+  await correction.click();
+  await expect.poll(async () => readFile(spellFile, "utf8")).toBe("the\n");
   await expect(underlines).toHaveCount(0);
 
   await page.evaluate(() => {
@@ -130,33 +116,72 @@ test("manual spelling marks edited lines, offers corrections, and persists a pro
     editor.setPosition({ lineNumber: 1, column: model.getLineMaxColumn(1) });
   });
   await page.keyboard.press("Enter");
+  await page.keyboard.type("projectwurd");
+  await expect(underlines).toHaveCount(1);
+
+  const point = await wordPoint(page, 2, 2);
+  await page.mouse.click(point.x, point.y, { button: "right" });
+  const dictionaryMenu = page.locator(".context-menu").first();
+  const addToDictionary = dictionaryMenu.getByRole("button", { name: "Add to Dictionary" });
+  await expect(addToDictionary).toBeVisible();
+  await addToDictionary.hover();
+  const project = page.getByRole("button", { name: /^Project(?:\s|$)/ });
+  await expect(addToDictionary).toHaveAttribute("aria-haspopup", "true");
+  await expect(project).toBeVisible();
+  const updatesBeforeDictionary = updates().length;
+  const diagnosticsBeforeDictionary = diagnostics().length;
+  await project.click();
+
+  const dictionaryFile = join(weavie.workspace, ".weavie", "dictionary.txt");
+  await expect
+    .poll(async () => {
+      try {
+        return await readFile(dictionaryFile, "utf8");
+      } catch {
+        return "";
+      }
+    })
+    .toContain("projectwurd");
+
+  // The projected dictionary notification invalidates diagnostics and resubmits every open document.
+  await expect.poll(() => updates().length).toBeGreaterThan(updatesBeforeDictionary);
+  await expect.poll(() => diagnostics().length).toBeGreaterThan(diagnosticsBeforeDictionary);
+  await expect(underlines).toHaveCount(0);
+
+  await page.evaluate(() => {
+    const editor = (window as WeavieWindow).__WEAVIE_EDITOR__;
+    const model = editor?.getModel();
+    if (editor === undefined || model === null) {
+      throw new Error("The spelling model is unavailable.");
+    }
+    editor.focus();
+    editor.setPosition({ lineNumber: 2, column: model.getLineMaxColumn(2) });
+  });
+  await page.keyboard.press("Enter");
   await page.keyboard.type("persisttypo");
   await expect(underlines).toHaveCount(1);
-  await expect.poll(async () => readFile(spellFile, "utf8")).toBe("teh \npersisttypo\n");
+  await expect
+    .poll(async () => readFile(spellFile, "utf8"))
+    .toBe("the\nprojectwurd\npersisttypo\n");
 
-  // A fresh page owns fresh Monaco models. The startup restore reply can arrive before the controller finishes
-  // constructing its editor host, so the controller must preserve it until the live SpellSession can apply it.
-  const checksBeforeReload = checks().length;
+  // A rebuilt editor submits each restored working copy like any newly opened document.
+  const updatesBeforeReload = updates().length;
+  const diagnosticsBeforeReload = diagnostics().length;
   await page.reload({ waitUntil: "domcontentloaded" });
   await expect(page.locator("#splash")).toHaveCount(0);
   await awaitEditorReady(page);
   await openFile(page, "spell-check.txt");
-  const restores = () => received.filter((frame) => frame.type === "spell-restore-result");
+  await expect.poll(() => updates().length).toBeGreaterThan(updatesBeforeReload);
   await expect
     .poll(() =>
-      restores().some(
-        (frame) =>
-          frame.lines?.some((line) => line.line === 2 && line.text === "persisttypo") ?? false,
-      ),
-    )
-    .toBe(true);
-  await expect
-    .poll(() =>
-      checks().some(
-        (frame, index) =>
-          index >= checksBeforeReload &&
-          frame.lines?.some((line) => line.text === "persisttypo") === true,
-      ),
+      diagnostics()
+        .slice(diagnosticsBeforeReload)
+        .some(
+          (frame) =>
+            frame.documentRevision !== undefined &&
+            (frame.issues?.some((issue) => issue.line === 3 && issue.word === "persisttypo") ??
+              false),
+        ),
     )
     .toBe(true);
   await expect(underlines).toHaveCount(1);

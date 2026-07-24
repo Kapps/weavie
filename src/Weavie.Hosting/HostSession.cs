@@ -446,6 +446,16 @@ public sealed class HostSession : IAsyncDisposable {
 		FileOpener.Open(path, 1, preview: false, scratch: true);
 	}
 
+	/// <summary>Reveals the exact completed agent plan in this session's editor channel.</summary>
+	public bool OpenAgentPlan(string threadId, string turnId, string itemId) {
+		if (!Agent.TryGetCompletedPlan(threadId, turnId, itemId, out var plan)) {
+			return false;
+		}
+
+		EditorChannel.Reveal(AgentPlanProtocol.Show(plan with { Id = $"{Id}:{plan.Id}" }));
+		return true;
+	}
+
 	private static Action<string> Tagged(string tag) => line => {
 		Console.WriteLine($"{tag} {line}");
 		Console.Out.Flush();

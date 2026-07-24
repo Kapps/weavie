@@ -83,7 +83,6 @@ public sealed partial class CodexAppServerSession : IStructuredAgentControls {
 					break;
 				case "effort":
 					_effortOverride = value;
-					_modeEffort = value;
 					break;
 				case "serviceTier": _serviceTierOverride = value; break;
 				case "approvalPolicy": _approvalOverride = value; break;
@@ -328,12 +327,24 @@ public sealed partial class CodexAppServerSession : IStructuredAgentControls {
 	}
 
 	private string EffortDisplay(CodexModelEntry entry) {
-		string effort = _modeEffort ?? EffortOverrideOrSetting(entry);
-		return effort.Length > 0 ? effort : entry.DefaultEffort;
+		string effort = EffortOverrideOrSetting(entry);
+		string fallback = ModeEffortFallback(entry);
+		return effort.Length > 0 ? effort : fallback.Length > 0 ? fallback : entry.DefaultEffort;
 	}
 
-	private string EffectiveEffortLocked() =>
-		_modeEffort ?? EffortOverrideOrSetting(EffectiveModelEntryLocked());
+	private string EffectiveEffortLocked() {
+		var entry = EffectiveModelEntryLocked();
+		string effort = EffortOverrideOrSetting(entry);
+		return effort.Length > 0 ? effort : ModeEffortFallback(entry);
+	}
+
+	private string ModeEffortFallback(CodexModelEntry entry) {
+		if (_modeEffort is not { Length: > 0 } effort) {
+			return string.Empty;
+		}
+
+		return entry.Efforts.Any(option => option.Id == effort) ? effort : entry.DefaultEffort;
+	}
 
 	private string ServiceTierDisplay(CodexModelEntry entry) {
 		string tier = ServiceTierOverrideOrSetting(entry);
@@ -348,16 +359,12 @@ public sealed partial class CodexAppServerSession : IStructuredAgentControls {
 		? "never"
 		: _approvalOverride.Length > 0 ? _approvalOverride : ApprovalPolicy();
 
-	// After a model change, replace any effort/tier override the new model doesn't support with an explicit value
-	// that clears the stale one on Codex's side: the effort resets to the new model's default, the tier to Standard
-	// (a JSON null). Both are sent on the next turn/start, so an unsupported value can never linger on the thread.
+	// After a model change, replace an effort/tier override the new model doesn't support with an explicit value
+	// that clears the stale one on Codex's side: the effort resets to the new model's default, the tier to Standard.
 	private void DropInvalidDerivedOverrides() {
 		var entry = BaseModelEntryLocked();
 		if (_effortOverride.Length > 0 && entry.Efforts.All(option => option.Id != _effortOverride)) {
 			_effortOverride = entry.DefaultEffort;
-		}
-		if (_modeEffort is not null && entry.Efforts.All(option => option.Id != _modeEffort)) {
-			_modeEffort = entry.DefaultEffort;
 		}
 
 		if (_serviceTierOverride.Length > 0
@@ -445,7 +452,7 @@ public sealed partial class CodexAppServerSession : IStructuredAgentControls {
 					$"Codex no longer offers the saved '{_collaborationMode}' mode. Choose an advertised mode before submitting.");
 			return selected with {
 				Model = EffectiveModelIdLocked(),
-				ReasoningEffort = _modeEffort,
+				ReasoningEffort = EffectiveEffortLocked() is { Length: > 0 } effort ? effort : null,
 			};
 		}
 	}

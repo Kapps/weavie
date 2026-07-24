@@ -161,6 +161,44 @@ public sealed class AgentSessionHostTests {
 		Assert.Equal("prior result", replayed.GetProperty("text").GetString());
 	}
 
+	[Fact]
+	public async Task CompletedPlan_IsAvailableOnlyForItsExactCurrentIdentity() {
+		await using var fixture = CreateFixture(static () => "slot-1", static (_, _) => { }, 0);
+		var (session, host) = (fixture.Session, fixture.Host);
+		const string threadId = "thread-plan";
+		const string turnId = "turn-plan";
+		const string itemId = "item-plan";
+
+		session.Emit(new AgentPaneMessage {
+			Type = "plan-delta",
+			ProviderId = "codex",
+			ThreadId = threadId,
+			TurnId = turnId,
+			ItemId = itemId,
+			ItemType = "plan",
+			Text = "# Draft",
+		});
+		Assert.False(host.TryGetCompletedPlan(threadId, turnId, itemId, out _));
+
+		session.Emit(new AgentPaneMessage {
+			Type = "item-completed",
+			ProviderId = "codex",
+			ThreadId = threadId,
+			TurnId = turnId,
+			ItemId = itemId,
+			ItemType = "plan",
+			Text = "# Final plan",
+		});
+		Assert.True(host.TryGetCompletedPlan(threadId, turnId, itemId, out var plan));
+		Assert.Equal("# Final plan", plan.Markdown);
+		Assert.False(host.TryGetCompletedPlan("another-thread", turnId, itemId, out _));
+		Assert.False(host.TryGetCompletedPlan(threadId, "another-turn", itemId, out _));
+		Assert.False(host.TryGetCompletedPlan(threadId, turnId, "another-item", out _));
+
+		session.Emit(new AgentPaneMessage { Type = "transcript-reset", ProviderId = "codex" });
+		Assert.False(host.TryGetCompletedPlan(threadId, turnId, itemId, out _));
+	}
+
 	// Regression for the remote cold-start blank pane: on a slow resume, a page's ReplayPane (page `ready`, one
 	// thread) races the async hydrate (thread/resume, another thread). Both reset then repopulate the pane. Unless
 	// their web posts are ordered with their `_paneMessages` mutations, a trailing ReplayPane reset can land after

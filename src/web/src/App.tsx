@@ -148,6 +148,7 @@ import { runTestAtCursor } from "./tests/test-lens";
 import { applyChromeTheme } from "./theme";
 
 const FileBrowser = lazy(() => import("./files/FileBrowser"));
+const PlanView = lazy(() => import("./editor/plan/PlanView"));
 const PreviewPane = lazy(() => import("./editor/preview/PreviewPane"));
 const SourceView = lazy(() => import("./editor/source/SourceView"));
 const SearchPanel = lazy(() =>
@@ -543,6 +544,16 @@ export default function App(): JSX.Element {
     return openTabs().find((tab) => tab.path === path)?.kind === "source" ? path : null;
   });
 
+  // The active virtual plan path — its host-owned Markdown stays in the in-memory plan store and never joins the
+  // persisted editor session.
+  const activePlanPath = createMemo<string | null>(() => {
+    const path = activePath();
+    if (path === null) {
+      return null;
+    }
+    return openTabs().find((tab) => tab.path === path)?.kind === "plan" ? path : null;
+  });
+
   // Bind the page to `backendId`, then run `then` (which posts the session command). When crossing to a
   // different backend, first persist the outgoing session's unsaved edits before requesting the incoming
   // session. File writes remain pinned to the editor owner throughout the handoff. Same-backend binds run
@@ -792,6 +803,12 @@ export default function App(): JSX.Element {
                   doc={() => sourceDoc(activeSourceTarget() as string)}
                   target={() => activeSourceTarget() as string}
                 />
+              </Suspense>
+            </Show>
+            {/* A completed agent plan: host-owned Markdown in a read-only virtual document. */}
+            <Show when={activePlanPath() !== null}>
+              <Suspense>
+                <PlanView path={() => activePlanPath() as string} />
               </Suspense>
             </Show>
           </div>

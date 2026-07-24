@@ -135,4 +135,13 @@ public sealed class CommandTests {
 		Assert.Equal("shift+tab", Assert.Single(command.DefaultKeybindings).Key);
 		Assert.Equal("agentFocused && !agentSlashMenuOpen && !agentControlPickerOpen", command.When);
 	}
+
+	[Fact]
+	public void OpenAgentPlan_UsesTheFocusedAgentBinding() {
+		var command = CoreCommands.CreateRegistry().Require(CoreCommands.OpenAgentPlan);
+
+		Assert.Equal(CommandLocation.Web, command.RunsIn);
+		Assert.Equal("alt+p", Assert.Single(command.DefaultKeybindings).Key);
+		Assert.Equal("agentFocused", command.When);
+	}
 }

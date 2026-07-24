@@ -6,6 +6,11 @@ internal sealed class FakeCodexAgentProvider : IAgentProvider {
 	/// <summary>A prompt that makes the fake abandon its thread (emit a <c>transcript-reset</c>) instead of answering.</summary>
 	public const string ResetPrompt = "reset-thread";
 
+	/// <summary>A prompt that makes the fake emit one completed Markdown plan.</summary>
+	public const string PlanPrompt = "emit-plan";
+
+	public const string PlanMarkdown = "# Plan\n\n- Inspect the code\n- Implement the fix";
+
 	public AgentProviderInfo Info { get; } = new() {
 		Id = "codex",
 		Name = "Codex (WIP)",
@@ -61,6 +66,34 @@ internal sealed class FakeCodexAgentProvider : IAgentProvider {
 			ArgumentNullException.ThrowIfNull(submission);
 			if (submission.Text == ResetPrompt) {
 				PaneMessage?.Invoke(new AgentPaneMessage { Type = "transcript-reset", ProviderId = "codex" });
+				return;
+			}
+			if (submission.Text == PlanPrompt) {
+				_turns++;
+				string turn = $"turn-{_turns}";
+				string planItem = $"plan-{_turns}";
+				PaneMessage?.Invoke(new AgentPaneMessage {
+					Type = "plan-delta",
+					ProviderId = "codex",
+					ThreadId = "thread-fake",
+					TurnId = turn,
+					ItemId = planItem,
+					ItemType = "plan",
+					Category = "plan",
+					Text = "# Plan",
+					Status = "inProgress",
+				});
+				PaneMessage?.Invoke(new AgentPaneMessage {
+					Type = "item-completed",
+					ProviderId = "codex",
+					ThreadId = "thread-fake",
+					TurnId = turn,
+					ItemId = planItem,
+					ItemType = "plan",
+					Category = "plan",
+					Text = PlanMarkdown,
+					Status = "completed",
+				});
 				return;
 			}
 

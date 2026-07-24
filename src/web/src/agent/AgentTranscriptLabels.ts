@@ -2,12 +2,8 @@ import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 
 type SectionLabel = "Updates" | "Results";
 
-/**
- * Section label per assistant entry, computed in a single O(entries) back-to-front pass (keyed by entry id) so
- * the transcript never re-derives labels per row. An assistant message is "Results" when a later user message
- * follows it (a finished turn), omitted when a later assistant message follows (it is an earlier update), and —
- * when it is the last message — "Updates" while the turn runs or "Results" once it ends. Omitted ids read as null.
- */
+/** Computes assistant-result section labels in one back-to-front pass, keyed by entry id.
+ * Earlier results are omitted; the final result follows the later user message and active-turn state. */
 export function computeSectionLabels(
   entries: readonly AgentTranscriptEntry[],
   turnActive: boolean,
@@ -16,11 +12,11 @@ export function computeSectionLabels(
   let laterMessageTone: "user" | "assistant" | null = null;
   for (let index = entries.length - 1; index >= 0; index -= 1) {
     const entry = entries[index];
-    if (entry === undefined || entry.kind !== "message") {
+    if (entry === undefined || (entry.kind !== "message" && entry.kind !== "plan")) {
       continue;
     }
 
-    if (entry.tone === "assistant") {
+    if (isResult(entry)) {
       if (laterMessageTone === "user") {
         labels.set(entry.id, "Results");
       } else if (laterMessageTone === null) {
@@ -31,4 +27,8 @@ export function computeSectionLabels(
   }
 
   return labels;
+}
+
+function isResult(entry: AgentTranscriptEntry): boolean {
+  return entry.tone === "assistant" && (entry.kind === "message" || entry.kind === "plan");
 }

@@ -33,6 +33,7 @@ import { normalizePath, samePath, uriHostPath } from "./fs-path";
 import type { HunkRevert, HunkUnkeep, InlineDiff, InlineDiffOptions } from "./inline-diff";
 import { mediaTypeOf } from "./media/media-types";
 import { createNavHistory, type NavHistory } from "./nav-history";
+import { setAgentPlan } from "./plan/plan-store";
 import {
   type ActivateResult,
   activateTab,
@@ -165,6 +166,8 @@ export interface EditorController {
   openWebTab(url: string): void;
   /** Opens a fetched source doc (Notion) as a source (shadow-root) tab in the editor tab strip, keyed by its target. */
   openSourceTab(target: string): void;
+  /** Opens host-owned Markdown as a transient, read-only plan tab. */
+  openPlanTab(id: string, title: string, markdown: string): void;
   /** Handles an editor-related host message; returns false for messages this controller doesn't own. */
   handleMessage(message: WebBoundMessage): boolean;
   /** Focuses the editor (for focus-pane). */
@@ -335,12 +338,17 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   // Resolves once the (async) model swap has settled — nav history awaits this to know when a back/forward step
   // has landed, so don't drop the return value: mid-swap the editor still reports the old file (see nav-history).
   const applyActive = (result: ActivateResult): Promise<void> => {
-    deps.onCurrentFileChanged(result.path);
-    // A web/source overlay tab has no Monaco model: leave the editor host untouched (App overlays the iframe /
-    // shadow-root render over it) and never read the path as a file. Same for a media (image/video) file tab —
+    // An overlay tab has no Monaco model: leave the editor host untouched (App overlays it) and never read the
+    // path as a file. Same for a media (image/video) file tab —
     // reading it as a working copy would decode binary as UTF-8 and autosave could write the mojibake back.
     const activeKind = openTabs().find((tab) => tab.path === result.path)?.kind;
-    if (activeKind === "web" || activeKind === "source" || mediaTypeOf(result.path) !== null) {
+    deps.onCurrentFileChanged(activeKind === "plan" ? null : result.path);
+    if (
+      activeKind === "web" ||
+      activeKind === "source" ||
+      activeKind === "plan" ||
+      mediaTypeOf(result.path) !== null
+    ) {
       host?.clear();
       return Promise.resolve();
     }
@@ -485,6 +493,12 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     void applyActive(openTab(target, { kind: "source" }));
   };
 
+  const openPlanTab = (id: string, title: string, markdown: string): void => {
+    void applyActive(openTab(setAgentPlan(id, title, markdown), { kind: "plan" })).then(
+      focusEditorSurface,
+    );
+  };
+
   // Switch the editor off a closing tab before its working copy is released, else clear to an empty pane.
   const applyOrClear = (next: ActivateResult | null): void => {
     if (next !== null) {
@@ -538,10 +552,10 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     const scratchPaths = new Set(
       doomed.filter((entry) => entry.scratch === true).map((entry) => entry.path),
     );
-    // Web/source overlay tabs have no working copy to release.
+    // Overlay tabs have no working copy to release.
     const overlayPaths = new Set(
       doomed
-        .filter((entry) => entry.kind === "web" || entry.kind === "source")
+        .filter((entry) => entry.kind === "web" || entry.kind === "source" || entry.kind === "plan")
         .map((entry) => entry.path),
     );
     const wasActive = activePath();
@@ -565,11 +579,11 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   };
 
   // Recently-closed file/web/source tabs, most-recent last, so Reopen Closed Editor (Ctrl+Shift+T) can bring one
-  // back. Scratch buffers are excluded — their content is discarded on close, so there's nothing to reopen.
+  // back. Scratch and virtual plan tabs are excluded because neither is a persistent document.
   const closedTabs: { path: string; kind: EditorSessionEntry["kind"] }[] = [];
   const CLOSED_TABS_LIMIT = 25;
   const recordClosed = (entry: EditorSessionEntry): void => {
-    if (entry.scratch === true) {
+    if (entry.scratch === true || entry.kind === "plan") {
       return;
     }
     closedTabs.push({ path: entry.path, kind: entry.kind });
@@ -616,8 +630,8 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     if (entry.path === wasActive) {
       applyOrClear(result.next);
     }
-    // A web tab has no working copy / Monaco model to release.
-    if (entry.kind !== "web") {
+    // Overlay tabs have no working copy / Monaco model to release.
+    if (entry.kind !== "web" && entry.kind !== "source" && entry.kind !== "plan") {
       releaseClosed(result.disposed, scratch);
     }
   };
@@ -1048,6 +1062,9 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
 
   const handleMessage = (message: WebBoundMessage): boolean => {
     switch (message.type) {
+      case "show-agent-plan":
+        openPlanTab(message.id, message.title, message.markdown);
+        return true;
       case "show-diff": {
         // Render Claude's openDiff proposal inline over a transient review model (the real working copy is
         // never touched): the editor shows `proposed`, diffed vs `original`, with a Keep/Reject toolbar.
@@ -1316,6 +1333,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     openFile,
     openWebTab,
     openSourceTab,
+    openPlanTab,
     handleMessage,
     focusEditor: focusEditorSurface,
     selectionText: () => {

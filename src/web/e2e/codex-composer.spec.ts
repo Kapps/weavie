@@ -176,6 +176,7 @@ const catalog = {
   commands: [
     agentCommand("weavie.agent.submit", "Submit Agent Prompt", "agentComposerFocused", ["enter"]),
     agentCommand("weavie.agent.interrupt", "Interrupt Agent Turn", "agentFocused", ["escape"]),
+    agentCommand("weavie.agent.openPlan", "Open Agent Plan", "agentFocused", ["alt+p"]),
     agentCommand("weavie.agent.togglePlanMode", "Toggle Agent Plan Mode", "agentFocused", [
       "shift+tab",
     ]),
@@ -192,6 +193,7 @@ const catalog = {
   keybindings: [
     { key: "enter", command: "weavie.agent.submit", when: "agentComposerFocused" },
     { key: "escape", command: "weavie.agent.interrupt", when: "agentFocused" },
+    { key: "alt+p", command: "weavie.agent.openPlan", when: "agentFocused" },
     { key: "shift+tab", command: "weavie.agent.togglePlanMode", when: "agentFocused" },
     { key: "alt+y", command: "weavie.agent.approve", when: approvalWhen },
     { key: "alt+shift+y", command: "weavie.agent.approveForSession", when: approvalWhen },
@@ -386,6 +388,64 @@ test.describe("Codex composer", () => {
         () => host.received.filter((message) => message.type === "agent-set-control").at(-1)?.value,
       )
       .toBe("default");
+  });
+
+  test("a completed plan opens as a read-only editor document", async ({ page }) => {
+    await mountCodex(page);
+    host.pushToWeb(catalog);
+    host.pushToWeb(
+      paneMessage({
+        type: "item-completed",
+        threadId: "thread-plan",
+        turnId: "turn-plan",
+        itemId: "plan-1",
+        itemType: "plan",
+        text: "# Implementation\n\n1. Add the plan document.",
+        status: "completed",
+      }),
+    );
+
+    const card = page.locator(".agent-entry-plan");
+    await expect(card).toContainText("Ready to review in the editor");
+    await expect(card).not.toContainText("Implementation");
+    const open = card.getByRole("button", { name: "Open plan" });
+    await expect(open).toHaveAttribute("title", "Open plan in editor (Alt+P)");
+    await open.click();
+    expect(await host.waitForMessage("open-agent-plan")).toMatchObject({
+      slot: "cx",
+      threadId: "thread-plan",
+      turnId: "turn-plan",
+      itemId: "plan-1",
+    });
+
+    host.pushToWeb({
+      type: "show-agent-plan",
+      id: "cx:thread-plan:turn-plan:plan-1",
+      title: "Implementation plan",
+      markdown: "# Implementation\n\n1. Add the plan document.",
+    });
+
+    const plan = page.locator(".editor-plan");
+    await expect(plan).toBeVisible();
+    await expect(plan.locator(".editor-plan-head h1")).toHaveText("Implementation plan");
+    await expect(plan.locator(".agent-markdown")).toContainText("Add the plan document.");
+    await expect(page.locator(".editor-tab", { hasText: "Implementation plan" })).toBeVisible();
+    await page.screenshot({ path: join(shotsDir, "14-plan-document.png") });
+  });
+
+  test("Alt+P explains when no completed plan is available", async ({ page }) => {
+    await mountCodex(page);
+    host.pushToWeb(catalog);
+
+    await expect(page.locator(".agent-status-segment", { hasText: "Default" })).toHaveAttribute(
+      "title",
+      /Shift\+Tab/,
+    );
+    await page.locator("[data-agent-composer] textarea").click();
+    await page.keyboard.press("Alt+p");
+    await expect(
+      page.locator(".toast", { hasText: "No completed plan is available yet." }),
+    ).toBeVisible();
   });
 
   test("status line links the current branch's pull request", async ({ page }) => {

@@ -405,6 +405,7 @@ const BOOTSTRAP_GLOBALS: Record<string, unknown> = {
     gates: { turnComplete: true, needsInput: true, failed: true },
   },
   __WEAVIE_EDITOR_OPTIONS__: {},
+  __WEAVIE_SPELL_SETTINGS__: { enabled: true, locale: "en-US" },
   __WEAVIE_THEME__: { mode: "system", light: { id: "weavie-light" }, dark: { id: "weavie-dark" } },
   __WEAVIE_COMMANDS__: [],
   __WEAVIE_KEYBINDINGS__: [],

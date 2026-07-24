@@ -89,5 +89,6 @@
 
   <!-- Build + co-locate the standalone hook relay (Debug managed / Release NativeAOT) next to the host. -->
   <Import Project="..\HookRelay.targets" />
+  <Import Project="..\ThirdPartyNotices.targets" />
 
 </Project>

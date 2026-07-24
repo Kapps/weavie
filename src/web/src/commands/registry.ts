@@ -24,8 +24,11 @@ const SESSION_LIFECYCLE = new Set<string>([
 ]);
 
 // A web command handler. Return `false` to decline (let a keybinding's keystroke fall through);
-// anything else, including a Promise or undefined, consumes the event.
-export type CommandHandler = (args: unknown) => void | boolean | Promise<void>;
+// anything else, including a Promise that resolves non-false, consumes the event.
+export type CommandHandler =
+  | ((args: unknown) => void)
+  | ((args: unknown) => boolean)
+  | ((args: unknown) => Promise<unknown>);
 
 let commands: CommandInfo[] = hostInjected("__WEAVIE_COMMANDS__", window.__WEAVIE_COMMANDS__, []);
 let keybindings: ResolvedKeybinding[] = hostInjected(
@@ -200,8 +203,12 @@ async function ackRunCommand(id: string, args: unknown, token: string): Promise<
   }
   inFlightCommands.add(token);
   try {
-    await handler(args);
-    postToHost({ type: "command-ack", token, ok: true });
+    const outcome = await handler(args);
+    postToHost(
+      outcome === false
+        ? { type: "command-ack", token, ok: false, error: `Command '${id}' declined.` }
+        : { type: "command-ack", token, ok: true },
+    );
   } catch (error) {
     postToHost({ type: "command-ack", token, ok: false, error: String(error) });
   } finally {

@@ -1,0 +1,32 @@
+<Project>
+
+  <!-- Flat hosts ship spelling notices beside the executable; macOS puts them in the app bundle's Resources. -->
+  <PropertyGroup>
+    <_ThirdPartyNoticesDir>$(MSBuildThisFileDirectory)..\third-party\spelling\</_ThirdPartyNoticesDir>
+    <_ThirdPartyNoticesDestination>third-party/spelling/</_ThirdPartyNoticesDestination>
+    <_ThirdPartyNoticesDestination Condition="$(TargetFramework.Contains('-macos'))">$(AssemblyName).app/Contents/Resources/third-party/spelling/</_ThirdPartyNoticesDestination>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <_ThirdPartyNotice Include="$(_ThirdPartyNoticesDir)**\*" />
+  </ItemGroup>
+
+  <Target Name="CopyThirdPartyNotices"
+          AfterTargets="Build"
+          Inputs="@(_ThirdPartyNotice)"
+          Outputs="$(OutDir)$(_ThirdPartyNoticesDestination)NOTICE.md">
+    <Copy SourceFiles="@(_ThirdPartyNotice)"
+          DestinationFiles="@(_ThirdPartyNotice->'$(OutDir)$(_ThirdPartyNoticesDestination)%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+  </Target>
+
+  <Target Name="StageThirdPartyNoticesForPublish" BeforeTargets="ComputeFilesToPublish">
+    <ItemGroup>
+      <ResolvedFileToPublish Include="@(_ThirdPartyNotice)">
+        <RelativePath>$(_ThirdPartyNoticesDestination)%(RecursiveDir)%(Filename)%(Extension)</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      </ResolvedFileToPublish>
+    </ItemGroup>
+  </Target>
+
+</Project>

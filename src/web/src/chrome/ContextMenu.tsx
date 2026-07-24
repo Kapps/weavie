@@ -32,6 +32,7 @@ export interface ContextMenuState {
   x: number;
   y: number;
   header?: string;
+  busy?: boolean;
   entries: ContextMenuEntry[];
 }
 
@@ -57,11 +58,13 @@ function MenuPanel(props: {
   anchorRect?: DOMRect;
   // Focus the first row on mount (keyboard-opened submenu); a mouse-opened one leaves focus on the cursor.
   autoFocus?: boolean;
+  // An inert root menu can own focus while its final entries are being resolved.
+  busy?: boolean;
   // Close this panel and return focus to the row that opened it (the parent's ArrowLeft / Escape path).
   onCloseSelf?: () => void;
 }): JSX.Element {
   let panelEl: HTMLDivElement | undefined;
-  const [openIndex, setOpenIndex] = createSignal<number | null>(null);
+  const [openEntry, setOpenEntry] = createSignal<ContextMenuSubmenu | null>(null);
   const [opener, setOpener] = createSignal<HTMLButtonElement | null>(null);
   const [anchorRect, setAnchorRect] = createSignal<DOMRect | null>(null);
   const [autoFocusChild, setAutoFocusChild] = createSignal(false);
@@ -69,27 +72,30 @@ function MenuPanel(props: {
   const rows = (): HTMLButtonElement[] =>
     panelEl ? [...panelEl.querySelectorAll<HTMLButtonElement>(".context-menu-item")] : [];
 
-  // The open fly-out as one value, so the render never reads a half-set (index without rect, or vice versa)
+  // The open fly-out as one value, so the render never reads a half-set (entry without rect, or vice versa)
   // mid-update — both signals are folded here and the panel renders only when the whole thing is present.
   const openFlyout = createMemo(() => {
-    const index = openIndex();
+    const entry = openEntry();
     const rect = anchorRect();
-    const entry = index === null ? undefined : props.entries[index];
-    if (rect === null || entry === undefined || entry.kind !== "submenu") {
+    if (rect === null || entry === null || !props.entries.includes(entry)) {
       return null;
     }
     return { entries: entry.entries, rect };
   });
 
-  const openSubmenu = (index: number, row: HTMLButtonElement, viaKeyboard: boolean): void => {
+  const openSubmenu = (
+    entry: ContextMenuSubmenu,
+    row: HTMLButtonElement,
+    viaKeyboard: boolean,
+  ): void => {
     setOpener(row);
     // The panel has already clamped, so the row's rect is final — capture it to anchor the fly-out.
     setAnchorRect(row.getBoundingClientRect());
     setAutoFocusChild(viaKeyboard);
-    setOpenIndex(index);
+    setOpenEntry(entry);
   };
   const collapseSubmenu = (): void => {
-    setOpenIndex(null);
+    setOpenEntry(null);
     setAnchorRect(null);
   };
   const closeSubmenu = (): void => {
@@ -100,6 +106,13 @@ function MenuPanel(props: {
 
   const onKeyDown = (event: KeyboardEvent): void => {
     const list = rows();
+    if (list.length === 0) {
+      if (props.busy && event.key !== "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+      return;
+    }
     const current = list.indexOf(document.activeElement as HTMLButtonElement);
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
@@ -115,9 +128,10 @@ function MenuPanel(props: {
     } else if (event.key === "ArrowRight") {
       const row = document.activeElement as HTMLButtonElement;
       const index = Number(row?.dataset.entryIndex);
-      if (Number.isInteger(index) && props.entries[index]?.kind === "submenu") {
+      const entry = props.entries[index];
+      if (Number.isInteger(index) && entry?.kind === "submenu") {
         event.preventDefault();
-        openSubmenu(index, row, true);
+        openSubmenu(entry, row, true);
       }
     } else if (event.key === "ArrowLeft" && props.onCloseSelf !== undefined) {
       event.preventDefault();
@@ -152,7 +166,12 @@ function MenuPanel(props: {
     queueMicrotask(() => {
       clampToViewport();
       if (props.autoFocus) {
-        rows()[0]?.focus();
+        const first = rows()[0];
+        if (first !== undefined) {
+          first.focus();
+        } else if (props.busy) {
+          panelEl?.focus();
+        }
       }
     });
   });
@@ -165,13 +184,17 @@ function MenuPanel(props: {
   return (
     <div
       class="context-menu"
-      role="menu"
+      role={props.busy ? "status" : "menu"}
       ref={(el) => {
         panelEl = el;
         el.style.left = `${props.x}px`;
         el.style.top = `${props.y}px`;
       }}
-      onKeyDown={onKeyDown}
+      on:keydown={onKeyDown}
+      tabIndex={-1}
+      aria-busy={props.busy ? "true" : undefined}
+      aria-live={props.busy ? "polite" : undefined}
+      aria-atomic={props.busy ? "true" : undefined}
     >
       <Show when={props.header}>
         <div class="context-menu-header">{props.header}</div>
@@ -186,9 +209,9 @@ function MenuPanel(props: {
               class="context-menu-item context-menu-submenu"
               data-entry-index={index()}
               aria-haspopup="true"
-              aria-expanded={openIndex() === index()}
-              onMouseEnter={(e) => openSubmenu(index(), e.currentTarget, false)}
-              onClick={(e) => openSubmenu(index(), e.currentTarget, true)}
+              aria-expanded={openEntry() === entry}
+              onMouseEnter={(e) => openSubmenu(entry, e.currentTarget, false)}
+              onClick={(e) => openSubmenu(entry, e.currentTarget, true)}
             >
               <span>{entry.label}</span>
               <ChevronRight size={14} class="context-menu-chevron" />
@@ -263,6 +286,7 @@ export function ContextMenu(props: { menu: ContextMenuState; onClose: () => void
         x={props.menu.x}
         y={props.menu.y}
         header={props.menu.header}
+        busy={props.menu.busy === true}
         autoFocus
         closeAll={props.onClose}
       />

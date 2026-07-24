@@ -222,6 +222,57 @@ describe("host run-command (MCP) acknowledgement", () => {
     expect(ack).toMatchObject({ type: "command-ack", ok: false });
   });
 
+  it("acks failure when the web handler declines", async () => {
+    setCatalog([cmd("web.declined", "web")]);
+    reg.registerCommand("web.declined", () => false);
+    for (const h of env.hostHandlers) {
+      h({ type: "run-command", id: "web.declined", args: undefined, token: "declined" });
+    }
+    await Promise.resolve();
+    expect(env.posted).toContainEqual({
+      type: "command-ack",
+      token: "declined",
+      ok: false,
+      error: "Command 'web.declined' declined.",
+    });
+  });
+
+  it("acks an async command failure so MCP callers do not receive a false success", async () => {
+    setCatalog([cmd("web.add-word", "web")]);
+    reg.registerCommand("web.add-word", () => Promise.reject(new Error("dictionary is read-only")));
+    for (const h of env.hostHandlers) {
+      h({ type: "run-command", id: "web.add-word", args: { word: "teh" }, token: "rejected" });
+    }
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(env.posted).toContainEqual({
+      type: "command-ack",
+      token: "rejected",
+      ok: false,
+      error: "Error: dictionary is read-only",
+    });
+  });
+
+  it("acks an asynchronously declined command as a failure", async () => {
+    setCatalog([cmd("web.async-declined", "web")]);
+    reg.registerCommand("web.async-declined", async () => false);
+    for (const h of env.hostHandlers) {
+      h({
+        type: "run-command",
+        id: "web.async-declined",
+        args: undefined,
+        token: "async-declined",
+      });
+    }
+    await Promise.resolve();
+    expect(env.posted).toContainEqual({
+      type: "command-ack",
+      token: "async-declined",
+      ok: false,
+      error: "Command 'web.async-declined' declined.",
+    });
+  });
+
   it("ignores a replayed run-command for a token already in flight", async () => {
     setCatalog([cmd("web.dedup", "web")]);
     let calls = 0;

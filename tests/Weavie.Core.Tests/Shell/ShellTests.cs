@@ -1,7 +1,5 @@
 using System.Text.Json;
-using Weavie.Core.FileSystem;
 using Weavie.Core.Shell;
-using Weavie.Core.Workspaces;
 using Xunit;
 
 namespace Weavie.Core.Tests;
@@ -40,11 +38,21 @@ public sealed class ShellProtocolTests {
 
 	[Fact]
 	public void BuildFileIndex_CarriesRootAndFiles() {
-		var el = Parse(ShellProtocol.BuildFileIndex(@"C:\w", [@"C:\w\a.txt", @"C:\w\b.txt"]));
+		var el = Parse(ShellProtocol.BuildFileIndex(@"C:\w", [@"C:\w\a.txt", @"C:\w\b.txt"], "feature"));
 
 		Assert.Equal("file-index", el.GetProperty("type").GetString());
 		Assert.Equal(@"C:\w", el.GetProperty("root").GetString());
 		Assert.Equal(2, el.GetProperty("files").GetArrayLength());
+		Assert.Equal("feature", el.GetProperty("railSessionId").GetString());
+	}
+
+	[Fact]
+	public void BuildFileIndexPending_CarriesEmptyOwnedIndex() {
+		var el = Parse(ShellProtocol.BuildFileIndexPending(@"C:\feature", "feature"));
+
+		Assert.True(el.GetProperty("pending").GetBoolean());
+		Assert.Empty(el.GetProperty("files").EnumerateArray());
+		Assert.Equal("feature", el.GetProperty("railSessionId").GetString());
 	}
 
 	[Theory]
@@ -118,11 +126,10 @@ public sealed class ShellControllerTests {
 
 	private static JsonElement Parse(string json) => JsonDocument.Parse(json).RootElement;
 
-	private static ShellController Make(FakeWindow window, out List<string> posted, IFileSystem? fileSystem = null) {
+	private static ShellController Make(FakeWindow window, out List<string> posted) {
 		var posts = new List<string>();
 		posted = posts;
-		var index = new WorkspaceFileIndex(fileSystem ?? new InMemoryFileSystem(), "/w");
-		return new ShellController(window, index, posts.Add);
+		return new ShellController(window, posts.Add);
 	}
 
 	[Fact]
@@ -204,18 +211,6 @@ public sealed class ShellControllerTests {
 		Make(window, out _).HandleMenuAction(Parse("""{"action":"exit"}"""));
 
 		Assert.Equal(["quit"], window.Calls);
-	}
-
-	[Fact]
-	public void PushFileIndex_PostsFileIndexMessage() {
-		var fileSystem = new InMemoryFileSystem();
-		fileSystem.WriteAllText("/w/a.txt", "");
-		var controller = Make(new FakeWindow(), out var posted, fileSystem);
-
-		controller.PushFileIndex();
-
-		string message = Assert.Single(posted);
-		Assert.Contains("\"type\":\"file-index\"", message);
 	}
 
 	[Fact]

@@ -4,6 +4,7 @@ using Weavie.Core.Configuration;
 using Weavie.Core.Layout;
 using Weavie.Core.Mcp;
 using Weavie.Core.Shell;
+using Weavie.Core.Spelling;
 using Weavie.Core.Theming;
 using Xunit;
 
@@ -11,12 +12,15 @@ namespace Weavie.Hosting.Tests;
 
 public sealed class HostSessionAgentImageTests : IDisposable {
 	private readonly string _dir = Path.Combine(Path.GetTempPath(), "weavie-host-session-image-tests", Guid.NewGuid().ToString("N"));
+	private readonly CustomDictionary _userDictionary;
 
 	public HostSessionAgentImageTests() {
 		Directory.CreateDirectory(_dir);
+		_userDictionary = new CustomDictionary(Path.Combine(_dir, "dictionary.txt"), enableWatcher: false);
 	}
 
 	public void Dispose() {
+		_userDictionary.Dispose();
 		try {
 			Directory.Delete(_dir, recursive: true);
 		} catch (IOException) {
@@ -67,7 +71,8 @@ public sealed class HostSessionAgentImageTests : IDisposable {
 			new Weavie.Core.Corrections.CorrectionCorpus(new Weavie.Core.FileSystem.LocalFileSystem(), Path.Combine(_dir, "corrections.jsonl")),
 			new NoopPtyLauncher(),
 			new FakeStructuredProvider(structured),
-			new HostRuntimeInfo(HostTransport.Local, Managed: false, "test"));
+			new HostRuntimeInfo(HostTransport.Local, Managed: false, "test"),
+			_userDictionary);
 
 	private sealed class FakeStructuredProvider(RecordingStructuredSession session) : IAgentProvider {
 		public AgentProviderInfo Info { get; } = new() {

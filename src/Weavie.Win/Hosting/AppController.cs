@@ -6,6 +6,7 @@ using Weavie.Core.FileSystem;
 using Weavie.Core.Remote;
 using Weavie.Core.Search;
 using Weavie.Core.Sessions;
+using Weavie.Core.Spelling;
 using Weavie.Core.Suggestions;
 using Weavie.Core.Theming;
 using Weavie.Core.Workspaces;
@@ -104,6 +105,8 @@ internal sealed class AppController : ApplicationContext {
 			Console.Out.Flush();
 		};
 
+		UserDictionary = new CustomDictionary(WeaviePaths.UserDictionaryFile, enableWatcher: true);
+
 		// Recent workspaces (~/.weavie/recents.json) drive reopen-last-on-launch and the Open Recent menu;
 		// the manager wraps them with open/focus/dedupe.
 		var recents = new RecentWorkspaces(new LocalFileSystem(), path: null);
@@ -164,6 +167,9 @@ internal sealed class AppController : ApplicationContext {
 
 	/// <summary>App-global captured console output (stdout/stderr), backing the in-app log viewer; one buffer per process.</summary>
 	public LogBuffer LogBuffer { get; }
+
+	/// <summary>The app-global custom dictionary shared by every workspace window.</summary>
+	public CustomDictionary UserDictionary { get; }
 
 	/// <summary>
 	/// Opens <paramref name="root"/> as a workspace: focuses the existing window if already open, else opens a new
@@ -312,6 +318,7 @@ internal sealed class AppController : ApplicationContext {
 	protected override void Dispose(bool disposing) {
 		if (disposing) {
 			_hotkeys.Dispose(); // unregisters the OS hotkeys + tears down the message window
+			UserDictionary.Dispose();
 			Settings.Dispose();
 			Keybindings.Dispose();
 		}

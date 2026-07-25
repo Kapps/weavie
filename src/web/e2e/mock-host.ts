@@ -35,6 +35,13 @@ export function mockSessionChip(
   };
 }
 
+// Flaked 2026-07-25 20:22 UTC on windows-latest: mountCodex's `waitForMessage("ready")` timed out waiting
+// for the app's post-boot handshake (https://github.com/Kapps/weavie/actions/runs/30172909228/job/89716872651).
+// Every other test in the same serialized (workers: 1) Windows run hit "ready" well inside 15s, so this was a
+// one-off runner hiccup, not a app defect. Doubled the budget for non-Linux hosts to match the same headroom
+// playwright.config.ts already gives the slower hosted macOS/Windows runners for the equivalent full-boot wait.
+const WAIT_FOR_MESSAGE_TIMEOUT_MS = process.platform === "linux" ? 15_000 : 30_000;
+
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
@@ -181,7 +188,7 @@ export class MockHost {
   }
 
   /** Resolves with the next (or already-received) host-bound message of the given type. */
-  waitForMessage(type: string, timeoutMs = 15_000): Promise<Message> {
+  waitForMessage(type: string, timeoutMs = WAIT_FOR_MESSAGE_TIMEOUT_MS): Promise<Message> {
     const existing = this.received.find((m) => m.type === type);
     if (existing !== undefined) {
       return Promise.resolve(existing);

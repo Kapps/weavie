@@ -18,6 +18,7 @@ public sealed class TlsFrontTests {
 	private static WorkspaceBackend Backend(int port, string token) => new() {
 		WorkspaceRoot = "/repo",
 		Port = port,
+		PortIsPinned = false,
 		Token = token,
 	};
 

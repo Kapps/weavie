@@ -36,11 +36,21 @@ public sealed class HeadlessLauncher {
 
 		ProcessSupervisor supervisor = null!;
 		Process? current = null;
+		// Flipped from the child's stdout/stderr-reading thread (BackendPortConflicted below), read from the
+		// restart's thread — both cross a ThreadPool boundary, so Interlocked rather than a bare bool.
+		int portConflicted = 0;
 
 		supervisor = new ProcessSupervisor(
 			name: "backend",
 			start: launch => {
-				var process = Spawn(backend);
+				// The previous attempt's port lost a race to another process's bind (AllocatePort is inherently
+				// racy — see its doc comment) — pick a fresh one before retrying the doomed one forever, unless
+				// it's pinned (secured/fronted modes need a stable port across restarts).
+				if (Interlocked.Exchange(ref portConflicted, 0) == 1 && !backend.PortIsPinned) {
+					backend.Port = BackendManager.AllocatePort();
+				}
+
+				var process = Spawn(backend, () => Interlocked.Exchange(ref portConflicted, 1));
 				current = process;
 				// Report through this launch's handle so a later restart's exit can't be misattributed.
 				process.Exited += (_, _) => launch.NotifyExited(SafeExitCode(process));
@@ -64,7 +74,7 @@ public sealed class HeadlessLauncher {
 		return supervisor;
 	}
 
-	private Process Spawn(WorkspaceBackend backend) {
+	private Process Spawn(WorkspaceBackend backend, Action onPortConflict) {
 		string workerPath = _workerPath();
 		bool isDll = workerPath.EndsWith(".dll", StringComparison.OrdinalIgnoreCase);
 		var info = new ProcessStartInfo {
@@ -91,10 +101,22 @@ public sealed class HeadlessLauncher {
 		info.ArgumentList.Add(backend.Token);
 
 		var process = new Process { StartInfo = info, EnableRaisingEvents = true };
-		process.OutputDataReceived += (_, e) => { if (e.Data is not null) { Console.WriteLine($"[backend] {e.Data}"); } };
-		process.ErrorDataReceived += (_, e) => { if (e.Data is not null) { Console.WriteLine($"[backend] {e.Data}"); } };
+		process.OutputDataReceived += (_, e) => { if (e.Data is not null) { LogBackendLine(e.Data, onPortConflict); } };
+		process.ErrorDataReceived += (_, e) => { if (e.Data is not null) { LogBackendLine(e.Data, onPortConflict); } };
 		return process;
 	}
+
+	private static void LogBackendLine(string line, Action onPortConflict) {
+		Console.WriteLine($"[backend] {line}");
+		if (IsPortConflictLine(line)) {
+			onPortConflict();
+		}
+	}
+
+	// .NET renders both AddressInUseException and a raw EADDRINUSE SocketException with this exact phrase —
+	// stable across the runtime versions this targets, and specific enough not to false-positive on other crashes.
+	internal static bool IsPortConflictLine(string line) =>
+		line.Contains("Address already in use", StringComparison.OrdinalIgnoreCase);
 
 	private static int SafeExitCode(Process process) {
 		try {

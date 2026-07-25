@@ -10,6 +10,17 @@ export async function awaitEditorReady(page: Page): Promise<void> {
   await expect(page.locator(".editor")).toHaveAttribute("data-ready", "true", { timeout: 60_000 });
 }
 
+// The published `--editor-font-family` CSS var updates synchronously, but Monaco's own remeasure against
+// the loaded webfont (triggered off `document.fonts` readiness) is scheduled, not same-tick — so a rendered
+// `.view-line`'s computed font can still lag the published value right after a file/pane opens. Wait for the
+// webfont load and give the editor a frame to lay out against it before reading computed typography.
+export async function awaitFontsSettled(page: Page): Promise<void> {
+  await page.evaluate(() => document.fonts.ready);
+  await page.evaluate(
+    () => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))),
+  );
+}
+
 // Open a workspace file through the omnibar's "Go to File" and wait until the editor is ACTUALLY showing it.
 // The first fuzzy match is auto-selected, so typing the name and pressing Enter opens it.
 export async function openFile(page: Page, name: string): Promise<void> {

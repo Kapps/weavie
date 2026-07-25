@@ -170,6 +170,14 @@ test("code results follow editor typography while search chrome stays compact", 
   // fonts to settle before reading computed typography (same pattern as editor-cursor.spec.ts's settle()).
   await awaitFontsSettled(page);
 
+  // Flaked (Linux CI only) 2026-07-25 04:11 UTC:
+  // https://github.com/Kapps/weavie/actions/runs/30143175785/job/89640122643 — initialEditor.family didn't
+  // start with publishedFamily. Root cause: monaco-setup.ts creates the editor with the Go Mono stack before
+  // the webfont has loaded, then only remeasures (monaco.editor.remeasureFonts()) once `document.fonts.ready`
+  // resolves; reading .view-line's computed style before that could still observe Monaco's pre-remeasure
+  // fallback metrics. Wait on the same signal the app remeasures on, so the read always lands after it.
+  await page.evaluate(() => document.fonts.ready);
+
   const initialEditor = await typography(editorLine);
   const initialResult = await typography(preview);
   const publishedFamily = await page.evaluate(() =>

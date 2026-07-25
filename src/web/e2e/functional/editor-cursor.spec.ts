@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test";
-import { openFile } from "../harness/actions";
+import { awaitFontsSettled, openFile } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 
 // The editor caret is positioned by Monaco from its measured `FontInfo`; the glyphs themselves are flowed by
@@ -113,10 +113,7 @@ function need<T>(value: T | null, message: string): T {
 // the bundled webfont has loaded, and the editor has had a frame to lay out against it.
 async function settle(page: Page): Promise<void> {
   await page.waitForFunction(() => (window as WeavieWindow).__WEAVIE_EDITOR__ !== undefined);
-  await page.evaluate(() => document.fonts.ready);
-  await page.evaluate(
-    () => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))),
-  );
+  await awaitFontsSettled(page);
 }
 
 // The length of a model line, via the editor handle.

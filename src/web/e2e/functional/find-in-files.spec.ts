@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test";
-import { awaitEditorReady, openFile, runCommand } from "../harness/actions";
+import { awaitEditorReady, awaitFontsSettled, openFile, runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 
 // Find in Files journeys: seeding from the editor selection, arrow live-preview vs Enter commit (cursor on
@@ -163,6 +163,12 @@ test("code results follow editor typography while search chrome stays compact", 
   const input = page.locator(".search-input");
   const hint = page.locator(".search-summary");
   await expect(preview).toBeVisible();
+  // 2026-07-25: flaked on CI run https://github.com/Kapps/weavie/actions/runs/30143175785 —
+  // initialEditor.family.startsWith(publishedFamily) was false. Root cause: the CSS var is published
+  // synchronously but Monaco's own remeasure against the loaded webfont is scheduled, so the rendered
+  // `.view-line` can still be measuring against a fallback font at this point. Fixed by waiting for
+  // fonts to settle before reading computed typography (same pattern as editor-cursor.spec.ts's settle()).
+  await awaitFontsSettled(page);
 
   const initialEditor = await typography(editorLine);
   const initialResult = await typography(preview);

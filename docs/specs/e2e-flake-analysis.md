@@ -113,6 +113,33 @@ wait) and `use(host)` now run inside a `try`, with the diagnostic-dump + `host.s
 already did. This does not touch the 40s timeout or add a retry; it only makes the next occurrence
 diagnosable. Still waiting on that next occurrence to actually close the root cause.
 
+## 2026-07-25 occurrence: #4/#5 class, run 30178866810 — found the diagnostic-capture bug itself
+
+Windows/`headless`, `diff-review.spec.ts:94` (`undoing a keep of the second hunk lands on it, not the
+file's first hunk`) — the `#splash` wait timed out at 40s during the auto `weavie` fixture's boot, before
+the test body ran (same shape as the 2026-07-23 occurrence above). Landed on PR #466 (an unrelated
+Windows-mock-host timeout fix); confirmed not a regression from that PR.
+
+**Still no datum — but this time we found out why.** The 2026-07-23 fix moved the diagnostic dump into a
+`finally` wrapping both setup and `use(host)`, gated on `testInfo.status !== testInfo.expectedStatus`. That
+gate is correct for a post-body failure but silently wrong for a **setup-phase** one: reproduced locally
+with a minimal fixture (throw before calling `use()`, log `testInfo.status` in the `finally`) — Playwright
+reports `status: "passed"` inside the fixture's own `finally` even though the test goes on to fail overall.
+`testInfo.status` isn't populated until the whole fixture chain settles back in the test runner, which is
+*after* our own `finally` already ran and decided not to dump. So every setup-time `#splash` timeout —
+which is exactly the boot-stall class this whole document is chasing — has been dumping nothing, silently,
+since the "fix" landed.
+
+**Fixed properly this time:** split the setup phase (`preNavigate` → `goto` → `#splash` wait) into its own
+`try`/`catch`, dumping unconditionally in the `catch` (a setup throw doesn't need `testInfo.status` to know
+it's a failure — the exception already tells us). The post-body path keeps the `testInfo.status` check,
+which is correct there. Verified locally by forcing a synthetic setup failure (temporarily pointing the
+splash locator at a selector that can't resolve): all four attachments (`weavie-host.log`,
+`fake-claude.log`, `viewport-layout.json`, `console-errors.txt`) now land, where before this fix none did.
+
+Still waiting on the next real Windows `#splash` occurrence to get the actual root-cause datum — this
+cycle only fixed the instrument, not the underlying boot stall.
+
 ## #4 — `net::ERR_NO_BUFFER_SPACE` (Windows socket/buffer pressure)
 
 Windows `WSAENOBUFS`: the OS couldn't allocate a socket buffer. Serialized runs (Windows is

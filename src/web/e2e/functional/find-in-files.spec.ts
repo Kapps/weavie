@@ -164,13 +164,18 @@ test("code results follow editor typography while search chrome stays compact", 
   const hint = page.locator(".search-summary");
   await expect(preview).toBeVisible();
 
-  const initialEditor = await typography(editorLine);
-  const initialResult = await typography(preview);
   const publishedFamily = await page.evaluate(() =>
     document.documentElement.style.getPropertyValue("--editor-font-family"),
   );
+  // Monaco applies its font asynchronously (a layout pass after the CSS var lands), so read it once stable
+  // rather than racing it — flaked on Linux CI 2026-07-25 04:11 UTC
+  // (https://github.com/Kapps/weavie/actions/runs/30143175785/job/89640122643).
+  await expect
+    .poll(async () => (await typography(editorLine)).family.startsWith(publishedFamily))
+    .toBe(true);
+  const initialEditor = await typography(editorLine);
+  const initialResult = await typography(preview);
   expect(initialResult.family).toBe(publishedFamily);
-  expect(initialEditor.family.startsWith(publishedFamily)).toBe(true);
   expect(initialResult.size).toBe(initialEditor.size);
   expect(initialResult.weight).toBe(initialEditor.weight);
   expect((await typography(metadata)).size).toBeCloseTo(initialEditor.size * 0.8125, 4);

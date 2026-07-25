@@ -122,6 +122,23 @@ over the single bridge WS (no per-attempt socket); the harness's own HTTP pollin
 hosted Windows runner, possibly compounding #2. `console-errors.txt` is now attached on failure so its
 frequency/co-occurrence with #2/#3 is measurable.
 
+**2026-07-25 occurrence, run 30172909228:** `codex-composer.spec.ts:685` ("the working row tracks the
+turn") flaked on Windows — `mountCodex`'s `waitForMessage("ready")` timed out at 15s, and the page
+snapshot showed only the pre-boot shell (`weavie`), never the mounted app. The trace's console log
+gives the most decisive datum yet: `net::ERR_NO_BUFFER_SPACE` hit **the entry bundle itself**
+(`rolldown-runtime-*.js`), on a page load against a `MockHost` server that had just started on a fresh
+ephemeral port. That confirms the mechanism end to end — this isn't a Monaco/editor-layout casualty
+like #2/#3, it's the OS refusing a socket buffer for the very first resource fetch of the boot, so the
+React app never installs its listeners and never sends `ready`. Landed on the merge of PR #463
+(a Linux-only typography-test fix, `1ec06c5`/`fe477d5`); ruled out as a regression from that PR — its
+diff touches only `find-in-files.spec.ts` and `monaco-setup.ts`'s font-ready wait, nothing on the boot
+or bridge path this test exercises. Also broadens #4's known-affected surface: this test uses a raw
+`MockHost.start()` per-test (not the shared `weavie` fixture `session.spec.ts` uses), so the exhaustion
+isn't specific to that fixture's setup path — it's whatever socket/handle pressure has accumulated on
+the Windows worker by this point in a long serialized run. No code fix applied — masking with a retry
+or a wider timeout is banned, and the root cause is the hosted runner's OS-level resource ceiling, not
+this test's or `mock-host.ts`'s logic.
+
 ## Reproduction & forensics techniques that worked
 
 - **Parse the Playwright trace DOM directly.** `trace.zip` → `0-trace.trace` is JSONL; `frame-snapshot`

@@ -682,6 +682,15 @@ test.describe("Codex composer", () => {
 
   // Pins the composer's turn-progress wiring: the working row (with elapsed time), the Run→Steer submit
   // relabel, the turn-only Interrupt button, and the amber waiting state while an approval is pending.
+  //
+  // Flaked 2026-07-25 20:22 UTC on Windows CI (run
+  // https://github.com/Kapps/weavie/actions/runs/30172909228): mountCodex's `waitForMessage("ready")`
+  // timed out because the page never booted — the entry bundle failed to load
+  // (`net::ERR_NO_BUFFER_SPACE` on rolldown-runtime-*.js). This is flake #4 in
+  // docs/specs/e2e-flake-analysis.md (Windows runner socket-buffer exhaustion), not a regression in
+  // this test or in the PR that merged at that commit. No code change here — the doc's guidance bans
+  // masking with a retry/wider timeout, and the root cause is environmental, not app logic; logged in
+  // the doc for tracking.
   test("the working row tracks the turn: working, waiting, back to working, gone", async ({
     page,
   }) => {

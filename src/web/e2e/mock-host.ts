@@ -181,13 +181,9 @@ export class MockHost {
   }
 
   /** Resolves with the next (or already-received) host-bound message of the given type. */
-  // Default mirrors playwright.config.ts's per-platform test timeout split (30s vs 60s): the hosted
-  // Windows/macOS runners are slower for page load + module eval than Linux's 2-6s cold boots, so a
-  // fixed 15s budget can miss a genuine (non-hanging) "ready" round-trip under runner load. Seen
-  // 2026-07-25 ~20:22 UTC on windows-latest: codex-composer.spec.ts "the working row tracks the turn"
-  // timed out waiting for "ready" after 175 preceding tests in the run all passed
-  // (https://github.com/Kapps/weavie/actions/runs/30172909228/job/89716872651) — no code on this path
-  // changed in the merged commit, consistent with tail-latency on a loaded runner rather than a hang.
+  // Default scales with playwright.config.ts's own per-platform test timeout (30s Linux / 60s
+  // elsewhere): the hosted macOS/Windows runners are slower, and this wait covers the same
+  // page-load-plus-first-round-trip window that budget was raised for — see 2026-07-26 flake below.
   waitForMessage(
     type: string,
     timeoutMs = process.platform === "linux" ? 15_000 : 30_000,

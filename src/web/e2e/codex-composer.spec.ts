@@ -685,12 +685,16 @@ test.describe("Codex composer", () => {
   //
   // Flaked 2026-07-25 20:22 UTC on Windows CI (run
   // https://github.com/Kapps/weavie/actions/runs/30172909228): mountCodex's `waitForMessage("ready")`
-  // timed out because the page never booted — the entry bundle failed to load
-  // (`net::ERR_NO_BUFFER_SPACE` on rolldown-runtime-*.js). This is flake #4 in
+  // timed out because the page never booted. The trace's console log shows why:
+  // `net::ERR_NO_BUFFER_SPACE` on the entry bundle itself (rolldown-runtime-*.js) — the OS refused a
+  // socket buffer for that fetch, so it's a load failure, not a slow load. This is flake #4 in
   // docs/specs/e2e-flake-analysis.md (Windows runner socket-buffer exhaustion), not a regression in
-  // this test or in the PR that merged at that commit. No code change here — the doc's guidance bans
-  // masking with a retry/wider timeout, and the root cause is environmental, not app logic; logged in
-  // the doc for tracking.
+  // this test. A same-day follow-up (this commit) scaled MockHost.waitForMessage's default timeout for
+  // non-Linux platforms; that's a reasonable independent improvement (it now matches
+  // playwright.config.ts's own per-platform test-timeout scaling) but a longer wait does not, by
+  // itself, fix a fetch that errored rather than one that was merely still in flight — see the
+  // discussion on PR #465 before treating this flake as closed.
+
   test("the working row tracks the turn: working, waiting, back to working, gone", async ({
     page,
   }) => {

@@ -139,6 +139,16 @@ the Windows worker by this point in a long serialized run. No code fix applied �
 or a wider timeout is banned, and the root cause is the hosted runner's OS-level resource ceiling, not
 this test's or `mock-host.ts`'s logic.
 
+**2026-07-26 follow-up, PR #469:** a same-day PR scaled `MockHost.waitForMessage`'s default timeout for
+non-Linux platforms (15s → 30s), reasoning that it was inconsistent with `playwright.config.ts`'s own
+per-platform test-timeout scaling. That's a fine consistency fix on its own merits, but **it does not
+address the mechanism above**: `net::ERR_NO_BUFFER_SPACE` is a failed fetch (the browser's `error`
+event fires immediately), not a slow one — nothing about that request is still in flight for a longer
+timeout to catch. Left as open: the next occurrence of this exact signature will show whether #469
+happens to reduce the observed frequency (e.g. if it shifts *when* in a long run the exhaustion
+threshold is crossed) or has no effect, which would confirm a genuine fix still needs to target the
+resource exhaustion itself (see the "Guidance for the next agent" section).
+
 ## Reproduction & forensics techniques that worked
 
 - **Parse the Playwright trace DOM directly.** `trace.zip` → `0-trace.trace` is JSONL; `frame-snapshot`

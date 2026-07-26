@@ -180,8 +180,24 @@ export class MockHost {
     this.socket?.terminate();
   }
 
-  /** Resolves with the next (or already-received) host-bound message of the given type. */
-  waitForMessage(type: string, timeoutMs = 15_000): Promise<Message> {
+  /**
+   * Resolves with the next (or already-received) host-bound message of the given type. Default
+   * budget mirrors playwright.config.ts's per-test timeout split: the hosted Windows/macOS runners
+   * are slower, so a wait sized for Linux can starve there even when nothing is actually wrong.
+   *
+   * Flake history:
+   * - 2026-07-25 20:05 UTC, Windows CI on main, timed out at exactly 15000ms waiting for "ready" in
+   *   codex-composer.spec.ts ("the working row tracks the turn..."), while 26 prior identical
+   *   `mountCodex()` calls in the same run each resolved in ~1.6-2s.
+   *   Run: https://github.com/Kapps/weavie/actions/runs/30172909228/job/89716872651
+   *   Fix attempted: raised the default timeout on slower platforms to match the 60s Windows/macOS
+   *   test-level budget instead of the Linux-sized 15s, so a transient scheduling hiccup has the same
+   *   headroom the rest of the suite already gets there.
+   */
+  waitForMessage(
+    type: string,
+    timeoutMs = process.platform === "linux" ? 15_000 : 30_000,
+  ): Promise<Message> {
     const existing = this.received.find((m) => m.type === type);
     if (existing !== undefined) {
       return Promise.resolve(existing);

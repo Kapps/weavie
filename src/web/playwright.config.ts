@@ -39,8 +39,15 @@ export default defineConfig({
   // A weavie e2e assertion often waits on a full-stack round-trip (host + fake-claude + hook bridge + MCP +
   // render), not a DOM tick, so the 5s Playwright default is too tight even uncontended (a whole test runs
   // 2-6s cold). This ceiling is for that genuine pipeline latency, not to paper over contention — with peak
-  // concurrency capped above, tests land far inside it.
-  expect: { timeout: 15_000 },
+  // concurrency capped above, tests land far inside it. Same Windows/macOS-vs-Linux split as `timeout` above,
+  // for the same reason: those hosted runners measurably slow down over a long serial run (workers: 1 means
+  // no contention from our own tests, so this is runner-side, not something more concurrency would fix).
+  // Seen twice on windows-latest, always a full-stack round-trip near the tail of the ~176-test run, both
+  // unrelated to the PR that surfaced them: 2026-07-25 20:22 UTC, codex-composer.spec.ts's "ready" wait
+  // (https://github.com/Kapps/weavie/actions/runs/30172909228/job/89716872651, fixed in mock-host.ts's own
+  // timeout — that one isn't gated by this `expect.timeout`); and 2026-07-26 03:25 UTC, diff-review.spec.ts's
+  // omnibar-row wait (https://github.com/Kapps/weavie/actions/runs/30185766515/job/89750062772), fixed here.
+  expect: { timeout: process.platform === "linux" ? 15_000 : 30_000 },
   use: {
     headless: true,
     trace: "retain-on-failure",

@@ -181,7 +181,13 @@ export class MockHost {
   }
 
   /** Resolves with the next (or already-received) host-bound message of the given type. */
-  waitForMessage(type: string, timeoutMs = 15_000): Promise<Message> {
+  // Default scales with playwright.config.ts's own per-platform test timeout (30s Linux / 60s
+  // elsewhere): the hosted macOS/Windows runners are slower, and this wait covers the same
+  // page-load-plus-first-round-trip window that budget was raised for — see 2026-07-26 flake below.
+  waitForMessage(
+    type: string,
+    timeoutMs = process.platform === "linux" ? 15_000 : 30_000,
+  ): Promise<Message> {
     const existing = this.received.find((m) => m.type === type);
     if (existing !== undefined) {
       return Promise.resolve(existing);

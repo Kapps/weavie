@@ -682,6 +682,12 @@ test.describe("Codex composer", () => {
 
   // Pins the composer's turn-progress wiring: the working row (with elapsed time), the Run→Steer submit
   // relabel, the turn-only Interrupt button, and the amber waiting state while an approval is pending.
+  // FLAKE 2026-07-26T20:22Z: timed out waiting for mountCodex's "ready" handshake on windows-latest CI
+  // (https://github.com/Kapps/weavie/actions/runs/30172909228, test (windows) job). Root cause: MockHost.
+  // waitForMessage hardcoded a 15s default regardless of platform, tighter than the slow-runner headroom
+  // playwright.config.ts already grants elsewhere (60s test timeout on non-Linux); the heavy SPA load +
+  // WebSocket handshake this test starts with occasionally missed it. Fixed by scaling that default the
+  // same way (src/web/e2e/mock-host.ts).
   test("the working row tracks the turn: working, waiting, back to working, gone", async ({
     page,
   }) => {

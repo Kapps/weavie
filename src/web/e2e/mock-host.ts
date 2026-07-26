@@ -12,16 +12,6 @@ import { type WebSocket, WebSocketServer } from "ws";
 /** A bridge message in either direction — kept loose on purpose; the web side owns the real types. */
 type Message = { type: string } & Record<string, unknown>;
 
-// The hosted macOS/Windows CI runners are slower and more contended than Linux (playwright.config.ts
-// serializes them to a single worker and doubles the per-test timeout for the same reason), so a
-// browser navigation + module init that lands well inside 15s on Linux can occasionally miss it there.
-// Flaked (Windows CI only) 2026-07-25 20:22 UTC:
-// https://github.com/Kapps/weavie/actions/runs/30172909228/job/89716872651 — codex-composer.spec.ts's
-// "the working row tracks the turn" test timed out waiting for "ready" after page.goto, deep into a
-// 13-minute single-worker Windows run. Every other timeout in this suite already scales for the slower
-// hosted runners; this was the one that didn't. Doubled it for non-Linux to match.
-const DEFAULT_WAIT_TIMEOUT_MS = process.platform === "linux" ? 15_000 : 30_000;
-
 /** A session-list row with the same provider-derived surface metadata HostCore publishes. */
 export function mockSessionChip(
   id: string,
@@ -191,7 +181,13 @@ export class MockHost {
   }
 
   /** Resolves with the next (or already-received) host-bound message of the given type. */
-  waitForMessage(type: string, timeoutMs = DEFAULT_WAIT_TIMEOUT_MS): Promise<Message> {
+  // Default scales with playwright.config.ts's own per-platform test timeout (30s Linux / 60s
+  // elsewhere): the hosted macOS/Windows runners are slower, and this wait covers the same
+  // page-load-plus-first-round-trip window that budget was raised for — see 2026-07-26 flake below.
+  waitForMessage(
+    type: string,
+    timeoutMs = process.platform === "linux" ? 15_000 : 30_000,
+  ): Promise<Message> {
     const existing = this.received.find((m) => m.type === type);
     if (existing !== undefined) {
       return Promise.resolve(existing);

@@ -82,7 +82,7 @@ test.describe("AgentMarkdown transcript links", () => {
   // Mounts the Codex session and pushes the assistant message after `ready` proves App is listening.
   async function mount(page: Page): Promise<void> {
     await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
-    await host.waitForMessage("ready");
+    await host.waitForReady();
     const markdown = page.locator(".agent-markdown");
     host.pushToWeb({ type: "session-list", sessions: [codexChip] });
     host.pushToWeb({

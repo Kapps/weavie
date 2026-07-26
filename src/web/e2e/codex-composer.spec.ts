@@ -227,7 +227,7 @@ test.describe("Codex composer", () => {
   // Mounts the Codex session and its control surface after `ready` proves App's listeners are installed.
   async function mountCodex(page: Page): Promise<void> {
     await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
-    await host.waitForMessage("ready");
+    await host.waitForReady();
     const statusLine = page.locator(".agent-status-line");
     host.pushToWeb({ type: "session-list", sessions: [codexChip] });
     host.pushToWeb(controls);

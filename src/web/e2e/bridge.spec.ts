@@ -33,7 +33,7 @@ test.describe("remote bridge transport", () => {
 
     // Outbound: main.tsx posts { type: "ready" } after mounting App, usually before the WebSocket opens. It
     // must still arrive — proving the transport buffers pre-open sends and flushes them on connect.
-    const ready = await host.waitForMessage("ready");
+    const ready = await host.waitForReady();
     expect(ready.type).toBe("ready");
 
     // Inbound: the host pushes a notify; the app must render it as a toast — proving a WebSocket frame
@@ -45,7 +45,7 @@ test.describe("remote bridge transport", () => {
 
   test("live fonts update normal DOM and source-shadow typography roles", async ({ page }) => {
     await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
-    await host.waitForMessage("ready");
+    await host.waitForReady();
 
     host.pushToWeb({
       type: "source-loading",
@@ -108,7 +108,7 @@ test.describe("remote bridge transport", () => {
 
   test("a same-backend session switch reuses the live agent pane", async ({ page }) => {
     await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
-    await host.waitForMessage("ready");
+    await host.waitForReady();
     host.pushToWeb({
       type: "session-list",
       sessions: [
@@ -130,7 +130,7 @@ test.describe("remote bridge transport", () => {
     page,
   }) => {
     await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
-    await host.waitForMessage("ready");
+    await host.waitForReady();
     const main = sessionChip("local-main", "main", "claude", true, true);
     const feature = sessionChip("local-feature", "feature", "claude", false, false);
     host.pushToWeb({ type: "session-list", sessions: [main, feature] });
@@ -161,7 +161,7 @@ test.describe("remote bridge transport", () => {
     const remote = await MockHost.start({ distDir });
     try {
       await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
-      await host.waitForMessage("ready");
+      await host.waitForReady();
       host.pushToWeb({
         type: "session-list",
         sessions: [sessionChip("ma", "MA", "claude", true, true)],
@@ -175,7 +175,7 @@ test.describe("remote bridge transport", () => {
         type: "remote-agents",
         agents: [{ name: "devbox", url: remote.url, token: "runner-token" }],
       });
-      await remote.waitForMessage("ready");
+      await remote.waitForReady();
       remote.pushToWeb({
         type: "session-list",
         sessions: [
@@ -244,7 +244,7 @@ test.describe("remote bridge transport", () => {
 
     try {
       await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
-      await host.waitForMessage("ready");
+      await host.waitForReady();
       const localChip = sessionChip("local-slot", "main", "claude", true, true);
       await expect(async () => {
         host.pushToWeb({ type: "session-list", sessions: [localChip] });
@@ -270,7 +270,7 @@ test.describe("remote bridge transport", () => {
         type: "remote-agents",
         agents: [{ name: "devbox", url: remote.url, token: "runner-token" }],
       });
-      await remote.waitForMessage("ready");
+      await remote.waitForReady();
       remote.pushToWeb({
         type: "session-list",
         sessions: [{ ...localChip, id: "remote-slot", label: "remote", primary: false }],
@@ -341,7 +341,7 @@ test.describe("remote bridge transport", () => {
     const remote = await MockHost.start({ distDir });
     try {
       await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
-      await host.waitForMessage("ready");
+      await host.waitForReady();
       host.pushToWeb({
         type: "session-list",
         sessions: [sessionChip("local-slot", "main", "claude", true, true)],
@@ -350,7 +350,7 @@ test.describe("remote bridge transport", () => {
         type: "remote-agents",
         agents: [{ name: "devbox", url: remote.url, token: "runner-token" }],
       });
-      await remote.waitForMessage("ready");
+      await remote.waitForReady();
       remote.pushToWeb({
         type: "session-list",
         sessions: [sessionChip("remote-codex", "codex", "codex", true, false)],
@@ -416,7 +416,7 @@ test.describe("remote bridge transport", () => {
     page,
   }) => {
     await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
-    await host.waitForMessage("ready");
+    await host.waitForReady();
     await expect(page.locator(".connection-banner")).toHaveCount(0);
 
     host.pauseBridgeReady();
@@ -439,7 +439,7 @@ test.describe("remote bridge transport", () => {
     host = await MockHost.start({ distDir, readyReplayProtocol: 0 });
 
     await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
-    await host.waitForMessage("ready");
+    await host.waitForReady();
 
     await expect(page.locator(".connection-banner")).toHaveCount(0);
     await expect(page.locator(".footer-network-problem")).toHaveCount(0);
@@ -449,7 +449,7 @@ test.describe("remote bridge transport", () => {
     page,
   }) => {
     await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
-    await host.waitForMessage("ready");
+    await host.waitForReady();
 
     // Mount a session's panes. Re-pushed under toPass because App registers its host listener only after
     // mount; the pane's term-ready is the proof the xterm is live and bound to this slot.

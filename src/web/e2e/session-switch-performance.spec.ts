@@ -107,7 +107,7 @@ test("warm Claude/Codex session switches fully paint within one second", async (
 
   try {
     await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
-    await host.waitForMessage("ready");
+    await host.waitForReady();
     host.pushToWeb(editorSession(claude));
     host.pushToWeb({ type: "session-list", sessions: sessions(CLAUDE_ID) });
     await expect(page.locator(".editor")).toHaveAttribute("data-ready", "true", {
@@ -170,7 +170,7 @@ test("a media projection supersedes an unresolved text restore", async ({ page }
 
   try {
     await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
-    await host.waitForMessage("ready");
+    await host.waitForReady();
     host.pushToWeb(editorSession(codex));
     host.pushToWeb({ type: "session-list", sessions: sessions(CODEX_ID) });
     await expect(page.locator(".editor-media img")).toHaveJSProperty("complete", true);
@@ -226,7 +226,7 @@ test("an A-B-A projection cannot dispose the returned session's same-file model"
 
   try {
     await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
-    await host.waitForMessage("ready");
+    await host.waitForReady();
     host.pushToWeb({ type: "session-list", sessions: sessions(CODEX_ID) });
     host.pushToWeb(editorSession(codex));
     await expect(page.locator(".editor")).toHaveAttribute("data-ready", "true", {
@@ -268,7 +268,7 @@ test("a media tab supersedes an unresolved text open within one projection", asy
 
   try {
     await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
-    await host.waitForMessage("ready");
+    await host.waitForReady();
     host.pushToWeb({
       type: "session-list",
       sessions: [mockSessionChip(CLAUDE_ID, claude.label, "claude", true, true)],

@@ -180,6 +180,20 @@ export class MockHost {
     this.socket?.terminate();
   }
 
+  /**
+   * Resolves once the page's initial "ready" arrives. Bounded separately from waitForMessage: this covers
+   * a full page load + large bundle parse (Monaco, shiki grammars) before the app can even open the bridge,
+   * which is far more CI-load-sensitive than the sub-second protocol acks other waiters block on.
+   *
+   * Flaked on windows-latest 2026-07-25 ~20:22 UTC (15s bound) in codex-composer.spec.ts's "the working row
+   * tracks the turn" test, run https://github.com/Kapps/weavie/actions/runs/30172909228/job/89716872651 — 175
+   * other tests in the same run mounted the same page fine, so this wasn't a logic regression, just the bound
+   * being tight for a bootstrap that lands ~13 minutes into a long Windows job. Raised to 30s.
+   */
+  waitForReady(timeoutMs = 30_000): Promise<Message> {
+    return this.waitForMessage("ready", timeoutMs);
+  }
+
   /** Resolves with the next (or already-received) host-bound message of the given type. */
   waitForMessage(type: string, timeoutMs = 15_000): Promise<Message> {
     const existing = this.received.find((m) => m.type === type);

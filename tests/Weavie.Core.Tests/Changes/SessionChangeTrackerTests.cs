@@ -628,30 +628,45 @@ public sealed class SessionChangeTrackerTests {
 	}
 
 	[Fact]
-	public void KeepHunk_LastHunk_StaysFadedInReviewSetUntilKeepAll() {
+	public void KeepHunk_LastHunk_ExitsTheReview() {
 		var fileSystem = new InMemoryFileSystem();
 		fileSystem.WriteAllText("/w/a.txt", "a\nb\n");
 		var tracker = Tracker(fileSystem);
 		tracker.CaptureBaseline("/w/a.txt");
 		fileSystem.WriteAllText("/w/a.txt", "a\nB\n");
 		tracker.RecordChange("/w/a.txt");
+		IReadOnlyList<string>? committed = null;
+		tracker.AcceptedCommitted += paths => committed = paths;
 
-		// Keeping the file's one hunk advances the review baseline to current (no more pending hunks), but the
-		// file STAYS in the set as a faded accepted band (accepted anchor still behind) until keep-all commits it.
+		// Keeping the set's last pending hunk settles the review: the accepted band commits (as keep-all would)
+		// and the set empties — the review is over, no separate keep-all needed.
 		Assert.True(tracker.KeepHunk("/w/a.txt", new LineRange(2, 3), new LineRange(2, 3), "B"));
 
-		var faded = Assert.Single(tracker.TurnChanges());
-		Assert.Equal("a\nb\n", faded.AcceptedBaselineText); // faded band = accepted anchor → review baseline
-		Assert.Equal("a\nB\n", faded.BaselineText);         // review baseline == current → no bright pending hunks
-		Assert.Equal("a\nB\n", faded.CurrentText);
-		Assert.Single(tracker.Changes());                   // session diff (b -> B) survives
-
-		tracker.AcceptTurn();
-		Assert.Empty(tracker.TurnChanges()); // keep-all snaps the anchor to current — the faded band clears
+		Assert.Empty(tracker.TurnChanges());
+		Assert.Equal(["/w/a.txt"], committed);
+		Assert.Equal("a\nB\n", fileSystem.ReadAllText("/w/a.txt")); // disk untouched
+		Assert.Single(tracker.Changes());                           // session diff (b -> B) survives
 	}
 
 	[Fact]
-	public void KeepFile_AdvancesWholeBaseline_StaysFadedUntilKeepAll() {
+	public void KeepHunk_WithAnotherHunkStillPending_StaysInReview() {
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllText("/w/a.txt", "a\nb\nc\nd\ne\n");
+		var tracker = Tracker(fileSystem);
+		tracker.CaptureBaseline("/w/a.txt");
+		fileSystem.WriteAllText("/w/a.txt", "a\nB\nc\nD\ne\n"); // two hunks (lines 2 and 4)
+		tracker.RecordChange("/w/a.txt");
+
+		Assert.True(tracker.KeepHunk("/w/a.txt", new LineRange(4, 5), new LineRange(4, 5), "D"));
+
+		// The first hunk is still bright — the kept one stays as a faded band, nothing commits yet.
+		var change = Assert.Single(tracker.TurnChanges());
+		Assert.Equal("a\nb\nc\nd\ne\n", change.AcceptedBaselineText);
+		Assert.Equal("a\nb\nc\nD\ne\n", change.BaselineText);
+	}
+
+	[Fact]
+	public void KeepFile_LastPendingFile_ExitsTheReview() {
 		var fileSystem = new InMemoryFileSystem();
 		fileSystem.WriteAllText("/w/a.txt", "a\nb\nc\n");
 		var tracker = Tracker(fileSystem);
@@ -661,14 +676,53 @@ public sealed class SessionChangeTrackerTests {
 
 		tracker.KeepFile("/w/a.txt");
 
-		// Every hunk is now faded-accepted (review baseline == current), but the file stays in the set until keep-all.
-		var faded = Assert.Single(tracker.TurnChanges());
-		Assert.Equal("a\nb\nc\n", faded.AcceptedBaselineText);
-		Assert.Equal("A\nb\nC\n", faded.BaselineText);
+		// Keeping the only pending file settles the review — it commits and the set empties.
+		Assert.Empty(tracker.TurnChanges());
 		Assert.Equal("A\nb\nC\n", fileSystem.ReadAllText("/w/a.txt")); // disk unchanged
 		Assert.Single(tracker.Changes());    // session diff survives
+	}
 
-		tracker.AcceptTurn();
+	[Fact]
+	public void KeepFile_WithAnotherFileStillPending_StaysInReview() {
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllText("/w/a.txt", "a0\n");
+		fileSystem.WriteAllText("/w/b.txt", "b0\n");
+		var tracker = Tracker(fileSystem);
+		tracker.CaptureBaseline("/w/a.txt");
+		fileSystem.WriteAllText("/w/a.txt", "a1\n");
+		tracker.RecordChange("/w/a.txt");
+		tracker.CaptureBaseline("/w/b.txt");
+		fileSystem.WriteAllText("/w/b.txt", "b1\n");
+		tracker.RecordChange("/w/b.txt");
+
+		tracker.KeepFile("/w/a.txt");
+
+		// b.txt is still bright, so a.txt carries its faded band and the review stays up for both.
+		Assert.Equal(2, tracker.TurnChanges().Count);
+		var kept = tracker.GetTurn("/w/a.txt");
+		Assert.NotNull(kept);
+		Assert.Equal("a0\n", kept!.AcceptedBaselineText);
+		Assert.Equal("a1\n", kept.BaselineText); // review baseline == current → faded only
+
+		// Resolving the last bright file now settles the whole set: both commit and the review exits.
+		tracker.KeepFile("/w/b.txt");
+		Assert.Empty(tracker.TurnChanges());
+	}
+
+	[Fact]
+	public void RevertHunk_LastBrightWithFadedElsewhere_ExitsTheReview() {
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllText("/w/a.txt", "a\nb\nc\nd\ne\n");
+		var tracker = Tracker(fileSystem);
+		tracker.CaptureBaseline("/w/a.txt");
+		fileSystem.WriteAllText("/w/a.txt", "a\nB\nc\nD\ne\n"); // two hunks (lines 2 and 4)
+		tracker.RecordChange("/w/a.txt");
+		Assert.True(tracker.KeepHunk("/w/a.txt", new LineRange(2, 3), new LineRange(2, 3), "B")); // line 2 faded
+
+		// Reverting the remaining bright hunk settles the review even though a faded band remains — it commits.
+		Assert.Equal(RevertHunkOutcome.Reverted, tracker.RevertHunk("/w/a.txt", new LineRange(4, 5), new LineRange(4, 5), "D"));
+
+		Assert.Equal("a\nB\nc\nd\ne\n", fileSystem.ReadAllText("/w/a.txt")); // kept B stays, D reverted
 		Assert.Empty(tracker.TurnChanges());
 	}
 
@@ -836,20 +890,19 @@ public sealed class SessionChangeTrackerTests {
 	}
 
 	[Fact]
-	public void SeedRefBaseline_KeepHunk_AdvancesBaselineWithoutTouchingDisk() {
+	public void SeedRefBaseline_KeepLastHunk_CompletesReviewWithoutTouchingDisk() {
 		var fileSystem = new InMemoryFileSystem();
 		fileSystem.WriteAllText("/w/a.txt", "a\nB\nc\n");
 		var tracker = Tracker(fileSystem);
 		tracker.SeedRefBaseline("/w/a.txt", "a\nb\nc\n", "a\nB\nc\n", existedAtRef: true);
 
-		// Accept the committed change (line 2): the review baseline advances over it, disk is never written.
+		// Accept the committed change (line 2): it was the review's last pending hunk, so the review settles and
+		// exits; disk is never written.
 		Assert.True(tracker.KeepHunk("/w/a.txt", new LineRange(2, 3), new LineRange(2, 3), "B"));
 
 		Assert.Equal("a\nB\nc\n", fileSystem.ReadAllText("/w/a.txt")); // disk untouched
-		var change = tracker.GetTurn("/w/a.txt");
-		Assert.NotNull(change);
-		Assert.Equal("a\nb\nc\n", change!.AcceptedBaselineText); // anchor holds → the hunk is now faded-accepted
-		Assert.Equal("a\nB\nc\n", change.BaselineText);          // review baseline == current → no bright pending
+		Assert.Empty(tracker.TurnChanges());
+		Assert.Single(tracker.Changes()); // session diff (ref b → head B) survives
 	}
 
 	[Fact]

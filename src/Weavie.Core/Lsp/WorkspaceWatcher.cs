@@ -15,19 +15,19 @@ public enum FileChangeKind {
 	Deleted = 3,
 }
 
-/// <summary>One watched-file change: the file's <c>file://</c> URI and what happened to it.</summary>
-/// <param name="Uri">The changed file's <c>file://</c> URI.</param>
+/// <summary>One watched change: the entry's absolute native path and what happened to it.</summary>
+/// <param name="Path">The changed file's (or directory's) absolute native path.</param>
 /// <param name="Kind">The kind of change.</param>
-public readonly record struct WatchedFileChange(string Uri, FileChangeKind Kind);
+public readonly record struct WatchedFileChange(string Path, FileChangeKind Kind);
 
 /// <summary>
-/// Watches a workspace tree and reports relevant file changes in debounced batches so the host can forward
-/// <c>workspace/didChangeWatchedFiles</c> to language servers (spec §9) — otherwise their diagnostics/types go
-/// stale after Claude edits on disk. Filtered to served extensions; skips noise dirs (<c>node_modules</c>, etc.).
+/// Watches a workspace tree and reports every file and directory change (skipping noise dirs —
+/// <c>node_modules</c>, <c>.git</c>, etc.) in debounced batches. Consumers filter to their own scope: the LSP
+/// layer to its served extensions for <c>workspace/didChangeWatchedFiles</c> (spec §9), the editor's
+/// <c>file://</c> provider to reload on-disk edits, the file browser to re-list changed directories.
 /// </summary>
 public sealed class WorkspaceWatcher : IDisposable {
 	private readonly string _root;
-	private readonly IReadOnlySet<string> _extensions;
 	private readonly Action<IReadOnlyList<WatchedFileChange>> _onChanges;
 	private readonly Action<string> _log;
 	private readonly TimeSpan _debounce;
@@ -40,22 +40,18 @@ public sealed class WorkspaceWatcher : IDisposable {
 
 	/// <summary>Creates a watcher for <paramref name="root"/>. Call <see cref="Start"/> to begin watching.</summary>
 	/// <param name="root">The workspace root to watch recursively.</param>
-	/// <param name="extensions">File extensions (with leading dot) to report; others are ignored.</param>
 	/// <param name="onChanges">Invoked with a debounced batch of changes (off the UI thread).</param>
 	/// <param name="log">Diagnostic log sink.</param>
 	/// <param name="debounceMs">How long to coalesce rapid changes before flushing a batch.</param>
 	public WorkspaceWatcher(
 		string root,
-		IReadOnlySet<string> extensions,
 		Action<IReadOnlyList<WatchedFileChange>> onChanges,
 		Action<string> log,
 		int debounceMs) {
 		ArgumentException.ThrowIfNullOrEmpty(root);
-		ArgumentNullException.ThrowIfNull(extensions);
 		ArgumentNullException.ThrowIfNull(onChanges);
 
 		_root = root;
-		_extensions = extensions;
 		_onChanges = onChanges;
 		_log = log;
 		_debounce = TimeSpan.FromMilliseconds(debounceMs);
@@ -70,7 +66,8 @@ public sealed class WorkspaceWatcher : IDisposable {
 		try {
 			_watcher = new FileSystemWatcher(_root) {
 				IncludeSubdirectories = true,
-				NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.CreationTime | NotifyFilters.Size,
+				NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName | NotifyFilters.LastWrite
+					| NotifyFilters.CreationTime | NotifyFilters.Size,
 				InternalBufferSize = 64 * 1024,
 			};
 			_watcher.Created += (_, e) => Record(e.FullPath, FileChangeKind.Created);
@@ -83,7 +80,7 @@ public sealed class WorkspaceWatcher : IDisposable {
 			_watcher.Error += (_, e) => _log($"workspace watcher error: {e.GetException().Message}");
 			_debounceTimer = new Timer(_ => Flush(), null, Timeout.Infinite, Timeout.Infinite);
 			_watcher.EnableRaisingEvents = true;
-			_log($"workspace watcher on {_root} ({string.Join(",", _extensions)})");
+			_log($"workspace watcher on {_root}");
 		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) {
 			_log($"workspace watcher failed to start: {ex.Message}");
 			_watcher?.Dispose();
@@ -92,27 +89,23 @@ public sealed class WorkspaceWatcher : IDisposable {
 	}
 
 	private void Record(string fullPath, FileChangeKind kind) {
-		if (!IsRelevant(fullPath)) {
+		if (WorkspacePaths.HasIgnoredSegment(fullPath)) {
 			return;
 		}
 
-		// Last-write-wins per path within a batch; coarse last-wins is fine for didChangeWatchedFiles.
-		_pending[fullPath] = kind;
+		// Coalesce per path, preserving membership transitions: a Created followed by its content writes stays
+		// Created (consumers gate tree/index membership on it), and a Deleted→Created round-trip nets to
+		// Changed; otherwise the newest kind wins.
+		_pending.AddOrUpdate(fullPath, kind, (_, existing) =>
+			existing == FileChangeKind.Created && kind == FileChangeKind.Changed ? FileChangeKind.Created
+			: existing == FileChangeKind.Deleted && kind == FileChangeKind.Created ? FileChangeKind.Changed
+			: kind);
 		lock (_flushLock) {
 			// A watcher callback in flight during Dispose must not touch the disposed timer.
 			if (!_disposed) {
 				_debounceTimer?.Change(_debounce, Timeout.InfiniteTimeSpan);
 			}
 		}
-	}
-
-	private bool IsRelevant(string fullPath) {
-		string ext = Path.GetExtension(fullPath);
-		if (string.IsNullOrEmpty(ext) || !_extensions.Contains(ext)) {
-			return false;
-		}
-
-		return !WorkspacePaths.HasIgnoredSegment(fullPath);
 	}
 
 	private void Flush() {
@@ -125,21 +118,13 @@ public sealed class WorkspaceWatcher : IDisposable {
 			batch = new List<WatchedFileChange>(_pending.Count);
 			foreach (var (path, kind) in _pending) {
 				if (_pending.TryRemove(path, out _)) {
-					batch.Add(new WatchedFileChange(ToFileUri(path), kind));
+					batch.Add(new WatchedFileChange(path, kind));
 				}
 			}
 		}
 
 		if (batch.Count > 0) {
 			_onChanges(batch);
-		}
-	}
-
-	private static string ToFileUri(string fullPath) {
-		try {
-			return new Uri(fullPath).AbsoluteUri;
-		} catch (UriFormatException) {
-			return fullPath;
 		}
 	}
 

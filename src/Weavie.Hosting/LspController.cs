@@ -113,7 +113,8 @@ public sealed class LspController : IAsyncDisposable {
 
 	/// <summary>
 	/// Fans a debounced watcher batch to every live server as one <c>workspace/didChangeWatchedFiles</c>, so their
-	/// diagnostics/types don't go stale after Claude edits on disk.
+	/// diagnostics/types don't go stale after Claude edits on disk. The caller passes only served-language files —
+	/// the session's fan-out filters the watcher's all-files batch before it gets here.
 	/// </summary>
 	public void NotifyWatchedFileChanges(IReadOnlyList<WatchedFileChange> changes) {
 		if (changes.Count == 0 || _channels.IsEmpty) {
@@ -147,7 +148,7 @@ public sealed class LspController : IAsyncDisposable {
 				sb.Append(',');
 			}
 
-			sb.Append("{\"uri\":\"").Append(JsonEncodedText.Encode(changes[i].Uri))
+			sb.Append("{\"uri\":\"").Append(JsonEncodedText.Encode(new Uri(changes[i].Path).AbsoluteUri))
 				.Append("\",\"type\":").Append((int)changes[i].Kind).Append('}');
 		}
 

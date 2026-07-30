@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -28,8 +29,13 @@ namespace Weavie.Hosting;
 /// injected <see cref="IPtyLauncher"/>; a <c>HostCore</c> owns a set of these and routes to the active one.
 /// </summary>
 public sealed class HostSession : IAsyncDisposable {
+	private static readonly StringComparer PathComparer =
+		OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+
 	private readonly IHostBridge _bridge;
 	private readonly WorkspaceWatcher _watcher;
+	// Directories the file browser has listed (canonical paths); a watched change in one re-lists + re-pushes it.
+	private readonly ConcurrentDictionary<string, byte> _listedDirs = new(PathComparer);
 	// The server catalog advertised to the page (ids + language ids + default settings) — identical for every
 	// session, so serialized once; LspConfigJson adds the per-session slot + worktree root.
 	private static readonly string LspServersCatalogJson = JsonSerializer.Serialize(
@@ -187,10 +193,11 @@ public sealed class HostSession : IAsyncDisposable {
 		// TLS-proxied one) and reaches remote sessions. The catalog is advertised in LspConfigJson so the page lazily
 		// starts a client per language and feeds each server its defaults (e.g. gopls needs {"semanticTokens":true}).
 		Lsp = new LspController(bridge, workspaceRoot, new LspServerLauncher(), LanguageServerCatalog.Resolve, Tagged("[lsp]"));
-		// Watch the worktree for on-disk edits (agent or external): fan each debounced batch to the editor's
-		// file:// provider (FileChanges) AND to the live language servers (didChangeWatchedFiles). Owned here, not by
-		// the LSP layer, so it runs even with zero servers connected. Started eagerly.
-		_watcher = new WorkspaceWatcher(workspaceRoot, LanguageServerCatalog.WatchedExtensions, OnWatchedChanges, Tagged("[lsp]"), debounceMs: 250);
+		// Watch the worktree for on-disk edits (agent or external — a terminal branch switch included): fan each
+		// debounced batch to the editor's file:// provider + file-browser refresh (FileChanges) AND to the live
+		// language servers (didChangeWatchedFiles). Owned here, not by the LSP layer, so it runs even with zero
+		// servers connected. Started eagerly.
+		_watcher = new WorkspaceWatcher(workspaceRoot, OnWatchedChanges, Tagged("[fs]"), debounceMs: 250);
 		_watcher.Start();
 	}
 
@@ -297,6 +304,10 @@ public sealed class HostSession : IAsyncDisposable {
 	/// page (directories first). The file browser calls this on open and folder expand.
 	/// </summary>
 	public void ListDirectory(string requestedPath) {
+		if (Browser.TryResolve(requestedPath) is { } listed) {
+			_listedDirs.TryAdd(listed, 0); // now on the page — keep it fresh via RefreshListedDirectories
+		}
+
 		IReadOnlyList<BrowserEntry> entries;
 		try {
 			entries = Browser.List(requestedPath);
@@ -419,11 +430,39 @@ public sealed class HostSession : IAsyncDisposable {
 		throw new InvalidOperationException("Structured agent images must be submitted as explicit attachments.");
 	}
 
-	// Fan a debounced watcher batch to the editor's file:// provider (so VSCode reloads externally-edited models)
-	// and to this session's language servers (so their diagnostics/types don't go stale after an on-disk edit).
+	// Fan a debounced watcher batch out by consumer: the editor's file:// provider + the file-browser refresh see
+	// every change (FileChanges); the language servers get only the catalog's served extensions.
 	private void OnWatchedChanges(IReadOnlyList<WatchedFileChange> changes) {
 		FileChanges?.Invoke(changes);
-		Lsp.NotifyWatchedFileChanges(changes);
+		var served = changes
+			.Where(c => LanguageServerCatalog.WatchedExtensions.Contains(Path.GetExtension(c.Path)))
+			.ToList();
+		if (served.Count > 0) {
+			Lsp.NotifyWatchedFileChanges(served);
+		}
+	}
+
+	/// <summary>
+	/// Re-lists (and re-pushes) every browser-listed directory a watched change landed in, so the file tree
+	/// reflects files created or deleted by the terminal, the agent, or any external tool without a reload. A
+	/// deleted directory leaves the tracked set; its row disappears via its parent's own refresh.
+	/// </summary>
+	public void RefreshListedDirectories(IReadOnlyList<WatchedFileChange> changes) {
+		ArgumentNullException.ThrowIfNull(changes);
+		var refresh = new HashSet<string>(PathComparer);
+		foreach (var change in changes) {
+			if (change.Kind == FileChangeKind.Deleted) {
+				_listedDirs.TryRemove(change.Path, out _);
+			}
+
+			if (Path.GetDirectoryName(change.Path) is { } parent && _listedDirs.ContainsKey(parent)) {
+				refresh.Add(parent);
+			}
+		}
+
+		foreach (string dir in refresh) {
+			ListDirectory(dir);
+		}
 	}
 
 	/// <summary>

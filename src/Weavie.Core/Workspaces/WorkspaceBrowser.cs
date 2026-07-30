@@ -28,20 +28,7 @@ public sealed class WorkspaceBrowser {
 	/// inside it), directories first then files, each case-insensitive. Empty if the directory doesn't exist.
 	/// </summary>
 	public IReadOnlyList<BrowserEntry> List(string? requestedPath) {
-		string target;
-		try {
-			target = string.IsNullOrEmpty(requestedPath)
-				? Root
-				: Path.GetFullPath(Path.Combine(Root, requestedPath));
-		} catch (Exception ex) when (ex is ArgumentException or PathTooLongException or NotSupportedException) {
-			return []; // a malformed path has no listing — never throw past the caller's reply
-		}
-
-		if (!IsWithinRoot(target)) {
-			target = Root; // deny escape attempts (e.g. ../../) by falling back to the root
-		}
-
-		if (!_fileSystem.DirectoryExists(target)) {
+		if (TryResolve(requestedPath) is not { } target || !_fileSystem.DirectoryExists(target)) {
 			return [];
 		}
 
@@ -49,6 +36,23 @@ public sealed class WorkspaceBrowser {
 			.OrderByDescending(entry => entry.IsDirectory)
 			.ThenBy(entry => entry.Name, StringComparer.OrdinalIgnoreCase)
 			.Select(entry => new BrowserEntry(entry.Name, Path.Combine(target, entry.Name), entry.IsDirectory))];
+	}
+
+	/// <summary>
+	/// The absolute directory <see cref="List"/> lists for <paramref name="requestedPath"/> — the root when empty
+	/// or escaping (e.g. via <c>..</c>) — or <see langword="null"/> for a malformed path that has no listing.
+	/// </summary>
+	public string? TryResolve(string? requestedPath) {
+		string target;
+		try {
+			target = string.IsNullOrEmpty(requestedPath)
+				? Root
+				: Path.GetFullPath(Path.Combine(Root, requestedPath));
+		} catch (Exception ex) when (ex is ArgumentException or PathTooLongException or NotSupportedException) {
+			return null; // a malformed path has no listing — never throw past the caller's reply
+		}
+
+		return IsWithinRoot(target) ? target : Root;
 	}
 
 	// Case-sensitive off Windows: the browser is the only confinement guard run against a case-sensitive

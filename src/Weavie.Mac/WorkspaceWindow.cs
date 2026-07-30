@@ -59,12 +59,19 @@ internal sealed partial class WorkspaceWindow : IWebSurface {
 		var frame = new CGRect(placement.X, placement.Y, placement.Width, placement.Height);
 		_webView = new WKWebView(frame, config);
 		_bridge.Attach(_webView);
+		// Navigation policy: Release cancels any main-frame navigation away from the app origin and reroutes it
+		// to the OS browser; Debug intercepts the dev error page's weavie-dev:// links and allows the dev origin.
 #if DEBUG
-		// Intercept the dev-server error page's weavie-dev:// action links (Retry / Load stale bundle).
-		_webView.NavigationDelegate = new DevLinkNavigationDelegate(
+		_webView.NavigationDelegate = new WorkspaceNavigationDelegate(
 			onRetry: () => _ = RetryDevServerAsync(),
 			onLoadBundle: () => _ = LoadBundleAsync());
+#else
+		_webView.NavigationDelegate = new WorkspaceNavigationDelegate(
+			() => _core.WorkspaceOrigin,
+			url => ((IHostPlatform)this).OpenExternalUrl(url));
 #endif
+		// window.open / target=_blank never creates an in-app window — web URLs open in the OS browser.
+		_webView.UIDelegate = new WorkspaceUiDelegate(url => ((IHostPlatform)this).OpenExternalUrl(url));
 
 		Window = new NSWindow(
 			frame,

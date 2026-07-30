@@ -147,7 +147,7 @@ public sealed class LspControllerTests {
 		var controller = NewController(bridge, launcher);
 		controller.Start("s1", "fake", "ch1");
 
-		controller.NotifyWatchedFileChanges([new WatchedFileChange("file:///x.fake", FileChangeKind.Changed)]);
+		controller.NotifyWatchedFileChanges([new WatchedFileChange(Path.Combine(Path.GetTempPath(), "x.fake"), FileChangeKind.Changed)]);
 
 		Assert.Contains("workspace/didChangeWatchedFiles", launcher.Servers[0].LastWrittenText());
 	}

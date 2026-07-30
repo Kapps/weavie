@@ -143,8 +143,9 @@ public sealed partial class SessionChangeTracker {
 		}
 	}
 
-	// Turn-start commit: each accepted anchor advances to its review baseline (faded band collapses, pending stays).
-	// The history clears too — undoing a stale keep/revert would restore an old anchor, resurrecting committed hunks.
+	// Commit point shared by the turn boundary and a settled review: each accepted anchor advances to its review
+	// baseline (faded band collapses, pending stays). The history clears too — undoing a stale keep/revert would
+	// restore an old anchor, resurrecting committed hunks.
 	private void CommitAccepted() {
 		List<string>? committed = null;
 		lock (_gate) {
@@ -165,6 +166,30 @@ public sealed partial class SessionChangeTracker {
 		}
 
 		AcceptedCommitted?.Invoke(committed);
+	}
+
+	// Exits the review once its last pending hunk resolves: when every file in the set is fully kept or reverted
+	// (faded bands only, no bright hunk anywhere), commit the accepted bands so the set empties — resolving the
+	// final change ends the review without a separate keep-all. Called by each keep/revert after it acts.
+	private void CommitAcceptedIfSettled() {
+		lock (_gate) {
+			bool fadedOnly = false;
+			foreach (var (path, accepted) in _acceptedAnchor) {
+				if (_current.TryGetValue(path, out string? current) && !string.Equals(accepted, current, StringComparison.Ordinal)) {
+					if (!string.Equals(_reviewBaseline.GetValueOrDefault(path, accepted), current, StringComparison.Ordinal)) {
+						return; // a bright pending hunk remains — the review is still in progress
+					}
+
+					fadedOnly = true;
+				}
+			}
+
+			if (!fadedOnly) {
+				return; // no review set at all — nothing to exit
+			}
+		}
+
+		CommitAccepted();
 	}
 
 	/// <summary>Snapshots <paramref name="path"/>'s current content as its session + review baseline, once.</summary>
@@ -398,6 +423,10 @@ public sealed partial class SessionChangeTracker {
 		}
 
 		RaiseCorrected(edits);
+		if (outcome != RevertHunkOutcome.GuardMismatch) {
+			CommitAcceptedIfSettled();
+		}
+
 		return outcome;
 	}
 
@@ -422,6 +451,10 @@ public sealed partial class SessionChangeTracker {
 		}
 
 		RaiseCorrected(edits);
+		if (outcome != RevertHunkOutcome.GuardMismatch) {
+			CommitAcceptedIfSettled();
+		}
+
 		return outcome;
 	}
 
@@ -459,6 +492,8 @@ public sealed partial class SessionChangeTracker {
 		}
 
 		RaiseCorrected(edits);
+		// Deliberately no settled-commit here: revert-all is the bulk mistake-recovery gesture and must stay one
+		// undoable step — a commit would lock kept hunks in and wipe the undo that recovers them.
 		return result;
 	}
 
@@ -523,8 +558,10 @@ public sealed partial class SessionChangeTracker {
 			_reviewBaseline[path] = JoinLines(baselineLines, baselineRaw.Length > 0 ? baselineRaw : diskRaw);
 			SetPending(path, currentRange, false);
 			Record(ReviewActionKind.Keep, touchesDisk: false, currentRange.Start, [before], [path]);
-			return true;
 		}
+
+		CommitAcceptedIfSettled();
+		return true;
 	}
 
 	/// <summary>
@@ -548,6 +585,8 @@ public sealed partial class SessionChangeTracker {
 				Record(ReviewActionKind.Keep, touchesDisk: false, line: null, [before], [path]);
 			}
 		}
+
+		CommitAcceptedIfSettled();
 	}
 
 	/// <summary>
@@ -680,7 +719,8 @@ public sealed partial class SessionChangeTracker {
 	/// <summary>
 	/// The inline review diff set: every file whose current content differs from its accepted anchor — so a
 	/// fully-kept-but-uncommitted file (review baseline == current, but accepted anchor still behind) STAYS in the
-	/// set to carry its faded band, until keep-all snaps the anchor to current and drops it.
+	/// set to carry its faded band while other files are still pending. Keep-all — or resolving the set's last
+	/// pending hunk (see <see cref="CommitAcceptedIfSettled"/>) — snaps the anchors to current and empties it.
 	/// </summary>
 	public IReadOnlyList<FileChange> TurnChanges() {
 		lock (_gate) {

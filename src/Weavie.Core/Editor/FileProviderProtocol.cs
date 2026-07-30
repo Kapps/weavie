@@ -126,20 +126,17 @@ public static class FileProviderProtocol {
 		Changes([new FileProviderChange(path, kind)]);
 
 	/// <summary>
-	/// Builds an <c>fs-change</c> push from a workspace-watcher batch (URIs → native paths, kinds → web kinds),
-	/// forwarding non-Claude on-disk edits to the provider. Returns <see langword="null"/> when nothing maps.
+	/// Builds an <c>fs-change</c> push from a workspace-watcher batch (kinds → web kinds), forwarding non-Claude
+	/// on-disk edits to the provider. Returns <see langword="null"/> for an empty batch.
 	/// </summary>
 	/// <param name="changes">The watcher's debounced change batch.</param>
 	public static string? WatchedChanges(IReadOnlyList<WatchedFileChange> changes) {
 		ArgumentNullException.ThrowIfNull(changes);
-		var mapped = new List<FileProviderChange>(changes.Count);
-		foreach (var change in changes) {
-			if (TryToLocalPath(change.Uri, out string path)) {
-				mapped.Add(new FileProviderChange(path, MapKind(change.Kind)));
-			}
+		if (changes.Count == 0) {
+			return null;
 		}
 
-		return mapped.Count > 0 ? Changes(mapped) : null;
+		return Changes([.. changes.Select(c => new FileProviderChange(c.Path, MapKind(c.Kind)))]);
 	}
 
 	private static string MapKind(FileChangeKind kind) => kind switch {
@@ -147,16 +144,6 @@ public static class FileProviderProtocol {
 		FileChangeKind.Deleted => "deleted",
 		_ => "updated",
 	};
-
-	private static bool TryToLocalPath(string uri, out string path) {
-		try {
-			path = new Uri(uri).LocalPath;
-			return true;
-		} catch (UriFormatException) {
-			path = string.Empty;
-			return false;
-		}
-	}
 
 	private static string Build(Action<Utf8JsonWriter> body) {
 		using var stream = new MemoryStream();

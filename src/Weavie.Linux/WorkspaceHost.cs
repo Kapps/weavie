@@ -26,6 +26,7 @@ internal sealed partial class WorkspaceHost : IWebSurface {
 	private HostCore? _core;
 	private HostServices? _services;
 	private RecentWorkspaces? _recents;
+	private LinuxPlatform? _platform;
 	private AppSchemeHandler? _scheme;
 	private string? _wwwroot;
 
@@ -33,8 +34,10 @@ internal sealed partial class WorkspaceHost : IWebSurface {
 	private IntPtr _webView;
 	private IntPtr _contentManager;
 	private bool _shown;
-	// Kept alive: native holds a bare function pointer to this.
+	// Kept alive: native holds bare function pointers to these.
 	private WidgetCallback? _onDestroy;
+	private PolicyDecisionCallback? _onDecidePolicy;
+	private CreateWebViewCallback? _onCreateWebView;
 
 	/// <summary>
 	/// Builds the window, view, scheme handler, and bridge, then opens the resolved workspace or — when there is
@@ -55,6 +58,14 @@ internal sealed partial class WorkspaceHost : IWebSurface {
 		_webView = WebKit.webkit_web_view_new_with_user_content_manager(_contentManager);
 		_bridge.Attach(_webView);
 		WebKit.webkit_settings_set_enable_developer_extras(WebKit.webkit_web_view_get_settings(_webView), true);
+
+		// The view must never leave Weavie: new-window / window.open requests reroute to the OS browser.
+		_onDecidePolicy = OnDecidePolicy;
+		_onCreateWebView = OnCreateWebView;
+		_ = GLib.g_signal_connect_data(
+			_webView, "decide-policy", Marshal.GetFunctionPointerForDelegate(_onDecidePolicy), IntPtr.Zero, IntPtr.Zero, 0);
+		_ = GLib.g_signal_connect_data(
+			_webView, "create", Marshal.GetFunctionPointerForDelegate(_onCreateWebView), IntPtr.Zero, IntPtr.Zero, 0);
 
 		_window = Gtk.gtk_window_new(Gtk.WindowToplevel);
 		Gtk.gtk_window_set_title(_window, "weavie");
@@ -80,8 +91,9 @@ internal sealed partial class WorkspaceHost : IWebSurface {
 	/// </summary>
 	private void OpenWorkspace(string root) {
 		_recents!.Add(root);
+		_platform = new LinuxPlatform(_bridge, _recents);
 		_core = new HostCore(
-			new LinuxPlatform(_bridge, _recents),
+			_platform,
 			_services!,
 			root,
 			WorkspaceHttpServerOptions.Native(_wwwroot!),
@@ -136,6 +148,44 @@ internal sealed partial class WorkspaceHost : IWebSurface {
 	private void OnWindowDestroy(IntPtr widget, IntPtr userData) {
 		SaveWindowState();
 		Gtk.gtk_main_quit();
+	}
+
+	// WEBKIT_POLICY_DECISION_TYPE_NEW_WINDOW_ACTION.
+	private const int PolicyDecisionNewWindowAction = 1;
+
+	// A NEW_WINDOW_ACTION (target=_blank et al.) never creates or navigates in-app: reroute to the OS browser.
+	// Same-frame NAVIGATION_ACTIONs pass through — the C API can't tell the main frame from the web tab's
+	// iframe, and cancelling subframe navigations would break its inline browsing; the page-level guard
+	// (navigation-guard.ts) owns same-frame links instead.
+	private int OnDecidePolicy(IntPtr webView, IntPtr decision, int decisionType, IntPtr userData) {
+		if (decisionType != PolicyDecisionNewWindowAction) {
+			return 0;
+		}
+
+		string? url = UriOfNavigationAction(WebKit.webkit_navigation_policy_decision_get_navigation_action(decision));
+		WebKit.webkit_policy_decision_ignore(decision);
+		OpenExternalIfWeb(url);
+		return 1;
+	}
+
+	// window.open: an in-app child window is never created (it would share the bridge); open externally.
+	private IntPtr OnCreateWebView(IntPtr webView, IntPtr navigationAction, IntPtr userData) {
+		OpenExternalIfWeb(UriOfNavigationAction(navigationAction));
+		return IntPtr.Zero;
+	}
+
+	private static string? UriOfNavigationAction(IntPtr action) =>
+		action == IntPtr.Zero
+			? null
+			: Marshal.PtrToStringUTF8(WebKit.webkit_uri_request_get_uri(WebKit.webkit_navigation_action_get_request(action)));
+
+	private void OpenExternalIfWeb(string? url) {
+		// _platform is absent only while the welcome page shows (no core yet), and it renders no web links.
+		if (_platform is { } platform
+			&& Uri.TryCreate(url, UriKind.Absolute, out var parsed)
+			&& (parsed.Scheme == Uri.UriSchemeHttp || parsed.Scheme == Uri.UriSchemeHttps)) {
+			platform.OpenExternalUrl(parsed.AbsoluteUri);
+		}
 	}
 
 	private void InjectAtDocumentStart(string source) {

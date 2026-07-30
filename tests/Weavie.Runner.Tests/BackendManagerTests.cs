@@ -21,6 +21,7 @@ public sealed class BackendManagerTests {
 		var backend = new WorkspaceBackend {
 			WorkspaceRoot = Path.GetTempPath(),
 			Port = UnusedPort(),
+			PortIsPinned = false,
 			Token = "worker",
 		};
 		var reports = new List<(string Phase, string? Detail)>();
@@ -31,6 +32,21 @@ public sealed class BackendManagerTests {
 		Assert.Equal(("updating", "waiting for the workspace to go quiet"), reports[^1]);
 
 		void Report(string phase, string? detail) => reports.Add((phase, detail));
+	}
+
+	[Fact]
+	public async Task Ensure_PinsThePort_OnlyWhenWorkerPortIsConfigured() {
+		await using var pinned = new BackendManager(
+			Options() with { WorkerPort = UnusedPort() },
+			new HeadlessLauncher(() => "headless", "127.0.0.1", log: null),
+			"127.0.0.1");
+		Assert.True(pinned.Ensure().PortIsPinned);
+
+		await using var unpinned = new BackendManager(
+			Options(),
+			new HeadlessLauncher(() => "headless", "127.0.0.1", log: null),
+			"127.0.0.1");
+		Assert.False(unpinned.Ensure().PortIsPinned);
 	}
 
 	[Fact]
@@ -52,6 +68,7 @@ public sealed class BackendManagerTests {
 		var backend = new WorkspaceBackend {
 			WorkspaceRoot = Path.GetTempPath(),
 			Port = UnusedPort(),
+			PortIsPinned = false,
 			Token = "worker",
 			Supervisor = supervisor,
 		};

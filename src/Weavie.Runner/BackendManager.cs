@@ -66,8 +66,10 @@ public sealed partial class BackendManager : IAsyncDisposable {
 			var backend = new WorkspaceBackend {
 				WorkspaceRoot = _options.WorkspaceRoot,
 				// A pinned port (secured modes) keeps the TLS-front mapping valid across worker restarts; otherwise
-				// grab a free one (local use, where nothing fronts a fixed port).
+				// grab a free one (local use, where nothing fronts a fixed port) — HeadlessLauncher reassigns it
+				// on restart if that pick loses a race to another process (see AllocatePort's doc comment).
 				Port = _options.WorkerPort ?? AllocatePort(),
+				PortIsPinned = _options.WorkerPort.HasValue,
 				Token = RunnerOptions.NewToken(),
 			};
 			backend.Supervisor = _launcher.BuildSupervisor(backend);
@@ -98,8 +100,12 @@ public sealed partial class BackendManager : IAsyncDisposable {
 		return await TryReadBuildAsync(backend).ConfigureAwait(false) is null ? "starting" : "running";
 	}
 
-	/// <summary>Grabs a free TCP port by binding to port 0 and releasing it. Inherently racy, fine here.</summary>
-	private static int AllocatePort() {
+	/// <summary>
+	/// Grabs a free TCP port by binding to port 0 and releasing it. Inherently racy — another process (e.g. a
+	/// second runner spun up concurrently) can grab the same just-freed port before the worker actually binds it
+	/// seconds later; <see cref="HeadlessLauncher"/> calls this again to reassign on that collision.
+	/// </summary>
+	internal static int AllocatePort() {
 		var listener = new TcpListener(IPAddress.Loopback, 0);
 		listener.Start();
 		try {

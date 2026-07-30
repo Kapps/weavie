@@ -48,8 +48,16 @@ test("Claude and Codex sessions restore their own tabs and active image within o
   expect(codexMedia.searchParams.get("path")).toMatch(/[\\/]pixel\.png$/);
 
   // The click path flushes the outgoing tab set before HostCore switches, so no debounce or sleep is needed.
+  // The chip's active class is the optimistic client-side projection (App.tsx switchToSession), not proof the
+  // host has finished switching — wait for the incoming session's terminal surface to actually mount (as the
+  // codex switch above does) before touching session-scoped UI like the omnibar's file index. Flaked on macOS
+  // CI 2026-07-25 05:20 UTC (https://github.com/Kapps/weavie/actions/runs/30145261061/job/89645740585): the
+  // Enter in openFile("hello.ts") landed mid-switch and its tab never appeared within the 15s timeout.
   await page.locator('.session-chip[title^="main —"]').click();
   await expect(page.locator('.session-chip.active[title^="main —"]')).toBeVisible();
+  await expect(
+    page.locator('[data-kind="terminal:claude"][data-surface="terminal"]'),
+  ).toBeVisible();
   await openFile(page, "hello.ts");
   await openFile(page, "notes.txt");
   await page.locator(".editor-tab", { hasText: "hello.ts" }).click();

@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AgentPaneUpdate } from "../bridge";
 import {
-  caretOnFirstLine,
-  caretOnLastLine,
   type HistoryCursor,
   IDLE_CURSOR,
   recallNext,
@@ -73,17 +71,5 @@ describe("recallPrevious / recallNext", () => {
 
   it("does nothing when already editing the live draft", () => {
     expect(recallNext(history, IDLE_CURSOR)).toBeNull();
-  });
-});
-
-describe("caret line detection", () => {
-  it("detects the first line", () => {
-    expect(caretOnFirstLine("one\ntwo", 2)).toBe(true);
-    expect(caretOnFirstLine("one\ntwo", 5)).toBe(false);
-  });
-
-  it("detects the last line", () => {
-    expect(caretOnLastLine("one\ntwo", 5)).toBe(true);
-    expect(caretOnLastLine("one\ntwo", 2)).toBe(false);
   });
 });

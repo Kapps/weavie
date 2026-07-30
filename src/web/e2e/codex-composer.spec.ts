@@ -948,4 +948,52 @@ test.describe("Codex composer", () => {
     await page.keyboard.press("ArrowDown");
     await expect(textarea).toHaveValue("a fresh draft");
   });
+
+  test("Up moves through soft-wrapped draft lines before recalling history", async ({ page }) => {
+    await mountCodex(page);
+    host.pushToWeb(userMessage("previous prompt"));
+
+    const textarea = page.locator("[data-agent-composer] textarea");
+    const draft = "one two three four";
+    await textarea.evaluate((element) => {
+      element.style.width = "120px";
+    });
+    await textarea.fill(draft);
+    await textarea.evaluate((element) => {
+      element.setSelectionRange(element.value.length, element.value.length);
+    });
+
+    await page.keyboard.press("ArrowUp");
+    await expect(textarea).toHaveValue(draft);
+    await expect
+      .poll(() => textarea.evaluate((element) => element.selectionStart))
+      .toBeLessThan(draft.length);
+
+    await page.keyboard.press("ArrowUp");
+    await expect(textarea).toHaveValue("previous prompt");
+  });
+
+  test("Down moves through a soft-wrapped recalled prompt before restoring the draft", async ({
+    page,
+  }) => {
+    await mountCodex(page);
+    const prompt = "one two three four";
+    host.pushToWeb(userMessage(prompt));
+
+    const textarea = page.locator("[data-agent-composer] textarea");
+    await textarea.evaluate((element) => {
+      element.style.width = "120px";
+    });
+    await textarea.fill("live draft");
+    await page.keyboard.press("ArrowUp");
+    await expect(textarea).toHaveValue(prompt);
+
+    await page.keyboard.press("ArrowUp");
+    await expect(textarea).toHaveValue(prompt);
+    await page.keyboard.press("ArrowDown");
+    await expect(textarea).toHaveValue(prompt);
+
+    await page.keyboard.press("ArrowDown");
+    await expect(textarea).toHaveValue("live draft");
+  });
 });

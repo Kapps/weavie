@@ -48,12 +48,27 @@ import {
   togglePin,
 } from "./session-store";
 import type { EditorSessionEntry } from "./session-types";
+import type {
+  SpellAddWordResult,
+  SpellContext,
+  SpellDiagnostics,
+  SpellDictionaryChanged,
+  SpellMenuTarget,
+  SpellScope,
+  SpellSuggestResult,
+} from "./spelling/spell-session";
 
 // Only a genuine hang trips this, never a slow cold start: the editor chunk (~750KB of Monaco + workers) plus
 // vscode-services init can legitimately run tens of seconds on a loaded machine or across the remote worker hop
 // (browser → Runner → worker). 15s misfired there — a slow-but-successful boot got killed and `data-ready` never
 // stamped — so it's set well above any real cold start while still bounding an init that truly never settles.
 const EDITOR_INIT_MS = 60_000;
+
+type SpellMessage =
+  | SpellAddWordResult
+  | SpellDiagnostics
+  | SpellDictionaryChanged
+  | SpellSuggestResult;
 
 export interface EditorControllerDeps {
   /** Surface a debounced save that failed to reach disk. */
@@ -167,6 +182,18 @@ export interface EditorController {
   /** Focuses the editor and triggers a Monaco action by id (e.g. the editor right-click Copy/Cut/Paste);
    * false when no editor is mounted. */
   triggerAction(actionId: string): boolean;
+  /** Resolves a spelling issue under a right-click coordinate, or null outside one. */
+  spellContextAtClientPoint(clientX: number, clientY: number): SpellContext | null;
+  /** Resolves the spelling issue at the cursor plus a viewport anchor for keyboard-invoked actions. */
+  spellContextAtCursor(): SpellMenuTarget | null;
+  /** Whether a spelling issue still belongs to the active editor model and diagnostics. */
+  isSpellContextCurrent(context: SpellContext): boolean;
+  /** Lazily asks Core for corrections to a current spelling issue. */
+  requestSpellSuggestions(context: SpellContext): Promise<string[]>;
+  /** Applies a current spelling suggestion described by command args. */
+  applySpellSuggestion(args: unknown): boolean;
+  /** Adds the current spelling issue's word to one Core-owned dictionary. */
+  addSpellWord(scope: SpellScope, args: unknown): Promise<void>;
   /** New File: asks the host to create a scratch buffer, which comes back as an open-file with `scratch`. */
   newFile(): void;
   /** Save the active editor: a scratch buffer prompts for a name; a real file is already autosaved. */
@@ -203,6 +230,26 @@ export interface EditorController {
 export function createEditorController(deps: EditorControllerDeps): EditorController {
   // host + inlineDiff are set once the editor chunk loads and the editor is created (see start).
   let host: EditorHost | undefined;
+  const handleSpellMessage = (message: SpellMessage): void => {
+    const spelling = host?.spelling;
+    if (spelling === undefined) {
+      return;
+    }
+    switch (message.type) {
+      case "spell-diagnostics":
+        spelling.handleDiagnostics(message);
+        break;
+      case "spell-suggest-result":
+        spelling.handleSuggestResult(message);
+        break;
+      case "spell-add-word-result":
+        spelling.handleAddWordResult(message);
+        break;
+      case "spell-dictionary-changed":
+        spelling.handleDictionaryChanged(message);
+        break;
+    }
+  };
   let inlineDiff: InlineDiff | undefined;
   let commentProse: CommentProse | undefined;
   // Captured from the dynamic inline-diff import in start(); used by the show-diff handler, which can
@@ -1077,6 +1124,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         // Projection commit owns the complete editor/review surface. Clear the outgoing review immediately,
         // then serialize Monaco rebinds; only the rebind for the still-current immutable binding may mount.
         resetReviewProjection();
+        host?.spelling.clearProjection();
         if (projectionReady && host !== undefined) {
           const binding = currentEditorBinding();
           if (binding !== null) {
@@ -1087,6 +1135,18 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
             });
           }
         }
+        return true;
+      case "spell-diagnostics":
+        handleSpellMessage(message);
+        return true;
+      case "spell-suggest-result":
+        handleSpellMessage(message);
+        return true;
+      case "spell-add-word-result":
+        handleSpellMessage(message);
+        return true;
+      case "spell-dictionary-changed":
+        handleSpellMessage(message);
         return true;
       case "open-file":
         openFile(message.path, message.line, message.preview === true, message.scratch === true);
@@ -1302,6 +1362,17 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       host.editor.trigger("weavie-menu", actionId, null);
       return true;
     },
+    spellContextAtClientPoint: (clientX, clientY) =>
+      host?.spelling.contextAtClientPoint(clientX, clientY) ?? null,
+    spellContextAtCursor: () => host?.spelling.contextAtCursor() ?? null,
+    isSpellContextCurrent: (context) => host?.spelling.isCurrentContext(context) === true,
+    requestSpellSuggestions: (context) =>
+      host?.spelling.requestSuggestions(context) ??
+      Promise.reject(new Error("The editor isn't ready.")),
+    applySpellSuggestion: (args) => host?.spelling.applySuggestion(args) ?? false,
+    addSpellWord: (scope, args) =>
+      host?.spelling.addWord(scope, args) ??
+      Promise.reject(new Error("The spelling editor is not available.")),
     newFile,
     save,
     flushDirty: () => host?.flushDirty() ?? Promise.resolve(),

@@ -129,8 +129,7 @@ internal sealed partial class WorkspaceHost : IWebSurface {
 	internal void Shutdown() {
 		SaveWindowState();
 		_core?.DisposeAsync().AsTask().GetAwaiter().GetResult();
-		_services?.Keybindings.Dispose();
-		_services?.Settings.Dispose();
+		_services?.Dispose();
 	}
 
 	private void OnWindowDestroy(IntPtr widget, IntPtr userData) {

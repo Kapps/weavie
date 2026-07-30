@@ -1,4 +1,5 @@
 import {
+  batch,
   createEffect,
   createMemo,
   createSignal,
@@ -61,15 +62,20 @@ import {
 // Top-level import keeps the session store out of any hot-swapping component so the rail + active-session
 // status survive HMR.
 import {
+  completeSessionSwitchIndex,
   demoteSession,
   findSession,
   isPromoted,
+  mountedSessionIndexOwner,
   projectSessionSwitch,
   promoteSession,
   type RailSession,
   railSessions,
   remoteActivity,
   remoteAgentRows,
+  type SessionSwitchTarget,
+  sameSessionSwitchTarget,
+  sessionSwitchIntent,
   sessions,
   sessionsReceived,
   stepRailTarget,
@@ -124,6 +130,7 @@ import {
   setSourceLoading,
   sourceDoc,
 } from "./editor/source/source-store";
+import type { SpellContext } from "./editor/spelling/spell-session";
 import { TabStrip } from "./editor/TabStrip";
 import { isPreviewMode, toggleViewMode } from "./editor/view-mode-store";
 import WebTabPane from "./editor/WebTabPane";
@@ -153,10 +160,6 @@ const SourceView = lazy(() => import("./editor/source/SourceView"));
 const SearchPanel = lazy(() =>
   import("./chrome/SearchPanel").then((m) => ({ default: m.SearchPanel })),
 );
-
-// The PRIMARY session's workspace root (host-injected before navigation); seeds indexRoot and the "is there
-// a host workspace at all" check. The live root then follows the active session. Null in plain-browser dev.
-const WORKSPACE_ROOT = window.__WEAVIE_LSP__?.workspace ?? null;
 
 // Host-injected shell config. titleBar "custom" = Windows frameless web title bar; "mac" = omnibar strip
 // below the native title bar. Absent in plain-browser dev, where the floating Files button is the toggle.
@@ -347,13 +350,30 @@ export default function App(): JSX.Element {
   };
   // The right-click menu for the editor body + terminal panes (the tab strip / rail own their own).
   const [contextMenu, setContextMenu] = createSignal<ContextMenuState | null>(null);
+  let contextMenuGeneration = 0;
+  const replaceContextMenu = (menu: ContextMenuState | null): void => {
+    contextMenuGeneration += 1;
+    setContextMenu(menu);
+  };
   // The flat workspace file index shared by the omnibar's "Go to File" and the file browser. indexRoot is
-  // the ACTIVE session's worktree root — it follows session switches (host re-pushes file-index on each),
-  // seeded from WORKSPACE_ROOT until the first.
+  // the ACTIVE session's worktree root — it follows session switches (host re-pushes file-index on each).
   const [fileIndex, setFileIndex] = createSignal<string[]>([]);
-  const [indexRoot, setIndexRoot] = createSignal<string | null>(WORKSPACE_ROOT);
+  const [indexRoot, setIndexRoot] = createSignal<string | null>(null);
   // True between a switch's index invalidation (pending file-index) and the new worktree's walked index.
   const [indexPending, setIndexPending] = createSignal(false);
+  const [indexOwner, setIndexOwner] = createSignal<SessionSwitchTarget | null>(null);
+  const indexMatchesMounted = createMemo(() => {
+    const owner = indexOwner();
+    return owner !== null && sameSessionSwitchTarget(owner, mountedSessionIndexOwner());
+  });
+  // Keep the mounted index as a backing cache during a switch. Hiding it from navigation is reversible, so a
+  // rejected/disconnected switch reveals the still-authoritative cache without a recovery request or protocol.
+  const indexCacheVisible = createMemo(
+    () => sessionSwitchIntent() === null && indexMatchesMounted(),
+  );
+  const visibleFileIndex = createMemo(() => (indexCacheVisible() ? fileIndex() : []));
+  const visibleIndexRoot = createMemo(() => (indexCacheVisible() ? indexRoot() : null));
+  const visibleIndexPending = createMemo(() => !indexCacheVisible() || indexPending());
 
   // The Monaco editor + all diff/review orchestration; App feeds it host messages and commands.
   const editor = createEditorController({
@@ -372,6 +392,84 @@ export default function App(): JSX.Element {
     confirm,
     promptScratchName,
   });
+  const editorContextEntries = (): ContextMenuEntry[] => [
+    { commandId: CommandIds.editorGoToDefinition },
+    { commandId: CommandIds.editorPeekDefinition },
+    { commandId: CommandIds.editorGoToReferences },
+    { commandId: CommandIds.editorRename },
+    { kind: "separator" },
+    { commandId: CommandIds.editorCut },
+    { commandId: CommandIds.editorCopy },
+    { commandId: CommandIds.editorPaste },
+    { kind: "separator" },
+    { commandId: CommandIds.focusOmnibarCommands, label: "Command Palette" },
+  ];
+  const spellMenuTailEntries = (context: SpellContext): ContextMenuEntry[] => [
+    {
+      kind: "submenu" as const,
+      label: "Add to Dictionary",
+      entries: [
+        {
+          commandId: CommandIds.spellingAddToProjectDictionary,
+          label: "Project",
+          args: context,
+        },
+        {
+          commandId: CommandIds.spellingAddToUserDictionary,
+          label: "User",
+          args: context,
+        },
+      ],
+    },
+    { kind: "separator" },
+    ...editorContextEntries(),
+  ];
+  const spellMenuEntries = (context: SpellContext, suggestions: string[]): ContextMenuEntry[] => [
+    ...suggestions.map((replacement) => ({
+      commandId: CommandIds.spellingApplySuggestion,
+      label: replacement,
+      args: { ...context, replacement },
+    })),
+    ...(suggestions.length > 0 ? [{ kind: "separator" } as const] : []),
+    ...spellMenuTailEntries(context),
+  ];
+  const openSpellMenu = (context: SpellContext, x: number, y: number): void => {
+    const generation = ++contextMenuGeneration;
+    setContextMenu({ x, y, header: "Checking spelling…", busy: true, entries: [] });
+    const openIfCurrent = (suggestions: string[]): void => {
+      if (generation !== contextMenuGeneration) {
+        return;
+      }
+      if (!editor.isSpellContextCurrent(context)) {
+        replaceContextMenu(null);
+        return;
+      }
+      setContextMenu(null);
+      queueMicrotask(() => {
+        if (generation === contextMenuGeneration && editor.isSpellContextCurrent(context)) {
+          setContextMenu({ x, y, entries: spellMenuEntries(context, suggestions) });
+        }
+      });
+    };
+    void editor.requestSpellSuggestions(context).then(openIfCurrent, () => openIfCurrent([]));
+  };
+  const openEditorContextMenu = (event: MouseEvent): void => {
+    // Only when a document is mounted — the empty-state pane has no selection to act on.
+    if (openTabs().length === 0) {
+      return;
+    }
+    event.preventDefault();
+    const context = editor.spellContextAtClientPoint(event.clientX, event.clientY);
+    if (context !== null) {
+      openSpellMenu(context, event.clientX, event.clientY);
+      return;
+    }
+    replaceContextMenu({
+      x: event.clientX,
+      y: event.clientY,
+      entries: editorContextEntries(),
+    });
+  };
   // Find-in-files results open through the editor controller (preview tab, cursor on the match's column).
   setSearchOpener((match, focus) => editor.openMatch(match.path, match.line, match.column, focus));
 
@@ -691,29 +789,7 @@ export default function App(): JSX.Element {
               class="editor"
               role="application"
               ref={editorContainer}
-              onContextMenu={(event) => {
-                // Only when a document is mounted — the empty-state pane has no selection to act on.
-                if (openTabs().length === 0) {
-                  return;
-                }
-                event.preventDefault();
-                setContextMenu({
-                  x: event.clientX,
-                  y: event.clientY,
-                  entries: [
-                    { commandId: CommandIds.editorGoToDefinition },
-                    { commandId: CommandIds.editorPeekDefinition },
-                    { commandId: CommandIds.editorGoToReferences },
-                    { commandId: CommandIds.editorRename },
-                    { kind: "separator" },
-                    { commandId: CommandIds.editorCut },
-                    { commandId: CommandIds.editorCopy },
-                    { commandId: CommandIds.editorPaste },
-                    { kind: "separator" },
-                    { commandId: CommandIds.focusOmnibarCommands, label: "Command Palette" },
-                  ],
-                });
-              }}
+              onContextMenu={openEditorContextMenu}
             />
             {/* No file open: cover the blank Monaco host with an identity + keyboard-first starter actions. */}
             <Show when={openTabs().length === 0}>
@@ -763,7 +839,7 @@ export default function App(): JSX.Element {
           </div>
           <EditorFooter
             onOpenRecent={(path) => editor.openFile(path, 1)}
-            root={() => indexRoot() ?? ""}
+            root={() => visibleIndexRoot() ?? ""}
           />
         </div>
       );
@@ -875,7 +951,7 @@ export default function App(): JSX.Element {
                         { kind: "separator" },
                         { commandId: CommandIds.focusOmnibarCommands, label: "Command Palette" },
                       );
-                      setContextMenu({
+                      replaceContextMenu({
                         x: event.clientX,
                         y: event.clientY,
                         ...(url !== undefined ? { header: url } : {}),
@@ -913,9 +989,9 @@ export default function App(): JSX.Element {
   const fullscreenKeyHint = (): string => keyHint(CommandIds.toggleFullscreenPane);
 
   // When the browser is open and the active session's root listing hasn't loaded, request it. Keyed on
-  // indexRoot() (the ACTIVE session's worktree, re-pushed on a switch), so the browser follows the session.
+  // visibleIndexRoot() (the ACTIVE session's worktree, re-pushed on a switch), so the browser follows the session.
   createEffect(() => {
-    const root = indexRoot();
+    const root = visibleIndexRoot();
     if (browserOpen() && root !== null && dirListings()[root] === undefined) {
       postToHost({ type: "list-dir", path: root });
     }
@@ -995,20 +1071,37 @@ export default function App(): JSX.Element {
       } else if (message.type === "dir-listing") {
         setDirListings((prev) => ({ ...prev, [message.path]: message.entries }));
       } else if (message.type === "file-index") {
+        const mountedOwner = mountedSessionIndexOwner();
+        // Missing ownership is the additive compatibility lane for older workers: their FIFO stream defines
+        // file-index as belonging to the projection mounted when it arrives.
+        const messageOwner =
+          message.railSessionId === undefined
+            ? mountedOwner?.backendId === originBackendId
+              ? mountedOwner
+              : null
+            : { backendId: originBackendId, id: message.railSessionId };
+        if (messageOwner === null || !sameSessionSwitchTarget(messageOwner, mountedOwner)) {
+          return;
+        }
         // A switch re-pushes the index rooted at the new worktree. On a root change, drop the cached listings
         // (keyed by absolute path, so they'd otherwise linger) and let the browser re-list the new tree. A
         // `pending` push is the walk's in-train start signal: on a root CHANGE the old session's files vanish
         // NOW (picking one would route a wrong-worktree path) and the omnibar shows loading until the walked
         // index arrives; a same-root pending (an omnibar-open refresh) keeps the still-valid current index.
-        if (message.pending === true && message.root === indexRoot()) {
-          return;
-        }
-        if (message.root !== indexRoot()) {
-          setDirListings({});
-        }
-        setIndexRoot(message.root);
-        setFileIndex(message.files);
-        setIndexPending(message.pending === true);
+        batch(() => {
+          const sameOwnedRoot =
+            sameSessionSwitchTarget(messageOwner, indexOwner()) && message.root === indexRoot();
+          if (!(message.pending === true && sameOwnedRoot)) {
+            if (!sameOwnedRoot) {
+              setDirListings({});
+            }
+            setIndexRoot(message.root);
+            setFileIndex(message.files);
+            setIndexPending(message.pending === true);
+          }
+          setIndexOwner(messageOwner);
+          completeSessionSwitchIndex(messageOwner);
+        });
       } else if (message.type === "focus-omnibar") {
         // A clicked file link matched several workspace files — open Go-to-File preloaded so the user picks;
         // the link's line rides along and applies to the pick. Absent line = a pre-line host (version skew).
@@ -1182,7 +1275,7 @@ export default function App(): JSX.Element {
       ),
       registerCommand(CommandIds.copyTabRelativePath, (args) =>
         copyTabPath(args, (path) => {
-          const root = indexRoot();
+          const root = visibleIndexRoot();
           return root === null ? path : repoRelativePath(root, path);
         }),
       ),
@@ -1209,6 +1302,23 @@ export default function App(): JSX.Element {
         editor.triggerAction("editor.action.goToReferences"),
       ),
       registerCommand(CommandIds.editorRename, () => editor.triggerAction("editor.action.rename")),
+      registerCommand(CommandIds.spellingShowActions, () => {
+        const target = editor.spellContextAtCursor();
+        if (target === null) {
+          return false;
+        }
+        openSpellMenu(target.context, target.x, target.y);
+        return true;
+      }),
+      registerCommand(CommandIds.spellingAddToProjectDictionary, (args) =>
+        editor.addSpellWord("project", args),
+      ),
+      registerCommand(CommandIds.spellingAddToUserDictionary, (args) =>
+        editor.addSpellWord("user", args),
+      ),
+      registerCommand(CommandIds.spellingApplySuggestion, (args) =>
+        editor.applySpellSuggestion(args),
+      ),
       // New File (scratch buffer) + Save (scratch → name prompt; real file already autosaved).
       registerCommand(CommandIds.newFile, () => editor.newFile()),
       registerCommand(CommandIds.saveFile, () => editor.save()),
@@ -1382,9 +1492,9 @@ export default function App(): JSX.Element {
         <TitleBar
           maximized={windowMaximized()}
           focused={hostWindowFocused()}
-          files={fileIndex()}
-          filesPending={indexPending()}
-          root={indexRoot()}
+          files={visibleFileIndex()}
+          filesPending={visibleIndexPending()}
+          root={visibleIndexRoot()}
           currentFile={currentFile()}
           onWindowControl={(action) => postToLocalHost({ type: "window-control", action })}
           onMenuAction={(action, path) =>
@@ -1405,9 +1515,9 @@ export default function App(): JSX.Element {
       </Show>
       <Show when={MAC_TITLEBAR}>
         <MacTitleBar
-          files={fileIndex()}
-          filesPending={indexPending()}
-          root={indexRoot()}
+          files={visibleFileIndex()}
+          filesPending={visibleIndexPending()}
+          root={visibleIndexRoot()}
           currentFile={currentFile()}
           workspaceLabel={SHELL?.workspaceLabel ?? "weavie"}
           onToggleFiles={toggleBrowser}
@@ -1577,15 +1687,15 @@ export default function App(): JSX.Element {
           />
         )}
       </Show>
-      <Show when={indexRoot() !== null && !HAS_TITLEBAR}>
+      <Show when={visibleIndexRoot() !== null && !HAS_TITLEBAR}>
         <button type="button" class="browser-toggle" onClick={toggleBrowser}>
           Files
         </button>
       </Show>
-      <Show when={browserOpen() && indexRoot() !== null}>
+      <Show when={browserOpen() && visibleIndexRoot() !== null}>
         <Suspense>
           <FileBrowser
-            root={indexRoot()!}
+            root={visibleIndexRoot()!}
             listings={dirListings()}
             currentFile={currentFile()}
             onExpand={(path) => postToHost({ type: "list-dir", path })}
@@ -1619,7 +1729,7 @@ export default function App(): JSX.Element {
         <UpdateOverlay />
       </Show>
       <Show when={contextMenu()}>
-        {(m) => <ContextMenu menu={m()} onClose={() => setContextMenu(null)} />}
+        {(m) => <ContextMenu menu={m()} onClose={() => replaceContextMenu(null)} />}
       </Show>
       <Show when={confirmReq()}>
         {(req) => (

@@ -1,25 +1,21 @@
 using System.Text.Json;
-using Weavie.Core.Workspaces;
 
 namespace Weavie.Core.Shell;
 
 /// <summary>
 /// Orchestrates the custom title bar's message flow between the web shell and one host window: parses
-/// title-bar messages via <see cref="ShellProtocol"/>, drives <see cref="IShellWindow"/> and the workspace
-/// file index, and pushes replies over <c>postToWeb</c>. OS-agnostic, so both hosts share it.
+/// title-bar messages via <see cref="ShellProtocol"/>, drives <see cref="IShellWindow"/>, and pushes replies
+/// over <c>postToWeb</c>. OS-agnostic, so both hosts share it.
 /// </summary>
 public sealed class ShellController {
 	private readonly IShellWindow _window;
-	private readonly WorkspaceFileIndex _fileIndex;
 	private readonly Action<string> _postToWeb;
 
-	/// <summary>Creates a controller driving <paramref name="window"/>, indexing via <paramref name="fileIndex"/>, replying over <paramref name="postToWeb"/>.</summary>
-	public ShellController(IShellWindow window, WorkspaceFileIndex fileIndex, Action<string> postToWeb) {
+	/// <summary>Creates a controller driving <paramref name="window"/> and replying over <paramref name="postToWeb"/>.</summary>
+	public ShellController(IShellWindow window, Action<string> postToWeb) {
 		ArgumentNullException.ThrowIfNull(window);
-		ArgumentNullException.ThrowIfNull(fileIndex);
 		ArgumentNullException.ThrowIfNull(postToWeb);
 		_window = window;
-		_fileIndex = fileIndex;
 		_postToWeb = postToWeb;
 	}
 
@@ -73,9 +69,6 @@ public sealed class ShellController {
 				break;
 		}
 	}
-
-	/// <summary>Walks the workspace and pushes the <c>file-index</c> reply for the omnibar quick-open.</summary>
-	public void PushFileIndex() => _postToWeb(ShellProtocol.BuildFileIndex(_fileIndex.Root, _fileIndex.List()));
 
 	/// <summary>Pushes the current window state (maximized + focused) so the title bar updates its glyph and dim.</summary>
 	public void PushWindowState(bool maximized, bool focused) => _postToWeb(ShellProtocol.BuildWindowState(maximized, focused));

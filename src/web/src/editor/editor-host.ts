@@ -29,6 +29,7 @@ import { mediaTypeOf } from "./media/media-types";
 import { createEditor, monaco } from "./monaco-setup";
 import { leaveLine } from "./nav-history";
 import { captureViewState, editorSession, openTab, promote } from "./session-store";
+import { SpellSession } from "./spelling/spell-session";
 import { initEditorServices, setOpenEditorSink } from "./vscode-services";
 
 // A resolved, refcounted model reference held for an open file. Disposing it drops a refcount; the model is
@@ -58,6 +59,7 @@ function nextPaint(): Promise<void> {
 /** The live editor, plus the operations the shell drives it with (open a file, review a diff, tear down). */
 export interface EditorHost {
   readonly editor: monaco.editor.IStandaloneCodeEditor;
+  readonly spelling: SpellSession;
   /**
    * Switches the editor to a file working copy; `placement` reveals a 1-based `line` (optionally at `column`;
    * `focus: false` reveals without stealing focus) or restores the tab's saved view state. Resolves `true` when
@@ -134,6 +136,7 @@ export async function createEditorHost(
   const textModelService = await getService(ITextModelService);
   const textFileService = await getService(ITextFileService);
   const editor = createEditor(container);
+  const spelling = new SpellSession(editor);
 
   // Open file working copies survive a hot reload on this window-scoped map; first host creates it.
   window.__WEAVIE_EDITOR_REFS__ ??= new Map<string, ModelRef>();
@@ -364,15 +367,21 @@ export async function createEditorHost(
   );
 
   const attachSave = (model: monaco.editor.ITextModel): void => {
-    if (saveAttached.has(model) || !isUserFileModel(model)) {
+    if (!isUserFileModel(model)) {
+      return;
+    }
+    spelling.track(model);
+    if (saveAttached.has(model)) {
       return;
     }
     saveAttached.add(model);
     const key = model.uri.toString();
     disposables.push(
       model.onDidChangeContent(() => {
-        // Only a real user edit dirties the working copy; a host-driven reload/revert doesn't, so skip it.
-        if (!textFileService.isDirty(model.uri)) {
+        spelling.contentChanged(model);
+        const dirty = textFileService.isDirty(model.uri);
+        // Only a real user edit dirties the working copy; a host-driven reload/revert needs no save.
+        if (!dirty) {
           return;
         }
         // A real edit promotes a preview tab to persistent (no-op once persistent).
@@ -701,6 +710,7 @@ export async function createEditorHost(
     for (const subscription of disposables) {
       subscription.dispose();
     }
+    spelling.dispose();
     editor.dispose();
     // The model references are not disposed — they persist on window so the next host reattaches to the same
     // working copies and the refcount never hits 0.
@@ -747,6 +757,7 @@ export async function createEditorHost(
   log("info", "editor host ready");
   return {
     editor,
+    spelling,
     show,
     closeFile,
     contentOf,

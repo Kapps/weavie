@@ -125,21 +125,28 @@ public static class ShellProtocol {
 	public static string BuildWindowState(bool maximized, bool focused) =>
 		JsonSerializer.Serialize(new { type = "window-state", maximized, focused });
 
-	/// <summary>Builds the <c>file-index</c> reply (root + every file's absolute path) for the omnibar quick-open.</summary>
-	public static string BuildFileIndex(string root, IReadOnlyList<string> files) {
+	/// <summary>Builds an owned <c>file-index</c> reply for the omnibar quick-open.</summary>
+	public static string BuildFileIndex(string root, IReadOnlyList<string> files, string railSessionId) {
 		ArgumentException.ThrowIfNullOrEmpty(root);
 		ArgumentNullException.ThrowIfNull(files);
-		return JsonSerializer.Serialize(new { type = "file-index", root, files });
+		ArgumentException.ThrowIfNullOrEmpty(railSessionId);
+		return JsonSerializer.Serialize(new { type = "file-index", root, files, railSessionId });
 	}
 
 	/// <summary>
-	/// Builds the pending <c>file-index</c> (new root, no files yet, <c>pending</c> set) a session switch pushes
-	/// in-order with its message train: the page drops the outgoing session's index at once — offering a stale
-	/// file would route a wrong-worktree path — and shows the walk as loading until the real index lands.
+	/// Builds a projection's owned root announcement. A changed owner/root replaces stale files; the same owner
+	/// may keep its valid cache while an explicit refresh runs.
 	/// </summary>
-	public static string BuildFileIndexPending(string root) {
+	public static string BuildFileIndexPending(string root, string railSessionId) {
 		ArgumentException.ThrowIfNullOrEmpty(root);
-		return JsonSerializer.Serialize(new { type = "file-index", root, files = Array.Empty<string>(), pending = true });
+		ArgumentException.ThrowIfNullOrEmpty(railSessionId);
+		return JsonSerializer.Serialize(new {
+			type = "file-index",
+			root,
+			files = Array.Empty<string>(),
+			pending = true,
+			railSessionId,
+		});
 	}
 
 	/// <summary>

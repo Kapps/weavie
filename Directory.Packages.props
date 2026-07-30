@@ -18,6 +18,7 @@
          line: 1.0 dropped the Toml.Parse facade + DocumentSyntax.ToModel() bridge that SettingsFileLayer's
          comment-preserving read/write path is built on, so 2.x is a settings-persistence rewrite, not a bump. -->
     <PackageVersion Include="Tomlyn" Version="0.20.0" />
+    <PackageVersion Include="WeCantSpell.Hunspell" Version="7.0.1" />
   </ItemGroup>
 
   <ItemGroup>

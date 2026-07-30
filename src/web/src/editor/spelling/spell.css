@@ -1,0 +1,7 @@
+.weavie-spell-issue {
+  text-decoration-line: underline;
+  text-decoration-style: wavy;
+  text-decoration-color: color-mix(in srgb, var(--bad) 72%, transparent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}

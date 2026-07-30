@@ -104,8 +104,7 @@ public sealed partial class AppDelegate : NSApplicationDelegate {
 
 		_windows.Clear();
 		_hotkeys?.Dispose(); // also disposes the global hotkey registrar
-		_services?.Keybindings.Dispose();
-		_services?.Settings.Dispose();
+		_services?.Dispose();
 	}
 
 	/// <summary>Records the window that just became key, so the global hotkey + menu commands target the front one.</summary>

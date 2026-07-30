@@ -271,6 +271,7 @@ public static class CoreSettings {
 
 		FontSettings.Register(registry);
 		EditorSettings.Register(registry);
+		SpellSettings.Register(registry);
 		ThemeSettings.Register(registry);
 		TestSettings.Register(registry);
 		NotificationSettings.Register(registry);

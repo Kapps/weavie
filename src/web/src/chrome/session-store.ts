@@ -4,11 +4,11 @@ import {
   backendName,
   backendPhase,
   connectedBackends,
+  currentEditorBinding,
   editorBackendId,
   editorRailSessionId,
   onBackendDisconnected,
   onBackendPhase,
-  onHostMessage,
   onSessionMessage,
   type SessionChip,
   type SessionStatusName,
@@ -48,10 +48,15 @@ export interface RemoteAgentRow {
 
 const [byBackend, setByBackend] = createSignal<Map<string, SessionChip[]>>(new Map());
 const [status, setStatus] = createSignal<SessionStatusName | undefined>(undefined);
-const [projectedSwitch, setProjectedSwitch] = createSignal<{
+export interface SessionSwitchTarget {
   backendId: string;
   id: string;
-} | null>(null);
+}
+
+const [switchIntent, setSwitchIntent] = createSignal<SessionSwitchTarget | null>(null);
+
+/** The requested session whose file index must replace the mounted session's before navigation is re-enabled. */
+export const sessionSwitchIntent = switchIntent;
 
 // True once ANY backend has pushed its session-list — i.e. the host has answered `ready` with the initial
 // session state. Distinguishes "no sessions yet, still booting" from "the host says there are none", which
@@ -95,15 +100,29 @@ export function trackSessionCommand<T>(
   return run().finally(() => adjustPending(key, -1));
 }
 
+export const sameSessionSwitchTarget = (
+  left: SessionSwitchTarget | null,
+  right: SessionSwitchTarget | null,
+): boolean =>
+  left === null
+    ? right === null
+    : right !== null && left.backendId === right.backendId && left.id === right.id;
+
+const cancelSwitch = (backendId: string): void => {
+  if (switchIntent()?.backendId === backendId) {
+    setSwitchIntent(null);
+  }
+};
+
 onSessionMessage((message, backendId) => {
   if (message.type === "session-list") {
     setSessionsReceived(true);
-    const projected = projectedSwitch();
-    if (
-      projected?.backendId === backendId &&
-      !message.sessions.some((session) => session.id === projected.id)
-    ) {
-      setProjectedSwitch(null);
+    const intent = switchIntent();
+    if (intent?.backendId === backendId) {
+      const target = message.sessions.find((session) => session.id === intent.id);
+      if (target === undefined) {
+        cancelSwitch(backendId);
+      }
     }
     setByBackend((prev) => {
       const next = new Map(prev);
@@ -126,22 +145,14 @@ onBackendDisconnected((backendId) => {
     next.delete(backendId);
     return next;
   });
-  if (projectedSwitch()?.backendId === backendId) {
-    setProjectedSwitch(null);
-  }
+  cancelSwitch(backendId);
 });
 
 // A backend whose link dropped can no longer commit an in-flight switch (the frame is gone and offline
 // frames are never buffered), so the optimistic highlight snaps back instead of sticking forever.
 onBackendPhase((backendId, phase) => {
-  if (phase !== "online" && projectedSwitch()?.backendId === backendId) {
-    setProjectedSwitch(null);
-  }
-});
-
-onHostMessage((message) => {
-  if (message.type === "set-editor-session") {
-    setProjectedSwitch(null);
+  if (phase !== "online") {
+    cancelSwitch(backendId);
   }
 });
 
@@ -187,14 +198,38 @@ export function findSession(backendId: string, id: string): RailSession | undefi
 
 /** Highlight and step from a requested target while the committed editor/backend projection is in flight. */
 export function projectSessionSwitch(backendId: string, id: string): void {
-  setProjectedSwitch({ backendId, id });
+  setSwitchIntent({ backendId, id });
+}
+
+/** The session whose editor projection currently owns session-scoped browser state. */
+export function mountedSessionIndexOwner(): SessionSwitchTarget | null {
+  const binding = currentEditorBinding();
+  if (binding?.protocol === "projection") {
+    return { backendId: binding.backendId, id: binding.railSessionId };
+  }
+  const backendId = binding?.backendId ?? activeBackendId();
+  const active = (byBackend().get(backendId) ?? []).find((session) => session.active);
+  return active === undefined ? null : { backendId, id: active.id };
+}
+
+/** Completes a switch only after its mounted target's first owned index has replaced the outgoing cache. */
+export function completeSessionSwitchIndex(owner: SessionSwitchTarget): void {
+  const intent = switchIntent();
+  const mounted = mountedSessionIndexOwner();
+  if (
+    intent !== null &&
+    sameSessionSwitchTarget(intent, owner) &&
+    sameSessionSwitchTarget(mounted, owner)
+  ) {
+    setSwitchIntent(null);
+  }
 }
 
 /** The rail's working set: every local session, plus promoted remotes (tagged with their agent hue). */
 export const railSessions = createMemo<RailSession[]>(() => {
   // Read promotedKeys() so the memo re-runs when the promoted set changes (isPromoted reads it internally).
   void promotedKeys();
-  const projected = projectedSwitch();
+  const projected = switchIntent();
   return merged()
     .filter((s) => s.isLocal || isPromoted(s.backendId, s.id))
     .map((s) => ({

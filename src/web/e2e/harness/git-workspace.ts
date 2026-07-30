@@ -59,6 +59,8 @@ const SEED: Record<string, string | Buffer> = {
     'const message = greet("weavie");\n' +
     "console.log(message);\n",
   "notes.txt": "just plain text\n",
+  // Deliberately misspelled so the open-document spelling journey has a stable target.
+  "spell-check.txt": "teh\n",
   // 160 lines so scroll-position journeys can put two hunks more than a viewport apart.
   "long.ts": `${Array.from({ length: 160 }, (_, i) => `// line ${i + 1}`).join("\n")}\n`,
   "pixel.png": PIXEL_RED,

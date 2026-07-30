@@ -7,23 +7,38 @@ import type { RailSession } from "./session-store";
 // `claudeStatus` is a plain signal, so its host-sync gating IS unit-testable here.
 
 type SessionMsg = { type: string; [k: string]: unknown };
-const handlers = vi.hoisted(() => [] as Array<(m: SessionMsg, backendId: string) => void>);
+type TestBinding =
+  | { backendId: string; protocol: "projection"; railSessionId: string }
+  | { backendId: string; protocol: "legacy"; railSessionId: null }
+  | null;
+const bridgeState = vi.hoisted(() => ({
+  binding: null as TestBinding,
+  sessionHandlers: [] as Array<(m: SessionMsg, backendId: string) => void>,
+  disconnectHandlers: [] as Array<(backendId: string) => void>,
+  phaseHandlers: [] as Array<(backendId: string, phase: string) => void>,
+}));
 vi.mock("../bridge", () => ({
   // The page is bound to the local backend throughout these tests.
   activeBackendId: () => "local",
-  editorBackendId: () => null,
-  editorRailSessionId: () => null,
+  currentEditorBinding: () => bridgeState.binding,
+  editorBackendId: () => bridgeState.binding?.backendId ?? null,
+  editorRailSessionId: () => bridgeState.binding?.railSessionId ?? null,
   editorSessionId: () => null,
   backendName: (id: string) => id,
   connectedBackends: () => [{ id: "local", name: "default", isLocal: true }],
   onSessionMessage: (h: (m: SessionMsg, backendId: string) => void) => {
-    handlers.push(h);
+    bridgeState.sessionHandlers.push(h);
     return () => {};
   },
-  onHostMessage: () => () => {},
-  onBackendDisconnected: () => () => {},
+  onBackendDisconnected: (h: (backendId: string) => void) => {
+    bridgeState.disconnectHandlers.push(h);
+    return () => {};
+  },
+  onBackendPhase: (h: (backendId: string, phase: string) => void) => {
+    bridgeState.phaseHandlers.push(h);
+    return () => {};
+  },
   backendPhase: () => "online",
-  onBackendPhase: () => () => {},
   postToBackend: () => {},
   connectBackend: () => {},
   disconnectBackend: () => {},
@@ -33,12 +48,25 @@ vi.mock("../bridge", () => ({
 const store = await import("./session-store");
 
 const deliver = (message: SessionMsg, backendId: string): void => {
-  for (const h of handlers) {
+  for (const h of bridgeState.sessionHandlers) {
     h(message, backendId);
+  }
+};
+const deliverPhase = (backendId: string, phase: string): void => {
+  for (const h of bridgeState.phaseHandlers) {
+    h(backendId, phase);
+  }
+};
+const deliverDisconnected = (backendId: string): void => {
+  for (const h of bridgeState.disconnectHandlers) {
+    h(backendId);
   }
 };
 
 beforeEach(() => {
+  deliverPhase("local", "reconnecting");
+  deliverPhase("remote:r", "reconnecting");
+  bridgeState.binding = { backendId: "local", protocol: "projection", railSessionId: "main" };
   // Reset to a known status between tests.
   deliver({ type: "session-status", session: "claude", status: "starting" }, "local");
 });
@@ -109,5 +137,84 @@ describe("stepRailTarget", () => {
     const list = [chip("a", false), chip("b", false), chip("c", false)];
     expect(store.stepRailTarget(list, 1)?.id).toBe("a");
     expect(store.stepRailTarget(list, -1)?.id).toBe("c");
+  });
+});
+
+describe("session switch file-index ownership", () => {
+  it("keeps the switch intent until the mounted target supplies its owned index", () => {
+    deliver(
+      { type: "session-list", sessions: [chip("main", true), chip("feature", false)] },
+      "local",
+    );
+    store.projectSessionSwitch("local", "feature");
+
+    expect(store.sessionSwitchIntent()).toEqual({ backendId: "local", id: "feature" });
+
+    bridgeState.binding = {
+      backendId: "local",
+      protocol: "projection",
+      railSessionId: "feature",
+    };
+
+    expect(store.sessionSwitchIntent()).toEqual({ backendId: "local", id: "feature" });
+    store.completeSessionSwitchIndex({ backendId: "local", id: "main" });
+    expect(store.sessionSwitchIntent()).toEqual({ backendId: "local", id: "feature" });
+    store.completeSessionSwitchIndex({ backendId: "local", id: "feature" });
+    expect(store.sessionSwitchIntent()).toBeNull();
+  });
+
+  it("replaces a superseded target without admitting its late projection", () => {
+    deliver(
+      {
+        type: "session-list",
+        sessions: [chip("main", true), chip("first", false), chip("second", false)],
+      },
+      "local",
+    );
+    store.projectSessionSwitch("local", "first");
+    store.projectSessionSwitch("local", "second");
+
+    bridgeState.binding = { backendId: "local", protocol: "projection", railSessionId: "first" };
+    expect(store.sessionSwitchIntent()).toEqual({ backendId: "local", id: "second" });
+    store.completeSessionSwitchIndex({ backendId: "local", id: "first" });
+    expect(store.sessionSwitchIntent()).toEqual({ backendId: "local", id: "second" });
+
+    bridgeState.binding = { backendId: "local", protocol: "projection", railSessionId: "second" };
+    store.completeSessionSwitchIndex({ backendId: "local", id: "second" });
+    expect(store.sessionSwitchIntent()).toBeNull();
+  });
+
+  it("cancels the intent when the target disappears, loses its link, or disconnects", () => {
+    deliver({ type: "session-list", sessions: [chip("main", true), chip("gone", false)] }, "local");
+    store.projectSessionSwitch("local", "gone");
+    deliver({ type: "session-list", sessions: [chip("main", true)] }, "local");
+    expect(store.sessionSwitchIntent()).toBeNull();
+
+    store.projectSessionSwitch("remote:r", "remote");
+    deliverPhase("remote:r", "reconnecting");
+    expect(store.sessionSwitchIntent()).toBeNull();
+
+    store.projectSessionSwitch("remote:r", "remote");
+    deliverDisconnected("remote:r");
+    expect(store.sessionSwitchIntent()).toBeNull();
+  });
+
+  it("uses the authoritative active chip to mount a legacy projection", () => {
+    deliver(
+      { type: "session-list", sessions: [chip("main", true), chip("feature", false)] },
+      "local",
+    );
+    bridgeState.binding = { backendId: "local", protocol: "legacy", railSessionId: null };
+    store.projectSessionSwitch("local", "feature");
+    expect(store.mountedSessionIndexOwner()).toEqual({ backendId: "local", id: "main" });
+
+    deliver(
+      { type: "session-list", sessions: [chip("main", false), chip("feature", true)] },
+      "local",
+    );
+    expect(store.sessionSwitchIntent()).toEqual({ backendId: "local", id: "feature" });
+    expect(store.mountedSessionIndexOwner()).toEqual({ backendId: "local", id: "feature" });
+    store.completeSessionSwitchIndex({ backendId: "local", id: "feature" });
+    expect(store.sessionSwitchIntent()).toBeNull();
   });
 });

@@ -9,6 +9,13 @@
   <ItemGroup>
     <!-- TOML store for user settings (comment-preserving DocumentSyntax round-trip). -->
     <PackageReference Include="Tomlyn" />
+    <PackageReference Include="WeCantSpell.Hunspell" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Spelling/Resources/*.aff" />
+    <EmbeddedResource Include="Spelling/Resources/*.dic" />
+    <EmbeddedResource Include="Spelling/Resources/CSpell/*.txt" />
   </ItemGroup>
 
 </Project>

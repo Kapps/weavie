@@ -14,6 +14,7 @@ import "./editor/editor.css";
 import "./terminal/terminal.css";
 import "./editor/diff.css";
 import "./editor/comment-prose.css";
+import "./editor/spelling/spell.css";
 import "./editor/preview/preview.css";
 import "./editor/preview/preview-highlight.css";
 import "./editor/preview/embed-zoom.css";

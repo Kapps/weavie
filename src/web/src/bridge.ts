@@ -229,6 +229,20 @@ export interface EditorOptionsSpec {
   videoAutoplay: boolean;
 }
 
+/** Core-resolved spell-check settings, injected before navigation and pushed live after settings/MCP changes. */
+export interface SpellSettings {
+  enabled: boolean;
+  locale: string;
+}
+
+/** One misspelled UTF-16 span; columns are Monaco's 1-based, end-exclusive positions. */
+export interface SpellIssue {
+  line: number;
+  startColumn: number;
+  endColumn: number;
+  word: string;
+}
+
 /**
  * Which comments the editor renders as prose: `none`; `documentation` (only doc comments `///`/`//!`/`/** *​/`);
  * `multiline` (doc comments plus any spanning ≥2 lines); `all` (every full-line comment).
@@ -252,6 +266,9 @@ export interface ProjectionStamp {
   projectionRevision: number;
   projectionPageId: string;
 }
+
+/** The editor projection that owns a host-to-web spelling reply. */
+export type SpellProjection = ProjectionStamp;
 
 export interface EditorAttribution {
   sessionId: string | null;
@@ -383,6 +400,20 @@ export type HostBoundMessage =
   | { type: "fs-stat"; id: string; path: string }
   | { type: "fs-read"; id: string; path: string }
   | { type: "fs-write"; id: string; path: string; content: string }
+  // An open Monaco working copy needs checking. Core checks the whole document and pushes versioned diagnostics.
+  | ({
+      type: "spell-document-changed";
+      path: string;
+      content: string;
+      documentRevision: number;
+    } & EditorAttribution)
+  | ({ type: "spell-suggest"; requestId: string; word: string } & EditorAttribution)
+  | ({
+      type: "spell-add-word";
+      requestId: string;
+      word: string;
+      scope: "project" | "user";
+    } & EditorAttribution)
   // Inline diff (acceptEdits mode): accept the whole turn's changes — clears the inline markers. The host
   // snapshots the per-turn baseline to current and re-pushes an (empty) turn diff.
   | { type: "accept-turn" }
@@ -685,6 +716,33 @@ export type WebBoundMessage =
   // Host pushes resolved editor options when an editor.* setting changes (ApplyMode.Live); applied via
   // editor.updateOptions (plus the suggest-docs custom behavior).
   | { type: "editorOptions"; options: EditorOptionsSpec }
+  // Host pushes the Core-resolved spelling setting. This is global configuration, not editor projection traffic.
+  | ({ type: "spell-settings" } & SpellSettings)
+  // Spelling diagnostics are projection-stamped and document-versioned so stale work cannot decorate a model.
+  | ({
+      type: "spell-diagnostics";
+      path: string;
+      documentRevision: number;
+      locale: string;
+      issues: SpellIssue[];
+      error?: string;
+    } & SpellProjection)
+  | ({
+      type: "spell-suggest-result";
+      requestId: string;
+      locale: string;
+      suggestions: string[];
+      error?: string;
+    } & SpellProjection)
+  | ({
+      type: "spell-add-word-result";
+      requestId: string;
+      word: string;
+      scope: "project" | "user";
+      ok: boolean;
+      error?: string;
+    } & SpellProjection)
+  | ({ type: "spell-dictionary-changed" } & SpellProjection)
   // Host pushes the workspace's test profile (raw test.profile JSON, "" when unconfigured) so the run-lens
   // provider refreshes; injected pre-nav as window.__WEAVIE_TEST_PROFILE__ and re-pushed on change.
   | { type: "test-profile"; profile: string }
@@ -799,7 +857,14 @@ export type WebBoundMessage =
   // Host answers request-file-index with the workspace root + every file's absolute path (for the omnibar).
   // `pending` = a session switch invalidated the index and the new worktree's walk is still running: files is
   // empty and the omnibar shows a loading state instead of claiming the worktree has no files.
-  | { type: "file-index"; root: string; files: string[]; pending?: boolean }
+  | {
+      type: "file-index";
+      root: string;
+      files: string[];
+      pending?: boolean;
+      /** Owning rail session. Absent only on older additive-protocol hosts. */
+      railSessionId?: string;
+    }
   // Host asks the page to open the omnibar's Go-to-File preloaded with a query — the reveal for a clicked
   // file link that suffix-matched several workspace files (one match opens directly; none toasts). `line` is
   // the link's 1-based line, applied to the candidate the user picks; absent from pre-line hosts.

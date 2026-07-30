@@ -67,8 +67,7 @@ try {
 	Console.CancelKeyPress -= cancel;
 }
 
-services.Keybindings.Dispose();
-services.Settings.Dispose();
+services.Dispose();
 return 0;
 
 static int ResolvePort(string[] args) {

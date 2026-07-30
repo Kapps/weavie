@@ -12,6 +12,7 @@ using Weavie.Core.Review;
 using Weavie.Core.Search;
 using Weavie.Core.Sessions;
 using Weavie.Core.Shell;
+using Weavie.Core.Spelling;
 using Weavie.Core.Terminal;
 using Weavie.Core.Theming;
 using Weavie.Hosting.Agents.Claude;
@@ -62,6 +63,9 @@ internal sealed class TestHost : IAsyncDisposable {
 
 	/// <summary>The host's settings store, for a test to tweak a setting before it creates a session.</summary>
 	public SettingsStore Settings => _services.Settings;
+
+	/// <summary>The isolated user spelling dictionary used by this test host.</summary>
+	public string UserDictionaryPath => _services.UserDictionary.FilePath;
 
 	/// <summary>Whether switch/acquire helpers immediately acknowledge the offered editor projection.</summary>
 	public bool AutoMountEditorProjection { get; set; } = true;
@@ -164,7 +168,8 @@ internal sealed class TestHost : IAsyncDisposable {
 			message["pageId"] ??= TestPageId;
 		}
 
-		if (type is "editor-session-changed" or "active-editor-changed" or "open-editors-changed") {
+		if (type is "editor-session-changed" or "active-editor-changed" or "open-editors-changed"
+			or "spell-document-changed" or "spell-suggest" or "spell-add-word") {
 			StampProjection(message);
 		}
 
@@ -213,6 +218,7 @@ internal sealed class TestHost : IAsyncDisposable {
 		}
 
 		var root = seed.Value;
+		message["sessionId"] ??= root.GetProperty("sessionId").GetString();
 		message["projectionEpoch"] ??= root.GetProperty("projectionEpoch").GetString();
 		message["projectionRevision"] ??= root.GetProperty("projectionRevision").GetInt64();
 		message["projectionPageId"] ??= root.GetProperty("projectionPageId").GetString();
@@ -267,6 +273,7 @@ internal sealed class TestHost : IAsyncDisposable {
 		var remoteAgents = new RemoteAgentStore(new LocalFileSystem(), Path.Combine(tempRoot, "remote-agents.json"));
 		var railState = new RailStateStore(new LocalFileSystem(), Path.Combine(tempRoot, "rail-state.json"));
 		var searchState = new SearchStateStore(new LocalFileSystem(), Path.Combine(tempRoot, "search-state.json"));
+		var userDictionary = new CustomDictionary(Path.Combine(tempRoot, "dictionary.txt"), enableWatcher: false);
 		return new HostServices {
 			Settings = settings,
 			CommandRegistry = registry,
@@ -282,6 +289,7 @@ internal sealed class TestHost : IAsyncDisposable {
 			Sources = BuildSourceConnector(sourceHttp, sourcesDir),
 			// A fresh, uninstalled buffer — tests never tee Console (that would hijack the xunit console).
 			LogBuffer = new LogBuffer(LogBuffer.DefaultCapacity),
+			UserDictionary = userDictionary,
 		};
 	}
 
@@ -322,8 +330,7 @@ internal sealed class TestHost : IAsyncDisposable {
 
 	public async ValueTask DisposeAsync() {
 		await Core.DisposeAsync().ConfigureAwait(false);
-		_services.Keybindings.Dispose();
-		_services.Settings.Dispose();
+		_services.Dispose();
 		try {
 			Directory.Delete(_tempRoot, recursive: true);
 		} catch (IOException) {

@@ -19,7 +19,9 @@ severity. Each was verified against a real `Weavie.Headless --remote` worker, no
 
 ### 1. `//index.html` served the document without a token — FIXED
 
-**Severity: high** (authentication bypass on the document route).
+**Severity: low — a correctness bug, not a vulnerability.** No secret is disclosed and no capability is
+gained; see the impact assessment below. It is recorded here because it defeated a deliberate control, not
+because it was exploitable.
 
 `WorkspaceHttpServer` excludes `/` and `/index.html` from the public-asset allowlist so the document is only
 ever served token-gated with the injected bootstrap. The exclusion tested the raw `PathString`, while the
@@ -34,14 +36,23 @@ Verified against a live worker before the fix:
 //index.html   -> 200  <!doctype html><head></head><body>APP SH
 ```
 
-Impact is bounded — the raw shell carries no token, and the remote-agent registry lives host-side in
-`~/.weavie/remote-agents.json` rather than `localStorage`, so there is no ambient credential to steal. But it
-is an unauthenticated same-origin script foothold on the worker origin, and combined with finding 4 it
-serves an attacker-pointed app shell from the victim's own origin.
+**Impact: effectively none.** The served document is the *unmodified* shell — a splash screen and a script
+tag. It carries no token and no bootstrap, and every asset it references is already served publicly by the
+allowlist by design, so nothing secret is disclosed. An attacker cannot inject script through it; the only
+lever is finding 4's `?weavie-bridge=` override changing which backend the real app talks to, which is a
+phishing nicety (the URL bar shows the genuine worker host) rather than a compromise. The app the shell
+boots has no token, so it can reach nothing on the worker. The remote-agent registry lives host-side in
+`~/.weavie/remote-agents.json` rather than `localStorage`, so there is no ambient credential to steal
+either.
+
+What *was* real is the functional half: an **authenticated** `//index.html` also fell through to the static
+middleware and returned the un-bootstrapped shell, i.e. a silently broken app for anyone hitting that URL.
 
 **Fix (applied):** one `NormalizeSubpath` shared by the auth allowlist and the document route, so both decide
-on the same string the file provider resolves. The document route now also answers every index spelling,
-closing the matching correctness gap where an *authenticated* `//index.html` returned an un-bootstrapped shell.
+on the same string the file provider resolves. Worth doing less for the disclosure than for the pattern: the
+allowlist is the single deliberate hole in an otherwise default-deny gate, and it was making one security
+decision from two disagreeing notions of "the request path." That is cheap to remove now and expensive if the
+allowlist ever guards something that matters.
 
 ### 2. An empty token opened every route — FIXED
 

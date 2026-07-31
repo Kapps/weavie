@@ -956,7 +956,7 @@ test.describe("Codex composer", () => {
 
   test("Up moves through soft-wrapped draft lines before recalling history", async ({ page }) => {
     await mountCodex(page);
-    host.pushToWeb(userMessage("previous prompt"));
+    publishPane(userMessage("previous prompt"));
 
     const textarea = page.locator("[data-agent-composer] textarea");
     const draft = "one two three four";
@@ -983,7 +983,7 @@ test.describe("Codex composer", () => {
   }) => {
     await mountCodex(page);
     const prompt = "one two three four";
-    host.pushToWeb(userMessage(prompt));
+    publishPane(userMessage(prompt));
 
     const textarea = page.locator("[data-agent-composer] textarea");
     await textarea.evaluate((element) => {

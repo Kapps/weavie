@@ -15,9 +15,11 @@ public sealed class HostCoreLogsTests {
 		await using var host = await TestHost.StartAsync();
 		host.LogBuffer.Append("boot ok <tag> & done");
 
-		host.Send("""{"type":"invoke-command","id":"weavie.view.logs"}""");
+		var result = await host.InvokeClientCommandAsync("weavie.view.logs", new { });
+		Assert.True(result.Ok, result.Error);
 
-		var doc = await Wait.ForAsync(() => host.Bridge.LastOfType("source-doc"));
+		var doc = await Wait.ForAsync(() =>
+			host.Bridge.LastEvent(host.SelectedSession.Address, "sources", "document"));
 		Assert.Equal("about:logs", doc.GetProperty("target").GetString());
 		Assert.Equal("Weavie Logs", doc.GetProperty("title").GetString());
 		Assert.Equal("", doc.GetProperty("editedTime").GetString());
@@ -27,17 +29,22 @@ public sealed class HostCoreLogsTests {
 		Assert.StartsWith("<pre>", html); // nothing dropped → no marker ahead of the log body
 
 		// The tab-opening message precedes the doc — the web opens source tabs only on source-loading.
-		var loading = host.Bridge.LastOfType("source-loading");
+		var loading = host.Bridge.LastEvent(host.SelectedSession.Address, "sources", "loading");
 		Assert.Equal("about:logs", loading!.Value.GetProperty("target").GetString());
-		int loadingIndex = IndexOfType(host.Bridge.Posted, "source-loading");
-		int docIndex = IndexOfType(host.Bridge.Posted, "source-doc");
+		int loadingIndex = IndexOfEvent(host.Bridge.Posted, "sources", "loading");
+		int docIndex = IndexOfEvent(host.Bridge.Posted, "sources", "document");
 		Assert.True(loadingIndex < docIndex, "source-loading must be posted before source-doc");
 	}
 
-	private static int IndexOfType(IReadOnlyList<string> posted, string type) {
+	private static int IndexOfEvent(
+		IReadOnlyList<string> posted,
+		string feature,
+		string name) {
 		for (int i = 0; i < posted.Count; i++) {
-			using var parsed = JsonDocument.Parse(posted[i]);
-			if (parsed.RootElement.TryGetProperty("type", out var t) && t.GetString() == type) {
+			if (Messaging.MessageEnvelope.TryParse(posted[i], out var envelope)
+				&& envelope is { Kind: Messaging.MessageKind.Event }
+				&& envelope.Feature == feature
+				&& envelope.Name == name) {
 				return i;
 			}
 		}

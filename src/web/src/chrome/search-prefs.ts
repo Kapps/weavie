@@ -1,5 +1,5 @@
 import { createSignal } from "solid-js";
-import { onSessionMessage, postToLocalHost } from "../bridge";
+import { hostConnection, LOCAL_BACKEND_ID, registerHostFeature } from "../bridge";
 import type { SearchOptions } from "./search-model";
 
 // The find-in-files panel's persisted UI state (match options, include/exclude globs, recent search terms),
@@ -26,11 +26,26 @@ const PERSIST_DEBOUNCE_MS = 200;
 let persistTimer = 0;
 
 // Honored only from the LOCAL backend — a remote runner would push its own machine's file, which must not leak in.
-onSessionMessage((message, backendId) => {
-  if (message.type === "search-state" && backendId === "local") {
-    setOptionsSig(message.options);
-    setRecentTermsSig(message.recentTerms);
+interface SearchState {
+  options: SearchOptions;
+  recentTerms: string[];
+}
+
+function applyState(state: SearchState): void {
+  setOptionsSig(state.options);
+  setRecentTermsSig(state.recentTerms);
+}
+
+registerHostFeature((connection) => {
+  if (!connection.isLocal) {
+    return;
   }
+  const offHello = connection.onHello((hello) => applyState(hello.search));
+  const offState = connection.host.feature("search").on<SearchState>("state", applyState);
+  return () => {
+    offHello();
+    offState();
+  };
 });
 
 /** The persisted match options + globs (reactive), seeded from the host on load. */
@@ -43,7 +58,7 @@ export const recentTerms = recentTermsSig;
 export function updateSearchOptions(next: SearchOptions): void {
   setOptionsSig(next);
   window.clearTimeout(persistTimer);
-  postToLocalHost({ type: "set-search-options", ...next });
+  hostConnection(LOCAL_BACKEND_ID)?.host.feature("search").publish("setOptions", next);
 }
 
 /**
@@ -54,7 +69,7 @@ export function updateSearchOptionsDebounced(next: SearchOptions): void {
   setOptionsSig(next);
   window.clearTimeout(persistTimer);
   persistTimer = window.setTimeout(
-    () => postToLocalHost({ type: "set-search-options", ...next }),
+    () => hostConnection(LOCAL_BACKEND_ID)?.host.feature("search").publish("setOptions", next),
     PERSIST_DEBOUNCE_MS,
   );
 }
@@ -64,5 +79,5 @@ export function commitSearchTerm(term: string): void {
   if (term.trim().length === 0) {
     return;
   }
-  postToLocalHost({ type: "add-search-term", term });
+  hostConnection(LOCAL_BACKEND_ID)?.host.feature("search").publish("addRecent", { term });
 }

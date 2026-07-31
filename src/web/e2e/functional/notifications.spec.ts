@@ -168,14 +168,23 @@ test.describe("minimized native window: the webview's stale hasFocus() must not 
     preNavigate: recorders({ focused: true }),
   });
 
-  test("the shell's window-state {focused:false} push overrides it and the sound plays", async ({
+  test("the shell's window.state {focused:false} event overrides it and the sound plays", async ({
     page,
     weavie,
   }) => {
-    // The shell knows the window deactivated and pushed window-state, delivered as a local host message.
+    // The shell knows the window deactivated and published window.state on the local host bus.
     await page.evaluate(() => {
       (window as unknown as { __weavieReceive: (raw: string) => void }).__weavieReceive(
-        JSON.stringify({ type: "window-state", maximized: false, focused: false }),
+        JSON.stringify({
+          scope: "host",
+          session: null,
+          kind: "event",
+          requestId: null,
+          feature: "window",
+          name: "state",
+          payload: { maximized: false, focused: false },
+          error: null,
+        }),
       );
     });
     writeFileSync(join(weavie.workspace, SIGNAL), "");

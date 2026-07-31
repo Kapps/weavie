@@ -1,24 +1,23 @@
 using System.Text;
-using System.Text.Json;
 using Weavie.Core.Agents;
 using Weavie.Core.Configuration;
 using Weavie.Core.Editor;
 using Weavie.Core.Processes;
 using Weavie.Core.Terminal;
+using Weavie.Hosting.Messaging;
 
 namespace Weavie.Hosting;
 
 /// <summary>
-/// Ties one provider-neutral child lifecycle to a real PTY and xterm.js pane over the bridge. The launch source
+/// Ties one provider-neutral child lifecycle to a real PTY and xterm.js pane over its session channel. The launch source
 /// owns executable, environment, cwd, capture, and restart-time state; the OS-specific half is an injected
 /// <see cref="IPtyLauncher"/>, so the controller is identical for agents and shells on every host. The child runs under a
 /// <see cref="ProcessSupervisor"/> with <see cref="RestartPolicy.Always"/> (a pane is a permanent fixture, so
-/// any exit relaunches it; only the crash-loop breaker leaves it stopped). The session id tags every
-/// <c>term-*</c> message so the page routes it to the matching pane.
+/// any exit relaunches it; only the crash-loop breaker leaves it stopped).
 /// </summary>
 public sealed class TerminalController : IDisposable {
-	private readonly IHostBridge _bridge;
-	private readonly string _session;
+	private readonly MessageFeatureChannel _messages;
+	private readonly string _pane;
 	private readonly SettingsStore _settings;
 	private readonly IPtyLauncher _launcher;
 	private readonly ITerminalProcess _process;
@@ -28,9 +27,6 @@ public sealed class TerminalController : IDisposable {
 	private FileStream? _ptyLog;
 	private int _columns = 80;
 	private int _rows = 24;
-	// The slot id pre-encoded as a JSON string value (see SlotId), written into every term message so the
-	// page routes this pane's output to its own session's xterm — encoded once per bind, not per chunk.
-	private JsonEncodedText _slotEncoded = JsonEncodedText.Encode("");
 	// Shell-only: the on-disk scrollback log this pane's output is tee'd to, for replay on (re)attach and faded
 	// history on resume. Unlike _ptyLog it survives process restarts and is closed only on dispose.
 	private ScrollbackLog? _scrollback;
@@ -41,43 +37,43 @@ public sealed class TerminalController : IDisposable {
 	// that mounts onto the already-live child — the resize nudge redraws content but can't re-establish modes.
 	// Replaced with a fresh instance per launch in StartTerminal, which is also the reset on restart.
 	private TerminalModeTracker _modes = new();
-	// Serializes live term-output posts against a pending reset→replay (_resyncPending, set while a ResyncPane
-	// awaits its term-ready), so every output chunk reaches the page exactly once: via the replay when it was
+	// Serializes live output posts against a pending reset→replay (_resyncPending, set while a ResyncPane
+	// awaits its ready event), so every output chunk reaches the page exactly once: via the replay when it was
 	// logged before the replay snapshot, live otherwise. Separate from _gate so keystrokes never wait on it.
 	private readonly Lock _replayGate = new();
 	private bool _resyncPending;
-	// Batches live PTY output into fewer, larger term-output frames so a burst can't flood the bridge's bounded
+	// Batches live PTY output into fewer, larger terminal output events so a burst can't flood the transport's bounded
 	// outbox and freeze the page. Scrollback is logged unbatched; only the live post is deferred.
 	private readonly TerminalOutputCoalescer _coalescer;
 
 	/// <summary>
-	/// Creates a controller that streams PTY output to (and input from) <paramref name="bridge"/>, resolving its
+	/// Creates a controller that streams PTY output to (and input from) <paramref name="messages"/>, resolving its
 	/// pane state from <paramref name="settings"/> and spawning the child through <paramref name="launcher"/>.
-	/// <paramref name="session"/> is the compatibility wire id of the pane it feeds.
+	/// <paramref name="pane"/> identifies the pane in diagnostics.
 	/// </summary>
 	public TerminalController(
-		IHostBridge bridge,
-		string session,
+		MessageFeatureChannel messages,
+		string pane,
 		SettingsStore settings,
 		IPtyLauncher launcher,
 		ITerminalProcess process) {
-		ArgumentNullException.ThrowIfNull(bridge);
-		ArgumentException.ThrowIfNullOrEmpty(session);
+		ArgumentNullException.ThrowIfNull(messages);
+		ArgumentException.ThrowIfNullOrEmpty(pane);
 		ArgumentNullException.ThrowIfNull(settings);
 		ArgumentNullException.ThrowIfNull(launcher);
 		ArgumentNullException.ThrowIfNull(process);
-		_bridge = bridge;
-		_session = session;
+		_messages = messages;
+		_pane = pane;
 		_settings = settings;
 		_launcher = launcher;
 		_process = process;
 		_coalescer = new TerminalOutputCoalescer(
-			bytes => _bridge.PostToWeb(TermOutputJson(bytes, replay: false)),
+			bytes => PublishOutput(bytes, replay: false),
 			settings.RequireInt("terminal.outputCoalesceMs"));
 		Workspace = settings.GetString("workspace")
 			?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 		_supervisor = new ProcessSupervisor(
-			$"terminal:{session}",
+			$"terminal:{pane}",
 			StartTerminal,
 			StopTerminal,
 			new SupervisionOptions { Policy = RestartPolicy.Always },
@@ -109,20 +105,7 @@ public sealed class TerminalController : IDisposable {
 	public event Action<SupervisorStateChanged>? SupervisorChanged;
 
 	/// <summary>
-	/// The rail slot id this pane belongs to, tagged onto every message so the page routes it to this session's
-	/// own xterm. Every loaded session streams concurrently into its own (hidden) pane, so a switch is instant.
-	/// Set when the session is bound to a slot; empty until then.
-	/// </summary>
-	public string SlotId {
-		get;
-		set {
-			field = value;
-			_slotEncoded = JsonEncodedText.Encode(value);
-		}
-	} = "";
-
-	/// <summary>
-	/// Handles the page's <c>term-ready</c> for this pane (a session's xterm mounting). If the child isn't running
+	/// Handles the page's terminal <c>ready</c> event for this pane (a session's xterm mounting). If the child isn't running
 	/// it launches it sized to the given columns/rows. If it's already live (a cold reattach), the fresh xterm has
 	/// missed everything the child established at startup, so this replays the persisted scrollback (shell only),
 	/// then the latched terminal modes (alt screen, mouse tracking, bracketed paste, title — without which a
@@ -131,7 +114,27 @@ public sealed class TerminalController : IDisposable {
 	/// bytes can't overtake the preamble: they only exist after the resize reaches the child and come back through
 	/// the PTY read thread. The start runs after the lock (the supervisor's start callback takes the gate).
 	/// </summary>
-	public void OnReady(int columns, int rows) {
+	public void OnReady(int columns, int rows) =>
+		OnReadyCore(
+			columns,
+			rows,
+			(data, replay) => PublishOutput(data, replay));
+
+	internal void OnReady(
+		MessageTargetFeature messages,
+		int columns,
+		int rows) =>
+		OnReadyCore(
+			columns,
+			rows,
+			(data, replay) => messages.Publish(
+				"output",
+				new { dataB64 = Convert.ToBase64String(data), replay }));
+
+	private void OnReadyCore(
+		int columns,
+		int rows,
+		Action<byte[], bool> publishOutput) {
 		bool start;
 		byte[] restore = [];
 		lock (_gate) {
@@ -159,7 +162,7 @@ public sealed class TerminalController : IDisposable {
 
 			byte[] scrollback = _scrollback?.BuildReplay() ?? [];
 			if (scrollback.Length > 0) {
-				_bridge.PostToWeb(TermOutputJson(scrollback, replay: true));
+				publishOutput(scrollback, true);
 			}
 
 			_resyncPending = false;
@@ -171,7 +174,7 @@ public sealed class TerminalController : IDisposable {
 		}
 
 		if (restore.Length > 0) {
-			_bridge.PostToWeb(TermOutputJson(restore, replay: true));
+			publishOutput(restore, true);
 		}
 
 		lock (_gate) {
@@ -183,11 +186,17 @@ public sealed class TerminalController : IDisposable {
 
 	/// <summary>
 	/// Re-syncs this pane's already-mounted xterm after a bridge reconnect: output posted while the link was down
-	/// never reached the page. A scrollback-backed pane is reset, and its <c>term-ready</c> reply
-	/// replays the log — gap included — via <see cref="OnReady"/>; a pane with no log keeps its buffer
+	/// never reached the page. A scrollback-backed pane is reset, and its terminal <c>ready</c> reply
+	/// replays the log — gap included — via <see cref="OnReady(int,int)"/>; a pane with no log keeps its buffer
 	/// and gets the size nudge so the running TUI repaints its screen. No-op until the child has started.
 	/// </summary>
-	public void ResyncPane() {
+	public void ResyncPane() =>
+		ResyncPaneCore(respawn => PostTermReset(respawn));
+
+	internal void ResyncPane(MessageTargetFeature messages) =>
+		ResyncPaneCore(respawn => messages.Publish("reset", new { respawn }));
+
+	private void ResyncPaneCore(Action<bool> reset) {
 		lock (_gate) {
 			if (_terminal is null) {
 				return;
@@ -199,11 +208,11 @@ public sealed class TerminalController : IDisposable {
 			}
 		}
 
-		// Suppress live output until the page's term-ready replays the log (OnReady clears it): a chunk posted
+		// Suppress live output until the page's ready event replays the log (OnReady clears it): a chunk posted
 		// after the page clears but logged before the replay snapshot would otherwise paint twice.
 		lock (_replayGate) {
 			if (_resyncPending) {
-				return; // a reset is already in flight; its term-ready reply covers this resync too
+				return; // a reset is already in flight; its ready reply covers this resync too
 			}
 
 			_resyncPending = true;
@@ -211,7 +220,7 @@ public sealed class TerminalController : IDisposable {
 			_coalescer.Discard();
 		}
 
-		PostTermReset(respawn: false);
+		reset(false);
 	}
 
 	// One row shorter then back: the size change is what forces a running TUI to repaint the whole screen.
@@ -223,7 +232,7 @@ public sealed class TerminalController : IDisposable {
 
 	/// <summary>
 	/// Starts the child at the cached size without the page binding to this pane — brings a session's backend up
-	/// in the background ("load, don't open"); <see cref="OnReady"/> later nudges it to the real pane size. No-op
+	/// in the background ("load, don't open"); <see cref="OnReady(int,int)"/> later nudges it to the real pane size. No-op
 	/// if running.
 	/// </summary>
 	public void EnsureStarted() {
@@ -239,22 +248,22 @@ public sealed class TerminalController : IDisposable {
 
 	/// <summary>
 	/// Intentionally tears down the running child (no auto-restart) and asks the page to reset this pane
-	/// (which re-emits <c>term-ready</c> → <see cref="OnReady"/>), so a changed shell takes effect live.
+	/// (which re-emits terminal <c>ready</c> → <see cref="OnReady(int,int)"/>), so a changed shell takes effect live.
 	/// </summary>
 	public void Restart() {
 		_supervisor.Stop();
-		Console.WriteLine($"[weavie] terminal[{_session}] restarting (setting changed)");
+		Console.WriteLine($"[weavie] terminal[{_pane}] restarting (setting changed)");
 		Console.Out.Flush();
 		// respawn=true: the child relaunches and re-establishes its modes, so the page does a full reset.
 		PostTermReset(respawn: true);
 	}
 
 	/// <summary>
-	/// The <c>term-reset</c> bridge message: the page clears this pane and re-emits <c>term-ready</c>. Respawn
+	/// The terminal <c>reset</c> event: the page clears this pane and re-emits <c>ready</c>. Respawn
 	/// also resets terminal modes (the child relaunched); a still-running child keeps them.
 	/// </summary>
 	private void PostTermReset(bool respawn) =>
-		_bridge.PostToWeb($"{{\"slot\":\"{_slotEncoded}\",\"type\":\"term-reset\",\"session\":\"{_session}\",\"respawn\":{(respawn ? "true" : "false")}}}");
+		_messages.Publish("reset", new { respawn });
 
 	/// <summary>Opens the scrollback log for the configured path once, honoring the size-cap setting (0 = disabled).</summary>
 	private void EnsureScrollbackLog() {
@@ -323,12 +332,12 @@ public sealed class TerminalController : IDisposable {
 			// Everything logged before now belongs to the previous process: mark the boundary so a replay
 			// renders it faded and this new process's output live below it.
 			_scrollback?.MarkBoundary();
-			Console.WriteLine($"[weavie] terminal[{_session}] started (attempt {launch.Attempt}): {resolved.Command} {string.Join(' ', resolved.Arguments)} in {workspace} ({_columns}x{_rows})");
+			Console.WriteLine($"[weavie] terminal[{_pane}] started (attempt {launch.Attempt}): {resolved.Command} {string.Join(' ', resolved.Arguments)} in {workspace} ({_columns}x{_rows})");
 			Console.Out.Flush();
 		}
 
 		if (launch.Attempt > 0) {
-			PostNotice($"\r\n[weavie] {_session} exited - restarting...\r\n");
+			PostNotice($"\r\n[weavie] {_pane} exited - restarting...\r\n");
 		}
 	}
 
@@ -359,7 +368,7 @@ public sealed class TerminalController : IDisposable {
 				PostExit(exitedCode);
 				break;
 			case SupervisorState.Failed when change.ExitCode is int failedCode:
-				PostNotice($"\r\n[weavie] {_session} crashed repeatedly - stopped.\r\n");
+				PostNotice($"\r\n[weavie] {_pane} crashed repeatedly - stopped.\r\n");
 				PostExit(failedCode);
 				break;
 			default:
@@ -422,8 +431,7 @@ public sealed class TerminalController : IDisposable {
 
 		_process.ObserveTerminalOutput(data);
 
-		// Output always posts, tagged by slot: a background session paints into its own hidden pane (instant
-		// switch). The page drops a background backend's traffic at the bridge, so this never bleeds across backends.
+		// Output always posts on this session's feature: a background session paints into its own retained pane.
 		// Log + post atomically under _replayGate: during a pending resync the chunk is only logged — the page
 		// just cleared this pane, and the coming replay (snapshotted after this append) already delivers it.
 		lock (_replayGate) {
@@ -435,12 +443,12 @@ public sealed class TerminalController : IDisposable {
 	}
 
 	/// <summary>
-	/// The <c>term-output</c> bridge message carrying <paramref name="data"/> base64-encoded for this pane.
+	/// Publishes <paramref name="data"/> base64-encoded on this pane's session-owned feature.
 	/// <paramref name="replay"/> marks reattach-synthesized bytes (scrollback replay, mode restore): the page must
 	/// not let its xterm answer device queries inside them — the replies would reach the child as garbage input.
 	/// </summary>
-	private string TermOutputJson(ReadOnlySpan<byte> data, bool replay) =>
-		$"{{\"slot\":\"{_slotEncoded}\",\"type\":\"term-output\",\"session\":\"{_session}\",{(replay ? "\"replay\":true," : "")}\"dataB64\":\"{Convert.ToBase64String(data)}\"}}";
+	private void PublishOutput(ReadOnlySpan<byte> data, bool replay) =>
+		_messages.Publish("output", new { dataB64 = Convert.ToBase64String(data), replay });
 
 	/// <summary>
 	/// Reports the PTY exit to the launch source before notifying the supervisor, preserving provider recovery
@@ -464,16 +472,16 @@ public sealed class TerminalController : IDisposable {
 	}
 
 	private void PostExit(int code) {
-		// Posts to this session's own (slot-tagged) pane; the page drops it if its backend isn't active.
-		Console.WriteLine($"[weavie] terminal[{_session}] child exited: {code}");
+		// Posts to this session's pane; its client state receives the exit whether or not the pane is visible.
+		Console.WriteLine($"[weavie] terminal[{_pane}] child exited: {code}");
 		Console.Out.Flush();
 		_coalescer.Flush(); // the child's final output must reach the page before the exit marker
-		_bridge.PostToWeb($"{{\"slot\":\"{_slotEncoded}\",\"type\":\"term-exit\",\"session\":\"{_session}\",\"code\":{code}}}");
+		_messages.Publish("exit", new { code });
 	}
 
 	private void PostNotice(string text) {
 		_coalescer.Flush(); // a notice (e.g. "restarting…") follows prior output, so drain it first
-		_bridge.PostToWeb(TermOutputJson(Encoding.UTF8.GetBytes(text), replay: false));
+		PublishOutput(Encoding.UTF8.GetBytes(text), replay: false);
 	}
 
 	private static void LogSupervisor(SupervisorLogEntry entry) {

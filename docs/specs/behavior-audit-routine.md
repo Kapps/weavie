@@ -4,8 +4,8 @@ A standing hourly reviewer that scans newly-landed commits on `main` for **egreg
 pathologies** — approaches that are cost-pathological or insane even though the code is correct and
 passes CI (the canonical case: a change-tracker that reads every file in the repo before and after
 every tool call) — and for **cross-session misroutes**: a timing gap plus a session switch that
-corrupts state or sends a command to the wrong session/backend (the class
-[`session-isolation-invariants.md`](session-isolation-invariants.md) exists to keep dead). It is the
+corrupts state or sends a command to the wrong session/backend (the ownership contract in
+[`session-message-bus.md`](session-message-bus.md) exists to keep that class dead). It is the
 automated form of the manual `claude/audit-recent-commits` sweep.
 
 It exists because nothing else catches this class: `weavie-reviewer` reviews one change set for

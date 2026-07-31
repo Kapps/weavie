@@ -24,9 +24,6 @@ public sealed class SessionSlot {
 	/// <summary>The live backend, or <c>null</c> when this slot is unloaded (dormant).</summary>
 	public HostSession? Session { get; set; }
 
-	/// <summary>When this slot was last made active (UTC).</summary>
-	public DateTimeOffset LastActiveUtc { get; set; }
-
 	/// <summary>True when the slot has a live backend.</summary>
 	public bool Loaded => Session is not null;
 }

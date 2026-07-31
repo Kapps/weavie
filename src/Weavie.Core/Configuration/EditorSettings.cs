@@ -173,23 +173,11 @@ public static class EditorSettings {
 	}
 
 	/// <summary>
-	/// Serializes the resolved editor options as JSON. With <paramref name="messageType"/> set, wraps them as
-	/// <c>{"type":…,"options":{…}}</c> for a bridge push; otherwise the bare <c>{…}</c> for the injected
-	/// <c>window.__WEAVIE_EDITOR_OPTIONS__</c> global.
+	/// Serializes the resolved editor options for bootstrap injection or a settings feature event.
 	/// </summary>
-	public static string BuildJson(SettingsStore store, string? messageType) {
+	public static string BuildJson(SettingsStore store) {
 		ArgumentNullException.ThrowIfNull(store);
-		return JsonWrite.ToText(writer => {
-			if (messageType is not null) {
-				writer.WriteStartObject();
-				writer.WriteString("type", messageType);
-				writer.WritePropertyName("options");
-				WriteOptions(writer, store);
-				writer.WriteEndObject();
-			} else {
-				WriteOptions(writer, store);
-			}
-		});
+		return JsonWrite.ToText(writer => WriteOptions(writer, store));
 	}
 
 	// Fallback-free Require* accessors: a literal default here would be a second source that can drift, so a

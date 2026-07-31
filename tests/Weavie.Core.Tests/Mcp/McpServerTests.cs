@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
+using Weavie.Core.Commands;
 using Weavie.Core.Mcp;
 using Xunit;
 
@@ -193,6 +194,41 @@ public sealed class McpServerTests {
 	}
 
 	[Fact]
+	public async Task RunCommand_CompletesDeferredWorkWhenReplyDeliveryFails() {
+		const string commandId = "test.close-endpoint";
+		var registry = new CommandRegistry();
+		registry.Register(new CommandDefinition {
+			Id = commandId,
+			Title = "Close endpoint",
+			RunsIn = CommandLocation.Core,
+		});
+		var dispatcher = new CommandDispatcher(registry);
+		var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		using var registration = dispatcher.RegisterContextualHandler(
+			commandId,
+			(_, context, _) => {
+				context.AfterReply(() => {
+					completed.SetResult();
+					return Task.CompletedTask;
+				});
+				return Task.FromResult(CommandResult.Success());
+			});
+		await using var server = TestMcp.Server(
+			Token,
+			FakeDiffPresenter.AlwaysKeep(),
+			["/workspace"],
+			commands: dispatcher);
+
+		await Assert.ThrowsAsync<IOException>(() =>
+			server.HandleRunCommandAsync(
+				new FailingResponder(),
+				JsonSerializer.SerializeToElement(new { id = commandId }),
+				"1",
+				CancellationToken.None));
+		await completed.Task;
+	}
+
+	[Fact]
 	public async Task OpenDiff_Keep_ReturnsFileSavedWithContents() {
 		// Conformant accept: content is [FILE_SAVED, <final contents>] and the server does NOT write —
 		// Claude performs the disk write from the returned contents.
@@ -222,5 +258,16 @@ public sealed class McpServerTests {
 		var content = response.RootElement.GetProperty("result").GetProperty("content");
 		Assert.Equal("DIFF_REJECTED", content[0].GetProperty("text").GetString());
 		Assert.Equal("a.txt", content[1].GetProperty("text").GetString());
+	}
+
+	private sealed class FailingResponder : McpServer.IMcpResponder {
+		public Task SendResultAsync(string? idRaw, string resultJson, CancellationToken ct) =>
+			Task.FromException(new IOException("peer disconnected"));
+
+		public Task SendErrorAsync(string? idRaw, int code, string messageText, CancellationToken ct) =>
+			Task.FromException(new IOException("peer disconnected"));
+
+		public Task SendRawAsync(string json, CancellationToken ct) =>
+			Task.FromException(new IOException("peer disconnected"));
 	}
 }

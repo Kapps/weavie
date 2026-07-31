@@ -4,27 +4,22 @@ namespace Weavie.Hosting;
 
 // Pushes the workspace's forge ref-link prefix — what a terminal "#N" links to — so #123 in any terminal
 // (notably the Claude pane) becomes a link to its issue/PR page. Resolved from the workspace's origin remote off
-// the hot path. The origin is shared by every worktree session, so it's pushed once on ready (and, since `ready`
-// re-fires, on every reconnect) — not per session-switch or per-turn, unlike the branch that git-status tracks.
+// the hot path. The origin is shared by every worktree, but each session receives the result on its own bus.
 public sealed partial class HostCore {
 	/// <summary>
 	/// Resolves the workspace's <c>origin</c> to its forge ref-link prefix (<c>https://host/owner/repo/pull/</c>)
 	/// off the hot path and pushes a <c>ref-link-base</c> to the page. A non-forge origin pushes <c>null</c>, so a
-	/// terminal <c>#N</c> stays plain text. The result is dropped if the session set changed mid-read.
+	/// terminal <c>#N</c> stays plain text.
 	/// </summary>
-	private void PushRefLinkBase() {
-		if (_session is not { } session) {
-			return;
-		}
+	private void PushRefLinkBase(HostSession session) =>
+		PushRefLinkBase(session, session.Bus.BroadcastTarget);
 
-		_ = Task.Run(async () => {
-			var repo = await ResolveOriginRepoAsync(CancellationToken.None).ConfigureAwait(false);
+	private void PushRefLinkBase(HostSession session, Messaging.MessageTarget target) {
+		_ = session.Background.Run(async ct => {
+			var repo = await ResolveOriginRepoAsync(ct).ConfigureAwait(false);
 			string? prefix = repo is null ? null : _pullRequests.RefUrlBase(repo);
-			_ui.Post(() => {
-				if (ReferenceEquals(_session, session)) {
-					_bridge.PostToWeb(JsonSerializer.Serialize(new { type = "ref-link-base", prefix }));
-				}
-			});
+			ct.ThrowIfCancellationRequested();
+			target.Feature("git").Publish("refLinkBase", new { prefix });
 		});
 	}
 }

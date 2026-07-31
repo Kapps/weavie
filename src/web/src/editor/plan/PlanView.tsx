@@ -1,11 +1,12 @@
 import { createMemo, type JSX, onMount, Show } from "solid-js";
 import { AgentMarkdown } from "../../agent/AgentMarkdown";
+import type { ClientSession } from "../../bridge";
 import { agentPlan } from "./plan-store";
 
 // A read-only virtual editor document. AgentMarkdown's renderer disables HTML, images, Mermaid, and unsafe links.
-export default function PlanView(props: { path: () => string }): JSX.Element {
+export default function PlanView(props: { session: ClientSession; path: string }): JSX.Element {
   let host!: HTMLDivElement;
-  const document = createMemo(() => agentPlan(props.path()));
+  const document = createMemo(() => agentPlan(props.session, props.path));
 
   onMount(() => host.focus());
 
@@ -21,7 +22,7 @@ export default function PlanView(props: { path: () => string }): JSX.Element {
               <span class="editor-plan-kicker">Plan</span>
               <h1>{plan().title}</h1>
             </header>
-            <AgentMarkdown content={plan().markdown} />
+            <AgentMarkdown content={plan().markdown} session={props.session} />
           </article>
         )}
       </Show>

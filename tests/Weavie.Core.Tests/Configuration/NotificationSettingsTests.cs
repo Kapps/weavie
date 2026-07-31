@@ -42,9 +42,8 @@ public sealed class NotificationSettingsTests : IDisposable {
 	public void Defaults_EverythingOn_BundledPack() {
 		using var store = NewStore();
 
-		using var json = JsonDocument.Parse(NotificationSettings.BuildJson(store, messageType: null));
+		using var json = JsonDocument.Parse(NotificationSettings.BuildJson(store));
 		var root = json.RootElement;
-		Assert.False(root.TryGetProperty("type", out _));
 		Assert.True(root.GetProperty("sounds").GetBoolean());
 		Assert.True(root.GetProperty("os").GetBoolean());
 		Assert.Equal(70, root.GetProperty("volume").GetInt64());
@@ -56,15 +55,14 @@ public sealed class NotificationSettingsTests : IDisposable {
 	}
 
 	[Fact]
-	public void BuildJson_ReflectsChanges_AndOptionalType() {
+	public void BuildJson_ReflectsChanges() {
 		using var store = NewStore();
 		store.Set(NotificationSettings.Sounds, Json("false"));
 		store.Set(NotificationSettings.Volume, Json("25"));
 		store.Set(NotificationSettings.OnTurnComplete, Json("false"));
 
-		using var message = JsonDocument.Parse(NotificationSettings.BuildJson(store, "notification-prefs"));
+		using var message = JsonDocument.Parse(NotificationSettings.BuildJson(store));
 		var root = message.RootElement;
-		Assert.Equal("notification-prefs", root.GetProperty("type").GetString());
 		Assert.False(root.GetProperty("sounds").GetBoolean());
 		Assert.Equal(25, root.GetProperty("volume").GetInt64());
 		Assert.False(root.GetProperty("gates").GetProperty("turnComplete").GetBoolean());

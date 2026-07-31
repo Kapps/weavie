@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Xunit;
 
 namespace Weavie.Hosting.Tests;
@@ -10,8 +9,6 @@ namespace Weavie.Hosting.Tests;
 /// </summary>
 [Collection(TestCollections.HostIntegration)]
 public sealed class HostCoreAgentDefaultTests {
-	private static string Msg(object value) => JsonSerializer.Serialize(value);
-
 	[Fact]
 	public async Task Bootstrap_InjectsTheDefaultProvider() {
 		await using var host = await TestHost.StartAsync();
@@ -24,9 +21,9 @@ public sealed class HostCoreAgentDefaultTests {
 		await using var host = await TestHost.StartAsync();
 		host.Bridge.Clear();
 
-		host.Send(Msg(new { type = "set-agent-default", providerId = "codex" }));
+		host.HostEvent("agentDefaults", "setProvider", new { providerId = "codex" });
 
-		var push = host.Bridge.LastOfType("agent-defaults");
+		var push = host.Bridge.LastEvent("settings", "agent-defaults");
 		Assert.True(push.HasValue);
 		Assert.Equal("codex", push!.Value.GetProperty("defaultProvider").GetString());
 	}
@@ -36,9 +33,9 @@ public sealed class HostCoreAgentDefaultTests {
 		await using var host = await TestHost.StartAsync(); // ships defaulting to claude
 		host.Bridge.Clear();
 
-		host.Send(Msg(new { type = "set-agent-default", providerId = "claude" }));
+		host.HostEvent("agentDefaults", "setProvider", new { providerId = "claude" });
 
-		Assert.False(host.Bridge.LastOfType("agent-defaults").HasValue);
+		Assert.False(host.Bridge.LastEvent("settings", "agent-defaults").HasValue);
 	}
 
 	[Fact]
@@ -46,8 +43,8 @@ public sealed class HostCoreAgentDefaultTests {
 		await using var host = await TestHost.StartAsync();
 		host.Bridge.Clear();
 
-		host.Send(Msg(new { type = "set-agent-default", providerId = "ghost" }));
+		host.HostEvent("agentDefaults", "setProvider", new { providerId = "ghost" });
 
-		Assert.False(host.Bridge.LastOfType("agent-defaults").HasValue);
+		Assert.False(host.Bridge.LastEvent("settings", "agent-defaults").HasValue);
 	}
 }

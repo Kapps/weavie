@@ -1,5 +1,10 @@
 import { createMemo, createSignal } from "solid-js";
-import { onHostMessage, postToHost, type SearchMatch } from "../bridge";
+import {
+  type ClientSession,
+  onSelectedSession,
+  type SearchMatch,
+  selectedSession,
+} from "../bridge";
 import {
   groupByFile,
   moveSelection,
@@ -45,13 +50,11 @@ const [seedNonce, setSeedNonce] = createSignal(0);
 const groups = createMemo(() => groupByFile(matches()));
 const visible = createMemo(() => visibleOf(matches(), collapsed()));
 
-// Monotonic request token: a reply is applied only when it echoes the latest, so a stale grep never lands.
-let token = 0;
 let sentFor = applied();
 let debounceTimer = 0;
 let previewTimer = 0;
-// The session whose worktree the current results came from; a switch invalidates them (paths route elsewhere).
-let resultsSession: string | null = null;
+const requests = new WeakMap<ClientSession, AbortController>();
+const resultsBySession = new WeakMap<ClientSession, SearchResult>();
 // How results open in the editor — injected by App (the editor controller), like setNotifySink.
 let opener: (match: SearchMatch, focus: boolean) => void = () => {};
 
@@ -63,25 +66,31 @@ function clearResults(): void {
   setCollapsed(new Set<string>());
 }
 
-onHostMessage((message) => {
-  if (message.type === "find-in-files-results" && message.token === token) {
-    setMatches(message.matches);
-    setTruncated(message.truncated);
-    setError(message.error ?? null);
-    setSettled(true);
-    setSelected(message.matches.length > 0 ? 0 : -1);
-    setCollapsed(new Set<string>());
-    setApplied(sentFor);
-  } else if (message.type === "set-editor-session" && message.sessionId !== resultsSession) {
-    // A session switch: the results (and any pending reply) belong to the previous worktree, so drop them —
-    // else F4 (ungated, works with the panel closed) would open a stale path into the new session. The query
-    // and options are kept; the user re-runs against the new worktree.
-    resultsSession = message.sessionId ?? null;
-    token += 1; // orphan any in-flight reply for the old session
+interface SearchResult {
+  matches: SearchMatch[];
+  truncated: boolean;
+  error: string | null;
+  applied: { query: string; options: SearchOptions };
+}
+
+function projectResult(result: SearchResult | undefined): void {
+  if (result === undefined) {
     clearResults();
     setSettled(true);
+    return;
   }
-});
+  setMatches(result.matches);
+  setTruncated(result.truncated);
+  setError(result.error);
+  setSettled(true);
+  setSelected(result.matches.length > 0 ? 0 : -1);
+  setCollapsed(new Set<string>());
+  setApplied(result.applied);
+}
+
+onSelectedSession((session) =>
+  projectResult(session === null ? undefined : resultsBySession.get(session)),
+);
 
 /** Injects how a result opens in the editor (App wires the editor controller's openMatch). */
 export function setSearchOpener(fn: (match: SearchMatch, focus: boolean) => void): void {
@@ -90,7 +99,6 @@ export function setSearchOpener(fn: (match: SearchMatch, focus: boolean) => void
 
 function runSearch(): void {
   window.clearTimeout(debounceTimer);
-  token += 1;
   const q = query();
   if (q.length === 0) {
     setMatches([]);
@@ -104,7 +112,58 @@ function runSearch(): void {
   }
   sentFor = { query: q, options: options() };
   setSettled(false);
-  postToHost({ type: "find-in-files", token, query: q, ...options() });
+  const session = selectedSession();
+  if (session === null) {
+    clearResults();
+    setSettled(true);
+    return;
+  }
+  requests.get(session)?.abort();
+  const request = new AbortController();
+  requests.set(session, request);
+  const requested = sentFor;
+  void session
+    .feature("search")
+    .request<
+      {
+        matches: SearchMatch[];
+        truncated: boolean;
+        error?: string | null;
+      },
+      { query: string } & SearchOptions
+    >("query", { query: q, ...options() }, request.signal)
+    .then((response) => {
+      if (requests.get(session) !== request) {
+        return;
+      }
+      requests.delete(session);
+      const result: SearchResult = {
+        matches: response.matches,
+        truncated: response.truncated,
+        error: response.error ?? null,
+        applied: requested,
+      };
+      resultsBySession.set(session, result);
+      if (selectedSession() === session) {
+        projectResult(result);
+      }
+    })
+    .catch((error: unknown) => {
+      if (request.signal.aborted || requests.get(session) !== request) {
+        return;
+      }
+      requests.delete(session);
+      const result: SearchResult = {
+        matches: [],
+        truncated: false,
+        error: error instanceof Error ? error.message : String(error),
+        applied: requested,
+      };
+      resultsBySession.set(session, result);
+      if (selectedSession() === session) {
+        projectResult(result);
+      }
+    });
 }
 
 function scheduleSearch(): void {

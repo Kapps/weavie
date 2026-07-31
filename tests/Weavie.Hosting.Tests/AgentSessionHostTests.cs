@@ -9,6 +9,7 @@ using Weavie.Core.Mcp;
 using Weavie.Core.Sessions;
 using Weavie.Core.Theming;
 using Weavie.Hosting.Agents;
+using Weavie.Hosting.Messaging;
 using Xunit;
 
 namespace Weavie.Hosting.Tests;
@@ -25,9 +26,8 @@ public sealed class AgentSessionHostTests {
 		slot = "slot-1";
 		host.Structured!.Start();
 
-		var message = Assert.Single(bridge.PostedOfType("agent-pane"));
-		Assert.Equal("slot-1", message.GetProperty("slot").GetString());
-		Assert.Equal("started", message.GetProperty("message").GetProperty("type").GetString());
+		var message = Assert.Single(bridge.PostedEventsNamed("pane"));
+		Assert.Equal("started", message.GetProperty("type").GetString());
 
 		session.Emit(new AgentPaneMessage {
 			Type = "agent-message-delta",
@@ -118,8 +118,8 @@ public sealed class AgentSessionHostTests {
 
 		// The whole replay is a reset plus a single batch frame — a bounded burst no matter how long the transcript.
 		Assert.Equal(2, bridge.Posted.Count);
-		Assert.Single(bridge.PostedOfType("agent-pane-reset"));
-		var batch = Assert.Single(bridge.PostedOfType("agent-pane-batch"));
+		Assert.Single(bridge.PostedEventsNamed("paneReset"));
+		var batch = Assert.Single(bridge.PostedEventsNamed("paneBatch"));
 		Assert.Equal(1001, batch.GetProperty("messages").GetArrayLength()); // 1000 items + the "started" marker
 	}
 
@@ -136,9 +136,9 @@ public sealed class AgentSessionHostTests {
 		// The 6 messages (started + 5) all land inside one window, so the flush is a single batch frame — no
 		// per-message agent-pane frame escapes, which is what keeps a fast turn from flooding the outbox.
 		int count = await Wait.ForAsync(() =>
-			bridge.PostedOfType("agent-pane-batch").Count is var c and > 0 ? c : (int?)null);
+			bridge.PostedEventsNamed("paneBatch").Count is var c and > 0 ? c : (int?)null);
 		Assert.Equal(1, count);
-		Assert.Empty(bridge.PostedOfType("agent-pane"));
+		Assert.Empty(bridge.PostedEventsNamed("pane"));
 		Assert.Equal(6, Replayed(bridge).Count);
 	}
 
@@ -244,7 +244,7 @@ public sealed class AgentSessionHostTests {
 
 	// The messages carried by the single agent-pane-batch frame the bridge received (a replay or a live flush).
 	private static IReadOnlyList<JsonElement> Replayed(FakeHostBridge bridge) {
-		var batch = Assert.Single(bridge.PostedOfType("agent-pane-batch"));
+		var batch = Assert.Single(bridge.PostedEventsNamed("paneBatch"));
 		return [.. batch.GetProperty("messages").EnumerateArray()];
 	}
 
@@ -265,18 +265,21 @@ public sealed class AgentSessionHostTests {
 		}
 
 		foreach (string json in bridge.Posted) {
-			using var doc = JsonDocument.Parse(json);
-			var root = doc.RootElement;
-			switch (root.GetProperty("type").GetString()) {
-				case "agent-pane-reset":
+			if (!MessageEnvelope.TryParse(json, out var envelope)
+				|| envelope is not { Kind: MessageKind.Event, Feature: "agent" }) {
+				continue;
+			}
+
+			switch (envelope.Name) {
+				case "paneReset":
 					order.Clear();
 					indexes.Clear();
 					break;
-				case "agent-pane":
-					Append(root.GetProperty("message"));
+				case "pane":
+					Append(envelope.Payload);
 					break;
-				case "agent-pane-batch":
-					foreach (var paneMessage in root.GetProperty("messages").EnumerateArray()) {
+				case "paneBatch":
+					foreach (var paneMessage in envelope.Payload.GetProperty("messages").EnumerateArray()) {
 						Append(paneMessage);
 					}
 
@@ -333,7 +336,8 @@ public sealed class AgentSessionHostTests {
 				Events = new NullAgentEventSink(),
 				CurrentSessionId = slot,
 			},
-			bridge,
+			bridge.SessionFeature("agent"),
+			bridge.SessionFeature("terminal.agent"),
 			settings,
 			new NoopPtyLauncher(),
 			transcriptPath);

@@ -7,7 +7,7 @@ import {
   onMount,
   Show,
 } from "solid-js";
-import { mediaResourceUrl, onHostMessage } from "../../bridge";
+import { type ClientSession, mediaResourceUrl } from "../../bridge";
 import { currentEditorOptions, onEditorOptionsChanged } from "../../editor-options";
 import { basename, samePath } from "../fs-path";
 import { mediaTypeOf } from "./media-types";
@@ -18,11 +18,7 @@ import { mediaTypeOf } from "./media-types";
  * Videos get native controls, and the pane focuses itself so the keyboard reaches them. Failed reads and
  * deletions render loudly in the pane.
  */
-export default function MediaPane(props: {
-  backendId: () => string;
-  sessionId: () => string;
-  path: () => string;
-}): JSX.Element {
+export default function MediaPane(props: { session: ClientSession; path: string }): JSX.Element {
   let host!: HTMLDivElement;
   onMount(() => host.focus());
 
@@ -33,36 +29,35 @@ export default function MediaPane(props: {
   const [revision, setRevision] = createSignal(0);
   const [status, setStatus] = createSignal<"loading" | "ready" | "error">("loading");
   const [error, setError] = createSignal<string | null>(null);
-  const url = createMemo(() =>
-    mediaResourceUrl(props.backendId(), props.sessionId(), props.path(), revision()),
-  );
+  const url = createMemo(() => mediaResourceUrl(props.session, props.path, revision()));
   createEffect(() => {
     if (url() === null) {
       setStatus("error");
-      setError(`No media endpoint is available for ${basename(props.path())}.`);
+      setError(`No media endpoint is available for ${basename(props.path)}.`);
     } else {
       setStatus("loading");
       setError(null);
     }
   });
-  onCleanup(
-    onHostMessage((message) => {
-      if (message.type !== "fs-change") {
-        return;
-      }
-      const change = message.changes.find((candidate) => samePath(candidate.path, props.path()));
+  createEffect(() => {
+    const session = props.session;
+    const off = session.feature("files").on<{
+      changes: { path: string; kind: "updated" | "added" | "deleted" }[];
+    }>("changed", ({ changes }) => {
+      const change = changes.find((candidate) => samePath(candidate.path, props.path));
       if (change?.kind === "deleted") {
         setStatus("error");
-        setError(`${basename(props.path())} was deleted.`);
+        setError(`${basename(props.path)} was deleted.`);
       } else if (change !== undefined) {
         setRevision((value) => value + 1);
       }
-    }),
-  );
+    });
+    onCleanup(off);
+  });
 
   const failed = (): void => {
     setStatus("error");
-    setError(`Unable to load ${basename(props.path())}.`);
+    setError(`Unable to load ${basename(props.path)}.`);
   };
 
   return (
@@ -70,12 +65,12 @@ export default function MediaPane(props: {
       <Show when={url()} keyed>
         {(src) => (
           <Show
-            when={mediaTypeOf(props.path())?.kind === "video"}
+            when={mediaTypeOf(props.path)?.kind === "video"}
             fallback={
               <img
                 class="editor-media-content"
                 src={src}
-                alt={basename(props.path())}
+                alt={basename(props.path)}
                 onLoad={() => setStatus("ready")}
                 onError={failed}
               />
@@ -98,7 +93,7 @@ export default function MediaPane(props: {
         <div class="editor-media-notice">{error()}</div>
       </Show>
       <Show when={status() === "loading"}>
-        <div class="editor-media-notice">Loading {basename(props.path())}…</div>
+        <div class="editor-media-notice">Loading {basename(props.path)}…</div>
       </Show>
     </div>
   );

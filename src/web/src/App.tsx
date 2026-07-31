@@ -11,27 +11,25 @@ import {
   Suspense,
 } from "solid-js";
 import { AgentPane } from "./agent/AgentPane";
-import { AgentPaneAccumulator } from "./agent/AgentPaneAccumulator";
+import { agentPaneMessages } from "./agent/pane-store";
 import {
   type AgentPaneUpdate,
-  activeBackendId,
   activeBackendOffline,
   activeBackendPhase,
   backendName,
   backendPhase,
-  beginBackendHandoff,
+  beginClientSelection,
+  type ClientSession,
+  clientSession,
   connectedBackends,
-  currentEditorBinding,
+  hostConnection,
+  invokeCommandOnBackend,
   isBrowserHostedShell,
   LOCAL_BACKEND_ID,
-  onHostMessage,
-  openTarget,
-  pageId,
-  postToBackend,
-  postToHost,
-  postToLocalHost,
-  releaseEditorBinding,
+  registerViewFeature,
+  selectedSession,
   type TermSession,
+  waitForClientSession,
 } from "./bridge";
 import { defaultAgentProvider, setDefaultAgentProvider } from "./chrome/agent-default";
 import { ContextMenu, type ContextMenuEntry, type ContextMenuState } from "./chrome/ContextMenu";
@@ -58,13 +56,13 @@ import {
   stepSearchResult,
   toggleSearchOption,
 } from "./chrome/search-store";
-// Top-level import keeps the session store out of any hot-swapping component so the rail + active-session
+// Top-level import keeps the session store out of any hot-swapping component so the rail + selected-session
 // status survive HMR.
 import {
+  beginSessionSelection,
   demoteSession,
   findSession,
   isPromoted,
-  projectSessionSwitch,
   promoteSession,
   type RailSession,
   railSessions,
@@ -107,34 +105,42 @@ import {
 } from "./editor/preview/embed-zoom";
 import { canPreview } from "./editor/preview/preview-registry";
 import { SaveAsPrompt } from "./editor/SaveAsPrompt";
-// Registers the set-editor-session listener at module load, before the host's one-shot restore push; the
+// Registers the per-session editor restore listener before the host's sync response; the
 // store otherwise lives only in the later editor chunk, so the push would arrive with no listener. Also
 // keeps it alive across HMR.
 import {
   activePath,
-  editorBackendId,
-  editorOwner,
+  activePathFor,
   flushEditorSession,
   openTabs,
+  openTabsFor,
 } from "./editor/session-store";
 import { activeSourceEditor } from "./editor/source/source-edit";
 import {
-  setSourceDoc,
-  setSourceError,
-  setSourceLoading,
+  dismissSourceTokenPrompt,
+  onSourceEditError,
+  openSelectedSourceTarget,
+  selectedSourceTokenPrompt,
   sourceDoc,
 } from "./editor/source/source-store";
 import { TabStrip } from "./editor/TabStrip";
 import { isPreviewMode, toggleViewMode } from "./editor/view-mode-store";
 import WebTabPane from "./editor/WebTabPane";
 import { currentEditorOptions, onEditorOptionsChanged } from "./editor-options";
-import type { DirListings } from "./files/FileBrowser";
+import {
+  listSelectedDirectory,
+  refreshSelectedFileIndex,
+  revealSelectedFile,
+  selectedDirectoryListings,
+  selectedFileIndex,
+} from "./files/session-files";
 import { paneOrder } from "./layout/geometry";
 import { LayoutView } from "./layout/LayoutView";
 import { DEFAULT_LAYOUT_ROOT, layoutDocument, sendLayout } from "./layout/store";
 import type { LayoutNode } from "./layout/types";
 // Session-attention intake (sounds + OS notifications): module-load side effect, like the session store.
 import "./notifications/attention";
+import "./notifications/intake";
 import { setNotifySink } from "./notify/notify";
 import { Suggestions } from "./notify/Suggestions";
 import { createToasts, Toasts } from "./notify/Toasts";
@@ -143,7 +149,6 @@ import { mark } from "./startup-timing";
 import { installTerminalClipboardCommands } from "./terminal/host-clipboard";
 import { TerminalView } from "./terminal/TerminalView";
 import { openUrlExternal } from "./terminal/terminal-links";
-import { runTestAtCursor } from "./tests/test-lens";
 import { applyChromeTheme } from "./theme";
 
 const FileBrowser = lazy(() => import("./files/FileBrowser"));
@@ -154,10 +159,6 @@ const SearchPanel = lazy(() =>
   import("./chrome/SearchPanel").then((m) => ({ default: m.SearchPanel })),
 );
 
-// The PRIMARY session's workspace root (host-injected before navigation); seeds indexRoot and the "is there
-// a host workspace at all" check. The live root then follows the active session. Null in plain-browser dev.
-const WORKSPACE_ROOT = window.__WEAVIE_LSP__?.workspace ?? null;
-
 // Host-injected shell config. titleBar "custom" = Windows frameless web title bar; "mac" = omnibar strip
 // below the native title bar. Absent in plain-browser dev, where the floating Files button is the toggle.
 const SHELL = window.__WEAVIE_SHELL__;
@@ -167,14 +168,13 @@ const MAC_TITLEBAR = SHELL?.titleBar === "mac";
 const HAS_TITLEBAR = CUSTOM_TITLEBAR || MAC_TITLEBAR;
 
 const AGENT_PANE_KIND = "terminal:claude";
-// A shared empty message list so an absent focused slot yields a stable reference (see focusedAgentMessages).
-const NO_AGENT_MESSAGES: AgentPaneUpdate[] = [];
-
 // Maps a terminal-backed pane kind ("terminal:claude" / "terminal:shell") to its pane id.
 const paneOf = (kind: string): TermSession => (kind === AGENT_PANE_KIND ? "claude" : "shell");
 
 export default function App(): JSX.Element {
   let editorContainer!: HTMLDivElement;
+  const activeBackendId = (): string => selectedSession()?.connection.id ?? LOCAL_BACKEND_ID;
+  const localHost = () => hostConnection(LOCAL_BACKEND_ID)?.host;
   // The live pane layout tree: default-seeded, replaced by the host's persisted push, updated optimistically
   // during a splitter drag.
   const [layoutRoot, setLayoutRoot] = createSignal<LayoutNode>(DEFAULT_LAYOUT_ROOT);
@@ -211,42 +211,34 @@ export default function App(): JSX.Element {
     const kind = activePane();
     return fullscreen() && kind !== null ? { type: "pane", id: "fullscreen", kind } : layoutRoot();
   });
-  const sessionKey = (backendId: string, slot: string): string => `${backendId}\0${slot}`;
-  const splitSessionKey = (key: string): [backendId: string, slot: string] => {
-    const separator = key.indexOf("\0");
-    return [key.slice(0, separator), key.slice(separator + 1)];
-  };
-  const terminalPaneKey = (backendId: string, slot: string, pane: string): string =>
-    `${sessionKey(backendId, slot)}\0${pane}`;
+  const sessionKey = (session: ClientSession): string =>
+    `${session.connection.id}\0${session.address.slot}\0${session.address.incarnation}`;
+  const terminalPaneKey = (session: ClientSession, pane: string): string =>
+    `${sessionKey(session)}\0${pane}`;
   // Each loaded session's terminal panes register their focus fn here on mount; focusPane resolves the active
   // backend and session's entry. (The editor focuses via the controller directly.)
   const terminalFocus = new Map<string, () => void>();
   // The child-set terminal title (OSC 0/2), shown in the shell pane header (the agent pane keeps its fixed label).
   const [paneTitles, setPaneTitles] = createSignal<Record<string, string>>({});
-  const [agentPaneMessages, setAgentPaneMessages] = createSignal<Record<string, AgentPaneUpdate[]>>(
-    {},
-  );
-  const agentPaneAccumulator = new AgentPaneAccumulator((callback) =>
-    requestAnimationFrame(callback),
-  );
   // Whether the Ctrl+N pane-switch hint badges are shown (the editor.paneShortcutHints setting; live-updated).
   const [showPaneHints, setShowPaneHints] = createSignal(currentEditorOptions().paneShortcutHints);
 
   // Stable backend/session keys for the active backend's loaded sessions, so <For> never remounts a session's
   // terminals across rail pushes — keeping them alive makes a switch pure show/hide. Excludes dormant and
   // other-backend sessions while ensuring a backend switch remounts even when both backends use the same id.
-  const termSessionKeys = createMemo(() =>
-    sessions()
-      .filter((s) => s.loaded && s.backendId === activeBackendId())
-      .map((s) => sessionKey(s.backendId, s.id)),
+  const terminalSessions = createMemo<ClientSession[]>(() =>
+    sessions().flatMap((session) =>
+      session.loaded && session.backendId === activeBackendId() && session.owner !== null
+        ? [session.owner]
+        : [],
+    ),
   );
-  // The session whose panes are shown (null before the first rail push); flipping it switches which
-  // session's terminals are visible.
-  const activeTermSessionId = createMemo(
-    () => sessions().find((s) => s.backendId === activeBackendId() && s.active)?.id ?? null,
+  // The exact session whose panes are shown (null before the first rail push).
+  const activeTermSession = createMemo<ClientSession | null>(
+    () => sessions().find((session) => session.active)?.owner ?? null,
   );
   const currentPullRequest = createMemo(() => {
-    const status = pullRequestStatus(activeBackendId(), activeTermSessionId());
+    const status = pullRequestStatus(activeTermSession());
     return status !== null && status.branch === gitStatus()?.branch ? status.pullRequest : null;
   });
   createEffect(() => setContext("pullRequestAvailable", currentPullRequest() !== null));
@@ -255,8 +247,7 @@ export default function App(): JSX.Element {
   // a background session streams. This memo's default (===) equality gates that: it re-runs on every record
   // change but returns the same array until the focused slot's own array changes.
   const focusedAgentMessages = createMemo<AgentPaneUpdate[]>(() => {
-    const sid = activeTermSessionId();
-    return sid === null ? NO_AGENT_MESSAGES : (agentPaneMessages()[sid] ?? NO_AGENT_MESSAGES);
+    return agentPaneMessages(selectedSession());
   });
   const activeProviderId = createMemo<"claude" | "codex" | null>(
     () => sessions().find((s) => s.active)?.providerId ?? null,
@@ -275,18 +266,14 @@ export default function App(): JSX.Element {
   const [newSessionOpen, setNewSessionOpen] = createSignal(false);
   const [openPrOpen, setOpenPrOpen] = createSignal(false);
   const [diffAgainstOpen, setDiffAgainstOpen] = createSignal(false);
-  // The connect-a-source token dialog (host pushed prompt-source-token), or null when closed.
-  const [sourceTokenPrompt, setSourceTokenPrompt] = createSignal<{
-    sourceId: string;
-    label: string;
-  } | null>(null);
+  const sourceTokenPrompt = selectedSourceTokenPrompt;
   const [registerAgentOpen, setRegisterAgentOpen] = createSignal(false);
   // The cloud panel's anchor (computed from the cloud button's rect) when open, else null.
   const [remotePanelAnchor, setRemotePanelAnchor] = createSignal<{
     left: number;
     bottom: number;
   } | null>(null);
-  const [dirListings, setDirListings] = createSignal<DirListings>({});
+  const dirListings = selectedDirectoryListings;
   const [browserOpen, setBrowserOpen] = createSignal(false);
   // Whether the find-in-files (content search) panel is open; the weavie.search.findInFiles command toggles it.
   const [searchOpen, setSearchOpen] = createSignal(false);
@@ -298,7 +285,7 @@ export default function App(): JSX.Element {
   const { toasts, addToast, dismissToast, dismissKeyed, isLeaving, pauseToast, resumeToast } =
     createToasts();
   // Let subsystems without an App handle (e.g. the LSP client) raise toasts for failures the user must see.
-  setNotifySink(addToast);
+  setNotifySink(addToast, dismissKeyed);
   // Now that toasts render, surface "updated to build N" if this page load followed an update reload.
   surfacePostUpdateNotice();
   // A pending "discard unsaved scratch?" confirm: the names + the resolver the dialog settles. Every tab
@@ -347,13 +334,9 @@ export default function App(): JSX.Element {
   };
   // The right-click menu for the editor body + terminal panes (the tab strip / rail own their own).
   const [contextMenu, setContextMenu] = createSignal<ContextMenuState | null>(null);
-  // The flat workspace file index shared by the omnibar's "Go to File" and the file browser. indexRoot is
-  // the ACTIVE session's worktree root — it follows session switches (host re-pushes file-index on each),
-  // seeded from WORKSPACE_ROOT until the first.
-  const [fileIndex, setFileIndex] = createSignal<string[]>([]);
-  const [indexRoot, setIndexRoot] = createSignal<string | null>(WORKSPACE_ROOT);
-  // True between a switch's index invalidation (pending file-index) and the new worktree's walked index.
-  const [indexPending, setIndexPending] = createSignal(false);
+  const fileIndex = (): string[] => selectedFileIndex().files;
+  const indexRoot = (): string | null => selectedFileIndex().root;
+  const indexPending = (): boolean => selectedFileIndex().pending;
 
   // The Monaco editor + all diff/review orchestration; App feeds it host messages and commands.
   const editor = createEditorController({
@@ -389,11 +372,11 @@ export default function App(): JSX.Element {
 
   // Liveness: the first terminal paint is the reveal trigger, but a launch can land with NO loaded terminal to
   // paint — an all-dormant restore, or an offline remote backend — and then onFirstRender never fires. Once the
-  // host has answered `ready` with its session state (sessionsReceived) and there's no active-backend terminal,
-  // bring the editor up so the shell still reveals. When terminals DO exist, their paint drives it (and reveals
+  // host has supplied its catalog (sessionsReceived) and there is no selected-session terminal, bring the
+  // editor up so the shell still reveals. When terminals DO exist, their paint drives it (and reveals
   // before the editor eval), so this stays out of the way — it only fires when there is nothing to jam.
   createEffect(() => {
-    if (sessionsReceived() && termSessionKeys().length === 0) {
+    if (sessionsReceived() && terminalSessions().length === 0) {
       startEditorOnce();
     }
   });
@@ -410,12 +393,12 @@ export default function App(): JSX.Element {
       document.querySelector<HTMLTextAreaElement>(".agent-surface textarea")?.focus();
       return;
     }
-    // Resolve the focusable xterm by the active session id, so focus lands correctly regardless of
+    // Resolve the focusable xterm by the selected session id, so focus lands correctly regardless of
     // effect-flush timing on a switch.
     const pane = paneOf(kind);
-    const sid = activeTermSessionId();
-    if (sid !== null) {
-      terminalFocus.get(terminalPaneKey(activeBackendId(), sid, pane))?.();
+    const session = activeTermSession();
+    if (session !== null) {
+      terminalFocus.get(terminalPaneKey(session, pane))?.();
     }
   };
 
@@ -433,81 +416,141 @@ export default function App(): JSX.Element {
     return true;
   };
 
+  const activeTabBinding = createMemo<{
+    session: ClientSession;
+    path: string;
+    kind: "file" | "web" | "source" | "plan";
+  } | null>(() => {
+    const session = selectedSession();
+    if (session === null) {
+      return null;
+    }
+    const path = activePathFor(session);
+    if (path === null) {
+      return null;
+    }
+    return {
+      session,
+      path,
+      kind: openTabsFor(session).find((tab) => tab.path === path)?.kind ?? "file",
+    };
+  });
+
   // The active file's path when it's previewable, in Preview mode, and not under inline review (which owns the
   // editor) — drives the Preview overlay; null otherwise.
   const previewActivePath = createMemo<string | null>(() => {
-    const path = activePath();
-    return path !== null && canPreview(path) && isPreviewMode(path) && !editor.reviewActive()
-      ? path
+    const binding = activeTabBinding();
+    return binding !== null &&
+      binding.kind === "file" &&
+      canPreview(binding.path) &&
+      isPreviewMode(binding.path) &&
+      !editor.reviewActive()
+      ? binding.path
       : null;
   });
 
-  // The active tab's path when it's a media (image/video) FILE tab and not under inline review — drives the
-  // MediaPane overlay; null otherwise. The file-kind check keeps a web tab whose URL ends in .png out.
-  const activeMediaPath = createMemo<string | null>(() => {
-    const path = activePath();
-    if (path === null || mediaTypeOf(path) === null || editor.reviewActive()) {
-      return null;
-    }
-    const kind = openTabs().find((tab) => tab.path === path)?.kind;
-    return kind === undefined || kind === "file" ? path : null;
+  const activeMediaBinding = createMemo(() => {
+    const binding = activeTabBinding();
+    return binding !== null &&
+      binding.kind === "file" &&
+      mediaTypeOf(binding.path) !== null &&
+      !editor.reviewActive()
+      ? binding
+      : null;
   });
 
   // The active tab's URL when it's a web (iframe) tab — drives the web overlay; null otherwise.
   const activeWebUrl = createMemo<string | null>(() => {
-    const path = activePath();
-    if (path === null) {
-      return null;
-    }
-    return openTabs().find((tab) => tab.path === path)?.kind === "web" ? path : null;
+    const binding = activeTabBinding();
+    return binding?.kind === "web" ? binding.path : null;
   });
 
-  // The active tab's target when it's a source (Notion) tab — drives the SourceView overlay; null otherwise.
-  const activeSourceTarget = createMemo<string | null>(() => {
-    const path = activePath();
-    if (path === null) {
-      return null;
-    }
-    return openTabs().find((tab) => tab.path === path)?.kind === "source" ? path : null;
+  const activeSourceBinding = createMemo(() => {
+    const binding = activeTabBinding();
+    return binding?.kind === "source" ? binding : null;
   });
 
-  // The active virtual plan path — its host-owned Markdown stays in the in-memory plan store and never joins the
-  // persisted editor session.
-  const activePlanPath = createMemo<string | null>(() => {
-    const path = activePath();
-    if (path === null) {
-      return null;
-    }
-    return openTabs().find((tab) => tab.path === path)?.kind === "plan" ? path : null;
+  const activePlanBinding = createMemo(() => {
+    const binding = activeTabBinding();
+    return binding?.kind === "plan" ? binding : null;
   });
 
-  // Bind the page to `backendId`, then run `then` (which posts the session command). When crossing to a
-  // different backend, first persist the outgoing session's unsaved edits before requesting the incoming
-  // session. File writes remain pinned to the editor owner throughout the handoff. Same-backend binds run
-  // synchronously.
-  let bindIntent = 0;
-  const bindBackend = (backendId: string, then: (didRebind: boolean) => void): void => {
-    const intent = ++bindIntent;
-    if (backendId === activeBackendId()) {
-      beginBackendHandoff(backendId);
-      then(false);
-      return;
+  const resultAddress = (result: { data?: unknown }): { slot: string; incarnation: string } => {
+    const address = (result.data as { address?: unknown } | undefined)?.address;
+    if (
+      address === null ||
+      typeof address !== "object" ||
+      typeof (address as { slot?: unknown }).slot !== "string" ||
+      (address as { slot: string }).slot.length === 0 ||
+      typeof (address as { incarnation?: unknown }).incarnation !== "string" ||
+      (address as { incarnation: string }).incarnation.length === 0
+    ) {
+      throw new Error("The session operation did not return an exact live address.");
     }
-    void editor.flushDirty().finally(() => {
-      if (intent !== bindIntent) {
-        return;
-      }
-      const outgoing = currentEditorBinding();
-      if (outgoing !== null && outgoing.backendId !== backendId) {
-        releaseEditorBinding(outgoing);
-      }
-      beginBackendHandoff(backendId);
-      then(true);
-    });
+    return address as { slot: string; incarnation: string };
   };
 
-  // Switch to a session by id. Flushes the outgoing session's pending editor session first so its tab set
-  // isn't lost; the host processes both messages in order on the still-active session.
+  const selectResultSession = async (
+    backendId: string,
+    result: { ok: boolean; error?: string; data?: unknown },
+    commit: ReturnType<typeof beginClientSelection>,
+  ): Promise<void> => {
+    if (!result.ok) {
+      throw new Error(result.error ?? "The session operation failed.");
+    }
+    commit(await waitForClientSession(backendId, resultAddress(result)));
+  };
+
+  const createSessionAt = (
+    backendId: string,
+    args: {
+      branch: string;
+      base: "source" | "main";
+      existing: boolean;
+      agentProviderId: "claude" | "codex";
+    },
+  ): void => {
+    const commit = beginClientSelection();
+    void invokeCommandOnBackend(backendId, CommandIds.newSession, args)
+      .then((result) => selectResultSession(backendId, result, commit))
+      .catch((error: unknown) =>
+        addToast("error", error instanceof Error ? error.message : String(error)),
+      );
+  };
+
+  const openPullRequestAt = (
+    backendId: string,
+    target: { number: number; owner: string; repo: string },
+  ): void => {
+    const toastKey = `open-pr:${target.number}`;
+    const connection = hostConnection(backendId);
+    const source = connection?.currentCatalog.find((entry) => entry.primary)?.address ?? null;
+    const session =
+      source === null || connection === undefined
+        ? connection?.sessions[0]
+        : connection.session(source);
+    if (session === undefined) {
+      addToast("error", `No live session is available on ${backendLabel(backendId)}.`, toastKey);
+      return;
+    }
+    const commit = beginClientSelection();
+    void session
+      .feature("pullRequests")
+      .request<
+        {
+          ok: boolean;
+          error?: string;
+          data?: unknown;
+        },
+        typeof target
+      >("open", target)
+      .then((result) => selectResultSession(backendId, result, commit))
+      .then(() => dismissKeyed(toastKey))
+      .catch((error: unknown) =>
+        addToast("warn", error instanceof Error ? error.message : String(error), toastKey),
+      );
+  };
+
   const switchToSession = (session: RailSession): void => {
     // A backend whose link is down can't serve the switch — refuse loudly at the click rather than paint
     // the optimistic highlight and queue a frame that would replay as a stale navigation on reconnect.
@@ -519,17 +562,27 @@ export default function App(): JSX.Element {
       );
       return;
     }
-    projectSessionSwitch(session.backendId, session.id);
+    const commit = beginClientSelection();
+    beginSessionSelection(session.backendId, session.id);
     flushEditorSession();
-    // Crossing to another backend rebinds the page to it; its switch-session reply re-attaches terminals + editor.
-    bindBackend(session.backendId, (didRebind) =>
-      postToBackend(session.backendId, {
-        type: "switch-session",
-        id: session.id,
-        replayAgentState: didRebind,
-        pageId,
-      }),
-    );
+    void editor
+      .flushDirty()
+      .then(async () => {
+        let target = clientSession(session.backendId, session.id);
+        if (target === undefined) {
+          const loaded = await invokeCommandOnBackend(session.backendId, CommandIds.loadSession, {
+            id: session.id,
+          });
+          if (!loaded.ok) {
+            throw new Error(loaded.error ?? `Couldn't load ${session.label}.`);
+          }
+          target = await waitForClientSession(session.backendId, resultAddress(loaded));
+        }
+        commit(target);
+      })
+      .catch((error: unknown) => {
+        addToast("error", error instanceof Error ? error.message : String(error));
+      });
   };
 
   // A backend's human name for connection messages ("the host" for the local headless link).
@@ -570,7 +623,7 @@ export default function App(): JSX.Element {
     changedCount: number;
     backendId: string;
   } | null>(null);
-  // Interactive delete (rail menu / cloud panel / palette): no args targets the active session. Classify the
+  // Interactive delete (rail menu / cloud panel / palette): no args targets the selected session. Classify the
   // OWNING backend's worktree (weavie.session.delete with classify) to open the dialog at the right escalation.
   const promptDeleteSession = async (args: unknown): Promise<void> => {
     const a = args as { id?: string; backendId?: string } | undefined;
@@ -593,19 +646,17 @@ export default function App(): JSX.Element {
       | {
           state?: DeleteSessionState;
           label?: string;
-          changedFiles?: string[];
-          changedCount?: number;
-          untrackedFiles?: string[];
-          untrackedCount?: number;
+          changedFiles: string[];
+          changedCount: number;
         }
       | undefined;
-    const changedFiles = info?.changedFiles ?? info?.untrackedFiles ?? [];
+    const changedFiles = info?.changedFiles ?? [];
     setDeleteReq({
       id,
       label: info?.label ?? id,
       state: info?.state ?? "clean",
       changedFiles,
-      changedCount: info?.changedCount ?? info?.untrackedCount ?? changedFiles.length,
+      changedCount: info?.changedCount ?? changedFiles.length,
       backendId,
     });
   };
@@ -676,6 +727,7 @@ export default function App(): JSX.Element {
           data-surface="editor"
         >
           <TabStrip
+            session={selectedSession}
             tabs={openTabs}
             activePath={activePath}
             actions={editor.tabs}
@@ -729,16 +781,8 @@ export default function App(): JSX.Element {
               </Suspense>
             </Show>
             {/* A media (image/video) file tab: render it over the still-mounted Monaco host. */}
-            <Show
-              when={
-                activeMediaPath() !== null && editorBackendId() !== null && editorOwner() !== null
-              }
-            >
-              <MediaPane
-                backendId={() => editorBackendId() as string}
-                sessionId={() => editorOwner() as string}
-                path={() => activeMediaPath() as string}
-              />
+            <Show when={activeMediaBinding()} keyed>
+              {(binding) => <MediaPane session={binding.session} path={binding.path} />}
             </Show>
             {/* A web tab: render its URL in an iframe over the still-mounted Monaco host. */}
             <Show when={activeWebUrl() !== null}>
@@ -746,19 +790,24 @@ export default function App(): JSX.Element {
             </Show>
             {/* A source tab: render the fetched Notion doc as rich HTML in a shadow root over Monaco (or its
                 loading spinner / fetch error while it resolves). */}
-            <Show when={activeSourceTarget() !== null}>
-              <Suspense>
-                <SourceView
-                  doc={() => sourceDoc(activeSourceTarget() as string)}
-                  target={() => activeSourceTarget() as string}
-                />
-              </Suspense>
+            <Show when={activeSourceBinding()} keyed>
+              {(binding) => (
+                <Suspense>
+                  <SourceView
+                    doc={() => sourceDoc(binding.session, binding.path)}
+                    session={binding.session}
+                    target={() => binding.path}
+                  />
+                </Suspense>
+              )}
             </Show>
             {/* A completed agent plan: host-owned Markdown in a read-only virtual document. */}
-            <Show when={activePlanPath() !== null}>
-              <Suspense>
-                <PlanView path={() => activePlanPath() as string} />
-              </Suspense>
+            <Show when={activePlanBinding()} keyed>
+              {(binding) => (
+                <Suspense>
+                  <PlanView session={binding.session} path={binding.path} />
+                </Suspense>
+              )}
             </Show>
           </div>
           <EditorFooter
@@ -769,12 +818,10 @@ export default function App(): JSX.Element {
       );
     }
     if (kind === AGENT_PANE_KIND && activeAgentSurface() === "structured") {
-      const sid = activeTermSessionId();
       return (
         <AgentPane
-          backendId={activeBackendId()}
           inputProtocol={activeAgentInputProtocol()}
-          slot={sid}
+          session={activeTermSession()}
           providerId={activeProviderId()}
           active={focusedKind() === AGENT_PANE_KIND}
           messages={focusedAgentMessages()}
@@ -792,19 +839,21 @@ export default function App(): JSX.Element {
       if (kind === AGENT_PANE_KIND) {
         return "Claude Code";
       }
-      const sid = activeTermSessionId();
-      const title =
-        sid === null ? undefined : paneTitles()[terminalPaneKey(activeBackendId(), sid, pane)];
+      const session = activeTermSession();
+      const title = session === null ? undefined : paneTitles()[terminalPaneKey(session, pane)];
       return title !== undefined && title.length > 0 ? title : "Terminal";
     };
-    const paneSessionKeys = (): string[] =>
+    const paneSessions = (): ClientSession[] =>
       kind === AGENT_PANE_KIND
-        ? sessions()
-            .filter(
-              (s) => s.loaded && s.backendId === activeBackendId() && s.providerId === "claude",
-            )
-            .map((s) => sessionKey(s.backendId, s.id))
-        : termSessionKeys();
+        ? sessions().flatMap((session) =>
+            session.loaded &&
+            session.backendId === activeBackendId() &&
+            session.providerId === "claude" &&
+            session.owner !== null
+              ? [session.owner]
+              : [],
+          )
+        : terminalSessions();
     return (
       <div
         class="terminal-surface"
@@ -828,20 +877,16 @@ export default function App(): JSX.Element {
           </Show>
         </div>
         <div class="pane-body">
-          {/* One live xterm per loaded session, only the active shown. Backend/session keys preserve xterms
-              across rail pushes but unmount them when the selected backend changes. */}
-          <For each={paneSessionKeys()}>
-            {(key) => {
-              const [backendId, sid] = splitSessionKey(key);
-              const paneKey = terminalPaneKey(backendId, sid, pane);
-              const isActive = (): boolean =>
-                backendId === activeBackendId() && sid === activeTermSessionId();
+          {/* One live xterm per exact session incarnation, only the selected owner shown. */}
+          <For each={paneSessions()}>
+            {(session) => {
+              const paneKey = terminalPaneKey(session, pane);
+              const isActive = (): boolean => selectedSession() === session;
               onCleanup(() => terminalFocus.delete(paneKey));
               return (
                 <div class="term-host" classList={{ hidden: !isActive() }}>
                   <TerminalView
-                    backendId={backendId}
-                    slot={sid}
+                    session={session}
                     pane={pane}
                     active={isActive()}
                     onFirstRender={() => {
@@ -912,12 +957,12 @@ export default function App(): JSX.Element {
   };
   const fullscreenKeyHint = (): string => keyHint(CommandIds.toggleFullscreenPane);
 
-  // When the browser is open and the active session's root listing hasn't loaded, request it. Keyed on
-  // indexRoot() (the ACTIVE session's worktree, re-pushed on a switch), so the browser follows the session.
+  // When the browser is open and the selected session's root listing hasn't loaded, request it. Keyed on
+  // indexRoot(), so the browser follows client selection.
   createEffect(() => {
     const root = indexRoot();
     if (browserOpen() && root !== null && dirListings()[root] === undefined) {
-      postToHost({ type: "list-dir", path: root });
+      listSelectedDirectory(root);
     }
   });
 
@@ -939,120 +984,37 @@ export default function App(): JSX.Element {
       document.addEventListener("visibilitychange", () => startEditorOnce(), { once: true });
     }
 
-    const offHost = onHostMessage((message, originBackendId) => {
-      if (editor.handleMessage(message)) {
-        return;
+    const offViewBinding = registerViewFeature((session) => {
+      const cleanups = [
+        session.feature("view").on<{ kind: string }>("focusPane", ({ kind }) => {
+          const active = document.activeElement;
+          const typingInOverlay =
+            active instanceof HTMLElement &&
+            !active.classList.contains("xterm-helper-textarea") &&
+            (active.tagName === "INPUT" || active.tagName === "TEXTAREA");
+          if (!typingInOverlay) {
+            focusPane(kind);
+          }
+        }),
+        session
+          .feature("view")
+          .on<{ query: string; line: number }>("focusOmnibar", ({ query, line }) =>
+            focusOmnibarFileSearch(query, line),
+          ),
+      ];
+      return () => {
+        for (const cleanup of cleanups) {
+          cleanup();
+        }
+      };
+    });
+    const offSourceErrors = onSourceEditError((error) => {
+      const shown =
+        error.session === selectedSession() &&
+        (activeSourceEditor()?.showSaveError(error.target, error.message, error.stale) ?? false);
+      if (!shown) {
+        addToast("error", `Notion edit failed: ${error.message}`);
       }
-      if (message.type === "notify") {
-        addToast(message.level, message.message, message.key);
-      } else if (message.type === "notify-clear") {
-        dismissKeyed(message.key);
-      } else if (message.type === "agent-pane") {
-        agentPaneAccumulator.ingest(message.slot, message.message, (messages) =>
-          setAgentPaneMessages((prev) => ({ ...prev, [message.slot]: messages })),
-        );
-      } else if (message.type === "agent-pane-batch") {
-        // A reconnect's whole-snapshot replay: ingest each in order; the accumulator's scheduled flush
-        // publishes once, so this is O(N) work and a single reactive update, not N.
-        for (const paneMessage of message.messages) {
-          agentPaneAccumulator.ingest(message.slot, paneMessage, (messages) =>
-            setAgentPaneMessages((prev) => ({ ...prev, [message.slot]: messages })),
-          );
-        }
-      } else if (message.type === "agent-pane-reset") {
-        agentPaneAccumulator.reset(message.slot, (messages) =>
-          setAgentPaneMessages((prev) => ({ ...prev, [message.slot]: messages })),
-        );
-      } else if (message.type === "focus-pane") {
-        // The host asks us to land focus in a pane (Claude by default, so a switch drops into the agent).
-        // xterms persist across switches, so focusing the slot is valid even mid-respawn. Never steal from
-        // an overlay input the user is typing in (the omnibar/palette, a session/PR prompt, a dialog): on a
-        // slow switch this push arrives late, and yanking focus closes the palette under them mid-word. The
-        // xterm helper textarea doesn't count — switching focus away FROM a terminal is the intended path.
-        const active = document.activeElement;
-        const typingInOverlay =
-          active instanceof HTMLElement &&
-          !active.classList.contains("xterm-helper-textarea") &&
-          (active.tagName === "INPUT" || active.tagName === "TEXTAREA");
-        if (!typingInOverlay) {
-          focusPane(message.kind);
-        }
-      } else if (message.type === "turn-changes") {
-        // The review set: feed the editor's ← / → file walk + the parked navigator, which surfaces the review
-        // over the editor the moment changes land — without moving it. Stepping in is user-driven, not an
-        // auto-jump. (weavie.review.open / palette still jumps on demand.) `label` names a PR/ref review ("PR
-        // #12", "vs main") in the subtitle, or is empty for a plain post-turn review.
-        editor.setReviewFiles(message.files, message.label);
-      } else if (message.type === "lsp-config") {
-        // A session switch: re-point the language clients at the incoming session's LSP bridge (its own
-        // worktree root), tearing the previous session's clients down. The config is recorded under the
-        // backend that pushed it, so its clients' frames route home. Imported lazily — lsp-client pulls
-        // Monaco, which must stay off the first-paint chunk.
-        const config = message.config;
-        void import("./lsp/lsp-client").then(({ rebindLanguageServices }) =>
-          rebindLanguageServices(config, originBackendId),
-        );
-      } else if (message.type === "dir-listing") {
-        setDirListings((prev) => ({ ...prev, [message.path]: message.entries }));
-      } else if (message.type === "file-index") {
-        // A switch re-pushes the index rooted at the new worktree. On a root change, drop the cached listings
-        // (keyed by absolute path, so they'd otherwise linger) and let the browser re-list the new tree. A
-        // `pending` push is the walk's in-train start signal: on a root CHANGE the old session's files vanish
-        // NOW (picking one would route a wrong-worktree path) and the omnibar shows loading until the walked
-        // index arrives; a same-root pending (an omnibar-open refresh) keeps the still-valid current index.
-        if (message.pending === true && message.root === indexRoot()) {
-          return;
-        }
-        if (message.root !== indexRoot()) {
-          setDirListings({});
-        }
-        setIndexRoot(message.root);
-        setFileIndex(message.files);
-        setIndexPending(message.pending === true);
-      } else if (message.type === "focus-omnibar") {
-        // A clicked file link matched several workspace files — open Go-to-File preloaded so the user picks;
-        // the link's line rides along and applies to the pick. Absent line = a pre-line host (version skew).
-        focusOmnibarFileSearch(message.query, message.line ?? 1);
-      } else if (message.type === "prompt-source-token") {
-        // The host opened the source's token page in the browser; show the dialog to paste the token.
-        setSourceTokenPrompt({ sourceId: message.sourceId, label: message.label });
-      } else if (message.type === "source-loading") {
-        // The fetch started: open the source tab now (with a title + spinner) so the window isn't frozen while a
-        // slow Notion fetch runs; source-doc / source-error fill it in.
-        setSourceLoading(message.target, message.title, message.sourceId);
-        editor.openSourceTab(message.target);
-      } else if (message.type === "source-doc") {
-        // The fetch resolved: update the entry (status → ready) and the already-open tab's SourceView renders the
-        // markdown. source-loading already opened the tab, so don't re-activate here — that would yank focus back
-        // if the user switched tabs during the load.
-        setSourceDoc(message.target, {
-          title: message.title,
-          sourceId: message.sourceId,
-          markdown: message.markdown,
-          html: message.html,
-          editedTime: message.editedTime,
-          truncated: message.truncated ?? false,
-          unknownBlocks: message.unknownBlocks ?? 0,
-        });
-      } else if (message.type === "source-error") {
-        // The fetch failed: swap the open tab's spinner for the reason (no toast — the error lives in the tab).
-        setSourceError(message.target, message.message);
-      } else if (message.type === "source-edit-error") {
-        // A block save failed: surfaced inline at the edited block (stale ⇒ the page changed, offer a re-fetch).
-        // If the user left the edit behind (switched tabs) before the failure landed, toast it — a failed write
-        // must reach them wherever they are, never vanish with the discarded draft.
-        const shown =
-          activeSourceEditor()?.showSaveError(message.target, message.message, message.stale) ??
-          false;
-        if (!shown) {
-          addToast("error", `Notion edit failed: ${message.message}`);
-        }
-      } else if (message.type === "open-web") {
-        // The host's resolver decided this URL isn't a source — open it as a web (iframe) tab.
-        editor.openWebTab(message.url);
-      }
-      // session-status + session-list are owned by chrome/session-store (registered at module load so they
-      // survive HMR); they're intentionally not handled here.
     });
 
     // Commands: register the web-side handlers, then install the capture-phase keybinding resolver. Core
@@ -1214,20 +1176,19 @@ export default function App(): JSX.Element {
       registerCommand(CommandIds.saveFile, () => editor.save()),
       registerCommand(CommandIds.toggleEditorPreview, () => toggleActivePreview()),
       registerCommand(CommandIds.zoomEmbed, () => zoomActiveEmbed()),
-      registerCommand(CommandIds.runTestAtCursor, () => {
-        void runTestAtCursor();
-        return true;
+      registerCommand(CommandIds.runTestAtCursor, async () => {
+        await (await import("./tests/test-lens")).runTestAtCursor();
       }),
       // Open Folder (reuses the local host's native picker via the existing menu-action) + Open URL (opens a web tab).
       registerCommand(CommandIds.openFolder, () => {
-        postToLocalHost({ type: "menu-action", action: "open-folder" });
+        localHost()?.feature("window").publish("menu", { action: "open-folder" });
       }),
       // Open URL: a `url` arg (the terminal's "Open in Weavie" menu / Claude) opens it in a web tab directly;
       // no arg (the palette / $mod+O) prompts. "Open in Browser" opens the same URL in the OS browser instead.
       registerCommand(CommandIds.openUrl, (args) => {
         const url = (args as { url?: unknown } | undefined)?.url;
         if (typeof url === "string" && url.length > 0) {
-          openTarget(url);
+          openSelectedSourceTarget(url);
         } else {
           setUrlPromptOpen(true);
         }
@@ -1254,18 +1215,18 @@ export default function App(): JSX.Element {
       registerCommand(CommandIds.diffAgainst, (args) => {
         const ref = (args as { ref?: unknown } | undefined)?.ref;
         if (typeof ref === "string" && ref.trim().length > 0) {
-          postToHost({ type: "diff-against", ref: ref.trim() });
+          selectedSession()?.feature("review").publish("diffAgainst", { reference: ref.trim() });
         } else {
           setDiffAgainstOpen(true);
         }
         return true;
       }),
       registerCommand(CommandIds.diffAgainstParent, () => {
-        postToHost({ type: "diff-against", ref: "HEAD^" });
+        selectedSession()?.feature("review").publish("diffAgainst", { reference: "HEAD^" });
         return true;
       }),
       registerCommand(CommandIds.diffAgainstHead, () => {
-        postToHost({ type: "diff-against", ref: "HEAD" });
+        selectedSession()?.feature("review").publish("diffAgainst", { reference: "HEAD" });
         return true;
       }),
       // Next / Previous Session (Ctrl+Tab / Ctrl+Shift+Tab, gated !editorFocused so the editor's own Ctrl+Tab
@@ -1371,7 +1332,8 @@ export default function App(): JSX.Element {
         off();
       }
       document.removeEventListener("focusin", onFocusIn);
-      offHost();
+      offSourceErrors();
+      offViewBinding();
       editor.dispose();
     });
   });
@@ -1386,17 +1348,17 @@ export default function App(): JSX.Element {
           filesPending={indexPending()}
           root={indexRoot()}
           currentFile={currentFile()}
-          onWindowControl={(action) => postToLocalHost({ type: "window-control", action })}
+          onWindowControl={(action) =>
+            localHost()?.feature("window").publish("control", { action })
+          }
           onMenuAction={(action, path) =>
-            postToLocalHost(
-              path === undefined
-                ? { type: "menu-action", action }
-                : { type: "menu-action", action, path },
-            )
+            localHost()
+              ?.feature("window")
+              .publish("menu", path === undefined ? { action } : { action, path })
           }
           onToggleFiles={toggleBrowser}
-          onOpenFile={(path, line) => postToHost({ type: "reveal-file", path, line })}
-          onRequestIndex={() => postToHost({ type: "request-file-index" })}
+          onOpenFile={(path, line) => revealSelectedFile(path, line)}
+          onRequestIndex={refreshSelectedFileIndex}
           symbols={editor.symbols}
         />
       </Show>
@@ -1411,8 +1373,8 @@ export default function App(): JSX.Element {
           currentFile={currentFile()}
           workspaceLabel={SHELL?.workspaceLabel ?? "weavie"}
           onToggleFiles={toggleBrowser}
-          onOpenFile={(path, line) => postToHost({ type: "reveal-file", path, line })}
-          onRequestIndex={() => postToHost({ type: "request-file-index" })}
+          onOpenFile={(path, line) => revealSelectedFile(path, line)}
+          onRequestIndex={refreshSelectedFileIndex}
           symbols={editor.symbols}
         />
       </Show>
@@ -1464,31 +1426,24 @@ export default function App(): JSX.Element {
             setDefaultAgentProvider(agentProviderId);
             // A remote session lands nested under its agent; promote it onto the rail like a local one.
             promoteNextSessionOn(location);
-            // Bind the page to the chosen backend first, so the worktree-creation reply (term-reset →
-            // term-ready) wires the panes to it; then create the session there.
-            bindBackend(location, () =>
-              postToBackend(location, {
-                type: "new-session",
-                branch,
-                base,
-                agentProviderId,
-              }),
-            );
+            createSessionAt(location, {
+              branch,
+              base: base === "head" ? "source" : base,
+              existing: false,
+              agentProviderId,
+            });
           }}
           onCheckout={(branch, location, agentProviderId) => {
             setNewSessionOpen(false);
             setLastLocation(location);
             setDefaultAgentProvider(agentProviderId);
             promoteNextSessionOn(location);
-            // Same backend-binding order as onCreate; `existing` checks out the branch instead of creating one.
-            bindBackend(location, () =>
-              postToBackend(location, {
-                type: "new-session",
-                branch,
-                existing: true,
-                agentProviderId,
-              }),
-            );
+            createSessionAt(location, {
+              branch,
+              base: "source",
+              existing: true,
+              agentProviderId,
+            });
           }}
           onCancel={() => setNewSessionOpen(false)}
           onAddRemote={() => {
@@ -1509,20 +1464,13 @@ export default function App(): JSX.Element {
           onOpen={(target, location) => {
             setOpenPrOpen(false);
             setLastLocation(location);
-            // The host's fetch→checkout→seed chain renders nothing for seconds; show a spinner toast now (keyed by
-            // PR). The host clears it (notify-clear) when the diff lands, or replaces it with a keyed warn on failure.
+            // The fetch→checkout→seed request renders nothing for seconds; its correlated result clears this
+            // spinner after selecting the exact new session, or replaces it with a keyed warning on failure.
             addToast("busy", `Opening PR #${target.number}…`, `open-pr:${target.number}`);
             // Promote + bind the backend before opening, same order as New Session, so the worktree-checkout
             // reply wires the panes to it; the host resolves the PR's branch refs by number, then checks it out.
             promoteNextSessionOn(location);
-            bindBackend(location, () =>
-              postToBackend(location, {
-                type: "open-pr",
-                number: target.number,
-                owner: target.owner,
-                repo: target.repo,
-              }),
-            );
+            openPullRequestAt(location, target);
           }}
           onCancel={() => setOpenPrOpen(false)}
         />
@@ -1531,7 +1479,7 @@ export default function App(): JSX.Element {
         <DiffAgainstPrompt
           onPick={(ref) => {
             setDiffAgainstOpen(false);
-            postToHost({ type: "diff-against", ref });
+            selectedSession()?.feature("review").publish("diffAgainst", { reference: ref });
           }}
           onCancel={() => setDiffAgainstOpen(false)}
         />
@@ -1539,9 +1487,10 @@ export default function App(): JSX.Element {
       <Show when={sourceTokenPrompt()}>
         {(prompt) => (
           <SourceTokenPrompt
+            session={prompt().session}
             sourceId={prompt().sourceId}
             label={prompt().label}
-            onClose={() => setSourceTokenPrompt(null)}
+            onClose={() => dismissSourceTokenPrompt(prompt().session)}
           />
         )}
       </Show>
@@ -1588,8 +1537,8 @@ export default function App(): JSX.Element {
             root={indexRoot()!}
             listings={dirListings()}
             currentFile={currentFile()}
-            onExpand={(path) => postToHost({ type: "list-dir", path })}
-            onOpen={(path) => postToHost({ type: "reveal-file", path, line: 1 })}
+            onExpand={listSelectedDirectory}
+            onOpen={(path) => revealSelectedFile(path, 1)}
             onClose={() => setBrowserOpen(false)}
           />
         </Suspense>
@@ -1613,7 +1562,11 @@ export default function App(): JSX.Element {
       />
       <Suggestions
         items={suggestions()}
-        onDismiss={(id, forever) => postToHost({ type: "dismiss-suggestion", id, forever })}
+        onDismiss={(id, forever) =>
+          selectedSession()
+            ?.connection.host.feature("suggestions")
+            .publish("dismiss", { id, forever })
+        }
       />
       <Show when={updateRestarting()}>
         <UpdateOverlay />
@@ -1638,7 +1591,7 @@ export default function App(): JSX.Element {
           onSubmit={(url) => {
             setUrlPromptOpen(false);
             // The host resolves it: a source (Notion) renders natively; anything else comes back as a web tab.
-            openTarget(url);
+            openSelectedSourceTarget(url);
           }}
           onCancel={() => setUrlPromptOpen(false)}
         />

@@ -1,5 +1,6 @@
 using System.Text;
 using Weavie.Core.Lsp;
+using Weavie.Hosting.Messaging;
 using Xunit;
 
 namespace Weavie.Hosting.Tests;
@@ -21,23 +22,36 @@ public sealed class LspControllerTests {
 
 	private static LanguageServerDescriptor? Resolve(string selector) => selector == "fake" ? FakeRecipe : null;
 
-	private static LspController NewController(FakeHostBridge bridge, ILspServerLauncher launcher) =>
-		new(bridge, Path.GetTempPath(), launcher, Resolve, _ => { });
+	private static SessionMessageBus NewBus(FakeHostBridge bridge) =>
+		new(
+			new SessionAddress("lsp-test", Guid.NewGuid().ToString("n")),
+			bridge.Broadcast,
+			bridge.Send,
+			_ => { });
+
+	private static LspController NewController(
+		FakeHostBridge bridge,
+		ILspServerLauncher launcher,
+		out MessagePeer peer) {
+		var bus = NewBus(bridge);
+		peer = bus.Peer(WebPeer.Native);
+		return new LspController(Path.GetTempPath(), launcher, Resolve, _ => { });
+	}
 
 	[Fact]
 	public void Start_then_data_round_trips_through_the_server() {
 		var bridge = new FakeHostBridge();
 		var launcher = new FakeLauncher();
-		var controller = NewController(bridge, launcher);
+		var controller = NewController(bridge, launcher, out var peer);
 
-		controller.Start("s1", "fake", "ch1");
+		Assert.True(controller.Start(peer, "fake", "ch1", out _));
 		Assert.Single(launcher.Servers);
 
-		controller.Data("ch1", Encoding.UTF8.GetBytes("""{"jsonrpc":"2.0","id":1,"method":"x"}"""));
+		controller.Data(peer, "ch1", Encoding.UTF8.GetBytes("""{"jsonrpc":"2.0","id":1,"method":"x"}"""));
 		Assert.Equal("""{"jsonrpc":"2.0","id":1,"method":"x"}""", launcher.Servers[0].LastWrittenText());
 
 		launcher.Servers[0].RaiseFrame(Encoding.UTF8.GetBytes("""{"jsonrpc":"2.0","id":1,"result":42}"""));
-		var data = bridge.LastOfType("lsp-data");
+		var data = bridge.LastEvent("lsp", "data");
 		Assert.True(data.HasValue);
 		Assert.Equal("ch1", data!.Value.GetProperty("channel").GetString());
 		Assert.Equal(42, data.Value.GetProperty("payload").GetProperty("result").GetInt32());
@@ -47,12 +61,12 @@ public sealed class LspControllerTests {
 	public void Server_exit_posts_lsp_exit_and_reaps() {
 		var bridge = new FakeHostBridge();
 		var launcher = new FakeLauncher();
-		var controller = NewController(bridge, launcher);
-		controller.Start("s1", "fake", "ch1");
+		var controller = NewController(bridge, launcher, out var peer);
+		Assert.True(controller.Start(peer, "fake", "ch1", out _));
 
 		launcher.Servers[0].RaiseExited(3);
 
-		var exit = bridge.LastOfType("lsp-exit");
+		var exit = bridge.LastEvent("lsp", "exit");
 		Assert.True(exit.HasValue);
 		Assert.Equal("ch1", exit!.Value.GetProperty("channel").GetString());
 		Assert.Equal(3, exit.Value.GetProperty("code").GetInt32());
@@ -63,40 +77,34 @@ public sealed class LspControllerTests {
 	public void Duplicate_channel_posts_lsp_exit_and_leaves_the_live_server_alone() {
 		var bridge = new FakeHostBridge();
 		var launcher = new FakeLauncher();
-		var controller = NewController(bridge, launcher);
-		controller.Start("s1", "fake", "ch1");
+		var controller = NewController(bridge, launcher, out var peer);
+		Assert.True(controller.Start(peer, "fake", "ch1", out _));
 
-		controller.Start("s1", "fake", "ch1");
+		Assert.False(controller.Start(peer, "fake", "ch1", out string? error));
 
 		Assert.Single(launcher.Servers);
 		Assert.False(launcher.Servers[0].Disposed);
-		var exit = bridge.LastOfType("lsp-exit");
-		Assert.True(exit.HasValue);
-		Assert.Contains("already bound", exit!.Value.GetProperty("reason").GetString());
+		Assert.Contains("already bound", error);
 	}
 
 	[Fact]
 	public async Task DropOtherEpochs_reaps_only_channels_from_other_page_instances() {
 		var bridge = new FakeHostBridge();
 		var launcher = new FakeLauncher();
-		var controller = NewController(bridge, launcher);
-		controller.Start("s1", "fake", "lsp1-oldpage");
-		controller.Start("s1", "fake", "lsp2-newpage");
+		var controller = NewController(bridge, launcher, out var peer);
+		Assert.True(controller.Start(peer, "fake", "lsp1-oldpage", out _));
+		Assert.True(controller.Start(peer, "fake", "lsp2-newpage", out _));
 
-		controller.DropOtherEpochs("newpage");
+		await controller.DropOtherEpochsAsync(peer, "newpage");
 
 		// The reaped channel routes nothing; the current page's channel still round-trips.
-		controller.Data("lsp1-oldpage", Encoding.UTF8.GetBytes("""{"jsonrpc":"2.0","id":9,"method":"x"}"""));
-		controller.Data("lsp2-newpage", Encoding.UTF8.GetBytes("""{"jsonrpc":"2.0","id":9,"method":"x"}"""));
+		controller.Data(peer, "lsp1-oldpage", Encoding.UTF8.GetBytes("""{"jsonrpc":"2.0","id":9,"method":"x"}"""));
+		controller.Data(peer, "lsp2-newpage", Encoding.UTF8.GetBytes("""{"jsonrpc":"2.0","id":9,"method":"x"}"""));
 		Assert.Empty(launcher.Servers[0].WrittenTexts());
 		Assert.Equal("""{"jsonrpc":"2.0","id":9,"method":"x"}""", launcher.Servers[1].LastWrittenText());
 
-		// The reap posts lsp-exit (after disposing) so a still-live sibling page's client learns and reconnects.
-		for (int i = 0; i < 200 && !bridge.LastOfType("lsp-exit").HasValue; i++) {
-			await Task.Delay(10);
-		}
-
-		var exit = bridge.LastOfType("lsp-exit");
+		// The reap posts lsp.exit after disposing so a still-live sibling page's client learns and reconnects.
+		var exit = bridge.LastEvent("lsp", "exit");
 		Assert.True(exit.HasValue);
 		Assert.Equal("lsp1-oldpage", exit!.Value.GetProperty("channel").GetString());
 		Assert.True(launcher.Servers[0].Disposed);
@@ -104,25 +112,84 @@ public sealed class LspControllerTests {
 	}
 
 	[Fact]
-	public void Unknown_recipe_posts_lsp_exit_without_spawning() {
+	public void EqualChannelIdsFromDifferentPeersOwnIndependentServersAndReplies() {
 		var bridge = new FakeHostBridge();
 		var launcher = new FakeLauncher();
-		var controller = NewController(bridge, launcher);
+		var bus = NewBus(bridge);
+		var first = bus.Peer(new WebPeer("page-a"));
+		var second = bus.Peer(new WebPeer("page-b"));
+		var controller = new LspController(Path.GetTempPath(), launcher, Resolve, _ => { });
+		Assert.True(controller.Start(first, "fake", "same", out _));
+		Assert.True(controller.Start(second, "fake", "same", out _));
+		bridge.Clear();
 
-		controller.Start("s1", "nope", "ch1");
+		launcher.Servers[0].RaiseFrame(Encoding.UTF8.GetBytes("""{"jsonrpc":"2.0","id":1,"result":"a"}"""));
+		launcher.Servers[1].RaiseFrame(Encoding.UTF8.GetBytes("""{"jsonrpc":"2.0","id":1,"result":"b"}"""));
 
-		Assert.Empty(launcher.Servers);
-		var exit = bridge.LastOfType("lsp-exit");
-		Assert.True(exit.HasValue);
-		Assert.Contains("recipe", exit!.Value.GetProperty("reason").GetString());
+		Assert.Equal([new WebPeer("page-a"), new WebPeer("page-b")], bridge.Sent.Select(message => message.Peer));
 	}
 
 	[Fact]
-	public void Server_not_on_path_posts_lsp_exit_without_spawning() {
+	public async Task DisconnectReapsOnlyTheDisconnectedPeersChannels() {
+		var bridge = new FakeHostBridge();
+		var launcher = new FakeLauncher();
+		var bus = NewBus(bridge);
+		var first = bus.Peer(new WebPeer("page-a"));
+		var second = bus.Peer(new WebPeer("page-b"));
+		var controller = new LspController(Path.GetTempPath(), launcher, Resolve, _ => { });
+		Assert.True(controller.Start(first, "fake", "a", out _));
+		Assert.True(controller.Start(second, "fake", "b", out _));
+
+		await controller.DisconnectAsync(first);
+		controller.Data(second, "b", Encoding.UTF8.GetBytes("""{"jsonrpc":"2.0","method":"still-live"}"""));
+
+		Assert.True(launcher.Servers[0].Disposed);
+		Assert.False(launcher.Servers[1].Disposed);
+		Assert.Contains("still-live", launcher.Servers[1].LastWrittenText());
+	}
+
+	[Fact]
+	public async Task EpochCleanupCannotReapAnotherPeersSiblingChannel() {
+		var bridge = new FakeHostBridge();
+		var launcher = new FakeLauncher();
+		var bus = NewBus(bridge);
+		var first = bus.Peer(new WebPeer("page-a"));
+		var second = bus.Peer(new WebPeer("page-b"));
+		var controller = new LspController(Path.GetTempPath(), launcher, Resolve, _ => { });
+		Assert.True(controller.Start(first, "fake", "a-old", out _));
+		Assert.True(controller.Start(first, "fake", "a-new", out _));
+		Assert.True(controller.Start(second, "fake", "b-old", out _));
+		bridge.Clear();
+
+		await controller.DropOtherEpochsAsync(first, "new");
+
+		Assert.True(launcher.Servers[0].Disposed);
+		Assert.False(launcher.Servers[1].Disposed);
+		Assert.False(launcher.Servers[2].Disposed);
+		var (exitPeer, exitJson) = Assert.Single(bridge.Sent);
+		Assert.Equal(new WebPeer("page-a"), exitPeer);
+		Assert.True(MessageEnvelope.TryParse(exitJson, out var envelope));
+		Assert.Equal("a-old", envelope!.Payload.GetProperty("channel").GetString());
+	}
+
+	[Fact]
+	public void Unknown_recipe_fails_start_without_spawning() {
+		var bridge = new FakeHostBridge();
+		var launcher = new FakeLauncher();
+		var controller = NewController(bridge, launcher, out var peer);
+
+		Assert.False(controller.Start(peer, "nope", "ch1", out string? error));
+
+		Assert.Empty(launcher.Servers);
+		Assert.Contains("recipe", error);
+	}
+
+	[Fact]
+	public void Server_not_on_path_fails_start_without_spawning() {
 		var bridge = new FakeHostBridge();
 		var launcher = new FakeLauncher();
 		var controller = new LspController(
-			bridge, Path.GetTempPath(), launcher,
+			Path.GetTempPath(), launcher,
 			_ => new LanguageServerDescriptor {
 				Id = "ghost",
 				DisplayName = "Ghost",
@@ -131,21 +198,25 @@ public sealed class LspControllerTests {
 				Candidates = [new("weavie-no-such-language-server-xyz", [])],
 			},
 			_ => { });
+		var bus = new SessionMessageBus(
+			new SessionAddress("lsp-test", Guid.NewGuid().ToString("n")),
+			bridge.Broadcast,
+			bridge.Send,
+			_ => { });
+		var peer = bus.Peer(WebPeer.Native);
 
-		controller.Start("s1", "ghost", "ch1");
+		Assert.False(controller.Start(peer, "ghost", "ch1", out string? error));
 
 		Assert.Empty(launcher.Servers);
-		var exit = bridge.LastOfType("lsp-exit");
-		Assert.True(exit.HasValue);
-		Assert.Contains("PATH", exit!.Value.GetProperty("reason").GetString());
+		Assert.Contains("PATH", error);
 	}
 
 	[Fact]
 	public void NotifyWatchedFileChanges_fans_a_didChange_to_every_server() {
 		var bridge = new FakeHostBridge();
 		var launcher = new FakeLauncher();
-		var controller = NewController(bridge, launcher);
-		controller.Start("s1", "fake", "ch1");
+		var controller = NewController(bridge, launcher, out var peer);
+		Assert.True(controller.Start(peer, "fake", "ch1", out _));
 
 		controller.NotifyWatchedFileChanges([new WatchedFileChange("file:///x.fake", FileChangeKind.Changed)]);
 
@@ -156,9 +227,9 @@ public sealed class LspControllerTests {
 	public async Task DisposeAsync_reaps_every_channel() {
 		var bridge = new FakeHostBridge();
 		var launcher = new FakeLauncher();
-		var controller = NewController(bridge, launcher);
-		controller.Start("s1", "fake", "ch1");
-		controller.Start("s1", "fake", "ch2");
+		var controller = NewController(bridge, launcher, out var peer);
+		Assert.True(controller.Start(peer, "fake", "ch1", out _));
+		Assert.True(controller.Start(peer, "fake", "ch2", out _));
 
 		await controller.DisposeAsync();
 

@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Weavie.Core.Lsp;
 using Weavie.Hosting;
+using Weavie.Hosting.Messaging;
 using Weavie.LspHarness;
 
 // Dev harness (not shipped): proves the LSP bridge end-to-end against a real language server. It drives a real
@@ -62,21 +63,33 @@ var defaultSettings = string.IsNullOrEmpty(descriptor.DefaultSettingsJson) ? nul
 
 // Drive the production LspController over a fake bridge: lsp-data frames it posts are fed straight into the
 // in-process client; an lsp-exit means the server died or failed to start.
-const string slot = "harness";
 const string channel = "harness-1";
 LspTestClient? client = null;
 var bridge = new HarnessBridge(json => {
-	using var doc = JsonDocument.Parse(json);
-	var root = doc.RootElement;
-	string type = root.TryGetProperty("type", out var t) ? t.GetString() ?? string.Empty : string.Empty;
-	if (type == "lsp-data" && root.TryGetProperty("payload", out var payload)) {
+	if (!MessageEnvelope.TryParse(json, out var envelope)
+		|| envelope is not { Feature: "lsp", Kind: MessageKind.Event }) {
+		return;
+	}
+
+	if (envelope.Name == "data"
+		&& envelope.Payload.TryGetProperty("payload", out var payload)) {
 		client?.Deliver(System.Text.Encoding.UTF8.GetBytes(payload.GetRawText()));
-	} else if (type == "lsp-exit") {
-		Console.WriteLine($"[bridge] lsp-exit: {(root.TryGetProperty("reason", out var r) ? r.GetString() : null)} (code {(root.TryGetProperty("code", out var c) ? c.GetInt32() : 0)})");
+	} else if (envelope.Name == "exit") {
+		var message = envelope.Payload;
+		Console.WriteLine($"[bridge] lsp-exit: {(message.TryGetProperty("reason", out var r) ? r.GetString() : null)} (code {(message.TryGetProperty("code", out var c) ? c.GetInt32() : 0)})");
 	}
 });
+await using var bus = new SessionMessageBus(
+	new SessionAddress("harness", "harness"),
+	bridge.Broadcast,
+	bridge.Send,
+	line => Console.WriteLine($"[bridge] {line}"));
 await using var controller = new LspController(
-	bridge, workspace!, new LspServerLauncher(), LanguageServerCatalog.Resolve, line => Console.WriteLine($"[lsp] {line}"));
+	workspace!,
+	new LspServerLauncher(),
+	LanguageServerCatalog.Resolve,
+	line => Console.WriteLine($"[lsp] {line}"));
+var peer = bus.Peer(WebPeer.Native);
 
 // The workspace watcher lives on the host session in production; stand up an equivalent so the file-watch →
 // didChangeWatchedFiles path (§9) is exercised the same way.
@@ -91,9 +104,12 @@ watcher.Start();
 
 await using var clientHandle = client = new LspTestClient(
 	[workspace!], line => Console.WriteLine($"[client] {line}"), debug, defaultSettings?.DeepClone(),
-	frame => controller.Data(channel, frame));
+	frame => controller.Data(peer, channel, frame));
 client.Start();
-controller.Start(slot, descriptor.Id, channel);
+if (!controller.Start(peer, descriptor.Id, channel, out string? startError)) {
+	Console.Error.WriteLine($"[lsp-harness] failed to start {descriptor.Id}: {startError}");
+	return 1;
+}
 Console.WriteLine($"[lsp-harness] started {descriptor.Id} over the in-process bridge (channel {channel})");
 
 // 1. initialize → inspect server capabilities.
@@ -285,12 +301,15 @@ internal partial class Program {
 	];
 }
 
-// A do-nothing IHostBridge that hands every host→web message to a callback — lets the harness watch the
+// A do-nothing transport that hands every host→web message to a callback — lets the harness watch the
 // controller's lsp-data/lsp-exit without a WebView. Inbound (web→host) is driven directly via the controller.
-internal sealed class HarnessBridge(Action<string> onPost) : IHostBridge {
-	public event Action<string>? MessageReceived { add { } remove { } }
+internal sealed class HarnessBridge(Action<string> onPost) : IWebTransportHub {
+	public event Action<WebPeer, string>? MessageReceived { add { } remove { } }
+	public event Action<WebPeer>? PeerDisconnected { add { } remove { } }
 
-	public void PostToWeb(string json) => onPost(json);
+	public void Broadcast(string json) => onPost(json);
+
+	public void Send(WebPeer peer, string json) => onPost(json);
 }
 
 internal sealed class Results {

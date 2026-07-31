@@ -5,8 +5,8 @@ namespace Weavie.Core.Editor;
 
 /// <summary>
 /// Loads, persists, and serves the per-workspace editor session at
-/// <c>~/.weavie/workspaces/&lt;id&gt;/editor-session.json</c>. The web is the only writer (via <see cref="Update"/>);
-/// on launch the host pushes <see cref="BuildRestoreJson()"/>. Writes are atomic; a malformed file is backed up to
+/// <c>~/.weavie/workspaces/&lt;id&gt;/editor-session.json</c>. The primary host session mirrors its authoritative
+/// in-memory state through <see cref="Update"/>. Writes are atomic; a malformed file is backed up to
 /// <c>editor-session.json.bad</c> and reset. See <c>docs/specs/editor-session.md</c>.
 /// </summary>
 public sealed class EditorSessionStore {
@@ -26,8 +26,7 @@ public sealed class EditorSessionStore {
 	}
 
 	/// <summary>
-	/// Raised (off the UI thread) when the session changes via <see cref="Update"/>. Hosts don't re-push on this
-	/// (the web is the sole writer, so it would echo); it exists for a future host-side MCP "open file" capability.
+	/// Raised (off the UI thread) when the persisted session changes via <see cref="Update"/>.
 	/// </summary>
 	public event Action<EditorSession>? Changed;
 
@@ -42,7 +41,7 @@ public sealed class EditorSessionStore {
 		get { lock (_gate) { return _current; } }
 	}
 
-	/// <summary>Replaces the session (from a web <c>editor-session-changed</c>) and persists it atomically.</summary>
+	/// <summary>Replaces the session (from <c>editor.sessionChanged</c>) and persists it atomically.</summary>
 	public void Update(EditorSession session) {
 		ArgumentNullException.ThrowIfNull(session);
 		lock (_gate) {
@@ -54,7 +53,7 @@ public sealed class EditorSessionStore {
 	}
 
 	/// <summary>
-	/// Builds the host→web <c>set-editor-session</c> message for the current session. Missing files are skipped
+	/// Builds the <c>editor.restore</c> payload for the current session. Missing files are skipped
 	/// and logged; if the active file was skipped, <c>active</c> is nulled.
 	/// </summary>
 	public string BuildRestoreJson() {
@@ -63,49 +62,22 @@ public sealed class EditorSessionStore {
 			session = _current;
 		}
 
-		return BuildRestoreJson(session, _fileSystem, workspaceRoot: null, sessionId: null, line => Log?.Invoke(line));
+		return BuildRestoreJson(session, _fileSystem, workspaceRoot: null, line => Log?.Invoke(line));
 	}
 
 	/// <summary>
-	/// Builds the host→web <c>set-editor-session</c> message for an arbitrary <paramref name="session"/>. Missing
+	/// Builds the <c>editor.restore</c> payload for an arbitrary <paramref name="session"/>. Missing
 	/// files are skipped and logged via <paramref name="log"/>; if the active file was skipped, <c>active</c> is nulled.
 	/// <para>
 	/// <paramref name="workspaceRoot"/> (when non-null) scopes the restore to this session's tree: a non-scratch
 	/// entry outside the root is dropped (it belongs to a foreign worktree and would fail as out-of-root), which
 	/// also self-heals a polluted <c>editor-session.json</c>.
 	/// </para>
-	/// <para>
-	/// <paramref name="sessionId"/> stamps the owning session so the page can echo it on the next
-	/// <c>editor-session-changed</c> and the host can reject a stale cross-session write (see <c>HandleEditorSessionChanged</c>).
-	/// </para>
-	/// </summary>
-	public static string BuildRestoreJson(EditorSession session, IFileSystem fileSystem, string? workspaceRoot, string? sessionId, Action<string>? log) {
-		return BuildRestoreJson(
-			session,
-			fileSystem,
-			workspaceRoot,
-			sessionId,
-			railSessionId: null,
-			projectionEpoch: null,
-			projectionRevision: null,
-			projectionPageId: null,
-			log);
-	}
-
-	/// <summary>
-	/// Builds a restore message stamped with the immutable host projection that owns it. The editor
-	/// <paramref name="sessionId"/> and rail <paramref name="railSessionId"/> are distinct identities: the former
-	/// routes editor/media work to a live backend, while the latter selects the session chip and terminal slot.
 	/// </summary>
 	public static string BuildRestoreJson(
 		EditorSession session,
 		IFileSystem fileSystem,
 		string? workspaceRoot,
-		string? sessionId,
-		string? railSessionId,
-		string? projectionEpoch,
-		long? projectionRevision,
-		string? projectionPageId,
 		Action<string>? log) {
 		ArgumentNullException.ThrowIfNull(session);
 		ArgumentNullException.ThrowIfNull(fileSystem);
@@ -113,14 +85,18 @@ public sealed class EditorSessionStore {
 		var open = new List<object>();
 		var surviving = new HashSet<string>(StringComparer.Ordinal);
 		foreach (var entry in session.Open) {
-			if (!fileSystem.FileExists(entry.Path)) {
+			bool file = string.IsNullOrEmpty(entry.Kind) || entry.Kind == "file";
+			if (file && !fileSystem.FileExists(entry.Path)) {
 				log?.Invoke($"[editor-session] open file no longer exists; skipping {entry.Path}");
 				continue;
 			}
 
 			// Non-scratch tabs must be inside the root; one outside belongs to another session's worktree and
 			// would be refused as out-of-root.
-			if (workspaceRoot is not null && !entry.Scratch && !BufferStore.IsWithinWorkspace(workspaceRoot, entry.Path)) {
+			if (file
+				&& workspaceRoot is not null
+				&& !entry.Scratch
+				&& !BufferStore.IsWithinWorkspace(workspaceRoot, entry.Path)) {
 				log?.Invoke($"[editor-session] open file is outside this session's workspace; skipping {entry.Path}");
 				continue;
 			}
@@ -128,6 +104,7 @@ public sealed class EditorSessionStore {
 			surviving.Add(entry.Path);
 			open.Add(new {
 				path = entry.Path,
+				kind = entry.Kind,
 				viewState = entry.ViewState,
 				preview = entry.Preview,
 				pinned = entry.Pinned,
@@ -136,15 +113,7 @@ public sealed class EditorSessionStore {
 		}
 
 		string? active = session.Active is { } a && surviving.Contains(a) ? a : null;
-		var message = new {
-			type = "set-editor-session",
-			sessionId,
-			railSessionId,
-			projectionEpoch,
-			projectionRevision,
-			projectionPageId,
-			session = new { active, open },
-		};
+		var message = new { session = new { active, open } };
 		return JsonSerializer.Serialize(message, EditorSessionSerialization.MessageOptions);
 	}
 

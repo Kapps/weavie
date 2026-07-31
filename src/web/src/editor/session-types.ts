@@ -1,5 +1,5 @@
 // Editor-session shape mirrored from Weavie.Core.Editor across the bridge (camelCase JSON). Carries no file
-// contents — disk is the source of truth; on restore each file is reopened as a working copy from disk.
+// file contents — disk is the source of truth; source/plan content is restored by its owning session feature.
 
 // Opaque Monaco view state (scroll + cursor + folding) from editor.saveViewState(); stored and restored
 // verbatim, never interpreted here.
@@ -8,7 +8,7 @@ export type EditorViewState = unknown;
 export interface EditorSessionEntry {
   path: string;
   // Tab kind: a file, iframe web tab, fetched source document, or read-only transient plan.
-  // Overlay kinds are web-only and absent from persisted editor sessions. Absent ⇒ "file".
+  // Overlay kinds are session-owned and round-trip with the tab set. Absent ⇒ "file".
   kind?: "file" | "web" | "source" | "plan";
   viewState: EditorViewState | null;
   // Preview tab: reused by the next preview open (single-click / go-to-def), shown italic; promoted to a

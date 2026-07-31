@@ -1,47 +1,22 @@
-using System.Text.Json;
 using Weavie.Core.Agents;
 
 namespace Weavie.Hosting.Agents;
 
-/// <summary>Serializes provider-neutral native agent pane messages for the web bridge.</summary>
+/// <summary>Builds provider-neutral native agent pane payloads.</summary>
 internal static class AgentPaneProtocol {
-	public static string Reset(string slot, string workspace) {
-		ArgumentNullException.ThrowIfNull(slot);
-		ArgumentException.ThrowIfNullOrEmpty(workspace);
-		return JsonSerializer.Serialize(new {
-			type = "agent-pane-reset",
-			slot,
-			workspace,
-		});
-	}
-
-	public static string Message(string slot, string workspace, AgentPaneMessage message) {
-		ArgumentNullException.ThrowIfNull(slot);
-		ArgumentException.ThrowIfNullOrEmpty(workspace);
+	public static object Message(AgentPaneMessage message) {
 		ArgumentNullException.ThrowIfNull(message);
-		return JsonSerializer.Serialize(new {
-			type = "agent-pane",
-			slot,
-			workspace,
-			message = Body(message),
-		});
+		return Body(message);
 	}
 
 	/// <summary>
-	/// One frame carrying an entire pane snapshot, so a reconnect's replay is a single bridge message instead of
+	/// One payload carrying an entire pane snapshot, so a reconnect's replay is a single message instead of
 	/// one per transcript entry — a long transcript would otherwise burst past the bridge's bounded outbox and get
 	/// the (healthy, network-slow) page dropped. The web applies each message in order, same as a live stream.
 	/// </summary>
-	public static string Batch(string slot, string workspace, IReadOnlyList<AgentPaneMessage> messages) {
-		ArgumentNullException.ThrowIfNull(slot);
-		ArgumentException.ThrowIfNullOrEmpty(workspace);
+	public static object Batch(IReadOnlyList<AgentPaneMessage> messages) {
 		ArgumentNullException.ThrowIfNull(messages);
-		return JsonSerializer.Serialize(new {
-			type = "agent-pane-batch",
-			slot,
-			workspace,
-			messages = messages.Select(Body),
-		});
+		return new { messages = messages.Select(Body) };
 	}
 
 	private static object Body(AgentPaneMessage message) => new {
@@ -66,9 +41,8 @@ internal static class AgentPaneProtocol {
 				description = option.Description,
 			}),
 		}),
-		payload = ParsePayload(message.PayloadJson),
+		payload = string.IsNullOrWhiteSpace(message.PayloadJson)
+			? (System.Text.Json.JsonElement?)null
+			: System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(message.PayloadJson),
 	};
-
-	private static JsonElement? ParsePayload(string? json) =>
-		string.IsNullOrWhiteSpace(json) ? null : JsonSerializer.Deserialize<JsonElement>(json);
 }

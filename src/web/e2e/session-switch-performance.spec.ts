@@ -4,72 +4,60 @@ import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
 import { PIXEL_RED } from "./harness/git-workspace";
 import { measureSessionSwitch, type SessionSwitchExpectation } from "./harness/session-switch";
-import { MockHost, mockSessionChip } from "./mock-host";
+import { MockHost, type MockSession, mockSession } from "./mock-host";
 
 const distDir = join(dirname(fileURLToPath(import.meta.url)), "..", "dist");
 const SWITCH_BUDGET_MS = 1_000;
-const CLAUDE_ID = "claude-tabs";
-const CODEX_ID = "codex-image";
 const CLAUDE_ACTIVE = "/workspace/claude/active.ts";
+const CLAUDE_LATE = "/workspace/claude/background.ts";
 const CLAUDE_OTHER = "/workspace/claude/other.ts";
 const CODEX_OTHER = "/workspace/codex/notes.ts";
 const CODEX_IMAGE = "/workspace/codex/pixel.png";
 
-interface Projection {
-  id: string;
-  label: string;
-  provider: "claude" | "codex";
+interface SessionFixture {
+  catalog: MockSession;
   tabs: string[];
   active: string;
   marker: string | null;
 }
 
-const claude: Projection = {
-  id: CLAUDE_ID,
-  label: "claude-tabs",
-  provider: "claude",
+const claude: SessionFixture = {
+  catalog: mockSession("claude-tabs", "claude-tabs", "claude", true),
   tabs: [CLAUDE_ACTIVE, CLAUDE_OTHER],
   active: CLAUDE_ACTIVE,
   marker: "CLAUDE_ACTIVE_MARKER",
 };
-const codex: Projection = {
-  id: CODEX_ID,
-  label: "codex-image",
-  provider: "codex",
+const codex: SessionFixture = {
+  catalog: mockSession("codex-image", "codex-image", "codex", false),
   tabs: [CODEX_OTHER, CODEX_IMAGE],
   active: CODEX_IMAGE,
   marker: null,
 };
 
-function sessions(active: string) {
-  return [
-    mockSessionChip(CLAUDE_ID, claude.label, "claude", active === CLAUDE_ID, true),
-    mockSessionChip(CODEX_ID, codex.label, "codex", active === CODEX_ID, false),
-  ];
-}
-
-function editorSession(projection: Projection) {
-  return {
-    type: "set-editor-session",
-    sessionId: projection.id,
+function restore(host: MockHost, fixture: SessionFixture): void {
+  host.publishSession(fixture.catalog.address, "editor", "restore", {
     session: {
-      active: projection.active,
-      open: projection.tabs.map((path) => ({ path, viewState: null })),
+      active: fixture.active,
+      open: fixture.tabs.map((path) => ({ path, viewState: null })),
     },
-  };
+  });
 }
 
-function expectation(projection: Projection): SessionSwitchExpectation {
-  const activeTab = projection.active.split("/").at(-1) as string;
+function expectation(fixture: SessionFixture): SessionSwitchExpectation {
+  const activeTab = fixture.active.split("/").at(-1) as string;
   return {
-    label: projection.label,
-    provider: projection.provider,
-    tabs: projection.tabs.map((path) => path.split("/").at(-1) as string),
+    label: fixture.catalog.label,
+    provider: fixture.catalog.providerId,
+    tabs: fixture.tabs.map((path) => path.split("/").at(-1) as string),
     activeTab,
     content:
-      projection.marker === null
-        ? { kind: "image", pathSuffix: `/${activeTab}`, sessionId: projection.id }
-        : { kind: "text", pathSuffix: projection.active, marker: projection.marker },
+      fixture.marker === null
+        ? {
+            kind: "image",
+            pathSuffix: `/${activeTab}`,
+            sessionId: fixture.catalog.address.incarnation,
+          }
+        : { kind: "text", pathSuffix: fixture.active, marker: fixture.marker },
   };
 }
 
@@ -81,42 +69,26 @@ test.beforeAll(() => {
   }
 });
 
-test("warm Claude/Codex session switches fully paint within one second", async ({ page }) => {
+test("warm session-owned editor state switches fully paint within one second", async ({ page }) => {
   const host = await MockHost.start({
     distDir,
+    sessions: [claude.catalog, codex.catalog],
     files: {
       [CLAUDE_ACTIVE]: "export const value = 'CLAUDE_ACTIVE_MARKER';\n",
       [CLAUDE_OTHER]: "export const other = true;\n",
       [CODEX_OTHER]: "export const note = true;\n",
     },
   });
-  host.setMedia(CODEX_ID, CODEX_IMAGE, PIXEL_RED);
-  const projections = new Map([
-    [CLAUDE_ID, claude],
-    [CODEX_ID, codex],
-  ]);
-  const unsubscribe = host.onReceived("switch-session", (message) => {
-    const projection = projections.get(String(message.id));
-    if (projection === undefined) {
-      throw new Error(`unexpected switch target ${String(message.id)}`);
-    }
-    // HostCore.SwitchToSlot publishes the editor owner/tabs before flipping the active session rail row.
-    host.pushToWeb(editorSession(projection));
-    host.pushToWeb({ type: "session-list", sessions: sessions(projection.id) });
-  });
+  host.setMedia(codex.catalog.address.incarnation, CODEX_IMAGE, PIXEL_RED);
 
   try {
     await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
-    await host.waitForMessage("ready");
-    host.pushToWeb(editorSession(claude));
-    host.pushToWeb({ type: "session-list", sessions: sessions(CLAUDE_ID) });
+    await host.waitUntilConnected();
+    restore(host, claude);
+    restore(host, codex);
     await expect(page.locator(".editor")).toHaveAttribute("data-ready", "true", {
       timeout: 60_000,
     });
-    await expect(page.locator(".editor")).toHaveAttribute(
-      "data-active-file",
-      /[\\/]workspace[\\/]claude[\\/]active\.ts$/,
-    );
     await expect(page.locator(".monaco-editor .view-lines").first()).toContainText(claude.marker);
 
     const claudeToCodex: number[] = [];
@@ -131,176 +103,94 @@ test("warm Claude/Codex session switches fully paint within one second", async (
       contentType: "application/json",
     });
 
-    expect(
-      Math.max(...claudeToCodex),
-      `Claude -> Codex switch exceeded ${SWITCH_BUDGET_MS}ms: ${JSON.stringify(claudeToCodex)}`,
-    ).toBeLessThan(SWITCH_BUDGET_MS);
-    expect(
-      Math.max(...codexToClaude),
-      `Codex -> Claude switch exceeded ${SWITCH_BUDGET_MS}ms: ${JSON.stringify(codexToClaude)}`,
-    ).toBeLessThan(SWITCH_BUDGET_MS);
+    expect(Math.max(...claudeToCodex)).toBeLessThan(SWITCH_BUDGET_MS);
+    expect(Math.max(...codexToClaude)).toBeLessThan(SWITCH_BUDGET_MS);
   } finally {
-    unsubscribe();
     await host.close();
   }
 });
 
-test("a media projection supersedes an unresolved text restore", async ({ page }) => {
+test("a message for a background session mutates only its owned editor state", async ({ page }) => {
   const host = await MockHost.start({
     distDir,
+    sessions: [claude.catalog, codex.catalog],
     files: {
       [CLAUDE_ACTIVE]: "export const value = 'CLAUDE_ACTIVE_MARKER';\n",
-      [CLAUDE_OTHER]: "export const other = true;\n",
+      [CLAUDE_LATE]: "export const value = 'BACKGROUND_SESSION_MARKER';\n",
       [CODEX_OTHER]: "export const note = true;\n",
     },
   });
-  host.setMedia(CODEX_ID, CODEX_IMAGE, PIXEL_RED);
-  const projections = new Map([
-    [CLAUDE_ID, claude],
-    [CODEX_ID, codex],
-  ]);
-  const unsubscribe = host.onReceived("switch-session", (message) => {
-    const projection = projections.get(String(message.id));
-    if (projection === undefined) {
-      throw new Error(`unexpected switch target ${String(message.id)}`);
-    }
-    host.pushToWeb(editorSession(projection));
-    host.pushToWeb({ type: "session-list", sessions: sessions(projection.id) });
-  });
+  host.setMedia(codex.catalog.address.incarnation, CODEX_IMAGE, PIXEL_RED);
 
   try {
     await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
-    await host.waitForMessage("ready");
-    host.pushToWeb(editorSession(codex));
-    host.pushToWeb({ type: "session-list", sessions: sessions(CODEX_ID) });
-    await expect(page.locator(".editor-media img")).toHaveJSProperty("complete", true);
+    await host.waitUntilConnected();
+    restore(host, claude);
+    restore(host, codex);
+    await page.locator(`.session-chip[title^="${codex.catalog.label} —"]`).click();
+    await expect(page.locator(".editor-media img")).toHaveJSProperty("naturalWidth", 8);
 
-    host.pauseFileProvider();
-    await page.locator(`.session-chip[title^="${claude.label} —"]`).click();
-    await expect(page.locator(".session-chip.active")).toHaveAttribute(
-      "title",
-      new RegExp(`^${claude.label} —`),
-    );
-    const pendingStat = await host.waitForMessage("fs-stat");
-    expect(pendingStat.path).toBe(CLAUDE_ACTIVE);
+    host.publishSession(claude.catalog.address, "editor", "openFile", {
+      path: CLAUDE_LATE,
+      line: 1,
+      preview: false,
+    });
+    await expect(page.locator(".editor-media img")).toHaveJSProperty("naturalWidth", 8);
+    await expect(page.locator(".editor-tab", { hasText: "background.ts" })).toHaveCount(0);
 
-    await page.locator(`.session-chip[title^="${codex.label} —"]`).click();
-    await expect(page.locator(".session-chip.active")).toHaveAttribute(
-      "title",
-      new RegExp(`^${codex.label} —`),
+    const checkpoint = host.checkpoint();
+    await page.locator(`.session-chip[title^="${claude.catalog.label} —"]`).click();
+    await host.waitForSession(claude.catalog.address, "request", "files", "stat", checkpoint);
+    await expect(page.locator(".editor-tab", { hasText: "background.ts" })).toBeVisible();
+    await expect(page.locator(".monaco-editor .view-lines").first()).toContainText(
+      "BACKGROUND_SESSION_MARKER",
     );
-    await expect(page.locator(".editor-media img")).toHaveJSProperty("complete", true);
-
-    host.resumeFileProvider();
-    await host.waitForMessage("fs-read");
-    await page.evaluate(
-      () =>
-        new Promise<void>((resolve) =>
-          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
-        ),
-    );
-
-    await expect(page.locator(".editor-media img")).toHaveAttribute(
-      "src",
-      new RegExp(`session=${CODEX_ID}.*path=${encodeURIComponent(CODEX_IMAGE)}`),
-    );
-    await expect.poll(() => page.locator(".editor").getAttribute("data-active-file")).toBeNull();
-    await expect(page.locator(".editor-tab.active .editor-tab-label")).toHaveText("pixel.png");
   } finally {
-    unsubscribe();
-    host.resumeFileProvider();
     await host.close();
   }
 });
 
-test("an A-B-A projection cannot dispose the returned session's same-file model", async ({
-  page,
-}) => {
+test("a delayed background file response cannot repaint the selected session", async ({ page }) => {
   const host = await MockHost.start({
     distDir,
+    sessions: [claude.catalog, codex.catalog],
     files: {
-      [CLAUDE_ACTIVE]: "export const value = 'CLAUDE_ACTIVE_MARKER';\n",
+      [CLAUDE_LATE]: "export const value = 'BACKGROUND_SESSION_MARKER';\n",
+      [CODEX_OTHER]: "export const note = true;\n",
     },
   });
-  host.setMedia(CODEX_ID, CODEX_IMAGE, PIXEL_RED);
+  host.setMedia(codex.catalog.address.incarnation, CODEX_IMAGE, PIXEL_RED);
 
   try {
     await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
-    await host.waitForMessage("ready");
-    host.pushToWeb({ type: "session-list", sessions: sessions(CODEX_ID) });
-    host.pushToWeb(editorSession(codex));
+    await host.waitUntilConnected();
+    host.publishSession(claude.catalog.address, "editor", "restore", {
+      session: { active: null, open: [] },
+    });
+    restore(host, codex);
     await expect(page.locator(".editor")).toHaveAttribute("data-ready", "true", {
       timeout: 60_000,
     });
-    await expect(page.locator(".editor-media img")).toHaveJSProperty("complete", true);
 
     host.pauseFileProvider();
-    host.pushToWeb(editorSession(claude));
-    expect((await host.waitForMessage("fs-stat")).path).toBe(CLAUDE_ACTIVE);
-    host.pushToWeb(editorSession(codex));
-    await expect(page.locator(".editor-media img")).toHaveJSProperty("complete", true);
-    host.pushToWeb(editorSession(claude));
-
-    host.resumeFileProvider();
-    await host.waitForMessage("fs-read");
-    await expect(page.locator(".editor")).toHaveAttribute(
-      "data-active-file",
-      /[\\/]workspace[\\/]claude[\\/]active\.ts$/,
-    );
-    await expect(page.locator(".monaco-editor .view-lines").first()).toContainText(
-      "CLAUDE_ACTIVE_MARKER",
-    );
-    await expect(page.locator(".toast-error")).toHaveCount(0);
-  } finally {
-    host.resumeFileProvider();
-    await host.close();
-  }
-});
-
-test("a media tab supersedes an unresolved text open within one projection", async ({ page }) => {
-  const host = await MockHost.start({
-    distDir,
-    files: {
-      [CLAUDE_ACTIVE]: "export const value = 'CLAUDE_ACTIVE_MARKER';\n",
-    },
-  });
-  host.setMedia(CLAUDE_ID, CODEX_IMAGE, PIXEL_RED);
-
-  try {
-    await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
-    await host.waitForMessage("ready");
-    host.pushToWeb({
-      type: "session-list",
-      sessions: [mockSessionChip(CLAUDE_ID, claude.label, "claude", true, true)],
+    const checkpoint = host.checkpoint();
+    host.publishSession(claude.catalog.address, "editor", "openFile", {
+      path: CLAUDE_LATE,
+      line: 1,
+      preview: false,
     });
-    host.pushToWeb({
-      type: "set-editor-session",
-      sessionId: CLAUDE_ID,
-      session: { active: null, open: [] },
-    });
-    await host.waitForMessage("editor-projection-mounted");
+    await host.waitForSession(claude.catalog.address, "request", "files", "stat", checkpoint);
 
-    host.pauseFileProvider();
-    host.pushToWeb({ type: "open-file", path: CLAUDE_ACTIVE, line: 1 });
-    const pendingStat = await host.waitForMessage("fs-stat");
-    expect(pendingStat.path).toBe(CLAUDE_ACTIVE);
-
-    host.pushToWeb({ type: "open-file", path: CODEX_IMAGE, line: 1 });
-    await expect(page.locator(".editor-media img")).toHaveJSProperty("complete", true);
+    await page.locator(`.session-chip[title^="${codex.catalog.label} —"]`).click();
+    await expect(page.locator(".editor-media img")).toHaveJSProperty("naturalWidth", 8);
     host.resumeFileProvider();
-    await host.waitForMessage("fs-read");
-    await page.evaluate(
-      () =>
-        new Promise<void>((resolve) =>
-          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
-        ),
-    );
-
     await expect(page.locator(".editor-media img")).toHaveAttribute(
       "src",
-      new RegExp(`session=${CLAUDE_ID}.*path=${encodeURIComponent(CODEX_IMAGE)}`),
+      new RegExp(
+        `session=${codex.catalog.address.incarnation}.*path=${encodeURIComponent(CODEX_IMAGE)}`,
+      ),
     );
-    await expect.poll(() => page.locator(".editor").getAttribute("data-active-file")).toBeNull();
+    await expect(page.locator(".editor-tab.active .editor-tab-label")).toHaveText("pixel.png");
   } finally {
     host.resumeFileProvider();
     await host.close();

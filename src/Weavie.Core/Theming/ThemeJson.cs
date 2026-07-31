@@ -14,14 +14,12 @@ namespace Weavie.Core.Theming;
 /// </summary>
 public static class ThemeJson {
 	/// <summary>
-	/// Builds the theme payload as a JSON string. Null <paramref name="messageType"/> yields the bare object for
-	/// injection; non-null adds a <c>"type"</c> field for a bridge push. A theme that fails to load is logged and
-	/// its slot's <c>theme</c> field omitted, so the web falls back to the built-in default rather than a blank UI.
+	/// Builds the theme payload as a JSON string. A theme that fails to load is logged and its slot's
+	/// <c>theme</c> field is omitted, so the web falls back to the built-in default rather than a blank UI.
 	/// </summary>
 	public static string Build(
 		SettingsStore settings,
 		ThemeOverridesStore overrides,
-		string? messageType,
 		Action<string>? log) {
 		ArgumentNullException.ThrowIfNull(settings);
 		ArgumentNullException.ThrowIfNull(overrides);
@@ -29,10 +27,6 @@ public static class ThemeJson {
 		using var stream = new MemoryStream();
 		using (var writer = new Utf8JsonWriter(stream)) {
 			writer.WriteStartObject();
-			if (messageType is not null) {
-				writer.WriteString("type", messageType);
-			}
-
 			writer.WriteString("mode", ThemeSettings.Mode(settings));
 			WriteSlot(writer, "light", ThemeSettings.LightThemeId(settings), overrides, log);
 			WriteSlot(writer, "dark", ThemeSettings.DarkThemeId(settings), overrides, log);

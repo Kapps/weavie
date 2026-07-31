@@ -2,6 +2,57 @@ import importMetaUrlPlugin from "@codingame/esbuild-import-meta-url-plugin";
 import { defineConfig, type Plugin } from "vite";
 import solid from "vite-plugin-solid";
 
+const MONACO_MODULE =
+  /[\\/]node_modules[\\/](monaco-editor|monaco-languageclient|@codingame[\\/]monaco-vscode)/;
+
+function rejectEagerMonaco(): Plugin {
+  return {
+    name: "weavie-reject-eager-monaco",
+    generateBundle(_options, bundle) {
+      const chunks = new Map(
+        Object.values(bundle)
+          .filter((output) => output.type === "chunk")
+          .map((chunk) => [chunk.fileName, chunk]),
+      );
+      for (const entry of chunks.values().filter((chunk) => chunk.isEntry)) {
+        const pending = [{ chunk: entry, path: [entry] }];
+        const visited = new Set<string>();
+        while (pending.length > 0) {
+          const next = pending.pop();
+          if (next === undefined || visited.has(next.chunk.fileName)) {
+            continue;
+          }
+          const { chunk, path } = next;
+          visited.add(chunk.fileName);
+          if (Object.keys(chunk.modules).some((id) => MONACO_MODULE.test(id))) {
+            const parent = path.at(-2);
+            const edge =
+              parent === undefined
+                ? undefined
+                : Object.keys(parent.modules).flatMap((id) => {
+                    const imported = this.getModuleInfo(id)?.importedIds.find(
+                      (dependency) => dependency in chunk.modules,
+                    );
+                    return imported === undefined ? [] : [`${id} -> ${imported}`];
+                  })[0];
+            this.error(
+              `${entry.name} statically imports the Monaco editor through ${path
+                .map((part) => part.fileName)
+                .join(" -> ")}${edge === undefined ? "" : ` (${edge})`}`,
+            );
+          }
+          for (const imported of chunk.imports) {
+            const dependency = chunks.get(imported);
+            if (dependency !== undefined) {
+              pending.push({ chunk: dependency, path: [...path, dependency] });
+            }
+          }
+        }
+      }
+    },
+  };
+}
+
 // monaco-vscode-api lazy-loads vscode-textmate's incremental-tokenization helpers (applyStateStackDiff,
 // diffStateStacksRefEq, INITIAL) via `import('…/_virtual/main').then(n => n.main)`. Vite's build-time
 // optimization of the `import(literal).then(m => m.prop)` shape flattens the dynamic import to the raw
@@ -33,7 +84,7 @@ function fixTextmateLazyImport(): Plugin {
 // code-splitting build, which Rollup cannot emit as iife/umd. Module workers are fine under a secure
 // context (both schemes qualify, as does http://localhost — see the dev server below).
 export default defineConfig(({ command }) => ({
-  plugins: [fixTextmateLazyImport(), solid()],
+  plugins: [fixTextmateLazyImport(), rejectEagerMonaco(), solid()],
   // Build: relative base so assets resolve under the custom scheme/virtual-host (no web root).
   // Dev (`serve`): the server hosts from the origin root, where a relative base breaks the HMR
   // client and module URLs — so use an absolute base.
@@ -63,6 +114,8 @@ export default defineConfig(({ command }) => ({
     outDir: "dist",
     emptyOutDir: true,
     assetsInlineLimit: 0,
+    // Let the entry module discover dependencies over reusable connections instead of opening a startup burst.
+    modulePreload: false,
     chunkSizeWarningLimit: 4096,
     // Multi-page build: emit both the workspace app and the welcome window, sharing common chunks.
     // Paths are relative to the Vite root (src/web), where index.html / welcome.html live.
@@ -77,18 +130,13 @@ export default defineConfig(({ command }) => ({
         // but editor-controller (eager) dynamically imports THREE consumers of it (editor-host, inline-diff,
         // comment-prose), so Rollup's default splitting hoists the shared Monaco into their common ancestor:
         // the eager entry chunk. That forces the WebView to parse all 7 MB before the shell can render.
-        // Pinning it to a named chunk keeps it out of the entry, so first paint parses only the shell and
-        // Monaco loads with the deferred editor bring-up. xterm stays eager (the terminals paint on boot).
-        manualChunks(id) {
-          if (
-            /[\\/]node_modules[\\/](monaco-editor|monaco-languageclient|@codingame[\\/]monaco-vscode)/.test(
-              id,
-            )
-          ) {
-            return "monaco";
-          }
-          return undefined;
+        // Pinning only Monaco's own modules keeps it out of the entry while shared dependencies remain in
+        // normal shared chunks. The editor's deferred import loads it; xterm stays eager for terminal paint.
+        codeSplitting: {
+          includeDependenciesRecursively: false,
+          groups: [{ name: "monaco", test: MONACO_MODULE }],
         },
+        strictExecutionOrder: true,
       },
     },
     // Even served from disk, the WebView must parse + evaluate every byte of JS before the app runs,

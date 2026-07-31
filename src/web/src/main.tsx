@@ -1,6 +1,6 @@
 import { render } from "solid-js/web";
 import App from "./App";
-import { currentEditorBinding, pageId, postToHost, releaseEditorBinding } from "./bridge";
+import { hostConnection, isBrowserHostedShell, LOCAL_BACKEND_ID, log } from "./bridge";
 import { mark } from "./startup-timing";
 import "./fonts.css";
 // Chrome stylesheets, co-located with the components they style. Order is the cascade: base first, then
@@ -38,31 +38,19 @@ if (root === null) {
 // Forward uncaught errors + promise rejections to the host log — an embedded WebView has no easy devtools,
 // so this is the only place a mount failure or stray rejection becomes visible.
 window.addEventListener("error", (e) => {
-  postToHost({
-    type: "log",
-    level: "error",
-    message: `window.error: ${e.message} @ ${e.filename}:${e.lineno}:${e.colno}`,
-  });
+  log("error", `window.error: ${e.message} @ ${e.filename}:${e.lineno}:${e.colno}`);
 });
 window.addEventListener("unhandledrejection", (e) => {
   const r = e.reason;
   const message = r instanceof Error ? (r.stack ?? r.message) : String(r);
-  postToHost({ type: "log", level: "error", message: `unhandledrejection: ${message}` });
+  log("error", `unhandledrejection: ${message}`);
 });
-window.addEventListener("pagehide", () => {
-  const binding = currentEditorBinding();
-  if (binding !== null) {
-    releaseEditorBinding(binding);
-  }
-});
-
 // Render the shell immediately. Monaco + its VSCode service layer load as a separate chunk from inside App,
 // so first paint doesn't wait on the multi-megabyte editor code. The splash stays up until App dismisses it
 // once the editor is ready.
 render(() => <App />, root);
 
-// `ready` asks the host for an immediate state replay, so every App listener must exist before it is sent.
-postToHost({ type: "ready", pageId });
-// Editor ownership is explicit: background backend `ready` handshakes may refresh ambient state but can never
-// mute or steal the page's mounted editor projection.
-postToHost({ type: "acquire-editor", pageId });
+const localConnection = hostConnection(LOCAL_BACKEND_ID);
+if (localConnection !== undefined && !isBrowserHostedShell()) {
+  void localConnection.connect().catch((error: unknown) => localConnection.reportError(error));
+}

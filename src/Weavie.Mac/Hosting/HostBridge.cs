@@ -6,24 +6,31 @@ namespace Weavie.Mac.Hosting;
 
 /// <summary>
 /// The JS &lt;-&gt; C# message bridge: inbound <c>messageHandlers.weavie.postMessage</c> raises
-/// <see cref="MessageReceived"/>; outbound <see cref="PostToWeb"/> evaluates <c>window.__weavieReceive</c> on the
+/// <see cref="MessageReceived"/>; outbound <see cref="Broadcast"/> evaluates <c>window.__weavieReceive</c> on the
 /// main thread. Bodies are raw JSON; typed dispatch lives on each side.
 /// </summary>
-public sealed class HostBridge : NSObject, IWKScriptMessageHandler, IHostBridge {
+public sealed class HostBridge : NSObject, IWKScriptMessageHandler, IWebTransportHub {
 	private WKWebView? _webView;
 
 	/// <summary>Raised with the raw JSON body of each inbound message (on the main thread).</summary>
-	public event Action<string>? MessageReceived;
+	public event Action<WebPeer, string>? MessageReceived;
+
+	/// <inheritdoc/>
+	public event Action<WebPeer>? PeerDisconnected {
+		add { }
+		remove { }
+	}
 
 	/// <summary>Binds the bridge to the web view it pushes outbound messages into.</summary>
 	public void Attach(WKWebView webView) => _webView = webView;
 
 	/// <summary>WKWebView script-message callback: forwards the inbound body to <see cref="MessageReceived"/>.</summary>
 	[Export("userContentController:didReceiveScriptMessage:")]
-	public void DidReceiveScriptMessage(WKUserContentController userContentController, WKScriptMessage message) => MessageReceived?.Invoke(message.Body?.ToString() ?? string.Empty);
+	public void DidReceiveScriptMessage(WKUserContentController userContentController, WKScriptMessage message) =>
+		MessageReceived?.Invoke(WebPeer.Native, message.Body?.ToString() ?? string.Empty);
 
 	/// <summary>Pushes a raw JSON message string into the page via <c>window.__weavieReceive</c>.</summary>
-	public void PostToWeb(string json) {
+	public void Broadcast(string json) {
 		var webView = _webView;
 		if (webView is null) {
 			return;
@@ -37,6 +44,13 @@ public sealed class HostBridge : NSObject, IWKScriptMessageHandler, IHostBridge 
 		// thread) never parks on a main-thread hop. Matches the Windows/Linux hosts, which likewise always defer.
 		NSApplication.SharedApplication.BeginInvokeOnMainThread(() =>
 			webView.EvaluateJavaScript(script, (_, error) => LogIfError(error)));
+	}
+
+	/// <inheritdoc/>
+	public void Send(WebPeer peer, string json) {
+		if (peer == WebPeer.Native) {
+			Broadcast(json);
+		}
 	}
 
 	private static void LogIfError(NSError? error) {

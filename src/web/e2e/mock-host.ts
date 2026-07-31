@@ -1,29 +1,64 @@
-// Minimal stand-in for the headless "serve" host, for testing the web app's remote bridge transport in a
-// real browser. It serves the built web app (dist/) over HTTP and speaks the bridge protocol over a
-// WebSocket at /weavie-bridge — the same HostBound/WebBound JSON the native shells exchange. It records
-// everything the page sends, lets a test push any web-bound message, and answers the file:// provider
-// (fs-stat / fs-read / fs-write) from an in-memory file map. No claude, filesystem, or LSP.
-
 import { readFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import { extname, join, normalize } from "node:path";
 import { type WebSocket, WebSocketServer } from "ws";
 
-/** A bridge message in either direction — kept loose on purpose; the web side owns the real types. */
-type Message = { type: string } & Record<string, unknown>;
+export interface SessionAddress {
+  slot: string;
+  incarnation: string;
+}
 
-/** A session-list row with the same provider-derived surface metadata HostCore publishes. */
-export function mockSessionChip(
+export interface MockSession {
+  id: string;
+  label: string;
+  address: SessionAddress;
+  loaded: true;
+  primary: boolean;
+  providerId: "claude" | "codex";
+  agentSurface: "terminal" | "structured";
+  agentInputProtocol: number;
+  status: "starting" | "working" | "needsInput" | "idle" | "waiting" | "error";
+  hue: number;
+  monogram: string;
+}
+
+export interface MessageEnvelope {
+  scope: "host" | "session";
+  session: SessionAddress | null;
+  kind: "event" | "request" | "response" | "cancel";
+  requestId: string | null;
+  feature: string;
+  name: string;
+  payload: unknown;
+  error: string | null;
+}
+
+interface MessageSelector {
+  scope: "host" | "session";
+  session: SessionAddress | null;
+  kind: MessageEnvelope["kind"];
+  feature: string;
+  name: string;
+}
+
+interface MessageWaiter {
+  selector: MessageSelector;
+  after: number;
+  resolve: (message: MessageEnvelope) => void;
+  reject: (error: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+}
+
+export function mockSession(
   id: string,
   label: string,
   providerId: "claude" | "codex",
-  active: boolean,
   primary: boolean,
-) {
+): MockSession {
   return {
     id,
     label,
-    active,
+    address: { slot: id, incarnation: `${id}-incarnation` },
     loaded: true,
     primary,
     providerId,
@@ -46,64 +81,72 @@ const MIME: Record<string, string> = {
   ".woff": "font/woff",
   ".woff2": "font/woff2",
   ".ttf": "font/ttf",
-  ".map": "application/json; charset=utf-8",
+  ".map": "application/json",
+};
+
+const DEFAULT_LAYOUT = {
+  root: {
+    type: "split",
+    dir: "row",
+    weights: [0.4, 0.6],
+    children: [
+      {
+        type: "split",
+        dir: "column",
+        weights: [0.5, 0.5],
+        children: [
+          { type: "pane", id: "p_agent", kind: "terminal:claude" },
+          { type: "pane", id: "p_shell", kind: "terminal:shell" },
+        ],
+      },
+      { type: "pane", id: "p_editor", kind: "editor" },
+    ],
+  },
+  focused: "p_agent",
 };
 
 export interface MockHostOptions {
-  /** Absolute path to the built web app (the Vite `dist/` directory) to serve. */
   distDir: string;
-  /** Seed files the host-backed file provider can read, keyed by absolute native path. */
   files?: Record<string, string>;
-  /** Ready replay protocol advertised by the host; 0 models workers predating bridge-ready. */
-  readyReplayProtocol?: 0 | 1;
+  sessions?: MockSession[];
 }
 
-/** A running mock host: an HTTP server for the app plus a WebSocket bridge endpoint. */
 export class MockHost {
-  /** Every message the page sent to the host, in arrival order. */
-  readonly received: Message[] = [];
-  /** Every streamed-media request, including rejected mixed backend/session/path identities. */
+  readonly received: MessageEnvelope[] = [];
   readonly mediaRequests: Array<{ session: string; path: string; status: number }> = [];
-  /** Files the fs-* provider serves, keyed by path; tests can mutate between steps. */
   readonly files: Map<string, string>;
-  private readonly media = new Map<string, Buffer>();
 
+  private readonly media = new Map<string, Buffer>();
   private readonly distDir: string;
-  private readonly readyReplayProtocol: 0 | 1;
   private readonly http: Server;
   private readonly wss: WebSocketServer;
+  private readonly waiters: MessageWaiter[] = [];
+  private readonly handlers = new Set<{
+    selector: MessageSelector;
+    handler: (message: MessageEnvelope) => void;
+  }>();
+  private readonly pausedFileRequests: MessageEnvelope[] = [];
   private socket: WebSocket | null = null;
-  private bridgeReadyPaused = false;
+  private sessions: MockSession[];
+  private pendingHello: MessageEnvelope | null = null;
+  private helloPaused = false;
   private fileProviderPaused = false;
-  private readonly pausedFileRequests: Message[] = [];
-  private bridgeId = "";
-  private pageId = "";
-  private projectionRevision = 0;
-  private readonly waiters: { type: string; resolve: (m: Message) => void }[] = [];
-  private readonly receivedHandlers: {
-    type: string;
-    handler: (message: Message) => void;
-  }[] = [];
+  private requestSequence = 0;
   private port = 0;
 
-  private constructor(distDir: string, files: Record<string, string>, readyReplayProtocol: 0 | 1) {
+  private constructor(distDir: string, files: Record<string, string>, sessions: MockSession[]) {
     this.distDir = distDir;
-    this.readyReplayProtocol = readyReplayProtocol;
     this.files = new Map(Object.entries(files));
+    this.sessions = sessions;
     this.http = createServer(
       (req, res) => void this.serveStatic(req.url ?? "/", req.method ?? "GET", res),
     );
     this.wss = new WebSocketServer({ server: this.http, path: "/weavie-bridge" });
-    this.wss.on("connection", (ws) => this.onConnection(ws));
+    this.wss.on("connection", (socket) => this.onConnection(socket));
   }
 
-  /** Starts a mock host on an ephemeral port and resolves once it is accepting connections. */
   static async start(options: MockHostOptions): Promise<MockHost> {
-    const host = new MockHost(
-      options.distDir,
-      options.files ?? {},
-      options.readyReplayProtocol ?? 1,
-    );
+    const host = new MockHost(options.distDir, options.files ?? {}, options.sessions ?? []);
     await new Promise<void>((resolve) => host.http.listen(0, "127.0.0.1", resolve));
     const address = host.http.address();
     if (address === null || typeof address === "string") {
@@ -113,225 +156,368 @@ export class MockHost {
     return host;
   }
 
-  /** The HTTP base, e.g. http://127.0.0.1:54321. */
   get url(): string {
     return `http://127.0.0.1:${this.port}`;
   }
 
-  /** The bridge WebSocket URL to hand the page via `?weavie-bridge=`. */
   get bridgeUrl(): string {
     return `ws://127.0.0.1:${this.port}/weavie-bridge`;
   }
 
-  /** The full page URL with the bridge transport wired in (the way a test should navigate). */
   pageUrl(path = "/"): string {
     return `${this.url}${path}?weavie-bridge=${encodeURIComponent(this.bridgeUrl)}`;
   }
 
-  /** Allows one exact authenticated media identity to stream from this backend. */
-  setMedia(session: string, path: string, bytes: Buffer): void {
-    this.media.set(JSON.stringify([session, path]), bytes);
+  checkpoint(): number {
+    return this.received.length;
   }
 
-  /** Pushes a web-bound message (host -> page) over the live bridge socket. */
-  pushToWeb(message: Message): void {
-    if (this.socket === null || this.socket.readyState !== this.socket.OPEN) {
-      throw new Error("pushToWeb: no page is connected to the bridge yet");
+  address(slot: string): SessionAddress {
+    const address = this.sessions.find((session) => session.id === slot)?.address;
+    if (address === undefined) {
+      throw new Error(`mock host has no live session '${slot}'`);
     }
-    const payload =
-      message.type === "set-editor-session" && message.projectionEpoch === undefined
-        ? {
-            ...message,
-            railSessionId: message.railSessionId ?? message.sessionId,
-            projectionEpoch: "mock-host",
-            projectionRevision: ++this.projectionRevision,
-            projectionPageId: this.pageId,
-          }
-        : message;
-    this.socket.send(JSON.stringify(payload));
+    return address;
   }
 
-  /** Holds the ordered ready-tail marker so reconnect UI can be asserted while state replay is incomplete. */
-  pauseBridgeReady(): void {
-    this.bridgeReadyPaused = true;
+  setSessions(sessions: MockSession[]): void {
+    this.sessions = sessions;
+    if (this.socket !== null && this.socket.readyState === this.socket.OPEN) {
+      this.publishHost("sessions", "catalog", sessions);
+    }
   }
 
-  /** Releases a held ready-tail marker to mark the current bridge replay complete. */
-  resumeBridgeReady(): void {
-    this.bridgeReadyPaused = false;
-    this.pushToWeb({ type: "bridge-ready", bridgeId: this.bridgeId });
+  setMedia(sessionIncarnation: string, path: string, bytes: Buffer): void {
+    this.media.set(JSON.stringify([sessionIncarnation, path]), bytes);
   }
 
-  /** Holds fs-* replies so tests can switch projections while a working-copy resolve is in flight. */
+  publishHost(feature: string, name: string, payload: unknown): void {
+    this.send({
+      scope: "host",
+      session: null,
+      kind: "event",
+      requestId: null,
+      feature,
+      name,
+      payload,
+      error: null,
+    });
+  }
+
+  publishSession(
+    session: string | SessionAddress,
+    feature: string,
+    name: string,
+    payload: unknown,
+  ): void {
+    this.send({
+      scope: "session",
+      session: typeof session === "string" ? this.address(session) : session,
+      kind: "event",
+      requestId: null,
+      feature,
+      name,
+      payload,
+      error: null,
+    });
+  }
+
+  requestSession(
+    session: string | SessionAddress,
+    feature: string,
+    name: string,
+    payload: unknown,
+  ): Promise<MessageEnvelope> {
+    const address = typeof session === "string" ? this.address(session) : session;
+    const requestId = `mock-${++this.requestSequence}`;
+    const response = this.waitFor({
+      scope: "session",
+      session: address,
+      kind: "response",
+      feature,
+      name,
+    });
+    this.send({
+      scope: "session",
+      session: address,
+      kind: "request",
+      requestId,
+      feature,
+      name,
+      payload,
+      error: null,
+    });
+    return response;
+  }
+
+  respond(request: MessageEnvelope, payload: unknown): void {
+    if (request.kind !== "request" || request.requestId === null) {
+      throw new Error("only a request envelope can be answered");
+    }
+    this.send({
+      scope: request.scope,
+      session: request.session,
+      kind: "response",
+      requestId: request.requestId,
+      feature: request.feature,
+      name: request.name,
+      payload,
+      error: null,
+    });
+  }
+
+  waitUntilConnected(after = 0): Promise<MessageEnvelope> {
+    return this.waitForHost("request", "connection", "hello", after);
+  }
+
+  waitForHost(
+    kind: MessageEnvelope["kind"],
+    feature: string,
+    name: string,
+    after = 0,
+  ): Promise<MessageEnvelope> {
+    return this.waitFor({ scope: "host", session: null, kind, feature, name }, after);
+  }
+
+  waitForSession(
+    session: string | SessionAddress,
+    kind: MessageEnvelope["kind"],
+    feature: string,
+    name: string,
+    after = 0,
+  ): Promise<MessageEnvelope> {
+    return this.waitFor(
+      {
+        scope: "session",
+        session: typeof session === "string" ? this.address(session) : session,
+        kind,
+        feature,
+        name,
+      },
+      after,
+    );
+  }
+
+  onSession(
+    session: string | SessionAddress,
+    kind: MessageEnvelope["kind"],
+    feature: string,
+    name: string,
+    handler: (message: MessageEnvelope) => void,
+  ): () => void {
+    const subscription = {
+      selector: {
+        scope: "session" as const,
+        session: typeof session === "string" ? this.address(session) : session,
+        kind,
+        feature,
+        name,
+      },
+      handler,
+    };
+    this.handlers.add(subscription);
+    return () => this.handlers.delete(subscription);
+  }
+
+  pauseHello(): void {
+    this.helloPaused = true;
+  }
+
+  resumeHello(): void {
+    this.helloPaused = false;
+    if (this.pendingHello !== null) {
+      const request = this.pendingHello;
+      this.pendingHello = null;
+      this.respond(request, this.hello());
+    }
+  }
+
   pauseFileProvider(): void {
     this.fileProviderPaused = true;
   }
 
-  /** Answers every held fs-* request in arrival order, then resumes immediate replies. */
   resumeFileProvider(): void {
     this.fileProviderPaused = false;
-    for (const message of this.pausedFileRequests.splice(0)) {
-      this.answerFileProvider(message);
+    for (const request of this.pausedFileRequests.splice(0)) {
+      this.answerFileProvider(request);
     }
   }
 
-  /** Drops only the live bridge socket; the server stays up so the page reconnects normally. */
   disconnectBridge(): void {
     this.socket?.terminate();
   }
 
-  /** Resolves with the next (or already-received) host-bound message of the given type. */
-  // Default scales with playwright.config.ts's own per-platform test timeout (30s Linux / 60s
-  // elsewhere): the hosted macOS/Windows runners are slower, and this wait covers the same
-  // page-load-plus-first-round-trip window that budget was raised for — see 2026-07-26 flake below.
-  waitForMessage(
-    type: string,
-    timeoutMs = process.platform === "linux" ? 15_000 : 30_000,
-  ): Promise<Message> {
-    const existing = this.received.find((m) => m.type === type);
-    if (existing !== undefined) {
-      return Promise.resolve(existing);
-    }
-    return new Promise<Message>((resolve, reject) => {
-      const timer = setTimeout(
-        () => reject(new Error(`timed out after ${timeoutMs}ms waiting for "${type}"`)),
-        timeoutMs,
-      );
-      this.waiters.push({
-        type,
-        resolve: (m) => {
-          clearTimeout(timer);
-          resolve(m);
-        },
-      });
-    });
-  }
-
-  /** Runs a handler synchronously in the WebSocket receive turn for every future message of `type`. */
-  onReceived(type: string, handler: (message: Message) => void): () => void {
-    const subscription = { type, handler };
-    this.receivedHandlers.push(subscription);
-    return () => {
-      const index = this.receivedHandlers.indexOf(subscription);
-      if (index !== -1) {
-        this.receivedHandlers.splice(index, 1);
-      }
-    };
-  }
-
-  /** Stops the HTTP + WebSocket servers, force-closing any lingering sockets so teardown can't hang. */
   async close(): Promise<void> {
     this.socket?.terminate();
     this.wss.close();
-    // http.close() fires its callback only once every connection has ended; the browser's keep-alive sockets
-    // (still open while the page is, since afterEach runs before Playwright tears the page down) can outlive the
-    // test on Windows loopback and stall it past the timeout. Force them shut so the close is deterministic
-    // rather than waiting on the OS to reap them.
+    for (const waiter of this.waiters.splice(0)) {
+      clearTimeout(waiter.timer);
+      waiter.reject(new Error("mock host closed"));
+    }
     this.http.closeAllConnections();
     await new Promise<void>((resolve) => this.http.close(() => resolve()));
   }
 
-  private onConnection(ws: WebSocket): void {
-    this.socket = ws;
-    ws.on("message", (data) => this.onMessage(String(data)));
+  private onConnection(socket: WebSocket): void {
+    this.socket = socket;
+    socket.on("message", (data) => this.onMessage(String(data)));
   }
 
   private onMessage(raw: string): void {
-    let message: Message;
+    let message: MessageEnvelope;
     try {
-      message = JSON.parse(raw) as Message;
+      message = JSON.parse(raw) as MessageEnvelope;
     } catch {
       return;
     }
-    this.received.push(message);
-
-    for (const subscription of [...this.receivedHandlers]) {
-      if (subscription.type === message.type) {
+    if (!validEnvelope(message)) {
+      return;
+    }
+    const index = this.received.push(message) - 1;
+    for (const subscription of [...this.handlers]) {
+      if (matches(message, subscription.selector)) {
         subscription.handler(message);
       }
     }
-
-    if (message.type === "ready") {
-      this.bridgeId = typeof message.bridgeId === "string" ? message.bridgeId : "";
-      this.pageId = typeof message.pageId === "string" ? message.pageId : "";
-      this.pushToWeb(
-        this.readyReplayProtocol === 1
-          ? { type: "host-info", buildNumber: "test", readyReplayProtocol: 1 }
-          : { type: "host-info", buildNumber: "test" },
-      );
-      if (this.readyReplayProtocol === 1 && !this.bridgeReadyPaused) {
-        this.pushToWeb({ type: "bridge-ready", bridgeId: this.bridgeId });
+    for (const waiter of [...this.waiters]) {
+      if (index >= waiter.after && matches(message, waiter.selector)) {
+        this.waiters.splice(this.waiters.indexOf(waiter), 1);
+        clearTimeout(waiter.timer);
+        waiter.resolve(message);
       }
     }
 
-    const waiter = this.waiters.find((w) => w.type === message.type);
-    if (waiter !== undefined) {
-      this.waiters.splice(this.waiters.indexOf(waiter), 1);
-      waiter.resolve(message);
+    if (
+      message.kind === "request" &&
+      message.scope === "host" &&
+      message.feature === "connection" &&
+      message.name === "hello"
+    ) {
+      if (this.helloPaused) {
+        this.pendingHello = message;
+      } else {
+        this.respond(message, this.hello());
+      }
+      return;
     }
-
+    if (
+      message.kind === "request" &&
+      message.scope === "session" &&
+      message.feature === "lifecycle" &&
+      message.name === "sync"
+    ) {
+      this.respond(message, { ok: true });
+      return;
+    }
     this.answerFileProvider(message);
   }
 
-  // Answer the file:// provider so the editor can open working copies. Only fs-stat / fs-read / fs-write
-  // are handled; everything else is recorded but not replied to.
-  private answerFileProvider(message: Message): void {
+  private answerFileProvider(message: MessageEnvelope): void {
     if (
-      this.fileProviderPaused &&
-      (message.type === "fs-stat" || message.type === "fs-read" || message.type === "fs-write")
+      message.kind !== "request" ||
+      message.scope !== "session" ||
+      message.feature !== "files" ||
+      !["stat", "read", "write"].includes(message.name)
     ) {
+      return;
+    }
+    if (this.fileProviderPaused) {
       this.pausedFileRequests.push(message);
       return;
     }
-    if (message.type === "fs-stat") {
-      const content = this.files.get(String(message.path));
-      this.pushToWeb(
-        content === undefined
-          ? {
-              type: "fs-stat-result",
-              id: message.id,
-              ok: true,
-              exists: false,
-              isDir: false,
-              mtimeMs: 0,
-              ctimeMs: 0,
-              size: 0,
-            }
-          : {
-              type: "fs-stat-result",
-              id: message.id,
-              ok: true,
-              exists: true,
-              isDir: false,
-              mtimeMs: 1,
-              ctimeMs: 1,
-              size: content.length,
-            },
-      );
-    } else if (message.type === "fs-read") {
-      const content = this.files.get(String(message.path));
-      this.pushToWeb(
-        content === undefined
-          ? { type: "fs-read-result", id: message.id, ok: false, code: "FileNotFound" }
-          : {
-              type: "fs-read-result",
-              id: message.id,
-              ok: true,
-              content,
-              mtimeMs: 1,
-              size: content.length,
-            },
-      );
-    } else if (message.type === "fs-write") {
-      this.files.set(String(message.path), String(message.content ?? ""));
-      this.pushToWeb({
-        type: "fs-write-result",
-        id: message.id,
+    const payload = message.payload as { path?: unknown; content?: unknown };
+    const path = String(payload.path ?? "");
+    const content = this.files.get(path);
+    const stat = {
+      exists: content !== undefined,
+      isDirectory: false,
+      mtimeMs: content === undefined ? 0 : 1,
+      ctimeMs: content === undefined ? 0 : 1,
+      size: content?.length ?? 0,
+    };
+    if (message.name === "stat") {
+      this.respond(message, stat);
+    } else if (message.name === "read") {
+      this.respond(message, {
+        ok: content !== undefined,
+        content: content ?? null,
+        stat,
+        code: content === undefined ? "FileNotFound" : null,
+        error: null,
+      });
+    } else {
+      const next = String(payload.content ?? "");
+      this.files.set(path, next);
+      this.respond(message, {
         ok: true,
-        mtimeMs: 2,
-        size: String(message.content ?? "").length,
+        stat: {
+          exists: true,
+          isDirectory: false,
+          mtimeMs: 2,
+          ctimeMs: 1,
+          size: next.length,
+        },
+        error: null,
       });
     }
+  }
+
+  private send(message: MessageEnvelope): void {
+    if (this.socket === null || this.socket.readyState !== this.socket.OPEN) {
+      throw new Error("mock host has no connected page");
+    }
+    this.socket.send(JSON.stringify(message));
+  }
+
+  private waitFor(selector: MessageSelector, after = 0): Promise<MessageEnvelope> {
+    const existing = this.received.find(
+      (message, index) => index >= after && matches(message, selector),
+    );
+    if (existing !== undefined) {
+      return Promise.resolve(existing);
+    }
+    const timeoutMs = process.platform === "linux" ? 15_000 : 30_000;
+    return new Promise<MessageEnvelope>((resolve, reject) => {
+      const waiter: MessageWaiter = {
+        selector,
+        after,
+        resolve,
+        reject,
+        timer: setTimeout(() => {
+          this.waiters.splice(this.waiters.indexOf(waiter), 1);
+          reject(
+            new Error(
+              `timed out waiting for ${selector.scope} ${selector.kind} ${selector.feature}.${selector.name}`,
+            ),
+          );
+        }, timeoutMs),
+      };
+      this.waiters.push(waiter);
+    });
+  }
+
+  private hello() {
+    return {
+      hostIncarnation: "mock-host",
+      buildNumber: "test",
+      sessions: this.sessions,
+      layout: DEFAULT_LAYOUT,
+      remoteAgents: [],
+      rail: { lastLocation: "local", promoted: [], selected: null },
+      search: {
+        options: {
+          caseSensitive: false,
+          wholeWord: false,
+          regex: false,
+          excludeGitignored: true,
+          include: "",
+          exclude: "",
+        },
+        recentTerms: [],
+      },
+      testProfile: "",
+      commandCatalog: { commands: [], keybindings: [] },
+    };
   }
 
   private async serveStatic(
@@ -368,17 +554,12 @@ export class MockHost {
     }
 
     const relative = pathname === "/" ? "index.html" : pathname.replace(/^\/+/, "");
-    // Contain the served path inside distDir; a path that escapes is a 403.
     const resolved = normalize(join(this.distDir, relative));
     if (!resolved.startsWith(normalize(this.distDir))) {
       res.writeHead(403).end("forbidden");
       return;
     }
     try {
-      // index.html gets the bootstrap globals injected before the module graph (like the real serve host's
-      // Program.cs ServeIndexAsync); otherwise the build throws on the first host-injected global it reads
-      // (see bridge.ts hostInjected). The bridge URL is left out — tests advertise it per-navigation via
-      // `?weavie-bridge=` (see pageUrl).
       if (relative === "index.html") {
         const html = await readFile(resolved, "utf8");
         res
@@ -386,7 +567,6 @@ export class MockHost {
           .end(injectBootstrap(html));
         return;
       }
-
       const body = await readFile(resolved);
       res
         .writeHead(200, { "content-type": MIME[extname(resolved)] ?? "application/octet-stream" })
@@ -397,9 +577,32 @@ export class MockHost {
   }
 }
 
-// Bootstrap globals the build requires before navigation (bridge.ts hostInjected throws on any missing
-// one). Minimal stand-ins for the real host's BuildBootstrapScript; `__WEAVIE_BRIDGE_WS__` is omitted so a
-// navigation without `?weavie-bridge=` resolves to the "none" transport.
+function validEnvelope(value: MessageEnvelope): boolean {
+  return (
+    (value.scope === "host" || value.scope === "session") &&
+    ["event", "request", "response", "cancel"].includes(value.kind) &&
+    typeof value.feature === "string" &&
+    typeof value.name === "string" &&
+    (value.scope === "session") === (value.session !== null)
+  );
+}
+
+function matches(message: MessageEnvelope, selector: MessageSelector): boolean {
+  return (
+    message.scope === selector.scope &&
+    message.kind === selector.kind &&
+    message.feature === selector.feature &&
+    message.name === selector.name &&
+    sameAddress(message.session, selector.session)
+  );
+}
+
+function sameAddress(left: SessionAddress | null, right: SessionAddress | null): boolean {
+  return left === null || right === null
+    ? left === right
+    : left.slot === right.slot && left.incarnation === right.incarnation;
+}
+
 const FONT_SPEC = { family: "monospace", size: 13, weight: "normal" };
 const BOOTSTRAP_GLOBALS: Record<string, unknown> = {
   __WEAVIE_FONTS__: { editor: FONT_SPEC, terminal: FONT_SPEC },
@@ -417,7 +620,6 @@ const BOOTSTRAP_GLOBALS: Record<string, unknown> = {
   __WEAVIE_AGENT__: { defaultProvider: "claude" },
 };
 
-/** Injects the bootstrap globals right after <head> so they exist before the entry module runs. */
 function injectBootstrap(html: string): string {
   const script = `<script>${Object.entries(BOOTSTRAP_GLOBALS)
     .map(([name, value]) => `window.${name}=${JSON.stringify(value)};`)

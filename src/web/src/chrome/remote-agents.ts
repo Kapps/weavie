@@ -4,8 +4,9 @@ import {
   connectBackend,
   connectedBackends,
   disconnectBackend,
-  onSessionMessage,
-  postToLocalHost,
+  hostConnection,
+  LOCAL_BACKEND_ID,
+  registerHostFeature,
 } from "../bridge";
 import { notify } from "../notify/notify";
 
@@ -45,8 +46,7 @@ export function agentHue(name: string): number {
 export async function addAgent(agent: RemoteAgent): Promise<void> {
   await resolveWorkerBridge(agent);
   connectAgent(agent);
-  postToLocalHost({
-    type: "add-remote-agent",
+  hostConnection(LOCAL_BACKEND_ID)?.host.feature("remoteAgents").publish("add", {
     name: agent.name,
     url: agent.url,
     token: agent.token,
@@ -59,16 +59,24 @@ export async function addAgent(agent: RemoteAgent): Promise<void> {
  */
 export function removeAgent(name: string): void {
   disconnectBackend(agentBackendId(name));
-  postToLocalHost({ type: "remove-remote-agent", name });
+  hostConnection(LOCAL_BACKEND_ID)?.host.feature("remoteAgents").publish("remove", { name });
   notify("info", `Disconnected remote agent "${name}".`);
 }
 
 // Honored only from the LOCAL backend — a remote runner pushes its own registry, which must not leak in. The
-// host pushes on `ready` and after any add/remove. Registered at module load, before main.tsx sends `ready`.
-onSessionMessage((message, backendId) => {
-  if (message.type === "remote-agents" && backendId === "local") {
-    reconcile(message.agents);
+// host includes it in hello and publishes changes after add/remove.
+registerHostFeature((connection) => {
+  if (!connection.isLocal) {
+    return;
   }
+  const offHello = connection.onHello((hello) => reconcile(hello.remoteAgents));
+  const offChanged = connection.host
+    .feature("remoteAgents")
+    .on<{ agents: RemoteAgent[] }>("changed", ({ agents }) => reconcile(agents));
+  return () => {
+    offHello();
+    offChanged();
+  };
 });
 
 // Bring live connections in line with the persisted registry: connect any agent not yet connected, and drop

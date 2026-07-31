@@ -1,9 +1,9 @@
 // Editor-behavior options (Monaco IEditorOptions) — the editor analogue of fonts.ts. The host owns the
 // source of truth (typed `editor.*` settings) and delivers it injected as `window.__WEAVIE_EDITOR_OPTIONS__`
-// before navigation + re-pushed as { type: "editorOptions" } on change. Consumers read currentEditorOptions()
+// before navigation + re-pushed as `settings.editorOptions` on change. Consumers read currentEditorOptions()
 // at creation and subscribe via onEditorOptionsChanged() for live updates.
 
-import { type EditorOptionsSpec, hostInjected, onHostMessage } from "./bridge";
+import { type EditorOptionsSpec, hostInjected, registerHostFeature } from "./bridge";
 
 export type { EditorOptionsSpec };
 
@@ -59,13 +59,14 @@ export function onEditorOptionsChanged(handler: (options: EditorOptionsSpec) => 
   };
 }
 
-// A single permanent bridge listener (registered once at module load) fans every host push out to all
-// subscribers; the editor subscribes through onEditorOptionsChanged rather than the bridge directly.
-onHostMessage((message) => {
-  if (message.type === "editorOptions") {
-    current = message.options;
+registerHostFeature((connection) => {
+  if (!connection.isLocal) {
+    return;
+  }
+  return connection.host.feature("settings").on<EditorOptionsSpec>("editorOptions", (options) => {
+    current = options;
     for (const handler of subscribers) {
       handler(current);
     }
-  }
+  });
 });

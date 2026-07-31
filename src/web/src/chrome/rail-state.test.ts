@@ -1,73 +1,138 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ClientSession, HostConnection } from "../bridge";
+import type { SessionCatalogEntry } from "../messaging/host-connection";
 
-type SessionMsg = { type: string; [k: string]: unknown };
-const posted = vi.hoisted(() => [] as Array<Record<string, unknown>>);
-const sessionHandlers = vi.hoisted(() => [] as Array<(m: SessionMsg, backendId: string) => void>);
+const harness = vi.hoisted(() => ({
+  installer: undefined as ((connection: HostConnection) => undefined | (() => void)) | undefined,
+  connections: new Map<
+    string,
+    {
+      connection: HostConnection;
+      catalog?: (catalog: SessionCatalogEntry[]) => void;
+      rail?: (state: { lastLocation: string; promoted: string[] }) => void;
+    }
+  >(),
+  selected: null as ClientSession | null,
+  posted: [] as Array<{ name: string; payload: Record<string, unknown> }>,
+}));
+
 vi.mock("../bridge", () => ({
-  onSessionMessage: (h: (m: SessionMsg, backendId: string) => void) => {
-    sessionHandlers.push(h);
+  registerHostFeature: (installer: (connection: HostConnection) => undefined | (() => void)) => {
+    harness.installer = installer;
     return () => {};
   },
-  postToLocalHost: (message: Record<string, unknown>) => {
-    posted.push(message);
-  },
+  hostConnection: (id: string) => connection(id).connection,
+  selectedSession: () => harness.selected,
+  LOCAL_BACKEND_ID: "local",
 }));
 
 const rail = await import("./rail-state");
 
-const deliver = (message: SessionMsg, backendId: string): void => {
-  for (const h of sessionHandlers) {
-    h(message, backendId);
+function connection(id: string): {
+  connection: HostConnection;
+  catalog?: (catalog: SessionCatalogEntry[]) => void;
+  rail?: (state: { lastLocation: string; promoted: string[] }) => void;
+} {
+  const existing = harness.connections.get(id);
+  if (existing !== undefined) {
+    return existing;
   }
+  const created = {} as {
+    connection: HostConnection;
+    catalog?: (catalog: SessionCatalogEntry[]) => void;
+    rail?: (state: { lastLocation: string; promoted: string[] }) => void;
+  };
+  created.connection = {
+    id,
+    isLocal: id === "local",
+    onCatalog: (handler: (catalog: SessionCatalogEntry[]) => void) => {
+      created.catalog = handler;
+      return () => {};
+    },
+    onHello: () => () => {},
+    host: {
+      feature: () => ({
+        on: (
+          _name: string,
+          handler: (state: { lastLocation: string; promoted: string[] }) => void,
+        ) => {
+          created.rail = handler;
+          return () => {};
+        },
+        publish: (name: string, payload: Record<string, unknown>) => {
+          harness.posted.push({ name, payload });
+        },
+      }),
+    },
+  } as unknown as HostConnection;
+  harness.connections.set(id, created);
+  harness.installer?.(created.connection);
+  return created;
+}
+
+const deliverRail = (state: { lastLocation: string; promoted: string[] }): void => {
+  connection("local").rail?.(state);
 };
-const chip = (id: string, active = false): Record<string, unknown> => ({ id, active });
+
+const deliverCatalog = (backendId: string, catalog: SessionCatalogEntry[]): void => {
+  connection(backendId).catalog?.(catalog);
+};
+
+const chip = (id: string): SessionCatalogEntry =>
+  ({
+    id,
+    address: { slot: id, incarnation: `${id}-incarnation` },
+  }) as SessionCatalogEntry;
 
 beforeEach(() => {
-  posted.length = 0;
-  // A rail-state push from local resets the promoted set to a known-empty baseline.
-  deliver({ type: "rail-state", lastLocation: "local", promoted: [] }, "local");
-  posted.length = 0;
+  harness.posted.length = 0;
+  harness.selected = null;
+  deliverRail({ lastLocation: "local", promoted: [] });
+  harness.posted.length = 0;
 });
 
 describe("rail-state host sync", () => {
   it("adopts lastLocation + promoted from a local rail-state push", () => {
-    deliver({ type: "rail-state", lastLocation: "remote:r", promoted: ["remote:r s1"] }, "local");
+    deliverRail({ lastLocation: "remote:r", promoted: ["remote:r s1"] });
     expect(rail.lastLocation()).toBe("remote:r");
     expect(rail.isPromoted("remote:r", "s1")).toBe(true);
   });
 
-  it("ignores a rail-state push from a non-local backend", () => {
-    deliver({ type: "rail-state", lastLocation: "evil", promoted: ["x y"] }, "remote:r");
-    expect(rail.lastLocation()).not.toBe("evil");
-    expect(rail.isPromoted("x", "y")).toBe(false);
-  });
+  it("does not install the local rail-state channel on a remote backend", () =>
+    expect(connection("remote:r").rail).toBeUndefined());
 });
 
 describe("promote / demote", () => {
   it("promotes a remote session and pushes the new set to local", () => {
     rail.promoteSession("remote:a", "s1");
     expect(rail.isPromoted("remote:a", "s1")).toBe(true);
-    expect(posted).toContainEqual({ type: "set-promoted", promoted: ["remote:a s1"] });
+    expect(harness.posted).toContainEqual({
+      name: "setPromoted",
+      payload: { promoted: ["remote:a s1"] },
+    });
   });
 
   it("is idempotent: re-promoting pushes nothing new", () => {
     rail.promoteSession("remote:a", "s1");
-    posted.length = 0;
+    harness.posted.length = 0;
     rail.promoteSession("remote:a", "s1");
-    expect(posted).toEqual([]);
+    expect(harness.posted).toEqual([]);
   });
 
   it("demotes a promoted session and pushes the shrunk set", () => {
     rail.promoteSession("remote:a", "s1");
-    posted.length = 0;
+    harness.posted.length = 0;
     rail.demoteSession("remote:a", "s1");
     expect(rail.isPromoted("remote:a", "s1")).toBe(false);
-    expect(posted).toContainEqual({ type: "set-promoted", promoted: [] });
+    expect(harness.posted).toContainEqual({
+      name: "setPromoted",
+      payload: { promoted: [] },
+    });
   });
 
   it("demoting a non-promoted session is a no-op", () => {
     rail.demoteSession("remote:a", "ghost");
-    expect(posted).toEqual([]);
+    expect(harness.posted).toEqual([]);
   });
 });
 
@@ -75,39 +140,47 @@ describe("setLastLocation", () => {
   it("updates the signal and tells the local backend", () => {
     rail.setLastLocation("remote:z");
     expect(rail.lastLocation()).toBe("remote:z");
-    expect(posted).toContainEqual({ type: "set-last-location", location: "remote:z" });
+    expect(harness.posted).toContainEqual({
+      name: "setLastLocation",
+      payload: { location: "remote:z" },
+    });
   });
 });
 
 describe("promoteNextSessionOn (one-shot auto-promote)", () => {
-  it("promotes the genuinely new session in the next session-list, preferring the active one", () => {
+  it("promotes the genuinely new session in the next catalog, preferring the selected one", () => {
     // A prior list establishes the known ids on this backend.
-    deliver({ type: "session-list", sessions: [chip("a")] }, "remote:n1");
+    deliverCatalog("remote:n1", [chip("a")]);
     rail.promoteNextSessionOn("remote:n1");
-    deliver({ type: "session-list", sessions: [chip("a"), chip("b", true)] }, "remote:n1");
+    const remote = connection("remote:n1").connection;
+    harness.selected = {
+      connection: remote,
+      address: { slot: "b", incarnation: "b-incarnation" },
+    } as ClientSession;
+    deliverCatalog("remote:n1", [chip("a"), chip("b")]);
     expect(rail.isPromoted("remote:n1", "b")).toBe(true);
     expect(rail.isPromoted("remote:n1", "a")).toBe(false);
   });
 
   it("waits for a list that actually contains a new id rather than consuming the one-shot early", () => {
-    deliver({ type: "session-list", sessions: [chip("a")] }, "remote:n2");
+    deliverCatalog("remote:n2", [chip("a")]);
     rail.promoteNextSessionOn("remote:n2");
-    deliver({ type: "session-list", sessions: [chip("a")] }, "remote:n2"); // no new id yet
-    deliver({ type: "session-list", sessions: [chip("a"), chip("b")] }, "remote:n2");
+    deliverCatalog("remote:n2", [chip("a")]);
+    deliverCatalog("remote:n2", [chip("a"), chip("b")]);
     expect(rail.isPromoted("remote:n2", "b")).toBe(true);
   });
 
   it("is one-shot: a later new session is not auto-promoted", () => {
     rail.promoteNextSessionOn("remote:n3");
-    deliver({ type: "session-list", sessions: [chip("b", true)] }, "remote:n3");
+    deliverCatalog("remote:n3", [chip("b")]);
     expect(rail.isPromoted("remote:n3", "b")).toBe(true);
-    deliver({ type: "session-list", sessions: [chip("b"), chip("c", true)] }, "remote:n3");
+    deliverCatalog("remote:n3", [chip("b"), chip("c")]);
     expect(rail.isPromoted("remote:n3", "c")).toBe(false);
   });
 
   it("never arms for the local backend", () => {
     rail.promoteNextSessionOn("local");
-    deliver({ type: "session-list", sessions: [chip("new", true)] }, "local");
+    deliverCatalog("local", [chip("new")]);
     expect(rail.isPromoted("local", "new")).toBe(false);
   });
 });

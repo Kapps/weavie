@@ -97,17 +97,11 @@ public static class NotificationSettings {
 	}
 
 	/// <summary>
-	/// Serializes the resolved prefs as JSON. With <paramref name="messageType"/> set, a <c>"type"</c> field is
-	/// written first (for a bridge push); when null, the bare object is produced (for the injected
-	/// <c>window.__WEAVIE_NOTIFICATIONS__</c> global).
+	/// Serializes the resolved prefs for bootstrap injection or a settings feature event.
 	/// </summary>
-	public static string BuildJson(SettingsStore store, string? messageType) {
+	public static string BuildJson(SettingsStore store) {
 		ArgumentNullException.ThrowIfNull(store);
 		return JsonWrite.Object(writer => {
-			if (messageType is not null) {
-				writer.WriteString("type", messageType);
-			}
-
 			writer.WriteBoolean("sounds", store.GetBool(Sounds, true));
 			writer.WriteBoolean("os", store.GetBool(Os, true));
 			writer.WriteNumber("volume", store.GetInt(Volume, DefaultVolume));

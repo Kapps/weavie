@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Weavie.Core;
 using Weavie.Core.Workspaces;
 using Xunit;
@@ -19,11 +18,12 @@ public sealed class HostCoreTestRunTests {
 	public async Task RunFile_ComposesCommand_IntoShellPane() {
 		await using var host = await TestHost.StartAsync(repo => WriteProfile(repo, Profile));
 		string file = Path.Combine(host.RepoRoot, "a.test.ts");
-		host.Core.ActiveSessionForTest()!.Shell.EnsureStarted();
+		host.SelectedSession.Shell.EnsureStarted();
 		var shell = Assert.Single(host.Platform.NoopLauncher.Created);
 
-		host.Send(Invoke("weavie.tests.runFile", "{\"file\":" + Str(file) + "}", token: null));
+		var result = await host.InvokeClientCommandAsync("weavie.tests.runFile", new { file });
 
+		Assert.True(result.Ok, result.Error);
 		Assert.Equal($"echo RUN '{file}'\r", shell.WrittenText);
 	}
 
@@ -31,11 +31,14 @@ public sealed class HostCoreTestRunTests {
 	public async Task RunOne_ComposesQuotedName() {
 		await using var host = await TestHost.StartAsync(repo => WriteProfile(repo, Profile));
 		string file = Path.Combine(host.RepoRoot, "a.test.ts");
-		host.Core.ActiveSessionForTest()!.Shell.EnsureStarted();
+		host.SelectedSession.Shell.EnsureStarted();
 		var shell = Assert.Single(host.Platform.NoopLauncher.Created);
 
-		host.Send(Invoke("weavie.tests.run", "{\"file\":" + Str(file) + ",\"name\":\"adds two\"}", token: null));
+		var result = await host.InvokeClientCommandAsync(
+			"weavie.tests.run",
+			new { file, name = "adds two" });
 
+		Assert.True(result.Ok, result.Error);
 		Assert.Equal($"echo RUN '{file}' -t 'adds two'\r", shell.WrittenText);
 	}
 
@@ -43,13 +46,13 @@ public sealed class HostCoreTestRunTests {
 	public async Task NoProfile_FailsLoudly_AndWritesNothing() {
 		await using var host = await TestHost.StartAsync(); // no test profile configured
 		string file = Path.Combine(host.RepoRoot, "a.test.ts");
-		host.Core.ActiveSessionForTest()!.Shell.EnsureStarted();
+		host.SelectedSession.Shell.EnsureStarted();
 		var shell = Assert.Single(host.Platform.NoopLauncher.Created);
 
-		var result = InvokeForResult(host, "weavie.tests.runFile", "{\"file\":" + Str(file) + "}");
+		var result = await host.InvokeClientCommandAsync("weavie.tests.runFile", new { file });
 
-		Assert.False(result.GetProperty("ok").GetBoolean());
-		Assert.Contains("No test profile", result.GetProperty("error").GetString()!, StringComparison.Ordinal);
+		Assert.False(result.Ok);
+		Assert.Contains("No test profile", result.Error, StringComparison.Ordinal);
 		Assert.Equal(string.Empty, shell.WrittenText);
 	}
 
@@ -57,14 +60,14 @@ public sealed class HostCoreTestRunTests {
 	public async Task BusyShell_FailsLoudly_AndWritesNothing() {
 		await using var host = await TestHost.StartAsync(repo => WriteProfile(repo, Profile));
 		string file = Path.Combine(host.RepoRoot, "a.test.ts");
-		host.Core.ActiveSessionForTest()!.Shell.EnsureStarted();
+		host.SelectedSession.Shell.EnsureStarted();
 		var shell = Assert.Single(host.Platform.NoopLauncher.Created);
 		shell.HasForegroundJob = true;
 
-		var result = InvokeForResult(host, "weavie.tests.runFile", "{\"file\":" + Str(file) + "}");
+		var result = await host.InvokeClientCommandAsync("weavie.tests.runFile", new { file });
 
-		Assert.False(result.GetProperty("ok").GetBoolean());
-		Assert.Contains("busy", result.GetProperty("error").GetString()!, StringComparison.Ordinal);
+		Assert.False(result.Ok);
+		Assert.Contains("busy", result.Error, StringComparison.Ordinal);
 		Assert.Equal(string.Empty, shell.WrittenText);
 	}
 
@@ -73,10 +76,10 @@ public sealed class HostCoreTestRunTests {
 		await using var host = await TestHost.StartAsync(repo => WriteProfile(repo, Profile));
 		string file = Path.Combine(host.RepoRoot, "notes.md");
 
-		var result = InvokeForResult(host, "weavie.tests.runFile", "{\"file\":" + Str(file) + "}");
+		var result = await host.InvokeClientCommandAsync("weavie.tests.runFile", new { file });
 
-		Assert.False(result.GetProperty("ok").GetBoolean());
-		Assert.Contains("No test rule", result.GetProperty("error").GetString()!, StringComparison.Ordinal);
+		Assert.False(result.Ok);
+		Assert.Contains("No test rule", result.Error, StringComparison.Ordinal);
 	}
 
 	private static void WriteProfile(string repo, string profileLine) {
@@ -85,19 +88,4 @@ public sealed class HostCoreTestRunTests {
 		Directory.CreateDirectory(Path.GetDirectoryName(overlay)!);
 		File.WriteAllText(overlay, profileLine);
 	}
-
-	// Invokes a Core command with a token and returns the posted command-result (synchronous: the handlers and
-	// the inline UI dispatcher complete before Send returns).
-	private static JsonElement InvokeForResult(TestHost host, string id, string argsJson) {
-		host.Send(Invoke(id, argsJson, token: "t1"));
-		return host.Bridge.LastOfType("command-result")
-			?? throw new InvalidOperationException("no command-result posted");
-	}
-
-	private static string Invoke(string id, string argsJson, string? token) {
-		string tokenPart = token is null ? string.Empty : ",\"token\":" + Str(token);
-		return "{\"type\":\"invoke-command\",\"id\":" + Str(id) + ",\"args\":" + argsJson + tokenPart + "}";
-	}
-
-	private static string Str(string value) => JsonSerializer.Serialize(value);
 }

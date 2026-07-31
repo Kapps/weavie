@@ -1,16 +1,21 @@
 import { ArrowRight, FolderClosed, FolderOpen } from "lucide-solid";
 import { For, type JSX, Show } from "solid-js";
-import { postToHost } from "../bridge";
+import { hostConnection, LOCAL_BACKEND_ID } from "../bridge";
 import { WeavieIcon } from "../chrome/WeavieIcon";
 
 // The empty-state screen: app mark + wordmark, an Open Folder action, and the recent-workspaces list. Lives
 // in the shared web app so every host renders the same thing. Recents arrive as window.__WEAVIE_WELCOME__;
-// both actions post the `menu-action` messages the host routes to open-folder / open-recent.
+// both actions publish `window.menu` events the host routes to open-folder / open-recent.
 export function Welcome(): JSX.Element {
   const recents = (): string[] => window.__WEAVIE_WELCOME__?.recents ?? [];
-  const openFolder = (): void => postToHost({ type: "menu-action", action: "open-folder" });
+  const openFolder = (): void =>
+    hostConnection(LOCAL_BACKEND_ID)
+      ?.host.feature("window")
+      .publish("menu", { action: "open-folder" });
   const openRecent = (path: string): void =>
-    postToHost({ type: "menu-action", action: "open-recent", path });
+    hostConnection(LOCAL_BACKEND_ID)
+      ?.host.feature("window")
+      .publish("menu", { action: "open-recent", path });
 
   return (
     <div class="welcome">

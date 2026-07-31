@@ -6,9 +6,9 @@ namespace Weavie.Linux.Hosting;
 
 /// <summary>
 /// The JS &lt;-&gt; C# message bridge. Inbound via the <c>weavie</c> script-message handler to
-/// <see cref="MessageReceived"/>; outbound via <see cref="PostToWeb"/>. Raw-JSON bodies, matching the macOS host.
+/// <see cref="MessageReceived"/>; outbound via <see cref="Broadcast"/>. Raw-JSON bodies, matching the macOS host.
 /// </summary>
-internal sealed class HostBridge : IHostBridge {
+internal sealed class HostBridge : IWebTransportHub {
 	// Kept alive: native holds a bare function pointer to this.
 	private readonly ScriptMessageCallback _onScriptMessage;
 	private IntPtr _webView;
@@ -19,7 +19,13 @@ internal sealed class HostBridge : IHostBridge {
 	}
 
 	/// <summary>Raised with the raw JSON body of each inbound message (on the GTK main thread).</summary>
-	public event Action<string>? MessageReceived;
+	public event Action<WebPeer, string>? MessageReceived;
+
+	/// <inheritdoc/>
+	public event Action<WebPeer>? PeerDisconnected {
+		add { }
+		remove { }
+	}
 
 	/// <summary>
 	/// Registers the <c>weavie</c> script-message handler on <paramref name="userContentManager"/> and connects
@@ -40,7 +46,7 @@ internal sealed class HostBridge : IHostBridge {
 	internal void Attach(IntPtr webView) => _webView = webView;
 
 	/// <summary>Pushes a raw JSON message string into the page via <c>window.__weavieReceive</c> (on the main thread).</summary>
-	public void PostToWeb(string json) {
+	public void Broadcast(string json) {
 		IntPtr webView = _webView;
 		if (webView == IntPtr.Zero) {
 			return;
@@ -51,12 +57,19 @@ internal sealed class HostBridge : IHostBridge {
 			webView, script, -1, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero));
 	}
 
+	/// <inheritdoc/>
+	public void Send(WebPeer peer, string json) {
+		if (peer == WebPeer.Native) {
+			Broadcast(json);
+		}
+	}
+
 	// Main thread: extract the JS value as a string, free WebKit's copy, and forward the raw JSON body.
 	private void OnScriptMessage(IntPtr manager, IntPtr jsResult, IntPtr userData) {
 		IntPtr value = WebKit.webkit_javascript_result_get_js_value(jsResult);
 		IntPtr stringPtr = WebKit.jsc_value_to_string(value);
 		string body = Marshal.PtrToStringUTF8(stringPtr) ?? string.Empty;
 		GLib.g_free(stringPtr);
-		MessageReceived?.Invoke(body);
+		MessageReceived?.Invoke(WebPeer.Native, body);
 	}
 }

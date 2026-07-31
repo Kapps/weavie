@@ -2,10 +2,10 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test } from "../harness/fixtures";
 
-// Remote image paste into the claude pane. The deterministic C# tests inject the `term-paste-image` message
+// Remote image paste into the claude pane. The deterministic C# tests inject `terminal.agent/pasteImage`
 // straight into HostCore, so they never exercise the ONE link that lives only in the browser: a real DOM
-// `paste` event carrying an image File, captured on the claude terminal container, must post
-// `term-paste-image` — and the host must then write the bytes to a per-session scratch file. This spec pins
+// `paste` event carrying an image File, captured on the claude terminal container, must publish that owned
+// session event — and the host must then write the bytes to a per-session scratch file. This spec pins
 // that browser-capture → bridge → host-write chain (paste-image.ts + its TerminalView wiring), which no other
 // test covers. The PTY path-injection line is downstream of the write with no branch between and is asserted
 // by HostCorePasteImageTests at the NoopTerminal seam; the real [Image #N] chip needs the real claude.
@@ -92,8 +92,19 @@ test("a real image-paste DOM event on the claude pane writes the bytes to a back
     WebSocket.prototype.send = function (
       data: string | ArrayBufferLike | Blob | ArrayBufferView,
     ): void {
-      if (typeof data === "string" && data.includes('"term-paste-image"')) {
-        (window as unknown as { __PASTE_MSGS__: unknown[] }).__PASTE_MSGS__.push(JSON.parse(data));
+      if (typeof data === "string") {
+        const message = JSON.parse(data) as {
+          scope?: string;
+          feature?: string;
+          name?: string;
+        };
+        if (
+          message.scope === "session" &&
+          message.feature === "terminal.agent" &&
+          message.name === "pasteImage"
+        ) {
+          (window as unknown as { __PASTE_MSGS__: unknown[] }).__PASTE_MSGS__.push(message);
+        }
       }
       original.call(this, data as string);
     };
@@ -101,12 +112,17 @@ test("a real image-paste DOM event on the claude pane writes the bytes to a back
 
   await pasteInto(page, { kind: "image", b64: PNG_B64, mime: "image/png" });
 
-  // The browser capture fired: exactly one term-paste-image, targeting the claude session, carrying the mime.
+  // The browser capture fired exactly once on the owning session's agent-terminal feature.
   const msgs = await page.evaluate(
     () => (window as unknown as { __PASTE_MSGS__: Array<Record<string, string>> }).__PASTE_MSGS__,
   );
   expect(msgs).toHaveLength(1);
-  expect(msgs[0]).toMatchObject({ type: "term-paste-image", session: "claude", mime: "image/png" });
+  expect(msgs[0]).toMatchObject({
+    scope: "session",
+    feature: "terminal.agent",
+    name: "pasteImage",
+    payload: { mime: "image/png" },
+  });
 
   // The host wrote the bytes to a per-session scratch file, byte-for-byte, with the .png extension.
   const expected = Buffer.from(PNG_B64, "base64");
@@ -116,7 +132,7 @@ test("a real image-paste DOM event on the claude pane writes the bytes to a back
   expect(readFileSync(written).equals(expected)).toBe(true);
 });
 
-test("a text-only paste on the claude pane never posts term-paste-image (falls through to xterm)", async ({
+test("a text-only paste on the claude pane never publishes pasteImage (falls through to xterm)", async ({
   page,
   weavie,
 }) => {
@@ -128,8 +144,19 @@ test("a text-only paste on the claude pane never posts term-paste-image (falls t
     WebSocket.prototype.send = function (
       data: string | ArrayBufferLike | Blob | ArrayBufferView,
     ): void {
-      if (typeof data === "string" && data.includes('"term-paste-image"')) {
-        (window as unknown as { __PASTE_MSGS__: unknown[] }).__PASTE_MSGS__.push(JSON.parse(data));
+      if (typeof data === "string") {
+        const message = JSON.parse(data) as {
+          scope?: string;
+          feature?: string;
+          name?: string;
+        };
+        if (
+          message.scope === "session" &&
+          message.feature === "terminal.agent" &&
+          message.name === "pasteImage"
+        ) {
+          (window as unknown as { __PASTE_MSGS__: unknown[] }).__PASTE_MSGS__.push(message);
+        }
       }
       original.call(this, data as string);
     };

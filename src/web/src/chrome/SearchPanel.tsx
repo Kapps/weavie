@@ -30,7 +30,7 @@ function leafName(path: string): string {
  * Project-wide content search (find in files): a left-docked panel over the module search store. The query
  * seeds from the editor selection; match case / whole word / regex toggle inline (their chords advertised via
  * the catalog); include/exclude globs filter paths. Arrows live-preview the selected match without leaving the
- * input, Enter commits (opens + focuses the editor), Esc closes. The host greps the active session's worktree.
+ * input, Enter commits (opens + focuses the editor), Esc closes. The selected session owns each search request.
  */
 export function SearchPanel(props: { onClose: () => void }): JSX.Element {
   let root!: HTMLDivElement;

@@ -1,147 +1,133 @@
-# Editor session (open files + per-file location)
+# Editor session
 
 **Status:** implemented.
 
-When a workspace window opens, Weavie restores the editor to the file the user had open, at the same
-scroll/cursor/folding position they left it — the way VS Code reopens your editors when you reopen a
-folder. The session is persisted per workspace, host-side, so it survives a full relaunch and `Ctrl+R` —
-and the **same** `restoreSession()` covers a dev hot reload (HMR), so there is one restore path, not two.
+Each workspace session owns its open tabs, active tab, and per-file view state. `HostSession` keeps
+the authoritative in-memory snapshot, and the matching web `ClientSession` keeps its exact rendered
+copy. The web may reuse one Monaco editor widget, but it never reuses ownership: selection only binds
+that widget to one `OwnedEditorSession`.
 
-This is the editor-state analogue of [window layout](layout.md), and it deliberately mirrors that
-feature end-to-end: a Core store that loads/persists/serves a per-workspace JSON file, a host that
-bridges both directions, and a **top-level web module store** seeded by a host push that survives HMR.
-Session and backend switches use the fenced ownership protocol in
-[editor projection ownership](editor-projection.md).
+This follows the [session-owned message bus](session-message-bus.md) contract.
 
-## Why this shape (the load-bearing insight)
+## Persisted state
 
-`ready` plus `acquire-editor` are emitted once at page load from `main.tsx`, **not** from `App`'s
-`onMount`. On HMR, `main.tsx`
-is not re-run, so the host never re-pushes. The layout nonetheless survives HMR purely because
-`layout/store.ts` is a top-level module signal that isn't reloaded when `App` or the editor chunk
-hot-swaps. The editor session does the same: a top-level web store (`editor/session-store.ts`, imported at
-top level by `App.tsx`), seeded by a host push at load and kept live by the editor host. That gives **one**
-restore path — `restoreSession()` reads the store on every fresh build of the editor widget — across:
-
-- **launch restore** — host reads the persisted session, offers `set-editor-session` on `acquire-editor`, and
-  `restoreSession()` reopens the active file from it on create;
-- **`Ctrl+R` restore** — same path (a reload re-runs `main.tsx` → `ready`);
-- **HMR restore** — the store survives the hot-swap, so `restoreSession()` reads it directly. The host does
-  *not* re-push (no `ready`), so on teardown the old host **synchronously flushes** the live state into the
-  store (`dispose()` → `captureSession()`), and the open file *working copies* are kept alive on `window`
-  (`__WEAVIE_EDITOR_REFS__`). The rebuilt host's `restoreSession()` → `showFile()` → `ensureRef()` re-adopts
-  the surviving working copy (no disk re-read, unsaved edits intact) at the flushed view state.
-
-The synchronous flush is what lets HMR share the launch path instead of needing its own snapshot: the
-open/cursor/scroll hooks write the store on a debounce, which the teardown would otherwise drop, so
-`dispose()` flushes it once more before the widget dies.
-
-## Scope
-
-There are no editor tabs yet (one editor pane). The persisted shape is a **list** of open files so it
-extends to tabs cleanly, but the only visible behavior today is: the **active** file reopens at its saved
-scroll/cursor on launch. Non-active entries are not eagerly reopened (no LSP spin-up for invisible files).
-
-## Data model
-
-Persisted JSON (per workspace, **no file contents** — those live on disk):
+The host persists the primary session to one file per workspace:
 
 ```jsonc
-// ~/.weavie/workspaces/<id>/editor-session.json
 {
   "active": "/abs/path/to/file.ts",
-  "open": [ { "path": "/abs/path/to/file.ts", "viewState": { /* opaque Monaco view state */ } } ]
+  "open": [
+    {
+      "path": "/abs/path/to/file.ts",
+      "kind": null,
+      "viewState": {},
+      "preview": false,
+      "pinned": true,
+      "scratch": false
+    }
+  ]
 }
 ```
 
-`viewState` is the JSON from Monaco `editor.saveViewState()` (scroll + cursor + folding). Weavie stores and
-forwards it **opaquely** and restores via `editor.restoreViewState(...)` — it never interprets it.
+`kind` is `null` for a file and `web`, `source`, or `plan` for a session-owned overlay. File and
+source contents never appear in this state. Monaco reads and writes file contents through the
+owning session's `files` feature; plan and source content live in their owning host-session state.
+The editor session contains navigation metadata only.
 
-Two wire messages cross the bridge:
+`EditorSessionStore` loads this file, writes it atomically, backs up malformed JSON, and filters
+missing or out-of-workspace file entries before restore. Overlay entries do not require a filesystem
+path. A deleted active file becomes `null`. Worktree sessions retain the same state for their loaded
+lifetime but are not persisted across unload.
 
-| Direction | `type` | Payload | Meaning |
+## Protocol
+
+Both messages use the owning session bus:
+
+| Direction | Feature/name | Payload | Meaning |
 | --- | --- | --- | --- |
-| host → web (`WebBoundMessage`) | `set-editor-session` | `{ session: { active, open: [{ path, viewState }] } }` | Launch/`Ctrl+R` restore. **No content** — the web reopens each file as a VSCode working copy resolved from disk through the host file provider (`createModelReference`), so the model is read from disk even on a fresh page. |
-| web → host (`HostBoundMessage`) | `editor-session-changed` | `{ session: { active, open: [{ path, viewState }] } }` | Debounced. The open-list + active + view states, **NO content** — the host reads disk; it never trusts the web for file contents. |
+| host → web | `editor.restore` | `{session:{active,open}}` | Full authoritative state during `lifecycle.sync` |
+| host → web | `editor.openFile`, `openOverlay`, `closeTab` | operation | Host mutation already recorded in the authoritative state |
+| web → host | `editor.sessionChanged` | `{session:{active,open}}` | Debounced user-driven state update |
+| host → attached view → host | `editor.flush` | request / `{session}` response | Save dirty models and return the exact final snapshot before teardown |
 
-## Architecture
+The web also publishes `editor.openEditorsChanged` for agent context and sends direct actions such as
+`activeChanged`, `newScratch`, and `discardScratch` on the same bus.
+
+There is no session id in the payload. The envelope already carries `(slot, incarnation)`.
+Because `sessionChanged`, `activeChanged`, and `openEditorsChanged` describe the shared widget, the
+host admits them only from the page currently bound to that exact session. The binding check happens
+when the message enters its feature lane, so a mutation authored while attached remains valid if a
+later selection change occurs before it executes.
+
+## Web ownership
+
+`editor/session-store.ts` keeps a `WeakMap<ClientSession, OwnedEditorSession>`.
+`registerSessionFeature` creates state for every live session and disposes it with that session.
+
+An `OwnedEditorSession`:
+
+- restores only from its owner's `editor.restore`;
+- applies tab operations even while its owner is not selected;
+- debounces user-driven `editor.sessionChanged` back to the same captured feature channel;
+- cancels its pending persistence timer when the session closes;
+- exposes selection-neutral `openTabsFor`, `activePathFor`, and related operations.
+
+The selected accessors are convenience views over that map for UI actions. They do not route inbound
+messages.
+
+## Shared Monaco
+
+The editor controller holds review state, pending opens, and models by `ClientSession`. File URIs
+include the session incarnation, so equal native paths in different sessions cannot share a model or
+file-provider request.
 
 ```mermaid
-flowchart LR
-    subgraph web["Web (SolidJS)"]
-      EH["editor-host<br/>(open / cursor / scroll)"] -- "setLocalSession" --> SS["session-store<br/>(top-level signal)"]
-      SS -- "debounced editor-session-changed" --> HB
-      SET["set-editor-session"] --> SS
-      SS -- "restore on host create" --> EH
-    end
-    subgraph host["Host (Win / Mac)"]
-      HB["bridge dispatch"] --> Upd["EditorSessionStore.Update"]
-      Ready["web 'ready'"] -- "BuildRestoreJson (skips deleted files)" --> SET
-    end
-    subgraph core["Core"]
-      Upd --> ESS["EditorSessionStore<br/>(load / atomic write / backup+reset)"]
-      ESS -- atomic --> FILE["editor-session.json"]
-    end
+sequenceDiagram
+    participant A as ClientSession A
+    participant AS as OwnedEditorSession A
+    participant B as ClientSession B
+    participant BS as OwnedEditorSession B
+    participant UI as shared Monaco
+
+    A-->>AS: editor.openFile(background.ts)
+    AS->>AS: add tab and active path
+    Note over UI: B remains rendered
+    B-->>BS: editor/open/review updates
+    BS->>BS: mutate B state
+    Note over UI: B repaints when relevant
+    UI->>AS: selection changes to A
+    AS-->>UI: bind A tabs/model/view state
 ```
 
-### Core
+Opening a background tab updates its owned state immediately. Resolving a VSCode working copy may
+wait until that session is presented; this avoids paying Monaco/LSP cost for an invisible model while
+preserving the command.
 
-- `WeaviePaths.WorkspaceEditorSessionFile(WorkspaceId)` → `~/.weavie/workspaces/<id>/editor-session.json`
-  (mirrors `WorkspaceLayoutFile`).
-- `EditorSession` / `EditorSessionEntry` (`Editor/EditorSessionModel.cs`) — records; `viewState` is an
-  opaque `JsonElement?`; unknown top-level fields round-trip via `[JsonExtensionData]`.
-- `EditorSessionSerialization` — camelCase, indented on disk; a compact, nulls-kept options for the
-  bridge message (so `active`/`viewState` are explicit, not undefined).
-- `EditorSessionStore` (sibling of `EditorStore`, modeled on `LayoutStore`) — loads on construct, atomic
-  writes via `IFileSystem.WriteAllTextAtomic`, malformed-file backup (`editor-session.json.bad`) + reset,
-  `Current` / `Changed` / `Update(...)`. `BuildRestoreJson()` checks each open file still exists on disk
-  (its own `IFileSystem`), skips + logs files that no longer exist, and nulls `active` if it was skipped.
-  No file content is read or pushed — the web reopens from disk through the file provider.
+Every asynchronous apply checks the model/session object it captured before touching the shared
+widget. A delayed file response can finish for its owner without repainting a newly selected session.
 
-The `Changed` event exists for parity with `LayoutStore`; the web is the sole writer today, so hosts do
-**not** re-push on it (that would echo). A future MCP "open file" capability would use it.
+## Restore and reload
 
-### Hosts (Win + Mac, in lockstep)
+After `connection.hello`, each live `ClientSession` requests `lifecycle.sync`. The host unicasts the
+session's editor restore alongside LSP, review, files, git, agent, and terminal state to that
+requesting page. Reconnect uses the same path without replaying mutations to other attached pages.
 
-Each host owns an `EditorSessionStore` keyed by the window's workspace id (Windows uses its
-`WorkspaceWindow.Id`; macOS derives `WorkspaceId.ForPath(workspace)` since its layout store is still the
-legacy single-window file). On the web `ready` message it pushes `set-editor-session` (the open-file list +
-view states, no content). It handles inbound `editor-session-changed` by calling `EditorSessionStore.Update(...)`,
-which persists. Mirrors `PushLayoutToWeb` / `HandleLayoutChanged` exactly.
+The top-level web store survives normal component remounts. Before an editor widget is disposed it
+captures the current view state and flushes the selected owner's pending session update. Working-copy
+references use session-namespaced URIs and can be re-adopted by the rebuilt widget.
 
-### Web
+Unload and delete first request `editor.flush` from the page presenting that exact session. The page
+saves dirty working copies, flushes its pending session update, and returns its final state. A save
+failure aborts teardown visibly; no attached view is a valid case because host-driven state is
+already authoritative.
 
-- `editor/session-store.ts` — a top-level signal seeded by `onHostMessage('set-editor-session')` (registered
-  at module load) plus `setLocalSession(...)` which keeps the signal live (HMR fidelity) and posts the
-  debounced `editor-session-changed`. Imported at top level by `App.tsx` so it isn't only in the editor
-  chunk (or it would reload with that chunk and lose state).
-- `editor/editor-host.ts` — on host create, `restoreSession()` reopens the active file through `showFile()`,
-  the **one** path that swaps the editor's file (a user open and a restore differ only in placement: reveal a
-  line vs. restore a view state). `showFile()` → `ensureRef(monaco.Uri.file(path))` (the shared resolve-or-reuse
-  helper that reads the file from disk through the host file provider and wires its save listener) → `setModel`,
-  whose `onDidChangeModel` drives the active-editor notification to Claude — so a restored file is opened
-  identically to a clicked one. It runs on every fresh widget build (launch / `Ctrl+R` / HMR). The
-  open/cursor/scroll hooks (collected into the host's `disposables`) call `setLocalSession(...)` so the store
-  always holds the live state, and `dispose()` flushes one final `captureSession()` synchronously so a hot
-  reload restores the exact teardown position.
-- `App.tsx` — after `createEditorHost`, the restored active file flows into `setCurrentFile(...)` (read from
-  the session store, not Monaco, to keep the editor chunk out of the shell); a `pendingOpen` user request
-  that arrived during load still wins.
+## Failure behavior
 
-## Persistence & failure handling
+- Missing persistence file: empty editor session.
+- Malformed persistence file: back up as `.bad`, report it, and reset.
+- Missing/out-of-workspace restored entry: report and omit it.
+- Dirty model save failure during unload/delete: fail the command and leave the session live.
+- Removed `ClientSession`: cancel its pending update and dispose its models/references.
+- Stale incarnation restore or file response: no matching client endpoint, so it is ignored.
 
-`~/.weavie/workspaces/<id>/editor-session.json`, written via `WriteAllTextAtomic`. Load is non-fatal,
-mirroring `LayoutStore`:
-
-- **Missing file** → empty session (nothing open).
-- **Malformed** → log, back the bad file up to `editor-session.json.bad` (don't silently delete), reset to
-  empty. No silent fallbacks.
-- **Open file deleted between sessions** → skipped + logged at restore-push time; `active` is nulled if it
-  was the skipped file. The remaining files still restore.
-
-## Notes / non-goals
-
-- Only real `file://` working copies are captured (`isUserFileModel`). The transient inline-review model
-  (scheme `weavie-review`) is therefore suppressed, so a session is never persisted mid-review and an empty
-  editor persists an empty session.
-- Restoring **non-active** open entries as background models is deferred until tabs exist.
+There is no projection offer, lease, active-session gate, release handshake, or cross-session replay.

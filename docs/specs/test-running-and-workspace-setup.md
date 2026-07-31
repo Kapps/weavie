@@ -98,7 +98,7 @@ placeholders; Claude derives each rule's globs and commands from the repo itself
 The matcher runs in the web: the symbols already live there (`monaco-languageclient` per language),
 the lens renders there, and Monaco owns the refresh lifecycle. New `src/web/src/tests/` folder:
 
-- `test-profile.ts` — profile signal from `__WEAVIE_TEST_PROFILE__` pre-nav injection + `test-profile`
+- `test-profile.ts` — profile signal from `__WEAVIE_TEST_PROFILE__` pre-nav injection + host `tests.profile`
   bridge push (re-sent on `SettingChanged` for `test.profile`).
 - `glob.ts` — small glob→RegExp (`**`, `*`, `?`, `{a,b}`), vitest-covered.
 - `test-symbols.ts` — queries the document-symbol provider via
@@ -131,7 +131,7 @@ each file to its own framework's commands.
 worktree session's Claude runs in *that* session's shell with `${file}` relative to its worktree.
 
 - No profile → `CommandResult.Failure("No test profile is configured — run 'Set Up This Workspace'
-  first.")`, surfaced to the invoking surface (lens/palette via tokened `invoke-command`; verbatim to
+  first.")`, surfaced to the invoking surface (lens/palette via `commands.invoke`; verbatim to
   Claude via `runCommand`).
 - Shell busy (`HasForegroundJob`) → failure + error toast. Never queued, never a second pane, never
   silently dropped.
@@ -141,7 +141,7 @@ worktree session's Claude runs in *that* session's shell with `${file}` relative
   need a POSIX shell or PowerShell for test running). Then `session.Shell.Write(utf8(command + "\r"))`
   — plain write, not bracketed paste (paste markers to a shell that never enabled the mode print escape
   garbage).
-- On success, post `focus-pane` for the shell so the user watches the run.
+- On success, publish the transient bound-view event `view.focusPane` for the shell so the user watches the run.
 
 ## Workspace setup flow
 
@@ -177,7 +177,7 @@ that setup can be re-run anytime via `/mcp__weavie__setup-workspace`.
 flowchart LR
   subgraph web
     L["test-lens.ts (CodeLens)"] -->|documentSymbol| LC[monaco-languageclient]
-    L -->|"invoke-command weavie.tests.run {file,name}"| B[bridge]
+    L -->|"session commands.invoke<br/>weavie.tests.run {file,name}"| B[message bus]
     P["test-profile signal"] --> L
   end
   LC <-->|lsp-* frames| LSP[LspController]

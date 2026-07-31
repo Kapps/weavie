@@ -1,7 +1,5 @@
 using System.Text.Json;
-using Weavie.Core.FileSystem;
 using Weavie.Core.Shell;
-using Weavie.Core.Workspaces;
 using Xunit;
 
 namespace Weavie.Core.Tests;
@@ -29,30 +27,12 @@ public sealed class ShellProtocolTests {
 		Assert.Contains("\"titleBar\":null", script);
 	}
 
-	[Fact]
-	public void BuildWindowState_CarriesTypeAndFlags() {
-		var el = Parse(ShellProtocol.BuildWindowState(maximized: true, focused: false));
-
-		Assert.Equal("window-state", el.GetProperty("type").GetString());
-		Assert.True(el.GetProperty("maximized").GetBoolean());
-		Assert.False(el.GetProperty("focused").GetBoolean());
-	}
-
-	[Fact]
-	public void BuildFileIndex_CarriesRootAndFiles() {
-		var el = Parse(ShellProtocol.BuildFileIndex(@"C:\w", [@"C:\w\a.txt", @"C:\w\b.txt"]));
-
-		Assert.Equal("file-index", el.GetProperty("type").GetString());
-		Assert.Equal(@"C:\w", el.GetProperty("root").GetString());
-		Assert.Equal(2, el.GetProperty("files").GetArrayLength());
-	}
-
 	[Theory]
 	[InlineData("minimize", WindowControl.Minimize)]
 	[InlineData("maximize-toggle", WindowControl.MaximizeToggle)]
 	[InlineData("close", WindowControl.Close)]
 	public void TryParseWindowControl_KnownActions(string action, WindowControl expected) {
-		var el = Parse($$"""{"type":"window-control","action":"{{action}}"}""");
+		var el = Parse($$"""{"action":"{{action}}"}""");
 
 		Assert.True(ShellProtocol.TryParseWindowControl(el, out var control));
 		Assert.Equal(expected, control);
@@ -72,7 +52,7 @@ public sealed class ShellProtocolTests {
 	[InlineData("bottom-left", ResizeEdge.BottomLeft)]
 	[InlineData("bottom-right", ResizeEdge.BottomRight)]
 	public void TryParseWindowResize_KnownEdges(string edge, ResizeEdge expected) {
-		var el = Parse($$"""{"type":"window-resize","edge":"{{edge}}"}""");
+		var el = Parse($$"""{"edge":"{{edge}}"}""");
 
 		Assert.True(ShellProtocol.TryParseWindowResize(el, out var parsed));
 		Assert.Equal(expected, parsed);
@@ -84,7 +64,7 @@ public sealed class ShellProtocolTests {
 
 	[Fact]
 	public void TryParseMenuAction_OpenRecent_CarriesPath() {
-		var el = Parse("""{"type":"menu-action","action":"open-recent","path":"C:\\proj"}""");
+		var el = Parse("""{"action":"open-recent","path":"C:\\proj"}""");
 
 		Assert.True(ShellProtocol.TryParseMenuAction(el, out var command, out string? path));
 		Assert.Equal(MenuCommand.OpenRecent, command);
@@ -96,7 +76,7 @@ public sealed class ShellProtocolTests {
 		Assert.False(ShellProtocol.TryParseMenuAction(Parse("""{"action":"nope"}"""), out _, out _));
 }
 
-/// <summary>Controller routing title-bar messages to the platform window + file index.</summary>
+/// <summary>Controller routing title-bar messages to the platform window.</summary>
 public sealed class ShellControllerTests {
 	private sealed class FakeWindow : IShellWindow {
 		public List<string> Calls { get; } = [];
@@ -118,17 +98,12 @@ public sealed class ShellControllerTests {
 
 	private static JsonElement Parse(string json) => JsonDocument.Parse(json).RootElement;
 
-	private static ShellController Make(FakeWindow window, out List<string> posted, IFileSystem? fileSystem = null) {
-		var posts = new List<string>();
-		posted = posts;
-		var index = new WorkspaceFileIndex(fileSystem ?? new InMemoryFileSystem(), "/w");
-		return new ShellController(window, index, posts.Add);
-	}
+	private static ShellController Make(FakeWindow window) => new(window);
 
 	[Fact]
 	public void HandleWindowControl_Minimize_CallsWindow() {
 		var window = new FakeWindow();
-		Make(window, out _).HandleWindowControl(Parse("""{"action":"minimize"}"""));
+		Make(window).HandleWindowControl(Parse("""{"action":"minimize"}"""));
 
 		Assert.Equal(["minimize"], window.Calls);
 	}
@@ -136,7 +111,7 @@ public sealed class ShellControllerTests {
 	[Fact]
 	public void HandleWindowControl_MaximizeToggle_TogglesWindow() {
 		var window = new FakeWindow();
-		Make(window, out _).HandleWindowControl(Parse("""{"action":"maximize-toggle"}"""));
+		Make(window).HandleWindowControl(Parse("""{"action":"maximize-toggle"}"""));
 
 		Assert.Equal(["toggle-maximize"], window.Calls);
 	}
@@ -144,7 +119,7 @@ public sealed class ShellControllerTests {
 	[Fact]
 	public void HandleMenuAction_OpenFolder_ShowsPicker() {
 		var window = new FakeWindow();
-		Make(window, out _).HandleMenuAction(Parse("""{"action":"open-folder"}"""));
+		Make(window).HandleMenuAction(Parse("""{"action":"open-folder"}"""));
 
 		Assert.Equal(["open-folder"], window.Calls);
 	}
@@ -152,7 +127,7 @@ public sealed class ShellControllerTests {
 	[Fact]
 	public void HandleWindowResize_KnownEdge_StartsResize() {
 		var window = new FakeWindow();
-		Make(window, out _).HandleWindowResize(Parse("""{"type":"window-resize","edge":"bottom-right"}"""));
+		Make(window).HandleWindowResize(Parse("""{"edge":"bottom-right"}"""));
 
 		Assert.Equal(["start-resize:BottomRight"], window.Calls);
 	}
@@ -160,7 +135,7 @@ public sealed class ShellControllerTests {
 	[Fact]
 	public void HandleWindowResize_UnknownEdge_DoesNothing() {
 		var window = new FakeWindow();
-		Make(window, out _).HandleWindowResize(Parse("""{"type":"window-resize","edge":"nope"}"""));
+		Make(window).HandleWindowResize(Parse("""{"edge":"nope"}"""));
 
 		Assert.Empty(window.Calls);
 	}
@@ -168,7 +143,7 @@ public sealed class ShellControllerTests {
 	[Fact]
 	public void HandleMenuAction_OpenRecent_OpensThatWorkspace() {
 		var window = new FakeWindow();
-		Make(window, out _).HandleMenuAction(Parse("""{"action":"open-recent","path":"C:\\proj"}"""));
+		Make(window).HandleMenuAction(Parse("""{"action":"open-recent","path":"C:\\proj"}"""));
 
 		Assert.Equal("C:\\proj", window.OpenedPath);
 	}
@@ -176,7 +151,7 @@ public sealed class ShellControllerTests {
 	[Fact]
 	public void HandleMenuAction_OpenRecent_EmptyPath_DoesNotOpen() {
 		var window = new FakeWindow();
-		Make(window, out _).HandleMenuAction(Parse("""{"action":"open-recent","path":""}"""));
+		Make(window).HandleMenuAction(Parse("""{"action":"open-recent","path":""}"""));
 
 		Assert.Empty(window.Calls);
 		Assert.Null(window.OpenedPath);
@@ -185,7 +160,7 @@ public sealed class ShellControllerTests {
 	[Fact]
 	public void HandleMenuAction_CloseWindow_UsesMenuClose() {
 		var window = new FakeWindow();
-		Make(window, out _).HandleMenuAction(Parse("""{"action":"close-window"}"""));
+		Make(window).HandleMenuAction(Parse("""{"action":"close-window"}"""));
 
 		Assert.Equal(["close-window"], window.Calls);
 	}
@@ -193,7 +168,7 @@ public sealed class ShellControllerTests {
 	[Fact]
 	public void HandleWindowControl_Close_UsesPlainClose() {
 		var window = new FakeWindow();
-		Make(window, out _).HandleWindowControl(Parse("""{"action":"close"}"""));
+		Make(window).HandleWindowControl(Parse("""{"action":"close"}"""));
 
 		Assert.Equal(["close"], window.Calls);
 	}
@@ -201,29 +176,8 @@ public sealed class ShellControllerTests {
 	[Fact]
 	public void HandleMenuAction_Exit_Quits() {
 		var window = new FakeWindow();
-		Make(window, out _).HandleMenuAction(Parse("""{"action":"exit"}"""));
+		Make(window).HandleMenuAction(Parse("""{"action":"exit"}"""));
 
 		Assert.Equal(["quit"], window.Calls);
-	}
-
-	[Fact]
-	public void PushFileIndex_PostsFileIndexMessage() {
-		var fileSystem = new InMemoryFileSystem();
-		fileSystem.WriteAllText("/w/a.txt", "");
-		var controller = Make(new FakeWindow(), out var posted, fileSystem);
-
-		controller.PushFileIndex();
-
-		string message = Assert.Single(posted);
-		Assert.Contains("\"type\":\"file-index\"", message);
-	}
-
-	[Fact]
-	public void PushWindowState_PostsWindowStateMessage() {
-		var controller = Make(new FakeWindow(), out var posted);
-
-		controller.PushWindowState(maximized: true, focused: true);
-
-		Assert.Contains("\"type\":\"window-state\"", Assert.Single(posted));
 	}
 }

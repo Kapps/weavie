@@ -22,7 +22,7 @@ public static class SessionCommands {
 	/// <summary>Opens the active branch's detected pull request in the browser; <c>$mod+Shift+g</c>.</summary>
 	public const string OpenCurrentPr = "weavie.pr.openCurrent";
 
-	/// <summary>Forks the current session into a new worktree off its HEAD (args <c>branch</c>/<c>handoff</c>).</summary>
+	/// <summary>Forks the invoking session into a new worktree off its HEAD (args <c>branch</c>/<c>handoff</c>).</summary>
 	public const string ForkSession = "weavie.session.fork";
 
 	/// <summary>Switches to the next session on the rail; <c>ctrl+Tab</c> whenever the editor isn't focused.</summary>
@@ -43,13 +43,13 @@ public static class SessionCommands {
 	/// <summary>Loads a dormant session's backend in the background (arg <c>id</c>) without switching the page to it.</summary>
 	public const string LoadSession = "weavie.session.load";
 
-	/// <summary>Unloads a session (the active one, or the <c>id</c> arg) into a dormant chip, keeping its worktree on disk.</summary>
+	/// <summary>Unloads the invoking session, or the <c>id</c> arg, into a dormant chip while keeping its worktree.</summary>
 	public const string UnloadSession = "weavie.session.unload";
 
-	/// <summary>Deletes a session (named by the required <c>id</c>): removes its worktree (keeps the branch), guarded against uncommitted changes unless <c>force</c>. The programmatic entry; the UI uses <see cref="DeleteSessionPrompt"/>.</summary>
+	/// <summary>Deletes the invoking session, or the <c>id</c> arg: removes its worktree (keeps the branch), guarded against uncommitted changes unless <c>force</c>. The programmatic entry; the UI uses <see cref="DeleteSessionPrompt"/>.</summary>
 	public const string DeleteSession = "weavie.session.delete";
 
-	/// <summary>Opens the interactive delete confirmation in the UI (arg <c>id</c>; defaults to the active session).</summary>
+	/// <summary>Opens the interactive delete confirmation in the UI (arg <c>id</c>; defaults to the selected session).</summary>
 	public const string DeleteSessionPrompt = "weavie.session.deletePrompt";
 
 	/// <summary>Disconnects + forgets a registered remote agent by <c>agent</c> (its name); web-handled, no Core handler.</summary>
@@ -68,7 +68,7 @@ public static class SessionCommands {
 			RunsIn = CommandLocation.Core,
 			Category = "Session",
 			Description = "Create a new session on its own git worktree + branch. With no 'branch' the host "
-				+ "auto-names one (avoiding existing branches). 'base' is 'current' (the active session's HEAD; the "
+				+ "auto-names one (avoiding existing branches). 'base' is 'source' (the invoking session's HEAD; the "
 				+ "default) or 'main'. Set 'existing' true to instead check out an existing branch named by 'branch' "
 				+ "(no new branch; 'base' is ignored), switching to that session if one already exists. An optional "
 				+ "'prompt' is sent as the new session's first message. 'agentProviderId' may be 'claude' or 'codex'; "
@@ -78,7 +78,7 @@ public static class SessionCommands {
 			// Hidden from the palette: the human-facing entry is the interactive prompt (NewSessionPrompt). Still
 			// reachable by Claude via listCommands/runCommand.
 			ShowInPalette = false,
-			ArgsSchemaJson = "{\"branch\":{\"type\":\"string\"},\"base\":{\"type\":\"string\",\"enum\":[\"current\",\"main\"]},\"existing\":{\"type\":\"boolean\"},\"prompt\":{\"type\":\"string\"},\"agentProviderId\":{\"type\":\"string\",\"enum\":[\"claude\",\"codex\"]}}",
+			ArgsSchemaJson = "{\"branch\":{\"type\":\"string\"},\"base\":{\"type\":\"string\",\"enum\":[\"source\",\"main\"]},\"existing\":{\"type\":\"boolean\"},\"prompt\":{\"type\":\"string\"},\"agentProviderId\":{\"type\":\"string\",\"enum\":[\"claude\",\"codex\"]}}",
 		});
 
 		registry.Register(new CommandDefinition {
@@ -86,7 +86,7 @@ public static class SessionCommands {
 			Title = "New Session…",
 			RunsIn = CommandLocation.Web,
 			Category = "Session",
-			Description = "Open the new-session prompt: name a branch, then branch off the current session's HEAD "
+			Description = "Open the new-session prompt: name a branch, then branch off the invoking session's HEAD "
 				+ "(Enter) or main (Shift+Enter). The interactive counterpart of weavie.session.new.",
 			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+n" }],
 		});
@@ -118,7 +118,7 @@ public static class SessionCommands {
 			Title = "Fork Session",
 			RunsIn = CommandLocation.Core,
 			Category = "Session",
-			Description = "Fork the current session into a new worktree branched off its HEAD, carrying a handoff "
+			Description = "Fork the invoking session into a new worktree branched off its HEAD, carrying a handoff "
 				+ "brief to the new session's agent. With no 'branch' the host derives one. 'handoff' is the "
 				+ "summary/instruction seeded as the fork's first message.",
 			Aliases = ["fork session", "branch this", "spin off", "fork this conversation", "branch off here", "try this in a branch"],
@@ -204,7 +204,7 @@ public static class SessionCommands {
 				+ "WITHOUT switching the page to it — so its agent runs and reports status while you stay where you "
 				+ "are. Use Switch Session to bring it to the foreground instead.",
 			Aliases = ["load session", "start session", "wake session", "resume session in background"],
-			// id-targeted (a specific dormant chip); loading the active session is meaningless, so not in the palette.
+			// id-targeted (a specific dormant chip); loading the selected session is meaningless, so not in the palette.
 			ShowInPalette = false,
 			ArgsSchemaJson = "{\"id\":{\"type\":\"string\",\"description\":\"Session id to load in the background\"}}",
 		});
@@ -214,13 +214,12 @@ public static class SessionCommands {
 			Title = "Unload Session",
 			RunsIn = CommandLocation.Core,
 			Category = "Session",
-			Description = "Unload a session (the active one, or the session 'id') into a dormant chip: tear its live "
+			Description = "Unload the invoking session, or the session named by 'id', into a dormant chip: tear its live "
 				+ "backend (agent / terminals / LSP) down but keep its worktree on disk so it can be reloaded later. "
-				+ "Dormant chips sort to the bottom of the rail and are skipped when cycling. To unload your OWN session "
-				+ "rather than the focused one, get its id from the mcp__weavie__currentSession tool. To remove the "
-				+ "worktree entirely, use Delete Session.",
+				+ "Dormant chips sort to the bottom of the rail and are skipped when cycling. To remove the worktree "
+				+ "entirely, use Delete Session.",
 			Aliases = ["unload session", "park session", "make session dormant", "suspend session"],
-			ArgsSchemaJson = "{\"id\":{\"type\":\"string\",\"description\":\"Session id to unload; omit for the active (focused) session. To target your OWN session, get its id from mcp__weavie__currentSession\"}}",
+			ArgsSchemaJson = "{\"id\":{\"type\":\"string\",\"description\":\"Session id to unload; omit for the invoking session\"}}",
 		});
 
 		registry.Register(new CommandDefinition {
@@ -228,18 +227,16 @@ public static class SessionCommands {
 			Title = "Delete Session",
 			RunsIn = CommandLocation.Core,
 			Category = "Session",
-			Description = "Delete a session (named by the required 'id'): remove its git worktree but KEEP the "
+			Description = "Delete the invoking session, or the session named by 'id': remove its git worktree but KEEP the "
 				+ "branch (committed work survives on it). Refuses when the worktree has uncommitted changes unless "
 				+ "'force' is true, so work is never discarded silently. The primary session can't be deleted. With "
 				+ "'classify' true it deletes nothing and instead returns the worktree's state (clean/untracked/modified) "
-				+ "for a confirm prompt. To delete your OWN session (e.g. when finishing it), get its id from the "
-				+ "mcp__weavie__currentSession tool — a no-id call is rejected so you never delete the user's focused "
-				+ "session by mistake. This is the programmatic entry (for agents); the interactive UI uses 'Delete "
-				+ "Session…' (weavie.session.deletePrompt).",
+				+ "for a confirm prompt. This is the programmatic entry (for agents); the interactive UI uses "
+				+ "'Delete Session…' (weavie.session.deletePrompt).",
 			Aliases = ["delete session", "remove session", "delete worktree", "remove worktree", "discard session"],
 			// The human-facing entry is the guarded prompt (DeleteSessionPrompt); the raw delete stays reachable by Claude.
 			ShowInPalette = false,
-			ArgsSchemaJson = "{\"id\":{\"type\":\"string\",\"description\":\"Session id to delete (required); get your own from the mcp__weavie__currentSession tool\"},"
+			ArgsSchemaJson = "{\"id\":{\"type\":\"string\",\"description\":\"Session id to delete; omit for the invoking session\"},"
 				+ "\"force\":{\"type\":\"boolean\",\"description\":\"Delete even if the worktree has uncommitted changes\"},"
 				+ "\"classify\":{\"type\":\"boolean\",\"description\":\"Don't delete; return the worktree state {state,label} for a confirm prompt\"}}",
 		});
@@ -249,11 +246,11 @@ public static class SessionCommands {
 			Title = "Delete Session…",
 			RunsIn = CommandLocation.Web,
 			Category = "Session",
-			Description = "Open the delete confirmation for a session ('id', or the active session): it classifies the "
+			Description = "Open the delete confirmation for a session ('id', or the selected session): it classifies the "
 				+ "worktree and escalates the confirm when there are untracked files or uncommitted changes. The "
 				+ "interactive counterpart of weavie.session.delete.",
 			Aliases = ["delete session", "remove session", "delete worktree"],
-			ArgsSchemaJson = "{\"id\":{\"type\":\"string\",\"description\":\"Session id to delete; omit for the active session\"}}",
+			ArgsSchemaJson = "{\"id\":{\"type\":\"string\",\"description\":\"Session id to delete; omit for the selected session\"}}",
 		});
 
 		registry.Register(new CommandDefinition {
@@ -309,10 +306,16 @@ public static class SessionCommands {
 				},
 				ct)),
 			dispatcher.RegisterHandler(LoadSession, (argsJson, ct) => host.LoadSessionAsync(GetString(argsJson, "id"), ct)),
-			dispatcher.RegisterHandler(UnloadSession, (argsJson, ct) => host.UnloadSessionAsync(GetString(argsJson, "id"), ct)),
-			dispatcher.RegisterHandler(DeleteSession, (argsJson, ct) => GetBool(argsJson, "classify")
+			dispatcher.RegisterContextualHandler(
+				UnloadSession,
+				(argsJson, context, ct) => host.UnloadSessionAsync(GetString(argsJson, "id"), context, ct)),
+			dispatcher.RegisterContextualHandler(DeleteSession, (argsJson, context, ct) => GetBool(argsJson, "classify")
 				? host.ClassifyDeleteAsync(GetString(argsJson, "id"), ct)
-				: host.DeleteSessionAsync(GetString(argsJson, "id"), GetBool(argsJson, "force"), ct)),
+				: host.DeleteSessionAsync(
+					GetString(argsJson, "id"),
+					GetBool(argsJson, "force"),
+					context,
+					ct)),
 		};
 
 		return new CompositeDisposable(registrations);

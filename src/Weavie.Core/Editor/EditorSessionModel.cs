@@ -11,6 +11,10 @@ public sealed record EditorSessionEntry {
 	/// <summary>The native absolute path of the open file.</summary>
 	public required string Path { get; init; }
 
+	/// <summary>The tab surface; null means a normal file working copy.</summary>
+	[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+	public string? Kind { get; init; }
+
 	/// <summary>Opaque Monaco view state (scroll/cursor/folding), or <c>null</c> when none was captured.</summary>
 	public JsonElement? ViewState { get; init; }
 

@@ -1,155 +1,170 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import type { Message } from "vscode-jsonrpc";
+import type { ClientSession } from "../bridge";
+import { MessageBus } from "../messaging/message-bus";
+import { parseEnvelope, type SessionAddress } from "../messaging/message-envelope";
+import { openLspChannel } from "./lsp-bridge-transport";
 
-// Capture what the transport posts (tagged with the backend it addressed), the inbound handler it registers,
-// and a controllable per-backend phase — so the bridge module is fully stubbed (the transport's only dependency).
-const bridge = vi.hoisted(() => ({
-  posted: [] as Array<Record<string, unknown>>,
-  handler: undefined as ((msg: Record<string, unknown>) => void) | undefined,
-  offlineBackends: new Set<string>(),
-}));
-vi.mock("../bridge", () => ({
-  postToBackend: (backendId: string, m: Record<string, unknown>) =>
-    bridge.posted.push({ backendId, ...m }),
-  onHostMessage: (h: (msg: Record<string, unknown>) => void) => {
-    bridge.handler = h;
-    return () => {};
-  },
-  backendPhase: (id: string) => (bridge.offlineBackends.has(id) ? "reconnecting" : "online"),
-}));
-
-const { openLspChannel } = await import("./lsp-bridge-transport");
-
-function deliver(msg: Record<string, unknown>): void {
-  bridge.handler?.(msg);
+interface BusPair {
+  session: ClientSession;
+  client: MessageBus;
+  host: MessageBus;
 }
 
+function pair(address: SessionAddress): BusPair {
+  let client: MessageBus;
+  let host: MessageBus;
+  client = new MessageBus("session", address, (json) => {
+    const envelope = parseEnvelope(json);
+    if (envelope !== null) {
+      host.receive(envelope);
+    }
+  });
+  host = new MessageBus("session", address, (json) => {
+    const envelope = parseEnvelope(json);
+    if (envelope !== null) {
+      client.receive(envelope);
+    }
+  });
+  return {
+    client,
+    host,
+    session: {
+      feature: (name: string) => client.feature(name),
+    } as ClientSession,
+  };
+}
+
+async function settle(): Promise<void> {
+  for (let index = 0; index < 10; index += 1) {
+    await Promise.resolve();
+  }
+}
+
+let owner: BusPair;
+
 beforeEach(() => {
-  bridge.posted.length = 0;
-  bridge.offlineBackends.clear();
+  owner = pair({ slot: "a", incarnation: "a1" });
 });
 
-describe("openLspChannel", () => {
-  it("asks the owning backend to start the server on open", () => {
-    openLspChannel("local", "slotA", "typescript", "ch-start", () => {});
-    expect(bridge.posted).toContainEqual({
-      backendId: "local",
-      type: "lsp-start",
-      slot: "slotA",
-      server: "typescript",
-      channel: "ch-start",
+describe("session-owned LSP channel", () => {
+  it("starts, writes, and stops on its owner's bus", async () => {
+    const events: Array<{ name: string; payload: unknown }> = [];
+    const feature = owner.host.feature("lsp");
+    feature.handle("start", (payload) => {
+      events.push({ name: "start", payload });
+      return Promise.resolve({ ok: true });
     });
+    feature.on("data", (payload) => {
+      events.push({ name: "data", payload });
+    });
+    feature.on("stop", (payload) => {
+      events.push({ name: "stop", payload });
+    });
+
+    const channel = openLspChannel(owner.session, "typescript", "channel-1", () => {});
+    await channel.ready;
+    const message = {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "textDocument/completion",
+    } as unknown as Message;
+    await channel.writer.write(message);
+    channel.dispose();
+    await settle();
+
+    expect(events).toEqual([
+      {
+        name: "start",
+        payload: { server: "typescript", channel: "channel-1" },
+      },
+      {
+        name: "data",
+        payload: { channel: "channel-1", payload: message },
+      },
+      { name: "stop", payload: { channel: "channel-1" } },
+    ]);
   });
 
-  it("writes a JSON-RPC message as an lsp-data carrying the embedded payload", async () => {
-    const channel = openLspChannel("local", "slotA", "typescript", "ch-write", () => {});
-    const msg = { jsonrpc: "2.0", id: 1, method: "textDocument/completion" } as unknown as Message;
-    await channel.writer.write(msg);
-    expect(bridge.posted).toContainEqual({
-      backendId: "local",
-      type: "lsp-data",
-      slot: "slotA",
-      channel: "ch-write",
-      payload: msg,
-    });
+  it("cannot cross into another session even when channel ids collide", async () => {
+    const other = pair({ slot: "b", incarnation: "b1" });
+    owner.host.feature("lsp").handle("start", () => Promise.resolve({ ok: true }));
+    other.host.feature("lsp").handle("start", () => Promise.resolve({ ok: true }));
+    const first = openLspChannel(owner.session, "csharp", "same", () => {});
+    const second = openLspChannel(other.session, "csharp", "same", () => {});
+    await Promise.all([first.ready, second.ready]);
+    const firstReceived: Message[] = [];
+    const secondReceived: Message[] = [];
+    first.reader.listen((message) => firstReceived.push(message));
+    second.reader.listen((message) => secondReceived.push(message));
+
+    const response = { jsonrpc: "2.0", id: 7, result: "first" } as unknown as Message;
+    owner.host.feature("lsp").publish("data", { channel: "same", payload: response });
+    await settle();
+
+    expect(firstReceived).toEqual([response]);
+    expect(secondReceived).toEqual([]);
   });
 
-  // The misroute regression: a client's frames must reach the backend that OWNS its slot, never whichever
-  // backend happens to be active — a local slot's traffic landing on a remote host gets ignored there and
-  // leaks the local server (its shutdown/stop never arrive home).
-  it("routes each channel's frames to its own backend, independent of any other backend's state", async () => {
-    const local = openLspChannel("local", "slotA", "csharp", "ch-local", () => {});
-    const remote = openLspChannel("remote:r", "slotB", "gopls", "ch-remote", () => {});
-
-    bridge.offlineBackends.add("remote:r");
-    const msg = { jsonrpc: "2.0", id: 2, method: "textDocument/hover" } as unknown as Message;
-    await local.writer.write(msg);
-    await expect(remote.writer.write(msg)).rejects.toThrow();
-
-    expect(bridge.posted).toContainEqual({
-      backendId: "local",
-      type: "lsp-data",
-      slot: "slotA",
-      channel: "ch-local",
-      payload: msg,
+  it("reports exit only to the matching channel", async () => {
+    const exits: Array<{ code: number; reason: string | undefined }> = [];
+    owner.host.feature("lsp").handle("start", () => Promise.resolve({ ok: true }));
+    const channel = openLspChannel(owner.session, "gopls", "wanted", (code, reason) => {
+      exits.push({ code, reason });
     });
-    expect(
-      bridge.posted.filter((m) => m.backendId === "remote:r" && m.type === "lsp-data"),
-    ).toEqual([]);
-
-    local.dispose();
-    remote.dispose();
-    expect(bridge.posted).toContainEqual({
-      backendId: "local",
-      type: "lsp-stop",
-      slot: "slotA",
-      channel: "ch-local",
-    });
-    expect(bridge.posted).toContainEqual({
-      backendId: "remote:r",
-      type: "lsp-stop",
-      slot: "slotB",
-      channel: "ch-remote",
-    });
-  });
-
-  it("routes an inbound lsp-data to the matching channel's reader and ignores others", () => {
-    const channel = openLspChannel("local", "slotA", "typescript", "ch-read", () => {});
-    const received: unknown[] = [];
-    channel.reader.listen((m) => received.push(m));
-
-    const payload = { jsonrpc: "2.0", id: 1, result: 7 };
-    deliver({ type: "lsp-data", slot: "slotA", channel: "ch-read", payload });
-    deliver({ type: "lsp-data", slot: "slotA", channel: "someone-else", payload: { nope: true } });
-
-    expect(received).toEqual([payload]);
-  });
-
-  it("fires onExit with the host reason and closes the reader on lsp-exit", () => {
-    let exit: { code: number; reason: string | undefined } | undefined;
-    const channel = openLspChannel("local", "slotA", "typescript", "ch-exit", (code, reason) => {
-      exit = { code, reason };
-    });
+    await channel.ready;
     let closed = false;
     channel.reader.onClose(() => {
       closed = true;
     });
 
-    deliver({
-      type: "lsp-exit",
-      slot: "slotA",
-      channel: "ch-exit",
-      code: 1,
-      reason: "no server on PATH",
-    });
+    owner.host.feature("lsp").publish("exit", { channel: "other", code: 2, reason: "other" });
+    owner.host
+      .feature("lsp")
+      .publish("exit", { channel: "wanted", code: 1, reason: "not on PATH" });
+    await settle();
 
-    expect(exit).toEqual({ code: 1, reason: "no server on PATH" });
+    expect(exits).toEqual([{ code: 1, reason: "not on PATH" }]);
     expect(closed).toBe(true);
   });
 
-  it("rejects a write while the owning backend is offline instead of buffering it", async () => {
-    const channel = openLspChannel("local", "slotA", "typescript", "ch-offline", () => {});
-    bridge.offlineBackends.add("local");
-    bridge.posted.length = 0;
+  it("fails writes after its session closes", async () => {
+    owner.host.feature("lsp").handle("start", () => Promise.resolve({ ok: true }));
+    const channel = openLspChannel(owner.session, "typescript", "closed", () => {});
+    await channel.ready;
+    owner.client.close("closed");
 
-    await expect(channel.writer.write({ jsonrpc: "2.0" } as unknown as Message)).rejects.toThrow();
-    expect(bridge.posted.some((m) => m.type === "lsp-data")).toBe(false);
+    await expect(channel.writer.write({ jsonrpc: "2.0" } as unknown as Message)).rejects.toThrow(
+      "closed",
+    );
   });
 
-  it("stops the server and stops routing after dispose", () => {
-    const channel = openLspChannel("local", "slotA", "typescript", "ch-dispose", () => {});
-    const received: unknown[] = [];
-    channel.reader.listen((m) => received.push(m));
-
-    channel.dispose();
-    expect(bridge.posted).toContainEqual({
-      backendId: "local",
-      type: "lsp-stop",
-      slot: "slotA",
-      channel: "ch-dispose",
+  it("stops receiving after disposal", async () => {
+    owner.host.feature("lsp").handle("start", () => Promise.resolve({ ok: true }));
+    const channel = openLspChannel(owner.session, "typescript", "disposed", () => {});
+    await channel.ready;
+    const received: Message[] = [];
+    let closed = false;
+    channel.reader.listen((message) => received.push(message));
+    channel.reader.onClose(() => {
+      closed = true;
     });
+    channel.dispose();
 
-    deliver({ type: "lsp-data", slot: "slotA", channel: "ch-dispose", payload: { late: true } });
+    owner.host.feature("lsp").publish("data", { channel: "disposed", payload: { jsonrpc: "2.0" } });
+    await settle();
+
     expect(received).toEqual([]);
+    expect(closed).toBe(true);
+  });
+
+  it("reports a correlated permanent start failure without creating an exit event", async () => {
+    owner.host
+      .feature("lsp")
+      .handle("start", () => Promise.resolve({ ok: false, error: "not on PATH" }));
+
+    const channel = openLspChannel(owner.session, "typescript", "missing", () => {});
+
+    await expect(channel.ready).rejects.toThrow("not on PATH");
   });
 });

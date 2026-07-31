@@ -1,20 +1,37 @@
 namespace Weavie.Hosting;
 
 /// <summary>
-/// The JS &lt;-&gt; C# message bridge contract shared by the native shells, each over its web view: inbound the
-/// page posts JSON → <see cref="MessageReceived"/>, outbound <see cref="PostToWeb"/> evaluates
-/// <c>window.__weavieReceive(json)</c> on the UI thread. Bodies are raw JSON; the host depends only on this.
+/// Opaque identity for one page attached to a host transport. Application features never receive this value;
+/// the message router uses it to return responses to the physical peer that issued a request.
 /// </summary>
-public interface IHostBridge {
-	/// <summary>Raised with the raw JSON body of each inbound message (on the UI thread).</summary>
-	event Action<string>? MessageReceived;
+public readonly record struct WebPeer {
+	/// <summary>Creates an opaque transport peer.</summary>
+	public WebPeer(string id) {
+		ArgumentException.ThrowIfNullOrEmpty(id);
+		Id = id;
+	}
 
-	/// <summary>Pushes a raw JSON message string into the page via <c>window.__weavieReceive</c>.</summary>
-	void PostToWeb(string json);
+	/// <summary>The transport-owned identity.</summary>
+	public string Id { get; }
+
+	/// <summary>The sole page in an in-process native window.</summary>
+	public static WebPeer Native { get; } = new("native");
 }
 
-/// <summary>A bridge that can identify when a browser page disconnects from its host.</summary>
-public interface IPageLifecycleHostBridge {
-	/// <summary>Raised after the last connection for a page id has closed.</summary>
-	event Action<string>? PageDisconnected;
+/// <summary>
+/// The raw page transport shared by every host shell. It preserves physical peer identity; only the message
+/// router should expose it to application code.
+/// </summary>
+public interface IWebTransportHub {
+	/// <summary>Raised with an inbound peer and raw JSON body on the host dispatcher.</summary>
+	event Action<WebPeer, string>? MessageReceived;
+
+	/// <summary>Raised after a physical peer disconnects so its in-flight requests can be cancelled.</summary>
+	event Action<WebPeer>? PeerDisconnected;
+
+	/// <summary>Pushes an event to every attached page.</summary>
+	void Broadcast(string json);
+
+	/// <summary>Pushes a response to one exact attached page.</summary>
+	void Send(WebPeer peer, string json);
 }

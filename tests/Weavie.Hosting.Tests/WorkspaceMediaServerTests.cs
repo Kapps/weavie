@@ -14,7 +14,7 @@ public sealed class WorkspaceMediaServerTests {
 		await using var host = await TestHost.StartAsync();
 		string path = Path.Combine(host.RepoRoot, "clip.webm");
 		await File.WriteAllBytesAsync(path, Encoding.ASCII.GetBytes("0123456789"));
-		string url = MediaUrl(host, host.PrimaryId, path);
+		string url = MediaUrl(host, host.PrimaryIncarnation, path);
 
 		using var full = await Http.GetAsync(url);
 		Assert.Equal(HttpStatusCode.OK, full.StatusCode);
@@ -54,23 +54,23 @@ public sealed class WorkspaceMediaServerTests {
 		await File.WriteAllTextAsync(html, "<script>window.top.pwned = true</script>");
 		await File.WriteAllTextAsync(svg, "<svg xmlns=\"http://www.w3.org/2000/svg\"><script>alert(1)</script></svg>");
 		var page = new Uri(host.Core.WorkspacePageUrl);
-		string noToken = $"{host.Core.WorkspaceOrigin}/weavie-media?session={host.PrimaryId}&path={Uri.EscapeDataString(inside)}";
+		string noToken = $"{host.Core.WorkspaceOrigin}/weavie-media?session={host.PrimaryIncarnation}&path={Uri.EscapeDataString(inside)}";
 
 		using var unauthorized = await Http.GetAsync(noToken);
 		Assert.Equal(HttpStatusCode.Unauthorized, unauthorized.StatusCode);
 
 		string outside = Path.Combine(Path.GetDirectoryName(host.RepoRoot)!, "outside.png");
 		await File.WriteAllBytesAsync(outside, [4, 5, 6]);
-		using var direct = await Http.GetAsync(MediaUrl(host, host.PrimaryId, outside));
+		using var direct = await Http.GetAsync(MediaUrl(host, host.PrimaryIncarnation, outside));
 		using var traversal = await Http.GetAsync(MediaUrl(
 			host,
-			host.PrimaryId,
+			host.PrimaryIncarnation,
 			Path.Combine(host.RepoRoot, "..", Path.GetFileName(outside))));
 		using var wrongSession = await Http.GetAsync(MediaUrl(host, "not-loaded", inside));
-		using var activeHtml = await Http.GetAsync(MediaUrl(host, host.PrimaryId, html));
-		using var activeSvg = await Http.GetAsync(MediaUrl(host, host.PrimaryId, svg));
+		using var activeHtml = await Http.GetAsync(MediaUrl(host, host.PrimaryIncarnation, html));
+		using var activeSvg = await Http.GetAsync(MediaUrl(host, host.PrimaryIncarnation, svg));
 		string malformed = $"{host.Core.WorkspaceOrigin}/weavie-media?{page.Query.TrimStart('?')}"
-			+ $"&session={Uri.EscapeDataString(host.PrimaryId)}&path=%00";
+			+ $"&session={Uri.EscapeDataString(host.PrimaryIncarnation)}&path=%00";
 		using var malformedPath = await Http.GetAsync(malformed);
 
 		Assert.Equal(HttpStatusCode.NotFound, direct.StatusCode);
@@ -80,7 +80,7 @@ public sealed class WorkspaceMediaServerTests {
 		Assert.Equal(HttpStatusCode.NotFound, activeSvg.StatusCode);
 		Assert.Equal(HttpStatusCode.NotFound, malformedPath.StatusCode);
 		if (File.Exists("/etc/passwd")) {
-			using var systemFile = await Http.GetAsync(MediaUrl(host, host.PrimaryId, "/etc/passwd"));
+			using var systemFile = await Http.GetAsync(MediaUrl(host, host.PrimaryIncarnation, "/etc/passwd"));
 			Assert.Equal(HttpStatusCode.NotFound, systemFile.StatusCode);
 		}
 		Assert.Equal("token", page.Query.Split('=')[0].TrimStart('?'));
@@ -89,7 +89,7 @@ public sealed class WorkspaceMediaServerTests {
 	[Fact]
 	public async Task ExposesOnlyTheExactSessionsScratchAndPastedImageRoots() {
 		await using var host = await TestHost.StartAsync();
-		var session = host.Core.ActiveSessionForTest()!;
+		var session = host.SelectedSession;
 		string scratch = Path.Combine(session.Scratch.Directory, "generated.png");
 		string pasted = Path.Combine(session.PastedImages.Directory, "paste-1.png");
 		Directory.CreateDirectory(session.Scratch.Directory);
@@ -97,8 +97,8 @@ public sealed class WorkspaceMediaServerTests {
 		await File.WriteAllBytesAsync(scratch, [7, 8]);
 		await File.WriteAllBytesAsync(pasted, [9, 10]);
 
-		using var scratchResponse = await Http.GetAsync(MediaUrl(host, session.Id, scratch));
-		using var pastedResponse = await Http.GetAsync(MediaUrl(host, session.Id, pasted));
+		using var scratchResponse = await Http.GetAsync(MediaUrl(host, session.Incarnation, scratch));
+		using var pastedResponse = await Http.GetAsync(MediaUrl(host, session.Incarnation, pasted));
 
 		Assert.Equal(HttpStatusCode.OK, scratchResponse.StatusCode);
 		Assert.Equal(HttpStatusCode.OK, pastedResponse.StatusCode);
@@ -108,14 +108,14 @@ public sealed class WorkspaceMediaServerTests {
 	public async Task UnregistersASecondarySessionsRouteBeforeItsBackendIsDisposed() {
 		await using var host = await TestHost.StartAsync();
 		Assert.True((await host.CreateSessionAsync("media-route")).Ok);
-		var session = host.Core.ActiveSessionForTest()!;
+		var session = host.SelectedSession;
 		string path = Path.Combine(session.WorkspaceRoot, "session.png");
 		await File.WriteAllBytesAsync(path, [11, 12]);
-		string url = MediaUrl(host, session.Id, path);
+		string url = MediaUrl(host, session.Incarnation, path);
 
 		using var loaded = await Http.GetAsync(url);
 		Assert.Equal(HttpStatusCode.OK, loaded.StatusCode);
-		Assert.True((await host.Core.UnloadSessionAsync(sessionId: null, CancellationToken.None)).Ok);
+		Assert.True((await host.UnloadSessionAsync("media-route")).Ok);
 		using var unloaded = await Http.GetAsync(url);
 		Assert.Equal(HttpStatusCode.NotFound, unloaded.StatusCode);
 	}

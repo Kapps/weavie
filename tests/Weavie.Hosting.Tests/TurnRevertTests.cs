@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Xunit;
 
 namespace Weavie.Hosting.Tests;
@@ -13,7 +12,7 @@ public sealed class TurnRevertTests {
 	[Fact]
 	public async Task RevertFile_RestoresBaseline_AndDropsFileFromReviewSet() {
 		await using var host = await TestHost.StartAsync();
-		var session = host.Core.ActiveSessionForTest() ?? throw new InvalidOperationException("no active session");
+		var session = host.SelectedSession;
 		string path = Path.Combine(host.RepoRoot, "readme.txt");
 
 		// Seed a tracked change: baseline = current disk ("hello\n"), an edit lands, then current is recorded.
@@ -23,10 +22,10 @@ public sealed class TurnRevertTests {
 		Assert.Single(session.Changes.TurnChanges());
 
 		host.Bridge.Clear();
-		host.Send($$"""{"type":"revert-file","path":{{JsonSerializer.Serialize(path)}}}""");
+		host.SessionEvent(session, "review", "revertFile", new { path });
 
 		Assert.Equal("hello\n", File.ReadAllText(path));
 		Assert.Empty(session.Changes.TurnChanges());
-		Assert.NotNull(host.Bridge.LastOfType("turn-changes")); // the trimmed review set was re-emitted
+		Assert.NotNull(host.Bridge.LastEvent(session.Address, "review", "changes"));
 	}
 }

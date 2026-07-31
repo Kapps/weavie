@@ -1,28 +1,25 @@
 using System.Text.Json;
 using Weavie.Core;
+using Weavie.Core.Commands;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Sessions;
 using Weavie.Core.Workspaces;
 using Weavie.Core.Worktrees;
+using Weavie.Hosting.Messaging;
 using Xunit;
 
 namespace Weavie.Hosting.Tests;
 
 /// <summary>
-/// The loaded/active overlay survives a worker restart (docs/specs/runner-auto-update.md §Recover): the
-/// sessions that were live come back loaded (each --resumes), the last-active one comes back active, an
-/// unloaded session stays unloaded, and a stale overlay naming a session that no longer reconciles falls back
-/// to the primary without breaking startup. This is the regression behind an idle auto-update silently
-/// unloading remote sessions. Requires <c>git</c> on PATH.
+/// The loaded-session overlay survives a worker restart. Selection is client-owned and is deliberately absent
+/// from both persistence and the host catalog.
 /// </summary>
 [Collection(TestCollections.HostIntegration)]
 public sealed class HostCoreSessionRestoreTests {
-	private static string Msg(object value) => JsonSerializer.Serialize(value);
-
 	private static JsonElement SessionEntry(FakeHostBridge bridge, Func<JsonElement, bool> match) {
-		var list = bridge.LastOfType("session-list");
-		Assert.True(list.HasValue, "no session-list was pushed");
-		foreach (var session in list!.Value.GetProperty("sessions").EnumerateArray()) {
+		var catalog = bridge.LastEvent("sessions", "catalog");
+		Assert.True(catalog.HasValue, "no session catalog was published");
+		foreach (var session in catalog!.Value.EnumerateArray()) {
 			if (match(session)) {
 				return session;
 			}
@@ -34,49 +31,100 @@ public sealed class HostCoreSessionRestoreTests {
 	private static JsonElement SessionById(FakeHostBridge bridge, string id) =>
 		SessionEntry(bridge, s => s.GetProperty("id").GetString() == id);
 
-	private static bool PrimaryIsActive(FakeHostBridge bridge) =>
-		SessionEntry(bridge, s => s.GetProperty("primary").GetBoolean()).GetProperty("active").GetBoolean();
-
 	[Fact]
-	public async Task LoadedAndActiveSessions_SurviveAWorkerRestart() {
+	public async Task LoadedSessionsSurviveRestart_WhileClientSelectionResetsIndependently() {
 		await using var host = await TestHost.StartAsync();
-		Assert.True((await host.CreateSessionAsync("branch-a")).Ok);
-		Assert.True((await host.CreateSessionAsync("branch-b")).Ok); // branch-b is now active; branch-a stays loaded
-		host.Send(Msg(new { type = "switch-session", id = "branch-a" })); // make branch-a active again
+		var created = await host.CreateSessionAsync("branch-a");
+		AssertAddress(created, host.Session("branch-a"));
+		using (var data = JsonDocument.Parse(Assert.IsType<string>(created.DataJson))) {
+			Assert.True(data.RootElement.GetProperty("activateSession").GetBoolean());
+		}
+		Assert.True((await host.CreateSessionAsync("branch-b")).Ok);
+		host.SelectSession("branch-a");
 
 		await host.RestartAsync();
 
-		// Pre-fix: both would return unloaded and the primary active. The overlay brings them back as they were.
 		var a = SessionById(host.Bridge, "branch-a");
 		var b = SessionById(host.Bridge, "branch-b");
 		Assert.True(a.GetProperty("loaded").GetBoolean());
-		Assert.True(a.GetProperty("active").GetBoolean());
 		Assert.True(b.GetProperty("loaded").GetBoolean());
-		Assert.False(b.GetProperty("active").GetBoolean());
+		Assert.False(a.TryGetProperty("active", out _));
+		Assert.False(b.TryGetProperty("active", out _));
+		Assert.Equal("primary", host.SelectedSession.SlotId);
 	}
 
 	[Fact]
-	public async Task UnloadedSession_StaysUnloadedAfterRestart_WithPrimaryActive() {
+	public async Task UnloadedSession_StaysUnloadedAfterRestart() {
 		await using var host = await TestHost.StartAsync();
-		Assert.True((await host.CreateSessionAsync("branch-a")).Ok); // active + loaded
-		Assert.True((await host.Core.UnloadSessionAsync("branch-a", CancellationToken.None)).Ok); // → dormant, primary active
+		Assert.True((await host.CreateSessionAsync("branch-a")).Ok);
+		Assert.True((await host.UnloadSessionAsync("branch-a")).Ok);
 
 		await host.RestartAsync();
 
 		var a = SessionById(host.Bridge, "branch-a");
-		Assert.False(a.GetProperty("loaded").GetBoolean()); // no spurious reload
-		Assert.False(a.GetProperty("active").GetBoolean());
-		Assert.True(PrimaryIsActive(host.Bridge));
+		Assert.False(a.GetProperty("loaded").GetBoolean());
+		Assert.Equal("primary", host.SelectedSession.SlotId);
+	}
+
+	[Fact]
+	public async Task LoadReturnsTheExactLiveAddressWhetherTheSessionWasDormantOrAlreadyLoaded() {
+		await using var host = await TestHost.StartAsync();
+		Assert.True((await host.CreateSessionAsync("branch-a")).Ok);
+		host.SelectSession("primary");
+
+		var alreadyLoaded = await host.InvokeClientCommandAsync(
+			SessionCommands.LoadSession,
+			new { id = "branch-a" });
+		AssertAddress(alreadyLoaded, host.Session("branch-a"));
+
+		Assert.True((await host.UnloadSessionAsync("branch-a")).Ok);
+		var loaded = await host.InvokeClientCommandAsync(
+			SessionCommands.LoadSession,
+			new { id = "branch-a" });
+		AssertAddress(loaded, host.Session("branch-a"));
+	}
+
+	[Fact]
+	public async Task SelectedSessionCanReplyBeforeUnloadingItsOwnMessageBus() {
+		await using var host = await TestHost.StartAsync();
+		Assert.True((await host.CreateSessionAsync("branch-a")).Ok);
+
+		var result = await host.InvokeClientCommandAsync(
+			SessionCommands.UnloadSession,
+			new { });
+
+		Assert.True(result.Ok, result.Error);
+		host.SelectSession("primary");
+		await Wait.ForAsync<bool>(() =>
+			SessionById(host.Bridge, "branch-a").GetProperty("loaded").GetBoolean()
+				? null
+				: true);
+		Assert.Null(host.Core.SessionForTest("branch-a"));
+		Assert.False(SessionById(host.Bridge, "branch-a").GetProperty("loaded").GetBoolean());
+	}
+
+	[Fact]
+	public async Task UnknownSessionBaseIsRejectedInsteadOfImplicitlyUsingTheInvokingSession() {
+		await using var host = await TestHost.StartAsync();
+
+		var result = await host.CreateSessionAsync(new NewSessionRequest {
+			Branch = "ambiguous-base",
+			Base = "current",
+		});
+
+		Assert.False(result.Ok);
+		Assert.Contains("Unknown session base", result.Error, StringComparison.Ordinal);
+		Assert.Null(host.Core.SessionForTest("ambiguous-base"));
 	}
 
 	[Fact]
 	public async Task CodexSession_RestoresAsCodexAfterRestart() {
 		await using var host = await TestHost.StartAsync();
-		var result = await host.Core.NewSessionAsync(new NewSessionRequest {
+		var result = await host.CreateSessionAsync(new NewSessionRequest {
 			Branch = "codex-branch",
 			Base = "main",
 			AgentProviderId = "codex",
-		}, CancellationToken.None);
+		});
 		Assert.True(result.Ok);
 
 		await host.RestartAsync();
@@ -86,33 +134,32 @@ public sealed class HostCoreSessionRestoreTests {
 		Assert.Equal("structured", session.GetProperty("agentSurface").GetString());
 		Assert.Equal(2, session.GetProperty("agentInputProtocol").GetInt32());
 		Assert.True(session.GetProperty("loaded").GetBoolean());
-		Assert.True(session.GetProperty("active").GetBoolean());
+		Assert.False(session.TryGetProperty("active", out _));
 	}
 
 	[Fact]
 	public async Task CodexWorktree_RestoresProvider_WhenSessionOverlayIsMissing() {
 		await using var host = await TestHost.StartAsync();
-		var result = await host.Core.NewSessionAsync(new NewSessionRequest {
+		var result = await host.CreateSessionAsync(new NewSessionRequest {
 			Branch = "codex-branch",
 			Base = "main",
 			AgentProviderId = "codex",
-		}, CancellationToken.None);
+		});
 		Assert.True(result.Ok);
 		string overlay = WeaviePaths.WorkspaceSessionsFile(WorkspaceId.ForPath(host.RepoRoot));
 
-		await host.RestartAsync(() => File.WriteAllText(overlay, """{"version":1,"activeId":null,"sessions":[]}"""));
+		await host.RestartAsync(() => File.WriteAllText(overlay, """{"version":2,"sessions":[]}"""));
 
 		var session = SessionById(host.Bridge, "codex-branch");
 		Assert.Equal("codex", session.GetProperty("providerId").GetString());
 		Assert.False(session.GetProperty("loaded").GetBoolean());
-		Assert.False(session.GetProperty("active").GetBoolean());
 	}
 
 	[Fact]
 	public async Task DormantUnknownProvider_DoesNotHidePrimaryClaudeSession() {
 		await using var host = await TestHost.StartAsync();
 		Assert.True((await host.CreateSessionAsync("branch-a")).Ok);
-		Assert.True((await host.Core.UnloadSessionAsync("branch-a", CancellationToken.None)).Ok);
+		Assert.True((await host.UnloadSessionAsync("branch-a")).Ok);
 		var registry = new WorktreeRegistry(
 			new LocalFileSystem(),
 			WeaviePaths.WorkspaceWorktreesFile(WorkspaceId.ForPath(host.RepoRoot)));
@@ -121,7 +168,7 @@ public sealed class HostCoreSessionRestoreTests {
 
 		await host.RestartAsync();
 
-		Assert.True(PrimaryIsActive(host.Bridge));
+		Assert.Equal("primary", host.SelectedSession.SlotId);
 		var stale = SessionById(host.Bridge, "branch-a");
 		Assert.Equal("removed-provider", stale.GetProperty("providerId").GetString());
 		Assert.Equal("unavailable", stale.GetProperty("agentSurface").GetString());
@@ -129,7 +176,7 @@ public sealed class HostCoreSessionRestoreTests {
 	}
 
 	[Fact]
-	public async Task StaleOverlayNamingAMissingSlot_IsSkipped_PrimaryStaysActive() {
+	public async Task StaleOverlayNamingAMissingSlot_IsSkipped() {
 		await using var host = await TestHost.StartAsync();
 
 		// An overlay naming a session whose worktree no longer reconciles (removed out-of-band). Restore must skip
@@ -137,13 +184,13 @@ public sealed class HostCoreSessionRestoreTests {
 		string overlay = WeaviePaths.WorkspaceSessionsFile(WorkspaceId.ForPath(host.RepoRoot));
 		Directory.CreateDirectory(Path.GetDirectoryName(overlay)!);
 		File.WriteAllText(overlay,
-			"""{"version":1,"activeId":"ghost","sessions":[{"id":"ghost","label":"ghost","worktreePath":"/gone","isPrimary":false,"loaded":true}]}""");
+			"""{"version":2,"sessions":[{"id":"ghost","label":"ghost","worktreePath":"/gone","isPrimary":false,"loaded":true}]}""");
 
 		await host.RestartAsync();
 
-		Assert.True(PrimaryIsActive(host.Bridge));
+		Assert.Equal("primary", host.SelectedSession.SlotId);
 		Assert.DoesNotContain(
-			host.Bridge.LastOfType("session-list")!.Value.GetProperty("sessions").EnumerateArray(),
+			host.Bridge.LastEvent("sessions", "catalog")!.Value.EnumerateArray(),
 			s => s.GetProperty("id").GetString() == "ghost");
 	}
 
@@ -153,11 +200,79 @@ public sealed class HostCoreSessionRestoreTests {
 		Assert.True((await host.CreateSessionAsync("branch-a")).Ok);
 		host.Bridge.Clear();
 
-		host.Send("""{"type":"list-branches","id":"branches-1"}""");
+		string[] branches = await host.HostRequestAsync<string[]>("git", "branches", new { });
 
-		var reply = await Wait.ForAsync(() => host.Bridge.LastOfType("branches-result"));
+		Assert.Contains("branch-a", branches);
+	}
+
+	[Fact]
+	public async Task FileOpenedWithNoPageIsPresentInTheReconnectSnapshot() {
+		await using var host = await TestHost.StartAsync(_ => { }, sendReady: false);
+		string path = Path.Combine(host.RepoRoot, "readme.txt");
+
+		await host.PrimarySession.FileOpener.OpenAsync(
+			path,
+			line: 1,
+			preview: false,
+			scratch: false);
+		host.Bridge.Clear();
+		await host.ConnectAsync();
+
+		var restore = host.Bridge.LastEvent(host.PrimarySession.Address, "editor", "restore");
+		Assert.True(restore.HasValue);
 		Assert.Contains(
-			"branch-a",
-			reply.GetProperty("branches").EnumerateArray().Select(branch => branch.GetString()));
+			restore!.Value.GetProperty("session").GetProperty("open").EnumerateArray(),
+			entry => entry.GetProperty("path").GetString() == path);
+	}
+
+	[Fact]
+	public async Task SessionSync_ReplaysOnlyToTheRequestingPage() {
+		await using var host = await TestHost.StartAsync();
+		var requester = new WebPeer("reconnecting-page");
+		const string requestId = "reconnect-sync";
+		host.PrimarySession.State.Set("syncProbe", "state", "snapshot", new { value = 7 });
+		host.Bridge.Clear();
+
+		host.Bridge.Receive(
+			requester,
+			MessageEnvelope.SessionRequest(
+				host.PrimarySession.Address,
+				requestId,
+				"lifecycle",
+				"sync",
+				JsonSerializer.SerializeToElement(new { })).ToJson());
+
+		await Wait.UntilAsync(() => host.Bridge.Sent.Any(message =>
+			MessageEnvelope.TryParse(message.Json, out var envelope)
+			&& envelope is {
+				Kind: MessageKind.Event,
+				Feature: "syncProbe",
+				Name: "snapshot",
+			}));
+
+		var (replayPeer, _) = Assert.Single(host.Bridge.Sent, message =>
+			MessageEnvelope.TryParse(message.Json, out var envelope)
+			&& envelope is {
+				Kind: MessageKind.Event,
+				Feature: "syncProbe",
+				Name: "snapshot",
+			});
+		Assert.Equal(requester, replayPeer);
+		Assert.DoesNotContain(host.Bridge.Broadcasts, json =>
+			MessageEnvelope.TryParse(json, out var envelope)
+			&& envelope is {
+				Kind: MessageKind.Event,
+				Feature: "syncProbe",
+				Name: "snapshot",
+			});
+	}
+
+	private static void AssertAddress(CommandResult result, HostSession session) {
+		Assert.True(result.Ok, result.Error);
+		using var data = JsonDocument.Parse(Assert.IsType<string>(result.DataJson));
+		var address = data.RootElement.GetProperty("address");
+		Assert.Equal(session.SlotId, address.GetProperty("slot").GetString());
+		Assert.Equal(session.Incarnation, address.GetProperty("incarnation").GetString());
+		Assert.False(address.TryGetProperty("Slot", out _));
 	}
 }

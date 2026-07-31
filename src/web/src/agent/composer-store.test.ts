@@ -1,23 +1,76 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ClientSession } from "../bridge";
 
 const bridge = vi.hoisted(() => ({
-  listener: undefined as
-    | ((message: Record<string, unknown>, backendId: string) => void)
-    | undefined,
-  posted: [] as Array<{ backendId: string; message: Record<string, unknown> }>,
+  installer: undefined as ((session: ClientSession) => undefined | (() => void)) | undefined,
+  sessions: new Map<
+    string,
+    {
+      client: ClientSession;
+      handlers: Map<string, (payload: Record<string, unknown>) => void>;
+    }
+  >(),
+  posted: [] as Array<{
+    backendId: string;
+    slot: string;
+    feature: string;
+    name: string;
+    payload: Record<string, unknown>;
+  }>,
 }));
 
 vi.mock("../bridge", () => ({
-  onSessionMessage: (listener: (message: Record<string, unknown>, backendId: string) => void) => {
-    bridge.listener = listener;
+  registerSessionFeature: (installer: (session: ClientSession) => undefined | (() => void)) => {
+    bridge.installer = installer;
     return () => {};
-  },
-  postToBackend: (backendId: string, message: Record<string, unknown>) => {
-    bridge.posted.push({ backendId, message });
   },
 }));
 
 const store = await import("./composer-store");
+
+function ensureSession(
+  backendId: string,
+  slot: string,
+): {
+  client: ClientSession;
+  handlers: Map<string, (payload: Record<string, unknown>) => void>;
+} {
+  const key = `${backendId}\u0000${slot}`;
+  const existing = bridge.sessions.get(key);
+  if (existing !== undefined) {
+    return existing;
+  }
+  const handlers = new Map<string, (payload: Record<string, unknown>) => void>();
+  const client = {
+    connection: { id: backendId },
+    address: { slot, incarnation: `${slot}-incarnation` },
+    feature: (feature: string) => ({
+      on: (name: string, handler: (payload: Record<string, unknown>) => void) => {
+        handlers.set(`${feature}.${name}`, handler);
+        return () => handlers.delete(`${feature}.${name}`);
+      },
+      publish: (name: string, payload: Record<string, unknown>) => {
+        bridge.posted.push({ backendId, slot, feature, name, payload });
+      },
+    }),
+  } as unknown as ClientSession;
+  const session = { client, handlers };
+  bridge.sessions.set(key, session);
+  bridge.installer?.(client);
+  return session;
+}
+
+function deliver(
+  backendId: string,
+  slot: string,
+  name: string,
+  payload: Record<string, unknown>,
+): void {
+  ensureSession(backendId, slot).handlers.get(`agent.${name}`)?.(payload);
+}
+
+const owner = (backendId: string, slot: string): ClientSession =>
+  ensureSession(backendId, slot).client;
 
 describe("agent composer attachments", () => {
   beforeEach(() => {
@@ -26,34 +79,30 @@ describe("agent composer attachments", () => {
 
   it("captures the backend and blocks submission until the remote upload is ready", async () => {
     const event = pasteEvent(new Blob([new Uint8Array([1, 2, 3])], { type: "image/png" }));
-    store.setComposerDraft("remote-a", "slot-a", "describe it");
+    const session = owner("remote-a", "slot-a");
+    store.setComposerDraft(session, "describe it");
 
-    expect(store.captureAgentImagePaste(event, "remote-a", "slot-a")).toBe(true);
-    expect(store.submitAgentTurn("remote-a", "slot-a")).toBe(false);
+    expect(store.captureAgentImagePaste(event, session)).toBe(true);
+    expect(store.submitAgentTurn(session)).toBe(false);
     await flushAsyncWork();
 
-    const upload = bridge.posted.find(({ message }) => message.type === "agent-attachment-upload");
+    const upload = bridge.posted.find(({ name }) => name === "uploadAttachment");
     expect(upload?.backendId).toBe("remote-a");
-    expect(upload?.message.slot).toBe("slot-a");
-    const attachmentId = upload?.message.id as string;
+    expect(upload?.slot).toBe("slot-a");
+    const attachmentId = upload?.payload.id as string;
 
-    bridge.listener?.(
-      {
-        type: "agent-attachment-state",
-        slot: "slot-a",
-        id: attachmentId,
-        status: "ready",
-        error: "",
-      },
-      "remote-a",
-    );
-    expect(store.submitAgentTurn("remote-a", "slot-a")).toBe(true);
+    deliver("remote-a", "slot-a", "attachmentState", {
+      id: attachmentId,
+      status: "ready",
+      error: "",
+    });
+    expect(store.submitAgentTurn(session)).toBe(true);
 
-    const submission = bridge.posted.find(({ message }) => message.type === "agent-submit");
+    const submission = bridge.posted.find(({ name }) => name === "submit");
     expect(submission).toMatchObject({
       backendId: "remote-a",
-      message: {
-        slot: "slot-a",
+      slot: "slot-a",
+      payload: {
         prompt: "describe it",
         attachmentIds: [attachmentId],
       },
@@ -61,52 +110,44 @@ describe("agent composer attachments", () => {
   });
 
   it("clears only the acknowledged session after an accepted submission", () => {
-    store.setComposerDraft("remote-b", "slot-b", "keep me");
-    store.setComposerDraft("remote-c", "slot-c", "send me");
-    expect(store.submitAgentTurn("remote-c", "slot-c")).toBe(true);
-    const submission = bridge.posted.find(({ message }) => message.type === "agent-submit");
+    const kept = owner("remote-b", "slot-b");
+    const sent = owner("remote-c", "slot-c");
+    store.setComposerDraft(kept, "keep me");
+    store.setComposerDraft(sent, "send me");
+    expect(store.submitAgentTurn(sent)).toBe(true);
+    const submission = bridge.posted.find(({ name }) => name === "submit");
 
-    bridge.listener?.(
-      {
-        type: "agent-submission-state",
-        slot: "slot-c",
-        id: submission?.message.id,
-        attachmentIds: [],
-        status: "accepted",
-        error: "",
-      },
-      "remote-c",
-    );
+    deliver("remote-c", "slot-c", "submissionState", {
+      id: submission?.payload.id,
+      attachmentIds: [],
+      status: "accepted",
+      error: "",
+    });
 
-    expect(store.composerState("remote-c", "slot-c").draft).toBe("");
-    expect(store.composerState("remote-b", "slot-b").draft).toBe("keep me");
+    expect(store.composerState(sent).draft).toBe("");
+    expect(store.composerState(kept).draft).toBe("keep me");
   });
 
   it("submits staged skills as structured skill inputs and clears them once accepted", () => {
-    store.stageSkill("remote-s", "slot-s", "review-pr");
-    store.stageSkill("remote-s", "slot-s", "review-pr"); // duplicate ignored
-    expect(store.composerState("remote-s", "slot-s").skills).toEqual(["review-pr"]);
+    const session = owner("remote-s", "slot-s");
+    store.stageSkill(session, "review-pr");
+    store.stageSkill(session, "review-pr"); // duplicate ignored
+    expect(store.composerState(session).skills).toEqual(["review-pr"]);
 
-    expect(store.submitAgentTurn("remote-s", "slot-s")).toBe(true);
-    const submission = bridge.posted.find(({ message }) => message.type === "agent-submit");
-    expect(submission?.message).toMatchObject({
-      slot: "slot-s",
+    expect(store.submitAgentTurn(session)).toBe(true);
+    const submission = bridge.posted.find(({ name }) => name === "submit");
+    expect(submission?.payload).toMatchObject({
       prompt: "",
       skills: ["review-pr"],
     });
 
-    bridge.listener?.(
-      {
-        type: "agent-submission-state",
-        slot: "slot-s",
-        id: submission?.message.id,
-        attachmentIds: [],
-        status: "accepted",
-        error: "",
-      },
-      "remote-s",
-    );
-    expect(store.composerState("remote-s", "slot-s").skills).toEqual([]);
+    deliver("remote-s", "slot-s", "submissionState", {
+      id: submission?.payload.id,
+      attachmentIds: [],
+      status: "accepted",
+      error: "",
+    });
+    expect(store.composerState(session).skills).toEqual([]);
   });
 });
 

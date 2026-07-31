@@ -13,10 +13,10 @@ using Weavie.Core.Layout;
 using Weavie.Core.Lsp;
 using Weavie.Core.Mcp;
 using Weavie.Core.Sessions;
-using Weavie.Core.Shell;
 using Weavie.Core.Theming;
 using Weavie.Core.Workspaces;
 using Weavie.Hosting.Agents;
+using Weavie.Hosting.Messaging;
 
 namespace Weavie.Hosting;
 
@@ -24,14 +24,21 @@ namespace Weavie.Hosting;
 /// One Weavie session: the live, workspace-scoped backend an embedded agent works in — its two PTY terminals
 /// (agent + shell), provider MCP integration, the LSP bridge, the file opener, and the Monaco diff
 /// presenter, all rooted at a cwd given by constructor — so a worktree session is just one rooted at a different
-/// path. Platform-agnostic: it talks to the page through <see cref="IHostBridge"/> and spawns its PTYs through an
-/// injected <see cref="IPtyLauncher"/>; a <c>HostCore</c> owns a set of these and routes to the active one.
+/// path. Platform-agnostic: it talks to the page through <see cref="IWebTransportHub"/> and spawns its PTYs through an
+/// injected <see cref="IPtyLauncher"/>; a <c>HostCore</c> owns a set of exact-addressed session buses.
 /// </summary>
-public sealed class HostSession : IAsyncDisposable {
-	private readonly IHostBridge _bridge;
+public sealed partial class HostSession : IAsyncDisposable {
+	private readonly SessionEndpoint _endpoint;
+	private readonly MessageFeatureChannel _editorMessages;
+	private readonly MessageFeatureChannel _fileMessages;
+	private readonly MessageFeatureChannel _notificationMessages;
 	private readonly WorkspaceWatcher _watcher;
+	private readonly Lock _editorSessionGate = new();
+	private readonly Lock _disposeGate = new();
+	private EditorSession _editorSession = EditorSession.Empty;
+	private Task? _disposeTask;
 	// The server catalog advertised to the page (ids + language ids + default settings) — identical for every
-	// session, so serialized once; LspConfigJson adds the per-session slot + worktree root.
+	// session, so serialized once; LspConfigJson adds the per-session worktree root.
 	private static readonly string LspServersCatalogJson = JsonSerializer.Serialize(
 		LanguageServerCatalog.All.Select(d => new {
 			id = d.Id,
@@ -42,33 +49,33 @@ public sealed class HostSession : IAsyncDisposable {
 	/// <summary>
 	/// Builds and starts the session's backend rooted at <paramref name="workspaceRoot"/>: terminals (via
 	/// <paramref name="ptyLauncher"/>), the IDE-MCP + registry servers, and the LSP multiplexer.
-	/// <paramref name="id"/> is this session's identity within its workspace;
+	/// <paramref name="endpoint"/> is this session's exact message-bus incarnation;
 	/// <paramref name="corrections"/> is the workspace's shared correction ring this session records into.
 	/// </summary>
-	public HostSession(
-		IHostBridge bridge,
+	internal HostSession(
+		SessionEndpoint endpoint,
 		SettingsStore settings,
 		LayoutStore layout,
 		string workspaceRoot,
 		string scratchDir,
 		string pastedImagesDir,
 		string agentPaneTranscriptPath,
-		string id,
 		CommandRegistry commandRegistry,
 		KeybindingStore keybindings,
 		ThemeOverridesStore themeOverrides,
 		CorrectionCorpus corrections,
 		IPtyLauncher ptyLauncher,
 		IAgentProvider agentProvider,
-		HostRuntimeInfo runtime) {
-		ArgumentNullException.ThrowIfNull(bridge);
+		HostRuntimeInfo runtime,
+		Func<bool> inputFrozen,
+		Action<int, int> shellResized) {
+		ArgumentNullException.ThrowIfNull(endpoint);
 		ArgumentNullException.ThrowIfNull(settings);
 		ArgumentNullException.ThrowIfNull(layout);
 		ArgumentException.ThrowIfNullOrEmpty(workspaceRoot);
 		ArgumentException.ThrowIfNullOrEmpty(scratchDir);
 		ArgumentException.ThrowIfNullOrEmpty(pastedImagesDir);
 		ArgumentException.ThrowIfNullOrEmpty(agentPaneTranscriptPath);
-		ArgumentException.ThrowIfNullOrEmpty(id);
 		ArgumentNullException.ThrowIfNull(commandRegistry);
 		ArgumentNullException.ThrowIfNull(keybindings);
 		ArgumentNullException.ThrowIfNull(themeOverrides);
@@ -76,13 +83,20 @@ public sealed class HostSession : IAsyncDisposable {
 		ArgumentNullException.ThrowIfNull(ptyLauncher);
 		ArgumentNullException.ThrowIfNull(agentProvider);
 		ArgumentNullException.ThrowIfNull(runtime);
+		ArgumentNullException.ThrowIfNull(inputFrozen);
+		ArgumentNullException.ThrowIfNull(shellResized);
 
-		Id = id;
+		_endpoint = endpoint;
+		Background = new SessionTaskScope(Tagged("[session]"));
+		State = new SessionState(Bus);
+		DisplayLabel = endpoint.Address.Slot;
 		WorkspaceRoot = workspaceRoot;
-		_bridge = bridge;
+		_editorMessages = Bus.Feature("editor");
+		_fileMessages = Bus.Feature("files");
+		_notificationMessages = Bus.Feature("notifications");
 
-		// Per-session command dispatcher over the app-global catalog: runCommand (MCP) and the web's
-		// invoke-command both route here. The core wires the WebInvoker + Core handlers once the session exists.
+		// Per-session command dispatcher over the app-global catalog: runCommand (MCP) and this bus's
+		// commands.invoke requests both route here. Core wires the WebInvoker + Core handlers once the session exists.
 		Commands = new CommandDispatcher(commandRegistry);
 
 		var fileSystem = new LocalFileSystem();
@@ -99,14 +113,24 @@ public sealed class HostSession : IAsyncDisposable {
 		Browser = new WorkspaceBrowser(fileSystem, workspaceRoot);
 		FileIndex = new WorkspaceFileIndex(fileSystem, workspaceRoot);
 		Shell = new TerminalController(
-			bridge, "shell", settings, ptyLauncher, new ShellTerminalProcess(settings, workspaceRoot)) {
+			Bus.Feature("terminal.shell"),
+			"shell",
+			settings,
+			ptyLauncher,
+			new ShellTerminalProcess(settings, workspaceRoot)) {
 			Workspace = workspaceRoot,
 		};
-		// The session's gate for editor-mutating page messages: a muted (non-active) session holds its editor work
-		// instead of writing into the page's single, foreground-bound editor. Starts muted (HostCore activates it).
-		EditorChannel = new SessionEditorChannel(bridge);
-		FileOpener = new FileOpener(EditorChannel, FileProvider, bridge, FileIndex);
-		DiffPresenter = new McpDiffPresenter(EditorChannel, FileProvider, FileOpener);
+		FileOpener = new FileOpener(
+			View.Feature("view"),
+			_notificationMessages,
+			FileProvider,
+			FileIndex,
+			PublishEditorFileOpen);
+		DiffPresenter = new McpDiffPresenter(
+			_editorMessages,
+			FileProvider,
+			FileOpener,
+			PublishEditorClose);
 		// Tracks the editor's active file + selection (fed by the page) so the provider integration can tell
 		// this session's agent what the user is looking at.
 		Editor = new EditorStore();
@@ -161,14 +185,15 @@ public sealed class HostSession : IAsyncDisposable {
 				Events = eventRouter,
 				CurrentSessionId = () => SlotId,
 			},
-			bridge,
-			settings,
+				Bus.Feature("agent"),
+				Bus.Feature("terminal.agent"),
+				settings,
 			ptyLauncher,
 			agentPaneTranscriptPath);
 		Claude = Agent.Terminal;
 		// When the agent flips into an auto-apply mode (e.g. Shift+Tab to acceptEdits, clearing a pending openDiff in
 		// the TUI), tear down any stale blocking openDiff — left alone it strands its review model over the editor
-		// and blocks the post-turn review. Fires on the hook accept loop; EndDiff only touches the active session.
+		// and blocks the post-turn review. Each presenter only touches its owning session.
 		ObservedMode.Changed += () => {
 			if (ObservedMode.AutoAppliesEdits) {
 				DiffPresenter.DismissPending();
@@ -181,21 +206,45 @@ public sealed class HostSession : IAsyncDisposable {
 			Claude.SupervisorChanged += Status.ObserveSupervisor;
 		}
 
-		// LSP: language servers spawned on demand and multiplexed over the SAME web bridge as the terminal — each
-		// monaco-languageclient gets a (slot, channel) the host routes to its server's stdio. No socket/port/token of
+		// LSP: language servers spawned on demand and multiplexed over the same session bus as the terminal — each
+		// monaco-languageclient gets a channel that its owning session routes to server stdio. No socket/port/token of
 		// its own, so language intelligence inherits the backend's transport (in-process, WebSocket, or a future
 		// TLS-proxied one) and reaches remote sessions. The catalog is advertised in LspConfigJson so the page lazily
 		// starts a client per language and feeds each server its defaults (e.g. gopls needs {"semanticTokens":true}).
-		Lsp = new LspController(bridge, workspaceRoot, new LspServerLauncher(), LanguageServerCatalog.Resolve, Tagged("[lsp]"));
+		Lsp = new LspController(
+			workspaceRoot,
+			new LspServerLauncher(),
+			LanguageServerCatalog.Resolve,
+			Tagged("[lsp]"));
+		Bus.PeerDisconnected += peer =>
+			_ = Background.Run(_ => Lsp.DisconnectAsync(peer));
 		// Watch the worktree for on-disk edits (agent or external): fan each debounced batch to the editor's
 		// file:// provider (FileChanges) AND to the live language servers (didChangeWatchedFiles). Owned here, not by
 		// the LSP layer, so it runs even with zero servers connected. Started eagerly.
 		_watcher = new WorkspaceWatcher(workspaceRoot, LanguageServerCatalog.WatchedExtensions, OnWatchedChanges, Tagged("[lsp]"), debounceMs: 250);
 		_watcher.Start();
+		WireMessages(inputFrozen, shellResized);
 	}
 
-	/// <summary>This session's identity within its workspace.</summary>
-	public string Id { get; }
+	/// <summary>This live backend incarnation.</summary>
+	public string Incarnation => Address.Incarnation;
+
+	/// <summary>The immutable slot and live incarnation used by the router.</summary>
+	internal SessionAddress Address => _endpoint.Address;
+
+	/// <summary>The session-owned message bus.</summary>
+	internal SessionMessageBus Bus => _endpoint.Bus;
+
+	/// <summary>Advertises this session's already-constructed bus after its exact address enters the host catalog.</summary>
+	internal void ActivateMessages() => _endpoint.Activate();
+
+	/// <summary>The transient page presentation currently attached to this exact session.</summary>
+	public SessionView View => _endpoint.View;
+
+	/// <summary>Background work cancelled and drained with this session.</summary>
+	internal SessionTaskScope Background { get; }
+
+	internal SessionState State { get; }
 
 	/// <summary>The directory this session's agent, shell, file opener, and LSP are rooted at.</summary>
 	public string WorkspaceRoot { get; }
@@ -203,7 +252,7 @@ public sealed class HostSession : IAsyncDisposable {
 	/// <summary>The session's filesystem, used to persist the editor's autosaved buffers to disk.</summary>
 	public IFileSystem FileSystem { get; }
 
-	/// <summary>Serves the editor's host-backed <c>file://</c> provider (workspace-scoped fs-stat/read/write).</summary>
+	/// <summary>Serves the editor's host-backed <c>file://</c> provider through this session's files feature.</summary>
 	public FileProviderService FileProvider { get; }
 
 	/// <summary>Owns this workspace's scratch (untitled-buffer) directory; New File creates a file here.</summary>
@@ -221,7 +270,7 @@ public sealed class HostSession : IAsyncDisposable {
 	/// <summary>Flat recursive file list under the session root, for the omnibar "Go to File" quick-open.</summary>
 	public WorkspaceFileIndex FileIndex { get; }
 
-	/// <summary>The embedded-agent terminal, kept under the legacy <c>claude</c> wire id for compatibility when terminal-backed.</summary>
+	/// <summary>The selected provider's terminal-compatible agent pane, when it has one.</summary>
 	public TerminalController? Claude { get; }
 
 	/// <summary>The selected provider session and its compatibility terminal.</summary>
@@ -236,13 +285,7 @@ public sealed class HostSession : IAsyncDisposable {
 	/// <summary>Renders agent <c>openDiff</c> proposals to the Monaco diff view and resolves them.</summary>
 	public McpDiffPresenter DiffPresenter { get; }
 
-	/// <summary>
-	/// The per-session gate for editor-mutating page messages, active only while this session drives the page; a
-	/// muted session holds its show-diff/open-file/close-tab and replays it on switch-in.
-	/// </summary>
-	public SessionEditorChannel EditorChannel { get; }
-
-	/// <summary>Routes command invocations (runCommand over MCP, invoke-command from the web) to Core/web handlers.</summary>
+	/// <summary>Routes command invocations from MCP or this session's bus to Core/web handlers.</summary>
 	public CommandDispatcher Commands { get; }
 
 	/// <summary>Tracks the editor's active file + selection so the agent knows what the user is looking at.</summary>
@@ -250,10 +293,128 @@ public sealed class HostSession : IAsyncDisposable {
 
 	/// <summary>
 	/// This session's open editor tabs (paths + opaque view state), in memory for the window's lifetime. The page
-	/// is the sole writer; the core pushes it as a <c>set-editor-session</c> on a switch so the editor rebinds to
-	/// this session's worktree files. The primary also mirrors to the persisted store; worktree sessions don't.
+	/// reports user-driven changes while host-driven opens mutate the same state. The primary also mirrors to the
+	/// persisted store; worktree sessions don't.
 	/// </summary>
-	public EditorSession EditorSession { get; set; } = EditorSession.Empty;
+	public EditorSession EditorSession {
+		get { lock (_editorSessionGate) { return _editorSession; } }
+		set {
+			ArgumentNullException.ThrowIfNull(value);
+			lock (_editorSessionGate) {
+				_editorSession = value;
+			}
+
+			EditorSessionChanged?.Invoke(value);
+		}
+	}
+
+	internal event Action<EditorSession>? EditorSessionChanged;
+
+	internal void ReplayEditor(MessageTargetFeature target, Action<string> log) {
+		ArgumentNullException.ThrowIfNull(target);
+		ArgumentNullException.ThrowIfNull(log);
+		lock (_editorSessionGate) {
+			target.PublishJson(
+				"restore",
+				EditorSessionStore.BuildRestoreJson(
+					_editorSession,
+					FileSystem,
+					WorkspaceRoot,
+					log));
+		}
+	}
+
+	private void PublishEditorFileOpen(
+		string path,
+		int line,
+		bool preview,
+		bool scratch) {
+		EditorSession next;
+		lock (_editorSessionGate) {
+			next = RecordEditorOpenLocked(path, preview, scratch, kind: null);
+			_editorMessages.Publish("openFile", new { path, line, preview, scratch });
+		}
+
+		EditorSessionChanged?.Invoke(next);
+	}
+
+	private EditorSession RecordEditorOpenLocked(
+		string path,
+		bool preview,
+		bool scratch,
+		string? kind) {
+		EditorSession next;
+		var current = _editorSession;
+		var open = current.Open.ToList();
+		int existing = open.FindIndex(entry => SameEditorPath(entry.Path, path));
+		if (existing >= 0) {
+			var entry = open[existing];
+			if (entry.Preview && !preview) {
+				open[existing] = entry with { Preview = false };
+			}
+		} else {
+			var entry = new EditorSessionEntry {
+				Path = path,
+				Kind = kind,
+				ViewState = null,
+				Preview = preview,
+				Scratch = scratch,
+			};
+			int priorPreview = preview
+				? open.FindIndex(candidate => candidate.Preview)
+				: -1;
+			if (priorPreview >= 0) {
+				open[priorPreview] = entry;
+			} else {
+				open.Add(entry);
+			}
+		}
+
+		next = current with { Active = path, Open = open };
+		_editorSession = next;
+		return next;
+	}
+
+	private void PublishEditorClose(string path) {
+		EditorSession? next = null;
+		lock (_editorSessionGate) {
+			var current = _editorSession;
+			int index = current.Open.ToList().FindIndex(entry => SameEditorPath(entry.Path, path));
+			if (index < 0) {
+				return;
+			}
+
+			var open = current.Open.Where(entry => !SameEditorPath(entry.Path, path)).ToArray();
+			string? active = current.Active;
+			if (active is not null && SameEditorPath(active, path)) {
+				active = open.Length == 0 ? null : open[Math.Min(index, open.Length - 1)].Path;
+			}
+
+			next = current with { Active = active, Open = open };
+			_editorSession = next;
+			_editorMessages.Publish("closeTab", new { path });
+		}
+
+		EditorSessionChanged?.Invoke(next);
+	}
+
+	internal void OpenEditorOverlay(string path, string kind) {
+		EditorSession next;
+		lock (_editorSessionGate) {
+			next = RecordEditorOpenLocked(path, preview: false, scratch: false, kind);
+			_editorMessages.Publish("openOverlay", new { path, kind });
+		}
+
+		EditorSessionChanged?.Invoke(next);
+	}
+
+	private static bool SameEditorPath(string left, string right) =>
+		string.Equals(
+			left,
+			right,
+			OperatingSystem.IsWindows()
+				? StringComparison.OrdinalIgnoreCase
+				: StringComparison.Ordinal);
 
 	/// <summary>Records every file changed this session (diff vs. each file's session baseline).</summary>
 	public SessionChangeTracker Changes { get; }
@@ -280,17 +441,19 @@ public sealed class HostSession : IAsyncDisposable {
 	public event Action<IReadOnlyList<WatchedFileChange>>? FileChanges;
 
 	/// <summary>
-	/// The rail slot this session is bound to (empty until bound). The page tags its <c>lsp-*</c> frames with it so
-	/// the host routes them to this session, and it is carried in <see cref="LspConfigJson"/> for the page to read.
+	/// The rail slot this session owns.
 	/// </summary>
-	public string SlotId { get; private set; } = string.Empty;
+	public string SlotId => Address.Slot;
+
+	/// <summary>The latest catalog label for this session, used by owner-scoped notifications.</summary>
+	internal string DisplayLabel { get; set; } = string.Empty;
 
 	/// <summary>
-	/// The <c>window.__WEAVIE_LSP__</c> / <c>lsp-config</c> discovery payload: the session's slot (frames are tagged
-	/// with it), its worktree root, and the server catalog. No URL/token — LSP rides the bridge, not its own socket.
+	/// The session's LSP discovery payload: its worktree root and server catalog. Addressing belongs to the
+	/// session message envelope, not the feature payload.
 	/// </summary>
 	public string LspConfigJson =>
-		$"{{\"slot\":\"{JsonEncodedText.Encode(SlotId)}\",\"workspace\":\"{JsonEncodedText.Encode(WorkspaceRoot)}\",\"servers\":{LspServersCatalogJson}}}";
+		$"{{\"workspace\":\"{JsonEncodedText.Encode(WorkspaceRoot)}\",\"servers\":{LspServersCatalogJson}}}";
 
 	/// <summary>
 	/// Lists <paramref name="requestedPath"/> within the session root and pushes a <c>dir-listing</c> reply to the
@@ -304,20 +467,20 @@ public sealed class HostSession : IAsyncDisposable {
 			// Surface the failure instead of letting it throw past the reply (which would hang the browser on
 			// a folder that never fills); the page still gets an (empty) listing so its spinner resolves.
 			entries = [];
-			_bridge.PostToWeb(ShellProtocol.BuildNotify(
-				"warn", $"Couldn't list {(string.IsNullOrEmpty(requestedPath) ? Browser.Root : requestedPath)}: {ex.Message}"));
+			_notificationMessages.Publish("show", new {
+				level = "warn",
+				message = $"Couldn't list {(string.IsNullOrEmpty(requestedPath) ? Browser.Root : requestedPath)}: {ex.Message}",
+			});
 		}
 
-		string json = JsonSerializer.Serialize(new {
-			type = "dir-listing",
+		_fileMessages.Publish("directory", new {
 			path = string.IsNullOrEmpty(requestedPath) ? Browser.Root : requestedPath,
 			entries = entries.Select(e => new { name = e.Name, path = e.Path, isDir = e.IsDirectory }),
 		});
-		_bridge.PostToWeb(json);
 	}
 
 	/// <summary>
-	/// Applies an <c>active-editor-changed</c> message from the page: updates the editor store, which pushes a
+	/// Applies an editor <c>activeChanged</c> event from the page: updates the editor store, which pushes a
 	/// <c>selection_changed</c> notification to the provider integration.
 	/// </summary>
 	public void UpdateActiveEditor(JsonElement message) {
@@ -332,34 +495,6 @@ public sealed class HostSession : IAsyncDisposable {
 	/// </summary>
 	public void UpdateOpenEditors(JsonElement message) =>
 		Editor.SetOpenEditors(OpenEditorTab.ParseList(message));
-
-	/// <summary>
-	/// Activates or mutes this session's editor output channel, flipped in lockstep with the active session so a
-	/// background session never writes into the page's single editor. On activation it replays work held while
-	/// muted (so a background openDiff surfaces on switch-in). Terminals need no such mute (each has its own pane).
-	/// </summary>
-	public void SetEditorOutputActive(bool active) {
-		if (active) {
-			EditorChannel.Activate();
-		} else {
-			EditorChannel.Deactivate();
-			// No longer the foreground editor: drop the active-file/open-tab mirror so this session's agent
-			// reports "no active editor", not a stale file. The page re-reports both on switch-in.
-			Editor.Clear();
-		}
-	}
-
-	/// <summary>
-	/// Tags this session's terminal panes with their rail <paramref name="slotId"/>, so every <c>term-*</c>
-	/// message names its session and the page routes it to that session's own xterm.
-	/// </summary>
-	public void BindTerminalsToSlot(string slotId) {
-		SlotId = slotId;
-		if (Claude is { } agentTerminal) {
-			agentTerminal.SlotId = slotId;
-		}
-		Shell.SlotId = slotId;
-	}
 
 	/// <summary>Starts the active agent runtime.</summary>
 	public void EnsureAgentStarted() {
@@ -441,7 +576,9 @@ public sealed class HostSession : IAsyncDisposable {
 			return false;
 		}
 
-		EditorChannel.Reveal(AgentPlanProtocol.Show(plan with { Id = $"{Id}:{plan.Id}" }));
+		string path = AgentPlanProtocol.Path(plan);
+		State.Set("editor", $"plan:{plan.Id}", "agentPlan", AgentPlanProtocol.Show(plan, path));
+		OpenEditorOverlay(path, "plan");
 		return true;
 	}
 
@@ -451,17 +588,26 @@ public sealed class HostSession : IAsyncDisposable {
 	};
 
 	/// <inheritdoc/>
-	public async ValueTask DisposeAsync() {
-		// Terminal disposal blocks until the PTY children exit (so a following worktree delete can't race a process
-		// still rooted there). Run it off the calling (often UI) thread so a slow-closing child can't freeze the app.
-		await Task.Run(() => {
-			Claude?.Dispose();
-			Shell.Dispose();
-		}).ConfigureAwait(false);
-		await Agent.DisposeProviderAsync().ConfigureAwait(false);
-		_watcher.Dispose();
-		// Pasted images are ephemeral prompt inputs — drop this session's on unload so they never accumulate.
-		PastedImages.Clear();
-		await Lsp.DisposeAsync().ConfigureAwait(false);
+	public ValueTask DisposeAsync() {
+		lock (_disposeGate) {
+			return new ValueTask(_disposeTask ??= DisposeCoreAsync());
+		}
+	}
+
+	private async Task DisposeCoreAsync() {
+		await _endpoint.QuiesceAsync().ConfigureAwait(false);
+		try {
+			await Background.DisposeAsync().ConfigureAwait(false);
+			await FileOpener.DisposeAsync().ConfigureAwait(false);
+			_watcher.Dispose();
+			// Terminal disposal blocks until the PTY children exit (so a following worktree delete can't race a
+			// process still rooted there). Keep it off the calling UI thread.
+			await Task.Run(() => Shell.Dispose()).ConfigureAwait(false);
+			await Agent.DisposeAsync().ConfigureAwait(false);
+			await Lsp.DisposeAsync().ConfigureAwait(false);
+			PastedImages.Clear();
+		} finally {
+			await _endpoint.DisposeAsync().ConfigureAwait(false);
+		}
 	}
 }

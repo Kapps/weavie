@@ -1,18 +1,67 @@
 import { describe, expect, it, vi } from "vitest";
-import type { AgentControlState, AgentModelChoice } from "../bridge";
+import type { AgentControlState, AgentModelChoice, ClientSession } from "../bridge";
+
+interface MockSession {
+  connection: { id: string };
+  address: { slot: string; incarnation: string };
+  feature: (feature: string) => {
+    on: (name: string, listener: (payload: Record<string, unknown>) => void) => () => void;
+    publish: (name: string, payload: Record<string, unknown>) => void;
+  };
+}
 
 const bridge = vi.hoisted(() => ({
-  listener: undefined as ((message: Record<string, unknown>) => void) | undefined,
-  posted: [] as Array<{ backendId: string; message: Record<string, unknown> }>,
+  installer: undefined as ((session: MockSession) => undefined | (() => void)) | undefined,
+  listeners: new Map<string, (payload: Record<string, unknown>) => void>(),
+  posted: [] as Array<{
+    backendId: string;
+    slot: string;
+    feature: string;
+    name: string;
+    payload: Record<string, unknown>;
+  }>,
 }));
 
+function session(backendId: string, slot: string): MockSession {
+  return {
+    connection: { id: backendId },
+    address: { slot, incarnation: `${slot}-incarnation` },
+    feature: (feature: string) => ({
+      on: (name: string, listener: (payload: Record<string, unknown>) => void) => {
+        bridge.listeners.set(`${backendId}\0${slot}\0${feature}\0${name}`, listener);
+        return () => {};
+      },
+      publish: (name: string, payload: Record<string, unknown>) => {
+        bridge.posted.push({ backendId, slot, feature, name, payload });
+      },
+    }),
+  };
+}
+
+const sessions = new Map<string, MockSession>();
+function sessionForSlot(backendId: string, slot: string) {
+  const key = `${backendId}\0${slot}`;
+  let value = sessions.get(key);
+  if (value === undefined) {
+    value = session(backendId, slot);
+    sessions.set(key, value);
+    bridge.installer?.(value);
+  }
+  return value;
+}
+
+const owner = (backendId: string, slot: string): ClientSession =>
+  sessionForSlot(backendId, slot) as unknown as ClientSession;
+
+function emitControls(backendId: string, slot: string, value: AgentControlState): void {
+  sessionForSlot(backendId, slot);
+  bridge.listeners.get(`${backendId}\0${slot}\0agent\0controls`)?.({ state: value });
+}
+
 vi.mock("../bridge", () => ({
-  onHostMessage: (listener: (message: Record<string, unknown>) => void) => {
-    bridge.listener = listener;
+  registerSessionFeature: (installer: (value: MockSession) => undefined | (() => void)) => {
+    bridge.installer = installer;
     return () => {};
-  },
-  postToBackend: (backendId: string, message: Record<string, unknown>) => {
-    bridge.posted.push({ backendId, message });
   },
 }));
 
@@ -65,66 +114,54 @@ const planState: AgentControlState = {
 
 describe("agent controls store", () => {
   it("records host-pushed control state per slot and stays empty for others", () => {
-    bridge.listener?.({ type: "agent-controls", slot: "slot-a", workspace: "/w", state });
+    emitControls("remote-a", "slot-a", state);
 
-    expect(store.agentControlState("slot-a")).toEqual(state);
-    expect(store.agentControlState("slot-b").modelControl.models).toEqual([]);
-    expect(store.currentModel("slot-a")?.id).toBe("gpt-5.5");
-    expect(store.currentModel("slot-b")).toBeUndefined();
+    expect(store.agentControlState(owner("remote-a", "slot-a"))).toEqual(state);
+    expect(store.agentControlState(owner("remote-a", "slot-b")).modelControl.models).toEqual([]);
+    expect(store.currentModel(owner("remote-a", "slot-a"))?.id).toBe("gpt-5.5");
+    expect(store.currentModel(owner("remote-a", "slot-b"))).toBeUndefined();
   });
 
   it("posts a live control change to the session's backend", () => {
     bridge.posted.length = 0;
-    store.setAgentControl("remote-a", "slot-a", "model", "gpt-5.4-mini");
+    store.setAgentControl(owner("remote-a", "slot-a"), "model", "gpt-5.4-mini");
 
     expect(bridge.posted).toEqual([
       {
         backendId: "remote-a",
-        message: {
-          type: "agent-set-control",
-          slot: "slot-a",
-          axis: "model",
-          value: "gpt-5.4-mini",
-        },
+        slot: "slot-a",
+        feature: "agent",
+        name: "setControl",
+        payload: { axis: "model", value: "gpt-5.4-mini" },
       },
     ]);
   });
 
   it("toggles the command-owned mode between advertised Plan and default presets", () => {
     bridge.posted.length = 0;
-    bridge.listener?.({
-      type: "agent-controls",
-      slot: "slot-plan",
-      workspace: "/w",
-      state: planState,
-    });
+    emitControls("remote-a", "slot-plan", planState);
 
-    expect(store.toggleAgentControl("remote-a", "slot-plan", "weavie.agent.togglePlanMode")).toBe(
-      true,
-    );
-    expect(bridge.posted.at(-1)?.message).toMatchObject({
+    expect(
+      store.toggleAgentControl(owner("remote-a", "slot-plan"), "weavie.agent.togglePlanMode"),
+    ).toBe(true);
+    expect(bridge.posted.at(-1)?.payload).toMatchObject({
       axis: "collaborationMode",
       value: "plan",
     });
 
-    bridge.listener?.({
-      type: "agent-controls",
-      slot: "slot-plan",
-      workspace: "/w",
-      state: {
-        ...planState,
-        axes: planState.axes.map((axis) => ({ ...axis, value: "plan", valueLabel: "Plan" })),
-      },
+    emitControls("remote-a", "slot-plan", {
+      ...planState,
+      axes: planState.axes.map((axis) => ({ ...axis, value: "plan", valueLabel: "Plan" })),
     });
-    store.toggleAgentControl("remote-a", "slot-plan", "weavie.agent.togglePlanMode");
-    expect(bridge.posted.at(-1)?.message).toMatchObject({ value: "default" });
+    store.toggleAgentControl(owner("remote-a", "slot-plan"), "weavie.agent.togglePlanMode");
+    expect(bridge.posted.at(-1)?.payload).toMatchObject({ value: "default" });
   });
 
   it("selecting an effort under a non-current model switches model first, then sets effort", () => {
     bridge.posted.length = 0;
-    store.selectModelEffort("remote-a", "slot-a", mini, "low");
+    store.selectModelEffort(owner("remote-a", "slot-a"), mini, "low");
 
-    expect(bridge.posted.map((entry) => [entry.message.axis, entry.message.value])).toEqual([
+    expect(bridge.posted.map((entry) => [entry.payload.axis, entry.payload.value])).toEqual([
       ["model", "gpt-5.4-mini"],
       ["effort", "low"],
     ]);
@@ -132,24 +169,24 @@ describe("agent controls store", () => {
 
   it("selecting an effort under the current model sets only the effort", () => {
     bridge.posted.length = 0;
-    store.selectModelEffort("remote-a", "slot-a", gpt55, "low");
+    store.selectModelEffort(owner("remote-a", "slot-a"), gpt55, "low");
 
-    expect(bridge.posted.map((entry) => [entry.message.axis, entry.message.value])).toEqual([
+    expect(bridge.posted.map((entry) => [entry.payload.axis, entry.payload.value])).toEqual([
       ["effort", "low"],
     ]);
   });
 
   it("toggling Fast sends the model's fast tier when off and standard when on", () => {
     bridge.posted.length = 0;
-    store.toggleModelFast("remote-a", "slot-a", gpt55); // off -> priority
-    store.toggleModelFast("remote-a", "slot-a", { ...gpt55, fastOn: true }); // on -> standard
+    store.toggleModelFast(owner("remote-a", "slot-a"), gpt55); // off -> priority
+    store.toggleModelFast(owner("remote-a", "slot-a"), { ...gpt55, fastOn: true }); // on -> standard
 
-    expect(bridge.posted.map((entry) => entry.message.value)).toEqual(["priority", "standard"]);
+    expect(bridge.posted.map((entry) => entry.payload.value)).toEqual(["priority", "standard"]);
   });
 
   it("toggling Fast on a model without a fast tier does nothing", () => {
     bridge.posted.length = 0;
-    store.toggleModelFast("remote-a", "slot-a", mini);
+    store.toggleModelFast(owner("remote-a", "slot-a"), mini);
     expect(bridge.posted).toEqual([]);
   });
 

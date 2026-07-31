@@ -1,77 +1,193 @@
 import { createSignal } from "solid-js";
+import { type ClientSession, registerSessionFeature, selectedSession } from "../../bridge";
 
-// The fetched source documents (Notion pages), keyed by their target — the same key the source tab uses as its
-// path/id. The host drives these through `source-loading` → `source-doc` (or `source-error`); SourceView renders
-// the active tab's entry by status, TabStrip reads its title. Content lives only here (never persisted), mirroring
-// how web tabs hold only their URL.
 export interface SourceDocEntry {
   title: string;
-  // The producing source's stable id, stamped by the host on source-loading/source-doc (e.g. "notion", "logs")
-  // — the tab icon keys off it (source-icons.tsx).
   sourceId: string;
-  // Exactly one body is set when ready: `markdown` (Notion — rendered to HTML by SourceView) or pre-rendered
-  // `html` from the host (the log viewer), which SourceView sanitizes and injects as-is.
   markdown?: string | undefined;
   html?: string | undefined;
-  // The page's last-edited time (ISO 8601), or "" when unknown — shown in the SourceView header.
   editedTime: string;
-  // Content the source couldn't return: the page was cut off (`truncated`) and/or `unknownBlocks` blocks were
-  // unreadable. Rendered as a banner above the content — the flags live beside the markdown, never inside it,
-  // so the markdown stays the verbatim fetched text the edit path diffs against.
   truncated: boolean;
   unknownBlocks: number;
   status: "loading" | "ready" | "error";
-  // Set when status is "error": the failure reason, shown in the tab instead of the spinner.
   message?: string;
 }
 
-const [docs, setDocs] = createSignal<Record<string, SourceDocEntry>>({});
+export interface SourceTokenPrompt {
+  session: ClientSession;
+  sourceId: string;
+  label: string;
+}
 
-export function setSourceLoading(target: string, title: string, sourceId: string): void {
-  setDocs((prev) => ({
-    ...prev,
-    [target]: {
+export interface SourceEditError {
+  session: ClientSession;
+  target: string;
+  message: string;
+  stale: boolean;
+}
+
+const [documents, setDocuments] = createSignal<Map<ClientSession, Record<string, SourceDocEntry>>>(
+  new Map(),
+);
+const [tokenPrompts, setTokenPrompts] = createSignal<Map<ClientSession, SourceTokenPrompt>>(
+  new Map(),
+);
+const editErrorListeners = new Set<(error: SourceEditError) => void>();
+
+function updateDocument(
+  session: ClientSession,
+  target: string,
+  update: (previous: SourceDocEntry | undefined) => SourceDocEntry,
+): void {
+  setDocuments((previous) => {
+    const next = new Map(previous);
+    next.set(session, {
+      ...(previous.get(session) ?? {}),
+      [target]: update(previous.get(session)?.[target]),
+    });
+    return next;
+  });
+}
+
+export function sourceDoc(
+  session: ClientSession | null,
+  target: string,
+): SourceDocEntry | undefined {
+  return session === null ? undefined : documents().get(session)?.[target];
+}
+
+export function selectedSourceTokenPrompt(): SourceTokenPrompt | null {
+  const session = selectedSession();
+  return session === null ? null : (tokenPrompts().get(session) ?? null);
+}
+
+function clearSourceTokenPrompt(session: ClientSession): void {
+  setTokenPrompts((previous) => {
+    const next = new Map(previous);
+    next.delete(session);
+    return next;
+  });
+}
+
+export function dismissSourceTokenPrompt(session: ClientSession): void {
+  clearSourceTokenPrompt(session);
+  session.feature("sources").publish("dismissToken", {});
+}
+
+export function onSourceEditError(listener: (error: SourceEditError) => void): () => void {
+  editErrorListeners.add(listener);
+  return () => editErrorListeners.delete(listener);
+}
+
+export function openSourceTarget(session: ClientSession, url: string): void {
+  session.feature("sources").publish("open", { url });
+}
+
+export function openSelectedSourceTarget(url: string): void {
+  const session = selectedSession();
+  if (session !== null) {
+    openSourceTarget(session, url);
+  }
+}
+
+export function saveSourceEdit(
+  session: ClientSession,
+  target: string,
+  oldText: string,
+  newText: string,
+): void {
+  session.feature("sources").publish("saveEdit", { target, oldText, newText });
+}
+
+export function submitSourceToken(
+  session: ClientSession,
+  sourceId: string,
+  token: string,
+): Promise<{ ok: boolean; error: string }> {
+  return session.feature("sources").request("saveToken", { sourceId, token });
+}
+
+registerSessionFeature((session) => {
+  const source = session.feature("sources");
+  const offPrompt = source.on<{ sourceId: string; label: string }>(
+    "promptToken",
+    ({ sourceId, label }) => {
+      setTokenPrompts((previous) => {
+        const next = new Map(previous);
+        next.set(session, { session, sourceId, label });
+        return next;
+      });
+    },
+  );
+  const offLoading = source.on<{
+    target: string;
+    title: string;
+    sourceId: string;
+  }>("loading", ({ target, title, sourceId }) => {
+    updateDocument(session, target, () => ({
       title,
       sourceId,
       editedTime: "",
       truncated: false,
       unknownBlocks: 0,
       status: "loading",
-    },
-  }));
-}
-
-export function setSourceDoc(
-  target: string,
-  doc: {
+    }));
+  });
+  const offDocument = source.on<{
+    target: string;
     title: string;
     sourceId: string;
-    markdown?: string | undefined;
-    html?: string | undefined;
+    markdown?: string;
+    html?: string;
     editedTime: string;
-    truncated: boolean;
-    unknownBlocks: number;
-  },
-): void {
-  setDocs((prev) => ({ ...prev, [target]: { ...doc, status: "ready" } }));
-}
-
-export function setSourceError(target: string, message: string): void {
-  setDocs((prev) => ({
-    ...prev,
-    // Keep the loading entry's guessed title + source id so the tab keeps its label and icon through the failure.
-    [target]: {
-      title: prev[target]?.title ?? "Notion",
-      sourceId: prev[target]?.sourceId ?? "",
-      editedTime: "",
-      truncated: false,
-      unknownBlocks: 0,
-      status: "error",
-      message,
+    truncated?: boolean;
+    unknownBlocks?: number;
+  }>("document", (message) => {
+    updateDocument(session, message.target, () => ({
+      title: message.title,
+      sourceId: message.sourceId,
+      ...(message.markdown === undefined ? {} : { markdown: message.markdown }),
+      ...(message.html === undefined ? {} : { html: message.html }),
+      editedTime: message.editedTime,
+      truncated: message.truncated === true,
+      unknownBlocks: message.unknownBlocks ?? 0,
+      status: "ready",
+    }));
+  });
+  const offError = source.on<{ target: string; message: string }>(
+    "error",
+    ({ target, message }) => {
+      updateDocument(session, target, (previous) => ({
+        title: previous?.title ?? "Notion",
+        sourceId: previous?.sourceId ?? "",
+        editedTime: "",
+        truncated: false,
+        unknownBlocks: 0,
+        status: "error",
+        message,
+      }));
     },
-  }));
-}
-
-export function sourceDoc(target: string): SourceDocEntry | undefined {
-  return docs()[target];
-}
+  );
+  const offEditError = source.on<{
+    target: string;
+    message: string;
+    stale: boolean;
+  }>("editError", ({ target, message, stale }) => {
+    for (const listener of editErrorListeners) {
+      listener({ session, target, message, stale });
+    }
+  });
+  return () => {
+    offPrompt();
+    offLoading();
+    offDocument();
+    offError();
+    offEditError();
+    setDocuments((previous) => {
+      const next = new Map(previous);
+      next.delete(session);
+      return next;
+    });
+    clearSourceTokenPrompt(session);
+  };
+});

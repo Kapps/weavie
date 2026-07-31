@@ -1,5 +1,5 @@
 import { createEffect, createMemo, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
-import type { AgentControlAxis } from "../bridge";
+import type { AgentControlAxis, ClientSession } from "../bridge";
 import {
   agentControlState,
   closeControlPicker,
@@ -10,14 +10,14 @@ import {
 // The popover that opens above a status-line segment (or from a `/model`-style command): the axis's options,
 // keyboard-navigable. AgentStatusLine owns the `agentControlPickerOpen` gate (whenever any picker is open) so the
 // composer's Enter/Escape commands stand down and this window handler drives selection instead.
-export function AgentControlPicker(props: { backendId: string; slot: string | null }): JSX.Element {
+export function AgentControlPicker(props: { session: ClientSession | null }): JSX.Element {
   const [highlight, setHighlight] = createSignal(0);
   const axis = createMemo<AgentControlAxis | null>(() => {
     const id = openControlAxis();
-    if (id === null || props.slot === null) {
+    if (id === null || props.session === null) {
       return null;
     }
-    return agentControlState(props.slot).axes.find((candidate) => candidate.id === id) ?? null;
+    return agentControlState(props.session).axes.find((candidate) => candidate.id === id) ?? null;
   });
 
   // Seed the highlight only when the picker opens or switches axes: a host re-push rebuilds the axes with
@@ -40,10 +40,10 @@ export function AgentControlPicker(props: { backendId: string; slot: string | nu
   });
 
   const pick = (optionId: string): void => {
-    const slot = props.slot;
+    const session = props.session;
     const current = axis();
-    if (slot !== null && current !== null) {
-      setAgentControl(props.backendId, slot, current.id, optionId);
+    if (session !== null && current !== null) {
+      setAgentControl(session, current.id, optionId);
     }
     closeControlPicker();
   };

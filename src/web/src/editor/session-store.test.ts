@@ -1,70 +1,92 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { ClientSession } from "../bridge";
 import type { EditorSessionEntry } from "./session-types";
 
-// Capture the store's host listener + every outbound message; the bridge itself is window-coupled.
-const posted = vi.hoisted(() => [] as Array<Record<string, unknown>>);
-const hostHandlers = vi.hoisted(() => [] as Array<(m: unknown, backendId: string) => void>);
-const postedBackends = vi.hoisted(() => [] as Array<string | null>);
+interface Posted {
+  backendId: string;
+  slot: string;
+  feature: string;
+  name: string;
+  payload: Record<string, unknown>;
+}
+
+interface FakeSession {
+  client: ClientSession;
+  restore?: (session: { active: string | null; open: EditorSessionEntry[] }) => void;
+}
+
 const bridgeState = vi.hoisted(() => ({
-  activeBackendId: "local",
-  binding: null as {
-    backendId: string;
-    protocol: "projection";
-    sessionId: string | null;
-    railSessionId: string;
-    projectionEpoch: string;
-    projectionRevision: number;
-    projectionPageId: string;
-  } | null,
+  installer: undefined as ((session: ClientSession) => undefined | (() => void)) | undefined,
+  selected: null as ClientSession | null,
+  sessions: new Map<string, FakeSession>(),
+  posted: [] as Posted[],
 }));
+
 vi.mock("../bridge", () => ({
-  currentEditorBinding: () => bridgeState.binding,
-  editorBackendId: () => bridgeState.binding?.backendId ?? null,
-  editorSessionId: () => bridgeState.binding?.sessionId ?? null,
-  onHostMessage: (h: (m: unknown, backendId: string) => void) => {
-    hostHandlers.push(h);
+  registerSessionFeature: (installer: (session: ClientSession) => undefined | (() => void)) => {
+    bridgeState.installer = installer;
     return () => {};
   },
-  editorAttribution: (binding: NonNullable<typeof bridgeState.binding>) => ({
-    sessionId: binding.sessionId,
-    projectionEpoch: binding.projectionEpoch,
-    projectionRevision: binding.projectionRevision,
-    projectionPageId: binding.projectionPageId,
-  }),
-  postToEditorBinding: (
-    binding: NonNullable<typeof bridgeState.binding>,
-    m: Record<string, unknown>,
-  ) => {
-    posted.push(m);
-    postedBackends.push(binding.backendId);
-  },
+  selectedSession: () => bridgeState.selected,
 }));
 
 const store = await import("./session-store");
 
 type Entry = EditorSessionEntry;
 
-// Seed the store via the host's set-editor-session, then clear the captured traffic so each test starts fresh.
-function seed(open: Entry[], active: string | null, owner = "sess-1", backendId = "local"): void {
-  bridgeState.binding = {
-    backendId,
-    protocol: "projection",
-    sessionId: owner,
-    railSessionId: owner,
-    projectionEpoch: "host-test",
-    projectionRevision: 1,
-    projectionPageId: "page-test",
-  };
-  for (const h of hostHandlers) {
-    h({ type: "set-editor-session", sessionId: owner, session: { active, open } }, backendId);
+function fakeSession(backendId: string, owner: string): FakeSession {
+  const key = `${backendId}\u0000${owner}`;
+  const existing = bridgeState.sessions.get(key);
+  if (existing !== undefined) {
+    return existing;
   }
-  posted.length = 0;
-  postedBackends.length = 0;
+  const fake = {} as FakeSession;
+  const client = {
+    connection: {
+      id: backendId,
+      reportError: (error: unknown) => {
+        throw error;
+      },
+    },
+    address: {
+      slot: owner,
+      incarnation: owner,
+    },
+    state: {
+      editor: {
+        subscribe: (
+          listener: (session: { active: string | null; open: EditorSessionEntry[] }) => void,
+        ) => {
+          fake.restore = listener;
+          return () => {};
+        },
+      },
+    },
+    feature: (feature: string) => ({
+      publish: (name: string, payload: Record<string, unknown>) => {
+        bridgeState.posted.push({ backendId, slot: owner, feature, name, payload });
+      },
+    }),
+  } as unknown as ClientSession;
+  fake.client = client;
+  bridgeState.sessions.set(key, fake);
+  bridgeState.installer?.(client);
+  return fake;
 }
 
-const openEditorsPushes = (): Array<Record<string, unknown>> =>
-  posted.filter((m) => m.type === "open-editors-changed");
-const paths = (): string[] => store.openTabs().map((e) => e.path);
+// Restore one session-owned editor store and select it for the convenience exports.
+function seed(open: Entry[], active: string | null, owner = "sess-1", backendId = "local"): void {
+  const fake = fakeSession(backendId, owner);
+  bridgeState.selected = fake.client;
+  fake.restore?.({ active, open });
+  bridgeState.posted.length = 0;
+}
+
+const openEditorsPushes = (): Posted[] =>
+  bridgeState.posted.filter(
+    (message) => message.feature === "editor" && message.name === "openEditorsChanged",
+  );
+const paths = (): string[] => store.openTabs().map((entry) => entry.path);
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -110,18 +132,19 @@ describe("openTab", () => {
     expect(store.openTabs()[0]?.preview).toBeFalsy();
   });
 
-  it("keeps a plan tab transient and out of the host's open-editor and persisted session views", () => {
+  it("keeps a plan out of agent file context while preserving it in the session snapshot", () => {
     seed([], null);
     store.openTab("agent-plan:1", { kind: "plan" });
 
     expect(store.openTabs()[0]).toMatchObject({ path: "agent-plan:1", kind: "plan" });
-    expect(openEditorsPushes().at(-1)?.editors).toEqual([]);
+    expect(openEditorsPushes().at(-1)?.payload.editors).toEqual([]);
 
     vi.advanceTimersByTime(300);
-    const changed = posted.find((m) => m.type === "editor-session-changed") as
-      | { session?: { active?: string | null; open?: Array<{ path: string }> } }
-      | undefined;
-    expect(changed?.session).toEqual({ active: null, open: [] });
+    const changed = bridgeState.posted.find((message) => message.name === "sessionChanged");
+    expect(changed?.payload.session).toEqual({
+      active: "agent-plan:1",
+      open: [{ path: "agent-plan:1", kind: "plan", viewState: null }],
+    });
   });
 });
 
@@ -264,31 +287,49 @@ describe("captureViewState", () => {
     expect(openEditorsPushes()).toHaveLength(0);
     // The data-only change still reaches the host as a debounced editor-session-changed.
     vi.advanceTimersByTime(300);
-    const changed = posted.find((m) => m.type === "editor-session-changed") as
-      | { session?: { open?: Array<{ viewState?: unknown }> } }
+    const changed = bridgeState.posted.find((message) => message.name === "sessionChanged");
+    const session = changed?.payload.session as
+      | { open?: Array<{ viewState?: unknown }> }
       | undefined;
-    expect(changed?.session?.open?.[0]?.viewState).toEqual({ scroll: 3 });
+    expect(session?.open?.[0]?.viewState).toEqual({ scroll: 3 });
   });
 });
 
 describe("session ownership", () => {
-  it("flushEditorSession sends the pending change immediately, stamped with the owner", () => {
+  it("flushEditorSession sends the pending change on the owning session bus", () => {
     seed([], null, "sess-A");
     store.openTab("/a.ts");
-    posted.length = 0;
+    bridgeState.posted.length = 0;
     store.flushEditorSession();
-    const changed = posted.find((m) => m.type === "editor-session-changed");
-    expect(changed).toMatchObject({ sessionId: "sess-A" });
+    const changed = bridgeState.posted.find((message) => message.name === "sessionChanged");
+    expect(changed).toMatchObject({ backendId: "local", slot: "sess-A" });
     expect(store.editorOwner()).toBe("sess-A");
   });
 
-  it("drops a pending debounced send when the session is switched (no cross-worktree leak)", () => {
+  it("flushEditorSessionFor drains the exact owner even while another session is selected", () => {
+    seed([], null, "sess-A");
+    const first = bridgeState.selected!;
+    store.openTab("/a.ts");
+    seed([{ path: "/b.ts", viewState: null }], "/b.ts", "sess-B");
+    bridgeState.posted.length = 0;
+
+    store.flushEditorSessionFor(first);
+
+    expect(bridgeState.posted.find((message) => message.name === "sessionChanged")).toMatchObject({
+      backendId: "local",
+      slot: "sess-A",
+    });
+  });
+
+  it("keeps a pending debounced send on its owner when another session is selected", () => {
     seed([], null, "sess-A");
     store.openTab("/a.ts"); // schedules a debounced send for sess-A
-    seed([{ path: "/b.ts", viewState: null }], "/b.ts", "sess-B"); // rebinds + clears the pending timer
+    seed([{ path: "/b.ts", viewState: null }], "/b.ts", "sess-B");
     vi.advanceTimersByTime(300);
-    // No editor-session-changed for the abandoned sess-A change should have fired.
-    expect(posted.some((m) => m.type === "editor-session-changed")).toBe(false);
+    expect(bridgeState.posted.find((message) => message.name === "sessionChanged")).toMatchObject({
+      backendId: "local",
+      slot: "sess-A",
+    });
     expect(store.editorOwner()).toBe("sess-B");
   });
 
@@ -298,16 +339,15 @@ describe("session ownership", () => {
     expect(store.editorOwner()).toBe("sess-remote");
   });
 
-  it("keeps a debounced session update on its editor owner during an active-backend handoff", () => {
+  it("keeps a debounced session update on its editor owner during cross-host selection", () => {
     seed([], null, "sess-remote", "remote:devbox");
-    bridgeState.activeBackendId = "local";
 
     store.openTab("/remote/a.ts");
     vi.advanceTimersByTime(300);
 
-    expect(posted.find((message) => message.type === "editor-session-changed")).toMatchObject({
-      sessionId: "sess-remote",
+    expect(bridgeState.posted.find((message) => message.name === "sessionChanged")).toMatchObject({
+      backendId: "remote:devbox",
+      slot: "sess-remote",
     });
-    expect(postedBackends).toEqual(["remote:devbox", "remote:devbox"]);
   });
 });

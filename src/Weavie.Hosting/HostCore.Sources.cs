@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
 using Weavie.Core.Sources;
 
@@ -11,7 +12,7 @@ public sealed partial class HostCore {
 	// A source URL the user opened before connecting (with its already-resolved source id): stashed when the open
 	// resolver routes to connect, then opened once SaveSourceTokenAsync validates the token — so connecting from a
 	// click lands on the page they asked for.
-	private PendingSource? _pendingSource;
+	private readonly ConcurrentDictionary<Messaging.SessionAddress, PendingSource> _pendingSources = new();
 
 	private sealed record PendingSource(string Target, string SourceId);
 
@@ -22,18 +23,19 @@ public sealed partial class HostCore {
 	/// sent back as <c>open-web</c> for a web (iframe) tab. Keeping the match host-side means the web never
 	/// re-implements a source's predicate.
 	/// </summary>
-	private void OpenTargetForWeb(string url) {
+	private void OpenTargetForWeb(HostSession session, string url) {
 		if (!IsHttpUrl(url)) {
 			return;
 		}
 
 		if (_sources.IdFor(url) is not { } sourceId) {
-			_bridge.PostToWeb($"{{\"type\":\"open-web\",\"url\":{JsonString(url)}}}");
+			session.OpenEditorOverlay(url, "web");
 		} else if (_sources.IsConnected(url)) {
-			_ = FetchSourceForWebAsync(url, sourceId);
+			session.OpenEditorOverlay(url, "source");
+			_ = session.Background.Run(ct => FetchSourceForWebAsync(session, url, sourceId, ct));
 		} else {
-			_pendingSource = new PendingSource(url, sourceId);
-			PromptConnectNotion();
+			_pendingSources[session.Address] = new PendingSource(url, sourceId);
+			PromptConnectNotion(session);
 		}
 	}
 
@@ -42,46 +44,58 @@ public sealed partial class HostCore {
 	/// input. The user pastes their personal access token there; <see cref="SaveSourceTokenAsync"/> (driven by the
 	/// <c>set-source-token</c> message) then validates and saves it. No file editing required.
 	/// </summary>
-	private void PromptConnectNotion() {
+	private void PromptConnectNotion(HostSession session) {
 		_ui.Post(() => _platform.OpenExternalUrl(_sources.SetupUrlFor(NotionSource.SourceId)));
-		_bridge.PostToWeb(JsonSerializer.Serialize(new {
-			type = "prompt-source-token",
+		session.State.Set("sources", "tokenPrompt", "promptToken", new {
 			sourceId = NotionSource.SourceId,
 			label = "Notion",
-		}));
+		});
 	}
 
 	/// <summary>
 	/// Validates and saves the access token the user pasted (the <c>set-source-token</c> message), toasts the
-	/// connected workspace, and replies <c>source-token-result</c> (tagged by <paramref name="id"/>): on success
-	/// the dialog closes, on a rejected/failed token it shows the reason inline so the user can fix it in place. A
-	/// rejected token is never saved.
+	/// connected workspace, and returns the result to the requesting session. A rejected token is never saved.
 	/// </summary>
-	private async Task SaveSourceTokenAsync(string id, string sourceId, string token) {
+	private async Task<SourceTokenResult> SaveSourceTokenAsync(
+		HostSession session,
+		string sourceId,
+		string token,
+		CancellationToken ct) {
 		if (string.IsNullOrWhiteSpace(sourceId) || string.IsNullOrWhiteSpace(token)) {
-			PostTokenResult(id, ok: false, "Enter a token to connect.");
-			return;
+			return new SourceTokenResult(false, "Enter a token to connect.");
 		}
 
 		try {
-			string workspace = await _sources.SaveTokenAsync(sourceId, token, CancellationToken.None).ConfigureAwait(false);
+			string workspace = await _sources.SaveTokenAsync(sourceId, token, ct).ConfigureAwait(false);
 			string where = string.IsNullOrWhiteSpace(workspace) ? "your Notion workspace" : $"Notion workspace “{workspace}”";
-			Notify("info", $"Connected to {where}.");
-			PostTokenResult(id, ok: true, string.Empty);
+			Notify(session, "info", $"Connected to {where}.");
+			session.State.Remove("sources", "tokenPrompt");
 			// A URL opened before connecting (the resolver stashed it): now that we're connected, open it.
-			if (Interlocked.Exchange(ref _pendingSource, null) is { } pending) {
-				_ = FetchSourceForWebAsync(pending.Target, pending.SourceId);
+			if (_pendingSources.TryRemove(session.Address, out var pending)) {
+				session.OpenEditorOverlay(pending.Target, "source");
+				_ = session.Background.Run(
+					stopping => FetchSourceForWebAsync(
+						session,
+						pending.Target,
+						pending.SourceId,
+						stopping));
 			}
+
+			return new SourceTokenResult(true, string.Empty);
 		} catch (Exception ex) when (ex is InvalidOperationException or HttpRequestException or TaskCanceledException or IOException or UnauthorizedAccessException) {
 			// Surface inline in the still-open dialog (not a toast), so the user can correct the token without
 			// restarting. TaskCanceledException covers HttpClient's own request timeout — without it a stalled Notion
 			// endpoint would leave this fire-and-forget task faulted, the result never sent, and the dialog stuck on "Connecting…".
-			PostTokenResult(id, ok: false, ex.Message);
+			return new SourceTokenResult(false, ex.Message);
 		}
 	}
 
-	private void PostTokenResult(string id, bool ok, string error) =>
-		_bridge.PostToWeb(JsonSerializer.Serialize(new { type = "source-token-result", id, ok, error }));
+	private void DismissSourceTokenPrompt(HostSession session) {
+		session.State.Remove("sources", "tokenPrompt");
+		_pendingSources.TryRemove(session.Address, out _);
+	}
+
+	private sealed record SourceTokenResult(bool Ok, string Error);
 
 	/// <summary>
 	/// Fetches a source <paramref name="target"/> (the matching source must be connected) and posts the host→web
@@ -90,36 +104,39 @@ public sealed partial class HostCore {
 	/// <c>source-loading</c> is posted first so the tab opens with a spinner while the fetch runs; a fetch failure
 	/// posts <c>source-error</c> into that same tab.
 	/// </summary>
-	private async Task FetchSourceForWebAsync(string target, string sourceId) {
-		_bridge.PostToWeb(JsonSerializer.Serialize(new {
-			type = "source-loading",
+	private async Task FetchSourceForWebAsync(
+		HostSession session,
+		string target,
+		string sourceId,
+		CancellationToken ct) {
+		session.State.Set("sources", target, "loading", new {
 			target,
 			title = GuessSourceTitle(target),
 			sourceId,
-		}));
+		});
 		SourceDoc doc;
 		try {
-			doc = await _sources.FetchAsync(target, CancellationToken.None).ConfigureAwait(false);
+			doc = await _sources.FetchAsync(target, ct).ConfigureAwait(false);
+		} catch (OperationCanceledException) when (ct.IsCancellationRequested) {
+			return;
 		} catch (Exception ex) {
 			// The spinner is already up, so EVERY failure must resolve it — not just the http/cancel set: a non-JSON
 			// 200 (proxy / captive-portal / incident HTML) throws JsonException deeper in, and this is fire-and-forget,
 			// so anything uncaught would leave the tab spinning forever. Surfaced loudly in the tab, never swallowed.
-			_bridge.PostToWeb(JsonSerializer.Serialize(new {
-				type = "source-error",
+			session.State.Set("sources", target, "error", new {
 				target,
 				message = ex.Message,
-			}));
+			});
 			return;
 		}
 
-		PostSourceDoc(target, sourceId, doc);
+		PostSourceDoc(session, target, sourceId, doc);
 	}
 
-	// The one host→web projection of a fetched/updated SourceDoc — fetch and save both land here, so the web's
+	// The one session event for a fetched/updated SourceDoc — fetch and save both land here, so the web's
 	// store always sees the same shape (including the loss flags its banner renders).
-	private void PostSourceDoc(string target, string sourceId, SourceDoc doc) =>
-		_bridge.PostToWeb(JsonSerializer.Serialize(new {
-			type = "source-doc",
+	private static void PostSourceDoc(HostSession session, string target, string sourceId, SourceDoc doc) =>
+		session.State.Set("sources", target, "document", new {
 			target,
 			title = doc.Title,
 			markdown = doc.Markdown,
@@ -127,7 +144,7 @@ public sealed partial class HostCore {
 			sourceId,
 			truncated = doc.Truncated,
 			unknownBlocks = doc.UnknownBlocks,
-		}));
+		});
 
 	/// <summary>
 	/// Applies one block edit (the <c>source-save-edit</c> message: an exact-match old/new pair the web diffed
@@ -136,21 +153,34 @@ public sealed partial class HostCore {
 	/// <c>stale:true</c> so the block offers a re-fetch; any other failure posts <c>stale:false</c>. This is
 	/// fire-and-forget like the fetch: every outcome must resolve the block's saving state, never leave it stuck.
 	/// </summary>
-	private async Task SaveSourceEditAsync(string target, string oldStr, string newStr) {
+	private async Task SaveSourceEditAsync(
+		HostSession session,
+		string target,
+		string oldStr,
+		string newStr,
+		CancellationToken ct) {
 		try {
-			var doc = await _sources.UpdateAsync(target, oldStr, newStr, CancellationToken.None).ConfigureAwait(false);
+			var doc = await _sources.UpdateAsync(target, oldStr, newStr, ct).ConfigureAwait(false);
 			// UpdateAsync just matched a source for this target, so a missing id is a real invariant break.
 			string sourceId = _sources.IdFor(target) ?? throw new InvalidOperationException($"No source claims '{target}'.");
-			PostSourceDoc(target, sourceId, doc);
+			PostSourceDoc(session, target, sourceId, doc);
 		} catch (SourceConflictException ex) {
-			PostSourceEditError(target, ex.Message, stale: true);
+			PostSourceEditError(session, target, ex.Message, stale: true);
 		} catch (Exception ex) {
-			PostSourceEditError(target, ex.Message, stale: false);
+			PostSourceEditError(session, target, ex.Message, stale: false);
 		}
 	}
 
-	private void PostSourceEditError(string target, string message, bool stale) =>
-		_bridge.PostToWeb(JsonSerializer.Serialize(new { type = "source-edit-error", target, message, stale }));
+	private static void PostSourceEditError(
+		HostSession session,
+		string target,
+		string message,
+		bool stale) =>
+		session.Bus.Feature("sources").Publish("editError", new {
+			target,
+			message,
+			stale,
+		});
 
 	// A best-effort tab label from a source URL's slug, shown while the real title loads: the last path segment with
 	// a trailing 32-hex id stripped and dashes spaced (…/Test-Page-38e5…0055 → "Test Page"); "Notion" when there's none.

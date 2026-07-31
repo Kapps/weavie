@@ -24,9 +24,17 @@ const raised: Array<{ level: string; message: string }> = [];
 
 beforeEach(() => {
   raised.length = 0;
-  setNotifySink((level, message) => raised.push({ level, message }));
+  setNotifySink(
+    (level, message) => raised.push({ level, message }),
+    () => {},
+  );
 });
-afterEach(() => setNotifySink(() => {}));
+afterEach(() =>
+  setNotifySink(
+    () => {},
+    () => {},
+  ),
+);
 
 describe("WeavieNotificationService", () => {
   const service = new WeavieNotificationService();

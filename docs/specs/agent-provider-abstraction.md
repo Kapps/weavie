@@ -228,21 +228,21 @@ composition fails at startup.
 
 ## Session isolation
 
-The invariants in [session-isolation-invariants.md](session-isolation-invariants.md) remain load-bearing:
+The invariants in [session-message-bus.md](session-message-bus.md) remain load-bearing:
 
 - each loaded Weavie session owns exactly one provider session rooted at that session's worktree;
-- every agent terminal frame remains slot-tagged and streams to its own xterm;
-- editor-mutating output is gated by that session's `SessionEditorChannel`;
+- every agent terminal frame travels on its owning exact-session bus and streams to its own xterm;
+- editor-mutating output updates that session's editor state whether or not it is selected;
 - MCP/IDE/hook endpoints and credentials remain per session;
 - change events resolve against that session's workspace and scratch roots;
-- background sessions cannot publish onto the active editor surface;
+- background sessions cannot mutate another session's editor state;
 - provider disposal completes before its worktree may be removed.
 
 Disposal preserves today's order: stop and dispose the agent PTY first, then stop the provider's hook/MCP
 listeners and remove its generated artifacts. Only after both complete may the worktree be removed.
 
-Provider identity must not be inferred from the active session. When provider selection is later introduced,
-it becomes persisted session data and travels with the session through load, unload, restore, and remote hosts.
+Provider identity is persisted session data and travels with the session through load, unload, restore, and
+remote hosts; it is never inferred from client selection.
 
 ## Build sequence and gates
 

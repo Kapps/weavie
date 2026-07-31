@@ -21,6 +21,26 @@ export async function awaitFontsSettled(page: Page): Promise<void> {
   );
 }
 
+export async function activeSessionSlot(page: Page): Promise<string> {
+  const active = page.locator(".session-chip.active");
+  await expect(active).toHaveCount(1);
+  const slot = await active.getAttribute("data-session-slot");
+  if (slot === null) {
+    throw new Error("The selected session chip has no slot.");
+  }
+  return slot;
+}
+
+export async function waitForSessionSwitch(page: Page, previousSlot: string): Promise<string> {
+  await expect
+    .poll(async () => {
+      const slot = await activeSessionSlot(page);
+      return slot === previousSlot ? null : slot;
+    })
+    .not.toBeNull();
+  return activeSessionSlot(page);
+}
+
 // Open a workspace file through the omnibar's "Go to File" and wait until the editor is ACTUALLY showing it.
 // The first fuzzy match is auto-selected, so typing the name and pressing Enter opens it.
 export async function openFile(page: Page, name: string): Promise<void> {

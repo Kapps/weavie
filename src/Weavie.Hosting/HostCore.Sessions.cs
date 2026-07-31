@@ -10,30 +10,25 @@ using Weavie.Core.Sessions;
 using Weavie.Core.Theming;
 using Weavie.Core.Workspaces;
 using Weavie.Core.Worktrees;
+using Weavie.Hosting.Messaging;
 
 namespace Weavie.Hosting;
 
-// HostCore's ISessionHost impl + worktree/slot orchestration behind the rail: one SessionSlot per worktree
-// (plus primary), each LOADED (live HostSession) or UNLOADED. The active session drives the page (pushes gated
-// on IsActiveSession). See docs/specs/multi-session-and-worktrees.md.
+// HostCore's worktree/slot orchestration: one SessionSlot per worktree (plus primary), each loaded or dormant.
 public sealed partial class HostCore {
-	/// <summary>
-	/// Wires a session's command handlers + change/status/diff push subscriptions, gated on
-	/// <see cref="IsActiveSession"/>. State that ACCUMULATES while muted (the review feed) must also be
-	/// re-applied on switch-in (<c>PushIncomingReviewState</c> after the projection mount).
-	/// </summary>
+	/// <summary>Wires behavior to the owning session bus. No callback observes client selection.</summary>
 	private void WireSession(HostSession session) {
-		// Web commands drive the page's SINGLE editor surface, so only the active session may run them — else a
-		// background Claude's web command would execute in the foreground session. Reject loudly (no misroute).
-		session.Commands.WebInvoker = (id, args, ct) => IsActiveSession(session)
-			? InvokeWebCommandAsync(id, args, ct)
-			: Task.FromResult(CommandResult.Failure(
-				$"Command '{id}' runs in the editor UI and can only run for the focused session; switch to it and retry."));
+		session.EditorSessionChanged += state => {
+			if (ReferenceEquals(session, _primarySession)) {
+				_editorSession.Update(state);
+			}
+		};
+		session.Commands.WebInvoker = (id, args, ct) => InvokeWebCommandAsync(session, id, args, ct);
 		session.Commands.RegisterHandler(CoreCommands.ReopenTerminal, (_, _) => {
 			_ui.Post(() => session.Shell.Restart());
 			return Task.FromResult(CommandResult.Success("Reopened the terminal."));
 		});
-		session.Commands.RegisterHandler(CoreCommands.RestartClaude, (_, _) => {
+		session.Commands.RegisterHandler(CoreCommands.RestartAgent, (_, _) => {
 			_ui.Post(session.RestartAgent);
 			return Task.FromResult(CommandResult.Success("Restarted the agent."));
 		});
@@ -45,96 +40,78 @@ public sealed partial class HostCore {
 			_ui.Post(_platform.ToggleWindow);
 			return Task.FromResult(CommandResult.Success("Toggled the Weavie window."));
 		});
-		// Pre-fills the workspace-setup prompt into the primary session's Claude (seeds whichever session is active
-		// when the card is clicked; the handler always targets the primary).
+		// Session-bound command handlers always act on their owner, even while another client session is selected.
 		session.Commands.RegisterHandler(CoreCommands.SetupWorkspace, (_, _) => {
-			_ui.Post(SeedWorkspaceSetup);
+			_ui.Post(() => SeedWorkspaceSetup(session));
 			return Task.FromResult(CommandResult.Success("Asked Claude to set up this workspace."));
 		});
-		// /learn: prefill the correction-corpus analysis into the primary session (see HostCore.Learn.cs).
-		session.Commands.RegisterHandler(CoreCommands.LearnFromCorrections, (_, _) => Task.FromResult(RunLearn()));
+		session.Commands.RegisterHandler(
+			CoreCommands.LearnFromCorrections,
+			(_, _) => Task.FromResult(RunLearn(session)));
 		// Connect Notion: open the token page in the browser and ask the page to show the token input (the user
 		// pastes it there; set-source-token validates + saves). Synchronous — the work happens on the page.
 		session.Commands.RegisterHandler(CoreCommands.ConnectNotion, (_, _) => {
-			PromptConnectNotion();
+			PromptConnectNotion(session);
 			return Task.FromResult(CommandResult.Success("Opening your browser to connect Notion…"));
 		});
 		// View Logs: snapshot the captured console output into a read-only tab + return the recent tail (see
-		// HostCore.Logs.cs). Registered per session so whichever session is active serves it.
-		session.Commands.RegisterHandler(CoreCommands.ViewLogs, (_, _) => Task.FromResult(ShowLogs()));
+		// HostCore.Logs.cs). The tab opens on the invoking session's bus.
+		session.Commands.RegisterHandler(CoreCommands.ViewLogs, (_, _) => Task.FromResult(ShowLogs(session)));
 		RegisterTestRunHandlers(session);
 		ThemeCommands.RegisterHandlers(session.Commands, _settings, _themeOverrides, VsixPicker);
 		FontCommands.RegisterHandlers(session.Commands, _settings);
-		SessionCommands.RegisterHandlers(session.Commands, this);
+		SessionCommands.RegisterHandlers(session.Commands, new BoundSessionHost(this, session));
+		WireCoreSessionMessages(session);
 
-		// Change/status events fire on hook-pipe and watcher threads; the guard AND the push run posted on the
-		// UI thread — where switches run and in-order with their message train — so a stale event can't check
-		// active, lose to a switch, and still land after the incoming session's pushes.
-		session.Changes.Changed += () => _ui.Post(() =>
-			DispatchEditorProjection(session, PushTurnChangesToWeb));
-		session.Changes.FileChanged += path => _ui.Post(() =>
-			DispatchEditorProjection(session, () => {
-				PushRefreshToWeb(path);
-				PushTurnDiffToWeb(path);
-			}));
-		session.Changes.FileDeleted += path => _ui.Post(() =>
-			DispatchEditorProjection(session, () => PushDeletionToWeb(path)));
-		// A new prompt committed the faded accepted band: re-push the trimmed review set, each committed file's
-		// diff (its faded hunks vanish inline), and the now-cleared undo history.
-		session.Changes.AcceptedCommitted += paths => _ui.Post(() =>
-			DispatchEditorProjection(session, () => {
-				PushTurnChangesToWeb();
-				foreach (string path in paths) {
-					PushTurnDiffToWeb(path);
-				}
-
-				PushReviewHistoryToWeb();
-			}));
-		WireAttention(session);
-		session.Status.Changed += status => _ui.Post(() => {
-			if (IsActiveSession(session)) {
-				PostSessionStatus(status);
-				// A turn settling may have changed files / the branch — refresh the footer's git status.
-				PushGitStatus();
-				if (status is SessionStatus.Idle or SessionStatus.Waiting) {
-					PushPullRequestStatus();
-				}
+		session.Changes.Changed += () => PostForSession(session, () => PushTurnChangesToWeb(session));
+		session.Changes.FileChanged += path => PostForSession(session, () => {
+			PushRefreshToWeb(session, path);
+			PushTurnDiffToWeb(session, path);
+		});
+		session.Changes.FileDeleted += path =>
+			PostForSession(session, () => PushDeletionToWeb(session, path));
+		session.Changes.AcceptedCommitted += paths => PostForSession(session, () => {
+			PushTurnChangesToWeb(session);
+			foreach (string path in paths) {
+				PushTurnDiffToWeb(session, path);
 			}
 
-			// A pending update drain re-checks its gate the moment any session settles (or starts working).
+			PushReviewHistoryToWeb(session);
+		});
+		WireAttention(session);
+		session.Status.Changed += status => PostForSession(session, () => {
+			PostSessionStatus(session, status);
+			PushGitStatus(session);
+			if (status is SessionStatus.Idle or SessionStatus.Waiting) {
+				PushPullRequestStatus(session);
+			}
+
 			if (Draining) {
 				EvaluateDrain();
 			}
 
-			// The review set is pushed live on every edit (Changes.Changed), so the page's parked navigator
-			// surfaces changes as they land — no status-driven re-push or auto-open arming needed here.
 			PushSessionList();
 		});
-		session.FileChanges += changes => _ui.Post(() =>
-			DispatchEditorProjection(session, () => PushWatcherChangesToWeb(changes)));
+		session.FileChanges += changes =>
+			PostForSession(session, () => PushWatcherChangesToWeb(session, changes));
 	}
 
-	private bool IsActiveSession(HostSession session) => ReferenceEquals(_session, session);
+	private void PostForSession(HostSession session, Action action) {
+		_ = session.Background.Run(ct => RunOnUiAsync(() => {
+			if (!ct.IsCancellationRequested) {
+				action();
+			}
 
-	/// <summary>
-	/// The failure for a destructive delete/classify called without an id, else <c>null</c>. A no-id delete must
-	/// NOT fall back to the focused session (<c>ActiveSlot</c>): an embedded Claude lives in one session while the
-	/// user may have another focused, so a no-arg delete could tear down a session the caller never intended
-	/// (issue #217). The caller learns its OWN id from the <c>mcp__weavie__currentSession</c> tool; the interactive
-	/// human path (<c>deletePrompt</c>, not palette-visible raw delete) resolves focus in the web, where focus IS
-	/// the intent. Unload keeps its focused-session default — see <see cref="UnloadSessionAsync"/>.
-	/// </summary>
-	private static CommandResult? RequireSessionId(string? sessionId, string verb) =>
-		string.IsNullOrWhiteSpace(sessionId)
-			? CommandResult.Failure(
-				$"{verb} needs a session id — call the mcp__weavie__currentSession tool to get your own session's id, "
-				+ "then pass it. (It no longer defaults to the focused session, which may not be yours.)")
-			: null;
+			return Task.CompletedTask;
+		}));
+	}
 
-	/// <summary>Test seam: the session currently driving the page (the active backend), or null before startup.</summary>
-	internal HostSession? ActiveSessionForTest() => _session;
+	/// <summary>Test seam for one exact logical slot.</summary>
+	internal HostSession? SessionForTest(string slot) =>
+		_sessions?.Find(slot)?.Session
+		?? (slot == "primary" ? _primarySession : null);
 
-	/// <summary>Every loaded session's live backend (the active one plus any background slots), in rail order.</summary>
+	/// <summary>Every loaded session's live backend, in catalog order.</summary>
 	private List<HostSession> LoadedSessions() {
 		var list = new List<HostSession>();
 		if (_sessions is not null) {
@@ -143,62 +120,11 @@ public sealed partial class HostCore {
 					list.Add(session);
 				}
 			}
-		} else if (_session is not null) {
-			// Pre-rail (during StartAsync, before _sessions exists): only the primary is live.
-			list.Add(_session);
+		} else if (_primarySession is not null) {
+			list.Add(_primarySession);
 		}
 
 		return list;
-	}
-
-	/// <summary>
-	/// The session owning <paramref name="path"/> for an <c>fs-stat</c>/<c>fs-read</c>/<c>fs-write</c>: the loaded
-	/// session whose worktree contains it (longest-prefix), else the active session for a workspace scratch path,
-	/// else <c>null</c>. Routing by path (not the active session) keeps a switch from losing the outgoing
-	/// session's working-copy flush. A non-active owner is still served (data safety) but logged.
-	/// </summary>
-	private HostSession? ResolveFsSession(string path) {
-		if (string.IsNullOrEmpty(path)) {
-			return null;
-		}
-
-		var sessions = LoadedSessions();
-		if (sessions.Count == 0) {
-			return null;
-		}
-
-		int index = WorkspacePathRouter.OwningRootIndex([.. sessions.Select(s => s.WorkspaceRoot)], path);
-		if (index >= 0) {
-			var owner = sessions[index];
-			if (!ReferenceEquals(owner, _session)) {
-				Log($"[weavie] fs op for {path} routed to background session '{owner.Id}' (active '{_session?.Id}') — likely a stale editor tab");
-			}
-
-			return owner;
-		}
-
-		// A workspace scratch (untitled) buffer lives outside every worktree but is shared across the window's
-		// sessions, so serve it from the active session (whose editor shows it).
-		if (BufferStore.IsWithinWorkspace(WeaviePaths.WorkspaceScratchDir(Id), path)) {
-			return _session;
-		}
-
-		Log($"[weavie] fs op refused: {path} is outside every session worktree and the scratch dir");
-		return null;
-	}
-
-	/// <summary>
-	/// Routes a <c>diff-resolved</c> by owning session (diff ids are process-unique): a switch mid-resolve must
-	/// not hit another session's diff. Returns whether any session owned it (<c>false</c> = switch-race the caller logs).
-	/// </summary>
-	private bool ResolveDiff(string id, bool kept, string? finalContents) {
-		foreach (var session in LoadedSessions()) {
-			if (session.DiffPresenter.Resolve(id, kept, finalContents)) {
-				return true;
-			}
-		}
-
-		return false;
 	}
 
 	/// <summary>One git probe (instance reused downstream) for the rail label + worktree manager, so is-repo isn't
@@ -286,17 +212,16 @@ public sealed partial class HostCore {
 
 	/// <summary>Creates and registers the primary (workspace-root) slot, already loaded with the primary session.</summary>
 	private void AddPrimarySlot(string label) {
+		_primarySession!.DisplayLabel = label;
 		var slot = new SessionSlot {
-			Id = _primarySession!.Id,
+			Id = _primarySession.SlotId,
 			Label = label,
 			WorktreePath = WorkspaceRoot,
 			IsPrimary = true,
 			AgentProviderId = "claude",
 			Session = _primarySession,
-			LastActiveUtc = DateTimeOffset.UtcNow,
 		};
-		slot.Session.BindTerminalsToSlot(slot.Id);
-		_sessions?.Add(slot, activate: true);
+		_sessions?.Add(slot);
 	}
 
 	/// <summary>
@@ -330,7 +255,7 @@ public sealed partial class HostCore {
 					IsPrimary = false,
 					AgentProviderId = agentProviderId,
 					Session = null,
-				}, activate: false);
+				});
 			}
 
 			PushSessionList();
@@ -390,36 +315,50 @@ public sealed partial class HostCore {
 		}
 	}
 
-	/// <summary>Pushes the session list (id, label, active, loaded, status, identity) to the page's rail.</summary>
-	private void PushSessionList() {
-		if (_sessions is null) {
-			return;
-		}
+	/// <summary>Pushes the authoritative session catalog. Loaded entries carry their exact live address.</summary>
+	private void PushSessionList() =>
+		_messages.Host.Feature("sessions").Publish("catalog", BuildSessionCatalog());
 
-		// Loaded sessions first (creation order), dormant ones to the bottom — a parked session shouldn't sit
-		// between two live ones. OrderByDescending is stable, so the always-loaded primary stays at the top.
-		var sessions = _sessions.Slots
+	private void ActivateSessionMessages(HostSession session) {
+		SyncSession(session, session.Bus.BroadcastTarget);
+		session.ActivateMessages();
+	}
+
+	private SessionCatalogEntry[] BuildSessionCatalog() =>
+		_sessions?.Slots
 			.OrderByDescending(slot => slot.Loaded)
 			.Select(slot => {
 				var info = _agentProviders.FindInfo(slot.AgentProviderId);
 				bool structured = info?.Capabilities
 					.HasFlag(AgentProviderCapabilities.StructuredPane) == true;
-				return new {
-					id = slot.Id,
-					label = slot.Label,
-					active = ReferenceEquals(_sessions.ActiveSlot, slot),
-					loaded = slot.Loaded,
-					primary = slot.IsPrimary,
-					providerId = slot.AgentProviderId,
-					agentSurface = info is null ? "unavailable" : structured ? "structured" : "terminal",
-					agentInputProtocol = structured ? 2 : 0,
-					status = slot.Session is { } s ? StatusName(s.Status.Status) : "idle",
-					hue = SessionIdentity.Hue(slot.Label),
-					monogram = SessionIdentity.Monogram(slot.Label),
-				};
-			});
-		_bridge.PostToWeb(JsonSerializer.Serialize(new { type = "session-list", sessions }));
-	}
+				return new SessionCatalogEntry(
+					slot.Id,
+					slot.Label,
+					slot.Session?.Address,
+					slot.Loaded,
+					slot.IsPrimary,
+					slot.AgentProviderId,
+					info is null ? "unavailable" : structured ? "structured" : "terminal",
+					structured ? 2 : 0,
+					slot.Session is { } session ? StatusName(session.Status.Status) : "idle",
+					SessionIdentity.Hue(slot.Label),
+					SessionIdentity.Monogram(slot.Label));
+			})
+			.ToArray()
+		?? [];
+
+	private sealed record SessionCatalogEntry(
+		string Id,
+		string Label,
+		SessionAddress? Address,
+		bool Loaded,
+		bool Primary,
+		string ProviderId,
+		string AgentSurface,
+		int AgentInputProtocol,
+		string Status,
+		int Hue,
+		string Monogram);
 
 	private async Task<string> ResolvePrimaryLabelAsync(GitService git, bool isRepo) {
 		try {
@@ -436,8 +375,11 @@ public sealed partial class HostCore {
 		return Path.GetFileName(WorkspaceRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
 	}
 
-	private void PostSessionStatus(SessionStatus status) =>
-		_bridge.PostToWeb($"{{\"type\":\"session-status\",\"session\":\"claude\",\"status\":\"{StatusName(status)}\"}}");
+	private static void PostSessionStatus(HostSession session, SessionStatus status) =>
+		PostSessionStatus(session.Bus.BroadcastTarget, status);
+
+	private static void PostSessionStatus(MessageTarget target, SessionStatus status) =>
+		target.Feature("status").Publish("changed", new { status = StatusName(status) });
 
 	// Exhaustive on purpose: a silent default that maps an unhandled status to "idle" would render it
 	// drain-killable — exactly the Waiting bug — so a new status must be wired here, not fall through.
@@ -452,44 +394,72 @@ public sealed partial class HostCore {
 	};
 
 	/// <summary>Builds + wires a new <see cref="HostSession"/> rooted at <paramref name="cwd"/> (the live backend for a slot).</summary>
-	private HostSession CreateSession(string cwd, string agentProviderId) {
+	private HostSession CreateSession(string cwd, string agentProviderId, string slotId) {
 		var provider = _agentProviders.RequireAvailable(agentProviderId);
-		var session = new HostSession(
-			_bridge, _settings, _layout, cwd, WeaviePaths.WorkspaceScratchDir(Id),
-			// Pasted images go in a per-session subdir (keyed by worktree, like the scrollback log) so unloading
-			// one session's images never touches another's.
-			Path.Combine(WeaviePaths.WorkspacePastedImagesDir(Id), WorkspaceId.ForPath(cwd).Value),
-			// The structured agent pane's durable transcript (keyed by worktree, like the shell scrollback log)
-			// so its output restores across reload/unload/restart. Terminal-backed providers ignore it.
-			WeaviePaths.WorkspaceAgentPaneFile(Id, WorkspaceId.ForPath(cwd).Value),
-			Guid.NewGuid().ToString("n")[..8],
-			_commandRegistry, _keybindings, _themeOverrides, _corrections, _platform.PtyLauncher, provider, _runtime);
-		// Persist the shell scrollback (keyed by worktree path, stable across reloads) so a reattaching client
-		// replays a coherent screen. Shell only — claude resumes its own conversation.
-		session.Shell.ScrollbackLogPath =
-			WeaviePaths.WorkspaceTerminalLogFile(Id, WorkspaceId.ForPath(cwd).Value, "shell");
-		// Seed the shell's pre-spawn size from the last real terminal size so a background-restored child is born at
-		// the width its reattaching xterm will use — else its raw scrollback replays 80×24-wrapped and stacks garbled.
-		if (_sessionStore.ShellSize is { } shellSize) {
-			session.Shell.Resize(shellSize.Cols, shellSize.Rows);
-		}
+		var address = new SessionAddress(slotId, Guid.NewGuid().ToString("n"));
+		var endpoint = _messages.OpenSession(address);
+		HostSession? session = null;
+		try {
+			session = new HostSession(
+				endpoint,
+				_settings,
+				_layout,
+				cwd,
+				Path.Combine(WeaviePaths.WorkspaceScratchDir(Id), WorkspaceId.ForPath(cwd).Value),
+				// Pasted images go in a per-session subdir (keyed by worktree, like the scrollback log) so unloading
+				// one session's images never touches another's.
+				Path.Combine(WeaviePaths.WorkspacePastedImagesDir(Id), WorkspaceId.ForPath(cwd).Value),
+				// The structured agent pane's durable transcript (keyed by worktree, like the shell scrollback log)
+				// so its output restores across reload/unload/restart. Terminal-backed providers ignore it.
+				WeaviePaths.WorkspaceAgentPaneFile(Id, WorkspaceId.ForPath(cwd).Value),
+				_commandRegistry,
+				_keybindings,
+				_themeOverrides,
+				_corrections,
+				_platform.PtyLauncher,
+				provider,
+				_runtime,
+				() => _drainInputFrozen,
+				_sessionStore.RecordShellSize);
 
-		WireSession(session);
-		_mediaRoutes.Register(session.Id, [session.WorkspaceRoot, session.Scratch.Directory, session.PastedImages.Directory]);
-		return session;
+			// Persist the shell scrollback (keyed by worktree path, stable across reloads) so a reattaching client
+			// replays a coherent screen. Shell only — claude resumes its own conversation.
+			session.Shell.ScrollbackLogPath =
+				WeaviePaths.WorkspaceTerminalLogFile(Id, WorkspaceId.ForPath(cwd).Value, "shell");
+			// Seed the shell's pre-spawn size from the last real terminal size so a background-restored child is born at
+			// the width its reattaching xterm will use — else its raw scrollback replays 80×24-wrapped and stacks garbled.
+			if (_sessionStore.ShellSize is { } shellSize) {
+				session.Shell.Resize(shellSize.Cols, shellSize.Rows);
+			}
+
+			WireSession(session);
+			_mediaRoutes.Register(
+				session.Incarnation,
+				[session.WorkspaceRoot, session.Scratch.Directory, session.PastedImages.Directory]);
+			return session;
+		} catch (Exception creationError) {
+			try {
+				if (session is null) {
+					endpoint.DisposeAsync().AsTask().GetAwaiter().GetResult();
+				} else {
+					session.DisposeAsync().AsTask().GetAwaiter().GetResult();
+				}
+			} catch (Exception cleanupError) {
+				throw new AggregateException("Session construction and cleanup both failed.", creationError, cleanupError);
+			}
+
+			throw;
+		}
 	}
 
 	/// <summary>
-	/// Brings up an unloaded slot's backend (builds + wires its HostSession), then always (re-)binds its
-	/// terminals to the slot id — tagging this session's <c>term-output</c> with its rail id, without which the
-	/// page can't match output to the xterm and the panes stay blank. Idempotent, so safe on a plain switch.
+	/// Brings up an unloaded slot's exact-addressed backend. Idempotent when the slot is already loaded.
 	/// </summary>
 	private void LoadSlot(SessionSlot slot) {
 		if (!slot.Loaded) {
-			slot.Session = CreateSession(slot.WorktreePath, slot.AgentProviderId);
+			slot.Session = CreateSession(slot.WorktreePath, slot.AgentProviderId, slot.Id);
+			slot.Session.DisplayLabel = slot.Label;
 		}
-
-		slot.Session!.BindTerminalsToSlot(slot.Id);
 	}
 
 	/// <summary>
@@ -502,96 +472,88 @@ public sealed partial class HostCore {
 			return;
 		}
 
-		LoadSlot(slot);
-		var session = slot.Session!;
-		// Start the backends now so Claude runs even before its pane mounts (else it spawns on term-ready); the
-		// resize nudge on first mount repaints the live TUI.
-		session.EnsureAgentStarted();
-		session.Shell.EnsureStarted();
-		slot.LastActiveUtc = DateTimeOffset.UtcNow;
-		PushSessionList();
-		PersistSessionState();
-	}
-
-	/// <summary>
-	/// Binds the page to <paramref name="slot"/>, loading its backend first if dormant. Terminals are a pure
-	/// show/hide (each loaded session keeps its own live xterm pair). Rebinds the single editor to the slot's
-	/// worktree tabs, re-roots the omnibar/file browser, then re-pushes status + the rail + focus.
-	/// </summary>
-	private void SwitchToSlot(SessionSlot slot, bool replayAgentState) =>
-		SwitchToSlot(slot, replayAgentState, ProjectEditorForInternalSwitch);
-
-	private void SwitchToSlot(SessionSlot slot, bool replayAgentState, string? projectionPageId) =>
-		SwitchToSlot(
-			slot,
-			replayAgentState,
-			projectionPageId is null
-				? (target, replay) => BeginLegacyEditorProjection(target.Session!, replay)
-				: (target, replay) => BeginEditorProjection(target, projectionPageId, replay));
-
-	private void SwitchToSlot(SessionSlot slot, bool replayAgentState, Action<SessionSlot, bool> projectEditor) {
-		bool agentStateNeedsReplay = replayAgentState || !slot.Loaded;
-		LoadSlot(slot);
-		var session = slot.Session!;
-
-		var previous = _session;
-		if (previous is not null && !ReferenceEquals(previous, session)) {
-			// Mute the outgoing session's editor output BEFORE the rebind: tears its live blocking diff out of the
-			// page (re-renders on switch-back) so it can't linger over the incoming session.
-			previous.SetEditorOutputActive(false);
-		}
-
-		_session = session;
-		_sessions?.SetActive(slot);
-		slot.LastActiveUtc = DateTimeOffset.UtcNow;
-
-		// Rebind the editor to this session's worktree: push its open tabs so the page closes the previous
-		// session's working copies and reopens this one's.
-		projectEditor(slot, false);
-		// Flip the page to the incoming session's already-live panes before any expensive state projection. Keep
-		// focus adjacent and ordered after the list so keyboard input lands in the newly visible agent pane.
-		PushSessionList();
-		_bridge.PostToWeb("{\"type\":\"focus-pane\",\"kind\":\"terminal:claude\"}");
-		if (session.Agent.Structured is not null) {
+		try {
+			LoadSlot(slot);
+			var session = slot.Session!;
+			PushSessionList();
+			ActivateSessionMessages(session);
+			PersistSessionState();
+			// Start the backends now so Claude runs even before its pane mounts (else it spawns on terminal ready); the
+			// resize nudge on first mount repaints the live TUI.
 			session.EnsureAgentStarted();
-			// A remote backend's ready replay is intentionally hidden while that backend is not focused. Binding
-			// is therefore the authoritative projection boundary for the structured pane and its controls.
-			if (agentStateNeedsReplay) {
-				session.Agent.ReplayState();
-			}
+			session.Shell.EnsureStarted();
+		} catch (Exception error) {
+			throw RollbackSessionLoad(slot, removeSlot: false, error: error);
 		}
-		// Re-root the omnibar quick-open + file browser to this session's worktree.
-		PushFileIndexToWeb(invalidate: true);
-		// Re-point the editor's language clients at this session's own LSP bridge (rooted at its worktree).
-		PushLspConfigToWeb(session);
-		PostSessionStatus(session.Status.Status);
-		// Push the incoming session's worktree branch to the footer (its worktree may be on a different branch).
-		PushGitStatus();
-		PushPullRequestStatus();
-		// Record the new active slot (and any load it just triggered) so a reopen restores it.
-		PersistSessionState();
 	}
 
-	/// <inheritdoc/>
-	public Task<CommandResult> NewSessionAsync(NewSessionRequest request, CancellationToken ct) {
+	private Exception RollbackSessionLoad(
+		SessionSlot slot,
+		bool removeSlot,
+		Exception error) {
+		var failures = new List<Exception> { error };
+		if (slot.Session is { } session) {
+			try {
+				session.DisposeAsync().AsTask().GetAwaiter().GetResult();
+			} catch (Exception cleanupError) {
+				failures.Add(cleanupError);
+			}
+
+			if (ReferenceEquals(slot.Session, session)) {
+				slot.Session = null;
+			}
+			_mediaRoutes.Unregister(session.Incarnation);
+		}
+
+		if (removeSlot) {
+			_sessions?.Remove(slot);
+		}
+
+		try {
+			PushSessionList();
+			PersistSessionState();
+		} catch (Exception catalogError) {
+			failures.Add(catalogError);
+		}
+
+		return failures.Count == 1
+			? error
+			: new AggregateException("Session load and rollback both failed.", failures);
+	}
+
+	private Task<CommandResult> NewSessionAsync(
+		HostSession source,
+		NewSessionRequest request,
+		CancellationToken ct) {
+		ArgumentNullException.ThrowIfNull(source);
 		ArgumentNullException.ThrowIfNull(request);
 		string provider = ResolveNewSessionProvider(request.AgentProviderId);
-		return request.AttachExisting
-			? AttachExistingSessionAsync(request.Branch, request.Prompt, provider, ct)
-			: CreateWorktreeSessionAsync(request.Branch, request.Base, request.Prompt, provider, ct);
+		return RunSessionLifecycleAsync(
+			() => request.AttachExisting
+				? AttachExistingSessionAsync(request.Branch, request.Prompt, provider, ct)
+				: CreateWorktreeSessionAsync(source, request.Branch, request.Base, request.Prompt, provider, ct),
+			ct);
 	}
 
-	/// <inheritdoc/>
-	public Task<CommandResult> ForkSessionAsync(ForkSessionRequest request, CancellationToken ct) {
+	private Task<CommandResult> ForkSessionAsync(
+		HostSession source,
+		ForkSessionRequest request,
+		CancellationToken ct) {
+		ArgumentNullException.ThrowIfNull(source);
 		ArgumentNullException.ThrowIfNull(request);
-		string providerId = _sessions?.ActiveSlot?.AgentProviderId ?? ResolveNewSessionProvider(null);
-		return CreateWorktreeSessionAsync(request.Branch, "current", request.Handoff, providerId, ct);
+		string providerId = SlotFor(source)?.AgentProviderId ?? ResolveNewSessionProvider(null);
+		return RunSessionLifecycleAsync(
+			() => CreateWorktreeSessionAsync(source, request.Branch, "source", request.Handoff, providerId, ct),
+			ct);
 	}
 
-	/// <inheritdoc/>
-	public Task<CommandResult> LoadSessionAsync(string? sessionId, CancellationToken ct) {
+	private Task<CommandResult> LoadSessionAsync(string? sessionId, CancellationToken ct) =>
+		RunSessionLifecycleAsync(() => LoadSessionCoreAsync(sessionId, ct), ct);
+
+	private Task<CommandResult> LoadSessionCoreAsync(string? sessionId, CancellationToken ct) {
+		ct.ThrowIfCancellationRequested();
 		if (string.IsNullOrWhiteSpace(sessionId)) {
-			return Task.FromResult(CommandResult.Failure("Load needs a session id; the active session is already loaded."));
+			return Task.FromResult(CommandResult.Failure("Load needs a session id."));
 		}
 
 		var target = _sessions?.Find(sessionId);
@@ -600,7 +562,9 @@ public sealed partial class HostCore {
 		}
 
 		if (target.Loaded) {
-			return Task.FromResult(CommandResult.Success("That session is already loaded."));
+			return Task.FromResult(CommandResult.Success(
+				"That session is already loaded.",
+				SessionAddressJson(target)));
 		}
 
 		try {
@@ -613,7 +577,9 @@ public sealed partial class HostCore {
 		_ui.Post(() => {
 			try {
 				LoadSlotInBackground(target);
-				result.SetResult(CommandResult.Success($"Loaded session '{target.Label}' in the background."));
+				result.SetResult(CommandResult.Success(
+					$"Loaded session '{target.Label}' in the background.",
+					SessionAddressJson(target)));
 			} catch (Exception ex) {
 				result.SetException(ex);
 			}
@@ -621,12 +587,22 @@ public sealed partial class HostCore {
 		return result.Task;
 	}
 
-	/// <inheritdoc/>
-	public async Task<CommandResult> UnloadSessionAsync(string? sessionId, CancellationToken ct) {
-		// Unlike delete, unload keeps the focused-session default: it's the palette's "Unload Session" action
-		// (no prompt wrapper, so no-arg IS the human intent) and is reversible — the worktree survives, reloadable
-		// from its dormant chip. So the focused-session hazard of issue #217 doesn't apply the same way here.
-		var target = string.IsNullOrWhiteSpace(sessionId) ? _sessions?.ActiveSlot : _sessions?.Find(sessionId);
+	private async Task<CommandResult> UnloadSessionAsync(
+		HostSession source,
+		string? sessionId,
+		CommandInvocationContext context,
+		CancellationToken ct) =>
+		await RunSessionLifecycleAsync(
+			() => UnloadSessionCoreAsync(source, sessionId, context, ct),
+			ct).ConfigureAwait(false);
+
+	private async Task<CommandResult> UnloadSessionCoreAsync(
+		HostSession source,
+		string? sessionId,
+		CommandInvocationContext context,
+		CancellationToken ct) {
+		ct.ThrowIfCancellationRequested();
+		var target = string.IsNullOrWhiteSpace(sessionId) ? null : _sessions?.Find(sessionId);
 		if (target is null) {
 			return CommandResult.Failure("No such session.");
 		}
@@ -639,17 +615,47 @@ public sealed partial class HostCore {
 			return CommandResult.Success("That session is already unloaded.");
 		}
 
+		if (await FlushSessionViewAsync(target.Session!, ct).ConfigureAwait(false) is { } flushFailure) {
+			return flushFailure;
+		}
+
+		if (ReferenceEquals(target.Session, source)) {
+			context.AfterReply(() => UnloadAfterReplyAsync(target));
+			return CommandResult.Success("Unloading the session (its worktree will be kept).");
+		}
+
 		await RunOnUiAsync(() => UnloadSlotAsync(target)).ConfigureAwait(false);
 		return CommandResult.Success("Unloaded the session (its worktree is kept; click the chip to reload).");
 	}
 
-	/// <inheritdoc/>
-	public Task<CommandResult> DeleteSessionAsync(string? sessionId, bool force, CancellationToken ct) {
-		if (RequireSessionId(sessionId, "Delete") is { } missing) {
-			return Task.FromResult(missing);
+	private async Task UnloadAfterReplyAsync(SessionSlot target) {
+		try {
+			await RunSessionLifecycleAsync(
+				() => RunOnUiAsync(() => UnloadSlotAsync(target)),
+				CancellationToken.None).ConfigureAwait(false);
+		} catch (Exception ex) {
+			Notify("error", $"Couldn't unload session '{target.Label}': {ex.Message}");
+			throw;
 		}
+	}
 
-		var target = _sessions?.Find(sessionId!);
+	private Task<CommandResult> DeleteSessionAsync(
+		HostSession source,
+		string? sessionId,
+		bool force,
+		CommandInvocationContext context,
+		CancellationToken ct) =>
+		RunSessionLifecycleAsync(
+			() => DeleteSessionCoreAsync(source, sessionId, force, context, ct),
+			ct);
+
+	private Task<CommandResult> DeleteSessionCoreAsync(
+		HostSession source,
+		string? sessionId,
+		bool force,
+		CommandInvocationContext context,
+		CancellationToken ct) {
+		var target = string.IsNullOrWhiteSpace(sessionId) ? null : _sessions?.Find(sessionId);
 		if (target is null) {
 			return Task.FromResult(CommandResult.Failure("No such session."));
 		}
@@ -665,12 +671,32 @@ public sealed partial class HostCore {
 		string worktreePath = target.WorktreePath;
 		string label = target.Label;
 
-		return DeleteWorktreeSessionAsync(target, worktrees, worktreePath, label, force, ct);
+		return DeleteWorktreeSessionAsync(
+			source,
+			target,
+			worktrees,
+			worktreePath,
+			label,
+			force,
+			context,
+			ct);
 	}
 
 	private async Task<CommandResult> DeleteWorktreeSessionAsync(
-		SessionSlot target, WorktreeManager worktrees, string worktreePath, string label, bool force, CancellationToken ct) {
+		HostSession source,
+		SessionSlot target,
+		WorktreeManager worktrees,
+		string worktreePath,
+		string label,
+		bool force,
+		CommandInvocationContext context,
+		CancellationToken ct) {
 		try {
+			if (target.Session is { } session
+				&& await FlushSessionViewAsync(session, ct).ConfigureAwait(false) is { } flushFailure) {
+				return flushFailure;
+			}
+
 			// Check for uncommitted work BEFORE tearing anything down, so a blocked delete leaves the session
 			// untouched rather than unloading it as a side effect. Skip when the worktree is gone/half-removed
 			// (no .git) — nothing left to lose, and git can't answer git status there. A read-only git probe,
@@ -680,13 +706,68 @@ public sealed partial class HostCore {
 				return CommandResult.Failure(
 					$"Session '{label}' has uncommitted changes; deleting would discard them. Re-run with force to delete anyway.");
 			}
+		} catch (GitException ex) {
+			return CommandResult.Failure($"Couldn't delete session '{label}': {ex.Message}");
+		}
+
+		if (ReferenceEquals(target.Session, source)) {
+			context.AfterReply(() => DeleteAfterReplyAsync(target, worktrees, worktreePath, label, force));
+			return CommandResult.Success($"Deleting session '{label}' (the branch will be kept).");
+		}
+
+		return await DeleteAfterPreflightAsync(target, worktrees, worktreePath, label, force).ConfigureAwait(false);
+	}
+
+	private async Task DeleteAfterReplyAsync(
+		SessionSlot target,
+		WorktreeManager worktrees,
+		string worktreePath,
+		string label,
+		bool force) {
+		var result = await RunSessionLifecycleAsync(
+			() => DeleteAfterPreflightAsync(target, worktrees, worktreePath, label, force),
+			CancellationToken.None).ConfigureAwait(false);
+		if (!result.Ok) {
+			Notify("error", result.Error ?? $"Couldn't delete session '{label}'.");
+		}
+	}
+
+	private async Task<CommandResult?> FlushSessionViewAsync(HostSession session, CancellationToken ct) {
+		try {
+			var result = await session.View.Feature("editor")
+				.TryRequestAsync<EmptySessionMessage, EditorFlushResult>(
+					"flush",
+					new EmptySessionMessage(),
+					ct)
+				.ConfigureAwait(false);
+			if (result is not null) {
+				HandleEditorSessionChanged(session, result.Session);
+			}
+
+			return null;
+		} catch (OperationCanceledException) {
+			throw;
+		} catch (Exception ex) {
+			return CommandResult.Failure(
+				$"Couldn't save the editor state for session '{session.DisplayLabel}': {ex.Message}");
+		}
+	}
+
+	private async Task<CommandResult> DeleteAfterPreflightAsync(
+		SessionSlot target,
+		WorktreeManager worktrees,
+		string worktreePath,
+		string label,
+		bool force) {
+		try {
+			if (!ReferenceEquals(_sessions?.Find(target.Id), target)) {
+				return CommandResult.Success($"Session '{label}' is already deleted.");
+			}
 
 			// Tear the live backend down first so no process holds the worktree dir, then remove the worktree
-			// (keeping the branch). The unload starts on the UI thread — it switches the active session and
-			// mutates the slot — and this method awaits its teardown from off it. Past the dirty guard the
-			// deletion runs under CancellationToken.None, NOT `ct`: when Claude deletes its own session,
-			// UnloadSlotAsync disposes the IDE-MCP server handling this call, cancelling `ct` — which would
-			// crash git mid-delete and orphan the worktree.
+			// (keeping the branch). The unload starts on the UI thread to mutate the slot and this method awaits
+			// its teardown from off it. Past the dirty guard deletion is deliberately uncancellable: self-delete
+			// tears down the endpoint that accepted the command, and git must not be interrupted mid-removal.
 			if (target.Loaded) {
 				await RunOnUiAsync(() => UnloadSlotAsync(target)).ConfigureAwait(false);
 			}
@@ -698,11 +779,12 @@ public sealed partial class HostCore {
 			await worktrees.RemoveAsync(worktreePath, deleteBranch: false, force, CancellationToken.None).ConfigureAwait(false);
 			// Back on the UI thread for the slot-set mutation + rail push (the awaits above left it), so the
 			// removal can't interleave with a concurrent switch reading the slot set.
-			_ui.Post(() => {
+			await RunOnUiAsync(() => {
 				_sessions?.Remove(target);
 				PushSessionList();
 				PersistSessionState();
-			});
+				return Task.CompletedTask;
+			}).ConfigureAwait(false);
 			return CommandResult.Success($"Deleted session '{label}': its worktree was removed and the branch kept.");
 		} catch (WorktreeDirtyException) {
 			return CommandResult.Failure(
@@ -714,9 +796,31 @@ public sealed partial class HostCore {
 		}
 	}
 
+	private async Task<T> RunSessionLifecycleAsync<T>(
+		Func<Task<T>> action,
+		CancellationToken ct) {
+		await _sessionLifecycle.WaitAsync(ct).ConfigureAwait(false);
+		try {
+			return await action().ConfigureAwait(false);
+		} finally {
+			_sessionLifecycle.Release();
+		}
+	}
+
+	private async Task RunSessionLifecycleAsync(
+		Func<Task> action,
+		CancellationToken ct) {
+		await _sessionLifecycle.WaitAsync(ct).ConfigureAwait(false);
+		try {
+			await action().ConfigureAwait(false);
+		} finally {
+			_sessionLifecycle.Release();
+		}
+	}
+
 	/// <summary>
 	/// Starts <paramref name="work"/> on the UI thread and returns its completion, so a caller already off the
-	/// dispatcher can run session-mutating work (a switch, a slot detach) serialized with switches, then await
+	/// dispatcher can run host-catalog work (such as a slot detach) in order, then await
 	/// its async tail (e.g. a backend teardown) from off it.
 	/// </summary>
 	private Task RunOnUiAsync(Func<Task> work) {
@@ -732,13 +836,8 @@ public sealed partial class HostCore {
 		return completion.Task;
 	}
 
-	/// <inheritdoc/>
-	public async Task<CommandResult> ClassifyDeleteAsync(string? sessionId, CancellationToken ct) {
-		if (RequireSessionId(sessionId, "Delete") is { } missing) {
-			return missing;
-		}
-
-		var target = _sessions?.Find(sessionId!);
+	private async Task<CommandResult> ClassifyDeleteAsync(string? sessionId, CancellationToken ct) {
+		var target = string.IsNullOrWhiteSpace(sessionId) ? null : _sessions?.Find(sessionId);
 		if (target is null) {
 			return CommandResult.Failure("No such session.");
 		}
@@ -774,32 +873,26 @@ public sealed partial class HostCore {
 			label = target.Label,
 			changedFiles = changed.Take(previewLimit).ToArray(),
 			changedCount = changed.Length,
-			// Older remote pages still read these fields for the untracked-only dialog.
-			untrackedFiles = untracked.Take(previewLimit).ToArray(),
-			untrackedCount = untracked.Count,
 		}));
 	}
 
-	/// <summary>
-	/// Tears down a slot's live backend, leaving it dormant (a faded chip): if it was active, binds the primary
-	/// first, then disposes its <see cref="HostSession"/> while keeping the slot so the worktree stays surfaced.
-	/// </summary>
+	/// <summary>Tears down a slot's live backend, leaving its worktree as a dormant catalog entry.</summary>
 	private async Task UnloadSlotAsync(SessionSlot slot) {
 		if (slot.Session is not { } session) {
 			return;
 		}
 
-		if (ReferenceEquals(_sessions?.ActiveSlot, slot) && PrimarySlot() is { } primary) {
-			SwitchToSlot(primary, replayAgentState: true);
-		}
-
-		// Detach and push the rail BEFORE the teardown: the chip fades the moment the session is dormant, not
-		// after process teardown finishes (Windows can take many seconds to release the children's handles).
-		slot.Session = null;
-		_mediaRoutes.Unregister(session.Id);
-		PushSessionList();
-		PersistSessionState();
 		await session.DisposeAsync().ConfigureAwait(false);
+		await RunOnUiAsync(() => {
+			if (ReferenceEquals(slot.Session, session)) {
+				slot.Session = null;
+				_mediaRoutes.Unregister(session.Incarnation);
+				PushSessionList();
+				PersistSessionState();
+			}
+
+			return Task.CompletedTask;
+		}).ConfigureAwait(false);
 	}
 
 	private SessionSlot? PrimarySlot() => _sessions?.Slots.FirstOrDefault(s => s.IsPrimary);
@@ -816,7 +909,13 @@ public sealed partial class HostCore {
 	private static bool IsLiveWorktree(string worktreePath) =>
 		Directory.Exists(worktreePath) && Path.Exists(Path.Combine(worktreePath, ".git"));
 
-	private async Task<CommandResult> CreateWorktreeSessionAsync(string? requestedBranch, string? baseSpec, string? prompt, string agentProviderId, CancellationToken ct) {
+	private async Task<CommandResult> CreateWorktreeSessionAsync(
+		HostSession source,
+		string? requestedBranch,
+		string? baseSpec,
+		string? prompt,
+		string agentProviderId,
+		CancellationToken ct) {
 		try {
 			_agentProviders.RequireAvailable(agentProviderId);
 		} catch (InvalidOperationException ex) {
@@ -840,8 +939,8 @@ public sealed partial class HostCore {
 
 		string baseRef;
 		try {
-			baseRef = await ResolveBaseRefAsync(baseSpec, ct).ConfigureAwait(false);
-		} catch (GitException ex) {
+			baseRef = await ResolveBaseRefAsync(source, baseSpec, ct).ConfigureAwait(false);
+		} catch (Exception ex) when (ex is GitException or InvalidOperationException) {
 			return CommandResult.Failure($"Couldn't resolve the base ref: {ex.Message}");
 		}
 
@@ -855,14 +954,23 @@ public sealed partial class HostCore {
 		// Run the user's setup command (e.g. `pnpm install`) in the background so the session opens now; it
 		// toasts "setting up… → ready/failed" as it goes.
 		StartWorktreeSetup(record.Path);
-		return await BuildAndSwitchSlotAsync(branch, record, prompt, agentProviderId, $"Created session on branch '{branch}' at {record.Path}.").ConfigureAwait(false);
+		return await BuildSlotAsync(
+			branch,
+			record,
+			prompt,
+			agentProviderId,
+			$"Created session on branch '{branch}' at {record.Path}.").ConfigureAwait(false);
 	}
 
 	/// <summary>
 	/// Creates a session by checking out an existing branch into a new worktree. If Weavie already has a session
 	/// for that branch — or it's the primary checkout's own branch — switches to that instead of duplicating.
 	/// </summary>
-	private async Task<CommandResult> AttachExistingSessionAsync(string? requestedBranch, string? prompt, string agentProviderId, CancellationToken ct) {
+	private async Task<CommandResult> AttachExistingSessionAsync(
+		string? requestedBranch,
+		string? prompt,
+		string agentProviderId,
+		CancellationToken ct) {
 		try {
 			_agentProviders.RequireAvailable(agentProviderId);
 		} catch (InvalidOperationException ex) {
@@ -884,7 +992,7 @@ public sealed partial class HostCore {
 
 		// Already a live/dormant Weavie session for this branch (slot ids are the branch name)? Switch to it.
 		if (_sessions?.Find(branch) is { } existingSlot) {
-			return await SwitchToExistingAsync(existingSlot, branch).ConfigureAwait(false);
+			return await LoadExistingAsync(existingSlot, branch).ConfigureAwait(false);
 		}
 
 		// The branch checked out in the primary repo can't be attached to a second worktree (git refuses), so
@@ -892,7 +1000,7 @@ public sealed partial class HostCore {
 		try {
 			string? primaryBranch = await new GitService().GetCurrentBranchAsync(WorkspaceRoot, ct).ConfigureAwait(false);
 			if (string.Equals(primaryBranch, branch, StringComparison.Ordinal) && PrimarySlot() is { } primarySlot) {
-				return await SwitchToExistingAsync(primarySlot, branch).ConfigureAwait(false);
+				return await LoadExistingAsync(primarySlot, branch).ConfigureAwait(false);
 			}
 		} catch (GitException ex) {
 			return CommandResult.Failure($"Couldn't read the current branch: {ex.Message}");
@@ -919,46 +1027,66 @@ public sealed partial class HostCore {
 
 		// Seed the first prompt only on this fresh-checkout path; switching to an existing session (above) must
 		// never re-seed it. The Open-PR flow uses this to brief Claude on the PR it just checked out.
-		return await BuildAndSwitchSlotAsync(branch, record, prompt, slotProviderId, $"Checked out '{branch}' at {record.Path}.").ConfigureAwait(false);
+		return await BuildSlotAsync(
+			branch,
+			record,
+			prompt,
+			slotProviderId,
+			$"Checked out '{branch}' at {record.Path}.").ConfigureAwait(false);
 	}
 
 	/// <summary>
 	/// Builds a <see cref="SessionSlot"/> for a worktree <paramref name="record"/>, adds it to the rail, and
-	/// switches to it on the UI thread (optionally seeding a first prompt).
+	/// returns its exact address so the calling page can select it (optionally seeding a first prompt).
 	/// </summary>
-	private Task<CommandResult> BuildAndSwitchSlotAsync(string branch, WorktreeRecord record, string? prompt, string agentProviderId, string successMessage) {
+	private Task<CommandResult> BuildSlotAsync(
+		string branch,
+		WorktreeRecord record,
+		string? prompt,
+		string agentProviderId,
+		string successMessage) {
+		var sessions = _sessions
+			?? throw new InvalidOperationException("The session catalog is not initialized.");
 		var result = new TaskCompletionSource<CommandResult>();
 		_ui.Post(() => {
+			SessionSlot? slot = null;
 			try {
-				var slot = new SessionSlot {
+				slot = new SessionSlot {
 					Id = branch,
 					Label = branch,
 					WorktreePath = record.Path,
 					IsPrimary = false,
 					AgentProviderId = agentProviderId,
-					Session = CreateSession(record.Path, agentProviderId),
+					Session = CreateSession(record.Path, agentProviderId, branch),
 				};
-				_sessions?.Add(slot, activate: false);
-				SwitchToSlot(slot, replayAgentState: true);
+				sessions.Add(slot);
+				PushSessionList();
+				ActivateSessionMessages(slot.Session);
+				PersistSessionState();
 				if (!string.IsNullOrWhiteSpace(prompt)) {
 					SeedFirstPrompt(slot.Session!, prompt);
 				}
 
-				result.SetResult(CommandResult.Success(successMessage));
+				result.SetResult(CommandResult.Success(
+					successMessage,
+					SessionActivationJson(slot)));
 			} catch (Exception ex) {
-				result.SetException(ex);
+				result.SetException(slot is null
+					? ex
+					: RollbackSessionLoad(slot, removeSlot: true, error: ex));
 			}
 		});
 		return result.Task;
 	}
 
-	/// <summary>Switches to an already-existing session slot (on the UI thread) and reports it.</summary>
-	private Task<CommandResult> SwitchToExistingAsync(SessionSlot slot, string branch) {
+	private Task<CommandResult> LoadExistingAsync(SessionSlot slot, string branch) {
 		var result = new TaskCompletionSource<CommandResult>();
 		_ui.Post(() => {
 			try {
-				SwitchToSlot(slot, replayAgentState: true);
-				result.SetResult(CommandResult.Success($"Switched to the existing session for '{branch}'."));
+				LoadSlotInBackground(slot);
+				result.SetResult(CommandResult.Success(
+					$"Loaded the existing session for '{branch}'.",
+					SessionActivationJson(slot)));
 			} catch (Exception ex) {
 				result.SetException(ex);
 			}
@@ -966,16 +1094,47 @@ public sealed partial class HostCore {
 		return result.Task;
 	}
 
-	private async Task<string> ResolveBaseRefAsync(string? baseSpec, CancellationToken ct) {
+	private static string SessionAddressJson(SessionSlot slot) {
+		var address = slot.Session?.Address
+			?? throw new InvalidOperationException("A dormant session has no live address.");
+		return JsonSerializer.Serialize(new {
+			id = slot.Id,
+			address = new {
+				slot = address.Slot,
+				incarnation = address.Incarnation,
+			},
+		});
+	}
+
+	private static string SessionActivationJson(SessionSlot slot) {
+		var address = slot.Session?.Address
+			?? throw new InvalidOperationException("A dormant session has no live address.");
+		return JsonSerializer.Serialize(new {
+			id = slot.Id,
+			address = new {
+				slot = address.Slot,
+				incarnation = address.Incarnation,
+			},
+			activateSession = true,
+		});
+	}
+
+	private async Task<string> ResolveBaseRefAsync(
+		HostSession source,
+		string? baseSpec,
+		CancellationToken ct) {
 		var git = new GitService();
+		if (string.IsNullOrWhiteSpace(baseSpec)
+			|| string.Equals(baseSpec, "source", StringComparison.OrdinalIgnoreCase)) {
+			return await git.GetHeadCommitAsync(source.WorkspaceRoot, ct).ConfigureAwait(false);
+		}
+
 		if (string.Equals(baseSpec, "main", StringComparison.OrdinalIgnoreCase)) {
 			return await git.ResolveDefaultBranchAsync(WorkspaceRoot, ct).ConfigureAwait(false)
 				?? await git.GetHeadCommitAsync(WorkspaceRoot, ct).ConfigureAwait(false);
 		}
 
-		// Default ("current"): branch off the active session's worktree HEAD.
-		string cwd = _session?.WorkspaceRoot ?? WorkspaceRoot;
-		return await git.GetHeadCommitAsync(cwd, ct).ConfigureAwait(false);
+		throw new InvalidOperationException($"Unknown session base '{baseSpec}'.");
 	}
 
 	/// <summary>
@@ -1023,8 +1182,8 @@ public sealed partial class HostCore {
 
 	// Seed the agent's first prompt once the runtime has had a moment to attach. Best-effort; not load-bearing.
 	private static void SeedFirstPrompt(HostSession session, string prompt) {
-		_ = Task.Run(async () => {
-			await Task.Delay(2500).ConfigureAwait(false);
+		_ = session.Background.Run(async ct => {
+			await Task.Delay(2500, ct).ConfigureAwait(false);
 			session.SendAgentPrompt(prompt);
 		});
 	}

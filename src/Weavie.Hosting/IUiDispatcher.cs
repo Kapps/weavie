@@ -5,8 +5,8 @@ namespace Weavie.Hosting;
 /// <summary>
 /// Marshals an action onto the host's UI thread (WinForms <c>BeginInvoke</c>, Cocoa
 /// <c>BeginInvokeOnMainThread</c>, GTK <c>GtkMain.Invoke</c>; headless runs a dedicated serial thread). Always
-/// fire-and-forget: a synchronous hop would deadlock the PTY-teardown path the bridges document. Session state
-/// (the active session, the slot set) is only touched from this thread, so posted work never races a switch.
+/// fire-and-forget: a synchronous hop would deadlock the PTY-teardown path the bridges document. Host catalog
+/// mutations are serialized here; session message routing does not depend on presentation selection.
 /// </summary>
 public interface IUiDispatcher {
 	/// <summary>Queues <paramref name="action"/> to run on the UI thread (or inline when there is none).</summary>
@@ -25,7 +25,7 @@ public sealed class InlineUiDispatcher : IUiDispatcher {
 /// <summary>
 /// An <see cref="IUiDispatcher"/> backed by one dedicated consumer thread — the "UI thread" of a host with no
 /// native toolkit. Actions run strictly in Post order, giving a headless host the serialization a native host
-/// gets from its UI thread (a session switch and a session-scoped push can never interleave).
+/// gets from its UI thread for host-owned state changes.
 /// </summary>
 public sealed class SerialUiDispatcher : IUiDispatcher {
 	private readonly BlockingCollection<Action> _queue = [];

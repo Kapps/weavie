@@ -1,44 +1,76 @@
-using System.Text.Json;
+using System.Collections.Concurrent;
 using Weavie.Core.Git;
-using Weavie.Core.Review;
 
 namespace Weavie.Hosting;
 
-// Discovers the active worktree branch's open PR for the structured agent status line. This is separate from
-// git-status because forge discovery is authenticated network I/O while branch/dirty state is local and fast.
 public sealed partial class HostCore {
-	private CancellationTokenSource? _pullRequestStatusCancellation;
-	private Task? _pullRequestStatusTask;
-	private int _pullRequestStatusVersion;
+	private readonly ConcurrentDictionary<Messaging.SessionAddress, PullRequestProbe>
+		_pullRequestStatus = new();
 
-	private void PushPullRequestStatus() {
-		if (_session is not { } session || SlotFor(session) is not { } slot) {
+	private void PushPullRequestStatus(HostSession session) {
+		if (session.Background.Stopping.IsCancellationRequested) {
 			return;
 		}
 
-		var previousTask = _pullRequestStatusTask ?? Task.CompletedTask;
-		var previousCancellation = _pullRequestStatusCancellation;
-		previousCancellation?.Cancel();
-		var cancellation = new CancellationTokenSource();
-		_pullRequestStatusCancellation = cancellation;
-		int version = ++_pullRequestStatusVersion;
-		_pullRequestStatusTask = Task.Run(async () => {
-			try {
-				await previousTask.ConfigureAwait(false);
-			} finally {
-				previousCancellation?.Dispose();
-			}
-
-			await DetectPullRequestAsync(session, slot.Id, version, cancellation.Token).ConfigureAwait(false);
-		});
+		var probe = new PullRequestProbe(session.Background.Stopping);
+		_pullRequestStatus.AddOrUpdate(
+			session.Address,
+			probe,
+			(_, previous) => {
+				previous.Cancellation.Cancel();
+				return probe;
+			});
+		probe.Task = session.Background.Run(_ => DetectPullRequestAsync(
+			session,
+			session.Bus.BroadcastTarget,
+			probe));
 	}
 
-	private async Task DetectPullRequestAsync(HostSession session, string slot, int version, CancellationToken ct) {
+	private void PushPullRequestStatus(
+		HostSession session,
+		Messaging.MessageTarget target) =>
+		_ = session.Background.Run(async ct => {
+			var status = await ResolvePullRequestStatusAsync(session, ct).ConfigureAwait(false);
+			ct.ThrowIfCancellationRequested();
+			target.Feature("git").Publish("pullRequest", status);
+		});
+
+	private async Task DetectPullRequestAsync(
+		HostSession session,
+		Messaging.MessageTarget target,
+		PullRequestProbe probe) {
+		try {
+			var status = await ResolvePullRequestStatusAsync(
+				session,
+				probe.Cancellation.Token).ConfigureAwait(false);
+			if (probe.Cancellation.IsCancellationRequested
+				|| !_pullRequestStatus.TryGetValue(session.Address, out var current)
+				|| !ReferenceEquals(current, probe)) {
+				return;
+			}
+
+			target.Feature("git").Publish("pullRequest", status);
+		} catch (OperationCanceledException) when (probe.Cancellation.IsCancellationRequested) {
+		} finally {
+			if (_pullRequestStatus.TryGetValue(session.Address, out var current)
+				&& ReferenceEquals(current, probe)) {
+				_pullRequestStatus.TryRemove(session.Address, out _);
+			}
+
+			probe.Cancellation.Dispose();
+		}
+	}
+
+	private async Task<PullRequestStatusSnapshot> ResolvePullRequestStatusAsync(
+		HostSession session,
+		CancellationToken ct) {
 		string? branch = null;
 		object? pullRequest = null;
 		string? error = null;
 		try {
-			branch = await new GitService().GetCurrentBranchAsync(session.WorkspaceRoot, ct).ConfigureAwait(false);
+			branch = await new GitService()
+				.GetCurrentBranchAsync(session.WorkspaceRoot, ct)
+				.ConfigureAwait(false);
 			if (branch is not null && await ResolveOriginRepoAsync(ct).ConfigureAwait(false) is { } headRepo) {
 				if (!headRepo.Host.Equals("github.com", StringComparison.OrdinalIgnoreCase)) {
 					error = $"Automatic pull request detection doesn't support {headRepo.Host}.";
@@ -48,45 +80,48 @@ public sealed partial class HostCore {
 					if (!baseRepo.Host.Equals("github.com", StringComparison.OrdinalIgnoreCase)) {
 						error = $"Automatic pull request detection doesn't support {baseRepo.Host}.";
 					} else if (await _pullRequests.FindOpenForBranchAsync(
-						baseRepo, headRepo.Owner, branch, ct).ConfigureAwait(false) is { } found) {
-						pullRequest = new { number = found.Number, url = _pullRequests.RefUrlBase(baseRepo) + found.Number };
+						baseRepo,
+						headRepo.Owner,
+						branch,
+						ct).ConfigureAwait(false) is { } found) {
+						pullRequest = new {
+							number = found.Number,
+							url = _pullRequests.RefUrlBase(baseRepo) + found.Number,
+						};
 					}
 				}
 			}
 		} catch (OperationCanceledException) when (ct.IsCancellationRequested) {
-			return;
+			throw;
 		} catch (Exception ex) {
 			error = ex.Message;
 		}
 
-		if (ct.IsCancellationRequested) {
-			return;
-		}
-		_ui.Post(() => {
-			if (ct.IsCancellationRequested || version != _pullRequestStatusVersion || !ReferenceEquals(_session, session)) {
-				return;
-			}
-
-			_bridge.PostToWeb(JsonSerializer.Serialize(new {
-				type = "pull-request-status",
-				slot,
-				branch,
-				pullRequest,
-				error,
-			}));
-		});
+		return new PullRequestStatusSnapshot(branch, pullRequest, error);
 	}
 
 	private async Task StopPullRequestStatusAsync() {
-		var cancellation = _pullRequestStatusCancellation;
-		var task = _pullRequestStatusTask;
-		_pullRequestStatusCancellation = null;
-		_pullRequestStatusTask = null;
-		cancellation?.Cancel();
-		if (task is not null) {
-			await task.ConfigureAwait(false);
+		var probes = _pullRequestStatus.Values.ToArray();
+		_pullRequestStatus.Clear();
+		foreach (var probe in probes) {
+			probe.Cancellation.Cancel();
 		}
 
-		cancellation?.Dispose();
+		await Task.WhenAll(probes.Select(probe => probe.Task)).ConfigureAwait(false);
 	}
+
+	private sealed class PullRequestProbe {
+		public PullRequestProbe(CancellationToken sessionStopping) {
+			Cancellation = CancellationTokenSource.CreateLinkedTokenSource(sessionStopping);
+		}
+
+		public CancellationTokenSource Cancellation { get; }
+
+		public Task Task { get; set; } = Task.CompletedTask;
+	}
+
+	private sealed record PullRequestStatusSnapshot(
+		string? Branch,
+		object? PullRequest,
+		string? Error);
 }

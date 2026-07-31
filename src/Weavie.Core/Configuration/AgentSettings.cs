@@ -18,14 +18,9 @@ public static class AgentSettings {
 	public static readonly IReadOnlyList<string> Keys = [DefaultProvider];
 
 	/// <summary>Builds the resolved agent defaults for the web (the bootstrap global or the change push).</summary>
-	public static string BuildJson(SettingsStore store, string? messageType) {
+	public static string BuildJson(SettingsStore store) {
 		ArgumentNullException.ThrowIfNull(store);
-		return JsonWrite.Object(writer => {
-			if (messageType is not null) {
-				writer.WriteString("type", messageType);
-			}
-
-			writer.WriteString("defaultProvider", store.RequireString(DefaultProvider));
-		});
+		return JsonWrite.Object(writer =>
+			writer.WriteString("defaultProvider", store.RequireString(DefaultProvider)));
 	}
 }

@@ -5,6 +5,7 @@ import {
   CodeLensResolveRequest,
   DocumentHighlightRequest,
   type MessageSignature,
+  State,
 } from "vscode-languageclient";
 
 const passiveRequestMethods = new Set<string>([
@@ -14,6 +15,15 @@ const passiveRequestMethods = new Set<string>([
 ]);
 
 class WeavieLanguageClient extends MonacoLanguageClient {
+  override stop(...args: [] | [number]): Promise<void> {
+    // Upstream calls stop() while an initialization failure is still Starting, where its own stop throws.
+    // The closing transport cleans a failed start; only a fully running client needs protocol shutdown.
+    if (this.state !== State.Running) {
+      return Promise.resolve();
+    }
+    return args.length === 0 ? super.stop() : super.stop(args[0]);
+  }
+
   override handleFailedRequest<T>(
     type: MessageSignature,
     token: CancellationToken | undefined,

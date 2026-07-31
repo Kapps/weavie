@@ -10,10 +10,12 @@ type NotifySink = (
   action?: ToastAction,
 ) => void;
 let sink: NotifySink | null = null;
+let clearSink: ((key: string) => void) | null = null;
 
 /** Registers the toast sink. App calls this once at mount. */
-export function setNotifySink(next: NotifySink): void {
+export function setNotifySink(next: NotifySink, clear: (key: string) => void): void {
   sink = next;
+  clearSink = clear;
 }
 
 /**
@@ -29,4 +31,8 @@ export function notify(
   action?: ToastAction,
 ): void {
   sink?.(level, message, key, action);
+}
+
+export function clearNotification(key: string): void {
+  clearSink?.(key);
 }

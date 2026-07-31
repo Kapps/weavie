@@ -1,5 +1,5 @@
 import { createEffect, createMemo, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
-import { type AgentPaneUpdate, type AgentSlashEntry, postToBackend } from "../bridge";
+import type { AgentPaneUpdate, AgentSlashEntry, ClientSession } from "../bridge";
 import { readClipboardImage, readClipboardText } from "../clipboard-read";
 import { setContext } from "../commands/context";
 import { keyHint } from "../commands/key-hint";
@@ -49,22 +49,21 @@ import {
 
 export function AgentComposer(props: {
   active: boolean;
-  backendId: string;
   inputProtocol: number;
   messages: AgentPaneUpdate[];
-  slot: string | null;
+  session: ClientSession | null;
   onSubmitted: () => void;
 }): JSX.Element {
   let textareaRef: HTMLTextAreaElement | undefined;
   const appliedDraftIndexes = new Map<string, number>();
-  const composer = createMemo(() => composerState(props.backendId, props.slot));
+  const composer = createMemo(() => composerState(props.session));
   const pendingLegacyImages = createMemo(() => countPendingLegacyImages(props.messages));
   const turnActive = createMemo(() => hasActiveTurn(props.messages));
   // Resolution-based, not turn-scoped: a card stays answerable until its request resolves, so the chord
   // and the "waiting" label never go dead on a card that still shows its buttons.
   const pending = createMemo(() => pendingRequest(props.messages));
   const pendingKind = createMemo(() => pending()?.kind ?? null);
-  const canInterrupt = createMemo(() => props.slot !== null && turnActive());
+  const canInterrupt = createMemo(() => props.session !== null && turnActive());
 
   // Gates the Alt+Y / Alt+Shift+Y / Alt+N approval chords to the same approval the card chips advertise.
   createEffect(() => setContext("agentApprovalPending", pendingKind() === "approval"));
@@ -91,10 +90,10 @@ export function AgentComposer(props: {
   const canSubmit = createMemo(() => {
     const state = composer();
     if (props.inputProtocol < 2) {
-      return props.slot !== null && (state.draft.trim().length > 0 || pendingLegacyImages() > 0);
+      return props.session !== null && (state.draft.trim().length > 0 || pendingLegacyImages() > 0);
     }
     return (
-      props.slot !== null &&
+      props.session !== null &&
       state.submittingId === null &&
       state.attachments.every((attachment) => attachment.status === "ready") &&
       (state.draft.trim().length > 0 || state.attachments.length > 0 || state.skills.length > 0)
@@ -107,7 +106,7 @@ export function AgentComposer(props: {
   const [historyCursor, setHistoryCursor] = createSignal<HistoryCursor>(IDLE_CURSOR);
   // Switching sessions abandons any in-progress history browse.
   createEffect(() => {
-    props.slot;
+    props.session;
     setHistoryCursor(IDLE_CURSOR);
   });
 
@@ -117,7 +116,7 @@ export function AgentComposer(props: {
     const query = slashText();
     return query === null || slashDismissed()
       ? []
-      : filterSlash(agentControlState(props.slot).slash, query);
+      : filterSlash(agentControlState(props.session).slash, query);
   });
   // A draft that's no longer a slash command clears any prior dismissal, so the next "/" reopens the menu.
   createEffect(() => {
@@ -127,19 +126,19 @@ export function AgentComposer(props: {
   });
 
   const acceptSlash = (entry: AgentSlashEntry): void => {
-    const slot = props.slot;
-    if (slot === null) {
+    const session = props.session;
+    if (session === null) {
       return;
     }
     if (entry.commandId !== null) {
-      setComposerDraft(props.backendId, slot, "");
+      setComposerDraft(session, "");
       void runCommandWithFeedback(entry.commandId);
     } else if (entry.skillName !== null) {
       // Stage the skill so it submits as a structured skill input; clear the "/query" it replaces.
-      stageSkill(props.backendId, slot, entry.skillName);
-      setComposerDraft(props.backendId, slot, "");
+      stageSkill(session, entry.skillName);
+      setComposerDraft(session, "");
     } else if (entry.insertText !== null) {
-      setComposerDraft(props.backendId, slot, entry.insertText);
+      setComposerDraft(session, entry.insertText);
       const caret = entry.insertText.length;
       requestAnimationFrame(() => textareaRef?.setSelectionRange(caret, caret));
     }
@@ -148,12 +147,12 @@ export function AgentComposer(props: {
   };
 
   const applyRecall = (recall: HistoryRecall | null): boolean => {
-    const slot = props.slot;
-    if (recall === null || slot === null) {
+    const session = props.session;
+    if (recall === null || session === null) {
       return false;
     }
     setHistoryCursor(recall.next);
-    setComposerDraft(props.backendId, slot, recall.text);
+    setComposerDraft(session, recall.text);
     const caret = recall.text.length;
     requestAnimationFrame(() => textareaRef?.setSelectionRange(caret, caret));
     return true;
@@ -187,11 +186,10 @@ export function AgentComposer(props: {
   };
 
   const offNativePaste = registerCommand(CommandIds.agentPaste, async () => {
-    const slot = props.slot;
-    if (slot === null) {
+    const session = props.session;
+    if (session === null) {
       return;
     }
-    const backendId = props.backendId;
     const inputProtocol = props.inputProtocol;
     const selectionStart = textareaRef?.selectionStart;
     const selectionEnd = textareaRef?.selectionEnd;
@@ -200,14 +198,13 @@ export function AgentComposer(props: {
       if (image.mime.length > 0) {
         if (inputProtocol >= 2) {
           uploadAgentImage(
-            backendId,
-            slot,
+            session,
             image.mime,
             image.dataB64,
             `data:${image.mime};base64,${image.dataB64}`,
           );
         } else {
-          sendPastedImage(backendId, slot, image.mime, image.dataB64);
+          sendPastedImage(session, image.mime, image.dataB64);
         }
         return;
       }
@@ -215,11 +212,11 @@ export function AgentComposer(props: {
       if (text.length === 0) {
         return;
       }
-      const current = composerState(backendId, slot).draft;
+      const current = composerState(session).draft;
       const start = selectionStart ?? current.length;
       const end = selectionEnd ?? start;
-      setComposerDraft(backendId, slot, current.slice(0, start) + text + current.slice(end));
-      if (backendId === props.backendId && slot === props.slot) {
+      setComposerDraft(session, current.slice(0, start) + text + current.slice(end));
+      if (props.session === session) {
         requestAnimationFrame(() =>
           textareaRef?.setSelectionRange(start + text.length, start + text.length),
         );
@@ -233,18 +230,23 @@ export function AgentComposer(props: {
   });
 
   const submit = (): boolean => {
-    const slot = props.slot;
-    if (!props.active || slot === null) {
+    const session = props.session;
+    if (!props.active || session === null) {
       return false;
     }
     if (props.inputProtocol < 2) {
-      const state = composerState(props.backendId, slot);
+      const state = composerState(session);
       if (state.draft.trim().length === 0 && pendingLegacyImages() === 0) {
         return false;
       }
-      postToBackend(props.backendId, { type: "agent-submit", slot, prompt: state.draft.trim() });
-      setComposerDraft(props.backendId, slot, "");
-    } else if (!submitAgentTurn(props.backendId, slot)) {
+      session.feature("agent").publish("submit", {
+        id: "",
+        prompt: state.draft.trim(),
+        attachmentIds: [],
+        skills: [],
+      });
+      setComposerDraft(session, "");
+    } else if (!submitAgentTurn(session)) {
       return false;
     }
     setHistoryCursor(IDLE_CURSOR);
@@ -253,24 +255,24 @@ export function AgentComposer(props: {
   };
 
   const interrupt = (): boolean => {
-    const slot = props.slot;
-    if (!props.active || slot === null || !canInterrupt()) {
+    const session = props.session;
+    if (!props.active || session === null || !canInterrupt()) {
       return false;
     }
-    postToBackend(props.backendId, { type: "agent-interrupt", slot });
+    session.feature("agent").publish("interrupt", {});
     return true;
   };
 
   // A control command applies its `value` arg directly (palette / Claude), or opens the picker when bare.
   const registerSelect = (commandId: string, axis: string): (() => void) =>
     registerCommand(commandId, (args: unknown) => {
-      const slot = props.slot;
-      if (slot === null) {
+      const session = props.session;
+      if (session === null) {
         return false;
       }
       const value = (args as { value?: unknown } | undefined)?.value;
       if (typeof value === "string" && value.length > 0) {
-        setAgentControl(props.backendId, slot, axis, value);
+        setAgentControl(session, axis, value);
       } else {
         openControlPicker(axis);
       }
@@ -280,14 +282,12 @@ export function AgentComposer(props: {
   // A decision command answers the same approval the card chips advertise (turn-progress.pendingApproval).
   const registerDecision = (commandId: string, decision: string): (() => void) =>
     registerCommand(commandId, () => {
-      const slot = props.slot;
+      const session = props.session;
       const request = pendingApproval(props.messages);
-      if (slot === null || request === null) {
+      if (session === null || request === null) {
         return false;
       }
-      postToBackend(props.backendId, {
-        type: "agent-approval",
-        slot,
+      session.feature("agent").publish("approval", {
         requestId: request.requestId,
         decision,
       });
@@ -297,13 +297,13 @@ export function AgentComposer(props: {
   // Applies a `value` arg to an axis directly (palette / Claude), or opens the merged model picker when bare.
   const registerModelSelect = (commandId: string, axis: string): (() => void) =>
     registerCommand(commandId, (args: unknown) => {
-      const slot = props.slot;
-      if (slot === null) {
+      const session = props.session;
+      if (session === null) {
         return false;
       }
       const value = (args as { value?: unknown } | undefined)?.value;
       if (typeof value === "string" && value.length > 0) {
-        setAgentControl(props.backendId, slot, axis, value);
+        setAgentControl(session, axis, value);
       } else {
         openControlPicker(MODEL_AXIS);
       }
@@ -313,8 +313,8 @@ export function AgentComposer(props: {
   const offSubmit = registerCommand(CommandIds.agentSubmit, submit);
   const offInterrupt = registerCommand(CommandIds.agentInterrupt, interrupt);
   const offOpenPlan = registerCommand(CommandIds.openAgentPlan, (args) => {
-    const slot = props.slot;
-    if (slot === null) {
+    const session = props.session;
+    if (session === null) {
       return false;
     }
     const supplied = planIdentityArgsSupplied(args);
@@ -326,12 +326,12 @@ export function AgentComposer(props: {
       );
       return true;
     }
-    postToBackend(props.backendId, { type: "open-agent-plan", slot, ...plan });
+    void session.feature("agent").request("openPlan", plan);
     return true;
   });
   const offTogglePlan = registerCommand(CommandIds.togglePlanMode, () => {
-    const slot = props.slot;
-    return slot !== null && toggleAgentControl(props.backendId, slot, CommandIds.togglePlanMode);
+    const session = props.session;
+    return session !== null && toggleAgentControl(session, CommandIds.togglePlanMode);
   });
   // Model and Effort both live in the one cascading picker; a bare command opens it, a value arg sets that axis.
   const offSelectModel = registerModelSelect(CommandIds.selectModel, "model");
@@ -340,15 +340,15 @@ export function AgentComposer(props: {
   const offSelectSandbox = registerSelect(CommandIds.selectSandbox, "sandbox");
   // Fast Mode toggles the active model's service tier (no picker).
   const offToggleFast = registerCommand(CommandIds.toggleFastMode, () => {
-    const slot = props.slot;
-    if (slot === null) {
+    const session = props.session;
+    if (session === null) {
       return false;
     }
-    const model = currentModel(slot);
+    const model = currentModel(session);
     if (model === undefined || model.fastTier === "") {
       return false;
     }
-    toggleModelFast(props.backendId, slot, model);
+    toggleModelFast(session, model);
     return true;
   });
   const offApprove = registerDecision(CommandIds.agentApprove, "accept");
@@ -410,9 +410,8 @@ export function AgentComposer(props: {
                   type="button"
                   title="Remove attachment"
                   onClick={() => {
-                    const slot = props.slot;
-                    if (slot !== null) {
-                      removeComposerAttachment(props.backendId, slot, attachment.id);
+                    if (props.session !== null) {
+                      removeComposerAttachment(props.session, attachment.id);
                     }
                   }}
                 >
@@ -433,9 +432,8 @@ export function AgentComposer(props: {
                   type="button"
                   title="Remove skill"
                   onClick={() => {
-                    const slot = props.slot;
-                    if (slot !== null) {
-                      unstageSkill(props.backendId, slot, skill);
+                    if (props.session !== null) {
+                      unstageSkill(props.session, skill);
                     }
                   }}
                 >
@@ -460,9 +458,8 @@ export function AgentComposer(props: {
         }
         onKeyDown={onComposerKeyDown}
         onInput={(event) => {
-          const slot = props.slot;
-          if (slot !== null) {
-            setComposerDraft(props.backendId, slot, event.currentTarget.value);
+          if (props.session !== null) {
+            setComposerDraft(props.session, event.currentTarget.value);
             // Editing starts a fresh draft, ending any history browse.
             if (historyCursor().cursor !== null) {
               setHistoryCursor(IDLE_CURSOR);
@@ -470,12 +467,11 @@ export function AgentComposer(props: {
           }
         }}
         onPaste={(event) => {
-          const slot = props.slot;
-          if (slot !== null) {
+          if (props.session !== null) {
             if (props.inputProtocol >= 2) {
-              captureAgentImagePaste(event, props.backendId, slot);
+              captureAgentImagePaste(event, props.session);
             } else {
-              sendPastedImagesFromClipboard(event, props.backendId, slot);
+              sendPastedImagesFromClipboard(event, props.session);
             }
           }
         }}
@@ -506,19 +502,19 @@ export function AgentComposer(props: {
 }
 
 function applyPrefill(
-  props: { backendId: string; messages: AgentPaneUpdate[]; slot: string | null },
+  props: { messages: AgentPaneUpdate[]; session: ClientSession | null },
   appliedIndexes: Map<string, number>,
 ): void {
-  const slot = props.slot;
-  if (slot === null) {
+  const session = props.session;
+  if (session === null) {
     return;
   }
-  const key = `${props.backendId}\u0000${slot}`;
+  const key = `${session.connection.id}\u0000${session.address.incarnation}`;
   for (let index = props.messages.length - 1; index >= 0; index -= 1) {
     const message = props.messages[index];
     if (message?.type === "draft" && index !== appliedIndexes.get(key)) {
       appliedIndexes.set(key, index);
-      setComposerDraft(props.backendId, slot, message.text ?? "");
+      setComposerDraft(session, message.text ?? "");
       return;
     }
   }

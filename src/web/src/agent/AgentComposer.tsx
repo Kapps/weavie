@@ -30,8 +30,6 @@ import {
   uploadAgentImage,
 } from "./composer-store";
 import {
-  caretOnFirstLine,
-  caretOnLastLine,
   type HistoryCursor,
   type HistoryRecall,
   IDLE_CURSOR,
@@ -40,6 +38,7 @@ import {
   submittedPrompts,
 } from "./prompt-history";
 import { filterSlash, slashQuery } from "./slash";
+import { caretOnFirstVisualLine, caretOnLastVisualLine } from "./textarea-lines";
 import {
   activeTurnStartedAt,
   formatElapsed,
@@ -159,8 +158,8 @@ export function AgentComposer(props: {
     return true;
   };
 
-  // Shell-style history: Up recalls the previous prompt only with a collapsed caret on the first line, Down
-  // the next only on the last line — otherwise the arrow moves the caret within a multi-line draft as usual.
+  // Shell-style history: Up recalls only from the first rendered line, Down only from the last — otherwise
+  // the arrow moves the collapsed caret within a multi-line draft as usual.
   const onComposerKeyDown = (event: KeyboardEvent): void => {
     const element = textareaRef;
     if (
@@ -175,11 +174,11 @@ export function AgentComposer(props: {
     ) {
       return;
     }
-    if (event.key === "ArrowUp" && caretOnFirstLine(element.value, element.selectionStart)) {
+    if (event.key === "ArrowUp" && caretOnFirstVisualLine(element)) {
       if (applyRecall(recallPrevious(history(), historyCursor(), element.value))) {
         event.preventDefault();
       }
-    } else if (event.key === "ArrowDown" && caretOnLastLine(element.value, element.selectionEnd)) {
+    } else if (event.key === "ArrowDown" && caretOnLastVisualLine(element)) {
       if (applyRecall(recallNext(history(), historyCursor()))) {
         event.preventDefault();
       }

@@ -1,6 +1,6 @@
 ---
 name: finish-session
-description: Ship this Weavie session's work — commit, open a PR, watch CI to green (fixing any reds), merge, then delete the session. Use when the session's work is done and should land on main.
+description: Ship this Weavie session's work — commit, open a PR, watch CI to green (fixing any reds), merge, then delete the session. Use only when the user indicates the work should be merged or landed on main; do not invoke for requests limited to creating, opening, or making a PR.
 disable-model-invocation: true
 ---
 
@@ -8,6 +8,12 @@ disable-model-invocation: true
 
 Ship the session branch end to end. Hard rule: **delete the session only after the PR is
 confirmed merged** — never before, and never with unshipped work.
+
+## Trigger boundary
+
+Use this workflow only when the user indicates they want the work merged or landed. A request to
+create, open, or make a PR is PR-only: commit, push, open the PR, and stop without invoking this
+skill's CI-to-merge or session-deletion workflow.
 
 ## 1. Commit and push
 

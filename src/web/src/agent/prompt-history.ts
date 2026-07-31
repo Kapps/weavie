@@ -61,13 +61,3 @@ export function recallNext(history: readonly string[], state: HistoryCursor): Hi
   const cursor = state.cursor + 1;
   return { text: history[cursor]!, next: { cursor, stash: state.stash } };
 }
-
-/** Whether the caret sits on the textarea's first line (so Up should recall rather than move the caret). */
-export function caretOnFirstLine(value: string, selectionStart: number): boolean {
-  return !value.slice(0, selectionStart).includes("\n");
-}
-
-/** Whether the caret sits on the textarea's last line (so Down should recall rather than move the caret). */
-export function caretOnLastLine(value: string, selectionEnd: number): boolean {
-  return !value.slice(selectionEnd).includes("\n");
-}

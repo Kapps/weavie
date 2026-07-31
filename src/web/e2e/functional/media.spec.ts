@@ -1,7 +1,7 @@
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import WebSocket from "ws";
-import { openFile, runCommand } from "../harness/actions";
+import { activeSessionSlot, openFile, runCommand, waitForSessionSwitch } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 
 interface SessionAddress {
@@ -202,8 +202,10 @@ test("same-named scratch media switches to the incoming session route", async ({
   const first = new URL((await page.locator(".editor-media img").getAttribute("src")) as string);
   await expect.poll(() => persistedSessions(weavie.home)).toContain("shared.png");
 
+  const firstSlot = await activeSessionSlot(page);
   await runCommand(page, "Fork Session");
   await expect(page.locator(".session-chip")).toHaveCount(2);
+  await waitForSessionSwitch(page, firstSlot);
   const secondPath = await createScratchMedia();
   await openScratch(secondPath);
   const second = new URL((await page.locator(".editor-media img").getAttribute("src")) as string);
@@ -234,9 +236,17 @@ test("worktree media switches owner and path without a transient 404", async ({ 
   const first = new URL((await image.getAttribute("src")) as string);
   await expect.poll(() => persistedSessions(weavie.home)).toContain("pixel.png");
 
+  const firstSlot = await activeSessionSlot(page);
   await runCommand(page, "Fork Session");
   await expect(page.locator(".session-chip")).toHaveCount(2);
+  await waitForSessionSwitch(page, firstSlot);
   await openFile(page, "pixel.png");
+  await expect
+    .poll(async () => {
+      const src = await image.getAttribute("src");
+      return src === null ? null : new URL(src).searchParams.get("session");
+    })
+    .not.toBe(first.searchParams.get("session"));
   await expect(image).toHaveJSProperty("naturalWidth", 8);
   const second = new URL((await image.getAttribute("src")) as string);
   expect(second.searchParams.get("session")).not.toBe(first.searchParams.get("session"));

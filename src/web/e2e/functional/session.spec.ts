@@ -1,6 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { runCommand } from "../harness/actions";
+import { activeSessionSlot, runCommand, waitForSessionSwitch } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { sessionWorktrees } from "../harness/git-workspace";
 
@@ -19,19 +19,21 @@ import { sessionWorktrees } from "../harness/git-workspace";
 test("create, switch, unload, and reopen sessions @cross", async ({ page }) => {
   const chips = page.locator(".session-chip");
   await expect(chips).toHaveCount(1);
+  const initialSlot = await activeSessionSlot(page);
 
   // Create: forking spins up a second session on its own worktree, which becomes active.
   await runCommand(page, "Fork Session");
   await expect(chips).toHaveCount(2);
-  await expect(page.locator(".session-chip.active")).toHaveCount(1);
+  await waitForSessionSwitch(page, initialSlot);
 
   // Switch: clicking the first chip makes it active.
   await chips.first().click();
   await expect(chips.first()).toHaveClass(/\bactive\b/);
 
   // Switch via the keyboard (Next Session) — still exactly one active session.
+  const beforeNext = await activeSessionSlot(page);
   await runCommand(page, "Next Session");
-  await expect(page.locator(".session-chip.active")).toHaveCount(1);
+  await waitForSessionSwitch(page, beforeNext);
 
   // Unload: the active session's backend is torn down; its chip goes faded/unloaded.
   await runCommand(page, "Unload Session");
@@ -43,14 +45,10 @@ test("create, switch, unload, and reopen sessions @cross", async ({ page }) => {
 });
 
 test("reload restores the client-selected stable session slot @cross", async ({ page, weavie }) => {
+  const initialSlot = await activeSessionSlot(page);
   await runCommand(page, "Fork Session");
   await expect(page.locator(".session-chip")).toHaveCount(2);
-  const active = page.locator(".session-chip.active");
-  await expect(active).toHaveCount(1);
-  const slot = await active.getAttribute("data-session-slot");
-  if (slot === null || slot === "primary") {
-    throw new Error("the forked session did not become the selected stable slot");
-  }
+  const slot = await waitForSessionSwitch(page, initialSlot);
   await expect
     .poll(async () => {
       const json = await readFile(join(weavie.home, ".weavie", "rail-state.json"), "utf8").catch(

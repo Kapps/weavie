@@ -312,7 +312,7 @@ export class MessageBus {
           try {
             await handler(envelope.payload, this.lifetime.signal);
           } catch (error) {
-            console.error(`message handler ${envelope.feature}.${envelope.name} failed`, error);
+            console.error("Message handler failed.", envelope.feature, envelope.name, error);
           }
         }
       }
@@ -374,7 +374,7 @@ export class MessageBus {
   private enqueue(feature: string, concurrent: boolean, work: () => Promise<void>): void {
     if (concurrent) {
       void work().catch((error: unknown) =>
-        console.error(`message handler ${feature} failed`, error),
+        console.error("Message handler failed.", feature, error),
       );
       return;
     }
@@ -382,7 +382,7 @@ export class MessageBus {
     const next = previous.catch(() => undefined).then(work);
     this.lanes.set(feature, next);
     void next
-      .catch((error: unknown) => console.error(`message handler ${feature} failed`, error))
+      .catch((error: unknown) => console.error("Message handler failed.", feature, error))
       .finally(() => {
         if (this.lanes.get(feature) === next) {
           this.lanes.delete(feature);
@@ -406,7 +406,7 @@ export class MessageBus {
         error,
       });
     } catch (sendError) {
-      console.error(`response delivery for ${request.feature}.${request.name} failed`, sendError);
+      console.error("Response delivery failed.", request.feature, request.name, sendError);
     }
   }
 

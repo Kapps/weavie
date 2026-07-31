@@ -3,13 +3,13 @@
 // commands.invoke request. See docs/specs/commands.md.
 
 import {
+  beginClientSelectionCandidate,
   type ClientSession,
   hostInjected,
   invokeCommandOnBackend,
   log,
   registerHostFeature,
   registerViewFeature,
-  selectClientSession,
   selectedSession,
   waitForClientSession,
 } from "../bridge";
@@ -90,7 +90,11 @@ export function findCommand(id: string): CommandInfo | undefined {
 
 // Run a Core command and return its result. A `backendId` arg (a rail / cloud-panel op on a specific session)
 // targets that backend so the command runs on the session's owning host; otherwise the active backend.
-async function applySessionActivation(backendId: string, result: CommandResult): Promise<void> {
+async function applySessionActivation(
+  backendId: string,
+  result: CommandResult,
+  commit: ReturnType<typeof beginClientSelectionCandidate>,
+): Promise<void> {
   const data = result.data as
     | {
         activateSession?: unknown;
@@ -110,12 +114,11 @@ async function applySessionActivation(backendId: string, result: CommandResult):
   ) {
     throw new Error("The command requested session activation without an exact live address.");
   }
-  selectClientSession(
-    await waitForClientSession(backendId, {
-      slot: address.slot,
-      incarnation: address.incarnation,
-    }),
-  );
+  const session = await waitForClientSession(backendId, {
+    slot: address.slot,
+    incarnation: address.incarnation,
+  });
+  commit(session);
 }
 
 async function routeCoreCommand(id: string, args: unknown): Promise<CommandResult> {
@@ -125,10 +128,11 @@ async function routeCoreCommand(id: string, args: unknown): Promise<CommandResul
     typeof backendId === "string" && backendId.length > 0
       ? backendId
       : (selectedSession()?.connection.id ?? "local");
+  const commit = beginClientSelectionCandidate();
   const run = async (): Promise<CommandResult> => {
     const result = await invokeCommandOnBackend(target, id, args);
     if (result.ok) {
-      await applySessionActivation(target, result);
+      await applySessionActivation(target, result, commit);
     }
     return result;
   };

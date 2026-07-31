@@ -18,6 +18,7 @@ import {
   activeBackendPhase,
   backendName,
   backendPhase,
+  beginClientSelection,
   type ClientSession,
   clientSession,
   connectedBackends,
@@ -26,7 +27,6 @@ import {
   isBrowserHostedShell,
   LOCAL_BACKEND_ID,
   registerViewFeature,
-  selectClientSession,
   selectedSession,
   type TermSession,
   waitForClientSession,
@@ -149,7 +149,6 @@ import { mark } from "./startup-timing";
 import { installTerminalClipboardCommands } from "./terminal/host-clipboard";
 import { TerminalView } from "./terminal/TerminalView";
 import { openUrlExternal } from "./terminal/terminal-links";
-import { runTestAtCursor } from "./tests/test-lens";
 import { applyChromeTheme } from "./theme";
 
 const FileBrowser = lazy(() => import("./files/FileBrowser"));
@@ -494,11 +493,12 @@ export default function App(): JSX.Element {
   const selectResultSession = async (
     backendId: string,
     result: { ok: boolean; error?: string; data?: unknown },
+    commit: ReturnType<typeof beginClientSelection>,
   ): Promise<void> => {
     if (!result.ok) {
       throw new Error(result.error ?? "The session operation failed.");
     }
-    selectClientSession(await waitForClientSession(backendId, resultAddress(result)));
+    commit(await waitForClientSession(backendId, resultAddress(result)));
   };
 
   const createSessionAt = (
@@ -510,8 +510,9 @@ export default function App(): JSX.Element {
       agentProviderId: "claude" | "codex";
     },
   ): void => {
-    void invokeCommandOnBackend(backendId, "weavie.session.new", args)
-      .then((result) => selectResultSession(backendId, result))
+    const commit = beginClientSelection();
+    void invokeCommandOnBackend(backendId, CommandIds.newSession, args)
+      .then((result) => selectResultSession(backendId, result, commit))
       .catch((error: unknown) =>
         addToast("error", error instanceof Error ? error.message : String(error)),
       );
@@ -532,6 +533,7 @@ export default function App(): JSX.Element {
       addToast("error", `No live session is available on ${backendLabel(backendId)}.`, toastKey);
       return;
     }
+    const commit = beginClientSelection();
     void session
       .feature("pullRequests")
       .request<
@@ -542,7 +544,7 @@ export default function App(): JSX.Element {
         },
         typeof target
       >("open", target)
-      .then((result) => selectResultSession(backendId, result))
+      .then((result) => selectResultSession(backendId, result, commit))
       .then(() => dismissKeyed(toastKey))
       .catch((error: unknown) =>
         addToast("warn", error instanceof Error ? error.message : String(error), toastKey),
@@ -560,6 +562,7 @@ export default function App(): JSX.Element {
       );
       return;
     }
+    const commit = beginClientSelection();
     beginSessionSelection(session.backendId, session.id);
     flushEditorSession();
     void editor
@@ -575,7 +578,7 @@ export default function App(): JSX.Element {
           }
           target = await waitForClientSession(session.backendId, resultAddress(loaded));
         }
-        selectClientSession(target);
+        commit(target);
       })
       .catch((error: unknown) => {
         addToast("error", error instanceof Error ? error.message : String(error));
@@ -1173,9 +1176,8 @@ export default function App(): JSX.Element {
       registerCommand(CommandIds.saveFile, () => editor.save()),
       registerCommand(CommandIds.toggleEditorPreview, () => toggleActivePreview()),
       registerCommand(CommandIds.zoomEmbed, () => zoomActiveEmbed()),
-      registerCommand(CommandIds.runTestAtCursor, () => {
-        void runTestAtCursor();
-        return true;
+      registerCommand(CommandIds.runTestAtCursor, async () => {
+        await (await import("./tests/test-lens")).runTestAtCursor();
       }),
       // Open Folder (reuses the local host's native picker via the existing menu-action) + Open URL (opens a web tab).
       registerCommand(CommandIds.openFolder, () => {

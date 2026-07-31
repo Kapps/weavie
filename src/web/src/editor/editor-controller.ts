@@ -46,7 +46,7 @@ import {
   togglePinFor,
 } from "./session-store";
 import type { EditorSession, EditorSessionEntry } from "./session-types";
-import { SESSION_FILE_SCHEME, sessionForUri, sessionUriHostPath } from "./session-uri";
+import { SESSION_FILE_SCHEME, sessionForUri, sessionUriHostPath } from "./session-uri-owner";
 
 // Only a genuine hang trips this, never a slow cold start: the editor chunk (~750KB of Monaco + workers) plus
 // vscode-services init can legitimately run tens of seconds on a loaded machine or across the remote worker hop

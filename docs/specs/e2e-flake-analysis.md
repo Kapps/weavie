@@ -105,22 +105,32 @@ confirmed **not** a regression from that PR — its diff touches only `App.tsx`/
 `use(host)`.
 
 No new datum: this run carries the same gap the "Guidance for the next agent" section below complains
-about — `console-errors.txt`/`weavie-host.log`/`viewport-layout.json` were never attached, because that
-capture code lived textually after `await use(host)` in `fixtures.ts`, which a setup-time throw (like this
-`#splash` timeout) skips entirely. Fixed in `fixtures.ts`: setup (`preNavigate` → `goto` → the `#splash`
-wait) and `use(host)` now run inside a `try`, with the diagnostic-dump + `host.stop()`/`page.close()` in a
-`finally` — so a **future** setup-time failure of this class attaches the same datum a test-body failure
-already did. This does not touch the 40s timeout or add a retry; it only makes the next occurrence
-diagnosable. Still waiting on that next occurrence to actually close the root cause.
+about — `console-errors.txt`/`weavie-host.log`/`viewport-layout.json` were never attached. The first
+attempt to fix that still gated its `finally` on `testInfo.status`, but Playwright does not mark a setup
+failure until after the fixture unwinds. The fixture now catches setup failures directly and attaches
+diagnostics unconditionally before teardown.
 
-## #4 — `net::ERR_NO_BUFFER_SPACE` (Windows socket/buffer pressure)
+## CONFIRMED + FIXED: #4 — `net::ERR_NO_BUFFER_SPACE` (Windows socket/buffer pressure)
 
 Windows `WSAENOBUFS`: the OS couldn't allocate a socket buffer. Serialized runs (Windows is
 `workers: 1`), so it's not parallel workers. Ruled out: the LSP reconnect is bounded and multiplexes
 over the single bridge WS (no per-attempt socket); the harness's own HTTP polling was already removed
 (the ready line is parsed from stdout). Most likely an environmental symptom of a resource-starved
-hosted Windows runner, possibly compounding #2. `console-errors.txt` is now attached on failure so its
-frequency/co-occurrence with #2/#3 is measurable.
+hosted Windows runner, possibly compounding #2.
+
+**2026-07-31 occurrence, run 30612700118:** the remote media fixture never left its splash because
+Chromium failed to fetch `rolldown-runtime-*.js` with `net::ERR_NO_BUFFER_SPACE`. The trace showed the
+entry page opening nine resources at once, including an eager 7.9 MB Monaco chunk. `App.tsx` statically
+imported the test-lens command, pulling Monaco into the entry graph despite the editor's lazy boundary;
+Vite then emitted module-preload links for that graph, creating the startup socket burst.
+
+**Fix:** the test-lens command now loads behind its existing editor boundary, and the production build
+disables eager module preloads. The generated entry page no longer references Monaco JavaScript or any
+preload: it starts with the entry module, three stylesheets, and the logo, while module dependencies use
+the established HTTP connections. Session-URI ownership parsing is separate from Monaco URI construction,
+so shell code can route an editor model without importing the editor runtime. The build traverses each
+entry's static chunk graph and fails if that boundary regresses. This repairs both the accidental eager
+7.9 MB download and the Windows socket-allocation failure without a retry, skip, or wider timeout.
 
 ## Reproduction & forensics techniques that worked
 

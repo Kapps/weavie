@@ -136,6 +136,7 @@ export const CommandIds = {
   prevSession: "weavie.session.prev",
   focusSession: "weavie.session.focus",
   selectSessionByIndex: "weavie.session.selectByIndex",
+  newSession: "weavie.session.new",
   loadSession: "weavie.session.load",
   unloadSession: "weavie.session.unload",
   deleteSession: "weavie.session.delete",

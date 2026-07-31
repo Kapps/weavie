@@ -21,6 +21,7 @@ async function openPrByNumber(
   await expect(page.locator(".pr-suggestion-number", { hasText: `#${n}` })).toBeVisible();
   await page.locator(".session-prompt-input").press("Enter");
   await expect(page.locator(chips)).toHaveCount(expectedChips, { timeout: 25_000 });
+  await expect(page.locator(chips).nth(expectedChips - 1)).toHaveClass(/\bactive\b/);
   await expect(page.locator(toolbar)).toBeVisible({ timeout: 20_000 });
 }
 

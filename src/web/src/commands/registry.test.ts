@@ -17,9 +17,18 @@ const env = vi.hoisted(() => ({
     backendId: string;
     address: { slot: string; incarnation: string };
   }>,
+  selectionCandidates: [] as ClientSession[][],
 }));
 
 vi.mock("../bridge", () => ({
+  beginClientSelectionCandidate: () => {
+    const commits: ClientSession[] = [];
+    env.selectionCandidates.push(commits);
+    return (session: ClientSession) => {
+      commits.push(session);
+      return true;
+    };
+  },
   hostInjected: <T>(_name: string, value: T | undefined, fallback: T): T => value ?? fallback,
   invokeCommandOnBackend: (
     backendId: string,
@@ -54,7 +63,6 @@ vi.mock("../bridge", () => ({
     }
     return () => {};
   },
-  selectClientSession: () => {},
   selectedSession: () => env.selected,
   waitForClientSession: (
     backendId: string,
@@ -111,6 +119,7 @@ beforeEach(() => {
   env.invokeCalls.length = 0;
   env.notified.length = 0;
   env.selectedAddresses.length = 0;
+  env.selectionCandidates.length = 0;
   env.coreResult = { ok: true, data: "core-ran" };
   setCatalog([]);
 });
@@ -186,6 +195,7 @@ describe("dispatchCommand — core commands", () => {
         address: { slot: "branch-a", incarnation: "incarnation-a" },
       },
     ]);
+    expect(env.selectionCandidates).toEqual([[env.selected]]);
   });
 
   it("does not activate address-bearing background command results", async () => {
@@ -198,6 +208,7 @@ describe("dispatchCommand — core commands", () => {
     await reg.dispatchCommand("core.load");
 
     expect(env.selectedAddresses).toEqual([]);
+    expect(env.selectionCandidates).toEqual([[]]);
   });
 });
 

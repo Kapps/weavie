@@ -4,6 +4,7 @@ import { type ClientSession, HostConnection, type HostHello } from "./messaging/
 import { parseEnvelope } from "./messaging/message-envelope";
 import { PAGE_EPOCH } from "./messaging/page-epoch";
 import type { BackendEndpoint, BackendInfo, PullRequestInfo } from "./messaging/protocol-types";
+import { SelectionSequencer } from "./messaging/selection-sequencer";
 import { notify } from "./notify/notify";
 
 export { ClientSession, HostConnection } from "./messaging/host-connection";
@@ -74,12 +75,30 @@ export function hostConnection(backendId: string): HostConnection | undefined {
   return backends.get(backendId)?.connection;
 }
 
+const clientSelections = new SelectionSequencer<ClientSession>((session) => {
+  if (!liveSessions.has(session)) {
+    return false;
+  }
+  rememberSelection(session);
+  commitSelection(session);
+  return true;
+});
+
 export function selectClientSession(session: ClientSession): void {
   if (!liveSessions.has(session)) {
     return;
   }
-  rememberSelection(session);
-  commitSelection(session);
+  beginClientSelection()(session);
+}
+
+/** Returns a commit that succeeds only while this remains the page's newest selection intent. */
+export function beginClientSelection(): (session: ClientSession) => boolean {
+  return clientSelections.beginIntent();
+}
+
+/** Reserves invocation order without superseding a selection unless its result requests activation. */
+export function beginClientSelectionCandidate(): (session: ClientSession) => boolean {
+  return clientSelections.beginCandidate();
 }
 
 export function waitForClientSession(

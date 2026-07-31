@@ -73,13 +73,96 @@ export const test = base.extend<WeavieOptions & WeavieFixtures>({
         }
       });
       page.on("pageerror", (err) => consoleErrors.push(`[pageerror] ${String(err)}`));
-      // try/finally from here down: the diagnostic dump and host teardown below must run even when setup
-      // itself fails (e.g. the splash wait timing out) — a setup throw skips straight past code placed
-      // after a bare `await use(host)`, which is exactly the boot-failure class these diagnostics exist to
-      // capture. See docs/specs/e2e-flake-analysis.md (2026-07-23): a Windows `#splash` setup timeout landed
-      // with none of weavie-host.log/console-errors.txt/viewport-layout.json attached because they lived
-      // after `use(host)` — this restructure is the fix, so the *next* such timeout carries the datum the
-      // doc says is needed to close it.
+      const dumpDiagnostics = async (): Promise<void> => {
+        const layout = await page
+          .evaluate(() => {
+            const rect = (selector: string): string => {
+              try {
+                const element = document.querySelector(selector);
+                if (element === null) {
+                  return "absent";
+                }
+                const bounds = element.getBoundingClientRect();
+                return `${Math.round(bounds.width)}x${Math.round(bounds.height)}`;
+              } catch {
+                return "selector-error";
+              }
+            };
+            return JSON.stringify(
+              {
+                inner: `${window.innerWidth}x${window.innerHeight}`,
+                dpr: window.devicePixelRatio,
+                visualViewport: window.visualViewport
+                  ? `${Math.round(window.visualViewport.width)}x${Math.round(window.visualViewport.height)} scale=${window.visualViewport.scale}`
+                  : "absent",
+                html: rect("html"),
+                body: rect("body"),
+                app: rect(".app"),
+                appBody: rect(".app-body"),
+                layoutRoot: rect(".layout-root"),
+                editorPaneSlot: rect(".layout-root > .pane-slot:has(.editor-surface)"),
+                editorSurface: rect(".editor-surface"),
+                editorPane: rect(".editor-surface .editor-pane"),
+                editor: rect(".editor-surface .editor"),
+                monaco: rect(".editor-surface .monaco-editor"),
+                review: window.__WEAVIE_REVIEW__ ?? null,
+              },
+              null,
+              2,
+            );
+          })
+          .catch((error) => `layout probe failed: ${error}`);
+        for (const [name, content] of [
+          ["weavie-host.log", host.log()],
+          ["fake-claude.log", host.fakeLog()],
+          ["viewport-layout.json", layout],
+          ["console-errors.txt", consoleErrors.join("\n") || "(none)"],
+        ] as const) {
+          const path = testInfo.outputPath(name);
+          await writeFile(path, content);
+          await testInfo.attach(name, { path, contentType: "text/plain" });
+        }
+      };
+      const teardown = async (): Promise<void> => {
+        const failures: unknown[] = [];
+        try {
+          if (!page.isClosed()) {
+            await page.close();
+          }
+        } catch (error) {
+          failures.push(error);
+        }
+        try {
+          await host.stop();
+        } catch (error) {
+          failures.push(error);
+        }
+        if (failures.length === 1) {
+          throw failures[0];
+        }
+        if (failures.length > 1) {
+          throw new AggregateError(failures, "Page and host teardown both failed.");
+        }
+      };
+      const collectFailure = async (
+        failures: unknown[],
+        operation: () => Promise<void>,
+      ): Promise<void> => {
+        try {
+          await operation();
+        } catch (error) {
+          failures.push(error);
+        }
+      };
+      const throwFailures = (failures: unknown[], message: string): void => {
+        if (failures.length === 1) {
+          throw failures[0];
+        }
+        if (failures.length > 1) {
+          throw new AggregateError(failures, message);
+        }
+      };
+
       try {
         if (preNavigate !== null) {
           await preNavigate.run(page);
@@ -88,73 +171,25 @@ export const test = base.extend<WeavieOptions & WeavieFixtures>({
         // The app removes the splash element once it has booted (layout + first session). Its disappearance
         // is the "app is interactive" signal — not a fixed sleep.
         await expect(page.locator("#splash")).toHaveCount(0, { timeout: 40_000 });
-        await use(host);
-      } finally {
-        // On failure, attach the host's captured stdout/stderr and the fake-claude log: a host crash is
-        // invisible in the browser trace (the page just shows "Lost connection"), so the .NET exception that
-        // killed it must ride the test artifacts. See issue #197.
-        if (testInfo.status !== testInfo.expectedStatus) {
-          // The viewport/layout state rides along too: one CI failure showed the whole app painting at 0.6
-          // scale with the editor container at 5px CSS — invisible in a DOM snapshot, obvious in these numbers.
-          const layout = await page
-            .evaluate(() => {
-              const rect = (sel: string) => {
-                try {
-                  const el = document.querySelector(sel);
-                  if (!el) {
-                    return "absent";
-                  }
-                  const r = el.getBoundingClientRect();
-                  return `${Math.round(r.width)}x${Math.round(r.height)}`;
-                } catch {
-                  // A malformed/unsupported selector must not sink the whole probe — degrade this one field.
-                  return "selector-error";
-                }
-              };
-              return JSON.stringify(
-                {
-                  inner: `${window.innerWidth}x${window.innerHeight}`,
-                  dpr: window.devicePixelRatio,
-                  visualViewport: window.visualViewport
-                    ? `${Math.round(window.visualViewport.width)}x${Math.round(window.visualViewport.height)} scale=${window.visualViewport.scale}`
-                    : "absent",
-                  html: rect("html"),
-                  body: rect("body"),
-                  app: rect(".app"),
-                  appBody: rect(".app-body"),
-                  layoutRoot: rect(".layout-root"),
-                  // The editor pane chain, so a 0-height editor (the S3 5px collapse) is pinpointed to a
-                  // level: which of paneSlot -> editorSurface -> editorPane -> editor is the one that's 0-high.
-                  editorPaneSlot: rect(".layout-root > .pane-slot:has(.editor-surface)"),
-                  editorSurface: rect(".editor-surface"),
-                  editorPane: rect(".editor-surface .editor-pane"),
-                  editor: rect(".editor-surface .editor"),
-                  monaco: rect(".editor-surface .monaco-editor"),
-                  // The live review-walk file set: on a PR-switch failure this shows whether the navigator holds
-                  // a leaked cross-PR mix (a host push bug) or the correct set (a test-walk race).
-                  review: window.__WEAVIE_REVIEW__ ?? null,
-                },
-                null,
-                2,
-              );
-            })
-            .catch((err) => `layout probe failed: ${err}`);
-          for (const [name, content] of [
-            ["weavie-host.log", host.log()],
-            ["fake-claude.log", host.fakeLog()],
-            ["viewport-layout.json", layout],
-            ["console-errors.txt", consoleErrors.join("\n") || "(none)"],
-          ] as const) {
-            const path = testInfo.outputPath(name);
-            await writeFile(path, content);
-            await testInfo.attach(name, { path, contentType: "text/plain" });
-          }
-        }
-        if (!page.isClosed()) {
-          await page.close();
-        }
-        await host.stop();
+      } catch (error) {
+        // Playwright records setup failures only after the fixture unwinds, so testInfo still says "passed" here.
+        const failures = [error];
+        await collectFailure(failures, dumpDiagnostics);
+        await collectFailure(failures, teardown);
+        throwFailures(failures, "App setup, diagnostics, or teardown failed.");
       }
+
+      const failures: unknown[] = [];
+      try {
+        await use(host);
+      } catch (error) {
+        failures.push(error);
+      }
+      if (failures.length > 0 || testInfo.status !== testInfo.expectedStatus) {
+        await collectFailure(failures, dumpDiagnostics);
+      }
+      await collectFailure(failures, teardown);
+      throwFailures(failures, "Test, diagnostics, or teardown failed.");
     },
     { auto: true },
   ],

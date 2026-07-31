@@ -34,6 +34,30 @@ internal static class Hosts {
 	private static string Dll(string project) =>
 		Path.Combine(RepoRoot, "src", project, "bin", Config, "net10.0", $"{project}.dll");
 
+	/// <summary>
+	/// The name of a static asset guaranteed to exist under the worker's web root, so auth tests exercise the
+	/// public-asset allowlist for real. Without a web root the host skips that branch entirely and every path
+	/// is denied by the token gate alone — which would let an allowlist bypass pass the suite unnoticed.
+	/// </summary>
+	public const string ProbeAsset = "auth-probe-asset.js";
+
+	/// <summary>
+	/// Ensures the worker has a web root holding <see cref="ProbeAsset"/> and an <c>index.html</c>. A real
+	/// asset build is left untouched — only the files it doesn't provide are written.
+	/// </summary>
+	public static void SeedWebRoot() {
+		string webRoot = Path.Combine(Path.GetDirectoryName(HeadlessDll)!, "wwwroot");
+		Directory.CreateDirectory(webRoot);
+		WriteIfAbsent(Path.Combine(webRoot, ProbeAsset), "// static asset served without a token by design");
+		WriteIfAbsent(Path.Combine(webRoot, "index.html"), "<!doctype html><head></head><body>weavie</body>");
+	}
+
+	private static void WriteIfAbsent(string path, string content) {
+		if (!File.Exists(path)) {
+			File.WriteAllText(path, content);
+		}
+	}
+
 	private static string FindRepoRoot() {
 		var dir = new DirectoryInfo(AppContext.BaseDirectory);
 		while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "weavie.slnx"))) {

@@ -9,6 +9,12 @@ public sealed record WorkspaceHttpServerOptions(
 	string Token,
 	string WebRoot,
 	bool EnableControl) {
+	/// <summary>The token every request must present. Never empty — an empty one would compare equal to an
+	/// absent one and open every route, so an unauthenticated server is unrepresentable, not merely unreached.</summary>
+	public string Token { get; init; } = !string.IsNullOrEmpty(Token)
+		? Token
+		: throw new ArgumentException("A workspace server token is required.", nameof(Token));
+
 	/// <summary>Creates a token-gated, loopback-only server on an OS-assigned port for a native workspace.</summary>
 	public static WorkspaceHttpServerOptions Native(string webRoot) => Loopback(0, webRoot);
 

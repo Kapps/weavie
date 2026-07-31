@@ -14,6 +14,7 @@ public sealed class RemoteHeadlessFixture : IAsyncLifetime {
 
 	public async Task InitializeAsync() {
 		Directory.CreateDirectory(_workspace);
+		Hosts.SeedWebRoot();
 		int port = Hosts.FreePort();
 		Host = await HostHandle.StartAsync(
 			Hosts.HeadlessDll,
@@ -124,6 +125,29 @@ public sealed class HeadlessRemoteAuthTests(RemoteHeadlessFixture fixture) : ICl
 	public async Task Unknown_path_is_denied_by_default_without_a_token() {
 		// Default-deny: a path that is neither a public asset nor a known route still requires the token.
 		var response = await Http.GetAsync($"{fixture.Host.BaseUrl}/api/secret");
+		Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+	}
+
+	[Fact]
+	public async Task Static_asset_is_served_without_a_token() {
+		// The allowlist branch must be LIVE for the index-spelling theory below to mean anything: with no web
+		// root the host never evaluates it and the token gate denies everything, hiding an allowlist bypass.
+		var response = await Http.GetAsync($"{fixture.Host.BaseUrl}/{Hosts.ProbeAsset}");
+		Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+	}
+
+	[Theory]
+	[InlineData("/index.html")]
+	[InlineData("//index.html")]
+	[InlineData("///index.html")]
+	[InlineData("/./index.html")]
+	[InlineData("//INDEX.HTML")]
+	public async Task Document_is_denied_for_every_spelling_of_the_index_path(string path) {
+		// The public-asset allowlist excludes the document so it is only ever served token-gated with the
+		// injected bootstrap. Regression: the exclusion tested the raw request path while the file lookup
+		// trimmed leading separators, so `//index.html` was an anonymous static asset and served the shell.
+		using var request = new HttpRequestMessage(HttpMethod.Get, $"{fixture.Host.BaseUrl}{path}");
+		var response = await Http.SendAsync(request);
 		Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
 	}
 

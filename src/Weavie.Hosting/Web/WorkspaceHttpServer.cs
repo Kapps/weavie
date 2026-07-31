@@ -70,10 +70,10 @@ public sealed class WorkspaceHttpServer : IAsyncDisposable {
 			: null;
 		var assets = _assets;
 		app.Use(async (context, next) => {
-			var path = context.Request.Path;
+			string subpath = NormalizeSubpath(context.Request.Path);
 			bool publicAsset = assets is not null
-				&& path != "/" && path != "/index.html"
-				&& assets.GetFileInfo(path.Value ?? "/").Exists;
+				&& subpath.Length > 0 && !IsIndexDocument(subpath)
+				&& assets.GetFileInfo(subpath).Exists;
 			if (publicAsset || TokenMatches(context, _options.Token)) {
 				await next().ConfigureAwait(false);
 				return;
@@ -107,8 +107,8 @@ public sealed class WorkspaceHttpServer : IAsyncDisposable {
 		}
 
 		app.Use(async (context, next) => {
-			string path = context.Request.Path.Value ?? "/";
-			if (path is "/" or "/index.html") {
+			string subpath = NormalizeSubpath(context.Request.Path);
+			if (subpath.Length == 0 || IsIndexDocument(subpath)) {
 				await ServeIndexAsync(context).ConfigureAwait(false);
 				return;
 			}
@@ -197,6 +197,15 @@ public sealed class WorkspaceHttpServer : IAsyncDisposable {
 			: bootstrap + html;
 		await context.Response.WriteAsync(html).ConfigureAwait(false);
 	}
+
+	// The single path notion the auth allowlist and the document route share, matching how PhysicalFileProvider
+	// resolves a request: leading separators are stripped. Deciding "is this the index?" on the raw PathString
+	// while looking the file up on the trimmed one let `//index.html` be an anonymous static asset in the gate
+	// and a plain file in the static-file middleware, serving the document unauthenticated.
+	private static string NormalizeSubpath(PathString path) => (path.Value ?? string.Empty).TrimStart('/', '\\');
+
+	private static bool IsIndexDocument(string subpath) =>
+		string.Equals(subpath, "index.html", StringComparison.OrdinalIgnoreCase);
 
 	private static bool TokenMatches(HttpContext context, string expected) {
 		string presented = context.Request.Query.TryGetValue("token", out var token)

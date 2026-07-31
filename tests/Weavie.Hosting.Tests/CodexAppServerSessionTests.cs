@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
 using Weavie.Core.Agents;
 using Weavie.Core.Commands;
@@ -33,7 +34,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 
 	[Fact]
 	public async Task Start_DisablesLoginShellForCommands() {
-		List<AgentPaneMessage> messages = [];
+		ConcurrentQueue<AgentPaneMessage> messages = new();
 		await using var session = CreateSession(new NullAgentEventSink(), messages);
 
 		session.Start();
@@ -50,7 +51,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 	[Fact]
 	public async Task Start_DoesNotSurfaceInternalLifecycleCards() {
 		var events = new CapturingAgentEventSink();
-		List<AgentPaneMessage> messages = [];
+		ConcurrentQueue<AgentPaneMessage> messages = new();
 		await using var session = CreateSession(events, messages);
 
 		session.Start();
@@ -63,7 +64,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 	[Fact]
 	public async Task ThreadResume_SendsWeavieDeveloperInstructions() {
 		var events = new CapturingAgentEventSink();
-		List<AgentPaneMessage> messages = [];
+		ConcurrentQueue<AgentPaneMessage> messages = new();
 		InMemoryFileSystem fileSystem = new();
 		CodexThreadStore threads = new(fileSystem, "/codex-threads.json");
 		threads.Adopt(_dir, "thread_saved");
@@ -85,7 +86,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		var threads = new CodexThreadStore(fileSystem, "/codex-threads.json");
 		threads.Adopt(_dir, "thread_existing");
 		File.WriteAllText(Path.Combine(_dir, "resume-with-history"), string.Empty);
-		List<AgentPaneMessage> messages = [];
+		ConcurrentQueue<AgentPaneMessage> messages = new();
 		await using var session = CreateSessionWithThreads(new NullAgentEventSink(), messages, threads, fileSystem);
 
 		session.Start();
@@ -102,7 +103,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		var threads = new CodexThreadStore(fileSystem, "/codex-threads.json");
 		threads.Adopt(_dir, "thread_existing");
 		File.WriteAllText(Path.Combine(_dir, "resume-with-history"), string.Empty);
-		List<AgentPaneMessage> messages = [];
+		ConcurrentQueue<AgentPaneMessage> messages = new();
 		await using var session = CreateSessionWithThreads(new NullAgentEventSink(), messages, threads, fileSystem);
 
 		session.Submit(Submission("queued prompt", []));
@@ -120,8 +121,9 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 			() => $"fake-server markers: [{string.Join(", ", Directory.GetFiles(_dir).Select(Path.GetFileName).Order())}]"
 				+ $"; pane messages: [{string.Join(", ", messages.Select(message => $"{message.Type}={message.Text}"))}]");
 
-		int history = messages.FindIndex(message => message.Text == "old answer");
-		int queued = messages.FindIndex(message => message.Text == "queued prompt");
+		var snapshot = messages.ToArray();
+		int history = Array.FindIndex(snapshot, message => message.Text == "old answer");
+		int queued = Array.FindIndex(snapshot, message => message.Text == "queued prompt");
 		Assert.True(history >= 0 && queued > history);
 	}
 
@@ -131,7 +133,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		var threads = new CodexThreadStore(fileSystem, "/codex-threads.json");
 		threads.Adopt(_dir, "thread_broken");
 		File.WriteAllText(Path.Combine(_dir, "resume-fails"), string.Empty);
-		List<AgentPaneMessage> messages = [];
+		ConcurrentQueue<AgentPaneMessage> messages = new();
 		await using var session = CreateSessionWithThreads(new NullAgentEventSink(), messages, threads, fileSystem);
 
 		session.Start();
@@ -159,7 +161,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		threads.Adopt(_dir, "thread_broken");
 		File.WriteAllText(Path.Combine(_dir, "resume-fails"), string.Empty);
 		File.WriteAllText(Path.Combine(_dir, "start-fails"), string.Empty);
-		List<AgentPaneMessage> messages = [];
+		ConcurrentQueue<AgentPaneMessage> messages = new();
 		await using var session = CreateSessionWithThreads(new NullAgentEventSink(), messages, threads, fileSystem);
 
 		session.Start();
@@ -178,7 +180,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 	public async Task ThreadId_PersistsOnlyAfterTurnStarts() {
 		InMemoryFileSystem fileSystem = new();
 		CodexThreadStore threads = new(fileSystem, "/codex-threads.json");
-		List<AgentPaneMessage> messages = [];
+		ConcurrentQueue<AgentPaneMessage> messages = new();
 		await using var session = CreateSessionWithThreads(new NullAgentEventSink(), messages, threads, fileSystem);
 
 		session.Start();
@@ -194,7 +196,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 
 	[Fact]
 	public async Task Submit_WhileFreshTurnStarts_QueuesThenSteers() {
-		List<AgentPaneMessage> messages = [];
+		ConcurrentQueue<AgentPaneMessage> messages = new();
 		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
 
 		session.Start();
@@ -213,7 +215,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 
 	[Fact]
 	public async Task Submit_MidTurn_SteersTheActiveTurn() {
-		List<AgentPaneMessage> messages = [];
+		ConcurrentQueue<AgentPaneMessage> messages = new();
 		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
 
 		session.Start();
@@ -234,7 +236,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 	[Fact]
 	public async Task SubagentLifecycle_KeepsThePrimaryTurnActiveAndNarrationVisible() {
 		var events = new CapturingAgentEventSink();
-		List<AgentPaneMessage> messages = [];
+		ConcurrentQueue<AgentPaneMessage> messages = new();
 		await using var session = CreateSession(events, messages);
 
 		session.Start();
@@ -263,7 +265,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		string turnId,
 		bool primary) {
 		var events = new CapturingAgentEventSink();
-		List<AgentPaneMessage> messages = [];
+		ConcurrentQueue<AgentPaneMessage> messages = new();
 		await using var session = CreateSession(events, messages);
 
 		session.Start();
@@ -285,7 +287,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 
 	[Fact]
 	public async Task Submit_WhenSteerRejected_SurfacesCodexCodeAndRecoversAsFreshTurn() {
-		List<AgentPaneMessage> messages = [];
+		ConcurrentQueue<AgentPaneMessage> messages = new();
 		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
 
 		session.Start();
@@ -311,7 +313,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 	[Fact]
 	public async Task Restart_RetractsPendingApprovalCardsLoudly() {
 		var events = new CapturingAgentEventSink();
-		List<AgentPaneMessage> messages = [];
+		ConcurrentQueue<AgentPaneMessage> messages = new();
 		await using var session = CreateSession(events, messages);
 
 		session.Start();
@@ -334,7 +336,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 
 	[Fact]
 	public async Task ResolveApproval_UnknownRequest_UnwedgesTheCardAndExplains() {
-		List<AgentPaneMessage> messages = [];
+		ConcurrentQueue<AgentPaneMessage> messages = new();
 		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
 
 		session.Start();
@@ -349,7 +351,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 
 	[Fact]
 	public async Task FileChangeApproval_CardCarriesTheChangedPathsFromTheItem() {
-		List<AgentPaneMessage> messages = [];
+		ConcurrentQueue<AgentPaneMessage> messages = new();
 		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
 
 		session.Start();
@@ -366,7 +368,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 
 	[Fact]
 	public async Task FileChangeApproval_UsesTheMatchingThreadAndTurnSummary() {
-		List<AgentPaneMessage> messages = [];
+		ConcurrentQueue<AgentPaneMessage> messages = new();
 		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
 
 		session.Start();
@@ -380,7 +382,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 
 	[Fact]
 	public async Task FileChangeTrackingFault_SurfacesErrorAndKeepsThePaneEvent() {
-		List<AgentPaneMessage> messages = [];
+		ConcurrentQueue<AgentPaneMessage> messages = new();
 		await using var session = CreateSession(new DirectChangeThrowingEventSink(), messages);
 
 		session.Start();
@@ -395,7 +397,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 	[Fact]
 	public async Task ApprovalRequest_UpdatesSharedStatusEvents() {
 		var events = new CapturingAgentEventSink();
-		List<AgentPaneMessage> messages = [];
+		ConcurrentQueue<AgentPaneMessage> messages = new();
 		await using var session = CreateSession(events, messages);
 
 		session.Start();
@@ -427,7 +429,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 
 	[Fact]
 	public async Task BypassPermissions_UsesFullAccessAndNeverApproval() {
-		List<AgentPaneMessage> messages = [];
+		ConcurrentQueue<AgentPaneMessage> messages = new();
 		await using var session = CreateSession(new CapturingAgentEventSink(), messages, bypassPermissions: true);
 
 		session.Start();
@@ -453,7 +455,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 
 	[Fact]
 	public async Task BypassPermissions_AutoAcceptsCodexApprovalWithoutPromptCard() {
-		List<AgentPaneMessage> messages = [];
+		ConcurrentQueue<AgentPaneMessage> messages = new();
 		await using var session = CreateSession(new CapturingAgentEventSink(), messages, bypassPermissions: true);
 
 		session.Start();
@@ -469,7 +471,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 	[Fact]
 	public async Task ThreadStart_SendsWeavieDeveloperInstructions() {
 		var events = new CapturingAgentEventSink();
-		List<AgentPaneMessage> messages = [];
+		ConcurrentQueue<AgentPaneMessage> messages = new();
 		await using var session = CreateSession(events, messages);
 
 		session.Start();
@@ -484,7 +486,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 	[Fact]
 	public async Task UnsupportedServerRequest_SurfacesErrorCard() {
 		var events = new CapturingAgentEventSink();
-		List<AgentPaneMessage> messages = [];
+		ConcurrentQueue<AgentPaneMessage> messages = new();
 		await using var session = CreateSession(events, messages);
 
 		session.Start();
@@ -500,7 +502,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 
 	[Fact]
 	public async Task FailedTurn_SurfacesProviderError() {
-		List<AgentPaneMessage> messages = [];
+		ConcurrentQueue<AgentPaneMessage> messages = new();
 		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
 
 		session.Start();
@@ -517,7 +519,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 	[Fact]
 	public async Task AttachImage_SendsLocalImageWithNextPrompt() {
 		var events = new CapturingAgentEventSink();
-		List<AgentPaneMessage> messages = [];
+		ConcurrentQueue<AgentPaneMessage> messages = new();
 		await using var session = CreateSession(events, messages);
 
 		session.Start();
@@ -543,7 +545,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 
 	[Fact]
 	public async Task Controls_ExposeModelsAndSkills_AndApplyModelLiveOnNextTurn() {
-		List<AgentPaneMessage> messages = [];
+		ConcurrentQueue<AgentPaneMessage> messages = new();
 		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
 		List<AgentControlState> states = [];
 		session.ControlStateChanged += state => states.Add(state);
@@ -578,7 +580,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 
 	[Fact]
 	public async Task Controls_ExposeNativePlanMode_AndPreserveSelectedEffortOnNextTurn() {
-		List<AgentPaneMessage> messages = [];
+		ConcurrentQueue<AgentPaneMessage> messages = new();
 		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
 
 		session.Start();
@@ -613,7 +615,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 
 	[Fact]
 	public async Task PlanMode_UsesAdvertisedEffortWithoutASelection() {
-		List<AgentPaneMessage> messages = [];
+		ConcurrentQueue<AgentPaneMessage> messages = new();
 		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
 
 		session.Start();
@@ -631,7 +633,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 	[Fact]
 	public async Task PlanMode_UsesModelDefaultForUnsupportedAdvertisedEffort() {
 		File.WriteAllText(Path.Combine(_dir, "plan-effort-invalid"), string.Empty);
-		List<AgentPaneMessage> messages = [];
+		ConcurrentQueue<AgentPaneMessage> messages = new();
 		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
 
 		session.Start();
@@ -649,7 +651,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 	[Fact]
 	public async Task PlanMode_RestoresItsAdvertisedEffortForACompatibleModel() {
 		File.WriteAllText(Path.Combine(_dir, "plan-effort-high"), string.Empty);
-		List<AgentPaneMessage> messages = [];
+		ConcurrentQueue<AgentPaneMessage> messages = new();
 		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
 
 		session.Start();
@@ -672,7 +674,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 	[Fact]
 	public async Task PlanMode_FallsBackForIncompatibleEffort_AndRestoresSelection() {
 		File.WriteAllText(Path.Combine(_dir, "plan-model-mini"), string.Empty);
-		List<AgentPaneMessage> messages = [];
+		ConcurrentQueue<AgentPaneMessage> messages = new();
 		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
 
 		session.Start();
@@ -704,7 +706,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 	public async Task PlanMode_PersistsWithTheResumedCodexConversation() {
 		InMemoryFileSystem fileSystem = new();
 		CodexThreadStore threads = new(fileSystem, "/codex-threads.json");
-		List<AgentPaneMessage> messages = [];
+		ConcurrentQueue<AgentPaneMessage> messages = new();
 		await using (var session = CreateSessionWithThreads(
 			new CapturingAgentEventSink(), messages, threads, fileSystem)) {
 			session.Start();
@@ -714,7 +716,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 			await WaitForAsync(() => threads.Resolve(_dir).Mode == "plan");
 		}
 
-		List<AgentPaneMessage> reopenedMessages = [];
+		ConcurrentQueue<AgentPaneMessage> reopenedMessages = new();
 		await using var reopened = CreateSessionWithThreads(
 			new CapturingAgentEventSink(), reopenedMessages, threads, fileSystem);
 		reopened.Start();
@@ -732,7 +734,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		InMemoryFileSystem fileSystem = new();
 		CodexThreadStore threads = new(fileSystem, "/codex-threads.json");
 		threads.Adopt(_dir, "thread_saved", "plan");
-		List<AgentPaneMessage> messages = [];
+		ConcurrentQueue<AgentPaneMessage> messages = new();
 		await using var session = CreateSessionWithThreads(
 			new CapturingAgentEventSink(), messages, threads, fileSystem);
 
@@ -747,7 +749,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 
 	[Fact]
 	public async Task Controls_RememberSelections_ForNewCodexSessions_AndPlanMode() {
-		List<AgentPaneMessage> messages = [];
+		ConcurrentQueue<AgentPaneMessage> messages = new();
 		await using (var session = CreateSession(new CapturingAgentEventSink(), messages)) {
 			session.Start();
 			await WaitForAsync(() => session.ControlState.ModelControl.Models.Count > 0);
@@ -766,7 +768,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		}
 
 		File.Delete(Path.Combine(_dir, "thread-start.json"));
-		List<AgentPaneMessage> reopenedMessages = [];
+		ConcurrentQueue<AgentPaneMessage> reopenedMessages = new();
 		await using var reopened = CreateSession(new CapturingAgentEventSink(), reopenedMessages);
 
 		reopened.Start();
@@ -800,7 +802,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 	[Fact]
 	public async Task SetControl_WhenSettingsAreMalformed_SurfacesErrorAndKeepsControl() {
 		File.WriteAllText(Path.Combine(_dir, "settings.toml"), "codex = [");
-		List<AgentPaneMessage> messages = [];
+		ConcurrentQueue<AgentPaneMessage> messages = new();
 		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
 
 		session.Start();
@@ -815,7 +817,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 
 	[Fact]
 	public async Task Controls_ExposeEffortAndFast_DerivedFromCurrentModel() {
-		List<AgentPaneMessage> messages = [];
+		ConcurrentQueue<AgentPaneMessage> messages = new();
 		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
 
 		session.Start();
@@ -840,7 +842,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 
 	[Fact]
 	public async Task Controls_ModelSwitchToUnsupported_ResetsEffort_AndHidesFast() {
-		List<AgentPaneMessage> messages = [];
+		ConcurrentQueue<AgentPaneMessage> messages = new();
 		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
 
 		session.Start();
@@ -866,7 +868,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 
 	[Fact]
 	public async Task Submit_SendsEffortAndServiceTier_OnTurnStart_ButNotThreadStart() {
-		List<AgentPaneMessage> messages = [];
+		ConcurrentQueue<AgentPaneMessage> messages = new();
 		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
 
 		session.Start();
@@ -892,7 +894,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 
 	[Fact]
 	public async Task Submit_WithFastOff_SendsNullServiceTierToClearIt() {
-		List<AgentPaneMessage> messages = [];
+		ConcurrentQueue<AgentPaneMessage> messages = new();
 		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
 
 		session.Start();
@@ -909,7 +911,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 
 	[Fact]
 	public async Task GlobalEffortAndTierSettings_AreScopedToModelsThatSupportThem() {
-		List<AgentPaneMessage> messages = [];
+		ConcurrentQueue<AgentPaneMessage> messages = new();
 		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
 
 		session.Start();
@@ -932,7 +934,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 
 	[Fact]
 	public async Task GlobalEffortSetting_ValidOnNoModel_PassesThroughToSurfaceLoudly() {
-		List<AgentPaneMessage> messages = [];
+		ConcurrentQueue<AgentPaneMessage> messages = new();
 		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
 
 		session.Start();
@@ -950,7 +952,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 
 	[Fact]
 	public async Task SetControl_RejectsEffortUnsupportedByModel() {
-		List<AgentPaneMessage> messages = [];
+		ConcurrentQueue<AgentPaneMessage> messages = new();
 		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
 
 		session.Start();
@@ -979,7 +981,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 
 	[Fact]
 	public async Task Submit_WithStagedSkill_SendsResolvedSkillInputItem() {
-		List<AgentPaneMessage> messages = [];
+		ConcurrentQueue<AgentPaneMessage> messages = new();
 		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
 
 		session.Start();
@@ -1002,7 +1004,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 
 	[Fact]
 	public async Task Submit_SkillOnly_WhenSkillUnavailable_SurfacesErrorAndSendsNothing() {
-		List<AgentPaneMessage> messages = [];
+		ConcurrentQueue<AgentPaneMessage> messages = new();
 		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
 
 		session.Start();
@@ -1018,7 +1020,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 
 	[Fact]
 	public async Task SetControl_RejectsUnknownValue_WithoutChangingState() {
-		List<AgentPaneMessage> messages = [];
+		ConcurrentQueue<AgentPaneMessage> messages = new();
 		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
 
 		session.Start();
@@ -1047,7 +1049,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 
 	private CodexAppServerSession CreateSession(
 		IAgentEventSink events,
-		List<AgentPaneMessage> messages,
+		ConcurrentQueue<AgentPaneMessage> messages,
 		bool bypassPermissions = false) {
 		InMemoryFileSystem fileSystem = new();
 		return CreateSessionWithThreads(
@@ -1060,7 +1062,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 
 	private CodexAppServerSession CreateSessionWithThreads(
 		IAgentEventSink events,
-		List<AgentPaneMessage> messages,
+		ConcurrentQueue<AgentPaneMessage> messages,
 		CodexThreadStore threads,
 		InMemoryFileSystem fileSystem,
 		bool bypassPermissions = false) {
@@ -1094,7 +1096,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 			Events = events,
 			CurrentSessionId = () => "slot-1",
 		}, threads, TestNode.Command);
-		session.PaneMessage += messages.Add;
+		session.PaneMessage += messages.Enqueue;
 		return session;
 	}
 

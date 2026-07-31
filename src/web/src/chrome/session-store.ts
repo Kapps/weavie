@@ -1,17 +1,17 @@
 import { createMemo, createSignal } from "solid-js";
 import {
-  activeBackendId,
   backendName,
   backendPhase,
+  type ClientSession,
   connectedBackends,
-  editorBackendId,
-  editorRailSessionId,
   onBackendDisconnected,
   onBackendPhase,
-  onHostMessage,
-  onSessionMessage,
+  onSelectedSession,
+  registerHostFeature,
+  registerSessionFeature,
   type SessionChip,
   type SessionStatusName,
+  selectedSession,
 } from "../bridge";
 import { demoteSession, isPromoted, promotedKeys, promoteSession } from "./rail-state";
 import { agentBackendId, agentHue, remoteAgents } from "./remote-agents";
@@ -20,11 +20,13 @@ import { agentBackendId, agentHue, remoteAgents } from "./remote-agents";
 // itself lives host-side in rail-state.ts (persisted, not in localStorage).
 export { demoteSession, isPromoted, promoteSession };
 
-// The rail's working set is every local session plus promoted remotes. Each backend pushes its own
-// session-list, kept keyed by backend. Top-level module signals so they survive HMR.
+// The rail's working set is every local session plus promoted remotes. Each connection publishes its catalog,
+// kept by host while each loaded entry points at an exact ClientSession.
 
 /** One rail chip plus which backend (location) it lives on. */
 export interface RailSession extends SessionChip {
+  /** The exact live owner; null for a dormant catalog slot. */
+  owner: ClientSession | null;
   backendId: string;
   /** The backend's display name ("default" for local, else the registered agent name). */
   locationName: string;
@@ -35,6 +37,8 @@ export interface RailSession extends SessionChip {
   pending: boolean;
   /** The backend's link is down (socket opening/retrying) — the session can't be reached right now. */
   offline: boolean;
+  /** Whether this exact client session is selected. */
+  active: boolean;
 }
 
 /** A remote agent and its sessions, for the cloud panel. Offline = registered but not currently connected. */
@@ -46,26 +50,23 @@ export interface RemoteAgentRow {
   sessions: RailSession[];
 }
 
-const [byBackend, setByBackend] = createSignal<Map<string, SessionChip[]>>(new Map());
-const [status, setStatus] = createSignal<SessionStatusName | undefined>(undefined);
-const [projectedSwitch, setProjectedSwitch] = createSignal<{
+interface BackendSession extends SessionChip {
+  owner: ClientSession | null;
+}
+
+const [byBackend, setByBackend] = createSignal<Map<string, BackendSession[]>>(new Map());
+const [pendingSelection, setPendingSelection] = createSignal<{
   backendId: string;
   id: string;
 } | null>(null);
 
-// True once ANY backend has pushed its session-list — i.e. the host has answered `ready` with the initial
-// session state. Distinguishes "no sessions yet, still booting" from "the host says there are none", which
+// True once any host has supplied its initial catalog. Distinguishes "no sessions yet, still booting" from
+// "the host says there are none", which
 // the reveal path needs: a launch that lands with zero loaded terminals (all-dormant restore, offline
 // remote) must still bring the editor up rather than wait forever on a terminal frame that never comes.
 const [sessionsReceived, setSessionsReceived] = createSignal(false);
 
 export { sessionsReceived };
-
-const normalizeProvider = (chip: SessionChip): SessionChip => ({
-  ...chip,
-  providerId: chip.providerId ?? "claude",
-  agentSurface: chip.agentSurface ?? (chip.providerId === "codex" ? "structured" : "terminal"),
-});
 
 // Sessions with a host op (delete / load / unload) in flight, refcounted by `${backendId}:${id}` so
 // overlapping ops don't clear the spinner early. The chip shows a spinner while its count is positive.
@@ -95,30 +96,55 @@ export function trackSessionCommand<T>(
   return run().finally(() => adjustPending(key, -1));
 }
 
-onSessionMessage((message, backendId) => {
-  if (message.type === "session-list") {
+registerHostFeature((connection) =>
+  connection.onCatalog((catalog) => {
     setSessionsReceived(true);
-    const projected = projectedSwitch();
+    const pending = pendingSelection();
     if (
-      projected?.backendId === backendId &&
-      !message.sessions.some((session) => session.id === projected.id)
+      pending?.backendId === connection.id &&
+      !catalog.some((session) => session.id === pending.id)
     ) {
-      setProjectedSwitch(null);
+      setPendingSelection(null);
     }
     setByBackend((prev) => {
       const next = new Map(prev);
-      next.set(backendId, message.sessions.map(normalizeProvider));
+      next.set(
+        connection.id,
+        catalog.map((entry) => ({
+          owner: entry.address === null ? null : (connection.session(entry.address) ?? null),
+          id: entry.id,
+          label: entry.label,
+          loaded: entry.loaded,
+          primary: entry.primary,
+          providerId: entry.providerId,
+          agentSurface: entry.agentSurface,
+          agentInputProtocol: entry.agentInputProtocol,
+          status: entry.status,
+          hue: entry.hue,
+          monogram: entry.monogram,
+        })),
+      );
       return next;
     });
-  } else if (
-    message.type === "session-status" &&
-    message.session === "claude" &&
-    backendId === activeBackendId()
-  ) {
-    // Only the active backend's claude drives the pane-head status dot.
-    setStatus(message.status);
-  }
-});
+  }),
+);
+
+registerSessionFeature((session) =>
+  session.feature("status").on<{ status: SessionStatusName }>("changed", ({ status }) => {
+    setByBackend((previous) => {
+      const chips = previous.get(session.connection.id);
+      if (chips === undefined) {
+        return previous;
+      }
+      const next = new Map(previous);
+      next.set(
+        session.connection.id,
+        chips.map((chip) => (chip.owner === session ? { ...chip, status } : chip)),
+      );
+      return next;
+    });
+  }),
+);
 
 onBackendDisconnected((backendId) => {
   setByBackend((prev) => {
@@ -126,30 +152,25 @@ onBackendDisconnected((backendId) => {
     next.delete(backendId);
     return next;
   });
-  if (projectedSwitch()?.backendId === backendId) {
-    setProjectedSwitch(null);
+  if (pendingSelection()?.backendId === backendId) {
+    setPendingSelection(null);
   }
 });
 
 // A backend whose link dropped can no longer commit an in-flight switch (the frame is gone and offline
 // frames are never buffered), so the optimistic highlight snaps back instead of sticking forever.
 onBackendPhase((backendId, phase) => {
-  if (phase !== "online" && projectedSwitch()?.backendId === backendId) {
-    setProjectedSwitch(null);
+  if (phase !== "online" && pendingSelection()?.backendId === backendId) {
+    setPendingSelection(null);
   }
 });
 
-onHostMessage((message) => {
-  if (message.type === "set-editor-session") {
-    setProjectedSwitch(null);
-  }
-});
+onSelectedSession(() => setPendingSelection(null));
 
 // Every backend's chips, local first. A chip is active only when its backend is the one driving the page,
 // so a background backend never shows a second highlighted chip.
 const merged = createMemo<RailSession[]>(() => {
-  const boundBackend = editorBackendId() ?? activeBackendId();
-  const boundRailSession = editorRailSessionId();
+  const selected = selectedSession();
   const pending = pendingSessions();
   // Only still-connected backends, so a disconnected remote's lingering chips leave the rail immediately.
   const connected = new Set(connectedBackends().map((b) => b.id));
@@ -166,9 +187,7 @@ const merged = createMemo<RailSession[]>(() => {
         backendId,
         isLocal,
         locationName: backendName(backendId),
-        active:
-          backendId === boundBackend &&
-          (boundRailSession !== null ? chip.id === boundRailSession : chip.active),
+        active: selected === chip.owner,
         pending: pending.has(pendingKey(backendId, chip.id)),
         offline,
       });
@@ -185,24 +204,22 @@ export function findSession(backendId: string, id: string): RailSession | undefi
   return merged().find((s) => s.backendId === backendId && s.id === id);
 }
 
-/** Highlight and step from a requested target while the committed editor/backend projection is in flight. */
-export function projectSessionSwitch(backendId: string, id: string): void {
-  setProjectedSwitch({ backendId, id });
+/** Highlights a requested target while dirty editor state is flushed before selection commits. */
+export function beginSessionSelection(backendId: string, id: string): void {
+  setPendingSelection({ backendId, id });
 }
 
 /** The rail's working set: every local session, plus promoted remotes (tagged with their agent hue). */
 export const railSessions = createMemo<RailSession[]>(() => {
   // Read promotedKeys() so the memo re-runs when the promoted set changes (isPromoted reads it internally).
   void promotedKeys();
-  const projected = projectedSwitch();
+  const pending = pendingSelection();
   return merged()
     .filter((s) => s.isLocal || isPromoted(s.backendId, s.id))
     .map((s) => ({
       ...(s.isLocal ? s : { ...s, agentHue: agentHue(s.locationName) }),
       active:
-        projected === null
-          ? s.active
-          : s.backendId === projected.backendId && s.id === projected.id,
+        pending === null ? s.active : s.backendId === pending.backendId && s.id === pending.id,
     }));
 });
 
@@ -259,8 +276,8 @@ export const remoteActivity = createMemo<boolean>(() =>
   ),
 );
 
-/** The active session's Claude status for the pane footer, or undefined until the first push. */
-export const claudeStatus = status;
+/** The selected session's agent status for the pane footer, or undefined until the first push. */
+export const claudeStatus = createMemo(() => sessions().find((session) => session.active)?.status);
 
 /** Full tooltip for each Claude status (the footer segment's `title`). */
 export const STATUS_LABEL: Record<SessionStatusName, string> = {

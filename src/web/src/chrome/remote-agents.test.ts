@@ -5,7 +5,7 @@ const calls = vi.hoisted(() => ({
     [string, string, () => Promise<{ bridgeUrl: string; resourceBase: string }>]
   >,
   disconnect: [] as string[],
-  posted: [] as Array<Record<string, unknown>>,
+  posted: [] as Array<{ name: string; payload: Record<string, unknown> }>,
 }));
 vi.mock("../bridge", () => ({
   connectBackend: (
@@ -15,8 +15,16 @@ vi.mock("../bridge", () => ({
   ) => calls.connect.push([id, name, resolveUrl]),
   disconnectBackend: (id: string) => calls.disconnect.push(id),
   connectedBackends: () => [],
-  onSessionMessage: () => () => {},
-  postToLocalHost: (message: Record<string, unknown>) => calls.posted.push(message),
+  hostConnection: () => ({
+    host: {
+      feature: () => ({
+        publish: (name: string, payload: Record<string, unknown>) =>
+          calls.posted.push({ name, payload }),
+      }),
+    },
+  }),
+  registerHostFeature: () => () => {},
+  LOCAL_BACKEND_ID: "local",
 }));
 
 const agents = await import("./remote-agents");
@@ -68,10 +76,12 @@ describe("addAgent", () => {
       resourceBase: "https://host:9/weavie-media?token=abc",
     });
     expect(calls.posted).toContainEqual({
-      type: "add-remote-agent",
-      name: "bob",
-      url: "https://runner:8800/",
-      token: "t",
+      name: "add",
+      payload: {
+        name: "bob",
+        url: "https://runner:8800/",
+        token: "t",
+      },
     });
   });
 
@@ -126,6 +136,9 @@ describe("removeAgent", () => {
   it("disconnects the backend and asks the host to forget it", () => {
     agents.removeAgent("bob");
     expect(calls.disconnect).toContain("remote:bob");
-    expect(calls.posted).toContainEqual({ type: "remove-remote-agent", name: "bob" });
+    expect(calls.posted).toContainEqual({
+      name: "remove",
+      payload: { name: "bob" },
+    });
   });
 });

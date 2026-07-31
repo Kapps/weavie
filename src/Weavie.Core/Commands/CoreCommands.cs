@@ -54,7 +54,7 @@ public static class CoreCommands {
 	public const string ReopenTerminal = "weavie.terminal.reopen";
 
 	/// <summary>Restarts the Claude pane in place (recovers a crashed / crash-looped Claude).</summary>
-	public const string RestartClaude = "weavie.claude.restart";
+	public const string RestartAgent = "weavie.agent.restart";
 
 	/// <summary>Applies a pending update now instead of waiting for the drain gate (kills running shell jobs).</summary>
 	public const string RestartForUpdate = "weavie.update.restartNow";
@@ -530,15 +530,15 @@ public static class CoreCommands {
 			Aliases = ["reopen terminal", "restart shell", "reopen shell", "restart terminal"],
 		});
 
-		// No default keybinding: a deliberate recovery action, not a hot path. Recovers a Claude pane the
+		// No default keybinding: a deliberate recovery action, not a hot path. Recovers an agent pane the
 		// crash-loop breaker gave up on — Restart() clears the breaker and respawns.
 		registry.Register(new CommandDefinition {
-			Id = RestartClaude,
-			Title = "Restart Claude",
+			Id = RestartAgent,
+			Title = "Restart Agent",
 			RunsIn = CommandLocation.Core,
-			Category = "Claude",
-			Description = "Restart the Claude pane in place — recovers it after a crash or once it has crashed repeatedly and stopped.",
-			Aliases = ["restart claude", "reopen claude", "relaunch claude", "claude crashed"],
+			Category = "Agent",
+			Description = "Restart this session's agent in place — recovers it after a crash or once it has crashed repeatedly and stopped.",
+			Aliases = ["restart agent", "reopen agent", "relaunch agent", "agent crashed"],
 		});
 
 		// No default keybinding: only meaningful while an update is pending (the update indicator's
@@ -1460,7 +1460,7 @@ public static class CoreCommands {
 		});
 
 		// Connect a Notion account (Core-handled in HostCore.Sources.cs). One-time action — palette + Claude, no
-		// default keybinding (like RestartClaude / SetupWorkspace).
+		// default keybinding (like RestartAgent / SetupWorkspace).
 		registry.Register(new CommandDefinition {
 			Id = ConnectNotion,
 			Title = "Connect Notion",

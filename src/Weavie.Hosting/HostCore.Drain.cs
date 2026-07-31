@@ -19,7 +19,7 @@ public sealed partial class HostCore {
 	private CancellationTokenSource? _drainTick;
 	private bool _drainCommitted;
 	private string? _lastDrainPendingJson;
-	// Checked by the term-input dispatch: once a restart commits, no further keystrokes reach any
+	// Checked by terminal input dispatch: once a restart commits, no further keystrokes reach any
 	// PTY — the authoritative input stop the page's "Updating…" overlay surfaces.
 	private volatile bool _drainInputFrozen;
 
@@ -92,9 +92,9 @@ public sealed partial class HostCore {
 		}
 
 		if (committed) {
-			_bridge.PostToWeb("{\"type\":\"update-restarting\"}");
+			_messages.Host.Feature("updates").Publish("restarting", new { });
 		} else if (pending is not null) {
-			_bridge.PostToWeb(pending);
+			_messages.Host.Feature("updates").PublishJson("pending", pending);
 		}
 	}
 
@@ -164,13 +164,12 @@ public sealed partial class HostCore {
 		return holds;
 	}
 
-	/// <summary>The rail label for <paramref name="session"/> (what the user sees), falling back to its id.</summary>
-	private string SlotLabelFor(HostSession session) => SlotFor(session)?.Label ?? session.Id;
+	/// <summary>The rail label for <paramref name="session"/> (what the user sees), falling back to its slot.</summary>
+	private string SlotLabelFor(HostSession session) => SlotFor(session)?.Label ?? session.SlotId;
 
 	// Pushes the pending holds, deduped: status churn re-evaluates often and identical pushes are noise.
 	private void PushDrainPendingLocked(List<(string Session, string Reason)> holds) {
 		string json = JsonSerializer.Serialize(new {
-			type = "update-pending",
 			holds = holds.Select(h => new { session = h.Session, reason = h.Reason }),
 		});
 		if (json == _lastDrainPendingJson) {
@@ -178,7 +177,7 @@ public sealed partial class HostCore {
 		}
 
 		_lastDrainPendingJson = json;
-		_bridge.PostToWeb(json);
+		_messages.Host.Feature("updates").PublishJson("pending", json);
 	}
 
 	private void CommitDrainRestart(Action exit) {
@@ -187,7 +186,7 @@ public sealed partial class HostCore {
 		_sessionStore.Flush();
 		// Best-effort heads-up; the page also shows the overlay when the socket drops mid-drain, so a
 		// push lost to the shutdown race still surfaces.
-		_bridge.PostToWeb("{\"type\":\"update-restarting\"}");
+		_messages.Host.Feature("updates").Publish("restarting", new { });
 		Log("[weavie] update drain complete - restarting");
 		exit();
 	}

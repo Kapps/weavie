@@ -1,5 +1,5 @@
 import { createEffect, createMemo, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
-import type { AgentModelChoice } from "../bridge";
+import type { AgentModelChoice, ClientSession } from "../bridge";
 import {
   agentControlState,
   closeControlPicker,
@@ -17,10 +17,10 @@ type SubEntry =
   | { kind: "effort"; id: string; label: string; checked: boolean }
   | { kind: "fast"; on: boolean };
 
-export function AgentModelPicker(props: { backendId: string; slot: string | null }): JSX.Element {
+export function AgentModelPicker(props: { session: ClientSession | null }): JSX.Element {
   const models = createMemo<AgentModelChoice[]>(() =>
-    openControlAxis() === MODEL_AXIS && props.slot !== null
-      ? agentControlState(props.slot).modelControl.models
+    openControlAxis() === MODEL_AXIS && props.session !== null
+      ? agentControlState(props.session).modelControl.models
       : [],
   );
   const isOpen = (): boolean => models().length > 0;
@@ -58,23 +58,23 @@ export function AgentModelPicker(props: { backendId: string; slot: string | null
   });
 
   const chooseModel = (model: AgentModelChoice): void => {
-    if (props.slot !== null) {
-      selectModel(props.backendId, props.slot, model);
+    if (props.session !== null) {
+      selectModel(props.session, model);
     }
     closeControlPicker();
   };
 
   const chooseEffort = (model: AgentModelChoice, effortId: string): void => {
-    if (props.slot !== null) {
-      selectModelEffort(props.backendId, props.slot, model, effortId);
+    if (props.session !== null) {
+      selectModelEffort(props.session, model, effortId);
     }
     closeControlPicker();
   };
 
   // Fast keeps the menu open so its flipped state is visible; the host re-pushes control state, refreshing it live.
   const toggleFast = (model: AgentModelChoice): void => {
-    if (props.slot !== null) {
-      toggleModelFast(props.backendId, props.slot, model);
+    if (props.session !== null) {
+      toggleModelFast(props.session, model);
     }
   };
 

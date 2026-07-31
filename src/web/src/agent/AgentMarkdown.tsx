@@ -1,8 +1,8 @@
 import { createEffect, type JSX, onCleanup, onMount } from "solid-js";
-import { postToHost } from "../bridge";
+import type { ClientSession } from "../bridge";
 import { findContentLinks, parseFileReference } from "../content-links";
 import { createMarkdownRenderer } from "../editor/preview/markdown-renderer";
-import { refLinkPrefix } from "../terminal/ref-link-store";
+import { refLinkPrefixFor } from "../terminal/ref-link-store";
 import { openUrlExternal } from "../terminal/terminal-links";
 
 const renderMarkdown = createMarkdownRenderer({
@@ -12,12 +12,15 @@ const renderMarkdown = createMarkdownRenderer({
   safeLinksOnly: true,
 });
 
-export function AgentMarkdown(props: { content: string }): JSX.Element {
+export function AgentMarkdown(props: {
+  content: string;
+  session: ClientSession | null;
+}): JSX.Element {
   let host: HTMLDivElement | undefined;
 
   createEffect(() => {
     const rendered = renderMarkdown(props.content);
-    linkifyText(rendered, refLinkPrefix() !== null);
+    linkifyText(rendered, props.session !== null && refLinkPrefixFor(props.session) !== null);
     host?.replaceChildren(...rendered.childNodes);
   });
 
@@ -26,7 +29,7 @@ export function AgentMarkdown(props: { content: string }): JSX.Element {
       const anchor = event.target instanceof Element ? event.target.closest("a") : null;
       if (anchor instanceof HTMLAnchorElement) {
         event.preventDefault();
-        activate(anchor);
+        activate(anchor, props.session);
       }
     };
     host?.addEventListener("click", activateLink);
@@ -36,10 +39,10 @@ export function AgentMarkdown(props: { content: string }): JSX.Element {
   return <div class="agent-markdown" ref={host} />;
 }
 
-function activate(anchor: HTMLAnchorElement): void {
+function activate(anchor: HTMLAnchorElement, session: ClientSession | null): void {
   const target = anchor.dataset.agentTarget ?? anchor.getAttribute("href") ?? "";
   if (anchor.dataset.agentKind === "ref") {
-    const prefix = refLinkPrefix();
+    const prefix = session === null ? null : refLinkPrefixFor(session);
     if (prefix !== null) {
       openUrlExternal(prefix + target.slice(1));
     }
@@ -56,7 +59,7 @@ function activate(anchor: HTMLAnchorElement): void {
     (target.length > 0 && !target.startsWith("#") && !hasScheme(target))
   ) {
     const { path, line } = parseFileReference(target);
-    postToHost({ type: "reveal-file", path, line, preview: true });
+    session?.feature("files").publish("reveal", { path, line, preview: true });
   }
 }
 

@@ -9,7 +9,7 @@ namespace Weavie.Hosting.Tests;
 public sealed class CodexPaneMessagesTests {
 	[Fact]
 	public void AgentPaneProtocol_SerializesNormalizedQuestionsForTheWeb() {
-		string json = AgentPaneProtocol.Message("slot-1", "/repo", new AgentPaneMessage {
+		string json = JsonSerializer.Serialize(AgentPaneProtocol.Message(new AgentPaneMessage {
 			Type = "input-requested",
 			ProviderId = "codex",
 			Questions = [new AgentInputQuestion {
@@ -19,10 +19,10 @@ public sealed class CodexPaneMessagesTests {
 				IsSecret = false,
 				Options = [new AgentInputOption { Label = "Safe", Description = "Use safe mode." }],
 			}],
-		});
+		}));
 
 		using var doc = JsonDocument.Parse(json);
-		var question = doc.RootElement.GetProperty("message").GetProperty("questions")[0];
+		var question = doc.RootElement.GetProperty("questions")[0];
 		Assert.Equal("mode", question.GetProperty("id").GetString());
 		Assert.Equal("Safe", question.GetProperty("options")[0].GetProperty("label").GetString());
 		Assert.False(question.TryGetProperty("Id", out _));
@@ -60,23 +60,25 @@ public sealed class CodexPaneMessagesTests {
 
 	[Fact]
 	public void AgentPaneProtocol_SerializesPrimaryThreadClassification() {
-		string json = AgentPaneProtocol.Message("slot-1", "/repo", new AgentPaneMessage {
+		string json = JsonSerializer.Serialize(AgentPaneProtocol.Message(new AgentPaneMessage {
 			Type = "item-completed",
 			ProviderId = "codex",
 			ThreadId = "thread_sub",
 			IsPrimaryThread = false,
-		});
+		}));
 
 		using var doc = JsonDocument.Parse(json);
-		Assert.False(doc.RootElement.GetProperty("message").GetProperty("isPrimaryThread").GetBoolean());
+		Assert.False(doc.RootElement.GetProperty("isPrimaryThread").GetBoolean());
 	}
 
 	[Fact]
 	public void AgentPlanProtocol_SerializesReadOnlyEditorDocument() {
-		string json = AgentPlanProtocol.Show(new AgentPlan("plan-key", "Plan", "# Ship it"));
+		string json = JsonSerializer.Serialize(
+			AgentPlanProtocol.Show(
+				new AgentPlan("plan-key", "Plan", "# Ship it"),
+				"agent-plan:plan-key"));
 
 		using var doc = JsonDocument.Parse(json);
-		Assert.Equal("show-agent-plan", doc.RootElement.GetProperty("type").GetString());
 		Assert.Equal("plan-key", doc.RootElement.GetProperty("id").GetString());
 		Assert.Equal("Plan", doc.RootElement.GetProperty("title").GetString());
 		Assert.Equal("# Ship it", doc.RootElement.GetProperty("markdown").GetString());

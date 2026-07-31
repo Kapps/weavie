@@ -27,7 +27,7 @@ public sealed partial class HostCore {
 	}
 
 	// The "Configured …" toast can't be posted straight from the probe: on a fresh open the probe finishes before
-	// any page has connected, and PostToWeb drops (never buffers) a push with no client. Hold it and post exactly
+	// any page has connected, and Broadcast drops (never buffers) a push with no client. Hold it and post exactly
 	// once both the write happened AND a page is connected — in whichever order those occur.
 	private void QueueAutoConfigToast(string message) {
 		lock (_autoConfigGate) {

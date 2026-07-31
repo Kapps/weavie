@@ -1,5 +1,5 @@
 import { createMemo, createSignal } from "solid-js";
-import { activeBackendId, onSessionMessage, postToBackend } from "../bridge";
+import { hostConnection, registerHostFeature, selectedSession } from "../bridge";
 import type { LayoutDocument, LayoutNode } from "./types";
 
 // The default layout (mirrors Weavie.Core.Layout's seeded default): a left column stacking the agent and
@@ -22,22 +22,34 @@ export const DEFAULT_LAYOUT_ROOT: LayoutNode = {
   ],
 };
 
-// A backend's ready replay can arrive while another backend drives the page. Cache every workspace layout so
-// activating that backend restores its frame instead of retaining whichever layout happened to paint first.
+// Cache each host's layout so selecting one of its sessions restores that host's frame.
 const [documents, setDocuments] = createSignal<Map<string, LayoutDocument>>(new Map());
 
-onSessionMessage((message, backendId) => {
-  if (message.type === "set-layout") {
-    setDocuments((current) => new Map(current).set(backendId, message.document));
-  }
+function applyDocument(backendId: string, document: LayoutDocument): void {
+  setDocuments((current) => new Map(current).set(backendId, document));
+}
+
+registerHostFeature((connection) => {
+  const offHello = connection.onHello((hello) =>
+    applyDocument(connection.id, hello.layout as LayoutDocument),
+  );
+  const offState = connection.host
+    .feature("layout")
+    .on<{ document: LayoutDocument }>("state", ({ document }) =>
+      applyDocument(connection.id, document),
+    );
+  return () => {
+    offHello();
+    offState();
+  };
 });
 
 /** The active backend's most recent layout document, or null until its first push arrives. */
 export const layoutDocument = createMemo<LayoutDocument | null>(
-  () => documents().get(activeBackendId()) ?? null,
+  () => documents().get(selectedSession()?.connection.id ?? "") ?? null,
 );
 
 /** Sends an updated layout to the backend that owned the user gesture. */
 export function sendLayout(backendId: string, doc: LayoutDocument): void {
-  postToBackend(backendId, { type: "layout-changed", document: doc });
+  hostConnection(backendId)?.host.feature("layout").publish("changed", { document: doc });
 }

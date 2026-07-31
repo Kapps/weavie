@@ -47,8 +47,8 @@ public sealed record HostServices {
 	public required RemoteAgentStore RemoteAgents { get; init; }
 
 	/// <summary>
-	/// The session rail's UI state (<c>~/.weavie/rail-state.json</c>) — last-used backend + promoted remote
-	/// sessions; app-global so every window shares it and re-pushes it to its page on change.
+	/// The session rail's UI state (<c>~/.weavie/rail-state.json</c>) — last-used backend, selected session, and
+	/// promoted remote sessions; app-global so every window shares it and re-pushes it to its page on change.
 	/// </summary>
 	public required RailStateStore RailState { get; init; }
 

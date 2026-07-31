@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.Text.Json;
-using System.Text.Json.Nodes;
 using Weavie.Core.Agents;
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
@@ -15,6 +14,7 @@ using Weavie.Core.Shell;
 using Weavie.Core.Terminal;
 using Weavie.Core.Theming;
 using Weavie.Hosting.Agents.Claude;
+using Weavie.Hosting.Messaging;
 using Weavie.Hosting.Web;
 
 namespace Weavie.Hosting.Tests;
@@ -29,9 +29,12 @@ namespace Weavie.Hosting.Tests;
 /// </summary>
 internal sealed class TestHost : IAsyncDisposable {
 	internal const string TestPageId = "test-page";
+	private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 	private readonly string _tempRoot;
 	private readonly HostServices _services;
-	private JsonElement? _lastProjection;
+	private readonly Dictionary<SessionAddress, JsonElement> _clientEditorSessions = [];
+	private long _requestSequence;
+	private string _selectedSlot = "primary";
 
 	private TestHost(string tempRoot, string repoRoot, HostServices services, FakeHostBridge bridge, TestPlatform platform, HostCore core, StubHttpMessageHandler sourceHttp, string sourcesDir) {
 		_tempRoot = tempRoot;
@@ -42,6 +45,7 @@ internal sealed class TestHost : IAsyncDisposable {
 		Core = core;
 		SourceHttp = sourceHttp;
 		SourcesDir = sourcesDir;
+		bridge.RequestResponder = RespondToViewRequest;
 	}
 
 	public FakeHostBridge Bridge { get; private set; }
@@ -63,10 +67,7 @@ internal sealed class TestHost : IAsyncDisposable {
 	/// <summary>The host's settings store, for a test to tweak a setting before it creates a session.</summary>
 	public SettingsStore Settings => _services.Settings;
 
-	/// <summary>Whether switch/acquire helpers immediately acknowledge the offered editor projection.</summary>
-	public bool AutoMountEditorProjection { get; set; } = true;
-
-	/// <summary>Builds a temp git repo, starts a host over it, and delivers the page's <c>ready</c> message.</summary>
+	/// <summary>Builds a temp git repo, starts a host, and connects one message-bus client.</summary>
 	public static Task<TestHost> StartAsync() => StartAsync(_ => { });
 
 	/// <summary>
@@ -103,9 +104,8 @@ internal sealed class TestHost : IAsyncDisposable {
 	private static async Task<TestHost> StartAsync(Action<string> prepareRepo, IPullRequestProvider pullRequests, bool sendReady) {
 		var host = Create(prepareRepo, pullRequests);
 		await host.Core.StartAsync().ConfigureAwait(false);
-		// `ready` triggers the initial layout / editor-session / session-list pushes (PostToWeb no-ops before this).
 		if (sendReady) {
-			host.Send("""{"type":"ready"}""");
+			await host.ConnectAsync().ConfigureAwait(false);
 		}
 
 		return host;
@@ -142,86 +142,209 @@ internal sealed class TestHost : IAsyncDisposable {
 		return new TestHost(tempRoot, repo, services, bridge, platform, core, sourceHttp, sourcesDir);
 	}
 
-	/// <summary>The primary session's id (its rail slot id), read from the initial set-editor-session sessionId.</summary>
-	public string PrimaryId {
-		get {
-			var seed = _lastProjection ?? Bridge.LastOfType("set-editor-session");
-			return seed?.GetProperty("sessionId").GetString() ?? throw new InvalidOperationException("no set-editor-session seed");
-		}
+	/// <summary>The primary live session's incarnation, used by media URLs.</summary>
+	public string PrimaryIncarnation => PrimarySession.Incarnation;
+
+	/// <summary>The primary live session.</summary>
+	public HostSession PrimarySession => Session("primary");
+
+	/// <summary>The session selected by this test client; selection never enters <see cref="HostCore"/>.</summary>
+	public HostSession SelectedSession => Session(_selectedSlot);
+
+	/// <summary>Returns one exact live session slot.</summary>
+	public HostSession Session(string slot) =>
+		Core.SessionForTest(slot) ?? throw new InvalidOperationException($"Session '{slot}' is not live.");
+
+	/// <summary>Selects one exact live session in the test client and updates its host view binding.</summary>
+	public void SelectSession(string slot) {
+		var session = Session(slot);
+		_selectedSlot = slot;
+		SessionEvent(session, "view", "attach", new { pageEpoch = "test-page" });
 	}
 
-	/// <summary>Creates a worktree-backed session on <paramref name="branch"/> (off main) and switches to it.</summary>
-	public async Task<CommandResult> CreateSessionAsync(string branch) =>
-		await MountAfterAsync(Core.NewSessionAsync(
-			new NewSessionRequest { Branch = branch, Base = "main", AttachExisting = false },
-			CancellationToken.None)).ConfigureAwait(false);
+	/// <summary>Creates a worktree-backed session from this client's selected source and selects the result.</summary>
+	public Task<CommandResult> CreateSessionAsync(string branch) =>
+		CreateSessionAsync(new NewSessionRequest {
+			Branch = branch,
+			Base = "main",
+			AttachExisting = false,
+		});
 
-	/// <summary>Sends a raw web message to the host (as the page would).</summary>
-	public void Send(string json) {
-		var message = JsonNode.Parse(json)?.AsObject() ?? throw new InvalidOperationException("invalid test web message");
-		string? type = message["type"]?.GetValue<string>();
-		if (type is "ready" or "switch-session") {
-			message["pageId"] ??= TestPageId;
+	/// <summary>Creates a worktree-backed session from this client's selected source and selects the result.</summary>
+	public async Task<CommandResult> CreateSessionAsync(NewSessionRequest request) {
+		var result = await SelectedSession.Commands.InvokeAsync(
+			SessionCommands.NewSession,
+			JsonSerializer.Serialize(request, JsonOptions),
+			CancellationToken.None).ConfigureAwait(false);
+		if (result.Ok && request.Branch is { Length: > 0 } branch && Core.SessionForTest(branch) is not null) {
+			SelectSession(branch);
 		}
 
-		if (type is "editor-session-changed" or "active-editor-changed" or "open-editors-changed") {
-			StampProjection(message);
-		}
-
-		Bridge.Receive(message.ToJsonString());
-		if (type == "ready") {
-			Bridge.Receive(JsonSerializer.Serialize(new { type = "acquire-editor", pageId = TestPageId }));
-		}
-		RememberLastProjection();
-		if (AutoMountEditorProjection && type is ("ready" or "switch-session")) {
-			MountEditorProjection();
-		}
-	}
-
-	private async Task<CommandResult> MountAfterAsync(Task<CommandResult> command) {
-		var result = await command.ConfigureAwait(false);
-		RememberLastProjection();
-		if (AutoMountEditorProjection) {
-			MountEditorProjection();
-		}
 		return result;
 	}
 
-	/// <summary>Acknowledges the most recently offered editor projection.</summary>
-	public void MountEditorProjection() {
-		RememberLastProjection();
-		var seed = _lastProjection;
-		if (!seed.HasValue) {
-			return;
-		}
+	/// <summary>Invokes a command through one exact session-owned dispatcher.</summary>
+	public Task<CommandResult> InvokeCommandAsync(
+		string slot,
+		string command,
+		object args,
+		CancellationToken ct) =>
+		Session(slot).Commands.InvokeAsync(command, JsonSerializer.Serialize(args, JsonOptions), ct);
 
-		var root = seed.Value;
-		Bridge.Receive(JsonSerializer.Serialize(new {
-			type = "editor-projection-mounted",
-			sessionId = root.GetProperty("sessionId").GetString(),
-			projectionEpoch = root.GetProperty("projectionEpoch").GetString(),
-			projectionRevision = root.GetProperty("projectionRevision").GetInt64(),
-			projectionPageId = root.GetProperty("projectionPageId").GetString(),
-		}));
+	/// <summary>Invokes a command through this client's exact selected session bus.</summary>
+	public async Task<CommandResult> InvokeClientCommandAsync(string command, object args) {
+		var wire = await SessionRequestAsync<JsonElement>(
+			SelectedSession,
+			"commands",
+			"invoke",
+			new {
+				id = command,
+				args = JsonSerializer.SerializeToElement(args, JsonOptions),
+			}).ConfigureAwait(false);
+		string? dataJson = wire.TryGetProperty("data", out var data)
+			&& data.ValueKind is not JsonValueKind.Null and not JsonValueKind.Undefined
+				? data.GetRawText()
+				: null;
+		return new CommandResult(
+			wire.GetProperty("ok").GetBoolean(),
+			wire.GetProperty("message").ValueKind == JsonValueKind.String
+				? wire.GetProperty("message").GetString()
+				: null,
+			wire.GetProperty("error").ValueKind == JsonValueKind.String
+				? wire.GetProperty("error").GetString()
+				: null) {
+			DataJson = dataJson,
+		};
 	}
 
-	private void StampProjection(JsonObject message) {
-		RememberLastProjection();
-		var seed = _lastProjection;
-		if (!seed.HasValue) {
-			return;
+	/// <summary>Unloads one exact slot through the selected session's command dispatcher.</summary>
+	public async Task<CommandResult> UnloadSessionAsync(string slot) {
+		var result = await InvokeCommandAsync(
+			_selectedSlot,
+			SessionCommands.UnloadSession,
+			new { id = slot },
+			CancellationToken.None).ConfigureAwait(false);
+		if (result.Ok && _selectedSlot == slot) {
+			SelectSession("primary");
 		}
 
-		var root = seed.Value;
-		message["projectionEpoch"] ??= root.GetProperty("projectionEpoch").GetString();
-		message["projectionRevision"] ??= root.GetProperty("projectionRevision").GetInt64();
-		message["projectionPageId"] ??= root.GetProperty("projectionPageId").GetString();
+		return result;
 	}
 
-	private void RememberLastProjection() {
-		if (Bridge.LastOfType("set-editor-session") is { } projection) {
-			_lastProjection = projection;
+	/// <summary>Deletes or classifies one exact slot through the selected session's command dispatcher.</summary>
+	public Task<CommandResult> DeleteSessionAsync(string slot, bool force, bool classify) =>
+		InvokeCommandAsync(
+			_selectedSlot,
+			SessionCommands.DeleteSession,
+			new { id = slot, force, classify },
+			CancellationToken.None);
+
+	/// <summary>Performs the host hello and session sync sequence used by a real client connection.</summary>
+	public async Task ConnectAsync() {
+		var hello = await HostRequestAsync<JsonElement>("connection", "hello", new { }).ConfigureAwait(false);
+		_selectedSlot = "primary";
+		foreach (var entry in hello.GetProperty("sessions").EnumerateArray()) {
+			if (!entry.TryGetProperty("address", out var address)
+				|| address.ValueKind != JsonValueKind.Object) {
+				continue;
+			}
+
+			var session = Session(entry.GetProperty("id").GetString()!);
+			await SessionRequestAsync<JsonElement>(
+				session,
+				"lifecycle",
+				"sync",
+				new { }).ConfigureAwait(false);
 		}
+
+		SelectSession("primary");
+	}
+
+	/// <summary>Publishes a session event from the test client.</summary>
+	public void SessionEvent(HostSession session, string feature, string name, object payload) {
+		var element = JsonSerializer.SerializeToElement(payload, JsonOptions);
+		if (feature == "editor"
+			&& name == "sessionChanged"
+			&& element.TryGetProperty("session", out var editorSession)) {
+			_clientEditorSessions[session.Address] = editorSession.Clone();
+		}
+
+		SendEnvelope(MessageEnvelope.Event(
+			MessageScope.Session,
+			session.Address,
+			feature,
+			name,
+			element).ToJson());
+	}
+
+	/// <summary>Publishes a host event from the test client.</summary>
+	public void HostEvent(string feature, string name, object payload) =>
+		SendEnvelope(MessageEnvelope.Event(
+			MessageScope.Host,
+			null,
+			feature,
+			name,
+			JsonSerializer.SerializeToElement(payload, JsonOptions)).ToJson());
+
+	/// <summary>Requests a response from one exact session.</summary>
+	public Task<T> SessionRequestAsync<T>(
+		HostSession session,
+		string feature,
+		string name,
+		object payload) =>
+		RequestAsync<T>(MessageScope.Session, session.Address, feature, name, payload);
+
+	/// <summary>Requests a response from the host bus.</summary>
+	public Task<T> HostRequestAsync<T>(string feature, string name, object payload) =>
+		RequestAsync<T>(MessageScope.Host, null, feature, name, payload);
+
+	private async Task<T> RequestAsync<T>(
+		MessageScope scope,
+		SessionAddress? address,
+		string feature,
+		string name,
+		object payload) {
+		string id = $"test-{Interlocked.Increment(ref _requestSequence)}";
+		SendEnvelope(MessageEnvelope.Request(
+			scope,
+			address,
+			id,
+			feature,
+			name,
+			JsonSerializer.SerializeToElement(payload, JsonOptions)).ToJson());
+		var response = await Wait.ForReferenceAsync(() => Response(id)).ConfigureAwait(false);
+		if (response.Error is { } error) {
+			throw new InvalidOperationException(error);
+		}
+
+		return response.Payload.Deserialize<T>(JsonOptions)!;
+	}
+
+	private MessageEnvelope? Response(string requestId) {
+		foreach (string json in Bridge.Posted.Reverse()) {
+			if (MessageEnvelope.TryParse(json, out var envelope)
+				&& envelope is { Kind: MessageKind.Response }
+				&& envelope.RequestId == requestId) {
+				return envelope;
+			}
+		}
+
+		return null;
+	}
+
+	private void SendEnvelope(string json) => Bridge.Receive(new WebPeer(TestPageId), json);
+
+	private FakeWebResponse? RespondToViewRequest(MessageEnvelope request) {
+		if (request.Feature != "editor" || request.Name != "flush" || request.Session is not { } address) {
+			return null;
+		}
+
+		var session = _clientEditorSessions.TryGetValue(address, out var current)
+			? current
+			: JsonSerializer.SerializeToElement(new { active = (string?)null, open = Array.Empty<object>() });
+		return new FakeWebResponse(
+			JsonSerializer.SerializeToElement(new { session }, JsonOptions),
+			null);
 	}
 
 	/// <summary>
@@ -239,7 +362,8 @@ internal sealed class TestHost : IAsyncDisposable {
 		await Core.DisposeAsync().ConfigureAwait(false);
 		beforeRestart();
 		Bridge = new FakeHostBridge();
-		_lastProjection = null;
+		_requestSequence = 0;
+		_selectedSlot = "primary";
 		Platform = new TestPlatform(Bridge);
 		Core = new HostCore(
 			Platform,
@@ -248,7 +372,7 @@ internal sealed class TestHost : IAsyncDisposable {
 			WorkspaceHttpServerOptions.Native(Path.Combine(_tempRoot, "wwwroot")),
 			UnavailableWorkspaceWebSocketBridge.Instance);
 		await Core.StartAsync().ConfigureAwait(false);
-		Send("""{"type":"ready"}""");
+		await ConnectAsync().ConfigureAwait(false);
 	}
 
 	private static HostServices IsolatedServices(
@@ -336,7 +460,7 @@ internal sealed class TestHost : IAsyncDisposable {
 
 /// <summary>The thinnest <see cref="IHostPlatform"/>: a fake bridge, inline dispatch, no-op PTYs, no native UI.</summary>
 internal sealed class TestPlatform : IHostPlatform {
-	public TestPlatform(IHostBridge bridge) {
+	public TestPlatform(IWebTransportHub bridge) {
 		Bridge = bridge;
 		Dispatcher = new InlineUiDispatcher();
 		NoopLauncher = new NoopPtyLauncher();
@@ -345,7 +469,7 @@ internal sealed class TestPlatform : IHostPlatform {
 	/// <summary>The typed launcher, so tests can reach the terminals it handed out.</summary>
 	public NoopPtyLauncher NoopLauncher { get; }
 
-	public IHostBridge Bridge { get; }
+	public IWebTransportHub Bridge { get; }
 	public IUiDispatcher Dispatcher { get; }
 	public IPtyLauncher PtyLauncher => NoopLauncher;
 	public string ChromePlatform => "web";

@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Xunit;
 
 namespace Weavie.Hosting.Tests;
@@ -13,7 +12,7 @@ public sealed class TurnKeepTests {
 	[Fact]
 	public async Task KeepFile_AdvancesBaseline_LeavingFileFadedInReviewSet() {
 		await using var host = await TestHost.StartAsync();
-		var session = host.Core.ActiveSessionForTest() ?? throw new InvalidOperationException("no active session");
+		var session = host.SelectedSession;
 		string path = Path.Combine(host.RepoRoot, "readme.txt");
 
 		session.Changes.CaptureBaseline(path);
@@ -22,7 +21,7 @@ public sealed class TurnKeepTests {
 		Assert.Single(session.Changes.TurnChanges());
 
 		host.Bridge.Clear();
-		host.Send($$"""{"type":"keep-file","path":{{JsonSerializer.Serialize(path)}}}""");
+		host.SessionEvent(session, "review", "keepFile", new { path });
 
 		// The file stays in the review set as a faded accepted band (no pending hunks) until keep-all commits it.
 		Assert.Equal("hello\nworld\n", File.ReadAllText(path)); // disk untouched — keep is not a revert
@@ -30,13 +29,13 @@ public sealed class TurnKeepTests {
 		Assert.NotNull(turn);
 		Assert.Equal(turn!.BaselineText, turn.CurrentText);     // review baseline == current → nothing bright/pending
 		Assert.NotEqual(turn.AcceptedBaselineText, turn.CurrentText); // accepted anchor still behind → faded band remains
-		Assert.NotNull(host.Bridge.LastOfType("turn-changes")); // the review set was re-emitted
+		Assert.NotNull(host.Bridge.LastEvent(session.Address, "review", "changes"));
 	}
 
 	[Fact]
 	public async Task KeepHunk_AdvancesBaseline_OverJustThatHunk() {
 		await using var host = await TestHost.StartAsync();
-		var session = host.Core.ActiveSessionForTest() ?? throw new InvalidOperationException("no active session");
+		var session = host.SelectedSession;
 		string path = Path.Combine(host.RepoRoot, "readme.txt");
 
 		session.Changes.CaptureBaseline(path); // baseline = "hello\n"
@@ -45,9 +44,18 @@ public sealed class TurnKeepTests {
 		Assert.Single(session.Changes.TurnChanges());
 
 		host.Bridge.Clear();
-		host.Send($$"""
-			{"type":"keep-hunk","path":{{JsonSerializer.Serialize(path)}},"baselineStart":2,"baselineEndExclusive":2,"currentStart":2,"currentEndExclusive":3,"guardText":"world"}
-			""");
+		host.SessionEvent(
+			session,
+			"review",
+			"keepHunk",
+			new {
+				path,
+				baselineStart = 2,
+				baselineEndExclusive = 2,
+				currentStart = 2,
+				currentEndExclusive = 3,
+				guardText = "world",
+			});
 
 		// The only hunk is now faded-accepted: no pending diff (review baseline == current), but the file stays.
 		Assert.Equal("hello\nworld\n", File.ReadAllText(path)); // disk untouched
@@ -55,7 +63,7 @@ public sealed class TurnKeepTests {
 		Assert.NotNull(turn);
 		Assert.Equal(turn!.BaselineText, turn.CurrentText);
 		Assert.NotEqual(turn.AcceptedBaselineText, turn.CurrentText);
-		Assert.NotNull(host.Bridge.LastOfType("turn-changes"));
+		Assert.NotNull(host.Bridge.LastEvent(session.Address, "review", "changes"));
 	}
 
 	[Fact]
@@ -63,7 +71,7 @@ public sealed class TurnKeepTests {
 		// The reported bug: a hand edit to a region the agent didn't author shifts the agent hunk's line number,
 		// and the web (which diffs the live model) sends that shifted position. The keep must not fail its guard.
 		await using var host = await TestHost.StartAsync();
-		var session = host.Core.ActiveSessionForTest() ?? throw new InvalidOperationException("no active session");
+		var session = host.SelectedSession;
 		string path = Path.Combine(host.RepoRoot, "readme.txt");
 
 		session.Changes.CaptureBaseline(path); // baseline = "hello\n"
@@ -76,9 +84,18 @@ public sealed class TurnKeepTests {
 		session.Changes.RecordHandEdit(path, "MINE\nhello\nAGENT\n");
 
 		host.Bridge.Clear();
-		host.Send($$"""
-			{"type":"keep-hunk","path":{{JsonSerializer.Serialize(path)}},"baselineStart":2,"baselineEndExclusive":2,"currentStart":3,"currentEndExclusive":4,"guardText":"AGENT"}
-			""");
+		host.SessionEvent(
+			session,
+			"review",
+			"keepHunk",
+			new {
+				path,
+				baselineStart = 2,
+				baselineEndExclusive = 2,
+				currentStart = 3,
+				currentEndExclusive = 4,
+				guardText = "AGENT",
+			});
 
 		Assert.Equal("MINE\nhello\nAGENT\n", File.ReadAllText(path)); // disk untouched — keep is not a write
 		var turn = session.Changes.GetTurn(path);
@@ -89,7 +106,7 @@ public sealed class TurnKeepTests {
 	[Fact]
 	public async Task UnkeepHunk_ReturnsAKeptHunkToThePendingBand() {
 		await using var host = await TestHost.StartAsync();
-		var session = host.Core.ActiveSessionForTest() ?? throw new InvalidOperationException("no active session");
+		var session = host.SelectedSession;
 		string path = Path.Combine(host.RepoRoot, "readme.txt");
 
 		session.Changes.CaptureBaseline(path); // accepted anchor = "hello\n"
@@ -100,27 +117,37 @@ public sealed class TurnKeepTests {
 
 		host.Bridge.Clear();
 		// The faded band is the accepted→review insertion: accepted range [2,2) (empty), review range [2,3) ("world").
-		host.Send($$"""
-			{"type":"unkeep-hunk","path":{{JsonSerializer.Serialize(path)}},"acceptedStart":2,"acceptedEndExclusive":2,"reviewStart":2,"reviewEndExclusive":3,"acceptedGuardText":"","guardText":"world"}
-			""");
+		host.SessionEvent(
+			session,
+			"review",
+			"unkeepHunk",
+			new {
+				path,
+				acceptedStart = 2,
+				acceptedEndExclusive = 2,
+				reviewStart = 2,
+				reviewEndExclusive = 3,
+				acceptedGuardText = "",
+				guardText = "world",
+			});
 
 		Assert.Equal("hello\nworld\n", File.ReadAllText(path)); // disk untouched — un-keep only moves the band
 		var turn = session.Changes.GetTurn(path);
 		Assert.NotNull(turn);
 		Assert.Equal("hello\n", turn!.BaselineText);             // review baseline rolled back to the anchor → bright again
-		Assert.NotNull(host.Bridge.LastOfType("turn-diff"));
+		Assert.NotNull(host.Bridge.LastEvent(session.Address, "review", "diff"));
 	}
 
 	[Fact]
 	public async Task NewPrompt_CommitsFadedBand_AndRePushesReviewState() {
 		await using var host = await TestHost.StartAsync();
-		var session = host.Core.ActiveSessionForTest() ?? throw new InvalidOperationException("no active session");
+		var session = host.SelectedSession;
 		string path = Path.Combine(host.RepoRoot, "readme.txt");
 
 		session.Changes.CaptureBaseline(path);
 		File.WriteAllText(path, "hello\nworld\n");
 		session.Changes.RecordChange(path);
-		host.Send($$"""{"type":"keep-file","path":{{JsonSerializer.Serialize(path)}}}""");
+		host.SessionEvent(session, "review", "keepFile", new { path });
 		Assert.Single(session.Changes.TurnChanges()); // kept: faded band only
 
 		host.Bridge.Clear();
@@ -132,13 +159,13 @@ public sealed class TurnKeepTests {
 		});
 
 		Assert.Empty(session.Changes.TurnChanges());
-		var files = host.Bridge.LastOfType("turn-changes");
+		var files = host.Bridge.LastEvent(session.Address, "review", "changes");
 		Assert.NotNull(files);
 		Assert.Empty(files!.Value.GetProperty("files").EnumerateArray()); // the trimmed (now empty) review set
-		var diff = host.Bridge.LastOfType("turn-diff");
+		var diff = host.Bridge.LastEvent(session.Address, "review", "diff");
 		Assert.NotNull(diff); // the file's inline markers clear: accepted == current
 		Assert.Equal(diff!.Value.GetProperty("current").GetString(), diff.Value.GetProperty("acceptedBaseline").GetString());
-		var history = host.Bridge.LastOfType("review-history");
+		var history = host.Bridge.LastEvent(session.Address, "review", "history");
 		Assert.NotNull(history); // the commit cleared the undo history
 		Assert.False(history!.Value.GetProperty("canUndo").GetBoolean());
 	}
@@ -146,7 +173,7 @@ public sealed class TurnKeepTests {
 	[Fact]
 	public async Task KeepHunk_GuardMismatch_LeavesReviewSetIntact() {
 		await using var host = await TestHost.StartAsync();
-		var session = host.Core.ActiveSessionForTest() ?? throw new InvalidOperationException("no active session");
+		var session = host.SelectedSession;
 		string path = Path.Combine(host.RepoRoot, "readme.txt");
 
 		session.Changes.CaptureBaseline(path);
@@ -155,9 +182,18 @@ public sealed class TurnKeepTests {
 
 		host.Bridge.Clear();
 		// guardText doesn't match the file's current line 2 — a stale request that must not advance the baseline.
-		host.Send($$"""
-			{"type":"keep-hunk","path":{{JsonSerializer.Serialize(path)}},"baselineStart":2,"baselineEndExclusive":2,"currentStart":2,"currentEndExclusive":3,"guardText":"STALE"}
-			""");
+		host.SessionEvent(
+			session,
+			"review",
+			"keepHunk",
+			new {
+				path,
+				baselineStart = 2,
+				baselineEndExclusive = 2,
+				currentStart = 2,
+				currentEndExclusive = 3,
+				guardText = "STALE",
+			});
 
 		Assert.Single(session.Changes.TurnChanges()); // still pending — the guard aborted the keep
 	}

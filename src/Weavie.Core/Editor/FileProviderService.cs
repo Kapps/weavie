@@ -3,8 +3,8 @@ using Weavie.Core.FileSystem;
 namespace Weavie.Core.Editor;
 
 /// <summary>
-/// Serves the editor's host-backed <c>file://</c> provider: answers <c>fs-stat</c>/<c>fs-read</c>/<c>fs-write</c>
-/// against the session filesystem, scoped to the workspace, returning reply JSON from <see cref="FileProviderProtocol"/>.
+/// Serves the editor's host-backed file provider against one session filesystem, scoped to its workspace and
+/// scratch directory.
 /// Out-of-workspace access is refused: a read becomes a clean FileNotFound, a write an error the page surfaces.
 /// </summary>
 public sealed class FileProviderService {
@@ -23,31 +23,31 @@ public sealed class FileProviderService {
 		_scope = new WorkspaceFileScope([workspaceRoot, scratchRoot]);
 	}
 
-	/// <summary>Answers <c>fs-stat</c>: the file's metadata, or <c>exists:false</c> for a missing/out-of-workspace path.</summary>
-	public string Stat(string id, string path) {
+	/// <summary>Returns the file's metadata, or <c>exists:false</c> for a missing/out-of-workspace path.</summary>
+	public FileStat Stat(string path) {
 		if (!IsAllowed(path)) {
-			return FileProviderProtocol.StatResult(id, default);
+			return default;
 		}
 
 		_fileSystem.TryGetStat(path, out var stat);
-		return FileProviderProtocol.StatResult(id, stat);
+		return stat;
 	}
 
-	/// <summary>Answers <c>fs-read</c>: the file's content + etag, a clean FileNotFound, or a loud read error.</summary>
-	public string Read(string id, string path) {
+	/// <summary>Returns the file's content and stat, a clean FileNotFound, or a read error.</summary>
+	public FileReadResult Read(string path) {
 		if (!IsAllowed(path) || !_fileSystem.FileExists(path)) {
-			return FileProviderProtocol.ReadNotFound(id);
+			return FileReadResult.NotFound;
 		}
 
 		try {
 			if (!_fileSystem.TryReadAllText(path, out string content)) {
-				return FileProviderProtocol.ReadError(id, "Binary files cannot be opened as text.");
+				return FileReadResult.Failure("Binary files cannot be opened as text.");
 			}
 
 			_fileSystem.TryGetStat(path, out var stat);
-			return FileProviderProtocol.ReadResult(id, content, stat);
+			return FileReadResult.Success(content, stat);
 		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			return FileProviderProtocol.ReadError(id, ex.Message);
+			return FileReadResult.Failure(ex.Message);
 		}
 	}
 
@@ -78,21 +78,42 @@ public sealed class FileProviderService {
 		}
 	}
 
-	/// <summary>Answers <c>fs-write</c>: persists the buffer to disk and returns the post-write etag, or an error.</summary>
-	public string Write(string id, string path, string content) {
+	/// <summary>Persists the buffer to disk and returns the post-write stat, or an error.</summary>
+	public FileWriteResult Write(string path, string content) {
 		ArgumentNullException.ThrowIfNull(content);
 		if (!IsAllowed(path)) {
-			return FileProviderProtocol.WriteError(id, "Path is outside the workspace.");
+			return FileWriteResult.Failure("Path is outside the workspace.");
 		}
 
 		try {
 			_fileSystem.WriteAllText(path, content);
 			_fileSystem.TryGetStat(path, out var stat);
-			return FileProviderProtocol.WriteResult(id, stat);
+			return FileWriteResult.Success(stat);
 		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			return FileProviderProtocol.WriteError(id, ex.Message);
+			return FileWriteResult.Failure(ex.Message);
 		}
 	}
 
 	private bool IsAllowed(string path) => _scope.Contains(path);
+}
+
+/// <summary>The result of reading a session file.</summary>
+public sealed record FileReadResult(bool Ok, string? Content, FileStat Stat, string? Code, string? Error) {
+	/// <summary>A missing or out-of-scope file.</summary>
+	public static FileReadResult NotFound { get; } = new(false, null, default, "FileNotFound", null);
+
+	/// <summary>Builds a successful text read.</summary>
+	public static FileReadResult Success(string content, FileStat stat) => new(true, content, stat, null, null);
+
+	/// <summary>Builds a failed read.</summary>
+	public static FileReadResult Failure(string error) => new(false, null, default, null, error);
+}
+
+/// <summary>The result of writing a session file.</summary>
+public sealed record FileWriteResult(bool Ok, FileStat Stat, string? Error) {
+	/// <summary>Builds a successful write.</summary>
+	public static FileWriteResult Success(FileStat stat) => new(true, stat, null);
+
+	/// <summary>Builds a failed write.</summary>
+	public static FileWriteResult Failure(string error) => new(false, default, error);
 }

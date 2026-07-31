@@ -3,8 +3,8 @@ import { expect, test } from "../harness/fixtures";
 import { awaitReviewSet, collectChangedFiles } from "../harness/navigator";
 
 // SCENARIO 2: two PR sessions open at once (#101: feature.ts + hello.ts; #102: widget.ts + notes.txt). Each
-// session must show ITS OWN changed files / merge-base diff — never the other PR's. _diffReviews is keyed by
-// worktree path and ActiveReview() resolves by the active session, so this is the core of that design.
+// session must show ITS OWN changed files / merge-base diff — never the other PR's. Each HostSession publishes
+// review state on its own bus, so selection only chooses which already-scoped state is rendered.
 test.use({ prScenario: true });
 
 const toolbar = ".weavie-inline-toolbar";

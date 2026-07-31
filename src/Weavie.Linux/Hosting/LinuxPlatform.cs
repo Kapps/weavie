@@ -25,7 +25,7 @@ internal sealed class LinuxPlatform : IHostPlatform {
 		PtyLauncher = new PosixPtyLauncher();
 	}
 
-	public IHostBridge Bridge { get; }
+	public IWebTransportHub Bridge { get; }
 
 	public IUiDispatcher Dispatcher { get; }
 

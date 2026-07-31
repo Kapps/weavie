@@ -7,7 +7,7 @@ import * as monaco from "monaco-editor";
 import { formatKey } from "../commands/keybindings";
 import { findCommand, runCommandWithFeedback } from "../commands/registry";
 import { CommandIds } from "../commands/types";
-import { uriHostPath } from "../editor/fs-path";
+import { SESSION_FILE_SCHEME, sessionUriHostPath } from "../editor/session-uri";
 import { activeCodeEditor } from "../editor/vscode-services";
 import { currentWorkspaceRoot, onLanguageClientStarted } from "../lsp/lsp-client";
 import { globMatches } from "./glob";
@@ -32,7 +32,7 @@ export function installTestLenses(): void {
   });
 
   const provider = monaco.languages.registerCodeLensProvider(
-    { scheme: "file" },
+    { scheme: SESSION_FILE_SCHEME },
     {
       // monaco types onDidChange as IEvent<this>; the payload is unused (it only signals "refresh").
       onDidChange: emitter.event as unknown as monaco.IEvent<monaco.languages.CodeLensProvider>,
@@ -43,7 +43,7 @@ export function installTestLenses(): void {
         }
         // uriHostPath, never fsPath: this path is dispatched to Core to compose a shell command, so it must be
         // host-native — a Windows client's fsPath backslashes a POSIX host's path and no test rule would match.
-        const file = uriHostPath(model.uri);
+        const file = sessionUriHostPath(model.uri);
         const hits = await documentTestHits(model, rule);
         const lenses: monaco.languages.CodeLens[] = [];
         if (hits.length > 0) {
@@ -97,11 +97,13 @@ export async function runTestAtCursor(): Promise<boolean> {
   const hits = await documentTestHits(model, rule);
   const innermost = innermostHitAt(hits, position);
   if (innermost === undefined) {
-    void runCommandWithFeedback(CommandIds.runTests, { file: uriHostPath(model.uri) });
+    void runCommandWithFeedback(CommandIds.runTests, {
+      file: sessionUriHostPath(model.uri),
+    });
     return true;
   }
   void runCommandWithFeedback(CommandIds.runTests, {
-    file: uriHostPath(model.uri),
+    file: sessionUriHostPath(model.uri),
     name: innermost.name,
   });
   return true;
@@ -123,7 +125,7 @@ function relativePath(uri: monaco.Uri): string | undefined {
     return undefined;
   }
   const normalizedRoot = root.replace(/\\/g, "/").replace(/\/+$/, "");
-  const normalizedPath = uri.fsPath.replace(/\\/g, "/");
+  const normalizedPath = sessionUriHostPath(uri).replace(/\\/g, "/");
   if (normalizedPath === normalizedRoot) {
     return "";
   }

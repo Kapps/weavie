@@ -25,7 +25,7 @@ public sealed class TerminalControllerReattachTests {
 
 		h.Controller.OnReady(80, 24);
 
-		Assert.Empty(h.Bridge.PostedOfType("term-output"));
+		Assert.Empty(h.Bridge.PostedEventsNamed("output"));
 		Assert.Empty(h.Launcher.LastTerminal!.Resizes); // fresh launch is sized at spawn, not nudged
 	}
 
@@ -38,7 +38,7 @@ public sealed class TerminalControllerReattachTests {
 
 		h.Controller.OnReady(120, 40); // a second client mounts (reload / background session first viewed)
 
-		var outputs = h.Bridge.PostedOfType("term-output");
+		var outputs = h.Bridge.PostedEventsNamed("output");
 		var posted = Assert.Single(outputs);
 		Assert.Equal(ClaudeStartupModes, DecodeData(posted));
 		Assert.True(posted.GetProperty("replay").GetBoolean()); // synthesized preamble, not fresh child output
@@ -60,7 +60,7 @@ public sealed class TerminalControllerReattachTests {
 		// A reattach to the NEW child (which set nothing yet) must replay nothing from the old one.
 		h.Controller.OnReady(80, 24);
 
-		Assert.Empty(h.Bridge.PostedOfType("term-output"));
+		Assert.Empty(h.Bridge.PostedEventsNamed("output"));
 		Assert.Equal([(80, 23), (80, 24)], relaunched.Resizes);
 	}
 
@@ -103,7 +103,7 @@ public sealed class TerminalControllerReattachTests {
 			Bridge = new FakeHostBridge();
 			Launcher = new ScriptablePtyLauncher();
 			Controller = new TerminalController(
-				Bridge,
+				Bridge.SessionFeature($"terminal.{session}"),
 				session,
 				_settings,
 				Launcher,

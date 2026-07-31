@@ -1,28 +1,50 @@
 import type { ILink, Terminal } from "@xterm/xterm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ClientSession } from "../bridge";
 
-// terminal-links posts reveal-file to the ACTIVE backend and open-url to the LOCAL host (or window.open in a
-// browser shell); capture each channel separately so the routing itself is pinned.
 const posted = vi.hoisted(() => [] as unknown[]);
 const postedLocal = vi.hoisted(() => [] as unknown[]);
+const routes = vi.hoisted(() => [] as unknown[]);
 const browserShell = vi.hoisted(() => ({ value: false }));
 vi.mock("../bridge", () => ({
-  postToHost: (m: unknown) => {
-    posted.push(m);
-  },
-  postToLocalHost: (m: unknown) => {
-    postedLocal.push(m);
-  },
+  hostConnection: () => ({
+    host: {
+      feature: (feature: string) => ({
+        publish: (name: string, payload: Record<string, unknown>) => {
+          routes.push({ scope: "host", feature, name });
+          postedLocal.push({ type: "open-url", ...payload });
+        },
+      }),
+    },
+  }),
   isBrowserHostedShell: () => browserShell.value,
+  LOCAL_BACKEND_ID: "local",
 }));
 
 // The active session's forge ref-link prefix (null = origin isn't a forge repo, so #N doesn't linkify).
 const refPrefix = vi.hoisted(() => ({ value: null as string | null }));
 vi.mock("./ref-link-store", () => ({
-  refLinkPrefix: () => refPrefix.value,
+  refLinkPrefixFor: () => refPrefix.value,
 }));
 
 const { wireTerminalLinks } = await import("./terminal-links");
+
+const owner = {
+  connection: { id: "remote-a" },
+  address: { slot: "session-a", incarnation: "incarnation-a" },
+  feature: (feature: string) => ({
+    publish: (name: string, payload: Record<string, unknown>) => {
+      routes.push({
+        scope: "session",
+        backendId: "remote-a",
+        slot: "session-a",
+        feature,
+        name,
+      });
+      posted.push({ type: "reveal-file", ...payload });
+    },
+  }),
+} as unknown as ClientSession;
 
 // A minimal xterm stand-in over an ordered set of buffer rows. Each row carries isWrapped (true = a soft-wrap
 // continuation of the row above), so the provider's logical-line reconstruction can be exercised. `provide`
@@ -50,7 +72,7 @@ function fakeTerminal(...rows: Array<{ text: string; isWrapped: boolean }>): {
     },
   } as unknown as Terminal;
 
-  const hoveredUrl = wireTerminalLinks(term);
+  const hoveredUrl = wireTerminalLinks(term, owner);
 
   return {
     term,
@@ -75,6 +97,7 @@ function oneLine(line: string): ReturnType<typeof fakeTerminal> {
 beforeEach(() => {
   posted.length = 0;
   postedLocal.length = 0;
+  routes.length = 0;
   browserShell.value = false;
   refPrefix.value = null;
 });
@@ -86,14 +109,31 @@ describe("auto-link provider", () => {
     expect(links).toHaveLength(1);
     expect(links[0]?.text).toBe("src/foo.ts:42");
     links[0]?.activate({ button: 0 } as MouseEvent, links[0].text);
-    expect(posted).toContainEqual({ type: "reveal-file", path: "src/foo.ts", line: 42 });
+    expect(posted).toContainEqual({
+      type: "reveal-file",
+      path: "src/foo.ts",
+      line: 42,
+      preview: false,
+    });
+    expect(routes).toContainEqual({
+      scope: "session",
+      backendId: "remote-a",
+      slot: "session-a",
+      feature: "files",
+      name: "reveal",
+    });
   });
 
   it("keeps a Windows drive colon in the path, splitting only the trailing :line", () => {
     const { provide } = oneLine("at C:\\src\\foo.ts:7:3 now");
     const links = provide();
     links[0]?.activate({ button: 0 } as MouseEvent, links[0].text);
-    expect(posted).toContainEqual({ type: "reveal-file", path: "C:\\src\\foo.ts", line: 7 });
+    expect(posted).toContainEqual({
+      type: "reveal-file",
+      path: "C:\\src\\foo.ts",
+      line: 7,
+      preview: false,
+    });
   });
 
   it("links a bare URL and posts open-url to the LOCAL host (the browser is the user's, not the backend's)", () => {
@@ -157,6 +197,7 @@ describe("auto-link provider", () => {
       type: "reveal-file",
       path: "src/web/src/terminal/terminal-links.ts",
       line: 1,
+      preview: false,
     });
   });
 
@@ -165,7 +206,12 @@ describe("auto-link provider", () => {
     const links = provide();
     expect(links).toHaveLength(1);
     links[0]?.activate({ button: 0 } as MouseEvent, links[0].text);
-    expect(posted).toContainEqual({ type: "reveal-file", path: "src/foo.ts", line: 42 });
+    expect(posted).toContainEqual({
+      type: "reveal-file",
+      path: "src/foo.ts",
+      line: 42,
+      preview: false,
+    });
   });
 
   it("links a URL inside a tool-call wrapper as a URL, not a reveal-file", () => {
@@ -191,6 +237,7 @@ describe("auto-link provider", () => {
       type: "reveal-file",
       path: "src/web/e2e/.recordings/clip.webm",
       line: 1,
+      preview: false,
     });
   });
 
@@ -302,6 +349,7 @@ describe("soft-wrapped links", () => {
         type: "reveal-file",
         path: "src/web/src/terminal/terminal-links.ts",
         line: 104,
+        preview: false,
       });
     }
   });
@@ -340,7 +388,12 @@ describe("soft-wrapped links", () => {
 describe("OSC 8 link handler", () => {
   it("reveals a file:// URI at its line hash", () => {
     oneLine("").activateOsc("file:///home/user/a.ts#12");
-    expect(posted).toContainEqual({ type: "reveal-file", path: "/home/user/a.ts", line: 12 });
+    expect(posted).toContainEqual({
+      type: "reveal-file",
+      path: "/home/user/a.ts",
+      line: 12,
+      preview: false,
+    });
   });
 
   it("opens an http(s) URI via the LOCAL host", () => {

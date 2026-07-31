@@ -5,10 +5,10 @@ using Weavie.Core.FileSystem;
 namespace Weavie.Core.Sessions;
 
 /// <summary>
-/// The session rail's app-global UI state (<see cref="LastLocation"/> and <see cref="Promoted"/>), persisted
-/// atomically to <c>~/.weavie/rail-state.json</c>. Its own file, never settings.toml — it's runtime UI state
-/// the host owns on the web's behalf, so it stays off the Claude-facing settings surface. A malformed file is
-/// backed up to <c>rail-state.json.bad</c> and reset rather than throwing.
+/// The session rail's app-global UI state (<see cref="LastLocation"/>, <see cref="Promoted"/>, and
+/// <see cref="Selected"/>), persisted atomically to <c>~/.weavie/rail-state.json</c>. Its own file, never
+/// settings.toml — it's runtime UI state the host owns on the web's behalf, so it stays off the Claude-facing
+/// settings surface. A malformed file is backed up to <c>rail-state.json.bad</c> and reset rather than throwing.
 /// </summary>
 public sealed class RailStateStore {
 	private const string DefaultLocation = "local";
@@ -18,6 +18,7 @@ public sealed class RailStateStore {
 	private readonly Lock _gate = new();
 	private string _lastLocation;
 	private List<string> _promoted;
+	private (string BackendId, string Slot)? _selected;
 
 	/// <summary>Creates the store over <paramref name="path"/> (default <c>~/.weavie/rail-state.json</c>), loading it now.</summary>
 	public RailStateStore(IFileSystem fileSystem, string? path) {
@@ -28,6 +29,9 @@ public sealed class RailStateStore {
 			var document = LoadLocked();
 			_lastLocation = string.IsNullOrWhiteSpace(document.LastLocation) ? DefaultLocation : document.LastLocation;
 			_promoted = [.. document.Promoted.Where(k => !string.IsNullOrWhiteSpace(k)).Distinct(StringComparer.Ordinal)];
+			_selected = document.Selected is { BackendId.Length: > 0, Slot.Length: > 0 } selected
+				? (selected.BackendId, selected.Slot)
+				: null;
 		}
 	}
 
@@ -48,6 +52,11 @@ public sealed class RailStateStore {
 	/// <summary>The promoted remote-session keys (<c>"backendId id"</c>). Snapshot copy; safe to enumerate.</summary>
 	public IReadOnlyList<string> Promoted {
 		get { lock (_gate) { return [.. _promoted]; } }
+	}
+
+	/// <summary>The last client-selected backend and stable session slot, or <c>null</c> before any selection.</summary>
+	public (string BackendId, string Slot)? Selected {
+		get { lock (_gate) { return _selected; } }
 	}
 
 	/// <summary>Records the backend a session was just created on. No-op (no write, no event) when unchanged.</summary>
@@ -81,6 +90,25 @@ public sealed class RailStateStore {
 		Changed?.Invoke();
 	}
 
+	/// <summary>Records the client-selected backend and stable session slot. No-op when unchanged or blank.</summary>
+	public void SetSelected(string backendId, string slot) {
+		if (string.IsNullOrWhiteSpace(backendId) || string.IsNullOrWhiteSpace(slot)) {
+			return;
+		}
+
+		lock (_gate) {
+			var next = (BackendId: backendId, Slot: slot);
+			if (_selected == next) {
+				return;
+			}
+
+			_selected = next;
+			PersistLocked();
+		}
+
+		Changed?.Invoke();
+	}
+
 	private Document LoadLocked() {
 		if (!_fileSystem.FileExists(FilePath)) {
 			return new Document();
@@ -105,7 +133,14 @@ public sealed class RailStateStore {
 
 	private void PersistLocked() {
 		try {
-			var document = new Document { Version = 1, LastLocation = _lastLocation, Promoted = _promoted };
+			var document = new Document {
+				Version = 2,
+				LastLocation = _lastLocation,
+				Promoted = _promoted,
+				Selected = _selected is { } selected
+					? new SelectionEntry { BackendId = selected.BackendId, Slot = selected.Slot }
+					: null,
+			};
 			_fileSystem.WriteAllTextAtomic(FilePath, JsonSerializer.Serialize(document, JsonOptions));
 		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
 			Log?.Invoke($"[rail-state] could not persist: {ex.Message}");
@@ -121,5 +156,16 @@ public sealed class RailStateStore {
 
 		[JsonPropertyName("promoted")]
 		public List<string> Promoted { get; set; } = [];
+
+		[JsonPropertyName("selected")]
+		public SelectionEntry? Selected { get; set; }
+	}
+
+	private sealed class SelectionEntry {
+		[JsonPropertyName("backendId")]
+		public string BackendId { get; set; } = string.Empty;
+
+		[JsonPropertyName("slot")]
+		public string Slot { get; set; } = string.Empty;
 	}
 }

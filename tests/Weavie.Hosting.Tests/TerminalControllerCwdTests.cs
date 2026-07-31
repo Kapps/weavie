@@ -69,8 +69,9 @@ public sealed class TerminalControllerCwdTests {
 			Workspace = Directory.CreateDirectory(
 				Path.Combine(Path.GetTempPath(), "weavie-tcwd-ws-" + Guid.NewGuid().ToString("n"))).FullName;
 			Launcher = new RecordingPtyLauncher();
+			var bridge = new FakeHostBridge();
 			Controller = new TerminalController(
-				new FakeHostBridge(),
+				bridge.SessionFeature("terminal.shell"),
 				"shell",
 				_settings,
 				Launcher,

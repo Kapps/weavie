@@ -5,6 +5,7 @@ using Weavie.Core.Layout;
 using Weavie.Core.Mcp;
 using Weavie.Core.Shell;
 using Weavie.Core.Theming;
+using Weavie.Hosting.Messaging;
 using Xunit;
 
 namespace Weavie.Hosting.Tests;
@@ -51,23 +52,32 @@ public sealed class HostSessionAgentImageTests : IDisposable {
 		Assert.Equal(0, structured.Interruptions);
 	}
 
-	private HostSession CreateSession(RecordingStructuredSession structured, SettingsStore settings, CommandRegistry commandRegistry) =>
-		new(
-			new FakeHostBridge(),
+	private HostSession CreateSession(
+		RecordingStructuredSession structured,
+		SettingsStore settings,
+		CommandRegistry commandRegistry) {
+		var endpoint = new HostMessageRouter(new FakeHostBridge(), _ => { }).OpenSession(
+			new SessionAddress("slot-1", Guid.NewGuid().ToString("n")));
+		var session = new HostSession(
+			endpoint,
 			settings,
 			new LayoutStore(new Weavie.Core.FileSystem.LocalFileSystem(), LayoutPanes.CreateRegistry(), Path.Combine(_dir, "layout.json")),
 			_dir,
 			Path.Combine(_dir, "scratch"),
 			Path.Combine(_dir, "pasted"),
 			Path.Combine(_dir, "agent-pane.json"),
-			"slot-1",
 			commandRegistry,
 			new KeybindingStore(commandRegistry, Path.Combine(_dir, "keybindings.json"), enableWatcher: false),
 			new ThemeOverridesStore(new Weavie.Core.FileSystem.LocalFileSystem(), Path.Combine(_dir, "theme-overrides.json")),
 			new Weavie.Core.Corrections.CorrectionCorpus(new Weavie.Core.FileSystem.LocalFileSystem(), Path.Combine(_dir, "corrections.jsonl")),
 			new NoopPtyLauncher(),
 			new FakeStructuredProvider(structured),
-			new HostRuntimeInfo(HostTransport.Local, Managed: false, "test"));
+			new HostRuntimeInfo(HostTransport.Local, Managed: false, "test"),
+			() => false,
+			(_, _) => { });
+		session.ActivateMessages();
+		return session;
+	}
 
 	private sealed class FakeStructuredProvider(RecordingStructuredSession session) : IAgentProvider {
 		public AgentProviderInfo Info { get; } = new() {

@@ -14,7 +14,7 @@ namespace Weavie.Win;
 // marshal, ConPTY launcher, dialogs, and web title bar, so it implements the seam via explicit members. Global
 // hotkeys are app-level (AppController), so HotkeyRegistrar is null here.
 internal sealed partial class WorkspaceWindow {
-	IHostBridge IHostPlatform.Bridge => _bridge;
+	IWebTransportHub IHostPlatform.Bridge => _bridge;
 
 	IUiDispatcher IHostPlatform.Dispatcher => _dispatcher;
 

@@ -5,10 +5,10 @@ using Weavie.Core.FileSystem;
 namespace Weavie.Core.Sessions;
 
 /// <summary>
-/// The per-workspace overlay of which sessions were loaded and which was active, persisted atomically to
+/// The per-workspace overlay of which sessions were loaded, persisted atomically to
 /// <c>~/.weavie/workspaces/&lt;id&gt;/sessions.json</c> so a reopen (including a worker auto-update restart) comes
-/// back with the same sessions loaded and the same one active. The worktree set itself is reconciled from git;
-/// this store only carries the loaded/active overlay plus the last real shell-terminal size (so a restored
+/// back with the same sessions loaded. Selection is client-owned. The worktree set itself is reconciled from git;
+/// this store only carries the loaded overlay plus the last real shell-terminal size (so a restored
 /// pre-spawn matches the reattaching xterm's width). A malformed file is backed up to <c>sessions.json.bad</c>
 /// and reset rather than throwing.
 /// </summary>
@@ -18,7 +18,6 @@ public sealed class SessionStore {
 	private readonly IFileSystem _fileSystem;
 	private readonly Lock _gate = new();
 	private List<SessionDescriptor> _items;
-	private SessionId? _activeId;
 	// Last real shell-terminal size (fitted, active-pane term-resize); 0 = never recorded. See ShellSize.
 	private int _shellCols;
 	private int _shellRows;
@@ -30,7 +29,7 @@ public sealed class SessionStore {
 		_fileSystem = fileSystem;
 		FilePath = path;
 		lock (_gate) {
-			_items = LoadLocked(out _activeId);
+			_items = LoadLocked();
 		}
 	}
 
@@ -45,15 +44,6 @@ public sealed class SessionStore {
 		get {
 			lock (_gate) {
 				return [.. _items];
-			}
-		}
-	}
-
-	/// <summary>The session that was active when last persisted, or <c>null</c> (the primary was active).</summary>
-	public SessionId? ActiveId {
-		get {
-			lock (_gate) {
-				return _activeId;
 			}
 		}
 	}
@@ -90,18 +80,16 @@ public sealed class SessionStore {
 		}
 	}
 
-	/// <summary>Replaces the whole overlay with <paramref name="sessions"/> and <paramref name="activeId"/>, persisting it.</summary>
-	public void Save(IReadOnlyList<SessionDescriptor> sessions, SessionId? activeId) {
+	/// <summary>Replaces the whole loaded-session overlay and persists it.</summary>
+	public void Save(IReadOnlyList<SessionDescriptor> sessions) {
 		ArgumentNullException.ThrowIfNull(sessions);
 		lock (_gate) {
 			_items = [.. sessions];
-			_activeId = activeId;
 			PersistLocked();
 		}
 	}
 
-	private List<SessionDescriptor> LoadLocked(out SessionId? active) {
-		active = null;
+	private List<SessionDescriptor> LoadLocked() {
 		if (!_fileSystem.FileExists(FilePath)) {
 			return [];
 		}
@@ -118,10 +106,6 @@ public sealed class SessionStore {
 			var document = JsonSerializer.Deserialize<SessionsDocument>(text);
 			if (document?.Sessions is not { } entries) {
 				return [];
-			}
-
-			if (!string.IsNullOrWhiteSpace(document.ActiveId)) {
-				active = new SessionId(document.ActiveId);
 			}
 
 			_shellCols = document.ShellCols;
@@ -147,8 +131,7 @@ public sealed class SessionStore {
 	private void PersistLocked() {
 		try {
 			var document = new SessionsDocument {
-				Version = 1,
-				ActiveId = _activeId?.Value,
+				Version = 2,
 				ShellCols = _shellCols,
 				ShellRows = _shellRows,
 				Sessions = [.. _items.Select(s => new SessionEntry {
@@ -169,9 +152,6 @@ public sealed class SessionStore {
 	private sealed class SessionsDocument {
 		[JsonPropertyName("version")]
 		public int Version { get; set; }
-
-		[JsonPropertyName("activeId")]
-		public string? ActiveId { get; set; }
 
 		[JsonPropertyName("shellCols")]
 		public int ShellCols { get; set; }

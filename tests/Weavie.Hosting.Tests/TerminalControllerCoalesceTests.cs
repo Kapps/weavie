@@ -21,14 +21,14 @@ public sealed class TerminalControllerCoalesceTests {
 		using var h = new Harness("claude", withScrollback: false);
 		h.Controller.OnReady(80, 24);
 		h.Launcher.LastTerminal!.EmitOutput(Encoding.UTF8.GetBytes(ClaudeStartupModes));
-		Assert.Empty(h.Bridge.PostedOfType("term-output")); // batched, not posted per-chunk
+		Assert.Empty(h.Bridge.PostedEventsNamed("output")); // batched, not posted per-chunk
 		h.Bridge.Clear();
 
 		h.Controller.OnReady(120, 40); // a reattach: flush the buffer, then the restore preamble
 
-		var outputs = h.Bridge.PostedOfType("term-output");
+		var outputs = h.Bridge.PostedEventsNamed("output");
 		Assert.Equal(2, outputs.Count);
-		Assert.False(outputs[0].TryGetProperty("replay", out _)); // the flushed live output, first
+		Assert.False(outputs[0].GetProperty("replay").GetBoolean()); // the flushed live output, first
 		Assert.Equal(ClaudeStartupModes, DecodeData(outputs[0]));
 		Assert.True(outputs[1].GetProperty("replay").GetBoolean()); // the synthesized preamble, after it
 	}
@@ -38,13 +38,13 @@ public sealed class TerminalControllerCoalesceTests {
 		using var h = new Harness("shell", withScrollback: true);
 		h.Controller.OnReady(80, 24);
 		h.Launcher.LastTerminal!.EmitOutput(Encoding.UTF8.GetBytes("batched-line\r\n"));
-		Assert.Empty(h.Bridge.PostedOfType("term-output")); // batched (and written to scrollback)
+		Assert.Empty(h.Bridge.PostedEventsNamed("output")); // batched (and written to scrollback)
 		h.Bridge.Clear();
 
 		h.Controller.ResyncPane();    // discards the buffer; the coming replay carries the same bytes
 		h.Controller.OnReady(80, 24); // the page's term-ready reply replays the log
 
-		var replay = Assert.Single(h.Bridge.PostedOfType("term-output"));
+		var replay = Assert.Single(h.Bridge.PostedEventsNamed("output"));
 		Assert.Contains("batched-line", DecodeData(replay));
 		Assert.True(replay.GetProperty("replay").GetBoolean());
 	}
@@ -65,7 +65,7 @@ public sealed class TerminalControllerCoalesceTests {
 			_settings.Set("terminal.outputCoalesceMs", JsonSerializer.SerializeToElement(LongWindowMs));
 			Launcher = new ScriptablePtyLauncher();
 			Controller = new TerminalController(
-				Bridge,
+				Bridge.SessionFeature($"terminal.{session}"),
 				session,
 				_settings,
 				Launcher,

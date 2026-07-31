@@ -619,7 +619,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 		await SendToolTextAsync(responder, idRaw, $"{{\"commands\":{commandsArray}}}", ct).ConfigureAwait(false);
 	}
 
-	private async Task HandleRunCommandAsync(IMcpResponder responder, JsonElement args, string? idRaw, CancellationToken ct) {
+	internal async Task HandleRunCommandAsync(IMcpResponder responder, JsonElement args, string? idRaw, CancellationToken ct) {
 		var commands = Require(_commands, "Commands");
 		bool hasArgs = args.ValueKind == JsonValueKind.Object;
 		string? id = args.GetStringOrNull("id");
@@ -634,8 +634,16 @@ public sealed partial class McpServer : IAsyncDisposable {
 			? aEl.GetRawText()
 			: null;
 
+		CommandExecution execution;
 		try {
-			var result = await commands.InvokeAsync(id, argsJson, ct).ConfigureAwait(false);
+			execution = await commands.PrepareAsync(id, argsJson, ct).ConfigureAwait(false);
+		} catch (UnknownCommandException ex) {
+			await SendToolErrorAsync(responder, idRaw, ex.Message, ct).ConfigureAwait(false);
+			return;
+		}
+
+		try {
+			var result = execution.Result;
 			if (result.Ok) {
 				await SendToolTextAsync(responder, idRaw, result.Message ?? $"Ran {id}.", ct).ConfigureAwait(false);
 				Emit($"runCommand {id} ok");
@@ -643,8 +651,16 @@ public sealed partial class McpServer : IAsyncDisposable {
 				await SendToolErrorAsync(responder, idRaw, result.Error ?? $"Command '{id}' failed.", ct).ConfigureAwait(false);
 				Emit($"runCommand {id} failed: {result.Error}");
 			}
-		} catch (UnknownCommandException ex) {
-			await SendToolErrorAsync(responder, idRaw, ex.Message, ct).ConfigureAwait(false);
+		} finally {
+			_ = CompleteCommandAsync(execution, id);
+		}
+	}
+
+	private async Task CompleteCommandAsync(CommandExecution execution, string id) {
+		try {
+			await execution.CompleteAsync().ConfigureAwait(false);
+		} catch (Exception ex) {
+			Emit($"runCommand {id} after-reply work failed: {ex}");
 		}
 	}
 

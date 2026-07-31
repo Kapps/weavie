@@ -28,7 +28,7 @@ public sealed class HostCoreAutoConfigTests {
 
 	[Fact]
 	public async Task Toast_IsHeldUntilAPageConnects_ThenDelivered() {
-		// The probe writes during startup, before any page exists; the toast must be held (PostToWeb drops with no
+		// The probe writes during startup, before any page exists; the toast must be held (Broadcast drops with no
 		// client), not fired-and-lost. Start WITHOUT ready, let the write land, and assert the toast isn't out yet.
 		await using var host = await TestHost.StartAsync(
 			repo => File.WriteAllText(Path.Combine(repo, "go.mod"), "module weavie/test\n"), sendReady: false);
@@ -36,14 +36,15 @@ public sealed class HostCoreAutoConfigTests {
 		await WaitUntilAsync(() => ProfileWritten(host), "auto-config to write the profile");
 		Assert.Null(AutoConfigToast(host)); // held, not dropped
 
-		host.Send("""{"type":"ready"}""");
+		await host.ConnectAsync();
 
 		await WaitUntilAsync(() => AutoConfigToast(host) is not null, "the toast to arrive after ready");
 	}
 
 	// A test-profile push carrying real content means the probe wrote test.profile (fired via SettingChanged).
 	private static bool ProfileWritten(TestHost host) =>
-		host.Bridge.PostedOfType("test-profile").Any(m => !string.IsNullOrEmpty(m.GetProperty("profile").GetString()));
+		host.Bridge.PostedEvents("tests", "profile")
+			.Any(m => !string.IsNullOrEmpty(m.GetProperty("profile").GetString()));
 
 	[Fact]
 	public async Task UnsupportedRepo_LeavesCardUp_ForTheClaudeFallback() {
@@ -56,7 +57,7 @@ public sealed class HostCoreAutoConfigTests {
 	}
 
 	private static JsonElement? AutoConfigToast(TestHost host) {
-		foreach (var message in host.Bridge.PostedOfType("notify")) {
+		foreach (var message in host.Bridge.PostedEvents("notifications", "show")) {
 			if (message.TryGetProperty("key", out var key) && key.GetString() == "workspace-autoconfig") {
 				return message;
 			}
@@ -66,7 +67,7 @@ public sealed class HostCoreAutoConfigTests {
 	}
 
 	private static bool CardShowing(TestHost host) {
-		var suggestions = host.Bridge.LastOfType("suggestions");
+		var suggestions = host.Bridge.LastEvent("suggestions", "changed");
 		return suggestions.HasValue && suggestions.Value.GetProperty("items").EnumerateArray()
 			.Any(item => item.GetProperty("id").GetString() == "workspace.setup");
 	}

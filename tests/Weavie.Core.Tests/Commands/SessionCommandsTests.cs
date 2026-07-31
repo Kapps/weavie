@@ -122,6 +122,21 @@ public sealed class SessionCommandsTests {
 	}
 
 	[Fact]
+	public async Task PreparedCommand_DefersEndpointDestructionUntilAfterItsReply() {
+		var (dispatcher, host) = NewWired();
+
+		var execution = await dispatcher.PrepareAsync(
+			SessionCommands.UnloadSession,
+			"{\"id\":\"abcd\"}",
+			CancellationToken.None);
+
+		Assert.True(host.UnloadCalled);
+		Assert.False(host.AfterReplyRan);
+		await execution.CompleteAsync();
+		Assert.True(host.AfterReplyRan);
+	}
+
+	[Fact]
 	public async Task Load_ParsesId_AndInvokesHost() {
 		var (dispatcher, host) = NewWired();
 
@@ -190,6 +205,8 @@ public sealed class SessionCommandsTests {
 
 		public bool UnloadCalled { get; private set; }
 
+		public bool AfterReplyRan { get; private set; }
+
 		public string? LastDeletedId { get; private set; }
 
 		public bool LastDeleteForce { get; private set; }
@@ -212,13 +229,24 @@ public sealed class SessionCommandsTests {
 			return Task.FromResult(CommandResult.Success("loaded"));
 		}
 
-		public Task<CommandResult> UnloadSessionAsync(string? sessionId, CancellationToken ct = default) {
+		public Task<CommandResult> UnloadSessionAsync(
+			string? sessionId,
+			CommandInvocationContext context,
+			CancellationToken ct = default) {
 			UnloadCalled = true;
 			LastUnloadedId = sessionId;
+			context.AfterReply(() => {
+				AfterReplyRan = true;
+				return Task.CompletedTask;
+			});
 			return Task.FromResult(CommandResult.Success("unloaded"));
 		}
 
-		public Task<CommandResult> DeleteSessionAsync(string? sessionId, bool force, CancellationToken ct = default) {
+		public Task<CommandResult> DeleteSessionAsync(
+			string? sessionId,
+			bool force,
+			CommandInvocationContext context,
+			CancellationToken ct = default) {
 			DeleteCalled = true;
 			LastDeletedId = sessionId;
 			LastDeleteForce = force;

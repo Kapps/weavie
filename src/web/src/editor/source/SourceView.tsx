@@ -1,5 +1,5 @@
 import { createEffect, type JSX, onCleanup, onMount } from "solid-js";
-import { openTarget } from "../../bridge";
+import type { ClientSession } from "../../bridge";
 import { onPreviewThemeChanged } from "../../theme/controller";
 import { installEmbedZoomAndMermaid } from "../preview/embed-zoom";
 // The embed-zoom magnifier styles, injected into the shadow root alongside the highlight theme.
@@ -11,6 +11,7 @@ import { renderNotionMarkdown } from "./notion-markdown";
 import { SourceEditController } from "./source-edit";
 import { sanitizeSourceHtml } from "./source-html";
 import type { SourceDocEntry } from "./source-store";
+import { openSourceTarget } from "./source-store";
 import { SOURCE_STYLES } from "./source-styles";
 
 // Rich-HTML render of a fetched source doc (Notion) in an OPEN shadow root, overlaying the kept-mounted Monaco host
@@ -22,6 +23,7 @@ import { SOURCE_STYLES } from "./source-styles";
 export default function SourceView(props: {
   doc: () => SourceDocEntry | undefined;
   target: () => string;
+  session: ClientSession;
 }): JSX.Element {
   let host!: HTMLDivElement;
   let root: ShadowRoot | undefined;
@@ -75,7 +77,7 @@ export default function SourceView(props: {
     root.replaceChildren(style, body);
     // Only markdown docs are editable (the log viewer's pre-rendered html has no source lines to write back).
     if (entry.markdown !== undefined) {
-      edit.attach(content, props.target(), entry.markdown);
+      edit.attach(content, props.session, props.target(), entry.markdown);
     } else {
       edit.reset();
     }
@@ -120,7 +122,7 @@ export default function SourceView(props: {
       }
       if (/^https?:/i.test(href)) {
         // The host resolves it: a Notion link renders natively in another source tab, else it opens as a web tab.
-        openTarget(href);
+        openSourceTarget(props.session, href);
       }
       return;
     }

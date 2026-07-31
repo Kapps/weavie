@@ -1,5 +1,5 @@
 import { createSignal } from "solid-js";
-import { onSessionMessage, postToLocalHost } from "../bridge";
+import { hostConnection, LOCAL_BACKEND_ID, registerHostFeature, selectedSession } from "../bridge";
 
 // App-global session-rail UI state, persisted host-side in ~/.weavie/rail-state.json (not localStorage): the
 // backend a session was last created on, and which remote sessions are promoted into the rail. Setters update
@@ -10,32 +10,50 @@ const [lastLocationSig, setLastLocationSig] = createSignal("local");
 const [promotedSig, setPromotedSig] = createSignal<Set<string>>(new Set());
 
 // The session ids last seen on each backend, so a one-shot auto-promote can pick out the GENUINELY new
-// session (rather than guessing "whichever is active", which mis-fires when the backend already had an
-// active session or sends an unrelated refresh first).
+// session (rather than guessing from client selection, which can point at an existing session).
 const knownByBackend = new Map<string, Set<string>>();
 // Remote backends whose next-created session should be auto-promoted, mapped to the id snapshot taken when
-// the creation was kicked off; the first later session-list with a new id promotes it (one-shot).
+// the creation was kicked off; the first later catalog with a new id promotes it (one-shot).
 const pendingPromote = new Map<string, Set<string>>();
 
-// Honored only from the LOCAL backend — a remote runner would push its own rail state, which must not leak in.
-onSessionMessage((message, backendId) => {
-  if (message.type === "rail-state" && backendId === "local") {
-    setLastLocationSig(message.lastLocation);
-    setPromotedSig(new Set(message.promoted));
-  } else if (message.type === "session-list") {
-    const snapshot = pendingPromote.get(backendId);
+interface RailState {
+  lastLocation: string;
+  promoted: string[];
+}
+
+function applyRailState(state: RailState): void {
+  setLastLocationSig(state.lastLocation);
+  setPromotedSig(new Set(state.promoted));
+}
+
+registerHostFeature((connection) => {
+  const offCatalog = connection.onCatalog((catalog) => {
+    const snapshot = pendingPromote.get(connection.id);
     if (snapshot !== undefined) {
-      // Prefer an active new session, else the first new id; if none is new yet, keep waiting for the list
-      // that includes it rather than consuming the one-shot on a stale refresh.
-      const fresh = message.sessions.filter((s) => !snapshot.has(s.id));
-      const created = fresh.find((s) => s.active) ?? fresh[0];
+      const fresh = catalog.filter((session) => !snapshot.has(session.id));
+      const selected = selectedSession();
+      const created =
+        fresh.find(
+          (session) =>
+            selected?.connection === connection && selected.address.slot === session.address?.slot,
+        ) ?? fresh[0];
       if (created !== undefined) {
-        pendingPromote.delete(backendId);
-        promoteSession(backendId, created.id);
+        pendingPromote.delete(connection.id);
+        promoteSession(connection.id, created.id);
       }
     }
-    knownByBackend.set(backendId, new Set(message.sessions.map((s) => s.id)));
+    knownByBackend.set(connection.id, new Set(catalog.map((session) => session.id)));
+  });
+  if (!connection.isLocal) {
+    return offCatalog;
   }
+  const offHello = connection.onHello((hello) => applyRailState(hello.rail));
+  const offState = connection.host.feature("rail").on<RailState>("changed", applyRailState);
+  return () => {
+    offCatalog();
+    offHello();
+    offState();
+  };
 });
 
 const promKey = (backendId: string, id: string): string => `${backendId} ${id}`;
@@ -46,7 +64,9 @@ export const lastLocation = lastLocationSig;
 /** Remember the backend a session was just created on (or an agent just added), for the next prompt. */
 export function setLastLocation(backendId: string): void {
   setLastLocationSig(backendId);
-  postToLocalHost({ type: "set-last-location", location: backendId });
+  hostConnection(LOCAL_BACKEND_ID)
+    ?.host.feature("rail")
+    .publish("setLastLocation", { location: backendId });
 }
 
 /** The promoted-session keys (reactive), for the rail's working-set filter. */
@@ -89,5 +109,7 @@ export function demoteSession(backendId: string, id: string): void {
 }
 
 function pushPromoted(): void {
-  postToLocalHost({ type: "set-promoted", promoted: [...promotedSig()] });
+  hostConnection(LOCAL_BACKEND_ID)
+    ?.host.feature("rail")
+    .publish("setPromoted", { promoted: [...promotedSig()] });
 }

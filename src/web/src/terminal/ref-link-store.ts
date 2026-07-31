@@ -1,16 +1,30 @@
-import { createSignal } from "solid-js";
-import { onHostMessage } from "../bridge";
+import { createMemo, createSignal } from "solid-js";
+import { type ClientSession, registerSessionFeature, selectedSession } from "../bridge";
 
-// The active session's forge ref-link prefix — the URL a terminal "#N" appends its number to (e.g.
-// https://github.com/owner/repo/pull/), or null when origin isn't a forge repo (so #N stays plain text). Fed by
-// the host's active-backend-gated `ref-link-base` push, so it always reflects the visible session's repo.
-const [prefix, setPrefix] = createSignal<string | null>(null);
+// Each session's forge ref-link prefix — the URL a terminal "#N" appends its number to. Selection chooses the
+// visible prefix; background updates remain attached to their owner.
+const [prefixes, setPrefixes] = createSignal(new Map<ClientSession, string | null>());
 
-/** The active session's forge ref-link prefix (reactive), or null when a terminal #N isn't linkable. */
-export const refLinkPrefix = prefix;
+/** The selected session's forge ref-link prefix (reactive), or null when a terminal #N isn't linkable. */
+export const refLinkPrefix = createMemo(() => {
+  const session = selectedSession();
+  return session === null ? null : (prefixes().get(session) ?? null);
+});
 
-onHostMessage((message) => {
-  if (message.type === "ref-link-base") {
-    setPrefix(message.prefix);
-  }
+export function refLinkPrefixFor(session: ClientSession): string | null {
+  return prefixes().get(session) ?? null;
+}
+
+registerSessionFeature((session) => {
+  const off = session.feature("git").on<{ prefix: string | null }>("refLinkBase", ({ prefix }) => {
+    setPrefixes((previous) => new Map(previous).set(session, prefix));
+  });
+  return () => {
+    off();
+    setPrefixes((previous) => {
+      const next = new Map(previous);
+      next.delete(session);
+      return next;
+    });
+  };
 });

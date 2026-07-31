@@ -3,7 +3,7 @@
 // navigator.clipboard is focus- and permission-gated, so it routes through the host, which owns the real OS
 // clipboard. Shared by terminal copy (OSC 52 / selection) and the editor tab "Copy" menu.
 
-import { isBrowserHostedShell, postToLocalHost } from "./bridge";
+import { hostConnection, isBrowserHostedShell, LOCAL_BACKEND_ID } from "./bridge";
 
 /** Writes text to the OS clipboard via the browser (browser-hosted shell) or the host (native WebView). */
 export function writeClipboard(text: string): void {
@@ -18,5 +18,5 @@ export function writeClipboard(text: string): void {
   }
   // Always the LOCAL host: the clipboard lives on the user's machine, not on whichever (possibly remote)
   // backend drives the page — a remote headless host would silently drop the write.
-  postToLocalHost({ type: "clipboard-write", text });
+  hostConnection(LOCAL_BACKEND_ID)?.host.feature("clipboard").publish("write", { text });
 }

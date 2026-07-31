@@ -4,12 +4,6 @@ import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
 import { MockHost } from "./mock-host";
 
-// Native (Win/Mac/Linux) hosts deliver the bridge over an in-process WebView script-message channel, which
-// Playwright can't drive against a real shell. The web bundle is identical across hosts, so what native
-// actually needs proven is that the in-process channel honors the same message contract as the WSS bridge.
-// This injects a fake channel (window.webkit.messageHandlers.weavie + window.__weavieReceive) and checks
-// both directions — the conformance carve-out from docs/specs/integration-testing-strategy.md.
-
 const distDir = join(dirname(fileURLToPath(import.meta.url)), "..", "dist");
 
 test.beforeAll(() => {
@@ -29,122 +23,222 @@ test.describe("native in-process bridge contract", () => {
     await host.close();
   });
 
-  test("the in-process channel round-trips bridge messages both ways", async ({ page }) => {
-    // Inject the native channel before any app script runs, so bridge.ts picks the in-process transport
-    // (no ?weavie-bridge, so the WebSocket path is never chosen).
+  test("round-trips the same host and exact-session envelopes as WebSocket", async ({ page }) => {
     await page.addInitScript(() => {
+      interface Address {
+        slot: string;
+        incarnation: string;
+      }
+      interface Envelope {
+        scope: "host" | "session";
+        session: Address | null;
+        kind: "event" | "request" | "response" | "cancel";
+        requestId: string | null;
+        feature: string;
+        name: string;
+        payload: unknown;
+        error: string | null;
+      }
+
+      const address = { slot: "cx", incarnation: "cx-incarnation" };
       const sent: string[] = [];
       (window as unknown as { __weavieSent: string[] }).__weavieSent = sent;
+      let receive: ((event: { data: unknown }) => void) | null = null;
+      const push = (message: Envelope): void => {
+        const raw = JSON.stringify(message);
+        if (receive !== null) {
+          receive({ data: raw });
+        } else {
+          window.__weavieReceive?.(raw);
+        }
+      };
+      const event = (
+        scope: "host" | "session",
+        session: Address | null,
+        feature: string,
+        name: string,
+        payload: unknown,
+      ): Envelope => ({
+        scope,
+        session,
+        kind: "event",
+        requestId: null,
+        feature,
+        name,
+        payload,
+        error: null,
+      });
+      const respond = (request: Envelope, payload: unknown): void =>
+        push({
+          ...request,
+          kind: "response",
+          payload,
+          error: null,
+        });
       const send = (json: string): void => {
         sent.push(json);
-        let message: { type?: string };
+        let message: Envelope;
         try {
-          message = JSON.parse(json) as { type?: string };
+          message = JSON.parse(json) as Envelope;
         } catch {
           return;
         }
-        if (message.type !== "ready") return;
-
-        // A native host can answer synchronously. Its ready replay must land after App's listener exists,
-        // including the structured transcript that used to disappear during bootstrap.
-        const push = window.__weavieReceive;
-        push?.(
-          JSON.stringify({
-            type: "session-list",
+        if (
+          message.kind === "request" &&
+          message.scope === "host" &&
+          message.feature === "connection" &&
+          message.name === "hello"
+        ) {
+          respond(message, {
+            hostIncarnation: "native-host",
+            buildNumber: "test",
             sessions: [
               {
                 id: "cx",
                 label: "codex",
-                active: true,
+                address,
                 loaded: true,
                 primary: true,
                 providerId: "codex",
                 agentSurface: "structured",
+                agentInputProtocol: 2,
                 status: "idle",
                 hue: 200,
                 monogram: "C",
               },
             ],
-          }),
-        );
-        push?.(JSON.stringify({ type: "agent-pane-reset", slot: "cx", workspace: "/repo" }));
-        push?.(
-          JSON.stringify({
-            type: "agent-pane-batch",
-            slot: "cx",
-            workspace: "/repo",
-            messages: [
-              {
-                type: "item-completed",
-                providerId: "codex",
-                itemId: "answer",
-                itemType: "agentMessage",
-                status: "completed",
-                text: "restored-on-ready",
+            layout: {
+              root: { type: "pane", id: "p_agent", kind: "terminal:claude" },
+              focused: "p_agent",
+            },
+            remoteAgents: [],
+            rail: { lastLocation: "local", promoted: [], selected: null },
+            search: {
+              options: {
+                caseSensitive: false,
+                wholeWord: false,
+                regex: false,
+                excludeGitignored: true,
+                include: "",
+                exclude: "",
               },
-            ],
-          }),
-        );
+              recentTerms: [],
+            },
+            testProfile: "",
+            commandCatalog: { commands: [], keybindings: [] },
+          });
+        } else if (
+          message.kind === "request" &&
+          message.scope === "session" &&
+          message.feature === "lifecycle" &&
+          message.name === "sync"
+        ) {
+          respond(message, { ok: true });
+          push(event("session", address, "agent", "paneReset", {}));
+          push(
+            event("session", address, "agent", "paneBatch", {
+              messages: [
+                {
+                  type: "item-completed",
+                  providerId: "codex",
+                  itemId: "answer",
+                  itemType: "agentMessage",
+                  status: "completed",
+                  text: "restored-on-sync",
+                },
+              ],
+            }),
+          );
+        }
       };
-      let receive: ((event: { data: unknown }) => void) | null = null;
+
       const chrome = (window as unknown as { chrome?: Record<string, unknown> }).chrome ?? {};
       chrome.webview = {
         postMessage: send,
         addEventListener: (type: string, listener: (event: { data: unknown }) => void) => {
-          if (type === "message") receive = listener;
+          if (type === "message") {
+            receive = listener;
+          }
         },
       };
       (window as unknown as { chrome: Record<string, unknown> }).chrome = chrome;
-      (window as unknown as { __weavieHostPush: (raw: string) => void }).__weavieHostPush = (raw) =>
-        receive?.({ data: raw });
+      (window as unknown as { __weavieHostEvent: typeof event }).__weavieHostEvent = (
+        scope,
+        session,
+        feature,
+        name,
+        payload,
+      ) => push(event(scope, session, feature, name, payload));
       (window as unknown as { webkit: unknown }).webkit = {
-        messageHandlers: {
-          weavie: { postMessage: send },
-        },
+        messageHandlers: { weavie: { postMessage: send } },
       };
     });
 
     await page.goto(`${host.url}/`, { waitUntil: "domcontentloaded" });
 
-    // Outbound: the page posts { type: "ready" } through the in-process channel.
     await expect
       .poll(async () => {
         const sent = await page.evaluate(
           () => (window as unknown as { __weavieSent: string[] }).__weavieSent ?? [],
         );
-        return sent.some((s) => {
-          try {
-            return (JSON.parse(s) as { type?: string }).type === "ready";
-          } catch {
-            return false;
-          }
+        return sent.some((raw) => {
+          const message = JSON.parse(raw) as {
+            scope?: string;
+            kind?: string;
+            feature?: string;
+            name?: string;
+          };
+          return (
+            message.scope === "host" &&
+            message.kind === "request" &&
+            message.feature === "connection" &&
+            message.name === "hello"
+          );
         });
       })
       .toBe(true);
+    await expect(page.locator(".agent-markdown")).toContainText("restored-on-sync");
 
-    await expect(page.locator(".agent-markdown")).toContainText("restored-on-ready");
+    const pushHostNotification = (message: string, key?: string): Promise<void> =>
+      page.evaluate(
+        ({ message, key }) => {
+          const push = (
+            window as unknown as {
+              __weavieHostEvent: (
+                scope: "host",
+                session: null,
+                feature: string,
+                name: string,
+                payload: unknown,
+              ) => void;
+            }
+          ).__weavieHostEvent;
+          push("host", null, "notifications", "show", { level: "info", message, key });
+        },
+        { message, key },
+      );
 
-    // Inbound: Windows' ordered WebView2 message event reaches the mounted app.
-    const toast = page.locator(".toast-msg", { hasText: "hello-native" });
-    await page.evaluate(() =>
-      (window as unknown as { __weavieHostPush: (raw: string) => void }).__weavieHostPush(
-        JSON.stringify({ type: "notify", level: "info", message: "hello-native" }),
-      ),
-    );
-    await expect(toast).toBeVisible();
+    await pushHostNotification("hello-native");
+    await expect(page.locator(".toast-msg", { hasText: "hello-native" })).toBeVisible();
 
     await page.evaluate(() => {
-      const push = (window as unknown as { __weavieHostPush: (raw: string) => void })
-        .__weavieHostPush;
+      const push = (
+        window as unknown as {
+          __weavieHostEvent: (
+            scope: "host",
+            session: null,
+            feature: string,
+            name: string,
+            payload: unknown,
+          ) => void;
+        }
+      ).__weavieHostEvent;
       for (let index = 0; index < 100; index += 1) {
-        push(
-          JSON.stringify({
-            type: "notify",
-            level: "info",
-            message: `ordered-${index}`,
-            key: "ordered-native",
-          }),
-        );
+        push("host", null, "notifications", "show", {
+          level: "info",
+          message: `ordered-${index}`,
+          key: "ordered-native",
+        });
       }
     });
     await expect(page.locator(".toast-msg", { hasText: "ordered-99" })).toBeVisible();

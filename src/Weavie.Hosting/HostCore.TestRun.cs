@@ -51,7 +51,7 @@ public sealed partial class HostCore {
 		}
 
 		if (session.Shell.HasForegroundJob) {
-			Notify("warn", "Tests not started: the shell is busy running a job.", "tests-shell-busy");
+			Notify(session, "warn", "Tests not started: the shell is busy running a job.");
 			return CommandResult.Failure("The shell is busy running a job; wait for it to finish and retry.");
 		}
 
@@ -62,10 +62,7 @@ public sealed partial class HostCore {
 		}
 
 		session.Shell.Write(Encoding.UTF8.GetBytes(command + "\r"));
-		// Reveal the run only when this session owns the foreground; a background session's shell isn't visible.
-		if (IsActiveSession(session)) {
-			_bridge.PostToWeb("{\"type\":\"focus-pane\",\"kind\":\"terminal:shell\"}");
-		}
+		session.View.Feature("view").TryPublish("focusPane", new { kind = "terminal:shell" });
 
 		return CommandResult.Success($"Running: {command}");
 	}
@@ -98,7 +95,9 @@ public sealed partial class HostCore {
 
 	// Re-push the workspace's test profile so the page's lens provider refreshes (fired on a test.profile change).
 	private void PushTestProfileToWeb() =>
-		_bridge.PostToWeb("{\"type\":\"test-profile\",\"profile\":" + JsonSerializer.Serialize(ResolvedTestProfile()) + "}");
+		_messages.Host.Feature("tests").Publish(
+			"profile",
+			new { profile = ResolvedTestProfile() });
 
 	private string ResolvedTestProfile() => _settings.Resolve(TestSettings.Profile, WorkspaceRoot).Value as string ?? string.Empty;
 

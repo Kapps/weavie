@@ -1,10 +1,37 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { HostConnection } from "../bridge";
+import type { HostHello } from "../messaging/host-connection";
 
-type HostMsg = { type: string; [k: string]: unknown };
-const handlers = vi.hoisted(() => [] as Array<(m: HostMsg) => void>);
+vi.mock("solid-js", () => import(["solid-js", "dist/solid.js"].join("/")));
+
+const handlers = vi.hoisted(() => ({
+  pending: undefined as ((payload: { holds: unknown[] }) => void) | undefined,
+  restarting: undefined as (() => void) | undefined,
+  hello: undefined as ((hello: HostHello) => void) | undefined,
+}));
 vi.mock("../bridge", () => ({
-  onHostMessage: (h: (m: HostMsg) => void) => {
-    handlers.push(h);
+  activeBackendId: () => "local",
+  registerHostFeature: (installer: (connection: HostConnection) => undefined | (() => void)) => {
+    installer({
+      id: "local",
+      isLocal: true,
+      host: {
+        feature: () => ({
+          on: (name: string, handler: (payload: { holds: unknown[] }) => void) => {
+            if (name === "pending") {
+              handlers.pending = handler;
+            } else {
+              handlers.restarting = handler as () => void;
+            }
+            return () => {};
+          },
+        }),
+      },
+      onHello: (handler: (hello: HostHello) => void) => {
+        handlers.hello = handler;
+        return () => {};
+      },
+    } as unknown as HostConnection);
     return () => {};
   },
 }));
@@ -26,19 +53,17 @@ vi.stubGlobal("window", {
 
 const store = await import("./update-store");
 
-const deliver = (message: HostMsg): void => {
-  for (const h of handlers) {
-    h(message);
-  }
-};
+const deliverPending = (holds: unknown[]): void => handlers.pending?.({ holds });
+const deliverRestarting = (): void => handlers.restarting?.();
+const deliverHello = (buildNumber: string): void => handlers.hello?.({ buildNumber } as HostHello);
 
 describe("update-store", () => {
   beforeEach(() => {
     session.clear();
     // Clean slate: a restart-in-flight returning on the same build (a rollback) clears the holds, the
     // restarting flag, AND the episode-pending latch — the one message path that resets all three.
-    deliver({ type: "update-restarting" });
-    deliver({ type: "host-info", buildNumber: "0.1.100" });
+    deliverRestarting();
+    deliverHello("0.1.100");
     reload.mockClear();
     notifySpy.mockClear();
   });
@@ -46,20 +71,20 @@ describe("update-store", () => {
   it("tracks pending holds and the restarting commit", () => {
     expect(store.updateHolds()).toBeNull();
 
-    deliver({ type: "update-pending", holds: [{ session: "main", reason: "working" }] });
+    deliverPending([{ session: "main", reason: "working" }]);
     expect(store.updateHolds()).toEqual([{ session: "main", reason: "working" }]);
     expect(store.updateRestarting()).toBe(false);
 
     // A session waiting on a scheduled task holds the update the same way a working one does.
-    deliver({ type: "update-pending", holds: [{ session: "loop", reason: "waiting-on-task" }] });
+    deliverPending([{ session: "loop", reason: "waiting-on-task" }]);
     expect(store.updateHolds()).toEqual([{ session: "loop", reason: "waiting-on-task" }]);
 
-    deliver({ type: "update-restarting" });
+    deliverRestarting();
     expect(store.updateRestarting()).toBe(true);
   });
 
   it("announces once when an update first stages, then refreshes holds silently", () => {
-    deliver({ type: "update-pending", holds: [{ session: "main", reason: "working" }] });
+    deliverPending([{ session: "main", reason: "working" }]);
     expect(notifySpy).toHaveBeenCalledTimes(1);
     expect(notifySpy).toHaveBeenCalledWith(
       "info",
@@ -68,43 +93,43 @@ describe("update-store", () => {
     );
 
     // A changed hold set while still pending must not re-toast.
-    deliver({ type: "update-pending", holds: [{ session: "loop", reason: "waiting-on-task" }] });
+    deliverPending([{ session: "loop", reason: "waiting-on-task" }]);
     expect(notifySpy).toHaveBeenCalledTimes(1);
   });
 
   it("announces only once across a mid-drain reconnect (host-info transiently clears holds)", () => {
-    deliver({ type: "update-pending", holds: [{ session: "main", reason: "working" }] });
+    deliverPending([{ session: "main", reason: "working" }]);
     expect(notifySpy).toHaveBeenCalledTimes(1);
 
     // A reconnect: the host answers `ready` with host-info (nulling holds) then re-pushes the pending
     // state. The episode latch must survive that transient clear so the re-push does not re-announce.
-    deliver({ type: "host-info", buildNumber: "0.1.100" });
+    deliverHello("0.1.100");
     expect(store.updateHolds()).toBeNull();
-    deliver({ type: "update-pending", holds: [{ session: "main", reason: "working" }] });
+    deliverPending([{ session: "main", reason: "working" }]);
     expect(store.updatePending()).toBe(true);
     expect(notifySpy).toHaveBeenCalledTimes(1);
   });
 
   it("clears drain state on a same-build ready cycle without a restart in flight", () => {
-    deliver({ type: "update-pending", holds: [{ session: "main", reason: "shell-job" }] });
+    deliverPending([{ session: "main", reason: "shell-job" }]);
     notifySpy.mockClear(); // ignore the first-pending toast; this asserts the clear path itself is silent
 
-    deliver({ type: "host-info", buildNumber: "0.1.100" });
+    deliverHello("0.1.100");
     expect(store.updateHolds()).toBeNull();
     expect(reload).not.toHaveBeenCalled();
     expect(notifySpy).not.toHaveBeenCalled();
   });
 
   it("warns when a restart was applying an update but the build didn't change (a rollback)", () => {
-    deliver({ type: "update-restarting" });
+    deliverRestarting();
 
-    deliver({ type: "host-info", buildNumber: "0.1.100" });
+    deliverHello("0.1.100");
     expect(store.updateRestarting()).toBe(false);
     expect(notifySpy).toHaveBeenCalledWith("warn", expect.stringContaining("didn't apply"));
   });
 
   it("reloads a stale tab, leaving the updated-to marker for the fresh page", () => {
-    deliver({ type: "host-info", buildNumber: "0.1.101" });
+    deliverHello("0.1.101");
     expect(reload).toHaveBeenCalledTimes(1);
     expect(session.get("weavie-updated-to")).toBe("0.1.101");
 

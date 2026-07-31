@@ -1,22 +1,25 @@
 import { createMemo, createSignal, For, type JSX, Show } from "solid-js";
-import { type AgentInputQuestion, type AgentPaneUpdate, postToHost } from "../bridge";
+import type { AgentInputQuestion, AgentPaneUpdate, ClientSession } from "../bridge";
 import { liveKeyLabel } from "../commands/keys-live";
-import { runCommandWithFeedback } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { planIdentity } from "./agent-plan";
 import { inputQuestions } from "./input-questions";
 
 export function ApprovalActions(props: {
-  slot: string | null;
+  session: ClientSession | null;
   requestId: string | null | undefined;
   // The chords answer only the newest pending approval; older cards must not advertise them.
   answersToKeys: boolean;
 }): JSX.Element {
   const approve = (decision: string): void => {
-    const slot = props.slot;
     const requestId = props.requestId;
-    if (slot !== null && requestId !== null && requestId !== undefined && requestId.length > 0) {
-      postToHost({ type: "agent-approval", slot, requestId, decision });
+    if (
+      props.session !== null &&
+      requestId !== null &&
+      requestId !== undefined &&
+      requestId.length > 0
+    ) {
+      props.session.feature("agent").publish("approval", { requestId, decision });
     }
   };
 
@@ -49,19 +52,23 @@ export function ApprovalActions(props: {
 }
 
 export function InputRequestActions(props: {
-  slot: string | null;
+  session: ClientSession | null;
   message: AgentPaneUpdate;
 }): JSX.Element {
   const questions = createMemo(() => inputQuestions(props.message));
   const [answers, setAnswers] = createSignal(defaultAnswers(questions()));
 
   const submit = (): void => {
-    const slot = props.slot;
     const requestId = props.message.itemId;
-    if (slot === null || requestId === null || requestId === undefined || requestId.length === 0) {
+    if (
+      props.session === null ||
+      requestId === null ||
+      requestId === undefined ||
+      requestId.length === 0
+    ) {
       return;
     }
-    postToHost({ type: "agent-input", slot, requestId, answers: answers() });
+    props.session.feature("agent").publish("input", { requestId, answers: answers() });
   };
 
   const setAnswer = (id: string, value: string): void => {
@@ -115,11 +122,18 @@ export function InputRequestActions(props: {
   );
 }
 
-export function EditLocationActions(props: { target: string | null | undefined }): JSX.Element {
+export function EditLocationActions(props: {
+  session: ClientSession | null;
+  target: string | null | undefined;
+}): JSX.Element {
   const review = (): void => {
     const location = parseLocation(props.target);
-    if (location !== null) {
-      postToHost({ type: "reveal-file", path: location.path, line: location.line, preview: true });
+    if (location !== null && props.session !== null) {
+      props.session.feature("files").publish("reveal", {
+        path: location.path,
+        line: location.line,
+        preview: true,
+      });
     }
   };
 
@@ -132,16 +146,18 @@ export function EditLocationActions(props: { target: string | null | undefined }
   );
 }
 
-export function PlanActions(props: { message: AgentPaneUpdate; slot: string | null }): JSX.Element {
+export function PlanActions(props: {
+  message: AgentPaneUpdate;
+  session: ClientSession | null;
+}): JSX.Element {
   const identity = (): ReturnType<typeof planIdentity> => planIdentity(props.message);
   const key = (): string => liveKeyLabel(CommandIds.openAgentPlan);
   const open = (): void => {
-    const slot = props.slot;
     const plan = identity();
-    if (slot === null || plan === null) {
+    if (props.session === null || plan === null) {
       return;
     }
-    void runCommandWithFeedback(CommandIds.openAgentPlan, plan);
+    void props.session.feature("agent").request("openPlan", plan);
   };
 
   return (

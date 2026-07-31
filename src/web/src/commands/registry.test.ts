@@ -1,17 +1,25 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ClientSession, HostConnection } from "../bridge";
 import type { CommandInfo, CommandResult } from "./types";
 
 const env = vi.hoisted(() => ({
-  hostHandlers: [] as Array<(m: Record<string, unknown>) => void>,
-  posted: [] as Array<Record<string, unknown>>,
   invokeCalls: [] as Array<{ backendId: string; id: string; args: unknown }>,
   notified: [] as Array<{ level: string; message: unknown }>,
   coreResult: { ok: true, data: "core-ran" } as CommandResult,
-  active: "local",
+  catalog: undefined as
+    | ((catalog: { commands: CommandInfo[]; keybindings: unknown[] }) => void)
+    | undefined,
+  run: undefined as
+    | ((request: { id: string; args: unknown }) => Promise<CommandResult>)
+    | undefined,
+  selected: null as ClientSession | null,
+  selectedAddresses: [] as Array<{
+    backendId: string;
+    address: { slot: string; incarnation: string };
+  }>,
 }));
 
 vi.mock("../bridge", () => ({
-  activeBackendId: () => env.active,
   hostInjected: <T>(_name: string, value: T | undefined, fallback: T): T => value ?? fallback,
   invokeCommandOnBackend: (
     backendId: string,
@@ -22,12 +30,38 @@ vi.mock("../bridge", () => ({
     return Promise.resolve(env.coreResult);
   },
   log: () => {},
-  onHostMessage: (h: (m: Record<string, unknown>) => void) => {
-    env.hostHandlers.push(h);
+  registerHostFeature: (installer: (connection: HostConnection) => undefined | (() => void)) => {
+    installer({
+      id: "local",
+      onHello: () => () => {},
+      host: {
+        feature: () => ({
+          on: (
+            _name: string,
+            handler: (catalog: { commands: CommandInfo[]; keybindings: unknown[] }) => void,
+          ) => {
+            env.catalog = handler;
+            return () => {};
+          },
+        }),
+      },
+    } as unknown as HostConnection);
     return () => {};
   },
-  postToHost: (m: Record<string, unknown>) => {
-    env.posted.push(m);
+  registerViewFeature: (installer: (session: ClientSession) => undefined | (() => void)) => {
+    if (env.selected !== null) {
+      installer(env.selected);
+    }
+    return () => {};
+  },
+  selectClientSession: () => {},
+  selectedSession: () => env.selected,
+  waitForClientSession: (
+    backendId: string,
+    address: { slot: string; incarnation: string },
+  ): Promise<ClientSession> => {
+    env.selectedAddresses.push({ backendId, address });
+    return Promise.resolve(env.selected as ClientSession);
   },
 }));
 // trackSessionCommand only wraps session-lifecycle ops; pass straight through for the tests.
@@ -43,6 +77,19 @@ vi.mock("../notify/notify", () => ({
 // registry reads window.__WEAVIE_* at module load.
 vi.stubGlobal("window", {});
 
+env.selected = {
+  connection: { id: "local" },
+  feature: () => ({
+    handle: (
+      _name: string,
+      handler: (request: { id: string; args: unknown }) => Promise<CommandResult>,
+    ) => {
+      env.run = handler;
+      return () => {};
+    },
+  }),
+} as unknown as ClientSession;
+
 const reg = await import("./registry");
 
 function cmd(id: string, runsIn: "web" | "core"): CommandInfo {
@@ -57,17 +104,14 @@ function cmd(id: string, runsIn: "web" | "core"): CommandInfo {
   };
 }
 const setCatalog = (commands: CommandInfo[]): void => {
-  for (const h of env.hostHandlers) {
-    h({ type: "commands", commands, keybindings: [] });
-  }
+  env.catalog?.({ commands, keybindings: [] });
 };
 
 beforeEach(() => {
-  env.posted.length = 0;
   env.invokeCalls.length = 0;
   env.notified.length = 0;
+  env.selectedAddresses.length = 0;
   env.coreResult = { ok: true, data: "core-ran" };
-  env.active = "local";
   setCatalog([]);
 });
 
@@ -122,6 +166,38 @@ describe("dispatchCommand — core commands", () => {
     setCatalog([cmd("core.y", "core")]);
     await reg.dispatchCommand("core.y", { backendId: "remote:r" });
     expect(env.invokeCalls[0]?.backendId).toBe("remote:r");
+  });
+
+  it("activates the exact session requested by a successful command result", async () => {
+    setCatalog([cmd("core.create", "core")]);
+    env.coreResult = {
+      ok: true,
+      data: {
+        address: { slot: "branch-a", incarnation: "incarnation-a" },
+        activateSession: true,
+      },
+    };
+
+    await reg.dispatchCommand("core.create", { backendId: "remote:r" });
+
+    expect(env.selectedAddresses).toEqual([
+      {
+        backendId: "remote:r",
+        address: { slot: "branch-a", incarnation: "incarnation-a" },
+      },
+    ]);
+  });
+
+  it("does not activate address-bearing background command results", async () => {
+    setCatalog([cmd("core.load", "core")]);
+    env.coreResult = {
+      ok: true,
+      data: { address: { slot: "branch-a", incarnation: "incarnation-a" } },
+    };
+
+    await reg.dispatchCommand("core.load");
+
+    expect(env.selectedAddresses).toEqual([]);
   });
 });
 
@@ -201,41 +277,18 @@ describe("runForKeybinding", () => {
   });
 });
 
-describe("host run-command (MCP) acknowledgement", () => {
-  it("runs the web handler and acks success", async () => {
+describe("session-bound web command requests", () => {
+  it("runs the web handler and responds with success", async () => {
     setCatalog([cmd("web.r", "web")]);
     reg.registerCommand("web.r", () => {});
-    for (const h of env.hostHandlers) {
-      h({ type: "run-command", id: "web.r", args: undefined, token: "t1" });
-    }
-    await Promise.resolve();
-    expect(env.posted).toContainEqual({ type: "command-ack", token: "t1", ok: true });
+    expect(await env.run?.({ id: "web.r", args: undefined })).toEqual({ ok: true });
   });
 
-  it("acks failure when no handler is registered", async () => {
+  it("responds with failure when no handler is registered", async () => {
     setCatalog([cmd("web.none", "web")]);
-    for (const h of env.hostHandlers) {
-      h({ type: "run-command", id: "web.none", args: undefined, token: "t2" });
-    }
-    await Promise.resolve();
-    const ack = env.posted.find((m) => m.token === "t2");
-    expect(ack).toMatchObject({ type: "command-ack", ok: false });
-  });
-
-  it("ignores a replayed run-command for a token already in flight", async () => {
-    setCatalog([cmd("web.dedup", "web")]);
-    let calls = 0;
-    // A handler that stays pending so the replay arrives while the first run is in flight.
-    reg.registerCommand("web.dedup", () => {
-      calls += 1;
-      return new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(await env.run?.({ id: "web.none", args: undefined })).toMatchObject({
+      ok: false,
+      error: expect.stringContaining("No web handler"),
     });
-    for (const h of env.hostHandlers) {
-      h({ type: "run-command", id: "web.dedup", args: undefined, token: "dup" });
-      h({ type: "run-command", id: "web.dedup", args: undefined, token: "dup" });
-    }
-    await new Promise((r) => setTimeout(r, 5));
-    expect(calls).toBe(1);
-    expect(env.posted.filter((m) => m.token === "dup")).toHaveLength(1);
   });
 });

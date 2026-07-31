@@ -124,9 +124,12 @@ async function doInit(): Promise<void> {
     },
   };
 
-  // No container → services/editor mode (no workbench). The file-service override backs `file://` with an
-  // empty in-memory layer that installHostFileProvider() fronts. No autosave exists in this mode, so weavie's
-  // debounced save() is the sole writer. This must run before any standalone `monaco.*` use — touching monaco
+  // Register the session-owned filesystem before services initialize. A dedicated scheme avoids the browser OS
+  // canonicalizing host paths or treating session identity as a file:// UNC authority.
+  installHostFileProvider();
+
+  // No container → services/editor mode (no workbench). No autosave exists in this mode, so weavie's debounced
+  // save() is the sole writer. This must run before any standalone `monaco.*` use — touching monaco
   // auto-initializes the services without these overrides, after which this call throws "already initialized".
   // Every monaco-touching entry point (the editor host, the LSP client) funnels through initEditorServices first.
   await initialize({
@@ -140,10 +143,6 @@ async function doInit(): Promise<void> {
     // default only logs to the console, leaving a failed refactor invisible.
     ...getNotificationServiceOverride(),
   });
-
-  // Front `file://` with the host-backed provider, after initialize() and before any model resolves.
-  // Idempotent across hot reloads.
-  installHostFileProvider();
 
   // Construct the semantic-tokens feature (see its import note); its disposables hook long-lived services, so
   // it stays alive without us holding it.

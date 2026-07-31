@@ -5,16 +5,22 @@ using Weavie.Hosting;
 namespace Weavie.Win.Hosting;
 
 /// <summary>
-/// The JS &lt;-&gt; C# message bridge over WebView2 (shared <see cref="IHostBridge"/>). Inbound: JS
-/// <c>postMessage(json)</c> -&gt; <see cref="MessageReceived"/>. Outbound: <see cref="PostToWeb"/> posts
+/// The JS &lt;-&gt; C# message bridge over WebView2 (shared <see cref="IWebTransportHub"/>). Inbound: JS
+/// <c>postMessage(json)</c> -&gt; <see cref="MessageReceived"/>. Outbound: <see cref="Broadcast"/> posts
 /// through WebView2's native message queue on the UI thread. Bodies are raw JSON strings.
 /// </summary>
-public sealed class HostBridge : IHostBridge, IDisposable {
+public sealed class HostBridge : IWebTransportHub, IDisposable {
 	private CoreWebView2? _core;
 	private OrderedMessageQueue? _outbound;
 
 	/// <summary>Raised with the raw JSON body of each inbound message (on the UI thread).</summary>
-	public event Action<string>? MessageReceived;
+	public event Action<WebPeer, string>? MessageReceived;
+
+	/// <inheritdoc/>
+	public event Action<WebPeer>? PeerDisconnected {
+		add { }
+		remove { }
+	}
 
 	/// <summary>Binds to the (already-initialized) WebView2 and starts listening for inbound web messages.</summary>
 	public void Attach(WebView2 webView) {
@@ -37,11 +43,18 @@ public sealed class HostBridge : IHostBridge, IDisposable {
 			body = e.WebMessageAsJson;
 		}
 
-		MessageReceived?.Invoke(body ?? string.Empty);
+		MessageReceived?.Invoke(WebPeer.Native, body ?? string.Empty);
 	}
 
 	/// <summary>Pushes a raw JSON message string through WebView2's ordered host-to-page channel.</summary>
-	public void PostToWeb(string json) => _outbound?.Enqueue(json);
+	public void Broadcast(string json) => _outbound?.Enqueue(json);
+
+	/// <inheritdoc/>
+	public void Send(WebPeer peer, string json) {
+		if (peer == WebPeer.Native) {
+			Broadcast(json);
+		}
+	}
 
 	/// <summary>Stops outbound scheduling and detaches the inbound WebView2 handler.</summary>
 	public void Dispose() {

@@ -1,4 +1,4 @@
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
@@ -40,6 +40,34 @@ test("create, switch, unload, and reopen sessions @cross", async ({ page }) => {
   // Reopen: clicking an unloaded chip loads it again (no longer unloaded).
   await page.locator(".session-chip.unloaded").click();
   await expect(page.locator(".session-chip.unloaded")).toHaveCount(0);
+});
+
+test("reload restores the client-selected stable session slot @cross", async ({ page, weavie }) => {
+  await runCommand(page, "Fork Session");
+  await expect(page.locator(".session-chip")).toHaveCount(2);
+  const active = page.locator(".session-chip.active");
+  await expect(active).toHaveCount(1);
+  const slot = await active.getAttribute("data-session-slot");
+  if (slot === null || slot === "primary") {
+    throw new Error("the forked session did not become the selected stable slot");
+  }
+  await expect
+    .poll(async () => {
+      const json = await readFile(join(weavie.home, ".weavie", "rail-state.json"), "utf8").catch(
+        () => null,
+      );
+      if (json === null) {
+        return null;
+      }
+      const state = JSON.parse(json) as { selected?: unknown };
+      return state.selected;
+    })
+    .toEqual({ backendId: "local", slot });
+
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await expect(page.locator("#splash")).toHaveCount(0, { timeout: 40_000 });
+
+  await expect(page.locator(".session-chip.active")).toHaveAttribute("data-session-slot", slot);
 });
 
 // Delete a (clean) session: right-click its chip → Delete… → confirm. A freshly forked worktree has no

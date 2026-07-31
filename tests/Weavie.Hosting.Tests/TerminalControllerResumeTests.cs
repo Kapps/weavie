@@ -139,7 +139,12 @@ public sealed class TerminalControllerResumeTests {
 					SettingsFilePath = string.Empty,
 					SystemPromptFilePath = string.Empty,
 				});
-			Controller = new TerminalController(Bridge, "claude", _settings, Launcher, Agent) {
+			Controller = new TerminalController(
+				Bridge.SessionFeature("terminal.claude"),
+				"claude",
+				_settings,
+				Launcher,
+				Agent) {
 				Workspace = Workspace,
 			};
 		}

@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Weavie.Core.Editor;
 using Xunit;
 
@@ -15,13 +14,17 @@ public sealed class HostCorePasteImageTests {
 	private const string PasteBegin = "\x1b[200~";
 	private const string PasteEnd = "\x1b[201~";
 
-	private static string PasteImage(TestHost host, string mime, byte[] bytes) => JsonSerializer.Serialize(new {
-		type = "term-paste-image",
-		slot = host.PrimaryId,
-		session = "claude",
-		mime,
-		dataB64 = Convert.ToBase64String(bytes),
-	});
+	private static void PasteImage(
+		TestHost host,
+		HostSession session,
+		string feature,
+		string mime,
+		byte[] bytes) =>
+		host.SessionEvent(
+			session,
+			feature,
+			"pasteImage",
+			new { mime, dataB64 = Convert.ToBase64String(bytes) });
 
 	private static string InjectedPath(NoopTerminal terminal) {
 		string injected = terminal.WrittenText;
@@ -31,7 +34,7 @@ public sealed class HostCorePasteImageTests {
 	}
 
 	private static NoopTerminal StartClaude(TestHost host) {
-		host.Core.ActiveSessionForTest()!.Claude!.EnsureStarted();
+		host.SelectedSession.Claude!.EnsureStarted();
 		return Assert.Single(host.Platform.NoopLauncher.Created);
 	}
 
@@ -40,7 +43,7 @@ public sealed class HostCorePasteImageTests {
 		await using var host = await TestHost.StartAsync();
 		var claudeTerminal = StartClaude(host);
 
-		host.Send(PasteImage(host, "image/png", PngBytes));
+		PasteImage(host, host.SelectedSession, "terminal.agent", "image/png", PngBytes);
 
 		string path = InjectedPath(claudeTerminal);
 		Assert.EndsWith(".png", path);
@@ -56,7 +59,7 @@ public sealed class HostCorePasteImageTests {
 		await using var host = await TestHost.StartAsync();
 		var claudeTerminal = StartClaude(host);
 
-		host.Send(PasteImage(host, mime, PngBytes));
+		PasteImage(host, host.SelectedSession, "terminal.agent", mime, PngBytes);
 
 		Assert.EndsWith(extension, InjectedPath(claudeTerminal));
 	}
@@ -68,10 +71,10 @@ public sealed class HostCorePasteImageTests {
 		await using var host = await TestHost.StartAsync();
 		var claudeTerminal = StartClaude(host);
 
-		host.Send(PasteImage(host, mime, PngBytes));
+		PasteImage(host, host.SelectedSession, "terminal.agent", mime, PngBytes);
 
 		Assert.Equal(0, claudeTerminal.WriteCount);
-		var toast = host.Bridge.LastOfType("notify");
+		var toast = host.Bridge.LastEvent(host.SelectedSession.Address, "notifications", "show");
 		Assert.True(toast.HasValue);
 		Assert.Equal("warn", toast!.Value.GetProperty("level").GetString());
 	}
@@ -81,25 +84,27 @@ public sealed class HostCorePasteImageTests {
 		await using var host = await TestHost.StartAsync();
 		var claudeTerminal = StartClaude(host);
 
-		host.Send(PasteImage(host, "image/png", new byte[PastedImageMedia.MaxBytes + 1]));
+		PasteImage(
+			host,
+			host.SelectedSession,
+			"terminal.agent",
+			"image/png",
+			new byte[PastedImageMedia.MaxBytes + 1]);
 
 		Assert.Equal(0, claudeTerminal.WriteCount);
-		Assert.True(host.Bridge.LastOfType("notify").HasValue);
+		Assert.True(host.Bridge.LastEvent(
+			host.SelectedSession.Address,
+			"notifications",
+			"show").HasValue);
 	}
 
 	[Fact]
 	public async Task PasteImage_NamingTheShellPane_NeverWritesToTheShell() {
 		await using var host = await TestHost.StartAsync();
-		host.Core.ActiveSessionForTest()!.Shell.EnsureStarted();
+		host.SelectedSession.Shell.EnsureStarted();
 		var shellTerminal = Assert.Single(host.Platform.NoopLauncher.Created);
 
-		host.Send(JsonSerializer.Serialize(new {
-			type = "term-paste-image",
-			slot = host.PrimaryId,
-			session = "shell",
-			mime = "image/png",
-			dataB64 = Convert.ToBase64String(PngBytes),
-		}));
+		PasteImage(host, host.SelectedSession, "terminal.shell", "image/png", PngBytes);
 
 		Assert.Equal(0, shellTerminal.WriteCount);
 	}
@@ -110,7 +115,7 @@ public sealed class HostCorePasteImageTests {
 		var claudeTerminal = StartClaude(host);
 
 		host.Core.BeginDrain(() => { }); // a quiet host commits immediately → terminal input frozen
-		host.Send(PasteImage(host, "image/png", PngBytes));
+		PasteImage(host, host.SelectedSession, "terminal.agent", "image/png", PngBytes);
 
 		Assert.Equal(0, claudeTerminal.WriteCount);
 	}
@@ -121,23 +126,24 @@ public sealed class HostCorePasteImageTests {
 		await using var host = await TestHost.StartAsync();
 		host.Platform.ClipboardImageValue = new ClipboardImage("image/png", PngBytes);
 
-		host.Send(JsonSerializer.Serialize(new { type = "clipboard-read-image", id = "img-1" }));
+		var reply = await host.HostRequestAsync<System.Text.Json.JsonElement>(
+			"clipboard",
+			"readImage",
+			new { });
 
-		var reply = host.Bridge.LastOfType("clipboard-image-content");
-		Assert.True(reply.HasValue);
-		Assert.Equal("img-1", reply!.Value.GetProperty("id").GetString());
-		Assert.Equal("image/png", reply.Value.GetProperty("mime").GetString());
-		Assert.Equal(PngBytes, Convert.FromBase64String(reply.Value.GetProperty("dataB64").GetString()!));
+		Assert.Equal("image/png", reply.GetProperty("mime").GetString());
+		Assert.Equal(PngBytes, Convert.FromBase64String(reply.GetProperty("dataB64").GetString()!));
 	}
 
 	[Fact]
 	public async Task ClipboardReadImage_WithNoImage_RepliesWithAnEmptyMime() {
 		await using var host = await TestHost.StartAsync();
 
-		host.Send(JsonSerializer.Serialize(new { type = "clipboard-read-image", id = "img-2" }));
+		var reply = await host.HostRequestAsync<System.Text.Json.JsonElement>(
+			"clipboard",
+			"readImage",
+			new { });
 
-		var reply = host.Bridge.LastOfType("clipboard-image-content");
-		Assert.True(reply.HasValue);
-		Assert.Equal(string.Empty, reply!.Value.GetProperty("mime").GetString());
+		Assert.Equal(string.Empty, reply.GetProperty("mime").GetString());
 	}
 }

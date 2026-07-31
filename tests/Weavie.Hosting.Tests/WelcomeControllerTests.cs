@@ -5,7 +5,7 @@ namespace Weavie.Hosting.Tests;
 
 /// <summary>
 /// The shared welcome flow drives the one welcome UI for every host: it injects the recents the page reads,
-/// navigates to welcome.html, and routes the page's <c>menu-action</c> messages to the host's open handlers.
+/// navigates to welcome.html, and routes the page's <c>window.menu</c> events to the host's open handlers.
 /// These pin that routing end-to-end over the bridge contract, no web view needed.
 /// </summary>
 public sealed class WelcomeControllerTests {
@@ -24,7 +24,7 @@ public sealed class WelcomeControllerTests {
 		var (bridge, surface) = Wire(out int[] folderOpens, out var openedRecent, []);
 		await surface.Controller.ShowAsync();
 
-		bridge.Receive("""{"type":"menu-action","action":"open-folder"}""");
+		bridge.Receive(HostEvent("window", "menu", """{"action":"open-folder"}"""));
 
 		Assert.Equal(1, folderOpens[0]);
 		Assert.Empty(openedRecent);
@@ -35,7 +35,7 @@ public sealed class WelcomeControllerTests {
 		var (bridge, surface) = Wire(out int[] folderOpens, out var openedRecent, []);
 		await surface.Controller.ShowAsync();
 
-		bridge.Receive("""{"type":"menu-action","action":"open-recent","path":"/proj/x"}""");
+		bridge.Receive(HostEvent("window", "menu", """{"action":"open-recent","path":"/proj/x"}"""));
 
 		Assert.Equal(["/proj/x"], openedRecent);
 		Assert.Equal(0, folderOpens[0]);
@@ -46,9 +46,9 @@ public sealed class WelcomeControllerTests {
 		var (bridge, surface) = Wire(out int[] folderOpens, out var openedRecent, []);
 		await surface.Controller.ShowAsync();
 
-		bridge.Receive("""{"type":"ready"}""");
+		bridge.Receive(HostEvent("other", "event", "{}"));
 		bridge.Receive("not json");
-		bridge.Receive("""{"type":"menu-action","action":"open-recent"}"""); // no path
+		bridge.Receive(HostEvent("window", "menu", """{"action":"open-recent"}""")); // no path
 
 		Assert.Equal(0, folderOpens[0]);
 		Assert.Empty(openedRecent);
@@ -60,7 +60,7 @@ public sealed class WelcomeControllerTests {
 		await surface.Controller.ShowAsync();
 		surface.Controller.Detach();
 
-		bridge.Receive("""{"type":"menu-action","action":"open-folder"}""");
+		bridge.Receive(HostEvent("window", "menu", """{"action":"open-folder"}"""));
 
 		Assert.Equal(0, folderOpens[0]);
 	}
@@ -92,6 +92,9 @@ public sealed class WelcomeControllerTests {
 			bridge, surface, "app://app/welcome.html", () => recents, () => fo[0]++, or.Add);
 		return (bridge, surface);
 	}
+
+	private static string HostEvent(string feature, string name, string payload) =>
+		$$"""{"scope":"host","session":null,"kind":"event","requestId":null,"feature":"{{feature}}","name":"{{name}}","payload":{{payload}},"error":null}""";
 
 	private sealed class FakeWebSurface : IWebSurface {
 		public WelcomeController Controller { get; set; } = null!;

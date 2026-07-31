@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Xunit;
 
 namespace Weavie.Hosting.Tests;
@@ -11,13 +10,11 @@ namespace Weavie.Hosting.Tests;
 /// </summary>
 [Collection(TestCollections.HostIntegration)]
 public sealed class HostCoreSuggestionsTests {
-	private static string Msg(object value) => JsonSerializer.Serialize(value);
-
 	[Fact]
 	public async Task Ready_PushesTheActiveSuggestionSet() {
 		await using var host = await TestHost.StartAsync();
 
-		var pushed = host.Bridge.LastOfType("suggestions");
+		var pushed = host.Bridge.LastEvent("suggestions", "changed");
 
 		Assert.True(pushed.HasValue);
 		Assert.Empty(pushed!.Value.GetProperty("items").EnumerateArray()); // no manifest in the test repo
@@ -30,8 +27,11 @@ public sealed class HostCoreSuggestionsTests {
 
 		// forever:false → snooze (in-memory), so this asserts the dispatch → service → re-push wiring without
 		// writing a dismissals file.
-		host.Send(Msg(new { type = "dismiss-suggestion", id = "worktree.setupCommand", forever = false }));
+		host.HostEvent(
+			"suggestions",
+			"dismiss",
+			new { id = "worktree.setupCommand", forever = false });
 
-		Assert.NotNull(host.Bridge.LastOfType("suggestions"));
+		Assert.NotNull(host.Bridge.LastEvent("suggestions", "changed"));
 	}
 }

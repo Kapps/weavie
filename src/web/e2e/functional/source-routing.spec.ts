@@ -1,11 +1,11 @@
 import { runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 
-// Source-URL routing through the HOST: the web sends every opened URL as `open-target`; the host checks each
-// registered source's ISource.Match and either fetches it (a notion.so/notion.site URL → `source-doc`, a native
-// source tab) or bounces it back as `open-web` (an iframe web tab). The match lives host-side, so this guards OUR
-// routing — not the model. The source connector is stubbed (WEAVIE_FAKE_NOTION) with the enhanced-markdown below,
-// which the SourceView renders (renderNotionMarkdown → shadow root) — also exercising the markdown render path.
+// Source-URL routing through the owning session bus: the web publishes `sources.open`; the host checks each
+// registered source's ISource.Match and opens a durable `editor.openOverlay` as either a fetched native source
+// tab or an iframe web tab. The match lives host-side, so this guards OUR routing — not the model. The source
+// connector is stubbed (WEAVIE_FAKE_NOTION) with the enhanced-markdown below, which the SourceView renders
+// (renderNotionMarkdown → shadow root) — also exercising the markdown render path.
 
 const NOTION_DOC = {
   title: "Source Routing Doc",
@@ -47,7 +47,7 @@ test("a Notion URL routes through the host to a native source tab (not an iframe
 }) => {
   await openUrl(page, "https://www.notion.so/Source-Routing-Doc-1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d");
 
-  // The host matched it, fetched the doc, and pushed `source-doc`: a SOURCE tab labelled with the doc title.
+  // The host matched it, opened the source overlay, and fetched its document into that owned tab.
   const sourceTab = page.locator(".editor-tab", { hasText: "Source Routing Doc" });
   await expect(sourceTab).toBeVisible({ timeout: 15_000 });
 
@@ -101,7 +101,7 @@ test("enhanced markdown renders (callout + color) and the toggle expands on clic
 test("a non-Notion URL routes through the host to a web (iframe) tab", async ({ page }) => {
   await openUrl(page, "https://example.com");
 
-  // The host didn't match it and replied `open-web`: a globe tab + an iframe pointed at the URL.
+  // The host did not match it and opened a web overlay: a globe tab + an iframe pointed at the URL.
   await expect(page.locator(".editor-tab", { hasText: "example.com" })).toBeVisible({
     timeout: 15_000,
   });

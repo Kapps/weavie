@@ -12,7 +12,7 @@ namespace Weavie.Hosting;
 /// </summary>
 public interface IHostPlatform {
 	/// <summary>The web message bridge (post to / receive from the page).</summary>
-	IHostBridge Bridge { get; }
+	IWebTransportHub Bridge { get; }
 
 	/// <summary>Marshals work onto the host's UI thread (inline when there is none).</summary>
 	IUiDispatcher Dispatcher { get; }

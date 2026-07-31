@@ -3,9 +3,14 @@
 // file-reveal both round-trip the host.
 
 import type { ILink, Terminal } from "@xterm/xterm";
-import { isBrowserHostedShell, postToHost, postToLocalHost } from "../bridge";
+import {
+  type ClientSession,
+  hostConnection,
+  isBrowserHostedShell,
+  LOCAL_BACKEND_ID,
+} from "../bridge";
 import { findContentLinks, parseFileReference } from "../content-links";
-import { refLinkPrefix } from "./ref-link-store";
+import { refLinkPrefixFor } from "./ref-link-store";
 
 // A path with an extension, e.g. src/foo.ts or C:\src\foo.ts. An optional Windows drive prefix (C:\…)
 // is matched explicitly so its colon isn't mistaken for a :line suffix.
@@ -22,11 +27,11 @@ import { refLinkPrefix } from "./ref-link-store";
 // #0/#012 and #123abc. Only linked when the repo resolves to a forge (refLinkPrefix != null); "#fff" never
 // matches (\d only).
 
-function revealFile(matchText: string): void {
+function revealFile(session: ClientSession, matchText: string): void {
   // Split the trailing :line (or :line:col) from the RIGHT, so a Windows drive colon (C:\…) stays in the path.
   const { path, line } = parseFileReference(matchText);
   if (path.length > 0) {
-    postToHost({ type: "reveal-file", path, line });
+    session.feature("files").publish("reveal", { path, line, preview: false });
   }
 }
 
@@ -39,13 +44,13 @@ export function openUrlExternal(url: string): void {
     window.open(url, "_blank", "noopener");
     return;
   }
-  postToLocalHost({ type: "open-url", url });
+  hostConnection(LOCAL_BACKEND_ID)?.host.feature("platform").publish("openUrl", { url });
 }
 
-// Open a terminal `#N` as its forge issue/PR page: the host-pushed prefix for the active session's origin +
+// Open a terminal `#N` as its forge issue/PR page: the host-pushed prefix for the selected session's origin +
 // the number. A no-op if the repo isn't a forge (prefix null) — the same gate that keeps the link from forming.
-function openRef(matchText: string): void {
-  const prefix = refLinkPrefix();
+function openRef(session: ClientSession, matchText: string): void {
+  const prefix = refLinkPrefixFor(session);
   if (prefix !== null) {
     openUrlExternal(prefix + matchText.slice(1));
   }
@@ -57,7 +62,10 @@ function openRef(matchText: string): void {
  * open it (browser vs Weavie) instead of activating it — xterm activates links on mouseup for ANY button, so
  * the activate handlers below open only on the primary button and a right-click falls through to the menu.
  */
-export function wireTerminalLinks(term: Terminal): () => string | undefined {
+export function wireTerminalLinks(
+  term: Terminal,
+  session: ClientSession,
+): () => string | undefined {
   let hoveredUrl: string | undefined;
   // Only track web URLs, so a right-click on a file:// OSC link shows the plain terminal menu, not "open in…".
   const isHttp = (uri: string): boolean => uri.startsWith("http:") || uri.startsWith("https:");
@@ -71,10 +79,10 @@ export function wireTerminalLinks(term: Terminal): () => string | undefined {
         const url = new URL(uri);
         if (url.protocol === "file:") {
           const lineMatch = /(\d+)/.exec(url.hash);
-          postToHost({
-            type: "reveal-file",
+          session.feature("files").publish("reveal", {
             path: decodeURIComponent(url.pathname),
             line: lineMatch ? Number(lineMatch[1]) : 1,
+            preview: false,
           });
         } else if (url.protocol === "http:" || url.protocol === "https:") {
           openUrlExternal(uri);
@@ -127,7 +135,7 @@ export function wireTerminalLinks(term: Terminal): () => string | undefined {
           break;
         }
       }
-      const matches = findContentLinks(text, refLinkPrefix() !== null);
+      const matches = findContentLinks(text, refLinkPrefixFor(session) !== null);
       // Emit only the slice of each match that lands on the queried row (a single-row range), but open the
       // whole matched target — so hovering or clicking any wrapped fragment reveals the complete path/URL.
       const links: ILink[] = [];
@@ -148,9 +156,9 @@ export function wireTerminalLinks(term: Terminal): () => string | undefined {
               if (match.kind === "url") {
                 openUrlExternal(match.text);
               } else if (match.kind === "ref") {
-                openRef(match.text);
+                openRef(session, match.text);
               } else {
-                revealFile(match.text);
+                revealFile(session, match.text);
               }
             }
           },

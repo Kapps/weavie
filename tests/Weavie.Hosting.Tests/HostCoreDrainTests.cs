@@ -17,32 +17,40 @@ public sealed class HostCoreDrainTests {
 	public async Task QuietHost_CommitsImmediately_AndFreezesInput() {
 		await using var host = await TestHost.StartAsync();
 		// A live shell pane, to prove the input freeze at the term-input chokepoint.
-		host.Core.ActiveSessionForTest()!.Shell.EnsureStarted();
+		host.SelectedSession.Shell.EnsureStarted();
 		var shellTerminal = Assert.Single(host.Platform.NoopLauncher.Created);
-		host.Send($$"""{"type":"term-input","slot":"{{host.PrimaryId}}","session":"shell","dataB64":"aGk="}""");
+		host.SessionEvent(
+			host.PrimarySession,
+			"terminal.shell",
+			"input",
+			new { dataB64 = "aGk=" });
 		Assert.Equal(1, shellTerminal.WriteCount);
 
 		bool exited = false;
 		host.Core.BeginDrain(() => exited = true);
 
 		Assert.True(exited);
-		Assert.NotNull(host.Bridge.LastOfType("update-restarting"));
+		Assert.NotNull(host.Bridge.LastEvent("updates", "restarting"));
 		// Input submitted after the commit is dropped, not forwarded into a turn the restart would discard.
-		host.Send($$"""{"type":"term-input","slot":"{{host.PrimaryId}}","session":"shell","dataB64":"aGk="}""");
+		host.SessionEvent(
+			host.PrimarySession,
+			"terminal.shell",
+			"input",
+			new { dataB64 = "aGk=" });
 		Assert.Equal(1, shellTerminal.WriteCount);
 	}
 
 	[Fact]
 	public async Task WorkingSession_HoldsDrain_ThenCommitsOnStop() {
 		await using var host = await TestHost.StartAsync();
-		var session = host.Core.ActiveSessionForTest()!;
+		var session = host.SelectedSession;
 		session.Status.ObserveHook(Hook(HookEventKind.UserPromptSubmit));
 
 		bool exited = false;
 		host.Core.BeginDrain(() => exited = true);
 
 		Assert.False(exited);
-		var pending = host.Bridge.LastOfType("update-pending");
+		var pending = host.Bridge.LastEvent("updates", "pending");
 		Assert.NotNull(pending);
 		var hold = Assert.Single(pending.Value.GetProperty("holds").EnumerateArray());
 		Assert.Equal("working", hold.GetProperty("reason").GetString());
@@ -50,27 +58,27 @@ public sealed class HostCoreDrainTests {
 		// The turn settles (Stop hook) → the gate re-evaluates via the session's status subscription.
 		session.Status.ObserveHook(Hook(HookEventKind.Stop));
 		Assert.True(exited);
-		Assert.NotNull(host.Bridge.LastOfType("update-restarting"));
+		Assert.NotNull(host.Bridge.LastEvent("updates", "restarting"));
 	}
 
 	[Fact]
 	public async Task PendingPermissionPrompt_HoldsDrain() {
 		await using var host = await TestHost.StartAsync();
-		var session = host.Core.ActiveSessionForTest()!;
+		var session = host.SelectedSession;
 		session.Status.ObserveHook(Hook(HookEventKind.Notification, message: "Claude needs your permission to use Bash"));
 
 		bool exited = false;
 		host.Core.BeginDrain(() => exited = true);
 
 		Assert.False(exited);
-		var hold = Assert.Single(host.Bridge.LastOfType("update-pending")!.Value.GetProperty("holds").EnumerateArray());
+		var hold = Assert.Single(host.Bridge.LastEvent("updates", "pending")!.Value.GetProperty("holds").EnumerateArray());
 		Assert.Equal("needs-input", hold.GetProperty("reason").GetString());
 	}
 
 	[Fact]
 	public async Task ShellForegroundJob_HoldsDrain_UntilItEnds() {
 		await using var host = await TestHost.StartAsync();
-		var session = host.Core.ActiveSessionForTest()!;
+		var session = host.SelectedSession;
 		session.Shell.EnsureStarted();
 		var shellTerminal = Assert.Single(host.Platform.NoopLauncher.Created);
 		shellTerminal.HasForegroundJob = true;
@@ -79,13 +87,13 @@ public sealed class HostCoreDrainTests {
 		host.Core.BeginDrain(() => exited = true);
 
 		Assert.False(exited);
-		var hold = Assert.Single(host.Bridge.LastOfType("update-pending")!.Value.GetProperty("holds").EnumerateArray());
+		var hold = Assert.Single(host.Bridge.LastEvent("updates", "pending")!.Value.GetProperty("holds").EnumerateArray());
 		Assert.Equal("shell-job", hold.GetProperty("reason").GetString());
 
 		// The job ends; any status transition re-evaluates the gate (the 2s re-sample tick would too).
 		shellTerminal.HasForegroundJob = false;
 		session.Status.ObserveHook(Hook(HookEventKind.Stop));
-		Assert.True(exited);
+		await Wait.UntilAsync(() => exited);
 	}
 
 	[Fact]
@@ -93,7 +101,7 @@ public sealed class HostCoreDrainTests {
 		// The overnight regression: a session that ended its turn with a pending wakeup ("wait 15m then check CI")
 		// reads Idle to the eye but must hold the update, or the restart kills the pending step.
 		await using var host = await TestHost.StartAsync();
-		var session = host.Core.ActiveSessionForTest()!;
+		var session = host.SelectedSession;
 		session.Status.ObserveHook(Hook(HookEventKind.UserPromptSubmit));
 		session.Status.ObserveHook(Stop(sessionWillResume: true));
 
@@ -101,41 +109,43 @@ public sealed class HostCoreDrainTests {
 		host.Core.BeginDrain(() => exited = true);
 
 		Assert.False(exited);
-		var hold = Assert.Single(host.Bridge.LastOfType("update-pending")!.Value.GetProperty("holds").EnumerateArray());
+		var hold = Assert.Single(host.Bridge.LastEvent("updates", "pending")!.Value.GetProperty("holds").EnumerateArray());
 		Assert.Equal("waiting-on-task", hold.GetProperty("reason").GetString());
 
 		// The wake fires (new turn) and the follow-up ends with nothing pending → genuinely Idle → the gate commits.
 		session.Status.ObserveHook(Hook(HookEventKind.UserPromptSubmit));
 		session.Status.ObserveHook(Stop(sessionWillResume: false));
 		Assert.True(exited);
-		Assert.NotNull(host.Bridge.LastOfType("update-restarting"));
+		Assert.NotNull(host.Bridge.LastEvent("updates", "restarting"));
 	}
 
 	[Fact]
 	public async Task ReadyMidDrain_RepushesPendingState() {
 		await using var host = await TestHost.StartAsync();
-		var session = host.Core.ActiveSessionForTest()!;
+		var session = host.SelectedSession;
 		session.Status.ObserveHook(Hook(HookEventKind.UserPromptSubmit));
 		host.Core.BeginDrain(() => { });
 
 		// A tab (re)connecting mid-drain must learn the pending state it missed.
 		host.Bridge.Clear();
-		host.Send("""{"type":"ready"}""");
-		Assert.NotNull(host.Bridge.LastOfType("update-pending"));
+		await host.HostRequestAsync<System.Text.Json.JsonElement>("connection", "hello", new { });
+		Assert.NotNull(host.Bridge.LastEvent("updates", "pending"));
 	}
 
 	[Fact]
 	public async Task Ready_PushesHostBuildIdentity() {
 		await using var host = await TestHost.StartAsync();
-		var info = host.Bridge.LastOfType("host-info");
-		Assert.NotNull(info);
-		Assert.Equal(HostCore.BuildNumber, info.Value.GetProperty("buildNumber").GetString());
+		var hello = await host.HostRequestAsync<System.Text.Json.JsonElement>(
+			"connection",
+			"hello",
+			new { });
+		Assert.Equal(HostCore.BuildNumber, hello.GetProperty("buildNumber").GetString());
 	}
 
 	[Fact]
 	public async Task RestartNow_SkipsTheGate() {
 		await using var host = await TestHost.StartAsync();
-		var session = host.Core.ActiveSessionForTest()!;
+		var session = host.SelectedSession;
 		session.Status.ObserveHook(Hook(HookEventKind.UserPromptSubmit));
 
 		bool exited = false;
@@ -145,7 +155,7 @@ public sealed class HostCoreDrainTests {
 		var result = host.Core.RestartNowForUpdate();
 		Assert.True(result.Ok);
 		Assert.True(exited);
-		Assert.NotNull(host.Bridge.LastOfType("update-restarting"));
+		Assert.NotNull(host.Bridge.LastEvent("updates", "restarting"));
 	}
 
 	[Fact]
@@ -157,7 +167,7 @@ public sealed class HostCoreDrainTests {
 	[Fact]
 	public async Task BeginDrain_IsIdempotent_FirstExitWins() {
 		await using var host = await TestHost.StartAsync();
-		var session = host.Core.ActiveSessionForTest()!;
+		var session = host.SelectedSession;
 		session.Status.ObserveHook(Hook(HookEventKind.UserPromptSubmit));
 
 		int exits = 0;

@@ -1,8 +1,8 @@
 // The active workspace's test profile on the web side: parsed from window.__WEAVIE_TEST_PROFILE__ (injected
-// before navigation) and re-parsed on each { type: "test-profile" } push. Drives the run-lens provider.
+// before navigation) and re-parsed on each host tests.profile event. Drives the run-lens provider.
 
-import { createSignal } from "solid-js";
-import { log, onHostMessage } from "../bridge";
+import { createMemo, createSignal } from "solid-js";
+import { type HostConnection, log, registerHostFeature, selectedSession } from "../bridge";
 
 /** One profile rule (mirrors Core's TestRule): a file glob + a symbol regex, plus the run-command templates. */
 export interface TestRule {
@@ -21,13 +21,15 @@ declare global {
   }
 }
 
-const [rules, setRules] = createSignal<TestRule[]>(
-  parseProfile(window.__WEAVIE_TEST_PROFILE__ ?? ""),
+const [profiles, setProfiles] = createSignal(
+  new Map<string, TestRule[]>([["local", parseProfile(window.__WEAVIE_TEST_PROFILE__ ?? "")]]),
 );
 const changeListeners = new Set<() => void>();
 
 /** The active workspace's test rules (empty when unconfigured or the repo declared no tests). */
-export const testRules = rules;
+export const testRules = createMemo(
+  () => profiles().get(selectedSession()?.connection.id ?? "local") ?? [],
+);
 
 /** Subscribes to profile changes (a host push). Returns an unsubscribe. Use outside a Solid reactive root. */
 export function onTestProfileChanged(listener: () => void): () => void {
@@ -73,11 +75,20 @@ export function parseProfile(json: string): TestRule[] {
   return result;
 }
 
-onHostMessage((message) => {
-  if (message.type === "test-profile") {
-    setRules(parseProfile(message.profile));
-    for (const listener of changeListeners) {
-      listener();
-    }
+function applyProfile(connection: HostConnection, profile: string): void {
+  setProfiles((previous) => new Map(previous).set(connection.id, parseProfile(profile)));
+  for (const listener of changeListeners) {
+    listener();
   }
+}
+
+registerHostFeature((connection) => {
+  const offHello = connection.onHello((hello) => applyProfile(connection, hello.testProfile));
+  const offProfile = connection.host
+    .feature("tests")
+    .on<{ profile: string }>("profile", ({ profile }) => applyProfile(connection, profile));
+  return () => {
+    offHello();
+    offProfile();
+  };
 });

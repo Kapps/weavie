@@ -1,29 +1,21 @@
 using System.Text.Json;
-using Weavie.Core.Workspaces;
 
 namespace Weavie.Core.Shell;
 
 /// <summary>
-/// Orchestrates the custom title bar's message flow between the web shell and one host window: parses
-/// title-bar messages via <see cref="ShellProtocol"/>, drives <see cref="IShellWindow"/> and the workspace
-/// file index, and pushes replies over <c>postToWeb</c>. OS-agnostic, so both hosts share it.
+/// Parses custom-title-bar actions and drives one platform window. Outbound window state belongs to the
+/// host message bus rather than this platform adapter.
 /// </summary>
 public sealed class ShellController {
 	private readonly IShellWindow _window;
-	private readonly WorkspaceFileIndex _fileIndex;
-	private readonly Action<string> _postToWeb;
 
-	/// <summary>Creates a controller driving <paramref name="window"/>, indexing via <paramref name="fileIndex"/>, replying over <paramref name="postToWeb"/>.</summary>
-	public ShellController(IShellWindow window, WorkspaceFileIndex fileIndex, Action<string> postToWeb) {
+	/// <summary>Creates a controller driving <paramref name="window"/>.</summary>
+	public ShellController(IShellWindow window) {
 		ArgumentNullException.ThrowIfNull(window);
-		ArgumentNullException.ThrowIfNull(fileIndex);
-		ArgumentNullException.ThrowIfNull(postToWeb);
 		_window = window;
-		_fileIndex = fileIndex;
-		_postToWeb = postToWeb;
 	}
 
-	/// <summary>Handles a <c>window-control</c> message: minimize / toggle-maximize / close.</summary>
+	/// <summary>Handles a <c>window.control</c> payload: minimize / toggle-maximize / close.</summary>
 	public void HandleWindowControl(JsonElement message) {
 		if (!ShellProtocol.TryParseWindowControl(message, out var control)) {
 			return;
@@ -42,14 +34,14 @@ public sealed class ShellController {
 		}
 	}
 
-	/// <summary>Handles a <c>window-resize</c> message: begins a native resize from the named edge/corner.</summary>
+	/// <summary>Handles a <c>window.resize</c> payload: begins a native resize from the named edge/corner.</summary>
 	public void HandleWindowResize(JsonElement message) {
 		if (ShellProtocol.TryParseWindowResize(message, out var edge)) {
 			_window.StartResize(edge);
 		}
 	}
 
-	/// <summary>Handles a <c>menu-action</c> message: open folder / open recent / close window / exit.</summary>
+	/// <summary>Handles a <c>window.menu</c> payload: open folder / open recent / close window / exit.</summary>
 	public void HandleMenuAction(JsonElement message) {
 		if (!ShellProtocol.TryParseMenuAction(message, out var command, out string? path)) {
 			return;
@@ -74,9 +66,4 @@ public sealed class ShellController {
 		}
 	}
 
-	/// <summary>Walks the workspace and pushes the <c>file-index</c> reply for the omnibar quick-open.</summary>
-	public void PushFileIndex() => _postToWeb(ShellProtocol.BuildFileIndex(_fileIndex.Root, _fileIndex.List()));
-
-	/// <summary>Pushes the current window state (maximized + focused) so the title bar updates its glyph and dim.</summary>
-	public void PushWindowState(bool maximized, bool focused) => _postToWeb(ShellProtocol.BuildWindowState(maximized, focused));
 }

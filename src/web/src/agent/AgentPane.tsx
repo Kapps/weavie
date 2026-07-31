@@ -1,6 +1,6 @@
 import { createEffect, createMemo, createSignal, type JSX, on, Show } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
-import type { AgentPaneUpdate } from "../bridge";
+import type { AgentPaneUpdate, ClientSession } from "../bridge";
 import { AgentComposer } from "./AgentComposer";
 import { toAgentTranscript } from "./AgentPaneMessages";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
@@ -9,9 +9,8 @@ import { AgentTranscript } from "./AgentTranscript";
 import { pendingApproval } from "./turn-progress";
 
 export function AgentPane(props: {
-  backendId: string;
   inputProtocol: number;
-  slot: string | null;
+  session: ClientSession | null;
   providerId: "claude" | "codex" | null;
   active: boolean;
   messages: AgentPaneUpdate[];
@@ -155,7 +154,7 @@ export function AgentPane(props: {
             keyboardApprovalId={keyboardApprovalId()}
             messages={props.messages}
             providerName={providerName()}
-            slot={props.slot}
+            session={props.session}
           />
         </div>
         <Show when={!stickToBottom()}>
@@ -174,10 +173,9 @@ export function AgentPane(props: {
       </div>
       <AgentComposer
         active={props.active}
-        backendId={props.backendId}
         inputProtocol={props.inputProtocol}
         messages={props.messages}
-        slot={props.slot}
+        session={props.session}
         onSubmitted={() => {
           if (isNearBottom()) {
             setStickToBottom(true);
@@ -185,11 +183,10 @@ export function AgentPane(props: {
         }}
       />
       <AgentStatusLine
-        backendId={props.backendId}
         reviewAdded={props.reviewAdded}
         reviewFileCount={props.reviewFileCount}
         reviewRemoved={props.reviewRemoved}
-        slot={props.slot}
+        session={props.session}
       />
     </div>
   );

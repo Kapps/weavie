@@ -1,7 +1,6 @@
 using System.Collections.Concurrent;
 using System.Net.WebSockets;
 using System.Text;
-using System.Text.Json;
 using System.Threading.Channels;
 using Weavie.Hosting;
 using Weavie.Hosting.Web;
@@ -9,15 +8,15 @@ using Weavie.Hosting.Web;
 namespace Weavie.Headless;
 
 /// <summary>
-/// The <see cref="IHostBridge"/> for the headless host: the JS&lt;-&gt;C# bridge carried over a WebSocket so an
+/// The <see cref="IWebTransportHub"/> for the headless host: the JS&lt;-&gt;C# bridge carried over a WebSocket so an
 /// ordinary browser is the client. A worker can have more than one page connected at once (a second tab, or a
 /// remote agent that loops back to the same worker), so every push is broadcast to <b>all</b> connections. Each
 /// connection owns a bounded outbound queue drained by its own send loop, so one slow or dead peer can never
 /// stall the others or grow memory without bound: a connection that falls <see cref="OutboxCapacity"/> messages
-/// behind is dropped loudly. Pushes with no page connected are dropped, never buffered (each page re-requests
-/// state on its <c>ready</c>).
+/// behind is dropped loudly. Pushes with no page connected are dropped, never buffered (each page requests a
+/// fresh hello and session snapshots when it connects).
 /// </summary>
-internal sealed class WebSocketHostBridge : IHostBridge, IPageLifecycleHostBridge, IWorkspaceWebSocketBridge {
+internal sealed class WebSocketHostBridge : IWebTransportHub, IWorkspaceWebSocketBridge {
 	// A connection this many messages behind is treated as dead/hopeless and dropped — far above any healthy
 	// burst (a loopback page drains in microseconds), low enough to bound memory and fail fast. A dropped page's
 	// transport reconnects and re-requests state, so an over-eager drop self-heals rather than losing the page.
@@ -34,18 +33,18 @@ internal sealed class WebSocketHostBridge : IHostBridge, IPageLifecycleHostBridg
 	}
 
 	/// <inheritdoc/>
-	public event Action<string>? MessageReceived;
+	public event Action<WebPeer, string>? MessageReceived;
 
 	/// <inheritdoc/>
-	public event Action<string>? PageDisconnected;
+	public event Action<WebPeer>? PeerDisconnected;
 
 	/// <inheritdoc/>
 	public bool Available => true;
 
 	/// <inheritdoc/>
-	public void PostToWeb(string json) {
+	public void Broadcast(string json) {
 		if (_connections.IsEmpty) {
-			return; // No page connected; the page re-requests state on its next `ready`.
+			return; // No page connected; the next connection requests fresh state.
 		}
 
 		byte[] bytes = Encoding.UTF8.GetBytes(json);
@@ -56,6 +55,18 @@ internal sealed class WebSocketHostBridge : IHostBridge, IPageLifecycleHostBridg
 			if (!connection.Outbox.Writer.TryWrite(bytes)) {
 				Drop(connection, "outbound queue full — page not keeping up");
 			}
+		}
+	}
+
+	/// <inheritdoc/>
+	public void Send(WebPeer peer, string json) {
+		var connection = _connections.Keys.FirstOrDefault(candidate => candidate.Peer == peer);
+		if (connection is null) {
+			return;
+		}
+
+		if (!connection.Outbox.Writer.TryWrite(Encoding.UTF8.GetBytes(json))) {
+			Drop(connection, "outbound queue full — page not keeping up");
 		}
 	}
 
@@ -90,11 +101,7 @@ internal sealed class WebSocketHostBridge : IHostBridge, IPageLifecycleHostBridg
 
 				string json = Encoding.UTF8.GetString(message.GetBuffer(), 0, (int)message.Length);
 				message.SetLength(0);
-				if (!connection.PageIdentityResolved) {
-					connection.PageId = PageIdFromOwnershipMessage(json, out bool resolved);
-					connection.PageIdentityResolved = resolved;
-				}
-				_dispatcher.Post(() => MessageReceived?.Invoke(json));
+				_dispatcher.Post(() => MessageReceived?.Invoke(connection.Peer, json));
 			}
 		} finally {
 			_connections.TryRemove(connection, out _);
@@ -106,39 +113,7 @@ internal sealed class WebSocketHostBridge : IHostBridge, IPageLifecycleHostBridg
 			}
 
 			await sendLoop.ConfigureAwait(false); // no send may race the caller's socket dispose
-			if (connection.PageId is { } pageId) {
-				_dispatcher.Post(() => {
-					if (!_connections.Keys.Any(candidate =>
-						string.Equals(candidate.PageId, pageId, StringComparison.Ordinal))) {
-						PageDisconnected?.Invoke(pageId);
-					}
-				});
-			}
-		}
-	}
-
-	private static string? PageIdFromOwnershipMessage(string json, out bool resolved) {
-		resolved = false;
-		try {
-			using var document = JsonDocument.Parse(json);
-			var root = document.RootElement;
-			string? type = root.TryGetProperty("type", out var typeElement)
-				&& typeElement.ValueKind == JsonValueKind.String
-				? typeElement.GetString()
-				: null;
-			string? pageId = root.TryGetProperty("pageId", out var pageIdElement)
-				&& pageIdElement.ValueKind == JsonValueKind.String
-				? pageIdElement.GetString()
-				: null;
-			if (type is "acquire-editor" or "switch-session" && pageId is not null) {
-				resolved = true;
-				return pageId;
-			}
-
-			resolved = type == "ready" && pageId is null;
-			return null;
-		} catch (JsonException) {
-			return null;
+			_dispatcher.Post(() => PeerDisconnected?.Invoke(connection.Peer));
 		}
 	}
 
@@ -181,19 +156,18 @@ internal sealed class WebSocketHostBridge : IHostBridge, IPageLifecycleHostBridg
 	private sealed class Connection {
 		public Connection(WebSocket socket) {
 			Socket = socket;
+			Peer = new WebPeer(Guid.NewGuid().ToString("n"));
 			Outbox = Channel.CreateBounded<byte[]>(new BoundedChannelOptions(OutboxCapacity) {
 				SingleReader = true,
 				SingleWriter = false,
-				// TryWrite returns false when full (it never blocks), which is PostToWeb's signal to drop the client.
+				// TryWrite returns false when full (it never blocks), which is Broadcast's signal to drop the client.
 				FullMode = BoundedChannelFullMode.Wait,
 			});
 		}
 
 		public WebSocket Socket { get; }
 
-		public string? PageId { get; set; }
-
-		public bool PageIdentityResolved { get; set; }
+		public WebPeer Peer { get; }
 
 		public Channel<byte[]> Outbox { get; }
 	}

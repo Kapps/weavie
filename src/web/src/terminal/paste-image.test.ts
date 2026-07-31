@@ -1,11 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ClientSession } from "../bridge";
 
 const posted = vi.hoisted(() => [] as unknown[]);
-vi.mock("../bridge", () => ({
-  postToBackend: (backendId: string, message: unknown) => {
-    posted.push({ backendId, message });
-  },
-}));
 
 vi.mock("../notify/notify", () => ({
   notify: vi.fn(),
@@ -38,12 +34,24 @@ async function flushAsyncWork(): Promise<void> {
   await Promise.resolve();
 }
 
+function session(backendId: string, slot: string): ClientSession {
+  return {
+    connection: { id: backendId },
+    address: { slot, incarnation: `${slot}-incarnation` },
+    feature: (feature: string) => ({
+      publish: (name: string, payload: unknown) => {
+        posted.push({ backendId, slot, feature, name, payload });
+      },
+    }),
+  } as unknown as ClientSession;
+}
+
 describe("sendPastedImagesFromClipboard", () => {
   beforeEach(() => {
     posted.length = 0;
   });
 
-  it("resolves the backend when the paste occurs after a backend switch", async () => {
+  it("keeps the paste attached to the session that owns the terminal", async () => {
     let paste: ((event: ClipboardEvent) => void) | undefined;
     const container = {
       addEventListener: (_: string, handler: (event: ClipboardEvent) => void) => {
@@ -51,17 +59,18 @@ describe("sendPastedImagesFromClipboard", () => {
       },
       removeEventListener: vi.fn(),
     } as unknown as HTMLElement;
-    let backendId = "remote-1";
-    attachImagePaste(container, () => backendId, "shared-slot");
-    backendId = "remote-2";
+    attachImagePaste(container, session("remote-1", "shared-slot"));
 
     paste?.(pasteEvent(imageItem("image/png", new Uint8Array([1, 2, 3]))));
     await flushAsyncWork();
 
     expect(posted).toEqual([
       {
-        backendId: "remote-2",
-        message: expect.objectContaining({ type: "term-paste-image", slot: "shared-slot" }),
+        backendId: "remote-1",
+        slot: "shared-slot",
+        feature: "terminal.agent",
+        name: "pasteImage",
+        payload: { mime: "image/png", dataB64: "AQID" },
       },
     ]);
   });
@@ -69,7 +78,7 @@ describe("sendPastedImagesFromClipboard", () => {
   it("posts pasted agent images to the host", async () => {
     const event = pasteEvent(imageItem("image/png", new Uint8Array([1, 2, 3])));
 
-    expect(sendPastedImagesFromClipboard(event, "remote-1", "slot-1")).toBe(true);
+    expect(sendPastedImagesFromClipboard(event, session("remote-1", "slot-1"))).toBe(true);
     await flushAsyncWork();
 
     expect(event.preventDefault).toHaveBeenCalledOnce();
@@ -77,13 +86,10 @@ describe("sendPastedImagesFromClipboard", () => {
     expect(posted).toEqual([
       {
         backendId: "remote-1",
-        message: {
-          type: "term-paste-image",
-          slot: "slot-1",
-          session: "claude",
-          mime: "image/png",
-          dataB64: "AQID",
-        },
+        slot: "slot-1",
+        feature: "terminal.agent",
+        name: "pasteImage",
+        payload: { mime: "image/png", dataB64: "AQID" },
       },
     ]);
   });
@@ -95,7 +101,7 @@ describe("sendPastedImagesFromClipboard", () => {
       getAsFile: () => null,
     } as unknown as DataTransferItem);
 
-    expect(sendPastedImagesFromClipboard(event, "remote-1", "slot-1")).toBe(false);
+    expect(sendPastedImagesFromClipboard(event, session("remote-1", "slot-1"))).toBe(false);
 
     expect(event.preventDefault).not.toHaveBeenCalled();
     expect(event.stopImmediatePropagation).not.toHaveBeenCalled();

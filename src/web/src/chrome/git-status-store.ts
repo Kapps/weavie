@@ -1,7 +1,7 @@
-import { createSignal } from "solid-js";
-import { onHostMessage } from "../bridge";
+import { createMemo, createSignal } from "solid-js";
+import { type ClientSession, registerSessionFeature, selectedSession } from "../bridge";
 
-/** The active session's git branch + dirty flag, rendered by the terminal-column footer. */
+/** The selected session's git branch + dirty flag, rendered by the terminal-column footer. */
 export interface GitStatus {
   /** The checked-out branch, or null when the workspace isn't a git repo / HEAD is detached. */
   branch: string | null;
@@ -9,15 +9,23 @@ export interface GitStatus {
   dirty: boolean;
 }
 
-// Top-level module signal so it survives HMR. Fed by the host's active-backend-gated `git-status` push (a
-// background backend's traffic never reaches onHostMessage), so the footer always reflects the visible session.
-const [status, setStatus] = createSignal<GitStatus | null>(null);
+const [statuses, setStatuses] = createSignal(new Map<ClientSession, GitStatus>());
 
-/** The active session's git status (reactive), or null before the first push. */
-export const gitStatus = status;
+export const gitStatus = createMemo(() => {
+  const session = selectedSession();
+  return session === null ? null : (statuses().get(session) ?? null);
+});
 
-onHostMessage((message) => {
-  if (message.type === "git-status") {
-    setStatus({ branch: message.branch, dirty: message.dirty });
-  }
+registerSessionFeature((session) => {
+  const off = session.feature("git").on<GitStatus>("status", (status) => {
+    setStatuses((previous) => new Map(previous).set(session, status));
+  });
+  return () => {
+    off();
+    setStatuses((previous) => {
+      const next = new Map(previous);
+      next.delete(session);
+      return next;
+    });
+  };
 });

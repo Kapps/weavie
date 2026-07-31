@@ -2,28 +2,42 @@ using Weavie.Core.Diffs;
 using Weavie.Core.Editor;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Workspaces;
+using Weavie.Hosting.Messaging;
 using Xunit;
 
 namespace Weavie.Hosting.Tests;
 
 /// <summary>
-/// The diff lifecycle, with the cross-session guarantees the host depends on: diff ids are unique across ALL
-/// sessions (so a <c>diff-resolved</c> can be routed back to the session that owns it), and only the owning
-/// presenter resolves a given id (so a switch between render and resolve can't resolve the wrong session's diff).
+/// The diff lifecycle, including the exact-session guarantee: ids only need to be unique within their owning
+/// presenter because the session bus routes every resolution before it reaches that presenter.
 /// </summary>
 public sealed class McpDiffPresenterTests {
-	private static (McpDiffPresenter presenter, FakeHostBridge bridge) NewActive() {
+	private static (McpDiffPresenter presenter, FakeHostBridge bridge) NewPresenter() =>
+		NewPresenter(out _);
+
+	private static (McpDiffPresenter presenter, FakeHostBridge bridge) NewPresenter(
+		out MessageTargetFeature replayTarget) {
 		var bridge = new FakeHostBridge();
-		var channel = new SessionEditorChannel(bridge);
-		channel.Activate(); // active so the show-diff is posted and the test can read its id
+		var bus = new SessionMessageBus(
+			new SessionAddress("test", Guid.NewGuid().ToString("n")),
+			bridge.Broadcast,
+			bridge.Send,
+			_ => { });
+		var channel = bus.Feature("editor");
+		replayTarget = bus.BroadcastTarget.Feature("editor");
 		var fs = new InMemoryFileSystem();
 		var files = new FileProviderService(fs, "/ws", "/scratch");
-		var opener = new FileOpener(channel, files, bridge, new WorkspaceFileIndex(fs, "/ws"));
-		return (new McpDiffPresenter(channel, files, opener), bridge);
+		var opener = new FileOpener(
+			bridge.SessionViewFeature("view"),
+			bridge.SessionFeature("notifications"),
+			files,
+			new WorkspaceFileIndex(fs, "/ws"),
+			(_, _, _, _) => { });
+		return (new McpDiffPresenter(channel, files, opener, _ => { }), bridge);
 	}
 
 	private static string DiffId(FakeHostBridge bridge) {
-		var show = bridge.LastOfType("show-diff");
+		var show = bridge.LastEvent("editor", "showDiff");
 		Assert.True(show.HasValue);
 		return show!.Value.GetProperty("id").GetString()!;
 	}
@@ -32,20 +46,26 @@ public sealed class McpDiffPresenterTests {
 		new("/ws/a.cs", "/ws/a.cs", contents, "tab");
 
 	[Fact]
-	public void DiffIds_AreUniqueAcrossPresenters() {
-		var (p1, b1) = NewActive();
-		var (p2, b2) = NewActive();
+	public async Task DiffIds_AreScopedToTheirOwningPresenters() {
+		var (p1, b1) = NewPresenter();
+		var (p2, b2) = NewPresenter();
 
-		_ = p1.PresentDiffAsync(Proposal(), CancellationToken.None);
-		_ = p2.PresentDiffAsync(Proposal(), CancellationToken.None);
+		var first = p1.PresentDiffAsync(Proposal(), CancellationToken.None);
+		var second = p2.PresentDiffAsync(Proposal(), CancellationToken.None);
+		string firstId = DiffId(b1);
+		string secondId = DiffId(b2);
 
-		Assert.NotEqual(DiffId(b1), DiffId(b2));
+		Assert.Equal(firstId, secondId);
+		Assert.True(p1.Resolve(firstId, kept: true, finalContents: "first"));
+		Assert.True(p2.Resolve(secondId, kept: true, finalContents: "second"));
+		Assert.Equal("first", (await first).FinalContents);
+		Assert.Equal("second", (await second).FinalContents);
 	}
 
 	[Fact]
 	public async Task Resolve_OnlyTheOwningPresenterAcceptsTheId() {
-		var (owner, ownerBridge) = NewActive();
-		var (other, _) = NewActive();
+		var (owner, ownerBridge) = NewPresenter();
+		var (other, _) = NewPresenter();
 		var task = owner.PresentDiffAsync(Proposal(), CancellationToken.None);
 		string id = DiffId(ownerBridge);
 
@@ -60,7 +80,7 @@ public sealed class McpDiffPresenterTests {
 
 	[Fact]
 	public async Task Resolve_Reject_CompletesAsRejected() {
-		var (presenter, bridge) = NewActive();
+		var (presenter, bridge) = NewPresenter();
 		var task = presenter.PresentDiffAsync(Proposal(), CancellationToken.None);
 
 		Assert.True(presenter.Resolve(DiffId(bridge), kept: false, finalContents: null));
@@ -70,28 +90,41 @@ public sealed class McpDiffPresenterTests {
 	}
 
 	[Fact]
-	public void Resolve_DoesNotCloseInThePage() {
-		// The page already closed its own review when the user resolved it; a redundant close-diff would tear out a
-		// review the page may have already replaced. Resolve must stop tracking WITHOUT posting a close-diff.
-		var (presenter, bridge) = NewActive();
+	public void Resolve_ClosesOnlyItsExactDiff() {
+		var (presenter, bridge) = NewPresenter();
 		_ = presenter.PresentDiffAsync(Proposal(), CancellationToken.None);
 		string id = DiffId(bridge);
 		bridge.Clear();
 
 		Assert.True(presenter.Resolve(id, kept: true, finalContents: "final"));
 
-		Assert.Null(bridge.LastOfType("close-diff"));
+		Assert.Equal(id, bridge.LastEvent("editor", "closeDiff")!.Value.GetProperty("id").GetString());
 	}
 
 	[Fact]
 	public void Resolve_UnknownId_ReturnsFalse() {
-		var (presenter, _) = NewActive();
+		var (presenter, _) = NewPresenter();
 		Assert.False(presenter.Resolve("diff-does-not-exist", kept: true, finalContents: null));
 	}
 
 	[Fact]
+	public void ReconnectSnapshotContainsThePendingDiff() {
+		var (presenter, bridge) = NewPresenter(out var replayTarget);
+		_ = presenter.PresentDiffAsync(Proposal(), CancellationToken.None);
+		string id = DiffId(bridge);
+		bridge.Clear();
+
+		presenter.Replay(replayTarget);
+
+		var snapshot = bridge.LastEvent("editor", "diffSnapshot");
+		var proposal = Assert.Single(snapshot!.Value.GetProperty("proposals").EnumerateArray());
+		Assert.Equal(id, proposal.GetProperty("id").GetString());
+		Assert.Equal("proposed", proposal.GetProperty("proposed").GetString());
+	}
+
+	[Fact]
 	public async Task Cancellation_CompletesTheTaskAndStopsTracking() {
-		var (presenter, bridge) = NewActive();
+		var (presenter, bridge) = NewPresenter();
 		using var cts = new CancellationTokenSource();
 		var task = presenter.PresentDiffAsync(Proposal(), cts.Token);
 		string id = DiffId(bridge);
@@ -108,7 +141,7 @@ public sealed class McpDiffPresenterTests {
 		// The user flipped Claude into acceptEdits (Shift+Tab) with a default-mode openDiff still showing, so it
 		// was never resolved in Weavie. DismissPending tears it down: cancel the awaiting task (the MCP server
 		// then sends nothing back) and close the stale review in the page so its transient model can't linger.
-		var (presenter, bridge) = NewActive();
+		var (presenter, bridge) = NewPresenter();
 		var task = presenter.PresentDiffAsync(Proposal(), CancellationToken.None);
 		string id = DiffId(bridge);
 		bridge.Clear();
@@ -116,7 +149,7 @@ public sealed class McpDiffPresenterTests {
 		presenter.DismissPending();
 
 		await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await task);
-		var close = bridge.LastOfType("close-diff");
+		var close = bridge.LastEvent("editor", "closeDiff");
 		Assert.True(close.HasValue, "a dismissed review must be closed in the page");
 		Assert.Equal(id, close!.Value.GetProperty("id").GetString());
 		// The entry is gone, so a late resolve finds nothing.

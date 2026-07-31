@@ -21,6 +21,7 @@ import {
   scanCommentBlocks,
 } from "./comment-markup";
 import { monaco } from "./monaco-setup";
+import { SESSION_FILE_SCHEME } from "./session-uri";
 
 // Re-scan after edits settle rather than on every keystroke (matches inline-diff's recompute debounce).
 const RESCAN_DEBOUNCE_MS = 150;
@@ -166,7 +167,7 @@ export function createCommentProse(
     line === undefined ? undefined : blocks.find((b) => line >= b.startLine && line <= b.endLine);
 
   const isFileModel = (model: monaco.editor.ITextModel | null): model is monaco.editor.ITextModel =>
-    model !== null && model.uri.scheme === "file";
+    model !== null && model.uri.scheme === SESSION_FILE_SCHEME;
 
   const render = (): void => {
     // Pin the scroll across the rebuild: clearRender drops every zone to zero height first, so Monaco

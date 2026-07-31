@@ -1,7 +1,62 @@
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import WebSocket from "ws";
 import { openFile, runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
+
+interface SessionAddress {
+  slot: string;
+  incarnation: string;
+}
+
+async function selectedSessionAddress(
+  page: import("@playwright/test").Page,
+  hostUrl: string,
+): Promise<SessionAddress> {
+  const slot = await page.locator(".session-chip.active").getAttribute("data-session-slot");
+  if (slot === null) {
+    throw new Error("the selected session chip has no slot");
+  }
+
+  const endpoint = new URL(hostUrl);
+  endpoint.protocol = endpoint.protocol === "https:" ? "wss:" : "ws:";
+  endpoint.pathname = "/weavie-bridge";
+  const socket = new WebSocket(endpoint);
+  return new Promise<SessionAddress>((resolve, reject) => {
+    socket.on("error", reject);
+    socket.on("open", () => {
+      socket.send(
+        JSON.stringify({
+          scope: "host",
+          session: null,
+          kind: "request",
+          requestId: "media-test-hello",
+          feature: "connection",
+          name: "hello",
+          payload: {},
+          error: null,
+        }),
+      );
+    });
+    socket.on("message", (data) => {
+      const envelope = JSON.parse(data.toString()) as {
+        kind?: string;
+        requestId?: string;
+        payload?: { sessions?: { id: string; address: SessionAddress | null }[] };
+      };
+      if (envelope.kind !== "response" || envelope.requestId !== "media-test-hello") {
+        return;
+      }
+      const address = envelope.payload?.sessions?.find((session) => session.id === slot)?.address;
+      socket.close();
+      if (address === null || address === undefined) {
+        reject(new Error(`the selected session '${slot}' is not live`));
+      } else {
+        resolve(address);
+      }
+    });
+  });
+}
 
 // Every workspace's persisted editor session concatenated ("" until the host has written one) — polled to
 // know the debounced editor-session-changed landed on disk before a reload, instead of sleeping past it.
@@ -102,30 +157,58 @@ test("switching between a text tab and a media tab keeps both healthy", async ({
   expect(await page.locator(".editor-media img").getAttribute("src")).toBe(firstSource);
 });
 
-// Scratch is an intentionally shared root, so two sessions can have the exact same media path open. A switch
-// must still change the URL's session authorization context even though the path signal itself is unchanged.
-test("same-path media switches to the incoming session route", async ({ page, weavie }) => {
-  const workspaceState = join(weavie.home, ".weavie", "workspaces");
-  const scratch = join(workspaceState, readdirSync(workspaceState)[0], "scratch", "shared.png");
-  mkdirSync(dirname(scratch), { recursive: true });
-  writeFileSync(scratch, readFileSync(join(weavie.workspace, "pixel.png")));
+// Scratch is session-owned just like workspace files. Same-named media in two scratch stores must render from
+// the exact owner, then switch back to the first owner's persisted tab without crossing authorization routes.
+test("same-named scratch media switches to the incoming session route", async ({
+  page,
+  weavie,
+}) => {
+  const createScratchMedia = async (): Promise<string> => {
+    await runCommand(page, "New File");
+    const untitled = await page.locator(".editor-tab.active").getAttribute("title");
+    if (untitled === null) {
+      throw new Error("the scratch tab has no path");
+    }
+    const path = join(dirname(untitled), "shared.png");
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, readFileSync(join(weavie.workspace, "pixel.png")));
+    return path;
+  };
 
-  const openScratch = async (): Promise<void> => {
-    await page.evaluate((path) => {
-      window.__weavieReceive?.(JSON.stringify({ type: "open-file", path, line: 1, scratch: true }));
-    }, scratch);
+  const openScratch = async (path: string): Promise<void> => {
+    const address = await selectedSessionAddress(page, weavie.url);
+    await page.evaluate(
+      ({ path, session }) => {
+        window.__weavieReceive?.(
+          JSON.stringify({
+            scope: "session",
+            session,
+            kind: "event",
+            requestId: null,
+            feature: "editor",
+            name: "openFile",
+            payload: { path, line: 1, scratch: true },
+            error: null,
+          }),
+        );
+      },
+      { path, session: address },
+    );
     await expect(page.locator(".editor-media img")).toHaveJSProperty("naturalWidth", 8);
   };
 
-  await openScratch();
+  const firstPath = await createScratchMedia();
+  await openScratch(firstPath);
   const first = new URL((await page.locator(".editor-media img").getAttribute("src")) as string);
   await expect.poll(() => persistedSessions(weavie.home)).toContain("shared.png");
 
   await runCommand(page, "Fork Session");
   await expect(page.locator(".session-chip")).toHaveCount(2);
-  await openScratch();
+  const secondPath = await createScratchMedia();
+  await openScratch(secondPath);
   const second = new URL((await page.locator(".editor-media img").getAttribute("src")) as string);
   expect(second.searchParams.get("session")).not.toBe(first.searchParams.get("session"));
+  expect(second.searchParams.get("path")).not.toBe(first.searchParams.get("path"));
 
   const incoming = page.locator(".session-chip:not(.active)");
   const incomingTitle = await incoming.getAttribute("title");

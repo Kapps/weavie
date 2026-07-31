@@ -1,79 +1,211 @@
+import { createSignal } from "solid-js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ClientSession, HostConnection } from "../bridge";
+import type { SessionCatalogEntry } from "../messaging/host-connection";
 import type { RailSession } from "./session-store";
+
+vi.mock("solid-js", () => import(["solid-js", "dist/solid.js"].join("/")));
 
 // NOTE: the store's working-set views (`sessions`, `railSessions`, `remoteAgentRows`) are module-scope Solid
 // memos. Outside a render root they never track their sources, so they can't be exercised in this pure-node
 // env — that reactive behaviour is covered by the Playwright e2e suite (e2e/functional/session.spec.ts).
 // `claudeStatus` is a plain signal, so its host-sync gating IS unit-testable here.
 
-type SessionMsg = { type: string; [k: string]: unknown };
-const handlers = vi.hoisted(() => [] as Array<(m: SessionMsg, backendId: string) => void>);
-vi.mock("../bridge", () => ({
-  // The page is bound to the local backend throughout these tests.
-  activeBackendId: () => "local",
-  editorBackendId: () => null,
-  editorRailSessionId: () => null,
-  editorSessionId: () => null,
-  backendName: (id: string) => id,
-  connectedBackends: () => [{ id: "local", name: "default", isLocal: true }],
-  onSessionMessage: (h: (m: SessionMsg, backendId: string) => void) => {
-    handlers.push(h);
-    return () => {};
-  },
-  onHostMessage: () => () => {},
-  onBackendDisconnected: () => () => {},
-  backendPhase: () => "online",
-  onBackendPhase: () => () => {},
-  postToBackend: () => {},
-  connectBackend: () => {},
-  disconnectBackend: () => {},
-  log: () => {},
+const harness = vi.hoisted(() => ({
+  hostInstallers: [] as Array<(connection: HostConnection) => undefined | (() => void)>,
+  sessionInstallers: [] as Array<(session: ClientSession) => undefined | (() => void)>,
+  connections: new Map<
+    string,
+    {
+      connection: HostConnection;
+      catalogs: Array<(catalog: SessionCatalogEntry[]) => void>;
+    }
+  >(),
+  sessions: new Map<
+    string,
+    {
+      client: ClientSession;
+      status?: (payload: { status: string }) => void;
+    }
+  >(),
+  selectionListeners: [] as Array<(session: ClientSession | null) => void>,
+  setSelected: (_session: ClientSession | null): void => {},
 }));
+
+vi.mock("../bridge", () => {
+  const [selectedSession, setSelected] = createSignal<ClientSession | null>(null);
+  harness.setSelected = (session) => {
+    setSelected(session);
+    for (const listener of harness.selectionListeners) {
+      listener(session);
+    }
+  };
+  return {
+    backendName: (id: string) => id,
+    backendPhase: () => "online",
+    connectBackend: () => {},
+    connectedBackends: () =>
+      [...harness.connections.keys()].map((id) => ({
+        id,
+        name: id,
+        isLocal: id === "local",
+      })),
+    disconnectBackend: () => {},
+    hostConnection: (id: string) => connection(id).connection,
+    log: () => {},
+    onBackendDisconnected: () => () => {},
+    onBackendPhase: () => () => {},
+    onSelectedSession: (listener: (session: ClientSession | null) => void) => {
+      harness.selectionListeners.push(listener);
+      listener(selectedSession());
+      return () => {};
+    },
+    registerHostFeature: (installer: (connection: HostConnection) => undefined | (() => void)) => {
+      harness.hostInstallers.push(installer);
+      return () => {};
+    },
+    registerSessionFeature: (installer: (session: ClientSession) => undefined | (() => void)) => {
+      harness.sessionInstallers.push(installer);
+      return () => {};
+    },
+    selectedSession,
+    LOCAL_BACKEND_ID: "local",
+  };
+});
 
 const store = await import("./session-store");
 
-const deliver = (message: SessionMsg, backendId: string): void => {
-  for (const h of handlers) {
-    h(message, backendId);
+function connection(backendId: string): {
+  connection: HostConnection;
+  catalogs: Array<(catalog: SessionCatalogEntry[]) => void>;
+} {
+  const existing = harness.connections.get(backendId);
+  if (existing !== undefined) {
+    return existing;
   }
-};
+  const catalogs: Array<(catalog: SessionCatalogEntry[]) => void> = [];
+  const created = {
+    connection: {
+      id: backendId,
+      isLocal: backendId === "local",
+      onCatalog: (handler: (catalog: SessionCatalogEntry[]) => void) => {
+        catalogs.push(handler);
+        return () => {};
+      },
+      session: (address: { slot: string }) =>
+        harness.sessions.get(`${backendId}\u0000${address.slot}`)?.client,
+      onHello: () => () => {},
+      host: {
+        feature: () => ({
+          on: () => () => {},
+          publish: () => {},
+        }),
+      },
+    } as unknown as HostConnection,
+    catalogs,
+  };
+  harness.connections.set(backendId, created);
+  for (const installer of harness.hostInstallers) {
+    installer(created.connection);
+  }
+  return created;
+}
+
+function session(
+  backendId: string,
+  slot: string,
+): {
+  client: ClientSession;
+  status?: (payload: { status: string }) => void;
+} {
+  const key = `${backendId}\u0000${slot}`;
+  const existing = harness.sessions.get(key);
+  if (existing !== undefined) {
+    return existing;
+  }
+  const created = {} as {
+    client: ClientSession;
+    status?: (payload: { status: string }) => void;
+  };
+  created.client = {
+    connection: connection(backendId).connection,
+    address: { slot, incarnation: `${slot}-incarnation` },
+    feature: (feature: string) => ({
+      on: (_name: string, handler: (payload: { status: string }) => void) => {
+        if (feature === "status") {
+          created.status = handler;
+        }
+        return () => {};
+      },
+    }),
+  } as unknown as ClientSession;
+  harness.sessions.set(key, created);
+  for (const installer of harness.sessionInstallers) {
+    installer(created.client);
+  }
+  return created;
+}
+
+function deliverCatalog(backendId: string, slots: string[]): void {
+  const catalog = slots.map(
+    (slot) =>
+      ({
+        id: slot,
+        label: slot,
+        address: { slot, incarnation: `${slot}-incarnation` },
+        loaded: true,
+        primary: slot === "main",
+        providerId: "claude",
+        status: "starting",
+        hue: 0,
+        monogram: slot.slice(0, 1),
+      }) as SessionCatalogEntry,
+  );
+  for (const handler of connection(backendId).catalogs) {
+    handler(catalog);
+  }
+}
+
+const deliverStatus = (backendId: string, slot: string, status: string): void =>
+  session(backendId, slot).status?.({ status });
 
 beforeEach(() => {
-  // Reset to a known status between tests.
-  deliver({ type: "session-status", session: "claude", status: "starting" }, "local");
+  const primary = session("local", "main");
+  harness.setSelected(primary.client);
+  deliverCatalog("local", ["main"]);
+  deliverStatus("local", "main", "starting");
 });
 
-describe("claudeStatus host sync", () => {
-  it("adopts the active backend's claude status", () => {
-    deliver({ type: "session-status", session: "claude", status: "working" }, "local");
+describe("selected session status", () => {
+  it("adopts the selected session's status", () => {
+    deliverStatus("local", "main", "working");
     expect(store.claudeStatus()).toBe("working");
   });
 
-  it("ignores a status from a non-active backend (no cross-backend leak)", () => {
-    deliver({ type: "session-status", session: "claude", status: "working" }, "local");
-    deliver({ type: "session-status", session: "claude", status: "idle" }, "remote:r");
+  it("retains background status without leaking it into the selected session", () => {
+    deliverStatus("local", "main", "working");
+    session("remote:r", "feature");
+    deliverCatalog("remote:r", ["feature"]);
+    deliverStatus("remote:r", "feature", "idle");
     expect(store.claudeStatus()).toBe("working");
-  });
-
-  it("ignores the shell pane's status — only claude drives the dot", () => {
-    deliver({ type: "session-status", session: "claude", status: "needsInput" }, "local");
-    deliver({ type: "session-status", session: "shell", status: "idle" }, "local");
-    expect(store.claudeStatus()).toBe("needsInput");
   });
 
   it("adopts the waiting status (idle but resuming on a scheduled task)", () => {
-    deliver({ type: "session-status", session: "claude", status: "waiting" }, "local");
+    deliverStatus("local", "main", "waiting");
     expect(store.claudeStatus()).toBe("waiting");
   });
 });
 
 const chip = (id: string, active: boolean): RailSession => ({
+  owner: null,
   id,
   label: id,
   active,
   loaded: true,
   primary: false,
   providerId: "claude",
+  agentSurface: "terminal",
+  agentInputProtocol: 0,
   status: "idle",
   hue: 0,
   monogram: id.slice(0, 1),

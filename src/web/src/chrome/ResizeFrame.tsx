@@ -1,5 +1,5 @@
 import { For, type JSX, Show } from "solid-js";
-import { postToLocalHost, type ResizeEdge } from "../bridge";
+import { hostConnection, LOCAL_BACKEND_ID, type ResizeEdge } from "../bridge";
 
 // Resize grab handles for the frameless host window (Windows custom chrome): the WebView2 covers the OS
 // resize border so WM_NCHITTEST never fires at the edges, so these thin border handles ask the host to begin
@@ -29,7 +29,9 @@ export function ResizeFrame(props: { maximized: boolean }): JSX.Element {
                   return;
                 }
                 e.preventDefault();
-                postToLocalHost({ type: "window-resize", edge });
+                hostConnection(LOCAL_BACKEND_ID)
+                  ?.host.feature("window")
+                  .publish("resize", { edge });
               }}
             />
           )}

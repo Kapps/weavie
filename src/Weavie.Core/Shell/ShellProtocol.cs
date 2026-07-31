@@ -60,12 +60,7 @@ public enum MenuCommand {
 }
 
 /// <summary>
-/// Builds and parses the title-bar bridge messages exchanged with the web shell — one shared wire contract
-/// both hosts use. Mirrors the message <c>type</c>s in the web's <c>bridge.ts</c>.
-/// <list type="bullet">
-/// <item>host → web: the <c>__WEAVIE_SHELL__</c> config script, <c>window-state</c>, <c>file-index</c>.</item>
-/// <item>web → host: <c>window-control</c>, <c>menu-action</c> (parsed into the enums above).</item>
-/// </list>
+/// Builds the boot-time title-bar configuration and parses window feature payloads shared by every host.
 /// </summary>
 public static class ShellProtocol {
 	/// <summary>
@@ -97,68 +92,7 @@ public static class ShellProtocol {
 		return $"window.__WEAVIE_SHELL__ = {json};";
 	}
 
-	/// <summary>Builds the <c>notify</c> message (a user-facing toast in the page).</summary>
-	public static string BuildNotify(string level, string message) {
-		ArgumentException.ThrowIfNullOrEmpty(level);
-		ArgumentNullException.ThrowIfNull(message);
-		return JsonSerializer.Serialize(new { type = "notify", level, message });
-	}
-
-	/// <summary>
-	/// As <see cref="BuildNotify(string,string)"/>, with a dedupe <paramref name="key"/>: a later toast carrying
-	/// the same key replaces the live one in place.
-	/// </summary>
-	public static string BuildNotify(string level, string message, string key) {
-		ArgumentException.ThrowIfNullOrEmpty(level);
-		ArgumentNullException.ThrowIfNull(message);
-		ArgumentException.ThrowIfNullOrEmpty(key);
-		return JsonSerializer.Serialize(new { type = "notify", level, message, key });
-	}
-
-	/// <summary>Builds the <c>notify-clear</c> message: dismisses the live toast carrying <paramref name="key"/> (e.g. a resolved in-flight spinner).</summary>
-	public static string BuildNotifyClear(string key) {
-		ArgumentException.ThrowIfNullOrEmpty(key);
-		return JsonSerializer.Serialize(new { type = "notify-clear", key });
-	}
-
-	/// <summary>Builds the <c>window-state</c> message (maximize glyph + blur dim) the host pushes on focus/size changes.</summary>
-	public static string BuildWindowState(bool maximized, bool focused) =>
-		JsonSerializer.Serialize(new { type = "window-state", maximized, focused });
-
-	/// <summary>Builds the <c>file-index</c> reply (root + every file's absolute path) for the omnibar quick-open.</summary>
-	public static string BuildFileIndex(string root, IReadOnlyList<string> files) {
-		ArgumentException.ThrowIfNullOrEmpty(root);
-		ArgumentNullException.ThrowIfNull(files);
-		return JsonSerializer.Serialize(new { type = "file-index", root, files });
-	}
-
-	/// <summary>
-	/// Builds the pending <c>file-index</c> (new root, no files yet, <c>pending</c> set) a session switch pushes
-	/// in-order with its message train: the page drops the outgoing session's index at once — offering a stale
-	/// file would route a wrong-worktree path — and shows the walk as loading until the real index lands.
-	/// </summary>
-	public static string BuildFileIndexPending(string root) {
-		ArgumentException.ThrowIfNullOrEmpty(root);
-		return JsonSerializer.Serialize(new { type = "file-index", root, files = Array.Empty<string>(), pending = true });
-	}
-
-	/// <summary>
-	/// Builds the <c>focus-omnibar</c> message: the page opens Go-to-File preloaded with <paramref name="query"/> —
-	/// the reveal for a clicked file link that suffix-matched several workspace files. <paramref name="line"/> is
-	/// the link's 1-based line, applied to whichever candidate the user opens.
-	/// </summary>
-	public static string BuildFocusOmnibar(string query, int line) {
-		ArgumentException.ThrowIfNullOrEmpty(query);
-		return JsonSerializer.Serialize(new { type = "focus-omnibar", query, line = Math.Max(1, line) });
-	}
-
-	/// <summary>Builds the <c>recent-files</c> push (frecency-ranked absolute paths) for the omnibar's Recent section.</summary>
-	public static string BuildRecentFiles(IReadOnlyList<string> files) {
-		ArgumentNullException.ThrowIfNull(files);
-		return JsonSerializer.Serialize(new { type = "recent-files", files });
-	}
-
-	/// <summary>Parses a <c>window-control</c> message's <c>action</c>. False for an unknown/missing action.</summary>
+	/// <summary>Parses a <c>window.control</c> payload's <c>action</c>. False for an unknown/missing action.</summary>
 	public static bool TryParseWindowControl(JsonElement message, out WindowControl control) {
 		control = default;
 		string? action = message.TryGetProperty("action", out var a) ? a.GetString() : null;
@@ -177,7 +111,7 @@ public static class ShellProtocol {
 		}
 	}
 
-	/// <summary>Parses a <c>window-resize</c> message's <c>edge</c>. False for an unknown/missing edge.</summary>
+	/// <summary>Parses a <c>window.resize</c> payload's <c>edge</c>. False for an unknown/missing edge.</summary>
 	public static bool TryParseWindowResize(JsonElement message, out ResizeEdge edge) {
 		edge = default;
 		string? value = message.TryGetProperty("edge", out var e) ? e.GetString() : null;
@@ -212,7 +146,7 @@ public static class ShellProtocol {
 	}
 
 	/// <summary>
-	/// Parses a <c>menu-action</c> message's <c>action</c> (and optional <c>path</c> for Open Recent). False for
+	/// Parses a <c>window.menu</c> payload's <c>action</c> (and optional <c>path</c> for Open Recent). False for
 	/// an unknown/missing action.
 	/// </summary>
 	public static bool TryParseMenuAction(JsonElement message, out MenuCommand command, out string? path) {

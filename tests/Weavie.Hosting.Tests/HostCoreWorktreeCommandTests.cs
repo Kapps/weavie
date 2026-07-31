@@ -25,7 +25,7 @@ public sealed class HostCoreWorktreeCommandTests {
 		// The "ready" toast fires only when a command actually ran; a rootless resolve would read empty and be a
 		// silent Ran=false no-op. So its arrival proves the provisioner read the overlay with the workspace root.
 		var ready = await Wait.ForAsync(() => {
-			var n = host.Bridge.LastOfType("notify");
+			var n = host.Bridge.LastEvent("notifications", "show");
 			return n is { } v && (v.GetProperty("message").GetString() ?? string.Empty)
 				.Contains("is ready", StringComparison.Ordinal)
 				? v

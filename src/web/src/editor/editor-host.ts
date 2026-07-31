@@ -11,24 +11,24 @@ import {
   ITextFileService,
   ITextModelService,
 } from "@codingame/monaco-vscode-api/services";
-import {
-  currentEditorBinding,
-  type EditorBinding,
-  editorAttribution,
-  log,
-  postToEditorBinding,
-} from "../bridge";
+import { type ClientSession, log, selectedSession } from "../bridge";
 import { startLanguageServices } from "../lsp/lsp-client";
 import { installReferenceCommands } from "../lsp/reference-commands";
 import { installTestLenses } from "../tests/test-lens";
 import { installAltClickPeek } from "./alt-click-peek";
 import { setDirtyPath } from "./dirty-store";
 import { setEditorStatus } from "./editor-status-store";
-import { canonicalFsPath, uriHostPath } from "./fs-path";
 import { mediaTypeOf } from "./media/media-types";
 import { createEditor, monaco } from "./monaco-setup";
 import { leaveLine } from "./nav-history";
-import { captureViewState, editorSession, openTab, promote } from "./session-store";
+import { captureViewStateFor, editorSessionFor, openTabFor, promoteFor } from "./session-store";
+import {
+  hostUriString,
+  SESSION_FILE_SCHEME,
+  sessionFileUri,
+  sessionForUri,
+  sessionUriHostPath,
+} from "./session-uri";
 import { initEditorServices, setOpenEditorSink } from "./vscode-services";
 
 // A resolved, refcounted model reference held for an open file. Disposing it drops a refcount; the model is
@@ -65,6 +65,7 @@ export interface EditorHost {
    * caller rolls its now-broken tab back.
    */
   show(
+    session: ClientSession,
     path: string,
     placement: { line: number; column?: number; focus?: boolean } | { viewState: unknown },
   ): Promise<boolean>;
@@ -73,39 +74,41 @@ export interface EditorHost {
    * that disposes one, never dispose()). The caller must switch the editor off this model first. Pass `discard`
    * to skip the flush (a scratch buffer being discarded/converted, whose temp file is deleted host-side).
    */
-  closeFile(path: string, discard?: boolean): void;
+  closeFile(session: ClientSession, path: string, discard?: boolean): void;
   /** The current text of an open file's working copy (for a scratch save / discard check), or undefined. */
-  contentOf(path: string): string | undefined;
+  contentOf(session: ClientSession, path: string): string | undefined;
   /** Cancels a file's pending debounced save (so no autosave fires while a scratch save dialog is open). */
-  cancelSave(path: string): void;
+  cancelSave(session: ClientSession, path: string): void;
   /**
    * Flushes a file's pending debounced save and resolves once it lands, so a host action that reads the file
    * next (a per-hunk revert's guard) sees current content. No-op when not dirty.
    */
-  flush(path: string): Promise<void>;
+  flush(session: ClientSession, path: string): Promise<void>;
   /**
    * Flushes every dirty working copy to its editor-owning backend and resolves once all saves land. Called
    * before a cross-backend switch so unsaved edits persist on their own host.
    */
   flushDirty(): Promise<void>;
+  /** Flushes dirty working copies belonging to one exact session before that backend is torn down. */
+  flushSession(session: ClientSession): Promise<void>;
   /** Clears the editor to an empty pane (the last tab was closed). */
   clear(): void;
   /**
    * Rebinds the editor to the (already-updated) session store after a switch: releases the previous session's
    * working copies, then reopens the new active tab (non-active tabs reopen lazily).
    */
-  rebindSession(): Promise<void>;
+  rebindSession(session: ClientSession): Promise<void>;
   /**
    * Begins an inline review of an openDiff proposal in a transient model (the working copy is left untouched),
    * shows `proposed` revealed at 1-based `line`, and returns the model's URI so the caller renders the diff over it.
    */
-  beginReview(path: string, proposed: string, line: number): string;
+  beginReview(session: ClientSession, path: string, proposed: string, line: number): string;
   /**
    * Ends an inline review and returns the proposal's final content. Restores the editor off the review model:
    * to the file's working copy when open, else a kept proposal keeps showing, a rejected one returns to the
    * prior view. Disposes the review model.
    */
-  endReview(path: string, keep: boolean, original: string): string;
+  endReview(session: ClientSession, path: string, keep: boolean, original: string): string;
   /**
    * Tears the host down: flushes pending saves, drops all subscriptions (including on models that outlive the
    * widget), disposes the editor. Working copies and references persist on window so the next host reattaches.
@@ -115,7 +118,7 @@ export interface EditorHost {
 
 /** A real user file worth saving / reporting as active: a `file://` model (the editor's working copies). */
 function isUserFileModel(model: monaco.editor.ITextModel): boolean {
-  return model.uri.scheme === "file";
+  return model.uri.scheme === SESSION_FILE_SCHEME && sessionForUri(model.uri) !== undefined;
 }
 
 /**
@@ -128,7 +131,7 @@ export async function createEditorHost(
   container: HTMLElement,
   onSaveError?: (message: string) => void,
   onOpenError?: (message: string) => void,
-  onLeaveViewport?: (loc: { path: string; line: number }) => void,
+  onLeaveViewport?: (loc: { session: ClientSession; path: string; line: number }) => void,
 ): Promise<EditorHost> {
   await initEditorServices();
   const textModelService = await getService(ITextModelService);
@@ -162,24 +165,22 @@ export async function createEditorHost(
   // Tell the host which file + selection is active so embedded Claude knows what the user is looking at.
   // Debounced (cursor moves fire rapidly); the transient review model is suppressed — not a file being worked on.
   let emitTimer: ReturnType<typeof setTimeout> | undefined;
-  const emitActiveEditor = (binding: EditorBinding): void => {
-    if (currentEditorBinding() !== binding) {
-      return;
-    }
+  const emitActiveEditor = (): void => {
     const model = editor.getModel();
     if (model === null || !isUserFileModel(model)) {
+      return;
+    }
+    const session = sessionForUri(model.uri);
+    if (session === undefined) {
       return;
     }
     const sel = editor.getSelection();
     const text = sel !== null && !sel.isEmpty() ? model.getValueInRange(sel) : "";
     // Monaco positions are 1-based; the IDE selection protocol is 0-based.
-    postToEditorBinding(binding, {
-      type: "active-editor-changed",
-      uri: model.uri.toString(),
+    session.feature("editor").publish("activeChanged", {
+      uri: hostUriString(model.uri),
       languageId: model.getLanguageId(),
       text,
-      // Stamp the owning session so a selection emit that fires after a switch is attributed correctly.
-      ...editorAttribution(binding),
       selection: {
         start: {
           line: (sel?.startLineNumber ?? 1) - 1,
@@ -194,10 +195,7 @@ export async function createEditorHost(
     if (emitTimer !== undefined) {
       clearTimeout(emitTimer);
     }
-    const binding = currentEditorBinding();
-    if (binding !== null) {
-      emitTimer = setTimeout(() => emitActiveEditor(binding), 150);
-    }
+    emitTimer = setTimeout(emitActiveEditor, 150);
   };
 
   // Drive the editor status footer (cursor/selection/EOL). Written synchronously — the footer wants immediate
@@ -228,7 +226,7 @@ export async function createEditorHost(
   const reflectActiveFile = (): void => {
     const model = editor.getModel();
     if (model !== null && isUserFileModel(model)) {
-      container.dataset.activeFile = model.uri.fsPath;
+      container.dataset.activeFile = sessionUriHostPath(model.uri);
     } else {
       delete container.dataset.activeFile;
     }
@@ -249,11 +247,17 @@ export async function createEditorHost(
   // Mirror each working copy's dirty state into the dirty store so the tab strip shows an unsaved `*` (the error
   // gate below can hold a flush back). Seed from in-memory models (covers a hot reload), then track changes.
   for (const model of textFileService.files.models) {
-    setDirtyPath(model.resource.fsPath, model.isDirty());
+    const session = sessionForUri(model.resource);
+    if (session !== undefined) {
+      setDirtyPath(session, sessionUriHostPath(model.resource), model.isDirty());
+    }
   }
   disposables.push(
     textFileService.files.onDidChangeDirty((model) => {
-      setDirtyPath(model.resource.fsPath, model.isDirty());
+      const session = sessionForUri(model.resource);
+      if (session !== undefined) {
+        setDirtyPath(session, sessionUriHostPath(model.resource), model.isDirty());
+      }
     }),
   );
 
@@ -266,7 +270,10 @@ export async function createEditorHost(
     if (model === null || !isUserFileModel(model)) {
       return;
     }
-    captureViewState(model.uri.fsPath, editor.saveViewState() ?? null);
+    const session = sessionForUri(model.uri);
+    if (session !== undefined) {
+      captureViewStateFor(session, sessionUriHostPath(model.uri), editor.saveViewState() ?? null);
+    }
   };
   const scheduleSnapshotViewState = (): void => {
     if (viewStateTimer !== undefined) {
@@ -376,7 +383,10 @@ export async function createEditorHost(
           return;
         }
         // A real edit promotes a preview tab to persistent (no-op once persistent).
-        promote(model.uri.fsPath);
+        const session = sessionForUri(model.uri);
+        if (session !== undefined) {
+          promoteFor(session, sessionUriHostPath(model.uri));
+        }
         const delay = editor.getModel() === model ? 250 : 600;
         const pending = saveTimers.get(key);
         if (pending !== undefined) {
@@ -421,7 +431,10 @@ export async function createEditorHost(
       | { selection: monaco.IRange }
       | { viewState: monaco.editor.ICodeEditorViewState | null },
   ): Promise<boolean> => {
-    const binding = currentEditorBinding();
+    const owner = sessionForUri(uri);
+    if (owner === undefined || selectedSession() !== owner) {
+      return true;
+    }
     // Snapshot the outgoing tab's position before swapping away (data-only store write; never loops back).
     snapshotViewState();
     // On a cross-file jump, if the user scrolled the outgoing cursor off-screen, record where they were looking
@@ -442,14 +455,21 @@ export async function createEditorHost(
     ) {
       const line = leaveLine(cursor.lineNumber, top.startLineNumber, bottom.endLineNumber);
       if (line !== undefined) {
-        onLeaveViewport({ path: uriHostPath(leaving.uri), line });
+        const session = sessionForUri(leaving.uri);
+        if (session !== undefined) {
+          onLeaveViewport({
+            session,
+            path: sessionUriHostPath(leaving.uri),
+            line,
+          });
+        }
       }
     }
     const token = ++openSeq;
     try {
       const resolved = await resolveRef(uri);
       let ref = resolved.ref;
-      if (binding !== currentEditorBinding() || token !== openSeq) {
+      if (token !== openSeq || selectedSession() !== owner) {
         if (resolved.owned) {
           ref.dispose();
         }
@@ -485,7 +505,7 @@ export async function createEditorHost(
     } catch (error) {
       // A genuine read failure. If a newer open superseded this one, stay quiet — it owns the editor. Otherwise
       // error loudly: the model never swapped, so without this the tab would sit blank with no signal.
-      if (binding !== currentEditorBinding() || token !== openSeq) {
+      if (token !== openSeq) {
         return true;
       }
       log("error", `open failed for ${uri.toString()}: ${String(error)}`);
@@ -496,6 +516,7 @@ export async function createEditorHost(
   };
 
   const show = (
+    session: ClientSession,
     path: string,
     placement: { line: number; column?: number; focus?: boolean } | { viewState: unknown },
   ): Promise<boolean> => {
@@ -503,13 +524,13 @@ export async function createEditorHost(
       "line" in placement
         ? placement
         : { viewState: placement.viewState as monaco.editor.ICodeEditorViewState | null };
-    return showFile(monaco.Uri.file(canonicalFsPath(path)), resolved);
+    return showFile(sessionFileUri(session, path), resolved);
   };
 
   // Close a tab: flush any pending save, then release the refcounted reference (only site that disposes one;
   // never dispose(), since a hot reload keeps copies alive on window). Caller switches the editor off first.
-  const closeFile = (path: string, discard = false): void => {
-    const key = monaco.Uri.file(canonicalFsPath(path)).toString();
+  const closeFile = (session: ClientSession, path: string, discard = false): void => {
+    const key = sessionFileUri(session, path).toString();
     if (discard) {
       // Discarded/converted scratch: drop the pending save instead of flushing — its temp file is being
       // deleted host-side, so a flush would be wasted or re-create the file.
@@ -524,20 +545,20 @@ export async function createEditorHost(
     }
     // Disposing a model doesn't reliably fire onDidChangeDirty(false), so a discarded (or error-held) dirty
     // file would leave a phantom `*` in the dirty store that resurrects on reopen. Clear it explicitly.
-    setDirtyPath(monaco.Uri.parse(key).fsPath, false);
+    setDirtyPath(session, path, false);
   };
 
   // The current text of an open working copy (seeds a scratch "save as" and decides whether a scratch close
   // needs a discard confirm). Undefined when the file isn't open as a working copy.
-  const contentOf = (path: string): string | undefined => {
-    const key = monaco.Uri.file(canonicalFsPath(path)).toString();
+  const contentOf = (session: ClientSession, path: string): string | undefined => {
+    const key = sessionFileUri(session, path).toString();
     return refs.get(key)?.object.textEditorModel.getValue();
   };
 
   // Flush a file's pending save and await it landing on disk. Used before a per-hunk revert so the host's
   // optimistic-concurrency guard reads current content, not a version the debounce hasn't written. No-op when clean.
-  const flush = async (path: string): Promise<void> => {
-    const key = monaco.Uri.file(canonicalFsPath(path)).toString();
+  const flush = async (session: ClientSession, path: string): Promise<void> => {
+    const key = sessionFileUri(session, path).toString();
     cancelPendingSave(key);
     const uri = monaco.Uri.parse(key);
     if (!textFileService.isDirty(uri)) {
@@ -548,11 +569,12 @@ export async function createEditorHost(
 
   // Cancel a file's pending debounced save. Called before opening the native scratch save dialog so an
   // in-flight autosave can't re-create the temp file after the host has saved + deleted it.
-  const cancelSave = (path: string): void => {
-    cancelPendingSave(monaco.Uri.file(canonicalFsPath(path)).toString());
+  const cancelSave = (session: ClientSession, path: string): void => {
+    cancelPendingSave(sessionFileUri(session, path).toString());
   };
 
   const clear = (): void => {
+    snapshotViewState();
     openSeq += 1;
     editor.setModel(null);
   };
@@ -569,31 +591,41 @@ export async function createEditorHost(
       refs.delete(key);
       // Clear any lingering dirty flag (a model held back by the error gate stays dirty); the global dirty
       // store isn't session-scoped, so an uncleared path would outlive the switch.
-      setDirtyPath(monaco.Uri.parse(key).fsPath, false);
+      const session = sessionForUri(monaco.Uri.parse(key));
+      if (session !== undefined) {
+        setDirtyPath(session, sessionUriHostPath(monaco.Uri.parse(key)), false);
+      }
     }
     editor.setModel(null);
   };
 
-  // Flush every dirty working copy and resolve once all saves land. File writes stay pinned to the editor
-  // owner; finishing before a cross-backend rebind lets the outgoing models be released without losing edits.
-  // Individual save failures surface as toasts and don't block the others.
-  const flushDirty = async (): Promise<void> => {
+  // Flush matching dirty working copies and resolve only when every write lands. A failure is surfaced and
+  // propagated so callers cannot release a model or tear down its backend after losing an edit.
+  const flushDirtyFor = async (owner: ClientSession | null): Promise<void> => {
     const saves: Promise<void>[] = [];
     for (const key of [...refs.keys()]) {
-      cancelPendingSave(key);
       const uri = monaco.Uri.parse(key);
+      if (owner !== null && sessionForUri(uri) !== owner) {
+        continue;
+      }
+      cancelPendingSave(key);
       if (!textFileService.isDirty(uri)) {
         continue;
       }
       saves.push(
         textFileService.save(uri, { ignoreModifiedSince: true, ignoreErrorHandler: true }).then(
           () => undefined,
-          (error: unknown) => reportSaveError(key, error),
+          (error: unknown) => {
+            reportSaveError(key, error);
+            throw error;
+          },
         ),
       );
     }
     await Promise.all(saves);
   };
+
+  const flushDirty = (): Promise<void> => flushDirtyFor(null);
 
   // Route the editor service's file-opens (go-to-def / peek / references) through the tab store as a preview
   // open, then reveal the target range, so navigating reuses the one preview slot instead of piling up tabs.
@@ -601,11 +633,15 @@ export async function createEditorHost(
     // Only real files are working copies. The transient `weavie-review:` model has no file provider, so an
     // editor-service open of one (e.g. go-to-def while a review shows) is a no-op: it's already on screen via
     // beginReview and must never become a tab or working copy.
-    if (uri.scheme !== "file") {
+    if (uri.scheme !== SESSION_FILE_SCHEME) {
       return;
     }
     // uriHostPath, not fsPath: the tab path is persisted host-side, so it must be host-native, not client-OS.
-    openTab(uriHostPath(uri), { preview: true });
+    const session = sessionForUri(uri);
+    if (session === undefined) {
+      return;
+    }
+    openTabFor(session, sessionUriHostPath(uri), { preview: true });
     void showFile(uri, selection !== undefined ? { selection } : { line: 1 });
   });
 
@@ -620,18 +656,27 @@ export async function createEditorHost(
       }
     | undefined;
 
-  const beginReview = (path: string, proposed: string, line: number): string => {
-    const fileUri = monaco.Uri.file(canonicalFsPath(path));
+  const beginReview = (
+    session: ClientSession,
+    path: string,
+    proposed: string,
+    line: number,
+  ): string => {
+    const fileUri = sessionFileUri(session, path);
     // A non-file URI whose path keeps the real filename, so Monaco infers the language from the extension
     // while the scheme keeps it out of the file-service / working-copy world.
-    const reviewUri = monaco.Uri.from({ scheme: REVIEW_SCHEME, path: fileUri.path });
+    const reviewUri = monaco.Uri.from({
+      scheme: REVIEW_SCHEME,
+      path: fileUri.path,
+      fragment: fileUri.fragment,
+    });
     let model = monaco.editor.getModel(reviewUri);
     if (model === null) {
       model = monaco.editor.createModel(proposed, undefined, reviewUri);
     } else {
       model.setValue(proposed);
     }
-    reviewModels.set(path, model);
+    reviewModels.set(fileUri.toString(), model);
     // Invalidate any in-flight async open so its late setModel can't clobber this review model — matters when
     // the host re-renders a held diff right after a session switch while restoreSession is still resolving.
     openSeq += 1;
@@ -642,10 +687,16 @@ export async function createEditorHost(
     return reviewUri.toString();
   };
 
-  const endReview = (path: string, keep: boolean, original: string): string => {
-    const fileUri = monaco.Uri.file(canonicalFsPath(path));
-    const reviewModel = reviewModels.get(path);
-    reviewModels.delete(path);
+  const endReview = (
+    session: ClientSession,
+    path: string,
+    keep: boolean,
+    original: string,
+  ): string => {
+    const fileUri = sessionFileUri(session, path);
+    const key = fileUri.toString();
+    const reviewModel = reviewModels.get(key);
+    reviewModels.delete(key);
     const finalContents = reviewModel?.getValue() ?? (keep ? "" : original);
     const restore = preReview;
     preReview = undefined;
@@ -709,8 +760,8 @@ export async function createEditorHost(
   // Restore the editor on every fresh widget build (relaunch, Ctrl+R, hot reload); the session store is already
   // seeded (from disk on `ready` or carried across the hot-swap). Reopens the active file via showFile,
   // re-adopting a surviving working copy rather than re-reading. Non-active entries reopen lazily.
-  const restoreSession = async (): Promise<void> => {
-    const session = editorSession();
+  const restoreSession = async (owner: ClientSession): Promise<void> => {
+    const session = editorSessionFor(owner);
     if (session === null || session.active === null) {
       return;
     }
@@ -726,18 +777,14 @@ export async function createEditorHost(
     ) {
       return;
     }
-    await showFile(monaco.Uri.file(canonicalFsPath(entry.path)), {
+    await showFile(sessionFileUri(owner, entry.path), {
       viewState: (entry.viewState ?? null) as monaco.editor.ICodeEditorViewState | null,
     });
   };
 
-  await restoreSession();
-
-  // Rebind on a session switch: release the previous session's working copies, then reopen the incoming
-  // session's active tab via restoreSession. Non-active tabs reopen lazily when clicked.
-  const rebindSession = async (): Promise<void> => {
+  const rebindSession = async (session: ClientSession): Promise<void> => {
     releaseAll();
-    await restoreSession();
+    await restoreSession(session);
   };
 
   // Wait for Monaco's first paint before resolving, so the caller (which fades the splash on resolution)
@@ -753,6 +800,7 @@ export async function createEditorHost(
     cancelSave,
     flush,
     flushDirty,
+    flushSession: (session) => flushDirtyFor(session),
     clear,
     rebindSession,
     beginReview,

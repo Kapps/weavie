@@ -4,7 +4,8 @@ import type { ClientSession } from "../../bridge";
 import { preserveEditorFocusOnMount } from "../focus-on-mount";
 import { agentPlan } from "./plan-store";
 
-// A read-only virtual editor document. AgentMarkdown's renderer disables HTML, images, Mermaid, and unsafe links.
+// A read-only virtual editor document. AgentMarkdown disables HTML, images, and unsafe links; completed Mermaid
+// fences hydrate through the shared preview renderer.
 export default function PlanView(props: {
   session: ClientSession;
   path: string;
@@ -30,7 +31,7 @@ export default function PlanView(props: {
               <span class="editor-plan-kicker">Plan</span>
               <h1>{plan().title}</h1>
             </header>
-            <AgentMarkdown content={plan().markdown} session={props.session} />
+            <AgentMarkdown content={plan().markdown} renderMermaid={true} session={props.session} />
           </article>
         )}
       </Show>

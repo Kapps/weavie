@@ -1,27 +1,51 @@
 import { createEffect, type JSX, onCleanup, onMount } from "solid-js";
 import type { ClientSession } from "../bridge";
 import { findContentLinks, parseFileReference } from "../content-links";
+import { hydrateMermaid } from "../editor/preview/diagrams";
 import { createMarkdownRenderer } from "../editor/preview/markdown-renderer";
 import { refLinkPrefixFor } from "../terminal/ref-link-store";
 import { openUrlExternal } from "../terminal/terminal-links";
+import { onPreviewThemeChanged } from "../theme/controller";
 
 const renderMarkdown = createMarkdownRenderer({
   allowHtml: false,
   allowImages: false,
-  allowMermaid: false,
+  allowMermaid: true,
   safeLinksOnly: true,
 });
 
 export function AgentMarkdown(props: {
   content: string;
+  renderMermaid: boolean;
   session: ClientSession | null;
 }): JSX.Element {
   let host: HTMLDivElement | undefined;
+  let generation = 0;
+  let unsubscribeTheme: (() => void) | undefined;
 
-  createEffect(() => {
+  const render = (): void => {
+    generation += 1;
+    const currentGeneration = generation;
+    const shouldHydrate = props.renderMermaid;
     const rendered = renderMarkdown(props.content);
     linkifyText(rendered, props.session !== null && refLinkPrefixFor(props.session) !== null);
+    const hasMermaid = rendered.querySelector("pre.mermaid-pending") !== null;
+    if (hasMermaid && shouldHydrate && unsubscribeTheme === undefined) {
+      unsubscribeTheme = onPreviewThemeChanged(render);
+    } else if ((!hasMermaid || !shouldHydrate) && unsubscribeTheme !== undefined) {
+      unsubscribeTheme();
+      unsubscribeTheme = undefined;
+    }
     host?.replaceChildren(...rendered.childNodes);
+    if (host !== undefined && hasMermaid && shouldHydrate) {
+      void hydrateMermaid(host, () => currentGeneration === generation);
+    }
+  };
+
+  createEffect(render);
+  onCleanup(() => {
+    generation += 1;
+    unsubscribeTheme?.();
   });
 
   onMount(() => {

@@ -1117,6 +1117,16 @@ test.describe("Codex composer", () => {
     expect(movedWithinDraft).toBe(true);
   });
 
+  // Flaked 2026-08-01 07:33 UTC on macOS CI (chromium project): https://github.com/Kapps/weavie/actions/runs/30689961665
+  // — a fixed-step version of this test (two ArrowUp + two ArrowDown, each asserting the recalled value only)
+  // raced AgentComposer's history-recall caret placement, which lands via `requestAnimationFrame` after the
+  // value commits (AgentComposer.tsx applyRecall). On a slower macOS runner, the second ArrowDown fired before
+  // that rAF set the caret from the first ArrowDown, so `caretOnLastVisualLine` read a stale caret and the
+  // draft was restored a step early. By the time this failure was investigated, main already carried the fix
+  // (commit 7be4f84925084a27f7049462b749518b5d6756e1, "Make wrapped prompt history tests metric-independent"):
+  // loop on ArrowDown polling the actual caret position each step (via `textarea.inputValue()` /
+  // `selectionStart`) instead of asserting fixed intermediate states, so the test waits for the caret to
+  // settle before advancing — no product-code change needed, this was a test-only race.
   test("Down moves through a soft-wrapped recalled prompt before restoring the draft", async ({
     page,
   }) => {

@@ -136,6 +136,17 @@ public sealed class CommandTests {
 		Assert.Equal("agentFocused && !agentSlashMenuOpen && !agentControlPickerOpen", command.When);
 	}
 
+	[Theory]
+	[InlineData(CoreCommands.AgentJumpToTurn, "alt+up")]
+	[InlineData(CoreCommands.AgentJumpToLatest, "alt+down")]
+	public void AgentTurnNavigation_UsesFocusedAgentBindings(string id, string key) {
+		var command = CoreCommands.CreateRegistry().Require(id);
+
+		Assert.Equal(CommandLocation.Web, command.RunsIn);
+		Assert.Equal(key, Assert.Single(command.DefaultKeybindings).Key);
+		Assert.Equal("agentFocused", command.When);
+	}
+
 	[Fact]
 	public void OpenAgentPlan_UsesTheFocusedAgentBinding() {
 		var command = CoreCommands.CreateRegistry().Require(CoreCommands.OpenAgentPlan);

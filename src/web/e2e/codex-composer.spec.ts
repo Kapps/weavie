@@ -159,6 +159,10 @@ const catalog = {
   commands: [
     agentCommand("weavie.agent.submit", "Submit Agent Prompt", "agentComposerFocused", ["enter"]),
     agentCommand("weavie.agent.interrupt", "Interrupt Agent Turn", "agentFocused", ["escape"]),
+    agentCommand("weavie.agent.jumpToTurn", "Jump to Agent Turn", "agentFocused", ["alt+up"]),
+    agentCommand("weavie.agent.jumpToLatest", "Jump to Latest Agent Activity", "agentFocused", [
+      "alt+down",
+    ]),
     agentCommand("weavie.agent.openPlan", "Open Agent Plan", "agentFocused", ["alt+p"]),
     agentCommand("weavie.agent.togglePlanMode", "Toggle Agent Plan Mode", "agentFocused", [
       "shift+tab",
@@ -176,6 +180,8 @@ const catalog = {
   keybindings: [
     { key: "enter", command: "weavie.agent.submit", when: "agentComposerFocused" },
     { key: "escape", command: "weavie.agent.interrupt", when: "agentFocused" },
+    { key: "alt+up", command: "weavie.agent.jumpToTurn", when: "agentFocused" },
+    { key: "alt+down", command: "weavie.agent.jumpToLatest", when: "agentFocused" },
     { key: "alt+p", command: "weavie.agent.openPlan", when: "agentFocused" },
     { key: "shift+tab", command: "weavie.agent.togglePlanMode", when: "agentFocused" },
     { key: "alt+y", command: "weavie.agent.approve", when: approvalWhen },
@@ -935,6 +941,119 @@ test.describe("Codex composer", () => {
     await expect
       .poll(() => body.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight))
       .toBeLessThan(1);
+  });
+
+  test("an overlong turn offers reciprocal turn navigation", async ({ page }) => {
+    await mountCodex(page);
+    publishCatalog();
+    publishPane(
+      userMessage(
+        Array.from({ length: 40 }, (_, index) => `Earlier line ${index + 1}.`).join("\n"),
+      ),
+    );
+    const turn = { threadId: "thread-long", turnId: "turn-long" };
+    publishPane(
+      paneMessage({
+        ...turn,
+        type: "user-message",
+        itemId: "prompt-long",
+        text: "Explain the long result",
+      }),
+    );
+    const body = page.locator(".agent-body");
+    const turnPill = page.getByRole("button", { name: "↑ Jump to turn", exact: true });
+    const latestPill = page.getByRole("button", { name: "↓ Jump to latest", exact: true });
+    const distanceFromBottom = (): Promise<number> =>
+      body.evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight);
+    await expect(page.getByText("Explain the long result", { exact: true })).toBeVisible();
+    await page.locator("[data-agent-composer] textarea").focus();
+    await page.keyboard.press("Alt+ArrowUp");
+    await expect(latestPill).toHaveCount(0);
+
+    await body.evaluate((element) => {
+      element.scrollTop = 0;
+    });
+    await expect(latestPill).toBeVisible();
+    await page.keyboard.press("Alt+ArrowUp");
+    await page.evaluate(
+      () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+    );
+    await expect.poll(distanceFromBottom).toBeLessThan(1);
+    await expect(latestPill).toBeVisible();
+    await page.keyboard.press("Alt+ArrowDown");
+    await expect(latestPill).toHaveCount(0);
+
+    publishPane(
+      paneMessage({
+        ...turn,
+        type: "agent-message-delta",
+        itemId: "answer-long",
+        itemType: "agentMessage",
+        text: Array.from({ length: 80 }, (_, index) => `Paragraph ${index + 1}.`).join("\n\n"),
+      }),
+    );
+
+    const turnStart = page.locator("[data-agent-turn-start]").last();
+
+    await expect(turnPill).toBeVisible();
+    await expect(turnPill).toHaveAttribute("title", "Jump to the start of this turn (Alt+Up)");
+    await expect.poll(distanceFromBottom).toBeLessThan(1);
+
+    await turnPill.click();
+    await expect
+      .poll(() =>
+        turnStart.evaluate((element) => {
+          const scrollBody = element.closest(".agent-body");
+          return Math.abs(
+            element.getBoundingClientRect().top -
+              (scrollBody?.getBoundingClientRect().top ?? Number.POSITIVE_INFINITY),
+          );
+        }),
+      )
+      .toBeLessThan(1);
+    await expect(latestPill).toHaveAttribute(
+      "title",
+      "Scroll to the latest activity and follow it (Alt+Down)",
+    );
+
+    await page.keyboard.press("Alt+ArrowDown");
+    await expect.poll(distanceFromBottom).toBeLessThan(1);
+    await expect(turnPill).toBeVisible();
+
+    await page.keyboard.press("Alt+ArrowUp");
+    await expect(latestPill).toBeVisible();
+    await page.keyboard.press("Alt+ArrowDown");
+    await expect.poll(distanceFromBottom).toBeLessThan(1);
+
+    publishPane(
+      paneMessage({
+        ...turn,
+        type: "agent-message-delta",
+        itemId: "answer-long",
+        itemType: "agentMessage",
+        text: "\n\nFollowed output after returning to latest.",
+      }),
+    );
+    await expect(
+      page.getByText("Followed output after returning to latest.", { exact: true }),
+    ).toBeVisible();
+    await expect.poll(distanceFromBottom).toBeLessThan(1);
+
+    await page.evaluate(() =>
+      document.documentElement.style.setProperty("--terminal-font-size", "20px"),
+    );
+    await expect.poll(distanceFromBottom).toBeLessThan(1);
+
+    await page.keyboard.press("Alt+ArrowUp");
+    await expect(latestPill).toBeVisible();
+    const freshSession = mockSession("cx-scroll-reset", "fresh", "codex", false);
+    host.setSessions([codexSession, freshSession]);
+    host.publishSession(freshSession.address, "agent", "controls", controls);
+    await page.locator('.session-chip[title^="fresh —"]').click();
+    await expect(page.locator(".agent-empty")).toBeVisible();
+    await expect(latestPill).toHaveCount(0);
+    await expect(turnPill).toHaveCount(0);
+    await expect.poll(distanceFromBottom).toBeLessThan(1);
   });
 
   test("Up/Down recall previously submitted prompts", async ({ page }) => {

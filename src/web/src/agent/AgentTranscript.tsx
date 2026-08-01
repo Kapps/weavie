@@ -120,6 +120,7 @@ function TranscriptEntry(props: {
         "agent-entry-edit": props.entry.actionMessage?.type === "edit-location",
         "agent-entry-result": props.sectionLabel !== null,
       }}
+      data-agent-turn-start={props.entry.turnStart ? "" : undefined}
     >
       <Show when={props.sectionLabel !== null || showEntryHeader(props.entry)}>
         <div class="agent-entry-head" title={entryTitle(props.entry)}>

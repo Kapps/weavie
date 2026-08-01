@@ -1,8 +1,11 @@
-import { createEffect, createMemo, createSignal, type JSX, on, Show } from "solid-js";
+import { createEffect, createMemo, type JSX, Show } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import type { AgentPaneUpdate, ClientSession } from "../bridge";
+import { liveKeyLabel } from "../commands/keys-live";
+import { CommandIds } from "../commands/types";
 import { AgentComposer } from "./AgentComposer";
 import { toAgentTranscript } from "./AgentPaneMessages";
+import { createAgentPaneScroll } from "./AgentPaneScroll";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 import { AgentStatusLine } from "./AgentStatusLine";
 import { AgentTranscript } from "./AgentTranscript";
@@ -20,11 +23,6 @@ export function AgentPane(props: {
   shortcut: string;
   onFocus: () => void;
 }): JSX.Element {
-  let bodyRef: HTMLDivElement | undefined;
-  let scrollScheduled = false;
-  let programmaticScroll = false;
-  let assignedTop = 0;
-  const [stickToBottom, setStickToBottom] = createSignal(true);
   // Feed <For> a keyed store: reconcile preserves each unchanged entry's proxy identity, so the row is reused and
   // AgentMarkdown re-parses only the entry whose text actually changed — heavy work stays O(changed), not
   // O(entries). toAgentTranscript itself is one light O(messages) scan per flush (batched in AgentPaneAccumulator).
@@ -33,61 +31,12 @@ export function AgentPane(props: {
   const providerName = (): string => (props.providerId === "codex" ? "Codex" : "Agent");
   // Only the card the keyboard chords answer wears the chips.
   const keyboardApprovalId = createMemo(() => pendingApproval(props.messages)?.requestId ?? null);
+  const scroll = createAgentPaneScroll(() => props.session);
 
-  const isNearBottom = (): boolean => {
-    if (bodyRef === undefined) {
-      return true;
-    }
-    const distance = bodyRef.scrollHeight - bodyRef.scrollTop - bodyRef.clientHeight;
-    const lineHeight = Number.parseFloat(getComputedStyle(bodyRef).lineHeight);
-    return distance <= Math.ceil(lineHeight * 3);
+  const commandTitle = (label: string, commandId: string): string => {
+    const key = liveKeyLabel(commandId);
+    return key === "" ? label : `${label} (${key})`;
   };
-
-  const scrollToBottom = (): void => {
-    if (scrollScheduled) {
-      return;
-    }
-    scrollScheduled = true;
-    requestAnimationFrame(() => {
-      scrollScheduled = false;
-      if (bodyRef === undefined || !stickToBottom()) {
-        return;
-      }
-      const previous = bodyRef.scrollTop;
-      bodyRef.scrollTop = bodyRef.scrollHeight;
-      assignedTop = bodyRef.scrollTop;
-      programmaticScroll = assignedTop !== previous;
-    });
-  };
-
-  // Our own scroll-to-bottom lands a frame after the assignment: chase content appended in between,
-  // but a user scroll coalesced into the same event (scrollTop moved off the assigned spot) wins.
-  const onBodyScroll = (): void => {
-    if (programmaticScroll) {
-      programmaticScroll = false;
-      if (bodyRef !== undefined && bodyRef.scrollTop === assignedTop) {
-        if (!isNearBottom()) {
-          scrollToBottom();
-        }
-        return;
-      }
-    }
-    setStickToBottom(isNearBottom());
-  };
-
-  // Follow content growth: props.messages changes once per publish (including text deltas), so this tracks the
-  // transcript without depending on the reconciled store (which mutates in place). Isolated via `on` so a
-  // stickToBottom flip doesn't re-scroll — that path scrolls explicitly (the follow pill / onBodyScroll handler).
-  createEffect(
-    on(
-      () => props.messages,
-      () => {
-        if (stickToBottom()) {
-          scrollToBottom();
-        }
-      },
-    ),
-  );
 
   const focusPromptIn = (surface: EventTarget | null): void => {
     props.onFocus();
@@ -148,24 +97,36 @@ export function AgentPane(props: {
         </Show>
       </div>
       <div class="agent-body-wrap">
-        <div class="agent-body" ref={bodyRef} onScroll={onBodyScroll}>
-          <AgentTranscript
-            entries={entries}
-            keyboardApprovalId={keyboardApprovalId()}
-            messages={props.messages}
-            providerName={providerName()}
-            session={props.session}
-          />
+        <div class="agent-body" ref={scroll.bindBody} onScroll={scroll.onScroll}>
+          <div class="agent-transcript" data-agent-transcript>
+            <AgentTranscript
+              entries={entries}
+              keyboardApprovalId={keyboardApprovalId()}
+              messages={props.messages}
+              providerName={providerName()}
+              session={props.session}
+            />
+          </div>
         </div>
-        <Show when={!stickToBottom()}>
+        <Show when={scroll.followingLatest() && scroll.turnStartAbove()}>
           <button
             type="button"
             class="agent-follow-pill"
-            title="Scroll to the latest activity and follow it"
-            onClick={() => {
-              setStickToBottom(true);
-              scrollToBottom();
-            }}
+            title={commandTitle("Jump to the start of this turn", CommandIds.agentJumpToTurn)}
+            onClick={() => scroll.jumpToTurn()}
+          >
+            ↑ Jump to turn
+          </button>
+        </Show>
+        <Show when={!scroll.followingLatest()}>
+          <button
+            type="button"
+            class="agent-follow-pill"
+            title={commandTitle(
+              "Scroll to the latest activity and follow it",
+              CommandIds.agentJumpToLatest,
+            )}
+            onClick={() => scroll.jumpToLatest()}
           >
             ↓ Jump to latest
           </button>
@@ -176,11 +137,7 @@ export function AgentPane(props: {
         inputProtocol={props.inputProtocol}
         messages={props.messages}
         session={props.session}
-        onSubmitted={() => {
-          if (isNearBottom()) {
-            setStickToBottom(true);
-          }
-        }}
+        onSubmitted={scroll.followIfNearBottom}
       />
       <AgentStatusLine
         reviewAdded={props.reviewAdded}

@@ -1,7 +1,7 @@
 import { createEffect, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
 import type { ClientSession } from "../bridge";
 import { gitStatus } from "../chrome/git-status-store";
-import { pullRequestStatus } from "../chrome/pull-request-store";
+import { type PullRequestStatus, pullRequestStatus } from "../chrome/pull-request-store";
 import { setContext } from "../commands/context";
 import { keyHint } from "../commands/key-hint";
 import { onCommandsChanged, runCommandWithFeedback } from "../commands/registry";
@@ -38,10 +38,16 @@ export function AgentStatusLine(props: {
     const status = prStatus();
     return status !== null && status.branch === gitStatus()?.branch ? status.error : null;
   };
-  const pullRequestTitle = (number: number): string => {
+  const pullRequestTitle = (pr: NonNullable<PullRequestStatus["pullRequest"]>): string => {
     commandsVersion();
-    return `Open PR #${number} in browser${keyHint(CommandIds.openCurrentPr)}`;
+    const state = pr.state === "open" ? "" : ` ${pr.state}`;
+    const refreshError = prError() === null ? "" : ` — last refresh failed: ${prError()}`;
+    return `Open${state} PR #${pr.number} in browser${keyHint(CommandIds.openCurrentPr)}${refreshError}`;
   };
+  const pullRequestLabel = (pr: NonNullable<PullRequestStatus["pullRequest"]>): string =>
+    pr.state === "open"
+      ? `#${pr.number}`
+      : `#${pr.number} · ${pr.state === "merged" ? "Merged" : "Closed"}`;
   const reviewTitle = (): string => {
     commandsVersion();
     const files = props.reviewFileCount === 1 ? "1 file" : `${props.reviewFileCount} files`;
@@ -115,14 +121,14 @@ export function AgentStatusLine(props: {
             <button
               type="button"
               class="agent-status-segment agent-status-pr"
-              title={pullRequestTitle(pr().number)}
+              title={pullRequestTitle(pr())}
               onClick={() => void runCommandWithFeedback(CommandIds.openCurrentPr)}
             >
-              #{pr().number}
+              {pullRequestLabel(pr())}
             </button>
           )}
         </Show>
-        <Show when={prError()}>
+        <Show when={pullRequest() === null ? prError() : null}>
           {(error) => (
             <span
               class="agent-status-segment agent-status-unavailable"

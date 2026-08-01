@@ -479,7 +479,7 @@ test.describe("Codex composer", () => {
     });
     host.publishSession(codexSession.address, "git", "pullRequest", {
       branch: "feat/native-ui-pr",
-      pullRequest: { number: 123, url },
+      pullRequest: { number: 123, url, state: "open" },
       error: null,
     });
 
@@ -490,6 +490,15 @@ test.describe("Codex composer", () => {
     const popupPromise = page.waitForEvent("popup");
     await link.click();
     await expect(await popupPromise).toHaveURL(url);
+
+    host.publishSession(codexSession.address, "git", "pullRequest", {
+      branch: "feat/native-ui-pr",
+      pullRequest: { number: 123, url, state: "merged" },
+      error: "temporary network failure",
+    });
+    await expect(link).toHaveText("#123 · Merged");
+    await expect(link).toHaveAttribute("title", /last refresh failed: temporary network failure/);
+    await expect(page.locator(".agent-status-unavailable")).toHaveCount(0);
 
     host.publishSession(codexSession.address, "git", "status", {
       branch: "another-branch",

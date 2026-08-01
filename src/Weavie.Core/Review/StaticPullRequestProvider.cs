@@ -24,24 +24,28 @@ public sealed class StaticPullRequestProvider : IPullRequestProvider, IReviewCom
 	/// <inheritdoc/>
 	public Task<IReadOnlyList<PullRequestSummary>> ListOpenAsync(RepoRef repo, CancellationToken ct = default) {
 		ArgumentNullException.ThrowIfNull(repo);
-		return Task.FromResult(_pullRequests);
+		return Task.FromResult<IReadOnlyList<PullRequestSummary>>(
+			[.. _pullRequests.Where(p => p.State == PullRequestState.Open)]);
 	}
 
 	/// <inheritdoc/>
-	public Task<PullRequestSummary?> FindOpenForBranchAsync(RepoRef repo, string headOwner, string branch, CancellationToken ct = default) {
+	public Task<PullRequestSummary?> FindForBranchAsync(RepoRef repo, string headOwner, string branch, CancellationToken ct = default) {
 		ArgumentNullException.ThrowIfNull(repo);
-		return Task.FromResult(_pullRequests.FirstOrDefault(p => p.HeadRef.Equals(branch, StringComparison.Ordinal)));
+		var matches = _pullRequests.Where(p => p.HeadRef.Equals(branch, StringComparison.Ordinal));
+		return Task.FromResult(
+			matches.FirstOrDefault(p => p.State == PullRequestState.Open) ?? matches.FirstOrDefault());
 	}
 
 	/// <inheritdoc/>
 	public Task<IReadOnlyList<PullRequestSummary>> SearchAsync(RepoRef repo, string query, CancellationToken ct = default) {
 		ArgumentNullException.ThrowIfNull(repo);
 		string q = query.Trim();
+		var open = _pullRequests.Where(p => p.State == PullRequestState.Open);
 		if (q.Length == 0) {
-			return Task.FromResult(_pullRequests);
+			return Task.FromResult<IReadOnlyList<PullRequestSummary>>([.. open]);
 		}
 
-		var matches = _pullRequests
+		var matches = open
 			.Where(p => $"#{p.Number} {p.Title} {p.Author} {p.HeadRef}".Contains(q, StringComparison.OrdinalIgnoreCase))
 			.ToList();
 		return Task.FromResult<IReadOnlyList<PullRequestSummary>>(matches);

@@ -989,6 +989,11 @@ test.describe("Codex composer", () => {
     expect(movedWithinDraft).toBe(true);
   });
 
+  // Flaked on macos CI 2026-08-01 07:33 UTC (assumed a fixed ArrowDown count to exit the
+  // soft-wrapped prompt, which varies with platform font metrics):
+  // https://github.com/Kapps/weavie/actions/runs/30689961665/job/91342804361
+  // Already fixed on main by 7be4f84 (PR #481) before this was triaged: rewrote the test to
+  // loop on ArrowDown until the value changes instead of assuming a fixed line count.
   test("Down moves through a soft-wrapped recalled prompt before restoring the draft", async ({
     page,
   }) => {

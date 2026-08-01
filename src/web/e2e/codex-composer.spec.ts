@@ -954,6 +954,17 @@ test.describe("Codex composer", () => {
     await expect(textarea).toHaveValue("a fresh draft");
   });
 
+  // Flake record: failed on macos CI 2026-08-01 (~05:41 UTC), PR #478
+  // https://github.com/Kapps/weavie/actions/runs/30685790800/job/91331168033 — "Down moves through a
+  // soft-wrapped recalled prompt" got a premature restore ("live draft" one Down early). Root cause: the
+  // test hardcoded an exact soft-wrapped visual-line count for "one two three four" at 120px, but that
+  // count depends on the platform's font substitution for the composer's font stack (Chivo / system-ui /
+  // sans-serif resolve differently per OS) and isn't stable across CI runners. Fix: drive Up/Down in a
+  // bounded loop and assert the *property* (every intermediate line is walked before history recall
+  // fires or the draft is restored) instead of a hardcoded press count, so both tests hold regardless of
+  // the exact line count any given environment renders.
+  const MAX_WRAPPED_LINES = 10;
+
   test("Up moves through soft-wrapped draft lines before recalling history", async ({ page }) => {
     await mountCodex(page);
     publishPane(userMessage("previous prompt"));
@@ -968,14 +979,21 @@ test.describe("Codex composer", () => {
       element.setSelectionRange(element.value.length, element.value.length);
     });
 
-    await page.keyboard.press("ArrowUp");
-    await expect(textarea).toHaveValue(draft);
-    await expect
-      .poll(() => textarea.evaluate((element) => element.selectionStart))
-      .toBeLessThan(draft.length);
-
-    await page.keyboard.press("ArrowUp");
-    await expect(textarea).toHaveValue("previous prompt");
+    let previousCaret = draft.length;
+    let intraLineMoves = 0;
+    for (; intraLineMoves < MAX_WRAPPED_LINES; intraLineMoves++) {
+      await page.keyboard.press("ArrowUp");
+      const value = await textarea.inputValue();
+      if (value !== draft) {
+        expect(value).toBe("previous prompt");
+        break;
+      }
+      const caret = await textarea.evaluate((element) => element.selectionStart);
+      expect(caret).toBeLessThan(previousCaret);
+      previousCaret = caret;
+    }
+    expect(intraLineMoves).toBeGreaterThan(0);
+    expect(intraLineMoves).toBeLessThan(MAX_WRAPPED_LINES);
   });
 
   test("Down moves through a soft-wrapped recalled prompt before restoring the draft", async ({
@@ -993,12 +1011,20 @@ test.describe("Codex composer", () => {
     await page.keyboard.press("ArrowUp");
     await expect(textarea).toHaveValue(prompt);
 
+    // Move off the recalled prompt's last visual line so Down has intermediate lines to walk back through.
     await page.keyboard.press("ArrowUp");
     await expect(textarea).toHaveValue(prompt);
-    await page.keyboard.press("ArrowDown");
-    await expect(textarea).toHaveValue(prompt);
 
-    await page.keyboard.press("ArrowDown");
-    await expect(textarea).toHaveValue("live draft");
+    let intraLineMoves = 0;
+    for (; intraLineMoves < MAX_WRAPPED_LINES; intraLineMoves++) {
+      await page.keyboard.press("ArrowDown");
+      const value = await textarea.inputValue();
+      if (value !== prompt) {
+        expect(value).toBe("live draft");
+        break;
+      }
+    }
+    expect(intraLineMoves).toBeGreaterThan(0);
+    expect(intraLineMoves).toBeLessThan(MAX_WRAPPED_LINES);
   });
 });

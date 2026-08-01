@@ -44,10 +44,11 @@ Routing uses the envelope metadata only. Payloads contain domain data, never dup
 `HostSession` owns its `SessionEndpoint`, feature handlers, controllers, and `SessionTaskScope`.
 Construction may publish, but the endpoint's transport gate holds those frames. Before activation,
 the host publishes the session's complete initial snapshot into that gate. It first publishes the
-exact address in the catalog, then activates the endpoint, registers it with the router, and flushes
-the snapshot and any construction-time frames in publication order. A `ClientSession` created by
-that catalog consumes the gated snapshot; it does not issue a competing sync that could overtake a
-later live event. The endpoint quiesces/removes itself before disposing its resources.
+exact address in the catalog, starts any structured agent runtime, then activates the endpoint,
+registers it with the router, and flushes the snapshot and any construction-time frames in publication
+order. A `ClientSession` created by that catalog consumes the gated snapshot; it does not issue a
+competing sync that could overtake a later live event. The endpoint quiesces/removes itself before
+disposing its resources.
 
 `HostConnection` owns the client host bus and a map of exact addresses to `ClientSession`. A catalog
 entry creates or closes those objects. `registerSessionFeature` installs a feature on every live
@@ -100,6 +101,11 @@ Each endpoint has one lane per feature:
 - different features execute in parallel;
 - different session endpoints execute in parallel;
 - `HandleConcurrent` bypasses the feature lane for explicitly independent work.
+
+After lane admission, every host-scoped handler enters through `IUiDispatcher`; this is the native
+affinity and host-state serialization boundary. Session-scoped handlers execute directly and retain
+their cross-feature and cross-session parallelism. Transport callback affinity is not a handler
+guarantee.
 
 The lane is a feature consistency boundary, not a global queue. A slow search cannot block terminal
 input, and one session cannot block another. Messages that read or mutate the same state belong to
@@ -195,6 +201,7 @@ same slot has a different incarnation and a new object.
 - native reload replaces the page generation and settles its pending view request;
 - publications made during construction wait for catalog activation and preserve order;
 - a new session's gated initial snapshot precedes its live events without a competing client sync;
+- a fresh structured-agent session starts on endpoint activation and accepts its first turn without a view switch;
 - quiesce tracks already-admitted handlers and permits final owned events;
 - reconnect validates addresses before releasing early traffic;
 - reconnect snapshots are unicast to only the requesting peer;

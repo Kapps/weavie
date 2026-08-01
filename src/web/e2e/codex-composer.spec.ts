@@ -430,7 +430,9 @@ test.describe("Codex composer", () => {
       id: "cx:thread-plan:turn-plan:plan-1",
       path: planPath,
       title: "Implementation plan",
-      markdown: "# Implementation\n\n1. Add the plan document.",
+      markdown:
+        "# Implementation\n\n1. Add the plan document.\n\n" +
+        "```mermaid\nflowchart LR\n  A[Plan] --> B[Ship]\n```",
     });
     host.publishSession(codexSession.address, "editor", "openOverlay", {
       path: planPath,
@@ -441,6 +443,7 @@ test.describe("Codex composer", () => {
     await expect(plan).toBeVisible();
     await expect(plan.locator(".editor-plan-head h1")).toHaveText("Implementation plan");
     await expect(plan.locator(".agent-markdown")).toContainText("Add the plan document.");
+    await expect(plan.locator(".mermaid-rendered > svg")).toBeVisible();
     await expect(page.locator(".editor-tab", { hasText: "Implementation plan" })).toBeVisible();
     await page.screenshot({ path: join(shotsDir, "14-plan-document.png") });
   });
@@ -954,23 +957,12 @@ test.describe("Codex composer", () => {
     await expect(textarea).toHaveValue("a fresh draft");
   });
 
-  // Flake record: failed on macos CI 2026-08-01 (~05:41 UTC), PR #478
-  // https://github.com/Kapps/weavie/actions/runs/30685790800/job/91331168033 — "Down moves through a
-  // soft-wrapped recalled prompt" got a premature restore ("live draft" one Down early). Root cause: the
-  // test hardcoded an exact soft-wrapped visual-line count for "one two three four" at 120px, but that
-  // count depends on the platform's font substitution for the composer's font stack (Chivo / system-ui /
-  // sans-serif resolve differently per OS) and isn't stable across CI runners. Fix: drive Up/Down in a
-  // bounded loop and assert the *property* (every intermediate line is walked before history recall
-  // fires or the draft is restored) instead of a hardcoded press count, so both tests hold regardless of
-  // the exact line count any given environment renders.
-  const MAX_WRAPPED_LINES = 10;
-
   test("Up moves through soft-wrapped draft lines before recalling history", async ({ page }) => {
     await mountCodex(page);
     publishPane(userMessage("previous prompt"));
 
     const textarea = page.locator("[data-agent-composer] textarea");
-    const draft = "one two three four";
+    const draft = "one two three four five six seven eight";
     await textarea.evaluate((element) => {
       element.style.width = "120px";
     });
@@ -980,27 +972,28 @@ test.describe("Codex composer", () => {
     });
 
     let previousCaret = draft.length;
-    let intraLineMoves = 0;
-    for (; intraLineMoves < MAX_WRAPPED_LINES; intraLineMoves++) {
+    let movedWithinDraft = false;
+    for (;;) {
       await page.keyboard.press("ArrowUp");
       const value = await textarea.inputValue();
       if (value !== draft) {
         expect(value).toBe("previous prompt");
         break;
       }
+
       const caret = await textarea.evaluate((element) => element.selectionStart);
       expect(caret).toBeLessThan(previousCaret);
       previousCaret = caret;
+      movedWithinDraft = true;
     }
-    expect(intraLineMoves).toBeGreaterThan(0);
-    expect(intraLineMoves).toBeLessThan(MAX_WRAPPED_LINES);
+    expect(movedWithinDraft).toBe(true);
   });
 
   test("Down moves through a soft-wrapped recalled prompt before restoring the draft", async ({
     page,
   }) => {
     await mountCodex(page);
-    const prompt = "one two three four";
+    const prompt = "one two three four five six seven eight";
     publishPane(userMessage(prompt));
 
     const textarea = page.locator("[data-agent-composer] textarea");
@@ -1010,21 +1003,26 @@ test.describe("Codex composer", () => {
     await textarea.fill("live draft");
     await page.keyboard.press("ArrowUp");
     await expect(textarea).toHaveValue(prompt);
+    await expect
+      .poll(() => textarea.evaluate((element) => element.selectionStart))
+      .toBe(prompt.length);
 
-    // Move off the recalled prompt's last visual line so Down has intermediate lines to walk back through.
     await page.keyboard.press("ArrowUp");
     await expect(textarea).toHaveValue(prompt);
+    let previousCaret = await textarea.evaluate((element) => element.selectionStart);
+    expect(previousCaret).toBeLessThan(prompt.length);
 
-    let intraLineMoves = 0;
-    for (; intraLineMoves < MAX_WRAPPED_LINES; intraLineMoves++) {
+    for (;;) {
       await page.keyboard.press("ArrowDown");
       const value = await textarea.inputValue();
       if (value !== prompt) {
         expect(value).toBe("live draft");
         break;
       }
+
+      const caret = await textarea.evaluate((element) => element.selectionStart);
+      expect(caret).toBeGreaterThan(previousCaret);
+      previousCaret = caret;
     }
-    expect(intraLineMoves).toBeGreaterThan(0);
-    expect(intraLineMoves).toBeLessThan(MAX_WRAPPED_LINES);
   });
 });

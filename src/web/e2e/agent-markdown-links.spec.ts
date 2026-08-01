@@ -19,6 +19,12 @@ const TSX_PATH = "src/web/src/agent/AgentMarkdown.tsx";
 const ABS_TSX_PATH = `/repo/${TSX_PATH}`;
 const ABS_AT_PATH = `/repo/${AT_PATH}`;
 const FULLSCREEN_COMMAND = "weavie.pane.toggleFullscreen";
+const MERMAID_MARKDOWN = [
+  "```mermaid",
+  "flowchart LR",
+  "  A[Streaming] --> B[Complete]",
+  "```",
+].join("\n");
 
 // Inline-code paths (one with `@`) plus a fenced block whose path must stay plain.
 const ASSISTANT_MARKDOWN = [
@@ -63,11 +69,9 @@ test.describe("AgentMarkdown transcript links", () => {
     await host.close();
   });
 
-  // Mounts the Codex session and pushes the assistant message after `ready` proves App is listening.
-  async function mount(page: Page): Promise<void> {
+  async function connect(page: Page): Promise<void> {
     await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
     await host.waitUntilConnected();
-    const markdown = page.locator(".agent-markdown");
     host.publishHost("commands", "catalog", {
       commands: [
         {
@@ -89,9 +93,45 @@ test.describe("AgentMarkdown transcript links", () => {
         open: [{ path: ABS_TSX_PATH, viewState: null, preview: true }],
       },
     });
-    host.publishSession(codexSession.address, "agent", "pane", assistantMessage());
-    await expect(markdown).toBeVisible();
   }
+
+  // Mounts the Codex session and pushes the assistant message after `ready` proves App is listening.
+  async function mount(page: Page): Promise<void> {
+    await connect(page);
+    host.publishSession(codexSession.address, "agent", "pane", assistantMessage());
+    await expect(page.locator(".agent-markdown")).toBeVisible();
+  }
+
+  test("hydrates a Mermaid fence only after its assistant item completes", async ({ page }) => {
+    await connect(page);
+    const identity = {
+      providerId: "codex",
+      threadId: "thread-mermaid",
+      turnId: "turn-mermaid",
+      itemId: "message-mermaid",
+      itemType: "agentMessage",
+    };
+    host.publishSession(codexSession.address, "agent", "pane", {
+      ...identity,
+      type: "agent-message-delta",
+      status: "inProgress",
+      text: MERMAID_MARKDOWN,
+    });
+
+    const markdown = page.locator(".agent-markdown");
+    await expect(markdown.locator("pre.mermaid-pending")).toContainText("flowchart LR");
+    await expect(markdown.locator(".mermaid-rendered")).toHaveCount(0);
+
+    host.publishSession(codexSession.address, "agent", "pane", {
+      ...identity,
+      type: "item-completed",
+      status: "completed",
+      text: MERMAID_MARKDOWN,
+    });
+
+    await expect(markdown.locator(".mermaid-rendered > svg")).toBeVisible();
+    await expect(markdown.locator("pre.mermaid-pending")).toHaveCount(0);
+  });
 
   test("linkifies inline-code paths (incl. @), leaves fenced code plain, and reveals on click", async ({
     page,

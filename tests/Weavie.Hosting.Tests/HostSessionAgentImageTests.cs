@@ -56,7 +56,10 @@ public sealed class HostSessionAgentImageTests : IDisposable {
 		RecordingStructuredSession structured,
 		SettingsStore settings,
 		CommandRegistry commandRegistry) {
-		var endpoint = new HostMessageRouter(new FakeHostBridge(), _ => { }).OpenSession(
+		var endpoint = new HostMessageRouter(
+			new FakeHostBridge(),
+			new InlineUiDispatcher(),
+			_ => { }).OpenSession(
 			new SessionAddress("slot-1", Guid.NewGuid().ToString("n")));
 		var session = new HostSession(
 			endpoint,
@@ -75,7 +78,7 @@ public sealed class HostSessionAgentImageTests : IDisposable {
 			new HostRuntimeInfo(HostTransport.Local, Managed: false, "test"),
 			() => false,
 			(_, _) => { });
-		session.ActivateMessages();
+		session.ActivateOwnedRuntimeAndMessages();
 		return session;
 	}
 

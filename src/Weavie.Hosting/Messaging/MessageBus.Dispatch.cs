@@ -27,7 +27,7 @@ internal partial class MessageBus {
 			requestRegistered = envelope.RequestId is not null;
 
 			var response = await registration
-				.InvokeAsync(owner, envelope.Payload, request.Token, admitted)
+				.InvokeAsync(owner, envelope.Payload, request.Token, admitted, _handlerExecutor)
 				.ConfigureAwait(false);
 			if (envelope.Kind == MessageKind.Request) {
 				TrySendResponse(peer, envelope, response.Payload, null);
@@ -181,10 +181,13 @@ internal partial class MessageBus {
 			MessagePeer peer,
 			JsonElement payload,
 			CancellationToken ct,
-			Task admitted) {
+			Task admitted,
+			IMessageHandlerExecutor handlerExecutor) {
 			async Task<HandlerResponse> InvokeAdmittedAsync() {
 				await admitted.ConfigureAwait(false);
-				return await _handler(peer, payload, ct).ConfigureAwait(false);
+				return await handlerExecutor
+					.InvokeAsync(() => _handler(peer, payload, ct), ct)
+					.ConfigureAwait(false);
 			}
 
 			if (_lane is null) {

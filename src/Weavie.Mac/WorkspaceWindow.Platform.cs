@@ -43,7 +43,7 @@ internal sealed partial class WorkspaceWindow : IHostPlatform {
 	private const string PasteboardPngType = "public.png";
 	private const string PasteboardTiffType = "public.tiff";
 
-	// Called on the main thread from OnWebMessage, where NSPasteboard / NSWorkspace are valid.
+	// Host-bus handlers enter the main thread before reaching NSPasteboard / NSWorkspace.
 	void IHostPlatform.WriteClipboard(string text) {
 		var pasteboard = NSPasteboard.GeneralPasteboard;
 		pasteboard.ClearContents();

@@ -9,12 +9,13 @@ internal sealed class HostMessageRouter : IAsyncDisposable {
 	private readonly ViewBindings _views = new();
 	private readonly object _viewLifecycle = new();
 
-	public HostMessageRouter(IWebTransportHub transport, Action<string> log) {
+	public HostMessageRouter(IWebTransportHub transport, IUiDispatcher dispatcher, Action<string> log) {
 		ArgumentNullException.ThrowIfNull(transport);
+		ArgumentNullException.ThrowIfNull(dispatcher);
 		ArgumentNullException.ThrowIfNull(log);
 		_transport = transport;
 		_log = log;
-		Host = new HostMessageBus(transport.Broadcast, transport.Send, log);
+		Host = new HostMessageBus(dispatcher, transport.Broadcast, transport.Send, log);
 		_sessions = new SessionMessageRouter(transport.Send, log);
 	}
 

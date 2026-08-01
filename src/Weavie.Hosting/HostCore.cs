@@ -118,8 +118,8 @@ public sealed partial class HostCore : IAsyncDisposable {
 		// to the embedded claude so it knows whether it's a remote worker and on which build. See HostRuntimeInfo.
 		_runtime = HostRuntimeInfo.Resolve(platform.Transport, AppContext.BaseDirectory, BuildNumber);
 		_bridge = platform.Bridge;
-		_messages = new HostMessageRouter(_bridge, Log);
 		_ui = platform.Dispatcher;
+		_messages = new HostMessageRouter(_bridge, _ui, Log);
 		_settings = services.Settings;
 		_commandRegistry = services.CommandRegistry;
 		_suggestionRegistry = services.SuggestionRegistry;
@@ -246,7 +246,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 		_worktrees = isRepo ? BuildWorktreeManager(git) : null;
 		_sessions = new SessionManager(_worktrees);
 		AddPrimarySlot(primaryLabel);
-		ActivateSessionMessages(_primarySession);
+		ActivateSessionRuntimeAndMessages(_primarySession);
 		await ReconcileWorktreesOnOpenAsync().ConfigureAwait(false);
 		// Overlay persisted loaded state onto the reconciled chips. Client selection is intentionally not restored
 		// by the host.

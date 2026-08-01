@@ -148,7 +148,11 @@ function TranscriptEntry(props: {
               </pre>
             }
           >
-            <AgentMarkdown content={props.entry.text ?? ""} session={props.session} />
+            <AgentMarkdown
+              content={props.entry.text ?? ""}
+              renderMermaid={!props.entry.streaming}
+              session={props.session}
+            />
           </Show>
         </Show>
         <Show when={props.entry.details.length > 0}>

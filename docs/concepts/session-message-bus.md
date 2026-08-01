@@ -72,11 +72,11 @@ is already sufficient. A save failure leaves the session live.
 
 ## Execution
 
-Handlers are serial within one feature by default. Different features and different sessions run in
-parallel. A handler opts into concurrent execution only when the feature itself defines that as safe.
-This preserves intuitive ordering for related state transitions without letting one slow feature
-block an independent one. Feature ownership follows the state being read or mutated, not the UI that
-happens to render the result.
+Handlers are serial within one feature by default. Host handlers enter through the platform UI
+dispatcher after lane admission, preserving native affinity and host-state serialization even when a
+queued handler resumes off-thread. Session handlers execute directly: different features and sessions
+run in parallel, and a handler opts into concurrent execution only when its feature defines that as
+safe. Feature ownership follows the state being read or mutated, not the UI that renders the result.
 
 Events are one-way state notifications. Requests have exact peer-local correlation, responses, and
 cancellation. A transport drop fails outstanding requests; the system does not guess whether an
@@ -102,6 +102,9 @@ Session shutdown has two phases:
 
 Removing a catalog address closes the corresponding `ClientSession`, its handlers, pending requests,
 models, LSP channels, and background work as one ownership unit.
+
+A loaded structured-agent session starts with its host endpoint. Selection and view attachment never
+start domain work; they only choose where the already-owned state is rendered.
 
 The implementation contract and test matrix live in
 [session-message-bus.md](../specs/session-message-bus.md).

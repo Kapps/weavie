@@ -114,7 +114,17 @@ internal sealed class TestHost : IAsyncDisposable {
 	/// <summary>Builds the real host graph without starting it, for startup/shutdown lifecycle tests.</summary>
 	public static TestHost CreateUnstarted() => Create(_ => { }, new StaticPullRequestProvider([], []));
 
-	private static TestHost Create(Action<string> prepareRepo, IPullRequestProvider pullRequests) {
+	/// <summary>Builds an unstarted host over a test-controlled UI dispatcher.</summary>
+	public static TestHost CreateUnstarted(IUiDispatcher dispatcher) =>
+		Create(_ => { }, new StaticPullRequestProvider([], []), dispatcher);
+
+	private static TestHost Create(Action<string> prepareRepo, IPullRequestProvider pullRequests) =>
+		Create(prepareRepo, pullRequests, new InlineUiDispatcher());
+
+	private static TestHost Create(
+		Action<string> prepareRepo,
+		IPullRequestProvider pullRequests,
+		IUiDispatcher dispatcher) {
 		string tempRoot = Path.Combine(Path.GetTempPath(), "weavie-host-it-" + Guid.NewGuid().ToString("n"));
 		string repo = Path.Combine(tempRoot, "repo");
 		Directory.CreateDirectory(repo);
@@ -132,7 +142,7 @@ internal sealed class TestHost : IAsyncDisposable {
 		string sourcesDir = Path.Combine(tempRoot, "sources");
 		var services = IsolatedServices(tempRoot, sourceHttp, sourcesDir, pullRequests);
 		var bridge = new FakeHostBridge();
-		var platform = new TestPlatform(bridge);
+		var platform = new TestPlatform(bridge, dispatcher);
 		var core = new HostCore(
 			platform,
 			services,
@@ -458,11 +468,15 @@ internal sealed class TestHost : IAsyncDisposable {
 	}
 }
 
-/// <summary>The thinnest <see cref="IHostPlatform"/>: a fake bridge, inline dispatch, no-op PTYs, no native UI.</summary>
+/// <summary>A fake bridge, configurable dispatcher, no-op PTYs, and no native UI.</summary>
 internal sealed class TestPlatform : IHostPlatform {
-	public TestPlatform(IWebTransportHub bridge) {
+	public TestPlatform(IWebTransportHub bridge) : this(bridge, new InlineUiDispatcher()) {
+	}
+
+	public TestPlatform(IWebTransportHub bridge, IUiDispatcher dispatcher) {
+		ArgumentNullException.ThrowIfNull(dispatcher);
 		Bridge = bridge;
-		Dispatcher = new InlineUiDispatcher();
+		Dispatcher = dispatcher;
 		NoopLauncher = new NoopPtyLauncher();
 	}
 
@@ -476,7 +490,7 @@ internal sealed class TestPlatform : IHostPlatform {
 	public HostTransport Transport => HostTransport.Local;
 	public string? TitleBar => null;
 	public IReadOnlyList<string> Recents => [];
-	public IShellWindow? Window => null;
+	public IShellWindow? Window { get; set; }
 	public IGlobalHotkeyRegistrar? HotkeyRegistrar => null;
 	public IHostDialogs? Dialogs => null;
 
@@ -492,17 +506,34 @@ internal sealed class TestPlatform : IHostPlatform {
 	/// <summary>The image a clipboard-image read returns (a claude-pane paste); set by a test. None by default.</summary>
 	public ClipboardImage ClipboardImageValue { get; set; } = ClipboardImage.None;
 
+	public int? ClipboardWriteThread { get; private set; }
+	public int? ClipboardReadThread { get; private set; }
+	public int? ClipboardImageReadThread { get; private set; }
+	public int? OpenUrlThread { get; private set; }
+
 	public void ToggleWindow() {
 		// no window in tests
 	}
 
-	public void WriteClipboard(string text) => LastWrittenClipboard = text;
+	public void WriteClipboard(string text) {
+		ClipboardWriteThread = Environment.CurrentManagedThreadId;
+		LastWrittenClipboard = text;
+	}
 
-	public string ReadClipboard() => ClipboardValue;
+	public string ReadClipboard() {
+		ClipboardReadThread = Environment.CurrentManagedThreadId;
+		return ClipboardValue;
+	}
 
-	public ClipboardImage ReadClipboardImage() => ClipboardImageValue;
+	public ClipboardImage ReadClipboardImage() {
+		ClipboardImageReadThread = Environment.CurrentManagedThreadId;
+		return ClipboardImageValue;
+	}
 
-	public void OpenExternalUrl(string url) => LastOpenedUrl = url;
+	public void OpenExternalUrl(string url) {
+		OpenUrlThread = Environment.CurrentManagedThreadId;
+		LastOpenedUrl = url;
+	}
 }
 
 /// <summary>A launcher whose terminals never spawn — sessions construct fine, but no real claude/shell runs.</summary>

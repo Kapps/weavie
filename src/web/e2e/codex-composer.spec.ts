@@ -1117,6 +1117,11 @@ test.describe("Codex composer", () => {
     expect(movedWithinDraft).toBe(true);
   });
 
+  // Flaked on macOS CI 2026-08-01 07:33 UTC (run:
+  // https://github.com/Kapps/weavie/actions/runs/30689961665) — a fixed-length prompt and
+  // fixed keypress count assumed a specific wrap point that didn't hold on that runner's font
+  // metrics. Already made metric-independent (loop on caret position instead of a hardcoded
+  // keypress count) by commits 24650fa/7be4f84; main is green as of this check.
   test("Down moves through a soft-wrapped recalled prompt before restoring the draft", async ({
     page,
   }) => {

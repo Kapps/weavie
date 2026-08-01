@@ -176,6 +176,10 @@ const catalog = {
   commands: [
     agentCommand("weavie.agent.submit", "Submit Agent Prompt", "agentComposerFocused", ["enter"]),
     agentCommand("weavie.agent.interrupt", "Interrupt Agent Turn", "agentFocused", ["escape"]),
+    agentCommand("weavie.agent.jumpToTurn", "Jump to Agent Turn", "agentFocused", ["alt+up"]),
+    agentCommand("weavie.agent.jumpToLatest", "Jump to Latest Agent Activity", "agentFocused", [
+      "alt+down",
+    ]),
     agentCommand("weavie.agent.openPlan", "Open Agent Plan", "agentFocused", ["alt+p"]),
     agentCommand("weavie.agent.togglePlanMode", "Toggle Agent Plan Mode", "agentFocused", [
       "shift+tab",
@@ -193,6 +197,8 @@ const catalog = {
   keybindings: [
     { key: "enter", command: "weavie.agent.submit", when: "agentComposerFocused" },
     { key: "escape", command: "weavie.agent.interrupt", when: "agentFocused" },
+    { key: "alt+up", command: "weavie.agent.jumpToTurn", when: "agentFocused" },
+    { key: "alt+down", command: "weavie.agent.jumpToLatest", when: "agentFocused" },
     { key: "alt+p", command: "weavie.agent.openPlan", when: "agentFocused" },
     { key: "shift+tab", command: "weavie.agent.togglePlanMode", when: "agentFocused" },
     { key: "alt+y", command: "weavie.agent.approve", when: approvalWhen },
@@ -927,6 +933,112 @@ test.describe("Codex composer", () => {
     await expect
       .poll(() => body.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight))
       .toBeLessThan(1);
+  });
+
+  test("an overlong turn offers reciprocal turn navigation", async ({ page }) => {
+    await mountCodex(page);
+    host.pushToWeb(catalog);
+    host.pushToWeb(
+      paneMessage({
+        type: "user-message",
+        threadId: "thread-long",
+        turnId: "turn-long",
+        itemId: "prompt-long",
+        text: "Explain the long result",
+      }),
+    );
+    host.pushToWeb(
+      paneMessage({
+        type: "agent-message-delta",
+        threadId: "thread-long",
+        turnId: "turn-long",
+        itemId: "answer-long",
+        itemType: "agentMessage",
+        text: "Short opening.",
+      }),
+    );
+
+    const body = page.locator(".agent-body");
+    const turnPill = page.getByRole("button", { name: "↑ Jump to turn", exact: true });
+    const latestPill = page.getByRole("button", { name: "↓ Jump to latest", exact: true });
+    const turnStart = page.locator("[data-agent-turn-start]");
+    const distanceFromBottom = (): Promise<number> =>
+      body.evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight);
+    const turnStartOffset = (): Promise<number> =>
+      turnStart.evaluate((element) => {
+        const scrollBody = element.closest(".agent-body");
+        if (scrollBody === null) {
+          throw new Error("turn start is outside the agent body");
+        }
+        return Math.abs(
+          element.getBoundingClientRect().top - scrollBody.getBoundingClientRect().top,
+        );
+      });
+
+    await expect(page.getByText("Short opening.", { exact: true })).toBeVisible();
+    await expect(turnPill).toHaveCount(0);
+
+    const longContinuation = Array.from(
+      { length: 80 },
+      (_, index) => `Paragraph ${index + 1} keeps this turn moving.`,
+    ).join("\n\n");
+    host.pushToWeb(
+      paneMessage({
+        type: "agent-message-delta",
+        threadId: "thread-long",
+        turnId: "turn-long",
+        itemId: "answer-long",
+        itemType: "agentMessage",
+        text: `\n\n${longContinuation}`,
+      }),
+    );
+
+    await expect(turnPill).toBeVisible();
+    await expect(turnPill).toHaveAttribute("title", "Jump to the start of this turn (Alt+Up)");
+    await expect.poll(distanceFromBottom).toBeLessThan(1);
+
+    await turnPill.click();
+    await expect.poll(turnStartOffset).toBeLessThan(1);
+    await expect(latestPill).toHaveAttribute(
+      "title",
+      "Scroll to the latest activity and follow it (Alt+Down)",
+    );
+
+    host.pushToWeb(
+      paneMessage({
+        type: "user-image",
+        threadId: "thread-long",
+        turnId: "turn-long",
+        itemId: "image-only-steer",
+        text: "/tmp/steer.png",
+      }),
+    );
+    await expect(turnStart).toHaveCount(1);
+    await expect(turnStart).toContainText("Explain the long result");
+
+    await page.keyboard.press("Alt+ArrowDown");
+    await expect.poll(distanceFromBottom).toBeLessThan(1);
+    await expect(turnPill).toBeVisible();
+
+    await page.keyboard.press("Alt+ArrowUp");
+    await expect.poll(turnStartOffset).toBeLessThan(1);
+    await latestPill.click();
+    await expect.poll(distanceFromBottom).toBeLessThan(1);
+
+    host.pushToWeb(
+      paneMessage({
+        type: "agent-message-delta",
+        threadId: "thread-long",
+        turnId: "turn-long",
+        itemId: "answer-after-steer",
+        itemType: "agentMessage",
+        text: "Followed output after returning to latest.",
+      }),
+    );
+    await expect(
+      page.getByText("Followed output after returning to latest.", { exact: true }),
+    ).toBeVisible();
+    await expect.poll(distanceFromBottom).toBeLessThan(1);
   });
 
   test("Up/Down recall previously submitted prompts", async ({ page }) => {

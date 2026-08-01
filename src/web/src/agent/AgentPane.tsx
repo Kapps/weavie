@@ -1,6 +1,18 @@
-import { createEffect, createMemo, createSignal, type JSX, on, Show } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  type JSX,
+  on,
+  onCleanup,
+  onMount,
+  Show,
+} from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import type { AgentPaneUpdate } from "../bridge";
+import { liveKeyLabel } from "../commands/keys-live";
+import { registerCommand } from "../commands/registry";
+import { CommandIds } from "../commands/types";
 import { AgentComposer } from "./AgentComposer";
 import { toAgentTranscript } from "./AgentPaneMessages";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
@@ -26,6 +38,7 @@ export function AgentPane(props: {
   let programmaticScroll = false;
   let assignedTop = 0;
   const [stickToBottom, setStickToBottom] = createSignal(true);
+  const [turnStartAbove, setTurnStartAbove] = createSignal(false);
   // Feed <For> a keyed store: reconcile preserves each unchanged entry's proxy identity, so the row is reused and
   // AgentMarkdown re-parses only the entry whose text actually changed — heavy work stays O(changed), not
   // O(entries). toAgentTranscript itself is one light O(messages) scan per flush (batched in AgentPaneAccumulator).
@@ -44,6 +57,18 @@ export function AgentPane(props: {
     return distance <= Math.ceil(lineHeight * 3);
   };
 
+  const turnStart = (): HTMLElement | null =>
+    bodyRef?.querySelector<HTMLElement>("[data-agent-turn-start]") ?? null;
+
+  const updateTurnStartPosition = (): void => {
+    const start = turnStart();
+    setTurnStartAbove(
+      bodyRef !== undefined &&
+        start !== null &&
+        start.getBoundingClientRect().top < bodyRef.getBoundingClientRect().top,
+    );
+  };
+
   const scrollToBottom = (): void => {
     if (scrollScheduled) {
       return;
@@ -58,7 +83,33 @@ export function AgentPane(props: {
       bodyRef.scrollTop = bodyRef.scrollHeight;
       assignedTop = bodyRef.scrollTop;
       programmaticScroll = assignedTop !== previous;
+      updateTurnStartPosition();
     });
+  };
+
+  const jumpToTurn = (): boolean => {
+    const start = turnStart();
+    if (bodyRef === undefined || start === null) {
+      return false;
+    }
+    const top =
+      bodyRef.scrollTop + start.getBoundingClientRect().top - bodyRef.getBoundingClientRect().top;
+    if (Math.abs(bodyRef.scrollTop - top) < 1) {
+      return false;
+    }
+    setStickToBottom(false);
+    bodyRef.scrollTop = top;
+    updateTurnStartPosition();
+    return true;
+  };
+
+  const jumpToLatest = (): boolean => {
+    if (bodyRef === undefined || (stickToBottom() && isNearBottom())) {
+      return false;
+    }
+    setStickToBottom(true);
+    scrollToBottom();
+    return true;
   };
 
   // Our own scroll-to-bottom lands a frame after the assignment: chase content appended in between,
@@ -67,6 +118,7 @@ export function AgentPane(props: {
     if (programmaticScroll) {
       programmaticScroll = false;
       if (bodyRef !== undefined && bodyRef.scrollTop === assignedTop) {
+        updateTurnStartPosition();
         if (!isNearBottom()) {
           scrollToBottom();
         }
@@ -74,6 +126,7 @@ export function AgentPane(props: {
       }
     }
     setStickToBottom(isNearBottom());
+    updateTurnStartPosition();
   };
 
   // Follow content growth: props.messages changes once per publish (including text deltas), so this tracks the
@@ -89,6 +142,35 @@ export function AgentPane(props: {
       },
     ),
   );
+
+  onMount(() => {
+    const resizeObserver = new ResizeObserver(() => {
+      if (stickToBottom()) {
+        scrollToBottom();
+      } else {
+        updateTurnStartPosition();
+      }
+    });
+    if (bodyRef !== undefined) {
+      resizeObserver.observe(bodyRef);
+      const transcript = bodyRef.querySelector<HTMLElement>("[data-agent-transcript]");
+      if (transcript !== null) {
+        resizeObserver.observe(transcript);
+      }
+    }
+    const unregisterTurn = registerCommand(CommandIds.agentJumpToTurn, jumpToTurn);
+    const unregisterLatest = registerCommand(CommandIds.agentJumpToLatest, jumpToLatest);
+    onCleanup(() => {
+      resizeObserver.disconnect();
+      unregisterTurn();
+      unregisterLatest();
+    });
+  });
+
+  const commandTitle = (label: string, commandId: string): string => {
+    const key = liveKeyLabel(commandId);
+    return key === "" ? label : `${label} (${key})`;
+  };
 
   const focusPromptIn = (surface: EventTarget | null): void => {
     props.onFocus();
@@ -158,15 +240,25 @@ export function AgentPane(props: {
             slot={props.slot}
           />
         </div>
+        <Show when={stickToBottom() && turnStartAbove()}>
+          <button
+            type="button"
+            class="agent-follow-pill"
+            title={commandTitle("Jump to the start of this turn", CommandIds.agentJumpToTurn)}
+            onClick={() => jumpToTurn()}
+          >
+            ↑ Jump to turn
+          </button>
+        </Show>
         <Show when={!stickToBottom()}>
           <button
             type="button"
             class="agent-follow-pill"
-            title="Scroll to the latest activity and follow it"
-            onClick={() => {
-              setStickToBottom(true);
-              scrollToBottom();
-            }}
+            title={commandTitle(
+              "Scroll to the latest activity and follow it",
+              CommandIds.agentJumpToLatest,
+            )}
+            onClick={() => jumpToLatest()}
           >
             ↓ Jump to latest
           </button>

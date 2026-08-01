@@ -52,6 +52,10 @@
   line-height: 1.24;
 }
 
+.agent-transcript {
+  display: flow-root;
+}
+
 .agent-empty {
   display: grid;
   gap: 12px;

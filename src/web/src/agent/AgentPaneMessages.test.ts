@@ -342,6 +342,101 @@ describe("toAgentTranscript", () => {
     expect(transcript.map((entry) => entry.label)).toEqual(["You", "Codex", "You", "Codex"]);
   });
 
+  it("marks image-only turns without treating image-only steers as turn starts", () => {
+    const live = toAgentTranscript([
+      { type: "user-message", providerId: "codex", threadId: "thread-1", text: "inspect this" },
+      {
+        type: "user-image",
+        providerId: "codex",
+        threadId: "thread-1",
+        itemId: "prompt-image",
+        text: "/tmp/prompt.png",
+      },
+      {
+        type: "turn-started",
+        providerId: "codex",
+        threadId: "thread-1",
+        turnId: "turn-1",
+      },
+      {
+        type: "item-completed",
+        providerId: "codex",
+        threadId: "thread-1",
+        turnId: "turn-1",
+        itemId: "answer-1",
+        itemType: "agentMessage",
+        text: "I inspected it.",
+      },
+      {
+        type: "user-image",
+        providerId: "codex",
+        threadId: "thread-1",
+        turnId: "turn-1",
+        itemId: "steer-image",
+        text: "/tmp/steer.png",
+      },
+    ]);
+
+    expect(
+      live.filter((entry) => entry.tone === "user").map((entry) => [entry.label, entry.turnStart]),
+    ).toEqual([
+      ["You", true],
+      ["Image", false],
+      ["Image", false],
+    ]);
+
+    const imageOnlyTurn = toAgentTranscript([
+      {
+        type: "user-image",
+        providerId: "codex",
+        threadId: "thread-1",
+        turnId: "turn-2",
+        itemId: "image-only",
+        text: "/tmp/only.png",
+      },
+    ]);
+    expect(imageOnlyTurn[0]).toMatchObject({ label: "Image", turnStart: true });
+  });
+
+  it("keeps restored textual steers inside their original turn", () => {
+    const transcript = toAgentTranscript([
+      {
+        type: "user-message",
+        providerId: "codex",
+        threadId: "thread-1",
+        turnId: "turn-1",
+        itemId: "prompt",
+        text: "Start here",
+      },
+      {
+        type: "item-completed",
+        providerId: "codex",
+        threadId: "thread-1",
+        turnId: "turn-1",
+        itemId: "answer",
+        itemType: "agentMessage",
+        text: "First answer",
+      },
+      {
+        type: "user-message",
+        providerId: "codex",
+        threadId: "thread-1",
+        turnId: "turn-1",
+        itemId: "restored-steer",
+        text: "Keep going",
+      },
+    ]);
+
+    expect(
+      transcript
+        .filter((entry) => entry.tone === "user")
+        .map((entry) => [entry.text, entry.turnStart]),
+    ).toEqual([
+      ["Start here", true],
+      ["Keep going", false],
+    ]);
+  });
+
   it("keeps primary and subagent narration with colliding item ids", () => {
     const transcript = toAgentTranscript([
       { type: "user-message", providerId: "codex", threadId: "primary", text: "work" },

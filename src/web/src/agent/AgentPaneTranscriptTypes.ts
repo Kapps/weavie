@@ -29,4 +29,5 @@ export interface AgentTranscriptEntry {
   summary: string | null;
   text: string | null;
   tone: AgentTranscriptTone;
+  turnStart: boolean;
 }

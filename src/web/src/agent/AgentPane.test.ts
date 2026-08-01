@@ -13,6 +13,7 @@ function message(id: string, tone: "assistant" | "user"): AgentTranscriptEntry {
     summary: null,
     text: id,
     tone,
+    turnStart: tone === "user",
   };
 }
 
@@ -42,6 +43,7 @@ describe("computeSectionLabels", () => {
         summary: "Ready to review in the editor",
         text: null,
         tone: "assistant",
+        turnStart: false,
       },
     ];
 

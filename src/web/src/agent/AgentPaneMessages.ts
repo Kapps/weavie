@@ -36,12 +36,25 @@ export function toAgentTranscript(messages: readonly AgentPaneUpdate[]): AgentTr
   );
   const entries: (AgentTranscriptEntry | MutableActivity)[] = [];
   const activities = new Map<string, MutableActivity>();
+  const knownTurns = new Set<string>();
   let activeTurn = "startup";
+  let previousWasUserInput = false;
   let sequence = 0;
 
   for (const message of updates) {
+    const turnKey = paneTurnIdentity(message);
+    const startsUnknownTurn = turnKey === null || !knownTurns.has(turnKey);
+    const startsTurn =
+      (message.type === "user-message" && startsUnknownTurn) ||
+      (message.type === "user-image" && !previousWasUserInput && startsUnknownTurn);
+    previousWasUserInput = isUserInput(message);
+    if (turnKey !== null) {
+      knownTurns.add(turnKey);
+    }
+
     const durable = durableEntry(message, resolved, reportedTurnErrors, sequence);
     if (durable !== null) {
+      durable.turnStart = startsTurn;
       entries.push(durable);
       if (message.type === "user-message") {
         activeTurn = message.turnId ?? `turn-${sequence}`;
@@ -55,8 +68,8 @@ export function toAgentTranscript(messages: readonly AgentPaneUpdate[]): AgentTr
       continue;
     }
 
-    const turnKey = paneActivityIdentity(message, activeTurn);
-    const activity = activityFor(turnKey, entries, activities);
+    const activityKey = paneActivityIdentity(message, activeTurn);
+    const activity = activityFor(activityKey, entries, activities);
     upsertStep(activity, update);
   }
 
@@ -177,6 +190,7 @@ function planEntry(message: AgentPaneUpdate, sequence: number): AgentTranscriptE
     summary: identity === null ? "Plan is unavailable" : "Ready to review in the editor",
     text: null,
     tone: "assistant",
+    turnStart: false,
   };
 }
 
@@ -198,6 +212,7 @@ function entry(
     summary: normalizeText(message.summary),
     text: normalizeText(message.text),
     tone,
+    turnStart: false,
   };
 }
 
@@ -294,6 +309,7 @@ function activityFor(
     summary: null,
     text: null,
     tone: "activity",
+    turnStart: false,
   };
   activities.set(turnKey, activity);
   entries.push(activity);
@@ -331,6 +347,7 @@ function stripMutable(entry: AgentTranscriptEntry | MutableActivity): AgentTrans
     summary: entry.summary,
     text: entry.text,
     tone: entry.tone,
+    turnStart: entry.turnStart,
   };
 }
 
@@ -389,6 +406,7 @@ function flushEdits(output: AgentTranscriptEntry[], edits: AgentTranscriptEntry[
     summary: `edited ${edits.length} files`,
     text: null,
     tone: "activity",
+    turnStart: false,
   });
 }
 
@@ -445,6 +463,14 @@ function isAssistantResult(entry: AgentTranscriptEntry): boolean {
 
 function isUserMessage(entry: AgentTranscriptEntry): boolean {
   return entry.kind === "message" && entry.tone === "user";
+}
+
+function isUserInput(message: AgentPaneUpdate): boolean {
+  return (
+    message.type === "user-message" ||
+    message.type === "user-steer" ||
+    message.type === "user-image"
+  );
 }
 
 function isEditLocation(entry: AgentTranscriptEntry): boolean {

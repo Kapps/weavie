@@ -1,14 +1,22 @@
-import { createMemo, type JSX, onMount, Show } from "solid-js";
+import { createMemo, type JSX, Show } from "solid-js";
 import { AgentMarkdown } from "../../agent/AgentMarkdown";
 import type { ClientSession } from "../../bridge";
+import { preserveEditorFocusOnMount } from "../focus-on-mount";
 import { agentPlan } from "./plan-store";
 
 // A read-only virtual editor document. AgentMarkdown's renderer disables HTML, images, Mermaid, and unsafe links.
-export default function PlanView(props: { session: ClientSession; path: string }): JSX.Element {
+export default function PlanView(props: {
+  session: ClientSession;
+  path: string;
+  focusOnMount: boolean;
+}): JSX.Element {
   let host!: HTMLDivElement;
   const document = createMemo(() => agentPlan(props.session, props.path));
 
-  onMount(() => host.focus());
+  preserveEditorFocusOnMount(
+    () => host,
+    () => props.focusOnMount,
+  );
 
   return (
     <div class="editor-plan" data-kind="editor" tabindex="0" ref={host}>

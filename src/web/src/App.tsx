@@ -409,7 +409,7 @@ export default function App(): JSX.Element {
     if (path === null || !canPreview(path)) {
       return false;
     }
-    // Returning to Source hands focus back to Monaco; the Preview overlay focuses itself on mount.
+    // Returning to Source hands focus back to Monaco; Preview preserves existing editor-pane focus on mount.
     if (toggleViewMode(path) === "source") {
       editor.focusEditor();
     }
@@ -777,12 +777,19 @@ export default function App(): JSX.Element {
                 <PreviewPane
                   path={() => previewActivePath() as string}
                   content={() => editor.activeContent()}
+                  focusOnMount={focusedKind() === "editor"}
                 />
               </Suspense>
             </Show>
             {/* A media (image/video) file tab: render it over the still-mounted Monaco host. */}
             <Show when={activeMediaBinding()} keyed>
-              {(binding) => <MediaPane session={binding.session} path={binding.path} />}
+              {(binding) => (
+                <MediaPane
+                  session={binding.session}
+                  path={binding.path}
+                  focusOnMount={focusedKind() === "editor"}
+                />
+              )}
             </Show>
             {/* A web tab: render its URL in an iframe over the still-mounted Monaco host. */}
             <Show when={activeWebUrl() !== null}>
@@ -797,6 +804,7 @@ export default function App(): JSX.Element {
                     doc={() => sourceDoc(binding.session, binding.path)}
                     session={binding.session}
                     target={() => binding.path}
+                    focusOnMount={focusedKind() === "editor"}
                   />
                 </Suspense>
               )}
@@ -805,7 +813,11 @@ export default function App(): JSX.Element {
             <Show when={activePlanBinding()} keyed>
               {(binding) => (
                 <Suspense>
-                  <PlanView session={binding.session} path={binding.path} />
+                  <PlanView
+                    session={binding.session}
+                    path={binding.path}
+                    focusOnMount={focusedKind() === "editor"}
+                  />
                 </Suspense>
               )}
             </Show>

@@ -1,26 +1,25 @@
-import {
-  createEffect,
-  createMemo,
-  createSignal,
-  type JSX,
-  onCleanup,
-  onMount,
-  Show,
-} from "solid-js";
+import { createEffect, createMemo, createSignal, type JSX, onCleanup, Show } from "solid-js";
 import { type ClientSession, mediaResourceUrl } from "../../bridge";
 import { currentEditorOptions, onEditorOptionsChanged } from "../../editor-options";
+import { preserveEditorFocusOnMount } from "../focus-on-mount";
 import { basename, samePath } from "../fs-path";
 import { mediaTypeOf } from "./media-types";
 
 /**
  * The media-tab surface: the active image/video file rendered over the (kept-mounted) Monaco host, at the
  * same layer as the Preview/Web overlays. The browser streams bytes directly from the workspace HTTP server.
- * Videos get native controls, and the pane focuses itself so the keyboard reaches them. Failed reads and
- * deletions render loudly in the pane.
+ * Videos get native controls. Failed reads and deletions render loudly in the pane.
  */
-export default function MediaPane(props: { session: ClientSession; path: string }): JSX.Element {
+export default function MediaPane(props: {
+  session: ClientSession;
+  path: string;
+  focusOnMount: boolean;
+}): JSX.Element {
   let host!: HTMLDivElement;
-  onMount(() => host.focus());
+  preserveEditorFocusOnMount(
+    () => host,
+    () => props.focusOnMount,
+  );
 
   // Live view of editor.videoAutoplay — toggling it updates the mounted element, so the next load honors it.
   const [autoplay, setAutoplay] = createSignal(currentEditorOptions().videoAutoplay);

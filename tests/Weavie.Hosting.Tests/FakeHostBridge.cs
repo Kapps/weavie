@@ -159,7 +159,7 @@ internal sealed class FakeHostBridge : IWebTransportHub {
 
 	/// <summary>Creates one feature on an attached session view and targets its events to this transport.</summary>
 	public ViewFeatureChannel SessionViewFeature(string feature) {
-		var router = new HostMessageRouter(this, _ => { });
+		var router = new HostMessageRouter(this, new InlineUiDispatcher(), _ => { });
 		var endpoint = router.OpenSession(
 			new SessionAddress("test", Guid.NewGuid().ToString("n")));
 		endpoint.Activate();

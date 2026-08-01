@@ -1,10 +1,12 @@
+using System.Collections.Concurrent;
+using Weavie.Core.Shell;
 using Xunit;
 
 namespace Weavie.Hosting.Tests;
 
 /// <summary>
-/// End-to-end tests for the terminal's host-OS actions (clipboard + open-url), driving the same web messages
-/// the page sends and asserting the host routes them to the platform — and replies to a clipboard read.
+/// End-to-end tests for native host actions, driving the same web messages the page sends and asserting the
+/// host routes them to the platform with UI affinity.
 /// </summary>
 [Collection(TestCollections.HostIntegration)]
 public sealed class HostCoreTerminalActionsTests {
@@ -70,5 +72,57 @@ public sealed class HostCoreTerminalActionsTests {
 		host.HostEvent("clipboard", "write", new { text = "still working" });
 
 		Assert.Equal("still working", host.Platform.LastWrittenClipboard);
+	}
+
+	[Fact]
+	public async Task NativeHostActionsEnterTheUiDispatcherAfterMessageBusAdmission() {
+		var errors = new ConcurrentQueue<Exception>();
+		var dispatcher = new SerialUiDispatcher(errors.Enqueue);
+		var uiThread = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+		dispatcher.Post(() => uiThread.SetResult(Environment.CurrentManagedThreadId));
+		int expectedThread = await uiThread.Task;
+		await using var host = TestHost.CreateUnstarted(dispatcher);
+		var window = new ThreadRecordingWindow();
+		host.Platform.Window = window;
+		int? readyThread = null;
+		host.Core.Ready += () => readyThread = Environment.CurrentManagedThreadId;
+		await host.Core.StartAsync();
+		await host.ConnectAsync();
+		host.Platform.ClipboardValue = "paste me";
+		host.Platform.ClipboardImageValue = new ClipboardImage("image/png", [1, 2, 3]);
+
+		host.HostEvent("clipboard", "write", new { text = "copied" });
+		await host.HostRequestAsync<System.Text.Json.JsonElement>("clipboard", "read", new { });
+		await host.HostRequestAsync<System.Text.Json.JsonElement>("clipboard", "readImage", new { });
+		host.HostEvent("platform", "openUrl", new { url = "https://example.com" });
+		host.HostEvent("window", "control", new { action = "minimize" });
+		host.HostEvent("window", "resize", new { edge = "bottom-right" });
+		host.HostEvent("window", "menu", new { action = "open-folder" });
+		await Wait.UntilAsync(() =>
+			host.Platform.LastOpenedUrl is not null
+			&& window.Threads.Count == 3);
+
+		Assert.Equal(expectedThread, readyThread);
+		Assert.Equal(expectedThread, host.Platform.ClipboardWriteThread);
+		Assert.Equal(expectedThread, host.Platform.ClipboardReadThread);
+		Assert.Equal(expectedThread, host.Platform.ClipboardImageReadThread);
+		Assert.Equal(expectedThread, host.Platform.OpenUrlThread);
+		Assert.All(window.Threads, thread => Assert.Equal(expectedThread, thread));
+		Assert.Empty(errors);
+	}
+
+	private sealed class ThreadRecordingWindow : IShellWindow {
+		public ConcurrentQueue<int> Threads { get; } = [];
+
+		public void Minimize() => Record();
+		public void ToggleMaximize() => Record();
+		public void StartResize(ResizeEdge edge) => Record();
+		public void Close() => Record();
+		public void CloseWindow() => Record();
+		public void Quit() => Record();
+		public void ShowOpenFolderPicker() => Record();
+		public void OpenWorkspace(string path) => Record();
+
+		private void Record() => Threads.Enqueue(Environment.CurrentManagedThreadId);
 	}
 }

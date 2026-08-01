@@ -101,6 +101,11 @@ Each endpoint has one lane per feature:
 - different session endpoints execute in parallel;
 - `HandleConcurrent` bypasses the feature lane for explicitly independent work.
 
+After lane admission, every host-scoped handler enters through `IUiDispatcher`; this is the native
+affinity and host-state serialization boundary. Session-scoped handlers execute directly and retain
+their cross-feature and cross-session parallelism. Transport callback affinity is not a handler
+guarantee.
+
 The lane is a feature consistency boundary, not a global queue. A slow search cannot block terminal
 input, and one session cannot block another. Messages that read or mutate the same state belong to
 the same feature even when another surface renders the result; for example, `agent.openPlan` reads

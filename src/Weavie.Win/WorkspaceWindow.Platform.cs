@@ -37,7 +37,7 @@ internal sealed partial class WorkspaceWindow {
 
 	void IHostPlatform.ToggleWindow() => WindowFocus.Toggle(this);
 
-	// Called on the UI (STA) thread from OnWebMessage, where WinForms Clipboard is valid. SetText rejects an
+	// Host-bus handlers enter the UI (STA) thread before reaching WinForms Clipboard. SetText rejects an
 	// empty string, so an empty copy clears the clipboard instead.
 	void IHostPlatform.WriteClipboard(string text) {
 		try {

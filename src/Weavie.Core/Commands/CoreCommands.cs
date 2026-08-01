@@ -74,6 +74,12 @@ public static class CoreCommands {
 	/// <summary>Interrupts the active structured-agent turn.</summary>
 	public const string AgentInterrupt = "weavie.agent.interrupt";
 
+	/// <summary>Jumps to the start of the latest structured-agent turn.</summary>
+	public const string AgentJumpToTurn = "weavie.agent.jumpToTurn";
+
+	/// <summary>Jumps to the latest structured-agent activity and resumes following it.</summary>
+	public const string AgentJumpToLatest = "weavie.agent.jumpToLatest";
+
 	/// <summary>Toggles the active structured agent between its Plan and default collaboration modes.</summary>
 	public const string TogglePlanMode = "weavie.agent.togglePlanMode";
 
@@ -653,6 +659,28 @@ public static class CoreCommands {
 			DefaultKeybindings = [new CommandKeybinding { Key = "escape" }],
 			// While a composer overlay (slash menu or control picker) is open, Escape closes it, not the turn.
 			When = "agentFocused && !agentSlashMenuOpen && !agentControlPickerOpen",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = AgentJumpToTurn,
+			Title = "Jump to Agent Turn",
+			RunsIn = CommandLocation.Web,
+			Category = "Agent",
+			Description = "Jump to the prompt that started the latest agent turn.",
+			Aliases = ["jump to turn", "turn start", "start of response", "scroll up to turn"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "alt+up" }],
+			When = "agentFocused",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = AgentJumpToLatest,
+			Title = "Jump to Latest Agent Activity",
+			RunsIn = CommandLocation.Web,
+			Category = "Agent",
+			Description = "Jump to the latest agent activity and resume following new output.",
+			Aliases = ["jump to latest", "latest activity", "scroll to bottom", "follow agent"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "alt+down" }],
+			When = "agentFocused",
 		});
 
 		registry.Register(new CommandDefinition {

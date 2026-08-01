@@ -25,8 +25,8 @@ responses end to end" — is the wrong target on two counts:
 ## Principles
 
 1. **Test what is ours, deterministically; treat the model as a separate, non-blocking concern.**
-   Stub `claude` at the process seam so a full-stack test exercises the entire real Weavie stack
-   (web → WSS → HostCore → PTY → hook bridge → MCP → render) with zero model dependency.
+   Stub Claude and Codex at their process seams so full-stack tests exercise the entire real Weavie
+   stack (web → WSS → HostCore → agent process → render) with zero model dependency.
 2. **Transport is a harness parameter, not a copy of the suite.** Any test *can* run on either
    transport; the default coverage is full suite on `headless`, a tagged cross-section on `remote`,
    and a few `remote`-only tests for what only exists remotely.
@@ -37,7 +37,7 @@ responses end to end" — is the wrong target on two counts:
    never `wait(1s)` — a timing guess is the silent-timeout fallback the repo bans and the #1 flake
    source.
 
-## The fake-`claude` seam (keystone)
+## Agent process seams
 
 `TerminalController.ResolveClaudeLaunch` (`src/Weavie.Hosting/TerminalController.cs`) is the single
 point where the embedded CLI is launched. A test seam points it at a **scripted fake `claude`** that:
@@ -48,6 +48,10 @@ point where the embedded CLI is launched. A test seam points it at a **scripted 
 
 This one fake turns the entire stack deterministic. It is the prerequisite for every functional
 journey below.
+
+Native Codex is stubbed at `codex.path` with a JSONL app server that implements initialization,
+thread/model/mode/skill discovery, and deterministic turn responses. This preserves the production
+process supervisor and protocol client while keeping every test offline.
 
 ## Transports and the "local" fork
 
@@ -84,6 +88,7 @@ The canonical run-once / cross / remote-only policy. New tests slot into this ta
 | LSP find-all-references | **both** | LSP framing crosses the bridge — real seam, latency-sensitive |
 | Edit → dirty clears → persisted to disk | **both** | On remote the write lands on the *worker's* worktree, not the client |
 | Session create / unload / open / delete | **both** (priority) | Strongest remote case — Runner provisioning, worktree-per-session, worker spawn, token |
+| Fresh Codex session → controls → first turn | **both** (priority) | Proves structured-runtime activation is owned by the new endpoint, never by unload/reload or selection |
 | Markdown/SVG previews update on edit | headless | Pure frontend reactivity |
 | MCP (fake-claude) edits settings → UI reflects | headless | Registry MCP is loopback *inside the worker* in both modes; round-trip identical |
 | Resize / fullscreen-pane toggle | headless | `LayoutStore` frontend; transport-irrelevant |
@@ -98,7 +103,7 @@ The canonical run-once / cross / remote-only policy. New tests slot into this ta
 ```mermaid
 flowchart TB
   U["xUnit units (548) — components in isolation"]
-  F["Playwright full-stack journeys — real Headless + fake-claude, deterministic"]
+  F["Playwright full-stack journeys — real Headless + fake agents, deterministic"]
   X["cross-transport subset + remote-only — the transport/provisioning delta"]
   U --> F --> X
 ```
@@ -125,10 +130,12 @@ flowchart TB
 
 ## Implementation
 
-All five steps landed (run `cd src/web && pnpm run e2e`):
+The implementation is landed (run `cd src/web && pnpm run e2e`):
 
 - **Fake claude** — `tools/Weavie.FakeClaude` stubs the CLI at `claude.path`; quiet by default, or
   script-driven (print/sleep/edit/hook/registry-MCP/IDE-MCP) reusing Weavie.Core's wire helpers.
+- **Fake Codex** — `src/web/e2e/harness/fake-codex.ts` stubs `codex.path` with a deterministic app
+  server that advertises controls and echoes submitted turns.
 - **Harness** — `src/web/e2e/harness/`: `prepareFake` (isolated HOME + throwaway git workspace + stub),
   `launchHeadless`, `launchRemote` (boots `Weavie.Runner`), and a transport-parameterized Playwright
   fixture. Projects: `chromium` (bridge + native contract), `headless`, `remote`, `live`.
@@ -136,7 +143,8 @@ All five steps landed (run `cd src/web && pnpm run e2e`):
   preview, fullscreen toggle, session lifecycle + delete (`@cross`), MCP setting→UI, openDiff review +
   change navigation + per-session diff state (`@cross`), and the permission gate (`@cross`, asserting the
   hook decision with `claude.allowAllTools` off vs on — there is no web approval prompt; the gate is the
-  decision). `@cross` also runs on `remote`; `@remote` tests cover worker provisioning, token auth, reconnect.
+  decision), plus fresh Codex initialization and first-turn submission (`@cross`). `@cross` also runs
+  on `remote`; `@remote` tests cover worker provisioning, token auth, reconnect.
 - **Native** — `e2e/native-bridge.spec.ts` proves the in-process WebView channel contract.
 - **CI** — `.github/workflows/ci.yml` builds the fake claude + runner so the journeys run on every PR.
 

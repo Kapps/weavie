@@ -236,8 +236,12 @@ public sealed partial class HostSession : IAsyncDisposable {
 	/// <summary>The session-owned message bus.</summary>
 	internal SessionMessageBus Bus => _endpoint.Bus;
 
-	/// <summary>Advertises this session's already-constructed bus after its exact address enters the host catalog.</summary>
-	internal void ActivateMessages() => _endpoint.Activate();
+	/// <summary>Starts this session's structured runtime and advertises its bus after its exact address enters
+	/// the host catalog.</summary>
+	internal void ActivateOwnedRuntimeAndMessages() {
+		Agent.Structured?.Start();
+		_endpoint.Activate();
+	}
 
 	/// <summary>The transient page presentation currently attached to this exact session.</summary>
 	public SessionView View => _endpoint.View;
@@ -506,15 +510,6 @@ public sealed partial class HostSession : IAsyncDisposable {
 	/// </summary>
 	public void UpdateOpenEditors(JsonElement message) =>
 		Editor.SetOpenEditors(OpenEditorTab.ParseList(message));
-
-	/// <summary>Starts the active agent runtime.</summary>
-	public void EnsureAgentStarted() {
-		if (Claude is not null) {
-			Claude.EnsureStarted();
-		} else {
-			Agent.Structured?.Start();
-		}
-	}
 
 	/// <summary>Restarts the active agent runtime when the provider supports process restart from Weavie.</summary>
 	public void RestartAgent() {

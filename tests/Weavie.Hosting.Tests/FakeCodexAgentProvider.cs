@@ -64,6 +64,10 @@ internal sealed class FakeCodexAgentProvider : IAgentProvider {
 
 		public void Submit(AgentTurnSubmission submission) {
 			ArgumentNullException.ThrowIfNull(submission);
+			if (!_started) {
+				return;
+			}
+
 			if (submission.Text == ResetPrompt) {
 				PaneMessage?.Invoke(new AgentPaneMessage { Type = "transcript-reset", ProviderId = "codex" });
 				return;

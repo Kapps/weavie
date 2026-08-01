@@ -16,8 +16,8 @@ async function expectTabs(
   await expect(page.locator(".editor-tab.active .editor-tab-label")).toHaveText(active);
 }
 
-// Real browser -> WSS -> HostCore coverage. Codex resolves to the deterministic unavailable structured session,
-// preserving its provider identity and routing without launching a real model.
+// Real browser -> WSS -> HostCore coverage. Codex runs against the deterministic fake app server, preserving
+// its production process, protocol, provider identity, and routing without launching a real model.
 test("Claude and Codex sessions restore their own tabs and active image within one second", async ({
   page,
 }) => {

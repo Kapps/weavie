@@ -67,7 +67,11 @@ describe("pull-request-store", () => {
   });
 
   it("keeps pull request status isolated by backend and slot", () => {
-    const pullRequest = { number: 123, url: "https://github.com/Kapps/weavie/pull/123" };
+    const pullRequest = {
+      number: 123,
+      url: "https://github.com/Kapps/weavie/pull/123",
+      state: "open" as const,
+    };
     deliver("remote", "feature", {
       branch: "feat/native-ui-pr",
       pullRequest,

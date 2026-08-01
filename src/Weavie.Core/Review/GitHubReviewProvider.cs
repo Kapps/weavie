@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
@@ -10,7 +11,7 @@ namespace Weavie.Core.Review;
 /// The host constructs one; presentation (the picker, the overview) and the diff (git) live elsewhere — this only
 /// fetches/posts PR data.
 /// </summary>
-public sealed class GitHubReviewProvider : IPullRequestProvider, IReviewCommentStore {
+public sealed partial class GitHubReviewProvider : IPullRequestProvider, IReviewCommentStore {
 	private const string DefaultHost = "github.com";
 	private readonly HttpClient _http;
 	private readonly IGitHubTokenSource _tokenSource;
@@ -30,19 +31,6 @@ public sealed class GitHubReviewProvider : IPullRequestProvider, IReviewCommentS
 		string body = await SendAsync(
 			repo, HttpMethod.Get, $"/repos/{repo.Owner}/{repo.Name}/pulls?state=open&sort=updated&direction=desc&per_page=50", null, ct).ConfigureAwait(false);
 		return ParsePullRequests(body);
-	}
-
-	/// <inheritdoc/>
-	public async Task<PullRequestSummary?> FindOpenForBranchAsync(RepoRef repo, string headOwner, string branch, CancellationToken ct = default) {
-		ArgumentNullException.ThrowIfNull(repo);
-		ArgumentException.ThrowIfNullOrWhiteSpace(headOwner);
-		ArgumentException.ThrowIfNullOrWhiteSpace(branch);
-		string head = Uri.EscapeDataString($"{headOwner}:{branch}");
-		string body = await SendAsync(
-			repo, HttpMethod.Get,
-			$"/repos/{repo.Owner}/{repo.Name}/pulls?state=open&head={head}&sort=updated&direction=desc&per_page=1",
-			null, ct).ConfigureAwait(false);
-		return ParsePullRequests(body).FirstOrDefault();
 	}
 
 	/// <inheritdoc/>
@@ -105,42 +93,55 @@ public sealed class GitHubReviewProvider : IPullRequestProvider, IReviewCommentS
 		return ParseComment(JsonDocument.Parse(body).RootElement);
 	}
 
-	// One authenticated GitHub REST call: resolves the token, attaches the standard headers, and returns the body
-	// (throwing a clear message on a missing credential or a non-success status).
-	private async Task<string> SendAsync(RepoRef repo, HttpMethod method, string path, string? jsonBody, CancellationToken ct) {
+	private async Task<string> SendAsync(
+		RepoRef repo,
+		HttpMethod method,
+		string path,
+		string? jsonBody,
+		CancellationToken ct) {
 		using var request = await BuildRequestAsync(repo, method, path, jsonBody, ct).ConfigureAwait(false);
 		using var response = await _http.SendAsync(request, ct).ConfigureAwait(false);
 		string body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-		if (!response.IsSuccessStatusCode) {
-			throw new InvalidOperationException($"GitHub API returned {(int)response.StatusCode} for {repo.Owner}/{repo.Name}.");
-		}
-
+		ThrowForFailure(response, repo);
 		return body;
 	}
 
-	// A GET that returns null on 404 (the resource doesn't exist — e.g. a typed PR number that isn't there),
-	// throwing on any other failure. Lets the caller distinguish "not found" from a real error.
 	private async Task<string?> SendOrNullAsync(RepoRef repo, string path, CancellationToken ct) {
 		using var request = await BuildRequestAsync(repo, HttpMethod.Get, path, null, ct).ConfigureAwait(false);
 		using var response = await _http.SendAsync(request, ct).ConfigureAwait(false);
-		if (response.StatusCode == System.Net.HttpStatusCode.NotFound) {
+		if (response.StatusCode == HttpStatusCode.NotFound) {
 			return null;
 		}
 
 		string body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-		if (!response.IsSuccessStatusCode) {
-			throw new InvalidOperationException($"GitHub API returned {(int)response.StatusCode} for {repo.Owner}/{repo.Name}.");
-		}
-
+		ThrowForFailure(response, repo);
 		return body;
 	}
 
-	private async Task<HttpRequestMessage> BuildRequestAsync(RepoRef repo, HttpMethod method, string path, string? jsonBody, CancellationToken ct) {
-		string? token = await _tokenSource.GetTokenAsync(ct).ConfigureAwait(false);
-		if (string.IsNullOrEmpty(token)) {
-			throw new InvalidOperationException("No GitHub credential found. Sign in to GitHub (gh auth login), or set GITHUB_TOKEN.");
-		}
+	private async Task<HttpRequestMessage> BuildRequestAsync(
+		RepoRef repo,
+		HttpMethod method,
+		string path,
+		string? jsonBody,
+		CancellationToken ct) {
+		string token = await ResolveTokenAsync(ct).ConfigureAwait(false);
+		return BuildRequest(repo, method, path, jsonBody, token);
+	}
 
+	private async Task<string> ResolveTokenAsync(CancellationToken ct) {
+		string? token = await _tokenSource.GetTokenAsync(ct).ConfigureAwait(false);
+		return !string.IsNullOrWhiteSpace(token)
+			? token
+			: throw new InvalidOperationException(
+				"No GitHub credential found. Sign in to GitHub (gh auth login), or set GITHUB_TOKEN.");
+	}
+
+	private static HttpRequestMessage BuildRequest(
+		RepoRef repo,
+		HttpMethod method,
+		string path,
+		string? jsonBody,
+		string token) {
 		var request = new HttpRequestMessage(method, ApiBase(repo.Host) + path);
 		request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
 		request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
@@ -151,6 +152,15 @@ public sealed class GitHubReviewProvider : IPullRequestProvider, IReviewCommentS
 		}
 
 		return request;
+	}
+
+	private static void ThrowForFailure(HttpResponseMessage response, RepoRef repo) {
+		if (response.IsSuccessStatusCode) {
+			return;
+		}
+
+		throw new InvalidOperationException(
+			$"GitHub API returned {(int)response.StatusCode} for {repo.Owner}/{repo.Name}.");
 	}
 
 	/// <summary>The REST API base for a host: <c>api.github.com</c> for github.com, else Enterprise's <c>/api/v3</c>. Pure, for tests.</summary>
@@ -202,6 +212,7 @@ public sealed class GitHubReviewProvider : IPullRequestProvider, IReviewCommentS
 		BaseRef = pr.TryGetProperty("base", out var bse) ? String(bse, "ref") : string.Empty,
 		Url = String(pr, "html_url"),
 		IsDraft = pr.TryGetProperty("draft", out var draft) && draft.ValueKind == JsonValueKind.True,
+		State = PullRequestStateFor(pr),
 	};
 
 	/// <summary>Parses the GitHub <c>GET /pulls/{n}/comments</c> array into review comments. Pure, for tests.</summary>
@@ -244,4 +255,15 @@ public sealed class GitHubReviewProvider : IPullRequestProvider, IReviewCommentS
 
 	private static long Long(JsonElement element, string name) =>
 		element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Number ? value.GetInt64() : 0;
+
+	private static PullRequestState PullRequestStateFor(JsonElement pullRequest) {
+		if (!String(pullRequest, "state").Equals("closed", StringComparison.OrdinalIgnoreCase)) {
+			return PullRequestState.Open;
+		}
+
+		return pullRequest.TryGetProperty("merged_at", out var mergedAt)
+			&& mergedAt.ValueKind is not JsonValueKind.Null and not JsonValueKind.Undefined
+				? PullRequestState.Merged
+				: PullRequestState.Closed;
+	}
 }

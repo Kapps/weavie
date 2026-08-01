@@ -34,6 +34,7 @@ internal static class FakePullRequests {
 					BaseRef = Str(pr, "baseRef"),
 					Url = Str(pr, "url"),
 					IsDraft = pr.TryGetProperty("draft", out var d) && d.ValueKind == JsonValueKind.True,
+					State = ParseState(Str(pr, "state")),
 				});
 			}
 		}
@@ -66,4 +67,10 @@ internal static class FakePullRequests {
 
 	private static int Int(JsonElement element, string name) =>
 		element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Number ? value.GetInt32() : 0;
+
+	private static PullRequestState ParseState(string value) => value.ToLowerInvariant() switch {
+		"merged" => PullRequestState.Merged,
+		"closed" => PullRequestState.Closed,
+		_ => PullRequestState.Open,
+	};
 }

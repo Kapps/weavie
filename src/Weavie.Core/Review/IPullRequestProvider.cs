@@ -1,7 +1,7 @@
 namespace Weavie.Core.Review;
 
 /// <summary>
-/// Lists a repository's open pull requests from its forge, behind an interface so the host flow and the
+/// Finds and lists a repository's pull requests from its forge, behind an interface so the host flow and the
 /// integration harness run against a fake (the seam strategy of <c>IGitService</c> and the stubbed
 /// <c>claude</c>). GitHub is one implementation (<see cref="GitHubReviewProvider"/>); another forge brings its
 /// own. The diff itself is git, not a forge call — see <c>IGitService</c>.
@@ -10,8 +10,12 @@ public interface IPullRequestProvider {
 	/// <summary>The open pull requests for <paramref name="repo"/>, most-recently-updated first — the picker's default list.</summary>
 	Task<IReadOnlyList<PullRequestSummary>> ListOpenAsync(RepoRef repo, CancellationToken ct = default);
 
-	/// <summary>The open pull request whose head is <paramref name="headOwner"/>:<paramref name="branch"/>, or <c>null</c>.</summary>
-	Task<PullRequestSummary?> FindOpenForBranchAsync(RepoRef repo, string headOwner, string branch, CancellationToken ct = default);
+	/// <summary>
+	/// The pull request whose head is <paramref name="headOwner"/>:<paramref name="branch"/>, preferring an open
+	/// pull request when the branch has more than one, or <c>null</c>. Includes merged and closed pull requests so
+	/// a branch monitor can retain its final state.
+	/// </summary>
+	Task<PullRequestSummary?> FindForBranchAsync(RepoRef repo, string headOwner, string branch, CancellationToken ct = default);
 
 	/// <summary>
 	/// Pull requests matching <paramref name="query"/> (forge-side search), so the picker scales past the default

@@ -3,7 +3,11 @@ import { type ClientSession, registerSessionFeature } from "../bridge";
 
 export interface PullRequestStatus {
   branch: string | null;
-  pullRequest: { number: number; url: string } | null;
+  pullRequest: {
+    number: number;
+    url: string;
+    state: "open" | "merged" | "closed";
+  } | null;
   error: string | null;
 }
 

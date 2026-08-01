@@ -37,6 +37,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 	private readonly Lock _disposeGate = new();
 	private EditorSession _editorSession = EditorSession.Empty;
 	private Task? _disposeTask;
+	private PullRequestStatusMonitor? _pullRequestStatus;
 	// The server catalog advertised to the page (ids + language ids + default settings) — identical for every
 	// session, so serialized once; LspConfigJson adds the per-session worktree root.
 	private static readonly string LspServersCatalogJson = JsonSerializer.Serialize(
@@ -243,6 +244,16 @@ public sealed partial class HostSession : IAsyncDisposable {
 
 	/// <summary>Background work cancelled and drained with this session.</summary>
 	internal SessionTaskScope Background { get; }
+
+	internal PullRequestStatusMonitor PullRequestStatus =>
+		_pullRequestStatus ?? throw new InvalidOperationException("Pull request status was not attached.");
+
+	internal void AttachPullRequestStatus(PullRequestStatusMonitor monitor) {
+		ArgumentNullException.ThrowIfNull(monitor);
+		if (Interlocked.CompareExchange(ref _pullRequestStatus, monitor, null) is not null) {
+			throw new InvalidOperationException("Pull request status is already attached.");
+		}
+	}
 
 	internal SessionState State { get; }
 

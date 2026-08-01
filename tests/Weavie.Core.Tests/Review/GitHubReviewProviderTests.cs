@@ -7,11 +7,11 @@ namespace Weavie.Core.Tests;
 /// <summary>Tests for the pure bits of <see cref="GitHubReviewProvider"/> — the PR JSON parser and API-base resolution.</summary>
 public sealed class GitHubReviewProviderTests {
 	[Fact]
-	public async Task FindOpenForBranchAsync_QueriesTheExactHead() {
+	public async Task FindForBranchAsync_QueriesTheExactOpenHeadFirst() {
 		var handler = new RecordingHandler("""[{"number":123,"title":"Native PR","html_url":"https://github.com/Kapps/weavie/pull/123","head":{"ref":"feat/native-ui-pr"}}]""");
 		var provider = new GitHubReviewProvider(new HttpClient(handler), new StaticTokenSource());
 
-		var result = await provider.FindOpenForBranchAsync(
+		var result = await provider.FindForBranchAsync(
 			new RepoRef("github.com", "Kapps", "weavie"), "contributor", "feat/native-ui-pr");
 
 		Assert.Equal(123, result?.Number);
@@ -19,6 +19,62 @@ public sealed class GitHubReviewProviderTests {
 		Assert.Contains("state=open", url, StringComparison.Ordinal);
 		Assert.Contains("head=contributor%3Afeat%2Fnative-ui-pr", url, StringComparison.Ordinal);
 		Assert.Contains("sort=updated&direction=desc&per_page=1", url, StringComparison.Ordinal);
+	}
+
+	[Fact]
+	public async Task FindForBranchAsync_ReusesTheEtagWithTheCurrentCredential() {
+		var handler = new ConditionalHandler();
+		var tokens = new CountingTokenSource();
+		var provider = new GitHubReviewProvider(new HttpClient(handler), tokens);
+		var repo = new RepoRef("github.com", "Kapps", "weavie");
+
+		var first = await provider.FindForBranchAsync(repo, "Kapps", "feature");
+		var second = await provider.FindForBranchAsync(repo, "Kapps", "feature");
+
+		Assert.Equal(123, first?.Number);
+		Assert.Equal(first, second);
+		Assert.Equal(2, handler.Calls);
+		Assert.Equal("\"branch-v1\"", handler.SecondIfNoneMatch);
+		Assert.Equal(["token-1", "token-2"], handler.Tokens);
+		Assert.Equal(2, tokens.Calls);
+	}
+
+	[Fact]
+	public async Task FindForBranchAsync_RequiresAuthentication() {
+		var handler = new RecordingHandler("[]");
+		var provider = new GitHubReviewProvider(new HttpClient(handler), new NullTokenSource());
+
+		var error = await Assert.ThrowsAsync<InvalidOperationException>(() => provider.FindForBranchAsync(
+			new RepoRef("github.com", "Kapps", "weavie"), "Kapps", "feature"));
+
+		Assert.Contains("No GitHub credential found", error.Message, StringComparison.Ordinal);
+		Assert.Empty(handler.Requests);
+	}
+
+	[Fact]
+	public async Task FindForBranchAsync_FallsBackToTheNewestFinalState() {
+		var handler = new RecordingHandler(
+			"[]",
+			"""[{"number":122,"state":"closed","merged_at":"2026-08-01T00:00:00Z"}]""");
+		var tokens = new CountingTokenSource();
+		var provider = new GitHubReviewProvider(new HttpClient(handler), tokens);
+
+		var result = await provider.FindForBranchAsync(
+			new RepoRef("github.com", "Kapps", "weavie"), "Kapps", "feature");
+
+		Assert.Equal(122, result?.Number);
+		Assert.Equal(PullRequestState.Merged, result?.State);
+		Assert.Equal(2, handler.Requests.Count);
+		Assert.Contains("state=open", handler.Requests[0].RequestUri?.Query, StringComparison.Ordinal);
+		Assert.Contains("state=closed", handler.Requests[1].RequestUri?.Query, StringComparison.Ordinal);
+		Assert.Equal(1, tokens.Calls);
+
+		using var mergedJson = System.Text.Json.JsonDocument.Parse(
+			"""{"number":122,"state":"closed","merged_at":"2026-08-01T00:00:00Z"}""");
+		using var closedJson = System.Text.Json.JsonDocument.Parse(
+			"""{"number":121,"state":"closed","merged_at":null}""");
+		Assert.Equal(PullRequestState.Merged, GitHubReviewProvider.ParsePullRequest(mergedJson.RootElement).State);
+		Assert.Equal(PullRequestState.Closed, GitHubReviewProvider.ParsePullRequest(closedJson.RootElement).State);
 	}
 
 	[Fact]
@@ -41,6 +97,7 @@ public sealed class GitHubReviewProviderTests {
 		Assert.Equal("claude/open-pr", prs[0].HeadRef);
 		Assert.Equal("https://github.com/Kapps/weavie/pull/89", prs[0].Url);
 		Assert.False(prs[0].IsDraft);
+		Assert.Equal(PullRequestState.Open, prs[0].State);
 		Assert.True(prs[1].IsDraft);
 	}
 
@@ -107,12 +164,54 @@ public sealed class GitHubReviewProviderTests {
 		public Task<string?> GetTokenAsync(CancellationToken ct = default) => Task.FromResult<string?>("token");
 	}
 
-	private sealed class RecordingHandler(string response) : HttpMessageHandler {
+	private sealed class CountingTokenSource : IGitHubTokenSource {
+		public int Calls { get; private set; }
+
+		public Task<string?> GetTokenAsync(CancellationToken ct = default) {
+			Calls++;
+			return Task.FromResult<string?>($"token-{Calls}");
+		}
+	}
+
+	private sealed class NullTokenSource : IGitHubTokenSource {
+		public Task<string?> GetTokenAsync(CancellationToken ct = default) => Task.FromResult<string?>(null);
+	}
+
+	private sealed class RecordingHandler(params string[] responses) : HttpMessageHandler {
+		private readonly Queue<string> _responses = new(responses);
+
 		public List<HttpRequestMessage> Requests { get; } = [];
 
 		protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) {
 			Requests.Add(request);
-			return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(response) });
+			return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) {
+				Content = new StringContent(_responses.Dequeue()),
+			});
 		}
 	}
+
+	private sealed class ConditionalHandler : HttpMessageHandler {
+		public int Calls { get; private set; }
+
+		public string? SecondIfNoneMatch { get; private set; }
+		public List<string?> Tokens { get; } = [];
+
+		protected override Task<HttpResponseMessage> SendAsync(
+			HttpRequestMessage request,
+			CancellationToken cancellationToken) {
+			Calls++;
+			Tokens.Add(request.Headers.Authorization?.Parameter);
+			if (Calls == 1) {
+				var response = new HttpResponseMessage(HttpStatusCode.OK) {
+					Content = new StringContent("""[{"number":123,"state":"open"}]"""),
+				};
+				response.Headers.ETag = new System.Net.Http.Headers.EntityTagHeaderValue("\"branch-v1\"");
+				return Task.FromResult(response);
+			}
+
+			SecondIfNoneMatch = request.Headers.IfNoneMatch.Single().ToString();
+			return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotModified));
+		}
+	}
+
 }

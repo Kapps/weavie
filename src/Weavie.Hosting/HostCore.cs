@@ -482,7 +482,6 @@ public sealed partial class HostCore : IAsyncDisposable {
 			_hotkeys = null;
 		});
 		Attempt(() => _drainTick?.Cancel());
-		await AttemptAsync(StopPullRequestStatusAsync).ConfigureAwait(false);
 		Attempt(_sessionStore.Flush);
 
 		var sessions = _sessions;

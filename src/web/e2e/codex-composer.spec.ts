@@ -1117,6 +1117,10 @@ test.describe("Codex composer", () => {
     expect(movedWithinDraft).toBe(true);
   });
 
+  // Flaked on macOS CI 2026-08-01 07:33 UTC (run
+  // https://github.com/Kapps/weavie/actions/runs/30689961665): hardcoded soft-wrap line counts
+  // were sensitive to macOS font metrics. Fixed same day by commit 7be4f84 (PR #480), which made
+  // this test poll caret movement instead of asserting an exact wrap count.
   test("Down moves through a soft-wrapped recalled prompt before restoring the draft", async ({
     page,
   }) => {

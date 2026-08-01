@@ -1085,6 +1085,8 @@ test.describe("Codex composer", () => {
     await expect(textarea).toHaveValue("a fresh draft");
   });
 
+  // See the flake note on the sibling "Down moves through..." test below — both were rewritten
+  // together in commit 7be4f84 to stop assuming a fixed soft-wrap line count.
   test("Up moves through soft-wrapped draft lines before recalling history", async ({ page }) => {
     await mountCodex(page);
     publishPane(userMessage("previous prompt"));
@@ -1117,6 +1119,13 @@ test.describe("Codex composer", () => {
     expect(movedWithinDraft).toBe(true);
   });
 
+  // Flaked on macOS CI 2026-08-01 07:33 UTC (run
+  // https://github.com/Kapps/weavie/actions/runs/30689961665): "toHaveValue(prompt)" saw "live
+  // draft" instead, because the test assumed the recalled prompt always wraps into exactly 2
+  // lines and pressed ArrowDown a fixed number of times. macOS's font metrics wrap it
+  // differently, so the fixed press count overshot straight back to the live draft. Fixed same
+  // day by looping ArrowDown presses until the composer value changes, rather than hardcoding a
+  // press count (commit 7be4f84, "Make wrapped prompt history tests metric-independent").
   test("Down moves through a soft-wrapped recalled prompt before restoring the draft", async ({
     page,
   }) => {

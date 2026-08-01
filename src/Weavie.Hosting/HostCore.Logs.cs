@@ -19,27 +19,26 @@ public sealed partial class HostCore {
 
 	private const string LogsTitle = "Weavie Logs";
 
-	private CommandResult ShowLogs() {
+	private CommandResult ShowLogs(HostSession session) {
 		var (lines, dropped) = _logBuffer.Snapshot();
 		string full = string.Join('\n', lines);
 
 		// Human tab: the web opens a source tab only on `source-loading`, so post it first; the `source-doc` then
 		// fills the tab with the full buffer as pre-rendered `html` (SourceView re-sanitizes it via DOMPurify).
 		// Claude's plaintext channel is the DataJson tail below, so no `markdown` duplicate rides the bridge.
-		_bridge.PostToWeb(JsonSerializer.Serialize(new {
-			type = "source-loading",
+		var messages = session.Bus.Feature("sources");
+		messages.Publish("loading", new {
 			target = LogsTarget,
 			title = LogsTitle,
 			sourceId = LogsSourceId,
-		}));
-		_bridge.PostToWeb(JsonSerializer.Serialize(new {
-			type = "source-doc",
+		});
+		messages.Publish("document", new {
 			target = LogsTarget,
 			title = LogsTitle,
 			html = LogsHtml(full, dropped),
 			editedTime = "",
 			sourceId = LogsSourceId,
-		}));
+		});
 
 		// Claude channel: the most-recent tail, with the omitted count surfaced so a truncation is never silent.
 		int shown = Math.Min(lines.Count, LogTailForClaude);

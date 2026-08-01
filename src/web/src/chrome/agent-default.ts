@@ -1,8 +1,14 @@
 // The agent.defaultProvider setting, host-owned: injected as window.__WEAVIE_AGENT__ before navigation and
-// re-pushed as { type: "agent-defaults" } on change — a local-machine push (like notification prefs). The
+// re-pushed as `settings.agent-defaults` on change — a local-machine push (like notification prefs). The
 // New Session prompt reads it to preselect a provider; creating a session with a different one writes it back.
 
-import { type AgentDefaults, hostInjected, onHostMessage, postToLocalHost } from "../bridge";
+import {
+  type AgentDefaults,
+  hostConnection,
+  hostInjected,
+  LOCAL_BACKEND_ID,
+  registerHostFeature,
+} from "../bridge";
 
 declare global {
   interface Window {
@@ -24,12 +30,16 @@ export function defaultAgentProvider(): "claude" | "codex" {
 /** Remember the provider just chosen as the default, so the next prompt preselects it. Persists to the local host. */
 export function setDefaultAgentProvider(providerId: "claude" | "codex"): void {
   current = { defaultProvider: providerId };
-  postToLocalHost({ type: "set-agent-default", providerId });
+  hostConnection(LOCAL_BACKEND_ID)
+    ?.host.feature("agentDefaults")
+    .publish("setProvider", { providerId });
 }
 
-onHostMessage((message) => {
-  if (message.type === "agent-defaults") {
-    const { type: _type, ...defaults } = message;
-    current = defaults;
+registerHostFeature((connection) => {
+  if (!connection.isLocal) {
+    return;
   }
+  return connection.host.feature("settings").on<AgentDefaults>("agent-defaults", (defaults) => {
+    current = defaults;
+  });
 });

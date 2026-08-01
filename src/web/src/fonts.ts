@@ -1,8 +1,8 @@
 // Typography for the editor + terminal surfaces. The host owns the source of truth (`font.*` settings) and
-// delivers it injected as `window.__WEAVIE_FONTS__` before navigation + re-pushed as { type: "fonts" } on
+// delivers it injected as `window.__WEAVIE_FONTS__` before navigation + re-pushed as `settings.fonts` on
 // change. Consumers read currentFonts() at creation and subscribe via onFontsChanged() for live updates.
 
-import { type FontSpec, hostInjected, onHostMessage } from "./bridge";
+import { type FontSpec, hostInjected, registerHostFeature } from "./bridge";
 
 export type { FontSpec };
 
@@ -58,13 +58,14 @@ function publishFontVars(config: FontConfig): void {
 publishFontVars(current);
 subscribers.add(publishFontVars);
 
-// A single permanent bridge listener (registered once at module load) fans every host font push out to all
-// subscribers; the editor/terminal subscribe through onFontsChanged rather than the bridge.
-onHostMessage((message) => {
-  if (message.type === "fonts") {
-    current = { editor: message.editor, terminal: message.terminal };
+registerHostFeature((connection) => {
+  if (!connection.isLocal) {
+    return;
+  }
+  return connection.host.feature("settings").on<FontConfig>("fonts", (fonts) => {
+    current = { editor: fonts.editor, terminal: fonts.terminal };
     for (const handler of subscribers) {
       handler(current);
     }
-  }
+  });
 });

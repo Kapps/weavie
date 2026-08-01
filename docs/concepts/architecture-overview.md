@@ -48,9 +48,9 @@ graph TB
     HC2 --- S2
 ```
 
-- **The web layer** (`src/web`, SolidJS) renders everything and is transport-agnostic. It can hold several
-  *backends* at once: the local host plus any number of remote ones. One backend is *active* at a time and
-  drives the page.
+- **The web layer** (`src/web`, SolidJS) renders everything and is transport-agnostic. It keeps one
+  `HostConnection` per local or remote host and one `ClientSession` per live session. All remain active;
+  client-only selection chooses which owner the shared presentation renders.
 - **A host** is one `HostCore` (`src/Weavie.Hosting`) owning a workspace and its sessions. Every platform
   shell — Win/Mac/Linux native windows, and the Headless worker — is a thin adapter over the same
   `HostCore`; see [host-core-unification](../specs/host-core-unification.md). A host renders nothing.
@@ -63,26 +63,33 @@ graph TB
 
 ## The bridge: one channel, one envelope
 
-Every interaction — terminal bytes, file reads, editor opens, commands, session status, LSP config — is a
-JSON message over the bridge. The wire is deliberately dumb: **one UTF-8 JSON object per message, with a
-`type` field**; there is no envelope at the transport layer. The `{type, ...}` convention is enforced only
-by the dispatchers at each end.
+Every interaction — terminal bytes, file reads, editor opens, commands, session status, LSP config — is one
+standard JSON envelope over the bridge:
+
+```text
+{scope, session, kind, requestId, feature, name, payload, error}
+```
+
+`scope` is `host` or `session`. A session envelope carries the exact `(slot, incarnation)`; payloads never
+duplicate routing identity. `kind` is `event`, `request`, `response`, or `cancel`.
 
 ```mermaid
 graph LR
-    subgraph web["web (src/web/src/bridge.ts)"]
-        P["postToHost / postToBackend"]
-        D["deliverFromHost(raw, backendId)<br/>switch on type"]
+    subgraph web["web"]
+        HC["HostConnection"]
+        CS["ClientSession buses"]
     end
-    subgraph host["host (src/Weavie.Hosting/HostCore.WebBridge.cs)"]
-        O["OnWebMessage → Dispatch(type)"]
-        W["PostToWeb(json)"]
+    subgraph host["host"]
+        R["HostMessageRouter"]
+        HB["host bus"]
+        SB["session buses"]
     end
-    P -->|"HostBoundMessage"| O
-    W -->|"WebBoundMessage"| D
+    HC <-->|"host envelopes"| HB
+    CS <-->|"exact session envelopes"| SB
+    R --> HB & SB
 ```
 
-Two transports implement the same contract (`BridgeTransport`, `src/web/src/bridge.ts`):
+Two transports carry the same envelopes (`BridgeTransport`, `src/web/src/bridge.ts`):
 
 - **Native** (`nativeTransport`) — the local Win/Mac window. Outbound JS→host via
   `window.webkit.messageHandlers` / WebView2 web-messages; inbound host→JS via `window.__weavieReceive`
@@ -91,11 +98,11 @@ Two transports implement the same contract (`BridgeTransport`, `src/web/src/brid
   a token, with a buffered outbox and reconnect-with-backoff (`src/Weavie.Headless/WebSocketHostBridge.cs`,
   `src/Weavie.Headless/Program.cs`).
 
-The host contract is just two members — `event MessageReceived` (raw JSON in) and `PostToWeb(string)` (raw
-JSON out) — at `src/Weavie.Hosting/IHostBridge.cs`. The same message protocol flows over either transport;
-only the pipe differs. **Multiplexing is by convention in the message body**: a `slot` (session id) plus a
-`session`/channel id, and request/response correlation by a `token`/`id`. The terminal, the fs provider, and
-commands all use this; see the flows below.
+The host transport contract is `IWebTransportHub`: inbound raw JSON with an opaque physical `WebPeer`,
+broadcast events, and unicast sends. `HostMessageRouter` parses and validates envelopes, routes host scope to
+one host bus, and routes session scope to the exact session endpoint. Requests and cancellations use the
+bus's common correlation; features do not implement token maps. See
+[session-owned message bus](session-message-bus.md).
 
 ## What renders where
 
@@ -103,9 +110,9 @@ All three surfaces live in the WebView and read their state over the bridge:
 
 | Surface | Renderer | Where state comes from |
 | --- | --- | --- |
-| Editor | **Monaco** (`monaco-editor` + `monaco-languageclient`), `src/web/src/editor/` | host file provider over `fs-*`; LSP over a side channel |
-| Terminals | **xterm.js** (`@xterm/xterm` 6.1 beta + fit/webgl addons), `src/web/src/terminal/TerminalView.tsx` | PTY bytes over `term-output` |
-| Chrome (rail, title bar, omnibar, menus, file browser) | **SolidJS** components, `src/web/src/chrome/`, `src/web/src/layout/` | session list / status / commands |
+| Editor | **Monaco** (`monaco-editor` + `monaco-languageclient`), `src/web/src/editor/` | owning session's `files`, `editor`, `review`, and `lsp` features |
+| Terminals | **xterm.js** (`@xterm/xterm` 6.1 beta + fit/webgl addons), `src/web/src/terminal/TerminalView.tsx` | owning session's `terminal.agent` / `terminal.shell` features |
+| Chrome (rail, title bar, omnibar, menus, file browser) | **SolidJS** components, `src/web/src/chrome/`, `src/web/src/layout/` | host catalog plus session-owned status |
 
 The build is Vite, multi-page (`index.html` for the workspace, `welcome.html` for the empty state), output
 copied to the host's `wwwroot`. Every workspace HostCore owns the same token-gated Kestrel server
@@ -134,13 +141,13 @@ sequenceDiagram
     participant PTY as ConPTY / pty
     participant CL as claude process
 
-    X->>B: term-input {slot, session, dataB64}
-    B->>TC: Dispatch "term-input" → Write(bytes)
+    X->>B: terminal.agent/input {dataB64}
+    B->>TC: exact session feature → Write(bytes)
     TC->>PTY: WriteFile(bytes)
     PTY->>CL: stdin
     CL-->>PTY: stdout (VT/ANSI bytes)
     PTY-->>TC: Output event (ReadLoop)
-    TC-->>B: PostToWeb term-output {slot, session, dataB64}
+    TC-->>B: terminal.agent/output {dataB64, replay}
     B-->>X: term.write(base64ToBytes(dataB64))
     Note over X: xterm renders (WebGL/DOM), locally
 ```
@@ -150,10 +157,10 @@ sequenceDiagram
   (see [process-supervisor](../specs/process-supervisor.md)). The OS-specific PTY is an injected
   `IPtyLauncher`; Windows uses hand-rolled **ConPTY** P/Invoke (`src/Weavie.Core/Terminal/WindowsConPtyTerminal.cs`).
   `claude` launches with `ANTHROPIC_API_KEY` stripped (subscription billing, interactive TUI — never `-p`/SDK).
-- Output framing is `{"slot":"<sessionId>","type":"term-output","session":"claude|shell","dataB64":"…"}`
-  (`TerminalController.cs`, `TermOutputJson`). **Every frame is double-tagged** with `slot` (which session)
-  and `session` (which pane). That is what lets every loaded session stream into its own hidden xterm so
-  switching sessions is instant — the bytes were already arriving.
+- Pane identity is the feature (`terminal.agent` or `terminal.shell`); session identity is the envelope
+  address. `TerminalController` receives an already-owned feature channel, so it cannot publish into another
+  pane or session. Every loaded session streams into its own retained xterm state, making selection a
+  show/present operation rather than a replay or reroute.
 - The same `TerminalView` component renders both panes; they differ only by `pane` id and by keyboard
   protocol. The shell pane advertises enhanced input (`win32InputMode` + `kittyKeyboard`); the claude pane is
   left legacy and gets `Shift+Enter` synthesized as `CSI 13;2u` via a custom key handler (see
@@ -166,8 +173,8 @@ in-process channel; xterm.js renders them identically on the user's machine.
 
 ## Flow 2 — opening a file in the editor
 
-The editor's buffers are real VSCode working copies behind a **host-backed `file://` provider**. Monaco
-never touches the disk; it asks the host for bytes over `fs-*` messages. See
+The editor's buffers are real VSCode working copies behind a **host-backed file provider**. Monaco
+never touches the disk; it asks the owning session for bytes over its message bus. See
 [editor-session](../specs/editor-session.md) and [editor-tabs](../specs/editor-tabs.md).
 
 ```mermaid
@@ -179,26 +186,26 @@ sequenceDiagram
     participant FP as HostFileProvider
     participant FS as session FileProvider (disk)
 
-    H-->>B: open-file {path, line}
-    B-->>EC: case "open-file" → openFile()
+    H-->>B: session/editor.openFile {path, line}
+    B-->>EC: owner ClientSession → openFile()
     EC->>EH: showFile → ensureRef(uri)
     EH->>FP: createModelReference resolves → readFile(uri)
-    FP->>B: fs-read {id, path}
-    B->>FS: Dispatch "fs-read" → Read(path)
-    FS-->>B: fs-read-result {id, bytes}
+    FP->>B: session/files.read request {path}
+    B->>FS: owning bus → Read(path)
+    FS-->>B: correlated response {content, stat}
     B-->>FP: resolve bytes
     FP-->>EH: contents → editor.setModel(workingCopy)
-    Note over EH: reveal line; later edits debounce-flush via fs-write
+    Note over EH: reveal line; later edits debounce-flush via files.write
 ```
 
-- The host pushes `open-file` (from a terminal `path:line` link, an MCP `reveal-file`, or active-editor
+- The host publishes `editor.openFile` on the owning session (from a terminal `path:line` link, an MCP
+  reveal, or editor
   context) carrying path/line; `FileOpener` reads through the validated `FileProviderService.ReadIfAllowed`
   (`src/Weavie.Hosting/FileOpener.cs`).
 - The provider (`src/web/src/editor/host-file-provider.ts`) services Monaco's `stat`/`readFile`/`writeFile`
-  as correlated `fs-stat`/`fs-read`/`fs-write` requests (each carries an `id` the host echoes).
-- **`fs-*` is routed by path to the owning session's worktree, not the active session**
-  (`HostCore.WebBridge.cs`) — this is what keeps the editor correct across multiple sessions; see
-  [session-isolation-invariants](../specs/session-isolation-invariants.md).
+  as correlated `files.stat`/`files.read`/`files.write` requests on the model owner's `ClientSession`.
+- The bus address, not a path heuristic or selected-session lookup, chooses the worktree. See
+  [session-owned message bus](session-message-bus.md).
 - Saving is a debounced flush of the working copy to disk. Claude reads disk, so the editor is the sole
   writer; there is no Monaco autosave.
 
@@ -208,8 +215,8 @@ Autocomplete, hover, diagnostics, go-to-definition all ride the **Language Serve
 server (e.g. `csharp-ls`, `gopls`, `tsgo`) is a separate process the *host* spawns, rooted at the workspace.
 The web runs a `monaco-languageclient` per language and speaks LSP JSON-RPC to it.
 
-That JSON-RPC **rides the bridge** — the same `(slot, channel)` multiplexing the terminal uses — so LSP has no
-socket of its own and inherits whatever transport the backend has. This is what lets it reach remote sessions:
+That JSON-RPC **rides the owning session bus**, with `channel` multiplexing language clients inside the
+session. LSP has no socket of its own and inherits whatever transport the host has:
 
 ```mermaid
 sequenceDiagram
@@ -221,11 +228,11 @@ sequenceDiagram
 
     Note over M: user types → completion requested
     M->>T: textDocument/completion
-    T->>B: lsp-data {slot, channel, payload}
-    B->>LC: Dispatch → LspSessionFor(slot).Data(channel, …)
+    T->>B: session/lsp.data {channel, payload}
+    B->>LC: exact session bus → LspController.Data(channel, …)
     LC->>LS: stdin (Content-Length framed)
     LS-->>LC: stdout completion items
-    LC-->>B: PostToWeb lsp-data {slot, channel, payload}
+    LC-->>B: session/lsp.data {channel, payload}
     B-->>T: demux by channel
     T-->>M: rendered completion list
 ```
@@ -234,8 +241,8 @@ sequenceDiagram
   server per page-minted channel (`LspChannel` under a `ProcessSupervisor`) and routes JSON-RPC both ways. The
   process is spawned through an injected `ILspServerLauncher` (`src/Weavie.Core/Lsp/`), with `LspFraming` on the
   server's stdio.
-- The web learns the session's slot + worktree root + server catalog from an `lsp-config` message /
-  `window.__WEAVIE_LSP__` bootstrap, then opens one bridge channel per language
+- The web learns each session's worktree root and server catalog from `lsp.config` during
+  `lifecycle.sync`, then opens one bus channel per language
   (`src/web/src/lsp/lsp-bridge-transport.ts`, `lsp-client.ts`). No URL, no port, no per-session token. See
   [lsp-over-bridge](../specs/lsp-over-bridge.md) and [theming-and-lsp](../specs/theming-and-lsp.md).
 

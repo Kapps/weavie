@@ -123,19 +123,13 @@ public static class FontSettings {
 		Resolve(store, TerminalFamily, TerminalSize, TerminalWeight);
 
 	/// <summary>
-	/// Serializes the resolved editor + terminal fonts as JSON. With <paramref name="messageType"/> set, a
-	/// <c>"type"</c> field is written first (for a bridge push); when null, the bare object is produced (for the
-	/// injected <c>window.__WEAVIE_FONTS__</c> global).
+	/// Serializes the resolved editor + terminal fonts for bootstrap injection or a settings feature event.
 	/// </summary>
-	public static string BuildJson(SettingsStore store, string? messageType) {
+	public static string BuildJson(SettingsStore store) {
 		ArgumentNullException.ThrowIfNull(store);
 		var editor = ResolveEditor(store);
 		var terminal = ResolveTerminal(store);
 		return JsonWrite.Object(writer => {
-			if (messageType is not null) {
-				writer.WriteString("type", messageType);
-			}
-
 			WriteFont(writer, "editor", editor);
 			WriteFont(writer, "terminal", terminal);
 		});

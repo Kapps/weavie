@@ -1,5 +1,6 @@
 import { Logs } from "lucide-solid";
 import type { JSX } from "solid-js";
+import type { ClientSession } from "../../messaging/host-connection";
 import { NotionIcon } from "./NotionIcon";
 import { sourceDoc } from "./source-store";
 
@@ -11,6 +12,6 @@ const ICONS: Record<string, () => JSX.Element> = {
 
 // The icon for a source tab, from its store entry's source id. No icon when the id is unknown or the entry is
 // absent (a restored tab whose content hasn't been repopulated) — better than guessing a brand mark.
-export function sourceTabIcon(target: string): JSX.Element | null {
-  return ICONS[sourceDoc(target)?.sourceId ?? ""]?.() ?? null;
+export function sourceTabIcon(session: ClientSession | null, target: string): JSX.Element | null {
+  return ICONS[sourceDoc(session, target)?.sourceId ?? ""]?.() ?? null;
 }

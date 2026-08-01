@@ -7,18 +7,19 @@ namespace Weavie.Headless.Tests;
 
 public sealed class PageLifecycleTests {
 	[Fact]
-	public async Task ClosingAnAcquiredConnection_ReleasesItsPageIdentity() {
+	public async Task ClosingAConnection_ReleasesItsPeer() {
 		var bridge = new WebSocketHostBridge(new InlineUiDispatcher());
-		string? disconnected = null;
-		bridge.PageDisconnected += pageId => disconnected = pageId;
+		WebPeer? disconnected = null;
+		bridge.PeerDisconnected += peer => disconnected = peer;
 
-		await bridge.ServeAsync(new AcquireThenCloseSocket("page-one"), CancellationToken.None);
+		await bridge.ServeAsync(new MessageThenCloseSocket(), CancellationToken.None);
 
-		Assert.Equal("page-one", disconnected);
+		Assert.NotNull(disconnected);
 	}
 
-	private sealed class AcquireThenCloseSocket(string pageId) : WebSocket {
-		private readonly byte[] _acquire = Encoding.UTF8.GetBytes($$"""{"type":"acquire-editor","pageId":"{{pageId}}"}""");
+	private sealed class MessageThenCloseSocket : WebSocket {
+		private readonly byte[] _message = Encoding.UTF8.GetBytes(
+			"""{"scope":"host","kind":"event","feature":"diagnostics","name":"log","payload":{"level":"info","message":"hi"}}""");
 		private int _receiveCount;
 
 		public override WebSocketState State { get; } = WebSocketState.Open;
@@ -30,9 +31,9 @@ public sealed class PageLifecycleTests {
 			ArraySegment<byte> buffer,
 			CancellationToken cancellationToken) {
 			if (Interlocked.Increment(ref _receiveCount) == 1) {
-				_acquire.AsSpan().CopyTo(buffer.AsSpan());
+				_message.AsSpan().CopyTo(buffer.AsSpan());
 				return Task.FromResult(new WebSocketReceiveResult(
-					_acquire.Length, WebSocketMessageType.Text, endOfMessage: true));
+					_message.Length, WebSocketMessageType.Text, endOfMessage: true));
 			}
 
 			return Task.FromResult(new WebSocketReceiveResult(

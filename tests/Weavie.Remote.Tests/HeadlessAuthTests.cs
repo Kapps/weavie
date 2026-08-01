@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.WebSockets;
 using System.Text;
+using System.Text.Json;
 using Xunit;
 
 namespace Weavie.Remote.Tests;
@@ -137,16 +138,44 @@ public sealed class HeadlessRemoteAuthTests(RemoteHeadlessFixture fixture) : ICl
 		using var first = await ConnectBridgeAsync(fixture.Host.Port, cts.Token);
 		using var second = await ConnectBridgeAsync(fixture.Host.Port, cts.Token);
 
-		// `ready` makes the host push its restore state (the session list among it); with broadcast it reaches
-		// every socket, so `first` — which sent nothing itself — must still receive the push `second` triggered.
-		await SendTextAsync(second, "{\"type\":\"ready\"}", cts.Token);
+		string firstHello = HelloEnvelope("hello-first");
+		string secondHello = HelloEnvelope("hello-second");
+		await SendTextAsync(first, firstHello, cts.Token);
+		await SendTextAsync(second, secondHello, cts.Token);
+		var firstResponse = await ReceiveEnvelopeAsync(
+			first,
+			root => IsEnvelope(root, "host", "response", "connection", "hello", "hello-first"),
+			cts.Token);
+		await ReceiveEnvelopeAsync(
+			second,
+			root => IsEnvelope(root, "host", "response", "connection", "hello", "hello-second"),
+			cts.Token);
 
-		Assert.True(
-			await ReceivesTypeAsync(first, "session-list", cts.Token),
-			"the first page received no broadcast push after a second page connected");
-		Assert.True(
-			await ReceivesTypeAsync(second, "session-list", cts.Token),
-			"the second page received no push for its own ready");
+		// A valid layout edit is a host event. The LayoutStore change publishes layout.state, which must reach
+		// both physical peers even though only the second issued the mutation.
+		var layout = firstResponse.GetProperty("payload").GetProperty("layout").Clone();
+		await SendTextAsync(
+			second,
+			JsonSerializer.Serialize(new {
+				scope = "host",
+				session = (object?)null,
+				kind = "event",
+				requestId = (string?)null,
+				feature = "layout",
+				name = "changed",
+				payload = new { document = layout },
+				error = (string?)null,
+			}),
+			cts.Token);
+
+		await ReceiveEnvelopeAsync(
+			first,
+			root => IsEnvelope(root, "host", "event", "layout", "state", null),
+			cts.Token);
+		await ReceiveEnvelopeAsync(
+			second,
+			root => IsEnvelope(root, "host", "event", "layout", "state", null),
+			cts.Token);
 	}
 
 	private static async Task<ClientWebSocket> ConnectBridgeAsync(int port, CancellationToken ct) {
@@ -158,34 +187,59 @@ public sealed class HeadlessRemoteAuthTests(RemoteHeadlessFixture fixture) : ICl
 	private static Task SendTextAsync(ClientWebSocket socket, string json, CancellationToken ct) =>
 		socket.SendAsync(Encoding.UTF8.GetBytes(json), WebSocketMessageType.Text, endOfMessage: true, ct);
 
-	/// <summary>Reads bridge frames until one is a message of the given <paramref name="type"/>, or the token cancels (→ false).</summary>
-	private static async Task<bool> ReceivesTypeAsync(ClientWebSocket socket, string type, CancellationToken ct) {
-		string needle = $"\"type\":\"{type}\"";
+	private static string HelloEnvelope(string requestId) =>
+		JsonSerializer.Serialize(new {
+			scope = "host",
+			session = (object?)null,
+			kind = "request",
+			requestId,
+			feature = "connection",
+			name = "hello",
+			payload = new { },
+			error = (string?)null,
+		});
+
+	private static bool IsEnvelope(
+		JsonElement root,
+		string scope,
+		string kind,
+		string feature,
+		string name,
+		string? requestId) =>
+		root.GetProperty("scope").GetString() == scope
+		&& root.GetProperty("kind").GetString() == kind
+		&& root.GetProperty("feature").GetString() == feature
+		&& root.GetProperty("name").GetString() == name
+		&& (requestId is null
+			? root.GetProperty("requestId").ValueKind == JsonValueKind.Null
+			: root.GetProperty("requestId").GetString() == requestId);
+
+	private static async Task<JsonElement> ReceiveEnvelopeAsync(
+		ClientWebSocket socket,
+		Func<JsonElement, bool> matches,
+		CancellationToken ct) {
 		byte[] buffer = new byte[64 * 1024];
 		using var message = new MemoryStream();
-		try {
-			while (socket.State == WebSocketState.Open) {
-				var result = await socket.ReceiveAsync(buffer, ct);
-				if (result.MessageType == WebSocketMessageType.Close) {
-					return false;
-				}
-
-				message.Write(buffer, 0, result.Count);
-				if (!result.EndOfMessage) {
-					continue;
-				}
-
-				string text = Encoding.UTF8.GetString(message.GetBuffer(), 0, (int)message.Length);
-				message.SetLength(0);
-				if (text.Contains(needle, StringComparison.Ordinal)) {
-					return true;
-				}
+		while (socket.State == WebSocketState.Open) {
+			var result = await socket.ReceiveAsync(buffer, ct);
+			if (result.MessageType == WebSocketMessageType.Close) {
+				break;
 			}
-		} catch (OperationCanceledException) {
-			return false;
+
+			message.Write(buffer, 0, result.Count);
+			if (!result.EndOfMessage) {
+				continue;
+			}
+
+			using var document = JsonDocument.Parse(
+				new ReadOnlyMemory<byte>(message.GetBuffer(), 0, (int)message.Length));
+			message.SetLength(0);
+			if (matches(document.RootElement)) {
+				return document.RootElement.Clone();
+			}
 		}
 
-		return false;
+		throw new InvalidOperationException("The WebSocket closed before the expected envelope arrived.");
 	}
 }
 

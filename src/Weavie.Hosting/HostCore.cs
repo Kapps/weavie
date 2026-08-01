@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Reflection;
 using System.Text.Json;
 using Weavie.Core;
@@ -19,20 +18,23 @@ using Weavie.Core.Suggestions;
 using Weavie.Core.Theming;
 using Weavie.Core.Workspaces;
 using Weavie.Core.Worktrees;
+using Weavie.Hosting.Messaging;
 using Weavie.Hosting.Web;
 
 namespace Weavie.Hosting;
 
 /// <summary>
 /// The shared, platform-agnostic host core every platform shell drives. Owns one workspace's Core graph and
-/// session set, routes the page's web messages to the active session, and pushes state back over the bridge;
+/// session set, routes exact-addressed messages to their owning host/session buses, and pushes state over the bridge;
 /// everything OS-specific is reached through an injected <see cref="IHostPlatform"/>. Split into three partials:
 /// this file (lifecycle), <c>HostCore.WebBridge.cs</c> (message dispatch), and <c>HostCore.Sessions.cs</c>.
 /// </summary>
-public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
+public sealed partial class HostCore : IAsyncDisposable {
 	private readonly IHostPlatform _platform;
 	private readonly HostRuntimeInfo _runtime;
-	private readonly IHostBridge _bridge;
+	private readonly IWebTransportHub _bridge;
+	private readonly HostMessageRouter _messages;
+	private readonly string _hostIncarnation = Guid.NewGuid().ToString("n");
 	private readonly IUiDispatcher _ui;
 	private readonly SettingsStore _settings;
 	private readonly CommandRegistry _commandRegistry;
@@ -41,7 +43,7 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	private readonly ThemeOverridesStore _themeOverrides;
 	// App-global Claude-session-id map (keyed by cwd); each session resumes its own worktree's conversation.
 	private readonly AgentProviderRegistry _agentProviders;
-	// App-global remote-agent registry; pushed to the page on `ready` and re-pushed on change (the web owns the
+	// App-global remote-agent registry; included in hello and re-pushed on change (the web owns the
 	// connections, this owns persistence — see remote-agents.ts).
 	private readonly RemoteAgentStore _remoteAgents;
 	// App-global session-rail UI state (last-used backend + promoted remote sessions); same push pattern.
@@ -58,20 +60,15 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	private readonly Weavie.Core.Sources.ISourceConnector _sources;
 	private readonly LayoutStore _layout;
 	private readonly EditorSessionStore _editorSession;
-	// Per-workspace loaded/active overlay (which worktree sessions were loaded, which was active), so a reopen —
-	// including a worker auto-update restart — comes back as the user left it. See HostCore.SessionState.cs.
+	// Per-workspace loaded-session overlay, so a reopen — including a worker auto-update restart — restores
+	// which worktree sessions have running backends. See HostCore.SessionState.cs.
 	private readonly SessionStore _sessionStore;
 	private readonly RecentFilesStore _recentFiles;
 	private readonly CorrectionCorpus _corrections;
 	private readonly WorkspaceMediaRoutes _mediaRoutes = new();
 	private readonly WorkspaceHttpServer _http;
-	// In-flight web commands invoked by Claude (runCommand → run-command): token → completion, settled by the
-	// web's command-ack (or a 5s timeout). Concurrent: acks arrive on the UI thread, the await is off it.
-	private readonly ConcurrentDictionary<string, TaskCompletionSource<CommandResult>> _pendingWebCommands = new();
-
-	// Multi-session state: _session is the active backend, _primarySession the never-unloadable own checkout,
-	// _sessions the rail's slots, _worktrees backs worktree-per-session.
-	private HostSession? _session;
+	// Multi-session state: _primarySession is the never-unloadable own checkout; _sessions owns every loaded or
+	// dormant slot. Which one a page displays is client state and never appears here.
 	private HostSession? _primarySession;
 	private SessionManager? _sessions;
 	private WorktreeManager? _worktrees;
@@ -79,6 +76,7 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	// StartAsync is idempotent: the Windows shell kicks it off early to overlap the slow WebView2 environment
 	// creation, and the web launcher awaits it again — both join this one run.
 	private readonly object _startGate = new();
+	private readonly SemaphoreSlim _sessionLifecycle = new(1, 1);
 	private Task? _startTask;
 	private Task? _disposeTask;
 
@@ -120,6 +118,7 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		// to the embedded claude so it knows whether it's a remote worker and on which build. See HostRuntimeInfo.
 		_runtime = HostRuntimeInfo.Resolve(platform.Transport, AppContext.BaseDirectory, BuildNumber);
 		_bridge = platform.Bridge;
+		_messages = new HostMessageRouter(_bridge, Log);
 		_ui = platform.Dispatcher;
 		_settings = services.Settings;
 		_commandRegistry = services.CommandRegistry;
@@ -155,6 +154,7 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		_corrections.Log += Log;
 		_corrections.Changed += () => _suggestions?.Evaluate();
 		_http = new WorkspaceHttpServer(this, httpOptions, httpBridge, _mediaRoutes);
+		WireHostMessages();
 	}
 
 	// The last file recorded as recent, so the active-editor stream (which re-fires on every cursor move within a
@@ -162,8 +162,8 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	private string? _lastRecentPath;
 
 	/// <summary>
-	/// Raised when the page sends <c>ready</c>, after the core pushed its restore state. A shell with a
-	/// web-rendered title bar subscribes to push the initial native window state (which only it knows). UI thread.
+	/// Raised when the connection hello is built. A shell with a web-rendered title bar subscribes to push the
+	/// initial native window state, which only it knows. UI thread.
 	/// </summary>
 	public event Action? Ready;
 
@@ -218,14 +218,11 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		await LoginShellEnvironment.ImportOnceAsync(line => Log($"[env] {line}")).ConfigureAwait(false);
 
 		_bridge.MessageReceived += OnWebMessage;
-		if (_bridge is IPageLifecycleHostBridge pageLifecycle) {
-			pageLifecycle.PageDisconnected += OnEditorPageDisconnected;
-		}
+		_bridge.PeerDisconnected += OnWebPeerDisconnected;
 
 		// The primary session: the workspace's own checkout. Built after the login-shell env import so its language
 		// servers + git resolve from PATH. CreateSession wires its handlers + gated push subscriptions.
-		_primarySession = CreateSession(WorkspaceRoot, "claude");
-		_session = _primarySession;
+		_primarySession = CreateSession(WorkspaceRoot, "claude", "primary");
 		// Seed the primary session's in-memory editor state from its persisted store, so switching away and
 		// back restores the same tabs (secondary worktree sessions start empty and live only for the window).
 		_primarySession.EditorSession = _editorSession.Current;
@@ -241,21 +238,21 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		// Title bar: route the web title-bar messages to the shared controller, but only when the platform
 		// renders one (web custom chrome). Native-chrome hosts leave _shell null and those messages no-op.
 		if (_platform.Window is { } window) {
-			_shell = new ShellController(window, _primarySession.FileIndex, _bridge.PostToWeb);
+			_shell = new ShellController(window);
 		}
 
 		// Sessions: the worktree manager + slot set, the primary (always-loaded) slot, then reconcile
-		// pre-existing worktrees into dormant slots so none leak. The rail's session list is pushed on the
-		// page's `ready` message (PostToWeb before navigation no-ops).
+		// pre-existing worktrees into dormant slots so none leak. The complete catalog is returned by hello.
 		_worktrees = isRepo ? BuildWorktreeManager(git) : null;
 		_sessions = new SessionManager(_worktrees);
 		AddPrimarySlot(primaryLabel);
+		ActivateSessionMessages(_primarySession);
 		await ReconcileWorktreesOnOpenAsync().ConfigureAwait(false);
-		// Overlay the persisted loaded/active state onto the reconciled chips: reload the sessions that were live
-		// at last close (each --resumes) and re-activate the last-active one, so a reopen/update-restart is seamless.
+		// Overlay persisted loaded state onto the reconciled chips. Client selection is intentionally not restored
+		// by the host.
 		RestoreSessionState();
 
-		// Contextual suggestions: the manifest probe runs off the hot path; the active set is pushed on `ready`.
+		// Contextual suggestions: the manifest probe runs off the hot path; its state is pushed independently.
 		InitSuggestions();
 
 		// Global hotkeys (e.g. ctrl+` → toggle the window): the service reads the global bindings and dispatches
@@ -278,12 +275,10 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	/// differs); the headless shell prepends its own <c>__WEAVIE_BRIDGE_WS__</c>. Call after <see cref="StartAsync"/>.
 	/// </summary>
 	public string BuildBootstrap() {
-		string lsp = _primarySession?.LspConfigJson ?? "null";
 		return
 			$"window.__WEAVIE_RESOURCE_BASE__ = {JsonSerializer.Serialize(_http.MediaBaseUrl)};"
-			+ string.Concat(LiveSettingGroups.Select(g => $"window.{g.Global} = {g.Build(_settings, null)};"))
-			+ $"window.__WEAVIE_THEME__ = {ThemeJson.Build(_settings, _themeOverrides, messageType: null, log: Log)};"
-			+ $"window.__WEAVIE_LSP__ = {lsp};"
+			+ string.Concat(LiveSettingGroups.Select(g => $"window.{g.Global} = {g.Build(_settings)};"))
+			+ $"window.__WEAVIE_THEME__ = {ThemeJson.Build(_settings, _themeOverrides, Log)};"
 			+ BuildTestProfileScript()
 			+ $"window.__WEAVIE_COMMANDS__ = {_keybindings.BuildCommandsJson()};"
 			+ $"window.__WEAVIE_KEYBINDINGS__ = {_keybindings.BuildKeybindingsJson()};"
@@ -291,10 +286,10 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	}
 
 	// Live settings groups: each is injected pre-navigation as window.{Global} and re-pushed as its
-	// MessageType when any of its Keys changes. One row per group — the bootstrap and the change handler
+	// event name when any of its Keys changes. One row per group — the bootstrap and the change handler
 	// both iterate this table.
-	private static readonly (IReadOnlyList<string> Keys, string MessageType, string Global,
-		Func<SettingsStore, string?, string> Build)[] LiveSettingGroups = [
+	private static readonly (IReadOnlyList<string> Keys, string EventName, string Global,
+		Func<SettingsStore, string> Build)[] LiveSettingGroups = [
 		(FontSettings.Keys, "fonts", "__WEAVIE_FONTS__", FontSettings.BuildJson),
 		(NotificationSettings.Keys, "notification-prefs", "__WEAVIE_NOTIFICATIONS__", NotificationSettings.BuildJson),
 		(EditorSettings.Keys, "editorOptions", "__WEAVIE_EDITOR_OPTIONS__", EditorSettings.BuildJson),
@@ -307,22 +302,32 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		?? throw new InvalidOperationException("Weavie.Hosting has no AssemblyInformationalVersion — the build-stamp target did not run.");
 
 	/// <summary>Pushes the title bar's current window state (maximize glyph + blur dim); no-op on native-chrome hosts.</summary>
-	public void PushWindowState(bool maximized, bool focused) => _shell?.PushWindowState(maximized, focused);
+	public void PushWindowState(bool maximized, bool focused) {
+		if (_shell is not null) {
+			_messages.Host.Feature("window").Publish("state", new { maximized, focused });
+		}
+	}
 
 	/// <summary>
 	/// Wires the live reactions to store changes: a changed shell reopens the terminal; font/editor/theme/
 	/// keybinding/layout edits re-push their resolved values.
 	/// </summary>
 	private void WireReactions() {
-		// A changed shell (ApplyMode.ReopensTerminal) reopens the active session's shell pane live.
-		_shellSettingSubscription = _settings.Subscribe("terminal.shell", _ => _ui.Post(() => _session?.Shell.Restart()));
+		// A changed shell (ApplyMode.ReopensTerminal) reopens every loaded session's shell pane.
+		_shellSettingSubscription = _settings.Subscribe(
+			"terminal.shell",
+			_ => _ui.Post(() => {
+				foreach (var session in LoadedSessions()) {
+					session.Shell.Restart();
+				}
+			}));
 
 		// Live settings groups + theme: re-push the resolved values so the web applies them in place.
-		// PostToWeb marshals to the UI thread and the stores are thread-safe, so call it directly.
+		// Broadcast marshals to the UI thread and the stores are thread-safe, so call it directly.
 		_onSettingChanged = change => {
-			foreach (var (keys, messageType, _, build) in LiveSettingGroups) {
+			foreach (var (keys, eventName, _, build) in LiveSettingGroups) {
 				if (keys.Contains(change.Key)) {
-					_bridge.PostToWeb(build(_settings, messageType));
+					_messages.Host.Feature("settings").PublishJson(eventName, build(_settings));
 				}
 			}
 
@@ -356,8 +361,9 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 
 		// Keybindings (user-edited ~/.weavie/keybindings.json): re-push the catalog + resolved bindings so the
 		// web rebuilds its resolver + palette live. Detached on dispose (the store may outlive this core).
-		_onKeybindingsChanged = () => _bridge.PostToWeb(
-			$"{{\"type\":\"commands\",\"commands\":{_keybindings.BuildCommandsJson()},"
+		_onKeybindingsChanged = () => _messages.Host.Feature("commands").PublishJson(
+			"catalog",
+			$"{{\"commands\":{_keybindings.BuildCommandsJson()},"
 			+ $"\"keybindings\":{_keybindings.BuildKeybindingsJson()}}}");
 		_keybindings.KeybindingsChanged += _onKeybindingsChanged;
 
@@ -372,7 +378,7 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		_keybindings.MalformedChanged += _onKeybindingsMalformedChanged;
 
 		// Remote agents: a connect/disconnect (in this window or another sharing the app-global store) re-pushes
-		// the registry so every page's rail + New Session location list stays in sync. PostToWeb marshals itself.
+		// the registry so every page's rail + New Session location list stays in sync. Broadcast marshals itself.
 		_onRemoteAgentsChanged = PushRemoteAgentsToWeb;
 		_remoteAgents.Changed += _onRemoteAgentsChanged;
 
@@ -396,10 +402,13 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	}
 
 	// Re-pushes the resolved theme (settings + overrides) so the web applies it live.
-	private void PushThemeToWeb() => _bridge.PostToWeb(ThemeJson.Build(_settings, _themeOverrides, "theme", Log));
+	private void PushThemeToWeb() =>
+		_messages.Host.Feature("settings").PublishJson(
+			"theme",
+			ThemeJson.Build(_settings, _themeOverrides, Log));
 
 	// Surfaces (or clears) the malformed-settings toast. Keyed so the "reloaded" info replaces the lingering
-	// error in place once the file parses again. Called on the live transition and once on the page's `ready`.
+	// error in place once the file parses again. Called on the live transition and once during hello.
 	private void NotifySettingsMalformed(bool malformed) {
 		if (malformed) {
 			Notify("error", $"Your settings file ({_settings.FilePath}) has errors and is being ignored until you fix it.", "settings-malformed");
@@ -410,7 +419,7 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 
 	// Surfaces a warning naming the keybindings.json command ids that match no command (their bindings are
 	// dropped). Empty ⇒ the file is clean now: no-op (the prior warn auto-dismisses). Called on the live
-	// change and once on the page's `ready`.
+	// change and once during hello.
 	private void NotifyUnknownKeybindingCommands(IReadOnlyList<string> ids) {
 		if (ids.Count == 0) {
 			return;
@@ -422,7 +431,7 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	}
 
 	// Surfaces (or clears) the malformed-keybindings toast. Keyed so the "reloaded" info replaces the lingering
-	// error in place once the file parses again. Called on the live transition and once on the page's `ready`.
+	// error in place once the file parses again. Called on the live transition and once during hello.
 	private void NotifyKeybindingsMalformed(bool malformed) {
 		if (malformed) {
 			Notify("error", $"Your keybindings file ({_keybindings.FilePath}) has errors — your custom bindings are kept, but edits are ignored until you fix it.", "keybindings-malformed");
@@ -466,9 +475,7 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		}
 
 		Attempt(() => _bridge.MessageReceived -= OnWebMessage);
-		if (_bridge is IPageLifecycleHostBridge pageLifecycle) {
-			Attempt(() => pageLifecycle.PageDisconnected -= OnEditorPageDisconnected);
-		}
+		Attempt(() => _bridge.PeerDisconnected -= OnWebPeerDisconnected);
 		Attempt(DetachReactions);
 		Attempt(() => {
 			_hotkeys?.Dispose();
@@ -478,15 +485,9 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		await AttemptAsync(StopPullRequestStatusAsync).ConfigureAwait(false);
 		Attempt(_sessionStore.Flush);
 
-		foreach (var pending in _pendingWebCommands.Values) {
-			pending.TrySetResult(CommandResult.Failure("The window closed before the command completed."));
-		}
-
-		_pendingWebCommands.Clear();
 		var sessions = _sessions;
 		var primarySession = _primarySession;
 		_sessions = null;
-		_session = null;
 		_primarySession = null;
 		if (sessions is not null) {
 			await AttemptAsync(() => sessions.DisposeAsync().AsTask()).ConfigureAwait(false);
@@ -494,6 +495,7 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 			await AttemptAsync(() => primarySession.DisposeAsync().AsTask()).ConfigureAwait(false);
 		}
 
+		await AttemptAsync(() => _messages.DisposeAsync().AsTask()).ConfigureAwait(false);
 		await AttemptAsync(() => _http.DisposeAsync().AsTask()).ConfigureAwait(false);
 		if (failures.Count > 0) {
 			throw new AggregateException("One or more host shutdown operations failed.", failures);

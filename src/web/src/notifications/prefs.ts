@@ -1,8 +1,7 @@
-// The notifications.* settings, host-owned: injected as window.__WEAVIE_NOTIFICATIONS__ before navigation
-// and re-pushed as { type: "notification-prefs" } on change — a local-machine push (like clipboard/
-// window-state), so the page-serving backend is the one prefs source. See docs/specs/session-attention.md.
+// The notifications.* settings, host-owned: injected before navigation and published by the local host's
+// settings feature on change. Presentation happens locally, so remote hosts cannot replace this source.
 
-import { hostInjected, type NotificationPrefs, onHostMessage } from "../bridge";
+import { hostInjected, type NotificationPrefs, registerHostFeature } from "../bridge";
 
 export type { NotificationPrefs };
 
@@ -34,9 +33,13 @@ export function notificationPrefs(): NotificationPrefs {
   return current;
 }
 
-onHostMessage((message) => {
-  if (message.type === "notification-prefs") {
-    const { type: _type, ...prefs } = message;
-    current = prefs;
+registerHostFeature((connection) => {
+  if (!connection.isLocal) {
+    return;
   }
+  return connection.host
+    .feature("settings")
+    .on<NotificationPrefs>("notification-prefs", (prefs) => {
+      current = prefs;
+    });
 });

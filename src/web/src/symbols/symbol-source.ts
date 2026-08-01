@@ -11,8 +11,8 @@ import {
   WorkspaceSymbolProviderRegistry,
 } from "@codingame/monaco-vscode-api/vscode/vs/workbench/contrib/search/common/search";
 import { CancellationToken } from "vscode-jsonrpc";
-import { uriHostPath } from "../editor/fs-path";
 import { monaco } from "../editor/monaco-setup";
+import { SESSION_FILE_SCHEME, sessionUriHostPath } from "../editor/session-uri";
 import {
   type DocSymbolNode,
   type FlatSymbol,
@@ -85,7 +85,7 @@ function toNode(symbol: monaco.languages.DocumentSymbol): DocSymbolNode {
 export function createSymbolSource(editor: monaco.editor.IStandaloneCodeEditor): SymbolQuerySource {
   const documentSymbols = async (): Promise<SymbolQueryResult> => {
     const model = editor.getModel();
-    if (model === null || model.uri.scheme !== "file") {
+    if (model === null || model.uri.scheme !== SESSION_FILE_SCHEME) {
       return { providerAvailable: false, items: [] };
     }
     const providers =
@@ -93,7 +93,7 @@ export function createSymbolSource(editor: monaco.editor.IStandaloneCodeEditor):
     if (providers.length === 0) {
       return { providerAvailable: false, items: [] };
     }
-    const path = uriHostPath(model.uri);
+    const path = sessionUriHostPath(model.uri);
     for (const provider of providers) {
       const symbols = await provider.provideDocumentSymbols(model, CancellationToken.None);
       if (symbols != null && symbols.length > 0) {
@@ -120,7 +120,7 @@ export function createSymbolSource(editor: monaco.editor.IStandaloneCodeEditor):
       name: symbol.name,
       kind: kindLabel(symbol.kind),
       container: symbol.containerName ?? "",
-      path: uriHostPath(symbol.location.uri),
+      path: sessionUriHostPath(symbol.location.uri),
       range: symbol.location.range,
     }));
     return { providerAvailable: true, items };

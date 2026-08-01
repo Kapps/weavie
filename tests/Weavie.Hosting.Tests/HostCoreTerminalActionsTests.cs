@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Xunit;
 
 namespace Weavie.Hosting.Tests;
@@ -9,13 +8,11 @@ namespace Weavie.Hosting.Tests;
 /// </summary>
 [Collection(TestCollections.HostIntegration)]
 public sealed class HostCoreTerminalActionsTests {
-	private static string Msg(object value) => JsonSerializer.Serialize(value);
-
 	[Fact]
 	public async Task ClipboardWrite_WritesTheTextToThePlatform() {
 		await using var host = await TestHost.StartAsync();
 
-		host.Send(Msg(new { type = "clipboard-write", text = "copied from the terminal" }));
+		host.HostEvent("clipboard", "write", new { text = "copied from the terminal" });
 
 		Assert.Equal("copied from the terminal", host.Platform.LastWrittenClipboard);
 	}
@@ -25,12 +22,12 @@ public sealed class HostCoreTerminalActionsTests {
 		await using var host = await TestHost.StartAsync();
 		host.Platform.ClipboardValue = "paste me";
 
-		host.Send(Msg(new { type = "clipboard-read", id = "c1" }));
+		var reply = await host.HostRequestAsync<System.Text.Json.JsonElement>(
+			"clipboard",
+			"read",
+			new { });
 
-		var reply = host.Bridge.LastOfType("clipboard-content");
-		Assert.True(reply.HasValue);
-		Assert.Equal("c1", reply!.Value.GetProperty("id").GetString());
-		Assert.Equal("paste me", reply.Value.GetProperty("text").GetString());
+		Assert.Equal("paste me", reply.GetProperty("text").GetString());
 	}
 
 	[Theory]
@@ -39,7 +36,7 @@ public sealed class HostCoreTerminalActionsTests {
 	public async Task OpenUrl_OpensHttpUrlsViaThePlatform(string url) {
 		await using var host = await TestHost.StartAsync();
 
-		host.Send(Msg(new { type = "open-url", url }));
+		host.HostEvent("platform", "openUrl", new { url });
 
 		Assert.Equal(url, host.Platform.LastOpenedUrl);
 	}
@@ -54,7 +51,7 @@ public sealed class HostCoreTerminalActionsTests {
 	public async Task OpenUrl_RefusesNonHttpSchemes(string url) {
 		await using var host = await TestHost.StartAsync();
 
-		host.Send(Msg(new { type = "open-url", url }));
+		host.HostEvent("platform", "openUrl", new { url });
 
 		Assert.Null(host.Platform.LastOpenedUrl); // the OS opener was never reached
 	}
@@ -65,8 +62,12 @@ public sealed class HostCoreTerminalActionsTests {
 
 		// Bad base64 in term-input throws inside the dispatch; the backstop must contain it (it would otherwise
 		// crash the network-exposed worker), and the host keeps handling subsequent messages.
-		host.Send("""{"type":"term-input","dataB64":"!!! not base64 !!!"}""");
-		host.Send(Msg(new { type = "clipboard-write", text = "still working" }));
+		host.SessionEvent(
+			host.PrimarySession,
+			"terminal.shell",
+			"input",
+			new { dataB64 = "!!! not base64 !!!" });
+		host.HostEvent("clipboard", "write", new { text = "still working" });
 
 		Assert.Equal("still working", host.Platform.LastWrittenClipboard);
 	}

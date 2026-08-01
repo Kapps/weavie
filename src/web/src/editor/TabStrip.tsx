@@ -13,6 +13,7 @@ import { ContextMenu, type ContextMenuEntry, type ContextMenuState } from "../ch
 import { formatKey } from "../commands/keybindings";
 import { dispatchCommand, findCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
+import type { ClientSession } from "../messaging/host-connection";
 import { isDirtyPath } from "./dirty-store";
 import type { TabActions } from "./editor-controller";
 import { basename } from "./fs-path";
@@ -35,7 +36,7 @@ interface TabView {
 }
 
 // A web tab shows its URL host; source/plan tabs show their document title; file tabs show their basename.
-function tabLabel(view: TabView): string {
+function tabLabel(view: TabView, session: ClientSession | null): string {
   if (view.kind === "web") {
     try {
       return new URL(view.path).host || view.path;
@@ -44,10 +45,10 @@ function tabLabel(view: TabView): string {
     }
   }
   if (view.kind === "source") {
-    return sourceDoc(view.path)?.title || basename(view.path);
+    return sourceDoc(session, view.path)?.title || basename(view.path);
   }
   if (view.kind === "plan") {
-    return agentPlan(view.path)?.title || "Plan";
+    return agentPlan(session, view.path)?.title || "Plan";
   }
   return basename(view.path);
 }
@@ -57,6 +58,7 @@ function tabLabel(view: TabView): string {
  * right-click menu dispatches editor-tab commands via ContextMenu for palette/Claude parity.
  */
 export function TabStrip(props: {
+  session: () => ClientSession | null;
   tabs: () => EditorSessionEntry[];
   activePath: () => string | null;
   actions: TabActions;
@@ -211,7 +213,7 @@ export function TabStrip(props: {
                   preview: view.preview,
                   pinned: view.pinned,
                 }}
-                title={view.kind === "plan" ? tabLabel(view) : view.path}
+                title={view.kind === "plan" ? tabLabel(view, props.session()) : view.path}
               >
                 <button
                   type="button"
@@ -230,11 +232,13 @@ export function TabStrip(props: {
                   <Show when={view.kind === "web"}>
                     <Globe size={13} class="editor-tab-icon" />
                   </Show>
-                  <Show when={view.kind === "source"}>{sourceTabIcon(view.path)}</Show>
+                  <Show when={view.kind === "source"}>
+                    {sourceTabIcon(props.session(), view.path)}
+                  </Show>
                   <Show when={view.kind === "plan"}>
                     <FileText size={13} class="editor-tab-icon" />
                   </Show>
-                  <span class="editor-tab-label">{tabLabel(view)}</span>
+                  <span class="editor-tab-label">{tabLabel(view, props.session())}</span>
                   <Show when={view.dirty}>
                     <span class="editor-tab-dirty" role="img" aria-label="Unsaved changes">
                       *

@@ -1,5 +1,5 @@
 import { createSignal } from "solid-js";
-import { onSessionMessage, postToBackend } from "../bridge";
+import { type ClientSession, registerSessionFeature } from "../bridge";
 import { agentImageError, encodeAgentImage, takePastedImages } from "./pasted-images";
 
 export type AgentAttachmentStatus = "reading" | "transferring" | "ready" | "failed";
@@ -28,52 +28,47 @@ const EMPTY: AgentComposerState = {
   submittingId: null,
   error: null,
 };
-const [states, setStates] = createSignal<Record<string, AgentComposerState>>({});
+const [states, setStates] = createSignal(new Map<ClientSession, AgentComposerState>());
 let sequence = 0;
 
-const keyOf = (backendId: string, slot: string): string => `${backendId}\u0000${slot}`;
 const nextId = (prefix: string): string =>
   `${prefix}-${Date.now().toString(36)}-${(++sequence).toString(36)}`;
 
-export function composerState(backendId: string, slot: string | null): AgentComposerState {
-  return slot === null ? EMPTY : (states()[keyOf(backendId, slot)] ?? EMPTY);
+export function composerState(session: ClientSession | null): AgentComposerState {
+  return session === null ? EMPTY : stateFor(session);
 }
 
-export function setComposerDraft(backendId: string, slot: string, draft: string): void {
-  update(backendId, slot, (state) => ({ ...state, draft, error: null }));
+export function setComposerDraft(session: ClientSession, draft: string): void {
+  update(session, (state) => ({ ...state, draft, error: null }));
 }
 
-export function captureAgentImagePaste(
-  event: ClipboardEvent,
-  backendId: string,
-  slot: string,
-): boolean {
+export function captureAgentImagePaste(event: ClipboardEvent, session: ClientSession): boolean {
   const blobs = takePastedImages(event);
   for (const blob of blobs) {
-    beginBlobUpload(blob, backendId, slot);
+    beginBlobUpload(blob, session);
   }
   return blobs.length > 0;
 }
 
-export function removeComposerAttachment(backendId: string, slot: string, id: string): void {
-  const attachment = composerState(backendId, slot).attachments.find((item) => item.id === id);
+export function removeComposerAttachment(session: ClientSession, id: string): void {
+  const attachment = stateFor(session).attachments.find((item) => item.id === id);
   if (attachment === undefined) {
     return;
   }
   revoke(attachment);
-  update(backendId, slot, (state) => ({
+  update(session, (state) => ({
     ...state,
     attachments: state.attachments.filter((item) => item.id !== id),
     error: null,
   }));
   if (attachment.status === "transferring" || attachment.status === "ready") {
-    postToBackend(backendId, { type: "agent-attachment-remove", slot, id });
+    publishAgent(session, "removeAttachment", { id });
   }
 }
 
 /** Stages a provider skill (from the slash menu) for the next turn; ignores a duplicate. */
-export function stageSkill(backendId: string, slot: string, name: string): void {
-  update(backendId, slot, (state) =>
+export function stageSkill(session: ClientSession, name: string): void {
+  update(session, (state) =>
     state.skills.includes(name)
       ? state
       : { ...state, skills: [...state.skills, name], error: null },
@@ -81,15 +76,15 @@ export function stageSkill(backendId: string, slot: string, name: string): void 
 }
 
 /** Removes a staged skill. */
-export function unstageSkill(backendId: string, slot: string, name: string): void {
-  update(backendId, slot, (state) => ({
+export function unstageSkill(session: ClientSession, name: string): void {
+  update(session, (state) => ({
     ...state,
     skills: state.skills.filter((skill) => skill !== name),
   }));
 }
 
-export function submitAgentTurn(backendId: string, slot: string): boolean {
-  const state = composerState(backendId, slot);
+export function submitAgentTurn(session: ClientSession): boolean {
+  const state = stateFor(session);
   if (
     state.submittingId !== null ||
     state.attachments.some((attachment) => attachment.status !== "ready") ||
@@ -99,10 +94,8 @@ export function submitAgentTurn(backendId: string, slot: string): boolean {
   }
 
   const id = nextId("submission");
-  update(backendId, slot, (current) => ({ ...current, submittingId: id, error: null }));
-  postToBackend(backendId, {
-    type: "agent-submit",
-    slot,
+  update(session, (current) => ({ ...current, submittingId: id, error: null }));
+  publishAgent(session, "submit", {
     id,
     prompt: state.draft.trim(),
     attachmentIds: state.attachments.map((attachment) => attachment.id),
@@ -112,15 +105,14 @@ export function submitAgentTurn(backendId: string, slot: string): boolean {
 }
 
 export function uploadAgentImage(
-  backendId: string,
-  slot: string,
+  session: ClientSession,
   mime: string,
   dataB64: string,
   previewUrl: string,
 ): void {
   const id = nextId("attachment");
   const error = agentImageError(mime, dataB64);
-  addAttachment(backendId, slot, {
+  addAttachment(session, {
     id,
     mime,
     previewUrl,
@@ -128,14 +120,14 @@ export function uploadAgentImage(
     error,
   });
   if (error === null) {
-    postToBackend(backendId, { type: "agent-attachment-upload", slot, id, mime, dataB64 });
+    publishAgent(session, "uploadAttachment", { id, mime, dataB64 });
   }
 }
 
-function beginBlobUpload(blob: Blob, backendId: string, slot: string): void {
+function beginBlobUpload(blob: Blob, session: ClientSession): void {
   const id = nextId("attachment");
   const previewUrl = URL.createObjectURL(blob);
-  addAttachment(backendId, slot, {
+  addAttachment(session, {
     id,
     mime: blob.type,
     previewUrl,
@@ -144,86 +136,120 @@ function beginBlobUpload(blob: Blob, backendId: string, slot: string): void {
   });
   void encodeAgentImage(blob).then(
     (dataB64) => {
-      if (!hasAttachment(backendId, slot, id)) {
+      if (!hasAttachment(session, id)) {
         return;
       }
       const error = agentImageError(blob.type, dataB64);
-      patchAttachment(backendId, slot, id, {
+      patchAttachment(session, id, {
         status: error === null ? "transferring" : "failed",
         error,
       });
       if (error === null) {
-        postToBackend(backendId, {
-          type: "agent-attachment-upload",
-          slot,
+        publishAgent(session, "uploadAttachment", {
           id,
           mime: blob.type,
           dataB64,
         });
       }
     },
-    (error: unknown) =>
-      patchAttachment(backendId, slot, id, {
+    (error: unknown) => {
+      if (!hasAttachment(session, id)) {
+        return;
+      }
+      patchAttachment(session, id, {
         status: "failed",
         error: error instanceof Error ? error.message : String(error),
-      }),
+      });
+    },
   );
 }
 
-onSessionMessage((message, backendId) => {
-  if (message.type === "agent-attachment-state") {
+interface AttachmentState {
+  id: string;
+  status: AgentAttachmentStatus | "removed";
+  error: string;
+}
+
+interface SubmissionState {
+  id: string;
+  attachmentIds: string[];
+  status: "accepted" | "rejected";
+  error: string;
+}
+
+registerSessionFeature((session) => {
+  const feature = session.feature("agent");
+  const offAttachment = feature.on<AttachmentState>("attachmentState", (message) => {
     if (message.status === "removed") {
-      const attachment = composerState(backendId, message.slot).attachments.find(
-        (item) => item.id === message.id,
-      );
+      const attachment = stateFor(session).attachments.find((item) => item.id === message.id);
       if (attachment !== undefined) {
         revoke(attachment);
-        update(backendId, message.slot, (state) => ({
+        update(session, (state) => ({
           ...state,
           attachments: state.attachments.filter((item) => item.id !== message.id),
         }));
       }
       return;
     }
-    patchAttachment(backendId, message.slot, message.id, {
+    patchAttachment(session, message.id, {
       status: message.status,
       error: message.error.length === 0 ? null : message.error,
     });
-    return;
-  }
-  if (message.type !== "agent-submission-state") {
-    return;
-  }
-  const state = composerState(backendId, message.slot);
-  if (state.submittingId !== message.id) {
-    return;
-  }
-  if (message.status === "rejected") {
-    update(backendId, message.slot, (current) => ({
-      ...current,
+  });
+  const offSubmission = feature.on<SubmissionState>("submissionState", (message) => {
+    const state = stateFor(session);
+    if (state.submittingId !== message.id) {
+      return;
+    }
+    if (message.status === "rejected") {
+      update(session, (current) => ({
+        ...current,
+        submittingId: null,
+        error: message.error,
+      }));
+      return;
+    }
+    for (const attachment of state.attachments) {
+      if (message.attachmentIds.includes(attachment.id)) {
+        revoke(attachment);
+      }
+    }
+    update(session, (current) => ({
+      draft: "",
+      attachments: current.attachments.filter(
+        (attachment) => !message.attachmentIds.includes(attachment.id),
+      ),
+      skills: [],
       submittingId: null,
-      error: message.error,
+      error: null,
     }));
-    return;
-  }
-  for (const attachment of state.attachments) {
-    if (message.attachmentIds.includes(attachment.id)) {
+  });
+  return () => {
+    offAttachment();
+    offSubmission();
+    for (const attachment of stateFor(session).attachments) {
       revoke(attachment);
     }
-  }
-  update(backendId, message.slot, (current) => ({
-    draft: "",
-    attachments: current.attachments.filter(
-      (attachment) => !message.attachmentIds.includes(attachment.id),
-    ),
-    skills: [],
-    submittingId: null,
-    error: null,
-  }));
+    setStates((previous) => {
+      const next = new Map(previous);
+      next.delete(session);
+      return next;
+    });
+  };
 });
 
-function addAttachment(backendId: string, slot: string, attachment: AgentComposerAttachment): void {
-  update(backendId, slot, (state) => ({
+function publishAgent(
+  session: ClientSession,
+  name: string,
+  payload: Record<string, unknown>,
+): void {
+  if (!session.closed) {
+    session.feature("agent").publish(name, payload);
+  }
+}
+
+function addAttachment(session: ClientSession, attachment: AgentComposerAttachment): void {
+  update(session, (state) => ({
     ...state,
     attachments: [...state.attachments, attachment],
     error: null,
@@ -231,12 +257,11 @@ function addAttachment(backendId: string, slot: string, attachment: AgentCompose
 }
 
 function patchAttachment(
-  backendId: string,
-  slot: string,
+  session: ClientSession,
   id: string,
   patch: Pick<AgentComposerAttachment, "status" | "error">,
 ): void {
-  update(backendId, slot, (state) => ({
+  update(session, (state) => ({
     ...state,
     attachments: state.attachments.map((attachment) =>
       attachment.id === id ? { ...attachment, ...patch } : attachment,
@@ -244,17 +269,21 @@ function patchAttachment(
   }));
 }
 
-function hasAttachment(backendId: string, slot: string, id: string): boolean {
-  return composerState(backendId, slot).attachments.some((attachment) => attachment.id === id);
+function hasAttachment(session: ClientSession, id: string): boolean {
+  return stateFor(session).attachments.some((attachment) => attachment.id === id);
 }
 
 function update(
-  backendId: string,
-  slot: string,
+  session: ClientSession,
   apply: (state: AgentComposerState) => AgentComposerState,
 ): void {
-  const key = keyOf(backendId, slot);
-  setStates((current) => ({ ...current, [key]: apply(current[key] ?? EMPTY) }));
+  if (!session.closed) {
+    setStates((current) => new Map(current).set(session, apply(current.get(session) ?? EMPTY)));
+  }
+}
+
+function stateFor(session: ClientSession): AgentComposerState {
+  return session.closed ? EMPTY : (states().get(session) ?? EMPTY);
 }
 
 function revoke(attachment: AgentComposerAttachment): void {

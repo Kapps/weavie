@@ -1,7 +1,7 @@
-// Terminal clipboard commands. Clipboard reads belong to the local machine even when the active session is remote.
+// Terminal clipboard commands. Clipboard reads belong to the local machine even when the selected session is remote.
 
 import type { Terminal } from "@xterm/xterm";
-import { activeBackendId, isBrowserHostedShell } from "../bridge";
+import { type ClientSession, isBrowserHostedShell, type TermSession } from "../bridge";
 import { writeClipboard } from "../clipboard";
 import { readClipboardImage, readClipboardText } from "../clipboard-read";
 import { registerCommand } from "../commands/registry";
@@ -10,13 +10,25 @@ import { notify } from "../notify/notify";
 import { base64ToBytes } from "./base64";
 import { sendPastedImage } from "./paste-image";
 
-const terminals = new Map<string, Terminal>();
+interface RegisteredTerminal {
+  term: Terminal;
+  session: ClientSession;
+  pane: TermSession;
+}
+
+const terminals = new Map<string, RegisteredTerminal>();
 let focusedKey: string | null = null;
 
-export function registerTerminal(key: string, term: Terminal): () => void {
-  terminals.set(key, term);
+export function registerTerminal(
+  key: string,
+  term: Terminal,
+  session: ClientSession,
+  pane: TermSession,
+): () => void {
+  const registered = { term, session, pane };
+  terminals.set(key, registered);
   return () => {
-    if (terminals.get(key) === term) {
+    if (terminals.get(key) === registered) {
       terminals.delete(key);
     }
     if (focusedKey === key) {
@@ -29,23 +41,22 @@ export function noteTerminalFocus(key: string): void {
   focusedKey = key;
 }
 
-function focusedTerminal(): Terminal | undefined {
+function focusedTerminal(): RegisteredTerminal | undefined {
   return focusedKey === null ? undefined : terminals.get(focusedKey);
 }
 
-async function pasteFromHost(term: Terminal, key: string, backendId: string): Promise<void> {
+async function pasteFromHost(target: RegisteredTerminal): Promise<void> {
   try {
-    const sep = key.lastIndexOf(":");
-    if (key.slice(sep + 1) === "claude") {
+    if (target.pane === "claude") {
       const image = await readClipboardImage();
       if (image.mime.length > 0) {
-        sendPastedImage(backendId, key.slice(0, sep), image.mime, image.dataB64);
+        sendPastedImage(target.session, image.mime, image.dataB64);
         return;
       }
     }
     const text = await readClipboardText();
     if (text.length > 0) {
-      term.paste(text);
+      target.term.paste(text);
     }
   } catch (error) {
     notify(
@@ -73,30 +84,28 @@ export function attachOsc52(term: Terminal): { dispose(): void } {
 
 export function installTerminalClipboardCommands(): () => void {
   const offCopy = registerCommand(CommandIds.terminalCopy, () => {
-    const term = focusedTerminal();
-    if (term === undefined) {
+    const target = focusedTerminal();
+    if (target === undefined) {
       return false;
     }
-    writeClipboard(term.getSelection());
+    writeClipboard(target.term.getSelection());
     return true;
   });
 
   const offPaste = registerCommand(CommandIds.terminalPaste, () => {
-    const key = focusedKey;
-    const term = focusedTerminal();
-    if (term === undefined || key === null) {
+    const target = focusedTerminal();
+    if (target === undefined) {
       return false;
     }
-    const backendId = activeBackendId();
-    return isBrowserHostedShell() ? false : pasteFromHost(term, key, backendId);
+    return isBrowserHostedShell() ? false : pasteFromHost(target);
   });
 
   const offClear = registerCommand(CommandIds.terminalClear, () => {
-    const term = focusedTerminal();
-    if (term === undefined) {
+    const target = focusedTerminal();
+    if (target === undefined) {
       return false;
     }
-    term.clear();
+    target.term.clear();
     return true;
   });
 

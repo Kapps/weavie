@@ -5,12 +5,15 @@ import type { RailSession } from "./session-store";
 
 function railSession(over: Partial<RailSession>): RailSession {
   return {
+    owner: null,
     id: "s1",
     label: "feature/x",
     active: false,
     loaded: true,
     primary: false,
     providerId: "claude",
+    agentSurface: "terminal",
+    agentInputProtocol: 0,
     status: "idle",
     hue: 120,
     monogram: "FX",

@@ -1,5 +1,5 @@
 import { createMemo, createSignal, For, type JSX, Match, Show, Switch } from "solid-js";
-import type { AgentPaneUpdate } from "../bridge";
+import type { AgentPaneUpdate, ClientSession } from "../bridge";
 import { liveKeyLabel } from "../commands/keys-live";
 import { CommandIds } from "../commands/types";
 import { AgentMarkdown } from "./AgentMarkdown";
@@ -19,7 +19,7 @@ export function AgentTranscript(props: {
   keyboardApprovalId: string | null;
   messages: AgentPaneUpdate[];
   providerName: string;
-  slot: string | null;
+  session: ClientSession | null;
 }): JSX.Element {
   // Entries are rebuilt as updates arrive. Keep disclosure state outside the native <details> node
   // so replacing an entry does not close something the user is inspecting.
@@ -41,11 +41,11 @@ export function AgentTranscript(props: {
         <For each={props.entries}>
           {(entry) => (
             <TranscriptEntry
-              detailsExpanded={expandedDetails().has(detailsKey(props.slot, entry.id))}
+              detailsExpanded={expandedDetails().has(detailsKey(props.session, entry.id))}
               entry={entry}
               keyboardApprovalId={props.keyboardApprovalId}
               onDetailsToggle={(open) => {
-                const key = detailsKey(props.slot, entry.id);
+                const key = detailsKey(props.session, entry.id);
                 setExpandedDetails((current) => {
                   if (current.has(key) === open) {
                     return current;
@@ -60,7 +60,7 @@ export function AgentTranscript(props: {
                 });
               }}
               sectionLabel={sectionLabels().get(entry.id) ?? null}
-              slot={props.slot}
+              session={props.session}
               turnStart={entry.id === turnStartId()}
             />
           )}
@@ -115,7 +115,7 @@ function TranscriptEntry(props: {
   keyboardApprovalId: string | null;
   onDetailsToggle: (open: boolean) => void;
   sectionLabel: "Updates" | "Results" | null;
-  slot: string | null;
+  session: ClientSession | null;
   turnStart: boolean;
 }): JSX.Element {
   return (
@@ -142,7 +142,7 @@ function TranscriptEntry(props: {
       <div class="agent-entry-main">
         <Show when={props.entry.summary !== null}>
           <div class="agent-entry-summary">
-            <AgentLinkedText text={props.entry.summary ?? ""} />
+            <AgentLinkedText session={props.session} text={props.entry.summary ?? ""} />
           </div>
         </Show>
         <Show when={props.entry.text !== null}>
@@ -150,11 +150,11 @@ function TranscriptEntry(props: {
             when={props.entry.kind === "message" && props.entry.tone === "assistant"}
             fallback={
               <pre class="agent-entry-text">
-                <AgentLinkedText text={props.entry.text ?? ""} />
+                <AgentLinkedText session={props.session} text={props.entry.text ?? ""} />
               </pre>
             }
           >
-            <AgentMarkdown content={props.entry.text ?? ""} />
+            <AgentMarkdown content={props.entry.text ?? ""} session={props.session} />
           </Show>
         </Show>
         <Show when={props.entry.details.length > 0}>
@@ -162,13 +162,14 @@ function TranscriptEntry(props: {
             entry={props.entry}
             expanded={props.detailsExpanded}
             onToggle={props.onDetailsToggle}
+            session={props.session}
             steps={props.entry.details}
           />
         </Show>
         <EntryActions
           entry={props.entry}
           keyboardApprovalId={props.keyboardApprovalId}
-          slot={props.slot}
+          session={props.session}
         />
       </div>
     </article>
@@ -194,7 +195,7 @@ function showEntryHeader(entry: AgentTranscriptEntry): boolean {
 function EntryActions(props: {
   entry: AgentTranscriptEntry;
   keyboardApprovalId: string | null;
-  slot: string | null;
+  session: ClientSession | null;
 }): JSX.Element {
   return (
     <Show when={props.entry.actionMessage}>
@@ -202,7 +203,7 @@ function EntryActions(props: {
         <Switch>
           <Match when={message().type === "approval-requested" && props.entry.status === "pending"}>
             <ApprovalActions
-              slot={props.slot}
+              session={props.session}
               requestId={message().itemId}
               answersToKeys={
                 props.keyboardApprovalId !== null && message().itemId === props.keyboardApprovalId
@@ -210,13 +211,13 @@ function EntryActions(props: {
             />
           </Match>
           <Match when={message().type === "input-requested" && props.entry.status === "pending"}>
-            <InputRequestActions slot={props.slot} message={message()} />
+            <InputRequestActions session={props.session} message={message()} />
           </Match>
           <Match when={message().type === "edit-location"}>
-            <EditLocationActions target={message().text} />
+            <EditLocationActions session={props.session} target={message().text} />
           </Match>
           <Match when={message().type === "item-completed" && message().itemType === "plan"}>
-            <PlanActions message={message()} slot={props.slot} />
+            <PlanActions message={message()} session={props.session} />
           </Match>
         </Switch>
       )}
@@ -228,6 +229,7 @@ function ActivityDetails(props: {
   entry: AgentTranscriptEntry;
   expanded: boolean;
   onToggle: (open: boolean) => void;
+  session: ClientSession | null;
   steps: AgentActivityStep[];
 }): JSX.Element {
   return (
@@ -251,12 +253,12 @@ function ActivityDetails(props: {
               <span class="agent-step-label">{step.label}</span>
               <Show when={step.actionMessage?.type === "edit-location"}>
                 <span class="agent-step-actions">
-                  <EditLocationActions target={step.actionMessage?.text} />
+                  <EditLocationActions session={props.session} target={step.actionMessage?.text} />
                 </span>
               </Show>
               <Show when={step.detailText !== null}>
                 <pre>
-                  <AgentLinkedText text={step.detailText ?? ""} />
+                  <AgentLinkedText session={props.session} text={step.detailText ?? ""} />
                 </pre>
               </Show>
             </div>
@@ -267,8 +269,10 @@ function ActivityDetails(props: {
   );
 }
 
-function detailsKey(slot: string | null, entryId: string): string {
-  return `${slot ?? "detached"}:${entryId}`;
+function detailsKey(session: ClientSession | null, entryId: string): string {
+  return session === null
+    ? `detached:${entryId}`
+    : `${session.connection.id}:${session.address.incarnation}:${entryId}`;
 }
 
 function activityDetailsSummary(entry: AgentTranscriptEntry, count: number): string {

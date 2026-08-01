@@ -2,13 +2,13 @@ using System.Text;
 using Weavie.Core.Agents;
 using Weavie.Core.Configuration;
 using Weavie.Core.Sessions;
+using Weavie.Hosting.Messaging;
 
 namespace Weavie.Hosting.Agents;
 
 /// <summary>Composes one provider session with Weavie's terminal or structured runtime host.</summary>
 public sealed class AgentSessionHost : IAsyncDisposable {
-	private readonly AgentSessionContext _context;
-	private readonly IHostBridge _bridge;
+	private readonly MessageFeatureChannel _messages;
 	private readonly List<AgentPaneMessage> _paneMessages = [];
 	private readonly Dictionary<string, int> _paneItemIndexes = new(StringComparer.Ordinal);
 	private readonly Dictionary<string, PaneDeltaBuffer> _paneDeltaBuffers = new(StringComparer.Ordinal);
@@ -27,23 +27,29 @@ public sealed class AgentSessionHost : IAsyncDisposable {
 	public AgentSessionHost(
 		IAgentProvider provider,
 		AgentSessionContext context,
-		IHostBridge bridge,
+		MessageFeatureChannel messages,
+		MessageFeatureChannel terminalMessages,
 		SettingsStore settings,
 		IPtyLauncher ptyLauncher,
 		string transcriptPath) {
 		ArgumentNullException.ThrowIfNull(provider);
 		ArgumentNullException.ThrowIfNull(context);
-		ArgumentNullException.ThrowIfNull(bridge);
+		ArgumentNullException.ThrowIfNull(messages);
+		ArgumentNullException.ThrowIfNull(terminalMessages);
 		ArgumentNullException.ThrowIfNull(settings);
 		ArgumentNullException.ThrowIfNull(ptyLauncher);
 		ArgumentException.ThrowIfNullOrEmpty(transcriptPath);
-		_context = context;
-		_bridge = bridge;
+		_messages = messages;
 		_coalescer = new AgentPaneCoalescer(PostPaneBatch, settings.RequireInt(AgentSettings.PaneCoalesceMs));
 		Provider = provider.Info;
 		Session = provider.CreateSession(context);
 		if (Session is ITerminalAgentSession terminalSession) {
-			Terminal = new TerminalController(bridge, "claude", settings, ptyLauncher, new AgentTerminalProcess(terminalSession)) {
+			Terminal = new TerminalController(
+				terminalMessages,
+				"agent",
+				settings,
+				ptyLauncher,
+				new AgentTerminalProcess(terminalSession)) {
 				Workspace = context.Workspace,
 			};
 		} else if (Session is IStructuredAgentSession structuredSession) {
@@ -90,7 +96,12 @@ public sealed class AgentSessionHost : IAsyncDisposable {
 	}
 
 	/// <summary>Replays the structured pane state accumulated for this session.</summary>
-	public void ReplayPane() {
+	public void ReplayPane() => ReplayPane(_messages);
+
+	internal void ReplayPane(MessageTargetFeature messages) =>
+		ReplayPane((IMessageFeatureTarget)messages);
+
+	private void ReplayPane(IMessageFeatureTarget messages) {
 		// Post under the gate so this replay's reset+messages stay ordered against a concurrent hydrate/resume
 		// (another thread): posting outside it let a trailing reset land after hydrate's content and blank the
 		// pane on a slow remote cold-start. Under the gate each writer's reset+messages is atomic on the wire.
@@ -100,28 +111,35 @@ public sealed class AgentSessionHost : IAsyncDisposable {
 				snapshot[buffer.Index] = buffer.Latest with { Text = buffer.Text.ToString() };
 			}
 
-			// Every buffered live message is already in the snapshot (it was stored before it was coalesced), so
-			// drop the buffer or the timer would re-post it as a batch after this replay and duplicate it.
-			_coalescer.Discard();
-			_bridge.PostToWeb(AgentPaneProtocol.Reset(_context.CurrentSessionId(), _context.Workspace));
-			_bridge.PostToWeb(AgentPaneProtocol.Batch(_context.CurrentSessionId(), _context.Workspace, snapshot));
+			// Flush the shared batch first: this targeted replay reaches one peer, while the buffered live update
+			// still belongs on every peer attached to the session.
+			_coalescer.Flush();
+			messages.Publish("paneReset", new { });
+			messages.Publish("paneBatch", AgentPaneProtocol.Batch(snapshot));
 		}
 	}
 
 	/// <summary>Replays every structured-agent surface owned by this session.</summary>
-	public void ReplayState() {
+	public void ReplayState() => ReplayState(_messages);
+
+	internal void ReplayState(MessageTargetFeature messages) =>
+		ReplayState((IMessageFeatureTarget)messages);
+
+	private void ReplayState(IMessageFeatureTarget messages) {
 		if (Structured is null) {
 			return;
 		}
 
-		ReplayPane();
-		ReplayControls();
+		ReplayPane(messages);
+		ReplayControls(messages);
 	}
 
 	/// <summary>Replays the current control state, so a (re)connecting web view shows the live model/approvals/sandbox.</summary>
-	public void ReplayControls() {
+	public void ReplayControls() => ReplayControls(_messages);
+
+	private void ReplayControls(IMessageFeatureTarget messages) {
 		if (Controls is not null) {
-			PublishControlState(Controls.ControlState);
+			messages.Publish("controls", AgentControlsProtocol.Message(Controls.ControlState));
 		}
 	}
 
@@ -162,7 +180,7 @@ public sealed class AgentSessionHost : IAsyncDisposable {
 	}
 
 	private void PublishControlState(AgentControlState state) =>
-		_bridge.PostToWeb(AgentControlsProtocol.Message(_context.CurrentSessionId(), _context.Workspace, state));
+		_messages.Publish("controls", AgentControlsProtocol.Message(state));
 
 	private void PublishPaneMessage(AgentPaneMessage message) {
 		// Post inside the gate so this writer's mutation and its web post stay ordered against a concurrent
@@ -175,7 +193,7 @@ public sealed class AgentSessionHost : IAsyncDisposable {
 				_transcript?.Clear();
 				// Buffered pre-reset messages are being wiped; drop them so a later flush can't resurrect them.
 				_coalescer.Discard();
-				_bridge.PostToWeb(AgentPaneProtocol.Reset(_context.CurrentSessionId(), _context.Workspace));
+				_messages.Publish("paneReset", new { });
 			}
 			return;
 		}
@@ -191,9 +209,13 @@ public sealed class AgentSessionHost : IAsyncDisposable {
 
 	// The coalescer's sink: a lone message keeps today's `agent-pane` frame; a batch (only ever formed during a
 	// burst) becomes one `agent-pane-batch`. Both ingest identically page-side, so this is a pure wire economy.
-	private void PostPaneBatch(IReadOnlyList<AgentPaneMessage> messages) => _bridge.PostToWeb(messages.Count == 1
-		? AgentPaneProtocol.Message(_context.CurrentSessionId(), _context.Workspace, messages[0])
-		: AgentPaneProtocol.Batch(_context.CurrentSessionId(), _context.Workspace, messages));
+	private void PostPaneBatch(IReadOnlyList<AgentPaneMessage> messages) {
+		if (messages.Count == 1) {
+			_messages.Publish("pane", AgentPaneProtocol.Message(messages[0]));
+		} else {
+			_messages.Publish("paneBatch", AgentPaneProtocol.Batch(messages));
+		}
+	}
 
 	private void StorePaneMessage(AgentPaneMessage message) {
 		string? key = AgentPaneIdentity.ItemKey(message);

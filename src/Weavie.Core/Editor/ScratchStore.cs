@@ -3,10 +3,9 @@ using Weavie.Core.FileSystem;
 namespace Weavie.Core.Editor;
 
 /// <summary>
-/// Owns a workspace's scratch (untitled-buffer) directory — <c>~/.weavie/workspaces/&lt;id&gt;/scratch</c>
-/// (see <see cref="WeaviePaths.WorkspaceScratchDir"/>). A scratch file is real on disk so it reuses the whole
-/// editor pipeline, but lives <em>outside</em> the workspace, so it never appears in the tree, index, git, or
-/// Claude's view (<see cref="FileProviderService"/> treats it as a second allowed root).
+/// Owns one session's scratch (untitled-buffer) directory beneath
+/// <c>~/.weavie/workspaces/&lt;id&gt;/scratch</c>. A scratch file is real on disk so it reuses the editor pipeline,
+/// but lives <em>outside</em> the worktree and never appears in its tree, index, git, or agent view.
 /// </summary>
 public sealed class ScratchStore {
 	private readonly IFileSystem _fileSystem;

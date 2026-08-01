@@ -27,7 +27,7 @@ test("opening a PR checks out its branch and pops up the diff navigator", async 
   const toolbar = page.locator(".weavie-inline-toolbar");
   await expect(toolbar).toBeVisible({ timeout: 20_000 });
 
-  // The diff rendering is the success signal: the host clears the spinner (notify-clear) once it's on screen.
+  // The correlated open result clears the spinner after the exact PR session has been selected.
   await expect(page.locator(".toast-busy")).toHaveCount(0, { timeout: 20_000 });
   await expect(page.locator(".weavie-inline-newfile-tag")).toBeVisible();
 

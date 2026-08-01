@@ -1,4 +1,4 @@
-import { runCommand } from "../harness/actions";
+import { activeSessionSlot, runCommand, waitForSessionSwitch } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 
 // The change-review seam, driven by the fake claude's IDE-MCP openDiff. The hook gate + diff presentation
@@ -77,8 +77,10 @@ test.describe("per-session diff state", () => {
     const chips = page.locator(".session-chip");
     await expect(page.locator(".weavie-inline-toolbar")).toBeVisible({ timeout: 15_000 });
 
+    const primarySlot = await activeSessionSlot(page);
     await runCommand(page, "Fork Session");
     await expect(chips).toHaveCount(2);
+    await waitForSessionSwitch(page, primarySlot);
 
     // Back to the first session — its diff review is still there.
     await chips.first().click();

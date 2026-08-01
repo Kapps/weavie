@@ -1,9 +1,9 @@
 import { runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 
-// Open URL (the weavie.workspace.openUrl command / $mod+O) → a prompt → an http(s) URL opens as a web tab that
-// renders an iframe over the editor. The overlay is pure web (no host round-trip), so this is headless-only and
-// asserts the iframe's `src` + the tab chrome — not the framed page's loaded content (no server is required).
+// Open URL (the weavie.workspace.openUrl command / $mod+O) → a prompt → the owning session asks its host to
+// classify the target → an ordinary http(s) URL returns as a durable web overlay. This is headless-only and
+// asserts the iframe's `src` + tab chrome, not the framed page's loaded content (no server is required).
 
 test("Open URL opens an http(s) page in a web tab", async ({ page }) => {
   await runCommand(page, "Open URL");

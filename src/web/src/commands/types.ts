@@ -1,5 +1,5 @@
 // The web view of the command system, mirroring Core's CommandCatalog JSON. The host injects the catalog +
-// resolved keybindings before navigation and re-pushes { type: "commands" } on a keybindings.json edit.
+// resolved keybindings before navigation and publishes commands.catalog on a keybindings.json edit.
 // Commands are declared in Core; the web binds handlers and resolves keydowns. See docs/specs/commands.md.
 
 export type CommandLocation = "web" | "core";
@@ -21,8 +21,8 @@ export interface CommandInfo {
 }
 
 /**
- * The outcome of running a command, returned to the caller via the host's `command-result` reply (or
- * synthesized locally for a web-run command). `data` is an optional command-specific payload. Mirrors Core's
+ * The outcome of running a command, returned by the message-bus request (or synthesized locally for a
+ * web-run command). `data` is an optional command-specific payload. Mirrors Core's
  * `CommandResult`. See docs/specs/command-responses.md.
  */
 export interface CommandResult {
@@ -138,6 +138,7 @@ export const CommandIds = {
   prevSession: "weavie.session.prev",
   focusSession: "weavie.session.focus",
   selectSessionByIndex: "weavie.session.selectByIndex",
+  newSession: "weavie.session.new",
   loadSession: "weavie.session.load",
   unloadSession: "weavie.session.unload",
   deleteSession: "weavie.session.delete",

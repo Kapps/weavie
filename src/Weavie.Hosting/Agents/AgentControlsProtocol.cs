@@ -1,18 +1,12 @@
-using System.Text.Json;
 using Weavie.Core.Agents;
 
 namespace Weavie.Hosting.Agents;
 
-/// <summary>Serializes provider-neutral agent control state (model / effort / Fast / mode / permissions / slash) for the web bridge.</summary>
+/// <summary>Builds provider-neutral agent control state (model / effort / Fast / mode / permissions / slash).</summary>
 internal static class AgentControlsProtocol {
-	public static string Message(string slot, string workspace, AgentControlState state) {
-		ArgumentNullException.ThrowIfNull(slot);
-		ArgumentException.ThrowIfNullOrEmpty(workspace);
+	public static object Message(AgentControlState state) {
 		ArgumentNullException.ThrowIfNull(state);
-		return JsonSerializer.Serialize(new {
-			type = "agent-controls",
-			slot,
-			workspace,
+		return new {
 			state = new {
 				modelControl = new {
 					value = state.ModelControl.Value,
@@ -52,6 +46,6 @@ internal static class AgentControlsProtocol {
 					skillName = entry.SkillName,
 				}),
 			},
-		});
+		};
 	}
 }

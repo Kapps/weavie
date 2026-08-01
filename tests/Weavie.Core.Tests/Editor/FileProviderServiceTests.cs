@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Weavie.Core.Editor;
 using Weavie.Core.FileSystem;
 using Xunit;
@@ -24,11 +23,11 @@ public sealed class FileProviderServiceTests {
 		string path = Path.Combine(Workspace, "archive.bin");
 		fs.WriteAllBytes(path, [0x50, 0x4b, 0x00, 0xff]);
 
-		var root = JsonDocument.Parse(service.Read("r1", path)).RootElement;
+		var result = service.Read(path);
 
-		Assert.False(root.GetProperty("ok").GetBoolean());
-		Assert.Equal("Binary files cannot be opened as text.", root.GetProperty("error").GetString());
-		Assert.False(root.TryGetProperty("content", out _));
+		Assert.False(result.Ok);
+		Assert.Equal("Binary files cannot be opened as text.", result.Error);
+		Assert.Null(result.Content);
 	}
 
 	[Fact]

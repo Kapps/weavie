@@ -6,9 +6,8 @@ namespace Weavie.Core.Tests;
 
 /// <summary>
 /// Exercises <see cref="SessionStore"/> over the in-memory filesystem: a full-overlay save persists the
-/// loaded flags + active pointer and reloads them, a null active clears the pointer, an old file lacking the
-/// <c>loaded</c> field reads back unloaded, a malformed file is backed up + reset, and the recorded shell
-/// terminal size round-trips (flushed and co-persisted with an overlay save).
+/// loaded flags and reloads them without persisting client-owned selection, an old file lacking the
+/// <c>loaded</c> field reads back unloaded, a malformed file is backed up + reset, and shell size round-trips.
 /// </summary>
 public sealed class SessionStoreTests {
 	private const string StorePath = "/weavie-session-tests/sessions.json";
@@ -23,41 +22,30 @@ public sealed class SessionStoreTests {
 	};
 
 	[Fact]
-	public void Save_PersistsLoadedFlagsAndActive_AndReloads() {
+	public void Save_PersistsLoadedFlagsWithoutClientSelection_AndReloads() {
 		var fs = new InMemoryFileSystem();
 		var store = new SessionStore(fs, StorePath);
 
 		store.Save([
 			Descriptor("aaaa", "a", loaded: true),
 			Descriptor("bbbb", "b", loaded: false) with { AgentProviderId = "codex" },
-		], new SessionId("aaaa"));
+		]);
 
 		var reloaded = new SessionStore(fs, StorePath);
 		Assert.Equal(2, reloaded.Items.Count);
 		Assert.True(reloaded.Items.Single(i => i.Id.Value == "aaaa").Loaded);
 		Assert.False(reloaded.Items.Single(i => i.Id.Value == "bbbb").Loaded);
 		Assert.Equal("codex", reloaded.Items.Single(i => i.Id.Value == "bbbb").AgentProviderId);
-		Assert.Equal(new SessionId("aaaa"), reloaded.ActiveId);
-	}
-
-	[Fact]
-	public void Save_NullActive_ClearsActive() {
-		var fs = new InMemoryFileSystem();
-		var store = new SessionStore(fs, StorePath);
-		store.Save([Descriptor("aaaa", "a", loaded: true)], new SessionId("aaaa"));
-
-		store.Save([Descriptor("aaaa", "a", loaded: true)], activeId: null);
-
-		Assert.Null(new SessionStore(fs, StorePath).ActiveId);
+		Assert.DoesNotContain("activeId", fs.ReadAllText(StorePath));
 	}
 
 	[Fact]
 	public void Save_ReplacesWholeOverlay() {
 		var fs = new InMemoryFileSystem();
 		var store = new SessionStore(fs, StorePath);
-		store.Save([Descriptor("aaaa", "a", loaded: true), Descriptor("bbbb", "b", loaded: true)], new SessionId("aaaa"));
+		store.Save([Descriptor("aaaa", "a", loaded: true), Descriptor("bbbb", "b", loaded: true)]);
 
-		store.Save([Descriptor("bbbb", "b", loaded: true)], new SessionId("bbbb"));
+		store.Save([Descriptor("bbbb", "b", loaded: true)]);
 
 		var item = Assert.Single(new SessionStore(fs, StorePath).Items);
 		Assert.Equal("b", item.Label);
@@ -96,7 +84,7 @@ public sealed class SessionStoreTests {
 		var store = new SessionStore(fs, StorePath);
 		store.RecordShellSize(200, 50);
 
-		store.Save([Descriptor("aaaa", "a", loaded: true)], new SessionId("aaaa"));
+		store.Save([Descriptor("aaaa", "a", loaded: true)]);
 
 		Assert.Equal((200, 50), new SessionStore(fs, StorePath).ShellSize);
 	}

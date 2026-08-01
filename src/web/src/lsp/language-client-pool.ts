@@ -1,17 +1,22 @@
-// The warm pool of language clients. One live MonacoLanguageClient per (backend, session slot, server) — so a
-// session switch KEEPS the outgoing worktree's server warm instead of cold-starting it on switch-back. Each
-// client's providers are scoped to its own worktree (documentSelector `pattern`), so two same-language clients
-// (worktree A + B) never both answer for one file — what keeps warm background clients from doubling the
-// "More Actions" menu. See docs/specs/warm-lsp-across-switch.md.
+// The warm pool of language clients. One live MonacoLanguageClient belongs to each session/server pair. Each
+// client's providers match only models carrying its owner's URI namespace, so same-language clients can run in
+// parallel without answering for one another's documents.
 
 import * as monaco from "monaco-editor";
 import type { MonacoLanguageClient } from "monaco-languageclient";
-import { CloseAction, ErrorAction } from "vscode-languageclient";
-import { log, postToBackend } from "../bridge";
+import { CloseAction, ErrorAction, State } from "vscode-languageclient";
+import { type ClientSession, log } from "../bridge";
 import { worktreeMatchBase } from "../editor/fs-path";
+import {
+  hostUriString,
+  protocolUri,
+  SESSION_FILE_SCHEME,
+  sessionFileUri,
+} from "../editor/session-uri";
+import { PAGE_EPOCH } from "../messaging/page-epoch";
 import { notify } from "../notify/notify";
-import { openLspChannel } from "./lsp-bridge-transport";
-import type { WeavieLspConfig, WeavieLspServer } from "./lsp-client";
+import { LspStartError, openLspChannel } from "./lsp-bridge-transport";
+import type { WeavieLspConfig, WeavieLspServer } from "./types";
 import { createWeavieLanguageClient } from "./weavie-language-client";
 
 // If a server crashes (or the WS drops) while documents are open, reconnect with capped exponential backoff
@@ -21,8 +26,7 @@ const HEALTHY_UPTIME_MS = 10_000;
 
 /** A live client in the warm pool: the (backend, slot) it serves, its teardown, and a liveness probe. */
 interface PooledClient {
-  backendId: string;
-  slot: string;
+  owner: ClientSession;
   teardown: () => void;
   alive: () => boolean;
 }
@@ -31,25 +35,21 @@ interface PooledClient {
 // backend id, session slot, or server id, so the composite key never collides.
 const pool = new Map<string, PooledClient>();
 let channelSeq = 0;
-// Per-page-instance nonce in channel ids: the host's channel map outlives this page (reload, second tab), and a
-// bare counter would re-mint an id still bound to a live server — splicing two clients onto one server.
-// Padded to a fixed 8 chars: toString(36) can come up short, and an empty epoch would no-op the reset.
-const pageEpoch = Math.random().toString(36).slice(2, 10).padEnd(8, "0");
-// Backends told (once per page instance, before their first lsp-start) to drop channels from earlier epochs —
+// Backends told (once per page instance, before their first lsp/start) to drop channels from earlier epochs —
 // a fresh page owns none, so without the reset every reload leaks one live server per language.
-const epochReset = new Set<string>();
+const epochReset = new WeakSet<ClientSession>();
 // Servers whose document symbols already failed once this page — the toast fires once, not per refresh.
 const symbolFailureWarned = new Set<string>();
 
-function keyFor(backendId: string, slot: string, serverId: string): string {
-  return `${backendId}\n${slot}\n${serverId}`;
+function keyFor(owner: ClientSession, serverId: string): string {
+  return `${owner.connection.id}\n${owner.address.slot}\n${owner.address.incarnation}\n${serverId}`;
 }
 
 /** What the manager supplies to start a client; the callbacks keep the pool ignorant of monaco model bookkeeping. */
 export interface EnsureClientParams {
   config: WeavieLspConfig;
   server: WeavieLspServer;
-  backendId: string;
+  owner: ClientSession;
   /** Fired when a client finishes starting, so the test-lens provider refreshes. */
   onStarted: () => void;
   /** Re-read live at reconnect: is any open model under this worktree still served by this server? */
@@ -58,27 +58,17 @@ export interface EnsureClientParams {
 
 /** Ensure a warm client for (backend, slot, server) exists, reusing the live one if present (idempotent). */
 export function ensureClient(params: EnsureClientParams): void {
-  const key = keyFor(params.backendId, params.config.slot, params.server.id);
+  const key = keyFor(params.owner, params.server.id);
   if (pool.get(key)?.alive()) {
     return;
   }
   connect(key, params, 0);
 }
 
-/** Tear down every warm client not on `activeBackendId` — a backend switch strands their bridge transport. */
-export function pruneForeignBackend(activeBackendId: string): void {
+/** Tears down every language client owned by a session that closed. */
+export function pruneSession(owner: ClientSession): void {
   for (const [key, client] of pool) {
-    if (client.backendId !== activeBackendId) {
-      client.teardown();
-      pool.delete(key);
-    }
-  }
-}
-
-/** Tear down warm clients on `backendId` whose slot is no longer loaded — the session was unloaded/deleted. */
-export function pruneUnloaded(backendId: string, loadedSlots: Set<string>): void {
-  for (const [key, client] of pool) {
-    if (client.backendId === backendId && !loadedSlots.has(client.slot)) {
+    if (client.owner === owner) {
       client.teardown();
       pool.delete(key);
     }
@@ -91,24 +81,24 @@ function describeError(err: unknown): string {
 
 // A glob that scopes a client's providers to its own worktree. Uses the SAME base normalization as the
 // model→worktree mapping (worktreeMatchBase), so a file this client owns always matches its glob.
-function worktreePattern(workspace: string): string {
-  return `${worktreeMatchBase(workspace)}/**`;
+function worktreePattern(owner: ClientSession, workspace: string): string {
+  return `${worktreeMatchBase(sessionFileUri(owner, workspace).fsPath)}/**`;
 }
 
 function connect(key: string, params: EnsureClientParams, attempt: number): void {
-  const { config, server, backendId, onStarted, hasOpenDoc } = params;
-  if (!epochReset.has(backendId)) {
-    epochReset.add(backendId);
-    // Addressed to the backend the guard tracks — postToHost's "active backend" can differ mid-switch.
-    postToBackend(backendId, { type: "lsp-reset", epoch: pageEpoch });
+  const { config, server, owner, onStarted, hasOpenDoc } = params;
+  if (!epochReset.has(owner)) {
+    epochReset.add(owner);
+    owner.feature("lsp").publish("reset", { epoch: PAGE_EPOCH });
   }
-  const channelId = `lsp${++channelSeq}-${pageEpoch}`;
+  const channelId = `lsp${++channelSeq}-${PAGE_EPOCH}`;
   let openedAt = 0;
   // Set on intentional teardown (switch/prune): the supervised reconnect stands down and a late exit is ignored.
   let torn = false;
   // Set once this attempt's outcome is decided, so a failed start and a server exit schedule at most one reconnect.
   let handled = false;
   let client: MonacoLanguageClient | undefined;
+  let startPromise: Promise<void> | undefined;
   // `entry`, `channel`, and `startPromise` are assigned further down; the closures here forward-reference them,
   // which is safe because nothing calls a closure until this synchronous body has finished.
 
@@ -123,7 +113,7 @@ function connect(key: string, params: EnsureClientParams, attempt: number): void
     }
     // dispose() rejects while the client is still 'starting'; wait for start to settle, then dispose, and swallow
     // either rejection — we're tearing down regardless.
-    void Promise.allSettled([startPromise])
+    void Promise.allSettled(startPromise === undefined ? [] : [startPromise])
       .then(() => c.dispose())
       .catch(() => {});
   };
@@ -135,7 +125,7 @@ function connect(key: string, params: EnsureClientParams, attempt: number): void
     }
   };
 
-  // Post lsp-stop at most once: a server exit's fail() and a later teardown() (prune) both tear down, but the
+  // Post lsp/stop at most once: a server exit's fail() and a later teardown() (prune) both tear down, but the
   // channel must be stopped a single time.
   let channelDisposed = false;
   const disposeChannel = (): void => {
@@ -192,14 +182,23 @@ function connect(key: string, params: EnsureClientParams, attempt: number): void
 
   // One funnel for every failure path — a failed initialize or a server exit/failure-to-start — so recovery (and
   // the warn/give-up toasts) runs exactly once per attempt.
-  const fail = (reason: string): void => {
+  const fail = (reason: string, reconnect: boolean): void => {
     if (handled) {
       return;
     }
     handled = true;
     disposeClient();
     disposeChannel();
-    superviseReconnect(reason);
+    if (reconnect) {
+      superviseReconnect(reason);
+    } else {
+      forget();
+      log("error", `lsp: ${server.id} unavailable (${reason})`);
+      notify(
+        "warn",
+        `${server.id} language intelligence is unavailable (${reason}). Check that its language server is installed and on PATH.`,
+      );
+    }
   };
 
   const teardown = (): void => {
@@ -209,10 +208,9 @@ function connect(key: string, params: EnsureClientParams, attempt: number): void
   };
 
   const entry: PooledClient = {
-    backendId,
-    slot: config.slot,
+    owner,
     teardown,
-    alive: () => client !== undefined,
+    alive: () => !torn,
   };
 
   // Invariant: one live client per key. If a prior one is somehow still live here, a guard upstream let a duplicate
@@ -228,81 +226,103 @@ function connect(key: string, params: EnsureClientParams, attempt: number): void
   }
   pool.set(key, entry);
 
-  // Open the bridge channel on the backend that owns this slot: the host spawns the server on lsp-start; its
-  // exit or failure-to-start arrives via onExit (carrying the host-side reason), routed through the same
-  // supervised reconnect as a dropped link.
-  const channel = openLspChannel(backendId, config.slot, server.id, channelId, (code, reason) => {
+  // Open the bus channel on the backend that owns this slot. The correlated start result prevents constructing
+  // a language client for a permanent host-side failure; later process exits take the reconnect path.
+  const channel = openLspChannel(owner, server.id, channelId, (code, reason) => {
     if (torn || !current()) {
       return;
     }
-    fail(reason ?? `server exited (code ${code})`);
+    fail(reason ?? `server exited (code ${code})`, true);
   });
   openedAt = Date.now();
 
-  const settings = server.settings ?? {};
-  client = createWeavieLanguageClient({
-    name: `Weavie ${server.id} language client`,
-    clientOptions: {
-      // Scope providers to this worktree so a warm client from another session never answers for this one's
-      // files (and vice-versa) — the structural guard against duplicate code actions across worktrees.
-      documentSelector: server.languageIds.map((language) => ({
-        language,
-        scheme: "file",
-        pattern: worktreePattern(config.workspace),
-      })),
-      workspaceFolder: {
-        uri: monaco.Uri.file(config.workspace),
-        name: "weavie",
-        index: 0,
-      },
-      // Feed the server its defaults both ways — initializationOptions and workspace/configuration answers
-      // (some servers gate features on config, e.g. gopls semantic tokens). No VSCode config service (§18).
-      initializationOptions: settings,
-      middleware: {
-        workspace: {
-          configuration: (params) => params.items.map(() => settings),
+  const startClient = (): void => {
+    const settings = server.settings ?? {};
+    client = createWeavieLanguageClient({
+      name: `Weavie ${server.id} language client`,
+      clientOptions: {
+        // Scope providers to this worktree so a warm client from another session never answers for this one's
+        // files (and vice-versa) — the structural guard against duplicate code actions across worktrees.
+        documentSelector: server.languageIds.map((language) => ({
+          language,
+          scheme: SESSION_FILE_SCHEME,
+          pattern: worktreePattern(owner, config.workspace),
+        })),
+        workspaceFolder: {
+          uri: sessionFileUri(owner, config.workspace),
+          name: "weavie",
+          index: 0,
         },
-        // A malformed symbol from the server (e.g. an empty name, which the protocol converter rejects with
-        // "name must not be falsy") must degrade to no outline for that file — not storm window.error on every
-        // breadcrumb/outline refresh. Warned once per server; each occurrence still logs.
-        provideDocumentSymbols: async (document, token, next) => {
-          try {
-            return await next(document, token);
-          } catch (err) {
-            // Routine request cancellation (rethrown by handleFailedRequest as the vscode shim's
-            // CancellationError, whose stable marker is name === "Canceled") is not a malformed response.
-            if (err instanceof Error && err.name === "Canceled") {
-              throw err;
+        uriConverters: {
+          code2Protocol: (uri) => hostUriString(monaco.Uri.parse(uri.toString())),
+          protocol2Code: (uri) => protocolUri(owner, uri),
+        },
+        // Feed the server its defaults both ways — initializationOptions and workspace/configuration answers
+        // (some servers gate features on config, e.g. gopls semantic tokens). No VSCode config service (§18).
+        initializationOptions: settings,
+        middleware: {
+          workspace: {
+            configuration: (params) => params.items.map(() => settings),
+          },
+          // A malformed symbol from the server (e.g. an empty name, which the protocol converter rejects with
+          // "name must not be falsy") must degrade to no outline for that file — not storm window.error on every
+          // breadcrumb/outline refresh. Warned once per server; each occurrence still logs.
+          provideDocumentSymbols: async (document, token, next) => {
+            try {
+              return await next(document, token);
+            } catch (err) {
+              // Routine request cancellation (rethrown by handleFailedRequest as the vscode shim's
+              // CancellationError, whose stable marker is name === "Canceled") is not a malformed response.
+              if (err instanceof Error && err.name === "Canceled") {
+                throw err;
+              }
+              log("error", `lsp: ${server.id} document symbols failed: ${describeError(err)}`);
+              if (!symbolFailureWarned.has(server.id)) {
+                symbolFailureWarned.add(server.id);
+                notify(
+                  "warn",
+                  `${server.id} returned document symbols Weavie couldn't read; the outline is unavailable for the affected file.`,
+                );
+              }
+              return [];
             }
-            log("error", `lsp: ${server.id} document symbols failed: ${describeError(err)}`);
-            if (!symbolFailureWarned.has(server.id)) {
-              symbolFailureWarned.add(server.id);
-              notify(
-                "warn",
-                `${server.id} returned document symbols Weavie couldn't read; the outline is unavailable for the affected file.`,
-              );
-            }
-            return [];
-          }
+          },
+        },
+        // The client itself stays passive on errors; recovery is the host-supervised reconnect above.
+        errorHandler: {
+          error: () => ({ action: ErrorAction.Continue }),
+          closed: () => ({ action: CloseAction.DoNotRestart }),
         },
       },
-      // The client itself stays passive on errors; recovery is the host-supervised reconnect above.
-      errorHandler: {
-        error: () => ({ action: ErrorAction.Continue }),
-        closed: () => ({ action: CloseAction.DoNotRestart }),
-      },
-    },
-    messageTransports: { reader: channel.reader, writer: channel.writer },
-  });
+      messageTransports: { reader: channel.reader, writer: channel.writer },
+    });
 
-  // start() rejects when the server faults on initialize (e.g. csharp-ls with no resolvable SDK). Route that
-  // through the same reconnect/give-up path as a server exit instead of leaking an unhandled rejection.
-  const startPromise = client.start();
-  void startPromise.then(
+    // start() rejects when the server faults on initialize (e.g. csharp-ls with no resolvable SDK). Route that
+    // through the same reconnect/give-up path as a server exit instead of leaking an unhandled rejection.
+    startPromise = client.start();
+    void startPromise.then(
+      () => {
+        if (client?.state !== State.Running) {
+          fail("connection closed during initialization", true);
+          return;
+        }
+        log("info", `lsp: ${server.id} client started`);
+        onStarted();
+      },
+      (err: unknown) => fail(`initialize failed: ${describeError(err)}`, true),
+    );
+  };
+
+  void channel.ready.then(
     () => {
-      log("info", `lsp: ${server.id} client started`);
-      onStarted();
+      if (!torn && !handled && current()) {
+        startClient();
+      }
     },
-    (err: unknown) => fail(`initialize failed: ${describeError(err)}`),
+    (error: unknown) => {
+      if (!torn && current()) {
+        fail(describeError(error), !(error instanceof LspStartError));
+      }
+    },
   );
 }

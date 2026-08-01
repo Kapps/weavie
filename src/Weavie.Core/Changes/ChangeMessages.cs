@@ -3,8 +3,7 @@ using System.Text.Json;
 namespace Weavie.Core.Changes;
 
 /// <summary>
-/// Builds the host→web JSON messages for the inline turn-review feed so every host emits byte-identical
-/// payloads; shapes mirror the web's <c>WebBoundMessage</c> union in <c>src/web/src/bridge.ts</c>.
+/// Builds the feature payloads for the inline turn-review feed.
 /// </summary>
 public static class ChangeMessages {
 	/// <summary>
@@ -31,7 +30,7 @@ public static class ChangeMessages {
 					?? 1,
 			};
 		});
-		return JsonSerializer.Serialize(new { type = "turn-changes", label, files });
+		return JsonSerializer.Serialize(new { label, files });
 	}
 
 	/// <summary>
@@ -42,7 +41,6 @@ public static class ChangeMessages {
 	public static string TurnDiff(FileChange change) {
 		ArgumentNullException.ThrowIfNull(change);
 		return JsonSerializer.Serialize(new {
-			type = "turn-diff",
 			path = change.Path,
 			name = Path.GetFileName(change.Path),
 			acceptedBaseline = change.AcceptedBaselineText,
@@ -52,7 +50,7 @@ public static class ChangeMessages {
 	}
 
 	/// <summary>A turn boundary: the page clears all inline turn markers (the prior turn is implicitly accepted).</summary>
-	public static string TurnReset() => JsonSerializer.Serialize(new { type = "turn-reset" });
+	public static string TurnReset() => "{}";
 
 	/// <summary>
 	/// The review undo/redo availability, so the page enables the toolbar's Undo/Redo buttons and lets the
@@ -61,7 +59,6 @@ public static class ChangeMessages {
 	public static string ReviewHistory(SessionChangeTracker tracker) {
 		ArgumentNullException.ThrowIfNull(tracker);
 		return JsonSerializer.Serialize(new {
-			type = "review-history",
 			canUndo = tracker.CanUndo,
 			canUndoKeep = tracker.CanUndoKeep,
 			canUndoRevert = tracker.CanUndoRevert,

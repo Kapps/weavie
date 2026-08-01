@@ -3,15 +3,15 @@
 // live. Owns only its decorations/zones/widget — never disposes the host-owned live model.
 
 import { linesDiffComputers } from "@codingame/monaco-vscode-api/vscode/vs/editor/common/diff/linesDiffComputers";
-import type { ReviewCommentInfo } from "../bridge";
+import type { ClientSession, ReviewCommentInfo } from "../bridge";
 import { setContext } from "../commands/context";
 import { formatKey, IS_MAC } from "../commands/keybindings";
 import { findCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { onFontsChanged } from "../fonts";
 import { reviewToModelLine } from "./diff-geometry";
-import { canonicalFsPath } from "./fs-path";
 import { monaco } from "./monaco-setup";
+import { sessionFileUri } from "./session-uri";
 
 const DIFF_OPTIONS = {
   ignoreTrimWhitespace: false,
@@ -126,9 +126,9 @@ export interface InlineDiffOptions {
 /** Per-editor inline-diff controller. Diffs are keyed by file path; only the editor's current model renders. */
 export interface InlineDiff {
   /** Register (or replace) the diff for a file path; renders immediately if that file is the active model. */
-  set(path: string, options: InlineDiffOptions): void;
+  set(session: ClientSession, path: string, options: InlineDiffOptions): void;
   /** Remove the diff for a file path. */
-  clear(path: string): void;
+  clear(session: ClientSession, path: string): void;
   /** Register the diff keyed by an exact model URI string — for the transient `weavie-review:` review model. */
   setByUri(uri: string, options: InlineDiffOptions): void;
   /** Remove the diff registered by an exact model URI string (the review-model counterpart of clear). */
@@ -1594,11 +1594,11 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
   };
 
   return {
-    set(path, options) {
-      setByUri(monaco.Uri.file(canonicalFsPath(path)).toString(), options);
+    set(session, path, options) {
+      setByUri(sessionFileUri(session, path).toString(), options);
     },
-    clear(path) {
-      clearByUri(monaco.Uri.file(canonicalFsPath(path)).toString());
+    clear(session, path) {
+      clearByUri(sessionFileUri(session, path).toString());
     },
     setByUri,
     clearByUri,

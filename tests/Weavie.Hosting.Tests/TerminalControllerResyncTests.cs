@@ -7,7 +7,7 @@ using Xunit;
 namespace Weavie.Hosting.Tests;
 
 /// <summary>
-/// <see cref="TerminalController.ResyncPane"/> is the bridge-reconnect recovery: output posted while the link
+/// <see cref="TerminalController.ResyncPane()"/> is the bridge-reconnect recovery: output posted while the link
 /// was down never reached the page, so the shell (scrollback-backed) pane must be reset — its
 /// <c>term-ready</c> reply replays the log — while the claude pane (no log) gets the size nudge that makes the
 /// running TUI repaint. These pin which pane gets which, and that a never-started pane is left alone.
@@ -31,7 +31,7 @@ public sealed class TerminalControllerResyncTests {
 		h.Controller.ResyncPane();
 
 		Assert.Equal([(80, 23), (80, 24)], h.Launcher.Terminal!.Resizes);
-		Assert.Empty(h.Bridge.PostedOfType("term-reset"));
+		Assert.Empty(h.Bridge.PostedEventsNamed("reset"));
 	}
 
 	// Flaked 2026-07-23 on Linux CI: https://github.com/Kapps/weavie/actions/runs/29973556071
@@ -49,14 +49,14 @@ public sealed class TerminalControllerResyncTests {
 		// cleared the pane, and the replay (snapshotted below) contains it — posting both would paint it twice.
 		h.Controller.ResyncPane();
 		h.Launcher.Terminal!.EmitOutput("during-resync"u8.ToArray());
-		Assert.Empty(h.Bridge.PostedOfType("term-output"));
+		Assert.Empty(h.Bridge.PostedEventsNamed("output"));
 
 		h.Controller.OnReady(80, 24); // the page's term-ready reply
-		var replay = Assert.Single(h.Bridge.PostedOfType("term-output"));
+		var replay = Assert.Single(h.Bridge.PostedEventsNamed("output"));
 		Assert.Contains("during-resync", DecodeData(replay));
 
 		h.Launcher.Terminal.EmitOutput("after-resync"u8.ToArray()); // live delivery resumes
-		Assert.Equal(2, h.Bridge.PostedOfType("term-output").Count);
+		Assert.Equal(2, h.Bridge.PostedEventsNamed("output").Count);
 	}
 
 	[Fact]
@@ -68,11 +68,11 @@ public sealed class TerminalControllerResyncTests {
 
 		h.Controller.OnReady(80, 24); // reattach: the log replays the query bytes
 
-		var outputs = h.Bridge.PostedOfType("term-output");
+		var outputs = h.Bridge.PostedEventsNamed("output");
 		Assert.Equal(2, outputs.Count);
-		// Live output carries no flag; the replayed chunk is flagged so the page suppresses xterm's re-answer
+		// Live output is false; the replayed chunk is true so the page suppresses xterm's re-answer
 		// (which would otherwise hit the child as input).
-		Assert.False(outputs[0].TryGetProperty("replay", out _));
+		Assert.False(outputs[0].GetProperty("replay").GetBoolean());
 		Assert.True(outputs[1].GetProperty("replay").GetBoolean());
 		Assert.Contains("\x1b[6n", DecodeData(outputs[1]));
 	}
@@ -84,9 +84,8 @@ public sealed class TerminalControllerResyncTests {
 
 		h.Controller.ResyncPane();
 
-		var reset = Assert.Single(h.Bridge.PostedOfType("term-reset"));
+		var reset = Assert.Single(h.Bridge.PostedEventsNamed("reset"));
 		Assert.False(reset.GetProperty("respawn").GetBoolean()); // the child kept running: clear, don't reset modes
-		Assert.Equal("shell", reset.GetProperty("session").GetString());
 		Assert.Empty(h.Launcher.Terminal!.Resizes); // the replay+nudge comes from the page's term-ready reply
 	}
 
@@ -106,7 +105,7 @@ public sealed class TerminalControllerResyncTests {
 			_settings.Set("terminal.outputCoalesceMs", JsonSerializer.SerializeToElement(0L));
 			Launcher = new RecordingPtyLauncher();
 			Controller = new TerminalController(
-				Bridge,
+				Bridge.SessionFeature($"terminal.{session}"),
 				session,
 				_settings,
 				Launcher,

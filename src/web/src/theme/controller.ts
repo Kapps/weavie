@@ -4,7 +4,7 @@
 // editor chunk) so it lives on the first-paint path; the editor chunk bridges in via onMonacoThemeChanged.
 
 import type { ThemeMode, ThemeSlot } from "../bridge";
-import { hostInjected, onHostMessage } from "../bridge";
+import { hostInjected, registerHostFeature } from "../bridge";
 import { applyColorsToCssVars } from "./apply";
 import { WEAVIE_DARK, WEAVIE_DARK_ID } from "./builtin/weavie-dark";
 import { WEAVIE_LIGHT, WEAVIE_LIGHT_ID } from "./builtin/weavie-light";
@@ -187,12 +187,11 @@ function setActive(injected: InjectedTheme): void {
   reapplyActive();
 }
 
-// Fan host appearance pushes (mode/theme switch or override edit) out to the three surfaces. Installed
-// themes arrive with their converted JSON; built-ins carry only the id, resolved against the bundled registry.
-onHostMessage((message) => {
-  if (message.type === "theme") {
-    setActive({ mode: message.mode, light: message.light, dark: message.dark });
+registerHostFeature((connection) => {
+  if (!connection.isLocal) {
+    return;
   }
+  return connection.host.feature("settings").on<InjectedTheme>("theme", setActive);
 });
 
 // Live OS light/dark flips re-theme all surfaces in place under `system` mode (both themes are already

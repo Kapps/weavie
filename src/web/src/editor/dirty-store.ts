@@ -1,33 +1,49 @@
-import { createSignal } from "solid-js";
+import { createMemo, createSignal } from "solid-js";
+import { type ClientSession, registerSessionFeature, selectedSession } from "../bridge";
 import { normalizePath } from "./fs-path";
 
-// Per-file unsaved-changes state surfaced as the tab strip's `*` marker. Local UI only — never persisted or
-// sent to the host. Keyed by normalized identity (see fs-path.ts normalizePath) so a URI-derived path always
-// matches a host-native tab path, whatever the browser/host OS pair. Top-level module signal so it survives
-// Vite hot reload, out of the dynamic editor chunk.
-const [dirty, setDirty] = createSignal<ReadonlySet<string>>(new Set());
+const [bySession, setBySession] = createSignal<Map<ClientSession, ReadonlySet<string>>>(new Map());
 
-/// The set of normalized paths with unsaved changes (reactive). For iteration; membership tests go
-/// through `isDirtyPath`, which normalizes the query.
-export const dirtyPaths = dirty;
+export const dirtyPaths = createMemo<ReadonlySet<string>>(() => {
+  const session = selectedSession();
+  return session === null ? new Set() : (bySession().get(session) ?? new Set());
+});
 
-/// True when `path` (any spelling) has unsaved changes. Reactive when read inside a tracking scope.
-export function isDirtyPath(path: string): boolean {
-  return dirty().has(normalizePath(path));
+export function dirtyPathsFor(session: ClientSession): ReadonlySet<string> {
+  return bySession().get(session) ?? new Set();
 }
 
-/// Marks `path` dirty or clean. Replaces the set only on a real change to avoid no-op re-renders.
-export function setDirtyPath(path: string, isDirty: boolean): void {
+export function isDirtyPath(path: string): boolean {
+  return dirtyPaths().has(normalizePath(path));
+}
+
+export function setDirtyPath(session: ClientSession, path: string, isDirty: boolean): void {
   const key = normalizePath(path);
-  const current = dirty();
+  const current = bySession().get(session) ?? new Set<string>();
   if (isDirty === current.has(key)) {
     return;
   }
-  const next = new Set(current);
+  const files = new Set(current);
   if (isDirty) {
-    next.add(key);
+    files.add(key);
   } else {
-    next.delete(key);
+    files.delete(key);
   }
-  setDirty(next);
+  setBySession((previous) => {
+    const next = new Map(previous);
+    if (files.size === 0) {
+      next.delete(session);
+    } else {
+      next.set(session, files);
+    }
+    return next;
+  });
 }
+
+registerSessionFeature((session) => () => {
+  setBySession((previous) => {
+    const next = new Map(previous);
+    next.delete(session);
+    return next;
+  });
+});

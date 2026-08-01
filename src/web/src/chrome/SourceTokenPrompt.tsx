@@ -1,12 +1,14 @@
-import { createEffect, createSignal, type JSX, onCleanup, onMount, Show } from "solid-js";
+import { createSignal, type JSX, onCleanup, onMount, Show } from "solid-js";
 import { Portal } from "solid-js/web";
-import { activeBackendId, submitSourceToken } from "../bridge";
+import type { ClientSession } from "../bridge";
+import { submitSourceToken } from "../editor/source/source-store";
 
 // Paste-your-token dialog for connecting a source (e.g. Notion). The host has already opened the source's token
 // page in the browser; the user pastes the personal access token here and we hand it to the host to validate +
 // save. On success the dialog closes (the host toasts the workspace); a rejected token is shown inline so the
 // user can fix it without restarting. Enter submits, Esc / backdrop cancels. See docs/specs/notion-source-auth.md.
 export function SourceTokenPrompt(props: {
+  session: ClientSession;
   sourceId: string;
   label: string;
   onClose: () => void;
@@ -15,15 +17,6 @@ export function SourceTokenPrompt(props: {
   const [submitting, setSubmitting] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
 
-  // A backend switch abandons the connect flow — the validate reply routes to the backend that was active at
-  // submit, so on a switch the dialog would hang on "Connecting…". Close it instead (the user can reconnect).
-  const backendAtOpen = activeBackendId();
-  createEffect(() => {
-    if (activeBackendId() !== backendAtOpen) {
-      props.onClose();
-    }
-  });
-
   const submit = async (): Promise<void> => {
     const value = token().trim();
     if (value === "" || submitting()) {
@@ -31,7 +24,7 @@ export function SourceTokenPrompt(props: {
     }
     setSubmitting(true);
     setError(null);
-    const result = await submitSourceToken(props.sourceId, value);
+    const result = await submitSourceToken(props.session, props.sourceId, value);
     if (result.ok) {
       props.onClose();
     } else {

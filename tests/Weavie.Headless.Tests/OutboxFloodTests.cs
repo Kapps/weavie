@@ -18,13 +18,13 @@ public sealed class OutboxFloodTests {
 
 		// Prime one frame and wait for the send loop to dequeue it and stall inside SendAsync (a slow network):
 		// now the outbox drains nothing, exactly as a wedged-slow remote link would between sends.
-		bridge.PostToWeb("{\"type\":\"agent-pane\",\"n\":-1}");
+		bridge.Broadcast("{\"type\":\"agent-pane\",\"n\":-1}");
 		Assert.True(await socket.FirstSendStarted.WaitAsync(TimeSpan.FromSeconds(5)));
 
 		// The stalled frame is in-flight; the outbox itself now holds 512. Push past that in a tight, await-free
 		// loop — exactly how ReplayPane posted a long transcript on `ready`, one frame per entry.
 		for (int i = 0; i < 600; i++) {
-			bridge.PostToWeb($"{{\"type\":\"agent-pane\",\"n\":{i}}}");
+			bridge.Broadcast($"{{\"type\":\"agent-pane\",\"n\":{i}}}");
 		}
 
 		// The bridge treated the backlog as a dead peer and aborted the socket — even though it is alive and

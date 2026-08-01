@@ -1,83 +1,163 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { WeavieLspConfig } from "./types";
 
-// Drives lsp-client + language-client-pool end to end with monaco, the language client, and the bridge transport
-// stubbed. The invariant under test: one live MonacoLanguageClient per (backend, slot, server) — a session switch
-// KEEPS the outgoing worktree's client warm (no cold re-index on switch-back), a worktree's providers are scoped
-// to its own files (so two same-language sessions never double the "More Actions" menu), and an unload / backend
-// switch tears the stranded clients down. Each live client registers one code-action provider, so "live client
-// count for a language" is a faithful proxy for "how many providers feed that menu".
-
-interface ClientRec {
-  disposed: boolean;
-  selectors: Array<{ language: string; scheme?: string; pattern?: string }>;
+interface FakeValue<T> {
+  current: T;
+  subscribe(listener: (value: T) => void): () => void;
+  set(value: T): void;
 }
+
+interface FakeSession {
+  id: string;
+  address: { slot: string; incarnation: string };
+  connection: { id: string };
+  state: { lsp: FakeValue<WeavieLspConfig | null> };
+  feature(): { publish(name: string, payload: unknown): void };
+}
+
+interface FakeUri {
+  scheme: string;
+  authority: string;
+  path: string;
+  fragment: string;
+  fsPath: string;
+  hostPath: string;
+  owner: FakeSession;
+  toString(): string;
+}
+
 interface FakeModel {
-  uri: { scheme: string; authority: string; path: string };
+  uri: FakeUri;
   getLanguageId(): string;
-  onDidChangeLanguage(cb: () => void): { dispose(): void };
-}
-interface ChannelRec {
-  backendId: string;
-  slot: string;
-  server: string;
-  onExit: (code: number, reason?: string) => void;
-  disposed: boolean; // dispose() posts lsp-stop, so this doubles as "was lsp-stop sent for this channel".
+  onDidChangeLanguage(listener: () => void): { dispose(): void };
 }
 
-const monacoState = vi.hoisted(() => ({
+interface ClientRecord {
+  disposed: boolean;
+  selectors: Array<{ language: string; scheme: string; pattern: string }>;
+  workspaceUri: FakeUri;
+}
+
+interface ChannelRecord {
+  owner: FakeSession;
+  server: string;
+  disposed: boolean;
+  onExit: (code: number, reason: string | undefined) => void;
+}
+
+type Installer = (session: FakeSession) => undefined | (() => void);
+
+const runtime = vi.hoisted(() => ({
+  sessions: [] as FakeSession[],
+  cleanups: new Map<FakeSession, () => void>(),
+  installer: undefined as Installer | undefined,
+  selected: null as FakeSession | null,
   models: [] as FakeModel[],
-  onCreate: undefined as ((m: FakeModel) => void) | undefined,
+  onCreate: undefined as ((model: FakeModel) => void) | undefined,
+  clients: [] as ClientRecord[],
+  channels: [] as ChannelRecord[],
+  resets: [] as Array<{ session: FakeSession; name: string; payload: unknown }>,
 }));
-const mlc = vi.hoisted(() => ({ instances: [] as ClientRec[] }));
-const channels = vi.hoisted(() => ({ list: [] as ChannelRec[] }));
-const bus = vi.hoisted(() => ({
-  backend: "local",
-  sessionHandlers: [] as Array<(msg: unknown, backendId: string) => void>,
+
+function fakeUri(owner: FakeSession, path: string): FakeUri {
+  return {
+    scheme: "weavie-file",
+    authority: `session-${owner.id}`,
+    path,
+    fragment: owner.id,
+    fsPath: `/sessions/${owner.id}${path}`,
+    hostPath: path,
+    owner,
+    toString: () => `file://session-${owner.id}${path}#${owner.id}`,
+  };
+}
+
+vi.mock("../bridge", () => ({
+  log: () => undefined,
+  selectedSession: () => runtime.selected,
+  registerSessionFeature: (installer: Installer) => {
+    runtime.installer = installer;
+    for (const session of runtime.sessions) {
+      const cleanup = installer(session);
+      if (cleanup !== undefined) {
+        runtime.cleanups.set(session, cleanup);
+      }
+    }
+    return () => undefined;
+  },
+}));
+
+vi.mock("../editor/session-uri", () => ({
+  SESSION_FILE_SCHEME: "weavie-file",
+  sessionForUri: (uri: FakeUri) => uri.owner,
+  sessionUriHostPath: (uri: FakeUri) => uri.hostPath,
+  sessionFileUri: (session: FakeSession, path: string) => fakeUri(session, path),
+  hostUriString: (uri: FakeUri) => `file://${uri.hostPath}`,
+  protocolUri: (session: FakeSession, value: string) => fakeUri(session, new URL(value).pathname),
 }));
 
 vi.mock("monaco-editor", () => ({
   editor: {
-    getModels: () => monacoState.models,
-    onDidCreateModel: (cb: (m: FakeModel) => void) => {
-      monacoState.onCreate = cb;
-      return { dispose() {} };
+    getModels: () => runtime.models,
+    onDidCreateModel: (listener: (model: FakeModel) => void) => {
+      runtime.onCreate = listener;
+      return { dispose: () => undefined };
     },
   },
-  Uri: { file: (p: string) => ({ scheme: "file", authority: "", path: p, toString: () => p }) },
+  Uri: {
+    parse: (value: string) => ({
+      toString: () => value,
+      hostPath: new URL(value).pathname,
+    }),
+  },
 }));
 
 vi.mock("monaco-languageclient", () => ({
   MonacoLanguageClient: class {
-    private readonly rec: ClientRec;
-    constructor(opts: { clientOptions: { documentSelector: ClientRec["selectors"] } }) {
-      this.rec = { disposed: false, selectors: opts.clientOptions.documentSelector };
-      mlc.instances.push(this.rec);
+    private readonly record: ClientRecord;
+    state = 2;
+
+    constructor(options: {
+      clientOptions: {
+        documentSelector: ClientRecord["selectors"];
+        workspaceFolder: { uri: FakeUri };
+      };
+    }) {
+      this.record = {
+        disposed: false,
+        selectors: options.clientOptions.documentSelector,
+        workspaceUri: options.clientOptions.workspaceFolder.uri,
+      };
+      runtime.clients.push(this.record);
     }
+
     start(): Promise<void> {
       return Promise.resolve();
     }
+
     dispose(): Promise<void> {
-      this.rec.disposed = true;
+      this.record.disposed = true;
       return Promise.resolve();
     }
   },
 }));
 
 vi.mock("./lsp-bridge-transport", () => ({
+  LspStartError: class extends Error {},
   openLspChannel: (
-    backendId: string,
-    slot: string,
+    owner: FakeSession,
     server: string,
-    _channelId: string,
-    onExit: (code: number, reason?: string) => void,
+    _channel: string,
+    onExit: (code: number, reason: string | undefined) => void,
   ) => {
-    const rec: ChannelRec = { backendId, slot, server, onExit, disposed: false };
-    channels.list.push(rec);
+    const record = { owner, server, disposed: false, onExit };
+    runtime.channels.push(record);
     return {
       reader: {},
       writer: {},
+      ready: Promise.resolve(),
       dispose: () => {
-        rec.disposed = true;
+        record.disposed = true;
       },
     };
   },
@@ -89,59 +169,68 @@ vi.mock("vscode-languageclient", () => ({
   CodeLensRequest: { method: "textDocument/codeLens" },
   CodeLensResolveRequest: { method: "codeLens/resolve" },
   DocumentHighlightRequest: { method: "textDocument/documentHighlight" },
+  State: { Stopped: 1, Running: 2, Starting: 3 },
 }));
-vi.mock("../bridge", () => ({
-  log: () => {},
-  postToBackend: () => {},
-  LOCAL_BACKEND_ID: "local",
-  activeBackendId: () => bus.backend,
-  onSessionMessage: (h: (msg: unknown, backendId: string) => void) => {
-    bus.sessionHandlers.push(h);
-    return () => {};
-  },
+
+vi.mock("../editor/vscode-services", () => ({
+  initEditorServices: () => Promise.resolve(),
 }));
-vi.mock("../editor/vscode-services", () => ({ initEditorServices: () => Promise.resolve() }));
-vi.mock("../notify/notify", () => ({ notify: () => {} }));
+vi.mock("../notify/notify", () => ({ notify: () => undefined }));
 
-const ROOT_A = "/repo/a";
-const ROOT_B = "/repo/b";
-
-function csharpConfig(slot: string, workspace: string) {
-  return {
-    slot,
-    workspace,
-    servers: [{ id: "csharp", languageIds: ["csharp"], settings: null }],
+function session(id: string, workspace: string): FakeSession {
+  const listeners = new Set<(value: WeavieLspConfig | null) => void>();
+  const lsp: FakeValue<WeavieLspConfig | null> = {
+    current: {
+      workspace,
+      servers: [{ id: "csharp", languageIds: ["csharp"], settings: null }],
+    },
+    subscribe(listener) {
+      listeners.add(listener);
+      listener(this.current);
+      return () => listeners.delete(listener);
+    },
+    set(value) {
+      this.current = value;
+      for (const listener of listeners) {
+        listener(value);
+      }
+    },
   };
-}
-
-function model(path: string, lang = "csharp", scheme = "file"): FakeModel {
-  return {
-    uri: { scheme, authority: "", path },
-    getLanguageId: () => lang,
-    onDidChangeLanguage: () => ({ dispose() {} }),
+  const created: FakeSession = {
+    id,
+    address: { slot: id, incarnation: `${id}-1` },
+    connection: { id: `host-${id}` },
+    state: { lsp },
+    feature: () => ({
+      publish: (name, payload) => runtime.resets.push({ session: created, name, payload }),
+    }),
   };
+  runtime.sessions.push(created);
+  return created;
 }
 
-// Open a model: add it to the editor and fire the create hook (as monaco would).
-function openModel(m: FakeModel): void {
-  monacoState.models.push(m);
-  monacoState.onCreate?.(m);
-}
-
-function liveClients(): number {
-  return mlc.instances.filter((c) => !c.disposed).length;
-}
-
-function emitSessionList(
-  sessions: Array<{ id: string; loaded: boolean }>,
-  backendId: string,
-): void {
-  for (const h of bus.sessionHandlers) {
-    h({ type: "session-list", sessions }, backendId);
+function addSession(id: string, workspace: string): FakeSession {
+  const created = session(id, workspace);
+  const cleanup = runtime.installer?.(created);
+  if (cleanup !== undefined) {
+    runtime.cleanups.set(created, cleanup);
   }
+  return created;
 }
 
-// Flush pending microtasks (the async dispose chain) without firing the reconnect timer.
+function model(owner: FakeSession, path: string, language = "csharp"): FakeModel {
+  return {
+    uri: fakeUri(owner, path),
+    getLanguageId: () => language,
+    onDidChangeLanguage: () => ({ dispose: () => undefined }),
+  };
+}
+
+function openModel(created: FakeModel): void {
+  runtime.models.push(created);
+  runtime.onCreate?.(created);
+}
+
 async function settle(): Promise<void> {
   await vi.advanceTimersByTimeAsync(0);
 }
@@ -149,171 +238,101 @@ async function settle(): Promise<void> {
 beforeEach(() => {
   vi.resetModules();
   vi.useFakeTimers();
-  monacoState.models = [];
-  monacoState.onCreate = undefined;
-  mlc.instances = [];
-  channels.list = [];
-  bus.backend = "local";
-  bus.sessionHandlers = [];
-  vi.stubGlobal("window", { __WEAVIE_LSP__: csharpConfig("A", ROOT_A) });
+  runtime.sessions = [];
+  runtime.cleanups = new Map();
+  runtime.installer = undefined;
+  runtime.selected = null;
+  runtime.models = [];
+  runtime.onCreate = undefined;
+  runtime.clients = [];
+  runtime.channels = [];
+  runtime.resets = [];
 });
 
 afterEach(() => {
   vi.useRealTimers();
-  vi.unstubAllGlobals();
 });
 
-describe("warm language-client pool", () => {
-  it("keeps the outgoing worktree's client warm across a session switch", async () => {
-    const mod = await import("./lsp-client");
-    openModel(model(`${ROOT_A}/Foo.cs`));
-    await mod.startLanguageServices();
-    await settle();
-    expect(liveClients()).toBe(1);
-    const channelA = channels.list[0];
+describe("session-owned language clients", () => {
+  it("starts each identical path on its owning session without consulting selection", async () => {
+    const first = session("a", "/repo");
+    const second = session("b", "/repo");
+    runtime.selected = second;
+    runtime.models = [model(first, "/repo/Same.cs"), model(second, "/repo/Same.cs")];
 
-    // Switch to B (same backend). B's tabs replace A's in the editor.
-    monacoState.models = [model(`${ROOT_B}/Bar.cs`)];
-    await mod.rebindLanguageServices(csharpConfig("B", ROOT_B), "local");
+    const services = await import("./lsp-client");
+    await services.startLanguageServices();
     await settle();
 
-    // A's client stays warm — not disposed, no lsp-stop — while B's starts. Two warm clients, one per worktree.
-    expect(channelA?.disposed).toBe(false);
-    expect(liveClients()).toBe(2);
-  });
-
-  it("reuses the warm client on switch-back instead of cold-starting", async () => {
-    const mod = await import("./lsp-client");
-    openModel(model(`${ROOT_A}/Foo.cs`));
-    await mod.startLanguageServices();
-    await settle();
-
-    // A → B (A's model removed from the editor) → back to A (its model reopens).
-    monacoState.models = [model(`${ROOT_B}/Bar.cs`)];
-    await mod.rebindLanguageServices(csharpConfig("B", ROOT_B), "local");
-    await settle();
-    const constructedAfterSwitch = mlc.instances.length;
-
-    monacoState.models = [model(`${ROOT_A}/Foo.cs`)];
-    await mod.rebindLanguageServices(csharpConfig("A", ROOT_A), "local");
-    openModel(model(`${ROOT_A}/Foo.cs`));
-    await settle();
-
-    // No new client constructed on the return: the warm A client answered.
-    expect(mlc.instances.length).toBe(constructedAfterSwitch);
-    expect(liveClients()).toBe(2);
-  });
-
-  it("scopes each worktree's providers to its own files so two clients never double the menu", async () => {
-    const mod = await import("./lsp-client");
-    openModel(model(`${ROOT_A}/Foo.cs`));
-    await mod.startLanguageServices();
-    await settle();
-
-    // Switch to B but keep A's model open too (persistent-model case): both csharp clients live at once.
-    await mod.rebindLanguageServices(csharpConfig("B", ROOT_B), "local");
-    openModel(model(`${ROOT_B}/Bar.cs`));
-    await settle();
-    expect(liveClients()).toBe(2);
-
-    const patterns = mlc.instances.map((c) => c.selectors[0]?.pattern);
-    expect(patterns).toContain(`${ROOT_A}/**`);
-    expect(patterns).toContain(`${ROOT_B}/**`);
-    // Disjoint worktree globs: neither client's selector matches the other worktree's files, so only one answers.
+    expect(runtime.channels.map((channel) => channel.owner)).toEqual([first, second]);
+    expect(runtime.clients).toHaveLength(2);
+    const patterns = runtime.clients.map((client) => client.selectors[0]?.pattern);
     expect(new Set(patterns).size).toBe(2);
-    for (const c of mlc.instances) {
-      expect(c.selectors[0]?.scheme).toBe("file");
-    }
+    expect(patterns).toContain("/sessions/a/repo/**");
+    expect(patterns).toContain("/sessions/b/repo/**");
   });
 
-  it("tears the warm client down when its session is unloaded", async () => {
-    const mod = await import("./lsp-client");
-    openModel(model(`${ROOT_A}/Foo.cs`));
-    await mod.startLanguageServices();
-    await settle();
-    const channelA = channels.list[0];
+  it("retains config delivered before Monaco starts", async () => {
+    const owner = session("early", "/repo/early");
+    const services = await import("./lsp-client");
+    openModel(model(owner, "/repo/early/File.cs"));
 
-    // Unload A: session-list arrives with A no longer loaded.
-    emitSessionList([{ id: "A", loaded: false }], "local");
+    expect(runtime.clients).toHaveLength(0);
+    await services.startLanguageServices();
     await settle();
 
-    expect(liveClients()).toBe(0);
-    expect(channelA?.disposed).toBe(true); // lsp-stop was sent
+    expect(runtime.channels[0]?.owner).toBe(owner);
+    expect(runtime.clients).toHaveLength(1);
   });
 
-  it("tears down clients stranded on a different backend after a backend switch", async () => {
-    const mod = await import("./lsp-client");
-    openModel(model(`${ROOT_A}/Foo.cs`));
-    await mod.startLanguageServices();
-    await settle();
-    const channelA = channels.list[0];
+  it("starts a model created later on the model's owner", async () => {
+    const first = session("a", "/repo/a");
+    const second = session("b", "/repo/b");
+    runtime.selected = first;
+    const services = await import("./lsp-client");
+    await services.startLanguageServices();
 
-    // The page binds to a remote backend; its session's config arrives on the new backend.
-    bus.backend = "remote";
-    monacoState.models = [model("/remote/w/Baz.cs")];
-    await mod.rebindLanguageServices(csharpConfig("R", "/remote/w"), "remote");
+    openModel(model(second, "/repo/b/Later.cs"));
     await settle();
 
-    expect(channelA?.disposed).toBe(true); // the local client was stranded and torn down
-    expect(liveClients()).toBe(1); // only the remote client remains
-    // The remote session's channel was opened ON the remote backend — its frames route home, never to
-    // whichever backend is merely active (the misroute behind "lsp-data named slot ... isn't loaded").
-    expect(channels.list.at(-1)?.backendId).toBe("remote");
-    expect(channelA?.backendId).toBe("local");
+    expect(runtime.channels[0]?.owner).toBe(second);
   });
 
-  it("does not spawn a duplicate when a stale reconnect fires after the client was replaced", async () => {
-    const mod = await import("./lsp-client");
-    openModel(model(`${ROOT_A}/Foo.cs`));
-    await mod.startLanguageServices();
-    await settle();
-    expect(liveClients()).toBe(1);
-
-    // A's server exits, scheduling a reconnect timer for A's key.
-    channels.list[0]?.onExit(1, "server exited");
+  it("tears down only the session that closes", async () => {
+    const first = session("a", "/repo");
+    const second = session("b", "/repo");
+    runtime.models = [model(first, "/repo/Same.cs"), model(second, "/repo/Same.cs")];
+    const services = await import("./lsp-client");
+    await services.startLanguageServices();
     await settle();
 
-    // Before it fires, the same document reopens and re-establishes a fresh live A client (superseding the entry).
-    openModel(model(`${ROOT_A}/Foo.cs`));
+    runtime.cleanups.get(first)?.();
     await settle();
 
-    // The stale reconnect timer now fires — it must stand down, not resurrect a second client.
-    await vi.advanceTimersByTimeAsync(1000);
-    expect(liveClients()).toBe(1);
+    expect(runtime.channels.find((channel) => channel.owner === first)?.disposed).toBe(true);
+    expect(runtime.channels.find((channel) => channel.owner === second)?.disposed).toBe(false);
+    expect(runtime.clients.filter((client) => !client.disposed)).toHaveLength(1);
   });
 
-  it("maps a file to the longest-matching worktree root, not a prefix sibling", async () => {
-    const mod = await import("./lsp-client");
-    // Two sibling worktrees loaded, one a string-prefix of the other. No models open yet.
-    await mod.startLanguageServices(); // records A = /repo/a (window config)
-    await mod.rebindLanguageServices(csharpConfig("B", "/repo/ab"), "local");
-    await settle();
+  it("reads the workspace root from the selected session's owned state", async () => {
+    const first = session("a", "/repo/a");
+    const second = session("b", "/repo/b");
+    const services = await import("./lsp-client");
 
-    // A file under /repo/ab must bind to B (/repo/ab), never the prefix sibling A (/repo/a).
-    openModel(model("/repo/ab/Bar.cs"));
-    await settle();
-    expect(mlc.instances.length).toBe(1);
-    expect(mlc.instances[0]?.selectors[0]?.pattern).toBe("/repo/ab/**");
+    runtime.selected = first;
+    expect(services.currentWorkspaceRoot()).toBe("/repo/a");
+    runtime.selected = second;
+    expect(services.currentWorkspaceRoot()).toBe("/repo/b");
   });
 
-  it("does not resurrect a pruned client from a lingering foreign-backend model", async () => {
-    const mod = await import("./lsp-client");
-    openModel(model(`${ROOT_A}/Foo.cs`));
-    await mod.startLanguageServices();
-    await settle();
-    const channelA = channels.list[0];
+  it("installs the same ownership behavior for sessions added after startup", async () => {
+    const services = await import("./lsp-client");
+    await services.startLanguageServices();
+    const later = addSession("later", "/repo/later");
 
-    // Switch to a remote backend while A's local model lingers in the editor (models persist across switches).
-    bus.backend = "remote";
-    monacoState.models = [model(`${ROOT_A}/Foo.cs`), model("/remote/w/Baz.cs")];
-    await mod.rebindLanguageServices(csharpConfig("R", "/remote/w"), "remote");
+    openModel(model(later, "/repo/later/New.cs"));
     await settle();
 
-    // Local A was pruned and NOT re-created over the wrong bridge by its lingering model; only remote is live.
-    expect(channelA?.disposed).toBe(true);
-    const livePatterns = mlc.instances
-      .filter((c) => !c.disposed)
-      .map((c) => c.selectors[0]?.pattern);
-    expect(livePatterns).toEqual(["/remote/w/**"]);
+    expect(runtime.channels[0]?.owner).toBe(later);
   });
 });

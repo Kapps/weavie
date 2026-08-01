@@ -52,7 +52,6 @@ test.describe("headless host (real Weavie.Core over WebSocket)", () => {
   );
 
   let proc: ChildProcess;
-  let log = "";
   let pageUrl = "";
 
   test.beforeAll(async () => {
@@ -67,9 +66,6 @@ test.describe("headless host (real Weavie.Core over WebSocket)", () => {
       },
       stdio: ["ignore", "pipe", "pipe"],
     });
-    proc.stdout?.on("data", (chunk: Buffer) => {
-      log += chunk.toString("utf8");
-    });
     pageUrl = await waitForListening(proc, 30_000);
   });
 
@@ -77,7 +73,7 @@ test.describe("headless host (real Weavie.Core over WebSocket)", () => {
     proc?.kill("SIGINT");
   });
 
-  test("a browser connects over WebSocket and its `ready` reaches the C# session", async ({
+  test("a browser completes the host hello and renders the returned session catalog", async ({
     page,
   }) => {
     await page.goto(pageUrl, { waitUntil: "domcontentloaded" });
@@ -86,7 +82,8 @@ test.describe("headless host (real Weavie.Core over WebSocket)", () => {
     // browser-only `window` global isn't referenced in this Node test module.)
     await expect.poll(() => page.evaluate("window.__WEAVIE_BRIDGE_WS__")).toBe("auto");
 
-    // The page's `ready` must reach the real C# session — proof the bridge round-trips end to end.
-    await expect.poll(() => log, { timeout: 15_000 }).toContain('{"type":"ready","bridgeId":');
+    // The catalog can render only after connection.hello crossed into C# and its response crossed back.
+    await expect(page.locator(".session-chip").first()).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator(".footer-network-problem")).toHaveCount(0);
   });
 });

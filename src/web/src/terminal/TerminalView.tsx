@@ -3,13 +3,7 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { type FontWeight, Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { createEffect, type JSX, onCleanup, onMount } from "solid-js";
-import {
-  isBrowserHostedShell,
-  log,
-  onHostMessage,
-  postToBackend,
-  type TermSession,
-} from "../bridge";
+import { type ClientSession, isBrowserHostedShell, log, type TermSession } from "../bridge";
 import { IS_MAC } from "../commands/keybindings";
 import { currentFonts, onFontsChanged } from "../fonts";
 import { currentXtermTheme, onXtermThemeChanged } from "../theme";
@@ -30,14 +24,11 @@ function uriToPath(pathname: string): string {
 // browsers reclaim WebGL contexts lazily, so churn would pile up unfreed contexts and blow the cap.
 const HIDDEN_WEBGL_DISPOSE_MS = 2000;
 
-// xterm.js pane wired to one C# PTY over the bridge: PTY bytes -> term.write, keystrokes -> term-input,
-// layout -> term-resize. On mount it reports { term-ready } so the host launches this session's child sized
-// to match. Every message is tagged with `slot` (workspace session) AND `session` (pane) so the host routes
-// to the right PTY. Each loaded session keeps its pane mounted; only the active one shows (pure show/hide).
+// xterm.js pane wired to one C# PTY through its ClientSession feature. The captured feature owns both the
+// session and pane identity; on mount `ready` starts/sizes that child. Hidden sessions retain their buffers.
 export function TerminalView(props: {
-  // The workspace session (rail id) and pane this xterm is bound to.
-  backendId: string;
-  slot: string;
+  // The exact live owner and pane this xterm is bound to.
+  session: ClientSession;
   pane: TermSession;
   // Whether this is the visible session for its pane. Drives WebGL mount/dispose — one GPU context per
   // visible pane (one per session would blow the WebGL-context cap); a hidden pane keeps its buffer alive.
@@ -55,7 +46,8 @@ export function TerminalView(props: {
 }): JSX.Element {
   // A pane belongs to the backend that created it. Capture that identity at mount so a cross-backend switch
   // cannot retarget late resize/ready/input callbacks to the newly active host while this pane unmounts.
-  const backendId = props.backendId;
+  const session = props.session;
+  const messages = session.feature(props.pane === "shell" ? "terminal.shell" : "terminal.agent");
   let container!: HTMLDivElement;
   // Reports the URL currently under the pointer (set once links are wired in onMount), for the right-click menu.
   let hoveredUrl: () => string | undefined = () => undefined;
@@ -82,7 +74,7 @@ export function TerminalView(props: {
   const fit = new FitAddon();
   const encoder = new TextEncoder();
   // Introspection key (e2e/diagnostics): slot + pane, so two sessions' panes don't collide.
-  const termKey = `${props.slot}:${props.pane}`;
+  const termKey = `${session.connection.id}:${session.address.incarnation}:${props.pane}`;
 
   onMount(() => {
     term.loadAddon(fit);
@@ -99,7 +91,7 @@ export function TerminalView(props: {
     // that can leave the canvas stale or the PTY mis-sized. Both throw on a zero-size (hidden) pane — ignored.
     const refit = (): void => {
       // Only the visible session's pane drives its PTY size; a background session's pane (hidden) must not
-      // fit + emit term-resize, which would resize that session's TUI behind the user's back. It refits on
+      // fit + emit terminal.resize, which would resize that session's TUI behind the user's back. It refits on
       // becoming active (the props.active effect below).
       if (!props.active) {
         return;
@@ -181,18 +173,16 @@ export function TerminalView(props: {
     });
 
     // OSC 8 + auto-detected file:line and http(s) links (file:// → Monaco, URLs → OS browser).
-    hoveredUrl = wireTerminalLinks(term);
+    hoveredUrl = wireTerminalLinks(term, session);
 
     // Clipboard: register this pane for the copy/paste commands, route Claude's OSC 52 to the OS clipboard,
     // and note focus so the commands act on the terminal the user is in.
-    const offRegister = registerTerminal(termKey, term);
+    const offRegister = registerTerminal(termKey, term, session, props.pane);
     const offClipboard = attachOsc52(term);
     // Image paste (claude pane only): capture an image from the browser paste event → host scratch file → path
     // injected into claude. The shell has no use for it; a pasted path there would just try to run.
     const offImagePaste =
-      props.pane === "claude"
-        ? attachImagePaste(container, () => backendId, props.slot)
-        : (): void => {};
+      props.pane === "claude" ? attachImagePaste(container, session) : (): void => {};
     const onContainerFocus = (): void => noteTerminalFocus(termKey);
     container.addEventListener("focusin", onContainerFocus);
 
@@ -202,10 +192,7 @@ export function TerminalView(props: {
     // OSC 7 cwd → the host, so a reopened shell relaunches where the user was.
     const offCwd = term.parser.registerOscHandler(7, (data) => {
       try {
-        postToBackend(backendId, {
-          type: "term-cwd",
-          slot: props.slot,
-          session: props.pane,
+        messages.publish("cwd", {
           cwd: uriToPath(new URL(data).pathname),
         });
       } catch {
@@ -228,10 +215,7 @@ export function TerminalView(props: {
     });
 
     const sendInput = (data: string): void => {
-      postToBackend(backendId, {
-        type: "term-input",
-        slot: props.slot,
-        session: props.pane,
+      messages.publish("input", {
         dataB64: bytesToBase64(encoder.encode(data)),
       });
     };
@@ -283,23 +267,11 @@ export function TerminalView(props: {
     });
 
     term.onResize(({ cols, rows }) => {
-      postToBackend(backendId, {
-        type: "term-resize",
-        slot: props.slot,
-        session: props.pane,
-        cols,
-        rows,
-      });
+      messages.publish("resize", { columns: cols, rows });
     });
 
     // Ask the host to start (or repaint) this session's PTY child sized to the fitted terminal.
-    postToBackend(backendId, {
-      type: "term-ready",
-      slot: props.slot,
-      session: props.pane,
-      cols: term.cols,
-      rows: term.rows,
-    });
+    messages.publish("ready", { columns: term.cols, rows: term.rows });
 
     // Register this pane's focus fn so the layout can land keyboard focus here (Ctrl+N / focus-pane).
     props.onFocusReady?.(() => term.focus());
@@ -329,49 +301,37 @@ export function TerminalView(props: {
       import.meta.hot.on("vite:afterUpdate", onHmrUpdate);
     }
 
-    const offHost = onHostMessage((message) => {
-      // The bridge channel is shared across panes AND sessions; ignore traffic not for this (slot, pane) pair.
-      if (message.type === "term-output") {
-        if (message.slot === props.slot && message.session === props.pane) {
-          if (message.replay === true) {
-            term.write(base64ToBytes(message.dataB64), () => {
-              replaysParsing--;
-            });
-            // After write returns: parse + callback are async, and a throwing write (buffer-discard
-            // watermark) must not strand the counter positive — that would mute the pane's input for good.
-            replaysParsing++;
-          } else {
-            term.write(base64ToBytes(message.dataB64));
-          }
-        }
-      } else if (message.type === "term-exit") {
-        if (message.slot === props.slot && message.session === props.pane) {
-          term.write(`\r\n\x1b[90m[process exited: ${message.code}]\x1b[0m\r\n`);
-        }
-      } else if (message.type === "term-reset") {
-        if (message.slot === props.slot && message.session === props.pane) {
-          // A respawn relaunches the child (which re-establishes every mode), so a full reset is right; a
-          // non-respawn reset clears content + scrollback WITHOUT touching terminal modes (mouse tracking).
-          if (message.respawn) {
-            term.reset();
-          } else {
-            term.write("\x1b[H\x1b[2J\x1b[3J");
-          }
-          postToBackend(backendId, {
-            type: "term-ready",
-            slot: props.slot,
-            session: props.pane,
-            cols: term.cols,
-            rows: term.rows,
+    const offOutput = messages.on<{ dataB64: string; replay: boolean }>(
+      "output",
+      ({ dataB64, replay }) => {
+        if (replay) {
+          term.write(base64ToBytes(dataB64), () => {
+            replaysParsing--;
           });
+          replaysParsing++;
+        } else {
+          term.write(base64ToBytes(dataB64));
         }
+      },
+    );
+    const offExit = messages.on<{ code: number }>("exit", ({ code }) => {
+      term.write(`\r\n\x1b[90m[process exited: ${code}]\x1b[0m\r\n`);
+    });
+    const offReset = messages.on<{ respawn: boolean }>("reset", ({ respawn }) => {
+      if (respawn) {
+        term.reset();
+      } else {
+        term.write("\x1b[H\x1b[2J\x1b[3J");
       }
+      messages.publish("ready", { columns: term.cols, rows: term.rows });
     });
 
     onCleanup(() => {
       disposed = true;
       renderSub.dispose();
-      offHost();
+      offOutput();
+      offExit();
+      offReset();
       offFonts();
       offTheme();
       offRegister();

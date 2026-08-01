@@ -7,6 +7,7 @@ namespace Weavie.Hosting.Tests;
 /// <see cref="PosixFileLimit"/> raises the open-file soft limit a launchd (GUI) launch inherits at 256, so a
 /// second session can't exhaust it. Verified by lowering the soft limit and asserting it climbs back.
 /// </summary>
+[Collection(TestCollections.HostIntegration)]
 public sealed class PosixFileLimitTests {
 	private const int RlimitNoFile = 7; // Linux value; the suite runs on Linux CI.
 

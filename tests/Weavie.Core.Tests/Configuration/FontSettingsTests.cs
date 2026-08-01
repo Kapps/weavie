@@ -138,20 +138,16 @@ public sealed class FontSettingsTests : IDisposable {
 	}
 
 	[Fact]
-	public void BuildJson_HasBothSurfaces_AndOptionalType() {
+	public void BuildJson_HasBothSurfaces() {
 		using var store = NewStore();
 		store.Set(FontSettings.TerminalSize, Json("11"));
 
-		using var bare = JsonDocument.Parse(FontSettings.BuildJson(store, messageType: null));
-		Assert.False(bare.RootElement.TryGetProperty("type", out _));
-		var editor = bare.RootElement.GetProperty("editor");
+		using var json = JsonDocument.Parse(FontSettings.BuildJson(store));
+		var editor = json.RootElement.GetProperty("editor");
 		Assert.Equal(GlobalDefaultSize(store), editor.GetProperty("size").GetInt64());
 		Assert.Equal("normal", editor.GetProperty("weight").GetString());
 		Assert.False(string.IsNullOrEmpty(editor.GetProperty("family").GetString()));
-		Assert.Equal(11, bare.RootElement.GetProperty("terminal").GetProperty("size").GetInt32());
-
-		using var message = JsonDocument.Parse(FontSettings.BuildJson(store, "fonts"));
-		Assert.Equal("fonts", message.RootElement.GetProperty("type").GetString());
+		Assert.Equal(11, json.RootElement.GetProperty("terminal").GetProperty("size").GetInt32());
 	}
 
 	[Fact]

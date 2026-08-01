@@ -1,15 +1,15 @@
 namespace Weavie.Core.Commands;
 
-/// <summary>Host-supplied invoker for a <see cref="CommandLocation.Web"/> command: posts the run to the web and awaits its ack.</summary>
+/// <summary>Host-supplied invoker for a <see cref="CommandLocation.Web"/> command through its attached session view.</summary>
 public delegate Task<CommandResult> WebCommandInvoker(string id, string? argsJson, CancellationToken ct);
 
 /// <summary>
 /// Routes a command invocation to its handler: a registered Core handler, or the host-supplied
 /// <see cref="WebInvoker"/> for a <see cref="CommandLocation.Web"/> command. Both <c>runCommand</c> (MCP)
-/// and the web's <c>invoke-command</c> bridge message land here. <see cref="CommandRegistry"/> is the catalog.
+/// and the web's session-owned <c>commands.invoke</c> request land here. <see cref="CommandRegistry"/> is the catalog.
 /// </summary>
 public sealed class CommandDispatcher {
-	private readonly Dictionary<string, Func<string?, CancellationToken, Task<CommandResult>>> _handlers =
+	private readonly Dictionary<string, Func<string?, CommandInvocationContext, CancellationToken, Task<CommandResult>>> _handlers =
 		new(StringComparer.Ordinal);
 
 	private readonly Lock _gate = new();
@@ -34,6 +34,16 @@ public sealed class CommandDispatcher {
 	/// unregistered, web-run, or already handled). Returns a disposable that unregisters it.
 	/// </summary>
 	public IDisposable RegisterHandler(string id, Func<string?, CancellationToken, Task<CommandResult>> handler) {
+		ArgumentNullException.ThrowIfNull(handler);
+		return RegisterContextualHandler(id, (args, _, ct) => handler(args, ct));
+	}
+
+	/// <summary>
+	/// Registers a Core handler that may defer endpoint-destroying work until its result has been delivered.
+	/// </summary>
+	public IDisposable RegisterContextualHandler(
+		string id,
+		Func<string?, CommandInvocationContext, CancellationToken, Task<CommandResult>> handler) {
 		ArgumentNullException.ThrowIfNull(handler);
 		var definition = Registry.Require(id);
 		if (definition.RunsIn != CommandLocation.Core) {
@@ -60,22 +70,36 @@ public sealed class CommandDispatcher {
 	/// programmatic invocation always runs.
 	/// </summary>
 	public async Task<CommandResult> InvokeAsync(string id, string? argsJson, CancellationToken ct) {
+		var execution = await PrepareAsync(id, argsJson, ct).ConfigureAwait(false);
+		await execution.CompleteAsync().ConfigureAwait(false);
+		return execution.Result;
+	}
+
+	/// <summary>
+	/// Runs the handler and returns its result plus a completion boundary. Transports deliver
+	/// <see cref="CommandExecution.Result"/> before calling <see cref="CommandExecution.CompleteAsync"/>.
+	/// </summary>
+	public async Task<CommandExecution> PrepareAsync(string id, string? argsJson, CancellationToken ct) {
 		var definition = Registry.Require(id);
+		var context = new CommandInvocationContext();
+		CommandResult result;
 		if (definition.RunsIn == CommandLocation.Core) {
-			Func<string?, CancellationToken, Task<CommandResult>>? handler;
+			Func<string?, CommandInvocationContext, CancellationToken, Task<CommandResult>>? handler;
 			lock (_gate) {
 				_handlers.TryGetValue(id, out handler);
 			}
 
-			return handler is null
+			result = handler is null
 				? CommandResult.Failure($"Command '{id}' has no handler registered.")
-				: await handler(argsJson, ct).ConfigureAwait(false);
+				: await handler(argsJson, context, ct).ConfigureAwait(false);
+		} else {
+			var invoker = WebInvoker;
+			result = invoker is null
+				? CommandResult.Failure($"Command '{id}' runs in the web UI, which isn't connected.")
+				: await invoker(id, argsJson, ct).ConfigureAwait(false);
 		}
 
-		var invoker = WebInvoker;
-		return invoker is null
-			? CommandResult.Failure($"Command '{id}' runs in the web UI, which isn't connected.")
-			: await invoker(id, argsJson, ct).ConfigureAwait(false);
+		return new CommandExecution(result, context.Seal());
 	}
 
 	private sealed class Registration : IDisposable {

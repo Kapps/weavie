@@ -1,4 +1,5 @@
 import { createEffect, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
+import type { ClientSession } from "../bridge";
 import { gitStatus } from "../chrome/git-status-store";
 import { pullRequestStatus } from "../chrome/pull-request-store";
 import { setContext } from "../commands/context";
@@ -18,18 +19,17 @@ import {
 // The dim strip under the composer. First segment is the merged model → effort / Fast control (its picker is a
 // cascading per-model submenu); the rest are provider-owned axes, the complete Review line counts, and PR status.
 export function AgentStatusLine(props: {
-  backendId: string;
   reviewAdded: number;
   reviewFileCount: number;
   reviewRemoved: number;
-  slot: string | null;
+  session: ClientSession | null;
 }): JSX.Element {
-  const state = (): ReturnType<typeof agentControlState> => agentControlState(props.slot);
+  const state = (): ReturnType<typeof agentControlState> => agentControlState(props.session);
   const modelLabel = (): string => state().modelControl.valueLabel;
   const hasModel = (): boolean => state().modelControl.models.length > 0;
   const [commandsVersion, setCommandsVersion] = createSignal(0);
   onCleanup(onCommandsChanged(() => setCommandsVersion((version) => version + 1)));
-  const prStatus = () => pullRequestStatus(props.backendId, props.slot);
+  const prStatus = () => pullRequestStatus(props.session);
   const pullRequest = () => {
     const status = prStatus();
     return status !== null && status.branch === gitStatus()?.branch ? status.pullRequest : null;
@@ -55,7 +55,7 @@ export function AgentStatusLine(props: {
   };
   // Switching sessions abandons an open picker so it can't apply to the wrong session.
   createEffect(() => {
-    props.slot;
+    props.session;
     closeControlPicker();
   });
   // Single owner of the composer's Enter/Escape gate: true whenever any control picker (model or axis) is open.
@@ -132,8 +132,8 @@ export function AgentStatusLine(props: {
             </span>
           )}
         </Show>
-        <AgentModelPicker backendId={props.backendId} slot={props.slot} />
-        <AgentControlPicker backendId={props.backendId} slot={props.slot} />
+        <AgentModelPicker session={props.session} />
+        <AgentControlPicker session={props.session} />
       </div>
     </Show>
   );

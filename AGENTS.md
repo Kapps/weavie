@@ -25,6 +25,10 @@ load it only when you need it.
   launcher, optional window/hotkeys/dialogs). **Add host-facing features to the core, not per-OS** — a
   new web message, push, or session behavior goes in `HostCore` so all four hosts get it at once. See
   [docs/specs/host-core-unification.md](docs/specs/host-core-unification.md).
+- **Session-owned message bus** — every loaded session owns an exact `(slot, incarnation)` endpoint
+  on both sides of the bridge. Domain messages route to that owner by construction; client selection
+  only chooses what to render and never gates state mutation. See
+  [docs/concepts/session-message-bus.md](docs/concepts/session-message-bus.md).
 - **Contextual suggestions** — a Core-owned surface for dismissible nudge cards that teach users what
   Weavie can do. Declared once (`SuggestionDefinition`/`CoreSuggestions`), evaluated per-workspace by
   `SuggestionService` (with a bounded, fail-open manifest probe off the hot path), and rendered as cards;

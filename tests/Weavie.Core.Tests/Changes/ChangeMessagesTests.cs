@@ -5,7 +5,7 @@ using Xunit;
 
 namespace Weavie.Core.Tests;
 
-/// <summary>Host→web JSON payloads for the inline turn-review feed.</summary>
+/// <summary>Feature payloads for the inline turn-review feed.</summary>
 public sealed class ChangeMessagesTests {
 	private static JsonElement Parse(string json) => JsonDocument.Parse(json).RootElement;
 
@@ -21,7 +21,6 @@ public sealed class ChangeMessagesTests {
 
 		var root = Parse(ChangeMessages.TurnChanges(tracker, "vs main"));
 
-		Assert.Equal("turn-changes", root.GetProperty("type").GetString());
 		Assert.Equal("vs main", root.GetProperty("label").GetString()); // names an armed PR/ref review; empty for a plain turn
 		var file = Assert.Single(root.GetProperty("files").EnumerateArray());
 		Assert.Equal("/w/a.txt", file.GetProperty("path").GetString());
@@ -41,7 +40,6 @@ public sealed class ChangeMessagesTests {
 
 		var root = Parse(ChangeMessages.TurnDiff(change));
 
-		Assert.Equal("turn-diff", root.GetProperty("type").GetString());
 		Assert.Equal("/w/dir/a.cs", root.GetProperty("path").GetString());
 		Assert.Equal("a.cs", root.GetProperty("name").GetString());
 		Assert.Equal("anchor", root.GetProperty("acceptedBaseline").GetString()); // faded band origin
@@ -50,8 +48,8 @@ public sealed class ChangeMessagesTests {
 	}
 
 	[Fact]
-	public void TurnReset_IsTypeOnly() {
+	public void TurnReset_IsEmptyPayload() {
 		var root = Parse(ChangeMessages.TurnReset());
-		Assert.Equal("turn-reset", root.GetProperty("type").GetString());
+		Assert.Empty(root.EnumerateObject());
 	}
 }

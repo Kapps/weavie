@@ -5,12 +5,13 @@
 // One block at a time. An edit is bound to the exact markdown it opened against: a re-render from the same
 // string (theme switch) re-mounts the editor with its draft; a different string closes it.
 
-import { openTarget, saveSourceEdit } from "../../bridge";
+import type { ClientSession } from "../../bridge";
 import { setContext } from "../../commands/context";
 import { formatKey } from "../../commands/keybindings";
 import { findCommand } from "../../commands/registry";
 import { CommandIds } from "../../commands/types";
 import { blockSource, buildUpdateOp } from "./notion-edit";
+import { openSourceTarget, saveSourceEdit } from "./source-store";
 
 interface EditState {
   line: number;
@@ -31,6 +32,7 @@ export function activeSourceEditor(): SourceEditController | undefined {
 
 /** Drives the in-place block editor inside one SourceView's shadow root (one instance per mounted view). */
 export class SourceEditController {
+  private session: ClientSession | undefined;
   private target = "";
   private markdown = "";
   private content: HTMLElement | undefined;
@@ -46,16 +48,20 @@ export class SourceEditController {
    * in-progress edit when the markdown is the same string it opened against, and closes it when it isn't —
    * including the refresh a successful save pushes, where focus returns to the edited block.
    */
-  attach(content: HTMLElement, target: string, markdown: string): void {
+  attach(content: HTMLElement, session: ClientSession, target: string, markdown: string): void {
     active = this;
-    const sameDoc = target === this.target && markdown === this.markdown;
+    const sameDoc =
+      session === this.session && target === this.target && markdown === this.markdown;
     // The saved-edit refresh: same page, new content, while our save was resolving (same-target guard, or a
     // different page arriving mid-save would grab focus on an unrelated block that shares the line index).
     const savedLine =
-      target === this.target && !sameDoc && this.edit?.saving === true ? this.edit.line : undefined;
+      session === this.session && target === this.target && !sameDoc && this.edit?.saving === true
+        ? this.edit.line
+        : undefined;
     if (!sameDoc) {
       this.closeState();
     }
+    this.session = session;
     this.target = target;
     this.markdown = markdown;
     this.content = content;
@@ -161,7 +167,9 @@ export class SourceEditController {
     if (this.hint !== undefined) {
       this.hint.textContent = "Saving…";
     }
-    saveSourceEdit(this.target, op.oldStr, op.newStr);
+    if (this.session !== undefined) {
+      saveSourceEdit(this.session, this.target, op.oldStr, op.newStr);
+    }
     return true;
   }
 
@@ -294,7 +302,9 @@ export class SourceEditController {
       refetch.textContent = "Re-fetch page (discards this edit)";
       refetch.addEventListener("click", () => {
         this.closeState();
-        openTarget(this.target);
+        if (this.session !== undefined) {
+          openSourceTarget(this.session, this.target);
+        }
       });
       row.append(refetch);
     }

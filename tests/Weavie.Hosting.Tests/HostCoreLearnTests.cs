@@ -18,7 +18,7 @@ public sealed class HostCoreLearnTests {
 	[Fact]
 	public async Task CorrectionsAccumulate_CardSurfaces_AndLearnSeedsPrimaryClaude_ThenConsumesRing() {
 		await using var host = await TestHost.StartAsync();
-		var session = host.Core.ActiveSessionForTest()!;
+		var session = host.SelectedSession;
 		session.Claude!.EnsureStarted();
 		var claude = Assert.Single(host.Platform.NoopLauncher.Created);
 		string file = Path.Combine(host.RepoRoot, "app.cs");
@@ -30,13 +30,13 @@ public sealed class HostCoreLearnTests {
 		for (int turn = 1; turn <= 4; turn++) {
 			Boundary(session, $"prompt {turn}");
 			AgentEdit(session, file, $"agent version {turn}\n");
-			HandEdit(host, file, $"user version {turn}\n");
+			await HandEditAsync(host, session, file, $"user version {turn}\n");
 			if (turn == 3) {
 				await WaitForSuggestionAsync(host, present: true);
 			}
 		}
 
-		host.Send("{\"type\":\"invoke-command\",\"id\":\"weavie.learn.fromCorrections\",\"token\":\"t-learn\"}");
+		var result = await host.InvokeClientCommandAsync("weavie.learn.fromCorrections", new { });
 
 		string written = claude.WrittenText;
 		Assert.StartsWith("\x1b[200~", written); // bracketed paste: one paste, not typed line-by-line
@@ -46,8 +46,7 @@ public sealed class HostCoreLearnTests {
 		Assert.Contains("-agent version 1", written, StringComparison.Ordinal);
 		Assert.Contains("+user version 1", written, StringComparison.Ordinal);
 
-		var result = host.Bridge.LastOfType("command-result");
-		Assert.True(result!.Value.GetProperty("ok").GetBoolean());
+		Assert.True(result.Ok, result.Error);
 		// The read entries were consumed: the persisted ring is empty and the card withdrew.
 		string ringPath = WeaviePaths.WorkspaceCorrectionsFile(WorkspaceId.ForPath(host.RepoRoot));
 		Assert.Equal(string.Empty, File.ReadAllText(ringPath));
@@ -57,14 +56,13 @@ public sealed class HostCoreLearnTests {
 	[Fact]
 	public async Task EmptyRing_LearnFailsLoudly_AndSeedsNothing() {
 		await using var host = await TestHost.StartAsync();
-		host.Core.ActiveSessionForTest()!.Claude!.EnsureStarted();
+		host.SelectedSession.Claude!.EnsureStarted();
 		var claude = Assert.Single(host.Platform.NoopLauncher.Created);
 
-		host.Send("{\"type\":\"invoke-command\",\"id\":\"weavie.learn.fromCorrections\",\"token\":\"t-empty\"}");
+		var result = await host.InvokeClientCommandAsync("weavie.learn.fromCorrections", new { });
 
-		var result = host.Bridge.LastOfType("command-result");
-		Assert.False(result!.Value.GetProperty("ok").GetBoolean());
-		Assert.Contains("No corrections recorded", result.Value.GetProperty("error").GetString(), StringComparison.Ordinal);
+		Assert.False(result.Ok);
+		Assert.Contains("No corrections recorded", result.Error, StringComparison.Ordinal);
 		Assert.Equal(string.Empty, claude.WrittenText);
 	}
 
@@ -91,14 +89,24 @@ public sealed class HostCoreLearnTests {
 
 	// The user editing the agent's output in the editor: an fs-write (as the file provider posts on autosave),
 	// which writes disk AND captures the correction at the save.
-	private static void HandEdit(TestHost host, string file, string content) =>
-		host.Send(JsonSerializer.Serialize(new { type = "fs-write", id = "hand-edit", path = file, content }));
+	private static async Task HandEditAsync(
+		TestHost host,
+		HostSession session,
+		string file,
+		string content) {
+		var result = await host.SessionRequestAsync<JsonElement>(
+			session,
+			"files",
+			"write",
+			new { path = file, content });
+		Assert.True(result.GetProperty("ok").GetBoolean());
+	}
 
 	// Polls the ambient `suggestions` pushes for the corrections.learn card's presence/absence — the pushes
 	// ride the corpus's Changed event, so the state settles asynchronously.
 	private static async Task WaitForSuggestionAsync(TestHost host, bool present) {
 		for (int attempt = 0; attempt < 50; attempt++) {
-			var last = host.Bridge.LastOfType("suggestions");
+			var last = host.Bridge.LastEvent("suggestions", "changed");
 			if (last is { } push && push.GetProperty("items").EnumerateArray()
 				.Any(item => item.GetProperty("id").GetString() == "corrections.learn") == present) {
 				return;

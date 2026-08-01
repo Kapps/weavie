@@ -3,7 +3,7 @@ using System.Net.WebSockets;
 namespace Weavie.Core.Mcp;
 
 public sealed partial class McpServer {
-	private interface IMcpResponder {
+	internal interface IMcpResponder {
 		Task SendResultAsync(string? idRaw, string resultJson, CancellationToken ct);
 
 		Task SendErrorAsync(string? idRaw, int code, string messageText, CancellationToken ct);

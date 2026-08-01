@@ -1,7 +1,7 @@
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, type Page, test } from "@playwright/test";
-import { MockHost } from "./mock-host";
+import { MockHost, mockSession } from "./mock-host";
 
 const distDir = join(dirname(fileURLToPath(import.meta.url)), "..", "dist");
 
@@ -12,19 +12,7 @@ const distDir = join(dirname(fileURLToPath(import.meta.url)), "..", "dist");
 // inline-code link must post a `reveal-file` for that path. Regression cover for the fix that stopped excluding
 // inline `code` from linkify and widened the path grammar to allow `@`.
 
-const codexChip = {
-  id: "cx",
-  label: "codex",
-  active: true,
-  loaded: true,
-  primary: true,
-  providerId: "codex",
-  agentSurface: "structured",
-  agentInputProtocol: 2,
-  status: "idle",
-  hue: 150,
-  monogram: "C",
-};
+const codexSession = mockSession("cx", "codex", "codex", true);
 
 const AT_PATH = "src/web/e2e/.recordings/page@883bef3dba4a5a81116faeb690fc011f.webm";
 const TSX_PATH = "src/web/src/agent/AgentMarkdown.tsx";
@@ -51,17 +39,12 @@ const ASSISTANT_MARKDOWN = [
 ].join("\n");
 
 const assistantMessage = () => ({
-  type: "agent-pane",
-  slot: "cx",
-  workspace: "/repo",
-  message: {
-    providerId: "codex",
-    type: "item-completed",
-    itemId: "m1",
-    itemType: "agentMessage",
-    status: "completed",
-    text: ASSISTANT_MARKDOWN,
-  },
+  providerId: "codex",
+  type: "item-completed",
+  itemId: "m1",
+  itemType: "agentMessage",
+  status: "completed",
+  text: ASSISTANT_MARKDOWN,
 });
 
 test.describe("AgentMarkdown transcript links", () => {
@@ -70,9 +53,10 @@ test.describe("AgentMarkdown transcript links", () => {
   test.beforeEach(async () => {
     host = await MockHost.start({
       distDir,
+      sessions: [codexSession],
       files: { [ABS_TSX_PATH]: "export const promptFocusProbe = true;\n" },
     });
-    host.setMedia("cx", ABS_AT_PATH, Buffer.from("focus probe"));
+    host.setMedia(codexSession.address.incarnation, ABS_AT_PATH, Buffer.from("focus probe"));
   });
 
   test.afterEach(async () => {
@@ -82,11 +66,9 @@ test.describe("AgentMarkdown transcript links", () => {
   // Mounts the Codex session and pushes the assistant message after `ready` proves App is listening.
   async function mount(page: Page): Promise<void> {
     await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
-    await host.waitForMessage("ready");
+    await host.waitUntilConnected();
     const markdown = page.locator(".agent-markdown");
-    host.pushToWeb({ type: "session-list", sessions: [codexChip] });
-    host.pushToWeb({
-      type: "commands",
+    host.publishHost("commands", "catalog", {
       commands: [
         {
           id: FULLSCREEN_COMMAND,
@@ -101,15 +83,13 @@ test.describe("AgentMarkdown transcript links", () => {
       ],
       keybindings: [{ key: "alt+shift+enter", command: FULLSCREEN_COMMAND }],
     });
-    host.pushToWeb({
-      type: "set-editor-session",
-      sessionId: "cx",
+    host.publishSession(codexSession.address, "editor", "restore", {
       session: {
         active: ABS_TSX_PATH,
         open: [{ path: ABS_TSX_PATH, viewState: null, preview: true }],
       },
     });
-    host.pushToWeb(assistantMessage());
+    host.publishSession(codexSession.address, "agent", "pane", assistantMessage());
     await expect(markdown).toBeVisible();
   }
 
@@ -139,14 +119,12 @@ test.describe("AgentMarkdown transcript links", () => {
     await page.keyboard.press("Alt+Shift+Enter");
     await expect(page.locator(".fullscreen-exit")).toBeVisible();
     await page.locator(".agent-markdown code a", { hasText: TSX_PATH }).click();
-    const reveal = await host.waitForMessage("reveal-file");
-    expect(reveal.path).toBe(TSX_PATH);
-    expect(reveal.preview).toBe(true);
+    const reveal = await host.waitForSession(codexSession.address, "event", "files", "reveal");
+    expect(reveal.payload).toMatchObject({ path: TSX_PATH, preview: true });
     await expect(composer).toBeFocused();
 
     // The host reply selects a different pane, so that new surface intentionally takes focus from the prompt.
-    host.pushToWeb({
-      type: "open-file",
+    host.publishSession(codexSession.address, "editor", "openFile", {
       path: ABS_TSX_PATH,
       line: 1,
       preview: true,
@@ -168,16 +146,30 @@ test.describe("AgentMarkdown transcript links", () => {
     await page.locator(".fullscreen-exit").click();
 
     // An already-mounted media destination also regains focus when its link is opened again.
-    host.pushToWeb({ type: "open-file", path: ABS_AT_PATH, line: 1, preview: true });
+    host.publishSession(codexSession.address, "editor", "openFile", {
+      path: ABS_AT_PATH,
+      line: 1,
+      preview: true,
+    });
     const media = page.locator(".editor-media");
     await expect(media).toBeVisible();
     await composer.click();
+    const checkpoint = host.checkpoint();
     await page.locator(".agent-markdown code a", { hasText: AT_PATH }).click();
-    await expect
-      .poll(() => host.received.filter((message) => message.type === "reveal-file").at(-1)?.path)
-      .toBe(AT_PATH);
+    const mediaReveal = await host.waitForSession(
+      codexSession.address,
+      "event",
+      "files",
+      "reveal",
+      checkpoint,
+    );
+    expect(mediaReveal.payload).toMatchObject({ path: AT_PATH });
     await expect(composer).toBeFocused();
-    host.pushToWeb({ type: "open-file", path: ABS_AT_PATH, line: 1, preview: true });
+    host.publishSession(codexSession.address, "editor", "openFile", {
+      path: ABS_AT_PATH,
+      line: 1,
+      preview: true,
+    });
     await expect(media).toBeFocused();
 
     // An external URL still opens, and clicking it reselects the agent prompt because no other app pane won.

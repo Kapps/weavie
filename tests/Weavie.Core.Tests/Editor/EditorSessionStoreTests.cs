@@ -76,7 +76,6 @@ public sealed class EditorSessionStoreTests {
 		using var message = JsonDocument.Parse(store.BuildRestoreJson());
 		var session = message.RootElement.GetProperty("session");
 
-		Assert.Equal("set-editor-session", message.RootElement.GetProperty("type").GetString());
 		Assert.Equal(FilePath, session.GetProperty("active").GetString());
 		var entry = session.GetProperty("open").EnumerateArray().Single();
 		Assert.Equal(FilePath, entry.GetProperty("path").GetString());
@@ -102,18 +101,6 @@ public sealed class EditorSessionStoreTests {
 	}
 
 	[Fact]
-	public void BuildRestoreJson_StampsSessionId() {
-		var fs = new InMemoryFileSystem();
-		fs.WriteAllText("/root/file.ts", "x");
-		var session = new EditorSession { Active = "/root/file.ts", Open = [new EditorSessionEntry { Path = "/root/file.ts" }] };
-
-		using var message = JsonDocument.Parse(
-			EditorSessionStore.BuildRestoreJson(session, fs, "/root", "abc123", log: null));
-
-		Assert.Equal("abc123", message.RootElement.GetProperty("sessionId").GetString());
-	}
-
-	[Fact]
 	public void BuildRestoreJson_DropsTabOutsideWorkspaceRoot() {
 		// A tab in another session's worktree (outside this root) exists on disk so the existence check passes,
 		// but must not be restored: this session's file provider would refuse it out-of-root and open blank.
@@ -132,7 +119,7 @@ public sealed class EditorSessionStoreTests {
 		};
 
 		using var message = JsonDocument.Parse(
-			EditorSessionStore.BuildRestoreJson(session, fs, "/root", sessionId: null, log: null));
+			EditorSessionStore.BuildRestoreJson(session, fs, "/root", log: null));
 		var open = message.RootElement.GetProperty("session").GetProperty("open").EnumerateArray()
 			.Select(e => e.GetProperty("path").GetString()).ToList();
 

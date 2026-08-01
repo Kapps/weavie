@@ -1,12 +1,12 @@
 import { render } from "solid-js/web";
-import { pageId, postToHost } from "../bridge";
+import { log } from "../bridge";
 import { dismissSplash } from "../splash";
 import { Welcome } from "./Welcome";
 import "../fonts.css";
 import "./welcome.css";
 
 // Entry for welcome.html — the standalone empty-state window. The host injects recents as
-// window.__WEAVIE_WELCOME__ before navigation; the view drives back with `menu-action` messages.
+// window.__WEAVIE_WELCOME__ before navigation; the view drives back through the host window feature.
 const root = document.getElementById("root");
 if (root === null) {
   throw new Error("missing #root");
@@ -15,13 +15,8 @@ if (root === null) {
 // Forward uncaught errors to the host log — an embedded WebView has no easy devtools, so this is the only
 // place a mount failure becomes visible.
 window.addEventListener("error", (e) => {
-  postToHost({
-    type: "log",
-    level: "error",
-    message: `window.error: ${e.message} @ ${e.filename}:${e.lineno}:${e.colno}`,
-  });
+  log("error", `window.error: ${e.message} @ ${e.filename}:${e.lineno}:${e.colno}`);
 });
 
-postToHost({ type: "ready", pageId });
 render(() => <Welcome />, root);
 dismissSplash();

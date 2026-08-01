@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Text.Json;
 using Xunit;
 
 namespace Weavie.Hosting.Tests;
@@ -17,10 +16,12 @@ public sealed class DiffAgainstTests {
 		await using var host = await TestHost.StartAsync();
 		string path = Path.Combine(host.RepoRoot, "readme.txt");
 		File.WriteAllText(path, "hello\nworld\n"); // committed content is "hello\n"
+		var session = host.SelectedSession;
 
-		host.Send("""{"type":"diff-against","ref":"HEAD"}""");
+		host.SessionEvent(session, "review", "diffAgainst", new { reference = "HEAD" });
 
-		var changes = await Wait.ForAsync(() => host.Bridge.LastOfType("turn-changes"));
+		var changes = await Wait.ForAsync(() =>
+			host.Bridge.LastEvent(session.Address, "review", "changes"));
 		Assert.Equal("vs HEAD", changes.GetProperty("label").GetString());
 		var files = changes.GetProperty("files").EnumerateArray().ToList();
 		var file = Assert.Single(files);
@@ -29,36 +30,12 @@ public sealed class DiffAgainstTests {
 
 		// The per-file diff pairs the merge-base content (baseline) with the worktree file (current), reviewed
 		// through the applied engine (acceptedBaseline == baseline until a hunk is kept).
-		host.Send($$"""{"type":"get-turn-diff","path":{{JsonSerializer.Serialize(path)}}}""");
-		var diff = await Wait.ForAsync(() => host.Bridge.LastOfType("turn-diff"));
+		host.SessionEvent(session, "review", "showFile", new { path });
+		var diff = await Wait.ForAsync(() =>
+			host.Bridge.LastEvent(session.Address, "review", "diff"));
 		Assert.Equal("hello\n", diff.GetProperty("baseline").GetString());
 		Assert.Equal("hello\nworld\n", diff.GetProperty("current").GetString());
 		Assert.Equal("hello\n", diff.GetProperty("acceptedBaseline").GetString());
-	}
-
-	[Fact]
-	public async Task DiffAgainstHead_SeedsDurableReviewBeforeProjectionMount() {
-		await using var host = await TestHost.StartAsync();
-		host.AutoMountEditorProjection = false;
-		// Re-offer the current session and hold the page in its Monaco rebind window.
-		host.Send($$"""{"type":"acquire-editor","pageId":"{{TestHost.TestPageId}}"}""");
-		host.Bridge.Clear();
-		string path = Path.Combine(host.RepoRoot, "readme.txt");
-		File.WriteAllText(path, "hello\nworld\n");
-
-		host.Send("""{"type":"diff-against","ref":"HEAD"}""");
-		await Wait.ForAsync(() => host.Core.ActiveSessionForTest()!.Changes.TurnChanges().Count == 1 ? 1 : (int?)null);
-		Assert.Empty(host.Bridge.PostedOfType("turn-changes"));
-		host.Core.ActiveSessionForTest()!.EditorChannel.ShowDiff(
-			"held-diff", """{"type":"show-diff","id":"held-diff"}""");
-
-		host.MountEditorProjection();
-		var changes = await Wait.ForAsync(() => host.Bridge.LastOfType("turn-changes"));
-		Assert.Equal("vs HEAD", changes.GetProperty("label").GetString());
-		Assert.Equal(path, Assert.Single(changes.GetProperty("files").EnumerateArray()).GetProperty("path").GetString());
-		int resetIndex = host.Bridge.Posted.ToList().FindIndex(message => message.Contains("\"type\":\"turn-reset\"", StringComparison.Ordinal));
-		int showIndex = host.Bridge.Posted.ToList().FindIndex(message => message.Contains("\"type\":\"show-diff\"", StringComparison.Ordinal));
-		Assert.InRange(resetIndex, 0, showIndex - 1);
 	}
 
 	[Fact]
@@ -68,16 +45,18 @@ public sealed class DiffAgainstTests {
 		await using var host = await TestHost.StartAsync();
 		string path = Path.Combine(host.RepoRoot, "readme.txt");
 		File.WriteAllText(path, "hello\nworld\n"); // committed content is "hello\n"
+		var session = host.SelectedSession;
 
-		host.Send("""{"type":"diff-against","ref":"HEAD"}""");
-		await Wait.ForAsync(() => host.Bridge.LastOfType("turn-changes"));
+		host.SessionEvent(session, "review", "diffAgainst", new { reference = "HEAD" });
+		await Wait.ForAsync(() => host.Bridge.LastEvent(session.Address, "review", "changes"));
 		host.Bridge.Clear();
 
-		host.Send($$"""{"type":"revert-file","path":{{JsonSerializer.Serialize(path)}}}""");
+		host.SessionEvent(session, "review", "revertFile", new { path });
 
 		// The reverted file leaves the walk (its turn-changes carries no files), pushed AFTER the disk write, so
 		// observing it means the backout already landed on disk.
-		var changes = await Wait.ForAsync(() => host.Bridge.LastOfType("turn-changes"));
+		var changes = await Wait.ForAsync(() =>
+			host.Bridge.LastEvent(session.Address, "review", "changes"));
 		Assert.Empty(changes.GetProperty("files").EnumerateArray());
 		Assert.Equal("hello\n", File.ReadAllText(path)); // backed out to the ref on disk
 	}
@@ -89,10 +68,12 @@ public sealed class DiffAgainstTests {
 			Commit(repo, "second");
 		});
 		File.WriteAllText(Path.Combine(host.RepoRoot, "extra.txt"), "new\n");
+		var session = host.SelectedSession;
 
-		host.Send("""{"type":"diff-against","ref":"HEAD^"}""");
+		host.SessionEvent(session, "review", "diffAgainst", new { reference = "HEAD^" });
 
-		var changes = await Wait.ForAsync(() => host.Bridge.LastOfType("turn-changes"));
+		var changes = await Wait.ForAsync(() =>
+			host.Bridge.LastEvent(session.Address, "review", "changes"));
 		Assert.Equal("vs HEAD^", changes.GetProperty("label").GetString());
 		var names = changes.GetProperty("files").EnumerateArray()
 			.Select(f => f.GetProperty("name").GetString()).ToList();
@@ -104,11 +85,13 @@ public sealed class DiffAgainstTests {
 	public async Task DiffAgainstHead_SurfacesAnUntrackedFile_AsAllAdded() {
 		await using var host = await TestHost.StartAsync();
 		File.WriteAllText(Path.Combine(host.RepoRoot, "brand-new.txt"), "one\ntwo\n");
+		var session = host.SelectedSession;
 
-		host.Send("""{"type":"diff-against","ref":"HEAD"}""");
+		host.SessionEvent(session, "review", "diffAgainst", new { reference = "HEAD" });
 
 		// A brand-new file IS an uncommitted change — never "No changes against 'HEAD'."
-		var changes = await Wait.ForAsync(() => host.Bridge.LastOfType("turn-changes"));
+		var changes = await Wait.ForAsync(() =>
+			host.Bridge.LastEvent(session.Address, "review", "changes"));
 		var file = Assert.Single(changes.GetProperty("files").EnumerateArray());
 		Assert.Equal("brand-new.txt", file.GetProperty("name").GetString());
 		// Counted in model lines (the trailing newline is a 3rd, empty line), exactly as turn review counts a
@@ -120,8 +103,9 @@ public sealed class DiffAgainstTests {
 	public async Task GetTurnDiff_ForAnUntrackedPath_IsDropped() {
 		await using var host = await TestHost.StartAsync();
 		File.WriteAllText(Path.Combine(host.RepoRoot, "readme.txt"), "hello\nworld\n");
-		host.Send("""{"type":"diff-against","ref":"HEAD"}""");
-		await Wait.ForAsync(() => host.Bridge.LastOfType("turn-changes"));
+		var session = host.SelectedSession;
+		host.SessionEvent(session, "review", "diffAgainst", new { reference = "HEAD" });
+		await Wait.ForAsync(() => host.Bridge.LastEvent(session.Address, "review", "changes"));
 
 		// The seeded tracker only knows the review's files, so a diff request for a path it never seeded (a
 		// switch-race leftover, or a foreign file) resolves nothing and is dropped, never rendered.
@@ -129,10 +113,10 @@ public sealed class DiffAgainstTests {
 		File.WriteAllText(foreign, "elsewhere\n");
 		try {
 			host.Bridge.Clear();
-			host.Send($$"""{"type":"get-turn-diff","path":{{JsonSerializer.Serialize(foreign)}}}""");
+			host.SessionEvent(session, "review", "showFile", new { path = foreign });
 
 			await Task.Delay(300);
-			Assert.Null(host.Bridge.LastOfType("turn-diff"));
+			Assert.Null(host.Bridge.LastEvent(session.Address, "review", "diff"));
 		} finally {
 			File.Delete(foreign);
 		}
@@ -142,13 +126,15 @@ public sealed class DiffAgainstTests {
 	public async Task DiffAgainst_UnknownRef_ToastsAndArmsNothing() {
 		await using var host = await TestHost.StartAsync();
 		host.Bridge.Clear();
+		var session = host.SelectedSession;
 
-		host.Send("""{"type":"diff-against","ref":"no-such-ref"}""");
+		host.SessionEvent(session, "review", "diffAgainst", new { reference = "no-such-ref" });
 
-		var toast = await Wait.ForAsync(() => host.Bridge.LastOfType("notify"));
+		var toast = await Wait.ForAsync(() =>
+			host.Bridge.LastEvent(session.Address, "notifications", "show"));
 		Assert.Equal("warn", toast.GetProperty("level").GetString());
 		Assert.Contains("no-such-ref", toast.GetProperty("message").GetString());
-		Assert.Null(host.Bridge.LastOfType("turn-changes"));
+		Assert.Null(host.Bridge.LastEvent(session.Address, "review", "changes"));
 	}
 
 	[Fact]
@@ -156,19 +142,22 @@ public sealed class DiffAgainstTests {
 		await using var host = await TestHost.StartAsync();
 		string path = Path.Combine(host.RepoRoot, "readme.txt");
 		File.WriteAllText(path, "hello\nworld\n");
-		host.Send("""{"type":"diff-against","ref":"HEAD"}""");
-		await Wait.ForAsync(() => host.Bridge.LastOfType("turn-changes"));
+		var session = host.SelectedSession;
+		host.SessionEvent(session, "review", "diffAgainst", new { reference = "HEAD" });
+		await Wait.ForAsync(() => host.Bridge.LastEvent(session.Address, "review", "changes"));
 
 		File.WriteAllText(path, "hello\n"); // back to the committed content — nothing differs now
 		host.Bridge.Clear();
-		host.Send("""{"type":"diff-against","ref":"HEAD"}""");
+		host.SessionEvent(session, "review", "diffAgainst", new { reference = "HEAD" });
 
-		var toast = await Wait.ForAsync(() => host.Bridge.LastOfType("notify"));
+		var toast = await Wait.ForAsync(() =>
+			host.Bridge.LastEvent(session.Address, "notifications", "show"));
 		Assert.Equal("info", toast.GetProperty("level").GetString());
 		Assert.Contains("No changes against 'HEAD'", toast.GetProperty("message").GetString());
 		// The prior review is retracted: the tracker's board is committed and an empty review set is pushed, so
 		// the stale walk clears in the page.
-		var changes = await Wait.ForAsync(() => host.Bridge.LastOfType("turn-changes"));
+		var changes = await Wait.ForAsync(() =>
+			host.Bridge.LastEvent(session.Address, "review", "changes"));
 		Assert.Empty(changes.GetProperty("files").EnumerateArray());
 	}
 
@@ -183,10 +172,12 @@ public sealed class DiffAgainstTests {
 			Git(repo, "checkout", "-q", "main");
 		});
 		host.Bridge.Clear();
+		var session = host.SelectedSession;
 
-		host.Send("""{"type":"diff-against","ref":"topic"}""");
+		host.SessionEvent(session, "review", "diffAgainst", new { reference = "topic" });
 
-		var toast = await Wait.ForAsync(() => host.Bridge.LastOfType("notify"));
+		var toast = await Wait.ForAsync(() =>
+			host.Bridge.LastEvent(session.Address, "notifications", "show"));
 		Assert.Contains("No changes against 'topic'", toast.GetProperty("message").GetString());
 	}
 

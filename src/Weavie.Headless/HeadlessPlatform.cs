@@ -10,7 +10,7 @@ namespace Weavie.Headless;
 /// thread, per-OS PTY backend, no native window / hotkey / dialog.
 /// </summary>
 internal sealed class HeadlessPlatform : IHostPlatform {
-	public HeadlessPlatform(IHostBridge bridge, IUiDispatcher dispatcher, HostTransport transport) {
+	public HeadlessPlatform(IWebTransportHub bridge, IUiDispatcher dispatcher, HostTransport transport) {
 		ArgumentNullException.ThrowIfNull(bridge);
 		ArgumentNullException.ThrowIfNull(dispatcher);
 		Bridge = bridge;
@@ -19,7 +19,7 @@ internal sealed class HeadlessPlatform : IHostPlatform {
 		PtyLauncher = OperatingSystem.IsWindows() ? new WindowsPtyLauncher() : new PosixPtyLauncher();
 	}
 
-	public IHostBridge Bridge { get; }
+	public IWebTransportHub Bridge { get; }
 
 	public IUiDispatcher Dispatcher { get; }
 

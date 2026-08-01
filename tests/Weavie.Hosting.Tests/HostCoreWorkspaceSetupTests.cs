@@ -18,10 +18,11 @@ public sealed class HostCoreWorkspaceSetupTests {
 		// The manifest probe is async; wait for the suggestions push that offers workspace.setup.
 		await WaitForSuggestionAsync(host, "workspace.setup");
 
-		host.Core.ActiveSessionForTest()!.Claude!.EnsureStarted();
+		host.SelectedSession.Claude!.EnsureStarted();
 		var claude = Assert.Single(host.Platform.NoopLauncher.Created);
 
-		host.Send("{\"type\":\"invoke-command\",\"id\":\"weavie.workspace.setup\"}");
+		var result = await host.InvokeClientCommandAsync("weavie.workspace.setup", new { });
+		Assert.True(result.Ok, result.Error);
 
 		string written = claude.WrittenText;
 		Assert.StartsWith("\x1b[200~", written); // bracketed paste: treated as one paste, not typed line-by-line
@@ -32,7 +33,7 @@ public sealed class HostCoreWorkspaceSetupTests {
 
 	private static async Task WaitForSuggestionAsync(TestHost host, string id) {
 		for (int attempt = 0; attempt < 50; attempt++) {
-			var last = host.Bridge.LastOfType("suggestions");
+			var last = host.Bridge.LastEvent("suggestions", "changed");
 			if (last is { } push && push.GetProperty("items").EnumerateArray()
 				.Any(item => item.GetProperty("id").GetString() == id)) {
 				return;

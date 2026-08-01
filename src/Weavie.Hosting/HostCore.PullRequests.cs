@@ -1,278 +1,263 @@
-using System.Text.Json;
+using Weavie.Core.Commands;
 using Weavie.Core.Git;
 using Weavie.Core.Review;
 using Weavie.Core.Sessions;
 
 namespace Weavie.Hosting;
 
-// The Open-PR flow: list a repo's open pull requests for the picker, and open one as a session checked out on
-// its head branch. PR data comes from IPullRequestProvider (GitHub by default); the branch checkout reuses the
-// existing attach-existing-worktree path, and the diff rides the shared review-diff surface
-// (HostCore.DiffReviews.cs). The overview tab is a later phase (see docs/specs/open-pr.md).
 public sealed partial class HostCore {
-	/// <summary>
-	/// Answers the Open-PR picker: resolves the workspace's <c>origin</c> to a repo, lists its open PRs, and
-	/// replies <c>prs-result</c> tagged by <paramref name="id"/>. A non-GitHub remote, a missing credential, or
-	/// an API failure toasts and replies an empty list (so the picker never hangs).
-	/// </summary>
-	private async Task ListPullRequestsForWebAsync(string id, string query) {
-		IReadOnlyList<PullRequestSummary> prs = [];
-		if (await ResolveOriginRepoAsync(CancellationToken.None).ConfigureAwait(false) is { } repo) {
-			try {
-				// Empty query → the recent-open default list; a typed query → forge-side search (scales past the
-				// default without fetching everything).
-				prs = string.IsNullOrWhiteSpace(query)
-					? await _pullRequests.ListOpenAsync(repo, CancellationToken.None).ConfigureAwait(false)
-					: await _pullRequests.SearchAsync(repo, query, CancellationToken.None).ConfigureAwait(false);
-			} catch (Exception ex) when (ex is InvalidOperationException or HttpRequestException or TaskCanceledException) {
-				Notify("warn", $"Couldn't list pull requests: {ex.Message}");
-			}
-		} else {
-			Notify("warn", "This workspace's 'origin' isn't a recognized GitHub repository.");
+	private async Task<PullRequestWire[]> ListPullRequestsAsync(
+		string query,
+		CancellationToken ct) {
+		if (await ResolveOriginRepoAsync(ct).ConfigureAwait(false) is not { } repo) {
+			throw new InvalidOperationException(
+				"This workspace's 'origin' isn't a recognized GitHub repository.");
 		}
 
-		_bridge.PostToWeb(JsonSerializer.Serialize(new {
-			type = "prs-result",
-			id,
-			prs = prs.Select(p => new {
-				number = p.Number,
-				title = p.Title,
-				author = p.Author,
-				headRef = p.HeadRef,
-				url = p.Url,
-				draft = p.IsDraft,
-			}),
-		}));
+		var pullRequests = string.IsNullOrWhiteSpace(query)
+			? await _pullRequests.ListOpenAsync(repo, ct).ConfigureAwait(false)
+			: await _pullRequests.SearchAsync(repo, query, ct).ConfigureAwait(false);
+		return [.. pullRequests.Select(ToWire)];
 	}
 
-	/// <summary>
-	/// Resolves a typed <c>#N</c> / pasted URL to its PR for the picker's live preview, replying <c>pr-resolved</c>
-	/// (tagged by <paramref name="id"/>) with the PR or <c>null</c> (not found, a foreign repo, or no credential).
-	/// </summary>
-	private async Task GetPullRequestForWebAsync(string id, int number, string owner, string repoName) {
-		object? payload = null;
-		if (number > 0 && await ResolveOriginRepoAsync(CancellationToken.None).ConfigureAwait(false) is { } repo) {
-			bool foreign = !string.IsNullOrEmpty(owner) && !string.IsNullOrEmpty(repoName)
-				&& !(owner.Equals(repo.Owner, StringComparison.OrdinalIgnoreCase) && repoName.Equals(repo.Name, StringComparison.OrdinalIgnoreCase));
-			if (!foreign) {
-				try {
-					if (await _pullRequests.GetAsync(repo, number, CancellationToken.None).ConfigureAwait(false) is { } pr) {
-						payload = new { number = pr.Number, title = pr.Title, author = pr.Author, headRef = pr.HeadRef, url = pr.Url, draft = pr.IsDraft };
-					}
-				} catch (Exception ex) when (ex is InvalidOperationException or HttpRequestException or TaskCanceledException) {
-					// Leave null — the preview just shows "not found"; opening surfaces the real error.
-				}
-			}
+	private async Task<PullRequestWire?> GetPullRequestAsync(
+		PullRequestReference request,
+		CancellationToken ct) {
+		if (request.Number <= 0
+			|| await ResolveOriginRepoAsync(ct).ConfigureAwait(false) is not { } repo
+			|| IsForeign(request.Owner, request.Repo, repo)) {
+			return null;
 		}
 
-		_bridge.PostToWeb(JsonSerializer.Serialize(new { type = "pr-resolved", id, pr = payload }));
+		return await _pullRequests.GetAsync(repo, request.Number, ct).ConfigureAwait(false) is { } pullRequest
+			? ToWire(pullRequest)
+			: null;
 	}
 
-	/// <summary>
-	/// Opens a PR as a session: fetches its head branch from <c>origin</c>, then checks it out into a worktree
-	/// session (reusing the attach-existing path, which de-dupes to a live session if one already exists), seeding
-	/// Claude's first message with the PR's context. Any failure surfaces as a toast.
-	/// </summary>
-	private async Task OpenPullRequestFromWebAsync(int number, string owner, string repoName) {
-		if (number <= 0) {
-			return;
+	private async Task<CommandResult> OpenPullRequestAsync(
+		HostSession source,
+		PullRequestReference request,
+		CancellationToken ct) {
+		if (request.Number <= 0) {
+			return CommandResult.Failure("A pull request number is required.");
 		}
 
-		// Keys the web's "Opening PR #N…" spinner toast; every exit below — an enumerated failure, an unexpected
-		// throw, or success (ArmPrReviewAsync clears it) — replaces or clears it, so the spinner never orphans.
-		string key = $"open-pr:{number}";
-		try {
-			await OpenPullRequestCoreAsync(number, owner, repoName, key).ConfigureAwait(false);
-		} catch (Exception ex) {
-			Notify("warn", $"Couldn't open PR #{number}: {ex.Message}", key);
-		}
-	}
-
-	private async Task OpenPullRequestCoreAsync(int number, string owner, string repoName, string key) {
-		var repo = await ResolveOriginRepoAsync(CancellationToken.None).ConfigureAwait(false);
+		var repo = await ResolveOriginRepoAsync(ct).ConfigureAwait(false);
 		if (repo is null) {
-			Notify("warn", "This workspace's 'origin' isn't a recognized GitHub repository.", key);
-			return;
+			return CommandResult.Failure(
+				"This workspace's 'origin' isn't a recognized GitHub repository.");
 		}
 
-		// A pasted URL carries its own owner/repo; refuse one that isn't this workspace's origin (its branch
-		// wouldn't be fetchable here). A typed #N / a picked result sends no owner/repo and targets origin.
-		if (!string.IsNullOrEmpty(owner) && !string.IsNullOrEmpty(repoName)
-			&& !(owner.Equals(repo.Owner, StringComparison.OrdinalIgnoreCase) && repoName.Equals(repo.Name, StringComparison.OrdinalIgnoreCase))) {
-			Notify("warn", $"PR #{number} is in {owner}/{repoName}, not this workspace's repository ({repo.Owner}/{repo.Name}).", key);
-			return;
+		if (IsForeign(request.Owner, request.Repo, repo)) {
+			return CommandResult.Failure(
+				$"PR #{request.Number} is in {request.Owner}/{request.Repo}, not "
+				+ $"{repo.Owner}/{repo.Name}.");
 		}
 
-		PullRequestSummary? pr;
+		PullRequestSummary? pullRequest;
 		try {
-			pr = await _pullRequests.GetAsync(repo, number, CancellationToken.None).ConfigureAwait(false);
-		} catch (Exception ex) when (ex is InvalidOperationException or HttpRequestException or TaskCanceledException) {
-			Notify("warn", $"Couldn't open PR #{number}: {ex.Message}", key);
-			return;
+			pullRequest = await _pullRequests
+				.GetAsync(repo, request.Number, ct)
+				.ConfigureAwait(false);
+		} catch (Exception ex) when (ex is InvalidOperationException or HttpRequestException) {
+			return CommandResult.Failure($"Couldn't open PR #{request.Number}: {ex.Message}");
 		}
 
-		if (pr is null || string.IsNullOrWhiteSpace(pr.HeadRef)) {
-			Notify("warn", $"PR #{number} wasn't found in {repo.Owner}/{repo.Name}.", key);
-			return;
+		if (pullRequest is null || string.IsNullOrWhiteSpace(pullRequest.HeadRef)) {
+			return CommandResult.Failure(
+				$"PR #{request.Number} wasn't found in {repo.Owner}/{repo.Name}.");
 		}
 
-		string headRef = pr.HeadRef;
-		string baseRef = pr.BaseRef;
-		string title = pr.Title;
-		string url = pr.Url;
+		string headRef = pullRequest.HeadRef;
 		if (!GitService.IsValidBranchName(headRef)) {
-			Notify("warn", $"PR #{number} has an unexpected branch name ('{headRef}').", key);
-			return;
+			return CommandResult.Failure(
+				$"PR #{request.Number} has an unexpected branch name ('{headRef}').");
 		}
 
 		try {
 			var git = new GitService();
-			// A bare `git fetch origin <ref>` leaves only FETCH_HEAD + origin/<ref>, not a local branch — and the
-			// worktree checkout needs `refs/heads/<ref>`. So fetch the PR head into a *local* branch (the `<ref>:<ref>`
-			// refspec, both sides built from the validated name). Skip it when the branch already exists locally, so
-			// reopening a PR never clobbers local commits on it.
-			if (!await git.BranchExistsAsync(WorkspaceRoot, headRef, CancellationToken.None).ConfigureAwait(false)) {
-				await git.FetchAsync(WorkspaceRoot, "origin", $"{headRef}:{headRef}", CancellationToken.None).ConfigureAwait(false);
+			if (!await git.BranchExistsAsync(WorkspaceRoot, headRef, ct).ConfigureAwait(false)) {
+				await git.FetchAsync(
+					WorkspaceRoot,
+					"origin",
+					$"{headRef}:{headRef}",
+					ct).ConfigureAwait(false);
 			}
 		} catch (GitException ex) {
-			Notify("warn", $"Couldn't fetch PR #{number} ('{headRef}'): {ex.Message}", key);
-			return;
+			return CommandResult.Failure(
+				$"Couldn't fetch PR #{request.Number} ('{headRef}'): {ex.Message}");
 		}
 
-		var result = await NewSessionAsync(
+		var created = await NewSessionAsync(
+			source,
 			new NewSessionRequest {
 				Branch = headRef,
 				AttachExisting = true,
-				Prompt = _settings.GetBool("pr.autoReviewPrompt", fallback: true) ? SeedPrompt(number, title, url) : null,
+				Prompt = _settings.GetBool("pr.autoReviewPrompt", fallback: true)
+					? SeedPrompt(request.Number, pullRequest.Title, pullRequest.Url)
+					: null,
 			},
-			CancellationToken.None).ConfigureAwait(false);
-		if (!result.Ok) {
-			Notify("warn", result.Error ?? $"Couldn't open PR #{number}.", key);
-			return;
+			ct).ConfigureAwait(false);
+		if (!created.Ok) {
+			return created;
 		}
 
-		await ArmPrReviewAsync(number, headRef, baseRef, key).ConfigureAwait(false);
+		if (_sessions?.Find(headRef)?.Session is not { } target) {
+			return CommandResult.Failure(
+				$"Opened PR #{request.Number}, but its session failed to load.");
+		}
+
+		string? reviewError = await ArmPrReviewAsync(
+			target,
+			request.Number,
+			headRef,
+			pullRequest.BaseRef,
+			ct).ConfigureAwait(false);
+		return reviewError is null
+			? created
+			: CommandResult.Failure(reviewError, created.DataJson);
 	}
 
-	/// <summary>
-	/// Arms PR review on the just-opened session: fetches the base, computes the merge-base, records the review,
-	/// and pushes the changed-file list so the diff navigator surfaces. A diff failure toasts and leaves the
-	/// session usable (the checkout still succeeded).
-	/// </summary>
-	private async Task ArmPrReviewAsync(int number, string headRef, string baseRef, string key) {
-		// The just-opened PR is the active session (attach switched to it).
-		if (_session is not { } session) {
-			ClearNotify(key);
-			return;
-		}
-
+	private async Task<string?> ArmPrReviewAsync(
+		HostSession session,
+		int number,
+		string headRef,
+		string baseRef,
+		CancellationToken ct) {
 		string worktree = session.WorkspaceRoot;
 		var git = new GitService();
 		string? mergeBase = null;
 		try {
 			if (GitService.IsValidBranchName(baseRef)) {
-				await git.FetchAsync(WorkspaceRoot, "origin", baseRef, CancellationToken.None).ConfigureAwait(false);
-				mergeBase = await git.MergeBaseAsync(worktree, $"origin/{baseRef}", headRef, CancellationToken.None).ConfigureAwait(false)
-					?? await git.MergeBaseAsync(worktree, baseRef, headRef, CancellationToken.None).ConfigureAwait(false);
+				await git.FetchAsync(WorkspaceRoot, "origin", baseRef, ct).ConfigureAwait(false);
+				mergeBase = await git
+					.MergeBaseAsync(worktree, $"origin/{baseRef}", headRef, ct)
+					.ConfigureAwait(false)
+					?? await git.MergeBaseAsync(worktree, baseRef, headRef, ct).ConfigureAwait(false);
 			}
 		} catch (GitException ex) {
 			Log($"[weavie] pr #{number}: couldn't resolve base '{baseRef}': {ex.Message}");
 		}
 
 		if (mergeBase is null) {
-			Notify("warn", $"Opened PR #{number}, but couldn't compute its diff against '{baseRef}'.", key);
-			return;
+			return $"Opened PR #{number}, but couldn't compute its diff against '{baseRef}'.";
 		}
 
 		string headSha;
 		try {
-			headSha = await git.GetHeadCommitAsync(worktree, CancellationToken.None).ConfigureAwait(false);
+			headSha = await git.GetHeadCommitAsync(worktree, ct).ConfigureAwait(false);
 		} catch (GitException) {
 			headSha = headRef;
 		}
 
-		var repo = await ResolveOriginRepoAsync(CancellationToken.None).ConfigureAwait(false);
+		var repo = await ResolveOriginRepoAsync(ct).ConfigureAwait(false);
 		var review = new DiffReview(number, $"PR #{number}", headRef, mergeBase, headSha, repo, worktree);
-		await RefreshCommentsAsync(review).ConfigureAwait(false);
-		IReadOnlyList<DiffFileChange> changes;
+		await RefreshCommentsAsync(review, ct).ConfigureAwait(false);
 		try {
-			changes = await ComputeReviewChangesAsync(review).ConfigureAwait(false);
+			await SeedAndArmReviewAsync(
+				review,
+				session,
+				await ComputeReviewChangesAsync(review, ct).ConfigureAwait(false),
+				ct)
+				.ConfigureAwait(false);
+			return null;
 		} catch (GitException ex) {
-			Notify("warn", $"Opened PR #{number}, but couldn't compute its diff: {ex.Message}", key);
-			return;
+			return $"Opened PR #{number}, but couldn't compute its diff: {ex.Message}";
 		}
-
-		// Seed the change tracker so the PR reviews through the same accept/reject engine as a turn (opens + renders
-		// the first changed file; keep/revert + later Claude edits accumulate into the one set).
-		await SeedAndArmReviewAsync(review, session, changes).ConfigureAwait(false);
-		// The diff is now on screen — clear the "Opening PR…" spinner (the render itself is the success feedback).
-		ClearNotify(key);
 	}
 
-	/// <summary>Re-loads a PR's review comments into the review (best-effort; a forge error leaves the prior set).</summary>
-	private async Task RefreshCommentsAsync(DiffReview review) {
+	private async Task<CommandResult> AddPrCommentAsync(
+		HostSession session,
+		ReviewCommentRequest request,
+		CancellationToken ct) {
+		if (string.IsNullOrWhiteSpace(request.Body)
+			|| ActiveReview(session) is not { } review
+			|| review.PrNumber != request.Number
+			|| review.Repo is not { } repo) {
+			return CommandResult.Failure("That pull-request review is not active in this session.");
+		}
+
+		try {
+			if (request.InReplyTo > 0) {
+				await _reviewComments
+					.ReplyAsync(repo, request.Number, request.InReplyTo, request.Body, ct)
+					.ConfigureAwait(false);
+			} else {
+				string relative = Path
+					.GetRelativePath(review.Worktree, request.Path)
+					.Replace('\\', '/');
+				string side = request.Side.Equals("left", StringComparison.OrdinalIgnoreCase)
+					? "left"
+					: "right";
+				await _reviewComments.AddAsync(
+					repo,
+					request.Number,
+					review.HeadSha,
+					new NewReviewComment {
+						Path = relative,
+						Line = request.Line,
+						Side = side,
+						Body = request.Body,
+					},
+					ct).ConfigureAwait(false);
+			}
+		} catch (Exception ex) when (ex is InvalidOperationException or HttpRequestException) {
+			return CommandResult.Failure($"Couldn't post the comment: {ex.Message}");
+		}
+
+		await RefreshCommentsAsync(review, ct).ConfigureAwait(false);
+		if (ReferenceEquals(ActiveReview(session), review)) {
+			PushReviewCommentsToWeb(session, review, request.Path);
+			PushTurnDiffToWeb(session, request.Path);
+		}
+
+		return CommandResult.Success();
+	}
+
+	private async Task RefreshCommentsAsync(DiffReview review, CancellationToken ct) {
 		if (review.Repo is not { } repo) {
 			return;
 		}
 
 		try {
-			var comments = await _reviewComments.ListAsync(repo, review.PrNumber, CancellationToken.None).ConfigureAwait(false);
+			var comments = await _reviewComments
+				.ListAsync(repo, review.PrNumber, ct)
+				.ConfigureAwait(false);
 			review.Comments.Clear();
 			review.Comments.AddRange(comments);
-		} catch (Exception ex) when (ex is InvalidOperationException or HttpRequestException or TaskCanceledException) {
+		} catch (Exception ex) when (ex is InvalidOperationException or HttpRequestException) {
 			Log($"[weavie] pr #{review.PrNumber}: couldn't load comments: {ex.Message}");
 		}
 	}
 
-	/// <summary>
-	/// Posts a review comment (or a reply) on the active PR, then re-loads the thread and re-renders the file's
-	/// diff so the new comment appears. A non-reply needs the file path + line + side; a reply needs the parent
-	/// <paramref name="inReplyTo"/>. Failure toasts and keeps the draft (the web doesn't clear it until success).
-	/// </summary>
-	private async Task AddPrCommentFromWebAsync(int number, string absolutePath, int line, string side, long inReplyTo, string body) {
-		if (string.IsNullOrWhiteSpace(body) || ActiveReview() is not { } review || review.PrNumber != number || review.Repo is not { } repo) {
-			return;
-		}
-
-		try {
-			if (inReplyTo > 0) {
-				await _reviewComments.ReplyAsync(repo, number, inReplyTo, body, CancellationToken.None).ConfigureAwait(false);
-			} else {
-				string relative = Path.GetRelativePath(review.Worktree, absolutePath).Replace('\\', '/');
-				string resolvedSide = side.Equals("left", StringComparison.OrdinalIgnoreCase) ? "left" : "right";
-				await _reviewComments.AddAsync(
-					repo, number, review.HeadSha,
-					new NewReviewComment { Path = relative, Line = line, Side = resolvedSide, Body = body }, CancellationToken.None).ConfigureAwait(false);
-			}
-		} catch (Exception ex) when (ex is InvalidOperationException or HttpRequestException or TaskCanceledException) {
-			Notify("warn", $"Couldn't post the comment: {ex.Message}");
-			return;
-		}
-
-		await RefreshCommentsAsync(review).ConfigureAwait(false);
-		// Re-render the file's diff so the just-posted thread appears. Post-await, so hop to the UI thread and
-		// guard: a switch could have moved off this review while the forge round-tripped.
-		_ui.Post(() => {
-			if (!ReferenceEquals(ActiveReview(), review)) {
-				return;
-			}
-
-			PushReviewCommentsToWeb(review, absolutePath);
-			PushTurnDiffToWeb(absolutePath);
-		});
-	}
-
-	/// <summary>Resolves the workspace's <c>origin</c> remote URL to a <see cref="RepoRef"/>, or <c>null</c> when it isn't a forge repo.</summary>
-	private Task<RepoRef?> ResolveOriginRepoAsync(CancellationToken ct) => ResolveRemoteRepoAsync("origin", ct);
+	private Task<RepoRef?> ResolveOriginRepoAsync(CancellationToken ct) =>
+		ResolveRemoteRepoAsync("origin", ct);
 
 	private async Task<RepoRef?> ResolveRemoteRepoAsync(string remote, CancellationToken ct) {
 		try {
-			string? url = await new GitService().GetRemoteUrlAsync(WorkspaceRoot, remote, ct).ConfigureAwait(false);
+			string? url = await new GitService()
+				.GetRemoteUrlAsync(WorkspaceRoot, remote, ct)
+				.ConfigureAwait(false);
 			return RepoRef.FromRemoteUrl(url);
 		} catch (GitException) {
 			return null;
 		}
 	}
+
+	private static bool IsForeign(string owner, string name, RepoRef repo) =>
+		!string.IsNullOrEmpty(owner)
+		&& !string.IsNullOrEmpty(name)
+		&& !(owner.Equals(repo.Owner, StringComparison.OrdinalIgnoreCase)
+			&& name.Equals(repo.Name, StringComparison.OrdinalIgnoreCase));
+
+	private static PullRequestWire ToWire(PullRequestSummary pullRequest) =>
+		new(
+			pullRequest.Number,
+			pullRequest.Title,
+			pullRequest.Author,
+			pullRequest.HeadRef,
+			pullRequest.Url,
+			pullRequest.IsDraft);
 
 	private static string SeedPrompt(int number, string title, string url) {
 		string header = string.IsNullOrWhiteSpace(title) ? $"PR #{number}" : $"PR #{number}: {title}";
@@ -282,4 +267,22 @@ public sealed partial class HostCore {
 			+ "what's good, what's risky, what could be improved. Do NOT edit, create, or delete any files, and do "
 			+ "NOT run any commands that modify the branch, unless I explicitly ask you to make a change.";
 	}
+
+	private sealed record PullRequestReference(int Number, string Owner, string Repo);
+
+	private sealed record PullRequestWire(
+		int Number,
+		string Title,
+		string Author,
+		string HeadRef,
+		string Url,
+		bool Draft);
+
+	private sealed record ReviewCommentRequest(
+		int Number,
+		string Path,
+		int Line,
+		string Side,
+		long InReplyTo,
+		string Body);
 }

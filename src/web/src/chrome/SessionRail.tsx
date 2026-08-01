@@ -75,6 +75,7 @@ export function SessionRail(props: {
               }${session.isLocal ? "" : " remote"}${session.pending ? " pending" : ""}${
                 session.offline ? " offline" : ""
               }`}
+              data-session-slot={session.id}
               title={chipTitle(session, index())}
               ref={(el) => {
                 el.style.setProperty("--chip-hue", String(session.hue));

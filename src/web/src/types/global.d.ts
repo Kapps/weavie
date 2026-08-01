@@ -49,7 +49,7 @@ interface Window {
   __WEAVIE_SHELL__?: WeavieShellConfig;
   /** Recents injected by the host for the standalone welcome window (welcome.html). */
   __WEAVIE_WELCOME__?: WeavieWelcomeConfig;
-  /** Live xterm terminals keyed by "slot:pane", published by TerminalView for e2e / diagnostics (read-only). */
+  /** Live xterms keyed by backend + exact session incarnation + pane for e2e diagnostics. */
   __WEAVIE_TERMINALS__?: Record<string, import("@xterm/xterm").Terminal>;
   /** The live Monaco editor, published by createEditor for e2e / diagnostics (read-only). */
   __WEAVIE_EDITOR__?: import("monaco-editor").editor.IStandaloneCodeEditor;
@@ -61,5 +61,4 @@ interface Window {
    * set (a leaked cross-PR mix vs the correct set) is visible without walking the navigator. See fixtures.ts.
    */
   __WEAVIE_REVIEW__?: { files: string[]; label: string; rev: number };
-  // The LSP bridge config (window.__WEAVIE_LSP__) is augmented onto Window in lsp/lsp-client.ts.
 }

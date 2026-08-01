@@ -7,7 +7,7 @@ public sealed record NewSessionRequest {
 	/// <summary>The branch (and worktree) name to create; <c>null</c> ⇒ the host prompts or auto-names.</summary>
 	public string? Branch { get; init; }
 
-	/// <summary>The base to branch from: <c>"current"</c> (the active session's HEAD), <c>"main"</c>, or a ref; <c>null</c> ⇒ host default. Ignored when <see cref="AttachExisting"/> is set.</summary>
+	/// <summary>The base to branch from: <c>"source"</c> (the invoking session's HEAD) or <c>"main"</c>; <c>null</c> means source. Ignored when <see cref="AttachExisting"/> is set.</summary>
 	public string? Base { get; init; }
 
 	/// <summary>An optional first prompt to seed into the new session's agent.</summary>
@@ -23,7 +23,7 @@ public sealed record NewSessionRequest {
 	public bool AttachExisting { get; init; }
 }
 
-/// <summary>Arguments for forking the current session into a new worktree off its HEAD.</summary>
+/// <summary>Arguments for forking the invoking session into a new worktree off its HEAD.</summary>
 public sealed record ForkSessionRequest {
 	/// <summary>The new branch (and worktree) name; <c>null</c> ⇒ the host derives one.</summary>
 	public string? Branch { get; init; }
@@ -40,21 +40,28 @@ public interface ISessionHost {
 	/// <summary>Creates a new session on its own worktree + branch, optionally seeding a first prompt.</summary>
 	Task<CommandResult> NewSessionAsync(NewSessionRequest request, CancellationToken ct = default);
 
-	/// <summary>Forks the current session into a new worktree off its HEAD, carrying a handoff brief.</summary>
+	/// <summary>Forks the invoking session into a new worktree off its HEAD, carrying a handoff brief.</summary>
 	Task<CommandResult> ForkSessionAsync(ForkSessionRequest request, CancellationToken ct = default);
 
 	/// <summary>Loads a dormant session's backend (by <paramref name="sessionId"/>) in the background, without switching to it.</summary>
 	Task<CommandResult> LoadSessionAsync(string? sessionId, CancellationToken ct = default);
 
-	/// <summary>Unloads a session (the active one, or the given <paramref name="sessionId"/>) into a dormant chip, keeping its worktree on disk.</summary>
-	Task<CommandResult> UnloadSessionAsync(string? sessionId, CancellationToken ct = default);
+	/// <summary>Unloads the invoking session, or the given <paramref name="sessionId"/>, into a dormant chip while keeping its worktree.</summary>
+	Task<CommandResult> UnloadSessionAsync(
+		string? sessionId,
+		CommandInvocationContext context,
+		CancellationToken ct = default);
 
 	/// <summary>
 	/// Deletes the session named by the required <paramref name="sessionId"/>: removes its git worktree but keeps
 	/// the branch. Refuses when the worktree has uncommitted changes unless <paramref name="force"/>. A blank id is
 	/// rejected — it must never fall back to the focused session, which may not be the caller's own (issue #217).
 	/// </summary>
-	Task<CommandResult> DeleteSessionAsync(string? sessionId, bool force, CancellationToken ct = default);
+	Task<CommandResult> DeleteSessionAsync(
+		string? sessionId,
+		bool force,
+		CommandInvocationContext context,
+		CancellationToken ct = default);
 
 	/// <summary>
 	/// Classifies a session's worktree for the delete confirm without deleting anything: the result's

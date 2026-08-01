@@ -11,4 +11,8 @@
     <PackageReference Include="Tomlyn" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Weavie.Core.Tests" />
+  </ItemGroup>
+
 </Project>

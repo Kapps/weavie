@@ -15,23 +15,26 @@ public sealed class HostCoreSourcesTests {
 	private static string Msg(object value) => JsonSerializer.Serialize(value);
 
 	[Fact]
-	public async Task OpenTarget_NonSourceUrl_RepliesOpenWeb() {
+	public async Task OpenTarget_NonSourceUrl_OpensADurableWebOverlay() {
 		await using var host = await TestHost.StartAsync();
 
-		host.Send(Msg(new { type = "open-target", url = "https://example.com/page" }));
+		Open(host, "https://example.com/page");
 
-		var web = await Wait.ForAsync(() => host.Bridge.LastOfType("open-web"));
-		Assert.Equal("https://example.com/page", web.GetProperty("url").GetString());
-		Assert.Null(host.Bridge.LastOfType("source-doc")); // not a source — never fetched
+		var web = await Wait.ForAsync(() =>
+			host.Bridge.LastEvent(host.SelectedSession.Address, "editor", "openOverlay"));
+		Assert.Equal("https://example.com/page", web.GetProperty("path").GetString());
+		Assert.Equal("web", web.GetProperty("kind").GetString());
+		Assert.Null(SourceEvent(host, "document"));
 	}
 
 	[Fact]
 	public async Task ConnectNotion_OpensTheTokenPageAndPromptsForTheToken() {
 		await using var host = await TestHost.StartAsync();
 
-		host.Send(Msg(new { type = "connect-notion" }));
+		var result = await host.InvokeClientCommandAsync("weavie.source.connectNotion", new { });
+		Assert.True(result.Ok, result.Error);
 
-		var prompt = await Wait.ForAsync(() => host.Bridge.LastOfType("prompt-source-token"));
+		var prompt = await Wait.ForAsync(() => SourceEvent(host, "promptToken"));
 		Assert.Equal("notion", prompt.GetProperty("sourceId").GetString());
 		Assert.Equal("https://app.notion.com/developers/tokens", host.Platform.LastOpenedUrl);
 	}
@@ -41,12 +44,10 @@ public sealed class HostCoreSourcesTests {
 		await using var host = await TestHost.StartAsync();
 		host.SourceHttp.Responder = _ => (HttpStatusCode.OK, """{ "bot": { "workspace_name": "Acme" } }""");
 
-		host.Send(Msg(new { type = "set-source-token", id = "r1", sourceId = "notion", token = "ntn_secret" }));
+		var result = await SaveToken(host, "ntn_secret");
 
 		var toast = await Wait.ForAsync(() => Notify(host, "info"));
 		Assert.Contains("Acme", toast.GetProperty("message").GetString());
-		// The dialog gets an ok result (so it closes), and the validated token was persisted to the source's file.
-		var result = await Wait.ForAsync(() => host.Bridge.LastOfType("source-token-result"));
 		Assert.True(result.GetProperty("ok").GetBoolean());
 		string tokenFile = Path.Combine(host.SourcesDir, "notion.json");
 		Assert.True(File.Exists(tokenFile));
@@ -56,14 +57,48 @@ public sealed class HostCoreSourcesTests {
 	}
 
 	[Fact]
+	public async Task ConnectFromPalette_SuccessDoesNotReplayTheTokenPrompt() {
+		await using var host = await TestHost.StartAsync();
+		host.SourceHttp.Responder = _ => (HttpStatusCode.OK, """{ "bot": { "workspace_name": "Acme" } }""");
+		Assert.True((await host.InvokeClientCommandAsync("weavie.source.connectNotion", new { })).Ok);
+		await Wait.ForAsync(() => SourceEvent(host, "promptToken"));
+
+		Assert.True((await SaveToken(host, "ntn_secret")).GetProperty("ok").GetBoolean());
+		host.Bridge.Clear();
+		await host.SessionRequestAsync<JsonElement>(
+			host.SelectedSession,
+			"lifecycle",
+			"sync",
+			new { });
+
+		Assert.Null(SourceEvent(host, "promptToken"));
+	}
+
+	[Fact]
+	public async Task DismissTokenPrompt_RemovesItsDurableState() {
+		await using var host = await TestHost.StartAsync();
+		Assert.True((await host.InvokeClientCommandAsync("weavie.source.connectNotion", new { })).Ok);
+		await Wait.ForAsync(() => SourceEvent(host, "promptToken"));
+
+		host.SessionEvent(host.SelectedSession, "sources", "dismissToken", new { });
+		host.Bridge.Clear();
+		await host.SessionRequestAsync<JsonElement>(
+			host.SelectedSession,
+			"lifecycle",
+			"sync",
+			new { });
+
+		Assert.Null(SourceEvent(host, "promptToken"));
+	}
+
+	[Fact]
 	public async Task SetSourceToken_RejectedToken_RepliesInlineErrorAndDoesNotSave() {
 		await using var host = await TestHost.StartAsync();
 		host.SourceHttp.Responder = _ => (HttpStatusCode.Unauthorized, "{}");
 
-		host.Send(Msg(new { type = "set-source-token", id = "r1", sourceId = "notion", token = "bad" }));
+		var result = await SaveToken(host, "bad");
 
 		// The rejection comes back as an inline result (not a toast), so the dialog stays open for a correction.
-		var result = await Wait.ForAsync(() => host.Bridge.LastOfType("source-token-result"));
 		Assert.False(result.GetProperty("ok").GetBoolean());
 		Assert.Contains("rejected", result.GetProperty("error").GetString(), StringComparison.OrdinalIgnoreCase);
 		Assert.False(File.Exists(Path.Combine(host.SourcesDir, "notion.json"))); // an invalid token is never saved
@@ -75,9 +110,8 @@ public sealed class HostCoreSourcesTests {
 		// HttpClient's own request timeout surfaces as TaskCanceledException — the dialog must still get a result.
 		host.SourceHttp.Responder = _ => throw new TaskCanceledException();
 
-		host.Send(Msg(new { type = "set-source-token", id = "r1", sourceId = "notion", token = "ntn_x" }));
+		var result = await SaveToken(host, "ntn_x");
 
-		var result = await Wait.ForAsync(() => host.Bridge.LastOfType("source-token-result"));
 		Assert.False(result.GetProperty("ok").GetBoolean());
 		Assert.False(File.Exists(Path.Combine(host.SourcesDir, "notion.json")));
 	}
@@ -93,29 +127,59 @@ public sealed class HostCoreSourcesTests {
 			_ => (HttpStatusCode.NotFound, "{}"),
 		};
 
-		host.Send(Msg(new { type = "open-target", url = "https://www.notion.so/Spec-1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d" }));
+		Open(host, "https://www.notion.so/Spec-1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d");
 
-		var doc = await Wait.ForAsync(() => host.Bridge.LastOfType("source-doc"));
+		var doc = await Wait.ForAsync(() => SourceEvent(host, "document"));
 		Assert.Equal("https://www.notion.so/Spec-1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d", doc.GetProperty("target").GetString());
 		Assert.Equal("Spec", doc.GetProperty("title").GetString());
 		Assert.Equal("Body **text**", doc.GetProperty("markdown").GetString()); // the single render + Claude channel
 		Assert.Equal("2026-06-30T06:15:48.000Z", doc.GetProperty("editedTime").GetString()); // read from the page JSON
 		Assert.Equal("notion", doc.GetProperty("sourceId").GetString()); // keys the tab icon web-side
-		var loading = host.Bridge.LastOfType("source-loading")!.Value; // posted first, so the tab opens with a spinner during the fetch, titled from the slug
+		var loading = SourceEvent(host, "loading")!.Value;
 		Assert.Equal("Spec", loading.GetProperty("title").GetString());
+	}
+
+	[Fact]
+	public async Task ReconnectReplaysTheSourceDocumentAndItsEditorTab() {
+		await using var host = await TestHost.StartAsync();
+		WriteToken(host, "ntn_secret");
+		host.SourceHttp.Responder = request => request.RequestUri!.AbsoluteUri switch {
+			var u when u.Contains("/markdown") => (HttpStatusCode.OK, """{ "markdown": "Body", "truncated": false, "unknown_block_ids": [] }"""),
+			var u when u.Contains("/pages/") => (HttpStatusCode.OK, """{ "properties": { "Name": { "type": "title", "title": [ { "plain_text": "Spec" } ] } } }"""),
+			_ => (HttpStatusCode.NotFound, "{}"),
+		};
+		const string target = "https://www.notion.so/Spec-1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d";
+		Open(host, target);
+		await Wait.ForAsync(() => SourceEvent(host, "document"));
+		host.Bridge.Clear();
+
+		await host.SessionRequestAsync<JsonElement>(
+			host.SelectedSession,
+			"lifecycle",
+			"sync",
+			new { });
+
+		var document = SourceEvent(host, "document");
+		Assert.True(document.HasValue);
+		Assert.Equal("Body", document!.Value.GetProperty("markdown").GetString());
+		var restore = host.Bridge.LastEvent(host.SelectedSession.Address, "editor", "restore");
+		Assert.Contains(
+			restore!.Value.GetProperty("session").GetProperty("open").EnumerateArray(),
+			entry => entry.GetProperty("path").GetString() == target
+				&& entry.GetProperty("kind").GetString() == "source");
 	}
 
 	[Fact]
 	public async Task OpenTarget_NotionUrlWithoutToken_RoutesToTheConnectPrompt() {
 		await using var host = await TestHost.StartAsync();
 
-		host.Send(Msg(new { type = "open-target", url = "https://www.notion.so/Spec-1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d" }));
+		Open(host, "https://www.notion.so/Spec-1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d");
 
 		// Not connected: instead of a blank tab or an easy-to-miss error toast, the user is sent to connect.
-		var prompt = await Wait.ForAsync(() => host.Bridge.LastOfType("prompt-source-token"));
+		var prompt = await Wait.ForAsync(() => SourceEvent(host, "promptToken"));
 		Assert.Equal("notion", prompt.GetProperty("sourceId").GetString());
 		Assert.Equal("https://app.notion.com/developers/tokens", host.Platform.LastOpenedUrl);
-		Assert.Null(host.Bridge.LastOfType("source-doc")); // nothing fetched without a token
+		Assert.Null(SourceEvent(host, "document"));
 	}
 
 	[Fact]
@@ -129,11 +193,11 @@ public sealed class HostCoreSourcesTests {
 		};
 
 		// Open before connecting → routed to connect; then pasting a valid token opens the remembered page.
-		host.Send(Msg(new { type = "open-target", url = "https://www.notion.so/Spec-1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d" }));
-		await Wait.ForAsync(() => host.Bridge.LastOfType("prompt-source-token"));
-		host.Send(Msg(new { type = "set-source-token", id = "r1", sourceId = "notion", token = "ntn_secret" }));
+		Open(host, "https://www.notion.so/Spec-1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d");
+		await Wait.ForAsync(() => SourceEvent(host, "promptToken"));
+		Assert.True((await SaveToken(host, "ntn_secret")).GetProperty("ok").GetBoolean());
 
-		var doc = await Wait.ForAsync(() => host.Bridge.LastOfType("source-doc"));
+		var doc = await Wait.ForAsync(() => SourceEvent(host, "document"));
 		Assert.Equal("https://www.notion.so/Spec-1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d", doc.GetProperty("target").GetString());
 		Assert.Equal("Spec", doc.GetProperty("title").GetString());
 	}
@@ -144,13 +208,13 @@ public sealed class HostCoreSourcesTests {
 		WriteToken(host, "ntn_secret");
 		host.SourceHttp.Responder = _ => (HttpStatusCode.InternalServerError, "{}");
 
-		host.Send(Msg(new { type = "open-target", url = "https://www.notion.so/Spec-1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d" }));
+		Open(host, "https://www.notion.so/Spec-1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d");
 
 		// The failure surfaces in the already-open tab (source-error keyed by target), not as a toast.
-		var error = await Wait.ForAsync(() => host.Bridge.LastOfType("source-error"));
+		var error = await Wait.ForAsync(() => SourceEvent(host, "error"));
 		Assert.Equal("https://www.notion.so/Spec-1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d", error.GetProperty("target").GetString());
 		Assert.NotEmpty(error.GetProperty("message").GetString()!);
-		Assert.Null(host.Bridge.LastOfType("source-doc"));
+		Assert.Null(SourceEvent(host, "document"));
 	}
 
 	[Fact]
@@ -161,11 +225,11 @@ public sealed class HostCoreSourcesTests {
 		// the eager spinner is already up, so it must still resolve to an error rather than spin forever.
 		host.SourceHttp.Responder = _ => (HttpStatusCode.OK, "<html>not json</html>");
 
-		host.Send(Msg(new { type = "open-target", url = "https://www.notion.so/Spec-1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d" }));
+		Open(host, "https://www.notion.so/Spec-1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d");
 
-		var error = await Wait.ForAsync(() => host.Bridge.LastOfType("source-error"));
+		var error = await Wait.ForAsync(() => SourceEvent(host, "error"));
 		Assert.Equal("https://www.notion.so/Spec-1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d", error.GetProperty("target").GetString());
-		Assert.Null(host.Bridge.LastOfType("source-doc"));
+		Assert.Null(SourceEvent(host, "document"));
 	}
 
 	[Fact]
@@ -178,11 +242,11 @@ public sealed class HostCoreSourcesTests {
 			_ => (HttpStatusCode.NotFound, "{}"),
 		};
 
-		host.Send(Msg(new { type = "open-target", url = "https://www.notion.so/Big-1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d" }));
+		Open(host, "https://www.notion.so/Big-1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d");
 
 		// The loss travels as flags beside the markdown (the web renders a banner), never inside it — the markdown
 		// must stay the verbatim fetched text the edit path diffs against.
-		var doc = await Wait.ForAsync(() => host.Bridge.LastOfType("source-doc"));
+		var doc = await Wait.ForAsync(() => SourceEvent(host, "document"));
 		Assert.Equal("# Big page", doc.GetProperty("markdown").GetString());
 		Assert.True(doc.GetProperty("truncated").GetBoolean());
 		Assert.Equal(1, doc.GetProperty("unknownBlocks").GetInt32());
@@ -204,15 +268,14 @@ public sealed class HostCoreSourcesTests {
 			return (HttpStatusCode.OK, """{ "last_edited_time": "2026-07-02T10:00:00.000Z", "properties": { "Name": { "type": "title", "title": [ { "plain_text": "Spec" } ] } } }""");
 		};
 
-		host.Send(Msg(new {
-			type = "source-save-edit",
-			target = "https://www.notion.so/Spec-1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d",
-			oldStr = "Hello\n",
-			newStr = "Hello edited\n",
-		}));
+		SaveEdit(
+			host,
+			"https://www.notion.so/Spec-1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d",
+			"Hello\n",
+			"Hello edited\n");
 
 		// The refreshed doc comes from the PATCH response's markdown, keeping the store in sync with Notion.
-		var doc = await Wait.ForAsync(() => host.Bridge.LastOfType("source-doc"));
+		var doc = await Wait.ForAsync(() => SourceEvent(host, "document"));
 		Assert.Equal("Hello edited\nWorld", doc.GetProperty("markdown").GetString());
 		Assert.Equal("Spec", doc.GetProperty("title").GetString());
 		Assert.Equal("notion", doc.GetProperty("sourceId").GetString());
@@ -223,7 +286,7 @@ public sealed class HostCoreSourcesTests {
 		Assert.Equal("Bearer", patch.Headers.Authorization!.Scheme);
 		Assert.Equal("ntn_secret", patch.Headers.Authorization.Parameter);
 		Assert.Equal("""{"type":"update_content","update_content":{"content_updates":[{"old_str":"Hello\n","new_str":"Hello edited\n"}]}}""", patchBody);
-		Assert.Null(host.Bridge.LastOfType("source-edit-error"));
+		Assert.Null(SourceEvent(host, "editError"));
 	}
 
 	[Fact]
@@ -233,18 +296,17 @@ public sealed class HostCoreSourcesTests {
 		host.SourceHttp.Responder = _ =>
 			(HttpStatusCode.BadRequest, """{ "code": "validation_error", "message": "old_str did not match" }""");
 
-		host.Send(Msg(new {
-			type = "source-save-edit",
-			target = "https://www.notion.so/Spec-1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d",
-			oldStr = "gone\n",
-			newStr = "new\n",
-		}));
+		SaveEdit(
+			host,
+			"https://www.notion.so/Spec-1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d",
+			"gone\n",
+			"new\n");
 
 		// The page changed in Notion since the fetch: stale:true so the block offers a re-fetch; no doc is pushed.
-		var error = await Wait.ForAsync(() => host.Bridge.LastOfType("source-edit-error"));
+		var error = await Wait.ForAsync(() => SourceEvent(host, "editError"));
 		Assert.True(error.GetProperty("stale").GetBoolean());
 		Assert.Contains("did not match", error.GetProperty("message").GetString());
-		Assert.Null(host.Bridge.LastOfType("source-doc"));
+		Assert.Null(SourceEvent(host, "document"));
 	}
 
 	[Fact]
@@ -256,17 +318,16 @@ public sealed class HostCoreSourcesTests {
 		host.SourceHttp.Responder = _ =>
 			(HttpStatusCode.BadRequest, """{ "code": "validation_error", "message": "body.type should be defined, instead was `undefined`." }""");
 
-		host.Send(Msg(new {
-			type = "source-save-edit",
-			target = "https://www.notion.so/Spec-1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d",
-			oldStr = "a\n",
-			newStr = "b\n",
-		}));
+		SaveEdit(
+			host,
+			"https://www.notion.so/Spec-1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d",
+			"a\n",
+			"b\n");
 
-		var error = await Wait.ForAsync(() => host.Bridge.LastOfType("source-edit-error"));
+		var error = await Wait.ForAsync(() => SourceEvent(host, "editError"));
 		Assert.False(error.GetProperty("stale").GetBoolean());
 		Assert.Contains("body.type", error.GetProperty("message").GetString());
-		Assert.Null(host.Bridge.LastOfType("source-doc"));
+		Assert.Null(SourceEvent(host, "document"));
 	}
 
 	[Fact]
@@ -275,18 +336,17 @@ public sealed class HostCoreSourcesTests {
 		WriteToken(host, "ntn_secret");
 		host.SourceHttp.Responder = _ => (HttpStatusCode.InternalServerError, "{}");
 
-		host.Send(Msg(new {
-			type = "source-save-edit",
-			target = "https://www.notion.so/Spec-1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d",
-			oldStr = "a\n",
-			newStr = "b\n",
-		}));
+		SaveEdit(
+			host,
+			"https://www.notion.so/Spec-1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d",
+			"a\n",
+			"b\n");
 
 		// Fire-and-forget like the fetch: every failure must resolve the block's saving state, never leave it stuck.
-		var error = await Wait.ForAsync(() => host.Bridge.LastOfType("source-edit-error"));
+		var error = await Wait.ForAsync(() => SourceEvent(host, "editError"));
 		Assert.False(error.GetProperty("stale").GetBoolean());
 		Assert.NotEmpty(error.GetProperty("message").GetString()!);
-		Assert.Null(host.Bridge.LastOfType("source-doc"));
+		Assert.Null(SourceEvent(host, "document"));
 	}
 
 	private static void WriteToken(TestHost host, string token) {
@@ -294,8 +354,35 @@ public sealed class HostCoreSourcesTests {
 		File.WriteAllText(Path.Combine(host.SourcesDir, "notion.json"), Msg(new { token }));
 	}
 
+	private static void Open(TestHost host, string url) =>
+		host.SessionEvent(host.SelectedSession, "sources", "open", new { url });
+
+	private static Task<JsonElement> SaveToken(TestHost host, string token) =>
+		host.SessionRequestAsync<JsonElement>(
+			host.SelectedSession,
+			"sources",
+			"saveToken",
+			new { sourceId = "notion", token });
+
+	private static void SaveEdit(
+		TestHost host,
+		string target,
+		string oldText,
+		string newText) =>
+		host.SessionEvent(
+			host.SelectedSession,
+			"sources",
+			"saveEdit",
+			new { target, oldText, newText });
+
+	private static JsonElement? SourceEvent(TestHost host, string name) =>
+		host.Bridge.LastEvent(host.SelectedSession.Address, "sources", name);
+
 	// The last toast at a given level, or null until one arrives — the selector the notify-waiting tests poll.
 	private static JsonElement? Notify(TestHost host, string level) =>
-		host.Bridge.LastOfType("notify") is { } n && n.GetProperty("level").GetString() == level ? n : null;
+		host.Bridge.LastEvent(host.SelectedSession.Address, "notifications", "show") is { } n
+			&& n.GetProperty("level").GetString() == level
+				? n
+				: null;
 
 }

@@ -1,7 +1,7 @@
 # Commands & keybindings
 
 Status: implemented (Core + Windows + macOS hosts + web)
-Last updated: 2026-07-02
+Last updated: 2026-07-30
 
 The third concrete instance of the
 [Claude-facing capability registry](../concepts/mcp-registry.md) (after settings and the layout
@@ -136,8 +136,8 @@ Two Core types, mirroring the `SettingsRegistry` (catalog) / `SettingsStore` (be
 - **`CommandDispatcher`** — routes an invocation to its handler:
   - For a `Core` command, looks up a registered `Func<JsonElement?, CancellationToken, Task<CommandResult>>`
     in its handler map and awaits it.
-  - For a `Web` command, posts a `run-command` bridge message to the web and awaits the web's
-    `command-ack` (short timeout), so the caller (MCP / palette-over-MCP) hears the real outcome.
+  - For a `Web` command, requests `commands.run` through its session's attached view and awaits the
+    correlated response, so the caller (MCP / palette-over-MCP) hears the real outcome.
 
 ```csharp
 public readonly record struct CommandResult(bool Ok, string? Message, string? Error);
@@ -172,24 +172,24 @@ flowchart TD
 
     K -->|"runsIn=web"| WR
     P -->|"runsIn=web"| WR
-    K -->|"runsIn=core: invoke-command"| D
-    P -->|"runsIn=core: invoke-command"| D
+    K -->|"runsIn=core: session commands.invoke"| D
+    P -->|"runsIn=core: session commands.invoke"| D
     MCP --> D
     D -->|"runsIn=core"| CR
-    D -->|"runsIn=web: run-command + await ack"| WR
+    D -->|"runsIn=web: bound-view commands.run request"| WR
 ```
 
 1. **Keybinding/palette → Web command** — web resolves the id, runs the local handler directly.
    (The Ctrl+1–9 case, and the diff-layout toggle.)
-2. **Keybinding/palette → Core command** — web posts `invoke-command {id, args}`; the host calls
-   `CommandDispatcher.InvokeAsync`.
+2. **Keybinding/palette → Core command** — web requests `commands.invoke {id, args}` on the selected
+   session bus; that owning session calls `CommandDispatcher.InvokeAsync`.
 3. **MCP → Core command** — `runCommand` tool → `InvokeAsync` → core handler. All in Core.
-4. **MCP → Web command** — `runCommand` → `InvokeAsync` sees `RunsIn=Web` → posts `run-command
-   {id, args, token}` to the web → web runs the handler and posts `command-ack {token, ok, error?}`
-   → `InvokeAsync` returns that outcome to Claude.
+4. **MCP → Web command** — `runCommand` → `InvokeAsync` sees `RunsIn=Web` → requests
+   `commands.run {id, args}` through that session's attached view → the web runs the handler with
+   the same `ClientSession` owner → `InvokeAsync` returns the correlated outcome to Claude.
 
 `when` is evaluated **only** for keybinding activation and palette visibility — never for programmatic
-invocation (MCP / `invoke-command`). This matches VS Code: `executeCommand` ignores `when`; the
+invocation (MCP / `commands.invoke`). This matches VS Code: `executeCommand` ignores `when`; the
 handler itself may no-op if its preconditions aren't met. So Claude can always run a command by name;
 the guard only governs *implicit* triggers.
 
@@ -233,8 +233,7 @@ web — the web never reads the file. `KeybindingStore`:
 4. Emits `KeybindingsChanged` (debounced/parse-guarded) on file edit, exactly like `SettingChanged`.
 
 The resolved list is injected as `window.__WEAVIE_KEYBINDINGS__` before navigation (no first-paint
-gap) and re-pushed as a `{ type: "commands", … }` bridge message on change — the same pattern as
-`__WEAVIE_FONTS__` / `__WEAVIE_SHELL__`.
+gap) and re-pushed as the host event `commands.catalog` on change.
 
 ### Web-side key handling
 
@@ -331,23 +330,20 @@ const and dispatched in `HandleToolCallAsync`, mirroring `listSettings`/`setSett
 
 ## The omnibar command palette
 
-The `>` mode already stubbed in `Omnibar.tsx` (`commandMode`, "Commands — coming soon") becomes
-real: when the query starts with `>`, list every command with `ShowInPalette` whose `when` passes,
-fuzzy-ranked over `title` (+ `category`) by the existing `fuzzy.ts`; Enter/click dispatches the id
-(local handler or `invoke-command` to host). No new UI — it reuses the omnibar's list rendering, just
+When the query starts with `>`, the mode in `Omnibar.tsx` lists every command with `ShowInPalette`
+whose `when` passes, fuzzy-ranked over `title` (+ `category`) by the existing `fuzzy.ts`; Enter/click dispatches the id
+(local handler or `commands.invoke` to its session). It reuses the omnibar's list rendering,
 sourcing rows from the command catalog instead of the file index, and showing the resolved keybinding
 on the right of each row.
 
-## Bridge additions
+## Message-bus features
 
-Mirrors the existing typed unions in `bridge.ts` + `ShellProtocol.cs`.
-
-- **host → web** (`WebBoundMessage`): `{ type: "commands"; catalog: CommandInfo[]; keybindings:
-  ResolvedBinding[] }` (also injected as `__WEAVIE_COMMANDS__` / `__WEAVIE_KEYBINDINGS__` pre-nav);
-  `{ type: "run-command"; id: string; args?: unknown; token: string }`.
-- **web → host** (`HostBoundMessage`): `{ type: "invoke-command"; id: string; args?: unknown }`
-  (palette/keybinding → Core command); `{ type: "command-ack"; token: string; ok: boolean; error?:
-  string }` (reply to `run-command`).
+- **host event `commands.catalog`** carries `{ commands, keybindings }` (also injected through
+  `__WEAVIE_COMMANDS__` / `__WEAVIE_KEYBINDINGS__` before navigation);
+- **session request `commands.invoke`** carries `{ id, args }` from web triggers to the owning
+  `CommandDispatcher`;
+- **bound-view request `commands.run`** carries `{ id, args }` from an owning dispatcher to the web
+  presentation attached to that exact session.
 
 ## Initial registered commands
 
@@ -402,7 +398,6 @@ src/web/src/commands/
   registry.ts               // consume __WEAVIE_COMMANDS__; register web handlers; lookup
   keybindings.ts            // consume resolved bindings; tinykeys; capture-phase keydown → resolve
   context.ts                // when context keys + minimal evaluator
-  dispatch.ts               // run(id,args): local handler | invoke-command; inbound run-command + ack
 ```
 
 Both hosts construct the `CommandRegistry` + `CommandDispatcher` + `KeybindingStore` and hand them to
@@ -427,7 +422,7 @@ the `McpServer` (the way they already hand it the `SettingsStore` / `LayoutStore
    keys. Verify running a Web and a Core command from the palette.
 5. **MCP tools** — `listCommands`/`runCommand` on `McpServer` (registry server). Verify end-to-end
    by asking the embedded Claude to reopen the terminal and to toggle the diff layout (exercising
-   both `Core` and `Web` dispatch incl. the `run-command`/`command-ack` round-trip).
+   both `Core` and `Web` dispatch, including the bound-view `commands.run` round-trip).
 
 ## Decisions baked in (flag if you disagree)
 

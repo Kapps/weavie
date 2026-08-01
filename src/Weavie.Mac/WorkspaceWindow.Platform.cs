@@ -9,7 +9,7 @@ namespace Weavie.Mac;
 // pieces (UI marshal, PTY launcher, dialogs, recents) come from the controller. Native NSWindow chrome + NSMenu, so
 // there's no web title bar driving the window (Window null), and global hotkeys are app-level (HotkeyRegistrar null).
 internal sealed partial class WorkspaceWindow : IHostPlatform {
-	IHostBridge IHostPlatform.Bridge => _bridge;
+	IWebTransportHub IHostPlatform.Bridge => _bridge;
 
 	// Async, never synchronous: a sync hop from the PTY read thread can deadlock a main-thread PTY write (see HostBridge).
 	IUiDispatcher IHostPlatform.Dispatcher => _app.Dispatcher;

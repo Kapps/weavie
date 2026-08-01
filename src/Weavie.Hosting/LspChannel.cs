@@ -1,5 +1,6 @@
 using Weavie.Core.Lsp;
 using Weavie.Core.Processes;
+using Weavie.Hosting.Messaging;
 
 namespace Weavie.Hosting;
 
@@ -7,33 +8,30 @@ namespace Weavie.Hosting;
 /// One language server bound to a web-minted channel: spawns the server under a <see cref="ProcessSupervisor"/>
 /// (<see cref="RestartPolicy.Never"/> — restart is the client's job, since a restarted server needs a fresh
 /// <c>initialize</c>/re-<c>didOpen</c> only <c>monaco-languageclient</c> can drive), streams its stdout frames to
-/// the page as <c>lsp-data</c>, and reports a self-exit as <c>lsp-exit</c>. The <see cref="LspController"/>'s
+/// the page as <c>lsp/data</c>, and reports a self-exit as <c>lsp/exit</c>. The <see cref="LspController"/>'s
 /// per-channel unit. Disposing kills and reaps the server (the worktree-removal guarantee).
 /// </summary>
 internal sealed class LspChannel : IDisposable {
-	private readonly IHostBridge _bridge;
-	private readonly string _slot;
+	private readonly MessageTargetFeature _messages;
 	private readonly string _channel;
 	private readonly ResolvedCommand _command;
 	private readonly string _workspaceRoot;
 	private readonly ILspServerLauncher _launcher;
 	private readonly Action<string> _log;
-	private readonly Action<string> _onClosed;
+	private readonly Action _onClosed;
 	private readonly ProcessSupervisor _supervisor;
 	private readonly Lock _gate = new();
 	private ILspServerProcess? _live;
 
 	public LspChannel(
-		IHostBridge bridge,
-		string slot,
+		MessageTargetFeature messages,
 		string channel,
 		ResolvedCommand command,
 		string workspaceRoot,
 		ILspServerLauncher launcher,
 		Action<string> log,
-		Action<string> onClosed) {
-		_bridge = bridge;
-		_slot = slot;
+		Action onClosed) {
+		_messages = messages;
 		_channel = channel;
 		_command = command;
 		_workspaceRoot = workspaceRoot;
@@ -80,7 +78,7 @@ internal sealed class LspChannel : IDisposable {
 		proc?.Dispose();
 	}
 
-	private void OnFrame(byte[] frame) => _bridge.PostToWeb(LspMessages.Data(_slot, _channel, frame));
+	private void OnFrame(byte[] frame) => _messages.Publish("data", LspMessages.Data(_channel, frame));
 
 	private void OnSupervisorStateChanged(SupervisorStateChanged change) {
 		// A non-null exit code means the server ended on its own (crash, clean exit, or crash-loop give-up): dispose
@@ -92,8 +90,8 @@ internal sealed class LspChannel : IDisposable {
 		}
 
 		StopServer();
-		_bridge.PostToWeb(LspMessages.Exit(_slot, _channel, code, null));
-		_onClosed(_channel);
+		_messages.Publish("exit", LspMessages.Exit(_channel, code, null));
+		_onClosed();
 	}
 
 	private void LogSupervisor(SupervisorLogEntry entry) => _log($"{entry.Name}: {entry.Message}");
@@ -102,11 +100,11 @@ internal sealed class LspChannel : IDisposable {
 	public void Dispose() => _supervisor.Dispose();
 
 	/// <summary>
-	/// Kills the server AND posts <c>lsp-exit</c> — for a teardown the owning page did NOT initiate (a newer
+	/// Kills the server AND posts <c>lsp/exit</c> — for a teardown the owning page did NOT initiate (a newer
 	/// page instance reaped this channel), so a still-live sibling client learns instead of waiting silently.
 	/// </summary>
 	public void DisposeWithExit(string reason) {
 		Dispose();
-		_bridge.PostToWeb(LspMessages.Exit(_slot, _channel, -1, reason));
+		_messages.Publish("exit", LspMessages.Exit(_channel, -1, reason));
 	}
 }

@@ -23,10 +23,10 @@ public sealed class HostCorePullRequestStatusTests {
 			},
 			[pullRequest]);
 
-		var message = await Wait.ForAsync(() => host.Bridge.LastOfType("pull-request-status"));
+		var message = await Wait.ForAsync(() =>
+			host.Bridge.LastEvent(host.PrimarySession.Address, "git", "pullRequest"));
 
 		Assert.Equal("main", message.GetProperty("branch").GetString());
-		Assert.Equal(host.PrimaryId, message.GetProperty("slot").GetString());
 		Assert.Equal(123, message.GetProperty("pullRequest").GetProperty("number").GetInt32());
 		Assert.Equal("https://github.com/Kapps/weavie/pull/123", message.GetProperty("pullRequest").GetProperty("url").GetString());
 	}
@@ -37,32 +37,44 @@ public sealed class HostCorePullRequestStatusTests {
 			repo => TestHost.RunGit(repo, "remote", "add", "origin", "https://attacker.example/acme/demo.git"),
 			Array.Empty<PullRequestSummary>());
 
-		var message = await Wait.ForAsync(() => host.Bridge.LastOfType("pull-request-status"));
+		var message = await Wait.ForAsync(() =>
+			host.Bridge.LastEvent(host.PrimarySession.Address, "git", "pullRequest"));
 
 		Assert.Equal(System.Text.Json.JsonValueKind.Null, message.GetProperty("pullRequest").ValueKind);
 		Assert.Contains("doesn't support attacker.example", message.GetProperty("error").GetString());
 	}
 
 	[Fact]
-	public async Task NewRefresh_CancelsAndReplacesTheInFlightLookup() {
-		var provider = new SupersededProvider();
+	public async Task RequesterSync_DoesNotCancelTheInFlightBroadcastLookup() {
+		var provider = new ConcurrentProvider();
 		await using var host = await TestHost.StartAsync(
 			repo => TestHost.RunGit(repo, "remote", "add", "origin", "git@github.com:Kapps/weavie.git"),
 			provider);
 		await provider.FirstStarted.Task;
 
-		host.Send("""{"type":"ready"}""");
-		var message = await Wait.ForAsync(() => host.Bridge.LastOfType("pull-request-status"));
+		try {
+			host.Bridge.Clear();
+			await host.SessionRequestAsync<System.Text.Json.JsonElement>(
+				host.PrimarySession,
+				"lifecycle",
+				"sync",
+				new { });
+			var message = await Wait.ForAsync(() =>
+				host.Bridge.LastEvent(host.PrimarySession.Address, "git", "pullRequest"));
 
-		await provider.FirstCancelled.Task;
-		Assert.Equal(456, message.GetProperty("pullRequest").GetProperty("number").GetInt32());
+			Assert.False(provider.FirstCancelled.Task.IsCompleted);
+			Assert.Equal(456, message.GetProperty("pullRequest").GetProperty("number").GetInt32());
+		} finally {
+			provider.ReleaseFirst.SetResult();
+		}
 	}
 
-	private sealed class SupersededProvider : IPullRequestProvider {
+	private sealed class ConcurrentProvider : IPullRequestProvider {
 		private int _calls;
 
 		public TaskCompletionSource FirstStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 		public TaskCompletionSource FirstCancelled { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+		public TaskCompletionSource ReleaseFirst { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
 		public Task<IReadOnlyList<PullRequestSummary>> ListOpenAsync(RepoRef repo, CancellationToken ct = default) =>
 			Task.FromResult<IReadOnlyList<PullRequestSummary>>([]);
@@ -72,7 +84,7 @@ public sealed class HostCorePullRequestStatusTests {
 			if (Interlocked.Increment(ref _calls) == 1) {
 				FirstStarted.SetResult();
 				try {
-					await Task.Delay(Timeout.InfiniteTimeSpan, ct);
+					await ReleaseFirst.Task.WaitAsync(ct);
 				} catch (OperationCanceledException) when (ct.IsCancellationRequested) {
 					FirstCancelled.SetResult();
 					throw;

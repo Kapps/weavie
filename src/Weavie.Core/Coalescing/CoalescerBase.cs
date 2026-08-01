@@ -7,7 +7,7 @@ namespace Weavie.Core.Coalescing;
 /// it is posted; this base owns the timer, the armed/disposed state, and Flush/Discard/Dispose.
 /// <para>Flush/Discard/Dispose and the payload flush all run under <see cref="Gate"/>, so output order is preserved
 /// across the producer, timer, and flush-boundary threads. The post callback must be non-blocking (the bridge's
-/// <c>PostToWeb</c> is), the same contract inline posting relied on.</para>
+/// <c>Broadcast</c> is), the same contract inline posting relied on.</para>
 /// </summary>
 public abstract class CoalescerBase : IDisposable {
 	private readonly long _windowMs;

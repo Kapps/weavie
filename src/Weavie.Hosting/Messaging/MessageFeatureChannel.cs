@@ -142,7 +142,13 @@ internal sealed class SessionMessageBus : MessageBus {
 		Action<string> broadcast,
 		Action<WebPeer, string> sendToPeer,
 		Action<string> log)
-		: base(MessageScope.Session, address, broadcast, sendToPeer, log) {
+		: base(
+			MessageScope.Session,
+			address,
+			broadcast,
+			sendToPeer,
+			log,
+			DirectMessageHandlerExecutor.Instance) {
 	}
 
 	public new SessionAddress Address => base.Address!;
@@ -150,9 +156,16 @@ internal sealed class SessionMessageBus : MessageBus {
 
 internal sealed class HostMessageBus : MessageBus {
 	public HostMessageBus(
+		IUiDispatcher dispatcher,
 		Action<string> broadcast,
 		Action<WebPeer, string> sendToPeer,
 		Action<string> log)
-		: base(MessageScope.Host, null, broadcast, sendToPeer, log) {
+		: base(
+			MessageScope.Host,
+			null,
+			broadcast,
+			sendToPeer,
+			log,
+			new UiMessageHandlerExecutor(dispatcher)) {
 	}
 }

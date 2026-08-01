@@ -7,20 +7,20 @@ was silently dropped. This adds one **host-OS-actions** channel and hangs those 
 
 ## The channel
 
-The web already round-trips native work through `postToHost` → `HostCore.OnWebMessage` → a per-host
-seam (the `reveal-file` → `FileOpener` path is the template). The same shape carries the new actions:
+The web round-trips native work through its local `HostConnection` → `HostMessageRouter` → the host
+message bus → a per-host seam. The same shape carries these actions:
 
-- New `HostBoundMessage`s (web → host): `clipboard-write`, `clipboard-read`, `open-url`, `term-cwd`.
-- New `WebBoundMessage` (host → web): `clipboard-content` (the reply to `clipboard-read`, correlated
-  by `id`, mirroring the `fs-read` request/response pattern).
-- Three required members on `IHostPlatform` (the ToggleWindow precedent — real on every desktop host,
-  no-op on Headless/Test): `WriteClipboard(text)`, `ReadClipboard()`, `OpenExternalUrl(url)`.
+- The host `clipboard` feature carries `write` plus correlated `read` / `readImage` requests.
+- The host `platform.openUrl` event carries external links.
+- The owning session's `terminal.shell.cwd` event carries shell working-directory updates.
+- `IHostPlatform` supplies `WriteClipboard`, `ReadClipboard`, `ReadClipboardImage`, and
+  `OpenExternalUrl` (real on desktop hosts, no-op on Headless/Test).
 
 Clipboard writes/reads go through the **host**, not `navigator.clipboard`: the WebView's clipboard
 API is focus- and permission-gated (it throws when the document isn't focused — exactly the flakiness
-being fixed), whereas the host owns the real OS clipboard unconditionally. `OnWebMessage` runs on each
-native host's UI thread, so the platform clipboard calls (WinForms STA `Clipboard`, `NSPasteboard`,
-GTK clipboard) need no extra marshaling.
+being fixed), whereas the host owns the real OS clipboard unconditionally. After feature-lane
+admission, host-bus handlers enter the platform dispatcher, so WinForms STA `Clipboard`,
+`NSPasteboard`, and GTK clipboard calls always run on their required UI thread.
 
 ```mermaid
 flowchart LR
@@ -31,29 +31,31 @@ flowchart LR
     xterm -- OSC 7 --> cwd
     cb -- copy/paste cmds --> cb
   end
-  cb -- clipboard-write / clipboard-read --> obm[OnWebMessage]
-  links -- open-url --> obm
-  cwd -- term-cwd --> obm
-  obm --> plat[IHostPlatform]
+  cb -- clipboard write / read --> bus[local host bus]
+  links -- open URL --> bus
+  bus --> ui[platform UI dispatcher]
+  ui --> plat[IHostPlatform]
   plat --> os[(OS clipboard / browser)]
-  obm -- clipboard-content --> cb
+  bus -- clipboard response --> cb
+  cwd -- working directory --> sb[owning session bus]
+  sb --> term[TerminalController]
 ```
 
 ## Capabilities
 
 - **Clipboard copy.** `term.parser.registerOscHandler(52, …)` decodes Claude's OSC 52 ("set
-  clipboard", its copy-on-highlight) and posts `clipboard-write`. An explicit `weavie.terminal.copy`
+  clipboard", its copy-on-highlight) and posts `clipboard.write`. An explicit `weavie.terminal.copy`
   command (`Ctrl+Shift+C` / `⌘C`, gated `terminalFocused`) copies `term.getSelection()` the same way;
   it declines (key falls through) when there's no selection.
 - **Clipboard paste** (`Ctrl+V` / `⌘V`, gated `terminalFocused`). In the **native WebView** the
-  `weavie.terminal.paste` command reads the OS clipboard via the `clipboard-read`/`clipboard-content`
-  round-trip and `term.paste()`s it. In a **served browser tab** that programmatic read is forbidden
+  `weavie.terminal.paste` command reads the OS clipboard via the correlated `clipboard.read` request
+  and `term.paste()`s it. In a **served browser tab** that programmatic read is forbidden
   (`navigator.clipboard.readText()` throws "not allowed"), so the command declines and the keystroke
   falls through to xterm's **native paste event** — the only clipboard read a browser permits (Linux
   middle-click pastes the primary selection the same way; right-click opens Weavie's own menu, so it's
   `Ctrl+V` that pastes). Its context-menu/palette entries are therefore WebView-only. OSC 52 *read*
   requests (`52;c;?`) are denied — no clipboard exfiltration back to the child.
-- **Open URL.** The OSC 8 `linkHandler` posts `open-url` for `http(s)` (it already revealed `file:`),
+- **Open URL.** The OSC 8 `linkHandler` posts `platform.openUrl` for `http(s)` (it already revealed `file:`),
   and a bare-`http(s)` link provider makes printed URLs clickable. Fixes the OAuth/login flow, where
   Claude prints/links an auth URL. **Security:** terminal content is untrusted (a printed/OSC 8 link
   the user clicks), so the host re-validates the scheme and passes only absolute `http`/`https` to the
@@ -66,7 +68,7 @@ flowchart LR
   which is fine under the trusted-opened-repo model.)
 - **Title (OSC 0/2).** Web-only: `term.onTitleChange` updates the pane header; no host round-trip
   (the title is already in the web).
-- **cwd (OSC 7).** `term.parser.registerOscHandler(7, …)` posts `term-cwd`; the shell pane's
+- **cwd (OSC 7).** `term.parser.registerOscHandler(7, …)` posts `terminal.shell.cwd`; the shell pane's
   `TerminalController` remembers it and relaunches there (Reopen Terminal lands where you were). The
   claude pane ignores it (it always runs in the IDE workspace). Best-effort — only shells configured
   to emit OSC 7 report it. **Security:** OSC 7 is untrusted terminal output, so the reported path is

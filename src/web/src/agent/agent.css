@@ -291,6 +291,28 @@
   background: transparent;
 }
 
+.agent-markdown pre.mermaid-pending {
+  color: var(--dim);
+}
+
+.agent-markdown pre.mermaid-error {
+  color: var(--bad);
+  white-space: pre-wrap;
+}
+
+.agent-markdown .mermaid-rendered {
+  margin: 0.8em 0;
+  overflow-x: auto;
+  text-align: center;
+}
+
+.agent-markdown .mermaid-rendered svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+}
+
 .agent-markdown table {
   display: block;
   max-width: 100%;

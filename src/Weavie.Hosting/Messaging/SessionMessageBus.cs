@@ -9,6 +9,7 @@ internal partial class MessageBus : IAsyncDisposable {
 	private readonly Action<string> _broadcast;
 	private readonly Action<WebPeer, string> _sendToPeer;
 	private readonly Action<string> _log;
+	private readonly IMessageHandlerExecutor _handlerExecutor;
 	private readonly object _lifecycle = new();
 	private readonly Dictionary<(string Feature, string Name), HandlerRegistration> _handlers = [];
 	private readonly Dictionary<string, FeatureLane> _featureLanes = [];
@@ -27,7 +28,8 @@ internal partial class MessageBus : IAsyncDisposable {
 		SessionAddress? address,
 		Action<string> broadcast,
 		Action<WebPeer, string> sendToPeer,
-		Action<string> log) {
+		Action<string> log,
+		IMessageHandlerExecutor handlerExecutor) {
 		if (scope == MessageScope.Session) {
 			ArgumentNullException.ThrowIfNull(address);
 		} else if (address is not null) {
@@ -37,11 +39,13 @@ internal partial class MessageBus : IAsyncDisposable {
 		ArgumentNullException.ThrowIfNull(broadcast);
 		ArgumentNullException.ThrowIfNull(sendToPeer);
 		ArgumentNullException.ThrowIfNull(log);
+		ArgumentNullException.ThrowIfNull(handlerExecutor);
 		Scope = scope;
 		Address = address;
 		_broadcast = broadcast;
 		_sendToPeer = sendToPeer;
 		_log = log;
+		_handlerExecutor = handlerExecutor;
 		BroadcastTarget = new MessageTarget(this, null);
 	}
 

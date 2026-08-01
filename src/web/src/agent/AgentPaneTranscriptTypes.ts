@@ -26,6 +26,7 @@ export interface AgentTranscriptEntry {
   kind: "activity" | "message" | "notice" | "plan" | "request";
   label: string;
   status: string | null;
+  streaming: boolean;
   summary: string | null;
   text: string | null;
   tone: AgentTranscriptTone;

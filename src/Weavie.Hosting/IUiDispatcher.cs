@@ -3,14 +3,72 @@ using System.Collections.Concurrent;
 namespace Weavie.Hosting;
 
 /// <summary>
-/// Marshals an action onto the host's UI thread (WinForms <c>BeginInvoke</c>, Cocoa
-/// <c>BeginInvokeOnMainThread</c>, GTK <c>GtkMain.Invoke</c>; headless runs a dedicated serial thread). Always
-/// fire-and-forget: a synchronous hop would deadlock the PTY-teardown path the bridges document. Host catalog
-/// mutations are serialized here; session message routing does not depend on presentation selection.
+/// Marshals work onto the host's UI thread (WinForms <c>BeginInvoke</c>, Cocoa
+/// <c>BeginInvokeOnMainThread</c>, GTK <c>GtkMain.Invoke</c>; headless runs a dedicated serial thread). Dispatch is
+/// always asynchronous because a synchronous hop would deadlock the PTY-teardown path the bridges document.
+/// Host catalog mutations are serialized here; session message routing does not depend on presentation selection.
 /// </summary>
 public interface IUiDispatcher {
 	/// <summary>Queues <paramref name="action"/> to run on the UI thread (or inline when there is none).</summary>
 	void Post(Action action);
+}
+
+/// <summary>Awaitable, non-blocking entry to an <see cref="IUiDispatcher"/>.</summary>
+public static class UiDispatcherExtensions {
+	private const int EntryPending = 0;
+	private const int EntryStarted = 1;
+	private const int EntryCanceled = 2;
+
+	/// <summary>Starts <paramref name="action"/> on the UI thread and propagates its completion.</summary>
+	public static Task InvokeAsync(
+		this IUiDispatcher dispatcher,
+		Func<Task> action,
+		CancellationToken ct) =>
+		InvokeCoreAsync(
+			dispatcher,
+			async () => {
+				await action().ConfigureAwait(false);
+				return true;
+			},
+			ct);
+
+	/// <summary>Starts <paramref name="action"/> on the UI thread and propagates its result.</summary>
+	public static Task<T> InvokeAsync<T>(
+		this IUiDispatcher dispatcher,
+		Func<Task<T>> action,
+		CancellationToken ct) =>
+		InvokeCoreAsync(dispatcher, action, ct);
+
+	private static async Task<T> InvokeCoreAsync<T>(
+		IUiDispatcher dispatcher,
+		Func<Task<T>> action,
+		CancellationToken ct) {
+		ArgumentNullException.ThrowIfNull(dispatcher);
+		ArgumentNullException.ThrowIfNull(action);
+		ct.ThrowIfCancellationRequested();
+		var started = new TaskCompletionSource<Task<T>>(TaskCreationOptions.RunContinuationsAsynchronously);
+		int entryState = EntryPending;
+		// Cancellation can prevent UI entry; once entry starts, drain the action to preserve dispatcher ordering.
+		using var cancellation = ct.Register(() => {
+			if (Interlocked.CompareExchange(ref entryState, EntryCanceled, EntryPending) == EntryPending) {
+				started.TrySetCanceled(ct);
+			}
+		});
+		dispatcher.Post(() => {
+			if (Interlocked.CompareExchange(ref entryState, EntryStarted, EntryPending) != EntryPending) {
+				return;
+			}
+
+			try {
+				started.TrySetResult(action());
+			} catch (Exception ex) {
+				started.TrySetException(ex);
+			}
+		});
+
+		var running = await started.Task.ConfigureAwait(false);
+		return await running.ConfigureAwait(false);
+	}
 }
 
 /// <summary>An <see cref="IUiDispatcher"/> that runs actions inline — for tests that drive the host single-threaded.</summary>

@@ -603,7 +603,7 @@ describe("toAgentTranscript", () => {
   });
 
   it("coalesces assistant deltas and replaces them with the completed item", () => {
-    const transcript = toAgentTranscript([
+    const streamed: AgentPaneUpdate[] = [
       { type: "user-message", providerId: "codex", turnId: "turn-1", text: "hello" },
       {
         type: "agent-message-delta",
@@ -621,6 +621,16 @@ describe("toAgentTranscript", () => {
         itemType: "agentMessage",
         text: "lo",
       },
+    ];
+    const provisional = toAgentTranscript(streamed);
+
+    expect(provisional.map((entry) => [entry.text, entry.streaming])).toEqual([
+      ["hello", false],
+      ["Hello", true],
+    ]);
+
+    const completed = toAgentTranscript([
+      ...streamed,
       {
         type: "item-completed",
         providerId: "codex",
@@ -632,7 +642,10 @@ describe("toAgentTranscript", () => {
       },
     ]);
 
-    expect(transcript.map((entry) => entry.text)).toEqual(["hello", "Hello!"]);
+    expect(completed.map((entry) => [entry.text, entry.streaming])).toEqual([
+      ["hello", false],
+      ["Hello!", false],
+    ]);
   });
 
   it("promotes a completed plan into an openable result while its delta stays provisional activity", () => {

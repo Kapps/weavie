@@ -50,7 +50,7 @@ internal sealed class LinuxPlatform : IHostPlatform {
 		// No window toggle on the GTK host.
 	}
 
-	// Called on the GTK main thread from OnWebMessage, where the clipboard API is valid. Store so the text
+	// Host-bus handlers enter the GTK main thread before reaching the clipboard API. Store so the text
 	// survives this process exiting (X11 clipboards otherwise vanish with their owner).
 	public void WriteClipboard(string text) {
 		IntPtr clipboard = Gtk.gtk_clipboard_get(Gtk.SelectionClipboard);

@@ -30,43 +30,39 @@ export function AgentTranscript(props: {
   // All section labels in one O(entries) pass, keyed by entry id. Reads only kind/tone/id (never text), so a
   // streaming text delta never re-runs it; a turn ending updates a Map value, never an entry's identity.
   const sectionLabels = createMemo(() => computeSectionLabels(props.entries, turnActive()));
-  const turnStartId = createMemo(() => latestTurnStartId(props.entries));
 
   return (
-    <div class="agent-transcript" data-agent-transcript>
-      <Show
-        when={props.entries.length > 0}
-        fallback={<EmptyState providerName={props.providerName} />}
-      >
-        <For each={props.entries}>
-          {(entry) => (
-            <TranscriptEntry
-              detailsExpanded={expandedDetails().has(detailsKey(props.session, entry.id))}
-              entry={entry}
-              keyboardApprovalId={props.keyboardApprovalId}
-              onDetailsToggle={(open) => {
-                const key = detailsKey(props.session, entry.id);
-                setExpandedDetails((current) => {
-                  if (current.has(key) === open) {
-                    return current;
-                  }
-                  const next = new Set(current);
-                  if (open) {
-                    next.add(key);
-                  } else {
-                    next.delete(key);
-                  }
-                  return next;
-                });
-              }}
-              sectionLabel={sectionLabels().get(entry.id) ?? null}
-              session={props.session}
-              turnStart={entry.id === turnStartId()}
-            />
-          )}
-        </For>
-      </Show>
-    </div>
+    <Show
+      when={props.entries.length > 0}
+      fallback={<EmptyState providerName={props.providerName} />}
+    >
+      <For each={props.entries}>
+        {(entry) => (
+          <TranscriptEntry
+            detailsExpanded={expandedDetails().has(detailsKey(props.session, entry.id))}
+            entry={entry}
+            keyboardApprovalId={props.keyboardApprovalId}
+            onDetailsToggle={(open) => {
+              const key = detailsKey(props.session, entry.id);
+              setExpandedDetails((current) => {
+                if (current.has(key) === open) {
+                  return current;
+                }
+                const next = new Set(current);
+                if (open) {
+                  next.add(key);
+                } else {
+                  next.delete(key);
+                }
+                return next;
+              });
+            }}
+            sectionLabel={sectionLabels().get(entry.id) ?? null}
+            session={props.session}
+          />
+        )}
+      </For>
+    </Show>
   );
 }
 
@@ -116,7 +112,6 @@ function TranscriptEntry(props: {
   onDetailsToggle: (open: boolean) => void;
   sectionLabel: "Updates" | "Results" | null;
   session: ClientSession | null;
-  turnStart: boolean;
 }): JSX.Element {
   return (
     <article
@@ -125,7 +120,7 @@ function TranscriptEntry(props: {
         "agent-entry-edit": props.entry.actionMessage?.type === "edit-location",
         "agent-entry-result": props.sectionLabel !== null,
       }}
-      data-agent-turn-start={props.turnStart ? "" : undefined}
+      data-agent-turn-start={props.entry.turnStart ? "" : undefined}
     >
       <Show when={props.sectionLabel !== null || showEntryHeader(props.entry)}>
         <div class="agent-entry-head" title={entryTitle(props.entry)}>
@@ -178,16 +173,6 @@ function TranscriptEntry(props: {
       </div>
     </article>
   );
-}
-
-function latestTurnStartId(entries: readonly AgentTranscriptEntry[]): string | null {
-  for (let index = entries.length - 1; index >= 0; index -= 1) {
-    const entry = entries[index];
-    if (entry?.turnStart === true) {
-      return entry.id;
-    }
-  }
-  return null;
 }
 
 function showEntryHeader(entry: AgentTranscriptEntry): boolean {

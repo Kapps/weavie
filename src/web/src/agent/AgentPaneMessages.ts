@@ -54,7 +54,9 @@ export function toAgentTranscript(messages: readonly AgentPaneUpdate[]): AgentTr
 
     const durable = durableEntry(message, resolved, reportedTurnErrors, sequence);
     if (durable !== null) {
-      durable.turnStart = startsTurn;
+      if (startsTurn) {
+        durable.turnStart = true;
+      }
       entries.push(durable);
       if (message.type === "user-message") {
         activeTurn = message.turnId ?? `turn-${sequence}`;
@@ -191,7 +193,6 @@ function planEntry(message: AgentPaneUpdate, sequence: number): AgentTranscriptE
     summary: identity === null ? "Plan is unavailable" : "Ready to review in the editor",
     text: null,
     tone: "assistant",
-    turnStart: false,
   };
 }
 
@@ -214,7 +215,6 @@ function entry(
     summary: normalizeText(message.summary),
     text: normalizeText(message.text),
     tone,
-    turnStart: false,
   };
 }
 
@@ -312,7 +312,6 @@ function activityFor(
     summary: null,
     text: null,
     tone: "activity",
-    turnStart: false,
   };
   activities.set(turnKey, activity);
   entries.push(activity);
@@ -341,6 +340,7 @@ function upsertStep(activity: MutableActivity, update: ActivityStepUpdate): void
 
 function stripMutable(entry: AgentTranscriptEntry | MutableActivity): AgentTranscriptEntry {
   return {
+    ...(entry.turnStart === true ? { turnStart: true as const } : {}),
     actionMessage: entry.actionMessage,
     details: entry.details,
     id: entry.id,
@@ -351,7 +351,6 @@ function stripMutable(entry: AgentTranscriptEntry | MutableActivity): AgentTrans
     summary: entry.summary,
     text: entry.text,
     tone: entry.tone,
-    turnStart: entry.turnStart,
   };
 }
 
@@ -411,7 +410,6 @@ function flushEdits(output: AgentTranscriptEntry[], edits: AgentTranscriptEntry[
     summary: `edited ${edits.length} files`,
     text: null,
     tone: "activity",
-    turnStart: false,
   });
 }
 

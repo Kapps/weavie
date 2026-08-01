@@ -31,10 +31,7 @@ export function AgentPane(props: {
   const providerName = (): string => (props.providerId === "codex" ? "Codex" : "Agent");
   // Only the card the keyboard chords answer wears the chips.
   const keyboardApprovalId = createMemo(() => pendingApproval(props.messages)?.requestId ?? null);
-  const scroll = createAgentPaneScroll(
-    () => props.session,
-    () => props.messages,
-  );
+  const scroll = createAgentPaneScroll(() => props.session);
 
   const commandTitle = (label: string, commandId: string): string => {
     const key = liveKeyLabel(commandId);
@@ -101,13 +98,15 @@ export function AgentPane(props: {
       </div>
       <div class="agent-body-wrap">
         <div class="agent-body" ref={scroll.bindBody} onScroll={scroll.onScroll}>
-          <AgentTranscript
-            entries={entries}
-            keyboardApprovalId={keyboardApprovalId()}
-            messages={props.messages}
-            providerName={providerName()}
-            session={props.session}
-          />
+          <div class="agent-transcript" data-agent-transcript>
+            <AgentTranscript
+              entries={entries}
+              keyboardApprovalId={keyboardApprovalId()}
+              messages={props.messages}
+              providerName={providerName()}
+              session={props.session}
+            />
+          </div>
         </div>
         <Show when={scroll.followingLatest() && scroll.turnStartAbove()}>
           <button

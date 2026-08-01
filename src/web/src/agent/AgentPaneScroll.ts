@@ -1,16 +1,14 @@
 import { type Accessor, createEffect, createSignal, on, onCleanup, onMount } from "solid-js";
-import type { AgentPaneUpdate, ClientSession } from "../bridge";
+import type { ClientSession } from "../bridge";
 import { registerCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 
-export function createAgentPaneScroll(
-  session: Accessor<ClientSession | null>,
-  messages: Accessor<readonly AgentPaneUpdate[]>,
-) {
+export function createAgentPaneScroll(session: Accessor<ClientSession | null>) {
   let body: HTMLDivElement | undefined;
   let scrollScheduled = false;
   let programmaticScroll = false;
   let assignedTop = 0;
+  let assignedFollowingLatest = true;
   const [followingLatest, setFollowingLatest] = createSignal(true);
   const [turnStartAbove, setTurnStartAbove] = createSignal(false);
 
@@ -23,8 +21,10 @@ export function createAgentPaneScroll(
     return distance <= Math.ceil(lineHeight * 3);
   };
 
-  const turnStart = (): HTMLElement | null =>
-    body?.querySelector<HTMLElement>("[data-agent-turn-start]") ?? null;
+  const turnStart = (): HTMLElement | null => {
+    const starts = body?.querySelectorAll<HTMLElement>("[data-agent-turn-start]");
+    return starts?.item(starts.length - 1) ?? null;
+  };
 
   const updateTurnStartPosition = (): void => {
     const start = turnStart();
@@ -34,6 +34,20 @@ export function createAgentPaneScroll(
         start.getBoundingClientRect().top < body.getBoundingClientRect().top,
     );
   };
+
+  const assignScrollTop = (top: number, followsLatest: boolean): void => {
+    if (body === undefined) {
+      return;
+    }
+    const previous = body.scrollTop;
+    body.scrollTop = top;
+    assignedTop = body.scrollTop;
+    assignedFollowingLatest = followsLatest;
+    programmaticScroll ||= assignedTop !== previous;
+    updateTurnStartPosition();
+  };
+
+  const assignBottom = (): void => assignScrollTop(body?.scrollHeight ?? 0, true);
 
   const scrollToBottom = (): void => {
     if (scrollScheduled) {
@@ -45,11 +59,7 @@ export function createAgentPaneScroll(
       if (body === undefined || !followingLatest()) {
         return;
       }
-      const previous = body.scrollTop;
-      body.scrollTop = body.scrollHeight;
-      assignedTop = body.scrollTop;
-      programmaticScroll = assignedTop !== previous;
-      updateTurnStartPosition();
+      assignBottom();
     });
   };
 
@@ -58,14 +68,14 @@ export function createAgentPaneScroll(
     if (body === undefined || start === null) {
       return false;
     }
-    const top =
+    const markerTop =
       body.scrollTop + start.getBoundingClientRect().top - body.getBoundingClientRect().top;
+    const top = Math.min(Math.max(markerTop, 0), body.scrollHeight - body.clientHeight);
     if (Math.abs(body.scrollTop - top) < 1) {
       return false;
     }
     setFollowingLatest(false);
-    body.scrollTop = top;
-    updateTurnStartPosition();
+    assignScrollTop(top, false);
     return true;
   };
 
@@ -74,18 +84,20 @@ export function createAgentPaneScroll(
       return false;
     }
     setFollowingLatest(true);
-    scrollToBottom();
+    assignBottom();
     return true;
   };
 
-  // A scheduled bottom assignment may share a scroll event with user input; only the exact assigned
-  // position keeps following, while any other position is treated as the user's choice.
+  // A controller assignment preserves its intended follow state only at the exact assigned position;
+  // any other position is the user's choice.
   const onScroll = (): void => {
     if (programmaticScroll) {
+      const followsLatest = assignedFollowingLatest;
       programmaticScroll = false;
       if (body !== undefined && body.scrollTop === assignedTop) {
+        setFollowingLatest(followsLatest);
         updateTurnStartPosition();
-        if (!isNearBottom()) {
+        if (followsLatest && !isNearBottom()) {
           scrollToBottom();
         }
         return;
@@ -94,14 +106,6 @@ export function createAgentPaneScroll(
     setFollowingLatest(isNearBottom());
     updateTurnStartPosition();
   };
-
-  createEffect(
-    on(messages, () => {
-      if (followingLatest()) {
-        scrollToBottom();
-      }
-    }),
-  );
 
   // This pane is shared presentation, so an exact owner/incarnation change starts with fresh follow state.
   createEffect(

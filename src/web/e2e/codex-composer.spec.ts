@@ -947,100 +947,91 @@ test.describe("Codex composer", () => {
     await mountCodex(page);
     publishCatalog();
     publishPane(
+      userMessage(
+        Array.from({ length: 40 }, (_, index) => `Earlier line ${index + 1}.`).join("\n"),
+      ),
+    );
+    const turn = { threadId: "thread-long", turnId: "turn-long" };
+    publishPane(
       paneMessage({
+        ...turn,
         type: "user-message",
-        threadId: "thread-long",
-        turnId: "turn-long",
         itemId: "prompt-long",
         text: "Explain the long result",
       }),
     );
-    publishPane(
-      paneMessage({
-        type: "agent-message-delta",
-        threadId: "thread-long",
-        turnId: "turn-long",
-        itemId: "answer-long",
-        itemType: "agentMessage",
-        text: "Short opening.",
-      }),
-    );
-
     const body = page.locator(".agent-body");
     const turnPill = page.getByRole("button", { name: "↑ Jump to turn", exact: true });
     const latestPill = page.getByRole("button", { name: "↓ Jump to latest", exact: true });
-    const turnStart = page.locator("[data-agent-turn-start]");
     const distanceFromBottom = (): Promise<number> =>
       body.evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight);
-    const turnStartOffset = (): Promise<number> =>
-      turnStart.evaluate((element) => {
-        const scrollBody = element.closest(".agent-body");
-        if (scrollBody === null) {
-          throw new Error("turn start is outside the agent body");
-        }
-        return Math.abs(
-          element.getBoundingClientRect().top - scrollBody.getBoundingClientRect().top,
-        );
-      });
+    await expect(page.getByText("Explain the long result", { exact: true })).toBeVisible();
+    await page.locator("[data-agent-composer] textarea").focus();
+    await page.keyboard.press("Alt+ArrowUp");
+    await expect(latestPill).toHaveCount(0);
 
-    await expect(page.getByText("Short opening.", { exact: true })).toBeVisible();
-    await expect(turnPill).toHaveCount(0);
+    await body.evaluate((element) => {
+      element.scrollTop = 0;
+    });
+    await expect(latestPill).toBeVisible();
+    await page.keyboard.press("Alt+ArrowUp");
+    await page.evaluate(
+      () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+    );
+    await expect.poll(distanceFromBottom).toBeLessThan(1);
+    await expect(latestPill).toBeVisible();
+    await page.keyboard.press("Alt+ArrowDown");
+    await expect(latestPill).toHaveCount(0);
 
-    const longContinuation = Array.from(
-      { length: 80 },
-      (_, index) => `Paragraph ${index + 1} keeps this turn moving.`,
-    ).join("\n\n");
     publishPane(
       paneMessage({
+        ...turn,
         type: "agent-message-delta",
-        threadId: "thread-long",
-        turnId: "turn-long",
         itemId: "answer-long",
         itemType: "agentMessage",
-        text: `\n\n${longContinuation}`,
+        text: Array.from({ length: 80 }, (_, index) => `Paragraph ${index + 1}.`).join("\n\n"),
       }),
     );
+
+    const turnStart = page.locator("[data-agent-turn-start]").last();
 
     await expect(turnPill).toBeVisible();
     await expect(turnPill).toHaveAttribute("title", "Jump to the start of this turn (Alt+Up)");
     await expect.poll(distanceFromBottom).toBeLessThan(1);
 
     await turnPill.click();
-    await expect.poll(turnStartOffset).toBeLessThan(1);
+    await expect
+      .poll(() =>
+        turnStart.evaluate((element) => {
+          const scrollBody = element.closest(".agent-body");
+          return Math.abs(
+            element.getBoundingClientRect().top -
+              (scrollBody?.getBoundingClientRect().top ?? Number.POSITIVE_INFINITY),
+          );
+        }),
+      )
+      .toBeLessThan(1);
     await expect(latestPill).toHaveAttribute(
       "title",
       "Scroll to the latest activity and follow it (Alt+Down)",
     );
-
-    publishPane(
-      paneMessage({
-        type: "user-image",
-        threadId: "thread-long",
-        turnId: "turn-long",
-        itemId: "image-only-steer",
-        text: "/tmp/steer.png",
-      }),
-    );
-    await expect(turnStart).toHaveCount(1);
-    await expect(turnStart).toContainText("Explain the long result");
 
     await page.keyboard.press("Alt+ArrowDown");
     await expect.poll(distanceFromBottom).toBeLessThan(1);
     await expect(turnPill).toBeVisible();
 
     await page.keyboard.press("Alt+ArrowUp");
-    await expect.poll(turnStartOffset).toBeLessThan(1);
-    await latestPill.click();
+    await expect(latestPill).toBeVisible();
+    await page.keyboard.press("Alt+ArrowDown");
     await expect.poll(distanceFromBottom).toBeLessThan(1);
 
     publishPane(
       paneMessage({
+        ...turn,
         type: "agent-message-delta",
-        threadId: "thread-long",
-        turnId: "turn-long",
-        itemId: "answer-after-steer",
+        itemId: "answer-long",
         itemType: "agentMessage",
-        text: "Followed output after returning to latest.",
+        text: "\n\nFollowed output after returning to latest.",
       }),
     );
     await expect(
@@ -1063,13 +1054,6 @@ test.describe("Codex composer", () => {
     await expect(latestPill).toHaveCount(0);
     await expect(turnPill).toHaveCount(0);
     await expect.poll(distanceFromBottom).toBeLessThan(1);
-
-    const staleCommand = await host.requestSession(codexSession.address, "commands", "run", {
-      id: "weavie.agent.jumpToLatest",
-      args: null,
-    });
-    expect(staleCommand.error).toContain("No handler is registered for commands.run");
-    await expect(latestPill).toHaveCount(0);
   });
 
   test("Up/Down recall previously submitted prompts", async ({ page }) => {

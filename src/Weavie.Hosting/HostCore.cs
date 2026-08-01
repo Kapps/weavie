@@ -246,7 +246,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 		_worktrees = isRepo ? BuildWorktreeManager(git) : null;
 		_sessions = new SessionManager(_worktrees);
 		AddPrimarySlot(primaryLabel);
-		ActivateSessionMessages(_primarySession);
+		ActivateSessionRuntimeAndMessages(_primarySession);
 		await ReconcileWorktreesOnOpenAsync().ConfigureAwait(false);
 		// Overlay persisted loaded state onto the reconciled chips. Client selection is intentionally not restored
 		// by the host.

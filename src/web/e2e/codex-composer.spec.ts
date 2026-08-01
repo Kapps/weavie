@@ -430,7 +430,9 @@ test.describe("Codex composer", () => {
       id: "cx:thread-plan:turn-plan:plan-1",
       path: planPath,
       title: "Implementation plan",
-      markdown: "# Implementation\n\n1. Add the plan document.",
+      markdown:
+        "# Implementation\n\n1. Add the plan document.\n\n" +
+        "```mermaid\nflowchart LR\n  A[Plan] --> B[Ship]\n```",
     });
     host.publishSession(codexSession.address, "editor", "openOverlay", {
       path: planPath,
@@ -441,6 +443,7 @@ test.describe("Codex composer", () => {
     await expect(plan).toBeVisible();
     await expect(plan.locator(".editor-plan-head h1")).toHaveText("Implementation plan");
     await expect(plan.locator(".agent-markdown")).toContainText("Add the plan document.");
+    await expect(plan.locator(".mermaid-rendered > svg")).toBeVisible();
     await expect(page.locator(".editor-tab", { hasText: "Implementation plan" })).toBeVisible();
     await page.screenshot({ path: join(shotsDir, "14-plan-document.png") });
   });

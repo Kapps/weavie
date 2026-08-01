@@ -1117,6 +1117,11 @@ test.describe("Codex composer", () => {
     expect(movedWithinDraft).toBe(true);
   });
 
+  // Flaked on main 2026-08-01 07:33 UTC (run https://github.com/Kapps/weavie/actions/runs/30689961665,
+  // commit 90e2b846, macOS job). Root cause: PR #482 merged from a stale base, silently reverting this
+  // file to its pre-7be4f84 pixel/count-based assertions for one merge window. No code fix was needed —
+  // PR #480's merge (7dd9dba4) restored the caret-based version below 49 minutes later, and it has held
+  // since. Comment added per flake-tracking policy since the failure landed on main either way.
   test("Down moves through a soft-wrapped recalled prompt before restoring the draft", async ({
     page,
   }) => {

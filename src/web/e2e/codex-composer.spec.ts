@@ -1117,6 +1117,10 @@ test.describe("Codex composer", () => {
     expect(movedWithinDraft).toBe(true);
   });
 
+  // Flaked on macOS CI 2026-08-01 07:33 UTC (fixed prompt assumed 2 wrapped lines, but
+  // macOS font metrics wrapped it to 1): https://github.com/Kapps/weavie/actions/runs/30689961665
+  // That run's commit predated 7be4f84 (landed on main ~40s earlier via a separate push),
+  // which made this test metric-independent below — already fixed by the time of writing.
   test("Down moves through a soft-wrapped recalled prompt before restoring the draft", async ({
     page,
   }) => {

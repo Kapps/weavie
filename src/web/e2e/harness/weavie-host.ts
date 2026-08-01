@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { type FakeStep, writeFakeClaudeWrapper, writeFakeScript } from "./fake-claude";
+import { writeFakeCodexWrapper } from "./fake-codex";
 import { createGitWorkspace, createPrWorkspace, removeWorkspace } from "./git-workspace";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..");
@@ -195,9 +196,8 @@ export async function waitForHttp(
   }
 }
 
-// Shared per-test scaffolding both transports need: an isolated HOME, a throwaway git workspace, Claude
-// stubbed at the process seam (resume off so no managed-session startup watcher fires on the fake), Codex
-// forced onto its deterministic unavailable-session path, and the optional fake script + its readable log.
+// Shared per-test scaffolding both transports need: an isolated HOME, a throwaway git workspace, both agent
+// runtimes stubbed at their process seams, and the optional fake-Claude script + its readable log.
 export interface FakeScaffold {
   home: string;
   workspace: string;
@@ -214,6 +214,7 @@ export async function prepareFake(options: LaunchOptions): Promise<FakeScaffold>
   const pr = options.pr ? await createPrWorkspace() : null;
   const workspace = pr?.dir ?? (await createGitWorkspace());
   const wrapper = await writeFakeClaudeWrapper(home);
+  const codexWrapper = await writeFakeCodexWrapper(home);
   const fakeLogPath = join(home, "fake-claude.log");
   const env: NodeJS.ProcessEnv = {
     HOME: home,
@@ -225,9 +226,7 @@ export async function prepareFake(options: LaunchOptions): Promise<FakeScaffold>
     CLAUDE_CONFIG_DIR: join(home, ".claude"),
     WEAVIE_CLAUDE_PATH: wrapper,
     WEAVIE_CLAUDE_RESUMESESSION: "false",
-    // Never launch the runner's real Codex. The missing binary becomes UnavailableStructuredAgentSession,
-    // retaining provider identity, routing, and the structured pane without a model or network dependency.
-    WEAVIE_CODEX_PATH: join(home, "missing-codex"),
+    WEAVIE_CODEX_PATH: codexWrapper,
   };
   if (options.fakeScript) {
     env.WEAVIE_FAKE_CLAUDE_SCRIPT = await writeFakeScript(home, options.fakeScript);

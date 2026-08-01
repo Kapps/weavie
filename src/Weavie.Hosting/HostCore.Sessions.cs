@@ -319,9 +319,9 @@ public sealed partial class HostCore {
 	private void PushSessionList() =>
 		_messages.Host.Feature("sessions").Publish("catalog", BuildSessionCatalog());
 
-	private void ActivateSessionMessages(HostSession session) {
+	private void ActivateSessionRuntimeAndMessages(HostSession session) {
 		SyncSession(session, session.Bus.BroadcastTarget);
-		session.ActivateMessages();
+		session.ActivateOwnedRuntimeAndMessages();
 	}
 
 	private SessionCatalogEntry[] BuildSessionCatalog() =>
@@ -476,11 +476,11 @@ public sealed partial class HostCore {
 			LoadSlot(slot);
 			var session = slot.Session!;
 			PushSessionList();
-			ActivateSessionMessages(session);
+			ActivateSessionRuntimeAndMessages(session);
 			PersistSessionState();
-			// Start the backends now so Claude runs even before its pane mounts (else it spawns on terminal ready); the
-			// resize nudge on first mount repaints the live TUI.
-			session.EnsureAgentStarted();
+			// Start Claude now even before its pane mounts (else it spawns on terminal ready); structured runtimes
+			// already started with their owned endpoint. The resize nudge on first mount repaints the live TUI.
+			session.Claude?.EnsureStarted();
 			session.Shell.EnsureStarted();
 		} catch (Exception error) {
 			throw RollbackSessionLoad(slot, removeSlot: false, error: error);
@@ -1061,7 +1061,7 @@ public sealed partial class HostCore {
 				};
 				sessions.Add(slot);
 				PushSessionList();
-				ActivateSessionMessages(slot.Session);
+				ActivateSessionRuntimeAndMessages(slot.Session);
 				PersistSessionState();
 				if (!string.IsNullOrWhiteSpace(prompt)) {
 					SeedFirstPrompt(slot.Session!, prompt);

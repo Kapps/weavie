@@ -103,5 +103,8 @@ Session shutdown has two phases:
 Removing a catalog address closes the corresponding `ClientSession`, its handlers, pending requests,
 models, LSP channels, and background work as one ownership unit.
 
+A loaded structured-agent session starts with its host endpoint. Selection and view attachment never
+start domain work; they only choose where the already-owned state is rendered.
+
 The implementation contract and test matrix live in
 [session-message-bus.md](../specs/session-message-bus.md).

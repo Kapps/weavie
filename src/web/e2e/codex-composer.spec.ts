@@ -1045,6 +1045,11 @@ test.describe("Codex composer", () => {
     ).toBeVisible();
     await expect.poll(distanceFromBottom).toBeLessThan(1);
 
+    await page.evaluate(() =>
+      document.documentElement.style.setProperty("--terminal-font-size", "20px"),
+    );
+    await expect.poll(distanceFromBottom).toBeLessThan(1);
+
     await page.keyboard.press("Alt+ArrowUp");
     await expect(latestPill).toBeVisible();
     const freshSession = mockSession("cx-scroll-reset", "fresh", "codex", false);

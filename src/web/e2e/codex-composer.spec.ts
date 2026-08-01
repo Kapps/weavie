@@ -959,7 +959,7 @@ test.describe("Codex composer", () => {
     publishPane(userMessage("previous prompt"));
 
     const textarea = page.locator("[data-agent-composer] textarea");
-    const draft = "one two three four";
+    const draft = "one two three four five six seven eight";
     await textarea.evaluate((element) => {
       element.style.width = "120px";
     });
@@ -968,21 +968,29 @@ test.describe("Codex composer", () => {
       element.setSelectionRange(element.value.length, element.value.length);
     });
 
-    await page.keyboard.press("ArrowUp");
-    await expect(textarea).toHaveValue(draft);
-    await expect
-      .poll(() => textarea.evaluate((element) => element.selectionStart))
-      .toBeLessThan(draft.length);
+    let previousCaret = draft.length;
+    let movedWithinDraft = false;
+    for (;;) {
+      await page.keyboard.press("ArrowUp");
+      const value = await textarea.inputValue();
+      if (value !== draft) {
+        expect(value).toBe("previous prompt");
+        break;
+      }
 
-    await page.keyboard.press("ArrowUp");
-    await expect(textarea).toHaveValue("previous prompt");
+      const caret = await textarea.evaluate((element) => element.selectionStart);
+      expect(caret).toBeLessThan(previousCaret);
+      previousCaret = caret;
+      movedWithinDraft = true;
+    }
+    expect(movedWithinDraft).toBe(true);
   });
 
   test("Down moves through a soft-wrapped recalled prompt before restoring the draft", async ({
     page,
   }) => {
     await mountCodex(page);
-    const prompt = "one two three four";
+    const prompt = "one two three four five six seven eight";
     publishPane(userMessage(prompt));
 
     const textarea = page.locator("[data-agent-composer] textarea");
@@ -992,13 +1000,26 @@ test.describe("Codex composer", () => {
     await textarea.fill("live draft");
     await page.keyboard.press("ArrowUp");
     await expect(textarea).toHaveValue(prompt);
+    await expect
+      .poll(() => textarea.evaluate((element) => element.selectionStart))
+      .toBe(prompt.length);
 
     await page.keyboard.press("ArrowUp");
     await expect(textarea).toHaveValue(prompt);
-    await page.keyboard.press("ArrowDown");
-    await expect(textarea).toHaveValue(prompt);
+    let previousCaret = await textarea.evaluate((element) => element.selectionStart);
+    expect(previousCaret).toBeLessThan(prompt.length);
 
-    await page.keyboard.press("ArrowDown");
-    await expect(textarea).toHaveValue("live draft");
+    for (;;) {
+      await page.keyboard.press("ArrowDown");
+      const value = await textarea.inputValue();
+      if (value !== prompt) {
+        expect(value).toBe("live draft");
+        break;
+      }
+
+      const caret = await textarea.evaluate((element) => element.selectionStart);
+      expect(caret).toBeGreaterThan(previousCaret);
+      previousCaret = caret;
+    }
   });
 });

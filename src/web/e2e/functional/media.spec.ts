@@ -110,11 +110,43 @@ test("video file opens as an autoplaying <video controls> in the media pane @cro
   await expect(video).toHaveAttribute("preload", "metadata");
   await expect(video).toHaveAttribute("autoplay", "");
   await expect(page.locator(".editor-media-notice")).toHaveCount(0);
+  await expect(page.locator('.editor-surface[data-kind="editor"]')).toHaveClass(/\bactive\b/);
   const src = (await video.getAttribute("src")) as string;
   expect(new URL(src).pathname).toBe("/weavie-media");
   const range = await page.request.get(src, { headers: { Range: "bytes=2-5" } });
   expect(range.status()).toBe(206);
   expect(await range.body()).toEqual(Buffer.from([0xdf, 0xa3, 0x9f, 0x42]));
+});
+
+// Mounting a restored media overlay must preserve the pane that owns keyboard focus. Otherwise autoplaying
+// video moves focus into the editor, changing Ctrl+Tab from session navigation to editor-tab navigation.
+test("autoplaying video preserves terminal focus across keyboard session switches", async ({
+  page,
+}) => {
+  await openFile(page, "clip.webm");
+  const videoSession = await activeSessionSlot(page);
+
+  await runCommand(page, "Fork Session");
+  await expect(page.locator(".session-chip")).toHaveCount(2);
+  const terminalSession = await waitForSessionSwitch(page, videoSession);
+  const shell = page.locator('.terminal-surface[data-kind="terminal:shell"]');
+  await shell.locator(".pane-head").click();
+  await expect(shell).toHaveClass(/\bactive\b/);
+
+  await page.keyboard.press("Control+Shift+Tab");
+  await expect(page.locator(".session-chip.active")).toHaveAttribute(
+    "data-session-slot",
+    videoSession,
+  );
+  await expect(page.locator(".editor-media video")).toHaveAttribute("autoplay", "");
+  await expect(shell).toHaveClass(/\bactive\b/);
+
+  await page.keyboard.press("Control+Tab");
+  await expect(page.locator(".session-chip.active")).toHaveAttribute(
+    "data-session-slot",
+    terminalSession,
+  );
+  await expect(shell).toHaveClass(/\bactive\b/);
 });
 
 // Turning editor.videoAutoplay off (here via the settings MCP round-trip) drops the autoplay attribute from

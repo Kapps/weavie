@@ -1,6 +1,7 @@
 import { createEffect, type JSX, onCleanup, onMount } from "solid-js";
 import type { ClientSession } from "../../bridge";
 import { onPreviewThemeChanged } from "../../theme/controller";
+import { preserveEditorFocusOnMount } from "../focus-on-mount";
 import { installEmbedZoomAndMermaid } from "../preview/embed-zoom";
 // The embed-zoom magnifier styles, injected into the shadow root alongside the highlight theme.
 import EMBED_ZOOM_CSS from "../preview/embed-zoom.css?raw";
@@ -24,6 +25,7 @@ export default function SourceView(props: {
   doc: () => SourceDocEntry | undefined;
   target: () => string;
   session: ClientSession;
+  focusOnMount: boolean;
 }): JSX.Element {
   let host!: HTMLDivElement;
   let root: ShadowRoot | undefined;
@@ -144,10 +146,11 @@ export default function SourceView(props: {
     edit.handleClick(path);
   };
 
-  onMount(() => {
-    host.addEventListener("click", onClick, { capture: true });
-    host.focus();
-  });
+  preserveEditorFocusOnMount(
+    () => host,
+    () => props.focusOnMount,
+  );
+  onMount(() => host.addEventListener("click", onClick, { capture: true }));
   onCleanup(() => {
     host.removeEventListener("click", onClick, { capture: true });
     edit.reset();

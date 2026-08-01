@@ -1085,6 +1085,11 @@ test.describe("Codex composer", () => {
     await expect(textarea).toHaveValue("a fresh draft");
   });
 
+  // Flaked 2026-08-01 07:33 UTC on macOS (run:
+  // https://github.com/Kapps/weavie/actions/runs/30689961665) — fixed arrow-key counts assumed a
+  // specific soft-wrap line count, which is font/viewport metric dependent. This test and the one
+  // below were rewritten to loop on the recalled value instead of asserting after a fixed number of
+  // key presses.
   test("Up moves through soft-wrapped draft lines before recalling history", async ({ page }) => {
     await mountCodex(page);
     publishPane(userMessage("previous prompt"));

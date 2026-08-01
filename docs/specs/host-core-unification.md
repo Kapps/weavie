@@ -76,9 +76,10 @@ See [session-message-bus.md](session-message-bus.md) for the full protocol.
 
 ## Concurrency model
 
-The platform dispatcher protects host catalog and shared-store mutations. Message handlers use per-feature
-lanes within their owning endpoint; unrelated features and sessions run independently. Background callbacks
-enter a session-owned `SessionTaskScope`, which is cancelled and drained during teardown.
+The platform dispatcher protects host catalog, shared-store, and native UI mutations. Every host-bus handler
+enters it after per-feature lane admission; session-bus handlers execute directly, so unrelated session
+features and sessions remain independent. Background callbacks enter a session-owned `SessionTaskScope`,
+which is cancelled and drained during teardown.
 
 This separates two concerns:
 

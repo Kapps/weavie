@@ -107,7 +107,7 @@ public sealed partial class HostCore {
 		}
 
 		// Seed + arm atomically: a newer review may replace this one while its git reads are running.
-		await RunOnUiAsync(() => {
+		await _ui.InvokeAsync(() => {
 			if (!ReferenceEquals(ActiveReview(session), review)) {
 				return Task.CompletedTask;
 			}
@@ -134,7 +134,7 @@ public sealed partial class HostCore {
 			session.FileOpener.Open(first, line, preview: true, scratch: false);
 			PushReviewFileToWeb(session, first);
 			return Task.CompletedTask;
-		}).ConfigureAwait(false);
+		}, ct).ConfigureAwait(false);
 	}
 
 	/// <summary>The changed-file list for <paramref name="review"/> — the file axis of the diff walk.</summary>

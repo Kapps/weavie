@@ -321,7 +321,7 @@ public sealed class SessionMessageBusTests {
 	[Fact]
 	public async Task ViewRequestTargetsOnlyThePageBoundToTheExactSession() {
 		var transport = new RecordingTransport();
-		await using var router = new HostMessageRouter(transport, _ => { });
+		await using var router = new HostMessageRouter(transport, new InlineUiDispatcher(), _ => { });
 		await using var endpoint = router.OpenSession(new SessionAddress("a", "a1"));
 		endpoint.Activate();
 		var peer = new WebPeer("page-a");
@@ -360,7 +360,7 @@ public sealed class SessionMessageBusTests {
 	[Fact]
 	public async Task NativeReloadReplacesTheViewGenerationAndSettlesItsOldRequest() {
 		var transport = new RecordingTransport();
-		await using var router = new HostMessageRouter(transport, _ => { });
+		await using var router = new HostMessageRouter(transport, new InlineUiDispatcher(), _ => { });
 		await using var endpoint = router.OpenSession(new SessionAddress("a", "a1"));
 		endpoint.Activate();
 		await router.RouteAsync(
@@ -430,7 +430,7 @@ public sealed class SessionMessageBusTests {
 	[Fact]
 	public async Task ViewAuthorshipIsCapturedAtAdmissionAndRejectsAnUnboundPage() {
 		var transport = new RecordingTransport();
-		await using var router = new HostMessageRouter(transport, _ => { });
+		await using var router = new HostMessageRouter(transport, new InlineUiDispatcher(), _ => { });
 		await using var endpoint = router.OpenSession(new SessionAddress("a", "a1"));
 		endpoint.Activate();
 		var first = new WebPeer("page-a");
@@ -528,7 +528,7 @@ public sealed class SessionMessageBusTests {
 	[Fact]
 	public async Task MovingAPageBindingCannotMakeAViewRequestHitItsPreviousSession() {
 		var transport = new RecordingTransport();
-		await using var router = new HostMessageRouter(transport, _ => { });
+		await using var router = new HostMessageRouter(transport, new InlineUiDispatcher(), _ => { });
 		await using var first = router.OpenSession(new SessionAddress("a", "a1"));
 		await using var second = router.OpenSession(new SessionAddress("b", "b1"));
 		first.Activate();
@@ -561,7 +561,7 @@ public sealed class SessionMessageBusTests {
 	[Fact]
 	public async Task DetachingDuringViewRequestAdmissionCancelsTheExactRequest() {
 		var transport = new RecordingTransport();
-		await using var router = new HostMessageRouter(transport, _ => { });
+		await using var router = new HostMessageRouter(transport, new InlineUiDispatcher(), _ => { });
 		await using var endpoint = router.OpenSession(new SessionAddress("a", "a1"));
 		endpoint.Activate();
 		var peer = new WebPeer("page");
@@ -605,7 +605,7 @@ public sealed class SessionMessageBusTests {
 	[Fact]
 	public async Task QuiescingASessionSettlesItsOutstandingViewRequest() {
 		var transport = new RecordingTransport();
-		await using var router = new HostMessageRouter(transport, _ => { });
+		await using var router = new HostMessageRouter(transport, new InlineUiDispatcher(), _ => { });
 		await using var endpoint = router.OpenSession(new SessionAddress("a", "a1"));
 		endpoint.Activate();
 		var peer = new WebPeer("page");
@@ -636,7 +636,7 @@ public sealed class SessionMessageBusTests {
 	[Fact]
 	public async Task QuiescingDetachesInboundRoutingButAllowsFinalOwnedEvents() {
 		var transport = new RecordingTransport();
-		await using var router = new HostMessageRouter(transport, _ => { });
+		await using var router = new HostMessageRouter(transport, new InlineUiDispatcher(), _ => { });
 		await using var endpoint = router.OpenSession(new SessionAddress("a", "a1"));
 		endpoint.Activate();
 		var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -682,7 +682,7 @@ public sealed class SessionMessageBusTests {
 	[Fact]
 	public async Task AHandlerIsTrackedBeforeItsCodeCanBeginQuiescingTheEndpoint() {
 		var transport = new RecordingTransport();
-		await using var router = new HostMessageRouter(transport, _ => { });
+		await using var router = new HostMessageRouter(transport, new InlineUiDispatcher(), _ => { });
 		await using var endpoint = router.OpenSession(new SessionAddress("a", "a1"));
 		endpoint.Activate();
 		Task? quiesce = null;
@@ -711,7 +711,7 @@ public sealed class SessionMessageBusTests {
 	[Fact]
 	public async Task AfterResponseWorkCanQuiesceTheEndpointThatCarriedItsReply() {
 		var transport = new RecordingTransport();
-		await using var router = new HostMessageRouter(transport, _ => { });
+		await using var router = new HostMessageRouter(transport, new InlineUiDispatcher(), _ => { });
 		await using var endpoint = router.OpenSession(new SessionAddress("a", "a1"));
 		endpoint.Activate();
 		var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -746,7 +746,7 @@ public sealed class SessionMessageBusTests {
 		var transport = new RecordingTransport {
 			Sending = (_, _) => throw new IOException("peer disconnected"),
 		};
-		await using var router = new HostMessageRouter(transport, logs.Add);
+		await using var router = new HostMessageRouter(transport, new InlineUiDispatcher(), logs.Add);
 		await using var endpoint = router.OpenSession(new SessionAddress("a", "a1"));
 		endpoint.Activate();
 		var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -778,7 +778,7 @@ public sealed class SessionMessageBusTests {
 	[Fact]
 	public async Task SessionPublicationsWaitForCatalogActivationAndKeepTheirOrder() {
 		var transport = new RecordingTransport();
-		await using var router = new HostMessageRouter(transport, _ => { });
+		await using var router = new HostMessageRouter(transport, new InlineUiDispatcher(), _ => { });
 		await using var endpoint = router.OpenSession(new SessionAddress("a", "a1"));
 		var feature = endpoint.Bus.Feature("dummy");
 

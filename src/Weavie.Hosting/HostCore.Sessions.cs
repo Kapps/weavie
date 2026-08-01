@@ -97,13 +97,13 @@ public sealed partial class HostCore {
 	}
 
 	private void PostForSession(HostSession session, Action action) {
-		_ = session.Background.Run(ct => RunOnUiAsync(() => {
+		_ = session.Background.Run(ct => _ui.InvokeAsync(() => {
 			if (!ct.IsCancellationRequested) {
 				action();
 			}
 
 			return Task.CompletedTask;
-		}));
+		}, ct));
 	}
 
 	/// <summary>Test seam for one exact logical slot.</summary>
@@ -624,14 +624,14 @@ public sealed partial class HostCore {
 			return CommandResult.Success("Unloading the session (its worktree will be kept).");
 		}
 
-		await RunOnUiAsync(() => UnloadSlotAsync(target)).ConfigureAwait(false);
+		await _ui.InvokeAsync(() => UnloadSlotAsync(target), ct).ConfigureAwait(false);
 		return CommandResult.Success("Unloaded the session (its worktree is kept; click the chip to reload).");
 	}
 
 	private async Task UnloadAfterReplyAsync(SessionSlot target) {
 		try {
 			await RunSessionLifecycleAsync(
-				() => RunOnUiAsync(() => UnloadSlotAsync(target)),
+				() => _ui.InvokeAsync(() => UnloadSlotAsync(target), CancellationToken.None),
 				CancellationToken.None).ConfigureAwait(false);
 		} catch (Exception ex) {
 			Notify("error", $"Couldn't unload session '{target.Label}': {ex.Message}");
@@ -769,7 +769,7 @@ public sealed partial class HostCore {
 			// its teardown from off it. Past the dirty guard deletion is deliberately uncancellable: self-delete
 			// tears down the endpoint that accepted the command, and git must not be interrupted mid-removal.
 			if (target.Loaded) {
-				await RunOnUiAsync(() => UnloadSlotAsync(target)).ConfigureAwait(false);
+				await _ui.InvokeAsync(() => UnloadSlotAsync(target), CancellationToken.None).ConfigureAwait(false);
 			}
 
 			// Settle before removal: Windows can lag on releasing the unloaded children's handles, and external
@@ -779,12 +779,12 @@ public sealed partial class HostCore {
 			await worktrees.RemoveAsync(worktreePath, deleteBranch: false, force, CancellationToken.None).ConfigureAwait(false);
 			// Back on the UI thread for the slot-set mutation + rail push (the awaits above left it), so the
 			// removal can't interleave with a concurrent switch reading the slot set.
-			await RunOnUiAsync(() => {
+			await _ui.InvokeAsync(() => {
 				_sessions?.Remove(target);
 				PushSessionList();
 				PersistSessionState();
 				return Task.CompletedTask;
-			}).ConfigureAwait(false);
+			}, CancellationToken.None).ConfigureAwait(false);
 			return CommandResult.Success($"Deleted session '{label}': its worktree was removed and the branch kept.");
 		} catch (WorktreeDirtyException) {
 			return CommandResult.Failure(
@@ -816,24 +816,6 @@ public sealed partial class HostCore {
 		} finally {
 			_sessionLifecycle.Release();
 		}
-	}
-
-	/// <summary>
-	/// Starts <paramref name="work"/> on the UI thread and returns its completion, so a caller already off the
-	/// dispatcher can run host-catalog work (such as a slot detach) in order, then await
-	/// its async tail (e.g. a backend teardown) from off it.
-	/// </summary>
-	private Task RunOnUiAsync(Func<Task> work) {
-		var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-		_ui.Post(async () => {
-			try {
-				await work().ConfigureAwait(false);
-				completion.SetResult();
-			} catch (Exception ex) {
-				completion.SetException(ex);
-			}
-		});
-		return completion.Task;
 	}
 
 	private async Task<CommandResult> ClassifyDeleteAsync(string? sessionId, CancellationToken ct) {
@@ -883,7 +865,7 @@ public sealed partial class HostCore {
 		}
 
 		await session.DisposeAsync().ConfigureAwait(false);
-		await RunOnUiAsync(() => {
+		await _ui.InvokeAsync(() => {
 			if (ReferenceEquals(slot.Session, session)) {
 				slot.Session = null;
 				_mediaRoutes.Unregister(session.Incarnation);
@@ -892,7 +874,7 @@ public sealed partial class HostCore {
 			}
 
 			return Task.CompletedTask;
-		}).ConfigureAwait(false);
+		}, CancellationToken.None).ConfigureAwait(false);
 	}
 
 	private SessionSlot? PrimarySlot() => _sessions?.Slots.FirstOrDefault(s => s.IsPrimary);

@@ -1085,6 +1085,10 @@ test.describe("Codex composer", () => {
     await expect(textarea).toHaveValue("a fresh draft");
   });
 
+  // Flaked 2026-08-01 07:33 UTC (run https://github.com/Kapps/weavie/actions/runs/30689961665,
+  // macos): hardcoded ArrowDown-press counts assumed a fixed number of wrapped lines, which
+  // varies with the runner's font metrics. Fixed in 7be4f84 by polling the caret/value instead
+  // of counting keypresses; no recurrence since.
   test("Up moves through soft-wrapped draft lines before recalling history", async ({ page }) => {
     await mountCodex(page);
     publishPane(userMessage("previous prompt"));

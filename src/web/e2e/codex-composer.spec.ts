@@ -1117,6 +1117,8 @@ test.describe("Codex composer", () => {
     expect(movedWithinDraft).toBe(true);
   });
 
+  // Flaked on macOS CI 2026-08-01 07:33 UTC (run 30689961665: https://github.com/Kapps/weavie/actions/runs/30689961665) —
+  // fixed-arrow-press-count assertions were font-metrics-dependent; fixed in 7be4f84 by polling until the value changes.
   test("Down moves through a soft-wrapped recalled prompt before restoring the draft", async ({
     page,
   }) => {

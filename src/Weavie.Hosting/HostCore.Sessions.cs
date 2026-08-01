@@ -452,14 +452,21 @@ public sealed partial class HostCore {
 		}
 	}
 
-	/// <summary>
-	/// Brings up an unloaded slot's exact-addressed backend. Idempotent when the slot is already loaded.
-	/// </summary>
-	private void LoadSlot(SessionSlot slot) {
-		if (!slot.Loaded) {
-			slot.Session = CreateSession(slot.WorktreePath, slot.AgentProviderId, slot.Id);
-			slot.Session.DisplayLabel = slot.Label;
+	/// <summary>Creates and starts one dormant slot's exact-addressed backend.</summary>
+	private void BringDormantSlotOnline(SessionSlot slot) {
+		if (slot.Loaded) {
+			throw new InvalidOperationException($"Session slot '{slot.Id}' is already online.");
 		}
+
+		var session = CreateSession(slot.WorktreePath, slot.AgentProviderId, slot.Id);
+		slot.Session = session;
+		session.DisplayLabel = slot.Label;
+		PushSessionList();
+		ActivateSessionMessages(session);
+		PersistSessionState();
+		// Start only after the exact address is published and activated, so startup events have a known owner.
+		session.EnsureAgentStarted();
+		session.Shell.EnsureStarted();
 	}
 
 	/// <summary>
@@ -473,15 +480,7 @@ public sealed partial class HostCore {
 		}
 
 		try {
-			LoadSlot(slot);
-			var session = slot.Session!;
-			PushSessionList();
-			ActivateSessionMessages(session);
-			PersistSessionState();
-			// Start the backends now so Claude runs even before its pane mounts (else it spawns on terminal ready); the
-			// resize nudge on first mount repaints the live TUI.
-			session.EnsureAgentStarted();
-			session.Shell.EnsureStarted();
+			BringDormantSlotOnline(slot);
 		} catch (Exception error) {
 			throw RollbackSessionLoad(slot, removeSlot: false, error: error);
 		}
@@ -1057,12 +1056,9 @@ public sealed partial class HostCore {
 					WorktreePath = record.Path,
 					IsPrimary = false,
 					AgentProviderId = agentProviderId,
-					Session = CreateSession(record.Path, agentProviderId, branch),
 				};
 				sessions.Add(slot);
-				PushSessionList();
-				ActivateSessionMessages(slot.Session);
-				PersistSessionState();
+				BringDormantSlotOnline(slot);
 				if (!string.IsNullOrWhiteSpace(prompt)) {
 					SeedFirstPrompt(slot.Session!, prompt);
 				}

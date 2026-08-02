@@ -328,16 +328,30 @@ test.describe("session-addressed WebSocket transport", () => {
       return {
         composerBottom: composer.getBoundingClientRect().bottom,
         optionsBottom: options.getBoundingClientRect().bottom,
+        optionTargetHeights: [...options.querySelectorAll("select, button")].map(
+          (target) => target.getBoundingClientRect().height,
+        ),
         listClientHeight: list.clientHeight,
         listScrollHeight: list.scrollHeight,
       };
     });
     expect(geometry.optionsBottom).toBeLessThanOrEqual(geometry.composerBottom + 1);
+    expect(Math.min(...geometry.optionTargetHeights)).toBeGreaterThanOrEqual(44);
     expect(geometry.listScrollHeight).toBeGreaterThan(geometry.listClientHeight);
 
     const unloaded = inbox.locator(".session-inbox-row", { hasText: "Unloaded" });
     await expect(unloaded).toHaveCount(dormant.length);
     await expect(unloaded.locator(".session-status")).toHaveCount(0);
+
+    const draft = inbox.getByRole("textbox", { name: "Prompt for a new session" });
+    await draft.fill("Keep this mobile draft");
+    const agentTab = page.getByRole("button", { name: "Agent", exact: true });
+    await agentTab.click();
+    await page.getByRole("button", { name: "Sessions", exact: true }).click();
+    await expect(draft).toHaveValue("Keep this mobile draft");
+    await agentTab.click();
+    await expect(agentTab).toBeFocused();
+    await page.getByRole("button", { name: "Sessions", exact: true }).click();
 
     const checkpoint = host.checkpoint();
     host.pauseHello();
@@ -360,27 +374,54 @@ test.describe("session-addressed WebSocket transport", () => {
     const overlay = await page.evaluate(() => {
       const composer = document.querySelector(".session-composer");
       const visibleToast = document.querySelector(".toast");
+      const toastClose = document.querySelector(".toast-close");
       const surfaceBar = document.querySelector(".mobile-surface-bar");
-      if (composer === null || visibleToast === null || surfaceBar === null) {
+      if (
+        composer === null ||
+        visibleToast === null ||
+        toastClose === null ||
+        surfaceBar === null
+      ) {
         throw new Error("mobile overlay geometry is incomplete");
       }
       return {
         composerBottom: composer.getBoundingClientRect().bottom,
         toastTop: visibleToast.getBoundingClientRect().top,
         toastBottom: visibleToast.getBoundingClientRect().bottom,
+        toastClose: toastClose.getBoundingClientRect().toJSON(),
         surfaceBarTop: surfaceBar.getBoundingClientRect().top,
       };
     });
     expect(overlay.toastTop).toBeGreaterThanOrEqual(overlay.composerBottom);
     expect(overlay.toastBottom).toBeLessThanOrEqual(overlay.surfaceBarTop);
+    expect(overlay.toastClose.width).toBeGreaterThanOrEqual(44);
+    expect(overlay.toastClose.height).toBeGreaterThanOrEqual(44);
 
     host.resumeHello();
     await expect(primaryRow.locator(".session-inbox-state")).toHaveText("Idle");
     await expect(toast).toHaveCount(0);
 
+    await inbox.getByRole("button", { name: "More…" }).click();
+    const promptTargets = page.locator(
+      ".session-prompt-input, .session-prompt-select, .session-prompt-location-remove",
+    );
+    await expect(promptTargets).not.toHaveCount(0);
+    expect(
+      Math.min(
+        ...(await promptTargets.evaluateAll((targets) =>
+          targets.map((target) => target.getBoundingClientRect().height),
+        )),
+      ),
+    ).toBeGreaterThanOrEqual(44);
+    await page.getByRole("button", { name: "Cancel" }).click();
+
     await page.getByRole("button", { name: "Agent" }).click();
     const agentComposer = page.locator("[data-agent-composer]");
     await expect(agentComposer).toBeVisible();
+    const run = agentComposer.getByRole("button", { name: "Run" });
+    const runBox = await run.boundingBox();
+    expect(runBox?.width).toBeGreaterThanOrEqual(44);
+    expect(runBox?.height).toBeGreaterThanOrEqual(44);
     host.publishHost("notifications", "show", {
       level: "error",
       message: "Agent surface error",

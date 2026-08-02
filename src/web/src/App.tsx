@@ -1507,12 +1507,10 @@ export default function App(): JSX.Element {
           moreTitle={mobileMoreTitle()}
           surfaceTitle={mobileSurfaceTitle}
           onSurface={(surface) => {
-            if (surface === "inbox") {
-              setMobileSurface(surface);
-              return;
-            }
             setMobileSurface(surface);
-            void dispatchCommand(CommandIds.focusPaneByIndex, { index: numberOf(surface) });
+            if (surface !== "inbox") {
+              setActivePane(surface);
+            }
           }}
         />
         <div

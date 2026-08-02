@@ -86,6 +86,22 @@
     padding-bottom: calc(54px + env(safe-area-inset-bottom));
   }
 
+  .app.compact .browser-close,
+  .app.compact .toast-close {
+    display: inline-grid;
+    min-width: 44px;
+    min-height: 44px;
+    place-items: center;
+  }
+
+  .app.compact .browser-row,
+  .app.compact .toast-action,
+  .app.compact .agent-compose-actions button,
+  .app.compact .agent-approval-actions button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
   .modal-backdrop {
     padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom));
   }
@@ -93,6 +109,13 @@
   .session-prompt {
     width: 100%;
     padding: 1.25em;
+  }
+
+  .session-prompt-input,
+  .session-prompt-select,
+  .session-prompt-location-remove,
+  .session-prompt-suggestion {
+    min-height: 44px;
   }
 
   .session-prompt-actions {

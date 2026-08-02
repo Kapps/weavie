@@ -21,6 +21,9 @@ internal static partial class GLib {
 	[LibraryImport(GObject)]
 	internal static partial IntPtr g_type_name_from_instance(IntPtr instance);
 
+	[LibraryImport(GLibCore, StringMarshalling = StringMarshalling.Utf8)]
+	internal static partial void g_set_prgname(string prgname);
+
 	[LibraryImport(GLibCore)]
 	internal static partial void g_free(IntPtr mem);
 

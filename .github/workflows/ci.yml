@@ -78,6 +78,16 @@ jobs:
           cache: pnpm
           cache-dependency-path: src/web/pnpm-lock.yaml
 
+      - name: Install Linux native host test dependencies
+        if: matrix.name == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends \
+            dbus-daemon \
+            gstreamer1.0-plugins-good \
+            libwebkit2gtk-4.1-0 \
+            weston
+
       - name: Cache NuGet packages
         uses: actions/cache@v4
         with:

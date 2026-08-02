@@ -109,7 +109,6 @@ internal sealed class XdgGlobalShortcutsPortal : IGlobalShortcutsPortal {
 
 		PortalConnection? portal = null;
 		try {
-			LinuxDesktopIdentity.EnsureInstalled();
 			await connection.ConnectAsync().ConfigureAwait(false);
 			portal = new PortalConnection(
 				connection,

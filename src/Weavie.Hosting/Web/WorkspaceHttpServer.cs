@@ -113,6 +113,7 @@ public sealed partial class WorkspaceHttpServer : IAsyncDisposable {
 			app.MapGet("/control/status", () => Results.Json(new {
 				buildNumber = HostCore.BuildNumber,
 				draining = _core.Draining,
+				capabilities = new[] { WorkspaceControlProtocol.MessageHealth },
 			}));
 			app.MapPost("/control/drain", () => {
 				_core.BeginDrain(app.Lifetime.StopApplication);

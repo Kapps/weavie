@@ -40,7 +40,9 @@ handler or wait for one.
    separately.
 8. Health is not process liveness. A health response includes ingress responsiveness plus the active/last failed
    message operation. A live process with an unresponsive ingress or a timed-out operation is unhealthy, including
-   while an update is waiting for that worker to drain.
+   while an update is waiting for that worker to drain. Workers advertise this optional control-plane capability
+   through `/control/status`; a runner never probes an older worker that does not advertise it, so rollback remains
+   compatible across the additive protocol change.
 
 ## Pane state
 

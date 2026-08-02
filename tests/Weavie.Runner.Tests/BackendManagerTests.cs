@@ -92,6 +92,50 @@ public sealed class BackendManagerTests {
 	}
 
 	[Fact]
+	public async Task PreHealthWorkerStatus_IsReadyWithoutAdvertisingMessageHealth() {
+		using var http = new HttpClient(new StubHttpHandler(request => {
+			Assert.Contains("/control/status", request.RequestUri?.AbsolutePath, StringComparison.Ordinal);
+			return new HttpResponseMessage(HttpStatusCode.OK) {
+				Content = new StringContent("""{"buildNumber":"0.1.42","draining":false}"""),
+			};
+		}));
+		await using var manager = new BackendManager(
+			Options(),
+			new HeadlessLauncher(() => "headless", "127.0.0.1", log: null),
+			"127.0.0.1",
+			http);
+
+		var status = await manager.TryReadStatusAsync(Backend(), CancellationToken.None);
+
+		Assert.NotNull(status);
+		Assert.Equal(42, status.Build);
+		Assert.False(status.SupportsMessageHealth);
+		var state = new WorkerHealthMonitorState();
+		state.MarkReady(status);
+		Assert.True(state.Ready);
+		Assert.False(state.SupportsMessageHealth);
+	}
+
+	[Theory]
+	[InlineData("[]")]
+	[InlineData("{}")]
+	[InlineData("{\"buildNumber\":42}")]
+	[InlineData("{\"buildNumber\":\"broken\"}")]
+	[InlineData("{\"buildNumber\":\"0.1.42\",\"capabilities\":{}}")]
+	public async Task MalformedWorkerStatus_RemainsNotReady(string body) {
+		using var http = new HttpClient(new StubHttpHandler(_ => new HttpResponseMessage(HttpStatusCode.OK) {
+			Content = new StringContent(body),
+		}));
+		await using var manager = new BackendManager(
+			Options(),
+			new HeadlessLauncher(() => "headless", "127.0.0.1", log: null),
+			"127.0.0.1",
+			http);
+
+		Assert.Null(await manager.TryReadStatusAsync(Backend(), CancellationToken.None));
+	}
+
+	[Fact]
 	public async Task HealthProbe_ReportsTheExactTimedOutMessageOperation() {
 		using var http = new HttpClient(new StubHttpHandler(_ => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable) {
 			Content = new StringContent(
@@ -162,7 +206,7 @@ public sealed class BackendManagerTests {
 		var firstStarted = DateTimeOffset.UnixEpoch;
 		var secondStarted = firstStarted.AddMinutes(3);
 		state.Observe(first, firstSupervisor, firstStarted);
-		state.Ready = true;
+		state.MarkReady(new WorkerControlStatus(42, SupportsMessageHealth: true));
 		state.UnreachableFailures = 2;
 
 		state.Observe(second, secondSupervisor, secondStarted);
@@ -170,6 +214,7 @@ public sealed class BackendManagerTests {
 		Assert.Equal(1, firstSupervisor.Generation);
 		Assert.Equal(1, secondSupervisor.Generation);
 		Assert.False(state.Ready);
+		Assert.False(state.SupportsMessageHealth);
 		Assert.Equal(0, state.UnreachableFailures);
 		Assert.Equal(secondStarted, state.GenerationStarted);
 	}

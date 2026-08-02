@@ -1,4 +1,6 @@
+using System.Text.Json;
 using Weavie.Core.Processes;
+using Weavie.Hosting.Web;
 
 namespace Weavie.Runner;
 
@@ -171,8 +173,8 @@ public sealed partial class BackendManager {
 				continue;
 			}
 
-			if (await TryReadBuildAsync(backend, ct).ConfigureAwait(false) is { } running) {
-				store.MarkConfirmedGood(running);
+			if (await TryReadStatusAsync(backend, ct).ConfigureAwait(false) is { } status) {
+				store.MarkConfirmedGood(status.Build);
 				// After a rollback the sticky rolled-back outcome stays; a clean update settles to idle.
 				if (rolledBackFrom is null) {
 					report("idle", null);
@@ -185,19 +187,44 @@ public sealed partial class BackendManager {
 		}
 	}
 
-	private async Task<int?> TryReadBuildAsync(WorkspaceBackend backend, CancellationToken ct) {
+	internal async Task<WorkerControlStatus?> TryReadStatusAsync(WorkspaceBackend backend, CancellationToken ct) {
 		try {
 			using var response = await _http.GetAsync(ControlUrl(backend, "status"), ct).ConfigureAwait(false);
 			if (!response.IsSuccessStatusCode) {
 				return null;
 			}
 
-			using var status = System.Text.Json.JsonDocument.Parse(
+			using var status = JsonDocument.Parse(
 				await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false));
-			string? buildNumber = status.RootElement.GetProperty("buildNumber").GetString();
-			return buildNumber is null ? null : RunnerIdentity.ParseBuild(buildNumber);
+			var root = status.RootElement;
+			if (root.ValueKind != JsonValueKind.Object
+				|| !root.TryGetProperty("buildNumber", out var buildNumberValue)
+				|| buildNumberValue.ValueKind != JsonValueKind.String
+				|| buildNumberValue.GetString() is not { Length: > 0 } buildNumber) {
+				return null;
+			}
+
+			bool supportsMessageHealth = false;
+			if (root.TryGetProperty("capabilities", out var capabilities)) {
+				if (capabilities.ValueKind != JsonValueKind.Array) {
+					return null;
+				}
+
+				foreach (var capability in capabilities.EnumerateArray()) {
+					if (capability.ValueKind != JsonValueKind.String) {
+						return null;
+					}
+
+					supportsMessageHealth |= string.Equals(
+						capability.GetString(),
+						WorkspaceControlProtocol.MessageHealth,
+						StringComparison.Ordinal);
+				}
+			}
+
+			return new WorkerControlStatus(RunnerIdentity.ParseBuild(buildNumber), supportsMessageHealth);
 		} catch (Exception ex) when (!ct.IsCancellationRequested
-			&& ex is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException or FormatException) {
+			&& ex is HttpRequestException or TaskCanceledException or JsonException or FormatException) {
 			return null;
 		}
 	}
@@ -208,3 +235,5 @@ public sealed partial class BackendManager {
 		return new Uri($"http://{host}:{backend.Port}/control/{action}?token={backend.Token}");
 	}
 }
+
+internal sealed record WorkerControlStatus(int Build, bool SupportsMessageHealth);

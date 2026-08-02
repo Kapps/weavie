@@ -39,14 +39,18 @@ public sealed partial class BackendManager {
 					if (!state.Ready) {
 						using var startupProbe = HealthDeadline(_healthCancellation.Token);
 						try {
-							state.Ready = await TryReadBuildAsync(backend, startupProbe.Token).ConfigureAwait(false) is not null;
+							if (await TryReadStatusAsync(backend, startupProbe.Token).ConfigureAwait(false) is { } status) {
+								state.MarkReady(status);
+							}
 						} catch (OperationCanceledException) when (!_healthCancellation.IsCancellationRequested) {
-							state.Ready = false;
 						}
 						if (!state.Ready && DateTimeOffset.UtcNow - state.GenerationStarted >= StartupDeadline) {
 							ReplaceUnhealthy(backend, state.Generation, $"worker startup did not complete within {StartupDeadline.TotalSeconds:F0} seconds");
 						}
 
+						continue;
+					}
+					if (!state.SupportsMessageHealth) {
 						continue;
 					}
 
@@ -194,7 +198,9 @@ internal sealed class WorkerHealthMonitorState {
 
 	public DateTimeOffset GenerationStarted { get; private set; }
 
-	public bool Ready { get; set; }
+	public bool Ready { get; private set; }
+
+	public bool SupportsMessageHealth { get; private set; }
 
 	public int UnreachableFailures { get; set; }
 
@@ -210,7 +216,14 @@ internal sealed class WorkerHealthMonitorState {
 		Generation = supervisor.Generation;
 		GenerationStarted = now;
 		Ready = false;
+		SupportsMessageHealth = false;
 		UnreachableFailures = 0;
+	}
+
+	public void MarkReady(WorkerControlStatus status) {
+		ArgumentNullException.ThrowIfNull(status);
+		Ready = true;
+		SupportsMessageHealth = status.SupportsMessageHealth;
 	}
 
 	public void Clear() {
@@ -219,6 +232,7 @@ internal sealed class WorkerHealthMonitorState {
 		Generation = 0;
 		GenerationStarted = default;
 		Ready = false;
+		SupportsMessageHealth = false;
 		UnreachableFailures = 0;
 	}
 }

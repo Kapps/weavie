@@ -205,6 +205,17 @@ public sealed class HeadlessRemoteAuthTests(RemoteHeadlessFixture fixture) : ICl
 	}
 
 	[Fact]
+	public async Task Control_status_advertises_message_health_capability() {
+		var response = await Http.GetAsync($"{fixture.Host.BaseUrl}/control/status?token={Tokens.Correct}");
+		response.EnsureSuccessStatusCode();
+		using var status = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+
+		Assert.Contains(
+			status.RootElement.GetProperty("capabilities").EnumerateArray(),
+			capability => capability.GetString() == "message-health-v1");
+	}
+
+	[Fact]
 	public async Task Bridge_broadcasts_pushes_to_every_connected_page() {
 		// Two pages on one worker (a second tab, or a remote agent that loops back to the same worker) must BOTH
 		// receive server pushes — a newcomer must never steal the stream from the others. Regression: the bridge

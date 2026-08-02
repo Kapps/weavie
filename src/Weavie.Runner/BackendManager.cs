@@ -102,7 +102,7 @@ public sealed partial class BackendManager : IAsyncDisposable {
 			return backend.Status;
 		}
 
-		return await TryReadBuildAsync(backend, CancellationToken.None).ConfigureAwait(false) is null ? "starting" : "running";
+		return await TryReadStatusAsync(backend, CancellationToken.None).ConfigureAwait(false) is null ? "starting" : "running";
 	}
 
 	/// <summary>

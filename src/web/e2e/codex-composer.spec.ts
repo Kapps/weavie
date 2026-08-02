@@ -1117,6 +1117,9 @@ test.describe("Codex composer", () => {
     expect(movedWithinDraft).toBe(true);
   });
 
+  // Flaked 2026-08-01 07:33 UTC on macOS (run https://github.com/Kapps/weavie/actions/runs/30689961665):
+  // fixed-count ArrowDown presses assumed a wrap-line count that varies with font metrics. Already
+  // rewritten in 7be4f84 to poll the caret until it actually changes instead of counting keypresses.
   test("Down moves through a soft-wrapped recalled prompt before restoring the draft", async ({
     page,
   }) => {

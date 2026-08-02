@@ -34,6 +34,7 @@ internal static class ControlApi {
 			string status = await backends.StatusAsync(backend).ConfigureAwait(false);
 			return Results.Json(new {
 				url = front.WorkerPageUrl(HostOf(ctx), backend),
+				token = backend.Token,
 				status,
 				workspace = backend.WorkspaceRoot,
 				update = updateStatus(),

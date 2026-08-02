@@ -21,10 +21,10 @@ internal static class PickerPage {
 		  .card { border: 1px solid #21262d; border-radius: 12px; padding: 2rem 2.25rem; max-width: 520px; text-align: center; }
 		  h1 { font-size: 1.15rem; margin: 0 0 .25rem; font-weight: 600; }
 		  .ws { color: #8b949e; font-size: .85rem; word-break: break-all; margin-bottom: 1.25rem; }
-		  a.open { display: inline-block; background: #238636; color: #fff; text-decoration: none;
-		           border-radius: 8px; padding: .6rem 1.1rem; font-weight: 600; }
-		  a.open[aria-disabled="true"] { background: #30363d; color: #8b949e; pointer-events: none; }
-		  a.open:hover { background: #2ea043; }
+		  button.open { border: 0; background: #238636; color: #fff;
+		           border-radius: 8px; padding: .6rem 1.1rem; font-weight: 600; cursor: pointer; }
+		  button.open:disabled { background: #30363d; color: #8b949e; cursor: default; }
+		  button.open:not(:disabled):hover { background: #2ea043; }
 		  .status { margin-top: 1rem; font-size: .8rem; color: #8b949e; }
 		  .status.running { color: #3fb950; }
 		  .status.failed { color: #f85149; }
@@ -35,7 +35,10 @@ internal static class PickerPage {
 		  <div class="card">
 		    <h1>Weavie runner</h1>
 		    <div class="ws" id="ws">resolving workspace…</div>
-		    <a class="open" id="open" aria-disabled="true">Open Weavie</a>
+		    <form id="open-form" method="post">
+		      <input id="worker-token" name="token" type="hidden">
+		      <button class="open" id="open" disabled>Open Weavie</button>
+		    </form>
 		    <div class="status" id="status">starting backend…</div>
 		    <div class="update" id="update"></div>
 		  </div>
@@ -43,6 +46,8 @@ internal static class PickerPage {
 		    const token = {{JsLiteral(token)}};
 		    const headers = { "Authorization": "Bearer " + token };
 		    const open = document.getElementById("open");
+		    const openForm = document.getElementById("open-form");
+		    const workerToken = document.getElementById("worker-token");
 		    const statusEl = document.getElementById("status");
 		    const updateEl = document.getElementById("update");
 		    function updateLine(u) {
@@ -60,8 +65,9 @@ internal static class PickerPage {
 		        if (!res.ok) { statusEl.textContent = "error (" + res.status + ")"; return; }
 		        const b = await res.json();
 		        document.getElementById("ws").textContent = b.workspace;
-		        open.href = b.url;
-		        open.setAttribute("aria-disabled", b.status === "running" ? "false" : "true");
+		        openForm.action = b.url;
+		        workerToken.value = b.token;
+		        open.disabled = b.status !== "running";
 		        statusEl.className = "status " + b.status;
 		        statusEl.textContent = "backend: " + b.status;
 		        updateEl.textContent = updateLine(b.update);

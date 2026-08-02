@@ -3,19 +3,22 @@ import { expect, test } from "../harness/fixtures";
 // Transport/provisioning behaviors that only exist on the remote path (Weavie.Runner → worker). Tagged
 // @remote so they run only under the remote project. See docs/specs/integration-testing-strategy.md.
 
-// The runner provisions a worker and hands the browser a tokened URL — the worker is reachable and authed.
-test("the runner hands back a tokened worker URL @remote", async ({ weavie }) => {
-  expect(weavie.url).toMatch(/[?&]token=[0-9a-f]+/);
+// The runner provisions a worker and keeps its browser URL separate from its transport credential.
+test("the runner hands back a clean worker URL and token @remote", async ({ weavie }) => {
+  expect(new URL(weavie.url).search).toBe("");
+  expect(weavie.token).toMatch(/^[0-9a-f]+$/);
 });
 
-// Default-deny auth: the worker rejects a wrong token and accepts the issued one.
-test("the worker rejects a bad token and accepts the issued one @remote", async ({ weavie }) => {
+// Default-deny transport auth: the worker rejects a wrong token and accepts the issued one.
+test("the worker rejects a bad transport token and accepts the issued one @remote", async ({
+  weavie,
+}) => {
   const origin = new URL(weavie.url).origin;
-  const bad = await fetch(`${origin}/?token=deadbeefdeadbeef`, { redirect: "manual" });
+  const bad = await fetch(`${origin}/weavie-bridge?token=deadbeefdeadbeef`);
   expect(bad.status).toBe(401);
 
-  const good = await fetch(weavie.url, { redirect: "manual" });
-  expect(good.ok).toBe(true);
+  const good = await fetch(`${origin}/weavie-bridge?token=${weavie.token}`);
+  expect(good.status).toBe(400);
 });
 
 // The WSS bridge reconnects and the app re-establishes after a reload (the remote-only buffering/auto-

@@ -63,14 +63,14 @@ describe("addAgent", () => {
       "fetch",
       vi.fn(async () => ({
         ok: true,
-        json: async () => ({ url: "https://host:9/?token=abc" }),
+        json: async () => ({ url: "https://host:9/index.html", token: "abc" }),
       })),
     );
     await agents.addAgent({ name: "bob", url: "https://runner:8800/", token: "t" });
     expect(calls.connect).toHaveLength(1);
     expect(calls.connect[0]?.[0]).toBe("remote:bob");
     // The transport gets a resolver, not a fixed URL, so a reconnect re-runs the runner handshake. It derives
-    // the bridge WS from the worker page URL, carrying the token.
+    // the bridge and media URLs from the clean worker page URL plus its separate token.
     expect(await calls.connect[0]?.[2]()).toEqual({
       bridgeUrl: "wss://host:9/weavie-bridge?token=abc",
       resourceBase: "https://host:9/weavie-media?token=abc",
@@ -87,13 +87,16 @@ describe("addAgent", () => {
 
   it("hands the transport a resolver that follows a restarted runner to its fresh worker url+token", async () => {
     // A runner restart mints a new worker port+token; each /backend fetch advertises the current one.
-    const advertised = ["https://host:9/?token=old", "https://host:10/?token=new"];
+    const advertised = [
+      { url: "https://host:9/index.html", token: "old" },
+      { url: "https://host:10/index.html", token: "new" },
+    ];
     let call = 0;
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => ({
         ok: true,
-        json: async () => ({ url: advertised[Math.min(call++, advertised.length - 1)] }),
+        json: async () => advertised[Math.min(call++, advertised.length - 1)],
       })),
     );
     await agents.addAgent({ name: "bob", url: "https://runner:8800", token: "t" });

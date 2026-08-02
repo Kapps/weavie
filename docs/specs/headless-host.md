@@ -80,8 +80,8 @@ native window, geometry, and main-thread marshaling stripped out. Three files:
   `ready`. Pushes made with no page connected are dropped (the page re-requests state on `ready`).
 - **`Program.cs`** — resolves local/remote binding and services, then constructs HostCore with the shared
   `WorkspaceHttpServer`. Local mode mints a random token; remote mode requires the runner-supplied token.
-  Port `0` remains the race-free OS-assigned-port path, and the ready line prints the authenticated page URL
-  only after Kestrel and HostCore are ready.
+  Port `0` remains the race-free OS-assigned-port path; after Kestrel and HostCore are ready, startup prints
+  the clean connect-page URL and its separately supplied workspace token.
 - **`HeadlessSession`** — builds the same `Weavie.Core` graph the native shells do (settings, commands /
   keybindings, the two terminal controllers, the `FileProviderService`, the IDE/registry MCP servers, the
   `LayoutStore` + `EditorSessionStore`, change tracking) and runs the identical `OnWebMessage` dispatch,

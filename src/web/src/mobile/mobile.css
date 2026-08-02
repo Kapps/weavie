@@ -1,0 +1,133 @@
+/* Compact shell: new chrome around the existing, still-mounted pane surfaces. */
+@media (max-width: 760px), ((max-height: 520px) and (pointer: coarse)) {
+  html,
+  body,
+  #root,
+  .app {
+    height: 100dvh;
+    overflow: hidden;
+  }
+
+  .app.compact .titlebar,
+  .app.compact .mac-titlebar,
+  .app.compact .resize-frame,
+  .app.compact .session-rail,
+  .app.compact .fullscreen-exit,
+  .app.compact .split-handle,
+  .app.compact .pane-shortcut {
+    display: none;
+  }
+
+  .app.compact .app-body {
+    position: relative;
+    flex-direction: column;
+    padding-bottom: calc(54px + env(safe-area-inset-bottom));
+  }
+
+  .app.compact .pane-area {
+    position: absolute;
+    inset: 0 0 calc(54px + env(safe-area-inset-bottom));
+  }
+
+  .app.compact .pane-area.inbox-visible .layout-root {
+    visibility: hidden;
+    pointer-events: none;
+  }
+
+  .app.compact .pane-slot {
+    inset: 0;
+  }
+
+  .app.compact .terminal-surface,
+  .app.compact .agent-surface,
+  .app.compact .editor-surface {
+    border-width: 0;
+  }
+
+  .app.compact .pane-head {
+    min-height: 36px;
+    padding-inline: 12px;
+  }
+
+  .app.compact .pane-footer {
+    min-height: 32px;
+    padding-inline: 10px;
+  }
+
+  .app.compact .term {
+    padding-left: 3px;
+  }
+
+  .app.compact .connection-banner {
+    width: calc(100% - 24px);
+    justify-content: center;
+  }
+
+  .app.compact .browser-toggle {
+    bottom: calc(62px + env(safe-area-inset-bottom));
+    min-height: 44px;
+    border-radius: 10px;
+  }
+
+  .app.compact .browser-panel {
+    width: min(88vw, 380px);
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: calc(54px + env(safe-area-inset-bottom));
+  }
+
+  .modal-backdrop {
+    padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom));
+  }
+
+  .session-prompt {
+    width: 100%;
+    padding: 1.25em;
+  }
+
+  .session-prompt-actions {
+    flex-wrap: wrap;
+  }
+
+  .session-prompt-btn {
+    min-width: 0;
+    min-height: 44px;
+  }
+}
+
+.mobile-surface-bar {
+  position: fixed;
+  z-index: 25;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: none;
+  height: calc(54px + env(safe-area-inset-bottom));
+  padding: 4px 6px env(safe-area-inset-bottom);
+  border-top: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bar) 94%, transparent);
+  backdrop-filter: blur(12px);
+  touch-action: pan-y;
+}
+
+.mobile-surface-button {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 44px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--dim);
+  font-size: var(--font-hint-size);
+  font-weight: 600;
+}
+
+.mobile-surface-button.active {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+}
+
+@media (max-width: 760px), ((max-height: 520px) and (pointer: coarse)) {
+  .app.compact .mobile-surface-bar {
+    display: flex;
+  }
+}

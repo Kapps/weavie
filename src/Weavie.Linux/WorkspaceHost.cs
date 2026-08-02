@@ -106,7 +106,7 @@ internal sealed partial class WorkspaceHost : IWebSurface, IShellMenuActions {
 		WebKit.webkit_user_content_manager_remove_all_scripts(_contentManager);
 
 		ShowWindow();
-		WebKit.webkit_web_view_load_uri(_webView, _core.WorkspacePageUrl);
+		WebKit.webkit_web_view_load_uri(_webView, _core.WorkspaceNativePageUrl);
 	}
 
 	/// <summary>Sizes/positions the window for <paramref name="placement"/>; resizes live when already on screen (welcome → workspace).</summary>

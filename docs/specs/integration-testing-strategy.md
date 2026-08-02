@@ -95,8 +95,9 @@ The canonical run-once / cross / remote-only policy. New tests slot into this ta
 | Fake-claude diffs → accept / require-approval | headless (+1 cross smoke) | Hook gate is a pipe local to the worker in both modes; only the approval UI round-trips |
 | Diff navigation between sessions | **both** | Multi-session = multiple worktrees + `SlotId` routing — stresses remote provisioning |
 
-**Remote-only** (no local analog): runner spawns worker and returns `{url, token}`; bad/missing token
-→ 403; WSS reconnect + replay (the buffering/auto-reconnect in `src/web/src/bridge.ts`).
+**Remote-only** (no local analog): runner browser-cookie handoff; runner spawns worker and returns `{url, token}`
+to Bearer-authenticated native clients; bad/missing credentials → 401; WSS reconnect + replay (the
+buffering/auto-reconnect in `src/web/src/bridge.ts`).
 
 ## Layers
 

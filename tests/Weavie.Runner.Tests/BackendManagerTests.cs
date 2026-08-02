@@ -50,6 +50,21 @@ public sealed class BackendManagerTests {
 	}
 
 	[Fact]
+	public async Task Fresh_managers_keep_the_worker_token_for_the_same_runner_identity() {
+		var options = Options();
+		var launcher = new HeadlessLauncher(() => "headless", "127.0.0.1", log: null);
+		await using var first = new BackendManager(options, launcher, "127.0.0.1");
+		await using var second = new BackendManager(options, launcher, "127.0.0.1");
+		await using var rotated = new BackendManager(
+			options with { RunnerToken = "another-runner" },
+			launcher,
+			"127.0.0.1");
+
+		Assert.Equal(first.Ensure().Token, second.Ensure().Token);
+		Assert.NotEqual(first.Ensure().Token, rotated.Ensure().Token);
+	}
+
+	[Fact]
 	public async Task StatusAsync_ReturnsStartingUntilWorkerControlEndpointAnswers() {
 		using var supervisor = new ProcessSupervisor(
 			"worker",

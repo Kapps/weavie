@@ -15,6 +15,7 @@ public sealed partial class BackendManager : IAsyncDisposable {
 	// The address workers listen on (loopback), doubling as the host the update flow's control
 	// requests (drain / status) connect to.
 	private readonly string _workerHost;
+	private readonly string _workerToken;
 	private readonly HttpClient _http;
 	private readonly object _gate = new();
 	private WorkspaceBackend? _backend;
@@ -34,6 +35,7 @@ public sealed partial class BackendManager : IAsyncDisposable {
 		_options = options;
 		_launcher = launcher;
 		_workerHost = workerHost;
+		_workerToken = WorkerAccessToken.Derive(options.RunnerToken, options.WorkspaceRoot);
 		_http = http;
 	}
 
@@ -52,8 +54,8 @@ public sealed partial class BackendManager : IAsyncDisposable {
 	/// </summary>
 	public WorkspaceBackend Ensure() {
 		lock (_gate) {
-			// Mid-update the swap/rollback owns the lifecycle: re-provisioning here would mint a new
-			// token/port and orphan every reconnecting tab, so hand back the backend as-is.
+			// Mid-update the swap/rollback owns the lifecycle: re-provisioning here would replace the
+			// backend/port and orphan every reconnecting tab, so hand back the backend as-is.
 			if (_backend is not null && _updating) {
 				return _backend;
 			}
@@ -70,7 +72,7 @@ public sealed partial class BackendManager : IAsyncDisposable {
 				// on restart if that pick loses a race to another process (see AllocatePort's doc comment).
 				Port = _options.WorkerPort ?? AllocatePort(),
 				PortIsPinned = _options.WorkerPort.HasValue,
-				Token = RunnerOptions.NewToken(),
+				Token = _workerToken,
 			};
 			backend.Supervisor = _launcher.BuildSupervisor(backend);
 			_backend = backend;

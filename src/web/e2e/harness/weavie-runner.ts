@@ -30,6 +30,64 @@ export function runnerBuilt(): boolean {
   return existsSync(runnerDll);
 }
 
+export async function launchRunner(options: LaunchOptions): Promise<WeavieHost> {
+  const fake = await prepareFake(options);
+  const runnerToken = randomBytes(16).toString("hex");
+
+  let log = "";
+  const proc: ChildProcess = spawn(
+    "dotnet",
+    [
+      runnerDll,
+      "--workspace",
+      fake.workspace,
+      "--headless",
+      headlessDll,
+      "--port",
+      "0",
+      "--bind",
+      "127.0.0.1",
+      "--token",
+      runnerToken,
+    ],
+    { env: { ...process.env, ...fake.env }, stdio: ["ignore", "pipe", "pipe"] },
+  );
+  const collect = (chunk: Buffer) => {
+    log += chunk.toString("utf8");
+  };
+  proc.stdout?.on("data", collect);
+  proc.stderr?.on("data", collect);
+
+  let runnerPort: number;
+  try {
+    // Port 0 makes the listener allocation race-free; the ready line reports the chosen port.
+    runnerPort = await waitForPortLine(
+      proc,
+      () => log,
+      /control plane:\s+http:\/\/127\.0\.0\.1:(\d+)/,
+      12_000,
+    );
+  } catch (error) {
+    await killProcessTree(proc);
+    await fake.cleanup();
+    throw error;
+  }
+
+  return {
+    url: `http://127.0.0.1:${runnerPort}`,
+    token: runnerToken,
+    workspace: fake.workspace,
+    home: fake.home,
+    log: () => log,
+    fakeLog: fake.fakeLog,
+    async stop() {
+      // The runner owns the worker and its agent/shell/LSP descendants, so teardown must kill the whole tree.
+      await killProcessTree(proc);
+      await fake.cleanup();
+    },
+  };
+}
+
 // Asks the runner control plane for its worker's clean page URL and separate connect token. The browser
 // connects straight to the worker — the runner is out of the data path.
 async function resolveWorker(
@@ -44,7 +102,9 @@ async function resolveWorker(
   try {
     for (;;) {
       try {
-        const res = await getOverAgent(`${control}/backend?token=${token}`, agent);
+        const res = await getOverAgent(`${control}/backend`, agent, {
+          Authorization: `Bearer ${token}`,
+        });
         if (res.status >= 200 && res.status < 300) {
           const body = JSON.parse(res.body) as { url?: string; token?: string; status?: string };
           if (body.url && body.token && body.status === "running") {
@@ -69,60 +129,22 @@ async function resolveWorker(
 // runner-issued URL+token — exercising the remote transport. The worker runs locally, so a @cross test's
 // on-disk assertions still see the same workspace dir.
 export async function launchRemote(options: LaunchOptions): Promise<WeavieHost> {
-  const fake = await prepareFake(options);
-  const runnerToken = randomBytes(16).toString("hex");
-
-  let log = "";
-  const proc: ChildProcess = spawn(
-    "dotnet",
-    [
-      runnerDll,
-      "--workspace",
-      fake.workspace,
-      "--headless",
-      headlessDll,
-      // Port 0: the runner binds an OS-assigned port and prints it in its control-plane line only after
-      // the listener is up, so parallel workers can never race each other for a pre-picked port.
-      "--port",
-      "0",
-      "--bind",
-      "127.0.0.1",
-      "--token",
-      runnerToken,
-    ],
-    { env: { ...process.env, ...fake.env }, stdio: ["ignore", "pipe", "pipe"] },
-  );
-  const collect = (chunk: Buffer) => {
-    log += chunk.toString("utf8");
-  };
-  proc.stdout?.on("data", collect);
-  proc.stderr?.on("data", collect);
-
-  const runnerPort = await waitForPortLine(
-    proc,
-    () => log,
-    /control plane:\s+http:\/\/127\.0\.0\.1:(\d+)/,
-    12_000,
-  );
-  const control = `http://127.0.0.1:${runnerPort}`;
+  const runner = await launchRunner(options);
   // One budget for the rest of the boot, sized to fit inside Playwright's 30s test timeout: a stalled
   // worker must fail HERE, with the runner log in the error, not as an opaque fixture timeout without it.
   const bootDeadline = Date.now() + 14_000;
-  const worker = await resolveWorker(control, runnerToken, () => log, bootDeadline);
-  await waitForHttp(worker.url, () => log, bootDeadline - Date.now());
+  let worker: { url: string; token: string };
+  try {
+    worker = await resolveWorker(runner.url, runner.token, runner.log, bootDeadline);
+    await waitForHttp(worker.url, runner.log, bootDeadline - Date.now());
+  } catch (error) {
+    await runner.stop();
+    throw error;
+  }
 
   return {
+    ...runner,
     url: worker.url,
     token: worker.token,
-    workspace: fake.workspace,
-    home: fake.home,
-    log: () => log,
-    fakeLog: fake.fakeLog,
-    async stop() {
-      // Kill the runner AND its spawned worker (+ that worker's claude/shell/LSP children) — Node's kill()
-      // reaches only the runner on Windows, orphaning the worker, whose live handles then block workspace removal.
-      await killProcessTree(proc);
-      await fake.cleanup();
-    },
   };
 }

@@ -38,7 +38,7 @@ flowchart LR
     TERM -- loopback --> RUN
     APP -- "wss /weavie-bridge" --> TERM
     TERM -- loopback --> WK
-    RUN -. "/backend → { url: https://host:8443/?token }" .-> APP
+    RUN -. "/backend → { clean url, transport token }" .-> APP
 ```
 
 This is owned by `ITlsFront` (internal to `Weavie.Runner`): it chooses the bind addresses and builds the URL
@@ -46,9 +46,9 @@ This is owned by `ITlsFront` (internal to `Weavie.Runner`): it chooses the bind 
 
 | `--tls` | Binds | `/backend` url | TLS terminated by |
 | --- | --- | --- | --- |
-| `none` *(default)* | loopback only | `http://<reqHost>:<workerPort>/?token` | nobody — local / headless use |
-| `proxy` | loopback | `https://<public-host>:8443/?token` | an operator-run terminator (`--public-host` required) |
-| `tailscale` | loopback | `https://<magicdns>:8443/?token` | `tailscale serve` (the runner sets it up) |
+| `none` *(default)* | loopback only | `http://<reqHost>:<workerPort>/index.html` | nobody — local / headless use |
+| `proxy` | loopback | `https://<public-host>:8443/index.html` | an operator-run terminator (`--public-host` required) |
+| `tailscale` | loopback | `https://<magicdns>:8443/index.html` | `tailscale serve` (the runner sets it up) |
 
 **Fail closed.** `none` is allowed only on a loopback bind; a non-loopback `--bind`/`--worker-bind` without TLS
 is **refused at startup** (the old raw-Tailscale-no-TLS posture is retired — exposing the runner now means
@@ -75,7 +75,7 @@ Tailscale is already the remote-session substrate, so this adds no new dependenc
 
 1. discovers the node's MagicDNS name (`tailscale status --json` → `Self.DNSName`);
 2. maps the control + worker https ports (`tailscale serve --bg --https=<p> http://127.0.0.1:<loopback>`);
-3. advertises `https://<magicdns>:8443/?token` and prints `https://<magicdns>` to register.
+3. advertises `https://<magicdns>:8443/index.html` and prints `https://<magicdns>` as the browser entry.
 
 It **fails loudly** (and the runner exits) when tailscale is missing, logged out, or the tailnet lacks
 HTTPS/MagicDNS — never a silent half-set-up state. Dispose clears both serve mappings.
@@ -88,12 +88,19 @@ sequenceDiagram
     participant WK as worker (loopback, --remote)
     APP->>TS: GET https://box.tnet.ts.net/backend (Bearer)
     TS->>RUN: proxied to 127.0.0.1:8800 (TLS terminated, trusted cert)
-    RUN-->>APP: { url: https://box.tnet.ts.net:8443/?token }
+    RUN-->>APP: { url: https://box.tnet.ts.net:8443/index.html, token }
     APP->>APP: pageUrlToBridgeWs → wss://box.tnet.ts.net:8443/weavie-bridge?token
     APP->>TS: wss upgrade (trusted cert, no mixed-content block)
     TS->>WK: proxied WS upgrade; remote mode token-gates, skips CSWSH
     Note over APP,WK: terminal + fs + LSP all ride this one wss
 ```
+
+For a top-level browser visit, the control origin brokers authentication without exposing either token. A form
+POST establishes the runner cookie and terminates on a no-store acceptance page; its same-origin refresh starts
+a fresh GET, keeping the form's strict `form-action 'self'` CSP out of the later cross-port redirect chain. Once
+the worker is ready, that GET sets its token-derived cookie too and redirects to the clean worker URL. Host-only
+cookies are shared by ports on the same hostname, which is why the runner rejects a worker URL whose hostname
+differs from the one in the browser request.
 
 The terminator is interchangeable: the same loopback worker fronted by Caddy/nginx with a real-domain
 Let's Encrypt cert is `--tls proxy --public-host <domain>`, no other change. A future **kernel-mode**

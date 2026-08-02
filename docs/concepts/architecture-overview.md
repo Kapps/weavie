@@ -57,8 +57,9 @@ graph TB
 - **A session** is one worktree's worth of state inside a host: a `claude` PTY, a shell PTY, the editor file
   provider, the LSP servers, the change tracker. Multiple sessions share one host process; see
   [multi-session-and-worktrees](../specs/multi-session-and-worktrees.md).
-- **A runner** (`src/Weavie.Runner`) is the remote entry point: a small token-gated HTTP control plane that
-  supervises a Headless *worker* (the actual remote host) and tells the web how to reach it. See
+- **A runner** (`src/Weavie.Runner`) is the remote entry point: its root remembers browser authentication and
+  opens the app, while its Bearer-gated control API tells native clients how to reach the supervised Headless
+  *worker* (the actual remote host). See
   [remote-sessions](../specs/remote-sessions.md) and [headless-host](../specs/headless-host.md).
 
 ## The bridge: one channel, one envelope
@@ -275,17 +276,19 @@ graph TB
 1. The user registers a `RemoteAgent { url, token }` — the runner's base URL plus its token. The host
    persists these in `~/.weavie/remote-agents.json`; the web owns the live connections
    (`src/web/src/chrome/remote-agents.ts`).
-2. The web calls `GET /backend` on the runner with the runner token (`ControlApi.cs`). The runner ensures a
-   worker is up — `BackendManager.Ensure()` allocates a free port, mints a fresh worker token, and starts a
-   supervised `Weavie.Headless` worker (`BackendManager.cs`, `WorkspaceBackend.cs`). One worker hosts every
-   worktree session via its shared `HostCore` — no process per session.
+2. The web calls `GET /backend` on the runner with an explicit Bearer runner token (`ControlApi.cs`). The runner
+   ensures a worker is up — `BackendManager.Ensure()` allocates a port, derives a stable role-separated worker
+   token from the runner credential and workspace identity, and starts a supervised `Weavie.Headless` worker
+   (`BackendManager.cs`, `WorkspaceBackend.cs`). One worker hosts every worktree session via its shared `HostCore`
+   — no process per session.
 3. The runner returns the worker's clean page URL and transport token as separate fields, built against the
    request's own host so it is reachable by the same path the client used.
 4. The web converts that endpoint pair to a backend descriptor (bridge WebSocket plus HTTP media base, both
    carrying the token) and calls `connectBackend`, opening a `WebSocketTransport` to `…/weavie-bridge`. From there it is just another
    backend: terminals, files, status — all the flows above — over that socket. The transport re-runs this
-   `GET /backend` handshake on **every** reconnect, so when the runner is restarted — which mints a fresh
-   worker port+token — the socket follows it to the new worker instead of retrying the now-dead URL forever.
+   `GET /backend` handshake on **every** reconnect, so when the runner is restarted the socket follows any new
+   worker port instead of retrying the now-dead URL forever. The worker token remains stable while the configured
+   runner token and workspace identity remain the same.
 
 Transport security: the runner terminates TLS in front of its loopback endpoints (`--tls tailscale` runs
 `tailscale serve` with the node's trusted cert; `--tls proxy` for a bring-your-own terminator), so the app

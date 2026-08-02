@@ -21,6 +21,11 @@ internal static partial class Gtk {
 	/// <summary><c>GTK_RESPONSE_ACCEPT</c> — the picker's accept response.</summary>
 	internal const int ResponseAccept = -3;
 
+	/// <summary>GTK enum values for a modal error dialog with one Close button.</summary>
+	internal const int DialogModal = 1;
+	internal const int MessageError = 3;
+	internal const int ButtonsClose = 2;
+
 	[LibraryImport(Lib)]
 	internal static partial void gtk_init(IntPtr argc, IntPtr argv);
 
@@ -60,6 +65,16 @@ internal static partial class Gtk {
 
 	[LibraryImport(Lib)]
 	internal static partial void gtk_widget_show_all(IntPtr widget);
+
+	[LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
+	internal static partial IntPtr gtk_message_dialog_new(
+		IntPtr parent, int flags, int type, int buttons, string messageFormat);
+
+	[LibraryImport(Lib)]
+	internal static partial int gtk_dialog_run(IntPtr dialog);
+
+	[LibraryImport(Lib)]
+	internal static partial void gtk_widget_destroy(IntPtr widget);
 
 	[LibraryImport(Lib)]
 	internal static partial void gtk_main();

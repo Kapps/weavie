@@ -10,12 +10,15 @@ handler or wait for one.
    arrival order for admission, view binding, cancellation, and disconnect signals. Its pump marshals only the
    bounded admission step through the host sequencing context; it never waits for a handler. Health probes cross
    that same boundary, so a blocked host/UI lane is observable rather than hidden behind a responsive queue.
+   Shutdown cancels dispatcher admission and rejects queued probes; it never waits for unadmitted transport input
+   to cross a UI lane that may itself be synchronously closing. Explicit pre-shutdown drain remains a separate operation.
 2. Admission selects an exact host or `(slot, incarnation)` endpoint and creates a supervised operation before
    handler code can run. Handler continuations never run inline from admission.
 3. Every operation has one identity and reports its current stage: feature queue, handler dispatch, handler, or
    after-response work. Slow and failed logs include that identity, endpoint, peer, request id, feature, name,
    stage, and elapsed time.
-4. At two seconds, an unfinished operation raises a keyed busy notification for its originating page. Completion
+4. At two seconds, an unfinished operation raises a keyed busy notification for its originating page. Slow reporting
+   and the absolute deadline run independently, so blocked diagnostics cannot postpone timeout. Completion
    clears it. At the global `messaging.operationDeadlineSeconds` deadline (sixty seconds by default), the same key
    becomes a persistent error and a request receives the same detailed failure.
 5. The deadline covers time waiting in a serialized feature lane, UI-dispatch admission, handler execution, and

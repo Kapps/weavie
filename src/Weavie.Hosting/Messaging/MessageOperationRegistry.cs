@@ -64,13 +64,14 @@ internal sealed class MessageOperationRegistry {
 
 	private void OnSlow(MessageOperation operation) {
 		var snapshot = operation.Snapshot();
-		_log($"[message] slow {Describe(snapshot)}");
-		SendNotification(
-			operation,
-			"busy",
-			$"Still processing {snapshot.Endpoint} {snapshot.Feature}.{snapshot.Name} "
-				+ $"({snapshot.Id}, stage {snapshot.Stage}, {snapshot.ElapsedMs} ms).",
-			operation.NotificationKey);
+		RunDiagnostic(operation.Id, () => _log($"[message] slow {Describe(snapshot)}"));
+		RunDiagnostic(operation.Id, () => operation.TryRunSlowDiagnostic(() =>
+			SendNotification(
+				operation,
+				"busy",
+				$"Still processing {snapshot.Endpoint} {snapshot.Feature}.{snapshot.Name} "
+					+ $"({snapshot.Id}, stage {snapshot.Stage}, {snapshot.ElapsedMs} ms).",
+				operation.NotificationKey)));
 	}
 
 	private void OnTimedOut(
@@ -80,17 +81,27 @@ internal sealed class MessageOperationRegistry {
 		var snapshot = operation.Snapshot();
 		Volatile.Write(ref _lastFailure, snapshot);
 		Remove(operation);
-		_log($"[message] timed out {Describe(snapshot)}");
-		SendNotification(operation, "error", detail, operation.NotificationKey);
 		timedOut(operation, detail);
+		RunDiagnostic(operation.Id, () => _log($"[message] timed out {Describe(snapshot)}"));
+		RunDiagnostic(operation.Id, () => operation.RunTerminalDiagnostic(() =>
+			SendNotification(operation, "error", detail, operation.NotificationKey)));
 	}
 
 	private void OnCompleted(MessageOperation operation, bool wasSlow) {
 		Remove(operation);
 		if (wasSlow) {
-			SendEvent(operation, "notifications", "clear", new { key = operation.NotificationKey });
+			RunDiagnostic(operation.Id, () => operation.RunTerminalDiagnostic(() =>
+				SendEvent(operation, "notifications", "clear", new { key = operation.NotificationKey })));
 		}
 	}
+
+	private void RunDiagnostic(string operationId, Action diagnostic) => _ = Task.Run(() => {
+		try {
+			diagnostic();
+		} catch (Exception ex) {
+			SafeLog($"[message] diagnostic for {operationId} failed: {ex}");
+		}
+	});
 
 	private void Remove(MessageOperation operation) {
 		foreach (var entry in _active) {
@@ -115,7 +126,15 @@ internal sealed class MessageOperationRegistry {
 					name,
 					JsonSerializer.SerializeToElement(payload)).ToJson());
 		} catch (Exception ex) {
-			_log($"[message] diagnostic delivery for {operation.Id} failed: {ex}");
+			SafeLog($"[message] diagnostic delivery for {operation.Id} failed: {ex}");
+		}
+	}
+
+	private void SafeLog(string message) {
+		try {
+			_log(message);
+		} catch (Exception) {
+			// A failed diagnostic sink cannot participate in message-operation control flow.
 		}
 	}
 

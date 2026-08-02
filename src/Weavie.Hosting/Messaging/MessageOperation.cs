@@ -13,6 +13,7 @@ internal sealed class MessageOperation {
 	private readonly CancellationTokenSource _watchdogStop = new();
 	private readonly CancellationTokenSource _handlerCancellation = new();
 	private readonly object _transition = new();
+	private readonly object _diagnostics = new();
 	private readonly TaskCompletionSource _deadline =
 		new(TaskCreationOptions.RunContinuationsAsynchronously);
 	private readonly long _startedTimestamp;
@@ -56,7 +57,10 @@ internal sealed class MessageOperation {
 
 	public bool HasTimedOut => Volatile.Read(ref _state) == TimedOut;
 
-	public void StartWatchdog() => _ = WatchAsync();
+	public void StartWatchdog() {
+		_ = WatchSlowAsync();
+		_ = WatchDeadlineAsync();
+	}
 
 	public void MarkStage(string stage) {
 		ArgumentException.ThrowIfNullOrEmpty(stage);
@@ -85,14 +89,36 @@ internal sealed class MessageOperation {
 	}
 
 	public void Complete() {
+		bool wasSlow;
 		lock (_transition) {
 			if (Volatile.Read(ref _state) != Active) {
 				return;
 			}
 
 			Volatile.Write(ref _state, Completed);
-			_watchdogStop.Cancel();
-			_completed(this, Volatile.Read(ref _slowReported) != 0);
+			wasSlow = Volatile.Read(ref _slowReported) != 0;
+		}
+
+		_watchdogStop.Cancel();
+		_completed(this, wasSlow);
+	}
+
+	public bool TryRunSlowDiagnostic(Action diagnostic) {
+		ArgumentNullException.ThrowIfNull(diagnostic);
+		lock (_diagnostics) {
+			if (Volatile.Read(ref _state) != Active) {
+				return false;
+			}
+
+			diagnostic();
+			return true;
+		}
+	}
+
+	public void RunTerminalDiagnostic(Action diagnostic) {
+		ArgumentNullException.ThrowIfNull(diagnostic);
+		lock (_diagnostics) {
+			diagnostic();
 		}
 	}
 
@@ -115,18 +141,9 @@ internal sealed class MessageOperation {
 			+ $"peer {snapshot.Peer}, request {snapshot.RequestId ?? "-"}.";
 	}
 
-	private async Task WatchAsync() {
+	private async Task WatchSlowAsync() {
 		try {
 			await Task.Delay(_policy.SlowAfter, _time, _watchdogStop.Token).ConfigureAwait(false);
-			lock (_transition) {
-				if (Volatile.Read(ref _state) != Active) {
-					return;
-				}
-
-				Volatile.Write(ref _slowReported, 1);
-				_slow(this);
-			}
-			await Task.Delay(_policy.Deadline - _policy.SlowAfter, _time, _watchdogStop.Token).ConfigureAwait(false);
 		} catch (OperationCanceledException) when (_watchdogStop.IsCancellationRequested) {
 			return;
 		}
@@ -136,12 +153,32 @@ internal sealed class MessageOperation {
 				return;
 			}
 
-			Volatile.Write(ref _state, TimedOut);
-			string detail = TimeoutDetail();
-			_deadline.TrySetResult();
-			_ = _handlerCancellation.CancelAsync();
-			_timedOut(this, detail);
+			Volatile.Write(ref _slowReported, 1);
 		}
+
+		_slow(this);
+	}
+
+	private async Task WatchDeadlineAsync() {
+		try {
+			await Task.Delay(_policy.Deadline, _time, _watchdogStop.Token).ConfigureAwait(false);
+		} catch (OperationCanceledException) when (_watchdogStop.IsCancellationRequested) {
+			return;
+		}
+
+		string detail;
+		lock (_transition) {
+			if (Volatile.Read(ref _state) != Active) {
+				return;
+			}
+
+			Volatile.Write(ref _state, TimedOut);
+			detail = TimeoutDetail();
+			_deadline.TrySetResult();
+		}
+
+		_ = _handlerCancellation.CancelAsync();
+		_timedOut(this, detail);
 	}
 
 	private static void ObserveLate<T>(Task<T> running) =>

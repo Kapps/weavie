@@ -112,6 +112,8 @@ public sealed class MessageOperationSupervisionTests {
 		Assert.Contains("msg-", response.Error, StringComparison.Ordinal);
 		Assert.Contains("lifecycle.sync", response.Error, StringComparison.Ordinal);
 		Assert.Contains("stage handler", response.Error, StringComparison.Ordinal);
+		await Wait.UntilAsync(() => transport.Events("notifications", "show")
+			.Any(eventPayload => eventPayload.GetProperty("level").GetString() == "error"));
 		Assert.Contains(
 			transport.Events("notifications", "show"),
 			eventPayload => eventPayload.GetProperty("level").GetString() == "busy");
@@ -127,6 +129,49 @@ public sealed class MessageOperationSupervisionTests {
 		Assert.Equal("lifecycle", health.LastFailure.Feature);
 
 		release.TrySetResult();
+	}
+
+	[Fact]
+	public async Task BlockingLogCannotDelayTimeoutOrErrorNotification() {
+		var transport = new RecordingTransport();
+		var slowLogEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		var releaseSlowLog = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		var releaseHandler = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		var policy = new MessageExecutionPolicy(TimeSpan.FromMilliseconds(20), TimeSpan.FromMilliseconds(120));
+		await using var router = new HostMessageRouter(
+			transport,
+			new InlineUiDispatcher(),
+			line => {
+				if (line.Contains("[message] slow", StringComparison.Ordinal)) {
+					slowLogEntered.TrySetResult();
+					releaseSlowLog.Task.GetAwaiter().GetResult();
+				}
+			},
+			policy,
+			TimeProvider.System);
+		await using var endpoint = router.OpenSession(new SessionAddress("blocked-log", "i1"));
+		endpoint.Activate();
+		using var handler = endpoint.Bus.Feature("lifecycle").Handle<Empty>(
+			"sync",
+			async (_, _) => await releaseHandler.Task);
+
+		var dispatch = router.RouteAsync(
+			new WebPeer("page"),
+			MessageEnvelope.SessionEvent(
+				endpoint.Address,
+				"lifecycle",
+				"sync",
+				JsonSerializer.SerializeToElement(new Empty())).ToJson());
+		try {
+			await slowLogEntered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+			await dispatch.WaitAsync(TimeSpan.FromSeconds(2));
+			await Wait.UntilAsync(() => transport.Events("notifications", "show")
+				.Any(payload => payload.GetProperty("level").GetString() == "error"));
+			Assert.False(router.Health(ingressResponsive: true).Healthy);
+		} finally {
+			releaseSlowLog.TrySetResult();
+			releaseHandler.TrySetResult();
+		}
 	}
 
 	[Fact]
@@ -166,42 +211,110 @@ public sealed class MessageOperationSupervisionTests {
 	}
 
 	[Fact]
-	public async Task CompletionCannotBeOvertakenByALateSlowNotification() {
+	public async Task BlockingSlowCallbackCannotDelayDeadline() {
 		var slowEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		var releaseSlow = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-		var transitions = new ConcurrentQueue<string>();
+		var timedOut = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		var handler = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 		var operation = new MessageOperation(
-			"msg-race",
+			"msg-blocked-diagnostics",
 			new WebPeer("page"),
 			MessageEnvelope.Event(
 				MessageScope.Host,
 				null,
 				"test",
-				"race",
+				"blockedDiagnostics",
+				JsonSerializer.SerializeToElement(new Empty())),
+			new MessageExecutionPolicy(TimeSpan.FromMilliseconds(20), TimeSpan.FromMilliseconds(120)),
+			TimeProvider.System,
+			_ => {
+				slowEntered.TrySetResult();
+				releaseSlow.Task.GetAwaiter().GetResult();
+			},
+			(_, _) => timedOut.TrySetResult(),
+			(_, _) => { });
+		operation.StartWatchdog();
+		var supervised = operation.SuperviseAsync(() => handler.Task);
+
+		try {
+			await slowEntered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+			await timedOut.Task.WaitAsync(TimeSpan.FromSeconds(2));
+			await Assert.ThrowsAsync<MessageOperationTimeoutException>(() => supervised);
+			Assert.True(operation.HasTimedOut);
+		} finally {
+			releaseSlow.TrySetResult();
+			handler.TrySetResult(true);
+		}
+	}
+
+	[Fact]
+	public async Task CompletionDoesNotWaitForBlockedSlowCallback() {
+		var slowEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		var releaseSlow = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		var completed = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+		var operation = new MessageOperation(
+			"msg-complete",
+			new WebPeer("page"),
+			MessageEnvelope.Event(
+				MessageScope.Host,
+				null,
+				"test",
+				"complete",
 				JsonSerializer.SerializeToElement(new Empty())),
 			new MessageExecutionPolicy(TimeSpan.FromMilliseconds(20), TimeSpan.FromSeconds(2)),
 			TimeProvider.System,
 			_ => {
 				slowEntered.TrySetResult();
 				releaseSlow.Task.GetAwaiter().GetResult();
-				transitions.Enqueue("slow");
 			},
-			(_, _) => transitions.Enqueue("timeout"),
-			(_, wasSlow) => transitions.Enqueue($"complete:{wasSlow}"));
+			(_, _) => { },
+			(_, wasSlow) => completed.TrySetResult(wasSlow));
 		operation.StartWatchdog();
 		await slowEntered.Task.WaitAsync(TimeSpan.FromSeconds(2));
 
-		var completionStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-		var completion = Task.Run(() => {
-			completionStarted.TrySetResult();
-			operation.Complete();
-		});
-		await completionStarted.Task;
-		Assert.False(completion.IsCompleted);
-		releaseSlow.TrySetResult();
-		await completion.WaitAsync(TimeSpan.FromSeconds(2));
+		try {
+			await Task.Run(operation.Complete).WaitAsync(TimeSpan.FromSeconds(1));
+			Assert.True(await completed.Task.WaitAsync(TimeSpan.FromSeconds(1)));
+		} finally {
+			releaseSlow.TrySetResult();
+		}
+	}
 
-		Assert.Equal(["slow", "complete:True"], transitions);
+	[Fact]
+	public async Task DisposeCancelsPendingUiAdmission() {
+		var dispatcher = new ManualUiDispatcher(paused: true);
+		int routed = 0;
+		var ingress = new MessageIngress(
+			dispatcher,
+			(_, _) => {
+				Interlocked.Increment(ref routed);
+				return Task.CompletedTask;
+			},
+			_ => { },
+			_ => { });
+		ingress.Enqueue(WebPeer.Native, HostEvent("test", "pending"));
+		await dispatcher.WaitForPostAsync().WaitAsync(TimeSpan.FromSeconds(2));
+
+		await ingress.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(2));
+		dispatcher.RunPending();
+
+		Assert.Equal(0, Volatile.Read(ref routed));
+	}
+
+	[Fact]
+	public async Task DisposeRejectsAProbeWaitingForUiAdmission() {
+		var dispatcher = new ManualUiDispatcher(paused: true);
+		var ingress = new MessageIngress(
+			dispatcher,
+			(_, _) => Task.CompletedTask,
+			_ => { },
+			_ => { });
+		var probe = ingress.ProbeAsync(CancellationToken.None);
+		await dispatcher.WaitForPostAsync().WaitAsync(TimeSpan.FromSeconds(2));
+
+		await ingress.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(2));
+
+		await Assert.ThrowsAsync<ObjectDisposedException>(() => probe);
 	}
 
 	private static string HostEvent(string feature, string name) =>

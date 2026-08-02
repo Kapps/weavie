@@ -9,6 +9,7 @@ internal sealed class MessageIngress : IAsyncDisposable {
 	private readonly Func<WebPeer, string, Task> _route;
 	private readonly Action<WebPeer> _disconnect;
 	private readonly Action<string> _log;
+	private readonly CancellationTokenSource _shutdown = new();
 	private readonly Task _pump;
 	private int _closed;
 
@@ -48,7 +49,9 @@ internal sealed class MessageIngress : IAsyncDisposable {
 		}
 
 		_queue.Writer.TryComplete();
+		await _shutdown.CancelAsync().ConfigureAwait(false);
 		await _pump.ConfigureAwait(false);
+		_shutdown.Dispose();
 	}
 
 	private void Write(IngressItem item) {
@@ -58,39 +61,53 @@ internal sealed class MessageIngress : IAsyncDisposable {
 	}
 
 	private void TryWrite(IngressItem item) {
-		if (Volatile.Read(ref _closed) == 0 && _queue.Writer.TryWrite(item)) {
-			return;
+		if (Volatile.Read(ref _closed) == 0) {
+			_queue.Writer.TryWrite(item);
 		}
-
-		_log("[bridge] discarded transport input while message ingress was closing");
 	}
 
 	private async Task PumpAsync() {
-		await foreach (var item in _queue.Reader.ReadAllAsync().ConfigureAwait(false)) {
-			try {
-				await _dispatcher.InvokeAsync(
-					() => {
-						switch (item) {
-							case MessageItem message:
-								Observe(_route(message.Peer, message.Json));
-								break;
-							case DisconnectItem disconnect:
-								_disconnect(disconnect.Peer);
-								break;
-							case ProbeItem probe:
-								probe.Completion.TrySetResult();
-								break;
-						}
+		try {
+			await foreach (var item in _queue.Reader.ReadAllAsync(_shutdown.Token).ConfigureAwait(false)) {
+				try {
+					await _dispatcher.InvokeAsync(
+						() => {
+							switch (item) {
+								case MessageItem message:
+									Observe(_route(message.Peer, message.Json));
+									break;
+								case DisconnectItem disconnect:
+									_disconnect(disconnect.Peer);
+									break;
+								case ProbeItem probe:
+									probe.Completion.TrySetResult();
+									break;
+							}
 
-						return Task.CompletedTask;
-					},
-					CancellationToken.None).ConfigureAwait(false);
-			} catch (Exception ex) {
-				_log($"[bridge] ingress admission failed: {ex}");
-				if (item is ProbeItem probe) {
-					probe.Completion.TrySetException(ex);
+							return Task.CompletedTask;
+						},
+						_shutdown.Token).ConfigureAwait(false);
+				} catch (OperationCanceledException) when (_shutdown.IsCancellationRequested) {
+					Reject(item);
+					return;
+				} catch (Exception ex) {
+					_log($"[bridge] ingress admission failed: {ex}");
+					if (item is ProbeItem probe) {
+						probe.Completion.TrySetException(ex);
+					}
 				}
 			}
+		} catch (OperationCanceledException) when (_shutdown.IsCancellationRequested) {
+		} finally {
+			while (_queue.Reader.TryRead(out var pending)) {
+				Reject(pending);
+			}
+		}
+	}
+
+	private static void Reject(IngressItem item) {
+		if (item is ProbeItem probe) {
+			probe.Completion.TrySetException(new ObjectDisposedException(nameof(MessageIngress)));
 		}
 	}
 

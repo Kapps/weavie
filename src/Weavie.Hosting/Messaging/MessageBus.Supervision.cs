@@ -41,11 +41,10 @@ internal partial class MessageBus {
 	}
 
 	private void OnOperationTimedOut(MessageOperation operation, string detail) {
+		Fault(detail);
 		if (operation.Envelope.Kind == MessageKind.Request && operation.TrySettleResponse()) {
 			TrySendResponse(operation.Peer, operation.Envelope, default, detail);
 		}
-
-		Fault(detail);
 	}
 
 	private void Fault(string reason) {
@@ -55,7 +54,6 @@ internal partial class MessageBus {
 
 		Volatile.Write(ref _faultReason, reason);
 		Volatile.Write(ref _accepting, 0);
-		_log($"[message] endpoint faulted: {reason}");
 		CancelDispatches();
 		foreach (var request in _requests.Values) {
 			_ = request.Cancellation.CancelAsync();

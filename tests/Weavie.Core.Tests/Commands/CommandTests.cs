@@ -155,6 +155,15 @@ public sealed class CommandTests {
 	}
 
 	[Fact]
+	public void ToggleAgentMermaidPreview_UsesTheFocusedAgentBinding() {
+		var command = CoreCommands.CreateRegistry().Require(CoreCommands.ToggleAgentMermaidPreview);
+
+		Assert.Equal(CommandLocation.Web, command.RunsIn);
+		Assert.Equal("alt+m", Assert.Single(command.DefaultKeybindings).Key);
+		Assert.Equal("agentFocused", command.When);
+	}
+
+	[Fact]
 	public void OpenAgentPlan_UsesTheFocusedAgentBinding() {
 		var command = CoreCommands.CreateRegistry().Require(CoreCommands.OpenAgentPlan);
 

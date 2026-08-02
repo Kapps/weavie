@@ -37,12 +37,23 @@ public sealed partial class BackendManager {
 					state.Observe(backend, supervisor, DateTimeOffset.UtcNow);
 
 					if (!state.Ready) {
-						using var startupProbe = HealthDeadline(_healthCancellation.Token);
-						try {
-							if (await TryReadStatusAsync(backend, startupProbe.Token).ConfigureAwait(false) is { } status) {
-								state.MarkReady(status);
+						var statusProbe = await ProbeStatusAsync(backend, _healthCancellation.Token).ConfigureAwait(false);
+						if (!IsCurrentGeneration(backend, supervisor, state.Generation)) {
+							continue;
+						}
+
+						if (statusProbe.State == WorkerStatusProbeState.ProtocolFailure) {
+							ReplaceUnhealthy(backend, state.Generation, statusProbe.Failure!);
+							continue;
+						}
+
+						if (statusProbe.Status is { } status) {
+							if (WorkerContractFailure(status) is { } failure) {
+								ReplaceUnhealthy(backend, state.Generation, failure);
+								continue;
 							}
-						} catch (OperationCanceledException) when (!_healthCancellation.IsCancellationRequested) {
+
+							state.MarkReady();
 						}
 						if (!state.Ready && DateTimeOffset.UtcNow - state.GenerationStarted >= StartupDeadline) {
 							ReplaceUnhealthy(backend, state.Generation, $"worker startup did not complete within {StartupDeadline.TotalSeconds:F0} seconds");
@@ -50,13 +61,13 @@ public sealed partial class BackendManager {
 
 						continue;
 					}
-					if (!state.SupportsMessageHealth) {
-						continue;
-					}
-
 					var health = await ProbeHealthAsync(backend, _healthCancellation.Token).ConfigureAwait(false);
 					switch (health.State) {
 						case WorkerHealthState.Healthy:
+							state.UnreachableFailures = 0;
+							supervisor.ReportHealthy(state.Generation);
+							break;
+						case WorkerHealthState.Busy:
 							state.UnreachableFailures = 0;
 							break;
 						case WorkerHealthState.Unhealthy:
@@ -88,7 +99,7 @@ public sealed partial class BackendManager {
 			using var response = await _http.GetAsync(ControlUrl(backend, "health"), deadline.Token).ConfigureAwait(false);
 			string body = await response.Content.ReadAsStringAsync(deadline.Token).ConfigureAwait(false);
 			if (response.IsSuccessStatusCode) {
-				return new WorkerHealth(WorkerHealthState.Healthy, "healthy");
+				return SuccessfulHealth(body);
 			}
 
 			if (response.StatusCode == HttpStatusCode.ServiceUnavailable) {
@@ -135,7 +146,44 @@ public sealed partial class BackendManager {
 		}
 	}
 
+	private bool IsCurrentGeneration(
+		WorkspaceBackend backend,
+		ProcessSupervisor supervisor,
+		long generation) {
+		lock (_gate) {
+			return (_backend is null || ReferenceEquals(_backend, backend))
+				&& ReferenceEquals(backend.Supervisor, supervisor)
+				&& supervisor.State == SupervisorState.Running
+				&& supervisor.Generation == generation;
+		}
+	}
+
 	private void LogHealth(string message) => _healthDiagnostics.Report(message);
+
+	private static WorkerHealth SuccessfulHealth(string body) {
+		try {
+			using var document = JsonDocument.Parse(body);
+			var root = document.RootElement;
+			if (root.ValueKind != JsonValueKind.Object
+				|| !root.TryGetProperty("healthy", out var healthy)
+				|| healthy.ValueKind != JsonValueKind.True
+				|| !root.TryGetProperty("activeOperations", out var active)
+				|| active.ValueKind != JsonValueKind.Array) {
+				return new WorkerHealth(WorkerHealthState.Unhealthy, "worker returned a malformed health payload");
+			}
+
+			if (active.GetArrayLength() == 0) {
+				return new WorkerHealth(WorkerHealthState.Healthy, "healthy");
+			}
+
+			return active[0].ValueKind == JsonValueKind.Object
+				? new WorkerHealth(WorkerHealthState.Busy,
+					$"worker has an active message operation: {OperationDetail(active[0])}")
+				: new WorkerHealth(WorkerHealthState.Unhealthy, "worker returned a malformed health payload");
+		} catch (JsonException) {
+			return new WorkerHealth(WorkerHealthState.Unhealthy, "worker returned a malformed health payload");
+		}
+	}
 
 	private static string HealthFailureDetail(string body) {
 		try {
@@ -184,6 +232,7 @@ public sealed partial class BackendManager {
 
 internal enum WorkerHealthState {
 	Healthy,
+	Busy,
 	Unhealthy,
 	Unreachable,
 }
@@ -200,8 +249,6 @@ internal sealed class WorkerHealthMonitorState {
 
 	public bool Ready { get; private set; }
 
-	public bool SupportsMessageHealth { get; private set; }
-
 	public int UnreachableFailures { get; set; }
 
 	public void Observe(WorkspaceBackend backend, ProcessSupervisor supervisor, DateTimeOffset now) {
@@ -216,15 +263,10 @@ internal sealed class WorkerHealthMonitorState {
 		Generation = supervisor.Generation;
 		GenerationStarted = now;
 		Ready = false;
-		SupportsMessageHealth = false;
 		UnreachableFailures = 0;
 	}
 
-	public void MarkReady(WorkerControlStatus status) {
-		ArgumentNullException.ThrowIfNull(status);
-		Ready = true;
-		SupportsMessageHealth = status.SupportsMessageHealth;
-	}
+	public void MarkReady() => Ready = true;
 
 	public void Clear() {
 		_backend = null;
@@ -232,7 +274,6 @@ internal sealed class WorkerHealthMonitorState {
 		Generation = 0;
 		GenerationStarted = default;
 		Ready = false;
-		SupportsMessageHealth = false;
 		UnreachableFailures = 0;
 	}
 }

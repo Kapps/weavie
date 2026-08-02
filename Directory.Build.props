@@ -37,9 +37,8 @@
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
 
     <!-- Runner⟷worker spawn contract generation (argv + control endpoints). Bump when that contract
-         changes; the auto-updater refuses a bundle declaring a newer generation than the running
-         runner. See docs/specs/runner-auto-update.md. -->
-    <SpawnContractVersion>1</SpawnContractVersion>
+         changes; only an exact match may be staged or spawned. See docs/specs/runner-auto-update.md. -->
+    <SpawnContractVersion>2</SpawnContractVersion>
   </PropertyGroup>
 
   <!--

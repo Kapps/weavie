@@ -50,22 +50,19 @@ public sealed partial class BackendManager : IAsyncDisposable {
 	}
 
 	/// <summary>
-	/// Returns the workspace backend, starting a fresh worker when none runs (or the previous one tripped its
-	/// supervisor breaker). The worker may still be <c>starting</c>; the bridge re-attaches once it is up.
+	/// Returns the stable workspace backend, creating and starting it only on the first call. A terminal
+	/// supervisor stays terminal until explicit update orchestration or runner restart, so polling cannot erase
+	/// its breaker. The worker may still be <c>starting</c>; the bridge re-attaches once it is up.
 	/// </summary>
 	public WorkspaceBackend Ensure() {
 		lock (_gate) {
-			// Mid-update the swap/rollback owns the lifecycle: re-provisioning here would replace the
-			// backend/port and orphan every reconnecting tab, so hand back the backend as-is.
-			if (_backend is not null && _updating) {
+			// One manager owns one stable endpoint and one supervisor history. Browser polling must never
+			// replace a terminal supervisor and thereby erase its breaker; update orchestration explicitly
+			// Stop/Starts this same object, while a runner process restart constructs a fresh manager.
+			if (_backend is not null) {
 				return _backend;
 			}
 
-			if (_backend is { Supervisor.State: not SupervisorState.Failed }) {
-				return _backend;
-			}
-
-			_backend?.Supervisor?.Dispose();
 			var backend = new WorkspaceBackend {
 				WorkspaceRoot = _options.WorkspaceRoot,
 				// A pinned port (secured modes) keeps the TLS-front mapping valid across worker restarts; otherwise
@@ -98,11 +95,35 @@ public sealed partial class BackendManager : IAsyncDisposable {
 	/// <summary>Returns <c>running</c> only after the worker's own control endpoint is ready.</summary>
 	public async Task<string> StatusAsync(WorkspaceBackend backend) {
 		ArgumentNullException.ThrowIfNull(backend);
-		if (backend.Supervisor?.State != SupervisorState.Running) {
+		ProcessSupervisor? supervisor;
+		long generation;
+		lock (_gate) {
+			supervisor = backend.Supervisor;
+			if (supervisor?.State != SupervisorState.Running) {
+				return backend.Status;
+			}
+
+			generation = supervisor.Generation;
+		}
+
+		var probe = await ProbeStatusAsync(backend, CancellationToken.None).ConfigureAwait(false);
+		if (!IsCurrentGeneration(backend, supervisor, generation)) {
 			return backend.Status;
 		}
 
-		return await TryReadStatusAsync(backend, CancellationToken.None).ConfigureAwait(false) is null ? "starting" : "running";
+		if (probe.State == WorkerStatusProbeState.Pending) {
+			return "starting";
+		}
+
+		string? failure = probe.State == WorkerStatusProbeState.ProtocolFailure
+			? probe.Failure
+			: WorkerContractFailure(probe.Status!);
+		if (failure is not null) {
+			ReplaceUnhealthy(backend, generation, failure);
+			return "failed";
+		}
+
+		return "running";
 	}
 
 	/// <summary>

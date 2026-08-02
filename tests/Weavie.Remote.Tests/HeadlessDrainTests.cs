@@ -1,4 +1,5 @@
 using System.Net;
+using Weavie.Hosting.Web;
 using Xunit;
 
 namespace Weavie.Remote.Tests;
@@ -13,7 +14,8 @@ public sealed class HeadlessDrainTests {
 			int port = Hosts.FreePort();
 			await using var host = await HostHandle.StartAsync(
 				Hosts.HeadlessDll,
-				["--remote", "--bind", "127.0.0.1", "--port", port.ToString(), "--token", Tokens.Correct, "--workspace", workspace],
+				["--remote", "--bind", "127.0.0.1", "--port", port.ToString(), "--token", Tokens.Correct,
+					"--workspace", workspace, "--spawn-contract", WorkspaceControlProtocol.SpawnContract.ToString()],
 				port,
 				readyMarker: "open  http://",
 				timeout: TimeSpan.FromSeconds(60));

@@ -69,8 +69,8 @@ one artifact is the complete deploy. Changes:
   API and expire. Requires `contents: write` on that job (the workflow is `contents: read` today).
 - The bundle carries a small `manifest.json`: `{ buildNumber, spawnContract }`, written by the
   publish itself (an MSBuild target — CI never hand-assembles it). `spawnContract` is a generation
-  integer declared once (`SpawnContractVersion` in `Directory.Build.props`) and compiled into the
-  runner as assembly metadata, so bundle and runner compare the same single-sourced number.
+  integer declared once (`SpawnContractVersion` in `Directory.Build.props`) and compiled into both
+  runner and worker assembly metadata, so the manifest, launcher, and control server share one value.
 - The asset **is the managed layout**: a tarball extracting to `versions/<N>/…` plus a `current`
   symlink. Installing — with or without any intent to auto-update — is extracting it into
   `~/.weavie/runner/` and launching `current/Weavie.Runner`; the auto-updater manages the same
@@ -132,9 +132,8 @@ the TLS-front mapping (pinned worker port, `TailscaleServeFront` maps once at co
 across the swap.
 
 1. **Poll** (only when `--auto-update` is on): a release build number above the staged one →
-   download, verify digest, check `manifest.json`'s `spawnContract` against the runner's own
-   generation (an unsatisfiable bundle is *not* applied — see *Version skew*), extract to
-   `versions/<N>/`, re-point `current`, record as staged.
+   download, verify digest, and compare `manifest.json`'s `spawnContract` with the runner's exact
+   generation. Only an exact match is staged or applied; every mismatch is rejected. See *Version skew*.
 2. **Announce**: the runner tells the worker an update is staged; the worker pushes an
    *update-pending* state to connected clients.
 3. **Drain**: the runner requests drain on a token-gated worker control endpoint. The worker owns
@@ -186,11 +185,12 @@ across the swap.
    inherit the bad version's crashes and insta-trip the breaker on the known-good version.
    The drain callback signals the Generic Host's `ApplicationStopping`; Headless's lifetime wait
    must drive `StopAsync` through `ApplicationStopped` so the worker process can actually exit.
-5. **Confirm**: the runner probes the worker's control endpoint, which reports its `BuildNumber`;
-   the number answering marks that version confirmed-good in `state.json`. (The runner never speaks
-   the bridge, so confirmation is an HTTP probe, not a WS handshake.) Confirmation means "boots and
-   serves" — a build that comes up but crash-loops under later real use is already confirmed, and
-   recovery for that is the supervisor's normal re-provision path, not an update rollback.
+5. **Confirm**: the runner requires `/control/status` to report the exact staged build and spawn contract,
+   then requires `/control/health` to remain healthy on that same process generation through the supervisor's
+   probation window with no active message operation. Only then is the build confirmed-good in `state.json`.
+   A missing/malformed endpoint, identity mismatch, failed health probe, clean early exit, or crash all reject
+   that generation through the same supervisor breaker. The runner never speaks the bridge; confirmation is an
+   HTTP control-plane probe.
 6. **Recover**: claude sessions resume through the existing `ClaudeSessionStore` / `--resume`
    machinery (`docs/specs/claude-session-resume.md`, implemented, including failed-resume
    self-heal). Recovery is **conversation-lossless and rail-lossless**; only non-primary editor
@@ -211,25 +211,21 @@ across the swap.
 
 ## Failure & rollback
 
-- New worker **crash-loops**: the supervisor's breaker trips → the runner (behind the same gate)
-  records the build as bad in `state.json` (never retried; a newer build supersedes it), re-points
-  `current` at the confirmed-good version, and respawns from it via `Stop()` → `Start()`. A
-  rollback is a loud event — runner status page and update UI, not a log line.
+- New worker **fails health probation**: the supervisor's breaker trips. When a distinct same-contract confirmed
+  bundle exists, the runner records the release digest as bad and restores that bundle via `Stop()` → `Start()`.
+  Otherwise it leaves the worker terminal; restarting the runner or installing a matching bundle is the explicit
+  retry boundary.
 - **Download/verify failure**: staged state is unchanged; the failure is surfaced on the runner status
   page and the next poll retries.
-- **A runner restarted mid-update** (staged ≠ confirmed at boot) *confirms* the worker it already
-  spawned from the staged version — it does **not** drain or restart it. `Ensure()` launched that
-  worker straight from `current`, so there is no old build to swap away from; draining an
-  already-staged worker would only hold it hostage to a busy session, never confirm, and re-hang the
-  same recovery on every restart. Only the confirm/rollback machinery runs, so a bad build spawned by
-  a fresh runner is still caught. (A drain-and-swap is for the runtime path, where a genuinely newer
-  build is staged while an old worker serves.)
+- **A runner restarted mid-update** confirms the worker `Ensure()` already spawned without another
+  drain/restart. The launch argument and status identity enforce the exact contract before confirmation.
 - **The tab cannot report a dead worker**: if the rollback build also fails to start, connected
   tabs have no server left to learn from (the overlay persists over the reconnect loop); the truth
-  lives on the runner status page, which names the failure.
-- The authenticated runner root redirects straight into a healthy worker. Attention-worthy updater
-  states (`error`, `failed`, `rolled-back`, `needs-newer-runner`, or a behind runner) instead remain on
-  that status page with a clean **Open Weavie** link, so the state stays visible without blocking work.
+  lives on the runner status page, which names the failure. Browser polling never constructs a new
+  supervisor or clears its breaker.
+- The authenticated runner root redirects straight into a healthy worker. Attention-worthy updater states
+  (`error`, `failed`, `rolled-back`, or a behind runner) instead remain on that status page. The clean
+  **Open Weavie** link is available when a worker is running.
 - Nothing prunes a version any live process was spawned from.
 
 ## Client experience
@@ -258,17 +254,21 @@ user is:
 - *Updated to build N* / *rolled back from build N* — web UI notice + runner status page.
 - *Runner is behind (build R < N) — restart the runner to apply* — runner status page; runner staleness
   is otherwise invisible by design.
-- *Update requires a newer runner — restart the runner to continue updating* — when the bundle's
-  `spawnContract` generation exceeds the runner's.
+- *Worker contract mismatch — install/restart the matching runner bundle* — no mismatched bundle is staged.
 
 ## Version skew: the spawn contract
 
-Old runner ⟷ new worker must agree on the launch surface: the argv contract
-(`--remote --port --bind --workspace --token`) and the expectation that the worker serves the
-bridge and control endpoints on the given port. This contract is **frozen**; a change to it ships
-with a bumped `spawnContract` generation in `manifest.json`, which the runner checks against its
-own compiled-in generation *before* applying a bundle — never a silently-spawned worker that can't
-start.
+Runner and worker must agree exactly on the launch surface: the argv contract
+(`--remote --port --bind --workspace --token --spawn-contract`) and the bridge/control endpoints on
+the given port. Contract 2 requires `/control/health`. The runner passes its compiled generation at
+every spawn; Headless rejects a missing or different generation before startup, and `/control/status`
+reports the worker's compiled generation for runtime confirmation.
+
+A same-contract bundle can drain and hot-swap its worker. The updater refuses every other contract before
+staging, and rollback refuses a different-contract target. Install and restart the matching whole bundle when
+the contract changes.
+
+There is no compatibility protocol or mixed-version mode. Contract 2 requires a matching runner and worker.
 
 The page/worker bridge evolves additively during the same rolling swap. Each socket negotiates its ready
 replay protocol through `host-info`: workers that advertise protocol 1 must send the correlated replay-tail
@@ -292,9 +292,8 @@ Poll cadence is fixed (15 min) — a knob would be a liability before anyone nee
   commit-phase input stop, the pending/restarting pushes, and a drain-complete callback — so every
   host gets it. HTTP surface: token-gated `/control/drain` + `/control/status`
   (reports `BuildNumber`) in `src/Weavie.Headless/Program.cs`, covered by its existing
-  default-deny middleware; exit via `IHostApplicationLifetime.StopApplication`. Status also advertises
-  optional control-plane capability names. A missing `capabilities` field means a pre-capability worker,
-  allowing a newer runner to roll back without calling endpoints that worker does not implement.
+  default-deny middleware; exit via `IHostApplicationLifetime.StopApplication`. Status reports the worker's
+  compiled spawn contract; contract 2 requires the authenticated `/control/health` endpoint.
 - **Runner:** `UpdatePoller` + `VersionStore` (layout, `state.json`, symlink, realpath resolve);
   orchestration methods on `BackendManager` behind `_gate`; `HeadlessLauncher` takes the
   spawn-time path provider; `RunnerOptions` gains the two flags; `RunnerStatusPage` surfaces

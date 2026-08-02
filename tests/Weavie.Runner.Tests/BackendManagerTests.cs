@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using Weavie.Core.Processes;
@@ -50,6 +51,33 @@ public sealed class BackendManagerTests {
 	}
 
 	[Fact]
+	public async Task Ensure_DoesNotEraseATerminalSupervisionHistory() {
+		await using var manager = new BackendManager(
+			Options(),
+			new HeadlessLauncher(() => "headless", "127.0.0.1", log: null),
+			"127.0.0.1");
+		var backend = manager.Ensure();
+		backend.Supervisor!.Dispose();
+		using var terminal = new ProcessSupervisor(
+			"worker",
+			_ => { },
+			() => { },
+			new SupervisionOptions { Policy = RestartPolicy.OnFailure, MaxRestartsInWindow = 0 },
+			log: null,
+			clock: null);
+		backend.Supervisor = terminal;
+		terminal.Start();
+		Assert.True(terminal.ReportUnhealthy(terminal.Generation, "permanent failure"));
+		Assert.Equal(SupervisorState.Failed, terminal.State);
+
+		var polled = manager.Ensure();
+
+		Assert.Same(backend, polled);
+		Assert.Same(terminal, polled.Supervisor);
+		Assert.Equal(SupervisorState.Failed, polled.Supervisor!.State);
+	}
+
+	[Fact]
 	public async Task Fresh_managers_keep_the_worker_token_for_the_same_runner_identity() {
 		var options = Options();
 		var launcher = new HeadlessLauncher(() => "headless", "127.0.0.1", log: null);
@@ -92,12 +120,10 @@ public sealed class BackendManagerTests {
 	}
 
 	[Fact]
-	public async Task PreHealthWorkerStatus_IsReadyWithoutAdvertisingMessageHealth() {
-		using var http = new HttpClient(new StubHttpHandler(request => {
-			Assert.Contains("/control/status", request.RequestUri?.AbsolutePath, StringComparison.Ordinal);
-			return new HttpResponseMessage(HttpStatusCode.OK) {
-				Content = new StringContent("""{"buildNumber":"0.1.42","draining":false}"""),
-			};
+	public async Task StrictWorkerStatus_ParsesBuildAndSpawnContract() {
+		using var http = new HttpClient(new StubHttpHandler(_ => new HttpResponseMessage(HttpStatusCode.OK) {
+			Content = new StringContent(
+				$$"""{"buildNumber":"0.1.42","spawnContract":{{RunnerIdentity.SpawnContract}},"draining":false}"""),
 		}));
 		await using var manager = new BackendManager(
 			Options(),
@@ -105,15 +131,11 @@ public sealed class BackendManagerTests {
 			"127.0.0.1",
 			http);
 
-		var status = await manager.TryReadStatusAsync(Backend(), CancellationToken.None);
+		var probe = await manager.ProbeStatusAsync(Backend(), CancellationToken.None);
 
-		Assert.NotNull(status);
-		Assert.Equal(42, status.Build);
-		Assert.False(status.SupportsMessageHealth);
-		var state = new WorkerHealthMonitorState();
-		state.MarkReady(status);
-		Assert.True(state.Ready);
-		Assert.False(state.SupportsMessageHealth);
+		Assert.Equal(WorkerStatusProbeState.Ready, probe.State);
+		Assert.Equal(42, probe.Status!.Build);
+		Assert.Equal(RunnerIdentity.SpawnContract, probe.Status.SpawnContract);
 	}
 
 	[Theory]
@@ -121,8 +143,9 @@ public sealed class BackendManagerTests {
 	[InlineData("{}")]
 	[InlineData("{\"buildNumber\":42}")]
 	[InlineData("{\"buildNumber\":\"broken\"}")]
-	[InlineData("{\"buildNumber\":\"0.1.42\",\"capabilities\":{}}")]
-	public async Task MalformedWorkerStatus_RemainsNotReady(string body) {
+	[InlineData("{\"buildNumber\":\"0.1.42\"}")]
+	[InlineData("{\"buildNumber\":\"0.1.42\",\"spawnContract\":\"2\"}")]
+	public async Task MalformedWorkerStatus_IsAProtocolFailure(string body) {
 		using var http = new HttpClient(new StubHttpHandler(_ => new HttpResponseMessage(HttpStatusCode.OK) {
 			Content = new StringContent(body),
 		}));
@@ -132,7 +155,100 @@ public sealed class BackendManagerTests {
 			"127.0.0.1",
 			http);
 
-		Assert.Null(await manager.TryReadStatusAsync(Backend(), CancellationToken.None));
+		var probe = await manager.ProbeStatusAsync(Backend(), CancellationToken.None);
+
+		Assert.Equal(WorkerStatusProbeState.ProtocolFailure, probe.State);
+		Assert.Contains("malformed status identity", probe.Failure, StringComparison.Ordinal);
+	}
+
+	[Theory]
+	[InlineData(HttpStatusCode.ServiceUnavailable, "Pending")]
+	[InlineData(HttpStatusCode.NotFound, "ProtocolFailure")]
+	[InlineData(HttpStatusCode.Unauthorized, "ProtocolFailure")]
+	public async Task WorkerStatus_DistinguishesStartupFromProtocolFailure(
+		HttpStatusCode status,
+		string expected) {
+		using var http = new HttpClient(new StubHttpHandler(_ => new HttpResponseMessage(status)));
+		await using var manager = new BackendManager(
+			Options(),
+			new HeadlessLauncher(() => "headless", "127.0.0.1", log: null),
+			"127.0.0.1",
+			http);
+
+		Assert.Equal(expected, (await manager.ProbeStatusAsync(Backend(), CancellationToken.None)).State.ToString());
+	}
+
+	[Fact]
+	public async Task StatusAsync_BoundsANonAnsweringWorkerControlRequest() {
+		using var supervisor = Supervisor();
+		supervisor.Start();
+		using var http = new HttpClient(new HangingHttpHandler());
+		await using var manager = new BackendManager(
+			Options(),
+			new HeadlessLauncher(() => "headless", "127.0.0.1", log: null),
+			"127.0.0.1",
+			http);
+		var backend = Backend();
+		backend.Supervisor = supervisor;
+		var elapsed = Stopwatch.StartNew();
+
+		Assert.Equal("starting", await manager.StatusAsync(backend));
+		Assert.True(elapsed.Elapsed < TimeSpan.FromSeconds(5), $"status took {elapsed.Elapsed}");
+	}
+
+	[Fact]
+	public async Task StatusAsync_RejectsAWorkerFromAnotherContract() {
+		using var supervisor = Supervisor();
+		supervisor.Start();
+		using var http = new HttpClient(new StubHttpHandler(_ => new HttpResponseMessage(HttpStatusCode.OK) {
+			Content = new StringContent(
+				$$"""{"buildNumber":"0.1.42","spawnContract":{{RunnerIdentity.SpawnContract - 1}}}"""),
+		}));
+		await using var manager = new BackendManager(
+			Options(),
+			new HeadlessLauncher(() => "headless", "127.0.0.1", log: null),
+			"127.0.0.1",
+			http);
+		var backend = Backend();
+		backend.Supervisor = supervisor;
+
+		Assert.Equal("failed", await manager.StatusAsync(backend));
+	}
+
+	[Fact]
+	public async Task StatusAsync_DiscardsAReplyFromAReplacedGeneration() {
+		using var supervisor = Supervisor();
+		supervisor.Start();
+		using var http = new HttpClient(new StubHttpHandler(_ => {
+			supervisor.ReportUnhealthy(supervisor.Generation, "replace during status request");
+			return new HttpResponseMessage(HttpStatusCode.OK) {
+				Content = new StringContent(
+					$$"""{"buildNumber":"0.1.42","spawnContract":{{RunnerIdentity.SpawnContract}}}"""),
+			};
+		}));
+		await using var manager = new BackendManager(
+			Options(),
+			new HeadlessLauncher(() => "headless", "127.0.0.1", log: null),
+			"127.0.0.1",
+			http);
+		var backend = Backend();
+		backend.Supervisor = supervisor;
+
+		Assert.Equal("starting", await manager.StatusAsync(backend));
+		Assert.Equal(SupervisorState.BackingOff, supervisor.State);
+	}
+
+	[Fact]
+	public void WorkerIdentityFailure_RequiresTheExactStagedBuildAndContract() {
+		Assert.Null(BackendManager.WorkerIdentityFailure(
+			new WorkerControlStatus(42, RunnerIdentity.SpawnContract),
+			42));
+		Assert.Contains("staged build 42", BackendManager.WorkerIdentityFailure(
+			new WorkerControlStatus(41, RunnerIdentity.SpawnContract),
+			42), StringComparison.Ordinal);
+		Assert.Contains("spawn contract", BackendManager.WorkerIdentityFailure(
+			new WorkerControlStatus(42, RunnerIdentity.SpawnContract - 1),
+			42), StringComparison.Ordinal);
 	}
 
 	[Fact]
@@ -206,7 +322,7 @@ public sealed class BackendManagerTests {
 		var firstStarted = DateTimeOffset.UnixEpoch;
 		var secondStarted = firstStarted.AddMinutes(3);
 		state.Observe(first, firstSupervisor, firstStarted);
-		state.MarkReady(new WorkerControlStatus(42, SupportsMessageHealth: true));
+		state.MarkReady();
 		state.UnreachableFailures = 2;
 
 		state.Observe(second, secondSupervisor, secondStarted);
@@ -214,19 +330,22 @@ public sealed class BackendManagerTests {
 		Assert.Equal(1, firstSupervisor.Generation);
 		Assert.Equal(1, secondSupervisor.Generation);
 		Assert.False(state.Ready);
-		Assert.False(state.SupportsMessageHealth);
 		Assert.Equal(0, state.UnreachableFailures);
 		Assert.Equal(secondStarted, state.GenerationStarted);
 	}
 
 	[Theory]
-	[InlineData(HttpStatusCode.OK, "Healthy")]
-	[InlineData(HttpStatusCode.InternalServerError, "Unreachable")]
+	[InlineData(HttpStatusCode.OK, "{\"healthy\":true,\"activeOperations\":[]}", "Healthy")]
+	[InlineData(HttpStatusCode.OK,
+		"{\"healthy\":true,\"activeOperations\":[{\"id\":\"msg-1\",\"endpoint\":\"host\",\"feature\":\"sessions\",\"name\":\"load\",\"stage\":\"handler\",\"elapsedMs\":11000}]}",
+		"Busy")]
+	[InlineData(HttpStatusCode.InternalServerError, "{}", "Unreachable")]
 	public async Task HealthProbe_ClassifiesHealthyAndUnavailableResponses(
 		HttpStatusCode status,
+		string body,
 		string expected) {
 		using var http = new HttpClient(new StubHttpHandler(_ => new HttpResponseMessage(status) {
-			Content = new StringContent("{}"),
+			Content = new StringContent(body),
 		}));
 		await using var manager = new BackendManager(
 			Options(),
@@ -273,5 +392,14 @@ public sealed class BackendManagerTests {
 	private sealed class StubHttpHandler(Func<HttpRequestMessage, HttpResponseMessage> respond) : HttpMessageHandler {
 		protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
 			Task.FromResult(respond(request));
+	}
+
+	private sealed class HangingHttpHandler : HttpMessageHandler {
+		protected override async Task<HttpResponseMessage> SendAsync(
+			HttpRequestMessage request,
+			CancellationToken cancellationToken) {
+			await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+			throw new InvalidOperationException("unreachable");
+		}
 	}
 }

@@ -40,9 +40,10 @@ handler or wait for one.
    separately.
 8. Health is not process liveness. A health response includes ingress responsiveness plus the active/last failed
    message operation. A live process with an unresponsive ingress or a timed-out operation is unhealthy, including
-   while an update is waiting for that worker to drain. Workers advertise this optional control-plane capability
-   through `/control/status`; a runner never probes an older worker that does not advertise it, so rollback remains
-   compatible across the additive protocol change.
+   while an update is waiting for that worker to drain. A responsive worker with an active operation remains on
+   probation, so a deterministic stuck replay cannot reset the breaker before its deadline. `/control/health` is
+   mandatory in runner↔worker spawn contract 2. Launch arguments, worker status, hot updates, respawns,
+   confirmation, and rollback all require an exact contract match; no worker runs with a reduced supervision surface.
 
 ## Pane state
 

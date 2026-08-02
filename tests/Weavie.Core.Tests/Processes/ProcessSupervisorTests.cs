@@ -74,6 +74,53 @@ public sealed class ProcessSupervisorTests {
 		Assert.Equal(1, h.Sup.RestartCount);
 	}
 
+	[Theory]
+	[InlineData(true)]
+	[InlineData(false)]
+	public async Task UnconfirmedGenerationsTripTheConsecutiveBreakerAcrossLongRuns(bool reportUnhealthy) {
+		using var h = new Harness(Opts(
+			RestartPolicy.OnFailure,
+			initialMs: 100,
+			healthyMs: 1_000,
+			windowMs: 100,
+			maxConsecutive: 2,
+			requireExplicitHealth: true));
+		h.Sup.Start();
+		Assert.True(await h.WaitStartAsync());
+
+		for (int failure = 0; failure < 2; failure++) {
+			h.Clock.Advance(TimeSpan.FromSeconds(2));
+			Fail(failure);
+			h.Clock.Advance(TimeSpan.FromMilliseconds(100));
+			Assert.True(await h.WaitStartAsync());
+		}
+
+		h.Clock.Advance(TimeSpan.FromSeconds(2));
+		Fail(2);
+		Assert.Equal(SupervisorState.Failed, h.Sup.State);
+
+		void Fail(int failure) {
+			if (reportUnhealthy) {
+				Assert.True(h.Sup.ReportUnhealthy(h.Sup.Generation, $"failed health probe {failure}"));
+			} else {
+				h.NotifyExited(1);
+			}
+		}
+	}
+
+	[Fact]
+	public async Task ReportHealthyRequiresTheCurrentGenerationToClearProbation() {
+		using var h = new Harness(Opts(RestartPolicy.OnFailure, healthyMs: 1_000));
+		h.Sup.Start();
+		Assert.True(await h.WaitStartAsync());
+		long generation = h.Sup.Generation;
+
+		Assert.False(h.Sup.ReportHealthy(generation));
+		h.Clock.Advance(TimeSpan.FromSeconds(1));
+		Assert.True(h.Sup.ReportHealthy(generation));
+		Assert.False(h.Sup.ReportHealthy(generation + 1));
+	}
+
 	[Fact]
 	public async Task BlockingObserversAndLogsCannotPreventUnhealthyReplacement() {
 		var observerEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -501,7 +548,9 @@ public sealed class ProcessSupervisorTests {
 		double maxMs = 10_000,
 		double healthyMs = 10_000,
 		double windowMs = 60_000,
-		int maxRestarts = 5) =>
+		int maxRestarts = 5,
+		int maxConsecutive = 5,
+		bool requireExplicitHealth = false) =>
 		new() {
 			Policy = policy,
 			InitialBackoff = TimeSpan.FromMilliseconds(initialMs),
@@ -510,6 +559,8 @@ public sealed class ProcessSupervisorTests {
 			HealthyAfter = TimeSpan.FromMilliseconds(healthyMs),
 			CrashLoopWindow = TimeSpan.FromMilliseconds(windowMs),
 			MaxRestartsInWindow = maxRestarts,
+			MaxConsecutiveFailures = maxConsecutive,
+			RequireExplicitHealth = requireExplicitHealth,
 		};
 
 	/// <summary>A supervisor wired to recording start/stop delegates and a manually-advanced clock.</summary>

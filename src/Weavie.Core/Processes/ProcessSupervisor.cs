@@ -67,6 +67,10 @@ public sealed class ProcessSupervisor : IDisposable {
 			throw new ArgumentOutOfRangeException(nameof(options), "MaxRestartsInWindow must be >= 0.");
 		}
 
+		if (options.MaxConsecutiveFailures < 0) {
+			throw new ArgumentOutOfRangeException(nameof(options), "MaxConsecutiveFailures must be >= 0.");
+		}
+
 		Name = name;
 		_start = start;
 		_stop = stop;
@@ -171,6 +175,25 @@ public sealed class ProcessSupervisor : IDisposable {
 	}
 
 	/// <summary>
+	/// Records that the current generation has stayed responsive through its configured healthy window.
+	/// Returns <c>false</c> for a stale, stopped, or still-probationary generation.
+	/// </summary>
+	public bool ReportHealthy(long generation) {
+		ArgumentOutOfRangeException.ThrowIfNegativeOrZero(generation);
+		lock (_gate) {
+			if (_disposed
+				|| _state != SupervisorState.Running
+				|| _generation != generation
+				|| _clock.UtcNow - _startedAt < _options.HealthyAfter) {
+				return false;
+			}
+
+			_consecutiveCrashes = 0;
+			return true;
+		}
+	}
+
+	/// <summary>
 	/// Stops the process and cancels any pending restart; the resulting exit is treated as intentional and is
 	/// not relaunched. No-op if already idle or disposed. Safe to call repeatedly.
 	/// </summary>
@@ -224,7 +247,9 @@ public sealed class ProcessSupervisor : IDisposable {
 				return false; // intentional stop, a stopped predecessor's late exit, a duplicate, or already failed
 			}
 
-			if (_clock.UtcNow - _startedAt >= _options.HealthyAfter) {
+			if (!stopCurrent
+				&& !_options.RequireExplicitHealth
+				&& _clock.UtcNow - _startedAt >= _options.HealthyAfter) {
 				_consecutiveCrashes = 0;
 			}
 
@@ -241,7 +266,8 @@ public sealed class ProcessSupervisor : IDisposable {
 				change = new SupervisorStateChanged(SupervisorState.Idle, exitCode, _restartCount);
 			} else {
 				PruneRestartWindow(_clock.UtcNow);
-				if (_recentRestarts.Count >= _options.MaxRestartsInWindow) {
+				if (_recentRestarts.Count >= _options.MaxRestartsInWindow
+					|| _consecutiveCrashes >= _options.MaxConsecutiveFailures) {
 					_state = SupervisorState.Failed;
 					tripped = true;
 					change = new SupervisorStateChanged(SupervisorState.Failed, exitCode, _restartCount);

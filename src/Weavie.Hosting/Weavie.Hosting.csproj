@@ -16,6 +16,10 @@
     <ProjectReference Include="..\Weavie.Core\Weavie.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <AssemblyMetadata Include="SpawnContract" Value="$(SpawnContractVersion)" />
+  </ItemGroup>
+
 	<ItemGroup>
 		<FrameworkReference Include="Microsoft.AspNetCore.App" />
 	</ItemGroup>

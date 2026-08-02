@@ -148,7 +148,6 @@ internal sealed partial class WorkspaceHost : IWebSurface, IShellMenuActions {
 
 	private void OnWindowDestroy(IntPtr widget, IntPtr userData) {
 		SaveWindowState();
-		DisposeHotkeys();
 		Gtk.gtk_main_quit();
 	}
 

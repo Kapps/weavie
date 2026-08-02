@@ -26,12 +26,6 @@
     <AdditionalFiles Include="DBus\org.freedesktop.portal.xml"
                      Namespace="Weavie.Linux.Portal"
                      DBusGeneratorMode="Proxy" />
-    <AdditionalFiles Include="DBus\org.freedesktop.DBus.xml"
-                     Namespace="Weavie.Linux.Bus"
-                     DBusGeneratorMode="Proxy" />
-    <AdditionalFiles Include="DBus\org.freedesktop.systemd1.xml"
-                     Namespace="Weavie.Linux.Systemd"
-                     DBusGeneratorMode="Proxy" />
   </ItemGroup>
 
   <ItemGroup>

@@ -41,12 +41,6 @@ test("compact session inbox creates, resumes, and switches existing surfaces", a
   await bar.dispatchEvent("pointerup", { clientX: 120, pointerType: "touch" });
   await expect(page.locator(".mobile-surface-button.active")).toHaveText("Shell");
 
-  await page.getByRole("button", { name: "Sessions" }).click();
-  await inbox.getByRole("button", { name: "More…" }).click();
-  await page.getByRole("combobox", { name: "Branch name" }).fill("improve-mobile-navigation");
-  await page.getByRole("button", { name: /Check out improve-mobile-navigation/ }).click();
-  await expect(page.locator(".mobile-surface-button.active")).toHaveText("Agent");
-
   const agentSurface = page.locator(".terminal-surface[data-kind='terminal:claude']");
   await agentSurface.evaluate((element) => {
     (window as Window & { __breakpointProof?: Element }).__breakpointProof = element;

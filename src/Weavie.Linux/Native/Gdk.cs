@@ -35,6 +35,15 @@ internal static partial class Gdk {
 	[LibraryImport(Lib)]
 	internal static partial IntPtr gdk_display_get_default();
 
+	[LibraryImport(Lib)]
+	internal static partial uint gdk_unicode_to_keyval(uint wc);
+
+	[LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
+	internal static partial uint gdk_keyval_from_name(string keyvalName);
+
+	[LibraryImport(Lib)]
+	internal static partial IntPtr gdk_keyval_name(uint keyval);
+
 	[LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
 	internal static partial void gdk_wayland_display_set_startup_notification_id(IntPtr display, string startupId);
 

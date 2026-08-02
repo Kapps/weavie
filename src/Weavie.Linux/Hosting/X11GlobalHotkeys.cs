@@ -26,8 +26,7 @@ internal sealed class X11GlobalHotkeys : ILinuxGlobalHotkeyBackend {
 		}
 
 		_root = X11.XRootWindow(_display, X11.XDefaultScreen(_display));
-		uint numLockKey = X11.XKeysymToKeycode(_display, X11.XStringToKeysym("Num_Lock"));
-		_numLockMask = X11.FindModifierMask(_display, numLockKey);
+		_numLockMask = X11.XkbKeysymToModifiers(_display, Gdk.gdk_keyval_from_name("Num_Lock"));
 		_filter = OnNativeEvent;
 		_filterPointer = Marshal.GetFunctionPointerForDelegate(_filter);
 		Gdk.gdk_window_add_filter(IntPtr.Zero, _filterPointer, IntPtr.Zero);
@@ -60,14 +59,14 @@ internal sealed class X11GlobalHotkeys : ILinuxGlobalHotkeyBackend {
 	}
 
 	private void Register(GlobalHotkey hotkey) {
-		if (!LinuxHotkeyMapping.TryGetKeyName(hotkey.Key, out string keyName)) {
+		if (!LinuxHotkeyMapping.TryKeyval(hotkey.Key, out uint keyval)) {
 			Log?.Invoke($"[hotkey] can't map '{hotkey.Chord}' to an X11 keysym; skipping '{hotkey.Command}'.");
 			return;
 		}
 
-		uint keyCode = X11.XKeysymToKeycode(_display, X11.XStringToKeysym(keyName));
+		uint keyCode = X11.XKeysymToKeycode(_display, keyval);
 		if (keyCode == 0) {
-			Log?.Invoke($"[hotkey] X11 has no keycode for '{keyName}'; skipping '{hotkey.Command}'.");
+			Log?.Invoke($"[hotkey] X11 has no keycode for '{hotkey.Key}'; skipping '{hotkey.Command}'.");
 			return;
 		}
 

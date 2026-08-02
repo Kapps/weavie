@@ -99,11 +99,10 @@ function waitForHost(proc, timeoutMs) {
     );
     proc.stdout.on("data", (chunk) => {
       output += chunk.toString("utf8");
-      const pageUrl = output.match(/open\s+(http:\/\/\S+)/)?.[1];
-      const token = output.match(/\[weavie-headless\] token ([^\s]+)/)?.[1];
-      if (pageUrl && token) {
+      const match = output.match(/open\s+(http:\/\/\S+)/);
+      if (match) {
         clearTimeout(timer);
-        res({ pageUrl, token });
+        res(match[1]);
       }
     });
     proc.on("exit", (code) => {
@@ -126,7 +125,7 @@ async function main() {
   });
 
   try {
-    const { pageUrl, token } = await waitForHost(host, 60_000);
+    const pageUrl = await waitForHost(host, 60_000);
     // When the project pins a Playwright newer than the pre-installed browser build, launch the bundled
     // Chromium directly (WEAVIE_CHROMIUM) instead of downloading a matching build.
     const executablePath = process.env.WEAVIE_CHROMIUM || undefined;
@@ -139,13 +138,6 @@ async function main() {
       const page = await context.newPage();
       page.on("console", (msg) => console.log(`[page:${msg.type()}] ${msg.text()}`));
       page.on("pageerror", (err) => console.log(`[page:error] ${err.message}`));
-      const connect = await page.request.post(pageUrl, {
-        form: { token },
-        maxRedirects: 0,
-      });
-      if (connect.status() !== 302) {
-        throw new Error(`workspace connect failed (${connect.status()})`);
-      }
       await page.goto(pageUrl, { waitUntil: "load" });
 
       const tour = await loadTour();

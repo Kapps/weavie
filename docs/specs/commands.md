@@ -275,8 +275,8 @@ The mechanism splits shared orchestration from native registration:
   Desktop Portal GlobalShortcuts session and forwards its activation token when presenting the GTK window.
   It treats the portal's accepted shortcut subset as authoritative, avoids rebinding an unchanged global set,
   and restores the session after the portal service restarts or closes the shortcut session. Host processes
-  register their desktop identity through the portal Registry; older portals use the standardized systemd
-  desktop-app scope.
+  register their desktop identity through the portal Registry when available, otherwise the portal uses its
+  standard host application identity detection.
   An actual X11 GDK display uses the compatibility backend, with passive `XGrabKey` grabs including Caps Lock
   and Num Lock variants. Each resolves
   `$mod` (Ctrl on Windows/Linux, Cmd on macOS) and maps the key token to its native representation.

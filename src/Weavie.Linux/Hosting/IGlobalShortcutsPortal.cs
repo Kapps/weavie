@@ -11,7 +11,7 @@ internal interface IGlobalShortcutsPortal : IDisposable {
 	event Action? Invalidated;
 	event Action<string>? Log;
 
-	Task<PortalBinding> BindAsync(IReadOnlyList<PortalShortcut> shortcuts, CancellationToken ct);
+	Task<PortalBinding> BindAsync(IReadOnlyList<PortalShortcut> shortcuts);
 
 	Task CloseSessionAsync(string sessionHandle);
 }

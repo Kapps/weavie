@@ -128,6 +128,14 @@ test.describe("permission prompt, window unfocused", () => {
   });
 });
 
+// Flaked 2026-08-02 08:23 UTC on Windows CI (main, run
+// https://github.com/Kapps/weavie/actions/runs/30739682212/job/91474719821): the background session's Stop
+// hook never produced a notification within the 30s poll. fake-claude.log showed
+// `IOException: The process cannot access the file '...\fake-claude.log' because it is being used by
+// another process` — both sessions' fake-claude processes share one log path (weavie-host.ts's
+// `prepareFake`), and `File.AppendAllText` opens for exclusive write on Windows, so the forked session's
+// hook write lost the race and its Stop event was dropped. Fixed by opening the log with
+// FileShare.ReadWrite in tools/Weavie.FakeClaude/Program.cs so concurrent sessions can append safely.
 test.describe("two sessions: the background session pings; clicking focuses it", () => {
   test.use({
     fakeScript: turnScript({ hook_event_name: "Stop" }),

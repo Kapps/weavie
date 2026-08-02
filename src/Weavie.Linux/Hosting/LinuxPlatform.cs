@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
-using Weavie.Core.Commands;
 using Weavie.Core.Mcp;
 using Weavie.Core.Shell;
 using Weavie.Core.Workspaces;
@@ -15,14 +14,21 @@ namespace Weavie.Linux.Hosting;
 /// </summary>
 internal sealed class LinuxPlatform : IHostPlatform {
 	private readonly RecentWorkspaces _recents;
+	private readonly Action _toggleWindow;
 
-	public LinuxPlatform(HostBridge bridge, RecentWorkspaces recents, IShellMenuActions menuActions) {
+	public LinuxPlatform(
+		HostBridge bridge,
+		RecentWorkspaces recents,
+		IShellMenuActions menuActions,
+		Action toggleWindow) {
 		ArgumentNullException.ThrowIfNull(bridge);
 		ArgumentNullException.ThrowIfNull(recents);
 		ArgumentNullException.ThrowIfNull(menuActions);
+		ArgumentNullException.ThrowIfNull(toggleWindow);
 		Bridge = bridge;
 		_recents = recents;
 		MenuActions = menuActions;
+		_toggleWindow = toggleWindow;
 		Dispatcher = new DelegateUiDispatcher(GtkMain.Invoke);
 		PtyLauncher = new PosixPtyLauncher();
 	}
@@ -46,13 +52,9 @@ internal sealed class LinuxPlatform : IHostPlatform {
 
 	public IShellMenuActions MenuActions { get; }
 
-	public IGlobalHotkeyRegistrar? HotkeyRegistrar => null;
-
 	public IHostDialogs? Dialogs => null;
 
-	public void ToggleWindow() {
-		// No window toggle on the GTK host.
-	}
+	public void ToggleWindow() => _toggleWindow();
 
 	// Host-bus handlers enter the GTK main thread before reaching the clipboard API. Store so the text
 	// survives this process exiting (X11 clipboards otherwise vanish with their owner).

@@ -16,8 +16,16 @@
 
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Tmds.DBus.Protocol" />
+    <PackageReference Include="Tmds.DBus.Generator" PrivateAssets="all" />
     <ProjectReference Include="..\Weavie.Core\Weavie.Core.csproj" />
     <ProjectReference Include="..\Weavie.Hosting\Weavie.Hosting.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AdditionalFiles Include="DBus\org.freedesktop.portal.xml"
+                     Namespace="Weavie.Linux.Portal"
+                     DBusGeneratorMode="Proxy" />
   </ItemGroup>
 
   <ItemGroup>
@@ -25,6 +33,14 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
+    <Content Include="io.github.kapps.weavie.desktop">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Weavie.Linux.Tests" />
   </ItemGroup>
 
   <!--

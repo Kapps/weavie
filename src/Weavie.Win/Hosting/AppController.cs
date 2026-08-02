@@ -26,9 +26,7 @@ namespace Weavie.Win.Hosting;
 internal sealed class AppController : ApplicationContext {
 	private readonly List<WorkspaceWindow> _windows = [];
 	private readonly WorkspaceManager _manager;
-	// Global-hotkey commands (ctrl+` → focus) aren't tied to one window, so their handlers live here.
-	private readonly CommandDispatcher _globalCommands;
-	private readonly GlobalHotkeyService _hotkeys;
+	private readonly ApplicationHotkeys _hotkeys;
 	private WorkspaceWindow? _lastActiveWindow;
 	private WelcomeWindow? _welcome;
 	private bool _exiting;
@@ -57,13 +55,6 @@ internal sealed class AppController : ApplicationContext {
 			Console.WriteLine(line);
 			Console.Out.Flush();
 		};
-
-		// Dispatcher for global-hotkey commands; toggle targets the most-recently-active window.
-		_globalCommands = new CommandDispatcher(CommandRegistry);
-		_globalCommands.RegisterHandler(CoreCommands.ToggleWindow, (_, _) => {
-			ToggleFrontmostWindow();
-			return Task.FromResult(CommandResult.Success("Toggled the Weavie window."));
-		});
 
 		// Claude session ids per working directory (~/.weavie/claude-sessions.json) — app-global so every session
 		// resumes its own directory's previous Claude conversation.
@@ -120,16 +111,15 @@ internal sealed class AppController : ApplicationContext {
 
 		// Global hotkeys (e.g. ctrl+` → focus). Created last, after a window exists, so the WinForms
 		// SynchronizationContext WindowsGlobalHotkeys captures is installed.
-		var registrar = new WindowsGlobalHotkeys();
-		registrar.Log += line => {
-			Console.WriteLine(line);
-			Console.Out.Flush();
-		};
-		_hotkeys = new GlobalHotkeyService(Keybindings, _globalCommands, registrar);
-		_hotkeys.Log += line => {
-			Console.WriteLine(line);
-			Console.Out.Flush();
-		};
+		_hotkeys = new ApplicationHotkeys(
+			CommandRegistry,
+			Keybindings,
+			new WindowsGlobalHotkeys(),
+			ToggleFrontmostWindow,
+			line => {
+				Console.WriteLine(line);
+				Console.Out.Flush();
+			});
 	}
 
 	/// <summary>App-global settings store, shared by every workspace window.</summary>

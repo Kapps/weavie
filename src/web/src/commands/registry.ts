@@ -58,6 +58,12 @@ const catalogs = new Map<string, CommandCatalog>([
 ]);
 const handlers = new Map<string, CommandHandler>();
 const changeSubscribers = new Set<() => void>();
+const sessionActivationSubscribers = new Set<(activation: SessionActivation) => void>();
+
+export interface SessionActivation {
+  session: ClientSession;
+  created: boolean;
+}
 
 function currentCatalog(): CommandCatalog {
   return catalogFor(getActiveCatalogBackendId());
@@ -114,19 +120,20 @@ export function findCommandInCatalog(backendId: string, id: string): CommandInfo
 
 // Run a Core command and return its result. A `backendId` arg (a rail / cloud-panel op on a specific session)
 // targets that backend so the command runs on the session's owning host; otherwise the active backend.
-async function applySessionActivation(
+export async function applySessionActivation(
   backendId: string,
   result: CommandResult,
   commit: ReturnType<typeof beginClientSelectionCandidate>,
-): Promise<void> {
+): Promise<ClientSession | null> {
   const data = result.data as
     | {
         activateSession?: unknown;
+        createdSession?: unknown;
         address?: { slot?: unknown; incarnation?: unknown };
       }
     | undefined;
   if (data?.activateSession !== true) {
-    return;
+    return null;
   }
   const address = data.address;
   if (
@@ -142,7 +149,14 @@ async function applySessionActivation(
     slot: address.slot,
     incarnation: address.incarnation,
   });
-  commit(session);
+  if (!commit(session)) {
+    return null;
+  }
+  const activation = { session, created: data.createdSession === true };
+  for (const handler of sessionActivationSubscribers) {
+    handler(activation);
+  }
+  return session;
 }
 
 async function routeCoreCommand(
@@ -173,6 +187,12 @@ async function routeCoreCommand(
 export function onCommandsChanged(handler: () => void): () => void {
   changeSubscribers.add(handler);
   return () => changeSubscribers.delete(handler);
+}
+
+/** Runs after an exact session activation wins the client-selection race. */
+export function onSessionActivated(handler: (activation: SessionActivation) => void): () => void {
+  sessionActivationSubscribers.add(handler);
+  return () => sessionActivationSubscribers.delete(handler);
 }
 
 /**

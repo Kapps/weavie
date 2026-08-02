@@ -21,6 +21,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Linux Wayland global shortcuts: low-level, NativeAOT-compatible D-Bus client plus compile-time proxies. -->
+    <PackageVersion Include="Tmds.DBus.Protocol" Version="0.94.2" />
+    <PackageVersion Include="Tmds.DBus.Generator" Version="0.94.2" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- Roslyn: builds the in-repo Weavie.Analyzers (compile-time only, never shipped). Must stay at or below
          the OLDEST Roslyn compiler across every build machine (all dev SDKs + CI), NOT the newest — CS9057
          fails the build on any machine whose SDK ships an older Roslyn than this reference. .NET 10 SDK patches

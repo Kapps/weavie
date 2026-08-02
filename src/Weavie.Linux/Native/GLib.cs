@@ -18,6 +18,9 @@ internal static partial class GLib {
 	[LibraryImport(GObject)]
 	internal static partial void g_object_unref(IntPtr obj);
 
+	[LibraryImport(GObject)]
+	internal static partial IntPtr g_type_name_from_instance(IntPtr instance);
+
 	[LibraryImport(GLibCore)]
 	internal static partial void g_free(IntPtr mem);
 

@@ -1,4 +1,4 @@
-import { openFile } from "../harness/actions";
+import { activeSessionSlot, openFile, runCommand, waitForSessionSwitch } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 
 // Which pane currently holds DOM focus, as the data-kind of the focused element's surface. This is the ground
@@ -60,4 +60,24 @@ test("clicking a second terminal's head switches focus between terminals", async
   await expect(claude).toHaveClass(/\bactive\b/);
   await expect(shell).not.toHaveClass(/\bactive\b/);
   expect(await focusedKind(page)).toBe("terminal:claude");
+});
+
+test("creating a session focuses its agent while ordinary session switching does not force it", async ({
+  page,
+}) => {
+  const shell = page.locator('.terminal-surface[data-kind="terminal:shell"]');
+  const initialSlot = await activeSessionSlot(page);
+  await shell.locator(".pane-head").click();
+  expect(await focusedKind(page)).toBe("terminal:shell");
+
+  await runCommand(page, "Fork Session");
+  await waitForSessionSwitch(page, initialSlot);
+  await expect.poll(() => focusedKind(page)).toBe("terminal:claude");
+
+  await shell.locator(".pane-head").click();
+  const forkedSlot = await activeSessionSlot(page);
+  await page.keyboard.press("Control+Tab");
+  await waitForSessionSwitch(page, forkedSlot);
+  await expect(shell).toHaveClass(/\bactive\b/);
+  expect(await focusedKind(page)).not.toBe("terminal:claude");
 });

@@ -1,7 +1,7 @@
 # Commands & keybindings
 
-Status: implemented (Core + Windows + macOS hosts + web)
-Last updated: 2026-07-30
+Status: implemented (Core + Windows + macOS + Linux hosts + web)
+Last updated: 2026-08-02
 
 The third concrete instance of the
 [Claude-facing capability registry](../concepts/mcp-registry.md) (after settings and the layout
@@ -258,9 +258,12 @@ like "show/hide Weavie" (`weavie.window.toggle`, default `ctrl+\``). Because the
 **web keydown resolver skips global bindings** (`keybindings.ts` filters `global === true`) — otherwise
 they'd double-fire while Weavie *is* focused.
 
-The mechanism splits Core/host the same way commands do:
+The mechanism splits shared orchestration from native registration:
 
-- **`GlobalHotkeyService`** (Core, app-scoped) reads the global bindings out of `KeybindingStore`, parses
+- **`ApplicationHotkeys`** (Hosting, app-scoped) is the single composition point for every desktop host. It
+  owns the global command dispatcher and `GlobalHotkeyService`; each app root supplies its native registrar
+  and frontmost-window toggle. A workspace `HostCore` never registers process-wide shortcuts.
+- **`GlobalHotkeyService`** (Core) reads the global bindings out of `KeybindingStore`, parses
   each chord (`ChordParser` — mirrors the web's `parseChord`, with `$mod` left as an unresolved flag), and
   hands the set to a per-OS registrar. It re-applies on every `keybindings.json` edit. When the registrar
   reports a press, it invokes the bound command through the `CommandDispatcher` — a global hotkey is just
@@ -268,15 +271,24 @@ The mechanism splits Core/host the same way commands do:
 - **`IGlobalHotkeyRegistrar`** (Core seam) is implemented per platform: `WindowsGlobalHotkeys`
   (`RegisterHotKey` + `WM_HOTKEY` on a hidden message-only window) and `MacGlobalHotkeys` (Carbon
   `RegisterEventHotKey` + one application event handler — the API that needs no Accessibility permission
-  and fires while unfocused). Each resolves `$mod` (Ctrl on Windows, Cmd on macOS) and maps the key token
-  to its native virtual-key code. Registration failures (a chord another app already owns, an unmappable
-  key) are logged loudly, never silently dropped.
+  and fires while unfocused). On Linux, **Wayland is the primary path**: `LinuxGlobalHotkeys` uses the XDG
+  Desktop Portal GlobalShortcuts session and forwards its activation token when presenting the GTK window.
+  It treats the portal's accepted shortcut subset as authoritative, avoids rebinding an unchanged global set,
+  and restores the session after the portal service restarts or closes the shortcut session. Host processes
+  register their desktop identity through the portal Registry when available, otherwise the portal uses its
+  standard host application identity detection.
+  An actual X11 GDK display uses the compatibility backend, with passive `XGrabKey` grabs including Caps Lock
+  and Num Lock variants. Each resolves
+  `$mod` (Ctrl on Windows/Linux, Cmd on macOS) and maps the key token to its native representation.
+  Registration failures (a chord another app already owns, denied portal permission, an unmappable key)
+  are reported rather than silently dropped.
 
-`ctrl+\`` is used **literally** (not `$mod`) so the default is the same on Windows and macOS, where `Cmd+\``
-is already the system "cycle windows" shortcut. The command runs in Core (the action is per-OS) and **toggles**:
+`ctrl+\`` is used **literally** (not `$mod`) so the default is the same on every desktop host; on macOS,
+`Cmd+\`` is already the system "cycle windows" shortcut. The command runs in Core (the action is per-OS) and **toggles**:
 it focuses Weavie when another app is in front, and — when Weavie is already focused — hands focus back to the
 previously focused window so Weavie drops behind it (Windows: walk the Z-order to the window beneath ours and
-`SetForegroundWindow` it — no minimize; macOS: `NSApplication.Hide`). The app-level dispatcher's handler
+`SetForegroundWindow` it — no minimize; macOS: `NSApplication.Hide`; Linux: hide/present the GTK window).
+The app-level dispatcher's handler
 toggles the most-recently-active window; each session's dispatcher also handles it so MCP/palette toggle the
 window that asked.
 
@@ -393,6 +405,12 @@ src/Weavie.Win/Hosting/
   WindowFocus.cs            // SetForegroundWindow helper (focus from another app's foreground)
 src/Weavie.Mac/Hosting/
   MacGlobalHotkeys.cs       // Carbon RegisterEventHotKey + one application event handler
+src/Weavie.Hosting/
+  ApplicationHotkeys.cs     // one app-global dispatcher/service composition point for all desktop hosts
+src/Weavie.Linux/Hosting/
+  LinuxGlobalHotkeys.cs     // actual-GDK-backend selection behind IGlobalHotkeyRegistrar
+  X11GlobalHotkeys.cs       // XGrabKey + GDK native-event filter
+  WaylandGlobalHotkeys.cs   // XDG GlobalShortcuts session lifecycle
 
 src/web/src/commands/
   registry.ts               // consume __WEAVIE_COMMANDS__; register web handlers; lookup

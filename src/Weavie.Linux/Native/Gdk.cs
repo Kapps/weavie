@@ -14,6 +14,62 @@ internal static partial class Gdk {
 	internal const uint MetaMask = 1 << 28;
 	internal const uint Tab = 0xff09;
 	internal const uint IsoLeftTab = 0xfe20;
+	internal const int FilterContinue = 0;
+	internal const int FilterRemove = 2;
+
+	internal enum DisplayBackend {
+		X11,
+		Wayland,
+		Unknown,
+	}
+
+	internal static DisplayBackend GetDisplayBackend(IntPtr display) {
+		string name = Marshal.PtrToStringUTF8(GLib.g_type_name_from_instance(display)) ?? string.Empty;
+		return name switch {
+			"GdkX11Display" => DisplayBackend.X11,
+			"GdkWaylandDisplay" => DisplayBackend.Wayland,
+			_ => DisplayBackend.Unknown,
+		};
+	}
+
+	[LibraryImport(Lib)]
+	internal static partial IntPtr gdk_display_get_default();
+
+	[LibraryImport(Lib)]
+	internal static partial IntPtr gdk_screen_get_default();
+
+	[LibraryImport(Lib)]
+	internal static partial IntPtr gdk_screen_get_active_window(IntPtr screen);
+
+	[LibraryImport(Lib)]
+	internal static partial uint gdk_unicode_to_keyval(uint wc);
+
+	[LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
+	internal static partial uint gdk_keyval_from_name(string keyvalName);
+
+	[LibraryImport(Lib)]
+	internal static partial IntPtr gdk_keyval_name(uint keyval);
+
+	[LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
+	internal static partial void gdk_wayland_display_set_startup_notification_id(IntPtr display, string startupId);
+
+	[LibraryImport(Lib)]
+	internal static partial void gdk_window_add_filter(IntPtr window, IntPtr function, IntPtr data);
+
+	[LibraryImport(Lib)]
+	internal static partial void gdk_window_remove_filter(IntPtr window, IntPtr function, IntPtr data);
+
+	[LibraryImport(Lib)]
+	internal static partial IntPtr gdk_x11_display_get_xdisplay(IntPtr display);
+
+	[LibraryImport(Lib)]
+	internal static partial nuint gdk_x11_window_get_xid(IntPtr window);
+
+	[LibraryImport(Lib)]
+	internal static partial void gdk_x11_display_error_trap_push(IntPtr display);
+
+	[LibraryImport(Lib)]
+	internal static partial int gdk_x11_display_error_trap_pop(IntPtr display);
 
 	[LibraryImport(Lib)]
 	[return: MarshalAs(UnmanagedType.Bool)]

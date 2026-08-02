@@ -22,6 +22,10 @@ internal delegate void WidgetCallback(IntPtr widget, IntPtr userData);
 [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
 internal delegate int KeyEventCallback(IntPtr widget, IntPtr keyEvent, IntPtr userData);
 
+/// <summary>GDK native-event filter: <c>(xevent, event, userData)</c>.</summary>
+[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+internal delegate int NativeEventFilter(IntPtr nativeEvent, IntPtr gdkEvent, IntPtr userData);
+
 /// <summary>WebKit <c>script-message-received</c> handler: <c>(manager, WebKitJavascriptResult*, userData)</c>.</summary>
 [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
 internal delegate void ScriptMessageCallback(IntPtr manager, IntPtr jsResult, IntPtr userData);

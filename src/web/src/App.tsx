@@ -86,9 +86,12 @@ import { installDoubleShift } from "./commands/double-shift";
 import { keyHint } from "./commands/key-hint";
 import { formatKey, installKeybindings } from "./commands/keybindings";
 import {
+  applySessionActivation,
   dispatchCommand,
+  dispatchCommandFromCatalog,
   getKeybindings,
   onCommandsChanged,
+  onSessionActivated,
   registerCommand,
 } from "./commands/registry";
 import { CommandIds } from "./commands/types";
@@ -444,6 +447,19 @@ export default function App(): JSX.Element {
     }
   };
 
+  onCleanup(
+    onSessionActivated(({ session, created }) => {
+      if (!created) {
+        return;
+      }
+      requestAnimationFrame(() => {
+        if (selectedSession() === session) {
+          focusPane(AGENT_PANE_KIND);
+        }
+      });
+    }),
+  );
+
   // Flip the active file between Source and Preview, only when its type can preview. Returns whether it acted,
   // so the command DECLINES (key falls through to the editor) on a non-previewable file.
   const toggleActivePreview = (): boolean => {
@@ -532,17 +548,6 @@ export default function App(): JSX.Element {
     return address as { slot: string; incarnation: string };
   };
 
-  const selectResultSession = async (
-    backendId: string,
-    result: { ok: boolean; error?: string; data?: unknown },
-    commit: ReturnType<typeof beginClientSelection>,
-  ): Promise<void> => {
-    if (!result.ok) {
-      throw new Error(result.error ?? "The session operation failed.");
-    }
-    commit(await waitForClientSession(backendId, resultAddress(result)));
-  };
-
   const createSessionAt = (
     backendId: string,
     args: {
@@ -553,10 +558,11 @@ export default function App(): JSX.Element {
       agentProviderId: "claude" | "codex";
     },
   ): Promise<boolean> => {
-    const commit = beginClientSelection();
-    return invokeCommandOnBackend(backendId, CommandIds.newSession, args)
-      .then((result) => selectResultSession(backendId, result, commit))
-      .then(() => {
+    return dispatchCommandFromCatalog(backendId, CommandIds.newSession, args)
+      .then((result) => {
+        if (!result.ok) {
+          throw new Error(result.error ?? "The session could not be created.");
+        }
         if (compact()) {
           setMobileSurface(AGENT_PANE_KIND);
         }
@@ -594,7 +600,12 @@ export default function App(): JSX.Element {
         },
         typeof target
       >("open", target)
-      .then((result) => selectResultSession(backendId, result, commit))
+      .then(async (result) => {
+        if (!result.ok) {
+          throw new Error(result.error ?? "The pull request could not be opened.");
+        }
+        await applySessionActivation(backendId, result, commit);
+      })
       .then(() => dismissKeyed(toastKey))
       .catch((error: unknown) =>
         addToast("warn", error instanceof Error ? error.message : String(error), toastKey),

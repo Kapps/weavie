@@ -498,7 +498,6 @@ internal sealed class TestPlatform : IHostPlatform {
 	public IReadOnlyList<string> Recents => [];
 	public IShellWindow? Window { get; set; }
 	public IShellMenuActions MenuActions { get; set; } = NoopShellMenuActions.Instance;
-	public IGlobalHotkeyRegistrar? HotkeyRegistrar => null;
 	public IHostDialogs? Dialogs => null;
 
 	/// <summary>The last text the host wrote to the clipboard (a terminal copy / OSC 52).</summary>

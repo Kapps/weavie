@@ -33,8 +33,11 @@ flowchart TB
 - `IUiDispatcher`, serializing host-owned catalog and store changes;
 - `IPtyLauncher`;
 - platform identity and transport kind;
-- optional window, hotkey, and dialog services;
+- optional window and dialog services;
 - clipboard, external URL, and window-toggle operations.
+
+Process-wide shortcuts sit above this workspace seam. Each desktop composition root creates one
+`ApplicationHotkeys`, which drives a per-OS `IGlobalHotkeyRegistrar` and targets the frontmost app window.
 
 Native transports expose one `WebPeer.Native`. The headless WebSocket transport assigns an opaque peer to
 each connection, broadcasts events to all peers, and unicasts responses through `Send`.
@@ -127,7 +130,7 @@ All behavior above is shared. Platform shells may differ only where the OS requi
 | page transport | WebView2 | WKWebView | WebKitGTK | WebSocket |
 | UI dispatcher | WinForms | Cocoa | GTK | serial worker |
 | PTY | ConPTY | POSIX | POSIX | runtime OS |
-| native UI | window/dialogs/hotkeys | window/dialogs/hotkeys | window | none |
+| native UI | window/dialogs/hotkeys | window/dialogs/hotkeys | window/hotkeys | none |
 
 Feature protocol, sessions, worktrees, commands, files, terminals, LSP, and teardown remain in
 `Weavie.Hosting`.

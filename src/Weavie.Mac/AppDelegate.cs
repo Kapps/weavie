@@ -1,5 +1,4 @@
 using Foundation;
-using Weavie.Core.Commands;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Workspaces;
 using Weavie.Hosting;
@@ -19,10 +18,8 @@ public sealed partial class AppDelegate : NSApplicationDelegate {
 	private readonly PosixPtyLauncher _ptyLauncher = new();
 	private HostServices? _services;
 	private RecentWorkspaces? _recents;
-	private MacGlobalHotkeys? _hotkeyRegistrar;
 	private MacDialogs? _dialogs;
-	private IUiDispatcher? _dispatcher;
-	private GlobalHotkeyService? _hotkeys;
+	private ApplicationHotkeys? _hotkeys;
 	private WorkspaceWindow? _lastActive;
 	private WelcomeWindow? _welcome;
 
@@ -33,7 +30,7 @@ public sealed partial class AppDelegate : NSApplicationDelegate {
 	internal RecentWorkspaces Recents => _recents!;
 
 	/// <summary>Marshals work onto the main thread; shared by every window's bridge + web surface.</summary>
-	internal IUiDispatcher Dispatcher => _dispatcher!;
+	internal IUiDispatcher Dispatcher { get => field!; private set; }
 
 	/// <summary>The PTY backend launcher (stateless), shared by every window's sessions.</summary>
 	internal IPtyLauncher PtyLauncher => _ptyLauncher;
@@ -50,15 +47,13 @@ public sealed partial class AppDelegate : NSApplicationDelegate {
 		// Surfaces in File ▸ Open Recent + the omnibar shell config, and drives reopen-last + the welcome screen.
 		_recents = new RecentWorkspaces(new LocalFileSystem(), path: null);
 
-		_dispatcher = new DelegateUiDispatcher(action => {
+		Dispatcher = new DelegateUiDispatcher(action => {
 			if (NSThread.IsMain) {
 				action();
 			} else {
 				NSApplication.SharedApplication.BeginInvokeOnMainThread(action);
 			}
 		});
-		_hotkeyRegistrar = new MacGlobalHotkeys();
-		_hotkeyRegistrar.Log += Log;
 		_dialogs = new MacDialogs();
 
 		// Reopen the last workspace (else the explicit `workspace` setting); with neither, show the welcome screen
@@ -76,13 +71,12 @@ public sealed partial class AppDelegate : NSApplicationDelegate {
 
 		// Global hotkeys (e.g. ctrl+` → toggle the front window): app-level, so a single registration covers every
 		// window instead of each window's core re-registering the same chord. Dispatches to the front window.
-		var globalCommands = new CommandDispatcher(_services.CommandRegistry);
-		globalCommands.RegisterHandler(CoreCommands.ToggleWindow, (_, _) => {
-			_dispatcher.Post(ToggleFrontmost);
-			return Task.FromResult(CommandResult.Success("Toggled the Weavie window."));
-		});
-		_hotkeys = new GlobalHotkeyService(_services.Keybindings, globalCommands, _hotkeyRegistrar);
-		_hotkeys.Log += Log;
+		_hotkeys = new ApplicationHotkeys(
+			_services.CommandRegistry,
+			_services.Keybindings,
+			new MacGlobalHotkeys(),
+			() => Dispatcher.Post(ToggleFrontmost),
+			Log);
 
 		NSApplication.SharedApplication.Activate();
 

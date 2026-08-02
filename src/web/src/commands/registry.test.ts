@@ -18,6 +18,8 @@ const env = vi.hoisted(() => ({
     address: { slot: string; incarnation: string };
   }>,
   selectionCandidates: [] as ClientSession[][],
+  acceptSelection: true,
+  activations: [] as Array<{ session: ClientSession; created: boolean }>,
 }));
 
 vi.mock("../bridge", () => ({
@@ -25,6 +27,9 @@ vi.mock("../bridge", () => ({
     const commits: ClientSession[] = [];
     env.selectionCandidates.push(commits);
     return (session: ClientSession) => {
+      if (!env.acceptSelection) {
+        return false;
+      }
       commits.push(session);
       return true;
     };
@@ -104,6 +109,7 @@ env.selected = {
 } as unknown as ClientSession;
 
 const reg = await import("./registry");
+reg.onSessionActivated((activation) => env.activations.push(activation));
 
 function cmd(id: string, runsIn: "web" | "core"): CommandInfo {
   return {
@@ -125,6 +131,8 @@ beforeEach(() => {
   env.notified.length = 0;
   env.selectedAddresses.length = 0;
   env.selectionCandidates.length = 0;
+  env.activations.length = 0;
+  env.acceptSelection = true;
   env.coreResult = { ok: true, data: "core-ran" };
   setCatalog([]);
 });
@@ -210,6 +218,7 @@ describe("dispatchCommand — core commands", () => {
       data: {
         address: { slot: "branch-a", incarnation: "incarnation-a" },
         activateSession: true,
+        createdSession: true,
       },
     };
 
@@ -222,6 +231,41 @@ describe("dispatchCommand — core commands", () => {
       },
     ]);
     expect(env.selectionCandidates).toEqual([[env.selected]]);
+    expect(env.activations).toEqual([{ session: env.selected, created: true }]);
+  });
+
+  it("selects an existing session without reporting it as newly created", async () => {
+    setCatalog([cmd("core.open", "core")]);
+    env.coreResult = {
+      ok: true,
+      data: {
+        address: { slot: "branch-a", incarnation: "incarnation-a" },
+        activateSession: true,
+      },
+    };
+
+    await reg.dispatchCommand("core.open");
+
+    expect(env.selectionCandidates).toEqual([[env.selected]]);
+    expect(env.activations).toEqual([{ session: env.selected, created: false }]);
+  });
+
+  it("does not report a stale created-session result that loses the selection race", async () => {
+    setCatalog([cmd("core.create", "core")]);
+    env.acceptSelection = false;
+    env.coreResult = {
+      ok: true,
+      data: {
+        address: { slot: "branch-a", incarnation: "incarnation-a" },
+        activateSession: true,
+        createdSession: true,
+      },
+    };
+
+    await reg.dispatchCommand("core.create");
+
+    expect(env.selectionCandidates).toEqual([[]]);
+    expect(env.activations).toEqual([]);
   });
 
   it("does not activate address-bearing background command results", async () => {

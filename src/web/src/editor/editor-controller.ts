@@ -61,6 +61,8 @@ export interface EditorControllerDeps {
   onOpenError: (message: string) => void;
   /** Report the file the editor is showing so the browser / title bar can track it. */
   onCurrentFileChanged: (path: string | null) => void;
+  /** Reveal an accepted foreground editor destination in the app's active presentation. */
+  onDestinationActivated: () => void;
   /** Activate the editor pane and focus its visible overlay; false when Monaco is the visible surface. */
   focusVisibleOverlay: () => boolean;
   /** Confirm discarding unsaved scratch buffers about to be closed (`names`); the single close-path guard. */
@@ -377,6 +379,14 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     }
   };
 
+  const activateDestinationFor = (session: ClientSession): boolean => {
+    if (selectedSession() !== session) {
+      return false;
+    }
+    deps.onDestinationActivated();
+    return true;
+  };
+
   const openFileFor = (
     session: ClientSession,
     path: string,
@@ -385,7 +395,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     scratch = false,
   ): void => {
     const result = openTabFor(session, path, { line, preview, scratch });
-    if (selectedSession() === session && host !== undefined) {
+    if (activateDestinationFor(session) && host !== undefined) {
       void applyActive(session, result).then(focusEditorSurface);
     }
   };
@@ -433,10 +443,12 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   // sufficient — works whether or not a preview fired (Enter on an unarrowed selection still lands).
   const commitPreview = (sym: FlatSymbol): void => {
     previewReturn = undefined;
-    if (host === undefined) {
+    const session = selectedSession();
+    if (host === undefined || session === null) {
       return;
     }
     if (isActiveFile(sym.path)) {
+      activateDestinationFor(session);
       host.editor.setSelection(sym.range);
       host.editor.revealRangeInCenterIfOutsideViewport(sym.range);
       host.editor.focus();
@@ -1282,6 +1294,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     const addedTab = !openTabsFor(session).some((tab) => samePath(tab.path, message.path));
     state.proposal = { ...message, priorActive, addedTab };
     openTabFor(session, message.path, {});
+    activateDestinationFor(session);
     renderReviewState(session);
   };
 
@@ -1385,7 +1398,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         "openOverlay",
         ({ path, kind }) => {
           const result = openTabFor(session, path, { kind });
-          if (selectedSession() === session) {
+          if (activateDestinationFor(session)) {
             void applyActive(session, result).then(focusEditorSurface);
           }
         },
@@ -1544,6 +1557,9 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     openMatch: (path, line, column, focus) => {
       const session = selectedSession();
       if (session !== null) {
+        if (focus) {
+          activateDestinationFor(session);
+        }
         void applyActive(
           session,
           openTabFor(session, path, { line, column, focus, preview: true }),

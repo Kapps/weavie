@@ -385,6 +385,12 @@ export default function App(): JSX.Element {
     onSaveError: (message) => addToast("error", message),
     onOpenError: (message) => addToast("warn", message),
     onCurrentFileChanged: setCurrentFile,
+    onDestinationActivated: () => {
+      if (compact()) {
+        setActivePane("editor");
+        setMobileSurface("editor");
+      }
+    },
     focusVisibleOverlay: () => {
       setActivePane("editor");
       const overlay = editorContainer?.parentElement?.querySelector<HTMLElement>(
@@ -909,7 +915,13 @@ export default function App(): JSX.Element {
           reviewFileCount={editor.parkedReviewCount()}
           reviewRemoved={editor.reviewLineCounts().removed}
           shortcut={paneShortcut(numberOf(kind))}
-          onFocus={() => focusPane(kind)}
+          onFocus={() => {
+            // A nested action can select Code before its click bubbles to the Agent surface. Only the pane that
+            // remains visible may claim that click's focus; keyboard pane commands still route through focusPane.
+            if (!compact() || mobileSurface() === kind) {
+              focusPane(kind);
+            }
+          }}
         />
       );
     }

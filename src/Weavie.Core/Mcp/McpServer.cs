@@ -658,7 +658,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 
 	private async Task CompleteCommandAsync(CommandExecution execution, string id) {
 		try {
-			await execution.CompleteAsync().ConfigureAwait(false);
+			await execution.CompleteAsync(CancellationToken.None).ConfigureAwait(false);
 		} catch (Exception ex) {
 			Emit($"runCommand {id} after-reply work failed: {ex}");
 		}

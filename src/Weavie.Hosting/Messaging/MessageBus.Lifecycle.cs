@@ -25,7 +25,7 @@ internal partial class MessageBus {
 				try {
 					handler(owner);
 				} catch (Exception ex) {
-					_log($"[bridge] peer-disconnect handler failed: {ex}");
+					LogDiagnostic($"[bridge] peer-disconnect handler failed: {ex}");
 				}
 			});
 		}

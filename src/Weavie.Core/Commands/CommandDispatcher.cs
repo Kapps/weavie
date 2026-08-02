@@ -71,7 +71,7 @@ public sealed class CommandDispatcher {
 	/// </summary>
 	public async Task<CommandResult> InvokeAsync(string id, string? argsJson, CancellationToken ct) {
 		var execution = await PrepareAsync(id, argsJson, ct).ConfigureAwait(false);
-		await execution.CompleteAsync().ConfigureAwait(false);
+		await execution.CompleteAsync(ct).ConfigureAwait(false);
 		return execution.Result;
 	}
 

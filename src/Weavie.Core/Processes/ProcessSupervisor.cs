@@ -1,3 +1,5 @@
+using Weavie.Core.Diagnostics;
+
 namespace Weavie.Core.Processes;
 
 /// <summary>
@@ -8,16 +10,19 @@ namespace Weavie.Core.Processes;
 /// <para>Thread-safe. <see cref="SupervisedLaunch.NotifyExited"/> may be called from any thread; an exit
 /// arriving while not <see cref="SupervisorState.Running"/> is ignored, as is any exit reported for an instance
 /// that is no longer the current one (so a stopped predecessor's late exit never restarts its healthy replacement).
-/// <see cref="StateChanged"/> handlers run off the internal lock and must not block.</para>
+/// <see cref="StateChanged"/> handlers run in transition order on a separate observer lane.</para>
 /// </summary>
 public sealed class ProcessSupervisor : IDisposable {
 	private readonly Action<SupervisedLaunch> _start;
 	private readonly Action _stop;
 	private readonly SupervisionOptions _options;
 	private readonly Action<SupervisorLogEntry>? _log;
+	private readonly DiagnosticWorker? _logDiagnostics;
 	private readonly ISupervisorClock _clock;
 	private readonly object _gate = new();
 	private readonly Queue<DateTimeOffset> _recentRestarts = new();
+	private readonly Queue<StateNotification> _notifications = [];
+	private TaskCompletionSource _notificationIdle = CompletedNotification();
 
 	private SupervisorState _state = SupervisorState.Idle;
 	private int _attempt;              // launches so far (0 = first launch in flight, grows on restart)
@@ -28,6 +33,8 @@ public sealed class ProcessSupervisor : IDisposable {
 	private DateTimeOffset _startedAt;
 	private CancellationTokenSource? _cts;
 	private bool _disposed;
+	private int _notificationsClosed;
+	private bool _notificationRunning;
 
 	/// <summary>Creates a supervisor. Nothing launches until <see cref="Start"/> is called.</summary>
 	/// <param name="name">A short name for logging and status (e.g. <c>"terminal:claude"</c>).</param>
@@ -66,6 +73,9 @@ public sealed class ProcessSupervisor : IDisposable {
 		_options = options;
 		_log = log;
 		_clock = clock ?? new SystemSupervisorClock();
+		_logDiagnostics = log is null
+			? null
+			: new DiagnosticWorker(message => log(new SupervisorLogEntry(Name, SupervisorLogLevel.Error, message)));
 	}
 
 	/// <summary>The supervised process's name.</summary>
@@ -98,7 +108,7 @@ public sealed class ProcessSupervisor : IDisposable {
 		}
 	}
 
-	/// <summary>Raised after every state transition, off the lock. Handlers must not block.</summary>
+	/// <summary>Raised in transition order on an observer lane that cannot block process supervision.</summary>
 	public event Action<SupervisorStateChanged>? StateChanged;
 
 	/// <summary>
@@ -106,7 +116,6 @@ public sealed class ProcessSupervisor : IDisposable {
 	/// supervisor has been disposed.
 	/// </summary>
 	public void Start() {
-		SupervisorStateChanged change;
 		SupervisedLaunch launch;
 		lock (_gate) {
 			if (_disposed || _state is SupervisorState.Running or SupervisorState.BackingOff) {
@@ -123,10 +132,9 @@ public sealed class ProcessSupervisor : IDisposable {
 			launch = new SupervisedLaunch(this, 0);
 			_generation++;
 			_current = launch;
-			change = new SupervisorStateChanged(SupervisorState.Running, null, _restartCount);
+			QueueStateChangedLocked(new SupervisorStateChanged(SupervisorState.Running, null, _restartCount));
 		}
 
-		Raise(change);
 		Log(SupervisorLogLevel.Info, "starting");
 		Launch(launch);
 	}
@@ -154,8 +162,12 @@ public sealed class ProcessSupervisor : IDisposable {
 			launch = _current;
 		}
 
-		Log(SupervisorLogLevel.Error, $"unhealthy generation: {reason}");
-		return OnInstanceEnded(launch, exitCode: -1, stopCurrent: true);
+		bool reported = OnInstanceEnded(launch, exitCode: -1, stopCurrent: true);
+		if (reported) {
+			Log(SupervisorLogLevel.Error, $"unhealthy generation: {reason}");
+		}
+
+		return reported;
 	}
 
 	/// <summary>
@@ -163,7 +175,6 @@ public sealed class ProcessSupervisor : IDisposable {
 	/// not relaunched. No-op if already idle or disposed. Safe to call repeatedly.
 	/// </summary>
 	public void Stop() {
-		SupervisorStateChanged change;
 		lock (_gate) {
 			if (_disposed || _state == SupervisorState.Idle) {
 				return;
@@ -174,10 +185,9 @@ public sealed class ProcessSupervisor : IDisposable {
 			_current = null; // the instance being stopped is no longer anyone's current — its exit is stale
 			_consecutiveCrashes = 0;
 			_recentRestarts.Clear();
-			change = new SupervisorStateChanged(SupervisorState.Idle, null, _restartCount);
+			QueueStateChangedLocked(new SupervisorStateChanged(SupervisorState.Idle, null, _restartCount));
 		}
 
-		Raise(change);
 		Log(SupervisorLogLevel.Info, "stopping");
 		SafeStop();
 	}
@@ -190,6 +200,8 @@ public sealed class ProcessSupervisor : IDisposable {
 			}
 
 			_disposed = true;
+			Volatile.Write(ref _notificationsClosed, 1);
+			_notifications.Clear();
 			_cts?.Cancel();
 			_state = SupervisorState.Idle;
 			_current = null;
@@ -243,6 +255,8 @@ public sealed class ProcessSupervisor : IDisposable {
 					change = new SupervisorStateChanged(SupervisorState.BackingOff, exitCode, _restartCount);
 				}
 			}
+
+			QueueStateChangedLocked(change);
 		}
 
 		if (stopCurrent) {
@@ -250,7 +264,6 @@ public sealed class ProcessSupervisor : IDisposable {
 			// prevents a replacement generation from launching until this exact process has been terminated.
 			SafeStop();
 		}
-		Raise(change);
 		if (cleanStop) {
 			Log(SupervisorLogLevel.Info, $"exited cleanly (code {exitCode}); not restarting");
 		} else if (tripped) {
@@ -270,7 +283,6 @@ public sealed class ProcessSupervisor : IDisposable {
 			return; // stopped or disposed during backoff
 		}
 
-		SupervisorStateChanged change;
 		SupervisedLaunch launch;
 		lock (_gate) {
 			if (_disposed || token.IsCancellationRequested || _state != SupervisorState.BackingOff) {
@@ -284,10 +296,9 @@ public sealed class ProcessSupervisor : IDisposable {
 			launch = new SupervisedLaunch(this, attempt);
 			_generation++;
 			_current = launch;
-			change = new SupervisorStateChanged(SupervisorState.Running, null, _restartCount);
+			QueueStateChangedLocked(new SupervisorStateChanged(SupervisorState.Running, null, _restartCount));
 		}
 
-		Raise(change);
 		Log(SupervisorLogLevel.Info, $"restarting (attempt {attempt})");
 		Launch(launch);
 	}
@@ -304,6 +315,12 @@ public sealed class ProcessSupervisor : IDisposable {
 	internal bool IsCurrentLaunch(SupervisedLaunch launch) {
 		lock (_gate) {
 			return ReferenceEquals(_current, launch);
+		}
+	}
+
+	internal Task DrainObserversAsync() {
+		lock (_gate) {
+			return _notificationIdle.Task;
 		}
 	}
 
@@ -328,8 +345,82 @@ public sealed class ProcessSupervisor : IDisposable {
 		return TimeSpan.FromMilliseconds(capped);
 	}
 
-	private void Raise(SupervisorStateChanged change) => StateChanged?.Invoke(change);
+	private void QueueStateChangedLocked(SupervisorStateChanged change) {
+		var handlers = StateChanged;
+		if (handlers is null || Volatile.Read(ref _notificationsClosed) != 0) {
+			return;
+		}
 
-	private void Log(SupervisorLogLevel level, string message) =>
-		_log?.Invoke(new SupervisorLogEntry(Name, level, message));
+		_notifications.Enqueue(new StateNotification(handlers, change));
+		if (_notificationRunning) {
+			return;
+		}
+
+		_notificationRunning = true;
+		_notificationIdle = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		ThreadPool.UnsafeQueueUserWorkItem(static supervisor => supervisor.DrainNotifications(), this, preferLocal: false);
+	}
+
+	private void DrainNotifications() {
+		while (true) {
+			StateNotification notification;
+			TaskCompletionSource? idle = null;
+			lock (_gate) {
+				if (Volatile.Read(ref _notificationsClosed) != 0) {
+					_notifications.Clear();
+				}
+
+				if (_notifications.Count > 0) {
+					notification = _notifications.Dequeue();
+				} else {
+					_notificationRunning = false;
+					idle = _notificationIdle;
+					notification = null!;
+				}
+			}
+
+			if (idle is not null) {
+				idle.TrySetResult();
+				return;
+			}
+
+			Deliver(notification);
+		}
+	}
+
+	private void Deliver(StateNotification notification) {
+		if (Volatile.Read(ref _notificationsClosed) != 0) {
+			return;
+		}
+
+		foreach (Action<SupervisorStateChanged> handler in notification.Handlers.GetInvocationList()) {
+			if (Volatile.Read(ref _notificationsClosed) != 0
+				|| StateChanged?.GetInvocationList().Contains(handler) != true) {
+				continue;
+			}
+
+			try {
+				handler(notification.Change);
+			} catch (Exception) {
+			}
+		}
+	}
+
+	private void Log(SupervisorLogLevel level, string message) {
+		var sink = _log;
+		if (sink is null) {
+			return;
+		}
+
+		var entry = new SupervisorLogEntry(Name, level, message);
+		_logDiagnostics!.Run($"{Name} {level}: {message}", () => sink(entry));
+	}
+
+	private static TaskCompletionSource CompletedNotification() {
+		var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		completion.SetResult();
+		return completion;
+	}
+
+	private sealed record StateNotification(Action<SupervisorStateChanged> Handlers, SupervisorStateChanged Change);
 }

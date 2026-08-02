@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Weavie.Core.Processes;
 using Xunit;
 
@@ -31,7 +32,7 @@ public sealed class ProcessSupervisorTests {
 		h.NotifyExited(0);
 
 		Assert.Equal(SupervisorState.Idle, h.Sup.State);
-		Assert.Contains(h.Changes, c => c.State == SupervisorState.Idle && c.ExitCode == 0);
+		Assert.True(await h.WaitChangeAsync(c => c.State == SupervisorState.Idle && c.ExitCode == 0));
 		await Task.Delay(100);
 		Assert.Equal(1, h.StartCount); // never relaunched
 	}
@@ -71,6 +72,160 @@ public sealed class ProcessSupervisorTests {
 		Assert.True(await h.WaitStartAsync());
 		Assert.Equal(2, h.StartCount);
 		Assert.Equal(1, h.Sup.RestartCount);
+	}
+
+	[Fact]
+	public async Task BlockingObserversAndLogsCannotPreventUnhealthyReplacement() {
+		var observerEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		var logEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		var releaseDiagnostics = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		var starts = new SemaphoreSlim(0);
+		int startCount = 0;
+		int stops = 0;
+		var clock = new FakeSupervisorClock();
+		using var supervisor = new ProcessSupervisor(
+			"test",
+			_ => {
+				Interlocked.Increment(ref startCount);
+				starts.Release();
+			},
+			() => Interlocked.Increment(ref stops),
+			Opts(RestartPolicy.OnFailure, initialMs: 100),
+			entry => {
+				if (entry.Message.Contains("unhealthy generation", StringComparison.Ordinal)) {
+					logEntered.TrySetResult();
+					releaseDiagnostics.Task.GetAwaiter().GetResult();
+					throw new InvalidOperationException("diagnostic sink failed");
+				}
+			},
+			clock);
+		supervisor.StateChanged += change => {
+			if (change.State == SupervisorState.BackingOff) {
+				observerEntered.TrySetResult();
+				releaseDiagnostics.Task.GetAwaiter().GetResult();
+			}
+		};
+
+		try {
+			supervisor.Start();
+			Assert.True(await starts.WaitAsync(TimeSpan.FromSeconds(2)));
+			Assert.True(supervisor.ReportUnhealthy(supervisor.Generation, "stuck worker"));
+			await observerEntered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+			await logEntered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+			Assert.Equal(SupervisorState.BackingOff, supervisor.State);
+			Assert.Equal(1, Volatile.Read(ref stops));
+
+			clock.Advance(TimeSpan.FromMilliseconds(100));
+			Assert.True(await starts.WaitAsync(TimeSpan.FromSeconds(2)));
+			Assert.Equal(2, Volatile.Read(ref startCount));
+			Assert.Equal(SupervisorState.Running, supervisor.State);
+		} finally {
+			releaseDiagnostics.TrySetResult();
+		}
+	}
+
+	[Fact]
+	public async Task ConcurrentStopCannotReorderABlockedUnhealthyTransition() {
+		var stopEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		var releaseStop = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		var observed = new ConcurrentQueue<SupervisorState>();
+		var threeObserved = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		int stopCalls = 0;
+		using var supervisor = new ProcessSupervisor(
+			"test",
+			_ => { },
+			() => {
+				if (Interlocked.Increment(ref stopCalls) == 1) {
+					stopEntered.TrySetResult();
+					releaseStop.Task.GetAwaiter().GetResult();
+				}
+			},
+			Opts(RestartPolicy.OnFailure),
+			log: null,
+			clock: new FakeSupervisorClock());
+		supervisor.StateChanged += change => {
+			observed.Enqueue(change.State);
+			if (observed.Count >= 3) {
+				threeObserved.TrySetResult();
+			}
+		};
+		supervisor.Start();
+
+		var unhealthy = Task.Run(() => supervisor.ReportUnhealthy(supervisor.Generation, "stuck worker"));
+		try {
+			await stopEntered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+			supervisor.Stop();
+			Assert.Equal(SupervisorState.Idle, supervisor.State);
+		} finally {
+			releaseStop.TrySetResult();
+		}
+
+		Assert.True(await unhealthy.WaitAsync(TimeSpan.FromSeconds(2)));
+		await threeObserved.Task.WaitAsync(TimeSpan.FromSeconds(2));
+		Assert.Equal(
+			[SupervisorState.Running, SupervisorState.BackingOff, SupervisorState.Idle],
+			observed.Take(3));
+	}
+
+	[Fact]
+	public async Task DisposeSuppressesQueuedObserverCallbacks() {
+		var runningEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		var releaseRunning = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		SupervisedLaunch? launch = null;
+		int backingOffObserved = 0;
+		using var supervisor = new ProcessSupervisor(
+			"test",
+			current => launch = current,
+			() => { },
+			Opts(RestartPolicy.OnFailure),
+			log: null,
+			clock: new FakeSupervisorClock());
+		supervisor.StateChanged += change => {
+			if (change.State == SupervisorState.Running) {
+				runningEntered.TrySetResult();
+				releaseRunning.Task.GetAwaiter().GetResult();
+			} else if (change.State == SupervisorState.BackingOff) {
+				Interlocked.Exchange(ref backingOffObserved, 1);
+			}
+		};
+		supervisor.Start();
+		await runningEntered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+		launch!.NotifyExited(1);
+		supervisor.Dispose();
+
+		releaseRunning.TrySetResult();
+		await supervisor.DrainObserversAsync().WaitAsync(TimeSpan.FromSeconds(2));
+
+		Assert.Equal(0, Volatile.Read(ref backingOffObserved));
+	}
+
+	[Fact]
+	public async Task UnsubscribedObserverIsSkippedWhileItsNotificationIsQueued() {
+		var firstEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		var releaseFirst = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		int removedObserverCalls = 0;
+		using var supervisor = new ProcessSupervisor(
+			"test",
+			_ => { },
+			() => { },
+			Opts(RestartPolicy.OnFailure),
+			log: null,
+			clock: new FakeSupervisorClock());
+		void BlockingObserver(SupervisorStateChanged _) {
+			firstEntered.TrySetResult();
+			releaseFirst.Task.GetAwaiter().GetResult();
+		}
+		void RemovedObserver(SupervisorStateChanged _) => Interlocked.Increment(ref removedObserverCalls);
+		supervisor.StateChanged += BlockingObserver;
+		supervisor.StateChanged += RemovedObserver;
+		supervisor.Start();
+		await firstEntered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+		supervisor.StateChanged -= RemovedObserver;
+		releaseFirst.TrySetResult();
+		await supervisor.DrainObserversAsync().WaitAsync(TimeSpan.FromSeconds(2));
+
+		Assert.Equal(0, Volatile.Read(ref removedObserverCalls));
 	}
 
 	[Fact]
@@ -214,7 +369,7 @@ public sealed class ProcessSupervisorTests {
 		h.NotifyExited(1);
 
 		Assert.Equal(SupervisorState.Failed, h.Sup.State);
-		Assert.Contains(h.Changes, c => c.State == SupervisorState.Failed && c.ExitCode == 1);
+		Assert.True(await h.WaitChangeAsync(c => c.State == SupervisorState.Failed && c.ExitCode == 1));
 		await Task.Delay(100);
 		Assert.Equal(3, h.StartCount); // 1 initial + 2 restarts, then gave up
 		Assert.Equal(2, h.Sup.RestartCount);
@@ -365,6 +520,7 @@ public sealed class ProcessSupervisorTests {
 		public int Stops;
 
 		private readonly SemaphoreSlim _started = new(0);
+		private readonly SemaphoreSlim _changed = new(0);
 		private readonly HashSet<int> _throwOn;
 		private readonly object _gate = new();
 		private readonly List<SupervisedLaunch> _launches = [];
@@ -376,6 +532,7 @@ public sealed class ProcessSupervisorTests {
 				lock (_gate) {
 					Changes.Add(c);
 				}
+				_changed.Release();
 			};
 		}
 
@@ -390,6 +547,23 @@ public sealed class ProcessSupervisorTests {
 		}
 
 		public Task<bool> WaitStartAsync(int timeoutMs = 5000) => _started.WaitAsync(timeoutMs);
+
+		public async Task<bool> WaitChangeAsync(Func<SupervisorStateChanged, bool> predicate) {
+			using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+			while (true) {
+				lock (_gate) {
+					if (Changes.Any(predicate)) {
+						return true;
+					}
+				}
+
+				try {
+					await _changed.WaitAsync(timeout.Token);
+				} catch (OperationCanceledException) {
+					return false;
+				}
+			}
+		}
 
 		public void Dispose() => Sup.Dispose();
 

@@ -76,6 +76,30 @@ public sealed class MessageOperationSupervisionTests {
 	}
 
 	[Fact]
+	public async Task BlockingRouterDiagnosticsCannotBlockIngress() {
+		var transport = new RecordingTransport();
+		var logEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		var releaseLog = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		await using var router = new HostMessageRouter(transport, new InlineUiDispatcher(), _ => {
+			logEntered.TrySetResult();
+			releaseLog.Task.GetAwaiter().GetResult();
+		});
+		await using var ingress = new MessageIngress(
+			new InlineUiDispatcher(),
+			router.RouteAsync,
+			router.Disconnect,
+			_ => { });
+
+		try {
+			ingress.Enqueue(WebPeer.Native, "not-json");
+			await logEntered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+			await ingress.ProbeAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(2));
+		} finally {
+			releaseLog.TrySetResult();
+		}
+	}
+
+	[Fact]
 	public async Task TimedOutHandlerIsDiagnosedSettledAndFencesItsEndpoint() {
 		var transport = new RecordingTransport();
 		var logs = new ConcurrentQueue<string>();
@@ -191,7 +215,7 @@ public sealed class MessageOperationSupervisionTests {
 			"finish",
 			(_, _) => Task.FromResult(new ResponseWithCompletion<Result>(
 				new Result(true),
-				async () => await release.Task)));
+				async _ => await release.Task)));
 
 		await router.RouteAsync(
 			new WebPeer("page"),
@@ -281,6 +305,40 @@ public sealed class MessageOperationSupervisionTests {
 	}
 
 	[Fact]
+	public async Task TimeoutReservesTheResponseBeforeRunningItsCallback() {
+		var timeoutEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		var releaseTimeout = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		var operation = new MessageOperation(
+			"msg-response-race",
+			new WebPeer("page"),
+			MessageEnvelope.Request(
+				MessageScope.Host,
+				null,
+				"request",
+				"test",
+				"responseRace",
+				JsonSerializer.SerializeToElement(new Empty())),
+			new MessageExecutionPolicy(TimeSpan.FromMilliseconds(10), TimeSpan.FromMilliseconds(50)),
+			TimeProvider.System,
+			_ => { },
+			(_, _) => {
+				timeoutEntered.TrySetResult();
+				releaseTimeout.Task.GetAwaiter().GetResult();
+			},
+			(_, _) => { });
+		operation.StartWatchdog();
+
+		try {
+			await timeoutEntered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+			Assert.True(operation.HasTimedOut);
+			Assert.True(operation.TimeoutOwnsResponse);
+			Assert.False(operation.TrySettleResponse());
+		} finally {
+			releaseTimeout.TrySetResult();
+		}
+	}
+
+	[Fact]
 	public async Task DisposeCancelsPendingUiAdmission() {
 		var dispatcher = new ManualUiDispatcher(paused: true);
 		int routed = 0;
@@ -315,6 +373,36 @@ public sealed class MessageOperationSupervisionTests {
 		await ingress.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(2));
 
 		await Assert.ThrowsAsync<ObjectDisposedException>(() => probe);
+	}
+
+	[Fact]
+	public async Task FailedAdmissionSettlesBeforeBlockingOrThrowingDiagnostics() {
+		var logEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		var releaseLog = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		var ingress = new MessageIngress(
+			new RejectingUiDispatcher(),
+			(_, _) => Task.CompletedTask,
+			_ => { },
+			_ => {
+				logEntered.TrySetResult();
+				releaseLog.Task.GetAwaiter().GetResult();
+				throw new InvalidOperationException("diagnostic sink failed");
+			});
+
+		try {
+			var probe = ingress.ProbeAsync(CancellationToken.None);
+			await Assert.ThrowsAsync<InvalidOperationException>(
+				() => probe.WaitAsync(TimeSpan.FromSeconds(2)));
+			await logEntered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+			var firstDisposal = ingress.DisposeAsync().AsTask();
+			var concurrentDisposal = ingress.DisposeAsync().AsTask();
+			await Task.WhenAll(firstDisposal, concurrentDisposal).WaitAsync(TimeSpan.FromSeconds(2));
+			await ingress.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(2));
+		} finally {
+			releaseLog.TrySetResult();
+			await ingress.DisposeAsync();
+		}
 	}
 
 	private static string HostEvent(string feature, string name) =>

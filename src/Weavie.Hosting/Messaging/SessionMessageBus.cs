@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
+using Weavie.Core.Diagnostics;
 
 namespace Weavie.Hosting.Messaging;
 
@@ -8,7 +9,7 @@ internal partial class MessageBus : IAsyncDisposable {
 	private static readonly Func<MessagePeer, bool> AdmitEveryPeer = static _ => true;
 	private readonly Action<string> _broadcast;
 	private readonly Action<WebPeer, string> _sendToPeer;
-	private readonly Action<string> _log;
+	private readonly DiagnosticWorker _diagnostics;
 	private readonly IMessageHandlerExecutor _handlerExecutor;
 	private readonly MessageOperationRegistry _operations;
 	private readonly object _lifecycle = new();
@@ -32,7 +33,7 @@ internal partial class MessageBus : IAsyncDisposable {
 		SessionAddress? address,
 		Action<string> broadcast,
 		Action<WebPeer, string> sendToPeer,
-		Action<string> log,
+		DiagnosticWorker diagnostics,
 		IMessageHandlerExecutor handlerExecutor,
 		MessageOperationRegistry operations) {
 		if (scope == MessageScope.Session) {
@@ -43,14 +44,14 @@ internal partial class MessageBus : IAsyncDisposable {
 
 		ArgumentNullException.ThrowIfNull(broadcast);
 		ArgumentNullException.ThrowIfNull(sendToPeer);
-		ArgumentNullException.ThrowIfNull(log);
+		ArgumentNullException.ThrowIfNull(diagnostics);
 		ArgumentNullException.ThrowIfNull(handlerExecutor);
 		ArgumentNullException.ThrowIfNull(operations);
 		Scope = scope;
 		Address = address;
 		_broadcast = broadcast;
 		_sendToPeer = sendToPeer;
-		_log = log;
+		_diagnostics = diagnostics;
 		_handlerExecutor = handlerExecutor;
 		_operations = operations;
 		BroadcastTarget = new MessageTarget(this, null);
@@ -122,7 +123,7 @@ internal partial class MessageBus : IAsyncDisposable {
 	internal IDisposable HandleAfterEvent<TEvent>(
 		string feature,
 		string name,
-		Func<TEvent, CancellationToken, Task<Func<Task>>> handler,
+		Func<TEvent, CancellationToken, Task<Func<CancellationToken, Task>>> handler,
 		SessionExecution execution) =>
 		HandleAfterResponse<TEvent, NoResponse>(
 			feature,
@@ -403,7 +404,7 @@ internal partial class MessageBus : IAsyncDisposable {
 					? closingError
 					: $"No handler is registered for {envelope.Feature}.{envelope.Name}.");
 		} else if (!closing) {
-			_log($"[bridge] no handler for endpoint event {envelope.Feature}.{envelope.Name}");
+			LogDiagnostic($"[bridge] no handler for endpoint event {envelope.Feature}.{envelope.Name}");
 		}
 
 		return Task.CompletedTask;

@@ -24,7 +24,7 @@ internal partial class MessageBus {
 				&& !_requests.TryAdd(
 					(peer, requestId),
 					new InboundRequest(envelope.Feature, envelope.Name, request))) {
-				_log($"[bridge] rejected duplicate request '{requestId}' from peer '{peer.Id}'");
+				LogDiagnostic($"[bridge] rejected duplicate request '{requestId}' from peer '{peer.Id}'");
 				return new DispatchCompletion(null);
 			}
 			requestRegistered = envelope.RequestId is not null;
@@ -53,7 +53,7 @@ internal partial class MessageBus {
 			if (envelope.Kind == MessageKind.Request && operation.TrySettleResponse()) {
 				TrySendResponse(peer, envelope, default, ex.Message);
 			} else {
-				_log($"[bridge] endpoint event {envelope.Feature}.{envelope.Name} failed: {ex}");
+				LogDiagnostic($"[bridge] endpoint event {envelope.Feature}.{envelope.Name} failed: {ex}");
 			}
 			return new DispatchCompletion(null);
 		} finally {
@@ -130,7 +130,7 @@ internal partial class MessageBus {
 						: JsonSerializer.SerializeToElement<object?>(null),
 					error).ToJson());
 		} catch (Exception ex) {
-			_log(
+			LogDiagnostic(
 				$"[bridge] response delivery for {request.Feature}.{request.Name} "
 				+ $"to peer '{peer.Id}' failed: {ex}");
 		}
@@ -242,9 +242,9 @@ internal partial class MessageBus {
 		string Name,
 		CancellationTokenSource Cancellation);
 
-	private sealed record HandlerResponse(JsonElement Payload, Func<Task>? AfterResponse);
+	private sealed record HandlerResponse(JsonElement Payload, Func<CancellationToken, Task>? AfterResponse);
 
-	private sealed record DispatchCompletion(Func<Task>? AfterResponse);
+	private sealed record DispatchCompletion(Func<CancellationToken, Task>? AfterResponse);
 
 	private sealed record NoResponse {
 		public static NoResponse Value { get; } = new();

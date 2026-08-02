@@ -39,20 +39,34 @@ internal sealed class ManualUiDispatcher : IUiDispatcher {
 	}
 
 	public void RunPending() {
-		while (true) {
-			Action action;
-			lock (_gate) {
-				if (_pending.Count == 0) {
-					return;
-				}
+		while (RunNext()) {
+		}
+	}
 
-				action = _pending.Dequeue();
+	public bool RunNext() {
+		Action action;
+		lock (_gate) {
+			if (_pending.Count == 0) {
+				return false;
 			}
 
-			action();
+			action = _pending.Dequeue();
+			if (_pending.Count == 0) {
+				_posted = NewCompletion();
+			}
 		}
+
+		action();
+		return true;
 	}
 
 	private static TaskCompletionSource NewCompletion() =>
 		new(TaskCreationOptions.RunContinuationsAsynchronously);
+}
+
+internal sealed class RejectingUiDispatcher : IUiDispatcher {
+	public void Post(Action action) {
+		ArgumentNullException.ThrowIfNull(action);
+		throw new InvalidOperationException("UI dispatcher rejected admission.");
+	}
 }

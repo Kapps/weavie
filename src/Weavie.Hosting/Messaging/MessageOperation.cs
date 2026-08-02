@@ -21,6 +21,7 @@ internal sealed class MessageOperation {
 	private int _state;
 	private int _slowReported;
 	private int _responseSettled;
+	private int _timeoutOwnsResponse;
 
 	public MessageOperation(
 		string id,
@@ -56,6 +57,8 @@ internal sealed class MessageOperation {
 	public CancellationToken TimeoutToken => _handlerCancellation.Token;
 
 	public bool HasTimedOut => Volatile.Read(ref _state) == TimedOut;
+
+	public bool TimeoutOwnsResponse => Volatile.Read(ref _timeoutOwnsResponse) != 0;
 
 	public void StartWatchdog() {
 		_ = WatchSlowAsync();
@@ -170,6 +173,10 @@ internal sealed class MessageOperation {
 		lock (_transition) {
 			if (Volatile.Read(ref _state) != Active) {
 				return;
+			}
+
+			if (Interlocked.CompareExchange(ref _responseSettled, 1, 0) == 0) {
+				Volatile.Write(ref _timeoutOwnsResponse, 1);
 			}
 
 			Volatile.Write(ref _state, TimedOut);

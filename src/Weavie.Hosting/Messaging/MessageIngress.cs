@@ -1,4 +1,5 @@
 using System.Threading.Channels;
+using Weavie.Core.Diagnostics;
 
 namespace Weavie.Hosting.Messaging;
 
@@ -8,7 +9,7 @@ internal sealed class MessageIngress : IAsyncDisposable {
 	private readonly IUiDispatcher _dispatcher;
 	private readonly Func<WebPeer, string, Task> _route;
 	private readonly Action<WebPeer> _disconnect;
-	private readonly Action<string> _log;
+	private readonly DiagnosticWorker _diagnostics;
 	private readonly CancellationTokenSource _shutdown = new();
 	private readonly Task _pump;
 	private int _closed;
@@ -17,15 +18,23 @@ internal sealed class MessageIngress : IAsyncDisposable {
 		IUiDispatcher dispatcher,
 		Func<WebPeer, string, Task> route,
 		Action<WebPeer> disconnect,
-		Action<string> log) {
+		Action<string> log)
+		: this(dispatcher, route, disconnect, new DiagnosticWorker(log)) {
+	}
+
+	public MessageIngress(
+		IUiDispatcher dispatcher,
+		Func<WebPeer, string, Task> route,
+		Action<WebPeer> disconnect,
+		DiagnosticWorker diagnostics) {
 		ArgumentNullException.ThrowIfNull(dispatcher);
 		ArgumentNullException.ThrowIfNull(route);
 		ArgumentNullException.ThrowIfNull(disconnect);
-		ArgumentNullException.ThrowIfNull(log);
+		ArgumentNullException.ThrowIfNull(diagnostics);
 		_dispatcher = dispatcher;
 		_route = route;
 		_disconnect = disconnect;
-		_log = log;
+		_diagnostics = diagnostics;
 		_pump = Task.Run(PumpAsync);
 	}
 
@@ -91,10 +100,11 @@ internal sealed class MessageIngress : IAsyncDisposable {
 					Reject(item);
 					return;
 				} catch (Exception ex) {
-					_log($"[bridge] ingress admission failed: {ex}");
 					if (item is ProbeItem probe) {
 						probe.Completion.TrySetException(ex);
 					}
+
+					Report($"[bridge] ingress admission failed: {ex}");
 				}
 			}
 		} catch (OperationCanceledException) when (_shutdown.IsCancellationRequested) {
@@ -113,10 +123,12 @@ internal sealed class MessageIngress : IAsyncDisposable {
 
 	private void Observe(Task dispatch) =>
 		_ = dispatch.ContinueWith(
-			task => _log($"[bridge] message dispatch failed: {task.Exception}"),
+			task => Report($"[bridge] message dispatch failed: {task.Exception}"),
 			CancellationToken.None,
 			TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
 			TaskScheduler.Default);
+
+	private void Report(string message) => _diagnostics.Report(message);
 
 	private abstract record IngressItem;
 

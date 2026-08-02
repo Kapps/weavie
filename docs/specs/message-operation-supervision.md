@@ -11,29 +11,36 @@ handler or wait for one.
    bounded admission step through the host sequencing context; it never waits for a handler. Health probes cross
    that same boundary, so a blocked host/UI lane is observable rather than hidden behind a responsive queue.
    Shutdown cancels dispatcher admission and rejects queued probes; it never waits for unadmitted transport input
-   to cross a UI lane that may itself be synchronously closing. Explicit pre-shutdown drain remains a separate operation.
+   to cross a UI lane that may itself be synchronously closing. Explicit pre-shutdown drain remains a separate
+   operation. Admission diagnostics run away from the pump and cannot delay the next item.
 2. Admission selects an exact host or `(slot, incarnation)` endpoint and creates a supervised operation before
    handler code can run. Handler continuations never run inline from admission.
 3. Every operation has one identity and reports its current stage: feature queue, handler dispatch, handler, or
    after-response work. Slow and failed logs include that identity, endpoint, peer, request id, feature, name,
-   stage, and elapsed time.
-4. At two seconds, an unfinished operation raises a keyed busy notification for its originating page. Slow reporting
-   and the absolute deadline run independently, so blocked diagnostics cannot postpone timeout. Completion
-   clears it. At the global `messaging.operationDeadlineSeconds` deadline (sixty seconds by default), the same key
-   becomes a persistent error and a request receives the same detailed failure.
-5. The deadline covers time waiting in a serialized feature lane, UI-dispatch admission, handler execution, and
-   after-response work. A queued operation that expires never enters its handler. A running operation is fenced:
-   its endpoint stops accepting work, its response is settled once, and late completion cannot answer or publish
-   through the failed bus.
+   stage, and elapsed time. Diagnostics use bounded, ordered workers; a blocked sink consumes one worker and a
+   later coalescing summary makes any suppressed volume explicit.
+4. At two seconds, an unfinished operation raises a keyed busy notification for its originating page. Slow
+   reporting and the absolute deadline run independently, so blocked diagnostics cannot postpone timeout.
+   Completion clears it. At the global `messaging.operationDeadlineSeconds` deadline (sixty seconds by default),
+   the same key becomes a persistent error and a request receives the same detailed failure.
+5. The deadline covers time waiting in a serialized feature lane, handler execution, and after-response work. A
+   queued operation that expires never enters its handler. UI-dispatch admission is instead covered by the ingress
+   health probe because no application operation exists before an envelope is admitted. A running operation is
+   fenced: its endpoint stops accepting work, its response is settled once, and late completion cannot answer or
+   publish through the failed bus. After-response work receives endpoint shutdown cancellation, so closing never
+   waits for work queued behind the same UI lane.
 6. Cancellation callbacks and peer-disconnect callbacks run away from ingress. User code cannot capture the
    transport or ingress call stack through cancellation.
 7. Managed code cannot safely abort an arbitrary running task. A timed-out operation therefore marks the worker
    unhealthy. The remote runner probes worker health independently, reports an unhealthy generation to
    `ProcessSupervisor`, kills its process tree, and lets the existing crash policy/backoff/breaker launch a clean
-   generation on the same endpoint. Native hosts retain the detailed visible failure and fenced endpoint; session
-   subprocess isolation is tracked separately.
+   generation on the same endpoint. Recovery state, termination, and restart scheduling do not depend on logging
+   or state observers. Observer notifications are sequenced with their transitions and suppressed after disposal.
+   Native hosts retain the detailed visible failure and fenced endpoint; session subprocess isolation is tracked
+   separately.
 8. Health is not process liveness. A health response includes ingress responsiveness plus the active/last failed
-   message operation. A live process with an unresponsive ingress or a timed-out operation is unhealthy.
+   message operation. A live process with an unresponsive ingress or a timed-out operation is unhealthy, including
+   while an update is waiting for that worker to drain.
 
 ## Pane state
 

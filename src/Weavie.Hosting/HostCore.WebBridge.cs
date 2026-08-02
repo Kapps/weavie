@@ -663,7 +663,7 @@ public sealed partial class HostCore {
 		string? argsJson,
 		CancellationToken ct) {
 		var execution = await PrepareCommandAsync(session, id, argsJson, ct).ConfigureAwait(false);
-		await execution.CompleteAsync().ConfigureAwait(false);
+		await execution.CompleteAsync(ct).ConfigureAwait(false);
 		return execution.Result;
 	}
 

@@ -1,3 +1,5 @@
+using Weavie.Core.Diagnostics;
+
 namespace Weavie.Hosting.Messaging;
 
 /// <summary>
@@ -28,7 +30,7 @@ public sealed class MessageFeatureChannel : IMessageFeatureTarget {
 
 	internal IDisposable HandleAfterEvent<TEvent>(
 		string name,
-		Func<TEvent, CancellationToken, Task<Func<Task>>> handler) =>
+		Func<TEvent, CancellationToken, Task<Func<CancellationToken, Task>>> handler) =>
 		_bus.HandleAfterEvent(_feature, name, handler, SessionExecution.Serialized);
 
 	internal IDisposable HandleOwned<TRequest, TResponse>(
@@ -77,7 +79,7 @@ public sealed class MessageFeatureChannel : IMessageFeatureTarget {
 	public void PublishJson(string name, string payloadJson) => _bus.PublishJson(_feature, name, payloadJson);
 }
 
-internal sealed record ResponseWithCompletion<T>(T Payload, Func<Task> AfterResponse);
+internal sealed record ResponseWithCompletion<T>(T Payload, Func<CancellationToken, Task> AfterResponse);
 
 internal interface IMessageFeatureTarget {
 	void Publish<T>(string name, T payload);
@@ -151,10 +153,22 @@ internal sealed class SessionMessageBus : MessageBus {
 			address,
 			broadcast,
 			sendToPeer,
-			log,
+			new DiagnosticWorker(log)) {
+	}
+
+	private SessionMessageBus(
+		SessionAddress address,
+		Action<string> broadcast,
+		Action<WebPeer, string> sendToPeer,
+		DiagnosticWorker diagnostics)
+		: this(
+			address,
+			broadcast,
+			sendToPeer,
+			diagnostics,
 			new MessageOperationRegistry(
 				sendToPeer,
-				log,
+				diagnostics,
 				MessageExecutionPolicy.Default,
 				TimeProvider.System)) {
 	}
@@ -163,14 +177,14 @@ internal sealed class SessionMessageBus : MessageBus {
 		SessionAddress address,
 		Action<string> broadcast,
 		Action<WebPeer, string> sendToPeer,
-		Action<string> log,
+		DiagnosticWorker diagnostics,
 		MessageOperationRegistry operations)
 		: base(
 			MessageScope.Session,
 			address,
 			broadcast,
 			sendToPeer,
-			log,
+			diagnostics,
 			ThreadPoolMessageHandlerExecutor.Instance,
 			operations) {
 	}
@@ -183,14 +197,14 @@ internal sealed class HostMessageBus : MessageBus {
 		IUiDispatcher dispatcher,
 		Action<string> broadcast,
 		Action<WebPeer, string> sendToPeer,
-		Action<string> log,
+		DiagnosticWorker diagnostics,
 		MessageOperationRegistry operations)
 		: base(
 			MessageScope.Host,
 			null,
 			broadcast,
 			sendToPeer,
-			log,
+			diagnostics,
 			new UiMessageHandlerExecutor(dispatcher),
 			operations) {
 	}

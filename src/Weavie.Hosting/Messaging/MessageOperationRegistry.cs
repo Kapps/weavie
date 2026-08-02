@@ -1,12 +1,14 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
+using Weavie.Core.Diagnostics;
 
 namespace Weavie.Hosting.Messaging;
 
 internal sealed class MessageOperationRegistry {
 	private readonly ConcurrentDictionary<long, MessageOperation> _active = new();
 	private readonly Action<WebPeer, string> _sendToPeer;
-	private readonly Action<string> _log;
+	private readonly DiagnosticWorker _diagnostics;
+	private readonly DiagnosticWorker _deliveryDiagnostics;
 	private readonly MessageExecutionPolicy _policy;
 	private readonly TimeProvider _time;
 	private long _sequence;
@@ -14,16 +16,17 @@ internal sealed class MessageOperationRegistry {
 
 	public MessageOperationRegistry(
 		Action<WebPeer, string> sendToPeer,
-		Action<string> log,
+		DiagnosticWorker diagnostics,
 		MessageExecutionPolicy policy,
 		TimeProvider time) {
 		ArgumentNullException.ThrowIfNull(sendToPeer);
-		ArgumentNullException.ThrowIfNull(log);
+		ArgumentNullException.ThrowIfNull(diagnostics);
 		ArgumentNullException.ThrowIfNull(policy);
 		ArgumentNullException.ThrowIfNull(time);
 		policy.Validate();
 		_sendToPeer = sendToPeer;
-		_log = log;
+		_diagnostics = diagnostics;
+		_deliveryDiagnostics = new DiagnosticWorker(diagnostics.Report);
 		_policy = policy;
 		_time = time;
 	}
@@ -64,7 +67,7 @@ internal sealed class MessageOperationRegistry {
 
 	private void OnSlow(MessageOperation operation) {
 		var snapshot = operation.Snapshot();
-		RunDiagnostic(operation.Id, () => _log($"[message] slow {Describe(snapshot)}"));
+		_diagnostics.Report($"[message] slow {Describe(snapshot)}");
 		RunDiagnostic(operation.Id, () => operation.TryRunSlowDiagnostic(() =>
 			SendNotification(
 				operation,
@@ -82,7 +85,7 @@ internal sealed class MessageOperationRegistry {
 		Volatile.Write(ref _lastFailure, snapshot);
 		Remove(operation);
 		timedOut(operation, detail);
-		RunDiagnostic(operation.Id, () => _log($"[message] timed out {Describe(snapshot)}"));
+		_diagnostics.Report($"[message] timed out {Describe(snapshot)}");
 		RunDiagnostic(operation.Id, () => operation.RunTerminalDiagnostic(() =>
 			SendNotification(operation, "error", detail, operation.NotificationKey)));
 	}
@@ -95,13 +98,8 @@ internal sealed class MessageOperationRegistry {
 		}
 	}
 
-	private void RunDiagnostic(string operationId, Action diagnostic) => _ = Task.Run(() => {
-		try {
-			diagnostic();
-		} catch (Exception ex) {
-			SafeLog($"[message] diagnostic for {operationId} failed: {ex}");
-		}
-	});
+	private void RunDiagnostic(string operationId, Action diagnostic) =>
+		_deliveryDiagnostics.Run($"message operation {operationId}", diagnostic);
 
 	private void Remove(MessageOperation operation) {
 		foreach (var entry in _active) {
@@ -126,15 +124,7 @@ internal sealed class MessageOperationRegistry {
 					name,
 					JsonSerializer.SerializeToElement(payload)).ToJson());
 		} catch (Exception ex) {
-			SafeLog($"[message] diagnostic delivery for {operation.Id} failed: {ex}");
-		}
-	}
-
-	private void SafeLog(string message) {
-		try {
-			_log(message);
-		} catch (Exception) {
-			// A failed diagnostic sink cannot participate in message-operation control flow.
+			_diagnostics.Report($"[message] diagnostic delivery for {operation.Id} failed: {ex}");
 		}
 	}
 

@@ -207,7 +207,7 @@ public sealed class McpServerTests {
 		using var registration = dispatcher.RegisterContextualHandler(
 			commandId,
 			(_, context, _) => {
-				context.AfterReply(() => {
+				context.AfterReply(_ => {
 					completed.SetResult();
 					return Task.CompletedTask;
 				});

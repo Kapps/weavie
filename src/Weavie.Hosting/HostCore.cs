@@ -126,7 +126,11 @@ public sealed partial class HostCore : IAsyncDisposable {
 			TimeSpan.FromSeconds(2),
 			TimeSpan.FromSeconds(_settings.RequireInt(MessageSettings.OperationDeadlineSeconds)));
 		_messages = new HostMessageRouter(_bridge, _ui, Log, messagePolicy, TimeProvider.System);
-		_messageIngress = new MessageIngress(_ui, _messages.RouteAsync, _messages.Disconnect, Log);
+		_messageIngress = new MessageIngress(
+			_ui,
+			_messages.RouteAsync,
+			_messages.Disconnect,
+			_messages.Diagnostics);
 		_commandRegistry = services.CommandRegistry;
 		_suggestionRegistry = services.SuggestionRegistry;
 		_keybindings = services.Keybindings;

@@ -3,6 +3,12 @@ namespace Weavie.Hosting.Messaging;
 internal partial class MessageBus {
 	private void DispatchFinished(Task<DispatchCompletion> dispatch, DispatchLifetime lifetime) {
 		if (dispatch.Status != TaskStatus.RanToCompletion) {
+			if (dispatch.Exception is { } failure) {
+				LogDiagnostic($"[bridge] message dispatch failed: {failure}");
+			}
+
+			lifetime.Operation.Complete();
+			SettleDispatch(lifetime);
 			return;
 		}
 
@@ -15,17 +21,23 @@ internal partial class MessageBus {
 		}
 	}
 
-	private async Task RunAfterResponseAsync(Func<Task> afterResponse, DispatchLifetime lifetime) {
+	private async Task RunAfterResponseAsync(
+		Func<CancellationToken, Task> afterResponse,
+		DispatchLifetime lifetime) {
 		_afterResponseContext.Value = lifetime;
+		using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(
+			_dispatchCancellation.Token,
+			lifetime.Operation.TimeoutToken);
 		try {
 			lifetime.Operation.MarkStage("after-response");
 			await lifetime.Operation.SuperviseAsync(async () => {
-				await afterResponse().ConfigureAwait(false);
+				await afterResponse(cancellation.Token).ConfigureAwait(false);
 				return true;
 			}).ConfigureAwait(false);
 		} catch (MessageOperationTimeoutException) {
+		} catch (OperationCanceledException) when (cancellation.IsCancellationRequested) {
 		} catch (Exception ex) {
-			_log($"[bridge] after-response work failed: {ex}");
+			LogDiagnostic($"[bridge] after-response work failed: {ex}");
 		} finally {
 			_afterResponseContext.Value = null;
 			lifetime.Operation.Complete();
@@ -42,7 +54,7 @@ internal partial class MessageBus {
 
 	private void OnOperationTimedOut(MessageOperation operation, string detail) {
 		Fault(detail);
-		if (operation.Envelope.Kind == MessageKind.Request && operation.TrySettleResponse()) {
+		if (operation.Envelope.Kind == MessageKind.Request && operation.TimeoutOwnsResponse) {
 			TrySendResponse(operation.Peer, operation.Envelope, default, detail);
 		}
 	}
@@ -65,6 +77,8 @@ internal partial class MessageBus {
 			_ = _dispatchCancellation.CancelAsync();
 		}
 	}
+
+	private void LogDiagnostic(string message) => _diagnostics.Report(message);
 
 	private sealed class DispatchLifetime(MessageOperation operation) {
 		public MessageOperation Operation { get; } = operation;

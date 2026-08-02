@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text.Json;
+using Weavie.Core.Diagnostics;
 using Weavie.Core.Processes;
 
 namespace Weavie.Runner;
@@ -11,6 +12,10 @@ public sealed partial class BackendManager {
 	private const int UnreachableFailureLimit = 3;
 
 	private readonly CancellationTokenSource _healthCancellation = new();
+	private readonly DiagnosticWorker _healthDiagnostics = new(message => {
+		Console.WriteLine($"[health] {message}");
+		Console.Out.Flush();
+	});
 	private readonly Task _healthMonitor;
 
 	private async Task MonitorHealthAsync() {
@@ -19,14 +24,12 @@ public sealed partial class BackendManager {
 			while (await DelayHealthPollAsync(_healthCancellation.Token).ConfigureAwait(false)) {
 				try {
 					WorkspaceBackend? backend;
-					bool updating;
 					lock (_gate) {
 						backend = _backend;
-						updating = _updating;
 					}
 
 					var supervisor = backend?.Supervisor;
-					if (backend is null || supervisor is null || updating || supervisor.State != SupervisorState.Running) {
+					if (backend is null || supervisor is null || supervisor.State != SupervisorState.Running) {
 						state.Clear();
 						continue;
 					}
@@ -67,8 +70,7 @@ public sealed partial class BackendManager {
 							break;
 					}
 				} catch (Exception ex) when (!_healthCancellation.IsCancellationRequested) {
-					Console.WriteLine($"[health] monitor iteration failed: {ex}");
-					Console.Out.Flush();
+					LogHealth($"monitor iteration failed: {ex}");
 				}
 			}
 		} catch (OperationCanceledException) when (_healthCancellation.IsCancellationRequested) {
@@ -115,8 +117,7 @@ public sealed partial class BackendManager {
 	private void ReplaceUnhealthy(WorkspaceBackend backend, long generation, string reason) {
 		ProcessSupervisor supervisor;
 		lock (_gate) {
-			if (_updating
-				|| !ReferenceEquals(_backend, backend)
+			if (!ReferenceEquals(_backend, backend)
 				|| backend.Supervisor is not { State: SupervisorState.Running } current
 				|| current.Generation != generation) {
 				return;
@@ -125,10 +126,12 @@ public sealed partial class BackendManager {
 			supervisor = current;
 		}
 
-		Console.WriteLine($"[health] replacing backend generation {generation}: {reason}");
-		Console.Out.Flush();
-		supervisor.ReportUnhealthy(generation, reason);
+		if (supervisor.ReportUnhealthy(generation, reason)) {
+			LogHealth($"replacing backend generation {generation}: {reason}");
+		}
 	}
+
+	private void LogHealth(string message) => _healthDiagnostics.Report(message);
 
 	private static string HealthFailureDetail(string body) {
 		try {

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Weavie.Core.Commands;
+using Weavie.Hosting.Messaging;
 using Xunit;
 
 namespace Weavie.Hosting.Tests;
@@ -43,6 +44,50 @@ public sealed class HostCoreSessionDeleteTests {
 		Assert.True(result.Ok, result.Error);
 		host.SelectSession("primary");
 		await Wait.ForAsync<bool>(() => SessionIds(host).Contains("feature") ? null : true);
+	}
+
+	[Fact]
+	public async Task ShutdownCancelsSelfDeleteWaitingToEnterTheUiLane() {
+		var dispatcher = new ManualUiDispatcher(paused: false);
+		await using var host = TestHost.CreateUnstarted(dispatcher);
+		await host.Core.StartAsync();
+		await host.ConnectAsync();
+		Assert.True((await host.CreateSessionAsync("feature")).Ok);
+		var session = host.Session("feature");
+		string worktree = session.WorkspaceRoot;
+		const string requestId = "self-delete-pending";
+		dispatcher.Pause();
+		host.Bridge.Receive(
+			new WebPeer(TestHost.TestPageId),
+			MessageEnvelope.SessionRequest(
+				session.Address,
+				requestId,
+				"commands",
+				"invoke",
+				JsonSerializer.SerializeToElement(new {
+					id = SessionCommands.DeleteSession,
+					args = JsonSerializer.SerializeToElement(new { force = true }),
+				})).ToJson());
+		await dispatcher.WaitForPostAsync().WaitAsync(TimeSpan.FromSeconds(2));
+		Assert.True(dispatcher.RunNext());
+		await dispatcher.WaitForPostAsync().WaitAsync(TimeSpan.FromSeconds(2));
+		Assert.True(dispatcher.RunNext());
+
+		var response = await Wait.ForReferenceAsync(() => host.Bridge.Posted
+			.Select(json => MessageEnvelope.TryParse(json, out var envelope) ? envelope : null)
+			.LastOrDefault(envelope => envelope is { Kind: MessageKind.Response, RequestId: requestId }));
+		Assert.Null(response.Error);
+		Assert.True(response.Payload.GetProperty("ok").GetBoolean());
+		await dispatcher.WaitForPostAsync().WaitAsync(TimeSpan.FromSeconds(2));
+
+		var dispose = Task.Run(() => host.Core.DisposeAsync().AsTask().GetAwaiter().GetResult());
+		try {
+			await dispose.WaitAsync(TimeSpan.FromSeconds(2));
+		} finally {
+			dispatcher.RunPending();
+		}
+
+		Assert.True(Directory.Exists(worktree));
 	}
 
 	[Fact]

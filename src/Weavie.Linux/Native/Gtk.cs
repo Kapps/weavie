@@ -70,6 +70,9 @@ internal static partial class Gtk {
 	internal static partial void gtk_widget_hide(IntPtr widget);
 
 	[LibraryImport(Lib)]
+	internal static partial IntPtr gtk_widget_get_window(IntPtr widget);
+
+	[LibraryImport(Lib)]
 	[return: MarshalAs(UnmanagedType.Bool)]
 	internal static partial bool gtk_window_is_active(IntPtr window);
 

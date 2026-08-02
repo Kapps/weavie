@@ -10,6 +10,7 @@ internal sealed class XdgGlobalShortcutsPortal : IGlobalShortcutsPortal {
 		?? throw new InvalidOperationException("The desktop session has no D-Bus session bus.");
 	private readonly object _gate = new();
 	private PortalConnection? _current;
+	private DBusConnection? _connecting;
 	private SessionWatch? _session;
 	private bool _disposed;
 
@@ -76,6 +77,7 @@ internal sealed class XdgGlobalShortcutsPortal : IGlobalShortcutsPortal {
 
 	public void Dispose() {
 		PortalConnection? portal;
+		DBusConnection? connecting;
 		SessionWatch? session;
 		lock (_gate) {
 			if (_disposed) {
@@ -83,31 +85,41 @@ internal sealed class XdgGlobalShortcutsPortal : IGlobalShortcutsPortal {
 			}
 			_disposed = true;
 			portal = _current;
+			connecting = _connecting;
 			session = _session;
 			_current = null;
+			_connecting = null;
 			_session = null;
 		}
 		session?.Dispose();
+		connecting?.Dispose();
 		portal?.Dispose();
 	}
 
 	private async Task<PortalConnection> EnsureConnectedAsync() {
+		DBusConnection connection;
 		lock (_gate) {
 			ObjectDisposedException.ThrowIf(_disposed, this);
 			if (_current is not null) {
 				return _current;
 			}
+			connection = new DBusConnection(_address);
+			_connecting = connection;
 		}
 
-		LinuxDesktopIdentity.EnsureInstalled();
-		var connection = new DBusConnection(_address);
+		PortalConnection? portal = null;
 		try {
+			LinuxDesktopIdentity.EnsureInstalled();
 			await connection.ConnectAsync().ConfigureAwait(false);
-			await RegisterIdentityAsync(connection).ConfigureAwait(false);
-			var portal = new PortalConnection(
+			portal = new PortalConnection(
 				connection,
 				new GlobalShortcuts(connection, Destination, DesktopPath));
-			portal.ActivationSubscription = await portal.Shortcuts.WatchActivatedAsync(
+			lock (_gate) {
+				ObjectDisposedException.ThrowIf(_disposed, this);
+				_connecting = null;
+				_current = portal;
+			}
+			var activationSubscription = await portal.Shortcuts.WatchActivatedAsync(
 				OnActivated,
 				ObserverFlags.EmitOnOwnerChanged
 					| ObserverFlags.EmitOnConnectionClosed
@@ -116,12 +128,33 @@ internal sealed class XdgGlobalShortcutsPortal : IGlobalShortcutsPortal {
 				emitOnCapturedContext: false,
 				state: portal).ConfigureAwait(false);
 			lock (_gate) {
-				ObjectDisposedException.ThrowIf(_disposed, this);
-				_current = portal;
+				if (_disposed || !ReferenceEquals(_current, portal)) {
+					activationSubscription.Dispose();
+					throw new InvalidOperationException("The desktop portal changed while connecting.");
+				}
+				portal.ActivationSubscription = activationSubscription;
+			}
+			await RegisterIdentityAsync(connection).ConfigureAwait(false);
+			lock (_gate) {
+				if (_disposed || !ReferenceEquals(_current, portal)) {
+					throw new InvalidOperationException("The desktop portal changed while registering Weavie.");
+				}
 			}
 			return portal;
 		} catch {
-			connection.Dispose();
+			lock (_gate) {
+				if (ReferenceEquals(_connecting, connection)) {
+					_connecting = null;
+				}
+				if (ReferenceEquals(_current, portal)) {
+					_current = null;
+				}
+			}
+			if (portal is not null) {
+				portal.Dispose();
+			} else {
+				connection.Dispose();
+			}
 			throw;
 		}
 	}
@@ -142,20 +175,31 @@ internal sealed class XdgGlobalShortcutsPortal : IGlobalShortcutsPortal {
 	private async Task<SessionWatch> WatchSessionAsync(PortalConnection portal, string sessionHandle) {
 		var session = new Weavie.Linux.Portal.Session(portal.Connection, Destination, sessionHandle);
 		var watch = new SessionWatch(sessionHandle);
-		watch.Subscription = await session.WatchClosedAsync(
-			_ => OnSessionClosed(watch),
-			emitOnCapturedContext: false).ConfigureAwait(false);
 		SessionWatch? previous;
 		lock (_gate) {
 			if (_disposed || !ReferenceEquals(portal, _current)) {
-				watch.Dispose();
 				throw new InvalidOperationException("The desktop portal changed while creating a shortcut session.");
 			}
 			previous = _session;
 			_session = watch;
 		}
 		previous?.Dispose();
-		return watch;
+		try {
+			var subscription = await session.WatchClosedAsync(
+				_ => OnSessionClosed(watch),
+				emitOnCapturedContext: false).ConfigureAwait(false);
+			lock (_gate) {
+				if (_disposed || !ReferenceEquals(portal, _current) || !ReferenceEquals(watch, _session)) {
+					subscription.Dispose();
+					throw new InvalidOperationException("The shortcut session closed while it was being created.");
+				}
+				watch.Subscription = subscription;
+			}
+			return watch;
+		} catch {
+			ClearSessionWatch(watch);
+			throw;
+		}
 	}
 
 	private async Task<(uint Response, Dictionary<string, VariantValue> Results)> RequestAsync(

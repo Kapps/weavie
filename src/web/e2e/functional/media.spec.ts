@@ -198,7 +198,7 @@ test("same-named scratch media switches to the incoming session route", async ({
   weavie,
 }) => {
   const createScratchMedia = async (): Promise<string> => {
-    await runCommand(page, "New File");
+    await page.locator(".editor-empty-action", { hasText: "New File" }).click();
     const untitled = await page.locator(".editor-tab.active").getAttribute("title");
     if (untitled === null) {
       throw new Error("the scratch tab has no path");

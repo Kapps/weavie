@@ -152,7 +152,7 @@ internal sealed partial class WorkspaceHost : IWebSurface, IShellMenuActions {
 	}
 
 	private void ToggleWindow() {
-		if (Gtk.gtk_window_is_active(_window)) {
+		if (IsWindowActive()) {
 			Gtk.gtk_widget_hide(_window);
 			return;
 		}
@@ -160,6 +160,24 @@ internal sealed partial class WorkspaceHost : IWebSurface, IShellMenuActions {
 		Gtk.gtk_widget_show_all(_window);
 		Gtk.gtk_window_present(_window);
 		_shown = true;
+	}
+
+	private bool IsWindowActive() {
+		IntPtr display = Gdk.gdk_display_get_default();
+		if (Gdk.GetDisplayBackend(display) != Gdk.DisplayBackend.X11) {
+			return Gtk.gtk_window_is_active(_window);
+		}
+
+		IntPtr active = Gdk.gdk_screen_get_active_window(Gdk.gdk_screen_get_default());
+		if (active == IntPtr.Zero) {
+			return Gtk.gtk_window_is_active(_window);
+		}
+		try {
+			return Gdk.gdk_x11_window_get_xid(active)
+				== Gdk.gdk_x11_window_get_xid(Gtk.gtk_widget_get_window(_window));
+		} finally {
+			GLib.g_object_unref(active);
+		}
 	}
 
 	private void ApplyWaylandActivationToken(string token) {

@@ -27,15 +27,15 @@ public sealed class LinuxGlobalHotkeyTests {
 	public async Task WaylandBackend_RebindsOneSessionAndRoutesOnlyItsActivations() {
 		var portal = new FakePortal();
 		using var backend = new WaylandGlobalHotkeys(portal);
-		var pressed = new List<(GlobalHotkey Hotkey, string? Token)>();
-		backend.Pressed += (hotkey, token) => pressed.Add((hotkey, token));
+		var pressed = Channel.CreateUnbounded<(GlobalHotkey Hotkey, string? Token)>();
+		backend.Pressed += (hotkey, token) => Assert.True(pressed.Writer.TryWrite((hotkey, token)));
 		var first = Hotkey("`", HotkeyModifiers.Ctrl);
 
 		backend.Apply([first]);
 		var (firstSession, firstShortcuts) = await portal.Binds.Reader.ReadAsync();
 		portal.Activate(firstSession, firstShortcuts[0].Id, "activation-one");
 
-		Assert.Equal([(first, "activation-one")], pressed);
+		Assert.Equal((first, "activation-one"), await pressed.Reader.ReadAsync());
 
 		var second = Hotkey("p", HotkeyModifiers.Ctrl | HotkeyModifiers.Shift);
 		backend.Apply([second]);
@@ -45,7 +45,8 @@ public sealed class LinuxGlobalHotkeyTests {
 		Assert.Equal("CTRL+SHIFT+p", Assert.Single(secondShortcuts).Trigger);
 		portal.Activate(firstSession, firstShortcuts[0].Id, "stale-token");
 		portal.Activate(secondSession, secondShortcuts[0].Id, "activation-two");
-		Assert.Equal([(first, "activation-one"), (second, "activation-two")], pressed);
+		Assert.Equal((second, "activation-two"), await pressed.Reader.ReadAsync());
+		Assert.False(pressed.Reader.TryRead(out _));
 	}
 
 	[Fact]
@@ -66,9 +67,9 @@ public sealed class LinuxGlobalHotkeyTests {
 	public async Task WaylandBackend_UsesThePortalAcceptedSubset() {
 		var portal = new FakePortal { AcceptedShortcutCount = 1 };
 		using var backend = new WaylandGlobalHotkeys(portal);
-		var pressed = new List<GlobalHotkey>();
+		var pressed = Channel.CreateUnbounded<GlobalHotkey>();
 		var logs = new List<string>();
-		backend.Pressed += (hotkey, _) => pressed.Add(hotkey);
+		backend.Pressed += (hotkey, _) => Assert.True(pressed.Writer.TryWrite(hotkey));
 		backend.Log += logs.Add;
 		var accepted = Hotkey("`", HotkeyModifiers.Ctrl);
 		var omitted = Hotkey("p", HotkeyModifiers.Ctrl) with {
@@ -81,7 +82,8 @@ public sealed class LinuxGlobalHotkeyTests {
 		portal.Activate(session, shortcuts[0].Id, "accepted-token");
 		portal.Activate(session, shortcuts[1].Id, "ignored-token");
 
-		Assert.Single(pressed, accepted);
+		Assert.Equal(accepted, await pressed.Reader.ReadAsync());
+		Assert.False(pressed.Reader.TryRead(out _));
 		Assert.Contains(logs, line => line.Contains("did not bind 'ctrl+p'", StringComparison.Ordinal));
 	}
 
@@ -89,8 +91,8 @@ public sealed class LinuxGlobalHotkeyTests {
 	public async Task WaylandBackend_RebindsAfterThePortalInvalidatesItsSession() {
 		var portal = new FakePortal();
 		using var backend = new WaylandGlobalHotkeys(portal);
-		var pressed = new List<GlobalHotkey>();
-		backend.Pressed += (hotkey, _) => pressed.Add(hotkey);
+		var pressed = Channel.CreateUnbounded<GlobalHotkey>();
+		backend.Pressed += (hotkey, _) => Assert.True(pressed.Writer.TryWrite(hotkey));
 		var hotkey = Hotkey("`", HotkeyModifiers.Ctrl);
 
 		backend.Apply([hotkey]);
@@ -100,19 +102,19 @@ public sealed class LinuxGlobalHotkeyTests {
 		portal.Activate(firstSession, firstShortcuts[0].Id, "stale-token");
 		portal.Activate(secondSession, secondShortcuts[0].Id, "fresh-token");
 
-		Assert.Single(pressed, hotkey);
+		Assert.Equal(hotkey, await pressed.Reader.ReadAsync());
+		Assert.False(pressed.Reader.TryRead(out _));
 	}
 
-	[Fact]
-	public async Task WaylandBackend_DisposeClosesItsSessionAndPortal() {
-		var portal = new FakePortal();
+	[Fact(Timeout = 5000)]
+	public async Task WaylandBackend_DisposeInterruptsAPendingPortalBinding() {
+		var portal = new FakePortal { BlockBindingUntilDisposed = true };
 		var backend = new WaylandGlobalHotkeys(portal);
 
 		backend.Apply([Hotkey("`", HotkeyModifiers.Ctrl)]);
-		var (session, _) = await portal.Binds.Reader.ReadAsync();
+		_ = await portal.Binds.Reader.ReadAsync();
 		backend.Dispose();
 
-		Assert.Contains(session, portal.Closed);
 		Assert.True(portal.Disposed);
 	}
 
@@ -131,7 +133,9 @@ public sealed class LinuxGlobalHotkeyTests {
 		internal List<string> Closed { get; } = [];
 		internal int BindCount { get; private set; }
 		internal int AcceptedShortcutCount { get; init; } = int.MaxValue;
+		internal bool BlockBindingUntilDisposed { get; init; }
 		internal bool Disposed { get; private set; }
+		private TaskCompletionSource<PortalBinding>? _pendingBinding;
 
 		public event Action<PortalActivation>? Activated;
 		public event Action? Invalidated;
@@ -145,7 +149,13 @@ public sealed class LinuxGlobalHotkeyTests {
 				.Take(AcceptedShortcutCount)
 				.Select(shortcut => shortcut.Id)
 				.ToHashSet(StringComparer.Ordinal);
-			return Task.FromResult(new PortalBinding(session, accepted));
+			var binding = new PortalBinding(session, accepted);
+			if (!BlockBindingUntilDisposed) {
+				return Task.FromResult(binding);
+			}
+			_pendingBinding = new TaskCompletionSource<PortalBinding>(
+				TaskCreationOptions.RunContinuationsAsynchronously);
+			return _pendingBinding.Task;
 		}
 
 		public Task CloseSessionAsync(string sessionHandle) {
@@ -160,6 +170,7 @@ public sealed class LinuxGlobalHotkeyTests {
 
 		public void Dispose() {
 			Disposed = true;
+			_pendingBinding?.TrySetException(new ObjectDisposedException(nameof(FakePortal)));
 			_ = Log;
 		}
 	}

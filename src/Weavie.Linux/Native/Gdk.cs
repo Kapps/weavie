@@ -36,6 +36,12 @@ internal static partial class Gdk {
 	internal static partial IntPtr gdk_display_get_default();
 
 	[LibraryImport(Lib)]
+	internal static partial IntPtr gdk_screen_get_default();
+
+	[LibraryImport(Lib)]
+	internal static partial IntPtr gdk_screen_get_active_window(IntPtr screen);
+
+	[LibraryImport(Lib)]
 	internal static partial uint gdk_unicode_to_keyval(uint wc);
 
 	[LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
@@ -55,6 +61,9 @@ internal static partial class Gdk {
 
 	[LibraryImport(Lib)]
 	internal static partial IntPtr gdk_x11_display_get_xdisplay(IntPtr display);
+
+	[LibraryImport(Lib)]
+	internal static partial nuint gdk_x11_window_get_xid(IntPtr window);
 
 	[LibraryImport(Lib)]
 	internal static partial void gdk_x11_display_error_trap_push(IntPtr display);

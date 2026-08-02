@@ -1085,6 +1085,10 @@ test.describe("Codex composer", () => {
     await expect(textarea).toHaveValue("a fresh draft");
   });
 
+  // Flaked on macOS CI 2026-08-01 07:33 UTC (run https://github.com/Kapps/weavie/actions/runs/30689961665,
+  // job "test (macos)"): the fixed-row-count assertions assumed platform-independent glyph metrics for the
+  // ambient monospace fallback font, which wraps "one two three four" differently per OS. Fixed same day in
+  // 7be4f84 by looping until the caret/value settles instead of asserting an exact number of arrow presses.
   test("Up moves through soft-wrapped draft lines before recalling history", async ({ page }) => {
     await mountCodex(page);
     publishPane(userMessage("previous prompt"));

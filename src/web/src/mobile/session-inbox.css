@@ -13,6 +13,7 @@
 
 .session-inbox-header {
   display: flex;
+  flex: 0 0 auto;
   align-items: center;
   gap: 10px;
 }
@@ -32,6 +33,7 @@
 }
 
 .session-composer {
+  flex: 0 0 auto;
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -69,7 +71,7 @@
 .session-composer-options select,
 .session-composer-options button {
   min-width: 0;
-  min-height: 36px;
+  min-height: 44px;
   padding: 0 8px;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -99,6 +101,7 @@
 
 .session-inbox-list {
   display: flex;
+  flex: 1 1 0;
   flex-direction: column;
   gap: 7px;
   min-height: 0;
@@ -179,8 +182,12 @@
   background: var(--bad);
 }
 
+.session-inbox-row.offline .session-status {
+  background: var(--dim);
+}
+
 @media (max-width: 760px), ((max-height: 520px) and (pointer: coarse)) {
-  .app.compact .session-inbox {
+  .app.compact.mobile-inbox .session-inbox {
     display: flex;
   }
 }

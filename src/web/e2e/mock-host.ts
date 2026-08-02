@@ -11,8 +11,8 @@ export interface SessionAddress {
 export interface MockSession {
   id: string;
   label: string;
-  address: SessionAddress;
-  loaded: true;
+  address: SessionAddress | null;
+  loaded: boolean;
   primary: boolean;
   providerId: "claude" | "codex";
   agentSurface: "terminal" | "structured";
@@ -20,6 +20,11 @@ export interface MockSession {
   status: "starting" | "working" | "needsInput" | "idle" | "waiting" | "error";
   hue: number;
   monogram: string;
+}
+
+export interface MockLiveSession extends MockSession {
+  address: SessionAddress;
+  loaded: true;
 }
 
 export interface MessageEnvelope {
@@ -54,7 +59,7 @@ export function mockSession(
   label: string,
   providerId: "claude" | "codex",
   primary: boolean,
-): MockSession {
+): MockLiveSession {
   return {
     id,
     label,
@@ -174,7 +179,7 @@ export class MockHost {
 
   address(slot: string): SessionAddress {
     const address = this.sessions.find((session) => session.id === slot)?.address;
-    if (address === undefined) {
+    if (address === undefined || address === null) {
       throw new Error(`mock host has no live session '${slot}'`);
     }
     return address;

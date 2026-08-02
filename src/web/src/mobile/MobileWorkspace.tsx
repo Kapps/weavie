@@ -1,4 +1,4 @@
-import { type JSX, Show } from "solid-js";
+import type { JSX } from "solid-js";
 import type { RailSession } from "../chrome/session-store";
 import { type MobileSurface, MobileSurfaceBar } from "./MobileSurfaceBar";
 import { SessionInbox } from "./SessionInbox";
@@ -18,17 +18,15 @@ export function MobileWorkspace(props: {
 }): JSX.Element {
   return (
     <>
-      <Show when={props.surface === "inbox"}>
-        <SessionInbox
-          sessions={props.sessions}
-          initialBackendId={props.initialBackendId}
-          initialProviderId={props.initialProviderId}
-          onOpen={props.onOpen}
-          onCreate={props.onCreate}
-          onMore={props.onMore}
-          moreTitle={props.moreTitle}
-        />
-      </Show>
+      <SessionInbox
+        sessions={props.sessions}
+        initialBackendId={props.initialBackendId}
+        initialProviderId={props.initialProviderId}
+        onOpen={props.onOpen}
+        onCreate={props.onCreate}
+        onMore={props.onMore}
+        moreTitle={props.moreTitle}
+      />
       <MobileSurfaceBar
         active={props.surface}
         onSelect={props.onSurface}

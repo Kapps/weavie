@@ -27,6 +27,7 @@ export function MobileSurfaceBar(props: {
     <nav
       class="mobile-surface-bar"
       aria-label="Workspace surfaces"
+      tabIndex={-1}
       onPointerDown={(event) => {
         startX = event.clientX;
         swiped = false;
@@ -39,6 +40,7 @@ export function MobileSurfaceBar(props: {
         startX = null;
         if (Math.abs(distance) >= 48) {
           swiped = true;
+          event.currentTarget.focus({ preventScroll: true });
           step(distance < 0 ? 1 : -1);
         }
       }}
@@ -58,6 +60,7 @@ export function MobileSurfaceBar(props: {
               const suppressPointerClick = swiped && event.detail !== 0;
               swiped = false;
               if (!suppressPointerClick) {
+                event.currentTarget.focus({ preventScroll: true });
                 props.onSelect(surface.id);
               }
             }}

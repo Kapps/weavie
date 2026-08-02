@@ -26,8 +26,17 @@ test("compact session inbox creates, resumes, and switches existing surfaces", a
   await page.getByRole("button", { name: "Code" }).click();
   await expect(page.locator(".editor-surface")).toBeVisible();
   await page.getByRole("button", { name: "Files" }).click();
-  await page.locator(".browser-row", { hasText: "hello.ts" }).click();
-  await page.getByTitle("Close (Esc)").click();
+  const fileRow = page.locator(".browser-row", { hasText: "hello.ts" });
+  const browserClose = page.getByTitle("Close (Esc)");
+  const [fileRowBox, browserCloseBox] = await Promise.all([
+    fileRow.boundingBox(),
+    browserClose.boundingBox(),
+  ]);
+  expect(fileRowBox?.height).toBeGreaterThanOrEqual(44);
+  expect(browserCloseBox?.width).toBeGreaterThanOrEqual(44);
+  expect(browserCloseBox?.height).toBeGreaterThanOrEqual(44);
+  await fileRow.click();
+  await browserClose.click();
   await expect(page.locator(".monaco-editor")).toBeVisible();
 
   await page.getByRole("button", { name: "Sessions" }).click();
@@ -40,6 +49,7 @@ test("compact session inbox creates, resumes, and switches existing surfaces", a
   await bar.dispatchEvent("pointerdown", { clientX: 300, pointerType: "touch" });
   await bar.dispatchEvent("pointerup", { clientX: 120, pointerType: "touch" });
   await expect(page.locator(".mobile-surface-button.active")).toHaveText("Shell");
+  await expect(bar).toBeFocused();
 
   const agentSurface = page.locator(".terminal-surface[data-kind='terminal:claude']");
   await agentSurface.evaluate((element) => {

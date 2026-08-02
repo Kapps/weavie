@@ -5,7 +5,7 @@ import { parseEnvelope } from "./messaging/message-envelope";
 import { PAGE_EPOCH } from "./messaging/page-epoch";
 import type { BackendEndpoint, BackendInfo, PullRequestInfo } from "./messaging/protocol-types";
 import { SelectionSequencer } from "./messaging/selection-sequencer";
-import { notify } from "./notify/notify";
+import { clearNotification, notify } from "./notify/notify";
 
 export { ClientSession, HostConnection } from "./messaging/host-connection";
 export type * from "./messaging/protocol-types";
@@ -569,6 +569,8 @@ class NativeTransport implements BridgeTransport {
   dispose(): void {}
 }
 
+const connectionNotificationKey = (backendId: string): string => `connection:${backendId}`;
+
 class WebSocketTransport implements BridgeTransport {
   private socket: WebSocket | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -602,6 +604,7 @@ class WebSocketTransport implements BridgeTransport {
     }
     this.socket?.close();
     this.socket = null;
+    clearNotification(connectionNotificationKey(this.backendId));
     clearBackendPhase(this.backendId);
   }
 
@@ -629,6 +632,7 @@ class WebSocketTransport implements BridgeTransport {
         .then(() => {
           if (this.socket === socket) {
             setBackendPhase(this.backendId, "online");
+            clearNotification(connectionNotificationKey(this.backendId));
           }
         })
         .catch(() => socket.close());
@@ -661,7 +665,7 @@ class WebSocketTransport implements BridgeTransport {
       this.opened
         ? `Lost connection to ${this.label}. Reconnecting…`
         : `Can't reach ${this.label}. Retrying…`,
-      `connection:${this.backendId}`,
+      connectionNotificationKey(this.backendId),
     );
     const delay = this.reconnectDelayMs;
     this.reconnectDelayMs = Math.min(this.reconnectDelayMs * 2, 10_000);

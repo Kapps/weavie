@@ -1429,7 +1429,10 @@ export default function App(): JSX.Element {
   });
 
   return (
-    <div class="app" classList={{ compact: compact() }}>
+    <div
+      class="app"
+      classList={{ compact: compact(), "mobile-inbox": compact() && mobileSurface() === "inbox" }}
+    >
       <Show when={CUSTOM_TITLEBAR}>
         <TitleBar
           maximized={windowMaximized()}
@@ -1504,19 +1507,16 @@ export default function App(): JSX.Element {
           moreTitle={mobileMoreTitle()}
           surfaceTitle={mobileSurfaceTitle}
           onSurface={(surface) => {
-            if (surface === "inbox") {
-              setMobileSurface(surface);
-              return;
-            }
             setMobileSurface(surface);
-            void dispatchCommand(CommandIds.focusPaneByIndex, { index: numberOf(surface) });
+            if (surface !== "inbox") {
+              setActivePane(surface);
+            }
           }}
         />
         <div
           class="pane-area"
           classList={{
             offline: activeBackendOffline(),
-            "inbox-visible": compact() && mobileSurface() === "inbox",
           }}
         >
           <LayoutView root={displayRoot()} renderPane={renderPane} onResize={onLayoutResize} />

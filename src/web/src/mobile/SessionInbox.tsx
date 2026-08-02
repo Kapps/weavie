@@ -127,8 +127,14 @@ export function SessionInbox(props: {
                   </span>
                 </span>
                 <span class="session-inbox-state">
-                  <span class="session-status" />
-                  {session.loaded ? STATUS_SHORT[session.status] : "Unloaded"}
+                  <Show when={session.loaded}>
+                    <span class="session-status" />
+                  </Show>
+                  {session.offline
+                    ? "Reconnecting"
+                    : session.loaded
+                      ? STATUS_SHORT[session.status]
+                      : "Unloaded"}
                 </span>
               </button>
             )}

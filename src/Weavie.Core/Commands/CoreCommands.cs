@@ -80,6 +80,9 @@ public static class CoreCommands {
 	/// <summary>Jumps to the latest structured-agent activity and resumes following it.</summary>
 	public const string AgentJumpToLatest = "weavie.agent.jumpToLatest";
 
+	/// <summary>Toggles the focused or newest Mermaid block in structured-agent output; bound to <c>Alt+M</c>.</summary>
+	public const string ToggleAgentMermaidPreview = "weavie.agent.toggleMermaidPreview";
+
 	/// <summary>Toggles the active structured agent between its Plan and default collaboration modes.</summary>
 	public const string TogglePlanMode = "weavie.agent.togglePlanMode";
 
@@ -724,6 +727,18 @@ public static class CoreCommands {
 			Description = "Jump to the latest agent activity and resume following new output.",
 			Aliases = ["jump to latest", "latest activity", "scroll to bottom", "follow agent"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "alt+down" }],
+			When = "agentFocused",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = ToggleAgentMermaidPreview,
+			Title = "Toggle Mermaid Preview",
+			RunsIn = CommandLocation.Web,
+			Category = "Agent",
+			Description = "Toggle the focused Mermaid block between diagram and source, or the newest previewable "
+				+ "Mermaid block when none is focused.",
+			Aliases = ["toggle mermaid", "mermaid preview", "show mermaid source", "show mermaid diagram"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "alt+m" }],
 			When = "agentFocused",
 		});
 

@@ -6,6 +6,7 @@ import { createMarkdownRenderer } from "../editor/preview/markdown-renderer";
 import { refLinkPrefixFor } from "../terminal/ref-link-store";
 import { openUrlExternal } from "../terminal/terminal-links";
 import { onPreviewThemeChanged } from "../theme/controller";
+import { installAgentMermaid } from "./agent-mermaid";
 
 const renderMarkdown = createMarkdownRenderer({
   allowHtml: false,
@@ -38,7 +39,11 @@ export function AgentMarkdown(props: {
     }
     host?.replaceChildren(...rendered.childNodes);
     if (host !== undefined && hasMermaid && shouldHydrate) {
-      void hydrateMermaid(host, () => currentGeneration === generation);
+      void hydrateMermaid(host, () => currentGeneration === generation).then((blocks) => {
+        if (currentGeneration === generation) {
+          installAgentMermaid(blocks);
+        }
+      });
     }
   };
 

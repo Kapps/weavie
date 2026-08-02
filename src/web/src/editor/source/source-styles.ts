@@ -120,9 +120,12 @@ export const SOURCE_STYLES = `
   border-radius: 8px; color: var(--fg, #cdd5dc);
 }
 .wv-source pre.mermaid-pending { color: var(--dim, #6f7884); }
+.wv-source pre.mermaid-source[data-mermaid-error]::before {
+  content: attr(data-mermaid-error); display: block; margin-bottom: 0.7em; color: var(--bad, #e07a7a);
+  font: var(--font-metadata-size) / 1.4 var(--font-chrome-family); white-space: normal;
+}
 .wv-source .mermaid-rendered { margin: 1em 0; text-align: center; }
 .wv-source .mermaid-rendered svg { max-width: 100%; height: auto; }
-.wv-source .mermaid-error { color: var(--bad, #e07a7a); white-space: pre-wrap; }
 /* Scoped under .wv-source so a bg tint out-specifies .wv-source .wv-callout's neutral background (and wins by
    source order); these also color inline <span color> text and {color=…} blocks. */
 .wv-source .wv-color-gray { color: #9b9b9b; } .wv-source .wv-color-brown { color: #ba856f; } .wv-source .wv-color-orange { color: #e0883d; }

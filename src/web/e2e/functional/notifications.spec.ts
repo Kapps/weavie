@@ -138,6 +138,13 @@ test.describe("two sessions: the background session pings; clicking focuses it",
     page,
     weavie,
   }) => {
+    // Heavyweight: forks a second full session stack (its own fake-claude + dotnet host round-trip) before
+    // waiting on the cross-session hook -> notification pipeline. On the slow, serialized hosted Windows
+    // runner this legitimate work occasionally outlasts the 30s default expect timeout even with no
+    // contention from our own tests — give it the room, same as pr-two-sessions.spec.ts.
+    // Flaked 2026-08-02 08:37 UTC on windows-latest, timing out with 0 notifications received:
+    // https://github.com/Kapps/weavie/actions/runs/30739682212/job/91474719821
+    test.slow();
     const chips = page.locator(".session-chip");
 
     // Fork a second session; the fork becomes the active chip, the primary works on in the background.

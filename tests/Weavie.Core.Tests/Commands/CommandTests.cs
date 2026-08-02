@@ -136,14 +136,21 @@ public sealed class CommandTests {
 		Assert.Equal("agentFocused && !agentSlashMenuOpen && !agentControlPickerOpen", command.When);
 	}
 
-	[Theory]
-	[InlineData(CoreCommands.AgentJumpToTurn, "alt+up")]
-	[InlineData(CoreCommands.AgentJumpToLatest, "alt+down")]
-	public void AgentTurnNavigation_UsesFocusedAgentBindings(string id, string key) {
-		var command = CoreCommands.CreateRegistry().Require(id);
+	[Fact]
+	public void AgentJumpToTurn_RequiresANavigableAgentTurn() {
+		var command = CoreCommands.CreateRegistry().Require(CoreCommands.AgentJumpToTurn);
 
 		Assert.Equal(CommandLocation.Web, command.RunsIn);
-		Assert.Equal(key, Assert.Single(command.DefaultKeybindings).Key);
+		Assert.Equal("alt+up", Assert.Single(command.DefaultKeybindings).Key);
+		Assert.Equal("agentFocused && agentTurnNavigable", command.When);
+	}
+
+	[Fact]
+	public void AgentJumpToLatest_UsesTheFocusedAgentBinding() {
+		var command = CoreCommands.CreateRegistry().Require(CoreCommands.AgentJumpToLatest);
+
+		Assert.Equal(CommandLocation.Web, command.RunsIn);
+		Assert.Equal("alt+down", Assert.Single(command.DefaultKeybindings).Key);
 		Assert.Equal("agentFocused", command.When);
 	}
 

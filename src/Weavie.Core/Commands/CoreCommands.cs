@@ -666,10 +666,10 @@ public static class CoreCommands {
 			Title = "Jump to Agent Turn",
 			RunsIn = CommandLocation.Web,
 			Category = "Agent",
-			Description = "Jump to the prompt that started the latest agent turn.",
+			Description = "Jump to the first agent output in the latest completed turn.",
 			Aliases = ["jump to turn", "turn start", "start of response", "scroll up to turn"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "alt+up" }],
-			When = "agentFocused",
+			When = "agentFocused && agentTurnNavigable",
 		});
 
 		registry.Register(new CommandDefinition {

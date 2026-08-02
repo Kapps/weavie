@@ -1,6 +1,7 @@
-import { createEffect, createMemo, type JSX, Show } from "solid-js";
+import { createEffect, createMemo, type JSX, onCleanup, Show } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import type { AgentPaneUpdate, ClientSession } from "../bridge";
+import { setContext } from "../commands/context";
 import { liveKeyLabel } from "../commands/keys-live";
 import { CommandIds } from "../commands/types";
 import { AgentComposer } from "./AgentComposer";
@@ -9,7 +10,8 @@ import { createAgentPaneScroll } from "./AgentPaneScroll";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 import { AgentStatusLine } from "./AgentStatusLine";
 import { AgentTranscript } from "./AgentTranscript";
-import { pendingApproval } from "./turn-progress";
+import { latestAgentTurnStartId } from "./AgentTranscriptLabels";
+import { hasActiveTurn, pendingApproval } from "./turn-progress";
 
 export function AgentPane(props: {
   inputProtocol: number;
@@ -31,7 +33,12 @@ export function AgentPane(props: {
   const providerName = (): string => (props.providerId === "codex" ? "Codex" : "Agent");
   // Only the card the keyboard chords answer wears the chips.
   const keyboardApprovalId = createMemo(() => pendingApproval(props.messages)?.requestId ?? null);
-  const scroll = createAgentPaneScroll(() => props.session);
+  const turnActive = createMemo(() => hasActiveTurn(props.messages));
+  const agentTurnStartId = createMemo(() => latestAgentTurnStartId(entries));
+  const turnNavigable = (): boolean => !turnActive() && agentTurnStartId() !== null;
+  const scroll = createAgentPaneScroll(() => props.session, turnNavigable);
+  createEffect(() => setContext("agentTurnNavigable", turnNavigable()));
+  onCleanup(() => setContext("agentTurnNavigable", false));
 
   const commandTitle = (label: string, commandId: string): string => {
     const key = liveKeyLabel(commandId);
@@ -102,17 +109,18 @@ export function AgentPane(props: {
             <AgentTranscript
               entries={entries}
               keyboardApprovalId={keyboardApprovalId()}
-              messages={props.messages}
               providerName={providerName()}
+              agentTurnStartId={agentTurnStartId()}
               session={props.session}
+              turnActive={turnActive()}
             />
           </div>
         </div>
-        <Show when={scroll.followingLatest() && scroll.turnStartAbove()}>
+        <Show when={turnNavigable() && scroll.followingLatest() && scroll.agentTurnStartAbove()}>
           <button
             type="button"
             class="agent-follow-pill"
-            title={commandTitle("Jump to the start of this turn", CommandIds.agentJumpToTurn)}
+            title={commandTitle("Jump to the start of this agent turn", CommandIds.agentJumpToTurn)}
             onClick={() => scroll.jumpToTurn()}
           >
             ↑ Jump to turn

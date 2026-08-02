@@ -26,6 +26,7 @@ public sealed class HostCoreStructuredAgentLifecycleTests {
 		Assert.True(created.Ok, created.Error);
 		Assert.Equal("primary", host.SelectedSession.SlotId);
 		var session = host.Session("structured-lifecycle");
+		await session.Agent.DrainPaneAsync(CancellationToken.None);
 		var started = Assert.Single(
 			host.Bridge.PostedEvents(session.Address, "agent", "pane"),
 			message => message.GetProperty("type").GetString() == "thread-ready");

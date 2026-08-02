@@ -1,0 +1,19 @@
+{
+  "name": "Weavie",
+  "short_name": "Weavie",
+  "description": "Resume and guide your agent sessions from anywhere.",
+  "id": "/index.html",
+  "start_url": "/index.html",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "icons": [
+    {
+      "src": "/weavie.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}

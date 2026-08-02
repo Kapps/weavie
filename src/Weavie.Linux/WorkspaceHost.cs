@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Layout;
+using Weavie.Core.Shell;
 using Weavie.Core.Workspaces;
 using Weavie.Hosting;
 using Weavie.Hosting.Web;
@@ -16,7 +17,7 @@ namespace Weavie.Linux;
 /// last workspace (else the <c>workspace</c> setting); with neither, it shows the welcome screen
 /// (<c>WorkspaceHost.Welcome.cs</c>) until the user opens a folder.
 /// </summary>
-internal sealed partial class WorkspaceHost : IWebSurface {
+internal sealed partial class WorkspaceHost : IWebSurface, IShellMenuActions {
 	// The default welcome-window size before a workspace (with its saved geometry) is opened.
 	private const int WelcomeWidth = 1000;
 	private const int WelcomeHeight = 680;
@@ -35,6 +36,7 @@ internal sealed partial class WorkspaceHost : IWebSurface {
 	private bool _shown;
 	// Kept alive: native holds a bare function pointer to this.
 	private WidgetCallback? _onDestroy;
+	private KeyEventCallback? _onKeyPress;
 
 	/// <summary>
 	/// Builds the window, view, scheme handler, and bridge, then opens the resolved workspace or — when there is
@@ -54,6 +56,9 @@ internal sealed partial class WorkspaceHost : IWebSurface {
 		_bridge.RegisterOn(_contentManager);
 		_webView = WebKit.webkit_web_view_new_with_user_content_manager(_contentManager);
 		_bridge.Attach(_webView);
+		_onKeyPress = OnKeyPress;
+		_ = GLib.g_signal_connect_data(
+			_webView, "key-press-event", Marshal.GetFunctionPointerForDelegate(_onKeyPress), IntPtr.Zero, IntPtr.Zero, 0);
 		WebKit.webkit_settings_set_enable_developer_extras(WebKit.webkit_web_view_get_settings(_webView), true);
 
 		_window = Gtk.gtk_window_new(Gtk.WindowToplevel);
@@ -81,7 +86,7 @@ internal sealed partial class WorkspaceHost : IWebSurface {
 	private void OpenWorkspace(string root) {
 		_recents!.Add(root);
 		_core = new HostCore(
-			new LinuxPlatform(_bridge, _recents),
+			new LinuxPlatform(_bridge, _recents, this),
 			_services!,
 			root,
 			WorkspaceHttpServerOptions.Native(_wwwroot!),
@@ -101,7 +106,7 @@ internal sealed partial class WorkspaceHost : IWebSurface {
 		WebKit.webkit_user_content_manager_remove_all_scripts(_contentManager);
 
 		ShowWindow();
-		WebKit.webkit_web_view_load_uri(_webView, _core.WorkspacePageUrl);
+		WebKit.webkit_web_view_load_uri(_webView, _core.WorkspaceNativePageUrl);
 	}
 
 	/// <summary>Sizes/positions the window for <paramref name="placement"/>; resizes live when already on screen (welcome → workspace).</summary>

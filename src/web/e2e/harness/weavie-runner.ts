@@ -30,15 +30,14 @@ export function runnerBuilt(): boolean {
   return existsSync(runnerDll);
 }
 
-// Asks the runner control plane for its worker and returns the worker's page URL (carrying the worker
-// token), once the backend reports running. The browser connects straight to the worker — the runner is out
-// of the data path.
-async function resolveWorkerUrl(
+// Asks the runner control plane for its worker's clean page URL and separate connect token. The browser
+// connects straight to the worker — the runner is out of the data path.
+async function resolveWorker(
   control: string,
   token: string,
   getLog: () => string,
   deadline: number,
-): Promise<string> {
+): Promise<{ url: string; token: string }> {
   // One keep-alive socket for the whole poll (see getOverAgent): the control plane is already up, so each
   // 200ms probe would otherwise be a fresh TIME_WAIT connection.
   const agent = new Agent({ keepAlive: true, maxSockets: 1 });
@@ -47,9 +46,9 @@ async function resolveWorkerUrl(
       try {
         const res = await getOverAgent(`${control}/backend?token=${token}`, agent);
         if (res.status >= 200 && res.status < 300) {
-          const body = JSON.parse(res.body) as { url?: string; status?: string };
-          if (body.url && body.status === "running") {
-            return body.url;
+          const body = JSON.parse(res.body) as { url?: string; token?: string; status?: string };
+          if (body.url && body.token && body.status === "running") {
+            return { url: body.url, token: body.token };
           }
         }
       } catch {
@@ -109,11 +108,12 @@ export async function launchRemote(options: LaunchOptions): Promise<WeavieHost> 
   // One budget for the rest of the boot, sized to fit inside Playwright's 30s test timeout: a stalled
   // worker must fail HERE, with the runner log in the error, not as an opaque fixture timeout without it.
   const bootDeadline = Date.now() + 14_000;
-  const url = await resolveWorkerUrl(control, runnerToken, () => log, bootDeadline);
-  await waitForHttp(url, () => log, bootDeadline - Date.now());
+  const worker = await resolveWorker(control, runnerToken, () => log, bootDeadline);
+  await waitForHttp(worker.url, () => log, bootDeadline - Date.now());
 
   return {
-    url,
+    url: worker.url,
+    token: worker.token,
     workspace: fake.workspace,
     home: fake.home,
     log: () => log,

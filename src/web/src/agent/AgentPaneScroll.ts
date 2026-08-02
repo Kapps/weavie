@@ -3,14 +3,17 @@ import type { ClientSession } from "../bridge";
 import { registerCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 
-export function createAgentPaneScroll(session: Accessor<ClientSession | null>) {
+export function createAgentPaneScroll(
+  session: Accessor<ClientSession | null>,
+  turnNavigable: Accessor<boolean>,
+) {
   let body: HTMLDivElement | undefined;
   let scrollScheduled = false;
   let programmaticScroll = false;
   let assignedTop = 0;
   let assignedFollowingLatest = true;
   const [followingLatest, setFollowingLatest] = createSignal(true);
-  const [turnStartAbove, setTurnStartAbove] = createSignal(false);
+  const [agentTurnStartAbove, setAgentTurnStartAbove] = createSignal(false);
 
   const isNearBottom = (): boolean => {
     if (body === undefined) {
@@ -21,14 +24,12 @@ export function createAgentPaneScroll(session: Accessor<ClientSession | null>) {
     return distance <= Math.ceil(lineHeight * 3);
   };
 
-  const turnStart = (): HTMLElement | null => {
-    const starts = body?.querySelectorAll<HTMLElement>("[data-agent-turn-start]");
-    return starts?.item(starts.length - 1) ?? null;
-  };
+  const agentTurnStart = (): HTMLElement | null =>
+    body?.querySelector<HTMLElement>("[data-agent-turn-output-start]") ?? null;
 
-  const updateTurnStartPosition = (): void => {
-    const start = turnStart();
-    setTurnStartAbove(
+  const updateAgentTurnStartPosition = (): void => {
+    const start = agentTurnStart();
+    setAgentTurnStartAbove(
       body !== undefined &&
         start !== null &&
         start.getBoundingClientRect().top < body.getBoundingClientRect().top,
@@ -44,7 +45,7 @@ export function createAgentPaneScroll(session: Accessor<ClientSession | null>) {
     assignedTop = body.scrollTop;
     assignedFollowingLatest = followsLatest;
     programmaticScroll ||= assignedTop !== previous;
-    updateTurnStartPosition();
+    updateAgentTurnStartPosition();
   };
 
   const assignBottom = (): void => assignScrollTop(body?.scrollHeight ?? 0, true);
@@ -64,8 +65,8 @@ export function createAgentPaneScroll(session: Accessor<ClientSession | null>) {
   };
 
   const jumpToTurn = (): boolean => {
-    const start = turnStart();
-    if (body === undefined || start === null) {
+    const start = agentTurnStart();
+    if (!turnNavigable() || body === undefined || start === null) {
       return false;
     }
     const markerTop =
@@ -96,7 +97,7 @@ export function createAgentPaneScroll(session: Accessor<ClientSession | null>) {
       programmaticScroll = false;
       if (body !== undefined && body.scrollTop === assignedTop) {
         setFollowingLatest(followsLatest);
-        updateTurnStartPosition();
+        updateAgentTurnStartPosition();
         if (followsLatest && !isNearBottom()) {
           scrollToBottom();
         }
@@ -104,7 +105,7 @@ export function createAgentPaneScroll(session: Accessor<ClientSession | null>) {
       }
     }
     setFollowingLatest(isNearBottom());
-    updateTurnStartPosition();
+    updateAgentTurnStartPosition();
   };
 
   // This pane is shared presentation, so an exact owner/incarnation change starts with fresh follow state.
@@ -114,11 +115,21 @@ export function createAgentPaneScroll(session: Accessor<ClientSession | null>) {
       () => {
         programmaticScroll = false;
         setFollowingLatest(true);
-        setTurnStartAbove(false);
+        setAgentTurnStartAbove(false);
         scrollToBottom();
       },
       { defer: true },
     ),
+  );
+
+  createEffect(
+    on(turnNavigable, (navigable) => {
+      if (navigable) {
+        updateAgentTurnStartPosition();
+      } else {
+        setAgentTurnStartAbove(false);
+      }
+    }),
   );
 
   onMount(() => {
@@ -126,7 +137,7 @@ export function createAgentPaneScroll(session: Accessor<ClientSession | null>) {
       if (followingLatest()) {
         scrollToBottom();
       } else {
-        updateTurnStartPosition();
+        updateAgentTurnStartPosition();
       }
     });
     if (body !== undefined) {
@@ -166,6 +177,6 @@ export function createAgentPaneScroll(session: Accessor<ClientSession | null>) {
     jumpToLatest,
     jumpToTurn,
     onScroll,
-    turnStartAbove,
+    agentTurnStartAbove,
   };
 }

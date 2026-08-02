@@ -278,6 +278,15 @@ public static class CoreCommands {
 	/// <summary>Open a different workspace folder via the native folder picker.</summary>
 	public const string OpenFolder = "weavie.workspace.openFolder";
 
+	/// <summary>Open a recent workspace folder from its absolute <c>path</c>.</summary>
+	public const string OpenRecentWorkspace = "weavie.workspace.openRecent";
+
+	/// <summary>Close the current workspace window.</summary>
+	public const string CloseWindow = "weavie.window.close";
+
+	/// <summary>Quit Weavie.</summary>
+	public const string Exit = "weavie.window.exit";
+
 	/// <summary>Open an http(s) URL in a web (iframe) tab; with a `url` arg opens it directly, else prompts.</summary>
 	public const string OpenUrl = "weavie.workspace.openUrl";
 
@@ -498,7 +507,42 @@ public static class CoreCommands {
 			Category = "File",
 			Description = "Open a different workspace folder (shows the native folder picker).",
 			Aliases = ["open folder", "open workspace", "change folder", "pick folder"],
+			When = "nativeShell",
 			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+o" }],
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = OpenRecentWorkspace,
+			Title = "Open Recent Workspace",
+			RunsIn = CommandLocation.Web,
+			Category = "File",
+			Description = "Open a recent workspace folder by absolute path.",
+			Aliases = ["open recent workspace", "recent folder"],
+			When = "nativeShell",
+			ShowInPalette = false,
+			ArgsSchemaJson = "{\"path\":{\"type\":\"string\",\"description\":\"Absolute workspace folder path\"}}",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = CloseWindow,
+			Title = "Close Window",
+			RunsIn = CommandLocation.Web,
+			Category = "File",
+			Description = "Close the current workspace window.",
+			Aliases = ["close window", "close workspace"],
+			When = "nativeShell",
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+w" }],
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = Exit,
+			Title = "Exit Weavie",
+			RunsIn = CommandLocation.Web,
+			Category = "File",
+			Description = "Quit Weavie.",
+			Aliases = ["exit", "quit", "quit weavie"],
+			When = "nativeShell",
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+q" }],
 		});
 
 		string openUrlArgs = "{\"url\":{\"type\":\"string\",\"description\":\"An http(s) URL to open.\"}}";
@@ -666,10 +710,10 @@ public static class CoreCommands {
 			Title = "Jump to Agent Turn",
 			RunsIn = CommandLocation.Web,
 			Category = "Agent",
-			Description = "Jump to the prompt that started the latest agent turn.",
+			Description = "Jump to the first agent output in the latest completed turn.",
 			Aliases = ["jump to turn", "turn start", "start of response", "scroll up to turn"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "alt+up" }],
-			When = "agentFocused",
+			When = "agentFocused && agentTurnNavigable",
 		});
 
 		registry.Register(new CommandDefinition {

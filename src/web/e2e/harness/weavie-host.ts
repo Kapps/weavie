@@ -26,6 +26,7 @@ export function headlessBuilt(): boolean {
 
 export interface WeavieHost {
   readonly url: string;
+  readonly token: string;
   readonly workspace: string;
   /** The isolated HOME the host runs under (WEAVIE_ROOT lives at `<home>/.weavie`). */
   readonly home: string;
@@ -281,14 +282,15 @@ export async function launchHeadless(options: LaunchOptions): Promise<WeavieHost
   // The host prints the ready line only after its listener is bound and accepting, so the parsed port is
   // connectable the moment it appears.
   const port = await waitForPortLine(proc, () => log, /open\s+http:\/\/127\.0\.0\.1:(\d+)/, 40_000);
-  const token = log.match(/open\s+http:\/\/127\.0\.0\.1:\d+\/index\.html\?token=([^\s]+)/)?.[1];
+  const token = log.match(/\[weavie-headless\] token ([^\s]+)/)?.[1];
   if (token === undefined) {
-    throw new Error(`headless host did not advertise its token-gated page:\n${log}`);
+    throw new Error(`headless host did not advertise its workspace token:\n${log}`);
   }
-  const url = `http://127.0.0.1:${port}/index.html?token=${token}`;
+  const url = `http://127.0.0.1:${port}/index.html`;
 
   return {
     url,
+    token,
     workspace: fake.workspace,
     home: fake.home,
     log: () => log,

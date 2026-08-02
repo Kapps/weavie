@@ -20,18 +20,4 @@ public interface IShellWindow {
 	/// <summary>Closes this window — the title-bar ✕ button. The host decides last-window behavior.</summary>
 	void Close();
 
-	/// <summary>
-	/// Closes this window via File ▸ Close Window. Distinct from <see cref="Close"/> so a host can give the
-	/// menu different last-window behavior (e.g. fall back to a welcome window) than the ✕.
-	/// </summary>
-	void CloseWindow();
-
-	/// <summary>Quits the whole app (the File ▸ Exit action).</summary>
-	void Quit();
-
-	/// <summary>Shows the native "open folder as workspace" picker.</summary>
-	void ShowOpenFolderPicker();
-
-	/// <summary>Opens (or focuses) the workspace at <paramref name="path"/> — an Open Recent selection.</summary>
-	void OpenWorkspace(string path);
 }

@@ -1,6 +1,7 @@
 using CoreGraphics;
 using Foundation;
 using Weavie.Core.Layout;
+using Weavie.Core.Shell;
 using Weavie.Core.Workspaces;
 using Weavie.Hosting;
 using Weavie.Hosting.Web;
@@ -15,7 +16,7 @@ namespace Weavie.Mac;
 /// folder) so a second folder opens a real window the user switches between with normal macOS window switching, not a
 /// relaunch. App-global stores (settings, keybindings, recents, hotkeys, dialogs) are shared in from the controller.
 /// </summary>
-internal sealed partial class WorkspaceWindow : IWebSurface {
+internal sealed partial class WorkspaceWindow : IWebSurface, IShellMenuActions {
 	private readonly AppDelegate _app;
 	private readonly HostBridge _bridge = new();
 	private readonly HostCore _core;

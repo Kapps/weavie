@@ -27,6 +27,14 @@ public sealed class ShellProtocolTests {
 		Assert.Contains("\"titleBar\":null", script);
 	}
 
+	[Fact]
+	public void BuildConfigScript_LinuxAppBar_SerializesLinuxMode() {
+		string script = ShellProtocol.BuildConfigScript("linux", "linux", "proj", [], "0.1.247");
+
+		Assert.Contains("\"platform\":\"linux\"", script);
+		Assert.Contains("\"titleBar\":\"linux\"", script);
+	}
+
 	[Theory]
 	[InlineData("minimize", WindowControl.Minimize)]
 	[InlineData("maximize-toggle", WindowControl.MaximizeToggle)]
@@ -78,7 +86,7 @@ public sealed class ShellProtocolTests {
 
 /// <summary>Controller routing title-bar messages to the platform window.</summary>
 public sealed class ShellControllerTests {
-	private sealed class FakeWindow : IShellWindow {
+	private sealed class FakeWindow : IShellWindow, IShellMenuActions {
 		public List<string> Calls { get; } = [];
 		public string? OpenedPath { get; private set; }
 
@@ -99,6 +107,7 @@ public sealed class ShellControllerTests {
 	private static JsonElement Parse(string json) => JsonDocument.Parse(json).RootElement;
 
 	private static ShellController Make(FakeWindow window) => new(window);
+	private static ShellMenuController MakeMenu(FakeWindow window) => new(window);
 
 	[Fact]
 	public void HandleWindowControl_Minimize_CallsWindow() {
@@ -119,7 +128,7 @@ public sealed class ShellControllerTests {
 	[Fact]
 	public void HandleMenuAction_OpenFolder_ShowsPicker() {
 		var window = new FakeWindow();
-		Make(window).HandleMenuAction(Parse("""{"action":"open-folder"}"""));
+		MakeMenu(window).HandleMenuAction(Parse("""{"action":"open-folder"}"""));
 
 		Assert.Equal(["open-folder"], window.Calls);
 	}
@@ -143,7 +152,7 @@ public sealed class ShellControllerTests {
 	[Fact]
 	public void HandleMenuAction_OpenRecent_OpensThatWorkspace() {
 		var window = new FakeWindow();
-		Make(window).HandleMenuAction(Parse("""{"action":"open-recent","path":"C:\\proj"}"""));
+		MakeMenu(window).HandleMenuAction(Parse("""{"action":"open-recent","path":"C:\\proj"}"""));
 
 		Assert.Equal("C:\\proj", window.OpenedPath);
 	}
@@ -151,7 +160,7 @@ public sealed class ShellControllerTests {
 	[Fact]
 	public void HandleMenuAction_OpenRecent_EmptyPath_DoesNotOpen() {
 		var window = new FakeWindow();
-		Make(window).HandleMenuAction(Parse("""{"action":"open-recent","path":""}"""));
+		MakeMenu(window).HandleMenuAction(Parse("""{"action":"open-recent","path":""}"""));
 
 		Assert.Empty(window.Calls);
 		Assert.Null(window.OpenedPath);
@@ -160,7 +169,7 @@ public sealed class ShellControllerTests {
 	[Fact]
 	public void HandleMenuAction_CloseWindow_UsesMenuClose() {
 		var window = new FakeWindow();
-		Make(window).HandleMenuAction(Parse("""{"action":"close-window"}"""));
+		MakeMenu(window).HandleMenuAction(Parse("""{"action":"close-window"}"""));
 
 		Assert.Equal(["close-window"], window.Calls);
 	}
@@ -176,7 +185,7 @@ public sealed class ShellControllerTests {
 	[Fact]
 	public void HandleMenuAction_Exit_Quits() {
 		var window = new FakeWindow();
-		Make(window).HandleMenuAction(Parse("""{"action":"exit"}"""));
+		MakeMenu(window).HandleMenuAction(Parse("""{"action":"exit"}"""));
 
 		Assert.Equal(["quit"], window.Calls);
 	}

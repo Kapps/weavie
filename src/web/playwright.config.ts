@@ -1,9 +1,10 @@
 import { defineConfig, devices } from "@playwright/test";
 
-// E2E tests for the web app. Three projects:
+// E2E tests for the web app. Four projects:
 //   chromium  — the original bridge-transport specs (mock host + a real headless `ready` round-trip).
 //   headless  — full-stack functional journeys against a real Weavie.Headless with a stubbed claude.
 //   remote    — the transport-sensitive subset, run against Weavie.Runner (browser → WSS → worker).
+//   mobile    — the compact-shell journey at a phone viewport, over the same headless harness.
 // Transport is a harness parameter, not a duplicated suite: the full functional suite runs on `headless`,
 // and only @cross / @remote tests also run on `remote`. See docs/specs/integration-testing-strategy.md.
 // `pnpm run e2e` builds dist first; the headless/remote projects also need the C# host built.
@@ -74,6 +75,7 @@ export default defineConfig({
     {
       name: "headless",
       testDir: "./e2e/functional",
+      testIgnore: "mobile.spec.ts",
       grepInvert: /@remote/,
       use: { viewport: { width: 1280, height: 800 } },
     },
@@ -82,6 +84,12 @@ export default defineConfig({
       testDir: "./e2e/functional",
       grep: /@cross|@remote/,
       use: { viewport: { width: 1280, height: 800 } },
+    },
+    {
+      name: "mobile",
+      testDir: "./e2e/functional",
+      testMatch: "mobile.spec.ts",
+      use: { viewport: { width: 390, height: 844 }, hasTouch: true },
     },
   ],
 });

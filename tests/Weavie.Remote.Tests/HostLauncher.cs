@@ -52,10 +52,11 @@ internal static class Hosts {
 public sealed class HostHandle : IAsyncDisposable {
 	private readonly Process _process;
 
-	private HostHandle(Process process, int port, string pageUrl) {
+	private HostHandle(Process process, int port, string pageUrl, string token) {
 		_process = process;
 		Port = port;
 		PageUrl = pageUrl;
+		Token = token;
 	}
 
 	public int Port { get; }
@@ -63,6 +64,8 @@ public sealed class HostHandle : IAsyncDisposable {
 	public string BaseUrl => $"http://127.0.0.1:{Port}";
 
 	public string PageUrl { get; }
+
+	public string Token { get; }
 
 	public static async Task<HostHandle> StartAsync(
 		string dll, IReadOnlyList<string> args, int port, string readyMarker, TimeSpan timeout) {
@@ -117,7 +120,11 @@ public sealed class HostHandle : IAsyncDisposable {
 		string pageUrl = readyLine.Contains("[weavie-headless] open  ", StringComparison.Ordinal)
 			? readyLine.Split("open  ", StringSplitOptions.None)[1].Split("  in a browser", StringSplitOptions.None)[0]
 			: $"http://127.0.0.1:{port}/";
-		return new HostHandle(process, port, pageUrl);
+		string token = Snapshot(output).Split('\n', StringSplitOptions.RemoveEmptyEntries)
+			.FirstOrDefault(line => line.StartsWith("[weavie-headless] token ", StringComparison.Ordinal))
+			?.Split("token ", StringSplitOptions.None)[1]
+			?? string.Empty;
+		return new HostHandle(process, port, pageUrl, token);
 	}
 
 	private static async Task WaitForPortAsync(int port, Process process, TimeSpan timeout) {

@@ -681,13 +681,11 @@ function resolveBridgeEndpoint(): BackendEndpoint | null {
   }
   if (configured === "auto") {
     const scheme = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const token = new URLSearchParams(window.location.search).get("token");
-    const query = token === null ? "" : `?token=${encodeURIComponent(token)}`;
     return {
-      bridgeUrl: `${scheme}//${window.location.host}/weavie-bridge${query}`,
+      bridgeUrl: `${scheme}//${window.location.host}/weavie-bridge`,
       resourceBase:
         window.__WEAVIE_RESOURCE_BASE__ ??
-        `${window.location.protocol}//${window.location.host}/weavie-media${query}`,
+        `${window.location.protocol}//${window.location.host}/weavie-media`,
     };
   }
   const bridge = new URL(configured);

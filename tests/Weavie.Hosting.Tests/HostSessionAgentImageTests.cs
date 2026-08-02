@@ -40,6 +40,38 @@ public sealed class HostSessionAgentImageTests : IDisposable {
 	}
 
 	[Fact]
+	public async Task InitialPrompt_WaitsForIdleAndSubmitsExactlyOnce() {
+		var structured = new RecordingStructuredSession();
+		var commandRegistry = CoreCommands.CreateRegistry();
+		using var settings = CoreSettings.CreateStore(Path.Combine(_dir, "settings.toml"), enableWatcher: false);
+		await using var session = CreateSession(structured, settings, commandRegistry);
+
+		session.QueueInitialPrompt("start here");
+		session.Status.Observe(new AgentToolStarting(new AgentMutation.None()));
+		Assert.Empty(structured.Submissions);
+
+		session.Status.Observe(new AgentSessionStarted("startup"));
+		session.Status.Observe(new AgentSessionStarted("resume"));
+
+		var submission = Assert.Single(structured.Submissions);
+		Assert.Equal("start here", submission.Text);
+	}
+
+	[Fact]
+	public async Task InitialPrompt_IsDiscardedWithSession() {
+		var structured = new RecordingStructuredSession();
+		var commandRegistry = CoreCommands.CreateRegistry();
+		using var settings = CoreSettings.CreateStore(Path.Combine(_dir, "settings.toml"), enableWatcher: false);
+		var session = CreateSession(structured, settings, commandRegistry);
+		session.QueueInitialPrompt("do not send");
+
+		await session.DisposeAsync();
+		session.Status.Observe(new AgentSessionStarted("startup"));
+
+		Assert.Empty(structured.Submissions);
+	}
+
+	[Fact]
 	public async Task RestartAgent_RestartsStructuredProvider() {
 		var structured = new RecordingStructuredSession();
 		var commandRegistry = CoreCommands.CreateRegistry();

@@ -35,23 +35,59 @@ public sealed class RemoteHeadlessFixture : IAsyncLifetime {
 }
 
 /// <summary>
-/// Black-box auth against a real remote-mode headless worker: document, bridge, and unknown paths reject
-/// every bad token shape and accept only the correct one. No token shape bypasses auth.
+/// Black-box auth against a real remote-mode headless worker: the document establishes a cookie while bridge
+/// transports retain explicit token auth for cross-origin aggregation.
 /// </summary>
 public sealed class HeadlessRemoteAuthTests(RemoteHeadlessFixture fixture) : IClassFixture<RemoteHeadlessFixture> {
 	private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(20) };
 
 	[Theory]
 	[MemberData(nameof(Tokens.Denied), MemberType = typeof(Tokens))]
-	public async Task Document_is_denied_without_a_valid_token(string variant) {
+	public async Task Document_shows_the_connect_page_without_a_cookie(string variant) {
 		var response = await Http.GetAsync($"{fixture.Host.BaseUrl}/{Tokens.QuerySuffix(variant)}");
-		Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+		Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+		Assert.Contains("Connect to Weavie", await response.Content.ReadAsStringAsync(), StringComparison.Ordinal);
 	}
 
 	[Fact]
-	public async Task Document_is_served_with_the_correct_token() {
-		var response = await Http.GetAsync($"{fixture.Host.BaseUrl}/?token={Tokens.Correct}");
+	public async Task Query_token_does_not_bypass_the_connect_page() {
+		var response = await Http.GetAsync($"{fixture.Host.PageUrl}?token={Tokens.Correct}");
 		Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+		Assert.Contains("Connect to Weavie", await response.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+		Assert.False(response.Headers.TryGetValues("Set-Cookie", out _));
+	}
+
+	[Fact]
+	public async Task Correct_token_sets_a_persistent_cookie_and_redirects_to_the_clean_page() {
+		var cookies = new CookieContainer();
+		using var handler = new HttpClientHandler { AllowAutoRedirect = false, CookieContainer = cookies };
+		using var client = new HttpClient(handler);
+		var response = await client.PostAsync(
+			fixture.Host.PageUrl,
+			new FormUrlEncodedContent(new Dictionary<string, string> { ["token"] = Tokens.Correct }));
+
+		Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
+		Assert.Equal("/index.html", response.Headers.Location?.OriginalString);
+		Assert.Contains(response.Headers.GetValues("Set-Cookie"), value =>
+			value.Contains("HttpOnly", StringComparison.OrdinalIgnoreCase)
+			&& value.Contains("SameSite=Strict", StringComparison.OrdinalIgnoreCase));
+		var document = await client.GetAsync(fixture.Host.PageUrl);
+		string html = await document.Content.ReadAsStringAsync();
+		Assert.Equal(HttpStatusCode.OK, document.StatusCode);
+		Assert.DoesNotContain("Connect to Weavie", html, StringComparison.Ordinal);
+		Assert.Empty(new Uri(fixture.Host.PageUrl).Query);
+	}
+
+	[Theory]
+	[MemberData(nameof(Tokens.Denied), MemberType = typeof(Tokens))]
+	public async Task Wrong_connect_token_is_rejected(string variant) {
+		string token = Tokens.Value(variant) ?? string.Empty;
+		var response = await Http.PostAsync(
+			fixture.Host.PageUrl,
+			new FormUrlEncodedContent(new Dictionary<string, string> { ["token"] = token }));
+
+		Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+		Assert.Contains("not accepted", await response.Content.ReadAsStringAsync(), StringComparison.Ordinal);
 	}
 
 	[Theory]
@@ -119,6 +155,46 @@ public sealed class HeadlessRemoteAuthTests(RemoteHeadlessFixture fixture) : ICl
 			await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "done", cts.Token);
 		} catch (WebSocketException) {
 		}
+	}
+
+	[Fact]
+	public async Task Cookie_authenticated_bridge_requires_the_matching_origin() {
+		var cookies = new CookieContainer();
+		using var handler = new HttpClientHandler { AllowAutoRedirect = false, CookieContainer = cookies };
+		using var client = new HttpClient(handler);
+		var connect = await client.PostAsync(
+			fixture.Host.PageUrl,
+			new FormUrlEncodedContent(new Dictionary<string, string> { ["token"] = Tokens.Correct }));
+		Assert.Equal(HttpStatusCode.Redirect, connect.StatusCode);
+
+		using var accepted = new ClientWebSocket();
+		accepted.Options.Cookies = cookies;
+		accepted.Options.SetRequestHeader("Origin", fixture.Host.BaseUrl);
+		using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+		await accepted.ConnectAsync(
+			new Uri($"ws://127.0.0.1:{fixture.Host.Port}/weavie-bridge"),
+			cts.Token);
+		Assert.Equal(WebSocketState.Open, accepted.State);
+
+		using var rejected = new ClientWebSocket();
+		rejected.Options.Cookies = cookies;
+		rejected.Options.SetRequestHeader("Origin", "https://evil.example");
+		await Assert.ThrowsAsync<WebSocketException>(() => rejected.ConnectAsync(
+			new Uri($"ws://127.0.0.1:{fixture.Host.Port}/weavie-bridge"),
+			cts.Token));
+	}
+
+	[Fact]
+	public async Task Cookie_authenticates_same_origin_media_requests() {
+		using var handler = new HttpClientHandler { CookieContainer = new CookieContainer() };
+		using var client = new HttpClient(handler);
+		var connect = await client.PostAsync(
+			fixture.Host.PageUrl,
+			new FormUrlEncodedContent(new Dictionary<string, string> { ["token"] = Tokens.Correct }));
+		Assert.Equal(HttpStatusCode.OK, connect.StatusCode);
+
+		var media = await client.GetAsync($"{fixture.Host.BaseUrl}/weavie-media?session=missing&path=missing");
+		Assert.Equal(HttpStatusCode.NotFound, media.StatusCode);
 	}
 
 	[Fact]
@@ -278,15 +354,24 @@ public sealed class HeadlessLocalAuthTests(LocalHeadlessFixture fixture) : IClas
 	private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(20) };
 
 	[Fact]
-	public async Task Document_is_served_with_the_generated_token_in_local_mode() {
+	public async Task Document_shows_the_connect_page_in_local_mode() {
 		var response = await Http.GetAsync(fixture.Host.PageUrl);
 		Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+		Assert.Contains("Connect to Weavie", await response.Content.ReadAsStringAsync(), StringComparison.Ordinal);
 	}
 
 	[Fact]
-	public async Task Document_is_denied_without_the_generated_token_in_local_mode() {
-		var response = await Http.GetAsync($"{fixture.Host.BaseUrl}/");
-		Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+	public async Task Generated_token_connects_on_the_clean_url_in_local_mode() {
+		using var handler = new HttpClientHandler { CookieContainer = new CookieContainer() };
+		using var client = new HttpClient(handler);
+		var response = await client.PostAsync(
+			fixture.Host.PageUrl,
+			new FormUrlEncodedContent(new Dictionary<string, string> { ["token"] = fixture.Host.Token }));
+		Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+		Assert.DoesNotContain(
+			"Connect to Weavie",
+			await response.Content.ReadAsStringAsync(),
+			StringComparison.Ordinal);
 	}
 
 	[Fact]
@@ -301,11 +386,10 @@ public sealed class HeadlessLocalAuthTests(LocalHeadlessFixture fixture) : IClas
 
 	[Fact]
 	public async Task Bridge_websocket_upgrade_succeeds_with_a_matching_origin() {
-		string token = new Uri(fixture.Host.PageUrl).Query.TrimStart('?');
 		using var socket = new ClientWebSocket();
 		socket.Options.SetRequestHeader("Origin", $"http://127.0.0.1:{fixture.Host.Port}");
 		using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
-		await socket.ConnectAsync(new Uri($"ws://127.0.0.1:{fixture.Host.Port}/weavie-bridge?{token}"), cts.Token);
+		await socket.ConnectAsync(new Uri($"ws://127.0.0.1:{fixture.Host.Port}/weavie-bridge?token={fixture.Host.Token}"), cts.Token);
 		Assert.Equal(WebSocketState.Open, socket.State);
 		try {
 			await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "done", cts.Token);

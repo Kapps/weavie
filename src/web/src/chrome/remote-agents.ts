@@ -121,20 +121,19 @@ async function resolveWorkerBridge(agent: RemoteAgent): Promise<BackendEndpoint>
   if (!res.ok) {
     throw new Error(`runner returned ${res.status} for GET /backend`);
   }
-  const body = (await res.json()) as { url?: string };
-  if (typeof body.url !== "string") {
-    throw new Error("runner /backend returned no worker url");
+  const body = (await res.json()) as { url?: string; token?: string };
+  if (typeof body.url !== "string" || typeof body.token !== "string") {
+    throw new Error("runner /backend returned no worker endpoint credentials");
   }
-  return pageUrlToBackendEndpoint(body.url);
+  return workerEndpoint(body.url, body.token);
 }
 
-// The runner returns the worker's page URL (http://host:port/?token=T); the bridge lives at /weavie-bridge on
-// the same host, gated by the same token.
-function pageUrlToBackendEndpoint(pageUrl: string): BackendEndpoint {
+// The runner keeps its browser URL clean and returns the transport token separately. Cross-origin WebSocket
+// and media requests cannot use the worker's SameSite cookie, so their explicit endpoint credentials remain.
+function workerEndpoint(pageUrl: string, token: string): BackendEndpoint {
   const u = new URL(pageUrl);
   const scheme = u.protocol === "https:" ? "wss:" : "ws:";
-  const token = u.searchParams.get("token");
-  const query = token === null ? "" : `?token=${encodeURIComponent(token)}`;
+  const query = `?token=${encodeURIComponent(token)}`;
   return {
     bridgeUrl: `${scheme}//${u.host}/weavie-bridge${query}`,
     resourceBase: `${u.protocol}//${u.host}/weavie-media${query}`,

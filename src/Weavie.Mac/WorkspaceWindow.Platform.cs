@@ -28,6 +28,19 @@ internal sealed partial class WorkspaceWindow : IHostPlatform {
 	// Native NSWindow chrome + NSMenu, so no web title bar drives the window.
 	IShellWindow? IHostPlatform.Window => null;
 
+	IShellMenuActions IHostPlatform.MenuActions => this;
+
+	void IShellMenuActions.CloseWindow() => Window.PerformClose(null);
+
+	void IShellMenuActions.Quit() {
+		var app = NSApplication.SharedApplication;
+		app.Terminate(app);
+	}
+
+	void IShellMenuActions.ShowOpenFolderPicker() => _app.OpenFolderInteractive();
+
+	void IShellMenuActions.OpenWorkspace(string path) => _app.OpenOrFocus(path);
+
 	// Global hotkeys are registered once at the app level (AppDelegate), not per window.
 	IGlobalHotkeyRegistrar? IHostPlatform.HotkeyRegistrar => null;
 

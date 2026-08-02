@@ -26,7 +26,7 @@ public sealed class TlsFrontTests {
 	public void Static_none_builds_loopback_http_url() {
 		var front = new StaticFront(Options(TlsMode.None));
 		Assert.Equal("127.0.0.1", front.WorkerBindAddress);
-		Assert.Equal("http://boxhost:5555/?token=tok", front.WorkerPageUrl("boxhost", Backend(5555, "tok")));
+		Assert.Equal("http://boxhost:5555/index.html", front.WorkerPageUrl("boxhost", Backend(5555, "tok")));
 	}
 
 	[Fact]
@@ -34,7 +34,7 @@ public sealed class TlsFrontTests {
 		var options = Options(TlsMode.Proxy) with { PublicHost = "weavie.example.com", WorkerHttpsPort = 8443 };
 		var front = new StaticFront(options);
 		Assert.Equal("127.0.0.1", front.WorkerBindAddress);
-		Assert.Equal("https://weavie.example.com:8443/?token=tok", front.WorkerPageUrl("ignored", Backend(7000, "tok")));
+		Assert.Equal("https://weavie.example.com:8443/index.html", front.WorkerPageUrl("ignored", Backend(7000, "tok")));
 	}
 
 	[Fact]
@@ -46,7 +46,7 @@ public sealed class TlsFrontTests {
 		Assert.Contains(cli.Calls, c => c.SequenceEqual(["serve", "--bg", "--https=443", "http://127.0.0.1:8800"]));
 		Assert.Contains(cli.Calls, c => c.SequenceEqual(["serve", "--bg", "--https=8443", "http://127.0.0.1:8701"]));
 		Assert.Equal("https://box.tnet.ts.net", front.RegisterUrl(8800)); // 443 omitted
-		Assert.Equal("https://box.tnet.ts.net:8443/?token=tok", front.WorkerPageUrl("ignored", Backend(1, "tok")));
+		Assert.Equal("https://box.tnet.ts.net:8443/index.html", front.WorkerPageUrl("ignored", Backend(1, "tok")));
 	}
 
 	[Fact]

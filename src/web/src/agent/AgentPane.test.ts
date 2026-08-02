@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
-import { computeSectionLabels } from "./AgentTranscriptLabels";
+import { computeSectionLabels, latestAgentTurnStartId } from "./AgentTranscriptLabels";
 
 function message(id: string, tone: "assistant" | "user"): AgentTranscriptEntry {
   return {
@@ -75,5 +75,42 @@ describe("computeSectionLabels", () => {
     expect(labels.has("prompt")).toBe(false);
     expect(labels.get("latest")).toBe("Updates");
     expect(labels.size).toBe(1);
+  });
+});
+
+describe("latestAgentTurnStartId", () => {
+  it("chooses the first agent output after the latest turn boundary", () => {
+    const firstPrompt = { ...message("first prompt", "user"), turnStart: true as const };
+    const secondPrompt = { ...message("second prompt", "user"), turnStart: true as const };
+    const entries = [
+      firstPrompt,
+      message("first result", "assistant"),
+      secondPrompt,
+      message("progress", "assistant"),
+      message("final result", "assistant"),
+    ];
+
+    expect(latestAgentTurnStartId(entries)).toBe("progress");
+  });
+
+  it("returns null rather than reusing an earlier turn when the latest has no response", () => {
+    const entries = [
+      { ...message("first prompt", "user"), turnStart: true as const },
+      message("first result", "assistant"),
+      { ...message("second prompt", "user"), turnStart: true as const },
+      message("steer", "user"),
+    ];
+
+    expect(latestAgentTurnStartId(entries)).toBeNull();
+  });
+
+  it("anchors live output while lifecycle state keeps navigation unavailable", () => {
+    const entries = [
+      { ...message("prompt", "user"), turnStart: true as const },
+      message("earlier update", "assistant"),
+      { ...message("partial response", "assistant"), streaming: true },
+    ];
+
+    expect(latestAgentTurnStartId(entries)).toBe("earlier update");
   });
 });

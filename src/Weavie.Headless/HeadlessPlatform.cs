@@ -36,6 +36,8 @@ internal sealed class HeadlessPlatform : IHostPlatform {
 
 	public IShellWindow? Window => null;
 
+	public IShellMenuActions MenuActions => NoopShellMenuActions.Instance;
+
 	public IGlobalHotkeyRegistrar? HotkeyRegistrar => null;
 
 	public IHostDialogs? Dialogs => null;

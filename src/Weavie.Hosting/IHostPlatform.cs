@@ -26,7 +26,7 @@ public interface IHostPlatform {
 	/// <summary>How this host is reached — <see cref="HostTransport.Remote"/> for a network-exposed worker, else local.</summary>
 	HostTransport Transport { get; }
 
-	/// <summary>Title-bar mode the web should render (<c>custom</c> for a web title bar, <c>mac</c>, or <c>null</c> for native chrome).</summary>
+	/// <summary>Title-bar mode the web should render (<c>custom</c>, <c>mac</c>, <c>linux</c>, or <c>null</c>).</summary>
 	string? TitleBar { get; }
 
 	/// <summary>Recent workspace paths for File ▸ Open Recent (a start-time snapshot; empty when unsupported).</summary>
@@ -34,6 +34,9 @@ public interface IHostPlatform {
 
 	/// <summary>The OS window primitives the web title bar drives, or <c>null</c> when the host uses native chrome.</summary>
 	IShellWindow? Window { get; }
+
+	/// <summary>The native application/workspace actions driven by a web File menu.</summary>
+	IShellMenuActions MenuActions { get; }
 
 	/// <summary>The OS global-hotkey registrar, or <c>null</c> when the host registers no global hotkeys.</summary>
 	IGlobalHotkeyRegistrar? HotkeyRegistrar { get; }

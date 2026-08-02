@@ -33,7 +33,13 @@ static void Emit(string line) {
 	Console.Out.Flush();
 	string? log = Environment.GetEnvironmentVariable("WEAVIE_FAKE_CLAUDE_LOG");
 	if (!string.IsNullOrEmpty(log)) {
-		File.AppendAllText(log, line + "\n");
+		// Every session in a test spawns its own fake-claude process against the same shared log path, so
+		// concurrent appends are expected. File.AppendAllText opens for exclusive write on Windows (only
+		// FileShare.Read), so a second process racing this one throws "being used by another process" —
+		// that dropped hook write is what made the two-sessions notification test flake on Windows CI.
+		using var stream = new FileStream(log, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
+		using var writer = new StreamWriter(stream);
+		writer.Write(line + "\n");
 	}
 }
 

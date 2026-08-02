@@ -78,12 +78,24 @@ The runner is a control plane for one configured workspace. `GET /backend` ensur
 multi-session `Weavie.Headless` worker is running and returns the current page URL. The web derives the worker
 bridge and media URLs from that response.
 
+The runner root is also the canonical browser entry. The user submits the runner token once; the runner stores
+it in a host-only persistent cookie, waits for the worker, establishes the worker's token-derived cookie, and
+redirects to its clean page URL. Cookies cross ports on the same hostname, so neither credential enters a URL,
+script, DOM, or referrer. `/backend` deliberately ignores that browser cookie and remains Bearer-only for the
+permissive-CORS native remote-agent path.
+
+The worker credential is a 128-bit, versioned HMAC derivation of the configured runner token and normalized
+workspace root. It is distinct from the runner credential but stable across runner restarts, so retained browser
+storage and an installed PWA keep working. Persistent deployments must configure the same generated 128-bit
+runner token on every start; the convenience token generated when none is configured intentionally rotates both
+credentials. Secured modes also pin the worker port, preserving the PWA's origin across restarts.
+
 Worktree sessions are created inside the worker through the same shared `HostCore` flow used locally. The
 runner does not create one process per session and does not relay the message stream.
 
 Registered agents are persisted by the local host as `{name, url, token}`. The page resolves `GET /backend`
-on every connection attempt, so a restarted runner may advertise a new worker port and token without leaving
-a stale endpoint cached in the client.
+on every connection attempt, so a restarted runner may advertise a new worker port without leaving a stale
+endpoint cached in the client. Changing the runner token or workspace identity rotates the worker token too.
 
 ## Authentication and TLS
 

@@ -100,7 +100,7 @@ function reconcile(list: RemoteAgent[]): void {
 
 // Wire the agent as a backend with a resolver that (re-)runs the runner handshake on every connect attempt, so
 // it connects when the runner is up, retries (with backoff) when it isn't, and follows a restarted runner to its
-// fresh worker port+token rather than a URL cached once. Idempotent (connectBackend no-ops if already wired).
+// current worker endpoint rather than a URL cached once. Idempotent (connectBackend no-ops if already wired).
 function connectAgent(agent: RemoteAgent): void {
   connectBackend(agentBackendId(agent.name), agent.name, () => resolveWorkerBridge(agent));
 }

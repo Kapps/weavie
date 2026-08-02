@@ -140,7 +140,7 @@ public sealed partial class BackendManager {
 	/// Waits for the respawned worker to answer <c>/control/status</c> and confirms whatever build it is
 	/// serving; a crash-loop (<see cref="SupervisorState.Failed"/>) instead rolls back to the confirmed-good
 	/// version and respawns. A rollback stays the reported outcome even after the restored build comes up;
-	/// a rollback that itself trips the breaker is reported <c>failed</c> and left stopped — the picker page
+	/// a rollback that itself trips the breaker is reported <c>failed</c> and left stopped — the runner status page
 	/// shows it, and Ensure() re-provisions on the next visit.
 	/// </summary>
 	private async Task ConfirmOrRollbackAsync(WorkspaceBackend backend, VersionStore store, Action<string, string?> report, CancellationToken ct) {

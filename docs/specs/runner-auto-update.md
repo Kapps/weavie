@@ -125,9 +125,9 @@ The runner polls the Releases API for a build number above its staged-latest, ho
 The runner owns orchestration; every step that touches the worker's lifecycle runs **behind
 `BackendManager`'s existing `_gate`** (new methods on it, e.g. `RestartInPlace`), because
 `Ensure()` fires on any `/backend` hit and must not race the updater into disposing the supervisor
-or minting a new token/port. When auto-update manages the backend, `Ensure`'s `Failed` branch no
+or replacing the backend/port. When auto-update manages the backend, `Ensure`'s `Failed` branch no
 longer re-provisions — the updater owns that transition and **preserves the `WorkspaceBackend`'s
-port and token**, which is what keeps reconnecting tabs (token is baked into the served page) and
+port and token**, which is what keeps reconnecting tabs authenticated and
 the TLS-front mapping (pinned worker port, `TailscaleServeFront` maps once at construction) valid
 across the swap.
 
@@ -214,8 +214,8 @@ across the swap.
 - New worker **crash-loops**: the supervisor's breaker trips → the runner (behind the same gate)
   records the build as bad in `state.json` (never retried; a newer build supersedes it), re-points
   `current` at the confirmed-good version, and respawns from it via `Stop()` → `Start()`. A
-  rollback is a loud event — picker page and update UI, not a log line.
-- **Download/verify failure**: staged state is unchanged; the failure is surfaced on the picker
+  rollback is a loud event — runner status page and update UI, not a log line.
+- **Download/verify failure**: staged state is unchanged; the failure is surfaced on the runner status
   page and the next poll retries.
 - **A runner restarted mid-update** (staged ≠ confirmed at boot) *confirms* the worker it already
   spawned from the staged version — it does **not** drain or restart it. `Ensure()` launched that
@@ -226,15 +226,18 @@ across the swap.
   build is staged while an old worker serves.)
 - **The tab cannot report a dead worker**: if the rollback build also fails to start, connected
   tabs have no server left to learn from (the overlay persists over the reconnect loop); the truth
-  lives on the picker page, which names the failure.
+  lives on the runner status page, which names the failure.
+- The authenticated runner root redirects straight into a healthy worker. Attention-worthy updater
+  states (`error`, `failed`, `rolled-back`, `needs-newer-runner`, or a behind runner) instead remain on
+  that status page with a clean **Open Weavie** link, so the state stays visible without blocking work.
 - Nothing prunes a version any live process was spawned from.
 
 ## Client experience
 
 - The existing WS reconnect loop (`src/web/src/bridge.ts:783`) rides out the bounce: same worker
   port and token, capped backoff, `ready` re-push on reconnect. Because the update path preserves
-  the `WorkspaceBackend` rather than falling through to `Ensure`'s re-provision (which would mint
-  a new token and orphan every open tab), a reconnecting tab needs no new credentials.
+  the `WorkspaceBackend` rather than falling through to `Ensure`'s re-provision (which would replace
+  the endpoint underneath the swap), a reconnecting tab needs no new credentials.
 - **Version reload**: the client compares the `__WEAVIE_SHELL__.buildNumber` it booted with
   against the one the reconnected worker's bootstrap push reports; a mismatch (a tab from before
   the update) force-reloads, picking up the new assets from the same origin. Dev builds all stamp
@@ -252,8 +255,8 @@ user is:
   restart-now accelerates. Restart-now is a **command** (palette + default keybinding + advertised
   on the button, per the commands standard), not a bespoke button.
 - *Updating…* — the full-UI blocking overlay from the restart commit through reconnect/reload.
-- *Updated to build N* / *rolled back from build N* — web UI notice + picker page.
-- *Runner is behind (build R < N) — restart the runner to apply* — picker page; runner staleness
+- *Updated to build N* / *rolled back from build N* — web UI notice + runner status page.
+- *Runner is behind (build R < N) — restart the runner to apply* — runner status page; runner staleness
   is otherwise invisible by design.
 - *Update requires a newer runner — restart the runner to continue updating* — when the bundle's
   `spawnContract` generation exceeds the runner's.
@@ -292,8 +295,8 @@ Poll cadence is fixed (15 min) — a knob would be a liability before anyone nee
   default-deny middleware; exit via `IHostApplicationLifetime.StopApplication`.
 - **Runner:** `UpdatePoller` + `VersionStore` (layout, `state.json`, symlink, realpath resolve);
   orchestration methods on `BackendManager` behind `_gate`; `HeadlessLauncher` takes the
-  spawn-time path provider; `RunnerOptions` gains the two flags; `PickerPage` gains the status
-  lines.
+  spawn-time path provider; `RunnerOptions` gains the two flags; `RunnerStatusPage` surfaces
+  attention-worthy states.
 - **Tests:** drain gate at the `HostCore` seam with the stubbed claude
   (`TerminalController.ResolveClaudeLaunch`) driving hook-fed status, on `headless`; supervisor
   `Stop()`→`Start()` crash-history hygiene against `ISupervisorClock`; `BackendManager`

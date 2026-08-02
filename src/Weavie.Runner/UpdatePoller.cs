@@ -5,7 +5,7 @@ using Weavie.Core;
 
 namespace Weavie.Runner;
 
-/// <summary>A point-in-time view of the updater for the picker page (built even when updates are off).</summary>
+/// <summary>A point-in-time view of the updater for the runner status page (built even when updates are off).</summary>
 public sealed record UpdateStatus {
 	/// <summary>Whether <c>--auto-update</c> is on.</summary>
 	public required bool Enabled { get; init; }
@@ -106,7 +106,7 @@ public sealed class UpdatePoller : IDisposable {
 		}
 	}
 
-	/// <summary>The updater's current state for the picker page.</summary>
+	/// <summary>The updater's current state for the runner status page.</summary>
 	public UpdateStatus Snapshot() {
 		lock (_statusGate) {
 			return new UpdateStatus {

@@ -188,10 +188,10 @@ public sealed class HostHandle : IAsyncDisposable {
 		return _process.ExitCode;
 	}
 
-	public ValueTask DisposeAsync() {
+	public async ValueTask DisposeAsync() {
 		TreeKill(_process);
+		await _process.WaitForExitAsync().ConfigureAwait(false);
 		_process.Dispose();
-		return ValueTask.CompletedTask;
 	}
 
 	private static string Snapshot(StringBuilder output) {

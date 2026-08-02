@@ -36,10 +36,13 @@ There are limitations though:
 
 1. Download the [latest tagged version](https://github.com/Kapps/weavie/releases/tag/main-latest) of the Runner
    - Prebuilt remote runner binaries are currently only provided for Linux.
-3. If using Tailscale, make sure to go into your admin console and enable Tailscale Serve.
-4. Run the runner.
+2. If using Tailscale, make sure to go into your admin console and enable Tailscale Serve.
+3. Run the runner with a stable generated token.
    - Tailscale example: `./current/Weavie.Runner --tls tailscale --token <random token> --workspace <workspace folder to serve>`
-5. In each client you want to connect to this server, go into the Cloud section in the rail, and select Add Remote Agent.
+4. For browser or mobile access, open the HTTPS control-plane URL printed by the runner and enter that token
+   once. The browser remembers it and opens the worker at a clean URL.
+5. In each native client you want to connect to this server, go into the Cloud section in the rail, and select
+   Add Remote Agent.
    - Example URL: `https://<servername>.tail<random>.ts.net`
    - Token must exactly match the one you used to start the Runner.
 6. Now when you launch a new session, you can select whether to run it locally or on this remote runner.

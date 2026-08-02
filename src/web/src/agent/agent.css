@@ -295,9 +295,45 @@
   color: var(--dim);
 }
 
-.agent-markdown pre.mermaid-error {
-  color: var(--bad);
-  white-space: pre-wrap;
+.agent-mermaid-block {
+  position: relative;
+  margin: 0.8em 0;
+}
+
+.agent-mermaid-block > pre {
+  margin: 0;
+  padding-right: 40px;
+}
+
+.agent-mermaid-toggle {
+  position: absolute;
+  z-index: 1;
+  top: 5px;
+  right: 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bar);
+  color: var(--dim);
+  cursor: pointer;
+}
+
+.agent-mermaid-toggle:hover {
+  color: var(--fg);
+}
+
+.agent-mermaid-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.agent-mermaid-toggle[aria-disabled="true"] {
+  color: var(--dim);
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 
 .agent-markdown .mermaid-rendered {
@@ -311,6 +347,10 @@
   max-width: 100%;
   height: auto;
   margin: 0 auto;
+}
+
+.agent-markdown .agent-mermaid-block > .mermaid-rendered {
+  margin: 0;
 }
 
 .agent-markdown table {

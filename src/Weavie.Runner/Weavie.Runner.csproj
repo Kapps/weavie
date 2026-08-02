@@ -13,6 +13,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Weavie.Core\Weavie.Core.csproj" />
+    <ProjectReference Include="..\Weavie.Hosting\Weavie.Hosting.csproj" />
   </ItemGroup>
 
   <!-- The runner's own spawn-contract generation, read back at runtime for the manifest check. -->
@@ -20,7 +21,7 @@
     <AssemblyMetadata Include="SpawnContract" Value="$(SpawnContractVersion)" />
   </ItemGroup>
 
-  <!-- White-box unit tests reach this runner's internal types (ControlApi, PickerPage, …). -->
+  <!-- White-box unit tests reach this runner's internal types (ControlApi, WorkerAccessToken, …). -->
   <ItemGroup>
     <InternalsVisibleTo Include="Weavie.Runner.Tests" />
   </ItemGroup>

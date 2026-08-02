@@ -1,7 +1,7 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
-import { Agent, get as httpGet } from "node:http";
+import { Agent, get as httpGet, type OutgoingHttpHeaders } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -157,9 +157,13 @@ export function waitForPortLine(
 
 // A drained GET over a caller-owned keep-alive agent: draining returns the socket to the pool so the next
 // poll reuses it instead of opening a fresh loopback connection that leaks into Windows TIME_WAIT (#206).
-export function getOverAgent(url: string, agent: Agent): Promise<{ status: number; body: string }> {
+export function getOverAgent(
+  url: string,
+  agent: Agent,
+  headers: OutgoingHttpHeaders,
+): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {
-    const req = httpGet(url, { agent }, (res) => {
+    const req = httpGet(url, { agent, headers }, (res) => {
       let body = "";
       res.setEncoding("utf8");
       res.on("data", (chunk) => {
@@ -183,7 +187,7 @@ export async function waitForHttp(
   try {
     for (;;) {
       try {
-        await getOverAgent(url, agent);
+        await getOverAgent(url, agent, {});
         return;
       } catch {
         if (Date.now() > deadline) {

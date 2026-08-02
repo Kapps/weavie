@@ -19,10 +19,17 @@ const TSX_PATH = "src/web/src/agent/AgentMarkdown.tsx";
 const ABS_TSX_PATH = `/repo/${TSX_PATH}`;
 const ABS_AT_PATH = `/repo/${AT_PATH}`;
 const FULLSCREEN_COMMAND = "weavie.pane.toggleFullscreen";
+const TOGGLE_MERMAID_COMMAND = "weavie.agent.toggleMermaidPreview";
 const MERMAID_MARKDOWN = [
   "```mermaid",
   "flowchart LR",
   "  A[Streaming] --> B[Complete]",
+  "```",
+].join("\n");
+const INVALID_MERMAID_MARKDOWN = [
+  "```mermaid",
+  "flowchart LR",
+  "  A[Broken] -- B[Missing arrow]",
   "```",
 ].join("\n");
 
@@ -69,9 +76,7 @@ test.describe("AgentMarkdown transcript links", () => {
     await host.close();
   });
 
-  async function connect(page: Page): Promise<void> {
-    await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
-    await host.waitUntilConnected();
+  function publishCommands(mermaidKey: string): void {
     host.publishHost("commands", "catalog", {
       commands: [
         {
@@ -84,9 +89,28 @@ test.describe("AgentMarkdown transcript links", () => {
           when: "",
           keys: ["alt+shift+enter"],
         },
+        {
+          id: TOGGLE_MERMAID_COMMAND,
+          title: "Toggle Mermaid Preview",
+          runsIn: "web",
+          description: "",
+          aliases: [],
+          showInPalette: true,
+          when: "agentFocused",
+          keys: [mermaidKey],
+        },
       ],
-      keybindings: [{ key: "alt+shift+enter", command: FULLSCREEN_COMMAND }],
+      keybindings: [
+        { key: "alt+shift+enter", command: FULLSCREEN_COMMAND },
+        { key: mermaidKey, command: TOGGLE_MERMAID_COMMAND, when: "agentFocused" },
+      ],
     });
+  }
+
+  async function connect(page: Page): Promise<void> {
+    await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
+    await host.waitUntilConnected();
+    publishCommands("alt+m");
     host.publishSession(codexSession.address, "editor", "restore", {
       session: {
         active: ABS_TSX_PATH,
@@ -131,6 +155,71 @@ test.describe("AgentMarkdown transcript links", () => {
 
     await expect(markdown.locator(".mermaid-rendered > svg")).toBeVisible();
     await expect(markdown.locator("pre.mermaid-pending")).toHaveCount(0);
+
+    const toggle = markdown.locator(".agent-mermaid-toggle");
+    await expect(toggle).toHaveAttribute("title", "Show Mermaid source (Alt+M)");
+    await expect(toggle).toHaveAttribute("aria-label", "Toggle Mermaid preview");
+    await expect(toggle).toHaveAttribute("aria-pressed", "true");
+    publishCommands("alt+shift+m");
+    await toggle.hover();
+    await expect(toggle).toHaveAttribute("title", "Show Mermaid source (Alt+Shift+M)");
+    await toggle.click();
+    await expect(markdown.locator("pre.mermaid-source")).toContainText("A[Streaming]");
+    await expect(markdown.locator(".mermaid-rendered")).toBeHidden();
+    await expect(toggle).toHaveAttribute("title", "Show Mermaid preview (Alt+Shift+M)");
+    await page.keyboard.press("Alt+Shift+M");
+    await expect(markdown.locator(".mermaid-rendered > svg")).toBeVisible();
+  });
+
+  test("keeps invalid Mermaid as source without leaking Mermaid's error diagram", async ({
+    page,
+  }) => {
+    await connect(page);
+    host.publishSession(codexSession.address, "agent", "pane", {
+      providerId: "codex",
+      type: "item-completed",
+      itemId: "invalid-mermaid",
+      itemType: "agentMessage",
+      status: "completed",
+      text: INVALID_MERMAID_MARKDOWN,
+    });
+
+    const markdown = page.locator(".agent-markdown");
+    const source = markdown.locator("pre.mermaid-source");
+    await expect(source).toContainText("A[Broken] -- B[Missing arrow]");
+    await expect(markdown.locator(".mermaid-rendered")).toHaveCount(0);
+    const toggle = markdown.locator(".agent-mermaid-toggle");
+    await expect(toggle).toHaveAttribute("aria-disabled", "true");
+    await expect(toggle).toHaveAttribute(
+      "title",
+      "Preview unavailable: Mermaid diagram has a syntax error",
+    );
+    await expect(page.locator('body > [id^="dweavie-mermaid-"]')).toHaveCount(0);
+    await expect(page.getByText("Syntax error in text", { exact: true })).toHaveCount(0);
+  });
+
+  test("does not toggle another diagram when the focused Mermaid block cannot preview", async ({
+    page,
+  }) => {
+    await connect(page);
+    host.publishSession(codexSession.address, "agent", "pane", {
+      providerId: "codex",
+      type: "item-completed",
+      itemId: "mixed-mermaid",
+      itemType: "agentMessage",
+      status: "completed",
+      text: `${MERMAID_MARKDOWN}\n\n${INVALID_MERMAID_MARKDOWN}`,
+    });
+
+    const blocks = page.locator(".agent-mermaid-block");
+    await expect(blocks).toHaveCount(2);
+    const valid = blocks.first();
+    const invalid = blocks.last();
+    await expect(valid.locator(".mermaid-rendered > svg")).toBeVisible();
+    await invalid.locator(".agent-mermaid-toggle").focus();
+    await page.keyboard.press("Alt+M");
+    await expect(valid.locator(".mermaid-rendered > svg")).toBeVisible();
+    await expect(valid.locator(".agent-mermaid-toggle")).toHaveAttribute("aria-pressed", "true");
   });
 
   test("linkifies inline-code paths (incl. @), leaves fenced code plain, and reveals on click", async ({

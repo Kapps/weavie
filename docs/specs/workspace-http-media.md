@@ -10,7 +10,7 @@ in-process WebView message bridges for control messages; Headless attaches its W
 server. Welcome-only windows may retain native resource schemes because no workspace or HostCore exists yet.
 
 Native servers bind only to `127.0.0.1` on an OS-assigned port and mint a 256-bit token. Headless local mode
-does the same on its selected loopback port; remote mode uses the runner token and network binding. Index,
+does the same on its selected loopback port; remote mode uses the runner-derived worker token and network binding. Index,
 media, bridge, control, and unknown routes are default-deny; hashed static assets are public. The document uses
 `Referrer-Policy: no-referrer` so its token is not sent to external navigations.
 

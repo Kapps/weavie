@@ -11,6 +11,7 @@ import {
   Suspense,
 } from "solid-js";
 import { AgentPane } from "./agent/AgentPane";
+import { toggleActiveAgentMermaid } from "./agent/agent-mermaid";
 import { agentPaneMessages } from "./agent/pane-store";
 import {
   type AgentPaneUpdate,
@@ -1123,6 +1124,7 @@ export default function App(): JSX.Element {
         return true;
       }),
       registerCommand(CommandIds.toggleFullscreenPane, () => toggleFullscreen()),
+      registerCommand(CommandIds.toggleAgentMermaidPreview, () => toggleActiveAgentMermaid()),
       registerCommand(CommandIds.toggleFileBrowser, () => toggleBrowser()),
       // Terminal copy/paste (act on the focused xterm, clipboard via the host); gated terminalFocused.
       installTerminalClipboardCommands(),

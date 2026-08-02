@@ -85,8 +85,8 @@ describe("addAgent", () => {
     });
   });
 
-  it("hands the transport a resolver that follows a restarted runner to its fresh worker url+token", async () => {
-    // A runner restart mints a new worker port+token; each /backend fetch advertises the current one.
+  it("hands the transport a resolver that follows a changed worker url and token", async () => {
+    // Each /backend fetch advertises the current endpoint, including any independently rotated credential.
     const advertised = [
       { url: "https://host:9/index.html", token: "old" },
       { url: "https://host:10/index.html", token: "new" },

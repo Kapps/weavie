@@ -21,6 +21,7 @@ function themeConfig(): Parameters<Mermaid["initialize"]>[0] {
   return {
     startOnLoad: false,
     securityLevel: "strict",
+    suppressErrorRendering: true,
     // SVG-native <text> labels, not HTML-in-<foreignObject> — the SVG-profile sanitize below strips
     // foreignObject, which silently deleted every node label.
     htmlLabels: false,
@@ -41,23 +42,55 @@ function themeConfig(): Parameters<Mermaid["initialize"]>[0] {
   };
 }
 
+export interface MermaidHydration {
+  element: HTMLElement;
+  source: string;
+  status: "rendered" | "syntax-error" | "render-error";
+}
+
+function sourceBlock(
+  element: HTMLElement,
+  source: string,
+  status: "syntax-error" | "render-error",
+): MermaidHydration {
+  element.className = "mermaid-source";
+  element.dataset.mermaidError =
+    status === "syntax-error"
+      ? "Mermaid preview unavailable: syntax error."
+      : "Mermaid preview unavailable: rendering failed.";
+  return { element, source, status };
+}
+
 /**
  * Fills every `pre.mermaid-pending` placeholder under `root` with rendered, sanitized SVG. `isCurrent`
  * is re-checked after each await so a render resolving after a newer edit (or theme switch) is discarded
- * instead of landing in stale DOM. A diagram that fails to parse surfaces its error in place.
+ * instead of landing in stale DOM. Invalid diagrams remain as source; Mermaid's own error rendering is
+ * suppressed so it cannot leave its temporary error SVG attached to the document body.
  */
-export async function hydrateMermaid(root: HTMLElement, isCurrent: () => boolean): Promise<void> {
+export async function hydrateMermaid(
+  root: HTMLElement,
+  isCurrent: () => boolean,
+): Promise<MermaidHydration[]> {
   const pending = root.querySelectorAll<HTMLElement>("pre.mermaid-pending");
   if (pending.length === 0) {
-    return;
+    return [];
   }
+  const hydrated: MermaidHydration[] = [];
   const mermaid = await loadMermaid();
   if (!isCurrent()) {
-    return;
+    return hydrated;
   }
   mermaid.initialize(themeConfig());
   for (const node of pending) {
     const source = node.textContent ?? "";
+    const parsed = await mermaid.parse(source, { suppressErrors: true });
+    if (!isCurrent()) {
+      return hydrated;
+    }
+    if (parsed === false) {
+      hydrated.push(sourceBlock(node, source, "syntax-error"));
+      continue;
+    }
     renderCount += 1;
     // mermaid.render names the output SVG with this id and cleans up the off-screen node it measured in,
     // so the id must not be reused to remove anything — doing so would delete the rendered SVG itself.
@@ -65,7 +98,7 @@ export async function hydrateMermaid(root: HTMLElement, isCurrent: () => boolean
     try {
       const { svg } = await mermaid.render(id, source);
       if (!isCurrent()) {
-        return;
+        return hydrated;
       }
       const wrapper = document.createElement("div");
       wrapper.className = "mermaid-rendered";
@@ -75,14 +108,13 @@ export async function hydrateMermaid(root: HTMLElement, isCurrent: () => boolean
         USE_PROFILES: { svg: true, svgFilters: true },
       });
       node.replaceWith(wrapper);
-    } catch (err) {
+      hydrated.push({ element: wrapper, source, status: "rendered" });
+    } catch {
       if (!isCurrent()) {
-        return;
+        return hydrated;
       }
-      const error = document.createElement("pre");
-      error.className = "mermaid-error";
-      error.textContent = err instanceof Error ? err.message : String(err);
-      node.replaceWith(error);
+      hydrated.push(sourceBlock(node, source, "render-error"));
     }
   }
+  return hydrated;
 }

@@ -12,10 +12,7 @@ internal static class RunnerIdentity {
 	/// <summary>The integer build number (the SemVer patch; 0 for local builds).</summary>
 	public static int Build { get; } = ParseBuild(BuildNumber);
 
-	/// <summary>
-	/// The spawn-contract generation this runner speaks (compiled in from <c>SpawnContractVersion</c>);
-	/// a bundle declaring a newer generation is not applied until the runner restarts onto one that does.
-	/// </summary>
+	/// <summary>The exact spawn-contract generation this runner accepts.</summary>
 	public static int SpawnContract { get; } =
 		typeof(RunnerIdentity).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>()
 			.FirstOrDefault(a => a.Key == "SpawnContract")?.Value is { } value && int.TryParse(value, out int parsed)

@@ -19,7 +19,10 @@ public sealed record UpdateStatus {
 	/// <summary>The last build confirmed serving.</summary>
 	public int? Confirmed { get; init; }
 
-	/// <summary>What the updater is doing: <c>idle</c>, <c>updating</c>, <c>needs-newer-runner</c>, or <c>error</c>.</summary>
+	/// <summary>
+	/// What the updater is doing: <c>idle</c>, <c>updating</c>, <c>rolled-back</c>, <c>failed</c>,
+	/// or <c>error</c>.
+	/// </summary>
 	public required string Phase { get; init; }
 
 	/// <summary>Human detail for the phase (the hold, the error, the rollback), when there is one.</summary>
@@ -47,9 +50,8 @@ public sealed class UpdatePoller : IDisposable {
 	private readonly Action<string> _log;
 	private readonly CancellationTokenSource _stop = new();
 	private readonly object _statusGate = new();
-	// Digests this process decided not to stage, with the phase each decision keeps showing (a bundle
-	// needing a newer runner must stay visible, not fade to "idle" on the next poll) — skipped without
-	// re-downloading. In-memory only: a restarted (= upgraded) runner reconsiders them.
+	// Digests this process rejected without staging, with the phase each decision keeps showing. In-memory
+	// only: a corrected release is a different digest and gets a fresh decision.
 	private readonly Dictionary<string, (string Phase, string? Detail)> _skipped = [];
 	private string _phase = "idle";
 	private string? _detail;
@@ -74,9 +76,6 @@ public sealed class UpdatePoller : IDisposable {
 	/// <summary>Starts the update loop: reconcile a boot mid-update, then poll now and every 15 minutes.</summary>
 	public void Start() => _ = Task.Run(async () => {
 		_log($"enabled — runner build {RunnerIdentity.BuildNumber}, polling {ReleaseTag} every {PollInterval.TotalMinutes:0}m");
-		// Staged ≠ confirmed at boot means a prior runner died mid-update: the worker Ensure() already
-		// spawned is that unconfirmed staged build, so just confirm it (no drain/restart — there is no old
-		// worker to swap, and draining an already-staged worker would hang on a busy session forever).
 		if (_store.StagedBuild is { } staged && staged != _store.ConfirmedGoodBuild) {
 			await GuardedAsync(() => _backends.ConfirmStagedWorkerAsync(_store, SetPhase, _stop.Token)).ConfigureAwait(false);
 		}
@@ -145,7 +144,7 @@ public sealed class UpdatePoller : IDisposable {
 		}
 
 		lock (_statusGate) {
-			// A previously-skipped bundle keeps showing why (a needs-newer-runner block must not fade to idle).
+			// A previously rejected bundle keeps showing why instead of fading to idle.
 			if (_skipped.TryGetValue(found.Digest, out var kept)) {
 				(_phase, _detail) = kept;
 				return;
@@ -169,24 +168,20 @@ public sealed class UpdatePoller : IDisposable {
 			VerifyDigest(tarball, found.Digest);
 
 			var (manifest, versionDir) = VersionStore.ExtractBundle(tarball, Path.Combine(scratch, "x"));
-			if (manifest.SpawnContract > RunnerIdentity.SpawnContract) {
-				Skip(found.Digest, "needs-newer-runner",
-					$"build {manifest.BuildNumber} needs spawn contract {manifest.SpawnContract} (runner speaks {RunnerIdentity.SpawnContract}) — restart the runner to continue updating");
-				_log($"build {manifest.BuildNumber} requires a newer runner; not applied");
-				return;
-			}
-
-			if (_store.StagedBuild is { } staged) {
-				if (manifest.BuildNumber == staged) {
-					_store.RecordStagedDigest(staged, found.Digest);
-					SetPhase("idle", null);
-					return;
-				}
-
-				if (manifest.BuildNumber < staged) {
+			switch (ClassifyCandidate(manifest, _store.StagedBuild)) {
+				case UpdateCandidateDisposition.Older:
 					Skip(found.Digest, "idle", null);
 					return;
-				}
+				case UpdateCandidateDisposition.ContractMismatch:
+					Skip(found.Digest, "error",
+						$"build {manifest.BuildNumber} uses spawn contract {manifest.SpawnContract}, but this runner "
+							+ $"requires {RunnerIdentity.SpawnContract}; install the matching runner bundle");
+					_log($"build {manifest.BuildNumber} has a different spawn contract; not staged");
+					return;
+				case UpdateCandidateDisposition.Current:
+					_store.RecordStagedDigest(manifest.BuildNumber, found.Digest);
+					SetPhase("idle", null);
+					return;
 			}
 
 			_store.Stage(manifest, versionDir, found.Digest);
@@ -200,6 +195,20 @@ public sealed class UpdatePoller : IDisposable {
 
 		// The apply flow reports its own outcome, including the sticky terminal ones (rolled-back, failed).
 		await _backends.ApplyStagedUpdateAsync(_store, SetPhase, ct).ConfigureAwait(false);
+	}
+
+	internal static UpdateCandidateDisposition ClassifyCandidate(BundleManifest manifest, int? stagedBuild) {
+		if (stagedBuild is { } staged && manifest.BuildNumber < staged) {
+			return UpdateCandidateDisposition.Older;
+		}
+
+		if (manifest.SpawnContract != RunnerIdentity.SpawnContract) {
+			return UpdateCandidateDisposition.ContractMismatch;
+		}
+
+		return manifest.BuildNumber == stagedBuild
+			? UpdateCandidateDisposition.Current
+			: UpdateCandidateDisposition.Newer;
 	}
 
 	private (string Url, string Digest)? FindAsset(JsonElement release) {
@@ -254,8 +263,8 @@ public sealed class UpdatePoller : IDisposable {
 		}
 	}
 
-	// Ends an in-flight/transient phase when a poll finds nothing new; sticky outcomes (rolled-back,
-	// failed, needs-newer-runner) stay until a genuinely new bundle supersedes them.
+	// Ends an in-flight/transient phase when a poll finds nothing new; sticky rolled-back/failed outcomes
+	// stay until a genuinely new bundle supersedes them.
 	private void ClearTransientPhase() {
 		lock (_statusGate) {
 			if (_phase is "updating" or "error") {
@@ -277,4 +286,11 @@ public sealed class UpdatePoller : IDisposable {
 		_stop.Cancel();
 		_http.Dispose();
 	}
+}
+
+internal enum UpdateCandidateDisposition {
+	Older,
+	Current,
+	Newer,
+	ContractMismatch,
 }

@@ -12,7 +12,7 @@ namespace Weavie.Headless.Tests;
 public sealed class OutboxFloodTests {
 	[Fact]
 	public async Task A_burst_larger_than_the_outbox_drops_a_slow_but_alive_connection() {
-		var bridge = new WebSocketHostBridge(new InlineUiDispatcher());
+		var bridge = new WebSocketHostBridge();
 		var socket = new StalledSendSocket();
 		var serve = bridge.ServeAsync(socket, CancellationToken.None);
 

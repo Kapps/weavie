@@ -10,7 +10,7 @@ public sealed record BundleManifest {
 	/// <summary>The bundle's build number (the release workflow's run number; versions/ dir key).</summary>
 	public required int BuildNumber { get; init; }
 
-	/// <summary>The runner⟷worker spawn-contract generation this bundle requires of the running runner.</summary>
+	/// <summary>The exact runner⟷worker spawn-contract generation compiled into this bundle.</summary>
 	public required int SpawnContract { get; init; }
 }
 
@@ -109,7 +109,6 @@ public sealed class VersionStore {
 			if (_state.Staged != build) {
 				throw new InvalidOperationException($"build {build} is not the staged build {_state.Staged}");
 			}
-
 			if (_state.StagedDigest is { } existing && !string.Equals(existing, digest, StringComparison.OrdinalIgnoreCase)) {
 				throw new InvalidDataException($"build {build} is already associated with a different release digest");
 			}
@@ -138,7 +137,7 @@ public sealed class VersionStore {
 	/// <summary>
 	/// Adopts an extracted bundle as the staged version: installs its immutable version directory when absent,
 	/// reuses a matching complete directory after an interrupted stage, re-points <c>current</c>, and records the
-	/// verified <paramref name="digest"/>. The caller has already checked the digest and spawn contract.
+	/// verified <paramref name="digest"/>. The caller has already verified the digest and classified the contract.
 	/// </summary>
 	public void Stage(BundleManifest manifest, string extractedVersionDir, string digest) {
 		ArgumentNullException.ThrowIfNull(manifest);
@@ -170,21 +169,28 @@ public sealed class VersionStore {
 	/// </summary>
 	public void MarkConfirmedGood(int build) {
 		lock (_gate) {
+			if (_state.Staged != build) {
+				throw new InvalidOperationException($"cannot confirm build {build}; staged build is {_state.Staged}");
+			}
+
 			_state = _state with { ConfirmedGood = build };
 			_state.Save();
 			PruneLocked();
 		}
 	}
 
-	/// <summary>
-	/// Rolls back a bad staged build: records its digest as bad (never retried; a newer build supersedes it),
-	/// re-points <c>current</c> at the confirmed-good build, and stages that. Returns the build rolled back
-	/// to, or null when no confirmed-good build exists to roll back to (the failure is the caller's to surface).
-	/// </summary>
-	public int? RollbackToConfirmed() {
+	// Rollback is same-contract only. Protocol changes require installing/restarting the matching whole bundle.
+	internal (int? Build, string? Failure) RollbackToConfirmed(int requiredSpawnContract) {
 		lock (_gate) {
 			if (_state.ConfirmedGood is not { } good || _state.Staged == good) {
-				return null;
+				return (null, "no distinct confirmed-good build exists to roll back to");
+			}
+
+			var confirmed = ReadVersionManifest(VersionDir(good), good);
+			if (confirmed.SpawnContract != requiredSpawnContract) {
+				return (null,
+					$"confirmed-good build {good} uses spawn contract {confirmed.SpawnContract}; "
+						+ $"runner contract is {requiredSpawnContract}");
 			}
 
 			if (_state.StagedDigest is { } badDigest && !_state.BadDigests.Contains(badDigest)) {
@@ -195,8 +201,8 @@ public sealed class VersionStore {
 			PointCurrentAt(good);
 			_state = _state with { Staged = good, StagedDigest = null };
 			_state.Save();
-			_log($"rolled back to build {good}");
-			return good;
+			_log($"rolled back live worker to build {good}");
+			return (good, null);
 		}
 	}
 

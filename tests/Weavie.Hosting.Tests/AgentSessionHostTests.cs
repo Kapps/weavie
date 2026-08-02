@@ -25,6 +25,7 @@ public sealed class AgentSessionHostTests {
 		Assert.False(session.Started);
 		slot = "slot-1";
 		host.Structured!.Start();
+		await host.DrainPaneAsync(CancellationToken.None);
 
 		var message = Assert.Single(bridge.PostedEventsNamed("pane"));
 		Assert.Equal("started", message.GetProperty("type").GetString());
@@ -43,8 +44,10 @@ public sealed class AgentSessionHostTests {
 			ItemId = "item-1",
 			Text = "world",
 		});
+		await host.DrainPaneAsync(CancellationToken.None);
 		bridge.Clear();
 		host.ReplayPane();
+		await host.DrainPaneAsync(CancellationToken.None);
 
 		var replayed = Assert.Single(Replayed(bridge), value =>
 			value.GetProperty("itemId").GetString() == "item-1");
@@ -66,8 +69,10 @@ public sealed class AgentSessionHostTests {
 			ItemId = "item-shared",
 			Text = "beta",
 		});
+		await host.DrainPaneAsync(CancellationToken.None);
 		bridge.Clear();
 		host.ReplayPane();
+		await host.DrainPaneAsync(CancellationToken.None);
 
 		string?[] shared = [.. Replayed(bridge)
 			.Where(value => value.GetProperty("itemId").GetString() == "item-shared")
@@ -93,8 +98,10 @@ public sealed class AgentSessionHostTests {
 				Text = collision.Text,
 			});
 		}
+		await host.DrainPaneAsync(CancellationToken.None);
 		bridge.Clear();
 		host.ReplayPane();
+		await host.DrainPaneAsync(CancellationToken.None);
 
 		string?[] collisionTexts = [.. Replayed(bridge)
 			.Where(value => value.GetProperty("itemId").GetString() == "item-collision")
@@ -113,8 +120,10 @@ public sealed class AgentSessionHostTests {
 		for (int i = 0; i < 1000; i++) {
 			session.Emit(Completed($"item-{i}", $"line {i}"));
 		}
+		await host.DrainPaneAsync(CancellationToken.None);
 		bridge.Clear();
 		host.ReplayPane();
+		await host.DrainPaneAsync(CancellationToken.None);
 
 		// The whole replay is a reset plus a single batch frame — a bounded burst no matter how long the transcript.
 		Assert.Equal(2, bridge.Posted.Count);
@@ -152,9 +161,12 @@ public sealed class AgentSessionHostTests {
 			0);
 
 		// The provider hasn't started (no thread/resume, no hydration): a reconnecting page's ReplayPane still
-		// restores the prior result — from the synchronous disk seed. This is the reopen-reconnect fix.
+		// restores the prior result after the journal worker loads it. This is the reopen-reconnect fix.
 		Assert.False(fixture.Session.Started);
+		await fixture.Host.DrainPaneAsync(CancellationToken.None);
+		fixture.Bridge.Clear();
 		fixture.Host.ReplayPane();
+		await fixture.Host.DrainPaneAsync(CancellationToken.None);
 
 		var replayed = Assert.Single(Replayed(fixture.Bridge));
 		Assert.Equal("item-completed", replayed.GetProperty("type").GetString());
@@ -223,6 +235,7 @@ public sealed class AgentSessionHostTests {
 				session.Emit(Completed($"seed-{i}", $"seed {i}"));
 			}
 
+			await host.DrainPaneAsync(CancellationToken.None);
 			bridge.Clear();
 			using var barrier = new Barrier(2);
 			var hydrate = Task.Run(() => {
@@ -237,6 +250,7 @@ public sealed class AgentSessionHostTests {
 				host.ReplayPane();
 			});
 			await Task.WhenAll(hydrate, replay);
+			await host.DrainPaneAsync(CancellationToken.None);
 
 			Assert.Equal(hydrated.Select(message => message.ItemId), VisibleItemIds(bridge));
 		}

@@ -342,7 +342,13 @@ internal sealed class TestHost : IAsyncDisposable {
 		return null;
 	}
 
-	private void SendEnvelope(string json) => Bridge.Receive(new WebPeer(TestPageId), json);
+	private void SendEnvelope(string json) {
+		Bridge.Receive(new WebPeer(TestPageId), json);
+		DrainMessages();
+	}
+
+	public void DrainMessages() =>
+		Core.DrainMessageIngressAsync(CancellationToken.None).GetAwaiter().GetResult();
 
 	private FakeWebResponse? RespondToViewRequest(MessageEnvelope request) {
 		if (request.Feature != "editor" || request.Name != "flush" || request.Session is not { } address) {

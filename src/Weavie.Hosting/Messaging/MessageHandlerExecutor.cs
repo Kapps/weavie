@@ -4,15 +4,15 @@ internal interface IMessageHandlerExecutor {
 	Task<T> InvokeAsync<T>(Func<Task<T>> handler, CancellationToken ct);
 }
 
-internal sealed class DirectMessageHandlerExecutor : IMessageHandlerExecutor {
-	public static DirectMessageHandlerExecutor Instance { get; } = new();
+internal sealed class ThreadPoolMessageHandlerExecutor : IMessageHandlerExecutor {
+	public static ThreadPoolMessageHandlerExecutor Instance { get; } = new();
 
-	private DirectMessageHandlerExecutor() {
+	private ThreadPoolMessageHandlerExecutor() {
 	}
 
 	public Task<T> InvokeAsync<T>(Func<Task<T>> handler, CancellationToken ct) {
 		ct.ThrowIfCancellationRequested();
-		return handler();
+		return Task.Run(handler, ct);
 	}
 }
 

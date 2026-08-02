@@ -19,7 +19,10 @@ public static class UiDispatcherExtensions {
 	private const int EntryStarted = 1;
 	private const int EntryCanceled = 2;
 
-	/// <summary>Starts <paramref name="action"/> on the UI thread and propagates its completion.</summary>
+	/// <summary>
+	/// Starts <paramref name="action"/> on the UI thread and propagates its completion and logical execution
+	/// context across dispatchers whose native queues do not flow it themselves.
+	/// </summary>
 	public static Task InvokeAsync(
 		this IUiDispatcher dispatcher,
 		Func<Task> action,
@@ -46,6 +49,7 @@ public static class UiDispatcherExtensions {
 		ArgumentNullException.ThrowIfNull(dispatcher);
 		ArgumentNullException.ThrowIfNull(action);
 		ct.ThrowIfCancellationRequested();
+		var executionContext = ExecutionContext.Capture();
 		var started = new TaskCompletionSource<Task<T>>(TaskCreationOptions.RunContinuationsAsynchronously);
 		int entryState = EntryPending;
 		// Cancellation can prevent UI entry; once entry starts, drain the action to preserve dispatcher ordering.
@@ -59,10 +63,18 @@ public static class UiDispatcherExtensions {
 				return;
 			}
 
-			try {
-				started.TrySetResult(action());
-			} catch (Exception ex) {
-				started.TrySetException(ex);
+			void Start() {
+				try {
+					started.TrySetResult(action());
+				} catch (Exception ex) {
+					started.TrySetException(ex);
+				}
+			}
+
+			if (executionContext is null) {
+				Start();
+			} else {
+				ExecutionContext.Run(executionContext, _ => Start(), null);
 			}
 		});
 

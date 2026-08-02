@@ -23,15 +23,6 @@ internal sealed class WebSocketHostBridge : IWebTransportHub, IWorkspaceWebSocke
 	private const int OutboxCapacity = 512;
 
 	private readonly ConcurrentDictionary<Connection, byte> _connections = new();
-	private readonly IUiDispatcher _dispatcher;
-
-	/// <summary>Raises inbound messages on <paramref name="dispatcher"/> — the same serialization native hosts get
-	/// from their UI-thread WebView callbacks, so a message handler never races posted session work.</summary>
-	public WebSocketHostBridge(IUiDispatcher dispatcher) {
-		ArgumentNullException.ThrowIfNull(dispatcher);
-		_dispatcher = dispatcher;
-	}
-
 	/// <inheritdoc/>
 	public event Action<WebPeer, string>? MessageReceived;
 
@@ -101,7 +92,7 @@ internal sealed class WebSocketHostBridge : IWebTransportHub, IWorkspaceWebSocke
 
 				string json = Encoding.UTF8.GetString(message.GetBuffer(), 0, (int)message.Length);
 				message.SetLength(0);
-				_dispatcher.Post(() => MessageReceived?.Invoke(connection.Peer, json));
+				MessageReceived?.Invoke(connection.Peer, json);
 			}
 		} finally {
 			_connections.TryRemove(connection, out _);
@@ -113,7 +104,7 @@ internal sealed class WebSocketHostBridge : IWebTransportHub, IWorkspaceWebSocke
 			}
 
 			await sendLoop.ConfigureAwait(false); // no send may race the caller's socket dispose
-			_dispatcher.Post(() => PeerDisconnected?.Invoke(connection.Peer));
+			PeerDisconnected?.Invoke(connection.Peer);
 		}
 	}
 

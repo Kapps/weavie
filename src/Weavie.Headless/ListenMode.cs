@@ -1,4 +1,5 @@
 using System.Net;
+using Weavie.Hosting.Web;
 
 namespace Weavie.Headless;
 
@@ -31,9 +32,22 @@ internal abstract record ListenMode {
 		token = string.IsNullOrEmpty(token) ? null : token;
 
 		if (remote) {
-			return token is null
-				? (null, "remote listening (--remote) requires a token — pass --token <t> or set WEAVIE_SERVE_TOKEN.")
-				: (new Remote(string.IsNullOrEmpty(bind) ? "0.0.0.0" : bind, token), null);
+			if (token is null) {
+				return (null, "remote listening (--remote) requires a token — pass --token <t> or set WEAVIE_SERVE_TOKEN.");
+			}
+
+			string? contractValue = Value(args, "--spawn-contract");
+			if (!int.TryParse(contractValue, out int contract)) {
+				return (null, "remote listening (--remote) requires --spawn-contract <generation>.");
+			}
+
+			if (contract != WorkspaceControlProtocol.SpawnContract) {
+				return (null,
+					$"runner spawn contract {contract} does not match worker contract "
+					+ $"{WorkspaceControlProtocol.SpawnContract}; refusing to start.");
+			}
+
+			return (new Remote(string.IsNullOrEmpty(bind) ? "0.0.0.0" : bind, token), null);
 		}
 
 		// Local mode refuses anything that would expose the host or imply auth.

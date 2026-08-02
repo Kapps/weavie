@@ -270,9 +270,6 @@ export function TerminalView(props: {
       messages.publish("resize", { columns: cols, rows });
     });
 
-    // Ask the host to start (or repaint) this session's PTY child sized to the fitted terminal.
-    messages.publish("ready", { columns: term.cols, rows: term.rows });
-
     // Register this pane's focus fn so the layout can land keyboard focus here (Ctrl+N / focus-pane).
     props.onFocusReady?.(() => term.focus());
 
@@ -351,6 +348,9 @@ export function TerminalView(props: {
       webgl?.dispose();
       term.dispose();
     });
+
+    // Subscribe and register cleanup before ready starts the child, so its first output has a live consumer.
+    messages.publish("ready", { columns: term.cols, rows: term.rows });
   });
 
   return (

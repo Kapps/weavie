@@ -116,7 +116,9 @@ public sealed class VersionStoreTests : IDisposable {
 		Assert.True(store.IsKnownDigest("sha256:aa"));
 		string current = Path.Combine(_root, "current");
 		Assert.Equal(Path.Combine("versions", "100"), new FileInfo(current).LinkTarget);
-		Assert.Equal(Path.Combine(_root, "versions", "100", "worker", "Weavie.Headless.dll"), store.ActiveWorkerPath());
+		Assert.Equal(
+			Path.Combine(_root, "versions", "100", "worker", "Weavie.Headless.dll"),
+			store.ActiveWorkerPath());
 		Assert.Null(new FileInfo(current + ".new").LinkTarget);
 
 		// A fresh open (a restarted runner) reads the same state back from disk.
@@ -132,7 +134,7 @@ public sealed class VersionStoreTests : IDisposable {
 		store.MarkConfirmedGood(100);
 		store.Stage(new BundleManifest { BuildNumber = 101, SpawnContract = 1 }, MakeExtractedVersion(101), "sha256:bb");
 
-		Assert.Equal(100, store.RollbackToConfirmed());
+		Assert.Equal(100, store.RollbackToConfirmed(1).Build);
 		Assert.Equal(100, store.StagedBuild);
 		Assert.Equal(Path.Combine("versions", "100"), new FileInfo(Path.Combine(_root, "current")).LinkTarget);
 		// The bad build is never retried, even by a restarted runner.
@@ -143,7 +145,23 @@ public sealed class VersionStoreTests : IDisposable {
 	public void Rollback_WithNothingConfirmed_ReturnsNull() {
 		var store = VersionStore.OpenAt(_root, _ => { });
 		store.Stage(new BundleManifest { BuildNumber = 100, SpawnContract = 1 }, MakeExtractedVersion(100), "sha256:aa");
-		Assert.Null(store.RollbackToConfirmed());
+		var (build, failure) = store.RollbackToConfirmed(1);
+		Assert.Null(build);
+		Assert.Contains("no distinct confirmed-good build", failure, StringComparison.Ordinal);
+	}
+
+	[Fact]
+	public void Rollback_RefusesAConfirmedBuildFromAnotherContract() {
+		var store = VersionStore.OpenAt(_root, _ => { });
+		store.Stage(new BundleManifest { BuildNumber = 100, SpawnContract = 1 }, MakeExtractedVersion(100, 1), "sha256:aa");
+		store.MarkConfirmedGood(100);
+		store.Stage(new BundleManifest { BuildNumber = 101, SpawnContract = 2 }, MakeExtractedVersion(101, 2), "sha256:bb");
+
+		var (build, failure) = store.RollbackToConfirmed(2);
+
+		Assert.Null(build);
+		Assert.Contains("spawn contract 1", failure, StringComparison.Ordinal);
+		Assert.Equal(Path.Combine("versions", "101"), new FileInfo(Path.Combine(_root, "current")).LinkTarget);
 	}
 
 	[Fact]
@@ -204,11 +222,15 @@ public sealed class VersionStoreTests : IDisposable {
 		Assert.Throws<FormatException>(() => RunnerIdentity.ParseBuild("0.1.abc"));
 
 	// An extracted bundle dir as ExtractBundle would leave it, ready for Stage (which moves it).
-	private string MakeExtractedVersion(int build) {
+	private string MakeExtractedVersion(int build) => MakeExtractedVersion(build, 1);
+
+	private string MakeExtractedVersion(int build, int spawnContract) {
 		string dir = Path.Combine(_root, "extracted", Guid.NewGuid().ToString("n"), build.ToString());
 		Directory.CreateDirectory(Path.Combine(dir, "worker"));
 		File.WriteAllText(Path.Combine(dir, "worker", "Weavie.Headless.dll"), "bin");
-		File.WriteAllText(Path.Combine(dir, "manifest.json"), $$"""{ "buildNumber": {{build}}, "spawnContract": 1 }""");
+		File.WriteAllText(
+			Path.Combine(dir, "manifest.json"),
+			$$"""{ "buildNumber": {{build}}, "spawnContract": {{spawnContract}} }""");
 		return dir;
 	}
 

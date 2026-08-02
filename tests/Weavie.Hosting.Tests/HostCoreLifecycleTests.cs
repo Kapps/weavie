@@ -39,4 +39,20 @@ public sealed class HostCoreLifecycleTests {
 		Assert.False(host.Bridge.HasMessageReceiver);
 		await Assert.ThrowsAsync<ObjectDisposedException>(() => host.Core.StartAsync());
 	}
+
+	[Fact]
+	public async Task SynchronousStyleDisposeDoesNotWaitForPendingUiAdmission() {
+		var dispatcher = new ManualUiDispatcher(paused: false);
+		await using var host = TestHost.CreateUnstarted(dispatcher);
+		await host.Core.StartAsync();
+		dispatcher.Pause();
+		var health = host.Core.MessageHealthAsync(CancellationToken.None);
+		await dispatcher.WaitForPostAsync().WaitAsync(TimeSpan.FromSeconds(2));
+
+		var dispose = Task.Run(() => host.Core.DisposeAsync().AsTask().GetAwaiter().GetResult());
+		await dispose.WaitAsync(TimeSpan.FromSeconds(2));
+		dispatcher.RunPending();
+
+		Assert.False((await health.WaitAsync(TimeSpan.FromSeconds(2))).Healthy);
+	}
 }

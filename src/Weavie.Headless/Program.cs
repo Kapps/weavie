@@ -18,7 +18,7 @@ var dispatcher = new SerialUiDispatcher(ex => {
 	Console.Error.Flush();
 	Environment.FailFast("weavie-headless: a dispatched UI action threw", ex);
 });
-var bridge = new WebSocketHostBridge(dispatcher);
+var bridge = new WebSocketHostBridge();
 var services = HostServices.CreateDefault();
 if (Environment.GetEnvironmentVariable("WEAVIE_FAKE_PRS") is { Length: > 0 } fakePrsPath && File.Exists(fakePrsPath)) {
 	var fakePrs = FakePullRequests.FromFile(fakePrsPath);

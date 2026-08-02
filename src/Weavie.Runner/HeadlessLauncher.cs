@@ -67,7 +67,11 @@ public sealed class HeadlessLauncher {
 					// Already gone / unkillable; nothing to do.
 				}
 			},
-			options: new SupervisionOptions { Policy = RestartPolicy.OnFailure },
+			options: new SupervisionOptions {
+				Policy = RestartPolicy.OnFailure,
+				MaxConsecutiveFailures = 3,
+				RequireExplicitHealth = true,
+			},
 			log: _log,
 			clock: null);
 
@@ -99,6 +103,8 @@ public sealed class HeadlessLauncher {
 		info.ArgumentList.Add(backend.WorkspaceRoot);
 		info.ArgumentList.Add("--token");
 		info.ArgumentList.Add(backend.Token);
+		info.ArgumentList.Add("--spawn-contract");
+		info.ArgumentList.Add(RunnerIdentity.SpawnContract.ToString());
 
 		var process = new Process { StartInfo = info, EnableRaisingEvents = true };
 		process.OutputDataReceived += (_, e) => { if (e.Data is not null) { LogBackendLine(e.Data, onPortConflict); } };

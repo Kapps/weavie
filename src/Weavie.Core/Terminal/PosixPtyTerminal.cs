@@ -9,6 +9,8 @@ namespace Weavie.Core.Terminal;
 /// command must be an absolute path; callers launch a login shell that execs the real target so env/PATH resolve.
 /// </summary>
 public sealed class PosixPtyTerminal : ITerminal {
+	// ptsname returns process-global storage; copy it before another start can overwrite it.
+	private static readonly Lock PtsNameGate = new();
 	private readonly Lock _gate = new();
 	private int _masterFd = -1;
 	private int _pid = -1;
@@ -133,8 +135,11 @@ public sealed class PosixPtyTerminal : ITerminal {
 				throw new IOException($"unlockpt failed (errno {Marshal.GetLastPInvokeError()}).");
 			}
 
-			nint slavePtr = ptsname(master);
-			string? slavePath = slavePtr == IntPtr.Zero ? null : Marshal.PtrToStringUTF8(slavePtr);
+			string? slavePath;
+			lock (PtsNameGate) {
+				nint slavePtr = ptsname(master);
+				slavePath = slavePtr == IntPtr.Zero ? null : Marshal.PtrToStringUTF8(slavePtr);
+			}
 			if (string.IsNullOrEmpty(slavePath)) {
 				throw new IOException("ptsname returned null.");
 			}

@@ -58,7 +58,7 @@ public sealed class LspControllerTests {
 	}
 
 	[Fact]
-	public void Server_exit_posts_lsp_exit_and_reaps() {
+	public async Task Server_exit_posts_lsp_exit_and_reaps() {
 		var bridge = new FakeHostBridge();
 		var launcher = new FakeLauncher();
 		var controller = NewController(bridge, launcher, out var peer);
@@ -66,11 +66,10 @@ public sealed class LspControllerTests {
 
 		launcher.Servers[0].RaiseExited(3);
 
-		var exit = bridge.LastEvent("lsp", "exit");
-		Assert.True(exit.HasValue);
-		Assert.Equal("ch1", exit!.Value.GetProperty("channel").GetString());
-		Assert.Equal(3, exit.Value.GetProperty("code").GetInt32());
-		Assert.True(launcher.Servers[0].Disposed);
+		var exit = await Wait.ForAsync(() => bridge.LastEvent("lsp", "exit"));
+		Assert.Equal("ch1", exit.GetProperty("channel").GetString());
+		Assert.Equal(3, exit.GetProperty("code").GetInt32());
+		await Wait.UntilAsync(() => launcher.Servers[0].Disposed);
 	}
 
 	[Fact]

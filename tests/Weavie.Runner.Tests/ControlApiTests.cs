@@ -32,7 +32,6 @@ public sealed class ControlApiTests {
 	[InlineData("error", false, true)]
 	[InlineData("failed", false, true)]
 	[InlineData("rolled-back", false, true)]
-	[InlineData("needs-newer-runner", false, true)]
 	[InlineData("idle", true, true)]
 	public void Attention_worthy_update_states_hold_the_runner_page(
 		string phase,

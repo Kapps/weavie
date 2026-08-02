@@ -104,7 +104,7 @@ internal static class ControlApi {
 
 	internal static bool UpdateRequiresAttention(UpdateStatus update) =>
 		update.RunnerBehind
-		|| update.Phase is "error" or "failed" or "rolled-back" or "needs-newer-runner";
+		|| update.Phase is "error" or "failed" or "rolled-back";
 
 	private static bool IsBrowserEntry(HttpContext context) =>
 		context.Request.Path == "/"

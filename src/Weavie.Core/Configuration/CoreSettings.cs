@@ -275,6 +275,7 @@ public static class CoreSettings {
 		TestSettings.Register(registry);
 		NotificationSettings.Register(registry);
 		CorrectionsSettings.Register(registry);
+		MessageSettings.Register(registry);
 
 		registry.Register(new SettingDefinition {
 			Key = "diagnostics.startupTiming",

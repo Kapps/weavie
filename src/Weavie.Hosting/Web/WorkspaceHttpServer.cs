@@ -112,11 +112,20 @@ public sealed partial class WorkspaceHttpServer : IAsyncDisposable {
 		if (_options.EnableControl) {
 			app.MapGet("/control/status", () => Results.Json(new {
 				buildNumber = HostCore.BuildNumber,
+				spawnContract = WorkspaceControlProtocol.SpawnContract,
 				draining = _core.Draining,
 			}));
 			app.MapPost("/control/drain", () => {
 				_core.BeginDrain(app.Lifetime.StopApplication);
 				return Results.Accepted();
+			});
+			app.MapGet("/control/health", async (HttpContext context) => {
+				using var deadline = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted);
+				deadline.CancelAfter(TimeSpan.FromSeconds(2));
+				var health = await _core.MessageHealthAsync(deadline.Token).ConfigureAwait(false);
+				return Results.Json(health, statusCode: health.Healthy
+					? StatusCodes.Status200OK
+					: StatusCodes.Status503ServiceUnavailable);
 			});
 		}
 

@@ -574,7 +574,7 @@ public sealed partial class HostCore {
 			return Task.FromResult(CommandResult.Failure(ex.Message));
 		}
 
-		var result = new TaskCompletionSource<CommandResult>();
+		var result = new TaskCompletionSource<CommandResult>(TaskCreationOptions.RunContinuationsAsynchronously);
 		_ui.Post(() => {
 			try {
 				LoadSlotInBackground(target);
@@ -621,7 +621,7 @@ public sealed partial class HostCore {
 		}
 
 		if (ReferenceEquals(target.Session, source)) {
-			context.AfterReply(() => UnloadAfterReplyAsync(target));
+			context.AfterReply(ct => UnloadAfterReplyAsync(target, ct));
 			return CommandResult.Success("Unloading the session (its worktree will be kept).");
 		}
 
@@ -629,11 +629,13 @@ public sealed partial class HostCore {
 		return CommandResult.Success("Unloaded the session (its worktree is kept; click the chip to reload).");
 	}
 
-	private async Task UnloadAfterReplyAsync(SessionSlot target) {
+	private async Task UnloadAfterReplyAsync(SessionSlot target, CancellationToken ct) {
 		try {
 			await RunSessionLifecycleAsync(
-				() => _ui.InvokeAsync(() => UnloadSlotAsync(target), CancellationToken.None),
-				CancellationToken.None).ConfigureAwait(false);
+				() => _ui.InvokeAsync(() => UnloadSlotAsync(target), ct),
+				ct).ConfigureAwait(false);
+		} catch (OperationCanceledException) when (ct.IsCancellationRequested) {
+			throw;
 		} catch (Exception ex) {
 			Notify("error", $"Couldn't unload session '{target.Label}': {ex.Message}");
 			throw;
@@ -712,11 +714,11 @@ public sealed partial class HostCore {
 		}
 
 		if (ReferenceEquals(target.Session, source)) {
-			context.AfterReply(() => DeleteAfterReplyAsync(target, worktrees, worktreePath, label, force));
+			context.AfterReply(ct => DeleteAfterReplyAsync(target, worktrees, worktreePath, label, force, ct));
 			return CommandResult.Success($"Deleting session '{label}' (the branch will be kept).");
 		}
 
-		return await DeleteAfterPreflightAsync(target, worktrees, worktreePath, label, force).ConfigureAwait(false);
+		return await DeleteAfterPreflightAsync(target, worktrees, worktreePath, label, force, ct).ConfigureAwait(false);
 	}
 
 	private async Task DeleteAfterReplyAsync(
@@ -724,10 +726,11 @@ public sealed partial class HostCore {
 		WorktreeManager worktrees,
 		string worktreePath,
 		string label,
-		bool force) {
+		bool force,
+		CancellationToken ct) {
 		var result = await RunSessionLifecycleAsync(
-			() => DeleteAfterPreflightAsync(target, worktrees, worktreePath, label, force),
-			CancellationToken.None).ConfigureAwait(false);
+			() => DeleteAfterPreflightAsync(target, worktrees, worktreePath, label, force, ct),
+			ct).ConfigureAwait(false);
 		if (!result.Ok) {
 			Notify("error", result.Error ?? $"Couldn't delete session '{label}'.");
 		}
@@ -759,7 +762,8 @@ public sealed partial class HostCore {
 		WorktreeManager worktrees,
 		string worktreePath,
 		string label,
-		bool force) {
+		bool force,
+		CancellationToken admissionCancellation) {
 		try {
 			if (!ReferenceEquals(_sessions?.Find(target.Id), target)) {
 				return CommandResult.Success($"Session '{label}' is already deleted.");
@@ -770,7 +774,7 @@ public sealed partial class HostCore {
 			// its teardown from off it. Past the dirty guard deletion is deliberately uncancellable: self-delete
 			// tears down the endpoint that accepted the command, and git must not be interrupted mid-removal.
 			if (target.Loaded) {
-				await _ui.InvokeAsync(() => UnloadSlotAsync(target), CancellationToken.None).ConfigureAwait(false);
+				await _ui.InvokeAsync(() => UnloadSlotAsync(target), admissionCancellation).ConfigureAwait(false);
 			}
 
 			// Settle before removal: Windows can lag on releasing the unloaded children's handles, and external
@@ -1030,7 +1034,7 @@ public sealed partial class HostCore {
 		string successMessage) {
 		var sessions = _sessions
 			?? throw new InvalidOperationException("The session catalog is not initialized.");
-		var result = new TaskCompletionSource<CommandResult>();
+		var result = new TaskCompletionSource<CommandResult>(TaskCreationOptions.RunContinuationsAsynchronously);
 		_ui.Post(() => {
 			SessionSlot? slot = null;
 			try {
@@ -1063,7 +1067,7 @@ public sealed partial class HostCore {
 	}
 
 	private Task<CommandResult> LoadExistingAsync(SessionSlot slot, string branch) {
-		var result = new TaskCompletionSource<CommandResult>();
+		var result = new TaskCompletionSource<CommandResult>(TaskCreationOptions.RunContinuationsAsynchronously);
 		_ui.Post(() => {
 			try {
 				LoadSlotInBackground(slot);

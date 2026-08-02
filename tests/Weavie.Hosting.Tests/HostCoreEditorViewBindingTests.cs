@@ -54,7 +54,7 @@ public sealed class HostCoreEditorViewBindingTests {
 		HostSession session,
 		string feature,
 		string name,
-		object payload) =>
+		object payload) {
 		host.Bridge.Receive(
 			peer,
 			MessageEnvelope.SessionEvent(
@@ -62,4 +62,6 @@ public sealed class HostCoreEditorViewBindingTests {
 				feature,
 				name,
 				JsonSerializer.SerializeToElement(payload)).ToJson());
+		host.DrainMessages();
+	}
 }

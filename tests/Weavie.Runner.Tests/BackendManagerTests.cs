@@ -323,14 +323,12 @@ public sealed class BackendManagerTests {
 		var secondStarted = firstStarted.AddMinutes(3);
 		state.Observe(first, firstSupervisor, firstStarted);
 		state.MarkReady();
-		state.UnreachableFailures = 2;
 
 		state.Observe(second, secondSupervisor, secondStarted);
 
 		Assert.Equal(1, firstSupervisor.Generation);
 		Assert.Equal(1, secondSupervisor.Generation);
 		Assert.False(state.Ready);
-		Assert.Equal(0, state.UnreachableFailures);
 		Assert.Equal(secondStarted, state.GenerationStarted);
 	}
 
@@ -339,7 +337,7 @@ public sealed class BackendManagerTests {
 	[InlineData(HttpStatusCode.OK,
 		"{\"healthy\":true,\"activeOperations\":[{\"id\":\"msg-1\",\"endpoint\":\"host\",\"feature\":\"sessions\",\"name\":\"load\",\"stage\":\"handler\",\"elapsedMs\":11000}]}",
 		"Busy")]
-	[InlineData(HttpStatusCode.InternalServerError, "{}", "Unreachable")]
+	[InlineData(HttpStatusCode.InternalServerError, "{}", "Unhealthy")]
 	public async Task HealthProbe_ClassifiesHealthyAndUnavailableResponses(
 		HttpStatusCode status,
 		string body,

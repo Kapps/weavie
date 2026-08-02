@@ -9,7 +9,6 @@ public sealed partial class BackendManager {
 	private static readonly TimeSpan HealthPollInterval = TimeSpan.FromSeconds(5);
 	private static readonly TimeSpan HealthRequestDeadline = TimeSpan.FromSeconds(3);
 	private static readonly TimeSpan StartupDeadline = TimeSpan.FromMinutes(2);
-	private const int UnreachableFailureLimit = 3;
 
 	private readonly CancellationTokenSource _healthCancellation = new();
 	private readonly DiagnosticWorker _healthDiagnostics = new(message => {
@@ -64,24 +63,12 @@ public sealed partial class BackendManager {
 					var health = await ProbeHealthAsync(backend, _healthCancellation.Token).ConfigureAwait(false);
 					switch (health.State) {
 						case WorkerHealthState.Healthy:
-							state.UnreachableFailures = 0;
 							supervisor.ReportHealthy(state.Generation);
 							break;
 						case WorkerHealthState.Busy:
-							state.UnreachableFailures = 0;
 							break;
 						case WorkerHealthState.Unhealthy:
 							ReplaceUnhealthy(backend, state.Generation, health.Detail);
-							break;
-						case WorkerHealthState.Unreachable:
-							state.UnreachableFailures++;
-							if (state.UnreachableFailures >= UnreachableFailureLimit) {
-								ReplaceUnhealthy(
-									backend,
-									state.Generation,
-									$"worker health probe failed {state.UnreachableFailures} times: {health.Detail}");
-							}
-
 							break;
 					}
 				} catch (Exception ex) when (!_healthCancellation.IsCancellationRequested) {
@@ -107,14 +94,14 @@ public sealed partial class BackendManager {
 			}
 
 			return new WorkerHealth(
-				WorkerHealthState.Unreachable,
+				WorkerHealthState.Unhealthy,
 				$"health endpoint returned HTTP {(int)response.StatusCode}");
 		} catch (OperationCanceledException) when (!ct.IsCancellationRequested) {
 			return new WorkerHealth(
-				WorkerHealthState.Unreachable,
+				WorkerHealthState.Unhealthy,
 				$"health endpoint did not answer within {HealthRequestDeadline.TotalSeconds:F0} seconds");
 		} catch (HttpRequestException ex) {
-			return new WorkerHealth(WorkerHealthState.Unreachable, ex.Message);
+			return new WorkerHealth(WorkerHealthState.Unhealthy, ex.Message);
 		}
 	}
 
@@ -234,7 +221,6 @@ internal enum WorkerHealthState {
 	Healthy,
 	Busy,
 	Unhealthy,
-	Unreachable,
 }
 
 internal sealed record WorkerHealth(WorkerHealthState State, string Detail);
@@ -249,8 +235,6 @@ internal sealed class WorkerHealthMonitorState {
 
 	public bool Ready { get; private set; }
 
-	public int UnreachableFailures { get; set; }
-
 	public void Observe(WorkspaceBackend backend, ProcessSupervisor supervisor, DateTimeOffset now) {
 		if (ReferenceEquals(_backend, backend)
 			&& ReferenceEquals(_supervisor, supervisor)
@@ -263,7 +247,6 @@ internal sealed class WorkerHealthMonitorState {
 		Generation = supervisor.Generation;
 		GenerationStarted = now;
 		Ready = false;
-		UnreachableFailures = 0;
 	}
 
 	public void MarkReady() => Ready = true;
@@ -274,6 +257,5 @@ internal sealed class WorkerHealthMonitorState {
 		Generation = 0;
 		GenerationStarted = default;
 		Ready = false;
-		UnreachableFailures = 0;
 	}
 }

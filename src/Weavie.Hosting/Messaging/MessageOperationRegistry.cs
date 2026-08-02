@@ -5,7 +5,7 @@ using Weavie.Core.Diagnostics;
 namespace Weavie.Hosting.Messaging;
 
 internal sealed class MessageOperationRegistry {
-	private readonly ConcurrentDictionary<long, MessageOperation> _active = new();
+	private readonly ConcurrentDictionary<string, MessageOperation> _active = new();
 	private readonly Action<WebPeer, string> _sendToPeer;
 	private readonly DiagnosticWorker _diagnostics;
 	private readonly DiagnosticWorker _deliveryDiagnostics;
@@ -49,7 +49,7 @@ internal sealed class MessageOperationRegistry {
 			OnSlow,
 			(op, detail) => OnTimedOut(op, detail, timedOut),
 			OnCompleted);
-		if (!_active.TryAdd(sequence, operation)) {
+		if (!_active.TryAdd(operation.Id, operation)) {
 			throw new InvalidOperationException($"Message operation sequence {sequence} is already active.");
 		}
 
@@ -83,7 +83,7 @@ internal sealed class MessageOperationRegistry {
 		Action<MessageOperation, string> timedOut) {
 		var snapshot = operation.Snapshot();
 		Volatile.Write(ref _lastFailure, snapshot);
-		Remove(operation);
+		_active.TryRemove(operation.Id, out _);
 		timedOut(operation, detail);
 		_diagnostics.Report($"[message] timed out {Describe(snapshot)}");
 		RunDiagnostic(operation.Id, () => operation.RunTerminalDiagnostic(() =>
@@ -91,7 +91,7 @@ internal sealed class MessageOperationRegistry {
 	}
 
 	private void OnCompleted(MessageOperation operation, bool wasSlow) {
-		Remove(operation);
+		_active.TryRemove(operation.Id, out _);
 		if (wasSlow) {
 			RunDiagnostic(operation.Id, () => operation.RunTerminalDiagnostic(() =>
 				SendEvent(operation, "notifications", "clear", new { key = operation.NotificationKey })));
@@ -100,15 +100,6 @@ internal sealed class MessageOperationRegistry {
 
 	private void RunDiagnostic(string operationId, Action diagnostic) =>
 		_deliveryDiagnostics.Run($"message operation {operationId}", diagnostic);
-
-	private void Remove(MessageOperation operation) {
-		foreach (var entry in _active) {
-			if (ReferenceEquals(entry.Value, operation)) {
-				_active.TryRemove(entry.Key, out _);
-				return;
-			}
-		}
-	}
 
 	private void SendNotification(MessageOperation operation, string level, string message, string key) =>
 		SendEvent(operation, "notifications", "show", new { level, message, key });

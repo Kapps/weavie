@@ -14,7 +14,7 @@ test("compact session inbox creates, resumes, and switches existing surfaces", a
   await inbox
     .getByRole("textbox", { name: "Prompt for a new session" })
     .fill("Improve mobile navigation");
-  await inbox.getByRole("button", { name: "Start" }).click();
+  await inbox.getByRole("button", { name: "Start", exact: true }).click();
 
   await expect(inbox).toBeHidden();
   await expect(page.locator(".mobile-surface-button.active")).toHaveText("Agent");

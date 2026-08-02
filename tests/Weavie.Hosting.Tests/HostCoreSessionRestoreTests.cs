@@ -38,6 +38,7 @@ public sealed class HostCoreSessionRestoreTests {
 		AssertAddress(created, host.Session("branch-a"));
 		using (var data = JsonDocument.Parse(Assert.IsType<string>(created.DataJson))) {
 			Assert.True(data.RootElement.GetProperty("activateSession").GetBoolean());
+			Assert.True(data.RootElement.GetProperty("createdSession").GetBoolean());
 		}
 		Assert.True((await host.CreateSessionAsync("branch-b")).Ok);
 		host.SelectSession("branch-a");
@@ -51,6 +52,21 @@ public sealed class HostCoreSessionRestoreTests {
 		Assert.False(a.TryGetProperty("active", out _));
 		Assert.False(b.TryGetProperty("active", out _));
 		Assert.Equal("primary", host.SelectedSession.SlotId);
+	}
+
+	[Fact]
+	public async Task ReopeningAnExistingSession_ActivatesWithoutReportingCreation() {
+		await using var host = await TestHost.StartAsync();
+		Assert.True((await host.CreateSessionAsync("branch-a")).Ok);
+
+		var reopened = await host.InvokeClientCommandAsync(
+			SessionCommands.NewSession,
+			new { branch = "branch-a", existing = true });
+
+		Assert.True(reopened.Ok, reopened.Error);
+		using var data = JsonDocument.Parse(Assert.IsType<string>(reopened.DataJson));
+		Assert.True(data.RootElement.GetProperty("activateSession").GetBoolean());
+		Assert.False(data.RootElement.TryGetProperty("createdSession", out _));
 	}
 
 	[Fact]

@@ -1,4 +1,3 @@
-using Weavie.Core.Commands;
 using Weavie.Core.Mcp;
 using Weavie.Core.Shell;
 using Weavie.Hosting;
@@ -7,7 +6,7 @@ namespace Weavie.Headless;
 
 /// <summary>
 /// The thinnest <see cref="IHostPlatform"/>: WebSocket bridge, a serial dispatcher standing in for the UI
-/// thread, per-OS PTY backend, no native window / hotkey / dialog.
+/// thread, per-OS PTY backend, no native window or dialog.
 /// </summary>
 internal sealed class HeadlessPlatform : IHostPlatform {
 	public HeadlessPlatform(IWebTransportHub bridge, IUiDispatcher dispatcher, HostTransport transport) {
@@ -37,8 +36,6 @@ internal sealed class HeadlessPlatform : IHostPlatform {
 	public IShellWindow? Window => null;
 
 	public IShellMenuActions MenuActions => NoopShellMenuActions.Instance;
-
-	public IGlobalHotkeyRegistrar? HotkeyRegistrar => null;
 
 	public IHostDialogs? Dialogs => null;
 

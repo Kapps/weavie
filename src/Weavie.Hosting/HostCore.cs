@@ -84,8 +84,6 @@ public sealed partial class HostCore : IAsyncDisposable {
 	// separate required adapter because native-frame hosts can still render the web app bar.
 	private ShellController? _shell;
 	private ShellMenuController? _shellMenu;
-	// Global OS hotkeys, present only when the platform exposes a registrar. Disposed with the core.
-	private GlobalHotkeyService? _hotkeys;
 	// The app-global stores (settings / keybindings / theme overrides) may outlive a window (Windows), so the
 	// reaction handlers are kept here and detached on dispose to avoid leaking this core into them.
 	private Action? _onKeybindingsChanged;
@@ -200,9 +198,9 @@ public sealed partial class HostCore : IAsyncDisposable {
 
 	/// <summary>
 	/// Builds the workspace's live backend: the primary session, the session set (pre-existing worktrees
-	/// reconciled into dormant chips), the title-bar controller + global hotkeys where supported, and the store
-	/// reactions. Idempotent — the shell may kick it off early (to overlap WebView2 bring-up) and the web launcher
-	/// awaits it again; both join one run. Call after the bridge is attached.
+	/// reconciled into dormant chips), the title-bar controller, and the store reactions. Idempotent — the shell
+	/// may kick it off early (to overlap WebView2 bring-up) and the web launcher awaits it again; both join one run.
+	/// Call after the bridge is attached.
 	/// </summary>
 	public Task StartAsync() {
 		lock (_startGate) {
@@ -262,13 +260,6 @@ public sealed partial class HostCore : IAsyncDisposable {
 
 		// Contextual suggestions: the manifest probe runs off the hot path; its state is pushed independently.
 		InitSuggestions();
-
-		// Global hotkeys (e.g. ctrl+` → toggle the window): the service reads the global bindings and dispatches
-		// to the primary session's command dispatcher (the always-loaded one), where the handlers are wired.
-		if (_platform.HotkeyRegistrar is { } registrar) {
-			_hotkeys = new GlobalHotkeyService(_keybindings, _primarySession.Commands, registrar);
-			_hotkeys.Log += Log;
-		}
 
 		WireReactions();
 		_http.MarkReady();
@@ -488,10 +479,6 @@ public sealed partial class HostCore : IAsyncDisposable {
 		Attempt(() => _bridge.MessageReceived -= OnWebMessage);
 		Attempt(() => _bridge.PeerDisconnected -= OnWebPeerDisconnected);
 		Attempt(DetachReactions);
-		Attempt(() => {
-			_hotkeys?.Dispose();
-			_hotkeys = null;
-		});
 		Attempt(() => _drainTick?.Cancel());
 		Attempt(_sessionStore.Flush);
 

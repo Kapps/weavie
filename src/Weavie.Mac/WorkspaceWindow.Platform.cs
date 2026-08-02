@@ -1,4 +1,3 @@
-using Weavie.Core.Commands;
 using Weavie.Core.Mcp;
 using Weavie.Core.Shell;
 using Weavie.Hosting;
@@ -7,7 +6,7 @@ namespace Weavie.Mac;
 
 // The macOS IHostPlatform seam, one per workspace window. The window owns the bridge + web view; the shared native
 // pieces (UI marshal, PTY launcher, dialogs, recents) come from the controller. Native NSWindow chrome + NSMenu, so
-// there's no web title bar driving the window (Window null), and global hotkeys are app-level (HotkeyRegistrar null).
+// there's no web title bar driving the window (Window null), and global hotkeys are app-level.
 internal sealed partial class WorkspaceWindow : IHostPlatform {
 	IWebTransportHub IHostPlatform.Bridge => _bridge;
 
@@ -40,9 +39,6 @@ internal sealed partial class WorkspaceWindow : IHostPlatform {
 	void IShellMenuActions.ShowOpenFolderPicker() => _app.OpenFolderInteractive();
 
 	void IShellMenuActions.OpenWorkspace(string path) => _app.OpenOrFocus(path);
-
-	// Global hotkeys are registered once at the app level (AppDelegate), not per window.
-	IGlobalHotkeyRegistrar? IHostPlatform.HotkeyRegistrar => null;
 
 	IHostDialogs? IHostPlatform.Dialogs => _app.Dialogs;
 

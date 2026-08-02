@@ -1,4 +1,3 @@
-using Weavie.Core.Commands;
 using Weavie.Core.Mcp;
 using Weavie.Core.Shell;
 
@@ -7,7 +6,7 @@ namespace Weavie.Hosting;
 /// <summary>
 /// Everything native a <see cref="HostCore"/> needs from its platform shell, behind one seam so the core stays
 /// platform-agnostic. Required members (bridge, dispatcher, PTY launcher, chrome identity) every host supplies;
-/// optional ones (<see cref="Window"/>, <see cref="HotkeyRegistrar"/>, <see cref="Dialogs"/>) are <c>null</c>
+/// optional ones (<see cref="Window"/>, <see cref="Dialogs"/>) are <c>null</c>
 /// where unsupported (e.g. headless), and the core degrades the matching feature to a no-op.
 /// </summary>
 public interface IHostPlatform {
@@ -37,9 +36,6 @@ public interface IHostPlatform {
 
 	/// <summary>The native application/workspace actions driven by a web File menu.</summary>
 	IShellMenuActions MenuActions { get; }
-
-	/// <summary>The OS global-hotkey registrar, or <c>null</c> when the host registers no global hotkeys.</summary>
-	IGlobalHotkeyRegistrar? HotkeyRegistrar { get; }
 
 	/// <summary>The native modal file dialogs, or <c>null</c> when the host has no native UI.</summary>
 	IHostDialogs? Dialogs { get; }

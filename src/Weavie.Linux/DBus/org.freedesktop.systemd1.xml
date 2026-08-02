@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<node>
+  <interface name="org.freedesktop.DBus.Properties">
+    <method name="Get">
+      <arg type="s" name="interface_name" direction="in" />
+      <arg type="s" name="property_name" direction="in" />
+      <arg type="v" name="value" direction="out" />
+    </method>
+  </interface>
+  <interface name="org.freedesktop.systemd1.Manager">
+    <method name="Subscribe" />
+    <method name="GetUnitByPID">
+      <arg type="u" name="pid" direction="in" />
+      <arg type="o" name="unit" direction="out" />
+    </method>
+    <method name="StartTransientUnit">
+      <arg type="s" name="name" direction="in" />
+      <arg type="s" name="mode" direction="in" />
+      <arg type="a(sv)" name="properties" direction="in" />
+      <arg type="a(sa(sv))" name="aux" direction="in" />
+      <arg type="o" name="job" direction="out" />
+    </method>
+    <signal name="JobRemoved">
+      <arg type="u" name="id" />
+      <arg type="o" name="job" />
+      <arg type="s" name="unit" />
+      <arg type="s" name="result" />
+    </signal>
+  </interface>
+</node>

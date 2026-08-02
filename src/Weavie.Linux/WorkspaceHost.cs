@@ -26,6 +26,7 @@ internal sealed partial class WorkspaceHost : IWebSurface, IShellMenuActions {
 
 	private HostCore? _core;
 	private HostServices? _services;
+	private ApplicationHotkeys? _hotkeys;
 	private RecentWorkspaces? _recents;
 	private AppSchemeHandler? _scheme;
 	private string? _wwwroot;
@@ -70,6 +71,12 @@ internal sealed partial class WorkspaceHost : IWebSurface, IShellMenuActions {
 		_onDestroy = OnWindowDestroy;
 		_ = GLib.g_signal_connect_data(
 			_window, "destroy", Marshal.GetFunctionPointerForDelegate(_onDestroy), IntPtr.Zero, IntPtr.Zero, 0);
+		_hotkeys = new ApplicationHotkeys(
+			_services.CommandRegistry,
+			_services.Keybindings,
+			new LinuxGlobalHotkeys(ApplyWaylandActivationToken),
+			ToggleWindow,
+			Log);
 
 		string? workspace = InitialWorkspace.Resolve(_services.Settings, _recents);
 		if (workspace is null) {
@@ -86,7 +93,7 @@ internal sealed partial class WorkspaceHost : IWebSurface, IShellMenuActions {
 	private void OpenWorkspace(string root) {
 		_recents!.Add(root);
 		_core = new HostCore(
-			new LinuxPlatform(_bridge, _recents, this),
+			new LinuxPlatform(_bridge, _recents, this, ToggleWindow),
 			_services!,
 			root,
 			WorkspaceHttpServerOptions.Native(_wwwroot!),
@@ -133,6 +140,7 @@ internal sealed partial class WorkspaceHost : IWebSurface, IShellMenuActions {
 	/// <summary>Persists geometry, tears down the core, and disposes the app stores; called after the main loop exits.</summary>
 	internal void Shutdown() {
 		SaveWindowState();
+		DisposeHotkeys();
 		_core?.DisposeAsync().AsTask().GetAwaiter().GetResult();
 		_services?.Keybindings.Dispose();
 		_services?.Settings.Dispose();
@@ -140,7 +148,35 @@ internal sealed partial class WorkspaceHost : IWebSurface, IShellMenuActions {
 
 	private void OnWindowDestroy(IntPtr widget, IntPtr userData) {
 		SaveWindowState();
+		DisposeHotkeys();
 		Gtk.gtk_main_quit();
+	}
+
+	private void ToggleWindow() {
+		if (Gtk.gtk_window_is_active(_window)) {
+			Gtk.gtk_widget_hide(_window);
+			return;
+		}
+
+		Gtk.gtk_widget_show_all(_window);
+		Gtk.gtk_window_present(_window);
+		_shown = true;
+	}
+
+	private void ApplyWaylandActivationToken(string token) {
+		if (!Gtk.gtk_window_is_active(_window)) {
+			Gdk.gdk_wayland_display_set_startup_notification_id(Gdk.gdk_display_get_default(), token);
+		}
+	}
+
+	private void DisposeHotkeys() {
+		_hotkeys?.Dispose();
+		_hotkeys = null;
+	}
+
+	private static void Log(string line) {
+		Console.WriteLine(line);
+		Console.Out.Flush();
 	}
 
 	private void InjectAtDocumentStart(string source) {

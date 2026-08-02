@@ -1052,7 +1052,7 @@ public sealed partial class HostCore {
 
 				result.SetResult(CommandResult.Success(
 					successMessage,
-					SessionActivationJson(slot)));
+					CreatedSessionActivationJson(slot)));
 			} catch (Exception ex) {
 				result.SetException(slot is null
 					? ex
@@ -1090,16 +1090,28 @@ public sealed partial class HostCore {
 	}
 
 	private static string SessionActivationJson(SessionSlot slot) {
-		var address = slot.Session?.Address
-			?? throw new InvalidOperationException("A dormant session has no live address.");
 		return JsonSerializer.Serialize(new {
 			id = slot.Id,
-			address = new {
-				slot = address.Slot,
-				incarnation = address.Incarnation,
-			},
+			address = LiveAddress(slot),
 			activateSession = true,
 		});
+	}
+
+	private static string CreatedSessionActivationJson(SessionSlot slot) =>
+		JsonSerializer.Serialize(new {
+			id = slot.Id,
+			address = LiveAddress(slot),
+			activateSession = true,
+			createdSession = true,
+		});
+
+	private static object LiveAddress(SessionSlot slot) {
+		var address = slot.Session?.Address
+			?? throw new InvalidOperationException("A dormant session has no live address.");
+		return new {
+			slot = address.Slot,
+			incarnation = address.Incarnation,
+		};
 	}
 
 	private async Task<string> ResolveBaseRefAsync(

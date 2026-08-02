@@ -32,8 +32,8 @@ internal sealed class StaticFront : ITlsFront {
 	public string WorkerPageUrl(string requestHost, WorkspaceBackend backend) {
 		ArgumentNullException.ThrowIfNull(backend);
 		return Secure
-			? $"https://{TlsUrls.HostPort(_options.PublicHost!, _options.WorkerHttpsPort)}/?token={backend.Token}"
-			: $"http://{requestHost}:{backend.Port}/?token={backend.Token}";
+			? $"https://{TlsUrls.HostPort(_options.PublicHost!, _options.WorkerHttpsPort)}/index.html"
+			: $"http://{requestHost}:{backend.Port}/index.html";
 	}
 
 	/// <inheritdoc/>

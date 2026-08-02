@@ -1,0 +1,186 @@
+.session-inbox {
+  position: absolute;
+  inset: 0 0 calc(54px + env(safe-area-inset-bottom));
+  z-index: 10;
+  display: none;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 0;
+  padding: max(18px, env(safe-area-inset-top)) 14px 14px;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.session-inbox-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.session-inbox-header h1 {
+  margin: 0;
+  font-size: 1.5em;
+  line-height: 1.2;
+}
+
+.session-inbox-header span,
+.session-inbox-details span,
+.session-inbox-state,
+.session-inbox-empty {
+  color: var(--dim);
+  font-size: var(--font-hint-size);
+}
+
+.session-composer {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bar);
+}
+
+.session-composer:focus-within {
+  border-color: var(--accent);
+}
+
+.session-composer textarea {
+  display: block;
+  width: 100%;
+  min-height: 78px;
+  resize: none;
+  padding: 12px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--fg);
+  font-family: var(--font-content-family);
+  font-size: var(--font-content-size);
+  font-weight: var(--font-content-weight);
+  line-height: 1.4;
+}
+
+.session-composer-options {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px;
+  border-top: 1px solid var(--border);
+}
+
+.session-composer-options select,
+.session-composer-options button {
+  min-width: 0;
+  min-height: 36px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--fg);
+  font-size: var(--font-hint-size);
+}
+
+.session-composer-options select {
+  flex: 1 1 0;
+}
+
+.session-composer-more,
+.session-composer-options .session-composer-submit {
+  flex: 0 0 auto;
+}
+
+.session-composer-options .session-composer-submit {
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.session-composer-submit:disabled {
+  opacity: 0.45;
+}
+
+.session-inbox-list {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.session-inbox-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 58px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: var(--bar);
+  color: var(--fg);
+  text-align: left;
+}
+
+.session-inbox-row.active {
+  border-color: color-mix(in srgb, var(--accent) 65%, var(--border));
+}
+
+.session-inbox-row:disabled {
+  opacity: 0.45;
+}
+
+.session-inbox-monogram {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+  border-radius: 9px;
+  background: hsl(var(--chip-hue, 200) 45% 38%);
+  color: #fff;
+  font-weight: 600;
+}
+
+.session-inbox-details {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.session-inbox-details strong,
+.session-inbox-details span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-inbox-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.session-inbox-row.status-idle .session-status {
+  background: var(--ok);
+}
+
+.session-inbox-row.status-working .session-status,
+.session-inbox-row.status-waiting .session-status,
+.session-inbox-row.status-starting .session-status {
+  background: var(--busy);
+}
+
+.session-inbox-row.status-needsInput .session-status {
+  background: var(--warn);
+}
+
+.session-inbox-row.status-error .session-status {
+  background: var(--bad);
+}
+
+@media (max-width: 760px), ((max-height: 520px) and (pointer: coarse)) {
+  .app.compact .session-inbox {
+    display: flex;
+  }
+}

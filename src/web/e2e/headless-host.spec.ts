@@ -23,7 +23,10 @@ const hostDll = join(
 
 // Resolve with the port the host actually bound, parsed from its ready line, so the browser never races
 // the listener and never assumes the requested port.
-function waitForListening(proc: ChildProcess, timeoutMs: number): Promise<string> {
+function waitForListening(
+  proc: ChildProcess,
+  timeoutMs: number,
+): Promise<{ url: string; token: string }> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(
       () => reject(new Error("host did not report listening in time")),
@@ -32,10 +35,11 @@ function waitForListening(proc: ChildProcess, timeoutMs: number): Promise<string
     let buffer = "";
     proc.stdout?.on("data", (chunk: Buffer) => {
       buffer += chunk.toString("utf8");
-      const match = buffer.match(/open\s+(http:\/\/127\.0\.0\.1:\d+\/index\.html\?token=[^\s]+)/);
-      if (match) {
+      const url = buffer.match(/open\s+(http:\/\/127\.0\.0\.1:\d+\/index\.html)/)?.[1];
+      const token = buffer.match(/\[weavie-headless\] token ([^\s]+)/)?.[1];
+      if (url && token) {
         clearTimeout(timer);
-        resolve(match[1] as string);
+        resolve({ url, token });
       }
     });
     proc.on("exit", (code) => {
@@ -53,6 +57,7 @@ test.describe("headless host (real Weavie.Core over WebSocket)", () => {
 
   let proc: ChildProcess;
   let pageUrl = "";
+  let token = "";
 
   test.beforeAll(async () => {
     // A throwaway workspace so the test never mutates the repo or collides on the editor-session file.
@@ -66,7 +71,7 @@ test.describe("headless host (real Weavie.Core over WebSocket)", () => {
       },
       stdio: ["ignore", "pipe", "pipe"],
     });
-    pageUrl = await waitForListening(proc, 30_000);
+    ({ url: pageUrl, token } = await waitForListening(proc, 30_000));
   });
 
   test.afterAll(() => {
@@ -76,6 +81,11 @@ test.describe("headless host (real Weavie.Core over WebSocket)", () => {
   test("a browser completes the host hello and renders the returned session catalog", async ({
     page,
   }) => {
+    const connected = await page.request.post(pageUrl, {
+      form: { token },
+      maxRedirects: 0,
+    });
+    expect(connected.status()).toBe(302);
     await page.goto(pageUrl, { waitUntil: "domcontentloaded" });
 
     // The host injected the bridge URL, so the web picked the WebSocket transport. (String form so the

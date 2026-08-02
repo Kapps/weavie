@@ -27,7 +27,7 @@
     <_HookRelayExe Condition="$([MSBuild]::IsOSPlatform('Windows'))">weavie-hook-relay.exe</_HookRelayExe>
     <_HookRelayExe Condition="'$(_HookRelayExe)' == ''">weavie-hook-relay</_HookRelayExe>
     <_HookRelayRid Condition="'$(RuntimeIdentifier)' != ''">$(RuntimeIdentifier)</_HookRelayRid>
-    <_HookRelayRid Condition="'$(_HookRelayRid)' == ''">$(NETCoreSdkRuntimeIdentifier)</_HookRelayRid>
+    <_HookRelayRid Condition="'$(_HookRelayRid)' == ''">$(NETCoreSdkPortableRuntimeIdentifier)</_HookRelayRid>
     <!-- macOS hosts run managed code from the .app's MonoBundle; that's where the host exe's
          AppContext.BaseDirectory points, so the relay must sit there (appended to $(OutDir) in the targets). -->
     <_HookRelayDestSuffix Condition="$(TargetFramework.Contains('-macos'))">$(AssemblyName).app/Contents/MonoBundle/</_HookRelayDestSuffix>

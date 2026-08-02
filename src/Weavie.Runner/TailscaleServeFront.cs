@@ -52,7 +52,7 @@ internal sealed class TailscaleServeFront : ITlsFront {
 	/// <inheritdoc/>
 	public string WorkerPageUrl(string requestHost, WorkspaceBackend backend) {
 		ArgumentNullException.ThrowIfNull(backend);
-		return $"https://{TlsUrls.HostPort(_magicDns, _options.WorkerHttpsPort)}/?token={backend.Token}";
+		return $"https://{TlsUrls.HostPort(_magicDns, _options.WorkerHttpsPort)}/index.html";
 	}
 
 	/// <inheritdoc/>

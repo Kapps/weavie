@@ -153,6 +153,7 @@ jobs:
             src/Weavie.Analyzers/Weavie.Analyzers.csproj \
             tests/Weavie.Core.Tests/Weavie.Core.Tests.csproj \
             tests/Weavie.Hosting.Tests/Weavie.Hosting.Tests.csproj \
+            tests/Weavie.Linux.Tests/Weavie.Linux.Tests.csproj \
             tests/Weavie.Remote.Tests/Weavie.Remote.Tests.csproj \
             tests/Weavie.Runner.Tests/Weavie.Runner.Tests.csproj \
             tests/Weavie.Headless.Tests/Weavie.Headless.Tests.csproj \
@@ -164,7 +165,7 @@ jobs:
             echo "::endgroup::"
           done
 
-      # `dotnet format`'s 13 sequential design-time builds above each leave a VBCSCompiler/MSBuild node-reuse
+      # `dotnet format`'s 14 sequential design-time builds above each leave a VBCSCompiler/MSBuild node-reuse
       # server running in the background (the CLI's default perf optimization), so their memory stacks up
       # across the whole loop instead of being freed between projects. Flaked 2026-07-19 16:05 UTC: the
       # Hosting test run right after this step failed 141/318 tests with FileNotFoundException loading
@@ -189,6 +190,10 @@ jobs:
       - name: Test (hosting)
         if: matrix.name == 'linux'
         run: dotnet test tests/Weavie.Hosting.Tests/Weavie.Hosting.Tests.csproj -c Debug
+
+      - name: Test (Linux environment boundary)
+        if: matrix.name == 'linux'
+        run: dotnet test tests/Weavie.Linux.Tests/Weavie.Linux.Tests.csproj -c Debug
 
       # Headless host (browser-connectable Weavie): the host the web e2e drives on every OS. Building it
       # copies the web app built above into its wwwroot. The e2e then drives the bridge transport against

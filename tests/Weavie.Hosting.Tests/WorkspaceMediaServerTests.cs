@@ -53,7 +53,6 @@ public sealed class WorkspaceMediaServerTests {
 		await File.WriteAllBytesAsync(inside, [1, 2, 3]);
 		await File.WriteAllTextAsync(html, "<script>window.top.pwned = true</script>");
 		await File.WriteAllTextAsync(svg, "<svg xmlns=\"http://www.w3.org/2000/svg\"><script>alert(1)</script></svg>");
-		var page = new Uri(host.Core.WorkspacePageUrl);
 		string noToken = $"{host.Core.WorkspaceOrigin}/weavie-media?session={host.PrimaryIncarnation}&path={Uri.EscapeDataString(inside)}";
 
 		using var unauthorized = await Http.GetAsync(noToken);
@@ -69,7 +68,7 @@ public sealed class WorkspaceMediaServerTests {
 		using var wrongSession = await Http.GetAsync(MediaUrl(host, "not-loaded", inside));
 		using var activeHtml = await Http.GetAsync(MediaUrl(host, host.PrimaryIncarnation, html));
 		using var activeSvg = await Http.GetAsync(MediaUrl(host, host.PrimaryIncarnation, svg));
-		string malformed = $"{host.Core.WorkspaceOrigin}/weavie-media?{page.Query.TrimStart('?')}"
+		string malformed = $"{host.Core.WorkspaceOrigin}/weavie-media?token={host.Core.WorkspaceAccessToken}"
 			+ $"&session={Uri.EscapeDataString(host.PrimaryIncarnation)}&path=%00";
 		using var malformedPath = await Http.GetAsync(malformed);
 
@@ -83,7 +82,6 @@ public sealed class WorkspaceMediaServerTests {
 			using var systemFile = await Http.GetAsync(MediaUrl(host, host.PrimaryIncarnation, "/etc/passwd"));
 			Assert.Equal(HttpStatusCode.NotFound, systemFile.StatusCode);
 		}
-		Assert.Equal("token", page.Query.Split('=')[0].TrimStart('?'));
 	}
 
 	[Fact]
@@ -121,8 +119,7 @@ public sealed class WorkspaceMediaServerTests {
 	}
 
 	private static string MediaUrl(TestHost host, string sessionId, string path) {
-		string token = new Uri(host.Core.WorkspacePageUrl).Query.TrimStart('?');
-		return $"{host.Core.WorkspaceOrigin}/weavie-media?{token}"
+		return $"{host.Core.WorkspaceOrigin}/weavie-media?token={host.Core.WorkspaceAccessToken}"
 			+ $"&session={Uri.EscapeDataString(sessionId)}&path={Uri.EscapeDataString(path)}";
 	}
 }

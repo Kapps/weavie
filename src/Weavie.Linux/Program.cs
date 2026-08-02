@@ -1,6 +1,8 @@
 using Weavie.Linux;
+using Weavie.Linux.Hosting;
 using Weavie.Linux.Native;
 
+LinuxGraphicsCompatibility.Apply();
 Gtk.gtk_init(IntPtr.Zero, IntPtr.Zero);
 
 const string missingAudioSink =

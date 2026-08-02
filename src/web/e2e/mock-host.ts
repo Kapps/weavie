@@ -537,7 +537,7 @@ export class MockHost {
       } else {
         res
           .writeHead(200, { ...headers, "content-type": "application/json" })
-          .end(JSON.stringify({ url: `${this.url}/index.html?token=mock` }));
+          .end(JSON.stringify({ url: `${this.url}/index.html`, token: "mock" }));
       }
       return;
     }

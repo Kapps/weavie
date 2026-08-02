@@ -139,6 +139,9 @@ import { paneOrder } from "./layout/geometry";
 import { LayoutView } from "./layout/LayoutView";
 import { DEFAULT_LAYOUT_ROOT, layoutDocument, sendLayout } from "./layout/store";
 import type { LayoutNode } from "./layout/types";
+import type { MobileSurface } from "./mobile/MobileSurfaceBar";
+import { MobileWorkspace } from "./mobile/MobileWorkspace";
+import { useCompactMode } from "./mobile/useCompactMode";
 // Session-attention intake (sounds + OS notifications): module-load side effect, like the session store.
 import "./notifications/attention";
 import "./notifications/intake";
@@ -177,6 +180,8 @@ const paneOf = (kind: string): TermSession => (kind === AGENT_PANE_KIND ? "claud
 
 export default function App(): JSX.Element {
   let editorContainer!: HTMLDivElement;
+  const compact = useCompactMode();
+  const [mobileSurface, setMobileSurface] = createSignal<MobileSurface>("inbox");
   const activeBackendId = (): string => selectedSession()?.connection.id ?? LOCAL_BACKEND_ID;
   const localHost = () => hostConnection(LOCAL_BACKEND_ID)?.host;
   const publishMenuAction = (action: string, path?: string): boolean => {
@@ -216,12 +221,36 @@ export default function App(): JSX.Element {
     );
     return binding === undefined ? "" : formatKey(binding.key);
   };
+  const mobileSurfaceTitle = (surface: MobileSurface, label: string): string => {
+    keybindingsVersion();
+    if (surface === "inbox") {
+      return `${label}${keyHint(CommandIds.showSessionInbox)}`;
+    }
+    const shortcut = paneShortcut(numberOf(surface));
+    return shortcut === "" ? label : `${label} (${shortcut})`;
+  };
+  const mobileMoreTitle = (): string => {
+    keybindingsVersion();
+    return `More…${keyHint(CommandIds.newSessionPrompt)}`;
+  };
   // What LayoutView renders: in fullscreen, just the active pane (filling the pane area); the others collapse
   // to display:none but stay mounted, preserving their terminal/editor state. Switching panes re-points this,
   // keeping each pane fullscreen. Off ⇒ the real layout, never mutated by fullscreen.
   const displayRoot = createMemo<LayoutNode>(() => {
+    if (compact()) {
+      const surface = mobileSurface();
+      const kind = surface === "inbox" ? (activePane() ?? AGENT_PANE_KIND) : surface;
+      return { type: "pane", id: "compact", kind };
+    }
     const kind = activePane();
     return fullscreen() && kind !== null ? { type: "pane", id: "fullscreen", kind } : layoutRoot();
+  });
+  createEffect(() => {
+    const enabled = compact();
+    setContext("compact", enabled);
+    if (enabled) {
+      dismissSplash();
+    }
   });
   const sessionKey = (session: ClientSession): string =>
     `${session.connection.id}\0${session.address.slot}\0${session.address.incarnation}`;
@@ -394,6 +423,9 @@ export default function App(): JSX.Element {
     // Mark it active first: in fullscreen this synchronously makes its slot the visible one (the others are
     // display:none), so the focus call below lands on an on-screen element rather than a hidden one.
     setActivePane(kind);
+    if (compact() && (kind === AGENT_PANE_KIND || kind === "terminal:shell" || kind === "editor")) {
+      setMobileSurface(kind);
+    }
     if (kind === "editor") {
       editor.focusEditor();
       return;
@@ -513,18 +545,26 @@ export default function App(): JSX.Element {
   const createSessionAt = (
     backendId: string,
     args: {
-      branch: string;
+      branch?: string;
       base: "source" | "main";
       existing: boolean;
+      prompt?: string;
       agentProviderId: "claude" | "codex";
     },
-  ): void => {
+  ): Promise<boolean> => {
     const commit = beginClientSelection();
-    void invokeCommandOnBackend(backendId, CommandIds.newSession, args)
+    return invokeCommandOnBackend(backendId, CommandIds.newSession, args)
       .then((result) => selectResultSession(backendId, result, commit))
-      .catch((error: unknown) =>
-        addToast("error", error instanceof Error ? error.message : String(error)),
-      );
+      .then(() => {
+        if (compact()) {
+          setMobileSurface(AGENT_PANE_KIND);
+        }
+        return true;
+      })
+      .catch((error: unknown) => {
+        addToast("error", error instanceof Error ? error.message : String(error));
+        return false;
+      });
   };
 
   const openPullRequestAt = (
@@ -560,7 +600,7 @@ export default function App(): JSX.Element {
       );
   };
 
-  const switchToSession = (session: RailSession): void => {
+  const switchToSession = (session: RailSession): Promise<boolean> => {
     // A backend whose link is down can't serve the switch — refuse loudly at the click rather than paint
     // the optimistic highlight and queue a frame that would replay as a stale navigation on reconnect.
     if (backendPhase(session.backendId) !== "online") {
@@ -569,12 +609,12 @@ export default function App(): JSX.Element {
         `Can't switch to ${session.label} — ${backendLabel(session.backendId)} isn't reachable right now (reconnecting…).`,
         `switch-offline:${session.backendId}`,
       );
-      return;
+      return Promise.resolve(false);
     }
     const commit = beginClientSelection();
     beginSessionSelection(session.backendId, session.id);
     flushEditorSession();
-    void editor
+    return editor
       .flushDirty()
       .then(async () => {
         let target = clientSession(session.backendId, session.id);
@@ -589,8 +629,15 @@ export default function App(): JSX.Element {
         }
         commit(target);
       })
+      .then(() => {
+        if (compact()) {
+          setMobileSurface(AGENT_PANE_KIND);
+        }
+        return true;
+      })
       .catch((error: unknown) => {
         addToast("error", error instanceof Error ? error.message : String(error));
+        return false;
       });
   };
 
@@ -1235,6 +1282,13 @@ export default function App(): JSX.Element {
       }),
       // New Session… (Ctrl+Shift+N / palette / the rail's "+"): open the branch-name prompt.
       registerCommand(CommandIds.newSessionPrompt, () => setNewSessionOpen(true)),
+      registerCommand(CommandIds.showSessionInbox, () => {
+        if (!compact()) {
+          return false;
+        }
+        setMobileSurface("inbox");
+        return true;
+      }),
       // Open Pull Request… (Ctrl+Shift+R / palette): pick a PR to check out as a session.
       registerCommand(CommandIds.openPr, () => setOpenPrOpen(true)),
       registerCommand(CommandIds.openCurrentPr, () => {
@@ -1373,7 +1427,7 @@ export default function App(): JSX.Element {
   });
 
   return (
-    <div class="app">
+    <div class="app" classList={{ compact: compact() }}>
       <Show when={CUSTOM_TITLEBAR}>
         <TitleBar
           maximized={windowMaximized()}
@@ -1427,9 +1481,44 @@ export default function App(): JSX.Element {
             )
           }
         />
-        <div class="pane-area" classList={{ offline: activeBackendOffline() }}>
+        <MobileWorkspace
+          surface={mobileSurface()}
+          sessions={sessions()}
+          initialBackendId={defaultLocation()}
+          initialProviderId={defaultAgentProvider()}
+          onOpen={switchToSession}
+          onCreate={(prompt, backendId, providerId) => {
+            setLastLocation(backendId);
+            setDefaultAgentProvider(providerId);
+            promoteNextSessionOn(backendId);
+            return createSessionAt(backendId, {
+              base: "source",
+              existing: false,
+              prompt,
+              agentProviderId: providerId,
+            });
+          }}
+          onMore={() => setNewSessionOpen(true)}
+          moreTitle={mobileMoreTitle()}
+          surfaceTitle={mobileSurfaceTitle}
+          onSurface={(surface) => {
+            if (surface === "inbox") {
+              setMobileSurface(surface);
+              return;
+            }
+            setMobileSurface(surface);
+            void dispatchCommand(CommandIds.focusPaneByIndex, { index: numberOf(surface) });
+          }}
+        />
+        <div
+          class="pane-area"
+          classList={{
+            offline: activeBackendOffline(),
+            "inbox-visible": compact() && mobileSurface() === "inbox",
+          }}
+        >
           <LayoutView root={displayRoot()} renderPane={renderPane} onResize={onLayoutResize} />
-          <Show when={fullscreen()}>
+          <Show when={fullscreen() && !compact()}>
             <button
               type="button"
               class="fullscreen-exit"

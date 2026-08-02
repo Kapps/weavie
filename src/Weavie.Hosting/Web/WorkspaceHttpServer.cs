@@ -11,11 +11,12 @@ using Microsoft.Net.Http.Headers;
 namespace Weavie.Hosting.Web;
 
 /// <summary>The authenticated workspace origin shared by Windows, macOS, Linux, and Headless.</summary>
-public sealed class WorkspaceHttpServer : IAsyncDisposable {
+public sealed partial class WorkspaceHttpServer : IAsyncDisposable {
 	private readonly HostCore _core;
 	private readonly WorkspaceHttpServerOptions _options;
 	private readonly IWorkspaceWebSocketBridge _bridge;
 	private readonly WorkspaceMediaRoutes _media;
+	private readonly WorkspaceRequestAuthentication _authentication;
 	private WebApplication? _app;
 	private PhysicalFileProvider? _assets;
 	private bool _ready;
@@ -34,16 +35,26 @@ public sealed class WorkspaceHttpServer : IAsyncDisposable {
 		_options = options;
 		_bridge = bridge;
 		_media = media;
+		_authentication = new WorkspaceRequestAuthentication(options.Token);
 	}
 
 	/// <summary>The bound origin after <see cref="StartAsync"/> completes.</summary>
 	public string Origin { get; private set; } = string.Empty;
 
-	/// <summary>The token-gated workspace document URI after the server is bound.</summary>
-	public string PageUrl => $"{Origin}/index.html?token={Uri.EscapeDataString(_options.Token)}";
+	/// <summary>The clean workspace document URI after the server is bound.</summary>
+	public string PageUrl => $"{Origin}/index.html";
+
+	/// <summary>The native WebView URI that exchanges its bootstrap proof for a cookie and clean redirect.</summary>
+	public string NativePageUrl => $"{PageUrl}?bootstrap={Uri.EscapeDataString(_options.Token)}";
+
+	/// <summary>The token a browser submits once to establish its workspace cookie.</summary>
+	public string AccessToken => _options.Token;
 
 	/// <summary>The token-gated base URL the web app extends with session/path/revision query parameters.</summary>
-	public string MediaBaseUrl => $"{Origin}/weavie-media?token={Uri.EscapeDataString(_options.Token)}";
+	public string MediaBaseUrl => $"{Origin}/weavie-media";
+
+	internal string TransportMediaBaseUrl =>
+		$"{MediaBaseUrl}?token={Uri.EscapeDataString(_options.Token)}";
 
 	/// <summary>Binds Kestrel and begins accepting authenticated requests.</summary>
 	public async Task StartAsync() {
@@ -70,11 +81,12 @@ public sealed class WorkspaceHttpServer : IAsyncDisposable {
 			: null;
 		var assets = _assets;
 		app.Use(async (context, next) => {
-			var path = context.Request.Path;
+			string path = context.Request.Path.Value ?? "/";
+			bool index = path is "/" or "/index.html";
 			bool publicAsset = assets is not null
-				&& path != "/" && path != "/index.html"
-				&& assets.GetFileInfo(path.Value ?? "/").Exists;
-			if (publicAsset || TokenMatches(context, _options.Token)) {
+				&& !index
+				&& assets.GetFileInfo(path).Exists;
+			if (publicAsset || index || _authentication.Authenticates(context)) {
 				await next().ConfigureAwait(false);
 				return;
 			}
@@ -82,7 +94,9 @@ public sealed class WorkspaceHttpServer : IAsyncDisposable {
 			context.Response.StatusCode = StatusCodes.Status401Unauthorized;
 		});
 		app.Use(async (context, next) => {
-			if (Volatile.Read(ref _ready)) {
+			string path = context.Request.Path.Value ?? "/";
+			bool index = path is "/" or "/index.html";
+			if (Volatile.Read(ref _ready) || (index && !_authentication.CookieMatches(context))) {
 				await next().ConfigureAwait(false);
 				return;
 			}
@@ -117,6 +131,22 @@ public sealed class WorkspaceHttpServer : IAsyncDisposable {
 		app.Use(async (context, next) => {
 			string path = context.Request.Path.Value ?? "/";
 			if (path is "/" or "/index.html") {
+				if (HttpMethods.IsPost(context.Request.Method)) {
+					await _authentication.SignInAsync(context).ConfigureAwait(false);
+					return;
+				}
+
+				if (!_bridge.Available && _authentication.BootstrapTokenMatches(context)) {
+					_authentication.EstablishCookie(context);
+					context.Response.Redirect("/index.html");
+					return;
+				}
+
+				if (!_authentication.CookieMatches(context)) {
+					await WorkspaceConnectPage.WriteAsync(context, invalidToken: false).ConfigureAwait(false);
+					return;
+				}
+
 				await ServeIndexAsync(context).ConfigureAwait(false);
 				return;
 			}
@@ -167,6 +197,11 @@ public sealed class WorkspaceHttpServer : IAsyncDisposable {
 			context.Response.StatusCode = StatusCodes.Status400BadRequest;
 			return;
 		}
+		if (!_authentication.TransportTokenMatches(context)
+			&& !_authentication.CookieWebSocketOriginMatches(context)) {
+			context.Response.StatusCode = StatusCodes.Status403Forbidden;
+			return;
+		}
 
 		using var socket = await context.WebSockets.AcceptWebSocketAsync().ConfigureAwait(false);
 		using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(
@@ -196,30 +231,11 @@ public sealed class WorkspaceHttpServer : IAsyncDisposable {
 		}
 
 		string bridge = _bridge.Available ? "window.__WEAVIE_BRIDGE_WS__ = \"auto\";" : string.Empty;
-		string resourceBase = JsonSerializer.Serialize(
-			$"/weavie-media?token={Uri.EscapeDataString(_options.Token)}");
-		string bootstrap =
-			$"<script>{bridge}{_core.BuildBootstrap()}window.__WEAVIE_RESOURCE_BASE__ = {resourceBase};</script>";
+		string bootstrap = $"<script>{bridge}{_core.BuildBootstrap()}</script>";
 		html = html.Contains("<head>", StringComparison.Ordinal)
 			? html.Replace("<head>", "<head>" + bootstrap, StringComparison.Ordinal)
 			: bootstrap + html;
 		await context.Response.WriteAsync(html).ConfigureAwait(false);
-	}
-
-	private static bool TokenMatches(HttpContext context, string expected) {
-		string presented = context.Request.Query.TryGetValue("token", out var token)
-			? token.ToString()
-			: string.Empty;
-		if (presented.Length != expected.Length) {
-			return false;
-		}
-
-		int diff = 0;
-		for (int i = 0; i < expected.Length; i++) {
-			diff |= presented[i] ^ expected[i];
-		}
-
-		return diff == 0;
 	}
 
 	private static string NormalizeOrigin(string bound, string requestedBind) {

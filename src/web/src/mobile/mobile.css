@@ -29,7 +29,7 @@
     inset: 0 0 calc(54px + env(safe-area-inset-bottom));
   }
 
-  .app.compact .pane-area.inbox-visible .layout-root {
+  .app.compact.mobile-inbox .pane-area .layout-root {
     visibility: hidden;
     pointer-events: none;
   }
@@ -61,6 +61,17 @@
   .app.compact .connection-banner {
     width: calc(100% - 24px);
     justify-content: center;
+  }
+
+  .app.compact.mobile-inbox .toasts {
+    inset: auto 12px calc(66px + env(safe-area-inset-bottom));
+    max-width: none;
+    transform: none;
+    align-items: stretch;
+  }
+
+  .app.compact.mobile-inbox .toast {
+    width: 100%;
   }
 
   .app.compact .browser-toggle {

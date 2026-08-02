@@ -294,9 +294,104 @@ test.describe("session-addressed WebSocket transport", () => {
     host.disconnectBridge();
     await host.waitUntilConnected(checkpoint);
     await expect(page.locator(".footer-network-problem")).toHaveText("Network Problems");
+    await expect(page.locator(".toast-msg")).toHaveText(
+      "Lost connection to the Weavie host. Reconnecting…",
+    );
 
     host.resumeHello();
     await expect(page.locator(".footer-network-problem")).toHaveCount(0);
+    await expect(page.locator(".toast-msg")).toHaveCount(0);
+  });
+
+  test("mobile inbox stays usable and truthful through a long catalog and reconnect", async ({
+    page,
+  }) => {
+    const primary = mockSession("main", "main", "codex", true);
+    const dormant = Array.from({ length: 12 }, (_, index) => ({
+      ...mockSession(`dormant-${index}`, `feature/dormant-${index}`, "codex", false),
+      address: null,
+      loaded: false,
+    }));
+    host.setSessions([primary, ...dormant]);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
+    await host.waitUntilConnected();
+
+    const inbox = page.locator(".session-inbox");
+    const geometry = await inbox.evaluate((element) => {
+      const composer = element.querySelector<HTMLElement>(".session-composer");
+      const options = element.querySelector<HTMLElement>(".session-composer-options");
+      const list = element.querySelector<HTMLElement>(".session-inbox-list");
+      if (composer === null || options === null || list === null) {
+        throw new Error("mobile session inbox is incomplete");
+      }
+      return {
+        composerBottom: composer.getBoundingClientRect().bottom,
+        optionsBottom: options.getBoundingClientRect().bottom,
+        listClientHeight: list.clientHeight,
+        listScrollHeight: list.scrollHeight,
+      };
+    });
+    expect(geometry.optionsBottom).toBeLessThanOrEqual(geometry.composerBottom + 1);
+    expect(geometry.listScrollHeight).toBeGreaterThan(geometry.listClientHeight);
+
+    const unloaded = inbox.locator(".session-inbox-row", { hasText: "Unloaded" });
+    await expect(unloaded).toHaveCount(dormant.length);
+    await expect(unloaded.locator(".session-status")).toHaveCount(0);
+
+    const checkpoint = host.checkpoint();
+    host.pauseHello();
+    host.disconnectBridge();
+    await host.waitUntilConnected(checkpoint);
+    const primaryRow = inbox.locator(".session-inbox-row").first();
+    await expect(primaryRow.locator(".session-inbox-state")).toHaveText("Reconnecting");
+    const statusColors = await primaryRow.locator(".session-status").evaluate((status) => {
+      const probe = document.createElement("span");
+      probe.style.background = "var(--dim)";
+      document.body.append(probe);
+      const dim = getComputedStyle(probe).backgroundColor;
+      probe.remove();
+      return { dot: getComputedStyle(status).backgroundColor, dim };
+    });
+    expect(statusColors.dot).toBe(statusColors.dim);
+
+    const toast = page.locator(".toast", { hasText: "Lost connection" });
+    await expect(toast).toBeVisible();
+    const overlay = await page.evaluate(() => {
+      const composer = document.querySelector(".session-composer");
+      const visibleToast = document.querySelector(".toast");
+      const surfaceBar = document.querySelector(".mobile-surface-bar");
+      if (composer === null || visibleToast === null || surfaceBar === null) {
+        throw new Error("mobile overlay geometry is incomplete");
+      }
+      return {
+        composerBottom: composer.getBoundingClientRect().bottom,
+        toastTop: visibleToast.getBoundingClientRect().top,
+        toastBottom: visibleToast.getBoundingClientRect().bottom,
+        surfaceBarTop: surfaceBar.getBoundingClientRect().top,
+      };
+    });
+    expect(overlay.toastTop).toBeGreaterThanOrEqual(overlay.composerBottom);
+    expect(overlay.toastBottom).toBeLessThanOrEqual(overlay.surfaceBarTop);
+
+    host.resumeHello();
+    await expect(primaryRow.locator(".session-inbox-state")).toHaveText("Idle");
+    await expect(toast).toHaveCount(0);
+
+    await page.getByRole("button", { name: "Agent" }).click();
+    const agentComposer = page.locator("[data-agent-composer]");
+    await expect(agentComposer).toBeVisible();
+    host.publishHost("notifications", "show", {
+      level: "error",
+      message: "Agent surface error",
+    });
+    const agentToast = page.locator(".toast", { hasText: "Agent surface error" });
+    await expect(agentToast).toBeVisible();
+    const agentOverlay = await Promise.all([
+      agentToast.evaluate((element) => element.getBoundingClientRect().bottom),
+      agentComposer.evaluate((element) => element.getBoundingClientRect().top),
+    ]);
+    expect(agentOverlay[0]).toBeLessThanOrEqual(agentOverlay[1]);
   });
 
   test("replayed terminal device queries stay suppressed while live queries answer", async ({

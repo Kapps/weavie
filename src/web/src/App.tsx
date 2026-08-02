@@ -1429,7 +1429,10 @@ export default function App(): JSX.Element {
   });
 
   return (
-    <div class="app" classList={{ compact: compact() }}>
+    <div
+      class="app"
+      classList={{ compact: compact(), "mobile-inbox": compact() && mobileSurface() === "inbox" }}
+    >
       <Show when={CUSTOM_TITLEBAR}>
         <TitleBar
           maximized={windowMaximized()}
@@ -1516,7 +1519,6 @@ export default function App(): JSX.Element {
           class="pane-area"
           classList={{
             offline: activeBackendOffline(),
-            "inbox-visible": compact() && mobileSurface() === "inbox",
           }}
         >
           <LayoutView root={displayRoot()} renderPane={renderPane} onResize={onLayoutResize} />

@@ -741,6 +741,76 @@ public sealed class SessionMessageBusTests {
 	}
 
 	[Fact]
+	public async Task AfterResponseWorkCanQuiesceAcrossASerialUiDispatch() {
+		var transport = new RecordingTransport();
+		var dispatcher = new SerialUiDispatcher(_ => { });
+		await using var router = new HostMessageRouter(transport, dispatcher, _ => { });
+		await using var endpoint = router.OpenSession(new SessionAddress("a", "a1"));
+		endpoint.Activate();
+		var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		using var handler = endpoint.Bus.Feature("dummy").HandleAfterResponse<Increment, Counter>(
+			"close",
+			(request, _) => Task.FromResult(
+				new ResponseWithCompletion<Counter>(
+					new Counter(request.By),
+					() => dispatcher.InvokeAsync(
+						async () => {
+							await endpoint.QuiesceAsync();
+							completed.TrySetResult();
+						},
+						CancellationToken.None))));
+
+		await router.RouteAsync(
+			new WebPeer("page"),
+			MessageEnvelope.SessionRequest(
+				endpoint.Address,
+				"close",
+				"dummy",
+				"close",
+				JsonSerializer.SerializeToElement(new Increment(1))).ToJson());
+
+		await completed.Task.WaitAsync(TimeSpan.FromSeconds(2));
+	}
+
+	[Fact]
+	public async Task ExternalQuiescenceTracksAfterResponseWithoutDeadlockingItsSelfQuiescence() {
+		var transport = new RecordingTransport();
+		await using var router = new HostMessageRouter(transport, new InlineUiDispatcher(), _ => { });
+		await using var endpoint = router.OpenSession(new SessionAddress("a", "a1"));
+		endpoint.Activate();
+		var afterResponseEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		var allowSelfQuiescence = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		using var handler = endpoint.Bus.Feature("dummy").HandleAfterResponse<Increment, Counter>(
+			"close",
+			(request, _) => Task.FromResult(
+				new ResponseWithCompletion<Counter>(
+					new Counter(request.By),
+					async () => {
+						afterResponseEntered.TrySetResult();
+						await allowSelfQuiescence.Task;
+						await endpoint.QuiesceAsync();
+					})));
+
+		await router.RouteAsync(
+			new WebPeer("page"),
+			MessageEnvelope.SessionRequest(
+				endpoint.Address,
+				"close",
+				"dummy",
+				"close",
+				JsonSerializer.SerializeToElement(new Increment(1))).ToJson());
+		await afterResponseEntered.Task;
+		var externalQuiescence = endpoint.QuiesceAsync();
+		var drain = endpoint.Bus.DrainAsync();
+		Assert.False(externalQuiescence.IsCompleted);
+		Assert.False(drain.IsCompleted);
+
+		allowSelfQuiescence.TrySetResult();
+		await externalQuiescence.WaitAsync(TimeSpan.FromSeconds(2));
+		await drain.WaitAsync(TimeSpan.FromSeconds(2));
+	}
+
+	[Fact]
 	public async Task AfterEventWorkCanQuiesceTheEndpointThatCarriedTheEvent() {
 		var transport = new RecordingTransport();
 		await using var router = new HostMessageRouter(transport, new InlineUiDispatcher(), _ => { });

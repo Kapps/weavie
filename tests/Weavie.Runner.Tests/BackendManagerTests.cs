@@ -76,11 +76,129 @@ public sealed class BackendManagerTests {
 		Assert.Equal("starting", await manager.StatusAsync(backend));
 	}
 
+	[Fact]
+	public async Task HealthProbe_ReportsTheExactTimedOutMessageOperation() {
+		using var http = new HttpClient(new StubHttpHandler(_ => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable) {
+			Content = new StringContent(
+				"""{"healthy":false,"lastFailure":{"id":"msg-7","endpoint":"session:mobile/i2","feature":"lifecycle","name":"sync","stage":"handler","elapsedMs":60001}}"""),
+		}));
+		await using var manager = new BackendManager(
+			Options(),
+			new HeadlessLauncher(() => "headless", "127.0.0.1", log: null),
+			"127.0.0.1",
+			http);
+		var backend = Backend();
+
+		var health = await manager.ProbeHealthAsync(backend, CancellationToken.None);
+
+		Assert.Equal(WorkerHealthState.Unhealthy, health.State);
+		Assert.Equal("msg-7 session:mobile/i2 lifecycle.sync stuck in handler for 60001 ms", health.Detail);
+	}
+
+	[Fact]
+	public async Task HealthProbe_ReportsIngressAndOldestActiveOperationBeforeTimeout() {
+		using var http = new HttpClient(new StubHttpHandler(_ => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable) {
+			Content = new StringContent(
+				"""{"healthy":false,"ingressResponsive":false,"activeOperations":[{"id":"msg-9","endpoint":"session:mobile/i2","feature":"lifecycle","name":"sync","stage":"handler-dispatch","elapsedMs":4100}],"lastFailure":null}"""),
+		}));
+		await using var manager = new BackendManager(
+			Options(),
+			new HeadlessLauncher(() => "headless", "127.0.0.1", log: null),
+			"127.0.0.1",
+			http);
+
+		var health = await manager.ProbeHealthAsync(Backend(), CancellationToken.None);
+
+		Assert.Equal(WorkerHealthState.Unhealthy, health.State);
+		Assert.Equal(
+			"worker message ingress is unresponsive; oldest active operation "
+				+ "msg-9 session:mobile/i2 lifecycle.sync stuck in handler-dispatch for 4100 ms",
+			health.Detail);
+	}
+
+	[Fact]
+	public async Task HealthProbe_RejectsAValidJsonPayloadWithTheWrongShape() {
+		using var http = new HttpClient(new StubHttpHandler(_ => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable) {
+			Content = new StringContent("[]"),
+		}));
+		await using var manager = new BackendManager(
+			Options(),
+			new HeadlessLauncher(() => "headless", "127.0.0.1", log: null),
+			"127.0.0.1",
+			http);
+
+		var health = await manager.ProbeHealthAsync(Backend(), CancellationToken.None);
+
+		Assert.Equal(WorkerHealthState.Unhealthy, health.State);
+		Assert.Equal("worker reported unhealthy with a malformed health payload", health.Detail);
+	}
+
+	[Fact]
+	public void HealthMonitorState_ResetsAcrossBackendsWhoseSupervisorsShareAGenerationNumber() {
+		using var firstSupervisor = Supervisor();
+		using var secondSupervisor = Supervisor();
+		firstSupervisor.Start();
+		secondSupervisor.Start();
+		var first = Backend();
+		var second = Backend();
+		first.Supervisor = firstSupervisor;
+		second.Supervisor = secondSupervisor;
+		var state = new WorkerHealthMonitorState();
+		var firstStarted = DateTimeOffset.UnixEpoch;
+		var secondStarted = firstStarted.AddMinutes(3);
+		state.Observe(first, firstSupervisor, firstStarted);
+		state.Ready = true;
+		state.UnreachableFailures = 2;
+
+		state.Observe(second, secondSupervisor, secondStarted);
+
+		Assert.Equal(1, firstSupervisor.Generation);
+		Assert.Equal(1, secondSupervisor.Generation);
+		Assert.False(state.Ready);
+		Assert.Equal(0, state.UnreachableFailures);
+		Assert.Equal(secondStarted, state.GenerationStarted);
+	}
+
+	[Theory]
+	[InlineData(HttpStatusCode.OK, "Healthy")]
+	[InlineData(HttpStatusCode.InternalServerError, "Unreachable")]
+	public async Task HealthProbe_ClassifiesHealthyAndUnavailableResponses(
+		HttpStatusCode status,
+		string expected) {
+		using var http = new HttpClient(new StubHttpHandler(_ => new HttpResponseMessage(status) {
+			Content = new StringContent("{}"),
+		}));
+		await using var manager = new BackendManager(
+			Options(),
+			new HeadlessLauncher(() => "headless", "127.0.0.1", log: null),
+			"127.0.0.1",
+			http);
+
+		var health = await manager.ProbeHealthAsync(Backend(), CancellationToken.None);
+
+		Assert.Equal(expected, health.State.ToString());
+	}
+
 	private static RunnerOptions Options() => new() {
 		WorkspaceRoot = Path.GetTempPath(),
 		HeadlessPath = "headless",
 		RunnerToken = "runner",
 	};
+
+	private static WorkspaceBackend Backend() => new() {
+		WorkspaceRoot = Path.GetTempPath(),
+		Port = UnusedPort(),
+		PortIsPinned = false,
+		Token = "worker",
+	};
+
+	private static ProcessSupervisor Supervisor() => new(
+		"worker",
+		_ => { },
+		() => { },
+		new SupervisionOptions { Policy = RestartPolicy.OnFailure },
+		log: null,
+		clock: null);
 
 	private static int UnusedPort() {
 		var listener = new TcpListener(IPAddress.Loopback, 0);

@@ -78,6 +78,12 @@ internal sealed class SessionMessageRouter : IAsyncDisposable {
 		}
 	}
 
+	public Task DrainAsync() {
+		lock (_sessions) {
+			return Task.WhenAll(_sessions.Values.Select(session => session.DrainAsync()));
+		}
+	}
+
 	public async ValueTask DisposeAsync() {
 		SessionMessageBus[] sessions;
 		lock (_sessions) {

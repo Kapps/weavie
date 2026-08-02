@@ -35,6 +35,7 @@ public sealed partial class BackendManager : IAsyncDisposable {
 		_launcher = launcher;
 		_workerHost = workerHost;
 		_http = http;
+		_healthMonitor = Task.Run(MonitorHealthAsync);
 	}
 
 	/// <summary>The current backend, or <c>null</c> before the first <see cref="Ensure"/> call.</summary>
@@ -80,14 +81,16 @@ public sealed partial class BackendManager : IAsyncDisposable {
 	}
 
 	/// <inheritdoc/>
-	public ValueTask DisposeAsync() {
+	public async ValueTask DisposeAsync() {
+		_healthCancellation.Cancel();
+		await _healthMonitor.ConfigureAwait(false);
 		lock (_gate) {
 			_backend?.Supervisor?.Dispose();
 			_backend = null;
 		}
 
 		_http.Dispose();
-		return ValueTask.CompletedTask;
+		_healthCancellation.Dispose();
 	}
 
 	/// <summary>Returns <c>running</c> only after the worker's own control endpoint is ready.</summary>
@@ -97,7 +100,7 @@ public sealed partial class BackendManager : IAsyncDisposable {
 			return backend.Status;
 		}
 
-		return await TryReadBuildAsync(backend).ConfigureAwait(false) is null ? "starting" : "running";
+		return await TryReadBuildAsync(backend, CancellationToken.None).ConfigureAwait(false) is null ? "starting" : "running";
 	}
 
 	/// <summary>

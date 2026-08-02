@@ -3,12 +3,13 @@ using System.Text.Json;
 namespace Weavie.Hosting.Messaging;
 
 internal partial class MessageBus {
-	private async Task<Func<Task>?> RunHandlerAsync(
+	private async Task<DispatchCompletion> RunHandlerAsync(
 		MessagePeer owner,
 		WebPeer peer,
 		MessageEnvelope envelope,
 		HandlerRegistration registration,
-		Task admitted) {
+		Task admitted,
+		MessageOperation operation) {
 		CancellationTokenSource? request = null;
 		bool requestRegistered = false;
 		try {
@@ -16,37 +17,45 @@ internal partial class MessageBus {
 				throw new OperationCanceledException("The endpoint is closing.");
 			}
 
-			request = CancellationTokenSource.CreateLinkedTokenSource(_dispatchCancellation.Token);
+			request = CancellationTokenSource.CreateLinkedTokenSource(
+				_dispatchCancellation.Token,
+				operation.TimeoutToken);
 			if (envelope.RequestId is { } requestId
 				&& !_requests.TryAdd(
 					(peer, requestId),
 					new InboundRequest(envelope.Feature, envelope.Name, request))) {
 				_log($"[bridge] rejected duplicate request '{requestId}' from peer '{peer.Id}'");
-				return null;
+				return new DispatchCompletion(null);
 			}
 			requestRegistered = envelope.RequestId is not null;
 
 			var response = await registration
-				.InvokeAsync(owner, envelope.Payload, request.Token, admitted, _handlerExecutor)
+				.InvokeAsync(owner, envelope.Payload, request.Token, admitted, _handlerExecutor, operation)
 				.ConfigureAwait(false);
-			if (envelope.Kind == MessageKind.Request) {
+			if (envelope.Kind == MessageKind.Request && operation.TrySettleResponse()) {
 				TrySendResponse(peer, envelope, response.Payload, null);
 			}
-			return response.AfterResponse;
+			return new DispatchCompletion(response.AfterResponse);
+		} catch (MessageOperationTimeoutException) {
+			return new DispatchCompletion(null);
 		} catch (OperationCanceledException) when (
 			request?.IsCancellationRequested == true
 			|| !Accepting) {
-			if (envelope.Kind == MessageKind.Request) {
-				TrySendResponse(peer, envelope, default, "The request was cancelled.");
+			if (envelope.Kind == MessageKind.Request && operation.TrySettleResponse()) {
+				TrySendResponse(
+					peer,
+					envelope,
+					default,
+					operation.HasTimedOut ? operation.TimeoutDetail() : "The request was cancelled.");
 			}
-			return null;
+			return new DispatchCompletion(null);
 		} catch (Exception ex) {
-			if (envelope.Kind == MessageKind.Request) {
+			if (envelope.Kind == MessageKind.Request && operation.TrySettleResponse()) {
 				TrySendResponse(peer, envelope, default, ex.Message);
 			} else {
 				_log($"[bridge] endpoint event {envelope.Feature}.{envelope.Name} failed: {ex}");
 			}
-			return null;
+			return new DispatchCompletion(null);
 		} finally {
 			if (requestRegistered && envelope.RequestId is { } requestId) {
 				_requests.TryRemove((peer, requestId), out _);
@@ -64,24 +73,6 @@ internal partial class MessageBus {
 			}
 
 			return lane;
-		}
-	}
-
-	private void DispatchFinished(Task<Func<Task>?> dispatch) {
-		lock (_lifecycle) {
-			_dispatches.Remove(dispatch);
-		}
-		if (dispatch.Status == TaskStatus.RanToCompletion
-			&& dispatch.Result is { } afterResponse) {
-			_ = RunAfterResponseAsync(afterResponse);
-		}
-	}
-
-	private async Task RunAfterResponseAsync(Func<Task> afterResponse) {
-		try {
-			await afterResponse().ConfigureAwait(false);
-		} catch (Exception ex) {
-			_log($"[bridge] after-response work failed: {ex}");
 		}
 	}
 
@@ -182,12 +173,16 @@ internal partial class MessageBus {
 			JsonElement payload,
 			CancellationToken ct,
 			Task admitted,
-			IMessageHandlerExecutor handlerExecutor) {
+			IMessageHandlerExecutor handlerExecutor,
+			MessageOperation operation) {
 			async Task<HandlerResponse> InvokeAdmittedAsync() {
 				await admitted.ConfigureAwait(false);
-				return await handlerExecutor
-					.InvokeAsync(() => _handler(peer, payload, ct), ct)
-					.ConfigureAwait(false);
+				operation.MarkStage("handler-dispatch");
+				return await operation.SuperviseAsync(() => handlerExecutor
+					.InvokeAsync(() => {
+						operation.MarkStage("handler");
+						return _handler(peer, payload, ct);
+					}, ct)).ConfigureAwait(false);
 			}
 
 			if (_lane is null) {
@@ -248,6 +243,8 @@ internal partial class MessageBus {
 		CancellationTokenSource Cancellation);
 
 	private sealed record HandlerResponse(JsonElement Payload, Func<Task>? AfterResponse);
+
+	private sealed record DispatchCompletion(Func<Task>? AfterResponse);
 
 	private sealed record NoResponse {
 		public static NoResponse Value { get; } = new();

@@ -13,15 +13,9 @@ public sealed class AgentSessionHost : IAsyncDisposable {
 	private readonly Dictionary<string, int> _paneItemIndexes = new(StringComparer.Ordinal);
 	private readonly Dictionary<string, PaneDeltaBuffer> _paneDeltaBuffers = new(StringComparer.Ordinal);
 	private readonly Lock _paneGate = new();
-	// Batches live pane messages into fewer bridge frames so a fast turn (or a resumed thread's history replay)
-	// can't burst past the bridge's bounded outbox and drop a network-slow page. See AgentPaneCoalescer.
-	private readonly AgentPaneCoalescer _coalescer;
-
-	// Durable transcript for the structured pane (null for terminal-backed providers, which repaint themselves).
-	// Seeds the replay buffer SYNCHRONOUSLY at construction, so a reconnecting page's ReplayPane restores the pane
-	// immediately — before the async thread/resume that HydrateTranscript waits on, which the reconnect races and
-	// loses (leaving the pane blank). See docs/specs/agent-pane-persistence.md.
-	private readonly AgentPaneTranscriptStore? _transcript;
+	private readonly AgentPaneOutput _paneOutput;
+	private readonly AgentPaneJournal? _paneJournal;
+	private long _paneGeneration;
 
 	/// <summary>Creates the provider session and its pane runtime.</summary>
 	public AgentSessionHost(
@@ -40,7 +34,10 @@ public sealed class AgentSessionHost : IAsyncDisposable {
 		ArgumentNullException.ThrowIfNull(ptyLauncher);
 		ArgumentException.ThrowIfNullOrEmpty(transcriptPath);
 		_messages = messages;
-		_coalescer = new AgentPaneCoalescer(PostPaneBatch, settings.RequireInt(AgentSettings.PaneCoalesceMs));
+		_paneOutput = new AgentPaneOutput(
+			messages,
+			settings.RequireInt(AgentSettings.PaneCoalesceMs),
+			Console.WriteLine);
 		Provider = provider.Info;
 		Session = provider.CreateSession(context);
 		if (Session is ITerminalAgentSession terminalSession) {
@@ -54,14 +51,11 @@ public sealed class AgentSessionHost : IAsyncDisposable {
 			};
 		} else if (Session is IStructuredAgentSession structuredSession) {
 			Structured = structuredSession;
-			_transcript = new AgentPaneTranscriptStore(context.FileSystem, transcriptPath);
-			_transcript.Log += Console.WriteLine;
-			// Seed the replay buffer from the persisted transcript BEFORE subscribing, so a reopened session
-			// restores its prior output immediately and live messages append after it.
-			foreach (var message in _transcript.Snapshot()) {
-				StorePaneMessage(message);
-			}
-
+			_paneJournal = new AgentPaneJournal(
+				context.FileSystem,
+				transcriptPath,
+				SeedPersistedPane,
+				Console.WriteLine);
 			structuredSession.PaneMessage += PublishPaneMessage;
 		} else {
 			throw new InvalidOperationException($"Provider '{Provider.Id}' returned an unsupported agent session.");
@@ -91,8 +85,17 @@ public sealed class AgentSessionHost : IAsyncDisposable {
 	/// <inheritdoc/>
 	public async ValueTask DisposeAsync() {
 		Terminal?.Dispose();
-		_coalescer.Dispose();
 		await DisposeProviderAsync().ConfigureAwait(false);
+		if (Structured is { } structured) {
+			structured.PaneMessage -= PublishPaneMessage;
+		}
+		if (Controls is { } controls) {
+			controls.ControlStateChanged -= PublishControlState;
+		}
+		if (_paneJournal is { } journal) {
+			await journal.DisposeAsync().ConfigureAwait(false);
+		}
+		await _paneOutput.DisposeAsync().ConfigureAwait(false);
 	}
 
 	/// <summary>Replays the structured pane state accumulated for this session.</summary>
@@ -102,20 +105,8 @@ public sealed class AgentSessionHost : IAsyncDisposable {
 		ReplayPane((IMessageFeatureTarget)messages);
 
 	private void ReplayPane(IMessageFeatureTarget messages) {
-		// Post under the gate so this replay's reset+messages stay ordered against a concurrent hydrate/resume
-		// (another thread): posting outside it let a trailing reset land after hydrate's content and blank the
-		// pane on a slow remote cold-start. Under the gate each writer's reset+messages is atomic on the wire.
 		lock (_paneGate) {
-			List<AgentPaneMessage> snapshot = [.. _paneMessages];
-			foreach (var buffer in _paneDeltaBuffers.Values) {
-				snapshot[buffer.Index] = buffer.Latest with { Text = buffer.Text.ToString() };
-			}
-
-			// Flush the shared batch first: this targeted replay reaches one peer, while the buffered live update
-			// still belongs on every peer attached to the session.
-			_coalescer.Flush();
-			messages.Publish("paneReset", new { });
-			messages.Publish("paneBatch", AgentPaneProtocol.Batch(snapshot));
+			_paneOutput.Replay(messages, PaneSnapshotLocked());
 		}
 	}
 
@@ -124,6 +115,13 @@ public sealed class AgentSessionHost : IAsyncDisposable {
 
 	internal void ReplayState(MessageTargetFeature messages) =>
 		ReplayState((IMessageFeatureTarget)messages);
+
+	internal async Task DrainPaneAsync(CancellationToken ct) {
+		if (_paneJournal is { } journal) {
+			await journal.DrainAsync(ct).ConfigureAwait(false);
+		}
+		await _paneOutput.DrainAsync(ct).ConfigureAwait(false);
+	}
 
 	private void ReplayState(IMessageFeatureTarget messages) {
 		if (Structured is null) {
@@ -183,38 +181,57 @@ public sealed class AgentSessionHost : IAsyncDisposable {
 		_messages.Publish("controls", AgentControlsProtocol.Message(state));
 
 	private void PublishPaneMessage(AgentPaneMessage message) {
-		// Post inside the gate so this writer's mutation and its web post stay ordered against a concurrent
-		// ReplayPane (see the note there); the post is a bridge enqueue, no costlier than the append above it.
 		if (message.Type == "transcript-reset") {
 			lock (_paneGate) {
+				_paneGeneration++;
 				_paneMessages.Clear();
 				_paneItemIndexes.Clear();
 				_paneDeltaBuffers.Clear();
-				_transcript?.Clear();
-				// Buffered pre-reset messages are being wiped; drop them so a later flush can't resurrect them.
-				_coalescer.Discard();
-				_messages.Publish("paneReset", new { });
+				_paneJournal?.Clear();
+				_paneOutput.Reset();
 			}
 			return;
 		}
 
-		// Store and buffer under one lock so a concurrent ReplayPane either sees this message in the snapshot AND
-		// discards it from the buffer, or sees neither — never both (which would duplicate it on the wire).
 		lock (_paneGate) {
 			StorePaneMessage(message);
-			_transcript?.Append(message);
-			_coalescer.Add(message);
+			_paneJournal?.Append(message);
+			_paneOutput.Live(message);
 		}
 	}
 
-	// The coalescer's sink: a lone message keeps today's `agent-pane` frame; a batch (only ever formed during a
-	// burst) becomes one `agent-pane-batch`. Both ingest identically page-side, so this is a pure wire economy.
-	private void PostPaneBatch(IReadOnlyList<AgentPaneMessage> messages) {
-		if (messages.Count == 1) {
-			_messages.Publish("pane", AgentPaneProtocol.Message(messages[0]));
-		} else {
-			_messages.Publish("paneBatch", AgentPaneProtocol.Batch(messages));
+	private void SeedPersistedPane(IReadOnlyList<AgentPaneMessage> persisted) {
+		if (persisted.Count == 0) {
+			return;
 		}
+
+		lock (_paneGate) {
+			if (_paneGeneration != 0) {
+				return;
+			}
+
+			var live = _paneMessages.ToArray();
+			_paneMessages.Clear();
+			_paneItemIndexes.Clear();
+			_paneDeltaBuffers.Clear();
+			foreach (var message in persisted) {
+				StorePaneMessage(message);
+			}
+			foreach (var message in live) {
+				StorePaneMessage(message);
+			}
+
+			_paneOutput.Replay(_messages, PaneSnapshotLocked());
+		}
+	}
+
+	private List<AgentPaneMessage> PaneSnapshotLocked() {
+		List<AgentPaneMessage> snapshot = [.. _paneMessages];
+		foreach (var buffer in _paneDeltaBuffers.Values) {
+			snapshot[buffer.Index] = buffer.Latest with { Text = buffer.Text.ToString() };
+		}
+
+		return snapshot;
 	}
 
 	private void StorePaneMessage(AgentPaneMessage message) {

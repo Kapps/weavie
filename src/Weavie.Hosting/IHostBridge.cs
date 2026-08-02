@@ -23,10 +23,13 @@ public readonly record struct WebPeer {
 /// router should expose it to application code.
 /// </summary>
 public interface IWebTransportHub {
-	/// <summary>Raised with an inbound peer and raw JSON body on the host dispatcher.</summary>
+	/// <summary>
+	/// Raised with an inbound peer and raw JSON body on the transport's callback thread. A subscriber must only
+	/// enqueue or dispatch the body; callback affinity is not an application-code execution context.
+	/// </summary>
 	event Action<WebPeer, string>? MessageReceived;
 
-	/// <summary>Raised after a physical peer disconnects so its in-flight requests can be cancelled.</summary>
+	/// <summary>Raised after a physical peer disconnects; subscribers must enqueue lifecycle handling and return.</summary>
 	event Action<WebPeer>? PeerDisconnected;
 
 	/// <summary>Pushes an event to every attached page.</summary>

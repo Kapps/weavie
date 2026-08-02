@@ -10,18 +10,22 @@ internal partial class MessageBus : IAsyncDisposable {
 	private readonly Action<WebPeer, string> _sendToPeer;
 	private readonly Action<string> _log;
 	private readonly IMessageHandlerExecutor _handlerExecutor;
+	private readonly MessageOperationRegistry _operations;
 	private readonly object _lifecycle = new();
 	private readonly Dictionary<(string Feature, string Name), HandlerRegistration> _handlers = [];
 	private readonly Dictionary<string, FeatureLane> _featureLanes = [];
 	private readonly ConcurrentDictionary<(WebPeer Peer, string Request), InboundRequest> _requests = new();
 	private readonly ConcurrentDictionary<(WebPeer Peer, string Request), OutboundRequest> _outbound = new();
 	private readonly ConcurrentDictionary<WebPeer, MessagePeer> _peers = new();
-	private readonly HashSet<Task> _dispatches = [];
+	private readonly HashSet<DispatchLifetime> _dispatches = [];
+	private readonly AsyncLocal<DispatchLifetime?> _afterResponseContext = new();
 	private readonly CancellationTokenSource _dispatchCancellation = new();
-	private Task? _quiesceTask;
 	private int _accepting = 1;
+	private int _dispatchCancellationRequested;
 	private long _requestSequence;
 	private int _isClosed;
+	private int _isFaulted;
+	private string? _faultReason;
 
 	public MessageBus(
 		MessageScope scope,
@@ -29,7 +33,8 @@ internal partial class MessageBus : IAsyncDisposable {
 		Action<string> broadcast,
 		Action<WebPeer, string> sendToPeer,
 		Action<string> log,
-		IMessageHandlerExecutor handlerExecutor) {
+		IMessageHandlerExecutor handlerExecutor,
+		MessageOperationRegistry operations) {
 		if (scope == MessageScope.Session) {
 			ArgumentNullException.ThrowIfNull(address);
 		} else if (address is not null) {
@@ -40,12 +45,14 @@ internal partial class MessageBus : IAsyncDisposable {
 		ArgumentNullException.ThrowIfNull(sendToPeer);
 		ArgumentNullException.ThrowIfNull(log);
 		ArgumentNullException.ThrowIfNull(handlerExecutor);
+		ArgumentNullException.ThrowIfNull(operations);
 		Scope = scope;
 		Address = address;
 		_broadcast = broadcast;
 		_sendToPeer = sendToPeer;
 		_log = log;
 		_handlerExecutor = handlerExecutor;
+		_operations = operations;
 		BroadcastTarget = new MessageTarget(this, null);
 	}
 
@@ -57,7 +64,7 @@ internal partial class MessageBus : IAsyncDisposable {
 
 	internal event Action<MessagePeer>? PeerDisconnected;
 
-	public bool Closed => Volatile.Read(ref _isClosed) != 0;
+	public bool Closed => Volatile.Read(ref _isClosed) != 0 || Volatile.Read(ref _isFaulted) != 0;
 
 	private bool Accepting => Volatile.Read(ref _accepting) != 0;
 
@@ -329,7 +336,7 @@ internal partial class MessageBus : IAsyncDisposable {
 				&& _requests.TryGetValue((peer, cancelId), out var request)
 				&& request.Feature == envelope.Feature
 				&& request.Name == envelope.Name) {
-				request.Cancellation.Cancel();
+				_ = request.Cancellation.CancelAsync();
 			}
 
 			return Task.CompletedTask;
@@ -339,7 +346,8 @@ internal partial class MessageBus : IAsyncDisposable {
 			return Task.CompletedTask;
 		}
 
-		Task<Func<Task>?>? dispatch = null;
+		Task<DispatchCompletion>? dispatch = null;
+		DispatchLifetime? lifetime = null;
 		TaskCompletionSource? admitted = null;
 		bool closing;
 		bool rejected = false;
@@ -351,16 +359,19 @@ internal partial class MessageBus : IAsyncDisposable {
 						var owner = Peer(peer);
 						rejected = !registration.Admits(owner);
 						if (!rejected) {
-							admitted = new TaskCompletionSource();
+							admitted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+							var operation = _operations.Start(peer, envelope, OnOperationTimedOut);
+							lifetime = new DispatchLifetime(operation);
 							dispatch = RunHandlerAsync(
 								owner,
 								peer,
 								envelope,
 								registration,
-								admitted.Task);
-							_dispatches.Add(dispatch);
+								admitted.Task,
+								operation);
+							_dispatches.Add(lifetime);
 							_ = dispatch.ContinueWith(
-								(_, state) => ((MessageBus)state!).DispatchFinished(dispatch),
+								(_, state) => ((MessageBus)state!).DispatchFinished(dispatch, lifetime),
 								this,
 								CancellationToken.None,
 								TaskContinuationOptions.ExecuteSynchronously,
@@ -384,11 +395,12 @@ internal partial class MessageBus : IAsyncDisposable {
 		}
 
 		if (envelope.Kind == MessageKind.Request) {
+			string closingError = Volatile.Read(ref _faultReason) ?? "The target endpoint is closing.";
 			SendFailure(
 				peer,
 				envelope,
 				closing
-					? "The target endpoint is closing."
+					? closingError
 					: $"No handler is registered for {envelope.Feature}.{envelope.Name}.");
 		} else if (!closing) {
 			_log($"[bridge] no handler for endpoint event {envelope.Feature}.{envelope.Name}");
@@ -399,6 +411,12 @@ internal partial class MessageBus : IAsyncDisposable {
 
 	internal MessagePeer Peer(WebPeer peer) =>
 		_peers.GetOrAdd(peer, candidate => new MessagePeer(this, candidate));
+
+	internal Task DrainAsync() {
+		lock (_lifecycle) {
+			return PendingDispatchesLocked();
+		}
+	}
 
 	internal async Task<TResponse> RequestAsync<TRequest, TResponse>(
 		WebPeer peer,

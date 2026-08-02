@@ -17,16 +17,31 @@ using Weavie.Hosting.Messaging;
 namespace Weavie.Hosting;
 
 public sealed partial class HostCore {
-	private void OnWebMessage(WebPeer peer, string json) => _ = RouteEnvelopeAsync(peer, json);
+	private void OnWebMessage(WebPeer peer, string json) => _messageIngress.Enqueue(peer, json);
 
-	private void OnWebPeerDisconnected(WebPeer peer) => _messages.Disconnect(peer);
+	private void OnWebPeerDisconnected(WebPeer peer) => _messageIngress.EnqueueDisconnect(peer);
 
-	private async Task RouteEnvelopeAsync(WebPeer peer, string json) {
+	internal async Task<MessageHealthSnapshot> MessageHealthAsync(CancellationToken ct) {
 		try {
-			await _messages.RouteAsync(peer, json).ConfigureAwait(false);
+			await _messageIngress.ProbeAsync(ct).ConfigureAwait(false);
+			return _messages.Health(ingressResponsive: true);
 		} catch (Exception ex) {
-			Log($"[bridge] message dispatch failed: {ex}");
+			Log($"[message] ingress health probe failed: {ex.Message}");
+			return _messages.Health(ingressResponsive: false);
 		}
+	}
+
+	internal async Task DrainMessageIngressAsync(CancellationToken ct) {
+		await _messageIngress.ProbeAsync(ct).ConfigureAwait(false);
+		await _messages.DrainAsync().WaitAsync(ct).ConfigureAwait(false);
+		if (_sessions is { } sessions) {
+			foreach (var slot in sessions.Slots) {
+				if (slot.Session is { } session) {
+					await session.Agent.DrainPaneAsync(ct).ConfigureAwait(false);
+				}
+			}
+		}
+		await _messageIngress.ProbeAsync(ct).ConfigureAwait(false);
 	}
 
 	/// <summary>Applies a layout the web sent (split/focus change) through the store, which validates + persists it.</summary>

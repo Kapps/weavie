@@ -23,6 +23,7 @@ public sealed class ProcessSupervisor : IDisposable {
 	private int _attempt;              // launches so far (0 = first launch in flight, grows on restart)
 	private SupervisedLaunch? _current; // the live instance's handle; exits from any other handle are stale
 	private int _restartCount;         // launches beyond the first
+	private long _generation;         // every launch, including an intentional stop/start, gets a new identity
 	private int _consecutiveCrashes;   // drives backoff growth; reset by a healthy run
 	private DateTimeOffset _startedAt;
 	private CancellationTokenSource? _cts;
@@ -88,6 +89,15 @@ public sealed class ProcessSupervisor : IDisposable {
 		}
 	}
 
+	/// <summary>Monotonic identity of the current/most-recent launched generation; zero before the first launch.</summary>
+	public long Generation {
+		get {
+			lock (_gate) {
+				return _generation;
+			}
+		}
+	}
+
 	/// <summary>Raised after every state transition, off the lock. Handlers must not block.</summary>
 	public event Action<SupervisorStateChanged>? StateChanged;
 
@@ -111,6 +121,7 @@ public sealed class ProcessSupervisor : IDisposable {
 			// The handle becomes current in the same lock hold that flips to Running, so a predecessor's late
 			// exit can never slip through the Running check while still matching _current.
 			launch = new SupervisedLaunch(this, 0);
+			_generation++;
 			_current = launch;
 			change = new SupervisorStateChanged(SupervisorState.Running, null, _restartCount);
 		}
@@ -120,7 +131,32 @@ public sealed class ProcessSupervisor : IDisposable {
 		Launch(launch);
 	}
 
-	internal void NotifyLaunchExited(SupervisedLaunch launch, int exitCode) => OnInstanceEnded(launch, exitCode);
+	internal void NotifyLaunchExited(SupervisedLaunch launch, int exitCode) =>
+		OnInstanceEnded(launch, exitCode, stopCurrent: false);
+
+	/// <summary>
+	/// Replaces a running instance that is alive but no longer healthy. The replacement is recorded as a failed
+	/// generation, so it follows the same backoff and crash-loop breaker as a non-zero process exit.
+	/// </summary>
+	/// <returns><c>true</c> when the current running generation was reported; otherwise <c>false</c>.</returns>
+	public bool ReportUnhealthy(long generation, string reason) {
+		ArgumentOutOfRangeException.ThrowIfNegativeOrZero(generation);
+		ArgumentException.ThrowIfNullOrEmpty(reason);
+		SupervisedLaunch launch;
+		lock (_gate) {
+			if (_disposed
+				|| _state != SupervisorState.Running
+				|| _generation != generation
+				|| _current is null) {
+				return false;
+			}
+
+			launch = _current;
+		}
+
+		Log(SupervisorLogLevel.Error, $"unhealthy generation: {reason}");
+		return OnInstanceEnded(launch, exitCode: -1, stopCurrent: true);
+	}
 
 	/// <summary>
 	/// Stops the process and cancels any pending restart; the resulting exit is treated as intentional and is
@@ -163,7 +199,7 @@ public sealed class ProcessSupervisor : IDisposable {
 		_cts?.Dispose();
 	}
 
-	private void OnInstanceEnded(SupervisedLaunch launch, int exitCode) {
+	private bool OnInstanceEnded(SupervisedLaunch launch, int exitCode, bool stopCurrent) {
 		SupervisorStateChanged change;
 		TimeSpan? scheduleDelay = null;
 		int scheduleAttempt = 0;
@@ -173,7 +209,7 @@ public sealed class ProcessSupervisor : IDisposable {
 
 		lock (_gate) {
 			if (_disposed || !ReferenceEquals(launch, _current) || _state != SupervisorState.Running) {
-				return; // intentional stop, a stopped predecessor's late exit, a duplicate, or already failed
+				return false; // intentional stop, a stopped predecessor's late exit, a duplicate, or already failed
 			}
 
 			if (_clock.UtcNow - _startedAt >= _options.HealthyAfter) {
@@ -209,6 +245,11 @@ public sealed class ProcessSupervisor : IDisposable {
 			}
 		}
 
+		if (stopCurrent) {
+			// The state transition above makes a synchronous exit callback stale before the stop delegate runs and
+			// prevents a replacement generation from launching until this exact process has been terminated.
+			SafeStop();
+		}
 		Raise(change);
 		if (cleanStop) {
 			Log(SupervisorLogLevel.Info, $"exited cleanly (code {exitCode}); not restarting");
@@ -218,6 +259,8 @@ public sealed class ProcessSupervisor : IDisposable {
 			Log(SupervisorLogLevel.Warning, $"exited (code {exitCode}); restarting in {delay.TotalMilliseconds:F0}ms");
 			_ = RestartAfterDelayAsync(delay, scheduleAttempt, token);
 		}
+
+		return true;
 	}
 
 	private async Task RestartAfterDelayAsync(TimeSpan delay, int attempt, CancellationToken token) {
@@ -239,6 +282,7 @@ public sealed class ProcessSupervisor : IDisposable {
 			_restartCount++;
 			_startedAt = _clock.UtcNow;
 			launch = new SupervisedLaunch(this, attempt);
+			_generation++;
 			_current = launch;
 			change = new SupervisorStateChanged(SupervisorState.Running, null, _restartCount);
 		}
@@ -253,7 +297,7 @@ public sealed class ProcessSupervisor : IDisposable {
 			_start(launch);
 		} catch (Exception ex) {
 			Log(SupervisorLogLevel.Warning, $"launch failed: {ex.Message}");
-			OnInstanceEnded(launch, exitCode: -1);
+			OnInstanceEnded(launch, exitCode: -1, stopCurrent: false);
 		}
 	}
 

@@ -6,25 +6,38 @@ internal sealed class HostMessageRouter : IAsyncDisposable {
 	private readonly IWebTransportHub _transport;
 	private readonly Action<string> _log;
 	private readonly SessionMessageRouter _sessions;
+	private readonly MessageOperationRegistry _operations;
 	private readonly ViewBindings _views = new();
 	private readonly object _viewLifecycle = new();
 
-	public HostMessageRouter(IWebTransportHub transport, IUiDispatcher dispatcher, Action<string> log) {
+	public HostMessageRouter(IWebTransportHub transport, IUiDispatcher dispatcher, Action<string> log)
+		: this(transport, dispatcher, log, MessageExecutionPolicy.Default, TimeProvider.System) {
+	}
+
+	internal HostMessageRouter(
+		IWebTransportHub transport,
+		IUiDispatcher dispatcher,
+		Action<string> log,
+		MessageExecutionPolicy policy,
+		TimeProvider time) {
 		ArgumentNullException.ThrowIfNull(transport);
 		ArgumentNullException.ThrowIfNull(dispatcher);
 		ArgumentNullException.ThrowIfNull(log);
 		_transport = transport;
 		_log = log;
-		Host = new HostMessageBus(dispatcher, transport.Broadcast, transport.Send, log);
+		_operations = new MessageOperationRegistry(transport.Send, log, policy, time);
+		Host = new HostMessageBus(dispatcher, transport.Broadcast, transport.Send, log, _operations);
 		_sessions = new SessionMessageRouter(transport.Send, log);
 	}
 
 	public HostMessageBus Host { get; }
 
+	internal MessageHealthSnapshot Health(bool ingressResponsive) => _operations.Snapshot(ingressResponsive);
+
 	public SessionEndpoint OpenSession(SessionAddress address) {
 		ArgumentNullException.ThrowIfNull(address);
 		var transport = new SessionTransportGate(_transport);
-		var bus = new SessionMessageBus(address, transport.Broadcast, transport.Send, _log);
+		var bus = new SessionMessageBus(address, transport.Broadcast, transport.Send, _log, _operations);
 		return new SessionEndpoint(this, bus, transport);
 	}
 
@@ -107,6 +120,8 @@ internal sealed class HostMessageRouter : IAsyncDisposable {
 			_sessions.Disconnect(peer);
 		}
 	}
+
+	internal Task DrainAsync() => Task.WhenAll(Host.DrainAsync(), _sessions.DrainAsync());
 
 	public Task<TResponse> RequestViewAsync<TRequest, TResponse>(
 		SessionAddress address,

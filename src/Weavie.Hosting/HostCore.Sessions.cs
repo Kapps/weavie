@@ -574,7 +574,7 @@ public sealed partial class HostCore {
 			return Task.FromResult(CommandResult.Failure(ex.Message));
 		}
 
-		var result = new TaskCompletionSource<CommandResult>();
+		var result = new TaskCompletionSource<CommandResult>(TaskCreationOptions.RunContinuationsAsynchronously);
 		_ui.Post(() => {
 			try {
 				LoadSlotInBackground(target);
@@ -1030,7 +1030,7 @@ public sealed partial class HostCore {
 		string successMessage) {
 		var sessions = _sessions
 			?? throw new InvalidOperationException("The session catalog is not initialized.");
-		var result = new TaskCompletionSource<CommandResult>();
+		var result = new TaskCompletionSource<CommandResult>(TaskCreationOptions.RunContinuationsAsynchronously);
 		_ui.Post(() => {
 			SessionSlot? slot = null;
 			try {
@@ -1063,7 +1063,7 @@ public sealed partial class HostCore {
 	}
 
 	private Task<CommandResult> LoadExistingAsync(SessionSlot slot, string branch) {
-		var result = new TaskCompletionSource<CommandResult>();
+		var result = new TaskCompletionSource<CommandResult>(TaskCreationOptions.RunContinuationsAsynchronously);
 		_ui.Post(() => {
 			try {
 				LoadSlotInBackground(slot);

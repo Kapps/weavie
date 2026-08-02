@@ -171,7 +171,7 @@ public sealed partial class BackendManager {
 				continue;
 			}
 
-			if (await TryReadBuildAsync(backend).ConfigureAwait(false) is { } running) {
+			if (await TryReadBuildAsync(backend, ct).ConfigureAwait(false) is { } running) {
 				store.MarkConfirmedGood(running);
 				// After a rollback the sticky rolled-back outcome stays; a clean update settles to idle.
 				if (rolledBackFrom is null) {
@@ -185,17 +185,19 @@ public sealed partial class BackendManager {
 		}
 	}
 
-	private async Task<int?> TryReadBuildAsync(WorkspaceBackend backend) {
+	private async Task<int?> TryReadBuildAsync(WorkspaceBackend backend, CancellationToken ct) {
 		try {
-			using var response = await _http.GetAsync(ControlUrl(backend, "status")).ConfigureAwait(false);
+			using var response = await _http.GetAsync(ControlUrl(backend, "status"), ct).ConfigureAwait(false);
 			if (!response.IsSuccessStatusCode) {
 				return null;
 			}
 
-			using var status = System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync().ConfigureAwait(false));
+			using var status = System.Text.Json.JsonDocument.Parse(
+				await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false));
 			string? buildNumber = status.RootElement.GetProperty("buildNumber").GetString();
 			return buildNumber is null ? null : RunnerIdentity.ParseBuild(buildNumber);
-		} catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException or FormatException) {
+		} catch (Exception ex) when (!ct.IsCancellationRequested
+			&& ex is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException or FormatException) {
 			return null;
 		}
 	}

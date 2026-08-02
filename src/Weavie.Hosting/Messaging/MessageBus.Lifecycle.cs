@@ -4,13 +4,30 @@ internal partial class MessageBus {
 	internal void Disconnect(WebPeer peer) {
 		foreach (var request in _requests) {
 			if (request.Key.Peer == peer) {
-				request.Value.Cancellation.Cancel();
+				_ = request.Value.Cancellation.CancelAsync();
 			}
 		}
 
 		SettleOutbound(peer, "The bound view disconnected before the request completed.", notifyPeer: false);
 		if (_peers.TryRemove(peer, out var owner)) {
-			PeerDisconnected?.Invoke(owner);
+			RaisePeerDisconnected(owner);
+		}
+	}
+
+	private void RaisePeerDisconnected(MessagePeer owner) {
+		var handlers = PeerDisconnected;
+		if (handlers is null) {
+			return;
+		}
+
+		foreach (Action<MessagePeer> handler in handlers.GetInvocationList()) {
+			_ = Task.Run(() => {
+				try {
+					handler(owner);
+				} catch (Exception ex) {
+					_log($"[bridge] peer-disconnect handler failed: {ex}");
+				}
+			});
 		}
 	}
 
@@ -42,19 +59,18 @@ internal partial class MessageBus {
 	}
 
 	internal Task QuiesceAsync() {
-		Task quiesce;
 		lock (_lifecycle) {
-			if (_quiesceTask is not null) {
-				return _quiesceTask;
-			}
-
 			Volatile.Write(ref _accepting, 0);
-			_quiesceTask = Task.WhenAll([.. _dispatches]);
-			quiesce = _quiesceTask;
+			CancelDispatches();
+			return PendingDispatchesLocked();
 		}
+	}
 
-		_dispatchCancellation.Cancel();
-		return quiesce;
+	private Task PendingDispatchesLocked() {
+		var current = _afterResponseContext.Value;
+		return Task.WhenAll(_dispatches
+			.Where(dispatch => !ReferenceEquals(dispatch, current))
+			.Select(dispatch => dispatch.Completion.Task));
 	}
 
 	public async ValueTask DisposeAsync() {

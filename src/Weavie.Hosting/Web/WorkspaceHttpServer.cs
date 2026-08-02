@@ -104,6 +104,14 @@ public sealed class WorkspaceHttpServer : IAsyncDisposable {
 				_core.BeginDrain(app.Lifetime.StopApplication);
 				return Results.Accepted();
 			});
+			app.MapGet("/control/health", async (HttpContext context) => {
+				using var deadline = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted);
+				deadline.CancelAfter(TimeSpan.FromSeconds(2));
+				var health = await _core.MessageHealthAsync(deadline.Token).ConfigureAwait(false);
+				return Results.Json(health, statusCode: health.Healthy
+					? StatusCodes.Status200OK
+					: StatusCodes.Status503ServiceUnavailable);
+			});
 		}
 
 		app.Use(async (context, next) => {

@@ -19,6 +19,7 @@ public sealed class ProcessSupervisorTests {
 		Assert.Equal(0, h.Starts[0]);
 		Assert.Equal(SupervisorState.Running, h.Sup.State);
 		Assert.Equal(0, h.Sup.RestartCount);
+		Assert.Equal(1, h.Sup.Generation);
 	}
 
 	[Fact]
@@ -52,6 +53,52 @@ public sealed class ProcessSupervisorTests {
 		Assert.Equal(2, h.StartCount);
 		Assert.Equal(1, h.Starts[1]); // attempt index 1
 		Assert.Equal(1, h.Sup.RestartCount);
+		Assert.Equal(2, h.Sup.Generation);
+		Assert.Equal(SupervisorState.Running, h.Sup.State);
+	}
+
+	[Fact]
+	public async Task UnhealthyRunningGeneration_IsStoppedAndRestartedAsAFailure() {
+		using var h = new Harness(Opts(RestartPolicy.OnFailure, initialMs: 100));
+		h.Sup.Start();
+		Assert.True(await h.WaitStartAsync());
+
+		Assert.True(h.Sup.ReportUnhealthy(h.Sup.Generation, "health probe reported a timed-out message"));
+
+		Assert.Equal(1, h.Stops);
+		Assert.Equal(SupervisorState.BackingOff, h.Sup.State);
+		h.Clock.Advance(TimeSpan.FromMilliseconds(100));
+		Assert.True(await h.WaitStartAsync());
+		Assert.Equal(2, h.StartCount);
+		Assert.Equal(1, h.Sup.RestartCount);
+	}
+
+	[Fact]
+	public async Task UnhealthyReport_IsIgnoredWhenNoGenerationIsRunning() {
+		using var h = new Harness(Opts(RestartPolicy.OnFailure));
+
+		Assert.False(h.Sup.ReportUnhealthy(1, "nothing is running"));
+		Assert.Equal(0, h.Stops);
+
+		h.Sup.Start();
+		Assert.True(await h.WaitStartAsync());
+		h.Sup.Stop();
+		Assert.False(h.Sup.ReportUnhealthy(h.Sup.Generation, "already stopped"));
+		Assert.Equal(1, h.Stops);
+	}
+
+	[Fact]
+	public async Task UnhealthyReport_ForAStaleGeneration_DoesNotStopItsReplacement() {
+		using var h = new Harness(Opts(RestartPolicy.OnFailure, initialMs: 100));
+		h.Sup.Start();
+		Assert.True(await h.WaitStartAsync());
+		long staleGeneration = h.Sup.Generation;
+		h.NotifyExited(1);
+		h.Clock.Advance(TimeSpan.FromMilliseconds(100));
+		Assert.True(await h.WaitStartAsync());
+
+		Assert.False(h.Sup.ReportUnhealthy(staleGeneration, "late health result"));
+		Assert.Equal(0, h.Stops);
 		Assert.Equal(SupervisorState.Running, h.Sup.State);
 	}
 

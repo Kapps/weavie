@@ -125,6 +125,15 @@ export function AgentComposer(props: {
     }
   });
 
+  const placeCaretAfterDraftUpdate = (draft: string, caret: number): void => {
+    queueMicrotask(() => {
+      const element = textareaRef;
+      if (element?.value === draft) {
+        element.setSelectionRange(caret, caret);
+      }
+    });
+  };
+
   const acceptSlash = (entry: AgentSlashEntry): void => {
     const session = props.session;
     if (session === null) {
@@ -139,8 +148,7 @@ export function AgentComposer(props: {
       setComposerDraft(session, "");
     } else if (entry.insertText !== null) {
       setComposerDraft(session, entry.insertText);
-      const caret = entry.insertText.length;
-      requestAnimationFrame(() => textareaRef?.setSelectionRange(caret, caret));
+      placeCaretAfterDraftUpdate(entry.insertText, entry.insertText.length);
     }
     setSlashDismissed(false);
     textareaRef?.focus();
@@ -153,8 +161,7 @@ export function AgentComposer(props: {
     }
     setHistoryCursor(recall.next);
     setComposerDraft(session, recall.text);
-    const caret = recall.text.length;
-    requestAnimationFrame(() => textareaRef?.setSelectionRange(caret, caret));
+    placeCaretAfterDraftUpdate(recall.text, recall.text.length);
     return true;
   };
 
@@ -215,11 +222,10 @@ export function AgentComposer(props: {
       const current = composerState(session).draft;
       const start = selectionStart ?? current.length;
       const end = selectionEnd ?? start;
-      setComposerDraft(session, current.slice(0, start) + text + current.slice(end));
+      const draft = current.slice(0, start) + text + current.slice(end);
+      setComposerDraft(session, draft);
       if (props.session === session) {
-        requestAnimationFrame(() =>
-          textareaRef?.setSelectionRange(start + text.length, start + text.length),
-        );
+        placeCaretAfterDraftUpdate(draft, start + text.length);
       }
     } catch (error) {
       notify(

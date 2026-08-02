@@ -1202,6 +1202,25 @@ test.describe("Codex composer", () => {
       element.style.width = "120px";
     });
     await textarea.fill("live draft");
+    const releaseAnimationFrames = await page.evaluateHandle(() => {
+      const requestAnimationFrame = window.requestAnimationFrame;
+      const cancelAnimationFrame = window.cancelAnimationFrame;
+      const frames = new Map<number, FrameRequestCallback>();
+      let nextFrame = 0;
+      window.requestAnimationFrame = (callback) => {
+        const frame = ++nextFrame;
+        frames.set(frame, callback);
+        return frame;
+      };
+      window.cancelAnimationFrame = (frame) => frames.delete(frame);
+      return () => {
+        window.requestAnimationFrame = requestAnimationFrame;
+        window.cancelAnimationFrame = cancelAnimationFrame;
+        for (const callback of frames.values()) {
+          callback(performance.now());
+        }
+      };
+    });
     await page.keyboard.press("ArrowUp");
     await expect(textarea).toHaveValue(prompt);
     await expect
@@ -1212,6 +1231,11 @@ test.describe("Codex composer", () => {
     await expect(textarea).toHaveValue(prompt);
     let previousCaret = await textarea.evaluate((element) => element.selectionStart);
     expect(previousCaret).toBeLessThan(prompt.length);
+    await releaseAnimationFrames.evaluate((release) => release());
+    await releaseAnimationFrames.dispose();
+    await expect
+      .poll(() => textarea.evaluate((element) => element.selectionStart))
+      .toBe(previousCaret);
 
     for (;;) {
       await page.keyboard.press("ArrowDown");

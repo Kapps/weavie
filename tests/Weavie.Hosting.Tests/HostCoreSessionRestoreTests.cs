@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
 using Weavie.Core;
 using Weavie.Core.Commands;
@@ -102,7 +103,10 @@ public sealed class HostCoreSessionRestoreTests {
 
 	[Fact]
 	public async Task SelectedSessionCanReplyBeforeUnloadingItsOwnMessageBus() {
-		await using var host = await TestHost.StartAsync();
+		var dispatcherErrors = new ConcurrentQueue<Exception>();
+		await using var host = TestHost.CreateUnstarted(new SerialUiDispatcher(dispatcherErrors.Enqueue));
+		await host.Core.StartAsync();
+		await host.ConnectAsync();
 		Assert.True((await host.CreateSessionAsync("branch-a")).Ok);
 
 		var result = await host.InvokeClientCommandAsync(
@@ -117,6 +121,7 @@ public sealed class HostCoreSessionRestoreTests {
 				: true);
 		Assert.Null(host.Core.SessionForTest("branch-a"));
 		Assert.False(SessionById(host.Bridge, "branch-a").GetProperty("loaded").GetBoolean());
+		Assert.Empty(dispatcherErrors);
 	}
 
 	[Fact]

@@ -18,22 +18,27 @@ public sealed class AgentPaneTranscriptStore {
 		new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
 	private readonly IFileSystem _fileSystem;
+	private readonly Action<string> _log;
 	private readonly Lock _gate = new();
 	private readonly List<AgentPaneMessage> _messages;
 
 	/// <summary>Creates the store over <paramref name="path"/>, loading any existing transcript now.</summary>
-	public AgentPaneTranscriptStore(IFileSystem fileSystem, string path) {
+	public AgentPaneTranscriptStore(IFileSystem fileSystem, string path)
+		: this(fileSystem, path, static _ => { }) {
+	}
+
+	/// <summary>Creates and loads the store, reporting load and persistence diagnostics to <paramref name="log"/>.</summary>
+	public AgentPaneTranscriptStore(IFileSystem fileSystem, string path, Action<string> log) {
 		ArgumentNullException.ThrowIfNull(fileSystem);
 		ArgumentException.ThrowIfNullOrEmpty(path);
+		ArgumentNullException.ThrowIfNull(log);
 		_fileSystem = fileSystem;
+		_log = log;
 		FilePath = path;
 		lock (_gate) {
 			_messages = LoadLocked();
 		}
 	}
-
-	/// <summary>Diagnostic log line for read, parse, and persist failures.</summary>
-	public event Action<string>? Log;
 
 	/// <summary>The file backing this store.</summary>
 	public string FilePath { get; }
@@ -59,7 +64,7 @@ public sealed class AgentPaneTranscriptStore {
 				// A transcript can echo command output or file contents; keep it owner-only on POSIX.
 				SecureFile.Restrict(FilePath);
 			} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-				Log?.Invoke($"[agent-pane] could not persist: {ex.Message}");
+				_log($"[agent-pane] could not persist: {ex.Message}");
 			}
 		}
 	}
@@ -75,7 +80,7 @@ public sealed class AgentPaneTranscriptStore {
 			try {
 				_fileSystem.DeleteFile(FilePath);
 			} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-				Log?.Invoke($"[agent-pane] could not clear {FilePath}: {ex.Message}");
+				_log($"[agent-pane] could not clear {FilePath}: {ex.Message}");
 			}
 		}
 	}
@@ -106,7 +111,7 @@ public sealed class AgentPaneTranscriptStore {
 		try {
 			text = _fileSystem.ReadAllText(FilePath);
 		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			Log?.Invoke($"[agent-pane] could not read {FilePath}: {ex.Message}; starting empty");
+			_log($"[agent-pane] could not read {FilePath}: {ex.Message}; starting empty");
 			return [];
 		}
 
@@ -123,10 +128,11 @@ public sealed class AgentPaneTranscriptStore {
 					messages.Add(message);
 				}
 			} catch (JsonException ex) {
-				Log?.Invoke($"[agent-pane] skipping malformed line in {FilePath}: {ex.Message}");
+				_log($"[agent-pane] skipping malformed line in {FilePath}: {ex.Message}");
 			}
 		}
 
 		return messages;
 	}
+
 }

@@ -13,11 +13,11 @@
     <PackageReference Include="xunit.runner.visualstudio" />
   </ItemGroup>
 
-  <!-- Build the hosts (so the dlls exist) but don't reference their assemblies: these are black-box
-       integration tests that launch the real built artifacts and probe them over HTTP/WebSocket. -->
+  <!-- Launch the hosts as black boxes; the Hosting reference supplies only their compiled protocol identity. -->
   <ItemGroup>
     <ProjectReference Include="..\..\src\Weavie.Headless\Weavie.Headless.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\src\Weavie.Runner\Weavie.Runner.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\src\Weavie.Hosting\Weavie.Hosting.csproj" />
   </ItemGroup>
 
 </Project>

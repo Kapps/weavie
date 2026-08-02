@@ -1,17 +1,22 @@
 using System.Text.Json;
+using Weavie.Core.Diagnostics;
 
 namespace Weavie.Hosting.Messaging;
 
 internal sealed class SessionMessageRouter : IAsyncDisposable {
 	private readonly Dictionary<SessionAddress, SessionMessageBus> _sessions = [];
 	private readonly Action<WebPeer, string> _sendToPeer;
-	private readonly Action<string> _log;
+	private readonly DiagnosticWorker _diagnostics;
 
-	public SessionMessageRouter(Action<WebPeer, string> sendToPeer, Action<string> log) {
+	public SessionMessageRouter(Action<WebPeer, string> sendToPeer, Action<string> log)
+		: this(sendToPeer, new DiagnosticWorker(log)) {
+	}
+
+	public SessionMessageRouter(Action<WebPeer, string> sendToPeer, DiagnosticWorker diagnostics) {
 		ArgumentNullException.ThrowIfNull(sendToPeer);
-		ArgumentNullException.ThrowIfNull(log);
+		ArgumentNullException.ThrowIfNull(diagnostics);
 		_sendToPeer = sendToPeer;
-		_log = log;
+		_diagnostics = diagnostics;
 	}
 
 	public void Add(SessionMessageBus bus) {
@@ -59,9 +64,9 @@ internal sealed class SessionMessageRouter : IAsyncDisposable {
 					JsonSerializer.SerializeToElement<object?>(null),
 					"The target session is not live.").ToJson());
 		} else {
-			_log(
+			_diagnostics.Report(
 				$"[bridge] rejected {envelope.Feature}.{envelope.Name} for stale session "
-				+ $"{envelope.Session.Slot}/{envelope.Session.Incarnation}");
+					+ $"{envelope.Session.Slot}/{envelope.Session.Incarnation}");
 		}
 
 		return Task.CompletedTask;
@@ -75,6 +80,12 @@ internal sealed class SessionMessageRouter : IAsyncDisposable {
 
 		foreach (var session in sessions) {
 			session.Disconnect(peer);
+		}
+	}
+
+	public Task DrainAsync() {
+		lock (_sessions) {
+			return Task.WhenAll(_sessions.Values.Select(session => session.DrainAsync()));
 		}
 	}
 

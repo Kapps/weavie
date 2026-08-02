@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
+using Weavie.Hosting.Web;
 using Xunit;
 
 namespace Weavie.Remote.Tests;
@@ -18,7 +19,8 @@ public sealed class RemoteHeadlessFixture : IAsyncLifetime {
 		int port = Hosts.FreePort();
 		Host = await HostHandle.StartAsync(
 			Hosts.HeadlessDll,
-			["--remote", "--bind", "127.0.0.1", "--port", port.ToString(), "--token", Tokens.Correct, "--workspace", _workspace],
+			["--remote", "--bind", "127.0.0.1", "--port", port.ToString(), "--token", Tokens.Correct,
+				"--workspace", _workspace, "--spawn-contract", WorkspaceControlProtocol.SpawnContract.ToString()],
 			port,
 			readyMarker: "open  http://",
 			timeout: TimeSpan.FromSeconds(60));
@@ -202,6 +204,19 @@ public sealed class HeadlessRemoteAuthTests(RemoteHeadlessFixture fixture) : ICl
 		// Default-deny: a path that is neither a public asset nor a known route still requires the token.
 		var response = await Http.GetAsync($"{fixture.Host.BaseUrl}/api/secret");
 		Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+	}
+
+	[Fact]
+	public async Task Control_contract_requires_health_and_reports_generation() {
+		var response = await Http.GetAsync($"{fixture.Host.BaseUrl}/control/status?token={Tokens.Correct}");
+		response.EnsureSuccessStatusCode();
+		using var status = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+		Assert.Equal(WorkspaceControlProtocol.SpawnContract, status.RootElement.GetProperty("spawnContract").GetInt32());
+
+		var health = await Http.GetAsync($"{fixture.Host.BaseUrl}/control/health?token={Tokens.Correct}");
+		health.EnsureSuccessStatusCode();
+		using var payload = JsonDocument.Parse(await health.Content.ReadAsStringAsync());
+		Assert.True(payload.RootElement.GetProperty("healthy").GetBoolean());
 	}
 
 	[Fact]
@@ -408,11 +423,16 @@ public sealed class HeadlessStartupGuardTests {
 	[InlineData("bind-without-remote")]   // network bind without --remote
 	[InlineData("remote-without-token")]  // remote without a token
 	[InlineData("token-without-remote")]  // token without --remote
+	[InlineData("remote-without-contract")]
+	[InlineData("remote-with-wrong-contract")]
 	public async Task Refuses_to_start_for_unsafe_flag_combinations(string scenario) {
 		string[] extra = scenario switch {
 			"bind-without-remote" => ["--bind", "0.0.0.0"],
 			"remote-without-token" => ["--remote"],
 			"token-without-remote" => ["--token", "abc"],
+			"remote-without-contract" => ["--remote", "--token", "abc"],
+			"remote-with-wrong-contract" => ["--remote", "--token", "abc", "--spawn-contract",
+				(WorkspaceControlProtocol.SpawnContract + 1).ToString()],
 			_ => throw new ArgumentOutOfRangeException(nameof(scenario)),
 		};
 		var args = new List<string> { "--port", Hosts.FreePort().ToString(), "--workspace", Path.GetTempPath() };

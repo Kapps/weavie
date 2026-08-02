@@ -132,7 +132,7 @@ public sealed class SessionCommandsTests {
 
 		Assert.True(host.UnloadCalled);
 		Assert.False(host.AfterReplyRan);
-		await execution.CompleteAsync();
+		await execution.CompleteAsync(CancellationToken.None);
 		Assert.True(host.AfterReplyRan);
 	}
 
@@ -235,7 +235,7 @@ public sealed class SessionCommandsTests {
 			CancellationToken ct = default) {
 			UnloadCalled = true;
 			LastUnloadedId = sessionId;
-			context.AfterReply(() => {
+			context.AfterReply(_ => {
 				AfterReplyRan = true;
 				return Task.CompletedTask;
 			});

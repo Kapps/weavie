@@ -31,4 +31,13 @@ public sealed record SupervisionOptions {
 	/// breaker (state <see cref="SupervisorState.Failed"/>). Must be &gt;= 0.
 	/// </summary>
 	public int MaxRestartsInWindow { get; init; } = 5;
+
+	/// <summary>
+	/// The most consecutive failed generations permitted even when they fall outside
+	/// <see cref="CrashLoopWindow"/>. Must be &gt;= 0.
+	/// </summary>
+	public int MaxConsecutiveFailures { get; init; } = 5;
+
+	/// <summary>Whether only <see cref="ProcessSupervisor.ReportHealthy"/> may reset consecutive failures.</summary>
+	public bool RequireExplicitHealth { get; init; }
 }

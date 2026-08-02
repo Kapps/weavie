@@ -51,4 +51,20 @@ public sealed class SerialUiDispatcherTests {
 		await done.Task.WaitAsync(TimeSpan.FromSeconds(5));
 		Assert.Equal("boom", Assert.Single(errors).Message);
 	}
+
+	[Fact]
+	public async Task InvokeAsync_FlowsTheCallersLogicalExecutionContext() {
+		var dispatcher = new SerialUiDispatcher(_ => { });
+		var context = new AsyncLocal<string?> { Value = "message-operation" };
+		string? observed = null;
+
+		await dispatcher.InvokeAsync(
+			() => {
+				observed = context.Value;
+				return Task.CompletedTask;
+			},
+			CancellationToken.None);
+
+		Assert.Equal("message-operation", observed);
+	}
 }

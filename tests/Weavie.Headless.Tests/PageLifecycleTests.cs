@@ -8,7 +8,7 @@ namespace Weavie.Headless.Tests;
 public sealed class PageLifecycleTests {
 	[Fact]
 	public async Task ClosingAConnection_ReleasesItsPeer() {
-		var bridge = new WebSocketHostBridge(new InlineUiDispatcher());
+		var bridge = new WebSocketHostBridge();
 		WebPeer? disconnected = null;
 		bridge.PeerDisconnected += peer => disconnected = peer;
 

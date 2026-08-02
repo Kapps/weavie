@@ -34,6 +34,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 	private readonly HostRuntimeInfo _runtime;
 	private readonly IWebTransportHub _bridge;
 	private readonly HostMessageRouter _messages;
+	private readonly MessageIngress _messageIngress;
 	private readonly string _hostIncarnation = Guid.NewGuid().ToString("n");
 	private readonly IUiDispatcher _ui;
 	private readonly SettingsStore _settings;
@@ -118,8 +119,16 @@ public sealed partial class HostCore : IAsyncDisposable {
 		_runtime = HostRuntimeInfo.Resolve(platform.Transport, AppContext.BaseDirectory, BuildNumber);
 		_bridge = platform.Bridge;
 		_ui = platform.Dispatcher;
-		_messages = new HostMessageRouter(_bridge, _ui, Log);
 		_settings = services.Settings;
+		var messagePolicy = new MessageExecutionPolicy(
+			TimeSpan.FromSeconds(2),
+			TimeSpan.FromSeconds(_settings.RequireInt(MessageSettings.OperationDeadlineSeconds)));
+		_messages = new HostMessageRouter(_bridge, _ui, Log, messagePolicy, TimeProvider.System);
+		_messageIngress = new MessageIngress(
+			_ui,
+			_messages.RouteAsync,
+			_messages.Disconnect,
+			_messages.Diagnostics);
 		_commandRegistry = services.CommandRegistry;
 		_suggestionRegistry = services.SuggestionRegistry;
 		_keybindings = services.Keybindings;
@@ -478,6 +487,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 
 		Attempt(() => _bridge.MessageReceived -= OnWebMessage);
 		Attempt(() => _bridge.PeerDisconnected -= OnWebPeerDisconnected);
+		await AttemptAsync(() => _messageIngress.DisposeAsync().AsTask()).ConfigureAwait(false);
 		Attempt(DetachReactions);
 		Attempt(() => _drainTick?.Cancel());
 		Attempt(_sessionStore.Flush);

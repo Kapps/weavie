@@ -100,7 +100,8 @@ public sealed class TerminalController : IDisposable {
 
 	/// <summary>
 	/// Raised on every supervisor transition for this session's process, so a per-session status indicator can map
-	/// it (crash/crash-loop → Error, post-crash restart → Starting). Fires on the supervisor's thread; don't block.
+	/// it (crash/crash-loop → Error, post-crash restart → Starting). Delivered in transition order on the
+	/// supervisor's observer lane.
 	/// </summary>
 	public event Action<SupervisorStateChanged>? SupervisorChanged;
 

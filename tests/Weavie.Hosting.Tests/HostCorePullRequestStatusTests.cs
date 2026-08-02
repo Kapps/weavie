@@ -5,8 +5,13 @@ namespace Weavie.Hosting.Tests;
 
 [Collection(TestCollections.HostIntegration)]
 public sealed class HostCorePullRequestStatusTests {
-	[Fact]
-	public async Task Ready_PushesTheOpenPullRequestForTheCurrentBranch() {
+	[Theory]
+	[InlineData(PullRequestState.Open, "open")]
+	[InlineData(PullRequestState.Merged, "merged")]
+	[InlineData(PullRequestState.Closed, "closed")]
+	public async Task Ready_PushesThePullRequestStateForTheCurrentBranch(
+		PullRequestState state,
+		string expectedState) {
 		var pullRequest = new PullRequestSummary {
 			Number = 123,
 			Title = "Native PR status",
@@ -15,6 +20,7 @@ public sealed class HostCorePullRequestStatusTests {
 			BaseRef = "develop",
 			Url = "javascript:alert('untrusted forge response')",
 			IsDraft = false,
+			State = state,
 		};
 		await using var host = await TestHost.StartAsync(
 			repo => {
@@ -29,6 +35,7 @@ public sealed class HostCorePullRequestStatusTests {
 		Assert.Equal("main", message.GetProperty("branch").GetString());
 		Assert.Equal(123, message.GetProperty("pullRequest").GetProperty("number").GetInt32());
 		Assert.Equal("https://github.com/Kapps/weavie/pull/123", message.GetProperty("pullRequest").GetProperty("url").GetString());
+		Assert.Equal(expectedState, message.GetProperty("pullRequest").GetProperty("state").GetString());
 	}
 
 	[Fact]
@@ -45,7 +52,7 @@ public sealed class HostCorePullRequestStatusTests {
 	}
 
 	[Fact]
-	public async Task RequesterSync_DoesNotCancelTheInFlightBroadcastLookup() {
+	public async Task RequesterSync_QueuesBehindTheInFlightBroadcastLookupWithoutCancellingIt() {
 		var provider = new ConcurrentProvider();
 		await using var host = await TestHost.StartAsync(
 			repo => TestHost.RunGit(repo, "remote", "add", "origin", "git@github.com:Kapps/weavie.git"),
@@ -59,13 +66,14 @@ public sealed class HostCorePullRequestStatusTests {
 				"lifecycle",
 				"sync",
 				new { });
+			Assert.False(provider.FirstCancelled.Task.IsCompleted);
+			provider.ReleaseFirst.SetResult();
 			var message = await Wait.ForAsync(() =>
 				host.Bridge.LastEvent(host.PrimarySession.Address, "git", "pullRequest"));
 
-			Assert.False(provider.FirstCancelled.Task.IsCompleted);
 			Assert.Equal(456, message.GetProperty("pullRequest").GetProperty("number").GetInt32());
 		} finally {
-			provider.ReleaseFirst.SetResult();
+			provider.ReleaseFirst.TrySetResult();
 		}
 	}
 
@@ -79,7 +87,7 @@ public sealed class HostCorePullRequestStatusTests {
 		public Task<IReadOnlyList<PullRequestSummary>> ListOpenAsync(RepoRef repo, CancellationToken ct = default) =>
 			Task.FromResult<IReadOnlyList<PullRequestSummary>>([]);
 
-		public async Task<PullRequestSummary?> FindOpenForBranchAsync(
+		public async Task<PullRequestSummary?> FindForBranchAsync(
 			RepoRef repo, string headOwner, string branch, CancellationToken ct = default) {
 			if (Interlocked.Increment(ref _calls) == 1) {
 				FirstStarted.SetResult();
@@ -99,6 +107,7 @@ public sealed class HostCorePullRequestStatusTests {
 				BaseRef = "main",
 				Url = "ignored",
 				IsDraft = false,
+				State = PullRequestState.Open,
 			};
 		}
 
@@ -110,4 +119,5 @@ public sealed class HostCorePullRequestStatusTests {
 
 		public string RefUrlBase(RepoRef repo) => GitHubReviewProvider.WebRefUrlBase(repo);
 	}
+
 }

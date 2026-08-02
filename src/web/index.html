@@ -29,33 +29,41 @@
     </style>
     <!-- Boot error capture. A CLASSIC inline script, run outside the ES-module graph: if a module fails
          to load or link (e.g. a bad import), main.tsx — and the error handlers it would install — never
-         runs, so without this a boot failure is invisible (splash hangs forever, no log). This survives
-         that and forwards uncaught errors to the host log, so a broken boot is loud, never silent. -->
+         runs, so without this a boot failure is invisible (splash hangs forever, no log). This forwards
+         uncaught errors to the host log until main.tsx installs the runtime handlers. -->
     <script>
       (() => {
         function toHost(level, message) {
           try {
-            const h = window.webkit?.messageHandlers?.weavie;
-            if (h) h.postMessage(JSON.stringify({ type: "log", level: level, message: message }));
+            const h = window.webkit?.messageHandlers?.weavie || window.chrome?.webview;
+            if (h) {
+              h.postMessage(JSON.stringify({
+                scope: "host", session: null, kind: "event", requestId: null,
+                feature: "diagnostics", name: "log", payload: { level, message }, error: null,
+              }));
+            }
           } catch (_err) {}
         }
-        window.addEventListener(
-          "error",
-          (e) => {
-            var t = e.target;
-            if (t && t !== window && t.tagName) {
-              toHost("warn", `resource failed to load: ${t.src || t.href || t.tagName}`);
-            } else {
-              const at = e.filename ? ` @ ${e.filename}:${e.lineno}:${e.colno}` : "";
-              toHost("error", `uncaught: ${e.message || "unknown error"}${at}`);
-            }
-          },
-          true,
-        );
-        window.addEventListener("unhandledrejection", (e) => {
+        function onError(e) {
+          var t = e.target;
+          if (t && t !== window && t.tagName) {
+            toHost("warn", `resource failed to load: ${t.src || t.href || t.tagName}`);
+          } else {
+            const at = e.filename ? ` @ ${e.filename}:${e.lineno}:${e.colno}` : "";
+            toHost("error", `uncaught: ${e.message || "unknown error"}${at}`);
+          }
+        }
+        function onRejection(e) {
           var r = e.reason;
           toHost("error", `unhandledrejection: ${String((r?.message) || r)}`);
-        });
+        }
+        window.addEventListener("error", onError, true);
+        window.addEventListener("unhandledrejection", onRejection);
+        window.__WEAVIE_CLEAR_BOOT_ERROR_CAPTURE__ = () => {
+          window.removeEventListener("error", onError, true);
+          window.removeEventListener("unhandledrejection", onRejection);
+          delete window.__WEAVIE_CLEAR_BOOT_ERROR_CAPTURE__;
+        };
       })();
     </script>
   </head>

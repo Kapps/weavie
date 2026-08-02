@@ -37,11 +37,12 @@ import { DeleteSessionDialog, type DeleteSessionState } from "./chrome/DeleteSes
 import { DiffAgainstPrompt } from "./chrome/DiffAgainstPrompt";
 import { EditorFooter } from "./chrome/EditorFooter";
 import { gitStatus } from "./chrome/git-status-store";
-import { MacTitleBar } from "./chrome/MacTitleBar";
+import { NativeTitleBar } from "./chrome/NativeTitleBar";
 import { NewSessionPrompt } from "./chrome/NewSessionPrompt";
 import { OpenPrPrompt } from "./chrome/OpenPrPrompt";
 import { focusOmnibar, focusOmnibarFileSearch } from "./chrome/omnibar-controller";
 import { PaneFooter } from "./chrome/PaneFooter";
+import type { PopoverAnchor } from "./chrome/popover-position";
 import { pullRequestStatus } from "./chrome/pull-request-store";
 import { RegisterAgentModal } from "./chrome/RegisterAgentModal";
 import { RemoteAgentsPanel } from "./chrome/RemoteAgentsPanel";
@@ -162,13 +163,16 @@ const SearchPanel = lazy(() =>
   import("./chrome/SearchPanel").then((m) => ({ default: m.SearchPanel })),
 );
 
-// Host-injected shell config. titleBar "custom" = Windows frameless web title bar; "mac" = omnibar strip
-// below the native title bar. Absent in plain-browser dev, where the floating Files button is the toggle.
+// Host-injected shell config. "custom" is the Windows frameless title bar; macOS/Linux render an app bar
+// below their native frame. Absent in plain-browser dev, where the floating Files button is the toggle.
 const SHELL = window.__WEAVIE_SHELL__;
 const CUSTOM_TITLEBAR = SHELL?.titleBar === "custom";
 const MAC_TITLEBAR = SHELL?.titleBar === "mac";
-// Either title-bar mode renders the omnibar + view toggles, so the floating panel buttons aren't needed.
-const HAS_TITLEBAR = CUSTOM_TITLEBAR || MAC_TITLEBAR;
+const LINUX_TITLEBAR = SHELL?.titleBar === "linux";
+const NATIVE_SHELL = ["win", "mac", "linux"].includes(SHELL?.platform ?? "");
+// Every app-bar mode renders the omnibar + view toggles, so the floating panel buttons aren't needed.
+const HAS_TITLEBAR = CUSTOM_TITLEBAR || MAC_TITLEBAR || LINUX_TITLEBAR;
+setContext("nativeShell", NATIVE_SHELL);
 
 const AGENT_PANE_KIND = "terminal:claude";
 // Maps a terminal-backed pane kind ("terminal:claude" / "terminal:shell") to its pane id.
@@ -180,6 +184,14 @@ export default function App(): JSX.Element {
   const [mobileSurface, setMobileSurface] = createSignal<MobileSurface>("inbox");
   const activeBackendId = (): string => selectedSession()?.connection.id ?? LOCAL_BACKEND_ID;
   const localHost = () => hostConnection(LOCAL_BACKEND_ID)?.host;
+  const publishMenuAction = (action: string, path?: string): boolean => {
+    const host = localHost();
+    if (host === undefined) {
+      return false;
+    }
+    host.feature("window").publish("menu", path === undefined ? { action } : { action, path });
+    return true;
+  };
   // The live pane layout tree: default-seeded, replaced by the host's persisted push, updated optimistically
   // during a splitter drag.
   const [layoutRoot, setLayoutRoot] = createSignal<LayoutNode>(DEFAULT_LAYOUT_ROOT);
@@ -298,10 +310,7 @@ export default function App(): JSX.Element {
   const sourceTokenPrompt = selectedSourceTokenPrompt;
   const [registerAgentOpen, setRegisterAgentOpen] = createSignal(false);
   // The cloud panel's anchor (computed from the cloud button's rect) when open, else null.
-  const [remotePanelAnchor, setRemotePanelAnchor] = createSignal<{
-    left: number;
-    bottom: number;
-  } | null>(null);
+  const [remotePanelAnchor, setRemotePanelAnchor] = createSignal<PopoverAnchor | null>(null);
   const dirListings = selectedDirectoryListings;
   const [browserOpen, setBrowserOpen] = createSignal(false);
   // Whether the find-in-files (content search) panel is open; the weavie.search.findInFiles command toggles it.
@@ -1238,10 +1247,23 @@ export default function App(): JSX.Element {
       registerCommand(CommandIds.runTestAtCursor, async () => {
         await (await import("./tests/test-lens")).runTestAtCursor();
       }),
-      // Open Folder (reuses the local host's native picker via the existing menu-action) + Open URL (opens a web tab).
-      registerCommand(CommandIds.openFolder, () => {
-        localHost()?.feature("window").publish("menu", { action: "open-folder" });
+      // Workspace/window menu commands always target the page-serving host, even while a remote session is active.
+      registerCommand(CommandIds.openFolder, () =>
+        NATIVE_SHELL ? publishMenuAction("open-folder") : false,
+      ),
+      registerCommand(CommandIds.openRecentWorkspace, (args) => {
+        if (!NATIVE_SHELL) {
+          return false;
+        }
+        const path = (args as { path?: unknown } | undefined)?.path;
+        return typeof path === "string" && path.length > 0
+          ? publishMenuAction("open-recent", path)
+          : false;
       }),
+      registerCommand(CommandIds.closeWindow, () =>
+        NATIVE_SHELL ? publishMenuAction("close-window") : false,
+      ),
+      registerCommand(CommandIds.exit, () => (NATIVE_SHELL ? publishMenuAction("exit") : false)),
       // Open URL: a `url` arg (the terminal's "Open in Weavie" menu / Claude) opens it in a web tab directly;
       // no arg (the palette / $mod+O) prompts. "Open in Browser" opens the same URL in the OS browser instead.
       registerCommand(CommandIds.openUrl, (args) => {
@@ -1417,12 +1439,6 @@ export default function App(): JSX.Element {
           onWindowControl={(action) =>
             localHost()?.feature("window").publish("control", { action })
           }
-          onMenuAction={(action, path) =>
-            localHost()
-              ?.feature("window")
-              .publish("menu", path === undefined ? { action } : { action, path })
-          }
-          onToggleFiles={toggleBrowser}
           onOpenFile={(path, line) => revealSelectedFile(path, line)}
           onRequestIndex={refreshSelectedFileIndex}
           symbols={editor.symbols}
@@ -1431,14 +1447,15 @@ export default function App(): JSX.Element {
       <Show when={CUSTOM_TITLEBAR}>
         <ResizeFrame maximized={windowMaximized()} />
       </Show>
-      <Show when={MAC_TITLEBAR}>
-        <MacTitleBar
+      <Show when={MAC_TITLEBAR || LINUX_TITLEBAR}>
+        <NativeTitleBar
+          platform={LINUX_TITLEBAR ? "linux" : "mac"}
           files={fileIndex()}
           filesPending={indexPending()}
           root={indexRoot()}
           currentFile={currentFile()}
           workspaceLabel={SHELL?.workspaceLabel ?? "weavie"}
-          onToggleFiles={toggleBrowser}
+          recents={SHELL?.recents ?? []}
           onOpenFile={(path, line) => revealSelectedFile(path, line)}
           onRequestIndex={refreshSelectedFileIndex}
           symbols={editor.symbols}
@@ -1455,7 +1472,12 @@ export default function App(): JSX.Element {
             setRemotePanelAnchor((open) =>
               open !== null
                 ? null
-                : { left: rect.right + 6, bottom: window.innerHeight - rect.bottom },
+                : {
+                    left: rect.left,
+                    right: rect.right,
+                    top: rect.top,
+                    bottom: rect.bottom,
+                  },
             )
           }
         />

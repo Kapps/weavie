@@ -47,6 +47,7 @@ window.addEventListener("unhandledrejection", (e) => {
   const message = r instanceof Error ? (r.stack ?? r.message) : String(r);
   log("error", `unhandledrejection: ${message}`);
 });
+window.__WEAVIE_CLEAR_BOOT_ERROR_CAPTURE__?.();
 // Render the shell immediately. Monaco + its VSCode service layer load as a separate chunk from inside App,
 // so first paint doesn't wait on the multi-megabyte editor code. The splash stays up until App dismisses it
 // once the editor is ready.

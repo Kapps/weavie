@@ -19,6 +19,8 @@ or leave a new comment without leaving Weavie.
 > - **Phase 3 — comments.** The forge-neutral `IReviewCommentStore` (GitHub impl + in-memory fake) loads a PR's
 >   review comments; they anchor as threads (view-zones) on the diff lines, with a composer to **reply** and a
 >   toolbar **Comment** action to add a new one (`add-pr-comment` → re-fetch → re-render).
+> - **Branch status.** Every loaded session owns a coalesced PR monitor that keeps the status-line chip current
+>   through long agent turns and retains open/merged/closed state.
 >
 > A Playwright spec (`open-pr.spec.ts`, against a stubbed provider + a local base/head workspace) drives the
 > whole journey: pick PR → checkout → diff navigator → walk files → see a comment → reply → add.
@@ -95,6 +97,22 @@ flowchart LR
 
 Why host-side: the token must never reach the renderer (untrusted surface), API calls need no CORS dance, and
 every host (Win/Mac/Linux/Headless/Remote) inherits the feature by adding it to `HostCore`, not per-OS.
+
+### Session-owned branch status
+
+PR status is owned by the same exact `(slot, incarnation)` as the rest of a session's state. A monitor performs
+one branch-filtered provider lookup at a time and coalesces concurrent sync and lifecycle refreshes
+into at most one pending lookup. Sync replays its cached snapshot immediately and requests a fresh one; it never
+starts a second lookup that can race the session's broadcast state.
+
+The monitor refreshes immediately when a session enters `Working` or `Waiting`, every 30 seconds while it stays
+there, and once more when it leaves. GitHub requests use the exact `owner:branch` filter across all PR states
+and send the cached ETag so unchanged responses return `304`. They use the provider's existing ambient
+credential discovery (environment, `gh`, or git's credential helper), so no separate Weavie sign-in is added.
+Open PRs win if a branch has multiple historical PRs, otherwise the newest merged or closed PR remains visible.
+A transient lookup error preserves the same branch's last good chip and appears in its tooltip. Webhooks would
+remove polling but require an always-on callback and GitHub App installation that remote and local sessions do
+not currently have, so they remain a future transport optimization behind the same monitor.
 
 ### Two seams: git for the diff, a forge-agnostic provider for PRs + comments
 

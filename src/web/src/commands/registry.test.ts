@@ -30,6 +30,7 @@ vi.mock("../bridge", () => ({
     };
   },
   hostInjected: <T>(_name: string, value: T | undefined, fallback: T): T => value ?? fallback,
+  LOCAL_BACKEND_ID: "local",
   invokeCommandOnBackend: (
     backendId: string,
     id: string,
@@ -39,6 +40,10 @@ vi.mock("../bridge", () => ({
     return Promise.resolve(env.coreResult);
   },
   log: () => {},
+  onSelectedSession: (listener: (session: ClientSession | null) => void) => {
+    listener(env.selected);
+    return () => {};
+  },
   registerHostFeature: (installer: (connection: HostConnection) => undefined | (() => void)) => {
     installer({
       id: "local",
@@ -160,6 +165,27 @@ describe("dispatchCommand — web commands", () => {
     const res = await reg.dispatchCommand("web.d");
     expect(res.ok).toBe(false);
     expect(res.error).toMatch(/web handler/);
+  });
+
+  it("can dispatch from the local catalog while a remote backend is selected", async () => {
+    setCatalog([cmd("web.local-menu", "web")]);
+    let ran = false;
+    reg.registerCommand("web.local-menu", () => {
+      ran = true;
+    });
+    env.selected = {
+      ...env.selected,
+      connection: { id: "remote:r" },
+    } as unknown as ClientSession;
+
+    expect(await reg.dispatchCommandFromCatalog("local", "web.local-menu")).toEqual({ ok: true });
+    expect(ran).toBe(true);
+    expect(reg.findCommandInCatalog("local", "web.local-menu")?.id).toBe("web.local-menu");
+
+    env.selected = {
+      ...env.selected,
+      connection: { id: "local" },
+    } as unknown as ClientSession;
   });
 });
 

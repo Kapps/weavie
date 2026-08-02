@@ -1,5 +1,5 @@
 import { createMemo, createSignal, For, type JSX, Match, Show, Switch } from "solid-js";
-import type { AgentPaneUpdate, ClientSession } from "../bridge";
+import type { ClientSession } from "../bridge";
 import { liveKeyLabel } from "../commands/keys-live";
 import { CommandIds } from "../commands/types";
 import { AgentMarkdown } from "./AgentMarkdown";
@@ -12,24 +12,21 @@ import {
 import { AgentLinkedText } from "./AgentPaneLinks";
 import type { AgentActivityStep, AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 import { computeSectionLabels } from "./AgentTranscriptLabels";
-import { hasActiveTurn } from "./turn-progress";
 
 export function AgentTranscript(props: {
+  agentTurnStartId: string | null;
   entries: AgentTranscriptEntry[];
   keyboardApprovalId: string | null;
-  messages: AgentPaneUpdate[];
   providerName: string;
   session: ClientSession | null;
+  turnActive: boolean;
 }): JSX.Element {
   // Entries are rebuilt as updates arrive. Keep disclosure state outside the native <details> node
   // so replacing an entry does not close something the user is inspecting.
   const [expandedDetails, setExpandedDetails] = createSignal<ReadonlySet<string>>(new Set());
-  // Compute the turn's active state ONCE per render, not once per entry: hasActiveTurn scans every message,
-  // so calling it inside the <For> below made section labelling O(entries × messages).
-  const turnActive = createMemo(() => hasActiveTurn(props.messages));
   // All section labels in one O(entries) pass, keyed by entry id. Reads only kind/tone/id (never text), so a
   // streaming text delta never re-runs it; a turn ending updates a Map value, never an entry's identity.
-  const sectionLabels = createMemo(() => computeSectionLabels(props.entries, turnActive()));
+  const sectionLabels = createMemo(() => computeSectionLabels(props.entries, props.turnActive));
 
   return (
     <Show
@@ -39,6 +36,7 @@ export function AgentTranscript(props: {
       <For each={props.entries}>
         {(entry) => (
           <TranscriptEntry
+            agentTurnStart={entry.id === props.agentTurnStartId}
             detailsExpanded={expandedDetails().has(detailsKey(props.session, entry.id))}
             entry={entry}
             keyboardApprovalId={props.keyboardApprovalId}
@@ -106,6 +104,7 @@ function EmptyState(props: { providerName: string }): JSX.Element {
 }
 
 function TranscriptEntry(props: {
+  agentTurnStart: boolean;
   detailsExpanded: boolean;
   entry: AgentTranscriptEntry;
   keyboardApprovalId: string | null;
@@ -120,7 +119,7 @@ function TranscriptEntry(props: {
         "agent-entry-edit": props.entry.actionMessage?.type === "edit-location",
         "agent-entry-result": props.sectionLabel !== null,
       }}
-      data-agent-turn-start={props.entry.turnStart ? "" : undefined}
+      data-agent-turn-output-start={props.agentTurnStart ? "" : undefined}
     >
       <Show when={props.sectionLabel !== null || showEntryHeader(props.entry)}>
         <div class="agent-entry-head" title={entryTitle(props.entry)}>

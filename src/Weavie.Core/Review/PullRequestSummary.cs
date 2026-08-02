@@ -1,8 +1,8 @@
 namespace Weavie.Core.Review;
 
 /// <summary>
-/// One open pull request, as the picker needs it and the open-PR flow checks it out. Forge-neutral: a GitLab
-/// merge request or a Bitbucket PR would map onto the same shape.
+/// One pull request, as the picker and branch-status monitor need it. Forge-neutral: a GitLab merge request or
+/// a Bitbucket PR would map onto the same shape.
 /// </summary>
 public sealed record PullRequestSummary {
 	/// <summary>The PR number (<c>#123</c>), unique within the repo.</summary>
@@ -25,4 +25,19 @@ public sealed record PullRequestSummary {
 
 	/// <summary>True for a draft PR, so the picker can mark it.</summary>
 	public required bool IsDraft { get; init; }
+
+	/// <summary>The pull request's current lifecycle state.</summary>
+	public required PullRequestState State { get; init; }
+}
+
+/// <summary>The forge-neutral lifecycle state of a pull request.</summary>
+public enum PullRequestState {
+	/// <summary>The pull request is open.</summary>
+	Open,
+
+	/// <summary>The pull request was merged.</summary>
+	Merged,
+
+	/// <summary>The pull request was closed without merging.</summary>
+	Closed,
 }

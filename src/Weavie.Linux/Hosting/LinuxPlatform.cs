@@ -10,17 +10,19 @@ using Weavie.Linux.Native;
 namespace Weavie.Linux.Hosting;
 
 /// <summary>
-/// The GTK + WebKitGTK platform shell: bridge, GLib-main-loop UI marshal, and POSIX PTYs. Unwired optional
-/// capabilities (title bar, hotkeys, dialogs) are <c>null</c> and <see cref="HostCore"/> degrades them to no-ops.
+/// The GTK + WebKitGTK platform shell: bridge, GLib-main-loop UI marshal, POSIX PTYs, and the native actions
+/// behind the web-rendered Linux app bar. Unsupported optional capabilities remain <c>null</c>.
 /// </summary>
 internal sealed class LinuxPlatform : IHostPlatform {
 	private readonly RecentWorkspaces _recents;
 
-	public LinuxPlatform(HostBridge bridge, RecentWorkspaces recents) {
+	public LinuxPlatform(HostBridge bridge, RecentWorkspaces recents, IShellMenuActions menuActions) {
 		ArgumentNullException.ThrowIfNull(bridge);
 		ArgumentNullException.ThrowIfNull(recents);
+		ArgumentNullException.ThrowIfNull(menuActions);
 		Bridge = bridge;
 		_recents = recents;
+		MenuActions = menuActions;
 		Dispatcher = new DelegateUiDispatcher(GtkMain.Invoke);
 		PtyLauncher = new PosixPtyLauncher();
 	}
@@ -35,12 +37,14 @@ internal sealed class LinuxPlatform : IHostPlatform {
 
 	public HostTransport Transport => HostTransport.Local;
 
-	// Native GTK decorations, so the web renders no custom title bar.
-	public string? TitleBar => null;
+	// Native GTK decorations plus the web app bar (menus + omnibar, no web window controls).
+	public string? TitleBar => "linux";
 
 	public IReadOnlyList<string> Recents => _recents.Items;
 
 	public IShellWindow? Window => null;
+
+	public IShellMenuActions MenuActions { get; }
 
 	public IGlobalHotkeyRegistrar? HotkeyRegistrar => null;
 

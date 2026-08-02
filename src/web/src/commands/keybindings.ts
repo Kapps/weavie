@@ -6,7 +6,14 @@
 // (its own history navigation) would navigate the whole app away. See docs/specs/commands.md.
 
 import { evaluateWhen } from "./context";
-import { getKeybindings, onCommandsChanged, runForKeybinding } from "./registry";
+import {
+  getActiveCatalogBackendId,
+  getCommandsInCatalog,
+  getKeybindingsInCatalog,
+  LOCAL_COMMAND_CATALOG_ID,
+  onCommandsChanged,
+  runForKeybindingFromCatalog,
+} from "./registry";
 import type { ResolvedKeybinding } from "./types";
 
 /** Whether the runtime is macOS — used to resolve `$mod` and platform-specific key handling. */
@@ -64,6 +71,10 @@ function normalizeKey(key: string): string {
       return "right";
     case "escape":
       return "esc";
+    // GTK/WebKit exposes Shift+Tab with its X11 keysym name. Shift remains in event.shiftKey, so fold only
+    // the key token and let the normal modifier matcher distinguish Tab from Shift+Tab.
+    case "iso_left_tab":
+      return "tab";
     case " ":
     case "spacebar":
       return "space";
@@ -133,14 +144,40 @@ function matches(chord: Chord, event: KeyboardEvent): boolean {
   return modifiersMatch(chord, event) && normalizeKey(event.key) === chord.key;
 }
 
-let compiled: { chord: Chord; binding: ResolvedKeybinding }[] = [];
+let compiled: {
+  catalogBackendId: string;
+  chord: Chord;
+  binding: ResolvedKeybinding;
+}[] = [];
 
 function rebuild(): void {
+  const activeBackendId = getActiveCatalogBackendId();
+  const nativeShellCommands = new Set(
+    getCommandsInCatalog(LOCAL_COMMAND_CATALOG_ID)
+      .filter((command) => command.when === "nativeShell")
+      .map((command) => command.id),
+  );
+  const active = getKeybindingsInCatalog(activeBackendId)
+    .filter(
+      (binding) =>
+        activeBackendId === LOCAL_COMMAND_CATALOG_ID || !nativeShellCommands.has(binding.command),
+    )
+    .map((binding) => ({ catalogBackendId: activeBackendId, binding }));
+  const localShell =
+    activeBackendId === LOCAL_COMMAND_CATALOG_ID
+      ? []
+      : getKeybindingsInCatalog(LOCAL_COMMAND_CATALOG_ID)
+          .filter((binding) => nativeShellCommands.has(binding.command))
+          .map((binding) => ({ catalogBackendId: LOCAL_COMMAND_CATALOG_ID, binding }));
   // Skip global bindings: the host registers them with the OS, so resolving them here too would double-fire
   // them while Weavie is focused.
-  compiled = getKeybindings()
-    .filter((binding) => binding.global !== true)
-    .map((binding) => ({ chord: parseChord(binding.key), binding }));
+  compiled = [...active, ...localShell]
+    .filter(({ binding }) => binding.global !== true)
+    .map(({ catalogBackendId, binding }) => ({
+      catalogBackendId,
+      chord: parseChord(binding.key),
+      binding,
+    }));
 }
 
 /** Installs the capture-phase keybinding resolver; returns a teardown function. */
@@ -158,11 +195,11 @@ export function installKeybindings(): () => void {
       if (entry === undefined) {
         continue;
       }
-      const { chord, binding } = entry;
+      const { catalogBackendId, chord, binding } = entry;
       if (!matches(chord, event) || !evaluateWhen(binding.when)) {
         continue;
       }
-      if (runForKeybinding(binding.command, binding.args)) {
+      if (runForKeybindingFromCatalog(catalogBackendId, binding.command, binding.args)) {
         event.preventDefault();
         event.stopPropagation();
         return;
@@ -195,7 +232,13 @@ export function installKeybindings(): () => void {
       if (!modifiersMatch(entry.chord, event) || !evaluateWhen(entry.binding.when)) {
         continue;
       }
-      if (runForKeybinding(entry.binding.command, entry.binding.args)) {
+      if (
+        runForKeybindingFromCatalog(
+          entry.catalogBackendId,
+          entry.binding.command,
+          entry.binding.args,
+        )
+      ) {
         return;
       }
     }

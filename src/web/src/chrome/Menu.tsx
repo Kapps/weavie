@@ -1,16 +1,20 @@
 import { ChevronRight } from "lucide-solid";
 import { createSignal, For, type JSX, onCleanup, Show } from "solid-js";
-import { formatKey } from "../commands/keybindings";
-import { findCommand } from "../commands/registry";
+import { LOCAL_BACKEND_ID } from "../bridge";
+import { evaluateWhen } from "../commands/context";
+import { keyLabelInCatalog } from "../commands/key-hint";
+import { findCommandInCatalog, runCommandFromCatalogWithFeedback } from "../commands/registry";
 import { CommandIds } from "../commands/types";
-
-export type MenuAction = "open-folder" | "open-recent" | "close-window" | "exit";
 
 // The resolved shortcut for a command, formatted for display ("" when unbound) — so a menu item advertises
 // its keybinding (keyboard-first), read live from the catalog rather than hardcoded.
 function shortcutOf(commandId: string): string {
-  const keys = findCommand(commandId)?.keys ?? [];
-  return keys.length > 0 ? keys.map(formatKey).join(" / ") : "";
+  return keyLabelInCatalog(LOCAL_BACKEND_ID, commandId);
+}
+
+function available(commandId: string): boolean {
+  const command = findCommandInCatalog(LOCAL_BACKEND_ID, commandId);
+  return command !== undefined && evaluateWhen(command.when);
 }
 
 function leaf(path: string): string {
@@ -18,13 +22,9 @@ function leaf(path: string): string {
   return parts.length > 0 ? (parts[parts.length - 1] as string) : path;
 }
 
-// The title bar's web-rendered menu bar (File + View): File items post `menu-action` to the host, View
-// toggles the file browser. One menu open at a time; hovering another label while open switches to it.
-export function Menu(props: {
-  recents: string[];
-  onMenuAction: (action: MenuAction, path?: string) => void;
-  onToggleFiles: () => void;
-}): JSX.Element {
+// The app bar's File + View menus. Every row invokes its command id; one menu stays open at a time, and
+// hovering the other label while open switches to it.
+export function Menu(props: { recents: string[] }): JSX.Element {
   const [openMenu, setOpenMenu] = createSignal<"file" | "view" | null>(null);
 
   const close = (): void => {
@@ -57,70 +57,89 @@ export function Menu(props: {
     window.removeEventListener("keydown", onKeyDown);
   });
 
-  const fileAction = (action: MenuAction, path?: string): void => {
+  const commandAction = (command: string, args?: unknown): void => {
     close();
-    props.onMenuAction(action, path);
-  };
-  const viewAction = (fn: () => void): void => {
-    close();
-    fn();
+    void runCommandFromCatalogWithFeedback(LOCAL_BACKEND_ID, command, args);
   };
 
   return (
     <div class="tb-menu">
-      <div class="tb-menu-item">
-        <button
-          type="button"
-          class="tb-menu-label"
-          classList={{ open: openMenu() === "file" }}
-          onClick={() => toggle("file")}
-          onMouseEnter={() => hover("file")}
-        >
-          File
-        </button>
-        <Show when={openMenu() === "file"}>
-          <div class="tb-dropdown">
-            <button type="button" class="tb-dropitem" onClick={() => fileAction("open-folder")}>
-              <span>Open Folder…</span>
-            </button>
-            <div
-              class="tb-dropitem has-submenu"
-              classList={{ disabled: props.recents.length === 0 }}
-              // Focusable (unless empty) so a keyboard user can reach it; the submenu reveals on :focus-within.
-              tabindex={props.recents.length === 0 ? undefined : 0}
-            >
-              <span>Open Recent</span>
-              <span class="tb-submenu-arrow">
-                <ChevronRight />
-              </span>
-              <Show when={props.recents.length > 0}>
-                <div class="tb-submenu">
-                  <For each={props.recents}>
-                    {(path) => (
-                      <button
-                        type="button"
-                        class="tb-dropitem"
-                        title={path}
-                        onClick={() => fileAction("open-recent", path)}
-                      >
-                        <span class="tb-recent-leaf">{leaf(path)}</span>
-                        <span class="tb-recent-path">{path}</span>
-                      </button>
-                    )}
-                  </For>
-                </div>
-              </Show>
+      <Show when={available(CommandIds.openFolder)}>
+        <div class="tb-menu-item">
+          <button
+            type="button"
+            class="tb-menu-label"
+            classList={{ open: openMenu() === "file" }}
+            onClick={() => toggle("file")}
+            onMouseEnter={() => hover("file")}
+          >
+            File
+          </button>
+          <Show when={openMenu() === "file"}>
+            <div class="tb-dropdown">
+              <button
+                type="button"
+                class="tb-dropitem"
+                onClick={() => commandAction(CommandIds.openFolder)}
+              >
+                <span>Open Folder…</span>
+                <Show when={shortcutOf(CommandIds.openFolder)}>
+                  {(keys) => <span class="tb-dropitem-keys">{keys()}</span>}
+                </Show>
+              </button>
+              <div
+                class="tb-dropitem has-submenu"
+                classList={{ disabled: props.recents.length === 0 }}
+                // Focusable (unless empty) so a keyboard user can reach it; the submenu reveals on :focus-within.
+                tabindex={props.recents.length === 0 ? undefined : 0}
+              >
+                <span>Open Recent</span>
+                <span class="tb-submenu-arrow">
+                  <ChevronRight />
+                </span>
+                <Show when={props.recents.length > 0}>
+                  <div class="tb-submenu">
+                    <For each={props.recents}>
+                      {(path) => (
+                        <button
+                          type="button"
+                          class="tb-dropitem"
+                          title={path}
+                          onClick={() => commandAction(CommandIds.openRecentWorkspace, { path })}
+                        >
+                          <span class="tb-recent-leaf">{leaf(path)}</span>
+                          <span class="tb-recent-path">{path}</span>
+                        </button>
+                      )}
+                    </For>
+                  </div>
+                </Show>
+              </div>
+              <div class="tb-sep" />
+              <button
+                type="button"
+                class="tb-dropitem"
+                onClick={() => commandAction(CommandIds.closeWindow)}
+              >
+                <span>Close Window</span>
+                <Show when={shortcutOf(CommandIds.closeWindow)}>
+                  {(keys) => <span class="tb-dropitem-keys">{keys()}</span>}
+                </Show>
+              </button>
+              <button
+                type="button"
+                class="tb-dropitem"
+                onClick={() => commandAction(CommandIds.exit)}
+              >
+                <span>Exit</span>
+                <Show when={shortcutOf(CommandIds.exit)}>
+                  {(keys) => <span class="tb-dropitem-keys">{keys()}</span>}
+                </Show>
+              </button>
             </div>
-            <div class="tb-sep" />
-            <button type="button" class="tb-dropitem" onClick={() => fileAction("close-window")}>
-              <span>Close Window</span>
-            </button>
-            <button type="button" class="tb-dropitem" onClick={() => fileAction("exit")}>
-              <span>Exit</span>
-            </button>
-          </div>
-        </Show>
-      </div>
+          </Show>
+        </div>
+      </Show>
 
       <div class="tb-menu-item">
         <button
@@ -137,7 +156,7 @@ export function Menu(props: {
             <button
               type="button"
               class="tb-dropitem"
-              onClick={() => viewAction(props.onToggleFiles)}
+              onClick={() => commandAction(CommandIds.toggleFileBrowser)}
             >
               <span>Toggle Files</span>
               <Show when={shortcutOf(CommandIds.toggleFileBrowser)}>

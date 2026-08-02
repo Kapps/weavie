@@ -1,19 +1,38 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { setContext } from "./context";
+import type { CommandInfo, ResolvedKeybinding } from "./types";
 
 const commandState = vi.hoisted(() => ({
-  bindings: [] as Array<{ key: string; command: string }>,
+  activeBackendId: "local",
+  localBindings: [] as ResolvedKeybinding[],
+  localCommands: [] as CommandInfo[],
+  remoteBindings: [] as ResolvedKeybinding[],
   run: vi.fn(() => true),
 }));
 
 // keybindings.ts pulls in the registry (and through it the window-coupled bridge) only for the resolver;
 // formatKey itself needs none of it. Stub the registry so the module loads in the pure node env.
 vi.mock("./registry", () => ({
-  getKeybindings: () => commandState.bindings,
+  getActiveCatalogBackendId: () => commandState.activeBackendId,
+  getCommandsInCatalog: (backendId: string) =>
+    backendId === "local" ? commandState.localCommands : [],
+  getKeybindingsInCatalog: (backendId: string) =>
+    backendId === "local" ? commandState.localBindings : commandState.remoteBindings,
+  LOCAL_COMMAND_CATALOG_ID: "local",
   onCommandsChanged: () => () => {},
-  runForKeybinding: commandState.run,
+  runForKeybindingFromCatalog: commandState.run,
 }));
 
 const { formatKey, installKeybindings } = await import("./keybindings");
+
+beforeEach(() => {
+  commandState.activeBackendId = "local";
+  commandState.localBindings = [];
+  commandState.localCommands = [];
+  commandState.remoteBindings = [];
+  commandState.run.mockClear();
+  setContext("nativeShell", true);
+});
 
 // In the node test env navigator is non-mac, so $mod renders as "Ctrl".
 describe("formatKey (non-mac)", () => {
@@ -42,9 +61,45 @@ describe("formatKey (non-mac)", () => {
 });
 
 describe("keyboard resolver", () => {
+  it("normalizes GTK's ISO_Left_Tab key for Ctrl+Shift+Tab bindings", () => {
+    commandState.localBindings = [
+      { key: "ctrl+shift+tab", command: "weavie.session.prev", args: undefined },
+    ];
+    let keydown: ((event: KeyboardEvent) => void) | undefined;
+    vi.stubGlobal("window", {
+      addEventListener: (type: string, handler: (event: KeyboardEvent) => void) => {
+        if (type === "keydown") {
+          keydown = handler;
+        }
+      },
+      removeEventListener: vi.fn(),
+    });
+    const dispose = installKeybindings();
+    const preventDefault = vi.fn();
+    const stopPropagation = vi.fn();
+
+    keydown?.({
+      key: "ISO_Left_Tab",
+      isComposing: false,
+      ctrlKey: true,
+      metaKey: false,
+      shiftKey: true,
+      altKey: false,
+      preventDefault,
+      stopPropagation,
+    } as unknown as KeyboardEvent);
+
+    expect(commandState.run).toHaveBeenCalledWith("local", "weavie.session.prev", undefined);
+    expect(preventDefault).toHaveBeenCalledOnce();
+    expect(stopPropagation).toHaveBeenCalledOnce();
+    dispose();
+    vi.unstubAllGlobals();
+  });
+
   it("does not run Enter bindings while an IME composition is active", () => {
-    commandState.bindings = [{ key: "enter", command: "weavie.agent.submit" }];
-    commandState.run.mockClear();
+    commandState.localBindings = [
+      { key: "enter", command: "weavie.agent.submit", args: undefined },
+    ];
     let keydown: ((event: KeyboardEvent) => void) | undefined;
     vi.stubGlobal("window", {
       addEventListener: (type: string, handler: (event: KeyboardEvent) => void) => {
@@ -66,6 +121,51 @@ describe("keyboard resolver", () => {
     } as KeyboardEvent);
 
     expect(commandState.run).not.toHaveBeenCalled();
+    dispose();
+    vi.unstubAllGlobals();
+  });
+
+  it("keeps local native-shell bindings active while a remote backend is selected", () => {
+    commandState.activeBackendId = "remote:r";
+    commandState.localCommands = [
+      {
+        id: "weavie.window.exit",
+        title: "Exit Weavie",
+        runsIn: "web",
+        description: "",
+        aliases: [],
+        showInPalette: true,
+        when: "nativeShell",
+        keys: ["ctrl+q"],
+      },
+    ];
+    commandState.localBindings = [
+      { key: "ctrl+q", command: "weavie.window.exit", when: "nativeShell" },
+    ];
+    commandState.remoteBindings = [{ key: "ctrl+q", command: "remote.other", args: undefined }];
+    let keydown: ((event: KeyboardEvent) => void) | undefined;
+    vi.stubGlobal("window", {
+      addEventListener: (type: string, handler: (event: KeyboardEvent) => void) => {
+        if (type === "keydown") {
+          keydown = handler;
+        }
+      },
+      removeEventListener: vi.fn(),
+    });
+    const dispose = installKeybindings();
+
+    keydown?.({
+      key: "q",
+      isComposing: false,
+      ctrlKey: true,
+      metaKey: false,
+      shiftKey: false,
+      altKey: false,
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    } as unknown as KeyboardEvent);
+
+    expect(commandState.run).toHaveBeenCalledWith("local", "weavie.window.exit", undefined);
     dispose();
     vi.unstubAllGlobals();
   });

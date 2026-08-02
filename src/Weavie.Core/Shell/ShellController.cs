@@ -41,29 +41,4 @@ public sealed class ShellController {
 		}
 	}
 
-	/// <summary>Handles a <c>window.menu</c> payload: open folder / open recent / close window / exit.</summary>
-	public void HandleMenuAction(JsonElement message) {
-		if (!ShellProtocol.TryParseMenuAction(message, out var command, out string? path)) {
-			return;
-		}
-
-		switch (command) {
-			case MenuCommand.OpenFolder:
-				_window.ShowOpenFolderPicker();
-				break;
-			case MenuCommand.OpenRecent:
-				if (!string.IsNullOrEmpty(path)) {
-					_window.OpenWorkspace(path);
-				}
-
-				break;
-			case MenuCommand.CloseWindow:
-				_window.CloseWindow();
-				break;
-			case MenuCommand.Exit:
-				_window.Quit();
-				break;
-		}
-	}
-
 }

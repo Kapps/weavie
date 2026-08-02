@@ -18,6 +18,10 @@ internal delegate void GDestroyNotify(IntPtr data);
 [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
 internal delegate void WidgetCallback(IntPtr widget, IntPtr userData);
 
+/// <summary>GTK <c>key-press-event</c> handler: <c>(widget, GdkEventKey*, userData)</c>.</summary>
+[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+internal delegate int KeyEventCallback(IntPtr widget, IntPtr keyEvent, IntPtr userData);
+
 /// <summary>WebKit <c>script-message-received</c> handler: <c>(manager, WebKitJavascriptResult*, userData)</c>.</summary>
 [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
 internal delegate void ScriptMessageCallback(IntPtr manager, IntPtr jsResult, IntPtr userData);

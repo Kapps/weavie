@@ -68,7 +68,7 @@ public static class ShellProtocol {
 	/// platform/title-bar to render, the workspace label, and the recents for File ▸ Open Recent.
 	/// </summary>
 	/// <param name="platform">Short platform id, e.g. <c>win</c> or <c>mac</c>.</param>
-	/// <param name="titleBar">Title-bar mode (<c>custom</c>), or null for native chrome.</param>
+	/// <param name="titleBar">Title-bar mode (<c>custom</c>, <c>mac</c>, or <c>linux</c>), or null.</param>
 	/// <param name="workspaceLabel">The window's workspace label (folder leaf name).</param>
 	/// <param name="recents">Recent workspace paths (absolute); the web derives leaf names for display.</param>
 	/// <param name="buildNumber">The app's build identity (SemVer with the build number as patch), shown read-only in the title bar.</param>

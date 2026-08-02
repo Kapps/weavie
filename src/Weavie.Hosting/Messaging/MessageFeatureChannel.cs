@@ -26,6 +26,11 @@ public sealed class MessageFeatureChannel : IMessageFeatureTarget {
 		Func<TRequest, CancellationToken, Task<ResponseWithCompletion<TResponse>>> handler) =>
 		_bus.HandleAfterResponse(_feature, name, handler, SessionExecution.Serialized);
 
+	internal IDisposable HandleAfterEvent<TEvent>(
+		string name,
+		Func<TEvent, CancellationToken, Task<Func<Task>>> handler) =>
+		_bus.HandleAfterEvent(_feature, name, handler, SessionExecution.Serialized);
+
 	internal IDisposable HandleOwned<TRequest, TResponse>(
 		string name,
 		Func<TRequest, MessagePeer, CancellationToken, Task<TResponse>> handler) =>

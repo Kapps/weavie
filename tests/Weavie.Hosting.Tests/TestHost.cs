@@ -491,6 +491,7 @@ internal sealed class TestPlatform : IHostPlatform {
 	public string? TitleBar => null;
 	public IReadOnlyList<string> Recents => [];
 	public IShellWindow? Window { get; set; }
+	public IShellMenuActions MenuActions { get; set; } = NoopShellMenuActions.Instance;
 	public IGlobalHotkeyRegistrar? HotkeyRegistrar => null;
 	public IHostDialogs? Dialogs => null;
 

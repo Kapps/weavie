@@ -1,4 +1,4 @@
-/* Custom/mac title bars, menu bar + dropdowns, and window controls (TitleBar.tsx / MacTitleBar.tsx / Menu.tsx). */
+/* Custom/native-frame app bars, menu dropdowns, and window controls (TitleBar / NativeTitleBar / Menu). */
 
 /* ── Custom title bar (Windows) ──────────────────────────────────────────────────────────────────
    A VS Code–style title bar drawn in-web over a frameless host window: app icon + File/View menus,
@@ -23,10 +23,9 @@
   color: var(--dim);
 }
 
-/* macOS title-bar strip: the omnibar + Files/Changes toggles, rendered below the native window title bar
-   (which carries the traffic lights + system menu bar). No `app-region: drag` — the native title bar owns
-   window dragging — and no window controls. Only rendered on macOS (gated on the injected shell config). */
-.mac-titlebar {
+/* Native-frame app bar: the omnibar plus platform-appropriate menus/toggles, rendered below the OS title bar.
+   No draggable region or window controls — GTK/AppKit own both. */
+.native-titlebar {
   flex: 0 0 auto;
   display: flex;
   align-items: stretch;
@@ -36,8 +35,8 @@
   user-select: none;
 }
 
-.mac-tb-left,
-.mac-tb-right {
+.native-tb-left,
+.native-tb-right {
   display: flex;
   align-items: center;
   flex: 0 0 auto;
@@ -47,11 +46,11 @@
   padding: 0 8px;
 }
 
-.mac-tb-right {
+.native-tb-right {
   justify-content: flex-end;
 }
 
-.mac-tb-btn {
+.native-tb-btn {
   appearance: none;
   border: 1px solid transparent;
   background: transparent;
@@ -62,7 +61,7 @@
   cursor: pointer;
 }
 
-.mac-tb-btn:hover {
+.native-tb-btn:hover {
   /* Theme-adaptive subtle hover: a hint of the foreground over the bar, so it works on dark + light. */
   background: color-mix(in srgb, var(--fg) 8%, transparent);
 }

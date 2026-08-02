@@ -162,4 +162,16 @@ public sealed class CommandTests {
 		Assert.Equal("alt+p", Assert.Single(command.DefaultKeybindings).Key);
 		Assert.Equal("agentFocused", command.When);
 	}
+
+	[Theory]
+	[InlineData(CoreCommands.OpenFolder, "$mod+Shift+o")]
+	[InlineData(CoreCommands.CloseWindow, "$mod+Shift+w")]
+	[InlineData(CoreCommands.Exit, "$mod+q")]
+	public void NativeShellCommands_AreGuardedAndBound(string id, string key) {
+		var command = CoreCommands.CreateRegistry().Require(id);
+
+		Assert.Equal(CommandLocation.Web, command.RunsIn);
+		Assert.Equal("nativeShell", command.When);
+		Assert.Equal(key, Assert.Single(command.DefaultKeybindings).Key);
+	}
 }

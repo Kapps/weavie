@@ -84,6 +84,7 @@ public sealed class HostCoreTerminalActionsTests {
 		await using var host = TestHost.CreateUnstarted(dispatcher);
 		var window = new ThreadRecordingWindow();
 		host.Platform.Window = window;
+		host.Platform.MenuActions = window;
 		int? readyThread = null;
 		host.Core.Ready += () => readyThread = Environment.CurrentManagedThreadId;
 		await host.Core.StartAsync();
@@ -111,7 +112,21 @@ public sealed class HostCoreTerminalActionsTests {
 		Assert.Empty(errors);
 	}
 
-	private sealed class ThreadRecordingWindow : IShellWindow {
+	[Fact]
+	public async Task MenuActionsDoNotRequireCustomWindowControls() {
+		await using var host = TestHost.CreateUnstarted();
+		var menu = new ThreadRecordingWindow();
+		host.Platform.MenuActions = menu;
+		await host.Core.StartAsync();
+		await host.ConnectAsync();
+
+		host.HostEvent("window", "menu", new { action = "open-folder" });
+		await Wait.UntilAsync(() => menu.Threads.Count == 1);
+
+		Assert.Null(host.Platform.Window);
+	}
+
+	private sealed class ThreadRecordingWindow : IShellWindow, IShellMenuActions {
 		public ConcurrentQueue<int> Threads { get; } = [];
 
 		public void Minimize() => Record();

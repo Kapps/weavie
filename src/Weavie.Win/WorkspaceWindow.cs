@@ -16,7 +16,7 @@ namespace Weavie.Win;
 /// <see cref="IHostPlatform"/>, and implements <see cref="IShellWindow"/> so the web title bar drives it. Everything
 /// else lives in the shared core. Created/tracked by <see cref="AppController"/>, which owns the shared stores.
 /// </summary>
-internal sealed partial class WorkspaceWindow : Form, IShellWindow, IHostPlatform {
+internal sealed partial class WorkspaceWindow : Form, IShellWindow, IShellMenuActions, IHostPlatform {
 	// Maps the WKWebView script-message API the shared frontend speaks onto WebView2's postMessage, so the web app
 	// runs unmodified across platforms.
 	private const string BridgeShim =
@@ -222,13 +222,13 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow, IHostPlatfor
 		CustomChrome.StartResize(Handle, edge);
 	}
 
-	void IShellWindow.CloseWindow() => CloseToWelcome();
+	void IShellMenuActions.CloseWindow() => CloseToWelcome();
 
-	void IShellWindow.Quit() => _app.Quit();
+	void IShellMenuActions.Quit() => _app.Quit();
 
-	void IShellWindow.ShowOpenFolderPicker() => _app.OpenFolderInteractive(this);
+	void IShellMenuActions.ShowOpenFolderPicker() => _app.OpenFolderInteractive(this);
 
-	void IShellWindow.OpenWorkspace(string path) => _app.OpenOrFocus(path);
+	void IShellMenuActions.OpenWorkspace(string path) => _app.OpenOrFocus(path);
 
 	private void SaveWindowState() {
 		if (WindowState == FormWindowState.Minimized) {

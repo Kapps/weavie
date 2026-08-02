@@ -36,6 +36,7 @@ internal sealed partial class WorkspaceHost {
 	// Leaves the welcome surface for the live workspace in this same window; stops routing welcome messages first.
 	private void OpenFromWelcome(string root) {
 		_welcome!.Detach();
+		_welcome = null;
 		OpenWorkspace(root);
 	}
 

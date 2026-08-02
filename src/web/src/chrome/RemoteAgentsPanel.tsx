@@ -2,22 +2,36 @@ import { X } from "lucide-solid";
 import { createMemo, createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { ContextMenu, type ContextMenuState } from "./ContextMenu";
+import { type PopoverAnchor, placeRailPopover } from "./popover-position";
 import { sessionMenuEntries } from "./session-menu";
 import type { RailSession, RemoteAgentRow } from "./session-store";
 
 // The cloud panel: manage + pick remote agents, opened from the rail's cloud button. Lists each agent
 // (connected first, offline faded) and the sessions it can still offer — those NOT already promoted into
-// the rail; clicking one promotes it into the rail and switches to it. Anchored above the cloud button,
-// dismissed on outside-click / Escape.
+// the rail; clicking one promotes it into the rail and switches to it. Placement stays beside the cloud button
+// and within the viewport; outside-click / Escape dismisses it.
 export function RemoteAgentsPanel(props: {
   agents: RemoteAgentRow[];
-  anchor: { left: number; bottom: number };
+  anchor: PopoverAnchor;
   isPromoted: (backendId: string, id: string) => boolean;
   onPick: (session: RailSession) => void;
   onDisconnect: (name: string) => void;
   onAddRemote: () => void;
   onClose: () => void;
 }): JSX.Element {
+  let panel!: HTMLDivElement;
+  let panelObserver!: ResizeObserver;
+  const positionPanel = (): void => {
+    const bounds = panel.getBoundingClientRect();
+    const position = placeRailPopover(
+      props.anchor,
+      { width: bounds.width, height: bounds.height },
+      { width: window.innerWidth, height: window.innerHeight },
+    );
+    panel.style.left = `${position.left}px`;
+    panel.style.top = `${position.top}px`;
+    panel.style.visibility = "visible";
+  };
   const onPointerDown = (event: PointerEvent): void => {
     // Ignore the cloud button (so its toggle handler isn't fought) and our own context menu — it portals
     // OUTSIDE the panel, so without this a mousedown on a menu item closes the panel, unmounting the menu
@@ -36,10 +50,16 @@ export function RemoteAgentsPanel(props: {
   onMount(() => {
     window.addEventListener("pointerdown", onPointerDown);
     window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("resize", positionPanel);
+    panelObserver = new ResizeObserver(positionPanel);
+    panelObserver.observe(panel);
+    positionPanel();
   });
   onCleanup(() => {
     window.removeEventListener("pointerdown", onPointerDown);
     window.removeEventListener("keydown", onKeyDown);
+    window.removeEventListener("resize", positionPanel);
+    panelObserver.disconnect();
   });
 
   // An agent's avatar monogram: the first two letters of its name, uppercased.
@@ -62,13 +82,7 @@ export function RemoteAgentsPanel(props: {
   return (
     <>
       <Portal>
-        <div
-          class="remote-panel"
-          ref={(el) => {
-            el.style.left = `${props.anchor.left}px`;
-            el.style.bottom = `${props.anchor.bottom}px`;
-          }}
-        >
+        <div class="remote-panel" ref={panel}>
           <div class="remote-panel-head">Remote agents</div>
           <For each={props.agents}>
             {(agent) => {

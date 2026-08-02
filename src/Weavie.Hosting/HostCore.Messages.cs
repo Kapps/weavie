@@ -119,10 +119,12 @@ public sealed partial class HostCore {
 			_shell?.HandleWindowResize(message);
 			return Task.CompletedTask;
 		});
-		window.Handle<JsonElement>("menu", (message, _) => {
-			_shell?.HandleMenuAction(message);
-			return Task.CompletedTask;
-		});
+		window.HandleAfterEvent<JsonElement>("menu", (message, _) =>
+			Task.FromResult<Func<Task>>(() => _ui.InvokeAsync(() => {
+				(_shellMenu ?? throw new InvalidOperationException("Host menu actions arrived before startup."))
+					.HandleMenuAction(message);
+				return Task.CompletedTask;
+			}, CancellationToken.None)));
 	}
 
 	private HostHello BuildHello() {

@@ -741,6 +741,30 @@ public sealed class SessionMessageBusTests {
 	}
 
 	[Fact]
+	public async Task AfterEventWorkCanQuiesceTheEndpointThatCarriedTheEvent() {
+		var transport = new RecordingTransport();
+		await using var router = new HostMessageRouter(transport, new InlineUiDispatcher(), _ => { });
+		await using var endpoint = router.OpenSession(new SessionAddress("a", "a1"));
+		endpoint.Activate();
+		var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		using var handler = endpoint.Bus.Feature("dummy").HandleAfterEvent<Increment>(
+			"close",
+			(_, _) => Task.FromResult<Func<Task>>(async () => {
+				await endpoint.QuiesceAsync();
+				completed.SetResult();
+			}));
+
+		await router.RouteAsync(
+			new WebPeer("page"),
+			MessageEnvelope.SessionEvent(
+				endpoint.Address,
+				"dummy",
+				"close",
+				JsonSerializer.SerializeToElement(new Increment(1))).ToJson());
+		await completed.Task;
+	}
+
+	[Fact]
 	public async Task LostPeerDuringReplyCannotFaultSessionQuiescenceOrSkipAfterResponseWork() {
 		var logs = new List<string>();
 		var transport = new RecordingTransport {

@@ -1,7 +1,7 @@
 import { Copy, Minus, Square, X } from "lucide-solid";
 import { type JSX, Show } from "solid-js";
 import type { SymbolActions } from "../symbols/symbol-match";
-import { Menu, type MenuAction } from "./Menu";
+import { Menu } from "./Menu";
 import { Omnibar } from "./Omnibar";
 import { WeavieIcon } from "./WeavieIcon";
 
@@ -18,8 +18,6 @@ export function TitleBar(props: {
   root: string | null;
   currentFile: string | null;
   onWindowControl: (action: WindowControlAction) => void;
-  onMenuAction: (action: MenuAction, path?: string) => void;
-  onToggleFiles: () => void;
   onOpenFile: (abs: string, line: number) => void;
   onRequestIndex: () => void;
   symbols: SymbolActions;
@@ -35,11 +33,7 @@ export function TitleBar(props: {
         <span class="tb-icon" aria-hidden="true">
           <WeavieIcon />
         </span>
-        <Menu
-          recents={recents()}
-          onMenuAction={props.onMenuAction}
-          onToggleFiles={props.onToggleFiles}
-        />
+        <Menu recents={recents()} />
       </div>
 
       <div class="tb-center">

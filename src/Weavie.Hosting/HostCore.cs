@@ -80,9 +80,10 @@ public sealed partial class HostCore : IAsyncDisposable {
 	private Task? _startTask;
 	private Task? _disposeTask;
 
-	// Drives the custom title bar (window-control / menu-action / file-index), present only when the platform
-	// exposes an IShellWindow (a web-rendered title bar). Null on native-chrome hosts.
+	// Drives frameless title-bar controls when the platform exposes an IShellWindow. File-menu actions have a
+	// separate required adapter because native-frame hosts can still render the web app bar.
 	private ShellController? _shell;
+	private ShellMenuController? _shellMenu;
 	// Global OS hotkeys, present only when the platform exposes a registrar. Disposed with the core.
 	private GlobalHotkeyService? _hotkeys;
 	// The app-global stores (settings / keybindings / theme overrides) may outlive a window (Windows), so the
@@ -205,6 +206,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 	}
 
 	private async Task StartCoreAsync() {
+		_shellMenu = new ShellMenuController(_platform.MenuActions);
 		await _http.StartAsync().ConfigureAwait(false);
 		// Record any unhandled background-thread exception to a crash log (and stderr) before the runtime tears
 		// down, so a hard exit leaves a trace instead of vanishing; surfaced as a toast on the next launch.
@@ -235,8 +237,8 @@ public sealed partial class HostCore : IAsyncDisposable {
 		var (git, isRepo) = await ProbeGitAsync().ConfigureAwait(false);
 		string primaryLabel = await ResolvePrimaryLabelAsync(git, isRepo).ConfigureAwait(false);
 
-		// Title bar: route the web title-bar messages to the shared controller, but only when the platform
-		// renders one (web custom chrome). Native-chrome hosts leave _shell null and those messages no-op.
+		// Frameless title-bar controls exist only when the platform exposes native window primitives. File-menu
+		// actions use their separate required adapter, so a native-frame host can still render the web app bar.
 		if (_platform.Window is { } window) {
 			_shell = new ShellController(window);
 		}

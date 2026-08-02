@@ -641,6 +641,8 @@ export function Omnibar(props: {
         return docSymbolMode()
           ? "No symbols for this file"
           : "No workspace symbol provider — is the language server running?";
+      case "error":
+        return "Symbol search failed — check the diagnostics log.";
       default:
         return query().slice(1).trim().length > 0
           ? "No matching symbols"

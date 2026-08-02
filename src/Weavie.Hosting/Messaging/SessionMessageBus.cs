@@ -112,6 +112,19 @@ internal partial class MessageBus : IAsyncDisposable {
 			AdmitEveryPeer);
 	}
 
+	internal IDisposable HandleAfterEvent<TEvent>(
+		string feature,
+		string name,
+		Func<TEvent, CancellationToken, Task<Func<Task>>> handler,
+		SessionExecution execution) =>
+		HandleAfterResponse<TEvent, NoResponse>(
+			feature,
+			name,
+			async (message, ct) => new ResponseWithCompletion<NoResponse>(
+				NoResponse.Value,
+				await handler(message, ct).ConfigureAwait(false)),
+			execution);
+
 	internal IDisposable HandleOwned<TRequest, TResponse>(
 		string feature,
 		string name,

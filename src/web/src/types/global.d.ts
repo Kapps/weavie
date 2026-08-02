@@ -13,7 +13,7 @@ interface WeavieWebView2 {
 interface WeavieShellConfig {
   /** Short platform id, e.g. "win" or "mac". */
   platform: string;
-  /** Title-bar mode the web should render ("custom"), or undefined/null for the host's native chrome. */
+  /** App-bar mode ("custom", "mac", or "linux"), or undefined/null for native chrome alone. */
   titleBar?: string | null;
   /** The window's workspace label (folder leaf name). */
   workspaceLabel: string;
@@ -30,6 +30,8 @@ interface WeavieWelcomeConfig {
 }
 
 interface Window {
+  /** Removes the classic pre-module error capture once main.tsx owns runtime error reporting. */
+  __WEAVIE_CLEAR_BOOT_ERROR_CAPTURE__?: () => void;
   chrome?: { webview?: WeavieWebView2 };
   webkit?: {
     messageHandlers?: {

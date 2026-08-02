@@ -62,6 +62,9 @@ internal static partial class Gtk {
 	internal static partial void gtk_widget_show_all(IntPtr widget);
 
 	[LibraryImport(Lib)]
+	internal static partial void gtk_widget_destroy(IntPtr widget);
+
+	[LibraryImport(Lib)]
 	internal static partial void gtk_main();
 
 	[LibraryImport(Lib)]

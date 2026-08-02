@@ -30,6 +30,8 @@ internal sealed partial class WorkspaceWindow {
 
 	IShellWindow? IHostPlatform.Window => this;
 
+	IShellMenuActions IHostPlatform.MenuActions => this;
+
 	// Global hotkeys are registered once at the app level (AppController), not per window.
 	IGlobalHotkeyRegistrar? IHostPlatform.HotkeyRegistrar => null;
 

@@ -590,6 +590,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 	}
 
 	private async Task DisposeCoreAsync() {
+		DiscardInitialPrompt();
 		await _endpoint.QuiesceAsync().ConfigureAwait(false);
 		try {
 			await Background.DisposeAsync().ConfigureAwait(false);

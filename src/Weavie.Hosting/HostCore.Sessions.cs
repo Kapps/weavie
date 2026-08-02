@@ -1043,11 +1043,11 @@ public sealed partial class HostCore {
 				};
 				sessions.Add(slot);
 				PushSessionList();
+				if (!string.IsNullOrWhiteSpace(prompt)) {
+					slot.Session.QueueInitialPrompt(prompt);
+				}
 				ActivateSessionRuntimeAndMessages(slot.Session);
 				PersistSessionState();
-				if (!string.IsNullOrWhiteSpace(prompt)) {
-					SeedFirstPrompt(slot.Session!, prompt);
-				}
 
 				result.SetResult(CommandResult.Success(
 					successMessage,
@@ -1162,11 +1162,4 @@ public sealed partial class HostCore {
 		return candidate;
 	}
 
-	// Seed the agent's first prompt once the runtime has had a moment to attach. Best-effort; not load-bearing.
-	private static void SeedFirstPrompt(HostSession session, string prompt) {
-		_ = session.Background.Run(async ct => {
-			await Task.Delay(2500, ct).ConfigureAwait(false);
-			session.SendAgentPrompt(prompt);
-		});
-	}
 }

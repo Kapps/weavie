@@ -12,6 +12,7 @@ interface SessionAddress {
 async function selectedSessionAddress(
   page: import("@playwright/test").Page,
   hostUrl: string,
+  token: string,
 ): Promise<SessionAddress> {
   const slot = await page.locator(".session-chip.active").getAttribute("data-session-slot");
   if (slot === null) {
@@ -21,6 +22,7 @@ async function selectedSessionAddress(
   const endpoint = new URL(hostUrl);
   endpoint.protocol = endpoint.protocol === "https:" ? "wss:" : "ws:";
   endpoint.pathname = "/weavie-bridge";
+  endpoint.search = new URLSearchParams({ token }).toString();
   const socket = new WebSocket(endpoint);
   return new Promise<SessionAddress>((resolve, reject) => {
     socket.on("error", reject);
@@ -208,7 +210,7 @@ test("same-named scratch media switches to the incoming session route", async ({
   };
 
   const openScratch = async (path: string): Promise<void> => {
-    const address = await selectedSessionAddress(page, weavie.url);
+    const address = await selectedSessionAddress(page, weavie.url, weavie.token);
     await page.evaluate(
       ({ path, session }) => {
         window.__weavieReceive?.(

@@ -16,6 +16,9 @@ public static class SessionCommands {
 	/// <summary>Opens the interactive new-session prompt (branch name + base) in the UI; <c>$mod+Shift+n</c>.</summary>
 	public const string NewSessionPrompt = "weavie.session.newPrompt";
 
+	/// <summary>Shows the compact session inbox, including the prompt-first new-session composer.</summary>
+	public const string ShowSessionInbox = "weavie.session.showInbox";
+
 	/// <summary>Opens the pull-request picker (check out a PR's branch as a session) in the UI; <c>$mod+Shift+r</c>.</summary>
 	public const string OpenPr = "weavie.pr.open";
 
@@ -89,6 +92,17 @@ public static class SessionCommands {
 			Description = "Open the new-session prompt: name a branch, then branch off the invoking session's HEAD "
 				+ "(Enter) or main (Shift+Enter). The interactive counterpart of weavie.session.new.",
 			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+n" }],
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = ShowSessionInbox,
+			Title = "Show Session Inbox",
+			RunsIn = CommandLocation.Web,
+			Category = "Session",
+			Description = "Show the compact session inbox for resuming or starting agent sessions.",
+			Aliases = ["session inbox", "show sessions", "mobile home"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "alt+Shift+i", When = "compact" }],
+			When = "compact",
 		});
 
 		registry.Register(new CommandDefinition {

@@ -45,6 +45,7 @@ await using var core = new HostCore(
 
 await core.StartAsync().ConfigureAwait(false);
 Console.WriteLine($"[weavie-headless] workspace: {core.WorkspaceRoot}");
+Console.WriteLine($"[weavie-headless] token {core.WorkspaceAccessToken}");
 Console.WriteLine($"[weavie-headless] open  {core.WorkspacePageUrl}  in a browser");
 Console.Out.Flush();
 using var shutdown = new CancellationTokenSource();

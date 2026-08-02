@@ -167,6 +167,13 @@ export const test = base.extend<WeavieOptions & WeavieFixtures>({
         if (preNavigate !== null) {
           await preNavigate.run(page);
         }
+        const connect = await page.request.post(host.url, {
+          form: { token: host.token },
+          maxRedirects: 0,
+        });
+        if (connect.status() !== 302) {
+          throw new Error(`workspace connect failed (${connect.status()})`);
+        }
         await page.goto(host.url, { waitUntil: "domcontentloaded" });
         // The app removes the splash element once it has booted (layout + first session). Its disappearance
         // is the "app is interactive" signal — not a fixed sleep.

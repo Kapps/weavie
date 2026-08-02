@@ -268,7 +268,7 @@ graph TB
     RA -->|"GET /backend (Bearer runnerToken)"| RUN
     RUN -->|"Ensure()"| BM
     BM -->|"supervises"| WK
-    RUN -->|"{ url: http://host:NNNN/?token=workerToken }"| RA
+    RUN -->|"{ url: http://host:NNNN/index.html,<br/>token: workerToken }"| RA
     BK -->|"bridge WebSocket + HTTP media ranges<br/>same worker origin/token"| WK
 ```
 
@@ -279,10 +279,10 @@ graph TB
    worker is up — `BackendManager.Ensure()` allocates a free port, mints a fresh worker token, and starts a
    supervised `Weavie.Headless` worker (`BackendManager.cs`, `WorkspaceBackend.cs`). One worker hosts every
    worktree session via its shared `HostCore` — no process per session.
-3. The runner returns the worker's page URL, `http://<host>:<port>/?token=<workerToken>`, built against the
+3. The runner returns the worker's clean page URL and transport token as separate fields, built against the
    request's own host so it is reachable by the same path the client used.
-4. The web converts that page URL to a backend descriptor (bridge WebSocket plus HTTP media base, both carrying
-   the token) and calls `connectBackend`, opening a `WebSocketTransport` to `…/weavie-bridge`. From there it is just another
+4. The web converts that endpoint pair to a backend descriptor (bridge WebSocket plus HTTP media base, both
+   carrying the token) and calls `connectBackend`, opening a `WebSocketTransport` to `…/weavie-bridge`. From there it is just another
    backend: terminals, files, status — all the flows above — over that socket. The transport re-runs this
    `GET /backend` handshake on **every** reconnect, so when the runner is restarted — which mints a fresh
    worker port+token — the socket follows it to the new worker instead of retrying the now-dead URL forever.

@@ -132,6 +132,7 @@ export const CommandIds = {
   openUrl: "weavie.workspace.openUrl",
   openUrlExternal: "weavie.workspace.openUrlExternal",
   newSessionPrompt: "weavie.session.newPrompt",
+  showSessionInbox: "weavie.session.showInbox",
   openPr: "weavie.pr.open",
   openCurrentPr: "weavie.pr.openCurrent",
   nextSession: "weavie.session.next",

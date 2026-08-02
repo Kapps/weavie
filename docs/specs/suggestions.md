@@ -196,8 +196,8 @@ primary on the two cwd-keyed stores (Claude-resume in `ClaudeSessionStore`, shel
 `WorkspaceId.ForPath`).
 
 > **Seeding safety.** Even the primary session can be mid-turn or hold text the user is composing, so
-> the handler must **not** blindly inject text + Enter. `SeedFirstPrompt`'s fixed-2.5s auto-submit is
-> tuned for a just-spawned session and is **not** reused as-is here. v1 **pre-fills without submitting**
+> the handler must **not** blindly inject text + Enter. The initial-prompt queue waits for a newly spawned
+> session to become idle and then submits exactly once, so it is **not** reused as-is here. v1 **pre-fills without submitting**
 > (write the prompt into the Claude input, no Enter) and lets the user press Enter — so the prompt can
 > never land in a busy session, and the click-to-engage gate stays explicit. See Open questions.
 

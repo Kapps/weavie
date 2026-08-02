@@ -27,6 +27,8 @@ import "./notify/notify.css";
 import "./notify/suggestions.css";
 import "./editor/confirm-dialog.css";
 import "./chrome/new-session-prompt.css";
+import "./mobile/mobile.css";
+import "./mobile/session-inbox.css";
 
 mark("module-eval");
 

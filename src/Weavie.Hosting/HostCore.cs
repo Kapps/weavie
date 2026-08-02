@@ -179,6 +179,12 @@ public sealed partial class HostCore : IAsyncDisposable {
 	/// <summary>The authenticated workspace document served by the shared HTTP server.</summary>
 	public string WorkspacePageUrl => _http.PageUrl;
 
+	/// <summary>The native WebView document that establishes the workspace cookie before redirecting clean.</summary>
+	public string WorkspaceNativePageUrl => _http.NativePageUrl;
+
+	/// <summary>The token a browser submits once at the workspace connect page.</summary>
+	public string WorkspaceAccessToken => _http.AccessToken;
+
 	/// <summary>The saved window geometry for this workspace, or <c>null</c> when there's none (the shell centers a default).</summary>
 	public WindowState? SavedWindow => _layout.Current.Window;
 
@@ -270,13 +276,16 @@ public sealed partial class HostCore : IAsyncDisposable {
 	public Task WaitForShutdownAsync() => _http.WaitForShutdownAsync();
 
 	/// <summary>
-	/// The page-bootstrap script the shell injects at document-start: resolved fonts, editor options, theme, LSP
-	/// discovery, command catalog + keybindings, and shell config. Identical on every host (only the injection
-	/// differs); the headless shell prepends its own <c>__WEAVIE_BRIDGE_WS__</c>. Call after <see cref="StartAsync"/>.
+	/// The same-origin page bootstrap: resource base, resolved fonts, editor options, theme, command catalog,
+	/// keybindings, and shell config. Call after <see cref="StartAsync"/>.
 	/// </summary>
-	public string BuildBootstrap() {
+	public string BuildBootstrap() => BuildBootstrap(_http.MediaBaseUrl);
+
+	internal string BuildCrossOriginBootstrap() => BuildBootstrap(_http.TransportMediaBaseUrl);
+
+	private string BuildBootstrap(string resourceBase) {
 		return
-			$"window.__WEAVIE_RESOURCE_BASE__ = {JsonSerializer.Serialize(_http.MediaBaseUrl)};"
+			$"window.__WEAVIE_RESOURCE_BASE__ = {JsonSerializer.Serialize(resourceBase)};"
 			+ string.Concat(LiveSettingGroups.Select(g => $"window.{g.Global} = {g.Build(_settings)};"))
 			+ $"window.__WEAVIE_THEME__ = {ThemeJson.Build(_settings, _themeOverrides, Log)};"
 			+ BuildTestProfileScript()

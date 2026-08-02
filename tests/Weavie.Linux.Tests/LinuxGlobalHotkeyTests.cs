@@ -116,6 +116,7 @@ public sealed class LinuxGlobalHotkeyTests {
 		backend.Dispose();
 
 		Assert.True(portal.Disposed);
+		Assert.True(portal.InterruptedBinding);
 	}
 
 	private static GlobalHotkey Hotkey(string key, HotkeyModifiers modifiers) => new() {
@@ -126,6 +127,7 @@ public sealed class LinuxGlobalHotkeyTests {
 	};
 
 	private sealed class FakePortal : IGlobalShortcutsPortal {
+		private readonly object _gate = new();
 		private int _nextSession;
 
 		internal Channel<(string Session, IReadOnlyList<PortalShortcut> Shortcuts)> Binds { get; } =
@@ -134,8 +136,24 @@ public sealed class LinuxGlobalHotkeyTests {
 		internal int BindCount { get; private set; }
 		internal int AcceptedShortcutCount { get; init; } = int.MaxValue;
 		internal bool BlockBindingUntilDisposed { get; init; }
-		internal bool Disposed { get; private set; }
+		internal bool Disposed {
+			get {
+				lock (_gate) {
+					return _disposed;
+				}
+			}
+		}
+		internal bool InterruptedBinding {
+			get {
+				lock (_gate) {
+					return field;
+				}
+			}
+
+			private set;
+		}
 		private TaskCompletionSource<PortalBinding>? _pendingBinding;
+		private bool _disposed;
 
 		public event Action<PortalActivation>? Activated;
 		public event Action? Invalidated;
@@ -144,18 +162,21 @@ public sealed class LinuxGlobalHotkeyTests {
 		public Task<PortalBinding> BindAsync(IReadOnlyList<PortalShortcut> shortcuts) {
 			BindCount++;
 			string session = $"/session/{++_nextSession}";
+			TaskCompletionSource<PortalBinding>? pendingBinding;
+			lock (_gate) {
+				ObjectDisposedException.ThrowIf(_disposed, this);
+				pendingBinding = BlockBindingUntilDisposed
+					? new TaskCompletionSource<PortalBinding>(TaskCreationOptions.RunContinuationsAsynchronously)
+					: null;
+				_pendingBinding = pendingBinding;
+			}
 			Assert.True(Binds.Writer.TryWrite((session, shortcuts)));
 			IReadOnlySet<string> accepted = shortcuts
 				.Take(AcceptedShortcutCount)
 				.Select(shortcut => shortcut.Id)
 				.ToHashSet(StringComparer.Ordinal);
 			var binding = new PortalBinding(session, accepted);
-			if (!BlockBindingUntilDisposed) {
-				return Task.FromResult(binding);
-			}
-			_pendingBinding = new TaskCompletionSource<PortalBinding>(
-				TaskCreationOptions.RunContinuationsAsynchronously);
-			return _pendingBinding.Task;
+			return pendingBinding is null ? Task.FromResult(binding) : pendingBinding.Task;
 		}
 
 		public Task CloseSessionAsync(string sessionHandle) {
@@ -169,8 +190,20 @@ public sealed class LinuxGlobalHotkeyTests {
 		internal void Invalidate() => Invalidated?.Invoke();
 
 		public void Dispose() {
-			Disposed = true;
-			_pendingBinding?.TrySetException(new ObjectDisposedException(nameof(FakePortal)));
+			TaskCompletionSource<PortalBinding>? pendingBinding;
+			lock (_gate) {
+				if (_disposed) {
+					return;
+				}
+				_disposed = true;
+				pendingBinding = _pendingBinding;
+				_pendingBinding = null;
+			}
+			bool interrupted = pendingBinding?.TrySetException(new ObjectDisposedException(nameof(FakePortal)))
+				?? false;
+			lock (_gate) {
+				InterruptedBinding = interrupted;
+			}
 			_ = Log;
 		}
 	}

@@ -309,4 +309,50 @@ test.describe("AgentMarkdown transcript links", () => {
     await page.keyboard.type(" after URL");
     await expect(composer).toHaveValue("Keep typing here after URL");
   });
+
+  test("routes an accepted transcript file destination to Code on compact screens", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await connect(page);
+    await page.getByRole("button", { name: "Agent", exact: true }).click();
+    host.publishSession(codexSession.address, "agent", "pane", assistantMessage());
+
+    const agent = page.locator(".agent-surface");
+    const editor = page.locator(".editor-surface");
+    await expect(agent).toBeVisible();
+    await agent.evaluate((element) => {
+      (window as Window & { __mobileAgent?: Element }).__mobileAgent = element;
+    });
+    await editor.evaluate((element) => {
+      (window as Window & { __mobileEditor?: Element }).__mobileEditor = element;
+    });
+
+    await page.locator(".agent-markdown code a", { hasText: TSX_PATH }).click();
+    const reveal = await host.waitForSession(codexSession.address, "event", "files", "reveal");
+    expect(reveal.payload).toMatchObject({ path: TSX_PATH, preview: true });
+    await expect(page.locator(".mobile-surface-button.active")).toHaveText("Agent");
+
+    host.publishSession(codexSession.address, "editor", "openFile", {
+      path: ABS_TSX_PATH,
+      line: 1,
+      preview: true,
+    });
+    await expect(page.locator(".mobile-surface-button.active")).toHaveText("Code");
+    await expect(editor).toBeVisible();
+    await expect
+      .poll(async () =>
+        (await page.locator(".editor").getAttribute("data-active-file"))?.replaceAll("\\", "/"),
+      )
+      .toBe(ABS_TSX_PATH);
+    expect(
+      await page.evaluate(
+        () =>
+          (window as Window & { __mobileAgent?: Element }).__mobileAgent ===
+            document.querySelector(".agent-surface") &&
+          (window as Window & { __mobileEditor?: Element }).__mobileEditor ===
+            document.querySelector(".editor-surface"),
+      ),
+    ).toBe(true);
+  });
 });

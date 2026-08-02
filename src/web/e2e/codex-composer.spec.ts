@@ -350,6 +350,7 @@ test.describe("Codex composer", () => {
   test("status line shows the complete Review diff and opens it", async ({ page }) => {
     await mountCodex(page);
     publishCatalog();
+    host.files.set("/workspace/one.ts", "export const one = true;\n");
     host.publishSession(codexSession.address, "review", "changes", {
       label: "",
       files: [
@@ -367,6 +368,21 @@ test.describe("Codex composer", () => {
     await counts.click();
     const showFile = await host.waitForSession(codexSession.address, "event", "review", "showFile");
     expect(showFile.payload).toMatchObject({ path: "/workspace/one.ts" });
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.getByRole("button", { name: "Agent", exact: true }).click();
+    const checkpoint = host.checkpoint();
+    await counts.click();
+    const compactShowFile = await host.waitForSession(
+      codexSession.address,
+      "event",
+      "review",
+      "showFile",
+      checkpoint,
+    );
+    expect(compactShowFile.payload).toMatchObject({ path: "/workspace/one.ts" });
+    await expect(page.locator(".mobile-surface-button.active")).toHaveText("Code");
+    await expect(page.locator(".editor-surface")).toBeVisible();
 
     host.publishSession(codexSession.address, "review", "changes", { label: "", files: [] });
     await expect(counts).toHaveCount(0);
@@ -418,33 +434,43 @@ test.describe("Codex composer", () => {
     await expect(card).not.toContainText("Implementation");
     const open = card.getByRole("button", { name: "Open plan" });
     await expect(open).toHaveAttribute("title", "Open plan in editor (Alt+P)");
-    await open.click();
-    const openRequest = await host.waitForSession(
-      codexSession.address,
-      "request",
-      "agent",
-      "openPlan",
-    );
-    expect(openRequest.payload).toMatchObject({
-      threadId: "thread-plan",
-      turnId: "turn-plan",
-      itemId: "plan-1",
-    });
-    host.respond(openRequest, true);
-
     const planPath = "agent-plan:cx:thread-plan:turn-plan:plan-1";
-    host.publishSession(codexSession.address, "editor", "agentPlan", {
-      id: "cx:thread-plan:turn-plan:plan-1",
-      path: planPath,
-      title: "Implementation plan",
-      markdown:
-        "# Implementation\n\n1. Add the plan document.\n\n" +
-        "```mermaid\nflowchart LR\n  A[Plan] --> B[Ship]\n```",
-    });
-    host.publishSession(codexSession.address, "editor", "openOverlay", {
-      path: planPath,
-      kind: "plan",
-    });
+    const requestOpen = async (after: number): Promise<void> => {
+      await open.click();
+      const request = await host.waitForSession(
+        codexSession.address,
+        "request",
+        "agent",
+        "openPlan",
+        after,
+      );
+      expect(request.payload).toMatchObject({
+        threadId: "thread-plan",
+        turnId: "turn-plan",
+        itemId: "plan-1",
+      });
+      host.respond(request, true);
+    };
+    const publishPlan = (): void => {
+      host.publishSession(codexSession.address, "editor", "agentPlan", {
+        id: "cx:thread-plan:turn-plan:plan-1",
+        path: planPath,
+        title: "Implementation plan",
+        markdown:
+          "# Implementation\n\n1. Add the plan document.\n\n" +
+          "```mermaid\nflowchart LR\n  A[Plan] --> B[Ship]\n```",
+      });
+    };
+    const openPlan = (): void => {
+      host.publishSession(codexSession.address, "editor", "openOverlay", {
+        path: planPath,
+        kind: "plan",
+      });
+    };
+
+    await requestOpen(host.checkpoint());
+    publishPlan();
+    openPlan();
 
     const plan = page.locator(".editor-plan");
     await expect(plan).toBeVisible();
@@ -453,6 +479,16 @@ test.describe("Codex composer", () => {
     await expect(plan.locator(".mermaid-rendered > svg")).toBeVisible();
     await expect(page.locator(".editor-tab", { hasText: "Implementation plan" })).toBeVisible();
     await page.screenshot({ path: join(shotsDir, "14-plan-document.png") });
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.getByRole("button", { name: "Agent", exact: true }).click();
+    await requestOpen(host.checkpoint());
+    await expect(page.locator(".mobile-surface-button.active")).toHaveText("Agent");
+    publishPlan();
+    await expect(page.locator(".mobile-surface-button.active")).toHaveText("Agent");
+    openPlan();
+    await expect(page.locator(".mobile-surface-button.active")).toHaveText("Code");
+    await expect(plan).toBeVisible();
   });
 
   test("Alt+P explains when no completed plan is available", async ({ page }) => {
@@ -1166,6 +1202,25 @@ test.describe("Codex composer", () => {
       element.style.width = "120px";
     });
     await textarea.fill("live draft");
+    const releaseAnimationFrames = await page.evaluateHandle(() => {
+      const requestAnimationFrame = window.requestAnimationFrame;
+      const cancelAnimationFrame = window.cancelAnimationFrame;
+      const frames = new Map<number, FrameRequestCallback>();
+      let nextFrame = 0;
+      window.requestAnimationFrame = (callback) => {
+        const frame = ++nextFrame;
+        frames.set(frame, callback);
+        return frame;
+      };
+      window.cancelAnimationFrame = (frame) => frames.delete(frame);
+      return () => {
+        window.requestAnimationFrame = requestAnimationFrame;
+        window.cancelAnimationFrame = cancelAnimationFrame;
+        for (const callback of frames.values()) {
+          callback(performance.now());
+        }
+      };
+    });
     await page.keyboard.press("ArrowUp");
     await expect(textarea).toHaveValue(prompt);
     await expect
@@ -1176,6 +1231,11 @@ test.describe("Codex composer", () => {
     await expect(textarea).toHaveValue(prompt);
     let previousCaret = await textarea.evaluate((element) => element.selectionStart);
     expect(previousCaret).toBeLessThan(prompt.length);
+    await releaseAnimationFrames.evaluate((release) => release());
+    await releaseAnimationFrames.dispose();
+    await expect
+      .poll(() => textarea.evaluate((element) => element.selectionStart))
+      .toBe(previousCaret);
 
     for (;;) {
       await page.keyboard.press("ArrowDown");

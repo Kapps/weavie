@@ -64,14 +64,15 @@ jobs:
       - name: Test Linux environment boundary
         run: dotnet test tests/Weavie.Linux.Tests/Weavie.Linux.Tests.csproj -c Debug
 
+      # Runner's build target builds its sibling Headless worker, so restore that worker first.
+      - name: Test headless host
+        run: dotnet test tests/Weavie.Headless.Tests/Weavie.Headless.Tests.csproj -c Debug
+
       - name: Test Runner
         run: dotnet test tests/Weavie.Runner.Tests/Weavie.Runner.Tests.csproj -c Debug
 
       - name: Test remote host
         run: dotnet test tests/Weavie.Remote.Tests/Weavie.Remote.Tests.csproj -c Debug
-
-      - name: Test headless host
-        run: dotnet test tests/Weavie.Headless.Tests/Weavie.Headless.Tests.csproj -c Debug
 
   native_build:
     name: native build (${{ matrix.name }})

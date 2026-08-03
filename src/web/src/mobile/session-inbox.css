@@ -61,7 +61,8 @@
 }
 
 .session-composer-options {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: center;
   gap: 6px;
   padding: 7px;
@@ -77,16 +78,7 @@
   border-radius: 8px;
   background: var(--bg);
   color: var(--fg);
-  font-size: var(--font-hint-size);
-}
-
-.session-composer-options select {
-  flex: 1 1 0;
-}
-
-.session-composer-more,
-.session-composer-options .session-composer-submit {
-  flex: 0 0 auto;
+  font: var(--font-chrome-size) / 1.5 var(--font-chrome-family);
 }
 
 .session-composer-options .session-composer-submit {

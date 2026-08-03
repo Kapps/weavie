@@ -11,6 +11,7 @@ import { createServer } from "node:net";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "@playwright/test";
+import { openWorkspace, waitForWorkspace } from "./capture-workspace.mjs";
 
 const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const repoRoot = resolve(webRoot, "..", "..");
@@ -40,12 +41,12 @@ const RUNNER_TOKEN = "capturetoken";
 // The remote gets its own repo so its worktrees don't collide with the local host's on this one machine.
 const remoteRepo = join("/tmp", "weavie-remote-demo");
 
-async function tour(page, localPageUrl, runnerUrl) {
+async function tour(page, localWorkspace, runnerUrl) {
   const settle = (ms) => page.waitForTimeout(ms);
   await page.emulateMedia({ colorScheme: "dark" });
 
   // 1. Boot the local Weavie.
-  await page.goto(localPageUrl, { waitUntil: "load" });
+  await openWorkspace(page, localWorkspace);
   await page
     .locator("#splash")
     .waitFor({ state: "detached", timeout: 45_000 })
@@ -184,8 +185,8 @@ async function main() {
   );
 
   try {
-    const [localPageUrl] = await Promise.all([
-      waitForLine(local, /open\s+(http:\/\/\S+)/, 60_000),
+    const [localWorkspace] = await Promise.all([
+      waitForWorkspace(local, 60_000),
       waitForLine(runner, "control plane: http://", 60_000),
     ]);
     const browser = await chromium.launch();
@@ -197,7 +198,7 @@ async function main() {
     page.on("console", (msg) => console.log(`[page:${msg.type()}] ${msg.text()}`));
     page.on("pageerror", (err) => console.log(`[page:error] ${err.message}`));
 
-    await tour(page, localPageUrl, runnerUrl);
+    await tour(page, localWorkspace, runnerUrl);
 
     const video = page.video();
     await context.close();

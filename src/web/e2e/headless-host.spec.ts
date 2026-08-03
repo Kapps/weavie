@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
+import { openWorkspace, waitForWorkspace } from "./capture-workspace.mjs";
 
 // End-to-end guard for the browser <-> WebSocket <-> Weavie.Core path: spawn the real built headless host,
 // point a browser at it, and prove the bridge round-trips into the C# session. Skipped when the host hasn't
@@ -21,34 +22,6 @@ const hostDll = join(
   "Weavie.Headless.dll",
 );
 
-// Resolve with the port the host actually bound, parsed from its ready line, so the browser never races
-// the listener and never assumes the requested port.
-function waitForListening(
-  proc: ChildProcess,
-  timeoutMs: number,
-): Promise<{ url: string; token: string }> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(
-      () => reject(new Error("host did not report listening in time")),
-      timeoutMs,
-    );
-    let buffer = "";
-    proc.stdout?.on("data", (chunk: Buffer) => {
-      buffer += chunk.toString("utf8");
-      const url = buffer.match(/open\s+(http:\/\/127\.0\.0\.1:\d+\/index\.html)/)?.[1];
-      const token = buffer.match(/\[weavie-headless\] token ([^\s]+)/)?.[1];
-      if (url && token) {
-        clearTimeout(timer);
-        resolve({ url, token });
-      }
-    });
-    proc.on("exit", (code) => {
-      clearTimeout(timer);
-      reject(new Error(`host exited early with code ${code}`));
-    });
-  });
-}
-
 test.describe("headless host (real Weavie.Core over WebSocket)", () => {
   test.skip(
     !existsSync(hostDll),
@@ -56,8 +29,7 @@ test.describe("headless host (real Weavie.Core over WebSocket)", () => {
   );
 
   let proc: ChildProcess;
-  let pageUrl = "";
-  let token = "";
+  let workspacePage: { pageUrl: string; token: string };
 
   test.beforeAll(async () => {
     // A throwaway workspace so the test never mutates the repo or collides on the editor-session file.
@@ -71,7 +43,7 @@ test.describe("headless host (real Weavie.Core over WebSocket)", () => {
       },
       stdio: ["ignore", "pipe", "pipe"],
     });
-    ({ url: pageUrl, token } = await waitForListening(proc, 30_000));
+    workspacePage = await waitForWorkspace(proc, 30_000);
   });
 
   test.afterAll(() => {
@@ -81,12 +53,7 @@ test.describe("headless host (real Weavie.Core over WebSocket)", () => {
   test("a browser completes the host hello and renders the returned session catalog", async ({
     page,
   }) => {
-    const connected = await page.request.post(pageUrl, {
-      form: { token },
-      maxRedirects: 0,
-    });
-    expect(connected.status()).toBe(302);
-    await page.goto(pageUrl, { waitUntil: "domcontentloaded" });
+    await openWorkspace(page, workspacePage);
 
     // The host injected the bridge URL, so the web picked the WebSocket transport. (String form so the
     // browser-only `window` global isn't referenced in this Node test module.)

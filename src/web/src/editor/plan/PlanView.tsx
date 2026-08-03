@@ -31,7 +31,12 @@ export default function PlanView(props: {
               <span class="editor-plan-kicker">Plan</span>
               <h1>{plan().title}</h1>
             </header>
-            <AgentMarkdown content={plan().markdown} renderMermaid={true} session={props.session} />
+            <AgentMarkdown
+              cacheKey={plan()}
+              content={plan().markdown}
+              renderMermaid={true}
+              session={props.session}
+            />
           </article>
         )}
       </Show>

@@ -1,49 +1,20 @@
-import { createEffect, createMemo, type JSX, onCleanup, Show } from "solid-js";
-import { createStore, reconcile } from "solid-js/store";
-import type { AgentPaneUpdate, ClientSession } from "../bridge";
-import { setContext } from "../commands/context";
-import { liveKeyLabel } from "../commands/keys-live";
-import { CommandIds } from "../commands/types";
-import { AgentComposer } from "./AgentComposer";
-import { toAgentTranscript } from "./AgentPaneMessages";
-import { createAgentPaneScroll } from "./AgentPaneScroll";
-import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
+import { type JSX, Show } from "solid-js";
+import { AgentPaneBody } from "./AgentPaneBody";
 import { AgentStatusLine } from "./AgentStatusLine";
-import { AgentTranscript } from "./AgentTranscript";
-import { latestAgentTurnStartId } from "./AgentTranscriptLabels";
-import { hasActiveTurn, pendingApproval } from "./turn-progress";
+import type { AgentPaneModel } from "./pane-store";
 
 export function AgentPane(props: {
   inputProtocol: number;
-  session: ClientSession | null;
+  model: AgentPaneModel | null;
   providerId: "claude" | "codex" | null;
   active: boolean;
-  messages: AgentPaneUpdate[];
   reviewAdded: number;
   reviewFileCount: number;
   reviewRemoved: number;
   shortcut: string;
   onFocus: () => void;
 }): JSX.Element {
-  // Feed <For> a keyed store: reconcile preserves each unchanged entry's proxy identity, so the row is reused and
-  // AgentMarkdown re-parses only the entry whose text actually changed — heavy work stays O(changed), not
-  // O(entries). toAgentTranscript itself is one light O(messages) scan per flush (batched in AgentPaneAccumulator).
-  const [entries, setEntries] = createStore<AgentTranscriptEntry[]>([]);
-  createEffect(() => setEntries(reconcile(toAgentTranscript(props.messages), { key: "id" })));
   const providerName = (): string => (props.providerId === "codex" ? "Codex" : "Agent");
-  // Only the card the keyboard chords answer wears the chips.
-  const keyboardApprovalId = createMemo(() => pendingApproval(props.messages)?.requestId ?? null);
-  const turnActive = createMemo(() => hasActiveTurn(props.messages));
-  const agentTurnStartId = createMemo(() => latestAgentTurnStartId(entries));
-  const turnNavigable = (): boolean => !turnActive() && agentTurnStartId() !== null;
-  const scroll = createAgentPaneScroll(() => props.session, turnNavigable);
-  createEffect(() => setContext("agentTurnNavigable", turnNavigable()));
-  onCleanup(() => setContext("agentTurnNavigable", false));
-
-  const commandTitle = (label: string, commandId: string): string => {
-    const key = liveKeyLabel(commandId);
-    return key === "" ? label : `${label} (${key})`;
-  };
 
   const focusPromptIn = (surface: EventTarget | null): void => {
     props.onFocus();
@@ -103,55 +74,21 @@ export function AgentPane(props: {
           <span class="pane-shortcut">{props.shortcut}</span>
         </Show>
       </div>
-      <div class="agent-body-wrap">
-        <div class="agent-body" ref={scroll.bindBody} onScroll={scroll.onScroll}>
-          <div class="agent-transcript" data-agent-transcript>
-            <AgentTranscript
-              entries={entries}
-              keyboardApprovalId={keyboardApprovalId()}
-              providerName={providerName()}
-              agentTurnStartId={agentTurnStartId()}
-              session={props.session}
-              turnActive={turnActive()}
-            />
-          </div>
-        </div>
-        <Show when={turnNavigable() && scroll.followingLatest() && scroll.agentTurnStartAbove()}>
-          <button
-            type="button"
-            class="agent-follow-pill"
-            title={commandTitle("Jump to the start of this agent turn", CommandIds.agentJumpToTurn)}
-            onClick={() => scroll.jumpToTurn()}
-          >
-            ↑ Jump to turn
-          </button>
-        </Show>
-        <Show when={!scroll.followingLatest()}>
-          <button
-            type="button"
-            class="agent-follow-pill"
-            title={commandTitle(
-              "Scroll to the latest activity and follow it",
-              CommandIds.agentJumpToLatest,
-            )}
-            onClick={() => scroll.jumpToLatest()}
-          >
-            ↓ Jump to latest
-          </button>
-        </Show>
-      </div>
-      <AgentComposer
-        active={props.active}
-        inputProtocol={props.inputProtocol}
-        messages={props.messages}
-        session={props.session}
-        onSubmitted={scroll.followIfNearBottom}
-      />
+      <Show when={props.model} keyed>
+        {(model) => (
+          <AgentPaneBody
+            active={props.active}
+            inputProtocol={props.inputProtocol}
+            model={model}
+            providerName={providerName()}
+          />
+        )}
+      </Show>
       <AgentStatusLine
         reviewAdded={props.reviewAdded}
         reviewFileCount={props.reviewFileCount}
         reviewRemoved={props.reviewRemoved}
-        session={props.session}
+        session={props.model?.session ?? null}
       />
     </div>
   );

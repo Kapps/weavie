@@ -110,6 +110,145 @@ test("warm session-owned editor state switches fully paint within one second", a
   }
 });
 
+test("long transcripts switch as a measured virtual window", async ({ page }) => {
+  const first = mockSession("long-first", "long-first", "codex", true);
+  const second = mockSession("long-second", "long-second", "codex", false);
+  const host = await MockHost.start({ distDir, sessions: [first, second] });
+  const transcript = (prefix: string) =>
+    Array.from({ length: 800 }, (_, index) => ({
+      providerId: "codex",
+      type: "item-completed",
+      itemId: `${prefix}-${index}`,
+      itemType: "agentMessage",
+      status: "completed",
+      text: `### ${prefix}_${index}\n\n${Array.from(
+        { length: (index % 5) + 1 },
+        (_, paragraph) => `Paragraph ${paragraph + 1} with **formatted** transcript content.`,
+      ).join("\n\n")}`,
+    }));
+
+  try {
+    await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
+    await host.waitUntilConnected();
+    host.publishSession(first.address, "agent", "paneBatch", {
+      messages: transcript("FIRST"),
+    });
+    host.publishSession(second.address, "agent", "paneBatch", {
+      messages: transcript("SECOND"),
+    });
+
+    const rows = page.locator(".agent-virtual-row");
+    const body = page.locator(".agent-body");
+    await expect(page.getByText("FIRST_799", { exact: true })).toBeVisible({ timeout: 60_000 });
+    expect(await rows.count()).toBeLessThan(40);
+    await expect
+      .poll(() =>
+        body.evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight),
+      )
+      .toBeLessThanOrEqual(1);
+
+    const measureSwitch = (label: string, marker: string): Promise<number> =>
+      page.evaluate(
+        async (target) => {
+          const chip = [...document.querySelectorAll<HTMLButtonElement>(".session-chip")].find(
+            (candidate) => candidate.title.startsWith(`${target.label} —`),
+          );
+          if (chip === undefined) {
+            throw new Error(`missing session chip ${target.label}`);
+          }
+          const complete = (): boolean => {
+            const active = document.querySelector<HTMLButtonElement>(".session-chip.active");
+            const body = document.querySelector<HTMLElement>(".agent-body");
+            const rows = [...document.querySelectorAll<HTMLElement>(".agent-virtual-row")];
+            return (
+              active?.title.startsWith(`${target.label} —`) === true &&
+              body !== null &&
+              body.scrollHeight - body.scrollTop - body.clientHeight <= 1 &&
+              rows.length < 40 &&
+              rows.some((row) => row.textContent?.includes(target.marker) === true)
+            );
+          };
+          const nextFrame = (): Promise<void> =>
+            new Promise((resolve) => requestAnimationFrame(() => resolve()));
+          const started = performance.now();
+          chip.click();
+          for (;;) {
+            await nextFrame();
+            if (complete()) {
+              await nextFrame();
+              if (complete()) {
+                return performance.now() - started;
+              }
+            }
+          }
+        },
+        { label, marker },
+      );
+
+    const measurements = [
+      await measureSwitch(second.label, "SECOND_799"),
+      await measureSwitch(first.label, "FIRST_799"),
+      await measureSwitch(second.label, "SECOND_799"),
+      await measureSwitch(first.label, "FIRST_799"),
+    ];
+    await test.info().attach("long-transcript-session-switch.json", {
+      body: Buffer.from(JSON.stringify({ budgetMs: SWITCH_BUDGET_MS, measurements }, null, 2)),
+      contentType: "application/json",
+    });
+    expect(Math.max(...measurements)).toBeLessThan(SWITCH_BUDGET_MS);
+
+    await body.evaluate((element) => {
+      element.scrollTop = element.scrollHeight * 0.45;
+    });
+    await expect(page.locator(".agent-follow-pill")).toBeVisible();
+    const viewportAnchor = () =>
+      body.evaluate((element) => {
+        const viewportTop = element.getBoundingClientRect().top;
+        const row = [...element.querySelectorAll<HTMLElement>(".agent-virtual-row")].find(
+          (candidate) => candidate.getBoundingClientRect().bottom > viewportTop,
+        );
+        if (row?.dataset.transcriptEntry === undefined) {
+          throw new Error("virtual viewport has no anchor row");
+        }
+        return {
+          entryId: row.dataset.transcriptEntry,
+          height: element.scrollHeight,
+          offset: row.getBoundingClientRect().top - viewportTop,
+          top: element.scrollTop,
+        };
+      });
+    const settledViewportAnchor = async () => {
+      let previous = await viewportAnchor();
+      let stableFrames = 0;
+      while (stableFrames < 2) {
+        await page.evaluate(
+          () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+        );
+        const current = await viewportAnchor();
+        const unchanged =
+          current.entryId === previous.entryId &&
+          Math.abs(current.height - previous.height) < 1 &&
+          Math.abs(current.offset - previous.offset) < 1 &&
+          Math.abs(current.top - previous.top) < 1;
+        stableFrames = unchanged ? stableFrames + 1 : 0;
+        previous = current;
+      }
+      return previous;
+    };
+    const saved = await settledViewportAnchor();
+    await measureSwitch(second.label, "SECOND_799");
+    await page.locator(`.session-chip[title^="${first.label} —"]`).click();
+    await expect(page.locator(`.session-chip.active[title^="${first.label} —"]`)).toBeVisible();
+    await expect(page.locator(".agent-follow-pill")).toBeVisible();
+    const restored = await settledViewportAnchor();
+    expect(restored.entryId).toBe(saved.entryId);
+    expect(Math.abs(restored.offset - saved.offset)).toBeLessThan(1);
+    expect(await rows.count()).toBeLessThan(40);
+  } finally {
+    await host.close();
+  }
+});
+
 test("a message for a background session mutates only its owned editor state", async ({ page }) => {
   const host = await MockHost.start({
     distDir,

@@ -12,9 +12,8 @@ import {
 } from "solid-js";
 import { AgentPane } from "./agent/AgentPane";
 import { toggleActiveAgentMermaid } from "./agent/agent-mermaid";
-import { agentPaneMessages } from "./agent/pane-store";
+import { type AgentPaneModel, agentPaneModel } from "./agent/pane-store";
 import {
-  type AgentPaneUpdate,
   activeBackendOffline,
   activeBackendPhase,
   backendName,
@@ -287,13 +286,11 @@ export default function App(): JSX.Element {
     return status !== null && status.branch === gitStatus()?.branch ? status.pullRequest : null;
   });
   createEffect(() => setContext("pullRequestAvailable", currentPullRequest() !== null));
-  // A stable reference to the FOCUSED session's pane messages. `agentPaneMessages` is a whole-record signal that
-  // re-fires on *any* slot's ingest, so reading it directly would recompute the focused Codex transcript whenever
-  // a background session streams. This memo's default (===) equality gates that: it re-runs on every record
-  // change but returns the same array until the focused slot's own array changes.
-  const focusedAgentMessages = createMemo<AgentPaneUpdate[]>(() => {
-    return agentPaneMessages(selectedSession());
-  });
+  // Raw messages and keyed entry identity belong to the exact session. Selection swaps one stable model;
+  // inactive sessions defer their lightweight transcript fold until selected, so background work stays isolated.
+  const focusedAgentPane = createMemo<AgentPaneModel | null>(() =>
+    agentPaneModel(selectedSession()),
+  );
   const activeProviderId = createMemo<"claude" | "codex" | null>(
     () => sessions().find((s) => s.active)?.providerId ?? null,
   );
@@ -907,10 +904,9 @@ export default function App(): JSX.Element {
       return (
         <AgentPane
           inputProtocol={activeAgentInputProtocol()}
-          session={activeTermSession()}
+          model={focusedAgentPane()}
           providerId={activeProviderId()}
           active={focusedKind() === AGENT_PANE_KIND}
-          messages={focusedAgentMessages()}
           reviewAdded={editor.reviewLineCounts().added}
           reviewFileCount={editor.parkedReviewCount()}
           reviewRemoved={editor.reviewLineCounts().removed}

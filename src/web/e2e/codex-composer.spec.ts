@@ -347,6 +347,43 @@ test.describe("Codex composer", () => {
     await expect(response).toHaveValue("Keep this field focused");
   });
 
+  test("input request drafts survive virtual unmounts", async ({ page }) => {
+    await mountCodex(page);
+    publishPane(
+      paneMessage({
+        type: "input-requested",
+        itemId: "input-draft",
+        status: "pending",
+        questions: [
+          {
+            id: "answer",
+            header: "Answer",
+            question: "What should Codex do?",
+            isSecret: false,
+            options: [],
+          },
+        ],
+      }),
+    );
+    const response = page.locator(".agent-input-request input");
+    await response.fill("Keep this answer");
+    await response.evaluate((element) => element.blur());
+
+    for (let index = 0; index < 60; index += 1) {
+      publishPane(
+        userMessage(`later prompt ${index}\nwith enough text to move the request off screen`),
+      );
+    }
+    await page.locator(".agent-body").evaluate((element) => {
+      element.scrollTop = element.scrollHeight;
+    });
+    await expect(response).toHaveCount(0);
+    await page.locator(".agent-body").evaluate((element) => {
+      element.scrollTop = 0;
+    });
+    await expect(response).toHaveValue("Keep this answer");
+  });
+
   test("status line shows the complete Review diff and opens it", async ({ page }) => {
     await mountCodex(page);
     publishCatalog();
@@ -953,20 +990,26 @@ test.describe("Codex composer", () => {
     await expect(page.locator(".agent-entry").first()).toBeVisible();
     await expect(pill).toHaveCount(0);
 
-    const scrollLinesFromBottom = (lines: number): Promise<void> =>
-      body.evaluate(
-        (el, linesFromBottom) =>
-          new Promise<void>((resolve) => {
-            el.addEventListener("scroll", () => resolve(), { once: true });
-            const lineHeight = Number.parseFloat(getComputedStyle(el).lineHeight);
-            el.scrollTo({
-              top: el.scrollHeight - el.clientHeight - lineHeight * linesFromBottom,
-            });
-          }),
-        lines,
+    const bounds = await body.boundingBox();
+    if (bounds === null) {
+      throw new Error("agent body has no viewport");
+    }
+    await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+    const scrollLinesFromBottom = async (lines: number): Promise<void> => {
+      const lineHeight = await body.evaluate((element) =>
+        Number.parseFloat(getComputedStyle(element).lineHeight),
       );
+      await page.mouse.wheel(0, -lineHeight * lines);
+      await expect
+        .poll(() =>
+          body.evaluate(
+            (element) => element.scrollHeight - element.scrollTop - element.clientHeight,
+          ),
+        )
+        .toBeGreaterThan(lineHeight * lines - 2);
+    };
 
-    await scrollLinesFromBottom(3);
+    await scrollLinesFromBottom(2.5);
     await expect(pill).toHaveCount(0);
     publishPane(userMessage("near-bottom follow check"));
     await expect

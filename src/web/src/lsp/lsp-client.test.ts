@@ -36,6 +36,10 @@ interface ClientRecord {
   disposed: boolean;
   selectors: Array<{ language: string; scheme: string; pattern: string }>;
   workspaceUri: FakeUri;
+  errorHandler: {
+    error(): { action: number; handled: boolean };
+    closed(): { action: number; handled: boolean };
+  };
 }
 
 interface ChannelRecord {
@@ -121,12 +125,14 @@ vi.mock("monaco-languageclient", () => ({
       clientOptions: {
         documentSelector: ClientRecord["selectors"];
         workspaceFolder: { uri: FakeUri };
+        errorHandler: ClientRecord["errorHandler"];
       };
     }) {
       this.record = {
         disposed: false,
         selectors: options.clientOptions.documentSelector,
         workspaceUri: options.clientOptions.workspaceFolder.uri,
+        errorHandler: options.clientOptions.errorHandler,
       };
       runtime.clients.push(this.record);
     }
@@ -168,6 +174,7 @@ vi.mock("vscode-languageclient", () => ({
   ErrorAction: { Continue: 1 },
   CodeLensRequest: { method: "textDocument/codeLens" },
   CodeLensResolveRequest: { method: "codeLens/resolve" },
+  DocumentDiagnosticRequest: { method: "textDocument/diagnostic" },
   DocumentHighlightRequest: { method: "textDocument/documentHighlight" },
   State: { Stopped: 1, Running: 2, Starting: 3 },
 }));
@@ -312,6 +319,18 @@ describe("session-owned language clients", () => {
     expect(runtime.channels.find((channel) => channel.owner === first)?.disposed).toBe(true);
     expect(runtime.channels.find((channel) => channel.owner === second)?.disposed).toBe(false);
     expect(runtime.clients.filter((client) => !client.disposed)).toHaveLength(1);
+  });
+
+  it("keeps upstream connection failures out of the toast stack", async () => {
+    const owner = session("quiet", "/repo");
+    runtime.models = [model(owner, "/repo/File.cs")];
+    const services = await import("./lsp-client");
+    await services.startLanguageServices();
+    await settle();
+
+    const handler = runtime.clients[0]?.errorHandler;
+    expect(handler?.error()).toEqual({ action: 1, handled: true });
+    expect(handler?.closed()).toEqual({ action: 1, handled: true });
   });
 
   it("reads the workspace root from the selected session's owned state", async () => {

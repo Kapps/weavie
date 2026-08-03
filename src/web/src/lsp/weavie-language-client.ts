@@ -3,6 +3,7 @@ import {
   type CancellationToken,
   CodeLensRequest,
   CodeLensResolveRequest,
+  DocumentDiagnosticRequest,
   DocumentHighlightRequest,
   type MessageSignature,
   State,
@@ -11,6 +12,7 @@ import {
 const passiveRequestMethods = new Set<string>([
   CodeLensRequest.method,
   CodeLensResolveRequest.method,
+  DocumentDiagnosticRequest.method,
   DocumentHighlightRequest.method,
 ]);
 

@@ -38,6 +38,10 @@ test("create, switch, unload, and reopen sessions @cross", async ({ page }) => {
   // Unload: the active session's backend is torn down; its chip goes faded/unloaded.
   await runCommand(page, "Unload Session");
   await expect(page.locator(".session-chip.unloaded")).toHaveCount(1);
+  await expect(
+    page.locator(".toast", { hasText: "was unloaded. Its worktree was kept." }),
+  ).toHaveCount(1);
+  await expect(page.locator(".toast", { hasText: "Unloading the session" })).toHaveCount(0);
 
   // Reopen: clicking an unloaded chip loads it again (no longer unloaded).
   await page.locator(".session-chip.unloaded").click();
@@ -84,6 +88,10 @@ test("delete a session removes its chip @cross", async ({ page }) => {
   await dialog.locator(".confirm-btn-danger").click();
 
   await expect(chips).toHaveCount(1);
+  await expect(
+    page.locator(".toast", { hasText: "was deleted. Its branch was kept." }),
+  ).toHaveCount(1);
+  await expect(page.locator(".toast", { hasText: "Deleting session" })).toHaveCount(0);
 });
 
 test("delete confirmation names tracked and untracked work that will be lost @cross", async ({

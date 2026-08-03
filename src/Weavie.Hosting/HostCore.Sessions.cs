@@ -622,23 +622,29 @@ public sealed partial class HostCore {
 
 		if (ReferenceEquals(target.Session, source)) {
 			context.AfterReply(ct => UnloadAfterReplyAsync(target, ct));
-			return CommandResult.Success("Unloading the session (its worktree will be kept).");
+			return CommandResult.Success();
 		}
 
-		await _ui.InvokeAsync(() => UnloadSlotAsync(target), ct).ConfigureAwait(false);
-		return CommandResult.Success("Unloaded the session (its worktree is kept; click the chip to reload).");
+		await UnloadSlotAndNotifyAsync(target, ct).ConfigureAwait(false);
+		return CommandResult.Success();
 	}
 
 	private async Task UnloadAfterReplyAsync(SessionSlot target, CancellationToken ct) {
 		try {
 			await RunSessionLifecycleAsync(
-				() => _ui.InvokeAsync(() => UnloadSlotAsync(target), ct),
+				() => UnloadSlotAndNotifyAsync(target, ct),
 				ct).ConfigureAwait(false);
 		} catch (OperationCanceledException) when (ct.IsCancellationRequested) {
 			throw;
 		} catch (Exception ex) {
 			Notify("error", $"Couldn't unload session '{target.Label}': {ex.Message}");
 			throw;
+		}
+	}
+
+	private async Task UnloadSlotAndNotifyAsync(SessionSlot target, CancellationToken ct) {
+		if (await _ui.InvokeAsync(() => UnloadSlotAsync(target), ct).ConfigureAwait(false)) {
+			Notify("info", $"Session '{target.Label}' was unloaded. Its worktree was kept.");
 		}
 	}
 
@@ -715,7 +721,7 @@ public sealed partial class HostCore {
 
 		if (ReferenceEquals(target.Session, source)) {
 			context.AfterReply(ct => DeleteAfterReplyAsync(target, worktrees, worktreePath, label, force, ct));
-			return CommandResult.Success($"Deleting session '{label}' (the branch will be kept).");
+			return CommandResult.Success();
 		}
 
 		return await DeleteAfterPreflightAsync(target, worktrees, worktreePath, label, force, ct).ConfigureAwait(false);
@@ -728,11 +734,18 @@ public sealed partial class HostCore {
 		string label,
 		bool force,
 		CancellationToken ct) {
-		var result = await RunSessionLifecycleAsync(
-			() => DeleteAfterPreflightAsync(target, worktrees, worktreePath, label, force, ct),
-			ct).ConfigureAwait(false);
-		if (!result.Ok) {
-			Notify("error", result.Error ?? $"Couldn't delete session '{label}'.");
+		try {
+			var result = await RunSessionLifecycleAsync(
+				() => DeleteAfterPreflightAsync(target, worktrees, worktreePath, label, force, ct),
+				ct).ConfigureAwait(false);
+			if (!result.Ok) {
+				Notify("error", result.Error ?? $"Couldn't delete session '{label}'.");
+			}
+		} catch (OperationCanceledException) when (ct.IsCancellationRequested) {
+			throw;
+		} catch (Exception ex) {
+			Notify("error", $"Couldn't delete session '{label}': {ex.Message}");
+			throw;
 		}
 	}
 
@@ -790,7 +803,8 @@ public sealed partial class HostCore {
 				PersistSessionState();
 				return Task.CompletedTask;
 			}, CancellationToken.None).ConfigureAwait(false);
-			return CommandResult.Success($"Deleted session '{label}': its worktree was removed and the branch kept.");
+			Notify("info", $"Session '{label}' was deleted. Its branch was kept.");
+			return CommandResult.Success();
 		} catch (WorktreeDirtyException) {
 			return CommandResult.Failure(
 				$"Session '{label}' has uncommitted changes; deleting would discard them. Re-run with force to delete anyway.");
@@ -864,21 +878,22 @@ public sealed partial class HostCore {
 	}
 
 	/// <summary>Tears down a slot's live backend, leaving its worktree as a dormant catalog entry.</summary>
-	private async Task UnloadSlotAsync(SessionSlot slot) {
+	private async Task<bool> UnloadSlotAsync(SessionSlot slot) {
 		if (slot.Session is not { } session) {
-			return;
+			return false;
 		}
 
 		await session.DisposeAsync().ConfigureAwait(false);
-		await _ui.InvokeAsync(() => {
+		return await _ui.InvokeAsync(() => {
 			if (ReferenceEquals(slot.Session, session)) {
 				slot.Session = null;
 				_mediaRoutes.Unregister(session.Incarnation);
 				PushSessionList();
 				PersistSessionState();
+				return Task.FromResult(true);
 			}
 
-			return Task.CompletedTask;
+			return Task.FromResult(false);
 		}, CancellationToken.None).ConfigureAwait(false);
 	}
 

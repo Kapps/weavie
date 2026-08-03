@@ -743,12 +743,9 @@ export default function App(): JSX.Element {
       backendId: req.backendId,
       force: req.state !== "clean",
     });
-    addToast(
-      result.ok ? "info" : "warn",
-      result.ok
-        ? (result.message ?? "Session deleted.")
-        : (result.error ?? "Couldn't delete the session."),
-    );
+    if (!result.ok) {
+      addToast("warn", result.error ?? "Couldn't delete the session.");
+    }
   };
 
   // Persist the layout after a user gesture (debounced). Skipped until the host's initial layout push, so we

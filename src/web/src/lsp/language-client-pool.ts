@@ -290,8 +290,8 @@ function connect(key: string, params: EnsureClientParams, attempt: number): void
         },
         // The client itself stays passive on errors; recovery is the host-supervised reconnect above.
         errorHandler: {
-          error: () => ({ action: ErrorAction.Continue }),
-          closed: () => ({ action: CloseAction.DoNotRestart }),
+          error: () => ({ action: ErrorAction.Continue, handled: true }),
+          closed: () => ({ action: CloseAction.DoNotRestart, handled: true }),
         },
       },
       messageTransports: { reader: channel.reader, writer: channel.writer },

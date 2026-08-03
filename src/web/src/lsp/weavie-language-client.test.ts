@@ -29,6 +29,7 @@ vi.mock("monaco-languageclient", () => ({
 vi.mock("vscode-languageclient", () => ({
   CodeLensRequest: { method: "textDocument/codeLens" },
   CodeLensResolveRequest: { method: "codeLens/resolve" },
+  DocumentDiagnosticRequest: { method: "textDocument/diagnostic" },
   DocumentHighlightRequest: { method: "textDocument/documentHighlight" },
   State: { Stopped: 1, Running: 2, Starting: 3 },
 }));
@@ -49,6 +50,7 @@ describe("Weavie language client notifications", () => {
 
     fail("textDocument/codeLens", undefined);
     fail("codeLens/resolve", undefined);
+    fail("textDocument/diagnostic", undefined);
     fail("textDocument/documentHighlight", undefined);
     fail("textDocument/references", undefined);
     fail("textDocument/rename", false);
@@ -56,6 +58,7 @@ describe("Weavie language client notifications", () => {
     expect(runtime.notifications).toEqual([
       { method: "textDocument/codeLens", show: false },
       { method: "codeLens/resolve", show: false },
+      { method: "textDocument/diagnostic", show: false },
       { method: "textDocument/documentHighlight", show: false },
       { method: "textDocument/references", show: true },
       { method: "textDocument/rename", show: false },

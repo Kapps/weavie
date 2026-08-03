@@ -33,7 +33,11 @@ internal sealed partial class WorkspaceWindow {
 
 	IHostDialogs? IHostPlatform.Dialogs => _dialogs;
 
+	Weavie.Core.Sessions.ISystemNotificationChannel IHostPlatform.Notifications => _notifications;
+
 	void IHostPlatform.ToggleWindow() => WindowFocus.Toggle(this);
+
+	void IHostPlatform.ActivateWindow(string? activationToken) => WindowFocus.ForceForeground(this);
 
 	// Host-bus handlers enter the UI (STA) thread before reaching WinForms Clipboard. SetText rejects an
 	// empty string, so an empty copy clears the clipboard instead.

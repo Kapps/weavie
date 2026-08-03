@@ -1,4 +1,6 @@
 using Weavie.Core.Shell;
+using Weavie.Hosting;
+using Weavie.Linux.Hosting;
 using Weavie.Linux.Native;
 
 namespace Weavie.Linux;
@@ -41,7 +43,15 @@ internal sealed partial class WorkspaceHost {
 		}
 
 		SaveWindowState();
-		_core.DisposeAsync().AsTask().GetAwaiter().GetResult();
+		var core = _core;
+		var notificationChannel = _notificationChannel;
 		_core = null;
+		_notificationChannel = null;
+		core.Ready -= PushWindowState;
+		try {
+			core.DisposeAsync().AsTask().GetAwaiter().GetResult();
+		} finally {
+			notificationChannel?.Dispose();
+		}
 	}
 }

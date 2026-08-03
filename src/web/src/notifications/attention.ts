@@ -12,7 +12,7 @@ import { playAttentionSound } from "./sounds";
 registerSessionFeature((session) =>
   session
     .feature("attention")
-    .on<{ label: string; kind: AttentionKindName }>("raised", (message) => {
+    .on<{ label: string; kind: AttentionKindName; body: string }>("raised", (message) => {
       const prefs = notificationPrefs();
       if (!prefs.gates[message.kind]) {
         return;
@@ -30,8 +30,10 @@ registerSessionFeature((session) =>
           presentOsNotification({
             backendId: session.connection.id,
             slot: session.address.slot,
+            incarnation: session.address.incarnation,
             label: message.label,
             kind: message.kind,
+            body: message.body,
           });
         }
       }

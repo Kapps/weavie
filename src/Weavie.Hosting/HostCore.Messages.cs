@@ -8,6 +8,8 @@ namespace Weavie.Hosting;
 
 public sealed partial class HostCore {
 	private void WireHostMessages() {
+		WireSystemNotificationMessages();
+
 		var connection = _messages.Host.Feature("connection");
 		connection.Handle<HelloRequest, HostHello>(
 			"hello",

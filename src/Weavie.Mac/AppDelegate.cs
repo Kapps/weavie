@@ -19,6 +19,7 @@ public sealed partial class AppDelegate : NSApplicationDelegate {
 	private HostServices? _services;
 	private RecentWorkspaces? _recents;
 	private MacDialogs? _dialogs;
+	private MacNotificationService? _notifications;
 	private ApplicationHotkeys? _hotkeys;
 	private WorkspaceWindow? _lastActive;
 	private WelcomeWindow? _welcome;
@@ -37,6 +38,13 @@ public sealed partial class AppDelegate : NSApplicationDelegate {
 
 	/// <summary>The native modal file dialogs, shared by every window.</summary>
 	internal IHostDialogs Dialogs => _dialogs!;
+
+	/// <summary>The process-wide UserNotifications center shared by every workspace channel.</summary>
+	internal MacNotificationService Notifications => _notifications!;
+
+	/// <summary>Installs the notification-center delegate before application launch finishes.</summary>
+	public override void WillFinishLaunching(NSNotification notification) =>
+		_notifications = new MacNotificationService();
 
 	/// <summary>
 	/// Builds the app-global stores + native pieces, opens the initial workspace window (or the welcome screen when
@@ -98,6 +106,7 @@ public sealed partial class AppDelegate : NSApplicationDelegate {
 
 		_windows.Clear();
 		_hotkeys?.Dispose(); // also disposes the global hotkey registrar
+		_notifications?.Dispose();
 		_services?.Keybindings.Dispose();
 		_services?.Settings.Dispose();
 	}
@@ -129,6 +138,13 @@ public sealed partial class AppDelegate : NSApplicationDelegate {
 			app.Activate();
 			target.MakeKeyAndOrderFront(null);
 		}
+	}
+
+	/// <summary>Activates the app and raises one exact workspace window after a notification click.</summary>
+	internal static void ActivateWindow(NSWindow target) {
+		ArgumentNullException.ThrowIfNull(target);
+		NSApplication.SharedApplication.Activate();
+		target.MakeKeyAndOrderFront(null);
 	}
 
 	// The front window (last to become key, else the most-recently-opened) — the target for menu commands and the

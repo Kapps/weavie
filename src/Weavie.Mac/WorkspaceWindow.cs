@@ -21,9 +21,13 @@ internal sealed partial class WorkspaceWindow : IWebSurface, IShellMenuActions {
 	private readonly HostBridge _bridge = new();
 	private readonly HostCore _core;
 	private readonly WKWebView _webView;
+	private readonly MacNotificationChannel _notifications;
 	private NSObject? _resizeObserver;
 	private NSObject? _closeObserver;
 	private NSObject? _keyObserver;
+	private NSObject? _resignKeyObserver;
+	private NSObject? _miniaturizeObserver;
+	private NSObject? _deminiaturizeObserver;
 	private bool _disposed;
 
 	/// <summary>Opens a window onto <paramref name="workspace"/>, restoring its saved geometry, and starts the web app.</summary>
@@ -31,6 +35,7 @@ internal sealed partial class WorkspaceWindow : IWebSurface, IShellMenuActions {
 		ArgumentNullException.ThrowIfNull(app);
 		ArgumentException.ThrowIfNullOrEmpty(workspace);
 		_app = app;
+		_notifications = app.Notifications.CreateChannel();
 
 		string resourcePath = NSBundle.MainBundle.ResourcePath
 			?? throw new InvalidOperationException("No bundle resource path.");
@@ -85,7 +90,14 @@ internal sealed partial class WorkspaceWindow : IWebSurface, IShellMenuActions {
 		// window's core down and drops it from the controller. Becoming key marks it the global-hotkey toggle target.
 		_resizeObserver = NSNotificationCenter.DefaultCenter.AddObserver(NSWindow.DidEndLiveResizeNotification, _ => SaveWindowState(), Window);
 		_closeObserver = NSNotificationCenter.DefaultCenter.AddObserver(NSWindow.WillCloseNotification, _ => _app.OnWindowClosed(this), Window);
-		_keyObserver = NSNotificationCenter.DefaultCenter.AddObserver(NSWindow.DidBecomeKeyNotification, _ => _app.MarkActive(this), Window);
+		_keyObserver = NSNotificationCenter.DefaultCenter.AddObserver(NSWindow.DidBecomeKeyNotification, _ => {
+			_app.MarkActive(this);
+			PushWindowState();
+		}, Window);
+		_resignKeyObserver = NSNotificationCenter.DefaultCenter.AddObserver(NSWindow.DidResignKeyNotification, _ => PushWindowState(), Window);
+		_miniaturizeObserver = NSNotificationCenter.DefaultCenter.AddObserver(NSWindow.DidMiniaturizeNotification, _ => PushWindowState(), Window);
+		_deminiaturizeObserver = NSNotificationCenter.DefaultCenter.AddObserver(NSWindow.DidDeminiaturizeNotification, _ => PushWindowState(), Window);
+		_core.Ready += PushWindowState;
 		Window.MakeKeyAndOrderFront(null);
 
 		// Fire-and-forget so the readiness poll doesn't block the open.
@@ -135,10 +147,30 @@ internal sealed partial class WorkspaceWindow : IWebSurface, IShellMenuActions {
 			_keyObserver = null;
 		}
 
-		_core.DisposeAsync().AsTask().GetAwaiter().GetResult();
+		RemoveObserver(ref _resignKeyObserver);
+		RemoveObserver(ref _miniaturizeObserver);
+		RemoveObserver(ref _deminiaturizeObserver);
+		_core.Ready -= PushWindowState;
+
+		try {
+			_core.DisposeAsync().AsTask().GetAwaiter().GetResult();
+		} finally {
+			_notifications.Dispose();
+		}
 #if DEBUG
 		_devBringUp?.Dispose(); // kills the Vite dev server this window spawned; a reused one is left alone
 #endif
+	}
+
+	private void PushWindowState() =>
+		_core.PushWindowState(Window.IsZoomed, Window.IsKeyWindow && !Window.IsMiniaturized);
+
+	private static void RemoveObserver(ref NSObject? observer) {
+		if (observer is null) {
+			return;
+		}
+		NSNotificationCenter.DefaultCenter.RemoveObserver(observer);
+		observer = null;
 	}
 
 	/// <summary>Snapshots the current geometry, keeping the prior un-zoomed restore bounds while zoomed.</summary>

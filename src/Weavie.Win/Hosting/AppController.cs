@@ -37,6 +37,7 @@ internal sealed class AppController : ApplicationContext {
 
 		// Tee the console into the in-app log viewer first, so every store's construction log below is captured too.
 		LogBuffer = LogBuffer.InstallConsoleCapture();
+		Notifications = new WindowsNotificationService();
 
 		// User settings from ~/.weavie/settings.toml; the change hub windows react to (e.g. a shell change reopens
 		// the shell pane).
@@ -154,6 +155,9 @@ internal sealed class AppController : ApplicationContext {
 
 	/// <summary>App-global captured console output (stdout/stderr), backing the in-app log viewer; one buffer per process.</summary>
 	public LogBuffer LogBuffer { get; }
+
+	/// <summary>The process-wide Windows app-notification manager shared by every workspace channel.</summary>
+	public WindowsNotificationService Notifications { get; }
 
 	/// <summary>
 	/// Opens <paramref name="root"/> as a workspace: focuses the existing window if already open, else opens a new
@@ -302,6 +306,7 @@ internal sealed class AppController : ApplicationContext {
 	protected override void Dispose(bool disposing) {
 		if (disposing) {
 			_hotkeys.Dispose(); // unregisters the OS hotkeys + tears down the message window
+			Notifications.Dispose();
 			Settings.Dispose();
 			Keybindings.Dispose();
 		}

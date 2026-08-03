@@ -37,6 +37,11 @@ internal sealed partial class WorkspaceWindow {
 		} catch (Exception ex) {
 			failure = ShutdownFailure.Add(failure, ex);
 		}
+		try {
+			_notifications.Dispose();
+		} catch (Exception ex) {
+			failure = ShutdownFailure.Add(failure, ex);
+		}
 
 #if DEBUG
 		try {

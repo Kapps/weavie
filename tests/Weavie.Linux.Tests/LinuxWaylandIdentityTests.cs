@@ -63,11 +63,15 @@ public sealed class LinuxWaylandIdentityTests {
 				ReferenceEquals(completed, appIdPublished.Task),
 				$"The Linux host exited before publishing its Wayland app ID.\n{string.Join('\n', output)}");
 			string desktopFile = appId + ".desktop";
-			string installedDesktopEntry = File.ReadAllText(Path.Combine(dataHome, "applications", desktopFile));
+			string bundledDesktopEntry = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, desktopFile));
+			string expectedDesktopEntry = bundledDesktopEntry.Replace(
+				"Exec=Weavie",
+				$"Exec=\"{Path.Combine(AppContext.BaseDirectory, "Weavie")}\"",
+				StringComparison.Ordinal);
 			Assert.Equal(
-				File.ReadAllText(Path.Combine(AppContext.BaseDirectory, desktopFile)),
-				installedDesktopEntry);
-			Assert.Contains($"Icon={appId}", installedDesktopEntry, StringComparison.Ordinal);
+				expectedDesktopEntry,
+				File.ReadAllText(Path.Combine(dataHome, "applications", desktopFile)));
+			Assert.Contains($"Icon={appId}", expectedDesktopEntry, StringComparison.Ordinal);
 			Assert.Equal(
 				File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "weavie.png")),
 				File.ReadAllBytes(Path.Combine(

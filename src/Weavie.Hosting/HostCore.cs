@@ -312,12 +312,9 @@ public sealed partial class HostCore : IAsyncDisposable {
 		typeof(HostCore).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
 		?? throw new InvalidOperationException("Weavie.Hosting has no AssemblyInformationalVersion — the build-stamp target did not run.");
 
-	/// <summary>Pushes the title bar's current window state (maximize glyph + blur dim); no-op on native-chrome hosts.</summary>
-	public void PushWindowState(bool maximized, bool focused) {
-		if (_shell is not null) {
-			_messages.Host.Feature("window").Publish("state", new { maximized, focused });
-		}
-	}
+	/// <summary>Pushes the native window's current state for title-bar chrome and attention delivery.</summary>
+	public void PushWindowState(bool maximized, bool focused) =>
+		_messages.Host.Feature("window").Publish("state", new { maximized, focused });
 
 	/// <summary>
 	/// Wires the live reactions to store changes: a changed shell reopens the terminal; font/editor/theme/
@@ -488,6 +485,8 @@ public sealed partial class HostCore : IAsyncDisposable {
 		Attempt(() => _bridge.MessageReceived -= OnWebMessage);
 		Attempt(() => _bridge.PeerDisconnected -= OnWebPeerDisconnected);
 		await AttemptAsync(() => _messageIngress.DisposeAsync().AsTask()).ConfigureAwait(false);
+		await AttemptAsync(() => _messages.Host.QuiesceAsync()).ConfigureAwait(false);
+		await AttemptAsync(DisposeSystemNotificationsAsync).ConfigureAwait(false);
 		Attempt(DetachReactions);
 		Attempt(() => _drainTick?.Cancel());
 		Attempt(_sessionStore.Flush);

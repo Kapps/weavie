@@ -32,4 +32,21 @@ public sealed class AttentionRulesTests {
 	[InlineData(SessionStatus.Error, SessionStatus.Starting)]  // post-crash restart
 	public void QuietTransitions_ClassifyAsNull(SessionStatus previous, SessionStatus next) =>
 		Assert.Null(AttentionRules.Classify(previous, next));
+
+	[Theory]
+	[InlineData(AttentionKind.TurnComplete, "turnComplete", "Turn complete — waiting on you.")]
+	[InlineData(AttentionKind.NeedsInput, "needsInput", "Needs your input.")]
+	[InlineData(AttentionKind.Failed, "failed", "The agent crashed.")]
+	public void WireValues_RoundTripWithCanonicalBody(
+		AttentionKind kind,
+		string wireName,
+		string body) {
+		Assert.Equal(wireName, AttentionRules.WireName(kind));
+		Assert.Equal(kind, AttentionRules.FromWireName(wireName));
+		Assert.Equal(body, AttentionRules.NotificationBody(kind));
+	}
+
+	[Fact]
+	public void UnknownWireValue_IsRejected() =>
+		Assert.Throws<ArgumentException>(() => AttentionRules.FromWireName("other"));
 }

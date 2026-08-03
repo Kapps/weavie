@@ -39,8 +39,15 @@ internal sealed class HeadlessPlatform : IHostPlatform {
 
 	public IHostDialogs? Dialogs => null;
 
+	public Weavie.Core.Sessions.ISystemNotificationChannel Notifications =>
+		Weavie.Core.Sessions.NoopSystemNotificationChannel.Instance;
+
 	public void ToggleWindow() {
 		// No OS window in a browser; no-op.
+	}
+
+	public void ActivateWindow(string? activationToken) {
+		// The browser owns its own window activation.
 	}
 
 	// The clipboard + browser belong to the remote browser, not this server process, so these are no-ops here

@@ -1348,9 +1348,9 @@ export default function App(): JSX.Element {
       registerCommand(CommandIds.nextSession, () => stepSession(1)),
       registerCommand(CommandIds.prevSession, () => stepSession(-1)),
       // Focus Session (programmatic; the notification click-through): bring a session to the foreground by
-      // 'id' (+ optional 'backendId', defaulting to the page-serving backend). Declines an unknown session.
+      // 'id' (+ optional 'backendId' and exact 'incarnation'). Declines an unknown or stale session.
       registerCommand(CommandIds.focusSession, (args) => {
-        const a = args as { id?: unknown; backendId?: unknown } | undefined;
+        const a = args as { id?: unknown; backendId?: unknown; incarnation?: unknown } | undefined;
         if (typeof a?.id !== "string" || a.id.length === 0) {
           return false;
         }
@@ -1359,7 +1359,11 @@ export default function App(): JSX.Element {
             ? a.backendId
             : LOCAL_BACKEND_ID;
         const target = findSession(backendId, a.id);
-        if (target === undefined) {
+        if (
+          target === undefined ||
+          (typeof a.incarnation === "string" &&
+            (a.incarnation.length === 0 || target.owner?.address.incarnation !== a.incarnation))
+        ) {
           return false;
         }
         if (!target.active) {

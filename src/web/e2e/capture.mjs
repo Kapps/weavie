@@ -14,6 +14,7 @@ import { createServer } from "node:net";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "@playwright/test";
+import { openWorkspace, waitForWorkspace } from "./capture-workspace.mjs";
 
 const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const repoRoot = resolve(webRoot, "..", "..");
@@ -90,29 +91,6 @@ function freePort() {
   });
 }
 
-function waitForHost(proc, timeoutMs) {
-  return new Promise((res, rej) => {
-    let output = "";
-    const timer = setTimeout(
-      () => rej(new Error("host did not report listening in time")),
-      timeoutMs,
-    );
-    proc.stdout.on("data", (chunk) => {
-      output += chunk.toString("utf8");
-      const pageUrl = output.match(/\[weavie-headless\] open\s+(http:\/\/\S+)/)?.[1];
-      const token = output.match(/\[weavie-headless\] token ([^\s]+)/)?.[1];
-      if (pageUrl !== undefined && token !== undefined) {
-        clearTimeout(timer);
-        res({ pageUrl, token });
-      }
-    });
-    proc.on("exit", (code) => {
-      clearTimeout(timer);
-      rej(new Error(`host exited early with code ${code}`));
-    });
-  });
-}
-
 async function main() {
   mkdirSync(outDir, { recursive: true });
   console.log("[capture] building headless host (copies the fresh web dist into wwwroot)…");
@@ -126,7 +104,7 @@ async function main() {
   });
 
   try {
-    const { pageUrl, token } = await waitForHost(host, 60_000);
+    const workspacePage = await waitForWorkspace(host, 60_000);
     // When the project pins a Playwright newer than the pre-installed browser build, launch the bundled
     // Chromium directly (WEAVIE_CHROMIUM) instead of downloading a matching build.
     const executablePath = process.env.WEAVIE_CHROMIUM || undefined;
@@ -139,14 +117,7 @@ async function main() {
       const page = await context.newPage();
       page.on("console", (msg) => console.log(`[page:${msg.type()}] ${msg.text()}`));
       page.on("pageerror", (err) => console.log(`[page:error] ${err.message}`));
-      const connect = await page.request.post(pageUrl, {
-        form: { token },
-        maxRedirects: 0,
-      });
-      if (connect.status() !== 302) {
-        throw new Error(`workspace connect failed (${connect.status()})`);
-      }
-      await page.goto(pageUrl, { waitUntil: "load" });
+      await openWorkspace(page, workspacePage);
 
       const tour = await loadTour();
       await tour(page);

@@ -321,8 +321,9 @@ test.describe("session-addressed WebSocket transport", () => {
     const geometry = await inbox.evaluate((element) => {
       const composer = element.querySelector<HTMLElement>(".session-composer");
       const options = element.querySelector<HTMLElement>(".session-composer-options");
+      const optionButton = options?.querySelector("button") ?? null;
       const list = element.querySelector<HTMLElement>(".session-inbox-list");
-      if (composer === null || options === null || list === null) {
+      if (composer === null || options === null || optionButton === null || list === null) {
         throw new Error("mobile session inbox is incomplete");
       }
       return {
@@ -331,12 +332,20 @@ test.describe("session-addressed WebSocket transport", () => {
         optionTargetHeights: [...options.querySelectorAll("select, button")].map(
           (target) => target.getBoundingClientRect().height,
         ),
+        optionTargetFontSize: getComputedStyle(optionButton).fontSize,
+        optionTargetRadius: getComputedStyle(optionButton).borderRadius,
+        optionTargetRows: new Set(
+          [...options.querySelectorAll("select, button")].map((target) =>
+            Math.round(target.getBoundingClientRect().top),
+          ),
+        ).size,
         listClientHeight: list.clientHeight,
         listScrollHeight: list.scrollHeight,
       };
     });
     expect(geometry.optionsBottom).toBeLessThanOrEqual(geometry.composerBottom + 1);
     expect(Math.min(...geometry.optionTargetHeights)).toBeGreaterThanOrEqual(44);
+    expect(geometry.optionTargetRows).toBe(2);
     expect(geometry.listScrollHeight).toBeGreaterThan(geometry.listClientHeight);
 
     const unloaded = inbox.locator(".session-inbox-row", { hasText: "Unloaded" });
@@ -418,10 +427,37 @@ test.describe("session-addressed WebSocket transport", () => {
     await page.getByRole("button", { name: "Agent" }).click();
     const agentComposer = page.locator("[data-agent-composer]");
     await expect(agentComposer).toBeVisible();
-    const run = agentComposer.getByRole("button", { name: "Run" });
-    const runBox = await run.boundingBox();
-    expect(runBox?.width).toBeGreaterThanOrEqual(44);
-    expect(runBox?.height).toBeGreaterThanOrEqual(44);
+    host.publishSession(primary.address, "agent", "pane", {
+      providerId: "codex",
+      type: "turn-started",
+      turnId: "turn-mobile-layout",
+      status: "inProgress",
+    });
+    await expect(agentComposer.getByRole("button", { name: "Interrupt" })).toBeVisible();
+    await expect(agentComposer.getByRole("button", { name: "Steer" })).toBeVisible();
+    const composerGeometry = await agentComposer.evaluate((composer) => {
+      const textarea = composer.querySelector("textarea");
+      const actions = composer.querySelector(".agent-compose-actions");
+      const actionButton = actions?.querySelector("button") ?? null;
+      if (textarea === null || actions === null || actionButton === null) {
+        throw new Error("mobile agent composer is incomplete");
+      }
+      return {
+        actionsTop: actions.getBoundingClientRect().top,
+        buttonHeights: [...actions.querySelectorAll("button")].map(
+          (button) => button.getBoundingClientRect().height,
+        ),
+        buttonFontSize: getComputedStyle(actionButton).fontSize,
+        buttonRadius: getComputedStyle(actionButton).borderRadius,
+        textareaHeight: textarea.getBoundingClientRect().height,
+        textareaBottom: textarea.getBoundingClientRect().bottom,
+      };
+    });
+    expect(composerGeometry.actionsTop).toBeGreaterThanOrEqual(composerGeometry.textareaBottom);
+    expect(Math.min(...composerGeometry.buttonHeights)).toBeGreaterThanOrEqual(44);
+    expect(composerGeometry.buttonFontSize).toBe(geometry.optionTargetFontSize);
+    expect(composerGeometry.buttonRadius).toBe(geometry.optionTargetRadius);
+    expect(composerGeometry.textareaHeight).toBeGreaterThanOrEqual(44);
     host.publishHost("notifications", "show", {
       level: "error",
       message: "Agent surface error",

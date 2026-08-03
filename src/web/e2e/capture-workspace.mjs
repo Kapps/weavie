@@ -8,7 +8,7 @@ export function waitForWorkspace(proc, timeoutMs) {
     };
     const onData = (chunk) => {
       output += chunk.toString("utf8");
-      const pageUrl = output.match(/open\s+(http:\/\/\S+)/)?.[1];
+      const pageUrl = output.match(/\[weavie-headless\] open\s+(http:\/\/\S+)/)?.[1];
       const token = output.match(/\[weavie-headless\] token ([^\s]+)/)?.[1];
       if (pageUrl && token) {
         finish();

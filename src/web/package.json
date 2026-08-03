@@ -29,6 +29,7 @@
     "@codingame/monaco-vscode-theme-defaults-default-extension": "25.1.2",
     "@codingame/monaco-vscode-theme-service-override": "25.1.2",
     "@codingame/monaco-vscode-typescript-basics-default-extension": "25.1.2",
+    "@tanstack/solid-virtual": "3.13.36",
     "@xterm/addon-fit": "0.12.0-beta.288",
     "@xterm/addon-webgl": "0.20.0-beta.287",
     "@xterm/xterm": "6.1.0-beta.288",

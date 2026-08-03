@@ -1,71 +1,82 @@
-import { createMemo, createSignal, For, type JSX, Match, Show, Switch } from "solid-js";
+import type { Virtualizer } from "@tanstack/solid-virtual";
+import { For, type JSX, onCleanup, Show } from "solid-js";
 import type { ClientSession } from "../bridge";
 import { liveKeyLabel } from "../commands/keys-live";
 import { CommandIds } from "../commands/types";
-import { AgentMarkdown } from "./AgentMarkdown";
-import {
-  ApprovalActions,
-  EditLocationActions,
-  InputRequestActions,
-  PlanActions,
-} from "./AgentPaneActions";
-import { AgentLinkedText } from "./AgentPaneLinks";
-import type { AgentActivityStep, AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
-import { computeSectionLabels } from "./AgentTranscriptLabels";
+import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
+import { TranscriptEntry } from "./AgentTranscriptEntry";
+import type { AgentSectionLabel } from "./pane-store";
 
 export function AgentTranscript(props: {
   agentTurnStartId: string | null;
   entries: AgentTranscriptEntry[];
+  expandedDetails: ReadonlySet<string>;
   keyboardApprovalId: string | null;
+  onDetailsToggle: (entryId: string, open: boolean) => void;
   providerName: string;
-  session: ClientSession | null;
-  turnActive: boolean;
+  sectionLabels: ReadonlyMap<string, AgentSectionLabel>;
+  session: ClientSession;
+  virtualizer: Virtualizer<HTMLDivElement, HTMLDivElement>;
 }): JSX.Element {
-  // Entries are rebuilt as updates arrive. Keep disclosure state outside the native <details> node
-  // so replacing an entry does not close something the user is inspecting.
-  const [expandedDetails, setExpandedDetails] = createSignal<ReadonlySet<string>>(new Set());
-  // All section labels in one O(entries) pass, keyed by entry id. Reads only kind/tone/id (never text), so a
-  // streaming text delta never re-runs it; a turn ending updates a Map value, never an entry's identity.
-  const sectionLabels = createMemo(() => computeSectionLabels(props.entries, props.turnActive));
-
   return (
     <Show
       when={props.entries.length > 0}
       fallback={<EmptyState providerName={props.providerName} />}
     >
-      <For each={props.entries}>
-        {(entry) => (
-          <TranscriptEntry
-            agentTurnStart={entry.id === props.agentTurnStartId}
-            detailsExpanded={expandedDetails().has(detailsKey(props.session, entry.id))}
-            entry={entry}
-            keyboardApprovalId={props.keyboardApprovalId}
-            onDetailsToggle={(open) => {
-              const key = detailsKey(props.session, entry.id);
-              setExpandedDetails((current) => {
-                if (current.has(key) === open) {
-                  return current;
+      <div
+        class="agent-transcript"
+        data-agent-transcript
+        style={`height:${props.virtualizer.getTotalSize()}px`}
+      >
+        <For each={props.virtualizer.getVirtualItems()}>
+          {(virtualRow) => {
+            const entry = (): AgentTranscriptEntry => props.entries[virtualRow.index]!;
+            const previous = (): AgentTranscriptEntry | undefined =>
+              props.entries[virtualRow.index - 1];
+            onCleanup(() => props.virtualizer.measureElement(null));
+            return (
+              <div
+                class="agent-virtual-row"
+                classList={{
+                  "agent-virtual-row-assistant-pair":
+                    entry().kind === "message" &&
+                    entry().tone === "assistant" &&
+                    previous()?.kind === "message" &&
+                    previous()?.tone === "assistant",
+                  "agent-virtual-row-first": virtualRow.index === 0,
+                  "agent-virtual-row-user": entry().kind === "message" && entry().tone === "user",
+                }}
+                data-index={virtualRow.index}
+                data-agent-turn-output-start={
+                  entry().id === props.agentTurnStartId ? "" : undefined
                 }
-                const next = new Set(current);
-                if (open) {
-                  next.add(key);
-                } else {
-                  next.delete(key);
+                data-transcript-entry={entry().id}
+                ref={(element) =>
+                  queueMicrotask(() => {
+                    if (element.isConnected) {
+                      props.virtualizer.measureElement(element);
+                    }
+                  })
                 }
-                return next;
-              });
-            }}
-            sectionLabel={sectionLabels().get(entry.id) ?? null}
-            session={props.session}
-          />
-        )}
-      </For>
+                style={`transform:translateY(${virtualRow.start}px)`}
+              >
+                <TranscriptEntry
+                  detailsExpanded={props.expandedDetails.has(entry().id)}
+                  entry={entry()}
+                  keyboardApprovalId={props.keyboardApprovalId}
+                  onDetailsToggle={(open) => props.onDetailsToggle(entry().id, open)}
+                  sectionLabel={props.sectionLabels.get(entry().id) ?? null}
+                  session={props.session}
+                />
+              </div>
+            );
+          }}
+        </For>
+      </div>
     </Show>
   );
 }
 
-// The idle welcome: names the agent and teaches the keyboard paths before the first prompt. Rebindable
-// actions read the catalog live; "/" and Up are intrinsic composer behaviors, so their glyphs are fixed.
 function EmptyState(props: { providerName: string }): JSX.Element {
   const hints = (): { key: string; text: string }[] =>
     [
@@ -101,194 +112,4 @@ function EmptyState(props: { providerName: string }): JSX.Element {
       </p>
     </div>
   );
-}
-
-function TranscriptEntry(props: {
-  agentTurnStart: boolean;
-  detailsExpanded: boolean;
-  entry: AgentTranscriptEntry;
-  keyboardApprovalId: string | null;
-  onDetailsToggle: (open: boolean) => void;
-  sectionLabel: "Updates" | "Results" | null;
-  session: ClientSession | null;
-}): JSX.Element {
-  return (
-    <article
-      class={`agent-entry agent-entry-${props.entry.kind} agent-tone-${props.entry.tone}`}
-      classList={{
-        "agent-entry-edit": props.entry.actionMessage?.type === "edit-location",
-        "agent-entry-result": props.sectionLabel !== null,
-      }}
-      data-agent-turn-output-start={props.agentTurnStart ? "" : undefined}
-    >
-      <Show when={props.sectionLabel !== null || showEntryHeader(props.entry)}>
-        <div class="agent-entry-head" title={entryTitle(props.entry)}>
-          <span class="agent-entry-label">
-            {props.entry.kind === "plan" && props.sectionLabel !== null
-              ? `${props.sectionLabel} · Plan`
-              : (props.sectionLabel ?? entryLabel(props.entry))}
-          </span>
-          <Show when={props.entry.status !== null}>
-            <small class="agent-entry-status">{props.entry.status}</small>
-          </Show>
-        </div>
-      </Show>
-      <div class="agent-entry-main">
-        <Show when={props.entry.summary !== null}>
-          <div class="agent-entry-summary">
-            <AgentLinkedText session={props.session} text={props.entry.summary ?? ""} />
-          </div>
-        </Show>
-        <Show when={props.entry.text !== null}>
-          <Show
-            when={props.entry.kind === "message" && props.entry.tone === "assistant"}
-            fallback={
-              <pre class="agent-entry-text">
-                <AgentLinkedText session={props.session} text={props.entry.text ?? ""} />
-              </pre>
-            }
-          >
-            <AgentMarkdown
-              content={props.entry.text ?? ""}
-              renderMermaid={!props.entry.streaming}
-              session={props.session}
-            />
-          </Show>
-        </Show>
-        <Show when={props.entry.details.length > 0}>
-          <ActivityDetails
-            entry={props.entry}
-            expanded={props.detailsExpanded}
-            onToggle={props.onDetailsToggle}
-            session={props.session}
-            steps={props.entry.details}
-          />
-        </Show>
-        <EntryActions
-          entry={props.entry}
-          keyboardApprovalId={props.keyboardApprovalId}
-          session={props.session}
-        />
-      </div>
-    </article>
-  );
-}
-
-function showEntryHeader(entry: AgentTranscriptEntry): boolean {
-  return entry.kind !== "message" || entry.tone !== "assistant";
-}
-
-// Reactive, not a one-shot branch: a resolution flips entry.status live (never a re-mount), so the buttons
-// must drop with it. An early `return` reads status once at creation and strands the buttons after the answer.
-function EntryActions(props: {
-  entry: AgentTranscriptEntry;
-  keyboardApprovalId: string | null;
-  session: ClientSession | null;
-}): JSX.Element {
-  return (
-    <Show when={props.entry.actionMessage}>
-      {(message) => (
-        <Switch>
-          <Match when={message().type === "approval-requested" && props.entry.status === "pending"}>
-            <ApprovalActions
-              session={props.session}
-              requestId={message().itemId}
-              answersToKeys={
-                props.keyboardApprovalId !== null && message().itemId === props.keyboardApprovalId
-              }
-            />
-          </Match>
-          <Match when={message().type === "input-requested" && props.entry.status === "pending"}>
-            <InputRequestActions session={props.session} message={message()} />
-          </Match>
-          <Match when={message().type === "edit-location"}>
-            <EditLocationActions session={props.session} target={message().text} />
-          </Match>
-          <Match when={message().type === "item-completed" && message().itemType === "plan"}>
-            <PlanActions message={message()} session={props.session} />
-          </Match>
-        </Switch>
-      )}
-    </Show>
-  );
-}
-
-function ActivityDetails(props: {
-  entry: AgentTranscriptEntry;
-  expanded: boolean;
-  onToggle: (open: boolean) => void;
-  session: ClientSession | null;
-  steps: AgentActivityStep[];
-}): JSX.Element {
-  return (
-    <details class="agent-activity-details" open={props.expanded}>
-      {/* biome-ignore lint/a11y/noStaticElementInteractions: summary is the native details control. */}
-      <summary
-        onClick={(event) => {
-          // Record intent synchronously. Native toggle events are queued and can otherwise arrive from a
-          // transcript node that a later update has already replaced, restoring stale closed state.
-          event.preventDefault();
-          props.onToggle(!props.expanded);
-        }}
-      >
-        {activityDetailsSummary(props.entry, props.steps.length)}
-      </summary>
-      <div class="agent-activity-list">
-        <For each={props.steps}>
-          {(step) => (
-            <div class={`agent-activity-step agent-step-${step.tone}`}>
-              <span class="agent-step-status">{step.status ?? "done"}</span>
-              <span class="agent-step-label">{step.label}</span>
-              <Show when={step.actionMessage?.type === "edit-location"}>
-                <span class="agent-step-actions">
-                  <EditLocationActions session={props.session} target={step.actionMessage?.text} />
-                </span>
-              </Show>
-              <Show when={step.detailText !== null}>
-                <pre>
-                  <AgentLinkedText session={props.session} text={step.detailText ?? ""} />
-                </pre>
-              </Show>
-            </div>
-          )}
-        </For>
-      </div>
-    </details>
-  );
-}
-
-function detailsKey(session: ClientSession | null, entryId: string): string {
-  return session === null
-    ? `detached:${entryId}`
-    : `${session.connection.id}:${session.address.incarnation}:${entryId}`;
-}
-
-function activityDetailsSummary(entry: AgentTranscriptEntry, count: number): string {
-  if (entry.label === "Edits") {
-    return `show ${count} edit${count === 1 ? "" : "s"}`;
-  }
-  return count === 1 ? "history" : `history ${count}`;
-}
-
-function entryLabel(entry: AgentTranscriptEntry): string {
-  if (entry.kind === "message" && entry.tone === "user") {
-    // A steer must say so — the user needs to see their message joined the running turn, not queued.
-    return entry.label === "Steer" ? "Steer" : "Prompt";
-  }
-  switch (entry.label) {
-    case "Interrupted":
-      return "Interrupted";
-    case "Permission":
-      return "Permission";
-    case "Warning":
-      return "Warning";
-    case "Working":
-      return "Working";
-    default:
-      return entry.label;
-  }
-}
-
-function entryTitle(entry: AgentTranscriptEntry): string {
-  return entry.status === null ? entry.label : `${entry.label} ${entry.status}`;
 }

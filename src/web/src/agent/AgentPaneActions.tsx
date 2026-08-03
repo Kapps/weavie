@@ -1,7 +1,8 @@
-import { createMemo, createSignal, For, type JSX, Show } from "solid-js";
-import type { AgentInputQuestion, AgentPaneUpdate, ClientSession } from "../bridge";
+import { createMemo, For, type JSX, Show } from "solid-js";
+import type { AgentPaneUpdate, ClientSession } from "../bridge";
 import { liveKeyLabel } from "../commands/keys-live";
 import { CommandIds } from "../commands/types";
+import { agentInputDraft, agentInputRequestKey } from "./AgentInputDrafts";
 import { planIdentity } from "./agent-plan";
 import { inputQuestions } from "./input-questions";
 
@@ -52,27 +53,23 @@ export function ApprovalActions(props: {
 }
 
 export function InputRequestActions(props: {
-  session: ClientSession | null;
+  session: ClientSession;
   message: AgentPaneUpdate;
 }): JSX.Element {
   const questions = createMemo(() => inputQuestions(props.message));
-  const [answers, setAnswers] = createSignal(defaultAnswers(questions()));
+  const requestKey = agentInputRequestKey(props.message);
+  const draft = agentInputDraft(props.session, requestKey, questions());
 
   const submit = (): void => {
     const requestId = props.message.itemId;
-    if (
-      props.session === null ||
-      requestId === null ||
-      requestId === undefined ||
-      requestId.length === 0
-    ) {
+    if (requestId === null || requestId === undefined || requestId.length === 0) {
       return;
     }
-    props.session.feature("agent").publish("input", { requestId, answers: answers() });
+    props.session.feature("agent").publish("input", { requestId, answers: draft.answers() });
   };
 
   const setAnswer = (id: string, value: string): void => {
-    setAnswers({ ...answers(), [id]: value.length === 0 ? [] : [value] });
+    draft.setAnswers({ ...draft.answers(), [id]: value.length === 0 ? [] : [value] });
   };
 
   return (
@@ -93,13 +90,13 @@ export function InputRequestActions(props: {
               fallback={
                 <input
                   type={question.isSecret ? "password" : "text"}
-                  value={answers()[question.id]?.[0] ?? ""}
+                  value={draft.answers()[question.id]?.[0] ?? ""}
                   onInput={(event) => setAnswer(question.id, event.currentTarget.value)}
                 />
               }
             >
               <select
-                value={answers()[question.id]?.[0] ?? ""}
+                value={draft.answers()[question.id]?.[0] ?? ""}
                 onChange={(event) => setAnswer(question.id, event.currentTarget.value)}
               >
                 <For each={question.options}>
@@ -176,15 +173,6 @@ export function PlanActions(props: {
       </div>
     </Show>
   );
-}
-
-function defaultAnswers(questions: AgentInputQuestion[]): Record<string, string[]> {
-  const answers: Record<string, string[]> = {};
-  for (const question of questions) {
-    const first = question.options[0]?.label ?? "";
-    answers[question.id] = first.length > 0 ? [first] : [];
-  }
-  return answers;
 }
 
 function parseLocation(value: string | null | undefined): { path: string; line: number } | null {

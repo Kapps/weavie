@@ -15,7 +15,16 @@ const renderMarkdown = createMarkdownRenderer({
   safeLinksOnly: true,
 });
 
+interface CachedMarkdown {
+  content: string;
+  includeRefs: boolean;
+  template: HTMLElement;
+}
+
+const renderedMarkdown = new WeakMap<object, CachedMarkdown>();
+
 export function AgentMarkdown(props: {
+  cacheKey: object;
   content: string;
   renderMermaid: boolean;
   session: ClientSession | null;
@@ -28,8 +37,8 @@ export function AgentMarkdown(props: {
     generation += 1;
     const currentGeneration = generation;
     const shouldHydrate = props.renderMermaid;
-    const rendered = renderMarkdown(props.content);
-    linkifyText(rendered, props.session !== null && refLinkPrefixFor(props.session) !== null);
+    const includeRefs = props.session !== null && refLinkPrefixFor(props.session) !== null;
+    const rendered = renderCached(props.cacheKey, props.content, includeRefs);
     const hasMermaid = rendered.querySelector("pre.mermaid-pending") !== null;
     if (hasMermaid && shouldHydrate && unsubscribeTheme === undefined) {
       unsubscribeTheme = onPreviewThemeChanged(render);
@@ -66,6 +75,17 @@ export function AgentMarkdown(props: {
   });
 
   return <div class="agent-markdown" ref={host} />;
+}
+
+function renderCached(cacheKey: object, content: string, includeRefs: boolean): HTMLElement {
+  let cached = renderedMarkdown.get(cacheKey);
+  if (cached === undefined || cached.content !== content || cached.includeRefs !== includeRefs) {
+    const template = renderMarkdown(content);
+    linkifyText(template, includeRefs);
+    cached = { content, includeRefs, template };
+    renderedMarkdown.set(cacheKey, cached);
+  }
+  return cached.template.cloneNode(true) as HTMLElement;
 }
 
 function activate(anchor: HTMLAnchorElement, session: ClientSession | null): void {

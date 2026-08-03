@@ -52,7 +52,34 @@
 }
 
 .agent-transcript {
-  display: flow-root;
+  position: relative;
+  width: 100%;
+}
+
+.agent-virtual-row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  box-sizing: border-box;
+  width: 100%;
+  padding-top: 5px;
+}
+
+.agent-virtual-row-first {
+  padding-top: 0;
+}
+
+.agent-virtual-row-user {
+  padding-top: 9px;
+  padding-bottom: 7px;
+}
+
+.agent-virtual-row-user.agent-virtual-row-first {
+  padding-top: 0;
+}
+
+.agent-virtual-row-assistant-pair {
+  padding-top: 10px;
 }
 
 .agent-empty {
@@ -116,10 +143,6 @@
   width: 100%;
   margin: 0;
   color: var(--fg);
-}
-
-.agent-entry + .agent-entry {
-  margin-top: 5px;
 }
 
 .agent-entry-head {
@@ -378,15 +401,10 @@
 }
 
 .agent-entry-message.agent-tone-user {
-  margin-top: 9px;
-  margin-bottom: 7px;
+  margin: 0;
   padding: 7px 9px 8px;
   border-left: 3px solid var(--accent);
   background: color-mix(in srgb, var(--accent) 8%, var(--bar));
-}
-
-.agent-entry-message.agent-tone-user:first-child {
-  margin-top: 0;
 }
 
 .agent-entry-message.agent-tone-user .agent-entry-head {
@@ -422,10 +440,6 @@
 
 .agent-entry-plan .agent-entry-label {
   color: var(--accent);
-}
-
-.agent-entry-message.agent-tone-assistant + .agent-entry-message.agent-tone-assistant {
-  margin-top: 10px;
 }
 
 .agent-entry-activity,

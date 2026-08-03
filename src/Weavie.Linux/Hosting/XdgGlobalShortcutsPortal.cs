@@ -4,8 +4,6 @@ using Weavie.Linux.Portal;
 namespace Weavie.Linux.Hosting;
 
 internal sealed class XdgGlobalShortcutsPortal : IGlobalShortcutsPortal {
-	private const string Destination = "org.freedesktop.portal.Desktop";
-	private const string DesktopPath = "/org/freedesktop/portal/desktop";
 	private readonly string _address = DBusAddress.Session
 		?? throw new InvalidOperationException("The desktop session has no D-Bus session bus.");
 	private readonly object _gate = new();
@@ -112,7 +110,7 @@ internal sealed class XdgGlobalShortcutsPortal : IGlobalShortcutsPortal {
 			await connection.ConnectAsync().ConfigureAwait(false);
 			portal = new PortalConnection(
 				connection,
-				new GlobalShortcuts(connection, Destination, DesktopPath));
+				new GlobalShortcuts(connection, XdgDesktopPortal.Destination, XdgDesktopPortal.Path));
 			lock (_gate) {
 				ObjectDisposedException.ThrowIf(_disposed, this);
 				_connecting = null;
@@ -133,7 +131,9 @@ internal sealed class XdgGlobalShortcutsPortal : IGlobalShortcutsPortal {
 				}
 				portal.ActivationSubscription = activationSubscription;
 			}
-			await RegisterIdentityAsync(connection).ConfigureAwait(false);
+			await XdgDesktopPortal.RegisterIdentityAsync(
+				connection,
+				line => Log?.Invoke($"[hotkey] {line}")).ConfigureAwait(false);
 			lock (_gate) {
 				if (_disposed || !ReferenceEquals(_current, portal)) {
 					throw new InvalidOperationException("The desktop portal changed while registering Weavie.");
@@ -158,21 +158,8 @@ internal sealed class XdgGlobalShortcutsPortal : IGlobalShortcutsPortal {
 		}
 	}
 
-	private async Task RegisterIdentityAsync(DBusConnection connection) {
-		var registry = new Registry(connection, Destination, DesktopPath);
-		try {
-			await registry.RegisterAsync(LinuxDesktopIdentity.AppId, []).ConfigureAwait(false);
-		} catch (DBusErrorReplyException ex) when (ex.ErrorName == "org.freedesktop.portal.Error.NotAllowed") {
-			Log?.Invoke("[hotkey] the sandbox supplies Weavie's desktop portal identity.");
-		} catch (DBusErrorReplyException ex) when (
-			ex.ErrorName is "org.freedesktop.DBus.Error.UnknownInterface"
-				or "org.freedesktop.DBus.Error.UnknownMethod") {
-			Log?.Invoke("[hotkey] the desktop portal is using its built-in host application identity detection.");
-		}
-	}
-
 	private async Task<SessionWatch> WatchSessionAsync(PortalConnection portal, string sessionHandle) {
-		var session = new Weavie.Linux.Portal.Session(portal.Connection, Destination, sessionHandle);
+		var session = new Weavie.Linux.Portal.Session(portal.Connection, XdgDesktopPortal.Destination, sessionHandle);
 		var watch = new SessionWatch(sessionHandle);
 		SessionWatch? previous;
 		lock (_gate) {
@@ -209,7 +196,7 @@ internal sealed class XdgGlobalShortcutsPortal : IGlobalShortcutsPortal {
 			?? throw new InvalidOperationException("The D-Bus session connection has no unique name.");
 		string senderPath = sender[1..].Replace(".", "_", StringComparison.Ordinal);
 		var expectedHandle = new ObjectPath($"/org/freedesktop/portal/desktop/request/{senderPath}/{token}");
-		var request = new Request(portal.Connection, Destination, expectedHandle);
+		var request = new Request(portal.Connection, XdgDesktopPortal.Destination, expectedHandle);
 		var response = new TaskCompletionSource<(uint, Dictionary<string, VariantValue>)>(
 			TaskCreationOptions.RunContinuationsAsynchronously);
 		using var subscription = await request.WatchResponseAsync(
@@ -232,7 +219,7 @@ internal sealed class XdgGlobalShortcutsPortal : IGlobalShortcutsPortal {
 	}
 
 	private void OnActivated(
-		Notification<(ObjectPath SessionHandle, string ShortcutId, ulong Timestamp, Dictionary<string, VariantValue> Options)> notification) {
+		Tmds.DBus.Protocol.Notification<(ObjectPath SessionHandle, string ShortcutId, ulong Timestamp, Dictionary<string, VariantValue> Options)> notification) {
 		if (notification.State is not PortalConnection portal) {
 			return;
 		}
@@ -315,7 +302,7 @@ internal sealed class XdgGlobalShortcutsPortal : IGlobalShortcutsPortal {
 	}
 
 	private static Task CloseSessionAsync(PortalConnection portal, string sessionHandle) =>
-		new Weavie.Linux.Portal.Session(portal.Connection, Destination, sessionHandle).CloseAsync();
+		new Weavie.Linux.Portal.Session(portal.Connection, XdgDesktopPortal.Destination, sessionHandle).CloseAsync();
 
 	private static string Token(string operation) => $"weavie_{operation}_{Guid.NewGuid():N}";
 

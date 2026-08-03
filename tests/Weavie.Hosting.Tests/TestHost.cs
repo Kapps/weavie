@@ -70,6 +70,26 @@ internal sealed class TestHost : IAsyncDisposable {
 	/// <summary>Builds a temp git repo, starts a host, and connects one message-bus client.</summary>
 	public static Task<TestHost> StartAsync() => StartAsync(_ => { });
 
+	/// <summary>Builds a live host over a test-controlled native notification channel.</summary>
+	public static Task<TestHost> StartAsync(ISystemNotificationChannel notifications) =>
+		StartAsync(notifications, new InlineUiDispatcher());
+
+	/// <summary>Builds a live host over test-controlled notification and UI-thread adapters.</summary>
+	public static async Task<TestHost> StartAsync(
+		ISystemNotificationChannel notifications,
+		IUiDispatcher dispatcher) {
+		ArgumentNullException.ThrowIfNull(notifications);
+		ArgumentNullException.ThrowIfNull(dispatcher);
+		var host = Create(
+			_ => { },
+			new StaticPullRequestProvider([], []),
+			dispatcher,
+			notifications);
+		await host.Core.StartAsync().ConfigureAwait(false);
+		await host.ConnectAsync().ConfigureAwait(false);
+		return host;
+	}
+
 	/// <summary>
 	/// As <see cref="StartAsync()"/>, with test-specific repo setup run BEFORE the host starts. Git commands
 	/// that write the index (add / commit / checkout) must happen here: once the host is live its own git
@@ -124,7 +144,14 @@ internal sealed class TestHost : IAsyncDisposable {
 	private static TestHost Create(
 		Action<string> prepareRepo,
 		IPullRequestProvider pullRequests,
-		IUiDispatcher dispatcher) {
+		IUiDispatcher dispatcher) =>
+		Create(prepareRepo, pullRequests, dispatcher, NoopSystemNotificationChannel.Instance);
+
+	private static TestHost Create(
+		Action<string> prepareRepo,
+		IPullRequestProvider pullRequests,
+		IUiDispatcher dispatcher,
+		ISystemNotificationChannel notifications) {
 		string tempRoot = Path.Combine(Path.GetTempPath(), "weavie-host-it-" + Guid.NewGuid().ToString("n"));
 		string repo = Path.Combine(tempRoot, "repo");
 		Directory.CreateDirectory(repo);
@@ -142,7 +169,7 @@ internal sealed class TestHost : IAsyncDisposable {
 		string sourcesDir = Path.Combine(tempRoot, "sources");
 		var services = IsolatedServices(tempRoot, sourceHttp, sourcesDir, pullRequests);
 		var bridge = new FakeHostBridge();
-		var platform = new TestPlatform(bridge, dispatcher);
+		var platform = new TestPlatform(bridge, dispatcher) { Notifications = notifications };
 		var core = new HostCore(
 			platform,
 			services,
@@ -288,8 +315,14 @@ internal sealed class TestHost : IAsyncDisposable {
 	}
 
 	/// <summary>Publishes a host event from the test client.</summary>
-	public void HostEvent(string feature, string name, object payload) =>
-		SendEnvelope(MessageEnvelope.Event(
+	public void HostEvent(string feature, string name, object payload) {
+		EnqueueHostEvent(feature, name, payload);
+		DrainMessages();
+	}
+
+	/// <summary>Queues a host event without waiting behind an intentionally blocked handler.</summary>
+	public void EnqueueHostEvent(string feature, string name, object payload) =>
+		Bridge.Receive(new WebPeer(TestPageId), MessageEnvelope.Event(
 			MessageScope.Host,
 			null,
 			feature,
@@ -499,6 +532,10 @@ internal sealed class TestPlatform : IHostPlatform {
 	public IShellWindow? Window { get; set; }
 	public IShellMenuActions MenuActions { get; set; } = NoopShellMenuActions.Instance;
 	public IHostDialogs? Dialogs => null;
+	public ISystemNotificationChannel Notifications { get; set; } = NoopSystemNotificationChannel.Instance;
+
+	public int ActivationCount { get; private set; }
+	public string? LastActivationToken { get; private set; }
 
 	/// <summary>The last text the host wrote to the clipboard (a terminal copy / OSC 52).</summary>
 	public string? LastWrittenClipboard { get; private set; }
@@ -519,6 +556,11 @@ internal sealed class TestPlatform : IHostPlatform {
 
 	public void ToggleWindow() {
 		// no window in tests
+	}
+
+	public void ActivateWindow(string? activationToken) {
+		ActivationCount++;
+		LastActivationToken = activationToken;
 	}
 
 	public void WriteClipboard(string text) {

@@ -28,6 +28,8 @@ internal sealed partial class WorkspaceHost : IWebSurface, IShellMenuActions {
 	private HostServices? _services;
 	private ApplicationHotkeys? _hotkeys;
 	private RecentWorkspaces? _recents;
+	private XdgNotificationService? _notifications;
+	private XdgNotificationChannel? _notificationChannel;
 	private AppSchemeHandler? _scheme;
 	private string? _wwwroot;
 
@@ -38,6 +40,7 @@ internal sealed partial class WorkspaceHost : IWebSurface, IShellMenuActions {
 	// Kept alive: native holds a bare function pointer to this.
 	private WidgetCallback? _onDestroy;
 	private KeyEventCallback? _onKeyPress;
+	private PropertyNotifyCallback? _onWindowStateChanged;
 
 	/// <summary>
 	/// Builds the window, view, scheme handler, and bridge, then opens the resolved workspace or — when there is
@@ -50,6 +53,7 @@ internal sealed partial class WorkspaceHost : IWebSurface, IShellMenuActions {
 		// App-global Core stores + the recents that drive reopen-last and the welcome screen's list.
 		_services = HostServices.CreateDefault();
 		_recents = new RecentWorkspaces(new LocalFileSystem(), path: null);
+		_notifications = new XdgNotificationService(Log);
 
 		_scheme = new AppSchemeHandler(wwwroot);
 		_scheme.Register(WebKit.webkit_web_context_get_default());
@@ -71,6 +75,11 @@ internal sealed partial class WorkspaceHost : IWebSurface, IShellMenuActions {
 		_onDestroy = OnWindowDestroy;
 		_ = GLib.g_signal_connect_data(
 			_window, "destroy", Marshal.GetFunctionPointerForDelegate(_onDestroy), IntPtr.Zero, IntPtr.Zero, 0);
+		_onWindowStateChanged = OnWindowStateChanged;
+		_ = GLib.g_signal_connect_data(
+			_window, "notify::is-active", Marshal.GetFunctionPointerForDelegate(_onWindowStateChanged), IntPtr.Zero, IntPtr.Zero, 0);
+		_ = GLib.g_signal_connect_data(
+			_window, "notify::is-maximized", Marshal.GetFunctionPointerForDelegate(_onWindowStateChanged), IntPtr.Zero, IntPtr.Zero, 0);
 		_hotkeys = new ApplicationHotkeys(
 			_services.CommandRegistry,
 			_services.Keybindings,
@@ -92,12 +101,14 @@ internal sealed partial class WorkspaceHost : IWebSurface, IShellMenuActions {
 	/// </summary>
 	private void OpenWorkspace(string root) {
 		_recents!.Add(root);
+		_notificationChannel = _notifications!.CreateChannel();
 		_core = new HostCore(
-			new LinuxPlatform(_bridge, _recents, this, ToggleWindow),
+			new LinuxPlatform(_bridge, _recents, this, _notificationChannel, ToggleWindow, ActivateWindow),
 			_services!,
 			root,
 			WorkspaceHttpServerOptions.Native(_wwwroot!),
 			UnavailableWorkspaceWebSocketBridge.Instance);
+		_core.Ready += PushWindowState;
 
 		// Linux can't enumerate monitor work-areas (no GDK binding), so the on-screen guard is inert and saved
 		// bounds are trusted; the empty screen list leaves it that way.
@@ -139,9 +150,9 @@ internal sealed partial class WorkspaceHost : IWebSurface, IShellMenuActions {
 
 	/// <summary>Persists geometry, tears down the core, and disposes the app stores; called after the main loop exits.</summary>
 	internal void Shutdown() {
-		SaveWindowState();
 		DisposeHotkeys();
-		_core?.DisposeAsync().AsTask().GetAwaiter().GetResult();
+		CloseWorkspace();
+		_notifications?.Dispose();
 		_services?.Keybindings.Dispose();
 		_services?.Settings.Dispose();
 	}
@@ -185,6 +196,21 @@ internal sealed partial class WorkspaceHost : IWebSurface, IShellMenuActions {
 			Gdk.gdk_wayland_display_set_startup_notification_id(Gdk.gdk_display_get_default(), token);
 		}
 	}
+
+	private void ActivateWindow(string? activationToken) {
+		if (!string.IsNullOrEmpty(activationToken)) {
+			ApplyWaylandActivationToken(activationToken);
+		}
+		Gtk.gtk_widget_show_all(_window);
+		Gtk.gtk_window_present(_window);
+		_shown = true;
+	}
+
+	private void OnWindowStateChanged(IntPtr instance, IntPtr property, IntPtr userData) =>
+		PushWindowState();
+
+	private void PushWindowState() =>
+		_core?.PushWindowState(Gtk.gtk_window_is_maximized(_window), IsWindowActive());
 
 	private void DisposeHotkeys() {
 		_hotkeys?.Dispose();

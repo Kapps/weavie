@@ -40,8 +40,14 @@ public interface IHostPlatform {
 	/// <summary>The native modal file dialogs, or <c>null</c> when the host has no native UI.</summary>
 	IHostDialogs? Dialogs { get; }
 
+	/// <summary>This workspace window's channel into the operating system's native notification surface.</summary>
+	Weavie.Core.Sessions.ISystemNotificationChannel Notifications { get; }
+
 	/// <summary>Toggles the app window's visibility/focus — the <c>weavie.window.toggle</c> action (no-op when unsupported).</summary>
 	void ToggleWindow();
+
+	/// <summary>Shows and activates this exact workspace window after the user clicks one of its notifications.</summary>
+	void ActivateWindow(string? activationToken);
 
 	/// <summary>
 	/// Writes text to the OS clipboard — the terminal's copy path (an explicit copy command or Claude's OSC 52).

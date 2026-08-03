@@ -33,4 +33,20 @@ public static class AttentionRules {
 		AttentionKind.Failed => "failed",
 		_ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "unhandled attention kind"),
 	};
+
+	/// <summary>Parses an attention kind's wire name.</summary>
+	public static AttentionKind FromWireName(string name) => name switch {
+		"turnComplete" => AttentionKind.TurnComplete,
+		"needsInput" => AttentionKind.NeedsInput,
+		"failed" => AttentionKind.Failed,
+		_ => throw new ArgumentException($"Unknown attention kind '{name}'.", nameof(name)),
+	};
+
+	/// <summary>The user-facing notification body for <paramref name="kind"/>.</summary>
+	public static string NotificationBody(AttentionKind kind) => kind switch {
+		AttentionKind.TurnComplete => "Turn complete — waiting on you.",
+		AttentionKind.NeedsInput => "Needs your input.",
+		AttentionKind.Failed => "The agent crashed.",
+		_ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "unhandled attention kind"),
+	};
 }

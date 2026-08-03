@@ -38,6 +38,7 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow, IShellMenuAc
 	private readonly HostCore _core;
 	private readonly ControlUiDispatcher _dispatcher;
 	private readonly WinDialogs _dialogs;
+	private readonly WindowsNotificationChannel _notifications;
 	private bool _lastMaximized;
 	// Backs the title bar's blur dim, tracked from Activated/Deactivate.
 	private bool _focused = true;
@@ -70,6 +71,7 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow, IShellMenuAc
 		// dispatcher off this platform.
 		_dispatcher = new ControlUiDispatcher(this);
 		_dialogs = new WinDialogs(this);
+		_notifications = _app.Notifications.CreateChannel();
 
 		// The shared core over this workspace, driven by the app-global Core stores (shared across windows). One
 		// GitHub client backs both PR listing and review comments.

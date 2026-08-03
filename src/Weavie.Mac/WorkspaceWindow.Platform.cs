@@ -42,7 +42,11 @@ internal sealed partial class WorkspaceWindow : IHostPlatform {
 
 	IHostDialogs? IHostPlatform.Dialogs => _app.Dialogs;
 
+	Weavie.Core.Sessions.ISystemNotificationChannel IHostPlatform.Notifications => _notifications;
+
 	void IHostPlatform.ToggleWindow() => _app.ToggleWindow(Window);
+
+	void IHostPlatform.ActivateWindow(string? activationToken) => AppDelegate.ActivateWindow(Window);
 
 	// The general pasteboard's plain-text UTI; read + write must agree on it.
 	private const string PasteboardTextType = "public.utf8-plain-text";

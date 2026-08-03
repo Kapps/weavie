@@ -18,6 +18,10 @@ internal delegate void GDestroyNotify(IntPtr data);
 [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
 internal delegate void WidgetCallback(IntPtr widget, IntPtr userData);
 
+/// <summary>GObject <c>notify</c> handler: <c>(instance, GParamSpec*, userData)</c>.</summary>
+[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+internal delegate void PropertyNotifyCallback(IntPtr instance, IntPtr property, IntPtr userData);
+
 /// <summary>GTK <c>key-press-event</c> handler: <c>(widget, GdkEventKey*, userData)</c>.</summary>
 [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
 internal delegate int KeyEventCallback(IntPtr widget, IntPtr keyEvent, IntPtr userData);

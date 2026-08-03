@@ -25,6 +25,20 @@
       <arg type="a{sv}" name="options" />
     </signal>
   </interface>
+  <interface name="org.freedesktop.portal.Notification">
+    <method name="AddNotification">
+      <arg type="s" name="id" direction="in" />
+      <arg type="a{sv}" name="notification" direction="in" />
+    </method>
+    <method name="RemoveNotification">
+      <arg type="s" name="id" direction="in" />
+    </method>
+    <signal name="ActionInvoked">
+      <arg type="s" name="id" />
+      <arg type="s" name="action" />
+      <arg type="av" name="parameter" />
+    </signal>
+  </interface>
   <interface name="org.freedesktop.portal.Request">
     <method name="Close" />
     <signal name="Response">

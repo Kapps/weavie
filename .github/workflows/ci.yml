@@ -120,47 +120,23 @@ jobs:
   # Every OS runs the complete Playwright project set. Shards add machines without increasing the
   # per-runner worker count that previously starved full-stack tests on hosted macOS and Windows.
   e2e:
-    name: e2e (${{ matrix.name }}, ${{ matrix.shard }}/${{ matrix.shards }})
-    runs-on: ${{ matrix.os }}
+    name: e2e (${{ matrix.platform.name }}, ${{ matrix.shard }}/${{ matrix.shards }})
+    runs-on: ${{ matrix.platform.os }}
     env:
       NODE_OPTIONS: --max-old-space-size=4096
       PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.pw-browsers
     strategy:
       fail-fast: false
       matrix:
-        include:
+        platform:
           - name: linux
             os: ubuntu-latest
-            shard: 1
-            shards: 2
-          - name: linux
-            os: ubuntu-latest
-            shard: 2
-            shards: 2
           - name: macos
             os: macos-26
-            shard: 1
-            shards: 3
-          - name: macos
-            os: macos-26
-            shard: 2
-            shards: 3
-          - name: macos
-            os: macos-26
-            shard: 3
-            shards: 3
           - name: windows
             os: windows-latest
-            shard: 1
-            shards: 3
-          - name: windows
-            os: windows-latest
-            shard: 2
-            shards: 3
-          - name: windows
-            os: windows-latest
-            shard: 3
-            shards: 3
+        shard: [1, 2, 3, 4, 5, 6]
+        shards: [6]
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-dotnet
@@ -207,7 +183,7 @@ jobs:
         if: ${{ !cancelled() && steps.playwright.outcome != 'skipped' }}
         uses: actions/upload-artifact@v4
         with:
-          name: e2e-blob-${{ matrix.name }}-${{ matrix.shard }}-of-${{ matrix.shards }}
+          name: e2e-blob-${{ matrix.platform.name }}-${{ matrix.shard }}-of-${{ matrix.shards }}
           path: src/web/blob-report/
           if-no-files-found: error
           retention-days: 1
@@ -216,7 +192,7 @@ jobs:
         if: ${{ steps.playwright.outcome == 'failure' }}
         uses: actions/upload-artifact@v4
         with:
-          name: e2e-traces-${{ matrix.name }}-${{ matrix.shard }}-of-${{ matrix.shards }}
+          name: e2e-traces-${{ matrix.platform.name }}-${{ matrix.shard }}-of-${{ matrix.shards }}
           path: src/web/test-results/
           if-no-files-found: ignore
           retention-days: 14

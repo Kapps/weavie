@@ -10,6 +10,7 @@ internal sealed partial class LinuxWorkspaceDirectoryWatchSet : IWorkspaceDirect
 	private readonly Action<Exception> _error;
 	private readonly Dictionary<string, int> _pathWatches = new(StringComparer.Ordinal);
 	private readonly Dictionary<int, string> _watchPaths = [];
+	private readonly Dictionary<uint, PendingMove> _pendingMoves = [];
 	private readonly Lock _gate = new();
 	private int _inotifyFd = -1;
 	private int _stopFd = -1;
@@ -123,7 +124,7 @@ internal sealed partial class LinuxWorkspaceDirectoryWatchSet : IWorkspaceDirect
 			while (true) {
 				pollFds[0].ReturnedEvents = 0;
 				pollFds[1].ReturnedEvents = 0;
-				int result = poll(pollFds, 2, -1);
+				int result = poll(pollFds, 2, PendingMovePollTimeout());
 				if (result < 0) {
 					if (Marshal.GetLastPInvokeError() == Interrupted) {
 						continue;
@@ -143,6 +144,8 @@ internal sealed partial class LinuxWorkspaceDirectoryWatchSet : IWorkspaceDirect
 				if ((pollFds[0].ReturnedEvents & PollIn) != 0) {
 					ReadAvailableEvents(buffer);
 				}
+
+				FlushExpiredMoves();
 			}
 		} catch (Exception ex) {
 			lock (_gate) {
@@ -186,6 +189,7 @@ internal sealed partial class LinuxWorkspaceDirectoryWatchSet : IWorkspaceDirect
 			_stopFd = -1;
 			_pathWatches.Clear();
 			_watchPaths.Clear();
+			_pendingMoves.Clear();
 		}
 	}
 

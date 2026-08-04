@@ -72,6 +72,35 @@ public sealed class LinuxWorkspaceDirectoryWatchSetTests : IDisposable {
 	}
 
 	[Fact]
+	public async Task MoveOutOfWatchedTreeBecomesDelete() {
+		if (!OperatingSystem.IsLinux()) {
+			return;
+		}
+
+		string source = Path.Combine(_root, "source");
+		string destination = Path.Combine(Path.GetTempPath(), $"weavie-inotify-moved-{Guid.NewGuid():N}");
+		Directory.CreateDirectory(source);
+		var deleted = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+		try {
+			using var watches = new LinuxWorkspaceDirectoryWatchSet(
+				_ => { },
+				_ => { },
+				e => deleted.TrySetResult(e.FullPath),
+				(_, _) => { },
+				_ => { });
+			watches.Reconcile([_root]);
+
+			Directory.Move(source, destination);
+
+			Assert.Equal(source, await deleted.Task.WaitAsync(TimeSpan.FromSeconds(5)));
+		} finally {
+			if (Directory.Exists(destination)) {
+				Directory.Delete(destination, recursive: true);
+			}
+		}
+	}
+
+	[Fact]
 	public void VanishedDirectoryDoesNotFailWatchRegistration() {
 		if (!OperatingSystem.IsLinux()) {
 			return;

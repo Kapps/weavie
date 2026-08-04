@@ -5,14 +5,10 @@ namespace Weavie.Core.Lsp;
 
 internal sealed partial class LinuxWorkspaceDirectoryWatchSet {
 	private void ReadAvailableEvents(byte[] buffer) {
-		var movedFrom = new Dictionary<uint, string>();
-		while (ReadEvents(buffer, movedFrom)) { }
-		foreach (string path in movedFrom.Values) {
-			_deleted(Change(path, WatcherChangeTypes.Deleted));
-		}
+		while (ReadEvents(buffer)) { }
 	}
 
-	private bool ReadEvents(byte[] buffer, Dictionary<uint, string> movedFrom) {
+	private bool ReadEvents(byte[] buffer) {
 		nint length = read(_inotifyFd, buffer, (nuint)buffer.Length);
 		if (length < 0) {
 			if (Marshal.GetLastPInvokeError() == WouldBlock) {
@@ -37,8 +33,7 @@ internal sealed partial class LinuxWorkspaceDirectoryWatchSet {
 				watch,
 				mask,
 				cookie,
-				buffer.AsSpan(offset + EventHeaderSize, (int)nameBufferLength),
-				movedFrom);
+				buffer.AsSpan(offset + EventHeaderSize, (int)nameBufferLength));
 			offset = next;
 		}
 
@@ -49,8 +44,7 @@ internal sealed partial class LinuxWorkspaceDirectoryWatchSet {
 		int watch,
 		uint mask,
 		uint cookie,
-		ReadOnlySpan<byte> nameBuffer,
-		Dictionary<uint, string> movedFrom) {
+		ReadOnlySpan<byte> nameBuffer) {
 		if ((mask & InQueueOverflow) != 0) {
 			_error(new IOException("The Linux workspace-change queue overflowed."));
 			return;
@@ -78,14 +72,16 @@ internal sealed partial class LinuxWorkspaceDirectoryWatchSet {
 			? directory
 			: Path.Combine(directory, Encoding.UTF8.GetString(nameBuffer[..nameLength]));
 		if ((mask & InMovedFrom) != 0) {
-			movedFrom[cookie] = path;
+			_pendingMoves[cookie] = new PendingMove(
+				path,
+				Environment.TickCount64 + MovePairTimeoutMilliseconds);
 			return;
 		}
 
 		if ((mask & InMovedTo) != 0) {
-			if (movedFrom.Remove(cookie, out string? oldPath)) {
-				RekeyMovedWatch(oldPath, path);
-				_renamed(oldPath, path);
+			if (_pendingMoves.Remove(cookie, out var move)) {
+				RekeyMovedWatch(move.Path, path);
+				_renamed(move.Path, path);
 			} else {
 				_created(Change(path, WatcherChangeTypes.Created));
 			}
@@ -106,6 +102,26 @@ internal sealed partial class LinuxWorkspaceDirectoryWatchSet {
 		}
 	}
 
+	private int PendingMovePollTimeout() {
+		if (_pendingMoves.Count == 0) {
+			return -1;
+		}
+
+		long earliest = _pendingMoves.Values.Min(move => move.ExpiresAt);
+		long remaining = earliest - Environment.TickCount64;
+		return remaining <= 0 ? 0 : (int)Math.Min(remaining, int.MaxValue);
+	}
+
+	private void FlushExpiredMoves() {
+		long now = Environment.TickCount64;
+		foreach (var (cookie, move) in _pendingMoves
+			.Where(entry => entry.Value.ExpiresAt <= now)
+			.ToArray()) {
+			_pendingMoves.Remove(cookie);
+			_deleted(Change(move.Path, WatcherChangeTypes.Deleted));
+		}
+	}
+
 	private void RekeyMovedWatch(string oldPath, string newPath) {
 		lock (_gate) {
 			string prefix = oldPath + Path.DirectorySeparatorChar;
@@ -122,4 +138,6 @@ internal sealed partial class LinuxWorkspaceDirectoryWatchSet {
 
 	private static FileSystemEventArgs Change(string path, WatcherChangeTypes kind) =>
 		new(kind, Path.GetDirectoryName(path)!, Path.GetFileName(path));
+
+	private readonly record struct PendingMove(string Path, long ExpiresAt);
 }

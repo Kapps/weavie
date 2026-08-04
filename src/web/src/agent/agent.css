@@ -915,15 +915,15 @@
   color: color-mix(in srgb, var(--fg) 82%, var(--dim));
 }
 
-.agent-status-review {
+.agent-status-diff {
   gap: 0;
 }
 
-.agent-status-review-added {
+.agent-status-diff-added {
   color: var(--diff-added, #5a9a6a);
 }
 
-.agent-status-review-removed {
+.agent-status-diff-removed {
   color: var(--diff-removed, #c47a7a);
 }
 

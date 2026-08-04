@@ -1,12 +1,18 @@
 import { createMemo, createSignal } from "solid-js";
 import { type ClientSession, registerSessionFeature, selectedSession } from "../bridge";
 
-/** The selected session's git branch + dirty flag, rendered by the terminal-column footer. */
+/** The selected session's Git branch, dirty flag, and literal diff-against-HEAD line totals. */
 export interface GitStatus {
   /** The checked-out branch, or null when the workspace isn't a git repo / HEAD is detached. */
   branch: string | null;
   /** Whether the worktree has uncommitted changes. */
   dirty: boolean;
+  /** Lines added by tracked staged + unstaged changes against HEAD, or null when Git cannot diff HEAD. */
+  added: number | null;
+  /** Lines removed by tracked staged + unstaged changes against HEAD, or null when Git cannot diff HEAD. */
+  removed: number | null;
+  /** Why Git could not calculate the HEAD diff, or null when the counts are authoritative. */
+  error: string | null;
 }
 
 const [statuses, setStatuses] = createSignal(new Map<ClientSession, GitStatus>());

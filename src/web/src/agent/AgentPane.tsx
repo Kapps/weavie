@@ -10,9 +10,6 @@ export function AgentPane(props: {
   model: AgentPaneModel | null;
   providerId: "claude" | "codex" | null;
   active: boolean;
-  reviewAdded: number;
-  reviewFileCount: number;
-  reviewRemoved: number;
   shortcut: string;
   onFocus: () => void;
 }): JSX.Element {
@@ -74,13 +71,7 @@ export function AgentPane(props: {
         <span class="pane-label">{providerName()}</span>
         <Show when={props.compact}>
           <AgentWorkingStatus compact messages={props.model?.messages() ?? []} />
-          <AgentStatusLine
-            compact
-            reviewAdded={props.reviewAdded}
-            reviewFileCount={props.reviewFileCount}
-            reviewRemoved={props.reviewRemoved}
-            session={props.model?.session ?? null}
-          />
+          <AgentStatusLine compact session={props.model?.session ?? null} />
         </Show>
         <Show when={props.shortcut !== ""}>
           <span class="pane-shortcut">{props.shortcut}</span>
@@ -98,13 +89,7 @@ export function AgentPane(props: {
         )}
       </Show>
       <Show when={!props.compact}>
-        <AgentStatusLine
-          compact={false}
-          reviewAdded={props.reviewAdded}
-          reviewFileCount={props.reviewFileCount}
-          reviewRemoved={props.reviewRemoved}
-          session={props.model?.session ?? null}
-        />
+        <AgentStatusLine compact={false} session={props.model?.session ?? null} />
       </Show>
     </div>
   );

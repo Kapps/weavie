@@ -27,6 +27,16 @@ public sealed record WorktreeChangeStatus(
 	IReadOnlyList<string> TrackedFiles,
 	IReadOnlyList<string> UntrackedFiles);
 
+/// <summary>The added and removed lines reported by <c>git diff --numstat HEAD</c>.</summary>
+/// <param name="Added">Lines added relative to HEAD.</param>
+/// <param name="Removed">Lines removed relative to HEAD.</param>
+public sealed record GitDiffLineCounts(int Added, int Removed);
+
+/// <summary>The branch and dirty state reported by one porcelain-v2 Git status probe.</summary>
+/// <param name="Branch">The checked-out branch, or null when HEAD is detached.</param>
+/// <param name="Dirty">Whether Git reports any tracked or untracked worktree change.</param>
+public sealed record GitStatusSummary(string? Branch, bool Dirty);
+
 /// <summary>
 /// The git operations Weavie's worktree-per-session feature needs, behind an interface so the worktree
 /// manager can be unit-tested against a fake. The real <see cref="GitService"/> shells out to <c>git</c>.
@@ -89,6 +99,15 @@ public interface IGitService {
 
 	/// <summary>True when <paramref name="worktreeDirectory"/> has uncommitted changes (tracked or untracked).</summary>
 	Task<bool> HasUncommittedChangesAsync(string worktreeDirectory, CancellationToken ct = default);
+
+	/// <summary>The checked-out branch and dirty state from one porcelain-v2 status probe.</summary>
+	Task<GitStatusSummary> GetStatusSummaryAsync(string worktreeDirectory, CancellationToken ct = default);
+
+	/// <summary>
+	/// The literal line totals from <c>git diff --numstat HEAD --</c>: staged and unstaged tracked changes,
+	/// excluding untracked files. Throws when HEAD cannot be diffed.
+	/// </summary>
+	Task<GitDiffLineCounts> GetHeadDiffLineCountsAsync(string worktreeDirectory, CancellationToken ct = default);
 
 	/// <summary>
 	/// Classifies <paramref name="worktreeDirectory"/>'s working tree (clean / untracked-only / modified) and

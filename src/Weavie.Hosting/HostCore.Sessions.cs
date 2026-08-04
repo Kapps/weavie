@@ -18,6 +18,7 @@ namespace Weavie.Hosting;
 public sealed partial class HostCore {
 	/// <summary>Wires behavior to the owning session bus. No callback observes client selection.</summary>
 	private void WireSession(HostSession session) {
+		AttachGitStatus(session);
 		AttachPullRequestStatus(session);
 		session.EditorSessionChanged += state => {
 			if (ReferenceEquals(session, _primarySession)) {
@@ -65,7 +66,10 @@ public sealed partial class HostCore {
 		SessionCommands.RegisterHandlers(session.Commands, new BoundSessionHost(this, session));
 		WireCoreSessionMessages(session);
 
-		session.Changes.Changed += () => PostForSession(session, () => PushTurnChangesToWeb(session));
+		session.Changes.Changed += () => PostForSession(session, () => {
+			PushTurnChangesToWeb(session);
+			PushGitStatus(session);
+		});
 		session.Changes.FileChanged += path => PostForSession(session, () => {
 			PushRefreshToWeb(session, path);
 			PushTurnDiffToWeb(session, path);
@@ -95,7 +99,10 @@ public sealed partial class HostCore {
 			});
 		};
 		session.FileChanges += changes =>
-			PostForSession(session, () => PushWatcherChangesToWeb(session, changes));
+			PostForSession(session, () => {
+				PushWatcherChangesToWeb(session, changes);
+				PushGitStatus(session);
+			});
 	}
 
 	private void PostForSession(HostSession session, Action action) {

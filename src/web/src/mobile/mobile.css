@@ -1,8 +1,7 @@
 /* Compact shell: new chrome around the existing, still-mounted pane surfaces. */
 @media (max-width: 760px), ((max-height: 520px) and (pointer: coarse)) {
   :root {
-    --mobile-safe-bottom: env(safe-area-inset-bottom);
-    --mobile-nav-block-size: calc(54px + var(--mobile-safe-bottom));
+    --mobile-nav-block-size: 54px;
   }
 
   html,
@@ -265,7 +264,7 @@
   grid-area: 2 / 1;
   min-width: 0;
   height: var(--mobile-nav-block-size);
-  padding: 4px 6px var(--mobile-safe-bottom);
+  padding: 4px 6px;
   border-top: 1px solid var(--border);
   background: color-mix(in srgb, var(--bar) 94%, transparent);
   backdrop-filter: blur(12px);

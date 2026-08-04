@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AgentPaneUpdate } from "../bridge";
+import { paneItemIdentity } from "./AgentPaneIdentity";
 import {
   activeTurnStartedAt,
   formatElapsed,
@@ -96,7 +97,11 @@ describe("pendingRequest", () => {
         message("approval-requested", "a1"),
         { ...message("turn-completed"), isPrimaryThread: false },
       ]),
-    ).toEqual({ kind: "approval", requestId: "a1" });
+    ).toEqual({
+      key: paneItemIdentity(message("approval-requested", "a1")),
+      kind: "approval",
+      requestId: "a1",
+    });
   });
 
   it("exposes the newest unresolved request id for keyboard decisions", () => {
@@ -107,7 +112,11 @@ describe("pendingRequest", () => {
         message("approval-requested", "a2"),
         message("approval-resolved", "a2"),
       ]),
-    ).toEqual({ kind: "approval", requestId: "a1" });
+    ).toEqual({
+      key: paneItemIdentity(message("approval-requested", "a1")),
+      kind: "approval",
+      requestId: "a1",
+    });
   });
 
   it("resolves only the request from the matching thread and turn", () => {
@@ -118,7 +127,15 @@ describe("pendingRequest", () => {
         { ...message("input-requested", "same"), threadId: "sub", turnId: "turn" },
         { ...message("input-resolved", "same"), threadId: "sub", turnId: "turn" },
       ]),
-    ).toEqual({ kind: "approval", requestId: "same" });
+    ).toEqual({
+      key: paneItemIdentity({
+        ...message("approval-requested", "same"),
+        threadId: "root",
+        turnId: "turn",
+      }),
+      kind: "approval",
+      requestId: "same",
+    });
   });
 
   it("clears a thread-scoped request when a restart cancels it", () => {
@@ -145,7 +162,11 @@ describe("pendingApproval", () => {
         message("approval-requested", "a1"),
         message("turn-completed"),
       ]),
-    ).toEqual({ kind: "approval", requestId: "a1" });
+    ).toEqual({
+      key: paneItemIdentity(message("approval-requested", "a1")),
+      kind: "approval",
+      requestId: "a1",
+    });
   });
 
   it("is null when the newest unresolved request is an input, not an approval", () => {

@@ -716,7 +716,9 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
 
 		session.Start();
-		await WaitForAsync(() => session.ControlState.ModelControl.Models.Count > 0);
+		await WaitForAsync(() =>
+			session.ControlState.ModelControl.Models.Count > 0 &&
+			session.ControlState.Axes.Any(axis => axis.Id == "collaborationMode"));
 		session.SetControl("effort", "high");
 		session.SetControl("serviceTier", "priority");
 		session.SetControl("collaborationMode", "plan");

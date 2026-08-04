@@ -348,8 +348,9 @@ test.describe("Codex composer", () => {
     await expect(response).toHaveValue("Keep this field focused");
   });
 
-  test("input request drafts survive virtual unmounts", async ({ page }) => {
+  test("an input request stays docked while later updates scroll beneath it", async ({ page }) => {
     await mountCodex(page);
+    await page.setViewportSize({ width: 800, height: 500 });
     publishPane(
       paneMessage({
         type: "input-requested",
@@ -366,23 +367,84 @@ test.describe("Codex composer", () => {
         ],
       }),
     );
-    const response = page.locator(".agent-input-request input");
+    const dock = page.locator("[data-agent-pending-request]");
+    const response = dock.locator(".agent-input-request input");
+    const body = page.locator(".agent-body");
+    const distanceFromBottom = (): Promise<number> =>
+      body.evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight);
+    await expect(dock).toBeVisible();
+    await expect(page.locator(".agent-empty")).toHaveCount(0);
+    await expect(page.locator(".agent-body .agent-input-request")).toHaveCount(0);
     await response.fill("Keep this answer");
-    await response.evaluate((element) => element.blur());
+    await expect(response).toBeFocused();
+    const initialDockHeight = await dock.evaluate((element) =>
+      Math.round(element.getBoundingClientRect().height),
+    );
 
     for (let index = 0; index < 60; index += 1) {
       publishPane(
-        userMessage(`later prompt ${index}\nwith enough text to move the request off screen`),
+        paneMessage({
+          type: "item-completed",
+          itemId: `later-update-${index}`,
+          itemType: "agentMessage",
+          status: "completed",
+          text: `Later agent update ${index}\nwith enough text to move the request off screen`,
+        }),
       );
     }
-    await page.locator(".agent-body").evaluate((element) => {
+    await body.evaluate((element) => {
       element.scrollTop = element.scrollHeight;
     });
-    await expect(response).toHaveCount(0);
-    await page.locator(".agent-body").evaluate((element) => {
+    await expect(dock).toBeVisible();
+    await expect(response).toBeFocused();
+    await expect(response).toHaveValue("Keep this answer");
+    await expect
+      .poll(() => dock.evaluate((element) => Math.round(element.getBoundingClientRect().height)))
+      .toBe(initialDockHeight);
+    await expect
+      .poll(() =>
+        dock.evaluate((element) => {
+          const controls = [
+            element.querySelector(".agent-input-request input"),
+            element.querySelector(".agent-input-request button[type='submit']"),
+          ];
+          return controls.every((control) => {
+            const bounds = control?.getBoundingClientRect();
+            if (bounds === undefined) {
+              return false;
+            }
+            const hit = document.elementFromPoint(
+              bounds.left + bounds.width / 2,
+              bounds.top + bounds.height / 2,
+            );
+            return hit === control || control?.contains(hit);
+          });
+        }),
+      )
+      .toBe(true);
+    await expect
+      .poll(() =>
+        dock.evaluate(
+          (element) =>
+            element.getBoundingClientRect().bottom -
+            (element.nextElementSibling?.getBoundingClientRect().top ?? Number.NaN),
+        ),
+      )
+      .toBe(0);
+    await expect.poll(distanceFromBottom).toBeLessThan(1);
+
+    publishPane(paneMessage({ type: "input-resolved", itemId: "input-draft", status: "resolved" }));
+    await expect(dock).toHaveCount(0);
+    await expect.poll(distanceFromBottom).toBeLessThan(1);
+    await expect(page.getByRole("button", { name: "↓ Jump to latest", exact: true })).toHaveCount(
+      0,
+    );
+    await body.evaluate((element) => {
       element.scrollTop = 0;
     });
-    await expect(response).toHaveValue("Keep this answer");
+    const resolved = page.locator(".agent-entry-request");
+    await expect(resolved.locator(".agent-entry-status")).toHaveText("resolved");
+    await expect(resolved.locator(".agent-input-request")).toHaveCount(0);
   });
 
   test("status line shows Git's HEAD diff instead of the review aggregation", async ({ page }) => {

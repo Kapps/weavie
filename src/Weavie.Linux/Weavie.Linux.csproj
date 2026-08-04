@@ -26,6 +26,9 @@
     <AdditionalFiles Include="DBus\org.freedesktop.portal.xml"
                      Namespace="Weavie.Linux.Portal"
                      DBusGeneratorMode="Proxy" />
+    <AdditionalFiles Include="DBus\org.freedesktop.Notifications.xml"
+                     Namespace="Weavie.Linux.DesktopNotifications"
+                     DBusGeneratorMode="Proxy" />
   </ItemGroup>
 
   <ItemGroup>

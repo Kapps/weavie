@@ -94,7 +94,7 @@ surface:
 | --- | --- |
 | Windows | silent, clickable `Shell_NotifyIcon` notification-area banners |
 | macOS | `UNUserNotificationCenter` |
-| Linux | XDG desktop notification portal |
+| Linux | `org.freedesktop.Notifications` desktop service |
 
 macOS authorization is requested only from the persistent toast's **Enable** action. Windows and Linux report
 the authorization/service state without manufacturing a prompt. An unavailable service or delivery failure is
@@ -104,8 +104,8 @@ Windows remains an unpackaged, self-contained folder/ZIP. Its notification API i
 requires no App SDK bundle, MSIX, Start-menu shortcut, registry setup, or installer.
 
 Linux also remains a portable folder/archive. On launch, Weavie maintains its per-user desktop entry with an
-absolute `Exec` path into the folder; this gives the desktop portal a resolvable app identity without requiring
-a package installer, and relaunching after the folder moves refreshes the path.
+absolute `Exec` path into the folder. The host calls the freedesktop notification service directly, passing
+that desktop-entry identity and retaining the returned server id for replacement and click routing.
 
 Replacement identity is stable for one `(page, backendId, slot)`, so repeat events coalesce without allowing
 one page or remote backend to replace another's notification. Each delivery receives a fresh activation

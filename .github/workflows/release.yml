@@ -9,9 +9,8 @@
 #
 # Each shell publishes on its own OS (Weavie.Win needs Windows; Weavie.Mac needs the macOS workload).
 # On a v* tag or manual dispatch the archive is uploaded as a build artifact. On green main
-# (workflow_run) each shell archive is ALSO attached to the rolling `main-latest` prerelease as a
-# downloadable app binary, alongside the runner+worker bundle the main_latest job publishes there for
-# `weavie-runner --auto-update`. See docs/specs/runner-auto-update.md.
+# (workflow_run) the runner and shell archives are published together to the rolling `main-latest`
+# prerelease consumed by `weavie-runner --auto-update`. See docs/specs/runner-auto-update.md.
 name: release
 
 on:
@@ -25,11 +24,22 @@ on:
 permissions:
   contents: read
 
+# Serialize each complete rolling release; the pending slot coalesces newer green runs.
+# Tag and manual releases use unique run IDs.
+concurrency:
+  group: >-
+    release-${{
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      'main-latest' || github.run_id
+    }}
+  cancel-in-progress: false
+
 jobs:
-  # main_latest runs first (green main only): it delete/recreates the rolling prerelease with the
-  # runner+worker bundle. The publish matrix then attaches each shell archive to that release.
-  main_latest:
-    name: main-latest prerelease
+  runner:
+    name: runner bundle
     # Only a PUSH-triggered ci success qualifies: workflow_run also fires for fork-PR ci runs, and a
     # fork branch named "main" must never reach a contents:write job (it could rewrite the release
     # feed the auto-updater trusts). Push events can only originate from this repo.
@@ -39,19 +49,11 @@ jobs:
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.head_branch == 'main'
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    # Rapid main merges must not interleave the delete/recreate of the rolling release.
-    concurrency:
-      group: main-latest
-      cancel-in-progress: true
     steps:
-      # Checkout of the base repo's main tip — never an event-supplied sha, so no untrusted code can
-      # reach this privileged build. The tip can be newer than the green commit that triggered us;
-      # that run's own ci success re-triggers this workflow, and the newest publish wins either way.
+      # Build the exact trusted push commit that passed CI, never a newer unvalidated main tip.
       - uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ github.event.workflow_run.head_sha }}
 
       - name: Set up toolchain and build web app
         uses: ./.github/actions/publish-setup
@@ -70,42 +72,22 @@ jobs:
           ln -s versions/${{ github.run_number }} layout/current
           tar -C layout -czf weavie-runner-linux-x64.tar.gz versions current
 
-      # Managed layout (versions/<build>/ + current symlink) so extracting the tarball IS an install.
-      # manifest.json (buildNumber + spawnContract) is written by the publish itself.
-      - name: Publish rolling prerelease
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          built=$(git rev-parse HEAD)
-          gh release delete main-latest --cleanup-tag --yes || true
-          gh release create main-latest --prerelease \
-            --target "$built" \
-            --title "main latest (build ${{ github.run_number }})" \
-            --notes "Rolling prerelease of green main ($built), build ${{ github.run_number }}. weavie-runner-linux-x64.tar.gz is the runner+worker bundle consumed by weavie-runner --auto-update (extract into ~/.weavie/runner and launch current/Weavie.Runner); the weavie-{linux,win,osx}-* archives are downloadable app binaries. See docs/specs/runner-auto-update.md." \
-            weavie-runner-linux-x64.tar.gz
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: weavie-runner-linux-x64
+          path: weavie-runner-linux-x64.tar.gz
+          if-no-files-found: error
 
   publish:
     name: publish (${{ matrix.name }})
-    # Tag/dispatch always; on workflow_run only for a green main PUSH (never a fork-PR ci run, which
-    # must not reach the contents:write release upload). !cancelled() lets this run past the skipped
-    # main_latest need on the tag/dispatch path.
+    # Tag/dispatch always; on workflow_run only for a green main PUSH (never a fork-PR ci run).
     if: >-
-      !cancelled() && (
-        github.event_name != 'workflow_run' ||
+      github.event_name != 'workflow_run' ||
         ( github.event.workflow_run.event == 'push' &&
           github.event.workflow_run.conclusion == 'success' &&
           github.event.workflow_run.head_branch == 'main' )
-      )
-    needs: main_latest
     runs-on: ${{ matrix.os }}
-    permissions:
-      contents: write
-    # An older run's slow shell uploads must not --clobber a newer run's freshly recreated release.
-    # Each platform gets its own green-main group so matrix jobs run together while a newer merge
-    # still cancels the stale build for that platform. Tag/dispatch runs never cancel each other.
-    concurrency:
-      group: main-latest-publish-${{ github.event_name == 'workflow_run' && 'main' || github.run_id }}-${{ matrix.name }}
-      cancel-in-progress: true
     strategy:
       fail-fast: false
       matrix:
@@ -135,11 +117,13 @@ jobs:
             extra: ""
             asset: weavie-osx-arm64.zip
     steps:
-      # On green main, build the trusted main tip — never an event-supplied sha — since the archive
-      # is attached to the auto-update release feed. Tag/dispatch check out their own ref.
+      # Green-main releases build the exact trusted push commit that passed CI. Tag and manual
+      # releases check out their own ref.
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'workflow_run' && 'main' || github.ref }}
+          ref: >-
+            ${{ github.event_name == 'workflow_run' &&
+                github.event.workflow_run.head_sha || github.ref }}
 
       - name: Set up toolchain and build web app
         uses: ./.github/actions/publish-setup
@@ -210,11 +194,185 @@ jobs:
           path: ${{ matrix.asset }}
           if-no-files-found: error
 
-      # Green main: attach the archive to the rolling prerelease as a downloadable binary. Gated on
-      # main_latest having (re)created the release with the runner bundle first; --clobber replaces a
-      # prior run's asset of the same name.
-      - name: Attach to main-latest prerelease
-        if: github.event_name == 'workflow_run' && needs.main_latest.result == 'success'
+  main_latest:
+    name: main-latest prerelease
+    if: >-
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'main'
+    needs: [runner, publish]
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - name: Download complete release
+        uses: actions/download-artifact@v4
+        with:
+          pattern: weavie-*
+          path: release-assets
+          merge-multiple: true
+
+      # Keep an incomplete replacement private if release creation or asset upload fails.
+      - name: Publish rolling prerelease
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload main-latest "${{ matrix.asset }}" --clobber
+          GH_REPO: ${{ github.repository }}
+        run: |
+          built=${{ github.event.workflow_run.head_sha }}
+          staging="main-latest-${{ github.run_id }}-${{ github.run_attempt }}"
+          response=$(mktemp)
+          api=${{ github.api_url }}/repos/${{ github.repository }}
+          api_status() {
+            curl --silent --show-error --output "$response" --write-out '%{http_code}' \
+              --header "Authorization: Bearer $GH_TOKEN" \
+              --header "X-GitHub-Api-Version: 2022-11-28" "$1"
+          }
+          cleanup_staging() {
+            local cleanup_status=0
+            local release_id
+            local status
+
+            if ! status=$(api_status "$api/releases/tags/$staging"); then
+              echo "::error::Staging release lookup failed"
+              return 1
+            fi
+            case "$status" in
+              200)
+                if ! release_id=$(jq -er .id "$response"); then
+                  echo "::error::Staging release response has no ID"
+                  cleanup_status=1
+                elif ! gh api --method DELETE \
+                  "repos/${{ github.repository }}/releases/$release_id"; then
+                  cleanup_status=1
+                fi
+                ;;
+              404) ;;
+              *) cat "$response"; echo "::error::Staging release lookup returned HTTP $status"; cleanup_status=1 ;;
+            esac
+
+            if ! status=$(api_status "$api/git/ref/tags/$staging"); then
+              echo "::error::Staging tag lookup failed"
+              return 1
+            fi
+            case "$status" in
+              200)
+                gh api --method DELETE \
+                  "repos/${{ github.repository }}/git/refs/tags/$staging" || cleanup_status=1
+                ;;
+              404) ;;
+              *) cat "$response"; echo "::error::Staging tag lookup returned HTTP $status"; cleanup_status=1 ;;
+            esac
+            return "$cleanup_status"
+          }
+          finish() {
+            local original_status="$1"
+            trap - EXIT
+            if ! cleanup_staging; then
+              echo "::error::Failed to clean staging release $staging"
+              if [ "$original_status" -eq 0 ]; then
+                original_status=1
+              fi
+            fi
+            rm -f "$response"
+            exit "$original_status"
+          }
+          if ! cleanup_staging; then
+            rm -f "$response"
+            exit 1
+          fi
+          trap 'finish $?' EXIT
+
+          gh release create "$staging" --draft --prerelease \
+            --target "$built" \
+            --title "main latest (build ${{ github.run_number }})" \
+            --notes "Rolling prerelease of green main ($built), build ${{ github.run_number }}. weavie-runner-linux-x64.tar.gz is the runner+worker bundle consumed by weavie-runner --auto-update (extract into ~/.weavie/runner and launch current/Weavie.Runner); the weavie-{linux,win,osx}-* archives are downloadable app binaries. See docs/specs/runner-auto-update.md." \
+            release-assets/weavie-runner-linux-x64.tar.gz \
+            release-assets/weavie-linux-x64.tar.gz \
+            release-assets/weavie-win-x64.zip \
+            release-assets/weavie-osx-arm64.zip
+
+          main=$(gh api "repos/${{ github.repository }}/git/ref/heads/main" --jq .object.sha)
+          main_relation=$(gh api \
+            "repos/${{ github.repository }}/compare/$built...$main" --jq .status)
+          case "$main_relation" in
+            ahead|identical) ;;
+            behind|diverged)
+              echo "::notice::Skipping $built because it is no longer on main"
+              exit 0
+              ;;
+            *)
+              echo "::error::Unexpected relation to main: $main_relation"
+              exit 1
+              ;;
+          esac
+
+          status=$(api_status "$api/git/ref/tags/main-latest")
+          case "$status" in
+            200)
+              current=$(jq -er .object.sha "$response")
+              published_relation=$(gh api \
+                "repos/${{ github.repository }}/compare/$current...$main" --jq .status)
+              case "$published_relation" in
+                behind|diverged)
+                  echo "::notice::Replacing $current because it is no longer on main"
+                  ;;
+                ahead|identical)
+                  relation=$(gh api \
+                    "repos/${{ github.repository }}/compare/$current...$built" --jq .status)
+                  case "$relation" in
+                    ahead) ;;
+                    identical)
+                      echo "::notice::main-latest already points to $built"
+                      exit 0
+                      ;;
+                    behind)
+                      echo "::notice::Skipping stale $built; main-latest is already $current"
+                      exit 0
+                      ;;
+                    *)
+                      echo "::error::Unexpected commit relation: $relation"
+                      exit 1
+                      ;;
+                  esac
+                  ;;
+                *)
+                  echo "::error::Unexpected published commit relation: $published_relation"
+                  exit 1
+                  ;;
+              esac
+              ;;
+            404) ;;
+            *) cat "$response"; echo "::error::Tag lookup failed with HTTP $status"; exit 1 ;;
+          esac
+
+          status=$(api_status "$api/releases/tags/main-latest")
+          case "$status" in
+            200)
+              release_id=$(jq -er .id "$response")
+              gh api --method DELETE "repos/${{ github.repository }}/releases/$release_id"
+              ;;
+            404) ;;
+            *) cat "$response"; echo "::error::Release lookup failed with HTTP $status"; exit 1 ;;
+          esac
+
+          status=$(api_status "$api/git/ref/tags/main-latest")
+          case "$status" in
+            200) gh api --method DELETE "repos/${{ github.repository }}/git/refs/tags/main-latest" ;;
+            404) ;;
+            *) cat "$response"; echo "::error::Tag lookup failed with HTTP $status"; exit 1 ;;
+          esac
+          status=$(api_status "$api/git/ref/tags/main-latest")
+          if [ "$status" != 404 ]; then
+            cat "$response"
+            echo "::error::main-latest tag cleanup returned HTTP $status"
+            exit 1
+          fi
+
+          gh release edit "$staging" --tag main-latest --draft=false
+          target=$(gh api "repos/${{ github.repository }}/git/ref/tags/main-latest" --jq .object.sha)
+          if [ "$target" != "$built" ]; then
+            echo "::error::main-latest points to $target instead of $built"
+            exit 1
+          fi

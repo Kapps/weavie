@@ -40,7 +40,7 @@ public sealed class WorkspaceAuthenticationTests {
 	public async Task Only_cross_origin_dev_bootstrap_carries_a_media_transport_token() {
 		await using var host = await TestHost.StartAsync();
 
-		Assert.DoesNotContain("weavie-media?token=", host.Core.BuildBootstrap(), StringComparison.Ordinal);
+		Assert.DoesNotContain("__WEAVIE_RESOURCE_BASE__", host.Core.BuildBootstrap(), StringComparison.Ordinal);
 		Assert.Contains("weavie-media?token=", host.Core.BuildCrossOriginBootstrap(), StringComparison.Ordinal);
 	}
 }

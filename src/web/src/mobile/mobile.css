@@ -276,6 +276,18 @@
   display: none;
 }
 
+.mobile-action-stop::before {
+  content: "■";
+}
+
+.mobile-action-submit::before {
+  content: "↑";
+}
+
+.mobile-action-more::before {
+  content: "…";
+}
+
 .mobile-surface-button {
   flex: 1 1 0;
   min-width: 0;

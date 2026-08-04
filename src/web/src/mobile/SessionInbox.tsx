@@ -216,9 +216,7 @@ export function SessionInbox(props: {
             onClick={() => props.onMore()}
           >
             <span class="mobile-action-wide">More…</span>
-            <span class="mobile-action-compact" aria-hidden="true">
-              …
-            </span>
+            <span class="mobile-action-compact mobile-action-more" aria-hidden="true" />
           </button>
           <button
             type="submit"
@@ -227,9 +225,7 @@ export function SessionInbox(props: {
             disabled={!canSubmit()}
           >
             <span class="mobile-action-wide">{submitting() ? "Starting…" : "Start"}</span>
-            <span class="mobile-action-compact" aria-hidden="true">
-              ↑
-            </span>
+            <span class="mobile-action-compact mobile-action-submit" aria-hidden="true" />
           </button>
         </div>
       </form>

@@ -440,9 +440,7 @@ export function AgentComposer(props: {
             onClick={() => void dispatchCommand(CommandIds.agentInterrupt)}
           >
             <span class="mobile-action-wide">Interrupt</span>
-            <span class="mobile-action-compact" aria-hidden="true">
-              ■
-            </span>
+            <span class="mobile-action-compact mobile-action-stop" aria-hidden="true" />
           </button>
         </Show>
         <button
@@ -454,9 +452,7 @@ export function AgentComposer(props: {
           <span class="mobile-action-wide">
             {composer().submittingId !== null ? "Sending…" : turnActive() ? "Steer" : "Run"}
           </span>
-          <span class="mobile-action-compact" aria-hidden="true">
-            ↑
-          </span>
+          <span class="mobile-action-compact mobile-action-submit" aria-hidden="true" />
         </button>
       </div>
       <Show when={composer().error !== null}>

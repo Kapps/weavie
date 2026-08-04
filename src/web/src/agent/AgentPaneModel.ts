@@ -5,7 +5,7 @@ import { clearAgentInputDrafts } from "./AgentInputDrafts";
 import { toAgentTranscript } from "./AgentPaneMessages";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 import { computeSectionLabels, latestAgentTurnStartId } from "./AgentTranscriptLabels";
-import { hasActiveTurn, pendingApproval, pendingRequest } from "./turn-progress";
+import { hasActiveTurn, pendingRequest } from "./turn-progress";
 
 export type AgentSectionLabel = "Updates" | "Results";
 
@@ -48,8 +48,8 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
   const project = (updates: AgentPaneUpdate[]): void => {
     const projected = toAgentTranscript(updates);
     const active = hasActiveTurn(updates);
-    const approvalId = pendingApproval(updates)?.requestId ?? null;
     const request = pendingRequest(updates);
+    const approvalId = request?.kind === "approval" ? request.requestId : null;
     const pinned =
       request === null ? null : (projected.find((entry) => entry.id === request.key) ?? null);
     const visible = pinned === null ? projected : projected.filter((entry) => entry !== pinned);

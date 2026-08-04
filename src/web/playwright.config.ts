@@ -7,7 +7,7 @@ import { defineConfig, devices } from "@playwright/test";
 //   mobile    — the compact-shell journey at a phone viewport, over the same headless harness.
 // Transport is a harness parameter, not a duplicated suite: the full functional suite runs on `headless`,
 // and only @cross / @remote tests also run on `remote`. See docs/specs/integration-testing-strategy.md.
-// `pnpm run e2e` builds dist first; the headless/remote projects also need the C# host built.
+// `pnpm run e2e` builds dist first; CI builds it before the C# host and runs `e2e:ci`.
 // Every test is fully self-isolated — its own mkdtemp HOME, its own throwaway git workspace, and an
 // OS-assigned port — so they run in parallel with no shared state. The per-test cost is dominated by the
 // dotnet host (+ fake-claude pane) spawn; concurrency across cores is the only lever on that, so workers
@@ -36,7 +36,7 @@ export default defineConfig({
   // its own body ever runs. Raise the ceiling there so the fixture's stated boot budget is actually
   // reachable; Linux keeps the default since cold boots there land in 2-6s.
   timeout: process.platform === "linux" ? 30_000 : 60_000,
-  reporter: "list",
+  reporter: process.env.CI ? [["list"], ["blob"]] : "list",
   // A weavie e2e assertion often waits on a full-stack round-trip (host + fake-claude + hook bridge + MCP +
   // render), not a DOM tick, so the 5s Playwright default is too tight even uncontended (a whole test runs
   // 2-6s cold). This ceiling is for that genuine pipeline latency, not to paper over contention — with peak

@@ -71,6 +71,7 @@ yarn.lock
 # Playwright (e2e) output
 test-results/
 playwright-report/
+blob-report/
 .playwright/
 .recordings/
 # Per-change capture override + scratch runners — keep these local, never commit (capture.mjs is the frozen reference).

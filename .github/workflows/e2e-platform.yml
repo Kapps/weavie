@@ -1,0 +1,181 @@
+name: e2e platform
+
+on:
+  workflow_call:
+    inputs:
+      platform:
+        required: true
+        type: string
+      os:
+        required: true
+        type: string
+      rid:
+        required: true
+        type: string
+      suffix:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  bundle:
+    name: bundle
+    runs-on: ${{ inputs.os }}
+    env:
+      NODE_OPTIONS: --max-old-space-size=4096
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-dotnet
+      - uses: ./.github/actions/setup-web
+
+      - name: Install web dependencies
+        working-directory: src/web
+        run: pnpm install --frozen-lockfile
+
+      # Runner publish stages the matching self-contained Headless worker, its Vite UI, and NativeAOT
+      # hook relay under worker/. FakeClaude is the only separate process the test bundle needs.
+      - name: Publish self-contained test bundle
+        shell: bash
+        run: |
+          dotnet publish src/Weavie.Runner/Weavie.Runner.csproj \
+            -c Release -r ${{ inputs.rid }} --self-contained \
+            -o artifacts/e2e-bundle/runner
+          dotnet publish tools/Weavie.FakeClaude/Weavie.FakeClaude.csproj \
+            -c Release -r ${{ inputs.rid }} --self-contained \
+            -o artifacts/e2e-bundle/fake-claude
+
+      - name: Verify test bundle
+        shell: bash
+        run: |
+          test -f "artifacts/e2e-bundle/runner/Weavie.Runner${{ inputs.suffix }}"
+          test -f "artifacts/e2e-bundle/runner/worker/Weavie.Headless${{ inputs.suffix }}"
+          test -f "artifacts/e2e-bundle/runner/worker/weavie-hook-relay${{ inputs.suffix }}"
+          test -f "artifacts/e2e-bundle/runner/worker/wwwroot/index.html"
+          test -f "artifacts/e2e-bundle/fake-claude/Weavie.FakeClaude${{ inputs.suffix }}"
+
+      - name: Upload test bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-bundle-${{ inputs.platform }}
+          path: artifacts/e2e-bundle/
+          if-no-files-found: error
+          retention-days: 1
+
+  # Every platform runs the complete Playwright project set against one immutable build. Shards add
+  # machines without increasing the worker count that starved hosted macOS and Windows.
+  e2e:
+    name: shard (${{ matrix.shard }}/${{ matrix.shards }})
+    needs: bundle
+    runs-on: ${{ inputs.os }}
+    env:
+      NODE_OPTIONS: --max-old-space-size=4096
+      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.pw-browsers
+      WEAVIE_E2E_BUNDLE: ${{ github.workspace }}/.e2e-bundle
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6]
+        shards: [6]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-web
+
+      - name: Install web dependencies
+        working-directory: src/web
+        run: pnpm install --frozen-lockfile
+
+      - name: Download test bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: e2e-bundle-${{ inputs.platform }}
+          path: .e2e-bundle
+
+      # upload-artifact does not preserve executable bits. The worker's staged wwwroot is also copied back
+      # to the checkout for browser-only specs whose mock host serves src/web/dist directly.
+      - name: Prepare test bundle
+        shell: bash
+        run: |
+          if [[ "${{ runner.os }}" != Windows ]]; then
+            chmod +x \
+              .e2e-bundle/runner/Weavie.Runner \
+              .e2e-bundle/runner/worker/Weavie.Headless \
+              .e2e-bundle/runner/worker/weavie-hook-relay \
+              .e2e-bundle/fake-claude/Weavie.FakeClaude
+          fi
+          mkdir -p src/web/dist
+          cp -R .e2e-bundle/runner/worker/wwwroot/. src/web/dist/
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.pw-browsers
+          key: playwright-${{ runner.os }}-${{ hashFiles('src/web/pnpm-lock.yaml') }}
+          restore-keys: playwright-${{ runner.os }}-
+
+      - name: Install Playwright Chromium (Linux)
+        if: runner.os == 'Linux'
+        working-directory: src/web
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Install Playwright Chromium (macOS / Windows)
+        if: runner.os != 'Linux'
+        working-directory: src/web
+        run: pnpm exec playwright install chromium
+
+      - name: Run Playwright shard
+        id: playwright
+        working-directory: src/web
+        run: pnpm run e2e:ci --shard=${{ matrix.shard }}/${{ matrix.shards }}
+
+      - name: Upload Playwright blob report
+        if: ${{ !cancelled() && steps.playwright.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-blob-${{ inputs.platform }}-${{ matrix.shard }}-of-${{ matrix.shards }}
+          path: src/web/blob-report/
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Upload e2e failure traces
+        if: ${{ steps.playwright.outcome == 'failure' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-traces-${{ inputs.platform }}-${{ matrix.shard }}-of-${{ matrix.shards }}
+          path: src/web/test-results/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  report:
+    name: report
+    if: ${{ !cancelled() && needs.e2e.result != 'skipped' }}
+    needs: e2e
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-web
+
+      - name: Install web dependencies
+        working-directory: src/web
+        run: pnpm install --frozen-lockfile
+
+      - name: Download shard reports
+        uses: actions/download-artifact@v4
+        with:
+          pattern: e2e-blob-${{ inputs.platform }}-*
+          path: blob-reports
+          merge-multiple: true
+
+      - name: Merge shard reports
+        working-directory: src/web
+        run: pnpm exec playwright merge-reports --config=playwright.merge.config.ts ../../blob-reports
+
+      - name: Upload merged report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-report-${{ inputs.platform }}
+          path: src/web/playwright-report/
+          if-no-files-found: error
+          retention-days: 14

@@ -1,14 +1,3 @@
-# CI: build every native shell on its own OS, plus the shared libraries and tests.
-#
-# The repo is public, so standard GitHub-hosted runners (including macOS) are free with no
-# per-minute billing — hence the full Linux + macOS + Windows matrix on every push/PR. Each job
-# builds the shell that only compiles on that OS (Weavie.Win needs Windows, Weavie.Mac needs the
-# macOS workload), which transitively covers Weavie.Core and Weavie.Hosting. The .NET unit/hosting
-# tests run once (on Linux); the web e2e — a real headless host + browser — runs on every OS, since
-# the host is platform-specific and the whole point is to catch OS-specific regressions in our code.
-#
-# Builds are Debug: the goal is to verify compilation (the zero-warning gate runs at build time via
-# TreatWarningsAsErrors + EnforceCodeStyleInBuild), and Debug skips the macOS Release trimming pass.
 name: ci
 
 on:
@@ -17,7 +6,6 @@ on:
   pull_request:
   workflow_dispatch:
 
-# A newer push to the same ref cancels the older run.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -26,60 +14,39 @@ permissions:
   contents: read
 
 jobs:
-  test:
-    name: test (${{ matrix.name }})
-    runs-on: ${{ matrix.os }}
-    # Pin the Playwright browser dir to one OS-agnostic path so the cache + install + run agree on every OS
-    # (the per-OS defaults live in different places: ~/.cache, ~/Library/Caches, %LOCALAPPDATA%).
+  web_checks:
+    name: web checks
+    runs-on: ubuntu-latest
     env:
-      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.pw-browsers
-      # The vite production build (7.7k modules incl. the 7 MB vscode-services chunk) peaks past the
-      # old-space ceiling Node derives from the hosted runners' RAM (~2 GB on the macOS image), which
-      # OOM-kills `vite build`. This provisions real capacity for a legitimately large build.
       NODE_OPTIONS: --max-old-space-size=4096
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: linux
-            os: ubuntu-latest
-            project: src/Weavie.Linux/Weavie.Linux.csproj
-          - name: macos
-            # net10.0-macos requires Xcode 26; macos-latest is still macOS 15 (Xcode 16.x), so pin the
-            # macOS 26 (Tahoe) image, which ships Xcode 26. Hosted runners are free for public repos.
-            os: macos-26
-            project: src/Weavie.Mac/Weavie.Mac.csproj
-          - name: windows
-            os: windows-latest
-            project: src/Weavie.Win/Weavie.Win.csproj
     steps:
       - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-web
 
-      - name: Set up .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          # Latest 10.0 SDK. (Not global-json-file: global.json pins "10.0.0", which setup-dotnet
-          # tries to download as an exact SDK build — there is no 10.0.0 SDK, so it 404s. The repo's
-          # rollForward:latestMajor handles this locally, but setup-dotnet resolves the literal first.)
-          dotnet-version: '10.0.x'
+      - name: Install dependencies
+        working-directory: src/web
+        run: pnpm install --frozen-lockfile
 
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          # Keep in sync with the packageManager field in src/web/package.json.
-          version: 11.8.0
+      - name: Build web app
+        working-directory: src/web
+        run: pnpm run build
 
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          # pnpm 11.x requires Node >= 22.13 (it loads the built-in node:sqlite module), so Node 20
-          # crashes setup-node's pnpm cache probe. Keep this at 22+.
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: src/web/pnpm-lock.yaml
+      - name: Lint web app (Biome)
+        working-directory: src/web
+        run: pnpm run lint
+
+      - name: Test web app (Vitest)
+        working-directory: src/web
+        run: pnpm run test
+
+  dotnet_tests:
+    name: .NET tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-dotnet
 
       - name: Install Linux native host test dependencies
-        if: matrix.name == 'linux'
         run: |
           sudo apt-get update
           sudo apt-get install --no-install-recommends \
@@ -88,184 +55,108 @@ jobs:
             libwebkit2gtk-4.1-0 \
             weston
 
-      - name: Cache NuGet packages
-        uses: actions/cache@v4
-        with:
-          path: ~/.nuget/packages
-          key: nuget-${{ runner.os }}-${{ hashFiles('**/Directory.Packages.props', '**/*.csproj') }}
-          restore-keys: nuget-${{ runner.os }}-
+      - name: Test Core
+        run: dotnet test tests/Weavie.Core.Tests/Weavie.Core.Tests.csproj -c Debug
 
-      # The web app is the UI every shell embeds; build it so wwwroot exists (Weavie.Mac's build
-      # hard-errors without it). `pnpm run build` also runs `tsc --noEmit`, so this typechecks the web.
-      - name: Build web app
-        working-directory: src/web
-        run: |
-          pnpm install --frozen-lockfile
-          pnpm run build
+      - name: Test Hosting
+        run: dotnet test tests/Weavie.Hosting.Tests/Weavie.Hosting.Tests.csproj -c Debug
 
-      # Biome is the web lint+format gate (`biome check` = lint + import-order + formatting). It's
-      # platform-independent, so run it once on Linux rather than across the whole OS matrix.
-      - name: Lint web app (Biome)
-        if: matrix.name == 'linux'
-        working-directory: src/web
-        run: pnpm run lint
+      - name: Test Linux environment boundary
+        run: dotnet test tests/Weavie.Linux.Tests/Weavie.Linux.Tests.csproj -c Debug
 
-      # Web unit tests (vitest). Pure frontend logic (jsdom), platform-independent — run once on Linux like
-      # Biome; the browser-driven cross-OS coverage is the Playwright e2e below.
-      - name: Test web app (vitest)
-        if: matrix.name == 'linux'
-        working-directory: src/web
-        run: pnpm run test
+      # Runner's build target builds its sibling Headless worker, so restore that worker first.
+      - name: Test headless host
+        run: dotnet test tests/Weavie.Headless.Tests/Weavie.Headless.Tests.csproj -c Debug
 
-      # macOS-only: the hosted image's default Xcode lags the .NET macOS workload's requirement
-      # (e.g. workload 26.5.10301 needs Xcode 26.6, but the image defaults to 26.5). Both ship
-      # side-by-side on the runner, so select the newest installed one rather than a version pinned
-      # here that would itself go stale the next time the workload's requirement moves.
-      # Each version's real install is a plain directory (e.g. Xcode_26.6.app); the runner also adds
-      # symlink aliases (e.g. Xcode_26.6.0.app) that don't resolve their nested SDK path, so restrict
-      # to -type d to land on the real bundle.
+      - name: Test Runner
+        run: dotnet test tests/Weavie.Runner.Tests/Weavie.Runner.Tests.csproj -c Debug
+
+      - name: Test remote host
+        run: dotnet test tests/Weavie.Remote.Tests/Weavie.Remote.Tests.csproj -c Debug
+
+  native_build:
+    name: native build (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux
+            os: ubuntu-latest
+            project: src/Weavie.Linux/Weavie.Linux.csproj
+            restore: src/Weavie.Linux/Weavie.Linux.csproj
+          - name: macos
+            os: macos-26
+            project: src/Weavie.Mac/Weavie.Mac.csproj
+            restore: weavie.slnx
+          - name: windows
+            os: windows-latest
+            project: src/Weavie.Win/Weavie.Win.csproj
+            restore: src/Weavie.Win/Weavie.Win.csproj
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-dotnet
+
+      # net10.0-macos follows Xcode's SDK and workload versions. Select the newest real bundle before
+      # restoring the one solution-wide format workspace that can evaluate every platform project.
       - name: Select latest Xcode
         if: matrix.name == 'macos'
         run: sudo xcode-select -s "$(find /Applications -maxdepth 1 -name 'Xcode_*.app' -type d | sort -V | tail -1)"
 
-      # macOS-only: install the `macos` workload the Weavie.Mac TFM (net10.0-macos) requires.
       - name: Restore macOS workload
         if: matrix.name == 'macos'
-        run: dotnet workload restore ${{ matrix.project }}
+        run: dotnet workload restore weavie.slnx
 
       - name: Restore
-        run: dotnet restore ${{ matrix.project }}
+        run: dotnet restore ${{ matrix.restore }}
 
       - name: Build
         run: dotnet build ${{ matrix.project }} -c Debug --no-restore
 
-      # Formatting gate. The build already enforces analyzer + IDE code-style rules
-      # (EnableNETAnalyzers + EnforceCodeStyleInBuild), but it does NOT catch pure whitespace
-      # formatting (indentation, multi-line layout) — only `dotnet format` does. Run it on each
-      # shell so the OS-specific shell plus its transitive Core/Hosting sources are verified on the
-      # one OS that can load them. Reuses the restore above (--no-restore).
       - name: Verify .NET formatting
-        run: dotnet format ${{ matrix.project }} --verify-no-changes --no-restore
+        if: matrix.name == 'macos'
+        run: dotnet format weavie.slnx --verify-no-changes --no-restore
 
-      # `dotnet format` only checks a project's own documents, not its referenced projects — so the shell
-      # builds above verify Core + Hosting compilation but NOT their formatting. Format every non-shell
-      # project here (Core, Hosting, the test projects, analyzers, runner, headless, dev tools) on Linux
-      # (the one OS that restores them all) so no assembly's formatting goes ungated. Each restores itself.
-      - name: Verify .NET formatting (off-matrix projects)
-        if: matrix.name == 'linux'
+  e2e:
+    name: e2e (${{ matrix.platform.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - name: linux
+            os: ubuntu-latest
+            rid: linux-x64
+            suffix: ""
+          - name: macos
+            os: macos-26
+            rid: osx-arm64
+            suffix: ""
+          - name: windows
+            os: windows-latest
+            rid: win-x64
+            suffix: .exe
+    uses: ./.github/workflows/e2e-platform.yml
+    with:
+      platform: ${{ matrix.platform.name }}
+      os: ${{ matrix.platform.os }}
+      rid: ${{ matrix.platform.rid }}
+      suffix: ${{ matrix.platform.suffix }}
+
+  # Branch protection needs one stable check name while the implementation jobs fan out behind it.
+  ci:
+    name: ci
+    if: ${{ always() }}
+    needs: [web_checks, dotnet_tests, native_build, e2e]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every CI job
+        env:
+          WEB_CHECKS_RESULT: ${{ needs.web_checks.result }}
+          DOTNET_TESTS_RESULT: ${{ needs.dotnet_tests.result }}
+          NATIVE_BUILD_RESULT: ${{ needs.native_build.result }}
+          E2E_RESULT: ${{ needs.e2e.result }}
         run: |
-          set -e
-          for proj in \
-            src/Weavie.Core/Weavie.Core.csproj \
-            src/Weavie.Hosting/Weavie.Hosting.csproj \
-            src/Weavie.Headless/Weavie.Headless.csproj \
-            src/Weavie.Runner/Weavie.Runner.csproj \
-            src/Weavie.Analyzers/Weavie.Analyzers.csproj \
-            tests/Weavie.Core.Tests/Weavie.Core.Tests.csproj \
-            tests/Weavie.Hosting.Tests/Weavie.Hosting.Tests.csproj \
-            tests/Weavie.Linux.Tests/Weavie.Linux.Tests.csproj \
-            tests/Weavie.Remote.Tests/Weavie.Remote.Tests.csproj \
-            tests/Weavie.Runner.Tests/Weavie.Runner.Tests.csproj \
-            tests/Weavie.Headless.Tests/Weavie.Headless.Tests.csproj \
-            tools/Weavie.FakeClaude/Weavie.FakeClaude.csproj \
-            tools/Weavie.IdeHarness/Weavie.IdeHarness.csproj \
-            tools/Weavie.LspHarness/Weavie.LspHarness.csproj; do
-            echo "::group::dotnet format $proj"
-            dotnet format "$proj" --verify-no-changes
-            echo "::endgroup::"
-          done
-
-      # `dotnet format`'s 14 sequential design-time builds above each leave a VBCSCompiler/MSBuild node-reuse
-      # server running in the background (the CLI's default perf optimization), so their memory stacks up
-      # across the whole loop instead of being freed between projects. Flaked 2026-07-19 16:05 UTC: the
-      # Hosting test run right after this step failed 141/318 tests with FileNotFoundException loading
-      # Microsoft.AspNetCore.Http (a shared-framework assembly, not a missing package) — consistent with the
-      # runner being memory-starved from those lingering servers, the same way a `new Thread`-per-iteration
-      # test flaked OOM on 2026-07-16 right after this same step (fixed by racing pool tasks instead, see
-      # AgentSessionHostTests.cs). https://github.com/Kapps/weavie/actions/runs/29694172917/job/88211947278
-      # Self-healed on the next few CI runs with no code change, confirming it's this step's resource buildup,
-      # not a regression — shut the servers down here so the two `dotnet test` invocations below start clean.
-      - name: Shut down .NET build servers
-        if: matrix.name == 'linux'
-        run: dotnet build-server shutdown
-
-      # Tests run once, on Linux.
-      - name: Test
-        if: matrix.name == 'linux'
-        run: dotnet test tests/Weavie.Core.Tests/Weavie.Core.Tests.csproj -c Debug
-
-      # Hosting/session-routing tests: unit (the editor channel + diff presenter) plus end-to-end integration
-      # over a real HostCore on a temp git repo (the same construction path the headless e2e already exercises
-      # on Linux). Covers the session active/inactive/background/worktree routing invariants.
-      - name: Test (hosting)
-        if: matrix.name == 'linux'
-        run: dotnet test tests/Weavie.Hosting.Tests/Weavie.Hosting.Tests.csproj -c Debug
-
-      - name: Test (Linux environment boundary)
-        if: matrix.name == 'linux'
-        run: dotnet test tests/Weavie.Linux.Tests/Weavie.Linux.Tests.csproj -c Debug
-
-      # Headless host (browser-connectable Weavie): the host the web e2e drives on every OS. Building it
-      # copies the web app built above into its wwwroot. The e2e then drives the bridge transport against
-      # a mock host (bridge.spec) AND the real Weavie.Headless over a WebSocket (headless-host.spec) — the
-      # only place the host↔web path is verified, since the native shells can't run headless.
-      - name: Build headless host
-        run: dotnet build src/Weavie.Headless/Weavie.Headless.csproj -c Debug
-
-      # The full-stack functional + remote journeys need the fake claude (stubs the CLI at the process
-      # seam) and the runner (the remote control plane). Without these built, the headless/remote
-      # Playwright projects skip; with them, they run against a real host. See
-      # docs/specs/integration-testing-strategy.md.
-      - name: Build integration-test helpers
-        run: |
-          dotnet build tools/Weavie.FakeClaude/Weavie.FakeClaude.csproj -c Debug
-          dotnet build src/Weavie.Runner/Weavie.Runner.csproj -c Debug
-
-      # Remote-path tests: the runner's control-plane option parsing (TLS fail-closed), the black-box auth
-      # matrix over a real Weavie.Runner + Weavie.Headless, and the headless bridge. Linux-only like the other
-      # .NET tests. Runs after the headless + runner builds above so their assets are restored (Runner.Tests
-      # pulls in Weavie.Headless), and boots the same real host the remote e2e already exercises.
-      - name: Test (remote / runner / headless)
-        if: matrix.name == 'linux'
-        run: |
-          dotnet test tests/Weavie.Runner.Tests/Weavie.Runner.Tests.csproj -c Debug
-          dotnet test tests/Weavie.Remote.Tests/Weavie.Remote.Tests.csproj -c Debug
-          dotnet test tests/Weavie.Headless.Tests/Weavie.Headless.Tests.csproj -c Debug
-
-      # Cache the downloaded browser binaries (~120MB) keyed on the lockfile + OS, so the install below is
-      # a no-op download on a hit. Linux still (re)installs the OS-level apt deps every run (--with-deps),
-      # which a cache of the browser dir does not preserve; macOS/Windows need no such system deps.
-      - name: Cache Playwright browsers
-        uses: actions/cache@v4
-        with:
-          path: ${{ github.workspace }}/.pw-browsers
-          key: playwright-${{ runner.os }}-${{ hashFiles('src/web/pnpm-lock.yaml') }}
-          restore-keys: playwright-${{ runner.os }}-
-
-      - name: Install Playwright Chromium (Linux)
-        if: runner.os == 'Linux'
-        working-directory: src/web
-        run: pnpm exec playwright install --with-deps chromium
-
-      - name: Install Playwright Chromium (macOS / Windows)
-        if: runner.os != 'Linux'
-        working-directory: src/web
-        run: pnpm exec playwright install chromium
-
-      # Runs every Playwright project: the bridge specs (chromium), the full-stack functional journeys
-      # against a real Weavie.Headless with a stubbed claude (headless), and the transport-sensitive
-      # subset against Weavie.Runner (remote). See docs/specs/integration-testing-strategy.md.
-      - name: Web e2e (bridge + functional + remote)
-        working-directory: src/web
-        run: pnpm run e2e
-
-      # Playwright retains a trace + error context per failed test (retain-on-failure); upload them so a
-      # failure on a hosted runner is diagnosable instead of vanishing with the runner.
-      - name: Upload e2e failure traces
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: e2e-traces-${{ matrix.name }}
-          path: src/web/test-results/
-          if-no-files-found: ignore
-          retention-days: 14
+          test "$WEB_CHECKS_RESULT" = success
+          test "$DOTNET_TESTS_RESULT" = success
+          test "$NATIVE_BUILD_RESULT" = success
+          test "$E2E_RESULT" = success

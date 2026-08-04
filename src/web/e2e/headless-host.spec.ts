@@ -1,30 +1,18 @@
 import { type ChildProcess, spawn } from "node:child_process";
-import { existsSync } from "node:fs";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 import { openWorkspace, waitForWorkspace } from "./capture-workspace.mjs";
+import { headlessProgram, programExists } from "./harness/test-programs";
 
 // End-to-end guard for the browser <-> WebSocket <-> Weavie.Core path: spawn the real built headless host,
 // point a browser at it, and prove the bridge round-trips into the C# session. Skipped when the host hasn't
 // been built, so the web-only `pnpm run e2e` still runs.
 
-const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
-const hostDll = join(
-  repoRoot,
-  "src",
-  "Weavie.Headless",
-  "bin",
-  "Debug",
-  "net10.0",
-  "Weavie.Headless.dll",
-);
-
 test.describe("headless host (real Weavie.Core over WebSocket)", () => {
   test.skip(
-    !existsSync(hostDll),
+    !programExists(headlessProgram),
     "Weavie.Headless not built (run `dotnet build src/Weavie.Headless`)",
   );
 
@@ -34,7 +22,7 @@ test.describe("headless host (real Weavie.Core over WebSocket)", () => {
   test.beforeAll(async () => {
     // A throwaway workspace so the test never mutates the repo or collides on the editor-session file.
     const workspace = await mkdtemp(join(tmpdir(), "weavie-e2e-"));
-    proc = spawn("dotnet", [hostDll], {
+    proc = spawn(headlessProgram.command, headlessProgram.args, {
       env: {
         ...process.env,
         // Port 0: the OS assigns a free port at bind; the ready line reports it once it is accepting.

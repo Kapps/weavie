@@ -13,6 +13,7 @@
     "verify": "tsc --noEmit && biome check .",
     "test": "vitest run",
     "e2e": "vite build && playwright test",
+    "e2e:ci": "playwright test",
     "e2e:install": "playwright install chromium",
     "capture": "pnpm install && pnpm run build && node e2e/capture.mjs"
   },

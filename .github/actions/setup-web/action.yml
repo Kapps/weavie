@@ -1,0 +1,13 @@
+name: Set up web toolchain
+description: Install the repository pnpm and Node versions with the pnpm store cache.
+runs:
+  using: composite
+  steps:
+    - uses: pnpm/action-setup@v4
+      with:
+        package_json_file: src/web/package.json
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22
+        cache: pnpm
+        cache-dependency-path: src/web/pnpm-lock.yaml

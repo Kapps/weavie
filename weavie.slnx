@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/Weavie.Analyzers/Weavie.Analyzers.csproj" />
     <Project Path="src/Weavie.Core/Weavie.Core.csproj" />
     <Project Path="src/Weavie.Headless/Weavie.Headless.csproj" />
     <Project Path="src/Weavie.HookRelay/Weavie.HookRelay.csproj" />

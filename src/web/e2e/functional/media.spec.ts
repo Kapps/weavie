@@ -87,7 +87,9 @@ test("image renders in the media pane and survives reload", async ({ page, weavi
   const img = page.locator(".editor-media img");
   await expect(img).toBeVisible();
   await expect(img).toHaveJSProperty("naturalWidth", 8);
-  expect(new URL((await img.getAttribute("src")) as string).pathname).toBe("/weavie-media");
+  expect(new URL((await img.getAttribute("src")) as string).pathname).toBe(
+    "/weavie-media/pixel.png",
+  );
 
   // Reload: the media tab restores from the persisted editor session, back into the pane (the restore path's
   // media guard — without it Monaco would read the binary as UTF-8 text). Wait for the debounced session
@@ -114,7 +116,7 @@ test("video file opens as an autoplaying <video controls> in the media pane @cro
   await expect(page.locator(".editor-media-notice")).toHaveCount(0);
   await expect(page.locator('.editor-surface[data-kind="editor"]')).toHaveClass(/\bactive\b/);
   const src = (await video.getAttribute("src")) as string;
-  expect(new URL(src).pathname).toBe("/weavie-media");
+  expect(new URL(src).pathname).toBe("/weavie-media/clip.webm");
   const range = await page.request.get(src, { headers: { Range: "bytes=2-5" } });
   expect(range.status()).toBe(206);
   expect(await range.body()).toEqual(Buffer.from([0xdf, 0xa3, 0x9f, 0x42]));
@@ -288,7 +290,7 @@ test("worktree media switches owner and path without a transient 404", async ({ 
 
   const failedRequests: string[] = [];
   page.on("response", (response) => {
-    if (new URL(response.url()).pathname === "/weavie-media" && response.status() >= 400) {
+    if (new URL(response.url()).pathname.startsWith("/weavie-media/") && response.status() >= 400) {
       failedRequests.push(`${response.status()} ${response.url()}`);
     }
   });

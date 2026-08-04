@@ -6,6 +6,24 @@ test.use({
   },
 });
 
+test("WebM video opens inline in the compact editor", async ({ page }) => {
+  await page.getByRole("button", { name: "Code", exact: true }).click();
+  await page.getByRole("button", { name: "Files" }).click();
+  await page.locator(".browser-row", { hasText: "clip.webm" }).click();
+  await page.getByTitle("Close (Esc)").click();
+
+  const video = page.locator(".editor-media video");
+  await expect(video).toBeVisible();
+  await expect(video).toHaveAttribute("src", /\/weavie-media\/clip\.webm\?/);
+  await expect(video).toHaveAttribute("playsinline", "");
+  await expect(video).toHaveAttribute("controls", "");
+  await expect(video).toHaveAttribute("preload", "metadata");
+  await expect
+    .poll(() => video.evaluate((element) => element.readyState))
+    .toBeGreaterThanOrEqual(1);
+  await expect(page.locator(".editor-media-notice")).toHaveCount(0);
+});
+
 test("compact session inbox creates, resumes, and switches existing surfaces", async ({ page }) => {
   const inbox = page.locator(".session-inbox");
   await expect(inbox).toBeVisible();

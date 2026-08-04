@@ -90,5 +90,63 @@ public sealed class LinuxWorkspaceDirectoryWatchSetTests : IDisposable {
 		Assert.Equal(1, watches.Count);
 	}
 
+	[Fact]
+	public async Task MovesOutsideWatchedTreeBecomeDeletesDuringContinuousEvents() {
+		if (!OperatingSystem.IsLinux()) {
+			return;
+		}
+
+		string firstPath = Path.Combine(_root, "first");
+		string secondPath = Path.Combine(_root, "second");
+		string outside = Path.Combine(Path.GetTempPath(), $"weavie-inotify-outside-{Guid.NewGuid():N}");
+		string firstOutside = Path.Combine(outside, "first");
+		string secondOutside = Path.Combine(outside, "second");
+		string trafficDirectory = Path.Combine(_root, "traffic");
+		Directory.CreateDirectory(firstPath);
+		Directory.CreateDirectory(secondPath);
+		Directory.CreateDirectory(outside);
+		Directory.CreateDirectory(trafficDirectory);
+		var deletedPaths = new ConcurrentDictionary<string, byte>(StringComparer.Ordinal);
+		var deleted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		using var stopTraffic = new CancellationTokenSource();
+		Task? traffic = null;
+		try {
+			using var watches = new LinuxWorkspaceDirectoryWatchSet(
+				_ => { },
+				_ => { },
+				e => {
+					deletedPaths.TryAdd(e.FullPath, 0);
+					if (deletedPaths.ContainsKey(firstPath) && deletedPaths.ContainsKey(secondPath)) {
+						deleted.TrySetResult();
+					}
+				},
+				(_, _) => { },
+				_ => { });
+			watches.Reconcile([_root]);
+
+			Directory.Move(firstPath, firstOutside);
+			Directory.Move(secondPath, secondOutside);
+			traffic = Task.Run(() => {
+				int index = 0;
+				while (!stopTraffic.IsCancellationRequested) {
+					File.WriteAllText(Path.Combine(trafficDirectory, $"{index++}.tmp"), string.Empty);
+				}
+			});
+
+			await deleted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+			Assert.Contains(firstPath, deletedPaths.Keys);
+			Assert.Contains(secondPath, deletedPaths.Keys);
+		} finally {
+			stopTraffic.Cancel();
+			if (traffic is not null) {
+				await traffic;
+			}
+
+			if (Directory.Exists(outside)) {
+				Directory.Delete(outside, recursive: true);
+			}
+		}
+	}
+
 	public void Dispose() => Directory.Delete(_root, recursive: true);
 }

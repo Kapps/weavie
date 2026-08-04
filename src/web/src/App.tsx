@@ -142,8 +142,10 @@ import { paneOrder } from "./layout/geometry";
 import { LayoutView } from "./layout/LayoutView";
 import { DEFAULT_LAYOUT_ROOT, layoutDocument, sendLayout } from "./layout/store";
 import type { LayoutNode } from "./layout/types";
-import type { MobileSurface } from "./mobile/MobileSurfaceBar";
+import type { MobileSurface, MobileSwipeDirection } from "./mobile/MobileSurfaceBar";
 import { MobileWorkspace } from "./mobile/MobileWorkspace";
+import { createMobileBackSwipe } from "./mobile/mobile-back-swipe";
+import { createMobileHistory } from "./mobile/mobile-history";
 import { useCompactMode } from "./mobile/useCompactMode";
 // Session-attention intake (sounds + OS notifications): module-load side effect, like the session store.
 import "./notifications/attention";
@@ -178,13 +180,45 @@ const HAS_TITLEBAR = CUSTOM_TITLEBAR || MAC_TITLEBAR || LINUX_TITLEBAR;
 setContext("nativeShell", NATIVE_SHELL);
 
 const AGENT_PANE_KIND = "terminal:claude";
+const MOBILE_STANDALONE =
+  window.matchMedia("(display-mode: standalone)").matches ||
+  (navigator as Navigator & { standalone?: boolean }).standalone === true;
+const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 // Maps a terminal-backed pane kind ("terminal:claude" / "terminal:shell") to its pane id.
 const paneOf = (kind: string): TermSession => (kind === AGENT_PANE_KIND ? "claude" : "shell");
+
+interface MobileTransition {
+  direction: MobileSwipeDirection;
+  phase: "tracking" | "canceling" | "committing";
+  progress: number;
+  source: MobileSurface;
+  target: MobileSurface;
+}
+
+function mobileTransitionStyle(transition: MobileTransition | null): string | undefined {
+  if (transition === null) {
+    return undefined;
+  }
+  const { direction, progress, source, target } = transition;
+  if (source !== "inbox" && target !== "inbox") {
+    const paneOffset = direction === 1 ? -50 * progress : -50 * (1 - progress);
+    return `--mobile-pane-offset:${paneOffset}%`;
+  }
+  if (source === "inbox") {
+    const paneOffset = direction * 100 * (1 - progress);
+    const inboxOffset = -direction * 100 * progress;
+    return `--mobile-pane-offset:${paneOffset}%;--mobile-inbox-offset:${inboxOffset}%`;
+  }
+  return `--mobile-pane-offset:${-direction * 100 * progress}%;--mobile-inbox-offset:0%`;
+}
 
 export default function App(): JSX.Element {
   let editorContainer!: HTMLDivElement;
   const compact = useCompactMode();
-  const [mobileSurface, setMobileSurface] = createSignal<MobileSurface>("inbox");
+  const mobileHistory = createMobileHistory(compact);
+  const mobileSurface = mobileHistory.surface;
+  const navigateMobileSurface = mobileHistory.navigate;
+  const [mobileTransition, setMobileTransition] = createSignal<MobileTransition | null>(null);
   const activeBackendId = (): string => selectedSession()?.connection.id ?? LOCAL_BACKEND_ID;
   const localHost = () => hostConnection(LOCAL_BACKEND_ID)?.host;
   const publishMenuAction = (action: string, path?: string): boolean => {
@@ -206,6 +240,76 @@ export default function App(): JSX.Element {
   // The last pane the user actually worked in (claude/shell/editor). Unlike focusedKind it survives focus
   // moving to the omnibar / a dialog, so it's the stable fullscreen target and the pane Ctrl+N switches show.
   const [activePane, setActivePane] = createSignal<string | null>(null);
+  const selectMobileSurface = (surface: MobileSurface): void => {
+    navigateMobileSurface(surface);
+    if (surface !== "inbox") {
+      setActivePane(surface);
+    }
+  };
+  const previewMobileSurface = (
+    target: MobileSurface,
+    direction: MobileSwipeDirection,
+    progress: number,
+  ): void => {
+    if (!compact() || target === mobileSurface()) {
+      return;
+    }
+    setMobileTransition({
+      direction,
+      phase: "tracking",
+      progress,
+      source: mobileSurface(),
+      target,
+    });
+  };
+  const settleMobileTransition = (commit: boolean): void => {
+    const transition = mobileTransition();
+    if (transition === null) {
+      return;
+    }
+    const progress = commit ? 1 : 0;
+    if (REDUCED_MOTION || transition.progress === progress) {
+      if (commit) {
+        selectMobileSurface(transition.target);
+      }
+      setMobileTransition(null);
+      return;
+    }
+    setMobileTransition({
+      ...transition,
+      phase: commit ? "committing" : "canceling",
+      progress,
+    });
+  };
+  const finishMobileTransition = (event: TransitionEvent): void => {
+    const transition = mobileTransition();
+    if (
+      transition === null ||
+      transition.phase === "tracking" ||
+      event.propertyName !== "transform" ||
+      !(event.target instanceof Element) ||
+      !event.target.matches(
+        transition.source === "inbox" || transition.target === "inbox"
+          ? ".pane-area"
+          : ".layout-root",
+      )
+    ) {
+      return;
+    }
+    if (transition.phase === "committing") {
+      selectMobileSurface(transition.target);
+    }
+    setMobileTransition(null);
+  };
+  const mobileBackSwipe = createMobileBackSwipe({
+    onCancel: () => settleMobileTransition(false),
+    onCommit: () => settleMobileTransition(true),
+    onProgress: (progress) => {
+      if (compact() && mobileSurface() !== "inbox") {
+        previewMobileSurface("inbox", 1, progress);
+      }
+    },
+  });
   // Pane kinds in DFS order; index + 1 is the pane's Ctrl+N number. Always the REAL layout, so the numbers
   // stay stable in fullscreen.
   const paneNumbers = createMemo(() => paneOrder(layoutRoot()));
@@ -241,6 +345,23 @@ export default function App(): JSX.Element {
   // keeping each pane fullscreen. Off ⇒ the real layout, never mutated by fullscreen.
   const displayRoot = createMemo<LayoutNode>(() => {
     if (compact()) {
+      const transition = mobileTransition();
+      if (transition !== null && transition.source !== "inbox" && transition.target !== "inbox") {
+        const panes =
+          transition.direction === 1
+            ? [transition.source, transition.target]
+            : [transition.target, transition.source];
+        return {
+          type: "split",
+          dir: "row",
+          weights: [1, 1],
+          children: panes.map((kind) => ({ type: "pane", id: `compact-${kind}`, kind })),
+        };
+      }
+      if (transition !== null) {
+        const kind = transition.source === "inbox" ? transition.target : transition.source;
+        return { type: "pane", id: "compact-transition", kind };
+      }
       const surface = mobileSurface();
       const kind = surface === "inbox" ? (activePane() ?? AGENT_PANE_KIND) : surface;
       return { type: "pane", id: "compact", kind };
@@ -385,7 +506,7 @@ export default function App(): JSX.Element {
     onDestinationActivated: () => {
       if (compact()) {
         setActivePane("editor");
-        setMobileSurface("editor");
+        navigateMobileSurface("editor");
       }
     },
     focusVisibleOverlay: () => {
@@ -431,7 +552,7 @@ export default function App(): JSX.Element {
     // display:none), so the focus call below lands on an on-screen element rather than a hidden one.
     setActivePane(kind);
     if (compact() && (kind === AGENT_PANE_KIND || kind === "terminal:shell" || kind === "editor")) {
-      setMobileSurface(kind);
+      navigateMobileSurface(kind);
     }
     if (kind === "editor") {
       editor.focusEditor();
@@ -558,6 +679,7 @@ export default function App(): JSX.Element {
       base: "source" | "main";
       existing: boolean;
       prompt?: string;
+      attachments?: { id: string; mime: string; dataB64: string }[];
       agentProviderId: "claude" | "codex";
     },
   ): Promise<boolean> => {
@@ -567,7 +689,7 @@ export default function App(): JSX.Element {
           throw new Error(result.error ?? "The session could not be created.");
         }
         if (compact()) {
-          setMobileSurface(AGENT_PANE_KIND);
+          navigateMobileSurface(AGENT_PANE_KIND);
         }
         return true;
       })
@@ -646,7 +768,7 @@ export default function App(): JSX.Element {
       })
       .then(() => {
         if (compact()) {
-          setMobileSurface(AGENT_PANE_KIND);
+          navigateMobileSurface(AGENT_PANE_KIND);
         }
         return true;
       })
@@ -900,6 +1022,7 @@ export default function App(): JSX.Element {
     if (kind === AGENT_PANE_KIND && activeAgentSurface() === "structured") {
       return (
         <AgentPane
+          compact={compact()}
           inputProtocol={activeAgentInputProtocol()}
           model={focusedAgentPane()}
           providerId={activeProviderId()}
@@ -1301,7 +1424,7 @@ export default function App(): JSX.Element {
         if (!compact()) {
           return false;
         }
-        setMobileSurface("inbox");
+        navigateMobileSurface("inbox");
         return true;
       }),
       // Open Pull Request… (Ctrl+Shift+R / palette): pick a PR to check out as a session.
@@ -1448,7 +1571,22 @@ export default function App(): JSX.Element {
   return (
     <div
       class="app"
-      classList={{ compact: compact(), "mobile-inbox": compact() && mobileSurface() === "inbox" }}
+      classList={{
+        compact: compact(),
+        "mobile-inbox": compact() && mobileSurface() === "inbox",
+        "mobile-standalone": compact() && MOBILE_STANDALONE,
+        "mobile-transition": mobileTransition() !== null,
+        "mobile-transition-from-inbox": mobileTransition()?.source === "inbox",
+        "mobile-transition-settling":
+          mobileTransition() !== null && mobileTransition()?.phase !== "tracking",
+        "mobile-transition-to-inbox": mobileTransition()?.target === "inbox",
+        "mobile-transition-two-panes":
+          mobileTransition() !== null &&
+          mobileTransition()?.source !== "inbox" &&
+          mobileTransition()?.target !== "inbox",
+      }}
+      style={mobileTransitionStyle(mobileTransition())}
+      onTransitionEnd={finishMobileTransition}
     >
       <Show when={CUSTOM_TITLEBAR}>
         <TitleBar
@@ -1509,32 +1647,35 @@ export default function App(): JSX.Element {
           initialBackendId={defaultLocation()}
           initialProviderId={defaultAgentProvider()}
           onOpen={switchToSession}
-          onCreate={(prompt, backendId, providerId) => {
+          onCreate={(seed, backendId, providerId) => {
             setLastLocation(backendId);
             setDefaultAgentProvider(providerId);
             promoteNextSessionOn(backendId);
             return createSessionAt(backendId, {
               base: "source",
               existing: false,
-              prompt,
+              prompt: seed.prompt,
+              attachments: seed.attachments,
               agentProviderId: providerId,
             });
           }}
           onMore={() => setNewSessionOpen(true)}
           moreTitle={mobileMoreTitle()}
           surfaceTitle={mobileSurfaceTitle}
-          onSurface={(surface) => {
-            setMobileSurface(surface);
-            if (surface !== "inbox") {
-              setActivePane(surface);
-            }
-          }}
+          onSurface={selectMobileSurface}
+          onSwipeCancel={() => settleMobileTransition(false)}
+          onSwipeCommit={() => settleMobileTransition(true)}
+          onSwipeProgress={previewMobileSurface}
         />
         <div
           class="pane-area"
           classList={{
             offline: activeBackendOffline(),
           }}
+          onTouchStart={mobileBackSwipe.onTouchStart}
+          onTouchMove={mobileBackSwipe.onTouchMove}
+          onTouchEnd={mobileBackSwipe.onTouchEnd}
+          onTouchCancel={mobileBackSwipe.onTouchCancel}
         >
           <LayoutView root={displayRoot()} renderPane={renderPane} onResize={onLayoutResize} />
           <Show when={fullscreen() && !compact()}>

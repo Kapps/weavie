@@ -1,10 +1,12 @@
 import { type JSX, Show } from "solid-js";
 import { AgentPaneBody } from "./AgentPaneBody";
 import { AgentStatusLine } from "./AgentStatusLine";
+import { AgentWorkingStatus } from "./AgentWorkingStatus";
 import type { AgentPaneModel } from "./pane-store";
 
 export function AgentPane(props: {
   inputProtocol: number;
+  compact: boolean;
   model: AgentPaneModel | null;
   providerId: "claude" | "codex" | null;
   active: boolean;
@@ -67,6 +69,10 @@ export function AgentPane(props: {
     >
       <div class="pane-head" role="toolbar">
         <span class="pane-label">{providerName()}</span>
+        <Show when={props.compact}>
+          <AgentWorkingStatus compact messages={props.model?.messages() ?? []} />
+          <AgentStatusLine compact session={props.model?.session ?? null} />
+        </Show>
         <Show when={props.shortcut !== ""}>
           <span class="pane-shortcut">{props.shortcut}</span>
         </Show>
@@ -75,13 +81,16 @@ export function AgentPane(props: {
         {(model) => (
           <AgentPaneBody
             active={props.active}
+            compact={props.compact}
             inputProtocol={props.inputProtocol}
             model={model}
             providerName={providerName()}
           />
         )}
       </Show>
-      <AgentStatusLine session={props.model?.session ?? null} />
+      <Show when={!props.compact}>
+        <AgentStatusLine compact={false} session={props.model?.session ?? null} />
+      </Show>
     </div>
   );
 }

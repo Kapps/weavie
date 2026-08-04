@@ -1,10 +1,10 @@
 .session-inbox {
-  position: absolute;
-  inset: 0 0 calc(54px + env(safe-area-inset-bottom));
+  position: relative;
+  grid-area: 1 / 1;
   z-index: 10;
   display: none;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
   min-height: 0;
   padding: max(18px, env(safe-area-inset-top)) 14px 14px;
   overflow: hidden;
@@ -62,11 +62,22 @@
 
 .session-composer-options {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr)) repeat(2, 44px);
   align-items: center;
   gap: 6px;
   padding: 7px;
   border-top: 1px solid var(--border);
+}
+
+.session-composer .agent-attachments {
+  padding: 7px 12px;
+  border-top: 1px solid var(--border);
+}
+
+.session-composer-error {
+  padding: 0 12px 7px;
+  color: var(--bad);
+  font-size: var(--font-hint-size);
 }
 
 .session-composer-options select,

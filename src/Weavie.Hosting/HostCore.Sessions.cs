@@ -536,11 +536,14 @@ public sealed partial class HostCore {
 		CancellationToken ct) {
 		ArgumentNullException.ThrowIfNull(source);
 		ArgumentNullException.ThrowIfNull(request);
+		if (!TryDecodeInitialInput(request.Prompt, request.Attachments, out var input, out string error)) {
+			return Task.FromResult(CommandResult.Failure(error));
+		}
 		string provider = ResolveNewSessionProvider(request.AgentProviderId);
 		return RunSessionLifecycleAsync(
 			() => request.AttachExisting
-				? AttachExistingSessionAsync(request.Branch, request.Prompt, provider, ct)
-				: CreateWorktreeSessionAsync(source, request.Branch, request.Base, request.Prompt, provider, ct),
+				? AttachExistingSessionAsync(request.Branch, input, provider, ct)
+				: CreateWorktreeSessionAsync(source, request.Branch, request.Base, input, provider, ct),
 			ct);
 	}
 
@@ -551,8 +554,9 @@ public sealed partial class HostCore {
 		ArgumentNullException.ThrowIfNull(source);
 		ArgumentNullException.ThrowIfNull(request);
 		string providerId = SlotFor(source)?.AgentProviderId ?? ResolveNewSessionProvider(null);
+		var input = InitialSessionInput.FromText(request.Handoff);
 		return RunSessionLifecycleAsync(
-			() => CreateWorktreeSessionAsync(source, request.Branch, "source", request.Handoff, providerId, ct),
+			() => CreateWorktreeSessionAsync(source, request.Branch, "source", input, providerId, ct),
 			ct);
 	}
 
@@ -923,7 +927,7 @@ public sealed partial class HostCore {
 		HostSession source,
 		string? requestedBranch,
 		string? baseSpec,
-		string? prompt,
+		InitialSessionInput? input,
 		string agentProviderId,
 		CancellationToken ct) {
 		try {
@@ -938,7 +942,7 @@ public sealed partial class HostCore {
 
 		string branch;
 		if (string.IsNullOrWhiteSpace(requestedBranch)) {
-			branch = await DeriveUniqueBranchNameAsync(prompt, ct).ConfigureAwait(false);
+			branch = await DeriveUniqueBranchNameAsync(input?.Text, ct).ConfigureAwait(false);
 		} else {
 			branch = requestedBranch.Trim();
 			// The branch name is web-supplied; reject a malformed/option-shaped name before it reaches git.
@@ -967,7 +971,7 @@ public sealed partial class HostCore {
 		return await BuildSlotAsync(
 			branch,
 			record,
-			prompt,
+			input,
 			agentProviderId,
 			$"Created session on branch '{branch}' at {record.Path}.").ConfigureAwait(false);
 	}
@@ -978,7 +982,7 @@ public sealed partial class HostCore {
 	/// </summary>
 	private async Task<CommandResult> AttachExistingSessionAsync(
 		string? requestedBranch,
-		string? prompt,
+		InitialSessionInput? input,
 		string agentProviderId,
 		CancellationToken ct) {
 		try {
@@ -1002,6 +1006,9 @@ public sealed partial class HostCore {
 
 		// Already a live/dormant Weavie session for this branch (slot ids are the branch name)? Switch to it.
 		if (_sessions?.Find(branch) is { } existingSlot) {
+			if (input?.Attachments.Count > 0) {
+				return CommandResult.Failure("Images can't be submitted when opening a session that already exists.");
+			}
 			return await LoadExistingAsync(existingSlot, branch).ConfigureAwait(false);
 		}
 
@@ -1010,6 +1017,9 @@ public sealed partial class HostCore {
 		try {
 			string? primaryBranch = await new GitService().GetCurrentBranchAsync(WorkspaceRoot, ct).ConfigureAwait(false);
 			if (string.Equals(primaryBranch, branch, StringComparison.Ordinal) && PrimarySlot() is { } primarySlot) {
+				if (input?.Attachments.Count > 0) {
+					return CommandResult.Failure("Images can't be submitted when opening a session that already exists.");
+				}
 				return await LoadExistingAsync(primarySlot, branch).ConfigureAwait(false);
 			}
 		} catch (GitException ex) {
@@ -1035,24 +1045,24 @@ public sealed partial class HostCore {
 			StartWorktreeSetup(record.Path);
 		}
 
-		// Seed the first prompt only on this fresh-checkout path; switching to an existing session (above) must
+		// Seed the first input only on this fresh-checkout path; switching to an existing session (above) must
 		// never re-seed it. The Open-PR flow uses this to brief Claude on the PR it just checked out.
 		return await BuildSlotAsync(
 			branch,
 			record,
-			prompt,
+			input,
 			slotProviderId,
 			$"Checked out '{branch}' at {record.Path}.").ConfigureAwait(false);
 	}
 
 	/// <summary>
 	/// Builds a <see cref="SessionSlot"/> for a worktree <paramref name="record"/>, adds it to the rail, and
-	/// returns its exact address so the calling page can select it (optionally seeding a first prompt).
+	/// returns its exact address so the calling page can select it (optionally seeding its first input).
 	/// </summary>
 	private Task<CommandResult> BuildSlotAsync(
 		string branch,
 		WorktreeRecord record,
-		string? prompt,
+		InitialSessionInput? input,
 		string agentProviderId,
 		string successMessage) {
 		var sessions = _sessions
@@ -1071,8 +1081,8 @@ public sealed partial class HostCore {
 				};
 				sessions.Add(slot);
 				PushSessionList();
-				if (!string.IsNullOrWhiteSpace(prompt)) {
-					slot.Session.QueueInitialPrompt(prompt);
+				if (input is not null) {
+					slot.Session.QueueInitialInput(MaterializeInitialInput(slot.Session, input));
 				}
 				ActivateSessionRuntimeAndMessages(slot.Session);
 				PersistSessionState();
@@ -1087,6 +1097,68 @@ public sealed partial class HostCore {
 			}
 		});
 		return result.Task;
+	}
+
+	private static bool TryDecodeInitialInput(
+		string? prompt,
+		IReadOnlyList<NewSessionAttachment> attachments,
+		out InitialSessionInput? input,
+		out string error) {
+		ArgumentNullException.ThrowIfNull(attachments);
+		try {
+			var ids = new HashSet<string>(StringComparer.Ordinal);
+			var decoded = new List<InitialSessionAttachment>(attachments.Count);
+			foreach (var attachment in attachments) {
+				if (string.IsNullOrWhiteSpace(attachment.Id)) {
+					throw new InvalidOperationException("A new-session image is missing its attachment id.");
+				}
+				if (!ids.Add(attachment.Id)) {
+					throw new InvalidOperationException($"Attachment '{attachment.Id}' was included more than once.");
+				}
+
+				var (extension, bytes) = PastedImageMedia.Decode(attachment.Mime, attachment.DataB64);
+				decoded.Add(new InitialSessionAttachment(attachment.Id, attachment.Mime, extension, bytes));
+			}
+
+			input = InitialSessionInput.Create(prompt, decoded);
+			error = string.Empty;
+			return true;
+		} catch (Exception ex) when (ex is FormatException or InvalidOperationException) {
+			input = null;
+			error = ex.Message;
+			return false;
+		}
+	}
+
+	private static AgentTurnSubmission MaterializeInitialInput(
+		HostSession session,
+		InitialSessionInput input) =>
+		new() {
+			Id = Guid.NewGuid().ToString("n"),
+			Text = input.Text,
+			Attachments = [.. input.Attachments.Select(attachment => new AgentInputAttachment {
+				Id = attachment.Id,
+				Mime = attachment.Mime,
+				Path = session.PastedImages.Write(attachment.Extension, attachment.Bytes),
+			})],
+			Skills = [],
+		};
+
+	private sealed record InitialSessionAttachment(
+		string Id,
+		string Mime,
+		string Extension,
+		byte[] Bytes);
+
+	private sealed record InitialSessionInput(string Text, IReadOnlyList<InitialSessionAttachment> Attachments) {
+		public static InitialSessionInput? Create(
+			string? text,
+			IReadOnlyList<InitialSessionAttachment> attachments) =>
+			string.IsNullOrWhiteSpace(text) && attachments.Count == 0
+				? null
+				: new InitialSessionInput(text?.Trim() ?? string.Empty, attachments);
+
+		public static InitialSessionInput? FromText(string? text) => Create(text, []);
 	}
 
 	private Task<CommandResult> LoadExistingAsync(SessionSlot slot, string branch) {

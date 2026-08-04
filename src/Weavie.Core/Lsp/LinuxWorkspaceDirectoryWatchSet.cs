@@ -3,6 +3,8 @@ using System.Runtime.InteropServices;
 namespace Weavie.Core.Lsp;
 
 internal sealed partial class LinuxWorkspaceDirectoryWatchSet : IWorkspaceDirectoryWatchSet {
+	// inotify may enqueue the two halves of a rename across reads; unmatched halves expire as deletes.
+	private const int MovePairTimeoutMilliseconds = 100;
 	private readonly Action<FileSystemEventArgs> _created;
 	private readonly Action<FileSystemEventArgs> _changed;
 	private readonly Action<FileSystemEventArgs> _deleted;
@@ -10,6 +12,7 @@ internal sealed partial class LinuxWorkspaceDirectoryWatchSet : IWorkspaceDirect
 	private readonly Action<Exception> _error;
 	private readonly Dictionary<string, int> _pathWatches = new(StringComparer.Ordinal);
 	private readonly Dictionary<int, string> _watchPaths = [];
+	private readonly Dictionary<uint, (string Path, long Deadline)> _pendingMoves = [];
 	private readonly Lock _gate = new();
 	private int _inotifyFd = -1;
 	private int _stopFd = -1;
@@ -123,13 +126,17 @@ internal sealed partial class LinuxWorkspaceDirectoryWatchSet : IWorkspaceDirect
 			while (true) {
 				pollFds[0].ReturnedEvents = 0;
 				pollFds[1].ReturnedEvents = 0;
-				int result = poll(pollFds, 2, -1);
+				FlushExpiredMoves();
+				int result = poll(pollFds, 2, PendingMoveTimeout());
 				if (result < 0) {
 					if (Marshal.GetLastPInvokeError() == Interrupted) {
 						continue;
 					}
 
 					throw NativeFailure("poll");
+				}
+				if (result == 0) {
+					continue;
 				}
 
 				if ((pollFds[1].ReturnedEvents & PollIn) != 0) {
@@ -186,6 +193,7 @@ internal sealed partial class LinuxWorkspaceDirectoryWatchSet : IWorkspaceDirect
 			_stopFd = -1;
 			_pathWatches.Clear();
 			_watchPaths.Clear();
+			_pendingMoves.Clear();
 		}
 	}
 

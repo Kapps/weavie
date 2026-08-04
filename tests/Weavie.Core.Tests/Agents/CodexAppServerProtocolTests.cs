@@ -218,6 +218,11 @@ public sealed class CodexAppServerProtocolTests {
 	[Fact]
 	public void TryAdaptNotification_MapsTurnAndToolEvents() {
 		Assert.True(CodexAppServerProtocol.TryAdaptNotification(
+			"""{"method":"thread/started","params":{"thread":{"id":"thread_1"}}}""",
+			out var threadStarted));
+		Assert.IsType<AgentOtherEvent>(threadStarted);
+
+		Assert.True(CodexAppServerProtocol.TryAdaptNotification(
 			"""{"method":"turn/started","params":{"turn":{"id":"turn_1"}}}""",
 			out var turnStarted));
 		Assert.IsType<AgentPromptSubmitted>(turnStarted);

@@ -17,7 +17,6 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 	private readonly ConcurrentDictionary<string, CodexServerRequest> _pendingRequests = new(StringComparer.Ordinal);
 	private readonly Lock _gate = new();
 	private readonly Queue<CodexTurnInput> _pendingInputs = new();
-	private readonly HashSet<string> _pendingThreadStarts = new(StringComparer.Ordinal);
 	private readonly Dictionary<string, string> _fileChangeSummaries = new(StringComparer.Ordinal);
 	private readonly ConcurrentDictionary<string, byte> _resolvedRequests = new(StringComparer.Ordinal);
 	private long _nextId;
@@ -26,7 +25,6 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 	private bool _turnStarting;
 	private bool _started;
 	private bool _threadPersisted;
-	private bool _awaitingThreadAdoption;
 
 	/// <summary>Creates a worktree-scoped Codex app-server session.</summary>
 	public CodexAppServerSession(AgentSessionContext context, CodexThreadStore threads, string command) {
@@ -78,8 +76,7 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 			return;
 		}
 
-		bool deferredThreadStart = method == "thread/started" && DeferThreadStart(root);
-		bool primary = !deferredThreadStart && IsPrimaryThread(root);
+		bool primary = IsPrimaryThread(root);
 		if (primary && method == "turn/started") {
 			RememberTurn(root);
 		} else if (primary && method is "turn/completed" or "turn/interrupted") {
@@ -89,7 +86,7 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 		}
 
 		bool lifecycle = method is "thread/started" or "turn/started" or "turn/completed" or "turn/interrupted";
-		if (!deferredThreadStart && (!lifecycle || primary)
+		if ((!lifecycle || primary)
 			&& CodexAppServerProtocol.TryAdaptNotification(root.GetRawText(), out var agentEvent)) {
 			try {
 				EmitFeedback(_context.Events.Observe(agentEvent));
@@ -276,18 +273,6 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 	}
 
 	private bool IsPrimaryThread(JsonElement root) => IsPrimaryThread(ReadNotificationThreadId(root));
-
-	private bool DeferThreadStart(JsonElement root) {
-		string threadId = ReadNotificationThreadId(root);
-		lock (_gate) {
-			if (!_awaitingThreadAdoption || _threadId is not null || threadId.Length == 0) {
-				return false;
-			}
-
-			_pendingThreadStarts.Add(threadId);
-			return true;
-		}
-	}
 
 	private static string ReadNotificationThreadId(JsonElement root) {
 		if (!root.TryGetProperty("params", out var parameters)) {

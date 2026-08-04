@@ -416,7 +416,8 @@ public static class CodexAppServerProtocol {
 
 		string method = methodElement.GetString() ?? string.Empty;
 		value = method switch {
-			"thread/started" => new AgentSessionStarted("startup"),
+			// The successful thread start/resume response owns readiness; this notification is not authoritative.
+			"thread/started" => new AgentOtherEvent(),
 			// Codex's turn-start carries no prompt text; a correction it drains records with a null prompt.
 			"turn/started" => new AgentPromptSubmitted(null, null),
 			// An interrupted turn also ends with turn/completed (status "interrupted"); there is no separate event.

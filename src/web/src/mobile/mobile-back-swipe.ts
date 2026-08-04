@@ -7,12 +7,13 @@ interface Point {
 }
 
 export interface MobileBackSwipeCallbacks {
+  canStart: () => boolean;
   onCancel: () => void;
   onCommit: () => void;
   onProgress: (progress: number) => void;
 }
 
-/** Tracks a leftward back gesture over pane chrome or non-interactive agent output. */
+/** Tracks a rightward back gesture over pane chrome or non-interactive agent output. */
 export function createMobileBackSwipe(callbacks: MobileBackSwipeCallbacks): {
   onTouchStart: (event: TouchEvent) => void;
   onTouchMove: (event: TouchEvent) => void;
@@ -27,6 +28,7 @@ export function createMobileBackSwipe(callbacks: MobileBackSwipeCallbacks): {
     const target = event.target;
     const touch = event.touches[0];
     start =
+      callbacks.canStart() &&
       event.touches.length === 1 &&
       touch !== undefined &&
       target instanceof Element &&
@@ -47,13 +49,13 @@ export function createMobileBackSwipe(callbacks: MobileBackSwipeCallbacks): {
     const dx = touch.clientX - origin.x;
     const dy = touch.clientY - origin.y;
     if (!tracking) {
-      if (dx >= 0 || Math.abs(dx) <= Math.abs(dy)) {
+      if (dx <= 0 || Math.abs(dx) <= Math.abs(dy)) {
         return;
       }
       tracking = true;
     }
     event.preventDefault();
-    callbacks.onProgress(Math.min(1, Math.max(0, -dx / window.innerWidth)));
+    callbacks.onProgress(Math.min(1, Math.max(0, dx / window.innerWidth)));
   };
 
   const onTouchEnd = (event: TouchEvent): void => {
@@ -68,8 +70,8 @@ export function createMobileBackSwipe(callbacks: MobileBackSwipeCallbacks): {
     }
     const dx = end.x - origin.x;
     const dy = end.y - origin.y;
-    if (dx <= -MIN_DISTANCE && Math.abs(dx) > Math.abs(dy) * HORIZONTAL_DOMINANCE) {
-      callbacks.onProgress(Math.min(1, -dx / window.innerWidth));
+    if (dx >= MIN_DISTANCE && Math.abs(dx) > Math.abs(dy) * HORIZONTAL_DOMINANCE) {
+      callbacks.onProgress(Math.min(1, dx / window.innerWidth));
       callbacks.onCommit();
     } else {
       callbacks.onCancel();
@@ -118,7 +120,7 @@ function acceptsBackSwipe(target: Element): boolean {
     }
   }
   return (
-    target.closest(".pane-head") !== null ||
+    target.closest(".pane-head, .editor-tabs") !== null ||
     (target.closest(".agent-surface") !== null && target.closest("[data-agent-composer]") === null)
   );
 }

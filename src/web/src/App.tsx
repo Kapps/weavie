@@ -189,6 +189,7 @@ const paneOf = (kind: string): TermSession => (kind === AGENT_PANE_KIND ? "claud
 
 interface MobileTransition {
   direction: MobileSwipeDirection;
+  navigation: "back" | "select";
   phase: "tracking" | "canceling" | "committing";
   progress: number;
   source: MobileSurface;
@@ -217,7 +218,8 @@ export default function App(): JSX.Element {
   const compact = useCompactMode();
   const mobileHistory = createMobileHistory(compact);
   const mobileSurface = mobileHistory.surface;
-  const navigateMobileSurface = mobileHistory.navigate;
+  const navigateMobileSurface = mobileHistory.select;
+  const drillMobileSurface = mobileHistory.drill;
   const [mobileTransition, setMobileTransition] = createSignal<MobileTransition | null>(null);
   const activeBackendId = (): string => selectedSession()?.connection.id ?? LOCAL_BACKEND_ID;
   const localHost = () => hostConnection(LOCAL_BACKEND_ID)?.host;
@@ -256,11 +258,36 @@ export default function App(): JSX.Element {
     }
     setMobileTransition({
       direction,
+      navigation: "select",
       phase: "tracking",
       progress,
       source: mobileSurface(),
       target,
     });
+  };
+  const previewMobileBack = (progress: number): void => {
+    const target = mobileHistory.backTarget();
+    if (!compact() || target === null) {
+      return;
+    }
+    setMobileTransition({
+      direction: -1,
+      navigation: "back",
+      phase: "tracking",
+      progress,
+      source: mobileSurface(),
+      target,
+    });
+  };
+  const commitMobileTransition = (transition: MobileTransition): void => {
+    if (transition.navigation === "back") {
+      if (transition.target !== "inbox") {
+        setActivePane(transition.target);
+      }
+      mobileHistory.back();
+    } else {
+      selectMobileSurface(transition.target);
+    }
   };
   const settleMobileTransition = (commit: boolean): void => {
     const transition = mobileTransition();
@@ -270,7 +297,7 @@ export default function App(): JSX.Element {
     const progress = commit ? 1 : 0;
     if (REDUCED_MOTION || transition.progress === progress) {
       if (commit) {
-        selectMobileSurface(transition.target);
+        commitMobileTransition(transition);
       }
       setMobileTransition(null);
       return;
@@ -297,18 +324,15 @@ export default function App(): JSX.Element {
       return;
     }
     if (transition.phase === "committing") {
-      selectMobileSurface(transition.target);
+      commitMobileTransition(transition);
     }
     setMobileTransition(null);
   };
   const mobileBackSwipe = createMobileBackSwipe({
+    canStart: () => compact() && mobileHistory.backTarget() !== null,
     onCancel: () => settleMobileTransition(false),
     onCommit: () => settleMobileTransition(true),
-    onProgress: (progress) => {
-      if (compact() && mobileSurface() !== "inbox") {
-        previewMobileSurface("inbox", 1, progress);
-      }
-    },
+    onProgress: previewMobileBack,
   });
   // Pane kinds in DFS order; index + 1 is the pane's Ctrl+N number. Always the REAL layout, so the numbers
   // stay stable in fullscreen.
@@ -506,7 +530,7 @@ export default function App(): JSX.Element {
     onDestinationActivated: () => {
       if (compact()) {
         setActivePane("editor");
-        navigateMobileSurface("editor");
+        drillMobileSurface("editor");
       }
     },
     focusVisibleOverlay: () => {

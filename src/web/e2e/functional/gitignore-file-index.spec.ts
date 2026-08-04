@@ -4,8 +4,8 @@ import { expect, test } from "../harness/fixtures";
 
 // Pins #139: the Go-to-File index is built from `git ls-files --cached --others --exclude-standard`, so a
 // gitignored file (a secret, a build artifact) never surfaces in quick-open, while tracked and
-// untracked-not-ignored files still do. Regression guard for GitService.ListWorkspaceFilesAsync +
-// HostCore.GitTrackedFilesAsync — without the fix the old unfiltered walk surfaced the ignored file.
+// untracked-not-ignored files still do. Regression guard for the shared WorkspaceInventory — without the fix
+// the old unfiltered walk surfaced the ignored file.
 test("Go-to-File omits gitignored files but keeps tracked + untracked ones", async ({
   weavie,
   page,

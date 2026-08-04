@@ -60,7 +60,17 @@ and forward to its editor controller.
 
 ## Watchers and edits
 
-Each `HostSession` owns a `WorkspaceWatcher`. A debounced disk-change batch fans out inside that owner:
+Each `HostSession` owns a `WorkspaceWatcher`. Its asynchronous Git inventory supplies tracked and untracked,
+non-ignored paths. Linux uses one shared inotify instance with flat watches only for inventoried directories;
+Windows and macOS use one kernel-recursive root subscription and filter every event through the inventory. It
+periodically refreshes the authoritative inventory and refreshes immediately when directory topology changes,
+so Linux startup and change capture never walk ignored trees such as `.git/objects`. A debounced disk-change
+batch fans out inside that owner:
+
+For non-Git folders, the navigation index supplies the files and visited directories from its existing walk to
+the same flat watcher. Watcher mutations are replayed over that snapshot, so files created, moved, or deleted
+while navigation is still walking cannot be resurrected or lost. Change monitoring itself never initiates a
+workspace walk.
 
 - file-provider change events refresh matching Monaco working copies;
 - LSP `workspace/didChangeWatchedFiles` updates that session's servers;

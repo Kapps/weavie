@@ -39,6 +39,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 	private Task? _disposeTask;
 	private PullRequestStatusMonitor? _pullRequestStatus;
 	private GitStatusMonitor? _gitStatus;
+	private string? _workspaceWatcherFailure;
 	// The server catalog advertised to the page (ids + language ids + default settings) — identical for every
 	// session, so serialized once; LspConfigJson adds the per-session worktree root.
 	private static readonly string LspServersCatalogJson = JsonSerializer.Serialize(
@@ -114,6 +115,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 		FileProvider = new FileProviderService(fileSystem, workspaceRoot, scratchDir);
 		Browser = new WorkspaceBrowser(fileSystem, workspaceRoot);
 		FileIndex = new WorkspaceFileIndex(fileSystem, workspaceRoot);
+		Inventory = new WorkspaceInventory(workspaceRoot);
 		Shell = new TerminalController(
 			Bus.Feature("terminal.shell"),
 			"shell",
@@ -222,9 +224,8 @@ public sealed partial class HostSession : IAsyncDisposable {
 			_ = Background.Run(_ => Lsp.DisconnectAsync(peer));
 		// Watch the worktree for on-disk edits (agent or external): fan each debounced batch to the editor's
 		// file:// provider (FileChanges) AND to the live language servers (didChangeWatchedFiles). Owned here, not by
-		// the LSP layer, so it runs even with zero servers connected. Started eagerly.
-		_watcher = new WorkspaceWatcher(workspaceRoot, LanguageServerCatalog.WatchedExtensions, OnWatchedChanges, Tagged("[lsp]"), debounceMs: 250);
-		_watcher.Start();
+		// the LSP layer, so it runs even with zero servers connected. Activation starts its async Git inventory.
+		_watcher = new WorkspaceWatcher(Inventory, LanguageServerCatalog.WatchedExtensions, OnWatchedChanges, Tagged("[lsp]"), debounceMs: 250);
 		WireMessages(inputFrozen, shellResized);
 	}
 
@@ -242,6 +243,29 @@ public sealed partial class HostSession : IAsyncDisposable {
 	internal void ActivateOwnedRuntimeAndMessages() {
 		Agent.Structured?.Start();
 		_endpoint.Activate();
+		_ = Background.Run(RunWorkspaceWatcherAsync);
+	}
+
+	private async Task RunWorkspaceWatcherAsync(CancellationToken ct) {
+		try {
+			await _watcher.RunAsync(ct).ConfigureAwait(false);
+		} catch (OperationCanceledException) when (ct.IsCancellationRequested) {
+			throw;
+		} catch (Exception ex) {
+			string message = $"Workspace file watching stopped: {ex.Message}";
+			Volatile.Write(ref _workspaceWatcherFailure, message);
+			_notificationMessages.Publish("show", new {
+				level = "error",
+				message,
+			});
+			throw;
+		}
+	}
+
+	internal void ReplayWorkspaceWatcherFailure(MessageTarget target) {
+		if (Volatile.Read(ref _workspaceWatcherFailure) is { } message) {
+			target.Feature("notifications").Publish("show", new { level = "error", message });
+		}
 	}
 
 	/// <summary>The transient page presentation currently attached to this exact session.</summary>
@@ -295,6 +319,9 @@ public sealed partial class HostSession : IAsyncDisposable {
 
 	/// <summary>Flat recursive file list under the session root, for the omnibar "Go to File" quick-open.</summary>
 	public WorkspaceFileIndex FileIndex { get; }
+
+	/// <summary>The session's authoritative Git-backed file and directory inventory.</summary>
+	public WorkspaceInventory Inventory { get; }
 
 	/// <summary>The selected provider's terminal-compatible agent pane, when it has one.</summary>
 	public TerminalController? Claude { get; }

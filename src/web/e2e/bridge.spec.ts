@@ -379,6 +379,101 @@ test.describe("session-addressed WebSocket transport", () => {
     }
   });
 
+  test("client-owned theme mode updates the page with a remote session selected", async ({
+    page,
+  }) => {
+    const local = mockSession("local", "local", "codex", true);
+    const remoteSession = mockSession("remote-codex", "codex", "codex", true);
+    const themeCommand = {
+      id: "weavie.theme.cycleMode",
+      title: "Cycle Theme Mode",
+      runsIn: "core",
+      owner: "client",
+      category: "Theme",
+      description: "Cycle the appearance mode.",
+      aliases: [],
+      showInPalette: true,
+      keys: ["$mod+Shift+m"],
+    };
+    const localCatalog = {
+      commands: [themeCommand],
+      keybindings: [{ key: "$mod+Shift+m", command: themeCommand.id }],
+    };
+    const theme = (mode: "dark" | "light") => ({
+      mode,
+      light: { id: "weavie-light" },
+      dark: { id: "weavie-dark" },
+    });
+    const editorBackground = () =>
+      page
+        .locator("html")
+        .evaluate((element) =>
+          getComputedStyle(element).getPropertyValue("--weavie-editor-background").trim(),
+        );
+
+    host.setSessions([local]);
+    const remote = await MockHost.start({
+      distDir,
+      sessions: [remoteSession],
+      commandCatalog: {
+        commands: [{ ...themeCommand, owner: "backend", title: "Remote duplicate" }],
+        keybindings: [{ key: "$mod+Shift+m", command: themeCommand.id }],
+      },
+    });
+    try {
+      await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
+      await host.waitUntilConnected();
+      host.publishHost("commands", "catalog", localCatalog);
+      host.publishHost("settings", "theme", theme("dark"));
+      await expect(page.locator("html")).toHaveAttribute("data-theme-type", "dark");
+      await expect.poll(editorBackground).toBe("#000000");
+
+      host.publishHost("remoteAgents", "changed", {
+        agents: [{ name: "devbox", url: remote.url, token: "runner-token" }],
+      });
+      await remote.waitUntilConnected();
+      host.publishHost("rail", "changed", {
+        lastLocation: "local",
+        promoted: ["remote:devbox remote-codex"],
+      });
+      await page.locator(".session-chip.remote").click();
+      await expect(page.locator(".session-chip.remote.active")).toHaveAttribute(
+        "title",
+        /^codex @/,
+      );
+
+      const offLocal = host.onSession(local.address, "request", "commands", "invoke", (message) => {
+        host.respond(message, { ok: true, message: "Theme mode: Light.", error: null });
+        host.publishHost("settings", "theme", theme("light"));
+      });
+      const remoteCheckpoint = remote.checkpoint();
+      const request = host.waitForSession(local.address, "request", "commands", "invoke");
+
+      await page.keyboard.press("ControlOrMeta+Shift+m");
+
+      expect((await request).payload).toMatchObject({ id: themeCommand.id });
+      await expect(page.locator("html")).toHaveAttribute("data-theme-type", "light");
+      await expect.poll(editorBackground).toBe("#e3e2da");
+      await expect(page.locator(".session-chip.remote.active")).toHaveAttribute(
+        "title",
+        /^codex @/,
+      );
+      expect(
+        remote.received
+          .slice(remoteCheckpoint)
+          .filter(
+            (message) =>
+              message.kind === "request" &&
+              message.feature === "commands" &&
+              message.name === "invoke",
+          ),
+      ).toEqual([]);
+      offLocal();
+    } finally {
+      await remote.close();
+    }
+  });
+
   test("network status stays degraded until reconnect hello completes", async ({ page }) => {
     const session = mockSession("main", "main", "claude", true);
     host.setSessions([session]);

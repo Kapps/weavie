@@ -165,21 +165,11 @@ public sealed partial class HostSession {
 			return;
 		}
 
-		if (!PastedImageMedia.TryExtension(message.Mime, out string extension)) {
-			Notify($"Can't paste that image type ({(message.Mime.Length == 0 ? "unknown" : message.Mime)}) — use PNG, JPEG, GIF, or WebP.");
-			return;
-		}
-
-		byte[] bytes;
 		try {
-			bytes = DecodeImage(message.DataB64);
-		} catch (InvalidOperationException ex) {
-			Notify(ex.Message + " Resize it and paste again.");
-			return;
-		}
-
-		if (bytes.Length > 0) {
+			var (extension, bytes) = PastedImageMedia.Decode(message.Mime, message.DataB64);
 			SendAgentImagePath(PastedImages.Write(extension, bytes));
+		} catch (Exception ex) when (ex is FormatException or InvalidOperationException) {
+			Notify(ex.Message + " Resize it and paste again.");
 		}
 	}
 
@@ -193,15 +183,7 @@ public sealed partial class HostSession {
 				throw new InvalidOperationException("This agent does not accept structured attachments.");
 			}
 
-			if (!PastedImageMedia.TryExtension(message.Mime, out string extension)) {
-				throw new InvalidOperationException(
-					$"Can't paste that image type ({(message.Mime.Length == 0 ? "unknown" : message.Mime)}) — use PNG, JPEG, GIF, or WebP.");
-			}
-
-			byte[] bytes = DecodeImage(message.DataB64);
-			if (bytes.Length == 0) {
-				throw new InvalidOperationException("The pasted image was empty.");
-			}
+			var (extension, bytes) = PastedImageMedia.Decode(message.Mime, message.DataB64);
 
 			var attachment = AgentAttachments.Add(message.Id, message.Mime, extension, bytes);
 			PublishAttachmentState(message.Id, attachment is null ? "removed" : "ready", string.Empty);
@@ -246,16 +228,6 @@ public sealed partial class HostSession {
 		} catch (Exception ex) when (ex is ArgumentException or InvalidOperationException) {
 			PublishSubmissionState(message.Id, [], "rejected", ex.Message);
 		}
-	}
-
-	private static byte[] DecodeImage(string dataB64) {
-		long approximateBytes = (long)dataB64.Length / 4 * 3;
-		if (approximateBytes > PastedImageMedia.MaxBytes) {
-			throw new InvalidOperationException(
-				$"That image is {approximateBytes / (1024.0 * 1024.0):0.0} MB — Weavie accepts agent images up to {PastedImageMedia.MaxBytes / (1024 * 1024)} MB.");
-		}
-
-		return Convert.FromBase64String(dataB64);
 	}
 
 	private void PublishAttachmentState(string id, string status, string error) =>

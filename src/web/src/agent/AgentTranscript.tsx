@@ -9,6 +9,7 @@ import type { AgentSectionLabel } from "./pane-store";
 
 export function AgentTranscript(props: {
   agentTurnStartId: string | null;
+  compact: boolean;
   entries: AgentTranscriptEntry[];
   expandedDetails: ReadonlySet<string>;
   keyboardApprovalId: string | null;
@@ -21,7 +22,7 @@ export function AgentTranscript(props: {
   return (
     <Show
       when={props.entries.length > 0}
-      fallback={<EmptyState providerName={props.providerName} />}
+      fallback={<EmptyState compact={props.compact} providerName={props.providerName} />}
     >
       <div
         class="agent-transcript"
@@ -77,11 +78,11 @@ export function AgentTranscript(props: {
   );
 }
 
-function EmptyState(props: { providerName: string }): JSX.Element {
+function EmptyState(props: { compact: boolean; providerName: string }): JSX.Element {
   const hints = (): { key: string; text: string }[] =>
     [
       {
-        key: liveKeyLabel(CommandIds.agentSubmit),
+        key: props.compact ? "" : liveKeyLabel(CommandIds.agentSubmit),
         text: "run the prompt — or steer a running turn",
       },
       { key: "/", text: "commands and skills" },
@@ -108,7 +109,8 @@ function EmptyState(props: { providerName: string }): JSX.Element {
         </For>
       </dl>
       <p class="agent-empty-controls">
-        The strip below the prompt switches the model, approvals, and sandbox — changes apply live.
+        {props.compact ? "The header" : "The strip below the prompt"} switches the model, approvals,
+        and sandbox — changes apply live.
       </p>
     </div>
   );

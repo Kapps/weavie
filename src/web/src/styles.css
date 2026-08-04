@@ -49,6 +49,7 @@ body,
 #root {
   height: 100%;
   margin: 0;
+  background: var(--bg);
 }
 
 /* Default the chrome UI font on <body> so anything portaled OUTSIDE .app — context menus, modal dialogs,

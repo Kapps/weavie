@@ -4,7 +4,7 @@ namespace Weavie.Core.Editor;
 
 /// <summary>
 /// Owns a session's pasted-image directory (see <see cref="WeaviePaths.WorkspacePastedImagesDir"/>). An image
-/// pasted into Claude is written here as <c>paste-N&lt;ext&gt;</c> and its path injected into the prompt, so the
+/// pasted into an agent is written here as <c>paste-N&lt;ext&gt;</c> and passed with its prompt, so the
 /// files never reach the tree, index, or git. Wiped on session unload via <see cref="Clear"/>.
 /// </summary>
 public sealed class PastedImageStore {

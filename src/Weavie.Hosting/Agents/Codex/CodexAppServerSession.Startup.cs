@@ -34,8 +34,6 @@ public sealed partial class CodexAppServerSession {
 			_turnId = null;
 			_turnStarting = false;
 			_threadPersisted = false;
-			_awaitingThreadAdoption = false;
-			_pendingThreadStarts.Clear();
 			_fileChangeSummaries.Clear();
 		}
 
@@ -80,7 +78,6 @@ public sealed partial class CodexAppServerSession {
 			_modeEffort = null;
 		}
 		long threadRequest = NextRequest();
-		BeginThreadAdoption();
 		var result = launch.Resume && !string.IsNullOrEmpty(launch.ThreadId)
 			? await ResumeThreadAsync(threadRequest, launch.ThreadId).ConfigureAwait(false)
 			: await StartThreadAsync(threadRequest).ConfigureAwait(false);
@@ -133,24 +130,10 @@ public sealed partial class CodexAppServerSession {
 			CancellationToken.None);
 
 	private void AdoptThread(string threadId) {
-		bool started;
 		lock (_gate) {
 			_threadId = threadId;
-			_awaitingThreadAdoption = false;
-			started = _pendingThreadStarts.Remove(threadId);
-			_pendingThreadStarts.Clear();
 		}
-
-		if (started) {
-			_context.Events.Observe(new AgentSessionStarted("startup"));
-		}
-	}
-
-	private void BeginThreadAdoption() {
-		lock (_gate) {
-			_awaitingThreadAdoption = true;
-			_pendingThreadStarts.Clear();
-		}
+		_context.Events.Observe(new AgentSessionStarted("startup"));
 	}
 
 	private void HydrateTranscript(JsonElement result) {

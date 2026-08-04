@@ -23,7 +23,9 @@ readline.createInterface({ input: process.stdin }).on("line", line => {
       send({ id: message.id, error: { code: -32600, message: "Invalid request: unknown variant `on-failure`" } });
     } else {
       send({ id: message.id, result: { thread: { id: "thread_fake" } } });
-      send({ method: "thread/started", params: { thread: { id: "thread_fake" } } });
+      if (!fs.existsSync("omit-thread-started")) {
+        send({ method: "thread/started", params: { thread: { id: "thread_fake" } } });
+      }
     }
   } else if (message.method === "thread/resume") {
     record("thread-resume.json", message);
@@ -36,7 +38,9 @@ readline.createInterface({ input: process.stdin }).on("line", line => {
       { type: "agentMessage", id: "agent_old", text: "old answer" }
     ] }] : [];
     send({ id: message.id, result: { thread: { id: message.params.threadId, turns } } });
-    send({ method: "thread/started", params: { thread: { id: message.params.threadId } } });
+    if (!fs.existsSync("omit-thread-started")) {
+      send({ method: "thread/started", params: { thread: { id: message.params.threadId } } });
+    }
   } else if (message.method === "model/list") {
     const efforts = levels => levels.map(effort => ({ reasoningEffort: effort, description: effort + " effort" }));
     send({ id: message.id, result: { data: [

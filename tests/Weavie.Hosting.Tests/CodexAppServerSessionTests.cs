@@ -62,6 +62,18 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 	}
 
 	[Fact]
+	public async Task ThreadStart_ResponseReportsReadyWithoutNotification() {
+		File.WriteAllText(Path.Combine(_dir, "omit-thread-started"), string.Empty);
+		var events = new CapturingAgentEventSink();
+		await using var session = CreateSession(events, new ConcurrentQueue<AgentPaneMessage>());
+
+		session.Start();
+		await WaitForAsync(() => events.Values.OfType<AgentSessionStarted>().Any());
+
+		Assert.Single(events.Values.OfType<AgentSessionStarted>());
+	}
+
+	[Fact]
 	public async Task ThreadResume_SendsWeavieDeveloperInstructions() {
 		var events = new CapturingAgentEventSink();
 		ConcurrentQueue<AgentPaneMessage> messages = new();
@@ -78,6 +90,25 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		Assert.Equal("thread_saved", doc.RootElement.GetProperty("params").GetProperty("threadId").GetString());
 		Assert.Contains("mcp__weavie__currentSession", instructions, StringComparison.Ordinal);
 		Assert.Contains("local (loopback only)", instructions, StringComparison.Ordinal);
+	}
+
+	[Fact]
+	public async Task ThreadResume_ResponseReportsReadyWithoutNotification() {
+		File.WriteAllText(Path.Combine(_dir, "omit-thread-started"), string.Empty);
+		var events = new CapturingAgentEventSink();
+		var fileSystem = new InMemoryFileSystem();
+		var threads = new CodexThreadStore(fileSystem, "/codex-threads.json");
+		threads.Adopt(_dir, "thread_saved");
+		await using var session = CreateSessionWithThreads(
+			events,
+			new ConcurrentQueue<AgentPaneMessage>(),
+			threads,
+			fileSystem);
+
+		session.Start();
+		await WaitForAsync(() => events.Values.OfType<AgentSessionStarted>().Any());
+
+		Assert.Single(events.Values.OfType<AgentSessionStarted>());
 	}
 
 	[Fact]
@@ -133,8 +164,9 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		var threads = new CodexThreadStore(fileSystem, "/codex-threads.json");
 		threads.Adopt(_dir, "thread_broken");
 		File.WriteAllText(Path.Combine(_dir, "resume-fails"), string.Empty);
+		var events = new CapturingAgentEventSink();
 		ConcurrentQueue<AgentPaneMessage> messages = new();
-		await using var session = CreateSessionWithThreads(new NullAgentEventSink(), messages, threads, fileSystem);
+		await using var session = CreateSessionWithThreads(events, messages, threads, fileSystem);
 
 		session.Start();
 		await WaitForAsync(() => messages.Any(message => message.Type == "warning"));
@@ -146,6 +178,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		Assert.Contains("-32603", warning.Text, StringComparison.Ordinal);
 		Assert.Contains("failed to read thread", warning.PayloadJson ?? "", StringComparison.Ordinal);
 		Assert.DoesNotContain(messages, message => message.Type == "error");
+		Assert.Single(events.Values.OfType<AgentSessionStarted>());
 
 		// The dead mapping is gone, and the fresh thread is live: a prompt starts a turn and re-persists.
 		Assert.False(threads.Resolve(_dir).Resume);
@@ -161,8 +194,9 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		threads.Adopt(_dir, "thread_broken");
 		File.WriteAllText(Path.Combine(_dir, "resume-fails"), string.Empty);
 		File.WriteAllText(Path.Combine(_dir, "start-fails"), string.Empty);
+		var events = new CapturingAgentEventSink();
 		ConcurrentQueue<AgentPaneMessage> messages = new();
-		await using var session = CreateSessionWithThreads(new NullAgentEventSink(), messages, threads, fileSystem);
+		await using var session = CreateSessionWithThreads(events, messages, threads, fileSystem);
 
 		session.Start();
 		await WaitForAsync(() => messages.Any(message => message.Type == "error"));
@@ -174,6 +208,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		Assert.DoesNotContain(messages, message => message.Type == "transcript-reset");
 		Assert.True(threads.Resolve(_dir).Resume);
 		Assert.Equal("thread_broken", threads.Resolve(_dir).ThreadId);
+		Assert.Empty(events.Values.OfType<AgentSessionStarted>());
 	}
 
 	[Fact]
@@ -312,16 +347,18 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 
 	[Fact]
 	public async Task Restart_RetractsPendingApprovalCardsLoudly() {
+		File.WriteAllText(Path.Combine(_dir, "omit-thread-started"), string.Empty);
 		var events = new CapturingAgentEventSink();
 		ConcurrentQueue<AgentPaneMessage> messages = new();
 		await using var session = CreateSession(events, messages);
 
 		session.Start();
-		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
+		await WaitForAsync(() => events.Values.OfType<AgentSessionStarted>().Count() == 1);
 
 		session.Submit(Submission("approval then crash", []));
 		await WaitForAsync(() => messages.Any(message => message.Type == "approval-requested"));
 		await WaitForAsync(() => messages.Any(message => message.Type == "approval-resolved" && message.ItemId == "approval-3"));
+		await WaitForAsync(() => events.Values.OfType<AgentSessionStarted>().Count() == 2);
 
 		Assert.Contains(messages, message =>
 			message.Type == "approval-resolved"
@@ -332,6 +369,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 			&& message.Status == "cancel");
 		Assert.Contains(messages, message => message.Type == "warning" && message.ItemId == "approval-3");
 		Assert.Contains(events.Values, value => value is AgentPermissionResolved);
+		Assert.Equal(2, events.Values.OfType<AgentSessionStarted>().Count());
 	}
 
 	[Fact]

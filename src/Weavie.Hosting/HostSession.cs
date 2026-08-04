@@ -38,6 +38,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 	private EditorSession _editorSession = EditorSession.Empty;
 	private Task? _disposeTask;
 	private PullRequestStatusMonitor? _pullRequestStatus;
+	private string? _workspaceWatcherFailure;
 	// The server catalog advertised to the page (ids + language ids + default settings) — identical for every
 	// session, so serialized once; LspConfigJson adds the per-session worktree root.
 	private static readonly string LspServersCatalogJson = JsonSerializer.Serialize(
@@ -111,8 +112,9 @@ public sealed partial class HostSession : IAsyncDisposable {
 		PastedImages = new PastedImageStore(fileSystem, pastedImagesDir);
 		AgentAttachments = new AgentAttachmentStore(PastedImages);
 		FileProvider = new FileProviderService(fileSystem, workspaceRoot, scratchDir);
+		Inventory = new WorkspaceInventory(workspaceRoot);
 		FileActivity = new SessionFileActivity(
-			workspaceRoot,
+			Inventory,
 			Tagged("[files]"),
 			watcherDebounceMs: 250);
 		Browser = new WorkspaceBrowser(fileSystem, workspaceRoot);
@@ -240,8 +242,30 @@ public sealed partial class HostSession : IAsyncDisposable {
 	/// the host catalog.</summary>
 	internal void ActivateOwnedRuntimeAndMessages() {
 		_endpoint.Activate();
-		FileActivity.StartObserving();
+		_ = Background.Run(RunWorkspaceObservationAsync);
 		Agent.Structured?.Start();
+	}
+
+	private async Task RunWorkspaceObservationAsync(CancellationToken ct) {
+		try {
+			await FileActivity.RunObservingAsync(ct).ConfigureAwait(false);
+		} catch (OperationCanceledException) when (ct.IsCancellationRequested) {
+			throw;
+		} catch (Exception ex) {
+			string message = $"Workspace file watching stopped: {ex.Message}";
+			Volatile.Write(ref _workspaceWatcherFailure, message);
+			_notificationMessages.Publish("show", new {
+				level = "error",
+				message,
+			});
+			throw;
+		}
+	}
+
+	internal void ReplayWorkspaceWatcherFailure(MessageTarget target) {
+		if (Volatile.Read(ref _workspaceWatcherFailure) is { } message) {
+			target.Feature("notifications").Publish("show", new { level = "error", message });
+		}
 	}
 
 	/// <summary>The transient page presentation currently attached to this exact session.</summary>
@@ -288,6 +312,9 @@ public sealed partial class HostSession : IAsyncDisposable {
 
 	/// <summary>Flat recursive file list under the session root, for the omnibar "Go to File" quick-open.</summary>
 	public WorkspaceFileIndex FileIndex { get; }
+
+	/// <summary>The session's authoritative Git-backed file and directory inventory.</summary>
+	public WorkspaceInventory Inventory { get; }
 
 	/// <summary>The selected provider's terminal-compatible agent pane, when it has one.</summary>
 	public TerminalController? Claude { get; }
@@ -522,18 +549,26 @@ public sealed partial class HostSession : IAsyncDisposable {
 	/// <summary>Sends a prompt to the active agent using the provider's native input path.</summary>
 	public void SendAgentPrompt(string text) {
 		ArgumentNullException.ThrowIfNull(text);
-		if (Claude is not null) {
-			Claude.Write(Encoding.UTF8.GetBytes(text));
-			Claude.Write([(byte)'\r']);
-			return;
-		}
-
-		Agent.Structured?.Submit(new AgentTurnSubmission {
+		SendAgentInput(new AgentTurnSubmission {
 			Id = Guid.NewGuid().ToString("n"),
 			Text = text,
 			Attachments = [],
 			Skills = [],
 		});
+	}
+
+	/// <summary>Sends one atomic input to the active agent using the provider's native input path.</summary>
+	private void SendAgentInput(AgentTurnSubmission input) {
+		if (Claude is not null) {
+			foreach (var attachment in input.Attachments) {
+				SendAgentImagePath(attachment.Path);
+			}
+			Claude.Write(Encoding.UTF8.GetBytes(input.Text));
+			Claude.Write([(byte)'\r']);
+			return;
+		}
+
+		Agent.Structured?.Submit(input);
 	}
 
 	/// <summary>Prefills a prompt in the active agent without submitting it, when the provider supports draft input.</summary>
@@ -592,10 +627,11 @@ public sealed partial class HostSession : IAsyncDisposable {
 	}
 
 	private async Task DisposeCoreAsync() {
-		DiscardInitialPrompt();
+		DiscardInitialInput();
 		var failures = new List<Exception>();
 		await DisposeStepAsync(failures, () => _endpoint.QuiesceAsync()).ConfigureAwait(false);
 		await DisposeStepAsync(failures, FileActivity.StopObservingAsync).ConfigureAwait(false);
+		await DisposeStepAsync(failures, () => Background.DisposeAsync().AsTask()).ConfigureAwait(false);
 		// Terminal disposal blocks until the PTY children exit (so a following worktree delete can't race a
 		// process still rooted there). Keep it off the calling UI thread.
 		await DisposeStepAsync(failures, () => Task.Run(() => Shell.Dispose())).ConfigureAwait(false);
@@ -604,7 +640,6 @@ public sealed partial class HostSession : IAsyncDisposable {
 			failures,
 			() => FileActivity.DrainAsync(CancellationToken.None)).ConfigureAwait(false);
 		await DisposeStepAsync(failures, () => FileActivity.DisposeAsync().AsTask()).ConfigureAwait(false);
-		await DisposeStepAsync(failures, () => Background.DisposeAsync().AsTask()).ConfigureAwait(false);
 		await DisposeStepAsync(failures, () => FileOpener.DisposeAsync().AsTask()).ConfigureAwait(false);
 		await DisposeStepAsync(failures, () => Lsp.DisposeAsync().AsTask()).ConfigureAwait(false);
 		await DisposeStepAsync(failures, () => {

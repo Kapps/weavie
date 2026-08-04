@@ -1,5 +1,6 @@
 using Weavie.Core.FileActivity;
 using Weavie.Core.FileSystem;
+using Weavie.Core.Workspaces;
 using Xunit;
 
 namespace Weavie.Core.Tests;
@@ -165,7 +166,9 @@ public sealed class SessionFileActivityTests {
 	}
 
 	private static SessionFileActivity Create() => new(
-		Path.GetTempPath(),
+		new WorkspaceInventory(
+			Path.GetTempPath(),
+			_ => Task.FromResult<IReadOnlyList<string>?>([])),
 		_ => { },
 		watcherDebounceMs: 25);
 

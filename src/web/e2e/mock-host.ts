@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import { extname, join, normalize } from "node:path";
 import { type WebSocket, WebSocketServer } from "ws";
+import { basename } from "../src/editor/fs-path";
 
 export interface SessionAddress {
   slot: string;
@@ -114,6 +115,7 @@ export interface MockHostOptions {
   distDir: string;
   files?: Record<string, string>;
   sessions?: MockSession[];
+  commandCatalog?: { commands: unknown[]; keybindings: unknown[] };
 }
 
 export class MockHost {
@@ -123,6 +125,7 @@ export class MockHost {
 
   private readonly media = new Map<string, Buffer>();
   private readonly distDir: string;
+  private readonly commandCatalog: { commands: unknown[]; keybindings: unknown[] };
   private readonly http: Server;
   private readonly wss: WebSocketServer;
   private readonly waiters: MessageWaiter[] = [];
@@ -139,8 +142,14 @@ export class MockHost {
   private requestSequence = 0;
   private port = 0;
 
-  private constructor(distDir: string, files: Record<string, string>, sessions: MockSession[]) {
+  private constructor(
+    distDir: string,
+    files: Record<string, string>,
+    sessions: MockSession[],
+    commandCatalog: { commands: unknown[]; keybindings: unknown[] },
+  ) {
     this.distDir = distDir;
+    this.commandCatalog = commandCatalog;
     this.files = new Map(Object.entries(files));
     this.sessions = sessions;
     this.http = createServer(
@@ -151,7 +160,12 @@ export class MockHost {
   }
 
   static async start(options: MockHostOptions): Promise<MockHost> {
-    const host = new MockHost(options.distDir, options.files ?? {}, options.sessions ?? []);
+    const host = new MockHost(
+      options.distDir,
+      options.files ?? {},
+      options.sessions ?? [],
+      options.commandCatalog ?? { commands: [], keybindings: [] },
+    );
     await new Promise<void>((resolve) => host.http.listen(0, "127.0.0.1", resolve));
     const address = host.http.address();
     if (address === null || typeof address === "string") {
@@ -521,7 +535,7 @@ export class MockHost {
         recentTerms: [],
       },
       testProfile: "",
-      commandCatalog: { commands: [], keybindings: [] },
+      commandCatalog: this.commandCatalog,
     };
   }
 
@@ -546,10 +560,11 @@ export class MockHost {
       }
       return;
     }
-    if (pathname === "/weavie-media") {
+    if (pathname.startsWith("/weavie-media/")) {
       const session = request.searchParams.get("session") ?? "";
       const path = request.searchParams.get("path") ?? "";
-      const body = this.media.get(JSON.stringify([session, path]));
+      const routeMatches = pathname === `/weavie-media/${encodeURIComponent(basename(path))}`;
+      const body = routeMatches ? this.media.get(JSON.stringify([session, path])) : undefined;
       const status = body === undefined ? 404 : 200;
       this.mediaRequests.push({ session, path, status });
       res

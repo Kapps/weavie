@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Weavie.Core.Commands;
 using Xunit;
 
@@ -22,6 +23,9 @@ public sealed class CommandTests {
 
 	private static CommandDefinition Core(string id) =>
 		new() { Id = id, Title = id, RunsIn = CommandLocation.Core };
+
+	private static CommandDefinition ClientCore(string id) =>
+		Core(id) with { Owner = CommandOwner.Client };
 
 	[Fact]
 	public void Register_Duplicate_Throws() {
@@ -62,6 +66,58 @@ public sealed class CommandTests {
 		var result = await dispatcher.InvokeAsync("weavie.terminal.reopen", null, CancellationToken.None);
 		Assert.False(result.Ok);
 		Assert.Contains("no handler", result.Error!, StringComparison.OrdinalIgnoreCase);
+	}
+
+	[Fact]
+	public async Task PrepareModelInvocation_ClientCoreCommand_RelaysToPresentationClient() {
+		var dispatcher = new CommandDispatcher(RegistryWith(ClientCore("weavie.font.increase")));
+		bool localHandlerRan = false;
+		dispatcher.RegisterHandler("weavie.font.increase", (_, _) => {
+			localHandlerRan = true;
+			return Task.FromResult(CommandResult.Success());
+		});
+		dispatcher.ClientInvoker = (id, args, _) =>
+			Task.FromResult(CommandResult.Success($"{id}:{args}"));
+
+		var execution = await dispatcher.PrepareModelInvocationAsync(
+			"weavie.font.increase",
+			"{\"step\":1}",
+			CancellationToken.None);
+
+		Assert.True(execution.Result.Ok);
+		Assert.Equal("weavie.font.increase:{\"step\":1}", execution.Result.Message);
+		Assert.False(localHandlerRan);
+	}
+
+	[Fact]
+	public async Task PrepareModelInvocation_ClientCoreCommandWithoutClient_FailsLoudly() {
+		var dispatcher = new CommandDispatcher(RegistryWith(ClientCore("weavie.font.increase")));
+		dispatcher.RegisterHandler(
+			"weavie.font.increase",
+			(_, _) => Task.FromResult(CommandResult.Success()));
+
+		var execution = await dispatcher.PrepareModelInvocationAsync(
+			"weavie.font.increase",
+			null,
+			CancellationToken.None);
+
+		Assert.False(execution.Result.Ok);
+		Assert.Contains("presentation client", execution.Result.Error, StringComparison.OrdinalIgnoreCase);
+	}
+
+	[Fact]
+	public async Task PrepareModelInvocation_BackendCoreCommandStillRunsItsHandler() {
+		var dispatcher = new CommandDispatcher(RegistryWith(Core("weavie.terminal.reopen")));
+		dispatcher.RegisterHandler(
+			"weavie.terminal.reopen",
+			(_, _) => Task.FromResult(CommandResult.Success("backend")));
+
+		var execution = await dispatcher.PrepareModelInvocationAsync(
+			"weavie.terminal.reopen",
+			null,
+			CancellationToken.None);
+
+		Assert.Equal("backend", execution.Result.Message);
 	}
 
 	[Fact]
@@ -180,7 +236,34 @@ public sealed class CommandTests {
 		var command = CoreCommands.CreateRegistry().Require(id);
 
 		Assert.Equal(CommandLocation.Web, command.RunsIn);
+		Assert.Equal(CommandOwner.Client, command.Owner);
 		Assert.Equal("nativeShell", command.When);
 		Assert.Equal(key, Assert.Single(command.DefaultKeybindings).Key);
+	}
+
+	[Theory]
+	[InlineData(CoreCommands.IncreaseFontSize)]
+	[InlineData(CoreCommands.DecreaseFontSize)]
+	[InlineData(CoreCommands.ResetFontSize)]
+	[InlineData(CoreCommands.InstallTheme)]
+	[InlineData(CoreCommands.InstallThemeFromFile)]
+	[InlineData(CoreCommands.SelectTheme)]
+	[InlineData(CoreCommands.CycleThemeMode)]
+	[InlineData(CoreCommands.UndoThemeOverride)]
+	[InlineData(CoreCommands.ResetTheme)]
+	[InlineData(CoreCommands.ToggleWindow)]
+	public void PresentationCommands_AreClientOwned(string id) {
+		var command = CoreCommands.CreateRegistry().Require(id);
+
+		Assert.Equal(CommandOwner.Client, command.Owner);
+	}
+
+	[Fact]
+	public void CommandCatalog_EmitsClientOwnership() {
+		var command = Core("weavie.font.increase") with { Owner = CommandOwner.Client };
+
+		using var catalog = JsonDocument.Parse(CommandCatalog.BuildCommandsArrayJson([command], []));
+
+		Assert.Equal("client", catalog.RootElement[0].GetProperty("owner").GetString());
 	}
 }

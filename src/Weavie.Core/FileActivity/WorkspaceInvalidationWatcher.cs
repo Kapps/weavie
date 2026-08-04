@@ -1,170 +1,268 @@
+using System.Collections.Concurrent;
+using System.Threading.Channels;
 using Weavie.Core.Workspaces;
 
 namespace Weavie.Core.FileActivity;
 
 /// <summary>
-/// Watches a workspace tree and reports native-path invalidations in debounced batches. Stop flushes pending
-/// invalidations and waits for in-flight delivery, so its owner can drain without losing admitted work.
+/// Reports generic workspace invalidations from an authoritative file inventory. Platform watch sets observe
+/// only inventoried paths; filtering for domain-specific consumers belongs in their projections.
 /// </summary>
-public sealed class WorkspaceInvalidationWatcher : IDisposable {
-	private readonly string _root;
+public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
+	private static readonly TimeSpan InventoryRefreshInterval = TimeSpan.FromSeconds(2);
+	private static readonly StringComparer PathComparer =
+		OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+	private readonly WorkspaceInventory _inventory;
 	private readonly Action<IReadOnlyList<FileInvalidation>> _onChanges;
 	private readonly Action<string> _log;
 	private readonly TimeSpan _debounce;
-	private readonly Dictionary<string, FileInvalidationKind> _pending = new(StringComparer.OrdinalIgnoreCase);
-	private readonly Lock _gate = new();
-	private TaskCompletionSource _idle = CompletedSource();
-
-	private FileSystemWatcher? _watcher;
+	private readonly TimeSpan _refreshInterval;
+	private readonly ConcurrentDictionary<string, FileInvalidationKind> _pending = new(PathComparer);
+	private readonly IWorkspaceDirectoryWatchSet _directoryWatchers;
+	private readonly Channel<bool> _refreshSignals = Channel.CreateBounded<bool>(new BoundedChannelOptions(1) {
+		FullMode = BoundedChannelFullMode.DropWrite,
+		SingleReader = true,
+		SingleWriter = false,
+	});
+	private readonly Lock _flushLock = new();
+	private readonly CancellationTokenSource _stopping = new();
+	private readonly TaskCompletionSource _ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
+	private readonly TaskCompletionSource _finished = new(TaskCreationOptions.RunContinuationsAsynchronously);
+	private IReadOnlySet<string> _files;
+	private bool _isRepository;
+	private Exception? _watcherFailure;
 	private Timer? _debounceTimer;
-	private int _deliveries;
-	private bool _stopping;
+	private Task? _stopTask;
+	private bool _runStarted;
+	private bool _disposed;
 
-	/// <summary>Creates a dormant watcher for <paramref name="root"/>.</summary>
+	/// <summary>Creates an inventory-driven watcher. Call <see cref="RunAsync"/> to begin watching.</summary>
+	/// <param name="inventory">The authoritative workspace file and directory inventory.</param>
+	/// <param name="onChanges">Invoked with a debounced native-path batch off the UI thread.</param>
+	/// <param name="log">Diagnostic log sink.</param>
+	/// <param name="debounceMs">How long to coalesce rapid changes before flushing a batch.</param>
 	public WorkspaceInvalidationWatcher(
-		string root,
+		WorkspaceInventory inventory,
 		Action<IReadOnlyList<FileInvalidation>> onChanges,
 		Action<string> log,
-		int debounceMs) {
-		ArgumentException.ThrowIfNullOrEmpty(root);
+		int debounceMs)
+		: this(
+			inventory,
+			onChanges,
+			log,
+			debounceMs,
+			InventoryRefreshInterval,
+			path => new FileSystemWatcher(path),
+			usePlatformWatcher: true) { }
+
+	internal WorkspaceInvalidationWatcher(
+		WorkspaceInventory inventory,
+		Action<IReadOnlyList<FileInvalidation>> onChanges,
+		Action<string> log,
+		int debounceMs,
+		TimeSpan refreshInterval,
+		Func<string, FileSystemWatcher> createWatcher)
+		: this(
+			inventory,
+			onChanges,
+			log,
+			debounceMs,
+			refreshInterval,
+			createWatcher,
+			usePlatformWatcher: false) { }
+
+	private WorkspaceInvalidationWatcher(
+		WorkspaceInventory inventory,
+		Action<IReadOnlyList<FileInvalidation>> onChanges,
+		Action<string> log,
+		int debounceMs,
+		TimeSpan refreshInterval,
+		Func<string, FileSystemWatcher> createWatcher,
+		bool usePlatformWatcher) {
+		ArgumentNullException.ThrowIfNull(inventory);
 		ArgumentNullException.ThrowIfNull(onChanges);
 		ArgumentNullException.ThrowIfNull(log);
-		_root = Path.GetFullPath(root);
+		ArgumentNullException.ThrowIfNull(createWatcher);
+		if (debounceMs < 0) {
+			throw new ArgumentOutOfRangeException(nameof(debounceMs));
+		}
+
+		if (refreshInterval <= TimeSpan.Zero) {
+			throw new ArgumentOutOfRangeException(nameof(refreshInterval));
+		}
+
+		_inventory = inventory;
 		_onChanges = onChanges;
 		_log = log;
 		_debounce = TimeSpan.FromMilliseconds(debounceMs);
+		_refreshInterval = refreshInterval;
+		_directoryWatchers = usePlatformWatcher && OperatingSystem.IsLinux()
+			? new LinuxWorkspaceDirectoryWatchSet(OnCreated, OnChanged, OnDeleted, OnRenamed, OnError)
+			: usePlatformWatcher
+			? new RecursiveWorkspaceDirectoryWatchSet(
+				inventory.Root,
+				OnCreated,
+				OnChanged,
+				OnDeleted,
+				OnRenamed,
+				OnError)
+			: new FileSystemWorkspaceDirectoryWatchSet(
+				createWatcher,
+				OnCreated,
+				OnChanged,
+				OnDeleted,
+				OnRenamed,
+				OnError);
+		_files = new HashSet<string>(PathComparer);
 	}
 
-	/// <summary>Begins watching. No-op if the root does not exist or watching is unavailable.</summary>
-	public void Start() {
-		lock (_gate) {
-			ObjectDisposedException.ThrowIf(_stopping, this);
-			if (_watcher is not null || !Directory.Exists(_root)) {
-				return;
-			}
+	/// <summary>Completes when the initial inventory is loaded and platform watches are installed.</summary>
+	public Task Ready => _ready.Task;
 
-			try {
-				_watcher = new FileSystemWatcher(_root) {
-					IncludeSubdirectories = true,
-					NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.CreationTime | NotifyFilters.Size,
-					InternalBufferSize = 64 * 1024,
-				};
-				_watcher.Created += (_, e) => Record(e.FullPath, FileInvalidationKind.Created);
-				_watcher.Changed += (_, e) => Record(e.FullPath, FileInvalidationKind.Changed);
-				_watcher.Deleted += (_, e) => Record(e.FullPath, FileInvalidationKind.Deleted);
-				_watcher.Renamed += (_, e) => {
-					Record(e.OldFullPath, FileInvalidationKind.Deleted);
-					Record(e.FullPath, FileInvalidationKind.Created);
-				};
-				_watcher.Error += (_, e) => _log($"workspace watcher error: {e.GetException().Message}");
-				_debounceTimer = new Timer(_ => Flush(), null, Timeout.Infinite, Timeout.Infinite);
-				_watcher.EnableRaisingEvents = true;
-				_log($"workspace watcher on {_root}");
-			} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) {
-				_log($"workspace watcher failed to start: {ex.Message}");
-				_watcher?.Dispose();
-				_watcher = null;
+	/// <summary>
+	/// Loads the inventory asynchronously, then watches its directories until cancelled or stopped. Throws when
+	/// the authoritative inventory or platform watcher fails.
+	/// </summary>
+	public async Task RunAsync(CancellationToken ct) {
+		lock (_flushLock) {
+			ObjectDisposedException.ThrowIf(_disposed, this);
+			if (_runStarted) {
+				throw new InvalidOperationException("Workspace observation is already running.");
 			}
+			_runStarted = true;
 		}
-	}
 
-	/// <summary>Stops new observation, flushes pending invalidations, and waits for active delivery.</summary>
-	public async Task StopAsync() {
-		IReadOnlyList<FileInvalidation> pending;
-		Task idle;
-		FileSystemWatcher? watcher = null;
-		Timer? timer = null;
-		lock (_gate) {
-			if (_stopping) {
-				idle = _idle.Task;
-				pending = [];
-			} else {
-				_stopping = true;
-				watcher = _watcher;
-				_watcher = null;
-				timer = _debounceTimer;
-				_debounceTimer = null;
-				pending = TakePendingLocked();
-				if (pending.Count > 0) {
-					BeginDeliveryLocked();
+		using var runStopping = CancellationTokenSource.CreateLinkedTokenSource(ct, _stopping.Token);
+		var runCt = runStopping.Token;
+		try {
+			await Task.CompletedTask.ConfigureAwait(ConfigureAwaitOptions.ForceYielding);
+			lock (_flushLock) {
+				if (_disposed) {
+					_ready.TrySetException(new ObjectDisposedException(nameof(WorkspaceInvalidationWatcher)));
+					return;
 				}
-				idle = _idle.Task;
+				_debounceTimer = new Timer(_ => Flush(), null, Timeout.Infinite, Timeout.Infinite);
+			}
+
+			_inventory.Changed += SignalRefresh;
+			try {
+				await RefreshAsync(initial: true, runCt).ConfigureAwait(false);
+				_ready.TrySetResult();
+				using var timer = new PeriodicTimer(_refreshInterval);
+				var tick = timer.WaitForNextTickAsync(runCt).AsTask();
+				var signal = _refreshSignals.Reader.WaitToReadAsync(runCt).AsTask();
+				while (true) {
+					Task completed = await Task.WhenAny(signal, tick).ConfigureAwait(false);
+					if (completed == signal) {
+						if (!await signal.ConfigureAwait(false)) {
+							break;
+						}
+
+						while (_refreshSignals.Reader.TryRead(out _)) { }
+						signal = _refreshSignals.Reader.WaitToReadAsync(runCt).AsTask();
+					}
+
+					if (tick.IsCompleted) {
+						if (!await tick.ConfigureAwait(false)) {
+							break;
+						}
+
+						tick = timer.WaitForNextTickAsync(runCt).AsTask();
+					}
+
+					if (Interlocked.Exchange(ref _watcherFailure, null) is { } failure) {
+						throw new IOException("Workspace file watching failed.", failure);
+					}
+
+					await RefreshAsync(initial: false, runCt).ConfigureAwait(false);
+				}
+			} finally {
+				_inventory.Changed -= SignalRefresh;
+			}
+		} catch (OperationCanceledException) when (_stopping.IsCancellationRequested) {
+			_ready.TrySetCanceled(_stopping.Token);
+		} catch (Exception ex) {
+			_ready.TrySetException(ex);
+			throw;
+		} finally {
+			_directoryWatchers.Dispose();
+			_finished.TrySetResult();
+		}
+	}
+
+	/// <summary>Stops observation, flushes pending invalidations, and waits for the run loop to finish.</summary>
+	public Task StopAsync() {
+		lock (_flushLock) {
+			return _stopTask ??= StopCoreAsync();
+		}
+	}
+
+	private async Task StopCoreAsync() {
+		await Task.Yield();
+		Timer? timer;
+		bool waitForRun;
+		lock (_flushLock) {
+			_disposed = true;
+			timer = _debounceTimer;
+			_debounceTimer = null;
+			waitForRun = _runStarted;
+		}
+
+		timer?.Dispose();
+		_stopping.Cancel();
+		_directoryWatchers.Dispose();
+		_refreshSignals.Writer.TryComplete();
+		FlushPendingOnStop();
+		if (waitForRun) {
+			await _finished.Task.ConfigureAwait(false);
+		}
+		_stopping.Dispose();
+	}
+
+	private async Task RefreshAsync(bool initial, CancellationToken ct) {
+		var snapshot = await _inventory.RefreshAsync(ct).ConfigureAwait(false);
+		Volatile.Write(ref _isRepository, snapshot.IsRepository);
+		var nextFiles = snapshot.Files.ToHashSet(PathComparer);
+		if (!initial) {
+			foreach (string path in nextFiles.Except(_files, PathComparer)) {
+				Record(path, FileInvalidationKind.Created);
+			}
+
+			foreach (string path in _files.Except(nextFiles, PathComparer)) {
+				Record(path, FileInvalidationKind.Deleted);
 			}
 		}
 
-		if (watcher is not null) {
-			watcher.EnableRaisingEvents = false;
-			watcher.Dispose();
-		}
-		timer?.Dispose();
-		if (pending.Count > 0) {
-			Deliver(pending);
-		}
-		await idle.ConfigureAwait(false);
+		Volatile.Write(ref _files, nextFiles);
+		_directoryWatchers.Reconcile(snapshot.Directories);
+		_log($"workspace watcher on {_inventory.Root} ({_directoryWatchers.Count} flat directories)");
 	}
+
+	private void SignalRefresh() => _refreshSignals.Writer.TryWrite(true);
 
 	/// <inheritdoc/>
 	public void Dispose() => StopAsync().GetAwaiter().GetResult();
 
-	internal void Record(string fullPath, FileInvalidationKind kind) {
-		if (WorkspacePaths.HasIgnoredSegment(fullPath)) {
+	private void FlushPendingOnStop() {
+		lock (_flushLock) {
+			DeliverPendingLocked();
+		}
+	}
+
+	private void DeliverPendingLocked() {
+		if (_pending.IsEmpty) {
 			return;
 		}
 
-		lock (_gate) {
-			if (_stopping) {
-				return;
+		var batch = new List<FileInvalidation>(_pending.Count);
+		foreach (var (path, kind) in _pending) {
+			if (_pending.TryRemove(path, out _)) {
+				batch.Add(new FileInvalidation(path, kind));
 			}
-			_pending[Path.GetFullPath(fullPath)] = kind;
-			_debounceTimer?.Change(_debounce, Timeout.InfiniteTimeSpan);
 		}
-	}
 
-	private void Flush() {
-		IReadOnlyList<FileInvalidation> batch;
-		lock (_gate) {
-			if (_stopping) {
-				return;
-			}
-			batch = TakePendingLocked();
-			if (batch.Count == 0) {
-				return;
-			}
-			BeginDeliveryLocked();
-		}
-		Deliver(batch);
-	}
-
-	private IReadOnlyList<FileInvalidation> TakePendingLocked() {
-		if (_pending.Count == 0) {
-			return [];
-		}
-		var batch = _pending.Select(pair => new FileInvalidation(pair.Key, pair.Value)).ToArray();
-		_pending.Clear();
-		return batch;
-	}
-
-	private void BeginDeliveryLocked() {
-		if (_deliveries++ == 0) {
-			_idle = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-		}
-	}
-
-	private void Deliver(IReadOnlyList<FileInvalidation> batch) {
-		try {
+		if (batch.Count > 0) {
 			_onChanges(batch);
-		} finally {
-			lock (_gate) {
-				if (--_deliveries == 0) {
-					_idle.TrySetResult();
-				}
-			}
 		}
-	}
-
-	private static TaskCompletionSource CompletedSource() {
-		var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-		completed.SetResult();
-		return completed;
 	}
 }

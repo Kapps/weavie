@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -62,7 +63,7 @@ public sealed partial class WorkspaceHttpServer : IAsyncDisposable {
 			return;
 		}
 
-		var builder = WebApplication.CreateBuilder();
+		var builder = CreateApplicationBuilder();
 		builder.Logging.ClearProviders();
 		string bindHost = _options.BindAddress.Contains(":", StringComparison.Ordinal)
 			&& !_options.BindAddress.StartsWith("[", StringComparison.Ordinal)
@@ -104,7 +105,7 @@ public sealed partial class WorkspaceHttpServer : IAsyncDisposable {
 			context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
 			await context.Response.WriteAsync("weavie is starting").ConfigureAwait(false);
 		});
-		app.MapMethods("/weavie-media", [HttpMethods.Get, HttpMethods.Head], ServeMediaAsync);
+		app.MapMethods("/weavie-media/{fileName}", [HttpMethods.Get, HttpMethods.Head], ServeMediaAsync);
 		if (_bridge.Available) {
 			app.Map("/weavie-bridge", ServeBridgeAsync);
 		}
@@ -162,6 +163,14 @@ public sealed partial class WorkspaceHttpServer : IAsyncDisposable {
 		Origin = NormalizeOrigin(app.Urls.First(), _options.BindAddress);
 	}
 
+	internal static WebApplicationBuilder CreateApplicationBuilder() {
+		var builder = WebApplication.CreateEmptyBuilder(new WebApplicationOptions());
+		builder.Services.AddLogging();
+		builder.Services.AddRouting();
+		builder.WebHost.UseKestrel();
+		return builder;
+	}
+
 	/// <summary>Marks the Core graph ready for dynamic requests.</summary>
 	public void MarkReady() => Volatile.Write(ref _ready, true);
 
@@ -171,8 +180,13 @@ public sealed partial class WorkspaceHttpServer : IAsyncDisposable {
 		: _app.WaitForShutdownAsync();
 
 	private async Task ServeMediaAsync(HttpContext context) {
+		string fileName = context.Request.RouteValues["fileName"]?.ToString() ?? string.Empty;
 		string session = context.Request.Query["session"].ToString();
 		string path = context.Request.Query["path"].ToString();
+		if (!string.Equals(fileName, Path.GetFileName(path), StringComparison.Ordinal)) {
+			context.Response.StatusCode = StatusCodes.Status404NotFound;
+			return;
+		}
 		var resource = _media.Open(session, path);
 		if (resource is null) {
 			context.Response.StatusCode = StatusCodes.Status404NotFound;

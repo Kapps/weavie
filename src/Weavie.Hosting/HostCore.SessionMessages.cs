@@ -144,6 +144,7 @@ public sealed partial class HostCore {
 
 	private void SyncSession(HostSession session, MessageTarget target) {
 		session.ReplayEditor(target.Feature("editor"), line => Log(line));
+		session.ReplayWorkspaceWatcherFailure(target);
 		session.State.Replay(target);
 		PushLspConfigToWeb(session, target);
 		PostSessionStatus(target, session.Status.Status);

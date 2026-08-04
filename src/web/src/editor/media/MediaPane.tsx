@@ -82,6 +82,7 @@ export default function MediaPane(props: {
               controls
               preload="metadata"
               autoplay={autoplay()}
+              playsinline
               onLoadedMetadata={() => setStatus("ready")}
               onError={failed}
             />

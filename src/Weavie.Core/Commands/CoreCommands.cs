@@ -507,6 +507,7 @@ public static class CoreCommands {
 			Id = OpenFolder,
 			Title = "Open Folder…",
 			RunsIn = CommandLocation.Web,
+			Owner = CommandOwner.Client,
 			Category = "File",
 			Description = "Open a different workspace folder (shows the native folder picker).",
 			Aliases = ["open folder", "open workspace", "change folder", "pick folder"],
@@ -518,6 +519,7 @@ public static class CoreCommands {
 			Id = OpenRecentWorkspace,
 			Title = "Open Recent Workspace",
 			RunsIn = CommandLocation.Web,
+			Owner = CommandOwner.Client,
 			Category = "File",
 			Description = "Open a recent workspace folder by absolute path.",
 			Aliases = ["open recent workspace", "recent folder"],
@@ -530,6 +532,7 @@ public static class CoreCommands {
 			Id = CloseWindow,
 			Title = "Close Window",
 			RunsIn = CommandLocation.Web,
+			Owner = CommandOwner.Client,
 			Category = "File",
 			Description = "Close the current workspace window.",
 			Aliases = ["close window", "close workspace"],
@@ -541,6 +544,7 @@ public static class CoreCommands {
 			Id = Exit,
 			Title = "Exit Weavie",
 			RunsIn = CommandLocation.Web,
+			Owner = CommandOwner.Client,
 			Category = "File",
 			Description = "Quit Weavie.",
 			Aliases = ["exit", "quit", "quit weavie"],
@@ -693,7 +697,7 @@ public static class CoreCommands {
 			Aliases = ["submit prompt", "run prompt", "send prompt", "agent submit"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "enter" }],
 			// While a composer overlay (slash menu or control picker) is open, Enter drives it, not submission.
-			When = "agentComposerFocused && !agentSlashMenuOpen && !agentControlPickerOpen",
+			When = "agentComposerFocused && !compact && !agentSlashMenuOpen && !agentControlPickerOpen",
 		});
 
 		registry.Register(new CommandDefinition {
@@ -962,6 +966,7 @@ public static class CoreCommands {
 			Id = ToggleWindow,
 			Title = "Toggle Weavie Window",
 			RunsIn = CommandLocation.Core,
+			Owner = CommandOwner.Client,
 			Category = "View",
 			Description = "Toggle the Weavie window: bring it to the foreground when another app is in front, "
 				+ "or hand focus back to the previously focused window (dropping Weavie behind) when it's already focused.",
@@ -1427,6 +1432,7 @@ public static class CoreCommands {
 			Id = IncreaseFontSize,
 			Title = "Increase Font Size",
 			RunsIn = CommandLocation.Core,
+			Owner = CommandOwner.Client,
 			Category = "View",
 			Description = "Increase the editor and terminal font size by one pixel.",
 			Aliases = ["increase font size", "zoom in", "bigger text", "larger font", "font bigger"],
@@ -1437,6 +1443,7 @@ public static class CoreCommands {
 			Id = DecreaseFontSize,
 			Title = "Decrease Font Size",
 			RunsIn = CommandLocation.Core,
+			Owner = CommandOwner.Client,
 			Category = "View",
 			Description = "Decrease the editor and terminal font size by one pixel.",
 			Aliases = ["decrease font size", "zoom out", "smaller text", "smaller font", "font smaller"],
@@ -1447,6 +1454,7 @@ public static class CoreCommands {
 			Id = ResetFontSize,
 			Title = "Reset Font Size",
 			RunsIn = CommandLocation.Core,
+			Owner = CommandOwner.Client,
 			Category = "View",
 			Description = "Reset the editor and terminal font size to the default.",
 			Aliases = ["reset font size", "reset zoom", "default font size", "zoom reset"],
@@ -1460,6 +1468,7 @@ public static class CoreCommands {
 			Id = InstallTheme,
 			Title = "Install Theme from Open VSX",
 			RunsIn = CommandLocation.Core,
+			Owner = CommandOwner.Client,
 			Category = "Theme",
 			Description = "Install a VS Code color theme from the Open VSX registry by 'namespace' (publisher) "
 				+ "and 'name' (extension), optionally a 'version'. e.g. namespace 'dracula-theme' name "
@@ -1473,6 +1482,7 @@ public static class CoreCommands {
 			Id = InstallThemeFromFile,
 			Title = "Install Theme from File…",
 			RunsIn = CommandLocation.Core,
+			Owner = CommandOwner.Client,
 			Category = "Theme",
 			Description = "Install a VS Code color theme from a local .vsix file. With no 'path', opens a file "
 				+ "picker to choose one; pass 'path' (an absolute .vsix path) to install without prompting.",
@@ -1484,6 +1494,7 @@ public static class CoreCommands {
 			Id = SelectTheme,
 			Title = "Select Theme",
 			RunsIn = CommandLocation.Core,
+			Owner = CommandOwner.Client,
 			Category = "Theme",
 			Description = "Switch to a color theme. 'id' must be a built-in or installed theme id (use the listThemes "
 				+ "tool to see them; never guess). A light theme is stored as your light theme and a dark theme as "
@@ -1498,6 +1509,7 @@ public static class CoreCommands {
 			Id = CycleThemeMode,
 			Title = "Cycle Theme Mode",
 			RunsIn = CommandLocation.Core,
+			Owner = CommandOwner.Client,
 			Category = "Theme",
 			Description = "Cycle the appearance mode: system (match OS) → light → dark → system. Light mode shows "
 				+ "your light theme (theme.light), dark shows your dark theme (theme.dark), system follows the OS.",
@@ -1509,6 +1521,7 @@ public static class CoreCommands {
 			Id = UndoThemeOverride,
 			Title = "Undo Theme Override",
 			RunsIn = CommandLocation.Core,
+			Owner = CommandOwner.Client,
 			Category = "Theme",
 			Description = "Undo the most recent color override on the active theme (pop the last set/transform).",
 			Aliases = ["undo theme override", "undo last color", "revert theme tweak", "undo color change"],
@@ -1518,6 +1531,7 @@ public static class CoreCommands {
 			Id = ResetTheme,
 			Title = "Reset Theme Overrides",
 			RunsIn = CommandLocation.Core,
+			Owner = CommandOwner.Client,
 			Category = "Theme",
 			Description = "Clear ALL color overrides on the active theme, returning it to its authored colors.",
 			Aliases = ["reset theme", "clear theme overrides", "restore theme defaults", "remove all overrides"],

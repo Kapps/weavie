@@ -1,3 +1,5 @@
+using System.Text.Json;
+using Weavie.Core.Configuration;
 using Weavie.Core.Sessions;
 using Xunit;
 
@@ -6,6 +8,54 @@ namespace Weavie.Hosting.Tests;
 [Collection(TestCollections.HostIntegration)]
 public sealed class HostCoreStructuredAttachmentTests {
 	private static readonly byte[] PngBytes = [0x89, 0x50, 0x4e, 0x47, 1, 2, 3];
+
+	[Fact]
+	public async Task NewSession_SubmitsItsTextAndImageAsOneInitialInput() {
+		await using var host = await TestHost.StartAsync();
+		host.Settings.Set(AgentSettings.PaneCoalesceMs, JsonSerializer.SerializeToElement(0L));
+
+		var result = await host.CreateSessionAsync(new NewSessionRequest {
+			Branch = "new-session-image",
+			Base = "main",
+			AgentProviderId = "codex",
+			Prompt = "describe this",
+			Attachments = [new NewSessionAttachment {
+				Id = "image-1",
+				Mime = "image/png",
+				DataB64 = Convert.ToBase64String(PngBytes),
+			}],
+		});
+
+		Assert.True(result.Ok, result.Error);
+		var session = host.Session("new-session-image");
+		await session.Agent.DrainPaneAsync(CancellationToken.None);
+		string file = Assert.Single(Directory.GetFiles(session.PastedImages.Directory));
+		Assert.Equal(PngBytes, File.ReadAllBytes(file));
+		Assert.Contains(
+			host.Bridge.PostedEvents(session.Address, "agent", "pane"),
+			message => message.GetProperty("type").GetString() == "user-message"
+				&& message.GetProperty("text").GetString() == "describe this");
+	}
+
+	[Fact]
+	public async Task NewSession_RejectsInvalidImageBeforeCreatingAWorktree() {
+		await using var host = await TestHost.StartAsync();
+
+		var result = await host.CreateSessionAsync(new NewSessionRequest {
+			Branch = "invalid-image",
+			Base = "main",
+			AgentProviderId = "codex",
+			Attachments = [new NewSessionAttachment {
+				Id = "image-1",
+				Mime = "image/tiff",
+				DataB64 = Convert.ToBase64String(PngBytes),
+			}],
+		});
+
+		Assert.False(result.Ok);
+		Assert.Contains("Can't paste that image type", result.Error, StringComparison.Ordinal);
+		Assert.Null(host.Core.SessionForTest("invalid-image"));
+	}
 
 	[Fact]
 	public async Task UploadThenSubmit_ClaimsTheExactRemoteAttachment() {

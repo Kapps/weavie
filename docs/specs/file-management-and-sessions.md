@@ -60,9 +60,19 @@ and forward to its editor controller.
 
 ## Watchers and edits
 
-Each `HostSession` owns `SessionFileActivity`, including its dormant-then-activated
-`WorkspaceInvalidationWatcher`.
-Completed buffer saves, known file changes/deletions, and debounced watcher batches enter one ordered stream.
+Each `HostSession` owns one `WorkspaceInventory` and one `SessionFileActivity`. The activity owns an
+inventory-driven `WorkspaceInvalidationWatcher`; completed buffer saves, known file changes/deletions, and
+debounced watcher batches enter its ordered stream. The asynchronous Git inventory supplies tracked and
+untracked, non-ignored paths. Linux uses one shared inotify instance with flat watches only for inventoried
+directories; Windows and macOS use one kernel-recursive root subscription and filter every event through the
+inventory. It periodically refreshes the authoritative inventory and refreshes immediately when directory
+topology changes, so Linux startup and change capture never walk ignored trees such as `.git/objects`.
+
+For non-Git folders, the navigation index supplies the files and visited directories from its existing walk to
+the same flat watcher. Watcher mutations are replayed over that snapshot, so files created, moved, or deleted
+while navigation is still walking cannot be resurrected or lost. Change monitoring itself never initiates a
+workspace walk.
+
 Its registered projections:
 
 - file-provider change events refresh matching Monaco working copies;

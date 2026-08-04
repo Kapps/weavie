@@ -12,6 +12,15 @@ public enum CommandLocation {
 	Core,
 }
 
+/// <summary>Which connected host owns a command and its user-facing definition.</summary>
+public enum CommandOwner {
+	/// <summary>The selected or explicitly addressed backend owns the command.</summary>
+	Backend,
+
+	/// <summary>The local presentation host serving the current client owns the command.</summary>
+	Client,
+}
+
 /// <summary>
 /// The outcome of running a command, returned to every caller (Claude over <c>runCommand</c>, and the web over
 /// the <c>command-result</c> reply). <see cref="DataJson"/> carries an optional command-specific payload as raw
@@ -76,6 +85,9 @@ public sealed record CommandDefinition {
 
 	/// <summary>Which world executes the handler.</summary>
 	public required CommandLocation RunsIn { get; init; }
+
+	/// <summary>Which connected host owns execution, metadata, and keybindings.</summary>
+	public CommandOwner Owner { get; init; }
 
 	/// <summary>Optional palette grouping, e.g. "View", "Terminal", "Diff".</summary>
 	public string? Category { get; init; }

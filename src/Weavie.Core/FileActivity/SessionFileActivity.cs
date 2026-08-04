@@ -1,5 +1,6 @@
 using System.Threading.Channels;
 using Weavie.Core.FileSystem;
+using Weavie.Core.Workspaces;
 
 namespace Weavie.Core.FileActivity;
 
@@ -21,15 +22,15 @@ public sealed class SessionFileActivity : IFileActivitySink, IAsyncDisposable {
 	private bool _observing;
 	private Task? _disposeTask;
 
-	/// <summary>Creates a dormant activity stream; call <see cref="StartObserving"/> after consumers are wired.</summary>
+	/// <summary>Creates a dormant activity stream over the session's authoritative workspace inventory.</summary>
 	public SessionFileActivity(
-		string workspaceRoot,
+		WorkspaceInventory inventory,
 		Action<string> log,
 		int watcherDebounceMs) {
-		ArgumentException.ThrowIfNullOrEmpty(workspaceRoot);
+		ArgumentNullException.ThrowIfNull(inventory);
 		ArgumentNullException.ThrowIfNull(log);
 		_watcher = new WorkspaceInvalidationWatcher(
-			workspaceRoot,
+			inventory,
 			ReportInvalidated,
 			log,
 			watcherDebounceMs);
@@ -52,19 +53,19 @@ public sealed class SessionFileActivity : IFileActivitySink, IAsyncDisposable {
 		return subscription;
 	}
 
-	/// <summary>Starts the owned workspace watcher after every session consumer has been registered.</summary>
-	public void StartObserving() {
+	/// <summary>Runs the owned workspace observer after every session consumer has been registered.</summary>
+	public Task RunObservingAsync(CancellationToken ct) {
 		lock (_gate) {
 			ObjectDisposedException.ThrowIf(_closing, this);
 			if (_observing) {
-				return;
+				throw new InvalidOperationException("Workspace observation is already running.");
 			}
 			_observing = true;
 		}
-		_watcher.Start();
+		return _watcher.RunAsync(ct);
 	}
 
-	/// <summary>Stops watcher admission, flushes its pending debounce batch, and waits for callbacks to return.</summary>
+	/// <summary>Stops watcher admission, flushes its pending debounce batch, and waits for observation to end.</summary>
 	public Task StopObservingAsync() => _watcher.StopAsync();
 
 	/// <inheritdoc/>
@@ -166,12 +167,21 @@ public sealed class SessionFileActivity : IFileActivitySink, IAsyncDisposable {
 
 	private async Task DisposeCoreAsync() {
 		await Task.Yield();
-		await StopObservingAsync().ConfigureAwait(false);
-		lock (_gate) {
-			_accepting = false;
-			_commands.Writer.TryComplete();
+		Exception? observationFailure = null;
+		try {
+			await StopObservingAsync().ConfigureAwait(false);
+		} catch (Exception ex) {
+			observationFailure = ex;
+		} finally {
+			lock (_gate) {
+				_accepting = false;
+				_commands.Writer.TryComplete();
+			}
 		}
 		await _worker.ConfigureAwait(false);
+		if (observationFailure is not null) {
+			throw observationFailure;
+		}
 	}
 
 	private void Remove(Subscription subscription) {

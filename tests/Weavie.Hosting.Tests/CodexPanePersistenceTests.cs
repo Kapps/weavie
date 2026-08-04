@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Weavie.Core;
+using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
 using Weavie.Core.Sessions;
 using Weavie.Core.Workspaces;
@@ -47,7 +48,11 @@ public sealed class CodexPanePersistenceTests {
 				return true;
 			}
 		}
-
+		foreach (var posted in bridge.PostedEvents(session.Address, "agent", "paneSnapshot")) {
+			if (posted.GetProperty("messages").EnumerateArray().Any(Matches)) {
+				return true;
+			}
+		}
 		return false;
 	}
 
@@ -72,6 +77,44 @@ public sealed class CodexPanePersistenceTests {
 
 		Assert.True(HasPaneMessage(host.Bridge, session, "user-message", "hello"));
 		Assert.True(HasPaneMessage(host.Bridge, session, "item-completed", "echo: hello"));
+	}
+
+	[Fact]
+	public async Task CodexPaneTranscript_ReturnsWhenDormantSessionLoadsOnAConnectedPage() {
+		await using var host = await StartWithCodexSessionAsync("codex-branch");
+		var session = host.Session("codex-branch");
+		host.SessionEvent(
+			session,
+			"agent",
+			"submit",
+			new { id = "", prompt = "hello", attachmentIds = Array.Empty<string>(), skills = Array.Empty<string>() });
+		Assert.True(HasPaneMessage(host.Bridge, session, "item-completed", "echo: hello"));
+		Assert.True((await host.UnloadSessionAsync("codex-branch")).Ok);
+		host.Bridge.Clear();
+
+		var loaded = await host.InvokeClientCommandAsync(
+			SessionCommands.LoadSession,
+			new { id = "codex-branch" });
+		Assert.True(loaded.Ok, loaded.Error);
+		session = host.Session("codex-branch");
+		await Wait.UntilAsync(() => HasPaneMessage(host.Bridge, session, "item-completed", "echo: hello"));
+	}
+
+	[Fact]
+	public async Task LifecycleSync_UsesAnAtomicTranscriptSnapshot() {
+		await using var host = await StartWithCodexSessionAsync("codex-branch");
+		var session = host.Session("codex-branch");
+		host.SessionEvent(
+			session,
+			"agent",
+			"submit",
+			new { id = "", prompt = "hello", attachmentIds = Array.Empty<string>(), skills = Array.Empty<string>() });
+
+		host.Bridge.Clear();
+		await host.SessionRequestAsync<JsonElement>(session, "lifecycle", "sync", new { });
+		Assert.Null(host.Bridge.LastEvent(session.Address, "agent", "paneReset"));
+		Assert.Null(host.Bridge.LastEvent(session.Address, "agent", "paneBatch"));
+		Assert.NotNull(host.Bridge.LastEvent(session.Address, "agent", "paneSnapshot"));
 	}
 
 	[Fact]

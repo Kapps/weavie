@@ -35,6 +35,25 @@ public sealed class AgentPaneWorkerTests {
 		await Assert.ThrowsAsync<IOException>(() => journal.DisposeAsync().AsTask());
 	}
 
+	[Fact]
+	public async Task JournalReadinessCompletesOnlyAfterThePersistedSnapshotIsSeeded() {
+		using var release = new ManualResetEventSlim();
+		IReadOnlyList<AgentPaneMessage>? loaded = null;
+		await using var journal = new AgentPaneJournal(
+			new BlockingTranscriptFileSystem(release),
+			"/transcript.json",
+			messages => loaded = messages,
+			_ => { });
+		var ready = journal.WaitUntilReadyAsync(CancellationToken.None);
+
+		Assert.False(ready.IsCompleted);
+		release.Set();
+		await ready;
+
+		var message = Assert.Single(Assert.IsAssignableFrom<IReadOnlyList<AgentPaneMessage>>(loaded));
+		Assert.Equal("persisted", message.Text);
+	}
+
 	private sealed class ThrowingTarget : IMessageFeatureTarget {
 		public void Publish<T>(string name, T payload) => throw new IOException("publish failed");
 
@@ -51,6 +70,35 @@ public sealed class AgentPaneWorkerTests {
 		public IReadOnlyList<DirectoryEntry> EnumerateDirectory(string path) => throw new NotSupportedException();
 
 		public string ReadAllText(string path) => throw new NotSupportedException();
+
+		public bool TryReadAllText(string path, out string contents) => throw new NotSupportedException();
+
+		public byte[] ReadAllBytes(string path) => throw new NotSupportedException();
+
+		public void WriteAllText(string path, string contents) => throw new NotSupportedException();
+
+		public void WriteAllBytes(string path, byte[] contents) => throw new NotSupportedException();
+
+		public void AppendAllText(string path, string contents) => throw new NotSupportedException();
+
+		public void WriteAllTextAtomic(string path, string contents) => throw new NotSupportedException();
+
+		public void DeleteFile(string path) => throw new NotSupportedException();
+	}
+
+	private sealed class BlockingTranscriptFileSystem(ManualResetEventSlim release) : IFileSystem {
+		public bool FileExists(string path) => true;
+
+		public string ReadAllText(string path) {
+			release.Wait();
+			return "{\"type\":\"item-completed\",\"providerId\":\"codex\",\"text\":\"persisted\"}\n";
+		}
+
+		public bool DirectoryExists(string path) => throw new NotSupportedException();
+
+		public bool TryGetStat(string path, out FileStat stat) => throw new NotSupportedException();
+
+		public IReadOnlyList<DirectoryEntry> EnumerateDirectory(string path) => throw new NotSupportedException();
 
 		public bool TryReadAllText(string path, out string contents) => throw new NotSupportedException();
 

@@ -29,10 +29,18 @@ registerSessionFeature((session) => {
       ingest(message);
     }
   });
+  const offSnapshot = feature.on<{ messages: AgentPaneUpdate[] }>(
+    "paneSnapshot",
+    ({ messages }) => {
+      clearAgentInputDrafts(session);
+      accumulator.replace("pane", messages, (updates) => model.publish(updates));
+    },
+  );
   const offReset = feature.on("paneReset", () => accumulator.reset("pane", () => model.reset()));
   return () => {
     offPane();
     offBatch();
+    offSnapshot();
     offReset();
     clearAgentInputDrafts(session);
     setModels((previous) => {

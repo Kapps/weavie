@@ -26,11 +26,23 @@ export class AgentPaneAccumulator {
     // focused or not) so the elapsed clock reflects real duration and never restarts on a session switch.
     // A page reload / bridge reconnect replays turn-started without receivedAt, so the clock re-baselines
     // then — the deliberate cost of a web-clock anchor, which avoids host/browser skew on remote sessions.
-    const message =
-      incoming.type === "turn-started" && incoming.receivedAt === undefined
-        ? { ...incoming, receivedAt: Date.now() }
-        : incoming;
+    const message = received(incoming);
     const state = this.state(slot);
+    this.store(state, message);
+    this.scheduleFlush(state, slot, publish);
+  }
+
+  replace(slot: string, incoming: AgentPaneUpdate[], publish: Publish): void {
+    this.slots.delete(slot);
+    const state = this.state(slot);
+    for (const message of incoming) {
+      this.store(state, received(message));
+    }
+    this.materialize(state);
+    publish([...state.messages]);
+  }
+
+  private store(state: SlotState, message: AgentPaneUpdate): void {
     const key = itemKey(message);
     // Every path only mutates state.messages (O(1)); a single per-frame flush publishes the snapshot. Publishing
     // synchronously here would rebuild the whole transcript on every message — O(N²) across a turn or a replay.
@@ -56,7 +68,6 @@ export class AgentPaneAccumulator {
     } else {
       state.messages.push(message);
     }
-    this.scheduleFlush(state, slot, publish);
   }
 
   reset(slot: string, publish: Publish): void {
@@ -96,10 +107,14 @@ export class AgentPaneAccumulator {
       return;
     }
     state.scheduled = false;
+    this.materialize(state);
+    publish([...state.messages]);
+  }
+
+  private materialize(state: SlotState): void {
     for (const buffer of state.buffers.values()) {
       state.messages[buffer.index] = { ...buffer.latest, text: buffer.chunks.join("") };
     }
-    publish([...state.messages]);
   }
 
   private state(slot: string): SlotState {
@@ -115,6 +130,12 @@ export class AgentPaneAccumulator {
     }
     return state;
   }
+}
+
+function received(message: AgentPaneUpdate): AgentPaneUpdate {
+  return message.type === "turn-started" && message.receivedAt === undefined
+    ? { ...message, receivedAt: Date.now() }
+    : message;
 }
 
 function itemKey(message: AgentPaneUpdate): string | null {

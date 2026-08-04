@@ -1,6 +1,7 @@
 import { createSignal } from "solid-js";
 import type { CommandResult } from "./commands/types";
 import { basename } from "./editor/fs-path";
+import { ChunkedMessageReceiver } from "./messaging/chunked-message";
 import { type ClientSession, HostConnection, type HostHello } from "./messaging/host-connection";
 import { parseEnvelope } from "./messaging/message-envelope";
 import { PAGE_EPOCH } from "./messaging/page-epoch";
@@ -579,6 +580,7 @@ class WebSocketTransport implements BridgeTransport {
   private reconnectDelayMs = 500;
   private disposed = false;
   private opened = false;
+  private readonly messages = new ChunkedMessageReceiver();
 
   constructor(
     private readonly backendId: string,
@@ -641,7 +643,15 @@ class WebSocketTransport implements BridgeTransport {
     };
     socket.onmessage = (event: MessageEvent): void => {
       if (this.socket === socket && typeof event.data === "string") {
-        receiveRaw(this.backendId, event.data);
+        try {
+          const complete = this.messages.ingest(event.data);
+          if (complete !== null) {
+            receiveRaw(this.backendId, complete);
+          }
+        } catch (error) {
+          reportError(this.backendId, error);
+          socket.close();
+        }
       }
     };
     socket.onclose = (): void => {
@@ -649,6 +659,7 @@ class WebSocketTransport implements BridgeTransport {
         return;
       }
       this.socket = null;
+      this.messages.reset();
       hostConnection(this.backendId)?.transportDropped();
       if (!this.disposed) {
         this.dropped();

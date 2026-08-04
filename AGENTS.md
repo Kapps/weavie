@@ -36,6 +36,10 @@ load it only when you need it.
   on both sides of the bridge. Domain messages route to that owner by construction; client selection
   only chooses what to render and never gates state mutation. See
   [docs/concepts/session-message-bus.md](docs/concepts/session-message-bus.md).
+- **Session file activity** — each loaded session orders completed buffer saves, known file changes/deletions,
+  and watcher invalidations through one drainable stream. Facts describe boundaries, never who caused a change;
+  review, corrections, spellcheck, and persistence remain separate domain concerns. See
+  [docs/concepts/session-file-activity.md](docs/concepts/session-file-activity.md).
 - **Contextual suggestions** — a Core-owned surface for dismissible nudge cards that teach users what
   Weavie can do. Declared once (`SuggestionDefinition`/`CoreSuggestions`), evaluated per-workspace by
   `SuggestionService` (with a bounded, fail-open manifest probe off the hot path), and rendered as cards;

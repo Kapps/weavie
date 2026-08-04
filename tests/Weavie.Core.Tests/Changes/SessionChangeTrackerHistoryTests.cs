@@ -1,4 +1,5 @@
 using Weavie.Core.Changes;
+using Weavie.Core.FileActivity;
 using Weavie.Core.FileSystem;
 using Xunit;
 
@@ -7,7 +8,10 @@ namespace Weavie.Core.Tests;
 /// <summary>Undo/redo history over review actions: keep/revert at hunk/file/all, reversed or re-applied.</summary>
 public sealed class SessionChangeTrackerHistoryTests {
 	private static SessionChangeTracker Tracker(IFileSystem fileSystem) =>
-		new(fileSystem, "/w", path => path.StartsWith("/w", StringComparison.Ordinal));
+		new(fileSystem, NoopFileActivitySink.Instance, "/w", path => path.StartsWith("/w", StringComparison.Ordinal));
+
+	private static SessionChangeTracker Tracker(IFileSystem fileSystem, IFileActivitySink fileActivity) =>
+		new(fileSystem, fileActivity, "/w", path => path.StartsWith("/w", StringComparison.Ordinal));
 
 	// Records a single-hunk change (baseline `from` -> current `to`) on a freshly-baselined file.
 	private static SessionChangeTracker Changed(InMemoryFileSystem fileSystem, string path, string from, string to) {
@@ -214,5 +218,28 @@ public sealed class SessionChangeTrackerHistoryTests {
 		tracker.KeepHunk("/w/a.txt", new LineRange(2, 3), new LineRange(2, 3), "B");
 
 		Assert.False(tracker.CanRedo);
+	}
+
+	[Fact]
+	public void DiskReviewActions_ReportGenericActivity_StateOnlyActionsDoNot() {
+		var fileSystem = new InMemoryFileSystem();
+		var activity = new CapturingFileActivitySink();
+		fileSystem.WriteAllText("/w/a.txt", "old\n");
+		var tracker = Tracker(fileSystem, activity);
+		tracker.CaptureBaseline("/w/a.txt");
+		fileSystem.WriteAllText("/w/a.txt", "new\n");
+		tracker.RecordChange("/w/a.txt");
+		activity.Clear();
+
+		Assert.Equal(RevertHunkOutcome.Reverted, tracker.RevertFile("/w/a.txt"));
+		Assert.IsType<FileChanged>(Assert.Single(activity.Facts));
+		activity.Clear();
+
+		Assert.True(tracker.UndoLastRevert().Acted);
+		Assert.IsType<FileChanged>(Assert.Single(activity.Facts));
+		activity.Clear();
+
+		tracker.KeepFile("/w/a.txt");
+		Assert.Empty(activity.Facts);
 	}
 }

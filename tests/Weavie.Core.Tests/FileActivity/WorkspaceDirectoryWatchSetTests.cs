@@ -1,4 +1,4 @@
-using Weavie.Core.Lsp;
+using Weavie.Core.FileActivity;
 using Xunit;
 
 namespace Weavie.Core.Tests;

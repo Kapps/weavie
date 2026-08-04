@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Weavie.Core.FileActivity;
 using Weavie.Core.Lsp;
 using Weavie.Core.Workspaces;
 using Weavie.Hosting;
@@ -96,13 +97,14 @@ var peer = bus.Peer(WebPeer.Native);
 // didChangeWatchedFiles path (§9) is exercised the same way.
 bool watchBroadcast = false;
 var inventory = new WorkspaceInventory(workspace!);
-using var watcher = new WorkspaceWatcher(inventory, LanguageServerCatalog.WatchedExtensions, batch => {
-	controller.NotifyWatchedFileChanges(batch);
+using var watcher = new WorkspaceInvalidationWatcher(inventory, batch => {
+	controller.NotifyWatchedFileChanges(LspFileChanges.FromInvalidations(batch));
 	if (batch.Count > 0) {
 		watchBroadcast = true;
 	}
 }, line => Console.WriteLine($"[watch] {line}"), 250);
 var watcherRun = watcher.RunAsync(ct);
+await watcher.Ready;
 
 await using var clientHandle = client = new LspTestClient(
 	[workspace!], line => Console.WriteLine($"[client] {line}"), debug, defaultSettings?.DeepClone(),
@@ -226,7 +228,7 @@ await client.NotifyAsync("textDocument/didClose", new JsonObject {
 	["textDocument"] = new JsonObject { ["uri"] = fileUri },
 }, ct);
 
-watcher.Dispose();
+await watcher.StopAsync();
 await watcherRun;
 results.Print();
 return results.Passed ? 0 : 1;

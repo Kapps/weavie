@@ -1,4 +1,4 @@
-namespace Weavie.Core.Lsp;
+namespace Weavie.Core.FileActivity;
 
 internal interface IWorkspaceDirectoryWatchSet : IDisposable {
 	int Count { get; }

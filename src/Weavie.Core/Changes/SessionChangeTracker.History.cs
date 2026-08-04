@@ -155,8 +155,10 @@ public sealed partial class SessionChangeTracker {
 
 		if (state.OnDisk) {
 			_fileSystem.WriteAllText(state.Path, state.Disk);
+			ReportCurrentState(state.Path);
 		} else if (_fileSystem.FileExists(state.Path)) {
 			_fileSystem.DeleteFile(state.Path);
+			_fileActivity.ReportDeleted(state.Path);
 		}
 	}
 

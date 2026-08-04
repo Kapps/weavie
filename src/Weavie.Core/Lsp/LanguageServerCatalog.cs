@@ -47,7 +47,7 @@ public static class LanguageServerCatalog {
 	/// <summary>All built-in recipes, in catalog order.</summary>
 	public static IReadOnlyList<LanguageServerDescriptor> All { get; } = [TypeScript, CSharp, Go];
 
-	/// <summary>Every served file extension across all recipes — the set the workspace watcher filters on.</summary>
+	/// <summary>Every served extension across all recipes — the LSP invalidation projection filter.</summary>
 	public static IReadOnlySet<string> WatchedExtensions { get; } =
 		All.SelectMany(d => d.FileExtensions).ToHashSet(StringComparer.OrdinalIgnoreCase);
 

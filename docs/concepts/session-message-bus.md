@@ -98,7 +98,8 @@ the replacement catalog validates its exact address.
 Session shutdown has two phases:
 
 1. quiesce inbound dispatch and cancel/drain session-owned background work;
-2. allow final owned events, then close the endpoint and all session resources.
+2. flush and drain [session file activity](session-file-activity.md), allow final owned events, then close the
+   endpoint and remaining session resources.
 
 Removing a catalog address closes the corresponding `ClientSession`, its handlers, pending requests,
 models, LSP channels, and background work as one ownership unit.

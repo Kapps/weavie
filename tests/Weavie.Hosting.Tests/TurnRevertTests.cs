@@ -23,6 +23,7 @@ public sealed class TurnRevertTests {
 
 		host.Bridge.Clear();
 		host.SessionEvent(session, "review", "revertFile", new { path });
+		await session.FileActivity.DrainAsync(CancellationToken.None);
 
 		Assert.Equal("hello\n", File.ReadAllText(path));
 		Assert.Empty(session.Changes.TurnChanges());

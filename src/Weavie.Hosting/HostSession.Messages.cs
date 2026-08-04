@@ -1,11 +1,15 @@
 using System.Text;
 using System.Text.Json;
 using Weavie.Core.Agents;
+using Weavie.Core.Changes;
 using Weavie.Core.Editor;
+using Weavie.Hosting.Messaging;
 
 namespace Weavie.Hosting;
 
 public sealed partial class HostSession {
+	private readonly OrderedAfterResponse _fileSaveCompletions = new();
+
 	private void WireMessages(Func<bool> inputFrozen, Action<int, int> shellResized) {
 		WireTerminalMessages(Bus.Feature("terminal.shell"), Shell, inputFrozen, shellResized);
 		if (Claude is { } agentTerminal) {
@@ -45,15 +49,29 @@ public sealed partial class HostSession {
 		files.Handle<FilePathMessage, FileReadResult>(
 			"read",
 			(message, _) => Task.FromResult(FileProvider.Read(message.Path)));
-		files.Handle<FileWriteMessage, FileWriteResult>(
+		files.HandleAfterResponse<FileWriteMessage, FileWriteResult>(
 			"write",
 			(message, _) => {
 				var result = FileProvider.Write(message.Path, message.Content);
-				if (result.Ok) {
-					Changes.RecordHandEdit(message.Path, message.Content);
-				}
-
-				return Task.FromResult(result);
+				var handEdit = result.Ok
+					? Changes.CaptureHandEdit(message.Path, message.Content)
+					: CapturedHandEdit.None;
+				return Task.FromResult(new ResponseWithCompletion<FileWriteResult>(result, _fileSaveCompletions.Reserve(_ => {
+					if (result.Ok) {
+						Exception? correctionError = null;
+						try {
+							handEdit.Complete();
+						} catch (Exception ex) {
+							correctionError = ex;
+						}
+						FileActivity.ReportBufferSaved(message.Path, result.Stat);
+						if (correctionError is not null) {
+							Notify($"Couldn't record your correction: {correctionError.Message}");
+							throw correctionError;
+						}
+					}
+					return Task.CompletedTask;
+				})));
 			});
 		files.Handle<FilePathMessage>("listDirectory", (message, _) => {
 			ListDirectory(message.Path);

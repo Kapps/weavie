@@ -1,7 +1,7 @@
 using System.Runtime.InteropServices;
 using System.Text;
 
-namespace Weavie.Core.Lsp;
+namespace Weavie.Core.FileActivity;
 
 internal sealed partial class LinuxWorkspaceDirectoryWatchSet {
 	private void ReadAvailableEvents(byte[] buffer) {

@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
 
-namespace Weavie.Core.Lsp;
+namespace Weavie.Core.FileActivity;
 
 internal sealed partial class LinuxWorkspaceDirectoryWatchSet : IWorkspaceDirectoryWatchSet {
 	// inotify may enqueue the two halves of a rename across reads; unmatched halves expire as deletes.

@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
 
-namespace Weavie.Core.Lsp;
+namespace Weavie.Core.FileActivity;
 
 internal sealed partial class LinuxWorkspaceDirectoryWatchSet {
 	private const uint WatchMask = InModify

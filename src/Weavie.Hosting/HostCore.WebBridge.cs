@@ -3,6 +3,7 @@ using System.Text.Json;
 using Weavie.Core.Changes;
 using Weavie.Core.Commands;
 using Weavie.Core.Editor;
+using Weavie.Core.FileActivity;
 using Weavie.Core.Git;
 using Weavie.Core.Json;
 using Weavie.Core.Layout;
@@ -255,9 +256,8 @@ public sealed partial class HostCore {
 			new { changes = new[] { new FileProviderChange(path, "updated") } });
 
 	/// <summary>
-	/// Pushes a removal for a file deleted mid-turn so the page closes its tab and clears the
-	/// inline marker (the <see cref="PushRefreshToWeb"/> counterpart). Reaches files the workspace watcher doesn't
-	/// (it filters by extension), so a created-then-deleted scratch file can't strand the ← / → walk on a dead path.
+	/// Pushes a removal for a file deleted mid-turn so the page closes its tab and clears the inline marker.
+	/// Tracker-reported deletion also covers the external scratch root, which the workspace watcher does not own.
 	/// </summary>
 	private static void PushDeletionToWeb(HostSession session, string path) =>
 		session.Bus.Feature("files").Publish(
@@ -267,8 +267,8 @@ public sealed partial class HostCore {
 	/// <summary>Forwards a workspace-watcher batch (non-Claude on-disk edits) to the page's <c>file://</c> provider.</summary>
 	private static void PushWatcherChangesToWeb(
 		HostSession session,
-		IReadOnlyList<WatchedFileChange> changes) {
-		var mapped = FileProviderChanges.FromWatched(changes);
+		IReadOnlyList<FileInvalidation> changes) {
+		var mapped = FileProviderChanges.FromInvalidations(changes);
 		if (mapped.Length > 0) {
 			session.Bus.Feature("files").Publish("changed", new { changes = mapped });
 		}
@@ -387,18 +387,15 @@ public sealed partial class HostCore {
 	}
 
 	/// <summary>
-	/// Pushes the editor refreshes for a completed undo/redo or revert-all: a deletion for a path the op removed,
-	/// else a reload (when it touched disk) plus a fresh per-file diff. Then re-emits the review set + history state.
+	/// Pushes a state-only undo/redo result. Disk-mutating results publish through session file activity.
 	/// </summary>
 	private void ApplyHistoryResult(HostSession session, ReviewHistoryResult result) {
-		foreach (string path in result.Paths) {
-			if (session.Changes.GetTurn(path) is null) {
-				PushDeletionToWeb(session, path);
-			} else {
-				if (result.TouchedDisk) {
-					PushRefreshToWeb(session, path);
-				}
+		if (result.TouchedDisk) {
+			return;
+		}
 
+		foreach (string path in result.Paths) {
+			if (session.Changes.GetTurn(path) is not null) {
 				PushTurnDiffToWeb(session, path);
 			}
 		}
@@ -446,9 +443,6 @@ public sealed partial class HostCore {
 				return;
 			}
 
-			PushAfterRevert(session, path, outcome);
-			PushTurnChangesToWeb(session);
-			PushReviewHistoryToWeb(session);
 		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
 			Notify(session, "warn", $"Couldn't revert {Path.GetFileName(path)}: {ex.Message}");
 		}
@@ -471,9 +465,7 @@ public sealed partial class HostCore {
 		}
 
 		try {
-			PushAfterRevert(session, path, session.Changes.RevertFile(path));
-			PushTurnChangesToWeb(session);
-			PushReviewHistoryToWeb(session);
+			session.Changes.RevertFile(path);
 		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
 			Notify(session, "warn", $"Couldn't revert {Path.GetFileName(path)}: {ex.Message}");
 		}
@@ -547,22 +539,6 @@ public sealed partial class HostCore {
 
 		PushTurnDiffToWeb(session, path);
 		PushTurnChangesToWeb(session);
-	}
-
-	/// <summary>
-	/// Pushes the editor refresh for a completed revert: an <c>fs-change</c> removal for a deleted file, else a
-	/// reload plus a fresh per-file diff so the reverted markers drop.
-	/// </summary>
-	private static void PushAfterRevert(
-		HostSession session,
-		string path,
-		RevertHunkOutcome outcome) {
-		if (outcome == RevertHunkOutcome.Deleted) {
-			PushDeletionToWeb(session, path);
-		} else {
-			PushRefreshToWeb(session, path);
-			PushTurnDiffToWeb(session, path);
-		}
 	}
 
 	/// <summary>Reads a string-array property from a web message (empty when absent or not an array); skips non-string elements.</summary>
@@ -770,8 +746,11 @@ public sealed partial class HostCore {
 				return new ScratchSaveResult(scratchPath, string.Empty, false);
 			}
 
-			session.Scratch.Delete(scratchPath);
 			bool reopen = BufferStore.IsWithinWorkspace(session.WorkspaceRoot, target);
+			if (reopen && session.FileSystem.TryGetStat(target, out var revision)) {
+				session.FileActivity.ReportChanged(target, revision);
+			}
+			session.Scratch.Delete(scratchPath);
 			if (!reopen) {
 				Notify(session, "info", $"Saved {Path.GetFileName(target)} outside the workspace — it won't open in the editor.");
 			}
@@ -809,6 +788,9 @@ public sealed partial class HostCore {
 			return new ScratchSaveResult(scratchPath, string.Empty, false);
 		}
 
+		if (session.FileSystem.TryGetStat(target, out var revision)) {
+			session.FileActivity.ReportChanged(target, revision);
+		}
 		session.Scratch.Delete(scratchPath);
 		return new ScratchSaveResult(scratchPath, target, true);
 	}

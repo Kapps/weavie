@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Weavie.Core.Changes;
+using Weavie.Core.FileActivity;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Hooks;
 using Xunit;
@@ -11,7 +12,10 @@ public sealed class SessionChangeTrackerTests {
 	// Scope every tracker under test to the "/w" worktree (the path every fixture file lives under), so an edit
 	// outside it is dropped — exercising the same scoping the host wires from the worktree + scratch roots.
 	private static SessionChangeTracker Tracker(IFileSystem fileSystem) =>
-		new(fileSystem, "/w", path => path.StartsWith("/w", StringComparison.Ordinal));
+		new(fileSystem, NoopFileActivitySink.Instance, "/w", path => path.StartsWith("/w", StringComparison.Ordinal));
+
+	private static SessionChangeTracker Tracker(IFileSystem fileSystem, IFileActivitySink fileActivity) =>
+		new(fileSystem, fileActivity, "/w", path => path.StartsWith("/w", StringComparison.Ordinal));
 
 	private static HookRequest Edit(HookEventKind evt, string path, string? cwd = null) => new() {
 		Event = evt,
@@ -89,16 +93,36 @@ public sealed class SessionChangeTrackerTests {
 	}
 
 	[Fact]
-	public void RecordChange_RaisesChanged() {
+	public void RecordChange_ReportsFileChanged() {
 		var fileSystem = new InMemoryFileSystem();
 		fileSystem.WriteAllText("/w/a.txt", "x");
-		var tracker = Tracker(fileSystem);
-		int fired = 0;
-		tracker.Changed += () => fired++;
+		var activity = new CapturingFileActivitySink();
+		var tracker = Tracker(fileSystem, activity);
 
 		tracker.RecordChange("/w/a.txt");
 
-		Assert.Equal(1, fired);
+		var changed = Assert.IsType<FileChanged>(Assert.Single(activity.Facts));
+		Assert.Equal("/w/a.txt", changed.Path);
+	}
+
+	[Fact]
+	public void Paths_AreNormalizedBeforeStorageActivityAndLookup() {
+		string root = Path.Combine(Path.GetTempPath(), "weavie-change-paths");
+		string canonical = Path.Combine(root, "a.txt");
+		string nonCanonical = Path.Combine(root, ".", "a.txt");
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllText(canonical, "old");
+		var activity = new CapturingFileActivitySink();
+		var tracker = new SessionChangeTracker(fileSystem, activity, root, _ => true);
+
+		tracker.CaptureBaseline(nonCanonical);
+		fileSystem.WriteAllText(canonical, "new");
+		tracker.RecordChange(nonCanonical);
+
+		var changed = Assert.IsType<FileChanged>(Assert.Single(activity.Facts));
+		Assert.Equal(canonical, changed.Path);
+		Assert.Equal(canonical, Assert.Single(tracker.TurnChanges()).Path);
+		Assert.NotNull(tracker.GetTurn(nonCanonical));
 	}
 
 	[Fact]
@@ -158,11 +182,8 @@ public sealed class SessionChangeTrackerTests {
 	[Fact]
 	public void RecordChange_NewBinaryFile_DoesNotEnterReview() {
 		var fileSystem = new InMemoryFileSystem();
-		var tracker = Tracker(fileSystem);
-		int changed = 0;
-		int fileChanged = 0;
-		tracker.Changed += () => changed++;
-		tracker.FileChanged += _ => fileChanged++;
+		var activity = new CapturingFileActivitySink();
+		var tracker = Tracker(fileSystem, activity);
 
 		tracker.CaptureBaseline("/w/archive.bin");
 		fileSystem.WriteAllBytes("/w/archive.bin", [0x50, 0x4b, 0x00, 0xff]);
@@ -170,87 +191,71 @@ public sealed class SessionChangeTrackerTests {
 
 		Assert.Empty(tracker.Changes());
 		Assert.Empty(tracker.TurnChanges());
-		Assert.Equal(0, changed);
-		Assert.Equal(1, fileChanged);
+		Assert.IsType<FileChanged>(Assert.Single(activity.Facts));
 	}
 
 	[Fact]
 	public void RecordChange_UnchangedBinaryFile_DoesNotRaiseChangeEvents() {
 		var fileSystem = new InMemoryFileSystem();
 		fileSystem.WriteAllBytes("/w/archive.bin", [0x50, 0x4b, 0x00, 0xff]);
-		var tracker = Tracker(fileSystem);
-		int changed = 0;
-		int fileChanged = 0;
-		tracker.Changed += () => changed++;
-		tracker.FileChanged += _ => fileChanged++;
+		var activity = new CapturingFileActivitySink();
+		var tracker = Tracker(fileSystem, activity);
 
 		tracker.CaptureBaseline("/w/archive.bin");
 		tracker.RecordChange("/w/archive.bin");
 
 		Assert.Empty(tracker.TurnChanges());
-		Assert.Equal(0, changed);
-		Assert.Equal(0, fileChanged);
+		Assert.Empty(activity.Facts);
 	}
 
 	[Fact]
 	public void RecordChange_ChangedBinaryFile_RaisesRefreshOnly() {
 		var fileSystem = new InMemoryFileSystem();
 		fileSystem.WriteAllBytes("/w/archive.bin", [0x50, 0x4b, 0x00, 0x01]);
-		var tracker = Tracker(fileSystem);
-		int changed = 0;
-		int fileChanged = 0;
-		tracker.Changed += () => changed++;
-		tracker.FileChanged += _ => fileChanged++;
+		var activity = new CapturingFileActivitySink();
+		var tracker = Tracker(fileSystem, activity);
 
 		tracker.CaptureBaseline("/w/archive.bin");
 		fileSystem.WriteAllBytes("/w/archive.bin", [0x50, 0x4b, 0x00, 0x02]);
 		tracker.RecordChange("/w/archive.bin");
 
 		Assert.Empty(tracker.TurnChanges());
-		Assert.Equal(0, changed);
-		Assert.Equal(1, fileChanged);
+		Assert.IsType<FileChanged>(Assert.Single(activity.Facts));
 	}
 
 	[Fact]
 	public void RecordChange_TextBecomingBinary_RemovesReviewWithoutReportingDeletion() {
 		var fileSystem = new InMemoryFileSystem();
 		fileSystem.WriteAllText("/w/archive.bin", "text\n");
-		var tracker = Tracker(fileSystem);
+		var activity = new CapturingFileActivitySink();
+		var tracker = Tracker(fileSystem, activity);
 		tracker.CaptureBaseline("/w/archive.bin");
 		fileSystem.WriteAllText("/w/archive.bin", "changed\n");
 		tracker.RecordChange("/w/archive.bin");
 		Assert.Single(tracker.TurnChanges());
+		activity.Clear();
 
-		int changed = 0;
-		int fileChanged = 0;
-		int deleted = 0;
-		tracker.Changed += () => changed++;
-		tracker.FileChanged += _ => fileChanged++;
-		tracker.FileDeleted += _ => deleted++;
 		tracker.CaptureBaseline("/w/archive.bin");
 		fileSystem.WriteAllBytes("/w/archive.bin", [0x50, 0x4b, 0x00, 0xff]);
 		tracker.RecordChange("/w/archive.bin");
 
 		Assert.Empty(tracker.TurnChanges());
-		Assert.Equal(1, changed);
-		Assert.Equal(1, fileChanged);
-		Assert.Equal(0, deleted);
+		Assert.IsType<FileChanged>(Assert.Single(activity.Facts));
 	}
 
 	[Fact]
 	public void RecordChange_BinaryBecomingText_IsRefreshOnlyAndCannotBeRejected() {
 		var fileSystem = new InMemoryFileSystem();
 		fileSystem.WriteAllBytes("/w/archive.bin", [0x50, 0x4b, 0x00, 0xff]);
-		var tracker = Tracker(fileSystem);
-		int fileChanged = 0;
-		tracker.FileChanged += _ => fileChanged++;
+		var activity = new CapturingFileActivitySink();
+		var tracker = Tracker(fileSystem, activity);
 
 		tracker.CaptureBaseline("/w/archive.bin");
 		fileSystem.WriteAllText("/w/archive.bin", "now text\n");
 		tracker.RecordChange("/w/archive.bin");
 
 		Assert.Empty(tracker.TurnChanges());
-		Assert.Equal(1, fileChanged);
+		Assert.IsType<FileChanged>(Assert.Single(activity.Facts));
 		Assert.Equal(RevertHunkOutcome.GuardMismatch, tracker.RevertFile("/w/archive.bin"));
 		Assert.True(fileSystem.FileExists("/w/archive.bin"));
 		Assert.Equal("now text\n", fileSystem.ReadAllText("/w/archive.bin"));
@@ -263,16 +268,15 @@ public sealed class SessionChangeTrackerTests {
 	}
 
 	[Fact]
-	public void RecordChange_RaisesFileChangedWithPath() {
+	public void RecordChange_ReportsChangedPath() {
 		var fileSystem = new InMemoryFileSystem();
 		fileSystem.WriteAllText("/w/a.txt", "x");
-		var tracker = Tracker(fileSystem);
-		string? changedPath = null;
-		tracker.FileChanged += path => changedPath = path;
+		var activity = new CapturingFileActivitySink();
+		var tracker = Tracker(fileSystem, activity);
 
 		tracker.RecordChange("/w/a.txt");
 
-		Assert.Equal("/w/a.txt", changedPath);
+		Assert.Equal("/w/a.txt", Assert.IsType<FileChanged>(Assert.Single(activity.Facts)).Path);
 	}
 
 	[Fact]
@@ -337,7 +341,10 @@ public sealed class SessionChangeTrackerTests {
 		string path = Path.Combine(root, "src", "a.txt");
 		fileSystem.WriteAllText(path, "one\n");
 		var tracker = new SessionChangeTracker(
-			fileSystem, root, candidate => candidate.StartsWith(root, StringComparison.Ordinal));
+			fileSystem,
+			NoopFileActivitySink.Instance,
+			root,
+			candidate => candidate.StartsWith(root, StringComparison.Ordinal));
 
 		tracker.Observe(Edit(HookEventKind.PreToolUse, "src/a.txt"));
 		fileSystem.WriteAllText(path, "ONE\n");
@@ -746,75 +753,66 @@ public sealed class SessionChangeTrackerTests {
 	[Fact]
 	public void Observe_CreatedFileDeletedByBash_DropsFromReviewSet() {
 		// Claude creates a file this turn, then removes it with a Bash rm. The deleting tool's PostToolUse
-		// reconciles the tracked set against disk: the vanished file leaves the review walk (it can't be opened),
-		// raising FileDeleted for it and a single Changed.
+		// checks the tracked set against disk: the vanished file leaves the review walk (it can't be opened)
+		// and reports completed deletion activity.
 		var fileSystem = new InMemoryFileSystem();
-		var tracker = Tracker(fileSystem);
-		string? deleted = null;
-		tracker.FileDeleted += path => deleted = path;
+		var activity = new CapturingFileActivitySink();
+		var tracker = Tracker(fileSystem, activity);
 
 		tracker.Observe(Edit(HookEventKind.PreToolUse, "/w/new.txt")); // absent → created since baseline
 		fileSystem.WriteAllText("/w/new.txt", "scratch\n");
 		tracker.Observe(Edit(HookEventKind.PostToolUse, "/w/new.txt"));
 		Assert.Single(tracker.TurnChanges());
-
-		int changed = 0;
-		tracker.Changed += () => changed++;
+		activity.Clear();
 
 		// Claude deletes it with a Bash rm; the rm's PostToolUse reconciles it off disk.
 		fileSystem.DeleteFile("/w/new.txt");
 		tracker.Observe(Bash(HookEventKind.PostToolUse, "rm /w/new.txt"));
 
-		Assert.Equal("/w/new.txt", deleted);
-		Assert.Equal(1, changed);                    // exactly one re-push of the review set
+		Assert.Equal("/w/new.txt", Assert.IsType<FileDeleted>(Assert.Single(activity.Facts)).Path);
 		Assert.Empty(tracker.TurnChanges());         // gone from the review walk
 		Assert.Empty(tracker.Changes());             // and from the session diff
 		Assert.Null(tracker.GetTurn("/w/new.txt"));  // dropped from tracking entirely
 	}
 
 	[Fact]
-	public void Observe_PostToolUse_NoDeletion_DoesNotFireChanged() {
-		// Reconciliation fires events ONLY when something actually vanished — a normal tool call over intact files
-		// must not spuriously re-push the review set.
+	public void Observe_PostToolUse_NoDeletion_DoesNotReportActivity() {
+		// The post-tool deletion check reports activity only when something vanished; an intact file stays quiet.
 		var fileSystem = new InMemoryFileSystem();
 		fileSystem.WriteAllText("/w/a.txt", "a0\n");
-		var tracker = Tracker(fileSystem);
+		var activity = new CapturingFileActivitySink();
+		var tracker = Tracker(fileSystem, activity);
 		tracker.Observe(Edit(HookEventKind.PreToolUse, "/w/a.txt"));
 		fileSystem.WriteAllText("/w/a.txt", "a1\n");
 		tracker.Observe(Edit(HookEventKind.PostToolUse, "/w/a.txt"));
-
-		int changed = 0;
-		string? deleted = null;
-		tracker.Changed += () => changed++;
-		tracker.FileDeleted += path => deleted = path;
+		activity.Clear();
 
 		tracker.Observe(Bash(HookEventKind.PostToolUse, "ls")); // a.txt still on disk
 
-		Assert.Equal(0, changed);
-		Assert.Null(deleted);
+		Assert.Empty(activity.Facts);
 		Assert.Single(tracker.TurnChanges()); // a.txt still pending
 	}
 
 	[Fact]
 	public void Observe_ExistingFileDeletedByBash_LeavesReviewSet() {
 		// A file that existed at baseline and was edited this turn, then deleted by a Bash rm: it can't be rendered
-		// inline (nothing on disk to open), so reconciliation drops it from the review set rather than stranding
+		// inline (nothing on disk to open), so the post-tool deletion check drops it rather than stranding
 		// ← / → on it.
 		var fileSystem = new InMemoryFileSystem();
 		fileSystem.WriteAllText("/w/a.txt", "a0\n");
-		var tracker = Tracker(fileSystem);
-		string? deleted = null;
-		tracker.FileDeleted += path => deleted = path;
+		var activity = new CapturingFileActivitySink();
+		var tracker = Tracker(fileSystem, activity);
 
 		tracker.Observe(Edit(HookEventKind.PreToolUse, "/w/a.txt"));
 		fileSystem.WriteAllText("/w/a.txt", "a1\n");
 		tracker.Observe(Edit(HookEventKind.PostToolUse, "/w/a.txt"));
 		Assert.Single(tracker.TurnChanges());
+		activity.Clear();
 
 		fileSystem.DeleteFile("/w/a.txt");
 		tracker.Observe(Bash(HookEventKind.PostToolUse, "rm /w/a.txt"));
 
-		Assert.Equal("/w/a.txt", deleted);
+		Assert.Equal("/w/a.txt", Assert.IsType<FileDeleted>(Assert.Single(activity.Facts)).Path);
 		Assert.Empty(tracker.TurnChanges());
 		Assert.Empty(tracker.Changes());
 	}

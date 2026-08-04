@@ -1,8 +1,8 @@
 using Weavie.Core.Workspaces;
 
-namespace Weavie.Core.Lsp;
+namespace Weavie.Core.FileActivity;
 
-public sealed partial class WorkspaceWatcher {
+public sealed partial class WorkspaceInvalidationWatcher {
 	private void OnCreated(FileSystemEventArgs e) {
 		if (!Volatile.Read(ref _isRepository)) {
 			if (WorkspacePaths.HasIgnoredSegment(e.FullPath)) {
@@ -14,10 +14,10 @@ public sealed partial class WorkspaceWatcher {
 				_directoryWatchers.EnsureWatching(e.FullPath);
 			} else {
 				_inventory.TrackNonRepositoryFile(e.FullPath);
-				Record(e.FullPath, FileChangeKind.Created);
+				Record(e.FullPath, FileInvalidationKind.Created);
 			}
 		} else {
-			RecordKnown(e.FullPath, FileChangeKind.Created);
+			RecordKnown(e.FullPath, FileInvalidationKind.Created);
 		}
 
 		SignalRefresh();
@@ -30,9 +30,9 @@ public sealed partial class WorkspaceWatcher {
 			}
 
 			_inventory.TrackNonRepositoryFile(e.FullPath);
-			Record(e.FullPath, FileChangeKind.Changed);
+			Record(e.FullPath, FileInvalidationKind.Changed);
 		} else {
-			RecordKnown(e.FullPath, FileChangeKind.Changed);
+			RecordKnown(e.FullPath, FileInvalidationKind.Changed);
 		}
 
 		SignalRefresh();
@@ -43,17 +43,17 @@ public sealed partial class WorkspaceWatcher {
 			var descendants = KnownDescendants(e.FullPath);
 			if (descendants.Count > 0) {
 				foreach (string file in descendants) {
-					Record(file, FileChangeKind.Deleted);
+					Record(file, FileInvalidationKind.Deleted);
 				}
 			} else {
-				RecordKnown(e.FullPath, FileChangeKind.Deleted);
+				RecordKnown(e.FullPath, FileInvalidationKind.Deleted);
 			}
 		} else if (_inventory.IsKnownNonRepositoryDirectory(e.FullPath)) {
 			foreach (string file in _inventory.ForgetNonRepositoryTree(e.FullPath)) {
-				Record(file, FileChangeKind.Deleted);
+				Record(file, FileInvalidationKind.Deleted);
 			}
 		} else if (_inventory.ForgetNonRepositoryFile(e.FullPath)) {
-			Record(e.FullPath, FileChangeKind.Deleted);
+			Record(e.FullPath, FileInvalidationKind.Deleted);
 		}
 
 		SignalRefresh();
@@ -66,12 +66,12 @@ public sealed partial class WorkspaceWatcher {
 			if (descendants.Count > 0) {
 				foreach (string oldFile in descendants) {
 					string newFile = Path.Combine(newPath, Path.GetRelativePath(oldPath, oldFile));
-					Record(oldFile, FileChangeKind.Deleted);
-					Record(newFile, FileChangeKind.Created);
+					Record(oldFile, FileInvalidationKind.Deleted);
+					Record(newFile, FileInvalidationKind.Created);
 				}
 			} else {
-				RecordKnown(oldPath, FileChangeKind.Deleted);
-				RecordKnown(newPath, FileChangeKind.Created);
+				RecordKnown(oldPath, FileInvalidationKind.Deleted);
+				RecordKnown(newPath, FileInvalidationKind.Created);
 			}
 
 			SignalRefresh();
@@ -82,12 +82,12 @@ public sealed partial class WorkspaceWatcher {
 		if (_inventory.IsKnownNonRepositoryDirectory(oldPath)) {
 			if (ignoredDestination) {
 				foreach (string file in _inventory.ForgetNonRepositoryTree(oldPath)) {
-					Record(file, FileChangeKind.Deleted);
+					Record(file, FileInvalidationKind.Deleted);
 				}
 			} else {
 				foreach (var move in _inventory.MoveNonRepositoryTree(oldPath, newPath)) {
-					Record(move.OldPath, FileChangeKind.Deleted);
-					Record(move.NewPath, FileChangeKind.Created);
+					Record(move.OldPath, FileInvalidationKind.Deleted);
+					Record(move.NewPath, FileInvalidationKind.Created);
 				}
 
 				_inventory.TrackNonRepositoryDirectory(newPath);
@@ -99,7 +99,7 @@ public sealed partial class WorkspaceWatcher {
 		}
 
 		if (_inventory.ForgetNonRepositoryFile(oldPath)) {
-			Record(oldPath, FileChangeKind.Deleted);
+			Record(oldPath, FileInvalidationKind.Deleted);
 		}
 
 		if (!ignoredDestination && Directory.Exists(newPath)) {
@@ -107,7 +107,7 @@ public sealed partial class WorkspaceWatcher {
 			_directoryWatchers.EnsureWatching(newPath);
 		} else if (!ignoredDestination) {
 			_inventory.TrackNonRepositoryFile(newPath);
-			Record(newPath, FileChangeKind.Created);
+			Record(newPath, FileInvalidationKind.Created);
 		}
 
 		SignalRefresh();
@@ -118,7 +118,7 @@ public sealed partial class WorkspaceWatcher {
 		SignalRefresh();
 	}
 
-	private bool RecordKnown(string fullPath, FileChangeKind kind) {
+	private bool RecordKnown(string fullPath, FileInvalidationKind kind) {
 		var files = Volatile.Read(ref _files);
 		if (files.Contains(WorkspacePaths.CanonicalFsPath(Path.GetFullPath(fullPath)))) {
 			Record(fullPath, kind);
@@ -137,45 +137,24 @@ public sealed partial class WorkspaceWatcher {
 		return [.. Volatile.Read(ref _files).Where(file => file.StartsWith(prefix, comparison))];
 	}
 
-	private void Record(string fullPath, FileChangeKind kind) {
-		string ext = Path.GetExtension(fullPath);
-		if (string.IsNullOrEmpty(ext) || !_extensions.Contains(ext)) {
-			return;
-		}
-
-		_pending[fullPath] = kind;
+	internal void Record(string fullPath, FileInvalidationKind kind) {
+		string canonical = WorkspacePaths.CanonicalFsPath(Path.GetFullPath(fullPath));
 		lock (_flushLock) {
-			if (!_disposed) {
-				_debounceTimer?.Change(_debounce, Timeout.InfiniteTimeSpan);
+			if (_disposed) {
+				return;
 			}
+
+			_pending[canonical] = kind;
+			_debounceTimer?.Change(_debounce, Timeout.InfiniteTimeSpan);
 		}
 	}
 
 	private void Flush() {
-		List<WatchedFileChange> batch;
 		lock (_flushLock) {
-			if (_pending.IsEmpty) {
+			if (_disposed) {
 				return;
 			}
-
-			batch = new List<WatchedFileChange>(_pending.Count);
-			foreach (var (path, kind) in _pending) {
-				if (_pending.TryRemove(path, out _)) {
-					batch.Add(new WatchedFileChange(ToFileUri(path), kind));
-				}
-			}
-		}
-
-		if (batch.Count > 0) {
-			_onChanges(batch);
-		}
-	}
-
-	private static string ToFileUri(string fullPath) {
-		try {
-			return new Uri(fullPath).AbsoluteUri;
-		} catch (UriFormatException) {
-			return fullPath;
+			DeliverPendingLocked();
 		}
 	}
 }

@@ -12,22 +12,30 @@ public sealed record CorrectionEdit(string RelativePath, string Before, string A
 public sealed partial class SessionChangeTracker {
 	private string? _currentPrompt;
 	private long _nextOriginId;
-	private readonly Dictionary<string, ProvenanceFile> _provenance = new(StringComparer.Ordinal);
+	private readonly Dictionary<string, ProvenanceFile> _provenance = new(PathComparer);
 
 	/// <summary>Raised outside the tracker lock with one user's action-time corrections.</summary>
 	public event Action<IReadOnlyList<CorrectionEdit>>? Corrected;
 
-	/// <summary>Captures a saved editor change only where it changes pending agent-authored text.</summary>
+	/// <summary>Captures and immediately publishes a saved editor change over pending agent-authored text.</summary>
 	/// <param name="path">Absolute path of the saved file.</param>
 	/// <param name="content">The file's complete saved content.</param>
-	public void RecordHandEdit(string path, string content) {
-		ArgumentException.ThrowIfNullOrEmpty(path);
+	public void RecordHandEdit(string path, string content) => CaptureHandEdit(path, content).Complete();
+
+	/// <summary>
+	/// Rebases correction state at the save boundary and returns an idempotent completion that publishes the
+	/// captured corrections later, allowing persistence and other consumers to run after the save response.
+	/// </summary>
+	/// <param name="path">Absolute path of the saved file.</param>
+	/// <param name="content">The file's complete saved content.</param>
+	public CapturedHandEdit CaptureHandEdit(string path, string content) {
+		path = NormalizePath(path);
 		ArgumentNullException.ThrowIfNull(content);
 		List<CorrectionEdit> edits = [];
 		lock (_gate) {
 			if (!_current.TryGetValue(path, out string? reviewCurrent)
 				|| !_provenance.TryGetValue(path, out var provenance)) {
-				return;
+				return CapturedHandEdit.None;
 			}
 
 			string[] beforeLines = LineDiff.SplitLines(provenance.Text);
@@ -49,13 +57,13 @@ public sealed partial class SessionChangeTracker {
 
 			RebaseProvenance(provenance, content, attributed);
 			if (attributed.Count == 0) {
-				return;
+				return CapturedHandEdit.None;
 			}
 
 			_current[path] = ApplyChanges(previousText, reviewCurrent, attributed);
 		}
 
-		RaiseCorrected(edits);
+		return new CapturedHandEdit(() => RaiseCorrected(edits));
 	}
 
 	private void CaptureProvenanceBaseline(string path, string content) {

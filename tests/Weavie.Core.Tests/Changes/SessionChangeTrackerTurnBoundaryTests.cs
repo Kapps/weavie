@@ -1,4 +1,5 @@
 using Weavie.Core.Changes;
+using Weavie.Core.FileActivity;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Hooks;
 using Xunit;
@@ -12,7 +13,7 @@ namespace Weavie.Core.Tests;
 /// </summary>
 public sealed class SessionChangeTrackerTurnBoundaryTests {
 	private static SessionChangeTracker Tracker(IFileSystem fileSystem) =>
-		new(fileSystem, "/w", path => path.StartsWith("/w", StringComparison.Ordinal));
+		new(fileSystem, NoopFileActivitySink.Instance, "/w", path => path.StartsWith("/w", StringComparison.Ordinal));
 
 	private static readonly HookRequest NewPrompt = new() {
 		Event = HookEventKind.UserPromptSubmit,

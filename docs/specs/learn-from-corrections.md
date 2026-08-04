@@ -52,7 +52,7 @@ All in `Weavie.Core.Corrections` unless noted:
   last left off, over text that still had content), so a restore-from-empty or a deletion boundary stays a
   distinct correction.
 - **`SessionChangeTracker.Corrected`** (`SessionChangeTracker.Corrections.cs`) — the event, raising
-  `CorrectionEdit { RelativePath, Before, After, Prompt }` batches from `RecordHandEdit` and the reverts.
+  `CorrectionEdit { RelativePath, Before, After, Prompt }` batches from completed hand-edit captures and reverts.
 - **`LineHunker`** (`Weavie.Core.Changes`) — the LCS line alignment: `Hunks(before, after)` returns each
   changed region's range on both sides. Its exact linear-memory alignment backs both provenance tracking and
   `CorrectionDiff` (one alignment, no coarse large-file fallback).
@@ -66,9 +66,11 @@ of the per-session tracker state.
 A correction is emitted at the two moments the user acts on the agent's output; the tracker raises
 `Corrected` and the recorder appends. Nothing is reconstructed later, and nothing scans the tree.
 
-**Editor save — `RecordHandEdit(path, content)`** (called from the `fs-write` bridge handler on every
-editor save that reaches disk). Each tracked file has a full-text provenance mirror whose live lines and
-deletion gaps carry their producing prompt and pending/kept state:
+**Editor save — `CaptureHandEdit(path, content)`** (called from the `fs-write` bridge handler on every
+successful editor save). Capture rebases the in-memory provenance mirror before the response, so a concurrent
+agent edit cannot move the attributed region first. Its idempotent completion raises `Corrected` after the
+response attempt, keeping corpus I/O out of the save result. Each tracked file has a full-text provenance mirror
+whose live lines and deletion gaps carry their producing prompt and pending/kept state:
 
 1. agent completion aligns the pre-tool file with the provider-reported file and labels only changed lines
    or deletion gaps; unchanged origins survive, including origins from earlier turns;
@@ -93,9 +95,11 @@ one file retain different producing turns. Codex reports no prompt, so its origi
 ```mermaid
 flowchart TD
   A[Agent edits file - PostToolUse] --> B["RecordChange: label only reported changed lines / gaps"]
-  S[User saves in editor - fs-write] --> C["RecordHandEdit: advance mirror; emit only attributed edits"]
+  S[User saves in editor - fs-write] --> C["CaptureHandEdit: advance mirror; retain attributed edits"]
+  C --> Q[Response attempt]
+  Q --> P["CapturedHandEdit.Complete: emit captured edits"]
   V[User reverts a hunk / file] --> W[RevertHunk / RevertFile / RevertAll]
-  C --> E{"changed an agent region?"}
+  P --> E{"changed an agent region?"}
   W --> E
   E -- yes --> F["tracker raises Corrected(before, after, producing prompt)"]
   F --> G[CorrectionRecorder.Record - CorrectionDiff per edit]

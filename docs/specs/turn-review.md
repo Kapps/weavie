@@ -113,7 +113,7 @@ per-hunk toolbar. Keep/Revert are inert while parked; Undo/Redo still reflect th
 
 This replaces the old "jump the editor to the first changed file when the turn goes idle" behavior: the
 editor is **never** auto-moved (mid-turn or at turn-end). Stepping in is always user-driven. The host just
-pushes the review set live (on every edit, via `Changes.Changed`); the page decides to park or expand it
+pushes the review set live (after completed buffer saves and tracker-reported changes/deletions); the page decides to park or expand it
 purely from whether a changed file is in view — so there's no host-side `open` flag or auto-arm bookkeeping,
 and it's race-free across a session switch by construction (parking never touches the editor). The
 `weavie.review.open` command (palette) still jumps to the first change on demand.

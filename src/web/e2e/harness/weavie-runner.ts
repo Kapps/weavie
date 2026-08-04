@@ -1,12 +1,9 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { existsSync } from "node:fs";
 import { Agent } from "node:http";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { headlessProgram, programExists, runnerProgram } from "./test-programs";
 import {
   getOverAgent,
-  headlessDll,
   killProcessTree,
   type LaunchOptions,
   prepareFake,
@@ -15,19 +12,8 @@ import {
   waitForPortLine,
 } from "./weavie-host";
 
-const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..");
-export const runnerDll = join(
-  repoRoot,
-  "src",
-  "Weavie.Runner",
-  "bin",
-  "Debug",
-  "net10.0",
-  "Weavie.Runner.dll",
-);
-
 export function runnerBuilt(): boolean {
-  return existsSync(runnerDll);
+  return programExists(runnerProgram);
 }
 
 export async function launchRunner(options: LaunchOptions): Promise<WeavieHost> {
@@ -36,13 +22,13 @@ export async function launchRunner(options: LaunchOptions): Promise<WeavieHost> 
 
   let log = "";
   const proc: ChildProcess = spawn(
-    "dotnet",
+    runnerProgram.command,
     [
-      runnerDll,
+      ...runnerProgram.args,
       "--workspace",
       fake.workspace,
       "--headless",
-      headlessDll,
+      headlessProgram.target,
       "--port",
       "0",
       "--bind",

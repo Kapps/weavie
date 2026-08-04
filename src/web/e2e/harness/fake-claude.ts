@@ -1,36 +1,25 @@
-import { existsSync } from "node:fs";
 import { chmod, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-
-// tools/Weavie.FakeClaude/bin/Debug/net10.0/Weavie.FakeClaude.dll, relative to this file
-// (src/web/e2e/harness → repo root is four levels up).
-const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..");
-export const fakeClaudeDll = join(
-  repoRoot,
-  "tools",
-  "Weavie.FakeClaude",
-  "bin",
-  "Debug",
-  "net10.0",
-  "Weavie.FakeClaude.dll",
-);
+import { join } from "node:path";
+import { fakeClaudeProgram, programExists } from "./test-programs";
 
 export function fakeClaudeBuilt(): boolean {
-  return existsSync(fakeClaudeDll);
+  return programExists(fakeClaudeProgram);
 }
 
-// Weavie execs the claude.path setting as a single executable, so wrap the managed dll in a tiny launcher
-// and point claude.path at that. Written into the test's isolated HOME. Windows can't CreateProcess a `.sh`,
-// so write a `.cmd` there — WindowsPtyLauncher runs `.cmd`/`.bat` through cmd.exe; POSIX gets an exec'd shell script.
+// Weavie execs the claude.path setting as one executable, so wrap the resolved local DLL or packaged apphost
+// and point claude.path at it. WindowsPtyLauncher runs .cmd through cmd.exe; POSIX gets an exec'd shell script.
 export async function writeFakeClaudeWrapper(dir: string): Promise<string> {
+  const command = [fakeClaudeProgram.command, ...fakeClaudeProgram.args];
   if (process.platform === "win32") {
     const wrapper = join(dir, "fake-claude.cmd");
-    await writeFile(wrapper, `@dotnet "${fakeClaudeDll}" %*\r\n`);
+    await writeFile(wrapper, `@${command.map((part) => `"${part}"`).join(" ")} %*\r\n`);
     return wrapper;
   }
   const wrapper = join(dir, "fake-claude.sh");
-  await writeFile(wrapper, `#!/bin/sh\nexec dotnet ${JSON.stringify(fakeClaudeDll)} "$@"\n`);
+  await writeFile(
+    wrapper,
+    `#!/bin/sh\nexec ${command.map((part) => JSON.stringify(part)).join(" ")} "$@"\n`,
+  );
   await chmod(wrapper, 0o755);
   return wrapper;
 }

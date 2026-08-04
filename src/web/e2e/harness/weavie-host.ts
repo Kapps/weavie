@@ -3,25 +3,14 @@ import { existsSync, readFileSync } from "node:fs";
 import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { Agent, get as httpGet, type OutgoingHttpHeaders } from "node:http";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { type FakeStep, writeFakeClaudeWrapper, writeFakeScript } from "./fake-claude";
 import { writeFakeCodexWrapper } from "./fake-codex";
 import { createGitWorkspace, createPrWorkspace, removeWorkspace } from "./git-workspace";
-
-const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..");
-export const headlessDll = join(
-  repoRoot,
-  "src",
-  "Weavie.Headless",
-  "bin",
-  "Debug",
-  "net10.0",
-  "Weavie.Headless.dll",
-);
+import { headlessProgram, programExists } from "./test-programs";
 
 export function headlessBuilt(): boolean {
-  return existsSync(headlessDll);
+  return programExists(headlessProgram);
 }
 
 export interface WeavieHost {
@@ -275,7 +264,10 @@ export async function launchHeadless(options: LaunchOptions): Promise<WeavieHost
   };
 
   let log = "";
-  const proc = spawn("dotnet", [headlessDll], { env, stdio: ["ignore", "pipe", "pipe"] });
+  const proc = spawn(headlessProgram.command, headlessProgram.args, {
+    env,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
   proc.stdout?.on("data", (chunk: Buffer) => {
     log += chunk.toString("utf8");
   });

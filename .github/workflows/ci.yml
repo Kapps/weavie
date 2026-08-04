@@ -117,26 +117,27 @@ jobs:
         if: matrix.name == 'macos'
         run: dotnet format weavie.slnx --verify-no-changes --no-restore
 
-  # Every OS runs the complete Playwright project set. Shards add machines without increasing the
-  # per-runner worker count that previously starved full-stack tests on hosted macOS and Windows.
-  e2e:
-    name: e2e (${{ matrix.platform.name }}, ${{ matrix.shard }}/${{ matrix.shards }})
+  e2e_bundle:
+    name: e2e bundle (${{ matrix.platform.name }})
     runs-on: ${{ matrix.platform.os }}
     env:
       NODE_OPTIONS: --max-old-space-size=4096
-      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.pw-browsers
     strategy:
       fail-fast: false
       matrix:
-        platform:
+        platform: &e2e-platforms
           - name: linux
             os: ubuntu-latest
+            rid: linux-x64
+            suffix: ""
           - name: macos
             os: macos-26
+            rid: osx-arm64
+            suffix: ""
           - name: windows
             os: windows-latest
-        shard: [1, 2, 3, 4, 5, 6]
-        shards: [6]
+            rid: win-x64
+            suffix: .exe
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-dotnet
@@ -146,16 +147,79 @@ jobs:
         working-directory: src/web
         run: pnpm install --frozen-lockfile
 
-      # Headless copies dist into its output, so the web build must precede every host build.
-      - name: Build web app
-        working-directory: src/web
-        run: pnpm run build
-
-      - name: Build integration-test stack
+      # Runner publish stages the matching self-contained Headless worker, its Vite UI, and NativeAOT
+      # hook relay under worker/. FakeClaude is the only separate process the test bundle needs.
+      - name: Publish self-contained test bundle
+        shell: bash
         run: |
-          dotnet build src/Weavie.Headless/Weavie.Headless.csproj -c Debug
-          dotnet build tools/Weavie.FakeClaude/Weavie.FakeClaude.csproj -c Debug
-          dotnet build src/Weavie.Runner/Weavie.Runner.csproj -c Debug
+          dotnet publish src/Weavie.Runner/Weavie.Runner.csproj \
+            -c Release -r ${{ matrix.platform.rid }} --self-contained \
+            -o artifacts/e2e-bundle/runner
+          dotnet publish tools/Weavie.FakeClaude/Weavie.FakeClaude.csproj \
+            -c Release -r ${{ matrix.platform.rid }} --self-contained \
+            -o artifacts/e2e-bundle/fake-claude
+
+      - name: Verify test bundle
+        shell: bash
+        run: |
+          test -f "artifacts/e2e-bundle/runner/Weavie.Runner${{ matrix.platform.suffix }}"
+          test -f "artifacts/e2e-bundle/runner/worker/Weavie.Headless${{ matrix.platform.suffix }}"
+          test -f "artifacts/e2e-bundle/runner/worker/weavie-hook-relay${{ matrix.platform.suffix }}"
+          test -f "artifacts/e2e-bundle/runner/worker/wwwroot/index.html"
+          test -f "artifacts/e2e-bundle/fake-claude/Weavie.FakeClaude${{ matrix.platform.suffix }}"
+
+      - name: Upload test bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-bundle-${{ matrix.platform.name }}
+          path: artifacts/e2e-bundle/
+          if-no-files-found: error
+          retention-days: 1
+
+  # Every OS runs the complete Playwright project set against one immutable platform build. Shards add
+  # machines without increasing the per-runner worker count that starved hosted macOS and Windows.
+  e2e:
+    name: e2e (${{ matrix.platform.name }}, ${{ matrix.shard }}/${{ matrix.shards }})
+    needs: e2e_bundle
+    runs-on: ${{ matrix.platform.os }}
+    env:
+      NODE_OPTIONS: --max-old-space-size=4096
+      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.pw-browsers
+      WEAVIE_E2E_BUNDLE: ${{ github.workspace }}/.e2e-bundle
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: *e2e-platforms
+        shard: [1, 2, 3, 4, 5, 6]
+        shards: [6]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-web
+
+      - name: Install web dependencies
+        working-directory: src/web
+        run: pnpm install --frozen-lockfile
+
+      - name: Download test bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: e2e-bundle-${{ matrix.platform.name }}
+          path: .e2e-bundle
+
+      # upload-artifact does not preserve executable bits. The worker's staged wwwroot is also copied back
+      # to the checkout for browser-only specs whose mock host serves src/web/dist directly.
+      - name: Prepare test bundle
+        shell: bash
+        run: |
+          if [[ "${{ runner.os }}" != Windows ]]; then
+            chmod +x \
+              .e2e-bundle/runner/Weavie.Runner \
+              .e2e-bundle/runner/worker/Weavie.Headless \
+              .e2e-bundle/runner/worker/weavie-hook-relay \
+              .e2e-bundle/fake-claude/Weavie.FakeClaude
+          fi
+          mkdir -p src/web/dist
+          cp -R .e2e-bundle/runner/worker/wwwroot/. src/web/dist/
 
       - name: Cache Playwright browsers
         uses: actions/cache@v4
@@ -238,7 +302,7 @@ jobs:
   ci:
     name: ci
     if: ${{ always() }}
-    needs: [web_checks, dotnet_tests, native_build, e2e, e2e_report]
+    needs: [web_checks, dotnet_tests, native_build, e2e_bundle, e2e, e2e_report]
     runs-on: ubuntu-latest
     steps:
       - name: Require every CI job
@@ -246,11 +310,13 @@ jobs:
           WEB_CHECKS_RESULT: ${{ needs.web_checks.result }}
           DOTNET_TESTS_RESULT: ${{ needs.dotnet_tests.result }}
           NATIVE_BUILD_RESULT: ${{ needs.native_build.result }}
+          E2E_BUNDLE_RESULT: ${{ needs.e2e_bundle.result }}
           E2E_RESULT: ${{ needs.e2e.result }}
           E2E_REPORT_RESULT: ${{ needs.e2e_report.result }}
         run: |
           test "$WEB_CHECKS_RESULT" = success
           test "$DOTNET_TESTS_RESULT" = success
           test "$NATIVE_BUILD_RESULT" = success
+          test "$E2E_BUNDLE_RESULT" = success
           test "$E2E_RESULT" = success
           test "$E2E_REPORT_RESULT" = success

@@ -1,10 +1,13 @@
 const MIN_DISTANCE = 48;
+const INTENT_DISTANCE = 12;
 const HORIZONTAL_DOMINANCE = 1.5;
 
 interface Point {
   x: number;
   y: number;
 }
+
+type GestureState = "idle" | "pending" | "horizontal" | "rejected";
 
 export interface MobileBackSwipeCallbacks {
   canStart: () => boolean;
@@ -22,9 +25,18 @@ export function createMobileBackSwipe(callbacks: MobileBackSwipeCallbacks): {
 } {
   let start: Point | null = null;
   let latest: Point | null = null;
-  let tracking = false;
+  let state: GestureState = "idle";
+
+  const reset = (): void => {
+    start = null;
+    latest = null;
+    state = "idle";
+  };
 
   const onTouchStart = (event: TouchEvent): void => {
+    if (state === "horizontal") {
+      callbacks.onCancel();
+    }
     const target = event.target;
     const touch = event.touches[0];
     start =
@@ -36,23 +48,34 @@ export function createMobileBackSwipe(callbacks: MobileBackSwipeCallbacks): {
         ? { x: touch.clientX, y: touch.clientY }
         : null;
     latest = start;
-    tracking = false;
+    state = start === null ? "idle" : "pending";
   };
 
   const onTouchMove = (event: TouchEvent): void => {
     const origin = start;
     const touch = event.touches[0];
-    if (origin === null || touch === undefined) {
+    if (origin === null || touch === undefined || state === "rejected") {
+      return;
+    }
+    if (event.touches.length !== 1) {
+      if (state === "horizontal") {
+        callbacks.onCancel();
+      }
+      state = "rejected";
       return;
     }
     latest = { x: touch.clientX, y: touch.clientY };
     const dx = touch.clientX - origin.x;
     const dy = touch.clientY - origin.y;
-    if (!tracking) {
-      if (dx <= 0 || Math.abs(dx) <= Math.abs(dy)) {
+    if (state === "pending") {
+      if (Math.max(Math.abs(dx), Math.abs(dy)) < INTENT_DISTANCE) {
         return;
       }
-      tracking = true;
+      if (dx <= 0 || Math.abs(dx) <= Math.abs(dy) * HORIZONTAL_DOMINANCE) {
+        state = "rejected";
+        return;
+      }
+      state = "horizontal";
     }
     event.preventDefault();
     callbacks.onProgress(Math.min(1, Math.max(0, dx / window.innerWidth)));
@@ -62,10 +85,9 @@ export function createMobileBackSwipe(callbacks: MobileBackSwipeCallbacks): {
     const origin = start;
     const touch = event.changedTouches[0];
     const end = touch === undefined ? latest : { x: touch.clientX, y: touch.clientY };
-    start = null;
-    latest = null;
-    tracking = false;
-    if (origin === null || end === null) {
+    const completedState = state;
+    reset();
+    if (completedState !== "horizontal" || origin === null || end === null) {
       return;
     }
     const dx = end.x - origin.x;
@@ -83,12 +105,10 @@ export function createMobileBackSwipe(callbacks: MobileBackSwipeCallbacks): {
     onTouchMove,
     onTouchEnd,
     onTouchCancel: () => {
-      if (start !== null) {
+      if (state === "horizontal") {
         callbacks.onCancel();
       }
-      start = null;
-      latest = null;
-      tracking = false;
+      reset();
     },
   };
 }

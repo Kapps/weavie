@@ -278,23 +278,22 @@ public sealed partial class HostCore : IAsyncDisposable {
 	public Task WaitForShutdownAsync() => _http.WaitForShutdownAsync();
 
 	/// <summary>
-	/// The same-origin page bootstrap: resource base, resolved fonts, editor options, theme, command catalog,
-	/// keybindings, and shell config. Call after <see cref="StartAsync"/>.
+	/// The same-origin page bootstrap: resolved fonts, editor options, theme, command catalog, keybindings, and
+	/// shell config. Call after <see cref="StartAsync"/>.
 	/// </summary>
-	public string BuildBootstrap() => BuildBootstrap(_http.MediaBaseUrl);
-
-	internal string BuildCrossOriginBootstrap() => BuildBootstrap(_http.TransportMediaBaseUrl);
-
-	private string BuildBootstrap(string resourceBase) {
+	public string BuildBootstrap() {
 		return
-			$"window.__WEAVIE_RESOURCE_BASE__ = {JsonSerializer.Serialize(resourceBase)};"
-			+ string.Concat(LiveSettingGroups.Select(g => $"window.{g.Global} = {g.Build(_settings)};"))
+			string.Concat(LiveSettingGroups.Select(g => $"window.{g.Global} = {g.Build(_settings)};"))
 			+ $"window.__WEAVIE_THEME__ = {ThemeJson.Build(_settings, _themeOverrides, Log)};"
 			+ BuildTestProfileScript()
 			+ $"window.__WEAVIE_COMMANDS__ = {_keybindings.BuildCommandsJson()};"
 			+ $"window.__WEAVIE_KEYBINDINGS__ = {_keybindings.BuildKeybindingsJson()};"
 			+ ShellProtocol.BuildConfigScript(_platform.ChromePlatform, _platform.TitleBar, WorkspaceLabel, _platform.Recents, BuildNumber);
 	}
+
+	internal string BuildCrossOriginBootstrap() =>
+		$"window.__WEAVIE_RESOURCE_BASE__ = {JsonSerializer.Serialize(_http.TransportMediaBaseUrl)};"
+		+ BuildBootstrap();
 
 	// Live settings groups: each is injected pre-navigation as window.{Global} and re-pushed as its
 	// event name when any of its Keys changes. One row per group — the bootstrap and the change handler

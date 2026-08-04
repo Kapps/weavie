@@ -57,16 +57,18 @@ that injects `buildNumber`, so the bootstrap value *is* the bundle's version mar
 
 ## Update source: rolling prerelease per green `main` commit
 
-`.github/workflows/release.yml` already builds the exact payload: the `runner-linux-x64` job
+`.github/workflows/release.yml` builds the exact payload: the `runner` job
 publishes `Weavie.Runner` with `Weavie.Headless` staged into `worker/` and the web `dist` bundled —
-one artifact is the complete deploy. Changes:
+one artifact is the complete deploy. The release contract is:
 
-- **Trigger on green `main`**: run the runner-linux-x64 publish via `workflow_run` on the CI
-  workflow's success on `main`.
+- **Trigger on green `main`**: build `workflow_run.head_sha`, the exact push commit that passed CI.
+  Main CI and complete release workflows keep their active run and coalesce newer pushes into one
+  latest pending successor, so frequent merges cannot starve the rolling release.
 - **Publish as a rolling GitHub prerelease** (tag `main-latest`, assets replaced each run) rather
   than an Actions artifact: release assets are fetchable with a plain bearer token (or anonymously
-  on a public repo) and carry a `digest` in the API response; Actions artifacts need the Actions
-  API and expire. Requires `contents: write` on that job (the workflow is `contents: read` today).
+  on a public repo) and carry a `digest` in the API response; Actions artifacts need the Actions API
+  and expire. The runner and all three desktop archives build before one write-privileged final job
+  replaces the release through a draft, so a failed platform build leaves the prior release intact.
 - The bundle carries a small `manifest.json`: `{ buildNumber, spawnContract }`, written by the
   publish itself (an MSBuild target — CI never hand-assembles it). `spawnContract` is a generation
   integer declared once (`SpawnContractVersion` in `Directory.Build.props`) and compiled into both

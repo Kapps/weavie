@@ -61,6 +61,11 @@ that knows nothing about routing acts on the correct owner.
 once at the caller. Command handlers return data; the host does not broadcast a toast as a substitute for a
 reply.
 
+Session unload and delete are lifecycle completions rather than reply presentation: either can destroy the
+invoking session immediately after its response is delivered. Their successful response is silent, and
+`HostCore` emits one host-scoped completion toast only after the session is unloaded or deleted. This gives
+self-removing sessions the same final feedback without an optimistic or duplicate caller toast.
+
 ## Domain payloads
 
 `data` is command-specific JSON. Core keeps it serialization-agnostic as `DataJson`, while the caller parses
@@ -70,10 +75,12 @@ the shape it requested. This collapses multi-message workflows into one request:
 sequenceDiagram
     participant UI
     participant H as owning HostSession
+    participant N as host notifications
     UI->>H: commands.invoke delete {id, classify:true}
     H-->>UI: {ok:true, data:{state, label}}
     UI->>H: commands.invoke delete {id, force:true}
-    H-->>UI: {ok:true, message}
+    H-->>UI: {ok:true}
+    H->>N: show delete completion
 ```
 
 ## Invariants

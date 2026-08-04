@@ -16,11 +16,16 @@ public sealed class HostCoreSessionDeleteTests {
 		return list is null ? [] : [.. list.Value.EnumerateArray().Select(s => s.GetProperty("id").GetString())];
 	}
 
+	private static string[] NotificationMessages(TestHost host) => [.. host.Bridge
+		.PostedEvents("notifications", "show")
+		.Select(notification => notification.GetProperty("message").GetString()!)];
+
 	[Fact]
 	public async Task Delete_WithoutId_TargetsTheOwningSession() {
 		await using var host = await TestHost.StartAsync();
 		Assert.True((await host.CreateSessionAsync("feature")).Ok);
 		Assert.Contains("feature", SessionIds(host));
+		host.Bridge.Clear();
 
 		var result = await host.InvokeCommandAsync(
 			"feature",
@@ -29,21 +34,41 @@ public sealed class HostCoreSessionDeleteTests {
 			CancellationToken.None);
 
 		Assert.True(result.Ok, result.Error);
+		Assert.Null(result.Message);
 		Assert.DoesNotContain("feature", SessionIds(host));
+		Assert.Equal(
+			new[] { "Session 'feature' was deleted. Its branch was kept." },
+			NotificationMessages(host));
 	}
 
 	[Fact]
 	public async Task SelectedSessionRepliesBeforeDeletingItsOwnMessageBus() {
 		await using var host = await TestHost.StartAsync();
 		Assert.True((await host.CreateSessionAsync("feature")).Ok);
+		host.Bridge.Clear();
 
 		var result = await host.InvokeClientCommandAsync(
 			SessionCommands.DeleteSession,
 			new { });
 
 		Assert.True(result.Ok, result.Error);
+		Assert.Null(result.Message);
 		host.SelectSession("primary");
 		await Wait.ForAsync<bool>(() => SessionIds(host).Contains("feature") ? null : true);
+		Assert.Equal(
+			new[] { "Session 'feature' was deleted. Its branch was kept." },
+			NotificationMessages(host));
+		var posted = host.Bridge.Posted
+			.Select(json => MessageEnvelope.TryParse(json, out var envelope) ? envelope : null)
+			.ToArray();
+		int responseIndex = Array.FindIndex(
+			posted,
+			envelope => envelope is { Kind: MessageKind.Response, Feature: "commands", Name: "invoke" });
+		int toastIndex = Array.FindIndex(
+			posted,
+			envelope => envelope is { Kind: MessageKind.Event, Feature: "notifications", Name: "show" });
+		Assert.True(responseIndex >= 0);
+		Assert.True(toastIndex > responseIndex);
 	}
 
 	[Fact]
@@ -94,6 +119,7 @@ public sealed class HostCoreSessionDeleteTests {
 	public async Task Unload_WithoutId_ParksTheOwningSession() {
 		await using var host = await TestHost.StartAsync();
 		Assert.True((await host.CreateSessionAsync("feature")).Ok);
+		host.Bridge.Clear();
 
 		var result = await host.InvokeCommandAsync(
 			"feature",
@@ -102,15 +128,20 @@ public sealed class HostCoreSessionDeleteTests {
 			CancellationToken.None);
 
 		Assert.True(result.Ok, result.Error);
+		Assert.Null(result.Message);
 		var feature = host.Bridge.LastEvent("sessions", "catalog")!.Value
 			.EnumerateArray().Single(s => s.GetProperty("id").GetString() == "feature");
 		Assert.False(feature.GetProperty("loaded").GetBoolean());
+		Assert.Equal(
+			new[] { "Session 'feature' was unloaded. Its worktree was kept." },
+			NotificationMessages(host));
 	}
 
 	[Fact]
 	public async Task ConcurrentUnloadFromDifferentSessionsTearsTheTargetDownOnce() {
 		await using var host = await TestHost.StartAsync();
 		Assert.True((await host.CreateSessionAsync("feature")).Ok);
+		host.Bridge.Clear();
 
 		var fromPrimary = host.InvokeCommandAsync(
 			"primary",
@@ -129,12 +160,16 @@ public sealed class HostCoreSessionDeleteTests {
 			.EnumerateArray().Single(s => s.GetProperty("id").GetString() == "feature");
 		Assert.False(feature.GetProperty("loaded").GetBoolean());
 		Assert.Null(host.Core.SessionForTest("feature"));
+		Assert.Equal(
+			new[] { "Session 'feature' was unloaded. Its worktree was kept." },
+			NotificationMessages(host));
 	}
 
 	[Fact]
 	public async Task UnloadStopsWhenTheAttachedEditorCannotFlush() {
 		await using var host = await TestHost.StartAsync();
 		Assert.True((await host.CreateSessionAsync("feature")).Ok);
+		host.Bridge.Clear();
 		var originalResponder = host.Bridge.RequestResponder;
 		host.Bridge.RequestResponder = request =>
 			request is { Feature: "editor", Name: "flush" }
@@ -150,6 +185,7 @@ public sealed class HostCoreSessionDeleteTests {
 		Assert.False(result.Ok);
 		Assert.Contains("disk full", result.Error);
 		Assert.Same(host.Session("feature"), host.Core.SessionForTest("feature"));
+		Assert.Empty(NotificationMessages(host));
 	}
 
 	[Fact]
@@ -181,10 +217,16 @@ public sealed class HostCoreSessionDeleteTests {
 		await using var host = await TestHost.StartAsync();
 		Assert.True((await host.CreateSessionAsync("feature")).Ok);
 		Assert.Contains("feature", SessionIds(host));
+		host.SelectSession("primary");
+		host.Bridge.Clear();
 
 		var result = await host.DeleteSessionAsync("feature", force: false, classify: false);
 
 		Assert.True(result.Ok, result.Error);
+		Assert.Null(result.Message);
 		Assert.DoesNotContain("feature", SessionIds(host));
+		Assert.Equal(
+			new[] { "Session 'feature' was deleted. Its branch was kept." },
+			NotificationMessages(host));
 	}
 }

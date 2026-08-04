@@ -158,6 +158,12 @@ export function applyChromeTheme(): void {
   const slot = activeSlot(state);
   applyColorsToCssVars(slot.resolved.colors);
   deriveChromeVars(slot.resolved.colors);
+  const background = slot.resolved.colors["editor.background"];
+  if (background !== undefined) {
+    document
+      .querySelector<HTMLMetaElement>('meta[name="theme-color"]')
+      ?.setAttribute("content", background);
+  }
   // Keep the UA color-scheme in step so native form controls, scrollbars, and the pre-theme flash match
   // the active polarity; mirror it onto data-theme-type so polarity-specific CSS can target it.
   const polarity = slot.base.type === "light" ? "light" : "dark";

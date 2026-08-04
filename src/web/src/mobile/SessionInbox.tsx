@@ -1,6 +1,30 @@
-import { createEffect, createSignal, For, type JSX, Show } from "solid-js";
+import { createEffect, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
+import {
+  AgentAttachmentStrip,
+  type AgentAttachmentViewStatus,
+} from "../agent/AgentAttachmentStrip";
+import { agentImageError, encodeAgentImage, takePastedImages } from "../agent/pasted-images";
 import { connectedBackends } from "../bridge";
 import { type RailSession, STATUS_SHORT } from "../chrome/session-store";
+
+export interface NewSessionSeedAttachment {
+  id: string;
+  mime: string;
+  dataB64: string;
+}
+
+export interface NewSessionSeed {
+  prompt: string;
+  attachments: NewSessionSeedAttachment[];
+}
+
+interface NewSessionAttachmentDraft extends NewSessionSeedAttachment {
+  previewUrl: string;
+  status: AgentAttachmentViewStatus;
+  error: string | null;
+}
+
+let attachmentSequence = 0;
 
 /** The compact home surface: all sessions plus a prompt-first path to a new worktree session. */
 export function SessionInbox(props: {
@@ -8,7 +32,11 @@ export function SessionInbox(props: {
   initialBackendId: string;
   initialProviderId: "claude" | "codex";
   onOpen: (session: RailSession) => Promise<boolean>;
-  onCreate: (prompt: string, backendId: string, providerId: "claude" | "codex") => Promise<boolean>;
+  onCreate: (
+    seed: NewSessionSeed,
+    backendId: string,
+    providerId: "claude" | "codex",
+  ) => Promise<boolean>;
   onMore: () => void;
   moreTitle: string;
 }): JSX.Element {
@@ -16,6 +44,7 @@ export function SessionInbox(props: {
   const [backendId, setBackendId] = createSignal(props.initialBackendId);
   const [providerId, setProviderId] = createSignal<"claude" | "codex">(props.initialProviderId);
   const [submitting, setSubmitting] = createSignal(false);
+  const [attachments, setAttachments] = createSignal<NewSessionAttachmentDraft[]>([]);
 
   createEffect(() => {
     if (!connectedBackends().some((backend) => backend.id === backendId())) {
@@ -25,14 +54,103 @@ export function SessionInbox(props: {
 
   const submit = async (): Promise<void> => {
     const text = prompt().trim();
-    if (text.length === 0 || submitting()) {
+    const images = attachments();
+    if (
+      submitting() ||
+      images.some((attachment) => attachment.status !== "ready") ||
+      (text.length === 0 && images.length === 0)
+    ) {
       return;
     }
     setSubmitting(true);
-    if (await props.onCreate(text, backendId(), providerId())) {
+    if (
+      await props.onCreate(
+        {
+          prompt: text,
+          attachments: images.map(({ id, mime, dataB64 }) => ({ id, mime, dataB64 })),
+        },
+        backendId(),
+        providerId(),
+      )
+    ) {
       setPrompt("");
+      clearAttachments();
     }
     setSubmitting(false);
+  };
+
+  const removeAttachment = (id: string): void => {
+    setAttachments((current) => {
+      const removed = current.find((attachment) => attachment.id === id);
+      if (removed !== undefined) {
+        URL.revokeObjectURL(removed.previewUrl);
+      }
+      return current.filter((attachment) => attachment.id !== id);
+    });
+  };
+
+  const clearAttachments = (): void => {
+    for (const attachment of attachments()) {
+      URL.revokeObjectURL(attachment.previewUrl);
+    }
+    setAttachments([]);
+  };
+
+  const captureImagePaste = (event: ClipboardEvent): void => {
+    for (const blob of takePastedImages(event)) {
+      const id = `new-session-image-${Date.now().toString(36)}-${(++attachmentSequence).toString(36)}`;
+      const previewUrl = URL.createObjectURL(blob);
+      const draft: NewSessionAttachmentDraft = {
+        id,
+        mime: blob.type,
+        dataB64: "",
+        previewUrl,
+        status: "reading",
+        error: null,
+      };
+      setAttachments((current) => [...current, draft]);
+      void encodeAgentImage(blob).then(
+        (dataB64) => {
+          const error = agentImageError(blob.type, dataB64);
+          setAttachments((current) =>
+            current.map((attachment) =>
+              attachment.id === id
+                ? {
+                    ...attachment,
+                    dataB64,
+                    status: error === null ? "ready" : "failed",
+                    error,
+                  }
+                : attachment,
+            ),
+          );
+        },
+        (error: unknown) => {
+          setAttachments((current) =>
+            current.map((attachment) =>
+              attachment.id === id
+                ? {
+                    ...attachment,
+                    status: "failed",
+                    error: error instanceof Error ? error.message : String(error),
+                  }
+                : attachment,
+            ),
+          );
+        },
+      );
+    }
+  };
+
+  onCleanup(clearAttachments);
+
+  const canSubmit = (): boolean => {
+    const images = attachments();
+    return (
+      !submitting() &&
+      images.every((attachment) => attachment.status === "ready") &&
+      (prompt().trim().length > 0 || images.length > 0)
+    );
   };
 
   return (
@@ -58,13 +176,18 @@ export function SessionInbox(props: {
           rows={3}
           value={prompt()}
           onInput={(event) => setPrompt(event.currentTarget.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && !event.shiftKey) {
-              event.preventDefault();
-              void submit();
-            }
-          }}
+          onPaste={captureImagePaste}
         />
+        <Show when={attachments().length > 0}>
+          <AgentAttachmentStrip attachments={attachments()} onRemove={removeAttachment} />
+        </Show>
+        <Show when={attachments().find((attachment) => attachment.error !== null)}>
+          {(attachment) => (
+            <div class="session-composer-error" role="alert">
+              {attachment().error}
+            </div>
+          )}
+        </Show>
         <div class="session-composer-options">
           <select
             aria-label="Session location"
@@ -88,17 +211,25 @@ export function SessionInbox(props: {
           <button
             type="button"
             class="session-composer-more"
+            aria-label="More…"
             title={props.moreTitle}
             onClick={() => props.onMore()}
           >
-            More…
+            <span class="mobile-action-wide">More…</span>
+            <span class="mobile-action-compact" aria-hidden="true">
+              …
+            </span>
           </button>
           <button
             type="submit"
             class="session-composer-submit"
-            disabled={prompt().trim().length === 0 || submitting()}
+            aria-label={submitting() ? "Starting session" : "Start"}
+            disabled={!canSubmit()}
           >
-            {submitting() ? "Starting…" : "Start"}
+            <span class="mobile-action-wide">{submitting() ? "Starting…" : "Start"}</span>
+            <span class="mobile-action-compact" aria-hidden="true">
+              ↑
+            </span>
           </button>
         </div>
       </form>

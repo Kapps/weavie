@@ -697,7 +697,7 @@ public static class CoreCommands {
 			Aliases = ["submit prompt", "run prompt", "send prompt", "agent submit"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "enter" }],
 			// While a composer overlay (slash menu or control picker) is open, Enter drives it, not submission.
-			When = "agentComposerFocused && !agentSlashMenuOpen && !agentControlPickerOpen",
+			When = "agentComposerFocused && !compact && !agentSlashMenuOpen && !agentControlPickerOpen",
 		});
 
 		registry.Register(new CommandDefinition {

@@ -1,11 +1,17 @@
 /* Compact shell: new chrome around the existing, still-mounted pane surfaces. */
 @media (max-width: 760px), ((max-height: 520px) and (pointer: coarse)) {
+  :root {
+    --mobile-safe-bottom: env(safe-area-inset-bottom);
+    --mobile-nav-block-size: calc(54px + var(--mobile-safe-bottom));
+  }
+
   html,
   body,
   #root,
   .app {
     height: 100dvh;
     overflow: hidden;
+    overscroll-behavior: none;
   }
 
   .app.compact .titlebar,
@@ -20,18 +26,54 @@
 
   .app.compact .app-body {
     position: relative;
-    flex-direction: column;
-    padding-bottom: calc(54px + env(safe-area-inset-bottom));
+    display: grid;
+    grid-template: minmax(0, 1fr) var(--mobile-nav-block-size) / minmax(0, 1fr);
   }
 
   .app.compact .pane-area {
-    position: absolute;
-    inset: 0 0 calc(54px + env(safe-area-inset-bottom));
+    position: relative;
+    grid-area: 1 / 1;
+    min-height: 0;
+    padding-top: env(safe-area-inset-top);
+    overflow: hidden;
   }
 
   .app.compact.mobile-inbox .pane-area .layout-root {
     visibility: hidden;
     pointer-events: none;
+  }
+
+  .app.compact.mobile-transition .pane-area {
+    z-index: 11;
+    background: var(--bg);
+  }
+
+  .app.compact.mobile-transition-from-inbox .session-inbox,
+  .app.compact.mobile-transition-to-inbox .session-inbox {
+    display: flex;
+    transform: translateX(var(--mobile-inbox-offset));
+  }
+
+  .app.compact.mobile-transition-from-inbox.mobile-inbox .pane-area .layout-root {
+    visibility: visible;
+    pointer-events: auto;
+  }
+
+  .app.compact.mobile-transition-from-inbox .pane-area,
+  .app.compact.mobile-transition-to-inbox .pane-area {
+    transform: translateX(var(--mobile-pane-offset));
+  }
+
+  .app.compact.mobile-transition-two-panes .pane-area .layout-root {
+    flex: 0 0 200%;
+    width: 200%;
+    transform: translateX(var(--mobile-pane-offset));
+  }
+
+  .app.compact.mobile-transition-settling .pane-area,
+  .app.compact.mobile-transition-settling .pane-area .layout-root,
+  .app.compact.mobile-transition-settling .session-inbox {
+    transition: transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
   }
 
   .app.compact .pane-slot {
@@ -45,8 +87,11 @@
   }
 
   .app.compact .pane-head {
+    position: relative;
+    z-index: 5;
     min-height: 36px;
     padding-inline: 12px;
+    min-width: 0;
   }
 
   .app.compact .pane-footer {
@@ -64,7 +109,7 @@
   }
 
   .app.compact.mobile-inbox .toasts {
-    inset: auto 12px calc(66px + env(safe-area-inset-bottom));
+    inset: auto 12px calc(12px + var(--mobile-nav-block-size));
     max-width: none;
     transform: none;
     align-items: stretch;
@@ -75,7 +120,7 @@
   }
 
   .app.compact .browser-toggle {
-    bottom: calc(62px + env(safe-area-inset-bottom));
+    bottom: calc(8px + var(--mobile-nav-block-size));
     min-height: 44px;
     border-radius: 10px;
   }
@@ -83,23 +128,86 @@
   .app.compact .browser-panel {
     width: min(88vw, 380px);
     padding-top: env(safe-area-inset-top);
-    padding-bottom: calc(54px + env(safe-area-inset-bottom));
+    padding-bottom: var(--mobile-nav-block-size);
   }
 
   .app.compact .agent-compose {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: end;
+    gap: 5px;
+    padding: 4px 6px;
   }
 
   .app.compact .agent-compose-actions {
-    grid-column: 1 / -1;
+    grid-column: auto;
+    flex-wrap: nowrap;
   }
 
   .app.compact .agent-compose-actions > button {
-    flex: 1 1 0;
+    width: 44px;
+    flex: 0 0 44px;
+    padding-inline: 0;
   }
 
   .app.compact .agent-compose textarea {
     min-height: 44px;
+    max-height: 96px;
+  }
+
+  .app.compact .agent-working-compact {
+    grid-column: auto;
+    flex: 0 0 auto;
+    gap: 4px;
+    padding: 0;
+  }
+
+  .app.compact .agent-working-compact .agent-working-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+
+  .app.compact .agent-working-compact .agent-working-time {
+    font-size: var(--font-hint-size);
+  }
+
+  .app.compact .agent-status-line-compact {
+    z-index: 2;
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 0;
+    background: transparent;
+    font-size: var(--font-hint-size);
+  }
+
+  .app.compact .agent-status-line-compact .agent-status-scroll {
+    min-width: 0;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+  }
+
+  .app.compact .agent-status-line-compact .agent-status-scroll::-webkit-scrollbar {
+    display: none;
+  }
+
+  .app.compact .agent-status-line-compact .agent-status-key {
+    display: none;
+  }
+
+  .app.compact .agent-status-line-compact .agent-status-segment {
+    padding-inline: 3px;
+  }
+
+  .app.compact .agent-status-line-compact .agent-model-picker,
+  .app.compact .agent-status-line-compact .agent-control-picker {
+    top: calc(100% + 4px);
+    bottom: auto;
   }
 
   .app.compact .agent-compose-actions > button,
@@ -151,18 +259,21 @@
 }
 
 .mobile-surface-bar {
-  position: fixed;
+  position: relative;
   z-index: 25;
-  left: 0;
-  right: 0;
-  bottom: 0;
   display: none;
-  height: calc(54px + env(safe-area-inset-bottom));
-  padding: 4px 6px env(safe-area-inset-bottom);
+  grid-area: 2 / 1;
+  min-width: 0;
+  height: var(--mobile-nav-block-size);
+  padding: 4px 6px var(--mobile-safe-bottom);
   border-top: 1px solid var(--border);
   background: color-mix(in srgb, var(--bar) 94%, transparent);
   backdrop-filter: blur(12px);
   touch-action: pan-y;
+}
+
+.mobile-action-compact {
+  display: none;
 }
 
 .mobile-surface-button {
@@ -185,5 +296,32 @@
 @media (max-width: 760px), ((max-height: 520px) and (pointer: coarse)) {
   .app.compact .mobile-surface-bar {
     display: flex;
+  }
+
+  .app.compact .mobile-action-wide {
+    display: none;
+  }
+
+  .app.compact .mobile-action-compact {
+    display: inline;
+  }
+}
+
+@media (display-mode: standalone) and (max-width: 760px),
+  (display-mode: standalone) and (max-height: 520px) and (pointer: coarse) {
+  html,
+  body,
+  #root,
+  .app {
+    height: 100vh;
+  }
+}
+
+@media (max-width: 760px), ((max-height: 520px) and (pointer: coarse)) {
+  html:has(.app.compact.mobile-standalone),
+  body:has(.app.compact.mobile-standalone),
+  #root:has(.app.compact.mobile-standalone),
+  .app.compact.mobile-standalone {
+    height: 100vh;
   }
 }

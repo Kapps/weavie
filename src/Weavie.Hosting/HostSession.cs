@@ -524,18 +524,26 @@ public sealed partial class HostSession : IAsyncDisposable {
 	/// <summary>Sends a prompt to the active agent using the provider's native input path.</summary>
 	public void SendAgentPrompt(string text) {
 		ArgumentNullException.ThrowIfNull(text);
-		if (Claude is not null) {
-			Claude.Write(Encoding.UTF8.GetBytes(text));
-			Claude.Write([(byte)'\r']);
-			return;
-		}
-
-		Agent.Structured?.Submit(new AgentTurnSubmission {
+		SendAgentInput(new AgentTurnSubmission {
 			Id = Guid.NewGuid().ToString("n"),
 			Text = text,
 			Attachments = [],
 			Skills = [],
 		});
+	}
+
+	/// <summary>Sends one atomic input to the active agent using the provider's native input path.</summary>
+	private void SendAgentInput(AgentTurnSubmission input) {
+		if (Claude is not null) {
+			foreach (var attachment in input.Attachments) {
+				SendAgentImagePath(attachment.Path);
+			}
+			Claude.Write(Encoding.UTF8.GetBytes(input.Text));
+			Claude.Write([(byte)'\r']);
+			return;
+		}
+
+		Agent.Structured?.Submit(input);
 	}
 
 	/// <summary>Prefills a prompt in the active agent without submitting it, when the provider supports draft input.</summary>
@@ -601,7 +609,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 	}
 
 	private async Task DisposeCoreAsync() {
-		DiscardInitialPrompt();
+		DiscardInitialInput();
 		await _endpoint.QuiesceAsync().ConfigureAwait(false);
 		try {
 			await Background.DisposeAsync().ConfigureAwait(false);

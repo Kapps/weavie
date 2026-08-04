@@ -3,12 +3,13 @@ import type { AgentPaneUpdate, AgentSlashEntry, ClientSession } from "../bridge"
 import { readClipboardImage, readClipboardText } from "../clipboard-read";
 import { setContext } from "../commands/context";
 import { keyHint } from "../commands/key-hint";
-import { liveKeyLabel } from "../commands/keys-live";
 import { dispatchCommand, registerCommand, runCommandWithFeedback } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { notify } from "../notify/notify";
 import { sendPastedImage, sendPastedImagesFromClipboard } from "../terminal/paste-image";
+import { AgentAttachmentStrip } from "./AgentAttachmentStrip";
 import { AgentSlashMenu } from "./AgentSlashMenu";
+import { AgentWorkingStatus } from "./AgentWorkingStatus";
 import {
   agentControlState,
   currentModel,
@@ -39,16 +40,11 @@ import {
 } from "./prompt-history";
 import { filterSlash, slashQuery } from "./slash";
 import { caretOnFirstVisualLine, caretOnLastVisualLine } from "./textarea-lines";
-import {
-  activeTurnStartedAt,
-  formatElapsed,
-  hasActiveTurn,
-  pendingApproval,
-  pendingRequest,
-} from "./turn-progress";
+import { hasActiveTurn, pendingApproval, pendingRequest } from "./turn-progress";
 
 export function AgentComposer(props: {
   active: boolean;
+  compact: boolean;
   inputProtocol: number;
   messages: AgentPaneUpdate[];
   session: ClientSession | null;
@@ -69,24 +65,6 @@ export function AgentComposer(props: {
   createEffect(() => setContext("agentApprovalPending", pendingKind() === "approval"));
   onCleanup(() => setContext("agentApprovalPending", false));
 
-  // Elapsed working time, anchored to when the running turn actually began (from the message stream) so it
-  // reflects real duration and never restarts when switching away and back to a session. Ticks once a second.
-  const turnStartedAt = createMemo(() => activeTurnStartedAt(props.messages));
-  const [now, setNow] = createSignal(Date.now());
-  createEffect(() => {
-    if (turnStartedAt() === null) {
-      return;
-    }
-    setNow(Date.now());
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    onCleanup(() => clearInterval(timer));
-  });
-  const elapsed = (): string => {
-    const started = turnStartedAt();
-    return started === null ? "" : formatElapsed(now() - started);
-  };
-
-  const interruptKey = (): string => liveKeyLabel(CommandIds.agentInterrupt);
   const canSubmit = createMemo(() => {
     const state = composer();
     if (props.inputProtocol < 2) {
@@ -386,47 +364,18 @@ export function AgentComposer(props: {
         void dispatchCommand(CommandIds.agentSubmit);
       }}
     >
-      <Show when={turnActive()}>
-        <div class="agent-working" classList={{ waiting: pendingKind() !== null }}>
-          <span class="agent-working-spinner" aria-hidden="true" />
-          {/* Only the label is a live region — the ticking time would re-announce every second. */}
-          <span class="agent-working-label" role="status">
-            {workingLabel(pendingKind())}
-          </span>
-          <span class="agent-working-time">{elapsed()}</span>
-          <Show when={interruptKey() !== ""}>
-            <span class="agent-working-hint">{interruptKey()} to interrupt</span>
-          </Show>
-        </div>
+      <Show when={!props.compact}>
+        <AgentWorkingStatus compact={false} messages={props.messages} />
       </Show>
       <Show when={composer().attachments.length > 0}>
-        <div class="agent-attachments">
-          <For each={composer().attachments}>
-            {(attachment) => (
-              <div
-                class="agent-attachment"
-                classList={{ failed: attachment.status === "failed" }}
-                title={attachment.error ?? attachmentLabel(attachment.status)}
-              >
-                <img src={attachment.previewUrl} alt="Pasted attachment" />
-                <Show when={attachment.status !== "ready"}>
-                  <span>{attachmentLabel(attachment.status)}</span>
-                </Show>
-                <button
-                  type="button"
-                  title="Remove attachment"
-                  onClick={() => {
-                    if (props.session !== null) {
-                      removeComposerAttachment(props.session, attachment.id);
-                    }
-                  }}
-                >
-                  ×
-                </button>
-              </div>
-            )}
-          </For>
-        </div>
+        <AgentAttachmentStrip
+          attachments={composer().attachments}
+          onRemove={(id) => {
+            if (props.session !== null) {
+              removeComposerAttachment(props.session, id);
+            }
+          }}
+        />
       </Show>
       <Show when={composer().skills.length > 0}>
         <div class="agent-skills">
@@ -486,18 +435,28 @@ export function AgentComposer(props: {
         <Show when={canInterrupt()}>
           <button
             type="button"
+            aria-label="Interrupt"
             title={`Interrupt the running turn${keyHint(CommandIds.agentInterrupt)}`}
             onClick={() => void dispatchCommand(CommandIds.agentInterrupt)}
           >
-            Interrupt
+            <span class="mobile-action-wide">Interrupt</span>
+            <span class="mobile-action-compact" aria-hidden="true">
+              ■
+            </span>
           </button>
         </Show>
         <button
           type="submit"
-          title={`${turnActive() ? "Steer the running turn" : "Run prompt"}${keyHint(CommandIds.agentSubmit)}`}
+          aria-label={turnActive() ? "Steer" : "Run"}
+          title={`${turnActive() ? "Steer the running turn" : "Run prompt"}${props.compact ? "" : keyHint(CommandIds.agentSubmit)}`}
           disabled={!canSubmit()}
         >
-          {composer().submittingId !== null ? "Sending…" : turnActive() ? "Steer" : "Run"}
+          <span class="mobile-action-wide">
+            {composer().submittingId !== null ? "Sending…" : turnActive() ? "Steer" : "Run"}
+          </span>
+          <span class="mobile-action-compact" aria-hidden="true">
+            ↑
+          </span>
         </button>
       </div>
       <Show when={composer().error !== null}>
@@ -524,26 +483,6 @@ function applyPrefill(
       return;
     }
   }
-}
-
-function attachmentLabel(status: "reading" | "transferring" | "ready" | "failed"): string {
-  switch (status) {
-    case "reading":
-      return "reading…";
-    case "transferring":
-      return "uploading…";
-    case "failed":
-      return "failed";
-    default:
-      return "ready";
-  }
-}
-
-function workingLabel(pending: "approval" | "input" | null): string {
-  if (pending === "approval") {
-    return "Waiting on your approval";
-  }
-  return pending === "input" ? "Waiting on your answer" : "Working";
 }
 
 function countPendingLegacyImages(messages: AgentPaneUpdate[]): number {

@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { openFile, typeInEditor } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
@@ -71,4 +71,26 @@ test("editing then saving persists to disk @cross", async ({ page, weavie }) => 
 
   const onDisk = await readFile(join(weavie.workspace, "hello.ts"), "utf8");
   expect(onDisk).toContain(marker.trim());
+});
+
+// Workspace invalidations are file-provider concerns, not language-server concerns: an external edit to a
+// non-LSP file must still refresh the open Monaco model through the owning session's file provider.
+test("an external Markdown edit refreshes the open editor model", async ({ page, weavie }) => {
+  await openFile(page, "README.md");
+
+  const marker = `external-markdown-${Date.now()}`;
+  const path = join(weavie.workspace, "README.md");
+  const before = await readFile(path, "utf8");
+  await writeFile(path, `${before}\n${marker}\n`);
+
+  const modelText = () =>
+    page.evaluate(
+      () =>
+        (
+          window as Window & { __WEAVIE_EDITOR__?: { getModel(): { getValue(): string } | null } }
+        ).__WEAVIE_EDITOR__
+          ?.getModel()
+          ?.getValue() ?? null,
+    );
+  await expect.poll(modelText).toContain(marker);
 });

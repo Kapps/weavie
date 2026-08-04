@@ -39,7 +39,7 @@ Monaco file working copies use the owning session's `files` feature:
 | `files.write` | request | path/content → write result |
 | `files.listDirectory` | event | directory request |
 | `files.directory` | event | directory result |
-| `files.changed` | event | watcher/change-tracker updates |
+| `files.changed` | event | session file-activity projections |
 | `files.reveal` | event | validated path open |
 
 The session envelope is the route. Paths are domain values and never select a backend.
@@ -60,14 +60,18 @@ and forward to its editor controller.
 
 ## Watchers and edits
 
-Each `HostSession` owns a `WorkspaceWatcher`. A debounced disk-change batch fans out inside that owner:
+Each `HostSession` owns `SessionFileActivity`, including its dormant-then-activated
+`WorkspaceInvalidationWatcher`.
+Completed buffer saves, known file changes/deletions, and debounced watcher batches enter one ordered stream.
+Its registered projections:
 
 - file-provider change events refresh matching Monaco working copies;
 - LSP `workspace/didChangeWatchedFiles` updates that session's servers;
-- change tracking and review state update from provider-reported paths.
+- review presentation follows already-updated tracker state.
 
-No callback scans or routes through the selected workspace. Session teardown stops and drains the watcher
-before its worktree can be removed.
+Facts carry no actor or cause. A provider-reported change and a later watcher invalidation can coexist without
+inference or deduplication. No callback scans or routes through the selected workspace. Session teardown
+flushes watcher admission and drains file activity before its worktree can be removed.
 
 ## Persistence
 
@@ -101,5 +105,6 @@ same exact host/session envelope protocol.
 - Unload removes the endpoint and drains file/watcher work before worktree teardown.
 
 See [session-message-bus.md](session-message-bus.md),
+[session-file-activity.md](../concepts/session-file-activity.md),
 [editor-session.md](editor-session.md), and
 [multi-session-and-worktrees.md](multi-session-and-worktrees.md).

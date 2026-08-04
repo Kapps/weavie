@@ -1,4 +1,4 @@
-using Weavie.Core.Lsp;
+using Weavie.Core.FileActivity;
 
 namespace Weavie.Core.Editor;
 
@@ -9,32 +9,15 @@ public readonly record struct FileProviderChange(string Path, string Kind);
 
 /// <summary>Maps workspace-watcher changes onto editor file-provider changes.</summary>
 public static class FileProviderChanges {
-	/// <summary>Maps a watcher batch, omitting entries whose URI is invalid.</summary>
-	public static FileProviderChange[] FromWatched(IReadOnlyList<WatchedFileChange> changes) {
+	/// <summary>Maps a native-path invalidation batch.</summary>
+	public static FileProviderChange[] FromInvalidations(IReadOnlyList<FileInvalidation> changes) {
 		ArgumentNullException.ThrowIfNull(changes);
-		var mapped = new List<FileProviderChange>(changes.Count);
-		foreach (var change in changes) {
-			if (TryToLocalPath(change.Uri, out string path)) {
-				mapped.Add(new FileProviderChange(path, MapKind(change.Kind)));
-			}
-		}
-
-		return [.. mapped];
+		return [.. changes.Select(change => new FileProviderChange(change.Path, MapKind(change.Kind)))];
 	}
 
-	private static string MapKind(FileChangeKind kind) => kind switch {
-		FileChangeKind.Created => "added",
-		FileChangeKind.Deleted => "deleted",
+	private static string MapKind(FileInvalidationKind kind) => kind switch {
+		FileInvalidationKind.Created => "added",
+		FileInvalidationKind.Deleted => "deleted",
 		_ => "updated",
 	};
-
-	private static bool TryToLocalPath(string uri, out string path) {
-		try {
-			path = new Uri(uri).LocalPath;
-			return true;
-		} catch (UriFormatException) {
-			path = string.Empty;
-			return false;
-		}
-	}
 }

@@ -1,6 +1,7 @@
 using Weavie.Core.Agents;
 using Weavie.Core.Changes;
 using Weavie.Core.Corrections;
+using Weavie.Core.FileActivity;
 using Weavie.Core.FileSystem;
 using Xunit;
 
@@ -21,7 +22,7 @@ public sealed class CorrectionRecorderTests {
 	private readonly CorrectionCorpus _corpus;
 
 	public CorrectionRecorderTests() {
-		_tracker = new SessionChangeTracker(_fs, _root, _ => true);
+		_tracker = new SessionChangeTracker(_fs, NoopFileActivitySink.Instance, _root, _ => true);
 		_corpus = new CorrectionCorpus(_fs, Path.Combine(_root, "..", "state", "corrections.jsonl"));
 		_tracker.Corrected += new CorrectionRecorder(_corpus).Record;
 	}

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Weavie.Core.Changes;
+using Weavie.Core.FileActivity;
 using Weavie.Core.FileSystem;
 using Xunit;
 
@@ -14,7 +15,7 @@ public sealed class ChangeMessagesTests {
 		var fileSystem = new InMemoryFileSystem();
 		fileSystem.WriteAllText("/w/a.txt", "a\n");
 		// CaptureBaseline/RecordChange are called directly here (not via Observe), so scope is moot; accept all.
-		var tracker = new SessionChangeTracker(fileSystem, "/w", _ => true);
+		var tracker = new SessionChangeTracker(fileSystem, NoopFileActivitySink.Instance, "/w", _ => true);
 		tracker.CaptureBaseline("/w/a.txt");
 		fileSystem.WriteAllText("/w/a.txt", "a\nb\n");
 		tracker.RecordChange("/w/a.txt");

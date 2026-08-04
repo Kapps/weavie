@@ -7,6 +7,7 @@ using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
 using Weavie.Core.Corrections;
 using Weavie.Core.Editor;
+using Weavie.Core.FileActivity;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Hooks;
 using Weavie.Core.Layout;
@@ -32,7 +33,6 @@ public sealed partial class HostSession : IAsyncDisposable {
 	private readonly MessageFeatureChannel _editorMessages;
 	private readonly MessageFeatureChannel _fileMessages;
 	private readonly MessageFeatureChannel _notificationMessages;
-	private readonly WorkspaceWatcher _watcher;
 	private readonly Lock _editorSessionGate = new();
 	private readonly Lock _disposeGate = new();
 	private EditorSession _editorSession = EditorSession.Empty;
@@ -111,6 +111,10 @@ public sealed partial class HostSession : IAsyncDisposable {
 		PastedImages = new PastedImageStore(fileSystem, pastedImagesDir);
 		AgentAttachments = new AgentAttachmentStore(PastedImages);
 		FileProvider = new FileProviderService(fileSystem, workspaceRoot, scratchDir);
+		FileActivity = new SessionFileActivity(
+			workspaceRoot,
+			Tagged("[files]"),
+			watcherDebounceMs: 250);
 		Browser = new WorkspaceBrowser(fileSystem, workspaceRoot);
 		FileIndex = new WorkspaceFileIndex(fileSystem, workspaceRoot);
 		Shell = new TerminalController(
@@ -141,6 +145,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 		// session is never tracked and so never pushed as an unopenable diff.
 		Changes = new SessionChangeTracker(
 			fileSystem,
+			FileActivity,
 			workspaceRoot,
 			path => BufferStore.IsWithinWorkspace(workspaceRoot, path) || BufferStore.IsWithinWorkspace(scratchDir, path));
 		// Mirrors the provider's edit mode (default/acceptEdits/plan), observed off the event stream — Weavie
@@ -219,11 +224,6 @@ public sealed partial class HostSession : IAsyncDisposable {
 			Tagged("[lsp]"));
 		Bus.PeerDisconnected += peer =>
 			_ = Background.Run(_ => Lsp.DisconnectAsync(peer));
-		// Watch the worktree for on-disk edits (agent or external): fan each debounced batch to the editor's
-		// file:// provider (FileChanges) AND to the live language servers (didChangeWatchedFiles). Owned here, not by
-		// the LSP layer, so it runs even with zero servers connected. Started eagerly.
-		_watcher = new WorkspaceWatcher(workspaceRoot, LanguageServerCatalog.WatchedExtensions, OnWatchedChanges, Tagged("[lsp]"), debounceMs: 250);
-		_watcher.Start();
 		WireMessages(inputFrozen, shellResized);
 	}
 
@@ -239,8 +239,9 @@ public sealed partial class HostSession : IAsyncDisposable {
 	/// <summary>Starts this session's structured runtime and advertises its bus after its exact address enters
 	/// the host catalog.</summary>
 	internal void ActivateOwnedRuntimeAndMessages() {
-		Agent.Structured?.Start();
 		_endpoint.Activate();
+		FileActivity.StartObserving();
+		Agent.Structured?.Start();
 	}
 
 	/// <summary>The transient page presentation currently attached to this exact session.</summary>
@@ -269,6 +270,9 @@ public sealed partial class HostSession : IAsyncDisposable {
 
 	/// <summary>Serves the editor's host-backed <c>file://</c> provider through this session's files feature.</summary>
 	public FileProviderService FileProvider { get; }
+
+	/// <summary>Orders this session's completed file activity and owned workspace invalidations.</summary>
+	public SessionFileActivity FileActivity { get; }
 
 	/// <summary>Owns this workspace's scratch (untitled-buffer) directory; New File creates a file here.</summary>
 	public ScratchStore Scratch { get; }
@@ -450,12 +454,6 @@ public sealed partial class HostSession : IAsyncDisposable {
 	public LspController Lsp { get; }
 
 	/// <summary>
-	/// Raised with each debounced batch of on-disk changes under the worktree (forwarded to the editor's
-	/// <c>file://</c> provider). Fires whether or not any language server is connected. Invoked off the UI thread.
-	/// </summary>
-	public event Action<IReadOnlyList<WatchedFileChange>>? FileChanges;
-
-	/// <summary>
 	/// The rail slot this session owns.
 	/// </summary>
 	public string SlotId => Address.Slot;
@@ -560,13 +558,6 @@ public sealed partial class HostSession : IAsyncDisposable {
 		throw new InvalidOperationException("Structured agent images must be submitted as explicit attachments.");
 	}
 
-	// Fan a debounced watcher batch to the editor's file:// provider (so VSCode reloads externally-edited models)
-	// and to this session's language servers (so their diagnostics/types don't go stale after an on-disk edit).
-	private void OnWatchedChanges(IReadOnlyList<WatchedFileChange> changes) {
-		FileChanges?.Invoke(changes);
-		Lsp.NotifyWatchedFileChanges(changes);
-	}
-
 	/// <summary>
 	/// Creates a new scratch (untitled) buffer under the workspace scratch dir and opens it as a scratch tab — the
 	/// host side of New File (<c>Ctrl+N</c>).
@@ -602,19 +593,35 @@ public sealed partial class HostSession : IAsyncDisposable {
 
 	private async Task DisposeCoreAsync() {
 		DiscardInitialPrompt();
-		await _endpoint.QuiesceAsync().ConfigureAwait(false);
-		try {
-			await Background.DisposeAsync().ConfigureAwait(false);
-			await FileOpener.DisposeAsync().ConfigureAwait(false);
-			_watcher.Dispose();
-			// Terminal disposal blocks until the PTY children exit (so a following worktree delete can't race a
-			// process still rooted there). Keep it off the calling UI thread.
-			await Task.Run(() => Shell.Dispose()).ConfigureAwait(false);
-			await Agent.DisposeAsync().ConfigureAwait(false);
-			await Lsp.DisposeAsync().ConfigureAwait(false);
+		var failures = new List<Exception>();
+		await DisposeStepAsync(failures, () => _endpoint.QuiesceAsync()).ConfigureAwait(false);
+		await DisposeStepAsync(failures, FileActivity.StopObservingAsync).ConfigureAwait(false);
+		// Terminal disposal blocks until the PTY children exit (so a following worktree delete can't race a
+		// process still rooted there). Keep it off the calling UI thread.
+		await DisposeStepAsync(failures, () => Task.Run(() => Shell.Dispose())).ConfigureAwait(false);
+		await DisposeStepAsync(failures, () => Agent.DisposeAsync().AsTask()).ConfigureAwait(false);
+		await DisposeStepAsync(
+			failures,
+			() => FileActivity.DrainAsync(CancellationToken.None)).ConfigureAwait(false);
+		await DisposeStepAsync(failures, () => FileActivity.DisposeAsync().AsTask()).ConfigureAwait(false);
+		await DisposeStepAsync(failures, () => Background.DisposeAsync().AsTask()).ConfigureAwait(false);
+		await DisposeStepAsync(failures, () => FileOpener.DisposeAsync().AsTask()).ConfigureAwait(false);
+		await DisposeStepAsync(failures, () => Lsp.DisposeAsync().AsTask()).ConfigureAwait(false);
+		await DisposeStepAsync(failures, () => {
 			PastedImages.Clear();
-		} finally {
-			await _endpoint.DisposeAsync().ConfigureAwait(false);
+			return Task.CompletedTask;
+		}).ConfigureAwait(false);
+		await DisposeStepAsync(failures, () => _endpoint.DisposeAsync().AsTask()).ConfigureAwait(false);
+		if (failures.Count > 0) {
+			throw new AggregateException(failures);
+		}
+	}
+
+	private static async Task DisposeStepAsync(List<Exception> failures, Func<Task> step) {
+		try {
+			await step().ConfigureAwait(false);
+		} catch (Exception ex) {
+			failures.Add(ex);
 		}
 	}
 }

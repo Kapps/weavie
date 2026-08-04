@@ -1,26 +1,24 @@
 using System.Collections.Concurrent;
-using Weavie.Core.Lsp;
+using Weavie.Core.FileActivity;
 using Xunit;
 
 namespace Weavie.Core.Tests;
 
 /// <summary>
-/// Workspace watcher (feeds <c>workspace/didChangeWatchedFiles</c>): detects on-disk changes, filters
-/// to served extensions, skips noise directories, and reports deletions. Uses the real filesystem with
-/// generous polling, since FileSystemWatcher is asynchronous.
+/// Generic workspace invalidation watcher: detects on-disk changes, skips noise directories, and reports
+/// deletions. Uses the real filesystem with generous polling, since FileSystemWatcher is asynchronous.
 /// </summary>
-public sealed class WorkspaceWatcherTests : IDisposable {
+public sealed class WorkspaceInvalidationWatcherTests : IDisposable {
 	private readonly string _dir = Path.Combine(Path.GetTempPath(), $"weavie-watch-{Guid.NewGuid():N}");
-	private readonly ConcurrentBag<WatchedFileChange> _changes = [];
+	private readonly ConcurrentBag<FileInvalidation> _changes = [];
 
-	public WorkspaceWatcherTests() {
+	public WorkspaceInvalidationWatcherTests() {
 		Directory.CreateDirectory(_dir);
 	}
 
-	private WorkspaceWatcher NewWatcher() {
-		var watcher = new WorkspaceWatcher(
+	private WorkspaceInvalidationWatcher NewWatcher() {
+		var watcher = new WorkspaceInvalidationWatcher(
 			_dir,
-			new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".ts", ".cs" },
 			batch => {
 				foreach (var change in batch) {
 					_changes.Add(change);
@@ -45,24 +43,22 @@ public sealed class WorkspaceWatcherTests : IDisposable {
 	}
 
 	private bool HasChange(string fileName) {
-		string uri = new Uri(Path.Combine(_dir, fileName)).AbsoluteUri;
-		return _changes.Any(c => string.Equals(c.Uri, uri, StringComparison.OrdinalIgnoreCase));
+		string path = Path.Combine(_dir, fileName);
+		return _changes.Any(c => string.Equals(c.Path, path, StringComparison.OrdinalIgnoreCase));
 	}
 
 	[Fact]
-	public async Task ReportsChange_ForWatchedExtension() {
+	public async Task ReportsChange() {
 		using var watcher = NewWatcher();
 		await File.WriteAllTextAsync(Path.Combine(_dir, "a.ts"), "export const x = 1;\n");
 		Assert.True(await WaitForAsync(() => HasChange("a.ts")), "expected a change for a.ts");
 	}
 
 	[Fact]
-	public async Task IgnoresUnwatchedExtension() {
+	public async Task ReportsEveryFileKind() {
 		using var watcher = NewWatcher();
 		await File.WriteAllTextAsync(Path.Combine(_dir, "notes.md"), "hello\n");
-		await File.WriteAllTextAsync(Path.Combine(_dir, "trigger.ts"), "export const y = 2;\n");
-		await WaitForAsync(() => HasChange("trigger.ts"));
-		Assert.False(HasChange("notes.md"), "markdown should be filtered out");
+		Assert.True(await WaitForAsync(() => HasChange("notes.md")), "expected a change for notes.md");
 	}
 
 	[Fact]
@@ -73,7 +69,7 @@ public sealed class WorkspaceWatcherTests : IDisposable {
 		await File.WriteAllTextAsync(Path.Combine(nested, "dep.ts"), "export const z = 3;\n");
 		await File.WriteAllTextAsync(Path.Combine(_dir, "real.ts"), "export const r = 4;\n");
 		await WaitForAsync(() => HasChange("real.ts"));
-		Assert.DoesNotContain(_changes, c => c.Uri.Contains("node_modules", StringComparison.OrdinalIgnoreCase));
+		Assert.DoesNotContain(_changes, c => c.Path.Contains("node_modules", StringComparison.OrdinalIgnoreCase));
 	}
 
 	[Fact]
@@ -84,8 +80,27 @@ public sealed class WorkspaceWatcherTests : IDisposable {
 		await Task.Delay(120);
 		File.Delete(path);
 		Assert.True(
-			await WaitForAsync(() => _changes.Any(c => c.Kind == FileChangeKind.Deleted && c.Uri.EndsWith("gone.ts", StringComparison.OrdinalIgnoreCase))),
+			await WaitForAsync(() => _changes.Any(c => c.Kind == FileInvalidationKind.Deleted && c.Path.EndsWith("gone.ts", StringComparison.OrdinalIgnoreCase))),
 			"expected a Deleted change for gone.ts");
+	}
+
+	[Fact]
+	public async Task Stop_FlushesPendingBatch() {
+		var watcher = new WorkspaceInvalidationWatcher(
+			_dir,
+			batch => {
+				foreach (var change in batch) {
+					_changes.Add(change);
+				}
+			},
+			_ => { },
+			debounceMs: 30_000);
+		watcher.Start();
+		watcher.Record(Path.Combine(_dir, "pending.ts"), FileInvalidationKind.Changed);
+
+		await watcher.StopAsync();
+
+		Assert.True(HasChange("pending.ts"));
 	}
 
 	public void Dispose() {

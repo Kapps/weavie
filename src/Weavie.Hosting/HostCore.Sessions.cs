@@ -64,13 +64,7 @@ public sealed partial class HostCore {
 		SessionCommands.RegisterHandlers(session.Commands, new BoundSessionHost(this, session));
 		WireCoreSessionMessages(session);
 
-		session.Changes.Changed += () => PostForSession(session, () => PushTurnChangesToWeb(session));
-		session.Changes.FileChanged += path => PostForSession(session, () => {
-			PushRefreshToWeb(session, path);
-			PushTurnDiffToWeb(session, path);
-		});
-		session.Changes.FileDeleted += path =>
-			PostForSession(session, () => PushDeletionToWeb(session, path));
+		WireFileActivity(session);
 		session.Changes.AcceptedCommitted += paths => PostForSession(session, () => {
 			PushTurnChangesToWeb(session);
 			foreach (string path in paths) {
@@ -93,8 +87,6 @@ public sealed partial class HostCore {
 				PushSessionList();
 			});
 		};
-		session.FileChanges += changes =>
-			PostForSession(session, () => PushWatcherChangesToWeb(session, changes));
 	}
 
 	private void PostForSession(HostSession session, Action action) {

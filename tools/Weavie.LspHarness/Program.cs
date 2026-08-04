@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Weavie.Core.FileActivity;
 using Weavie.Core.Lsp;
 using Weavie.Hosting;
 using Weavie.Hosting.Messaging;
@@ -94,8 +95,8 @@ var peer = bus.Peer(WebPeer.Native);
 // The workspace watcher lives on the host session in production; stand up an equivalent so the file-watch →
 // didChangeWatchedFiles path (§9) is exercised the same way.
 bool watchBroadcast = false;
-using var watcher = new WorkspaceWatcher(workspace!, LanguageServerCatalog.WatchedExtensions, batch => {
-	controller.NotifyWatchedFileChanges(batch);
+using var watcher = new WorkspaceInvalidationWatcher(workspace!, batch => {
+	controller.NotifyWatchedFileChanges(LspFileChanges.FromInvalidations(batch));
 	if (batch.Count > 0) {
 		watchBroadcast = true;
 	}

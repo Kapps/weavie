@@ -1,4 +1,5 @@
 using Weavie.Core.Agents;
+using Weavie.Core.FileActivity;
 using Weavie.Core.FileSystem;
 
 namespace Weavie.Core.Changes;
@@ -14,6 +15,7 @@ namespace Weavie.Core.Changes;
 /// </summary>
 public sealed partial class SessionChangeTracker {
 	private readonly IFileSystem _fileSystem;
+	private readonly IFileActivitySink _fileActivity;
 	private readonly string _workspaceRoot;
 	private readonly Func<string, bool> _isInScope;
 	private readonly object _gate = new();
@@ -35,8 +37,9 @@ public sealed partial class SessionChangeTracker {
 	// than leaves a 0-byte file. Keys off existence-at-baseline, not emptiness.
 	private readonly HashSet<string> _createdSinceBaseline = new(StringComparer.Ordinal);
 
-	/// <summary>Creates a tracker that reads file content through <paramref name="fileSystem"/>.</summary>
+	/// <summary>Creates a tracker that reads files and reports their completed activity.</summary>
 	/// <param name="fileSystem">The session filesystem the tracker reads changed-file content through.</param>
+	/// <param name="fileActivity">The owning session's ordered file-activity sink.</param>
 	/// <param name="workspaceRoot">
 	/// The session's worktree root — the root <c>reveal-file</c> resolves relative paths against, so every
 	/// <see cref="EditLocationFor"/> jump link is relative to it (never to Claude's drifting cwd).
@@ -44,29 +47,20 @@ public sealed partial class SessionChangeTracker {
 	/// <param name="isInScope">
 	/// Predicate over an absolute path: only edits it accepts are tracked. See the type remarks.
 	/// </param>
-	public SessionChangeTracker(IFileSystem fileSystem, string workspaceRoot, Func<string, bool> isInScope) {
+	public SessionChangeTracker(
+		IFileSystem fileSystem,
+		IFileActivitySink fileActivity,
+		string workspaceRoot,
+		Func<string, bool> isInScope) {
 		ArgumentNullException.ThrowIfNull(fileSystem);
+		ArgumentNullException.ThrowIfNull(fileActivity);
 		ArgumentException.ThrowIfNullOrEmpty(workspaceRoot);
 		ArgumentNullException.ThrowIfNull(isInScope);
 		_fileSystem = fileSystem;
+		_fileActivity = fileActivity;
 		_workspaceRoot = workspaceRoot;
 		_isInScope = isInScope;
 	}
-
-	/// <summary>Raised whenever the change set updates (a file's current content was recorded).</summary>
-	public event Action? Changed;
-
-	/// <summary>
-	/// Raised with the absolute path of a file whose content was just recorded, so the host can push a
-	/// targeted live-refresh of that one file's editor model. Fires alongside <see cref="Changed"/>.
-	/// </summary>
-	public event Action<string>? FileChanged;
-
-	/// <summary>
-	/// Raised with the absolute path of a tracked file that disappeared from disk (a <c>Bash</c> rm/rename/temp
-	/// cleanup), so the host can close its editor tab. Fires from <see cref="Observe"/>'s post-tool reconciliation.
-	/// </summary>
-	public event Action<string>? FileDeleted;
 
 	/// <summary>
 	/// Raised with the paths whose faded accepted band was just committed at a turn boundary (see
@@ -239,36 +233,16 @@ public sealed partial class SessionChangeTracker {
 			}
 		}
 
-		if (reviewRemoved) {
-			Changed?.Invoke();
+		if (!ignoredNonText || nonTextChanged || reviewRemoved) {
+			ReportCurrentState(path);
 		}
-
-		if (ignoredNonText) {
-			if (nonTextChanged) {
-				FileChanged?.Invoke(path);
-			}
-			return;
-		}
-
-		if (nonTextChanged) {
-			FileChanged?.Invoke(path);
-			return;
-		}
-
-		if (reviewRemoved) {
-			return;
-		}
-
-		Changed?.Invoke();
-		FileChanged?.Invoke(path);
 	}
 
 	/// <summary>
 	/// Seeds <paramref name="path"/>'s review state from a git ref instead of disk-at-first-edit, so a ref diff (a
 	/// PR's base→head, or "diff against &lt;ref&gt;") reviews through the same engine as a turn: session + review
 	/// baseline + accepted anchor all = <paramref name="refContent"/>, current + pre-edit = <paramref name="diskContent"/>.
-	/// Records no undo history (a seed isn't a user action) and does NOT raise <see cref="Changed"/> — the host
-	/// pushes the armed set.
+	/// Records no undo history or file activity — the host pushes the newly armed review directly.
 	/// <para>
 	/// Overwrites (not <c>TryAdd</c>) every baseline: if a live Claude edit already seeded a disk baseline for this
 	/// file, that baseline is corrected back to the ref while its current content is kept, so the committed diff and
@@ -303,9 +277,7 @@ public sealed partial class SessionChangeTracker {
 	}
 
 	/// <summary>
-	/// Drops any recorded file that no longer exists on disk (deleted out from under us), since there's nothing to
-	/// render. Raises <see cref="FileDeleted"/> per removed path and a single <see cref="Changed"/>; a no-op when
-	/// nothing vanished.
+	/// Drops any recorded file that no longer exists on disk and reports each completed deletion.
 	/// </summary>
 	private void ReconcileDeletions() {
 		List<string>? removed = null;
@@ -331,10 +303,8 @@ public sealed partial class SessionChangeTracker {
 		}
 
 		foreach (string path in removed) {
-			FileDeleted?.Invoke(path);
+			_fileActivity.ReportDeleted(path);
 		}
-
-		Changed?.Invoke();
 	}
 
 	/// <summary>
@@ -395,6 +365,7 @@ public sealed partial class SessionChangeTracker {
 			}
 
 			Record(ReviewActionKind.Revert, touchesDisk: true, currentRange.Start, [before], [path]);
+			ReportCurrentState(path);
 		}
 
 		RaiseCorrected(edits);
@@ -481,11 +452,13 @@ public sealed partial class SessionChangeTracker {
 		if (diskContent.Length == 0 && _createdSinceBaseline.Contains(path)) {
 			_fileSystem.DeleteFile(path);
 			Forget(path);
+			_fileActivity.ReportDeleted(path);
 			return RevertHunkOutcome.Deleted;
 		}
 
 		_fileSystem.WriteAllText(path, diskContent);
 		_current[path] = baseline;
+		ReportCurrentState(path);
 		return RevertHunkOutcome.Reverted;
 	}
 
@@ -731,6 +704,14 @@ public sealed partial class SessionChangeTracker {
 
 		contents = string.Empty;
 		return true;
+	}
+
+	private void ReportCurrentState(string path) {
+		if (_fileSystem.TryGetStat(path, out var revision) && revision.Exists) {
+			_fileActivity.ReportChanged(path, revision);
+		} else {
+			_fileActivity.ReportDeleted(path);
+		}
 	}
 
 	// Split text the way a Monaco model does (CRLF/CR normalized to LF), so the web's line ranges line up with Core's slices.

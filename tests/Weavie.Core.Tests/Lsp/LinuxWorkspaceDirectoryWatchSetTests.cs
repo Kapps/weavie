@@ -72,35 +72,6 @@ public sealed class LinuxWorkspaceDirectoryWatchSetTests : IDisposable {
 	}
 
 	[Fact]
-	public async Task MoveOutOfWatchedTreeBecomesDelete() {
-		if (!OperatingSystem.IsLinux()) {
-			return;
-		}
-
-		string source = Path.Combine(_root, "source");
-		string destination = Path.Combine(Path.GetTempPath(), $"weavie-inotify-moved-{Guid.NewGuid():N}");
-		Directory.CreateDirectory(source);
-		var deleted = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-		try {
-			using var watches = new LinuxWorkspaceDirectoryWatchSet(
-				_ => { },
-				_ => { },
-				e => deleted.TrySetResult(e.FullPath),
-				(_, _) => { },
-				_ => { });
-			watches.Reconcile([_root]);
-
-			Directory.Move(source, destination);
-
-			Assert.Equal(source, await deleted.Task.WaitAsync(TimeSpan.FromSeconds(5)));
-		} finally {
-			if (Directory.Exists(destination)) {
-				Directory.Delete(destination, recursive: true);
-			}
-		}
-	}
-
-	[Fact]
 	public void VanishedDirectoryDoesNotFailWatchRegistration() {
 		if (!OperatingSystem.IsLinux()) {
 			return;
@@ -117,6 +88,64 @@ public sealed class LinuxWorkspaceDirectoryWatchSetTests : IDisposable {
 		watches.EnsureWatching(Path.Combine(_root, "also-gone"));
 
 		Assert.Equal(1, watches.Count);
+	}
+
+	[Fact]
+	public async Task MovesOutsideWatchedTreeBecomeDeletesDuringContinuousEvents() {
+		if (!OperatingSystem.IsLinux()) {
+			return;
+		}
+
+		string firstPath = Path.Combine(_root, "first");
+		string secondPath = Path.Combine(_root, "second");
+		string outside = Path.Combine(Path.GetTempPath(), $"weavie-inotify-outside-{Guid.NewGuid():N}");
+		string firstOutside = Path.Combine(outside, "first");
+		string secondOutside = Path.Combine(outside, "second");
+		string trafficDirectory = Path.Combine(_root, "traffic");
+		Directory.CreateDirectory(firstPath);
+		Directory.CreateDirectory(secondPath);
+		Directory.CreateDirectory(outside);
+		Directory.CreateDirectory(trafficDirectory);
+		var deletedPaths = new ConcurrentDictionary<string, byte>(StringComparer.Ordinal);
+		var deleted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		using var stopTraffic = new CancellationTokenSource();
+		Task? traffic = null;
+		try {
+			using var watches = new LinuxWorkspaceDirectoryWatchSet(
+				_ => { },
+				_ => { },
+				e => {
+					deletedPaths.TryAdd(e.FullPath, 0);
+					if (deletedPaths.ContainsKey(firstPath) && deletedPaths.ContainsKey(secondPath)) {
+						deleted.TrySetResult();
+					}
+				},
+				(_, _) => { },
+				_ => { });
+			watches.Reconcile([_root]);
+
+			Directory.Move(firstPath, firstOutside);
+			Directory.Move(secondPath, secondOutside);
+			traffic = Task.Run(() => {
+				int index = 0;
+				while (!stopTraffic.IsCancellationRequested) {
+					File.WriteAllText(Path.Combine(trafficDirectory, $"{index++}.tmp"), string.Empty);
+				}
+			});
+
+			await deleted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+			Assert.Contains(firstPath, deletedPaths.Keys);
+			Assert.Contains(secondPath, deletedPaths.Keys);
+		} finally {
+			stopTraffic.Cancel();
+			if (traffic is not null) {
+				await traffic;
+			}
+
+			if (Directory.Exists(outside)) {
+				Directory.Delete(outside, recursive: true);
+			}
+		}
 	}
 
 	public void Dispose() => Directory.Delete(_root, recursive: true);

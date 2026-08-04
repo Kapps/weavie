@@ -123,6 +123,9 @@ public sealed class AgentSessionHost : IAsyncDisposable {
 		await _paneOutput.DrainAsync(ct).ConfigureAwait(false);
 	}
 
+	internal Task WaitForPaneReadyAsync(CancellationToken ct) =>
+		_paneJournal?.WaitUntilReadyAsync(ct) ?? Task.CompletedTask;
+
 	private void ReplayState(IMessageFeatureTarget messages) {
 		if (Structured is null) {
 			return;

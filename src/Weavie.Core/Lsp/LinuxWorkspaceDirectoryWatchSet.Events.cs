@@ -5,14 +5,10 @@ namespace Weavie.Core.Lsp;
 
 internal sealed partial class LinuxWorkspaceDirectoryWatchSet {
 	private void ReadAvailableEvents(byte[] buffer) {
-		while (ReadEvents(buffer)) { }
-	}
-
-	private bool ReadEvents(byte[] buffer) {
 		nint length = read(_inotifyFd, buffer, (nuint)buffer.Length);
 		if (length < 0) {
 			if (Marshal.GetLastPInvokeError() == WouldBlock) {
-				return false;
+				return;
 			}
 
 			throw NativeFailure("read(inotify)");
@@ -37,7 +33,6 @@ internal sealed partial class LinuxWorkspaceDirectoryWatchSet {
 			offset = next;
 		}
 
-		return true;
 	}
 
 	private void HandleEvent(
@@ -72,9 +67,7 @@ internal sealed partial class LinuxWorkspaceDirectoryWatchSet {
 			? directory
 			: Path.Combine(directory, Encoding.UTF8.GetString(nameBuffer[..nameLength]));
 		if ((mask & InMovedFrom) != 0) {
-			_pendingMoves[cookie] = new PendingMove(
-				path,
-				Environment.TickCount64 + MovePairTimeoutMilliseconds);
+			_pendingMoves[cookie] = (path, Environment.TickCount64 + MovePairTimeoutMilliseconds);
 			return;
 		}
 
@@ -102,21 +95,18 @@ internal sealed partial class LinuxWorkspaceDirectoryWatchSet {
 		}
 	}
 
-	private int PendingMovePollTimeout() {
+	private int PendingMoveTimeout() {
 		if (_pendingMoves.Count == 0) {
 			return -1;
 		}
 
-		long earliest = _pendingMoves.Values.Min(move => move.ExpiresAt);
-		long remaining = earliest - Environment.TickCount64;
-		return remaining <= 0 ? 0 : (int)Math.Min(remaining, int.MaxValue);
+		long deadline = _pendingMoves.Values.Min(move => move.Deadline);
+		return Math.Max(0, (int)(deadline - Environment.TickCount64));
 	}
 
 	private void FlushExpiredMoves() {
 		long now = Environment.TickCount64;
-		foreach (var (cookie, move) in _pendingMoves
-			.Where(entry => entry.Value.ExpiresAt <= now)
-			.ToArray()) {
+		foreach (var (cookie, move) in _pendingMoves.Where(entry => entry.Value.Deadline <= now).ToArray()) {
 			_pendingMoves.Remove(cookie);
 			_deleted(Change(move.Path, WatcherChangeTypes.Deleted));
 		}
@@ -138,6 +128,4 @@ internal sealed partial class LinuxWorkspaceDirectoryWatchSet {
 
 	private static FileSystemEventArgs Change(string path, WatcherChangeTypes kind) =>
 		new(kind, Path.GetDirectoryName(path)!, Path.GetFileName(path));
-
-	private readonly record struct PendingMove(string Path, long ExpiresAt);
 }

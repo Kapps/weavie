@@ -110,7 +110,7 @@ public sealed class AgentSessionHostTests {
 	}
 
 	[Fact]
-	public async Task ReplayPane_batches_the_whole_transcript_into_one_frame() {
+	public async Task ReplayPane_replaces_the_whole_transcript_atomically() {
 		await using var fixture = CreateFixture(static () => "slot-1", static (_, _) => { }, 0);
 		var (bridge, session, host) = (fixture.Bridge, fixture.Session, fixture.Host);
 
@@ -125,11 +125,9 @@ public sealed class AgentSessionHostTests {
 		host.ReplayPane();
 		await host.DrainPaneAsync(CancellationToken.None);
 
-		// The whole replay is a reset plus a single batch frame — a bounded burst no matter how long the transcript.
-		Assert.Equal(2, bridge.Posted.Count);
-		Assert.Single(bridge.PostedEventsNamed("paneReset"));
-		var batch = Assert.Single(bridge.PostedEventsNamed("paneBatch"));
-		Assert.Equal(1001, batch.GetProperty("messages").GetArrayLength()); // 1000 items + the "started" marker
+		// A dropped transport cannot strand a destructive reset ahead of an interrupted transcript replay.
+		var snapshot = Assert.Single(bridge.PostedEventsNamed("paneSnapshot"));
+		Assert.Equal(1001, snapshot.GetProperty("messages").GetArrayLength()); // 1000 items + the "started" marker
 	}
 
 	[Fact]
@@ -148,7 +146,7 @@ public sealed class AgentSessionHostTests {
 			bridge.PostedEventsNamed("paneBatch").Count is var c and > 0 ? c : (int?)null);
 		Assert.Equal(1, count);
 		Assert.Empty(bridge.PostedEventsNamed("pane"));
-		Assert.Equal(6, Replayed(bridge).Count);
+		Assert.Equal(6, Batched(bridge).Count);
 	}
 
 	[Fact]
@@ -171,6 +169,36 @@ public sealed class AgentSessionHostTests {
 		var replayed = Assert.Single(Replayed(fixture.Bridge));
 		Assert.Equal("item-completed", replayed.GetProperty("type").GetString());
 		Assert.Equal("prior result", replayed.GetProperty("text").GetString());
+	}
+
+	[Fact]
+	public async Task PersistedTranscriptReplaysWhenActivationBeatsJournalLoad() {
+		string dir = Path.Combine(Path.GetTempPath(), "weavie-agent-host-tests", Guid.NewGuid().ToString("N"));
+		Directory.CreateDirectory(dir);
+		string transcriptPath = Path.Combine(dir, "agent-pane.json");
+		using var release = new ManualResetEventSlim();
+		var fileSystem = new BlockingReadFileSystem(transcriptPath, release);
+		await using var fixture = CreateFixture(
+			static () => "slot-1",
+			fileSystem,
+			transcriptPath,
+			0);
+
+		try {
+			fixture.Host.ReplayPane();
+			await Wait.ForAsync(() =>
+				fixture.Bridge.PostedEventsNamed("paneSnapshot").Count > 0 ? 1 : (int?)null);
+			var initial = Assert.Single(fixture.Bridge.PostedEventsNamed("paneSnapshot"));
+			Assert.Empty(initial.GetProperty("messages").EnumerateArray());
+		} finally {
+			release.Set();
+		}
+
+		await fixture.Host.WaitForPaneReadyAsync(CancellationToken.None);
+		await fixture.Host.DrainPaneAsync(CancellationToken.None);
+		var replay = fixture.Bridge.PostedEventsNamed("paneSnapshot")[^1];
+		var message = Assert.Single(replay.GetProperty("messages").EnumerateArray());
+		Assert.Equal("persisted after activation", message.GetProperty("text").GetString());
 	}
 
 	[Fact]
@@ -256,8 +284,13 @@ public sealed class AgentSessionHostTests {
 		}
 	}
 
-	// The messages carried by the single agent-pane-batch frame the bridge received (a replay or a live flush).
+	// The messages carried by the single pane snapshot the bridge received.
 	private static IReadOnlyList<JsonElement> Replayed(FakeHostBridge bridge) {
+		var batch = Assert.Single(bridge.PostedEventsNamed("paneSnapshot"));
+		return [.. batch.GetProperty("messages").EnumerateArray()];
+	}
+
+	private static IReadOnlyList<JsonElement> Batched(FakeHostBridge bridge) {
 		var batch = Assert.Single(bridge.PostedEventsNamed("paneBatch"));
 		return [.. batch.GetProperty("messages").EnumerateArray()];
 	}
@@ -289,6 +322,14 @@ public sealed class AgentSessionHostTests {
 					order.Clear();
 					indexes.Clear();
 					break;
+				case "paneSnapshot":
+					order.Clear();
+					indexes.Clear();
+					foreach (var paneMessage in envelope.Payload.GetProperty("messages").EnumerateArray()) {
+						Append(paneMessage);
+					}
+
+					break;
 				case "pane":
 					Append(envelope.Payload);
 					break;
@@ -319,6 +360,15 @@ public sealed class AgentSessionHostTests {
 		var fileSystem = new InMemoryFileSystem();
 		string transcriptPath = Path.Combine(dir, "agent-pane.json");
 		seedTranscript(fileSystem, transcriptPath);
+		return CreateFixture(slot, fileSystem, transcriptPath, paneCoalesceMs);
+	}
+
+	private static HostFixture CreateFixture(
+		Func<string> slot,
+		IFileSystem fileSystem,
+		string transcriptPath,
+		long paneCoalesceMs) {
+		string dir = Path.GetDirectoryName(transcriptPath)!;
 		var settings = CoreSettings.CreateStore(Path.Combine(dir, "settings.toml"), enableWatcher: false);
 		settings.Set(AgentSettings.PaneCoalesceMs, JsonSerializer.SerializeToElement(paneCoalesceMs));
 		var commandRegistry = CoreCommands.CreateRegistry();
@@ -356,6 +406,50 @@ public sealed class AgentSessionHostTests {
 			new NoopPtyLauncher(),
 			transcriptPath);
 		return new HostFixture(bridge, session, host, registry, settings);
+	}
+
+	private sealed class BlockingReadFileSystem : IFileSystem {
+		private readonly InMemoryFileSystem _inner = new();
+		private readonly string _blockedPath;
+		private readonly ManualResetEventSlim _release;
+
+		public BlockingReadFileSystem(string blockedPath, ManualResetEventSlim release) {
+			_blockedPath = blockedPath;
+			_release = release;
+			_inner.WriteAllText(
+				blockedPath,
+				"{\"type\":\"item-completed\",\"providerId\":\"codex\",\"text\":\"persisted after activation\"}\n");
+		}
+
+		public bool FileExists(string path) => _inner.FileExists(path);
+
+		public bool DirectoryExists(string path) => _inner.DirectoryExists(path);
+
+		public bool TryGetStat(string path, out FileStat stat) => _inner.TryGetStat(path, out stat);
+
+		public IReadOnlyList<DirectoryEntry> EnumerateDirectory(string path) => _inner.EnumerateDirectory(path);
+
+		public string ReadAllText(string path) {
+			if (string.Equals(path, _blockedPath, StringComparison.Ordinal)) {
+				_release.Wait();
+			}
+
+			return _inner.ReadAllText(path);
+		}
+
+		public bool TryReadAllText(string path, out string contents) => _inner.TryReadAllText(path, out contents);
+
+		public byte[] ReadAllBytes(string path) => _inner.ReadAllBytes(path);
+
+		public void WriteAllText(string path, string contents) => _inner.WriteAllText(path, contents);
+
+		public void WriteAllBytes(string path, byte[] contents) => _inner.WriteAllBytes(path, contents);
+
+		public void AppendAllText(string path, string contents) => _inner.AppendAllText(path, contents);
+
+		public void WriteAllTextAtomic(string path, string contents) => _inner.WriteAllTextAtomic(path, contents);
+
+		public void DeleteFile(string path) => _inner.DeleteFile(path);
 	}
 
 	private sealed class HostFixture(

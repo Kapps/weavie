@@ -133,6 +133,28 @@ describe("AgentPaneAccumulator", () => {
     scheduled[0]?.();
     expect(messages).toEqual([]);
   });
+
+  it("atomically replaces the prior transcript with a complete snapshot", () => {
+    const scheduled: Array<() => void> = [];
+    const accumulator = new AgentPaneAccumulator((callback) => scheduled.push(callback));
+    let messages: AgentPaneUpdate[] = [];
+    const publish = (value: AgentPaneUpdate[]): void => {
+      messages = value;
+    };
+    accumulator.ingest("slot-1", update("item-completed", "old"), publish);
+    scheduled[0]?.();
+
+    accumulator.replace(
+      "slot-1",
+      [
+        { ...update("item-completed", "first"), itemId: "first" },
+        { ...update("item-completed", "second"), itemId: "second" },
+      ],
+      publish,
+    );
+
+    expect(messages.map((message) => message.text)).toEqual(["first", "second"]);
+  });
 });
 
 function update(type: string, text: string): AgentPaneUpdate {

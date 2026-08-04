@@ -34,11 +34,10 @@ A per-worktree transcript on disk, keyed like the shell scrollback log:
 as **append-only JSONL** (one message per line), on an owner-only file (`SecureFile.Restrict`, since a
 transcript can echo command output or file contents), with a `Log` event for I/O failures.
 
-`AgentSessionHost` owns the seam. In the structured branch it **seeds `_paneMessages` from the persisted
-snapshot synchronously, in the constructor** — before `Start()`, before any resume. So a reconnecting
-page's `ReplayPane` always has the prior output to replay immediately, independent of the async resume.
-It appends each durable message on publish, and on a `transcript-reset` it clears the buffer *and* the
-persisted file.
+`AgentSessionHost` owns the seam. Its journal worker reads the persisted snapshot away from message ingress,
+then completes an explicit readiness task only after `_paneMessages` is seeded. `lifecycle.sync` awaits that
+readiness before taking the exact peer's snapshot, so replay can never race ahead with an empty buffer. The host
+appends each durable message on publish, and on a `transcript-reset` it clears the buffer *and* the persisted file.
 
 `AgentSessionHost.ReplayState` projects the pane and controls when the page sends `ready` and when it binds a
 different backend. The page sends its initial `ready` only after `App` mounts, so a synchronous native reply
@@ -46,9 +45,15 @@ has a listener. Loaded same-backend session panes stay live in the page and swit
 session replays when loaded. Background remote traffic stays isolated, then replays its retained state after
 that backend becomes active.
 
-The two mechanisms are complementary, not redundant:
+Session sync sends one atomic `paneSnapshot`. The WebSocket bridge sends an oversized event as bounded logical
+messages, and the page reassembles it before dispatch, so a mobile connection interrupted between chunks leaves
+the prior pane intact. The transport outbox counts the whole event once; an unbounded transcript therefore
+cannot overflow the queue merely because it needed many wire chunks.
 
-- **Disk seed (this change):** synchronous, wins the reconnect race — the pane is never blank.
+The two restoration mechanisms are complementary, not redundant:
+
+- **Disk seed:** readiness-gated for reconnect and followed by a replay for newly activated dormant sessions,
+  without blocking ingress on file I/O.
 - **`HydrateTranscript` (existing):** authoritative refresh from Codex's own rollout once the resume lands
   (it emits `transcript-reset`, which also re-syncs the disk store to Codex's truth). Catches history
   produced outside Weavie (e.g. a `codex` CLI session on the same thread).
@@ -61,13 +66,14 @@ sequenceDiagram
   participant Web
 
   Note over Host,Store: construction (reopen / restart)
-  Host->>Store: Snapshot()
+  Host->>Store: Snapshot() on journal worker
   Store-->>Host: persisted durable history
-  Host->>Host: seed _paneMessages (synchronous)
+  Host->>Host: seed _paneMessages; complete readiness
 
   Note over Host,Web: page reconnects
-  Web->>Host: ready
-  Host->>Web: ReplayPane → prior output (from seed) — NOT blank
+  Web->>Host: lifecycle.sync
+  Host->>Host: await journal readiness
+  Host->>Web: atomic paneSnapshot (bounded chunks)
 
   Note over Codex,Web: async resume lands later
   Codex->>Host: transcript-reset + hydrated history

@@ -81,8 +81,7 @@ internal sealed class AgentPaneOutput : IAsyncDisposable {
 						break;
 					case ReplayCommand replay:
 						Flush();
-						replay.Target.Publish("paneReset", new { });
-						replay.Target.Publish("paneBatch", AgentPaneProtocol.Batch(replay.Snapshot));
+						replay.Target.Publish("paneSnapshot", AgentPaneProtocol.Batch(replay.Snapshot));
 						break;
 					case FlushCommand flush when flush.Version == _flushVersion:
 						Flush();

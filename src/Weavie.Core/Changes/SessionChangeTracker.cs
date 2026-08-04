@@ -14,28 +14,30 @@ namespace Weavie.Core.Changes;
 /// </para>
 /// </summary>
 public sealed partial class SessionChangeTracker {
+	private static readonly StringComparer PathComparer =
+		OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
 	private readonly IFileSystem _fileSystem;
 	private readonly IFileActivitySink _fileActivity;
 	private readonly string _workspaceRoot;
 	private readonly Func<string, bool> _isInScope;
 	private readonly object _gate = new();
-	private readonly Dictionary<string, string> _baseline = new(StringComparer.Ordinal);
-	private readonly Dictionary<string, string> _current = new(StringComparer.Ordinal);
+	private readonly Dictionary<string, string> _baseline = new(PathComparer);
+	private readonly Dictionary<string, string> _current = new(PathComparer);
 	// Each file's last-reviewed content; advanced only on keep-all (AcceptTurn) or a per-hunk revert, not on a
 	// turn boundary, so the review set accumulates everything unacknowledged across turns (docs/specs/turn-review.md).
-	private readonly Dictionary<string, string> _reviewBaseline = new(StringComparer.Ordinal);
+	private readonly Dictionary<string, string> _reviewBaseline = new(PathComparer);
 	// Each file's content at the last commit point — keep-all (AcceptTurn) or a turn boundary (CommitAccepted).
 	// The faded "accepted" band is acceptedAnchor→reviewBaseline (kept-but-uncommitted): a kept hunk stays
 	// visible-but-faded with an inline undo until a commit clears it. See docs/specs/turn-review.md (Phase 2).
-	private readonly Dictionary<string, string> _acceptedAnchor = new(StringComparer.Ordinal);
+	private readonly Dictionary<string, string> _acceptedAnchor = new(PathComparer);
 	// Each file's content at the most recent edit's PreToolUse; diffed against post-edit in EditLocationFor.
-	private readonly Dictionary<string, string> _preEdit = new(StringComparer.Ordinal);
+	private readonly Dictionary<string, string> _preEdit = new(PathComparer);
 	// Non-text files never enter the diff dictionaries; their stat is enough to refresh an open media/editor
 	// surface when a workspace-wide tool changes them without serializing their contents.
-	private readonly Dictionary<string, FileStat> _nonText = new(StringComparer.Ordinal);
+	private readonly Dictionary<string, FileStat> _nonText = new(PathComparer);
 	// Files absent on disk when their review baseline was captured, so reverting their last hunk deletes rather
 	// than leaves a 0-byte file. Keys off existence-at-baseline, not emptiness.
-	private readonly HashSet<string> _createdSinceBaseline = new(StringComparer.Ordinal);
+	private readonly HashSet<string> _createdSinceBaseline = new(PathComparer);
 
 	/// <summary>Creates a tracker that reads files and reports their completed activity.</summary>
 	/// <param name="fileSystem">The session filesystem the tracker reads changed-file content through.</param>
@@ -58,7 +60,7 @@ public sealed partial class SessionChangeTracker {
 		ArgumentNullException.ThrowIfNull(isInScope);
 		_fileSystem = fileSystem;
 		_fileActivity = fileActivity;
-		_workspaceRoot = workspaceRoot;
+		_workspaceRoot = NormalizePath(workspaceRoot);
 		_isInScope = isInScope;
 	}
 
@@ -164,7 +166,7 @@ public sealed partial class SessionChangeTracker {
 	/// <summary>Snapshots <paramref name="path"/>'s current content as its session + review baseline, once.</summary>
 	/// <param name="path">Absolute file path.</param>
 	public void CaptureBaseline(string path) {
-		ArgumentException.ThrowIfNullOrEmpty(path);
+		path = NormalizePath(path);
 		lock (_gate) {
 			// Disk content here is the pre-edit file. Seed baselines if missing; track existence so a later revert
 			// deletes rather than truncates a file that didn't yet exist.
@@ -196,7 +198,7 @@ public sealed partial class SessionChangeTracker {
 	/// <summary>Records <paramref name="path"/>'s latest content (baselining to empty if it appeared this session).</summary>
 	/// <param name="path">Absolute file path.</param>
 	public void RecordChange(string path) {
-		ArgumentException.ThrowIfNullOrEmpty(path);
+		path = NormalizePath(path);
 		bool reviewRemoved;
 		bool nonTextChanged;
 		bool ignoredNonText;
@@ -258,7 +260,7 @@ public sealed partial class SessionChangeTracker {
 	/// last hunk deletes it rather than leaving a 0-byte file.
 	/// </param>
 	public void SeedRefBaseline(string path, string refContent, string diskContent, bool existedAtRef) {
-		ArgumentException.ThrowIfNullOrEmpty(path);
+		path = NormalizePath(path);
 		ArgumentNullException.ThrowIfNull(refContent);
 		ArgumentNullException.ThrowIfNull(diskContent);
 		lock (_gate) {
@@ -318,7 +320,7 @@ public sealed partial class SessionChangeTracker {
 	/// <param name="currentRange">The hunk's range in the current file (1-based, end-exclusive).</param>
 	/// <param name="guardText">The exact current text of <paramref name="currentRange"/> as the web sees it.</param>
 	public RevertHunkOutcome RevertHunk(string path, LineRange baselineRange, LineRange currentRange, string guardText) {
-		ArgumentException.ThrowIfNullOrEmpty(path);
+		path = NormalizePath(path);
 		ArgumentNullException.ThrowIfNull(guardText);
 		List<CorrectionEdit> edits;
 		RevertHunkOutcome outcome;
@@ -378,7 +380,7 @@ public sealed partial class SessionChangeTracker {
 	/// </summary>
 	/// <param name="path">Absolute file path.</param>
 	public RevertHunkOutcome RevertFile(string path) {
-		ArgumentException.ThrowIfNullOrEmpty(path);
+		path = NormalizePath(path);
 		List<CorrectionEdit> edits;
 		RevertHunkOutcome outcome;
 		lock (_gate) {
@@ -472,7 +474,7 @@ public sealed partial class SessionChangeTracker {
 	/// <param name="currentRange">The hunk's range in the current file (1-based, end-exclusive).</param>
 	/// <param name="guardText">The exact current text of <paramref name="currentRange"/> as the web sees it.</param>
 	public bool KeepHunk(string path, LineRange baselineRange, LineRange currentRange, string guardText) {
-		ArgumentException.ThrowIfNullOrEmpty(path);
+		path = NormalizePath(path);
 		ArgumentNullException.ThrowIfNull(guardText);
 		lock (_gate) {
 			// currentRange + guardText are in the live-model (== disk) space the web diffed, so guard and take the
@@ -506,7 +508,7 @@ public sealed partial class SessionChangeTracker {
 	/// </summary>
 	/// <param name="path">Absolute file path.</param>
 	public void KeepFile(string path) {
-		ArgumentException.ThrowIfNullOrEmpty(path);
+		path = NormalizePath(path);
 		lock (_gate) {
 			if (!_current.ContainsKey(path)) {
 				return;
@@ -539,7 +541,7 @@ public sealed partial class SessionChangeTracker {
 	/// <param name="acceptedGuardText">The exact accepted-anchor text of <paramref name="acceptedRange"/> as the web sees it.</param>
 	/// <param name="guardText">The exact review-baseline text of <paramref name="reviewRange"/> as the web sees it.</param>
 	public bool UnkeepHunk(string path, LineRange acceptedRange, LineRange reviewRange, string acceptedGuardText, string guardText) {
-		ArgumentException.ThrowIfNullOrEmpty(path);
+		path = NormalizePath(path);
 		ArgumentNullException.ThrowIfNull(acceptedGuardText);
 		ArgumentNullException.ThrowIfNull(guardText);
 		lock (_gate) {
@@ -637,7 +639,7 @@ public sealed partial class SessionChangeTracker {
 	/// <summary>The change for a single <paramref name="path"/>, or <see langword="null"/> if it has no recorded change.</summary>
 	/// <param name="path">Absolute file path.</param>
 	public FileChange? Get(string path) {
-		ArgumentException.ThrowIfNullOrEmpty(path);
+		path = NormalizePath(path);
 		lock (_gate) {
 			if (!_current.TryGetValue(path, out string? current)) {
 				return null;
@@ -680,7 +682,7 @@ public sealed partial class SessionChangeTracker {
 	/// </summary>
 	/// <param name="path">Absolute file path.</param>
 	public FileChange? GetTurn(string path) {
-		ArgumentException.ThrowIfNullOrEmpty(path);
+		path = NormalizePath(path);
 		lock (_gate) {
 			if (!_reviewBaseline.TryGetValue(path, out string? baseline) || !_current.TryGetValue(path, out string? current)) {
 				return null;
@@ -776,7 +778,12 @@ public sealed partial class SessionChangeTracker {
 	// A relative tool-input path resolves against the tool's cwd (where Claude ran it), falling back to the
 	// workspace root when the event carries none — so a model-supplied partial path still lands on a real file.
 	private string Resolve(string path, string? cwd) =>
-		Path.IsPathRooted(path) ? path : Path.GetFullPath(path, string.IsNullOrEmpty(cwd) ? _workspaceRoot : cwd);
+		NormalizePath(Path.IsPathRooted(path) ? path : Path.GetFullPath(path, string.IsNullOrEmpty(cwd) ? _workspaceRoot : cwd));
+
+	private static string NormalizePath(string path) {
+		ArgumentException.ThrowIfNullOrEmpty(path);
+		return Path.GetFullPath(path);
+	}
 
 	// Path relative to the workspace root (never Claude's cwd, which drifts with `cd`) with '/' separators, so
 	// the jump link matches what reveal-file resolves against; absolute for files outside it (e.g. scratch).

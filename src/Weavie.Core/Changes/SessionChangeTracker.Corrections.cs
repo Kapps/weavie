@@ -12,7 +12,7 @@ public sealed record CorrectionEdit(string RelativePath, string Before, string A
 public sealed partial class SessionChangeTracker {
 	private string? _currentPrompt;
 	private long _nextOriginId;
-	private readonly Dictionary<string, ProvenanceFile> _provenance = new(StringComparer.Ordinal);
+	private readonly Dictionary<string, ProvenanceFile> _provenance = new(PathComparer);
 
 	/// <summary>Raised outside the tracker lock with one user's action-time corrections.</summary>
 	public event Action<IReadOnlyList<CorrectionEdit>>? Corrected;
@@ -29,7 +29,7 @@ public sealed partial class SessionChangeTracker {
 	/// <param name="path">Absolute path of the saved file.</param>
 	/// <param name="content">The file's complete saved content.</param>
 	public CapturedHandEdit CaptureHandEdit(string path, string content) {
-		ArgumentException.ThrowIfNullOrEmpty(path);
+		path = NormalizePath(path);
 		ArgumentNullException.ThrowIfNull(content);
 		List<CorrectionEdit> edits = [];
 		lock (_gate) {

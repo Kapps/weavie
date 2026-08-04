@@ -106,6 +106,26 @@ public sealed class SessionChangeTrackerTests {
 	}
 
 	[Fact]
+	public void Paths_AreNormalizedBeforeStorageActivityAndLookup() {
+		string root = Path.Combine(Path.GetTempPath(), "weavie-change-paths");
+		string canonical = Path.Combine(root, "a.txt");
+		string nonCanonical = Path.Combine(root, ".", "a.txt");
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllText(canonical, "old");
+		var activity = new CapturingFileActivitySink();
+		var tracker = new SessionChangeTracker(fileSystem, activity, root, _ => true);
+
+		tracker.CaptureBaseline(nonCanonical);
+		fileSystem.WriteAllText(canonical, "new");
+		tracker.RecordChange(nonCanonical);
+
+		var changed = Assert.IsType<FileChanged>(Assert.Single(activity.Facts));
+		Assert.Equal(canonical, changed.Path);
+		Assert.Equal(canonical, Assert.Single(tracker.TurnChanges()).Path);
+		Assert.NotNull(tracker.GetTurn(nonCanonical));
+	}
+
+	[Fact]
 	public void TurnChanges_AccumulateAcrossPrompts_UntilAccepted() {
 		// Review baseline advances only on keep-all (AcceptTurn) or revert, not on a new prompt, so changes
 		// pile up across prompts until acknowledged.

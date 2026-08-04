@@ -185,6 +185,27 @@ public sealed class GitService : IGitService {
 	}
 
 	/// <inheritdoc/>
+	public async Task<GitStatusSummary> GetStatusSummaryAsync(string worktreeDirectory, CancellationToken ct = default) {
+		ArgumentException.ThrowIfNullOrEmpty(worktreeDirectory);
+		var result = await RunCheckedAsync(
+			worktreeDirectory,
+			["--no-optional-locks", "status", "--porcelain=v2", "--branch"],
+			ct).ConfigureAwait(false);
+		return ParseStatusSummary(result.StdOut);
+	}
+
+	/// <inheritdoc/>
+	public async Task<GitDiffLineCounts> GetHeadDiffLineCountsAsync(string worktreeDirectory, CancellationToken ct = default) {
+		ArgumentException.ThrowIfNullOrEmpty(worktreeDirectory);
+		var result = await RunCheckedAsync(
+			worktreeDirectory,
+			["--no-optional-locks", "diff", "--numstat", "HEAD", "--"],
+			ct).ConfigureAwait(false);
+		var changes = ParseNumstat(result.StdOut);
+		return new GitDiffLineCounts(changes.Sum(change => change.Added), changes.Sum(change => change.Removed));
+	}
+
+	/// <inheritdoc/>
 	public async Task<WorktreeChangeStatus> GetChangeStateAsync(string worktreeDirectory, CancellationToken ct = default) {
 		ArgumentException.ThrowIfNullOrEmpty(worktreeDirectory);
 		// -z NUL-separates entries and drops C-style path quoting. A rename/copy is followed by its bare source
@@ -396,6 +417,25 @@ public sealed class GitService : IGitService {
 		}
 
 		return result;
+	}
+
+	/// <summary>Parses the branch header and dirty state from <c>git status --porcelain=v2 --branch</c>.</summary>
+	public static GitStatusSummary ParseStatusSummary(string porcelain) {
+		ArgumentNullException.ThrowIfNull(porcelain);
+		string? branch = null;
+		bool dirty = false;
+		foreach (string line in porcelain.Replace("\r", "", StringComparison.Ordinal)
+			.Split('\n', StringSplitOptions.RemoveEmptyEntries)) {
+			const string headPrefix = "# branch.head ";
+			if (line.StartsWith(headPrefix, StringComparison.Ordinal)) {
+				string head = line[headPrefix.Length..];
+				branch = head == "(detached)" ? null : head;
+			} else if (!line.StartsWith("# ", StringComparison.Ordinal)) {
+				dirty = true;
+			}
+		}
+
+		return new GitStatusSummary(branch, dirty);
 	}
 
 	/// <summary>

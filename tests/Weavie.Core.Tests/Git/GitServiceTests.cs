@@ -49,6 +49,20 @@ public sealed class GitServiceTests {
 	}
 
 	[Fact]
+	public void ParseStatusSummary_ReturnsBranchAndDirtyState() {
+		string sample = "# branch.oid abc123\n# branch.head feature/counts\n1 .M N... 100644 100644 100644 abc123 abc123 tracked.txt\n";
+
+		Assert.Equal(new GitStatusSummary("feature/counts", true), GitService.ParseStatusSummary(sample));
+	}
+
+	[Fact]
+	public void ParseStatusSummary_DetachedCleanHead() {
+		string sample = "# branch.oid abc123\n# branch.head (detached)\n";
+
+		Assert.Equal(new GitStatusSummary(null, false), GitService.ParseStatusSummary(sample));
+	}
+
+	[Fact]
 	public void ParsePorcelain_HandlesLockedAndPrunable() {
 		string sample = "worktree /repo/wt\nHEAD dddd\nbranch refs/heads/x\nlocked\nprunable gone\n";
 

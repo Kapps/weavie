@@ -904,9 +904,6 @@ export default function App(): JSX.Element {
           model={focusedAgentPane()}
           providerId={activeProviderId()}
           active={focusedKind() === AGENT_PANE_KIND}
-          reviewAdded={editor.reviewLineCounts().added}
-          reviewFileCount={editor.parkedReviewCount()}
-          reviewRemoved={editor.reviewLineCounts().removed}
           shortcut={paneShortcut(numberOf(kind))}
           onFocus={() => {
             // A nested action can select Code before its click bubbles to the Agent surface. Only the pane that

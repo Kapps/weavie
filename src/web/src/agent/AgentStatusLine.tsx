@@ -17,13 +17,8 @@ import {
 } from "./agent-controls-store";
 
 // The dim strip under the composer. First segment is the merged model → effort / Fast control (its picker is a
-// cascading per-model submenu); the rest are provider-owned axes, the complete Review line counts, and PR status.
-export function AgentStatusLine(props: {
-  reviewAdded: number;
-  reviewFileCount: number;
-  reviewRemoved: number;
-  session: ClientSession | null;
-}): JSX.Element {
+// cascading per-model submenu); Git diff totals stay beside it, followed by provider-owned axes and PR status.
+export function AgentStatusLine(props: { session: ClientSession | null }): JSX.Element {
   const state = (): ReturnType<typeof agentControlState> => agentControlState(props.session);
   const modelLabel = (): string => state().modelControl.valueLabel;
   const hasModel = (): boolean => state().modelControl.models.length > 0;
@@ -48,10 +43,17 @@ export function AgentStatusLine(props: {
     pr.state === "open"
       ? `#${pr.number}`
       : `#${pr.number} · ${pr.state === "merged" ? "Merged" : "Closed"}`;
-  const reviewTitle = (): string => {
+  const diffAdded = (): number | null => gitStatus()?.added ?? null;
+  const diffRemoved = (): number | null => gitStatus()?.removed ?? null;
+  const hasDiff = (): boolean => {
+    const added = diffAdded();
+    const removed = diffRemoved();
+    return added !== null && removed !== null && (added > 0 || removed > 0);
+  };
+  const diffError = (): string | null => gitStatus()?.error ?? null;
+  const diffTitle = (): string => {
     commandsVersion();
-    const files = props.reviewFileCount === 1 ? "1 file" : `${props.reviewFileCount} files`;
-    return `Open review — ${props.reviewAdded} lines added, ${props.reviewRemoved} removed across ${files}${keyHint(CommandIds.reviewOpen)}`;
+    return `Review diff against HEAD — ${diffAdded()} lines added, ${diffRemoved()} removed${keyHint(CommandIds.diffAgainstHead)}`;
   };
   const axisTitle = (axis: ReturnType<typeof state>["axes"][number]): string => {
     commandsVersion();
@@ -73,8 +75,8 @@ export function AgentStatusLine(props: {
       when={
         hasModel() ||
         state().axes.length > 0 ||
-        props.reviewAdded > 0 ||
-        props.reviewRemoved > 0 ||
+        hasDiff() ||
+        diffError() !== null ||
         pullRequest() !== null ||
         prError() !== null
       }
@@ -90,6 +92,29 @@ export function AgentStatusLine(props: {
             <span class="agent-status-value">{modelLabel()}</span>
           </button>
         </Show>
+        <Show when={hasDiff()}>
+          <button
+            type="button"
+            class="agent-status-segment agent-status-diff"
+            aria-label={diffTitle()}
+            title={diffTitle()}
+            onClick={() => void runCommandWithFeedback(CommandIds.diffAgainstHead)}
+          >
+            <span class="agent-status-diff-added">+{diffAdded()}</span>
+            <span aria-hidden="true">/</span>
+            <span class="agent-status-diff-removed">-{diffRemoved()}</span>
+          </button>
+        </Show>
+        <Show when={diffError()}>
+          {(error) => (
+            <span
+              class="agent-status-segment agent-status-unavailable"
+              title={`Git could not calculate the diff against HEAD: ${error()}`}
+            >
+              Δ ?
+            </span>
+          )}
+        </Show>
         <For each={state().axes}>
           {(axis) => (
             <button
@@ -103,19 +128,6 @@ export function AgentStatusLine(props: {
             </button>
           )}
         </For>
-        <Show when={props.reviewAdded > 0 || props.reviewRemoved > 0}>
-          <button
-            type="button"
-            class="agent-status-segment agent-status-review"
-            aria-label={reviewTitle()}
-            title={reviewTitle()}
-            onClick={() => void runCommandWithFeedback(CommandIds.reviewOpen)}
-          >
-            <span class="agent-status-review-added">+{props.reviewAdded}</span>
-            <span aria-hidden="true">/</span>
-            <span class="agent-status-review-removed">-{props.reviewRemoved}</span>
-          </button>
-        </Show>
         <Show when={pullRequest()}>
           {(pr) => (
             <button

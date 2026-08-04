@@ -176,6 +176,7 @@ const catalog = {
     agentCommand("weavie.pr.openCurrent", "Open Current Pull Request", "pullRequestAvailable", [
       "$mod+shift+g",
     ]),
+    agentCommand("weavie.diff.againstHead", "Diff Against HEAD", "", []),
     agentCommand("weavie.review.open", "Review Changes", "", []),
   ],
   keybindings: [
@@ -384,7 +385,7 @@ test.describe("Codex composer", () => {
     await expect(response).toHaveValue("Keep this answer");
   });
 
-  test("status line shows the complete Review diff and opens it", async ({ page }) => {
+  test("status line shows Git's HEAD diff instead of the review aggregation", async ({ page }) => {
     await mountCodex(page);
     publishCatalog();
     host.files.set("/workspace/one.ts", "export const one = true;\n");
@@ -395,33 +396,47 @@ test.describe("Codex composer", () => {
         { path: "/workspace/two.ts", name: "two.ts", added: 5, removed: 3, line: 4 },
       ],
     });
+    host.publishSession(codexSession.address, "git", "status", {
+      branch: "main",
+      dirty: true,
+      added: 3,
+      removed: 8,
+      error: null,
+    });
 
-    const counts = page.locator(".agent-status-review");
-    await expect(counts).toHaveText("+12/-4");
+    const counts = page.locator(".agent-status-diff");
+    await expect(counts).toHaveText("+3/-8");
     await expect(counts).toHaveAttribute(
       "title",
-      "Open review — 12 lines added, 4 removed across 2 files",
+      "Review diff against HEAD — 3 lines added, 8 removed",
+    );
+    const [chipBox, statusBox] = await Promise.all([
+      counts.boundingBox(),
+      page.locator(".agent-status-line").boundingBox(),
+    ]);
+    expect(chipBox).not.toBeNull();
+    expect(statusBox).not.toBeNull();
+    expect((chipBox?.x ?? 0) + (chipBox?.width ?? 0)).toBeLessThanOrEqual(
+      (statusBox?.x ?? 0) + (statusBox?.width ?? 0),
     );
     await counts.click();
-    const showFile = await host.waitForSession(codexSession.address, "event", "review", "showFile");
-    expect(showFile.payload).toMatchObject({ path: "/workspace/one.ts" });
-
-    await page.setViewportSize({ width: 390, height: 844 });
-    await page.getByRole("button", { name: "Agent", exact: true }).click();
-    const checkpoint = host.checkpoint();
-    await counts.click();
-    const compactShowFile = await host.waitForSession(
+    const diffAgainst = await host.waitForSession(
       codexSession.address,
       "event",
       "review",
-      "showFile",
-      checkpoint,
+      "diffAgainst",
     );
-    expect(compactShowFile.payload).toMatchObject({ path: "/workspace/one.ts" });
-    await expect(page.locator(".mobile-surface-button.active")).toHaveText("Code");
-    await expect(page.locator(".editor-surface")).toBeVisible();
+    expect(diffAgainst.payload).toMatchObject({ reference: "HEAD" });
 
     host.publishSession(codexSession.address, "review", "changes", { label: "", files: [] });
+    await expect(counts).toHaveText("+3/-8");
+    host.publishSession(codexSession.address, "git", "status", {
+      branch: "main",
+      dirty: false,
+      added: 0,
+      removed: 0,
+      error: null,
+    });
     await expect(counts).toHaveCount(0);
   });
 

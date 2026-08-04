@@ -8,9 +8,6 @@ export function AgentPane(props: {
   model: AgentPaneModel | null;
   providerId: "claude" | "codex" | null;
   active: boolean;
-  reviewAdded: number;
-  reviewFileCount: number;
-  reviewRemoved: number;
   shortcut: string;
   onFocus: () => void;
 }): JSX.Element {
@@ -84,12 +81,7 @@ export function AgentPane(props: {
           />
         )}
       </Show>
-      <AgentStatusLine
-        reviewAdded={props.reviewAdded}
-        reviewFileCount={props.reviewFileCount}
-        reviewRemoved={props.reviewRemoved}
-        session={props.model?.session ?? null}
-      />
+      <AgentStatusLine session={props.model?.session ?? null} />
     </div>
   );
 }

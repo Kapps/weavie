@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -62,7 +63,7 @@ public sealed partial class WorkspaceHttpServer : IAsyncDisposable {
 			return;
 		}
 
-		var builder = WebApplication.CreateBuilder();
+		var builder = CreateApplicationBuilder();
 		builder.Logging.ClearProviders();
 		string bindHost = _options.BindAddress.Contains(":", StringComparison.Ordinal)
 			&& !_options.BindAddress.StartsWith("[", StringComparison.Ordinal)
@@ -160,6 +161,14 @@ public sealed partial class WorkspaceHttpServer : IAsyncDisposable {
 
 		await app.StartAsync().ConfigureAwait(false);
 		Origin = NormalizeOrigin(app.Urls.First(), _options.BindAddress);
+	}
+
+	internal static WebApplicationBuilder CreateApplicationBuilder() {
+		var builder = WebApplication.CreateEmptyBuilder(new WebApplicationOptions());
+		builder.Services.AddLogging();
+		builder.Services.AddRouting();
+		builder.WebHost.UseKestrel();
+		return builder;
 	}
 
 	/// <summary>Marks the Core graph ready for dynamic requests.</summary>

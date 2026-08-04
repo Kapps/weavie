@@ -39,6 +39,20 @@ public sealed class WorkspaceFileIndexTests {
 	}
 
 	[Fact]
+	public void ListSnapshot_ReturnsVisitedDirectories() {
+		var fs = new InMemoryFileSystem();
+		fs.WriteAllText("/w/empty/nested/.keep", "");
+		var index = new WorkspaceFileIndex(fs, "/w");
+
+		var snapshot = index.ListSnapshot();
+
+		Assert.Equal([Full("/w/empty/nested/.keep")], snapshot.Files);
+		Assert.Equal(
+			new[] { Full("/w"), Full("/w/empty"), Full("/w/empty/nested") }.Order(),
+			snapshot.Directories.Order());
+	}
+
+	[Fact]
 	public void List_IsUnbounded_ReturnsEveryFile() {
 		var fs = new InMemoryFileSystem();
 		for (int i = 0; i < 25_000; i++) {

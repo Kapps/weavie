@@ -25,6 +25,7 @@ public sealed partial class HostCore {
 			}
 		};
 		session.Commands.WebInvoker = (id, args, ct) => InvokeWebCommandAsync(session, id, args, ct);
+		session.Commands.ClientInvoker = (id, args, ct) => InvokeClientCommandAsync(session, id, args, ct);
 		session.Commands.RegisterHandler(CoreCommands.ReopenTerminal, (_, _) => {
 			_ui.Post(() => session.Shell.Restart());
 			return Task.FromResult(CommandResult.Success("Reopened the terminal."));

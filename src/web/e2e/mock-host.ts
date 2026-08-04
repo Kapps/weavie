@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import { extname, join, normalize } from "node:path";
 import { type WebSocket, WebSocketServer } from "ws";
+import { basename } from "../src/editor/fs-path";
 
 export interface SessionAddress {
   slot: string;
@@ -546,10 +547,11 @@ export class MockHost {
       }
       return;
     }
-    if (pathname === "/weavie-media") {
+    if (pathname.startsWith("/weavie-media/")) {
       const session = request.searchParams.get("session") ?? "";
       const path = request.searchParams.get("path") ?? "";
-      const body = this.media.get(JSON.stringify([session, path]));
+      const routeMatches = pathname === `/weavie-media/${encodeURIComponent(basename(path))}`;
+      const body = routeMatches ? this.media.get(JSON.stringify([session, path])) : undefined;
       const status = body === undefined ? 404 : 200;
       this.mediaRequests.push({ session, path, status });
       res

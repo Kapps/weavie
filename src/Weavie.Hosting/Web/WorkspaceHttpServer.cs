@@ -104,7 +104,7 @@ public sealed partial class WorkspaceHttpServer : IAsyncDisposable {
 			context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
 			await context.Response.WriteAsync("weavie is starting").ConfigureAwait(false);
 		});
-		app.MapMethods("/weavie-media", [HttpMethods.Get, HttpMethods.Head], ServeMediaAsync);
+		app.MapMethods("/weavie-media/{fileName}", [HttpMethods.Get, HttpMethods.Head], ServeMediaAsync);
 		if (_bridge.Available) {
 			app.Map("/weavie-bridge", ServeBridgeAsync);
 		}
@@ -171,8 +171,13 @@ public sealed partial class WorkspaceHttpServer : IAsyncDisposable {
 		: _app.WaitForShutdownAsync();
 
 	private async Task ServeMediaAsync(HttpContext context) {
+		string fileName = context.Request.RouteValues["fileName"]?.ToString() ?? string.Empty;
 		string session = context.Request.Query["session"].ToString();
 		string path = context.Request.Query["path"].ToString();
+		if (!string.Equals(fileName, Path.GetFileName(path), StringComparison.Ordinal)) {
+			context.Response.StatusCode = StatusCodes.Status404NotFound;
+			return;
+		}
 		var resource = _media.Open(session, path);
 		if (resource is null) {
 			context.Response.StatusCode = StatusCodes.Status404NotFound;

@@ -42,6 +42,7 @@ export function activeTurnStartedAt(messages: readonly AgentPaneUpdate[]): numbe
 export type PendingRequestKind = RequestKind;
 
 export interface PendingRequest {
+  key: string;
   kind: PendingRequestKind;
   requestId: string;
 }
@@ -55,7 +56,11 @@ export function pendingRequest(messages: readonly AgentPaneUpdate[]): PendingReq
   let latest: PendingRequest | null = null;
   for (const lifecycle of requestLifecycles(messages)) {
     if (lifecycle.resolvedStatus === null) {
-      latest = { kind: lifecycle.kind, requestId: lifecycle.requestId };
+      latest = {
+        key: lifecycle.key,
+        kind: lifecycle.kind,
+        requestId: lifecycle.requestId,
+      };
     }
   }
   return latest;

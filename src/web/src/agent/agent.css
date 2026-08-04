@@ -48,11 +48,30 @@
       transparent 58%
     ),
     var(--bg);
+}
+
+.agent-body,
+.agent-pending-request {
   color: var(--fg);
   font-family: var(--terminal-font-family, ui-monospace, "Cascadia Code", Consolas, monospace);
   font-size: var(--terminal-font-size, 16px);
   font-weight: var(--terminal-font-weight, normal);
   line-height: 1.24;
+}
+
+.agent-pending-request {
+  position: relative;
+  z-index: 1;
+  box-sizing: border-box;
+  flex: 0 0 auto;
+  min-height: 0;
+  max-height: 45%;
+  overflow: auto;
+  padding: 6px 8px;
+  border-top: 1px solid var(--border);
+  background: var(--bar);
+  box-shadow: 0 -4px 12px color-mix(in srgb, var(--bg) 55%, transparent);
+  overscroll-behavior: contain;
 }
 
 .agent-transcript {

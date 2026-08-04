@@ -68,9 +68,9 @@ public sealed class LinuxGlobalHotkeyTests {
 		var portal = new FakePortal { AcceptedShortcutCount = 1 };
 		using var backend = new WaylandGlobalHotkeys(portal);
 		var pressed = Channel.CreateUnbounded<GlobalHotkey>();
-		var logs = new List<string>();
+		var logs = Channel.CreateUnbounded<string>();
 		backend.Pressed += (hotkey, _) => Assert.True(pressed.Writer.TryWrite(hotkey));
-		backend.Log += logs.Add;
+		backend.Log += message => Assert.True(logs.Writer.TryWrite(message));
 		var accepted = Hotkey("`", HotkeyModifiers.Ctrl);
 		var omitted = Hotkey("p", HotkeyModifiers.Ctrl) with {
 			Command = "test.omitted",
@@ -84,7 +84,7 @@ public sealed class LinuxGlobalHotkeyTests {
 
 		Assert.Equal(accepted, await pressed.Reader.ReadAsync());
 		Assert.False(pressed.Reader.TryRead(out _));
-		Assert.Contains(logs, line => line.Contains("did not bind 'ctrl+p'", StringComparison.Ordinal));
+		Assert.Contains("did not bind 'ctrl+p'", await logs.Reader.ReadAsync(), StringComparison.Ordinal);
 	}
 
 	[Fact]

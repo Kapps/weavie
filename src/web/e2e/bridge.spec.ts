@@ -34,6 +34,7 @@ test.describe("session-addressed WebSocket transport", () => {
       feature: "connection",
       name: "hello",
       session: null,
+      payload: {},
     });
 
     host.publishHost("notifications", "show", {
@@ -493,6 +494,58 @@ test.describe("session-addressed WebSocket transport", () => {
     host.resumeHello();
     await expect(page.locator(".footer-network-problem")).toHaveCount(0);
     await expect(page.locator(".toast-msg")).toHaveCount(0);
+  });
+
+  test("an interrupted large pane snapshot stays visible through socket reconnect", async ({
+    page,
+  }) => {
+    const session = mockSession("main", "main", "codex", true);
+    host.setSessions([session]);
+    await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
+    await host.waitUntilConnected();
+    const surface = page.locator('[data-surface="structured-agent"]');
+    const message = (text: string) => ({
+      providerId: "codex",
+      type: "item-completed",
+      itemId: "answer",
+      itemType: "agentMessage",
+      status: "completed",
+      text,
+    });
+    host.publishSession(session.address, "agent", "paneSnapshot", {
+      messages: [message("retained before reconnect")],
+    });
+    await expect(surface).toContainText("retained before reconnect");
+
+    const replacement = {
+      messages: [
+        {
+          ...message("restored after reconnect"),
+          payload: { padding: "x".repeat(1_500_000) },
+        },
+      ],
+    };
+    host.publishPartialSession(session.address, "agent", "paneSnapshot", replacement, 256 * 1024);
+    await expect(surface).toContainText("retained before reconnect");
+
+    const checkpoint = host.checkpoint();
+    host.pauseHello();
+    host.disconnectBridge();
+    await host.waitUntilConnected(checkpoint);
+    await expect(surface).toContainText("retained before reconnect");
+
+    host.resumeHello();
+    const sync = await host.waitForSession(
+      session.address,
+      "request",
+      "lifecycle",
+      "sync",
+      checkpoint,
+    );
+    expect(sync.payload).toEqual({});
+    host.publishChunkedSession(session.address, "agent", "paneSnapshot", replacement, 256 * 1024);
+    await expect(surface).toContainText("restored after reconnect");
+    await expect(surface).not.toContainText("retained before reconnect");
   });
 
   test("mobile inbox stays usable and truthful through a long catalog and reconnect", async ({

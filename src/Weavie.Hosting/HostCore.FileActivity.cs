@@ -37,6 +37,11 @@ public sealed partial class HostCore {
 				_ => Task.CompletedTask,
 			},
 			OnFailure);
+
+		session.FileActivity.Subscribe(
+			"git status projection",
+			_ => InvokeForSessionAsync(() => PushGitStatus(session)),
+			OnFailure);
 	}
 
 	private Task RefreshReviewAsync(HostSession session, string path, bool deleted) =>

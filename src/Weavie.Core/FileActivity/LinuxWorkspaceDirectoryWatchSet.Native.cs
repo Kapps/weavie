@@ -33,7 +33,6 @@ internal sealed partial class LinuxWorkspaceDirectoryWatchSet {
 	private const int NoSuchFileOrDirectory = 2;
 	private const int WouldBlock = 11;
 	private const int EventHeaderSize = 16;
-	private const int MovePairingWindowMilliseconds = 100;
 
 	[StructLayout(LayoutKind.Sequential)]
 	private struct PollDescriptor {

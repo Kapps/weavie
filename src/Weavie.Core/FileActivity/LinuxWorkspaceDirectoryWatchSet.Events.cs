@@ -5,60 +5,10 @@ namespace Weavie.Core.FileActivity;
 
 internal sealed partial class LinuxWorkspaceDirectoryWatchSet {
 	private void ReadAvailableEvents(byte[] buffer) {
-		var movedFrom = new Dictionary<uint, string>();
-		while (ReadEvents(buffer, movedFrom)) { }
-		long deadline = Environment.TickCount64 + MovePairingWindowMilliseconds;
-		while (movedFrom.Count > 0) {
-			int remaining = (int)Math.Max(0, deadline - Environment.TickCount64);
-			if (remaining == 0 || !WaitForMovePairEvents(remaining)) {
-				break;
-			}
-
-			while (ReadEvents(buffer, movedFrom)) { }
-		}
-
-		foreach (string path in movedFrom.Values) {
-			_deleted(Change(path, WatcherChangeTypes.Deleted));
-		}
-	}
-
-	// inotify may expose a move pair across separate reads; unmatched cookies are moves out of the watched tree.
-	private unsafe bool WaitForMovePairEvents(int timeoutMs) {
-		var pollFds = stackalloc PollDescriptor[2];
-		pollFds[0].FileDescriptor = _inotifyFd;
-		pollFds[0].Events = PollIn;
-		pollFds[1].FileDescriptor = _stopFd;
-		pollFds[1].Events = PollIn;
-		while (true) {
-			pollFds[0].ReturnedEvents = 0;
-			pollFds[1].ReturnedEvents = 0;
-			int result = poll(pollFds, 2, timeoutMs);
-			if (result < 0) {
-				if (Marshal.GetLastPInvokeError() == Interrupted) {
-					continue;
-				}
-
-				throw NativeFailure("poll(move pair)");
-			}
-
-			if (result == 0 || (pollFds[1].ReturnedEvents & PollIn) != 0) {
-				return false;
-			}
-
-			if ((pollFds[0].ReturnedEvents & PollFailure) != 0
-				|| (pollFds[1].ReturnedEvents & PollFailure) != 0) {
-				throw new IOException("poll reported a failed workspace watcher descriptor.");
-			}
-
-			return (pollFds[0].ReturnedEvents & PollIn) != 0;
-		}
-	}
-
-	private bool ReadEvents(byte[] buffer, Dictionary<uint, string> movedFrom) {
 		nint length = read(_inotifyFd, buffer, (nuint)buffer.Length);
 		if (length < 0) {
 			if (Marshal.GetLastPInvokeError() == WouldBlock) {
-				return false;
+				return;
 			}
 
 			throw NativeFailure("read(inotify)");
@@ -79,20 +29,17 @@ internal sealed partial class LinuxWorkspaceDirectoryWatchSet {
 				watch,
 				mask,
 				cookie,
-				buffer.AsSpan(offset + EventHeaderSize, (int)nameBufferLength),
-				movedFrom);
+				buffer.AsSpan(offset + EventHeaderSize, (int)nameBufferLength));
 			offset = next;
 		}
 
-		return true;
 	}
 
 	private void HandleEvent(
 		int watch,
 		uint mask,
 		uint cookie,
-		ReadOnlySpan<byte> nameBuffer,
-		Dictionary<uint, string> movedFrom) {
+		ReadOnlySpan<byte> nameBuffer) {
 		if ((mask & InQueueOverflow) != 0) {
 			_error(new IOException("The Linux workspace-change queue overflowed."));
 			return;
@@ -120,14 +67,14 @@ internal sealed partial class LinuxWorkspaceDirectoryWatchSet {
 			? directory
 			: Path.Combine(directory, Encoding.UTF8.GetString(nameBuffer[..nameLength]));
 		if ((mask & InMovedFrom) != 0) {
-			movedFrom[cookie] = path;
+			_pendingMoves[cookie] = (path, Environment.TickCount64 + MovePairTimeoutMilliseconds);
 			return;
 		}
 
 		if ((mask & InMovedTo) != 0) {
-			if (movedFrom.Remove(cookie, out string? oldPath)) {
-				RekeyMovedWatch(oldPath, path);
-				_renamed(oldPath, path);
+			if (_pendingMoves.Remove(cookie, out var move)) {
+				RekeyMovedWatch(move.Path, path);
+				_renamed(move.Path, path);
 			} else {
 				_created(Change(path, WatcherChangeTypes.Created));
 			}
@@ -145,6 +92,23 @@ internal sealed partial class LinuxWorkspaceDirectoryWatchSet {
 
 		if ((mask & (InModify | InAttrib | InCloseWrite)) != 0) {
 			_changed(Change(path, WatcherChangeTypes.Changed));
+		}
+	}
+
+	private int PendingMoveTimeout() {
+		if (_pendingMoves.Count == 0) {
+			return -1;
+		}
+
+		long deadline = _pendingMoves.Values.Min(move => move.Deadline);
+		return Math.Max(0, (int)(deadline - Environment.TickCount64));
+	}
+
+	private void FlushExpiredMoves() {
+		long now = Environment.TickCount64;
+		foreach (var (cookie, move) in _pendingMoves.Where(entry => entry.Value.Deadline <= now).ToArray()) {
+			_pendingMoves.Remove(cookie);
+			_deleted(Change(move.Path, WatcherChangeTypes.Deleted));
 		}
 	}
 

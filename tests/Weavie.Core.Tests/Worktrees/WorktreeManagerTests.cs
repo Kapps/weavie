@@ -511,6 +511,12 @@ public sealed class WorktreeManagerTests {
 			return Task.FromResult(DirtyPaths.Any(p => PathEquals(p, worktreeDirectory)));
 		}
 
+		public Task<GitStatusSummary> GetStatusSummaryAsync(string worktreeDirectory, CancellationToken ct = default) =>
+			Task.FromResult(new GitStatusSummary(null, DirtyPaths.Any(p => PathEquals(p, worktreeDirectory))));
+
+		public Task<GitDiffLineCounts> GetHeadDiffLineCountsAsync(string worktreeDirectory, CancellationToken ct = default) =>
+			Task.FromResult(new GitDiffLineCounts(0, 0));
+
 		public Task<WorktreeChangeStatus> GetChangeStateAsync(string worktreeDirectory, CancellationToken ct = default) =>
 			Task.FromResult(new WorktreeChangeStatus(
 				DirtyPaths.Any(p => PathEquals(p, worktreeDirectory))

@@ -18,6 +18,10 @@ const UPDATE_TOAST_KEY = "weavie-update-ready";
 const EMPTY: UpdateState = { holds: null, restarting: false, pending: false };
 const [states, setStates] = createSignal(new Map<string, UpdateState>());
 
+function notifyUpdated(buildNumber: string): void {
+  notify("info", `Weavie updated to build ${buildNumber}.`);
+}
+
 function updateState(backendId: string, update: (state: UpdateState) => UpdateState): void {
   setStates((previous) => {
     const next = new Map(previous);
@@ -27,6 +31,7 @@ function updateState(backendId: string, update: (state: UpdateState) => UpdateSt
 }
 
 registerHostFeature((connection) => {
+  let buildNumber: string | null = null;
   const feature = connection.host.feature("updates");
   const offPending = feature.on<{ holds: UpdateHold[] }>("pending", ({ holds }) => {
     updateState(connection.id, (state) => {
@@ -44,6 +49,8 @@ registerHostFeature((connection) => {
     updateState(connection.id, (state) => ({ ...state, restarting: true }));
   });
   const offHello = connection.onHello((hello) => {
+    const previousBuildNumber = buildNumber;
+    buildNumber = hello.buildNumber;
     if (connection.isLocal) {
       const boot = window.__WEAVIE_SHELL__?.buildNumber;
       if (boot !== undefined && boot !== "" && hello.buildNumber !== boot) {
@@ -53,6 +60,12 @@ registerHostFeature((connection) => {
       }
     }
     updateState(connection.id, (state) => {
+      if (previousBuildNumber !== null && hello.buildNumber !== previousBuildNumber) {
+        if (!connection.isLocal && (state.pending || state.restarting)) {
+          notifyUpdated(hello.buildNumber);
+        }
+        return EMPTY;
+      }
       if (state.restarting) {
         notify(
           "warn",
@@ -79,7 +92,7 @@ export function surfacePostUpdateNotice(): void {
   const updatedTo = window.sessionStorage.getItem(UPDATED_KEY);
   if (updatedTo !== null) {
     window.sessionStorage.removeItem(UPDATED_KEY);
-    notify("info", `Weavie updated to build ${updatedTo}.`);
+    notifyUpdated(updatedTo);
   }
 }
 

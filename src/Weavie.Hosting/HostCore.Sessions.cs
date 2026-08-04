@@ -18,6 +18,7 @@ namespace Weavie.Hosting;
 public sealed partial class HostCore {
 	/// <summary>Wires behavior to the owning session bus. No callback observes client selection.</summary>
 	private void WireSession(HostSession session) {
+		AttachGitStatus(session);
 		AttachPullRequestStatus(session);
 		session.EditorSessionChanged += state => {
 			if (ReferenceEquals(session, _primarySession)) {

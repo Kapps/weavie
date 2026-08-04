@@ -12,6 +12,7 @@ internal sealed class AgentPaneJournal : IAsyncDisposable {
 	private readonly string _path;
 	private readonly Action<IReadOnlyList<AgentPaneMessage>> _loaded;
 	private readonly Action<string> _log;
+	private readonly TaskCompletionSource _ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
 	private readonly Task _worker;
 	private int _closed;
 
@@ -37,6 +38,8 @@ internal sealed class AgentPaneJournal : IAsyncDisposable {
 	}
 
 	public void Clear() => Write(ClearCommand.Instance);
+
+	public Task WaitUntilReadyAsync(CancellationToken ct) => _ready.Task.WaitAsync(ct);
 
 	public async Task DrainAsync(CancellationToken ct) {
 		var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -73,6 +76,11 @@ internal sealed class AgentPaneJournal : IAsyncDisposable {
 				pendingFailure = ex;
 				_log($"[agent-pane] transcript load callback failed: {ex}");
 			}
+			if (pendingFailure is { } loadFailure) {
+				_ready.TrySetException(loadFailure);
+			} else {
+				_ready.TrySetResult();
+			}
 			_log($"[agent-pane] loaded {snapshot.Count} transcript messages from {_path}");
 
 			await foreach (var command in _commands.Reader.ReadAllAsync().ConfigureAwait(false)) {
@@ -104,6 +112,7 @@ internal sealed class AgentPaneJournal : IAsyncDisposable {
 				}
 			}
 		} catch (Exception ex) {
+			_ready.TrySetException(ex);
 			_log($"[agent-pane] transcript worker failed for {_path}: {ex}");
 			throw;
 		}

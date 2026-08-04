@@ -15,6 +15,10 @@ data: coalesce PTY chunks into larger frames. This is producer-side batching —
 UI/hook thread (why the bridge drops rather than awaits), so it introduces no backpressure toward the
 PTY.
 
+The bridge separately splits any oversized logical JSON event into bounded WebSocket messages for mobile
+WebKit, and the page reassembles them before dispatch. Those chunks occupy one outbox item and preserve the
+producer's ordering; they do not undo the message-count protection described here.
+
 ## Design
 
 `TerminalOutputCoalescer` (`Weavie.Core.Terminal`) sits between `OnOutput` and the bridge. Live chunks

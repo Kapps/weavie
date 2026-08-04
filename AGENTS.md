@@ -2,6 +2,13 @@
 
 Agentic code editor that weaves Claude Code, terminal sessions, and full code editing into one workflow.
 
+## VERY IMPORTANT: No backward compatibility
+
+Weavie ships its host and web client together. **Do not preserve backward compatibility with older
+clients, builds, or wire-protocol versions unless the user explicitly requests it.** Change both ends
+in lockstep and delete the superseded path. Never add capability negotiation, version gates, legacy
+adapters, fallback branches, or tests whose only purpose is supporting an older client.
+
 ## Concepts
 
 High-level architecture concepts. Each line is the whole idea; follow the link for detail and

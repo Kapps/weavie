@@ -140,6 +140,7 @@ export class MockHost {
   private helloPaused = false;
   private fileProviderPaused = false;
   private requestSequence = 0;
+  private chunkSequence = 0;
   private port = 0;
 
   private constructor(
@@ -229,7 +230,65 @@ export class MockHost {
     name: string,
     payload: unknown,
   ): void {
-    this.send({
+    this.send(this.sessionEvent(session, feature, name, payload));
+  }
+
+  publishPartialSession(
+    session: string | SessionAddress,
+    feature: string,
+    name: string,
+    payload: unknown,
+    chunkBytes: number,
+  ): void {
+    const chunks = this.chunkedSessionEvent(session, feature, name, payload, chunkBytes);
+    const first = chunks[0];
+    if (first === undefined) {
+      throw new Error("chunked session event was empty");
+    }
+    this.sendText(first);
+  }
+
+  publishChunkedSession(
+    session: string | SessionAddress,
+    feature: string,
+    name: string,
+    payload: unknown,
+    chunkBytes: number,
+  ): void {
+    for (const chunk of this.chunkedSessionEvent(session, feature, name, payload, chunkBytes)) {
+      this.sendText(chunk);
+    }
+  }
+
+  private chunkedSessionEvent(
+    session: string | SessionAddress,
+    feature: string,
+    name: string,
+    payload: unknown,
+    chunkBytes: number,
+  ): string[] {
+    const bytes = Buffer.from(JSON.stringify(this.sessionEvent(session, feature, name, payload)));
+    const count = Math.ceil(bytes.length / chunkBytes);
+    const id = `mock-${++this.chunkSequence}`;
+    return Array.from({ length: count }, (_, index) =>
+      JSON.stringify({
+        $weavieChunk: {
+          id,
+          index,
+          count,
+          data: bytes.subarray(index * chunkBytes, (index + 1) * chunkBytes).toString("base64"),
+        },
+      }),
+    );
+  }
+
+  private sessionEvent(
+    session: string | SessionAddress,
+    feature: string,
+    name: string,
+    payload: unknown,
+  ): MessageEnvelope {
+    return {
       scope: "session",
       session: typeof session === "string" ? this.address(session) : session,
       kind: "event",
@@ -238,7 +297,7 @@ export class MockHost {
       name,
       payload,
       error: null,
-    });
+    };
   }
 
   requestSession(
@@ -482,10 +541,14 @@ export class MockHost {
   }
 
   private send(message: MessageEnvelope): void {
+    this.sendText(JSON.stringify(message));
+  }
+
+  private sendText(data: string): void {
     if (this.socket === null || this.socket.readyState !== this.socket.OPEN) {
       throw new Error("mock host has no connected page");
     }
-    this.socket.send(JSON.stringify(message));
+    this.socket.send(data);
   }
 
   private waitFor(selector: MessageSelector, after = 0): Promise<MessageEnvelope> {

@@ -12,6 +12,7 @@ public sealed partial class HostCore {
 		lifecycle.HandleOwned<SessionSyncRequest, SessionSyncResult>(
 			"sync",
 			async (_, peer, ct) => {
+				await session.Agent.WaitForPaneReadyAsync(ct).ConfigureAwait(false);
 				SyncSession(session, peer.Target);
 				await session.Agent.DrainPaneAsync(ct).ConfigureAwait(false);
 				return new SessionSyncResult(true);

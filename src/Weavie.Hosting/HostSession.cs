@@ -38,6 +38,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 	private EditorSession _editorSession = EditorSession.Empty;
 	private Task? _disposeTask;
 	private PullRequestStatusMonitor? _pullRequestStatus;
+	private GitStatusMonitor? _gitStatus;
 	private string? _workspaceWatcherFailure;
 	// The server catalog advertised to the page (ids + language ids + default settings) — identical for every
 	// session, so serialized once; LspConfigJson adds the per-session worktree root.
@@ -276,6 +277,16 @@ public sealed partial class HostSession : IAsyncDisposable {
 
 	internal PullRequestStatusMonitor PullRequestStatus =>
 		_pullRequestStatus ?? throw new InvalidOperationException("Pull request status was not attached.");
+
+	internal GitStatusMonitor GitStatus =>
+		_gitStatus ?? throw new InvalidOperationException("Git status was not attached.");
+
+	internal void AttachGitStatus(GitStatusMonitor monitor) {
+		ArgumentNullException.ThrowIfNull(monitor);
+		if (Interlocked.CompareExchange(ref _gitStatus, monitor, null) is not null) {
+			throw new InvalidOperationException("Git status is already attached.");
+		}
+	}
 
 	internal void AttachPullRequestStatus(PullRequestStatusMonitor monitor) {
 		ArgumentNullException.ThrowIfNull(monitor);

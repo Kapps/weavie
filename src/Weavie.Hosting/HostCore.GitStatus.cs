@@ -1,28 +1,49 @@
-using System.Text.Json;
 using Weavie.Core.Git;
 
 namespace Weavie.Hosting;
 
-// Pushes each session's git branch + dirty flag through that session's bus.
+// Publishes each session's Git-owned branch, dirty state, and diff-against-HEAD line totals.
 public sealed partial class HostCore {
+	private static readonly TimeSpan GitStatusPollInterval = TimeSpan.FromSeconds(1);
+
+	private void AttachGitStatus(HostSession session) {
+		var monitor = new GitStatusMonitor(
+			session.Background,
+			ct => ResolveGitStatusAsync(session, ct),
+			status => session.Bus.BroadcastTarget.Feature("git").Publish("status", status),
+			Task.Delay,
+			GitStatusPollInterval);
+		session.AttachGitStatus(monitor);
+		monitor.RequestRefresh();
+	}
+
 	private void PushGitStatus(HostSession session) =>
-		PushGitStatus(session, session.Bus.BroadcastTarget);
+		session.GitStatus.RequestRefresh();
 
 	private void PushGitStatus(HostSession session, Messaging.MessageTarget target) {
-		string root = session.WorkspaceRoot;
-		_ = session.Background.Run(async ct => {
-			string? branch = null;
-			bool dirty = false;
-			try {
-				var git = new GitService();
-				branch = await git.GetCurrentBranchAsync(root, ct).ConfigureAwait(false);
-				dirty = await git.HasUncommittedChangesAsync(root, ct).ConfigureAwait(false);
-			} catch (GitException) {
-				// Not a git repo, or git unavailable — the footer shows no branch (the honest "unknown" state).
-			}
+		if (session.GitStatus.Latest is { } latest) {
+			target.Feature("git").Publish("status", latest);
+		}
 
-			ct.ThrowIfCancellationRequested();
-			target.Feature("git").Publish("status", new { branch, dirty });
-		});
+		session.GitStatus.RequestRefresh();
+	}
+
+	private static async Task<GitStatusSnapshot> ResolveGitStatusAsync(
+		HostSession session,
+		CancellationToken ct) {
+		var git = new GitService();
+		GitStatusSummary status;
+		try {
+			status = await git.GetStatusSummaryAsync(session.WorkspaceRoot, ct).ConfigureAwait(false);
+		} catch (GitException) {
+			return new GitStatusSnapshot(null, false, null, null, null);
+		}
+
+		try {
+			var counts = await git.GetHeadDiffLineCountsAsync(session.WorkspaceRoot, ct).ConfigureAwait(false);
+			return new GitStatusSnapshot(status.Branch, status.Dirty, counts.Added, counts.Removed, null);
+		} catch (GitException ex) {
+			return new GitStatusSnapshot(status.Branch, status.Dirty, null, null, ex.Message);
+		}
 	}
 }

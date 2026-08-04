@@ -336,7 +336,7 @@ test.describe("session-addressed WebSocket transport", () => {
       const remoteCheckpoint = remote.checkpoint();
       const request = host.waitForSession(local.address, "request", "commands", "invoke");
 
-      await page.keyboard.press("Control+=");
+      await page.keyboard.press("ControlOrMeta+=");
 
       expect((await request).payload).toMatchObject({ id: fontCommand.id });
       await expect

@@ -590,7 +590,7 @@ test.describe("session-addressed WebSocket transport", () => {
     });
     expect(geometry.optionsBottom).toBeLessThanOrEqual(geometry.composerBottom + 1);
     expect(Math.min(...geometry.optionTargetHeights)).toBeGreaterThanOrEqual(44);
-    expect(geometry.optionTargetRows).toBe(2);
+    expect(geometry.optionTargetRows).toBe(1);
     expect(geometry.listScrollHeight).toBeGreaterThan(geometry.listClientHeight);
 
     const unloaded = inbox.locator(".session-inbox-row", { hasText: "Unloaded" });
@@ -688,6 +688,7 @@ test.describe("session-addressed WebSocket transport", () => {
         throw new Error("mobile agent composer is incomplete");
       }
       return {
+        actionsLeft: actions.getBoundingClientRect().left,
         actionsTop: actions.getBoundingClientRect().top,
         buttonHeights: [...actions.querySelectorAll("button")].map(
           (button) => button.getBoundingClientRect().height,
@@ -695,10 +696,14 @@ test.describe("session-addressed WebSocket transport", () => {
         buttonFontSize: getComputedStyle(actionButton).fontSize,
         buttonRadius: getComputedStyle(actionButton).borderRadius,
         textareaHeight: textarea.getBoundingClientRect().height,
-        textareaBottom: textarea.getBoundingClientRect().bottom,
+        textareaRight: textarea.getBoundingClientRect().right,
+        textareaTop: textarea.getBoundingClientRect().top,
       };
     });
-    expect(composerGeometry.actionsTop).toBeGreaterThanOrEqual(composerGeometry.textareaBottom);
+    expect(
+      Math.abs(composerGeometry.actionsTop - composerGeometry.textareaTop),
+    ).toBeLessThanOrEqual(1);
+    expect(composerGeometry.actionsLeft).toBeGreaterThanOrEqual(composerGeometry.textareaRight);
     expect(Math.min(...composerGeometry.buttonHeights)).toBeGreaterThanOrEqual(44);
     expect(composerGeometry.buttonFontSize).toBe(geometry.optionTargetFontSize);
     expect(composerGeometry.buttonRadius).toBe(geometry.optionTargetRadius);

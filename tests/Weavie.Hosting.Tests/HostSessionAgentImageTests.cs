@@ -40,13 +40,18 @@ public sealed class HostSessionAgentImageTests : IDisposable {
 	}
 
 	[Fact]
-	public async Task InitialPrompt_WaitsForIdleAndSubmitsExactlyOnce() {
+	public async Task InitialInput_WaitsForIdleAndSubmitsTextAndImagesExactlyOnce() {
 		var structured = new RecordingStructuredSession();
 		var commandRegistry = CoreCommands.CreateRegistry();
 		using var settings = CoreSettings.CreateStore(Path.Combine(_dir, "settings.toml"), enableWatcher: false);
 		await using var session = CreateSession(structured, settings, commandRegistry);
+		string imagePath = Path.Combine(_dir, "initial.png");
 
-		session.QueueInitialPrompt("start here");
+		session.QueueInitialInput(Input("start here", new AgentInputAttachment {
+			Id = "image-1",
+			Mime = "image/png",
+			Path = imagePath,
+		}));
 		session.Status.Observe(new AgentToolStarting(new AgentMutation.None()));
 		Assert.Empty(structured.Submissions);
 
@@ -55,15 +60,19 @@ public sealed class HostSessionAgentImageTests : IDisposable {
 
 		var submission = Assert.Single(structured.Submissions);
 		Assert.Equal("start here", submission.Text);
+		var attachment = Assert.Single(submission.Attachments);
+		Assert.Equal("image-1", attachment.Id);
+		Assert.Equal("image/png", attachment.Mime);
+		Assert.Equal(imagePath, attachment.Path);
 	}
 
 	[Fact]
-	public async Task InitialPrompt_IsDiscardedWithSession() {
+	public async Task InitialInput_IsDiscardedWithSession() {
 		var structured = new RecordingStructuredSession();
 		var commandRegistry = CoreCommands.CreateRegistry();
 		using var settings = CoreSettings.CreateStore(Path.Combine(_dir, "settings.toml"), enableWatcher: false);
 		var session = CreateSession(structured, settings, commandRegistry);
-		session.QueueInitialPrompt("do not send");
+		session.QueueInitialInput(Input("do not send"));
 
 		await session.DisposeAsync();
 		session.Status.Observe(new AgentSessionStarted("startup"));
@@ -83,6 +92,16 @@ public sealed class HostSessionAgentImageTests : IDisposable {
 		Assert.Equal(1, structured.Restarts);
 		Assert.Equal(0, structured.Interruptions);
 	}
+
+	private static AgentTurnSubmission Input(
+		string text,
+		params AgentInputAttachment[] attachments) =>
+		new() {
+			Id = "initial",
+			Text = text,
+			Attachments = attachments,
+			Skills = [],
+		};
 
 	private HostSession CreateSession(
 		RecordingStructuredSession structured,

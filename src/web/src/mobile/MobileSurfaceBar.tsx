@@ -2,6 +2,8 @@ import { For, type JSX } from "solid-js";
 
 export type MobileSurface = "inbox" | "terminal:claude" | "terminal:shell" | "editor";
 
+export type MobileSwipeDirection = -1 | 1;
+
 const SURFACES: ReadonlyArray<{ id: MobileSurface; label: string }> = [
   { id: "inbox", label: "Sessions" },
   { id: "terminal:claude", label: "Agent" },
@@ -13,14 +15,22 @@ const SURFACES: ReadonlyArray<{ id: MobileSurface; label: string }> = [
 export function MobileSurfaceBar(props: {
   active: MobileSurface;
   onSelect: (surface: MobileSurface) => void;
+  onSwipeCancel: () => void;
+  onSwipeCommit: () => void;
+  onSwipeProgress: (
+    target: MobileSurface,
+    direction: MobileSwipeDirection,
+    progress: number,
+  ) => void;
   titleOf: (surface: MobileSurface, label: string) => string;
 }): JSX.Element {
-  let startX: number | null = null;
+  let start: { x: number; y: number } | null = null;
+  let direction: MobileSwipeDirection | null = null;
   let swiped = false;
 
-  const step = (delta: number): void => {
+  const adjacent = (delta: MobileSwipeDirection): MobileSurface => {
     const current = SURFACES.findIndex((surface) => surface.id === props.active);
-    props.onSelect(SURFACES[(current + delta + SURFACES.length) % SURFACES.length]!.id);
+    return SURFACES[(current + delta + SURFACES.length) % SURFACES.length]!.id;
   };
 
   return (
@@ -29,23 +39,61 @@ export function MobileSurfaceBar(props: {
       aria-label="Workspace surfaces"
       tabIndex={-1}
       onPointerDown={(event) => {
-        startX = event.clientX;
+        start = { x: event.clientX, y: event.clientY };
+        direction = null;
         swiped = false;
+        if (event.pointerId !== 0 && event.target instanceof Element) {
+          event.target.setPointerCapture(event.pointerId);
+        }
       }}
-      onPointerUp={(event) => {
-        if (startX === null) {
+      onPointerMove={(event) => {
+        if (start === null) {
           return;
         }
-        const distance = event.clientX - startX;
-        startX = null;
-        if (Math.abs(distance) >= 48) {
+        const dx = event.clientX - start.x;
+        const dy = event.clientY - start.y;
+        if (direction === null) {
+          if (Math.abs(dx) <= Math.abs(dy) || dx === 0) {
+            return;
+          }
+          direction = dx < 0 ? 1 : -1;
+        } else if (dx !== 0) {
+          direction = dx < 0 ? 1 : -1;
+        }
+        props.onSwipeProgress(
+          adjacent(direction),
+          direction,
+          Math.min(1, Math.abs(dx) / event.currentTarget.clientWidth),
+        );
+      }}
+      onPointerUp={(event) => {
+        if (start === null) {
+          return;
+        }
+        const dx = event.clientX - start.x;
+        const dy = event.clientY - start.y;
+        start = null;
+        if (Math.abs(dx) >= 48 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+          direction = dx < 0 ? 1 : -1;
+          props.onSwipeProgress(
+            adjacent(direction),
+            direction,
+            Math.min(1, Math.abs(dx) / event.currentTarget.clientWidth),
+          );
           swiped = true;
           event.currentTarget.focus({ preventScroll: true });
-          step(distance < 0 ? 1 : -1);
+          props.onSwipeCommit();
+        } else {
+          props.onSwipeCancel();
         }
+        direction = null;
       }}
       onPointerCancel={() => {
-        startX = null;
+        if (start !== null) {
+          props.onSwipeCancel();
+        }
+        start = null;
+        direction = null;
       }}
     >
       <For each={SURFACES}>

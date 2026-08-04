@@ -19,6 +19,7 @@ import {
 // The dim strip under the composer. First segment is the merged model → effort / Fast control (its picker is a
 // cascading per-model submenu); the rest are provider-owned axes, the complete Review line counts, and PR status.
 export function AgentStatusLine(props: {
+  compact: boolean;
   reviewAdded: number;
   reviewFileCount: number;
   reviewRemoved: number;
@@ -79,65 +80,67 @@ export function AgentStatusLine(props: {
         prError() !== null
       }
     >
-      <div class="agent-status-line">
-        <Show when={hasModel()}>
-          <button
-            type="button"
-            class="agent-status-segment agent-status-model"
-            title={`Model — ${modelLabel()} — click to change model, effort, or Fast Mode`}
-            onClick={() => openControlPicker(MODEL_AXIS)}
-          >
-            <span class="agent-status-value">{modelLabel()}</span>
-          </button>
-        </Show>
-        <For each={state().axes}>
-          {(axis) => (
+      <div class="agent-status-line" classList={{ "agent-status-line-compact": props.compact }}>
+        <div class="agent-status-scroll">
+          <Show when={hasModel()}>
             <button
               type="button"
-              class="agent-status-segment"
-              title={axisTitle(axis)}
-              onClick={() => openControlPicker(axis.id)}
+              class="agent-status-segment agent-status-model"
+              title={`Model — ${modelLabel()} — click to change model, effort, or Fast Mode`}
+              onClick={() => openControlPicker(MODEL_AXIS)}
             >
-              <span class="agent-status-key">{axis.label}</span>
-              <span class="agent-status-value">{axis.valueLabel}</span>
+              <span class="agent-status-value">{modelLabel()}</span>
             </button>
-          )}
-        </For>
-        <Show when={props.reviewAdded > 0 || props.reviewRemoved > 0}>
-          <button
-            type="button"
-            class="agent-status-segment agent-status-review"
-            aria-label={reviewTitle()}
-            title={reviewTitle()}
-            onClick={() => void runCommandWithFeedback(CommandIds.reviewOpen)}
-          >
-            <span class="agent-status-review-added">+{props.reviewAdded}</span>
-            <span aria-hidden="true">/</span>
-            <span class="agent-status-review-removed">-{props.reviewRemoved}</span>
-          </button>
-        </Show>
-        <Show when={pullRequest()}>
-          {(pr) => (
+          </Show>
+          <For each={state().axes}>
+            {(axis) => (
+              <button
+                type="button"
+                class="agent-status-segment"
+                title={axisTitle(axis)}
+                onClick={() => openControlPicker(axis.id)}
+              >
+                <span class="agent-status-key">{axis.label}</span>
+                <span class="agent-status-value">{axis.valueLabel}</span>
+              </button>
+            )}
+          </For>
+          <Show when={props.reviewAdded > 0 || props.reviewRemoved > 0}>
             <button
               type="button"
-              class="agent-status-segment agent-status-pr"
-              title={pullRequestTitle(pr())}
-              onClick={() => void runCommandWithFeedback(CommandIds.openCurrentPr)}
+              class="agent-status-segment agent-status-review"
+              aria-label={reviewTitle()}
+              title={reviewTitle()}
+              onClick={() => void runCommandWithFeedback(CommandIds.reviewOpen)}
             >
-              {pullRequestLabel(pr())}
+              <span class="agent-status-review-added">+{props.reviewAdded}</span>
+              <span aria-hidden="true">/</span>
+              <span class="agent-status-review-removed">-{props.reviewRemoved}</span>
             </button>
-          )}
-        </Show>
-        <Show when={pullRequest() === null ? prError() : null}>
-          {(error) => (
-            <span
-              class="agent-status-segment agent-status-unavailable"
-              title={`Pull request detection unavailable: ${error()}`}
-            >
-              PR ?
-            </span>
-          )}
-        </Show>
+          </Show>
+          <Show when={pullRequest()}>
+            {(pr) => (
+              <button
+                type="button"
+                class="agent-status-segment agent-status-pr"
+                title={pullRequestTitle(pr())}
+                onClick={() => void runCommandWithFeedback(CommandIds.openCurrentPr)}
+              >
+                {pullRequestLabel(pr())}
+              </button>
+            )}
+          </Show>
+          <Show when={pullRequest() === null ? prError() : null}>
+            {(error) => (
+              <span
+                class="agent-status-segment agent-status-unavailable"
+                title={`Pull request detection unavailable: ${error()}`}
+              >
+                PR ?
+              </span>
+            )}
+          </Show>
+        </div>
         <AgentModelPicker session={props.session} />
         <AgentControlPicker session={props.session} />
       </div>

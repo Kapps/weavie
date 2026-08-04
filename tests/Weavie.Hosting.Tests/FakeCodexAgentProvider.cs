@@ -21,11 +21,11 @@ internal sealed class FakeCodexAgentProvider : IAgentProvider {
 		Available = true,
 	};
 
-	public IAgentSession CreateSession(AgentSessionContext context) => new FakeCodexAgentSession();
+	public IAgentSession CreateSession(AgentSessionContext context) => new FakeCodexAgentSession(context.Events);
 
 	// Emits a deterministic, persistable turn (a user echo + a completed agent message) so the transcript store
 	// has real content to persist and replay. Keeps everything synchronous for race-free tests.
-	private sealed class FakeCodexAgentSession : IStructuredAgentSession, IStructuredAgentControls {
+	private sealed class FakeCodexAgentSession(IAgentEventSink events) : IStructuredAgentSession, IStructuredAgentControls {
 		private bool _started;
 		private int _turns;
 
@@ -58,6 +58,7 @@ internal sealed class FakeCodexAgentProvider : IAgentProvider {
 				return;
 			}
 			_started = true;
+			events.Observe(new AgentSessionStarted("startup"));
 			PaneMessage?.Invoke(new AgentPaneMessage { Type = "thread-ready", ProviderId = "codex", Status = "ready" });
 			ControlStateChanged?.Invoke(ControlState);
 		}

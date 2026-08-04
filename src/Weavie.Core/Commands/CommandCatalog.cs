@@ -26,6 +26,7 @@ public static class CommandCatalog {
 				writer.WriteString("id", definition.Id);
 				writer.WriteString("title", definition.Title);
 				writer.WriteString("runsIn", definition.RunsIn == CommandLocation.Web ? "web" : "core");
+				writer.WriteString("target", definition.Target == CommandTarget.PageHost ? "pageHost" : "sessionHost");
 				if (definition.Category is not null) {
 					writer.WriteString("category", definition.Category);
 				}

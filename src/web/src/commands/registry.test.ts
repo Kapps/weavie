@@ -6,9 +6,10 @@ const env = vi.hoisted(() => ({
   invokeCalls: [] as Array<{ backendId: string; id: string; args: unknown }>,
   notified: [] as Array<{ level: string; message: unknown }>,
   coreResult: { ok: true, data: "core-ran" } as CommandResult,
-  catalog: undefined as
-    | ((catalog: { commands: CommandInfo[]; keybindings: unknown[] }) => void)
-    | undefined,
+  catalogs: new Map<
+    string,
+    (catalog: { commands: CommandInfo[]; keybindings: unknown[] }) => void
+  >(),
   run: undefined as
     | ((request: { id: string; args: unknown }) => Promise<CommandResult>)
     | undefined,
@@ -50,21 +51,23 @@ vi.mock("../bridge", () => ({
     return () => {};
   },
   registerHostFeature: (installer: (connection: HostConnection) => undefined | (() => void)) => {
-    installer({
-      id: "local",
-      onHello: () => () => {},
-      host: {
-        feature: () => ({
-          on: (
-            _name: string,
-            handler: (catalog: { commands: CommandInfo[]; keybindings: unknown[] }) => void,
-          ) => {
-            env.catalog = handler;
-            return () => {};
-          },
-        }),
-      },
-    } as unknown as HostConnection);
+    for (const id of ["local", "remote:r"]) {
+      installer({
+        id,
+        onHello: () => () => {},
+        host: {
+          feature: () => ({
+            on: (
+              _name: string,
+              handler: (catalog: { commands: CommandInfo[]; keybindings: unknown[] }) => void,
+            ) => {
+              env.catalogs.set(id, handler);
+              return () => {};
+            },
+          }),
+        },
+      } as unknown as HostConnection);
+    }
     return () => {};
   },
   registerViewFeature: (installer: (session: ClientSession) => undefined | (() => void)) => {
@@ -116,6 +119,7 @@ function cmd(id: string, runsIn: "web" | "core"): CommandInfo {
     id,
     title: id,
     runsIn,
+    target: "sessionHost",
     description: "",
     aliases: [],
     showInPalette: true,
@@ -123,7 +127,10 @@ function cmd(id: string, runsIn: "web" | "core"): CommandInfo {
   };
 }
 const setCatalog = (commands: CommandInfo[]): void => {
-  env.catalog?.({ commands, keybindings: [] });
+  env.catalogs.get("local")?.({ commands, keybindings: [] });
+};
+const setRemoteCatalog = (commands: CommandInfo[]): void => {
+  env.catalogs.get("remote:r")?.({ commands, keybindings: [] });
 };
 
 beforeEach(() => {
@@ -135,6 +142,7 @@ beforeEach(() => {
   env.acceptSelection = true;
   env.coreResult = { ok: true, data: "core-ran" };
   setCatalog([]);
+  setRemoteCatalog([]);
 });
 
 describe("dispatchCommand — web commands", () => {
@@ -209,6 +217,28 @@ describe("dispatchCommand — core commands", () => {
     setCatalog([cmd("core.y", "core")]);
     await reg.dispatchCommand("core.y", { backendId: "remote:r" });
     expect(env.invokeCalls[0]?.backendId).toBe("remote:r");
+  });
+
+  it("routes a page-host command locally even when dispatched from a remote catalog", async () => {
+    setCatalog([{ ...cmd("theme.cycle", "core"), target: "pageHost" }]);
+
+    await reg.dispatchCommandFromCatalog("remote:r", "theme.cycle", {
+      backendId: "remote:other",
+    });
+
+    expect(env.invokeCalls).toEqual([
+      { backendId: "local", id: "theme.cycle", args: { backendId: "remote:other" } },
+    ]);
+  });
+
+  it("keeps a session-host command on its remote catalog backend", async () => {
+    setRemoteCatalog([cmd("terminal.reopen", "core")]);
+
+    await reg.dispatchCommandFromCatalog("remote:r", "terminal.reopen");
+
+    expect(env.invokeCalls).toEqual([
+      { backendId: "remote:r", id: "terminal.reopen", args: undefined },
+    ]);
   });
 
   it("activates the exact session requested by a successful command result", async () => {

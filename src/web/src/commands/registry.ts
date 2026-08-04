@@ -17,6 +17,12 @@ import {
 } from "../bridge";
 import { trackSessionCommand } from "../chrome/session-store";
 import { notify } from "../notify/notify";
+import {
+  type CommandCatalogSnapshot,
+  type RoutedCommandCatalog,
+  type RoutedKeybinding,
+  routeCommandCatalog,
+} from "./catalog-routing";
 import { CommandIds, type CommandInfo, type CommandResult, type ResolvedKeybinding } from "./types";
 
 // Session-lifecycle commands the user waits on the session to answer: while one is in flight, the session's
@@ -39,10 +45,7 @@ export type CommandHandler = (
   context: CommandContext,
 ) => void | boolean | Promise<void>;
 
-interface CommandCatalog {
-  commands: CommandInfo[];
-  keybindings: ResolvedKeybinding[];
-}
+type CommandCatalog = CommandCatalogSnapshot;
 
 /** The page-serving host's command catalog id. */
 export const LOCAL_COMMAND_CATALOG_ID = LOCAL_BACKEND_ID;
@@ -65,12 +68,21 @@ export interface SessionActivation {
   created: boolean;
 }
 
-function currentCatalog(): CommandCatalog {
-  return catalogFor(getActiveCatalogBackendId());
-}
-
 function catalogFor(backendId: string): CommandCatalog {
   return catalogs.get(backendId) ?? { commands: [], keybindings: [] };
+}
+
+function routedCatalogFor(backendId: string): RoutedCommandCatalog {
+  return routeCommandCatalog(
+    LOCAL_BACKEND_ID,
+    backendId,
+    catalogFor(LOCAL_BACKEND_ID),
+    catalogFor(backendId),
+  );
+}
+
+function currentCatalog(): RoutedCommandCatalog {
+  return routedCatalogFor(getActiveCatalogBackendId());
 }
 
 /** Registers the handler for a web command id; returns an unregister function. */
@@ -85,11 +97,16 @@ export function registerCommand(id: string, handler: CommandHandler): () => void
 
 /** The current command catalog. */
 export function getCommands(): CommandInfo[] {
-  return currentCatalog().commands;
+  return currentCatalog().commands.map(({ command }) => command);
 }
 
 /** The current resolved keybindings. */
 export function getKeybindings(): ResolvedKeybinding[] {
+  return currentCatalog().keybindings.map(({ binding }) => binding);
+}
+
+/** The effective keybindings paired with the backend catalog that owns each command. */
+export function getRoutedKeybindings(): RoutedKeybinding[] {
   return currentCatalog().keybindings;
 }
 
@@ -160,6 +177,7 @@ export async function applySessionActivation(
 }
 
 async function routeCoreCommand(
+  command: CommandInfo,
   id: string,
   args: unknown,
   catalogBackendId: string,
@@ -167,7 +185,11 @@ async function routeCoreCommand(
   const fields = args as { backendId?: unknown; id?: unknown; classify?: unknown } | undefined;
   const backendId = fields?.backendId;
   const target =
-    typeof backendId === "string" && backendId.length > 0 ? backendId : catalogBackendId;
+    command.target === "pageHost"
+      ? LOCAL_BACKEND_ID
+      : typeof backendId === "string" && backendId.length > 0
+        ? backendId
+        : catalogBackendId;
   const commit = beginClientSelectionCandidate();
   const run = async (): Promise<CommandResult> => {
     const result = await invokeCommandOnBackend(target, id, args);
@@ -250,13 +272,14 @@ export function runForKeybindingFromCatalog(backendId: string, id: string, args:
  * return maps onto the result (an explicit `false` ⇒ declined). Never rejects — failures resolve as `ok: false`.
  */
 function dispatchFromCatalog(backendId: string, id: string, args: unknown): Promise<CommandResult> {
-  const command = findCommandInCatalog(backendId, id);
-  if (command === undefined) {
+  const routed = routedCatalogFor(backendId).commands.find(({ command }) => command.id === id);
+  if (routed === undefined) {
     log("warn", `unknown command '${id}'`);
     return Promise.resolve({ ok: false, error: `Unknown command '${id}'.` });
   }
+  const { catalogBackendId, command } = routed;
   if (command.runsIn === "core") {
-    return routeCoreCommand(id, args, backendId);
+    return routeCoreCommand(command, id, args, catalogBackendId);
   }
   const handler = handlers.get(id);
   if (handler === undefined) {

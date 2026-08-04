@@ -180,7 +180,29 @@ public sealed class CommandTests {
 		var command = CoreCommands.CreateRegistry().Require(id);
 
 		Assert.Equal(CommandLocation.Web, command.RunsIn);
+		Assert.Equal(CommandTarget.PageHost, command.Target);
 		Assert.Equal("nativeShell", command.When);
 		Assert.Equal(key, Assert.Single(command.DefaultKeybindings).Key);
+	}
+
+	[Theory]
+	[InlineData(CoreCommands.IncreaseFontSize)]
+	[InlineData(CoreCommands.DecreaseFontSize)]
+	[InlineData(CoreCommands.ResetFontSize)]
+	[InlineData(CoreCommands.InstallTheme)]
+	[InlineData(CoreCommands.InstallThemeFromFile)]
+	[InlineData(CoreCommands.SelectTheme)]
+	[InlineData(CoreCommands.CycleThemeMode)]
+	[InlineData(CoreCommands.UndoThemeOverride)]
+	[InlineData(CoreCommands.ResetTheme)]
+	[InlineData(CoreCommands.ToggleWindow)]
+	[InlineData(CoreCommands.OpenRecentWorkspace)]
+	public void AppearanceAndWindowCommands_TargetPageHost(string id) => Assert.Equal(CommandTarget.PageHost, CoreCommands.CreateRegistry().Require(id).Target);
+
+	[Fact]
+	public void WorkspaceCommand_TargetsSelectedSessionHost() {
+		Assert.Equal(
+			CommandTarget.SessionHost,
+			CoreCommands.CreateRegistry().Require(CoreCommands.ReopenTerminal).Target);
 	}
 }

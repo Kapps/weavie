@@ -6,14 +6,7 @@
 // (its own history navigation) would navigate the whole app away. See docs/specs/commands.md.
 
 import { evaluateWhen } from "./context";
-import {
-  getActiveCatalogBackendId,
-  getCommandsInCatalog,
-  getKeybindingsInCatalog,
-  LOCAL_COMMAND_CATALOG_ID,
-  onCommandsChanged,
-  runForKeybindingFromCatalog,
-} from "./registry";
+import { getRoutedKeybindings, onCommandsChanged, runForKeybindingFromCatalog } from "./registry";
 import type { ResolvedKeybinding } from "./types";
 
 /** Whether the runtime is macOS — used to resolve `$mod` and platform-specific key handling. */
@@ -151,27 +144,9 @@ let compiled: {
 }[] = [];
 
 function rebuild(): void {
-  const activeBackendId = getActiveCatalogBackendId();
-  const nativeShellCommands = new Set(
-    getCommandsInCatalog(LOCAL_COMMAND_CATALOG_ID)
-      .filter((command) => command.when === "nativeShell")
-      .map((command) => command.id),
-  );
-  const active = getKeybindingsInCatalog(activeBackendId)
-    .filter(
-      (binding) =>
-        activeBackendId === LOCAL_COMMAND_CATALOG_ID || !nativeShellCommands.has(binding.command),
-    )
-    .map((binding) => ({ catalogBackendId: activeBackendId, binding }));
-  const localShell =
-    activeBackendId === LOCAL_COMMAND_CATALOG_ID
-      ? []
-      : getKeybindingsInCatalog(LOCAL_COMMAND_CATALOG_ID)
-          .filter((binding) => nativeShellCommands.has(binding.command))
-          .map((binding) => ({ catalogBackendId: LOCAL_COMMAND_CATALOG_ID, binding }));
   // Skip global bindings: the host registers them with the OS, so resolving them here too would double-fire
   // them while Weavie is focused.
-  compiled = [...active, ...localShell]
+  compiled = getRoutedKeybindings()
     .filter(({ binding }) => binding.global !== true)
     .map(({ catalogBackendId, binding }) => ({
       catalogBackendId,

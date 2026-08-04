@@ -12,6 +12,15 @@ public enum CommandLocation {
 	Core,
 }
 
+/// <summary>Which connected host owns a command when the page presents sessions from multiple backends.</summary>
+public enum CommandTarget {
+	/// <summary>The host owning the selected session executes the command.</summary>
+	SessionHost,
+
+	/// <summary>The host serving the page executes the command, independent of the selected session.</summary>
+	PageHost,
+}
+
 /// <summary>
 /// The outcome of running a command, returned to every caller (Claude over <c>runCommand</c>, and the web over
 /// the <c>command-result</c> reply). <see cref="DataJson"/> carries an optional command-specific payload as raw
@@ -76,6 +85,9 @@ public sealed record CommandDefinition {
 
 	/// <summary>Which world executes the handler.</summary>
 	public required CommandLocation RunsIn { get; init; }
+
+	/// <summary>Which host owns the command when local and remote sessions share one page.</summary>
+	public CommandTarget Target { get; init; } = CommandTarget.SessionHost;
 
 	/// <summary>Optional palette grouping, e.g. "View", "Terminal", "Diff".</summary>
 	public string? Category { get; init; }

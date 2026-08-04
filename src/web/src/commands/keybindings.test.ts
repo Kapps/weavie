@@ -1,24 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { setContext } from "./context";
-import type { CommandInfo, ResolvedKeybinding } from "./types";
+import type { ResolvedKeybinding } from "./types";
 
 const commandState = vi.hoisted(() => ({
-  activeBackendId: "local",
-  localBindings: [] as ResolvedKeybinding[],
-  localCommands: [] as CommandInfo[],
-  remoteBindings: [] as ResolvedKeybinding[],
+  routedBindings: [] as Array<{
+    catalogBackendId: string;
+    binding: ResolvedKeybinding;
+  }>,
   run: vi.fn(() => true),
 }));
 
 // keybindings.ts pulls in the registry (and through it the window-coupled bridge) only for the resolver;
 // formatKey itself needs none of it. Stub the registry so the module loads in the pure node env.
 vi.mock("./registry", () => ({
-  getActiveCatalogBackendId: () => commandState.activeBackendId,
-  getCommandsInCatalog: (backendId: string) =>
-    backendId === "local" ? commandState.localCommands : [],
-  getKeybindingsInCatalog: (backendId: string) =>
-    backendId === "local" ? commandState.localBindings : commandState.remoteBindings,
-  LOCAL_COMMAND_CATALOG_ID: "local",
+  getRoutedKeybindings: () => commandState.routedBindings,
   onCommandsChanged: () => () => {},
   runForKeybindingFromCatalog: commandState.run,
 }));
@@ -26,10 +21,7 @@ vi.mock("./registry", () => ({
 const { formatKey, installKeybindings } = await import("./keybindings");
 
 beforeEach(() => {
-  commandState.activeBackendId = "local";
-  commandState.localBindings = [];
-  commandState.localCommands = [];
-  commandState.remoteBindings = [];
+  commandState.routedBindings = [];
   commandState.run.mockClear();
   setContext("nativeShell", true);
 });
@@ -62,8 +54,11 @@ describe("formatKey (non-mac)", () => {
 
 describe("keyboard resolver", () => {
   it("normalizes GTK's ISO_Left_Tab key for Ctrl+Shift+Tab bindings", () => {
-    commandState.localBindings = [
-      { key: "ctrl+shift+tab", command: "weavie.session.prev", args: undefined },
+    commandState.routedBindings = [
+      {
+        catalogBackendId: "local",
+        binding: { key: "ctrl+shift+tab", command: "weavie.session.prev", args: undefined },
+      },
     ];
     let keydown: ((event: KeyboardEvent) => void) | undefined;
     vi.stubGlobal("window", {
@@ -97,8 +92,11 @@ describe("keyboard resolver", () => {
   });
 
   it("does not run Enter bindings while an IME composition is active", () => {
-    commandState.localBindings = [
-      { key: "enter", command: "weavie.agent.submit", args: undefined },
+    commandState.routedBindings = [
+      {
+        catalogBackendId: "local",
+        binding: { key: "enter", command: "weavie.agent.submit", args: undefined },
+      },
     ];
     let keydown: ((event: KeyboardEvent) => void) | undefined;
     vi.stubGlobal("window", {
@@ -125,24 +123,13 @@ describe("keyboard resolver", () => {
     vi.unstubAllGlobals();
   });
 
-  it("keeps local native-shell bindings active while a remote backend is selected", () => {
-    commandState.activeBackendId = "remote:r";
-    commandState.localCommands = [
+  it("runs a page-host binding through its local catalog provenance", () => {
+    commandState.routedBindings = [
       {
-        id: "weavie.window.exit",
-        title: "Exit Weavie",
-        runsIn: "web",
-        description: "",
-        aliases: [],
-        showInPalette: true,
-        when: "nativeShell",
-        keys: ["ctrl+q"],
+        catalogBackendId: "local",
+        binding: { key: "ctrl+q", command: "weavie.window.exit", when: "nativeShell" },
       },
     ];
-    commandState.localBindings = [
-      { key: "ctrl+q", command: "weavie.window.exit", when: "nativeShell" },
-    ];
-    commandState.remoteBindings = [{ key: "ctrl+q", command: "remote.other", args: undefined }];
     let keydown: ((event: KeyboardEvent) => void) | undefined;
     vi.stubGlobal("window", {
       addEventListener: (type: string, handler: (event: KeyboardEvent) => void) => {

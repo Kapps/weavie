@@ -100,10 +100,16 @@ public enum CommandLocation {
     Core,  // handler lives in Core/host (reopen the terminal, change layout, …)
 }
 
+public enum CommandTarget {
+    SessionHost, // the host owning the selected session
+    PageHost,    // the host serving the current page
+}
+
 public sealed record CommandDefinition {
     public required string Id { get; init; }                  // "weavie.diff.toggleLayout" — stable, namespaced
     public required string Title { get; init; }               // palette label ("Toggle Diff: Inline / Side-by-Side")
     public required CommandLocation RunsIn { get; init; }      // Web | Core
+    public CommandTarget Target { get; init; }                 // SessionHost | PageHost
     public string? Category { get; init; }                    // palette grouping ("View", "Terminal", "Diff")
     public string Description { get; init; } = "";            // → MCP listCommands; longer than Title
     public IReadOnlyList<string> Aliases { get; init; } = []; // NL hints for Claude ("reopen terminal", "restart shell")
@@ -118,13 +124,19 @@ public sealed record CommandDefinition {
 }
 ```
 
-### `RunsIn` is the one new concept vs. settings
+### Execution location and target
 
 Settings have no execution side — they're just values. Commands do, and Weavie has two worlds, so a
 command declares **where its handler runs**. The declaration (metadata) always lives in Core so the
 MCP surface and the palette can see every command; the *handler* is registered on whichever side
 owns the action. A `Web` command with no web handler registered at invoke time is a loud error
 (strict), never a silent no-op.
+
+`Target` is independent of `RunsIn`. Session/workspace commands follow the selected backend, while
+presentation settings such as theme and font size target the page-serving host even when a remote
+session is selected. The web composes its effective palette and keybindings from local `PageHost`
+entries plus the selected backend's `SessionHost` entries, keeping catalog provenance attached to
+each routed command and binding.
 
 ## The command registry & dispatcher
 

@@ -15,6 +15,7 @@ import { AgentComposer } from "./AgentComposer";
 import { createAgentPaneScroll } from "./AgentPaneScroll";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 import { AgentTranscript } from "./AgentTranscript";
+import { TranscriptEntry } from "./AgentTranscriptEntry";
 import type { AgentPaneModel } from "./pane-store";
 
 interface ViewportSnapshot {
@@ -120,6 +121,7 @@ export function AgentPaneBody(props: {
             providerName={props.providerName}
             sectionLabels={props.model.sectionLabels()}
             session={props.model.session}
+            showEmptyState={props.model.pinnedRequest() === null}
             virtualizer={virtualizer}
           />
         </div>
@@ -147,6 +149,24 @@ export function AgentPaneBody(props: {
           </button>
         </Show>
       </div>
+      <Show when={props.model.pinnedRequest()?.id} keyed>
+        {(_requestId) => (
+          <section
+            class="agent-pending-request"
+            data-agent-pending-request
+            aria-label="Waiting for your response"
+          >
+            <TranscriptEntry
+              detailsExpanded={false}
+              entry={props.model.pinnedRequest()!}
+              keyboardApprovalId={props.model.keyboardApprovalId()}
+              onDetailsToggle={() => {}}
+              sectionLabel={null}
+              session={props.model.session}
+            />
+          </section>
+        )}
+      </Show>
       <AgentComposer
         active={props.active}
         inputProtocol={props.inputProtocol}

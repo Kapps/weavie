@@ -5,7 +5,7 @@ import { clearAgentInputDrafts } from "./AgentInputDrafts";
 import { toAgentTranscript } from "./AgentPaneMessages";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 import { computeSectionLabels, latestAgentTurnStartId } from "./AgentTranscriptLabels";
-import { hasActiveTurn, pendingApproval } from "./turn-progress";
+import { hasActiveTurn, pendingApproval, pendingRequest } from "./turn-progress";
 
 export type AgentSectionLabel = "Updates" | "Results";
 
@@ -17,6 +17,7 @@ export interface AgentPaneModel {
   readonly generation: Accessor<number>;
   readonly keyboardApprovalId: Accessor<string | null>;
   readonly messages: Accessor<AgentPaneUpdate[]>;
+  readonly pinnedRequest: Accessor<AgentTranscriptEntry | null>;
   readonly revision: Accessor<number>;
   readonly sectionLabels: Accessor<ReadonlyMap<string, AgentSectionLabel>>;
   readonly session: ClientSession;
@@ -35,6 +36,7 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
   const [revision, setRevision] = createSignal(0);
   const [turnActive, setTurnActive] = createSignal(false);
   const [keyboardApprovalId, setKeyboardApprovalId] = createSignal<string | null>(null);
+  const [pinnedRequest, setPinnedRequest] = createSignal<AgentTranscriptEntry | null>(null);
   const [agentTurnStartId, setAgentTurnStartId] = createSignal<string | null>(null);
   const [agentTurnStartIndex, setAgentTurnStartIndex] = createSignal<number | null>(null);
   const [sectionLabels, setSectionLabels] = createSignal<ReadonlyMap<string, AgentSectionLabel>>(
@@ -47,14 +49,22 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
     const projected = toAgentTranscript(updates);
     const active = hasActiveTurn(updates);
     const approvalId = pendingApproval(updates)?.requestId ?? null;
-    const turnStartId = latestAgentTurnStartId(projected);
+    const request = pendingRequest(updates);
+    const pinned =
+      request === null ? null : (projected.find((entry) => entry.id === request.key) ?? null);
+    const visible = pinned === null ? projected : projected.filter((entry) => entry !== pinned);
+    const turnStartId = latestAgentTurnStartId(visible);
     const turnStartIndex =
-      turnStartId === null ? null : projected.findIndex((entry) => entry.id === turnStartId);
-    const labels = computeSectionLabels(projected, active);
+      turnStartId === null ? null : visible.findIndex((entry) => entry.id === turnStartId);
+    const labels = computeSectionLabels(visible, active);
     batch(() => {
-      setEntries(reconcile(projected, { key: "id" }));
+      setEntries(reconcile(visible, { key: "id" }));
       setTurnActive(active);
       setKeyboardApprovalId(approvalId);
+      // Keep the docked form mounted across transcript updates so its focused field stays focused.
+      if (pinnedRequest()?.id !== pinned?.id) {
+        setPinnedRequest(pinned);
+      }
       setAgentTurnStartId(turnStartId);
       setAgentTurnStartIndex(turnStartIndex);
       setSectionLabels(labels);
@@ -89,6 +99,7 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
     generation,
     keyboardApprovalId,
     messages,
+    pinnedRequest,
     revision,
     sectionLabels,
     session,

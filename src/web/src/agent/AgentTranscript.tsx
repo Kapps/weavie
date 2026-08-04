@@ -16,12 +16,17 @@ export function AgentTranscript(props: {
   providerName: string;
   sectionLabels: ReadonlyMap<string, AgentSectionLabel>;
   session: ClientSession;
+  showEmptyState: boolean;
   virtualizer: Virtualizer<HTMLDivElement, HTMLDivElement>;
 }): JSX.Element {
   return (
     <Show
       when={props.entries.length > 0}
-      fallback={<EmptyState providerName={props.providerName} />}
+      fallback={
+        <Show when={props.showEmptyState}>
+          <EmptyState providerName={props.providerName} />
+        </Show>
+      }
     >
       <div
         class="agent-transcript"

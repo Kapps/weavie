@@ -18,48 +18,33 @@ async function pasteImage(target: import("@playwright/test").Locator, b64: strin
   }, b64);
 }
 
-async function swipeAgentPanelLeft(page: import("@playwright/test").Page): Promise<void> {
-  const target = page.locator(".agent-surface .agent-body");
-  const positions = await target.evaluate((element) => {
-    const touch = (identifier: number, clientX: number) =>
-      new Touch({ identifier, target: element, clientX, clientY: 240 });
-    const move = (clientX: number) =>
-      element.dispatchEvent(
-        new TouchEvent("touchmove", {
+async function dispatchPaneTouch(
+  target: import("@playwright/test").Locator,
+  phase: "touchend" | "touchmove" | "touchstart",
+  clientX: number,
+): Promise<boolean> {
+  return target.evaluate(
+    (element, touchEvent) => {
+      const touch = new Touch({
+        identifier: 1,
+        target: element,
+        clientX: touchEvent.clientX,
+        clientY: 240,
+      });
+      const position =
+        touchEvent.phase === "touchend"
+          ? { changedTouches: [touch] }
+          : { targetTouches: [touch], touches: [touch] };
+      return element.dispatchEvent(
+        new TouchEvent(touchEvent.phase, {
           bubbles: true,
           cancelable: true,
-          touches: [touch(1, clientX)],
-          targetTouches: [touch(1, clientX)],
+          ...position,
         }),
       );
-    element.dispatchEvent(
-      new TouchEvent("touchstart", {
-        bubbles: true,
-        cancelable: true,
-        touches: [touch(1, 300)],
-        targetTouches: [touch(1, 300)],
-      }),
-    );
-    move(220);
-    const dragged = element.closest(".pane-area")!.getBoundingClientRect().left;
-    move(290);
-    const returned = element.closest(".pane-area")!.getBoundingClientRect().left;
-    return { dragged, returned };
-  });
-  expect(positions.returned).toBeGreaterThan(positions.dragged);
-  await expect(page.locator(".session-inbox")).toBeVisible();
-  await expect(page.locator(".pane-area")).not.toHaveCSS("transform", "none");
-  await target.evaluate((element) => {
-    const touch = (identifier: number, clientX: number) =>
-      new Touch({ identifier, target: element, clientX, clientY: 240 });
-    element.dispatchEvent(
-      new TouchEvent("touchend", {
-        bubbles: true,
-        cancelable: true,
-        changedTouches: [touch(1, 190)],
-      }),
-    );
-  });
+    },
+    { clientX, phase },
+  );
 }
 
 test.use({
@@ -208,7 +193,7 @@ test("compact session inbox creates, resumes, and switches existing surfaces", a
   await expect(page.locator(".editor-surface")).toBeVisible();
 
   await page.getByRole("button", { name: "Agent" }).click();
-  await agentSurface.evaluate((surface) => {
+  const scrollerMoveAccepted = await agentSurface.evaluate((surface) => {
     const body = surface.querySelector(".agent-body");
     if (!(body instanceof HTMLElement)) {
       throw new Error("Missing agent body");
@@ -217,49 +202,124 @@ test("compact session inbox creates, resumes, and switches existing surfaces", a
     scroller.style.cssText = "width:100px;overflow-x:auto";
     scroller.innerHTML = '<div style="width:1000px;height:1px"></div>';
     body.append(scroller);
-    const touch = (identifier: number, clientX: number) =>
-      new Touch({ identifier, target: scroller, clientX, clientY: 240 });
+    const touch = (clientX: number) =>
+      new Touch({ identifier: 1, target: scroller, clientX, clientY: 240 });
     scroller.dispatchEvent(
       new TouchEvent("touchstart", {
         bubbles: true,
-        touches: [touch(1, 300)],
-        targetTouches: [touch(1, 300)],
+        touches: [touch(90)],
+        targetTouches: [touch(90)],
       }),
     );
-    scroller.dispatchEvent(
+    const moveAccepted = scroller.dispatchEvent(
       new TouchEvent("touchmove", {
         bubbles: true,
-        touches: [touch(1, 190)],
-        targetTouches: [touch(1, 190)],
+        cancelable: true,
+        touches: [touch(270)],
+        targetTouches: [touch(270)],
       }),
     );
     scroller.dispatchEvent(
-      new TouchEvent("touchend", { bubbles: true, changedTouches: [touch(1, 190)] }),
+      new TouchEvent("touchend", { bubbles: true, changedTouches: [touch(270)] }),
     );
     scroller.remove();
-
-    const option = document.createElement("div");
-    option.role = "option";
-    option.tabIndex = 0;
-    body.append(option);
-    const optionTouch = (identifier: number, clientX: number) =>
-      new Touch({ identifier, target: option, clientX, clientY: 240 });
-    option.dispatchEvent(
-      new TouchEvent("touchstart", {
-        bubbles: true,
-        touches: [optionTouch(2, 300)],
-        targetTouches: [optionTouch(2, 300)],
-      }),
-    );
-    option.dispatchEvent(
-      new TouchEvent("touchend", { bubbles: true, changedTouches: [optionTouch(2, 190)] }),
-    );
-    option.remove();
+    return moveAccepted;
   });
+  expect(scrollerMoveAccepted).toBe(true);
+
+  const agentBody = agentSurface.locator(".agent-body");
+  await dispatchPaneTouch(agentBody, "touchstart", 300);
+  expect(await dispatchPaneTouch(agentBody, "touchmove", 120)).toBe(true);
+  await dispatchPaneTouch(agentBody, "touchend", 120);
   await expect(agentSurface).toBeVisible();
   await expect(inbox).toBeHidden();
-  await swipeAgentPanelLeft(page);
+  await expect(page.locator(".app.mobile-transition")).toHaveCount(0);
+  await expect(page.locator(".pane-area")).toHaveCSS("transform", "none");
+
+  await dispatchPaneTouch(activeComposer, "touchstart", 80);
+  expect(await dispatchPaneTouch(activeComposer, "touchmove", 220)).toBe(true);
+  await dispatchPaneTouch(activeComposer, "touchend", 220);
+  await expect(page.locator(".app.mobile-transition")).toHaveCount(0);
+
+  await activeComposer.fill("Open ./hello.ts");
+  await agentSurface.getByRole("button", { name: "Run", exact: true }).click();
+  const agentFileLink = agentSurface.getByRole("link", { name: "./hello.ts", exact: true }).last();
+  await expect(agentFileLink).toBeVisible();
+  const beforeFileNavigation = await page.evaluate(() => history.length);
+  await agentFileLink.click();
+  const editorSurface = page.locator(".editor-surface");
+  await expect(editorSurface).toBeVisible();
+  await expect(page.locator(".mobile-surface-button.active")).toHaveText("Code");
+  expect(await page.evaluate(() => history.length)).toBe(beforeFileNavigation + 1);
+  expect(
+    await page.evaluate(
+      () =>
+        (
+          history.state as {
+            __weavieMobileNavigation?: { stack?: unknown };
+          }
+        ).__weavieMobileNavigation?.stack,
+    ),
+  ).toEqual(["inbox", "terminal:claude", "editor"]);
+
+  const editorChrome = editorSurface.locator(".editor-tabs");
+  await dispatchPaneTouch(editorChrome, "touchstart", 80);
+  await dispatchPaneTouch(editorChrome, "touchmove", 120);
+  await expect(agentSurface).toBeVisible();
+  await dispatchPaneTouch(editorChrome, "touchend", 120);
+  await expect(page.locator(".mobile-surface-button.active")).toHaveText("Code");
+  await expect(page.locator(".app.mobile-transition")).toHaveCount(0);
+
+  await page.evaluate(() => history.back());
+  await expect(page.locator(".mobile-surface-button.active")).toHaveText("Agent");
+  await page.reload();
+  await expect(page.locator(".mobile-surface-button.active")).toHaveText("Agent");
+
+  await page.getByRole("button", { name: "Shell" }).click();
+  const shellSurface = page.locator(".terminal-surface[data-kind='terminal:shell']");
+  await expect(shellSurface).toBeVisible();
+  expect(
+    await page.evaluate(
+      () =>
+        (
+          history.state as {
+            __weavieMobileNavigation?: { stack?: unknown };
+          }
+        ).__weavieMobileNavigation?.stack,
+    ),
+  ).toEqual(["inbox", "terminal:claude", "terminal:shell"]);
+  await page.goForward();
+  await expect(shellSurface).toBeVisible();
+
+  const shellChrome = shellSurface.locator(".pane-head");
+  await dispatchPaneTouch(shellChrome, "touchstart", 80);
+  await dispatchPaneTouch(shellChrome, "touchmove", 220);
+  await expect(agentSurface).toBeVisible();
+  await dispatchPaneTouch(shellChrome, "touchend", 270);
+  await expect(page.locator(".mobile-surface-button.active")).toHaveText("Agent");
+
+  await agentFileLink.click();
+  await expect(page.locator(".mobile-surface-button.active")).toHaveText("Code");
+
+  await dispatchPaneTouch(editorChrome, "touchstart", 80);
+  await dispatchPaneTouch(editorChrome, "touchmove", 220);
+  await expect(agentSurface).toBeVisible();
+  const layout = page.locator(".layout-root");
+  await expect(layout).not.toHaveCSS("transform", "none");
+  const draggedRight = (await layout.boundingBox())!.x;
+  await dispatchPaneTouch(editorChrome, "touchmove", 120);
+  expect((await layout.boundingBox())!.x).toBeLessThan(draggedRight);
+  await dispatchPaneTouch(editorChrome, "touchmove", 270);
+  await dispatchPaneTouch(editorChrome, "touchend", 270);
+  await expect(page.locator(".mobile-surface-button.active")).toHaveText("Agent");
+  await expect(agentSurface).toBeVisible();
+
+  await dispatchPaneTouch(agentBody, "touchstart", 80);
+  await dispatchPaneTouch(agentBody, "touchmove", 220);
   await expect(inbox).toBeVisible();
+  await dispatchPaneTouch(agentBody, "touchend", 270);
+  await expect(inbox).toBeVisible();
+  await expect(page.locator(".mobile-surface-button.active")).toHaveText("Sessions");
 
   await expect(inbox.locator(".session-inbox-row")).toHaveCount(2);
   await expect(inbox).toContainText("improve-mobile-navigation");
@@ -280,7 +340,6 @@ test("compact session inbox creates, resumes, and switches existing surfaces", a
     pointerType: "touch",
   });
   await expect(page.locator(".terminal-surface[data-kind='terminal:shell']")).toBeVisible();
-  const layout = page.locator(".layout-root");
   await expect(layout).not.toHaveCSS("transform", "none");
   const draggedLeft = (await layout.boundingBox())!.x;
   await bar.dispatchEvent("pointermove", {

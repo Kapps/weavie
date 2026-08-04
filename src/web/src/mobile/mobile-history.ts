@@ -1,80 +1,155 @@
-import { type Accessor, createEffect, createSignal, onCleanup } from "solid-js";
+import { type Accessor, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 import type { MobileSurface } from "./MobileSurfaceBar";
 
-const STATE_KEY = "__weavieMobileSurface";
+const STATE_KEY = "__weavieMobileNavigation";
+const ROOT_STACK: readonly MobileSurface[] = ["inbox"];
+
+interface NavigationState {
+  hasForward: boolean;
+  stack: readonly MobileSurface[];
+}
 
 export interface MobileHistory {
+  back: () => void;
+  backTarget: Accessor<MobileSurface | null>;
+  drill: (surface: MobileSurface) => void;
+  select: (surface: MobileSurface) => void;
   surface: Accessor<MobileSurface>;
-  navigate: (surface: MobileSurface) => void;
 }
 
-/** Gives the compact inbox/detail transition one browser-history entry without stacking pane-tab changes. */
+/** Browser-backed mobile routes: peer surfaces replace the top entry while drill-ins push one. */
 export function createMobileHistory(compact: Accessor<boolean>): MobileHistory {
-  const [surface, setSurface] = createSignal<MobileSurface>("inbox");
+  const [stack, setStack] = createSignal<readonly MobileSurface[]>(ROOT_STACK);
+  const surface = createMemo<MobileSurface>(() => stack().at(-1) ?? "inbox");
+  const backTarget = createMemo<MobileSurface | null>(() => stack().at(-2) ?? null);
 
-  const onPopState = (event: PopStateEvent): void => {
+  const currentNavigation = (): NavigationState => {
+    const current = readNavigation(history.state);
+    if (current !== null) {
+      return current;
+    }
+    const root = { hasForward: false, stack: ROOT_STACK };
+    history.replaceState(withNavigation(history.state, root), "");
+    return root;
+  };
+  const push = (current: readonly MobileSurface[], next: readonly MobileSurface[]): void => {
+    history.replaceState(withNavigation(history.state, { hasForward: true, stack: current }), "");
+    history.pushState(withNavigation(history.state, { hasForward: false, stack: next }), "");
+  };
+  const restoreCurrentStack = (): void => {
     if (!compact()) {
       return;
     }
-    setSurface(readSurface(event.state) ?? "inbox");
+    setStack(currentNavigation().stack);
   };
-  window.addEventListener("popstate", onPopState);
-  onCleanup(() => window.removeEventListener("popstate", onPopState));
+  window.addEventListener("popstate", restoreCurrentStack);
+  onCleanup(() => window.removeEventListener("popstate", restoreCurrentStack));
 
   createEffect(() => {
-    if (!compact()) {
-      return;
-    }
-    const restored = readSurface(history.state);
-    if (restored === null) {
-      history.replaceState(withSurface(history.state, "inbox"), "");
-      setSurface("inbox");
-    } else {
-      setSurface(restored);
-    }
+    restoreCurrentStack();
   });
 
-  const navigate = (next: MobileSurface): void => {
+  const back = (): void => {
     if (!compact()) {
-      setSurface(next);
       return;
     }
-
-    const current = readSurface(history.state);
-    if (next === "inbox" && current !== null && current !== "inbox") {
-      setSurface("inbox");
-      history.back();
+    const current = currentNavigation().stack;
+    if (current.length === 1) {
       return;
     }
-
-    if (current === null) {
-      history.replaceState(withSurface(history.state, "inbox"), "");
-    }
-    if (next !== "inbox" && (current === null || current === "inbox")) {
-      history.pushState(withSurface(history.state, next), "");
-    } else {
-      history.replaceState(withSurface(history.state, next), "");
-    }
-    setSurface(next);
+    setStack(current.slice(0, -1));
+    history.back();
   };
 
-  return { surface, navigate };
+  const select = (next: MobileSurface): void => {
+    if (!compact()) {
+      setStack([next]);
+      return;
+    }
+
+    const navigation = currentNavigation();
+    const current = navigation.stack;
+    const active = current.at(-1);
+    if (next === active) {
+      return;
+    }
+    if (next === "inbox") {
+      setStack(ROOT_STACK);
+      history.go(-(current.length - 1));
+      return;
+    }
+    if (next === current.at(-2)) {
+      back();
+      return;
+    }
+    const nextStack =
+      active === "inbox" || navigation.hasForward
+        ? [...current, next]
+        : [...current.slice(0, -1), next];
+    if (active === "inbox" || navigation.hasForward) {
+      push(current, nextStack);
+    } else {
+      history.replaceState(
+        withNavigation(history.state, { hasForward: false, stack: nextStack }),
+        "",
+      );
+    }
+    setStack(nextStack);
+  };
+
+  const drill = (next: MobileSurface): void => {
+    if (!compact()) {
+      setStack([next]);
+      return;
+    }
+    if (next === "inbox") {
+      select(next);
+      return;
+    }
+    const current = currentNavigation().stack;
+    if (next === current.at(-1)) {
+      return;
+    }
+    const nextStack = [...current, next];
+    push(current, nextStack);
+    setStack(nextStack);
+  };
+
+  return { back, backTarget, drill, select, surface };
 }
 
-function readSurface(state: unknown): MobileSurface | null {
+function readNavigation(state: unknown): NavigationState | null {
   if (state === null || typeof state !== "object") {
     return null;
   }
-  const value = (state as Record<string, unknown>)[STATE_KEY];
-  return value === "inbox" ||
+  const navigation = (state as Record<string, unknown>)[STATE_KEY];
+  if (navigation === null || typeof navigation !== "object") {
+    return null;
+  }
+  const { hasForward, stack } = navigation as Record<string, unknown>;
+  if (
+    typeof hasForward !== "boolean" ||
+    !Array.isArray(stack) ||
+    stack.length === 0 ||
+    stack[0] !== "inbox" ||
+    !stack.every(isMobileSurface) ||
+    stack.some((surface, index) => index > 0 && surface === stack[index - 1])
+  ) {
+    return null;
+  }
+  return { hasForward, stack };
+}
+
+function isMobileSurface(value: unknown): value is MobileSurface {
+  return (
+    value === "inbox" ||
     value === "terminal:claude" ||
     value === "terminal:shell" ||
     value === "editor"
-    ? value
-    : null;
+  );
 }
 
-function withSurface(state: unknown, surface: MobileSurface): Record<string, unknown> {
+function withNavigation(state: unknown, navigation: NavigationState): Record<string, unknown> {
   const current = state !== null && typeof state === "object" ? state : {};
-  return { ...current, [STATE_KEY]: surface };
+  return { ...current, [STATE_KEY]: navigation };
 }

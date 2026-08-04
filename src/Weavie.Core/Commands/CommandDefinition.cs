@@ -12,13 +12,13 @@ public enum CommandLocation {
 	Core,
 }
 
-/// <summary>Which connected host owns a command when the page presents sessions from multiple backends.</summary>
-public enum CommandTarget {
-	/// <summary>The host owning the selected session executes the command.</summary>
-	SessionHost,
+/// <summary>Which connected host owns a command and its user-facing definition.</summary>
+public enum CommandOwner {
+	/// <summary>The selected or explicitly addressed backend owns the command.</summary>
+	Backend,
 
-	/// <summary>The host serving the page executes the command, independent of the selected session.</summary>
-	PageHost,
+	/// <summary>The local presentation host serving the current client owns the command.</summary>
+	Client,
 }
 
 /// <summary>
@@ -86,8 +86,8 @@ public sealed record CommandDefinition {
 	/// <summary>Which world executes the handler.</summary>
 	public required CommandLocation RunsIn { get; init; }
 
-	/// <summary>Which host owns the command when local and remote sessions share one page.</summary>
-	public CommandTarget Target { get; init; } = CommandTarget.SessionHost;
+	/// <summary>Which connected host owns execution, metadata, and keybindings.</summary>
+	public CommandOwner Owner { get; init; }
 
 	/// <summary>Optional palette grouping, e.g. "View", "Terminal", "Diff".</summary>
 	public string? Category { get; init; }

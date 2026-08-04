@@ -708,6 +708,24 @@ public sealed partial class HostCore {
 		return FromWireResult(result);
 	}
 
+	private async Task<CommandResult> InvokeClientCommandAsync(
+		HostSession session,
+		string id,
+		string? argsJson,
+		CancellationToken ct) {
+		JsonElement? args = null;
+		if (!string.IsNullOrWhiteSpace(argsJson)) {
+			using var document = JsonDocument.Parse(argsJson);
+			args = document.RootElement.Clone();
+		}
+
+		var result = await session.View.Feature("commands").RequestAsync<CommandRequest, CommandWireResult>(
+			"runClient",
+			new CommandRequest(id, args),
+			ct).ConfigureAwait(false);
+		return FromWireResult(result);
+	}
+
 	/// <summary>The vsix picker for the install-from-file theme command, or <c>null</c> when the host has no native dialogs.</summary>
 	private VsixFilePicker? VsixPicker =>
 		_platform.Dialogs is { } dialogs ? dialogs.PickVsixFileAsync : null;

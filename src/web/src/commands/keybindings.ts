@@ -6,7 +6,11 @@
 // (its own history navigation) would navigate the whole app away. See docs/specs/commands.md.
 
 import { evaluateWhen } from "./context";
-import { getRoutedKeybindings, onCommandsChanged, runForKeybindingFromCatalog } from "./registry";
+import {
+  getActiveKeybindingEntries,
+  onCommandsChanged,
+  runForKeybindingFromCatalog,
+} from "./registry";
 import type { ResolvedKeybinding } from "./types";
 
 /** Whether the runtime is macOS — used to resolve `$mod` and platform-specific key handling. */
@@ -146,7 +150,7 @@ let compiled: {
 function rebuild(): void {
   // Skip global bindings: the host registers them with the OS, so resolving them here too would double-fire
   // them while Weavie is focused.
-  compiled = getRoutedKeybindings()
+  compiled = getActiveKeybindingEntries()
     .filter(({ binding }) => binding.global !== true)
     .map(({ catalogBackendId, binding }) => ({
       catalogBackendId,

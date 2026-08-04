@@ -3,14 +3,15 @@
 // Commands are declared in Core; the web binds handlers and resolves keydowns. See docs/specs/commands.md.
 
 export type CommandLocation = "web" | "core";
-export type CommandTarget = "pageHost" | "sessionHost";
+export type CommandOwner = "backend" | "client";
 
 /** One command in the catalog. */
 export interface CommandInfo {
   id: string;
   title: string;
   runsIn: CommandLocation;
-  target: CommandTarget;
+  /** The connected host that owns execution, metadata, and keybindings. */
+  owner?: CommandOwner;
   category?: string;
   description: string;
   aliases: string[];

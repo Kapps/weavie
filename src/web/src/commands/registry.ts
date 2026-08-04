@@ -11,18 +11,13 @@ import {
   log,
   onSelectedSession,
   registerHostFeature,
+  registerSessionFeature,
   registerViewFeature,
   selectedSession,
   waitForClientSession,
 } from "../bridge";
 import { trackSessionCommand } from "../chrome/session-store";
 import { notify } from "../notify/notify";
-import {
-  type CommandCatalogSnapshot,
-  type RoutedCommandCatalog,
-  type RoutedKeybinding,
-  routeCommandCatalog,
-} from "./catalog-routing";
 import { CommandIds, type CommandInfo, type CommandResult, type ResolvedKeybinding } from "./types";
 
 // Session-lifecycle commands the user waits on the session to answer: while one is in flight, the session's
@@ -45,7 +40,10 @@ export type CommandHandler = (
   context: CommandContext,
 ) => void | boolean | Promise<void>;
 
-type CommandCatalog = CommandCatalogSnapshot;
+interface CommandCatalog {
+  commands: CommandInfo[];
+  keybindings: ResolvedKeybinding[];
+}
 
 /** The page-serving host's command catalog id. */
 export const LOCAL_COMMAND_CATALOG_ID = LOCAL_BACKEND_ID;
@@ -68,21 +66,71 @@ export interface SessionActivation {
   created: boolean;
 }
 
+function currentCatalog(): CommandCatalog {
+  const backendId = getActiveCatalogBackendId();
+  return {
+    commands: commandsForClient(backendId),
+    keybindings: keybindingsForClient(backendId),
+  };
+}
+
 function catalogFor(backendId: string): CommandCatalog {
   return catalogs.get(backendId) ?? { commands: [], keybindings: [] };
 }
 
-function routedCatalogFor(backendId: string): RoutedCommandCatalog {
-  return routeCommandCatalog(
-    LOCAL_BACKEND_ID,
-    backendId,
-    catalogFor(LOCAL_BACKEND_ID),
-    catalogFor(backendId),
-  );
+const isClientOwned = (command: CommandInfo): boolean => command.owner === "client";
+
+function commandsForClient(backendId: string): CommandInfo[] {
+  const active = catalogFor(backendId).commands;
+  if (backendId === LOCAL_BACKEND_ID) {
+    return active;
+  }
+  const local = catalogFor(LOCAL_BACKEND_ID).commands.filter(isClientOwned);
+  const localById = new Map(local.map((command) => [command.id, command]));
+  const merged = active.flatMap((command) => {
+    const client = localById.get(command.id);
+    if (client !== undefined) {
+      localById.delete(command.id);
+      return [client];
+    }
+    return isClientOwned(command) ? [] : [command];
+  });
+  return [...merged, ...localById.values()];
 }
 
-function currentCatalog(): RoutedCommandCatalog {
-  return routedCatalogFor(getActiveCatalogBackendId());
+function keybindingsForClient(backendId: string): ResolvedKeybinding[] {
+  return keybindingEntriesForClient(backendId).map(({ binding }) => binding);
+}
+
+export interface CatalogKeybinding {
+  catalogBackendId: string;
+  binding: ResolvedKeybinding;
+}
+
+function keybindingEntriesForClient(backendId: string): CatalogKeybinding[] {
+  const active = catalogFor(backendId);
+  if (backendId === LOCAL_BACKEND_ID) {
+    return active.keybindings.map((binding) => ({ catalogBackendId: backendId, binding }));
+  }
+  const local = catalogFor(LOCAL_BACKEND_ID);
+  const localClientIds = new Set(local.commands.filter(isClientOwned).map((command) => command.id));
+  const remoteClientIds = new Set(
+    active.commands.filter(isClientOwned).map((command) => command.id),
+  );
+  return [
+    ...active.keybindings
+      .filter(
+        (binding) => !localClientIds.has(binding.command) && !remoteClientIds.has(binding.command),
+      )
+      .map((binding) => ({ catalogBackendId: backendId, binding })),
+    ...local.keybindings
+      .filter((binding) => localClientIds.has(binding.command))
+      .map((binding) => ({ catalogBackendId: LOCAL_BACKEND_ID, binding })),
+  ];
+}
+
+function commandForClient(backendId: string, id: string): CommandInfo | undefined {
+  return commandsForClient(backendId).find((command) => command.id === id);
 }
 
 /** Registers the handler for a web command id; returns an unregister function. */
@@ -97,17 +145,17 @@ export function registerCommand(id: string, handler: CommandHandler): () => void
 
 /** The current command catalog. */
 export function getCommands(): CommandInfo[] {
-  return currentCatalog().commands.map(({ command }) => command);
+  return currentCatalog().commands;
 }
 
 /** The current resolved keybindings. */
 export function getKeybindings(): ResolvedKeybinding[] {
-  return currentCatalog().keybindings.map(({ binding }) => binding);
+  return currentCatalog().keybindings;
 }
 
-/** The effective keybindings paired with the backend catalog that owns each command. */
-export function getRoutedKeybindings(): RoutedKeybinding[] {
-  return currentCatalog().keybindings;
+/** The active resolved bindings paired with the catalog that must dispatch each command. */
+export function getActiveKeybindingEntries(): CatalogKeybinding[] {
+  return keybindingEntriesForClient(getActiveCatalogBackendId());
 }
 
 /** The backend whose command catalog currently drives session-scoped commands and shortcuts. */
@@ -127,7 +175,7 @@ export function getKeybindingsInCatalog(backendId: string): ResolvedKeybinding[]
 
 /** Looks up a command by id. */
 export function findCommand(id: string): CommandInfo | undefined {
-  return getCommands().find((command) => command.id === id);
+  return commandForClient(getActiveCatalogBackendId(), id);
 }
 
 /** Looks up a command in one backend's catalog, independent of the selected session. */
@@ -178,28 +226,31 @@ export async function applySessionActivation(
 
 async function routeCoreCommand(
   command: CommandInfo,
-  id: string,
   args: unknown,
   catalogBackendId: string,
 ): Promise<CommandResult> {
   const fields = args as { backendId?: unknown; id?: unknown; classify?: unknown } | undefined;
   const backendId = fields?.backendId;
   const target =
-    command.target === "pageHost"
+    command.owner === "client"
       ? LOCAL_BACKEND_ID
       : typeof backendId === "string" && backendId.length > 0
         ? backendId
         : catalogBackendId;
   const commit = beginClientSelectionCandidate();
   const run = async (): Promise<CommandResult> => {
-    const result = await invokeCommandOnBackend(target, id, args);
+    const result = await invokeCommandOnBackend(target, command.id, args);
     if (result.ok) {
       await applySessionActivation(target, result, commit);
     }
     return result;
   };
   // A session-lifecycle op (not the delete's classify probe) flags its session as pending until it settles.
-  if (SESSION_LIFECYCLE.has(id) && typeof fields?.id === "string" && fields.classify !== true) {
+  if (
+    SESSION_LIFECYCLE.has(command.id) &&
+    typeof fields?.id === "string" &&
+    fields.classify !== true
+  ) {
     return trackSessionCommand(target, fields.id, run);
   }
   return run();
@@ -272,14 +323,13 @@ export function runForKeybindingFromCatalog(backendId: string, id: string, args:
  * return maps onto the result (an explicit `false` ⇒ declined). Never rejects — failures resolve as `ok: false`.
  */
 function dispatchFromCatalog(backendId: string, id: string, args: unknown): Promise<CommandResult> {
-  const routed = routedCatalogFor(backendId).commands.find(({ command }) => command.id === id);
-  if (routed === undefined) {
+  const command = commandForClient(backendId, id);
+  if (command === undefined) {
     log("warn", `unknown command '${id}'`);
     return Promise.resolve({ ok: false, error: `Unknown command '${id}'.` });
   }
-  const { catalogBackendId, command } = routed;
   if (command.runsIn === "core") {
-    return routeCoreCommand(command, id, args, catalogBackendId);
+    return routeCoreCommand(command, args, backendId);
   }
   const handler = handlers.get(id);
   if (handler === undefined) {
@@ -394,4 +444,19 @@ registerViewFeature((session) =>
     .handle<{ id: string; args: unknown }, CommandResult>("run", ({ id, args }) =>
       runBoundWebCommand(session, id, args),
     ),
+);
+
+registerSessionFeature((session) =>
+  session
+    .feature("commands")
+    .handle<{ id: string; args: unknown }, CommandResult>("runClient", ({ id, args }) => {
+      const command = findCommandInCatalog(LOCAL_BACKEND_ID, id);
+      if (command?.owner !== "client") {
+        return Promise.resolve({
+          ok: false,
+          error: `Command '${id}' is not owned by the local presentation client.`,
+        });
+      }
+      return dispatchFromCatalog(LOCAL_BACKEND_ID, id, args);
+    }),
 );

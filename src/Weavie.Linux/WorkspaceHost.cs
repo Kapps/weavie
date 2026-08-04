@@ -28,8 +28,8 @@ internal sealed partial class WorkspaceHost : IWebSurface, IShellMenuActions {
 	private HostServices? _services;
 	private ApplicationHotkeys? _hotkeys;
 	private RecentWorkspaces? _recents;
-	private XdgNotificationService? _notifications;
-	private XdgNotificationChannel? _notificationChannel;
+	private LinuxNotificationService? _notifications;
+	private LinuxNotificationChannel? _notificationChannel;
 	private AppSchemeHandler? _scheme;
 	private string? _wwwroot;
 
@@ -53,7 +53,7 @@ internal sealed partial class WorkspaceHost : IWebSurface, IShellMenuActions {
 		// App-global Core stores + the recents that drive reopen-last and the welcome screen's list.
 		_services = HostServices.CreateDefault();
 		_recents = new RecentWorkspaces(new LocalFileSystem(), path: null);
-		_notifications = new XdgNotificationService(Log);
+		_notifications = new LinuxNotificationService(Log);
 
 		_scheme = new AppSchemeHandler(wwwroot);
 		_scheme.Register(WebKit.webkit_web_context_get_default());

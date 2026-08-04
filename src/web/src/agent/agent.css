@@ -7,6 +7,8 @@
   display: flex;
   flex: 1 1 auto;
   min-height: 0;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .agent-follow-pill {
@@ -35,7 +37,9 @@
   flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-x: none;
   padding: 0;
   background:
     radial-gradient(
@@ -73,6 +77,8 @@
 .agent-transcript {
   position: relative;
   width: 100%;
+  max-width: 100%;
+  overflow-x: clip;
 }
 
 .agent-virtual-row {
@@ -320,6 +326,7 @@
 .agent-markdown pre {
   max-width: 100%;
   overflow: auto;
+  overscroll-behavior-x: contain;
   padding: 8px 10px;
   border: 1px solid color-mix(in srgb, var(--fg) 14%, transparent);
   border-left: 3px solid color-mix(in srgb, var(--accent) 52%, var(--border));
@@ -381,6 +388,7 @@
 .agent-markdown .mermaid-rendered {
   margin: 0.8em 0;
   overflow-x: auto;
+  overscroll-behavior-x: contain;
   text-align: center;
 }
 
@@ -399,6 +407,7 @@
   display: block;
   max-width: 100%;
   overflow-x: auto;
+  overscroll-behavior-x: contain;
   border-collapse: collapse;
 }
 
@@ -893,6 +902,13 @@
   font-family: var(--terminal-font-family, ui-monospace, "Cascadia Code", Consolas, monospace);
   font-size: calc(var(--terminal-font-size, 16px) * 0.72);
   line-height: 1.4;
+}
+
+.agent-status-scroll {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 0;
 }
 
 .agent-status-segment {

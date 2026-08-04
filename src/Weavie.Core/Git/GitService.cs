@@ -339,21 +339,23 @@ public sealed class GitService : IGitService {
 	/// <summary>
 	/// The workspace files git would surface — tracked plus untracked — with <c>.gitignore</c> (and the other
 	/// standard excludes: <c>.git/info/exclude</c>, the global excludesfile) honored, as repo-relative paths.
-	/// Returns <c>null</c> when <paramref name="directory"/> isn't a git repo or git is unavailable, so a caller
-	/// can fall back to a plain directory walk.
+	/// Returns <c>null</c> only when <paramref name="directory"/> isn't a git repository. Git launch failures
+	/// throw <see cref="GitException"/> so callers never mistake a broken inventory for a non-repository.
 	/// </summary>
 	public async Task<IReadOnlyList<string>?> ListWorkspaceFilesAsync(string directory, CancellationToken ct = default) {
 		ArgumentException.ThrowIfNullOrEmpty(directory);
-		GitResult result;
-		try {
-			// -z keeps names with newlines safe; --exclude-standard applies the ignore rules; --cached is the
-			// tracked set and --others adds untracked-but-not-ignored files (so a brand-new file still opens).
-			result = await RunAsync(directory, ["ls-files", "--cached", "--others", "--exclude-standard", "-z"], ct).ConfigureAwait(false);
-		} catch (GitException) {
-			return null; // git missing — caller falls back to the plain walk
+		// -z keeps names with newlines safe; --exclude-standard applies the ignore rules; --cached is the
+		// tracked set and --others adds untracked-but-not-ignored files (so a brand-new file still opens).
+		var result = await RunAsync(directory, ["ls-files", "--cached", "--others", "--exclude-standard", "-z"], ct).ConfigureAwait(false);
+		if (result.ExitCode == 0) {
+			return result.StdOut.Split('\0', StringSplitOptions.RemoveEmptyEntries);
 		}
 
-		return result.ExitCode == 0 ? result.StdOut.Split('\0', StringSplitOptions.RemoveEmptyEntries) : null;
+		if (result.StdErr.Contains("not a git repository", StringComparison.OrdinalIgnoreCase)) {
+			return null;
+		}
+
+		throw new GitException($"git ls-files failed (exit {result.ExitCode}): {result.StdErr.Trim()}");
 	}
 
 	/// <summary>
@@ -509,6 +511,7 @@ public sealed class GitService : IGitService {
 			StandardOutputEncoding = Encoding.UTF8,
 			StandardErrorEncoding = Encoding.UTF8,
 		};
+		info.Environment["LC_ALL"] = "C";
 		foreach (string arg in args) {
 			info.ArgumentList.Add(arg);
 		}

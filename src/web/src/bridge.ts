@@ -1,5 +1,6 @@
 import { createSignal } from "solid-js";
 import type { CommandResult } from "./commands/types";
+import { basename } from "./editor/fs-path";
 import { type ClientSession, HostConnection, type HostHello } from "./messaging/host-connection";
 import { parseEnvelope } from "./messaging/message-envelope";
 import { PAGE_EPOCH } from "./messaging/page-epoch";
@@ -525,6 +526,7 @@ export function mediaResourceUrl(
     return null;
   }
   const url = new URL(base, window.location.href);
+  url.pathname = `${url.pathname.replace(/\/$/, "")}/${encodeURIComponent(basename(path))}`;
   url.searchParams.set("session", session.address.incarnation);
   url.searchParams.set("path", path);
   url.searchParams.set("rev", revision.toString());

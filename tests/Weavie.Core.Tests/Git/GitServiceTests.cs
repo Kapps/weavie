@@ -94,6 +94,17 @@ public sealed class GitServiceTests {
 		Assert.Contains(missing, ex.Message, StringComparison.Ordinal);
 	}
 
+	[Fact]
+	public async Task ListWorkspaceFiles_NonRepositoryReturnsNull() {
+		string directory = Path.Combine(Path.GetTempPath(), "weavie-non-repo-" + Guid.NewGuid().ToString("n"));
+		Directory.CreateDirectory(directory);
+		try {
+			Assert.Null(await new GitService().ListWorkspaceFilesAsync(directory));
+		} finally {
+			Directory.Delete(directory);
+		}
+	}
+
 	[Theory]
 	[InlineData("feature")]
 	[InlineData("feature/login")]

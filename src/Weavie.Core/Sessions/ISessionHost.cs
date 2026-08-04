@@ -2,6 +2,18 @@ using Weavie.Core.Commands;
 
 namespace Weavie.Core.Sessions;
 
+/// <summary>An encoded image included in the first input for a newly-created session.</summary>
+public sealed record NewSessionAttachment {
+	/// <summary>The client-generated attachment id, unique within the request.</summary>
+	public required string Id { get; init; }
+
+	/// <summary>The image MIME type.</summary>
+	public required string Mime { get; init; }
+
+	/// <summary>The encoded image bytes as base64.</summary>
+	public required string DataB64 { get; init; }
+}
+
 /// <summary>Arguments for creating a new session (all optional — the host fills sensible defaults).</summary>
 public sealed record NewSessionRequest {
 	/// <summary>The branch (and worktree) name to create; <c>null</c> ⇒ the host prompts or auto-names.</summary>
@@ -10,8 +22,11 @@ public sealed record NewSessionRequest {
 	/// <summary>The base to branch from: <c>"source"</c> (the invoking session's HEAD) or <c>"main"</c>; <c>null</c> means source. Ignored when <see cref="AttachExisting"/> is set.</summary>
 	public string? Base { get; init; }
 
-	/// <summary>An optional first prompt to seed into the new session's agent.</summary>
+	/// <summary>Optional text in the new session's first agent input.</summary>
 	public string? Prompt { get; init; }
+
+	/// <summary>Images submitted atomically with <see cref="Prompt"/> as the new session's first input.</summary>
+	public IReadOnlyList<NewSessionAttachment> Attachments { get; init; } = [];
 
 	/// <summary>The provider for this new session; <c>null</c> means the host's default provider setting.</summary>
 	public string? AgentProviderId { get; init; }
@@ -37,7 +52,7 @@ public sealed record ForkSessionRequest {
 /// session's native window backend, so they're implemented per host and invoked through this seam.
 /// </summary>
 public interface ISessionHost {
-	/// <summary>Creates a new session on its own worktree + branch, optionally seeding a first prompt.</summary>
+	/// <summary>Creates a new session on its own worktree + branch, optionally seeding its first agent input.</summary>
 	Task<CommandResult> NewSessionAsync(NewSessionRequest request, CancellationToken ct = default);
 
 	/// <summary>Forks the invoking session into a new worktree off its HEAD, carrying a handoff brief.</summary>

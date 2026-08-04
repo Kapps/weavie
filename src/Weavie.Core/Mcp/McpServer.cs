@@ -636,7 +636,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 
 		CommandExecution execution;
 		try {
-			execution = await commands.PrepareAsync(id, argsJson, ct).ConfigureAwait(false);
+			execution = await commands.PrepareModelInvocationAsync(id, argsJson, ct).ConfigureAwait(false);
 		} catch (UnknownCommandException ex) {
 			await SendToolErrorAsync(responder, idRaw, ex.Message, ct).ConfigureAwait(false);
 			return;

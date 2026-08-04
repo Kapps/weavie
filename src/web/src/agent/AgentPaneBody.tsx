@@ -32,6 +32,7 @@ const viewports = new WeakMap<AgentPaneModel, ViewportSnapshot>();
 
 export function AgentPaneBody(props: {
   active: boolean;
+  compact: boolean;
   inputProtocol: number;
   model: AgentPaneModel;
   providerName: string;
@@ -112,6 +113,7 @@ export function AgentPaneBody(props: {
         <div class="agent-body" ref={body} onScroll={scroll.onScroll}>
           <AgentTranscript
             agentTurnStartId={props.model.agentTurnStartId()}
+            compact={props.compact}
             entries={props.model.entries}
             expandedDetails={expandedDetails()}
             keyboardApprovalId={props.model.keyboardApprovalId()}
@@ -169,6 +171,7 @@ export function AgentPaneBody(props: {
       </Show>
       <AgentComposer
         active={props.active}
+        compact={props.compact}
         inputProtocol={props.inputProtocol}
         messages={props.model.messages()}
         session={props.model.session}

@@ -149,8 +149,38 @@ public sealed partial class HostCore {
 		}
 
 		_ = session.Background.Run(async ct => {
-			var files = await GitTrackedFilesAsync(session.FileIndex.Root, ct).ConfigureAwait(false)
-				?? session.FileIndex.List();
+			IReadOnlyList<string> files;
+			try {
+				var inventory = await session.Inventory.RefreshAsync(ct).ConfigureAwait(false);
+				if (inventory.IsRepository) {
+					files = inventory.Files;
+				} else {
+					var seed = await session.Inventory.BeginNonRepositorySeedAsync(ct).ConfigureAwait(false);
+					bool completed = false;
+					try {
+						var navigation = session.FileIndex.ListSnapshot();
+						var completedInventory = session.Inventory.CompleteNonRepositorySeed(
+							seed,
+							navigation.Files,
+							navigation.Directories);
+						files = completedInventory.Files;
+						completed = true;
+					} finally {
+						if (!completed) {
+							session.Inventory.CancelNonRepositorySeed(seed);
+						}
+					}
+				}
+			} catch (Exception ex) when (ex is GitException or IOException or UnauthorizedAccessException) {
+				target.Feature("files").Publish("index", new {
+					root = session.FileIndex.Root,
+					files = Array.Empty<string>(),
+					pending = false,
+				});
+				Notify(session, "error", $"Couldn't load workspace files: {ex.Message}");
+				return;
+			}
+
 			ct.ThrowIfCancellationRequested();
 			target.Feature("files").Publish("index", new {
 				root = session.FileIndex.Root,
@@ -158,28 +188,6 @@ public sealed partial class HostCore {
 				pending = false,
 			});
 		});
-	}
-
-	/// <summary>
-	/// The workspace's files as git sees them (tracked + untracked, .gitignore honored), as canonical absolute
-	/// paths sorted like the plain index — so a gitignored file (a build artifact, a secret) never surfaces in
-	/// Go-to-File. Null when the root isn't a git repo, so the caller falls back to the unfiltered walk.
-	/// </summary>
-	private static async Task<IReadOnlyList<string>?> GitTrackedFilesAsync(
-		string root,
-		CancellationToken ct) {
-		var relative = await new GitService().ListWorkspaceFilesAsync(root, ct).ConfigureAwait(false);
-		if (relative is null) {
-			return null;
-		}
-
-		var absolute = new List<string>(relative.Count);
-		foreach (string rel in relative) {
-			absolute.Add(WorkspacePaths.CanonicalFsPath(Path.GetFullPath(Path.Combine(root, rel))));
-		}
-
-		absolute.Sort(StringComparer.OrdinalIgnoreCase);
-		return absolute;
 	}
 
 	// How many recent files to push: enough to power the recency tiebreak across a working set, of which the
@@ -703,6 +711,24 @@ public sealed partial class HostCore {
 
 		var result = await session.View.Feature("commands").RequestAsync<CommandRequest, CommandWireResult>(
 			"run",
+			new CommandRequest(id, args),
+			ct).ConfigureAwait(false);
+		return FromWireResult(result);
+	}
+
+	private async Task<CommandResult> InvokeClientCommandAsync(
+		HostSession session,
+		string id,
+		string? argsJson,
+		CancellationToken ct) {
+		JsonElement? args = null;
+		if (!string.IsNullOrWhiteSpace(argsJson)) {
+			using var document = JsonDocument.Parse(argsJson);
+			args = document.RootElement.Clone();
+		}
+
+		var result = await session.View.Feature("commands").RequestAsync<CommandRequest, CommandWireResult>(
+			"runClient",
 			new CommandRequest(id, args),
 			ct).ConfigureAwait(false);
 		return FromWireResult(result);

@@ -282,6 +282,198 @@ test.describe("session-addressed WebSocket transport", () => {
     }
   });
 
+  test("client-owned font zoom stays on the local host with a remote session selected", async ({
+    page,
+  }) => {
+    const local = mockSession("local", "local", "codex", true);
+    const remoteSession = mockSession("remote-codex", "codex", "codex", true);
+    const fontCommand = {
+      id: "weavie.font.increase",
+      title: "Increase Font Size",
+      runsIn: "core",
+      owner: "client",
+      category: "View",
+      description: "Increase the editor and terminal font size by one pixel.",
+      aliases: [],
+      showInPalette: true,
+      keys: ["$mod+="],
+    };
+    const localCatalog = {
+      commands: [fontCommand],
+      keybindings: [{ key: "$mod+=", command: fontCommand.id }],
+    };
+    host.setSessions([local]);
+    const remote = await MockHost.start({
+      distDir,
+      sessions: [remoteSession],
+      commandCatalog: {
+        commands: [{ ...fontCommand, owner: "backend", title: "Remote duplicate" }],
+        keybindings: [{ key: "$mod+=", command: fontCommand.id }],
+      },
+    });
+    try {
+      await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
+      await host.waitUntilConnected();
+      host.publishHost("commands", "catalog", localCatalog);
+      host.publishHost("remoteAgents", "changed", {
+        agents: [{ name: "devbox", url: remote.url, token: "runner-token" }],
+      });
+      await remote.waitUntilConnected();
+      host.publishHost("rail", "changed", {
+        lastLocation: "local",
+        promoted: ["remote:devbox remote-codex"],
+      });
+      await page.locator(".session-chip.remote").click();
+      await expect(page.locator(".session-chip.active")).toHaveAttribute("title", /^codex @/);
+
+      const offLocal = host.onSession(local.address, "request", "commands", "invoke", (message) => {
+        host.respond(message, { ok: true, message: null, error: null });
+        host.publishHost("settings", "fonts", {
+          editor: { family: "monospace", size: 19, weight: "normal" },
+          terminal: { family: "monospace", size: 19, weight: "normal" },
+        });
+      });
+      const remoteCheckpoint = remote.checkpoint();
+      const request = host.waitForSession(local.address, "request", "commands", "invoke");
+
+      await page.keyboard.press("ControlOrMeta+=");
+
+      expect((await request).payload).toMatchObject({ id: fontCommand.id });
+      await expect
+        .poll(() =>
+          page
+            .locator(".agent-body:visible")
+            .first()
+            .evaluate((element) => getComputedStyle(element).fontSize),
+        )
+        .toBe("19px");
+
+      await page.locator(".session-chip:not(.remote)").click();
+      const localCheckpoint = host.checkpoint();
+      const relayedInvocation = host.waitForSession(
+        local.address,
+        "request",
+        "commands",
+        "invoke",
+        localCheckpoint,
+      );
+      const clientResponse = remote.requestSession(remoteSession.address, "commands", "runClient", {
+        id: fontCommand.id,
+        args: null,
+      });
+      expect((await relayedInvocation).payload).toMatchObject({ id: fontCommand.id });
+      expect((await clientResponse).payload).toMatchObject({ ok: true });
+      expect(
+        remote.received
+          .slice(remoteCheckpoint)
+          .filter(
+            (message) =>
+              message.kind === "request" &&
+              message.feature === "commands" &&
+              message.name === "invoke",
+          ),
+      ).toEqual([]);
+      offLocal();
+    } finally {
+      await remote.close();
+    }
+  });
+
+  test("client-owned theme mode updates the page with a remote session selected", async ({
+    page,
+  }) => {
+    const local = mockSession("local", "local", "codex", true);
+    const remoteSession = mockSession("remote-codex", "codex", "codex", true);
+    const themeCommand = {
+      id: "weavie.theme.cycleMode",
+      title: "Cycle Theme Mode",
+      runsIn: "core",
+      owner: "client",
+      category: "Theme",
+      description: "Cycle the appearance mode.",
+      aliases: [],
+      showInPalette: true,
+      keys: ["$mod+Shift+m"],
+    };
+    const localCatalog = {
+      commands: [themeCommand],
+      keybindings: [{ key: "$mod+Shift+m", command: themeCommand.id }],
+    };
+    const theme = (mode: "dark" | "light") => ({
+      mode,
+      light: { id: "weavie-light" },
+      dark: { id: "weavie-dark" },
+    });
+    const editorBackground = () =>
+      page
+        .locator("html")
+        .evaluate((element) =>
+          getComputedStyle(element).getPropertyValue("--weavie-editor-background").trim(),
+        );
+
+    host.setSessions([local]);
+    const remote = await MockHost.start({
+      distDir,
+      sessions: [remoteSession],
+      commandCatalog: {
+        commands: [{ ...themeCommand, owner: "backend", title: "Remote duplicate" }],
+        keybindings: [{ key: "$mod+Shift+m", command: themeCommand.id }],
+      },
+    });
+    try {
+      await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
+      await host.waitUntilConnected();
+      host.publishHost("commands", "catalog", localCatalog);
+      host.publishHost("settings", "theme", theme("dark"));
+      await expect(page.locator("html")).toHaveAttribute("data-theme-type", "dark");
+      await expect.poll(editorBackground).toBe("#000000");
+
+      host.publishHost("remoteAgents", "changed", {
+        agents: [{ name: "devbox", url: remote.url, token: "runner-token" }],
+      });
+      await remote.waitUntilConnected();
+      host.publishHost("rail", "changed", {
+        lastLocation: "local",
+        promoted: ["remote:devbox remote-codex"],
+      });
+      await page.locator(".session-chip.remote").click();
+      await expect(page.locator(".session-chip.remote.active")).toHaveAttribute(
+        "title",
+        /^codex @/,
+      );
+
+      const offLocal = host.onSession(local.address, "request", "commands", "invoke", (message) => {
+        host.respond(message, { ok: true, message: "Theme mode: Light.", error: null });
+        host.publishHost("settings", "theme", theme("light"));
+      });
+      const remoteCheckpoint = remote.checkpoint();
+      const request = host.waitForSession(local.address, "request", "commands", "invoke");
+
+      await page.keyboard.press("ControlOrMeta+Shift+m");
+
+      expect((await request).payload).toMatchObject({ id: themeCommand.id });
+      await expect(page.locator("html")).toHaveAttribute("data-theme-type", "light");
+      await expect.poll(editorBackground).toBe("#e3e2da");
+      await expect(page.locator(".session-chip.remote.active")).toHaveAttribute(
+        "title",
+        /^codex @/,
+      );
+      expect(
+        remote.received
+          .slice(remoteCheckpoint)
+          .filter(
+            (message) =>
+              message.kind === "request" &&
+              message.feature === "commands" &&
+              message.name === "invoke",
+          ),
+      ).toEqual([]);
+      offLocal();
+    } finally {
+      await remote.close();
+    }
+  });
+
   test("network status stays degraded until reconnect hello completes", async ({ page }) => {
     const session = mockSession("main", "main", "claude", true);
     host.setSessions([session]);
@@ -345,7 +537,7 @@ test.describe("session-addressed WebSocket transport", () => {
     });
     expect(geometry.optionsBottom).toBeLessThanOrEqual(geometry.composerBottom + 1);
     expect(Math.min(...geometry.optionTargetHeights)).toBeGreaterThanOrEqual(44);
-    expect(geometry.optionTargetRows).toBe(2);
+    expect(geometry.optionTargetRows).toBe(1);
     expect(geometry.listScrollHeight).toBeGreaterThan(geometry.listClientHeight);
 
     const unloaded = inbox.locator(".session-inbox-row", { hasText: "Unloaded" });
@@ -443,6 +635,7 @@ test.describe("session-addressed WebSocket transport", () => {
         throw new Error("mobile agent composer is incomplete");
       }
       return {
+        actionsLeft: actions.getBoundingClientRect().left,
         actionsTop: actions.getBoundingClientRect().top,
         buttonHeights: [...actions.querySelectorAll("button")].map(
           (button) => button.getBoundingClientRect().height,
@@ -450,10 +643,14 @@ test.describe("session-addressed WebSocket transport", () => {
         buttonFontSize: getComputedStyle(actionButton).fontSize,
         buttonRadius: getComputedStyle(actionButton).borderRadius,
         textareaHeight: textarea.getBoundingClientRect().height,
-        textareaBottom: textarea.getBoundingClientRect().bottom,
+        textareaRight: textarea.getBoundingClientRect().right,
+        textareaTop: textarea.getBoundingClientRect().top,
       };
     });
-    expect(composerGeometry.actionsTop).toBeGreaterThanOrEqual(composerGeometry.textareaBottom);
+    expect(
+      Math.abs(composerGeometry.actionsTop - composerGeometry.textareaTop),
+    ).toBeLessThanOrEqual(1);
+    expect(composerGeometry.actionsLeft).toBeGreaterThanOrEqual(composerGeometry.textareaRight);
     expect(Math.min(...composerGeometry.buttonHeights)).toBeGreaterThanOrEqual(44);
     expect(composerGeometry.buttonFontSize).toBe(geometry.optionTargetFontSize);
     expect(composerGeometry.buttonRadius).toBe(geometry.optionTargetRadius);

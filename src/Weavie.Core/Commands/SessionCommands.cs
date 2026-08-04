@@ -74,14 +74,15 @@ public static class SessionCommands {
 				+ "auto-names one (avoiding existing branches). 'base' is 'source' (the invoking session's HEAD; the "
 				+ "default) or 'main'. Set 'existing' true to instead check out an existing branch named by 'branch' "
 				+ "(no new branch; 'base' is ignored), switching to that session if one already exists. An optional "
-				+ "'prompt' is sent as the new session's first message. 'agentProviderId' may be 'claude' or 'codex'; "
+				+ "'prompt' and optional image 'attachments' are sent as the new session's first input. "
+				+ "'agentProviderId' may be 'claude' or 'codex'; "
 				+ "omitting it uses agent.defaultProvider. This is the programmatic entry; the interactive UI uses "
 				+ "'New Session…' (weavie.session.newPrompt).",
 			Aliases = ["new session", "create session", "new worktree", "branch session", "new agent", "another claude", "spin up a session", "check out branch", "open existing branch"],
 			// Hidden from the palette: the human-facing entry is the interactive prompt (NewSessionPrompt). Still
 			// reachable by Claude via listCommands/runCommand.
 			ShowInPalette = false,
-			ArgsSchemaJson = "{\"branch\":{\"type\":\"string\"},\"base\":{\"type\":\"string\",\"enum\":[\"source\",\"main\"]},\"existing\":{\"type\":\"boolean\"},\"prompt\":{\"type\":\"string\"},\"agentProviderId\":{\"type\":\"string\",\"enum\":[\"claude\",\"codex\"]}}",
+			ArgsSchemaJson = "{\"branch\":{\"type\":\"string\"},\"base\":{\"type\":\"string\",\"enum\":[\"source\",\"main\"]},\"existing\":{\"type\":\"boolean\"},\"prompt\":{\"type\":\"string\"},\"attachments\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"},\"mime\":{\"type\":\"string\"},\"dataB64\":{\"type\":\"string\"}},\"required\":[\"id\",\"mime\",\"dataB64\"]}},\"agentProviderId\":{\"type\":\"string\",\"enum\":[\"claude\",\"codex\"]}}",
 		});
 
 		registry.Register(new CommandDefinition {
@@ -306,15 +307,7 @@ public static class SessionCommands {
 		ArgumentNullException.ThrowIfNull(host);
 
 		var registrations = new List<IDisposable> {
-			dispatcher.RegisterHandler(NewSession, (argsJson, ct) => host.NewSessionAsync(
-				new NewSessionRequest {
-					Branch = GetString(argsJson, "branch"),
-					Base = GetString(argsJson, "base"),
-					Prompt = GetString(argsJson, "prompt"),
-					AgentProviderId = GetString(argsJson, "agentProviderId"),
-					AttachExisting = GetBool(argsJson, "existing"),
-				},
-				ct)),
+			dispatcher.RegisterHandler(NewSession, (argsJson, ct) => NewSessionAsync(host, argsJson, ct)),
 			dispatcher.RegisterHandler(ForkSession, (argsJson, ct) => host.ForkSessionAsync(
 				new ForkSessionRequest {
 					Branch = GetString(argsJson, "branch"),
@@ -335,6 +328,92 @@ public static class SessionCommands {
 		};
 
 		return new CompositeDisposable(registrations);
+	}
+
+	private static Task<CommandResult> NewSessionAsync(ISessionHost host, string? argsJson, CancellationToken ct) {
+		NewSessionRequest request;
+		try {
+			request = ParseNewSessionRequest(argsJson);
+		} catch (JsonException ex) {
+			return Task.FromResult(CommandResult.Failure($"Invalid new session arguments: {ex.Message}"));
+		}
+		return host.NewSessionAsync(request, ct);
+	}
+
+	private static NewSessionRequest ParseNewSessionRequest(string? argsJson) {
+		if (string.IsNullOrWhiteSpace(argsJson)) {
+			return new NewSessionRequest();
+		}
+
+		using var doc = JsonDocument.Parse(argsJson);
+		var args = doc.RootElement;
+		if (args.ValueKind != JsonValueKind.Object) {
+			throw new JsonException("Arguments must be a JSON object.");
+		}
+
+		return new NewSessionRequest {
+			Branch = GetString(args, "branch"),
+			Base = GetString(args, "base"),
+			Prompt = GetString(args, "prompt"),
+			Attachments = GetAttachments(args),
+			AgentProviderId = GetString(args, "agentProviderId"),
+			AttachExisting = GetBool(args, "existing"),
+		};
+	}
+
+	private static string? GetString(JsonElement args, string name) {
+		if (!args.TryGetProperty(name, out var prop)) {
+			return null;
+		}
+
+		return prop.ValueKind switch {
+			JsonValueKind.String => prop.GetString(),
+			JsonValueKind.Null => null,
+			_ => prop.GetRawText(),
+		};
+	}
+
+	private static bool GetBool(JsonElement args, string name) {
+		if (!args.TryGetProperty(name, out var prop)) {
+			return false;
+		}
+
+		return prop.ValueKind switch {
+			JsonValueKind.True => true,
+			JsonValueKind.False => false,
+			JsonValueKind.String => bool.TryParse(prop.GetString(), out bool b) ? b : prop.GetString() == "1",
+			JsonValueKind.Number => prop.TryGetInt64(out long n) && n != 0,
+			_ => false,
+		};
+	}
+
+	private static IReadOnlyList<NewSessionAttachment> GetAttachments(JsonElement args) {
+		if (!args.TryGetProperty("attachments", out var attachments)) {
+			return [];
+		}
+		if (attachments.ValueKind != JsonValueKind.Array) {
+			throw new JsonException("'attachments' must be an array.");
+		}
+
+		var parsed = new List<NewSessionAttachment>();
+		foreach (var item in attachments.EnumerateArray()) {
+			if (item.ValueKind != JsonValueKind.Object) {
+				throw new JsonException("Every attachment must be an object.");
+			}
+			parsed.Add(new NewSessionAttachment {
+				Id = AttachmentString(item, "id"),
+				Mime = AttachmentString(item, "mime"),
+				DataB64 = AttachmentString(item, "dataB64"),
+			});
+		}
+		return parsed;
+	}
+
+	private static string AttachmentString(JsonElement attachment, string name) {
+		if (!attachment.TryGetProperty(name, out var property) || property.ValueKind != JsonValueKind.String) {
+			throw new JsonException($"Attachment '{name}' must be a string.");
+		}
+		return property.GetString()!;
 	}
 
 	private static string? GetString(string? argsJson, string name) {

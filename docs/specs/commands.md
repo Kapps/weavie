@@ -100,10 +100,16 @@ public enum CommandLocation {
     Core,  // handler lives in Core/host (reopen the terminal, change layout, …)
 }
 
+public enum CommandOwner {
+    Backend, // selected or explicitly addressed backend
+    Client,  // local presentation host serving the current web client
+}
+
 public sealed record CommandDefinition {
     public required string Id { get; init; }                  // "weavie.diff.toggleLayout" — stable, namespaced
     public required string Title { get; init; }               // palette label ("Toggle Diff: Inline / Side-by-Side")
     public required CommandLocation RunsIn { get; init; }      // Web | Core
+    public CommandOwner Owner { get; init; }                   // Backend (default) | Client
     public string? Category { get; init; }                    // palette grouping ("View", "Terminal", "Diff")
     public string Description { get; init; } = "";            // → MCP listCommands; longer than Title
     public IReadOnlyList<string> Aliases { get; init; } = []; // NL hints for Claude ("reopen terminal", "restart shell")
@@ -118,13 +124,19 @@ public sealed record CommandDefinition {
 }
 ```
 
-### `RunsIn` is the one new concept vs. settings
+### Execution world and owner
 
 Settings have no execution side — they're just values. Commands do, and Weavie has two worlds, so a
 command declares **where its handler runs**. The declaration (metadata) always lives in Core so the
 MCP surface and the palette can see every command; the *handler* is registered on whichever side
 owns the action. A `Web` command with no web handler registered at invoke time is a loud error
 (strict), never a silent no-op.
+
+`Owner` is a separate addressing decision. Backend-owned commands follow the selected or explicitly
+addressed backend. Client-owned commands use the local presentation host's definition, keybinding, and Core
+handler even while a remote session is selected. Font, theme, and native-window commands are client-owned;
+their visible state belongs to the machine rendering the page. Model invocations of client-owned Core
+commands relay through the attached page to that local host instead of running an invisible remote handler.
 
 ## The command registry & dispatcher
 

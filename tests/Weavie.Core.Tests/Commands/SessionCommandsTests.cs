@@ -87,7 +87,7 @@ public sealed class SessionCommandsTests {
 
 		var result = await dispatcher.InvokeAsync(
 			SessionCommands.NewSession,
-			"{\"branch\":\"feature\",\"base\":\"main\",\"prompt\":\"do it\",\"agentProviderId\":\"codex\"}",
+			"{\"branch\":\"feature\",\"base\":\"main\",\"prompt\":\"do it\",\"attachments\":[{\"id\":\"image-1\",\"mime\":\"image/png\",\"dataB64\":\"iVBORw==\"}],\"agentProviderId\":\"codex\"}",
 			CancellationToken.None);
 
 		Assert.True(result.Ok);
@@ -95,6 +95,10 @@ public sealed class SessionCommandsTests {
 		Assert.Equal("main", host.LastNew?.Base);
 		Assert.Equal("do it", host.LastNew?.Prompt);
 		Assert.Equal("codex", host.LastNew?.AgentProviderId);
+		var attachment = Assert.Single(host.LastNew!.Attachments);
+		Assert.Equal("image-1", attachment.Id);
+		Assert.Equal("image/png", attachment.Mime);
+		Assert.Equal("iVBORw==", attachment.DataB64);
 	}
 
 	[Fact]
@@ -107,6 +111,23 @@ public sealed class SessionCommandsTests {
 		Assert.Null(host.LastNew!.Branch);
 		Assert.Null(host.LastNew.Base);
 		Assert.Null(host.LastNew.Prompt);
+		Assert.Empty(host.LastNew.Attachments);
+	}
+
+	[Theory]
+	[InlineData("{\"attachments\":null}")]
+	[InlineData("{\"attachments\":{}}")]
+	[InlineData("{\"attachments\":[null]}")]
+	[InlineData("{\"attachments\":[{\"id\":\"image-1\",\"mime\":\"image/png\"}]}")]
+	[InlineData("{\"attachments\":[{\"id\":1,\"mime\":\"image/png\",\"dataB64\":\"AA==\"}]}")]
+	public async Task NewSession_MalformedAttachment_FailsWithoutInvokingHost(string argsJson) {
+		var (dispatcher, host) = NewWired();
+
+		var result = await dispatcher.InvokeAsync(SessionCommands.NewSession, argsJson, CancellationToken.None);
+
+		Assert.False(result.Ok);
+		Assert.Contains("attachment", result.Error, StringComparison.OrdinalIgnoreCase);
+		Assert.Null(host.LastNew);
 	}
 
 	[Fact]

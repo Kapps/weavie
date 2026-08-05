@@ -29,6 +29,35 @@ interface ViewportSnapshot {
 }
 
 const viewports = new WeakMap<AgentPaneModel, ViewportSnapshot>();
+const scrollNavigationRevealWidth = 40;
+const scrollNavigationOverlayScrollbarClearance = 12;
+const scrollNavigationScrollbarGap = 4;
+
+function AgentScrollNavigationButton(props: {
+  commandId: string;
+  edge: "start" | "latest";
+  glyph: string;
+  label: string;
+  run: () => boolean;
+  title: string;
+}): JSX.Element {
+  const title = (): string => {
+    const key = liveKeyLabel(props.commandId);
+    return key === "" ? props.title : `${props.title} (${key})`;
+  };
+
+  return (
+    <button
+      type="button"
+      aria-label={props.label}
+      class={`agent-scroll-nav-button agent-scroll-nav-${props.edge}`}
+      title={title()}
+      onClick={() => props.run()}
+    >
+      <span aria-hidden="true">{props.glyph}</span>
+    </button>
+  );
+}
 
 export function AgentPaneBody(props: {
   active: boolean;
@@ -48,6 +77,9 @@ export function AgentPaneBody(props: {
   const [expandedDetails, setExpandedDetails] = createSignal<ReadonlySet<string>>(
     saved?.expandedDetails ?? new Set(),
   );
+  const [scrollEdgeHovered, setScrollEdgeHovered] = createSignal(false);
+  const [scrollbarInlineSize, setScrollbarInlineSize] = createSignal(0);
+  const [touchNavigationActive, setTouchNavigationActive] = createSignal(false);
   const turnNavigable = createMemo(
     () => !props.model.turnActive() && props.model.agentTurnStartId() !== null,
   );
@@ -86,9 +118,20 @@ export function AgentPaneBody(props: {
   createEffect(() => setContext("agentTurnNavigable", turnNavigable()));
   onCleanup(() => setContext("agentTurnNavigable", false));
   onMount(() => {
-    if (saved !== undefined && body !== undefined && saved.width !== body.clientWidth) {
+    const element = body;
+    if (element === undefined) {
+      return;
+    }
+    if (saved !== undefined && saved.width !== element.clientWidth) {
       virtualizer.measure();
     }
+    const measureScrollbar = (): void => {
+      setScrollbarInlineSize(element.offsetWidth - element.clientWidth);
+    };
+    measureScrollbar();
+    const observer = new ResizeObserver(measureScrollbar);
+    observer.observe(element);
+    onCleanup(() => observer.disconnect());
   });
   onCleanup(() => {
     viewports.set(props.model, {
@@ -102,15 +145,28 @@ export function AgentPaneBody(props: {
     });
   });
 
-  const commandTitle = (label: string, commandId: string): string => {
-    const key = liveKeyLabel(commandId);
-    return key === "" ? label : `${label} (${key})`;
+  const updateScrollEdgeHover = (event: PointerEvent & { currentTarget: HTMLDivElement }): void => {
+    const bounds = event.currentTarget.getBoundingClientRect();
+    setScrollEdgeHovered(event.clientX >= bounds.right - scrollNavigationRevealWidth);
+  };
+
+  const revealTouchNavigation = (event: PointerEvent): void => {
+    if (event.pointerType === "touch") {
+      setTouchNavigationActive(true);
+    }
   };
 
   return (
     <>
       <div class="agent-body-wrap">
-        <div class="agent-body" ref={body} onScroll={scroll.onScroll}>
+        <div
+          class="agent-body"
+          ref={body}
+          onPointerDown={revealTouchNavigation}
+          onPointerLeave={() => setScrollEdgeHovered(false)}
+          onPointerMove={updateScrollEdgeHover}
+          onScroll={scroll.onScroll}
+        >
           <AgentTranscript
             agentTurnStartId={props.model.agentTurnStartId()}
             compact={props.compact}
@@ -127,29 +183,38 @@ export function AgentPaneBody(props: {
             virtualizer={virtualizer}
           />
         </div>
-        <Show when={turnNavigable() && scroll.followingLatest() && scroll.agentTurnStartAbove()}>
-          <button
-            type="button"
-            class="agent-follow-pill"
-            title={commandTitle("Jump to the start of this agent turn", CommandIds.agentJumpToTurn)}
-            onClick={() => scroll.jumpToTurn()}
-          >
-            ↑ Jump to turn
-          </button>
-        </Show>
-        <Show when={!scroll.followingLatest()}>
-          <button
-            type="button"
-            class="agent-follow-pill"
-            title={commandTitle(
-              "Scroll to the latest activity and follow it",
-              CommandIds.agentJumpToLatest,
-            )}
-            onClick={() => scroll.jumpToLatest()}
-          >
-            ↓ Jump to latest
-          </button>
-        </Show>
+        <div
+          class="agent-scroll-nav"
+          classList={{
+            "agent-scroll-nav-edge-hovered": scrollEdgeHovered(),
+            "agent-scroll-nav-touch-active": touchNavigationActive(),
+          }}
+          style={`right: ${
+            Math.max(scrollbarInlineSize(), scrollNavigationOverlayScrollbarClearance) +
+            scrollNavigationScrollbarGap
+          }px`}
+        >
+          <Show when={turnNavigable() && scroll.agentTurnStartAbove()}>
+            <AgentScrollNavigationButton
+              commandId={CommandIds.agentJumpToTurn}
+              edge="start"
+              glyph="↑"
+              label="Jump to turn"
+              run={scroll.jumpToTurn}
+              title="Jump to the start of this agent turn"
+            />
+          </Show>
+          <Show when={!scroll.followingLatest()}>
+            <AgentScrollNavigationButton
+              commandId={CommandIds.agentJumpToLatest}
+              edge="latest"
+              glyph="↓"
+              label="Jump to latest"
+              run={scroll.jumpToLatest}
+              title="Scroll to the latest activity and follow it"
+            />
+          </Show>
+        </div>
       </div>
       <Show when={props.model.pinnedRequest()?.id} keyed>
         {(_requestId) => (

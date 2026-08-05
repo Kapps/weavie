@@ -21,15 +21,15 @@ async function pasteImage(target: import("@playwright/test").Locator, b64: strin
 async function dispatchPaneTouch(
   target: import("@playwright/test").Locator,
   phase: "touchend" | "touchmove" | "touchstart",
-  clientX: number,
+  point: { x: number; y: number },
 ): Promise<boolean> {
   return target.evaluate(
     (element, touchEvent) => {
       const touch = new Touch({
         identifier: 1,
         target: element,
-        clientX: touchEvent.clientX,
-        clientY: 240,
+        clientX: touchEvent.point.x,
+        clientY: touchEvent.point.y,
       });
       const position =
         touchEvent.phase === "touchend"
@@ -43,7 +43,7 @@ async function dispatchPaneTouch(
         }),
       );
     },
-    { clientX, phase },
+    { phase, point },
   );
 }
 
@@ -223,17 +223,27 @@ test("compact session inbox creates, resumes, and switches existing surfaces", a
   expect(scrollerMoveAccepted).toBe(true);
 
   const agentBody = agentSurface.locator(".agent-body");
-  await dispatchPaneTouch(agentBody, "touchstart", 300);
-  expect(await dispatchPaneTouch(agentBody, "touchmove", 120)).toBe(true);
-  await dispatchPaneTouch(agentBody, "touchend", 120);
+  await dispatchPaneTouch(agentBody, "touchstart", { x: 300, y: 240 });
+  expect(await dispatchPaneTouch(agentBody, "touchmove", { x: 120, y: 240 })).toBe(true);
+  await dispatchPaneTouch(agentBody, "touchend", { x: 120, y: 240 });
   await expect(agentSurface).toBeVisible();
   await expect(inbox).toBeHidden();
   await expect(page.locator(".app.mobile-transition")).toHaveCount(0);
   await expect(page.locator(".pane-area")).toHaveCSS("transform", "none");
 
-  await dispatchPaneTouch(activeComposer, "touchstart", 80);
-  expect(await dispatchPaneTouch(activeComposer, "touchmove", 220)).toBe(true);
-  await dispatchPaneTouch(activeComposer, "touchend", 220);
+  await dispatchPaneTouch(agentBody, "touchstart", { x: 80, y: 240 });
+  expect(await dispatchPaneTouch(agentBody, "touchmove", { x: 88, y: 243 })).toBe(true);
+  await expect(page.locator(".app.mobile-transition")).toHaveCount(0);
+  expect(await dispatchPaneTouch(agentBody, "touchmove", { x: 92, y: 300 })).toBe(true);
+  expect(await dispatchPaneTouch(agentBody, "touchmove", { x: 220, y: 310 })).toBe(true);
+  await dispatchPaneTouch(agentBody, "touchend", { x: 270, y: 310 });
+  await expect(agentSurface).toBeVisible();
+  await expect(inbox).toBeHidden();
+  await expect(page.locator(".app.mobile-transition")).toHaveCount(0);
+
+  await dispatchPaneTouch(activeComposer, "touchstart", { x: 80, y: 240 });
+  expect(await dispatchPaneTouch(activeComposer, "touchmove", { x: 220, y: 240 })).toBe(true);
+  await dispatchPaneTouch(activeComposer, "touchend", { x: 220, y: 240 });
   await expect(page.locator(".app.mobile-transition")).toHaveCount(0);
 
   await activeComposer.fill("Open ./hello.ts");
@@ -258,10 +268,10 @@ test("compact session inbox creates, resumes, and switches existing surfaces", a
   ).toEqual(["inbox", "terminal:claude", "editor"]);
 
   const editorChrome = editorSurface.locator(".editor-tabs");
-  await dispatchPaneTouch(editorChrome, "touchstart", 80);
-  await dispatchPaneTouch(editorChrome, "touchmove", 120);
+  await dispatchPaneTouch(editorChrome, "touchstart", { x: 80, y: 240 });
+  expect(await dispatchPaneTouch(editorChrome, "touchmove", { x: 120, y: 240 })).toBe(false);
   await expect(agentSurface).toBeVisible();
-  await dispatchPaneTouch(editorChrome, "touchend", 120);
+  await dispatchPaneTouch(editorChrome, "touchend", { x: 120, y: 240 });
   await expect(page.locator(".mobile-surface-button.active")).toHaveText("Code");
   await expect(page.locator(".app.mobile-transition")).toHaveCount(0);
 
@@ -287,32 +297,32 @@ test("compact session inbox creates, resumes, and switches existing surfaces", a
   await expect(shellSurface).toBeVisible();
 
   const shellChrome = shellSurface.locator(".pane-head");
-  await dispatchPaneTouch(shellChrome, "touchstart", 80);
-  await dispatchPaneTouch(shellChrome, "touchmove", 220);
+  await dispatchPaneTouch(shellChrome, "touchstart", { x: 80, y: 240 });
+  await dispatchPaneTouch(shellChrome, "touchmove", { x: 220, y: 240 });
   await expect(agentSurface).toBeVisible();
-  await dispatchPaneTouch(shellChrome, "touchend", 270);
+  await dispatchPaneTouch(shellChrome, "touchend", { x: 270, y: 240 });
   await expect(page.locator(".mobile-surface-button.active")).toHaveText("Agent");
 
   await agentFileLink.click();
   await expect(page.locator(".mobile-surface-button.active")).toHaveText("Code");
 
-  await dispatchPaneTouch(editorChrome, "touchstart", 80);
-  await dispatchPaneTouch(editorChrome, "touchmove", 220);
+  await dispatchPaneTouch(editorChrome, "touchstart", { x: 80, y: 240 });
+  await dispatchPaneTouch(editorChrome, "touchmove", { x: 220, y: 240 });
   await expect(agentSurface).toBeVisible();
   const layout = page.locator(".layout-root");
   await expect(layout).not.toHaveCSS("transform", "none");
   const draggedRight = (await layout.boundingBox())!.x;
-  await dispatchPaneTouch(editorChrome, "touchmove", 120);
+  await dispatchPaneTouch(editorChrome, "touchmove", { x: 120, y: 240 });
   expect((await layout.boundingBox())!.x).toBeLessThan(draggedRight);
-  await dispatchPaneTouch(editorChrome, "touchmove", 270);
-  await dispatchPaneTouch(editorChrome, "touchend", 270);
+  await dispatchPaneTouch(editorChrome, "touchmove", { x: 270, y: 240 });
+  await dispatchPaneTouch(editorChrome, "touchend", { x: 270, y: 240 });
   await expect(page.locator(".mobile-surface-button.active")).toHaveText("Agent");
   await expect(agentSurface).toBeVisible();
 
-  await dispatchPaneTouch(agentBody, "touchstart", 80);
-  await dispatchPaneTouch(agentBody, "touchmove", 220);
+  await dispatchPaneTouch(agentBody, "touchstart", { x: 80, y: 240 });
+  await dispatchPaneTouch(agentBody, "touchmove", { x: 220, y: 240 });
   await expect(inbox).toBeVisible();
-  await dispatchPaneTouch(agentBody, "touchend", 270);
+  await dispatchPaneTouch(agentBody, "touchend", { x: 270, y: 240 });
   await expect(inbox).toBeVisible();
   await expect(page.locator(".mobile-surface-button.active")).toHaveText("Sessions");
 

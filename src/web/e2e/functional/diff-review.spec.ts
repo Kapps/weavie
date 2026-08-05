@@ -53,14 +53,24 @@ const caretLine = (page: import("@playwright/test").Page): Promise<number | null
 test.describe("applied review — keep & undo", () => {
   test.use({ fakeScript: { steps: [...appliedEdit("hello.ts", TWO_HUNKS)] } });
 
+  // Flaked 2026-08-05 04:33 UTC on windows-latest (main, run
+  // https://github.com/Kapps/weavie/actions/runs/30975495342/job/92208988130): after Undo, ADDED stayed at 1
+  // for the full 30s expect timeout (never budged, not a slow catch-up) — a single dropped keystroke, not a
+  // slow round trip. This test was the only one of the three keep/undo tests in this file that fired the next
+  // chord right after the decoration count settled, without also waiting for the caret to land (the sibling
+  // tests below poll caretLine after Keep before pressing Undo). Fixed by adding the same caret-settle wait
+  // the siblings already rely on, so Undo fires only once the client's full post-Keep state (not just the
+  // decoration DOM) has landed.
   test("keeping a hunk drops only it from the diff; undo brings it back", async ({ page }) => {
     await openFile(page, "hello.ts");
     await expect(page.locator(ADDED)).toHaveCount(2); // two hunks pending
 
     // Keep at scope = Change (default): the hunk at the caret leaves the diff, the other stays.
     await focusFirstHunk(page);
+    await expect.poll(() => caretLine(page)).toBe(2);
     await page.keyboard.press("ControlOrMeta+Enter");
     await expect(page.locator(ADDED)).toHaveCount(1);
+    await expect.poll(() => caretLine(page)).toBeGreaterThan(2); // caret moved off the kept hunk
 
     // Undo the keep — the hunk returns to the pending set.
     await page.keyboard.press("ControlOrMeta+Shift+Enter");

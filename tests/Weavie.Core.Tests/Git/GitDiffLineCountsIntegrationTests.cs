@@ -4,7 +4,7 @@ using Xunit;
 
 namespace Weavie.Core.Tests;
 
-/// <summary>Proves the status-bar totals follow Git's diff against HEAD exactly.</summary>
+/// <summary>Proves the status-bar totals cover every change the HEAD review surfaces.</summary>
 public sealed class GitDiffLineCountsIntegrationTests : IDisposable {
 	private readonly string _repo;
 
@@ -13,24 +13,30 @@ public sealed class GitDiffLineCountsIntegrationTests : IDisposable {
 		Directory.CreateDirectory(_repo);
 		RunGit("init", "--quiet", "-b", "main");
 		File.WriteAllText(Path.Combine(_repo, "tracked.txt"), "original\n");
+		File.WriteAllText(Path.Combine(_repo, ".gitignore"), "ignored.txt\n");
 		RunGit("add", "-A");
 		Commit("initial");
 	}
 
 	[Fact]
-	public async Task HeadDiffCounts_IncludeStagedChangesExcludeUntrackedAndClearOnCommit() {
+	public async Task HeadDiffCounts_IncludeTrackedAndUntrackedChangesAndClearWithTheWorktree() {
 		var git = new GitService();
 		File.WriteAllText(Path.Combine(_repo, "tracked.txt"), "replacement\nsecond\n");
-		File.WriteAllText(Path.Combine(_repo, "untracked.txt"), "not in git diff\n");
+		string untracked = Path.Combine(_repo, "untracked.txt");
+		File.WriteAllText(untracked, "new file\n");
+		File.WriteAllText(Path.Combine(_repo, "ignored.txt"), "not a worktree change\n");
 
-		Assert.Equal(new GitDiffLineCounts(2, 1), await git.GetHeadDiffLineCountsAsync(_repo));
+		Assert.Equal(new GitDiffLineCounts(3, 1), await git.GetHeadDiffLineCountsAsync(_repo));
 
 		RunGit("add", "tracked.txt");
-		Assert.Equal(new GitDiffLineCounts(2, 1), await git.GetHeadDiffLineCountsAsync(_repo));
+		Assert.Equal(new GitDiffLineCounts(3, 1), await git.GetHeadDiffLineCountsAsync(_repo));
 
 		Commit("update");
+		Assert.Equal(new GitDiffLineCounts(1, 0), await git.GetHeadDiffLineCountsAsync(_repo));
+
+		File.Delete(untracked);
 		Assert.Equal(new GitDiffLineCounts(0, 0), await git.GetHeadDiffLineCountsAsync(_repo));
-		Assert.True(await git.HasUncommittedChangesAsync(_repo));
+		Assert.False(await git.HasUncommittedChangesAsync(_repo));
 	}
 
 	private void Commit(string message) =>

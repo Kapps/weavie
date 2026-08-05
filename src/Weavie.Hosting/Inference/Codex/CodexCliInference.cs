@@ -77,7 +77,7 @@ internal sealed class CodexCliInference : IInferenceProvider {
 				PathEntries = launch.PathEntries,
 				Environment = new Dictionary<string, string>(StringComparer.Ordinal),
 				RemoveEnvironment = [],
-				StandardInput = request.Instructions + "\n\n" + InferencePrompt.Build(request),
+				StandardInput = request.Prompt,
 				MaxCapturedStdoutBytes = 1,
 				CaptureStdout = false,
 			}, ct).ConfigureAwait(false);
@@ -88,7 +88,7 @@ internal sealed class CodexCliInference : IInferenceProvider {
 				return Invalid(model, "Codex returned no structured output.");
 			}
 			if (new FileInfo(outputPath).Length > request.MaxOutputBytes) {
-				return Invalid(model, "Codex returned structured output larger than the operation permits.");
+				return Invalid(model, "Codex returned structured output larger than the query permits.");
 			}
 
 			return new InferenceProviderSuccess {

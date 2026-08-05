@@ -51,7 +51,7 @@ load it only when you need it.
   `worktree.setupCommand` + `test.profile` itself — deterministic, zero tokens, instant. The Claude
   setup flow is demoted to the override / unsupported-language fallback. Supersedes the "no bundled
   presets" stance. See [docs/concepts/workspace-autoconfig.md](docs/concepts/workspace-autoconfig.md).
-- **Typed ad-hoc inference** — isolated, registered queries through the selected installed Claude/Codex CLI,
+- **Typed ad-hoc inference** — isolated typed queries through the selected installed Claude/Codex CLI,
   with caller-selected `Utility`/`Reasoning` categories, strict typed JSON validation, one Weavie attempt, and
   feature-owned deterministic fallback. First consumer: convention-aware branch naming. See
   [docs/concepts/ad-hoc-inference.md](docs/concepts/ad-hoc-inference.md).

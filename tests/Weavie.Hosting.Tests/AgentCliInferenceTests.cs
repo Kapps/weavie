@@ -158,13 +158,10 @@ public sealed class AgentCliInferenceTests : IDisposable {
 		_settings.Set(key, JsonSerializer.SerializeToElement(value));
 
 	private static InferenceProviderRequest Request(InferenceModelCategory category) => new() {
-		OperationId = "branch-name",
 		Category = category,
-		Instructions = "Return one branch name.",
-		InputJson = "{\"prompt\":\"fix webm\"}",
+		Prompt = "Return one branch name.\n\n{\"prompt\":\"fix webm\"}",
 		OutputSchemaJson = "{\"type\":\"object\",\"properties\":{\"branch\":{\"type\":\"string\"}},"
 			+ "\"required\":[\"branch\"],\"additionalProperties\":false}",
-		OutputSchemaName = "branch-name",
 		MaxOutputBytes = 4096,
 	};
 

@@ -11,9 +11,9 @@ The query runs through the same installed agent provider selected for the surrou
 authentication selection (configured API key or stored OAuth). There is no second provider setting, credential, or
 automatic provider switch.
 
-Features invoke registered operations rather than constructing arbitrary prompts. Each operation declares its
-input/output types, fixed instructions, permitted categories, transmitted data kinds, byte bounds, time budget, and
-domain validator. The caller chooses a permitted provider-neutral category:
+Features call one internal generic API with a complete prompt, strict response `JsonTypeInfo<T>`, invocation origin,
+and resource bounds. A shared prompt builder serializes typed feature context behind the same untrusted-data framing.
+There is no operation registry or provider method per feature. The caller chooses a provider-neutral category:
 
 | Category | Codex | Claude |
 |---|---|---|
@@ -22,7 +22,7 @@ domain validator. The caller chooses a permitted provider-neutral category:
 
 Provider model ids stay inside the CLI adapters. Weavie starts exactly one CLI process and never retries, repairs,
 escalates, or switches models/providers. The installed CLI may have internal transport behavior its supported flags
-do not expose; the operation deadline is the outer latency bound.
+do not expose; the query deadline is the outer latency bound.
 
 Claude runs in safe mode with tools disabled, strict empty MCP configuration, and no session persistence. Codex
 runs with its stable shell-tool feature disabled and every other built-in tool surface disabled, including apps,
@@ -32,9 +32,10 @@ repo-detached, config/MCP-free, and approval-free. A per-call Codex permission p
 and network access to model tools, including the independently registered `apply_patch` tool; the CLI itself still
 reads its authentication and writes the requested structured-result file outside that tool sandbox.
 
-Both CLIs receive a JSON Schema derived from the declared output type. Weavie independently rejects oversized,
-malformed, missing, unknown, or incorrectly typed members, then runs the operation's domain validator. A branch
-proposal must additionally pass Git syntax and collision checks; model output is never authoritative state.
+Both CLIs receive a JSON Schema derived from the response type. Weavie independently rejects oversized, malformed,
+missing, unknown, or incorrectly typed members. The feature performs semantic and authoritative validation after
+typed decoding. A branch proposal must additionally pass Git syntax and collision checks; model output is never
+authoritative state.
 The compact new-session composer requests that proposal after 500 ms without typing and displays it in an editable
 branch field before creation. New typing or manual branch input cancels the superseded CLI process.
 

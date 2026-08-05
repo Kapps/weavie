@@ -7,11 +7,11 @@ public sealed class HostCoreGitStatusTests {
 	public async Task StatusPollTracksManualCommitAndExternalNonLanguageEdit() {
 		await using var host = await TestHost.StartAsync(repo => {
 			File.WriteAllText(Path.Combine(repo, "readme.txt"), "replacement\nsecond\n");
-			File.WriteAllText(Path.Combine(repo, "untracked.txt"), "not in git diff\n");
+			File.WriteAllText(Path.Combine(repo, "untracked.txt"), "new file\n");
 			TestHost.RunGit(repo, "add", "readme.txt");
 		});
 
-		await Wait.UntilAsync(() => HasCounts(host, 2, 1));
+		await Wait.UntilAsync(() => HasCounts(host, 3, 1));
 
 		var latest = host.Bridge.LastEvent(host.PrimarySession.Address, "git", "status")!.Value;
 		Assert.Equal("main", latest.GetProperty("branch").GetString());
@@ -23,10 +23,10 @@ public sealed class HostCoreGitStatusTests {
 			"-c", "user.name=Weavie Test",
 			"-c", "commit.gpgsign=false",
 			"commit", "--quiet", "-m", "manual shell commit");
-		await Wait.UntilAsync(() => HasCounts(host, 0, 0));
+		await Wait.UntilAsync(() => HasCounts(host, 1, 0));
 
 		File.WriteAllText(Path.Combine(host.RepoRoot, "readme.txt"), "external edit\n");
-		await Wait.UntilAsync(() => HasCounts(host, 1, 2));
+		await Wait.UntilAsync(() => HasCounts(host, 2, 2));
 	}
 
 	private static bool HasCounts(TestHost host, int added, int removed) =>

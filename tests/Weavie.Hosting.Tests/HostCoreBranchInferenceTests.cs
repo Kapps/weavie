@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 using Weavie.Core.Configuration;
 using Weavie.Core.Inference;
 using Weavie.Core.Sessions;
@@ -28,10 +29,10 @@ public sealed class HostCoreBranchInferenceTests {
 		Assert.Equal(agentProviderId, inference.AgentProviderId);
 		Assert.Equal(InferenceModelCategory.Utility, inference.Category);
 		Assert.Equal(InferenceInvocationOrigin.Automatic, inference.Origin);
-		Assert.Equal("WebM files fail to load", inference.Input!.Prompt);
-		Assert.Equal("main", inference.Input.CurrentBranch);
-		Assert.Contains("bug/prior-failure", inference.Input.RecentBranches);
-		Assert.Contains("feature/mobile-inbox", inference.Input.RecentBranches);
+		Assert.Contains("\"prompt\":\"WebM files fail to load\"", inference.Prompt, StringComparison.Ordinal);
+		Assert.Contains("\"currentBranch\":\"main\"", inference.Prompt, StringComparison.Ordinal);
+		Assert.Contains("bug/prior-failure", inference.Prompt, StringComparison.Ordinal);
+		Assert.Contains("feature/mobile-inbox", inference.Prompt, StringComparison.Ordinal);
 		Assert.Null(host.Core.SessionForTest("bug/webm-fails-to-load"));
 	}
 
@@ -61,6 +62,8 @@ public sealed class HostCoreBranchInferenceTests {
 	}
 
 	[Theory]
+	[InlineData("")]
+	[InlineData(" ")]
 	[InlineData("not a valid branch")]
 	[InlineData("main")]
 	[InlineData("HEAD")]
@@ -153,7 +156,6 @@ public sealed class HostCoreBranchInferenceTests {
 	}
 
 	private static InferenceReceipt Receipt() => new() {
-		OperationId = "branch-name",
 		ProviderId = "test",
 		Category = InferenceModelCategory.Utility,
 		ModelId = "utility-model",
@@ -169,23 +171,24 @@ public sealed class HostCoreBranchInferenceTests {
 
 		public InferenceInvocationOrigin Origin { get; private set; }
 
-		public BranchNameInferenceInput? Input { get; private set; }
+		public string? Prompt { get; private set; }
 
-		public Task<InferenceResult<TOutput>> RunAsync<TInput, TOutput>(
-			InferenceOperation<TInput, TOutput> operation,
+		public Task<InferenceResult<TResponse>> QueryAsync<TResponse>(
 			string agentProviderId,
 			InferenceModelCategory category,
-			TInput input,
-			InferenceInvocationOrigin origin,
+			string prompt,
+			JsonTypeInfo<TResponse> responseType,
+			InferenceQueryOptions options,
 			CancellationToken ct) {
 			ct.ThrowIfCancellationRequested();
-			Assert.Same(BranchNameInference.Operation, operation);
+			Assert.Same(BranchNameInference.ResponseType, responseType);
+			Assert.Same(BranchNameInference.QueryOptions, options);
 			Calls++;
 			AgentProviderId = agentProviderId;
 			Category = category;
-			Origin = origin;
-			Input = Assert.IsType<BranchNameInferenceInput>(input);
-			return Task.FromResult((InferenceResult<TOutput>)(object)result);
+			Origin = options.Origin;
+			Prompt = prompt;
+			return Task.FromResult((InferenceResult<TResponse>)(object)result);
 		}
 	}
 
@@ -194,12 +197,12 @@ public sealed class HostCoreBranchInferenceTests {
 
 		public TaskCompletionSource Cancelled { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-		public async Task<InferenceResult<TOutput>> RunAsync<TInput, TOutput>(
-			InferenceOperation<TInput, TOutput> operation,
+		public async Task<InferenceResult<TResponse>> QueryAsync<TResponse>(
 			string agentProviderId,
 			InferenceModelCategory category,
-			TInput input,
-			InferenceInvocationOrigin origin,
+			string prompt,
+			JsonTypeInfo<TResponse> responseType,
+			InferenceQueryOptions options,
 			CancellationToken ct) {
 			using var registration = ct.Register(Cancelled.SetResult);
 			Started.SetResult();

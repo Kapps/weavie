@@ -228,11 +228,7 @@ public sealed class GitService : IGitService {
 	/// <inheritdoc/>
 	public async Task<GitDiffLineCounts> GetHeadDiffLineCountsAsync(string worktreeDirectory, CancellationToken ct = default) {
 		ArgumentException.ThrowIfNullOrEmpty(worktreeDirectory);
-		var result = await RunCheckedAsync(
-			worktreeDirectory,
-			["--no-optional-locks", "diff", "--numstat", "HEAD", "--"],
-			ct).ConfigureAwait(false);
-		var changes = ParseNumstat(result.StdOut);
+		var changes = await DiffWorktreeAsync(worktreeDirectory, "HEAD", ct).ConfigureAwait(false);
 		return new GitDiffLineCounts(changes.Sum(change => change.Added), changes.Sum(change => change.Removed));
 	}
 
@@ -349,14 +345,20 @@ public sealed class GitService : IGitService {
 		// No second ref ⇒ diff against the working tree, so uncommitted edits are included (unlike DiffRefsAsync).
 		var result = await RunCheckedAsync(repositoryDirectory, ["diff", "--numstat", "--no-renames", baseRef, "--"], ct).ConfigureAwait(false);
 		var changes = new List<DiffFileChange>(ParseNumstat(result.StdOut));
+		await AppendUntrackedChangesAsync(repositoryDirectory, changes, ct).ConfigureAwait(false);
+		return [.. changes.OrderBy(c => c.Path, StringComparer.Ordinal)];
+	}
+
+	private async Task AppendUntrackedChangesAsync(
+		string repositoryDirectory,
+		List<DiffFileChange> changes,
+		CancellationToken ct) {
 		// `git diff` skips untracked files, but to a user a brand-new file IS an uncommitted change — surface
 		// each (gitignore honored) as all-added rather than silently absent from the review.
 		var untracked = await RunCheckedAsync(repositoryDirectory, ["ls-files", "--others", "--exclude-standard", "-z"], ct).ConfigureAwait(false);
 		foreach (string path in untracked.StdOut.Split('\0', StringSplitOptions.RemoveEmptyEntries)) {
 			changes.Add(new DiffFileChange { Path = path, Added = CountLines(Path.Combine(repositoryDirectory, path)), Removed = 0 });
 		}
-
-		return [.. changes.OrderBy(c => c.Path, StringComparer.Ordinal)];
 	}
 
 	// The added-line count for an untracked file (display-only, mirroring numstat); 0 when it vanished mid-read.

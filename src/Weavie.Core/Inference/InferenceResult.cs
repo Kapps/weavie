@@ -14,7 +14,7 @@ public enum InferenceFailureKind {
 	/// <summary>The provider cannot serve the requested model category.</summary>
 	CategoryUnavailable,
 
-	/// <summary>The declared operation rejected the input before transmission.</summary>
+	/// <summary>The query prompt exceeded its declared size bound.</summary>
 	InputRejected,
 
 	/// <summary>The single model attempt exceeded its declared time budget.</summary>
@@ -32,7 +32,7 @@ public enum InferenceFailureKind {
 	/// <summary>The model refused the request.</summary>
 	Refused,
 
-	/// <summary>The response was missing, malformed, shape-invalid, or domain-invalid.</summary>
+	/// <summary>The response was missing, malformed, oversized, or did not match the declared shape.</summary>
 	InvalidResponse,
 }
 
@@ -50,9 +50,6 @@ public sealed record InferenceUsage {
 
 /// <summary>Non-content observability for one inference attempt.</summary>
 public sealed record InferenceReceipt {
-	/// <summary>The registered operation id.</summary>
-	public required string OperationId { get; init; }
-
 	/// <summary>The selected provider id.</summary>
 	public required string ProviderId { get; init; }
 
@@ -73,13 +70,13 @@ public sealed record InferenceReceipt {
 }
 
 /// <summary>The exhaustive result of one inference attempt.</summary>
-/// <typeparam name="T">The operation's decoded output type.</typeparam>
+/// <typeparam name="T">The query's decoded response type.</typeparam>
 public abstract record InferenceResult<T>;
 
 /// <summary>A locally validated typed inference value.</summary>
-/// <typeparam name="T">The operation's decoded output type.</typeparam>
+/// <typeparam name="T">The query's decoded response type.</typeparam>
 public sealed record InferenceSuccess<T> : InferenceResult<T> {
-	/// <summary>The decoded and domain-validated value.</summary>
+	/// <summary>The strictly decoded response value.</summary>
 	public required T Value { get; init; }
 
 	/// <summary>Non-content observability for the completed attempt.</summary>
@@ -87,7 +84,7 @@ public sealed record InferenceSuccess<T> : InferenceResult<T> {
 }
 
 /// <summary>A non-cancellation failure; the feature must execute its disabled behavior.</summary>
-/// <typeparam name="T">The operation's output type.</typeparam>
+/// <typeparam name="T">The query's response type.</typeparam>
 public sealed record InferenceFailure<T> : InferenceResult<T> {
 	/// <summary>The stable failure category.</summary>
 	public required InferenceFailureKind Kind { get; init; }

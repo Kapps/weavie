@@ -15,28 +15,31 @@ caller-supplied provider id through the existing `AgentProviderRegistry`; Claude
 installed CLI path, authentication, entitlement, and provider identity with interactive sessions. There is no
 parallel inference-provider registry or `inference.provider` setting.
 
-The inference facet has no session-creation, terminal, editor, MCP, or mutation API. Only feature-owned, registered
-operations may call it; there is no generic bridge message, command, or MCP tool accepting an arbitrary prompt.
+The inference facet has no session-creation, terminal, editor, MCP, or mutation API. It is a generic internal API
+for trusted feature code; there is no bridge message, command, or MCP tool accepting an arbitrary prompt. Any future
+external surface owns its allowlist rather than pushing feature identity into provider transport.
 
 Each call starts one transient CLI process. It does not create a durable thread or resume identity, and the process
-is killed as a tree when the caller or operation deadline cancels. Transient helpers are exempt from
+is killed as a tree when the caller or query deadline cancels. Transient helpers are exempt from
 `ProcessSupervisor`; its restart behavior would violate the one-attempt contract.
 
-## Typed operation contract
+## Typed query contract
 
-`InferenceOperation<TInput, TOutput>` declares:
+`IInferenceService.QueryAsync<TResponse>` accepts:
 
-- stable operation id and fixed instructions;
-- allowed `InferenceModelCategory` values;
-- `InferenceDataKind` flags for privacy review;
-- maximum serialized input and structured-output UTF-8 bytes;
-- one-attempt time budget;
-- source-generated `JsonTypeInfo<TInput>` and `JsonTypeInfo<TOutput>`;
-- a domain validator for the decoded output.
+- the selected existing agent-provider id;
+- a caller-selected `InferenceModelCategory`;
+- one complete provider-agnostic prompt;
+- strict `JsonTypeInfo<TResponse>` response metadata;
+- invocation origin, prompt/output byte bounds, and a one-attempt time budget.
 
-The exact operation instance must be registered. An unregistered operation or disallowed category is a programming
-error; runtime, CLI, and model failures are values. The caller supplies both the existing agent-provider id and a
-permitted category:
+`InferencePrompts.WithJsonInput` is the shared path for typed feature context. It serializes the input through its
+declared `JsonTypeInfo<TInput>` and applies consistent untrusted-data framing, so features do not reproduce prompt
+plumbing. Response metadata must reject unknown members and respect required constructor parameters; non-strict
+metadata is a programming error. Runtime, CLI, and model failures are values.
+
+The provider seam contains only category, final prompt, generated JSON Schema, and output byte bound. Providers do
+not receive a feature or query id and never switch on product behavior:
 
 | Category | Intended work | Codex profile | Claude profile |
 |---|---|---|---|
@@ -63,20 +66,19 @@ directory; it receives no Weavie MCP configuration. The temporary schema/output 
 failure, timeout, and cancellation path. Claude's tool set is explicitly empty as well.
 
 Weavie starts one CLI process and does not retry. A CLI may internally retry transport operations without exposing
-a supported control; the operation deadline is the reliable outer latency bound.
+a supported control; the query deadline is the reliable outer latency bound.
 
 ## Structured output and validation
 
-The service serializes `TInput` and derives a JSON Schema from `TOutput`. Claude must return the CLI envelope's
+The service derives a JSON Schema from `TResponse`. Claude must return the CLI envelope's
 `structured_output`; Weavie never extracts JSON from prose. Codex must write the schema-constrained final message.
 Both paths then pass the raw JSON to the shared local validator, which:
 
-1. rejects output beyond the operation's byte limit;
+1. rejects output beyond the query's byte limit;
 2. parses exactly one JSON value;
 3. rejects unknown, missing, and incorrectly typed members;
-4. deserializes through the declared `JsonTypeInfo<TOutput>`;
-5. runs the operation's domain validator;
-6. leaves authoritative state validation to the feature.
+4. deserializes through the declared `JsonTypeInfo<TResponse>`;
+5. leaves semantic and authoritative state validation to the feature.
 
 ## Failure and fallback
 
@@ -100,7 +102,7 @@ An explicit action is `UserInitiated` even when implemented asynchronously. Debo
 and other event-triggered work are `Automatic`.
 
 Prompts, outputs, CLI stderr, credentials, and raw provider errors are never logged or persisted by Weavie.
-Receipts may contain operation/provider/model ids, duration, upstream request id, and provider-reported usage.
+Receipts may contain provider/model ids, category, duration, upstream request id, and provider-reported usage.
 
 ## Flow
 
@@ -112,8 +114,9 @@ sequenceDiagram
     participant C as Installed Claude/Codex CLI
 
     F->>F: compute deterministic behavior
-    F->>S: operation + agent provider + category + typed input
-    S->>S: policy, registration, size, schema
+    F->>F: build prompt from typed context
+    F->>S: agent provider + category + prompt + response type + options
+    S->>S: policy, strict metadata, size, schema
     S->>A: one isolated query
     A->>C: one ephemeral process
     C-->>A: structured JSON or failure
@@ -178,7 +181,7 @@ lifecycle and validation rules are defined in [First consumer: branch naming](#f
 
 A completed plan may expose a **Review plan** action that submits the immutable plan text and relevant task context
 to another ad-hoc `Reasoning` call. Its output should contain a bounded list of findings with severity, the plan
-step they concern, the risk or missing consideration, and a concrete recommendation. The operation keys its result
+step they concern, the risk or missing consideration, and a concrete recommendation. The surface keys its result
 to the plan identity and content hash so an edit immediately invalidates an older review.
 
 Review findings appear beside the plan for the user to accept, dismiss, or use as input to a normal agent turn.
@@ -203,7 +206,7 @@ When automatic inference is enabled, an editor may request a lightweight semanti
 has been idle. The input is the current document version, language, path relative to the workspace, and bounded
 file or changed-region content. The typed output contains only high-impact suggestions, each with a stable identity,
 severity, source range, summary, and rationale. Syntax, formatting, and rules a deterministic language server or
-linter can answer remain outside this operation.
+linter can answer remain outside this query.
 
 Requests are keyed to the document version and canceled when the user types, changes files, or closes the editor.
 The surface deduplicates identical findings and lets users dismiss recurring suggestions. Suggestions never edit
@@ -234,5 +237,5 @@ impact threshold keep the feature from becoming a stream of speculative inline n
 4. Semantic file review proves sustained automatic use only after cancellation, deduplication, and dismissal
    behavior are established.
 
-Each surface owns its operation, schema, authoritative validation, fallback, and UX tests. Adding a surface never
-widens the inference layer into a generic prompt endpoint.
+Each surface owns its prompt, response type, semantic/authoritative validation, fallback, and UX tests. Shared query
+plumbing remains generic, while adding a surface never creates an external prompt endpoint.

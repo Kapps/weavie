@@ -9,26 +9,7 @@ public enum InferenceModelCategory {
 	Reasoning,
 }
 
-/// <summary>The kinds of user or workspace data a declared operation may transmit.</summary>
-[Flags]
-public enum InferenceDataKind {
-	/// <summary>User-authored prose.</summary>
-	UserText = 1,
-
-	/// <summary>Repository metadata such as branch names.</summary>
-	RepositoryMetadata = 2,
-
-	/// <summary>Source code.</summary>
-	SourceCode = 4,
-
-	/// <summary>Build, test, lint, or other command output.</summary>
-	CommandOutput = 8,
-
-	/// <summary>Output produced by an interactive agent.</summary>
-	AgentOutput = 16,
-}
-
-/// <summary>Whether a person directly initiated an inference operation.</summary>
+/// <summary>Whether a person directly initiated an inference query.</summary>
 public enum InferenceInvocationOrigin {
 	/// <summary>The query is part of an explicit user action.</summary>
 	UserInitiated,

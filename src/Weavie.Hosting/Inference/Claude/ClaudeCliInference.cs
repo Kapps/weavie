@@ -46,12 +46,11 @@ internal sealed class ClaudeCliInference : IInferenceProvider {
 					"--json-schema", request.OutputSchemaJson,
 					"--model", profile.Model,
 					"--effort", profile.Effort,
-					"--system-prompt", request.Instructions,
 				],
 				PathEntries = [],
 				Environment = new Dictionary<string, string>(StringComparer.Ordinal),
 				RemoveEnvironment = [],
-				StandardInput = InferencePrompt.Build(request),
+				StandardInput = request.Prompt,
 				MaxCapturedStdoutBytes = request.MaxOutputBytes + EnvelopeOverheadBytes,
 				CaptureStdout = true,
 			}, ct).ConfigureAwait(false);

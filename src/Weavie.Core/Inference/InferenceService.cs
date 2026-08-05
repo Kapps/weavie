@@ -3,6 +3,8 @@ using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Schema;
+using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 using Weavie.Core.Agents;
 using Weavie.Core.Configuration;
 
@@ -14,120 +16,107 @@ public interface IInferenceService {
 	/// Runs one schema-constrained attempt. Non-cancellation failures are returned so the feature can execute the
 	/// exact behavior it uses when inference is disabled.
 	/// </summary>
-	Task<InferenceResult<TOutput>> RunAsync<TInput, TOutput>(
-		InferenceOperation<TInput, TOutput> operation,
+	Task<InferenceResult<TResponse>> QueryAsync<TResponse>(
 		string agentProviderId,
 		InferenceModelCategory category,
-		TInput input,
-		InferenceInvocationOrigin origin,
+		string prompt,
+		JsonTypeInfo<TResponse> responseType,
+		InferenceQueryOptions options,
 		CancellationToken ct);
 }
 
 /// <summary>
-/// Enforces operation registration, policy, bounds, category support, one-attempt timing, strict decoding, and
-/// domain validation around the selected installed agent provider's stateless facet.
+/// Enforces policy, bounds, category support, one-attempt timing, and strict typed decoding around the selected
+/// installed agent provider's stateless facet.
 /// </summary>
 public sealed class InferenceService : IInferenceService {
 	private static readonly JsonSchemaExporterOptions SchemaOptions = new() {
 		TreatNullObliviousAsNonNullable = true,
 	};
 	private readonly SettingsStore _settings;
-	private readonly InferenceOperationRegistry _operations;
 	private readonly AgentProviderRegistry _agentProviders;
 
-	/// <summary>Creates the service over live settings and closed operation/provider catalogs.</summary>
+	/// <summary>Creates the service over live settings and the installed agent-provider catalog.</summary>
 	public InferenceService(
 		SettingsStore settings,
-		InferenceOperationRegistry operations,
 		AgentProviderRegistry agentProviders) {
 		ArgumentNullException.ThrowIfNull(settings);
-		ArgumentNullException.ThrowIfNull(operations);
 		ArgumentNullException.ThrowIfNull(agentProviders);
 		_settings = settings;
-		_operations = operations;
 		_agentProviders = agentProviders;
 	}
 
 	/// <inheritdoc/>
-	public async Task<InferenceResult<TOutput>> RunAsync<TInput, TOutput>(
-		InferenceOperation<TInput, TOutput> operation,
+	public async Task<InferenceResult<TResponse>> QueryAsync<TResponse>(
 		string agentProviderId,
 		InferenceModelCategory category,
-		TInput input,
-		InferenceInvocationOrigin origin,
+		string prompt,
+		JsonTypeInfo<TResponse> responseType,
+		InferenceQueryOptions options,
 		CancellationToken ct) {
-		ArgumentNullException.ThrowIfNull(operation);
 		ArgumentException.ThrowIfNullOrWhiteSpace(agentProviderId);
-		_operations.RequireRegistered(operation);
-		if (!operation.AllowedCategories.Contains(category)) {
-			throw new InvalidOperationException(
-				$"Inference operation '{operation.Id}' does not allow category '{category}'.");
-		}
+		ArgumentException.ThrowIfNullOrWhiteSpace(prompt);
+		ArgumentNullException.ThrowIfNull(responseType);
+		ArgumentNullException.ThrowIfNull(options);
+		ValidateQuery(responseType, options);
 
 		ct.ThrowIfCancellationRequested();
 		if (!_settings.RequireBool(InferenceSettings.Enabled)) {
-			return Failure<TOutput>(InferenceFailureKind.Disabled, "Ad-hoc inference is disabled.");
+			return Failure<TResponse>(InferenceFailureKind.Disabled, "Ad-hoc inference is disabled.");
 		}
-		if (origin == InferenceInvocationOrigin.Automatic
+		if (options.Origin == InferenceInvocationOrigin.Automatic
 			&& !_settings.RequireBool(InferenceSettings.AllowAutomatic)) {
-			return Failure<TOutput>(InferenceFailureKind.PolicyDenied, "Automatic inference is disabled.");
+			return Failure<TResponse>(InferenceFailureKind.PolicyDenied, "Automatic inference is disabled.");
+		}
+		if (Encoding.UTF8.GetByteCount(prompt) > options.MaxPromptBytes) {
+			return Failure<TResponse>(InferenceFailureKind.InputRejected, "The inference prompt exceeds its declared size limit.");
 		}
 
 		IAgentProvider agentProvider;
 		try {
 			agentProvider = _agentProviders.RequireAvailable(agentProviderId);
 		} catch (InvalidOperationException ex) {
-			return Failure<TOutput>(
+			return Failure<TResponse>(
 				InferenceFailureKind.NotConfigured,
 				ex.Message);
 		}
 		if (agentProvider is not IAgentInferenceProvider provider) {
-			return Failure<TOutput>(
+			return Failure<TResponse>(
 				InferenceFailureKind.NotConfigured,
 				$"Agent provider '{agentProviderId}' does not support ad-hoc inference.");
 		}
 		if (!provider.InferenceInfo.Categories.Contains(category)) {
-			return Failure<TOutput>(
+			return Failure<TResponse>(
 				InferenceFailureKind.CategoryUnavailable,
 				$"Agent provider '{agentProviderId}' does not support inference category '{category}'.");
 		}
 
-		string inputJson = JsonSerializer.Serialize(input, operation.InputType);
-		if (Encoding.UTF8.GetByteCount(inputJson) > operation.MaxInputBytes) {
-			return Failure<TOutput>(
-				InferenceFailureKind.InputRejected,
-				$"Inference input for '{operation.Id}' exceeds its declared size limit.");
-		}
-
-		string schema = JsonSchemaExporter.GetJsonSchemaAsNode(operation.OutputType, SchemaOptions).ToJsonString();
+		string schema = JsonSchemaExporter.GetJsonSchemaAsNode(responseType, SchemaOptions).ToJsonString();
 		var request = new InferenceProviderRequest {
-			OperationId = operation.Id,
 			Category = category,
-			Instructions = operation.Instructions,
-			InputJson = inputJson,
+			Prompt = prompt,
 			OutputSchemaJson = schema,
-			OutputSchemaName = SchemaName(operation.Id),
-			MaxOutputBytes = operation.MaxOutputBytes,
+			MaxOutputBytes = options.MaxOutputBytes,
 		};
 
 		var stopwatch = Stopwatch.StartNew();
 		using var attempt = CancellationTokenSource.CreateLinkedTokenSource(ct);
-		attempt.CancelAfter(operation.TimeBudget);
+		attempt.CancelAfter(options.TimeBudget);
 		InferenceProviderResult providerResult;
 		try {
 			providerResult = await provider.QueryInferenceAsync(request, attempt.Token).ConfigureAwait(false);
 		} catch (OperationCanceledException) when (!ct.IsCancellationRequested) {
-			return Failure<TOutput>(
+			return Failure<TResponse>(
 				InferenceFailureKind.TimedOut,
-				$"Inference operation '{operation.Id}' exceeded its time budget.");
+				"The inference query exceeded its time budget.");
 		} catch (Exception ex) when (ex is Win32Exception or IOException or UnauthorizedAccessException) {
 			ct.ThrowIfCancellationRequested();
 			if (attempt.IsCancellationRequested) {
-				return Failure<TOutput>(
+				return Failure<TResponse>(
 					InferenceFailureKind.TimedOut,
-					$"Inference operation '{operation.Id}' exceeded its time budget.");
+					"The inference query exceeded its time budget.");
 			}
-			return Failure<TOutput>(
+			return Failure<TResponse>(
 				InferenceFailureKind.ProviderUnavailable,
 				$"Agent provider '{agentProviderId}' could not complete the inference process.");
 		}
@@ -135,7 +124,6 @@ public sealed class InferenceService : IInferenceService {
 		stopwatch.Stop();
 
 		var receipt = new InferenceReceipt {
-			OperationId = operation.Id,
 			ProviderId = agentProviderId,
 			Category = category,
 			ModelId = providerResult.ModelId,
@@ -144,7 +132,7 @@ public sealed class InferenceService : IInferenceService {
 			Usage = providerResult.Usage,
 		};
 		if (providerResult is InferenceProviderFailure providerFailure) {
-			return new InferenceFailure<TOutput> {
+			return new InferenceFailure<TResponse> {
 				Kind = providerFailure.Kind,
 				Detail = providerFailure.Detail,
 				Receipt = receipt,
@@ -154,24 +142,34 @@ public sealed class InferenceService : IInferenceService {
 			throw new InvalidOperationException(
 				$"Agent provider '{agentProviderId}' returned an unknown inference result type.");
 		}
-		if (Encoding.UTF8.GetByteCount(success.OutputJson) > operation.MaxOutputBytes) {
-			return Invalid<TOutput>(receipt, "The provider's structured result exceeds the operation's output limit.");
+		if (Encoding.UTF8.GetByteCount(success.OutputJson) > options.MaxOutputBytes) {
+			return Invalid<TResponse>(receipt, "The provider's structured result exceeds the query's output limit.");
 		}
 
-		TOutput? value;
+		TResponse? value;
 		try {
-			value = JsonSerializer.Deserialize(success.OutputJson, operation.OutputType);
+			value = JsonSerializer.Deserialize(success.OutputJson, responseType);
 		} catch (JsonException) {
-			return Invalid<TOutput>(receipt, "The provider returned JSON that does not match the declared output type.");
+			return Invalid<TResponse>(receipt, "The provider returned JSON that does not match the declared response type.");
 		}
 		if (value is null) {
-			return Invalid<TOutput>(receipt, "The provider returned a null structured result.");
+			return Invalid<TResponse>(receipt, "The provider returned a null structured result.");
 		}
 
-		string? validationError = operation.Validate(value);
-		return validationError is null
-			? new InferenceSuccess<TOutput> { Value = value, Receipt = receipt }
-			: Invalid<TOutput>(receipt, validationError);
+		return new InferenceSuccess<TResponse> { Value = value, Receipt = receipt };
+	}
+
+	private static void ValidateQuery<TResponse>(
+		JsonTypeInfo<TResponse> responseType,
+		InferenceQueryOptions options) {
+		if (options.MaxPromptBytes <= 0 || options.MaxOutputBytes <= 0 || options.TimeBudget <= TimeSpan.Zero) {
+			throw new ArgumentException("Inference query bounds must be positive.", nameof(options));
+		}
+		if (responseType.Options.UnmappedMemberHandling != JsonUnmappedMemberHandling.Disallow
+			|| !responseType.Options.RespectRequiredConstructorParameters) {
+			throw new InvalidOperationException(
+				"Inference response metadata must disallow unmapped members and respect required constructor parameters.");
+		}
 	}
 
 	private static InferenceFailure<T> Failure<T>(InferenceFailureKind kind, string detail) => new() {
@@ -184,7 +182,4 @@ public sealed class InferenceService : IInferenceService {
 		Detail = detail,
 		Receipt = receipt,
 	};
-
-	private static string SchemaName(string operationId) =>
-		string.Concat(operationId.Select(c => char.IsLetterOrDigit(c) || c is '_' or '-' ? c : '_'));
 }

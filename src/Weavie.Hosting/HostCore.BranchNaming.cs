@@ -27,19 +27,19 @@ public sealed partial class HostCore {
 			return fallback;
 		}
 
-		var result = await _inference.RunAsync(
-			BranchNameInference.Operation,
+		var result = await _inference.QueryAsync(
 			agentProviderId,
 			InferenceModelCategory.Utility,
-			input,
-			InferenceInvocationOrigin.Automatic,
+			BranchNameInference.BuildPrompt(input),
+			BranchNameInference.ResponseType,
+			BranchNameInference.QueryOptions,
 			ct).ConfigureAwait(false);
 		if (result is not InferenceSuccess<BranchNameInferenceOutput> success) {
 			return fallback;
 		}
 
 		string proposed = success.Value.Branch.Trim();
-		if (taken.Contains(proposed)) {
+		if (proposed.Length == 0 || taken.Contains(proposed)) {
 			return fallback;
 		}
 

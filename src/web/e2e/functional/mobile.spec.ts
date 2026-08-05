@@ -47,16 +47,25 @@ async function dispatchPaneTouch(
   );
 }
 
+async function terminalRows(
+  page: import("@playwright/test").Page,
+  pane: "claude" | "shell",
+): Promise<number> {
+  return page.evaluate((targetPane) => {
+    const terminal = Object.entries(window.__WEAVIE_TERMINALS__ ?? {}).find(([key]) =>
+      key.endsWith(`:${targetPane}`),
+    )?.[1];
+    if (terminal === undefined) {
+      throw new Error(`Missing ${targetPane} terminal`);
+    }
+    return terminal.rows;
+  }, pane);
+}
+
 test.use({
   colorScheme: "light",
   fakeScript: {
     steps: [{ op: "hook", request: { hook_event_name: "SessionStart", source: "startup" } }],
-  },
-  preNavigate: {
-    run: (page) =>
-      page.addInitScript(() => {
-        Object.defineProperty(navigator, "standalone", { configurable: true, value: true });
-      }),
   },
 });
 
@@ -92,6 +101,55 @@ test("tapping the Claude Code prompt focuses its mobile keyboard input", async (
         .evaluate((element) => document.activeElement === element),
     )
     .toBe(true);
+
+  const initialRows = await terminalRows(page, "claude");
+  await page.evaluate(() => {
+    const viewport = window.visualViewport;
+    if (viewport === null) {
+      throw new Error("VisualViewport is unavailable");
+    }
+    Object.defineProperties(viewport, {
+      height: { configurable: true, value: 500 },
+      offsetTop: { configurable: true, value: 24 },
+    });
+    viewport.dispatchEvent(new Event("resize"));
+    viewport.dispatchEvent(new Event("scroll"));
+  });
+
+  await expect
+    .poll(() =>
+      page.locator(".app").evaluate((app) => {
+        const bounds = app.getBoundingClientRect();
+        return { bottom: bounds.bottom, height: bounds.height, top: bounds.top };
+      }),
+    )
+    .toEqual({ bottom: 524, height: 500, top: 24 });
+  const keyboardGeometry = await page.evaluate(() => {
+    const nav = document.querySelector(".mobile-surface-bar")?.getBoundingClientRect();
+    const pane = document.querySelector(".pane-area")?.getBoundingClientRect();
+    return { navBottom: nav?.bottom, paneBottom: pane?.bottom };
+  });
+  expect(keyboardGeometry.navBottom).toBe(524);
+  expect(keyboardGeometry.paneBottom).toBeLessThan(524);
+  await expect.poll(() => terminalRows(page, "claude")).toBeLessThan(initialRows);
+});
+
+test("Claude Code accepts back swipes only from the terminal edge", async ({ page }) => {
+  await page.locator(".session-inbox-row").click();
+  const terminal = page.locator('.terminal-surface[data-kind="terminal:claude"]');
+  const body = terminal.locator(".xterm-screen");
+  await expect(body).toBeVisible();
+
+  await dispatchPaneTouch(body, "touchstart", { x: 80, y: 240 });
+  expect(await dispatchPaneTouch(body, "touchmove", { x: 220, y: 240 })).toBe(true);
+  await dispatchPaneTouch(body, "touchend", { x: 220, y: 240 });
+  await expect(terminal).toBeVisible();
+  await expect(page.locator(".session-inbox")).toBeHidden();
+
+  await dispatchPaneTouch(body, "touchstart", { x: 16, y: 240 });
+  expect(await dispatchPaneTouch(body, "touchmove", { x: 156, y: 240 })).toBe(false);
+  await dispatchPaneTouch(body, "touchend", { x: 156, y: 240 });
+  await expect(page.locator(".session-inbox")).toBeVisible();
 });
 
 test("WebM video opens inline in the compact editor", async ({ page }) => {
@@ -132,7 +190,6 @@ test("compact session inbox creates, resumes, and switches existing surfaces", a
     const nav = bounds(".mobile-surface-bar");
     return {
       appBottom: app.bottom,
-      mobileStandalone: document.querySelector(".app")?.classList.contains("mobile-standalone"),
       navHeight: nav.height,
       paneBottom: pane.bottom,
       navBottom: nav.bottom,
@@ -143,7 +200,6 @@ test("compact session inbox creates, resumes, and switches existing surfaces", a
       viewportHeight: window.innerHeight,
     };
   });
-  expect(geometry.mobileStandalone).toBe(true);
   expect(geometry.appBottom).toBe(geometry.viewportHeight);
   expect(geometry.navBottom).toBe(geometry.viewportHeight);
   expect(geometry.navPaddingBottom).toBe(10);

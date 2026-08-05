@@ -146,6 +146,7 @@ import type { MobileSurface, MobileSwipeDirection } from "./mobile/MobileSurface
 import { MobileWorkspace } from "./mobile/MobileWorkspace";
 import { createMobileBackSwipe } from "./mobile/mobile-back-swipe";
 import { createMobileHistory } from "./mobile/mobile-history";
+import { createMobileVisualViewportStyle } from "./mobile/mobile-visual-viewport";
 import { useCompactMode } from "./mobile/useCompactMode";
 // Session-attention intake (sounds + OS notifications): module-load side effect, like the session store.
 import "./notifications/attention";
@@ -180,9 +181,6 @@ const HAS_TITLEBAR = CUSTOM_TITLEBAR || MAC_TITLEBAR || LINUX_TITLEBAR;
 setContext("nativeShell", NATIVE_SHELL);
 
 const AGENT_PANE_KIND = "terminal:claude";
-const MOBILE_STANDALONE =
-  window.matchMedia("(display-mode: standalone)").matches ||
-  (navigator as Navigator & { standalone?: boolean }).standalone === true;
 const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 // Maps a terminal-backed pane kind ("terminal:claude" / "terminal:shell") to its pane id.
 const paneOf = (kind: string): TermSession => (kind === AGENT_PANE_KIND ? "claude" : "shell");
@@ -216,6 +214,7 @@ function mobileTransitionStyle(transition: MobileTransition | null): string | un
 export default function App(): JSX.Element {
   let editorContainer!: HTMLDivElement;
   const compact = useCompactMode();
+  const mobileVisualViewportStyle = createMobileVisualViewportStyle(compact);
   const mobileHistory = createMobileHistory(compact);
   const mobileSurface = mobileHistory.surface;
   const navigateMobileSurface = mobileHistory.select;
@@ -1598,7 +1597,6 @@ export default function App(): JSX.Element {
       classList={{
         compact: compact(),
         "mobile-inbox": compact() && mobileSurface() === "inbox",
-        "mobile-standalone": compact() && MOBILE_STANDALONE,
         "mobile-transition": mobileTransition() !== null,
         "mobile-transition-from-inbox": mobileTransition()?.source === "inbox",
         "mobile-transition-settling":
@@ -1609,7 +1607,7 @@ export default function App(): JSX.Element {
           mobileTransition()?.source !== "inbox" &&
           mobileTransition()?.target !== "inbox",
       }}
-      style={mobileTransitionStyle(mobileTransition())}
+      style={`${mobileVisualViewportStyle()}${mobileTransitionStyle(mobileTransition()) ?? ""}`}
       onTransitionEnd={finishMobileTransition}
     >
       <Show when={CUSTOM_TITLEBAR}>

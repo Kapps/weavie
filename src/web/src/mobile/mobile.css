@@ -6,9 +6,18 @@
 
   html,
   body,
-  #root,
-  .app {
-    height: 100dvh;
+  #root {
+    height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+
+  .app.compact {
+    position: absolute;
+    top: var(--mobile-viewport-top, 0px);
+    right: 0;
+    left: 0;
+    height: var(--mobile-viewport-height, 100dvh);
     overflow: hidden;
     overscroll-behavior: none;
   }
@@ -328,24 +337,5 @@
     font-size: 20px;
     font-weight: 700;
     line-height: 1;
-  }
-}
-
-@media (display-mode: standalone) and (max-width: 760px),
-  (display-mode: standalone) and (max-height: 520px) and (pointer: coarse) {
-  html,
-  body,
-  #root,
-  .app {
-    height: 100vh;
-  }
-}
-
-@media (max-width: 760px), ((max-height: 520px) and (pointer: coarse)) {
-  html:has(.app.compact.mobile-standalone),
-  body:has(.app.compact.mobile-standalone),
-  #root:has(.app.compact.mobile-standalone),
-  .app.compact.mobile-standalone {
-    height: 100vh;
   }
 }

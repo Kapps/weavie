@@ -251,7 +251,7 @@ export function SessionInbox(props: {
           </button>
           <button
             type="submit"
-            class="session-composer-submit"
+            class="session-composer-submit mobile-primary-action"
             aria-label={submitting() ? "Starting session" : "Start"}
             disabled={!canSubmit()}
           >

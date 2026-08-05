@@ -53,6 +53,12 @@ const caretLine = (page: import("@playwright/test").Page): Promise<number | null
 test.describe("applied review — keep & undo", () => {
   test.use({ fakeScript: { steps: [...appliedEdit("hello.ts", TWO_HUNKS)] } });
 
+  // Flaked on Windows CI 2026-08-05 04:41 UTC (main, commit d9f85c5a):
+  // https://github.com/Kapps/weavie/actions/runs/30975495342/job/92208988130 — undo landed as a silent
+  // no-op because Core pushed the "diff" feature message before "history", so a chord fired the instant
+  // the kept hunk's diff re-rendered could read stale (pre-keep) undo availability. Root-caused and fixed
+  // in HostCore.WebBridge.cs (KeepHunk/KeepFile/ApplyHistoryResult now push "history" before "diff"/"changes"
+  // on the shared "review" feature lane) rather than widening this test's timeout.
   test("keeping a hunk drops only it from the diff; undo brings it back", async ({ page }) => {
     await openFile(page, "hello.ts");
     await expect(page.locator(ADDED)).toHaveCount(2); // two hunks pending

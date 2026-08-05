@@ -394,6 +394,10 @@ public sealed partial class HostCore {
 			return;
 		}
 
+		// History first: it shares the "review" feature lane with "diff", so pushing it first guarantees the
+		// client's undo/redo availability is current by the time the diff push it's chained after re-renders —
+		// otherwise a chord fired the instant the diff lands can read stale (pre-action) availability and no-op.
+		PushReviewHistoryToWeb(session);
 		foreach (string path in result.Paths) {
 			if (session.Changes.GetTurn(path) is not null) {
 				PushTurnDiffToWeb(session, path);
@@ -401,7 +405,6 @@ public sealed partial class HostCore {
 		}
 
 		PushTurnChangesToWeb(session);
-		PushReviewHistoryToWeb(session);
 	}
 
 	/// <summary>Pushes the review undo/redo availability so the page enables its Undo/Redo affordances.</summary>
@@ -492,9 +495,11 @@ public sealed partial class HostCore {
 			return;
 		}
 
+		// History before diff — see the comment in ApplyHistoryResult: both share the "review" lane, so this
+		// ordering is what guarantees the client's undo availability is current the instant the diff re-renders.
+		PushReviewHistoryToWeb(session);
 		PushTurnDiffToWeb(session, path);
 		PushTurnChangesToWeb(session);
-		PushReviewHistoryToWeb(session);
 	}
 
 	/// <summary>
@@ -508,9 +513,9 @@ public sealed partial class HostCore {
 		}
 
 		session.Changes.KeepFile(path);
+		PushReviewHistoryToWeb(session);
 		PushTurnDiffToWeb(session, path);
 		PushTurnChangesToWeb(session);
-		PushReviewHistoryToWeb(session);
 	}
 
 	/// <summary>

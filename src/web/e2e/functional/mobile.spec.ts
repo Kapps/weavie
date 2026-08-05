@@ -59,6 +59,29 @@ test.use({
   },
 });
 
+test("tapping the Claude Code prompt focuses its mobile keyboard input", async ({ page }) => {
+  await page.locator(".session-inbox-row").click();
+
+  const terminal = page.locator('.terminal-surface[data-kind="terminal:claude"]');
+  const screen = terminal.locator(".xterm-screen");
+  await expect(terminal).toBeVisible();
+  await expect(screen).toBeVisible();
+
+  const bounds = await screen.boundingBox();
+  if (bounds === null) {
+    throw new Error("Missing Claude terminal bounds");
+  }
+  await page.touchscreen.tap(bounds.x + 40, bounds.y + bounds.height - 24);
+
+  await expect
+    .poll(() =>
+      terminal
+        .locator(".xterm-helper-textarea")
+        .evaluate((element) => document.activeElement === element),
+    )
+    .toBe(true);
+});
+
 test("WebM video opens inline in the compact editor", async ({ page }) => {
   await page.getByRole("button", { name: "Code", exact: true }).click();
   await page.getByRole("button", { name: "Files" }).click();

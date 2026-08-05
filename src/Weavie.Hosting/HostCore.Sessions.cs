@@ -67,13 +67,14 @@ public sealed partial class HostCore {
 		WireCoreSessionMessages(session);
 
 		WireFileActivity(session);
+		// History first — see the ordering note on HostCore.ApplyHistoryResult (WebBridge): a turn boundary
+		// clears the undo stack, and the client must see that before the diff push it would otherwise chord off.
 		session.Changes.AcceptedCommitted += paths => PostForSession(session, () => {
+			PushReviewHistoryToWeb(session);
 			PushTurnChangesToWeb(session);
 			foreach (string path in paths) {
 				PushTurnDiffToWeb(session, path);
 			}
-
-			PushReviewHistoryToWeb(session);
 		});
 		WireAttention(session);
 		session.Status.Changed += status => {

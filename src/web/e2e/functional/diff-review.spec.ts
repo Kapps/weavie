@@ -53,6 +53,12 @@ const caretLine = (page: import("@playwright/test").Page): Promise<number | null
 test.describe("applied review — keep & undo", () => {
   test.use({ fakeScript: { steps: [...appliedEdit("hello.ts", TWO_HUNKS)] } });
 
+  // Flaked once on windows: 2026-08-05 04:41 UTC, run
+  // https://github.com/Kapps/weavie/actions/runs/30975495342/job/92208988130 — the undo assertion (line 67)
+  // timed out at count 1. Investigated: isolated to this one shard/run; the landing commit (PR #543,
+  // agent-turn navigation) doesn't touch this code path, and the identical keep→undo pattern elsewhere in
+  // this file passed in the same run. Three subsequent CI runs on main all passed this test on windows. No
+  // reproducible cause found — treating as a transient CI runner stall, not a code or test defect.
   test("keeping a hunk drops only it from the diff; undo brings it back", async ({ page }) => {
     await openFile(page, "hello.ts");
     await expect(page.locator(ADDED)).toHaveCount(2); // two hunks pending

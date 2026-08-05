@@ -48,6 +48,7 @@ async function dispatchPaneTouch(
 }
 
 test.use({
+  colorScheme: "light",
   fakeScript: {
     steps: [{ op: "hook", request: { hook_event_name: "SessionStart", source: "startup" } }],
   },
@@ -112,6 +113,7 @@ test("WebM video opens inline in the compact editor", async ({ page }) => {
 });
 
 test("compact session inbox creates, resumes, and switches existing surfaces", async ({ page }) => {
+  await expect(page.locator("html")).toHaveAttribute("data-theme-type", "light");
   const inbox = page.locator(".session-inbox");
   const newSessionPrompt = inbox.getByRole("textbox", { name: "Prompt for a new session" });
   await expect(inbox).toBeVisible();
@@ -157,9 +159,13 @@ test("compact session inbox creates, resumes, and switches existing surfaces", a
   await pasteImage(newSessionPrompt, PNG_B64);
   await expect(inbox.locator(".agent-attachment img")).toBeVisible();
   await inbox.getByRole("combobox", { name: "Agent provider" }).selectOption("codex");
-  await expect(inbox.getByRole("button", { name: "Start", exact: true })).toBeEnabled();
+  const startButton = inbox.getByRole("button", { name: "Start", exact: true });
+  await expect(startButton).toBeEnabled();
+  const primaryColors = await semanticButtonColors(page);
+  await expect(startButton).toHaveCSS("background-color", primaryColors.background);
+  await expect(startButton).toHaveCSS("color", primaryColors.foreground);
   const inboxHistoryLength = await page.evaluate(() => history.length);
-  await inbox.getByRole("button", { name: "Start", exact: true }).click();
+  await startButton.click();
 
   await expect(inbox).toBeHidden();
   await expect(page.locator(".mobile-surface-button.active")).toHaveText("Agent");
@@ -173,7 +179,10 @@ test("compact session inbox creates, resumes, and switches existing surfaces", a
   await activeComposer.press("Enter");
   await expect(activeComposer).toHaveValue("First line\n");
   await expect(agentSurface).not.toContainText("echo: First line");
-  await agentSurface.getByRole("button", { name: "Run", exact: true }).click();
+  const runButton = agentSurface.getByRole("button", { name: "Run", exact: true });
+  await expect(runButton).toHaveCSS("background-color", primaryColors.background);
+  await expect(runButton).toHaveCSS("color", primaryColors.foreground);
+  await runButton.click();
   await expect(agentSurface).toContainText("echo: First line");
 
   const compactChrome = await agentSurface.evaluate((surface) => {
@@ -438,3 +447,18 @@ test("compact session inbox creates, resumes, and switches existing surfaces", a
     ),
   ).toBe(true);
 });
+
+async function semanticButtonColors(
+  page: import("@playwright/test").Page,
+): Promise<{ background: string; foreground: string }> {
+  return page.evaluate(() => {
+    const probe = document.createElement("span");
+    probe.style.background = "var(--weavie-button-background)";
+    probe.style.color = "var(--weavie-button-foreground)";
+    document.body.append(probe);
+    const style = getComputedStyle(probe);
+    const colors = { background: style.backgroundColor, foreground: style.color };
+    probe.remove();
+    return colors;
+  });
+}

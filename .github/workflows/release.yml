@@ -207,10 +207,6 @@ jobs:
       actions: read
       contents: write
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.workflow_run.head_sha }}
-
       - name: Download complete release
         uses: actions/download-artifact@v4
         with:
@@ -224,7 +220,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          bash .github/scripts/publish-main-latest.sh \
+          script="$RUNNER_TEMP/publish-main-latest.sh"
+          gh api \
+            --header "Accept: application/vnd.github.raw+json" \
+            "repos/${{ github.repository }}/contents/.github/scripts/publish-main-latest.sh?ref=${{ github.workflow_sha }}" \
+            >"$script"
+          bash "$script" \
             "${{ github.event.workflow_run.head_sha }}" \
             "main-latest-${{ github.run_id }}" \
             "${{ github.api_url }}" \

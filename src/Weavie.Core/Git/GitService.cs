@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Globalization;
 using System.Text;
 
 namespace Weavie.Core.Git;
@@ -52,6 +53,24 @@ public sealed class GitService : IGitService {
 	public async Task<IReadOnlyList<string>> ListBranchesAsync(string directory, CancellationToken ct = default) {
 		ArgumentException.ThrowIfNullOrEmpty(directory);
 		var result = await RunCheckedAsync(directory, ["for-each-ref", "--format=%(refname:short)", "refs/heads"], ct).ConfigureAwait(false);
+		return [.. result.StdOut.Replace("\r", "", StringComparison.Ordinal)
+			.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)];
+	}
+
+	/// <inheritdoc/>
+	public async Task<IReadOnlyList<string>> ListRecentBranchesAsync(
+		string directory,
+		int limit,
+		CancellationToken ct = default) {
+		ArgumentException.ThrowIfNullOrEmpty(directory);
+		ArgumentOutOfRangeException.ThrowIfNegativeOrZero(limit);
+		var result = await RunCheckedAsync(directory, [
+			"for-each-ref",
+			"--sort=-committerdate",
+			"--count=" + limit.ToString(CultureInfo.InvariantCulture),
+			"--format=%(refname:short)",
+			"refs/heads",
+		], ct).ConfigureAwait(false);
 		return [.. result.StdOut.Replace("\r", "", StringComparison.Ordinal)
 			.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)];
 	}
@@ -113,6 +132,18 @@ public sealed class GitService : IGitService {
 		}
 
 		return true;
+	}
+
+	/// <summary>True when Git authoritatively accepts <paramref name="name"/> as a branch name.</summary>
+	public async Task<bool> IsValidBranchNameAsync(string directory, string name, CancellationToken ct = default) {
+		ArgumentException.ThrowIfNullOrEmpty(directory);
+		ArgumentNullException.ThrowIfNull(name);
+		if (!IsValidBranchName(name)) {
+			return false;
+		}
+
+		var result = await RunAsync(directory, ["check-ref-format", "--branch", name], ct).ConfigureAwait(false);
+		return result.ExitCode == 0;
 	}
 
 	/// <inheritdoc/>
@@ -197,11 +228,7 @@ public sealed class GitService : IGitService {
 	/// <inheritdoc/>
 	public async Task<GitDiffLineCounts> GetHeadDiffLineCountsAsync(string worktreeDirectory, CancellationToken ct = default) {
 		ArgumentException.ThrowIfNullOrEmpty(worktreeDirectory);
-		var result = await RunCheckedAsync(
-			worktreeDirectory,
-			["--no-optional-locks", "diff", "--numstat", "HEAD", "--"],
-			ct).ConfigureAwait(false);
-		var changes = ParseNumstat(result.StdOut);
+		var changes = await DiffWorktreeAsync(worktreeDirectory, "HEAD", ct).ConfigureAwait(false);
 		return new GitDiffLineCounts(changes.Sum(change => change.Added), changes.Sum(change => change.Removed));
 	}
 
@@ -318,14 +345,20 @@ public sealed class GitService : IGitService {
 		// No second ref ⇒ diff against the working tree, so uncommitted edits are included (unlike DiffRefsAsync).
 		var result = await RunCheckedAsync(repositoryDirectory, ["diff", "--numstat", "--no-renames", baseRef, "--"], ct).ConfigureAwait(false);
 		var changes = new List<DiffFileChange>(ParseNumstat(result.StdOut));
+		await AppendUntrackedChangesAsync(repositoryDirectory, changes, ct).ConfigureAwait(false);
+		return [.. changes.OrderBy(c => c.Path, StringComparer.Ordinal)];
+	}
+
+	private async Task AppendUntrackedChangesAsync(
+		string repositoryDirectory,
+		List<DiffFileChange> changes,
+		CancellationToken ct) {
 		// `git diff` skips untracked files, but to a user a brand-new file IS an uncommitted change — surface
 		// each (gitignore honored) as all-added rather than silently absent from the review.
 		var untracked = await RunCheckedAsync(repositoryDirectory, ["ls-files", "--others", "--exclude-standard", "-z"], ct).ConfigureAwait(false);
 		foreach (string path in untracked.StdOut.Split('\0', StringSplitOptions.RemoveEmptyEntries)) {
 			changes.Add(new DiffFileChange { Path = path, Added = CountLines(Path.Combine(repositoryDirectory, path)), Removed = 0 });
 		}
-
-		return [.. changes.OrderBy(c => c.Path, StringComparer.Ordinal)];
 	}
 
 	// The added-line count for an untracked file (display-only, mirroring numstat); 0 when it vanished mid-read.

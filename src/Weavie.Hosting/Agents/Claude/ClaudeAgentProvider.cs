@@ -1,17 +1,27 @@
 using Weavie.Core;
 using Weavie.Core.Agents;
+using Weavie.Core.Configuration;
+using Weavie.Core.Inference;
 using Weavie.Core.Sessions;
+using Weavie.Hosting.Inference;
+using Weavie.Hosting.Inference.Claude;
 
 namespace Weavie.Hosting.Agents.Claude;
 
 /// <summary>The Claude Code provider, retaining the existing settings and conversation store.</summary>
-public sealed class ClaudeAgentProvider : IAgentProvider {
+public sealed class ClaudeAgentProvider : IAgentInferenceProvider {
 	private readonly ClaudeSessionStore _sessions;
+	private readonly IInferenceProvider _inference;
 
 	/// <summary>Creates the provider over the app-global Claude conversation store.</summary>
-	public ClaudeAgentProvider(ClaudeSessionStore sessions) {
+	public ClaudeAgentProvider(SettingsStore settings, ClaudeSessionStore sessions)
+		: this(sessions, new ClaudeCliInference(settings, new AgentCliProcessRunner())) { }
+
+	internal ClaudeAgentProvider(ClaudeSessionStore sessions, IInferenceProvider inference) {
 		ArgumentNullException.ThrowIfNull(sessions);
+		ArgumentNullException.ThrowIfNull(inference);
 		_sessions = sessions;
+		_inference = inference;
 	}
 
 	/// <inheritdoc/>
@@ -25,6 +35,13 @@ public sealed class ClaudeAgentProvider : IAgentProvider {
 			| AgentProviderCapabilities.EditDisposition,
 		Available = true,
 	};
+
+	/// <inheritdoc/>
+	public InferenceProviderInfo InferenceInfo => _inference.InferenceInfo;
+
+	/// <inheritdoc/>
+	public Task<InferenceProviderResult> QueryInferenceAsync(InferenceProviderRequest request, CancellationToken ct) =>
+		_inference.QueryInferenceAsync(request, ct);
 
 	/// <inheritdoc/>
 	public IAgentSession CreateSession(AgentSessionContext context) {

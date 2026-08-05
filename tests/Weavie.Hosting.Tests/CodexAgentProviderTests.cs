@@ -4,6 +4,7 @@ using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
 using Weavie.Core.Editor;
 using Weavie.Core.FileSystem;
+using Weavie.Core.Inference;
 using Weavie.Core.Layout;
 using Weavie.Core.Mcp;
 using Weavie.Core.Sessions;
@@ -40,6 +41,7 @@ public sealed class CodexAgentProviderTests {
 			() => "slot-1");
 		var provider = new CodexAgentProvider(
 			new CodexThreadStore(fileSystem, "/codex-threads.json"),
+			UnavailableInference.Instance,
 			(_, _, _) => throw new InvalidOperationException("relay missing"));
 		await using var session = Assert.IsAssignableFrom<IStructuredAgentSession>(
 			provider.CreateSession(new AgentSessionContext {
@@ -69,5 +71,17 @@ public sealed class CodexAgentProviderTests {
 
 	private sealed class NullAgentEventSink : IAgentEventSink {
 		public AgentEventFeedback Observe(AgentEvent value) => AgentEventFeedback.None;
+	}
+
+	private sealed class UnavailableInference : IInferenceProvider {
+		public static UnavailableInference Instance { get; } = new();
+
+		public InferenceProviderInfo InferenceInfo { get; } = new() {
+			Categories = [InferenceModelCategory.Utility, InferenceModelCategory.Reasoning],
+		};
+
+		public Task<InferenceProviderResult> QueryInferenceAsync(
+			InferenceProviderRequest request,
+			CancellationToken ct) => throw new NotSupportedException();
 	}
 }

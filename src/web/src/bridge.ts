@@ -493,6 +493,24 @@ export function requestBranches(backendId: string): Promise<string[]> {
     : connection.host.feature("git").request("branches", {});
 }
 
+export interface BranchPreviewResult {
+  branch: string;
+}
+
+export function requestBranchPreview(
+  backendId: string,
+  prompt: string,
+  agentProviderId: "claude" | "codex",
+  signal: AbortSignal,
+): Promise<BranchPreviewResult> {
+  const session = selectedForBackend(backendId);
+  return session === undefined
+    ? Promise.reject(new Error("No live session is available."))
+    : session
+        .feature("sessionCreation")
+        .request("previewBranch", { prompt, agentProviderId }, signal);
+}
+
 export function requestDiffRefs(backendId: string): Promise<string[]> {
   const session = selectedForBackend(backendId);
   return session === undefined

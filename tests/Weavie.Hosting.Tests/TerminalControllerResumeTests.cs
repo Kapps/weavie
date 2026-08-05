@@ -20,6 +20,13 @@ namespace Weavie.Hosting.Tests;
 /// </summary>
 public sealed class TerminalControllerResumeTests {
 	[Fact]
+	public void LaunchPreservesNormalClaudeAuthenticationEnvironment() {
+		using var h = new Harness();
+
+		Assert.Empty(h.Agent.ResolveLaunch().RemoveEnvironment);
+	}
+
+	[Fact]
 	public void NoTranscript_CreatesWithSessionId() {
 		using var h = new Harness();
 

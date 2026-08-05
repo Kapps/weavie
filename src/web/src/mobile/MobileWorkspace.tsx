@@ -10,6 +10,7 @@ import { type NewSessionSeed, SessionInbox } from "./SessionInbox";
 /** Compact chrome around the app's one shared, permanently mounted LayoutView. */
 export function MobileWorkspace(props: {
   surface: MobileSurface;
+  inboxActive: boolean;
   sessions: RailSession[];
   initialBackendId: string;
   initialProviderId: "claude" | "codex";
@@ -34,6 +35,7 @@ export function MobileWorkspace(props: {
   return (
     <>
       <SessionInbox
+        active={props.inboxActive}
         sessions={props.sessions}
         initialBackendId={props.initialBackendId}
         initialProviderId={props.initialProviderId}

@@ -1667,6 +1667,7 @@ export default function App(): JSX.Element {
         />
         <MobileWorkspace
           surface={mobileSurface()}
+          inboxActive={compact() && mobileSurface() === "inbox" && !newSessionOpen()}
           sessions={sessions()}
           initialBackendId={defaultLocation()}
           initialProviderId={defaultAgentProvider()}
@@ -1676,6 +1677,7 @@ export default function App(): JSX.Element {
             setDefaultAgentProvider(providerId);
             promoteNextSessionOn(backendId);
             return createSessionAt(backendId, {
+              branch: seed.branch,
               base: "source",
               existing: false,
               prompt: seed.prompt,

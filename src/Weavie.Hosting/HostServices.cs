@@ -4,6 +4,7 @@ using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
 using Weavie.Core.Diagnostics;
 using Weavie.Core.FileSystem;
+using Weavie.Core.Inference;
 using Weavie.Core.Remote;
 using Weavie.Core.Review;
 using Weavie.Core.Search;
@@ -13,6 +14,7 @@ using Weavie.Core.Suggestions;
 using Weavie.Core.Theming;
 using Weavie.Hosting.Agents.Claude;
 using Weavie.Hosting.Agents.Codex;
+using Weavie.Hosting.Inference;
 
 namespace Weavie.Hosting;
 
@@ -39,6 +41,9 @@ public sealed record HostServices {
 
 	/// <summary>The required embedded-agent provider catalog.</summary>
 	public required AgentProviderRegistry AgentProviders { get; init; }
+
+	/// <summary>The app-global typed inference service over the installed agent providers.</summary>
+	public required IInferenceService Inference { get; init; }
 
 	/// <summary>
 	/// The registered remote agents (<c>~/.weavie/remote-agents.json</c>) — app-global so every window shares
@@ -94,8 +99,9 @@ public sealed record HostServices {
 		var claudeSessions = new ClaudeSessionStore(new LocalFileSystem(), WeaviePaths.ClaudeSessionsFile);
 		claudeSessions.Log += Log;
 		var agentProviders = new AgentProviderRegistry();
-		agentProviders.Register(new ClaudeAgentProvider(claudeSessions));
+		agentProviders.Register(new ClaudeAgentProvider(settings, claudeSessions));
 		agentProviders.Register(new CodexAgentProvider(
+			settings,
 			new CodexThreadStore(new LocalFileSystem(), WeaviePaths.CodexThreadsFile)));
 		var remoteAgents = new RemoteAgentStore(new LocalFileSystem(), path: null);
 		remoteAgents.Log += Log;
@@ -111,6 +117,7 @@ public sealed record HostServices {
 			Keybindings = keybindings,
 			ThemeOverrides = themeOverrides,
 			AgentProviders = agentProviders,
+			Inference = InferenceComposition.CreateDefault(settings, agentProviders),
 			RemoteAgents = remoteAgents,
 			RailState = railState,
 			SearchState = searchState,

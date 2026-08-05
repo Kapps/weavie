@@ -33,12 +33,12 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 		ArgumentException.ThrowIfNullOrEmpty(command);
 		_context = context;
 		_threads = threads;
-		_client = Client(CodexAppServerLaunch.Raw(command, context.Workspace));
+		_client = Client(CodexCliLaunch.Raw(command, context.Workspace));
 		WireClient();
 	}
 
 	/// <summary>Creates a worktree-scoped Codex app-server session from a resolved Codex launch.</summary>
-	internal CodexAppServerSession(AgentSessionContext context, CodexThreadStore threads, CodexAppServerLaunch launch) {
+	internal CodexAppServerSession(AgentSessionContext context, CodexThreadStore threads, CodexCliLaunch launch) {
 		ArgumentNullException.ThrowIfNull(context);
 		ArgumentNullException.ThrowIfNull(threads);
 		ArgumentNullException.ThrowIfNull(launch);
@@ -48,7 +48,7 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 		WireClient();
 	}
 
-	private CodexAppServerClient Client(CodexAppServerLaunch launch) =>
+	private CodexAppServerClient Client(CodexCliLaunch launch) =>
 		new(
 			launch,
 			[],

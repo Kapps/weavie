@@ -5,6 +5,7 @@ using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
 using Weavie.Core.Diagnostics;
 using Weavie.Core.FileSystem;
+using Weavie.Core.Inference;
 using Weavie.Core.Mcp;
 using Weavie.Core.Remote;
 using Weavie.Core.Review;
@@ -14,6 +15,7 @@ using Weavie.Core.Shell;
 using Weavie.Core.Terminal;
 using Weavie.Core.Theming;
 using Weavie.Hosting.Agents.Claude;
+using Weavie.Hosting.Inference;
 using Weavie.Hosting.Messaging;
 using Weavie.Hosting.Web;
 
@@ -97,6 +99,22 @@ internal sealed class TestHost : IAsyncDisposable {
 	/// </summary>
 	public static Task<TestHost> StartAsync(Action<string> prepareRepo) => StartAsync(prepareRepo, sendReady: true);
 
+	/// <summary>As <see cref="StartAsync(Action{string})"/>, with a test-controlled stateless inference service.</summary>
+	public static async Task<TestHost> StartAsync(
+		Action<string> prepareRepo,
+		Func<SettingsStore, IInferenceService> inferenceFor) {
+		ArgumentNullException.ThrowIfNull(inferenceFor);
+		var host = Create(
+			prepareRepo,
+			new StaticPullRequestProvider([], []),
+			new InlineUiDispatcher(),
+			NoopSystemNotificationChannel.Instance,
+			inferenceFor);
+		await host.Core.StartAsync().ConfigureAwait(false);
+		await host.ConnectAsync().ConfigureAwait(false);
+		return host;
+	}
+
 	/// <summary>As <see cref="StartAsync(Action{string})"/>, with deterministic pull requests exposed by the host.</summary>
 	public static Task<TestHost> StartAsync(Action<string> prepareRepo, IReadOnlyList<PullRequestSummary> pullRequests) =>
 		StartAsync(prepareRepo, new StaticPullRequestProvider(pullRequests, []), sendReady: true);
@@ -151,7 +169,20 @@ internal sealed class TestHost : IAsyncDisposable {
 		Action<string> prepareRepo,
 		IPullRequestProvider pullRequests,
 		IUiDispatcher dispatcher,
-		ISystemNotificationChannel notifications) {
+		ISystemNotificationChannel notifications) =>
+		Create(
+			prepareRepo,
+			pullRequests,
+			dispatcher,
+			notifications,
+			static settings => InferenceComposition.CreateDisabled(settings));
+
+	private static TestHost Create(
+		Action<string> prepareRepo,
+		IPullRequestProvider pullRequests,
+		IUiDispatcher dispatcher,
+		ISystemNotificationChannel notifications,
+		Func<SettingsStore, IInferenceService> inferenceFor) {
 		string tempRoot = Path.Combine(Path.GetTempPath(), "weavie-host-it-" + Guid.NewGuid().ToString("n"));
 		string repo = Path.Combine(tempRoot, "repo");
 		Directory.CreateDirectory(repo);
@@ -167,7 +198,7 @@ internal sealed class TestHost : IAsyncDisposable {
 
 		var sourceHttp = new StubHttpMessageHandler();
 		string sourcesDir = Path.Combine(tempRoot, "sources");
-		var services = IsolatedServices(tempRoot, sourceHttp, sourcesDir, pullRequests);
+		var services = IsolatedServices(tempRoot, sourceHttp, sourcesDir, pullRequests, inferenceFor);
 		var bridge = new FakeHostBridge();
 		var platform = new TestPlatform(bridge, dispatcher) { Notifications = notifications };
 		var core = new HostCore(
@@ -428,14 +459,15 @@ internal sealed class TestHost : IAsyncDisposable {
 		string tempRoot,
 		StubHttpMessageHandler sourceHttp,
 		string sourcesDir,
-		IPullRequestProvider pullRequests) {
+		IPullRequestProvider pullRequests,
+		Func<SettingsStore, IInferenceService> inferenceFor) {
 		var settings = CoreSettings.CreateStore(Path.Combine(tempRoot, "settings.toml"), enableWatcher: false);
 		var registry = CoreCommands.CreateRegistry();
 		var keybindings = new KeybindingStore(registry, Path.Combine(tempRoot, "keybindings.json"), enableWatcher: false);
 		var themeOverrides = new ThemeOverridesStore(new LocalFileSystem(), Path.Combine(tempRoot, "theme-overrides.json"));
 		var claudeSessions = new ClaudeSessionStore(new LocalFileSystem(), Path.Combine(tempRoot, "claude-sessions.json"));
 		var agentProviders = new AgentProviderRegistry();
-		agentProviders.Register(new ClaudeAgentProvider(claudeSessions));
+		agentProviders.Register(new ClaudeAgentProvider(settings, claudeSessions));
 		agentProviders.Register(new FakeCodexAgentProvider());
 		var remoteAgents = new RemoteAgentStore(new LocalFileSystem(), Path.Combine(tempRoot, "remote-agents.json"));
 		var railState = new RailStateStore(new LocalFileSystem(), Path.Combine(tempRoot, "rail-state.json"));
@@ -447,6 +479,7 @@ internal sealed class TestHost : IAsyncDisposable {
 			Keybindings = keybindings,
 			ThemeOverrides = themeOverrides,
 			AgentProviders = agentProviders,
+			Inference = inferenceFor(settings),
 			RemoteAgents = remoteAgents,
 			RailState = railState,
 			SearchState = searchState,

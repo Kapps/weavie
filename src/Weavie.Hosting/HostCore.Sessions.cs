@@ -928,12 +928,16 @@ public sealed partial class HostCore {
 
 		string branch;
 		if (string.IsNullOrWhiteSpace(requestedBranch)) {
-			branch = await DeriveUniqueBranchNameAsync(input?.Text, ct).ConfigureAwait(false);
+			branch = await DeriveUniqueDeterministicBranchNameAsync(input?.Text, ct).ConfigureAwait(false);
 		} else {
 			branch = requestedBranch.Trim();
 			// The branch name is web-supplied; reject a malformed/option-shaped name before it reaches git.
-			if (!GitService.IsValidBranchName(branch)) {
-				return CommandResult.Failure($"'{branch}' isn't a valid branch name.");
+			try {
+				if (!await new GitService().IsValidBranchNameAsync(source.WorkspaceRoot, branch, ct).ConfigureAwait(false)) {
+					return CommandResult.Failure($"'{branch}' isn't a valid branch name.");
+				}
+			} catch (GitException ex) {
+				return CommandResult.Failure($"Couldn't validate the branch name: {ex.Message}");
 			}
 		}
 
@@ -1215,49 +1219,6 @@ public sealed partial class HostCore {
 		}
 
 		throw new InvalidOperationException($"Unknown session base '{baseSpec}'.");
-	}
-
-	/// <summary>
-	/// Derives a unique branch name for an auto-named session: a slug from the first prompt (or "session"),
-	/// suffixed -2/-3/… until it collides with no existing slot label or worktree branch.
-	/// </summary>
-	private async Task<string> DeriveUniqueBranchNameAsync(string? prompt, CancellationToken ct) {
-		var taken = new HashSet<string>(StringComparer.Ordinal);
-		if (_sessions is not null) {
-			foreach (var slot in _sessions.Slots) {
-				taken.Add(slot.Label);
-			}
-		}
-
-		if (_worktrees is not null) {
-			try {
-				foreach (var status in await _worktrees.ListAsync(ct).ConfigureAwait(false)) {
-					if (status.Branch is { } existing) {
-						taken.Add(existing);
-					}
-				}
-			} catch (GitException) {
-				// Best-effort: fall back to slot-label uniqueness; CreateAsync still rejects a true collision.
-			}
-		}
-
-		string slug = "session";
-		if (!string.IsNullOrWhiteSpace(prompt)) {
-			char[] chars = [.. prompt.Trim().ToLowerInvariant().Take(40).Select(c => char.IsLetterOrDigit(c) ? c : '-')];
-			slug = new string(chars).Trim('-');
-			if (slug.Length == 0) {
-				slug = "session";
-			}
-		}
-
-		string candidate = slug;
-		int n = 2;
-		while (taken.Contains(candidate)) {
-			candidate = $"{slug}-{n}";
-			n++;
-		}
-
-		return candidate;
 	}
 
 }

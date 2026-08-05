@@ -157,7 +157,8 @@ sequenceDiagram
   (`src/Weavie.Hosting/TerminalController.cs`) under a `ProcessSupervisor` with `RestartPolicy.Always`
   (see [process-supervisor](../specs/process-supervisor.md)). The OS-specific PTY is an injected
   `IPtyLauncher`; Windows uses hand-rolled **ConPTY** P/Invoke (`src/Weavie.Core/Terminal/WindowsConPtyTerminal.cs`).
-  `claude` launches with `ANTHROPIC_API_KEY` stripped (subscription billing, interactive TUI — never `-p`/SDK).
+  `claude` launches with its normal authentication environment (configured API key or stored OAuth) using the
+  interactive TUI rather than `-p`/SDK.
 - Pane identity is the feature (`terminal.agent` or `terminal.shell`); session identity is the envelope
   address. `TerminalController` receives an already-owned feature channel, so it cannot publish into another
   pane or session. Every loaded session streams into its own retained xterm state, making selection a

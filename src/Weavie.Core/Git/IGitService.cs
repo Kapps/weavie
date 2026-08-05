@@ -27,7 +27,7 @@ public sealed record WorktreeChangeStatus(
 	IReadOnlyList<string> TrackedFiles,
 	IReadOnlyList<string> UntrackedFiles);
 
-/// <summary>The added and removed lines reported by <c>git diff --numstat HEAD</c>.</summary>
+/// <summary>The added and removed lines in the complete working-tree review against HEAD.</summary>
 /// <param name="Added">Lines added relative to HEAD.</param>
 /// <param name="Removed">Lines removed relative to HEAD.</param>
 public sealed record GitDiffLineCounts(int Added, int Removed);
@@ -60,6 +60,11 @@ public interface IGitService {
 	/// Remote-tracking branches are out of scope.
 	/// </summary>
 	Task<IReadOnlyList<string>> ListBranchesAsync(string directory, CancellationToken ct = default);
+
+	/// <summary>
+	/// Up to <paramref name="limit"/> local branch names ordered by their tip's committer date, newest first.
+	/// </summary>
+	Task<IReadOnlyList<string>> ListRecentBranchesAsync(string directory, int limit, CancellationToken ct = default);
 
 	/// <summary>
 	/// Every ref a diff can name — local branches then remote-tracking branches (e.g. <c>main</c>,
@@ -104,8 +109,8 @@ public interface IGitService {
 	Task<GitStatusSummary> GetStatusSummaryAsync(string worktreeDirectory, CancellationToken ct = default);
 
 	/// <summary>
-	/// The literal line totals from <c>git diff --numstat HEAD --</c>: staged and unstaged tracked changes,
-	/// excluding untracked files. Throws when HEAD cannot be diffed.
+	/// Working-tree line totals against HEAD: Git numstat for staged/unstaged tracked changes plus all-added
+	/// untracked files from Git's ignore-aware file list. Throws when HEAD cannot be diffed.
 	/// </summary>
 	Task<GitDiffLineCounts> GetHeadDiffLineCountsAsync(string worktreeDirectory, CancellationToken ct = default);
 

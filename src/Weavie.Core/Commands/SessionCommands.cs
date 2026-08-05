@@ -71,7 +71,7 @@ public static class SessionCommands {
 			RunsIn = CommandLocation.Core,
 			Category = "Session",
 			Description = "Create a new session on its own git worktree + branch. With no 'branch' the host "
-				+ "auto-names one (avoiding existing branches). 'base' is 'source' (the invoking session's HEAD; the "
+					+ "derives one deterministically (avoiding existing local branches and session labels). 'base' is 'source' (the invoking session's HEAD; the "
 				+ "default) or 'main'. Set 'existing' true to instead check out an existing branch named by 'branch' "
 				+ "(no new branch; 'base' is ignored), switching to that session if one already exists. An optional "
 				+ "'prompt' and optional image 'attachments' are sent as the new session's first input. "

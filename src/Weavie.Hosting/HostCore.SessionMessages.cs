@@ -31,6 +31,15 @@ public sealed partial class HostCore {
 					execution.CompleteAsync);
 			});
 
+		session.Bus.Feature("sessionCreation").Handle<BranchPreviewRequest, BranchPreviewResult>(
+			"previewBranch",
+			async (message, ct) => new BranchPreviewResult(
+				await PreviewBranchNameAsync(
+					session,
+					message.Prompt,
+					message.AgentProviderId,
+					ct).ConfigureAwait(false)));
+
 		var editor = session.Bus.Feature("editor");
 		editor.HandleOwned<EditorSessionMessage>(
 			"sessionChanged",
@@ -193,6 +202,10 @@ public sealed partial class HostCore {
 		JsonElement? Data);
 
 	private sealed record CommandRequest(string Id, JsonElement? Args);
+
+	private sealed record BranchPreviewRequest(string? Prompt, string AgentProviderId);
+
+	private sealed record BranchPreviewResult(string Branch);
 
 	private sealed record EditorSessionMessage(JsonElement Session);
 

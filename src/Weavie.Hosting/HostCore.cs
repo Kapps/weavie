@@ -8,6 +8,7 @@ using Weavie.Core.Corrections;
 using Weavie.Core.Diagnostics;
 using Weavie.Core.Editor;
 using Weavie.Core.FileSystem;
+using Weavie.Core.Inference;
 using Weavie.Core.Layout;
 using Weavie.Core.Mcp;
 using Weavie.Core.Remote;
@@ -44,6 +45,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 	private readonly ThemeOverridesStore _themeOverrides;
 	// App-global Claude-session-id map (keyed by cwd); each session resumes its own worktree's conversation.
 	private readonly AgentProviderRegistry _agentProviders;
+	private readonly IInferenceService _inference;
 	// App-global remote-agent registry; included in hello and re-pushed on change (the web owns the
 	// connections, this owns persistence — see remote-agents.ts).
 	private readonly RemoteAgentStore _remoteAgents;
@@ -134,6 +136,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 		_keybindings = services.Keybindings;
 		_themeOverrides = services.ThemeOverrides;
 		_agentProviders = services.AgentProviders;
+		_inference = services.Inference;
 		_remoteAgents = services.RemoteAgents;
 		_railState = services.RailState;
 		_searchState = services.SearchState;

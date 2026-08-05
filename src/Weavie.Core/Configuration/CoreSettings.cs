@@ -114,6 +114,28 @@ public static class CoreSettings {
 		});
 
 		registry.Register(new SettingDefinition {
+			Key = InferenceSettings.Enabled,
+			Kind = SettingKind.Bool,
+			Description = "Allow Weavie features to make isolated model queries through the selected Claude or Codex "
+				+ "CLI. Calls use that CLI's existing authentication and never enter the interactive session transcript. "
+				+ "Off by default. Takes effect on the next query.",
+			Aliases = ["ad hoc inference", "utility inference", "model queries", "ai suggestions"],
+			Apply = ApplyMode.Live,
+			Default = false,
+		});
+
+		registry.Register(new SettingDefinition {
+			Key = InferenceSettings.AllowAutomatic,
+			Kind = SettingKind.Bool,
+			Description = "Allow Weavie to spend inference tokens without a directly-triggering user action, such as "
+					+ "branch-name preview or continuous review after an edit. Explicit actions such as reviewing a plan or "
+					+ "diagnosing a test failure do not require this. Off by default. Takes effect on the next query.",
+			Aliases = ["automatic inference", "background ai suggestions", "continuous ai review"],
+			Apply = ApplyMode.Live,
+			Default = false,
+		});
+
+		registry.Register(new SettingDefinition {
 			Key = "claude.path",
 			Kind = SettingKind.Path,
 			Description = "Path to the claude binary (auto-detected when unset).",

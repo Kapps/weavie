@@ -7,7 +7,7 @@ namespace Weavie.Hosting.Agents.Codex;
 
 /// <summary>Supervises <c>codex app-server --stdio</c> and exchanges JSON-RPC messages over JSONL.</summary>
 public sealed partial class CodexAppServerClient : IAsyncDisposable {
-	private readonly CodexAppServerLaunch _launch;
+	private readonly CodexCliLaunch _launch;
 	private readonly IReadOnlyList<string> _globalArguments;
 	private readonly IReadOnlyList<string> _configArguments;
 	private readonly IReadOnlyList<string> _appServerArguments;
@@ -29,7 +29,7 @@ public sealed partial class CodexAppServerClient : IAsyncDisposable {
 		IReadOnlyDictionary<string, string> environment,
 		Action<string> log)
 		: this(
-			CodexAppServerLaunch.Raw(command, workingDirectory),
+			CodexCliLaunch.Raw(command, workingDirectory),
 			globalArguments,
 			configArguments,
 			appServerArguments,
@@ -39,7 +39,7 @@ public sealed partial class CodexAppServerClient : IAsyncDisposable {
 
 	/// <summary>Creates a client for a resolved Codex app-server launch.</summary>
 	internal CodexAppServerClient(
-		CodexAppServerLaunch launch,
+		CodexCliLaunch launch,
 		IReadOnlyList<string> globalArguments,
 		IReadOnlyList<string> configArguments,
 		IReadOnlyList<string> appServerArguments,

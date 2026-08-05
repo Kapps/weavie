@@ -57,7 +57,7 @@ public sealed class ClaudeTerminalLifecycle : ITerminalProcess {
 			Command = _settings.GetString("claude.path") ?? "claude",
 			Arguments = args,
 			WorkingDirectory = Workspace,
-			RemoveEnvironment = ["ANTHROPIC_API_KEY"],
+			RemoveEnvironment = [],
 			Environment = _configuration.Environment,
 			ExecutableMode = AgentExecutableMode.LoginShell,
 			WorkingDirectoryMode = AgentWorkingDirectoryMode.Fixed,

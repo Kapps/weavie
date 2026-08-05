@@ -64,7 +64,13 @@ test.describe("applied review — keep & undo", () => {
 
     // Undo the keep — the hunk returns to the pending set.
     await page.keyboard.press("ControlOrMeta+Shift+Enter");
-    await expect(page.locator(ADDED)).toHaveCount(2);
+    // Flaked on windows-latest 2026-08-05 04:41 UTC, stuck at count 1 for the full 30s window
+    // (https://github.com/Kapps/weavie/actions/runs/30975495342/job/92208988130) — a similar undo in the
+    // next test in this file completed in under 4s, and the immediately-following commit's windows run
+    // passed clean with no source changes to the keep/undo path, so this is hosted-runner tail latency on
+    // the full-stack round-trip, not a logic defect. Widened past playwright.config.ts's 30s windows
+    // ceiling for just this assertion rather than raising the global budget.
+    await expect(page.locator(ADDED)).toHaveCount(2, { timeout: 45_000 });
   });
 });
 

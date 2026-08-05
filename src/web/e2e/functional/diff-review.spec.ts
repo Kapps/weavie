@@ -53,6 +53,13 @@ const caretLine = (page: import("@playwright/test").Page): Promise<number | null
 test.describe("applied review — keep & undo", () => {
   test.use({ fakeScript: { steps: [...appliedEdit("hello.ts", TWO_HUNKS)] } });
 
+  // Flaked once on windows-latest: 2026-08-05 04:41 UTC, the post-undo toHaveCount(2) stayed stuck at 1 for
+  // the entire 30s expect timeout (63 straight polls, no progress) rather than slowly converging —
+  // https://github.com/Kapps/weavie/actions/runs/30975495342/job/92208988130. Investigated: built the host
+  // and ran this test 11x locally on the headless project (including under artificial CPU contention) without
+  // reproducing it; the identical undo-keep shortcut sequence also passed immediately afterward in the same
+  // failing CI run (see the sibling test below). No app or test defect found — every main-branch CI run since
+  // has been green. Left as-is (no speculative fix) pending a reproducible case.
   test("keeping a hunk drops only it from the diff; undo brings it back", async ({ page }) => {
     await openFile(page, "hello.ts");
     await expect(page.locator(ADDED)).toHaveCount(2); // two hunks pending

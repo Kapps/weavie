@@ -249,6 +249,17 @@ test.describe("Codex composer", () => {
     await expect(statusLine).toBeVisible();
   }
 
+  async function revealScrollNavigation(page: Page): Promise<void> {
+    const body = page.locator(".agent-body");
+    const bounds = await body.boundingBox();
+    if (bounds === null) {
+      throw new Error("agent body has no viewport");
+    }
+    const clientWidth = await body.evaluate((element) => element.clientWidth);
+    await page.mouse.move(bounds.x + clientWidth - 20, bounds.y + bounds.height / 2);
+    await expect(page.locator(".agent-scroll-nav")).toHaveCSS("opacity", "1");
+  }
+
   test("status line shows model, mode, approvals, and sandbox", async ({ page }) => {
     await mountCodex(page);
 
@@ -978,17 +989,18 @@ test.describe("Codex composer", () => {
     expect(decision).toMatchObject({ requestId: "a1", decision: "accept" });
   });
 
-  // Pins the follow threshold and pill: staying within three lines keeps following; scrolling farther up pauses it.
-  test("scrolling beyond three lines shows the jump-to-latest pill", async ({ page }) => {
+  // Pins the follow threshold and navigation: staying within three lines keeps following; scrolling farther up pauses it.
+  test("scrolling beyond three lines shows jump-to-latest navigation", async ({ page }) => {
     await mountCodex(page);
     for (let i = 0; i < 40; i += 1) {
       publishPane(userMessage(`prompt ${i}\nwith\nseveral\nlines`));
     }
 
     const body = page.locator(".agent-body");
-    const pill = page.locator(".agent-follow-pill");
+    const navigation = page.locator(".agent-scroll-nav");
+    const latestButton = page.getByRole("button", { name: "Jump to latest", exact: true });
     await expect(page.locator(".agent-entry").first()).toBeVisible();
-    await expect(pill).toHaveCount(0);
+    await expect(latestButton).toHaveCount(0);
 
     const bounds = await body.boundingBox();
     if (bounds === null) {
@@ -1010,18 +1022,23 @@ test.describe("Codex composer", () => {
     };
 
     await scrollLinesFromBottom(2.5);
-    await expect(pill).toHaveCount(0);
+    await expect(latestButton).toHaveCount(0);
     publishPane(userMessage("near-bottom follow check"));
     await expect
       .poll(() => body.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight))
       .toBeLessThan(1);
 
     await scrollLinesFromBottom(4);
-    await expect(pill).toBeVisible();
-    await page.screenshot({ path: join(shotsDir, "10-follow-pill.png") });
+    await expect(latestButton).toHaveCount(1);
+    await expect(navigation).toHaveCSS("opacity", "0");
+    await revealScrollNavigation(page);
+    await page.screenshot({ path: join(shotsDir, "10-scroll-navigation.png") });
+    await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+    await expect(navigation).toHaveCSS("opacity", "0");
+    await revealScrollNavigation(page);
 
-    await pill.click();
-    await expect(pill).toHaveCount(0);
+    await latestButton.click();
+    await expect(latestButton).toHaveCount(0);
     await expect
       .poll(() => body.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight))
       .toBeLessThan(1);
@@ -1074,8 +1091,9 @@ test.describe("Codex composer", () => {
     );
 
     const body = page.locator(".agent-body");
-    const turnPill = page.getByRole("button", { name: "↑ Jump to turn", exact: true });
-    const latestPill = page.getByRole("button", { name: "↓ Jump to latest", exact: true });
+    const navigation = page.locator(".agent-scroll-nav");
+    const turnButton = page.getByRole("button", { name: "Jump to turn", exact: true });
+    const latestButton = page.getByRole("button", { name: "Jump to latest", exact: true });
     const agentTurnStart = page.locator("[data-agent-turn-output-start]");
     const prompt = page.locator(".agent-entry.agent-tone-user", {
       hasText: "Explain the long result",
@@ -1094,12 +1112,12 @@ test.describe("Codex composer", () => {
         ),
       )
       .toBeLessThan(0);
-    await expect(turnPill).toHaveCount(0);
+    await expect(turnButton).toHaveCount(0);
 
     await page.locator("[data-agent-composer] textarea").focus();
     await page.keyboard.press("Alt+ArrowUp");
     await expect.poll(distanceFromBottom).toBeLessThan(1);
-    await expect(latestPill).toHaveCount(0);
+    await expect(latestButton).toHaveCount(0);
 
     const continuation = "Followed output while the turn remains active.";
     const completedResponse = `${longResponse}\n\n${continuation}`;
@@ -1129,17 +1147,40 @@ test.describe("Codex composer", () => {
         text: completedResponse,
       }),
     );
-    await expect(turnPill).toHaveCount(0);
+    await expect(turnButton).toHaveCount(0);
     publishPane(paneMessage({ ...turn, type: "turn-completed", status: "completed" }));
 
-    await expect(turnPill).toBeVisible();
-    await expect(turnPill).toHaveAttribute(
+    await expect(turnButton).toHaveCount(1);
+    await expect(turnButton).toHaveAttribute(
       "title",
       "Jump to the start of this agent turn (Alt+Up)",
     );
     await expect.poll(distanceFromBottom).toBeLessThan(1);
+    await expect
+      .poll(() =>
+        body.evaluate((element) => {
+          const wrap = element.parentElement;
+          const navigation = element.parentElement?.querySelector<HTMLElement>(
+            ".agent-scroll-nav-button",
+          );
+          if (wrap === null || navigation === null) {
+            return { bodyFillsWrap: false, clearsScrollbar: false };
+          }
+          const bodyBounds = element.getBoundingClientRect();
+          const wrapBounds = wrap.getBoundingClientRect();
+          return {
+            bodyFillsWrap:
+              Math.abs(bodyBounds.width - wrapBounds.width) < 1 &&
+              Math.abs(bodyBounds.right - wrapBounds.right) < 1,
+            clearsScrollbar: bodyBounds.right - navigation.getBoundingClientRect().right >= 15.5,
+          };
+        }),
+      )
+      .toEqual({ bodyFillsWrap: true, clearsScrollbar: true });
+    await expect(navigation).toHaveCSS("opacity", "0");
+    await revealScrollNavigation(page);
 
-    await turnPill.click();
+    await turnButton.click();
     await expect
       .poll(() =>
         agentTurnStart.evaluate((element) => {
@@ -1160,24 +1201,44 @@ test.describe("Codex composer", () => {
         ),
       )
       .toBeLessThan(0);
-    await expect(latestPill).toHaveAttribute(
+    await expect(turnButton).toHaveCount(0);
+    await expect(latestButton).toHaveAttribute(
       "title",
       "Scroll to the latest activity and follow it (Alt+Down)",
     );
+    const bounds = await body.boundingBox();
+    if (bounds === null) {
+      throw new Error("agent body has no viewport");
+    }
+    await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+    await expect(navigation).toHaveCSS("opacity", "0");
+    await latestButton.focus();
+    await expect(navigation).toHaveCSS("opacity", "1");
+
+    await body.evaluate((element) => {
+      element.scrollTop += element.clientHeight;
+    });
+    await expect(turnButton).toHaveCount(1);
+    await expect(latestButton).toHaveCount(1);
 
     await page.keyboard.press("Alt+ArrowDown");
     await expect.poll(distanceFromBottom).toBeLessThan(1);
-    await expect(turnPill).toBeVisible();
+    await expect(turnButton).toHaveCount(1);
 
     await page.keyboard.press("Alt+ArrowUp");
-    await expect(latestPill).toBeVisible();
+    await expect(latestButton).toHaveCount(1);
+    await page.locator("[data-agent-composer] textarea").focus();
+    await expect(navigation).toHaveCSS("opacity", "0");
+    await body.dispatchEvent("pointerdown", { pointerType: "touch" });
+    await expect(navigation).toHaveCSS("opacity", "1");
+    await expect(latestButton).toHaveCSS("width", "40px");
     const freshSession = mockSession("cx-scroll-reset", "fresh", "codex", false);
     host.setSessions([codexSession, freshSession]);
     host.publishSession(freshSession.address, "agent", "controls", controls);
     await page.locator('.session-chip[title^="fresh —"]').click();
     await expect(page.locator(".agent-empty")).toBeVisible();
-    await expect(latestPill).toHaveCount(0);
-    await expect(turnPill).toHaveCount(0);
+    await expect(latestButton).toHaveCount(0);
+    await expect(turnButton).toHaveCount(0);
     await expect.poll(distanceFromBottom).toBeLessThan(1);
   });
 

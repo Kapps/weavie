@@ -200,7 +200,7 @@ test("long transcripts switch as a measured virtual window", async ({ page }) =>
     await body.evaluate((element) => {
       element.scrollTop = element.scrollHeight * 0.45;
     });
-    await expect(page.locator(".agent-follow-pill")).toBeVisible();
+    await expect(page.locator(".agent-scroll-nav-button")).toHaveCount(1);
     const viewportAnchor = () =>
       body.evaluate((element) => {
         const viewportTop = element.getBoundingClientRect().top;
@@ -239,7 +239,7 @@ test("long transcripts switch as a measured virtual window", async ({ page }) =>
     await measureSwitch(second.label, "SECOND_799");
     await page.locator(`.session-chip[title^="${first.label} —"]`).click();
     await expect(page.locator(`.session-chip.active[title^="${first.label} —"]`)).toBeVisible();
-    await expect(page.locator(".agent-follow-pill")).toBeVisible();
+    await expect(page.locator(".agent-scroll-nav-button")).toHaveCount(1);
     const restored = await settledViewportAnchor();
     expect(restored.entryId).toBe(saved.entryId);
     expect(Math.abs(restored.offset - saved.offset)).toBeLessThan(1);

@@ -110,8 +110,8 @@ test("compact session inbox creates, resumes, and switches existing surfaces", a
   expect(geometry.mobileStandalone).toBe(true);
   expect(geometry.appBottom).toBe(geometry.viewportHeight);
   expect(geometry.navBottom).toBe(geometry.viewportHeight);
-  expect(geometry.navPaddingBottom).toBe(4);
-  expect(geometry.navHeight).toBe(54);
+  expect(geometry.navPaddingBottom).toBe(10);
+  expect(geometry.navHeight).toBe(60);
   expect(geometry.paneBottom).toBe(geometry.navTop);
 
   await newSessionPrompt.fill("Keep this draft");

@@ -157,6 +157,9 @@ test("compact session inbox creates, resumes, and switches existing surfaces", a
   await pasteImage(newSessionPrompt, PNG_B64);
   await expect(inbox.locator(".agent-attachment img")).toBeVisible();
   await inbox.getByRole("combobox", { name: "Agent provider" }).selectOption("codex");
+  const branch = inbox.getByRole("textbox", { name: "Branch for the new session" });
+  await expect(branch).toHaveValue("improve-mobile-navigation");
+  await branch.fill("bug/mobile-navigation");
   await expect(inbox.getByRole("button", { name: "Start", exact: true })).toBeEnabled();
   const inboxHistoryLength = await page.evaluate(() => history.length);
   await inbox.getByRole("button", { name: "Start", exact: true }).click();
@@ -193,6 +196,9 @@ test("compact session inbox creates, resumes, and switches existing surfaces", a
 
   await page.evaluate(() => history.back());
   await expect(inbox).toBeVisible();
+  await expect(
+    inbox.locator(".session-inbox-row", { hasText: "bug/mobile-navigation" }),
+  ).toHaveCount(1);
   await page.evaluate(() => history.forward());
   await expect(agentSurface).toBeVisible();
 
@@ -361,7 +367,7 @@ test("compact session inbox creates, resumes, and switches existing surfaces", a
   await expect(page.locator(".mobile-surface-button.active")).toHaveText("Sessions");
 
   await expect(inbox.locator(".session-inbox-row")).toHaveCount(2);
-  await expect(inbox).toContainText("improve-mobile-navigation");
+  await expect(inbox).toContainText("bug/mobile-navigation");
   await inbox.locator(".session-inbox-row").first().click();
   await expect(page.locator(".mobile-surface-button.active")).toHaveText("Agent");
 
@@ -398,7 +404,7 @@ test("compact session inbox creates, resumes, and switches existing surfaces", a
   await expect(bar).toBeFocused();
 
   await page.getByRole("button", { name: "Sessions" }).click();
-  await inbox.locator(".session-inbox-row", { hasText: "improve-mobile-navigation" }).click();
+  await inbox.locator(".session-inbox-row", { hasText: "bug/mobile-navigation" }).click();
   await expect(agentSurface).toBeVisible();
 
   await agentSurface.evaluate((element) => {

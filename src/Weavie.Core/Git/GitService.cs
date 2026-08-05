@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Globalization;
 using System.Text;
 
 namespace Weavie.Core.Git;
@@ -52,6 +53,24 @@ public sealed class GitService : IGitService {
 	public async Task<IReadOnlyList<string>> ListBranchesAsync(string directory, CancellationToken ct = default) {
 		ArgumentException.ThrowIfNullOrEmpty(directory);
 		var result = await RunCheckedAsync(directory, ["for-each-ref", "--format=%(refname:short)", "refs/heads"], ct).ConfigureAwait(false);
+		return [.. result.StdOut.Replace("\r", "", StringComparison.Ordinal)
+			.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)];
+	}
+
+	/// <inheritdoc/>
+	public async Task<IReadOnlyList<string>> ListRecentBranchesAsync(
+		string directory,
+		int limit,
+		CancellationToken ct = default) {
+		ArgumentException.ThrowIfNullOrEmpty(directory);
+		ArgumentOutOfRangeException.ThrowIfNegativeOrZero(limit);
+		var result = await RunCheckedAsync(directory, [
+			"for-each-ref",
+			"--sort=-committerdate",
+			"--count=" + limit.ToString(CultureInfo.InvariantCulture),
+			"--format=%(refname:short)",
+			"refs/heads",
+		], ct).ConfigureAwait(false);
 		return [.. result.StdOut.Replace("\r", "", StringComparison.Ordinal)
 			.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)];
 	}
@@ -113,6 +132,18 @@ public sealed class GitService : IGitService {
 		}
 
 		return true;
+	}
+
+	/// <summary>True when Git authoritatively accepts <paramref name="name"/> as a branch name.</summary>
+	public async Task<bool> IsValidBranchNameAsync(string directory, string name, CancellationToken ct = default) {
+		ArgumentException.ThrowIfNullOrEmpty(directory);
+		ArgumentNullException.ThrowIfNull(name);
+		if (!IsValidBranchName(name)) {
+			return false;
+		}
+
+		var result = await RunAsync(directory, ["check-ref-format", "--branch", name], ct).ConfigureAwait(false);
+		return result.ExitCode == 0;
 	}
 
 	/// <inheritdoc/>

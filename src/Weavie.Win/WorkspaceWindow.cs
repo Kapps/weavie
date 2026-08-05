@@ -77,8 +77,9 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow, IShellMenuAc
 		// GitHub client backs both PR listing and review comments.
 		var github = new Weavie.Core.Review.GitHubReviewProvider(http: null, new Weavie.Core.Review.GitHubTokenSource());
 		var agentProviders = new Weavie.Core.Agents.AgentProviderRegistry();
-		agentProviders.Register(new Weavie.Hosting.Agents.Claude.ClaudeAgentProvider(_app.ClaudeSessions));
+		agentProviders.Register(new Weavie.Hosting.Agents.Claude.ClaudeAgentProvider(_app.Settings, _app.ClaudeSessions));
 		agentProviders.Register(new Weavie.Hosting.Agents.Codex.CodexAgentProvider(
+			_app.Settings,
 			new Weavie.Core.Sessions.CodexThreadStore(
 				new Weavie.Core.FileSystem.LocalFileSystem(),
 				Weavie.Core.WeaviePaths.CodexThreadsFile)));
@@ -89,6 +90,7 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow, IShellMenuAc
 			Keybindings = _app.Keybindings,
 			ThemeOverrides = _app.ThemeOverrides,
 			AgentProviders = agentProviders,
+			Inference = Weavie.Hosting.Inference.InferenceComposition.CreateDefault(_app.Settings, agentProviders),
 			RemoteAgents = _app.RemoteAgents,
 			RailState = _app.RailState,
 			SearchState = _app.SearchState,

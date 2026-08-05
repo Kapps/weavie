@@ -16,7 +16,7 @@ public sealed record NewSessionAttachment {
 
 /// <summary>Arguments for creating a new session (all optional — the host fills sensible defaults).</summary>
 public sealed record NewSessionRequest {
-	/// <summary>The branch (and worktree) name to create; <c>null</c> ⇒ the host prompts or auto-names.</summary>
+	/// <summary>The branch (and worktree) name to create; <c>null</c> makes the host derive a deterministic name.</summary>
 	public string? Branch { get; init; }
 
 	/// <summary>The base to branch from: <c>"source"</c> (the invoking session's HEAD) or <c>"main"</c>; <c>null</c> means source. Ignored when <see cref="AttachExisting"/> is set.</summary>
@@ -40,7 +40,7 @@ public sealed record NewSessionRequest {
 
 /// <summary>Arguments for forking the invoking session into a new worktree off its HEAD.</summary>
 public sealed record ForkSessionRequest {
-	/// <summary>The new branch (and worktree) name; <c>null</c> ⇒ the host derives one.</summary>
+	/// <summary>The new branch (and worktree) name; <c>null</c> makes the host derive a deterministic name.</summary>
 	public string? Branch { get; init; }
 
 	/// <summary>The handoff brief seeded as the fork's first prompt (the forking Claude's own summary).</summary>

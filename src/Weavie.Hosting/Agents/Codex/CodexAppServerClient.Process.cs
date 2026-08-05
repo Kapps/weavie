@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Text;
 using System.Text.Json;
 using Weavie.Core.Processes;
 
@@ -7,8 +6,6 @@ namespace Weavie.Hosting.Agents.Codex;
 
 /// <summary>Supervises <c>codex app-server --stdio</c> process launch and stdio pumps.</summary>
 public sealed partial class CodexAppServerClient {
-	private static readonly Encoding StdioEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
-
 	private void StartProcess(SupervisedLaunch launch) {
 		var process = new Process {
 			StartInfo = StartInfo(
@@ -71,7 +68,7 @@ public sealed partial class CodexAppServerClient {
 	}
 
 	internal static ProcessStartInfo StartInfo(
-		CodexAppServerLaunch launch,
+		CodexCliLaunch launch,
 		IReadOnlyList<string> globalArguments,
 		IReadOnlyList<string> configArguments,
 		IReadOnlyList<string> appServerArguments,
@@ -88,69 +85,13 @@ public sealed partial class CodexAppServerClient {
 		arguments.AddRange(appServerArguments);
 		arguments.Add("--stdio");
 
-		string command = launch.Command;
-		IReadOnlyList<string> processArguments = arguments;
-		if (!OperatingSystem.IsWindows() && !Path.IsPathRooted(launch.Command)) {
-			// A rooted command spawns directly, keeping the imported PATH intact (Debian's /etc/profile resets it);
-			// only a bare one resolves through the login shell. Never -i on pipes: interactive job control grabs
-			// the host's controlling terminal and SIGTTIN-stops the runner's whole process group.
-			command = LoginShellEnvironment.LoginShell();
-			processArguments = ["-l", "-c", $"exec {ShellQuote(launch.Command)} {string.Join(' ', arguments.Select(ShellQuote))}"];
-		}
-
-		ProcessStartInfo info = new(command) {
-			WorkingDirectory = launch.WorkingDirectory,
-			RedirectStandardInput = true,
-			RedirectStandardOutput = true,
-			RedirectStandardError = true,
-			StandardInputEncoding = StdioEncoding,
-			StandardOutputEncoding = StdioEncoding,
-			StandardErrorEncoding = StdioEncoding,
-			UseShellExecute = false,
-			CreateNoWindow = true,
-			WindowStyle = ProcessWindowStyle.Hidden,
-		};
-		foreach (string argument in processArguments) {
-			info.ArgumentList.Add(argument);
-		}
-		foreach (var entry in environment) {
-			string name = entry.Key;
-			string value = entry.Value;
-			info.Environment[name] = value;
-		}
-
-		PrependPath(info, launch.PathEntries);
-
-		return info;
-	}
-
-	private static string ShellQuote(string value) => $"'{value.Replace("'", "'\\''", StringComparison.Ordinal)}'";
-
-	private static void PrependPath(ProcessStartInfo info, IReadOnlyList<string> entries) {
-		if (entries.Count == 0) {
-			return;
-		}
-
-		string key = PathKey(info.Environment);
-		string existing = info.Environment.TryGetValue(key, out string? path) && path is not null
-			? path
-			: Environment.GetEnvironmentVariable(key) ?? string.Empty;
-		var parts = entries.Where(entry => entry.Length > 0).ToList();
-		if (existing.Length > 0) {
-			parts.Add(existing);
-		}
-
-		info.Environment[key] = string.Join(Path.PathSeparator, parts);
-	}
-
-	private static string PathKey(IDictionary<string, string?> environment) {
-		foreach (string key in environment.Keys) {
-			if (string.Equals(key, "PATH", StringComparison.OrdinalIgnoreCase)) {
-				return key;
-			}
-		}
-
-		return "PATH";
+		return AgentCliProcessStartInfo.Create(
+			launch.Command,
+			launch.WorkingDirectory,
+			arguments,
+			launch.PathEntries,
+			environment,
+			[]);
 	}
 
 	private async Task ReadStdoutAsync(Process process) {

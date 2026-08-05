@@ -13,8 +13,8 @@ Playwright specs (`src/web/e2e/`) only prove the bridge transport, not features.
 The tempting answer — "run the whole app, including the remote runner, and assert on Claude's real
 responses end to end" — is the wrong target on two counts:
 
-- **Real model responses are non-deterministic.** Every `claude` spawn is a real Anthropic API call
-  (we strip `ANTHROPIC_API_KEY` so it runs on the user's subscription). Asserting on what the model
+- **Real model responses are non-deterministic.** Every `claude` spawn is a real Anthropic API call through the
+  CLI's configured authentication. Asserting on what the model
   *says* makes every test a coin flip, needs live credentials in CI, and tests Anthropic, not Weavie.
 - **"Every test on both local and remote" doubles the slowest, flakiest tests to cover a small
   delta.** Headless-local and remote run *byte-for-byte the same* web bundle, WSS bridge, `HostCore`,

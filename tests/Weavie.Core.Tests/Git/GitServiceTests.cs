@@ -144,4 +144,12 @@ public sealed class GitServiceTests {
 	[InlineData("@")]
 	public void IsValidBranchName_RejectsMalformedOrOptionShapedNames(string name) =>
 		Assert.False(GitService.IsValidBranchName(name));
+
+	[Theory]
+	[InlineData("HEAD")]
+	[InlineData("foo/.bar")]
+	[InlineData("foo.lock/bar")]
+	[InlineData("foo/bar.lock")]
+	public async Task IsValidBranchNameAsync_RejectsNamesReservedByGit(string name) =>
+		Assert.False(await new GitService().IsValidBranchNameAsync(Directory.GetCurrentDirectory(), name));
 }

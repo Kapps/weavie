@@ -62,6 +62,11 @@ public interface IGitService {
 	Task<IReadOnlyList<string>> ListBranchesAsync(string directory, CancellationToken ct = default);
 
 	/// <summary>
+	/// Up to <paramref name="limit"/> local branch names ordered by their tip's committer date, newest first.
+	/// </summary>
+	Task<IReadOnlyList<string>> ListRecentBranchesAsync(string directory, int limit, CancellationToken ct = default);
+
+	/// <summary>
 	/// Every ref a diff can name — local branches then remote-tracking branches (e.g. <c>main</c>,
 	/// <c>origin/main</c>), minus each remote's symbolic <c>HEAD</c>. Unlike <see cref="ListBranchesAsync"/>
 	/// this is a diff target, not a checkout target, so it includes remotes and the checked-out branch.

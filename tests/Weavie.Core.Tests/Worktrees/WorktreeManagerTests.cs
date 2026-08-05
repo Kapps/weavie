@@ -462,6 +462,9 @@ public sealed class WorktreeManagerTests {
 		public Task<IReadOnlyList<string>> ListBranchesAsync(string directory, CancellationToken ct = default) =>
 			Task.FromResult<IReadOnlyList<string>>([.. Branches]);
 
+		public Task<IReadOnlyList<string>> ListRecentBranchesAsync(string directory, int limit, CancellationToken ct = default) =>
+			Task.FromResult<IReadOnlyList<string>>([.. Branches.Take(limit)]);
+
 		public Task<IReadOnlyList<string>> ListRefsAsync(string directory, CancellationToken ct = default) =>
 			Task.FromResult<IReadOnlyList<string>>([.. Branches]);
 

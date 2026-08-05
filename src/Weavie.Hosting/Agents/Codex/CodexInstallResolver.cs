@@ -4,9 +4,9 @@ using Weavie.Core.Json;
 
 namespace Weavie.Hosting.Agents.Codex;
 
-/// <summary>Resolves configured Codex binaries into package-aware app-server launch details.</summary>
+/// <summary>Resolves configured Codex binaries into package-aware CLI launch details.</summary>
 internal static class CodexInstallResolver {
-	public static CodexAppServerLaunch Resolve(string command, string workspace) {
+	public static CodexCliLaunch Resolve(string command, string workspace) {
 		ArgumentException.ThrowIfNullOrEmpty(command);
 		ArgumentException.ThrowIfNullOrEmpty(workspace);
 		string? executable = ExecutableFinder.FindOnPath(command);
@@ -14,7 +14,7 @@ internal static class CodexInstallResolver {
 			if (!OperatingSystem.IsWindows() && !Path.IsPathRooted(command) && !command.Contains(Path.DirectorySeparatorChar)) {
 				// Match Claude's POSIX behavior: a bare command may only exist on the login shell's PATH (version
 				// managers like nvm/asdf/mise); the app-server launcher's login-shell wrapper resolves it.
-				return CodexAppServerLaunch.Raw(command, workspace);
+				return CodexCliLaunch.Raw(command, workspace);
 			}
 
 			throw new InvalidOperationException($"Weavie could not find the configured Codex binary: {command}");
@@ -25,11 +25,11 @@ internal static class CodexInstallResolver {
 			return launch;
 		}
 
-		return CodexAppServerLaunch.Raw(executable, workspace);
+		return CodexCliLaunch.Raw(executable, workspace);
 	}
 
-	private static bool TryPackageLaunch(string executable, out CodexAppServerLaunch launch) {
-		launch = CodexAppServerLaunch.Raw(executable, Path.GetDirectoryName(executable) ?? Directory.GetCurrentDirectory());
+	private static bool TryPackageLaunch(string executable, out CodexCliLaunch launch) {
+		launch = CodexCliLaunch.Raw(executable, Path.GetDirectoryName(executable) ?? Directory.GetCurrentDirectory());
 		var packageRoot = Directory.GetParent(executable)?.Parent;
 		if (packageRoot is null) {
 			return false;
@@ -55,7 +55,7 @@ internal static class CodexInstallResolver {
 		AddPackageDirectory(manifest.RootElement, packageRoot.FullName, "resourcesDir", pathEntries);
 		AddPackageDirectory(manifest.RootElement, packageRoot.FullName, "pathDir", pathEntries);
 		RequireWindowsSandboxHelper(packageRoot.FullName, pathEntries, manifestPath);
-		launch = new CodexAppServerLaunch(command, packageRoot.FullName, pathEntries);
+		launch = new CodexCliLaunch(command, packageRoot.FullName, pathEntries);
 		return true;
 	}
 

@@ -27,7 +27,7 @@ public sealed class CodexAppServerClientTests : IDisposable {
 		string resources = Path.Combine(_dir, "codex-resources");
 		string pathDir = Path.Combine(_dir, "codex-path");
 		var info = CodexAppServerClient.StartInfo(
-			new CodexAppServerLaunch("codex", _dir, [resources, pathDir]),
+			new CodexCliLaunch("codex", _dir, [resources, pathDir]),
 			["--no-color"],
 			["-c", "mcp_servers.weavie.enabled=true"],
 			["--strict-config"],
@@ -66,7 +66,7 @@ public sealed class CodexAppServerClientTests : IDisposable {
 	public void StartInfo_SpawnsResolvedPathDirectly() {
 		string resolved = Path.Combine(_dir, "codex-bin");
 		var info = CodexAppServerClient.StartInfo(
-			new CodexAppServerLaunch(resolved, _dir, []),
+			new CodexCliLaunch(resolved, _dir, []),
 			[],
 			[],
 			[],

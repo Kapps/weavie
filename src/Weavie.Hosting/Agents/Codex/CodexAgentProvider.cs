@@ -1,24 +1,32 @@
 using Weavie.Core.Agents;
+using Weavie.Core.Configuration;
+using Weavie.Core.Inference;
 using Weavie.Core.Sessions;
+using Weavie.Hosting.Inference;
+using Weavie.Hosting.Inference.Codex;
 
 namespace Weavie.Hosting.Agents.Codex;
 
 /// <summary>Native Codex provider identity and app-server session factory.</summary>
-public sealed class CodexAgentProvider : IAgentProvider {
+public sealed class CodexAgentProvider : IAgentInferenceProvider {
 	private readonly CodexThreadStore _threads;
-	private readonly Func<AgentSessionContext, CodexThreadStore, CodexAppServerLaunch, IAgentSession> _createSession;
+	private readonly IInferenceProvider _inference;
+	private readonly Func<AgentSessionContext, CodexThreadStore, CodexCliLaunch, IAgentSession> _createSession;
 
 	/// <summary>Creates the native Codex provider over the app-global thread store.</summary>
-	public CodexAgentProvider(CodexThreadStore threads)
-		: this(threads, CreateCodexSession) {
+	public CodexAgentProvider(SettingsStore settings, CodexThreadStore threads)
+		: this(threads, new CodexCliInference(settings, new AgentCliProcessRunner()), CreateCodexSession) {
 	}
 
 	internal CodexAgentProvider(
 		CodexThreadStore threads,
-		Func<AgentSessionContext, CodexThreadStore, CodexAppServerLaunch, IAgentSession> createSession) {
+		IInferenceProvider inference,
+		Func<AgentSessionContext, CodexThreadStore, CodexCliLaunch, IAgentSession> createSession) {
 		ArgumentNullException.ThrowIfNull(threads);
+		ArgumentNullException.ThrowIfNull(inference);
 		ArgumentNullException.ThrowIfNull(createSession);
 		_threads = threads;
+		_inference = inference;
 		_createSession = createSession;
 	}
 
@@ -32,6 +40,13 @@ public sealed class CodexAgentProvider : IAgentProvider {
 			| AgentProviderCapabilities.Events,
 		Available = true,
 	};
+
+	/// <inheritdoc/>
+	public InferenceProviderInfo InferenceInfo => _inference.InferenceInfo;
+
+	/// <inheritdoc/>
+	public Task<InferenceProviderResult> QueryInferenceAsync(InferenceProviderRequest request, CancellationToken ct) =>
+		_inference.QueryInferenceAsync(request, ct);
 
 	/// <inheritdoc/>
 	public IAgentSession CreateSession(AgentSessionContext context) {
@@ -54,6 +69,6 @@ public sealed class CodexAgentProvider : IAgentProvider {
 		}
 	}
 
-	private static IAgentSession CreateCodexSession(AgentSessionContext context, CodexThreadStore threads, CodexAppServerLaunch launch) =>
+	private static IAgentSession CreateCodexSession(AgentSessionContext context, CodexThreadStore threads, CodexCliLaunch launch) =>
 		new CodexAppServerSession(context, threads, launch);
 }

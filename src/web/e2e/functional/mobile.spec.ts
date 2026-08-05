@@ -59,6 +59,17 @@ test.use({
   },
 });
 
+test("focusing the recent-files search keeps the app viewport fixed", async ({ page }) => {
+  const viewport = await page.locator('meta[name="viewport"]').getAttribute("content");
+  expect(viewport).toContain("maximum-scale=1");
+  expect(viewport).toContain("user-scalable=no");
+
+  await page.getByRole("button", { name: "Code", exact: true }).click();
+  await page.getByRole("button", { name: "Recent", exact: true }).click();
+
+  await expect(page.getByPlaceholder("Search recent files…")).toBeFocused();
+});
+
 test("WebM video opens inline in the compact editor", async ({ page }) => {
   await page.getByRole("button", { name: "Code", exact: true }).click();
   await page.getByRole("button", { name: "Files" }).click();

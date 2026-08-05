@@ -21,6 +21,10 @@ jobs:
       NODE_OPTIONS: --max-old-space-size=4096
     steps:
       - uses: actions/checkout@v4
+
+      - name: Test rolling release publisher
+        run: bash .github/scripts/test-publish-main-latest.sh
+
       - uses: ./.github/actions/setup-web
 
       - name: Install dependencies

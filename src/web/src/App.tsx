@@ -1696,10 +1696,10 @@ export default function App(): JSX.Element {
           classList={{
             offline: activeBackendOffline(),
           }}
-          onTouchStart={mobileBackSwipe.onTouchStart}
-          onTouchMove={mobileBackSwipe.onTouchMove}
-          onTouchEnd={mobileBackSwipe.onTouchEnd}
-          onTouchCancel={mobileBackSwipe.onTouchCancel}
+          on:touchstart={mobileBackSwipe.onTouchStart}
+          on:touchmove={{ handleEvent: mobileBackSwipe.onTouchMove, passive: false }}
+          on:touchend={mobileBackSwipe.onTouchEnd}
+          on:touchcancel={mobileBackSwipe.onTouchCancel}
         >
           <LayoutView root={displayRoot()} renderPane={renderPane} onResize={onLayoutResize} />
           <Show when={fullscreen() && !compact()}>

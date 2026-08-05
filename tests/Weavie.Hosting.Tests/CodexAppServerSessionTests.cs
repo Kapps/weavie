@@ -753,7 +753,16 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 			await WaitForAsync(() => session.ControlState.ModelControl.Models.Count > 0);
 			session.SetControl("collaborationMode", "plan");
 			session.Submit(Submission("plan it", []));
-			await WaitForAsync(() => threads.Resolve(_dir).Mode == "plan");
+			// Flaked on CI 2026-08-05 12:31 UTC (linux, default 5 s budget) with no reproduction locally —
+			// the fake app-server's turn/start round trip that flips threads.Resolve(_dir).Mode occasionally
+			// misses that window under load. Widened with a diagnose callback like the queued-startup wait
+			// above, since a CI-only stall is diagnosable from the failure output alone or not at all.
+			// https://github.com/Kapps/weavie/actions/runs/31005905165/job/92305588608
+			await WaitForAsync(
+				() => threads.Resolve(_dir).Mode == "plan",
+				attempts: 400,
+				() => $"fake-server markers: [{string.Join(", ", Directory.GetFiles(_dir).Select(Path.GetFileName).Order())}]"
+					+ $"; pane messages: [{string.Join(", ", messages.Select(message => $"{message.Type}={message.Text}"))}]");
 		}
 
 		ConcurrentQueue<AgentPaneMessage> reopenedMessages = new();

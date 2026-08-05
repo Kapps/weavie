@@ -1,6 +1,7 @@
 const MIN_DISTANCE = 48;
 const INTENT_DISTANCE = 12;
 const HORIZONTAL_DOMINANCE = 1.5;
+const TERMINAL_EDGE_WIDTH = 28;
 
 interface Point {
   x: number;
@@ -44,7 +45,7 @@ export function createMobileBackSwipe(callbacks: MobileBackSwipeCallbacks): {
       event.touches.length === 1 &&
       touch !== undefined &&
       target instanceof Element &&
-      acceptsBackSwipe(target)
+      acceptsBackSwipe(target, touch.clientX)
         ? { x: touch.clientX, y: touch.clientY }
         : null;
     latest = start;
@@ -113,7 +114,7 @@ export function createMobileBackSwipe(callbacks: MobileBackSwipeCallbacks): {
   };
 }
 
-function acceptsBackSwipe(target: Element): boolean {
+function acceptsBackSwipe(target: Element, startX: number): boolean {
   const surface = target.closest(".agent-surface, .terminal-surface, .editor-surface");
   if (
     surface === null ||
@@ -141,6 +142,7 @@ function acceptsBackSwipe(target: Element): boolean {
   }
   return (
     target.closest(".pane-head, .editor-tabs") !== null ||
+    (startX <= TERMINAL_EDGE_WIDTH && target.closest(".terminal-surface") !== null) ||
     (target.closest(".agent-surface") !== null && target.closest("[data-agent-composer]") === null)
   );
 }

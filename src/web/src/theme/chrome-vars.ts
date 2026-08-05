@@ -2,7 +2,7 @@
 // palette, mapping each to the closest VS Code workbench color id (spec §5) so all chrome tracks the active
 // theme. Higher-level names complementing apply.ts, which publishes the raw --weavie-<key> vars.
 
-/** Sets the chrome's --bg/--bar/--border/--fg/--accent/--dim (+ status & diff) vars on :root from a resolved palette. */
+/** Sets the chrome's semantic CSS variables on :root from a resolved palette. */
 export function deriveChromeVars(colors: Readonly<Record<string, string>>): void {
   const root = document.documentElement;
   const pick = (...keys: string[]): string | undefined => {
@@ -27,6 +27,8 @@ export function deriveChromeVars(colors: Readonly<Record<string, string>>): void
   set("--border", pick("panel.border", "editorGroup.border", "widget.border"));
   set("--fg", pick("editor.foreground", "foreground"));
   set("--accent", pick("focusBorder", "button.background"));
+  set("--button-bg", pick("button.background"));
+  set("--button-fg", pick("button.foreground"));
   set("--dim", pick("descriptionForeground", "editorLineNumber.foreground"));
 
   // Session-status accents for the pane/rail indicator, mapped to the ANSI/error palette so they

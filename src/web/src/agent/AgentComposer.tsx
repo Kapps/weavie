@@ -445,6 +445,7 @@ export function AgentComposer(props: {
         </Show>
         <button
           type="submit"
+          class="mobile-primary-action"
           aria-label={turnActive() ? "Steer" : "Run"}
           title={`${turnActive() ? "Steer the running turn" : "Run prompt"}${props.compact ? "" : keyHint(CommandIds.agentSubmit)}`}
           disabled={!canSubmit()}

@@ -7,6 +7,8 @@
   --border: #191c21;
   --fg: #cdd5dc;
   --accent: #54c6a4;
+  --button-bg: #54c6a4;
+  --button-fg: #042019;
   --dim: #6f7884;
   /* Session-status accents (pane/rail indicator); overwritten by the theme controller at runtime. */
   --ok: #6fdc66;

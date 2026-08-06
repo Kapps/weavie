@@ -5,7 +5,7 @@ import { Agent, get as httpGet, type OutgoingHttpHeaders } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type FakeStep, writeFakeClaudeWrapper, writeFakeScript } from "./fake-claude";
-import { writeFakeCodexWrapper } from "./fake-codex";
+import { type FakeCodexInference, writeFakeCodexWrapper } from "./fake-codex";
 import { createGitWorkspace, createPrWorkspace, removeWorkspace } from "./git-workspace";
 import { headlessProgram, programExists } from "./test-programs";
 
@@ -28,6 +28,7 @@ export interface WeavieHost {
 
 export interface LaunchOptions {
   fakeScript: FakeStep[] | null;
+  inference: FakeCodexInference;
   // When true, the workspace is a PR scenario (base + head branches off a local "origin") and the host's PR
   // provider is stubbed (WEAVIE_FAKE_PRS) with the canned PR pointing at the head branch — the Open-PR journey.
   pr?: boolean;
@@ -208,7 +209,7 @@ export async function prepareFake(options: LaunchOptions): Promise<FakeScaffold>
   const pr = options.pr ? await createPrWorkspace() : null;
   const workspace = pr?.dir ?? (await createGitWorkspace());
   const wrapper = await writeFakeClaudeWrapper(home);
-  const codexWrapper = await writeFakeCodexWrapper(home);
+  const codexWrapper = await writeFakeCodexWrapper(home, options.inference);
   const fakeLogPath = join(home, "fake-claude.log");
   const env: NodeJS.ProcessEnv = {
     HOME: home,
@@ -222,6 +223,10 @@ export async function prepareFake(options: LaunchOptions): Promise<FakeScaffold>
     WEAVIE_CLAUDE_RESUMESESSION: "false",
     WEAVIE_CODEX_PATH: codexWrapper,
   };
+  if (options.inference !== "disabled") {
+    env.WEAVIE_INFERENCE_ENABLED = "true";
+    env.WEAVIE_INFERENCE_ALLOWAUTOMATIC = "true";
+  }
   if (options.fakeScript) {
     env.WEAVIE_FAKE_CLAUDE_SCRIPT = await writeFakeScript(home, options.fakeScript);
     env.WEAVIE_FAKE_CLAUDE_LOG = fakeLogPath;

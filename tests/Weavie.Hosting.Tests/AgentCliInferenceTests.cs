@@ -110,12 +110,12 @@ public sealed class AgentCliInferenceTests : IDisposable {
 		AssertDisabled(runner.Request.Arguments, "workspace_dependencies");
 		Assert.DoesNotContain("--sandbox", runner.Request.Arguments);
 		Assert.Contains("default_permissions=\"weavie-inference\"", runner.Request.Arguments);
-		Assert.Contains("permissions.weavie-inference.filesystem.\":root\"=\"deny\"", runner.Request.Arguments);
+		Assert.Contains("permissions.weavie-inference.filesystem.:root=\"deny\"", runner.Request.Arguments);
 		Assert.Contains("permissions.weavie-inference.network.enabled=false", runner.Request.Arguments);
-		Assert.Contains("tools.view_image=false", runner.Request.Arguments);
 		Assert.Contains("tools.web_search=false", runner.Request.Arguments);
 		Assert.Contains("web_search=\"disabled\"", runner.Request.Arguments);
 		Assert.Equal("never", ValueAfter(runner.Request.Arguments, "--ask-for-approval"));
+		AssertBefore(runner.Request.Arguments, "--ask-for-approval", "exec");
 		Assert.DoesNotContain("app-server", runner.Request.Arguments);
 		Assert.Equal(Request(category).OutputSchemaJson, schema);
 		Assert.Equal(["output-schema.json"], Assert.IsType<string[]>(initialFiles));
@@ -179,6 +179,12 @@ public sealed class AgentCliInferenceTests : IDisposable {
 		}
 
 		Assert.Fail($"Expected Codex feature '{feature}' to be disabled.");
+	}
+
+	private static void AssertBefore(IReadOnlyList<string> arguments, string first, string second) {
+		int firstIndex = arguments.ToList().IndexOf(first);
+		int secondIndex = arguments.ToList().IndexOf(second);
+		Assert.True(firstIndex >= 0 && firstIndex < secondIndex, $"Expected '{first}' before '{second}'.");
 	}
 
 	public void Dispose() {

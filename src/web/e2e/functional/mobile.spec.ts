@@ -69,6 +69,43 @@ test.use({
   },
 });
 
+test.describe("configured branch inference", () => {
+  test.use({ inference: "success" });
+
+  test("fills the compact branch field with the inferred name", async ({ page }) => {
+    const inbox = page.locator(".session-inbox");
+    await inbox.getByRole("combobox", { name: "Agent provider" }).selectOption("codex");
+    await inbox
+      .getByRole("textbox", { name: "Prompt for a new session" })
+      .fill("Fix mobile branch inference");
+
+    await expect(inbox.getByRole("textbox", { name: "Branch for the new session" })).toHaveValue(
+      "fix/mobile-branch-inference",
+    );
+    await expect(inbox.getByRole("alert")).toHaveCount(0);
+  });
+});
+
+test.describe("failed branch inference", () => {
+  test.use({ inference: "failure" });
+
+  test("keeps the fallback usable and reports the failure inline", async ({ page }) => {
+    const inbox = page.locator(".session-inbox");
+    await inbox.getByRole("combobox", { name: "Agent provider" }).selectOption("codex");
+    await inbox
+      .getByRole("textbox", { name: "Prompt for a new session" })
+      .fill("Fix mobile branch inference");
+
+    await expect(inbox.getByRole("textbox", { name: "Branch for the new session" })).toHaveValue(
+      "fix-mobile-branch-inference",
+    );
+    await expect(inbox.getByRole("alert")).toHaveText(
+      "Branch suggestion failed. Using the generated name instead.",
+    );
+    await expect(inbox.getByRole("button", { name: "Start", exact: true })).toBeEnabled();
+  });
+});
+
 test("focusing the recent-files search keeps the app viewport fixed", async ({ page }) => {
   const viewport = await page.locator('meta[name="viewport"]').getAttribute("content");
   expect(viewport).toContain("maximum-scale=1");
@@ -218,6 +255,7 @@ test("compact session inbox creates, resumes, and switches existing surfaces", a
   const startButton = inbox.getByRole("button", { name: "Start", exact: true });
   const branch = inbox.getByRole("textbox", { name: "Branch for the new session" });
   await expect(branch).toHaveValue("improve-mobile-navigation");
+  await expect(inbox.getByRole("alert")).toHaveCount(0);
   await branch.fill("bug/mobile-navigation");
   await expect(startButton).toBeEnabled();
   const primaryColors = await semanticButtonColors(page);

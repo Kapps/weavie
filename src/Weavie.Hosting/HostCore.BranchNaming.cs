@@ -4,7 +4,7 @@ using Weavie.Core.Inference;
 namespace Weavie.Hosting;
 
 public sealed partial class HostCore {
-	private async Task<string> PreviewBranchNameAsync(
+	private async Task<BranchPreviewResult> PreviewBranchNameAsync(
 		HostSession source,
 		string? prompt,
 		string agentProviderId,
@@ -12,7 +12,7 @@ public sealed partial class HostCore {
 		var taken = await TakenBranchNamesAsync(ct).ConfigureAwait(false);
 		string fallback = UniqueDeterministicBranch(prompt, taken);
 		if (string.IsNullOrWhiteSpace(prompt)) {
-			return fallback;
+			return new BranchPreviewResult(fallback, false);
 		}
 
 		var git = new GitService();
@@ -24,7 +24,7 @@ public sealed partial class HostCore {
 				RecentBranches = await git.ListRecentBranchesAsync(source.WorkspaceRoot, 20, ct).ConfigureAwait(false),
 			};
 		} catch (GitException) {
-			return fallback;
+			return new BranchPreviewResult(fallback, false);
 		}
 
 		var result = await _inference.QueryAsync(
@@ -34,25 +34,31 @@ public sealed partial class HostCore {
 			BranchNameInference.ResponseType,
 			BranchNameInference.QueryOptions,
 			ct).ConfigureAwait(false);
+		if (result is InferenceFailure<BranchNameInferenceOutput> failure) {
+			bool reportFailure = failure.Kind is not InferenceFailureKind.Disabled
+				and not InferenceFailureKind.PolicyDenied;
+			return new BranchPreviewResult(fallback, reportFailure);
+		}
+
 		if (result is not InferenceSuccess<BranchNameInferenceOutput> success) {
-			return fallback;
+			throw new InvalidOperationException("Branch inference returned an unknown result type.");
 		}
 
 		string proposed = success.Value.Branch.Trim();
 		if (proposed.Length == 0 || taken.Contains(proposed)) {
-			return fallback;
+			return new BranchPreviewResult(fallback, true);
 		}
 
 		try {
 			if (!await git.IsValidBranchNameAsync(source.WorkspaceRoot, proposed, ct).ConfigureAwait(false)) {
-				return fallback;
+				return new BranchPreviewResult(fallback, true);
 			}
 
 			return await git.BranchExistsAsync(source.WorkspaceRoot, proposed, ct).ConfigureAwait(false)
-				? fallback
-				: proposed;
+				? new BranchPreviewResult(fallback, true)
+				: new BranchPreviewResult(proposed, false);
 		} catch (GitException) {
-			return fallback;
+			return new BranchPreviewResult(fallback, true);
 		}
 	}
 

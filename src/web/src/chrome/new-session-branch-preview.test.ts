@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { BranchPreviewResult } from "../bridge";
 import {
   BRANCH_PREVIEW_DEBOUNCE_MS,
   type BranchPreviewContext,
@@ -40,7 +41,7 @@ describe("NewSessionBranchPreview", () => {
     const preview = new NewSessionBranchPreview(
       async (request) => {
         requests.push(request);
-        return { branch: "bug/webm-fails-to-load" };
+        return { branch: "bug/webm-fails-to-load", inferenceFailed: false };
       },
       (state) => states.push(state),
     );
@@ -61,11 +62,11 @@ describe("NewSessionBranchPreview", () => {
 
   it("aborts superseded work and ignores a provider that resolves it anyway", async () => {
     vi.useFakeTimers();
-    const calls: Array<{ result: Deferred<{ branch: string }>; signal: AbortSignal }> = [];
+    const calls: Array<{ result: Deferred<BranchPreviewResult>; signal: AbortSignal }> = [];
     let state: BranchPreviewState | undefined;
     const preview = new NewSessionBranchPreview(
       (_request, signal) => {
-        const result = deferred<{ branch: string }>();
+        const result = deferred<BranchPreviewResult>();
         calls.push({ result, signal });
         return result.promise;
       },
@@ -78,12 +79,12 @@ describe("NewSessionBranchPreview", () => {
     await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_DEBOUNCE_MS);
     preview.update(context("second"));
     expect(calls[0]!.signal.aborted).toBe(true);
-    calls[0]!.result.resolve({ branch: "stale" });
+    calls[0]!.result.resolve({ branch: "stale", inferenceFailed: false });
     await Promise.resolve();
     expect(state?.branch).toBe("");
 
     await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_DEBOUNCE_MS);
-    calls[1]!.result.resolve({ branch: "fresh" });
+    calls[1]!.result.resolve({ branch: "fresh", inferenceFailed: false });
     await Promise.resolve();
     expect(state).toEqual({ branch: "fresh", manual: false, status: "ready" });
   });
@@ -95,7 +96,7 @@ describe("NewSessionBranchPreview", () => {
     const preview = new NewSessionBranchPreview(
       async (request, signal) => {
         calls.push({ context: request, signal });
-        return { branch: "automatic" };
+        return { branch: "automatic", inferenceFailed: false };
       },
       (next) => {
         state = next;
@@ -138,5 +139,21 @@ describe("NewSessionBranchPreview", () => {
 
     preview.edit("bug/fix-it");
     expect(state).toEqual({ branch: "bug/fix-it", manual: true, status: "ready" });
+  });
+
+  it("keeps the deterministic branch usable while reporting an inference failure", async () => {
+    vi.useFakeTimers();
+    let state: BranchPreviewState | undefined;
+    const preview = new NewSessionBranchPreview(
+      async () => ({ branch: "fix-webm", inferenceFailed: true }),
+      (next) => {
+        state = next;
+      },
+    );
+
+    preview.update(context("fix it"));
+    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_DEBOUNCE_MS);
+
+    expect(state).toEqual({ branch: "fix-webm", manual: false, status: "error" });
   });
 });

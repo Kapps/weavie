@@ -1,13 +1,36 @@
 import { chmod, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-const server = String.raw`
+export type FakeCodexInference = "disabled" | "failure" | "success";
+
+const server = (inference: FakeCodexInference): string => String.raw`
+const fs = require("node:fs");
 const readline = require("node:readline");
 
 const send = (value) => process.stdout.write(JSON.stringify(value) + "\n");
 let turnSequence = 0;
+const args = process.argv.slice(2);
 
-readline.createInterface({ input: process.stdin }).on("line", (line) => {
+if (args.includes("exec")) {
+  process.stdin.resume();
+  process.stdin.on("end", () => {
+    const inference = ${JSON.stringify(inference)};
+    if (inference !== "success") {
+      process.exitCode = 7;
+      return;
+    }
+    const exec = args.indexOf("exec");
+    const approval = args.indexOf("--ask-for-approval");
+    const outputFlag = args.indexOf("--output-last-message");
+    const isolated = args.includes('permissions.weavie-inference.filesystem.:root="deny"')
+      && !args.includes("tools.view_image=false");
+    if (approval < 0 || approval > exec || outputFlag < 0 || !isolated) {
+      process.exitCode = 2;
+      return;
+    }
+    fs.writeFileSync(args[outputFlag + 1], JSON.stringify({ branch: "fix/mobile-branch-inference" }));
+  });
+} else readline.createInterface({ input: process.stdin }).on("line", (line) => {
   const message = JSON.parse(line);
   process.stderr.write("[fake-codex] " + (message.method ?? "response") + "\n");
 
@@ -94,9 +117,12 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
 });
 `;
 
-export async function writeFakeCodexWrapper(dir: string): Promise<string> {
+export async function writeFakeCodexWrapper(
+  dir: string,
+  inference: FakeCodexInference,
+): Promise<string> {
   const script = join(dir, "fake-codex.cjs");
-  await writeFile(script, server);
+  await writeFile(script, server(inference));
   if (process.platform === "win32") {
     const wrapper = join(dir, "fake-codex.cmd");
     await writeFile(wrapper, `@${JSON.stringify(process.execPath)} "${script}" %*\r\n`);

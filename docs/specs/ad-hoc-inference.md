@@ -56,10 +56,10 @@ model/effort, and `--json-schema`. The process inherits the normal Claude enviro
 
 Codex uses `codex exec` with an ephemeral rollout, ignored user config and exec rules, no repository requirement,
 approval policy `never`, the mapped model/effort, an output-schema file, and a final-message file. Its stable
-`shell_tool` feature and every other configurable built-in tool surface are disabled: apps, browser/computer use,
-local-image viewing, image generation, multi-agent, plugins, workspace dependencies, and web search. The
-independently registered `apply_patch` tool is contained by a per-call permission profile that denies all filesystem
-reads/writes and network access to model tools. Strict config parsing makes an unsupported restriction fail closed
+`shell_tool` feature and every configurable built-in tool surface are disabled: apps, browser/computer use, image
+generation, multi-agent, plugins, workspace dependencies, and web search. A per-call permission profile denies all
+filesystem reads/writes and network access to model tools, containing local-image access and the independently
+registered `apply_patch` tool. Strict config parsing makes an unsupported restriction fail closed
 instead of silently restoring access. The CLI itself can still read its authentication and write the requested
 structured-result file outside the tool sandbox. Its working directory is a private, empty Weavie temporary
 directory; it receives no Weavie MCP configuration. The temporary schema/output are deleted on every success,
@@ -88,7 +88,8 @@ authentication failed, rate limited, provider unavailable, refused, and invalid 
 Every feature handles every non-success by executing the same behavior used when inference is disabled. This
 includes missing binaries/authentication, non-zero CLI exits, malformed envelopes/JSON, shape/domain rejection, and
 authoritative feature rejection. The inference service does not own fallback logic because ordinary behavior is
-feature-owned.
+feature-owned. A feature may surface that it used the fallback: branch preview marks configured/query failures while
+keeping disabled inference and automatic-inference opt-out silent.
 
 Caller cancellation remains exceptional and propagates. A canceled branch-preview request must stop its CLI
 process and must not publish a stale name into a newer composer draft.
@@ -141,7 +142,8 @@ selected in the composer and permits only `Utility`.
 
 A proposed name is trimmed, checked with `GitService.IsValidBranchName`, checked against loaded/worktree labels,
 and checked against Git branch existence. Every other non-cancellation outcome returns the precomputed deterministic
-slug. The editable field is the only branch creation submits.
+slug. When inference is enabled but cannot produce a usable proposal, the result also marks the failure and the
+compact composer shows it inline without disabling creation. The editable field is the only branch creation submits.
 
 Typing, provider/location changes, manual branch input, hiding the composer, and submission cancel pending work.
 The client keys results to the complete draft and never lets a stale response or automatic result overwrite manual

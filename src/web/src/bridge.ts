@@ -495,6 +495,7 @@ export function requestBranches(backendId: string): Promise<string[]> {
 
 export interface BranchPreviewResult {
   branch: string;
+  inferenceFailed: boolean;
 }
 
 export function requestBranchPreview(

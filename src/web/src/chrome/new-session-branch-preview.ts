@@ -103,7 +103,11 @@ export class NewSessionBranchPreview {
             return;
           }
           this.controller = null;
-          this.publish({ branch: result.branch, manual: false, status: "ready" });
+          this.publish({
+            branch: result.branch,
+            manual: false,
+            status: result.inferenceFailed ? "error" : "ready",
+          });
         },
         () => {
           if (!this.isCurrent(generation, context, controller)) {

@@ -23,9 +23,10 @@ public sealed class HostCoreBranchInferenceTests {
 			TestHost.RunGit(repo, "branch", "feature/mobile-inbox");
 		}, _ => inference);
 
-		string result = await PreviewAsync(host, "WebM files fail to load", agentProviderId);
+		var result = await PreviewAsync(host, "WebM files fail to load", agentProviderId);
 
-		Assert.Equal("bug/webm-fails-to-load", result);
+		Assert.Equal("bug/webm-fails-to-load", result.Branch);
+		Assert.False(result.InferenceFailed);
 		Assert.Equal(agentProviderId, inference.AgentProviderId);
 		Assert.Equal(InferenceModelCategory.Utility, inference.Category);
 		Assert.Equal(InferenceInvocationOrigin.Automatic, inference.Origin);
@@ -37,27 +38,30 @@ public sealed class HostCoreBranchInferenceTests {
 	}
 
 	[Theory]
-	[InlineData(InferenceFailureKind.Disabled)]
-	[InlineData(InferenceFailureKind.PolicyDenied)]
-	[InlineData(InferenceFailureKind.NotConfigured)]
-	[InlineData(InferenceFailureKind.CategoryUnavailable)]
-	[InlineData(InferenceFailureKind.InputRejected)]
-	[InlineData(InferenceFailureKind.TimedOut)]
-	[InlineData(InferenceFailureKind.AuthenticationFailed)]
-	[InlineData(InferenceFailureKind.RateLimited)]
-	[InlineData(InferenceFailureKind.ProviderUnavailable)]
-	[InlineData(InferenceFailureKind.Refused)]
-	[InlineData(InferenceFailureKind.InvalidResponse)]
-	public async Task EveryInferenceFailure_UsesTheSameDeterministicBranch(InferenceFailureKind kind) {
+	[InlineData(InferenceFailureKind.Disabled, false)]
+	[InlineData(InferenceFailureKind.PolicyDenied, false)]
+	[InlineData(InferenceFailureKind.NotConfigured, true)]
+	[InlineData(InferenceFailureKind.CategoryUnavailable, true)]
+	[InlineData(InferenceFailureKind.InputRejected, true)]
+	[InlineData(InferenceFailureKind.TimedOut, true)]
+	[InlineData(InferenceFailureKind.AuthenticationFailed, true)]
+	[InlineData(InferenceFailureKind.RateLimited, true)]
+	[InlineData(InferenceFailureKind.ProviderUnavailable, true)]
+	[InlineData(InferenceFailureKind.Refused, true)]
+	[InlineData(InferenceFailureKind.InvalidResponse, true)]
+	public async Task EveryInferenceFailure_UsesTheSameDeterministicBranchAndReportsConfiguredFailures(
+		InferenceFailureKind kind,
+		bool inferenceFailed) {
 		var inference = new BranchInferenceStub(new InferenceFailure<BranchNameInferenceOutput> {
 			Kind = kind,
 			Detail = "failed",
 		});
 		await using var host = await TestHost.StartAsync(_ => { }, _ => inference);
 
-		string result = await PreviewAsync(host, "WebM files fail to load", "claude");
+		var result = await PreviewAsync(host, "WebM files fail to load", "claude");
 
-		Assert.Equal("webm-files-fail-to-load", result);
+		Assert.Equal("webm-files-fail-to-load", result.Branch);
+		Assert.Equal(inferenceFailed, result.InferenceFailed);
 		Assert.Equal(1, inference.Calls);
 	}
 
@@ -76,9 +80,10 @@ public sealed class HostCoreBranchInferenceTests {
 		});
 		await using var host = await TestHost.StartAsync(_ => { }, _ => inference);
 
-		string result = await PreviewAsync(host, "Fix WebM", "claude");
+		var result = await PreviewAsync(host, "Fix WebM", "claude");
 
-		Assert.Equal("fix-webm", result);
+		Assert.Equal("fix-webm", result.Branch);
+		Assert.True(result.InferenceFailed);
 	}
 
 	[Fact]
@@ -91,9 +96,10 @@ public sealed class HostCoreBranchInferenceTests {
 			repo => TestHost.RunGit(repo, "branch", "fix-webm"),
 			_ => inference);
 
-		string result = await PreviewAsync(host, "Fix WebM", "claude");
+		var result = await PreviewAsync(host, "Fix WebM", "claude");
 
-		Assert.Equal("fix-webm-2", result);
+		Assert.Equal("fix-webm-2", result.Branch);
+		Assert.False(result.InferenceFailed);
 	}
 
 	[Fact]
@@ -146,14 +152,18 @@ public sealed class HostCoreBranchInferenceTests {
 		Assert.Null(host.Core.SessionForTest("fix-webm"));
 	}
 
-	private static async Task<string> PreviewAsync(TestHost host, string prompt, string agentProviderId) {
+	private static async Task<BranchPreview> PreviewAsync(TestHost host, string prompt, string agentProviderId) {
 		var result = await host.SessionRequestAsync<JsonElement>(
 			host.PrimarySession,
 			"sessionCreation",
 			"previewBranch",
 			new { prompt, agentProviderId });
-		return result.GetProperty("branch").GetString()!;
+		return new BranchPreview(
+			result.GetProperty("branch").GetString()!,
+			result.GetProperty("inferenceFailed").GetBoolean());
 	}
+
+	private sealed record BranchPreview(string Branch, bool InferenceFailed);
 
 	private static InferenceReceipt Receipt() => new() {
 		ProviderId = "test",

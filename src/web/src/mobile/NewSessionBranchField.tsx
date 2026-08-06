@@ -69,7 +69,11 @@ export function NewSessionBranchField(props: {
         onInput={(event) => preview.edit(event.currentTarget.value)}
       />
       <Show when={state().status === "error"}>
-        <small role="status">Branch preview unavailable. Type a branch to continue.</small>
+        <small role="alert">
+          {state().branch.trim().length > 0
+            ? "Branch suggestion failed. Using the generated name instead."
+            : "Branch preview unavailable. Type a branch to continue."}
+        </small>
       </Show>
     </label>
   );

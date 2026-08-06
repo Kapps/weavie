@@ -1,6 +1,7 @@
 import { writeFile } from "node:fs/promises";
 import { test as base, expect } from "@playwright/test";
 import { fakeClaudeBuilt } from "./fake-claude";
+import type { FakeCodexInference } from "./fake-codex";
 import { headlessBuilt, launchHeadless, type WeavieHost } from "./weavie-host";
 import { launchRemote, runnerBuilt } from "./weavie-runner";
 
@@ -9,6 +10,7 @@ import { launchRemote, runnerBuilt } from "./weavie-runner";
 // because Playwright mangles a bare top-level array option value into [value, config].
 type WeavieOptions = {
   fakeScript: { steps: import("./fake-claude").FakeStep[] } | null;
+  inference: FakeCodexInference;
   // Set via test.use to run page setup (e.g. addInitScript recorders) BEFORE the fixture's first
   // navigation — a test-body addInitScript would need a second full app boot (reload) to apply. Wrapped
   // in an object because Playwright special-cases bare function/array option values.
@@ -38,11 +40,12 @@ type WeavieFixtures = {
 // destructures the handle. Tests that need the host (workspace path, log) just add `weavie` to their args.
 export const test = base.extend<WeavieOptions & WeavieFixtures>({
   fakeScript: [null, { option: true }],
+  inference: ["disabled", { option: true }],
   preNavigate: [null, { option: true }],
   prScenario: [false, { option: true }],
   notionDoc: [null, { option: true }],
   weavie: [
-    async ({ page, fakeScript, preNavigate, prScenario, notionDoc }, use, testInfo) => {
+    async ({ page, fakeScript, inference, preNavigate, prScenario, notionDoc }, use, testInfo) => {
       const remote = testInfo.project.name === "remote";
       // Fail LOUDLY when a prerequisite host isn't built — never silently skip, which hides a broken build
       // (e.g. a failed `dotnet build`) as a green-looking run. A missing host is a setup error, not a pass.
@@ -58,6 +61,7 @@ export const test = base.extend<WeavieOptions & WeavieFixtures>({
 
       const host = await (remote ? launchRemote : launchHeadless)({
         fakeScript: fakeScript?.steps ?? null,
+        inference,
         pr: prScenario,
         notionDoc: notionDoc ?? undefined,
       });

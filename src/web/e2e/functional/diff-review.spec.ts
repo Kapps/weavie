@@ -53,6 +53,14 @@ const caretLine = (page: import("@playwright/test").Page): Promise<number | null
 test.describe("applied review — keep & undo", () => {
   test.use({ fakeScript: { steps: [...appliedEdit("hello.ts", TWO_HUNKS)] } });
 
+  // Flaked on windows-latest 2026-08-05 04:33 UTC (stuck at count 1 for the full 30s expect.timeout, not a
+  // slow-but-eventual round-trip): https://github.com/Kapps/weavie/actions/runs/30975495342/job/92209636984.
+  // Root cause: the host pushed the "diff" (re-render) message before the "history" (canUndoKeep) message for
+  // the same Keep action; undoKeep() reads canUndoKeep synchronously with no retry, so a keypress landing in
+  // that gap silently no-ops forever. Fixed by reordering every Keep/undo/redo push in HostCore to send
+  // history before diff/changes (HostCore.WebBridge.ApplyHistoryResult/KeepHunk/KeepFile,
+  // HostCore.FileActivity.RefreshReviewAsync, HostCore.Sessions' AcceptedCommitted handler), so ordered
+  // per-connection delivery guarantees the flag is already current by the time this assertion's re-render lands.
   test("keeping a hunk drops only it from the diff; undo brings it back", async ({ page }) => {
     await openFile(page, "hello.ts");
     await expect(page.locator(ADDED)).toHaveCount(2); // two hunks pending

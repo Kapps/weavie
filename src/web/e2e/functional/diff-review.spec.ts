@@ -62,6 +62,14 @@ test.describe("applied review — keep & undo", () => {
     await page.keyboard.press("ControlOrMeta+Enter");
     await expect(page.locator(ADDED)).toHaveCount(1);
 
+    // The keep's history availability (canUndoKeep) is host-pushed, arriving after the local decoration
+    // update above — pressing the undo chord before it lands consumes the key but no-ops (same race as the
+    // revert/undo-revert test below). Wait for the toolbar's history undo to reflect it first.
+    // Flaked 2026-08-06 (run https://github.com/Kapps/weavie/actions/runs/30975495342, e2e windows shard
+    // 2/6): undo-keep chord raced the host round-trip, so `.weavie-inline-added` stayed at 1. Fixed by
+    // waiting for HIST_UNDO to be enabled before firing the chord.
+    await expect(page.locator(HIST_UNDO).first()).toBeEnabled();
+
     // Undo the keep — the hunk returns to the pending set.
     await page.keyboard.press("ControlOrMeta+Shift+Enter");
     await expect(page.locator(ADDED)).toHaveCount(2);
@@ -82,6 +90,9 @@ test.describe("applied review — undo-keep reveals the restored hunk", () => {
     await page.keyboard.press("ControlOrMeta+Enter");
     await expect(page.locator(ADDED)).toHaveCount(1); // hunk 1 kept
     await expect.poll(() => caretLine(page)).toBeGreaterThan(2); // caret moved off hunk 1
+
+    // Wait for the host-pushed canUndoKeep before undoing (see the race noted in the test above).
+    await expect(page.locator(HIST_UNDO).first()).toBeEnabled();
 
     // Undo the keep — the host re-pends hunk 1 AND reveals it, landing the editor back on line 2.
     await page.keyboard.press("ControlOrMeta+Shift+Enter");
@@ -104,6 +115,9 @@ test.describe("applied review — undo-keep reveals the restored hunk", () => {
     await page.keyboard.press("ControlOrMeta+Enter");
     await expect(page.locator(ADDED)).toHaveCount(1);
     await expect.poll(() => caretLine(page)).toBe(2);
+
+    // Wait for the host-pushed canUndoKeep before undoing (see the race noted in the first test above).
+    await expect(page.locator(HIST_UNDO).first()).toBeEnabled();
 
     // Undo the keep — the editor lands on the restored hunk 2, not the still-pending hunk 1.
     await page.keyboard.press("ControlOrMeta+Shift+Enter");

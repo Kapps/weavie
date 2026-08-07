@@ -320,6 +320,13 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		Assert.Equal(resolvedCount, messages.Count(message => message.Type == "approval-resolved"));
 	}
 
+	// FLAKE (2026-08-07 04:47 UTC): timed out waiting on thread-start.json (the fake-codex subprocess spawn),
+	// in the same "ci" run as a search-persistence e2e flake on an unrelated shard.
+	// https://github.com/Kapps/weavie/actions/runs/31148535789/job/92773908251
+	// Investigated: ran this test 15x solo and the full CodexAppServerSessionTests class 3x locally — always
+	// green, ~400ms solo / ~6-7s for the whole class, well inside the 5s (200-attempt) WaitForAsync budget.
+	// Reads as a transient CI-runner stall, not a defect in the test or the fake-codex startup path; no code
+	// change made.
 	[Fact]
 	public async Task Submit_WhenSteerRejected_SurfacesCodexCodeAndRecoversAsFreshTurn() {
 		ConcurrentQueue<AgentPaneMessage> messages = new();

@@ -99,6 +99,13 @@ Settings:
 - `inference.enabled` — global ad-hoc-query opt-in, off by default;
 - `inference.allowAutomatic` — additional opt-in for event-triggered calls, off by default.
 
+After the first page hello in each host run, Weavie offers a persistent action notification when either gate is
+off. Its action runs `weavie.inference.enableAutomatic`, which writes `inference.allowAutomatic` before
+`inference.enabled` so a partial write remains fail-closed, then verifies both effective values. An environment
+override or persistence failure is surfaced instead of being reported as success. The action advertises its
+effective `$mod+alt+i` binding from the owning host's command catalog. Closing the notification means “not now”:
+it changes neither setting, suppresses repeats for that host run, and permits a new offer after relaunch.
+
 An explicit action is `UserInitiated` even when implemented asynchronously. Debounced branch preview, idle review,
 and other event-triggered work are `Automatic`.
 

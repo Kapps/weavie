@@ -11,6 +11,8 @@ import { launchRemote, runnerBuilt } from "./weavie-runner";
 type WeavieOptions = {
   fakeScript: { steps: import("./fake-claude").FakeStep[] } | null;
   inference: FakeCodexInference;
+  automaticInference: boolean;
+  dismissInferenceOffer: boolean;
   // Set via test.use to run page setup (e.g. addInitScript recorders) BEFORE the fixture's first
   // navigation — a test-body addInitScript would need a second full app boot (reload) to apply. Wrapped
   // in an object because Playwright special-cases bare function/array option values.
@@ -41,11 +43,26 @@ type WeavieFixtures = {
 export const test = base.extend<WeavieOptions & WeavieFixtures>({
   fakeScript: [null, { option: true }],
   inference: ["disabled", { option: true }],
+  automaticInference: [false, { option: true }],
+  dismissInferenceOffer: [true, { option: true }],
   preNavigate: [null, { option: true }],
   prScenario: [false, { option: true }],
   notionDoc: [null, { option: true }],
   weavie: [
-    async ({ page, fakeScript, inference, preNavigate, prScenario, notionDoc }, use, testInfo) => {
+    async (
+      {
+        page,
+        fakeScript,
+        inference,
+        automaticInference,
+        dismissInferenceOffer,
+        preNavigate,
+        prScenario,
+        notionDoc,
+      },
+      use,
+      testInfo,
+    ) => {
       const remote = testInfo.project.name === "remote";
       // Fail LOUDLY when a prerequisite host isn't built — never silently skip, which hides a broken build
       // (e.g. a failed `dotnet build`) as a green-looking run. A missing host is a setup error, not a pass.
@@ -62,6 +79,7 @@ export const test = base.extend<WeavieOptions & WeavieFixtures>({
       const host = await (remote ? launchRemote : launchHeadless)({
         fakeScript: fakeScript?.steps ?? null,
         inference,
+        automaticInference,
         pr: prScenario,
         notionDoc: notionDoc ?? undefined,
       });
@@ -182,6 +200,15 @@ export const test = base.extend<WeavieOptions & WeavieFixtures>({
         // The app removes the splash element once it has booted (layout + first session). Its disappearance
         // is the "app is interactive" signal — not a fixed sleep.
         await expect(page.locator("#splash")).toHaveCount(0, { timeout: 40_000 });
+        if (dismissInferenceOffer) {
+          const offer = page.locator(".toast", {
+            hasText: "Let Weavie use automatic inference",
+          });
+          if ((await offer.count()) > 0) {
+            await offer.getByRole("button", { name: "Dismiss" }).click();
+            await expect(offer).toHaveCount(0);
+          }
+        }
       } catch (error) {
         // Playwright records setup failures only after the fixture unwinds, so testInfo still says "passed" here.
         const failures = [error];

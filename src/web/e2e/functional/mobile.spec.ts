@@ -1,3 +1,4 @@
+import { allowAutomaticInference } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 
 const PNG_B64 =
@@ -70,7 +71,7 @@ test.use({
 });
 
 test.describe("configured branch inference", () => {
-  test.use({ inference: "success" });
+  test.use({ inference: "success", automaticInference: true });
 
   test("fills the compact branch field with the inferred name", async ({ page }) => {
     const inbox = page.locator(".session-inbox");
@@ -87,7 +88,7 @@ test.describe("configured branch inference", () => {
 });
 
 test.describe("failed branch inference", () => {
-  test.use({ inference: "failure" });
+  test.use({ inference: "failure", automaticInference: true });
 
   test("keeps the fallback usable and reports the failure inline", async ({ page }) => {
     const inbox = page.locator(".session-inbox");
@@ -103,6 +104,28 @@ test.describe("failed branch inference", () => {
       "Branch suggestion failed. Using the generated name instead.",
     );
     await expect(inbox.getByRole("button", { name: "Start", exact: true })).toBeEnabled();
+  });
+});
+
+test.describe("automatic inference permission", () => {
+  test.use({
+    inference: "success",
+    automaticInference: false,
+    dismissInferenceOffer: false,
+  });
+
+  test("allows inference from the notification before suggesting a branch", async ({ page }) => {
+    await allowAutomaticInference(page);
+
+    const inbox = page.locator(".session-inbox");
+    await inbox.getByRole("combobox", { name: "Agent provider" }).selectOption("codex");
+    await inbox
+      .getByRole("textbox", { name: "Prompt for a new session" })
+      .fill("Fix mobile branch inference");
+
+    await expect(inbox.getByRole("textbox", { name: "Branch for the new session" })).toHaveValue(
+      "fix/mobile-branch-inference",
+    );
   });
 });
 

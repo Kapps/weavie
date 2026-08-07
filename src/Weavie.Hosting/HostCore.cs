@@ -345,6 +345,11 @@ public sealed partial class HostCore : IAsyncDisposable {
 				PushThemeToWeb();
 			}
 
+			if (change.Key is InferenceSettings.Enabled or InferenceSettings.AllowAutomatic
+				&& AutomaticInferenceEnabled()) {
+				ClearAutomaticInferenceOffer();
+			}
+
 			// Configuring the worktree setup command or the test profile can make the workspace-setup card vanish;
 			// re-evaluate the suggestions. A changed test profile also re-pushes it so run lenses refresh in place.
 			if (change.Key is "worktree.setupCommand" or Weavie.Core.Configuration.TestSettings.Profile) {

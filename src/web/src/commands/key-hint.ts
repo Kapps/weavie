@@ -10,6 +10,12 @@ export function keyLabelInCatalog(backendId: string, commandId: string): string 
   return labels(findCommandInCatalog(backendId, commandId)?.keys ?? []);
 }
 
+/** One backend catalog's effective shortcut as a parenthesized label suffix. */
+export function keyHintInCatalog(backendId: string, commandId: string): string {
+  const keys = keyLabelInCatalog(backendId, commandId);
+  return keys.length > 0 ? ` (${keys})` : "";
+}
+
 /**
  * A command's effective shortcut as a label suffix (" (Ctrl+…)"), read live from the catalog so buttons
  * advertise the real (user-overridable) binding; empty when the command is unbound.

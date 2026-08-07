@@ -331,11 +331,24 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		await WaitForAsync(() => messages.Any(message => message.Type == "turn-started"));
 
 		session.Submit(Submission("stale steer", []));
-		// The rejected steer is resent as a fresh turn/start carrying the same input, never dropped.
-		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "turn-steer.json")));
-		await WaitForAsync(() =>
-			File.ReadAllText(Path.Combine(_dir, "turn-start.json")).Contains("stale steer", StringComparison.Ordinal));
-		await WaitForAsync(() => messages.Any(message => message.Type == "user-message" && message.Text == "stale steer"));
+		// The rejected steer is resent as a fresh turn/start carrying the same input, never dropped. This spans
+		// a reject -> resend-as-fresh-turn -> pane-echo round trip, costlier than the in-process default
+		// 200-attempt/5s budget affords under CI load; widened with a diagnose callback like the precedent above.
+		// Flaked on CI (dotnet tests, ubuntu), unreproducible locally.
+		// https://github.com/Kapps/weavie/actions/runs/31148535789/job/92773908251 (5s poll, 2026-08-07)
+		await WaitForAsync(
+			() => File.Exists(Path.Combine(_dir, "turn-steer.json")),
+			attempts: 400,
+			() => $"fake-server markers: [{string.Join(", ", Directory.GetFiles(_dir).Select(Path.GetFileName).Order())}]"
+				+ $"; pane messages: [{string.Join(", ", messages.Select(message => $"{message.Type}={message.Text}"))}]");
+		await WaitForAsync(
+			() => File.ReadAllText(Path.Combine(_dir, "turn-start.json")).Contains("stale steer", StringComparison.Ordinal),
+			attempts: 400,
+			() => $"turn-start.json: {File.ReadAllText(Path.Combine(_dir, "turn-start.json"))}");
+		await WaitForAsync(
+			() => messages.Any(message => message.Type == "user-message" && message.Text == "stale steer"),
+			attempts: 400,
+			() => $"pane messages: [{string.Join(", ", messages.Select(message => $"{message.Type}={message.Text}"))}]");
 
 		// The rejection is surfaced with its JSON-RPC code and raw envelope, not hidden or shown as a raw blob.
 		var warning = Assert.Single(messages, message => message.Type == "warning");

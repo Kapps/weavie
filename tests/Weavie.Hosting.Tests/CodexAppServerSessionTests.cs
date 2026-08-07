@@ -331,11 +331,25 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		await WaitForAsync(() => messages.Any(message => message.Type == "turn-started"));
 
 		session.Submit(Submission("stale steer", []));
-		// The rejected steer is resent as a fresh turn/start carrying the same input, never dropped.
-		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "turn-steer.json")));
-		await WaitForAsync(() =>
-			File.ReadAllText(Path.Combine(_dir, "turn-start.json")).Contains("stale steer", StringComparison.Ordinal));
-		await WaitForAsync(() => messages.Any(message => message.Type == "user-message" && message.Text == "stale steer"));
+		// The rejected steer is resent as a fresh turn/start carrying the same input, never dropped. This
+		// chains a turn/steer round trip, its rejection, and a full fresh turn/start restart — more RPC round
+		// trips than the default 200-attempt/5 s budget assumes, so it flaked on CI under load.
+		// Flaked 2026-08-07 04:52 UTC: https://github.com/Kapps/weavie/actions/runs/31148535789/job/92773908251
+		// Widened to the same 1200-attempt/diagnose budget used for the queued-startup wait above.
+		await WaitForAsync(
+			() => File.Exists(Path.Combine(_dir, "turn-steer.json")),
+			attempts: 1200,
+			() => $"fake-server markers: [{string.Join(", ", Directory.GetFiles(_dir).Select(Path.GetFileName).Order())}]"
+				+ $"; pane messages: [{string.Join(", ", messages.Select(message => $"{message.Type}={message.Text}"))}]");
+		await WaitForAsync(
+			() => File.ReadAllText(Path.Combine(_dir, "turn-start.json")).Contains("stale steer", StringComparison.Ordinal),
+			attempts: 1200,
+			() => $"fake-server markers: [{string.Join(", ", Directory.GetFiles(_dir).Select(Path.GetFileName).Order())}]"
+				+ $"; pane messages: [{string.Join(", ", messages.Select(message => $"{message.Type}={message.Text}"))}]");
+		await WaitForAsync(
+			() => messages.Any(message => message.Type == "user-message" && message.Text == "stale steer"),
+			attempts: 1200,
+			() => $"pane messages: [{string.Join(", ", messages.Select(message => $"{message.Type}={message.Text}"))}]");
 
 		// The rejection is surfaced with its JSON-RPC code and raw envelope, not hidden or shown as a raw blob.
 		var warning = Assert.Single(messages, message => message.Type == "warning");

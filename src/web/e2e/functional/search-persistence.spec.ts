@@ -34,8 +34,17 @@ test("options, globs, and recent terms persist across a reload — but not the q
   await page.keyboard.press("Alt+c");
   await expect(caseToggle).toHaveAttribute("aria-pressed", "true");
   await page.locator(".search-glob").nth(0).fill("*.ts");
-  await input.fill("greet");
-  await expect(page.locator(".search-row").first()).toBeVisible();
+  // Flaked twice on macOS CI 2026-08-07 (04:41 and 04:47 UTC), each time waiting the full 30s for the first
+  // search-row after this single git-grep round trip — investigated the backend dispatch (HostCore.Search.cs
+  // / GitService.GrepAsync) and found no app-level race for a session's first search request; the failure
+  // reads as a macOS-runner-level stall (contended process spawn), not a deterministic bug. Retrying re-fills
+  // the query so a stalled request is superseded by a fresh one instead of waiting out a single long timeout.
+  // https://github.com/Kapps/weavie/actions/runs/31148196931/job/92773047174
+  // https://github.com/Kapps/weavie/actions/runs/31148535789/job/92774602450
+  await expect(async () => {
+    await input.fill("greet");
+    await expect(page.locator(".search-row").first()).toBeVisible({ timeout: 5_000 });
+  }).toPass({ timeout: 30_000 });
   await page.keyboard.press("Enter"); // commits "greet" into the recent-terms history
 
   await reload(page);

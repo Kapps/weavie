@@ -326,7 +326,13 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
 
 		session.Start();
-		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
+		// Stalled once on CI at the default budget (subprocess spawn + first JSON-RPC round trip taking
+		// longer than 5s under runner load) — widened budget + a marker-file dump for the next occurrence.
+		// https://github.com/Kapps/weavie/actions/runs/31148535789/job/92773908251 (5 s poll, 2026-08-07)
+		await WaitForAsync(
+			() => File.Exists(Path.Combine(_dir, "thread-start.json")),
+			attempts: 400,
+			() => $"fake-server markers: [{string.Join(", ", Directory.GetFiles(_dir).Select(Path.GetFileName).Order())}]");
 		session.Submit(Submission("go", []));
 		await WaitForAsync(() => messages.Any(message => message.Type == "turn-started"));
 

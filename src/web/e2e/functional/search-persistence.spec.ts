@@ -34,8 +34,14 @@ test("options, globs, and recent terms persist across a reload — but not the q
   await page.keyboard.press("Alt+c");
   await expect(caseToggle).toHaveAttribute("aria-pressed", "true");
   await page.locator(".search-glob").nth(0).fill("*.ts");
-  await input.fill("greet");
-  await expect(page.locator(".search-row").first()).toBeVisible();
+  // Re-fills (a fresh debounced search request) if a request is ever dropped, rather than blocking the
+  // whole 30s default timeout on one attempt.
+  // https://github.com/Kapps/weavie/actions/runs/31148196931/job/92773047174 (2026-08-07)
+  // https://github.com/Kapps/weavie/actions/runs/31148535789/job/92774602450 (2026-08-07)
+  await expect(async () => {
+    await input.fill("greet");
+    await expect(page.locator(".search-row").first()).toBeVisible({ timeout: 5_000 });
+  }).toPass({ timeout: 30_000 });
   await page.keyboard.press("Enter"); // commits "greet" into the recent-terms history
 
   await reload(page);

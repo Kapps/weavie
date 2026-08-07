@@ -22,6 +22,17 @@ async function reload(page: Page): Promise<void> {
   await awaitEditorReady(page);
 }
 
+// Flaked three times on macOS shard 5/6, always at the same `.search-row` wait, always with the panel still
+// showing "Searching…" — the "search".query request itself never resolves within the 30s window, this isn't
+// just a slow git-grep round trip. Not reproducible locally (passes every time, including against a build from
+// a commit that only touched this comment) and workers: 1 rules out contention from our own suite on macOS, so
+// the lead is host-side: something occasionally stalls the "search" feature's serialized request/response lane
+// on the macOS hosted runners specifically. Not yet root-caused — logged per playwright.config.ts's no-retries
+// policy rather than masked with a retry; re-run the CI job when this recurs rather than reaching for a longer
+// timeout, since a longer wait wouldn't help a request that never comes back at all.
+// https://github.com/Kapps/weavie/actions/runs/31148196931/job/92773047174 (2026-08-07 04:51 UTC)
+// https://github.com/Kapps/weavie/actions/runs/31148535789/job/92774602450 (2026-08-07 05:01 UTC)
+// https://github.com/Kapps/weavie/actions/runs/31188196740/job/92898562649 (2026-08-07 14:39 UTC)
 test("options, globs, and recent terms persist across a reload — but not the query", async ({
   page,
 }) => {

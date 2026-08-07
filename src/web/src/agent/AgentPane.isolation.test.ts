@@ -4,27 +4,36 @@ import type { AgentPaneUpdate, ClientSession } from "../bridge";
 import { createAgentPaneModel } from "./AgentPaneModel";
 
 describe("agent pane model isolation", () => {
-  it("defers background transcript projection until the session is attached", () => {
+  it("projects updates into an unrendered session model", () => {
     createRoot((dispose) => {
       const model = createAgentPaneModel({} as ClientSession);
       const first = message("first", "First answer");
       model.publish([first]);
 
       expect(model.messages()).toEqual([first]);
-      expect(model.entries).toHaveLength(0);
-
-      const detach = model.attach();
       expect(model.entries.map((entry) => entry.text)).toEqual(["First answer"]);
-      detach();
+      expect(model.revision()).toBe(1);
+      expect(model.sectionLabels().get(model.entries[0]!.id)).toBe("Results");
+      expect(model.turnActive()).toBe(false);
+
+      dispose();
+    });
+  });
+
+  it("keeps another session's projected state unchanged", () => {
+    createRoot((dispose) => {
+      const foreground = createAgentPaneModel({} as ClientSession);
+      const background = createAgentPaneModel({} as ClientSession);
+      foreground.publish([message("first", "First answer")]);
+      const foregroundEntry = foreground.entries[0];
+      const foregroundRevision = foreground.revision();
 
       const second = message("second", "Second answer");
-      model.publish([first, second]);
-      expect(model.messages()).toEqual([first, second]);
-      expect(model.entries.map((entry) => entry.text)).toEqual(["First answer"]);
+      background.publish([second]);
 
-      const detachAgain = model.attach();
-      expect(model.entries.map((entry) => entry.text)).toEqual(["First answer", "Second answer"]);
-      detachAgain();
+      expect(background.entries.map((entry) => entry.text)).toEqual(["Second answer"]);
+      expect(foreground.revision()).toBe(foregroundRevision);
+      expect(foreground.entries[0]).toBe(foregroundEntry);
       dispose();
     });
   });

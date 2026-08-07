@@ -430,8 +430,8 @@ export default function App(): JSX.Element {
     return status !== null && status.branch === gitStatus()?.branch ? status.pullRequest : null;
   });
   createEffect(() => setContext("pullRequestAvailable", currentPullRequest() !== null));
-  // Raw messages and keyed entry identity belong to the exact session. Selection swaps one stable model;
-  // inactive sessions defer their lightweight transcript fold until selected, so background work stays isolated.
+  // Raw messages and projected entries belong to the exact session; selection only chooses which owned
+  // model the shared agent surface renders.
   const focusedAgentPane = createMemo<AgentPaneModel | null>(() =>
     agentPaneModel(selectedSession()),
   );

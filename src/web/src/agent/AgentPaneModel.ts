@@ -10,7 +10,6 @@ import { hasActiveTurn, pendingRequest } from "./turn-progress";
 export type AgentSectionLabel = "Updates" | "Results";
 
 export interface AgentPaneModel {
-  attach(): () => void;
   readonly agentTurnStartId: Accessor<string | null>;
   readonly agentTurnStartIndex: Accessor<number | null>;
   readonly entries: AgentTranscriptEntry[];
@@ -42,9 +41,6 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
   const [sectionLabels, setSectionLabels] = createSignal<ReadonlyMap<string, AgentSectionLabel>>(
     new Map(),
   );
-  let attached = 0;
-  let projectedMessages: AgentPaneUpdate[] | null = null;
-
   const project = (updates: AgentPaneUpdate[]): void => {
     const projected = toAgentTranscript(updates);
     const active = hasActiveTurn(updates);
@@ -70,29 +66,16 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
       setSectionLabels(labels);
       setRevision((value) => value + 1);
     });
-    projectedMessages = updates;
   };
 
   const publish = (updates: AgentPaneUpdate[]): void => {
     batch(() => {
       setMessages(updates);
-      if (attached > 0) {
-        project(updates);
-      }
+      project(updates);
     });
   };
 
   return {
-    attach() {
-      attached += 1;
-      const latest = messages();
-      if (projectedMessages !== latest) {
-        project(latest);
-      }
-      return () => {
-        attached -= 1;
-      };
-    },
     agentTurnStartId,
     agentTurnStartIndex,
     entries,

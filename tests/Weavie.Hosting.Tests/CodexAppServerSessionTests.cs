@@ -326,7 +326,11 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
 
 		session.Start();
-		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
+		// Flaked once on ubuntu-latest, 2026-08-07 04:55 UTC
+		// (https://github.com/Kapps/weavie/actions/runs/31148535789/job/92773908251): this wait spans the fake
+		// codex subprocess spawn, and the default 5s budget was too tight under that run's CI contention.
+		// Widened to the class's scoped subprocess-spawn override rather than raising the shared default.
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")), attempts: 400);
 		session.Submit(Submission("go", []));
 		await WaitForAsync(() => messages.Any(message => message.Type == "turn-started"));
 

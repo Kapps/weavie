@@ -326,7 +326,15 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
 
 		session.Start();
-		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
+		// This wait spans a subprocess spawn plus the initialize -> thread/start round trip, so its budget is
+		// wide, and a timeout reports how far the chain got — it stalled once on CI, unreproducible locally:
+		// 2026-08-07 04:47 UTC (https://github.com/Kapps/weavie/actions/runs/31148535789/job/92774602450, 5 s
+		// default). Every sibling test in this class waits on the same "thread-start.json" marker at the same
+		// default budget without issue, so only this call was widened rather than the shared default.
+		await WaitForAsync(
+			() => File.Exists(Path.Combine(_dir, "thread-start.json")),
+			attempts: 400,
+			() => $"fake-server markers: [{string.Join(", ", Directory.GetFiles(_dir).Select(Path.GetFileName).Order())}]");
 		session.Submit(Submission("go", []));
 		await WaitForAsync(() => messages.Any(message => message.Type == "turn-started"));
 

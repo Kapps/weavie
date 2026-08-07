@@ -48,6 +48,15 @@ export default defineConfig({
   // (https://github.com/Kapps/weavie/actions/runs/30172909228/job/89716872651, fixed in mock-host.ts's own
   // timeout — that one isn't gated by this `expect.timeout`); and 2026-07-26 03:25 UTC, diff-review.spec.ts's
   // omnibar-row wait (https://github.com/Kapps/weavie/actions/runs/30185766515/job/89750062772), fixed here.
+  // Also seen twice back-to-back on macos-latest shard 5/6, both unrelated to the PRs that surfaced them and
+  // both self-cleared on the very next push with no code change: 2026-08-07 04:41 UTC and 04:47 UTC,
+  // search-persistence.spec.ts's post-fill ".search-row" wait blew through this 30s ceiling
+  // (https://github.com/Kapps/weavie/actions/runs/31148196931/job/92773047174 and
+  // https://github.com/Kapps/weavie/actions/runs/31148535789/job/92774602450). Traced the request path
+  // (search-store.ts's 200ms debounce -> session.feature("search").request -> HostCore.Search.cs's git-grep
+  // spawn) end to end; found no dropped/stale-guarded response and no app-level race — workers: 1 means no
+  // contention from our own tests, so this reads as the same hosted-runner latency variance already described
+  // above rather than a defect, and wasn't touched.
   expect: { timeout: process.platform === "linux" ? 15_000 : 30_000 },
   use: {
     headless: true,

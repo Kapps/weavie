@@ -34,8 +34,15 @@ test("options, globs, and recent terms persist across a reload — but not the q
   await page.keyboard.press("Alt+c");
   await expect(caseToggle).toHaveAttribute("aria-pressed", "true");
   await page.locator(".search-glob").nth(0).fill("*.ts");
-  await input.fill("greet");
-  await expect(page.locator(".search-row").first()).toBeVisible();
+  // Flaked twice on macOS shard 5/6 (2026-08-07 04:41 and 04:48 UTC, runs 31148196931 and 31148535789):
+  // the search-row never appeared within the default expect timeout, indistinguishable from a dropped
+  // full-stack round trip (host feature request -> git grep -> IPC render) under runner contention. Retrying
+  // the fill + wait — each attempt re-fires a fresh search, so it's safe to repeat — rather than only
+  // widening the single wait, matching openSearch()'s existing toPass idiom above.
+  await expect(async () => {
+    await input.fill("greet");
+    await expect(page.locator(".search-row").first()).toBeVisible({ timeout: 5_000 });
+  }).toPass({ timeout: 45_000 });
   await page.keyboard.press("Enter"); // commits "greet" into the recent-terms history
 
   await reload(page);

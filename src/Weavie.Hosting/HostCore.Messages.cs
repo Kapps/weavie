@@ -3,6 +3,7 @@ using Weavie.Core.Git;
 using Weavie.Core.Layout;
 using Weavie.Core.Remote;
 using Weavie.Core.Search;
+using Weavie.Hosting.Messaging;
 
 namespace Weavie.Hosting;
 
@@ -11,9 +12,14 @@ public sealed partial class HostCore {
 		WireSystemNotificationMessages();
 
 		var connection = _messages.Host.Feature("connection");
-		connection.Handle<HelloRequest, HostHello>(
+		connection.HandleAfterResponse<HelloRequest, HostHello>(
 			"hello",
-			(_, _) => Task.FromResult(BuildHello()));
+			(_, _) => Task.FromResult(new ResponseWithCompletion<HostHello>(
+				BuildHello(),
+				_ => {
+					OfferAutomaticInference();
+					return Task.CompletedTask;
+				})));
 
 		var clipboard = _messages.Host.Feature("clipboard");
 		clipboard.Handle<ClipboardWrite>("write", (message, _) => {

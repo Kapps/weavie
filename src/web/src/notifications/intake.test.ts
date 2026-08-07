@@ -32,6 +32,15 @@ vi.mock("../notify/notify", () => ({
   clearNotification: notifications.clear,
 }));
 
+const commands = vi.hoisted(() => ({
+  keyHint: vi.fn(),
+  run: vi.fn(),
+}));
+vi.mock("../commands/key-hint", () => ({ keyHintInCatalog: commands.keyHint }));
+vi.mock("../commands/registry", () => ({
+  runCommandFromCatalogWithFeedback: commands.run,
+}));
+
 await import("./intake");
 
 function feature(): {
@@ -66,6 +75,8 @@ describe("notification intake", () => {
   beforeEach(() => {
     notifications.notify.mockClear();
     notifications.clear.mockClear();
+    commands.keyHint.mockReset();
+    commands.run.mockReset();
   });
 
   it("isolates keyed notifications by backend", () => {
@@ -106,6 +117,35 @@ describe("notification intake", () => {
     expect(notifications.clear).toHaveBeenCalledWith(
       "backend:remote:mobile:message-operation:msg-1",
     );
+    dispose();
+  });
+
+  it("runs an action against the notification's backend and advertises its effective shortcut", () => {
+    commands.keyHint.mockReturnValue(" (Ctrl+Alt+I)");
+    const remote = feature();
+    const dispose = installHost("remote:mobile", remote.channel);
+
+    remote.deliver("show", {
+      level: "info",
+      message: "Allow automatic inference?",
+      key: "inference-automatic-opt-in",
+      action: {
+        label: "Allow",
+        commandId: "weavie.inference.enableAutomatic",
+        argsJson: '{"source":"notification"}',
+      },
+    });
+
+    expect(commands.keyHint).toHaveBeenCalledWith(
+      "remote:mobile",
+      "weavie.inference.enableAutomatic",
+    );
+    const action = notifications.notify.mock.calls[0]?.[3];
+    expect(action?.label).toBe("Allow (Ctrl+Alt+I)");
+    action?.run();
+    expect(commands.run).toHaveBeenCalledWith("remote:mobile", "weavie.inference.enableAutomatic", {
+      source: "notification",
+    });
     dispose();
   });
 });

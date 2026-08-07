@@ -1,4 +1,5 @@
 using System.Globalization;
+using Weavie.Core.Inference;
 
 namespace Weavie.Core.Commands;
 
@@ -301,6 +302,9 @@ public static class CoreCommands {
 
 	/// <summary>Prefill an analysis of the workspace's recorded corrections into the primary session's agent.</summary>
 	public const string LearnFromCorrections = "weavie.learn.fromCorrections";
+
+	/// <summary>Allows isolated automatic model queries for small product suggestions.</summary>
+	public const string EnableAutomaticInference = "weavie.inference.enableAutomatic";
 
 	/// <summary>Runs tests for a file via the workspace test profile (args <c>file</c>, optional <c>name</c> for a single test); writes the composed command into the shell pane. The one executor behind the lenses and MCP.</summary>
 	public const string RunTests = "weavie.tests.run";
@@ -1621,6 +1625,8 @@ public static class CoreCommands {
 				+ "would otherwise only appear in the terminal Weavie was launched from.",
 			Aliases = ["view logs", "show logs", "open logs", "diagnostics", "stdout", "console output", "log viewer"],
 		});
+
+		InferenceCommands.Register(registry);
 
 		// Multi-session + worktree commands: Core-handled new/fork/close wired per host via
 		// SessionCommands.RegisterHandlers; next/prev/switch are web-handled by the session rail.

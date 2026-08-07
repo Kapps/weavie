@@ -29,6 +29,7 @@ export interface WeavieHost {
 export interface LaunchOptions {
   fakeScript: FakeStep[] | null;
   inference: FakeCodexInference;
+  automaticInference: boolean;
   // When true, the workspace is a PR scenario (base + head branches off a local "origin") and the host's PR
   // provider is stubbed (WEAVIE_FAKE_PRS) with the canned PR pointing at the head branch — the Open-PR journey.
   pr?: boolean;
@@ -223,7 +224,7 @@ export async function prepareFake(options: LaunchOptions): Promise<FakeScaffold>
     WEAVIE_CLAUDE_RESUMESESSION: "false",
     WEAVIE_CODEX_PATH: codexWrapper,
   };
-  if (options.inference !== "disabled") {
+  if (options.automaticInference) {
     env.WEAVIE_INFERENCE_ENABLED = "true";
     env.WEAVIE_INFERENCE_ALLOWAUTOMATIC = "true";
   }

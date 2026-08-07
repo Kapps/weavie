@@ -1,7 +1,7 @@
 import { For, type JSX } from "solid-js";
 import type { Suggestion, SuggestionAction } from "../bridge";
-import { formatKey } from "../commands/keybindings";
-import { findCommand, runCommandWithFeedback } from "../commands/registry";
+import { keyHint } from "../commands/key-hint";
+import { runCommandWithFeedback } from "../commands/registry";
 
 // A RunCommand button's label with its command's effective shortcut appended ("Yes (Ctrl+…)"); an unbound or
 // non-command action shows just the label.
@@ -9,8 +9,7 @@ function actionLabel(action: SuggestionAction): string {
   if (action.kind !== "RunCommand" || action.commandId === undefined) {
     return action.label;
   }
-  const keys = findCommand(action.commandId)?.keys ?? [];
-  return keys.length > 0 ? `${action.label} (${keys.map(formatKey).join(" / ")})` : action.label;
+  return `${action.label}${keyHint(action.commandId)}`;
 }
 
 // A bottom-right stack of dismissible suggestion cards: contextual nudges (e.g. configure a worktree setup

@@ -6,6 +6,7 @@ using Weavie.Core.Configuration;
 using Weavie.Core.Editor;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Git;
+using Weavie.Core.Inference;
 using Weavie.Core.Sessions;
 using Weavie.Core.Theming;
 using Weavie.Core.Workspaces;
@@ -63,6 +64,7 @@ public sealed partial class HostCore {
 		RegisterTestRunHandlers(session);
 		ThemeCommands.RegisterHandlers(session.Commands, _settings, _themeOverrides, VsixPicker);
 		FontCommands.RegisterHandlers(session.Commands, _settings);
+		InferenceCommands.RegisterHandlers(session.Commands, _settings);
 		SessionCommands.RegisterHandlers(session.Commands, new BoundSessionHost(this, session));
 		WireCoreSessionMessages(session);
 

@@ -604,6 +604,24 @@ public sealed partial class HostCore {
 	public void Notify(string level, string message, string key) =>
 		_messages.Host.Feature("notifications").Publish("show", new { level, message, key });
 
+	/// <summary>
+	/// As <see cref="Notify(string,string,string)"/>, with an action backed by a registered command. The page
+	/// resolves the command's effective shortcut from the owning host's catalog.
+	/// </summary>
+	public void Notify(
+		string level,
+		string message,
+		string key,
+		string actionLabel,
+		string commandId,
+		string? argsJson) =>
+		_messages.Host.Feature("notifications").Publish("show", new {
+			level,
+			message,
+			key,
+			action = new { label = actionLabel, commandId, argsJson },
+		});
+
 	/// <summary>Dismisses the live toast carrying <paramref name="key"/> in the page (an in-flight spinner whose operation finished).</summary>
 	public void ClearNotify(string key) =>
 		_messages.Host.Feature("notifications").Publish("clear", new { key });

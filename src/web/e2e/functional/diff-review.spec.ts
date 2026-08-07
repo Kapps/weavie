@@ -53,6 +53,9 @@ const caretLine = (page: import("@playwright/test").Page): Promise<number | null
 test.describe("applied review — keep & undo", () => {
   test.use({ fakeScript: { steps: [...appliedEdit("hello.ts", TWO_HUNKS)] } });
 
+  // Flaked on windows-latest 2026-08-05 04:33 UTC, stuck at count 1 for the full 30s expect.timeout:
+  // https://github.com/Kapps/weavie/actions/runs/30975495342/job/92209636984. Fixed in HostCore.WebBridge's
+  // ApplyHistoryResult (see its doc comment) by ordering the "history" push before "diff"/"changes".
   test("keeping a hunk drops only it from the diff; undo brings it back", async ({ page }) => {
     await openFile(page, "hello.ts");
     await expect(page.locator(ADDED)).toHaveCount(2); // two hunks pending

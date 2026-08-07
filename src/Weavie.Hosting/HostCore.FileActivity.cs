@@ -46,11 +46,12 @@ public sealed partial class HostCore {
 
 	private Task RefreshReviewAsync(HostSession session, string path, bool deleted) =>
 		InvokeForSessionAsync(() => {
+			// History before diff/changes — see HostCore.WebBridge.ApplyHistoryResult's doc comment on why.
+			PushReviewHistoryToWeb(session);
 			if (!deleted) {
 				PushTurnDiffToWeb(session, path);
 			}
 			PushTurnChangesToWeb(session);
-			PushReviewHistoryToWeb(session);
 		});
 
 	private Task FileActivityFailedAsync(HostSession session, FileActivityFailure failure) =>

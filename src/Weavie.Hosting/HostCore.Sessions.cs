@@ -68,12 +68,12 @@ public sealed partial class HostCore {
 
 		WireFileActivity(session);
 		session.Changes.AcceptedCommitted += paths => PostForSession(session, () => {
+			// History before diff/changes — see HostCore.WebBridge.ApplyHistoryResult's doc comment on why.
+			PushReviewHistoryToWeb(session);
 			PushTurnChangesToWeb(session);
 			foreach (string path in paths) {
 				PushTurnDiffToWeb(session, path);
 			}
-
-			PushReviewHistoryToWeb(session);
 		});
 		WireAttention(session);
 		session.Status.Changed += status => {

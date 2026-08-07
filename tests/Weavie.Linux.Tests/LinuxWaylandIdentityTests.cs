@@ -57,8 +57,10 @@ public sealed class LinuxWaylandIdentityTests {
 				}
 			});
 
+			// Flaked (Linux CI) 2026-08-07: https://github.com/Kapps/weavie/actions/runs/31163006261/job/92817392774 —
+			// a full GTK/Wayland app cold boot occasionally outran 15s; widened, not reproducible locally (8/8 passed).
 			var completed = await Task.WhenAny(appIdPublished.Task, app.WaitForExitAsync())
-				.WaitAsync(TimeSpan.FromSeconds(15));
+				.WaitAsync(TimeSpan.FromSeconds(30));
 			Assert.True(
 				ReferenceEquals(completed, appIdPublished.Task),
 				$"The Linux host exited before publishing its Wayland app ID.\n{string.Join('\n', output)}");

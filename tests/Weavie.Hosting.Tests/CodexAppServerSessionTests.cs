@@ -55,7 +55,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		await using var session = CreateSession(events, messages);
 
 		session.Start();
-		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")), SubprocessSpawnAttempts);
 
 		Assert.DoesNotContain(messages, message => message.Type == "process-started");
 		Assert.DoesNotContain(messages, message => message.Type == "thread-ready");
@@ -83,7 +83,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		await using var session = CreateSessionWithThreads(events, messages, threads, fileSystem);
 
 		session.Start();
-		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-resume.json")));
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-resume.json")), SubprocessSpawnAttempts);
 
 		using var doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(_dir, "thread-resume.json")));
 		string instructions = doc.RootElement.GetProperty("params").GetProperty("developerInstructions").GetString() ?? "";
@@ -219,7 +219,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		await using var session = CreateSessionWithThreads(new NullAgentEventSink(), messages, threads, fileSystem);
 
 		session.Start();
-		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")), SubprocessSpawnAttempts);
 
 		Assert.False(threads.Resolve(_dir).Resume);
 
@@ -235,7 +235,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
 
 		session.Start();
-		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")), SubprocessSpawnAttempts);
 		session.Submit(Submission("delay start", []));
 		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "turn-start-pending.json")));
 		session.Submit(Submission("second", []));
@@ -254,7 +254,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
 
 		session.Start();
-		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")), SubprocessSpawnAttempts);
 		session.Submit(Submission("go", []));
 		await WaitForAsync(() => messages.Any(message => message.Type == "turn-started"));
 
@@ -275,7 +275,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		await using var session = CreateSession(events, messages);
 
 		session.Start();
-		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")), SubprocessSpawnAttempts);
 		session.Submit(Submission("subagent", []));
 		await WaitForAsync(() => messages.Any(message => message.Text == "Subagent update"));
 
@@ -326,7 +326,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
 
 		session.Start();
-		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")), SubprocessSpawnAttempts);
 		session.Submit(Submission("go", []));
 		await WaitForAsync(() => messages.Any(message => message.Type == "turn-started"));
 
@@ -378,7 +378,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
 
 		session.Start();
-		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")), SubprocessSpawnAttempts);
 
 		session.ResolveApproval("approval-ghost", "accept");
 
@@ -393,7 +393,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
 
 		session.Start();
-		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")), SubprocessSpawnAttempts);
 
 		session.Submit(Submission("file approval", []));
 		await WaitForAsync(() => messages.Any(message => message.Type == "approval-requested"));
@@ -410,7 +410,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
 
 		session.Start();
-		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")), SubprocessSpawnAttempts);
 		session.Submit(Submission("file approval collision", []));
 		await WaitForAsync(() => messages.Any(message => message.ItemId == "approval-4"));
 
@@ -424,7 +424,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		await using var session = CreateSession(new DirectChangeThrowingEventSink(), messages);
 
 		session.Start();
-		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")), SubprocessSpawnAttempts);
 		session.Submit(Submission("file approval", []));
 		await WaitForAsync(() => messages.Any(message => message.Summary == "Change tracking failed for this file"));
 		await WaitForAsync(() => messages.Any(message => message.Type == "approval-requested"));
@@ -439,7 +439,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		await using var session = CreateSession(events, messages);
 
 		session.Start();
-		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")), SubprocessSpawnAttempts);
 
 		session.Submit(Submission("approval", []));
 		await WaitForAsync(() => messages.Any(message => message.Type == "approval-requested"));
@@ -471,7 +471,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		await using var session = CreateSession(new CapturingAgentEventSink(), messages, bypassPermissions: true);
 
 		session.Start();
-		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")), SubprocessSpawnAttempts);
 
 		using var doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(_dir, "thread-start.json")));
 		var parameters = doc.RootElement.GetProperty("params");
@@ -497,7 +497,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		await using var session = CreateSession(new CapturingAgentEventSink(), messages, bypassPermissions: true);
 
 		session.Start();
-		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")), SubprocessSpawnAttempts);
 		session.Submit(Submission("approval", []));
 		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "approval-response.json")));
 
@@ -513,7 +513,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		await using var session = CreateSession(events, messages);
 
 		session.Start();
-		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")), SubprocessSpawnAttempts);
 
 		using var doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(_dir, "thread-start.json")));
 		string instructions = doc.RootElement.GetProperty("params").GetProperty("developerInstructions").GetString()!;
@@ -528,7 +528,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		await using var session = CreateSession(events, messages);
 
 		session.Start();
-		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")), SubprocessSpawnAttempts);
 
 		session.Submit(Submission("unsupported", []));
 		await WaitForAsync(() => messages.Any(message => message.ItemType == "item/tool/call"));
@@ -544,7 +544,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
 
 		session.Start();
-		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")), SubprocessSpawnAttempts);
 		session.Submit(Submission("out of tokens", []));
 		await WaitForAsync(() => messages.Any(message => message.Type == "error"));
 
@@ -561,7 +561,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		await using var session = CreateSession(events, messages);
 
 		session.Start();
-		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")), SubprocessSpawnAttempts);
 
 		string imagePath = Path.Combine(_dir, "paste-1.png");
 		Assert.False(File.Exists(Path.Combine(_dir, "image-turn.json")));
@@ -1048,7 +1048,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
 
 		session.Start();
-		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")), SubprocessSpawnAttempts);
 
 		session.Submit(Submission("", [], ["ghost-skill"]));
 		await WaitForAsync(() => messages.Any(message => message.Type == "error"));
@@ -1146,6 +1146,11 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 	// trips (initialize -> thread/resume -> turn/start), which cost more than the in-process assertions
 	// the default budget is sized for. Widening the shared 200-attempt default instead would double the
 	// failure-detection latency for every other test in this class on every CI run.
+	//
+	// Flaked (Linux CI) 2026-08-07 hitting that 5s default: https://github.com/Kapps/weavie/actions/runs/31148535789/job/92773908251.
+	// This override existed but no call site used it; wired it into every "thread-start.json"/"thread-resume.json" wait below.
+	private const int SubprocessSpawnAttempts = 400;
+
 	private static async Task WaitForAsync(Func<bool> done, int attempts) =>
 		await WaitForAsync(done, attempts, static () => string.Empty);
 

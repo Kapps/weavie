@@ -35,7 +35,9 @@ test("options, globs, and recent terms persist across a reload — but not the q
   await expect(caseToggle).toHaveAttribute("aria-pressed", "true");
   await page.locator(".search-glob").nth(0).fill("*.ts");
   await input.fill("greet");
-  await expect(page.locator(".search-row").first()).toBeVisible();
+  // Flaked (macOS CI) 2026-08-07, twice on shard 5/6 — reproduced 26/26 on Linux, so not a search-store race;
+  // a hosted-runner stall on the first search round trip (https://github.com/Kapps/weavie/actions/runs/31148196931/job/92773047174).
+  await expect(page.locator(".search-row").first()).toBeVisible({ timeout: 45_000 });
   await page.keyboard.press("Enter"); // commits "greet" into the recent-terms history
 
   await reload(page);

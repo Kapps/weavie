@@ -43,11 +43,19 @@ export default defineConfig({
   // concurrency capped above, tests land far inside it. Same Windows/macOS-vs-Linux split as `timeout` above,
   // for the same reason: those hosted runners measurably slow down over a long serial run (workers: 1 means
   // no contention from our own tests, so this is runner-side, not something more concurrency would fix).
-  // Seen twice on windows-latest, always a full-stack round-trip near the tail of the ~176-test run, both
-  // unrelated to the PR that surfaced them: 2026-07-25 20:22 UTC, codex-composer.spec.ts's "ready" wait
+  // Seen three times on windows-latest, always a full-stack round-trip near the tail of the ~176-test run,
+  // all unrelated to the PR that surfaced them: 2026-07-25 20:22 UTC, codex-composer.spec.ts's "ready" wait
   // (https://github.com/Kapps/weavie/actions/runs/30172909228/job/89716872651, fixed in mock-host.ts's own
-  // timeout — that one isn't gated by this `expect.timeout`); and 2026-07-26 03:25 UTC, diff-review.spec.ts's
-  // omnibar-row wait (https://github.com/Kapps/weavie/actions/runs/30185766515/job/89750062772), fixed here.
+  // timeout — that one isn't gated by this `expect.timeout`); 2026-07-26 03:25 UTC, diff-review.spec.ts's
+  // omnibar-row wait (https://github.com/Kapps/weavie/actions/runs/30185766515/job/89750062772), fixed here;
+  // and 2026-08-05 04:41 UTC, diff-review.spec.ts's "keep & undo" test — the ADDED-locator count stuck at 1
+  // (never returned to 2) for the full 30s budget after the undo keypress
+  // (https://github.com/Kapps/weavie/actions/runs/30975495342/job/92208988130). Confirmed environmental, not
+  // a regression: the PR that surfaced it (#543) never touched diff review, and the identical test/shard
+  // passed cleanly on the very next (unrelated) run 9 minutes later with no code change
+  // (https://github.com/Kapps/weavie/actions/runs/30975895957/job/92210099952). Left `expect.timeout`
+  // unchanged — it's already double Linux's, and this is a single non-reproducing stall, not a repeat miss
+  // at this ceiling; revisit if diff-review.spec.ts times out on windows again.
   expect: { timeout: process.platform === "linux" ? 15_000 : 30_000 },
   use: {
     headless: true,

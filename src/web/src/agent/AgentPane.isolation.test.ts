@@ -4,26 +4,36 @@ import type { AgentPaneUpdate, ClientSession } from "../bridge";
 import { createAgentPaneModel } from "./AgentPaneModel";
 
 describe("agent pane model isolation", () => {
-  it("projects updates into an unrendered session model", () => {
+  it("defers background transcript projection until the session is attached", () => {
     createRoot((dispose) => {
       const model = createAgentPaneModel({} as ClientSession);
       const first = message("first", "First answer");
       model.publish([first]);
 
       expect(model.messages()).toEqual([first]);
-      expect(model.entries.map((entry) => entry.text)).toEqual(["First answer"]);
-      expect(model.revision()).toBe(1);
-      expect(model.sectionLabels().get(model.entries[0]!.id)).toBe("Results");
-      expect(model.turnActive()).toBe(false);
+      expect(model.entries).toHaveLength(0);
 
+      const detach = model.attach();
+      expect(model.entries.map((entry) => entry.text)).toEqual(["First answer"]);
+      detach();
+
+      const second = message("second", "Second answer");
+      model.publish([first, second]);
+      expect(model.messages()).toEqual([first, second]);
+      expect(model.entries.map((entry) => entry.text)).toEqual(["First answer"]);
+
+      const detachAgain = model.attach();
+      expect(model.entries.map((entry) => entry.text)).toEqual(["First answer", "Second answer"]);
+      detachAgain();
       dispose();
     });
   });
 
-  it("keeps another session's projected state unchanged", () => {
+  it("keeps another session's projected state unchanged while unattached", () => {
     createRoot((dispose) => {
       const foreground = createAgentPaneModel({} as ClientSession);
       const background = createAgentPaneModel({} as ClientSession);
+      const detach = foreground.attach();
       foreground.publish([message("first", "First answer")]);
       const foregroundEntry = foreground.entries[0];
       const foregroundRevision = foreground.revision();
@@ -31,9 +41,10 @@ describe("agent pane model isolation", () => {
       const second = message("second", "Second answer");
       background.publish([second]);
 
-      expect(background.entries.map((entry) => entry.text)).toEqual(["Second answer"]);
+      expect(background.entries).toHaveLength(0);
       expect(foreground.revision()).toBe(foregroundRevision);
       expect(foreground.entries[0]).toBe(foregroundEntry);
+      detach();
       dispose();
     });
   });

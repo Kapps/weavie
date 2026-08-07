@@ -200,14 +200,13 @@ export const test = base.extend<WeavieOptions & WeavieFixtures>({
         // The app removes the splash element once it has booted (layout + first session). Its disappearance
         // is the "app is interactive" signal — not a fixed sleep.
         await expect(page.locator("#splash")).toHaveCount(0, { timeout: 40_000 });
-        if (dismissInferenceOffer) {
+        if (dismissInferenceOffer && !automaticInference) {
           const offer = page.locator(".toast", {
             hasText: "Let Weavie use automatic inference",
           });
-          if ((await offer.count()) > 0) {
-            await offer.getByRole("button", { name: "Dismiss" }).click();
-            await expect(offer).toHaveCount(0);
-          }
+          await expect(offer).toBeVisible();
+          await offer.getByRole("button", { name: "Dismiss" }).click();
+          await expect(offer).toHaveCount(0);
         }
       } catch (error) {
         // Playwright records setup failures only after the fixture unwinds, so testInfo still says "passed" here.

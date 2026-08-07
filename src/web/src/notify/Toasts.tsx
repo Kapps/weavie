@@ -178,7 +178,6 @@ export function Toasts(props: {
   onPause: (id: number) => void;
   onResume: (id: number) => void;
 }): JSX.Element {
-  const canHover = window.matchMedia("(hover: hover)").matches;
   return (
     <div class="toasts">
       <For each={props.toasts}>
@@ -191,8 +190,8 @@ export function Toasts(props: {
             }}
             style={`--toast-duration:${AUTO_DISMISS_MS}ms`}
             role="alert"
-            onMouseEnter={() => canHover && props.onPause(toast.id)}
-            onMouseLeave={() => canHover && props.onResume(toast.id)}
+            onMouseEnter={() => props.onPause(toast.id)}
+            onMouseLeave={() => props.onResume(toast.id)}
           >
             {toast.level === "busy" && <span class="toast-spinner" aria-hidden="true" />}
             <span class="toast-msg">{toast.message}</span>

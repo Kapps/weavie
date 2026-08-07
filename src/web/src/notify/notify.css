@@ -53,10 +53,8 @@
   pointer-events: none;
 }
 
-@media (hover: hover) {
-  .toast-timed:hover::before {
-    animation-play-state: paused;
-  }
+.toast-timed:hover::before {
+  animation-play-state: paused;
 }
 
 @keyframes toast-drain {

@@ -388,12 +388,17 @@ public sealed partial class HostCore {
 
 	/// <summary>
 	/// Pushes a state-only undo/redo result. Disk-mutating results publish through session file activity.
+	/// History goes out FIRST: the client gates its next undo/redo chord on the history push, and Monaco's
+	/// diff-driven decoration count is what a chord-then-poll caller (a fast typist, or a test) reacts to —
+	/// sending history after the diff would let that reaction race a still-in-flight history push and silently
+	/// no-op the next chord (see the dated comment on diff-review.spec.ts's keep/undo test).
 	/// </summary>
 	private void ApplyHistoryResult(HostSession session, ReviewHistoryResult result) {
 		if (result.TouchedDisk) {
 			return;
 		}
 
+		PushReviewHistoryToWeb(session);
 		foreach (string path in result.Paths) {
 			if (session.Changes.GetTurn(path) is not null) {
 				PushTurnDiffToWeb(session, path);
@@ -401,7 +406,6 @@ public sealed partial class HostCore {
 		}
 
 		PushTurnChangesToWeb(session);
-		PushReviewHistoryToWeb(session);
 	}
 
 	/// <summary>Pushes the review undo/redo availability so the page enables its Undo/Redo affordances.</summary>
@@ -492,9 +496,10 @@ public sealed partial class HostCore {
 			return;
 		}
 
+		// History first — see the ordering note on ApplyHistoryResult.
+		PushReviewHistoryToWeb(session);
 		PushTurnDiffToWeb(session, path);
 		PushTurnChangesToWeb(session);
-		PushReviewHistoryToWeb(session);
 	}
 
 	/// <summary>
@@ -508,9 +513,10 @@ public sealed partial class HostCore {
 		}
 
 		session.Changes.KeepFile(path);
+		// History first — see the ordering note on ApplyHistoryResult.
+		PushReviewHistoryToWeb(session);
 		PushTurnDiffToWeb(session, path);
 		PushTurnChangesToWeb(session);
-		PushReviewHistoryToWeb(session);
 	}
 
 	/// <summary>

@@ -44,13 +44,16 @@ public sealed partial class HostCore {
 			OnFailure);
 	}
 
+	// History goes out before the diff — see the ordering note on HostCore.ApplyHistoryResult (WebBridge):
+	// the client gates its next undo/redo chord on the history push, and must never see the diff-driven
+	// decoration count change before it.
 	private Task RefreshReviewAsync(HostSession session, string path, bool deleted) =>
 		InvokeForSessionAsync(() => {
+			PushReviewHistoryToWeb(session);
 			if (!deleted) {
 				PushTurnDiffToWeb(session, path);
 			}
 			PushTurnChangesToWeb(session);
-			PushReviewHistoryToWeb(session);
 		});
 
 	private Task FileActivityFailedAsync(HostSession session, FileActivityFailure failure) =>

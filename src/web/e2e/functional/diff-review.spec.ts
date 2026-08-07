@@ -53,6 +53,18 @@ const caretLine = (page: import("@playwright/test").Page): Promise<number | null
 test.describe("applied review — keep & undo", () => {
   test.use({ fakeScript: { steps: [...appliedEdit("hello.ts", TWO_HUNKS)] } });
 
+  // 2026-08-05 04:33 UTC this failed on windows: stuck at count 1 through all 63 polls of the 30s
+  // expect.timeout after the undo chord (https://github.com/Kapps/weavie/actions/runs/30975495342/job/92208988130).
+  // Root-caused as a real defect, not a runner hiccup: KeepHunk/undo/redo pushed the "diff" (which drives this
+  // decoration count) BEFORE the "history" event (which sets history.canUndoKeep — see inline-diff.ts's
+  // undoKeep()). Both are separate WS messages, so a caller that reacts to the diff-driven DOM update (this
+  // test, or a fast human) could press the undo chord before the history push landed; undoKeep() then read a
+  // stale canUndoKeep=false and silently swallowed the chord — no request ever reached the host, hence the
+  // permanent stall. Reproduced locally under CPU contention (parallel runs on a 4-core box) on the pre-fix
+  // build; 27/27 clean afterward under the same contention. Fixed at the root in HostCore: every push site that
+  // updates review history now sends it BEFORE the diff/changes it's paired with (KeepHunk, KeepFile,
+  // ApplyHistoryResult, RefreshReviewAsync, AcceptedCommitted), so canUndoKeep/canUndoRevert/canRedo are never
+  // stale by the time the visible hunk count the user reacts to actually changes.
   test("keeping a hunk drops only it from the diff; undo brings it back", async ({ page }) => {
     await openFile(page, "hello.ts");
     await expect(page.locator(ADDED)).toHaveCount(2); // two hunks pending

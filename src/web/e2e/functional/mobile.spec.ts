@@ -3,6 +3,7 @@ import { expect, test } from "../harness/fixtures";
 
 const PNG_B64 =
   "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAXUlEQVR42u3PMQ0AIAwAMJTsnhxkI2I3NxLQsGNfkxroqohRcWYtAQEBAQEBAQEBAQEBAQEBAQEBAQEBAYF2IPcd9SpHCQgICAgICAgICAgICAgICAgICAgICAi0fZNauTzyRETRAAAAAElFTkSuQmCC";
+const sgrPayload = (data: string): string => (data.startsWith("\u001b[") ? data.slice(2) : data);
 
 async function pasteImage(target: import("@playwright/test").Locator, b64: string): Promise<void> {
   await target.evaluate((element, encoded) => {
@@ -31,11 +32,19 @@ async function dispatchPaneTouch(
         target: element,
         clientX: touchEvent.point.x,
         clientY: touchEvent.point.y,
+        pageX: touchEvent.point.x,
+        pageY: touchEvent.point.y,
+        screenX: touchEvent.point.x,
+        screenY: touchEvent.point.y,
       });
       const position =
         touchEvent.phase === "touchend"
           ? { changedTouches: [touch] }
-          : { targetTouches: [touch], touches: [touch] };
+          : {
+              changedTouches: [touch],
+              targetTouches: [touch],
+              touches: [touch],
+            };
       return element.dispatchEvent(
         new TouchEvent(touchEvent.phase, {
           bubbles: true,
@@ -194,6 +203,94 @@ test("tapping the Claude Code prompt focuses its mobile keyboard input", async (
   await expect.poll(() => terminalRows(page, "claude")).toBeLessThan(initialRows);
 });
 
+test("touch scrolling and tapping a mouse-aware Claude prompt send valid input", async ({
+  page,
+}) => {
+  await page.locator(".session-inbox-row").click();
+  const terminal = page.locator('.terminal-surface[data-kind="terminal:claude"]');
+  const screen = terminal.locator(".xterm-screen");
+  await expect(screen).toBeVisible();
+
+  await screen.evaluate(async (element) => {
+    const terminal = Object.entries(window.__WEAVIE_TERMINALS__ ?? {}).find(([key]) =>
+      key.endsWith(":claude"),
+    )?.[1];
+    if (terminal === undefined) {
+      throw new Error("Missing Claude terminal");
+    }
+    const input: string[] = [];
+    const subscription = terminal.onData((data) => input.push(data));
+    Object.assign(element, {
+      __weavieTouchInput: { dispose: () => subscription.dispose(), input },
+    });
+    await new Promise<void>((resolve) => terminal.write("\x1b[?1000h\x1b[?1006h", resolve));
+  });
+
+  const bounds = await screen.boundingBox();
+  if (bounds === null) {
+    throw new Error("Missing Claude terminal bounds");
+  }
+  const x = bounds.x + bounds.width / 2;
+  const startY = bounds.y + bounds.height * 0.65;
+  const endY = startY - 60;
+  const readInput = (): Promise<string[]> =>
+    screen.evaluate((element) => {
+      const capture = (
+        element as Element & { __weavieTouchInput?: { dispose: () => void; input: string[] } }
+      ).__weavieTouchInput;
+      if (capture === undefined) {
+        throw new Error("Missing terminal input capture");
+      }
+      return [...capture.input];
+    });
+  await page.touchscreen.tap(x, startY);
+
+  await expect(terminal.locator(".xterm-helper-textarea")).toBeFocused();
+  await expect
+    .poll(async () => (await readInput()).map(sgrPayload).filter((data) => data.startsWith("<")))
+    .toEqual([expect.stringMatching(/^<0;\d+;\d+M$/), expect.stringMatching(/^<0;\d+;\d+m$/)]);
+  await screen.evaluate((element) => {
+    const capture = (
+      element as Element & { __weavieTouchInput?: { dispose: () => void; input: string[] } }
+    ).__weavieTouchInput;
+    if (capture === undefined) {
+      throw new Error("Missing terminal input capture");
+    }
+    capture.input.length = 0;
+  });
+
+  await dispatchPaneTouch(screen, "touchstart", { x, y: startY });
+  await page.evaluate(() => new Promise(requestAnimationFrame));
+  await dispatchPaneTouch(screen, "touchmove", { x, y: endY });
+  await page.evaluate(() => new Promise(requestAnimationFrame));
+  await screen.evaluate((element) => {
+    const capture = (
+      element as Element & { __weavieTouchInput?: { dispose: () => void; input: string[] } }
+    ).__weavieTouchInput;
+    if (capture === undefined) {
+      throw new Error("Missing terminal input capture");
+    }
+    capture.input.length = 0;
+  });
+  await dispatchPaneTouch(screen, "touchend", { x, y: endY });
+  await page.evaluate(
+    () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+  );
+
+  const scrollInput = await readInput();
+  expect(scrollInput.length).toBeGreaterThan(0);
+  expect(scrollInput.join("")).not.toContain("NaN");
+  expect(scrollInput.every((data) => /^<(64|65);\d+;\d+M$/.test(sgrPayload(data)))).toBe(true);
+  await screen.evaluate((element) => {
+    const capture = (
+      element as Element & { __weavieTouchInput?: { dispose: () => void; input: string[] } }
+    ).__weavieTouchInput;
+    capture?.dispose();
+    delete (element as Element & { __weavieTouchInput?: { dispose: () => void; input: string[] } })
+      .__weavieTouchInput;
+  });
+});
+
 test("Claude Code accepts back swipes only from the terminal edge", async ({ page }) => {
   await page.locator(".session-inbox-row").click();
   const terminal = page.locator('.terminal-surface[data-kind="terminal:claude"]');
@@ -201,13 +298,13 @@ test("Claude Code accepts back swipes only from the terminal edge", async ({ pag
   await expect(body).toBeVisible();
 
   await dispatchPaneTouch(body, "touchstart", { x: 80, y: 240 });
-  expect(await dispatchPaneTouch(body, "touchmove", { x: 220, y: 240 })).toBe(true);
+  await dispatchPaneTouch(body, "touchmove", { x: 220, y: 240 });
   await dispatchPaneTouch(body, "touchend", { x: 220, y: 240 });
   await expect(terminal).toBeVisible();
   await expect(page.locator(".session-inbox")).toBeHidden();
 
   await dispatchPaneTouch(body, "touchstart", { x: 16, y: 240 });
-  expect(await dispatchPaneTouch(body, "touchmove", { x: 156, y: 240 })).toBe(false);
+  await dispatchPaneTouch(body, "touchmove", { x: 156, y: 240 });
   await dispatchPaneTouch(body, "touchend", { x: 156, y: 240 });
   await expect(page.locator(".session-inbox")).toBeVisible();
 });

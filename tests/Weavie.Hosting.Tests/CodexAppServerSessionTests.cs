@@ -1147,13 +1147,8 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 	// the default budget is sized for. Widening the shared 200-attempt default instead would double the
 	// failure-detection latency for every other test in this class on every CI run.
 	//
-	// Flaked (Linux CI) 2026-08-07 04:47 UTC in Submit_WhenSteerRejected_SurfacesCodexCodeAndRecoversAsFreshTurn:
-	// https://github.com/Kapps/weavie/actions/runs/31148535789/job/92773908251 — the "thread-start.json" wait
-	// (the real `node` fake-app-server spawn plus its initialize round trip) timed out at the 200-attempt/5s
-	// default, which this comment already documented as sized for in-process assertions rather than a
-	// subprocess spawn. This override existed but no call site actually used it; wired it up on every wait for
-	// "thread-start.json"/"thread-resume.json" (the ones that follow session.Start() and so cross that same
-	// process-spawn + RPC boundary), instead of widening the shared default for every wait in the class.
+	// Flaked (Linux CI) 2026-08-07 hitting that 5s default: https://github.com/Kapps/weavie/actions/runs/31148535789/job/92773908251.
+	// This override existed but no call site used it; wired it into every "thread-start.json"/"thread-resume.json" wait below.
 	private const int SubprocessSpawnAttempts = 400;
 
 	private static async Task WaitForAsync(Func<bool> done, int attempts) =>

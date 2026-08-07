@@ -35,15 +35,8 @@ test("options, globs, and recent terms persist across a reload — but not the q
   await expect(caseToggle).toHaveAttribute("aria-pressed", "true");
   await page.locator(".search-glob").nth(0).fill("*.ts");
   await input.fill("greet");
-  // Flaked (macOS CI only) 2026-08-07 ~04:41 and ~04:57 UTC, both on shard 5/6 — the row never appeared within
-  // the platform's 30s expect timeout (https://github.com/Kapps/weavie/actions/runs/31148196931/job/92773047174,
-  // https://github.com/Kapps/weavie/actions/runs/31148535789/job/92774602450). This is the first test in the
-  // shard's run order to touch the search feature, so its request is the first real git-grep round trip through
-  // the host on that worker; reproduced locally on Linux 26/26 times (including standalone, i.e. cold-start) so
-  // it isn't a logic race in search-store's debounce/abort handling — it's the hosted macOS runner occasionally
-  // stalling that one round trip past 30s, the same class of hosted-runner stall documented in
-  // playwright.config.ts's `expect.timeout` comment. Widened just this wait, matching how those prior incidents
-  // were each fixed at their own call site rather than by raising the shared ceiling again.
+  // Flaked (macOS CI) 2026-08-07, twice on shard 5/6 — reproduced 26/26 on Linux, so not a search-store race;
+  // a hosted-runner stall on the first search round trip (https://github.com/Kapps/weavie/actions/runs/31148196931/job/92773047174).
   await expect(page.locator(".search-row").first()).toBeVisible({ timeout: 45_000 });
   await page.keyboard.press("Enter"); // commits "greet" into the recent-terms history
 

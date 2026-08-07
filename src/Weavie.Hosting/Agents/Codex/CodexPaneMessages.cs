@@ -47,6 +47,7 @@ internal static class CodexPaneMessages {
 				ProviderId = "codex",
 				ThreadId = threadId,
 				TurnId = turnId,
+				StartedAtMs = StartedAtMs(turn),
 				Status = status,
 				Summary = error.ValueKind == JsonValueKind.Object ? ErrorSummary(error) : null,
 				Text = error.ValueKind == JsonValueKind.Object ? ErrorText(error) : null,
@@ -211,6 +212,7 @@ internal static class CodexPaneMessages {
 			TurnId = turn.ValueKind == JsonValueKind.Object
 				? turn.GetStringOrEmpty("id")
 				: parameters.GetStringOrEmpty("turnId"),
+			StartedAtMs = StartedAtMs(turn),
 			Status = turn.ValueKind == JsonValueKind.Object
 				? turn.GetStringOrEmpty("status")
 				: parameters.GetStringOrEmpty("status"),
@@ -219,6 +221,13 @@ internal static class CodexPaneMessages {
 			PayloadJson = root.GetRawText(),
 		};
 	}
+
+	private static long? StartedAtMs(JsonElement turn) =>
+		turn.ValueKind == JsonValueKind.Object
+		&& turn.TryGetProperty("startedAt", out var value)
+		&& value.TryGetInt64(out long seconds)
+			? checked(seconds * 1000)
+			: null;
 
 	private static AgentPaneMessage FromError(JsonElement root) {
 		var parameters = root.GetProperty("params");

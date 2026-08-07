@@ -14,10 +14,9 @@ The pane gave no lifecycle feedback while a turn ran: no working indicator, no e
 
 - **Working row** (`.agent-working`, top of the composer): spinner + "Working" + elapsed time
   ticking per second + "<Key> to interrupt" hint. State derives entirely from the pane's message
-  stream (`turn-progress.ts`: `hasActiveTurn`), so it replays correctly on reconnect; the clock
-  baselines on the arrival time stamped on `turn-started` and re-baselines on session switch. (The
-  protocol does carry `turn.startedAt`; baselining on it instead would keep the clock honest across
-  a reconnect that lands mid-turn — a known follow-up, not yet done.)
+  stream (`turn-progress.ts`: `hasActiveTurn`), so it replays correctly on reconnect; the clock uses
+  the provider's persisted `turn.startedAt` timestamp and remains stable across reconnects, reloads,
+  and session switches. Providers without a source timestamp show Working without a fabricated time.
 - **Blocked-on-you state**: while the newest approval/input request is unresolved
   (`pendingRequestKind`), the row turns amber and reads "Waiting on your approval" / "Waiting on
   your answer" — a running spinner would misreport who is being waited on.

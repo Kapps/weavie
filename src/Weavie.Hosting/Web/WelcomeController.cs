@@ -6,17 +6,18 @@ using Weavie.Hosting.Messaging;
 namespace Weavie.Hosting.Web;
 
 /// <summary>
-/// The shared welcome-screen flow: inject the recents the page reads (<c>window.__WEAVIE_WELCOME__</c>), navigate to
+/// The shared welcome-screen flow: inject the recents and active theme the page reads, navigate to
 /// welcome.html, and route its <c>window.menu</c> events (Open Folder / Open Recent) to the host's open handlers.
 /// Every host drives the one welcome UI through this — supplying only the native <see cref="IWebSurface"/> +
-/// <see cref="IWebTransportHub"/>, the welcome URL, the live recents, and the two open handlers — so the protocol,
-/// the recents JSON, and the refresh live in one place instead of being re-implemented per OS.
+/// <see cref="IWebTransportHub"/>, the welcome URL, live recents/theme providers, and the two open handlers — so
+/// the protocol, bootstrap JSON, and refresh live in one place instead of being re-implemented per OS.
 /// </summary>
 public sealed class WelcomeController {
 	private readonly IWebTransportHub _bridge;
 	private readonly IWebSurface _surface;
 	private readonly string _welcomeUrl;
 	private readonly Func<IReadOnlyList<string>> _recents;
+	private readonly Func<string> _themeJson;
 	private readonly Action _onOpenFolder;
 	private readonly Action<string> _onOpenRecent;
 	private Action<WebPeer, string>? _onMessage;
@@ -25,6 +26,7 @@ public sealed class WelcomeController {
 	/// <param name="surface">The host's native WebView ops (inject + navigate).</param>
 	/// <param name="welcomeUrl">The welcome page URL for this host (e.g. <c>app://app/welcome.html</c>).</param>
 	/// <param name="recents">The current recent-workspace paths, read fresh on each show/refresh.</param>
+	/// <param name="themeJson">The current resolved theme bootstrap JSON, read fresh on each show/refresh.</param>
 	/// <param name="onOpenFolder">Invoked for Open Folder: the host shows its native picker and opens the choice.</param>
 	/// <param name="onOpenRecent">Invoked for Open Recent with the chosen path: the host opens it (or prunes + <see cref="RefreshAsync"/>).</param>
 	public WelcomeController(
@@ -32,33 +34,36 @@ public sealed class WelcomeController {
 		IWebSurface surface,
 		string welcomeUrl,
 		Func<IReadOnlyList<string>> recents,
+		Func<string> themeJson,
 		Action onOpenFolder,
 		Action<string> onOpenRecent) {
 		ArgumentNullException.ThrowIfNull(bridge);
 		ArgumentNullException.ThrowIfNull(surface);
 		ArgumentException.ThrowIfNullOrEmpty(welcomeUrl);
 		ArgumentNullException.ThrowIfNull(recents);
+		ArgumentNullException.ThrowIfNull(themeJson);
 		ArgumentNullException.ThrowIfNull(onOpenFolder);
 		ArgumentNullException.ThrowIfNull(onOpenRecent);
 		_bridge = bridge;
 		_surface = surface;
 		_welcomeUrl = welcomeUrl;
 		_recents = recents;
+		_themeJson = themeJson;
 		_onOpenFolder = onOpenFolder;
 		_onOpenRecent = onOpenRecent;
 	}
 
-	/// <summary>Injects the recents, starts routing the page's menu events, and navigates to the welcome screen.</summary>
+	/// <summary>Injects the bootstrap, starts routing the page's menu events, and navigates to the welcome screen.</summary>
 	public async Task ShowAsync() {
-		await InjectRecentsAsync().ConfigureAwait(false);
+		await InjectBootstrapAsync().ConfigureAwait(false);
 		_onMessage = OnMessage;
 		_bridge.MessageReceived += _onMessage;
 		_surface.Navigate(_welcomeUrl);
 	}
 
-	/// <summary>Re-injects the current recents and reloads the welcome screen (e.g. after pruning a missing folder).</summary>
+	/// <summary>Re-injects current bootstrap state and reloads the welcome screen.</summary>
 	public async Task RefreshAsync() {
-		await InjectRecentsAsync().ConfigureAwait(false);
+		await InjectBootstrapAsync().ConfigureAwait(false);
 		_surface.Navigate(_welcomeUrl);
 	}
 
@@ -70,8 +75,10 @@ public sealed class WelcomeController {
 		}
 	}
 
-	private Task InjectRecentsAsync() =>
-		_surface.InjectStartupScriptAsync($"window.__WEAVIE_WELCOME__ = {BuildConfigJson(_recents())};");
+	private Task InjectBootstrapAsync() =>
+		_surface.InjectStartupScriptAsync(
+			$"window.__WEAVIE_WELCOME__ = {BuildConfigJson(_recents())};"
+			+ $"window.__WEAVIE_THEME__ = {_themeJson()};");
 
 	private void OnMessage(WebPeer _, string json) {
 		if (!MessageEnvelope.TryParse(json, out var envelope)

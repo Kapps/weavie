@@ -160,26 +160,33 @@ export function SearchPanel(props: { onClose: () => void }): JSX.Element {
           onInput={(e) => setGlobs("exclude", e.currentTarget.value)}
         />
       </div>
-      <Show when={s.error() !== null}>
+      <Show when={s.phase() === "error"}>
         <div class="search-error">Search failed: {s.error()}</div>
       </Show>
-      <Show when={s.settled() && s.error() === null && s.matches().length > 0}>
+      <Show when={s.phase() === "ready" && s.matches().length > 0}>
         <div class="search-summary" classList={{ warn: s.truncated() }}>
           {summary()}
         </div>
       </Show>
-      <div class="search-body" ref={listRef}>
+      <div class="search-body" ref={listRef} aria-busy={s.phase() === "searching"}>
         <Show
-          when={s.matches().length > 0}
+          when={s.phase() === "ready" && s.matches().length > 0}
           fallback={
-            <Show when={s.query().trim().length > 0 && s.settled() && s.error() === null}>
-              <div class="search-empty">
-                No results
-                {s.options().include.length > 0 || s.options().exclude.length > 0
-                  ? " — check the include/exclude filters"
-                  : ""}
-              </div>
-            </Show>
+            <>
+              <Show when={s.phase() === "searching"}>
+                <div class="search-empty" role="status">
+                  Searching…
+                </div>
+              </Show>
+              <Show when={s.phase() === "ready" && s.query().trim().length > 0}>
+                <div class="search-empty">
+                  No results
+                  {s.options().include.length > 0 || s.options().exclude.length > 0
+                    ? " — check the include/exclude filters"
+                    : ""}
+                </div>
+              </Show>
+            </>
           }
         >
           <For each={s.groups()}>

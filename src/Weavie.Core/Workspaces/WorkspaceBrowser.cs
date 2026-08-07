@@ -25,7 +25,7 @@ public sealed class WorkspaceBrowser {
 
 	/// <summary>
 	/// Lists the immediate entries of <paramref name="requestedPath"/> (defaulting to the root, and clamped
-	/// inside it), directories first then files, each case-insensitive. Empty if the directory doesn't exist.
+	/// inside it), directories first then files, each case-insensitive.
 	/// </summary>
 	public IReadOnlyList<BrowserEntry> List(string? requestedPath) {
 		string target;
@@ -42,7 +42,7 @@ public sealed class WorkspaceBrowser {
 		}
 
 		if (!_fileSystem.DirectoryExists(target)) {
-			return [];
+			throw new DirectoryNotFoundException($"Directory not found: {target}");
 		}
 
 		return [.. _fileSystem.EnumerateDirectory(target)

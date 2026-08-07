@@ -119,9 +119,9 @@
 .agent-body,
 .agent-pending-request {
   color: var(--fg);
-  font-family: var(--terminal-font-family, ui-monospace, "Cascadia Code", Consolas, monospace);
-  font-size: var(--terminal-font-size, 16px);
-  font-weight: var(--terminal-font-weight, normal);
+  font-family: var(--font-content-family);
+  font-size: var(--font-content-size);
+  font-weight: var(--font-content-weight);
   line-height: 1.24;
 }
 
@@ -184,7 +184,8 @@
 
 .agent-empty-title {
   color: var(--accent);
-  font-size: calc(var(--terminal-font-size, 16px) * 0.78);
+  font-family: var(--font-chrome-family);
+  font-size: var(--font-metadata-size);
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -219,14 +220,14 @@
   color: color-mix(in srgb, var(--fg) 80%, var(--dim));
   background: color-mix(in srgb, var(--bar) 70%, transparent);
   font: inherit;
-  font-size: calc(var(--terminal-font-size, 16px) * 0.78);
+  font-size: var(--font-metadata-size);
   text-align: center;
 }
 
 .agent-empty-controls {
   margin: 0;
   color: color-mix(in srgb, var(--dim) 88%, transparent);
-  font-size: calc(var(--terminal-font-size, 16px) * 0.85);
+  font-size: var(--font-metadata-size);
 }
 
 .agent-entry {
@@ -250,7 +251,7 @@
   min-width: 0;
   overflow: hidden;
   color: color-mix(in srgb, var(--fg) 68%, var(--dim));
-  font-size: calc(var(--terminal-font-size, 16px) * 0.72);
+  font-size: var(--font-metadata-size);
   font-weight: 700;
   letter-spacing: 0.08em;
   text-overflow: ellipsis;
@@ -261,7 +262,7 @@
 .agent-entry-status,
 .agent-step-status {
   color: var(--dim);
-  font-size: calc(var(--terminal-font-size, 16px) * 0.72);
+  font-size: var(--font-metadata-size);
   letter-spacing: 0.02em;
   text-transform: lowercase;
 }
@@ -300,13 +301,14 @@
   overflow-wrap: break-word;
 }
 
-/* Assistant prose reads in the UI face at a bounded measure; code drops back to the terminal font. */
+/* Assistant prose uses the rendered-document role; code follows the editor content role. */
 .agent-markdown {
   max-width: 96ch;
   color: var(--fg);
   overflow-wrap: break-word;
-  font-family: var(--ui-font, system-ui, sans-serif);
-  font-weight: 400;
+  font-family: var(--font-prose-family);
+  font-size: var(--font-prose-size);
+  font-weight: var(--font-prose-weight);
   line-height: 1.5;
 }
 
@@ -385,8 +387,9 @@
   border: 1px solid color-mix(in srgb, var(--fg) 16%, transparent);
   border-radius: 2px;
   background: color-mix(in srgb, var(--fg) 8%, var(--bg));
-  font-family: var(--terminal-font-family, ui-monospace, "Cascadia Code", Consolas, monospace);
-  font-size: 0.92em;
+  font-family: var(--font-content-family);
+  font-size: var(--font-content-size);
+  font-weight: var(--font-content-weight);
 }
 
 .agent-markdown pre {
@@ -721,9 +724,9 @@
   border-top: 1px solid var(--border);
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--bar) 92%, transparent), var(--bar)), var(--bar);
-  font-family: var(--terminal-font-family, ui-monospace, "Cascadia Code", Consolas, monospace);
-  font-size: var(--terminal-font-size, 16px);
-  font-weight: var(--terminal-font-weight, normal);
+  font-family: var(--font-content-family);
+  font-size: var(--font-content-size);
+  font-weight: var(--font-content-weight);
   line-height: 1.24;
 }
 
@@ -763,7 +766,7 @@
   padding: 1px 3px;
   color: var(--fg);
   background: color-mix(in srgb, var(--bg) 86%, transparent);
-  font-size: calc(var(--terminal-font-size, 16px) * 0.62);
+  font-size: var(--font-hint-size);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -783,7 +786,7 @@
 .agent-compose-error {
   grid-column: 1 / -1;
   color: var(--bad);
-  font-size: calc(var(--terminal-font-size, 16px) * 0.78);
+  font-size: var(--font-metadata-size);
 }
 
 .agent-working {
@@ -793,7 +796,7 @@
   gap: 7px;
   padding: 1px 0 2px;
   color: var(--busy);
-  font-size: calc(var(--terminal-font-size, 16px) * 0.78);
+  font-size: var(--font-metadata-size);
 }
 
 .agent-working-spinner {
@@ -859,7 +862,7 @@
   border-radius: 10px;
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) 12%, var(--bar));
-  font-size: calc(var(--terminal-font-size, 16px) * 0.78);
+  font-size: var(--font-metadata-size);
   white-space: nowrap;
 }
 
@@ -954,7 +957,7 @@
   color: var(--dim);
   background: color-mix(in srgb, var(--bg) 55%, transparent);
   font: inherit;
-  font-size: calc(var(--terminal-font-size, 16px) * 0.68);
+  font-size: var(--font-hint-size);
 }
 
 .agent-status-line {
@@ -965,8 +968,8 @@
   gap: 4px;
   padding: 3px 8px 4px;
   background: var(--bar);
-  font-family: var(--terminal-font-family, ui-monospace, "Cascadia Code", Consolas, monospace);
-  font-size: calc(var(--terminal-font-size, 16px) * 0.72);
+  font-family: var(--font-chrome-family);
+  font-size: var(--font-metadata-size);
   line-height: 1.4;
 }
 
@@ -1136,7 +1139,7 @@
   border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
   margin-bottom: 3px;
   color: var(--dim);
-  font-size: calc(var(--terminal-font-size, 16px) * 0.72);
+  font-size: var(--font-metadata-size);
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -1165,7 +1168,7 @@
 
 .agent-control-option-desc {
   color: var(--dim);
-  font-size: calc(var(--terminal-font-size, 16px) * 0.72);
+  font-size: var(--font-hint-size);
 }
 
 .agent-control-empty {

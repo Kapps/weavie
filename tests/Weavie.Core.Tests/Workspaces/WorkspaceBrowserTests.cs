@@ -6,8 +6,7 @@ namespace Weavie.Core.Tests;
 
 /// <summary>
 /// <see cref="WorkspaceBrowser"/>: directories-first ordering, listing a subdirectory by its returned
-/// path, absolute entry paths, clamping escape attempts to the root, and empty results for a missing
-/// directory.
+/// path, absolute entry paths, clamping escape attempts to the root, and missing-directory failures.
 /// </summary>
 public sealed class WorkspaceBrowserTests {
 	private static WorkspaceBrowser NewBrowser(params string[] files) {
@@ -60,10 +59,11 @@ public sealed class WorkspaceBrowserTests {
 	}
 
 	[Fact]
-	public void List_MissingDirectory_IsEmpty() {
+	public void List_MissingDirectory_Throws() {
 		var browser = NewBrowser("/proj/readme.md");
 		string ghost = Path.Combine(browser.Root, "does-not-exist");
 
-		Assert.Empty(browser.List(ghost));
+		var error = Assert.Throws<DirectoryNotFoundException>(() => browser.List(ghost));
+		Assert.Contains(ghost, error.Message, StringComparison.Ordinal);
 	}
 }

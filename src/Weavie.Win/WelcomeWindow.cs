@@ -1,6 +1,7 @@
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 using Weavie.Core;
+using Weavie.Core.Theming;
 using Weavie.Hosting.Web;
 using Weavie.Win.Hosting;
 
@@ -150,6 +151,7 @@ internal sealed class WelcomeWindow : Form, IWebSurface {
 		_bridge.Attach(_webView);
 		_controller = new WelcomeController(
 			_bridge, this, $"https://{AppHost}/welcome.html", () => _app.Recents.Items,
+			() => ThemeJson.Build(_app.Settings, _app.ThemeOverrides, Console.WriteLine),
 			() => _app.OpenFolderInteractive(this), OpenRecent);
 
 		// Always the bundled wwwroot over https://weavie.dev/; the empty state never probes for a Vite dev server.

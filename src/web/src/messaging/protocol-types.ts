@@ -52,6 +52,7 @@ export interface AgentPaneUpdate {
   threadId?: string | null;
   isPrimaryThread?: boolean | null;
   turnId?: string | null;
+  startedAtMs?: number | null;
   itemId?: string | null;
   itemType?: string | null;
   category?: string | null;
@@ -60,7 +61,6 @@ export interface AgentPaneUpdate {
   status?: string | null;
   questions?: AgentInputQuestion[] | null;
   payload?: unknown;
-  receivedAt?: number;
 }
 
 export interface AgentInputQuestion {

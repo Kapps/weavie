@@ -17,6 +17,9 @@ public sealed record AgentPaneMessage {
 	/// <summary>The current provider turn id, when known.</summary>
 	public string? TurnId { get; init; }
 
+	/// <summary>The provider-recorded turn start as Unix milliseconds, when available.</summary>
+	public long? StartedAtMs { get; init; }
+
 	/// <summary>The item id associated with this update, when any.</summary>
 	public string? ItemId { get; init; }
 

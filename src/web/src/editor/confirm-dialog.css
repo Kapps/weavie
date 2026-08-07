@@ -76,13 +76,13 @@
 }
 
 .confirm-btn-primary {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: #042019;
+  border-color: var(--button-bg);
+  background: var(--button-bg);
+  color: var(--button-fg);
 }
 
 .confirm-btn-primary:hover {
-  filter: brightness(1.08);
+  background: var(--button-hover-bg);
 }
 
 /* Destructive confirm (delete session): a saturated danger red with white text — a deliberate button, not a

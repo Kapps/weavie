@@ -205,6 +205,18 @@ public sealed class CodexPaneMessagesTests {
 	}
 
 	[Fact]
+	public void FromNotification_ConvertsTurnStartToUnixMilliseconds() {
+		using var doc = JsonDocument.Parse(
+			"""{"method":"turn/started","params":{"threadId":"thread_1","turn":{"id":"turn_1","status":"inProgress","startedAt":1723456789}}}""");
+
+		var message = CodexPaneMessages.FromNotification("turn/started", "thread_1", doc.RootElement);
+
+		Assert.Equal(1_723_456_789_000, message?.StartedAtMs);
+		using var protocol = JsonDocument.Parse(JsonSerializer.Serialize(AgentPaneProtocol.Message(message!)));
+		Assert.Equal(1_723_456_789_000, protocol.RootElement.GetProperty("startedAtMs").GetInt64());
+	}
+
+	[Fact]
 	public void FromNotification_MapsTerminalTurnErrorToVisiblePaneError() {
 		using var doc = JsonDocument.Parse(
 			"""{"method":"error","params":{"threadId":"thread_1","turnId":"turn_1","willRetry":false,"error":{"message":"You have no weighted tokens left","codexErrorInfo":"usageLimitExceeded","additionalDetails":null}}}""");
@@ -294,7 +306,7 @@ public sealed class CodexPaneMessagesTests {
 	[Fact]
 	public void FromThreadSnapshot_MapsPersistedTurnsThroughThePaneContract() {
 		using var doc = JsonDocument.Parse(
-			"""{"thread":{"id":"thread_1","turns":[{"id":"turn_1","status":"completed","items":[{"type":"userMessage","id":"user_1","content":[{"type":"text","text":"Fix it","text_elements":[]},{"type":"localImage","path":"/tmp/paste.png"}]},{"type":"commandExecution","id":"command_1","command":"dotnet test","cwd":"/repo","status":"completed","commandActions":[],"aggregatedOutput":"Passed","exitCode":0},{"type":"agentMessage","id":"agent_1","text":"Done"}]}]}}""");
+			"""{"thread":{"id":"thread_1","turns":[{"id":"turn_1","status":"completed","startedAt":1723456789,"items":[{"type":"userMessage","id":"user_1","content":[{"type":"text","text":"Fix it","text_elements":[]},{"type":"localImage","path":"/tmp/paste.png"}]},{"type":"commandExecution","id":"command_1","command":"dotnet test","cwd":"/repo","status":"completed","commandActions":[],"aggregatedOutput":"Passed","exitCode":0},{"type":"agentMessage","id":"agent_1","text":"Done"}]}]}}""");
 
 		var messages = CodexPaneMessages.FromThreadSnapshot(doc.RootElement);
 
@@ -317,7 +329,10 @@ public sealed class CodexPaneMessagesTests {
 				Assert.Equal("item-completed", message.Type);
 				Assert.Equal("Done", message.Text);
 			},
-			message => Assert.Equal("turn-completed", message.Type));
+			message => {
+				Assert.Equal("turn-completed", message.Type);
+				Assert.Equal(1_723_456_789_000, message.StartedAtMs);
+			});
 	}
 
 	[Fact]

@@ -1,5 +1,6 @@
 using CoreGraphics;
 using Foundation;
+using Weavie.Core.Theming;
 using Weavie.Hosting.Web;
 using Weavie.Mac.Hosting;
 using WebKit;
@@ -43,7 +44,9 @@ internal sealed class WelcomeWindow : IWebSurface {
 		_webView = new WKWebView(frame, config);
 		_bridge.Attach(_webView);
 		_controller = new WelcomeController(
-			_bridge, this, "app://app/welcome.html", () => _app.Recents.Items, _app.OpenFolderInteractive, _app.OpenOrFocus);
+			_bridge, this, "app://app/welcome.html", () => _app.Recents.Items,
+			() => ThemeJson.Build(_app.Services.Settings, _app.Services.ThemeOverrides, Console.WriteLine),
+			_app.OpenFolderInteractive, _app.OpenOrFocus);
 
 		Window = new NSWindow(
 			frame,

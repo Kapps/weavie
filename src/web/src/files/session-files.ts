@@ -1,6 +1,6 @@
 import { createSignal } from "solid-js";
 import { type ClientSession, registerSessionFeature, selectedSession } from "../bridge";
-import type { DirListings } from "./FileBrowser";
+import type { DirEntry, DirListings } from "./FileBrowser";
 
 interface FileIndex {
   root: string | null;
@@ -21,8 +21,12 @@ const [states, setStates] = createSignal<Map<ClientSession, SessionFiles>>(new M
 
 function update(session: ClientSession, mutate: (current: SessionFiles) => SessionFiles): void {
   setStates((previous) => {
+    const current = previous.get(session);
+    if (current === undefined) {
+      return previous;
+    }
     const next = new Map(previous);
-    next.set(session, mutate(previous.get(session) ?? EMPTY));
+    next.set(session, mutate(current));
     return next;
   });
 }
@@ -44,10 +48,42 @@ export function refreshSelectedFileIndex(): void {
 }
 
 export function listSelectedDirectory(path: string): void {
-  selectedSession()?.feature("files").publish("listDirectory", { path });
+  const session = selectedSession();
+  if (session === null) {
+    return;
+  }
+  if (states().get(session)?.listings[path]?.status === "loading") {
+    return;
+  }
+  update(session, (current) => ({
+    ...current,
+    listings: { ...current.listings, [path]: { status: "loading" } },
+  }));
+  void session
+    .feature("files")
+    .request<{ entries: DirEntry[] }, { path: string }>("listDirectory", { path })
+    .then(({ entries }) => {
+      update(session, (current) => ({
+        ...current,
+        listings: { ...current.listings, [path]: { status: "ready", entries } },
+      }));
+    })
+    .catch((error: unknown) => {
+      update(session, (current) => ({
+        ...current,
+        listings: {
+          ...current.listings,
+          [path]: {
+            status: "error",
+            message: error instanceof Error ? error.message : String(error),
+          },
+        },
+      }));
+    });
 }
 
 registerSessionFeature((session) => {
+  setStates((previous) => new Map(previous).set(session, EMPTY));
   const files = session.feature("files");
   const offIndex = files.on<{ root: string; files: string[]; pending?: boolean }>(
     "index",
@@ -67,18 +103,8 @@ registerSessionFeature((session) => {
       });
     },
   );
-  const offDirectory = files.on<{
-    path: string;
-    entries: DirListings[string];
-  }>("directory", ({ path, entries }) => {
-    update(session, (current) => ({
-      ...current,
-      listings: { ...current.listings, [path]: entries },
-    }));
-  });
   return () => {
     offIndex();
-    offDirectory();
     setStates((previous) => {
       const next = new Map(previous);
       next.delete(session);

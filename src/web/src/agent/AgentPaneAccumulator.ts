@@ -22,13 +22,8 @@ export class AgentPaneAccumulator {
   constructor(private readonly schedule: (callback: () => void) => void) {}
 
   ingest(slot: string, incoming: AgentPaneUpdate, publish: Publish): void {
-    // Anchor the turn timer to when the turn actually began: stamp turn starts on arrival (for every slot,
-    // focused or not) so the elapsed clock reflects real duration and never restarts on a session switch.
-    // A page reload / bridge reconnect replays turn-started without receivedAt, so the clock re-baselines
-    // then — the deliberate cost of a web-clock anchor, which avoids host/browser skew on remote sessions.
-    const message = received(incoming);
     const state = this.state(slot);
-    this.store(state, message);
+    this.store(state, incoming);
     this.scheduleFlush(state, slot, publish);
   }
 
@@ -36,7 +31,7 @@ export class AgentPaneAccumulator {
     this.slots.delete(slot);
     const state = this.state(slot);
     for (const message of incoming) {
-      this.store(state, received(message));
+      this.store(state, message);
     }
     this.materialize(state);
     publish([...state.messages]);
@@ -130,12 +125,6 @@ export class AgentPaneAccumulator {
     }
     return state;
   }
-}
-
-function received(message: AgentPaneUpdate): AgentPaneUpdate {
-  return message.type === "turn-started" && message.receivedAt === undefined
-    ? { ...message, receivedAt: Date.now() }
-    : message;
 }
 
 function itemKey(message: AgentPaneUpdate): string | null {

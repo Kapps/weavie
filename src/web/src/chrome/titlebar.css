@@ -195,8 +195,8 @@
 
 .tb-dropitem:hover,
 .tb-dropitem:focus-visible {
-  background: var(--accent);
-  color: #042019;
+  background: var(--list-active-bg);
+  color: var(--list-active-fg);
   outline: none;
 }
 
@@ -207,7 +207,7 @@
 }
 .tb-dropitem:hover .tb-dropitem-keys,
 .tb-dropitem:focus-visible .tb-dropitem-keys {
-  color: rgba(6, 35, 29, 0.7);
+  color: color-mix(in srgb, var(--list-active-fg) 70%, transparent);
 }
 
 .tb-dropitem.disabled {
@@ -274,8 +274,9 @@
   text-overflow: ellipsis;
 }
 
-.tb-dropitem:hover .tb-recent-path {
-  color: rgba(6, 35, 29, 0.7);
+.tb-dropitem:hover .tb-recent-path,
+.tb-dropitem:focus-visible .tb-recent-path {
+  color: color-mix(in srgb, var(--list-active-fg) 70%, transparent);
 }
 
 /* Window controls — fill the full bar height (no fixed px); width stays fixed (it's a horizontal hit area). */

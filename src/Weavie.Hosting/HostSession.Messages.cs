@@ -73,10 +73,9 @@ public sealed partial class HostSession {
 					return Task.CompletedTask;
 				})));
 			});
-		files.Handle<FilePathMessage>("listDirectory", (message, _) => {
-			ListDirectory(message.Path);
-			return Task.CompletedTask;
-		});
+		files.Handle<FilePathMessage, DirectoryListingMessage>(
+			"listDirectory",
+			(message, _) => Task.FromResult(ListDirectory(message.Path)));
 		files.Handle<RevealFileMessage>(
 			"reveal",
 			(message, ct) => FileOpener.OpenAsync(
@@ -282,6 +281,10 @@ public sealed partial class HostSession {
 	private sealed record LspResetMessage(string Epoch);
 
 	private sealed record FilePathMessage(string Path);
+
+	private sealed record DirectoryEntryMessage(string Name, string Path, bool IsDir);
+
+	private sealed record DirectoryListingMessage(IReadOnlyList<DirectoryEntryMessage> Entries);
 
 	private sealed record FileWriteMessage(string Path, string Content);
 

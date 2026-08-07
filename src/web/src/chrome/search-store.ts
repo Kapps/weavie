@@ -161,6 +161,10 @@ function runSearch(): void {
       { query: string } & SearchOptions
     >("query", { query: q, ...options() }, controller.signal)
     .then((response) => {
+      // `requests.get(session) === request` already proves no newer search intent has begun (that always
+      // aborts+deletes this entry first) — don't also gate on matchesDraft() here: the host's setOptions
+      // echo can land out of order and clobber options() with a stale snapshot, making a still-valid
+      // response look stale and hanging the search forever (2026-08-07, search-persistence.spec.ts).
       if (requests.get(session) !== request) {
         return;
       }
@@ -172,7 +176,7 @@ function runSearch(): void {
         applied: requested,
       };
       resultsBySession.set(session, result);
-      if (selectedSession() === session && matchesDraft(result)) {
+      if (selectedSession() === session) {
         projectResult(result);
       }
     })
@@ -188,7 +192,7 @@ function runSearch(): void {
         applied: requested,
       };
       resultsBySession.set(session, result);
-      if (selectedSession() === session && matchesDraft(result)) {
+      if (selectedSession() === session) {
         projectResult(result);
       }
     });

@@ -12,6 +12,11 @@ import { attachOsc52, noteTerminalFocus, registerTerminal } from "./host-clipboa
 import { attachImagePaste } from "./paste-image";
 import { isReplayedQueryAnswer } from "./replay-answers";
 import { wireTerminalLinks } from "./terminal-links";
+import {
+  bindTerminalTouch,
+  createTerminalTouchController,
+  dispatchTerminalMouseTap,
+} from "./terminal-touch";
 
 // Windows file URIs (OSC 7) surface as "/C:/..." — strip the leading slash so it's a real path.
 function uriToPath(pathname: string): string {
@@ -23,8 +28,6 @@ function uriToPath(pathname: string): string {
 // away-and-back (a PR-switch storm) reuses the live context instead of churning a fresh one each toggle —
 // browsers reclaim WebGL contexts lazily, so churn would pile up unfreed contexts and blow the cap.
 const HIDDEN_WEBGL_DISPOSE_MS = 2000;
-const TOUCH_TAP_MAX_DURATION_MS = 700;
-const TOUCH_TAP_MAX_MOVEMENT_PX = 30;
 
 // xterm.js pane wired to one C# PTY through its ClientSession feature. The captured feature owns both the
 // session and pane identity; on mount `ready` starts/sizes that child. Hidden sessions retain their buffers.
@@ -51,7 +54,6 @@ export function TerminalView(props: {
   const session = props.session;
   const messages = session.feature(props.pane === "shell" ? "terminal.shell" : "terminal.agent");
   let container!: HTMLDivElement;
-  let touchStart: { id: number; time: number; x: number; y: number } | null = null;
   // Reports the URL currently under the pointer (set once links are wired in onMount), for the right-click menu.
   let hoveredUrl: () => string | undefined = () => undefined;
 
@@ -82,6 +84,18 @@ export function TerminalView(props: {
   onMount(() => {
     term.loadAddon(fit);
     term.open(container);
+    const screen = container.querySelector<HTMLElement>(".xterm-screen");
+    if (screen === null) {
+      throw new Error("Xterm did not mount its screen");
+    }
+    const disposeTouch = bindTerminalTouch(
+      screen,
+      createTerminalTouchController({
+        click: dispatchTerminalMouseTap,
+        focus: () => term.focus(),
+        mouseTrackingMode: () => term.modes.mouseTrackingMode,
+      }),
+    );
 
     // Publish this pane's terminal for e2e / diagnostics introspection (read-only). See global.d.ts.
     window.__WEAVIE_TERMINALS__ ??= {};
@@ -349,6 +363,7 @@ export function TerminalView(props: {
       }
       cancelWebglDispose();
       webgl?.dispose();
+      disposeTouch();
       term.dispose();
     });
 
@@ -361,35 +376,6 @@ export function TerminalView(props: {
       class="term"
       role="application"
       ref={container}
-      onTouchStart={(event) => {
-        const touch = event.touches.length === 1 ? event.touches.item(0) : null;
-        touchStart =
-          touch === null
-            ? null
-            : {
-                id: touch.identifier,
-                time: event.timeStamp,
-                x: touch.clientX,
-                y: touch.clientY,
-              };
-      }}
-      onTouchEnd={(event) => {
-        const start = touchStart;
-        const touch = event.changedTouches.item(0);
-        touchStart = null;
-        if (
-          start !== null &&
-          touch?.identifier === start.id &&
-          event.timeStamp - start.time <= TOUCH_TAP_MAX_DURATION_MS &&
-          Math.hypot(touch.clientX - start.x, touch.clientY - start.y) <= TOUCH_TAP_MAX_MOVEMENT_PX
-        ) {
-          // Xterm consumes touchend for scrolling, suppressing the synthetic mousedown that normally focuses it.
-          term.focus();
-        }
-      }}
-      onTouchCancel={() => {
-        touchStart = null;
-      }}
       onContextMenu={(event) => {
         if (props.onContextMenu === undefined) {
           return;

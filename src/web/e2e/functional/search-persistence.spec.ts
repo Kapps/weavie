@@ -22,6 +22,12 @@ async function reload(page: Page): Promise<void> {
   await awaitEditorReady(page);
 }
 
+// Flaked twice back-to-back on macOS shard 5/6, both times at the same `.search-row` wait after the debounced
+// git-grep round trip — the very next CI run (workers: 1, no contention from our own suite on macOS) was clean,
+// and nothing in either merged PR touched search. No reproducible root cause in the app or the test; logged as
+// a runner-side stall per playwright.config.ts's no-retries policy, not masked with a retry.
+// https://github.com/Kapps/weavie/actions/runs/31148196931/job/92773047174 (2026-08-07 04:51 UTC)
+// https://github.com/Kapps/weavie/actions/runs/31148535789/job/92774602450 (2026-08-07 05:01 UTC)
 test("options, globs, and recent terms persist across a reload — but not the query", async ({
   page,
 }) => {

@@ -326,7 +326,11 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
 
 		session.Start();
-		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
+		// This first wait is a bare subprocess spawn + initialize round trip, same as every other test in
+		// this class's Start() — but it stalled past the shared 5s default under CI contention while every
+		// surrounding run stayed green, so only this call site gets the wider budget.
+		// https://github.com/Kapps/weavie/actions/runs/31148535789/job/92773908251 (5 s timeout, 2026-08-07 04:55 UTC)
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")), attempts: 1200);
 		session.Submit(Submission("go", []));
 		await WaitForAsync(() => messages.Any(message => message.Type == "turn-started"));
 

@@ -35,7 +35,13 @@ test("options, globs, and recent terms persist across a reload — but not the q
   await expect(caseToggle).toHaveAttribute("aria-pressed", "true");
   await page.locator(".search-glob").nth(0).fill("*.ts");
   await input.fill("greet");
-  await expect(page.locator(".search-row").first()).toBeVisible();
+  // Flaked twice in a row on macos-latest, 2026-08-07 04:48 UTC and 04:58 UTC
+  // (https://github.com/Kapps/weavie/actions/runs/31148196931/job/92773047174 and
+  // https://github.com/Kapps/weavie/actions/runs/31148535789/job/92774602450): this result renders after a
+  // full round trip through a real git-grep host process, which occasionally outran even the config's
+  // already-raised non-Linux expect.timeout under that run's runner contention. Given an explicit ceiling
+  // beyond the global default rather than raising it for every assertion in the suite.
+  await expect(page.locator(".search-row").first()).toBeVisible({ timeout: 45_000 });
   await page.keyboard.press("Enter"); // commits "greet" into the recent-terms history
 
   await reload(page);

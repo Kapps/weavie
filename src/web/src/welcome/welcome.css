@@ -1,18 +1,6 @@
-/* Welcome (empty-state) screen — standalone entry (welcome.html), no editor/terminals/session.
-   Self-contained palette + relative sizing (rem/em/%, never fixed px heights) so it scales with the OS
-   window at any DPI. The palette is inlined here rather than pulled from the editor theme so the empty
-   state stays light and themeless; when theme persistence lands it can adopt the resolved theme. */
+/* Welcome (empty-state) screen — standalone entry (welcome.html), no editor/terminals/session. */
 
 .welcome {
-  --w-bg: #181a1b;
-  --w-surface-hover: #23282a;
-  --w-border: #2e3437;
-  --w-fg: #e6e8e9;
-  --w-dim: #8b9499;
-  --w-accent: #4ec9b0;
-  --w-accent-strong: #62d8c1;
-  --w-accent-ink: #0b1413;
-
   position: fixed;
   inset: 0;
   overflow: auto;
@@ -21,12 +9,14 @@
   align-items: flex-start;
   /* Subtle teal brand glow off the top edge — a distinct, intentional backdrop (not a flat editor pane). */
   background:
-    radial-gradient(115% 75% at 50% -12%, rgba(78, 201, 176, 0.09) 0%, transparent 55%), var(--w-bg);
-  color: var(--w-fg);
-  /* Same crisp UI typeface as the workspace chrome (Chivo; @font-face in fonts.css, imported by this
-     entry). Kept as a literal stack here since the welcome screen is self-contained and doesn't pull in
-     styles.css's --ui-font. */
-  font-family: "Chivo", system-ui, -apple-system, sans-serif;
+    radial-gradient(
+      115% 75% at 50% -12%,
+      color-mix(in srgb, var(--accent) 9%, transparent) 0%,
+      transparent 55%
+    ),
+    var(--bg);
+  color: var(--fg);
+  font-family: var(--font-chrome-family);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -46,9 +36,9 @@
 
 .welcome-mark {
   display: inline-flex;
-  font-size: 2.9rem; /* WeavieIcon defaults to 1em, so it tracks this */
+  font-size: calc(var(--font-chrome-size) * 3.6);
   line-height: 1;
-  color: var(--w-accent);
+  color: var(--accent);
 }
 
 .welcome-titles {
@@ -58,16 +48,17 @@
 
 .welcome-wordmark {
   margin: 0;
-  font-size: 2.5rem;
+  font-size: calc(var(--font-chrome-size) * 3.1);
   font-weight: 650;
   letter-spacing: -0.02em;
-  color: var(--w-fg);
+  color: var(--fg);
 }
 
 .welcome-tagline {
   margin: 0.2rem 0 0;
-  font-size: 0.95rem;
-  color: var(--w-dim);
+  font-family: var(--font-prose-family);
+  font-size: var(--font-prose-size);
+  color: var(--dim);
 }
 
 .welcome-open {
@@ -76,10 +67,10 @@
   align-items: center;
   gap: 0.55em;
   padding: 0.7em 1.25em;
-  font-size: 0.98rem;
+  font-size: var(--font-prose-size);
   font-weight: 600;
-  color: var(--w-accent-ink);
-  background: var(--w-accent);
+  color: var(--button-fg);
+  background: var(--button-bg);
   border: none;
   border-radius: 0.5rem;
   cursor: pointer;
@@ -89,7 +80,7 @@
 }
 
 .welcome-open:hover {
-  background: var(--w-accent-strong);
+  background: var(--button-hover-bg);
 }
 
 .welcome-open:active {
@@ -97,7 +88,7 @@
 }
 
 .welcome-open:focus-visible {
-  outline: 2px solid var(--w-accent-strong);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
@@ -107,18 +98,18 @@
 
 .welcome-recent-label {
   margin: 0 0 0.65rem;
-  font-size: 0.72rem;
+  font-size: var(--font-hint-size);
   font-weight: 600;
   letter-spacing: 0.09em;
   text-transform: uppercase;
-  color: var(--w-dim);
+  color: var(--dim);
 }
 
 .welcome-empty {
   margin: 0;
   padding: 1.1rem 0;
-  font-size: 0.9rem;
-  color: var(--w-dim);
+  font-size: var(--font-metadata-size);
+  color: var(--dim);
 }
 
 .welcome-list {
@@ -149,18 +140,18 @@
 }
 
 .welcome-row:hover {
-  background: var(--w-surface-hover);
-  border-color: var(--w-border);
+  background: var(--list-hover-bg);
+  border-color: var(--border);
 }
 
 .welcome-row:focus-visible {
   outline: none;
-  border-color: var(--w-accent);
+  border-color: var(--accent);
 }
 
 .welcome-row-icon {
   flex: none;
-  color: var(--w-accent);
+  color: var(--accent);
 }
 
 .welcome-row-text {
@@ -171,17 +162,18 @@
 }
 
 .welcome-row-name {
-  font-size: 0.95rem;
+  font-family: var(--font-prose-family);
+  font-size: var(--font-prose-size);
   font-weight: 600;
-  color: var(--w-fg);
+  color: var(--fg);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .welcome-row-path {
-  font-size: 0.78rem;
-  color: var(--w-dim);
+  font-size: var(--font-metadata-size);
+  color: var(--dim);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -190,7 +182,7 @@
 .welcome-row-go {
   flex: none;
   margin-left: auto;
-  color: var(--w-dim);
+  color: var(--dim);
   opacity: 0;
   transform: translateX(-0.2rem);
   transition:

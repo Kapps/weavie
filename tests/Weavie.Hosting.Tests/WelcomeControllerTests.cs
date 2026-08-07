@@ -9,12 +9,16 @@ namespace Weavie.Hosting.Tests;
 /// These pin that routing end-to-end over the bridge contract, no web view needed.
 /// </summary>
 public sealed class WelcomeControllerTests {
+	private const string Theme = """{"mode":"dark","light":{"id":"weavie-light","ops":[]},"dark":{"id":"weavie-dark","ops":[]}}""";
+
 	[Fact]
 	public async Task Show_InjectsRecents_ThenNavigates() {
 		var (_, surface) = Wire(out _, out _, ["/a/one", "/b/two"]);
 		await surface.Controller.ShowAsync();
 
-		Assert.Equal("""window.__WEAVIE_WELCOME__ = {"recents":["/a/one","/b/two"]};""", surface.LastScript);
+		Assert.Equal(
+			"""window.__WEAVIE_WELCOME__ = {"recents":["/a/one","/b/two"]};window.__WEAVIE_THEME__ = {"mode":"dark","light":{"id":"weavie-light","ops":[]},"dark":{"id":"weavie-dark","ops":[]}};""",
+			surface.LastScript);
 		Assert.Equal("app://app/welcome.html", surface.LastNavigated);
 		Assert.True(surface.InjectedBeforeNavigate);
 	}
@@ -71,13 +75,13 @@ public sealed class WelcomeControllerTests {
 		var bridge = new FakeHostBridge();
 		var surface = new FakeWebSurface();
 		surface.Controller = new WelcomeController(
-			bridge, surface, "app://app/welcome.html", () => recents, () => { }, _ => { });
+			bridge, surface, "app://app/welcome.html", () => recents, () => Theme, () => { }, _ => { });
 		await surface.Controller.ShowAsync();
 
 		recents.Clear(); // the host pruned the missing folder
 		await surface.Controller.RefreshAsync();
 
-		Assert.Equal("""window.__WEAVIE_WELCOME__ = {"recents":[]};""", surface.LastScript);
+		Assert.Contains("""window.__WEAVIE_WELCOME__ = {"recents":[]};""", surface.LastScript, StringComparison.Ordinal);
 	}
 
 	private static (FakeHostBridge bridge, FakeWebSurface surface) Wire(
@@ -89,7 +93,7 @@ public sealed class WelcomeControllerTests {
 		var bridge = new FakeHostBridge();
 		var surface = new FakeWebSurface();
 		surface.Controller = new WelcomeController(
-			bridge, surface, "app://app/welcome.html", () => recents, () => fo[0]++, or.Add);
+			bridge, surface, "app://app/welcome.html", () => recents, () => Theme, () => fo[0]++, or.Add);
 		return (bridge, surface);
 	}
 

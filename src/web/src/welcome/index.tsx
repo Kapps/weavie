@@ -1,8 +1,10 @@
 import { render } from "solid-js/web";
 import { log } from "../bridge";
 import { dismissSplash } from "../splash";
+import { applyChromeTheme } from "../theme/controller";
 import { Welcome } from "./Welcome";
 import "../fonts.css";
+import "../styles.css";
 import "./welcome.css";
 
 // Entry for welcome.html — the standalone empty-state window. The host injects recents as
@@ -18,5 +20,6 @@ window.addEventListener("error", (e) => {
   log("error", `window.error: ${e.message} @ ${e.filename}:${e.lineno}:${e.colno}`);
 });
 
+applyChromeTheme();
 render(() => <Welcome />, root);
 dismissSplash();

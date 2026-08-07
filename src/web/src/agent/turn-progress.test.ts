@@ -15,10 +15,10 @@ const message = (type: string, itemId?: string): AgentPaneUpdate => ({
   itemId: itemId ?? null,
 });
 
-const started = (receivedAt: number): AgentPaneUpdate => ({
+const started = (startedAtMs: number): AgentPaneUpdate => ({
   type: "turn-started",
   providerId: "codex",
-  receivedAt,
+  startedAtMs,
 });
 
 describe("hasActiveTurn", () => {
@@ -188,7 +188,7 @@ describe("activeTurnStartedAt", () => {
     expect(activeTurnStartedAt([started(1000), message("turn-completed")])).toBe(null);
   });
 
-  it("returns the running turn's arrival time", () => {
+  it("returns the running turn's provider timestamp", () => {
     expect(activeTurnStartedAt([started(1234)])).toBe(1234);
   });
 

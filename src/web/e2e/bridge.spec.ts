@@ -411,6 +411,17 @@ test.describe("session-addressed WebSocket transport", () => {
         .evaluate((element) =>
           getComputedStyle(element).getPropertyValue("--weavie-editor-background").trim(),
         );
+    const semanticColors = () =>
+      page.locator("html").evaluate((element) => {
+        const style = getComputedStyle(element);
+        return {
+          button: style.getPropertyValue("--button-bg").trim(),
+          buttonForeground: style.getPropertyValue("--button-fg").trim(),
+          buttonHover: style.getPropertyValue("--button-hover-bg").trim(),
+          selection: style.getPropertyValue("--list-active-bg").trim(),
+          selectionForeground: style.getPropertyValue("--list-active-fg").trim(),
+        };
+      });
 
     host.setSessions([local]);
     const remote = await MockHost.start({
@@ -428,6 +439,13 @@ test.describe("session-addressed WebSocket transport", () => {
       host.publishHost("settings", "theme", theme("dark"));
       await expect(page.locator("html")).toHaveAttribute("data-theme-type", "dark");
       await expect.poll(editorBackground).toBe("#000000");
+      await expect.poll(semanticColors).toEqual({
+        button: "#54c6a4",
+        buttonForeground: "#042019",
+        buttonHover: "#63d2b1",
+        selection: "#161a21",
+        selectionForeground: "#eef2f8",
+      });
 
       host.publishHost("remoteAgents", "changed", {
         agents: [{ name: "devbox", url: remote.url, token: "runner-token" }],
@@ -455,6 +473,13 @@ test.describe("session-addressed WebSocket transport", () => {
       expect((await request).payload).toMatchObject({ id: themeCommand.id });
       await expect(page.locator("html")).toHaveAttribute("data-theme-type", "light");
       await expect.poll(editorBackground).toBe("#e3e2da");
+      await expect.poll(semanticColors).toEqual({
+        button: "#1f9d78",
+        buttonForeground: "#ffffff",
+        buttonHover: "#1c8e6c",
+        selection: "#dce6df",
+        selectionForeground: "#11181f",
+      });
       await expect(page.locator(".session-chip.remote.active")).toHaveAttribute(
         "title",
         /^codex @/,

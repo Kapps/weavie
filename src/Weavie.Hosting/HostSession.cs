@@ -31,7 +31,6 @@ namespace Weavie.Hosting;
 public sealed partial class HostSession : IAsyncDisposable {
 	private readonly SessionEndpoint _endpoint;
 	private readonly MessageFeatureChannel _editorMessages;
-	private readonly MessageFeatureChannel _fileMessages;
 	private readonly MessageFeatureChannel _notificationMessages;
 	private readonly Lock _editorSessionGate = new();
 	private readonly Lock _disposeGate = new();
@@ -95,7 +94,6 @@ public sealed partial class HostSession : IAsyncDisposable {
 		DisplayLabel = endpoint.Address.Slot;
 		WorkspaceRoot = workspaceRoot;
 		_editorMessages = Bus.Feature("editor");
-		_fileMessages = Bus.Feature("files");
 		_notificationMessages = Bus.Feature("notifications");
 
 		// Per-session command dispatcher over the app-global catalog: runCommand (MCP) and this bus's
@@ -507,28 +505,11 @@ public sealed partial class HostSession : IAsyncDisposable {
 		$"{{\"workspace\":\"{JsonEncodedText.Encode(WorkspaceRoot)}\",\"servers\":{LspServersCatalogJson}}}";
 
 	/// <summary>
-	/// Lists <paramref name="requestedPath"/> within the session root and pushes a <c>dir-listing</c> reply to the
-	/// page (directories first). The file browser calls this on open and folder expand.
+	/// Lists <paramref name="requestedPath"/> within the session root for the requesting file browser.
 	/// </summary>
-	public void ListDirectory(string requestedPath) {
-		IReadOnlyList<BrowserEntry> entries;
-		try {
-			entries = Browser.List(requestedPath);
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			// Surface the failure instead of letting it throw past the reply (which would hang the browser on
-			// a folder that never fills); the page still gets an (empty) listing so its spinner resolves.
-			entries = [];
-			_notificationMessages.Publish("show", new {
-				level = "warn",
-				message = $"Couldn't list {(string.IsNullOrEmpty(requestedPath) ? Browser.Root : requestedPath)}: {ex.Message}",
-			});
-		}
-
-		_fileMessages.Publish("directory", new {
-			path = string.IsNullOrEmpty(requestedPath) ? Browser.Root : requestedPath,
-			entries = entries.Select(e => new { name = e.Name, path = e.Path, isDir = e.IsDirectory }),
-		});
-	}
+	private DirectoryListingMessage ListDirectory(string requestedPath) =>
+		new([.. Browser.List(requestedPath).Select(
+			entry => new DirectoryEntryMessage(entry.Name, entry.Path, entry.IsDirectory))]);
 
 	/// <summary>
 	/// Applies an editor <c>activeChanged</c> event from the page: updates the editor store, which pushes a

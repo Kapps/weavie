@@ -34,7 +34,7 @@ public interface IFileSystem {
 
 	/// <summary>
 	/// Lists the immediate entries (files + subdirectories) of <paramref name="path"/>. Returns empty for a
-	/// missing or unreadable directory — never throws.
+	/// missing directory and propagates access or I/O failures.
 	/// </summary>
 	IReadOnlyList<DirectoryEntry> EnumerateDirectory(string path);
 

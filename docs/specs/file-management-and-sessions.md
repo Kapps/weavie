@@ -37,8 +37,7 @@ Monaco file working copies use the owning session's `files` feature:
 | `files.stat` | request | path → file metadata |
 | `files.read` | request | path → contents and metadata |
 | `files.write` | request | path/content → write result |
-| `files.listDirectory` | event | directory request |
-| `files.directory` | event | directory result |
+| `files.listDirectory` | request | directory entries or request error |
 | `files.changed` | event | session file-activity projections |
 | `files.reveal` | event | validated path open |
 

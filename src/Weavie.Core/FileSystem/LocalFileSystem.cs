@@ -42,21 +42,16 @@ public sealed class LocalFileSystem : IFileSystem {
 			return [];
 		}
 
-		try {
-			var entries = new List<DirectoryEntry>();
-			foreach (string dir in Directory.EnumerateDirectories(path)) {
-				entries.Add(new DirectoryEntry(Path.GetFileName(dir), true));
-			}
-
-			foreach (string file in Directory.EnumerateFiles(path)) {
-				entries.Add(new DirectoryEntry(Path.GetFileName(file), false));
-			}
-
-			return entries;
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			// A directory we can't enter (ACLs) returns empty rather than crashing the browser.
-			return [];
+		var entries = new List<DirectoryEntry>();
+		foreach (string dir in Directory.EnumerateDirectories(path)) {
+			entries.Add(new DirectoryEntry(Path.GetFileName(dir), true));
 		}
+
+		foreach (string file in Directory.EnumerateFiles(path)) {
+			entries.Add(new DirectoryEntry(Path.GetFileName(file), false));
+		}
+
+		return entries;
 	}
 
 	/// <inheritdoc/>

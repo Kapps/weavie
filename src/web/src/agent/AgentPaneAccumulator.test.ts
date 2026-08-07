@@ -155,6 +155,18 @@ describe("AgentPaneAccumulator", () => {
 
     expect(messages.map((message) => message.text)).toEqual(["first", "second"]);
   });
+
+  it("preserves the provider turn timestamp when replaying a snapshot", () => {
+    const accumulator = new AgentPaneAccumulator((callback) => callback());
+    let messages: AgentPaneUpdate[] = [];
+    const turn = { ...update("turn-started", ""), startedAtMs: 1_723_456_789_000 };
+
+    accumulator.replace("slot-1", [turn], (value) => {
+      messages = value;
+    });
+
+    expect(messages).toEqual([turn]);
+  });
 });
 
 function update(type: string, text: string): AgentPaneUpdate {

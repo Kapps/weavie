@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using Weavie.Core.Theming;
 using Weavie.Hosting.Web;
 using Weavie.Linux.Native;
 
@@ -11,7 +12,14 @@ internal sealed partial class WorkspaceHost {
 	private WelcomeController? _welcome;
 
 	private void ShowWelcome() {
-		_welcome = new WelcomeController(_bridge, this, "app://app/welcome.html", () => _recents!.Items, OpenFolder, OpenRecent);
+		_welcome = new WelcomeController(
+			_bridge,
+			this,
+			"app://app/welcome.html",
+			() => _recents!.Items,
+			() => ThemeJson.Build(_services!.Settings, _services.ThemeOverrides, Log),
+			OpenFolder,
+			OpenRecent);
 		Gtk.gtk_window_set_default_size(_window, WelcomeWidth, WelcomeHeight);
 		ShowWindow();
 		_ = _welcome.ShowAsync();

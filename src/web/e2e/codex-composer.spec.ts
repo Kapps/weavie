@@ -297,6 +297,49 @@ test.describe("Codex composer", () => {
     await page.locator(".agent-compose").screenshot({ path: join(shotsDir, "00-compose-row.png") });
   });
 
+  test("agent prose, code, composer, and chrome use the shared typography roles", async ({
+    page,
+  }) => {
+    await mountCodex(page);
+    publishPane(
+      paneMessage({
+        type: "item-completed",
+        turnId: "t1",
+        itemId: "answer-1",
+        itemType: "agentMessage",
+        status: "completed",
+        text: "Rendered prose with `inline code`.",
+      }),
+    );
+    host.publishHost("settings", "fonts", {
+      editor: { family: '"Courier New", monospace', size: 21, weight: "700" },
+      terminal: { family: "monospace", size: 13, weight: "normal" },
+    });
+
+    const styles = async (selector: string): Promise<Record<string, string>> =>
+      page
+        .locator(selector)
+        .first()
+        .evaluate((element) => {
+          const style = getComputedStyle(element);
+          return { family: style.fontFamily, size: style.fontSize, weight: style.fontWeight };
+        });
+    await expect(page.locator(".agent-markdown code")).toBeVisible();
+    await expect
+      .poll(async () => ({
+        prose: await styles(".agent-markdown"),
+        code: await styles(".agent-markdown code"),
+        composer: await styles("[data-agent-composer] textarea"),
+        chromeFamily: (await styles(".agent-status-line")).family,
+      }))
+      .toEqual({
+        prose: { family: "Chivo, system-ui, sans-serif", size: "21px", weight: "400" },
+        code: { family: '"Courier New", monospace', size: "21px", weight: "700" },
+        composer: { family: '"Courier New", monospace', size: "21px", weight: "700" },
+        chromeFamily: "Chivo, system-ui, sans-serif",
+      });
+  });
+
   test("mouse clicks return to the prompt without taking text selection or response-field focus", async ({
     page,
   }) => {
@@ -905,7 +948,14 @@ test.describe("Codex composer", () => {
     await expect(interrupt).toHaveCount(0);
     await expect(submit).toHaveText("Run");
 
-    publishPane(paneMessage({ type: "turn-started", turnId: "t1", status: "inProgress" }));
+    publishPane(
+      paneMessage({
+        type: "turn-started",
+        turnId: "t1",
+        status: "inProgress",
+        startedAtMs: Date.now() - 3_000,
+      }),
+    );
     await expect(working).toBeVisible();
     await expect(working.locator(".agent-working-label")).toHaveText("Working");
     await expect(working.locator(".agent-working-time")).toHaveText(/^\d+s$/);
@@ -935,9 +985,8 @@ test.describe("Codex composer", () => {
     await expect(interrupt).toHaveCount(0);
   });
 
-  // The regression this branch fixes: the elapsed clock is anchored to the turn's arrival (stamped in the
-  // message stream), not to when the composer mounted — so leaving a mid-turn session and coming back keeps
-  // it counting real wall-clock instead of restarting near zero.
+  // The elapsed clock is anchored to the provider's persisted turn time, so leaving a mid-turn session and
+  // coming back keeps it counting real wall-clock instead of restarting near zero.
   test("the working timer keeps counting across a session switch — it never resets", async ({
     page,
   }) => {
@@ -955,7 +1004,14 @@ test.describe("Codex composer", () => {
     };
 
     // Start a turn on the Codex session; let its timer tick past a couple of seconds so a reset would be stark.
-    publishPane(paneMessage({ type: "turn-started", turnId: "t1", status: "inProgress" }));
+    publishPane(
+      paneMessage({
+        type: "turn-started",
+        turnId: "t1",
+        status: "inProgress",
+        startedAtMs: Date.now() - 3_000,
+      }),
+    );
     await expect(working).toBeVisible();
     await expect.poll(readSeconds, { timeout: 8_000 }).toBeGreaterThanOrEqual(2);
     const before = await readSeconds();

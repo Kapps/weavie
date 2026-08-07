@@ -39,7 +39,9 @@ export function AgentWorkingStatus(props: {
         <span class="agent-working-label" role="status">
           {label()}
         </span>
-        <span class="agent-working-time">{elapsed()}</span>
+        <Show when={turnStartedAt() !== null}>
+          <span class="agent-working-time">{elapsed()}</span>
+        </Show>
         <Show when={!props.compact && interruptKey() !== ""}>
           <span class="agent-working-hint">{interruptKey()} to interrupt</span>
         </Show>

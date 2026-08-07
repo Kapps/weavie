@@ -147,8 +147,37 @@
   text-overflow: ellipsis;
 }
 
-.browser-loading {
+.browser-loading,
+.browser-empty {
   padding: 4px 8px;
   color: var(--dim);
   font-style: italic;
+}
+
+.browser-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  color: var(--bad);
+}
+
+.browser-error span {
+  overflow-wrap: anywhere;
+}
+
+.browser-error button {
+  flex: 0 0 auto;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 7px;
+  background: var(--button-bg);
+  color: var(--button-fg);
+  font: inherit;
+  cursor: pointer;
+}
+
+.browser-error button:hover {
+  background: var(--button-hover-bg);
 }

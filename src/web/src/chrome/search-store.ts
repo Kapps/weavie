@@ -34,8 +34,8 @@ const [matches, setMatches] = createSignal<SearchMatch[]>([]);
 const [truncated, setTruncated] = createSignal(false);
 // The git-search error (e.g. a bad regex), so a failed search isn't reported as "No results".
 const [error, setError] = createSignal<string | null>(null);
-// Whether a reply for the latest request has arrived, so "No results" only shows once the search settled.
-const [settled, setSettled] = createSignal(true);
+type SearchPhase = "idle" | "searching" | "ready" | "error";
+const [phase, setPhase] = createSignal<SearchPhase>("idle");
 // The selected row in the flattened match list (index into matches()); -1 when there are none.
 const [selected, setSelected] = createSignal(-1);
 const [collapsed, setCollapsed] = createSignal<ReadonlySet<string>>(new Set<string>());
@@ -50,10 +50,13 @@ const [seedNonce, setSeedNonce] = createSignal(0);
 const groups = createMemo(() => groupByFile(matches()));
 const visible = createMemo(() => visibleOf(matches(), collapsed()));
 
-let sentFor = applied();
 let debounceTimer = 0;
 let previewTimer = 0;
-const requests = new WeakMap<ClientSession, AbortController>();
+interface ActiveSearch {
+  controller: AbortController;
+  requested: { query: string; options: SearchOptions };
+}
+const requests = new WeakMap<ClientSession, ActiveSearch>();
 const resultsBySession = new WeakMap<ClientSession, SearchResult>();
 // How results open in the editor — injected by App (the editor controller), like setNotifySink.
 let opener: (match: SearchMatch, focus: boolean) => void = () => {};
@@ -66,6 +69,21 @@ function clearResults(): void {
   setCollapsed(new Set<string>());
 }
 
+function sameOptions(left: SearchOptions, right: SearchOptions): boolean {
+  return (
+    left.caseSensitive === right.caseSensitive &&
+    left.wholeWord === right.wholeWord &&
+    left.regex === right.regex &&
+    left.excludeGitignored === right.excludeGitignored &&
+    left.include === right.include &&
+    left.exclude === right.exclude
+  );
+}
+
+function matchesDraft(result: SearchResult): boolean {
+  return result.applied.query === query() && sameOptions(result.applied.options, options());
+}
+
 interface SearchResult {
   matches: SearchMatch[];
   truncated: boolean;
@@ -76,21 +94,32 @@ interface SearchResult {
 function projectResult(result: SearchResult | undefined): void {
   if (result === undefined) {
     clearResults();
-    setSettled(true);
+    setPhase("idle");
     return;
   }
   setMatches(result.matches);
   setTruncated(result.truncated);
   setError(result.error);
-  setSettled(true);
+  setPhase(result.error === null ? "ready" : "error");
   setSelected(result.matches.length > 0 ? 0 : -1);
   setCollapsed(new Set<string>());
   setApplied(result.applied);
 }
 
-onSelectedSession((session) =>
-  projectResult(session === null ? undefined : resultsBySession.get(session)),
-);
+onSelectedSession((session) => {
+  const active = session === null ? undefined : requests.get(session);
+  if (
+    active !== undefined &&
+    active.requested.query === query() &&
+    sameOptions(active.requested.options, options())
+  ) {
+    clearResults();
+    setPhase("searching");
+    return;
+  }
+  const result = session === null ? undefined : resultsBySession.get(session);
+  projectResult(result !== undefined && matchesDraft(result) ? result : undefined);
+});
 
 /** Injects how a result opens in the editor (App wires the editor controller's openMatch). */
 export function setSearchOpener(fn: (match: SearchMatch, focus: boolean) => void): void {
@@ -104,24 +133,23 @@ function runSearch(): void {
     setMatches([]);
     setTruncated(false);
     setError(null);
-    setSettled(true);
+    setPhase("idle");
     setSelected(-1);
     setCollapsed(new Set<string>());
     setApplied({ query: "", options: options() });
     return;
   }
-  sentFor = { query: q, options: options() };
-  setSettled(false);
+  const requested = { query: q, options: options() };
   const session = selectedSession();
   if (session === null) {
     clearResults();
-    setSettled(true);
+    setPhase("idle");
     return;
   }
-  requests.get(session)?.abort();
-  const request = new AbortController();
+  requests.get(session)?.controller.abort();
+  const controller = new AbortController();
+  const request = { controller, requested };
   requests.set(session, request);
-  const requested = sentFor;
   void session
     .feature("search")
     .request<
@@ -131,7 +159,7 @@ function runSearch(): void {
         error?: string | null;
       },
       { query: string } & SearchOptions
-    >("query", { query: q, ...options() }, request.signal)
+    >("query", { query: q, ...options() }, controller.signal)
     .then((response) => {
       if (requests.get(session) !== request) {
         return;
@@ -144,12 +172,12 @@ function runSearch(): void {
         applied: requested,
       };
       resultsBySession.set(session, result);
-      if (selectedSession() === session) {
+      if (selectedSession() === session && matchesDraft(result)) {
         projectResult(result);
       }
     })
     .catch((error: unknown) => {
-      if (request.signal.aborted || requests.get(session) !== request) {
+      if (controller.signal.aborted || requests.get(session) !== request) {
         return;
       }
       requests.delete(session);
@@ -160,15 +188,35 @@ function runSearch(): void {
         applied: requested,
       };
       resultsBySession.set(session, result);
-      if (selectedSession() === session) {
+      if (selectedSession() === session && matchesDraft(result)) {
         projectResult(result);
       }
     });
 }
 
+function beginSearchIntent(): boolean {
+  window.clearTimeout(previewTimer);
+  const session = selectedSession();
+  if (session !== null) {
+    requests.get(session)?.controller.abort();
+    requests.delete(session);
+    resultsBySession.delete(session);
+  }
+  clearResults();
+  if (query().length === 0) {
+    setApplied({ query: "", options: options() });
+    setPhase("idle");
+    return false;
+  }
+  setPhase("searching");
+  return true;
+}
+
 function scheduleSearch(): void {
   window.clearTimeout(debounceTimer);
-  debounceTimer = window.setTimeout(runSearch, DEBOUNCE_MS);
+  if (beginSearchIntent()) {
+    debounceTimer = window.setTimeout(runSearch, DEBOUNCE_MS);
+  }
 }
 
 /** Sets the query from typing; the search runs debounced. Typing exits history cycling. */
@@ -189,7 +237,9 @@ export function toggleSearchOption(
   key: "caseSensitive" | "wholeWord" | "regex" | "excludeGitignored",
 ): boolean {
   updateSearchOptions({ ...options(), [key]: !options()[key] });
-  runSearch();
+  if (beginSearchIntent()) {
+    runSearch();
+  }
   return true;
 }
 
@@ -213,7 +263,9 @@ export function cycleHistory(dir: number): boolean {
   }
   historyCursor = Math.min(Math.max(historyCursor + dir, -1), terms.length - 1);
   setQueryRaw(historyCursor === -1 ? liveQuery : (terms[historyCursor] ?? ""));
-  runSearch();
+  if (beginSearchIntent()) {
+    runSearch();
+  }
   return true;
 }
 
@@ -225,7 +277,9 @@ export function seedSearch(text: string | null): void {
   if (text !== null && text.length > 0) {
     historyCursor = -1; // a fresh query replaces whatever history entry was being cycled
     setQueryRaw(text);
-    runSearch();
+    if (beginSearchIntent()) {
+      runSearch();
+    }
   }
   setSeedNonce((n) => n + 1);
 }
@@ -239,11 +293,16 @@ function openIndex(index: number, focus: boolean): void {
 
 /** Selects a row (a click) — no preview; the click's own open follows. */
 export function selectMatch(index: number): void {
-  setSelected(index);
+  if (phase() === "ready") {
+    setSelected(index);
+  }
 }
 
 /** Arrow navigation: move the selection and live-preview the row (debounced, without stealing focus). */
 export function moveAndPreview(delta: number): void {
+  if (phase() !== "ready") {
+    return;
+  }
   const vis = visible();
   if (vis.length === 0) {
     return;
@@ -257,6 +316,9 @@ export function moveAndPreview(delta: number): void {
 /** Enter/click commit: open the selected row, record the term in history, hand focus to the editor. */
 export function openSelected(): void {
   window.clearTimeout(previewTimer);
+  if (phase() !== "ready") {
+    return;
+  }
   if (visible().includes(selected())) {
     commitSearchTerm(applied().query);
     openIndex(selected(), true);
@@ -265,6 +327,9 @@ export function openSelected(): void {
 
 /** F4 stepping: jump to the next/previous result and open it focused. False when there are no results. */
 export function stepSearchResult(delta: number): boolean {
+  if (phase() !== "ready") {
+    return false;
+  }
   const vis = visible();
   if (vis.length === 0) {
     return false;
@@ -306,7 +371,7 @@ export const searchState = {
   matches,
   truncated,
   error,
-  settled,
+  phase,
   selected,
   collapsed,
   applied,

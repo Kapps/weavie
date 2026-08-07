@@ -440,8 +440,8 @@
 
 /* One highlight, driven by both keyboard roaming and mouse-move (see RecentFilesButton). */
 .recent-row.selected {
-  background: var(--accent);
-  color: var(--bg);
+  background: var(--list-active-bg);
+  color: var(--list-active-fg);
 }
 
 .recent-name {
@@ -462,7 +462,7 @@
 }
 
 .recent-row.selected .recent-dir {
-  color: var(--bg);
+  color: var(--list-active-fg);
   opacity: 0.8;
 }
 

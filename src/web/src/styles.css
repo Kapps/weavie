@@ -9,6 +9,11 @@
   --accent: #54c6a4;
   --button-bg: #54c6a4;
   --button-fg: #042019;
+  --button-hover-bg: #63d2b1;
+  --list-active-bg: #161a21;
+  --list-active-fg: #eef2f8;
+  --list-hover-bg: #111419;
+  --list-hover-fg: #cdd5dc;
   --dim: #6f7884;
   /* Session-status accents (pane/rail indicator); overwritten by the theme controller at runtime. */
   --ok: #6fdc66;
@@ -27,9 +32,9 @@
      chrome stays compact and secondary text uses shared roles instead of inventing local scales. */
   --font-chrome-family: var(--ui-font);
   --font-chrome-size: 12px;
-  --font-content-family: var(--editor-font-family);
-  --font-content-size: var(--editor-font-size);
-  --font-content-weight: var(--editor-font-weight);
+  --font-content-family: var(--editor-font-family, ui-monospace, monospace);
+  --font-content-size: var(--editor-font-size, 14px);
+  --font-content-weight: var(--editor-font-weight, 400);
   --font-prose-family: var(--font-chrome-family);
   --font-prose-size: var(--font-content-size);
   --font-prose-weight: 400;

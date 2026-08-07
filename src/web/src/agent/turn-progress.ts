@@ -21,8 +21,8 @@ export function hasActiveTurn(messages: readonly AgentPaneUpdate[]): boolean {
 }
 
 /**
- * Wall-clock ms the running turn began (the arrival time stamped on its `turn-started`), or null when no
- * turn is active. Derived from the message stream so it stays fixed across session switches and re-mounts.
+ * Provider-recorded Unix ms when the running turn began, or null when the provider did not supply one.
+ * Derived from the message stream so reconnecting and replaying cannot reset the elapsed clock.
  */
 export function activeTurnStartedAt(messages: readonly AgentPaneUpdate[]): number | null {
   let startedAt: number | null = null;
@@ -31,7 +31,7 @@ export function activeTurnStartedAt(messages: readonly AgentPaneUpdate[]): numbe
       continue;
     }
     if (message.type === "turn-started") {
-      startedAt = message.receivedAt ?? null;
+      startedAt = message.startedAtMs ?? null;
     } else if (message.type === "turn-completed") {
       startedAt = null;
     }

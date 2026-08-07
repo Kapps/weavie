@@ -29,6 +29,11 @@ export function deriveChromeVars(colors: Readonly<Record<string, string>>): void
   set("--accent", pick("focusBorder", "button.background"));
   set("--button-bg", pick("button.background"));
   set("--button-fg", pick("button.foreground"));
+  set("--button-hover-bg", pick("button.hoverBackground", "button.background"));
+  set("--list-active-bg", pick("list.activeSelectionBackground", "button.background"));
+  set("--list-active-fg", pick("list.activeSelectionForeground", "button.foreground"));
+  set("--list-hover-bg", pick("list.hoverBackground", "editorWidget.background"));
+  set("--list-hover-fg", pick("list.hoverForeground", "editor.foreground", "foreground"));
   set("--dim", pick("descriptionForeground", "editorLineNumber.foreground"));
 
   // Session-status accents for the pane/rail indicator, mapped to the ANSI/error palette so they

@@ -94,6 +94,26 @@ test("seeds from the selection, previews on arrows, and Enter lands on the match
   await expect(page.locator(".search-panel")).not.toBeVisible();
 });
 
+test("a changed query immediately hides and disables results from the previous search", async ({
+  page,
+}) => {
+  await openFile(page, "README.md");
+  await openSearch(page);
+  const input = page.locator(".search-input");
+  await input.fill("greet");
+  await expect(page.locator(".search-row")).toHaveCount(2);
+
+  await input.fill("no-match-for-this-query");
+  await expect(page.locator(".search-body")).toHaveAttribute("aria-busy", "true");
+  await expect(page.getByText("Searching…", { exact: true })).toBeVisible();
+  await expect(page.locator(".search-row")).toHaveCount(0);
+
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("F4");
+  await expect(page.locator(".editor")).toHaveAttribute("data-active-file", /README\.md$/);
+  await expect(page.locator(".search-empty")).toHaveText("No results");
+});
+
 test("match-case / whole-word / regex chords and include-exclude globs shape the results", async ({
   page,
 }) => {

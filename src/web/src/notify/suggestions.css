@@ -58,9 +58,13 @@
 }
 
 .suggestion-action.primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--bg);
+  background: var(--button-bg);
+  border-color: var(--button-bg);
+  color: var(--button-fg);
+}
+
+.suggestion-action.primary:hover {
+  background: var(--button-hover-bg);
 }
 
 @keyframes suggestion-in {

@@ -29,7 +29,6 @@ const ACCEPTED = ".weavie-inline-accepted"; // one decoration per FADED (kept-bu
 const UNDO = ".weavie-inline-accepted-undo"; // the inline ↶ undo beside a faded hunk
 const KEEP = ".weavie-inline-pending-keep"; // the inline ✓ keep beside a bright pending hunk
 const REVERT = ".weavie-inline-pending-revert"; // the inline ✕ revert beside a bright pending hunk
-const HIST_UNDO = ".weavie-inline-hist"; // the toolbar's ↶ Undo (first) / ↷ Redo history buttons
 const TOOLBAR = ".weavie-inline-toolbar";
 
 // Land the caret on the first hunk deterministically (next-change from the top of the file), so a per-hunk
@@ -53,6 +52,12 @@ const caretLine = (page: import("@playwright/test").Page): Promise<number | null
 test.describe("applied review — keep & undo", () => {
   test.use({ fakeScript: { steps: [...appliedEdit("hello.ts", TWO_HUNKS)] } });
 
+  // Flaked on Windows CI 2026-08-05 04:41 UTC (main, commit d9f85c5a):
+  // https://github.com/Kapps/weavie/actions/runs/30975495342/job/92208988130 — undo landed as a silent
+  // no-op because Core pushed the "diff" feature message before "history", so a chord fired the instant
+  // the kept hunk's diff re-rendered could read stale (pre-keep) undo availability. Root-caused and fixed
+  // in HostCore.WebBridge.cs (KeepHunk/KeepFile/ApplyHistoryResult now push "history" before "diff"/"changes"
+  // on the shared "review" feature lane) rather than widening this test's timeout.
   test("keeping a hunk drops only it from the diff; undo brings it back", async ({ page }) => {
     await openFile(page, "hello.ts");
     await expect(page.locator(ADDED)).toHaveCount(2); // two hunks pending
@@ -266,11 +271,10 @@ test.describe("applied review — revert & undo-revert (disk)", () => {
     await expect.poll(() => read(weavie.workspace, "hello.ts")).toContain("Hello, ${name}"); // baseline line is back on disk
     expect(read(weavie.workspace, "hello.ts")).toContain("console.warn"); // the other hunk is untouched
 
-    // The revert writes disk INSIDE Core, before its turn-diff/review-history messages reach the page — so
-    // syncing on disk alone races the undo: Ctrl+Shift+Backspace would consume the key but no-op while the
-    // client's canUndoRevert is still false. Wait for the web to reflect the revert before undoing it.
+    // The revert writes disk inside Core, which then pushes "history" before "diff"/"changes" on the shared
+    // "review" feature lane (RefreshReviewAsync) — so by the time this re-render lands, canUndoRevert is
+    // already current and Ctrl+Shift+Backspace can't race it.
     await expect(page.locator(ADDED)).toHaveCount(1); // the reverted hunk left the bright band
-    await expect(page.locator(HIST_UNDO).first()).toBeEnabled(); // the revert is now undoable on the client
 
     // Undo the revert: the change is rewritten to disk.
     await page.keyboard.press("ControlOrMeta+Shift+Backspace");

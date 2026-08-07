@@ -46,11 +46,14 @@ public sealed partial class HostCore {
 
 	private Task RefreshReviewAsync(HostSession session, string path, bool deleted) =>
 		InvokeForSessionAsync(() => {
+			// History before diff/changes — see HostCore.WebBridge.cs's ApplyHistoryResult: all three share the
+			// "review" feature lane, so this order guarantees undo/redo availability is current by the time this
+			// disk-driven refresh (a revert) re-renders, closing the same race for reverts as for keeps.
+			PushReviewHistoryToWeb(session);
 			if (!deleted) {
 				PushTurnDiffToWeb(session, path);
 			}
 			PushTurnChangesToWeb(session);
-			PushReviewHistoryToWeb(session);
 		});
 
 	private Task FileActivityFailedAsync(HostSession session, FileActivityFailure failure) =>

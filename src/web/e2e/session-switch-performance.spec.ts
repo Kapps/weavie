@@ -110,6 +110,13 @@ test("warm session-owned editor state switches fully paint within one second", a
   }
 });
 
+// FLAKE (2026-08-07 05:51 UTC, also seen 2026-08-04 05:46 UTC on an unrelated commit): the max of 4
+// wall-clock session-switch measurements occasionally lands just over SWITCH_BUDGET_MS (1043ms / 1000ms
+// this time). https://github.com/Kapps/weavie/actions/runs/31151753248/job/92782985886
+// Investigated: 10 serial local runs never exceeded ~370ms of budget headroom, but 6 concurrent runs on a
+// 4-core box reproduced the overshoot 3/6 times (1100-1140ms) — this is a real wall-clock browser-render
+// budget contending for CPU with whatever else is scheduled on the runner at that moment, not a regression;
+// no code change made.
 test("long transcripts switch as a measured virtual window", async ({ page }) => {
   const first = mockSession("long-first", "long-first", "codex", true);
   const second = mockSession("long-second", "long-second", "codex", false);

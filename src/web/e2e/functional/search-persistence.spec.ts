@@ -22,6 +22,16 @@ async function reload(page: Page): Promise<void> {
   await awaitEditorReady(page);
 }
 
+// FLAKE (2026-08-07 04:41 & 04:47 UTC): failed on the macOS e2e shard (5/6) on two immediately consecutive
+// main-branch "ci" runs, on unrelated commits (27ff137e touched search-store.ts; de90e74f, right after it,
+// touched none of the search code and hit the identical `.search-row` 30s timeout) — both cleared on the
+// very next run with no code change in between.
+// https://github.com/Kapps/weavie/actions/runs/31148196931/job/92773047174
+// https://github.com/Kapps/weavie/actions/runs/31148535789/job/92774602450
+// Investigated: rebuilt both failing commits locally (web dist + Weavie.Headless + Weavie.FakeClaude) and
+// ran this spec 30x against each — 30/30 passed every time, ruling out a search-store regression. Reads as a
+// transient macOS hosted-runner stall (tripped the already-generous 30s mac `expect.timeout`); no code
+// change made.
 test("options, globs, and recent terms persist across a reload — but not the query", async ({
   page,
 }) => {

@@ -1,4 +1,5 @@
 import { createVirtualizer, elementScroll, type VirtualItem } from "@tanstack/solid-virtual";
+import { ArrowDown, ArrowUp } from "lucide-solid";
 import {
   createEffect,
   createMemo,
@@ -36,7 +37,6 @@ const scrollNavigationScrollbarGap = 4;
 function AgentScrollNavigationButton(props: {
   commandId: string;
   edge: "start" | "latest";
-  glyph: string;
   label: string;
   run: () => boolean;
   title: string;
@@ -54,7 +54,12 @@ function AgentScrollNavigationButton(props: {
       title={title()}
       onClick={() => props.run()}
     >
-      <span aria-hidden="true">{props.glyph}</span>
+      <Show
+        when={props.edge === "start"}
+        fallback={<ArrowDown class="agent-scroll-nav-icon" aria-hidden="true" />}
+      >
+        <ArrowUp class="agent-scroll-nav-icon" aria-hidden="true" />
+      </Show>
     </button>
   );
 }
@@ -198,7 +203,6 @@ export function AgentPaneBody(props: {
             <AgentScrollNavigationButton
               commandId={CommandIds.agentJumpToTurn}
               edge="start"
-              glyph="↑"
               label="Jump to turn"
               run={scroll.jumpToTurn}
               title="Jump to the start of this agent turn"
@@ -208,7 +212,6 @@ export function AgentPaneBody(props: {
             <AgentScrollNavigationButton
               commandId={CommandIds.agentJumpToLatest}
               edge="latest"
-              glyph="↓"
               label="Jump to latest"
               run={scroll.jumpToLatest}
               title="Scroll to the latest activity and follow it"

@@ -261,6 +261,20 @@ test.describe("Codex composer", () => {
     await expect(page.locator(".agent-scroll-nav")).toHaveCSS("opacity", "1");
   }
 
+  async function scrollNavigationIconVerticalOffset(page: Page, label: string): Promise<number> {
+    return page.getByRole("button", { name: label, exact: true }).evaluate((button) => {
+      const icon = button.querySelector("svg");
+      if (icon === null) {
+        return Number.POSITIVE_INFINITY;
+      }
+      const buttonBounds = button.getBoundingClientRect();
+      const iconBounds = icon.getBoundingClientRect();
+      return Math.abs(
+        buttonBounds.top + buttonBounds.height / 2 - (iconBounds.top + iconBounds.height / 2),
+      );
+    });
+  }
+
   test("status line shows model, mode, approvals, and sandbox", async ({ page }) => {
     await mountCodex(page);
 
@@ -1256,6 +1270,9 @@ test.describe("Codex composer", () => {
       .toEqual({ bodyFillsWrap: true, clearsScrollbar: true });
     await expect(navigation).toHaveCSS("opacity", "0");
     await revealScrollNavigation(page);
+    await expect
+      .poll(() => scrollNavigationIconVerticalOffset(page, "Jump to turn"))
+      .toBeLessThan(0.5);
 
     await turnButton.click();
     await expect
@@ -1291,6 +1308,9 @@ test.describe("Codex composer", () => {
     await expect(navigation).toHaveCSS("opacity", "0");
     await latestButton.focus();
     await expect(navigation).toHaveCSS("opacity", "1");
+    await expect
+      .poll(() => scrollNavigationIconVerticalOffset(page, "Jump to latest"))
+      .toBeLessThan(0.5);
 
     await body.evaluate((element) => {
       element.scrollTop += element.clientHeight;

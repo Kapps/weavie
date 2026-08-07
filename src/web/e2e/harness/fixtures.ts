@@ -205,7 +205,7 @@ export const test = base.extend<WeavieOptions & WeavieFixtures>({
             hasText: "Let Weavie use automatic inference",
           });
           if ((await offer.count()) > 0) {
-            await offer.getByRole("button", { name: "Dismiss" }).click();
+            await offer.getByRole("button", { name: "Dismiss" }).press("Enter");
             await expect(offer).toHaveCount(0);
           }
         }

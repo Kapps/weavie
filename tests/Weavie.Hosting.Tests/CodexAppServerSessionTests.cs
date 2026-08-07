@@ -320,6 +320,11 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		Assert.Equal(resolvedCount, messages.Count(message => message.Type == "approval-resolved"));
 	}
 
+	// Flaked once on Linux CI (2026-08-07 04:47 UTC, run 31148535789, job 92773908251): the very first
+	// WaitForAsync (thread-start.json, default 5s/200-attempt budget) timed out — a one-off subprocess-spawn
+	// stall, not reproduced on the same commit's other CI runs or since. Left the shared default budget
+	// alone per the tradeoff already documented on WaitForAsync above (widening it slows failure detection
+	// for every test in this class); revisit only if this call site starts failing repeatedly.
 	[Fact]
 	public async Task Submit_WhenSteerRejected_SurfacesCodexCodeAndRecoversAsFreshTurn() {
 		ConcurrentQueue<AgentPaneMessage> messages = new();

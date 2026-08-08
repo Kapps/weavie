@@ -57,6 +57,12 @@ test.describe("applied review — keep & undo", () => {
   // https://github.com/Kapps/weavie/actions/runs/30975495342/job/92209636984. Fixed in HostCore.WebBridge's
   // ApplyHistoryResult (see its doc comment) by ordering the "history" push before "diff"/"changes".
   test("keeping a hunk drops only it from the diff; undo brings it back", async ({ page }) => {
+    // Flaked on windows-latest 2026-08-05 04:33 UTC: the undo's re-pend (hook bridge → Core →
+    // rewrite hello.ts → re-render) never resolved within the 30s Windows expect.timeout, unrelated
+    // to the PR that surfaced it (a turn-navigation change) — the very next CI run passed this same
+    // test untouched: https://github.com/Kapps/weavie/actions/runs/30975495342/job/92208988130
+    // test.slow triples the overall timeout budget for the keep+undo round trip; not a retry.
+    test.slow();
     await openFile(page, "hello.ts");
     await expect(page.locator(ADDED)).toHaveCount(2); // two hunks pending
 

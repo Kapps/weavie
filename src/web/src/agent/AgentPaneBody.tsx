@@ -71,6 +71,8 @@ export function AgentPaneBody(props: {
   model: AgentPaneModel;
   providerName: string;
 }): JSX.Element {
+  const detach = props.model.attach();
+  onCleanup(detach);
   let body: HTMLDivElement | undefined;
   let virtualizerChanged = (_sync: boolean): void => {};
   let virtualizerScroll = (_top: number): void => {};

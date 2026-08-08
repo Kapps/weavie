@@ -388,12 +388,17 @@ public sealed partial class HostCore {
 
 	/// <summary>
 	/// Pushes a state-only undo/redo result. Disk-mutating results publish through session file activity.
+	/// History goes first: the client's undo/redo availability must already reflect this action by the time
+	/// the diff/changes pushes land and trigger a re-render, or a keystroke landing in that gap (undoKeep
+	/// reads canUndoKeep synchronously, with no retry) silently no-ops forever. See diff-review.spec.ts's
+	/// "keeping a hunk drops only it from the diff; undo brings it back".
 	/// </summary>
 	private void ApplyHistoryResult(HostSession session, ReviewHistoryResult result) {
 		if (result.TouchedDisk) {
 			return;
 		}
 
+		PushReviewHistoryToWeb(session);
 		foreach (string path in result.Paths) {
 			if (session.Changes.GetTurn(path) is not null) {
 				PushTurnDiffToWeb(session, path);
@@ -401,7 +406,6 @@ public sealed partial class HostCore {
 		}
 
 		PushTurnChangesToWeb(session);
-		PushReviewHistoryToWeb(session);
 	}
 
 	/// <summary>Pushes the review undo/redo availability so the page enables its Undo/Redo affordances.</summary>
@@ -492,9 +496,10 @@ public sealed partial class HostCore {
 			return;
 		}
 
+		// History before diff/changes — see ApplyHistoryResult's doc comment on why the order matters.
+		PushReviewHistoryToWeb(session);
 		PushTurnDiffToWeb(session, path);
 		PushTurnChangesToWeb(session);
-		PushReviewHistoryToWeb(session);
 	}
 
 	/// <summary>
@@ -508,9 +513,10 @@ public sealed partial class HostCore {
 		}
 
 		session.Changes.KeepFile(path);
+		// History before diff/changes — see ApplyHistoryResult's doc comment on why the order matters.
+		PushReviewHistoryToWeb(session);
 		PushTurnDiffToWeb(session, path);
 		PushTurnChangesToWeb(session);
-		PushReviewHistoryToWeb(session);
 	}
 
 	/// <summary>

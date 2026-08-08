@@ -123,50 +123,38 @@ public sealed class ThemeOverridesStore {
 		return removed;
 	}
 
-	private Dictionary<string, List<ThemeOverrideOp>> LoadLocked() {
-		if (!_fileSystem.FileExists(FilePath)) {
-			return [];
-		}
-
-		string text;
-		try {
-			text = _fileSystem.ReadAllText(FilePath);
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			Log?.Invoke($"[theme-overrides] could not read {FilePath}: {ex.Message}; starting empty");
-			return [];
-		}
-
-		try {
-			var document = JsonSerializer.Deserialize<OverridesDocument>(text, JsonOptions);
-			if (document?.Overrides is not { } map) {
-				return [];
-			}
-
-			var result = new Dictionary<string, List<ThemeOverrideOp>>();
-			foreach (var (themeId, ops) in map) {
-				if (!string.IsNullOrWhiteSpace(themeId) && ops is { Count: > 0 }) {
-					result[themeId] = [.. ops];
+	private Dictionary<string, List<ThemeOverrideOp>> LoadLocked() =>
+		JsonStoreFile.Load<Dictionary<string, List<ThemeOverrideOp>>>(
+			_fileSystem,
+			FilePath,
+			text => {
+				var document = JsonSerializer.Deserialize<OverridesDocument>(text, JsonOptions);
+				if (document?.Overrides is not { } map) {
+					return [];
 				}
-			}
 
-			return result;
-		} catch (JsonException ex) {
-			Log?.Invoke($"[theme-overrides] {FilePath} is malformed ({ex.Message}); backing up to theme-overrides.json.bad and resetting");
-			JsonStoreFile.BackupBad(_fileSystem, FilePath, text, "theme-overrides", Log);
-			return [];
-		}
-	}
+				var result = new Dictionary<string, List<ThemeOverrideOp>>();
+				foreach (var (themeId, ops) in map) {
+					if (!string.IsNullOrWhiteSpace(themeId) && ops is { Count: > 0 }) {
+						result[themeId] = [.. ops];
+					}
+				}
+
+				return result;
+			},
+			static () => [],
+			Log);
 
 	private void PersistLocked() {
-		try {
-			var document = new OverridesDocument {
-				Version = 1,
-				Overrides = _overrides.ToDictionary(kv => kv.Key, kv => kv.Value),
-			};
-			_fileSystem.WriteAllTextAtomic(FilePath, JsonSerializer.Serialize(document, JsonOptions));
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			Log?.Invoke($"[theme-overrides] could not persist overrides: {ex.Message}");
-		}
+		var document = new OverridesDocument {
+			Version = 1,
+			Overrides = _overrides.ToDictionary(kv => kv.Key, kv => kv.Value),
+		};
+		JsonStoreFile.Persist(
+			_fileSystem,
+			FilePath,
+			JsonSerializer.Serialize(document, JsonOptions),
+			Log);
 	}
 
 	private sealed class OverridesDocument {

@@ -52,41 +52,29 @@ public sealed class SuggestionDismissals {
 		}
 	}
 
-	private HashSet<string> LoadLocked() {
-		if (!_fileSystem.FileExists(FilePath)) {
-			return new HashSet<string>(StringComparer.Ordinal);
-		}
-
-		string text;
-		try {
-			text = _fileSystem.ReadAllText(FilePath);
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			Log?.Invoke($"[suggestions] could not read {FilePath}: {ex.Message}; starting empty");
-			return new HashSet<string>(StringComparer.Ordinal);
-		}
-
-		try {
-			var document = JsonSerializer.Deserialize<DismissalsDocument>(text);
-			return document?.Dismissed is { } ids
-				? new HashSet<string>(ids.Where(id => !string.IsNullOrWhiteSpace(id)), StringComparer.Ordinal)
-				: new HashSet<string>(StringComparer.Ordinal);
-		} catch (JsonException ex) {
-			Log?.Invoke($"[suggestions] {FilePath} is malformed ({ex.Message}); backing up to suggestions.json.bad and resetting");
-			JsonStoreFile.BackupBad(_fileSystem, FilePath, text, "suggestions", Log);
-			return new HashSet<string>(StringComparer.Ordinal);
-		}
-	}
+	private HashSet<string> LoadLocked() =>
+		JsonStoreFile.Load<HashSet<string>>(
+			_fileSystem,
+			FilePath,
+			text => {
+				var document = JsonSerializer.Deserialize<DismissalsDocument>(text);
+				return document?.Dismissed is { } ids
+					? new HashSet<string>(ids.Where(id => !string.IsNullOrWhiteSpace(id)), StringComparer.Ordinal)
+					: new HashSet<string>(StringComparer.Ordinal);
+			},
+			static () => new HashSet<string>(StringComparer.Ordinal),
+			Log);
 
 	private void PersistLocked() {
-		try {
-			var document = new DismissalsDocument {
-				Version = 1,
-				Dismissed = [.. _dismissed],
-			};
-			_fileSystem.WriteAllTextAtomic(FilePath, JsonSerializer.Serialize(document, JsonOptions));
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			Log?.Invoke($"[suggestions] could not persist dismissals: {ex.Message}");
-		}
+		var document = new DismissalsDocument {
+			Version = 1,
+			Dismissed = [.. _dismissed],
+		};
+		JsonStoreFile.Persist(
+			_fileSystem,
+			FilePath,
+			JsonSerializer.Serialize(document, JsonOptions),
+			Log);
 	}
 
 	private sealed class DismissalsDocument {

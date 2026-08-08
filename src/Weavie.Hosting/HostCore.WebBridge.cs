@@ -692,8 +692,21 @@ public sealed partial class HostCore {
 		return execution;
 	}
 
-	private async Task<CommandResult> InvokeWebCommandAsync(
+	private Task<CommandResult> InvokeWebCommandAsync(
 		HostSession session,
+		string id,
+		string? argsJson,
+		CancellationToken ct) => InvokeViewCommandAsync(session, "run", id, argsJson, ct);
+
+	private Task<CommandResult> InvokeClientCommandAsync(
+		HostSession session,
+		string id,
+		string? argsJson,
+		CancellationToken ct) => InvokeViewCommandAsync(session, "runClient", id, argsJson, ct);
+
+	private async Task<CommandResult> InvokeViewCommandAsync(
+		HostSession session,
+		string name,
 		string id,
 		string? argsJson,
 		CancellationToken ct) {
@@ -704,25 +717,7 @@ public sealed partial class HostCore {
 		}
 
 		var result = await session.View.Feature("commands").RequestAsync<CommandRequest, CommandWireResult>(
-			"run",
-			new CommandRequest(id, args),
-			ct).ConfigureAwait(false);
-		return FromWireResult(result);
-	}
-
-	private async Task<CommandResult> InvokeClientCommandAsync(
-		HostSession session,
-		string id,
-		string? argsJson,
-		CancellationToken ct) {
-		JsonElement? args = null;
-		if (!string.IsNullOrWhiteSpace(argsJson)) {
-			using var document = JsonDocument.Parse(argsJson);
-			args = document.RootElement.Clone();
-		}
-
-		var result = await session.View.Feature("commands").RequestAsync<CommandRequest, CommandWireResult>(
-			"runClient",
+			name,
 			new CommandRequest(id, args),
 			ct).ConfigureAwait(false);
 		return FromWireResult(result);

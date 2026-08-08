@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Layout;
+using Weavie.Core.Sessions;
 using Weavie.Core.Shell;
 using Weavie.Core.Workspaces;
 using Weavie.Hosting;
@@ -29,7 +30,7 @@ internal sealed partial class WorkspaceHost : IWebSurface, IShellMenuActions {
 	private ApplicationHotkeys? _hotkeys;
 	private RecentWorkspaces? _recents;
 	private LinuxNotificationService? _notifications;
-	private LinuxNotificationChannel? _notificationChannel;
+	private SystemNotificationChannel? _notificationChannel;
 	private AppSchemeHandler? _scheme;
 	private string? _wwwroot;
 

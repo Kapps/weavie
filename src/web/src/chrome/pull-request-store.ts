@@ -1,5 +1,5 @@
-import { createSignal } from "solid-js";
-import { type ClientSession, registerSessionFeature } from "../bridge";
+import type { ClientSession } from "../bridge";
+import { createSessionFeatureValue } from "../messaging/session-feature-value";
 
 export interface PullRequestStatus {
   branch: string | null;
@@ -11,22 +11,9 @@ export interface PullRequestStatus {
   error: string | null;
 }
 
-const [statuses, setStatuses] = createSignal(new Map<ClientSession, PullRequestStatus>());
-
-export function pullRequestStatus(session: ClientSession | null): PullRequestStatus | null {
-  return session === null || session.closed ? null : (statuses().get(session) ?? null);
-}
-
-registerSessionFeature((session) => {
-  const off = session.feature("git").on<PullRequestStatus>("pullRequest", (status) => {
-    setStatuses((previous) => new Map(previous).set(session, status));
-  });
-  return () => {
-    off();
-    setStatuses((previous) => {
-      const next = new Map(previous);
-      next.delete(session);
-      return next;
-    });
-  };
-});
+export const pullRequestStatus: (session: ClientSession | null) => PullRequestStatus | null =
+  createSessionFeatureValue<PullRequestStatus, PullRequestStatus>(
+    "git",
+    "pullRequest",
+    (status) => status,
+  );

@@ -82,47 +82,34 @@ public sealed class RemoteAgentStore {
 
 	private static bool NameEquals(string a, string b) => string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
 
-	private List<RemoteAgent> LoadLocked() {
-		if (!_fileSystem.FileExists(FilePath)) {
-			return [];
-		}
+	private List<RemoteAgent> LoadLocked() =>
+		JsonStoreFile.Load<List<RemoteAgent>>(
+			_fileSystem,
+			FilePath,
+			text => {
+				var document = JsonSerializer.Deserialize<Document>(text);
+				if (document?.Agents is not { } entries) {
+					return [];
+				}
 
-		string text;
-		try {
-			text = _fileSystem.ReadAllText(FilePath);
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			Log?.Invoke($"[remote-agents] could not read {FilePath}: {ex.Message}; starting empty");
-			return [];
-		}
-
-		try {
-			var document = JsonSerializer.Deserialize<Document>(text);
-			if (document?.Agents is not { } entries) {
-				return [];
-			}
-
-			return [.. entries
+				return [.. entries
 				.Where(e => !string.IsNullOrWhiteSpace(e.Name) && !string.IsNullOrWhiteSpace(e.Url) && !string.IsNullOrWhiteSpace(e.Token))
 				.Select(e => new RemoteAgent(e.Name, e.Url, e.Token))];
-		} catch (JsonException ex) {
-			Log?.Invoke($"[remote-agents] {FilePath} is malformed ({ex.Message}); backing up to remote-agents.json.bad and resetting");
-			JsonStoreFile.BackupBad(_fileSystem, FilePath, text, "remote-agents", Log);
-			return [];
-		}
-	}
+			},
+			static () => [],
+			Log);
 
 	private void PersistLocked() {
-		try {
-			var document = new Document {
-				Version = 1,
-				Agents = [.. _items.Select(a => new AgentEntry { Name = a.Name, Url = a.Url, Token = a.Token })],
-			};
-			_fileSystem.WriteAllTextAtomic(FilePath, JsonSerializer.Serialize(document, JsonOptions));
-			// The file holds runner control-plane bearer tokens; keep it owner-only on POSIX.
-			SecureFile.Restrict(FilePath);
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			Log?.Invoke($"[remote-agents] could not persist: {ex.Message}");
-		}
+		var document = new Document {
+			Version = 1,
+			Agents = [.. _items.Select(a => new AgentEntry { Name = a.Name, Url = a.Url, Token = a.Token })],
+		};
+		JsonStoreFile.Persist(
+			_fileSystem,
+			FilePath,
+			JsonSerializer.Serialize(document, JsonOptions),
+			() => SecureFile.Restrict(FilePath),
+			Log);
 	}
 
 	private sealed class Document {

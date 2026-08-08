@@ -5,7 +5,7 @@ namespace Weavie.Win.Hosting;
 /// <summary>The process-wide Windows Shell notification-area router.</summary>
 internal sealed class WindowsNotificationService : IDisposable {
 	private readonly WindowsBalloonNotifications _balloons;
-	private readonly SystemNotificationRoutes<WindowsNotificationChannel> _routes = new();
+	private readonly SystemNotificationRoutes<SystemNotificationChannel> _routes = new();
 	private readonly object _gate = new();
 	private bool _disposed;
 
@@ -16,16 +16,28 @@ internal sealed class WindowsNotificationService : IDisposable {
 	}
 
 	/// <summary>Creates one workspace-owned channel on the shared manager.</summary>
-	public WindowsNotificationChannel CreateChannel() {
+	public SystemNotificationChannel CreateChannel() {
 		lock (_gate) {
 			ObjectDisposedException.ThrowIf(_disposed, this);
-			return new WindowsNotificationChannel(this);
+			return new SystemNotificationChannel(
+				PermissionAsync,
+				PermissionAsync,
+				ShowAsync,
+				RemoveAsync,
+				DisposeChannel);
 		}
 	}
 
-	internal static SystemNotificationPermission Permission() => SystemNotificationPermission.Granted;
+	private static Task<SystemNotificationPermission> PermissionAsync(CancellationToken ct) {
+		ct.ThrowIfCancellationRequested();
+		return Task.FromResult(SystemNotificationPermission.Granted);
+	}
 
-	internal void Show(WindowsNotificationChannel channel, SystemNotification notification) {
+	private Task ShowAsync(
+		SystemNotificationChannel channel,
+		SystemNotification notification,
+		CancellationToken ct) {
+		ct.ThrowIfCancellationRequested();
 		SystemNotificationRouteRegistration registration;
 		lock (_gate) {
 			ObjectDisposedException.ThrowIf(_disposed, this);
@@ -38,10 +50,11 @@ internal sealed class WindowsNotificationService : IDisposable {
 			registration.Rollback();
 			throw;
 		}
+		return Task.CompletedTask;
 	}
 
-	internal Task RemoveAsync(
-		WindowsNotificationChannel channel,
+	private Task RemoveAsync(
+		SystemNotificationChannel channel,
 		string replacementId,
 		CancellationToken ct) {
 		ct.ThrowIfCancellationRequested();
@@ -50,19 +63,19 @@ internal sealed class WindowsNotificationService : IDisposable {
 		return Task.CompletedTask;
 	}
 
-	internal void DisposeChannel(WindowsNotificationChannel channel) {
+	private void DisposeChannel(SystemNotificationChannel channel) {
 		string[] replacementIds = _routes.ForgetOwner(channel);
 		foreach (string replacementId in replacementIds) {
 			_balloons.Remove(replacementId);
 		}
 	}
 
-	private void Forget(WindowsNotificationChannel channel, string replacementId) =>
+	private void Forget(SystemNotificationChannel channel, string replacementId) =>
 		_routes.Forget(channel, replacementId);
 
 	private void OnBalloonActivated(SystemNotification notification) {
 		if (_routes.TryTake(notification.ActivationId, out var owner)) {
-			owner.Activate(notification.ActivationId);
+			owner.Activate(notification.ActivationId, null);
 		}
 	}
 
@@ -81,59 +94,5 @@ internal sealed class WindowsNotificationService : IDisposable {
 		_balloons.Activated -= OnBalloonActivated;
 		_balloons.Closed -= OnBalloonClosed;
 		_balloons.Dispose();
-	}
-}
-
-/// <summary>One Windows workspace window's notification identities and activation event.</summary>
-internal sealed class WindowsNotificationChannel : ISystemNotificationChannel, IDisposable {
-	private readonly WindowsNotificationService _service;
-	private bool _disposed;
-
-	internal WindowsNotificationChannel(WindowsNotificationService service) {
-		_service = service;
-	}
-
-	/// <inheritdoc/>
-	public event Action<SystemNotificationActivation>? Activated;
-
-	/// <inheritdoc/>
-	public Task<SystemNotificationPermission> GetPermissionAsync(CancellationToken ct) {
-		ct.ThrowIfCancellationRequested();
-		return Task.FromResult(WindowsNotificationService.Permission());
-	}
-
-	/// <inheritdoc/>
-	public Task<SystemNotificationPermission> RequestPermissionAsync(CancellationToken ct) =>
-		GetPermissionAsync(ct);
-
-	/// <inheritdoc/>
-	public Task ShowAsync(SystemNotification notification, CancellationToken ct) {
-		ArgumentNullException.ThrowIfNull(notification);
-		ct.ThrowIfCancellationRequested();
-		ObjectDisposedException.ThrowIf(_disposed, this);
-		_service.Show(this, notification);
-		return Task.CompletedTask;
-	}
-
-	/// <inheritdoc/>
-	public Task RemoveAsync(string replacementId, CancellationToken ct) {
-		ArgumentException.ThrowIfNullOrEmpty(replacementId);
-		ObjectDisposedException.ThrowIf(_disposed, this);
-		return _service.RemoveAsync(this, replacementId, ct);
-	}
-
-	internal void Activate(string activationId) {
-		if (!_disposed) {
-			Activated?.Invoke(new SystemNotificationActivation(activationId, null));
-		}
-	}
-
-	/// <inheritdoc/>
-	public void Dispose() {
-		if (_disposed) {
-			return;
-		}
-		_disposed = true;
-		_service.DisposeChannel(this);
 	}
 }

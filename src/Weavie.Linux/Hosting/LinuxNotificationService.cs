@@ -7,7 +7,7 @@ internal sealed class LinuxNotificationService : IDisposable {
 	private readonly ILinuxNotificationTransport _transport;
 	private readonly Action<string> _log;
 	private readonly SemaphoreSlim _operations = new(1, 1);
-	private readonly SystemNotificationRoutes<LinuxNotificationChannel> _routes = new();
+	private readonly SystemNotificationRoutes<SystemNotificationChannel> _routes = new();
 	private readonly Dictionary<Replacement, uint> _byReplacement = [];
 	private readonly Dictionary<uint, Delivered> _byServerId = [];
 	private readonly object _gate = new();
@@ -27,10 +27,15 @@ internal sealed class LinuxNotificationService : IDisposable {
 		_transport.Invalidated += OnInvalidated;
 	}
 
-	public LinuxNotificationChannel CreateChannel() {
+	public SystemNotificationChannel CreateChannel() {
 		lock (_gate) {
 			ObjectDisposedException.ThrowIf(_disposed, this);
-			return new LinuxNotificationChannel(this);
+			return new SystemNotificationChannel(
+				GetPermissionAsync,
+				RequestPermissionAsync,
+				ShowAsync,
+				RemoveAsync,
+				DisposeChannel);
 		}
 	}
 
@@ -43,7 +48,7 @@ internal sealed class LinuxNotificationService : IDisposable {
 		GetPermissionAsync(ct);
 
 	internal async Task ShowAsync(
-		LinuxNotificationChannel channel,
+		SystemNotificationChannel channel,
 		SystemNotification notification,
 		CancellationToken ct) {
 		await _operations.WaitAsync(ct).ConfigureAwait(false);
@@ -89,7 +94,7 @@ internal sealed class LinuxNotificationService : IDisposable {
 	}
 
 	internal async Task RemoveAsync(
-		LinuxNotificationChannel channel,
+		SystemNotificationChannel channel,
 		string replacementId,
 		CancellationToken ct) {
 		await _operations.WaitAsync(ct).ConfigureAwait(false);
@@ -110,7 +115,7 @@ internal sealed class LinuxNotificationService : IDisposable {
 		}
 	}
 
-	internal void DisposeChannel(LinuxNotificationChannel channel) {
+	internal void DisposeChannel(SystemNotificationChannel channel) {
 		lock (_gate) {
 			_routes.ForgetOwner(channel);
 			foreach (var replacement in _byReplacement.Keys
@@ -196,52 +201,9 @@ internal sealed class LinuxNotificationService : IDisposable {
 		_operations.Dispose();
 	}
 
-	private sealed record Replacement(LinuxNotificationChannel Channel, string Id);
+	private sealed record Replacement(SystemNotificationChannel Channel, string Id);
 	private sealed record Delivered(
-		LinuxNotificationChannel Channel,
+		SystemNotificationChannel Channel,
 		string ReplacementId,
 		string ActivationId);
-}
-
-internal sealed class LinuxNotificationChannel : ISystemNotificationChannel, IDisposable {
-	private readonly LinuxNotificationService _service;
-	private bool _disposed;
-
-	internal LinuxNotificationChannel(LinuxNotificationService service) {
-		_service = service;
-	}
-
-	public event Action<SystemNotificationActivation>? Activated;
-
-	public Task<SystemNotificationPermission> GetPermissionAsync(CancellationToken ct) =>
-		_service.GetPermissionAsync(ct);
-
-	public Task<SystemNotificationPermission> RequestPermissionAsync(CancellationToken ct) =>
-		_service.RequestPermissionAsync(ct);
-
-	public Task ShowAsync(SystemNotification notification, CancellationToken ct) {
-		ArgumentNullException.ThrowIfNull(notification);
-		ObjectDisposedException.ThrowIf(_disposed, this);
-		return _service.ShowAsync(this, notification, ct);
-	}
-
-	public Task RemoveAsync(string replacementId, CancellationToken ct) {
-		ArgumentException.ThrowIfNullOrEmpty(replacementId);
-		ObjectDisposedException.ThrowIf(_disposed, this);
-		return _service.RemoveAsync(this, replacementId, ct);
-	}
-
-	internal void Activate(string activationId, string? activationToken) {
-		if (!_disposed) {
-			Activated?.Invoke(new SystemNotificationActivation(activationId, activationToken));
-		}
-	}
-
-	public void Dispose() {
-		if (_disposed) {
-			return;
-		}
-		_disposed = true;
-		_service.DisposeChannel(this);
-	}
 }

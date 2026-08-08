@@ -1,5 +1,5 @@
-import { type JSX, onCleanup, onMount } from "solid-js";
-import { Portal } from "solid-js/web";
+import type { JSX } from "solid-js";
+import { ModalShell, modalSubmitKeys, PromptActions, PromptButton } from "../chrome/ModalShell";
 
 /**
  * In-app "Save as" name prompt for scratch buffers on a browser-served host (headless / remote), where there's
@@ -18,59 +18,28 @@ export function SaveAsPrompt(props: {
       props.onSave(name);
     }
   };
-  const onKeyDown = (event: KeyboardEvent): void => {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      event.stopPropagation();
-      submit();
-    } else if (event.key === "Escape") {
-      event.preventDefault();
-      event.stopPropagation();
-      props.onCancel();
-    }
-  };
-  onMount(() => window.addEventListener("keydown", onKeyDown, { capture: true }));
-  onCleanup(() => window.removeEventListener("keydown", onKeyDown, { capture: true }));
-
+  const onKeyDown = modalSubmitKeys(submit, props.onCancel);
   return (
-    <Portal>
-      <div class="modal-backdrop" onPointerDown={() => props.onCancel()}>
-        <div class="confirm-dialog" onPointerDown={(event) => event.stopPropagation()}>
-          <div class="confirm-title">Save as</div>
-          <div class="confirm-body">Name this file, relative to the workspace root.</div>
-          <input
-            class="session-prompt-input"
-            type="text"
-            spellcheck={false}
-            autocomplete="off"
-            value={props.suggestedName}
-            ref={(el) => {
-              input = el;
-              queueMicrotask(() => el.select());
-            }}
-          />
-          <div class="session-prompt-actions">
-            <button
-              type="button"
-              class="session-prompt-btn"
-              onClick={() => props.onCancel()}
-              title="Cancel (Esc)"
-            >
-              <span class="session-prompt-btn-label">Cancel</span>
-              <span class="session-prompt-btn-key">Esc</span>
-            </button>
-            <button
-              type="button"
-              class="session-prompt-btn session-prompt-btn-primary"
-              onClick={() => submit()}
-              title="Save (Enter)"
-            >
-              <span class="session-prompt-btn-label">Save</span>
-              <span class="session-prompt-btn-key">Enter</span>
-            </button>
-          </div>
-        </div>
+    <ModalShell labelledBy="save-as-title" onDismiss={props.onCancel} onKeyDown={onKeyDown}>
+      <div class="confirm-title" id="save-as-title">
+        Save as
       </div>
-    </Portal>
+      <div class="confirm-body">Name this file, relative to the workspace root.</div>
+      <input
+        class="session-prompt-input"
+        type="text"
+        spellcheck={false}
+        autocomplete="off"
+        value={props.suggestedName}
+        ref={(el) => {
+          input = el;
+          queueMicrotask(() => el.select());
+        }}
+      />
+      <PromptActions>
+        <PromptButton label="Cancel" shortcut="Esc" title="Cancel (Esc)" onClick={props.onCancel} />
+        <PromptButton label="Save" shortcut="Enter" title="Save (Enter)" onClick={submit} primary />
+      </PromptActions>
+    </ModalShell>
   );
 }

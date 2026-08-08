@@ -32,12 +32,4 @@ public static class JsonElementExtensions {
 			? value.GetBoolean()
 			: fallback;
 
-	/// <summary>The int value of <paramref name="name"/>, or <paramref name="fallback"/> if absent/not a number.</summary>
-	public static int GetIntOr(this JsonElement element, string name, int fallback) =>
-		element.ValueKind == JsonValueKind.Object
-		&& element.TryGetProperty(name, out var value)
-		&& value.ValueKind == JsonValueKind.Number
-		&& value.TryGetInt32(out int parsed)
-			? parsed
-			: fallback;
 }

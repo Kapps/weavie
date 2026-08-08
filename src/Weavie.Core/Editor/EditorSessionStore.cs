@@ -132,7 +132,7 @@ public sealed class EditorSessionStore {
 
 		if (!EditorSessionSerialization.TryDeserialize(text, out var parsed, out string? error) || parsed is null) {
 			Log?.Invoke($"[editor-session] {FilePath} is malformed ({error}); backing up to editor-session.json.bad and resetting");
-			JsonStoreFile.BackupBad(_fileSystem, FilePath, text, "editor-session", Log);
+			JsonStoreFile.BackupBad(_fileSystem, FilePath, text, Log);
 			PersistLocked(EditorSession.Empty);
 			return EditorSession.Empty;
 		}
@@ -140,11 +140,6 @@ public sealed class EditorSessionStore {
 		return parsed;
 	}
 
-	private void PersistLocked(EditorSession session) {
-		try {
-			_fileSystem.WriteAllTextAtomic(FilePath, EditorSessionSerialization.Serialize(session));
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			Log?.Invoke($"[editor-session] could not persist session: {ex.Message}");
-		}
-	}
+	private void PersistLocked(EditorSession session) =>
+		JsonStoreFile.Persist(_fileSystem, FilePath, EditorSessionSerialization.Serialize(session), Log);
 }

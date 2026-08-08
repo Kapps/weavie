@@ -25,7 +25,13 @@ import type {
 import type { CommentProse } from "./comment-prose";
 import type { EditorHost } from "./editor-host";
 import { normalizePath, samePath } from "./fs-path";
-import type { HunkRevert, HunkUnkeep, InlineDiff, InlineDiffOptions } from "./inline-diff";
+import type {
+  HunkRevert,
+  HunkUnkeep,
+  InlineDiff,
+  InlineDiffActions,
+  InlineDiffOptions,
+} from "./inline-diff";
 import { mediaTypeOf } from "./media/media-types";
 import { createNavHistory, type NavHistory } from "./nav-history";
 import { setAgentPlan } from "./plan/plan-store";
@@ -132,30 +138,6 @@ const EMPTY_HISTORY: ReviewHistory = {
   canUndoRevert: false,
   canRedo: false,
 };
-
-/** Diff nav + actions, exposed so commands (keybindings / palette / Claude) drive the active diff. */
-export interface InlineDiffActions {
-  nextChange(): boolean;
-  prevChange(): boolean;
-  /** Walk to the next / previous file in the post-turn review set (applied mode). */
-  nextFile(): boolean;
-  prevFile(): boolean;
-  accept(): boolean;
-  reject(): boolean;
-  /** Revert the whole turn (revert all); confirms first. */
-  undo(): boolean;
-  /** Keep / revert every change in the active file (applied review); revertFile confirms first. */
-  keepFile(): boolean;
-  revertFile(): boolean;
-  /** Keep the whole accumulated review set (applied review). */
-  keepAll(): boolean;
-  /** Comment on the current line (a PR file under review); false (key falls through) otherwise. */
-  comment(): boolean;
-  /** Undo the most recent keep / revert, or redo the last undone action; false (key falls through) when none. */
-  undoKeep(): boolean;
-  undoRevert(): boolean;
-  redoReview(): boolean;
-}
 
 /**
  * Tab operations exposed to commands and the tab strip. Targeted ops default to the active tab when `path` is

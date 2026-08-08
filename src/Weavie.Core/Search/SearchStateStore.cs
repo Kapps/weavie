@@ -83,34 +83,19 @@ public sealed class SearchStateStore {
 		Changed?.Invoke();
 	}
 
-	private Document LoadLocked() {
-		if (!_fileSystem.FileExists(FilePath)) {
-			return new Document();
-		}
-
-		string text;
-		try {
-			text = _fileSystem.ReadAllText(FilePath);
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			Log?.Invoke($"[search-state] could not read {FilePath}: {ex.Message}; starting empty");
-			return new Document();
-		}
-
-		try {
-			return (JsonSerializer.Deserialize<Document>(text) ?? new Document()).Sanitized();
-		} catch (JsonException ex) {
-			Log?.Invoke($"[search-state] {FilePath} is malformed ({ex.Message}); backing up to search-state.json.bad and resetting");
-			JsonStoreFile.BackupBad(_fileSystem, FilePath, text, "search-state", Log);
-			return new Document();
-		}
-	}
+	private Document LoadLocked() => JsonStoreFile.Load(
+		_fileSystem,
+		FilePath,
+		text => (JsonSerializer.Deserialize<Document>(text) ?? new Document()).Sanitized(),
+		static () => new Document(),
+		Log);
 
 	private void PersistLocked() {
-		try {
-			_fileSystem.WriteAllTextAtomic(FilePath, JsonSerializer.Serialize(_doc with { Version = 1 }, JsonOptions));
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			Log?.Invoke($"[search-state] could not persist: {ex.Message}");
-		}
+		JsonStoreFile.Persist(
+			_fileSystem,
+			FilePath,
+			JsonSerializer.Serialize(_doc with { Version = 1 }, JsonOptions),
+			Log);
 	}
 
 	// The on-disk shape. Options are flattened (not a nested GrepOptions) so the JSON stays a flat, hand-editable

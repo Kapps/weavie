@@ -96,26 +96,17 @@ public sealed class WorktreeRegistry {
 			Path.GetFullPath(b).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
 			OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
 
-	private List<WorktreeRecord> LoadLocked() {
-		if (!_fileSystem.FileExists(FilePath)) {
-			return [];
-		}
+	private List<WorktreeRecord> LoadLocked() =>
+		JsonStoreFile.Load<List<WorktreeRecord>>(
+			_fileSystem,
+			FilePath,
+			text => {
+				var document = JsonSerializer.Deserialize<WorktreesDocument>(text);
+				if (document?.Worktrees is not { } entries) {
+					return [];
+				}
 
-		string text;
-		try {
-			text = _fileSystem.ReadAllText(FilePath);
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			Log?.Invoke($"[worktrees] could not read {FilePath}: {ex.Message}; starting empty");
-			return [];
-		}
-
-		try {
-			var document = JsonSerializer.Deserialize<WorktreesDocument>(text);
-			if (document?.Worktrees is not { } entries) {
-				return [];
-			}
-
-			return [.. entries
+				return [.. entries
 				.Where(e => !string.IsNullOrWhiteSpace(e.Branch) && !string.IsNullOrWhiteSpace(e.Path))
 				.Select(e => new WorktreeRecord {
 					Branch = e.Branch,
@@ -124,29 +115,26 @@ public sealed class WorktreeRegistry {
 					CreatedAtUtc = e.CreatedAt,
 					AgentProviderId = string.IsNullOrWhiteSpace(e.AgentProviderId) ? null : e.AgentProviderId,
 				})];
-		} catch (JsonException ex) {
-			Log?.Invoke($"[worktrees] {FilePath} is malformed ({ex.Message}); backing up to worktrees.json.bad and resetting");
-			JsonStoreFile.BackupBad(_fileSystem, FilePath, text, "worktrees", Log);
-			return [];
-		}
-	}
+			},
+			static () => [],
+			Log);
 
 	private void PersistLocked() {
-		try {
-			var document = new WorktreesDocument {
-				Version = 1,
-				Worktrees = [.. _items.Select(r => new WorktreeEntry {
-					Branch = r.Branch,
-					Path = r.Path,
-					BaseRef = r.BaseRef,
-					CreatedAt = r.CreatedAtUtc,
-					AgentProviderId = r.AgentProviderId,
-				})],
-			};
-			_fileSystem.WriteAllTextAtomic(FilePath, JsonSerializer.Serialize(document, JsonOptions));
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			Log?.Invoke($"[worktrees] could not persist registry: {ex.Message}");
-		}
+		var document = new WorktreesDocument {
+			Version = 1,
+			Worktrees = [.. _items.Select(r => new WorktreeEntry {
+				Branch = r.Branch,
+				Path = r.Path,
+				BaseRef = r.BaseRef,
+				CreatedAt = r.CreatedAtUtc,
+				AgentProviderId = r.AgentProviderId,
+			})],
+		};
+		JsonStoreFile.Persist(
+			_fileSystem,
+			FilePath,
+			JsonSerializer.Serialize(document, JsonOptions),
+			Log);
 	}
 
 	private sealed class WorktreesDocument {

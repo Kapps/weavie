@@ -91,40 +91,28 @@ public sealed class RecentFilesStore {
 		}
 	}
 
-	private IReadOnlyList<RecentFile> LoadLocked() {
-		if (!_fileSystem.FileExists(FilePath)) {
-			return [];
-		}
+	private IReadOnlyList<RecentFile> LoadLocked() =>
+		JsonStoreFile.Load<IReadOnlyList<RecentFile>>(
+			_fileSystem,
+			FilePath,
+			text => {
+				var parsed = JsonSerializer.Deserialize<PersistModel>(text, JsonOptions);
+				if (parsed?.Files is not { } files) {
+					throw new JsonException("The document has no files list.");
+				}
 
-		string text;
-		try {
-			text = _fileSystem.ReadAllText(FilePath);
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			Log?.Invoke($"[recent-files] could not read {FilePath}: {ex.Message}; using empty list");
-			return [];
-		}
-
-		try {
-			var parsed = JsonSerializer.Deserialize<PersistModel>(text, JsonOptions);
-			if (parsed?.Files is { } files) {
 				return [.. files.Where(file => !string.IsNullOrEmpty(file.Path))];
-			}
-		} catch (JsonException) {
-			// fall through to the reset path
-		}
-
-		Log?.Invoke($"[recent-files] {FilePath} is malformed; backing up to recent-files.json.bad and resetting");
-		JsonStoreFile.BackupBad(_fileSystem, FilePath, text, "recent-files", Log);
-		return [];
-	}
+			},
+			static () => [],
+			Log);
 
 	private void PersistLocked() {
-		try {
-			var model = new PersistModel([.. _byPath.Values]);
-			_fileSystem.WriteAllTextAtomic(FilePath, JsonSerializer.Serialize(model, JsonOptions));
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			Log?.Invoke($"[recent-files] could not persist: {ex.Message}");
-		}
+		var model = new PersistModel([.. _byPath.Values]);
+		JsonStoreFile.Persist(
+			_fileSystem,
+			FilePath,
+			JsonSerializer.Serialize(model, JsonOptions),
+			Log);
 	}
 
 	private static readonly JsonSerializerOptions JsonOptions = new() {

@@ -8,7 +8,7 @@ namespace Weavie.Mac.Hosting;
 internal sealed class MacNotificationService : UNUserNotificationCenterDelegate, IDisposable {
 	private static readonly NSString ActivationKey = new("weavieActivation");
 	private readonly UNUserNotificationCenter _center = UNUserNotificationCenter.Current;
-	private readonly SystemNotificationRoutes<MacNotificationChannel> _routes = new();
+	private readonly SystemNotificationRoutes<SystemNotificationChannel> _routes = new();
 	private readonly object _gate = new();
 	private bool _disposed;
 
@@ -17,10 +17,15 @@ internal sealed class MacNotificationService : UNUserNotificationCenterDelegate,
 	}
 
 	/// <summary>Creates one workspace-owned channel on the shared notification center.</summary>
-	public MacNotificationChannel CreateChannel() {
+	public SystemNotificationChannel CreateChannel() {
 		lock (_gate) {
 			ObjectDisposedException.ThrowIf(_disposed, this);
-			return new MacNotificationChannel(this);
+			return new SystemNotificationChannel(
+				GetPermissionAsync,
+				RequestPermissionAsync,
+				ShowAsync,
+				RemoveAsync,
+				DisposeChannel);
 		}
 	}
 
@@ -47,7 +52,7 @@ internal sealed class MacNotificationService : UNUserNotificationCenterDelegate,
 	}
 
 	internal async Task ShowAsync(
-		MacNotificationChannel channel,
+		SystemNotificationChannel channel,
 		SystemNotification notification,
 		CancellationToken ct) {
 		if (await GetPermissionAsync(ct).ConfigureAwait(false) != SystemNotificationPermission.Granted) {
@@ -85,7 +90,7 @@ internal sealed class MacNotificationService : UNUserNotificationCenterDelegate,
 		}
 	}
 
-	internal Task RemoveAsync(MacNotificationChannel channel, string replacementId, CancellationToken ct) {
+	internal Task RemoveAsync(SystemNotificationChannel channel, string replacementId, CancellationToken ct) {
 		ct.ThrowIfCancellationRequested();
 		Forget(channel, replacementId);
 		_center.RemovePendingNotificationRequests([replacementId]);
@@ -93,7 +98,7 @@ internal sealed class MacNotificationService : UNUserNotificationCenterDelegate,
 		return Task.CompletedTask;
 	}
 
-	internal void DisposeChannel(MacNotificationChannel channel) {
+	internal void DisposeChannel(SystemNotificationChannel channel) {
 		string[] replacementIds = _routes.ForgetOwner(channel);
 		if (replacementIds.Length > 0) {
 			_center.RemovePendingNotificationRequests(replacementIds);
@@ -117,7 +122,7 @@ internal sealed class MacNotificationService : UNUserNotificationCenterDelegate,
 			if (response.Notification.Request.Content.UserInfo[ActivationKey] is NSString activation) {
 				string activationId = activation.ToString();
 				if (_routes.TryTake(activationId, out var owner)) {
-					owner.Activate(activationId);
+					owner.Activate(activationId, null);
 				}
 			}
 		} finally {
@@ -125,7 +130,7 @@ internal sealed class MacNotificationService : UNUserNotificationCenterDelegate,
 		}
 	}
 
-	private void Forget(MacNotificationChannel channel, string replacementId) =>
+	private void Forget(SystemNotificationChannel channel, string replacementId) =>
 		_routes.Forget(channel, replacementId);
 
 	private static SystemNotificationPermission Permission(UNAuthorizationStatus status) => status switch {
@@ -146,55 +151,5 @@ internal sealed class MacNotificationService : UNUserNotificationCenterDelegate,
 		}
 		_center.Delegate = null;
 		base.Dispose();
-	}
-}
-
-/// <summary>One macOS workspace window's notification identities and activation event.</summary>
-internal sealed class MacNotificationChannel : ISystemNotificationChannel, IDisposable {
-	private readonly MacNotificationService _service;
-	private bool _disposed;
-
-	internal MacNotificationChannel(MacNotificationService service) {
-		_service = service;
-	}
-
-	/// <inheritdoc/>
-	public event Action<SystemNotificationActivation>? Activated;
-
-	/// <inheritdoc/>
-	public Task<SystemNotificationPermission> GetPermissionAsync(CancellationToken ct) =>
-		_service.GetPermissionAsync(ct);
-
-	/// <inheritdoc/>
-	public Task<SystemNotificationPermission> RequestPermissionAsync(CancellationToken ct) =>
-		_service.RequestPermissionAsync(ct);
-
-	/// <inheritdoc/>
-	public Task ShowAsync(SystemNotification notification, CancellationToken ct) {
-		ArgumentNullException.ThrowIfNull(notification);
-		ObjectDisposedException.ThrowIf(_disposed, this);
-		return _service.ShowAsync(this, notification, ct);
-	}
-
-	/// <inheritdoc/>
-	public Task RemoveAsync(string replacementId, CancellationToken ct) {
-		ArgumentException.ThrowIfNullOrEmpty(replacementId);
-		ObjectDisposedException.ThrowIf(_disposed, this);
-		return _service.RemoveAsync(this, replacementId, ct);
-	}
-
-	internal void Activate(string activationId) {
-		if (!_disposed) {
-			Activated?.Invoke(new SystemNotificationActivation(activationId, null));
-		}
-	}
-
-	/// <inheritdoc/>
-	public void Dispose() {
-		if (_disposed) {
-			return;
-		}
-		_disposed = true;
-		_service.DisposeChannel(this);
 	}
 }

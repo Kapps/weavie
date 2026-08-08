@@ -155,7 +155,7 @@ Worker restart restores only persisted state:
 
 - worktrees and the loaded-slot overlay;
 - provider conversation state supported by the agent runtime;
-- primary editor-session persistence and session-owned backend state explicitly stored on disk;
+- per-slot editor-session persistence and session-owned backend state explicitly stored on disk;
 - configured terminal scrollback policy.
 
 Foreground processes and other in-memory work cannot survive their worker process ending. This architecture

@@ -99,19 +99,20 @@ test.describe("configured branch inference", () => {
 test.describe("failed branch inference", () => {
   test.use({ inference: "failure", automaticInference: true });
 
-  test("keeps the fallback usable and reports the failure inline", async ({ page }) => {
+  test("leaves the branch blank and requires manual input", async ({ page }) => {
     const inbox = page.locator(".session-inbox");
     await inbox.getByRole("combobox", { name: "Agent provider" }).selectOption("codex");
     await inbox
       .getByRole("textbox", { name: "Prompt for a new session" })
       .fill("Fix mobile branch inference");
 
-    await expect(inbox.getByRole("textbox", { name: "Branch for the new session" })).toHaveValue(
-      "fix-mobile-branch-inference",
-    );
+    const branch = inbox.getByRole("textbox", { name: "Branch for the new session" });
+    await expect(branch).toHaveValue("");
     await expect(inbox.getByRole("alert")).toHaveText(
-      "Branch suggestion failed. Using the generated name instead.",
+      "Branch suggestion failed. Type a branch to continue.",
     );
+    await expect(inbox.getByRole("button", { name: "Start", exact: true })).toBeDisabled();
+    await branch.fill("fix/manual-branch-inference");
     await expect(inbox.getByRole("button", { name: "Start", exact: true })).toBeEnabled();
   });
 });
@@ -374,8 +375,10 @@ test("compact session inbox creates, resumes, and switches existing surfaces", a
   await inbox.getByRole("combobox", { name: "Agent provider" }).selectOption("codex");
   const startButton = inbox.getByRole("button", { name: "Start", exact: true });
   const branch = inbox.getByRole("textbox", { name: "Branch for the new session" });
-  await expect(branch).toHaveValue("improve-mobile-navigation");
-  await expect(inbox.getByRole("alert")).toHaveCount(0);
+  await expect(branch).toHaveValue("");
+  await expect(inbox.getByRole("alert")).toHaveText(
+    "Branch suggestion failed. Type a branch to continue.",
+  );
   await branch.fill("bug/mobile-navigation");
   await expect(startButton).toBeEnabled();
   const primaryColors = await semanticButtonColors(page);

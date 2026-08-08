@@ -1,7 +1,12 @@
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import WebSocket from "ws";
-import { activeSessionSlot, openFile, runCommand, waitForSessionSwitch } from "../harness/actions";
+import {
+  activeSessionSlot,
+  createSession,
+  openFile,
+  waitForSessionSwitch,
+} from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 
 interface SessionAddress {
@@ -60,15 +65,15 @@ async function selectedSessionAddress(
   });
 }
 
-// Every workspace's persisted editor session concatenated ("" until the host has written one) — polled to
-// know the debounced editor-session-changed landed on disk before a reload, instead of sleeping past it.
+// Every workspace's persisted session overlay concatenated ("" until the host has written one) — polled to
+// know the debounced editor-session change landed on disk before a reload, instead of sleeping past it.
 function persistedSessions(home: string): string {
   const root = join(home, ".weavie", "workspaces");
   try {
     return readdirSync(root)
       .map((id) => {
         try {
-          return readFileSync(join(root, id, "editor-session.json"), "utf8");
+          return readFileSync(join(root, id, "sessions.json"), "utf8");
         } catch {
           return "";
         }
@@ -97,6 +102,7 @@ test("image renders in the media pane and survives reload", async ({ page, weavi
   await expect.poll(() => persistedSessions(weavie.home)).toContain("pixel.png");
   await page.reload({ waitUntil: "domcontentloaded" });
   await expect(page.locator("#splash")).toHaveCount(0, { timeout: 40_000 });
+  await page.locator(".session-inbox-row").click();
   await expect(page.locator(".editor-media img")).toBeVisible();
   await expect(page.locator(".editor-media img")).toHaveJSProperty("naturalWidth", 8);
 });
@@ -130,7 +136,7 @@ test("autoplaying video preserves terminal focus across keyboard session switche
   await openFile(page, "clip.webm");
   const videoSession = await activeSessionSlot(page);
 
-  await runCommand(page, "Fork Session");
+  await createSession(page, { branch: "e2e/video-focus", provider: "claude" });
   await expect(page.locator(".session-chip")).toHaveCount(2);
   const terminalSession = await waitForSessionSwitch(page, videoSession);
   const shell = page.locator('.terminal-surface[data-kind="terminal:shell"]');
@@ -239,7 +245,7 @@ test("same-named scratch media switches to the incoming session route", async ({
   await expect.poll(() => persistedSessions(weavie.home)).toContain("shared.png");
 
   const firstSlot = await activeSessionSlot(page);
-  await runCommand(page, "Fork Session");
+  await createSession(page, { branch: "e2e/scratch-media", provider: "claude" });
   await expect(page.locator(".session-chip")).toHaveCount(2);
   await waitForSessionSwitch(page, firstSlot);
   const secondPath = await createScratchMedia();
@@ -273,7 +279,7 @@ test("worktree media switches owner and path without a transient 404", async ({ 
   await expect.poll(() => persistedSessions(weavie.home)).toContain("pixel.png");
 
   const firstSlot = await activeSessionSlot(page);
-  await runCommand(page, "Fork Session");
+  await createSession(page, { branch: "e2e/worktree-media", provider: "claude" });
   await expect(page.locator(".session-chip")).toHaveCount(2);
   await waitForSessionSwitch(page, firstSlot);
   await openFile(page, "pixel.png");

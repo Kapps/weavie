@@ -115,7 +115,6 @@ registerHostFeature((connection) =>
           id: entry.id,
           label: entry.label,
           loaded: entry.loaded,
-          primary: entry.primary,
           providerId: entry.providerId,
           agentSurface: entry.agentSurface,
           agentInputProtocol: entry.agentInputProtocol,

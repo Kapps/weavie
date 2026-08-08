@@ -1,4 +1,4 @@
-import { activeSessionSlot, runCommand, waitForSessionSwitch } from "../harness/actions";
+import { activeSessionSlot, createSession, waitForSessionSwitch } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 
 // The change-review seam, driven by the fake claude's IDE-MCP openDiff. The hook gate + diff presentation
@@ -78,7 +78,7 @@ test.describe("per-session diff state", () => {
     await expect(page.locator(".weavie-inline-toolbar")).toBeVisible({ timeout: 15_000 });
 
     const primarySlot = await activeSessionSlot(page);
-    await runCommand(page, "Fork Session");
+    await createSession(page, { branch: "e2e/diff-session", provider: "claude" });
     await expect(chips).toHaveCount(2);
     await waitForSessionSwitch(page, primarySlot);
 

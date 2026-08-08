@@ -53,7 +53,7 @@ public sealed class HostCoreSessionDeleteTests {
 
 		Assert.True(result.Ok, result.Error);
 		Assert.Null(result.Message);
-		host.SelectSession("primary");
+		host.SelectWorkspaceSession();
 		await Wait.ForAsync<bool>(() => SessionIds(host).Contains("feature") ? null : true);
 		Assert.Equal(
 			new[] { "Session 'feature' was deleted. Its branch was kept." },
@@ -143,8 +143,8 @@ public sealed class HostCoreSessionDeleteTests {
 		Assert.True((await host.CreateSessionAsync("feature")).Ok);
 		host.Bridge.Clear();
 
-		var fromPrimary = host.InvokeCommandAsync(
-			"primary",
+		var fromWorkspace = host.InvokeCommandAsync(
+			host.WorkspaceSession.SlotId,
 			SessionCommands.UnloadSession,
 			new { id = "feature" },
 			CancellationToken.None);
@@ -153,7 +153,7 @@ public sealed class HostCoreSessionDeleteTests {
 			SessionCommands.UnloadSession,
 			new { },
 			CancellationToken.None);
-		var results = await Task.WhenAll(fromPrimary, fromOwner);
+		var results = await Task.WhenAll(fromWorkspace, fromOwner);
 
 		Assert.All(results, result => Assert.True(result.Ok, result.Error));
 		var feature = host.Bridge.LastEvent("sessions", "catalog")!.Value
@@ -177,7 +177,7 @@ public sealed class HostCoreSessionDeleteTests {
 				: originalResponder?.Invoke(request);
 
 		var result = await host.InvokeCommandAsync(
-			"primary",
+			host.WorkspaceSession.SlotId,
 			SessionCommands.UnloadSession,
 			new { id = "feature" },
 			CancellationToken.None);
@@ -217,7 +217,7 @@ public sealed class HostCoreSessionDeleteTests {
 		await using var host = await TestHost.StartAsync();
 		Assert.True((await host.CreateSessionAsync("feature")).Ok);
 		Assert.Contains("feature", SessionIds(host));
-		host.SelectSession("primary");
+		host.SelectWorkspaceSession();
 		host.Bridge.Clear();
 
 		var result = await host.DeleteSessionAsync("feature", force: false, classify: false);
@@ -228,5 +228,111 @@ public sealed class HostCoreSessionDeleteTests {
 		Assert.Equal(
 			new[] { "Session 'feature' was deleted. Its branch was kept." },
 			NotificationMessages(host));
+	}
+
+	[Fact]
+	public async Task WorkspaceSessionCanBeUnloadedThenDeletedWithoutTouchingTheCheckout() {
+		await using var host = await TestHost.StartAsync();
+		string id = host.WorkspaceSession.SlotId;
+
+		var result = await host.InvokeCommandAsync(
+			id,
+			SessionCommands.UnloadSession,
+			new { },
+			CancellationToken.None);
+
+		Assert.True(result.Ok, result.Error);
+		var slot = host.Bridge.LastEvent("sessions", "catalog")!.Value
+			.EnumerateArray().Single(entry => entry.GetProperty("id").GetString() == id);
+		Assert.False(slot.GetProperty("loaded").GetBoolean());
+		Assert.True(Directory.Exists(host.RepoRoot));
+
+		var deleted = await host.HostRequestAsync<JsonElement>(
+			"sessions",
+			"invoke",
+			new { id = SessionCommands.DeleteSession, args = new { id } });
+		Assert.True(deleted.GetProperty("ok").GetBoolean());
+		var replacement = Assert.Single(host.Bridge.LastEvent("sessions", "catalog")!.Value.EnumerateArray());
+		Assert.NotEqual(id, replacement.GetProperty("id").GetString());
+		Assert.Contains(NotificationMessages(host), message => message.Contains("was deleted", StringComparison.Ordinal));
+		Assert.True(Directory.Exists(host.RepoRoot));
+	}
+
+	[Fact]
+	public async Task HostSessionCommandsWorkWithNoLiveSessionRuntime() {
+		await using var host = await TestHost.StartAsync();
+		string id = host.WorkspaceSession.SlotId;
+
+		var unloaded = await host.HostRequestAsync<JsonElement>(
+			"sessions",
+			"invoke",
+			new { id = SessionCommands.UnloadSession, args = new { id } });
+
+		Assert.True(unloaded.GetProperty("ok").GetBoolean());
+		Assert.Null(host.Core.SessionForTest(id));
+		var clientCommand = await host.HostRequestAsync<JsonElement>(
+			"commands",
+			"invoke",
+			new { id = CoreCommands.IncreaseFontSize, args = new { } });
+		Assert.True(clientCommand.GetProperty("ok").GetBoolean());
+
+		var loaded = await host.HostRequestAsync<JsonElement>(
+			"sessions",
+			"invoke",
+			new { id = SessionCommands.LoadSession, args = new { id } });
+
+		Assert.True(loaded.GetProperty("ok").GetBoolean());
+		Assert.NotNull(host.Core.SessionForTest(id));
+	}
+
+	[Fact]
+	public async Task DeletingWorkspaceSessionKeepsTheCheckoutAndOtherSessions() {
+		await using var host = await TestHost.StartAsync();
+		string workspaceId = host.WorkspaceSession.SlotId;
+		Assert.True((await host.CreateSessionAsync("feature")).Ok);
+		var classification = await host.DeleteSessionAsync(workspaceId, force: false, classify: true);
+		using var data = JsonDocument.Parse(classification.DataJson!);
+		Assert.False(data.RootElement.GetProperty("removesCheckout").GetBoolean());
+
+		var result = await host.DeleteSessionAsync(workspaceId, force: false, classify: false);
+
+		Assert.True(result.Ok, result.Error);
+		Assert.DoesNotContain(workspaceId, SessionIds(host));
+		Assert.Contains("feature", SessionIds(host));
+		Assert.True(Directory.Exists(host.RepoRoot));
+	}
+
+	[Fact]
+	public async Task DeletedWorkspaceSessionDoesNotReturnOnRestartWhenAnotherSessionExists() {
+		await using var host = await TestHost.StartAsync();
+		string workspaceId = host.WorkspaceSession.SlotId;
+		Assert.True((await host.CreateSessionAsync("feature")).Ok);
+		Assert.True((await host.DeleteSessionAsync(workspaceId, force: false, classify: false)).Ok);
+
+		await host.RestartAsync();
+
+		Assert.DoesNotContain(workspaceId, SessionIds(host));
+		Assert.Equal(["feature"], SessionIds(host));
+		Assert.Equal("feature", host.SelectedSession.SlotId);
+		Assert.True(Directory.Exists(host.RepoRoot));
+	}
+
+	[Fact]
+	public async Task DeletingTheLastSessionCreatesAFreshWorkspaceSession() {
+		await using var host = await TestHost.StartAsync();
+		string deletedId = host.WorkspaceSession.SlotId;
+
+		var result = await host.InvokeCommandAsync(
+			deletedId,
+			SessionCommands.DeleteSession,
+			new { },
+			CancellationToken.None);
+
+		Assert.True(result.Ok, result.Error);
+		var replacement = Assert.Single(host.Bridge.LastEvent("sessions", "catalog")!.Value.EnumerateArray());
+		Assert.NotEqual(deletedId, replacement.GetProperty("id").GetString());
+		Assert.Equal("main", replacement.GetProperty("label").GetString());
+		Assert.True(replacement.GetProperty("loaded").GetBoolean());
+		Assert.True(Directory.Exists(host.RepoRoot));
 	}
 }

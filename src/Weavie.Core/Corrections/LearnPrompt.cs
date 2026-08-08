@@ -4,7 +4,7 @@ namespace Weavie.Core.Corrections;
 
 /// <summary>
 /// Composes the /learn analysis prompt: a fixed header teaching the agent what the corpus is and what to
-/// do with it, followed by every recorded correction. Prefilled (never auto-submitted) into the primary
+/// do with it, followed by every recorded correction. Prefilled (never auto-submitted) into the invoking
 /// session — all reasoning over the corpus happens in the model, none in Core.
 /// </summary>
 public static class LearnPrompt {

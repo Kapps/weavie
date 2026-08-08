@@ -20,8 +20,8 @@ The pieces mirror the command + settings systems:
 Two invariants worth keeping:
 
 - **A nudge never spends model tokens until the user clicks.** "Yes" on the worktree card runs the Core
-  command `weavie.worktree.suggestSetupCommand`, which **pre-fills** (does not submit) an analysis prompt
-  into the **primary** session's embedded Claude — the user presses Enter. We never inject into a busy
+  command `weavie.workspace.setup`, which **pre-fills** (does not submit) an analysis prompt
+  into the invoking session's agent — the user presses Enter. We never inject into a busy
   session and never call `claude -p`/the SDK.
 - **The relevance scan is bounded and honest.** It walks the root + ≤2 levels (skipping
   `node_modules`/`bin`/`obj`/… ), short-circuits on the first manifest, and is computed once per

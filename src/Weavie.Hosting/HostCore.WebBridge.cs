@@ -196,18 +196,22 @@ public sealed partial class HostCore {
 	private const int RecentFilesPushCount = 50;
 
 	/// <summary>
-	/// Records a visit to the primary session's active file in the per-workspace recent-files store and re-pushes
-	/// the list. Wired to the primary's <see cref="EditorStore.Changed"/> (so it's primary-only, like the persisted
-	/// editor session) and deduped against the last visit so the active-editor stream — which also fires on cursor
-	/// moves within a file — bumps frecency once per distinct file, not per move.
+	/// Records a visit as a checkout-relative path in the workspace-wide recent-files store. The page resolves
+	/// that path against whichever session is selected, so recency follows a file across worktrees.
 	/// </summary>
-	private void RecordRecentFile(ActiveEditor editor) {
-		if (string.Equals(editor.FilePath, _lastRecentPath, StringComparison.Ordinal)) {
+	private void RecordRecentFile(HostSession session, ActiveEditor editor) {
+		if (!BufferStore.IsWithinWorkspace(session.WorkspaceRoot, editor.FilePath)) {
 			return;
 		}
 
-		_lastRecentPath = editor.FilePath;
-		_recentFiles.Record(editor.FilePath, DateTime.UtcNow.Ticks);
+		string path = Path.GetRelativePath(session.WorkspaceRoot, editor.FilePath)
+			.Replace(Path.DirectorySeparatorChar, '/');
+		if (string.Equals(path, _lastRecentPath, StringComparison.Ordinal)) {
+			return;
+		}
+
+		_lastRecentPath = path;
+		_recentFiles.Record(path, DateTime.UtcNow.Ticks);
 		PushRecentFilesToWeb();
 	}
 
@@ -574,16 +578,20 @@ public sealed partial class HostCore {
 		Uri.TryCreate(url, UriKind.Absolute, out var uri)
 		&& (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
 
-	/// <summary>Runs a native menu command against the primary session.</summary>
-	public void InvokeCommand(string id) => InvokePrimaryCommand(id, null);
+	/// <summary>Asks the page to run a native-menu command against its exact current selection.</summary>
+	public void InvokeCommand(string id) => InvokeSelectedCommand(id, null);
 
-	/// <summary>Runs a native menu command with JSON arguments against the primary session.</summary>
-	public void InvokeCommand(string id, string? argsJson) => InvokePrimaryCommand(id, argsJson);
+	/// <summary>Asks the page to run a native-menu command with JSON arguments against its exact selection.</summary>
+	public void InvokeCommand(string id, string? argsJson) => InvokeSelectedCommand(id, argsJson);
 
-	private void InvokePrimaryCommand(string id, string? argsJson) {
-		if (_primarySession is { } primary) {
-			_ = InvokeCommandAsync(primary, id, argsJson, CancellationToken.None);
+	private void InvokeSelectedCommand(string id, string? argsJson) {
+		JsonElement? args = null;
+		if (!string.IsNullOrWhiteSpace(argsJson)) {
+			using var document = JsonDocument.Parse(argsJson);
+			args = document.RootElement.Clone();
 		}
+
+		_messages.Host.Feature("commands").Publish("runNative", new CommandRequest(id, args));
 	}
 
 	/// <summary>Surfaces a prior run's unhandled crash as a one-time toast pointing at the saved report.</summary>
@@ -639,7 +647,7 @@ public sealed partial class HostCore {
 			var all = await git.ListBranchesAsync(WorkspaceRoot, ct).ConfigureAwait(false);
 			var worktrees = await git.ListWorktreesAsync(WorkspaceRoot, ct).ConfigureAwait(false);
 			var sessionBranches = new HashSet<string>(
-				_sessions?.Slots.Where(slot => !slot.IsPrimary).Select(slot => slot.Id) ?? [],
+				_sessions?.Slots.Select(slot => slot.Label) ?? [],
 				StringComparer.Ordinal);
 			var checkedOut = new HashSet<string>(
 				worktrees

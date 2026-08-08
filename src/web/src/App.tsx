@@ -23,7 +23,7 @@ import {
   clientSession,
   connectedBackends,
   hostConnection,
-  invokeCommandOnBackend,
+  invokeSessionCommandOnBackend,
   isBrowserHostedShell,
   LOCAL_BACKEND_ID,
   registerViewFeature,
@@ -38,7 +38,6 @@ import { DiffAgainstPrompt } from "./chrome/DiffAgainstPrompt";
 import { EditorFooter } from "./chrome/EditorFooter";
 import { gitStatus } from "./chrome/git-status-store";
 import { NativeTitleBar } from "./chrome/NativeTitleBar";
-import { NewSessionPrompt } from "./chrome/NewSessionPrompt";
 import { OpenPrPrompt } from "./chrome/OpenPrPrompt";
 import { focusOmnibar, focusOmnibarFileSearch } from "./chrome/omnibar-controller";
 import { PaneFooter } from "./chrome/PaneFooter";
@@ -354,14 +353,10 @@ export default function App(): JSX.Element {
   const mobileSurfaceTitle = (surface: MobileSurface, label: string): string => {
     keybindingsVersion();
     if (surface === "inbox") {
-      return `${label}${keyHint(CommandIds.showSessionInbox)}`;
+      return `${label}${keyHint(CommandIds.showSessions)}`;
     }
     const shortcut = paneShortcut(numberOf(surface));
     return shortcut === "" ? label : `${label} (${shortcut})`;
-  };
-  const mobileMoreTitle = (): string => {
-    keybindingsVersion();
-    return `More…${keyHint(CommandIds.newSessionPrompt)}`;
   };
   // What LayoutView renders: in fullscreen, just the active pane (filling the pane area); the others collapse
   // to display:none but stay mounted, preserving their terminal/editor state. Switching panes re-points this,
@@ -448,8 +443,10 @@ export default function App(): JSX.Element {
     () => sessions().find((session) => session.active)?.agentInputProtocol ?? 1,
   );
 
-  // Whether the "New session" prompt (branch name + base) is open; the rail's "+" opens it.
-  const [newSessionOpen, setNewSessionOpen] = createSignal(false);
+  // Desktop starts on the same Sessions home mobile uses; choosing a session reveals the live panes.
+  const [sessionHomeOpen, setSessionHomeOpen] = createSignal(
+    hostConnection(LOCAL_BACKEND_ID) !== undefined,
+  );
   const [openPrOpen, setOpenPrOpen] = createSignal(false);
   const [diffAgainstOpen, setDiffAgainstOpen] = createSignal(false);
   const sourceTokenPrompt = selectedSourceTokenPrompt;
@@ -706,13 +703,20 @@ export default function App(): JSX.Element {
       agentProviderId: "claude" | "codex";
     },
   ): Promise<boolean> => {
-    return dispatchCommandFromCatalog(backendId, CommandIds.newSession, args)
+    const selected = selectedSession();
+    const sourceId =
+      args.base === "source" && selected?.connection.id === backendId
+        ? selected.address.slot
+        : undefined;
+    return dispatchCommandFromCatalog(backendId, CommandIds.newSession, { ...args, sourceId })
       .then((result) => {
         if (!result.ok) {
           throw new Error(result.error ?? "The session could not be created.");
         }
         if (compact()) {
           navigateMobileSurface(AGENT_PANE_KIND);
+        } else {
+          setSessionHomeOpen(false);
         }
         return true;
       })
@@ -727,12 +731,8 @@ export default function App(): JSX.Element {
     target: { number: number; owner: string; repo: string },
   ): void => {
     const toastKey = `open-pr:${target.number}`;
-    const connection = hostConnection(backendId);
-    const source = connection?.currentCatalog.find((entry) => entry.primary)?.address ?? null;
-    const session =
-      source === null || connection === undefined
-        ? connection?.sessions[0]
-        : connection.session(source);
+    const selected = selectedSession();
+    const session = selected?.connection.id === backendId ? selected : undefined;
     if (session === undefined) {
       addToast("error", `No live session is available on ${backendLabel(backendId)}.`, toastKey);
       return;
@@ -779,9 +779,13 @@ export default function App(): JSX.Element {
       .then(async () => {
         let target = clientSession(session.backendId, session.id);
         if (target === undefined) {
-          const loaded = await invokeCommandOnBackend(session.backendId, CommandIds.loadSession, {
-            id: session.id,
-          });
+          const loaded = await invokeSessionCommandOnBackend(
+            session.backendId,
+            CommandIds.loadSession,
+            {
+              id: session.id,
+            },
+          );
           if (!loaded.ok) {
             throw new Error(loaded.error ?? `Couldn't load ${session.label}.`);
           }
@@ -790,6 +794,7 @@ export default function App(): JSX.Element {
         commit(target);
       })
       .then(() => {
+        setSessionHomeOpen(false);
         if (compact()) {
           navigateMobileSurface(AGENT_PANE_KIND);
         }
@@ -834,6 +839,7 @@ export default function App(): JSX.Element {
   const [deleteReq, setDeleteReq] = createSignal<{
     id: string;
     label: string;
+    removesCheckout: boolean;
     state: DeleteSessionState;
     changedFiles: string[];
     changedCount: number;
@@ -862,6 +868,7 @@ export default function App(): JSX.Element {
       | {
           state?: DeleteSessionState;
           label?: string;
+          removesCheckout?: boolean;
           changedFiles: string[];
           changedCount: number;
         }
@@ -870,6 +877,7 @@ export default function App(): JSX.Element {
     setDeleteReq({
       id,
       label: info?.label ?? id,
+      removesCheckout: info?.removesCheckout === true,
       state: info?.state ?? "clean",
       changedFiles,
       changedCount: info?.changedCount ?? changedFiles.length,
@@ -1441,14 +1449,13 @@ export default function App(): JSX.Element {
           openUrlExternal(url);
         }
       }),
-      // New Session… (Ctrl+Shift+N / palette / the rail's "+"): open the branch-name prompt.
-      registerCommand(CommandIds.newSessionPrompt, () => setNewSessionOpen(true)),
-      registerCommand(CommandIds.showSessionInbox, () => {
-        if (!compact()) {
-          return false;
+      // Sessions (Ctrl+Shift+N / palette / the rail's "+"): one shared home on desktop and mobile.
+      registerCommand(CommandIds.showSessions, () => {
+        if (compact()) {
+          navigateMobileSurface("inbox");
+        } else {
+          setSessionHomeOpen(true);
         }
-        navigateMobileSurface("inbox");
-        return true;
       }),
       // Open Pull Request… (Ctrl+Shift+R / palette): pick a PR to check out as a session.
       registerCommand(CommandIds.openPr, () => setOpenPrOpen(true)),
@@ -1596,6 +1603,7 @@ export default function App(): JSX.Element {
       class="app"
       classList={{
         compact: compact(),
+        "sessions-home": !compact() && sessionHomeOpen(),
         "mobile-inbox": compact() && mobileSurface() === "inbox",
         "mobile-transition": mobileTransition() !== null,
         "mobile-transition-from-inbox": mobileTransition()?.source === "inbox",
@@ -1649,7 +1657,13 @@ export default function App(): JSX.Element {
           hasRemotes={remoteAgentRows().length > 0}
           remoteActive={remoteActivity()}
           onSwitch={switchToSession}
-          onNew={() => setNewSessionOpen(true)}
+          onNew={() => {
+            if (compact()) {
+              navigateMobileSurface("inbox");
+            } else {
+              setSessionHomeOpen(true);
+            }
+          }}
           onToggleRemotes={(rect) =>
             setRemotePanelAnchor((open) =>
               open !== null
@@ -1665,7 +1679,7 @@ export default function App(): JSX.Element {
         />
         <MobileWorkspace
           surface={mobileSurface()}
-          inboxActive={compact() && mobileSurface() === "inbox" && !newSessionOpen()}
+          inboxActive={compact() ? mobileSurface() === "inbox" : sessionHomeOpen()}
           sessions={sessions()}
           initialBackendId={defaultLocation()}
           initialProviderId={defaultAgentProvider()}
@@ -1676,15 +1690,13 @@ export default function App(): JSX.Element {
             promoteNextSessionOn(backendId);
             return createSessionAt(backendId, {
               branch: seed.branch,
-              base: "source",
-              existing: false,
+              base: seed.base,
+              existing: seed.existing,
               prompt: seed.prompt,
               attachments: seed.attachments,
               agentProviderId: providerId,
             });
           }}
-          onMore={() => setNewSessionOpen(true)}
-          moreTitle={mobileMoreTitle()}
           surfaceTitle={mobileSurfaceTitle}
           onSurface={selectMobileSurface}
           onSwipeCancel={() => settleMobileTransition(false)}
@@ -1723,48 +1735,6 @@ export default function App(): JSX.Element {
           </Show>
         </div>
       </div>
-      <Show when={newSessionOpen()}>
-        <NewSessionPrompt
-          initialBackendId={defaultLocation()}
-          initialAgentProviderId={defaultAgentProvider()}
-          onCreate={(branch, base, location, agentProviderId) => {
-            setNewSessionOpen(false);
-            setLastLocation(location);
-            setDefaultAgentProvider(agentProviderId);
-            // A remote session lands nested under its agent; promote it onto the rail like a local one.
-            promoteNextSessionOn(location);
-            createSessionAt(location, {
-              branch,
-              base: base === "head" ? "source" : base,
-              existing: false,
-              agentProviderId,
-            });
-          }}
-          onCheckout={(branch, location, agentProviderId) => {
-            setNewSessionOpen(false);
-            setLastLocation(location);
-            setDefaultAgentProvider(agentProviderId);
-            promoteNextSessionOn(location);
-            createSessionAt(location, {
-              branch,
-              base: "source",
-              existing: true,
-              agentProviderId,
-            });
-          }}
-          onCancel={() => setNewSessionOpen(false)}
-          onAddRemote={() => {
-            setNewSessionOpen(false);
-            setRegisterAgentOpen(true);
-          }}
-          onDisconnect={(backendId) => {
-            const name = connectedBackends().find((b) => b.id === backendId)?.name;
-            if (name !== undefined) {
-              removeAgent(name);
-            }
-          }}
-        />
-      </Show>
       <Show when={openPrOpen()}>
         <OpenPrPrompt
           backendId={defaultLocation()}
@@ -1808,7 +1778,11 @@ export default function App(): JSX.Element {
             setRegisterAgentOpen(false);
             // Preselect the just-added agent as the next prompt's location (it connected before onAdded fired).
             setLastLocation(agentBackendId(name));
-            setNewSessionOpen(true);
+            if (compact()) {
+              navigateMobileSurface("inbox");
+            } else {
+              setSessionHomeOpen(true);
+            }
           }}
         />
       </Show>
@@ -1916,6 +1890,7 @@ export default function App(): JSX.Element {
         {(req) => (
           <DeleteSessionDialog
             label={req().label}
+            removesCheckout={req().removesCheckout}
             state={req().state}
             changedFiles={req().changedFiles}
             changedCount={req().changedCount}

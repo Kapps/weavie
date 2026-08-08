@@ -84,7 +84,7 @@ native window, geometry, and main-thread marshaling stripped out. Three files:
   the clean connect-page URL and its separately supplied workspace token.
 - **`HeadlessSession`** — builds the same `Weavie.Core` graph the native shells do (settings, commands /
   keybindings, the two terminal controllers, the `FileProviderService`, the IDE/registry MCP servers, the
-  `LayoutStore` + `EditorSessionStore`, change tracking) and runs the identical `OnWebMessage` dispatch,
+  `LayoutStore` + per-slot editor state in `SessionStore`, change tracking) and runs the identical web-message dispatch,
   pushing the persisted layout + editor session on `ready`. Off-thread Core events post straight to the
   bridge (its pump is thread-safe), so no UI-thread marshaling is needed.
 

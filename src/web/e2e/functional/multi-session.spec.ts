@@ -1,6 +1,11 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { activeSessionSlot, openFile, runCommand, waitForSessionSwitch } from "../harness/actions";
+import {
+  activeSessionSlot,
+  createSession,
+  openFile,
+  waitForSessionSwitch,
+} from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { sessionWorktrees } from "../harness/git-workspace";
 
@@ -23,7 +28,7 @@ test("concurrent edits land in each session's own worktree and survive a switch 
 }) => {
   const chips = page.locator(".session-chip");
 
-  // Session one edits hello.ts in the primary worktree.
+  // Session one edits hello.ts in the workspace checkout.
   await openFile(page, "hello.ts");
   await page.locator(".monaco-editor .view-lines").first().click();
   await page.keyboard.press("ControlOrMeta+Home");
@@ -32,7 +37,7 @@ test("concurrent edits land in each session's own worktree and survive a switch 
 
   // Fork a second session (its own worktree) and edit the same-named file there.
   const primarySlot = await activeSessionSlot(page);
-  await runCommand(page, "Fork Session");
+  await createSession(page, { branch: "e2e/concurrent-edits", provider: "claude" });
   await expect(chips).toHaveCount(2);
   await waitForSessionSwitch(page, primarySlot);
   await openFile(page, "hello.ts");

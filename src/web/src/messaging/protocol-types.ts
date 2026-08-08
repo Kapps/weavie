@@ -23,7 +23,6 @@ export interface SessionChip {
   id: string;
   label: string;
   loaded: boolean;
-  primary: boolean;
   providerId: "claude" | "codex";
   agentSurface: "terminal" | "structured" | "unavailable";
   agentInputProtocol: number;

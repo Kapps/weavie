@@ -1,11 +1,12 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Weavie.Core.FileSystem;
 
 namespace Weavie.Core.Editor;
 
 /// <summary>
 /// JSON (de)serialization for <see cref="EditorSession"/>: camelCase names, indented on disk. The host→web
-/// restore push is built by <see cref="EditorSessionStore.BuildRestoreJson()"/>.
+/// restore push is built by <see cref="BuildRestoreJson"/>.
 /// </summary>
 public static class EditorSessionSerialization {
 	/// <summary>On-disk options: camelCase, indented, nulls omitted.</summary>
@@ -44,5 +45,47 @@ public static class EditorSessionSerialization {
 			error = ex.Message;
 			return false;
 		}
+	}
+
+	/// <summary>Builds the bridge restore payload, dropping missing files and entries outside the session root.</summary>
+	public static string BuildRestoreJson(
+		EditorSession session,
+		IFileSystem fileSystem,
+		string workspaceRoot,
+		Action<string> log) {
+		ArgumentNullException.ThrowIfNull(session);
+		ArgumentNullException.ThrowIfNull(fileSystem);
+		ArgumentException.ThrowIfNullOrEmpty(workspaceRoot);
+		ArgumentNullException.ThrowIfNull(log);
+
+		var open = new List<object>();
+		var surviving = new HashSet<string>(StringComparer.Ordinal);
+		foreach (var entry in session.Open) {
+			bool file = string.IsNullOrEmpty(entry.Kind) || entry.Kind == "file";
+			if (file && !fileSystem.FileExists(entry.Path)) {
+				log($"[editor-session] open file no longer exists; skipping {entry.Path}");
+				continue;
+			}
+
+			if (file
+				&& !entry.Scratch
+				&& !BufferStore.IsWithinWorkspace(workspaceRoot, entry.Path)) {
+				log($"[editor-session] open file is outside this session's workspace; skipping {entry.Path}");
+				continue;
+			}
+
+			surviving.Add(entry.Path);
+			open.Add(new {
+				path = entry.Path,
+				kind = entry.Kind,
+				viewState = entry.ViewState,
+				preview = entry.Preview,
+				pinned = entry.Pinned,
+				scratch = entry.Scratch,
+			});
+		}
+
+		string? active = session.Active is { } path && surviving.Contains(path) ? path : null;
+		return JsonSerializer.Serialize(new { session = new { active, open } }, MessageOptions);
 	}
 }

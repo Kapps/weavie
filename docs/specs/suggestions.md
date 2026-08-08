@@ -170,12 +170,10 @@ knowledge-shaped workspace settings — see
 - **Actions**: `Yes` → `weavie.workspace.setup`; `Not now` → Snooze; `Don't ask again` →
   DismissForever.
 
-**"Yes" engages Claude in the primary session.** The command handler seeds the **primary** session's
-`Claude` controller (`PrimarySlot()`, `IsPrimary = true`) — not the *active* session — with the
-`WorkspaceSetupPrompt` text (the same artifact the `/mcp__weavie__setup-workspace` MCP prompt serves),
-which has Claude inspect the repo, propose `worktree.setupCommand` and `test.profile`, and ask the user
-to confirm each in the Claude pane. The multi-line prompt is injected as a **bracketed paste** so the
-TUI treats it as one paste rather than submitting line-by-line.
+**"Yes" engages Claude in the invoking session.** The command is session-owned and pre-fills that session's
+agent with `WorkspaceSetupPrompt` (the same artifact the `/mcp__weavie__setup-workspace` MCP prompt serves),
+which has Claude inspect the repo, propose `worktree.setupCommand` and `test.profile`, and ask the user to
+confirm each in the agent pane. There is no privileged or fallback session target.
 
 Claude reads the repo, proposes, **and asks the user to confirm in the Claude pane** — the confirmation
 is conversational, which is exactly the desired "Claude figures it out and asks you to confirm". On
@@ -184,18 +182,7 @@ out-of-repo overlay, `~/.weavie/workspaces/<id>/settings.toml`); the existing `S
 worktree create, and the run lenses pick up the test profile. No new save path. Because the values are
 now set, the next `Evaluate()` (via `SettingChanged`) drops the card.
 
-**Why the primary session — not the active one or a new one.** `worktree.setupCommand` is a global
-setting that scopes every future worktree, so the conversation belongs to no particular worktree. The
-*active* session may itself be a worktree, mid-turn, or one the user is typing in. The primary session
-is the right host: always loaded, never unloadable, and rooted directly at `WorkspaceRoot`
-(`AddPrimarySlot`, `IsPrimary = true`) — the same directory the manifest scan ran against. A *new*
-session "reusing the main worktree" was considered and rejected: it isn't supported (every new-session
-path allocates a fresh git worktree), and it's redundant — the primary session already **is** a session
-rooted at the main worktree. A second session sharing `WorkspaceRoot` would also collide with the
-primary on the two cwd-keyed stores (Claude-resume in `ClaudeSessionStore`, shell scrollback via
-`WorkspaceId.ForPath`).
-
-> **Seeding safety.** Even the primary session can be mid-turn or hold text the user is composing, so
+> **Seeding safety.** The invoking session can be mid-turn or hold text the user is composing, so
 > the handler must **not** blindly inject text + Enter. The initial-prompt queue waits for a newly spawned
 > session to become idle and then submits exactly once, so it is **not** reused as-is here. v1 **pre-fills without submitting**
 > (write the prompt into the Claude input, no Enter) and lets the user press Enter — so the prompt can

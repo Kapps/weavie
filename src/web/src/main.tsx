@@ -4,7 +4,7 @@ import { hostConnection, isBrowserHostedShell, LOCAL_BACKEND_ID, log } from "./b
 import { mark } from "./startup-timing";
 import "./fonts.css";
 // Chrome stylesheets, co-located with the components they style. Order is the cascade: base first, then
-// per-feature; confirm-dialog.css must precede new-session-prompt.css (the prompt scopes overrides onto it).
+// per-feature.
 import "./styles.css";
 import "./layout/layout.css";
 import "./agent/agent.css";
@@ -26,7 +26,7 @@ import "./chrome/resize-frame.css";
 import "./notify/notify.css";
 import "./notify/suggestions.css";
 import "./editor/confirm-dialog.css";
-import "./chrome/new-session-prompt.css";
+import "./chrome/session-prompt.css";
 import "./mobile/mobile.css";
 import "./mobile/session-inbox.css";
 

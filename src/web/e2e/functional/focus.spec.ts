@@ -1,4 +1,9 @@
-import { activeSessionSlot, openFile, runCommand, waitForSessionSwitch } from "../harness/actions";
+import {
+  activeSessionSlot,
+  createSession,
+  openFile,
+  waitForSessionSwitch,
+} from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 
 // Which pane currently holds DOM focus, as the data-kind of the focused element's surface. This is the ground
@@ -70,7 +75,7 @@ test("creating a session focuses its agent while ordinary session switching does
   await shell.locator(".pane-head").click();
   expect(await focusedKind(page)).toBe("terminal:shell");
 
-  await runCommand(page, "Fork Session");
+  await createSession(page, { branch: "e2e/session-focus", provider: "claude" });
   await waitForSessionSwitch(page, initialSlot);
   await expect.poll(() => focusedKind(page)).toBe("terminal:claude");
 

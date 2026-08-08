@@ -250,7 +250,7 @@ The tractable, fully-testable core; reuses the existing attach-existing-branch m
 1. `git fetch origin <headRef>` so the PR branch exists locally (new `IGitService.FetchAsync`; validate
    `headRef` with the existing `GitService.IsValidBranchName` before it reaches git).
 2. Attach a session on it via the existing `AttachExistingSessionAsync(headRef)` — which already de-dupes to an
-   existing session, handles the primary-checkout case, provisions the worktree, and switches.
+   existing session, handles the user-owned workspace checkout, provisions the worktree, and switches.
 3. Record the PR on the slot (`SessionSlot.Pr`, see below) and seed Claude's first prompt with the PR
    title + URL + body for context. The prompt frames the session as **review-only** — Claude reviews the
    changes and does not edit the branch unless the user explicitly asks for a change.
@@ -262,7 +262,7 @@ The tractable, fully-testable core; reuses the existing attach-existing-branch m
 OAuth (the source's host-run flow), since opening the overview tab needs both. The provider's `ListOpenAsync`
 backs the picker; the source's `fetch` backs the tab. No secret store to build — the source model supplies it.
 
-**UI.** An `OpenPrPrompt.tsx` modeled on `NewSessionPrompt.tsx`: a typeahead list of open PRs (number · title ·
+**UI.** An `OpenPrPrompt.tsx` using the Sessions composer's interaction patterns: a typeahead list of open PRs (number · title ·
 @author · branch) with the same keyboard-first affordances. Reached by a new web command `weavie.pr.open`
 (*"Open Pull Request…"*) with a default keybinding and a palette entry, plus an entry on the session-rail "+"
 menu — every action advertises its shortcut, per the keyboard-first rule.

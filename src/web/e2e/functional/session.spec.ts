@@ -1,6 +1,11 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { activeSessionSlot, runCommand, waitForSessionSwitch } from "../harness/actions";
+import {
+  activeSessionSlot,
+  createSession,
+  runCommand,
+  waitForSessionSwitch,
+} from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { sessionWorktrees } from "../harness/git-workspace";
 
@@ -22,7 +27,7 @@ test("create, switch, unload, and reopen sessions @cross", async ({ page }) => {
   const initialSlot = await activeSessionSlot(page);
 
   // Create: forking spins up a second session on its own worktree, which becomes active.
-  await runCommand(page, "Fork Session");
+  await createSession(page, { branch: "e2e/session-lifecycle", provider: "claude" });
   await expect(chips).toHaveCount(2);
   await waitForSessionSwitch(page, initialSlot);
 
@@ -48,9 +53,29 @@ test("create, switch, unload, and reopen sessions @cross", async ({ page }) => {
   await expect(page.locator(".session-chip.unloaded")).toHaveCount(0);
 });
 
+test("the prompt-free action opens an existing branch", async ({ page }) => {
+  const initialSlot = await activeSessionSlot(page);
+  await runCommand(page, "Sessions");
+  const inbox = page.locator(".session-inbox");
+  const openGroup = inbox.getByRole("region", { name: "Open an existing branch" });
+  const branch = await inbox.locator(".session-inbox-row.active strong").innerText();
+
+  await inbox
+    .getByRole("textbox", { name: "Prompt for a new session" })
+    .fill("This draft must not become existing-session input");
+  await openGroup.getByRole("combobox", { name: "Existing branch for the session" }).fill(branch);
+  await openGroup.getByRole("button", { name: "Open", exact: true }).click();
+
+  await expect(inbox).toBeHidden();
+  await expect(page.locator(".session-chip.active")).toHaveAttribute(
+    "data-session-slot",
+    initialSlot,
+  );
+});
+
 test("reload restores the client-selected stable session slot @cross", async ({ page, weavie }) => {
   const initialSlot = await activeSessionSlot(page);
-  await runCommand(page, "Fork Session");
+  await createSession(page, { branch: "e2e/session-reload", provider: "claude" });
   await expect(page.locator(".session-chip")).toHaveCount(2);
   const slot = await waitForSessionSwitch(page, initialSlot);
   await expect
@@ -77,7 +102,7 @@ test("reload restores the client-selected stable session slot @cross", async ({ 
 test("delete a session removes its chip @cross", async ({ page }) => {
   const chips = page.locator(".session-chip");
   await expect(chips).toHaveCount(1);
-  await runCommand(page, "Fork Session");
+  await createSession(page, { branch: "e2e/session-delete", provider: "claude" });
   await expect(chips).toHaveCount(2);
 
   await chips.nth(1).click({ button: "right" });
@@ -99,7 +124,7 @@ test("delete confirmation names tracked and untracked work that will be lost @cr
   weavie,
 }) => {
   const chips = page.locator(".session-chip");
-  await runCommand(page, "Fork Session");
+  await createSession(page, { branch: "e2e/session-dirty-delete", provider: "claude" });
   await expect(chips).toHaveCount(2);
   const [worktree] = sessionWorktrees(weavie.workspace);
   if (worktree === undefined) {
@@ -118,4 +143,25 @@ test("delete confirmation names tracked and untracked work that will be lost @cr
   await expect(dialog.locator(".confirm-file-list")).toContainText("scratch.txt");
   await expect(dialog.locator(".confirm-check input")).not.toBeChecked();
   await expect(dialog.locator(".confirm-btn-danger")).toBeDisabled();
+});
+
+test("deleting the workspace session keeps its checkout and creates a replacement", async ({
+  page,
+  weavie,
+}) => {
+  const chips = page.locator(".session-chip");
+  const deletedId = await activeSessionSlot(page);
+
+  await chips.first().click({ button: "right" });
+  await page.locator(".context-menu-item.danger", { hasText: "Delete" }).click();
+
+  const dialog = page.locator(".confirm-dialog");
+  await expect(dialog).toContainText("Its checkout and files remain on disk.");
+  await expect(dialog).not.toContainText("Remove the worktree");
+  await dialog.locator(".confirm-btn-danger").click();
+
+  await expect(chips).toHaveCount(1);
+  await expect(chips.first()).not.toHaveAttribute("data-session-slot", deletedId);
+  await expect(page.locator(".toast", { hasText: "was deleted." })).toHaveCount(1);
+  expect(await readFile(join(weavie.workspace, "hello.ts"), "utf8")).toContain("greet");
 });

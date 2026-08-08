@@ -13,7 +13,7 @@ public sealed class HostCoreGitStatusTests {
 
 		await Wait.UntilAsync(() => HasCounts(host, 3, 1));
 
-		var latest = host.Bridge.LastEvent(host.PrimarySession.Address, "git", "status")!.Value;
+		var latest = host.Bridge.LastEvent(host.WorkspaceSession.Address, "git", "status")!.Value;
 		Assert.Equal("main", latest.GetProperty("branch").GetString());
 		Assert.True(latest.GetProperty("dirty").GetBoolean());
 
@@ -30,7 +30,7 @@ public sealed class HostCoreGitStatusTests {
 	}
 
 	private static bool HasCounts(TestHost host, int added, int removed) =>
-		host.Bridge.LastEvent(host.PrimarySession.Address, "git", "status") is { } status
+		host.Bridge.LastEvent(host.WorkspaceSession.Address, "git", "status") is { } status
 		&& status.GetProperty("added").ValueKind == System.Text.Json.JsonValueKind.Number
 		&& status.GetProperty("removed").ValueKind == System.Text.Json.JsonValueKind.Number
 		&& status.GetProperty("added").GetInt32() == added

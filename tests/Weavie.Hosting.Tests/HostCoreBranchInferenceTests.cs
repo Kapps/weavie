@@ -38,20 +38,18 @@ public sealed class HostCoreBranchInferenceTests {
 	}
 
 	[Theory]
-	[InlineData(InferenceFailureKind.Disabled, false)]
-	[InlineData(InferenceFailureKind.PolicyDenied, false)]
-	[InlineData(InferenceFailureKind.NotConfigured, true)]
-	[InlineData(InferenceFailureKind.CategoryUnavailable, true)]
-	[InlineData(InferenceFailureKind.InputRejected, true)]
-	[InlineData(InferenceFailureKind.TimedOut, true)]
-	[InlineData(InferenceFailureKind.AuthenticationFailed, true)]
-	[InlineData(InferenceFailureKind.RateLimited, true)]
-	[InlineData(InferenceFailureKind.ProviderUnavailable, true)]
-	[InlineData(InferenceFailureKind.Refused, true)]
-	[InlineData(InferenceFailureKind.InvalidResponse, true)]
-	public async Task EveryInferenceFailure_UsesTheSameDeterministicBranchAndReportsConfiguredFailures(
-		InferenceFailureKind kind,
-		bool inferenceFailed) {
+	[InlineData(InferenceFailureKind.Disabled)]
+	[InlineData(InferenceFailureKind.PolicyDenied)]
+	[InlineData(InferenceFailureKind.NotConfigured)]
+	[InlineData(InferenceFailureKind.CategoryUnavailable)]
+	[InlineData(InferenceFailureKind.InputRejected)]
+	[InlineData(InferenceFailureKind.TimedOut)]
+	[InlineData(InferenceFailureKind.AuthenticationFailed)]
+	[InlineData(InferenceFailureKind.RateLimited)]
+	[InlineData(InferenceFailureKind.ProviderUnavailable)]
+	[InlineData(InferenceFailureKind.Refused)]
+	[InlineData(InferenceFailureKind.InvalidResponse)]
+	public async Task EveryInferenceFailure_LeavesTheBranchBlank(InferenceFailureKind kind) {
 		var inference = new BranchInferenceStub(new InferenceFailure<BranchNameInferenceOutput> {
 			Kind = kind,
 			Detail = "failed",
@@ -60,8 +58,8 @@ public sealed class HostCoreBranchInferenceTests {
 
 		var result = await PreviewAsync(host, "WebM files fail to load", "claude");
 
-		Assert.Equal("webm-files-fail-to-load", result.Branch);
-		Assert.Equal(inferenceFailed, result.InferenceFailed);
+		Assert.Empty(result.Branch);
+		Assert.True(result.InferenceFailed);
 		Assert.Equal(1, inference.Calls);
 	}
 
@@ -73,7 +71,7 @@ public sealed class HostCoreBranchInferenceTests {
 	[InlineData("HEAD")]
 	[InlineData("foo/.bar")]
 	[InlineData("foo.lock/bar")]
-	public async Task InvalidOrCollidingProposal_UsesDeterministicBranch(string proposed) {
+	public async Task InvalidOrCollidingProposal_LeavesTheBranchBlank(string proposed) {
 		var inference = new BranchInferenceStub(new InferenceSuccess<BranchNameInferenceOutput> {
 			Value = new BranchNameInferenceOutput { Branch = proposed },
 			Receipt = Receipt(),
@@ -82,28 +80,12 @@ public sealed class HostCoreBranchInferenceTests {
 
 		var result = await PreviewAsync(host, "Fix WebM", "claude");
 
-		Assert.Equal("fix-webm", result.Branch);
+		Assert.Empty(result.Branch);
 		Assert.True(result.InferenceFailed);
 	}
 
 	[Fact]
-	public async Task DeterministicPreview_AvoidsLocalBranchWithoutAWeavieSession() {
-		var inference = new BranchInferenceStub(new InferenceFailure<BranchNameInferenceOutput> {
-			Kind = InferenceFailureKind.Disabled,
-			Detail = "disabled",
-		});
-		await using var host = await TestHost.StartAsync(
-			repo => TestHost.RunGit(repo, "branch", "fix-webm"),
-			_ => inference);
-
-		var result = await PreviewAsync(host, "Fix WebM", "claude");
-
-		Assert.Equal("fix-webm-2", result.Branch);
-		Assert.False(result.InferenceFailed);
-	}
-
-	[Fact]
-	public async Task OmittedBranch_UsesDeterministicNameWithoutInference() {
+	public async Task OmittedBranch_IsRejectedWithoutInference() {
 		var inference = new BranchInferenceStub(new InferenceSuccess<BranchNameInferenceOutput> {
 			Value = new BranchNameInferenceOutput { Branch = "should-not-run" },
 			Receipt = Receipt(),
@@ -115,9 +97,28 @@ public sealed class HostCoreBranchInferenceTests {
 			Base = "main",
 		});
 
-		Assert.True(result.Ok, result.Error);
+		Assert.False(result.Ok);
+		Assert.Contains("Type a branch name", result.Error, StringComparison.Ordinal);
 		Assert.Equal(0, inference.Calls);
-		Assert.Equal("fix-webm", host.Session("fix-webm").SlotId);
+		Assert.Null(host.Core.SessionForTest("fix-webm"));
+	}
+
+	[Fact]
+	public async Task MissingSource_DoesNotFallBackToTheWorkspaceCheckout() {
+		var inference = new BranchInferenceStub(new InferenceSuccess<BranchNameInferenceOutput> {
+			Value = new BranchNameInferenceOutput { Branch = "should-not-run" },
+			Receipt = Receipt(),
+		});
+		await using var host = await TestHost.StartAsync(_ => { }, _ => inference);
+
+		var result = await host.HostRequestAsync<JsonElement>(
+			"sessionCreation",
+			"previewBranch",
+			new { sourceId = "missing", prompt = "Fix WebM", agentProviderId = "claude" });
+
+		Assert.Equal(string.Empty, result.GetProperty("branch").GetString());
+		Assert.True(result.GetProperty("inferenceFailed").GetBoolean());
+		Assert.Equal(0, inference.Calls);
 	}
 
 	[Fact]
@@ -129,12 +130,14 @@ public sealed class HostCoreBranchInferenceTests {
 
 		host.Bridge.Receive(
 			peer,
-			MessageEnvelope.SessionRequest(
-				host.PrimarySession.Address,
+			MessageEnvelope.Request(
+				MessageScope.Host,
+				null,
 				requestId,
 				"sessionCreation",
 				"previewBranch",
 				JsonSerializer.SerializeToElement(new {
+					sourceId = host.WorkspaceSession.SlotId,
 					prompt = "Fix WebM",
 					agentProviderId = "codex",
 				})).ToJson());
@@ -142,8 +145,9 @@ public sealed class HostCoreBranchInferenceTests {
 
 		host.Bridge.Receive(
 			peer,
-			MessageEnvelope.SessionCancel(
-				host.PrimarySession.Address,
+			MessageEnvelope.Cancel(
+				MessageScope.Host,
+				null,
 				requestId,
 				"sessionCreation",
 				"previewBranch").ToJson());
@@ -153,11 +157,10 @@ public sealed class HostCoreBranchInferenceTests {
 	}
 
 	private static async Task<BranchPreview> PreviewAsync(TestHost host, string prompt, string agentProviderId) {
-		var result = await host.SessionRequestAsync<JsonElement>(
-			host.PrimarySession,
+		var result = await host.HostRequestAsync<JsonElement>(
 			"sessionCreation",
 			"previewBranch",
-			new { prompt, agentProviderId });
+			new { sourceId = host.WorkspaceSession.SlotId, prompt, agentProviderId });
 		return new BranchPreview(
 			result.GetProperty("branch").GetString()!,
 			result.GetProperty("inferenceFailed").GetBoolean());

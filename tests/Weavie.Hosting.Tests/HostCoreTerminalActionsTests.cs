@@ -65,7 +65,7 @@ public sealed class HostCoreTerminalActionsTests {
 		// Bad base64 in term-input throws inside the dispatch; the backstop must contain it (it would otherwise
 		// crash the network-exposed worker), and the host keeps handling subsequent messages.
 		host.SessionEvent(
-			host.PrimarySession,
+			host.WorkspaceSession,
 			"terminal.shell",
 			"input",
 			new { dataB64 = "!!! not base64 !!!" });

@@ -96,9 +96,9 @@ Neither mechanism uses presentation selection.
 `HostCore.StartAsync`:
 
 1. starts the workspace HTTP service;
-2. initializes the primary `HostSession`;
-3. reconciles worktrees into loaded or dormant slots;
-4. restores the loaded-slot overlay;
+2. reconciles checkouts into loaded or dormant slots;
+3. restores each slot's runtime and editor state;
+4. ensures an ordinary workspace-checkout session exists;
 5. wires host stores, native capabilities, and transport callbacks.
 
 `connection.hello` returns the host incarnation, complete session catalog, command catalog, layout, and host

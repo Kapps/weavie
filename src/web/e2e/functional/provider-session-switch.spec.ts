@@ -1,4 +1,4 @@
-import { openFile } from "../harness/actions";
+import { createSession, openFile } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { measureSessionSwitch } from "../harness/session-switch";
 
@@ -24,12 +24,7 @@ test("Claude and Codex sessions restore their own tabs and active image within o
   const chips = page.locator(".session-chip");
   await expect(chips).toHaveCount(1);
 
-  await page.locator(".session-rail-add").click();
-  const prompt = page.locator(".session-prompt");
-  await expect(prompt).toBeVisible();
-  await prompt.locator(".session-prompt-select").nth(1).selectOption("codex");
-  await prompt.getByRole("combobox", { name: "Branch name" }).fill("codex-switch");
-  await prompt.locator(".session-prompt-btn-primary").click();
+  await createSession(page, { branch: "codex-switch", provider: "codex" });
 
   await expect(chips).toHaveCount(2);
   await expect(page.locator('.session-chip.active[title^="codex-switch —"]')).toBeVisible();

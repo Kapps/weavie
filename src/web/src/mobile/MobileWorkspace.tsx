@@ -20,8 +20,6 @@ export function MobileWorkspace(props: {
     backendId: string,
     providerId: "claude" | "codex",
   ) => Promise<boolean>;
-  onMore: () => void;
-  moreTitle: string;
   onSurface: (surface: MobileSurface) => void;
   onSwipeCancel: () => void;
   onSwipeCommit: () => void;
@@ -41,8 +39,6 @@ export function MobileWorkspace(props: {
         initialProviderId={props.initialProviderId}
         onOpen={props.onOpen}
         onCreate={props.onCreate}
-        onMore={props.onMore}
-        moreTitle={props.moreTitle}
       />
       <MobileSurfaceBar
         active={props.surface}

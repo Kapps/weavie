@@ -42,7 +42,7 @@ they are not re-litigated:
 ## Tab kinds
 
 The open list becomes a discriminated union on `kind`. `file` is unchanged in shape; the `kind` field is
-**absent ⇒ `file`**, so existing `editor-session.json` files round-trip untouched.
+**absent ⇒ `file`**, so existing per-slot editor state round-trips untouched.
 
 ```ts
 // src/web/src/editor/session-types.ts

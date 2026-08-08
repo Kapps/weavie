@@ -52,22 +52,43 @@ public sealed class HostCoreSessionRestoreTests {
 		Assert.True(b.GetProperty("loaded").GetBoolean());
 		Assert.False(a.TryGetProperty("active", out _));
 		Assert.False(b.TryGetProperty("active", out _));
-		Assert.Equal("primary", host.SelectedSession.SlotId);
+		Assert.Same(host.WorkspaceSession, host.SelectedSession);
 	}
 
 	[Fact]
 	public async Task ReopeningAnExistingSession_ActivatesWithoutReportingCreation() {
 		await using var host = await TestHost.StartAsync();
 		Assert.True((await host.CreateSessionAsync("branch-a")).Ok);
-
-		var reopened = await host.InvokeClientCommandAsync(
+		var rejected = await host.InvokeClientCommandAsync(
 			SessionCommands.NewSession,
-			new { branch = "branch-a", existing = true });
+			new { branch = "branch-a", existing = true, prompt = "Do not discard this" });
+		Assert.False(rejected.Ok);
+		Assert.Contains("prompt", rejected.Error, StringComparison.OrdinalIgnoreCase);
+		var rejectedWorkspace = await host.InvokeClientCommandAsync(
+			SessionCommands.NewSession,
+			new { branch = host.WorkspaceSession.DisplayLabel, existing = true, prompt = "Keep this too" });
+		Assert.False(rejectedWorkspace.Ok);
+		Assert.Contains("prompt", rejectedWorkspace.Error, StringComparison.OrdinalIgnoreCase);
 
-		Assert.True(reopened.Ok, reopened.Error);
-		using var data = JsonDocument.Parse(Assert.IsType<string>(reopened.DataJson));
-		Assert.True(data.RootElement.GetProperty("activateSession").GetBoolean());
-		Assert.False(data.RootElement.TryGetProperty("createdSession", out _));
+		var reopened = await host.HostRequestAsync<JsonElement>(
+			"sessions",
+			"invoke",
+			new {
+				id = SessionCommands.NewSession,
+				args = new {
+					branch = "branch-a",
+					@base = "main",
+					existing = true,
+					prompt = "",
+					attachments = Array.Empty<object>(),
+					agentProviderId = "claude",
+				},
+			});
+
+		Assert.True(reopened.GetProperty("ok").GetBoolean(), reopened.GetProperty("error").GetString());
+		var data = reopened.GetProperty("data");
+		Assert.True(data.GetProperty("activateSession").GetBoolean());
+		Assert.False(data.TryGetProperty("createdSession", out _));
 	}
 
 	[Fact]
@@ -80,14 +101,14 @@ public sealed class HostCoreSessionRestoreTests {
 
 		var a = SessionById(host.Bridge, "branch-a");
 		Assert.False(a.GetProperty("loaded").GetBoolean());
-		Assert.Equal("primary", host.SelectedSession.SlotId);
+		Assert.Same(host.WorkspaceSession, host.SelectedSession);
 	}
 
 	[Fact]
 	public async Task LoadReturnsTheExactLiveAddressWhetherTheSessionWasDormantOrAlreadyLoaded() {
 		await using var host = await TestHost.StartAsync();
 		Assert.True((await host.CreateSessionAsync("branch-a")).Ok);
-		host.SelectSession("primary");
+		host.SelectWorkspaceSession();
 
 		var alreadyLoaded = await host.InvokeClientCommandAsync(
 			SessionCommands.LoadSession,
@@ -114,7 +135,7 @@ public sealed class HostCoreSessionRestoreTests {
 			new { });
 
 		Assert.True(result.Ok, result.Error);
-		host.SelectSession("primary");
+		host.SelectWorkspaceSession();
 		await Wait.ForAsync<bool>(() =>
 			SessionById(host.Bridge, "branch-a").GetProperty("loaded").GetBoolean()
 				? null
@@ -169,7 +190,7 @@ public sealed class HostCoreSessionRestoreTests {
 		Assert.True(result.Ok);
 		string overlay = WeaviePaths.WorkspaceSessionsFile(WorkspaceId.ForPath(host.RepoRoot));
 
-		await host.RestartAsync(() => File.WriteAllText(overlay, """{"version":2,"sessions":[]}"""));
+		await host.RestartAsync(() => File.WriteAllText(overlay, """{"version":3,"sessions":[]}"""));
 
 		var session = SessionById(host.Bridge, "codex-branch");
 		Assert.Equal("codex", session.GetProperty("providerId").GetString());
@@ -177,7 +198,7 @@ public sealed class HostCoreSessionRestoreTests {
 	}
 
 	[Fact]
-	public async Task DormantUnknownProvider_DoesNotHidePrimaryClaudeSession() {
+	public async Task DormantUnknownProvider_DoesNotHideWorkspaceSession() {
 		await using var host = await TestHost.StartAsync();
 		Assert.True((await host.CreateSessionAsync("branch-a")).Ok);
 		Assert.True((await host.UnloadSessionAsync("branch-a")).Ok);
@@ -189,7 +210,7 @@ public sealed class HostCoreSessionRestoreTests {
 
 		await host.RestartAsync();
 
-		Assert.Equal("primary", host.SelectedSession.SlotId);
+		Assert.Same(host.WorkspaceSession, host.SelectedSession);
 		var stale = SessionById(host.Bridge, "branch-a");
 		Assert.Equal("removed-provider", stale.GetProperty("providerId").GetString());
 		Assert.Equal("unavailable", stale.GetProperty("agentSurface").GetString());
@@ -201,15 +222,15 @@ public sealed class HostCoreSessionRestoreTests {
 		await using var host = await TestHost.StartAsync();
 
 		// An overlay naming a session whose worktree no longer reconciles (removed out-of-band). Restore must skip
-		// it — the live git set wins over the stored overlay — and leave the primary active without throwing.
+		// it — the live git set wins over the stored overlay — and leave the workspace session active.
 		string overlay = WeaviePaths.WorkspaceSessionsFile(WorkspaceId.ForPath(host.RepoRoot));
 		Directory.CreateDirectory(Path.GetDirectoryName(overlay)!);
 		File.WriteAllText(overlay,
-			"""{"version":2,"sessions":[{"id":"ghost","label":"ghost","worktreePath":"/gone","isPrimary":false,"loaded":true}]}""");
+			"""{"version":3,"sessions":[{"id":"ghost","label":"ghost","worktreePath":"/gone","managedCheckout":true,"loaded":true,"agentProviderId":"claude","editorSession":{"active":null,"open":[]}}]}""");
 
 		await host.RestartAsync();
 
-		Assert.Equal("primary", host.SelectedSession.SlotId);
+		Assert.Same(host.WorkspaceSession, host.SelectedSession);
 		Assert.DoesNotContain(
 			host.Bridge.LastEvent("sessions", "catalog")!.Value.EnumerateArray(),
 			s => s.GetProperty("id").GetString() == "ghost");
@@ -231,7 +252,7 @@ public sealed class HostCoreSessionRestoreTests {
 		await using var host = await TestHost.StartAsync(_ => { }, sendReady: false);
 		string path = Path.Combine(host.RepoRoot, "readme.txt");
 
-		await host.PrimarySession.FileOpener.OpenAsync(
+		await host.WorkspaceSession.FileOpener.OpenAsync(
 			path,
 			line: 1,
 			preview: false,
@@ -239,7 +260,7 @@ public sealed class HostCoreSessionRestoreTests {
 		host.Bridge.Clear();
 		await host.ConnectAsync();
 
-		var restore = host.Bridge.LastEvent(host.PrimarySession.Address, "editor", "restore");
+		var restore = host.Bridge.LastEvent(host.WorkspaceSession.Address, "editor", "restore");
 		Assert.True(restore.HasValue);
 		Assert.Contains(
 			restore!.Value.GetProperty("session").GetProperty("open").EnumerateArray(),
@@ -247,17 +268,59 @@ public sealed class HostCoreSessionRestoreTests {
 	}
 
 	[Fact]
+	public async Task EverySessionRestoresItsOwnEditorState() {
+		await using var host = await TestHost.StartAsync();
+		Assert.True((await host.CreateSessionAsync("branch-a")).Ok);
+		string workspaceFile = Path.Combine(host.RepoRoot, "readme.txt");
+		var branch = host.Session("branch-a");
+		string branchFile = Path.Combine(branch.WorkspaceRoot, "readme.txt");
+		host.SelectWorkspaceSession();
+		host.SessionEvent(host.WorkspaceSession, "editor", "sessionChanged", new {
+			session = new { active = workspaceFile, open = new[] { new { path = workspaceFile } } },
+		});
+		host.SelectSession("branch-a");
+		host.SessionEvent(branch, "editor", "sessionChanged", new {
+			session = new { active = branchFile, open = new[] { new { path = branchFile } } },
+		});
+
+		await host.RestartAsync();
+
+		Assert.Equal(workspaceFile, RestoredActive(host, host.WorkspaceSession));
+		Assert.Equal(branchFile, RestoredActive(host, host.Session("branch-a")));
+	}
+
+	[Fact]
+	public async Task DormantSessionEditorStateSurvivesConsecutiveRestarts() {
+		await using var host = await TestHost.StartAsync();
+		Assert.True((await host.CreateSessionAsync("branch-a")).Ok);
+		var branch = host.Session("branch-a");
+		string branchFile = Path.Combine(branch.WorkspaceRoot, "readme.txt");
+		host.SessionEvent(branch, "editor", "sessionChanged", new {
+			session = new { active = branchFile, open = new[] { new { path = branchFile } } },
+		});
+		Assert.True((await host.UnloadSessionAsync("branch-a")).Ok);
+
+		await host.RestartAsync();
+		await host.RestartAsync();
+		Assert.True((await host.InvokeClientCommandAsync(
+			SessionCommands.LoadSession,
+			new { id = "branch-a" })).Ok);
+
+		Assert.Equal(branchFile, RestoredActive(host, host.Session("branch-a")));
+	}
+
+	[Fact]
 	public async Task SessionSync_ReplaysOnlyToTheRequestingPage() {
 		await using var host = await TestHost.StartAsync();
 		var requester = new WebPeer("reconnecting-page");
 		const string requestId = "reconnect-sync";
-		host.PrimarySession.State.Set("syncProbe", "state", "snapshot", new { value = 7 });
+		host.WorkspaceSession.State.Set("syncProbe", "state", "snapshot", new { value = 7 });
 		host.Bridge.Clear();
 
 		host.Bridge.Receive(
 			requester,
 			MessageEnvelope.SessionRequest(
-				host.PrimarySession.Address,
+				host.WorkspaceSession.Address,
 				requestId,
 				"lifecycle",
 				"sync",
@@ -296,4 +359,8 @@ public sealed class HostCoreSessionRestoreTests {
 		Assert.Equal(session.Incarnation, address.GetProperty("incarnation").GetString());
 		Assert.False(address.TryGetProperty("Slot", out _));
 	}
+
+	private static string? RestoredActive(TestHost host, HostSession session) =>
+		host.Bridge.LastEvent(session.Address, "editor", "restore")?.GetProperty("session")
+			.GetProperty("active").GetString();
 }

@@ -64,7 +64,7 @@ public sealed class SessionAttentionTests {
 			RequestedPermission = SystemNotificationPermission.Granted,
 		};
 		await using var host = await TestHost.StartAsync(notifications);
-		var address = host.PrimarySession.Address;
+		var address = host.WorkspaceSession.Address;
 
 		var initial = await host.HostRequestAsync<NotificationPermissionReply>(
 			"notifications", "permission", new { });
@@ -125,7 +125,7 @@ public sealed class SessionAttentionTests {
 			RequestedPermission = SystemNotificationPermission.Granted,
 		};
 		await using var host = await TestHost.StartAsync(notifications);
-		var address = host.PrimarySession.Address;
+		var address = host.WorkspaceSession.Address;
 		await host.HostRequestAsync<NotificationShownReply>(
 			"notifications",
 			"show",
@@ -170,7 +170,7 @@ public sealed class SessionAttentionTests {
 			"show",
 			new {
 				backendId = "local",
-				address = host.PrimarySession.Address,
+				address = host.WorkspaceSession.Address,
 				label = "Primary",
 				kind = "failed",
 			});
@@ -194,7 +194,7 @@ public sealed class SessionAttentionTests {
 			"show",
 			new {
 				backendId = "local",
-				address = host.PrimarySession.Address,
+				address = host.WorkspaceSession.Address,
 				label = "Primary",
 				kind = "turnComplete",
 			});
@@ -223,7 +223,7 @@ public sealed class SessionAttentionTests {
 			"show",
 			new {
 				backendId = "local",
-				address = host.PrimarySession.Address,
+				address = host.WorkspaceSession.Address,
 				label = "Primary",
 				kind = "needsInput",
 			});
@@ -252,7 +252,7 @@ public sealed class SessionAttentionTests {
 			"show",
 			new {
 				backendId = "local",
-				address = host.PrimarySession.Address,
+				address = host.WorkspaceSession.Address,
 				label = "Primary",
 				kind = "failed",
 			});

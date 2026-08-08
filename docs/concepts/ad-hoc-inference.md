@@ -39,13 +39,13 @@ authoritative state.
 The compact new-session composer requests that proposal after 500 ms without typing and displays it in an editable
 branch field before creation. New typing or manual branch input cancels the superseded CLI process.
 
-Every non-cancellation failure takes the exact feature path used when inference is disabled. A configured branch
-preview failure still returns the usable deterministic name and marks it as a fallback so the compact composer can
-show the problem inline; disabled inference and an automatic-inference opt-out remain silent. Caller cancellation
-propagates because canceled work must not continue into a side effect. `inference.enabled` is off by default, and
-automatic/event-triggered calls additionally require `inference.allowAutomatic`. When either gate is off, the first
-page connection in an app run offers a persistent notification whose **Allow** command enables and verifies both
-settings. Closing it changes no policy; the offer may return after the app is relaunched.
+Every non-cancellation failure takes the feature's visible failure path. Branch preview returns an empty field and
+requires manual input; it never manufactures a branch name. Disabled inference and an automatic-inference opt-out
+remain silent. Caller cancellation propagates because canceled work must not continue into a side effect.
+`inference.enabled` is off by default, and automatic/event-triggered calls additionally require
+`inference.allowAutomatic`. When either gate is off, the first page connection in an app run offers a persistent
+notification whose **Allow** command enables and verifies both settings. Closing it changes no policy; the offer may
+return after the app is relaunched.
 
 The complete contract and first proving flow are in
 [the ad-hoc inference specification](../specs/ad-hoc-inference.md).

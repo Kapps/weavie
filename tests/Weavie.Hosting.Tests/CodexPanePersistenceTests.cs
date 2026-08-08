@@ -121,7 +121,7 @@ public sealed class CodexPanePersistenceTests {
 	public async Task BackgroundSession_PublishesItsOwnPaneWithoutBeingSelected() {
 		await using var host = await StartWithCodexSessionAsync("codex-branch");
 		var background = host.Session("codex-branch");
-		host.SelectSession("primary");
+		host.SelectWorkspaceSession();
 		host.Bridge.Clear();
 
 		host.SessionEvent(
@@ -130,10 +130,10 @@ public sealed class CodexPanePersistenceTests {
 			"submit",
 			new { id = "", prompt = "hello", attachmentIds = Array.Empty<string>(), skills = Array.Empty<string>() });
 
-		Assert.Equal("primary", host.SelectedSession.SlotId);
+		Assert.Same(host.WorkspaceSession, host.SelectedSession);
 		Assert.True(HasPaneMessage(host.Bridge, background, "user-message", "hello"));
 		Assert.True(HasPaneMessage(host.Bridge, background, "item-completed", "echo: hello"));
-		Assert.Empty(host.Bridge.PostedEvents(host.PrimarySession.Address, "agent", "pane"));
+		Assert.Empty(host.Bridge.PostedEvents(host.WorkspaceSession.Address, "agent", "pane"));
 	}
 
 	[Fact]

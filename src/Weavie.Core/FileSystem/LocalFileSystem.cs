@@ -77,14 +77,8 @@ public sealed class LocalFileSystem : IFileSystem {
 	}
 
 	/// <inheritdoc/>
-	public void WriteAllBytes(string path, byte[] contents) {
-		string? directory = Path.GetDirectoryName(Path.GetFullPath(path));
-		if (!string.IsNullOrEmpty(directory)) {
-			Directory.CreateDirectory(directory);
-		}
-
-		File.WriteAllBytes(path, contents);
-	}
+	public void WriteAllBytes(string path, byte[] contents) =>
+		WriteAtomic(path, temporaryPath => File.WriteAllBytes(temporaryPath, contents));
 
 	/// <inheritdoc/>
 	public void AppendAllText(string path, string contents) {
@@ -97,7 +91,10 @@ public sealed class LocalFileSystem : IFileSystem {
 	}
 
 	/// <inheritdoc/>
-	public void WriteAllTextAtomic(string path, string contents) {
+	public void WriteAllTextAtomic(string path, string contents) =>
+		WriteAtomic(path, temporaryPath => File.WriteAllText(temporaryPath, contents, Utf8NoBom));
+
+	private static void WriteAtomic(string path, Action<string> write) {
 		string? directory = Path.GetDirectoryName(Path.GetFullPath(path));
 		if (!string.IsNullOrEmpty(directory)) {
 			Directory.CreateDirectory(directory);
@@ -106,7 +103,7 @@ public sealed class LocalFileSystem : IFileSystem {
 		// Swap a sibling temp file into place: File.Replace is atomic and preserves the destination's
 		// attributes/ACLs; File.Move covers the first-write case where there's no target.
 		string tmp = path + ".tmp";
-		File.WriteAllText(tmp, contents, Utf8NoBom);
+		write(tmp);
 		if (File.Exists(path)) {
 			File.Replace(tmp, path, null);
 		} else {

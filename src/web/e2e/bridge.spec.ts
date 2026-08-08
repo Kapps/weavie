@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
+import { CommandIds } from "../src/commands/types";
 import { MockHost, mockSession } from "./mock-host";
 
 const distDir = join(dirname(fileURLToPath(import.meta.url)), "..", "dist");
@@ -44,11 +45,102 @@ test.describe("session-addressed WebSocket transport", () => {
     await expect(page.locator(".toast-msg", { hasText: "hello-from-mock-host" })).toBeVisible();
   });
 
+  test("desktop opens the shared Sessions home and requires manual naming after inference fails", async ({
+    page,
+  }) => {
+    const session = mockSession("main", "main", "codex");
+    const branches = ["main"];
+    host.onHost("request", "git", "branches", (request) => host.respond(request, branches));
+    host.setSessions([session]);
+    await page.setViewportSize({ width: 1200, height: 800 });
+    await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
+    await host.waitUntilConnected();
+    host.publishHost("commands", "catalog", {
+      commands: [
+        {
+          id: CommandIds.newSession,
+          title: "New Session",
+          runsIn: "core",
+          owner: "backend",
+          description: "Start or open a session.",
+          aliases: [],
+          showInPalette: true,
+          keys: [],
+        },
+      ],
+      keybindings: [],
+    });
+
+    const inbox = page.locator(".session-inbox");
+    await expect(inbox.getByRole("heading", { name: "Sessions" })).toBeVisible();
+    await expect(inbox.getByRole("heading", { name: "Start a new session" })).toBeVisible();
+    const openGroup = inbox.getByRole("region", { name: "Open an existing branch" });
+    await expect(openGroup).toBeVisible();
+    await expect(openGroup.locator("textarea")).toHaveCount(0);
+    await expect(page.locator(".layout-root")).toBeHidden();
+    await expect(page.locator(".session-prompt-overlay")).toHaveCount(0);
+
+    const preview = host.waitForHost("request", "sessionCreation", "previewBranch");
+    await inbox
+      .getByRole("textbox", { name: "Prompt for a new session" })
+      .fill("Fix branch inference");
+    const request = await preview;
+    expect(request.payload).toMatchObject({ sourceId: "main", agentProviderId: "claude" });
+    host.respond(request, { branch: "", inferenceFailed: true });
+
+    const branch = inbox.getByRole("textbox", { name: "Branch for the new session" });
+    await expect(branch).toHaveValue("");
+    await expect(inbox.getByRole("alert")).toContainText("Type a branch to continue");
+    await branch.fill("fix/manual-name");
+    await expect(inbox.getByRole("button", { name: "Start" })).toBeEnabled();
+
+    await expect(
+      openGroup.getByRole("combobox", { name: "Existing branch for the session" }),
+    ).toBeVisible();
+    await expect(inbox.locator("#session-existing-branches option")).toHaveCount(1);
+    await inbox.locator(".session-inbox-row").click();
+    await expect(page.locator(".layout-root")).toBeVisible();
+
+    branches.push("release/new-since-open");
+    await page.locator(".session-rail-add").click();
+    await expect(
+      inbox.locator('#session-existing-branches option[value="release/new-since-open"]'),
+    ).toHaveCount(1);
+
+    await openGroup
+      .getByRole("combobox", { name: "Existing branch for the session" })
+      .fill("release/new-since-open");
+    const invocation = host.waitForHost("request", "sessions", "invoke");
+    await openGroup.getByRole("button", { name: "Open", exact: true }).click();
+    const openRequest = await invocation;
+    await expect(openGroup.getByRole("button", { name: "Opening branch" })).toBeDisabled();
+    await expect(inbox.getByRole("button", { name: "Start", exact: true })).toBeDisabled();
+    expect(openRequest.payload).toMatchObject({
+      id: CommandIds.newSession,
+      args: {
+        branch: "release/new-since-open",
+        base: "main",
+        existing: true,
+        prompt: "",
+        attachments: [],
+        agentProviderId: "claude",
+      },
+    });
+    host.respond(openRequest, {
+      ok: true,
+      message: null,
+      error: null,
+      data: { address: session.address },
+    });
+    await expect(inbox).toBeHidden();
+  });
+
   test("live fonts update normal DOM and session-owned source typography", async ({ page }) => {
-    const session = mockSession("source", "source", "codex", true);
+    const session = mockSession("source", "source", "codex");
     host.setSessions([session]);
     await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
     await host.waitUntilConnected();
+    await page.locator(".session-inbox-row").click();
 
     host.publishSession(session.address, "editor", "openOverlay", {
       path: "typography-source",
@@ -114,8 +206,8 @@ test.describe("session-addressed WebSocket transport", () => {
   });
 
   test("selection binds the exact session view without a host-side switch", async ({ page }) => {
-    const main = mockSession("main", "main", "claude", true);
-    const feature = mockSession("feature", "feature", "codex", false);
+    const main = mockSession("main", "main", "claude");
+    const feature = mockSession("feature", "feature", "codex");
     host.setSessions([main, feature]);
     await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
     await host.waitUntilConnected();
@@ -146,8 +238,8 @@ test.describe("session-addressed WebSocket transport", () => {
   test("a background editor event updates its owner before that session is selected", async ({
     page,
   }) => {
-    const selected = mockSession("selected", "selected", "codex", true);
-    const background = mockSession("background", "background", "codex", false);
+    const selected = mockSession("selected", "selected", "codex");
+    const background = mockSession("background", "background", "codex");
     host.files.set("/background.ts", "export const owner = 'background';\n");
     host.setSessions([selected, background]);
     await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
@@ -169,8 +261,8 @@ test.describe("session-addressed WebSocket transport", () => {
   });
 
   test("removing the selected session selects the remaining live session", async ({ page }) => {
-    const main = mockSession("main", "main", "claude", true);
-    const feature = mockSession("feature", "feature", "claude", false);
+    const main = mockSession("main", "main", "claude");
+    const feature = mockSession("feature", "feature", "claude");
     host.setSessions([main, feature]);
     await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
     await host.waitUntilConnected();
@@ -184,18 +276,19 @@ test.describe("session-addressed WebSocket transport", () => {
   });
 
   test("a reused slot rejects events from its old incarnation", async ({ page }) => {
-    const oldSession = mockSession("same-slot", "old", "codex", true);
+    const oldSession = mockSession("same-slot", "old", "codex");
     host.setSessions([oldSession]);
     await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
     await host.waitUntilConnected();
 
     const replacement = {
-      ...mockSession("same-slot", "new", "codex", true),
+      ...mockSession("same-slot", "new", "codex"),
       address: { slot: "same-slot", incarnation: "replacement-incarnation" },
     };
     const checkpoint = host.checkpoint();
     host.setSessions([replacement]);
     await host.waitForSession(replacement.address, "event", "view", "attach", checkpoint);
+    await page.locator(".session-inbox-row").click();
     host.publishSession(oldSession.address, "agent", "pane", {
       providerId: "codex",
       type: "item-completed",
@@ -218,8 +311,8 @@ test.describe("session-addressed WebSocket transport", () => {
   });
 
   test("an unfocused session completing still plays its attention sound", async ({ page }) => {
-    const selected = mockSession("selected", "selected", "codex", true);
-    const background = mockSession("background", "background", "codex", false);
+    const selected = mockSession("selected", "selected", "codex");
+    const background = mockSession("background", "background", "codex");
     host.setSessions([selected, background]);
     await page.addInitScript(() => {
       (window as unknown as { __attentionSoundPlays: number }).__attentionSoundPlays = 0;
@@ -249,8 +342,8 @@ test.describe("session-addressed WebSocket transport", () => {
   test("background remote transcripts are retained without replay on selection", async ({
     page,
   }) => {
-    const local = mockSession("local", "local", "claude", true);
-    const remoteSession = mockSession("remote-codex", "codex", "codex", true);
+    const local = mockSession("local", "local", "claude");
+    const remoteSession = mockSession("remote-codex", "codex", "codex");
     host.setSessions([local]);
     const remote = await MockHost.start({ distDir, sessions: [remoteSession] });
     try {
@@ -286,8 +379,8 @@ test.describe("session-addressed WebSocket transport", () => {
   test("client-owned font zoom stays on the local host with a remote session selected", async ({
     page,
   }) => {
-    const local = mockSession("local", "local", "codex", true);
-    const remoteSession = mockSession("remote-codex", "codex", "codex", true);
+    const local = mockSession("local", "local", "codex");
+    const remoteSession = mockSession("remote-codex", "codex", "codex");
     const fontCommand = {
       id: "weavie.font.increase",
       title: "Increase Font Size",
@@ -327,7 +420,7 @@ test.describe("session-addressed WebSocket transport", () => {
       await page.locator(".session-chip.remote").click();
       await expect(page.locator(".session-chip.active")).toHaveAttribute("title", /^codex @/);
 
-      const offLocal = host.onSession(local.address, "request", "commands", "invoke", (message) => {
+      const offLocal = host.onHost("request", "commands", "invoke", (message) => {
         host.respond(message, { ok: true, message: null, error: null });
         host.publishHost("settings", "fonts", {
           editor: { family: "monospace", size: 19, weight: "normal" },
@@ -335,7 +428,7 @@ test.describe("session-addressed WebSocket transport", () => {
         });
       });
       const remoteCheckpoint = remote.checkpoint();
-      const request = host.waitForSession(local.address, "request", "commands", "invoke");
+      const request = host.waitForHost("request", "commands", "invoke");
 
       await page.keyboard.press("ControlOrMeta+=");
 
@@ -351,13 +444,7 @@ test.describe("session-addressed WebSocket transport", () => {
 
       await page.locator(".session-chip:not(.remote)").click();
       const localCheckpoint = host.checkpoint();
-      const relayedInvocation = host.waitForSession(
-        local.address,
-        "request",
-        "commands",
-        "invoke",
-        localCheckpoint,
-      );
+      const relayedInvocation = host.waitForHost("request", "commands", "invoke", localCheckpoint);
       const clientResponse = remote.requestSession(remoteSession.address, "commands", "runClient", {
         id: fontCommand.id,
         args: null,
@@ -383,8 +470,8 @@ test.describe("session-addressed WebSocket transport", () => {
   test("client-owned theme mode updates the page with a remote session selected", async ({
     page,
   }) => {
-    const local = mockSession("local", "local", "codex", true);
-    const remoteSession = mockSession("remote-codex", "codex", "codex", true);
+    const local = mockSession("local", "local", "codex");
+    const remoteSession = mockSession("remote-codex", "codex", "codex");
     const themeCommand = {
       id: "weavie.theme.cycleMode",
       title: "Cycle Theme Mode",
@@ -461,12 +548,12 @@ test.describe("session-addressed WebSocket transport", () => {
         /^codex @/,
       );
 
-      const offLocal = host.onSession(local.address, "request", "commands", "invoke", (message) => {
+      const offLocal = host.onHost("request", "commands", "invoke", (message) => {
         host.respond(message, { ok: true, message: "Theme mode: Light.", error: null });
         host.publishHost("settings", "theme", theme("light"));
       });
       const remoteCheckpoint = remote.checkpoint();
-      const request = host.waitForSession(local.address, "request", "commands", "invoke");
+      const request = host.waitForHost("request", "commands", "invoke");
 
       await page.keyboard.press("ControlOrMeta+Shift+m");
 
@@ -501,7 +588,7 @@ test.describe("session-addressed WebSocket transport", () => {
   });
 
   test("network status stays degraded until reconnect hello completes", async ({ page }) => {
-    const session = mockSession("main", "main", "claude", true);
+    const session = mockSession("main", "main", "claude");
     host.setSessions([session]);
     await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
     await host.waitUntilConnected();
@@ -524,10 +611,11 @@ test.describe("session-addressed WebSocket transport", () => {
   test("an interrupted large pane snapshot stays visible through socket reconnect", async ({
     page,
   }) => {
-    const session = mockSession("main", "main", "codex", true);
+    const session = mockSession("main", "main", "codex");
     host.setSessions([session]);
     await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
     await host.waitUntilConnected();
+    await page.locator(".session-inbox-row").click();
     const surface = page.locator('[data-surface="structured-agent"]');
     const message = (text: string) => ({
       providerId: "codex",
@@ -576,9 +664,9 @@ test.describe("session-addressed WebSocket transport", () => {
   test("mobile inbox stays usable and truthful through a long catalog and reconnect", async ({
     page,
   }) => {
-    const primary = mockSession("main", "main", "codex", true);
+    const primary = mockSession("main", "main", "codex");
     const dormant = Array.from({ length: 12 }, (_, index) => ({
-      ...mockSession(`dormant-${index}`, `feature/dormant-${index}`, "codex", false),
+      ...mockSession(`dormant-${index}`, `feature/dormant-${index}`, "codex"),
       address: null,
       loaded: false,
     }));
@@ -680,19 +768,20 @@ test.describe("session-addressed WebSocket transport", () => {
     await expect(primaryRow.locator(".session-inbox-state")).toHaveText("Idle");
     await expect(toast).toHaveCount(0);
 
-    await inbox.getByRole("button", { name: "More…" }).click();
-    const promptTargets = page.locator(
-      ".session-prompt-input, .session-prompt-select, .session-prompt-location-remove",
+    const composerTargets = inbox.locator(
+      ".session-composer-source select, .session-composer-branch input",
     );
-    await expect(promptTargets).not.toHaveCount(0);
+    await expect(composerTargets).not.toHaveCount(0);
     expect(
       Math.min(
-        ...(await promptTargets.evaluateAll((targets) =>
+        ...(await composerTargets.evaluateAll((targets) =>
           targets.map((target) => target.getBoundingClientRect().height),
         )),
       ),
     ).toBeGreaterThanOrEqual(44);
-    await page.getByRole("button", { name: "Cancel" }).click();
+    await expect(
+      inbox.getByRole("combobox", { name: "Existing branch for the session" }),
+    ).toBeVisible();
 
     await page.getByRole("button", { name: "Agent" }).click();
     const agentComposer = page.locator("[data-agent-composer]");
@@ -749,10 +838,11 @@ test.describe("session-addressed WebSocket transport", () => {
   test("replayed terminal device queries stay suppressed while live queries answer", async ({
     page,
   }) => {
-    const session = mockSession("main", "main", "claude", true);
+    const session = mockSession("main", "main", "claude");
     host.setSessions([session]);
     await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
     await host.waitUntilConnected();
+    await page.locator(".session-inbox-row").click();
     await host.waitForSession(session.address, "event", "terminal.shell", "ready");
 
     host.publishSession(session.address, "terminal.shell", "output", {

@@ -14,7 +14,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const distDir = join(here, "..", "dist");
 const shotsDir = join(here, ".recordings", "codex-composer");
 
-const codexSession = mockSession("cx", "codex", "codex", true);
+const codexSession = mockSession("cx", "codex", "codex");
 
 const controls = {
   state: {
@@ -245,6 +245,7 @@ test.describe("Codex composer", () => {
   async function mountCodex(page: Page): Promise<void> {
     await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
     await host.waitUntilConnected();
+    await page.locator(".session-inbox-row").click();
     const statusLine = page.locator(".agent-status-line");
     publishControls(controls);
     await expect(statusLine).toBeVisible();
@@ -991,7 +992,7 @@ test.describe("Codex composer", () => {
     page,
   }) => {
     await mountCodex(page);
-    const secondSession = mockSession("cx2", "other", "codex", false);
+    const secondSession = mockSession("cx2", "other", "codex");
     host.setSessions([codexSession, secondSession]);
     await expect(page.locator(".session-chip")).toHaveCount(2);
     host.publishSession(secondSession.address, "agent", "controls", controls);
@@ -1385,7 +1386,7 @@ test.describe("Codex composer", () => {
     await body.dispatchEvent("pointerdown", { pointerType: "touch" });
     await expect(navigation).toHaveCSS("opacity", "1");
     await expect(latestButton).toHaveCSS("width", "40px");
-    const freshSession = mockSession("cx-scroll-reset", "fresh", "codex", false);
+    const freshSession = mockSession("cx-scroll-reset", "fresh", "codex");
     host.setSessions([codexSession, freshSession]);
     host.publishSession(freshSession.address, "agent", "controls", controls);
     await page.locator('.session-chip[title^="fresh —"]').click();

@@ -14,7 +14,6 @@ export interface MockSession {
   label: string;
   address: SessionAddress | null;
   loaded: boolean;
-  primary: boolean;
   providerId: "claude" | "codex";
   agentSurface: "terminal" | "structured";
   agentInputProtocol: number;
@@ -59,14 +58,12 @@ export function mockSession(
   id: string,
   label: string,
   providerId: "claude" | "codex",
-  primary: boolean,
 ): MockLiveSession {
   return {
     id,
     label,
     address: { slot: id, incarnation: `${id}-incarnation` },
     loaded: true,
-    primary,
     providerId,
     agentSurface: providerId === "codex" ? "structured" : "terminal",
     agentInputProtocol: providerId === "codex" ? 2 : 0,
@@ -391,6 +388,20 @@ export class MockHost {
         feature,
         name,
       },
+      handler,
+    };
+    this.handlers.add(subscription);
+    return () => this.handlers.delete(subscription);
+  }
+
+  onHost(
+    kind: MessageEnvelope["kind"],
+    feature: string,
+    name: string,
+    handler: (message: MessageEnvelope) => void,
+  ): () => void {
+    const subscription = {
+      selector: { scope: "host" as const, session: null, kind, feature, name },
       handler,
     };
     this.handlers.add(subscription);

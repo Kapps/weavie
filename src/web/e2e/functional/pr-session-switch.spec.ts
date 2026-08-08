@@ -28,11 +28,11 @@ test("S1: navigator disappears on switch to non-PR session and returns on switch
   await openPr101(page);
   await expect(page.locator(newFileBand).first()).toBeVisible();
 
-  // The two chips: the PR session is the second (just-opened, active). The primary is the first.
+  // The two chips: the PR session is the second (just-opened, active). The workspace session is first.
   const primaryChip = page.locator(chips).first();
   const prChip = page.locator(chips).nth(1);
 
-  // Switch to the primary (non-PR) session.
+  // Switch to the workspace (non-PR) session.
   await primaryChip.click();
   // EXPECTED: the PR diff navigator/toolbar should go away on a non-PR session.
   await expect(page.locator(toolbar)).toHaveCount(0, { timeout: 10_000 });
@@ -62,7 +62,7 @@ test("S4: replying to a PR comment after a round-trip switch still posts and ref
     page.locator(".weavie-pr-comment-body", { hasText: "Why change this greeting?" }),
   ).toBeVisible({ timeout: 10_000 });
 
-  // Switch away to primary and back to the PR.
+  // Switch away to the workspace session and back to the PR.
   await page.locator(chips).first().click();
   await expect(page.locator(toolbar)).toHaveCount(0, { timeout: 10_000 });
   await page.locator(chips).nth(1).click();
@@ -97,7 +97,7 @@ test("S3: a stale per-file diff cannot render onto a non-PR session after a quic
   await expect(page.locator(toolbar)).toHaveCount(0, { timeout: 10_000 });
   await expect(page.locator(newFileBand)).toHaveCount(0, { timeout: 10_000 });
 
-  // Anchor the isolation check on a real later event instead of a fixed delay: open a file on the primary and
+  // Anchor the isolation check on a real later event instead of a fixed delay: open a file in the workspace session and
   // wait for its content. The old review update has had its chance to settle, but remains owned by its session.
   await page.locator(".tb-omnibar-input").click();
   await page.locator(".tb-omnibar-input").fill("notes.txt");
@@ -124,7 +124,7 @@ test("S5: a parked navigator does not linger after switching to a non-PR session
   await page.locator(".tb-omnibar-input").press("Enter");
   await expect(page.locator(".editor-tab", { hasText: "notes.txt" })).toBeVisible();
 
-  // Switch to the non-PR primary — the parked navigator must clear.
+  // Switch to the non-PR workspace session — the parked navigator must clear.
   await page.locator(chips).first().click();
   await expect(page.locator(toolbar)).toHaveCount(0, { timeout: 10_000 });
 });
@@ -136,7 +136,7 @@ test("S4b: PR comment surface is not reachable while a non-PR session is active"
   page,
 }) => {
   await openPr101(page);
-  // Switch to the non-PR primary.
+  // Switch to the non-PR workspace session.
   await page.locator(chips).first().click();
   // The whole PR comment surface should be gone — no thread, no composer to mis-post from.
   await expect(page.locator(".weavie-pr-thread")).toHaveCount(0, { timeout: 10_000 });

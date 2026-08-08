@@ -3,7 +3,7 @@ using Weavie.Core.FileSystem;
 
 namespace Weavie.Core.Editor;
 
-/// <summary>One recorded file visit: its native path, how many times it has been opened, and when it was last
+/// <summary>One recorded file visit: its workspace-relative path, how many times it has been opened, and when it was last
 /// opened (UTC ticks). Backs the frecency ranking in <see cref="RecentFilesStore"/>.</summary>
 public sealed record RecentFile(string Path, int Count, long LastOpenedTicks);
 
@@ -12,7 +12,7 @@ public sealed record RecentFile(string Path, int Count, long LastOpenedTicks);
 /// <c>~/.weavie/workspaces/&lt;id&gt;/recent-files.json</c>. Ranking is frecency — a file's visit count damped by a
 /// recency half-life — so a file opened often <em>and</em> recently outranks a one-off open, and stale entries fade
 /// without being discarded. Writes are atomic; a malformed file is backed up to <c>recent-files.json.bad</c> and
-/// reset, matching <see cref="EditorSessionStore"/>'s recovery contract.
+/// reset.
 /// </summary>
 public sealed class RecentFilesStore {
 	// Cap on persisted entries: past this the lowest-frecency files are evicted so the file never grows unbounded.
@@ -97,17 +97,16 @@ public sealed class RecentFilesStore {
 			FilePath,
 			text => {
 				var parsed = JsonSerializer.Deserialize<PersistModel>(text, JsonOptions);
-				if (parsed?.Files is not { } files) {
-					throw new JsonException("The document has no files list.");
+				if (parsed is not { Version: 2, Files: { } files }) {
+					throw new JsonException("The document is not a version 2 recent-files list.");
 				}
-
 				return [.. files.Where(file => !string.IsNullOrEmpty(file.Path))];
 			},
 			static () => [],
 			Log);
 
 	private void PersistLocked() {
-		var model = new PersistModel([.. _byPath.Values]);
+		var model = new PersistModel(2, [.. _byPath.Values]);
 		JsonStoreFile.Persist(
 			_fileSystem,
 			FilePath,
@@ -120,5 +119,5 @@ public sealed class RecentFilesStore {
 		WriteIndented = true,
 	};
 
-	private sealed record PersistModel(IReadOnlyList<RecentFile> Files);
+	private sealed record PersistModel(int Version, IReadOnlyList<RecentFile> Files);
 }

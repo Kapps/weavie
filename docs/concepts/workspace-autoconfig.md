@@ -20,7 +20,7 @@ preset table as "recreating the language×framework matrix as maintained data."
 
 That mechanism/knowledge split is elegant but the knowledge half is delivered badly:
 
-- **Slow.** The `weavie.workspace.setup` flow pre-fills a prompt into the primary session's Claude; a
+- **Slow.** The `weavie.workspace.setup` flow pre-fills a prompt into the invoking session's Claude; a
   full inspect-propose-confirm turn runs **~15 minutes** on a real repo.
 - **Inconsistent.** The model re-derives globs, symbol regexes, and command templates from scratch each
   time, so the same repo yields different profiles, some subtly wrong.
@@ -232,8 +232,8 @@ targeting a genuine gap rather than every fresh repo.
 ## Sequencing — why open-time detection lands in time
 
 Detection runs at **workspace open** (`HostCore` init), not at worktree create, because a repo's
-language is a workspace-level fact and the test profile must light up run-lenses in the **primary /
-main-worktree session immediately** — not only once the user makes a worktree.
+language is a workspace-level fact and the test profile must light up run-lenses in the **workspace-checkout
+session immediately** — not only once the user makes a worktree.
 
 `worktree.setupCommand` is consumed one layer down, per-worktree: `HostCore.StartWorktreeSetup`
 (`src/Weavie.Hosting/HostCore.Sessions.cs:241`) fires on worktree *create* (`NewSession` and the

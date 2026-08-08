@@ -8,7 +8,6 @@ export interface SessionCatalogEntry {
   label: string;
   address: SessionAddress | null;
   loaded: boolean;
-  primary: boolean;
   providerId: "claude" | "codex";
   agentSurface: "terminal" | "structured" | "unavailable";
   agentInputProtocol: number;

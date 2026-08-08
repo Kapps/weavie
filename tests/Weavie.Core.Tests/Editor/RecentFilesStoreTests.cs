@@ -28,10 +28,10 @@ public sealed class RecentFilesStoreTests {
 	public void Top_RanksMoreRecentFirstWhenCountsEqual() {
 		var fs = new InMemoryFileSystem();
 		var store = NewStore(fs);
-		store.Record("/a.cs", 1 * Day);
-		store.Record("/b.cs", 5 * Day);
+		store.Record("a.cs", 1 * Day);
+		store.Record("b.cs", 5 * Day);
 
-		Assert.Equal(["/b.cs", "/a.cs"], store.Top(10, 5 * Day));
+		Assert.Equal(["b.cs", "a.cs"], store.Top(10, 5 * Day));
 	}
 
 	[Fact]
@@ -41,27 +41,28 @@ public sealed class RecentFilesStoreTests {
 		// "/old" was visited many times but long ago; "/fresh" once, just now. With a multi-day half-life the
 		// fresh file wins — recency damps the stale file's higher raw count.
 		for (int i = 0; i < 5; i++) {
-			store.Record("/old.cs", 0);
+			store.Record("old.cs", 0);
 		}
 
-		store.Record("/fresh.cs", 30 * Day);
+		store.Record("fresh.cs", 30 * Day);
 
-		Assert.Equal("/fresh.cs", store.Top(2, 30 * Day)[0]);
+		Assert.Equal("fresh.cs", store.Top(2, 30 * Day)[0]);
 	}
 
 	[Fact]
 	public void Record_PersistsAndReloads() {
 		var fs = new InMemoryFileSystem();
 		var store = NewStore(fs);
-		store.Record("/a.cs", Day);
-		store.Record("/a.cs", 2 * Day);
-		store.Record("/b.cs", 3 * Day);
+		store.Record("a.cs", Day);
+		store.Record("a.cs", 2 * Day);
+		store.Record("b.cs", 3 * Day);
 		var before = store.Top(10, 3 * Day);
 
 		// A reloaded store ranks identically — count + last-opened survive the round-trip.
 		var reloaded = NewStore(fs);
-		Assert.Equal(["/a.cs", "/b.cs"], before);
+		Assert.Equal(["a.cs", "b.cs"], before);
 		Assert.Equal(before, reloaded.Top(10, 3 * Day));
+		Assert.Contains("\"version\": 2", fs.ReadAllText(Path), StringComparison.Ordinal);
 	}
 
 	[Fact]
@@ -70,19 +71,30 @@ public sealed class RecentFilesStoreTests {
 		var store = NewStore(fs);
 		// 250 distinct files at increasing recency; the cap is 200, so the 50 oldest must be dropped.
 		for (int i = 0; i < 250; i++) {
-			store.Record($"/f{i}.cs", i * Day);
+			store.Record($"f{i}.cs", i * Day);
 		}
 
 		var top = store.Top(1000, 250 * Day);
 		Assert.Equal(200, top.Count);
-		Assert.Contains("/f249.cs", top);
-		Assert.DoesNotContain("/f0.cs", top);
+		Assert.Contains("f249.cs", top);
+		Assert.DoesNotContain("f0.cs", top);
 	}
 
 	[Fact]
 	public void MalformedFile_BacksUpAndResets() {
 		var fs = new InMemoryFileSystem();
 		fs.WriteAllText(Path, "{ this is not valid json ");
+
+		var store = NewStore(fs);
+
+		Assert.True(fs.FileExists(Path + ".bad"));
+		Assert.Empty(store.Top(10, 0));
+	}
+
+	[Fact]
+	public void SupersededUnversionedFile_BacksUpAndResets() {
+		var fs = new InMemoryFileSystem();
+		fs.WriteAllText(Path, """{"files":[{"path":"/old/absolute.cs","count":1,"lastOpenedTicks":0}]}""");
 
 		var store = NewStore(fs);
 

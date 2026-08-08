@@ -53,13 +53,14 @@ load it only when you need it.
   presets" stance. See [docs/concepts/workspace-autoconfig.md](docs/concepts/workspace-autoconfig.md).
 - **Typed ad-hoc inference** — isolated typed queries through the selected installed Claude/Codex CLI,
   with caller-selected `Utility`/`Reasoning` categories, strict typed JSON validation, one Weavie attempt, and
-  feature-owned deterministic fallback. First consumer: convention-aware branch naming. See
+  feature-owned failure handling. First consumer: convention-aware branch naming, which leaves the field blank
+  for manual input when inference fails. See
   [docs/concepts/ad-hoc-inference.md](docs/concepts/ad-hoc-inference.md).
 - **Learn from corrections** — Weavie uniquely sees the user's *edit over the agent's output*, invisible to
   the model's transcript. Each correction is captured as a discrete event **at the moment the user acts** —
   an editor save that lands over an agent hunk, or a review-UI revert — gated to the lines the agent wrote
   (never by scanning the tree). It rings those per-workspace and the palette command `Learn From My
-  Corrections` (`weavie.learn.fromCorrections`) prefills the corpus into the primary session's Claude to
+  Corrections` (`weavie.learn.fromCorrections`) prefills the corpus into the invoking session's agent to
   propose `AGENTS.md` rules — Weavie stores the signal, Claude does the reasoning (no classifier in Core). A
   contextual-suggestion card nudges once enough accumulate. See
   [docs/specs/learn-from-corrections.md](docs/specs/learn-from-corrections.md).

@@ -11,19 +11,19 @@ This follows the [session-owned message bus](session-message-bus.md) contract.
 
 ## Persisted state
 
-The host persists the primary session to one file per workspace:
+The host persists every slot's editor state in the workspace's `sessions.json` overlay:
 
 ```jsonc
 {
-  "active": "/abs/path/to/file.ts",
-  "open": [
+  "version": 3,
+  "sessions": [
     {
-      "path": "/abs/path/to/file.ts",
-      "kind": null,
-      "viewState": {},
-      "preview": false,
-      "pinned": true,
-      "scratch": false
+      "id": "feature/editor-state",
+      "worktreePath": "/abs/path/to/worktree",
+      "editorSession": {
+        "active": "/abs/path/to/worktree/file.ts",
+        "open": [{ "path": "/abs/path/to/worktree/file.ts", "viewState": {} }]
+      }
     }
   ]
 }
@@ -34,10 +34,11 @@ source contents never appear in this state. Monaco reads and writes file content
 owning session's `files` feature; plan and source content live in their owning host-session state.
 The editor session contains navigation metadata only.
 
-`EditorSessionStore` loads this file, writes it atomically, backs up malformed JSON, and filters
-missing or out-of-workspace file entries before restore. Overlay entries do not require a filesystem
-path. A deleted active file becomes `null`. Worktree sessions retain the same state for their loaded
-lifetime but are not persisted across unload.
+`SessionStore` loads and writes the overlay atomically and backs up malformed or superseded documents.
+`EditorSessionSerialization` filters missing or out-of-session-root file entries before restore. Overlay
+entries do not require a filesystem path. A deleted active file becomes `null`. Unload keeps the slot's
+editor state, and loading or reopening the workspace restores that exact slot rather than borrowing state
+from another session.
 
 ## Protocol
 
@@ -123,8 +124,8 @@ already authoritative.
 
 ## Failure behavior
 
-- Missing persistence file: empty editor session.
-- Malformed persistence file: back up as `.bad`, report it, and reset.
+- Missing sessions overlay: empty editor state for each newly discovered slot.
+- Malformed or superseded sessions overlay: back up as `.bad`, report it, and reset.
 - Missing/out-of-workspace restored entry: report and omit it.
 - Dirty model save failure during unload/delete: fail the command and leave the session live.
 - Removed `ClientSession`: cancel its pending update and dispose its models/references.

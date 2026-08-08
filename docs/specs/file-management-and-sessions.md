@@ -9,7 +9,7 @@ graph TD
     A["App<br/>global stores and workspace windows"]
     A --> W1["Workspace HostCore<br/>window, layout, catalog"]
     A --> W2["Workspace HostCore"]
-    W1 --> S1["HostSession<br/>primary checkout"]
+    W1 --> S1["HostSession<br/>workspace checkout"]
     W1 --> S2["HostSession<br/>worktree"]
 ```
 
@@ -89,7 +89,7 @@ flushes watcher admission and drains file activity before its worktree can be re
 | settings, keybindings, remote-agent registry, recents | app |
 | layout and window geometry | workspace |
 | session slot/load overlay | workspace host |
-| primary editor session and scratch references | workspace |
+| per-slot editor sessions and scratch references | workspace host |
 | live editor/terminal/agent/LSP/review state | exact session incarnation |
 
 Persisted editor state contains paths and view metadata, not file contents. Disk remains authoritative for

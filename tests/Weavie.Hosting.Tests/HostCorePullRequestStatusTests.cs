@@ -30,7 +30,7 @@ public sealed class HostCorePullRequestStatusTests {
 			[pullRequest]);
 
 		var message = await Wait.ForAsync(() =>
-			host.Bridge.LastEvent(host.PrimarySession.Address, "git", "pullRequest"));
+			host.Bridge.LastEvent(host.WorkspaceSession.Address, "git", "pullRequest"));
 
 		Assert.Equal("main", message.GetProperty("branch").GetString());
 		Assert.Equal(123, message.GetProperty("pullRequest").GetProperty("number").GetInt32());
@@ -45,7 +45,7 @@ public sealed class HostCorePullRequestStatusTests {
 			Array.Empty<PullRequestSummary>());
 
 		var message = await Wait.ForAsync(() =>
-			host.Bridge.LastEvent(host.PrimarySession.Address, "git", "pullRequest"));
+			host.Bridge.LastEvent(host.WorkspaceSession.Address, "git", "pullRequest"));
 
 		Assert.Equal(System.Text.Json.JsonValueKind.Null, message.GetProperty("pullRequest").ValueKind);
 		Assert.Contains("doesn't support attacker.example", message.GetProperty("error").GetString());
@@ -62,14 +62,14 @@ public sealed class HostCorePullRequestStatusTests {
 		try {
 			host.Bridge.Clear();
 			await host.SessionRequestAsync<System.Text.Json.JsonElement>(
-				host.PrimarySession,
+				host.WorkspaceSession,
 				"lifecycle",
 				"sync",
 				new { });
 			Assert.False(provider.FirstCancelled.Task.IsCompleted);
 			provider.ReleaseFirst.SetResult();
 			var message = await Wait.ForAsync(() =>
-				host.Bridge.LastEvent(host.PrimarySession.Address, "git", "pullRequest"));
+				host.Bridge.LastEvent(host.WorkspaceSession.Address, "git", "pullRequest"));
 
 			Assert.Equal(456, message.GetProperty("pullRequest").GetProperty("number").GetInt32());
 		} finally {

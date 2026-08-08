@@ -20,7 +20,7 @@ public sealed class HostCoreDrainTests {
 		host.SelectedSession.Shell.EnsureStarted();
 		var shellTerminal = Assert.Single(host.Platform.NoopLauncher.Created);
 		host.SessionEvent(
-			host.PrimarySession,
+			host.WorkspaceSession,
 			"terminal.shell",
 			"input",
 			new { dataB64 = "aGk=" });
@@ -33,7 +33,7 @@ public sealed class HostCoreDrainTests {
 		Assert.NotNull(host.Bridge.LastEvent("updates", "restarting"));
 		// Input submitted after the commit is dropped, not forwarded into a turn the restart would discard.
 		host.SessionEvent(
-			host.PrimarySession,
+			host.WorkspaceSession,
 			"terminal.shell",
 			"input",
 			new { dataB64 = "aGk=" });

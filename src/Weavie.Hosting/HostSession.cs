@@ -348,8 +348,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 
 	/// <summary>
 	/// This session's open editor tabs (paths + opaque view state), in memory for the window's lifetime. The page
-	/// reports user-driven changes while host-driven opens mutate the same state. The primary also mirrors to the
-	/// persisted store; worktree sessions don't.
+	/// reports user-driven changes while host-driven opens mutate the same state. Its owning slot persists it.
 	/// </summary>
 	public EditorSession EditorSession {
 		get { lock (_editorSessionGate) { return _editorSession; } }
@@ -371,7 +370,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 		lock (_editorSessionGate) {
 			target.PublishJson(
 				"restore",
-				EditorSessionStore.BuildRestoreJson(
+				EditorSessionSerialization.BuildRestoreJson(
 					_editorSession,
 					FileSystem,
 					WorkspaceRoot,

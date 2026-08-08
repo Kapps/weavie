@@ -326,7 +326,14 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
 
 		session.Start();
-		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
+		// This initial wait spans the fake Codex subprocess spawn plus the initialize -> thread/start round trip;
+		// it stalled once on a loaded CI runner with the default 5 s budget (the same class of stall documented
+		// above for the "queued prompt" wait), so it gets the same wider budget + diagnostic treatment.
+		// https://github.com/Kapps/weavie/actions/runs/31148535789/job/92773908251 (5 s poll, 2026-08-07)
+		await WaitForAsync(
+			() => File.Exists(Path.Combine(_dir, "thread-start.json")),
+			attempts: 1200,
+			() => $"fake-server markers: [{string.Join(", ", Directory.GetFiles(_dir).Select(Path.GetFileName).Order())}]");
 		session.Submit(Submission("go", []));
 		await WaitForAsync(() => messages.Any(message => message.Type == "turn-started"));
 

@@ -1,5 +1,6 @@
-import { createMemo, createSignal } from "solid-js";
-import { type ClientSession, registerSessionFeature, selectedSession } from "../bridge";
+import { createMemo } from "solid-js";
+import { selectedSession } from "../bridge";
+import { createSessionFeatureValue } from "../messaging/session-feature-value";
 
 /** The selected session's Git branch, dirty flag, and complete working-tree totals against HEAD. */
 export interface GitStatus {
@@ -15,23 +16,10 @@ export interface GitStatus {
   error: string | null;
 }
 
-const [statuses, setStatuses] = createSignal(new Map<ClientSession, GitStatus>());
+const statusFor = createSessionFeatureValue<GitStatus, GitStatus>(
+  "git",
+  "status",
+  (status) => status,
+);
 
-export const gitStatus = createMemo(() => {
-  const session = selectedSession();
-  return session === null ? null : (statuses().get(session) ?? null);
-});
-
-registerSessionFeature((session) => {
-  const off = session.feature("git").on<GitStatus>("status", (status) => {
-    setStatuses((previous) => new Map(previous).set(session, status));
-  });
-  return () => {
-    off();
-    setStatuses((previous) => {
-      const next = new Map(previous);
-      next.delete(session);
-      return next;
-    });
-  };
-});
+export const gitStatus = createMemo(() => statusFor(selectedSession()));

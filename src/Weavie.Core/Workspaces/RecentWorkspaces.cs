@@ -86,38 +86,24 @@ public sealed class RecentWorkspaces {
 			b.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
 			OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
 
-	private List<string> LoadLocked() {
-		if (!_fileSystem.FileExists(FilePath)) {
-			return [];
-		}
-
-		string text;
-		try {
-			text = _fileSystem.ReadAllText(FilePath);
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			Log?.Invoke($"[recents] could not read {FilePath}: {ex.Message}; starting empty");
-			return [];
-		}
-
-		try {
-			var document = JsonSerializer.Deserialize<RecentsDocument>(text);
-			return document?.Recents is { } recents
-				? [.. recents.Where(p => !string.IsNullOrWhiteSpace(p))]
-				: [];
-		} catch (JsonException ex) {
-			Log?.Invoke($"[recents] {FilePath} is malformed ({ex.Message}); backing up to recents.json.bad and resetting");
-			JsonStoreFile.BackupBad(_fileSystem, FilePath, text, "recents", Log);
-			return [];
-		}
-	}
+	private List<string> LoadLocked() =>
+		JsonStoreFile.Load<List<string>>(
+			_fileSystem,
+			FilePath,
+			text => {
+				var document = JsonSerializer.Deserialize<RecentsDocument>(text);
+				return document?.Recents is { } recents
+					? [.. recents.Where(p => !string.IsNullOrWhiteSpace(p))]
+					: [];
+			},
+			static () => [],
+			Log);
 
 	private void PersistLocked() {
-		try {
-			string json = JsonSerializer.Serialize(new RecentsDocument { Version = 1, Recents = _items }, JsonOptions);
-			_fileSystem.WriteAllTextAtomic(FilePath, json);
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			Log?.Invoke($"[recents] could not persist recents: {ex.Message}");
-		}
+		string json = JsonSerializer.Serialize(
+			new RecentsDocument { Version = 1, Recents = _items },
+			JsonOptions);
+		JsonStoreFile.Persist(_fileSystem, FilePath, json, Log);
 	}
 
 	private sealed class RecentsDocument {

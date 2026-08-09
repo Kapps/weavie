@@ -1,6 +1,6 @@
-import { createEffect, createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js";
-import { Portal } from "solid-js/web";
+import { createEffect, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
 import { type PullRequestInfo, requestPullRequests, resolvePullRequest } from "../bridge";
+import { ModalShell, PromptActions, PromptButton } from "./ModalShell";
 import { type OpenPrTarget, parsePrRef } from "./pr-ref";
 
 const SEARCH_DEBOUNCE_MS = 250;
@@ -108,145 +108,125 @@ export function OpenPrPrompt(props: {
       props.onCancel();
     }
   };
-  onMount(() => window.addEventListener("keydown", onKeyDown, { capture: true }));
-  onCleanup(() => window.removeEventListener("keydown", onKeyDown, { capture: true }));
-
   return (
-    <Portal>
-      <div class="modal-backdrop" onPointerDown={() => props.onCancel()}>
-        <div
-          class="confirm-dialog session-prompt"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="open-pr-title"
-          onPointerDown={(event) => event.stopPropagation()}
-        >
-          <div class="confirm-title" id="open-pr-title">
-            Open pull request
-          </div>
-          <div class="confirm-body">
-            Search for a pull request, or paste its URL / type its number (e.g. #46) to open it
-            directly.
-          </div>
-          <div class="session-prompt-field">
-            <input
-              class="session-prompt-input"
-              type="text"
-              placeholder="search, #number, or URL"
-              spellcheck={false}
-              autocomplete="off"
-              value={query()}
-              onInput={(event) => {
-                setQuery(event.currentTarget.value);
-                setHighlight(0);
+    <ModalShell
+      labelledBy="open-pr-title"
+      onDismiss={props.onCancel}
+      onKeyDown={onKeyDown}
+      class="session-prompt"
+    >
+      <div class="confirm-title" id="open-pr-title">
+        Open pull request
+      </div>
+      <div class="confirm-body">
+        Search for a pull request, or paste its URL / type its number (e.g. #46) to open it
+        directly.
+      </div>
+      <div class="session-prompt-field">
+        <input
+          class="session-prompt-input"
+          type="text"
+          placeholder="search, #number, or URL"
+          spellcheck={false}
+          autocomplete="off"
+          value={query()}
+          onInput={(event) => {
+            setQuery(event.currentTarget.value);
+            setHighlight(0);
+          }}
+          ref={(el) => {
+            queueMicrotask(() => el.focus());
+          }}
+        />
+        {/* A direct #N / URL reference: one row to open it by number (resolved on the host). */}
+        <Show when={directRef() !== null}>
+          <ul class="session-prompt-suggestions">
+            <li
+              class="session-prompt-suggestion active"
+              onPointerDown={(event) => {
+                event.preventDefault();
+                openTarget(directRef() ?? undefined);
               }}
-              ref={(el) => {
-                queueMicrotask(() => el.focus());
-              }}
-            />
-            {/* A direct #N / URL reference: one row to open it by number (resolved on the host). */}
-            <Show when={directRef() !== null}>
-              <ul class="session-prompt-suggestions">
+            >
+              <span class="pr-suggestion-number">#{directRef()?.number}</span>
+              {/* Show the resolved PR's title/author once the preview lands; otherwise resolving / not-found. */}
+              <Show
+                when={typeof preview() === "object" ? (preview() as PullRequestInfo) : undefined}
+                fallback={
+                  <span class="pr-suggestion-title">
+                    {preview() === "notfound" ? "Not found in this repository" : "Resolving…"}
+                  </span>
+                }
+              >
+                {(pr) => (
+                  <>
+                    <span class="pr-suggestion-title">{pr().title}</span>
+                    <Show when={pr().draft}>
+                      <span class="pr-suggestion-draft">draft</span>
+                    </Show>
+                    <span class="pr-suggestion-meta">@{pr().author}</span>
+                  </>
+                )}
+              </Show>
+            </li>
+          </ul>
+        </Show>
+        <Show when={directRef() === null && loading()}>
+          <div class="session-prompt-hint">Searching pull requests…</div>
+        </Show>
+        <Show when={directRef() === null && !loading() && results().length === 0}>
+          <div class="session-prompt-hint">
+            No matching pull requests (or no GitHub credential).
+          </div>
+        </Show>
+        <Show when={directRef() === null && results().length > 0}>
+          <ul class="session-prompt-suggestions">
+            <For each={results()}>
+              {(pr, i) => (
                 <li
-                  class="session-prompt-suggestion active"
+                  class="session-prompt-suggestion"
+                  classList={{ active: i() === highlight() }}
+                  title={`Open #${pr.number}`}
                   onPointerDown={(event) => {
                     event.preventDefault();
-                    openTarget(directRef() ?? undefined);
+                    openResult(pr);
                   }}
                 >
-                  <span class="pr-suggestion-number">#{directRef()?.number}</span>
-                  {/* Show the resolved PR's title/author once the preview lands; otherwise resolving / not-found. */}
-                  <Show
-                    when={
-                      typeof preview() === "object" ? (preview() as PullRequestInfo) : undefined
-                    }
-                    fallback={
-                      <span class="pr-suggestion-title">
-                        {preview() === "notfound" ? "Not found in this repository" : "Resolving…"}
-                      </span>
-                    }
-                  >
-                    {(pr) => (
-                      <>
-                        <span class="pr-suggestion-title">{pr().title}</span>
-                        <Show when={pr().draft}>
-                          <span class="pr-suggestion-draft">draft</span>
-                        </Show>
-                        <span class="pr-suggestion-meta">@{pr().author}</span>
-                      </>
-                    )}
+                  <span class="pr-suggestion-number">#{pr.number}</span>
+                  <span class="pr-suggestion-title">{pr.title}</span>
+                  <Show when={pr.draft}>
+                    <span class="pr-suggestion-draft">draft</span>
                   </Show>
+                  <span class="pr-suggestion-meta">
+                    @{pr.author}
+                    <Show when={pr.headRef !== ""}> · {pr.headRef}</Show>
+                  </span>
                 </li>
-              </ul>
-            </Show>
-            <Show when={directRef() === null && loading()}>
-              <div class="session-prompt-hint">Searching pull requests…</div>
-            </Show>
-            <Show when={directRef() === null && !loading() && results().length === 0}>
-              <div class="session-prompt-hint">
-                No matching pull requests (or no GitHub credential).
-              </div>
-            </Show>
-            <Show when={directRef() === null && results().length > 0}>
-              <ul class="session-prompt-suggestions">
-                <For each={results()}>
-                  {(pr, i) => (
-                    <li
-                      class="session-prompt-suggestion"
-                      classList={{ active: i() === highlight() }}
-                      title={`Open #${pr.number}`}
-                      onPointerDown={(event) => {
-                        event.preventDefault();
-                        openResult(pr);
-                      }}
-                    >
-                      <span class="pr-suggestion-number">#{pr.number}</span>
-                      <span class="pr-suggestion-title">{pr.title}</span>
-                      <Show when={pr.draft}>
-                        <span class="pr-suggestion-draft">draft</span>
-                      </Show>
-                      <span class="pr-suggestion-meta">
-                        @{pr.author}
-                        <Show when={pr.headRef !== ""}> · {pr.headRef}</Show>
-                      </span>
-                    </li>
-                  )}
-                </For>
-              </ul>
-            </Show>
-          </div>
-          <div class="session-prompt-actions">
-            <button
-              type="button"
-              class="session-prompt-btn"
-              onClick={() => props.onCancel()}
-              title="Cancel (Esc)"
-            >
-              <span class="session-prompt-btn-label">Cancel</span>
-              <span class="session-prompt-btn-key">Esc</span>
-            </button>
-            <button
-              type="button"
-              class="session-prompt-btn session-prompt-btn-primary"
-              disabled={directRef() === null && results().length === 0}
-              onClick={() =>
-                openTarget(
-                  directRef() ??
-                    (results()[highlight()] && {
-                      number: results()[highlight()]!.number,
-                      owner: "",
-                      repo: "",
-                    }),
-                )
-              }
-              title="Open the selected pull request (Enter)"
-            >
-              <span class="session-prompt-btn-label">Open PR</span>
-              <span class="session-prompt-btn-key">Enter</span>
-            </button>
-          </div>
-        </div>
+              )}
+            </For>
+          </ul>
+        </Show>
       </div>
-    </Portal>
+      <PromptActions>
+        <PromptButton label="Cancel" shortcut="Esc" title="Cancel (Esc)" onClick={props.onCancel} />
+        <PromptButton
+          label="Open PR"
+          shortcut="Enter"
+          title="Open the selected pull request (Enter)"
+          disabled={directRef() === null && results().length === 0}
+          onClick={() =>
+            openTarget(
+              directRef() ??
+                (results()[highlight()] && {
+                  number: results()[highlight()]!.number,
+                  owner: "",
+                  repo: "",
+                }),
+            )
+          }
+          primary
+        />
+      </PromptActions>
+    </ModalShell>
   );
 }

@@ -133,45 +133,33 @@ public sealed class ClaudeSessionStore {
 	private static bool PathEquals(string a, string b) =>
 		string.Equals(a, b, OperatingSystem.IsLinux() ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase);
 
-	private List<Entry> LoadLocked() {
-		if (!_fileSystem.FileExists(FilePath)) {
-			return [];
-		}
+	private List<Entry> LoadLocked() =>
+		JsonStoreFile.Load<List<Entry>>(
+			_fileSystem,
+			FilePath,
+			text => {
+				var document = JsonSerializer.Deserialize<Document>(text);
+				if (document?.Sessions is not { } entries) {
+					return [];
+				}
 
-		string text;
-		try {
-			text = _fileSystem.ReadAllText(FilePath);
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			Log?.Invoke($"[claude-sessions] could not read {FilePath}: {ex.Message}; starting empty");
-			return [];
-		}
-
-		try {
-			var document = JsonSerializer.Deserialize<Document>(text);
-			if (document?.Sessions is not { } entries) {
-				return [];
-			}
-
-			return [.. entries
+				return [.. entries
 				.Where(e => !string.IsNullOrWhiteSpace(e.Cwd) && !string.IsNullOrWhiteSpace(e.Id))
 				.Select(e => new Entry { Key = e.Cwd, Id = e.Id })];
-		} catch (JsonException ex) {
-			Log?.Invoke($"[claude-sessions] {FilePath} is malformed ({ex.Message}); backing up to claude-sessions.json.bad and resetting");
-			JsonStoreFile.BackupBad(_fileSystem, FilePath, text, "claude-sessions", Log);
-			return [];
-		}
-	}
+			},
+			static () => [],
+			Log);
 
 	private void PersistLocked() {
-		try {
-			var document = new Document {
-				Version = 1,
-				Sessions = [.. _items.Select(e => new SessionEntry { Cwd = e.Key, Id = e.Id })],
-			};
-			_fileSystem.WriteAllTextAtomic(FilePath, JsonSerializer.Serialize(document, JsonOptions));
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			Log?.Invoke($"[claude-sessions] could not persist: {ex.Message}");
-		}
+		var document = new Document {
+			Version = 1,
+			Sessions = [.. _items.Select(e => new SessionEntry { Cwd = e.Key, Id = e.Id })],
+		};
+		JsonStoreFile.Persist(
+			_fileSystem,
+			FilePath,
+			JsonSerializer.Serialize(document, JsonOptions),
+			Log);
 	}
 
 	private sealed class Entry {

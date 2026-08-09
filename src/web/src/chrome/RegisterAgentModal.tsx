@@ -1,6 +1,6 @@
-import { createSignal, type JSX, onCleanup, onMount } from "solid-js";
-import { Portal } from "solid-js/web";
+import { createSignal, type JSX } from "solid-js";
 import { log } from "../bridge";
+import { ModalShell, modalSubmitKeys, PromptActions, PromptButton } from "./ModalShell";
 import { addAgent, type RemoteAgent } from "./remote-agents";
 
 // Register a remote agent (name + runner control-plane URL/token). On save we persist and connect, so it
@@ -44,89 +44,61 @@ export function RegisterAgentModal(props: {
     }
   };
 
-  const onKeyDown = (event: KeyboardEvent): void => {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      event.stopPropagation();
-      props.onClose();
-    } else if (event.key === "Enter") {
-      event.preventDefault();
-      event.stopPropagation();
-      void save();
-    }
-  };
-  onMount(() => window.addEventListener("keydown", onKeyDown, { capture: true }));
-  onCleanup(() => window.removeEventListener("keydown", onKeyDown, { capture: true }));
-
+  const onKeyDown = modalSubmitKeys(() => void save(), props.onClose);
   return (
-    <Portal>
-      <div class="modal-backdrop" onPointerDown={() => props.onClose()}>
-        <div
-          class="confirm-dialog session-prompt"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="register-agent-title"
-          onPointerDown={(event) => event.stopPropagation()}
-        >
-          <div class="confirm-title" id="register-agent-title">
-            Add remote agent
-          </div>
-          <div class="confirm-body">
-            Point Weavie at a remote runner. URL + token are printed in the runner's console at
-            startup (reachable over Tailscale, e.g. http://your-host:8800).
-          </div>
-          <input
-            class="session-prompt-input"
-            type="text"
-            placeholder="name (e.g. devbox)"
-            spellcheck={false}
-            autocomplete="off"
-            value={name()}
-            onInput={(e) => setName(e.currentTarget.value)}
-            ref={(el) => queueMicrotask(() => el.focus())}
-          />
-          <input
-            class="session-prompt-input"
-            type="text"
-            placeholder="runner URL (http://host:8800)"
-            spellcheck={false}
-            autocomplete="off"
-            value={url()}
-            onInput={(e) => setUrl(e.currentTarget.value)}
-          />
-          <input
-            class="session-prompt-input"
-            type="text"
-            placeholder="runner token"
-            spellcheck={false}
-            autocomplete="off"
-            value={token()}
-            onInput={(e) => setToken(e.currentTarget.value)}
-          />
-          {error() !== null ? <div class="session-prompt-error">{error()}</div> : null}
-          <div class="session-prompt-actions">
-            <button
-              type="button"
-              class="session-prompt-btn"
-              onClick={() => props.onClose()}
-              title="Cancel (Esc)"
-            >
-              <span class="session-prompt-btn-label">Cancel</span>
-              <span class="session-prompt-btn-key">Esc</span>
-            </button>
-            <button
-              type="button"
-              class="session-prompt-btn session-prompt-btn-primary"
-              disabled={!canSave()}
-              onClick={() => void save()}
-              title="Save + connect (Enter)"
-            >
-              <span class="session-prompt-btn-label">{busy() ? "Connecting…" : "Add"}</span>
-              <span class="session-prompt-btn-key">Enter</span>
-            </button>
-          </div>
-        </div>
+    <ModalShell
+      labelledBy="register-agent-title"
+      onDismiss={props.onClose}
+      onKeyDown={onKeyDown}
+      class="session-prompt"
+    >
+      <div class="confirm-title" id="register-agent-title">
+        Add remote agent
       </div>
-    </Portal>
+      <div class="confirm-body">
+        Point Weavie at a remote runner. URL + token are printed in the runner's console at startup
+        (reachable over Tailscale, e.g. http://your-host:8800).
+      </div>
+      <input
+        class="session-prompt-input"
+        type="text"
+        placeholder="name (e.g. devbox)"
+        spellcheck={false}
+        autocomplete="off"
+        value={name()}
+        onInput={(e) => setName(e.currentTarget.value)}
+        ref={(el) => queueMicrotask(() => el.focus())}
+      />
+      <input
+        class="session-prompt-input"
+        type="text"
+        placeholder="runner URL (http://host:8800)"
+        spellcheck={false}
+        autocomplete="off"
+        value={url()}
+        onInput={(e) => setUrl(e.currentTarget.value)}
+      />
+      <input
+        class="session-prompt-input"
+        type="text"
+        placeholder="runner token"
+        spellcheck={false}
+        autocomplete="off"
+        value={token()}
+        onInput={(e) => setToken(e.currentTarget.value)}
+      />
+      {error() !== null ? <div class="session-prompt-error">{error()}</div> : null}
+      <PromptActions>
+        <PromptButton label="Cancel" shortcut="Esc" title="Cancel (Esc)" onClick={props.onClose} />
+        <PromptButton
+          label={busy() ? "Connecting…" : "Add"}
+          shortcut="Enter"
+          title="Save + connect (Enter)"
+          onClick={() => void save()}
+          disabled={!canSave()}
+          primary
+        />
+      </PromptActions>
+    </ModalShell>
   );
 }

@@ -47,6 +47,84 @@ public interface ISystemNotificationChannel {
 	Task RemoveAsync(string replacementId, CancellationToken ct);
 }
 
+/// <summary>
+/// A platform notification channel whose native operations are supplied by its process-wide notification
+/// service. This owns the common per-window lifecycle and activation event.
+/// </summary>
+public sealed class SystemNotificationChannel : ISystemNotificationChannel, IDisposable {
+	private readonly Func<CancellationToken, Task<SystemNotificationPermission>> _getPermission;
+	private readonly Func<CancellationToken, Task<SystemNotificationPermission>> _requestPermission;
+	private readonly Func<SystemNotificationChannel, SystemNotification, CancellationToken, Task> _show;
+	private readonly Func<SystemNotificationChannel, string, CancellationToken, Task> _remove;
+	private readonly Action<SystemNotificationChannel> _dispose;
+	private int _disposed;
+
+	/// <summary>Creates a channel over one platform notification service.</summary>
+	public SystemNotificationChannel(
+		Func<CancellationToken, Task<SystemNotificationPermission>> getPermission,
+		Func<CancellationToken, Task<SystemNotificationPermission>> requestPermission,
+		Func<SystemNotificationChannel, SystemNotification, CancellationToken, Task> show,
+		Func<SystemNotificationChannel, string, CancellationToken, Task> remove,
+		Action<SystemNotificationChannel> dispose) {
+		ArgumentNullException.ThrowIfNull(getPermission);
+		ArgumentNullException.ThrowIfNull(requestPermission);
+		ArgumentNullException.ThrowIfNull(show);
+		ArgumentNullException.ThrowIfNull(remove);
+		ArgumentNullException.ThrowIfNull(dispose);
+		_getPermission = getPermission;
+		_requestPermission = requestPermission;
+		_show = show;
+		_remove = remove;
+		_dispose = dispose;
+	}
+
+	/// <inheritdoc/>
+	public event Action<SystemNotificationActivation>? Activated;
+
+	/// <inheritdoc/>
+	public Task<SystemNotificationPermission> GetPermissionAsync(CancellationToken ct) {
+		ThrowIfDisposed();
+		return _getPermission(ct);
+	}
+
+	/// <inheritdoc/>
+	public Task<SystemNotificationPermission> RequestPermissionAsync(CancellationToken ct) {
+		ThrowIfDisposed();
+		return _requestPermission(ct);
+	}
+
+	/// <inheritdoc/>
+	public Task ShowAsync(SystemNotification notification, CancellationToken ct) {
+		ArgumentNullException.ThrowIfNull(notification);
+		ThrowIfDisposed();
+		return _show(this, notification, ct);
+	}
+
+	/// <inheritdoc/>
+	public Task RemoveAsync(string replacementId, CancellationToken ct) {
+		ArgumentException.ThrowIfNullOrEmpty(replacementId);
+		ThrowIfDisposed();
+		return _remove(this, replacementId, ct);
+	}
+
+	/// <summary>Raises an activation reported by the platform service while this channel is live.</summary>
+	public void Activate(string activationId, string? activationToken) {
+		ArgumentException.ThrowIfNullOrEmpty(activationId);
+		if (Volatile.Read(ref _disposed) == 0) {
+			Activated?.Invoke(new SystemNotificationActivation(activationId, activationToken));
+		}
+	}
+
+	/// <inheritdoc/>
+	public void Dispose() {
+		if (Interlocked.Exchange(ref _disposed, 1) == 0) {
+			_dispose(this);
+		}
+	}
+
+	private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+}
+
 /// <summary>The required notification channel for a host with no native notification surface.</summary>
 public sealed class NoopSystemNotificationChannel : ISystemNotificationChannel {
 	private NoopSystemNotificationChannel() {

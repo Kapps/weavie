@@ -1,4 +1,5 @@
 using Microsoft.Web.WebView2.WinForms;
+using Weavie.Core.Sessions;
 using Weavie.Core.Shell;
 using Weavie.Core.Workspaces;
 using Weavie.Hosting;
@@ -38,7 +39,7 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow, IShellMenuAc
 	private readonly HostCore _core;
 	private readonly ControlUiDispatcher _dispatcher;
 	private readonly WinDialogs _dialogs;
-	private readonly WindowsNotificationChannel _notifications;
+	private readonly SystemNotificationChannel _notifications;
 	private bool _lastMaximized;
 	// Backs the title bar's blur dim, tracked from Activated/Deactivate.
 	private bool _focused = true;

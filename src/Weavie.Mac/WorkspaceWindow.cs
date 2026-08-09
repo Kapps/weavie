@@ -1,6 +1,7 @@
 using CoreGraphics;
 using Foundation;
 using Weavie.Core.Layout;
+using Weavie.Core.Sessions;
 using Weavie.Core.Shell;
 using Weavie.Core.Workspaces;
 using Weavie.Hosting;
@@ -21,7 +22,7 @@ internal sealed partial class WorkspaceWindow : IWebSurface, IShellMenuActions {
 	private readonly HostBridge _bridge = new();
 	private readonly HostCore _core;
 	private readonly WKWebView _webView;
-	private readonly MacNotificationChannel _notifications;
+	private readonly SystemNotificationChannel _notifications;
 	private NSObject? _resizeObserver;
 	private NSObject? _closeObserver;
 	private NSObject? _keyObserver;

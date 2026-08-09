@@ -20,7 +20,13 @@ public static class LayoutReconciler {
 		var notes = new List<string>();
 
 		// 1. Migrate unstable pane kinds, then prune panes whose kind is no longer registered.
-		var root = Prune(MigrateLegacyKinds(document.Root, notes), registry, notes) ?? FallbackRoot(registry, notes);
+		var root = LayoutTree.Filter(MigrateLegacyKinds(document.Root, notes), pane => {
+			if (registry.IsKnown(pane.Kind)) {
+				return true;
+			}
+			notes.Add($"pruned unknown pane kind '{pane.Kind}'");
+			return false;
+		}) ?? FallbackRoot(registry, notes);
 
 		// 2. Inject missing default panes unless the user explicitly dismissed them.
 		var present = new HashSet<string>(StringComparer.Ordinal);
@@ -56,36 +62,6 @@ public static class LayoutReconciler {
 		bool mutated = !string.Equals(
 			LayoutSerialization.Serialize(document), LayoutSerialization.Serialize(reconciled), StringComparison.Ordinal);
 		return new ReconcileOutcome(reconciled, mutated, notes);
-	}
-
-	private static LayoutNode? Prune(LayoutNode node, PaneRegistry registry, List<string> notes) {
-		switch (node) {
-			case PaneNode pane:
-				if (registry.IsKnown(pane.Kind)) {
-					return pane;
-				}
-
-				notes.Add($"pruned unknown pane kind '{pane.Kind}'");
-				return null;
-			case SplitNode split:
-				var children = new List<LayoutNode>();
-				var weights = new List<double>();
-				for (int i = 0; i < split.Children.Count; i++) {
-					var child = Prune(split.Children[i], registry, notes);
-					if (child is not null) {
-						children.Add(child);
-						weights.Add(i < split.Weights.Count ? split.Weights[i] : 1.0);
-					}
-				}
-
-				return children.Count switch {
-					0 => null,
-					1 => children[0],
-					_ => split with { Children = children, Weights = weights },
-				};
-			default:
-				return node;
-		}
 	}
 
 	private static LayoutNode MigrateLegacyKinds(LayoutNode node, List<string> notes) {
@@ -219,4 +195,30 @@ public static class LayoutReconciler {
 
 	private static string NewId(string kind) =>
 		"p_" + string.Concat(kind.Select(static ch => char.IsLetterOrDigit(ch) ? ch : '_'));
+}
+
+internal static class LayoutTree {
+	public static LayoutNode? Filter(LayoutNode node, Func<PaneNode, bool> keep) {
+		if (node is PaneNode pane) {
+			return keep(pane) ? pane : null;
+		}
+		if (node is not SplitNode split) {
+			return node;
+		}
+
+		var children = new List<LayoutNode>();
+		var weights = new List<double>();
+		for (int i = 0; i < split.Children.Count; i++) {
+			var child = Filter(split.Children[i], keep);
+			if (child is not null) {
+				children.Add(child);
+				weights.Add(i < split.Weights.Count ? split.Weights[i] : 1.0);
+			}
+		}
+		return children.Count switch {
+			0 => null,
+			1 => children[0],
+			_ => split with { Children = children, Weights = weights },
+		};
+	}
 }

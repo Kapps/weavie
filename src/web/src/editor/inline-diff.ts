@@ -123,8 +123,32 @@ export interface InlineDiffOptions {
   onReply?: (inReplyTo: number, body: string) => void;
 }
 
+/** Diff navigation and actions exposed to commands, keybindings, the palette, and Claude. */
+export interface InlineDiffActions {
+  nextChange(): boolean;
+  prevChange(): boolean;
+  /** Walk to the next / previous file in the post-turn review set (applied mode). */
+  nextFile(): boolean;
+  prevFile(): boolean;
+  accept(): boolean;
+  reject(): boolean;
+  /** Revert the whole turn (revert all); confirms first. */
+  undo(): boolean;
+  /** Keep / revert every change in the active file (applied review); revertFile confirms first. */
+  keepFile(): boolean;
+  revertFile(): boolean;
+  /** Keep the whole accumulated review set (applied review). */
+  keepAll(): boolean;
+  /** Comment on the current line (a PR file under review); false (key falls through) otherwise. */
+  comment(): boolean;
+  /** Undo the most recent keep / revert, or redo the last undone action; false when none. */
+  undoKeep(): boolean;
+  undoRevert(): boolean;
+  redoReview(): boolean;
+}
+
 /** Per-editor inline-diff controller. Diffs are keyed by file path; only the editor's current model renders. */
-export interface InlineDiff {
+export interface InlineDiff extends InlineDiffActions {
   /** Register (or replace) the diff for a file path; renders immediately if that file is the active model. */
   set(session: ClientSession, path: string, options: InlineDiffOptions): void;
   /** Remove the diff for a file path. */
@@ -137,35 +161,6 @@ export interface InlineDiff {
   clearAll(): void;
   /** Whether a diff is registered for an exact model URI string (so other features can suspend over it). */
   hasDiffForUri(uri: string): boolean;
-  // The nav/action methods return whether they handled the key, so an unmatched keybinding falls through to the editor.
-  /** Jump to the next change hunk in the active diff. */
-  nextChange(): boolean;
-  /** Jump to the previous change hunk in the active diff. */
-  prevChange(): boolean;
-  /** Walk to the next file in the review set (applied mode); false when there's nothing to step to. */
-  nextFile(): boolean;
-  /** Walk to the previous file in the review set (applied mode); false when there's nothing to step to. */
-  prevFile(): boolean;
-  /** Keep at the toolbar's current scope (applied review), or accept the openDiff proposal (review mode). */
-  accept(): boolean;
-  /** Revert at the toolbar's current scope (applied review), or reject the openDiff proposal (review mode). */
-  reject(): boolean;
-  /** Undo the active applied turn (revert all). */
-  undo(): boolean;
-  /** Keep every change in the active file (applied review): advance its review baseline to current. */
-  keepFile(): boolean;
-  /** Revert every change in the active file on disk (applied review). */
-  revertFile(): boolean;
-  /** Keep the whole accumulated review set in one action (applied review). */
-  keepAll(): boolean;
-  /** Comment on the current line (a PR file under review); false (key falls through) otherwise. */
-  comment(): boolean;
-  /** Undo the most recent keep; false (key falls through) when there's none. */
-  undoKeep(): boolean;
-  /** Undo the most recent revert; false (key falls through) when there's none. */
-  undoRevert(): boolean;
-  /** Redo the most recently undone review action; false when there's none. */
-  redoReview(): boolean;
   /** Bind the session-global undo/redo handlers (set once; review undo/redo isn't tied to a file). */
   bindHistory(handlers: ReviewHistoryHandlers): void;
   /** Update the review undo/redo availability (host-pushed) so the toolbar + chords reflect it. */

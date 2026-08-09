@@ -109,42 +109,27 @@ public sealed class RailStateStore {
 		Changed?.Invoke();
 	}
 
-	private Document LoadLocked() {
-		if (!_fileSystem.FileExists(FilePath)) {
-			return new Document();
-		}
-
-		string text;
-		try {
-			text = _fileSystem.ReadAllText(FilePath);
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			Log?.Invoke($"[rail-state] could not read {FilePath}: {ex.Message}; starting empty");
-			return new Document();
-		}
-
-		try {
-			return JsonSerializer.Deserialize<Document>(text) ?? new Document();
-		} catch (JsonException ex) {
-			Log?.Invoke($"[rail-state] {FilePath} is malformed ({ex.Message}); backing up to rail-state.json.bad and resetting");
-			JsonStoreFile.BackupBad(_fileSystem, FilePath, text, "rail-state", Log);
-			return new Document();
-		}
-	}
+	private Document LoadLocked() => JsonStoreFile.Load(
+		_fileSystem,
+		FilePath,
+		text => JsonSerializer.Deserialize<Document>(text) ?? new Document(),
+		static () => new Document(),
+		Log);
 
 	private void PersistLocked() {
-		try {
-			var document = new Document {
-				Version = 2,
-				LastLocation = _lastLocation,
-				Promoted = _promoted,
-				Selected = _selected is { } selected
-					? new SelectionEntry { BackendId = selected.BackendId, Slot = selected.Slot }
-					: null,
-			};
-			_fileSystem.WriteAllTextAtomic(FilePath, JsonSerializer.Serialize(document, JsonOptions));
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			Log?.Invoke($"[rail-state] could not persist: {ex.Message}");
-		}
+		var document = new Document {
+			Version = 2,
+			LastLocation = _lastLocation,
+			Promoted = _promoted,
+			Selected = _selected is { } selected
+				? new SelectionEntry { BackendId = selected.BackendId, Slot = selected.Slot }
+				: null,
+		};
+		JsonStoreFile.Persist(
+			_fileSystem,
+			FilePath,
+			JsonSerializer.Serialize(document, JsonOptions),
+			Log);
 	}
 
 	private sealed class Document {

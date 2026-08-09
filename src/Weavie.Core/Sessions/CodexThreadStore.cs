@@ -103,45 +103,33 @@ public sealed class CodexThreadStore {
 	private static bool PathEquals(string a, string b) =>
 		string.Equals(a, b, OperatingSystem.IsLinux() ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase);
 
-	private List<Entry> LoadLocked() {
-		if (!_fileSystem.FileExists(FilePath)) {
-			return [];
-		}
+	private List<Entry> LoadLocked() =>
+		JsonStoreFile.Load<List<Entry>>(
+			_fileSystem,
+			FilePath,
+			text => {
+				var document = JsonSerializer.Deserialize<Document>(text);
+				if (document?.Threads is not { } entries) {
+					return [];
+				}
 
-		string text;
-		try {
-			text = _fileSystem.ReadAllText(FilePath);
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			Log?.Invoke($"[codex-threads] could not read {FilePath}: {ex.Message}; starting empty");
-			return [];
-		}
-
-		try {
-			var document = JsonSerializer.Deserialize<Document>(text);
-			if (document?.Threads is not { } entries) {
-				return [];
-			}
-
-			return [.. entries
+				return [.. entries
 				.Where(e => !string.IsNullOrWhiteSpace(e.Cwd) && !string.IsNullOrWhiteSpace(e.Id))
 				.Select(e => new Entry { Key = e.Cwd, Id = e.Id, Mode = e.Mode })];
-		} catch (JsonException ex) {
-			Log?.Invoke($"[codex-threads] {FilePath} is malformed ({ex.Message}); backing up to codex-threads.json.bad and resetting");
-			JsonStoreFile.BackupBad(_fileSystem, FilePath, text, "codex-threads", Log);
-			return [];
-		}
-	}
+			},
+			static () => [],
+			Log);
 
 	private void PersistLocked() {
-		try {
-			var document = new Document {
-				Version = 1,
-				Threads = [.. _items.Select(e => new ThreadEntry { Cwd = e.Key, Id = e.Id, Mode = e.Mode })],
-			};
-			_fileSystem.WriteAllTextAtomic(FilePath, JsonSerializer.Serialize(document, JsonOptions));
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			Log?.Invoke($"[codex-threads] could not persist: {ex.Message}");
-		}
+		var document = new Document {
+			Version = 1,
+			Threads = [.. _items.Select(e => new ThreadEntry { Cwd = e.Key, Id = e.Id, Mode = e.Mode })],
+		};
+		JsonStoreFile.Persist(
+			_fileSystem,
+			FilePath,
+			JsonSerializer.Serialize(document, JsonOptions),
+			Log);
 	}
 
 	private sealed class Entry {

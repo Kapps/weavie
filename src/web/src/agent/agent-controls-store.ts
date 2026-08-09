@@ -2,12 +2,8 @@
 // own controls stream; selection only chooses which owned state the status line renders.
 
 import { createSignal } from "solid-js";
-import {
-  type AgentControlState,
-  type AgentModelChoice,
-  type ClientSession,
-  registerSessionFeature,
-} from "../bridge";
+import type { AgentControlState, AgentModelChoice, ClientSession } from "../bridge";
+import { createSessionFeatureValue } from "../messaging/session-feature-value";
 
 /** The reserved axis id for the merged model → effort / Fast control's cascading picker. */
 export const MODEL_AXIS = "model";
@@ -17,13 +13,17 @@ const EMPTY: AgentControlState = {
   axes: [],
   slash: [],
 };
-const [states, setStates] = createSignal(new Map<ClientSession, AgentControlState>());
+const stateFor = createSessionFeatureValue<{ state: AgentControlState }, AgentControlState>(
+  "agent",
+  "controls",
+  ({ state }) => state,
+);
 // Which axis id's picker is open (null = none); the composer owns the one active picker at a time.
 const [openAxis, setOpenAxis] = createSignal<string | null>(null);
 
 /** One exact session's control surface; empty before its host has reported one. */
 export function agentControlState(session: ClientSession | null): AgentControlState {
-  return session === null || session.closed ? EMPTY : (states().get(session) ?? EMPTY);
+  return stateFor(session) ?? EMPTY;
 }
 
 /** The active model in a session's control state, or undefined before the host reports it. */
@@ -93,17 +93,3 @@ export function openControlPicker(axis: string): void {
 export function closeControlPicker(): void {
   setOpenAxis(null);
 }
-
-registerSessionFeature((session) => {
-  const off = session.feature("agent").on<{ state: AgentControlState }>("controls", ({ state }) => {
-    setStates((previous) => new Map(previous).set(session, state));
-  });
-  return () => {
-    off();
-    setStates((previous) => {
-      const next = new Map(previous);
-      next.delete(session);
-      return next;
-    });
-  };
-});

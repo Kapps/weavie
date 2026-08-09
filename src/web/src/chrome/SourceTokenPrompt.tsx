@@ -1,7 +1,7 @@
-import { createSignal, type JSX, onCleanup, onMount, Show } from "solid-js";
-import { Portal } from "solid-js/web";
+import { createSignal, type JSX, Show } from "solid-js";
 import type { ClientSession } from "../bridge";
 import { submitSourceToken } from "../editor/source/source-store";
+import { ModalShell, modalSubmitKeys, PromptActions, PromptButton } from "./ModalShell";
 
 // Paste-your-token dialog for connecting a source (e.g. Notion). The host has already opened the source's token
 // page in the browser; the user pastes the personal access token here and we hand it to the host to validate +
@@ -33,87 +33,57 @@ export function SourceTokenPrompt(props: {
     }
   };
 
-  const onKeyDown = (event: KeyboardEvent): void => {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      event.stopPropagation();
-      void submit();
-    } else if (event.key === "Escape") {
-      event.preventDefault();
-      event.stopPropagation();
-      props.onClose();
-    }
-  };
-  onMount(() => window.addEventListener("keydown", onKeyDown, { capture: true }));
-  onCleanup(() => window.removeEventListener("keydown", onKeyDown, { capture: true }));
-
+  const onKeyDown = modalSubmitKeys(() => void submit(), props.onClose);
   return (
-    <Portal>
-      <div class="modal-backdrop" onPointerDown={() => props.onClose()}>
-        <div
-          class="confirm-dialog session-prompt"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="source-token-title"
-          onPointerDown={(event) => event.stopPropagation()}
-        >
-          <div class="confirm-title" id="source-token-title">
-            Connect {props.label}
-          </div>
-          <div class="confirm-body">
-            We opened {props.label}'s token page in your browser. Create a personal access token
-            there, then paste it here to connect.
-          </div>
-          <div class="session-prompt-field">
-            <input
-              class="session-prompt-input"
-              type="password"
-              placeholder={`Paste your ${props.label} token`}
-              spellcheck={false}
-              autocomplete="off"
-              disabled={submitting()}
-              value={token()}
-              onInput={(event) => {
-                setToken(event.currentTarget.value);
-                setError(null);
-              }}
-              ref={(el) => {
-                queueMicrotask(() => el.focus());
-              }}
-            />
-            <Show when={error()}>
-              {(message) => (
-                <div class="session-prompt-error" role="alert">
-                  {message()}
-                </div>
-              )}
-            </Show>
-          </div>
-          <div class="session-prompt-actions">
-            <button
-              type="button"
-              class="session-prompt-btn"
-              onClick={() => props.onClose()}
-              title="Cancel (Esc)"
-            >
-              <span class="session-prompt-btn-label">Cancel</span>
-              <span class="session-prompt-btn-key">Esc</span>
-            </button>
-            <button
-              type="button"
-              class="session-prompt-btn session-prompt-btn-primary"
-              disabled={token().trim() === "" || submitting()}
-              onClick={() => void submit()}
-              title="Connect (Enter)"
-            >
-              <span class="session-prompt-btn-label">
-                {submitting() ? "Connecting…" : "Connect"}
-              </span>
-              <span class="session-prompt-btn-key">Enter</span>
-            </button>
-          </div>
-        </div>
+    <ModalShell
+      labelledBy="source-token-title"
+      onDismiss={props.onClose}
+      onKeyDown={onKeyDown}
+      class="session-prompt"
+    >
+      <div class="confirm-title" id="source-token-title">
+        Connect {props.label}
       </div>
-    </Portal>
+      <div class="confirm-body">
+        We opened {props.label}'s token page in your browser. Create a personal access token there,
+        then paste it here to connect.
+      </div>
+      <div class="session-prompt-field">
+        <input
+          class="session-prompt-input"
+          type="password"
+          placeholder={`Paste your ${props.label} token`}
+          spellcheck={false}
+          autocomplete="off"
+          disabled={submitting()}
+          value={token()}
+          onInput={(event) => {
+            setToken(event.currentTarget.value);
+            setError(null);
+          }}
+          ref={(el) => {
+            queueMicrotask(() => el.focus());
+          }}
+        />
+        <Show when={error()}>
+          {(message) => (
+            <div class="session-prompt-error" role="alert">
+              {message()}
+            </div>
+          )}
+        </Show>
+      </div>
+      <PromptActions>
+        <PromptButton label="Cancel" shortcut="Esc" title="Cancel (Esc)" onClick={props.onClose} />
+        <PromptButton
+          label={submitting() ? "Connecting…" : "Connect"}
+          shortcut="Enter"
+          title="Connect (Enter)"
+          onClick={() => void submit()}
+          disabled={token().trim() === "" || submitting()}
+          primary
+        />
+      </PromptActions>
+    </ModalShell>
   );
 }

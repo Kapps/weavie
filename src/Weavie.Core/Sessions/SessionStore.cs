@@ -89,29 +89,20 @@ public sealed class SessionStore {
 		}
 	}
 
-	private List<SessionDescriptor> LoadLocked() {
-		if (!_fileSystem.FileExists(FilePath)) {
-			return [];
-		}
+	private List<SessionDescriptor> LoadLocked() =>
+		JsonStoreFile.Load<List<SessionDescriptor>>(
+			_fileSystem,
+			FilePath,
+			text => {
+				var document = JsonSerializer.Deserialize<SessionsDocument>(text);
+				if (document?.Sessions is not { } entries) {
+					return [];
+				}
 
-		string text;
-		try {
-			text = _fileSystem.ReadAllText(FilePath);
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			Log?.Invoke($"[sessions] could not read {FilePath}: {ex.Message}; starting empty");
-			return [];
-		}
+				_shellCols = document.ShellCols;
+				_shellRows = document.ShellRows;
 
-		try {
-			var document = JsonSerializer.Deserialize<SessionsDocument>(text);
-			if (document?.Sessions is not { } entries) {
-				return [];
-			}
-
-			_shellCols = document.ShellCols;
-			_shellRows = document.ShellRows;
-
-			return [.. entries
+				return [.. entries
 				.Where(e => !string.IsNullOrWhiteSpace(e.Id) && !string.IsNullOrWhiteSpace(e.WorktreePath))
 				.Select(e => new SessionDescriptor {
 					Id = new SessionId(e.Id),
@@ -121,32 +112,29 @@ public sealed class SessionStore {
 					Loaded = e.Loaded,
 					AgentProviderId = string.IsNullOrWhiteSpace(e.AgentProviderId) ? "claude" : e.AgentProviderId,
 				})];
-		} catch (JsonException ex) {
-			Log?.Invoke($"[sessions] {FilePath} is malformed ({ex.Message}); backing up to sessions.json.bad and resetting");
-			JsonStoreFile.BackupBad(_fileSystem, FilePath, text, "sessions", Log);
-			return [];
-		}
-	}
+			},
+			static () => [],
+			Log);
 
 	private void PersistLocked() {
-		try {
-			var document = new SessionsDocument {
-				Version = 2,
-				ShellCols = _shellCols,
-				ShellRows = _shellRows,
-				Sessions = [.. _items.Select(s => new SessionEntry {
-					Id = s.Id.Value,
-					Label = s.Label,
-					WorktreePath = s.WorktreePath,
-					IsPrimary = s.IsPrimary,
-					Loaded = s.Loaded,
-					AgentProviderId = s.AgentProviderId,
-				})],
-			};
-			_fileSystem.WriteAllTextAtomic(FilePath, JsonSerializer.Serialize(document, JsonOptions));
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			Log?.Invoke($"[sessions] could not persist session set: {ex.Message}");
-		}
+		var document = new SessionsDocument {
+			Version = 2,
+			ShellCols = _shellCols,
+			ShellRows = _shellRows,
+			Sessions = [.. _items.Select(s => new SessionEntry {
+				Id = s.Id.Value,
+				Label = s.Label,
+				WorktreePath = s.WorktreePath,
+				IsPrimary = s.IsPrimary,
+				Loaded = s.Loaded,
+				AgentProviderId = s.AgentProviderId,
+			})],
+		};
+		JsonStoreFile.Persist(
+			_fileSystem,
+			FilePath,
+			JsonSerializer.Serialize(document, JsonOptions),
+			Log);
 	}
 
 	private sealed class SessionsDocument {

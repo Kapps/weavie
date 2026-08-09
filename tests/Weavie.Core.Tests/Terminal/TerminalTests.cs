@@ -6,44 +6,6 @@ using Xunit;
 
 namespace Weavie.Core.Tests;
 
-public sealed class FakeTerminalTests {
-	[Fact]
-	public void Start_SetsRunningAndRecordsStartInfo() {
-		var term = new FakeTerminal();
-		var info = new TerminalStartInfo { Command = "/bin/zsh", Columns = 100, Rows = 30 };
-		term.Start(info);
-		Assert.True(term.IsRunning);
-		Assert.Same(info, term.LastStartInfo);
-	}
-
-	[Fact]
-	public void Write_IsRecorded() {
-		var term = new FakeTerminal();
-		term.Write("ls\r"u8.ToArray());
-		Assert.Equal("ls\r", term.WrittenText);
-	}
-
-	[Fact]
-	public void EmitOutput_RaisesOutput() {
-		var term = new FakeTerminal();
-		string? received = null;
-		term.Output += b => received = Encoding.UTF8.GetString(b);
-		term.EmitOutput("hello");
-		Assert.Equal("hello", received);
-	}
-
-	[Fact]
-	public void EmitExit_StopsRunningAndRaisesExit() {
-		var term = new FakeTerminal();
-		term.Start(new TerminalStartInfo { Command = "/bin/zsh" });
-		int code = -1;
-		term.Exited += c => code = c;
-		term.EmitExit(0);
-		Assert.False(term.IsRunning);
-		Assert.Equal(0, code);
-	}
-}
-
 public sealed class WindowsConPtyTerminalTests {
 	[Fact]
 	public void Dispose_KillsTheAttachedProcessTree() {

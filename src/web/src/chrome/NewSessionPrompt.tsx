@@ -1,7 +1,7 @@
 import { createEffect, createSignal, For, type JSX, Show } from "solid-js";
-import { Portal } from "solid-js/web";
 import { connectedBackends, requestBranches } from "../bridge";
 import { BranchTypeahead, branchSuggestions } from "./BranchTypeahead";
+import { ModalShell } from "./ModalShell";
 
 // Prompt for a new worktree session: pick the location (local or a remote agent), then name the branch via a
 // typeahead over the backend's branches — type a new name to create (Enter = off HEAD, Shift+Enter = off
@@ -70,150 +70,138 @@ export function NewSessionPrompt(props: {
   };
 
   return (
-    <Portal>
-      <div class="modal-backdrop" onPointerDown={() => props.onCancel()}>
-        <div
-          class="confirm-dialog session-prompt"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="new-session-title"
-          onPointerDown={(event) => event.stopPropagation()}
-        >
-          <div class="confirm-title" id="new-session-title">
-            New session
-          </div>
-          <div class="confirm-body">
-            A session runs on its own git worktree + branch. Pick where it runs, then name a new
-            branch or pick an existing one to check out.
-          </div>
-          {/* Location: the local host or a remote agent. A <div> (not <label>) so the Disconnect button
+    <ModalShell labelledBy="new-session-title" onDismiss={props.onCancel} class="session-prompt">
+      <div class="confirm-title" id="new-session-title">
+        New session
+      </div>
+      <div class="confirm-body">
+        A session runs on its own git worktree + branch. Pick where it runs, then name a new branch
+        or pick an existing one to check out.
+      </div>
+      {/* Location: the local host or a remote agent. A <div> (not <label>) so the Disconnect button
               doesn't act as a label proxy refocusing the select; Disconnect shows only when a remote is picked. */}
-          <div class="session-prompt-location">
-            <span class="session-prompt-location-label">Location</span>
-            <select
-              class="session-prompt-select"
-              onChange={(event) => {
-                if (event.currentTarget.value === "__add__") {
-                  event.currentTarget.value = backendId();
-                  props.onAddRemote();
-                } else {
-                  setBackendId(event.currentTarget.value);
-                }
-              }}
-            >
-              <For each={connectedBackends()}>
-                {(backend) => (
-                  <option value={backend.id} selected={backend.id === backendId()}>
-                    {backend.isLocal ? "default (local)" : backend.name}
-                  </option>
-                )}
-              </For>
-              <option value="__add__">Add remote agent…</option>
-            </select>
-            <Show when={selectedRemoteName() !== ""}>
+      <div class="session-prompt-location">
+        <span class="session-prompt-location-label">Location</span>
+        <select
+          class="session-prompt-select"
+          onChange={(event) => {
+            if (event.currentTarget.value === "__add__") {
+              event.currentTarget.value = backendId();
+              props.onAddRemote();
+            } else {
+              setBackendId(event.currentTarget.value);
+            }
+          }}
+        >
+          <For each={connectedBackends()}>
+            {(backend) => (
+              <option value={backend.id} selected={backend.id === backendId()}>
+                {backend.isLocal ? "default (local)" : backend.name}
+              </option>
+            )}
+          </For>
+          <option value="__add__">Add remote agent…</option>
+        </select>
+        <Show when={selectedRemoteName() !== ""}>
+          <button
+            type="button"
+            class="session-prompt-location-remove"
+            title={`Disconnect ${selectedRemoteName()} — close its bridge and forget this remote agent`}
+            onClick={() => {
+              props.onDisconnect(backendId());
+              setBackendId("local");
+            }}
+          >
+            Disconnect
+          </button>
+        </Show>
+      </div>
+      <div class="session-prompt-location">
+        <span class="session-prompt-location-label">Agent</span>
+        <select
+          class="session-prompt-select"
+          value={agentProviderId()}
+          onChange={(event) => setAgentProviderId(event.currentTarget.value as "claude" | "codex")}
+        >
+          <option value="claude">Claude Code</option>
+          <option value="codex">Codex (WIP)</option>
+        </select>
+      </div>
+      <div class="session-prompt-field">
+        <BranchTypeahead
+          idPrefix="session-branch"
+          placeholder="branch name"
+          ariaLabel="Branch name"
+          branches={branches()}
+          value={branch()}
+          setValue={setBranch}
+          onSubmit={(text, shiftKey, viaPick) => {
+            if (viaPick || branches().includes(text)) {
+              checkout(text); // an existing branch (picked or typed in full) → check it out
+            } else {
+              create(shiftKey ? "main" : "head"); // a new branch name → create it
+            }
+          }}
+          onCancel={() => props.onCancel()}
+        />
+        {/* While branches load, say so — otherwise a typed name that matches an existing branch looks
+                like a new branch (no suggestion yet), and a hung backend looks identical to an empty repo. */}
+        <Show
+          when={
+            loadingBranches() &&
+            trimmed().length > 0 &&
+            branchSuggestions(branches(), branch()).length === 0
+          }
+        >
+          <div class="session-prompt-hint">Loading branches…</div>
+        </Show>
+      </div>
+      <div class="session-prompt-actions">
+        <button
+          type="button"
+          class="session-prompt-btn"
+          onClick={() => props.onCancel()}
+          title="Cancel (Esc)"
+        >
+          <span class="session-prompt-btn-label">Cancel</span>
+          <span class="session-prompt-btn-key">Esc</span>
+        </button>
+        <Show
+          when={matchedExisting()}
+          fallback={
+            <>
               <button
                 type="button"
-                class="session-prompt-location-remove"
-                title={`Disconnect ${selectedRemoteName()} — close its bridge and forget this remote agent`}
-                onClick={() => {
-                  props.onDisconnect(backendId());
-                  setBackendId("local");
-                }}
+                class="session-prompt-btn"
+                onClick={() => create("main")}
+                title="Branch off main (Shift+Enter)"
               >
-                Disconnect
+                <span class="session-prompt-btn-label">Off main</span>
+                <span class="session-prompt-btn-key">Shift+Enter</span>
               </button>
-            </Show>
-          </div>
-          <div class="session-prompt-location">
-            <span class="session-prompt-location-label">Agent</span>
-            <select
-              class="session-prompt-select"
-              value={agentProviderId()}
-              onChange={(event) =>
-                setAgentProviderId(event.currentTarget.value as "claude" | "codex")
-              }
-            >
-              <option value="claude">Claude Code</option>
-              <option value="codex">Codex (WIP)</option>
-            </select>
-          </div>
-          <div class="session-prompt-field">
-            <BranchTypeahead
-              idPrefix="session-branch"
-              placeholder="branch name"
-              ariaLabel="Branch name"
-              branches={branches()}
-              value={branch()}
-              setValue={setBranch}
-              onSubmit={(text, shiftKey, viaPick) => {
-                if (viaPick || branches().includes(text)) {
-                  checkout(text); // an existing branch (picked or typed in full) → check it out
-                } else {
-                  create(shiftKey ? "main" : "head"); // a new branch name → create it
-                }
-              }}
-              onCancel={() => props.onCancel()}
-            />
-            {/* While branches load, say so — otherwise a typed name that matches an existing branch looks
-                like a new branch (no suggestion yet), and a hung backend looks identical to an empty repo. */}
-            <Show
-              when={
-                loadingBranches() &&
-                trimmed().length > 0 &&
-                branchSuggestions(branches(), branch()).length === 0
-              }
-            >
-              <div class="session-prompt-hint">Loading branches…</div>
-            </Show>
-          </div>
-          <div class="session-prompt-actions">
-            <button
-              type="button"
-              class="session-prompt-btn"
-              onClick={() => props.onCancel()}
-              title="Cancel (Esc)"
-            >
-              <span class="session-prompt-btn-label">Cancel</span>
-              <span class="session-prompt-btn-key">Esc</span>
-            </button>
-            <Show
-              when={matchedExisting()}
-              fallback={
-                <>
-                  <button
-                    type="button"
-                    class="session-prompt-btn"
-                    onClick={() => create("main")}
-                    title="Branch off main (Shift+Enter)"
-                  >
-                    <span class="session-prompt-btn-label">Off main</span>
-                    <span class="session-prompt-btn-key">Shift+Enter</span>
-                  </button>
-                  <button
-                    type="button"
-                    class="session-prompt-btn session-prompt-btn-primary"
-                    onClick={() => create("head")}
-                    title="Branch off HEAD (Enter)"
-                  >
-                    <span class="session-prompt-btn-label">Off HEAD</span>
-                    <span class="session-prompt-btn-key">Enter</span>
-                  </button>
-                </>
-              }
-            >
               <button
                 type="button"
                 class="session-prompt-btn session-prompt-btn-primary"
-                onClick={() => checkout(trimmed())}
-                title={`Check out existing branch ${trimmed()} (Enter)`}
+                onClick={() => create("head")}
+                title="Branch off HEAD (Enter)"
               >
-                <span class="session-prompt-btn-label">Check out {trimmed()}</span>
+                <span class="session-prompt-btn-label">Off HEAD</span>
                 <span class="session-prompt-btn-key">Enter</span>
               </button>
-            </Show>
-          </div>
-        </div>
+            </>
+          }
+        >
+          <button
+            type="button"
+            class="session-prompt-btn session-prompt-btn-primary"
+            onClick={() => checkout(trimmed())}
+            title={`Check out existing branch ${trimmed()} (Enter)`}
+          >
+            <span class="session-prompt-btn-label">Check out {trimmed()}</span>
+            <span class="session-prompt-btn-key">Enter</span>
+          </button>
+        </Show>
       </div>
-    </Portal>
+    </ModalShell>
   );
 }

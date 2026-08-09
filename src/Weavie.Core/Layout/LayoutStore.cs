@@ -108,7 +108,9 @@ public sealed class LayoutStore {
 			var dismissed = _current.Dismissed.Contains(kind)
 				? _current.Dismissed
 				: [.. _current.Dismissed, kind];
-			var stripped = RemoveKind(_current.Root, kind) ?? _current.Root;
+			var stripped = LayoutTree.Filter(
+				_current.Root,
+				pane => !string.Equals(pane.Kind, kind, StringComparison.Ordinal)) ?? _current.Root;
 			var candidate = _current with { Root = stripped, Dismissed = dismissed };
 			var outcome = LayoutReconciler.Reconcile(candidate, _registry);
 			LogNotes(outcome.Notes);
@@ -160,7 +162,7 @@ public sealed class LayoutStore {
 
 		if (!LayoutSerialization.TryDeserialize(text, out var parsed, out string? error) || parsed is null) {
 			Log?.Invoke($"[layout] {FilePath} is malformed ({error}); backing up to layout.json.bad and resetting");
-			JsonStoreFile.BackupBad(_fileSystem, FilePath, text, "layout", Log);
+			JsonStoreFile.BackupBad(_fileSystem, FilePath, text, Log);
 			var fresh = LayoutPanes.Default(_registry);
 			PersistLocked(fresh);
 			return fresh;
@@ -175,13 +177,8 @@ public sealed class LayoutStore {
 		return outcome.Document;
 	}
 
-	private void PersistLocked(LayoutDocument document) {
-		try {
-			_fileSystem.WriteAllTextAtomic(FilePath, LayoutSerialization.Serialize(document));
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			Log?.Invoke($"[layout] could not persist layout: {ex.Message}");
-		}
-	}
+	private void PersistLocked(LayoutDocument document) =>
+		JsonStoreFile.Persist(_fileSystem, FilePath, LayoutSerialization.Serialize(document), Log);
 
 	private void LogNotes(IReadOnlyList<string> notes) {
 		foreach (string note in notes) {
@@ -215,31 +212,6 @@ public sealed class LayoutStore {
 			SplitNode split => split.Children.Any(HasPane),
 			_ => false,
 		};
-
-	private static LayoutNode? RemoveKind(LayoutNode node, string kind) {
-		switch (node) {
-			case PaneNode pane:
-				return string.Equals(pane.Kind, kind, StringComparison.Ordinal) ? null : pane;
-			case SplitNode split:
-				var children = new List<LayoutNode>();
-				var weights = new List<double>();
-				for (int i = 0; i < split.Children.Count; i++) {
-					var child = RemoveKind(split.Children[i], kind);
-					if (child is not null) {
-						children.Add(child);
-						weights.Add(i < split.Weights.Count ? split.Weights[i] : 1.0);
-					}
-				}
-
-				return children.Count switch {
-					0 => null,
-					1 => children[0],
-					_ => split with { Children = children, Weights = weights },
-				};
-			default:
-				return node;
-		}
-	}
 
 	private sealed class Subscription(Action dispose) : IDisposable {
 		private Action? _dispose = dispose;

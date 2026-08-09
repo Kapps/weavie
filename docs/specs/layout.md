@@ -131,9 +131,8 @@ existing `Configuration` code.
 
 ### Atomic writes (the filesystem seam)
 
-`IFileSystem.WriteAllText` is *not* made atomic, because two production callers use it to save the
-user's actual source files — `InMemoryDocumentModel.Save()` and the MCP diff-apply in
-`McpServer.HandleOpenDiff` (`FILE_SAVED`). Atomic tmp+rename on a user's source file is a loaded
+`IFileSystem.WriteAllText` is *not* made atomic, because production callers use it to save the
+user's actual source files. Atomic tmp+rename on a user's source file is a loaded
 behavior change (different file-watcher events, broken hardlinks, lost ACLs, a `.tmp` blinking next
 to their code) — that's why editors make it an opt-in setting, and it's out of scope here. Instead we
 add an explicit variant for *our own* config documents:

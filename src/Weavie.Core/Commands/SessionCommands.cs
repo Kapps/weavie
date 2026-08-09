@@ -16,6 +16,9 @@ public static class SessionCommands {
 	/// <summary>Shows the shared Sessions home in the UI; <c>$mod+Shift+n</c>.</summary>
 	public const string ShowSessions = "weavie.session.show";
 
+	/// <summary>Submits the focused new-session composer; <c>Shift+Enter</c>.</summary>
+	public const string SubmitNewSession = "weavie.session.submitNew";
+
 	/// <summary>Opens the pull-request picker (check out a PR's branch as a session) in the UI; <c>$mod+Shift+r</c>.</summary>
 	public const string OpenPr = "weavie.pr.open";
 
@@ -88,6 +91,18 @@ public static class SessionCommands {
 			Description = "Show all sessions and the shared new-session composer.",
 			Aliases = ["new session", "show sessions", "session home"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+n" }],
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = SubmitNewSession,
+			Title = "Start New Session",
+			RunsIn = CommandLocation.Web,
+			Owner = CommandOwner.Client,
+			Category = "Session",
+			Description = "Submit the new-session composer while its prompt is focused.",
+			Aliases = ["submit new session", "start new session", "create session from prompt"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "Shift+Enter", When = "newSessionPromptFocused" }],
+			ShowInPalette = false,
 		});
 
 		registry.Register(new CommandDefinition {

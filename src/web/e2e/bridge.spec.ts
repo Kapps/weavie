@@ -665,6 +665,8 @@ test.describe("session-addressed WebSocket transport", () => {
     page,
   }) => {
     const primary = mockSession("main", "main", "codex");
+    const branches = ["main"];
+    host.onHost("request", "git", "branches", (request) => host.respond(request, branches));
     const dormant = Array.from({ length: 12 }, (_, index) => ({
       ...mockSession(`dormant-${index}`, `feature/dormant-${index}`, "codex"),
       address: null,
@@ -676,6 +678,7 @@ test.describe("session-addressed WebSocket transport", () => {
     await host.waitUntilConnected();
 
     const inbox = page.locator(".session-inbox");
+    await expect(inbox.locator('#session-existing-branches option[value="main"]')).toHaveCount(1);
     const geometry = await inbox.evaluate((element) => {
       const composer = element.querySelector<HTMLElement>(".session-composer");
       const options = element.querySelector<HTMLElement>(".session-composer-options");
@@ -721,6 +724,7 @@ test.describe("session-addressed WebSocket transport", () => {
     await page.getByRole("button", { name: "Sessions", exact: true }).click();
 
     const checkpoint = host.checkpoint();
+    branches.push("release/available-after-reconnect");
     host.pauseHello();
     host.disconnectBridge();
     await host.waitUntilConnected(checkpoint);
@@ -767,6 +771,12 @@ test.describe("session-addressed WebSocket transport", () => {
     host.resumeHello();
     await expect(primaryRow.locator(".session-inbox-state")).toHaveText("Idle");
     await expect(toast).toHaveCount(0);
+    await expect(
+      inbox.locator('#session-existing-branches option[value="release/available-after-reconnect"]'),
+    ).toHaveCount(1);
+    await expect(
+      inbox.getByRole("region", { name: "Open an existing branch" }).getByRole("alert"),
+    ).toHaveCount(0);
 
     const composerTargets = inbox.locator(
       ".session-composer-source select, .session-composer-branch input",

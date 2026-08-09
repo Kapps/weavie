@@ -3,6 +3,7 @@ import { createMemo, createSignal, For, type JSX, onCleanup, onMount, Show } fro
 import { Portal } from "solid-js/web";
 import { formatKey } from "../commands/keybindings";
 import { findCommand, runCommandWithFeedback } from "../commands/registry";
+import { modalActive, onModalOpened } from "./modal-state";
 
 // One row: a command to dispatch, an optional label override (defaults to the command's catalog title), and
 // a danger flag for destructive actions.
@@ -235,6 +236,7 @@ function MenuPanel(props: {
  * open signal. See docs/specs/commands.md.
  */
 export function ContextMenu(props: { menu: ContextMenuState; onClose: () => void }): JSX.Element {
+  let stopModalListener = (): void => {};
   const onPointerDown = (event: PointerEvent): void => {
     if (!(event.target as HTMLElement).closest(".context-menu")) {
       props.onClose();
@@ -246,11 +248,17 @@ export function ContextMenu(props: { menu: ContextMenuState; onClose: () => void
     }
   };
   onMount(() => {
+    if (modalActive()) {
+      props.onClose();
+      return;
+    }
+    stopModalListener = onModalOpened(props.onClose);
     window.addEventListener("pointerdown", onPointerDown);
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("blur", props.onClose);
   });
   onCleanup(() => {
+    stopModalListener();
     window.removeEventListener("pointerdown", onPointerDown);
     window.removeEventListener("keydown", onKeyDown);
     window.removeEventListener("blur", props.onClose);

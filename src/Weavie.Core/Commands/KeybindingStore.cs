@@ -203,6 +203,7 @@ public sealed class KeybindingStore : IDisposable {
 					// A per-binding guard overrides the command-level one (and never gates palette visibility),
 					// so one chord can be focus-scoped while the command stays in the palette.
 					When = binding.When ?? definition.When,
+					ActiveInModal = definition.KeybindingsActiveInModal,
 					Global = binding.Global,
 				});
 			}
@@ -216,11 +217,13 @@ public sealed class KeybindingStore : IDisposable {
 					string.Equals(b.Key, entry.Key, StringComparison.Ordinal)
 					&& string.Equals(b.Command, entry.Command, StringComparison.Ordinal));
 			} else {
+				var definition = _registry.Require(entry.Command);
 				result.Add(new ResolvedKeybinding {
 					Key = entry.Key,
 					Command = entry.Command,
 					ArgsJson = entry.ArgsJson,
 					When = entry.When,
+					ActiveInModal = definition.KeybindingsActiveInModal,
 					Global = entry.Global,
 				});
 			}

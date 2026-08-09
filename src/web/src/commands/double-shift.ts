@@ -2,6 +2,8 @@
 // callback. Outside the keybinding resolver, which never matches a modifiers-only chord. Any other key or
 // modifier alongside Shift breaks the sequence. Capture-phase so a focused xterm/Monaco can't swallow it.
 
+import { evaluateWhen } from "./context";
+
 const DOUBLE_TAP_WINDOW_MS = 300;
 
 /** Installs the double-shift gesture detector; returns a teardown function. */
@@ -15,6 +17,10 @@ export function installDoubleShift(onTrigger: () => void): () => void {
   };
 
   const onKeyDown = (event: KeyboardEvent): void => {
+    if (evaluateWhen("modalOpen")) {
+      reset();
+      return;
+    }
     if (event.key === "Shift") {
       // Shift held together with another modifier (e.g. Ctrl+Shift) is not the gesture.
       if (event.ctrlKey || event.metaKey || event.altKey) {
@@ -29,6 +35,10 @@ export function installDoubleShift(onTrigger: () => void): () => void {
   };
 
   const onKeyUp = (event: KeyboardEvent): void => {
+    if (evaluateWhen("modalOpen")) {
+      reset();
+      return;
+    }
     if (event.key !== "Shift" || !armed) {
       return;
     }

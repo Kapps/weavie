@@ -261,6 +261,12 @@ One deliberate asymmetry with keydown: those two buttons are **always cancelled*
 auxclick), matched or not, because their default action — the webview's own history navigation — would
 navigate the whole app away.
 
+While a modal owns keyboard input, the resolver blocks bindings for the obscured session. A command whose
+focused modal surface owns a shortcut declares `KeybindingsActiveInModal`; Core carries that capability onto
+every resolved binding for the command, including user-added chords. Its normal `when` guard still decides
+whether the active surface can consume the chord. The same command and binding therefore work when that
+surface is layout-native on compact screens without a second mobile-only shortcut path.
+
 ### Global hotkeys
 
 A binding may set `"global": true` (declared via `CommandKeybinding.Global`, carried through to the

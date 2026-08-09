@@ -1,4 +1,4 @@
-import { createSignal, type JSX, onMount, Show } from "solid-js";
+import { createSignal, type JSX, Show } from "solid-js";
 import { ModalShell, modalSubmitKeys } from "./ModalShell";
 
 // Normalize user input to an http(s) URL: a bare host gets an https:// scheme, and only http/https is accepted.
@@ -27,7 +27,6 @@ export function UrlPrompt(props: {
 }): JSX.Element {
   const [value, setValue] = createSignal("");
   const [invalid, setInvalid] = createSignal(false);
-  let input!: HTMLInputElement;
 
   const submit = (): void => {
     const url = normalizeUrl(value());
@@ -39,9 +38,6 @@ export function UrlPrompt(props: {
   };
 
   const onKeyDown = modalSubmitKeys(submit, props.onCancel);
-  onMount(() => {
-    input.focus();
-  });
 
   return (
     <ModalShell labelledBy="url-prompt-title" onDismiss={props.onCancel} onKeyDown={onKeyDown}>
@@ -52,7 +48,9 @@ export function UrlPrompt(props: {
         Open an http(s) page in a web tab — e.g. a local dev server to preview your app.
       </div>
       <input
-        ref={input}
+        ref={(element) => {
+          queueMicrotask(() => element.focus());
+        }}
         class="url-prompt-input"
         type="text"
         placeholder="localhost:3000"

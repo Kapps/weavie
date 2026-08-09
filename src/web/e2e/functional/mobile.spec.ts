@@ -385,7 +385,8 @@ test("compact session inbox creates, resumes, and switches existing surfaces", a
   await expect(startButton).toHaveCSS("background-color", primaryColors.background);
   await expect(startButton).toHaveCSS("color", primaryColors.foreground);
   const inboxHistoryLength = await page.evaluate(() => history.length);
-  await startButton.click();
+  await newSessionPrompt.focus();
+  await newSessionPrompt.press("Shift+Enter");
 
   await expect(inbox).toBeHidden();
   await expect(page.locator(".mobile-surface-button.active")).toHaveText("Agent");

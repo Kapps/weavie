@@ -141,6 +141,12 @@ function matches(chord: Chord, event: KeyboardEvent): boolean {
   return modifiersMatch(chord, event) && normalizeKey(event.key) === chord.key;
 }
 
+function bindingEnabled(binding: ResolvedKeybinding): boolean {
+  return (
+    evaluateWhen(binding.when) && (!evaluateWhen("modalOpen") || binding.activeInModal === true)
+  );
+}
+
 let compiled: {
   catalogBackendId: string;
   chord: Chord;
@@ -175,7 +181,7 @@ export function installKeybindings(): () => void {
         continue;
       }
       const { catalogBackendId, chord, binding } = entry;
-      if (!matches(chord, event) || !evaluateWhen(binding.when)) {
+      if (!matches(chord, event) || !bindingEnabled(binding)) {
         continue;
       }
       if (runForKeybindingFromCatalog(catalogBackendId, binding.command, binding.args)) {
@@ -208,7 +214,7 @@ export function installKeybindings(): () => void {
       if (entry === undefined || MOUSE_BUTTONS[entry.chord.key] !== event.button) {
         continue;
       }
-      if (!modifiersMatch(entry.chord, event) || !evaluateWhen(entry.binding.when)) {
+      if (!modifiersMatch(entry.chord, event) || !bindingEnabled(entry.binding)) {
         continue;
       }
       if (

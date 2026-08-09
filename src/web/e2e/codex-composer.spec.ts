@@ -245,7 +245,6 @@ test.describe("Codex composer", () => {
   async function mountCodex(page: Page): Promise<void> {
     await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
     await host.waitUntilConnected();
-    await page.locator(".session-inbox-row").click();
     const statusLine = page.locator(".agent-status-line");
     publishControls(controls);
     await expect(statusLine).toBeVisible();

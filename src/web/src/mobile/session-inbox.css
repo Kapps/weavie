@@ -11,15 +11,69 @@
   background: var(--bg);
 }
 
-.app.sessions-home .session-inbox {
-  display: flex;
-  flex: 1 1 auto;
-  max-width: 880px;
-  margin-inline: auto;
+.session-inbox-surface,
+.session-inbox-dialog {
+  display: none;
 }
 
-.app.sessions-home .pane-area {
-  display: none;
+.session-inbox-surface.open {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  overflow: auto;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.5);
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+}
+
+.session-inbox-surface.open .session-inbox-dialog {
+  position: relative;
+  display: flex;
+  width: min(880px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  min-height: 0;
+  margin: auto;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+}
+
+.session-inbox-surface.open .session-inbox {
+  display: flex;
+  flex: 1 1 auto;
+  width: 100%;
+  overflow-y: auto;
+}
+
+.session-inbox-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 11;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dim);
+  cursor: pointer;
+}
+
+.session-inbox-close:hover {
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+  color: var(--fg);
+}
+
+.session-inbox-close:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 .session-inbox-header {
@@ -231,6 +285,11 @@
   overscroll-behavior: contain;
 }
 
+.session-inbox-surface.open .session-inbox-list {
+  flex: 0 0 auto;
+  overflow: visible;
+}
+
 .session-inbox-row {
   display: flex;
   align-items: center;
@@ -309,6 +368,15 @@
 }
 
 @media (max-width: 760px), ((max-height: 520px) and (pointer: coarse)) {
+  .app.compact .session-inbox-surface,
+  .app.compact .session-inbox-dialog {
+    display: contents;
+  }
+
+  .app.compact .session-inbox-close {
+    display: none;
+  }
+
   .app.compact.mobile-inbox .session-inbox {
     display: flex;
   }

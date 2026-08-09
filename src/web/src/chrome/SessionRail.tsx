@@ -14,6 +14,7 @@ const CLOUD_PATH = "M6.5 19A4.5 4.5 0 0 1 6 10.05 6 6 0 0 1 17.7 9 4.5 4.5 0 0 1
 // button (RemoteAgentsPanel). Chip hue is set via a ref because Solid's reactive `style={{}}` breaks here.
 export function SessionRail(props: {
   sessions: RailSession[];
+  inert: boolean;
   hasRemotes: boolean;
   remoteActive: boolean;
   onSwitch: (session: RailSession) => void;
@@ -62,7 +63,7 @@ export function SessionRail(props: {
 
   return (
     <>
-      <div class="session-rail">
+      <div class="session-rail" inert={props.inert}>
         <For each={props.sessions}>
           {(session, index) => (
             <button

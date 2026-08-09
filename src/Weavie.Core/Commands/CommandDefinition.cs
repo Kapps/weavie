@@ -101,6 +101,9 @@ public sealed record CommandDefinition {
 	/// <summary>Default keybinding(s); a user keybinding can override or unbind them.</summary>
 	public IReadOnlyList<CommandKeybinding> DefaultKeybindings { get; init; } = [];
 
+	/// <summary>Whether this command's keybindings may run while a modal owns keyboard input.</summary>
+	public bool KeybindingsActiveInModal { get; init; }
+
 	/// <summary>Whether this command appears in the omnibar command palette (false for keybinding-only commands).</summary>
 	public bool ShowInPalette { get; init; } = true;
 

@@ -23,6 +23,7 @@ public sealed class SessionCommandsTests {
 		var submitBinding = Assert.Single(submitDef.DefaultKeybindings);
 		Assert.Equal("Shift+Enter", submitBinding.Key);
 		Assert.Equal("newSessionPromptFocused", submitBinding.When);
+		Assert.True(submitDef.KeybindingsActiveInModal);
 		Assert.True(registry.TryGet(SessionCommands.ForkSession, out var forkDef));
 		Assert.Equal(CommandLocation.Core, forkDef!.RunsIn);
 		Assert.True(registry.TryGet(SessionCommands.LoadSession, out var loadDef));

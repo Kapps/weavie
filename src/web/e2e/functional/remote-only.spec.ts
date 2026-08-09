@@ -30,7 +30,6 @@ test("the bridge reconnects after a reload @remote", async ({ page }) => {
   await expect(page.locator(".layout-root")).toBeVisible();
   await page.reload({ waitUntil: "domcontentloaded" });
   await expect(page.locator("#splash")).toHaveCount(0, { timeout: 40_000 });
-  await expect(page.locator(".session-inbox")).toBeVisible();
-  await page.locator(".session-inbox-row").click();
+  await expect(page.locator(".session-inbox")).toBeHidden();
   await expect(page.locator(".layout-root")).toBeVisible();
 });

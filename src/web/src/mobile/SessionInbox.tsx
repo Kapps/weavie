@@ -1,12 +1,16 @@
-import { createEffect, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
+import { createEffect, createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js";
 import {
   AgentAttachmentStrip,
   type AgentAttachmentViewStatus,
 } from "../agent/AgentAttachmentStrip";
 import { agentImageError, encodeAgentImage, takePastedImages } from "../agent/pasted-images";
-import { connectedBackends, requestBranches, selectedSession } from "../bridge";
+import { backendPhase, connectedBackends, requestBranches, selectedSession } from "../bridge";
 import type { BranchPreviewState } from "../chrome/new-session-branch-preview";
 import type { RailSession } from "../chrome/session-store";
+import { setContext } from "../commands/context";
+import { keyHint } from "../commands/key-hint";
+import { registerCommand } from "../commands/registry";
+import { CommandIds } from "../commands/types";
 import { type NewSessionBranchActions, NewSessionBranchField } from "./NewSessionBranchField";
 import { SessionInboxRow } from "./SessionInboxRow";
 
@@ -61,6 +65,7 @@ export function SessionInbox(props: {
     status: "idle",
   });
   let branchActions: NewSessionBranchActions | undefined;
+  let promptInput!: HTMLTextAreaElement;
   let wasActive = false;
   let previousBackendId = props.initialBackendId;
   let previousProviderId = props.initialProviderId;
@@ -92,13 +97,21 @@ export function SessionInbox(props: {
 
   createEffect(() => {
     const id = backendId();
+    const phase = backendPhase(id);
     if (!props.active) return;
+    if (selectedSession()?.connection.id !== id) {
+      setBase("main");
+    }
+    setBranches([]);
+    setBranchListError("");
+    if (phase !== "online") {
+      setLoadingBranches(true);
+      return;
+    }
     let current = true;
     onCleanup(() => {
       current = false;
     });
-    setBranches([]);
-    setBranchListError("");
     setLoadingBranches(true);
     void requestBranches(id).then(
       (result) => {
@@ -112,9 +125,6 @@ export function SessionInbox(props: {
         setLoadingBranches(false);
       },
     );
-    if (selectedSession()?.connection.id !== id) {
-      setBase("main");
-    }
   });
 
   const submitNew = async (): Promise<void> => {
@@ -228,8 +238,6 @@ export function SessionInbox(props: {
     }
   };
 
-  onCleanup(clearAttachments);
-
   const canStart = (): boolean => {
     const images = attachments();
     return (
@@ -238,6 +246,29 @@ export function SessionInbox(props: {
       images.every((attachment) => attachment.status === "ready")
     );
   };
+
+  createEffect(() => {
+    if (!props.active) {
+      setContext("newSessionPromptFocused", false);
+    }
+  });
+
+  onMount(() => {
+    onCleanup(
+      registerCommand(CommandIds.submitNewSession, () => {
+        if (!props.active || document.activeElement !== promptInput || !canStart()) {
+          return false;
+        }
+        void submitNew();
+        return true;
+      }),
+    );
+  });
+
+  onCleanup(() => {
+    clearAttachments();
+    setContext("newSessionPromptFocused", false);
+  });
 
   const destinationFields = (locationLabel: string, providerLabel: string): JSX.Element => (
     <>
@@ -284,10 +315,13 @@ export function SessionInbox(props: {
             }}
           >
             <textarea
+              ref={promptInput}
               aria-label="Prompt for a new session"
               placeholder="What do you want to work on?"
               rows={3}
               value={prompt()}
+              onFocus={() => setContext("newSessionPromptFocused", props.active)}
+              onBlur={() => setContext("newSessionPromptFocused", false)}
               onInput={(event) => setPrompt(event.currentTarget.value)}
               onPaste={captureImagePaste}
             />
@@ -336,6 +370,7 @@ export function SessionInbox(props: {
                 type="submit"
                 class="session-composer-submit mobile-primary-action"
                 aria-label={submitting() === "new" ? "Starting session" : "Start"}
+                title={`Start${keyHint(CommandIds.submitNewSession)}`}
                 disabled={!canStart()}
               >
                 <span class="mobile-action-wide">
@@ -366,6 +401,9 @@ export function SessionInbox(props: {
                 type="text"
                 list="session-existing-branches"
                 aria-label="Existing branch for the session"
+                autocapitalize="none"
+                autocomplete="off"
+                spellcheck={false}
                 placeholder="Choose a branch"
                 value={existingBranch()}
                 onInput={(event) => setExistingBranch(event.currentTarget.value)}

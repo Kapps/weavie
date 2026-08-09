@@ -1,5 +1,5 @@
 import { createEffect, createSignal, type JSX, onCleanup, Show } from "solid-js";
-import { requestBranchPreview } from "../bridge";
+import { backendPhase, requestBranchPreview } from "../bridge";
 import {
   type BranchPreviewState,
   NewSessionBranchPreview,
@@ -38,7 +38,7 @@ export function NewSessionBranchField(props: {
   createEffect(() => {
     const prompt = props.prompt.trim();
     preview.update(
-      props.active && props.hasInput
+      props.active && props.hasInput && backendPhase(props.backendId) === "online"
         ? { backendId: props.backendId, prompt, providerId: props.providerId }
         : null,
     );
@@ -64,6 +64,9 @@ export function NewSessionBranchField(props: {
       <input
         type="text"
         aria-label="Branch for the new session"
+        autocapitalize="none"
+        autocomplete="off"
+        spellcheck={false}
         placeholder={placeholder()}
         value={state().branch}
         onInput={(event) => preview.edit(event.currentTarget.value)}

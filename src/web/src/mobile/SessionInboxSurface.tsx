@@ -111,7 +111,14 @@ export function SessionInboxSurface(props: {
     const target = restoreFocus;
     restoreFocus = null;
     requestAnimationFrame(() => {
-      if (generation === currentGeneration && !modalActive() && target?.isConnected) {
+      const active = document.activeElement;
+      const focusStayedInModal = active === document.body || dialog.contains(active);
+      if (
+        generation === currentGeneration &&
+        !modalActive() &&
+        focusStayedInModal &&
+        target?.isConnected
+      ) {
         target.focus();
       }
     });

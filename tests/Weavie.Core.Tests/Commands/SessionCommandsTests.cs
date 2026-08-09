@@ -16,6 +16,13 @@ public sealed class SessionCommandsTests {
 
 		Assert.True(registry.TryGet(SessionCommands.NewSession, out var newDef));
 		Assert.Equal(CommandLocation.Core, newDef!.RunsIn);
+		Assert.True(registry.TryGet(SessionCommands.SubmitNewSession, out var submitDef));
+		Assert.Equal(CommandLocation.Web, submitDef!.RunsIn);
+		Assert.Equal(CommandOwner.Client, submitDef.Owner);
+		Assert.False(submitDef.ShowInPalette);
+		var submitBinding = Assert.Single(submitDef.DefaultKeybindings);
+		Assert.Equal("Shift+Enter", submitBinding.Key);
+		Assert.Equal("newSessionPromptFocused", submitBinding.When);
 		Assert.True(registry.TryGet(SessionCommands.ForkSession, out var forkDef));
 		Assert.Equal(CommandLocation.Core, forkDef!.RunsIn);
 		Assert.True(registry.TryGet(SessionCommands.LoadSession, out var loadDef));

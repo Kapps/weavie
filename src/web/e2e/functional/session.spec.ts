@@ -77,6 +77,29 @@ test("the prompt-free action opens an existing branch", async ({ page }) => {
   );
 });
 
+test("Shift+Enter starts a named session from the prompt", async ({ page }) => {
+  const chips = page.locator(".session-chip");
+  await expect(chips).toHaveCount(1);
+  await runCommand(page, "Sessions");
+
+  const inbox = page.locator(".session-inbox");
+  const branch = inbox.getByRole("textbox", { name: "Branch for the new session" });
+  await expect(branch).toHaveAttribute("autocapitalize", "none");
+  await expect(branch).toHaveAttribute("autocomplete", "off");
+  await expect(branch).toHaveAttribute("spellcheck", "false");
+  await branch.fill("e2e/shift-enter-session");
+
+  const prompt = inbox.getByRole("textbox", { name: "Prompt for a new session" });
+  await prompt.fill("Start this session from the keyboard");
+  const start = inbox.getByRole("button", { name: "Start", exact: true });
+  await expect(start).toBeEnabled();
+  await expect(start).toHaveAttribute("title", /Shift\+Enter/);
+  await prompt.press("Shift+Enter");
+
+  await expect(inbox).toBeHidden();
+  await expect(chips).toHaveCount(2);
+});
+
 test("reload restores the client-selected stable session slot @cross", async ({ page, weavie }) => {
   const initialSlot = await activeSessionSlot(page);
   await createSession(page, { branch: "e2e/session-reload", provider: "claude" });

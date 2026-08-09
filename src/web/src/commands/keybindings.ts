@@ -165,7 +165,7 @@ export function installKeybindings(): () => void {
   const offChanged = onCommandsChanged(rebuild);
 
   const onKeyDown = (event: KeyboardEvent): void => {
-    if (event.isComposing) {
+    if (event.isComposing || evaluateWhen("modalOpen")) {
       return;
     }
     // Last-match-first so a user binding wins over a default for the same key.
@@ -200,6 +200,9 @@ export function installKeybindings(): () => void {
   };
   const onMouseDown = (event: MouseEvent): void => {
     if (!suppressNavButtons(event)) {
+      return;
+    }
+    if (evaluateWhen("modalOpen")) {
       return;
     }
     // Last-match-first, like keydown, so a user binding wins over a default for the same button.

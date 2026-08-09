@@ -110,7 +110,6 @@ test.describe("AgentMarkdown transcript links", () => {
   async function connect(page: Page): Promise<void> {
     await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
     await host.waitUntilConnected();
-    await page.locator(".session-inbox-row").click();
     publishCommands("alt+m");
     host.publishSession(codexSession.address, "editor", "restore", {
       session: {

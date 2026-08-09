@@ -57,6 +57,10 @@ test("the prompt-free action opens an existing branch", async ({ page }) => {
   const initialSlot = await activeSessionSlot(page);
   await runCommand(page, "Sessions");
   const inbox = page.locator(".session-inbox");
+  await expect(page.locator(".session-chip.active")).toHaveAttribute(
+    "data-session-slot",
+    initialSlot,
+  );
   const openGroup = inbox.getByRole("region", { name: "Open an existing branch" });
   const branch = await inbox.locator(".session-inbox-row.active strong").innerText();
 

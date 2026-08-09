@@ -84,7 +84,6 @@ test("warm session-owned editor state switches fully paint within one second", a
   try {
     await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
     await host.waitUntilConnected();
-    await page.locator(".session-inbox-row").first().click();
     restore(host, claude);
     restore(host, codex);
     await expect(page.locator(".editor")).toHaveAttribute("data-ready", "true", {
@@ -131,7 +130,6 @@ test("long transcripts switch as a measured virtual window", async ({ page }) =>
   try {
     await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
     await host.waitUntilConnected();
-    await page.locator(".session-inbox-row").first().click();
     host.publishSession(first.address, "agent", "paneBatch", {
       messages: transcript("FIRST"),
     });

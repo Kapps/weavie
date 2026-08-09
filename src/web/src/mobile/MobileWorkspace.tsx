@@ -6,10 +6,13 @@ import {
   type MobileSwipeDirection,
 } from "./MobileSurfaceBar";
 import { type NewSessionSeed, SessionInbox } from "./SessionInbox";
+import { SessionInboxSurface } from "./SessionInboxSurface";
 
 /** Compact chrome around the app's one shared, permanently mounted LayoutView. */
 export function MobileWorkspace(props: {
   surface: MobileSurface;
+  compact: boolean;
+  modalOpen: boolean;
   inboxActive: boolean;
   sessions: RailSession[];
   initialBackendId: string;
@@ -21,6 +24,7 @@ export function MobileWorkspace(props: {
     providerId: "claude" | "codex",
   ) => Promise<boolean>;
   onSurface: (surface: MobileSurface) => void;
+  onDismiss: () => void;
   onSwipeCancel: () => void;
   onSwipeCommit: () => void;
   onSwipeProgress: (
@@ -32,14 +36,20 @@ export function MobileWorkspace(props: {
 }): JSX.Element {
   return (
     <>
-      <SessionInbox
-        active={props.inboxActive}
-        sessions={props.sessions}
-        initialBackendId={props.initialBackendId}
-        initialProviderId={props.initialProviderId}
-        onOpen={props.onOpen}
-        onCreate={props.onCreate}
-      />
+      <SessionInboxSurface
+        compact={props.compact}
+        modalOpen={props.modalOpen}
+        onDismiss={props.onDismiss}
+      >
+        <SessionInbox
+          active={props.inboxActive}
+          sessions={props.sessions}
+          initialBackendId={props.initialBackendId}
+          initialProviderId={props.initialProviderId}
+          onOpen={props.onOpen}
+          onCreate={props.onCreate}
+        />
+      </SessionInboxSurface>
       <MobileSurfaceBar
         active={props.surface}
         onSelect={props.onSurface}

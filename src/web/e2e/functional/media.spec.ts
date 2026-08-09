@@ -102,7 +102,6 @@ test("image renders in the media pane and survives reload", async ({ page, weavi
   await expect.poll(() => persistedSessions(weavie.home)).toContain("pixel.png");
   await page.reload({ waitUntil: "domcontentloaded" });
   await expect(page.locator("#splash")).toHaveCount(0, { timeout: 40_000 });
-  await page.locator(".session-inbox-row").click();
   await expect(page.locator(".editor-media img")).toBeVisible();
   await expect(page.locator(".editor-media img")).toHaveJSProperty("naturalWidth", 8);
 });

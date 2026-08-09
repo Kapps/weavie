@@ -1,5 +1,6 @@
-import { type JSX, onCleanup, onMount } from "solid-js";
+import { createSignal, type JSX, onCleanup, onMount, Show } from "solid-js";
 import { Portal } from "solid-js/web";
+import { requestModal } from "./modal-state";
 
 export function modalSubmitKeys(
   onSubmit: () => void,
@@ -24,30 +25,38 @@ export function ModalShell(props: {
   onKeyDown?: (event: KeyboardEvent) => void;
 }): JSX.Element {
   const onKeyDown = props.onKeyDown;
+  const [active, setActive] = createSignal(false);
+  let cancelModal = (): void => {};
   onMount(() => {
-    if (onKeyDown !== undefined) {
-      window.addEventListener("keydown", onKeyDown, { capture: true });
-    }
+    cancelModal = requestModal(() => {
+      setActive(true);
+      if (onKeyDown !== undefined) {
+        window.addEventListener("keydown", onKeyDown, { capture: true });
+      }
+    });
   });
   onCleanup(() => {
     if (onKeyDown !== undefined) {
       window.removeEventListener("keydown", onKeyDown, { capture: true });
     }
+    cancelModal();
   });
 
   return (
     <Portal>
-      <div class="modal-backdrop" onPointerDown={() => props.onDismiss()}>
-        <div
-          class={`confirm-dialog${props.class === undefined ? "" : ` ${props.class}`}`}
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby={props.labelledBy}
-          onPointerDown={(event) => event.stopPropagation()}
-        >
-          {props.children}
+      <Show when={active()}>
+        <div class="modal-backdrop" onPointerDown={() => props.onDismiss()}>
+          <div
+            class={`confirm-dialog${props.class === undefined ? "" : ` ${props.class}`}`}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={props.labelledBy}
+            onPointerDown={(event) => event.stopPropagation()}
+          >
+            {props.children}
+          </div>
         </div>
-      </div>
+      </Show>
     </Portal>
   );
 }

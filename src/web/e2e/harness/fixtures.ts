@@ -208,9 +208,6 @@ export const test = base.extend<WeavieOptions & WeavieFixtures>({
           await offer.getByRole("button", { name: "Dismiss" }).click();
           await expect(offer).toHaveCount(0);
         }
-        if (testInfo.project.name !== "mobile") {
-          await page.locator(".session-inbox-row").first().click();
-        }
       } catch (error) {
         // Playwright records setup failures only after the fixture unwinds, so testInfo still says "passed" here.
         const failures = [error];

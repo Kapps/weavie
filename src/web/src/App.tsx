@@ -443,16 +443,31 @@ export default function App(): JSX.Element {
     () => sessions().find((session) => session.active)?.agentInputProtocol ?? 1,
   );
 
-  // Desktop starts on the same Sessions home mobile uses; choosing a session reveals the live panes.
-  const [sessionHomeOpen, setSessionHomeOpen] = createSignal(
-    hostConnection(LOCAL_BACKEND_ID) !== undefined,
-  );
+  // Desktop opens the shared Sessions surface as a modal; compact mode keeps it as native navigation.
+  const [sessionsModalOpen, setSessionsModalOpen] = createSignal(false);
   const [openPrOpen, setOpenPrOpen] = createSignal(false);
   const [diffAgainstOpen, setDiffAgainstOpen] = createSignal(false);
   const sourceTokenPrompt = selectedSourceTokenPrompt;
   const [registerAgentOpen, setRegisterAgentOpen] = createSignal(false);
   // The cloud panel's anchor (computed from the cloud button's rect) when open, else null.
   const [remotePanelAnchor, setRemotePanelAnchor] = createSignal<PopoverAnchor | null>(null);
+  const openSessions = (): void => {
+    setRemotePanelAnchor(null);
+    if (compact()) {
+      navigateMobileSurface("inbox");
+    } else {
+      setSessionsModalOpen(true);
+    }
+  };
+  const closeSessions = (): void => {
+    setSessionsModalOpen(false);
+  };
+  const sessionsModalActive = (): boolean => !compact() && sessionsModalOpen();
+  createEffect(() => {
+    if (compact()) {
+      closeSessions();
+    }
+  });
   const dirListings = selectedDirectoryListings;
   const [browserOpen, setBrowserOpen] = createSignal(false);
   // Whether the find-in-files (content search) panel is open; the weavie.search.findInFiles command toggles it.
@@ -716,7 +731,7 @@ export default function App(): JSX.Element {
         if (compact()) {
           navigateMobileSurface(AGENT_PANE_KIND);
         } else {
-          setSessionHomeOpen(false);
+          closeSessions();
         }
         return true;
       })
@@ -794,7 +809,7 @@ export default function App(): JSX.Element {
         commit(target);
       })
       .then(() => {
-        setSessionHomeOpen(false);
+        closeSessions();
         if (compact()) {
           navigateMobileSurface(AGENT_PANE_KIND);
         }
@@ -804,6 +819,17 @@ export default function App(): JSX.Element {
         addToast("error", error instanceof Error ? error.message : String(error));
         return false;
       });
+  };
+
+  const openSession = (session: RailSession): Promise<boolean> => {
+    if (!session.active) {
+      return switchToSession(session);
+    }
+    closeSessions();
+    if (compact()) {
+      navigateMobileSurface(AGENT_PANE_KIND);
+    }
+    return Promise.resolve(true);
   };
 
   // A backend's human name for connection messages ("the host" for the local headless link).
@@ -1449,14 +1475,8 @@ export default function App(): JSX.Element {
           openUrlExternal(url);
         }
       }),
-      // Sessions (Ctrl+Shift+N / palette / the rail's "+"): one shared home on desktop and mobile.
-      registerCommand(CommandIds.showSessions, () => {
-        if (compact()) {
-          navigateMobileSurface("inbox");
-        } else {
-          setSessionHomeOpen(true);
-        }
-      }),
+      // Sessions (Ctrl+Shift+N / palette / the rail's "+"): modal on desktop, native surface on mobile.
+      registerCommand(CommandIds.showSessions, openSessions),
       // Open Pull Request… (Ctrl+Shift+R / palette): pick a PR to check out as a session.
       registerCommand(CommandIds.openPr, () => setOpenPrOpen(true)),
       registerCommand(CommandIds.openCurrentPr, () => {
@@ -1509,9 +1529,7 @@ export default function App(): JSX.Element {
         ) {
           return false;
         }
-        if (!target.active) {
-          switchToSession(target);
-        }
+        void openSession(target);
         return true;
       }),
       // Ctrl+Shift+1–9 → switch to the Nth rail session. Returns false when there's none at that number (the
@@ -1525,9 +1543,7 @@ export default function App(): JSX.Element {
         if (target === undefined) {
           return false;
         }
-        if (!target.active) {
-          switchToSession(target);
-        }
+        void openSession(target);
         return true;
       }),
       // Interactive delete (rail menu / palette): opens the confirm dialog after the host classifies the
@@ -1603,7 +1619,6 @@ export default function App(): JSX.Element {
       class="app"
       classList={{
         compact: compact(),
-        "sessions-home": !compact() && sessionHomeOpen(),
         "mobile-inbox": compact() && mobileSurface() === "inbox",
         "mobile-transition": mobileTransition() !== null,
         "mobile-transition-from-inbox": mobileTransition()?.source === "inbox",
@@ -1654,16 +1669,11 @@ export default function App(): JSX.Element {
       <div class="app-body">
         <SessionRail
           sessions={railSessions()}
+          inert={sessionsModalActive()}
           hasRemotes={remoteAgentRows().length > 0}
           remoteActive={remoteActivity()}
-          onSwitch={switchToSession}
-          onNew={() => {
-            if (compact()) {
-              navigateMobileSurface("inbox");
-            } else {
-              setSessionHomeOpen(true);
-            }
-          }}
+          onSwitch={openSession}
+          onNew={openSessions}
           onToggleRemotes={(rect) =>
             setRemotePanelAnchor((open) =>
               open !== null
@@ -1679,11 +1689,13 @@ export default function App(): JSX.Element {
         />
         <MobileWorkspace
           surface={mobileSurface()}
-          inboxActive={compact() ? mobileSurface() === "inbox" : sessionHomeOpen()}
+          compact={compact()}
+          modalOpen={sessionsModalActive()}
+          inboxActive={compact() ? mobileSurface() === "inbox" : sessionsModalOpen()}
           sessions={sessions()}
           initialBackendId={defaultLocation()}
           initialProviderId={defaultAgentProvider()}
-          onOpen={switchToSession}
+          onOpen={openSession}
           onCreate={(seed, backendId, providerId) => {
             setLastLocation(backendId);
             setDefaultAgentProvider(providerId);
@@ -1698,6 +1710,7 @@ export default function App(): JSX.Element {
             });
           }}
           surfaceTitle={mobileSurfaceTitle}
+          onDismiss={closeSessions}
           onSurface={selectMobileSurface}
           onSwipeCancel={() => settleMobileTransition(false)}
           onSwipeCommit={() => settleMobileTransition(true)}
@@ -1705,6 +1718,7 @@ export default function App(): JSX.Element {
         />
         <div
           class="pane-area"
+          inert={sessionsModalActive()}
           classList={{
             offline: activeBackendOffline(),
           }}
@@ -1778,11 +1792,7 @@ export default function App(): JSX.Element {
             setRegisterAgentOpen(false);
             // Preselect the just-added agent as the next prompt's location (it connected before onAdded fired).
             setLastLocation(agentBackendId(name));
-            if (compact()) {
-              navigateMobileSurface("inbox");
-            } else {
-              setSessionHomeOpen(true);
-            }
+            openSessions();
           }}
         />
       </Show>

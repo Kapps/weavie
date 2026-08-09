@@ -196,7 +196,6 @@ test.describe("native in-process bridge contract", () => {
         });
       })
       .toBe(true);
-    await page.locator(".session-inbox-row").click();
     await expect(page.locator(".agent-markdown")).toContainText("restored-on-sync");
 
     const pushHostNotification = (message: string, key?: string): Promise<void> =>

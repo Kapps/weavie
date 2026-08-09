@@ -17,14 +17,12 @@ test.describe("runner browser entry", () => {
       await page.getByRole("textbox", { name: "Runner token" }).fill(runner.token);
       await page.getByRole("button", { name: "Connect" }).click();
 
-      await page.locator(".session-inbox-row").click();
       await expect(page.locator(".layout-root")).toBeVisible({ timeout: 30_000 });
       const firstWorkerUrl = new URL(page.url());
       expect(firstWorkerUrl.search).toBe("");
       expect(firstWorkerUrl.hash).toBe("");
 
       await page.goto(runner.url, { waitUntil: "domcontentloaded" });
-      await page.locator(".session-inbox-row").click();
       await expect(page.locator(".layout-root")).toBeVisible({ timeout: 30_000 });
       expect(new URL(page.url()).search).toBe("");
       await expect(page.getByRole("textbox", { name: "Runner token" })).toHaveCount(0);

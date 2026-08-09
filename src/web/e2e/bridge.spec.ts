@@ -45,7 +45,7 @@ test.describe("session-addressed WebSocket transport", () => {
     await expect(page.locator(".toast-msg", { hasText: "hello-from-mock-host" })).toBeVisible();
   });
 
-  test("desktop opens the shared Sessions home and requires manual naming after inference fails", async ({
+  test("desktop Sessions modal preserves the active session and requires manual naming after inference fails", async ({
     page,
   }) => {
     const session = mockSession("main", "main", "codex");
@@ -55,6 +55,7 @@ test.describe("session-addressed WebSocket transport", () => {
     await page.setViewportSize({ width: 1200, height: 800 });
     await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
     await host.waitUntilConnected();
+    await expect(page.locator(".session-chip.active")).toHaveCount(1);
     host.publishHost("commands", "catalog", {
       commands: [
         {
@@ -72,18 +73,81 @@ test.describe("session-addressed WebSocket transport", () => {
     });
 
     const inbox = page.locator(".session-inbox");
+    const modal = page.getByRole("dialog", { name: "Sessions" });
+    const add = page.locator(".session-rail-add");
+    const activeChip = page.locator(".session-chip.active");
+    await expect(inbox).toBeHidden();
+    await expect(page.locator(".layout-root")).toBeVisible();
+    await expect(activeChip).toHaveCount(1);
+
+    host.publishSession(session.address, "sources", "promptToken", {
+      sourceId: "notion",
+      label: "Notion",
+    });
+    const sourceModal = page.getByRole("dialog", { name: "Connect Notion" });
+    await expect(sourceModal).toBeVisible();
+    await add.evaluate((button) => button.click());
+    await expect(sourceModal).toBeVisible();
+    await expect(modal).toHaveCount(0);
+    expect(
+      host.received.filter(
+        (message) => message.feature === "sources" && message.name === "dismissToken",
+      ),
+    ).toHaveLength(0);
+    await page.keyboard.press("Escape");
+    await expect(sourceModal).toBeHidden();
+    await expect(modal).toBeVisible();
+    expect(
+      host.received.filter(
+        (message) => message.feature === "sources" && message.name === "dismissToken",
+      ),
+    ).toHaveLength(1);
+    await page.keyboard.press("Escape");
+    await expect(modal).toBeHidden();
+
+    await add.click();
+    await expect(modal).toBeVisible();
+    host.publishSession(session.address, "sources", "promptToken", {
+      sourceId: "notion",
+      label: "Notion",
+    });
+    await expect(sourceModal).toHaveCount(0);
+    await page.keyboard.press("Escape");
+    await expect(modal).toBeHidden();
+    await expect(sourceModal).toBeVisible();
+    await expect(sourceModal.locator(".session-prompt-input")).toBeFocused();
+    await expect(add).not.toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(sourceModal).toBeHidden();
+
+    await activeChip.click({ button: "right" });
+    await expect(page.locator(".context-menu")).toBeVisible();
+    await add.evaluate((button) => button.click());
+    await expect(modal).toBeVisible();
+    await expect(page.locator(".context-menu")).toBeHidden();
+    await page.keyboard.press("Escape");
+    await expect(modal).toBeHidden();
+
+    await add.click();
+    await expect(modal).toBeVisible();
     await expect(inbox.getByRole("heading", { name: "Sessions" })).toBeVisible();
     await expect(inbox.getByRole("heading", { name: "Start a new session" })).toBeVisible();
     const openGroup = inbox.getByRole("region", { name: "Open an existing branch" });
     await expect(openGroup).toBeVisible();
     await expect(openGroup.locator("textarea")).toHaveCount(0);
-    await expect(page.locator(".layout-root")).toBeHidden();
+    await expect(page.locator(".layout-root")).toBeVisible();
     await expect(page.locator(".session-prompt-overlay")).toHaveCount(0);
+    await expect(activeChip).toHaveCount(1);
+    const draft = inbox.getByRole("textbox", { name: "Prompt for a new session" });
+    const close = modal.getByRole("button", { name: "Close Sessions" });
+    await expect(draft).toBeFocused();
+    await draft.evaluate((element) => element.blur());
+    await page.keyboard.press("Tab");
+    await expect(close).toBeFocused();
+    await draft.focus();
 
     const preview = host.waitForHost("request", "sessionCreation", "previewBranch");
-    await inbox
-      .getByRole("textbox", { name: "Prompt for a new session" })
-      .fill("Fix branch inference");
+    await draft.fill("Fix branch inference");
     const request = await preview;
     expect(request.payload).toMatchObject({ sourceId: "main", agentProviderId: "claude" });
     host.respond(request, { branch: "", inferenceFailed: true });
@@ -94,15 +158,37 @@ test.describe("session-addressed WebSocket transport", () => {
     await branch.fill("fix/manual-name");
     await expect(inbox.getByRole("button", { name: "Start" })).toBeEnabled();
 
+    await page.keyboard.press("Escape");
+    await expect(modal).toBeHidden();
+    await expect(add).toBeFocused();
+    await add.click();
+    await expect(draft).toHaveValue("Fix branch inference");
+
+    await close.focus();
+    await page.keyboard.press("Shift+Tab");
+    expect(await modal.evaluate((dialog) => dialog.contains(document.activeElement))).toBe(true);
+    await close.click();
+    await expect(modal).toBeHidden();
+    await expect(add).toBeFocused();
+
+    await add.click();
+    await page.locator(".session-inbox-surface.open").click({ position: { x: 2, y: 2 } });
+    await expect(modal).toBeHidden();
+    await expect(add).toBeFocused();
+    await add.click();
+
     await expect(
       openGroup.getByRole("combobox", { name: "Existing branch for the session" }),
     ).toBeVisible();
     await expect(inbox.locator("#session-existing-branches option")).toHaveCount(1);
     await inbox.locator(".session-inbox-row").click();
-    await expect(page.locator(".layout-root")).toBeVisible();
+    await expect(modal).toBeHidden();
+    await expect(activeChip).toHaveCount(1);
 
     branches.push("release/new-since-open");
-    await page.locator(".session-rail-add").click();
+    await add.click();
+    await expect(activeChip).toHaveCount(1);
+    await expect(page.locator(".layout-root")).toBeVisible();
     await expect(
       inbox.locator('#session-existing-branches option[value="release/new-since-open"]'),
     ).toHaveCount(1);
@@ -140,8 +226,6 @@ test.describe("session-addressed WebSocket transport", () => {
     host.setSessions([session]);
     await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
     await host.waitUntilConnected();
-    await page.locator(".session-inbox-row").click();
-
     host.publishSession(session.address, "editor", "openOverlay", {
       path: "typography-source",
       kind: "source",
@@ -288,7 +372,6 @@ test.describe("session-addressed WebSocket transport", () => {
     const checkpoint = host.checkpoint();
     host.setSessions([replacement]);
     await host.waitForSession(replacement.address, "event", "view", "attach", checkpoint);
-    await page.locator(".session-inbox-row").click();
     host.publishSession(oldSession.address, "agent", "pane", {
       providerId: "codex",
       type: "item-completed",
@@ -615,7 +698,6 @@ test.describe("session-addressed WebSocket transport", () => {
     host.setSessions([session]);
     await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
     await host.waitUntilConnected();
-    await page.locator(".session-inbox-row").click();
     const surface = page.locator('[data-surface="structured-agent"]');
     const message = (text: string) => ({
       providerId: "codex",
@@ -842,7 +924,6 @@ test.describe("session-addressed WebSocket transport", () => {
     host.setSessions([session]);
     await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
     await host.waitUntilConnected();
-    await page.locator(".session-inbox-row").click();
     await host.waitForSession(session.address, "event", "terminal.shell", "ready");
 
     host.publishSession(session.address, "terminal.shell", "output", {

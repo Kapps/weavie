@@ -21,6 +21,7 @@ beforeEach(() => {
   commandState.entries = [];
   commandState.run.mockClear();
   setContext("nativeShell", true);
+  setContext("modalOpen", false);
 });
 
 // In the node test env navigator is non-mac, so $mod renders as "Ctrl".
@@ -110,6 +111,39 @@ describe("keyboard resolver", () => {
       key: "Enter",
       isComposing: true,
       ctrlKey: false,
+      metaKey: false,
+      shiftKey: false,
+      altKey: false,
+    } as KeyboardEvent);
+
+    expect(commandState.run).not.toHaveBeenCalled();
+    dispose();
+    vi.unstubAllGlobals();
+  });
+
+  it("does not route shortcuts to the session behind a modal", () => {
+    commandState.entries = [
+      {
+        catalogBackendId: "local",
+        binding: { key: "ctrl+1", command: "weavie.pane.focusByIndex", args: { index: 1 } },
+      },
+    ];
+    let keydown: ((event: KeyboardEvent) => void) | undefined;
+    vi.stubGlobal("window", {
+      addEventListener: (type: string, handler: (event: KeyboardEvent) => void) => {
+        if (type === "keydown") {
+          keydown = handler;
+        }
+      },
+      removeEventListener: vi.fn(),
+    });
+    const dispose = installKeybindings();
+    setContext("modalOpen", true);
+
+    keydown?.({
+      key: "1",
+      isComposing: false,
+      ctrlKey: true,
       metaKey: false,
       shiftKey: false,
       altKey: false,

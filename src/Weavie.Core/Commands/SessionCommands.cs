@@ -13,7 +13,7 @@ public static class SessionCommands {
 	/// <summary>Creates a new session on its own worktree + branch (args <c>branch</c>/<c>base</c>/<c>prompt</c>); the programmatic entry.</summary>
 	public const string NewSession = "weavie.session.new";
 
-	/// <summary>Shows the shared Sessions home in the UI; <c>$mod+Shift+n</c>.</summary>
+	/// <summary>Shows the shared Sessions UI; <c>$mod+Shift+n</c>.</summary>
 	public const string ShowSessions = "weavie.session.show";
 
 	/// <summary>Opens the pull-request picker (check out a PR's branch as a session) in the UI; <c>$mod+Shift+r</c>.</summary>
@@ -72,9 +72,9 @@ public static class SessionCommands {
 				+ "(no new branch; 'base' is ignored), switching to that session if one already exists. An optional "
 				+ "'prompt' and optional image 'attachments' are sent as the new session's first input. "
 				+ "'agentProviderId' may be 'claude' or 'codex'; "
-				+ "omitting it uses agent.defaultProvider. The interactive UI is the Sessions home.",
+				+ "omitting it uses agent.defaultProvider. The interactive UI is the Sessions surface.",
 			Aliases = ["new session", "create session", "new worktree", "branch session", "new agent", "another claude", "spin up a session", "check out branch", "open existing branch"],
-			// Hidden from the palette: the human-facing entry is the Sessions home. Still
+			// Hidden from the palette: the human-facing entry is the Sessions surface. Still
 			// reachable by Claude via listCommands/runCommand.
 			ShowInPalette = false,
 			ArgsSchemaJson = "{\"branch\":{\"type\":\"string\"},\"base\":{\"type\":\"string\",\"enum\":[\"source\",\"main\"]},\"existing\":{\"type\":\"boolean\"},\"prompt\":{\"type\":\"string\"},\"attachments\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"},\"mime\":{\"type\":\"string\"},\"dataB64\":{\"type\":\"string\"}},\"required\":[\"id\",\"mime\",\"dataB64\"]}},\"agentProviderId\":{\"type\":\"string\",\"enum\":[\"claude\",\"codex\"]}}",
@@ -86,7 +86,7 @@ public static class SessionCommands {
 			RunsIn = CommandLocation.Web,
 			Category = "Session",
 			Description = "Show all sessions and the shared new-session composer.",
-			Aliases = ["new session", "show sessions", "session home"],
+			Aliases = ["new session", "show sessions"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+n" }],
 		});
 

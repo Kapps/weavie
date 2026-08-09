@@ -32,7 +32,7 @@ interface NewSessionAttachmentDraft extends NewSessionSeedAttachment {
 
 let attachmentSequence = 0;
 
-/** The shared home surface for starting, opening, and resuming sessions. */
+/** The shared Sessions surface for starting, opening, and resuming sessions. */
 export function SessionInbox(props: {
   sessions: RailSession[];
   initialBackendId: string;
@@ -268,7 +268,7 @@ export function SessionInbox(props: {
       <header class="session-inbox-header">
         <img src="/weavie.png" width="32" height="32" alt="" />
         <div>
-          <h1>Sessions</h1>
+          <h1 id="session-inbox-title">Sessions</h1>
           <span>Pick up where your agents left off</span>
         </div>
       </header>

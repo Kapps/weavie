@@ -141,6 +141,12 @@ function matches(chord: Chord, event: KeyboardEvent): boolean {
   return modifiersMatch(chord, event) && normalizeKey(event.key) === chord.key;
 }
 
+function bindingEnabled(binding: ResolvedKeybinding): boolean {
+  return (
+    evaluateWhen(binding.when) && (!evaluateWhen("modalOpen") || binding.activeInModal === true)
+  );
+}
+
 let compiled: {
   catalogBackendId: string;
   chord: Chord;
@@ -165,7 +171,7 @@ export function installKeybindings(): () => void {
   const offChanged = onCommandsChanged(rebuild);
 
   const onKeyDown = (event: KeyboardEvent): void => {
-    if (event.isComposing || evaluateWhen("modalOpen")) {
+    if (event.isComposing) {
       return;
     }
     // Last-match-first so a user binding wins over a default for the same key.
@@ -175,7 +181,7 @@ export function installKeybindings(): () => void {
         continue;
       }
       const { catalogBackendId, chord, binding } = entry;
-      if (!matches(chord, event) || !evaluateWhen(binding.when)) {
+      if (!matches(chord, event) || !bindingEnabled(binding)) {
         continue;
       }
       if (runForKeybindingFromCatalog(catalogBackendId, binding.command, binding.args)) {
@@ -202,16 +208,13 @@ export function installKeybindings(): () => void {
     if (!suppressNavButtons(event)) {
       return;
     }
-    if (evaluateWhen("modalOpen")) {
-      return;
-    }
     // Last-match-first, like keydown, so a user binding wins over a default for the same button.
     for (let i = compiled.length - 1; i >= 0; i--) {
       const entry = compiled[i];
       if (entry === undefined || MOUSE_BUTTONS[entry.chord.key] !== event.button) {
         continue;
       }
-      if (!modifiersMatch(entry.chord, event) || !evaluateWhen(entry.binding.when)) {
+      if (!modifiersMatch(entry.chord, event) || !bindingEnabled(entry.binding)) {
         continue;
       }
       if (

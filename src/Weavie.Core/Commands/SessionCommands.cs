@@ -102,6 +102,7 @@ public static class SessionCommands {
 			Description = "Submit the new-session composer while its prompt is focused.",
 			Aliases = ["submit new session", "start new session", "create session from prompt"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "Shift+Enter", When = "newSessionPromptFocused" }],
+			KeybindingsActiveInModal = true,
 			ShowInPalette = false,
 		});
 

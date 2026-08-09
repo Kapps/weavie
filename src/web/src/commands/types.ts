@@ -41,6 +41,8 @@ export interface ResolvedKeybinding {
   command: string;
   args?: unknown;
   when?: string;
+  /** This binding belongs to the active modal rather than the obscured session. */
+  activeInModal?: boolean;
   /**
    * An OS-level global hotkey: the host registers it (so it fires even when unfocused) and the web keydown
    * resolver skips it. See keybindings.ts.

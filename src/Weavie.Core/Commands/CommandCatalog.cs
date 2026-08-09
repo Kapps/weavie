@@ -65,7 +65,7 @@ public static class CommandCatalog {
 		return Encoding.UTF8.GetString(stream.ToArray());
 	}
 
-	/// <summary>Builds the flat keybindings array the web resolves keydowns against: <c>{key, command, args?, when?}</c>.</summary>
+	/// <summary>Builds the flat keybindings array the web resolves keydowns against.</summary>
 	public static string BuildKeybindingsArrayJson(IReadOnlyList<ResolvedKeybinding> bindings) {
 		ArgumentNullException.ThrowIfNull(bindings);
 
@@ -83,6 +83,10 @@ public static class CommandCatalog {
 
 				if (binding.When is not null) {
 					writer.WriteString("when", binding.When);
+				}
+
+				if (binding.ActiveInModal) {
+					writer.WriteBoolean("activeInModal", true);
 				}
 
 				// Emit `global` only when set (absent ⇒ false). The web resolver skips global bindings; the

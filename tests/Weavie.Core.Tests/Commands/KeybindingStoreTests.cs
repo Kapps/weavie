@@ -178,6 +178,18 @@ public sealed class KeybindingStoreTests : IDisposable {
 		return registry;
 	}
 
+	private static CommandRegistry ModalRegistry() {
+		var registry = new CommandRegistry();
+		registry.Register(new CommandDefinition {
+			Id = "weavie.modal.submit",
+			Title = "Submit Modal",
+			RunsIn = CommandLocation.Web,
+			KeybindingsActiveInModal = true,
+			DefaultKeybindings = [new CommandKeybinding { Key = "shift+enter" }],
+		});
+		return registry;
+	}
+
 	[Fact]
 	public void Default_GlobalBinding_IsSeededGlobal() {
 		using var store = new KeybindingStore(GlobalRegistry(), FilePath, enableWatcher: false);
@@ -210,6 +222,20 @@ public sealed class KeybindingStoreTests : IDisposable {
 		// Non-global bindings omit the property; absent means false on the web.
 		using var plain = new KeybindingStore(TestRegistry(), FilePath, enableWatcher: false);
 		Assert.All(Parse(plain.BuildKeybindingsJson()), e => Assert.False(e.TryGetProperty("global", out _)));
+	}
+
+	[Fact]
+	public void ModalCapability_AppliesToDefaultAndUserBindings() {
+		File.WriteAllText(FilePath,
+			"""[{"key":"ctrl+enter","command":"weavie.modal.submit"}]""");
+		using var store = new KeybindingStore(ModalRegistry(), FilePath, enableWatcher: false);
+		Assert.All(store.Resolved, binding => Assert.True(binding.ActiveInModal));
+		Assert.All(Parse(store.BuildKeybindingsJson()),
+			entry => Assert.True(entry.GetProperty("activeInModal").GetBoolean()));
+
+		using var plain = new KeybindingStore(TestRegistry(), FilePath, enableWatcher: false);
+		Assert.All(Parse(plain.BuildKeybindingsJson()),
+			entry => Assert.False(entry.TryGetProperty("activeInModal", out _)));
 	}
 
 	[Fact]

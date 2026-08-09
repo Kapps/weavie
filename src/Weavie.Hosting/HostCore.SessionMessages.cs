@@ -31,14 +31,6 @@ public sealed partial class HostCore {
 					execution.CompleteAsync);
 			});
 
-		session.Bus.Feature("sessionCreation").Handle<BranchPreviewRequest, BranchPreviewResult>(
-			"previewBranch",
-			(message, ct) => PreviewBranchNameAsync(
-				session,
-				message.Prompt,
-				message.AgentProviderId,
-				ct));
-
 		var editor = session.Bus.Feature("editor");
 		editor.HandleOwned<EditorSessionMessage>(
 			"sessionChanged",
@@ -202,7 +194,7 @@ public sealed partial class HostCore {
 
 	private sealed record CommandRequest(string Id, JsonElement? Args);
 
-	private sealed record BranchPreviewRequest(string? Prompt, string AgentProviderId);
+	private sealed record HostBranchPreviewRequest(string? SourceId, string? Prompt, string AgentProviderId);
 
 	private sealed record BranchPreviewResult(string Branch, bool InferenceFailed);
 
@@ -232,7 +224,7 @@ public sealed partial class HostCore {
 		}
 
 		public Task<CommandResult> NewSessionAsync(NewSessionRequest request, CancellationToken ct) =>
-			_core.NewSessionAsync(_source, request, ct);
+			_core.NewSessionAsync(_core.SlotFor(_source), request, ct);
 
 		public Task<CommandResult> ForkSessionAsync(ForkSessionRequest request, CancellationToken ct) =>
 			_core.ForkSessionAsync(_source, request, ct);

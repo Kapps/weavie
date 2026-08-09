@@ -8,7 +8,7 @@ import { focusEditor, navChord, walkToChangedFile } from "../harness/navigator";
 test.use({ prScenario: true });
 
 test("opening a PR checks out its branch and pops up the diff navigator", async ({ page }) => {
-  // The repo starts with one session (the primary checkout).
+  // The repo starts with one session on the workspace checkout.
   await expect(page.locator(".session-chip")).toHaveCount(1);
 
   // Open the picker; it lists the stubbed PR #101.

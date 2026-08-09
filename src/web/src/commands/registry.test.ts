@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ClientSession, HostConnection } from "../bridge";
-import type { CommandInfo, CommandResult, ResolvedKeybinding } from "./types";
+import { CommandIds, type CommandInfo, type CommandResult, type ResolvedKeybinding } from "./types";
 
 const env = vi.hoisted(() => ({
   invokeCalls: [] as Array<{ backendId: string; id: string; args: unknown }>,
@@ -42,6 +42,18 @@ vi.mock("../bridge", () => ({
   hostInjected: <T>(_name: string, value: T | undefined, fallback: T): T => value ?? fallback,
   LOCAL_BACKEND_ID: "local",
   invokeCommandOnBackend: (
+    backendId: string,
+    id: string,
+    args: unknown,
+  ): Promise<CommandResult> => {
+    env.invokeCalls.push({ backendId, id, args });
+    return Promise.resolve(env.coreResult);
+  },
+  invokeClientCommandOnHost: (id: string, args: unknown): Promise<CommandResult> => {
+    env.invokeCalls.push({ backendId: "local", id, args });
+    return Promise.resolve(env.coreResult);
+  },
+  invokeSessionCommandOnBackend: (
     backendId: string,
     id: string,
     args: unknown,
@@ -110,6 +122,7 @@ vi.stubGlobal("window", {});
 
 env.selected = {
   connection: { id: "local" },
+  address: { slot: "selected-slot", incarnation: "selected-incarnation" },
   feature: () => ({
     handle: (
       name: string,
@@ -239,6 +252,20 @@ describe("dispatchCommand — core commands", () => {
     setCatalog("local", [cmd("core.y", "core")]);
     await reg.dispatchCommand("core.y", { backendId: "remote:r" });
     expect(env.invokeCalls[0]?.backendId).toBe("remote:r");
+  });
+
+  it("routes a session lifecycle command to the exact selected session", async () => {
+    setCatalog("local", [cmd(CommandIds.unloadSession, "core")]);
+
+    await reg.dispatchCommand(CommandIds.unloadSession);
+
+    expect(env.invokeCalls).toEqual([
+      {
+        backendId: "local",
+        id: CommandIds.unloadSession,
+        args: { id: "selected-slot" },
+      },
+    ]);
   });
 
   it("uses the local definition and host for client-owned commands", async () => {

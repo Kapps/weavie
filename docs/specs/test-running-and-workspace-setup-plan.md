@@ -192,7 +192,7 @@ record the outcome in the spec's open questions.
   palette-visible, "Set Up This Workspace with Claude"); delete `SuggestSetupCommand`.
 - `src/Weavie.Hosting/HostCore.Suggestions.cs`: replace `SeedSetupCommandPrompt` +
   `SetupCommandPrompt` const with `SeedWorkspaceSetup` — `WriteBracketedPaste` of the slash command
-  (or prompt text per 6a) into the primary session's Claude pane, never sending Enter.
+  (or prompt text per 6a) into the invoking session's Claude pane, never sending Enter.
 - Dismissal continuity: a persisted `worktree.setupCommand` dismissal must also silence
   `workspace.setup` (one mapping where dismissals are read — don't re-nag existing users).
 - Tests: suggestion relevance matrix (unset/`[]`/configured × manifest present/absent); e2e — card

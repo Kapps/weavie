@@ -14,8 +14,9 @@ present. Selection is not host state and never determines message routing.
 id             stable slot id
 label          branch/folder label
 worktreePath   workspace root for this slot
-isPrimary      primary checkout marker
+managedCheckout whether Weavie may remove the checkout
 agentProvider  provider chosen for the session
+editorSession  persisted tab and view state
 session        live HostSession or null
 ```
 
@@ -26,15 +27,17 @@ enter a newly loaded instance of the same slot.
 The catalog describes both loaded and dormant slots. Only loaded entries carry an address and create a
 `ClientSession`.
 
-## Primary and worktree sessions
+## Workspace and managed sessions
 
-The primary slot is the workspace checkout as opened:
+On a workspace's first open, the host creates one ordinary loaded session for its user-owned checkout. Its
+label is usually the current branch (`main` in a typical new repository). If deleting a session leaves the
+catalog empty, the host creates a fresh workspace-checkout session for the same convenience. Deleting that slot
+while other slots remain is preserved across later opens.
 
-- always loaded;
-- never unloadable or deletable;
-- may exist even when the folder is not a git repository.
+This session has no routing or lifecycle privilege. It can be unloaded and deleted like any other session.
+Deleting it removes only the slot and runtime because Weavie does not own the checkout the user opened.
 
-Every additional session is backed by a git worktree:
+Managed sessions are backed by git worktrees:
 
 - its branch is checked out once, under the workspace's managed worktree area;
 - agent, terminals, files, LSP, hooks, review state, and commands are rooted there;
@@ -85,8 +88,9 @@ Unloading:
 5. keeps the worktree and branch.
 
 Deleting first classifies tracked and untracked changes. A non-forced dirty delete fails before teardown.
-After confirmation it unloads the backend, removes the worktree, keeps the branch, removes the slot, and
-publishes the catalog. The primary cannot be deleted.
+After confirmation it unloads the backend, removes a managed worktree while keeping its branch, removes the
+slot, and publishes the catalog. Deleting an unmanaged session never removes its checkout. An empty catalog is
+immediately seeded with a fresh session on the workspace checkout.
 
 ## Client model
 
@@ -128,9 +132,12 @@ observable.
 
 ## Commands
 
-Session commands are registered on each `HostSession` dispatcher and invoked through that session's bus.
-Handlers that omit an explicit target act on their owner. Commands never ask a host coordinator for the
-current session.
+Lifecycle commands from the web use the host bus, so load, unload, delete, create, and branch inference do not
+need an arbitrary live session endpoint. Their arguments identify an exact target and, when branching from a
+session, an exact source. A missing target or source fails; it never falls back to another session.
+
+The same commands are registered on each `HostSession` dispatcher for agent invocation. Handlers that omit an
+explicit target act on that owning session. The host never keeps a current-session pointer.
 
 Web-only commands that require mounted presentation use the owning session's `SessionView`. See
 [command-responses.md](command-responses.md).
@@ -151,7 +158,9 @@ Sharing a widget must not imply shared domain state.
 
 ## Required coverage
 
-- the primary and worktree slots coexist on every host platform;
+- a workspace-checkout session is created when absent and has no lifecycle privilege;
+- deleting the final slot creates a fresh workspace-checkout session;
+- host-scoped lifecycle commands work with no loaded session runtime;
 - loading reuses a slot but creates a new incarnation;
 - old-incarnation traffic is rejected;
 - a naive session feature reaches its owner while another session is selected;

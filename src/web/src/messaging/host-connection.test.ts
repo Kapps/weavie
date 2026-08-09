@@ -14,7 +14,6 @@ const entry = (id: string, session: SessionAddress): SessionCatalogEntry => ({
   label: id,
   address: session,
   loaded: true,
-  primary: id === "primary",
   providerId: "codex",
   agentSurface: "structured",
   agentInputProtocol: 1,

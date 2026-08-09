@@ -26,7 +26,7 @@ public sealed class HostCoreAgentPlanTests {
 		host.Bridge.Clear();
 
 		bool wrongSession = await host.SessionRequestAsync<bool>(
-			host.PrimarySession,
+			host.WorkspaceSession,
 			"agent",
 			"openPlan",
 			new { threadId = "thread-fake", turnId = "turn-1", itemId = "plan-1" });
@@ -38,7 +38,7 @@ public sealed class HostCoreAgentPlanTests {
 
 		Assert.False(wrongSession);
 		Assert.True(opened);
-		Assert.Empty(host.Bridge.PostedEvents(host.PrimarySession.Address, "editor", "agentPlan"));
+		Assert.Empty(host.Bridge.PostedEvents(host.WorkspaceSession.Address, "editor", "agentPlan"));
 		var plan = Assert.Single(host.Bridge.PostedEvents(session.Address, "editor", "agentPlan"));
 		Assert.Equal(
 			AgentPaneIdentity.ItemKey("thread-fake", "turn-1", "plan-1"),
@@ -82,7 +82,7 @@ public sealed class HostCoreAgentPlanTests {
 		Assert.True(created.Ok, created.Error);
 		var background = host.Session("background-agent-plan");
 		Submit(host, background, FakeCodexAgentProvider.PlanPrompt);
-		host.SelectSession("primary");
+		host.SelectWorkspaceSession();
 		host.Bridge.Clear();
 
 		bool opened = await host.SessionRequestAsync<bool>(
@@ -92,8 +92,8 @@ public sealed class HostCoreAgentPlanTests {
 			new { threadId = "thread-fake", turnId = "turn-1", itemId = "plan-1" });
 
 		Assert.True(opened);
-		Assert.Equal("primary", host.SelectedSession.SlotId);
+		Assert.Same(host.WorkspaceSession, host.SelectedSession);
 		Assert.Single(host.Bridge.PostedEvents(background.Address, "editor", "agentPlan"));
-		Assert.Empty(host.Bridge.PostedEvents(host.PrimarySession.Address, "editor", "agentPlan"));
+		Assert.Empty(host.Bridge.PostedEvents(host.WorkspaceSession.Address, "editor", "agentPlan"));
 	}
 }

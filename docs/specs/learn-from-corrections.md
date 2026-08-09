@@ -8,7 +8,7 @@ or reverts a hunk in the review UI**, that correction never enters the agent's t
 invisible to the model forever. That *edit over agent output* is signal only Weavie has.
 
 This feature persists those corrections per-workspace and lets the user run **`/learn`** to have the
-primary session's Claude mine them for `AGENTS.md` rules. The division of labor is firm: **Weavie stores
+invoking session's Claude mine them for `AGENTS.md` rules. The division of labor is firm: **Weavie stores
 the signal; Claude does all the reasoning** — there is no classifier, scorer, or intent-detector in Core.
 The corpus holds raw deltas only.
 
@@ -120,14 +120,14 @@ fired — while a **user revert** that deletes a created file records the full r
 `/learn` is the Core command `weavie.learn.fromCorrections` ("Learn From My Corrections"), handled in
 `HostCore.Learn.cs`. Corrections are already in the ring (recorded at each user action), so it just reads
 the corpus, composes a static analysis prompt (`LearnPrompt.Compose` — header + corrections), **prefills**
-it into the **primary** session (Claude via bracketed paste, Codex via `PrefillPrompt`) — never
+it into the **invoking** session (Claude via bracketed paste, Codex via `PrefillPrompt`) — never
 auto-submits; the user reviews and presses Enter — then consumes the ring. Because prefill does not fire
 `UserPromptSubmit`, `/learn` records no spurious correction of its own.
 
 Two loud edges, no silent paths:
 
 - An **empty ring fails the command** ("No corrections recorded yet…") — visible in the palette/toast, not
-  a quiet no-op. The emptiness (and the missing-primary case) is checked via `Count` *before* consuming, so
+  a quiet no-op. Emptiness is checked via `Count` *before* consuming, so
   a loud failure never drains the ring.
 - The consume is a single **atomic `Take`** (read+clear under one lock), so a correction another session
   appends mid-/learn is either returned here (analyzed) or lands afterward and survives in the ring — it can
@@ -137,11 +137,11 @@ Two loud edges, no silent paths:
 flowchart TD
   A[Card 'Yes' / palette / agent runCommand] --> B[weavie.learn.fromCorrections]
   B --> C[HostCore.RunLearn]
-  C --> E{corpus.Count == 0 or no primary?}
+  C --> E{corpus.Count == 0?}
   E -- yes --> G[CommandResult.Failure - ring not drained]
   E -- no --> H[records = corpus.Take - atomic read+clear → Changed]
   H --> I[LearnPrompt.Compose]
-  I --> J[primary.PrefillAgentPrompt - bracketed paste, no Enter]
+  I --> J[invoking session.PrefillAgentPrompt - bracketed paste, no Enter]
   J --> K[suggestions re-evaluate - card vanishes]
 ```
 
@@ -241,7 +241,7 @@ are replayed at the seam and the analysis text is never asserted. Coverage:
 - **Nudge** (Core) — below/at threshold, threshold setting honored, supplier re-read per `Evaluate()`.
 - **`/learn` full-stack** (`TestHost`) — hook-driven agent turns whose output the user edits via an
   `fs-write` (the editor-save capture point) surface the card at the default threshold; the command
-  bracketed-pastes header + corpus into the primary Claude pane with no trailing submit; the persisted ring
+  bracketed-pastes header + corpus into the invoking Claude pane with no trailing submit; the persisted ring
   empties and the card withdraws; an empty ring fails the command and writes nothing to the PTY.
 
 `HostSession` wires the recorder to the production event (`Changes.Corrected += Corrections.Record`), so the

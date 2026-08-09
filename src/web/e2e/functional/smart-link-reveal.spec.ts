@@ -13,9 +13,16 @@ import { expect, test } from "../harness/fixtures";
 test.use({
   fakeScript: {
     // Short lines: the claude pane is ~50 cols, and a soft-wrapped link can't be clicked as one row.
-    steps: [{ op: "print", text: "fix: services/payment.ts:9\r\nboth: config.ts:3\r\n" }],
+    steps: [
+      { op: "waitFile", path: "{{WORKSPACE}}/.show-smart-links" },
+      { op: "print", text: "fix: services/payment.ts:9\r\nboth: config.ts:3\r\n" },
+    ],
   },
 });
+
+// Root agents may start before the browser attaches; gate fake output because it cannot repaint on PTY resize.
+const showClaudeLinks = (workspace: string): Promise<void> =>
+  writeFile(join(workspace, ".show-smart-links"), "");
 
 // The buffer position of `needle` in the claude pane's xterm (viewport row/col + grid size), or null.
 function findClaudeLink(page: Page, needle: string) {
@@ -69,6 +76,7 @@ test("a link missing its leading folders opens the unique suffix match at its li
     Array.from({ length: 10 }, (_, i) => `export const line${i + 1} = ${i + 1};`).join("\n"),
   );
   await awaitEditorReady(page);
+  await showClaudeLinks(weavie.workspace);
 
   await clickClaudeLink(page, "services/payment.ts:9");
 
@@ -94,6 +102,7 @@ test("an ambiguous bare filename opens Go-to-File preloaded with the term and li
     );
   }
   await awaitEditorReady(page);
+  await showClaudeLinks(weavie.workspace);
 
   await clickClaudeLink(page, "config.ts:3");
 

@@ -89,10 +89,10 @@ public sealed partial class HostCore {
 		}
 
 		var created = await NewSessionAsync(
-			source,
+			SlotFor(source),
 			new NewSessionRequest {
 				Branch = headRef,
-				AttachExisting = true,
+				Existing = true,
 				Prompt = _settings.GetBool("pr.autoReviewPrompt", fallback: true)
 					? SeedPrompt(request.Number, pullRequest.Title, pullRequest.Url)
 					: null,

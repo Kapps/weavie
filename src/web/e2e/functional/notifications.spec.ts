@@ -1,7 +1,7 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
-import { runCommand } from "../harness/actions";
+import { createSession } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 
 // Session attention (docs/specs/session-attention.md): a turn completing / a permission prompt pushes
@@ -155,12 +155,12 @@ test.describe("two sessions: the background session pings; clicking focuses it",
     test.slow();
     const chips = page.locator(".session-chip");
 
-    // Fork a second session; the fork becomes the active chip, the primary works on in the background.
-    await runCommand(page, "Fork Session");
+    // Create a second session; it becomes active while the workspace session works in the background.
+    await createSession(page, { branch: "e2e/background-notification", provider: "claude" });
     await expect(chips).toHaveCount(2);
     await expect(chips.nth(1)).toHaveClass(/active/);
 
-    // Release ONLY the primary's fake ({{WORKSPACE}} is per-session): the background session finishes its
+    // Release ONLY the workspace session's fake ({{WORKSPACE}} is per-session): it finishes its
     // turn while the fork stays Working — exactly one attention event, from the background session.
     writeFileSync(join(weavie.workspace, SIGNAL), "");
 

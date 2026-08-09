@@ -5,7 +5,7 @@ import type { RailSession } from "./session-store";
 // The right-click entries for a session chip, shared by the rail and the cloud panel so both menus stay
 // identical and command-driven. Every command carries the session's owning `backendId`, so a remote session's
 // load / unload / delete runs on its own host. `inRail` adds "Remove from rail" for a remote (only meaningful
-// once it's in the working set). The primary checkout has no worktree and gets no menu — callers skip it.
+// once it's in the working set).
 export function sessionMenuEntries(session: RailSession, inRail: boolean): ContextMenuEntry[] {
   const args = { id: session.id, backendId: session.backendId };
   const entries: ContextMenuEntry[] = [

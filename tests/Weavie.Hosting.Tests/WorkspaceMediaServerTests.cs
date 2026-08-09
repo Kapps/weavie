@@ -14,7 +14,7 @@ public sealed class WorkspaceMediaServerTests {
 		await using var host = await TestHost.StartAsync();
 		string path = Path.Combine(host.RepoRoot, "clip.webm");
 		await File.WriteAllBytesAsync(path, Encoding.ASCII.GetBytes("0123456789"));
-		string url = MediaUrl(host, host.PrimaryIncarnation, path);
+		string url = MediaUrl(host, host.WorkspaceIncarnation, path);
 
 		using var full = await Http.GetAsync(url);
 		Assert.Equal(HttpStatusCode.OK, full.StatusCode);
@@ -53,25 +53,25 @@ public sealed class WorkspaceMediaServerTests {
 		await File.WriteAllBytesAsync(inside, [1, 2, 3]);
 		await File.WriteAllTextAsync(html, "<script>window.top.pwned = true</script>");
 		await File.WriteAllTextAsync(svg, "<svg xmlns=\"http://www.w3.org/2000/svg\"><script>alert(1)</script></svg>");
-		string noToken = $"{host.Core.WorkspaceOrigin}/weavie-media/pixel.png?session={host.PrimaryIncarnation}&path={Uri.EscapeDataString(inside)}";
+		string noToken = $"{host.Core.WorkspaceOrigin}/weavie-media/pixel.png?session={host.WorkspaceIncarnation}&path={Uri.EscapeDataString(inside)}";
 
 		using var unauthorized = await Http.GetAsync(noToken);
 		Assert.Equal(HttpStatusCode.Unauthorized, unauthorized.StatusCode);
 
 		string outside = Path.Combine(Path.GetDirectoryName(host.RepoRoot)!, "outside.png");
 		await File.WriteAllBytesAsync(outside, [4, 5, 6]);
-		using var direct = await Http.GetAsync(MediaUrl(host, host.PrimaryIncarnation, outside));
+		using var direct = await Http.GetAsync(MediaUrl(host, host.WorkspaceIncarnation, outside));
 		using var traversal = await Http.GetAsync(MediaUrl(
 			host,
-			host.PrimaryIncarnation,
+			host.WorkspaceIncarnation,
 			Path.Combine(host.RepoRoot, "..", Path.GetFileName(outside))));
 		using var wrongSession = await Http.GetAsync(MediaUrl(host, "not-loaded", inside));
 		using var wrongFileName = await Http.GetAsync(
-			MediaUrl(host, host.PrimaryIncarnation, inside).Replace("/pixel.png?", "/other.png?", StringComparison.Ordinal));
-		using var activeHtml = await Http.GetAsync(MediaUrl(host, host.PrimaryIncarnation, html));
-		using var activeSvg = await Http.GetAsync(MediaUrl(host, host.PrimaryIncarnation, svg));
+			MediaUrl(host, host.WorkspaceIncarnation, inside).Replace("/pixel.png?", "/other.png?", StringComparison.Ordinal));
+		using var activeHtml = await Http.GetAsync(MediaUrl(host, host.WorkspaceIncarnation, html));
+		using var activeSvg = await Http.GetAsync(MediaUrl(host, host.WorkspaceIncarnation, svg));
 		string malformed = $"{host.Core.WorkspaceOrigin}/weavie-media/malformed.png?token={host.Core.WorkspaceAccessToken}"
-			+ $"&session={Uri.EscapeDataString(host.PrimaryIncarnation)}&path=%00";
+			+ $"&session={Uri.EscapeDataString(host.WorkspaceIncarnation)}&path=%00";
 		using var malformedPath = await Http.GetAsync(malformed);
 
 		Assert.Equal(HttpStatusCode.NotFound, direct.StatusCode);
@@ -82,7 +82,7 @@ public sealed class WorkspaceMediaServerTests {
 		Assert.Equal(HttpStatusCode.NotFound, activeSvg.StatusCode);
 		Assert.Equal(HttpStatusCode.NotFound, malformedPath.StatusCode);
 		if (File.Exists("/etc/passwd")) {
-			using var systemFile = await Http.GetAsync(MediaUrl(host, host.PrimaryIncarnation, "/etc/passwd"));
+			using var systemFile = await Http.GetAsync(MediaUrl(host, host.WorkspaceIncarnation, "/etc/passwd"));
 			Assert.Equal(HttpStatusCode.NotFound, systemFile.StatusCode);
 		}
 	}

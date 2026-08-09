@@ -14,12 +14,12 @@ public sealed record NewSessionAttachment {
 	public required string DataB64 { get; init; }
 }
 
-/// <summary>Arguments for creating a new session (all optional — the host fills sensible defaults).</summary>
+/// <summary>Arguments for creating or attaching a session.</summary>
 public sealed record NewSessionRequest {
-	/// <summary>The branch (and worktree) name to create; <c>null</c> makes the host derive a deterministic name.</summary>
+	/// <summary>The required branch (and worktree) name.</summary>
 	public string? Branch { get; init; }
 
-	/// <summary>The base to branch from: <c>"source"</c> (the invoking session's HEAD) or <c>"main"</c>; <c>null</c> means source. Ignored when <see cref="AttachExisting"/> is set.</summary>
+	/// <summary>The base to branch from: <c>"source"</c> (the invoking session's HEAD) or <c>"main"</c>; <c>null</c> means source. Ignored when <see cref="Existing"/> is set.</summary>
 	public string? Base { get; init; }
 
 	/// <summary>Optional text in the new session's first agent input.</summary>
@@ -35,12 +35,12 @@ public sealed record NewSessionRequest {
 	/// When true, <see cref="Branch"/> names an <em>existing</em> branch to check out into a new worktree
 	/// (no new branch, no base); if a session already exists for it, the host switches to that instead.
 	/// </summary>
-	public bool AttachExisting { get; init; }
+	public bool Existing { get; init; }
 }
 
 /// <summary>Arguments for forking the invoking session into a new worktree off its HEAD.</summary>
 public sealed record ForkSessionRequest {
-	/// <summary>The new branch (and worktree) name; <c>null</c> makes the host derive a deterministic name.</summary>
+	/// <summary>The required new branch (and worktree) name.</summary>
 	public string? Branch { get; init; }
 
 	/// <summary>The handoff brief seeded as the fork's first prompt (the forking Claude's own summary).</summary>

@@ -53,7 +53,7 @@ public interface IFileSystem {
 	/// <summary>Writes UTF-8 text, creating parent directories as needed, overwriting any existing file.</summary>
 	void WriteAllText(string path, string contents);
 
-	/// <summary>Writes raw bytes, creating parent directories as needed, overwriting any existing file.</summary>
+	/// <summary>Writes raw bytes atomically, creating parent directories as needed, overwriting any existing file.</summary>
 	void WriteAllBytes(string path, byte[] contents);
 
 	/// <summary>Appends UTF-8 text to the file, creating parent directories (and the file) as needed.</summary>

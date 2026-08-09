@@ -20,7 +20,7 @@ public static class CoreSuggestions {
 
 		// Offer to set the workspace up when the repo looks like it needs it (a build manifest is present) and a
 		// knowledge-shaped setting is still unconfigured — the worktree setup command OR the test profile. "Yes"
-		// engages Claude in the primary session to configure both. Supersedes the old worktree-only card, whose
+		// engages Claude in the invoking session to configure both. Supersedes the old worktree-only card, whose
 		// "don't ask again" carries over via LegacyIds.
 		registry.Register(new SuggestionDefinition {
 			Id = "workspace.setup",

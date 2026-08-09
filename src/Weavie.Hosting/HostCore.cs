@@ -40,6 +40,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 	private readonly IUiDispatcher _ui;
 	private readonly SettingsStore _settings;
 	private readonly CommandRegistry _commandRegistry;
+	private readonly CommandDispatcher _clientCommands;
 	private readonly SuggestionRegistry _suggestionRegistry;
 	private readonly KeybindingStore _keybindings;
 	private readonly ThemeOverridesStore _themeOverrides;
@@ -62,18 +63,15 @@ public sealed partial class HostCore : IAsyncDisposable {
 	// The source system (Notion personal-access-token validate + fetch); see HostCore.Sources.cs.
 	private readonly Weavie.Core.Sources.ISourceConnector _sources;
 	private readonly LayoutStore _layout;
-	private readonly EditorSessionStore _editorSession;
-	// Per-workspace loaded-session overlay, so a reopen — including a worker auto-update restart — restores
-	// which worktree sessions have running backends. See HostCore.SessionState.cs.
+	// Per-workspace session overlay, so reopen restores each slot's runtime and editor state.
 	private readonly SessionStore _sessionStore;
 	private readonly RecentFilesStore _recentFiles;
 	private readonly CorrectionCorpus _corrections;
 	private readonly WorkspaceMediaRoutes _mediaRoutes = new();
 	private readonly WorkspaceHttpServer _http;
-	// Multi-session state: _primarySession is the never-unloadable own checkout; _sessions owns every loaded or
-	// dormant slot. Which one a page displays is client state and never appears here.
-	private HostSession? _primarySession;
+	// Every loaded or dormant session slot. Which one a page displays is client state and never appears here.
 	private SessionManager? _sessions;
+	private string _workspaceSessionLabel = string.Empty;
 	private WorktreeManager? _worktrees;
 	private ShellWorktreeProvisioner? _worktreeProvisioner;
 	// StartAsync is idempotent: the Windows shell kicks it off early to overlap the slow WebView2 environment
@@ -101,7 +99,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 	private IDisposable? _shellSettingSubscription;
 
 	/// <summary>
-	/// Builds only the cheap per-workspace stores (layout + editor session) so the shell can read the saved window
+	/// Builds only the cheap per-workspace stores so the shell can read the saved window
 	/// geometry before creating its window; the heavy graph is built by <see cref="StartAsync"/>.
 	/// </summary>
 	public HostCore(
@@ -132,6 +130,14 @@ public sealed partial class HostCore : IAsyncDisposable {
 			_messages.Disconnect,
 			_messages.Diagnostics);
 		_commandRegistry = services.CommandRegistry;
+		_clientCommands = new CommandDispatcher(_commandRegistry);
+		_clientCommands.RegisterHandler(CoreCommands.ToggleWindow, (_, _) => {
+			_ui.Post(_platform.ToggleWindow);
+			return Task.FromResult(CommandResult.Success("Toggled the Weavie window."));
+		});
+		ThemeCommands.RegisterHandlers(_clientCommands, _settings, services.ThemeOverrides, VsixPicker);
+		FontCommands.RegisterHandlers(_clientCommands, _settings);
+		InferenceCommands.RegisterHandlers(_clientCommands, _settings);
 		_suggestionRegistry = services.SuggestionRegistry;
 		_keybindings = services.Keybindings;
 		_themeOverrides = services.ThemeOverrides;
@@ -151,10 +157,8 @@ public sealed partial class HostCore : IAsyncDisposable {
 		// On single-workspace hosts the store gets one workspace; on Windows the shared store gets one per window.
 		_settings.RegisterWorkspace(workspaceRoot);
 
-		// Per-workspace layout + editor session, keyed by the folder's path id so each folder restores its own state.
+		// Per-workspace layout and session catalog, keyed by the folder's path id.
 		_layout = LayoutPanes.CreateStore(WeaviePaths.WorkspaceLayoutFile(Id));
-		_editorSession = new EditorSessionStore(new LocalFileSystem(), WeaviePaths.WorkspaceEditorSessionFile(Id));
-		_editorSession.Log += Log;
 		_sessionStore = new SessionStore(new LocalFileSystem(), WeaviePaths.WorkspaceSessionsFile(Id));
 		_sessionStore.Log += Log;
 		_recentFiles = new RecentFilesStore(new LocalFileSystem(), WeaviePaths.WorkspaceRecentFilesFile(Id));
@@ -209,7 +213,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 	public string WorkspaceLabel => WorkspaceNaming.Label(WorkspaceRoot);
 
 	/// <summary>
-	/// Builds the workspace's live backend: the primary session, the session set (pre-existing worktrees
+	/// Builds the workspace's live backend: the session set (pre-existing worktrees
 	/// reconciled into dormant chips), the title-bar controller, and the store reactions. Idempotent — the shell
 	/// may kick it off early (to overlap WebView2 bring-up) and the web launcher awaits it again; both join one run.
 	/// Call after the bridge is attached.
@@ -238,20 +242,9 @@ public sealed partial class HostCore : IAsyncDisposable {
 		_bridge.MessageReceived += OnWebMessage;
 		_bridge.PeerDisconnected += OnWebPeerDisconnected;
 
-		// The primary session: the workspace's own checkout. Built after the login-shell env import so its language
-		// servers + git resolve from PATH. CreateSession wires its handlers + gated push subscriptions.
-		_primarySession = CreateSession(WorkspaceRoot, "claude", "primary");
-		// Seed the primary session's in-memory editor state from its persisted store, so switching away and
-		// back restores the same tabs (secondary worktree sessions start empty and live only for the window).
-		_primarySession.EditorSession = _editorSession.Current;
-		// Garbage-collect scratch (untitled) temp files orphaned by a crash — keep only those still referenced
-		// by the restored editor session (they reopen as their "Untitled-N" tabs).
-		_primarySession.Scratch.GarbageCollect(
-			_editorSession.Current.Open.Where(entry => entry.Scratch).Select(entry => entry.Path));
-
 		// One git probe shared by the rail label and the worktree manager (was two redundant is-repo calls).
 		var (git, isRepo) = await ProbeGitAsync().ConfigureAwait(false);
-		string primaryLabel = await ResolvePrimaryLabelAsync(git, isRepo).ConfigureAwait(false);
+		_workspaceSessionLabel = await ResolveWorkspaceSessionLabelAsync(git, isRepo).ConfigureAwait(false);
 
 		// Frameless title-bar controls exist only when the platform exposes native window primitives. File-menu
 		// actions use their separate required adapter, so a native-frame host can still render the web app bar.
@@ -259,15 +252,11 @@ public sealed partial class HostCore : IAsyncDisposable {
 			_shell = new ShellController(window);
 		}
 
-		// Sessions: the worktree manager + slot set, the primary (always-loaded) slot, then reconcile
-		// pre-existing worktrees into dormant slots so none leak. The complete catalog is returned by hello.
+		// Reconcile checkouts first, then restore per-slot runtime/editor state and ensure the workspace checkout
+		// has a convenient session when none was persisted for it.
 		_worktrees = isRepo ? BuildWorktreeManager(git) : null;
 		_sessions = new SessionManager(_worktrees);
-		AddPrimarySlot(primaryLabel);
-		ActivateSessionRuntimeAndMessages(_primarySession);
 		await ReconcileWorktreesOnOpenAsync().ConfigureAwait(false);
-		// Overlay persisted loaded state onto the reconciled chips. Client selection is intentionally not restored
-		// by the host.
 		RestoreSessionState();
 
 		// Contextual suggestions: the manifest probe runs off the hot path; its state is pushed independently.
@@ -409,11 +398,6 @@ public sealed partial class HostCore : IAsyncDisposable {
 		// document back so the web re-renders. Change events arrive off the UI thread.
 		_layout.Changed += _ => _ui.Post(PushLayoutToWeb);
 
-		// Recent files: record a visit whenever the primary session's active file changes. Primary-only (the
-		// recents track the workspace's own checkout, like the editor session); dies with the core, like _layout.
-		if (_primarySession is { } primary) {
-			primary.Editor.Changed += RecordRecentFile;
-		}
 	}
 
 	// Re-pushes the resolved theme (settings + overrides) so the web applies it live.
@@ -499,13 +483,9 @@ public sealed partial class HostCore : IAsyncDisposable {
 		Attempt(_sessionStore.Flush);
 
 		var sessions = _sessions;
-		var primarySession = _primarySession;
 		_sessions = null;
-		_primarySession = null;
 		if (sessions is not null) {
 			await AttemptAsync(() => sessions.DisposeAsync().AsTask()).ConfigureAwait(false);
-		} else if (primarySession is not null) {
-			await AttemptAsync(() => primarySession.DisposeAsync().AsTask()).ConfigureAwait(false);
 		}
 
 		await AttemptAsync(() => _messages.DisposeAsync().AsTask()).ConfigureAwait(false);

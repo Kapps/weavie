@@ -6,7 +6,7 @@ namespace Weavie.Hosting.Tests;
 /// <summary>
 /// The workspace-setup nudge over a real <see cref="HostCore"/>: a repo with a build manifest and no configured
 /// settings surfaces the card, and taking it ("Yes" → weavie.workspace.setup) pre-fills the setup prompt into
-/// the primary session's Claude pane as a bracketed paste with no trailing submit.
+/// the workspace session's Claude pane as a bracketed paste with no trailing submit.
 /// </summary>
 [Collection(TestCollections.HostIntegration)]
 public sealed class HostCoreWorkspaceSetupTests {

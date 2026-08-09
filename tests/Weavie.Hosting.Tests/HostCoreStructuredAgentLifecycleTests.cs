@@ -14,7 +14,7 @@ public sealed class HostCoreStructuredAgentLifecycleTests {
 		host.Settings.Set(AgentSettings.PaneCoalesceMs, JsonSerializer.SerializeToElement(0L));
 
 		var created = await host.InvokeCommandAsync(
-			"primary",
+			host.WorkspaceSession.SlotId,
 			SessionCommands.NewSession,
 			new NewSessionRequest {
 				Branch = "structured-lifecycle",
@@ -24,7 +24,7 @@ public sealed class HostCoreStructuredAgentLifecycleTests {
 			CancellationToken.None);
 
 		Assert.True(created.Ok, created.Error);
-		Assert.Equal("primary", host.SelectedSession.SlotId);
+		Assert.Same(host.WorkspaceSession, host.SelectedSession);
 		var session = host.Session("structured-lifecycle");
 		await session.Agent.DrainPaneAsync(CancellationToken.None);
 		var started = Assert.Single(

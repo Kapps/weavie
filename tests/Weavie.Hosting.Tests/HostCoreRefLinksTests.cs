@@ -16,7 +16,7 @@ public sealed class HostCoreRefLinksTests {
 			TestHost.RunGit(repo, "remote", "add", "origin", "git@github.com:acme/demo.git"));
 
 		var msg = await Wait.ForAsync(() =>
-			host.Bridge.LastEvent(host.PrimarySession.Address, "git", "refLinkBase"));
+			host.Bridge.LastEvent(host.WorkspaceSession.Address, "git", "refLinkBase"));
 		Assert.Equal("https://github.com/acme/demo/pull/", msg.GetProperty("prefix").GetString());
 	}
 
@@ -26,7 +26,7 @@ public sealed class HostCoreRefLinksTests {
 		await using var host = await TestHost.StartAsync();
 
 		var msg = await Wait.ForAsync(() =>
-			host.Bridge.LastEvent(host.PrimarySession.Address, "git", "refLinkBase"));
+			host.Bridge.LastEvent(host.WorkspaceSession.Address, "git", "refLinkBase"));
 		Assert.Equal(JsonValueKind.Null, msg.GetProperty("prefix").ValueKind);
 	}
 }

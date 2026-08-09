@@ -10,7 +10,7 @@ namespace Weavie.Hosting.Tests;
 /// Learn-from-corrections over a real <see cref="HostCore"/>: hook-driven agent turns whose output the user
 /// then edits in the editor (an <c>fs-write</c>, captured at the save) accumulate in the workspace ring, the
 /// <c>corrections.learn</c> card surfaces at the threshold, and /learn (weavie.learn.fromCorrections) pre-fills
-/// the analysis into the primary session's Claude pane as a bracketed paste with no trailing submit, then
+/// the analysis into the workspace session's Claude pane as a bracketed paste with no trailing submit, then
 /// consumes the ring (card gone). An empty ring fails loudly.
 /// </summary>
 [Collection(TestCollections.HostIntegration)]

@@ -4,10 +4,11 @@ import { expect, test } from "../harness/fixtures";
 // and the first submitted turn. Both transports exercise the real HostCore and Codex app-server process seam.
 test("new Codex session initializes and accepts its first prompt @cross", async ({ page }) => {
   await page.locator(".session-rail-add").click();
-  const prompt = page.locator(".session-prompt");
-  await prompt.locator(".session-prompt-select").nth(1).selectOption("codex");
-  await prompt.getByRole("combobox", { name: "Branch name" }).fill("codex-first-turn");
-  await prompt.locator(".session-prompt-btn-primary").click();
+  const inbox = page.locator(".session-inbox");
+  await inbox.getByRole("combobox", { name: "Agent provider" }).selectOption("codex");
+  await inbox.getByRole("textbox", { name: "Branch for the new session" }).fill("codex-first-turn");
+  await inbox.getByRole("button", { name: "Start", exact: true }).click();
+  await expect(inbox).toBeHidden();
 
   await expect(page.locator('.session-chip.active[title^="codex-first-turn —"]')).toBeVisible();
   const surface = page.locator('[data-surface="structured-agent"]');

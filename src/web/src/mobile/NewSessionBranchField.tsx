@@ -10,7 +10,7 @@ export interface NewSessionBranchActions {
   reset: () => void;
 }
 
-/** Editable, cancellable branch-name preview for the compact new-session composer. */
+/** Editable, cancellable branch-name preview for the shared Sessions composer. */
 export function NewSessionBranchField(props: {
   active: boolean;
   backendId: string;
@@ -69,11 +69,7 @@ export function NewSessionBranchField(props: {
         onInput={(event) => preview.edit(event.currentTarget.value)}
       />
       <Show when={state().status === "error"}>
-        <small role="alert">
-          {state().branch.trim().length > 0
-            ? "Branch suggestion failed. Using the generated name instead."
-            : "Branch preview unavailable. Type a branch to continue."}
-        </small>
+        <small role="alert">Branch suggestion failed. Type a branch to continue.</small>
       </Show>
     </label>
   );

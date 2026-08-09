@@ -1,3 +1,5 @@
+using Weavie.Core.Editor;
+
 namespace Weavie.Core.Sessions;
 
 /// <summary>
@@ -11,15 +13,18 @@ public sealed record SessionDescriptor {
 	/// <summary>The rail label — typically the session's branch name.</summary>
 	public required string Label { get; init; }
 
-	/// <summary>The session's working directory (its git worktree, or the workspace root for the primary).</summary>
+	/// <summary>The session's working directory.</summary>
 	public required string WorktreePath { get; init; }
 
-	/// <summary>True for the workspace's primary session (the folder the user opened; not a Weavie-created worktree).</summary>
-	public required bool IsPrimary { get; init; }
+	/// <summary>Whether Weavie owns and may remove this checkout.</summary>
+	public required bool ManagedCheckout { get; init; }
 
 	/// <summary>Whether this session had a live backend at last persist — the flag a reopen restores (loading + <c>--resume</c>ing it).</summary>
 	public required bool Loaded { get; init; }
 
-	/// <summary>The agent provider persisted with this session. Existing documents without a value are Claude.</summary>
+	/// <summary>The agent provider persisted with this session.</summary>
 	public required string AgentProviderId { get; init; }
+
+	/// <summary>The editor tabs and view state restored when this session loads.</summary>
+	public required EditorSession EditorSession { get; init; }
 }

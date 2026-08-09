@@ -10,7 +10,6 @@ function railSession(over: Partial<RailSession>): RailSession {
     label: "feature/x",
     active: false,
     loaded: true,
-    primary: false,
     providerId: "claude",
     agentSurface: "terminal",
     agentInputProtocol: 0,

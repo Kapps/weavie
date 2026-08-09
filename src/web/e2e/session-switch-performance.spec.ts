@@ -22,13 +22,13 @@ interface SessionFixture {
 }
 
 const claude: SessionFixture = {
-  catalog: mockSession("claude-tabs", "claude-tabs", "claude", true),
+  catalog: mockSession("claude-tabs", "claude-tabs", "claude"),
   tabs: [CLAUDE_ACTIVE, CLAUDE_OTHER],
   active: CLAUDE_ACTIVE,
   marker: "CLAUDE_ACTIVE_MARKER",
 };
 const codex: SessionFixture = {
-  catalog: mockSession("codex-image", "codex-image", "codex", false),
+  catalog: mockSession("codex-image", "codex-image", "codex"),
   tabs: [CODEX_OTHER, CODEX_IMAGE],
   active: CODEX_IMAGE,
   marker: null,
@@ -84,6 +84,7 @@ test("warm session-owned editor state switches fully paint within one second", a
   try {
     await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
     await host.waitUntilConnected();
+    await page.locator(".session-inbox-row").first().click();
     restore(host, claude);
     restore(host, codex);
     await expect(page.locator(".editor")).toHaveAttribute("data-ready", "true", {
@@ -111,8 +112,8 @@ test("warm session-owned editor state switches fully paint within one second", a
 });
 
 test("long transcripts switch as a measured virtual window", async ({ page }) => {
-  const first = mockSession("long-first", "long-first", "codex", true);
-  const second = mockSession("long-second", "long-second", "codex", false);
+  const first = mockSession("long-first", "long-first", "codex");
+  const second = mockSession("long-second", "long-second", "codex");
   const host = await MockHost.start({ distDir, sessions: [first, second] });
   const transcript = (prefix: string) =>
     Array.from({ length: 800 }, (_, index) => ({
@@ -130,6 +131,7 @@ test("long transcripts switch as a measured virtual window", async ({ page }) =>
   try {
     await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
     await host.waitUntilConnected();
+    await page.locator(".session-inbox-row").first().click();
     host.publishSession(first.address, "agent", "paneBatch", {
       messages: transcript("FIRST"),
     });

@@ -300,7 +300,7 @@ public static class CoreCommands {
 	/// <summary>Has Claude inspect the repo and configure the workspace's knowledge-shaped settings (worktree setup command + test profile) on the user's confirmation; backs the workspace-setup suggestion. Palette-visible, no default keybinding.</summary>
 	public const string SetupWorkspace = "weavie.workspace.setup";
 
-	/// <summary>Prefill an analysis of the workspace's recorded corrections into the primary session's agent.</summary>
+	/// <summary>Prefill an analysis of the workspace's recorded corrections into the invoking session's agent.</summary>
 	public const string LearnFromCorrections = "weavie.learn.fromCorrections";
 
 	/// <summary>Allows isolated automatic model queries for small product suggestions.</summary>
@@ -1558,7 +1558,7 @@ public static class CoreCommands {
 			RunsIn = CommandLocation.Core,
 			Category = "Workspace",
 			Description = "Have Claude mine the corrections you made to its output after its turns ended (reverted "
-				+ "hunks, hand-edits) and propose CLAUDE.md rules — prefilled into the primary session for your "
+				+ "hunks, hand-edits) and propose CLAUDE.md rules — prefilled into the invoking session for your "
 				+ "review, never auto-sent.",
 			Aliases = ["learn from corrections", "teach claude", "mine corrections", "claude.md rules from reverts",
 				"learn from my edits", "learn"],

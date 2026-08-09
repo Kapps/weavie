@@ -6,26 +6,26 @@ using Weavie.Core.Configuration;
 using Weavie.Core.Editor;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Git;
-using Weavie.Core.Inference;
 using Weavie.Core.Sessions;
-using Weavie.Core.Theming;
 using Weavie.Core.Workspaces;
 using Weavie.Core.Worktrees;
 using Weavie.Hosting.Messaging;
 
 namespace Weavie.Hosting;
 
-// HostCore's worktree/slot orchestration: one SessionSlot per worktree (plus primary), each loaded or dormant.
+// HostCore's worktree/slot orchestration: one SessionSlot per checkout, each loaded or dormant.
 public sealed partial class HostCore {
 	/// <summary>Wires behavior to the owning session bus. No callback observes client selection.</summary>
 	private void WireSession(HostSession session) {
 		AttachGitStatus(session);
 		AttachPullRequestStatus(session);
 		session.EditorSessionChanged += state => {
-			if (ReferenceEquals(session, _primarySession)) {
-				_editorSession.Update(state);
+			if (SlotFor(session) is { } slot) {
+				slot.EditorSession = state;
+				PersistSessionState();
 			}
 		};
+		session.Editor.Changed += editor => RecordRecentFile(session, editor);
 		session.Commands.WebInvoker = (id, args, ct) => InvokeWebCommandAsync(session, id, args, ct);
 		session.Commands.ClientInvoker = (id, args, ct) => InvokeClientCommandAsync(session, id, args, ct);
 		session.Commands.RegisterHandler(CoreCommands.ReopenTerminal, (_, _) => {
@@ -40,10 +40,6 @@ public sealed partial class HostCore {
 		// running shell jobs); fails cleanly when no update is pending.
 		session.Commands.RegisterHandler(CoreCommands.RestartForUpdate, (_, _) =>
 			Task.FromResult(RestartNowForUpdate()));
-		session.Commands.RegisterHandler(CoreCommands.ToggleWindow, (_, _) => {
-			_ui.Post(_platform.ToggleWindow);
-			return Task.FromResult(CommandResult.Success("Toggled the Weavie window."));
-		});
 		// Session-bound command handlers always act on their owner, even while another client session is selected.
 		session.Commands.RegisterHandler(CoreCommands.SetupWorkspace, (_, _) => {
 			_ui.Post(() => SeedWorkspaceSetup(session));
@@ -62,9 +58,6 @@ public sealed partial class HostCore {
 		// HostCore.Logs.cs). The tab opens on the invoking session's bus.
 		session.Commands.RegisterHandler(CoreCommands.ViewLogs, (_, _) => Task.FromResult(ShowLogs(session)));
 		RegisterTestRunHandlers(session);
-		ThemeCommands.RegisterHandlers(session.Commands, _settings, _themeOverrides, VsixPicker);
-		FontCommands.RegisterHandlers(session.Commands, _settings);
-		InferenceCommands.RegisterHandlers(session.Commands, _settings);
 		SessionCommands.RegisterHandlers(session.Commands, new BoundSessionHost(this, session));
 		WireCoreSessionMessages(session);
 
@@ -105,8 +98,12 @@ public sealed partial class HostCore {
 
 	/// <summary>Test seam for one exact logical slot.</summary>
 	internal HostSession? SessionForTest(string slot) =>
-		_sessions?.Find(slot)?.Session
-		?? (slot == "primary" ? _primarySession : null);
+		_sessions?.Find(slot)?.Session;
+
+	/// <summary>Test seam for the ordinary session attached to the user-owned workspace checkout.</summary>
+	internal HostSession? WorkspaceSessionForTest =>
+		_sessions?.Slots.FirstOrDefault(slot =>
+			!slot.ManagedCheckout && PathsEqual(slot.WorktreePath, WorkspaceRoot))?.Session;
 
 	/// <summary>Every loaded session's live backend, in catalog order.</summary>
 	private List<HostSession> LoadedSessions() {
@@ -117,8 +114,6 @@ public sealed partial class HostCore {
 					list.Add(session);
 				}
 			}
-		} else if (_primarySession is not null) {
-			list.Add(_primarySession);
 		}
 
 		return list;
@@ -207,23 +202,36 @@ public sealed partial class HostCore {
 	private static string WorktreeLabel(string path) =>
 		Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
 
-	/// <summary>Creates and registers the primary (workspace-root) slot, already loaded with the primary session.</summary>
-	private void AddPrimarySlot(string label) {
-		_primarySession!.DisplayLabel = label;
+	/// <summary>Creates the ordinary session attached to the user-owned workspace checkout when it is absent.</summary>
+	private void EnsureWorkspaceSession() {
+		var sessions = _sessions
+			?? throw new InvalidOperationException("The session catalog is not initialized.");
+		if (sessions.Slots.Any(slot => !slot.ManagedCheckout && PathsEqual(slot.WorktreePath, WorkspaceRoot))) {
+			return;
+		}
+
+		string id = SessionId.New().Value;
+		var session = CreateSession(WorkspaceRoot, "claude", id);
+		session.DisplayLabel = _workspaceSessionLabel;
 		var slot = new SessionSlot {
-			Id = _primarySession.SlotId,
-			Label = label,
+			Id = id,
+			Label = _workspaceSessionLabel,
 			WorktreePath = WorkspaceRoot,
-			IsPrimary = true,
+			ManagedCheckout = false,
 			AgentProviderId = "claude",
-			Session = _primarySession,
+			Session = session,
+			EditorSession = EditorSession.Empty,
 		};
-		_sessions?.Add(slot);
+		sessions.Add(slot);
+		session.Scratch.GarbageCollect([]);
+		ActivateSessionRuntimeAndMessages(session);
+		PushSessionList();
+		PersistSessionState();
 	}
 
 	/// <summary>
 	/// Reconciles the worktree registry against real git, then adds an UNLOADED slot for every existing
-	/// non-primary worktree so it appears on the rail (faded) instead of leaking invisibly. Orphans are skipped.
+	/// non-root worktree so it appears on the rail (faded) instead of leaking invisibly. Orphans are skipped.
 	/// </summary>
 	private async Task ReconcileWorktreesOnOpenAsync() {
 		if (_worktrees is null || _sessions is null) {
@@ -249,9 +257,10 @@ public sealed partial class HostCore {
 					Id = label,
 					Label = label,
 					WorktreePath = status.Path,
-					IsPrimary = false,
+					ManagedCheckout = status.IsManaged,
 					AgentProviderId = agentProviderId,
 					Session = null,
+					EditorSession = EditorSession.Empty,
 				});
 			}
 
@@ -333,7 +342,6 @@ public sealed partial class HostCore {
 					slot.Label,
 					slot.Session?.Address,
 					slot.Loaded,
-					slot.IsPrimary,
 					slot.AgentProviderId,
 					info is null ? "unavailable" : structured ? "structured" : "terminal",
 					structured ? 2 : 0,
@@ -349,7 +357,6 @@ public sealed partial class HostCore {
 		string Label,
 		SessionAddress? Address,
 		bool Loaded,
-		bool Primary,
 		string ProviderId,
 		string AgentSurface,
 		int AgentInputProtocol,
@@ -357,7 +364,7 @@ public sealed partial class HostCore {
 		int Hue,
 		string Monogram);
 
-	private async Task<string> ResolvePrimaryLabelAsync(GitService git, bool isRepo) {
+	private async Task<string> ResolveWorkspaceSessionLabelAsync(GitService git, bool isRepo) {
 		try {
 			if (isRepo) {
 				string? branch = await git.GetCurrentBranchAsync(WorkspaceRoot).ConfigureAwait(false);
@@ -456,6 +463,9 @@ public sealed partial class HostCore {
 		if (!slot.Loaded) {
 			slot.Session = CreateSession(slot.WorktreePath, slot.AgentProviderId, slot.Id);
 			slot.Session.DisplayLabel = slot.Label;
+			slot.Session.EditorSession = slot.EditorSession;
+			slot.Session.Scratch.GarbageCollect(
+				slot.EditorSession.Open.Where(entry => entry.Scratch).Select(entry => entry.Path));
 		}
 	}
 
@@ -519,17 +529,16 @@ public sealed partial class HostCore {
 	}
 
 	private Task<CommandResult> NewSessionAsync(
-		HostSession source,
+		SessionSlot? source,
 		NewSessionRequest request,
 		CancellationToken ct) {
-		ArgumentNullException.ThrowIfNull(source);
 		ArgumentNullException.ThrowIfNull(request);
 		if (!TryDecodeInitialInput(request.Prompt, request.Attachments, out var input, out string error)) {
 			return Task.FromResult(CommandResult.Failure(error));
 		}
 		string provider = ResolveNewSessionProvider(request.AgentProviderId);
 		return RunSessionLifecycleAsync(
-			() => request.AttachExisting
+			() => request.Existing
 				? AttachExistingSessionAsync(request.Branch, input, provider, ct)
 				: CreateWorktreeSessionAsync(source, request.Branch, request.Base, input, provider, ct),
 			ct);
@@ -544,7 +553,7 @@ public sealed partial class HostCore {
 		string providerId = SlotFor(source)?.AgentProviderId ?? ResolveNewSessionProvider(null);
 		var input = InitialSessionInput.FromText(request.Handoff);
 		return RunSessionLifecycleAsync(
-			() => CreateWorktreeSessionAsync(source, request.Branch, "source", input, providerId, ct),
+			() => CreateWorktreeSessionAsync(SlotFor(source), request.Branch, "source", input, providerId, ct),
 			ct);
 	}
 
@@ -589,7 +598,7 @@ public sealed partial class HostCore {
 	}
 
 	private async Task<CommandResult> UnloadSessionAsync(
-		HostSession source,
+		HostSession? source,
 		string? sessionId,
 		CommandInvocationContext context,
 		CancellationToken ct) =>
@@ -598,7 +607,7 @@ public sealed partial class HostCore {
 			ct).ConfigureAwait(false);
 
 	private async Task<CommandResult> UnloadSessionCoreAsync(
-		HostSession source,
+		HostSession? source,
 		string? sessionId,
 		CommandInvocationContext context,
 		CancellationToken ct) {
@@ -606,10 +615,6 @@ public sealed partial class HostCore {
 		var target = string.IsNullOrWhiteSpace(sessionId) ? null : _sessions?.Find(sessionId);
 		if (target is null) {
 			return CommandResult.Failure("No such session.");
-		}
-
-		if (target.IsPrimary) {
-			return CommandResult.Failure("The primary session can't be unloaded; close the window instead.");
 		}
 
 		if (!target.Loaded) {
@@ -649,7 +654,7 @@ public sealed partial class HostCore {
 	}
 
 	private Task<CommandResult> DeleteSessionAsync(
-		HostSession source,
+		HostSession? source,
 		string? sessionId,
 		bool force,
 		CommandInvocationContext context,
@@ -659,7 +664,7 @@ public sealed partial class HostCore {
 			ct);
 
 	private Task<CommandResult> DeleteSessionCoreAsync(
-		HostSession source,
+		HostSession? source,
 		string? sessionId,
 		bool force,
 		CommandInvocationContext context,
@@ -669,21 +674,16 @@ public sealed partial class HostCore {
 			return Task.FromResult(CommandResult.Failure("No such session."));
 		}
 
-		if (target.IsPrimary) {
-			return Task.FromResult(CommandResult.Failure("The primary session can't be deleted; close the window instead."));
-		}
-
-		if (_worktrees is not { } worktrees) {
+		if (target.ManagedCheckout && _worktrees is not { }) {
 			return Task.FromResult(CommandResult.Failure("This workspace isn't a git repository, so it has no worktree to delete."));
 		}
 
 		string worktreePath = target.WorktreePath;
 		string label = target.Label;
 
-		return DeleteWorktreeSessionAsync(
+		return DeleteSessionAfterValidationAsync(
 			source,
 			target,
-			worktrees,
 			worktreePath,
 			label,
 			force,
@@ -691,10 +691,9 @@ public sealed partial class HostCore {
 			ct);
 	}
 
-	private async Task<CommandResult> DeleteWorktreeSessionAsync(
-		HostSession source,
+	private async Task<CommandResult> DeleteSessionAfterValidationAsync(
+		HostSession? source,
 		SessionSlot target,
-		WorktreeManager worktrees,
 		string worktreePath,
 		string label,
 		bool force,
@@ -710,7 +709,7 @@ public sealed partial class HostCore {
 			// untouched rather than unloading it as a side effect. Skip when the worktree is gone/half-removed
 			// (no .git) — nothing left to lose, and git can't answer git status there. A read-only git probe,
 			// so it needs no UI-thread marshaling.
-			if (!force && IsLiveWorktree(worktreePath)
+			if (target.ManagedCheckout && !force && IsLiveWorktree(worktreePath)
 				&& await new GitService().HasUncommittedChangesAsync(worktreePath, ct).ConfigureAwait(false)) {
 				return CommandResult.Failure(
 					$"Session '{label}' has uncommitted changes; deleting would discard them. Re-run with force to delete anyway.");
@@ -719,24 +718,23 @@ public sealed partial class HostCore {
 			return CommandResult.Failure($"Couldn't delete session '{label}': {ex.Message}");
 		}
 
-		if (ReferenceEquals(target.Session, source)) {
-			context.AfterReply(ct => DeleteAfterReplyAsync(target, worktrees, worktreePath, label, force, ct));
+		if (target.Session is { } targetSession && ReferenceEquals(targetSession, source)) {
+			context.AfterReply(ct => DeleteAfterReplyAsync(target, worktreePath, label, force, ct));
 			return CommandResult.Success();
 		}
 
-		return await DeleteAfterPreflightAsync(target, worktrees, worktreePath, label, force, ct).ConfigureAwait(false);
+		return await DeleteAfterPreflightAsync(target, worktreePath, label, force, ct).ConfigureAwait(false);
 	}
 
 	private async Task DeleteAfterReplyAsync(
 		SessionSlot target,
-		WorktreeManager worktrees,
 		string worktreePath,
 		string label,
 		bool force,
 		CancellationToken ct) {
 		try {
 			var result = await RunSessionLifecycleAsync(
-				() => DeleteAfterPreflightAsync(target, worktrees, worktreePath, label, force, ct),
+				() => DeleteAfterPreflightAsync(target, worktreePath, label, force, ct),
 				ct).ConfigureAwait(false);
 			if (!result.Ok) {
 				Notify("error", result.Error ?? $"Couldn't delete session '{label}'.");
@@ -772,7 +770,6 @@ public sealed partial class HostCore {
 
 	private async Task<CommandResult> DeleteAfterPreflightAsync(
 		SessionSlot target,
-		WorktreeManager worktrees,
 		string worktreePath,
 		string label,
 		bool force,
@@ -790,20 +787,32 @@ public sealed partial class HostCore {
 				await _ui.InvokeAsync(() => UnloadSlotAsync(target), admissionCancellation).ConfigureAwait(false);
 			}
 
-			// Settle before removal: Windows can lag on releasing the unloaded children's handles, and external
-			// scanners may briefly hold a lock. A short pause lets git's one-shot remove succeed instead of
-			// partial-failing and orphaning the directory (git deletes its own record mid-failure, unrecoverable).
-			await Task.Delay(TimeSpan.FromSeconds(1), CancellationToken.None).ConfigureAwait(false);
-			await worktrees.RemoveAsync(worktreePath, deleteBranch: false, force, CancellationToken.None).ConfigureAwait(false);
+			if (target.ManagedCheckout) {
+				// Settle before removal: Windows can lag on releasing the unloaded children's handles, and external
+				// scanners may briefly hold a lock. A short pause lets git's one-shot remove succeed instead of
+				// partial-failing and orphaning the directory (git deletes its own record mid-failure, unrecoverable).
+				await Task.Delay(TimeSpan.FromSeconds(1), CancellationToken.None).ConfigureAwait(false);
+				await _worktrees!.RemoveAsync(
+					worktreePath,
+					deleteBranch: false,
+					force,
+					CancellationToken.None).ConfigureAwait(false);
+			}
 			// Back on the UI thread for the slot-set mutation + rail push (the awaits above left it), so the
 			// removal can't interleave with a concurrent switch reading the slot set.
 			await _ui.InvokeAsync(() => {
 				_sessions?.Remove(target);
-				PushSessionList();
-				PersistSessionState();
+				if (_sessions?.Slots.Count == 0) {
+					EnsureWorkspaceSession();
+				} else {
+					PushSessionList();
+					PersistSessionState();
+				}
 				return Task.CompletedTask;
 			}, CancellationToken.None).ConfigureAwait(false);
-			Notify("info", $"Session '{label}' was deleted. Its branch was kept.");
+			Notify("info", target.ManagedCheckout
+				? $"Session '{label}' was deleted. Its branch was kept."
+				: $"Session '{label}' was deleted.");
 			return CommandResult.Success();
 		} catch (WorktreeDirtyException) {
 			return CommandResult.Failure(
@@ -843,15 +852,11 @@ public sealed partial class HostCore {
 			return CommandResult.Failure("No such session.");
 		}
 
-		if (target.IsPrimary) {
-			return CommandResult.Failure("The primary session can't be deleted; close the window instead.");
-		}
-
 		// A gone/half-removed worktree (no .git) can't be inspected and has nothing left to lose — classify clean.
 		string state = "clean";
 		IReadOnlyList<string> tracked = [];
 		IReadOnlyList<string> untracked = [];
-		if (IsLiveWorktree(target.WorktreePath)) {
+		if (target.ManagedCheckout && IsLiveWorktree(target.WorktreePath)) {
 			try {
 				var status = await new GitService().GetChangeStateAsync(target.WorktreePath, ct).ConfigureAwait(false);
 				state = status.State switch {
@@ -872,6 +877,7 @@ public sealed partial class HostCore {
 		return CommandResult.Success(null, JsonSerializer.Serialize(new {
 			state,
 			label = target.Label,
+			removesCheckout = target.ManagedCheckout,
 			changedFiles = changed.Take(previewLimit).ToArray(),
 			changedCount = changed.Length,
 		}));
@@ -897,8 +903,6 @@ public sealed partial class HostCore {
 		}, CancellationToken.None).ConfigureAwait(false);
 	}
 
-	private SessionSlot? PrimarySlot() => _sessions?.Slots.FirstOrDefault(s => s.IsPrimary);
-
 	/// <summary>The slot whose live backend is <paramref name="session"/>, or null (unloaded, or pre-rail during startup).</summary>
 	private SessionSlot? SlotFor(HostSession session) =>
 		_sessions?.Slots.FirstOrDefault(slot => ReferenceEquals(slot.Session, session));
@@ -912,7 +916,7 @@ public sealed partial class HostCore {
 		Directory.Exists(worktreePath) && Path.Exists(Path.Combine(worktreePath, ".git"));
 
 	private async Task<CommandResult> CreateWorktreeSessionAsync(
-		HostSession source,
+		SessionSlot? source,
 		string? requestedBranch,
 		string? baseSpec,
 		InitialSessionInput? input,
@@ -928,19 +932,21 @@ public sealed partial class HostCore {
 			return CommandResult.Failure("This workspace isn't a git repository, so worktree-backed sessions aren't available.");
 		}
 
-		string branch;
 		if (string.IsNullOrWhiteSpace(requestedBranch)) {
-			branch = await DeriveUniqueDeterministicBranchNameAsync(input?.Text, ct).ConfigureAwait(false);
-		} else {
-			branch = requestedBranch.Trim();
-			// The branch name is web-supplied; reject a malformed/option-shaped name before it reaches git.
-			try {
-				if (!await new GitService().IsValidBranchNameAsync(source.WorkspaceRoot, branch, ct).ConfigureAwait(false)) {
-					return CommandResult.Failure($"'{branch}' isn't a valid branch name.");
-				}
-			} catch (GitException ex) {
-				return CommandResult.Failure($"Couldn't validate the branch name: {ex.Message}");
+			return CommandResult.Failure("Type a branch name to create a session.");
+		}
+
+		string branch = requestedBranch.Trim();
+		// The branch name is web-supplied; reject a malformed/option-shaped name before it reaches git.
+		try {
+			if (!await new GitService().IsValidBranchNameAsync(
+				source?.WorktreePath ?? WorkspaceRoot,
+				branch,
+				ct).ConfigureAwait(false)) {
+				return CommandResult.Failure($"'{branch}' isn't a valid branch name.");
 			}
+		} catch (GitException ex) {
+			return CommandResult.Failure($"Couldn't validate the branch name: {ex.Message}");
 		}
 
 		string baseRef;
@@ -970,7 +976,7 @@ public sealed partial class HostCore {
 
 	/// <summary>
 	/// Creates a session by checking out an existing branch into a new worktree. If Weavie already has a session
-	/// for that branch — or it's the primary checkout's own branch — switches to that instead of duplicating.
+	/// for that branch — or it's the workspace checkout's own branch — switches to that instead of duplicating.
 	/// </summary>
 	private async Task<CommandResult> AttachExistingSessionAsync(
 		string? requestedBranch,
@@ -998,21 +1004,23 @@ public sealed partial class HostCore {
 
 		// Already a live/dormant Weavie session for this branch (slot ids are the branch name)? Switch to it.
 		if (_sessions?.Find(branch) is { } existingSlot) {
-			if (input?.Attachments.Count > 0) {
-				return CommandResult.Failure("Images can't be submitted when opening a session that already exists.");
+			if (ExistingSessionInputError(input) is { } error) {
+				return error;
 			}
 			return await LoadExistingAsync(existingSlot, branch).ConfigureAwait(false);
 		}
 
-		// The branch checked out in the primary repo can't be attached to a second worktree (git refuses), so
-		// the right move is to focus the primary session.
+		// The branch checked out in the workspace root can't be attached to a second worktree (git refuses), so
+		// load the ordinary session already attached to that checkout.
 		try {
-			string? primaryBranch = await new GitService().GetCurrentBranchAsync(WorkspaceRoot, ct).ConfigureAwait(false);
-			if (string.Equals(primaryBranch, branch, StringComparison.Ordinal) && PrimarySlot() is { } primarySlot) {
-				if (input?.Attachments.Count > 0) {
-					return CommandResult.Failure("Images can't be submitted when opening a session that already exists.");
+			string? workspaceBranch = await new GitService().GetCurrentBranchAsync(WorkspaceRoot, ct).ConfigureAwait(false);
+			var workspaceSlot = _sessions?.Slots.FirstOrDefault(slot =>
+				!slot.ManagedCheckout && PathsEqual(slot.WorktreePath, WorkspaceRoot));
+			if (string.Equals(workspaceBranch, branch, StringComparison.Ordinal) && workspaceSlot is not null) {
+				if (ExistingSessionInputError(input) is { } error) {
+					return error;
 				}
-				return await LoadExistingAsync(primarySlot, branch).ConfigureAwait(false);
+				return await LoadExistingAsync(workspaceSlot, branch).ConfigureAwait(false);
 			}
 		} catch (GitException ex) {
 			return CommandResult.Failure($"Couldn't read the current branch: {ex.Message}");
@@ -1047,6 +1055,11 @@ public sealed partial class HostCore {
 			$"Checked out '{branch}' at {record.Path}.").ConfigureAwait(false);
 	}
 
+	private static CommandResult? ExistingSessionInputError(InitialSessionInput? input) =>
+		input is null
+			? null
+			: CommandResult.Failure("A prompt or images can't be submitted when opening a session that already exists.");
+
 	/// <summary>
 	/// Builds a <see cref="SessionSlot"/> for a worktree <paramref name="record"/>, adds it to the rail, and
 	/// returns its exact address so the calling page can select it (optionally seeding its first input).
@@ -1067,9 +1080,10 @@ public sealed partial class HostCore {
 					Id = branch,
 					Label = branch,
 					WorktreePath = record.Path,
-					IsPrimary = false,
+					ManagedCheckout = true,
 					AgentProviderId = agentProviderId,
 					Session = CreateSession(record.Path, agentProviderId, branch),
+					EditorSession = EditorSession.Empty,
 				};
 				sessions.Add(slot);
 				PushSessionList();
@@ -1206,13 +1220,17 @@ public sealed partial class HostCore {
 	}
 
 	private async Task<string> ResolveBaseRefAsync(
-		HostSession source,
+		SessionSlot? source,
 		string? baseSpec,
 		CancellationToken ct) {
 		var git = new GitService();
 		if (string.IsNullOrWhiteSpace(baseSpec)
 			|| string.Equals(baseSpec, "source", StringComparison.OrdinalIgnoreCase)) {
-			return await git.GetHeadCommitAsync(source.WorkspaceRoot, ct).ConfigureAwait(false);
+			if (source is null) {
+				throw new InvalidOperationException("Pick a source session or branch from main.");
+			}
+
+			return await git.GetHeadCommitAsync(source.WorktreePath, ct).ConfigureAwait(false);
 		}
 
 		if (string.Equals(baseSpec, "main", StringComparison.OrdinalIgnoreCase)) {

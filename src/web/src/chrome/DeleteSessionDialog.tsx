@@ -6,12 +6,12 @@ import { ModalShell, modalSubmitKeys } from "./ModalShell";
 export type DeleteSessionState = "clean" | "untracked" | "modified";
 
 /**
- * The session-delete confirm: deleting removes the worktree (branch always kept), so friction escalates with
- * its state (see DeleteSessionState). Enter confirms when allowed, Esc cancels, via a capture-phase listener
- * so the global keybinding resolver never sees those keys.
+ * The session-delete confirm. Managed checkout removal escalates with its state; deleting a session on a
+ * user-owned checkout removes only the session. Enter confirms when allowed and Esc cancels.
  */
 export function DeleteSessionDialog(props: {
   label: string;
+  removesCheckout: boolean;
   state: DeleteSessionState;
   // The first few uncommitted paths a delete would discard, plus their total.
   changedFiles: string[];
@@ -50,8 +50,13 @@ export function DeleteSessionDialog(props: {
       </div>
       <div class="confirm-body">
         <Show when={props.state === "clean"}>
-          Remove the worktree for "{props.label}"? The branch is kept, so committed work is safe and
-          you can recreate a session on it later.
+          <Show
+            when={props.removesCheckout}
+            fallback={<>Remove session "{props.label}"? Its checkout and files remain on disk.</>}
+          >
+            Remove the worktree for "{props.label}"? The branch is kept, so committed work is safe
+            and you can recreate a session on it later.
+          </Show>
         </Show>
         <Show when={props.state === "untracked"}>
           <div>

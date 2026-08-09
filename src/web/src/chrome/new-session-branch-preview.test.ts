@@ -141,11 +141,11 @@ describe("NewSessionBranchPreview", () => {
     expect(state).toEqual({ branch: "bug/fix-it", manual: true, status: "ready" });
   });
 
-  it("keeps the deterministic branch usable while reporting an inference failure", async () => {
+  it("leaves the branch blank when inference fails", async () => {
     vi.useFakeTimers();
     let state: BranchPreviewState | undefined;
     const preview = new NewSessionBranchPreview(
-      async () => ({ branch: "fix-webm", inferenceFailed: true }),
+      async () => ({ branch: "", inferenceFailed: true }),
       (next) => {
         state = next;
       },
@@ -154,6 +154,6 @@ describe("NewSessionBranchPreview", () => {
     preview.update(context("fix it"));
     await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_DEBOUNCE_MS);
 
-    expect(state).toEqual({ branch: "fix-webm", manual: false, status: "error" });
+    expect(state).toEqual({ branch: "", manual: false, status: "error" });
   });
 });

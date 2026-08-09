@@ -100,6 +100,7 @@ public sealed class InferenceCommandsTests : IDisposable {
 		var command = CoreCommands.CreateRegistry().Require(CoreCommands.EnableAutomaticInference);
 
 		Assert.Equal(CommandLocation.Core, command.RunsIn);
+		Assert.Equal(CommandOwner.Client, command.Owner);
 		Assert.Equal("$mod+alt+i", Assert.Single(command.DefaultKeybindings).Key);
 		Assert.True(command.ShowInPalette);
 	}

@@ -337,7 +337,7 @@ surface.
 | Changes | Pre-edit baseline, post-edit disk observation, multi-edit behavior, scratch/workspace confinement, per-turn reset, and edit locations are preserved. |
 | Review | Blocking background openDiff, switch-in replay, keep/reject, undo/redo, per-file/turn actions, and session isolation are preserved. |
 | Status | Starting, Working, NeedsInput, Waiting, Idle, Error, notification classification, and rail updates are preserved. |
-| Sessions | Primary/worktree creation, prompt seeding, load/unload/delete, restore, dormant sessions, commands, and per-session endpoints are preserved. |
+| Sessions | Workspace/worktree creation, prompt seeding, load/unload/delete, restore, dormant sessions, commands, and per-session endpoints are preserved. |
 | Editor context | Active selection/open editors, background clearing, switch replay, and stale owner rejection are preserved. |
 | Remote | Headless worker launch, fake-Claude seam, bridge routing, reconnect, persistence, and worker teardown are preserved. |
 | Configuration | Existing settings, files, defaults, live reactions, malformed-file reporting, and MCP edits require no migration. |

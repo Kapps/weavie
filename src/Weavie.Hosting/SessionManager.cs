@@ -3,7 +3,7 @@ using Weavie.Core.Worktrees;
 namespace Weavie.Hosting;
 
 /// <summary>
-/// Owns the rail's <see cref="SessionSlot"/>s for one workspace (the primary plus every surfaced worktree, each
+/// Owns the rail's <see cref="SessionSlot"/>s for one workspace (the root checkout plus every surfaced worktree, each
 /// loaded or dormant), plus the <see cref="WorktreeManager"/>. Selection belongs to each client, never the host.
 /// </summary>
 public sealed class SessionManager : IAsyncDisposable {

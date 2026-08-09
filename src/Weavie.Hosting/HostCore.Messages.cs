@@ -1,8 +1,10 @@
 using System.Text.Json;
+using Weavie.Core.Commands;
 using Weavie.Core.Git;
 using Weavie.Core.Layout;
 using Weavie.Core.Remote;
 using Weavie.Core.Search;
+using Weavie.Core.Sessions;
 using Weavie.Hosting.Messaging;
 
 namespace Weavie.Hosting;
@@ -118,6 +120,18 @@ public sealed partial class HostCore {
 			"branches",
 			(_, ct) => ListBranchesAsync(ct));
 
+		_messages.Host.Feature("sessions").Handle<CommandRequest, CommandWireResult>(
+			"invoke",
+			async (message, ct) => ToWireResult(
+				await InvokeHostSessionCommandAsync(message, ct).ConfigureAwait(false)));
+		_messages.Host.Feature("sessionCreation").Handle<HostBranchPreviewRequest, BranchPreviewResult>(
+			"previewBranch",
+			(message, ct) => PreviewBranchNameFromHostAsync(message, ct));
+		_messages.Host.Feature("commands").Handle<CommandRequest, CommandWireResult>(
+			"invoke",
+			async (message, ct) => ToWireResult(
+				await InvokeClientCommandOnHostAsync(message, ct).ConfigureAwait(false)));
+
 		var window = _messages.Host.Feature("window");
 		window.Handle<JsonElement>("control", (message, _) => {
 			_shell?.HandleWindowControl(message);
@@ -133,6 +147,88 @@ public sealed partial class HostCore {
 					.HandleMenuAction(message);
 				return Task.CompletedTask;
 			}, ct)));
+	}
+
+	private async Task<CommandResult> InvokeHostSessionCommandAsync(
+		CommandRequest message,
+		CancellationToken ct) {
+		var args = message.Args;
+		string? id = ReadString(args, "id");
+		return message.Id switch {
+			SessionCommands.NewSession => await NewSessionFromHostAsync(args, ct).ConfigureAwait(false),
+			SessionCommands.LoadSession => await LoadSessionAsync(id, ct).ConfigureAwait(false),
+			SessionCommands.UnloadSession => await UnloadSessionAsync(
+				null,
+				id,
+				new CommandInvocationContext(),
+				ct).ConfigureAwait(false),
+			SessionCommands.DeleteSession when args is { } deleteArgs
+				&& ReadBool(deleteArgs, "classify") =>
+					await ClassifyDeleteAsync(id, ct).ConfigureAwait(false),
+			SessionCommands.DeleteSession => await DeleteSessionAsync(
+				null,
+				id,
+				ReadBool(args, "force"),
+				new CommandInvocationContext(),
+				ct).ConfigureAwait(false),
+			_ => CommandResult.Failure($"'{message.Id}' is not a host-scoped session command."),
+		};
+	}
+
+	private async Task<CommandResult> InvokeClientCommandOnHostAsync(
+		CommandRequest message,
+		CancellationToken ct) {
+		if (!_commandRegistry.TryGet(message.Id, out var definition)
+			|| definition is not { RunsIn: CommandLocation.Core, Owner: CommandOwner.Client }) {
+			return CommandResult.Failure($"'{message.Id}' is not a client-owned Core command.");
+		}
+
+		return await _clientCommands.InvokeAsync(
+			message.Id,
+			message.Args?.GetRawText(),
+			ct).ConfigureAwait(false);
+	}
+
+	private Task<CommandResult> NewSessionFromHostAsync(JsonElement? args, CancellationToken ct) {
+		if (args is not { ValueKind: JsonValueKind.Object } element) {
+			return Task.FromResult(CommandResult.Failure("New session arguments must be an object."));
+		}
+
+		var request = JsonSerializer.Deserialize<NewSessionRequest>(
+			element.GetRawText(),
+			new JsonSerializerOptions(JsonSerializerDefaults.Web))
+			?? throw new JsonException("New session arguments were empty.");
+		return NewSessionAsync(SourceSlot(ReadString(element, "sourceId")), request, ct);
+	}
+
+	private static string? ReadString(JsonElement? args, string name) =>
+		args is { ValueKind: JsonValueKind.Object } element
+		&& element.TryGetProperty(name, out var value)
+		&& value.ValueKind == JsonValueKind.String
+			? value.GetString()
+			: null;
+
+	private static bool ReadBool(JsonElement? args, string name) =>
+		args is { ValueKind: JsonValueKind.Object } element
+		&& element.TryGetProperty(name, out var value)
+		&& value.ValueKind == JsonValueKind.True;
+
+	private SessionSlot? SourceSlot(string? sourceId) =>
+		string.IsNullOrWhiteSpace(sourceId) ? null : _sessions?.Find(sourceId);
+
+	private Task<BranchPreviewResult> PreviewBranchNameFromHostAsync(
+		HostBranchPreviewRequest message,
+		CancellationToken ct) {
+		var source = SourceSlot(message.SourceId);
+		if (!string.IsNullOrWhiteSpace(message.SourceId) && source is null) {
+			return Task.FromResult(new BranchPreviewResult(string.Empty, true));
+		}
+
+		return PreviewBranchNameAsync(
+			source?.WorktreePath ?? WorkspaceRoot,
+			message.Prompt,
+			message.AgentProviderId,
+			ct);
 	}
 
 	private HostHello BuildHello() {

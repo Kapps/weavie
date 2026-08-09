@@ -4,7 +4,7 @@ import {
   type AgentAttachmentViewStatus,
 } from "../agent/AgentAttachmentStrip";
 import { agentImageError, encodeAgentImage, takePastedImages } from "../agent/pasted-images";
-import { connectedBackends } from "../bridge";
+import { connectedBackends, requestBranches, selectedSession } from "../bridge";
 import type { BranchPreviewState } from "../chrome/new-session-branch-preview";
 import type { RailSession } from "../chrome/session-store";
 import { type NewSessionBranchActions, NewSessionBranchField } from "./NewSessionBranchField";
@@ -18,6 +18,8 @@ export interface NewSessionSeedAttachment {
 
 export interface NewSessionSeed {
   branch: string;
+  base: "source" | "main";
+  existing: boolean;
   prompt: string;
   attachments: NewSessionSeedAttachment[];
 }
@@ -30,7 +32,7 @@ interface NewSessionAttachmentDraft extends NewSessionSeedAttachment {
 
 let attachmentSequence = 0;
 
-/** The compact home surface: all sessions plus a prompt-first path to a new worktree session. */
+/** The shared home surface for starting, opening, and resuming sessions. */
 export function SessionInbox(props: {
   sessions: RailSession[];
   initialBackendId: string;
@@ -42,13 +44,16 @@ export function SessionInbox(props: {
     backendId: string,
     providerId: "claude" | "codex",
   ) => Promise<boolean>;
-  onMore: () => void;
-  moreTitle: string;
 }): JSX.Element {
   const [prompt, setPrompt] = createSignal("");
   const [backendId, setBackendId] = createSignal(props.initialBackendId);
   const [providerId, setProviderId] = createSignal<"claude" | "codex">(props.initialProviderId);
-  const [submitting, setSubmitting] = createSignal(false);
+  const [base, setBase] = createSignal<"source" | "main">("source");
+  const [existingBranch, setExistingBranch] = createSignal("");
+  const [branches, setBranches] = createSignal<string[]>([]);
+  const [branchListError, setBranchListError] = createSignal("");
+  const [loadingBranches, setLoadingBranches] = createSignal(false);
+  const [submitting, setSubmitting] = createSignal<"new" | "existing" | null>(null);
   const [attachments, setAttachments] = createSignal<NewSessionAttachmentDraft[]>([]);
   const [branchPreview, setBranchPreview] = createSignal<BranchPreviewState>({
     branch: "",
@@ -56,31 +61,80 @@ export function SessionInbox(props: {
     status: "idle",
   });
   let branchActions: NewSessionBranchActions | undefined;
+  let wasActive = false;
+  let previousBackendId = props.initialBackendId;
+  let previousProviderId = props.initialProviderId;
 
   createEffect(() => {
-    if (!connectedBackends().some((backend) => backend.id === backendId())) {
-      setBackendId("local");
+    const active = props.active;
+    const initialBackendId = props.initialBackendId;
+    const initialProviderId = props.initialProviderId;
+    if (
+      active &&
+      (!wasActive ||
+        initialBackendId !== previousBackendId ||
+        initialProviderId !== previousProviderId)
+    ) {
+      setBackendId(initialBackendId);
+      setProviderId(initialProviderId);
+    }
+    wasActive = active;
+    previousBackendId = initialBackendId;
+    previousProviderId = initialProviderId;
+  });
+
+  createEffect(() => {
+    const available = connectedBackends();
+    if (!available.some((backend) => backend.id === backendId())) {
+      setBackendId(props.initialBackendId);
     }
   });
 
-  const submit = async (): Promise<void> => {
+  createEffect(() => {
+    const id = backendId();
+    if (!props.active) return;
+    let current = true;
+    onCleanup(() => {
+      current = false;
+    });
+    setBranches([]);
+    setBranchListError("");
+    setLoadingBranches(true);
+    void requestBranches(id).then(
+      (result) => {
+        if (!current) return;
+        setBranches(result);
+        setLoadingBranches(false);
+      },
+      (error: unknown) => {
+        if (!current) return;
+        setBranchListError(error instanceof Error ? error.message : String(error));
+        setLoadingBranches(false);
+      },
+    );
+    if (selectedSession()?.connection.id !== id) {
+      setBase("main");
+    }
+  });
+
+  const submitNew = async (): Promise<void> => {
     const text = prompt().trim();
     const images = attachments();
     if (
-      submitting() ||
+      submitting() !== null ||
       branchPreview().branch.trim().length === 0 ||
-      images.some((attachment) => attachment.status !== "ready") ||
-      (text.length === 0 && images.length === 0)
+      images.some((attachment) => attachment.status !== "ready")
     ) {
       return;
     }
-    const branch = branchPreview().branch.trim();
     branchActions?.cancel();
-    setSubmitting(true);
+    setSubmitting("new");
     if (
       await props.onCreate(
         {
-          branch,
+          branch: branchPreview().branch.trim(),
+          base: base(),
+          existing: false,
           prompt: text,
           attachments: images.map(({ id, mime, dataB64 }) => ({ id, mime, dataB64 })),
         },
@@ -92,7 +146,23 @@ export function SessionInbox(props: {
       clearAttachments();
       branchActions?.reset();
     }
-    setSubmitting(false);
+    setSubmitting(null);
+  };
+
+  const openExisting = async (): Promise<void> => {
+    const branch = existingBranch().trim();
+    if (submitting() !== null || branch.length === 0) return;
+    setSubmitting("existing");
+    if (
+      await props.onCreate(
+        { branch, base: "main", existing: true, prompt: "", attachments: [] },
+        backendId(),
+        providerId(),
+      )
+    ) {
+      setExistingBranch("");
+    }
+    setSubmitting(null);
   };
 
   const removeAttachment = (id: string): void => {
@@ -160,15 +230,38 @@ export function SessionInbox(props: {
 
   onCleanup(clearAttachments);
 
-  const canSubmit = (): boolean => {
+  const canStart = (): boolean => {
     const images = attachments();
     return (
-      !submitting() &&
+      submitting() === null &&
       branchPreview().branch.trim().length > 0 &&
-      images.every((attachment) => attachment.status === "ready") &&
-      (prompt().trim().length > 0 || images.length > 0)
+      images.every((attachment) => attachment.status === "ready")
     );
   };
+
+  const destinationFields = (locationLabel: string, providerLabel: string): JSX.Element => (
+    <>
+      <select
+        aria-label={locationLabel}
+        value={backendId()}
+        onChange={(event) => setBackendId(event.currentTarget.value)}
+      >
+        <For each={connectedBackends()}>
+          {(backend) => (
+            <option value={backend.id}>{backend.isLocal ? "Local" : backend.name}</option>
+          )}
+        </For>
+      </select>
+      <select
+        aria-label={providerLabel}
+        value={providerId()}
+        onChange={(event) => setProviderId(event.currentTarget.value as "claude" | "codex")}
+      >
+        <option value="claude">Claude Code</option>
+        <option value="codex">Codex</option>
+      </select>
+    </>
+  );
 
   return (
     <main class="session-inbox">
@@ -180,86 +273,130 @@ export function SessionInbox(props: {
         </div>
       </header>
 
-      <form
-        class="session-composer"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void submit();
-        }}
-      >
-        <textarea
-          aria-label="Prompt for a new session"
-          placeholder="Start a new session…"
-          rows={3}
-          value={prompt()}
-          onInput={(event) => setPrompt(event.currentTarget.value)}
-          onPaste={captureImagePaste}
-        />
-        <Show when={attachments().length > 0}>
-          <AgentAttachmentStrip attachments={attachments()} onRemove={removeAttachment} />
-        </Show>
-        <Show when={attachments().find((attachment) => attachment.error !== null)}>
-          {(attachment) => (
-            <div class="session-composer-error" role="alert">
-              {attachment().error}
-            </div>
-          )}
-        </Show>
-        <NewSessionBranchField
-          active={props.active}
-          backendId={backendId()}
-          hasInput={prompt().trim().length > 0 || attachments().length > 0}
-          prompt={prompt()}
-          providerId={providerId()}
-          onChange={setBranchPreview}
-          register={(actions) => {
-            branchActions = actions;
-          }}
-        />
-        <div class="session-composer-options">
-          <select
-            aria-label="Session location"
-            value={backendId()}
-            onChange={(event) => setBackendId(event.currentTarget.value)}
-          >
-            <For each={connectedBackends()}>
-              {(backend) => (
-                <option value={backend.id}>{backend.isLocal ? "Local" : backend.name}</option>
-              )}
-            </For>
-          </select>
-          <select
-            aria-label="Agent provider"
-            value={providerId()}
-            onChange={(event) => setProviderId(event.currentTarget.value as "claude" | "codex")}
-          >
-            <option value="claude">Claude Code</option>
-            <option value="codex">Codex</option>
-          </select>
-          <button
-            type="button"
-            class="session-composer-more"
-            aria-label="More…"
-            title={props.moreTitle}
-            onClick={() => {
-              branchActions?.cancel();
-              props.onMore();
+      <div class="session-inbox-actions">
+        <section class="session-inbox-action" aria-labelledby="session-start-title">
+          <h2 id="session-start-title">Start a new session</h2>
+          <form
+            class="session-composer"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void submitNew();
             }}
           >
-            <span class="mobile-action-wide">More…</span>
-            <span class="mobile-action-compact mobile-action-more" aria-hidden="true" />
-          </button>
-          <button
-            type="submit"
-            class="session-composer-submit mobile-primary-action"
-            aria-label={submitting() ? "Starting session" : "Start"}
-            disabled={!canSubmit()}
-          >
-            <span class="mobile-action-wide">{submitting() ? "Starting…" : "Start"}</span>
-            <span class="mobile-action-compact mobile-action-submit" aria-hidden="true" />
-          </button>
+            <textarea
+              aria-label="Prompt for a new session"
+              placeholder="What do you want to work on?"
+              rows={3}
+              value={prompt()}
+              onInput={(event) => setPrompt(event.currentTarget.value)}
+              onPaste={captureImagePaste}
+            />
+            <Show when={attachments().length > 0}>
+              <AgentAttachmentStrip attachments={attachments()} onRemove={removeAttachment} />
+            </Show>
+            <Show when={attachments().find((attachment) => attachment.error !== null)}>
+              {(attachment) => (
+                <div class="session-composer-error" role="alert">
+                  {attachment().error}
+                </div>
+              )}
+            </Show>
+            <div class="session-composer-source">
+              <label>
+                <span>From</span>
+                <select
+                  aria-label="Branch starting point"
+                  value={base()}
+                  onChange={(event) => setBase(event.currentTarget.value as "source" | "main")}
+                >
+                  <option
+                    value="source"
+                    disabled={selectedSession()?.connection.id !== backendId()}
+                  >
+                    Current session
+                  </option>
+                  <option value="main">Main branch</option>
+                </select>
+              </label>
+            </div>
+            <NewSessionBranchField
+              active={props.active}
+              backendId={backendId()}
+              hasInput={prompt().trim().length > 0}
+              prompt={prompt()}
+              providerId={providerId()}
+              onChange={setBranchPreview}
+              register={(actions) => {
+                branchActions = actions;
+              }}
+            />
+            <div class="session-composer-options">
+              {destinationFields("Session location", "Agent provider")}
+              <button
+                type="submit"
+                class="session-composer-submit mobile-primary-action"
+                aria-label={submitting() === "new" ? "Starting session" : "Start"}
+                disabled={!canStart()}
+              >
+                <span class="mobile-action-wide">
+                  {submitting() === "new" ? "Starting…" : "Start"}
+                </span>
+                <span class="mobile-action-compact mobile-action-submit" aria-hidden="true" />
+              </button>
+            </div>
+          </form>
+        </section>
+
+        <div class="session-inbox-divider">
+          <span>OR</span>
         </div>
-      </form>
+
+        <section class="session-inbox-action" aria-labelledby="session-open-title">
+          <h2 id="session-open-title">Open an existing branch</h2>
+          <form
+            class="session-open-branch"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void openExisting();
+            }}
+          >
+            <label class="session-composer-branch">
+              <span>Branch</span>
+              <input
+                type="text"
+                list="session-existing-branches"
+                aria-label="Existing branch for the session"
+                placeholder="Choose a branch"
+                value={existingBranch()}
+                onInput={(event) => setExistingBranch(event.currentTarget.value)}
+              />
+              <datalist id="session-existing-branches">
+                <For each={branches()}>{(branch) => <option value={branch} />}</For>
+              </datalist>
+              <Show when={loadingBranches()}>
+                <small>Loading branches…</small>
+              </Show>
+              <Show when={branchListError() !== ""}>
+                <small role="alert">{branchListError()}</small>
+              </Show>
+            </label>
+            <div class="session-composer-options">
+              {destinationFields("Open on", "Open with")}
+              <button
+                type="submit"
+                class="session-composer-submit mobile-primary-action"
+                aria-label={submitting() === "existing" ? "Opening branch" : "Open"}
+                disabled={submitting() !== null || existingBranch().trim().length === 0}
+              >
+                <span class="mobile-action-wide">
+                  {submitting() === "existing" ? "Opening…" : "Open"}
+                </span>
+                <span class="mobile-action-compact mobile-action-submit" aria-hidden="true" />
+              </button>
+            </div>
+          </form>
+        </section>
+      </div>
 
       <section class="session-inbox-list" aria-label="Available sessions">
         <Show

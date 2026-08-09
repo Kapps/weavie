@@ -12,7 +12,7 @@ const distDir = join(dirname(fileURLToPath(import.meta.url)), "..", "dist");
 // inline-code link must post a `reveal-file` for that path. Regression cover for the fix that stopped excluding
 // inline `code` from linkify and widened the path grammar to allow `@`.
 
-const codexSession = mockSession("cx", "codex", "codex", true);
+const codexSession = mockSession("cx", "codex", "codex");
 
 const AT_PATH = "src/web/e2e/.recordings/page@883bef3dba4a5a81116faeb690fc011f.webm";
 const TSX_PATH = "src/web/src/agent/AgentMarkdown.tsx";
@@ -110,6 +110,7 @@ test.describe("AgentMarkdown transcript links", () => {
   async function connect(page: Page): Promise<void> {
     await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
     await host.waitUntilConnected();
+    await page.locator(".session-inbox-row").click();
     publishCommands("alt+m");
     host.publishSession(codexSession.address, "editor", "restore", {
       session: {

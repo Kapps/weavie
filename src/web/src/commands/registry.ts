@@ -6,7 +6,9 @@ import {
   beginClientSelectionCandidate,
   type ClientSession,
   hostInjected,
+  invokeClientCommandOnHost,
   invokeCommandOnBackend,
+  invokeSessionCommandOnBackend,
   LOCAL_BACKEND_ID,
   log,
   onSelectedSession,
@@ -28,6 +30,7 @@ const SESSION_LIFECYCLE = new Set<string>([
   CommandIds.unloadSession,
   CommandIds.deleteSession,
 ]);
+const HOST_SESSION_COMMANDS = new Set<string>([CommandIds.newSession, ...SESSION_LIFECYCLE]);
 
 // A web command handler. Return `false` to decline (let a keybinding's keystroke fall through);
 // anything else, including a Promise or undefined, consumes the event.
@@ -60,6 +63,16 @@ const catalogs = new Map<string, CommandCatalog>([
 const handlers = new Map<string, CommandHandler>();
 const changeSubscribers = new Set<() => void>();
 const sessionActivationSubscribers = new Set<(activation: SessionActivation) => void>();
+
+registerHostFeature((connection) =>
+  connection.isLocal
+    ? connection.host
+        .feature("commands")
+        .on<{ id: string; args?: unknown }>("runNative", ({ id, args }) => {
+          void runCommandWithFeedback(id, args);
+        })
+    : undefined,
+);
 
 export interface SessionActivation {
   session: ClientSession;
@@ -237,21 +250,30 @@ async function routeCoreCommand(
       : typeof backendId === "string" && backendId.length > 0
         ? backendId
         : catalogBackendId;
+  const active = selectedSession();
+  const selectedId =
+    SESSION_LIFECYCLE.has(command.id) &&
+    typeof fields?.id !== "string" &&
+    active?.connection.id === target
+      ? active.address.slot
+      : undefined;
+  const routedArgs = selectedId === undefined ? args : { ...(fields ?? {}), id: selectedId };
+  const trackedId = typeof fields?.id === "string" ? fields.id : selectedId;
   const commit = beginClientSelectionCandidate();
   const run = async (): Promise<CommandResult> => {
-    const result = await invokeCommandOnBackend(target, command.id, args);
+    const result = await (command.owner === "client"
+      ? invokeClientCommandOnHost(command.id, routedArgs)
+      : HOST_SESSION_COMMANDS.has(command.id)
+        ? invokeSessionCommandOnBackend(target, command.id, routedArgs)
+        : invokeCommandOnBackend(target, command.id, routedArgs));
     if (result.ok) {
       await applySessionActivation(target, result, commit);
     }
     return result;
   };
   // A session-lifecycle op (not the delete's classify probe) flags its session as pending until it settles.
-  if (
-    SESSION_LIFECYCLE.has(command.id) &&
-    typeof fields?.id === "string" &&
-    fields.classify !== true
-  ) {
-    return trackSessionCommand(target, fields.id, run);
+  if (SESSION_LIFECYCLE.has(command.id) && trackedId !== undefined && fields?.classify !== true) {
+    return trackSessionCommand(target, trackedId, run);
   }
   return run();
 }

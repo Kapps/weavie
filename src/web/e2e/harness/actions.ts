@@ -96,6 +96,18 @@ export async function allowAutomaticInference(page: Page): Promise<void> {
   await expect(page.locator(".toast", { hasText: "Automatic inference enabled." })).toBeVisible();
 }
 
+export async function createSession(
+  page: Page,
+  seed: { branch: string; provider: "claude" | "codex" },
+): Promise<void> {
+  await runCommand(page, "Sessions");
+  const inbox = page.locator(".session-inbox");
+  await inbox.getByRole("combobox", { name: "Agent provider" }).selectOption(seed.provider);
+  await inbox.getByRole("textbox", { name: "Branch for the new session" }).fill(seed.branch);
+  await inbox.getByRole("button", { name: "Start", exact: true }).click();
+  await expect(inbox).toBeHidden();
+}
+
 // Type text at the current caret in the focused Monaco editor.
 export async function typeInEditor(page: Page, text: string): Promise<void> {
   await awaitEditorReady(page);

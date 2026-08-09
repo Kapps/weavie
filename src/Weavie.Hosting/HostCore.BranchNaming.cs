@@ -5,26 +5,25 @@ namespace Weavie.Hosting;
 
 public sealed partial class HostCore {
 	private async Task<BranchPreviewResult> PreviewBranchNameAsync(
-		HostSession source,
+		string sourceRoot,
 		string? prompt,
 		string agentProviderId,
 		CancellationToken ct) {
-		var taken = await TakenBranchNamesAsync(ct).ConfigureAwait(false);
-		string fallback = UniqueDeterministicBranch(prompt, taken);
 		if (string.IsNullOrWhiteSpace(prompt)) {
-			return new BranchPreviewResult(fallback, false);
+			return new BranchPreviewResult(string.Empty, true);
 		}
+		var taken = await TakenBranchNamesAsync(ct).ConfigureAwait(false);
 
 		var git = new GitService();
 		BranchNameInferenceInput input;
 		try {
 			input = new BranchNameInferenceInput {
 				Prompt = prompt.Trim(),
-				CurrentBranch = await git.GetCurrentBranchAsync(source.WorkspaceRoot, ct).ConfigureAwait(false) ?? string.Empty,
-				RecentBranches = await git.ListRecentBranchesAsync(source.WorkspaceRoot, 20, ct).ConfigureAwait(false),
+				CurrentBranch = await git.GetCurrentBranchAsync(sourceRoot, ct).ConfigureAwait(false) ?? string.Empty,
+				RecentBranches = await git.ListRecentBranchesAsync(sourceRoot, 20, ct).ConfigureAwait(false),
 			};
 		} catch (GitException) {
-			return new BranchPreviewResult(fallback, false);
+			return new BranchPreviewResult(string.Empty, true);
 		}
 
 		var result = await _inference.QueryAsync(
@@ -34,10 +33,8 @@ public sealed partial class HostCore {
 			BranchNameInference.ResponseType,
 			BranchNameInference.QueryOptions,
 			ct).ConfigureAwait(false);
-		if (result is InferenceFailure<BranchNameInferenceOutput> failure) {
-			bool reportFailure = failure.Kind is not InferenceFailureKind.Disabled
-				and not InferenceFailureKind.PolicyDenied;
-			return new BranchPreviewResult(fallback, reportFailure);
+		if (result is InferenceFailure<BranchNameInferenceOutput>) {
+			return new BranchPreviewResult(string.Empty, true);
 		}
 
 		if (result is not InferenceSuccess<BranchNameInferenceOutput> success) {
@@ -46,24 +43,21 @@ public sealed partial class HostCore {
 
 		string proposed = success.Value.Branch.Trim();
 		if (proposed.Length == 0 || taken.Contains(proposed)) {
-			return new BranchPreviewResult(fallback, true);
+			return new BranchPreviewResult(string.Empty, true);
 		}
 
 		try {
-			if (!await git.IsValidBranchNameAsync(source.WorkspaceRoot, proposed, ct).ConfigureAwait(false)) {
-				return new BranchPreviewResult(fallback, true);
+			if (!await git.IsValidBranchNameAsync(sourceRoot, proposed, ct).ConfigureAwait(false)) {
+				return new BranchPreviewResult(string.Empty, true);
 			}
 
-			return await git.BranchExistsAsync(source.WorkspaceRoot, proposed, ct).ConfigureAwait(false)
-				? new BranchPreviewResult(fallback, true)
+			return await git.BranchExistsAsync(sourceRoot, proposed, ct).ConfigureAwait(false)
+				? new BranchPreviewResult(string.Empty, true)
 				: new BranchPreviewResult(proposed, false);
 		} catch (GitException) {
-			return new BranchPreviewResult(fallback, true);
+			return new BranchPreviewResult(string.Empty, true);
 		}
 	}
-
-	private async Task<string> DeriveUniqueDeterministicBranchNameAsync(string? prompt, CancellationToken ct) =>
-		UniqueDeterministicBranch(prompt, await TakenBranchNamesAsync(ct).ConfigureAwait(false));
 
 	private async Task<HashSet<string>> TakenBranchNamesAsync(CancellationToken ct) {
 		var taken = new HashSet<string>(StringComparer.Ordinal);
@@ -80,25 +74,5 @@ public sealed partial class HostCore {
 		}
 
 		return taken;
-	}
-
-	private static string UniqueDeterministicBranch(string? prompt, IReadOnlySet<string> taken) {
-		string slug = "session";
-		if (!string.IsNullOrWhiteSpace(prompt)) {
-			char[] chars = [.. prompt.Trim().ToLowerInvariant().Take(40).Select(c => char.IsLetterOrDigit(c) ? c : '-')];
-			slug = new string(chars).Trim('-');
-			if (slug.Length == 0) {
-				slug = "session";
-			}
-		}
-
-		string candidate = slug;
-		int n = 2;
-		while (taken.Contains(candidate)) {
-			candidate = $"{slug}-{n}";
-			n++;
-		}
-
-		return candidate;
 	}
 }

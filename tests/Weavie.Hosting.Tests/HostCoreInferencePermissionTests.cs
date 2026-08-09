@@ -44,12 +44,21 @@ public sealed class HostCoreInferencePermissionTests {
 	}
 
 	[Fact]
-	public async Task OfferCommand_EnablesBothPolicyGates() {
+	public async Task OfferCommand_EnablesBothPolicyGatesWithoutALiveSession() {
 		await using var host = await TestHost.StartAsync();
+		string id = host.WorkspaceSession.SlotId;
+		var unloaded = await host.HostRequestAsync<JsonElement>(
+			"sessions",
+			"invoke",
+			new { id = SessionCommands.UnloadSession, args = new { id } });
+		Assert.True(unloaded.GetProperty("ok").GetBoolean());
 
-		var result = await host.InvokeClientCommandAsync(CoreCommands.EnableAutomaticInference, new { });
+		var result = await host.HostRequestAsync<JsonElement>(
+			"commands",
+			"invoke",
+			new { id = CoreCommands.EnableAutomaticInference, args = new { } });
 
-		Assert.True(result.Ok, result.Error);
+		Assert.True(result.GetProperty("ok").GetBoolean());
 		Assert.True(host.Settings.RequireBool(InferenceSettings.AllowAutomatic));
 		Assert.True(host.Settings.RequireBool(InferenceSettings.Enabled));
 		Assert.Equal(

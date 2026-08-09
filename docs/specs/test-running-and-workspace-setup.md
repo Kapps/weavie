@@ -148,7 +148,7 @@ worktree session's Claude runs in *that* session's shell with `${file}` relative
 The `worktree.setupCommand` card generalizes to one **"Set up this workspace?"** suggestion
 (`IsRelevant = ctx.HasBuildManifest && (setupCommand unset || test.profile unset)`; a persisted
 `worktree.setupCommand` dismissal counts as dismissing the new id). "Yes" runs
-`weavie.workspace.setup`, which pre-fills — never sends — the setup entry point into the primary
+`weavie.workspace.setup`, which pre-fills — never sends — the setup entry point into the invoking
 session's Claude, preserving the seeding-safety stance.
 
 The setup brain ships as an **MCP prompt on the registry server**: `prompts/list`/`prompts/get` in a
@@ -187,7 +187,7 @@ flowchart LR
   ST["SettingsStore (workspace layer)"] --> TR
   ST -->|"test-profile push"| P
   subgraph setup
-    SC["card Yes → weavie.workspace.setup"] -->|"paste /mcp__weavie__setup-workspace"| CL["primary Claude pane"]
+    SC["card Yes → weavie.workspace.setup"] -->|"paste /mcp__weavie__setup-workspace"| CL["invoking Claude pane"]
     CL -->|"user Enter → prompts/get"| REG["registry McpServer"]
     CL -->|"setSetting (confirmed)"| REG --> ST
   end

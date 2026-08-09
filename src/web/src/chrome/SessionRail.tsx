@@ -22,7 +22,7 @@ export function SessionRail(props: {
 }): JSX.Element {
   // Advertise the New Session shortcut on the "+" tooltip, read from the command catalog (never hardcoded).
   const newTitle = (): string => {
-    const keys = findCommand(CommandIds.newSessionPrompt)?.keys ?? [];
+    const keys = findCommand(CommandIds.showSessions)?.keys ?? [];
     return keys.length > 0 ? `New session (${keys.map(formatKey).join(" / ")})` : "New session";
   };
   // The switch shortcut for the chip at `index` (0-based); only the first 9 chips have a number binding.
@@ -47,14 +47,11 @@ export function SessionRail(props: {
     return shortcut !== "" ? `${base} (${shortcut})` : base;
   };
 
-  // Right-click menu rows are commands (see session-menu.ts). Load/unload + delete for any session, plus
-  // "Remove from rail" for a remote; the primary checkout has no worktree, so it opens no menu.
+  // Right-click menu rows are commands (see session-menu.ts). Load/unload + delete for every session, plus
+  // "Remove from rail" for a remote.
   const [menu, setMenu] = createSignal<ContextMenuState | null>(null);
   const openMenu = (event: MouseEvent, session: RailSession): void => {
     event.preventDefault();
-    if (session.isLocal && session.primary) {
-      return;
-    }
     setMenu({
       x: event.clientX,
       y: event.clientY,

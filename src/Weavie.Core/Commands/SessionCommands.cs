@@ -10,14 +10,11 @@ namespace Weavie.Core.Commands;
 /// Declarations live in Core so every trigger sees them. See <c>docs/specs/multi-session-and-worktrees.md</c>.
 /// </summary>
 public static class SessionCommands {
-	/// <summary>Creates a new session on its own worktree + branch (args <c>branch</c>/<c>base</c>/<c>prompt</c>); the programmatic entry. The interactive UI uses <see cref="NewSessionPrompt"/>.</summary>
+	/// <summary>Creates a new session on its own worktree + branch (args <c>branch</c>/<c>base</c>/<c>prompt</c>); the programmatic entry.</summary>
 	public const string NewSession = "weavie.session.new";
 
-	/// <summary>Opens the interactive new-session prompt (branch name + base) in the UI; <c>$mod+Shift+n</c>.</summary>
-	public const string NewSessionPrompt = "weavie.session.newPrompt";
-
-	/// <summary>Shows the compact session inbox, including the prompt-first new-session composer.</summary>
-	public const string ShowSessionInbox = "weavie.session.showInbox";
+	/// <summary>Shows the shared Sessions home in the UI; <c>$mod+Shift+n</c>.</summary>
+	public const string ShowSessions = "weavie.session.show";
 
 	/// <summary>Opens the pull-request picker (check out a PR's branch as a session) in the UI; <c>$mod+Shift+r</c>.</summary>
 	public const string OpenPr = "weavie.pr.open";
@@ -49,7 +46,7 @@ public static class SessionCommands {
 	/// <summary>Unloads the invoking session, or the <c>id</c> arg, into a dormant chip while keeping its worktree.</summary>
 	public const string UnloadSession = "weavie.session.unload";
 
-	/// <summary>Deletes the invoking session, or the <c>id</c> arg: removes its worktree (keeps the branch), guarded against uncommitted changes unless <c>force</c>. The programmatic entry; the UI uses <see cref="DeleteSessionPrompt"/>.</summary>
+	/// <summary>Deletes the invoking session, or the <c>id</c> arg. Weavie-owned worktrees are removed; user-owned checkouts are preserved.</summary>
 	public const string DeleteSession = "weavie.session.delete";
 
 	/// <summary>Opens the interactive delete confirmation in the UI (arg <c>id</c>; defaults to the selected session).</summary>
@@ -70,40 +67,27 @@ public static class SessionCommands {
 			Title = "New Session",
 			RunsIn = CommandLocation.Core,
 			Category = "Session",
-			Description = "Create a new session on its own git worktree + branch. With no 'branch' the host "
-					+ "derives one deterministically (avoiding existing local branches and session labels). 'base' is 'source' (the invoking session's HEAD; the "
+			Description = "Create a new session on its own git worktree + branch. 'branch' is required. 'base' is 'source' (the invoking session's HEAD; the "
 				+ "default) or 'main'. Set 'existing' true to instead check out an existing branch named by 'branch' "
 				+ "(no new branch; 'base' is ignored), switching to that session if one already exists. An optional "
 				+ "'prompt' and optional image 'attachments' are sent as the new session's first input. "
 				+ "'agentProviderId' may be 'claude' or 'codex'; "
-				+ "omitting it uses agent.defaultProvider. This is the programmatic entry; the interactive UI uses "
-				+ "'New Session…' (weavie.session.newPrompt).",
+				+ "omitting it uses agent.defaultProvider. The interactive UI is the Sessions home.",
 			Aliases = ["new session", "create session", "new worktree", "branch session", "new agent", "another claude", "spin up a session", "check out branch", "open existing branch"],
-			// Hidden from the palette: the human-facing entry is the interactive prompt (NewSessionPrompt). Still
+			// Hidden from the palette: the human-facing entry is the Sessions home. Still
 			// reachable by Claude via listCommands/runCommand.
 			ShowInPalette = false,
 			ArgsSchemaJson = "{\"branch\":{\"type\":\"string\"},\"base\":{\"type\":\"string\",\"enum\":[\"source\",\"main\"]},\"existing\":{\"type\":\"boolean\"},\"prompt\":{\"type\":\"string\"},\"attachments\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"},\"mime\":{\"type\":\"string\"},\"dataB64\":{\"type\":\"string\"}},\"required\":[\"id\",\"mime\",\"dataB64\"]}},\"agentProviderId\":{\"type\":\"string\",\"enum\":[\"claude\",\"codex\"]}}",
 		});
 
 		registry.Register(new CommandDefinition {
-			Id = NewSessionPrompt,
-			Title = "New Session…",
+			Id = ShowSessions,
+			Title = "Sessions",
 			RunsIn = CommandLocation.Web,
 			Category = "Session",
-			Description = "Open the new-session prompt: name a branch, then branch off the invoking session's HEAD "
-				+ "(Enter) or main (Shift+Enter). The interactive counterpart of weavie.session.new.",
+			Description = "Show all sessions and the shared new-session composer.",
+			Aliases = ["new session", "show sessions", "session home"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+n" }],
-		});
-
-		registry.Register(new CommandDefinition {
-			Id = ShowSessionInbox,
-			Title = "Show Session Inbox",
-			RunsIn = CommandLocation.Web,
-			Category = "Session",
-			Description = "Show the compact session inbox for resuming or starting agent sessions.",
-			Aliases = ["session inbox", "show sessions", "mobile home"],
-			DefaultKeybindings = [new CommandKeybinding { Key = "alt+Shift+i", When = "compact" }],
-			When = "compact",
 		});
 
 		registry.Register(new CommandDefinition {
@@ -134,7 +118,7 @@ public static class SessionCommands {
 			RunsIn = CommandLocation.Core,
 			Category = "Session",
 			Description = "Fork the invoking session into a new worktree branched off its HEAD, carrying a handoff "
-				+ "brief to the new session's agent. With no 'branch' the host derives one. 'handoff' is the "
+				+ "brief to the new session's agent. 'branch' is required. 'handoff' is the "
 				+ "summary/instruction seeded as the fork's first message.",
 			Aliases = ["fork session", "branch this", "spin off", "fork this conversation", "branch off here", "try this in a branch"],
 			ArgsSchemaJson = "{\"branch\":{\"type\":\"string\"},\"handoff\":{\"type\":\"string\"}}",
@@ -244,9 +228,9 @@ public static class SessionCommands {
 			Title = "Delete Session",
 			RunsIn = CommandLocation.Core,
 			Category = "Session",
-			Description = "Delete the invoking session, or the session named by 'id': remove its git worktree but KEEP the "
-				+ "branch (committed work survives on it). Refuses when the worktree has uncommitted changes unless "
-				+ "'force' is true, so work is never discarded silently. The primary session can't be deleted. With "
+			Description = "Delete the invoking session, or the session named by 'id'. A Weavie-owned git worktree is "
+				+ "removed but its branch is kept; a user-owned checkout is never removed. Refuses to remove a managed "
+				+ "worktree with uncommitted changes unless 'force' is true. With "
 				+ "'classify' true it deletes nothing and instead returns the worktree's state (clean/untracked/modified) "
 				+ "for a confirm prompt. This is the programmatic entry (for agents); the interactive UI uses "
 				+ "'Delete Session…' (weavie.session.deletePrompt).",
@@ -357,7 +341,7 @@ public static class SessionCommands {
 			Prompt = GetString(args, "prompt"),
 			Attachments = GetAttachments(args),
 			AgentProviderId = GetString(args, "agentProviderId"),
-			AttachExisting = GetBool(args, "existing"),
+			Existing = GetBool(args, "existing"),
 		};
 	}
 

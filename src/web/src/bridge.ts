@@ -229,12 +229,7 @@ function removeHostFeatures(connection: HostConnection): void {
 }
 
 function defaultSession(): ClientSession | null {
-  const local = hostConnection(LOCAL_BACKEND_ID);
-  const primary = local?.currentCatalog.find((entry) => entry.primary)?.address;
-  if (local !== undefined && primary != null) {
-    return local.session(primary) ?? local.sessions[0] ?? null;
-  }
-  return local?.sessions[0] ?? null;
+  return hostConnection(LOCAL_BACKEND_ID)?.sessions[0] ?? null;
 }
 
 function selectionLocation(session: ClientSession): SelectionLocation {
@@ -453,12 +448,7 @@ function receiveRaw(backendId: string, raw: string): void {
 
 function selectedForBackend(backendId: string): ClientSession | undefined {
   const active = selected();
-  if (active?.connection.id === backendId) {
-    return active;
-  }
-  const connection = hostConnection(backendId);
-  const primary = connection?.currentCatalog.find((entry) => entry.primary)?.address;
-  return primary == null ? connection?.sessions[0] : connection?.session(primary);
+  return active?.connection.id === backendId ? active : undefined;
 }
 
 export async function invokeCommandOnBackend(
@@ -486,6 +476,38 @@ export async function invokeCommandOnBackend(
   }
 }
 
+export async function invokeSessionCommandOnBackend(
+  backendId: string,
+  id: string,
+  args: unknown,
+): Promise<CommandResult> {
+  const connection = hostConnection(backendId);
+  if (connection === undefined) {
+    return { ok: false, error: "The host is not connected." };
+  }
+  try {
+    return await connection.host
+      .feature("sessions")
+      .request<CommandResult, { id: string; args: unknown }>("invoke", { id, args });
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+export async function invokeClientCommandOnHost(id: string, args: unknown): Promise<CommandResult> {
+  const connection = hostConnection(LOCAL_BACKEND_ID);
+  if (connection === undefined) {
+    return { ok: false, error: "The local host is not connected." };
+  }
+  try {
+    return await connection.host
+      .feature("commands")
+      .request<CommandResult, { id: string; args: unknown }>("invoke", { id, args });
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 export function requestBranches(backendId: string): Promise<string[]> {
   const connection = hostConnection(backendId);
   return connection === undefined
@@ -504,12 +526,19 @@ export function requestBranchPreview(
   agentProviderId: "claude" | "codex",
   signal: AbortSignal,
 ): Promise<BranchPreviewResult> {
-  const session = selectedForBackend(backendId);
-  return session === undefined
-    ? Promise.reject(new Error("No live session is available."))
-    : session
-        .feature("sessionCreation")
-        .request("previewBranch", { prompt, agentProviderId }, signal);
+  const connection = hostConnection(backendId);
+  const active = selected();
+  return connection === undefined
+    ? Promise.reject(new Error("The host is not connected."))
+    : connection.host.feature("sessionCreation").request(
+        "previewBranch",
+        {
+          sourceId: active?.connection.id === backendId ? active.address.slot : null,
+          prompt,
+          agentProviderId,
+        },
+        signal,
+      );
 }
 
 export function requestDiffRefs(backendId: string): Promise<string[]> {

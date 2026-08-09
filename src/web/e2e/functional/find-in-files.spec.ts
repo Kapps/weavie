@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test";
-import { awaitEditorReady, awaitFontsSettled, openFile, runCommand } from "../harness/actions";
+import { awaitEditorReady, awaitFontsSettled, createSession, openFile } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 
 // Find in Files journeys: seeding from the editor selection, arrow live-preview vs Enter commit (cursor on
@@ -236,7 +236,7 @@ test("a session switch clears stale results so stepping can't open the previous 
 
   // Forking switches to a new session on its own worktree; the prior worktree's results (and any pending
   // F4 target) must not survive, or stepping would open a path that routes into the wrong worktree.
-  await runCommand(page, "Fork Session");
+  await createSession(page, { branch: "e2e/find-session-switch", provider: "claude" });
   await expect(page.locator(".session-chip")).toHaveCount(2);
   await expect(page.locator(".search-row")).toHaveCount(0);
   // F4 with the cleared list is a no-op — no tab opens.

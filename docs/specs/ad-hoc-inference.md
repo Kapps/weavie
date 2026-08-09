@@ -80,16 +80,15 @@ Both paths then pass the raw JSON to the shared local validator, which:
 4. deserializes through the declared `JsonTypeInfo<TResponse>`;
 5. leaves semantic and authoritative state validation to the feature.
 
-## Failure and fallback
+## Failure behavior
 
 Stable failures include disabled, policy denied, not configured, category unavailable, input rejected, timed out,
 authentication failed, rate limited, provider unavailable, refused, and invalid response.
 
-Every feature handles every non-success by executing the same behavior used when inference is disabled. This
-includes missing binaries/authentication, non-zero CLI exits, malformed envelopes/JSON, shape/domain rejection, and
-authoritative feature rejection. The inference service does not own fallback logic because ordinary behavior is
-feature-owned. A feature may surface that it used the fallback: branch preview marks configured/query failures while
-keeping disabled inference and automatic-inference opt-out silent.
+Every feature owns its non-success UI. This includes missing binaries/authentication, non-zero CLI exits,
+malformed envelopes/JSON, shape/domain rejection, and authoritative feature rejection. Branch preview has no
+generated fallback: every inference, validation, or collision failure leaves the branch field blank, marks the
+failure, and requires the user to type a branch name.
 
 Caller cancellation remains exceptional and propagates. A canceled branch-preview request must stop its CLI
 process and must not publish a stale name into a newer composer draft.
@@ -121,8 +120,8 @@ sequenceDiagram
     participant A as Selected IAgentInferenceProvider
     participant C as Installed Claude/Codex CLI
 
-    F->>F: compute deterministic behavior
-    F->>F: build prompt from typed context
+    F->>F: collect typed context
+    F->>F: build prompt
     F->>S: agent provider + category + prompt + response type + options
     S->>S: policy, strict metadata, size, schema
     S->>A: one isolated query
@@ -135,31 +134,30 @@ sequenceDiagram
         F->>F: authoritative validation
     else any non-cancellation failure
         S-->>F: stable failure
-        F->>F: ordinary disabled behavior
+        F->>F: visible feature-owned failure behavior
     end
 ```
 
 ## First consumer: branch naming
 
-The compact new-session composer issues one session-scoped preview request after the prompt has been idle for 500
-ms. The owning session identifies the source worktree by construction. The host first computes the existing
-deterministic unique slug, then—when automatic inference is enabled—sends only the text prompt, that worktree's
-current branch, and up to twenty local branches ordered by tip committer date. It passes the provider already
-selected in the composer and permits only `Utility`.
+The shared Sessions composer issues one host-scoped preview request after the prompt has been idle for 500 ms.
+When “Current session” is selected, the request carries that exact slot; “Main branch” needs no live session.
+The host sends only the text prompt, source checkout's current branch, and up to twenty local branches ordered by
+tip committer date. It passes the provider already selected in the composer and permits only `Utility`.
 
 A proposed name is trimmed, checked with `GitService.IsValidBranchName`, checked against loaded/worktree labels,
-and checked against Git branch existence. Every other non-cancellation outcome returns the precomputed deterministic
-slug. When inference is enabled but cannot produce a usable proposal, the result also marks the failure and the
-compact composer shows it inline without disabling creation. The editable field is the only branch creation submits.
+and checked against Git branch existence. Every other non-cancellation outcome returns an empty branch and marks
+the failure. The composer explains that the user must type a branch, and Start stays disabled until they do. The
+editable field is the only branch creation submits.
 
 Typing, provider/location changes, manual branch input, hiding the composer, and submission cancel pending work.
 The client keys results to the complete draft and never lets a stale response or automatic result overwrite manual
-input. Start stays disabled until the field contains a branch. A transport failure leaves the field editable and
-shows that preview is unavailable; it cannot reproduce the host-owned unique fallback.
+input. Start stays disabled until the field contains a branch. A transport failure leaves the field blank and
+editable and shows that preview is unavailable.
 
-Programmatic `weavie.session.new` and fork calls with no branch never perform hidden inference. They immediately use
-the same deterministic naming behavior used before ad-hoc inference. An explicit branch is revalidated and used
-unchanged; a collision fails rather than silently substituting a different name.
+Programmatic `weavie.session.new` and fork calls also require a branch and never perform hidden inference. An
+explicit branch is revalidated and used unchanged; omission or collision fails rather than silently substituting a
+different name.
 
 ## Product surfaces
 
@@ -169,7 +167,7 @@ answer arrives. It is not a hidden agent loop and never mutates the workspace.
 
 | Surface | Trigger | Category | Typed result | Disabled or query-failure behavior |
 |---|---|---|---|---|
-| Branch-name preview | Automatic after prompt idle | `Utility` | Valid branch candidate | Deterministic unique slug |
+| Branch-name preview | Automatic after prompt idle | `Utility` | Valid branch candidate | Empty field; user types a branch |
 | Plan review | Explicit review action | `Reasoning` | Prioritized findings | Plan remains available without review |
 | Failed-test diagnosis | Explicit offer after a failed run | `Reasoning` | Diagnosis and proposed next action | Existing failed-test result remains unchanged |
 | Semantic file review | Automatic after editor idle | `Utility` | High-impact, located suggestions | No semantic suggestions |
@@ -232,19 +230,18 @@ impact threshold keep the feature from becoming a stream of speculative inline n
 - Ad-hoc inference may recommend a mutation, but only a deterministic product action or visible interactive agent
   turn performs one.
 - Product surfaces do not retry, escalate models, or switch providers. Provider, model, and response-validation
-  failures are indistinguishable from the feature being disabled. A transport failure before the host can compute
-  the feature fallback remains a visible product error.
+  failures take the feature's visible failure path. A transport failure remains a visible product error.
 - Automatic surfaces require both `inference.enabled` and `inference.allowAutomatic`; explicit actions require only
   `inference.enabled`.
 
 ## Delivery order
 
-1. Branch-name preview proves provider reuse, typed output, cancellation, automatic policy, and deterministic
-   fallback.
+1. Branch-name preview proves provider reuse, typed output, cancellation, automatic policy, and visible manual
+   recovery.
 2. Plan review proves a user-initiated `Reasoning` query and independent critique without mutation.
 3. Failed-test diagnosis proves the handoff from a bounded query to a visible agent that can fix the problem.
 4. Semantic file review proves sustained automatic use only after cancellation, deduplication, and dismissal
    behavior are established.
 
-Each surface owns its prompt, response type, semantic/authoritative validation, fallback, and UX tests. Shared query
-plumbing remains generic, while adding a surface never creates an external prompt endpoint.
+Each surface owns its prompt, response type, semantic/authoritative validation, failure behavior, and UX tests.
+Shared query plumbing remains generic, while adding a surface never creates an external prompt endpoint.

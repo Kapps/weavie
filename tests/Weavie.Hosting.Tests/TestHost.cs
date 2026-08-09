@@ -36,7 +36,7 @@ internal sealed class TestHost : IAsyncDisposable {
 	private readonly HostServices _services;
 	private readonly Dictionary<SessionAddress, JsonElement> _clientEditorSessions = [];
 	private long _requestSequence;
-	private string _selectedSlot = "primary";
+	private string _selectedSlot = string.Empty;
 
 	private TestHost(string tempRoot, string repoRoot, HostServices services, FakeHostBridge bridge, TestPlatform platform, HostCore core, StubHttpMessageHandler sourceHttp, string sourcesDir) {
 		_tempRoot = tempRoot;
@@ -60,7 +60,7 @@ internal sealed class TestHost : IAsyncDisposable {
 	/// <summary>The temp <c>sources</c> dir — write a <c>notion.json</c> credentials file here to exercise the connect flow.</summary>
 	public string SourcesDir { get; }
 
-	/// <summary>The primary checkout (a git repo) this host is rooted at.</summary>
+	/// <summary>The workspace checkout (a git repo) this host is rooted at.</summary>
 	public string RepoRoot { get; }
 
 	/// <summary>The isolated ring behind <c>weavie.view.logs</c> — append lines to exercise the log viewer.</summary>
@@ -210,11 +210,12 @@ internal sealed class TestHost : IAsyncDisposable {
 		return new TestHost(tempRoot, repo, services, bridge, platform, core, sourceHttp, sourcesDir);
 	}
 
-	/// <summary>The primary live session's incarnation, used by media URLs.</summary>
-	public string PrimaryIncarnation => PrimarySession.Incarnation;
+	/// <summary>The workspace-checkout session's incarnation, used by media URLs.</summary>
+	public string WorkspaceIncarnation => WorkspaceSession.Incarnation;
 
-	/// <summary>The primary live session.</summary>
-	public HostSession PrimarySession => Session("primary");
+	/// <summary>The ordinary live session attached to the user-owned workspace checkout.</summary>
+	public HostSession WorkspaceSession => Core.WorkspaceSessionForTest
+		?? throw new InvalidOperationException("The workspace session is not live.");
 
 	/// <summary>The session selected by this test client; selection never enters <see cref="HostCore"/>.</summary>
 	public HostSession SelectedSession => Session(_selectedSlot);
@@ -230,12 +231,15 @@ internal sealed class TestHost : IAsyncDisposable {
 		SessionEvent(session, "view", "attach", new { pageEpoch = "test-page" });
 	}
 
+	/// <summary>Selects the ordinary session attached to the workspace checkout.</summary>
+	public void SelectWorkspaceSession() => SelectSession(WorkspaceSession.SlotId);
+
 	/// <summary>Creates a worktree-backed session from this client's selected source and selects the result.</summary>
 	public Task<CommandResult> CreateSessionAsync(string branch) =>
 		CreateSessionAsync(new NewSessionRequest {
 			Branch = branch,
 			Base = "main",
-			AttachExisting = false,
+			Existing = false,
 		});
 
 	/// <summary>Creates a worktree-backed session from this client's selected source and selects the result.</summary>
@@ -293,7 +297,7 @@ internal sealed class TestHost : IAsyncDisposable {
 			new { id = slot },
 			CancellationToken.None).ConfigureAwait(false);
 		if (result.Ok && _selectedSlot == slot) {
-			SelectSession("primary");
+			SelectWorkspaceSession();
 		}
 
 		return result;
@@ -310,7 +314,10 @@ internal sealed class TestHost : IAsyncDisposable {
 	/// <summary>Performs the host hello and session sync sequence used by a real client connection.</summary>
 	public async Task ConnectAsync() {
 		var hello = await HostRequestAsync<JsonElement>("connection", "hello", new { }).ConfigureAwait(false);
-		_selectedSlot = "primary";
+		_selectedSlot = hello.GetProperty("sessions").EnumerateArray()
+			.First(entry => entry.TryGetProperty("address", out var address)
+				&& address.ValueKind == JsonValueKind.Object)
+			.GetProperty("id").GetString()!;
 		foreach (var entry in hello.GetProperty("sessions").EnumerateArray()) {
 			if (!entry.TryGetProperty("address", out var address)
 				|| address.ValueKind != JsonValueKind.Object) {
@@ -325,7 +332,15 @@ internal sealed class TestHost : IAsyncDisposable {
 				new { }).ConfigureAwait(false);
 		}
 
-		SelectSession("primary");
+		if (Core.WorkspaceSessionForTest is { } workspaceSession) {
+			SelectSession(workspaceSession.SlotId);
+		} else {
+			string slot = Bridge.LastEvent("sessions", "catalog")!.Value
+				.EnumerateArray()
+				.First(entry => entry.GetProperty("loaded").GetBoolean())
+				.GetProperty("id").GetString()!;
+			SelectSession(slot);
+		}
 	}
 
 	/// <summary>Publishes a session event from the test client.</summary>
@@ -443,7 +458,7 @@ internal sealed class TestHost : IAsyncDisposable {
 		beforeRestart();
 		Bridge = new FakeHostBridge();
 		_requestSequence = 0;
-		_selectedSlot = "primary";
+		_selectedSlot = string.Empty;
 		Platform = new TestPlatform(Bridge);
 		Core = new HostCore(
 			Platform,

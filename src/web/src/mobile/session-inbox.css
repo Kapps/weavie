@@ -7,7 +7,8 @@
   gap: 12px;
   min-height: 0;
   padding: max(18px, env(safe-area-inset-top)) 14px 14px;
-  overflow: hidden;
+  overflow: hidden auto;
+  overscroll-behavior: contain;
   background: var(--bg);
 }
 
@@ -277,16 +278,10 @@
 
 .session-inbox-list {
   display: flex;
-  flex: 1 1 0;
+  flex: 0 0 auto;
   flex-direction: column;
   gap: 7px;
   min-height: 0;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-}
-
-.session-inbox-surface.open .session-inbox-list {
-  flex: 0 0 auto;
   overflow: visible;
 }
 

@@ -46,10 +46,7 @@ public sealed class AgentSessionHostTests {
 		});
 		await host.DrainPaneAsync(CancellationToken.None);
 		bridge.Clear();
-		host.ReplayPane();
-		await host.DrainPaneAsync(CancellationToken.None);
-
-		var replayed = Assert.Single(Replayed(bridge), value =>
+		var replayed = Assert.Single(await History(host), value =>
 			value.GetProperty("itemId").GetString() == "item-1");
 		Assert.Equal("hello world", replayed.GetProperty("text").GetString());
 
@@ -71,10 +68,7 @@ public sealed class AgentSessionHostTests {
 		});
 		await host.DrainPaneAsync(CancellationToken.None);
 		bridge.Clear();
-		host.ReplayPane();
-		await host.DrainPaneAsync(CancellationToken.None);
-
-		string?[] shared = [.. Replayed(bridge)
+		string?[] shared = [.. (await History(host))
 			.Where(value => value.GetProperty("itemId").GetString() == "item-shared")
 			.Select(value => value.GetProperty("text").GetString())];
 		Assert.Collection(
@@ -100,34 +94,170 @@ public sealed class AgentSessionHostTests {
 		}
 		await host.DrainPaneAsync(CancellationToken.None);
 		bridge.Clear();
-		host.ReplayPane();
-		await host.DrainPaneAsync(CancellationToken.None);
-
-		string?[] collisionTexts = [.. Replayed(bridge)
+		string?[] collisionTexts = [.. (await History(host))
 			.Where(value => value.GetProperty("itemId").GetString() == "item-collision")
 			.Select(value => value.GetProperty("text").GetString())];
 		Assert.Equal(collisions.Select(collision => collision.Text), collisionTexts);
 	}
 
 	[Fact]
-	public async Task ReplayPane_replaces_the_whole_transcript_atomically() {
+	public async Task History_is_byte_paged_without_dropping_messages() {
 		await using var fixture = CreateFixture(static () => "slot-1", static (_, _) => { }, 0);
 		var (bridge, session, host) = (fixture.Bridge, fixture.Session, fixture.Host);
 
 		host.Structured!.Start();
-		// A long transcript — far past the bridge's 512-deep outbox. Before batching, ReplayPane posted one frame
-		// per entry, bursting past the outbox on a slow (remote) link and getting the healthy page dropped.
+		// This is far past the remote bridge's logical-message outbox; history must remain pull-paged.
 		for (int i = 0; i < 1000; i++) {
 			session.Emit(Completed($"item-{i}", $"line {i}"));
 		}
 		await host.DrainPaneAsync(CancellationToken.None);
-		bridge.Clear();
-		host.ReplayPane();
-		await host.DrainPaneAsync(CancellationToken.None);
+		var pages = await HistoryPages(host);
 
-		// A dropped transport cannot strand a destructive reset ahead of an interrupted transcript replay.
-		var snapshot = Assert.Single(bridge.PostedEventsNamed("paneSnapshot"));
-		Assert.Equal(1001, snapshot.GetProperty("messages").GetArrayLength()); // 1000 items + the "started" marker
+		Assert.True(pages.Count > 1);
+		Assert.Equal(1001, AssembleHistory(pages).Count);
+	}
+
+	[Fact]
+	public async Task Completed_history_baseline_returns_only_later_record_revisions() {
+		await using var fixture = CreateFixture(static () => "slot-1", static (_, _) => { }, 0);
+		var (session, host) = (fixture.Session, fixture.Host);
+		host.Structured!.Start();
+		for (int index = 0; index < 10; index++) {
+			session.Emit(Completed($"initial-{index}", $"initial {index}"));
+		}
+		await host.DrainPaneAsync(CancellationToken.None);
+		var initial = await HistoryPages(host);
+		var baseline = initial[0];
+
+		var unchanged = await host.ReadHistoryPageFromBaselineAsync(
+			new AgentPaneHistoryRequest(null, baseline.Generation, baseline.Revision),
+			CancellationToken.None);
+		Assert.Empty(unchanged.Messages);
+		Assert.Null(unchanged.Cursor);
+
+		session.Emit(Completed("later", "later result"));
+		await host.DrainPaneAsync(CancellationToken.None);
+		var delta = await host.ReadHistoryPageFromBaselineAsync(
+			new AgentPaneHistoryRequest(null, baseline.Generation, baseline.Revision),
+			CancellationToken.None);
+		var message = Assert.Single(AssembleHistory([delta]));
+		Assert.Equal("later", message.GetProperty("itemId").GetString());
+		Assert.True(delta.Revision > baseline.Revision);
+	}
+
+	[Fact]
+	public async Task Oversized_history_record_is_fragmented_within_the_page_budget() {
+		await using var fixture = CreateFixture(static () => "slot-1", static (_, _) => { }, 0);
+		var (session, host) = (fixture.Session, fixture.Host);
+		string text = string.Concat(Enumerable.Repeat("snowman ☃ emoji 😀 quote \\\"\n", 20_000));
+
+		session.Emit(Completed("oversized", text));
+		await host.DrainPaneAsync(CancellationToken.None);
+		var pages = await HistoryPages(host);
+		AgentPaneFragment[] fragments = [.. pages.SelectMany(page => page.Messages)];
+
+		Assert.True(fragments.Length > 1);
+		Assert.All(pages, page => Assert.True(
+			JsonSerializer.SerializeToUtf8Bytes(AgentPaneProtocol.HistoryPage(page)).Length
+			<= AgentSessionHost.HistoryPageTargetBytes));
+		string json = string.Concat(fragments.Select(fragment => fragment.Json));
+		var record = JsonDocument.Parse(json).RootElement;
+		Assert.Equal("oversized", record.GetProperty("itemId").GetString());
+		Assert.Equal(text, record.GetProperty("text").GetString());
+		Assert.Equal(
+			fragments.Select(fragment => fragment.JsonOffset),
+			fragments.Select((_, index) => fragments.Take(index).Sum(
+				fragment => fragment.Json.Length)));
+		Assert.All(fragments, fragment => Assert.Equal(json.Length, fragment.JsonLength));
+	}
+
+	[Fact]
+	public void History_fragment_measure_matches_the_serialized_wire_size() {
+		var record = new AgentPaneRecord(
+			12,
+			-345,
+			long.MinValue,
+			Completed("measure", "quote \" slash \\ snowman ☃ emoji 😀"));
+		string json = AgentPaneProtocol.Serialize(record);
+		var fragment = new AgentPaneFragment(record, json[7..^3], 7, json.Length);
+		byte[] expected = JsonSerializer.SerializeToUtf8Bytes(new {
+			generation = record.Generation,
+			ordinal = record.Ordinal,
+			revision = record.Revision,
+			jsonOffset = fragment.JsonOffset,
+			jsonLength = fragment.JsonLength,
+			json = fragment.Json,
+		});
+
+		Assert.Equal(expected.Length, AgentPaneProtocol.Measure(fragment));
+	}
+
+	[Fact]
+	public async Task Oversized_history_metadata_is_fragmented_within_the_page_budget() {
+		await using var fixture = CreateFixture(static () => "slot-1", static (_, _) => { }, 0);
+		var (session, host) = (fixture.Session, fixture.Host);
+		string description = string.Concat(Enumerable.Repeat("metadata ☃ 😀 \\\"\n", 30_000));
+		var message = Completed("oversized-metadata", "short") with {
+			Questions = [new AgentInputQuestion {
+				Id = "choice",
+				Header = "Choose",
+				Question = "Which option?",
+				IsSecret = false,
+				Options = [new AgentInputOption { Label = "Value", Description = description }],
+			}],
+		};
+
+		session.Emit(message);
+		await host.DrainPaneAsync(CancellationToken.None);
+		var pages = await HistoryPages(host);
+		var fragments = pages.SelectMany(page => page.Messages).ToArray();
+
+		Assert.True(fragments.Length > 1);
+		Assert.All(pages, page => Assert.True(
+			JsonSerializer.SerializeToUtf8Bytes(AgentPaneProtocol.HistoryPage(page)).Length
+			<= AgentSessionHost.HistoryPageTargetBytes));
+		var record = Assert.Single(AssembleHistory(pages));
+		Assert.Equal(description, record
+			.GetProperty("questions")[0]
+			.GetProperty("options")[0]
+			.GetProperty("description")
+			.GetString());
+	}
+
+	[Fact]
+	public async Task Fragmented_history_read_keeps_one_immutable_revision_while_live_output_changes() {
+		await using var fixture = CreateFixture(static () => "slot-1", static (_, _) => { }, 0);
+		var (session, host) = (fixture.Session, fixture.Host);
+		string initial = new('a', AgentSessionHost.HistoryPageTargetBytes * 2);
+		var delta = new AgentPaneMessage {
+			Type = "agent-message-delta",
+			ProviderId = "codex",
+			TurnId = "turn",
+			ItemId = "streaming",
+			Text = initial,
+		};
+
+		session.Emit(delta);
+		await host.DrainPaneAsync(CancellationToken.None);
+		var first = await host.ReadHistoryPageAsync(null, CancellationToken.None);
+		Assert.NotNull(first.Cursor?.JsonBefore);
+
+		session.Emit(delta with { Text = "tail" });
+		await host.DrainPaneAsync(CancellationToken.None);
+		var pages = new List<AgentPaneHistoryPage> { first };
+		var cursor = first.Cursor;
+		while (cursor is not null) {
+			var page = await host.ReadHistoryPageAsync(cursor, CancellationToken.None);
+			pages.Insert(0, page);
+			cursor = page.Cursor;
+		}
+		var fragments = pages.SelectMany(page => page.Messages).ToArray();
+		var record = Assert.Single(AssembleHistory(pages));
+		Assert.Equal(initial, record.GetProperty("text").GetString());
+		Assert.Single(fragments.Select(fragment => fragment.Record.Revision).Distinct());
+
+		var latest = Assert.Single(await History(host));
+		Assert.Equal(initial + "tail", latest.GetProperty("text").GetString());
 	}
 
 	[Fact]
@@ -158,15 +288,10 @@ public sealed class AgentSessionHostTests {
 				new AgentPaneTranscriptStore(fileSystem, transcriptPath).Append(Completed("item-1", "prior result")),
 			0);
 
-		// The provider hasn't started (no thread/resume, no hydration): a reconnecting page's ReplayPane still
-		// restores the prior result after the journal worker loads it. This is the reopen-reconnect fix.
+		// The provider has not hydrated yet; persisted history is still available once the journal worker loads it.
 		Assert.False(fixture.Session.Started);
 		await fixture.Host.DrainPaneAsync(CancellationToken.None);
-		fixture.Bridge.Clear();
-		fixture.Host.ReplayPane();
-		await fixture.Host.DrainPaneAsync(CancellationToken.None);
-
-		var replayed = Assert.Single(Replayed(fixture.Bridge));
+		var replayed = Assert.Single(await History(fixture.Host));
 		Assert.Equal("item-completed", replayed.GetProperty("type").GetString());
 		Assert.Equal("prior result", replayed.GetProperty("text").GetString());
 	}
@@ -184,21 +309,51 @@ public sealed class AgentSessionHostTests {
 			transcriptPath,
 			0);
 
-		try {
-			fixture.Host.ReplayPane();
-			await Wait.ForAsync(() =>
-				fixture.Bridge.PostedEventsNamed("paneSnapshot").Count > 0 ? 1 : (int?)null);
-			var initial = Assert.Single(fixture.Bridge.PostedEventsNamed("paneSnapshot"));
-			Assert.Empty(initial.GetProperty("messages").EnumerateArray());
-		} finally {
-			release.Set();
-		}
+		var read = fixture.Host.ReadHistoryPageAsync(null, CancellationToken.None);
+		Assert.False(read.IsCompleted);
+		release.Set();
 
-		await fixture.Host.WaitForPaneReadyAsync(CancellationToken.None);
-		await fixture.Host.DrainPaneAsync(CancellationToken.None);
-		var replay = fixture.Bridge.PostedEventsNamed("paneSnapshot")[^1];
-		var message = Assert.Single(replay.GetProperty("messages").EnumerateArray());
+		var message = Assert.Single(AssembleHistory([await read]));
 		Assert.Equal("persisted after activation", message.GetProperty("text").GetString());
+	}
+
+	[Fact]
+	public async Task JournalSeedPreservesPreloadLiveRevisionsAndDeltaState() {
+		string dir = Path.Combine(Path.GetTempPath(), "weavie-agent-host-tests", Guid.NewGuid().ToString("N"));
+		Directory.CreateDirectory(dir);
+		string transcriptPath = Path.Combine(dir, "agent-pane.json");
+		using var release = new ManualResetEventSlim();
+		var fileSystem = new BlockingReadFileSystem(transcriptPath, release);
+		await using var fixture = CreateFixture(
+			static () => "slot-1",
+			fileSystem,
+			transcriptPath,
+			0);
+		var (bridge, session, host) = (fixture.Bridge, fixture.Session, fixture.Host);
+		var delta = new AgentPaneMessage {
+			Type = "agent-message-delta",
+			ProviderId = "codex",
+			TurnId = "turn",
+			ItemId = "preload-live",
+			Text = "a",
+		};
+
+		session.Emit(delta);
+		session.Emit(delta with { Text = "b" });
+		release.Set();
+		await host.DrainPaneAsync(CancellationToken.None);
+		long beforeSeed = bridge.PostedEventsNamed("pane")
+			.Where(message => message.GetProperty("itemId").GetString() == "preload-live")
+			.Max(message => message.GetProperty("revision").GetInt64());
+
+		bridge.Clear();
+		session.Emit(delta with { Text = "c" });
+		await host.DrainPaneAsync(CancellationToken.None);
+		var live = Assert.Single(bridge.PostedEventsNamed("pane"));
+		Assert.True(live.GetProperty("revision").GetInt64() > beforeSeed);
+		var cumulative = Assert.Single(await History(host), message =>
+			message.GetProperty("itemId").GetString() == "preload-live");
+		Assert.Equal("abc", cumulative.GetProperty("text").GetString());
 	}
 
 	[Fact]
@@ -239,110 +394,68 @@ public sealed class AgentSessionHostTests {
 		Assert.False(host.TryGetCompletedPlan(threadId, turnId, itemId, out _));
 	}
 
-	// Regression for the remote cold-start blank pane: on a slow resume, a page's ReplayPane (page `ready`, one
-	// thread) races the async hydrate (thread/resume, another thread). Both reset then repopulate the pane. Unless
-	// their web posts are ordered with their `_paneMessages` mutations, a trailing ReplayPane reset can land after
-	// hydrate delivered its content and wipe the pane. The pane must always converge to the authoritative
-	// transcript, whichever way the two interleave.
-	//
-	// The racers run on pool threads: per-iteration `new Thread` starts (80 across the loop) hit
-	// pthread_create EAGAIN (surfaced as OutOfMemoryException) on contended CI runners.
+	// A page may request history while async provider resume replaces it. The cursor may see either generation,
+	// but the next read must converge to the authoritative replacement.
 	[Fact]
-	public async Task ReplayPane_RacingHydrate_ConvergesToHydratedTranscript() {
+	public async Task HistoryRead_RacingHydrate_ConvergesToHydratedTranscript() {
 		await using var fixture = CreateFixture(static () => "slot-1", static (_, _) => { }, 0);
-		var (bridge, session, host) = (fixture.Bridge, fixture.Session, fixture.Host);
+		var (session, host) = (fixture.Session, fixture.Host);
 
 		// A resumed thread re-emits transcript-reset + its completed items; this is the authoritative end state.
 		AgentPaneMessage[] hydrated = [Completed("fresh-0", "fresh a"), Completed("fresh-1", "fresh b")];
 
 		for (int iteration = 0; iteration < 40; iteration++) {
-			// Restore the "large disk seed already present" baseline before each race — the wide seed makes
-			// ReplayPane's post loop long enough to reliably expose an unordered trailing reset.
+			// Restore a wide prior generation so the history copy and replacement overlap real work.
 			session.Emit(new AgentPaneMessage { Type = "transcript-reset", ProviderId = "codex" });
 			for (int i = 0; i < 100; i++) {
 				session.Emit(Completed($"seed-{i}", $"seed {i}"));
 			}
 
 			await host.DrainPaneAsync(CancellationToken.None);
-			bridge.Clear();
 			using var barrier = new Barrier(2);
 			var hydrate = Task.Run(() => {
 				barrier.SignalAndWait();
-				session.Emit(new AgentPaneMessage { Type = "transcript-reset", ProviderId = "codex" });
-				foreach (var message in hydrated) {
-					session.Emit(message);
-				}
+				session.Replace(hydrated);
 			});
-			var replay = Task.Run(() => {
+			var read = Task.Run(async () => {
 				barrier.SignalAndWait();
-				host.ReplayPane();
+				await host.ReadHistoryPageAsync(null, CancellationToken.None);
 			});
-			await Task.WhenAll(hydrate, replay);
+			await Task.WhenAll(hydrate, read);
 			await host.DrainPaneAsync(CancellationToken.None);
 
-			Assert.Equal(hydrated.Select(message => message.ItemId), VisibleItemIds(bridge));
+			Assert.Equal(hydrated.Select(message => message.ItemId),
+				(await History(host)).Select(message => message.GetProperty("itemId").GetString()));
 		}
 	}
 
-	// The messages carried by the single pane snapshot the bridge received.
-	private static IReadOnlyList<JsonElement> Replayed(FakeHostBridge bridge) {
-		var batch = Assert.Single(bridge.PostedEventsNamed("paneSnapshot"));
-		return [.. batch.GetProperty("messages").EnumerateArray()];
+	private static async Task<IReadOnlyList<JsonElement>> History(AgentSessionHost host) =>
+		AssembleHistory(await HistoryPages(host));
+
+	private static IReadOnlyList<JsonElement> AssembleHistory(IReadOnlyList<AgentPaneHistoryPage> pages) =>
+		[.. pages
+			.SelectMany(page => page.Messages)
+			.GroupBy(fragment => (
+				fragment.Record.Generation,
+				fragment.Record.Ordinal,
+				fragment.Record.Revision))
+			.Select(fragments => JsonDocument.Parse(
+				string.Concat(fragments.Select(fragment => fragment.Json))).RootElement.Clone())];
+
+	private static async Task<IReadOnlyList<AgentPaneHistoryPage>> HistoryPages(AgentSessionHost host) {
+		var pages = new List<AgentPaneHistoryPage>();
+		AgentPaneHistoryCursor? cursor = null;
+		do {
+			var page = await host.ReadHistoryPageAsync(cursor, CancellationToken.None);
+			pages.Insert(0, page);
+			cursor = page.Cursor;
+		} while (cursor is not null);
+		return pages;
 	}
 
 	private static IReadOnlyList<JsonElement> Batched(FakeHostBridge bridge) {
 		var batch = Assert.Single(bridge.PostedEventsNamed("paneBatch"));
 		return [.. batch.GetProperty("messages").EnumerateArray()];
-	}
-
-	// The item ids the page would render, reconstructed from the posts in order: a reset clears the pane, an
-	// agent-pane message (or each entry of an agent-pane-batch) appends its item (keyed, so a repeat updates in
-	// place) — mirroring AgentPaneAccumulator.
-	private static IReadOnlyList<string> VisibleItemIds(FakeHostBridge bridge) {
-		var order = new List<string>();
-		var indexes = new Dictionary<string, int>(StringComparer.Ordinal);
-		void Append(JsonElement paneMessage) {
-			if (paneMessage.TryGetProperty("itemId", out var id)
-				&& id.ValueKind == JsonValueKind.String
-				&& id.GetString() is { } itemId
-				&& !indexes.ContainsKey(itemId)) {
-				indexes[itemId] = order.Count;
-				order.Add(itemId);
-			}
-		}
-
-		foreach (string json in bridge.Posted) {
-			if (!MessageEnvelope.TryParse(json, out var envelope)
-				|| envelope is not { Kind: MessageKind.Event, Feature: "agent" }) {
-				continue;
-			}
-
-			switch (envelope.Name) {
-				case "paneReset":
-					order.Clear();
-					indexes.Clear();
-					break;
-				case "paneSnapshot":
-					order.Clear();
-					indexes.Clear();
-					foreach (var paneMessage in envelope.Payload.GetProperty("messages").EnumerateArray()) {
-						Append(paneMessage);
-					}
-
-					break;
-				case "pane":
-					Append(envelope.Payload);
-					break;
-				case "paneBatch":
-					foreach (var paneMessage in envelope.Payload.GetProperty("messages").EnumerateArray()) {
-						Append(paneMessage);
-					}
-
-					break;
-			}
-		}
-
-		return order;
 	}
 
 	private static AgentPaneMessage Completed(string itemId, string text) => new() {
@@ -484,6 +597,7 @@ public sealed class AgentSessionHostTests {
 
 	private sealed class FakeStructuredSession : IStructuredAgentSession {
 		public event Action<AgentPaneMessage>? PaneMessage;
+		public event Action<IReadOnlyList<AgentPaneMessage>>? PaneSnapshot;
 
 		public bool Started { get; private set; }
 
@@ -493,6 +607,8 @@ public sealed class AgentSessionHostTests {
 		}
 
 		public void Emit(AgentPaneMessage message) => PaneMessage?.Invoke(message);
+
+		public void Replace(IReadOnlyList<AgentPaneMessage> messages) => PaneSnapshot?.Invoke(messages);
 
 		public void Submit(AgentTurnSubmission submission) => throw new NotSupportedException();
 

@@ -10,7 +10,7 @@ internal sealed class AgentPaneOutput : IAsyncDisposable {
 	private readonly IMessageFeatureTarget _broadcast;
 	private readonly TimeSpan _window;
 	private readonly Action<string> _log;
-	private readonly List<AgentPaneMessage> _buffer = [];
+	private readonly List<AgentPaneRecord> _buffer = [];
 	private readonly Task _worker;
 	private long _flushVersion;
 	private int _closed;
@@ -25,18 +25,12 @@ internal sealed class AgentPaneOutput : IAsyncDisposable {
 		_worker = Task.Run(RunAsync);
 	}
 
-	public void Live(AgentPaneMessage message) {
+	public void Live(AgentPaneRecord message) {
 		ArgumentNullException.ThrowIfNull(message);
 		Write(new LiveCommand(message));
 	}
 
 	public void Reset() => Write(ResetCommand.Instance);
-
-	public void Replay(IMessageFeatureTarget target, IReadOnlyList<AgentPaneMessage> snapshot) {
-		ArgumentNullException.ThrowIfNull(target);
-		ArgumentNullException.ThrowIfNull(snapshot);
-		Write(new ReplayCommand(target, snapshot));
-	}
 
 	public async Task DrainAsync(CancellationToken ct) {
 		var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -78,10 +72,6 @@ internal sealed class AgentPaneOutput : IAsyncDisposable {
 					case ResetCommand:
 						Discard();
 						_broadcast.Publish("paneReset", new { });
-						break;
-					case ReplayCommand replay:
-						Flush();
-						replay.Target.Publish("paneSnapshot", AgentPaneProtocol.Batch(replay.Snapshot));
 						break;
 					case FlushCommand flush when flush.Version == _flushVersion:
 						Flush();
@@ -141,11 +131,7 @@ internal sealed class AgentPaneOutput : IAsyncDisposable {
 
 	private abstract record OutputCommand;
 
-	private sealed record LiveCommand(AgentPaneMessage Message) : OutputCommand;
-
-	private sealed record ReplayCommand(
-		IMessageFeatureTarget Target,
-		IReadOnlyList<AgentPaneMessage> Snapshot) : OutputCommand;
+	private sealed record LiveCommand(AgentPaneRecord Message) : OutputCommand;
 
 	private sealed record FlushCommand(long Version) : OutputCommand;
 

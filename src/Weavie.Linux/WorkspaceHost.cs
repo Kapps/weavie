@@ -50,6 +50,8 @@ internal sealed partial class WorkspaceHost : IWebSurface, IShellMenuActions {
 	internal void Start() {
 		string wwwroot = Path.Combine(AppContext.BaseDirectory, "wwwroot");
 		_wwwroot = wwwroot;
+		CreateNativeWindow();
+		ShowWindow();
 
 		// App-global Core stores + the recents that drive reopen-last and the welcome screen's list.
 		_services = HostServices.CreateDefault();
@@ -67,20 +69,7 @@ internal sealed partial class WorkspaceHost : IWebSurface, IShellMenuActions {
 			_webView, "key-press-event", Marshal.GetFunctionPointerForDelegate(_onKeyPress), IntPtr.Zero, IntPtr.Zero, 0);
 		WebKit.webkit_settings_set_enable_developer_extras(WebKit.webkit_web_view_get_settings(_webView), true);
 
-		_window = Gtk.gtk_window_new(Gtk.WindowToplevel);
-		Gtk.gtk_window_set_title(_window, "weavie");
-		IntPtr icon = GdkPixbuf.LoadFile(Path.Combine(AppContext.BaseDirectory, "weavie.png"));
-		Gtk.gtk_window_set_icon(_window, icon);
-		GLib.g_object_unref(icon);
 		Gtk.gtk_container_add(_window, _webView);
-		_onDestroy = OnWindowDestroy;
-		_ = GLib.g_signal_connect_data(
-			_window, "destroy", Marshal.GetFunctionPointerForDelegate(_onDestroy), IntPtr.Zero, IntPtr.Zero, 0);
-		_onWindowStateChanged = OnWindowStateChanged;
-		_ = GLib.g_signal_connect_data(
-			_window, "notify::is-active", Marshal.GetFunctionPointerForDelegate(_onWindowStateChanged), IntPtr.Zero, IntPtr.Zero, 0);
-		_ = GLib.g_signal_connect_data(
-			_window, "notify::is-maximized", Marshal.GetFunctionPointerForDelegate(_onWindowStateChanged), IntPtr.Zero, IntPtr.Zero, 0);
 		_hotkeys = new ApplicationHotkeys(
 			_services.CommandRegistry,
 			_services.Keybindings,
@@ -94,6 +83,23 @@ internal sealed partial class WorkspaceHost : IWebSurface, IShellMenuActions {
 		} else {
 			OpenWorkspace(workspace);
 		}
+	}
+
+	private void CreateNativeWindow() {
+		_window = Gtk.gtk_window_new(Gtk.WindowToplevel);
+		Gtk.gtk_window_set_title(_window, "weavie");
+		Gtk.gtk_window_set_default_size(_window, WelcomeWidth, WelcomeHeight);
+		IntPtr icon = GdkPixbuf.LoadFile(Path.Combine(AppContext.BaseDirectory, "weavie.png"));
+		Gtk.gtk_window_set_icon(_window, icon);
+		GLib.g_object_unref(icon);
+		_onDestroy = OnWindowDestroy;
+		_ = GLib.g_signal_connect_data(
+			_window, "destroy", Marshal.GetFunctionPointerForDelegate(_onDestroy), IntPtr.Zero, IntPtr.Zero, 0);
+		_onWindowStateChanged = OnWindowStateChanged;
+		_ = GLib.g_signal_connect_data(
+			_window, "notify::is-active", Marshal.GetFunctionPointerForDelegate(_onWindowStateChanged), IntPtr.Zero, IntPtr.Zero, 0);
+		_ = GLib.g_signal_connect_data(
+			_window, "notify::is-maximized", Marshal.GetFunctionPointerForDelegate(_onWindowStateChanged), IntPtr.Zero, IntPtr.Zero, 0);
 	}
 
 	/// <summary>

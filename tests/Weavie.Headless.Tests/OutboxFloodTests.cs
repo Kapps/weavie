@@ -7,8 +7,7 @@ namespace Weavie.Headless.Tests;
 // Reproduces the remote-only "stuck connecting" bug: a HEALTHY but network-slow page connection is dropped
 // when a synchronous push burst exceeds the bridge's bounded outbox. On loopback the send loop drains in
 // microseconds so this never fires; over a real WSS link (or here, a deliberately stalled send) a large
-// replay burst (ReplayPane posts one frame per transcript entry) fills the 512-deep outbox faster than it
-// drains, and the worker aborts a client that is very much alive — which then reconnects and floods again.
+// synchronous push burst fills the 512-deep outbox faster than it drains, and the worker aborts the client.
 public sealed class OutboxFloodTests {
 	[Fact]
 	public async Task A_burst_larger_than_the_outbox_drops_a_slow_but_alive_connection() {
@@ -16,15 +15,15 @@ public sealed class OutboxFloodTests {
 		var socket = new StalledSendSocket();
 		var serve = bridge.ServeAsync(socket, CancellationToken.None);
 
-		// Prime one frame and wait for the send loop to dequeue it and stall inside SendAsync (a slow network):
-		// now the outbox drains nothing, exactly as a wedged-slow remote link would between sends.
-		bridge.Broadcast("{\"type\":\"agent-pane\",\"n\":-1}");
+		// Prime one frame and wait for the send loop to stall inside SendAsync (a slow network): the fair outbox
+		// keeps that logical message in its single outstanding-count bound until the send completes.
+		bridge.Broadcast(Message("agent", "{\"type\":\"agent-pane\",\"n\":-1}"));
 		Assert.True(await socket.FirstSendStarted.WaitAsync(TimeSpan.FromSeconds(5)));
 
-		// The stalled frame is in-flight; the outbox itself now holds 512. Push past that in a tight, await-free
-		// loop — exactly how ReplayPane posted a long transcript on `ready`, one frame per entry.
+		// Push past the remaining capacity in a tight, await-free loop, proving the bridge's explicit memory bound
+		// independently of transcript paging.
 		for (int i = 0; i < 600; i++) {
-			bridge.Broadcast($"{{\"type\":\"agent-pane\",\"n\":{i}}}");
+			bridge.Broadcast(Message("agent", $"{{\"type\":\"agent-pane\",\"n\":{i}}}"));
 		}
 
 		// The bridge treated the backlog as a dead peer and aborted the socket — even though it is alive and
@@ -35,6 +34,9 @@ public sealed class OutboxFloodTests {
 		socket.ReleaseSends();
 		await serve.WaitAsync(TimeSpan.FromSeconds(5));
 	}
+
+	private static WebTransportMessage Message(string feature, string json) =>
+		new(new WebMessageRoute(string.Empty, string.Empty, feature), json);
 
 	// A WebSocket whose sends never complete until released, modelling a client that is connected and reading
 	// but slower than the push rate. ReceiveAsync blocks until the socket is aborted so the read loop stays

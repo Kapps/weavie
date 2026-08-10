@@ -67,6 +67,9 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 	/// <inheritdoc/>
 	public event Action<AgentPaneMessage>? PaneMessage;
 
+	/// <inheritdoc/>
+	public event Action<IReadOnlyList<AgentPaneMessage>>? PaneSnapshot;
+
 	private void HandleNotification(JsonElement root) {
 		// Track the turn boundary before anything that can throw, so the active-turn id can never silently
 		// desync from Codex and leave a later steer targeting a turn the server has already moved past.
@@ -133,7 +136,6 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 					ItemType = request.Method,
 					Text = $"Codex asked for '{request.Method}' approval, but the bypass auto-accept could not be sent: {ex.Message}",
 					Status = "error",
-					PayloadJson = request.Message.GetRawText(),
 				});
 			}
 
@@ -165,7 +167,6 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 			ItemType = request.Method,
 			Text = message,
 			Status = "error",
-			PayloadJson = request.Message.GetRawText(),
 		});
 	}
 

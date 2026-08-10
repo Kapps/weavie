@@ -217,7 +217,7 @@ public sealed partial class CodexAppServerClient : IAsyncDisposable {
 		string message = error.TryGetProperty("message", out var messageElement) && messageElement.ValueKind == JsonValueKind.String
 			? messageElement.GetString() ?? error.GetRawText()
 			: error.GetRawText();
-		return new CodexRequestException(code, message, error.GetRawText());
+		return new CodexRequestException(code, message);
 	}
 
 	internal static string ReadRequestId(JsonElement id) =>
@@ -241,19 +241,15 @@ public sealed partial class CodexAppServerClient : IAsyncDisposable {
 /// <summary>A JSON-RPC request initiated by Codex app-server.</summary>
 public sealed record CodexServerRequest(string Id, object ResponseId, string Method, JsonElement Message);
 
-/// <summary>A JSON-RPC error response from Codex app-server, carrying the code and raw envelope for developers.</summary>
+/// <summary>A JSON-RPC error response from Codex app-server.</summary>
 public sealed class CodexRequestException : InvalidOperationException {
-	/// <summary>Creates a request error from the JSON-RPC <paramref name="code"/>, message, and raw <paramref name="payload"/>.</summary>
-	public CodexRequestException(int code, string message, string payload) : base(message) {
+	/// <summary>Creates a request error from the JSON-RPC <paramref name="code"/> and message.</summary>
+	public CodexRequestException(int code, string message) : base(message) {
 		Code = code;
-		Payload = payload;
 	}
 
 	/// <summary>The JSON-RPC error code (0 when the response carried none).</summary>
 	public int Code { get; }
-
-	/// <summary>The raw JSON-RPC error envelope.</summary>
-	public string Payload { get; }
 
 	/// <summary>A developer-facing one-line description: the JSON-RPC code and message.</summary>
 	public string Detail => $"Codex error {Code}: {Message}";

@@ -47,12 +47,12 @@ public sealed class HostBridge : IWebTransportHub, IDisposable {
 	}
 
 	/// <summary>Pushes a raw JSON message string through WebView2's ordered host-to-page channel.</summary>
-	public void Broadcast(string json) => _outbound?.Enqueue(json);
+	public void Broadcast(WebTransportMessage message) => _outbound?.Enqueue(message.Json);
 
 	/// <inheritdoc/>
-	public void Send(WebPeer peer, string json) {
+	public void Send(WebPeer peer, WebTransportMessage message) {
 		if (peer == WebPeer.Native) {
-			Broadcast(json);
+			Broadcast(message);
 		}
 	}
 

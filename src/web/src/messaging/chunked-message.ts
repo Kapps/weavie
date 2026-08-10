@@ -13,7 +13,7 @@ interface PendingMessage {
 }
 
 export class ChunkedMessageReceiver {
-  private pending: PendingMessage | null = null;
+  private readonly pending = new Map<string, PendingMessage>();
 
   ingest(raw: string): string | null {
     const chunk = parseChunk(raw);
@@ -21,13 +21,12 @@ export class ChunkedMessageReceiver {
       return raw;
     }
 
-    if (chunk.index === 0 && this.pending === null) {
-      this.pending = { id: chunk.id, count: chunk.count, chunks: [], bytes: 0 };
+    if (chunk.index === 0 && !this.pending.has(chunk.id)) {
+      this.pending.set(chunk.id, { id: chunk.id, count: chunk.count, chunks: [], bytes: 0 });
     }
-    const pending = this.pending;
+    const pending = this.pending.get(chunk.id);
     if (
-      pending === null ||
-      pending.id !== chunk.id ||
+      pending === undefined ||
       pending.count !== chunk.count ||
       chunk.index !== pending.chunks.length
     ) {
@@ -47,12 +46,12 @@ export class ChunkedMessageReceiver {
       joined.set(part, offset);
       offset += part.length;
     }
-    this.pending = null;
+    this.pending.delete(chunk.id);
     return new TextDecoder("utf-8", { fatal: true }).decode(joined);
   }
 
   reset(): void {
-    this.pending = null;
+    this.pending.clear();
   }
 }
 
@@ -91,5 +90,9 @@ function parseChunk(raw: string): WireChunk | null {
 
 function decodeBase64(value: string): Uint8Array {
   const decoded = atob(value);
-  return Uint8Array.from(decoded, (character) => character.charCodeAt(0));
+  const bytes = new Uint8Array(decoded.length);
+  for (let index = 0; index < decoded.length; index += 1) {
+    bytes[index] = decoded.charCodeAt(index);
+  }
+  return bytes;
 }

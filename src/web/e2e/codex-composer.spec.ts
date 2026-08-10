@@ -216,7 +216,7 @@ test.describe("Codex composer", () => {
   });
 
   const publishPane = (message: Record<string, unknown>): void =>
-    host.publishSession(codexSession.address, "agent", "pane", message);
+    host.publishAgentPane(codexSession.address, message);
 
   const publishControls = (value: typeof controls): void =>
     host.publishSession(codexSession.address, "agent", "controls", value);

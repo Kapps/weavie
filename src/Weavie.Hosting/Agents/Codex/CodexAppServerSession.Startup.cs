@@ -78,24 +78,29 @@ public sealed partial class CodexAppServerSession {
 			_modeEffort = null;
 		}
 		long threadRequest = NextRequest();
-		var result = launch.Resume && !string.IsNullOrEmpty(launch.ThreadId)
+		var startup = launch.Resume && !string.IsNullOrEmpty(launch.ThreadId)
 			? await ResumeThreadAsync(threadRequest, launch.ThreadId).ConfigureAwait(false)
-			: await StartThreadAsync(threadRequest).ConfigureAwait(false);
-		AdoptThread(CodexThreadResults.ReadThreadId(result));
-		HydrateTranscript(result);
+			: new ThreadStartup(await StartThreadAsync(threadRequest).ConfigureAwait(false), Resumed: false);
+		AdoptThread(CodexThreadResults.ReadThreadId(startup.Result));
+		if (startup.Resumed) {
+			HydrateTranscript(startup.Result);
+		}
 		await LoadControlsAsync().ConfigureAwait(false);
 		FlushPendingInputs();
 	}
 
-	private async Task<JsonElement> ResumeThreadAsync(long requestId, string threadId) {
+	private async Task<ThreadStartup> ResumeThreadAsync(long requestId, string threadId) {
 		try {
-			return await _client.RequestAsync(
+			var result = await _client.RequestAsync(
 				requestId,
 				CodexAppServerProtocol.ThreadResume(
 					requestId, threadId, EffectiveModel(), _context.Workspace, EffectiveSandbox(), EffectiveApprovalPolicy(), DeveloperInstructions()),
 				CancellationToken.None).ConfigureAwait(false);
+			return new ThreadStartup(result, Resumed: true);
 		} catch (CodexRequestException ex) {
-			return await StartFreshAfterFailedResumeAsync(ex).ConfigureAwait(false);
+			return new ThreadStartup(
+				await StartFreshAfterFailedResumeAsync(ex).ConfigureAwait(false),
+				Resumed: false);
 		}
 	}
 
@@ -117,7 +122,6 @@ public sealed partial class CodexAppServerSession {
 			Summary = "Codex could not resume the saved thread, so Weavie started a new one.",
 			Text = resumeFailure.Detail,
 			Status = "warning",
-			PayloadJson = resumeFailure.Payload,
 		});
 		return result;
 	}
@@ -138,13 +142,8 @@ public sealed partial class CodexAppServerSession {
 
 	private void HydrateTranscript(JsonElement result) {
 		var messages = CodexPaneMessages.FromThreadSnapshot(result);
-		if (messages.Count == 0) {
-			return;
-		}
-
-		Emit(new AgentPaneMessage { Type = "transcript-reset", ProviderId = "codex" });
-		foreach (var message in messages) {
-			Emit(message);
-		}
+		PaneSnapshot?.Invoke(messages);
 	}
+
+	private sealed record ThreadStartup(JsonElement Result, bool Resumed);
 }

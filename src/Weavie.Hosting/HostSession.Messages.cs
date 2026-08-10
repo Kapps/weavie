@@ -3,6 +3,7 @@ using System.Text.Json;
 using Weavie.Core.Agents;
 using Weavie.Core.Changes;
 using Weavie.Core.Editor;
+using Weavie.Hosting.Agents;
 using Weavie.Hosting.Messaging;
 
 namespace Weavie.Hosting;
@@ -137,6 +138,14 @@ public sealed partial class HostSession {
 	private void WireAgentMessages(
 		Messaging.MessageFeatureChannel messages,
 		Func<bool> inputFrozen) {
+		messages.HandleOwned<AgentPaneHistoryRequest, object>(
+			"historyPage",
+			async (message, peer, ct) => AgentPaneProtocol.HistoryPage(
+				await Agent.ReadHistoryPageAsync(message, peer, ct).ConfigureAwait(false)));
+		messages.HandleOwned<AgentPaneHistoryClose>("historyClose", (message, peer, _) => {
+			Agent.ReleaseHistoryReader(peer, message.ReadId);
+			return Task.CompletedTask;
+		});
 		messages.Handle<EmptyMessage>("interrupt", (_, _) => {
 			Agent.Structured?.Interrupt();
 			return Task.CompletedTask;

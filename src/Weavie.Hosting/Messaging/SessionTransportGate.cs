@@ -12,14 +12,14 @@ internal sealed class SessionTransportGate {
 		_transport = transport;
 	}
 
-	public void Broadcast(string json) {
-		ArgumentNullException.ThrowIfNull(json);
-		Send(new PendingSend(null, json));
+	public void Broadcast(WebTransportMessage message) {
+		ArgumentNullException.ThrowIfNull(message);
+		Send(new PendingSend(null, message));
 	}
 
-	public void Send(WebPeer peer, string json) {
-		ArgumentNullException.ThrowIfNull(json);
-		Send(new PendingSend(peer, json));
+	public void Send(WebPeer peer, WebTransportMessage message) {
+		ArgumentNullException.ThrowIfNull(message);
+		Send(new PendingSend(peer, message));
 	}
 
 	public void Activate() {
@@ -59,11 +59,11 @@ internal sealed class SessionTransportGate {
 
 	private void Deliver(PendingSend pending) {
 		if (pending.Peer is { } peer) {
-			_transport.Send(peer, pending.Json);
+			_transport.Send(peer, pending.Message);
 		} else {
-			_transport.Broadcast(pending.Json);
+			_transport.Broadcast(pending.Message);
 		}
 	}
 
-	private sealed record PendingSend(WebPeer? Peer, string Json);
+	private sealed record PendingSend(WebPeer? Peer, WebTransportMessage Message);
 }

@@ -100,7 +100,6 @@ public sealed partial class CodexAppServerSession {
 				Summary = "Steer rejected; resent as a new turn",
 				Text = ex.Detail,
 				Status = "warning",
-				PayloadJson = ex.Payload,
 			});
 			return false;
 		}

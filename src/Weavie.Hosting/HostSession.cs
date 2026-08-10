@@ -223,8 +223,10 @@ public sealed partial class HostSession : IAsyncDisposable {
 			new LspServerLauncher(),
 			LanguageServerCatalog.Resolve,
 			Tagged("[lsp]"));
-		Bus.PeerDisconnected += peer =>
+		Bus.PeerDisconnected += peer => {
+			Agent.ReleaseHistoryReader(peer);
 			_ = Background.Run(_ => Lsp.DisconnectAsync(peer));
+		};
 		WireMessages(inputFrozen, shellResized);
 	}
 

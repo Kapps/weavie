@@ -133,21 +133,42 @@ test.describe("native in-process bridge contract", () => {
           message.name === "sync"
         ) {
           respond(message, { ok: true });
-          push(event("session", address, "agent", "paneReset", {}));
-          push(
-            event("session", address, "agent", "paneBatch", {
-              messages: [
-                {
-                  type: "item-completed",
-                  providerId: "codex",
-                  itemId: "answer",
-                  itemType: "agentMessage",
-                  status: "completed",
-                  text: "restored-on-sync",
-                },
-              ],
-            }),
-          );
+        } else if (
+          message.kind === "request" &&
+          message.scope === "session" &&
+          message.feature === "agent" &&
+          message.name === "historyPage"
+        ) {
+          const record = {
+            generation: 0,
+            ordinal: 1,
+            revision: 1,
+            textOffset: 0,
+            textLength: 21,
+            type: "item-completed",
+            providerId: "codex",
+            itemId: "answer",
+            itemType: "agentMessage",
+            status: "completed",
+            text: "restored-from-history",
+          };
+          const json = JSON.stringify(record);
+          respond(message, {
+            generation: 0,
+            readId: "native-history",
+            revision: 1,
+            messages: [
+              {
+                generation: 0,
+                ordinal: 1,
+                revision: 1,
+                jsonOffset: 0,
+                jsonLength: json.length,
+                json,
+              },
+            ],
+            cursor: null,
+          });
         }
       };
 
@@ -196,7 +217,7 @@ test.describe("native in-process bridge contract", () => {
         });
       })
       .toBe(true);
-    await expect(page.locator(".agent-markdown")).toContainText("restored-on-sync");
+    await expect(page.locator(".agent-markdown")).toContainText("restored-from-history");
 
     const pushHostNotification = (message: string, key?: string): Promise<void> =>
       page.evaluate(

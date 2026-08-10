@@ -80,16 +80,17 @@ safe. Feature ownership follows the state being read or mutated, not the UI that
 
 Events are one-way state notifications. Requests have exact peer-local correlation, responses, and
 cancellation. A transport drop fails outstanding requests; the system does not guess whether an
-unacknowledged mutation happened. Durable state is recovered by the session's `lifecycle.sync`
-snapshot after hello, not by replaying arbitrary commands. Sync snapshots are unicast to the
-requesting page, so reconnecting cannot roll back another page. If the peer disappears while a
-handler is replying, the completed mutation is not run again and session teardown still proceeds
-after that delivery attempt.
+unacknowledged mutation happened. Bounded durable state is recovered by the session's
+`lifecycle.sync` snapshot after hello, not by replaying arbitrary commands. Unbounded surfaces such
+as agent history expose feature-owned pull protocols. Sync snapshots are unicast to the requesting
+page, so reconnecting cannot roll back another page. If the peer disappears while a handler is
+replying, the completed mutation is not run again and session teardown still proceeds after that
+delivery attempt.
 
 ## Lifecycle
 
 The connection hello returns the complete catalog and exact addresses before session traffic is
-admitted. A newly built host endpoint buffers its complete initial snapshot and construction-time
+admitted. A newly built host endpoint buffers its bounded initial snapshot and construction-time
 frames until its address has been published in the catalog, then activates and flushes them in
 order. The new `ClientSession` consumes that snapshot without issuing a racing sync. Sessions that
 were already live when a page connects explicitly sync after hello; reconnect traffic is held until

@@ -44,4 +44,7 @@ public interface IStructuredAgentSession : IAgentSession {
 
 	/// <summary>Raised when the provider has a structured pane state update for the web UI.</summary>
 	event Action<AgentPaneMessage> PaneMessage;
+
+	/// <summary>Raised when provider resume supplies a complete authoritative transcript replacement.</summary>
+	event Action<IReadOnlyList<AgentPaneMessage>> PaneSnapshot;
 }

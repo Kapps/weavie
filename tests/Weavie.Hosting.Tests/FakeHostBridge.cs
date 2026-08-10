@@ -23,20 +23,20 @@ internal sealed class FakeHostBridge : IWebTransportHub {
 	/// <summary>Whether a live host is subscribed to inbound page messages.</summary>
 	public bool HasMessageReceiver => MessageReceived is not null;
 
-	public void Broadcast(string json) {
+	public void Broadcast(WebTransportMessage message) {
 		lock (_gate) {
-			_broadcasts.Add(json);
-			_posted.Add(json);
+			_broadcasts.Add(message.Json);
+			_posted.Add(message.Json);
 		}
 	}
 
-	public void Send(WebPeer peer, string json) {
+	public void Send(WebPeer peer, WebTransportMessage message) {
 		lock (_gate) {
-			_sent.Add((peer, json));
-			_posted.Add(json);
+			_sent.Add((peer, message.Json));
+			_posted.Add(message.Json);
 		}
 		if (RequestResponder is not { } responder
-			|| !MessageEnvelope.TryParse(json, out var envelope)
+			|| !MessageEnvelope.TryParse(message.Json, out var envelope)
 			|| envelope is not { Kind: MessageKind.Request }
 			|| responder(envelope) is not { } response) {
 			return;

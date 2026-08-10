@@ -122,7 +122,7 @@ test.describe("AgentMarkdown transcript links", () => {
   // Mounts the Codex session and pushes the assistant message after `ready` proves App is listening.
   async function mount(page: Page): Promise<void> {
     await connect(page);
-    host.publishSession(codexSession.address, "agent", "pane", assistantMessage());
+    host.publishAgentPane(codexSession.address, assistantMessage());
     await expect(page.locator(".agent-markdown")).toBeVisible();
   }
 
@@ -135,7 +135,7 @@ test.describe("AgentMarkdown transcript links", () => {
       itemId: "message-mermaid",
       itemType: "agentMessage",
     };
-    host.publishSession(codexSession.address, "agent", "pane", {
+    host.publishAgentPane(codexSession.address, {
       ...identity,
       type: "agent-message-delta",
       status: "inProgress",
@@ -146,7 +146,7 @@ test.describe("AgentMarkdown transcript links", () => {
     await expect(markdown.locator("pre.mermaid-pending")).toContainText("flowchart LR");
     await expect(markdown.locator(".mermaid-rendered")).toHaveCount(0);
 
-    host.publishSession(codexSession.address, "agent", "pane", {
+    host.publishAgentPane(codexSession.address, {
       ...identity,
       type: "item-completed",
       status: "completed",
@@ -175,7 +175,7 @@ test.describe("AgentMarkdown transcript links", () => {
     page,
   }) => {
     await connect(page);
-    host.publishSession(codexSession.address, "agent", "pane", {
+    host.publishAgentPane(codexSession.address, {
       providerId: "codex",
       type: "item-completed",
       itemId: "invalid-mermaid",
@@ -202,7 +202,7 @@ test.describe("AgentMarkdown transcript links", () => {
     page,
   }) => {
     await connect(page);
-    host.publishSession(codexSession.address, "agent", "pane", {
+    host.publishAgentPane(codexSession.address, {
       providerId: "codex",
       type: "item-completed",
       itemId: "mixed-mermaid",
@@ -316,7 +316,7 @@ test.describe("AgentMarkdown transcript links", () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await connect(page);
     await page.getByRole("button", { name: "Agent", exact: true }).click();
-    host.publishSession(codexSession.address, "agent", "pane", assistantMessage());
+    host.publishAgentPane(codexSession.address, assistantMessage());
 
     const agent = page.locator(".agent-surface");
     const editor = page.locator(".editor-surface");

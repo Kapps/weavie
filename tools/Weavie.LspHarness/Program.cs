@@ -313,9 +313,9 @@ internal sealed class HarnessBridge(Action<string> onPost) : IWebTransportHub {
 	public event Action<WebPeer, string>? MessageReceived { add { } remove { } }
 	public event Action<WebPeer>? PeerDisconnected { add { } remove { } }
 
-	public void Broadcast(string json) => onPost(json);
+	public void Broadcast(WebTransportMessage message) => onPost(message.Json);
 
-	public void Send(WebPeer peer, string json) => onPost(json);
+	public void Send(WebPeer peer, WebTransportMessage message) => onPost(message.Json);
 }
 
 internal sealed class Results {

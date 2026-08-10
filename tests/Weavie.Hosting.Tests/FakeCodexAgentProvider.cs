@@ -30,6 +30,7 @@ internal sealed class FakeCodexAgentProvider : IAgentProvider {
 		private int _turns;
 
 		public event Action<AgentPaneMessage>? PaneMessage;
+		public event Action<IReadOnlyList<AgentPaneMessage>>? PaneSnapshot { add { } remove { } }
 		public event Action<AgentControlState>? ControlStateChanged;
 
 		public AgentControlState ControlState { get; } = new() {

@@ -11,11 +11,9 @@ public sealed partial class HostCore {
 		var lifecycle = session.Bus.Feature("lifecycle");
 		lifecycle.HandleOwned<SessionSyncRequest, SessionSyncResult>(
 			"sync",
-			async (_, peer, ct) => {
-				await session.Agent.WaitForPaneReadyAsync(ct).ConfigureAwait(false);
+			(_, peer, _) => {
 				SyncSession(session, peer.Target);
-				await session.Agent.DrainPaneAsync(ct).ConfigureAwait(false);
-				return new SessionSyncResult(true);
+				return Task.FromResult(new SessionSyncResult(true));
 			});
 
 		session.Bus.Feature("commands").HandleAfterResponse<CommandRequest, CommandWireResult>(

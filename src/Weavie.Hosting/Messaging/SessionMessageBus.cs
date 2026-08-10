@@ -7,8 +7,8 @@ namespace Weavie.Hosting.Messaging;
 internal partial class MessageBus : IAsyncDisposable {
 	private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 	private static readonly Func<MessagePeer, bool> AdmitEveryPeer = static _ => true;
-	private readonly Action<string> _broadcast;
-	private readonly Action<WebPeer, string> _sendToPeer;
+	private readonly Action<WebTransportMessage> _broadcast;
+	private readonly Action<WebPeer, WebTransportMessage> _sendToPeer;
 	private readonly DiagnosticWorker _diagnostics;
 	private readonly IMessageHandlerExecutor _handlerExecutor;
 	private readonly MessageOperationRegistry _operations;
@@ -31,8 +31,8 @@ internal partial class MessageBus : IAsyncDisposable {
 	public MessageBus(
 		MessageScope scope,
 		SessionAddress? address,
-		Action<string> broadcast,
-		Action<WebPeer, string> sendToPeer,
+		Action<WebTransportMessage> broadcast,
+		Action<WebPeer, WebTransportMessage> sendToPeer,
 		DiagnosticWorker diagnostics,
 		IMessageHandlerExecutor handlerExecutor,
 		MessageOperationRegistry operations) {
@@ -273,7 +273,7 @@ internal partial class MessageBus : IAsyncDisposable {
 			feature,
 			name,
 			JsonSerializer.SerializeToElement(payload, JsonOptions));
-		_broadcast(envelope.ToJson());
+		_broadcast(envelope.ToTransportMessage());
 	}
 
 	internal void PublishJson(string feature, string name, string payloadJson) {
@@ -288,7 +288,7 @@ internal partial class MessageBus : IAsyncDisposable {
 			feature,
 			name,
 			document.RootElement.Clone());
-		_broadcast(envelope.ToJson());
+		_broadcast(envelope.ToTransportMessage());
 	}
 
 	internal void PublishTo<T>(WebPeer peer, string feature, string name, T payload) {
@@ -302,7 +302,7 @@ internal partial class MessageBus : IAsyncDisposable {
 				Address,
 				feature,
 				name,
-				JsonSerializer.SerializeToElement(payload, JsonOptions)).ToJson());
+				JsonSerializer.SerializeToElement(payload, JsonOptions)).ToTransportMessage());
 	}
 
 	internal void PublishJsonTo(WebPeer peer, string feature, string name, string payloadJson) {
@@ -318,7 +318,7 @@ internal partial class MessageBus : IAsyncDisposable {
 				Address,
 				feature,
 				name,
-				document.RootElement.Clone()).ToJson());
+				document.RootElement.Clone()).ToTransportMessage());
 	}
 
 	internal Task DispatchAsync(WebPeer peer, MessageEnvelope envelope) {
@@ -444,7 +444,7 @@ internal partial class MessageBus : IAsyncDisposable {
 					requestId,
 					feature,
 					name,
-					JsonSerializer.SerializeToElement(payload, JsonOptions)).ToJson());
+					JsonSerializer.SerializeToElement(payload, JsonOptions)).ToTransportMessage());
 			using var cancellation = ct.Register(
 				() => CancelOutbound(peer, requestId, feature, name, ct));
 			var response = await request.Completion.Task.ConfigureAwait(false);

@@ -146,6 +146,7 @@ public sealed class HostSessionAgentImageTests : IDisposable {
 
 	private sealed class RecordingStructuredSession : IStructuredAgentSession {
 		public event Action<AgentPaneMessage>? PaneMessage;
+		public event Action<IReadOnlyList<AgentPaneMessage>>? PaneSnapshot { add { } remove { } }
 
 		public List<AgentTurnSubmission> Submissions { get; } = [];
 

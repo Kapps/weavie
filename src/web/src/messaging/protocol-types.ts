@@ -59,7 +59,23 @@ export interface AgentPaneUpdate {
   text?: string | null;
   status?: string | null;
   questions?: AgentInputQuestion[] | null;
-  payload?: unknown;
+}
+
+export interface AgentPaneWireUpdate extends AgentPaneUpdate {
+  generation: number;
+  ordinal: number;
+  revision: number;
+  textOffset: number;
+  textLength: number;
+}
+
+export interface AgentPaneHistoryFragment {
+  generation: number;
+  ordinal: number;
+  revision: number;
+  jsonOffset: number;
+  jsonLength: number;
+  json: string;
 }
 
 export interface AgentInputQuestion {

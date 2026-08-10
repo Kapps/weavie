@@ -41,6 +41,4 @@ public sealed record AgentPaneMessage {
 	/// <summary>Normalized questions for an input request, when any.</summary>
 	public IReadOnlyList<AgentInputQuestion>? Questions { get; init; }
 
-	/// <summary>Raw provider payload for details panes and forward-compatible rendering.</summary>
-	public string? PayloadJson { get; init; }
 }

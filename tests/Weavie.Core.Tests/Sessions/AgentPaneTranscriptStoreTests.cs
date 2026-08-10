@@ -9,8 +9,8 @@ namespace Weavie.Core.Tests.Sessions;
 public sealed class AgentPaneTranscriptStoreTests {
 	private const string StorePath = "/weavie-agent-pane-tests/agent-pane.json";
 
-	private static AgentPaneMessage Message(string type, string? status = null, string? itemId = null, string? payload = null) =>
-		new() { Type = type, ProviderId = "codex", Status = status, ItemId = itemId, PayloadJson = payload };
+	private static AgentPaneMessage Message(string type, string? status = null, string? itemId = null) =>
+		new() { Type = type, ProviderId = "codex", Status = status, ItemId = itemId };
 
 	[Theory]
 	[InlineData("user-message", null, true)]
@@ -39,12 +39,11 @@ public sealed class AgentPaneTranscriptStoreTests {
 		var store = new AgentPaneTranscriptStore(fs, StorePath);
 		store.Append(Message("user-message"));
 		store.Append(Message("item-started")); // volatile — dropped
-		store.Append(Message("item-completed", status: "completed", itemId: "item-1", payload: """{"a":1}"""));
+		store.Append(Message("item-completed", status: "completed", itemId: "item-1"));
 
 		var reloaded = new AgentPaneTranscriptStore(fs, StorePath).Snapshot();
 
 		Assert.Equal(["user-message", "item-completed"], reloaded.Select(m => m.Type));
-		Assert.Equal("""{"a":1}""", reloaded[1].PayloadJson); // raw payload survives verbatim
 		Assert.Equal("item-1", reloaded[1].ItemId);
 	}
 

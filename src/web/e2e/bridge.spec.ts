@@ -372,7 +372,7 @@ test.describe("session-addressed WebSocket transport", () => {
     const checkpoint = host.checkpoint();
     host.setSessions([replacement]);
     await host.waitForSession(replacement.address, "event", "view", "attach", checkpoint);
-    host.publishSession(oldSession.address, "agent", "pane", {
+    host.publishAgentPane(oldSession.address, {
       providerId: "codex",
       type: "item-completed",
       itemId: "stale",
@@ -380,7 +380,7 @@ test.describe("session-addressed WebSocket transport", () => {
       status: "completed",
       text: "stale incarnation transcript",
     });
-    host.publishSession(replacement.address, "agent", "pane", {
+    host.publishAgentPane(replacement.address, {
       providerId: "codex",
       type: "item-completed",
       itemId: "current",
@@ -440,7 +440,7 @@ test.describe("session-addressed WebSocket transport", () => {
         lastLocation: "local",
         promoted: ["remote:devbox remote-codex"],
       });
-      remote.publishSession(remoteSession.address, "agent", "pane", {
+      remote.publishAgentPane(remoteSession.address, {
         providerId: "codex",
         type: "item-completed",
         itemId: "answer",
@@ -691,56 +691,109 @@ test.describe("session-addressed WebSocket transport", () => {
     await expect(page.locator(".toast-msg")).toHaveCount(0);
   });
 
-  test("an interrupted large pane snapshot stays visible through socket reconnect", async ({
-    page,
-  }) => {
+  test("mobile history paging cannot block commands and reconnect catches up", async ({ page }) => {
     const session = mockSession("main", "main", "codex");
+    const branches = ["main", "release/responsive-during-history"];
+    host.onHost("request", "git", "branches", (request) => host.respond(request, branches));
     host.setSessions([session]);
-    await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
-    await host.waitUntilConnected();
-    const surface = page.locator('[data-surface="structured-agent"]');
-    const message = (text: string) => ({
+    const message = (itemId: string, text: string) => ({
       providerId: "codex",
       type: "item-completed",
-      itemId: "answer",
+      itemId,
       itemType: "agentMessage",
       status: "completed",
       text,
     });
-    host.publishSession(session.address, "agent", "paneSnapshot", {
-      messages: [message("retained before reconnect")],
+    host.setAgentHistory(session.address, {
+      generation: 1,
+      messages: [message("retained", "retained before reconnect")],
+      pageSize: 100,
     });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
+    await host.waitUntilConnected();
+    const agentTab = page.getByRole("button", { name: "Agent", exact: true });
+    await agentTab.click();
+    const surface = page.locator('[data-surface="structured-agent"]');
     await expect(surface).toContainText("retained before reconnect");
 
-    const replacement = {
-      messages: [
-        {
-          ...message("restored after reconnect"),
-          payload: { padding: "x".repeat(1_500_000) },
-        },
-      ],
-    };
-    host.publishPartialSession(session.address, "agent", "paneSnapshot", replacement, 256 * 1024);
-    await expect(surface).toContainText("retained before reconnect");
+    const transcriptBody =
+      "Paragraph with **formatted** transcript content and stable paging.\n\n".repeat(315);
+    const pagedMessages = Array.from({ length: 571 }, (_, index) =>
+      message(`paged-${index}`, `history page ${index}\n\n${transcriptBody}`),
+    );
+    const historyBytes = Buffer.byteLength(JSON.stringify(pagedMessages));
+    expect(historyBytes).toBeGreaterThan(12_000_000);
+    expect(historyBytes).toBeLessThan(13_000_000);
+    const historyPageSize = 8;
+    const expectedHistoryPages = Math.ceil(pagedMessages.length / historyPageSize);
+    host.setAgentHistory(session.address, {
+      generation: 2,
+      messages: pagedMessages,
+      pageSize: historyPageSize,
+    });
+    host.pauseAgentHistoryAfterResponses(1);
 
     const checkpoint = host.checkpoint();
+    host.publishSession(session.address, "agent", "paneReset", {});
+    await expect
+      .poll(
+        () =>
+          host.received
+            .slice(checkpoint)
+            .filter(
+              (received) =>
+                received.kind === "request" &&
+                received.scope === "session" &&
+                received.feature === "agent" &&
+                received.name === "historyPage",
+            ).length,
+      )
+      .toBe(2);
+    const branchCheckpoint = host.checkpoint();
+    await page.getByRole("button", { name: "Sessions", exact: true }).click();
+    await host.waitForHost("request", "git", "branches", branchCheckpoint);
+    await expect(
+      page.locator('#session-existing-branches option[value="release/responsive-during-history"]'),
+    ).toHaveCount(1);
+    host.resumeAgentHistory();
+    await agentTab.click();
+    await expect
+      .poll(
+        () =>
+          host.received
+            .slice(checkpoint)
+            .filter(
+              (received) =>
+                received.kind === "request" &&
+                received.scope === "session" &&
+                received.feature === "agent" &&
+                received.name === "historyPage",
+            ).length,
+      )
+      .toBe(expectedHistoryPages);
+    await expect(surface).toContainText("history page 570");
+    await expect(surface).not.toContainText("retained before reconnect");
+
+    const completedCheckpoint = host.checkpoint();
     host.pauseHello();
     host.disconnectBridge();
-    await host.waitUntilConnected(checkpoint);
-    await expect(surface).toContainText("retained before reconnect");
-
+    await host.waitUntilConnected(completedCheckpoint);
+    host.setAgentHistory(session.address, {
+      generation: 2,
+      messages: [...pagedMessages, message("offline", "emitted while offline")],
+      pageSize: historyPageSize,
+    });
+    const catchUpCheckpoint = host.checkpoint();
     host.resumeHello();
-    const sync = await host.waitForSession(
+    await host.waitForSession(
       session.address,
       "request",
-      "lifecycle",
-      "sync",
-      checkpoint,
+      "agent",
+      "historyPage",
+      catchUpCheckpoint,
     );
-    expect(sync.payload).toEqual({});
-    host.publishChunkedSession(session.address, "agent", "paneSnapshot", replacement, 256 * 1024);
-    await expect(surface).toContainText("restored after reconnect");
-    await expect(surface).not.toContainText("retained before reconnect");
+    await expect(surface).toContainText("emitted while offline");
   });
 
   test("mobile inbox stays usable and truthful through a long catalog and reconnect", async ({
@@ -878,7 +931,7 @@ test.describe("session-addressed WebSocket transport", () => {
     await page.getByRole("button", { name: "Agent" }).click();
     const agentComposer = page.locator("[data-agent-composer]");
     await expect(agentComposer).toBeVisible();
-    host.publishSession(primary.address, "agent", "pane", {
+    host.publishAgentPane(primary.address, {
       providerId: "codex",
       type: "turn-started",
       turnId: "turn-mobile-layout",

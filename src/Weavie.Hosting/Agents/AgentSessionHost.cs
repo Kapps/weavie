@@ -1,4 +1,3 @@
-using System.Text;
 using Weavie.Core.Agents;
 using Weavie.Core.Configuration;
 using Weavie.Core.Sessions;
@@ -7,15 +6,20 @@ using Weavie.Hosting.Messaging;
 namespace Weavie.Hosting.Agents;
 
 /// <summary>Composes one provider session with Weavie's terminal or structured runtime host.</summary>
-public sealed class AgentSessionHost : IAsyncDisposable {
+public sealed partial class AgentSessionHost : IAsyncDisposable {
 	private readonly MessageFeatureChannel _messages;
 	private readonly List<AgentPaneMessage> _paneMessages = [];
+	private readonly List<long> _paneOrdinals = [];
+	private readonly List<long> _paneRevisions = [];
+	private readonly List<SerializedPaneRecord?> _paneSerializedRecords = [];
 	private readonly Dictionary<string, int> _paneItemIndexes = new(StringComparer.Ordinal);
 	private readonly Dictionary<string, PaneDeltaBuffer> _paneDeltaBuffers = new(StringComparer.Ordinal);
 	private readonly Lock _paneGate = new();
 	private readonly AgentPaneOutput _paneOutput;
 	private readonly AgentPaneJournal? _paneJournal;
 	private long _paneGeneration;
+	private long _nextPaneOrdinal;
+	private long _nextPaneRevision;
 
 	/// <summary>Creates the provider session and its pane runtime.</summary>
 	public AgentSessionHost(
@@ -57,6 +61,7 @@ public sealed class AgentSessionHost : IAsyncDisposable {
 				SeedPersistedPane,
 				Console.WriteLine);
 			structuredSession.PaneMessage += PublishPaneMessage;
+			structuredSession.PaneSnapshot += ReplacePaneSnapshot;
 		} else {
 			throw new InvalidOperationException($"Provider '{Provider.Id}' returned an unsupported agent session.");
 		}
@@ -88,6 +93,7 @@ public sealed class AgentSessionHost : IAsyncDisposable {
 		await DisposeProviderAsync().ConfigureAwait(false);
 		if (Structured is { } structured) {
 			structured.PaneMessage -= PublishPaneMessage;
+			structured.PaneSnapshot -= ReplacePaneSnapshot;
 		}
 		if (Controls is { } controls) {
 			controls.ControlStateChanged -= PublishControlState;
@@ -96,18 +102,6 @@ public sealed class AgentSessionHost : IAsyncDisposable {
 			await journal.DisposeAsync().ConfigureAwait(false);
 		}
 		await _paneOutput.DisposeAsync().ConfigureAwait(false);
-	}
-
-	/// <summary>Replays the structured pane state accumulated for this session.</summary>
-	public void ReplayPane() => ReplayPane(_messages);
-
-	internal void ReplayPane(MessageTargetFeature messages) =>
-		ReplayPane((IMessageFeatureTarget)messages);
-
-	private void ReplayPane(IMessageFeatureTarget messages) {
-		lock (_paneGate) {
-			_paneOutput.Replay(messages, PaneSnapshotLocked());
-		}
 	}
 
 	/// <summary>Replays every structured-agent surface owned by this session.</summary>
@@ -131,7 +125,6 @@ public sealed class AgentSessionHost : IAsyncDisposable {
 			return;
 		}
 
-		ReplayPane(messages);
 		ReplayControls(messages);
 	}
 
@@ -147,146 +140,8 @@ public sealed class AgentSessionHost : IAsyncDisposable {
 	/// <summary>Disposes provider integration after the terminal has already stopped.</summary>
 	public ValueTask DisposeProviderAsync() => Session.DisposeAsync();
 
-	internal bool TryGetCompletedPlan(string threadId, string turnId, string itemId, out AgentPlan plan) {
-		plan = default;
-		if (string.IsNullOrEmpty(threadId) || string.IsNullOrEmpty(turnId) || string.IsNullOrEmpty(itemId)) {
-			return false;
-		}
-
-		string key = AgentPaneIdentity.ItemKey(threadId, turnId, itemId)!;
-		lock (_paneGate) {
-			// A fresh stream for this identity supersedes its completed version until it reaches its own final item.
-			if (_paneItemIndexes.ContainsKey(key)) {
-				return false;
-			}
-
-			for (int index = _paneMessages.Count - 1; index >= 0; index--) {
-				var message = _paneMessages[index];
-				if (!string.Equals(AgentPaneIdentity.ItemKey(message), key, StringComparison.Ordinal)) {
-					continue;
-				}
-
-				if (message.Type != "item-completed"
-					|| !string.Equals(message.ItemType, "plan", StringComparison.Ordinal)
-					|| string.IsNullOrWhiteSpace(message.Text)) {
-					return false;
-				}
-
-				plan = new AgentPlan(key, "Plan", message.Text);
-				return true;
-			}
-		}
-
-		return false;
-	}
-
 	private void PublishControlState(AgentControlState state) =>
 		_messages.Publish("controls", AgentControlsProtocol.Message(state));
-
-	private void PublishPaneMessage(AgentPaneMessage message) {
-		if (message.Type == "transcript-reset") {
-			lock (_paneGate) {
-				_paneGeneration++;
-				_paneMessages.Clear();
-				_paneItemIndexes.Clear();
-				_paneDeltaBuffers.Clear();
-				_paneJournal?.Clear();
-				_paneOutput.Reset();
-			}
-			return;
-		}
-
-		lock (_paneGate) {
-			StorePaneMessage(message);
-			_paneJournal?.Append(message);
-			_paneOutput.Live(message);
-		}
-	}
-
-	private void SeedPersistedPane(IReadOnlyList<AgentPaneMessage> persisted) {
-		if (persisted.Count == 0) {
-			return;
-		}
-
-		lock (_paneGate) {
-			if (_paneGeneration != 0) {
-				return;
-			}
-
-			var live = _paneMessages.ToArray();
-			_paneMessages.Clear();
-			_paneItemIndexes.Clear();
-			_paneDeltaBuffers.Clear();
-			foreach (var message in persisted) {
-				StorePaneMessage(message);
-			}
-			foreach (var message in live) {
-				StorePaneMessage(message);
-			}
-
-			_paneOutput.Replay(_messages, PaneSnapshotLocked());
-		}
-	}
-
-	private List<AgentPaneMessage> PaneSnapshotLocked() {
-		List<AgentPaneMessage> snapshot = [.. _paneMessages];
-		foreach (var buffer in _paneDeltaBuffers.Values) {
-			snapshot[buffer.Index] = buffer.Latest with { Text = buffer.Text.ToString() };
-		}
-
-		return snapshot;
-	}
-
-	private void StorePaneMessage(AgentPaneMessage message) {
-		string? key = AgentPaneIdentity.ItemKey(message);
-		if (key is null) {
-			_paneMessages.Add(message);
-			return;
-		}
-
-		if (message.Type == "item-started") {
-			_paneDeltaBuffers.Remove(key);
-			if (_paneItemIndexes.TryGetValue(key, out int startedIndex)) {
-				_paneMessages[startedIndex] = message;
-			} else {
-				_paneItemIndexes[key] = _paneMessages.Count;
-				_paneMessages.Add(message);
-			}
-			return;
-		}
-
-		if (IsDelta(message)) {
-			if (!_paneItemIndexes.TryGetValue(key, out int deltaIndex)) {
-				deltaIndex = _paneMessages.Count;
-				_paneItemIndexes[key] = deltaIndex;
-				_paneMessages.Add(message with { Text = null });
-			}
-			if (!_paneDeltaBuffers.TryGetValue(key, out var buffer)) {
-				buffer = new PaneDeltaBuffer(deltaIndex, message);
-				_paneDeltaBuffers.Add(key, buffer);
-			}
-			buffer.Latest = message;
-			buffer.Text.Append(message.Text);
-			return;
-		}
-
-		if (message.Type == "item-completed" && _paneItemIndexes.Remove(key, out int completedIndex)) {
-			_paneDeltaBuffers.Remove(key);
-			_paneMessages[completedIndex] = message;
-			return;
-		}
-
-		_paneMessages.Add(message);
-	}
-
-	private static bool IsDelta(AgentPaneMessage message) =>
-		message.Type is "agent-message-delta" or "plan-delta" or "command-output-delta";
-
-	private sealed class PaneDeltaBuffer(int index, AgentPaneMessage latest) {
-		public int Index { get; } = index;
-		public AgentPaneMessage Latest { get; set; } = latest;
-		public StringBuilder Text { get; } = new();
-	}
 
 	private sealed class AgentTerminalProcess(ITerminalAgentSession session) : ITerminalProcess {
 		public AgentLaunch ResolveLaunch() => session.ResolveLaunch();

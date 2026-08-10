@@ -72,7 +72,6 @@ internal static class CodexPaneMessages {
 			Status = "pending",
 			Text = RequestText(request.Method, parameters),
 			Questions = ReadQuestions(parameters),
-			PayloadJson = request.Message.GetRawText(),
 		};
 
 	/// <summary>The substance being approved — the user must see what they are consenting to, not just why.</summary>
@@ -182,7 +181,6 @@ internal static class CodexPaneMessages {
 			Summary = SummarizeItem(itemType, item),
 			Status = item.GetStringOrEmpty("status"),
 			Text = ItemText(itemType, item),
-			PayloadJson = root.GetRawText(),
 		};
 	}
 
@@ -195,7 +193,6 @@ internal static class CodexPaneMessages {
 			TurnId = parameters.GetStringOrEmpty("turnId"),
 			Category = "diff",
 			Text = parameters.GetStringOrEmpty("diff"),
-			PayloadJson = root.GetRawText(),
 		};
 	}
 
@@ -218,7 +215,6 @@ internal static class CodexPaneMessages {
 				: parameters.GetStringOrEmpty("status"),
 			Summary = error.ValueKind == JsonValueKind.Object ? ErrorSummary(error) : null,
 			Text = error.ValueKind == JsonValueKind.Object ? ErrorText(error) : null,
-			PayloadJson = root.GetRawText(),
 		};
 	}
 
@@ -241,7 +237,6 @@ internal static class CodexPaneMessages {
 			Summary = ErrorSummary(error),
 			Text = ErrorText(error),
 			Status = willRetry ? "retrying" : "failed",
-			PayloadJson = root.GetRawText(),
 		};
 	}
 
@@ -277,7 +272,6 @@ internal static class CodexPaneMessages {
 			ItemId = parameters.GetStringOrEmpty("itemId"),
 			Category = "edit",
 			Summary = SummarizeChanges(parameters),
-			PayloadJson = root.GetRawText(),
 		};
 	}
 
@@ -299,7 +293,6 @@ internal static class CodexPaneMessages {
 				Summary = "GitHub MCP is not authenticated",
 				Text = "Set CODEX_GITHUB_PERSONAL_ACCESS_TOKEN or disable the Codex github MCP server.",
 				Status = "failed",
-				PayloadJson = root.GetRawText(),
 			};
 		}
 
@@ -310,7 +303,6 @@ internal static class CodexPaneMessages {
 			Summary = name.Length == 0 ? "MCP server failed" : $"MCP server '{name}' failed",
 			Text = error.Length == 0 ? null : error,
 			Status = "failed",
-			PayloadJson = root.GetRawText(),
 		};
 	}
 
@@ -399,7 +391,6 @@ internal static class CodexPaneMessages {
 			Summary = SummarizeItem(itemType, item),
 			Status = item.GetStringOrEmpty("status") is { Length: > 0 } status ? status : "completed",
 			Text = ItemText(itemType, item),
-			PayloadJson = item.GetRawText(),
 		};
 	}
 

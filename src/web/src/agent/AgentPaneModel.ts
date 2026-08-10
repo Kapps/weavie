@@ -29,7 +29,10 @@ export interface MutableAgentPaneModel extends AgentPaneModel {
   reset(): void;
 }
 
-export function createAgentPaneModel(session: ClientSession): MutableAgentPaneModel {
+export function createAgentPaneModel(
+  session: ClientSession,
+  activateHistory: () => void,
+): MutableAgentPaneModel {
   const [entries, setEntries] = createStore<AgentTranscriptEntry[]>([]);
   const [messages, setMessages] = createSignal<AgentPaneUpdate[]>([]);
   const [generation, setGeneration] = createSignal(0);
@@ -85,6 +88,7 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
   return {
     attach() {
       attached += 1;
+      activateHistory();
       const latest = messages();
       if (projectedMessages !== latest) {
         project(latest);

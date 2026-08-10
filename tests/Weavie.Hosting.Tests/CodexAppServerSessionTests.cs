@@ -104,28 +104,34 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 			new ConcurrentQueue<AgentPaneMessage>(),
 			threads,
 			fileSystem);
+		ConcurrentQueue<IReadOnlyList<AgentPaneMessage>> snapshots = new();
+		session.PaneSnapshot += snapshots.Enqueue;
 
 		session.Start();
-		await WaitForAsync(() => events.Values.OfType<AgentSessionStarted>().Any());
+		await WaitForAsync(() => events.Values.OfType<AgentSessionStarted>().Any() && snapshots.Any());
 
 		Assert.Single(events.Values.OfType<AgentSessionStarted>());
+		Assert.Empty(Assert.Single(snapshots));
 	}
 
 	[Fact]
-	public async Task ThreadResume_HydratesPersistedConversation() {
+	public async Task ThreadResume_HydratesPersistedConversationAsSnapshot() {
 		var fileSystem = new InMemoryFileSystem();
 		var threads = new CodexThreadStore(fileSystem, "/codex-threads.json");
 		threads.Adopt(_dir, "thread_existing");
 		File.WriteAllText(Path.Combine(_dir, "resume-with-history"), string.Empty);
 		ConcurrentQueue<AgentPaneMessage> messages = new();
 		await using var session = CreateSessionWithThreads(new NullAgentEventSink(), messages, threads, fileSystem);
+		ConcurrentQueue<IReadOnlyList<AgentPaneMessage>> snapshots = new();
+		session.PaneSnapshot += snapshots.Enqueue;
 
 		session.Start();
-		await WaitForAsync(() => messages.Any(message => message.Text == "old answer"));
+		await WaitForAsync(() => snapshots.Any());
 
-		Assert.Contains(messages, message => message.Type == "transcript-reset");
-		Assert.Contains(messages, message => message.Type == "user-message" && message.Text == "old prompt");
-		Assert.Contains(messages, message => message.ItemType == "agentMessage" && message.Text == "old answer");
+		var snapshot = Assert.Single(snapshots);
+		Assert.Contains(snapshot, message => message.Type == "user-message" && message.Text == "old prompt");
+		Assert.Contains(snapshot, message => message.ItemType == "agentMessage" && message.Text == "old answer");
+		Assert.DoesNotContain(messages, message => message.Text is "old prompt" or "old answer");
 	}
 
 	[Fact]
@@ -136,6 +142,13 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		File.WriteAllText(Path.Combine(_dir, "resume-with-history"), string.Empty);
 		ConcurrentQueue<AgentPaneMessage> messages = new();
 		await using var session = CreateSessionWithThreads(new NullAgentEventSink(), messages, threads, fileSystem);
+		ConcurrentQueue<string> order = new();
+		session.PaneSnapshot += snapshot => {
+			foreach (var message in snapshot) {
+				order.Enqueue(message.Text ?? message.Type);
+			}
+		};
+		session.PaneMessage += message => order.Enqueue(message.Text ?? message.Type);
 
 		session.Submit(Submission("queued prompt", []));
 		session.Start();
@@ -152,9 +165,9 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 			() => $"fake-server markers: [{string.Join(", ", Directory.GetFiles(_dir).Select(Path.GetFileName).Order())}]"
 				+ $"; pane messages: [{string.Join(", ", messages.Select(message => $"{message.Type}={message.Text}"))}]");
 
-		var snapshot = messages.ToArray();
-		int history = Array.FindIndex(snapshot, message => message.Text == "old answer");
-		int queued = Array.FindIndex(snapshot, message => message.Text == "queued prompt");
+		string[] observed = [.. order];
+		int history = Array.IndexOf(observed, "old answer");
+		int queued = Array.IndexOf(observed, "queued prompt");
 		Assert.True(history >= 0 && queued > history);
 	}
 
@@ -176,7 +189,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		var warning = Assert.Single(messages, message => message.Type == "warning");
 		Assert.Contains("started a new one", warning.Summary, StringComparison.Ordinal);
 		Assert.Contains("-32603", warning.Text, StringComparison.Ordinal);
-		Assert.Contains("failed to read thread", warning.PayloadJson ?? "", StringComparison.Ordinal);
+		Assert.Contains("failed to read thread", warning.Text, StringComparison.Ordinal);
 		Assert.DoesNotContain(messages, message => message.Type == "error");
 		Assert.Single(events.Values.OfType<AgentSessionStarted>());
 
@@ -360,7 +373,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		// The rejection is surfaced with its JSON-RPC code and raw envelope, not hidden or shown as a raw blob.
 		var warning = Assert.Single(messages, message => message.Type == "warning");
 		Assert.Contains("-32600", warning.Text, StringComparison.Ordinal);
-		Assert.Contains("expected active turn", warning.PayloadJson ?? "", StringComparison.Ordinal);
+		Assert.Contains("expected active turn", warning.Text, StringComparison.Ordinal);
 		Assert.DoesNotContain(messages, message => message.Type == "error");
 		Assert.DoesNotContain(messages, message => message.Type == "user-steer" && message.Text == "stale steer");
 	}

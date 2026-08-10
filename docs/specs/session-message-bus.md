@@ -43,7 +43,7 @@ Routing uses the envelope metadata only. Payloads contain domain data, never dup
 
 `HostSession` owns its `SessionEndpoint`, feature handlers, controllers, and `SessionTaskScope`.
 Construction may publish, but the endpoint's transport gate holds those frames. Before activation,
-the host publishes the session's complete initial snapshot into that gate. It first publishes the
+the host publishes the session's bounded initial snapshot into that gate. It first publishes the
 exact address in the catalog, starts any structured agent runtime, then activates the endpoint,
 registers it with the router, and flushes the snapshot and any construction-time frames in publication
 order. A `ClientSession` created by that catalog consumes the gated snapshot; it does not issue a
@@ -89,9 +89,9 @@ the caller receives a connection failure. Features that need idempotency define 
 protocol. A failed reply delivery does not retry the handler or turn its successful result into a
 second error reply. Deferred teardown runs after the reply attempt, so an invoking session can unload
 or delete itself without either deadlocking its own dispatch or surviving solely because its peer
-disconnected. Reconnect restoration is an explicit state snapshot through `lifecycle.sync`.
-That snapshot is unicast to the requesting peer; connecting one page never replays stale snapshots
-through already-live pages.
+disconnected. Reconnect restoration uses a bounded state snapshot through `lifecycle.sync` plus
+feature-owned pull protocols for unbounded data such as agent history. The sync snapshot is unicast
+to the requesting peer; connecting one page never replays stale snapshots through already-live pages.
 
 ## Ordering
 
@@ -111,6 +111,11 @@ The lane is a feature consistency boundary, not a global queue. A slow search ca
 input, and one session cannot block another. Messages that read or mutate the same state belong to
 the same feature even when another surface renders the result; for example, `agent.openPlan` reads
 agent transcript state and publishes its successful result through `editor.agentPlan`.
+
+Remote outbound transport preserves FIFO order within each exact `(scope, session, feature)` route
+and round-robins oversized-message chunks across routes. A large response therefore cannot prevent
+an unrelated feature or session from receiving its next message. The browser reassembles interleaved
+logical messages independently before dispatch.
 
 ## Presentation
 
@@ -174,7 +179,7 @@ their exact owners. Frames that arrive early during connect or reconnect are buf
 an unrelated catalog update cannot discard them, while a catalog entry for the same slot with a
 different incarnation proves them stale. Sessions already live when hello completes receive
 `lifecycle.sync`. For later loads, the host's endpoint activation gate guarantees that the catalog
-frame precedes the new session's initial snapshot and every later live frame.
+frame precedes the new session's bounded initial snapshot and every later live frame.
 
 Once hello is authoritative, a frame for an unknown address waits only behind catalog work already
 admitted on the host bus. If that work does not create the exact owner, the frame is discarded; it

@@ -40,11 +40,11 @@ public sealed class SessionMessageBusTests {
 	public async Task DummyFeatureRoutesByOwnedSessionWhileAnotherSessionIsSelected() {
 		var replies = new ConcurrentQueue<(WebPeer Peer, string Json)>();
 		var router = new SessionMessageRouter(
-			(peer, json) => replies.Enqueue((peer, json)),
+			(peer, message) => replies.Enqueue((peer, message.Json)),
 			_ => { });
 		var address = new SessionAddress("a", "a1");
-		await using var bus = new SessionMessageBus(address, _ => { }, (peer, json) =>
-			replies.Enqueue((peer, json)), _ => { });
+		await using var bus = new SessionMessageBus(address, _ => { }, (peer, message) =>
+			replies.Enqueue((peer, message.Json)), _ => { });
 		router.Add(bus);
 		int value = 0;
 		using var registration = bus.Feature("dummy").Handle<Increment, Counter>(
@@ -71,11 +71,11 @@ public sealed class SessionMessageBusTests {
 	[Fact]
 	public async Task ReusedSlotCannotReceiveAnOldIncarnationRequest() {
 		var replies = new ConcurrentQueue<string>();
-		var router = new SessionMessageRouter((_, json) => replies.Enqueue(json), _ => { });
+		var router = new SessionMessageRouter((_, message) => replies.Enqueue(message.Json), _ => { });
 		await using var current = new SessionMessageBus(
 			new SessionAddress("main", "new"),
 			_ => { },
-			(_, json) => replies.Enqueue(json),
+			(_, message) => replies.Enqueue(message.Json),
 			_ => { });
 		router.Add(current);
 		int calls = 0;
@@ -201,12 +201,12 @@ public sealed class SessionMessageBusTests {
 		var replies = new ConcurrentQueue<(WebPeer Peer, string Json)>();
 		var address = new SessionAddress("a", "a1");
 		var router = new SessionMessageRouter(
-			(peer, json) => replies.Enqueue((peer, json)),
+			(peer, message) => replies.Enqueue((peer, message.Json)),
 			_ => { });
 		await using var bus = new SessionMessageBus(
 			address,
 			_ => { },
-			(peer, json) => replies.Enqueue((peer, json)),
+			(peer, message) => replies.Enqueue((peer, message.Json)),
 			_ => { });
 		router.Add(bus);
 		using var handler = bus.Feature("counter").HandleConcurrent<Increment, Counter>(
@@ -273,11 +273,11 @@ public sealed class SessionMessageBusTests {
 	public async Task DuplicateRequestIdDoesNotReplaceOrSettleTheOriginalRequest() {
 		var replies = new ConcurrentQueue<string>();
 		var address = new SessionAddress("a", "a1");
-		var router = new SessionMessageRouter((_, json) => replies.Enqueue(json), _ => { });
+		var router = new SessionMessageRouter((_, message) => replies.Enqueue(message.Json), _ => { });
 		await using var bus = new SessionMessageBus(
 			address,
 			_ => { },
-			(_, json) => replies.Enqueue(json),
+			(_, message) => replies.Enqueue(message.Json),
 			_ => { });
 		router.Add(bus);
 		var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -968,11 +968,11 @@ public sealed class SessionMessageBusTests {
 
 		public Action<WebPeer, string> Sending { get; set; } = static (_, _) => { };
 
-		public void Broadcast(string json) => Broadcasts.Add(json);
+		public void Broadcast(WebTransportMessage message) => Broadcasts.Add(message.Json);
 
-		public void Send(WebPeer peer, string json) {
-			Sent.Add((peer, json));
-			Sending(peer, json);
+		public void Send(WebPeer peer, WebTransportMessage message) {
+			Sent.Add((peer, message.Json));
+			Sending(peer, message.Json);
 		}
 	}
 }

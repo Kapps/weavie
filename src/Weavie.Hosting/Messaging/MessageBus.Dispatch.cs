@@ -103,7 +103,7 @@ internal partial class MessageBus {
 		}
 
 		try {
-			_sendToPeer(peer, MessageEnvelope.Cancel(Scope, Address, requestId, feature, name).ToJson());
+			_sendToPeer(peer, MessageEnvelope.Cancel(Scope, Address, requestId, feature, name).ToTransportMessage());
 		} catch (Exception) {
 			// Cancellation already settled the request; a failed transport cannot change that outcome.
 		}
@@ -128,7 +128,7 @@ internal partial class MessageBus {
 					error is null
 						? payload
 						: JsonSerializer.SerializeToElement<object?>(null),
-					error).ToJson());
+					error).ToTransportMessage());
 		} catch (Exception ex) {
 			LogDiagnostic(
 				$"[bridge] response delivery for {request.Feature}.{request.Name} "
@@ -146,7 +146,7 @@ internal partial class MessageBus {
 				request.Feature,
 				request.Name,
 				JsonSerializer.SerializeToElement<object?>(null),
-				error).ToJson());
+				error).ToTransportMessage());
 
 	private void ThrowIfClosed() => ObjectDisposedException.ThrowIf(Closed, this);
 

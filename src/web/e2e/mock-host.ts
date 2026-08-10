@@ -115,6 +115,12 @@ export interface MockHostOptions {
   commandCatalog?: { commands: unknown[]; keybindings: unknown[] };
 }
 
+interface AgentHistoryState {
+  generation: number;
+  messages: Record<string, unknown>[];
+  pageSize: number;
+}
+
 export class MockHost {
   readonly received: MessageEnvelope[] = [];
   readonly mediaRequests: Array<{ session: string; path: string; status: number }> = [];
@@ -130,14 +136,20 @@ export class MockHost {
     selector: MessageSelector;
     handler: (message: MessageEnvelope) => void;
   }>();
+  private readonly agentHistories = new Map<string, AgentHistoryState>();
+  private readonly agentItems = new Map<string, Map<string, number>>();
+  private readonly agentOrdinals = new Map<string, number>();
+  private readonly agentRevisions = new Map<string, number>();
+  private readonly pausedAgentHistoryRequests: MessageEnvelope[] = [];
   private readonly pausedFileRequests: MessageEnvelope[] = [];
   private socket: WebSocket | null = null;
   private sessions: MockSession[];
   private pendingHello: MessageEnvelope | null = null;
   private helloPaused = false;
   private fileProviderPaused = false;
+  private agentHistoryPauseAfterResponses: number | null = null;
+  private agentHistoryResponses = 0;
   private requestSequence = 0;
-  private chunkSequence = 0;
   private port = 0;
 
   private constructor(
@@ -208,6 +220,27 @@ export class MockHost {
     this.media.set(JSON.stringify([sessionIncarnation, path]), bytes);
   }
 
+  setAgentHistory(session: string | SessionAddress, history: AgentHistoryState): void {
+    const address = typeof session === "string" ? this.address(session) : session;
+    const key = this.addressKey(address);
+    this.agentHistories.set(key, history);
+    this.agentItems.delete(key);
+    this.agentOrdinals.set(key, history.messages.length);
+    this.agentRevisions.set(key, history.messages.length);
+  }
+
+  pauseAgentHistoryAfterResponses(responses: number): void {
+    this.agentHistoryPauseAfterResponses = responses;
+    this.agentHistoryResponses = 0;
+  }
+
+  resumeAgentHistory(): void {
+    this.agentHistoryPauseAfterResponses = null;
+    for (const request of this.pausedAgentHistoryRequests.splice(0)) {
+      this.answerAgentHistory(request);
+    }
+  }
+
   publishHost(feature: string, name: string, payload: unknown): void {
     this.send({
       scope: "host",
@@ -230,53 +263,19 @@ export class MockHost {
     this.send(this.sessionEvent(session, feature, name, payload));
   }
 
-  publishPartialSession(
-    session: string | SessionAddress,
-    feature: string,
-    name: string,
-    payload: unknown,
-    chunkBytes: number,
-  ): void {
-    const chunks = this.chunkedSessionEvent(session, feature, name, payload, chunkBytes);
-    const first = chunks[0];
-    if (first === undefined) {
-      throw new Error("chunked session event was empty");
-    }
-    this.sendText(first);
+  publishAgentPane(session: string | SessionAddress, message: Record<string, unknown>): void {
+    const address = typeof session === "string" ? this.address(session) : session;
+    this.publishSession(address, "agent", "pane", this.agentMessage(address, message));
   }
 
-  publishChunkedSession(
+  publishAgentPaneBatch(
     session: string | SessionAddress,
-    feature: string,
-    name: string,
-    payload: unknown,
-    chunkBytes: number,
+    messages: Record<string, unknown>[],
   ): void {
-    for (const chunk of this.chunkedSessionEvent(session, feature, name, payload, chunkBytes)) {
-      this.sendText(chunk);
-    }
-  }
-
-  private chunkedSessionEvent(
-    session: string | SessionAddress,
-    feature: string,
-    name: string,
-    payload: unknown,
-    chunkBytes: number,
-  ): string[] {
-    const bytes = Buffer.from(JSON.stringify(this.sessionEvent(session, feature, name, payload)));
-    const count = Math.ceil(bytes.length / chunkBytes);
-    const id = `mock-${++this.chunkSequence}`;
-    return Array.from({ length: count }, (_, index) =>
-      JSON.stringify({
-        $weavieChunk: {
-          id,
-          index,
-          count,
-          data: bytes.subarray(index * chunkBytes, (index + 1) * chunkBytes).toString("base64"),
-        },
-      }),
-    );
+    const address = typeof session === "string" ? this.address(session) : session;
+    this.publishSession(address, "agent", "paneBatch", {
+      messages: messages.map((message) => this.agentMessage(address, message)),
+    });
   }
 
   private sessionEvent(
@@ -329,7 +328,11 @@ export class MockHost {
     if (request.kind !== "request" || request.requestId === null) {
       throw new Error("only a request envelope can be answered");
     }
-    this.send({
+    this.send(this.response(request, payload));
+  }
+
+  private response(request: MessageEnvelope, payload: unknown): MessageEnvelope {
+    return {
       scope: request.scope,
       session: request.session,
       kind: "response",
@@ -338,7 +341,7 @@ export class MockHost {
       name: request.name,
       payload,
       error: null,
-    });
+    };
   }
 
   waitUntilConnected(after = 0): Promise<MessageEnvelope> {
@@ -498,7 +501,80 @@ export class MockHost {
       this.respond(message, { ok: true });
       return;
     }
+    if (
+      message.kind === "request" &&
+      message.scope === "session" &&
+      message.feature === "agent" &&
+      message.name === "historyPage"
+    ) {
+      this.answerAgentHistory(message);
+      return;
+    }
     this.answerFileProvider(message);
+  }
+
+  private answerAgentHistory(request: MessageEnvelope): void {
+    if (request.session === null) {
+      return;
+    }
+    if (
+      this.agentHistoryPauseAfterResponses !== null &&
+      this.agentHistoryResponses >= this.agentHistoryPauseAfterResponses
+    ) {
+      this.pausedAgentHistoryRequests.push(request);
+      return;
+    }
+    this.agentHistoryResponses++;
+    const history = this.agentHistories.get(this.addressKey(request.session)) ?? {
+      generation: 0,
+      messages: [],
+      pageSize: 100,
+    };
+    const supplied = request.payload as {
+      cursor?: {
+        before?: number;
+        ceiling?: number;
+        generation?: number;
+        jsonBefore?: number | null;
+      } | null;
+    };
+    const ceiling = supplied.cursor?.ceiling ?? history.messages.length;
+    const before = supplied.cursor?.before ?? ceiling;
+    const start = Math.max(0, before - history.pageSize);
+    const records = history.messages.slice(start, before).map((message, index) => ({
+      ...message,
+      generation: history.generation,
+      ordinal: start + index + 1,
+      revision: start + index + 1,
+      textOffset: 0,
+      textLength: typeof message.text === "string" ? message.text.length : 0,
+    }));
+    const payload = {
+      generation: history.generation,
+      restarted: false,
+      messages: records.map((record) => {
+        const json = JSON.stringify(record);
+        return {
+          generation: record.generation,
+          ordinal: record.ordinal,
+          revision: record.revision,
+          jsonOffset: 0,
+          jsonLength: json.length,
+          json,
+        };
+      }),
+      cursor:
+        start === 0
+          ? null
+          : {
+              generation: history.generation,
+              ceiling,
+              before: start,
+              jsonBefore: null,
+              jsonRevision: null,
+            },
+    };
+    this.send(this.response(request, payload));
   }
 
   private answerFileProvider(message: MessageEnvelope): void {
@@ -560,6 +636,50 @@ export class MockHost {
       throw new Error("mock host has no connected page");
     }
     this.socket.send(data);
+  }
+
+  private addressKey(address: SessionAddress): string {
+    return `${address.slot}\0${address.incarnation}`;
+  }
+
+  private agentMessage(
+    address: SessionAddress,
+    message: Record<string, unknown>,
+  ): Record<string, unknown> {
+    const key = this.addressKey(address);
+    const itemId = typeof message.itemId === "string" ? message.itemId : "";
+    const itemKey =
+      itemId.length === 0
+        ? null
+        : JSON.stringify([message.threadId ?? null, message.turnId ?? null, itemId]);
+    let ordinal = itemKey === null ? undefined : this.agentItems.get(key)?.get(itemKey);
+    if (ordinal === undefined) {
+      ordinal = (this.agentOrdinals.get(key) ?? 0) + 1;
+      this.agentOrdinals.set(key, ordinal);
+      if (itemKey !== null && message.type !== "item-completed") {
+        let items = this.agentItems.get(key);
+        if (items === undefined) {
+          items = new Map<string, number>();
+          this.agentItems.set(key, items);
+        }
+        items.set(itemKey, ordinal);
+      }
+    } else if (message.type === "item-completed") {
+      if (itemKey !== null) {
+        this.agentItems.get(key)?.delete(itemKey);
+      }
+    }
+    const revision = (this.agentRevisions.get(key) ?? 0) + 1;
+    this.agentRevisions.set(key, revision);
+    const text = typeof message.text === "string" ? message.text : null;
+    return {
+      ...message,
+      generation: this.agentHistories.get(key)?.generation ?? 0,
+      ordinal,
+      revision,
+      textOffset: 0,
+      textLength: text?.length ?? 0,
+    };
   }
 
   private waitFor(selector: MessageSelector, after = 0): Promise<MessageEnvelope> {

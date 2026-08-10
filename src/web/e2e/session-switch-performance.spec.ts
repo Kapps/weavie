@@ -126,16 +126,20 @@ test("long transcripts switch as a measured virtual window", async ({ page }) =>
         (_, paragraph) => `Paragraph ${paragraph + 1} with **formatted** transcript content.`,
       ).join("\n\n")}`,
     }));
+  host.setAgentHistory(first.address, {
+    generation: 1,
+    messages: transcript("FIRST"),
+    pageSize: 400,
+  });
+  host.setAgentHistory(second.address, {
+    generation: 1,
+    messages: transcript("SECOND"),
+    pageSize: 400,
+  });
 
   try {
     await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
     await host.waitUntilConnected();
-    host.publishSession(first.address, "agent", "paneBatch", {
-      messages: transcript("FIRST"),
-    });
-    host.publishSession(second.address, "agent", "paneBatch", {
-      messages: transcript("SECOND"),
-    });
 
     const rows = page.locator(".agent-virtual-row");
     const body = page.locator(".agent-body");

@@ -46,21 +46,21 @@ internal sealed class HostBridge : IWebTransportHub {
 	internal void Attach(IntPtr webView) => _webView = webView;
 
 	/// <summary>Pushes a raw JSON message string into the page via <c>window.__weavieReceive</c> (on the main thread).</summary>
-	public void Broadcast(string json) {
+	public void Broadcast(WebTransportMessage message) {
 		IntPtr webView = _webView;
 		if (webView == IntPtr.Zero) {
 			return;
 		}
 
-		string script = WebBridgeScript.Receive(json);
+		string script = WebBridgeScript.Receive(message.Json);
 		GtkMain.Invoke(() => WebKit.webkit_web_view_evaluate_javascript(
 			webView, script, -1, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero));
 	}
 
 	/// <inheritdoc/>
-	public void Send(WebPeer peer, string json) {
+	public void Send(WebPeer peer, WebTransportMessage message) {
 		if (peer == WebPeer.Native) {
-			Broadcast(json);
+			Broadcast(message);
 		}
 	}
 

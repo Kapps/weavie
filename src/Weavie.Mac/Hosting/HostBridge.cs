@@ -30,13 +30,13 @@ public sealed class HostBridge : NSObject, IWKScriptMessageHandler, IWebTranspor
 		MessageReceived?.Invoke(WebPeer.Native, message.Body?.ToString() ?? string.Empty);
 
 	/// <summary>Pushes a raw JSON message string into the page via <c>window.__weavieReceive</c>.</summary>
-	public void Broadcast(string json) {
+	public void Broadcast(WebTransportMessage message) {
 		var webView = _webView;
 		if (webView is null) {
 			return;
 		}
 
-		string script = WebBridgeScript.Receive(json);
+		string script = WebBridgeScript.Receive(message.Json);
 
 		// Always defer, never evaluate inline: a push made while handling an inbound web message (a palette/shortcut
 		// command whose handler re-pushes a setting synchronously) would else re-enter EvaluateJavaScript from inside
@@ -47,9 +47,9 @@ public sealed class HostBridge : NSObject, IWKScriptMessageHandler, IWebTranspor
 	}
 
 	/// <inheritdoc/>
-	public void Send(WebPeer peer, string json) {
+	public void Send(WebPeer peer, WebTransportMessage message) {
 		if (peer == WebPeer.Native) {
-			Broadcast(json);
+			Broadcast(message);
 		}
 	}
 

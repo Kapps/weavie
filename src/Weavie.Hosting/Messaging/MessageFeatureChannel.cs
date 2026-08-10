@@ -146,8 +146,8 @@ internal sealed class MessageTargetFeature : IMessageFeatureTarget {
 internal sealed class SessionMessageBus : MessageBus {
 	public SessionMessageBus(
 		SessionAddress address,
-		Action<string> broadcast,
-		Action<WebPeer, string> sendToPeer,
+		Action<WebTransportMessage> broadcast,
+		Action<WebPeer, WebTransportMessage> sendToPeer,
 		Action<string> log)
 		: this(
 			address,
@@ -158,8 +158,8 @@ internal sealed class SessionMessageBus : MessageBus {
 
 	private SessionMessageBus(
 		SessionAddress address,
-		Action<string> broadcast,
-		Action<WebPeer, string> sendToPeer,
+		Action<WebTransportMessage> broadcast,
+		Action<WebPeer, WebTransportMessage> sendToPeer,
 		DiagnosticWorker diagnostics)
 		: this(
 			address,
@@ -175,8 +175,8 @@ internal sealed class SessionMessageBus : MessageBus {
 
 	public SessionMessageBus(
 		SessionAddress address,
-		Action<string> broadcast,
-		Action<WebPeer, string> sendToPeer,
+		Action<WebTransportMessage> broadcast,
+		Action<WebPeer, WebTransportMessage> sendToPeer,
 		DiagnosticWorker diagnostics,
 		MessageOperationRegistry operations)
 		: base(
@@ -195,8 +195,8 @@ internal sealed class SessionMessageBus : MessageBus {
 internal sealed class HostMessageBus : MessageBus {
 	public HostMessageBus(
 		IUiDispatcher dispatcher,
-		Action<string> broadcast,
-		Action<WebPeer, string> sendToPeer,
+		Action<WebTransportMessage> broadcast,
+		Action<WebPeer, WebTransportMessage> sendToPeer,
 		DiagnosticWorker diagnostics,
 		MessageOperationRegistry operations)
 		: base(

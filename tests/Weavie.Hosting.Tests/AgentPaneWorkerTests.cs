@@ -10,7 +10,7 @@ public sealed class AgentPaneWorkerTests {
 	[Fact]
 	public async Task OutputDrainPropagatesAnEarlierPublicationFailure() {
 		await using var output = new AgentPaneOutput(new ThrowingTarget(), 0, _ => { });
-		output.Live(new AgentPaneMessage { Type = "started", ProviderId = "codex" });
+		output.Live(new AgentPaneRecord(0, 1, 1, new AgentPaneMessage { Type = "started", ProviderId = "codex" }));
 
 		var error = await Assert.ThrowsAsync<IOException>(() =>
 			output.DrainAsync(CancellationToken.None));

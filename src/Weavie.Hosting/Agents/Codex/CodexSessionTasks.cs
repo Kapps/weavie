@@ -20,7 +20,6 @@ internal static class CodexSessionTasks {
 				ProviderId = "codex",
 				Text = ex.Detail,
 				Status = "error",
-				PayloadJson = ex.Payload,
 			});
 		} catch (Exception ex) when (ex is IOException or InvalidOperationException or JsonException) {
 			emit(new AgentPaneMessage {

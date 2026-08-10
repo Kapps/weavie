@@ -48,13 +48,37 @@ public sealed class CodexPanePersistenceTests {
 				return true;
 			}
 		}
-		foreach (var posted in bridge.PostedEvents(session.Address, "agent", "paneSnapshot")) {
-			if (posted.GetProperty("messages").EnumerateArray().Any(Matches)) {
-				return true;
-			}
-		}
 		return false;
 	}
+
+	private static async Task<JsonElement[]> ReadHistoryAsync(TestHost host, HostSession session) {
+		var fragments = new List<JsonElement>();
+		JsonElement? cursor = null;
+		do {
+			var page = await host.SessionRequestAsync<JsonElement>(
+				session,
+				"agent",
+				"historyPage",
+				new { cursor });
+			fragments.InsertRange(0, page.GetProperty("messages").EnumerateArray().Select(message => message.Clone()));
+			var next = page.GetProperty("cursor");
+			cursor = next.ValueKind == JsonValueKind.Null ? null : next.Clone();
+		} while (cursor is not null);
+
+		return [.. fragments
+			.GroupBy(fragment => (
+				fragment.GetProperty("generation").GetInt64(),
+				fragment.GetProperty("ordinal").GetInt64(),
+				fragment.GetProperty("revision").GetInt64()))
+			.Select(group => JsonDocument.Parse(
+				string.Concat(group.Select(fragment => fragment.GetProperty("json").GetString())))
+				.RootElement.Clone())];
+	}
+
+	private static bool Contains(JsonElement[] messages, string type, string text) =>
+		messages.Any(message =>
+			message.GetProperty("type").GetString() == type
+			&& message.GetProperty("text").GetString() == text);
 
 	private static string[] TranscriptFiles(TestHost host) {
 		string dir = WeaviePaths.WorkspaceAgentPanesDir(WorkspaceId.ForPath(host.RepoRoot));
@@ -74,9 +98,10 @@ public sealed class CodexPanePersistenceTests {
 
 		await host.RestartAsync();
 		session = host.Session("codex-branch");
+		var history = await ReadHistoryAsync(host, session);
 
-		Assert.True(HasPaneMessage(host.Bridge, session, "user-message", "hello"));
-		Assert.True(HasPaneMessage(host.Bridge, session, "item-completed", "echo: hello"));
+		Assert.True(Contains(history, "user-message", "hello"));
+		Assert.True(Contains(history, "item-completed", "echo: hello"));
 	}
 
 	[Fact]
@@ -97,11 +122,12 @@ public sealed class CodexPanePersistenceTests {
 			new { id = "codex-branch" });
 		Assert.True(loaded.Ok, loaded.Error);
 		session = host.Session("codex-branch");
-		await Wait.UntilAsync(() => HasPaneMessage(host.Bridge, session, "item-completed", "echo: hello"));
+		var history = await ReadHistoryAsync(host, session);
+		Assert.True(Contains(history, "item-completed", "echo: hello"));
 	}
 
 	[Fact]
-	public async Task LifecycleSync_UsesAnAtomicTranscriptSnapshot() {
+	public async Task LifecycleSync_DoesNotPushTranscriptHistory() {
 		await using var host = await StartWithCodexSessionAsync("codex-branch");
 		var session = host.Session("codex-branch");
 		host.SessionEvent(
@@ -114,7 +140,7 @@ public sealed class CodexPanePersistenceTests {
 		await host.SessionRequestAsync<JsonElement>(session, "lifecycle", "sync", new { });
 		Assert.Null(host.Bridge.LastEvent(session.Address, "agent", "paneReset"));
 		Assert.Null(host.Bridge.LastEvent(session.Address, "agent", "paneBatch"));
-		Assert.NotNull(host.Bridge.LastEvent(session.Address, "agent", "paneSnapshot"));
+		Assert.True(Contains(await ReadHistoryAsync(host, session), "item-completed", "echo: hello"));
 	}
 
 	[Fact]
@@ -164,6 +190,6 @@ public sealed class CodexPanePersistenceTests {
 		await host.RestartAsync();
 		session = host.Session("codex-branch");
 
-		Assert.False(HasPaneMessage(host.Bridge, session, "item-completed", "echo: hello"));
+		Assert.False(Contains(await ReadHistoryAsync(host, session), "item-completed", "echo: hello"));
 	}
 }

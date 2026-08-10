@@ -3,7 +3,6 @@ using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using System.Threading.Channels;
 using Weavie.Hosting;
 using Weavie.Hosting.Web;
 
@@ -13,10 +12,9 @@ namespace Weavie.Headless;
 /// The <see cref="IWebTransportHub"/> for the headless host: the JS&lt;-&gt;C# bridge carried over a WebSocket so an
 /// ordinary browser is the client. A worker can have more than one page connected at once (a second tab, or a
 /// remote agent that loops back to the same worker), so every push is broadcast to <b>all</b> connections. Each
-/// connection owns a bounded outbound queue drained by its own send loop, so one slow or dead peer can never
-/// stall the others or grow memory without bound: a connection that falls <see cref="OutboxCapacity"/> messages
-/// behind is dropped loudly. Pushes with no page connected are dropped, never buffered (each page requests a
-/// fresh hello and session snapshots when it connects).
+/// connection owns one bounded route-aware outbox, so one slow or dead peer can never stall the others or grow
+/// memory without bound. A connection that fills that outbox is dropped loudly.
+/// Pushes with no page connected are dropped, never buffered (each page requests fresh state when it connects).
 /// </summary>
 internal sealed class WebSocketHostBridge : IWebTransportHub, IWorkspaceWebSocketBridge {
 	// A connection this many messages behind is treated as dead/hopeless and dropped — far above any healthy
@@ -24,7 +22,7 @@ internal sealed class WebSocketHostBridge : IWebTransportHub, IWorkspaceWebSocke
 	// transport reconnects and re-requests state, so an over-eager drop self-heals rather than losing the page.
 	private const int OutboxCapacity = 512;
 	internal const int MaxWireMessageBytes = 768 * 1024;
-	private const int ChunkPayloadBytes = 512 * 1024;
+	private const int ChunkPayloadBytes = 64 * 1024;
 	private static readonly JsonSerializerOptions ChunkJsonOptions = new(JsonSerializerDefaults.Web);
 
 	private readonly ConcurrentDictionary<Connection, byte> _connections = new();
@@ -40,30 +38,30 @@ internal sealed class WebSocketHostBridge : IWebTransportHub, IWorkspaceWebSocke
 	public bool Available => true;
 
 	/// <inheritdoc/>
-	public void Broadcast(string json) {
+	public void Broadcast(WebTransportMessage message) {
 		if (_connections.IsEmpty) {
 			return; // No page connected; the next connection requests fresh state.
 		}
 
-		var message = Encode(json);
+		var outbound = Encode(message);
 		foreach (var connection in _connections.Keys) {
 			// Non-blocking: a full queue means this client isn't draining (a dead/half-open peer, or one hopelessly
 			// slow). Drop it so it can't stall the broadcast for the others — and never block the caller, which is
 			// the UI / hook thread.
-			if (!connection.Outbox.Writer.TryWrite(message)) {
+			if (!connection.Outbox.TryWrite(outbound)) {
 				Drop(connection, "outbound queue full — page not keeping up");
 			}
 		}
 	}
 
 	/// <inheritdoc/>
-	public void Send(WebPeer peer, string json) {
+	public void Send(WebPeer peer, WebTransportMessage message) {
 		var connection = _connections.Keys.FirstOrDefault(candidate => candidate.Peer == peer);
 		if (connection is null) {
 			return;
 		}
 
-		if (!connection.Outbox.Writer.TryWrite(Encode(json))) {
+		if (!connection.Outbox.TryWrite(Encode(message))) {
 			Drop(connection, "outbound queue full — page not keeping up");
 		}
 	}
@@ -103,7 +101,7 @@ internal sealed class WebSocketHostBridge : IWebTransportHub, IWorkspaceWebSocke
 			}
 		} finally {
 			_connections.TryRemove(connection, out _);
-			connection.Outbox.Writer.TryComplete();
+			connection.Outbox.Complete();
 			// Abort so a send loop blocked on a dead peer unblocks at once; harmless on an already-closed socket.
 			try {
 				socket.Abort();
@@ -121,30 +119,29 @@ internal sealed class WebSocketHostBridge : IWebTransportHub, IWorkspaceWebSocke
 	/// </summary>
 	private static async Task SendLoopAsync(Connection connection) {
 		try {
-			await foreach (var message in connection.Outbox.Reader.ReadAllAsync().ConfigureAwait(false)) {
+			while (await connection.Outbox.NextAsync().ConfigureAwait(false) is { } turn) {
 				if (connection.Socket.State != WebSocketState.Open) {
 					break;
 				}
 
-				foreach (byte[] bytes in message.Messages) {
-					await connection.Socket
-						.SendAsync(
-							bytes,
-							WebSocketMessageType.Text,
-							endOfMessage: true,
-							CancellationToken.None)
-						.ConfigureAwait(false);
-				}
+				await connection.Socket
+					.SendAsync(
+						turn.Bytes,
+						WebSocketMessageType.Text,
+						endOfMessage: true,
+						CancellationToken.None)
+					.ConfigureAwait(false);
+				connection.Outbox.CompleteTurn(turn);
 			}
 		} catch (Exception ex) when (ex is WebSocketException or OperationCanceledException or ObjectDisposedException) {
 			// The peer dropped mid-send; ServeAsync's finally (or a Drop) deregisters it. Stop sending.
 		}
 	}
 
-	private OutboundMessage Encode(string json) {
-		byte[] bytes = Encoding.UTF8.GetBytes(json);
+	private OutboundMessage Encode(WebTransportMessage message) {
+		byte[] bytes = Encoding.UTF8.GetBytes(message.Json);
 		if (bytes.Length <= MaxWireMessageBytes) {
-			return new OutboundMessage([bytes]);
+			return new OutboundMessage(message.Route, [bytes]);
 		}
 
 		string id = Interlocked.Increment(ref _chunkSequence).ToString(System.Globalization.CultureInfo.InvariantCulture);
@@ -160,13 +157,13 @@ internal sealed class WebSocketHostBridge : IWebTransportHub, IWorkspaceWebSocke
 				Convert.ToBase64String(bytes, offset, length))), ChunkJsonOptions);
 		}
 
-		return new OutboundMessage(messages);
+		return new OutboundMessage(message.Route, messages);
 	}
 
 	/// <summary>Forcibly removes a connection (dead or hopelessly slow) and aborts it so both its loops unwind.</summary>
 	private void Drop(Connection connection, string reason) {
 		if (_connections.TryRemove(connection, out _)) {
-			connection.Outbox.Writer.TryComplete();
+			connection.Outbox.Complete();
 			Console.WriteLine($"[weavie-headless] dropped a page connection: {reason}");
 			Console.Out.Flush();
 		}
@@ -178,27 +175,115 @@ internal sealed class WebSocketHostBridge : IWebTransportHub, IWorkspaceWebSocke
 		}
 	}
 
-	/// <summary>One page connection: its socket plus a bounded outbound queue drained by a dedicated send loop.</summary>
+	/// <summary>One page connection: its socket plus a bounded fair outbox drained by one send loop.</summary>
 	private sealed class Connection {
 		public Connection(WebSocket socket) {
 			Socket = socket;
 			Peer = new WebPeer(Guid.NewGuid().ToString("n"));
-			Outbox = Channel.CreateBounded<OutboundMessage>(new BoundedChannelOptions(OutboxCapacity) {
-				SingleReader = true,
-				SingleWriter = false,
-				// TryWrite returns false when full (it never blocks), which is Broadcast's signal to drop the client.
-				FullMode = BoundedChannelFullMode.Wait,
-			});
+			Outbox = new FairOutbox(OutboxCapacity);
 		}
 
 		public WebSocket Socket { get; }
 
 		public WebPeer Peer { get; }
 
-		public Channel<OutboundMessage> Outbox { get; }
+		public FairOutbox Outbox { get; }
 	}
 
-	private sealed record OutboundMessage(IReadOnlyList<byte[]> Messages);
+	private sealed record OutboundMessage(WebMessageRoute Route, IReadOnlyList<byte[]> Messages);
+
+	private sealed class PendingMessage(OutboundMessage message) {
+		private int _index;
+
+		public bool Complete => _index == message.Messages.Count;
+
+		public byte[] Next() => message.Messages[_index++];
+	}
+
+	private sealed class FairOutbox(int capacity) {
+		private readonly object _gate = new();
+		private readonly Dictionary<WebMessageRoute, Queue<PendingMessage>> _pending = [];
+		private readonly Queue<WebMessageRoute> _routes = [];
+		private TaskCompletionSource _changed = NewSignal();
+		private bool _closed;
+		private int _messages;
+
+		public bool TryWrite(OutboundMessage message) {
+			lock (_gate) {
+				if (_closed || _messages >= capacity) {
+					return false;
+				}
+				bool addedRoute = false;
+				if (!_pending.TryGetValue(message.Route, out var queue)) {
+					queue = new Queue<PendingMessage>();
+					_pending.Add(message.Route, queue);
+					_routes.Enqueue(message.Route);
+					addedRoute = true;
+				}
+				queue.Enqueue(new PendingMessage(message));
+				_messages++;
+				if (addedRoute) {
+					PulseLocked();
+				}
+				return true;
+			}
+		}
+
+		public async ValueTask<OutboundTurn?> NextAsync() {
+			while (true) {
+				Task changed;
+				lock (_gate) {
+					if (_routes.TryDequeue(out var route)) {
+						var message = _pending[route].Peek();
+						byte[] bytes = message.Next();
+						return new OutboundTurn(route, bytes, message.Complete);
+					}
+					if (_closed) {
+						return null;
+					}
+					changed = _changed.Task;
+				}
+				await changed.ConfigureAwait(false);
+			}
+		}
+
+		public void CompleteTurn(OutboundTurn turn) {
+			lock (_gate) {
+				var queue = _pending[turn.Route];
+				if (turn.CompletesMessage) {
+					queue.Dequeue();
+					_messages--;
+				}
+				if (queue.Count == 0) {
+					_pending.Remove(turn.Route);
+				} else {
+					_routes.Enqueue(turn.Route);
+				}
+				PulseLocked();
+			}
+		}
+
+		public void Complete() {
+			lock (_gate) {
+				_closed = true;
+				PulseLocked();
+			}
+		}
+
+		private void PulseLocked() {
+			var changed = _changed;
+			_changed = NewSignal();
+			changed.TrySetResult();
+		}
+
+		private static TaskCompletionSource NewSignal() =>
+			new(TaskCreationOptions.RunContinuationsAsynchronously);
+	}
+
+	private sealed record OutboundTurn(
+		WebMessageRoute Route,
+		byte[] Bytes,
+		bool CompletesMessage);
 
 	private sealed record ChunkWire(
 		[property: JsonPropertyName("$weavieChunk")] ChunkBody Chunk);

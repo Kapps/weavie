@@ -5,14 +5,14 @@ namespace Weavie.Hosting.Messaging;
 
 internal sealed class SessionMessageRouter : IAsyncDisposable {
 	private readonly Dictionary<SessionAddress, SessionMessageBus> _sessions = [];
-	private readonly Action<WebPeer, string> _sendToPeer;
+	private readonly Action<WebPeer, WebTransportMessage> _sendToPeer;
 	private readonly DiagnosticWorker _diagnostics;
 
-	public SessionMessageRouter(Action<WebPeer, string> sendToPeer, Action<string> log)
+	public SessionMessageRouter(Action<WebPeer, WebTransportMessage> sendToPeer, Action<string> log)
 		: this(sendToPeer, new DiagnosticWorker(log)) {
 	}
 
-	public SessionMessageRouter(Action<WebPeer, string> sendToPeer, DiagnosticWorker diagnostics) {
+	public SessionMessageRouter(Action<WebPeer, WebTransportMessage> sendToPeer, DiagnosticWorker diagnostics) {
 		ArgumentNullException.ThrowIfNull(sendToPeer);
 		ArgumentNullException.ThrowIfNull(diagnostics);
 		_sendToPeer = sendToPeer;
@@ -62,7 +62,7 @@ internal sealed class SessionMessageRouter : IAsyncDisposable {
 					envelope.Feature,
 					envelope.Name,
 					JsonSerializer.SerializeToElement<object?>(null),
-					"The target session is not live.").ToJson());
+					"The target session is not live.").ToTransportMessage());
 		} else {
 			_diagnostics.Report(
 				$"[bridge] rejected {envelope.Feature}.{envelope.Name} for stale session "

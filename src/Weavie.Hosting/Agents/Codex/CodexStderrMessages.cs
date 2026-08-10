@@ -44,11 +44,10 @@ internal static class CodexStderrMessages {
 				return false;
 			}
 
-			message = ErrorWithPayload(
+			message = Error(
 				threadId,
 				summary.Length == 0 ? "Codex app-server error" : summary,
-				error.Length == 0 ? null : error,
-				doc.RootElement.GetRawText());
+				error.Length == 0 ? null : error);
 			return true;
 		} catch (JsonException) {
 			message = null!;
@@ -84,9 +83,6 @@ internal static class CodexStderrMessages {
 		&& text.Contains("No access token was provided", StringComparison.OrdinalIgnoreCase);
 
 	private static AgentPaneMessage Error(string? threadId, string summary, string? text) =>
-		ErrorWithPayload(threadId, summary, text, null);
-
-	private static AgentPaneMessage ErrorWithPayload(string? threadId, string summary, string? text, string? payload) =>
 		new() {
 			Type = "error",
 			ProviderId = "codex",
@@ -94,6 +90,5 @@ internal static class CodexStderrMessages {
 			Summary = summary,
 			Text = text,
 			Status = "error",
-			PayloadJson = payload,
 		};
 }

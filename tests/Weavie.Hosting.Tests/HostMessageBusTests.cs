@@ -92,9 +92,9 @@ public sealed class HostMessageBusTests {
 
 		public IReadOnlyList<string> Sent => [.. _sent];
 
-		public void Broadcast(string json) {
+		public void Broadcast(WebTransportMessage message) {
 		}
 
-		public void Send(WebPeer peer, string json) => _sent.Enqueue(json);
+		public void Send(WebPeer peer, WebTransportMessage message) => _sent.Enqueue(message.Json);
 	}
 }

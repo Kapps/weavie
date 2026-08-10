@@ -18,6 +18,10 @@ internal sealed class UnavailableStructuredAgentSession : IStructuredAgentSessio
 	}
 
 	public event Action<AgentPaneMessage>? PaneMessage;
+	public event Action<IReadOnlyList<AgentPaneMessage>>? PaneSnapshot {
+		add { }
+		remove { }
+	}
 
 	public void Start() {
 		if (_started) {

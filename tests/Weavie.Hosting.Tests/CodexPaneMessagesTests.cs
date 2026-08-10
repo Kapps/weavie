@@ -9,7 +9,7 @@ namespace Weavie.Hosting.Tests;
 public sealed class CodexPaneMessagesTests {
 	[Fact]
 	public void AgentPaneProtocol_SerializesNormalizedQuestionsForTheWeb() {
-		string json = JsonSerializer.Serialize(AgentPaneProtocol.Message(new AgentPaneMessage {
+		string json = JsonSerializer.Serialize(Wire(new AgentPaneMessage {
 			Type = "input-requested",
 			ProviderId = "codex",
 			Questions = [new AgentInputQuestion {
@@ -60,7 +60,7 @@ public sealed class CodexPaneMessagesTests {
 
 	[Fact]
 	public void AgentPaneProtocol_SerializesPrimaryThreadClassification() {
-		string json = JsonSerializer.Serialize(AgentPaneProtocol.Message(new AgentPaneMessage {
+		string json = JsonSerializer.Serialize(Wire(new AgentPaneMessage {
 			Type = "item-completed",
 			ProviderId = "codex",
 			ThreadId = "thread_sub",
@@ -212,7 +212,7 @@ public sealed class CodexPaneMessagesTests {
 		var message = CodexPaneMessages.FromNotification("turn/started", "thread_1", doc.RootElement);
 
 		Assert.Equal(1_723_456_789_000, message?.StartedAtMs);
-		using var protocol = JsonDocument.Parse(JsonSerializer.Serialize(AgentPaneProtocol.Message(message!)));
+		using var protocol = JsonDocument.Parse(JsonSerializer.Serialize(Wire(message!)));
 		Assert.Equal(1_723_456_789_000, protocol.RootElement.GetProperty("startedAtMs").GetInt64());
 	}
 
@@ -347,4 +347,7 @@ public sealed class CodexPaneMessagesTests {
 		Assert.Equal("Codex usage limit reached", message.Summary);
 		Assert.Equal("You have no weighted tokens left", message.Text);
 	}
+
+	private static object Wire(AgentPaneMessage message) =>
+		AgentPaneProtocol.Message(new AgentPaneRecord(0, 0, 0, message));
 }

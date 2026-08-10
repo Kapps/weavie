@@ -423,9 +423,9 @@ public sealed class MessageOperationSupervisionTests {
 		public event Action<WebPeer, string>? MessageReceived { add { } remove { } }
 		public event Action<WebPeer>? PeerDisconnected { add { } remove { } }
 
-		public void Broadcast(string json) => _messages.Enqueue(json);
+		public void Broadcast(WebTransportMessage message) => _messages.Enqueue(message.Json);
 
-		public void Send(WebPeer peer, string json) => _messages.Enqueue(json);
+		public void Send(WebPeer peer, WebTransportMessage message) => _messages.Enqueue(message.Json);
 
 		public IReadOnlyList<MessageEnvelope> Envelopes(MessageKind kind) => [.. _messages
 			.Select(json => MessageEnvelope.TryParse(json, out var envelope) ? envelope : null)

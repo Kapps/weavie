@@ -180,6 +180,10 @@ internal sealed record MessageEnvelope(
 		return JsonSerializer.Serialize(wire);
 	}
 
+	public WebTransportMessage ToTransportMessage() => new(
+		new WebMessageRoute(Session?.Slot ?? string.Empty, Session?.Incarnation ?? string.Empty, Feature),
+		ToJson());
+
 	private static string ScopeName(MessageScope scope) => scope switch {
 		MessageScope.Host => "host",
 		MessageScope.Session => "session",

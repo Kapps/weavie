@@ -6,7 +6,7 @@ namespace Weavie.Hosting.Messaging;
 
 internal sealed class MessageOperationRegistry {
 	private readonly ConcurrentDictionary<string, MessageOperation> _active = new();
-	private readonly Action<WebPeer, string> _sendToPeer;
+	private readonly Action<WebPeer, WebTransportMessage> _sendToPeer;
 	private readonly DiagnosticWorker _diagnostics;
 	private readonly DiagnosticWorker _deliveryDiagnostics;
 	private readonly MessageExecutionPolicy _policy;
@@ -15,7 +15,7 @@ internal sealed class MessageOperationRegistry {
 	private MessageOperationSnapshot? _lastFailure;
 
 	public MessageOperationRegistry(
-		Action<WebPeer, string> sendToPeer,
+		Action<WebPeer, WebTransportMessage> sendToPeer,
 		DiagnosticWorker diagnostics,
 		MessageExecutionPolicy policy,
 		TimeProvider time) {
@@ -113,7 +113,7 @@ internal sealed class MessageOperationRegistry {
 					operation.Envelope.Session,
 					feature,
 					name,
-					JsonSerializer.SerializeToElement(payload)).ToJson());
+					JsonSerializer.SerializeToElement(payload)).ToTransportMessage());
 		} catch (Exception ex) {
 			_diagnostics.Report($"[message] diagnostic delivery for {operation.Id} failed: {ex}");
 		}

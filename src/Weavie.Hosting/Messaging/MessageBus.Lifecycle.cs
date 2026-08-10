@@ -47,7 +47,7 @@ internal partial class MessageBus {
 								Address,
 								request.Key.Request,
 								disconnected.Feature,
-								disconnected.Name).ToJson());
+								disconnected.Name).ToTransportMessage());
 					} catch (Exception) {
 						// The detached request is already settled regardless of transport state.
 					}

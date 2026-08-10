@@ -6,7 +6,7 @@ import { createAgentPaneModel } from "./AgentPaneModel";
 describe("agent pane model isolation", () => {
   it("defers background transcript projection until the session is attached", () => {
     createRoot((dispose) => {
-      const model = createAgentPaneModel({} as ClientSession);
+      const model = createAgentPaneModel({} as ClientSession, () => {});
       const first = message("first", "First answer");
       model.publish([first]);
 
@@ -31,8 +31,8 @@ describe("agent pane model isolation", () => {
 
   it("keeps another session's projected state unchanged while unattached", () => {
     createRoot((dispose) => {
-      const foreground = createAgentPaneModel({} as ClientSession);
-      const background = createAgentPaneModel({} as ClientSession);
+      const foreground = createAgentPaneModel({} as ClientSession, () => {});
+      const background = createAgentPaneModel({} as ClientSession, () => {});
       const detach = foreground.attach();
       foreground.publish([message("first", "First answer")]);
       const foregroundEntry = foreground.entries[0];

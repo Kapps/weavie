@@ -236,13 +236,17 @@ export class HostConnection {
   private async connectCore(): Promise<HostHello> {
     const hello = await this.host.feature("connection").request<HostHello>("hello", {});
     this.hello = hello;
+    const helloListeners = [...this.helloListeners];
     this.applyCatalog(hello.sessions);
     this.transportReady = true;
     this.flushSessionMessages();
     for (const session of this.sessionsByAddress.values()) {
       session.sync();
     }
-    for (const listener of this.helloListeners) {
+    for (const listener of helloListeners) {
+      if (!this.helloListeners.has(listener)) {
+        continue;
+      }
       try {
         listener(hello);
       } catch (error) {

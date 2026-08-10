@@ -19,7 +19,6 @@ import {
 export type AgentSectionLabel = "Updates" | "Results";
 
 export interface AgentPaneModel {
-  attach(): () => void;
   readonly agentTurnStartId: Accessor<string | null>;
   readonly agentTurnStartIndex: Accessor<number | null>;
   readonly entries: AgentTranscriptEntry[];
@@ -49,10 +48,7 @@ interface ProjectedActivity {
   projection: ProjectedAgentActivity;
 }
 
-export function createAgentPaneModel(
-  session: ClientSession,
-  activateHistory: () => () => void,
-): MutableAgentPaneModel {
+export function createAgentPaneModel(session: ClientSession): MutableAgentPaneModel {
   const [entries, setEntries] = createStore<AgentTranscriptEntry[]>([]);
   const [generation, setGeneration] = createSignal(0);
   const [revision, setRevision] = createSignal(0);
@@ -71,8 +67,6 @@ export function createAgentPaneModel(
   );
   const activities = new Map<string, ProjectedActivity>();
   const expandedActivities = new Set<string>();
-  let attached = 0;
-  let deactivateHistory: (() => void) | null = null;
 
   const project = (updates: AgentPaneUpdate[]): void => {
     const projection = projectAgentTranscript(updates);
@@ -171,19 +165,6 @@ export function createAgentPaneModel(
   };
 
   const model: MutableAgentPaneModel = {
-    attach() {
-      attached += 1;
-      if (attached === 1) {
-        deactivateHistory = activateHistory();
-      }
-      return () => {
-        attached -= 1;
-        if (attached === 0) {
-          deactivateHistory?.();
-          deactivateHistory = null;
-        }
-      };
-    },
     agentTurnStartId,
     agentTurnStartIndex,
     entries,

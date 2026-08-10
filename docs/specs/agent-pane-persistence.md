@@ -20,8 +20,9 @@ does not replay the replacement through the live-message path.
 
 `lifecycle.sync` publishes bounded interactive state only. It never pushes transcript history.
 
-The web pane requests `agent.historyPage` when it is first attached. Pages are returned newest first, with a
-target serialized size of 192 KiB. A record larger than one page is serialized once and split on UTF-16
+The client-side session owner requests `agent.historyPage` when the exact session is created from the host
+catalog. Selection only chooses where that already-owned state is rendered. Pages are returned newest first,
+with a target serialized size of 192 KiB. A record larger than one page is serialized once and split on UTF-16
 character boundaries. Every fragment identifies the record and declares its `jsonOffset` and total
 `jsonLength`, so every unbounded record field remains pageable. Each first request captures an immutable,
 peer-owned read of the materialized transcript. A cursor carries three values for that read:
@@ -32,16 +33,16 @@ peer-owned read of the materialized transcript. A cursor carries three values fo
 
 Live mutations never invalidate an active read: every page comes from the captured record revisions, and a later
 read observes the newer state. Only the currently fragmented serialized record is retained between requests;
-ordinary record JSON is released with its page. Completing, detaching, replacing the read, or disconnecting the
-peer releases the read and its fragment cache.
+ordinary record JSON is released with its page. Completing, removing the client session, replacing the read, or
+disconnecting the peer releases the read and its fragment cache.
 
 Every wire record carries its generation, stable ordinal, and per-mutation revision. The web accumulator
 reassembles serialized-record fragments, validates their identity, selects the newest revision for each ordinal
 across history and live traffic, and rejects stale generations. It publishes the newest complete page promptly,
 accumulates older pages without repeatedly rebuilding the growing transcript, and publishes the full transcript
 once at completion. Fragment-only pages do not publish unchanged state. It yields one render frame before every
-next request, so paging cannot monopolize the browser main thread. Detaching aborts the pull; an attached pane
-starts a fresh immutable read after reconnect to recover messages emitted while the page was offline. A client
+next request, so paging cannot monopolize the browser main thread. Removing the exact client session aborts its
+pull; reconnect starts a fresh immutable read to recover messages emitted while the page was offline. A client
 that completed its prior read supplies the generation and global mutation revision as a baseline; the host sends
 only records changed after that revision, or an empty page when the transcript is unchanged. A generation change
 returns the complete replacement.
@@ -53,8 +54,8 @@ answer unrelated commands while its transcript is still being read from disk.
 
 Codex `thread/resume` is authoritative for history produced outside Weavie. Hydration raises one host-internal
 `PaneSnapshot` event. `AgentSessionHost` atomically replaces the in-memory transcript and journal, increments the
-generation, and tells attached panes to restart paging. This avoids broadcasting every hydrated item and avoids
-temporarily exposing the persisted seed as a second copy of the same conversation.
+generation, and tells connected client session owners to restart paging. This avoids broadcasting every hydrated
+item and avoids temporarily exposing the persisted seed as a second copy of the same conversation.
 
 ```mermaid
 sequenceDiagram

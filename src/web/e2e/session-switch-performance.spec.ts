@@ -272,16 +272,51 @@ test("tool-heavy transcripts switch through one preprojected structured pane", a
       })),
     ],
   });
+  host.setAgentHistory(first.address, {
+    generation: 1,
+    messages: transcript("first-turn", 10_000).messages,
+    pageSize: 1_000,
+  });
+  host.setAgentHistory(second.address, {
+    generation: 1,
+    messages: transcript("second-turn", 15_000).messages,
+    pageSize: 1_000,
+  });
   try {
     await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
     await host.waitUntilConnected();
-    host.publishSession(first.address, "agent", "paneBatch", transcript("first-turn", 10_000));
-    host.publishSession(second.address, "agent", "paneBatch", transcript("second-turn", 15_000));
 
     const surface = page.locator(".agent-surface");
     await expect(surface).toHaveCount(1);
     await expect(surface).toContainText("ran 10000 commands");
     await expect(page.getByText("history 10000", { exact: true })).toBeVisible();
+    expect(await page.locator(".toast-msg").allTextContents()).toEqual([]);
+    await expect
+      .poll(() => {
+        const counts: Record<string, number> = {};
+        for (const message of host.received) {
+          if (
+            message.kind === "request" &&
+            message.scope === "session" &&
+            message.session !== null &&
+            message.feature === "agent" &&
+            message.name === "historyPage"
+          ) {
+            counts[message.session.slot] = (counts[message.session.slot] ?? 0) + 1;
+          }
+        }
+        return counts;
+      })
+      .toEqual({
+        [first.address.slot]: 11,
+        [second.address.slot]: 16,
+      });
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+    );
     const outgoing = await surface.elementHandle();
     if (outgoing === null) {
       throw new Error("missing outgoing structured surface");
@@ -371,11 +406,15 @@ test("remounting a structured pane preserves the session-owned edited draft", as
       summary: itemId,
     })),
   ];
+  host.setAgentHistory(first.address, {
+    generation: 1,
+    messages,
+    pageSize: 100,
+  });
 
   try {
     await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
     await host.waitUntilConnected();
-    host.publishSession(first.address, "agent", "paneBatch", { messages });
 
     const textarea = page.locator("[data-agent-composer] textarea");
     await expect(textarea).toHaveValue("provider prefill");
@@ -388,18 +427,22 @@ test("remounting a structured pane preserves the session-owned edited draft", as
     await expect(textarea).toHaveValue("user-edited draft");
     await expect(page.locator(".agent-activity-details")).toHaveAttribute("open", "");
     await expect(page.locator(".agent-activity-list .agent-activity-step")).toHaveCount(2);
-    host.publishSession(first.address, "agent", "paneSnapshot", { messages });
+    const reconnectCheckpoint = host.checkpoint();
+    host.disconnectBridge();
+    await host.waitUntilConnected(reconnectCheckpoint);
     await expect(textarea).toHaveValue("user-edited draft");
-    host.publishSession(first.address, "agent", "pane", {
+    host.publishAgentPane(first.address, {
       providerId: "codex",
       type: "draft",
       text: "new provider prefill",
     });
     await expect(textarea).toHaveValue("new provider prefill");
-    host.publishSession(first.address, "agent", "paneReset", {});
-    host.publishSession(first.address, "agent", "paneBatch", {
+    host.setAgentHistory(first.address, {
+      generation: 2,
       messages: messages.slice(1),
+      pageSize: 100,
     });
+    host.publishSession(first.address, "agent", "paneReset", {});
     await expect(page.locator(".agent-activity-details")).not.toHaveAttribute("open", "");
     await expect(page.locator(".agent-activity-list")).toHaveCount(0);
     await expect(page.locator(".agent-surface")).toHaveCount(1);

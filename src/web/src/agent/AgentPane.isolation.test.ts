@@ -19,36 +19,9 @@ vi.mock("./AgentPaneMessages", async (importOriginal) => {
 describe("agent pane model isolation", () => {
   beforeEach(() => transcriptCalls.mockClear());
 
-  it("leases history while at least one pane is attached", () => {
-    createRoot((dispose) => {
-      let activations = 0;
-      let deactivations = 0;
-      const model = createAgentPaneModel({} as ClientSession, () => {
-        activations += 1;
-        return () => {
-          deactivations += 1;
-        };
-      });
-
-      const detachFirst = model.attach();
-      const detachSecond = model.attach();
-      expect(activations).toBe(1);
-      detachFirst();
-      expect(deactivations).toBe(0);
-      detachSecond();
-      expect(deactivations).toBe(1);
-
-      const detachAgain = model.attach();
-      expect(activations).toBe(2);
-      detachAgain();
-      expect(deactivations).toBe(2);
-      dispose();
-    });
-  });
-
   it("projects a background transcript before the session is selected", () => {
     createRoot((dispose) => {
-      const model = createAgentPaneModel({} as ClientSession, () => () => {});
+      const model = createAgentPaneModel({} as ClientSession);
       const first = message("first", "First answer");
       model.replace([first]);
 
@@ -63,8 +36,8 @@ describe("agent pane model isolation", () => {
 
   it("keeps another session's projected state unchanged", () => {
     createRoot((dispose) => {
-      const foreground = createAgentPaneModel({} as ClientSession, () => () => {});
-      const background = createAgentPaneModel({} as ClientSession, () => () => {});
+      const foreground = createAgentPaneModel({} as ClientSession);
+      const background = createAgentPaneModel({} as ClientSession);
       foreground.replace([message("first", "First answer")]);
       const foregroundEntry = foreground.entries[0];
       const foregroundRevision = foreground.revision();
@@ -81,7 +54,7 @@ describe("agent pane model isolation", () => {
 
   it("updates an established activity from changed items without refolding history", () => {
     createRoot((dispose) => {
-      const model = createAgentPaneModel({} as ClientSession, () => () => {});
+      const model = createAgentPaneModel({} as ClientSession);
       const updates: AgentPaneUpdate[] = [
         { type: "user-message", providerId: "codex", turnId: "turn-1", text: "Work" },
         { ...command("command-0"), type: "item-started", status: "inProgress" },
@@ -112,7 +85,7 @@ describe("agent pane model isolation", () => {
 
   it("keeps the latest remaining running step after a newer one completes incrementally", () => {
     createRoot((dispose) => {
-      const model = createAgentPaneModel({} as ClientSession, () => () => {});
+      const model = createAgentPaneModel({} as ClientSession);
       const first = { ...command("command-1"), type: "item-started", status: "inProgress" };
       const second = { ...command("command-2"), type: "item-started", status: "inProgress" };
       const updates: AgentPaneUpdate[] = [
@@ -134,7 +107,7 @@ describe("agent pane model isolation", () => {
 
   it("updates streaming command output without refolding history", () => {
     createRoot((dispose) => {
-      const model = createAgentPaneModel({} as ClientSession, () => () => {});
+      const model = createAgentPaneModel({} as ClientSession);
       const updates: AgentPaneUpdate[] = [
         { type: "user-message", providerId: "codex", turnId: "turn-1", text: "Work" },
         { ...command("command-1"), type: "item-started", status: "inProgress" },
@@ -178,7 +151,7 @@ describe("agent pane model isolation", () => {
 
   it("promotes a completed plan out of an established activity", () => {
     createRoot((dispose) => {
-      const model = createAgentPaneModel({} as ClientSession, () => () => {});
+      const model = createAgentPaneModel({} as ClientSession);
       const updates: AgentPaneUpdate[] = [
         { type: "user-message", providerId: "codex", turnId: "turn-1", text: "Plan" },
         command("command-1"),

@@ -335,6 +335,26 @@ describe("HostConnection session ownership", () => {
     ]);
   });
 
+  it("delivers an initial hello once to a listener installed from that hello's catalog", async () => {
+    const primary = address("primary", "one");
+    const host = harness(hello("host-one", [entry("primary", primary)]));
+    let installed = false;
+    let calls = 0;
+    host.connection.onCatalog((_catalog, sessions) => {
+      if (!installed && sessions.length > 0) {
+        installed = true;
+        host.connection.onHello(() => {
+          calls += 1;
+        });
+      }
+    });
+
+    await host.connection.connect();
+
+    expect(calls).toBe(1);
+    expect(host.errors).toEqual([]);
+  });
+
   it("closes an old incarnation and never routes its later messages to a reused slot", async () => {
     const oldAddress = address("primary", "old");
     const newAddress = address("primary", "new");
@@ -390,6 +410,28 @@ describe("HostConnection session ownership", () => {
     await Promise.resolve();
 
     expect(host.connection.session(primary)).toBe(session);
+    expect(calls).toBe(1);
+    expect(host.errors).toEqual([]);
+  });
+
+  it("does not deliver a reconnect hello to a listener removed by its replacement catalog", async () => {
+    const primary = address("primary", "one");
+    const host = harness(hello("host-one", [entry("primary", primary)]));
+    await host.connection.connect();
+    let calls = 0;
+    const offHello = host.connection.onHello(() => {
+      calls += 1;
+    });
+    host.connection.onCatalog((_catalog, sessions) => {
+      if (!sessions.some((session) => session.address.slot === primary.slot)) {
+        offHello();
+      }
+    });
+
+    host.connection.transportDropped();
+    host.setHello(hello("host-two", []));
+    await host.connection.connect();
+
     expect(calls).toBe(1);
     expect(host.errors).toEqual([]);
   });

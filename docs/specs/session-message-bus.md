@@ -115,9 +115,10 @@ agent transcript state and publishes its successful result through `editor.agent
 Remote outbound transport preserves FIFO order within each exact `(scope, session, feature)` route
 and round-robins lazily encoded oversized-message chunks with small messages from other routes. One
 connection carries at most one partial oversized body while that interleaving is active, and its
-outbox is bounded by both logical count and retained characters. A large response therefore cannot
-prevent an unrelated feature or session from receiving its next message or multiply receiver memory
-across many partial large bodies.
+outbox is bounded by logical count and a retained-character budget. One body may exceed that budget,
+but its saturated weight makes it the outbox's only retained message. A large response therefore
+cannot prevent an unrelated feature or session from receiving its next message or multiply receiver
+memory across many partial large bodies.
 
 ## Presentation
 

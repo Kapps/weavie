@@ -87,9 +87,11 @@ describe("AgentPaneAccumulator", () => {
     const accumulator = new AgentPaneAccumulator((callback) => scheduled.push(callback));
     let publishes = 0;
     let messages: AgentPaneUpdate[] = [];
-    const publish = (value: AgentPaneUpdate[]): void => {
+    let changes: AgentPaneUpdate[] = [];
+    const publish = (value: AgentPaneUpdate[], changed: AgentPaneUpdate[]): void => {
       publishes += 1;
       messages = value;
+      changes = changed;
     };
     // Distinct items so nothing coalesces at the item level: without per-frame batching this would publish 500×.
     for (let index = 0; index < 500; index += 1) {
@@ -105,6 +107,30 @@ describe("AgentPaneAccumulator", () => {
     scheduled[0]?.();
     expect(publishes).toBe(1);
     expect(messages).toHaveLength(500);
+    expect(changes).toHaveLength(500);
+  });
+
+  it("does not build an incremental change list for an initial batch", () => {
+    const scheduled: Array<() => void> = [];
+    const accumulator = new AgentPaneAccumulator((callback) => scheduled.push(callback));
+    let messages: AgentPaneUpdate[] = [];
+    let changes: AgentPaneUpdate[] = [];
+    accumulator.ingestBatch(
+      "slot-1",
+      Array.from({ length: 500 }, (_, index) => ({
+        ...update("item-completed", ""),
+        itemId: `item-${index}`,
+      })),
+      (value, changed) => {
+        messages = value;
+        changes = changed;
+      },
+    );
+
+    expect(scheduled).toHaveLength(1);
+    scheduled[0]?.();
+    expect(messages).toHaveLength(500);
+    expect(changes).toEqual([]);
   });
 
   it("makes an approval request visible after the next flush", () => {

@@ -21,6 +21,7 @@ export interface AgentActivityStep {
 
 export interface AgentTranscriptEntry {
   actionMessage: AgentPaneUpdate | null;
+  detailCount: number;
   details: AgentActivityStep[];
   id: string;
   kind: "activity" | "message" | "notice" | "plan" | "request";

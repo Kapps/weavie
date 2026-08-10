@@ -8,6 +8,7 @@ import { MockHost, type MockSession, mockSession } from "./mock-host";
 
 const distDir = join(dirname(fileURLToPath(import.meta.url)), "..", "dist");
 const SWITCH_BUDGET_MS = 1_000;
+const TOOL_HEAVY_SWITCH_BUDGET_MS = 100;
 const CLAUDE_ACTIVE = "/workspace/claude/active.ts";
 const CLAUDE_LATE = "/workspace/claude/background.ts";
 const CLAUDE_OTHER = "/workspace/claude/other.ts";
@@ -244,6 +245,160 @@ test("long transcripts switch as a measured virtual window", async ({ page }) =>
     expect(restored.entryId).toBe(saved.entryId);
     expect(Math.abs(restored.offset - saved.offset)).toBeLessThan(1);
     expect(await rows.count()).toBeLessThan(40);
+  } finally {
+    await host.close();
+  }
+});
+
+test("tool-heavy transcripts switch through one preprojected structured pane", async ({ page }) => {
+  const first = mockSession("tool-heavy-first", "tool-heavy-first", "codex");
+  const second = mockSession("tool-heavy-second", "tool-heavy-second", "codex");
+  const host = await MockHost.start({ distDir, sessions: [first, second] });
+  const transcript = (turnId: string, count: number) => ({
+    messages: [
+      { providerId: "codex", type: "user-message", turnId, text: `Run ${count} commands` },
+      ...Array.from({ length: count }, (_, index) => ({
+        providerId: "codex",
+        type: "item-completed",
+        turnId,
+        itemId: `command-${index}`,
+        itemType: "commandExecution",
+        status: "completed",
+        summary: `command ${index}`,
+      })),
+    ],
+  });
+  try {
+    await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
+    await host.waitUntilConnected();
+    host.publishSession(first.address, "agent", "paneBatch", transcript("first-turn", 10_000));
+    host.publishSession(second.address, "agent", "paneBatch", transcript("second-turn", 15_000));
+
+    const surface = page.locator(".agent-surface");
+    await expect(surface).toHaveCount(1);
+    await expect(surface).toContainText("ran 10000 commands");
+    await expect(page.getByText("history 10000", { exact: true })).toBeVisible();
+    const outgoing = await surface.elementHandle();
+    if (outgoing === null) {
+      throw new Error("missing outgoing structured surface");
+    }
+
+    const switchMs = await page.evaluate(
+      async ({ label, expectedSummary }) => {
+        const chip = [...document.querySelectorAll<HTMLButtonElement>(".session-chip")].find(
+          (candidate) => candidate.title.startsWith(`${label} —`),
+        );
+        if (chip === undefined) {
+          throw new Error(`missing session chip ${label}`);
+        }
+        const nextFrame = (): Promise<void> =>
+          new Promise((resolve) => requestAnimationFrame(() => resolve()));
+        const started = performance.now();
+        chip.click();
+        for (;;) {
+          await nextFrame();
+          const active = document.querySelector<HTMLButtonElement>(".session-chip.active");
+          const surfaces = document.querySelectorAll(".agent-surface");
+          if (
+            active?.title.startsWith(`${label} —`) === true &&
+            surfaces.length === 1 &&
+            surfaces[0]?.textContent?.includes(expectedSummary) === true
+          ) {
+            await nextFrame();
+            return performance.now() - started;
+          }
+        }
+      },
+      { label: second.label, expectedSummary: "ran 15000 commands" },
+    );
+    await test.info().attach("tool-heavy-session-switch.json", {
+      body: Buffer.from(
+        JSON.stringify(
+          { activitySteps: 15_000, budgetMs: TOOL_HEAVY_SWITCH_BUDGET_MS, switchMs },
+          null,
+          2,
+        ),
+      ),
+      contentType: "application/json",
+    });
+    expect(switchMs).toBeLessThan(TOOL_HEAVY_SWITCH_BUDGET_MS);
+    await expect(surface).toHaveCount(1);
+    await expect(surface).toContainText("ran 15000 commands");
+    await expect(page.getByText("history 15000", { exact: true })).toBeVisible();
+    await expect(page.locator(".agent-activity-list")).toHaveCount(0);
+    expect(await outgoing.evaluate((element) => element.isConnected)).toBe(false);
+
+    host.setSessions([first]);
+    await expect(surface).toContainText("ran 10000 commands");
+    await expect(surface).not.toContainText("ran 15000 commands");
+
+    const replacement = {
+      ...mockSession(second.id, "replacement", "codex"),
+      address: { slot: second.address.slot, incarnation: "tool-heavy-replacement" },
+    };
+    host.setSessions([first, replacement]);
+    await page.getByTitle(new RegExp(`^${replacement.label} —`)).click();
+    await expect(surface).toHaveCount(1);
+    await expect(surface).not.toContainText("ran 15000 commands");
+  } finally {
+    await host.close();
+  }
+});
+
+test("remounting a structured pane preserves the session-owned edited draft", async ({ page }) => {
+  const first = mockSession("draft-first", "draft-first", "codex");
+  const second = mockSession("draft-second", "draft-second", "codex");
+  const host = await MockHost.start({ distDir, sessions: [first, second] });
+  const messages = [
+    { providerId: "codex" as const, type: "draft", text: "provider prefill" },
+    {
+      providerId: "codex" as const,
+      type: "user-message",
+      turnId: "draft-turn",
+      text: "work",
+    },
+    ...["one", "two"].map((itemId) => ({
+      providerId: "codex" as const,
+      type: "item-completed",
+      turnId: "draft-turn",
+      itemId,
+      itemType: "commandExecution",
+      status: "completed",
+      summary: itemId,
+    })),
+  ];
+
+  try {
+    await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
+    await host.waitUntilConnected();
+    host.publishSession(first.address, "agent", "paneBatch", { messages });
+
+    const textarea = page.locator("[data-agent-composer] textarea");
+    await expect(textarea).toHaveValue("provider prefill");
+    await textarea.fill("user-edited draft");
+    await page.getByText("history 2", { exact: true }).click();
+    await expect(page.locator(".agent-activity-list .agent-activity-step")).toHaveCount(2);
+    await page.getByTitle(new RegExp(`^${second.label} —`)).click();
+    await expect(textarea).toHaveValue("");
+    await page.getByTitle(new RegExp(`^${first.label} —`)).click();
+    await expect(textarea).toHaveValue("user-edited draft");
+    await expect(page.locator(".agent-activity-details")).toHaveAttribute("open", "");
+    await expect(page.locator(".agent-activity-list .agent-activity-step")).toHaveCount(2);
+    host.publishSession(first.address, "agent", "paneSnapshot", { messages });
+    await expect(textarea).toHaveValue("user-edited draft");
+    host.publishSession(first.address, "agent", "pane", {
+      providerId: "codex",
+      type: "draft",
+      text: "new provider prefill",
+    });
+    await expect(textarea).toHaveValue("new provider prefill");
+    host.publishSession(first.address, "agent", "paneReset", {});
+    host.publishSession(first.address, "agent", "paneBatch", {
+      messages: messages.slice(1),
+    });
+    await expect(page.locator(".agent-activity-details")).not.toHaveAttribute("open", "");
+    await expect(page.locator(".agent-activity-list")).toHaveCount(0);
+    await expect(page.locator(".agent-surface")).toHaveCount(1);
   } finally {
     await host.close();
   }

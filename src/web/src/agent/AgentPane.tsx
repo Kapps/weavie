@@ -7,7 +7,7 @@ import type { AgentPaneModel } from "./pane-store";
 export function AgentPane(props: {
   inputProtocol: number;
   compact: boolean;
-  model: AgentPaneModel | null;
+  model: AgentPaneModel;
   providerId: "claude" | "codex" | null;
   active: boolean;
   shortcut: string;
@@ -70,26 +70,27 @@ export function AgentPane(props: {
       <div class="pane-head" role="toolbar">
         <span class="pane-label">{providerName()}</span>
         <Show when={props.compact}>
-          <AgentWorkingStatus compact messages={props.model?.messages() ?? []} />
-          <AgentStatusLine compact session={props.model?.session ?? null} />
+          <AgentWorkingStatus
+            compact
+            pendingKind={props.model.pendingRequestKind()}
+            turnActive={props.model.turnActive()}
+            turnStartedAt={props.model.turnStartedAt()}
+          />
+          <AgentStatusLine compact session={props.model.session} />
         </Show>
         <Show when={props.shortcut !== ""}>
           <span class="pane-shortcut">{props.shortcut}</span>
         </Show>
       </div>
-      <Show when={props.model} keyed>
-        {(model) => (
-          <AgentPaneBody
-            active={props.active}
-            compact={props.compact}
-            inputProtocol={props.inputProtocol}
-            model={model}
-            providerName={providerName()}
-          />
-        )}
-      </Show>
+      <AgentPaneBody
+        active={props.active}
+        compact={props.compact}
+        inputProtocol={props.inputProtocol}
+        model={props.model}
+        providerName={providerName()}
+      />
       <Show when={!props.compact}>
-        <AgentStatusLine compact={false} session={props.model?.session ?? null} />
+        <AgentStatusLine compact={false} session={props.model.session} />
       </Show>
     </div>
   );

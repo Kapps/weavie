@@ -69,7 +69,7 @@ export function AgentStatusLine(props: {
     props.session;
     closeControlPicker();
   });
-  // Single owner of the composer's Enter/Escape gate: true whenever any control picker (model or axis) is open.
+  // Single owner of the composer's Enter/Escape gate: true whenever any control picker is open.
   createEffect(() => setContext("agentControlPickerOpen", openControlAxis() !== null));
   onCleanup(() => setContext("agentControlPickerOpen", false));
 

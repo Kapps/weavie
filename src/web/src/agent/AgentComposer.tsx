@@ -1,5 +1,5 @@
 import { createEffect, createMemo, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
-import type { AgentPaneUpdate, AgentSlashEntry, ClientSession } from "../bridge";
+import type { AgentSlashEntry, ClientSession } from "../bridge";
 import { readClipboardImage, readClipboardText } from "../clipboard-read";
 import { setContext } from "../commands/context";
 import { keyHint } from "../commands/key-hint";
@@ -19,7 +19,11 @@ import {
   toggleAgentControl,
   toggleModelFast,
 } from "./agent-controls-store";
-import { planIdentityArgsSupplied, requestedPlan } from "./agent-plan";
+import {
+  type AgentPlanIdentity,
+  planIdentityArgsSupplied,
+  planIdentityFromArgs,
+} from "./agent-plan";
 import {
   captureAgentImagePaste,
   composerState,
@@ -36,39 +40,39 @@ import {
   IDLE_CURSOR,
   recallNext,
   recallPrevious,
-  submittedPrompts,
 } from "./prompt-history";
 import { filterSlash, slashQuery } from "./slash";
 import { caretOnFirstVisualLine, caretOnLastVisualLine } from "./textarea-lines";
-import { hasActiveTurn, pendingApproval, pendingRequest } from "./turn-progress";
+import type { PendingRequestKind } from "./turn-progress";
 
 export function AgentComposer(props: {
   active: boolean;
   compact: boolean;
+  history: readonly string[];
   inputProtocol: number;
-  messages: AgentPaneUpdate[];
+  latestPlan: AgentPlanIdentity | null;
+  pendingApprovalId: string | null;
+  pendingKind: PendingRequestKind | null;
+  pendingLegacyImageCount: number;
   session: ClientSession | null;
+  turnActive: boolean;
+  turnStartedAt: number | null;
   onSubmitted: () => void;
 }): JSX.Element {
   let textareaRef: HTMLTextAreaElement | undefined;
-  const appliedDraftIndexes = new Map<string, number>();
   const composer = createMemo(() => composerState(props.session));
-  const pendingLegacyImages = createMemo(() => countPendingLegacyImages(props.messages));
-  const turnActive = createMemo(() => hasActiveTurn(props.messages));
-  // Resolution-based, not turn-scoped: a card stays answerable until its request resolves, so the chord
-  // and the "waiting" label never go dead on a card that still shows its buttons.
-  const pending = createMemo(() => pendingRequest(props.messages));
-  const pendingKind = createMemo(() => pending()?.kind ?? null);
-  const canInterrupt = createMemo(() => props.session !== null && turnActive());
+  const canInterrupt = createMemo(() => props.session !== null && props.turnActive);
 
-  // Gates the Alt+Y / Alt+Shift+Y / Alt+N approval chords to the same approval the card chips advertise.
-  createEffect(() => setContext("agentApprovalPending", pendingKind() === "approval"));
+  createEffect(() => setContext("agentApprovalPending", props.pendingKind === "approval"));
   onCleanup(() => setContext("agentApprovalPending", false));
 
   const canSubmit = createMemo(() => {
     const state = composer();
     if (props.inputProtocol < 2) {
-      return props.session !== null && (state.draft.trim().length > 0 || pendingLegacyImages() > 0);
+      return (
+        props.session !== null &&
+        (state.draft.trim().length > 0 || props.pendingLegacyImageCount > 0)
+      );
     }
     return (
       props.session !== null &&
@@ -78,9 +82,6 @@ export function AgentComposer(props: {
     );
   });
 
-  createEffect(() => applyPrefill(props, appliedDraftIndexes));
-
-  const history = createMemo(() => submittedPrompts(props.messages));
   const [historyCursor, setHistoryCursor] = createSignal<HistoryCursor>(IDLE_CURSOR);
   // Switching sessions abandons any in-progress history browse.
   createEffect(() => {
@@ -160,17 +161,17 @@ export function AgentComposer(props: {
       return;
     }
     if (event.key === "ArrowUp" && caretOnFirstVisualLine(element)) {
-      if (applyRecall(recallPrevious(history(), historyCursor(), element.value))) {
+      if (applyRecall(recallPrevious(props.history, historyCursor(), element.value))) {
         event.preventDefault();
       }
     } else if (event.key === "ArrowDown" && caretOnLastVisualLine(element)) {
-      if (applyRecall(recallNext(history(), historyCursor()))) {
+      if (applyRecall(recallNext(props.history, historyCursor()))) {
         event.preventDefault();
       }
     }
   };
 
-  const offNativePaste = registerCommand(CommandIds.agentPaste, async () => {
+  const paste = async (): Promise<void> => {
     const session = props.session;
     if (session === null) {
       return;
@@ -211,7 +212,7 @@ export function AgentComposer(props: {
         `Couldn't paste from the clipboard: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
-  });
+  };
 
   const submit = (): boolean => {
     const session = props.session;
@@ -220,7 +221,7 @@ export function AgentComposer(props: {
     }
     if (props.inputProtocol < 2) {
       const state = composerState(session);
-      if (state.draft.trim().length === 0 && pendingLegacyImages() === 0) {
+      if (state.draft.trim().length === 0 && props.pendingLegacyImageCount === 0) {
         return false;
       }
       session.feature("agent").publish("submit", {
@@ -267,12 +268,11 @@ export function AgentComposer(props: {
   const registerDecision = (commandId: string, decision: string): (() => void) =>
     registerCommand(commandId, () => {
       const session = props.session;
-      const request = pendingApproval(props.messages);
-      if (session === null || request === null) {
+      if (session === null || props.pendingApprovalId === null) {
         return false;
       }
       session.feature("agent").publish("approval", {
-        requestId: request.requestId,
+        requestId: props.pendingApprovalId,
         decision,
       });
       return true;
@@ -294,6 +294,7 @@ export function AgentComposer(props: {
       return true;
     });
 
+  const offPaste = registerCommand(CommandIds.agentPaste, paste);
   const offSubmit = registerCommand(CommandIds.agentSubmit, submit);
   const offInterrupt = registerCommand(CommandIds.agentInterrupt, interrupt);
   const offOpenPlan = registerCommand(CommandIds.openAgentPlan, (args) => {
@@ -302,7 +303,7 @@ export function AgentComposer(props: {
       return false;
     }
     const supplied = planIdentityArgsSupplied(args);
-    const plan = requestedPlan(args, props.messages);
+    const plan = supplied ? planIdentityFromArgs(args) : props.latestPlan;
     if (plan === null) {
       notify(
         "info",
@@ -317,12 +318,12 @@ export function AgentComposer(props: {
     const session = props.session;
     return session !== null && toggleAgentControl(session, CommandIds.togglePlanMode);
   });
-  // Model and Effort both live in the one cascading picker; a bare command opens it, a value arg sets that axis.
+  // Model and Effort share one cascading picker; a value arg applies directly.
   const offSelectModel = registerModelSelect(CommandIds.selectModel, "model");
   const offSelectEffort = registerModelSelect(CommandIds.selectEffort, "effort");
   const offSelectApproval = registerSelect(CommandIds.selectApprovalPolicy, "approvalPolicy");
   const offSelectSandbox = registerSelect(CommandIds.selectSandbox, "sandbox");
-  // Fast Mode toggles the active model's service tier (no picker).
+  // Fast Mode toggles the active model's service tier without opening a picker.
   const offToggleFast = registerCommand(CommandIds.toggleFastMode, () => {
     const session = props.session;
     if (session === null) {
@@ -341,7 +342,7 @@ export function AgentComposer(props: {
     "acceptForSession",
   );
   const offDecline = registerDecision(CommandIds.agentDecline, "decline");
-  onCleanup(offNativePaste);
+  onCleanup(offPaste);
   onCleanup(offSubmit);
   onCleanup(offInterrupt);
   onCleanup(offOpenPlan);
@@ -365,7 +366,12 @@ export function AgentComposer(props: {
       }}
     >
       <Show when={!props.compact}>
-        <AgentWorkingStatus compact={false} messages={props.messages} />
+        <AgentWorkingStatus
+          compact={false}
+          pendingKind={props.pendingKind}
+          turnActive={props.turnActive}
+          turnStartedAt={props.turnStartedAt}
+        />
       </Show>
       <Show when={composer().attachments.length > 0}>
         <AgentAttachmentStrip
@@ -409,7 +415,9 @@ export function AgentComposer(props: {
         rows={1}
         value={composer().draft}
         placeholder={
-          turnActive() ? "Steer the running turn…" : "Write a prompt — / for commands and skills"
+          props.turnActive
+            ? "Steer the running turn…"
+            : "Write a prompt — / for commands and skills"
         }
         onKeyDown={onComposerKeyDown}
         onInput={(event) => {
@@ -446,12 +454,12 @@ export function AgentComposer(props: {
         <button
           type="submit"
           class="mobile-primary-action"
-          aria-label={turnActive() ? "Steer" : "Run"}
-          title={`${turnActive() ? "Steer the running turn" : "Run prompt"}${props.compact ? "" : keyHint(CommandIds.agentSubmit)}`}
+          aria-label={props.turnActive ? "Steer" : "Run"}
+          title={`${props.turnActive ? "Steer the running turn" : "Run prompt"}${props.compact ? "" : keyHint(CommandIds.agentSubmit)}`}
           disabled={!canSubmit()}
         >
           <span class="mobile-action-wide">
-            {composer().submittingId !== null ? "Sending…" : turnActive() ? "Steer" : "Run"}
+            {composer().submittingId !== null ? "Sending…" : props.turnActive ? "Steer" : "Run"}
           </span>
           <span class="mobile-action-compact mobile-action-submit" aria-hidden="true" />
         </button>
@@ -461,35 +469,4 @@ export function AgentComposer(props: {
       </Show>
     </form>
   );
-}
-
-function applyPrefill(
-  props: { messages: AgentPaneUpdate[]; session: ClientSession | null },
-  appliedIndexes: Map<string, number>,
-): void {
-  const session = props.session;
-  if (session === null) {
-    return;
-  }
-  const key = `${session.connection.id}\u0000${session.address.incarnation}`;
-  for (let index = props.messages.length - 1; index >= 0; index -= 1) {
-    const message = props.messages[index];
-    if (message?.type === "draft" && index !== appliedIndexes.get(key)) {
-      appliedIndexes.set(key, index);
-      setComposerDraft(session, message.text ?? "");
-      return;
-    }
-  }
-}
-
-function countPendingLegacyImages(messages: AgentPaneUpdate[]): number {
-  return messages.reduce((count, message) => {
-    if (message.type !== "user-image") {
-      return count;
-    }
-    if (message.status === "attached") {
-      return count + 1;
-    }
-    return message.status === "submitted" ? Math.max(0, count - 1) : count;
-  }, 0);
 }

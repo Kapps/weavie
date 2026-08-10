@@ -1,9 +1,8 @@
 import type { AgentPaneUpdate } from "../bridge";
-import { summarizeActivity } from "./AgentPaneActivitySummary";
+import { isAgentActivity, ProjectedAgentActivity } from "./AgentPaneActivitySummary";
 import { paneActivityIdentity, paneItemIdentity, paneTurnIdentity } from "./AgentPaneIdentity";
 import {
   displayStatus,
-  hasItemId,
   normalizeStatus,
   normalizeText,
   requestLifecycles,
@@ -16,33 +15,57 @@ import type {
 import { planIdentity } from "./agent-plan";
 
 interface MutableActivity extends AgentTranscriptEntry {
-  latestStepId: string | null;
-  stepIndexes: Map<string, number>;
+  projection: ProjectedAgentActivity;
 }
 
-interface ActivityStepUpdate {
-  promote: boolean;
-  step: AgentActivityStep;
+export interface AgentTranscriptProjection {
+  activities: ReadonlyMap<string, ProjectedAgentActivity>;
+  entries: AgentTranscriptEntry[];
 }
 
 export function toAgentTranscript(messages: readonly AgentPaneUpdate[]): AgentTranscriptEntry[] {
+  return projectAgentTranscript(messages).entries;
+}
+
+export function projectAgentTranscript(
+  messages: readonly AgentPaneUpdate[],
+): AgentTranscriptProjection {
   const updates = coalesceStreaming(messages);
   const resolved = collectResolved(messages);
-  const reportedTurnErrors = new Set(
-    messages.flatMap((message) => {
+  const reportedTurnErrors = new Set<string>();
+  for (const message of messages) {
+    if (message.type === "error") {
       const key = paneTurnIdentity(message);
-      return message.type === "error" && key !== null ? [key] : [];
-    }),
-  );
+      if (key !== null) {
+        reportedTurnErrors.add(key);
+      }
+    }
+  }
   const entries: (AgentTranscriptEntry | MutableActivity)[] = [];
   const activities = new Map<string, MutableActivity>();
   const knownTurns = new Set<string>();
   let activeTurn = "startup";
   let previousWasUserInput = false;
   let sequence = 0;
+  let previousThreadId: string | null | undefined;
+  let previousTurnId: string | null | undefined;
+  let previousTurnKey: string | null = null;
+  let hasPreviousTurn = false;
+  let previousActivityThreadId: string | null | undefined;
+  let previousActivityTurnId: string | null | undefined;
+  let previousActivityFallback = "";
+  let previousActivityKey = "";
+  let hasPreviousActivity = false;
 
   for (const message of updates) {
-    const turnKey = paneTurnIdentity(message);
+    const turnKey: string | null =
+      hasPreviousTurn && message.threadId === previousThreadId && message.turnId === previousTurnId
+        ? previousTurnKey
+        : paneTurnIdentity(message);
+    previousThreadId = message.threadId;
+    previousTurnId = message.turnId;
+    previousTurnKey = turnKey;
+    hasPreviousTurn = true;
     const startsUnknownTurn = turnKey === null || !knownTurns.has(turnKey);
     const startsTurn =
       (message.type === "user-message" && startsUnknownTurn) ||
@@ -65,23 +88,52 @@ export function toAgentTranscript(messages: readonly AgentPaneUpdate[]): AgentTr
       continue;
     }
 
-    const update = activityStep(message);
-    if (update === null) {
+    if (!isAgentActivity(message)) {
       continue;
     }
 
-    const activityKey = paneActivityIdentity(message, activeTurn);
+    const activityKey =
+      hasPreviousActivity &&
+      message.threadId === previousActivityThreadId &&
+      message.turnId === previousActivityTurnId &&
+      activeTurn === previousActivityFallback
+        ? previousActivityKey
+        : paneActivityIdentity(message, activeTurn);
+    previousActivityThreadId = message.threadId;
+    previousActivityTurnId = message.turnId;
+    previousActivityFallback = activeTurn;
+    previousActivityKey = activityKey;
+    hasPreviousActivity = true;
     const activity = activityFor(activityKey, entries, activities);
-    upsertStep(activity, update);
+    activity.projection.upsert(message);
   }
 
-  return clusterTurnActivity(collapseEditLocations(entries.map((entry) => stripMutable(entry))));
+  for (const activity of activities.values()) {
+    const state = activity.projection.summary();
+    activity.detailCount = activity.projection.count;
+    activity.summary = state.summary;
+    activity.status = state.status;
+    activity.tone = state.tone;
+  }
+
+  return {
+    activities: new Map(
+      Array.from(activities.values(), (activity) => [activity.id, activity.projection]),
+    ),
+    entries: clusterTurnActivity(
+      collapseEditLocations(entries.map((entry) => stripMutable(entry))),
+    ),
+  };
 }
 
 function coalesceStreaming(messages: readonly AgentPaneUpdate[]): AgentPaneUpdate[] {
   const output: AgentPaneUpdate[] = [];
   const indexes = new Map<string, number>();
   for (const message of messages) {
+    if (message.type === "item-completed" && indexes.size === 0) {
+      output.push(message);
+      continue;
+    }
     const key = paneItemIdentity(message);
     if (message.type === "item-started" && key !== null) {
       indexes.set(key, output.length);
@@ -184,6 +236,7 @@ function planEntry(message: AgentPaneUpdate, sequence: number): AgentTranscriptE
   const identity = planIdentity(message);
   return {
     actionMessage: identity === null ? null : message,
+    detailCount: 0,
     details: [],
     id: paneItemIdentity(message) ?? `plan-${sequence}`,
     kind: "plan",
@@ -206,6 +259,7 @@ function entry(
 ): AgentTranscriptEntry {
   return {
     actionMessage: actionMessage(message),
+    detailCount: 0,
     details: [],
     id: paneItemIdentity(message) ?? `${message.type}-${sequence}`,
     kind,
@@ -226,69 +280,6 @@ function actionMessage(message: AgentPaneUpdate): AgentPaneUpdate | null {
     : null;
 }
 
-function activityStep(message: AgentPaneUpdate): ActivityStepUpdate | null {
-  switch (message.type) {
-    case "file-patch-updated":
-      return promotedStep(message, "edit", message.summary, "updated", "muted");
-    case "item-completed":
-      return message.itemType === "agentMessage"
-        ? null
-        : promotedStep(
-            message,
-            activityPrefix(message),
-            message.summary,
-            normalizeStatus(message.status),
-            stepTone(message),
-          );
-    case "item-started":
-      return promotedStep(message, activityPrefix(message), message.summary, "running", "running");
-    case "turn-diff":
-      return detailStep(message, "diff", "ready", "ready", "muted");
-    default:
-      return null;
-  }
-}
-
-function promotedStep(
-  message: AgentPaneUpdate,
-  category: string,
-  summary: string | null | undefined,
-  status: string | null,
-  tone: AgentActivityStep["tone"],
-): ActivityStepUpdate {
-  return { promote: true, step: step(message, category, summary, status, tone) };
-}
-
-function detailStep(
-  message: AgentPaneUpdate,
-  category: string,
-  summary: string | null | undefined,
-  status: string | null,
-  tone: AgentActivityStep["tone"],
-): ActivityStepUpdate {
-  return { promote: false, step: step(message, category, summary, status, tone) };
-}
-
-function step(
-  message: AgentPaneUpdate,
-  category: string,
-  summary: string | null | undefined,
-  status: string | null,
-  tone: AgentActivityStep["tone"],
-): AgentActivityStep {
-  const normalized = normalizeText(summary);
-  return {
-    category,
-    detailText: normalizeText(message.text),
-    id: hasItemId(message)
-      ? message.itemId
-      : `${message.type}:${message.turnId ?? "session"}:${category}`,
-    label: normalized === null ? category : `${category} ${normalized}`,
-    status,
-    tone,
-  };
-}
-
 function activityFor(
   turnKey: string,
   entries: (AgentTranscriptEntry | MutableActivity)[],
@@ -299,15 +290,16 @@ function activityFor(
     return existing;
   }
 
+  const projection = new ProjectedAgentActivity();
   const activity: MutableActivity = {
+    projection,
     actionMessage: null,
+    detailCount: 0,
     details: [],
     id: `activity-${turnKey}`,
     kind: "activity",
     label: "Working",
-    latestStepId: null,
     status: null,
-    stepIndexes: new Map<string, number>(),
     streaming: false,
     summary: null,
     text: null,
@@ -318,30 +310,11 @@ function activityFor(
   return activity;
 }
 
-function upsertStep(activity: MutableActivity, update: ActivityStepUpdate): void {
-  const step = update.step;
-  const index = activity.stepIndexes.get(step.id);
-  if (index === undefined) {
-    activity.stepIndexes.set(step.id, activity.details.length);
-    activity.details.push(step);
-  } else {
-    activity.details[index] = step;
-  }
-
-  if (update.promote) {
-    activity.latestStepId = step.id;
-  }
-
-  const state = summarizeActivity(activity.details);
-  activity.summary = state.summary;
-  activity.status = state.status;
-  activity.tone = state.tone;
-}
-
 function stripMutable(entry: AgentTranscriptEntry | MutableActivity): AgentTranscriptEntry {
   return {
     ...(entry.turnStart === true ? { turnStart: true as const } : {}),
     actionMessage: entry.actionMessage,
+    detailCount: entry.detailCount,
     details: entry.details,
     id: entry.id,
     kind: entry.kind,
@@ -401,6 +374,7 @@ function flushEdits(output: AgentTranscriptEntry[], edits: AgentTranscriptEntry[
 
   output.push({
     actionMessage: null,
+    detailCount: edits.length,
     details: edits.map((entry) => editStep(entry)),
     id: `edits-${edits[0]?.id ?? "empty"}`,
     kind: "activity",
@@ -478,38 +452,4 @@ function isUserInput(message: AgentPaneUpdate): boolean {
 
 function isEditLocation(entry: AgentTranscriptEntry): boolean {
   return entry.actionMessage?.type === "edit-location";
-}
-
-function activityPrefix(message: AgentPaneUpdate): string {
-  if (message.category !== null && message.category !== undefined) {
-    return message.category;
-  }
-
-  switch (message.itemType) {
-    case "commandExecution":
-      return "command";
-    case "dynamicToolCall":
-    case "mcpToolCall":
-      return "tool";
-    case "fileChange":
-      return "edit";
-    case "webSearch":
-      return "search";
-    default:
-      return "step";
-  }
-}
-
-function stepTone(message: AgentPaneUpdate): AgentActivityStep["tone"] {
-  const status = normalizeStatus(message.status);
-  if (status === "failed" || status === "error") {
-    return "failed";
-  }
-  if (status === "pending") {
-    return "pending";
-  }
-  if (status === "running") {
-    return "running";
-  }
-  return "muted";
 }

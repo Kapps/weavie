@@ -62,7 +62,7 @@ export function TranscriptEntry(props: {
             />
           </Show>
         </Show>
-        <Show when={props.entry.details.length > 0}>
+        <Show when={props.entry.detailCount > 0}>
           <ActivityDetails
             entry={props.entry}
             expanded={props.detailsExpanded}
@@ -134,28 +134,33 @@ function ActivityDetails(props: {
           props.onToggle(!props.expanded);
         }}
       >
-        {activityDetailsSummary(props.entry, props.steps.length)}
+        {activityDetailsSummary(props.entry, props.entry.detailCount)}
       </summary>
-      <div class="agent-activity-list">
-        <For each={props.steps}>
-          {(step) => (
-            <div class={`agent-activity-step agent-step-${step.tone}`}>
-              <span class="agent-step-status">{step.status ?? "done"}</span>
-              <span class="agent-step-label">{step.label}</span>
-              <Show when={step.actionMessage?.type === "edit-location"}>
-                <span class="agent-step-actions">
-                  <EditLocationActions session={props.session} target={step.actionMessage?.text} />
-                </span>
-              </Show>
-              <Show when={step.detailText !== null}>
-                <pre>
-                  <AgentLinkedText session={props.session} text={step.detailText ?? ""} />
-                </pre>
-              </Show>
-            </div>
-          )}
-        </For>
-      </div>
+      <Show when={props.expanded}>
+        <div class="agent-activity-list">
+          <For each={props.steps}>
+            {(step) => (
+              <div class={`agent-activity-step agent-step-${step.tone}`}>
+                <span class="agent-step-status">{step.status ?? "done"}</span>
+                <span class="agent-step-label">{step.label}</span>
+                <Show when={step.actionMessage?.type === "edit-location"}>
+                  <span class="agent-step-actions">
+                    <EditLocationActions
+                      session={props.session}
+                      target={step.actionMessage?.text}
+                    />
+                  </span>
+                </Show>
+                <Show when={step.detailText !== null}>
+                  <pre>
+                    <AgentLinkedText session={props.session} text={step.detailText ?? ""} />
+                  </pre>
+                </Show>
+              </div>
+            )}
+          </For>
+        </div>
+      </Show>
     </details>
   );
 }

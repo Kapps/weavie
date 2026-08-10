@@ -72,8 +72,7 @@ internal sealed class MessageOperationRegistry {
 			SendNotification(
 				operation,
 				"busy",
-				$"Still processing {snapshot.Endpoint} {snapshot.Feature}.{snapshot.Name} "
-					+ $"({snapshot.Id}, stage {snapshot.Stage}, {snapshot.ElapsedMs} ms).",
+				SlowMessage(snapshot),
 				operation.NotificationKey)));
 	}
 
@@ -86,8 +85,9 @@ internal sealed class MessageOperationRegistry {
 		_active.TryRemove(operation.Id, out _);
 		timedOut(operation, detail);
 		_diagnostics.Report($"[message] timed out {Describe(snapshot)}");
-		RunDiagnostic(operation.Id, () => operation.RunTerminalDiagnostic(() =>
-			SendNotification(operation, "error", detail, operation.NotificationKey)));
+		RunDiagnostic(operation.Id, () => operation.RunTimeoutDiagnostic(
+			() => SendNotification(operation, "busy", SlowMessage(snapshot), operation.NotificationKey),
+			() => SendNotification(operation, "error", detail, operation.NotificationKey)));
 	}
 
 	private void OnCompleted(MessageOperation operation, bool wasSlow) {
@@ -123,6 +123,10 @@ internal sealed class MessageOperationRegistry {
 		$"operation={snapshot.Id} endpoint={snapshot.Endpoint} peer={snapshot.Peer} "
 		+ $"kind={snapshot.Kind} request={snapshot.RequestId ?? "-"} "
 		+ $"handler={snapshot.Feature}.{snapshot.Name} stage={snapshot.Stage} elapsedMs={snapshot.ElapsedMs}";
+
+	private static string SlowMessage(MessageOperationSnapshot snapshot) =>
+		$"Still processing {snapshot.Endpoint} {snapshot.Feature}.{snapshot.Name} "
+		+ $"({snapshot.Id}, stage {snapshot.Stage}, {snapshot.ElapsedMs} ms).";
 }
 
 internal sealed record MessageOperationSnapshot(

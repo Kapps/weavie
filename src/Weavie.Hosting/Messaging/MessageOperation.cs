@@ -20,6 +20,7 @@ internal sealed class MessageOperation {
 	private string _stage = "feature-queue";
 	private int _state;
 	private int _slowReported;
+	private int _slowDiagnosticDelivered;
 	private int _responseSettled;
 	private int _timeoutOwnsResponse;
 
@@ -109,12 +110,26 @@ internal sealed class MessageOperation {
 	public bool TryRunSlowDiagnostic(Action diagnostic) {
 		ArgumentNullException.ThrowIfNull(diagnostic);
 		lock (_diagnostics) {
-			if (Volatile.Read(ref _state) != Active) {
+			if (Volatile.Read(ref _state) != Active || _slowDiagnosticDelivered != 0) {
 				return false;
 			}
 
+			_slowDiagnosticDelivered = 1;
 			diagnostic();
 			return true;
+		}
+	}
+
+	public void RunTimeoutDiagnostic(Action slowDiagnostic, Action terminalDiagnostic) {
+		ArgumentNullException.ThrowIfNull(slowDiagnostic);
+		ArgumentNullException.ThrowIfNull(terminalDiagnostic);
+		lock (_diagnostics) {
+			if (_slowDiagnosticDelivered == 0) {
+				_slowDiagnosticDelivered = 1;
+				slowDiagnostic();
+			}
+
+			terminalDiagnostic();
 		}
 	}
 

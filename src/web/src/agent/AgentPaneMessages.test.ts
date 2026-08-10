@@ -1,8 +1,50 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { AgentPaneUpdate } from "../bridge";
-import { toAgentTranscript } from "./AgentPaneMessages";
+import { ProjectedAgentActivity } from "./AgentPaneActivitySummary";
+import { projectAgentTranscript } from "./AgentPaneMessages";
+
+function toAgentTranscript(messages: readonly AgentPaneUpdate[]) {
+  const projection = projectAgentTranscript(messages);
+  for (const entry of projection.entries) {
+    const activity = projection.activities.get(entry.id);
+    if (activity !== undefined) {
+      entry.details = activity.materialize();
+    }
+  }
+  return projection.entries;
+}
 
 describe("toAgentTranscript", () => {
+  it("summarizes a tool-heavy turn once after all steps are collected", () => {
+    const summary = vi.spyOn(ProjectedAgentActivity.prototype, "summary");
+    const materialize = vi.spyOn(ProjectedAgentActivity.prototype, "materialize");
+    const count = 15_000;
+    const turnId = "long-turn";
+    const projection = projectAgentTranscript([
+      { type: "user-message", providerId: "codex", turnId, text: "Do the long task" },
+      ...Array.from<unknown, AgentPaneUpdate>({ length: count }, (_, index) => ({
+        type: "item-completed",
+        providerId: "codex",
+        turnId,
+        itemId: `command-${index}`,
+        itemType: "commandExecution",
+        status: "completed",
+        summary: `command ${index}`,
+      })),
+    ]);
+
+    const transcript = projection.entries;
+    expect(summary).toHaveBeenCalledTimes(1);
+    expect(materialize).not.toHaveBeenCalled();
+    expect(transcript).toHaveLength(2);
+    expect(transcript[1]?.summary).toBe(`ran ${count} commands`);
+    expect(transcript[1]?.detailCount).toBe(count);
+    expect(transcript[1]?.details).toEqual([]);
+    expect(projection.activities.get(transcript[1]!.id)?.materialize()).toHaveLength(count);
+    summary.mockRestore();
+    materialize.mockRestore();
+  });
+
   it("projects protocol chatter into a dense working transcript", () => {
     const messages: AgentPaneUpdate[] = [
       { type: "approval-resolved", providerId: "codex", itemId: "approval-1", status: "accept" },

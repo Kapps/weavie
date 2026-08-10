@@ -5,6 +5,7 @@ import {
   createMemo,
   createSignal,
   type JSX,
+  on,
   onCleanup,
   onMount,
   Show,
@@ -79,12 +80,24 @@ export function AgentPaneBody(props: {
   const stored = viewports.get(props.model);
   const saved = stored?.generation === props.model.generation() ? stored : undefined;
   const savedMeasurements = saved?.revision === props.model.revision() ? saved.measurements : [];
+  for (const id of saved?.expandedDetails ?? []) {
+    props.model.setActivityExpanded(id, true);
+  }
   const [expandedDetails, setExpandedDetails] = createSignal<ReadonlySet<string>>(
     saved?.expandedDetails ?? new Set(),
   );
   const [scrollEdgeHovered, setScrollEdgeHovered] = createSignal(false);
   const [scrollbarInlineSize, setScrollbarInlineSize] = createSignal(0);
   const [touchNavigationActive, setTouchNavigationActive] = createSignal(false);
+  createEffect(
+    on(
+      props.model.generation,
+      () => {
+        setExpandedDetails(new Set<string>());
+      },
+      { defer: true },
+    ),
+  );
   const turnNavigable = createMemo(
     () => !props.model.turnActive() && props.model.agentTurnStartId() !== null,
   );
@@ -178,9 +191,10 @@ export function AgentPaneBody(props: {
             entries={props.model.entries}
             expandedDetails={expandedDetails()}
             keyboardApprovalId={props.model.keyboardApprovalId()}
-            onDetailsToggle={(entryId, open) =>
-              setExpandedDetails((current) => toggleMember(current, entryId, open))
-            }
+            onDetailsToggle={(entryId, open) => {
+              props.model.setActivityExpanded(entryId, open);
+              setExpandedDetails((current) => toggleMember(current, entryId, open));
+            }}
             providerName={props.providerName}
             sectionLabels={props.model.sectionLabels()}
             session={props.model.session}
@@ -240,9 +254,15 @@ export function AgentPaneBody(props: {
       <AgentComposer
         active={props.active}
         compact={props.compact}
+        history={props.model.history()}
         inputProtocol={props.inputProtocol}
-        messages={props.model.messages()}
+        latestPlan={props.model.latestPlan()}
+        pendingApprovalId={props.model.keyboardApprovalId()}
+        pendingKind={props.model.pendingRequestKind()}
+        pendingLegacyImageCount={props.model.pendingLegacyImageCount()}
         session={props.model.session}
+        turnActive={props.model.turnActive()}
+        turnStartedAt={props.model.turnStartedAt()}
         onSubmitted={scroll.followIfNearBottom}
       />
     </>

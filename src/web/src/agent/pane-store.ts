@@ -1,6 +1,7 @@
 import { createSignal } from "solid-js";
 import {
   type AgentPaneHistoryFragment,
+  type AgentPaneUpdate,
   type AgentPaneWireUpdate,
   type ClientSession,
   registerSessionFeature,
@@ -12,6 +13,7 @@ import {
 } from "./AgentInputDrafts";
 import { AgentPaneAccumulator } from "./AgentPaneAccumulator";
 import { type AgentPaneModel, createAgentPaneModel } from "./AgentPaneModel";
+import { setComposerDraft } from "./composer-store";
 
 export type { AgentPaneModel, AgentSectionLabel } from "./AgentPaneModel";
 
@@ -117,7 +119,7 @@ registerSessionFeature((session) => {
         page.generation,
         page.messages,
         page.cursor === null,
-        (updates) => model.publish(updates),
+        publish,
       );
       cursor = page.cursor;
       if (cursor !== null) {
@@ -130,17 +132,39 @@ registerSessionFeature((session) => {
     historyComplete = true;
   };
 
-  const ingest = (message: AgentPaneWireUpdate): void => {
+  let appliedDrafts = 0;
+  const applyMessageState = (message: AgentPaneUpdate): void => {
     if (message.type === "input-resolved") {
       clearAgentInputDraft(session, agentInputRequestKey(message));
     }
-    accumulator.ingest("pane", message, (updates) => model.publish(updates));
+  };
+  const applyNewDrafts = (messages: readonly AgentPaneUpdate[]): void => {
+    let occurrence = 0;
+    for (const message of messages) {
+      if (message.type !== "draft") {
+        continue;
+      }
+      occurrence += 1;
+      if (occurrence > appliedDrafts) {
+        setComposerDraft(session, message.text ?? "");
+      }
+    }
+    appliedDrafts = Math.max(appliedDrafts, occurrence);
+  };
+  const publish = (updates: AgentPaneUpdate[], changes: AgentPaneUpdate[]): void => {
+    applyNewDrafts(updates);
+    model.publish(updates, changes);
+  };
+  const ingest = (message: AgentPaneUpdate): void => {
+    applyMessageState(message);
+    accumulator.ingest("pane", message, publish);
   };
   const offPane = feature.on<AgentPaneWireUpdate>("pane", ingest);
   const offBatch = feature.on<{ messages: AgentPaneWireUpdate[] }>("paneBatch", ({ messages }) => {
     for (const message of messages) {
-      ingest(message);
+      applyMessageState(message);
     }
+    accumulator.ingestBatch("pane", messages, publish);
   });
   const offReset = feature.on("paneReset", () => {
     historyAbort?.abort();
@@ -152,6 +176,7 @@ registerSessionFeature((session) => {
     historyComplete = false;
     historyGeneration = null;
     historyRevision = null;
+    appliedDrafts = 0;
     accumulator.reset("pane", () => model.reset());
     startHistory();
   });

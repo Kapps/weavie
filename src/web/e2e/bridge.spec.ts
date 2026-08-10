@@ -824,6 +824,9 @@ test.describe("session-addressed WebSocket transport", () => {
       }
       return {
         composerBottom: composer.getBoundingClientRect().bottom,
+        composerTop: composer.getBoundingClientRect().top,
+        inboxClientHeight: element.clientHeight,
+        inboxScrollHeight: element.scrollHeight,
         optionsBottom: options.getBoundingClientRect().bottom,
         optionTargetHeights: [...options.querySelectorAll("select, button")].map(
           (target) => target.getBoundingClientRect().height,
@@ -842,7 +845,28 @@ test.describe("session-addressed WebSocket transport", () => {
     expect(geometry.optionsBottom).toBeLessThanOrEqual(geometry.composerBottom + 1);
     expect(Math.min(...geometry.optionTargetHeights)).toBeGreaterThanOrEqual(44);
     expect(geometry.optionTargetRows).toBe(1);
-    expect(geometry.listScrollHeight).toBeGreaterThan(geometry.listClientHeight);
+    expect(geometry.inboxScrollHeight).toBeGreaterThan(geometry.inboxClientHeight);
+    expect(geometry.listScrollHeight).toBe(geometry.listClientHeight);
+
+    await inbox.evaluate((element) => {
+      element.scrollTop = element.scrollHeight;
+    });
+    const scrolledGeometry = await inbox.evaluate((element) => {
+      const composer = element.querySelector<HTMLElement>(".session-composer");
+      const lastRow = element.querySelector<HTMLElement>(".session-inbox-row:last-child");
+      if (composer === null || lastRow === null) {
+        throw new Error("mobile session inbox scroll content is incomplete");
+      }
+      return {
+        composerTop: composer.getBoundingClientRect().top,
+        inboxBottom: element.getBoundingClientRect().bottom,
+        lastRowBottom: lastRow.getBoundingClientRect().bottom,
+        scrollTop: element.scrollTop,
+      };
+    });
+    expect(scrolledGeometry.scrollTop).toBeGreaterThan(0);
+    expect(scrolledGeometry.composerTop).toBeLessThan(geometry.composerTop);
+    expect(scrolledGeometry.lastRowBottom).toBeLessThanOrEqual(scrolledGeometry.inboxBottom);
 
     const unloaded = inbox.locator(".session-inbox-row", { hasText: "Unloaded" });
     await expect(unloaded).toHaveCount(dormant.length);

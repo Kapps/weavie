@@ -14,6 +14,9 @@ interface ItemBuffer extends HistoryItemBuffer {
 
 interface SlotState {
   buffers: Map<string, ItemBuffer>;
+  buffersByIndex: Map<number, ItemBuffer>;
+  changedIndexes: Set<number>;
+  forceProject: boolean;
   generation: number | null;
   history: AgentPaneHistoryState;
   historyInitialized: boolean;
@@ -23,7 +26,7 @@ interface SlotState {
   scheduled: boolean;
 }
 
-type Publish = (messages: AgentPaneUpdate[]) => void;
+type Publish = (messages: AgentPaneUpdate[], changes: AgentPaneUpdate[]) => void;
 
 export class AgentPaneAccumulator {
   private readonly slots = new Map<string, SlotState>();
@@ -35,7 +38,26 @@ export class AgentPaneAccumulator {
     if (state === null) {
       return;
     }
-    this.store(state, incoming, "append");
+    state.changedIndexes.add(this.store(state, incoming, "append"));
+    this.scheduleFlush(state, slot, publish);
+  }
+
+  ingestBatch(slot: string, incoming: readonly AgentPaneUpdate[], publish: Publish): void {
+    let state = this.state(slot);
+    let forceProject = state.messages.length === 0;
+    for (const message of incoming) {
+      const target = this.stateForUpdate(slot, message);
+      if (target === null) {
+        continue;
+      }
+      state = target;
+      forceProject ||= state.messages.length === 0;
+      const index = this.store(state, message, "append");
+      if (!forceProject) {
+        state.changedIndexes.add(index);
+      }
+    }
+    state.forceProject ||= forceProject;
     this.scheduleFlush(state, slot, publish);
   }
 
@@ -114,7 +136,9 @@ export class AgentPaneAccumulator {
     if (completeRead) {
       state.history.records.clear();
     }
-    publish([...state.messages]);
+    state.changedIndexes.clear();
+    state.forceProject = false;
+    publish(state.messages, []);
   }
 
   private copyDeltaBuffer(
@@ -139,42 +163,57 @@ export class AgentPaneAccumulator {
     const index = target.messages.length;
     target.indexes.set(key, index);
     target.messages.push(message);
-    target.buffers.set(key, {
+    const copied = {
       baseRevision: buffer.baseRevision,
       baseText: buffer.baseText,
       index,
       chunks: buffer.chunks.map((chunk) => ({ ...chunk })),
       latest: buffer.latest,
       text: buffer.text,
-    });
+    };
+    target.buffers.set(key, copied);
+    target.buffersByIndex.set(index, copied);
     return true;
   }
 
-  private store(state: SlotState, message: AgentPaneUpdate, deltaMode: "append" | "base"): void {
+  private store(state: SlotState, message: AgentPaneUpdate, deltaMode: "append" | "base"): number {
+    if (message.type === "item-completed" && state.indexes.size === 0) {
+      state.messages.push(message);
+      return state.messages.length - 1;
+    }
     const key = itemKey(message);
     // Every path only mutates state.messages (O(1)); a single per-frame flush publishes the snapshot. Publishing
     // synchronously here would rebuild the whole transcript on every message — O(N²) across a turn or a replay.
     if (key !== null && isDelta(message)) {
-      this.bufferDelta(state, key, message, deltaMode);
+      return this.bufferDelta(state, key, message, deltaMode);
     } else if (key !== null && message.type === "item-started") {
       const index = state.indexes.get(key);
       if (index === undefined) {
-        state.indexes.set(key, state.messages.length);
+        const next = state.messages.length;
+        state.indexes.set(key, next);
         state.messages.push(message);
-      } else {
-        state.messages[index] = message;
+        return next;
       }
+      state.buffers.delete(key);
+      state.buffersByIndex.delete(index);
+      state.messages[index] = message;
+      return index;
     } else if (key !== null && message.type === "item-completed") {
       const index = state.indexes.get(key);
       state.buffers.delete(key);
+      if (index !== undefined) {
+        state.buffersByIndex.delete(index);
+      }
       state.indexes.delete(key);
       if (index === undefined) {
         state.messages.push(message);
-      } else {
-        state.messages[index] = message;
+        return state.messages.length - 1;
       }
+      state.messages[index] = message;
+      return index;
     } else {
       state.messages.push(message);
+      return state.messages.length - 1;
     }
   }
 
@@ -182,7 +221,7 @@ export class AgentPaneAccumulator {
     // Delete first: a flush queued before this reset re-fetches state by slot, finds none, and no-ops (see flush),
     // so it can never republish the cleared transcript.
     this.slots.delete(slot);
-    publish([]);
+    publish([], []);
   }
 
   private bufferDelta(
@@ -190,7 +229,7 @@ export class AgentPaneAccumulator {
     key: string,
     message: AgentPaneUpdate,
     mode: "append" | "base",
-  ): void {
+  ): number {
     let buffer = state.buffers.get(key);
     if (buffer === undefined) {
       const existing = state.indexes.get(key);
@@ -204,6 +243,7 @@ export class AgentPaneAccumulator {
         text: "",
       };
       state.buffers.set(key, buffer);
+      state.buffersByIndex.set(index, buffer);
       state.indexes.set(key, index);
       if (existing === undefined) {
         state.messages.push({ ...message, text: "" });
@@ -223,6 +263,7 @@ export class AgentPaneAccumulator {
       });
       buffer.text += text;
     }
+    return buffer.index;
   }
 
   private scheduleFlush(state: SlotState, slot: string, publish: Publish): void {
@@ -239,12 +280,25 @@ export class AgentPaneAccumulator {
       return;
     }
     state.scheduled = false;
-    this.materialize(state);
-    publish([...state.messages]);
+    this.materializeIndexes(state, state.changedIndexes);
+    const changes = state.forceProject
+      ? []
+      : [...state.changedIndexes].map((index) => state.messages[index]!);
+    state.changedIndexes.clear();
+    state.forceProject = false;
+    publish(state.messages, changes);
   }
 
   private materialize(state: SlotState): void {
-    for (const buffer of state.buffers.values()) {
+    this.materializeIndexes(state, state.buffersByIndex.keys());
+  }
+
+  private materializeIndexes(state: SlotState, indexes: Iterable<number>): void {
+    for (const index of indexes) {
+      const buffer = state.buffersByIndex.get(index);
+      if (buffer === undefined) {
+        continue;
+      }
       state.messages[buffer.index] = {
         ...buffer.latest,
         text: buffer.text,
@@ -262,6 +316,9 @@ export class AgentPaneAccumulator {
     if (state === undefined) {
       state = {
         buffers: new Map<string, ItemBuffer>(),
+        buffersByIndex: new Map<number, ItemBuffer>(),
+        changedIndexes: new Set<number>(),
+        forceProject: false,
         generation: null,
         history: createAgentPaneHistoryState(),
         historyInitialized: false,

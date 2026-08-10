@@ -5,6 +5,7 @@ import { computeSectionLabels, latestAgentTurnStartId } from "./AgentTranscriptL
 function message(id: string, tone: "assistant" | "user"): AgentTranscriptEntry {
   return {
     actionMessage: null,
+    detailCount: 0,
     details: [],
     id,
     kind: "message",
@@ -35,6 +36,7 @@ describe("computeSectionLabels", () => {
       message("prompt", "user"),
       {
         actionMessage: null,
+        detailCount: 0,
         details: [],
         id: "plan",
         kind: "plan",

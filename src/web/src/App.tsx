@@ -416,31 +416,41 @@ export default function App(): JSX.Element {
         : [],
     ),
   );
-  // The exact session whose panes are shown (null before the first rail push).
-  const activeTermSession = createMemo<ClientSession | null>(
-    () => sessions().find((session) => session.active)?.owner ?? null,
+  const agentTerminalSessions = createMemo<ClientSession[]>(() =>
+    sessions().flatMap((session) =>
+      session.loaded &&
+      session.backendId === activeBackendId() &&
+      session.agentSurface === "terminal" &&
+      session.owner !== null
+        ? [session.owner]
+        : [],
+    ),
   );
+  // The exact session whose panes are shown (null before the first rail push).
+  const activeTermSession = selectedSession;
+  const selectedCatalogSession = createMemo<RailSession | null>(() => {
+    const selected = selectedSession();
+    return selected === null
+      ? null
+      : (sessions().find((session) => session.owner === selected) ?? null);
+  });
   const currentPullRequest = createMemo(() => {
     const status = pullRequestStatus(activeTermSession());
     return status !== null && status.branch === gitStatus()?.branch ? status.pullRequest : null;
   });
   createEffect(() => setContext("pullRequestAvailable", currentPullRequest() !== null));
-  // Raw messages and keyed entry identity belong to the exact session. Selection swaps one stable model;
-  // inactive sessions defer their lightweight transcript fold until selected, so background work stays isolated.
-  const focusedAgentPane = createMemo<AgentPaneModel | null>(() =>
-    agentPaneModel(selectedSession()),
+  const activeAgentSurface = createMemo<"terminal" | "structured" | "unavailable" | null>(() => {
+    return selectedCatalogSession()?.agentSurface ?? null;
+  });
+  // Transcript state belongs to the exact session and is projected before selection can reveal it.
+  const selectedAgentPane = createMemo<AgentPaneModel | null>(() =>
+    activeAgentSurface() === "structured" ? agentPaneModel(selectedSession()) : null,
   );
   const activeProviderId = createMemo<"claude" | "codex" | null>(
-    () => sessions().find((s) => s.active)?.providerId ?? null,
+    () => selectedCatalogSession()?.providerId ?? null,
   );
-  const activeAgentSurface = createMemo<"terminal" | "structured" | "unavailable" | null>(() => {
-    const session = sessions().find((s) => s.active);
-    return session === undefined
-      ? null
-      : (session.agentSurface ?? (session.providerId === "codex" ? "structured" : "terminal"));
-  });
   const activeAgentInputProtocol = createMemo(
-    () => sessions().find((session) => session.active)?.agentInputProtocol ?? 1,
+    () => selectedCatalogSession()?.agentInputProtocol ?? 1,
   );
 
   // Desktop opens the shared Sessions surface as a modal; compact mode keeps it as native navigation.
@@ -961,9 +971,37 @@ export default function App(): JSX.Element {
     }
   });
 
-  // Renders the surface for a pane kind. Called once per kind by LayoutView (the slot list is stable), so
-  // each surface is created once and only repositioned. Within a terminal kind, one xterm per loaded session
-  // is mounted (only the active shown) — see the For below.
+  // Renders each stable pane slot. Agent terminals stay mounted; structured sessions share one selected tree.
+  const openTerminalContextMenu = (event: MouseEvent, url: string | undefined): void => {
+    const entries: ContextMenuEntry[] = [];
+    if (url !== undefined) {
+      entries.push(
+        {
+          commandId: CommandIds.openUrlExternal,
+          args: { url },
+          label: "Open in Browser",
+        },
+        { commandId: CommandIds.openUrl, args: { url }, label: "Open in Weavie" },
+        { kind: "separator" },
+      );
+    }
+    entries.push({ commandId: CommandIds.terminalCopy });
+    if (!isBrowserHostedShell()) {
+      entries.push({ commandId: CommandIds.terminalPaste });
+    }
+    entries.push(
+      { commandId: CommandIds.terminalClear },
+      { kind: "separator" },
+      { commandId: CommandIds.focusOmnibarCommands, label: "Command Palette" },
+    );
+    setContextMenu({
+      x: event.clientX,
+      y: event.clientY,
+      ...(url !== undefined ? { header: url } : {}),
+      entries,
+    });
+  };
+
   const renderPane = (kind: string): JSX.Element => {
     if (kind === "editor") {
       return (
@@ -1076,46 +1114,88 @@ export default function App(): JSX.Element {
         </div>
       );
     }
-    if (kind === AGENT_PANE_KIND && activeAgentSurface() === "structured") {
+    if (kind === AGENT_PANE_KIND) {
+      const pane = paneOf(kind);
       return (
-        <AgentPane
-          compact={compact()}
-          inputProtocol={activeAgentInputProtocol()}
-          model={focusedAgentPane()}
-          providerId={activeProviderId()}
-          active={focusedKind() === AGENT_PANE_KIND}
-          shortcut={paneShortcut(numberOf(kind))}
-          onFocus={() => {
-            // A nested action can select Code before its click bubbles to the Agent surface. Only the pane that
-            // remains visible may claim that click's focus; keyboard pane commands still route through focusPane.
-            if (!compact() || mobileSurface() === kind) {
-              focusPane(kind);
-            }
-          }}
-        />
+        <div class="agent-slot-stack">
+          <Show when={selectedAgentPane()} keyed>
+            {(model) => (
+              <AgentPane
+                compact={compact()}
+                inputProtocol={activeAgentInputProtocol()}
+                model={model}
+                providerId={activeProviderId()}
+                active={focusedKind() === AGENT_PANE_KIND}
+                shortcut={paneShortcut(numberOf(kind))}
+                onFocus={() => {
+                  if (!compact() || mobileSurface() === kind) {
+                    focusPane(kind);
+                  }
+                }}
+              />
+            )}
+          </Show>
+          <div
+            class="terminal-surface agent-terminal-surface"
+            classList={{
+              active: activeAgentSurface() === "terminal" && focusedKind() === AGENT_PANE_KIND,
+              hidden: activeAgentSurface() !== "terminal",
+            }}
+            data-kind={kind}
+            data-surface="terminal"
+          >
+            <div
+              class="pane-head"
+              role="toolbar"
+              onMouseDown={(event) => {
+                event.preventDefault();
+                focusPane(kind);
+              }}
+            >
+              <span class="pane-label">Claude Code</span>
+              <Show when={showPaneHints() && paneShortcut(numberOf(kind)) !== ""}>
+                <span class="pane-shortcut">{paneShortcut(numberOf(kind))}</span>
+              </Show>
+            </div>
+            <div class="pane-body">
+              <For each={agentTerminalSessions()}>
+                {(session) => {
+                  const paneKey = terminalPaneKey(session, pane);
+                  const selected = (): boolean => selectedSession() === session;
+                  onCleanup(() => terminalFocus.delete(paneKey));
+                  return (
+                    <div class="term-host" classList={{ hidden: !selected() }}>
+                      <TerminalView
+                        session={session}
+                        pane={pane}
+                        active={selected() && activeAgentSurface() === "terminal"}
+                        onFirstRender={() => {
+                          dismissSplash();
+                          startEditorOnce();
+                        }}
+                        onFocusReady={(focus) => terminalFocus.set(paneKey, focus)}
+                        onTitle={(title) =>
+                          setPaneTitles((prev) => ({ ...prev, [paneKey]: title }))
+                        }
+                        onContextMenu={openTerminalContextMenu}
+                      />
+                    </div>
+                  );
+                }}
+              </For>
+            </div>
+          </div>
+        </div>
       );
     }
     const pane = paneOf(kind);
-    // The shell pane shows the child-set title (cwd / running command) when it has one; the agent pane stays fixed.
+    // The shell pane shows the child-set title (cwd / running command) when it has one.
     const paneTitle = (): string => {
-      if (kind === AGENT_PANE_KIND) {
-        return "Claude Code";
-      }
       const session = activeTermSession();
       const title = session === null ? undefined : paneTitles()[terminalPaneKey(session, pane)];
       return title !== undefined && title.length > 0 ? title : "Terminal";
     };
-    const paneSessions = (): ClientSession[] =>
-      kind === AGENT_PANE_KIND
-        ? sessions().flatMap((session) =>
-            session.loaded &&
-            session.backendId === activeBackendId() &&
-            session.providerId === "claude" &&
-            session.owner !== null
-              ? [session.owner]
-              : [],
-          )
-        : terminalSessions();
+    const paneSessions = terminalSessions;
     return (
       <div
         class="terminal-surface"
@@ -1157,38 +1237,7 @@ export default function App(): JSX.Element {
                     }}
                     onFocusReady={(focus) => terminalFocus.set(paneKey, focus)}
                     onTitle={(title) => setPaneTitles((prev) => ({ ...prev, [paneKey]: title }))}
-                    onContextMenu={(event, url) => {
-                      const entries: ContextMenuEntry[] = [];
-                      // A URL under the pointer leads with the two ways to open it (browser is the click default).
-                      if (url !== undefined) {
-                        entries.push(
-                          {
-                            commandId: CommandIds.openUrlExternal,
-                            args: { url },
-                            label: "Open in Browser",
-                          },
-                          { commandId: CommandIds.openUrl, args: { url }, label: "Open in Weavie" },
-                          { kind: "separator" },
-                        );
-                      }
-                      entries.push({ commandId: CommandIds.terminalCopy });
-                      // A served browser tab can't read the clipboard from a click (only the native paste event
-                      // works there) — Ctrl+V is the paste path; the menu item only fits the WebView.
-                      if (!isBrowserHostedShell()) {
-                        entries.push({ commandId: CommandIds.terminalPaste });
-                      }
-                      entries.push(
-                        { commandId: CommandIds.terminalClear },
-                        { kind: "separator" },
-                        { commandId: CommandIds.focusOmnibarCommands, label: "Command Palette" },
-                      );
-                      setContextMenu({
-                        x: event.clientX,
-                        y: event.clientY,
-                        ...(url !== undefined ? { header: url } : {}),
-                        entries,
-                      });
-                    }}
+                    onContextMenu={openTerminalContextMenu}
                   />
                 </div>
               );

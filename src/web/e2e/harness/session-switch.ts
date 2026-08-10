@@ -29,7 +29,9 @@ export async function measureSessionSwitch(
       if (activeChip?.title.startsWith(`${target.label} —`) !== true) {
         return false;
       }
-      const surface = document.querySelector<HTMLElement>('[data-kind="terminal:claude"]');
+      const surface = document.querySelector<HTMLElement>(
+        ".agent-surface, .agent-terminal-surface:not(.hidden)",
+      );
       const wantedSurface = target.provider === "codex" ? "structured-agent" : "terminal";
       if (surface?.dataset.surface !== wantedSurface) {
         return false;
@@ -73,7 +75,7 @@ export async function measureSessionSwitch(
 
     const started = performance.now();
     chip.click();
-    for (;;) {
+    for (let frame = 0; frame < 600; frame += 1) {
       await nextFrame();
       if (complete()) {
         // The next callback runs after the completed frame had a paint opportunity; recheck that it stayed true.
@@ -83,5 +85,23 @@ export async function measureSessionSwitch(
         }
       }
     }
+    const surface = document.querySelector<HTMLElement>(
+      ".agent-surface, .agent-terminal-surface:not(.hidden)",
+    );
+    throw new Error(
+      `session switch did not settle: ${JSON.stringify({
+        activeChip: document.querySelector<HTMLButtonElement>(".session-chip.active")?.title,
+        surface: surface?.dataset.surface,
+        surfaceLabel: surface?.querySelector(".pane-label")?.textContent,
+        terminalClasses: document.querySelector(".agent-terminal-surface")?.className,
+        tabs: [...document.querySelectorAll<HTMLElement>(".editor-tab .editor-tab-label")].map(
+          (tab) => tab.textContent,
+        ),
+        activeTab: document.querySelector(".editor-tab.active .editor-tab-label")?.textContent,
+        activeFile: document.querySelector<HTMLElement>(".editor")?.dataset.activeFile,
+        editorText: document.querySelector(".monaco-editor .view-lines")?.textContent,
+        media: document.querySelector<HTMLImageElement>(".editor-media img")?.src,
+      })}`,
+    );
   }, expected);
 }

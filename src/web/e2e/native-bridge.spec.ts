@@ -155,7 +155,8 @@ test.describe("native in-process bridge contract", () => {
           const json = JSON.stringify(record);
           respond(message, {
             generation: 0,
-            restarted: false,
+            readId: "native-history",
+            revision: 1,
             messages: [
               {
                 generation: 0,

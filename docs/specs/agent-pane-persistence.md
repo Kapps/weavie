@@ -23,22 +23,28 @@ does not replay the replacement through the live-message path.
 The web pane requests `agent.historyPage` when it is first attached. Pages are returned newest first, with a
 target serialized size of 192 KiB. A record larger than one page is serialized once and split on UTF-16
 character boundaries. Every fragment identifies the record and declares its `jsonOffset` and total
-`jsonLength`, so every unbounded record field remains pageable. The serialized form is cached by record revision,
-keeping a fragmented read linear in the record size. A cursor fixes four values for the read:
+`jsonLength`, so every unbounded record field remains pageable. Each first request captures an immutable,
+peer-owned read of the materialized transcript. A cursor carries three values for that read:
 
-- `generation` rejects pages from a transcript that has since been replaced.
-- `ceiling` fixes the newest record included by the first request, so live appends cannot extend an active read.
+- `readId` addresses the peer's exact immutable read.
 - `before` advances toward the start of the fixed transcript.
-- `jsonBefore` advances through one oversized record without changing its ordinal, while `jsonRevision` pins
-  every fragment to one exact mutation. If that record changes mid-read, the page explicitly reports a restart
-  from the current transcript tail and the client drops incomplete fragments from the superseded revision.
+- `jsonBefore` advances through one oversized record without changing its ordinal.
+
+Live mutations never invalidate an active read: every page comes from the captured record revisions, and a later
+read observes the newer state. Only the currently fragmented serialized record is retained between requests;
+ordinary record JSON is released with its page. Completing, detaching, replacing the read, or disconnecting the
+peer releases the read and its fragment cache.
 
 Every wire record carries its generation, stable ordinal, and per-mutation revision. The web accumulator
 reassembles serialized-record fragments, validates their identity, selects the newest revision for each ordinal
-across history and live traffic, and rejects stale generations. It publishes after every page and yields one
-render frame before requesting the next
-page, so a long transcript becomes visible incrementally and does not monopolize the browser main thread. Every
-WebSocket reconnect starts a fresh fixed-ceiling read, recovering messages emitted while the page was offline.
+across history and live traffic, and rejects stale generations. It publishes the newest complete page promptly,
+accumulates older pages without repeatedly rebuilding the growing transcript, and publishes the full transcript
+once at completion. Fragment-only pages do not publish unchanged state. It yields one render frame before every
+next request, so paging cannot monopolize the browser main thread. Detaching aborts the pull; an attached pane
+starts a fresh immutable read after reconnect to recover messages emitted while the page was offline. A client
+that completed its prior read supplies the generation and global mutation revision as a baseline; the host sends
+only records changed after that revision, or an empty page when the transcript is unchanged. A generation change
+returns the complete replacement.
 
 The journal readiness task is awaited by `historyPage`, not session sync. A newly loaded session can therefore
 answer unrelated commands while its transcript is still being read from disk.
@@ -76,10 +82,12 @@ sequenceDiagram
 
 ## Transport isolation
 
-The remote WebSocket transport fragments oversized logical messages into 64 KiB source chunks. Its send loop
-round-robins active message routes while preserving FIFO order within each exact `(scope, session, feature)`
-route. A large agent record therefore cannot hold branch results, command responses, or another session behind
-all of its chunks. The browser receiver reassembles multiple interleaved logical messages independently.
+The remote WebSocket transport lazily encodes oversized logical messages into bounded source chunks. Its send
+loop round-robins active message routes while preserving FIFO order within each exact
+`(scope, session, feature)` route. One connection admits one partial large body at a time while continuing to
+serve small unrelated routes, bounding receiver reassembly memory without restoring head-of-line blocking. A
+large agent record therefore cannot hold branch results, command responses, or another session behind all of its
+chunks.
 
 This transport fairness is defense in depth. Paging is what prevents transcript loading itself from becoming one
 unbounded logical operation.

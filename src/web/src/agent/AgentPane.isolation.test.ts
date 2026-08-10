@@ -4,9 +4,36 @@ import type { AgentPaneUpdate, ClientSession } from "../bridge";
 import { createAgentPaneModel } from "./AgentPaneModel";
 
 describe("agent pane model isolation", () => {
+  it("leases history while at least one pane is attached", () => {
+    createRoot((dispose) => {
+      let activations = 0;
+      let deactivations = 0;
+      const model = createAgentPaneModel({} as ClientSession, () => {
+        activations += 1;
+        return () => {
+          deactivations += 1;
+        };
+      });
+
+      const detachFirst = model.attach();
+      const detachSecond = model.attach();
+      expect(activations).toBe(1);
+      detachFirst();
+      expect(deactivations).toBe(0);
+      detachSecond();
+      expect(deactivations).toBe(1);
+
+      const detachAgain = model.attach();
+      expect(activations).toBe(2);
+      detachAgain();
+      expect(deactivations).toBe(2);
+      dispose();
+    });
+  });
+
   it("defers background transcript projection until the session is attached", () => {
     createRoot((dispose) => {
-      const model = createAgentPaneModel({} as ClientSession, () => {});
+      const model = createAgentPaneModel({} as ClientSession, () => () => {});
       const first = message("first", "First answer");
       model.publish([first]);
 
@@ -31,8 +58,8 @@ describe("agent pane model isolation", () => {
 
   it("keeps another session's projected state unchanged while unattached", () => {
     createRoot((dispose) => {
-      const foreground = createAgentPaneModel({} as ClientSession, () => {});
-      const background = createAgentPaneModel({} as ClientSession, () => {});
+      const foreground = createAgentPaneModel({} as ClientSession, () => () => {});
+      const background = createAgentPaneModel({} as ClientSession, () => () => {});
       const detach = foreground.attach();
       foreground.publish([message("first", "First answer")]);
       const foregroundEntry = foreground.entries[0];

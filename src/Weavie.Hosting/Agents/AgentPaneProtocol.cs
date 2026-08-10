@@ -16,26 +16,68 @@ internal static class AgentPaneProtocol {
 		return new { messages = messages.Select(Body) };
 	}
 
-	public static JsonElement HistoryPage(AgentPaneHistoryPage page) {
+	public static object HistoryPage(AgentPaneHistoryPage page) {
 		ArgumentNullException.ThrowIfNull(page);
-		return JsonSerializer.SerializeToElement(new {
+		return new {
+			readId = page.ReadId,
 			generation = page.Generation,
-			restarted = page.Restarted,
+			revision = page.Revision,
 			messages = page.Messages.Select(FragmentBody),
 			cursor = page.Cursor is null ? null : new {
-				generation = page.Cursor.Generation,
-				ceiling = page.Cursor.Ceiling,
+				readId = page.Cursor.ReadId,
 				before = page.Cursor.Before,
 				jsonBefore = page.Cursor.JsonBefore,
-				jsonRevision = page.Cursor.JsonRevision,
 			},
-		});
+		};
 	}
 
 	public static string Serialize(AgentPaneRecord record) => JsonSerializer.Serialize(Body(record));
 
-	public static int Measure(AgentPaneFragment fragment) =>
-		JsonSerializer.SerializeToUtf8Bytes(FragmentBody(fragment)).Length;
+	public static int Measure(AgentPaneFragment fragment) {
+		int bytes = MeasureEnvelope(fragment.Record, fragment.JsonOffset, fragment.JsonLength);
+		foreach (char value in fragment.Json) {
+			bytes += MeasureSerializedJsonCharacter(value);
+		}
+		return bytes;
+	}
+
+	internal static int MeasureEnvelope(AgentPaneRecord record, int jsonOffset, int jsonLength) =>
+		FragmentSyntaxBytes
+		+ NumberLength(record.Generation)
+		+ NumberLength(record.Ordinal)
+		+ NumberLength(record.Revision)
+		+ NumberLength(jsonOffset)
+		+ NumberLength(jsonLength);
+
+	internal static int MeasureSerializedJsonCharacter(char value) => value switch {
+		'"' => 6,
+		'\\' => 2,
+		>= ' ' and <= '\u007f' => 1,
+		_ => throw new InvalidOperationException("Serialized agent history JSON must be ASCII and escaped."),
+	};
+
+	private static int NumberLength(long value) {
+		if (value == 0) {
+			return 1;
+		}
+
+		int length = value < 0 ? 1 : 0;
+		ulong magnitude = value < 0 ? (ulong)(-(value + 1)) + 1 : (ulong)value;
+		while (magnitude > 0) {
+			length++;
+			magnitude /= 10;
+		}
+		return length;
+	}
+
+	private static readonly int FragmentSyntaxBytes =
+		"{\"generation\":".Length
+		+ ",\"ordinal\":".Length
+		+ ",\"revision\":".Length
+		+ ",\"jsonOffset\":".Length
+		+ ",\"jsonLength\":".Length
+		+ ",\"json\":\"".Length
+		+ "\"}".Length;
 
 	private static object Body(AgentPaneRecord record) => new {
 		generation = record.Generation,
@@ -90,16 +132,20 @@ internal sealed record AgentPaneFragment(
 	int JsonLength);
 
 internal sealed record AgentPaneHistoryCursor(
-	long Generation,
-	int Ceiling,
+	string ReadId,
 	int Before,
-	int? JsonBefore,
-	long? JsonRevision);
+	int? JsonBefore);
 
-internal sealed record AgentPaneHistoryRequest(AgentPaneHistoryCursor? Cursor);
+internal sealed record AgentPaneHistoryRequest(
+	AgentPaneHistoryCursor? Cursor,
+	long? KnownGeneration,
+	long? KnownRevision);
+
+internal sealed record AgentPaneHistoryClose(string ReadId);
 
 internal sealed record AgentPaneHistoryPage(
+	string ReadId,
 	long Generation,
+	long Revision,
 	IReadOnlyList<AgentPaneFragment> Messages,
-	AgentPaneHistoryCursor? Cursor,
-	bool Restarted);
+	AgentPaneHistoryCursor? Cursor);

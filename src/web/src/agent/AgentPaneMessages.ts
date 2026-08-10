@@ -75,6 +75,13 @@ export function toAgentTranscript(messages: readonly AgentPaneUpdate[]): AgentTr
     upsertStep(activity, update);
   }
 
+  for (const activity of activities.values()) {
+    const state = summarizeActivity(activity.details);
+    activity.summary = state.summary;
+    activity.status = state.status;
+    activity.tone = state.tone;
+  }
+
   return clusterTurnActivity(collapseEditLocations(entries.map((entry) => stripMutable(entry))));
 }
 
@@ -331,11 +338,6 @@ function upsertStep(activity: MutableActivity, update: ActivityStepUpdate): void
   if (update.promote) {
     activity.latestStepId = step.id;
   }
-
-  const state = summarizeActivity(activity.details);
-  activity.summary = state.summary;
-  activity.status = state.status;
-  activity.tone = state.tone;
 }
 
 function stripMutable(entry: AgentTranscriptEntry | MutableActivity): AgentTranscriptEntry {

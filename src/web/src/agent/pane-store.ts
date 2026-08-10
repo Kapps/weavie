@@ -21,27 +21,28 @@ registerSessionFeature((session) => {
   const accumulator = new AgentPaneAccumulator((callback) => requestAnimationFrame(callback));
   const feature = session.feature("agent");
   let historyAbort: AbortController | null = null;
+  let historyActive = false;
   let historyComplete = false;
-  let historyWanted = false;
+  let historyGeneration: number | null = null;
+  let historyReadId: string | null = null;
+  let historyRevision: number | null = null;
 
   interface HistoryCursor {
-    generation: number;
-    ceiling: number;
+    readId: string;
     before: number;
     jsonBefore: number | null;
-    jsonRevision: number | null;
   }
 
   interface HistoryPage {
     generation: number;
-    restarted: boolean;
     messages: AgentPaneHistoryFragment[];
+    readId: string;
+    revision: number;
     cursor: HistoryCursor | null;
   }
 
   const startHistory = (): void => {
-    historyWanted = true;
-    if (historyAbort !== null || historyComplete) {
+    if (!historyActive || historyAbort !== null || historyComplete) {
       return;
     }
     const abort = new AbortController();
@@ -60,16 +61,31 @@ registerSessionFeature((session) => {
       });
   };
 
-  const model = createAgentPaneModel(session, startHistory);
+  const activateHistory = (): (() => void) => {
+    historyActive = true;
+    startHistory();
+    return () => {
+      historyActive = false;
+      historyAbort?.abort();
+      historyAbort = null;
+      accumulator.abandonHistory("pane");
+      if (historyReadId !== null) {
+        feature.publish("historyClose", { readId: historyReadId });
+        historyReadId = null;
+      }
+    };
+  };
+
+  const model = createAgentPaneModel(session, activateHistory);
   setModels((previous) => new Map(previous).set(session, model));
 
   const offHello = session.connection.onHello(() => {
-    if (historyWanted) {
-      historyComplete = false;
-      historyAbort?.abort();
-      historyAbort = null;
-      startHistory();
-    }
+    historyComplete = false;
+    historyAbort?.abort();
+    historyAbort = null;
+    historyReadId = null;
+    accumulator.abandonHistory("pane");
+    startHistory();
   });
 
   const loadHistory = async (abort: AbortController): Promise<void> => {
@@ -77,20 +93,38 @@ registerSessionFeature((session) => {
     do {
       const page: HistoryPage = await feature.request<
         HistoryPage,
-        { cursor: HistoryCursor | null }
-      >("historyPage", { cursor }, abort.signal);
+        {
+          cursor: HistoryCursor | null;
+          knownGeneration: number | null;
+          knownRevision: number | null;
+        }
+      >(
+        "historyPage",
+        {
+          cursor,
+          knownGeneration: cursor === null ? historyGeneration : null,
+          knownRevision: cursor === null ? historyRevision : null,
+        },
+        abort.signal,
+      );
       if (abort.signal.aborted) {
+        feature.publish("historyClose", { readId: page.readId });
         return;
       }
-      if (page.restarted) {
-        accumulator.restartHistory("pane", page.generation);
-      }
-      accumulator.mergeHistory("pane", page.generation, page.messages, (updates) =>
-        model.publish(updates),
+      historyReadId = page.cursor?.readId ?? null;
+      accumulator.mergeHistory(
+        "pane",
+        page.generation,
+        page.messages,
+        page.cursor === null,
+        (updates) => model.publish(updates),
       );
       cursor = page.cursor;
       if (cursor !== null) {
         await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      } else {
+        historyGeneration = page.generation;
+        historyRevision = page.revision;
       }
     } while (cursor !== null);
     historyComplete = true;
@@ -111,14 +145,22 @@ registerSessionFeature((session) => {
   const offReset = feature.on("paneReset", () => {
     historyAbort?.abort();
     historyAbort = null;
-    historyComplete = false;
-    accumulator.reset("pane", () => model.reset());
-    if (historyWanted) {
-      startHistory();
+    if (historyReadId !== null) {
+      feature.publish("historyClose", { readId: historyReadId });
+      historyReadId = null;
     }
+    historyComplete = false;
+    historyGeneration = null;
+    historyRevision = null;
+    accumulator.reset("pane", () => model.reset());
+    startHistory();
   });
   return () => {
     historyAbort?.abort();
+    if (historyReadId !== null) {
+      feature.publish("historyClose", { readId: historyReadId });
+      historyReadId = null;
+    }
     offPane();
     offBatch();
     offReset();

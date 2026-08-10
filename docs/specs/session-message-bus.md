@@ -113,9 +113,11 @@ the same feature even when another surface renders the result; for example, `age
 agent transcript state and publishes its successful result through `editor.agentPlan`.
 
 Remote outbound transport preserves FIFO order within each exact `(scope, session, feature)` route
-and round-robins oversized-message chunks across routes. A large response therefore cannot prevent
-an unrelated feature or session from receiving its next message. The browser reassembles interleaved
-logical messages independently before dispatch.
+and round-robins lazily encoded oversized-message chunks with small messages from other routes. One
+connection carries at most one partial oversized body while that interleaving is active, and its
+outbox is bounded by both logical count and retained characters. A large response therefore cannot
+prevent an unrelated feature or session from receiving its next message or multiply receiver memory
+across many partial large bodies.
 
 ## Presentation
 

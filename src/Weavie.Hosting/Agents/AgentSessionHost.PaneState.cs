@@ -94,9 +94,9 @@ public sealed partial class AgentSessionHost {
 		if (key is not null && IsDelta(message)) {
 			_paneMessages.Add(message with { Text = null });
 			_paneItemIndexes.Add(key, index);
-			var buffer = new PaneDeltaBuffer(index, message);
+			var buffer = new PaneDeltaBuffer(message);
 			buffer.Text.Append(message.Text);
-			_paneDeltaBuffers.Add(key, buffer);
+			_paneDeltaBuffers.Add(index, buffer);
 		} else {
 			_paneMessages.Add(message);
 			if (key is not null && message.Type == "item-started") {
@@ -106,15 +106,18 @@ public sealed partial class AgentSessionHost {
 
 		_paneOrdinals.Add(record.Ordinal);
 		_paneRevisions.Add(record.Revision);
-		_paneSerializedRecords.Add(null);
 		_nextPaneOrdinal = Math.Max(_nextPaneOrdinal, record.Ordinal);
 		_nextPaneRevision = Math.Max(_nextPaneRevision, record.Revision);
 	}
 
-	private List<AgentPaneRecord> PaneSnapshotLocked() {
-		var snapshot = new List<AgentPaneRecord>(_paneMessages.Count);
+	private List<AgentPaneRecord> PaneSnapshotLocked() => PaneSnapshotLocked(null);
+
+	private List<AgentPaneRecord> PaneSnapshotLocked(long? afterRevision) {
+		var snapshot = new List<AgentPaneRecord>(afterRevision is null ? _paneMessages.Count : 0);
 		for (int index = 0; index < _paneMessages.Count; index++) {
-			snapshot.Add(SnapshotRecordAtLocked(index));
+			if (afterRevision is null || _paneRevisions[index] > afterRevision) {
+				snapshot.Add(SnapshotRecordAtLocked(index));
+			}
 		}
 
 		return snapshot;
@@ -122,11 +125,8 @@ public sealed partial class AgentSessionHost {
 
 	private AgentPaneRecord SnapshotRecordAtLocked(int index) {
 		var message = _paneMessages[index];
-		foreach (var buffer in _paneDeltaBuffers.Values) {
-			if (buffer.Index == index) {
-				message = buffer.Latest with { Text = buffer.Text.ToString() };
-				break;
-			}
+		if (_paneDeltaBuffers.TryGetValue(index, out var buffer)) {
+			message = buffer.Latest with { Text = buffer.Text.ToString() };
 		}
 
 		return new AgentPaneRecord(
@@ -136,20 +136,6 @@ public sealed partial class AgentSessionHost {
 			message);
 	}
 
-	private SerializedPaneRecord SerializedRecordAtLocked(int index) {
-		var serialized = _paneSerializedRecords[index];
-		if (serialized is null || serialized.Record.Revision != _paneRevisions[index]) {
-			var record = SnapshotRecordAtLocked(index);
-			string json = AgentPaneProtocol.Serialize(record);
-			int fragmentBytes = AgentPaneProtocol.Measure(
-				new AgentPaneFragment(record, json, 0, json.Length));
-			serialized = new SerializedPaneRecord(record, json, fragmentBytes);
-			_paneSerializedRecords[index] = serialized;
-		}
-
-		return serialized;
-	}
-
 	private AgentPaneRecord StorePaneMessageLocked(AgentPaneMessage message) {
 		string? key = AgentPaneIdentity.ItemKey(message);
 		if (key is null) {
@@ -157,11 +143,10 @@ public sealed partial class AgentSessionHost {
 		}
 
 		if (message.Type == "item-started") {
-			_paneDeltaBuffers.Remove(key);
 			if (_paneItemIndexes.TryGetValue(key, out int startedIndex)) {
+				_paneDeltaBuffers.Remove(startedIndex);
 				_paneMessages[startedIndex] = message;
 				_paneRevisions[startedIndex] = ++_nextPaneRevision;
-				_paneSerializedRecords[startedIndex] = null;
 				return RecordAtLocked(startedIndex);
 			}
 
@@ -175,14 +160,13 @@ public sealed partial class AgentSessionHost {
 				_paneItemIndexes[key] = deltaIndex;
 				AppendPaneMessageLocked(message with { Text = null });
 			}
-			if (!_paneDeltaBuffers.TryGetValue(key, out var buffer)) {
-				buffer = new PaneDeltaBuffer(deltaIndex, message);
-				_paneDeltaBuffers.Add(key, buffer);
+			if (!_paneDeltaBuffers.TryGetValue(deltaIndex, out var buffer)) {
+				buffer = new PaneDeltaBuffer(message);
+				_paneDeltaBuffers.Add(deltaIndex, buffer);
 			}
 			buffer.Latest = message;
 			buffer.Text.Append(message.Text);
 			_paneRevisions[deltaIndex] = ++_nextPaneRevision;
-			_paneSerializedRecords[deltaIndex] = null;
 			return new AgentPaneRecord(
 				_paneGeneration,
 				_paneOrdinals[deltaIndex],
@@ -191,10 +175,9 @@ public sealed partial class AgentSessionHost {
 		}
 
 		if (message.Type == "item-completed" && _paneItemIndexes.Remove(key, out int completedIndex)) {
-			_paneDeltaBuffers.Remove(key);
+			_paneDeltaBuffers.Remove(completedIndex);
 			_paneMessages[completedIndex] = message;
 			_paneRevisions[completedIndex] = ++_nextPaneRevision;
-			_paneSerializedRecords[completedIndex] = null;
 			return RecordAtLocked(completedIndex);
 		}
 
@@ -207,7 +190,6 @@ public sealed partial class AgentSessionHost {
 		_paneMessages.Add(message);
 		_paneOrdinals.Add(ordinal);
 		_paneRevisions.Add(revision);
-		_paneSerializedRecords.Add(null);
 		return new AgentPaneRecord(_paneGeneration, ordinal, revision, message);
 	}
 
@@ -223,9 +205,9 @@ public sealed partial class AgentSessionHost {
 		_paneMessages.Clear();
 		_paneOrdinals.Clear();
 		_paneRevisions.Clear();
-		_paneSerializedRecords.Clear();
 		_paneItemIndexes.Clear();
 		_paneDeltaBuffers.Clear();
+		_historyReads.Clear();
 		_nextPaneOrdinal = 0;
 		_nextPaneRevision = 0;
 	}
@@ -233,11 +215,8 @@ public sealed partial class AgentSessionHost {
 	private static bool IsDelta(AgentPaneMessage message) =>
 		message.Type is "agent-message-delta" or "plan-delta" or "command-output-delta";
 
-	private sealed class PaneDeltaBuffer(int index, AgentPaneMessage latest) {
-		public int Index { get; } = index;
+	private sealed class PaneDeltaBuffer(AgentPaneMessage latest) {
 		public AgentPaneMessage Latest { get; set; } = latest;
 		public StringBuilder Text { get; } = new();
 	}
-
-	private sealed record SerializedPaneRecord(AgentPaneRecord Record, string Json, int FragmentBytes);
 }

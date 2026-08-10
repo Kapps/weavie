@@ -1,23 +1,22 @@
 import type { AgentPaneHistoryFragment, AgentPaneUpdate, AgentPaneWireUpdate } from "../bridge";
+import {
+  type AgentPaneHistoryState,
+  createAgentPaneHistoryState,
+  type HistoryItemBuffer,
+  isAgentPaneWireUpdate,
+  mergeHistoryRecords,
+} from "./AgentPaneHistoryAccumulator";
 import { paneItemIdentity } from "./AgentPaneIdentity";
 
-interface ItemBuffer {
-  baseRevision: number | null;
-  baseText: string;
+interface ItemBuffer extends HistoryItemBuffer {
   index: number;
-  chunks: Array<{ revision: number | null; text: string }>;
-  latest: AgentPaneUpdate;
-}
-
-interface HistoryFragmentBuffer {
-  parts: Map<number, string>;
-  jsonLength: number;
 }
 
 interface SlotState {
   buffers: Map<string, ItemBuffer>;
-  fragments: Map<string, HistoryFragmentBuffer>;
   generation: number | null;
+  history: AgentPaneHistoryState;
+  historyInitialized: boolean;
   indexes: Map<string, number>;
   messages: AgentPaneUpdate[];
   revisions: Map<number, number>;
@@ -40,10 +39,16 @@ export class AgentPaneAccumulator {
     this.scheduleFlush(state, slot, publish);
   }
 
+  abandonHistory(slot: string): void {
+    this.slots.get(slot)?.history.fragments.clear();
+    this.slots.get(slot)?.history.records.clear();
+  }
+
   mergeHistory(
     slot: string,
     generation: number,
     incoming: AgentPaneHistoryFragment[],
+    completeRead: boolean,
     publish: Publish,
   ): void {
     const previous = this.slots.get(slot);
@@ -62,16 +67,27 @@ export class AgentPaneAccumulator {
       source.generation = generation;
     }
 
+    const completed = mergeHistoryRecords(source.history, source.buffers, incoming);
+
+    if (
+      completeRead &&
+      source.historyInitialized &&
+      completed.length === 0 &&
+      source.history.records.size === 0
+    ) {
+      return;
+    }
+
+    if ((source.historyInitialized || completed.length === 0) && !completeRead) {
+      return;
+    }
+
     this.materialize(source);
     const retained = source.messages;
-    const complete = incoming.flatMap((message) => {
-      const assembled = this.assembleHistory(source, message);
-      return assembled === null ? [] : [this.mergeCumulativeDelta(source, assembled)];
-    });
-    const completedOrdinals = new Set(complete.map((message) => message.ordinal));
+    const completedOrdinals = new Set(completed.map((message) => message.ordinal));
     const byOrdinal = new Map<number, AgentPaneWireUpdate>();
-    for (const message of [...complete, ...retained]) {
-      if (isWireUpdate(message)) {
+    for (const message of [...source.history.records.values(), ...retained]) {
+      if (isAgentPaneWireUpdate(message)) {
         const existing = byOrdinal.get(message.ordinal);
         if (existing === undefined || message.revision > existing.revision) {
           byOrdinal.set(message.ordinal, message);
@@ -79,11 +95,12 @@ export class AgentPaneAccumulator {
       }
     }
 
-    const fragments = source.fragments;
+    const history = source.history;
     this.slots.delete(slot);
     const state = this.state(slot);
-    state.fragments = fragments;
     state.generation = generation;
+    state.history = history;
+    state.historyInitialized = true;
     for (const message of [...byOrdinal.values()].sort(
       (left, right) => left.ordinal - right.ordinal,
     )) {
@@ -94,111 +111,10 @@ export class AgentPaneAccumulator {
       this.store(state, message, "base");
     }
     this.materialize(state);
+    if (completeRead) {
+      state.history.records.clear();
+    }
     publish([...state.messages]);
-  }
-
-  restartHistory(slot: string, generation: number): void {
-    const state = this.slots.get(slot);
-    if (state?.generation === generation) {
-      state.fragments.clear();
-    }
-  }
-
-  private assembleHistory(
-    state: SlotState,
-    message: AgentPaneHistoryFragment,
-  ): AgentPaneWireUpdate | null {
-    if (message.jsonOffset === 0 && message.json.length === message.jsonLength) {
-      this.dropFragments(state, message.ordinal, message.revision);
-      return parseHistoryRecord(message, message.json);
-    }
-    if (
-      message.jsonOffset < 0 ||
-      message.jsonLength < 0 ||
-      message.jsonOffset + message.json.length > message.jsonLength
-    ) {
-      throw new Error("Received an invalid agent history record fragment.");
-    }
-
-    const key = `${message.ordinal}:${message.revision}`;
-    let buffer = state.fragments.get(key);
-    if (buffer === undefined) {
-      buffer = {
-        parts: new Map<number, string>(),
-        jsonLength: message.jsonLength,
-      };
-      state.fragments.set(key, buffer);
-    } else if (buffer.jsonLength !== message.jsonLength) {
-      throw new Error("Received inconsistent agent history record fragments.");
-    }
-    const existing = buffer.parts.get(message.jsonOffset);
-    if (existing !== undefined && existing !== message.json) {
-      throw new Error("Received conflicting agent history record fragments.");
-    }
-    buffer.parts.set(message.jsonOffset, message.json);
-
-    const parts = [...buffer.parts].sort(([left], [right]) => left - right);
-    let offset = 0;
-    for (const [start, part] of parts) {
-      if (start !== offset) {
-        return null;
-      }
-      offset += part.length;
-    }
-    if (offset !== buffer.jsonLength) {
-      return null;
-    }
-
-    state.fragments.delete(key);
-    this.dropFragments(state, message.ordinal, message.revision);
-    return parseHistoryRecord(message, parts.map(([, part]) => part).join(""));
-  }
-
-  private dropFragments(state: SlotState, ordinal: number, throughRevision: number): void {
-    for (const key of state.fragments.keys()) {
-      const separator = key.indexOf(":");
-      const fragmentOrdinal = Number(key.slice(0, separator));
-      const fragmentRevision = Number(key.slice(separator + 1));
-      if (fragmentOrdinal === ordinal && fragmentRevision <= throughRevision) {
-        state.fragments.delete(key);
-      }
-    }
-  }
-
-  private mergeCumulativeDelta(
-    state: SlotState,
-    history: AgentPaneWireUpdate,
-  ): AgentPaneWireUpdate {
-    if (!isDelta(history)) {
-      return history;
-    }
-    const buffer = [...state.buffers.values()].find(
-      (candidate) => isWireUpdate(candidate.latest) && candidate.latest.ordinal === history.ordinal,
-    );
-    if (buffer === undefined) {
-      return history;
-    }
-
-    let baseRevision = history.revision;
-    let text = history.text ?? "";
-    let template: AgentPaneWireUpdate = history;
-    if (buffer.baseRevision !== null && buffer.baseRevision > baseRevision) {
-      baseRevision = buffer.baseRevision;
-      text = buffer.baseText;
-      template = buffer.latest as AgentPaneWireUpdate;
-    }
-    const tail = buffer.chunks.filter(
-      (chunk): chunk is { revision: number; text: string } =>
-        chunk.revision !== null && chunk.revision > baseRevision,
-    );
-    if (tail.length === 0 && template === history) {
-      return history;
-    }
-    if (tail.length > 0) {
-      text += tail.map((chunk) => chunk.text).join("");
-      template = buffer.latest as AgentPaneWireUpdate;
-    }
-    return { ...template, text, textOffset: 0, textLength: text.length };
   }
 
   private copyDeltaBuffer(
@@ -213,7 +129,7 @@ export class AgentPaneAccumulator {
     const buffer = source.buffers.get(key);
     if (
       buffer === undefined ||
-      !isWireUpdate(buffer.latest) ||
+      !isAgentPaneWireUpdate(buffer.latest) ||
       buffer.latest.ordinal !== message.ordinal ||
       buffer.latest.revision !== message.revision
     ) {
@@ -229,6 +145,7 @@ export class AgentPaneAccumulator {
       index,
       chunks: buffer.chunks.map((chunk) => ({ ...chunk })),
       latest: buffer.latest,
+      text: buffer.text,
     });
     return true;
   }
@@ -284,6 +201,7 @@ export class AgentPaneAccumulator {
         index,
         chunks: [],
         latest: message,
+        text: "",
       };
       state.buffers.set(key, buffer);
       state.indexes.set(key, index);
@@ -293,14 +211,17 @@ export class AgentPaneAccumulator {
     }
     buffer.latest = message;
     if (mode === "base") {
-      buffer.baseRevision = isWireUpdate(message) ? message.revision : null;
+      buffer.baseRevision = isAgentPaneWireUpdate(message) ? message.revision : null;
       buffer.baseText = message.text ?? "";
       buffer.chunks = [];
+      buffer.text = buffer.baseText;
     } else {
+      const text = message.text ?? "";
       buffer.chunks.push({
-        revision: isWireUpdate(message) ? message.revision : null,
-        text: message.text ?? "",
+        revision: isAgentPaneWireUpdate(message) ? message.revision : null,
+        text,
       });
+      buffer.text += text;
     }
   }
 
@@ -326,8 +247,13 @@ export class AgentPaneAccumulator {
     for (const buffer of state.buffers.values()) {
       state.messages[buffer.index] = {
         ...buffer.latest,
-        text: buffer.baseText + buffer.chunks.map((chunk) => chunk.text).join(""),
+        text: buffer.text,
       };
+      if (buffer.baseRevision !== null && isAgentPaneWireUpdate(buffer.latest)) {
+        buffer.baseRevision = buffer.latest.revision;
+        buffer.baseText = buffer.text;
+        buffer.chunks = [];
+      }
     }
   }
 
@@ -336,8 +262,9 @@ export class AgentPaneAccumulator {
     if (state === undefined) {
       state = {
         buffers: new Map<string, ItemBuffer>(),
-        fragments: new Map<string, HistoryFragmentBuffer>(),
         generation: null,
+        history: createAgentPaneHistoryState(),
+        historyInitialized: false,
         indexes: new Map<string, number>(),
         messages: [],
         revisions: new Map<number, number>(),
@@ -350,7 +277,7 @@ export class AgentPaneAccumulator {
 
   private stateForUpdate(slot: string, incoming: AgentPaneUpdate): SlotState | null {
     let state = this.state(slot);
-    if (!isWireUpdate(incoming)) {
+    if (!isAgentPaneWireUpdate(incoming)) {
       return state;
     }
     if (state.generation !== null && incoming.generation < state.generation) {
@@ -380,37 +307,4 @@ function isDelta(message: AgentPaneUpdate): boolean {
     message.type === "plan-delta" ||
     message.type === "command-output-delta"
   );
-}
-
-function isWireUpdate(message: AgentPaneUpdate): message is AgentPaneWireUpdate {
-  return (
-    "generation" in message &&
-    Number.isInteger(message.generation) &&
-    "ordinal" in message &&
-    Number.isInteger(message.ordinal) &&
-    "revision" in message &&
-    Number.isInteger(message.revision) &&
-    "textOffset" in message &&
-    Number.isInteger(message.textOffset) &&
-    "textLength" in message &&
-    Number.isInteger(message.textLength)
-  );
-}
-
-function parseHistoryRecord(fragment: AgentPaneHistoryFragment, json: string): AgentPaneWireUpdate {
-  const parsed: unknown = JSON.parse(json);
-  const candidate = parsed as AgentPaneUpdate;
-  if (
-    typeof parsed !== "object" ||
-    parsed === null ||
-    !isWireUpdate(candidate) ||
-    candidate.generation !== fragment.generation ||
-    candidate.ordinal !== fragment.ordinal ||
-    candidate.revision !== fragment.revision ||
-    candidate.textOffset !== 0 ||
-    candidate.textLength !== (candidate.text?.length ?? 0)
-  ) {
-    throw new Error("Received an invalid serialized agent history record.");
-  }
-  return candidate;
 }

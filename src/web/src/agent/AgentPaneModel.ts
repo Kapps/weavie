@@ -31,7 +31,7 @@ export interface MutableAgentPaneModel extends AgentPaneModel {
 
 export function createAgentPaneModel(
   session: ClientSession,
-  activateHistory: () => void,
+  activateHistory: () => () => void,
 ): MutableAgentPaneModel {
   const [entries, setEntries] = createStore<AgentTranscriptEntry[]>([]);
   const [messages, setMessages] = createSignal<AgentPaneUpdate[]>([]);
@@ -46,6 +46,7 @@ export function createAgentPaneModel(
     new Map(),
   );
   let attached = 0;
+  let deactivateHistory: (() => void) | null = null;
   let projectedMessages: AgentPaneUpdate[] | null = null;
 
   const project = (updates: AgentPaneUpdate[]): void => {
@@ -88,13 +89,19 @@ export function createAgentPaneModel(
   return {
     attach() {
       attached += 1;
-      activateHistory();
+      if (attached === 1) {
+        deactivateHistory = activateHistory();
+      }
       const latest = messages();
       if (projectedMessages !== latest) {
         project(latest);
       }
       return () => {
         attached -= 1;
+        if (attached === 0) {
+          deactivateHistory?.();
+          deactivateHistory = null;
+        }
       };
     },
     agentTurnStartId,

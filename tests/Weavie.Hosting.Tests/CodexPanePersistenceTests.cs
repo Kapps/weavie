@@ -56,10 +56,10 @@ public sealed class CodexPanePersistenceTests {
 		JsonElement? cursor = null;
 		do {
 			var page = await host.SessionRequestAsync<JsonElement>(
-				session,
-				"agent",
-				"historyPage",
-				new { cursor });
+					session,
+					"agent",
+					"historyPage",
+					new { cursor, knownGeneration = (long?)null, knownRevision = (long?)null });
 			fragments.InsertRange(0, page.GetProperty("messages").EnumerateArray().Select(message => message.Clone()));
 			var next = page.GetProperty("cursor");
 			cursor = next.ValueKind == JsonValueKind.Null ? null : next.Clone();

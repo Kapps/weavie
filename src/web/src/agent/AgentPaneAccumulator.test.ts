@@ -148,11 +148,50 @@ describe("AgentPaneAccumulator", () => {
       "slot-1",
       2,
       history(wireUpdate(2, 2, 2, "second"), wireUpdate(2, 3, 3, "third")),
+      false,
       publish,
     );
-    accumulator.mergeHistory("slot-1", 2, history(wireUpdate(2, 1, 1, "first")), publish);
+    accumulator.mergeHistory("slot-1", 2, history(wireUpdate(2, 1, 1, "first")), true, publish);
 
     expect(messages.map((message) => message.text)).toEqual(["first", "second", "third", "live"]);
+  });
+
+  it("publishes only the newest and completed snapshots across many history pages", () => {
+    const accumulator = new AgentPaneAccumulator((callback) => callback());
+    const snapshots: AgentPaneUpdate[][] = [];
+    const publish = (value: AgentPaneUpdate[]): void => {
+      snapshots.push(value);
+    };
+
+    for (let ordinal = 100; ordinal > 0; ordinal -= 1) {
+      accumulator.mergeHistory(
+        "slot-1",
+        1,
+        history(wireUpdate(1, ordinal, ordinal, `message-${ordinal}`)),
+        ordinal === 1,
+        publish,
+      );
+    }
+
+    expect(snapshots).toHaveLength(2);
+    expect(snapshots[0]?.map((message) => message.text)).toEqual(["message-100"]);
+    expect(snapshots[1]).toHaveLength(100);
+    expect(snapshots[1]?.[0]?.text).toBe("message-1");
+    expect(snapshots[1]?.[99]?.text).toBe("message-100");
+  });
+
+  it("does not republish an unchanged completed history baseline", () => {
+    const accumulator = new AgentPaneAccumulator((callback) => callback());
+    const snapshots: AgentPaneUpdate[][] = [];
+    const publish = (value: AgentPaneUpdate[]): void => {
+      snapshots.push(value);
+    };
+
+    accumulator.mergeHistory("slot-1", 1, history(wireUpdate(1, 1, 1, "first")), true, publish);
+    accumulator.mergeHistory("slot-1", 1, [], true, publish);
+
+    expect(snapshots).toHaveLength(1);
+    expect(snapshots[0]?.map((message) => message.text)).toEqual(["first"]);
   });
 
   it("ignores a stale history page after a new transcript generation arrives", () => {
@@ -163,7 +202,7 @@ describe("AgentPaneAccumulator", () => {
     };
 
     accumulator.ingest("slot-1", wireUpdate(3, 1, 1, "replacement"), publish);
-    accumulator.mergeHistory("slot-1", 2, history(wireUpdate(2, 1, 1, "stale")), publish);
+    accumulator.mergeHistory("slot-1", 2, history(wireUpdate(2, 1, 1, "stale")), true, publish);
 
     expect(messages.map((message) => message.text)).toEqual(["replacement"]);
   });
@@ -179,7 +218,7 @@ describe("AgentPaneAccumulator", () => {
     accumulator.ingest("slot-1", wireDelta(1, 1, 1, "a"), publish);
     scheduled.shift()?.();
     accumulator.ingest("slot-1", wireDelta(1, 1, 2, "b"), publish);
-    accumulator.mergeHistory("slot-1", 1, history(wireDelta(1, 1, 2, "ab")), publish);
+    accumulator.mergeHistory("slot-1", 1, history(wireDelta(1, 1, 2, "ab")), true, publish);
 
     expect(messages.map((message) => message.text)).toEqual(["ab"]);
   });
@@ -192,9 +231,9 @@ describe("AgentPaneAccumulator", () => {
     };
 
     accumulator.ingest("slot-1", wireDelta(1, 1, 3, "c"), publish);
-    accumulator.mergeHistory("slot-1", 1, history(wireDelta(1, 1, 2, "ab")), publish);
+    accumulator.mergeHistory("slot-1", 1, history(wireDelta(1, 1, 2, "ab")), true, publish);
     accumulator.ingest("slot-1", wireDelta(1, 1, 4, "d"), publish);
-    accumulator.mergeHistory("slot-1", 1, history(wireDelta(1, 1, 2, "ab")), publish);
+    accumulator.mergeHistory("slot-1", 1, history(wireDelta(1, 1, 2, "ab")), true, publish);
 
     expect(messages.map((message) => message.text)).toEqual(["abcd"]);
   });
@@ -208,8 +247,8 @@ describe("AgentPaneAccumulator", () => {
 
     accumulator.ingest("slot-1", wireDelta(1, 1, 3, "c"), publish);
     const [prefix, suffix] = splitHistory(wireDelta(1, 1, 2, "ab"));
-    accumulator.mergeHistory("slot-1", 1, [suffix], publish);
-    accumulator.mergeHistory("slot-1", 1, [prefix], publish);
+    accumulator.mergeHistory("slot-1", 1, [suffix], false, publish);
+    accumulator.mergeHistory("slot-1", 1, [prefix], true, publish);
 
     expect(messages.map((message) => message.text)).toEqual(["abc"]);
   });
@@ -221,7 +260,7 @@ describe("AgentPaneAccumulator", () => {
       messages = value;
     };
 
-    accumulator.mergeHistory("slot-1", 1, history(wireDelta(1, 1, 2, "ab")), publish);
+    accumulator.mergeHistory("slot-1", 1, history(wireDelta(1, 1, 2, "ab")), true, publish);
     accumulator.ingest("slot-1", wireDelta(1, 1, 2, "b"), publish);
 
     expect(messages.map((message) => message.text)).toEqual(["ab"]);
@@ -234,7 +273,7 @@ describe("AgentPaneAccumulator", () => {
       messages = value;
     };
 
-    accumulator.mergeHistory("slot-1", 1, history(wireDelta(1, 1, 2, "ab")), publish);
+    accumulator.mergeHistory("slot-1", 1, history(wireDelta(1, 1, 2, "ab")), true, publish);
     accumulator.ingest("slot-1", wireDelta(1, 1, 3, "c"), publish);
 
     expect(messages.map((message) => message.text)).toEqual(["abc"]);
@@ -248,14 +287,14 @@ describe("AgentPaneAccumulator", () => {
     };
 
     const [prefix, suffix] = splitHistory(wireUpdate(1, 1, 1, "abcd"));
-    accumulator.mergeHistory("slot-1", 1, [suffix], publish);
+    accumulator.mergeHistory("slot-1", 1, [suffix], false, publish);
     expect(messages).toEqual([]);
-    accumulator.mergeHistory("slot-1", 1, [prefix], publish);
+    accumulator.mergeHistory("slot-1", 1, [prefix], true, publish);
 
     expect(messages.map((message) => message.text)).toEqual(["abcd"]);
   });
 
-  it("discards incomplete fragments when a mutating record restarts paging", () => {
+  it("discards incomplete fragments when a newer record revision completes", () => {
     const accumulator = new AgentPaneAccumulator((callback) => callback());
     let messages: AgentPaneUpdate[] = [];
     const publish = (value: AgentPaneUpdate[]): void => {
@@ -263,11 +302,10 @@ describe("AgentPaneAccumulator", () => {
     };
 
     const [, oldSuffix] = splitHistory(wireUpdate(1, 1, 1, "abcd"));
-    accumulator.mergeHistory("slot-1", 1, [oldSuffix], publish);
-    accumulator.restartHistory("slot-1", 1);
+    accumulator.mergeHistory("slot-1", 1, [oldSuffix], false, publish);
     const [prefix, suffix] = splitHistory(wireUpdate(1, 1, 2, "abcde"));
-    accumulator.mergeHistory("slot-1", 1, [suffix], publish);
-    accumulator.mergeHistory("slot-1", 1, [prefix], publish);
+    accumulator.mergeHistory("slot-1", 1, [suffix], false, publish);
+    accumulator.mergeHistory("slot-1", 1, [prefix], true, publish);
 
     expect(messages.map((message) => message.text)).toEqual(["abcde"]);
   });

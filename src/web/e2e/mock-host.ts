@@ -121,6 +121,13 @@ interface AgentHistoryState {
   pageSize: number;
 }
 
+interface AgentHistoryRead {
+  generation: number;
+  pageSize: number;
+  records: Array<{ message: Record<string, unknown>; ordinal: number; revision: number }>;
+  revision: number;
+}
+
 export class MockHost {
   readonly received: MessageEnvelope[] = [];
   readonly mediaRequests: Array<{ session: string; path: string; status: number }> = [];
@@ -137,6 +144,7 @@ export class MockHost {
     handler: (message: MessageEnvelope) => void;
   }>();
   private readonly agentHistories = new Map<string, AgentHistoryState>();
+  private readonly agentHistoryReads = new Map<string, AgentHistoryRead>();
   private readonly agentItems = new Map<string, Map<string, number>>();
   private readonly agentOrdinals = new Map<string, number>();
   private readonly agentRevisions = new Map<string, number>();
@@ -149,6 +157,7 @@ export class MockHost {
   private fileProviderPaused = false;
   private agentHistoryPauseAfterResponses: number | null = null;
   private agentHistoryResponses = 0;
+  private agentHistoryReadSequence = 0;
   private requestSequence = 0;
   private port = 0;
 
@@ -453,6 +462,7 @@ export class MockHost {
   private onConnection(socket: WebSocket): void {
     this.socket = socket;
     socket.on("message", (data) => this.onMessage(String(data)));
+    socket.on("close", () => this.agentHistoryReads.clear());
   }
 
   private onMessage(raw: string): void {
@@ -510,6 +520,18 @@ export class MockHost {
       this.answerAgentHistory(message);
       return;
     }
+    if (
+      message.kind === "event" &&
+      message.scope === "session" &&
+      message.feature === "agent" &&
+      message.name === "historyClose"
+    ) {
+      const readId = (message.payload as { readId?: unknown }).readId;
+      if (typeof readId === "string") {
+        this.agentHistoryReads.delete(readId);
+      }
+      return;
+    }
     this.answerFileProvider(message);
   }
 
@@ -525,33 +547,53 @@ export class MockHost {
       return;
     }
     this.agentHistoryResponses++;
-    const history = this.agentHistories.get(this.addressKey(request.session)) ?? {
-      generation: 0,
-      messages: [],
-      pageSize: 100,
-    };
     const supplied = request.payload as {
       cursor?: {
         before?: number;
-        ceiling?: number;
-        generation?: number;
         jsonBefore?: number | null;
+        readId?: string;
       } | null;
+      knownGeneration?: number | null;
+      knownRevision?: number | null;
     };
-    const ceiling = supplied.cursor?.ceiling ?? history.messages.length;
-    const before = supplied.cursor?.before ?? ceiling;
-    const start = Math.max(0, before - history.pageSize);
-    const records = history.messages.slice(start, before).map((message, index) => ({
-      ...message,
-      generation: history.generation,
-      ordinal: start + index + 1,
-      revision: start + index + 1,
+    const readId = supplied.cursor?.readId ?? `history-${++this.agentHistoryReadSequence}`;
+    let read = this.agentHistoryReads.get(readId);
+    if (read === undefined) {
+      const current = this.agentHistories.get(this.addressKey(request.session)) ?? {
+        generation: 0,
+        messages: [],
+        pageSize: 100,
+      };
+      const revision = current.messages.length;
+      const afterRevision =
+        supplied.knownGeneration === current.generation ? (supplied.knownRevision ?? 0) : 0;
+      read = {
+        generation: current.generation,
+        pageSize: current.pageSize,
+        records: current.messages.flatMap((message, index) => {
+          const recordRevision = index + 1;
+          return recordRevision > afterRevision
+            ? [{ message, ordinal: recordRevision, revision: recordRevision }]
+            : [];
+        }),
+        revision,
+      };
+      this.agentHistoryReads.set(readId, read);
+    }
+    const before = supplied.cursor?.before ?? read.records.length;
+    const start = Math.max(0, before - read.pageSize);
+    const records = read.records.slice(start, before).map((record) => ({
+      ...record.message,
+      generation: read.generation,
+      ordinal: record.ordinal,
+      revision: record.revision,
       textOffset: 0,
-      textLength: typeof message.text === "string" ? message.text.length : 0,
+      textLength: typeof record.message.text === "string" ? record.message.text.length : 0,
     }));
     const payload = {
-      generation: history.generation,
-      restarted: false,
+      generation: read.generation,
+      readId,
+      revision: read.revision,
       messages: records.map((record) => {
         const json = JSON.stringify(record);
         return {
@@ -567,13 +609,14 @@ export class MockHost {
         start === 0
           ? null
           : {
-              generation: history.generation,
-              ceiling,
+              readId,
               before: start,
               jsonBefore: null,
-              jsonRevision: null,
             },
     };
+    if (payload.cursor === null) {
+      this.agentHistoryReads.delete(readId);
+    }
     this.send(this.response(request, payload));
   }
 

@@ -90,5 +90,9 @@ function parseChunk(raw: string): WireChunk | null {
 
 function decodeBase64(value: string): Uint8Array {
   const decoded = atob(value);
-  return Uint8Array.from(decoded, (character) => character.charCodeAt(0));
+  const bytes = new Uint8Array(decoded.length);
+  for (let index = 0; index < decoded.length; index += 1) {
+    bytes[index] = decoded.charCodeAt(index);
+  }
+  return bytes;
 }

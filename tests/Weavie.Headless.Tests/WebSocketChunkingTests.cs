@@ -83,6 +83,38 @@ public sealed class WebSocketChunkingTests {
 	}
 
 	[Fact]
+	public async Task OnlyOneLargeBodyIsPartialWhileSmallRoutesRemainFair() {
+		var bridge = new WebSocketHostBridge();
+		var socket = new GatedCapturingSocket();
+		using var stopping = new CancellationTokenSource();
+		var received = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		bridge.MessageReceived += (_, _) => received.TrySetResult();
+		var serving = bridge.ServeAsync(socket, stopping.Token);
+		await received.Task;
+		string large = JsonSerializer.Serialize(new { payload = new string('a', 1_000_000) });
+		const string branch = "{\"branches\":[\"main\"]}";
+
+		bridge.Broadcast(Message("agent-a", large));
+		await socket.FirstSendStarted;
+		int chunkCount = ChunkCount(socket.FirstMessage);
+		bridge.Broadcast(Message("agent-b", large));
+		bridge.Broadcast(Message("git", branch));
+		socket.Expect((chunkCount * 2) + 1);
+		socket.ReleaseFirstSend();
+
+		var messages = await socket.Complete;
+		Assert.Equal(branch, Encoding.UTF8.GetString(messages[1]));
+		string[] ids = [.. messages
+			.Where((_, index) => index != 1)
+			.Select(ChunkId)];
+		Assert.Single(ids.Take(chunkCount).Distinct());
+		Assert.Single(ids.Skip(chunkCount).Distinct());
+		Assert.NotEqual(ids[0], ids[^1]);
+		await stopping.CancelAsync();
+		await serving;
+	}
+
+	[Fact]
 	public async Task SameRoutePreservesLogicalMessageOrder() {
 		var bridge = new WebSocketHostBridge();
 		var socket = new GatedCapturingSocket();
@@ -142,6 +174,11 @@ public sealed class WebSocketChunkingTests {
 	private static bool IsChunk(byte[] message) {
 		using var document = JsonDocument.Parse(message);
 		return document.RootElement.TryGetProperty("$weavieChunk", out _);
+	}
+
+	private static string ChunkId(byte[] message) {
+		using var document = JsonDocument.Parse(message);
+		return document.RootElement.GetProperty("$weavieChunk").GetProperty("id").GetString()!;
 	}
 
 	private static WebTransportMessage Message(string feature, string json) =>

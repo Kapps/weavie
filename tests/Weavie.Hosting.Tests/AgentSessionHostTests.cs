@@ -118,6 +118,34 @@ public sealed class AgentSessionHostTests {
 	}
 
 	[Fact]
+	public async Task Completed_history_baseline_returns_only_later_record_revisions() {
+		await using var fixture = CreateFixture(static () => "slot-1", static (_, _) => { }, 0);
+		var (session, host) = (fixture.Session, fixture.Host);
+		host.Structured!.Start();
+		for (int index = 0; index < 10; index++) {
+			session.Emit(Completed($"initial-{index}", $"initial {index}"));
+		}
+		await host.DrainPaneAsync(CancellationToken.None);
+		var initial = await HistoryPages(host);
+		var baseline = initial[0];
+
+		var unchanged = await host.ReadHistoryPageFromBaselineAsync(
+			new AgentPaneHistoryRequest(null, baseline.Generation, baseline.Revision),
+			CancellationToken.None);
+		Assert.Empty(unchanged.Messages);
+		Assert.Null(unchanged.Cursor);
+
+		session.Emit(Completed("later", "later result"));
+		await host.DrainPaneAsync(CancellationToken.None);
+		var delta = await host.ReadHistoryPageFromBaselineAsync(
+			new AgentPaneHistoryRequest(null, baseline.Generation, baseline.Revision),
+			CancellationToken.None);
+		var message = Assert.Single(AssembleHistory([delta]));
+		Assert.Equal("later", message.GetProperty("itemId").GetString());
+		Assert.True(delta.Revision > baseline.Revision);
+	}
+
+	[Fact]
 	public async Task Oversized_history_record_is_fragmented_within_the_page_budget() {
 		await using var fixture = CreateFixture(static () => "slot-1", static (_, _) => { }, 0);
 		var (session, host) = (fixture.Session, fixture.Host);
@@ -141,6 +169,27 @@ public sealed class AgentSessionHostTests {
 			fragments.Select((_, index) => fragments.Take(index).Sum(
 				fragment => fragment.Json.Length)));
 		Assert.All(fragments, fragment => Assert.Equal(json.Length, fragment.JsonLength));
+	}
+
+	[Fact]
+	public void History_fragment_measure_matches_the_serialized_wire_size() {
+		var record = new AgentPaneRecord(
+			12,
+			-345,
+			long.MinValue,
+			Completed("measure", "quote \" slash \\ snowman ☃ emoji 😀"));
+		string json = AgentPaneProtocol.Serialize(record);
+		var fragment = new AgentPaneFragment(record, json[7..^3], 7, json.Length);
+		byte[] expected = JsonSerializer.SerializeToUtf8Bytes(new {
+			generation = record.Generation,
+			ordinal = record.Ordinal,
+			revision = record.Revision,
+			jsonOffset = fragment.JsonOffset,
+			jsonLength = fragment.JsonLength,
+			json = fragment.Json,
+		});
+
+		Assert.Equal(expected.Length, AgentPaneProtocol.Measure(fragment));
 	}
 
 	[Fact]
@@ -176,7 +225,7 @@ public sealed class AgentSessionHostTests {
 	}
 
 	[Fact]
-	public async Task Mutated_fragmented_record_restarts_from_one_exact_revision() {
+	public async Task Fragmented_history_read_keeps_one_immutable_revision_while_live_output_changes() {
 		await using var fixture = CreateFixture(static () => "slot-1", static (_, _) => { }, 0);
 		var (session, host) = (fixture.Session, fixture.Host);
 		string initial = new('a', AgentSessionHost.HistoryPageTargetBytes * 2);
@@ -191,27 +240,24 @@ public sealed class AgentSessionHostTests {
 		session.Emit(delta);
 		await host.DrainPaneAsync(CancellationToken.None);
 		var first = await host.ReadHistoryPageAsync(null, CancellationToken.None);
-		Assert.False(first.Restarted);
-		Assert.NotNull(first.Cursor?.JsonRevision);
+		Assert.NotNull(first.Cursor?.JsonBefore);
 
 		session.Emit(delta with { Text = "tail" });
 		await host.DrainPaneAsync(CancellationToken.None);
-		var restarted = await host.ReadHistoryPageAsync(first.Cursor, CancellationToken.None);
-		Assert.True(restarted.Restarted);
-		Assert.NotEqual(first.Cursor!.JsonRevision, restarted.Cursor?.JsonRevision);
-
-		var pages = new List<AgentPaneHistoryPage> { restarted };
-		var cursor = restarted.Cursor;
+		var pages = new List<AgentPaneHistoryPage> { first };
+		var cursor = first.Cursor;
 		while (cursor is not null) {
 			var page = await host.ReadHistoryPageAsync(cursor, CancellationToken.None);
-			Assert.False(page.Restarted);
 			pages.Insert(0, page);
 			cursor = page.Cursor;
 		}
 		var fragments = pages.SelectMany(page => page.Messages).ToArray();
 		var record = Assert.Single(AssembleHistory(pages));
-		Assert.Equal(initial + "tail", record.GetProperty("text").GetString());
+		Assert.Equal(initial, record.GetProperty("text").GetString());
 		Assert.Single(fragments.Select(fragment => fragment.Record.Revision).Distinct());
+
+		var latest = Assert.Single(await History(host));
+		Assert.Equal(initial + "tail", latest.GetProperty("text").GetString());
 	}
 
 	[Fact]

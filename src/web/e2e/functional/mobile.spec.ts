@@ -89,7 +89,7 @@ async function pasteThroughNativeTerminalInput(
   const point = { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 };
   expect(await dispatchPaneTouch(input, "touchstart", point)).toBe(true);
   expect(await dispatchPaneTouch(input, "touchend", point)).toBe(true);
-  await page.touchscreen.tap(point.x, point.y);
+  await input.tap();
   await expect(input).toBeFocused();
 
   const result = await input.evaluate(

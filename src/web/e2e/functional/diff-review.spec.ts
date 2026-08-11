@@ -535,3 +535,82 @@ test.describe("applied review — a new file is marked, not washed", () => {
     await expect(page.locator(NEWFILE_TAG)).toHaveCount(0);
   });
 });
+
+test.describe("applied review — oversized files stay responsive", () => {
+  test.use({
+    fakeScript: {
+      steps: [
+        ...appliedEdit("boundary.txt", `${"boundary\n".repeat(1_999)}boundary`),
+        ...appliedEdit("generated.txt", "generated\n".repeat(2_001)),
+        ...appliedEdit("notes.txt", "still reviewable\n"),
+      ],
+    },
+  });
+
+  test("shows a file-level fallback instead of thousands of diff decorations", async ({ page }) => {
+    await openFile(page, "boundary.txt");
+    await expect(page.locator(SCOPE)).toBeVisible();
+
+    await openFile(page, "generated.txt");
+
+    await expect(page.locator(TOOLBAR)).toContainText("Diff too large to display");
+    await expect(page.locator(ADDED)).toHaveCount(0);
+    await expect(page.locator(".weavie-inline-accept")).toHaveCount(1);
+    await expect(page.locator(".weavie-inline-reject")).toHaveCount(1);
+    await expect(page.locator(SCOPE)).toHaveCount(0);
+    await expect(page.locator(".weavie-inline-file")).toHaveCount(2);
+
+    const originalText = await page.evaluate(() =>
+      window.__WEAVIE_EDITOR__?.getModel()?.getValue(),
+    );
+    await page.keyboard.press("ControlOrMeta+Shift+Enter");
+    await page.keyboard.press("ControlOrMeta+Shift+Backspace");
+    expect(await page.evaluate(() => window.__WEAVIE_EDITOR__?.getModel()?.getValue())).toBe(
+      originalText,
+    );
+    await page.keyboard.press("ArrowDown");
+    await expect(page.locator(TOOLBAR)).toContainText("Diff too large to display");
+
+    await page.locator(".weavie-inline-file").last().click();
+    await expect(page.locator(".weavie-inline-stack-name")).toHaveText("notes.txt");
+
+    await page.locator(".weavie-inline-file").first().click();
+    await expect(page.locator(TOOLBAR)).toContainText("Diff too large to display");
+    await page.keyboard.press("ControlOrMeta+Enter");
+    await expect(page.locator(TOOLBAR)).toContainText("File kept");
+    await expect(page.locator(".weavie-inline-accept")).toHaveCount(0);
+    await expect(page.locator(".weavie-inline-reject")).toHaveCount(0);
+    const keptText = await page.evaluate(() => window.__WEAVIE_EDITOR__?.getModel()?.getValue());
+    await page.keyboard.press("ControlOrMeta+Backspace");
+    expect(await page.evaluate(() => window.__WEAVIE_EDITOR__?.getModel()?.getValue())).toBe(
+      keptText,
+    );
+    await openFile(page, "notes.txt");
+    await expect(page.locator(".weavie-inline-stack-name")).toHaveText("notes.txt");
+  });
+});
+
+test.describe("applied review — file navigation is bounded", () => {
+  test.use({
+    fakeScript: {
+      steps: Array.from({ length: 100 }, (_, index) =>
+        appliedEdit(`bulk-${index}.txt`, `change ${index}\n`),
+      ).flat(),
+    },
+  });
+
+  test("exposes at most 99 files to the review walk", async ({ page }) => {
+    await openFile(page, "README.md");
+
+    await expect
+      .poll(() => page.evaluate(() => window.__WEAVIE_REVIEW__?.files.length ?? 0))
+      .toBe(99);
+    await expect(page.locator(".weavie-inline-stack-sub")).toContainText("showing 99 of 100");
+
+    await openFile(page, "bulk-0.txt");
+    await page.locator(".weavie-inline-scope-btn").click();
+    await expect(page.locator(".weavie-inline-scope-item", { hasText: "All files" })).toHaveCount(
+      0,
+    );
+  });
+});

@@ -37,6 +37,33 @@ test.describe("openDiff review", () => {
   });
 });
 
+test.describe("oversized openDiff review", () => {
+  test.use({ fakeScript: { steps: [sleep, openDiff("// OVERSIZED\n".repeat(2_001))] } });
+
+  test("the Keep shortcut still resolves the proposal", async ({ page }) => {
+    await expect(page.locator(".weavie-inline-toolbar")).toContainText(
+      "Diff too large to display",
+      {
+        timeout: 15_000,
+      },
+    );
+    await page.keyboard.press("ControlOrMeta+Enter");
+    await expect(page.locator(".weavie-inline-toolbar")).toHaveCount(0);
+    await expect(page.locator(".monaco-editor .view-lines")).toContainText("OVERSIZED");
+  });
+
+  test("the Reject shortcut still resolves the proposal", async ({ page }) => {
+    await expect(page.locator(".weavie-inline-toolbar")).toContainText(
+      "Diff too large to display",
+      {
+        timeout: 15_000,
+      },
+    );
+    await page.keyboard.press("ControlOrMeta+Backspace");
+    await expect(page.locator(".weavie-inline-toolbar")).toHaveCount(0);
+  });
+});
+
 test.describe("change navigation", () => {
   // Two separated edits → two hunks, so the review walk has something to navigate.
   const twoHunks =

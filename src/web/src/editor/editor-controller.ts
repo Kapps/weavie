@@ -89,6 +89,8 @@ export interface ReviewFile {
   line: number;
 }
 
+const MAX_REVIEW_FILES = 99;
+
 interface TurnDiff {
   path: string;
   name: string;
@@ -278,6 +280,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   const [parkedReviewCount, setParkedReviewCount] = createSignal(0);
   // Files Claude changed since the last review, in document order; drives the toolbar's ← / → file walk.
   let reviewFiles: ReviewFile[] = [];
+  let reviewFilesTruncated = false;
   // Names the review in the toolbar/parked subtitle ("PR #12", "vs main"); empty for a plain post-turn review.
   // Carried on the turn-changes push (from the host's active DiffReview), so the applied surface always names
   // what it's diffing against.
@@ -937,6 +940,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       canRedo: false,
     });
     reviewFiles = [];
+    reviewFilesTruncated = false;
     reviewLabel = "";
     commentsByPath.clear();
     updateParkedReview();
@@ -1176,8 +1180,13 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       onRevertHunk: (hunk) => revertHunk(session, message.path, hunk),
       onRevertFile: () => revertFile(session, message.path),
       onUnkeepHunk: (hunk) => unkeepHunk(session, message.path, hunk),
-      onKeepAll: () => session.feature("review").publish("accept", {}),
-      onUndo: () => revertAllFor(session),
+      ...(!reviewFilesTruncated
+        ? {
+            onKeepAll: () => session.feature("review").publish("accept", {}),
+            onUndo: () => revertAllFor(session),
+          }
+        : {}),
+      allActionsDisabled: reviewFilesTruncated,
       fileLabel: message.name,
       ...(reviewLabel !== "" ? { reviewLabel } : {}),
       ...fileNavigation,
@@ -1200,8 +1209,12 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       clearPresentedProposal();
     }
     resetPresentedReview();
-    reviewFiles = state.files;
-    reviewLabel = state.label;
+    reviewFiles = state.files.slice(0, MAX_REVIEW_FILES);
+    const reviewFileCount = Math.max(state.files.length, state.diffs.size);
+    reviewFilesTruncated = reviewFileCount > MAX_REVIEW_FILES;
+    reviewLabel = reviewFilesTruncated
+      ? `${state.label === "" ? "" : `${state.label} · `}showing ${MAX_REVIEW_FILES} of ${reviewFileCount}`
+      : state.label;
     for (const [path, comments] of state.comments) {
       commentsByPath.set(path, {
         number: comments.number,

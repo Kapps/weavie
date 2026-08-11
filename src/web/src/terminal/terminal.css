@@ -16,6 +16,21 @@
   padding: 4px 0 4px 6px;
 }
 
+.term.terminal-native-touch-paste .xterm-helper-textarea {
+  min-width: 80px;
+  min-height: 32px;
+  opacity: 1;
+  outline: none;
+  appearance: none;
+  background: transparent;
+  color: transparent;
+  caret-color: transparent;
+  -webkit-text-fill-color: transparent;
+  user-select: text;
+  -webkit-touch-callout: default;
+  pointer-events: auto;
+}
+
 /* xterm's scroll viewport is hardcoded to `overflow-y: scroll`, so WebView2 paints its full native
    scrollbar — grey track, arrow buttons, ~17px wide — on every terminal pane even when there's
    nothing to scroll (and the Claude pane's full-screen TUI has no useful scrollback at all). It

@@ -72,6 +72,73 @@ async function terminalRows(
   }, pane);
 }
 
+async function pasteThroughNativeTerminalInput(
+  page: import("@playwright/test").Page,
+  pane: "claude" | "shell",
+  text: string,
+): Promise<void> {
+  const surface = page.locator(`.terminal-surface[data-kind="terminal:${pane}"]`);
+  const input = surface.locator(".xterm-helper-textarea");
+  await expect(input).toBeVisible();
+  const bounds = await input.boundingBox();
+  if (bounds === null) {
+    throw new Error(`Missing ${pane} terminal input bounds`);
+  }
+  expect(bounds.width).toBeGreaterThanOrEqual(80);
+  expect(bounds.height).toBeGreaterThanOrEqual(32);
+  const point = { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 };
+  expect(await dispatchPaneTouch(input, "touchstart", point)).toBe(true);
+  expect(await dispatchPaneTouch(input, "touchend", point)).toBe(true);
+  await page.touchscreen.tap(point.x, point.y);
+  await expect(input).toBeFocused();
+
+  const result = await input.evaluate(
+    (element, request) => {
+      const terminal = Object.entries(window.__WEAVIE_TERMINALS__ ?? {}).find(([key]) =>
+        key.endsWith(`:${request.pane}`),
+      )?.[1];
+      if (terminal === undefined || !(element instanceof HTMLTextAreaElement)) {
+        throw new Error(`Missing ${request.pane} terminal input`);
+      }
+      const input: string[] = [];
+      const subscription = terminal.onData((data) => input.push(data));
+      const clipboard = new DataTransfer();
+      clipboard.setData("text/plain", request.text);
+      const clipboardPasteAllowed = element.dispatchEvent(
+        new ClipboardEvent("paste", { clipboardData: clipboard, bubbles: true, cancelable: true }),
+      );
+      element.value = `${request.text} fallback`;
+      element.dispatchEvent(
+        new InputEvent("input", { bubbles: true, data: null, inputType: "insertFromPaste" }),
+      );
+      const contextMenuAllowed = element.dispatchEvent(
+        new MouseEvent("contextmenu", {
+          bubbles: true,
+          cancelable: true,
+          clientX: request.x,
+          clientY: request.y,
+        }),
+      );
+      subscription.dispose();
+      return {
+        clipboardPasteAllowed,
+        contextMenuAllowed,
+        data: input,
+        value: element.value,
+      };
+    },
+    { pane, text, x: point.x, y: point.y },
+  );
+  expect(result).toMatchObject({
+    clipboardPasteAllowed: false,
+    contextMenuAllowed: true,
+    value: "",
+  });
+  expect(result.data).toHaveLength(2);
+  expect(result.data[0]).toContain(text);
+  expect(result.data[1]).toContain(`${text} fallback`);
+}
+
 test.use({
   colorScheme: "light",
   fakeScript: {
@@ -202,6 +269,15 @@ test("tapping the Claude Code prompt focuses its mobile keyboard input", async (
   expect(keyboardGeometry.navBottom).toBe(524);
   expect(keyboardGeometry.paneBottom).toBeLessThan(524);
   await expect.poll(() => terminalRows(page, "claude")).toBeLessThan(initialRows);
+});
+
+test("the terminal cursor exposes native paste in both terminal panes", async ({ page }) => {
+  await page.locator(".session-inbox-row").click();
+  expect(await page.evaluate(() => matchMedia("(pointer: coarse)").matches)).toBe(true);
+
+  await pasteThroughNativeTerminalInput(page, "claude", "claude paste");
+  await page.getByRole("button", { name: "Shell" }).click();
+  await pasteThroughNativeTerminalInput(page, "shell", "shell paste");
 });
 
 test("touch scrolling and tapping a mouse-aware Claude prompt send valid input", async ({

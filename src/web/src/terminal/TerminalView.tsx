@@ -76,6 +76,8 @@ export function TerminalView(props: {
       ? { vtExtensions: { win32InputMode: true, kittyKeyboard: true } }
       : {}),
   });
+  const nativeTouchPaste =
+    isBrowserHostedShell() && window.matchMedia("(hover: none) and (pointer: coarse)").matches;
   const fit = new FitAddon();
   const encoder = new TextEncoder();
   // Introspection key (e2e/diagnostics): slot + pane, so two sessions' panes don't collide.
@@ -85,9 +87,17 @@ export function TerminalView(props: {
     term.loadAddon(fit);
     term.open(container);
     const screen = container.querySelector<HTMLElement>(".xterm-screen");
-    if (screen === null) {
-      throw new Error("Xterm did not mount its screen");
+    const textarea = container.querySelector<HTMLTextAreaElement>(".xterm-helper-textarea");
+    if (screen === null || textarea === null) {
+      throw new Error("Xterm did not mount its input surface");
     }
+    const keepNativeTouchTarget = (): void => {
+      if (nativeTouchPaste) {
+        textarea.style.zIndex = "10";
+      }
+    };
+    keepNativeTouchTarget();
+    const nativeCursorSub = nativeTouchPaste ? term.onCursorMove(keepNativeTouchTarget) : undefined;
     const disposeTouch = bindTerminalTouch(
       screen,
       createTerminalTouchController({
@@ -284,11 +294,35 @@ export function TerminalView(props: {
     });
 
     term.onResize(({ cols, rows }) => {
+      keepNativeTouchTarget();
       messages.publish("resize", { columns: cols, rows });
     });
 
     // Register this pane's focus fn so the layout can land keyboard focus here (Ctrl+N / focus-pane).
     props.onFocusReady?.(() => term.focus());
+
+    // Xterm's document gesture listener cancels long-press; its own cursor textarea keeps native paste local.
+    const stopNativeTouch = (event: TouchEvent): void => event.stopPropagation();
+    const onNativePaste = (event: ClipboardEvent): void => {
+      if (event.clipboardData !== null) {
+        event.preventDefault();
+      }
+    };
+    const onNativePasteInput = (event: InputEvent): void => {
+      if (event.inputType === "insertFromPaste" && textarea.value.length > 0) {
+        term.paste(textarea.value);
+        textarea.value = "";
+      }
+    };
+    const nativeTouchEvents = ["touchstart", "touchmove", "touchend", "touchcancel"] as const;
+    if (nativeTouchPaste) {
+      for (const event of nativeTouchEvents) {
+        textarea.addEventListener(event, stopNativeTouch);
+      }
+      textarea.addEventListener("compositionstart", keepNativeTouchTarget);
+      textarea.addEventListener("paste", onNativePaste, true);
+      textarea.addEventListener("input", onNativePasteInput);
+    }
 
     const resizeObserver = new ResizeObserver(() => refit());
     resizeObserver.observe(container);
@@ -352,6 +386,14 @@ export function TerminalView(props: {
       offClipboard.dispose();
       offImagePaste();
       offCwd.dispose();
+      if (nativeTouchPaste) {
+        for (const event of nativeTouchEvents) {
+          textarea.removeEventListener(event, stopNativeTouch);
+        }
+        textarea.removeEventListener("compositionstart", keepNativeTouchTarget);
+        textarea.removeEventListener("paste", onNativePaste, true);
+        textarea.removeEventListener("input", onNativePasteInput);
+      }
       container.removeEventListener("focusin", onContainerFocus);
       resizeObserver.disconnect();
       window.removeEventListener("resize", refit);
@@ -363,6 +405,7 @@ export function TerminalView(props: {
       }
       cancelWebglDispose();
       webgl?.dispose();
+      nativeCursorSub?.dispose();
       disposeTouch();
       term.dispose();
     });
@@ -374,10 +417,11 @@ export function TerminalView(props: {
   return (
     <div
       class="term"
-      role="application"
+      classList={{ "terminal-native-touch-paste": nativeTouchPaste }}
       ref={container}
+      role="application"
       onContextMenu={(event) => {
-        if (props.onContextMenu === undefined) {
+        if (nativeTouchPaste || props.onContextMenu === undefined) {
           return;
         }
         event.preventDefault();

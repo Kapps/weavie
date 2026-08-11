@@ -26,6 +26,10 @@ const RECOMPUTE_DEBOUNCE_MS = 120;
 // Show change-position dots only up to this many hunks; above it the numeric `change j/M` carries position.
 const MAX_CHANGE_DOTS = 7;
 
+// Rendering thousands of lines creates enough Monaco decorations and DOM nodes to freeze the review UI.
+const MAX_DIFF_LINES = 2_000;
+const MAX_DIFF_CHARACTERS = 500_000;
+
 // Height of the "New file" header band shown above a wholly-new file's first line.
 const NEW_FILE_BADGE_HEIGHT = 24;
 
@@ -99,6 +103,8 @@ export interface InlineDiffOptions {
   onUnkeepHunk?: (hunk: HunkUnkeep) => void;
   /** Applied mode — Keep-all: clear the whole accumulated review set in one action. */
   onKeepAll?: () => void;
+  /** The file walk is truncated, so whole-review actions would reach unseen files. */
+  allActionsDisabled?: boolean;
   /** Applied mode — Keep-file: keep ALL of this file's changes, advancing its review baseline to current. */
   onKeepFile?: () => void;
   /** Applied mode — Revert-file: revert ALL of this file's changes to its turn baseline on disk. */
@@ -200,6 +206,23 @@ function splitLines(text: string): string[] {
   return text.replace(/\r\n?/g, "\n").split("\n");
 }
 
+function textTooLarge(text: string): boolean {
+  if (text.length > MAX_DIFF_CHARACTERS) {
+    return true;
+  }
+  let lines = 1;
+  for (let i = 0; i < text.length; i++) {
+    const char = text.charCodeAt(i);
+    if (
+      (char === 10 || (char === 13 && text.charCodeAt(i + 1) !== 10)) &&
+      ++lines > MAX_DIFF_LINES
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 // A file carries a faded "accepted" band (kept-but-uncommitted hunks) iff its accepted anchor diverges from the
 // review baseline. Only meaningful in applied mode. A fully-kept file has no bright hunks but still shows this band.
 function hasFadedBand(options: InlineDiffOptions): boolean {
@@ -207,6 +230,14 @@ function hasFadedBand(options: InlineDiffOptions): boolean {
     options.mode === "applied" &&
     options.acceptedBaseline !== undefined &&
     options.acceptedBaseline !== options.original
+  );
+}
+
+function fileIsKept(options: InlineDiffOptions): boolean {
+  return (
+    options.mode === "applied" &&
+    hasFadedBand(options) &&
+    options.original === options.claudeVersion
   );
 }
 
@@ -229,9 +260,16 @@ interface AcceptedHunk extends HunkUnkeep {
  * Uses the same diff machinery and anchor rule as `render`, so it matches where "next change" first lands.
  */
 export function firstChangedLine(original: string, modified: string): number {
-  const { changes } = linesDiffComputers
+  if (textTooLarge(original) || textTooLarge(modified)) {
+    return 1;
+  }
+  const result = linesDiffComputers
     .getDefault()
     .computeDiff(splitLines(original), splitLines(modified), DIFF_OPTIONS);
+  if (result.hitTimeout) {
+    return 1;
+  }
+  const { changes } = result;
   const first = changes[0];
   return first === undefined ? 1 : Math.max(1, first.modified.startLineNumber);
 }
@@ -248,6 +286,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
   let recomputeTimer: ReturnType<typeof setTimeout> | undefined;
   // The currently-rendered diff's options + hunks; the nav/action methods all operate on these.
   let currentOptions: InlineDiffOptions | undefined;
+  let fallbackNavigation: InlineDiffOptions | undefined;
   let currentHunks: Hunk[] = [];
   // Monaco content widgets for the per-hunk inline affordances — ✓ keep / ✕ revert beside each bright pending
   // hunk, ↶ undo beside each faded accepted one — removed on every re-render.
@@ -325,6 +364,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
 
     showingParked = false;
     currentOptions = undefined;
+    fallbackNavigation = undefined;
     currentHunks = [];
     renderedUri = undefined;
   };
@@ -813,28 +853,37 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
   // A live review with no file axis (single-file) has no ← / → handler, so the chord would fall through. On
   // Win/Linux that's wanted — ctrl+$mod+←/→ is plain Ctrl+←/→ word-nav. On macOS it's Ctrl+⌘+←/→, which has no
   // native meaning, so falling through just rings the system bell — swallow it instead while a review is up.
-  const swallowFileNav = (): boolean => IS_MAC && currentOptions?.mode === "applied";
+  const fileOptions = (): InlineDiffOptions | undefined => currentOptions ?? fallbackNavigation;
+  const swallowFileNav = (): boolean => IS_MAC && fileOptions()?.mode === "applied";
   const nextFile = (): boolean =>
     composerFocused()
       ? false
       : showingParked
         ? stepIn()
-        : runAction(currentOptions?.onNextFile) || swallowFileNav();
+        : runAction(fileOptions()?.onNextFile) || swallowFileNav();
   const prevFile = (): boolean =>
     composerFocused()
       ? false
       : showingParked
         ? stepIn()
-        : runAction(currentOptions?.onPrevFile) || swallowFileNav();
+        : runAction(fileOptions()?.onPrevFile) || swallowFileNav();
 
   // Per-file Keep (applied mode): the host advances the file's whole review baseline to current, dropping it
   // from the review set. Returns false outside applied mode.
-  const keepFile = (): boolean =>
-    runAction(currentOptions?.mode === "applied" ? currentOptions.onKeepFile : undefined);
+  const keepFile = (): boolean => {
+    const options = fileOptions();
+    return runAction(
+      options?.mode === "applied" && !fileIsKept(options) ? options.onKeepFile : undefined,
+    );
+  };
   // Per-file Revert (applied mode): the host restores the whole file to its turn baseline on disk; the
   // editor-controller routes this through a confirm before posting. Returns false outside applied mode.
-  const revertFile = (): boolean =>
-    runAction(currentOptions?.mode === "applied" ? currentOptions.onRevertFile : undefined);
+  const revertFile = (): boolean => {
+    const options = fileOptions();
+    return runAction(
+      options?.mode === "applied" && !fileIsKept(options) ? options.onRevertFile : undefined,
+    );
+  };
 
   // Comment on the current cursor line (a PR file under review, which carries onAddComment). Returns false (the
   // key falls through) for a plain turn file or when no diff is active.
@@ -856,9 +905,13 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     if (showingParked) {
       return stepIn(); // Keep at "change 0" enters the review rather than acting
     }
-    const options = currentOptions;
+    const options = fileOptions();
     if (options?.mode !== "applied") {
       return runAction(options?.onAccept);
+    }
+    if (currentOptions === undefined) {
+      keepFile();
+      return true;
     }
     const scope = currentScope;
     return scope === "change" ? keepHunk() : scope === "file" ? keepFile() : keepAll();
@@ -870,9 +923,13 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     if (showingParked) {
       return false; // nothing to revert from "change 0"
     }
-    const options = currentOptions;
+    const options = fileOptions();
     if (options?.mode !== "applied") {
       return runAction(options?.onReject);
+    }
+    if (currentOptions === undefined) {
+      revertFile();
+      return true;
     }
     const scope = currentScope;
     return scope === "change" ? revertHunk() : scope === "file" ? revertFile() : undo();
@@ -884,7 +941,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
   // A review surface is up (a live diff or the parked navigator), or there's undo history to act on — in either
   // case the undo chords are meaningful and must consume the key rather than type into the editor.
   const reviewUp = (): boolean =>
-    parkedReview !== undefined || currentOptions?.mode === "applied" || history.canUndo;
+    parkedReview !== undefined || fileOptions()?.mode === "applied" || history.canUndo;
   const undoKeep = (): boolean => {
     if (!reviewUp()) {
       return false;
@@ -1017,11 +1074,13 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     // navigator (keep-all / revert-all), so a single-file review still has a way out. "All files" reads wrong
     // for one file, so name it "All changes" (counting hunks) there.
     const manyFiles = (options.fileCount ?? 1) > 1;
-    addItem(
-      "all",
-      manyFiles ? "All files" : "All changes",
-      manyFiles ? options.fileCount : currentHunks.length,
-    );
+    if (options.allActionsDisabled !== true) {
+      addItem(
+        "all",
+        manyFiles ? "All files" : "All changes",
+        manyFiles ? options.fileCount : currentHunks.length,
+      );
+    }
     wrap.append(toggle, menu);
     return wrap;
   };
@@ -1174,6 +1233,80 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     return bar;
   };
 
+  const renderTooLarge = (uriString: string, options: InlineDiffOptions): void => {
+    fallbackNavigation = options;
+    const fileKept = fileIsKept(options);
+    const editorDom = editor.getDomNode();
+    if (editorDom !== null) {
+      toolbarNode = document.createElement("div");
+      toolbarNode.className = "weavie-inline-toolbar";
+      const multiFile =
+        options.fileCount !== undefined &&
+        options.fileCount > 1 &&
+        options.onPrevFile !== undefined &&
+        options.onNextFile !== undefined;
+      if (multiFile) {
+        toolbarNode.appendChild(
+          makeButton(
+            "weavie-inline-file",
+            "←",
+            withShortcut("Previous file", CommandIds.reviewPrevFile),
+            prevFile,
+          ),
+        );
+      }
+      const warning = document.createElement("span");
+      warning.className = "weavie-inline-stack-sub";
+      warning.textContent = fileKept
+        ? "File kept · diff too large to display"
+        : "Diff too large to display";
+      toolbarNode.appendChild(warning);
+      if (multiFile) {
+        toolbarNode.appendChild(
+          makeButton(
+            "weavie-inline-file",
+            "→",
+            withShortcut("Next file", CommandIds.reviewNextFile),
+            nextFile,
+          ),
+        );
+      }
+      if (options.mode === "applied" && !fileKept) {
+        toolbarNode.append(
+          makeButton(
+            "weavie-inline-accept",
+            "Keep",
+            withShortcut("Keep this file", CommandIds.keepFile),
+            () => runAction(options.onKeepFile),
+          ),
+          makeButton(
+            "weavie-inline-reject",
+            "Revert",
+            withShortcut("Revert this file", CommandIds.revertFile),
+            () => runAction(options.onRevertFile),
+          ),
+        );
+      } else if (options.mode === "review") {
+        toolbarNode.append(
+          makeButton(
+            "weavie-inline-accept",
+            "Keep",
+            withShortcut("Keep this change", CommandIds.acceptChange),
+            () => runAction(options.onAccept),
+          ),
+          makeButton(
+            "weavie-inline-reject",
+            "Reject",
+            withShortcut("Reject this change", CommandIds.rejectChange),
+            () => runAction(options.onReject),
+          ),
+        );
+      }
+      editorDom.appendChild(toolbarNode);
+    }
+    renderedUri = uriString;
+  };
+
   const render = (uriString: string): void => {
     clearRender();
     const model = editor.getModel();
@@ -1184,12 +1317,29 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     if (options === undefined) {
       return;
     }
+    if (options.allActionsDisabled === true && currentScope === "all") {
+      currentScope = "change";
+    }
+
+    if (
+      model.getValueLength() > MAX_DIFF_CHARACTERS ||
+      model.getLineCount() > MAX_DIFF_LINES ||
+      textTooLarge(options.original) ||
+      (options.claudeVersion !== undefined && textTooLarge(options.claudeVersion)) ||
+      (options.acceptedBaseline !== undefined && textTooLarge(options.acceptedBaseline))
+    ) {
+      renderTooLarge(uriString, options);
+      return;
+    }
 
     const original = splitLines(options.original);
     const modified = model.getLinesContent();
-    const { changes } = linesDiffComputers
-      .getDefault()
-      .computeDiff(original, modified, DIFF_OPTIONS);
+    const result = linesDiffComputers.getDefault().computeDiff(original, modified, DIFF_OPTIONS);
+    if (result.hitTimeout) {
+      renderTooLarge(uriString, options);
+      return;
+    }
+    const { changes } = result;
     // A fully-kept file has no bright (pending) hunks but still carries a faded accepted band — don't bail on it.
     if (changes.length === 0 && !hasFadedBand(options)) {
       return; // no net change and nothing kept — nothing to render
@@ -1206,6 +1356,10 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
       const userDiff = linesDiffComputers
         .getDefault()
         .computeDiff(splitLines(options.claudeVersion), modified, DIFF_OPTIONS);
+      if (userDiff.hitTimeout) {
+        renderTooLarge(uriString, options);
+        return;
+      }
       for (const change of userDiff.changes) {
         for (
           let ln = change.modified.startLineNumber;
@@ -1296,9 +1450,14 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     // pure overlay: it never enters `hunks`, so ↑/↓ and Keep/Revert only ever touch the bright pending hunks.
     if (hasFadedBand(options) && options.acceptedBaseline !== undefined) {
       const accepted = splitLines(options.acceptedBaseline);
-      const fadedChanges = linesDiffComputers
+      const fadedDiff = linesDiffComputers
         .getDefault()
-        .computeDiff(accepted, original, DIFF_OPTIONS).changes;
+        .computeDiff(accepted, original, DIFF_OPTIONS);
+      if (fadedDiff.hitTimeout) {
+        renderTooLarge(uriString, options);
+        return;
+      }
+      const fadedChanges = fadedDiff.changes;
       for (const change of fadedChanges) {
         const reviewStart = change.modified.startLineNumber;
         const reviewEndExclusive = change.modified.endLineNumberExclusive;

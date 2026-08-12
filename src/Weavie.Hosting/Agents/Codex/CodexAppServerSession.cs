@@ -310,7 +310,7 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 
 	private string ServiceTier() => _context.Settings.RequireString(CodexSettings.ServiceTier);
 
-	private bool BypassPermissions() => _context.Settings.GetBool("claude.allowAllTools", fallback: false);
+	private bool BypassPermissions() => _context.Settings.RequireBool(CoreSettings.ClaudeAllowAllTools);
 
 	private string Sandbox() => _context.Settings.RequireString(CodexSettings.Sandbox);
 
@@ -322,7 +322,7 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 		if (CodexUnavailableMessages.TryLaunchFailure(
 			text,
 			CurrentThreadId(),
-			_context.Settings.GetString("codex.path"),
+			_context.Settings.GetString(CoreSettings.CodexPath),
 			_context.Settings.FilePath,
 			out var message)
 			|| CodexStderrMessages.TryFromLine(text, CurrentThreadId(), out message)) {

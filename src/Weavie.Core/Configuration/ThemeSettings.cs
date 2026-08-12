@@ -79,19 +79,19 @@ public static class ThemeSettings {
 	/// <summary>The current appearance mode (<c>system</c>/<c>light</c>/<c>dark</c>), defaulting to <c>system</c>.</summary>
 	public static string Mode(SettingsStore settings) {
 		ArgumentNullException.ThrowIfNull(settings);
-		return settings.GetString(ModeKey) ?? DefaultMode;
+		return settings.RequireString(ModeKey);
 	}
 
 	/// <summary>The selected light-mode theme id.</summary>
 	public static string LightThemeId(SettingsStore settings) {
 		ArgumentNullException.ThrowIfNull(settings);
-		return settings.GetString(LightKey) ?? DefaultLightThemeId;
+		return settings.RequireString(LightKey);
 	}
 
 	/// <summary>The selected dark-mode theme id.</summary>
 	public static string DarkThemeId(SettingsStore settings) {
 		ArgumentNullException.ThrowIfNull(settings);
-		return settings.GetString(DarkKey) ?? DefaultDarkThemeId;
+		return settings.RequireString(DarkKey);
 	}
 
 	/// <summary>

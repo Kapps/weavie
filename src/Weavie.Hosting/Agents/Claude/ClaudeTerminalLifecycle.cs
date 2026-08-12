@@ -54,7 +54,7 @@ public sealed class ClaudeTerminalLifecycle : ITerminalProcess {
 
 		string? logPath = Environment.GetEnvironmentVariable("WEAVIE_PTY_LOG");
 		return new AgentLaunch {
-			Command = _settings.GetString("claude.path") ?? "claude",
+			Command = _settings.RequireString(CoreSettings.ClaudePath),
 			Arguments = args,
 			WorkingDirectory = Workspace,
 			RemoveEnvironment = [],
@@ -70,7 +70,7 @@ public sealed class ClaudeTerminalLifecycle : ITerminalProcess {
 	/// <summary>Updates Claude conversation persistence from its hook stream.</summary>
 	public void ObserveHook(HookRequest request) {
 		ArgumentNullException.ThrowIfNull(request);
-		if (!_settings.GetBool("claude.resumeSession", fallback: true)) {
+		if (!_settings.RequireBool(CoreSettings.ClaudeResumeSession)) {
 			return;
 		}
 		switch (request.Event) {
@@ -111,7 +111,7 @@ public sealed class ClaudeTerminalLifecycle : ITerminalProcess {
 	}
 
 	private ClaudeLaunch? ResolveConversationLaunch() {
-		if (!_settings.GetBool("claude.resumeSession", fallback: true)) {
+		if (!_settings.RequireBool(CoreSettings.ClaudeResumeSession)) {
 			return null;
 		}
 		string sessionId = _sessions.Resolve(Workspace);

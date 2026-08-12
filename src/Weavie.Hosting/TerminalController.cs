@@ -69,8 +69,8 @@ public sealed class TerminalController : IDisposable {
 		_process = process;
 		_coalescer = new TerminalOutputCoalescer(
 			bytes => PublishOutput(bytes, replay: false),
-			settings.RequireInt("terminal.outputCoalesceMs"));
-		Workspace = settings.GetString("workspace")
+			settings.RequireInt(CoreSettings.TerminalOutputCoalesceMs));
+		Workspace = settings.GetString(CoreSettings.Workspace)
 			?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 		_supervisor = new ProcessSupervisor(
 			$"terminal:{pane}",
@@ -272,7 +272,7 @@ public sealed class TerminalController : IDisposable {
 			return;
 		}
 
-		long kb = _settings.GetInt("terminal.persistScrollbackKb", 256);
+		long kb = _settings.RequireInt(CoreSettings.TerminalPersistScrollbackKb);
 		if (kb > 0) {
 			int capBytes = (int)Math.Min(kb, int.MaxValue / 1024) * 1024;
 			_scrollback = new ScrollbackLog(ScrollbackLogPath, capBytes);

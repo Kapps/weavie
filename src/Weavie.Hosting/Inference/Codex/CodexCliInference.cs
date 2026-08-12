@@ -31,7 +31,7 @@ internal sealed class CodexCliInference : IInferenceProvider {
 		string schemaPath = Path.Combine(temp.Path, "output-schema.json");
 		string outputPath = Path.Combine(temp.Path, "output.json");
 		try {
-			string? command = _settings.GetString("codex.path");
+			string? command = _settings.GetString(CoreSettings.CodexPath);
 			if (string.IsNullOrWhiteSpace(command)) {
 				return NotConfigured(model);
 			}

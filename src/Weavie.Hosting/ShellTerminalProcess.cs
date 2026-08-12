@@ -20,8 +20,7 @@ public sealed class ShellTerminalProcess : ITerminalProcess {
 
 	/// <inheritdoc/>
 	public AgentLaunch ResolveLaunch() {
-		string fallback = OperatingSystem.IsWindows() ? "powershell" : LoginShellEnvironment.LoginShell();
-		string shell = _settings.GetString("terminal.shell") ?? fallback;
+		string shell = _settings.RequireString(CoreSettings.TerminalShell);
 		string command = ExecutableFinder.FindOnPath(shell) ?? shell;
 		string name = Path.GetFileNameWithoutExtension(command).ToLowerInvariant();
 		IReadOnlyList<string> arguments = OperatingSystem.IsWindows()

@@ -8,27 +8,24 @@ namespace Weavie.Core.Configuration;
 /// preserved for a stable catalog.
 /// </summary>
 public sealed class SettingsRegistry {
-	private readonly Dictionary<string, SettingDefinition> _byKey = new(StringComparer.Ordinal);
-	private readonly List<SettingDefinition> _ordered = [];
+	private readonly OrderedDictionary<string, SettingDefinition> _definitions = new(StringComparer.Ordinal);
 
 	/// <summary>Registers a definition. Throws if its <see cref="SettingDefinition.Key"/> is already taken.</summary>
 	public void Register(SettingDefinition definition) {
 		ArgumentNullException.ThrowIfNull(definition);
-		if (!_byKey.TryAdd(definition.Key, definition)) {
+		if (!_definitions.TryAdd(definition.Key, definition)) {
 			throw new InvalidOperationException($"Setting '{definition.Key}' is already registered.");
 		}
-
-		_ordered.Add(definition);
 	}
 
 	/// <summary>Looks up a definition by exact key.</summary>
 	public bool TryGet(string key, [NotNullWhen(true)] out SettingDefinition? definition) =>
-		_byKey.TryGetValue(key, out definition);
+		_definitions.TryGetValue(key, out definition);
 
 	/// <summary>Returns the definition for <paramref name="key"/>, or throws <see cref="UnknownSettingException"/>.</summary>
 	public SettingDefinition Require(string key) =>
-		_byKey.TryGetValue(key, out var definition) ? definition : throw new UnknownSettingException(key);
+		_definitions.TryGetValue(key, out var definition) ? definition : throw new UnknownSettingException(key);
 
 	/// <summary>All registered definitions, in registration order.</summary>
-	public IReadOnlyList<SettingDefinition> Definitions => _ordered;
+	public IReadOnlyList<SettingDefinition> Definitions => _definitions.Values;
 }

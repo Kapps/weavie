@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Foundation;
+using Weavie.Core.Configuration;
 using Weavie.Core.Workspaces;
 
 namespace Weavie.Mac;
@@ -31,7 +32,9 @@ public sealed partial class AppDelegate {
 	internal void OpenOrFocus(string path) {
 		if (Open(path) is not null) {
 			// Build the JSON string element by hand: JsonSerializer.Serialize is trim-unsafe (IL2026) on macOS.
-			_services?.Settings.Set("workspace", JsonDocument.Parse("\"" + JsonEncodedText.Encode(path) + "\"").RootElement.Clone());
+			_services?.Settings.Set(
+				CoreSettings.Workspace,
+				JsonDocument.Parse("\"" + JsonEncodedText.Encode(path) + "\"").RootElement.Clone());
 		}
 	}
 

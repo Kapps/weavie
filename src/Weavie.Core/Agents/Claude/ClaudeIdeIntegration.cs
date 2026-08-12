@@ -45,7 +45,7 @@ public sealed class ClaudeIdeIntegration : IAsyncDisposable {
 			request => {
 				var feedback = observe(request);
 				var decision = HookPolicy.Decide(
-					request, settings.GetBool("claude.allowAllTools", fallback: false));
+					request, settings.RequireBool(CoreSettings.ClaudeAllowAllTools));
 				string? message = feedback.Messages.FirstOrDefault();
 				return message is null ? decision : decision with { SystemMessage = message };
 			});

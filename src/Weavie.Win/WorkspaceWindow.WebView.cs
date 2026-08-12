@@ -1,5 +1,6 @@
 using Microsoft.Web.WebView2.Core;
 using Weavie.Core;
+using Weavie.Core.Configuration;
 using Weavie.Hosting;
 using Weavie.Hosting.Web;
 
@@ -85,7 +86,9 @@ internal sealed partial class WorkspaceWindow : IWebSurface {
 		// bootstrap, and navigates (Weavie.Hosting.Web.WebAppLauncher).
 		_bridge.Attach(_webView);
 
-		string indexQuery = _app.Settings.GetBool("diagnostics.startupTiming", false) ? "?startuptiming=1" : string.Empty;
+		string indexQuery = _app.Settings.RequireBool(CoreSettings.DiagnosticsStartupTiming)
+			? "?startuptiming=1"
+			: string.Empty;
 		var launcher = new WebAppLauncher(this, _core, indexQuery);
 
 #if DEBUG

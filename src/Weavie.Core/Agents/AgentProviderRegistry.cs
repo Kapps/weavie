@@ -2,7 +2,7 @@ namespace Weavie.Core.Agents;
 
 /// <summary>The required agent-provider catalog shared by every host.</summary>
 public sealed class AgentProviderRegistry {
-	private readonly Dictionary<string, IAgentProvider> _providers = new(StringComparer.Ordinal);
+	private readonly OrderedDictionary<string, IAgentProvider> _providers = new(StringComparer.Ordinal);
 
 	/// <summary>Registers <paramref name="provider"/>, rejecting duplicate ids.</summary>
 	public void Register(IAgentProvider provider) {
@@ -13,7 +13,7 @@ public sealed class AgentProviderRegistry {
 	}
 
 	/// <summary>The registered providers, in registration order.</summary>
-	public IReadOnlyList<IAgentProvider> Providers => [.. _providers.Values];
+	public IReadOnlyList<IAgentProvider> Providers => _providers.Values;
 
 	/// <summary>Returns metadata for a registered provider, or <c>null</c> for a stale persisted id.</summary>
 	public AgentProviderInfo? FindInfo(string id) {

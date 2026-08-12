@@ -139,8 +139,8 @@ public sealed partial class HostCore {
 		// from settings, resolved against this workspace so its out-of-repo overlay is consulted (like test.profile);
 		// progress + results surface as toasts (and full output to the console).
 		var provisioner = new ShellWorktreeProvisioner(
-			() => _settings.GetString("worktree.setupCommand", WorkspaceRoot),
-			() => _settings.GetString("worktree.teardownCommand", WorkspaceRoot));
+			() => _settings.RequireString(CoreSettings.WorktreeSetupCommand, WorkspaceRoot),
+			() => _settings.RequireString(CoreSettings.WorktreeTeardownCommand, WorkspaceRoot));
 		provisioner.Starting += OnWorktreeCommandStarting;
 		provisioner.Finished += OnWorktreeCommandFinished;
 		_worktreeProvisioner = provisioner;

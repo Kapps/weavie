@@ -7,6 +7,42 @@ namespace Weavie.Core.Configuration;
 /// claude discovery, so every host shares one path through the registry.
 /// </summary>
 public static class CoreSettings {
+	/// <summary>The workspace path setting.</summary>
+	public const string Workspace = "workspace";
+
+	/// <summary>The plain terminal shell setting.</summary>
+	public const string TerminalShell = "terminal.shell";
+
+	/// <summary>The persisted terminal scrollback size setting.</summary>
+	public const string TerminalPersistScrollbackKb = "terminal.persistScrollbackKb";
+
+	/// <summary>The terminal output coalescing interval setting.</summary>
+	public const string TerminalOutputCoalesceMs = "terminal.outputCoalesceMs";
+
+	/// <summary>The Claude executable path setting.</summary>
+	public const string ClaudePath = "claude.path";
+
+	/// <summary>The Claude conversation resume setting.</summary>
+	public const string ClaudeResumeSession = "claude.resumeSession";
+
+	/// <summary>The agent permission bypass setting.</summary>
+	public const string ClaudeAllowAllTools = "claude.allowAllTools";
+
+	/// <summary>The Codex executable path setting.</summary>
+	public const string CodexPath = "codex.path";
+
+	/// <summary>The pull-request review prompt setting.</summary>
+	public const string PullRequestAutoReviewPrompt = "pr.autoReviewPrompt";
+
+	/// <summary>The worktree setup command setting.</summary>
+	public const string WorktreeSetupCommand = "worktree.setupCommand";
+
+	/// <summary>The worktree teardown command setting.</summary>
+	public const string WorktreeTeardownCommand = "worktree.teardownCommand";
+
+	/// <summary>The startup timing diagnostics setting.</summary>
+	public const string DiagnosticsStartupTiming = "diagnostics.startupTiming";
+
 	/// <summary>Builds a registry pre-loaded with the built-in settings (workspace, shell, claude path, worktree commands, fonts, editor, theme, diagnostics).</summary>
 	public static SettingsRegistry CreateRegistry() {
 		var registry = new SettingsRegistry();
@@ -23,7 +59,7 @@ public static class CoreSettings {
 		ArgumentNullException.ThrowIfNull(registry);
 
 		registry.Register(new SettingDefinition {
-			Key = "workspace",
+			Key = Workspace,
 			Kind = SettingKind.Path,
 			Description = "Directory Claude and the terminal open in (the IDE workspace).",
 			Aliases = ["workspace", "working directory", "project folder"],
@@ -36,7 +72,7 @@ public static class CoreSettings {
 		});
 
 		registry.Register(new SettingDefinition {
-			Key = "terminal.shell",
+			Key = TerminalShell,
 			Kind = SettingKind.String,
 			Description = "Shell for the plain terminal pane.",
 			Aliases = ["shell", "my shell", "terminal shell"],
@@ -49,7 +85,7 @@ public static class CoreSettings {
 		});
 
 		registry.Register(new SettingDefinition {
-			Key = "terminal.persistScrollbackKb",
+			Key = TerminalPersistScrollbackKb,
 			Kind = SettingKind.Int,
 			Description = "How much of the shell terminal's recent output (in KiB) to persist on disk per "
 				+ "session, so a reattaching client (a browser refresh, a session switch, a resumed remote "
@@ -66,7 +102,7 @@ public static class CoreSettings {
 		});
 
 		registry.Register(new SettingDefinition {
-			Key = "terminal.outputCoalesceMs",
+			Key = TerminalOutputCoalesceMs,
 			Kind = SettingKind.Int,
 			Description = "How long (milliseconds) to batch a terminal pane's live output into one update before "
 				+ "sending it to the page. Batching keeps a burst of output (a build, a big file, `seq`) from "
@@ -136,7 +172,7 @@ public static class CoreSettings {
 		});
 
 		registry.Register(new SettingDefinition {
-			Key = "claude.path",
+			Key = ClaudePath,
 			Kind = SettingKind.Path,
 			Description = "Path to the claude binary (auto-detected when unset).",
 			Aliases = ["claude", "claude binary", "claude path"],
@@ -145,7 +181,7 @@ public static class CoreSettings {
 		});
 
 		registry.Register(new SettingDefinition {
-			Key = "claude.resumeSession",
+			Key = ClaudeResumeSession,
 			Kind = SettingKind.Bool,
 			Description = "Resume the previous Claude conversation when a session reopens, instead of cold-starting "
 				+ "a fresh one. Weavie assigns each session's working directory a stable Claude session id and "
@@ -158,7 +194,7 @@ public static class CoreSettings {
 		});
 
 		registry.Register(new SettingDefinition {
-			Key = "claude.allowAllTools",
+			Key = ClaudeAllowAllTools,
 			Kind = SettingKind.Bool,
 			Description = "Bypass agent permission prompts. Claude's permission hooks are auto-accepted without "
 				+ "changing its edit mode. Codex runs with danger-full-access and never asks for approval. Takes effect "
@@ -170,7 +206,7 @@ public static class CoreSettings {
 		});
 
 		registry.Register(new SettingDefinition {
-			Key = "codex.path",
+			Key = CodexPath,
 			Kind = SettingKind.Path,
 			Description = "Path to the codex binary used for native Codex app-server sessions. Auto-detected when "
 				+ "unset; set this when the Codex found on PATH cannot launch app-server correctly. Takes effect "
@@ -249,7 +285,7 @@ public static class CoreSettings {
 		});
 
 		registry.Register(new SettingDefinition {
-			Key = "pr.autoReviewPrompt",
+			Key = PullRequestAutoReviewPrompt,
 			Kind = SettingKind.Bool,
 			Description = "When you open a pull request as a session, automatically seed Claude's first message "
 				+ "asking it to look at the branch's changes and help address review feedback. On by default; "
@@ -262,7 +298,7 @@ public static class CoreSettings {
 		});
 
 		registry.Register(new SettingDefinition {
-			Key = "worktree.setupCommand",
+			Key = WorktreeSetupCommand,
 			Kind = SettingKind.String,
 			Description = "Shell command run once in a new session's worktree right after it is created "
 				+ "(e.g. 'pnpm install' or 'npm ci'). Empty by default, so nothing runs. It executes via the "
@@ -277,7 +313,7 @@ public static class CoreSettings {
 		});
 
 		registry.Register(new SettingDefinition {
-			Key = "worktree.teardownCommand",
+			Key = WorktreeTeardownCommand,
 			Kind = SettingKind.String,
 			Description = "Shell command run once in a worktree right before it is discarded ('git worktree "
 				+ "remove'). Empty by default, so nothing runs. It executes via the platform shell with the "
@@ -300,7 +336,7 @@ public static class CoreSettings {
 		MessageSettings.Register(registry);
 
 		registry.Register(new SettingDefinition {
-			Key = "diagnostics.startupTiming",
+			Key = DiagnosticsStartupTiming,
 			Kind = SettingKind.Bool,
 			Description = "Log startup phase timings (window→navigate on the host, navigate→shell→editor "
 				+ "in the web app) to the console. Off by default; for diagnosing launch latency.",

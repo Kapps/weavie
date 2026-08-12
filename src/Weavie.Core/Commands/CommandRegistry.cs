@@ -8,31 +8,28 @@ namespace Weavie.Core.Commands;
 /// preserved for a stable catalog. Core registers its commands at startup via <see cref="CoreCommands"/>.
 /// </summary>
 public sealed class CommandRegistry {
-	private readonly Dictionary<string, CommandDefinition> _byId = new(StringComparer.Ordinal);
-	private readonly List<CommandDefinition> _ordered = [];
+	private readonly OrderedDictionary<string, CommandDefinition> _definitions = new(StringComparer.Ordinal);
 
 	/// <summary>Registers a definition. Throws if its <see cref="CommandDefinition.Id"/> is already taken.</summary>
 	public void Register(CommandDefinition definition) {
 		ArgumentNullException.ThrowIfNull(definition);
-		if (!_byId.TryAdd(definition.Id, definition)) {
+		if (!_definitions.TryAdd(definition.Id, definition)) {
 			throw new InvalidOperationException($"Command '{definition.Id}' is already registered.");
 		}
-
-		_ordered.Add(definition);
 	}
 
 	/// <summary>Looks up a definition by exact id.</summary>
 	public bool TryGet(string id, [NotNullWhen(true)] out CommandDefinition? definition) =>
-		_byId.TryGetValue(id, out definition);
+		_definitions.TryGetValue(id, out definition);
 
 	/// <summary>Returns the definition for <paramref name="id"/>, or throws <see cref="UnknownCommandException"/> (with near-match suggestions).</summary>
 	public CommandDefinition Require(string id) =>
-		_byId.TryGetValue(id, out var definition)
+		_definitions.TryGetValue(id, out var definition)
 			? definition
 			: throw new UnknownCommandException(id, BuildUnknownMessage(id));
 
 	/// <summary>All registered definitions, in registration order.</summary>
-	public IReadOnlyList<CommandDefinition> Definitions => _ordered;
+	public IReadOnlyList<CommandDefinition> Definitions => _definitions.Values;
 
 	private string BuildUnknownMessage(string id) {
 		var suggestions = Suggest(id);
@@ -48,7 +45,7 @@ public sealed class CommandRegistry {
 		int firstDot = id.IndexOf('.');
 		string? prefix = firstDot > 0 ? id[..firstDot] : null;
 
-		return _ordered
+		return _definitions.Values
 			.Select(d => d.Id)
 			.Where(existing =>
 				(leaf.Length > 0 && existing.Contains(leaf, StringComparison.OrdinalIgnoreCase))

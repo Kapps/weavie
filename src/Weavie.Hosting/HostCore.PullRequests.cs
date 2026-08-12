@@ -1,4 +1,5 @@
 using Weavie.Core.Commands;
+using Weavie.Core.Configuration;
 using Weavie.Core.Git;
 using Weavie.Core.Review;
 using Weavie.Core.Sessions;
@@ -93,7 +94,7 @@ public sealed partial class HostCore {
 			new NewSessionRequest {
 				Branch = headRef,
 				Existing = true,
-				Prompt = _settings.GetBool("pr.autoReviewPrompt", fallback: true)
+				Prompt = _settings.RequireBool(CoreSettings.PullRequestAutoReviewPrompt)
 					? SeedPrompt(request.Number, pullRequest.Title, pullRequest.Url)
 					: null,
 			},

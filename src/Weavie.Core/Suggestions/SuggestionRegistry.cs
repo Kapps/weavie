@@ -8,23 +8,20 @@ namespace Weavie.Core.Suggestions;
 /// stable card order.
 /// </summary>
 public sealed class SuggestionRegistry {
-	private readonly Dictionary<string, SuggestionDefinition> _byId = new(StringComparer.Ordinal);
-	private readonly List<SuggestionDefinition> _ordered = [];
+	private readonly OrderedDictionary<string, SuggestionDefinition> _definitions = new(StringComparer.Ordinal);
 
 	/// <summary>Registers a definition. Throws if its <see cref="SuggestionDefinition.Id"/> is already taken.</summary>
 	public void Register(SuggestionDefinition definition) {
 		ArgumentNullException.ThrowIfNull(definition);
-		if (!_byId.TryAdd(definition.Id, definition)) {
+		if (!_definitions.TryAdd(definition.Id, definition)) {
 			throw new InvalidOperationException($"Suggestion '{definition.Id}' is already registered.");
 		}
-
-		_ordered.Add(definition);
 	}
 
 	/// <summary>Looks up a definition by exact id.</summary>
 	public bool TryGet(string id, [NotNullWhen(true)] out SuggestionDefinition? definition) =>
-		_byId.TryGetValue(id, out definition);
+		_definitions.TryGetValue(id, out definition);
 
 	/// <summary>All registered definitions, in registration order.</summary>
-	public IReadOnlyList<SuggestionDefinition> Definitions => _ordered;
+	public IReadOnlyList<SuggestionDefinition> Definitions => _definitions.Values;
 }

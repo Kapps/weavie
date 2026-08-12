@@ -19,7 +19,7 @@ public static class InitialWorkspace {
 			return last;
 		}
 
-		string? configured = settings.GetString("workspace");
+		string? configured = settings.GetString(CoreSettings.Workspace);
 		return !string.IsNullOrEmpty(configured) && Directory.Exists(configured) ? configured : null;
 	}
 }

@@ -169,15 +169,15 @@ public static class FontSettings {
 	}
 
 	private static ResolvedFont Resolve(SettingsStore store, string familyKey, string sizeKey, string weightKey) {
-		string family = FirstNonEmpty(store.GetString(familyKey), store.GetString(GlobalFamily)) ?? DefaultFamily;
+		string family = FirstNonEmpty(store.RequireString(familyKey), store.RequireString(GlobalFamily)) ?? DefaultFamily;
 
-		long sizeOverride = store.GetInt(sizeKey, 0);
-		long size = sizeOverride > 0 ? sizeOverride : PositiveOr(store.GetInt(GlobalSize, 0), DefaultSize);
+		long sizeOverride = store.RequireInt(sizeKey);
+		long size = sizeOverride > 0 ? sizeOverride : PositiveOr(store.RequireInt(GlobalSize), DefaultSize);
 
-		string? weightOverride = store.GetString(weightKey);
+		string weightOverride = store.RequireString(weightKey);
 		string weight = !string.IsNullOrEmpty(weightOverride) && weightOverride != InheritWeight
 			? weightOverride
-			: FirstNonEmpty(store.GetString(GlobalWeight)) ?? DefaultWeight;
+			: FirstNonEmpty(store.RequireString(GlobalWeight)) ?? DefaultWeight;
 
 		return new ResolvedFont(family, size, weight);
 	}

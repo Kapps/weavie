@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
+using Weavie.Core.FileSystem;
 
 namespace Weavie.Core.Configuration;
 
@@ -44,9 +45,9 @@ public readonly record struct SettingChange(string Key, object? OldValue, object
 /// per-workspace (<see cref="SettingScope.Workspace"/>) keys live in each registered workspace's out-of-repo
 /// overlay (<c>~/.weavie/workspaces/&lt;id&gt;/settings.toml</c>). Resolution precedence is env var → workspace file → user file → registered
 /// default; values are coerced to their declared <see cref="SettingKind"/> and validated. Writes go through
-/// Tomlyn's comment-preserving document so unknown subtrees and user comments survive a round-trip. A debounced,
-/// parse-guarded <see cref="FileSystemWatcher"/> per watched file turns hand-edits into <see cref="SettingChanged"/>
-/// events, diffing against in-memory state so self-writes never double-fire. See <c>docs/specs/settings.md</c>.
+/// Tomlyn's comment-preserving document so unknown subtrees and user comments survive a round-trip. The shared
+/// validated-file projection turns hand-edits into <see cref="SettingChanged"/> events, diffing against in-memory
+/// state so self-writes never double-fire. See <c>docs/specs/settings.md</c>.
 /// </summary>
 public sealed class SettingsStore : IDisposable {
 	private const string WorkspaceKey = "workspace";
@@ -58,8 +59,6 @@ public sealed class SettingsStore : IDisposable {
 	private readonly SettingsFileLayer _userLayer;
 	private readonly Dictionary<string, WorkspaceRegistration> _workspaces = new(StringComparer.Ordinal);
 	private readonly Dictionary<string, object?> _resolved = new(StringComparer.Ordinal);
-	private readonly List<FileSystemWatcher> _watchers = [];
-	private readonly Timer? _debounce;
 
 	private bool _lastMalformed;
 	private bool _disposed;
@@ -77,15 +76,14 @@ public sealed class SettingsStore : IDisposable {
 		_workspaceSettingsPath = workspaceSettingsPath;
 		_enableWatcher = enableWatcher;
 		FilePath = filePath ?? WeaviePaths.SettingsFile;
-		_userLayer = new SettingsFileLayer(FilePath);
 
 		string? directory = Path.GetDirectoryName(FilePath);
 		if (!string.IsNullOrEmpty(directory)) {
 			Directory.CreateDirectory(directory);
 		}
+		_userLayer = CreateLayer(FilePath);
 
 		lock (_gate) {
-			LogAll(_userLayer.Load());
 			foreach (var definition in _registry.Definitions) {
 				_resolved[definition.Key] = ResolveLocked(definition, workspaceRoot: null).Value;
 			}
@@ -94,8 +92,7 @@ public sealed class SettingsStore : IDisposable {
 		}
 
 		if (enableWatcher) {
-			_debounce = new Timer(OnDebounceElapsed, null, Timeout.Infinite, Timeout.Infinite);
-			WatchFileDirectory(FilePath);
+			_userLayer.Watch();
 		}
 	}
 
@@ -130,12 +127,13 @@ public sealed class SettingsStore : IDisposable {
 				return;
 			}
 
-			string file = _workspaceSettingsPath(root);
-			var registration = new WorkspaceRegistration(root, new SettingsFileLayer(file));
-			LogAll(registration.Layer.Load());
+			var registration = new WorkspaceRegistration(root, CreateLayer(_workspaceSettingsPath(root)));
 			_workspaces[root] = registration; // register before seeding so ResolveLocked sees the overlay
 			SeedWorkspaceResolvedLocked(registration);
-			EnsureWorkspaceWatcherLocked(registration);
+			if (_enableWatcher) {
+				registration.Layer.Watch();
+			}
+			_lastMalformed = AnyMalformedLocked();
 		}
 	}
 
@@ -229,7 +227,9 @@ public sealed class SettingsStore : IDisposable {
 
 			layer.SetValue(definition, coerced);
 			layer.SaveAtomic();
-			EnsureWatcherForLayerLocked(definition, workspaceRoot);
+			if (_enableWatcher) {
+				layer.Watch();
+			}
 			changes = RecomputeAndDiffLocked();
 
 			string? shadow = ResolveLocked(definition, workspaceRoot).Source == SettingSource.Environment ? definition.EnvVar : null;
@@ -281,9 +281,7 @@ public sealed class SettingsStore : IDisposable {
 			return _userLayer; // nothing registered and not creating: clearing a never-set overlay is a no-op on the user file
 		}
 
-		string file = _workspaceSettingsPath(root);
-		var registration = new WorkspaceRegistration(root, new SettingsFileLayer(file));
-		LogAll(registration.Layer.Load());
+		var registration = new WorkspaceRegistration(root, CreateLayer(_workspaceSettingsPath(root)));
 		_workspaces[root] = registration; // register before seeding so ResolveLocked sees the overlay
 		SeedWorkspaceResolvedLocked(registration);
 		return registration.Layer;
@@ -346,23 +344,19 @@ public sealed class SettingsStore : IDisposable {
 
 	/// <inheritdoc/>
 	public void Dispose() {
+		SettingsFileLayer[] layers;
 		lock (_gate) {
 			if (_disposed) {
 				return;
 			}
 
 			_disposed = true;
+			layers = [_userLayer, .. _workspaces.Values.Select(workspace => workspace.Layer)];
 		}
 
-		foreach (var watcher in _watchers) {
-			watcher.EnableRaisingEvents = false;
-			watcher.Changed -= OnFileEvent;
-			watcher.Created -= OnFileEvent;
-			watcher.Renamed -= OnFileEvent;
-			watcher.Dispose();
+		foreach (var layer in layers) {
+			layer.Dispose();
 		}
-
-		_debounce?.Dispose();
 	}
 
 	private void WriteSettingObject(Utf8JsonWriter writer, SettingDefinition definition, string? workspaceRoot) {
@@ -415,7 +409,7 @@ public sealed class SettingsStore : IDisposable {
 
 		if (definition.Scope == SettingScope.Workspace && workspaceRoot is not null
 			&& _workspaces.TryGetValue(NormalizeRoot(workspaceRoot), out var registration)
-			&& !registration.Layer.Malformed && registration.Layer.TryGetValue(definition.Key, out object? wsValue)) {
+			&& registration.Layer.TryGetValue(definition.Key, out object? wsValue)) {
 			if (TryCoerceFile(definition, wsValue, out object? coerced, out string? error)) {
 				var validation = ValidateValue(definition, coerced);
 				if (validation.IsValid) {
@@ -428,7 +422,7 @@ public sealed class SettingsStore : IDisposable {
 			Log?.Invoke($"[settings] {definition.Key}: ignoring invalid value in {registration.Layer.FilePath} ({error}); falling back.");
 		}
 
-		if (!_userLayer.Malformed && _userLayer.TryGetValue(definition.Key, out object? fileValue)) {
+		if (_userLayer.TryGetValue(definition.Key, out object? fileValue)) {
 			if (TryCoerceFile(definition, fileValue, out object? coerced, out string? error)) {
 				var validation = ValidateValue(definition, coerced);
 				if (validation.IsValid) {
@@ -689,47 +683,15 @@ public sealed class SettingsStore : IDisposable {
 		return false;
 	}
 
-	private void WatchFileDirectory(string filePath) {
-		string? directory = Path.GetDirectoryName(filePath);
-		if (string.IsNullOrEmpty(directory) || !Directory.Exists(directory)) {
-			return;
-		}
-
-		var watcher = new FileSystemWatcher(directory, Path.GetFileName(filePath)) {
-			NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.Size,
-			EnableRaisingEvents = true,
-		};
-		watcher.Changed += OnFileEvent;
-		watcher.Created += OnFileEvent;
-		watcher.Renamed += OnFileEvent;
-		_watchers.Add(watcher);
+	private SettingsFileLayer CreateLayer(string filePath) {
+		var layer = new SettingsFileLayer(filePath, _gate);
+		layer.Reloaded += reload => OnLayerReloaded(layer, reload);
+		return layer;
 	}
 
-	private void EnsureWorkspaceWatcherLocked(WorkspaceRegistration registration) {
-		if (_enableWatcher && !registration.Watched && Directory.Exists(Path.GetDirectoryName(registration.Layer.FilePath))) {
-			WatchFileDirectory(registration.Layer.FilePath);
-			registration.Watched = true;
-		}
-	}
-
-	// A workspace-scoped write may have just created the overlay's directory, so try to attach its watcher now.
-	private void EnsureWatcherForLayerLocked(SettingDefinition definition, string? workspaceRoot) {
-		if (definition.Scope == SettingScope.Workspace && workspaceRoot is not null
-			&& _workspaces.TryGetValue(NormalizeRoot(workspaceRoot), out var registration)) {
-			EnsureWorkspaceWatcherLocked(registration);
-		}
-	}
-
-	// Under _gate: a watcher callback in flight during Dispose must not touch the disposed timer.
-	private void OnFileEvent(object sender, FileSystemEventArgs e) {
-		lock (_gate) {
-			if (!_disposed) {
-				_debounce?.Change(250, Timeout.Infinite);
-			}
-		}
-	}
-
-	private void OnDebounceElapsed(object? state) {
+	private void OnLayerReloaded(
+		SettingsFileLayer layer,
+		FileReload<SettingsFileLayer.SettingsDocument> reload) {
 		List<SettingChange> changes;
 		bool malformedFlipped;
 		bool nowMalformed;
@@ -738,19 +700,13 @@ public sealed class SettingsStore : IDisposable {
 				return;
 			}
 
-			bool wasMalformed = _lastMalformed;
-			LogAll(_userLayer.Load());
-			foreach (var registration in _workspaces.Values) {
-				LogAll(registration.Layer.Load());
-			}
-
 			nowMalformed = AnyMalformedLocked();
+			malformedFlipped = _lastMalformed != nowMalformed;
 			_lastMalformed = nowMalformed;
-			malformedFlipped = wasMalformed != nowMalformed;
-
-			// A malformed layer keeps its last-good resolved state; recompute only the clean layers so a transient
-			// typo doesn't thrash reactions. RecomputeAndDiffLocked reads each layer's Malformed guard internally.
-			changes = RecomputeAndDiffLocked();
+			changes = reload.Error is null ? RecomputeAndDiffLocked() : [];
+		}
+		if (reload.Error is not null) {
+			Log?.Invoke($"[settings] {layer.FilePath} is invalid ({reload.Error.Message}); keeping the last-good settings until fixed.");
 		}
 
 		if (malformedFlipped) {
@@ -758,12 +714,6 @@ public sealed class SettingsStore : IDisposable {
 		}
 
 		RaiseChanges(changes);
-	}
-
-	private void LogAll(IReadOnlyList<string> lines) {
-		foreach (string line in lines) {
-			Log?.Invoke(line);
-		}
 	}
 
 	private static void WriteTypedValue(Utf8JsonWriter writer, object? value) {
@@ -826,7 +776,6 @@ public sealed class SettingsStore : IDisposable {
 
 		public Dictionary<string, object?> Resolved { get; } = new(StringComparer.Ordinal);
 
-		public bool Watched { get; set; }
 	}
 
 	private sealed class Subscription : IDisposable {

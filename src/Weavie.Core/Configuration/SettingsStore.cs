@@ -50,8 +50,6 @@ public readonly record struct SettingChange(string Key, object? OldValue, object
 /// state so self-writes never double-fire. See <c>docs/specs/settings.md</c>.
 /// </summary>
 public sealed class SettingsStore : IDisposable {
-	private const string WorkspaceKey = "workspace";
-
 	private readonly SettingsRegistry _registry;
 	private readonly Func<string, string> _workspaceSettingsPath;
 	private readonly Lock _gate = new();
@@ -157,12 +155,6 @@ public sealed class SettingsStore : IDisposable {
 	/// <summary>Resolves <paramref name="key"/> as a string for <paramref name="workspaceRoot"/> (null if absent or not a string).</summary>
 	public string? GetString(string key, string workspaceRoot) => Resolve(key, workspaceRoot).Value as string;
 
-	/// <summary>Resolves <paramref name="key"/> as a bool (<paramref name="fallback"/> if absent or not a bool).</summary>
-	public bool GetBool(string key, bool fallback) => Resolve(key).Value is bool b ? b : fallback;
-
-	/// <summary>Resolves <paramref name="key"/> as an integer (<paramref name="fallback"/> if absent or not an int).</summary>
-	public long GetInt(string key, long fallback) => Resolve(key).Value is long l ? l : fallback;
-
 	/// <summary>
 	/// Resolves <paramref name="key"/> as a bool, trusting the registered default (no literal fallback). Throws
 	/// if it isn't a bool — only possible if registered with a non-bool default, a programming error.
@@ -174,6 +166,10 @@ public sealed class SettingsStore : IDisposable {
 
 	/// <summary>As <see cref="RequireBool"/>, for a string setting.</summary>
 	public string RequireString(string key) => Resolve(key).Value is string s ? s : throw WrongKind(key, "string");
+
+	/// <summary>Resolves a workspace-scoped string setting, trusting its registered default.</summary>
+	public string RequireString(string key, string workspaceRoot) =>
+		Resolve(key, workspaceRoot).Value is string s ? s : throw WrongKind(key, "string");
 
 	private static InvalidOperationException WrongKind(string key, string kind) =>
 		new($"setting '{key}' did not resolve to a {kind}; check the default it was registered with.");
@@ -602,7 +598,7 @@ public sealed class SettingsStore : IDisposable {
 			return expanded;
 		}
 
-		string baseDir = string.Equals(key, WorkspaceKey, StringComparison.Ordinal)
+		string baseDir = string.Equals(key, CoreSettings.Workspace, StringComparison.Ordinal)
 			? home
 			: ResolveWorkspaceDirLocked(home);
 		return Path.GetFullPath(Path.Combine(baseDir, expanded));
@@ -612,7 +608,7 @@ public sealed class SettingsStore : IDisposable {
 		path.Length >= 3 && char.IsAsciiLetter(path[0]) && path[1] == ':' && (path[2] == '\\' || path[2] == '/');
 
 	private string ResolveWorkspaceDirLocked(string fallback) {
-		if (_registry.TryGet(WorkspaceKey, out var workspace) && ResolveLocked(workspace, workspaceRoot: null).Value is string dir) {
+		if (_registry.TryGet(CoreSettings.Workspace, out var workspace) && ResolveLocked(workspace, workspaceRoot: null).Value is string dir) {
 			return dir;
 		}
 

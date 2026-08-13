@@ -314,7 +314,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 	private void WireReactions() {
 		// A changed shell (ApplyMode.ReopensTerminal) reopens every loaded session's shell pane.
 		_shellSettingSubscription = _settings.Subscribe(
-			"terminal.shell",
+			CoreSettings.TerminalShell,
 			_ => _ui.Post(() => {
 				foreach (var session in LoadedSessions()) {
 					session.Shell.Restart();
@@ -341,11 +341,11 @@ public sealed partial class HostCore : IAsyncDisposable {
 
 			// Configuring the worktree setup command or the test profile can make the workspace-setup card vanish;
 			// re-evaluate the suggestions. A changed test profile also re-pushes it so run lenses refresh in place.
-			if (change.Key is "worktree.setupCommand" or Weavie.Core.Configuration.TestSettings.Profile) {
+			if (change.Key is CoreSettings.WorktreeSetupCommand or TestSettings.Profile) {
 				_suggestions?.Evaluate();
 			}
 
-			if (change.Key == Weavie.Core.Configuration.TestSettings.Profile) {
+			if (change.Key == TestSettings.Profile) {
 				PushTestProfileToWeb();
 			}
 		};

@@ -55,28 +55,25 @@ public sealed record PaneDefinition {
 /// <see cref="PaneDefinition"/>) rather than code-driven (write a migration). Registration order is preserved.
 /// </summary>
 public sealed class PaneRegistry {
-	private readonly Dictionary<string, PaneDefinition> _byKind = new(StringComparer.Ordinal);
-	private readonly List<PaneDefinition> _ordered = [];
+	private readonly OrderedDictionary<string, PaneDefinition> _panes = new(StringComparer.Ordinal);
 
 	/// <summary>Registers a pane definition. Throws if its <see cref="PaneDefinition.Kind"/> is already taken.</summary>
 	public void Register(PaneDefinition pane) {
 		ArgumentNullException.ThrowIfNull(pane);
-		if (!_byKind.TryAdd(pane.Kind, pane)) {
+		if (!_panes.TryAdd(pane.Kind, pane)) {
 			throw new InvalidOperationException($"Pane kind '{pane.Kind}' is already registered.");
 		}
-
-		_ordered.Add(pane);
 	}
 
 	/// <summary>The pane definition for <paramref name="kind"/>, or <c>null</c> if unregistered.</summary>
-	public PaneDefinition? Find(string kind) => _byKind.GetValueOrDefault(kind);
+	public PaneDefinition? Find(string kind) => _panes.GetValueOrDefault(kind);
 
 	/// <summary>Whether <paramref name="kind"/> is registered.</summary>
-	public bool IsKnown(string kind) => _byKind.ContainsKey(kind);
+	public bool IsKnown(string kind) => _panes.ContainsKey(kind);
 
 	/// <summary>All registered definitions, in registration order.</summary>
-	public IReadOnlyList<PaneDefinition> All => _ordered;
+	public IReadOnlyList<PaneDefinition> All => _panes.Values;
 
 	/// <summary>The highest <see cref="PaneDefinition.IntroducedIn"/> across all registered panes (0 if none).</summary>
-	public int CurrentPaneLevel => _ordered.Count == 0 ? 0 : _ordered.Max(static p => p.IntroducedIn);
+	public int CurrentPaneLevel => _panes.Count == 0 ? 0 : _panes.Values.Max(static p => p.IntroducedIn);
 }

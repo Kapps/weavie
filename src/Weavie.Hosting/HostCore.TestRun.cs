@@ -104,7 +104,7 @@ public sealed partial class HostCore {
 	// PowerShell (the Windows default) gets '' -doubling single-quotes; everything else POSIX single-quoting.
 	// cmd.exe isn't specially handled — it's never the default, and single-quoting isn't its convention.
 	private ShellQuoting ShellQuotingForShell() {
-		string shell = _settings.GetString("terminal.shell") ?? string.Empty;
+		string shell = _settings.RequireString(CoreSettings.TerminalShell);
 		string name = Path.GetFileNameWithoutExtension(shell).ToLowerInvariant();
 		return name is "pwsh" or "powershell" ? ShellQuoting.PowerShell : ShellQuoting.Posix;
 	}

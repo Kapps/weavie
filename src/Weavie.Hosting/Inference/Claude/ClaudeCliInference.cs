@@ -28,7 +28,7 @@ internal sealed class ClaudeCliInference : IInferenceProvider {
 		var profile = Profile(request.Category);
 		using var temp = InferenceTempDirectory.Create();
 		try {
-			string? command = _settings.GetString("claude.path");
+			string command = _settings.RequireString(CoreSettings.ClaudePath);
 			if (string.IsNullOrWhiteSpace(command)) {
 				return NotConfigured(profile.Model);
 			}

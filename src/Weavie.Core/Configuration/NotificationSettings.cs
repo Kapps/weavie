@@ -102,14 +102,14 @@ public static class NotificationSettings {
 	public static string BuildJson(SettingsStore store) {
 		ArgumentNullException.ThrowIfNull(store);
 		return JsonWrite.Object(writer => {
-			writer.WriteBoolean("sounds", store.GetBool(Sounds, true));
-			writer.WriteBoolean("os", store.GetBool(Os, true));
-			writer.WriteNumber("volume", store.GetInt(Volume, DefaultVolume));
-			writer.WriteString("soundPack", store.GetString(SoundPack) ?? Packs[0]);
+			writer.WriteBoolean("sounds", store.RequireBool(Sounds));
+			writer.WriteBoolean("os", store.RequireBool(Os));
+			writer.WriteNumber("volume", store.RequireInt(Volume));
+			writer.WriteString("soundPack", store.RequireString(SoundPack));
 			// Gates keyed by wire kind name, so the web indexes by the event's kind with no per-kind mapping.
 			writer.WriteStartObject("gates");
 			foreach (var kind in Enum.GetValues<AttentionKind>()) {
-				writer.WriteBoolean(AttentionRules.WireName(kind), store.GetBool(GateKey(kind), true));
+				writer.WriteBoolean(AttentionRules.WireName(kind), store.RequireBool(GateKey(kind)));
 			}
 
 			writer.WriteEndObject();

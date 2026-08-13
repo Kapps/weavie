@@ -27,9 +27,9 @@ public static class FontCommands {
 		try {
 			var shadows = new List<string>();
 			var before = RenderedSizes(settings);
-			Step(settings, FontSettings.GlobalSize, settings.GetInt(FontSettings.GlobalSize, FontSettings.DefaultSize), delta, shadows);
+			Step(settings, FontSettings.GlobalSize, settings.RequireInt(FontSettings.GlobalSize), delta, shadows);
 			foreach (string key in OverrideKeys) {
-				long current = settings.GetInt(key, 0);
+				long current = settings.RequireInt(key);
 				if (current > 0) {
 					Step(settings, key, current, delta, shadows);
 				}

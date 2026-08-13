@@ -26,10 +26,10 @@ public static class CoreSuggestions {
 			Id = "workspace.setup",
 			Title = "Set up this workspace?",
 			Body = "Claude can configure how to prepare a fresh checkout and how to run this repo's tests.",
-			LegacyIds = ["worktree.setupCommand"],
+			LegacyIds = [CoreSettings.WorktreeSetupCommand],
 			IsRelevant = ctx => ctx.HasBuildManifest && (
-				string.IsNullOrWhiteSpace(ctx.Settings.GetString("worktree.setupCommand", ctx.WorkspaceRoot)) ||
-				string.IsNullOrWhiteSpace(ctx.Settings.GetString(TestSettings.Profile, ctx.WorkspaceRoot))),
+				string.IsNullOrWhiteSpace(ctx.Settings.RequireString(CoreSettings.WorktreeSetupCommand, ctx.WorkspaceRoot)) ||
+				string.IsNullOrWhiteSpace(ctx.Settings.RequireString(TestSettings.Profile, ctx.WorkspaceRoot))),
 			Actions = [
 				new SuggestionAction {
 					Label = "Yes",

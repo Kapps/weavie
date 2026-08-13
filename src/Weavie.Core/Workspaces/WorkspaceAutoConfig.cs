@@ -35,15 +35,15 @@ public sealed class WorkspaceAutoConfig {
 
 		var wrote = new List<string>();
 		if (!string.IsNullOrEmpty(detection.SetupCommand)
-			&& string.IsNullOrWhiteSpace(_settings.GetString("worktree.setupCommand", _workspaceRoot))) {
-			_settings.Set("worktree.setupCommand", JsonString(detection.SetupCommand), _workspaceRoot);
-			wrote.Add("worktree.setupCommand");
+			&& string.IsNullOrWhiteSpace(_settings.RequireString(CoreSettings.WorktreeSetupCommand, _workspaceRoot))) {
+			_settings.Set(CoreSettings.WorktreeSetupCommand, JsonString(detection.SetupCommand), _workspaceRoot);
+			wrote.Add(CoreSettings.WorktreeSetupCommand);
 		}
 
 		// Only write a profile we actually derived rules for; an empty profile ([]) would falsely claim "no tests"
 		// and satisfy the card. No rules → leave unset → the card offers Claude.
 		if (detection.TestRules.Count > 0
-			&& string.IsNullOrWhiteSpace(_settings.GetString(TestSettings.Profile, _workspaceRoot))) {
+			&& string.IsNullOrWhiteSpace(_settings.RequireString(TestSettings.Profile, _workspaceRoot))) {
 			_settings.Set(TestSettings.Profile, JsonString(TestProfile.Serialize(detection.TestRules)), _workspaceRoot);
 			wrote.Add(TestSettings.Profile);
 		}

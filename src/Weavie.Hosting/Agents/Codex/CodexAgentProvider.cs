@@ -51,7 +51,7 @@ public sealed class CodexAgentProvider : IAgentInferenceProvider {
 	/// <inheritdoc/>
 	public IAgentSession CreateSession(AgentSessionContext context) {
 		ArgumentNullException.ThrowIfNull(context);
-		string? command = context.Settings.GetString("codex.path");
+		string? command = context.Settings.GetString(CoreSettings.CodexPath);
 		if (string.IsNullOrWhiteSpace(command)) {
 			return new UnavailableStructuredAgentSession(
 				"codex",

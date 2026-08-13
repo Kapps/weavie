@@ -29,9 +29,9 @@ public sealed class PrSettingsTests : IDisposable {
 	public void AutoReviewPrompt_IsBoolDefaultingOn() {
 		using var store = CoreSettings.CreateStore(FilePath, enableWatcher: false);
 
-		var resolved = store.Resolve("pr.autoReviewPrompt");
+		var resolved = store.Resolve(CoreSettings.PullRequestAutoReviewPrompt);
 		Assert.Equal(true, resolved.Value);
-		Assert.True(store.RequireBool("pr.autoReviewPrompt"));
+		Assert.True(store.RequireBool(CoreSettings.PullRequestAutoReviewPrompt));
 	}
 
 	[Fact]
@@ -39,6 +39,6 @@ public sealed class PrSettingsTests : IDisposable {
 		File.WriteAllText(FilePath, "pr.autoReviewPrompt = false\n");
 		using var store = CoreSettings.CreateStore(FilePath, enableWatcher: false);
 
-		Assert.False(store.GetBool("pr.autoReviewPrompt", fallback: true));
+		Assert.False(store.RequireBool(CoreSettings.PullRequestAutoReviewPrompt));
 	}
 }

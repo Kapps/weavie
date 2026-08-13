@@ -57,7 +57,7 @@ public sealed class WorkspaceAutoConfigTests : IDisposable {
 		var outcome = new WorkspaceAutoConfig(store, Root).Apply(Detection("go mod download", [GoRule]));
 
 		Assert.Equal(["worktree.setupCommand", "test.profile"], outcome.Wrote);
-		Assert.Equal("go mod download", store.GetString("worktree.setupCommand", Root));
+		Assert.Equal("go mod download", store.GetString(CoreSettings.WorktreeSetupCommand, Root));
 		Assert.True(TestProfile.TryParse(store.GetString("test.profile", Root)!, out var profile, out _));
 		Assert.Equal("**/*_test.go", Assert.Single(profile.Rules).Glob);
 	}
@@ -70,7 +70,7 @@ public sealed class WorkspaceAutoConfigTests : IDisposable {
 		var outcome = new WorkspaceAutoConfig(store, Root).Apply(Detection("go mod download", [GoRule]));
 
 		Assert.Equal(["test.profile"], outcome.Wrote);
-		Assert.Equal("my custom setup", store.GetString("worktree.setupCommand", Root));
+		Assert.Equal("my custom setup", store.GetString(CoreSettings.WorktreeSetupCommand, Root));
 	}
 
 	[Fact]
@@ -101,6 +101,6 @@ public sealed class WorkspaceAutoConfigTests : IDisposable {
 		var outcome = new WorkspaceAutoConfig(store, Root).Apply(Detection(setup: null, []));
 
 		Assert.Empty(outcome.Wrote);
-		Assert.True(string.IsNullOrEmpty(store.GetString("worktree.setupCommand", Root)));
+		Assert.True(string.IsNullOrEmpty(store.GetString(CoreSettings.WorktreeSetupCommand, Root)));
 	}
 }

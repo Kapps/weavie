@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using Weavie.Core.Configuration;
 using Weavie.Core.Mcp;
 using Weavie.Headless;
 using Weavie.Hosting;
@@ -31,7 +32,7 @@ if (Environment.GetEnvironmentVariable("WEAVIE_FAKE_NOTION") is { Length: > 0 } 
 
 string workspace = !string.IsNullOrEmpty(workspaceOverride)
 	? workspaceOverride
-	: services.Settings.GetString("workspace") ?? Environment.CurrentDirectory;
+	: services.Settings.GetString(CoreSettings.Workspace) ?? Environment.CurrentDirectory;
 var http = listen is ListenMode.Remote remote
 	? new WorkspaceHttpServerOptions(remote.Bind, port, remote.Token, wwwroot, true)
 	: WorkspaceHttpServerOptions.Loopback(port, wwwroot);

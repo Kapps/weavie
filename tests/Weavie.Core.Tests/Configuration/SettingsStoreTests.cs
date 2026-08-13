@@ -501,6 +501,7 @@ public sealed class SettingsStoreTests : IDisposable {
 		using (var store = new SettingsStore(ScopedRegistry(), FilePath, enableWatcher: false, WorkspaceFile)) {
 			store.RegisterWorkspace(root);
 			Assert.Equal("from-workspace", store.Resolve("t.wsstr", root).Value);
+			Assert.Equal("from-workspace", store.RequireString("t.wsstr", root));
 			Assert.Equal(SettingSource.WorkspaceFile, store.Resolve("t.wsstr", root).Source);
 
 			// A bare resolve (no workspace) skips the overlay and falls through to the user file.

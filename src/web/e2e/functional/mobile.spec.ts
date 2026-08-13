@@ -176,7 +176,7 @@ test.describe("failed branch inference", () => {
     const branch = inbox.getByRole("textbox", { name: "Branch for the new session" });
     await expect(branch).toHaveValue("");
     await expect(inbox.getByRole("alert")).toHaveText(
-      "Branch suggestion failed. Type a branch to continue.",
+      "Branch suggestion failed: Codex authentication was rejected. Run 'codex login' and try again. Type a branch to continue.",
     );
     await expect(inbox.getByRole("button", { name: "Start", exact: true })).toBeDisabled();
     await branch.fill("fix/manual-branch-inference");
@@ -453,7 +453,7 @@ test("compact session inbox creates, resumes, and switches existing surfaces", a
   const branch = inbox.getByRole("textbox", { name: "Branch for the new session" });
   await expect(branch).toHaveValue("");
   await expect(inbox.getByRole("alert")).toHaveText(
-    "Branch suggestion failed. Type a branch to continue.",
+    "Branch suggestion failed: Ad-hoc inference is disabled. Type a branch to continue.",
   );
   await branch.fill("bug/mobile-navigation");
   await expect(startButton).toBeEnabled();

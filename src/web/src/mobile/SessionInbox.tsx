@@ -61,6 +61,7 @@ export function SessionInbox(props: {
   const [attachments, setAttachments] = createSignal<NewSessionAttachmentDraft[]>([]);
   const [branchPreview, setBranchPreview] = createSignal<BranchPreviewState>({
     branch: "",
+    error: null,
     manual: false,
     status: "idle",
   });

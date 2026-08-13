@@ -41,7 +41,7 @@ describe("NewSessionBranchPreview", () => {
     const preview = new NewSessionBranchPreview(
       async (request) => {
         requests.push(request);
-        return { branch: "bug/webm-fails-to-load", inferenceFailed: false };
+        return { branch: "bug/webm-fails-to-load", error: null };
       },
       (state) => states.push(state),
     );
@@ -55,6 +55,7 @@ describe("NewSessionBranchPreview", () => {
     expect(requests).toEqual([context("WebM fails")]);
     expect(states.at(-1)).toEqual({
       branch: "bug/webm-fails-to-load",
+      error: null,
       manual: false,
       status: "ready",
     });
@@ -79,14 +80,14 @@ describe("NewSessionBranchPreview", () => {
     await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_DEBOUNCE_MS);
     preview.update(context("second"));
     expect(calls[0]!.signal.aborted).toBe(true);
-    calls[0]!.result.resolve({ branch: "stale", inferenceFailed: false });
+    calls[0]!.result.resolve({ branch: "stale", error: null });
     await Promise.resolve();
     expect(state?.branch).toBe("");
 
     await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_DEBOUNCE_MS);
-    calls[1]!.result.resolve({ branch: "fresh", inferenceFailed: false });
+    calls[1]!.result.resolve({ branch: "fresh", error: null });
     await Promise.resolve();
-    expect(state).toEqual({ branch: "fresh", manual: false, status: "ready" });
+    expect(state).toEqual({ branch: "fresh", error: null, manual: false, status: "ready" });
   });
 
   it("lets manual input win until the field is explicitly cleared", async () => {
@@ -96,7 +97,7 @@ describe("NewSessionBranchPreview", () => {
     const preview = new NewSessionBranchPreview(
       async (request, signal) => {
         calls.push({ context: request, signal });
-        return { branch: "automatic", inferenceFailed: false };
+        return { branch: "automatic", error: null };
       },
       (next) => {
         state = next;
@@ -108,7 +109,12 @@ describe("NewSessionBranchPreview", () => {
     preview.update({ ...context("second"), providerId: "claude" });
     await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_DEBOUNCE_MS);
     expect(calls).toEqual([]);
-    expect(state).toEqual({ branch: "mine/fix-webm", manual: true, status: "ready" });
+    expect(state).toEqual({
+      branch: "mine/fix-webm",
+      error: null,
+      manual: true,
+      status: "ready",
+    });
 
     preview.edit("");
     await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_DEBOUNCE_MS);
@@ -118,7 +124,7 @@ describe("NewSessionBranchPreview", () => {
       prompt: "second",
       providerId: "claude",
     });
-    expect(state).toEqual({ branch: "automatic", manual: false, status: "ready" });
+    expect(state).toEqual({ branch: "automatic", error: null, manual: false, status: "ready" });
   });
 
   it("keeps the field editable when the preview transport fails", async () => {
@@ -126,7 +132,7 @@ describe("NewSessionBranchPreview", () => {
     let state: BranchPreviewState | undefined;
     const preview = new NewSessionBranchPreview(
       async () => {
-        throw new Error("offline");
+        throw new Error("The host is offline.");
       },
       (next) => {
         state = next;
@@ -135,17 +141,30 @@ describe("NewSessionBranchPreview", () => {
 
     preview.update(context("fix it"));
     await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_DEBOUNCE_MS);
-    expect(state).toEqual({ branch: "", manual: false, status: "error" });
+    expect(state).toEqual({
+      branch: "",
+      error: "The host is offline.",
+      manual: false,
+      status: "error",
+    });
 
     preview.edit("bug/fix-it");
-    expect(state).toEqual({ branch: "bug/fix-it", manual: true, status: "ready" });
+    expect(state).toEqual({
+      branch: "bug/fix-it",
+      error: null,
+      manual: true,
+      status: "ready",
+    });
   });
 
-  it("leaves the branch blank when inference fails", async () => {
+  it("preserves the reason when inference fails", async () => {
     vi.useFakeTimers();
     let state: BranchPreviewState | undefined;
     const preview = new NewSessionBranchPreview(
-      async () => ({ branch: "", inferenceFailed: true }),
+      async () => ({
+        branch: "",
+        error: "Codex authentication was rejected. Run 'codex login' and try again.",
+      }),
       (next) => {
         state = next;
       },
@@ -154,6 +173,11 @@ describe("NewSessionBranchPreview", () => {
     preview.update(context("fix it"));
     await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_DEBOUNCE_MS);
 
-    expect(state).toEqual({ branch: "", manual: false, status: "error" });
+    expect(state).toEqual({
+      branch: "",
+      error: "Codex authentication was rejected. Run 'codex login' and try again.",
+      manual: false,
+      status: "error",
+    });
   });
 });

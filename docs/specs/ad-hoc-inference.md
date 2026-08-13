@@ -88,7 +88,7 @@ authentication failed, rate limited, provider unavailable, refused, and invalid 
 Every feature owns its non-success UI. This includes missing binaries/authentication, non-zero CLI exits,
 malformed envelopes/JSON, shape/domain rejection, and authoritative feature rejection. Branch preview has no
 generated fallback: every inference, validation, or collision failure leaves the branch field blank, marks the
-failure, and requires the user to type a branch name.
+failure with its reason, and requires the user to type a branch name.
 
 Caller cancellation remains exceptional and propagates. A canceled branch-preview request must stop its CLI
 process and must not publish a stale name into a newer composer draft.

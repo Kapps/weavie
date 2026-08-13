@@ -150,11 +150,13 @@ test.describe("session-addressed WebSocket transport", () => {
     await draft.fill("Fix branch inference");
     const request = await preview;
     expect(request.payload).toMatchObject({ sourceId: "main", agentProviderId: "claude" });
-    host.respond(request, { branch: "", inferenceFailed: true });
+    host.respond(request, { branch: "", error: "The inference provider failed." });
 
     const branch = inbox.getByRole("textbox", { name: "Branch for the new session" });
     await expect(branch).toHaveValue("");
-    await expect(inbox.getByRole("alert")).toContainText("Type a branch to continue");
+    await expect(inbox.getByRole("alert")).toHaveText(
+      "Branch suggestion failed: The inference provider failed. Type a branch to continue.",
+    );
     await branch.fill("fix/manual-name");
     await expect(inbox.getByRole("button", { name: "Start" })).toBeEnabled();
 

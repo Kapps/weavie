@@ -40,8 +40,8 @@ The compact new-session composer requests that proposal after 500 ms without typ
 branch field before creation. New typing or manual branch input cancels the superseded CLI process.
 
 Every non-cancellation failure takes the feature's visible failure path. Branch preview returns an empty field and
-requires manual input; it never manufactures a branch name. Disabled inference and an automatic-inference opt-out
-remain silent. Caller cancellation propagates because canceled work must not continue into a side effect.
+shows the failure reason while requiring manual input; it never manufactures a branch name. Caller cancellation
+propagates because canceled work must not continue into a side effect.
 `inference.enabled` is off by default, and automatic/event-triggered calls additionally require
 `inference.allowAutomatic`. When either gate is off, the first page connection in an app run offers a persistent
 notification whose **Allow** command enables and verifies both settings. Closing it changes no policy; the offer may

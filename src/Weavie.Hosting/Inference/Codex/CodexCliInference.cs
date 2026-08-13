@@ -1,5 +1,7 @@
 using System.ComponentModel;
+using System.Net;
 using System.Text;
+using System.Text.Json;
 using Weavie.Core.Configuration;
 using Weavie.Core.Inference;
 using Weavie.Hosting.Agents.Codex;
@@ -7,6 +9,9 @@ using Weavie.Hosting.Agents.Codex;
 namespace Weavie.Hosting.Inference.Codex;
 
 internal sealed class CodexCliInference : IInferenceProvider {
+	private const int JsonEventOverheadBytes = 64 * 1024;
+	private const string NoFailureReason = "Codex stopped before it supplied a failure reason.";
+	private const string NoSafeFailureReason = "Codex stopped without a safe failure reason.";
 	private static readonly Encoding Utf8 = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
 	private readonly SettingsStore _settings;
 	private readonly IAgentCliProcessRunner _processes;
@@ -71,17 +76,18 @@ internal sealed class CodexCliInference : IInferenceProvider {
 					"--output-schema", schemaPath,
 					"--output-last-message", outputPath,
 					"--color", "never",
+					"--json",
 					"-",
 				],
 				PathEntries = launch.PathEntries,
 				Environment = new Dictionary<string, string>(StringComparer.Ordinal),
 				RemoveEnvironment = [],
 				StandardInput = request.Prompt,
-				MaxCapturedStdoutBytes = 1,
-				CaptureStdout = false,
+				MaxCapturedStdoutBytes = request.MaxOutputBytes + JsonEventOverheadBytes,
+				CaptureStdout = true,
 			}, ct).ConfigureAwait(false);
 			if (result.ExitCode != 0) {
-				return Failure(model, $"Codex inference exited with code {result.ExitCode}.");
+				return Failure(model, FailureDetail(result.StandardOutput));
 			}
 			if (!File.Exists(outputPath)) {
 				return Invalid(model, "Codex returned no structured output.");
@@ -96,11 +102,65 @@ internal sealed class CodexCliInference : IInferenceProvider {
 			};
 		} catch (OperationCanceledException) {
 			throw;
+		} catch (AgentCliOutputLimitException) {
+			return Failure(model, "Codex returned more diagnostic output than the query permits.");
 		} catch (Exception ex) when (ex is Win32Exception or FileNotFoundException or InvalidOperationException) {
 			return NotConfigured(model);
 		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
 			return Failure(model, "The Codex inference process failed.");
 		}
+	}
+
+	private static string FailureDetail(string jsonLines) {
+		foreach (string line in jsonLines.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Reverse()) {
+			try {
+				using var document = JsonDocument.Parse(line);
+				var root = document.RootElement;
+				if (root.ValueKind != JsonValueKind.Object) {
+					return NoFailureReason;
+				}
+				if (!root.TryGetProperty("type", out var type)
+					|| type.ValueKind != JsonValueKind.String
+					|| type.GetString() != "turn.failed") {
+					return NoFailureReason;
+				}
+				string? detail = root.TryGetProperty("error", out var error)
+					&& error.ValueKind == JsonValueKind.Object
+					&& error.TryGetProperty("message", out var nested)
+					&& nested.ValueKind == JsonValueKind.String
+						? nested.GetString()
+						: null;
+				return string.IsNullOrWhiteSpace(detail) ? NoFailureReason : SafeDetail(detail.Trim());
+			} catch (JsonException) {
+			}
+		}
+
+		return NoFailureReason;
+	}
+
+	private static string SafeDetail(string detail) {
+		const string statusMarker = "unexpected status ";
+		int statusIndex = detail.IndexOf(statusMarker, StringComparison.OrdinalIgnoreCase);
+		if (statusIndex >= 0) {
+			var status = detail.AsSpan(statusIndex + statusMarker.Length);
+			if (status.Length >= 3 && int.TryParse(status[..3], out int code)) {
+				if (code is 401 or 403) {
+					return "Codex authentication was rejected. Run 'codex login' and try again.";
+				}
+				if (code == 429) {
+					return "Codex rate limit was reached. Try again after it resets.";
+				}
+				string? name = Enum.GetName(typeof(HttpStatusCode), code);
+				return name is null
+					? $"Codex request failed with HTTP {code}."
+					: $"Codex request failed with HTTP {code} {name}.";
+			}
+		}
+
+		if (detail.Contains("stream disconnected before completion", StringComparison.OrdinalIgnoreCase)) {
+			return "The Codex response stream disconnected before completion.";
+		}
+		return NoSafeFailureReason;
 	}
 
 	private static string Model(InferenceModelCategory category) => category switch {

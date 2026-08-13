@@ -229,7 +229,9 @@ test("focusing the recent-files search keeps the app viewport fixed", async ({ p
   await expect(page.getByPlaceholder("Search recent files…")).toBeFocused();
 });
 
-test("tapping the Claude Code prompt focuses its mobile keyboard input", async ({ page }) => {
+test("the software keyboard keeps Claude reachable without scrolling the document", async ({
+  page,
+}) => {
   await page.locator(".session-inbox-row").click();
 
   const terminal = page.locator('.terminal-surface[data-kind="terminal:claude"]');
@@ -251,18 +253,35 @@ test("tapping the Claude Code prompt focuses its mobile keyboard input", async (
     )
     .toBe(true);
 
+  const initialViewport = await page.evaluate(() => ({
+    innerHeight: window.innerHeight,
+    visualHeight: window.visualViewport?.height,
+  }));
+  if (initialViewport.visualHeight === undefined) {
+    throw new Error("VisualViewport is unavailable");
+  }
   const initialRows = await terminalRows(page, "claude");
   await page.evaluate(() => {
     const viewport = window.visualViewport;
     if (viewport === null) {
       throw new Error("VisualViewport is unavailable");
     }
+    const spacer = document.createElement("div");
+    spacer.style.cssText = "position:absolute;top:0;width:1px;height:1400px";
+    document.body.append(spacer);
+    document.documentElement.style.overflow = "visible";
+    document.body.style.overflow = "visible";
     Object.defineProperties(viewport, {
       height: { configurable: true, value: 500 },
       offsetTop: { configurable: true, value: 24 },
     });
+    window.dispatchEvent(new Event("resize"));
     viewport.dispatchEvent(new Event("resize"));
     viewport.dispatchEvent(new Event("scroll"));
+    window.scrollTo(0, 280);
+    if (window.scrollY !== 280) {
+      throw new Error(`Could not simulate the keyboard's document scroll: ${window.scrollY}`);
+    }
   });
 
   await expect
@@ -274,13 +293,48 @@ test("tapping the Claude Code prompt focuses its mobile keyboard input", async (
     )
     .toEqual({ bottom: 524, height: 500, top: 24 });
   const keyboardGeometry = await page.evaluate(() => {
+    const app = document.querySelector(".app")?.getBoundingClientRect();
     const nav = document.querySelector(".mobile-surface-bar")?.getBoundingClientRect();
     const pane = document.querySelector(".pane-area")?.getBoundingClientRect();
-    return { navBottom: nav?.bottom, paneBottom: pane?.bottom };
+    return {
+      appBottom: app?.bottom,
+      navBottom: nav?.bottom,
+      paneBottom: pane?.bottom,
+      scrollingElementTop: document.scrollingElement?.scrollTop,
+      scrollY: window.scrollY,
+    };
   });
+  expect(keyboardGeometry.appBottom).toBe(524);
   expect(keyboardGeometry.navBottom).toBe(524);
   expect(keyboardGeometry.paneBottom).toBeLessThan(524);
+  expect(keyboardGeometry.scrollingElementTop).toBe(0);
+  expect(keyboardGeometry.scrollY).toBe(0);
   await expect.poll(() => terminalRows(page, "claude")).toBeLessThan(initialRows);
+
+  const keyboardRows = await terminalRows(page, "claude");
+  await page.evaluate((initial) => {
+    const viewport = window.visualViewport;
+    if (viewport === null) {
+      throw new Error("VisualViewport is unavailable");
+    }
+    Object.defineProperties(viewport, {
+      height: { configurable: true, value: initial.visualHeight },
+      offsetTop: { configurable: true, value: 0 },
+    });
+    window.dispatchEvent(new Event("resize"));
+    viewport.dispatchEvent(new Event("resize"));
+    viewport.dispatchEvent(new Event("scroll"));
+  }, initialViewport);
+
+  await expect
+    .poll(() =>
+      page.locator(".app").evaluate((app) => {
+        const bounds = app.getBoundingClientRect();
+        return { bottom: bounds.bottom, height: bounds.height, top: bounds.top };
+      }),
+    )
+    .toEqual({ bottom: initialViewport.innerHeight, height: initialViewport.innerHeight, top: 0 });
+  await expect.poll(() => terminalRows(page, "claude")).toBeGreaterThan(keyboardRows);
 });
 
 // 2026-08-13: flaked on the macOS shard — https://github.com/Kapps/weavie/actions/runs/31660811208/job/94325711777.

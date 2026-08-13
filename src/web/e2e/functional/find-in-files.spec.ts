@@ -207,6 +207,13 @@ test("code results follow editor typography while search chrome stays compact", 
   await expect
     .poll(async () => (await typography(editorLine)).family.startsWith(publishedFamily))
     .toBe(true);
+  // The search-row preview applies the same published font asynchronously too (its own layout pass, not
+  // Monaco's), so it needs the same settle-before-read treatment as editorLine above — flaked on the
+  // Windows shard 2026-08-13: https://github.com/Kapps/weavie/actions/runs/31664855484/job/94337743604
+  // (read "Chivo, system-ui, sans-serif", the chrome fallback stack, instead of the published content font).
+  await expect
+    .poll(async () => (await typography(preview)).family.startsWith(publishedFamily))
+    .toBe(true);
   const initialEditor = await typography(editorLine);
   const initialResult = await typography(preview);
   expect(initialResult.family).toBe(publishedFamily);

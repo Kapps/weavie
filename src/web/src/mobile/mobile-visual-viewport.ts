@@ -25,13 +25,17 @@ export function createMobileVisualViewportStyle(compact: Accessor<boolean>): Acc
       const height = useLayoutViewport ? layoutHeight : viewport.height;
       const top = useLayoutViewport ? 0 : viewport.offsetTop;
       setStyle(`--mobile-viewport-height:${height}px;--mobile-viewport-top:${top}px;`);
+      resetDocumentScroll();
     };
+    const resetDocumentScroll = (): void => window.scrollTo(0, 0);
     update();
     window.addEventListener("resize", update);
+    window.addEventListener("scroll", resetDocumentScroll);
     viewport.addEventListener("resize", update);
     viewport.addEventListener("scroll", update);
     onCleanup(() => {
       window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", resetDocumentScroll);
       viewport.removeEventListener("resize", update);
       viewport.removeEventListener("scroll", update);
     });

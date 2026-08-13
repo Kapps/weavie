@@ -16,6 +16,14 @@ if (args.includes("exec")) {
   process.stdin.on("end", () => {
     const inference = ${JSON.stringify(inference)};
     if (inference !== "success") {
+      send({ type: "error", message: "Reconnecting... 5/5" });
+      send({
+        type: "turn.failed",
+        error: {
+          message:
+            "unexpected status 401 Unauthorized: Invalid API key: fake-secret, url: https://provider.invalid/v1/responses",
+        },
+      });
       process.exitCode = 7;
       return;
     }
@@ -24,7 +32,7 @@ if (args.includes("exec")) {
     const outputFlag = args.indexOf("--output-last-message");
     const isolated = args.includes('permissions.weavie-inference.filesystem.:root="deny"')
       && !args.includes("tools.view_image=false");
-    if (approval < 0 || approval > exec || outputFlag < 0 || !isolated) {
+    if (approval < 0 || approval > exec || outputFlag < 0 || !args.includes("--json") || !isolated) {
       process.exitCode = 2;
       return;
     }

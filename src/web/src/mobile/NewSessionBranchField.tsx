@@ -22,6 +22,7 @@ export function NewSessionBranchField(props: {
 }): JSX.Element {
   const [state, setState] = createSignal<BranchPreviewState>({
     branch: "",
+    error: null,
     manual: false,
     status: "idle",
   });
@@ -72,7 +73,9 @@ export function NewSessionBranchField(props: {
         onInput={(event) => preview.edit(event.currentTarget.value)}
       />
       <Show when={state().status === "error"}>
-        <small role="alert">Branch suggestion failed. Type a branch to continue.</small>
+        <small role="alert">
+          Branch suggestion failed: {state().error} Type a branch to continue.
+        </small>
       </Show>
     </label>
   );

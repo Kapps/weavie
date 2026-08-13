@@ -116,6 +116,9 @@ public sealed class AgentCliInferenceTests : IDisposable {
 		Assert.Contains("web_search=\"disabled\"", runner.Request.Arguments);
 		Assert.Equal("never", ValueAfter(runner.Request.Arguments, "--ask-for-approval"));
 		AssertBefore(runner.Request.Arguments, "--ask-for-approval", "exec");
+		Assert.Contains("--json", runner.Request.Arguments);
+		Assert.True(runner.Request.CaptureStdout);
+		Assert.Equal(Request(category).MaxOutputBytes + (64 * 1024), runner.Request.MaxCapturedStdoutBytes);
 		Assert.DoesNotContain("app-server", runner.Request.Arguments);
 		Assert.Equal(Request(category).OutputSchemaJson, schema);
 		Assert.Equal(["output-schema.json"], Assert.IsType<string[]>(initialFiles));
@@ -128,15 +131,37 @@ public sealed class AgentCliInferenceTests : IDisposable {
 		string command = Path.Combine(_dir, OperatingSystem.IsWindows() ? "codex.exe" : "codex");
 		File.WriteAllText(command, string.Empty);
 		SetPath("codex.path", command);
-		var runner = new RecordingRunner((_, _) => Task.FromResult(new AgentCliProcessResult(7, string.Empty)));
+		var runner = new RecordingRunner((_, _) => Task.FromResult(new AgentCliProcessResult(
+			7,
+			"{\"type\":\"error\",\"message\":\"Reconnecting... 5/5\"}\n"
+				+ "{\"type\":\"turn.failed\",\"error\":{\"message\":"
+				+ "\"unexpected status 401 Unauthorized: Invalid API key: secret-probe, "
+				+ "url: https://provider.invalid/v1/responses, request id: req-secret\"}}")));
 		var provider = new CodexCliInference(_settings, runner);
 
 		var result = Assert.IsType<InferenceProviderFailure>(
 			await provider.QueryInferenceAsync(Request(InferenceModelCategory.Utility), CancellationToken.None));
 
 		Assert.Equal(InferenceFailureKind.ProviderUnavailable, result.Kind);
+		Assert.Equal("Codex authentication was rejected. Run 'codex login' and try again.", result.Detail);
 		Assert.Equal(1, runner.Calls);
 		Assert.False(Directory.Exists(runner.Request!.WorkingDirectory));
+	}
+
+	[Fact]
+	public async Task Codex_DoesNotExposeUnknownFailureText() {
+		string command = Path.Combine(_dir, OperatingSystem.IsWindows() ? "codex.exe" : "codex");
+		File.WriteAllText(command, string.Empty);
+		SetPath("codex.path", command);
+		var runner = new RecordingRunner((_, _) => Task.FromResult(new AgentCliProcessResult(
+			7,
+			"{\"type\":\"turn.failed\",\"error\":{\"message\":\"bearer raw-secret-value\"}}")));
+		var provider = new CodexCliInference(_settings, runner);
+
+		var result = Assert.IsType<InferenceProviderFailure>(
+			await provider.QueryInferenceAsync(Request(InferenceModelCategory.Utility), CancellationToken.None));
+
+		Assert.Equal("Codex stopped without a safe failure reason.", result.Detail);
 	}
 
 	[Fact]

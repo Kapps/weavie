@@ -194,7 +194,7 @@ public sealed partial class HostCore {
 
 	private sealed record HostBranchPreviewRequest(string? SourceId, string? Prompt, string AgentProviderId);
 
-	private sealed record BranchPreviewResult(string Branch, bool InferenceFailed);
+	private sealed record BranchPreviewResult(string Branch, string? Error);
 
 	private sealed record EditorSessionMessage(JsonElement Session);
 

@@ -26,7 +26,7 @@ public sealed class HostCoreBranchInferenceTests {
 		var result = await PreviewAsync(host, "WebM files fail to load", agentProviderId);
 
 		Assert.Equal("bug/webm-fails-to-load", result.Branch);
-		Assert.False(result.InferenceFailed);
+		Assert.Null(result.Error);
 		Assert.Equal(agentProviderId, inference.AgentProviderId);
 		Assert.Equal(InferenceModelCategory.Utility, inference.Category);
 		Assert.Equal(InferenceInvocationOrigin.Automatic, inference.Origin);
@@ -49,29 +49,29 @@ public sealed class HostCoreBranchInferenceTests {
 	[InlineData(InferenceFailureKind.ProviderUnavailable)]
 	[InlineData(InferenceFailureKind.Refused)]
 	[InlineData(InferenceFailureKind.InvalidResponse)]
-	public async Task EveryInferenceFailure_LeavesTheBranchBlank(InferenceFailureKind kind) {
+	public async Task EveryInferenceFailure_ReportsItsReason(InferenceFailureKind kind) {
 		var inference = new BranchInferenceStub(new InferenceFailure<BranchNameInferenceOutput> {
 			Kind = kind,
-			Detail = "failed",
+			Detail = "The selected provider failed.",
 		});
 		await using var host = await TestHost.StartAsync(_ => { }, _ => inference);
 
 		var result = await PreviewAsync(host, "WebM files fail to load", "claude");
 
 		Assert.Empty(result.Branch);
-		Assert.True(result.InferenceFailed);
+		Assert.Equal("The selected provider failed.", result.Error);
 		Assert.Equal(1, inference.Calls);
 	}
 
 	[Theory]
-	[InlineData("")]
-	[InlineData(" ")]
-	[InlineData("not a valid branch")]
-	[InlineData("main")]
-	[InlineData("HEAD")]
-	[InlineData("foo/.bar")]
-	[InlineData("foo.lock/bar")]
-	public async Task InvalidOrCollidingProposal_LeavesTheBranchBlank(string proposed) {
+	[InlineData("", "The inference provider returned an empty branch name.")]
+	[InlineData(" ", "The inference provider returned an empty branch name.")]
+	[InlineData("not a valid branch", "The suggested branch name isn't valid.")]
+	[InlineData("main", "The suggested branch name is already in use.")]
+	[InlineData("HEAD", "The suggested branch name isn't valid.")]
+	[InlineData("foo/.bar", "The suggested branch name isn't valid.")]
+	[InlineData("foo.lock/bar", "The suggested branch name isn't valid.")]
+	public async Task InvalidOrCollidingProposal_ReportsItsReason(string proposed, string error) {
 		var inference = new BranchInferenceStub(new InferenceSuccess<BranchNameInferenceOutput> {
 			Value = new BranchNameInferenceOutput { Branch = proposed },
 			Receipt = Receipt(),
@@ -81,7 +81,7 @@ public sealed class HostCoreBranchInferenceTests {
 		var result = await PreviewAsync(host, "Fix WebM", "claude");
 
 		Assert.Empty(result.Branch);
-		Assert.True(result.InferenceFailed);
+		Assert.Equal(error, result.Error);
 	}
 
 	[Fact]
@@ -117,7 +117,7 @@ public sealed class HostCoreBranchInferenceTests {
 			new { sourceId = "missing", prompt = "Fix WebM", agentProviderId = "claude" });
 
 		Assert.Equal(string.Empty, result.GetProperty("branch").GetString());
-		Assert.True(result.GetProperty("inferenceFailed").GetBoolean());
+		Assert.Equal("The source session no longer exists.", result.GetProperty("error").GetString());
 		Assert.Equal(0, inference.Calls);
 	}
 
@@ -163,10 +163,12 @@ public sealed class HostCoreBranchInferenceTests {
 			new { sourceId = host.WorkspaceSession.SlotId, prompt, agentProviderId });
 		return new BranchPreview(
 			result.GetProperty("branch").GetString()!,
-			result.GetProperty("inferenceFailed").GetBoolean());
+			result.GetProperty("error").ValueKind == JsonValueKind.Null
+				? null
+				: result.GetProperty("error").GetString());
 	}
 
-	private sealed record BranchPreview(string Branch, bool InferenceFailed);
+	private sealed record BranchPreview(string Branch, string? Error);
 
 	private static InferenceReceipt Receipt() => new() {
 		ProviderId = "test",

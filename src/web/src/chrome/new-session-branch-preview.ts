@@ -12,6 +12,7 @@ export type BranchPreviewStatus = "idle" | "waiting" | "loading" | "ready" | "er
 
 export interface BranchPreviewState {
   branch: string;
+  error: string | null;
   manual: boolean;
   status: BranchPreviewStatus;
 }
@@ -37,7 +38,7 @@ export class NewSessionBranchPreview {
   private context: BranchPreviewContext | null = null;
   private controller: AbortController | null = null;
   private generation = 0;
-  private state: BranchPreviewState = { branch: "", manual: false, status: "idle" };
+  private state: BranchPreviewState = { branch: "", error: null, manual: false, status: "idle" };
   private timer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
@@ -56,19 +57,25 @@ export class NewSessionBranchPreview {
       return;
     }
 
-    this.publish({ branch: "", manual: false, status: context === null ? "idle" : "waiting" });
+    this.publish({
+      branch: "",
+      error: null,
+      manual: false,
+      status: context === null ? "idle" : "waiting",
+    });
     this.schedule();
   }
 
   edit(branch: string): void {
     this.invalidate();
     if (branch.trim().length > 0) {
-      this.publish({ branch, manual: true, status: "ready" });
+      this.publish({ branch, error: null, manual: true, status: "ready" });
       return;
     }
 
     this.publish({
       branch: "",
+      error: null,
       manual: false,
       status: this.context === null ? "idle" : "waiting",
     });
@@ -82,7 +89,7 @@ export class NewSessionBranchPreview {
   reset(): void {
     this.context = null;
     this.invalidate();
-    this.publish({ branch: "", manual: false, status: "idle" });
+    this.publish({ branch: "", error: null, manual: false, status: "idle" });
   }
 
   private schedule(): void {
@@ -96,7 +103,7 @@ export class NewSessionBranchPreview {
       this.timer = null;
       const controller = new AbortController();
       this.controller = controller;
-      this.publish({ branch: "", manual: false, status: "loading" });
+      this.publish({ branch: "", error: null, manual: false, status: "loading" });
       void this.request(context, controller.signal).then(
         (result) => {
           if (!this.isCurrent(generation, context, controller)) {
@@ -105,16 +112,22 @@ export class NewSessionBranchPreview {
           this.controller = null;
           this.publish({
             branch: result.branch,
+            error: result.error,
             manual: false,
-            status: result.inferenceFailed ? "error" : "ready",
+            status: result.error === null ? "ready" : "error",
           });
         },
-        () => {
+        (error: unknown) => {
           if (!this.isCurrent(generation, context, controller)) {
             return;
           }
           this.controller = null;
-          this.publish({ branch: "", manual: false, status: "error" });
+          this.publish({
+            branch: "",
+            error: error instanceof Error ? error.message : String(error),
+            manual: false,
+            status: "error",
+          });
         },
       );
     }, BRANCH_PREVIEW_DEBOUNCE_MS);

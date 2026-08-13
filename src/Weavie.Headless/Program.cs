@@ -49,7 +49,7 @@ Console.WriteLine($"[weavie-headless] token {core.WorkspaceAccessToken}");
 Console.WriteLine($"[weavie-headless] open  {core.WorkspacePageUrl}  in a browser");
 Console.Out.Flush();
 using var shutdown = new CancellationTokenSource();
-void Cancel(object? _, ConsoleCancelEventArgs args) {
+void Cancel(object? sender, ConsoleCancelEventArgs args) {
 	args.Cancel = true;
 	shutdown.Cancel();
 }

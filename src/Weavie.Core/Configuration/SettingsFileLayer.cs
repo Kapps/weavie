@@ -1,6 +1,7 @@
 using Tomlyn;
 using Tomlyn.Model;
 using Tomlyn.Syntax;
+using Weavie.Core.FileSystem;
 
 namespace Weavie.Core.Configuration;
 
@@ -11,65 +12,38 @@ namespace Weavie.Core.Configuration;
 /// reload so live resolution stays stable. Not thread-safe: <see cref="SettingsStore"/> serializes
 /// every call under its own lock.
 /// </summary>
-internal sealed class SettingsFileLayer {
-	private DocumentSyntax _doc = new();
-	private TomlTable _model = [];
-	private bool _hasGoodDoc;
+internal sealed class SettingsFileLayer : IDisposable {
+	private static readonly LocalFileSystem FileSystem = new();
+	private readonly ReloadingFile<SettingsDocument> _file;
 
-	/// <summary>Creates a layer over <paramref name="filePath"/>. Call <see cref="Load"/> before use.</summary>
-	public SettingsFileLayer(string filePath) {
-		FilePath = filePath;
+	/// <summary>Creates and loads a layer over <paramref name="filePath"/>.</summary>
+	public SettingsFileLayer(string filePath, Lock gate) {
+		_file = new ReloadingFile<SettingsDocument>(
+			filePath,
+			gate,
+			new SettingsDocument(new DocumentSyntax(), []),
+			Load,
+			watch: false);
 	}
 
 	/// <summary>The TOML file backing this layer.</summary>
-	public string FilePath { get; }
+	public string FilePath => _file.Path;
 
 	/// <summary>Whether the on-disk file currently has TOML parse errors (writes are refused while true).</summary>
-	public bool Malformed { get; private set; }
+	public bool Malformed => _file.Error is not null;
 
-	/// <summary>
-	/// Reloads from disk, keeping the last-good document on a parse error so live resolution stays stable.
-	/// Returns diagnostic log lines (parse errors, unreadable file) for the caller to surface.
-	/// </summary>
-	public IReadOnlyList<string> Load() {
-		var logs = new List<string>();
-		string text;
-		try {
-			text = File.Exists(FilePath) ? File.ReadAllText(FilePath) : string.Empty;
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			logs.Add($"[settings] could not read {FilePath}: {ex.Message}; using defaults.");
-			text = string.Empty;
-		}
-
-		var parsed = Toml.Parse(text, FilePath);
-		if (parsed.HasErrors) {
-			Malformed = true;
-			foreach (var diagnostic in parsed.Diagnostics) {
-				logs.Add($"[settings] {diagnostic}");
-			}
-
-			logs.Add($"[settings] {FilePath} has parse errors; using defaults and refusing writes until fixed.");
-			if (!_hasGoodDoc) {
-				// First load is malformed: there is no last-good document, so resolve to all defaults.
-				_doc = new DocumentSyntax();
-				_model = _doc.ToModel();
-			}
-
-			return logs; // otherwise keep the last good document so live resolution stays stable
-		}
-
-		Malformed = false;
-		_hasGoodDoc = true;
-		_doc = parsed;
-		_model = parsed.ToModel();
-		return logs;
+	internal event Action<FileReload<SettingsDocument>>? Reloaded {
+		add => _file.Reloaded += value;
+		remove => _file.Reloaded -= value;
 	}
+
+	internal void Watch() => _file.Watch();
 
 	/// <summary>Reads the raw TOML value for a dotted <paramref name="key"/> (root dotted key or nested table).</summary>
 	public bool TryGetValue(string key, out object? value) {
 		value = null;
 		string[] parts = key.Split('.');
-		var table = _model;
+		var table = _file.Value.Model;
 		for (int i = 0; i < parts.Length; i++) {
 			if (!table.TryGetValue(parts[i], out object? current)) {
 				return false;
@@ -93,6 +67,7 @@ internal sealed class SettingsFileLayer {
 	/// <summary>Sets <paramref name="definition"/>'s key = <paramref name="coerced"/> in the document, updating every
 	/// existing entry in place or appending a new key self-documented with the definition's description. Rebuilds the model.</summary>
 	public void SetValue(SettingDefinition definition, object? coerced) {
+		var document = _file.Value;
 		var existing = FindEntries(definition.Key);
 		if (existing.Count > 0) {
 			// Update every form the key appears in — root dotted and nested under a hand-written [table] header —
@@ -108,22 +83,23 @@ internal sealed class SettingsFileLayer {
 					new SyntaxTrivia(TokenKind.NewLine, "\n"),
 				],
 			};
-			_doc.KeyValues.Add(keyValue);
+			document.Syntax.KeyValues.Add(keyValue);
 		}
 
-		_model = _doc.ToModel();
+		document.Model = document.Syntax.ToModel();
 	}
 
 	// Removes every user entry for `key` — the root-level dotted form and entries nested under a
 	// hand-edited [table] header. An emptied table header is left in place: pruning it risks dropping comments.
 	public bool RemoveKey(string key) {
+		var document = _file.Value;
 		var matches = FindEntries(key);
 		foreach (var (owner, node) in matches) {
 			owner.RemoveChild(node);
 		}
 
 		if (matches.Count > 0) {
-			_model = _doc.ToModel();
+			document.Model = document.Syntax.ToModel();
 		}
 
 		return matches.Count > 0;
@@ -132,22 +108,23 @@ internal sealed class SettingsFileLayer {
 	// Every entry for a dotted key, in both forms it can appear in — a root-level dotted key and an entry
 	// nested under a [table] header — paired with the list that owns it (for removal).
 	private List<(SyntaxList<KeyValueSyntax> Owner, KeyValueSyntax Node)> FindEntries(string key) {
+		var documentSyntax = _file.Value.Syntax;
 		var matches = new List<(SyntaxList<KeyValueSyntax>, KeyValueSyntax)>();
-		foreach (var keyValue in _doc.KeyValues) {
-			if (keyValue.Key is { } syntax && string.Equals(DottedKeyName(syntax), key, StringComparison.Ordinal)) {
-				matches.Add((_doc.KeyValues, keyValue));
+		foreach (var keyValue in documentSyntax.KeyValues) {
+			if (keyValue.Key is { } keySyntax && string.Equals(DottedKeyName(keySyntax), key, StringComparison.Ordinal)) {
+				matches.Add((documentSyntax.KeyValues, keyValue));
 			}
 		}
 
-		foreach (var table in _doc.Tables) {
+		foreach (var table in documentSyntax.Tables) {
 			if (table.Name is not { } tableName) {
 				continue;
 			}
 
 			string prefix = DottedKeyName(tableName);
 			foreach (var item in table.Items) {
-				if (item.Key is { } syntax
-					&& string.Equals($"{prefix}.{DottedKeyName(syntax)}", key, StringComparison.Ordinal)) {
+				if (item.Key is { } keySyntax
+					&& string.Equals($"{prefix}.{DottedKeyName(keySyntax)}", key, StringComparison.Ordinal)) {
 					matches.Add((table.Items, item));
 				}
 			}
@@ -157,20 +134,17 @@ internal sealed class SettingsFileLayer {
 	}
 
 	/// <summary>Writes the document to disk atomically (temp file + replace), creating the directory if needed.</summary>
-	public void SaveAtomic() {
-		string? directory = Path.GetDirectoryName(FilePath);
-		if (!string.IsNullOrEmpty(directory)) {
-			Directory.CreateDirectory(directory);
-		}
+	public void SaveAtomic() => FileSystem.WriteAllTextAtomic(FilePath, _file.Value.Syntax.ToString());
 
-		string text = _doc.ToString();
-		string tmp = FilePath + ".tmp";
-		File.WriteAllText(tmp, text);
-		if (File.Exists(FilePath)) {
-			File.Replace(tmp, FilePath, null);
-		} else {
-			File.Move(tmp, FilePath);
+	public void Dispose() => _file.Dispose();
+
+	private static SettingsDocument Load(string path) {
+		string text = File.Exists(path) ? File.ReadAllText(path) : string.Empty;
+		var parsed = Toml.Parse(text, path);
+		if (parsed.HasErrors) {
+			throw new InvalidDataException(string.Join(Environment.NewLine, parsed.Diagnostics));
 		}
+		return new SettingsDocument(parsed, parsed.ToModel());
 	}
 
 	private static ValueSyntax BuildValueSyntax(SettingDefinition definition, object? coerced) =>
@@ -222,4 +196,15 @@ internal sealed class SettingsFileLayer {
 		StringValueSyntax str => str.Value ?? string.Empty,
 		_ => part?.ToString()?.Trim() ?? string.Empty,
 	};
+
+	internal sealed class SettingsDocument {
+		internal SettingsDocument(DocumentSyntax syntax, TomlTable model) {
+			Syntax = syntax;
+			Model = model;
+		}
+
+		internal DocumentSyntax Syntax { get; }
+
+		internal TomlTable Model { get; set; }
+	}
 }

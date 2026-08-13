@@ -144,6 +144,18 @@ test.use({
   fakeScript: {
     steps: [{ op: "hook", request: { hook_event_name: "SessionStart", source: "startup" } }],
   },
+  preNavigate: {
+    run: (page) =>
+      page.addInitScript(() => {
+        Object.defineProperty(navigator, "standalone", { configurable: true, value: true });
+        if (window.visualViewport !== null) {
+          Object.defineProperty(window.visualViewport, "height", {
+            configurable: true,
+            value: window.innerHeight - 64,
+          });
+        }
+      }),
+  },
 });
 
 test.describe("configured branch inference", () => {
@@ -431,9 +443,11 @@ test("compact session inbox creates, resumes, and switches existing surfaces", a
         getComputedStyle(document.querySelector(".mobile-surface-bar")!).paddingBottom,
       ),
       navTop: nav.top,
+      visualViewportHeight: window.visualViewport?.height,
       viewportHeight: window.innerHeight,
     };
   });
+  expect(geometry.visualViewportHeight).toBeLessThan(geometry.viewportHeight);
   expect(geometry.appBottom).toBe(geometry.viewportHeight);
   expect(geometry.navBottom).toBe(geometry.viewportHeight);
   expect(geometry.navPaddingBottom).toBe(10);

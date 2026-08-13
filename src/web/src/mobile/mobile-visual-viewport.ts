@@ -3,7 +3,12 @@ import { type Accessor, createEffect, createSignal, onCleanup } from "solid-js";
 /** Tracks the visible compact-app bounds as mobile browser chrome and the software keyboard move. */
 export function createMobileVisualViewportStyle(compact: Accessor<boolean>): Accessor<string> {
   const viewport = window.visualViewport;
+  const standalone =
+    window.matchMedia("(display-mode: standalone)").matches ||
+    (navigator as Navigator & { standalone?: boolean }).standalone === true;
   const [style, setStyle] = createSignal("");
+  let layoutHeight = window.innerHeight;
+  let unobscuredHeight = viewport?.height ?? layoutHeight;
 
   createEffect(() => {
     if (!compact() || viewport === null) {
@@ -12,14 +17,21 @@ export function createMobileVisualViewportStyle(compact: Accessor<boolean>): Acc
     }
 
     const update = (): void => {
-      setStyle(
-        `--mobile-viewport-height:${viewport.height}px;--mobile-viewport-top:${viewport.offsetTop}px;`,
-      );
+      if (layoutHeight !== window.innerHeight) {
+        layoutHeight = window.innerHeight;
+        unobscuredHeight = viewport.height;
+      }
+      const useLayoutViewport = standalone && viewport.height >= unobscuredHeight;
+      const height = useLayoutViewport ? layoutHeight : viewport.height;
+      const top = useLayoutViewport ? 0 : viewport.offsetTop;
+      setStyle(`--mobile-viewport-height:${height}px;--mobile-viewport-top:${top}px;`);
     };
     update();
+    window.addEventListener("resize", update);
     viewport.addEventListener("resize", update);
     viewport.addEventListener("scroll", update);
     onCleanup(() => {
+      window.removeEventListener("resize", update);
       viewport.removeEventListener("resize", update);
       viewport.removeEventListener("scroll", update);
     });

@@ -311,14 +311,20 @@ test.describe("real Mac-reporting platform", () => {
     const shellTerminal = page.locator('.terminal-surface[data-kind="terminal:shell"]');
     await expect(shellTerminal.locator(".xterm-helper-textarea")).toBeVisible();
     // Wait for the real PTY's own prompt to settle before overwriting the line, so the forced write below
-    // can't race an in-flight prompt echo.
+    // can't race an in-flight prompt echo. Read the terminal's actual cursor row, not a hardcoded row 0 —
+    // root-caused on the macOS shard: a PS1 with a leading blank line (a common prompt-theme convention)
+    // leaves row 0 blank forever while the real prompt renders lower, so `getLine(0)` never resolves.
     await expect
       .poll(() =>
         page.evaluate(() => {
           const terminal = Object.entries(window.__WEAVIE_TERMINALS__ ?? {}).find(([key]) =>
             key.endsWith(":shell"),
           )?.[1];
-          return terminal?.buffer.active.getLine(0)?.translateToString(true) ?? "";
+          if (terminal === undefined) {
+            return "";
+          }
+          const buffer = terminal.buffer.active;
+          return buffer.getLine(buffer.baseY + buffer.cursorY)?.translateToString(true) ?? "";
         }),
       )
       .not.toBe("");

@@ -280,6 +280,68 @@ test("the terminal cursor exposes native paste in both terminal panes", async ({
   await pasteThroughNativeTerminalInput(page, "shell", "shell paste");
 });
 
+// Root-caused the macOS-shard-only failure of the test above on PR #590:
+// https://github.com/Kapps/weavie/actions/runs/31660811208/job/94325711777 (2026-08-13). xterm.js's own
+// "contextmenu" listener unconditionally loads the clicked word into the same hidden textarea our native
+// paste handling clears (desktop copy-then-paste-over-selection), and defaults `rightClickSelectsWord` to
+// on for any Mac-family `navigator.platform` — true on the macOS CI runner's Chromium (and real iPad
+// Safari, the actual native-touch-paste device). On that shard, the shell pane's real PTY prompt text sat
+// under the enlarged touch-paste hit target's tap point, so xterm's handler clobbered the textarea right
+// after `onNativePasteInput` (TerminalView.tsx) had cleared it — a real product defect, not test timing:
+// this deterministically reproduces it (independent of which OS actually runs the test) and pins the fix
+// (TerminalView.tsx now disables `rightClickSelectsWord` for native-touch-paste terminals).
+test.describe("real Mac-reporting platform", () => {
+  // A test-body addInitScript runs after the fixture's own first navigation and would need a second app
+  // boot to apply (see the `preNavigate` fixture option doc in harness/fixtures.ts) — set it before boot.
+  test.use({
+    preNavigate: {
+      run: (page) =>
+        page.addInitScript(() => {
+          Object.defineProperty(navigator, "platform", { get: () => "MacIntel" });
+        }),
+    },
+  });
+
+  test("keeps the shell paste textarea cleared with real prompt text at the cursor", async ({
+    page,
+  }) => {
+    await page.locator(".session-inbox-row").click();
+    await page.getByRole("button", { name: "Shell" }).click();
+
+    const shellTerminal = page.locator('.terminal-surface[data-kind="terminal:shell"]');
+    await expect(shellTerminal.locator(".xterm-helper-textarea")).toBeVisible();
+    // Wait for the real PTY's own prompt to settle before overwriting the line, so the forced write below
+    // can't race an in-flight prompt echo.
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const terminal = Object.entries(window.__WEAVIE_TERMINALS__ ?? {}).find(([key]) =>
+            key.endsWith(":shell"),
+          )?.[1];
+          return terminal?.buffer.active.getLine(0)?.translateToString(true) ?? "";
+        }),
+      )
+      .not.toBe("");
+    // Put real, non-blank text under the touch-paste hit target's tap point (its center sits well past a
+    // short prompt) regardless of terminal font metrics, then leave the cursor right after "runner$" — the
+    // exact shape of the real CI failure (GitHub-hosted macOS runners use username "runner").
+    const tail = "a".repeat(40);
+    await page.evaluate(async (tailText) => {
+      const terminal = Object.entries(window.__WEAVIE_TERMINALS__ ?? {}).find(([key]) =>
+        key.endsWith(":shell"),
+      )?.[1];
+      if (terminal === undefined) {
+        throw new Error("Missing shell terminal");
+      }
+      await new Promise<void>((resolve) =>
+        terminal.write(`\x1b[2K\rrunner$${tailText}\x1b[${tailText.length}D`, resolve),
+      );
+    }, tail);
+
+    await pasteThroughNativeTerminalInput(page, "shell", "shell paste");
+  });
+});
+
 test("touch scrolling and tapping a mouse-aware Claude prompt send valid input", async ({
   page,
 }) => {

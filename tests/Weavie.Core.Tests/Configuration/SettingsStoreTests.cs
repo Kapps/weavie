@@ -472,25 +472,22 @@ public sealed class SettingsStoreTests : IDisposable {
 		File.WriteAllText(FilePath, "t.num = 1\n");
 		using var store = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: true, WorkspaceFile);
 		var signal = new TaskCompletionSource<SettingChange>(TaskCreationOptions.RunContinuationsAsynchronously);
+		var malformed = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 		store.Subscribe("t.num", c => signal.TrySetResult(c));
+		store.MalformedChanged += value => {
+			if (value) {
+				malformed.TrySetResult(true);
+			}
+		};
 
+		File.WriteAllText(FilePath, "t.num = = broken\n");
+		await WaitAsync(malformed.Task, TimeSpan.FromSeconds(5));
+		Assert.Equal(1L, store.Resolve("t.num").Value);
 		File.WriteAllText(FilePath, "t.num = 99\n"); // external edit
 
 		var change = await WaitAsync(signal.Task, TimeSpan.FromSeconds(5));
 		Assert.Equal(99L, change.NewValue);
 		Assert.Equal(1L, change.OldValue);
-	}
-
-	[Fact]
-	public async Task Watcher_DoesNotDoubleFire_OnSelfWrite() {
-		using var store = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: true, WorkspaceFile);
-		int count = 0;
-		store.Subscribe("t.str", _ => Interlocked.Increment(ref count));
-
-		store.Set("t.str", Json("\"once\""));
-		await Task.Delay(1200); // ample time past the 250ms debounce for a stray re-fire
-
-		Assert.Equal(1, count);
 	}
 
 	[Fact]

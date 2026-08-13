@@ -50,11 +50,11 @@ Console.WriteLine($"[weavie-headless] token {core.WorkspaceAccessToken}");
 Console.WriteLine($"[weavie-headless] open  {core.WorkspacePageUrl}  in a browser");
 Console.Out.Flush();
 using var shutdown = new CancellationTokenSource();
-ConsoleCancelEventHandler cancel = (_, args) => {
+void Cancel(object? _, ConsoleCancelEventArgs args) {
 	args.Cancel = true;
 	shutdown.Cancel();
-};
-Console.CancelKeyPress += cancel;
+}
+Console.CancelKeyPress += Cancel;
 using var termination = OperatingSystem.IsWindows()
 	? null
 	: PosixSignalRegistration.Create(PosixSignal.SIGTERM, context => {
@@ -66,7 +66,7 @@ try {
 } catch (OperationCanceledException) when (shutdown.IsCancellationRequested) {
 	// The process signal enters the same orderly HostCore disposal as an HTTP drain.
 } finally {
-	Console.CancelKeyPress -= cancel;
+	Console.CancelKeyPress -= Cancel;
 }
 
 services.Keybindings.Dispose();

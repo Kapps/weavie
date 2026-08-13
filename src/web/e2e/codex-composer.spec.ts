@@ -1196,6 +1196,14 @@ test.describe("Codex composer", () => {
       .toBeLessThan(1);
   });
 
+  // Flaked on main CI 2026-08-13 04:09 UTC (e2e (linux) / shard 2/6):
+  // https://github.com/Kapps/weavie/actions/runs/31666115997/job/94341238717 — turnButton stuck
+  // visible after the jump-to-turn click. Root cause: AgentPaneScroll's agentTurnStartAbove
+  // compared the cached measurement start against virtualizer.scrollOffset with strict `<`, and
+  // the two can settle a sub-pixel apart (e.g. 745.671875 vs 746) even when aligned, flipping the
+  // signal back on with nothing left to correct it. Fixed by adding a 1px tolerance in
+  // AgentPaneScroll.ts's updateAgentTurnStartPosition. Reproduced locally at ~5-7% under worker
+  // contention before the fix; 80/80 passed after under the same contention.
   test("an overlong turn offers reciprocal turn navigation", async ({ page }) => {
     await mountCodex(page);
     publishCatalog();

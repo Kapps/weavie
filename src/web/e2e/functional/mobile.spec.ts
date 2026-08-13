@@ -283,6 +283,20 @@ test("tapping the Claude Code prompt focuses its mobile keyboard input", async (
   await expect.poll(() => terminalRows(page, "claude")).toBeLessThan(initialRows);
 });
 
+// 2026-08-13: flaked on the macOS shard — https://github.com/Kapps/weavie/actions/runs/31660811208/job/94325711777.
+// Root cause: xterm.js's own "contextmenu" listener unconditionally loads the clicked word into the same
+// hidden textarea our native paste handling clears (desktop copy-then-paste-over-selection), and defaults
+// `rightClickSelectsWord` to on for any Mac-family `navigator.platform` — true on the macOS CI runner's
+// Chromium (and real iPad Safari, the actual native-touch-paste device). The shell pane's real PTY prompt
+// text sat under the enlarged touch-paste hit target's tap point, so xterm's handler clobbered the textarea
+// right after `onNativePasteInput` (TerminalView.tsx) had cleared it — a real product defect, not test
+// timing. Fixed in TerminalView.tsx by disabling `rightClickSelectsWord` for native-touch-paste terminals.
+// A synthetic regression test that spoofed `navigator.platform` to force this deterministically was tried
+// and reverted: it reproduced fine against the sandbox's Linux harness but hung the full 30s timeout on
+// both the Windows and macOS shards even after fixing its own prompt-detection race, most likely because
+// spoofing the client's reported platform independently of the real OS interferes with the host's real
+// platform-specific terminal negotiation (e.g. win32-input-mode) — a confound the sandbox can't reproduce.
+// This test below already exercises the real bug end to end and is the regression coverage for it.
 test("the terminal cursor exposes native paste in both terminal panes", async ({ page }) => {
   await page.locator(".session-inbox-row").click();
   expect(await page.evaluate(() => matchMedia("(pointer: coarse)").matches)).toBe(true);

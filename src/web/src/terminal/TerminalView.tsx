@@ -59,6 +59,8 @@ export function TerminalView(props: {
 
   // Host-resolved font setting injected before navigation so the terminal mounts at the right font; live-updated in onMount.
   const initialFont = currentFonts().terminal;
+  const nativeTouchPaste =
+    isBrowserHostedShell() && window.matchMedia("(hover: none) and (pointer: coarse)").matches;
   const term = new Terminal({
     fontFamily: initialFont.family,
     fontSize: initialFont.size,
@@ -68,6 +70,13 @@ export function TerminalView(props: {
     cursorBlink: true,
     scrollback: 8000,
     allowProposedApi: true,
+    // xterm's own right-click handler unconditionally loads the clicked word into this same hidden textarea
+    // (for desktop copy-then-paste-over-selection) — defaulted on for any Mac-reporting `navigator.platform`,
+    // which real iPad Safari (the primary native-touch-paste device) also reports. On a real PTY pane, the
+    // enlarged touch-sized textarea's tap point can land on live prompt text, so that handler clobbers the
+    // value right after onNativePasteInput below clears it. Irrelevant here anyway: native touch paste never
+    // shows xterm's own menu (see the `terminal-native-touch-paste` contextmenu pass-through further down).
+    rightClickSelectsWord: !nativeTouchPaste,
     // Shell pane: advertise enhanced keyboard input so its line editor can negotiate Shift+Enter et al. (e.g.
     // newline-without-submit) like it does under Windows Terminal — win32-input-mode is the Windows/ConPTY path,
     // kitty covers POSIX shells. The claude pane is left legacy: it never negotiates and gets Shift+Enter from
@@ -76,8 +85,6 @@ export function TerminalView(props: {
       ? { vtExtensions: { win32InputMode: true, kittyKeyboard: true } }
       : {}),
   });
-  const nativeTouchPaste =
-    isBrowserHostedShell() && window.matchMedia("(hover: none) and (pointer: coarse)").matches;
   const fit = new FitAddon();
   const encoder = new TextEncoder();
   // Introspection key (e2e/diagnostics): slot + pane, so two sessions' panes don't collide.

@@ -786,7 +786,16 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 			await WaitForAsync(() => session.ControlState.ModelControl.Models.Count > 0);
 			session.SetControl("collaborationMode", "plan");
 			session.Submit(Submission("plan it", []));
-			await WaitForAsync(() => threads.Resolve(_dir).Mode == "plan");
+			// This wait spans a subprocess spawn plus the turn/start round trip with the fake Codex server
+			// before the persisted thread mode flips to "plan", so the default budget (200 attempts, 5 s)
+			// can be too tight under CI load; widened + given a diagnose callback reporting the resolved
+			// mode and the fake server's per-RPC marker files on timeout.
+			// https://github.com/Kapps/weavie/actions/runs/31660420515/job/94323895167 (5 s timeout, 2026-08-13)
+			await WaitForAsync(
+				() => threads.Resolve(_dir).Mode == "plan",
+				attempts: 1200,
+				() => $"resolved mode: {threads.Resolve(_dir).Mode}"
+					+ $"; fake-server markers: [{string.Join(", ", Directory.GetFiles(_dir).Select(Path.GetFileName).Order())}]");
 		}
 
 		ConcurrentQueue<AgentPaneMessage> reopenedMessages = new();

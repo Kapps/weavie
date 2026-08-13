@@ -98,6 +98,7 @@ export function createAgentPaneScroll(
     }
     const previous = element.scrollTop;
     assign(() => virtualizer.scrollToIndex(index, { align: "start", behavior: "auto" }), false);
+    setAgentTurnStartAbove(false);
     return Math.abs(element.scrollTop - previous) >= 1;
   };
 

@@ -20,6 +20,11 @@ public sealed class HostCoreSessionDeleteTests {
 		.PostedEvents("notifications", "show")
 		.Select(notification => notification.GetProperty("message").GetString()!)];
 
+	private static MessageEnvelope? PostedEnvelope(TestHost host, Func<MessageEnvelope, bool> match) =>
+		host.Bridge.Posted
+			.Select(json => MessageEnvelope.TryParse(json, out var envelope) ? envelope : null)
+			.LastOrDefault(envelope => envelope is not null && match(envelope));
+
 	[Fact]
 	public async Task Delete_WithoutId_TargetsTheOwningSession() {
 		await using var host = await TestHost.StartAsync();
@@ -69,6 +74,267 @@ public sealed class HostCoreSessionDeleteTests {
 			envelope => envelope is { Kind: MessageKind.Event, Feature: "notifications", Name: "show" });
 		Assert.True(responseIndex >= 0);
 		Assert.True(toastIndex > responseIndex);
+	}
+
+	[Fact]
+	public async Task DeleteWaitingForEditorFlushDoesNotBlockAnotherSessionCommand() {
+		await using var host = await TestHost.StartAsync();
+		Assert.True((await host.CreateSessionAsync("feature")).Ok);
+		var source = host.WorkspaceSession;
+		var originalResponder = host.Bridge.RequestResponder;
+		MessageEnvelope? flush = null;
+		host.Bridge.RequestResponder = request =>
+			request is { Feature: "editor", Name: "flush" }
+				? null
+				: originalResponder?.Invoke(request);
+
+		try {
+			host.Bridge.Receive(
+				new WebPeer(TestHost.TestPageId),
+				MessageEnvelope.SessionRequest(
+					source.Address,
+					"slow-delete",
+					"commands",
+					"invoke",
+					JsonSerializer.SerializeToElement(new {
+						id = SessionCommands.DeleteSession,
+						args = new { id = "feature" },
+					})).ToJson());
+			flush = await Wait.ForReferenceAsync(() => PostedEnvelope(
+				host,
+				envelope => envelope is { Kind: MessageKind.Request, Feature: "editor", Name: "flush" }));
+
+			host.Bridge.Receive(
+				new WebPeer(TestHost.TestPageId),
+				MessageEnvelope.SessionRequest(
+					source.Address,
+					"view-logs",
+					"commands",
+					"invoke",
+					JsonSerializer.SerializeToElement(new {
+						id = CoreCommands.ViewLogs,
+						args = new { },
+					})).ToJson());
+
+			var response = await Wait.ForReferenceAsync(() => PostedEnvelope(
+				host,
+				envelope => envelope is { Kind: MessageKind.Response, RequestId: "view-logs" }));
+			Assert.Null(response.Error);
+			Assert.True(response.Payload.GetProperty("ok").GetBoolean());
+			Assert.Null(PostedEnvelope(
+				host,
+				envelope => envelope is { Kind: MessageKind.Response, RequestId: "slow-delete" }));
+		} finally {
+			host.Bridge.RequestResponder = originalResponder;
+			if (flush is not null) {
+				host.Bridge.Receive(
+					new WebPeer(TestHost.TestPageId),
+					MessageEnvelope.Response(
+						flush.Scope,
+						flush.Session,
+						flush.RequestId!,
+						flush.Feature,
+						flush.Name,
+						JsonSerializer.SerializeToElement<object?>(null),
+						"test released the flush").ToJson());
+			}
+		}
+
+		var deleteResponse = await Wait.ForReferenceAsync(() => PostedEnvelope(
+			host,
+			envelope => envelope is { Kind: MessageKind.Response, RequestId: "slow-delete" }));
+		Assert.False(deleteResponse.Payload.GetProperty("ok").GetBoolean());
+	}
+
+	[Fact]
+	public async Task HostSessionCommandRoutingContinuesWhileDeleteWaitsForEditorFlush() {
+		await using var host = await TestHost.StartAsync();
+		Assert.True((await host.CreateSessionAsync("feature")).Ok);
+		var originalResponder = host.Bridge.RequestResponder;
+		MessageEnvelope? flush = null;
+		host.Bridge.RequestResponder = request =>
+			request is { Feature: "editor", Name: "flush" }
+				? null
+				: originalResponder?.Invoke(request);
+
+		try {
+			host.Bridge.Receive(
+				new WebPeer(TestHost.TestPageId),
+				MessageEnvelope.Request(
+					MessageScope.Host,
+					null,
+					"slow-host-delete",
+					"sessions",
+					"invoke",
+					JsonSerializer.SerializeToElement(new {
+						id = SessionCommands.DeleteSession,
+						args = new { id = "feature" },
+					})).ToJson());
+			flush = await Wait.ForReferenceAsync(() => PostedEnvelope(
+				host,
+				envelope => envelope is { Kind: MessageKind.Request, Feature: "editor", Name: "flush" }));
+
+			host.Bridge.Receive(
+				new WebPeer(TestHost.TestPageId),
+				MessageEnvelope.Request(
+					MessageScope.Host,
+					null,
+					"fast-host-route",
+					"sessions",
+					"invoke",
+					JsonSerializer.SerializeToElement(new {
+						id = CoreCommands.ViewLogs,
+						args = new { },
+					})).ToJson());
+
+			var response = await Wait.ForReferenceAsync(() => PostedEnvelope(
+				host,
+				envelope => envelope is { Kind: MessageKind.Response, RequestId: "fast-host-route" }));
+			Assert.Null(response.Error);
+			Assert.False(response.Payload.GetProperty("ok").GetBoolean());
+			Assert.Contains("not a host-scoped session command", response.Payload.GetProperty("error").GetString());
+
+			host.Bridge.Receive(
+				new WebPeer(TestHost.TestPageId),
+				MessageEnvelope.Request(
+					MessageScope.Host,
+					null,
+					"queued-classify",
+					"sessions",
+					"invoke",
+					JsonSerializer.SerializeToElement(new {
+						id = SessionCommands.DeleteSession,
+						args = new { id = "feature", classify = true },
+					})).ToJson());
+			MessageHealthSnapshot? health = null;
+			for (int attempt = 0; attempt < 80; attempt++) {
+				health = await host.Core.MessageHealthAsync(CancellationToken.None);
+				if (health.ActiveOperations.Any(operation => operation.RequestId == "queued-classify")
+					|| PostedEnvelope(
+						host,
+						envelope => envelope is { Kind: MessageKind.Response, RequestId: "queued-classify" }) is not null) {
+					break;
+				}
+
+				await Task.Delay(25);
+			}
+			Assert.Null(PostedEnvelope(
+				host,
+				envelope => envelope is { Kind: MessageKind.Response, RequestId: "queued-classify" }));
+			Assert.Contains(health!.ActiveOperations, operation => operation.RequestId == "queued-classify");
+		} finally {
+			host.Bridge.RequestResponder = originalResponder;
+			if (flush is not null) {
+				host.Bridge.Receive(
+					new WebPeer(TestHost.TestPageId),
+					MessageEnvelope.Response(
+						flush.Scope,
+						flush.Session,
+						flush.RequestId!,
+						flush.Feature,
+						flush.Name,
+						JsonSerializer.SerializeToElement<object?>(null),
+						"test released the flush").ToJson());
+			}
+		}
+
+		await Wait.ForReferenceAsync(() => PostedEnvelope(
+			host,
+			envelope => envelope is { Kind: MessageKind.Response, RequestId: "slow-host-delete" }));
+		var classifyResponse = await Wait.ForReferenceAsync(() => PostedEnvelope(
+			host,
+			envelope => envelope is { Kind: MessageKind.Response, RequestId: "queued-classify" }));
+		Assert.True(classifyResponse.Payload.GetProperty("ok").GetBoolean());
+	}
+
+	[Fact]
+	public async Task NewSessionRejectsASourceDeletedWhileWaitingForTheLifecycleLane() {
+		await using var host = await TestHost.StartAsync();
+		Assert.True((await host.CreateSessionAsync("feature")).Ok);
+		host.SelectWorkspaceSession();
+		var source = host.WorkspaceSession.Address;
+		var originalResponder = host.Bridge.RequestResponder;
+		MessageEnvelope? flush = null;
+		host.Bridge.RequestResponder = request =>
+			request is { Feature: "editor", Name: "flush" }
+				? null
+				: originalResponder?.Invoke(request);
+
+		try {
+			host.Bridge.Receive(
+				new WebPeer(TestHost.TestPageId),
+				MessageEnvelope.Request(
+					MessageScope.Host,
+					null,
+					"stale-source-delete",
+					"sessions",
+					"invoke",
+					JsonSerializer.SerializeToElement(new {
+						id = SessionCommands.DeleteSession,
+						args = new { id = source.Slot, force = true },
+					})).ToJson());
+			flush = await Wait.ForReferenceAsync(() => PostedEnvelope(
+				host,
+				envelope => envelope is { Kind: MessageKind.Request, Feature: "editor", Name: "flush" }));
+
+			host.Bridge.Receive(
+				new WebPeer(TestHost.TestPageId),
+				MessageEnvelope.Request(
+					MessageScope.Host,
+					null,
+					"stale-source-create",
+					"sessions",
+					"invoke",
+					JsonSerializer.SerializeToElement(new {
+						id = SessionCommands.NewSession,
+						args = new {
+							branch = "after-delete",
+							@base = "source",
+							existing = false,
+							source = new { slot = source.Slot, incarnation = source.Incarnation },
+						},
+					})).ToJson());
+
+			var flushResponse = originalResponder?.Invoke(flush);
+			Assert.NotNull(flushResponse);
+			host.Bridge.Receive(
+				new WebPeer(TestHost.TestPageId),
+				MessageEnvelope.Response(
+					flush.Scope,
+					flush.Session,
+					flush.RequestId!,
+					flush.Feature,
+					flush.Name,
+					flushResponse.Payload,
+					flushResponse.Error).ToJson());
+			flush = null;
+
+			var deleteResponse = await Wait.ForReferenceAsync(() => PostedEnvelope(
+				host,
+				envelope => envelope is { Kind: MessageKind.Response, RequestId: "stale-source-delete" }));
+			Assert.True(deleteResponse.Payload.GetProperty("ok").GetBoolean());
+			var createResponse = await Wait.ForReferenceAsync(() => PostedEnvelope(
+				host,
+				envelope => envelope is { Kind: MessageKind.Response, RequestId: "stale-source-create" }));
+			Assert.False(createResponse.Payload.GetProperty("ok").GetBoolean());
+			Assert.Contains(
+				"source session no longer exists",
+				createResponse.Payload.GetProperty("error").GetString());
+		} finally {
+			host.Bridge.RequestResponder = originalResponder;
+			if (flush is not null) {
+				host.Bridge.Receive(
+					new WebPeer(TestHost.TestPageId),
+					MessageEnvelope.Response(
+						flush.Scope,
+						flush.Session,
+						flush.RequestId!,
+						flush.Feature,
+						flush.Name,
+						JsonSerializer.SerializeToElement<object?>(null),
+						"test released the flush").ToJson());
+			}
+		}
 	}
 
 	[Fact]

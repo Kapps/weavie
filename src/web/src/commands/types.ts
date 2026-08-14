@@ -12,6 +12,10 @@ export interface CommandInfo {
   runsIn: CommandLocation;
   /** The connected host that owns execution, metadata, and keybindings. */
   owner?: CommandOwner;
+  /** FIFO lane for commands that mutate the same state. */
+  executionLane: string;
+  /** Message-bus endpoint that owns backend Core execution. */
+  scope: "session" | "host";
   category?: string;
   description: string;
   aliases: string[];

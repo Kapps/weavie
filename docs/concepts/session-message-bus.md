@@ -76,7 +76,9 @@ Handlers are serial within one feature by default. Host handlers enter through t
 dispatcher after lane admission, preserving native affinity and host-state serialization even when a
 queued handler resumes off-thread. Session handlers execute directly: different features and sessions
 run in parallel, and a handler opts into concurrent execution only when its feature defines that as
-safe. Feature ownership follows the state being read or mutated, not the UI that renders the result.
+safe. Command routes partition admission by catalog-declared execution lane because they multiplex unrelated
+domains: distinct lanes run concurrently, while related commands retain FIFO within their exact host or
+session owner. Feature ownership follows the state being read or mutated, not the UI that renders the result.
 
 Events are one-way state notifications. Requests have exact peer-local correlation, responses, and
 cancellation. A transport drop fails outstanding requests; the system does not guess whether an

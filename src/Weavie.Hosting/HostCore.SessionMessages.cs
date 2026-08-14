@@ -16,8 +16,9 @@ public sealed partial class HostCore {
 				return Task.FromResult(new SessionSyncResult(true));
 			});
 
-		session.Bus.Feature("commands").HandleAfterResponse<CommandRequest, CommandWireResult>(
+		session.Bus.Feature("commands").HandleKeyedAfterResponse<CommandRequest, CommandWireResult>(
 			"invoke",
+			CommandExecutionLane,
 			async (message, ct) => {
 				var execution = await PrepareCommandAsync(
 					session,
@@ -222,7 +223,7 @@ public sealed partial class HostCore {
 		}
 
 		public Task<CommandResult> NewSessionAsync(NewSessionRequest request, CancellationToken ct) =>
-			_core.NewSessionAsync(_core.SlotFor(_source), request, ct);
+			_core.NewSessionAsync(_source.Address, request, ct);
 
 		public Task<CommandResult> ForkSessionAsync(ForkSessionRequest request, CancellationToken ct) =>
 			_core.ForkSessionAsync(_source, request, ct);

@@ -42,7 +42,11 @@ export function createAgentPaneScroll(
     }
     virtualizer.getTotalSize();
     const start = virtualizer.measurementsCache[index]?.start;
-    setAgentTurnStartAbove(start !== undefined && start < (virtualizer.scrollOffset ?? 0));
+    // Sub-pixel tolerance: scrollOffset and the cached start can settle a fraction of a pixel
+    // apart (e.g. 745.671875 vs 746) even when the turn start is exactly at the viewport top,
+    // which without slack flips this above-the-fold long after a jump with nothing left to
+    // correct it.
+    setAgentTurnStartAbove(start !== undefined && start < (virtualizer.scrollOffset ?? 0) - 1);
   };
 
   const noteControllerScroll = (top: number): void => {

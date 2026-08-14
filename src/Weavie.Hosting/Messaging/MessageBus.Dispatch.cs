@@ -65,11 +65,11 @@ internal partial class MessageBus {
 		}
 	}
 
-	private FeatureLane GetFeatureLane(string feature) {
+	private FeatureLane GetFeatureLane(string feature, string partition) {
 		lock (_featureLanes) {
-			if (!_featureLanes.TryGetValue(feature, out var lane)) {
+			if (!_featureLanes.TryGetValue((feature, partition), out var lane)) {
 				lane = new FeatureLane();
-				_featureLanes.Add(feature, lane);
+				_featureLanes.Add((feature, partition), lane);
 			}
 
 			return lane;
@@ -152,15 +152,14 @@ internal partial class MessageBus {
 
 	private sealed class HandlerRegistration {
 		private readonly Func<MessagePeer, JsonElement, CancellationToken, Task<HandlerResponse>> _handler;
-		private readonly FeatureLane? _lane;
+		private readonly Func<JsonElement, FeatureLane?> _lane;
 
 		public HandlerRegistration(
 			Func<MessagePeer, JsonElement, CancellationToken, Task<HandlerResponse>> handler,
-			SessionExecution execution,
-			FeatureLane lane,
+			Func<JsonElement, FeatureLane?> lane,
 			Func<MessagePeer, bool> admit) {
 			_handler = handler;
-			_lane = execution == SessionExecution.Serialized ? lane : null;
+			_lane = lane;
 			_admit = admit;
 		}
 
@@ -185,11 +184,12 @@ internal partial class MessageBus {
 					}, ct)).ConfigureAwait(false);
 			}
 
-			if (_lane is null) {
+			var lane = _lane(payload);
+			if (lane is null) {
 				return InvokeAdmittedAsync();
 			}
 
-			return _lane.Enqueue(InvokeAdmittedAsync);
+			return lane.Enqueue(InvokeAdmittedAsync);
 		}
 	}
 

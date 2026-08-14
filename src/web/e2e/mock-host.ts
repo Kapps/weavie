@@ -874,7 +874,7 @@ const BOOTSTRAP_GLOBALS: Record<string, unknown> = {
   __WEAVIE_THEME__: { mode: "system", light: { id: "weavie-light" }, dark: { id: "weavie-dark" } },
   __WEAVIE_COMMANDS__: [],
   __WEAVIE_KEYBINDINGS__: [],
-  __WEAVIE_AGENT__: { defaultProvider: "claude" },
+  __WEAVIE_AGENT_SETTINGS__: { defaultProvider: "claude", middleClickAutoscroll: true },
 };
 
 function injectBootstrap(html: string): string {

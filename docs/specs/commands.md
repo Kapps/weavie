@@ -1,7 +1,7 @@
 # Commands & keybindings
 
 Status: implemented (Core + Windows + macOS + Linux hosts + web)
-Last updated: 2026-08-02
+Last updated: 2026-08-14
 
 The third concrete instance of the
 [Claude-facing capability registry](../concepts/mcp-registry.md) (after settings and the layout
@@ -105,11 +105,18 @@ public enum CommandOwner {
     Client,  // local presentation host serving the current web client
 }
 
+public enum CommandScope {
+    Session, // invoking live session
+    Host,    // host catalog, including dormant-session lifecycle actions
+}
+
 public sealed record CommandDefinition {
     public required string Id { get; init; }                  // "weavie.diff.toggleLayout" — stable, namespaced
     public required string Title { get; init; }               // palette label ("Toggle Diff: Inline / Side-by-Side")
     public required CommandLocation RunsIn { get; init; }      // Web | Core
     public CommandOwner Owner { get; init; }                   // Backend (default) | Client
+    public CommandScope Scope { get; init; }                   // Session (default) | Host
+    public string ExecutionLane { get; }                       // FIFO consistency lane; defaults to Id
     public string? Category { get; init; }                    // palette grouping ("View", "Terminal", "Diff")
     public string Description { get; init; } = "";            // → MCP listCommands; longer than Title
     public IReadOnlyList<string> Aliases { get; init; } = []; // NL hints for Claude ("reopen terminal", "restart shell")
@@ -138,6 +145,14 @@ handler even while a remote session is selected. Font, theme, and native-window 
 their visible state belongs to the machine rendering the page. Model invocations of client-owned Core
 commands relay through the attached page to that local host instead of running an invisible remote handler.
 
+`Scope` is the authoritative transport owner for backend Core commands. Host-scoped commands enter through
+the host catalog even when they target a dormant session; session-scoped commands enter through the exact live
+session. `ExecutionLane` is the command's consistency boundary. Different lanes run concurrently, while
+commands sharing a lane retain receive-order FIFO within the exact owning host or session. Theme mutation,
+font mutation, agent input, and session lifecycle each declare shared lanes; every other command defaults to
+its own id. The dispatcher retains the lane through after-reply work, so endpoint teardown cannot overlap the
+next related command.
+
 ## The command registry & dispatcher
 
 Two Core types, mirroring the `SettingsRegistry` (catalog) / `SettingsStore` (behavior) split:
@@ -150,6 +165,8 @@ Two Core types, mirroring the `SettingsRegistry` (catalog) / `SettingsStore` (be
     in its handler map and awaits it.
   - For a `Web` command, requests `commands.run` through its session's attached view and awaits the
     correlated response, so the caller (MCP / palette-over-MCP) hears the real outcome.
+  - Admits independent execution lanes concurrently and preserves FIFO within one lane for every trigger,
+    including MCP and keybindings.
 
 ```csharp
 public readonly record struct CommandResult(bool Ok, string? Message, string? Error);

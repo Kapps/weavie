@@ -530,7 +530,7 @@ public sealed partial class HostCore {
 	}
 
 	private Task<CommandResult> NewSessionAsync(
-		SessionSlot? source,
+		SessionAddress? sourceAddress,
 		NewSessionRequest request,
 		CancellationToken ct) {
 		ArgumentNullException.ThrowIfNull(request);
@@ -538,11 +538,16 @@ public sealed partial class HostCore {
 			return Task.FromResult(CommandResult.Failure(error));
 		}
 		string provider = ResolveNewSessionProvider(request.AgentProviderId);
-		return RunSessionLifecycleAsync(
-			() => request.Existing
+		return RunSessionLifecycleAsync(() => {
+			var source = sourceAddress is null ? null : _sessions?.Find(sourceAddress.Slot);
+			if (sourceAddress is not null && source?.Session?.Address != sourceAddress) {
+				return Task.FromResult(CommandResult.Failure("The source session no longer exists."));
+			}
+
+			return request.Existing
 				? AttachExistingSessionAsync(request.Branch, input, provider, ct)
-				: CreateWorktreeSessionAsync(source, request.Branch, request.Base, input, provider, ct),
-			ct);
+				: CreateWorktreeSessionAsync(source, request.Branch, request.Base, input, provider, ct);
+		}, ct);
 	}
 
 	private Task<CommandResult> ForkSessionAsync(
@@ -551,11 +556,22 @@ public sealed partial class HostCore {
 		CancellationToken ct) {
 		ArgumentNullException.ThrowIfNull(source);
 		ArgumentNullException.ThrowIfNull(request);
-		string providerId = SlotFor(source)?.AgentProviderId ?? ResolveNewSessionProvider(null);
 		var input = InitialSessionInput.FromText(request.Handoff);
-		return RunSessionLifecycleAsync(
-			() => CreateWorktreeSessionAsync(SlotFor(source), request.Branch, "source", input, providerId, ct),
-			ct);
+		var sourceAddress = source.Address;
+		return RunSessionLifecycleAsync(() => {
+			var sourceSlot = _sessions?.Find(sourceAddress.Slot);
+			if (sourceSlot?.Session?.Address != sourceAddress) {
+				return Task.FromResult(CommandResult.Failure("The source session no longer exists."));
+			}
+
+			return CreateWorktreeSessionAsync(
+				sourceSlot,
+				request.Branch,
+				"source",
+				input,
+				sourceSlot.AgentProviderId,
+				ct);
+		}, ct);
 	}
 
 	private Task<CommandResult> LoadSessionAsync(string? sessionId, CancellationToken ct) =>
@@ -847,7 +863,10 @@ public sealed partial class HostCore {
 		}
 	}
 
-	private async Task<CommandResult> ClassifyDeleteAsync(string? sessionId, CancellationToken ct) {
+	private Task<CommandResult> ClassifyDeleteAsync(string? sessionId, CancellationToken ct) =>
+		RunSessionLifecycleAsync(() => ClassifyDeleteCoreAsync(sessionId, ct), ct);
+
+	private async Task<CommandResult> ClassifyDeleteCoreAsync(string? sessionId, CancellationToken ct) {
 		var target = string.IsNullOrWhiteSpace(sessionId) ? null : _sessions?.Find(sessionId);
 		if (target is null) {
 			return CommandResult.Failure("No such session.");

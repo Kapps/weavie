@@ -100,7 +100,6 @@ public sealed class HostSessionAgentImageTests : IDisposable {
 			Id = "initial",
 			Text = text,
 			Attachments = attachments,
-			Skills = [],
 		};
 
 	private HostSession CreateSession(
@@ -136,8 +135,8 @@ public sealed class HostSessionAgentImageTests : IDisposable {
 
 	private sealed class FakeStructuredProvider(RecordingStructuredSession session) : IAgentProvider {
 		public AgentProviderInfo Info { get; } = new() {
-			Id = "codex",
-			Name = "Codex",
+			Id = "structured",
+			Name = "Structured",
 			Capabilities = AgentProviderCapabilities.StructuredPane,
 			Available = true,
 		};
@@ -155,7 +154,7 @@ public sealed class HostSessionAgentImageTests : IDisposable {
 
 		public int Restarts { get; private set; }
 
-		public void Start() => PaneMessage?.Invoke(new AgentPaneMessage { Type = "started", ProviderId = "codex" });
+		public void Start() => PaneMessage?.Invoke(new AgentPaneMessage { Type = "started", ProviderId = "structured" });
 
 		public void Submit(AgentTurnSubmission submission) => Submissions.Add(submission);
 
@@ -165,9 +164,14 @@ public sealed class HostSessionAgentImageTests : IDisposable {
 
 		public void Restart() => Restarts++;
 
-		public void ResolveApproval(string requestId, string decision) { }
+		public void ResolvePermission(string requestId, string optionId) { }
 
-		public void ResolveInput(string requestId, IReadOnlyDictionary<string, IReadOnlyList<string>> answers) { }
+		public void ResolveInput(
+			string requestId,
+			string action,
+			IReadOnlyDictionary<string, IReadOnlyList<string>> answers) { }
+
+		public void Authenticate(string methodId, IReadOnlyDictionary<string, IReadOnlyList<string>> answers) { }
 
 		public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 	}

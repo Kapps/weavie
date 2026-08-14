@@ -6,33 +6,27 @@ Weavie has two model-execution modes:
 - **Ad-hoc inference** is one isolated query over exactly the typed data a feature supplies. It has no interactive
   session, resume identity, Weavie MCP connection, or target-workspace working directory.
 
-The query runs through the same installed agent provider selected for the surrounding action. A Codex session uses
-`codex exec` and its existing Codex authentication; a Claude session uses `claude --print` and its normal Claude
-authentication selection (configured API key or stored OAuth). There is no second provider setting, credential, or
-automatic provider switch.
+The query asks the selected agent provider for its optional inference capability. Terminal Claude implements that
+capability with `claude --print` and its normal authentication selection. Registry ACP agents do not: selecting one
+returns a visible “does not support ad-hoc inference” result. There is no provider switch or hidden fallback.
 
 Features call one internal generic API with a complete prompt, strict response `JsonTypeInfo<T>`, invocation origin,
 and resource bounds. A shared prompt builder serializes typed feature context behind the same untrusted-data framing.
 There is no operation registry or provider method per feature. The caller chooses a provider-neutral category:
 
-| Category | Codex | Claude |
-|---|---|---|
-| `Utility` | GPT-5.6 Luna, low effort | Haiku, low effort |
-| `Reasoning` | GPT-5.6 Sol, medium effort | Sonnet, medium effort |
+| Category | Claude profile |
+|---|---|
+| `Utility` | Haiku, low effort |
+| `Reasoning` | Sonnet, medium effort |
 
-Provider model ids stay inside the CLI adapters. Weavie starts exactly one CLI process and never retries, repairs,
+Provider model ids stay inside the Claude implementation. Weavie starts exactly one CLI process and never retries, repairs,
 escalates, or switches models/providers. The installed CLI may have internal transport behavior its supported flags
 do not expose; the query deadline is the outer latency bound.
 
-Claude runs in safe mode with tools disabled, strict empty MCP configuration, and no session persistence. Codex
-runs with its stable shell-tool feature disabled and every configurable built-in tool surface disabled, including
-apps, browser/computer use, image generation, multi-agent, plugins, workspace dependencies, and web search. Strict
-config parsing makes an unsupported deny flag fail closed. The process is also ephemeral, repo-detached,
-config/MCP-free, and approval-free. A per-call Codex permission profile denies all filesystem reads and network
-access to model tools, including local-image access and the independently registered `apply_patch` tool; the CLI
-itself still reads its authentication and writes the requested structured-result file outside that tool sandbox.
+Claude runs in safe mode with tools disabled, strict empty MCP configuration, no slash commands, and no session
+persistence. The process runs in a private empty directory and never receives a Weavie MCP connection.
 
-Both CLIs receive a JSON Schema derived from the response type. Weavie independently rejects oversized, malformed,
+Claude receives a JSON Schema derived from the response type. Weavie independently rejects oversized, malformed,
 missing, unknown, or incorrectly typed members. The feature performs semantic and authoritative validation after
 typed decoding. A branch proposal must additionally pass Git syntax and collision checks; model output is never
 authoritative state.

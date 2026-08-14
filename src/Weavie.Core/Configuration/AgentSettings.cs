@@ -1,3 +1,4 @@
+using Weavie.Core.Agents;
 using Weavie.Core.Json;
 
 namespace Weavie.Core.Configuration;
@@ -13,15 +14,34 @@ public static class AgentSettings {
 	/// <summary>Linux middle-click autoscroll for the structured-agent transcript.</summary>
 	public const string MiddleClickAutoscroll = "linux.agentMiddleClickAutoscroll";
 
+	/// <summary>Automatically selects an advertised allow option for ACP permission requests.</summary>
+	public const string AllowAllPermissions = "agent.allowAllPermissions";
+
 	/// <summary>The keys the host subscribes to, to re-push on change.</summary>
 	public static readonly IReadOnlyList<string> Keys = [DefaultProvider, MiddleClickAutoscroll];
 
 	/// <summary>Builds the resolved agent defaults for the web (the bootstrap global or the change push).</summary>
-	public static string BuildJson(SettingsStore store) {
+	public static string BuildJson(SettingsStore store, IReadOnlyList<AgentProviderInfo> providers) {
 		ArgumentNullException.ThrowIfNull(store);
+		ArgumentNullException.ThrowIfNull(providers);
 		return JsonWrite.Object(writer => {
 			writer.WriteString("defaultProvider", store.RequireString(DefaultProvider));
 			writer.WriteBoolean("middleClickAutoscroll", store.RequireBool(MiddleClickAutoscroll));
+			writer.WriteStartArray("providers");
+			foreach (var provider in providers) {
+				writer.WriteStartObject();
+				writer.WriteString("id", provider.Id);
+				writer.WriteString("name", provider.Name);
+				writer.WriteBoolean("available", provider.Available);
+				writer.WriteString("unavailableReason", provider.UnavailableReason);
+				writer.WriteString(
+					"surface",
+					provider.Capabilities.HasFlag(AgentProviderCapabilities.StructuredPane)
+						? "structured"
+						: "terminal");
+				writer.WriteEndObject();
+			}
+			writer.WriteEndArray();
 		});
 	}
 }

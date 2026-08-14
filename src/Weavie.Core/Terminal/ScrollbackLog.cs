@@ -77,6 +77,21 @@ public sealed class ScrollbackLog : IDisposable {
 		}
 	}
 
+	/// <summary>Removes every persisted byte while retaining this log for subsequent output.</summary>
+	public void Clear() {
+		lock (_gate) {
+			if (_disposed || _stream is null) return;
+			try {
+				_stream.SetLength(0);
+				_stream.Seek(0, SeekOrigin.Begin);
+				_stream.Flush();
+				_boundary = 0;
+			} catch (IOException) {
+				// Scrollback remains best-effort; terminal execution is authoritative.
+			}
+		}
+	}
+
 	/// <summary>
 	/// The replay blob for an attaching client: the faded region (sanitized, dim-grey-wrapped, with a separator)
 	/// followed by the live region raw. Empty when there's nothing to replay or the log is disabled.

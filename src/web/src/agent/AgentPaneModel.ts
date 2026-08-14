@@ -25,6 +25,7 @@ export interface AgentPaneModel {
   readonly generation: Accessor<number>;
   readonly history: Accessor<readonly string[]>;
   readonly keyboardApprovalId: Accessor<string | null>;
+  readonly keyboardInputId: Accessor<string | null>;
   readonly latestPlan: Accessor<AgentPlanIdentity | null>;
   readonly pendingLegacyImageCount: Accessor<number>;
   readonly pendingRequestKind: Accessor<PendingRequestKind | null>;
@@ -56,6 +57,7 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
   const [turnStartedAt, setTurnStartedAt] = createSignal<number | null>(null);
   const [pendingRequestKind, setPendingRequestKind] = createSignal<PendingRequestKind | null>(null);
   const [keyboardApprovalId, setKeyboardApprovalId] = createSignal<string | null>(null);
+  const [keyboardInputId, setKeyboardInputId] = createSignal<string | null>(null);
   const [pendingLegacyImageCount, setPendingLegacyImageCount] = createSignal(0);
   const [history, setHistory] = createSignal<readonly string[]>([]);
   const [latestPlan, setLatestPlan] = createSignal<AgentPlanIdentity | null>(null);
@@ -85,6 +87,7 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
     const active = hasActiveTurn(updates);
     const request = pendingRequest(updates);
     const approvalId = request?.kind === "approval" ? request.requestId : null;
+    const inputId = request?.kind === "input" ? request.requestId : null;
     const pinned =
       request === null
         ? null
@@ -109,6 +112,7 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
       setTurnStartedAt(activeTurnStartedAt(updates));
       setPendingRequestKind(request?.kind ?? null);
       setKeyboardApprovalId(approvalId);
+      setKeyboardInputId(inputId);
       setPendingLegacyImageCount(countPendingLegacyImages(updates));
       setHistory(submittedPrompts(updates));
       setLatestPlan(latestCompletedPlan(updates));
@@ -171,6 +175,7 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
     generation,
     history,
     keyboardApprovalId,
+    keyboardInputId,
     latestPlan,
     pendingLegacyImageCount,
     pendingRequestKind,
@@ -181,7 +186,9 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
     turnActive,
     turnStartedAt,
     publish(updates, changes) {
-      if (!projectActivityChanges(changes)) {
+      const activityChanged =
+        hasActiveTurn(updates) !== turnActive() || activeTurnStartedAt(updates) !== turnStartedAt();
+      if (activityChanged || !projectActivityChanges(changes)) {
         project(updates);
       }
     },

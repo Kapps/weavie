@@ -28,6 +28,12 @@ public sealed partial class HostSession {
 					HandleTerminalImagePaste(message, inputFrozen);
 					return Task.CompletedTask;
 				});
+		} else if (Agent.AuthenticationTerminal is { } authenticationTerminal) {
+			WireTerminalMessages(
+				Bus.Feature("terminal.agent"),
+				authenticationTerminal.Controller,
+				inputFrozen,
+				static (_, _) => { });
 		}
 
 		var lsp = Bus.Feature("lsp");
@@ -160,13 +166,23 @@ public sealed partial class HostSession {
 			Agent.Controls?.SetControl(message.Axis, message.Value);
 			return Task.CompletedTask;
 		});
-		messages.Handle<AgentDecisionMessage>("approval", (message, _) => {
-			Agent.Structured?.ResolveApproval(message.RequestId, message.Decision);
+		messages.Handle<AgentDecisionMessage>("permission", (message, _) => {
+			Agent.Structured?.ResolvePermission(message.RequestId, message.OptionId);
+			return Task.CompletedTask;
+		});
+		messages.Handle<AgentAuthMessage>("authenticate", (message, _) => {
+			Agent.Structured?.Authenticate(
+				message.MethodId,
+				message.Answers.ToDictionary(
+					entry => entry.Key,
+					entry => (IReadOnlyList<string>)entry.Value,
+					StringComparer.Ordinal));
 			return Task.CompletedTask;
 		});
 		messages.Handle<AgentInputMessage>("input", (message, _) => {
 			Agent.Structured?.ResolveInput(
 				message.RequestId,
+				message.Action,
 				message.Answers.ToDictionary(
 					entry => entry.Key,
 					entry => (IReadOnlyList<string>)entry.Value,
@@ -240,9 +256,8 @@ public sealed partial class HostSession {
 				return;
 			}
 
-			string[] skills = message.Skills ?? [];
-			if (message.Prompt.Trim().Length == 0 && attachmentIds.Length == 0 && skills.Length == 0) {
-				throw new InvalidOperationException("Write a prompt, attach an image, or add a skill before running the agent.");
+			if (message.Prompt.Trim().Length == 0 && attachmentIds.Length == 0) {
+				throw new InvalidOperationException("Write a prompt or attach an image before running the agent.");
 			}
 
 			var resolved = AgentAttachments.Resolve(attachmentIds);
@@ -250,7 +265,6 @@ public sealed partial class HostSession {
 				Id = message.Id,
 				Text = message.Prompt,
 				Attachments = resolved,
-				Skills = skills,
 			});
 			if (message.Id.Length > 0) {
 				AgentAttachments.CommitSubmission(message.Id, attachmentIds);
@@ -310,9 +324,14 @@ public sealed partial class HostSession {
 
 	private sealed record AgentControlMessage(string Axis, string Value);
 
-	private sealed record AgentDecisionMessage(string RequestId, string Decision);
+	private sealed record AgentDecisionMessage(string RequestId, string OptionId);
 
-	private sealed record AgentInputMessage(string RequestId, Dictionary<string, string[]> Answers);
+	private sealed record AgentAuthMessage(string MethodId, Dictionary<string, string[]> Answers);
+
+	private sealed record AgentInputMessage(
+		string RequestId,
+		string Action,
+		Dictionary<string, string[]> Answers);
 
 	private sealed record AttachmentMessage(string Id);
 
@@ -321,6 +340,5 @@ public sealed partial class HostSession {
 	private sealed record AgentSubmitMessage(
 		string Id,
 		string Prompt,
-		string[]? AttachmentIds,
-		string[]? Skills);
+		string[]? AttachmentIds);
 }

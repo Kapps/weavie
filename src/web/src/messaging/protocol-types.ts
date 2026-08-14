@@ -23,7 +23,7 @@ export interface SessionChip {
   id: string;
   label: string;
   loaded: boolean;
-  providerId: "claude" | "codex";
+  providerId: string;
   agentSurface: "terminal" | "structured" | "unavailable";
   agentInputProtocol: number;
   status: SessionStatusName;
@@ -41,25 +41,63 @@ export interface NotificationPrefs {
   gates: Record<AttentionKindName, boolean>;
 }
 
-export interface AgentSettingsSpec {
-  defaultProvider: "claude" | "codex";
+export interface AgentDefaults {
+  defaultProvider: string;
   middleClickAutoscroll: boolean;
+  providers: AgentProviderInfo[];
+}
+
+export interface AgentProviderInfo {
+  id: string;
+  name: string;
+  available: boolean;
+  unavailableReason: string | null;
+  surface: "terminal" | "structured";
 }
 
 export interface AgentPaneUpdate {
   type: string;
-  providerId: "claude" | "codex";
+  providerId: string;
   threadId?: string | null;
   isPrimaryThread?: boolean | null;
   turnId?: string | null;
   startedAtMs?: number | null;
   itemId?: string | null;
   itemType?: string | null;
+  itemIds?: string[] | null;
   category?: string | null;
   summary?: string | null;
   text?: string | null;
   status?: string | null;
   questions?: AgentInputQuestion[] | null;
+  actions?: AgentActionOption[] | null;
+  locations?: AgentPaneLocation[] | null;
+  diffs?: AgentPaneDiff[] | null;
+  parentItemId?: string | null;
+  background?: boolean | null;
+  terminalId?: string | null;
+  usageUsed?: number | null;
+  usageSize?: number | null;
+  mediaType?: string | null;
+  mediaData?: string | null;
+  resourceUri?: string | null;
+}
+
+export interface AgentActionOption {
+  id: string;
+  label: string;
+  kind: string;
+}
+
+export interface AgentPaneLocation {
+  path: string;
+  line: number | null;
+}
+
+export interface AgentPaneDiff {
+  path: string;
+  oldText: string | null;
+  newText: string;
 }
 
 export interface AgentPaneWireUpdate extends AgentPaneUpdate {
@@ -83,11 +121,21 @@ export interface AgentInputQuestion {
   id: string;
   header: string;
   question: string;
-  isSecret: boolean;
+  allowsOther: boolean;
+  kind: "string" | "number" | "integer" | "boolean" | "array";
+  required: boolean;
+  format: string | null;
+  initialValues: string[];
+  minimum: number | null;
+  maximum: number | null;
+  minimumLength: number | null;
+  maximumLength: number | null;
+  pattern: string | null;
   options: AgentInputOption[];
 }
 
 export interface AgentInputOption {
+  value: string;
   label: string;
   description: string;
 }
@@ -96,31 +144,18 @@ export interface AgentControlOption {
   id: string;
   label: string;
   description: string | null;
+  group: string | null;
 }
 
 export interface AgentControlAxis {
   id: string;
   label: string;
+  description: string | null;
+  category: string | null;
+  kind: "select" | "boolean";
   value: string;
   valueLabel: string;
   options: AgentControlOption[];
-  commandId: string | null;
-}
-
-export interface AgentModelChoice {
-  id: string;
-  label: string;
-  current: boolean;
-  effort: string;
-  efforts: AgentControlOption[];
-  fastTier: string;
-  fastOn: boolean;
-}
-
-export interface AgentModelControl {
-  value: string;
-  valueLabel: string;
-  models: AgentModelChoice[];
 }
 
 export interface AgentSlashEntry {
@@ -129,11 +164,9 @@ export interface AgentSlashEntry {
   description: string;
   commandId: string | null;
   insertText: string | null;
-  skillName: string | null;
 }
 
 export interface AgentControlState {
-  modelControl: AgentModelControl;
   axes: AgentControlAxis[];
   slash: AgentSlashEntry[];
 }

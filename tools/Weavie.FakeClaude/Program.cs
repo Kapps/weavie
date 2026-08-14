@@ -12,6 +12,15 @@ using Weavie.Core.Hooks;
 string? mcpConfigPath = ArgValue(args, "--mcp-config");
 string? scriptPath = Environment.GetEnvironmentVariable("WEAVIE_FAKE_CLAUDE_SCRIPT");
 
+if (args.Contains("--print", StringComparer.Ordinal)) {
+	if (Environment.GetEnvironmentVariable("WEAVIE_FAKE_CLAUDE_INFERENCE") == "success") {
+		Console.Out.WriteLine("{\"is_error\":false,\"session_id\":\"fake-inference\","
+			+ "\"structured_output\":{\"branch\":\"fix/mobile-branch-inference\"}}");
+		return 0;
+	}
+	return 7;
+}
+
 // The banner doubles as the startup marker a test can wait for in the claude pane.
 Emit("ready");
 

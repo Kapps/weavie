@@ -21,10 +21,10 @@ describe("toAgentTranscript", () => {
     const count = 15_000;
     const turnId = "long-turn";
     const projection = projectAgentTranscript([
-      { type: "user-message", providerId: "codex", turnId, text: "Do the long task" },
+      { type: "user-message", providerId: "acp", turnId, text: "Do the long task" },
       ...Array.from<unknown, AgentPaneUpdate>({ length: count }, (_, index) => ({
         type: "item-completed",
-        providerId: "codex",
+        providerId: "acp",
         turnId,
         itemId: `command-${index}`,
         itemType: "commandExecution",
@@ -47,12 +47,12 @@ describe("toAgentTranscript", () => {
 
   it("projects protocol chatter into a dense working transcript", () => {
     const messages: AgentPaneUpdate[] = [
-      { type: "approval-resolved", providerId: "codex", itemId: "approval-1", status: "accept" },
-      { type: "approval-resolved", providerId: "codex", itemId: "approval-1", status: "resolved" },
-      { type: "status", providerId: "codex", status: "" },
+      { type: "approval-resolved", providerId: "acp", itemId: "approval-1", status: "accept" },
+      { type: "approval-resolved", providerId: "acp", itemId: "approval-1", status: "resolved" },
+      { type: "status", providerId: "acp", status: "" },
       {
         type: "item-completed",
-        providerId: "codex",
+        providerId: "acp",
         itemId: "cmd-1",
         itemType: "commandExecution",
         summary: "git status --short --branch",
@@ -60,36 +60,36 @@ describe("toAgentTranscript", () => {
       },
       {
         type: "item-completed",
-        providerId: "codex",
+        providerId: "acp",
         itemId: "msg-1",
         itemType: "agentMessage",
-        text: "You're on branch `test/codex-4`.",
+        text: "You're on branch `test/acp-4`.",
         status: "completed",
       },
-      { type: "turn-completed", providerId: "codex", status: "completed" },
+      { type: "turn-completed", providerId: "acp", status: "completed" },
     ];
 
     const transcript = toAgentTranscript(messages);
 
     expect(transcript.map((entry) => [entry.kind, entry.label, entry.status])).toEqual([
       ["activity", "Working", null],
-      ["message", "Codex", null],
+      ["message", "Agent", null],
     ]);
     expect(transcript[0]?.summary).toBe("ran 1 command");
     expect(transcript[0]?.details).toHaveLength(1);
-    expect(transcript[1]?.text).toBe("You're on branch `test/codex-4`.");
+    expect(transcript[1]?.text).toBe("You're on branch `test/acp-4`.");
   });
 
   it("resolves approval rows in place", () => {
     const transcript = toAgentTranscript([
       {
         type: "approval-requested",
-        providerId: "codex",
+        providerId: "acp",
         itemId: "approval-1",
         summary: "Run git status?",
         status: "pending",
       },
-      { type: "approval-resolved", providerId: "codex", itemId: "approval-1", status: "accept" },
+      { type: "approval-resolved", providerId: "acp", itemId: "approval-1", status: "accept" },
     ]);
 
     expect(transcript).toHaveLength(1);
@@ -102,7 +102,7 @@ describe("toAgentTranscript", () => {
     const transcript = toAgentTranscript([
       {
         type: "item-started",
-        providerId: "codex",
+        providerId: "acp",
         itemId: "cmd-1",
         itemType: "commandExecution",
         summary: "git status",
@@ -110,7 +110,7 @@ describe("toAgentTranscript", () => {
       },
       {
         type: "item-completed",
-        providerId: "codex",
+        providerId: "acp",
         itemId: "cmd-1",
         itemType: "commandExecution",
         summary: "git status",
@@ -137,7 +137,7 @@ describe("toAgentTranscript", () => {
     const transcript = toAgentTranscript([
       {
         type: "item-started",
-        providerId: "codex",
+        providerId: "acp",
         itemId: "cmd-1",
         itemType: "commandExecution",
         summary: "git diff --check",
@@ -145,7 +145,7 @@ describe("toAgentTranscript", () => {
       },
       {
         type: "item-completed",
-        providerId: "codex",
+        providerId: "acp",
         itemId: "cmd-1",
         itemType: "commandExecution",
         summary: "git diff --check",
@@ -163,7 +163,7 @@ describe("toAgentTranscript", () => {
     const transcript = toAgentTranscript([
       {
         type: "item-completed",
-        providerId: "codex",
+        providerId: "acp",
         itemId: "cmd-1",
         itemType: "commandExecution",
         summary: "git diff --check",
@@ -179,9 +179,9 @@ describe("toAgentTranscript", () => {
     const transcript = toAgentTranscript([
       {
         type: "turn-completed",
-        providerId: "codex",
+        providerId: "acp",
         turnId: "turn-1",
-        summary: "Codex usage limit reached",
+        summary: "ACP usage limit reached",
         text: "You have no weighted tokens left",
         status: "failed",
       },
@@ -191,7 +191,7 @@ describe("toAgentTranscript", () => {
     expect(transcript[0]).toMatchObject({
       kind: "notice",
       tone: "error",
-      summary: "Codex usage limit reached",
+      summary: "ACP usage limit reached",
       text: "You have no weighted tokens left",
       status: "failed",
     });
@@ -201,17 +201,17 @@ describe("toAgentTranscript", () => {
     const transcript = toAgentTranscript([
       {
         type: "error",
-        providerId: "codex",
+        providerId: "acp",
         turnId: "turn-1",
-        summary: "Codex usage limit reached",
+        summary: "ACP usage limit reached",
         text: "You have no weighted tokens left",
         status: "failed",
       },
       {
         type: "turn-completed",
-        providerId: "codex",
+        providerId: "acp",
         turnId: "turn-1",
-        summary: "Codex usage limit reached",
+        summary: "ACP usage limit reached",
         text: "You have no weighted tokens left",
         status: "failed",
       },
@@ -226,9 +226,9 @@ describe("toAgentTranscript", () => {
     const transcript = toAgentTranscript([
       {
         type: "warning",
-        providerId: "codex",
+        providerId: "acp",
         turnId: "turn-1",
-        summary: "Codex is temporarily overloaded",
+        summary: "ACP is temporarily overloaded",
         text: "Retrying the request",
         status: "retrying",
       },
@@ -245,7 +245,7 @@ describe("toAgentTranscript", () => {
     const transcript = toAgentTranscript([
       {
         type: "item-started",
-        providerId: "codex",
+        providerId: "acp",
         itemId: "cmd-1",
         itemType: "commandExecution",
         summary: "rg -n agent src/web/src",
@@ -253,7 +253,7 @@ describe("toAgentTranscript", () => {
       },
       {
         type: "item-started",
-        providerId: "codex",
+        providerId: "acp",
         itemId: "cmd-2",
         itemType: "commandExecution",
         summary: "pnpm verify",
@@ -273,11 +273,11 @@ describe("toAgentTranscript", () => {
     const transcript = toAgentTranscript([
       {
         type: "file-patch-updated",
-        providerId: "codex",
+        providerId: "acp",
         itemId: "patch-1",
         summary: "src/App.cs",
       },
-      { type: "turn-diff", providerId: "codex", text: "diff --git a/file b/file" },
+      { type: "turn-diff", providerId: "acp", text: "diff --git a/file b/file" },
     ]);
 
     expect(transcript).toHaveLength(1);
@@ -293,19 +293,19 @@ describe("toAgentTranscript", () => {
     const transcript = toAgentTranscript([
       {
         type: "edit-location",
-        providerId: "codex",
+        providerId: "acp",
         itemId: "edit-1",
         text: "src/a.ts:1",
       },
       {
         type: "edit-location",
-        providerId: "codex",
+        providerId: "acp",
         itemId: "edit-2",
         text: "src/b.ts:2",
       },
       {
         type: "edit-location",
-        providerId: "codex",
+        providerId: "acp",
         itemId: "edit-3",
         text: "src/c.ts:3",
       },
@@ -323,10 +323,10 @@ describe("toAgentTranscript", () => {
 
   it("keeps every assistant update in its own transcript entry", () => {
     const transcript = toAgentTranscript([
-      { type: "user-message", providerId: "codex", text: "edit a comment" },
+      { type: "user-message", providerId: "acp", text: "edit a comment" },
       {
         type: "item-completed",
-        providerId: "codex",
+        providerId: "acp",
         itemId: "msg-1",
         itemType: "agentMessage",
         text: "I'll scan for a low-risk comment.",
@@ -334,7 +334,7 @@ describe("toAgentTranscript", () => {
       },
       {
         type: "item-completed",
-        providerId: "codex",
+        providerId: "acp",
         itemId: "msg-2",
         itemType: "agentMessage",
         text: "I found a safe candidate.",
@@ -342,7 +342,7 @@ describe("toAgentTranscript", () => {
       },
       {
         type: "item-completed",
-        providerId: "codex",
+        providerId: "acp",
         itemId: "msg-3",
         itemType: "agentMessage",
         text: "Edited one comment in src/file.ts.",
@@ -352,28 +352,28 @@ describe("toAgentTranscript", () => {
 
     expect(transcript.map((entry) => [entry.label, entry.text])).toEqual([
       ["You", "edit a comment"],
-      ["Codex", "I'll scan for a low-risk comment."],
-      ["Codex", "I found a safe candidate."],
-      ["Codex", "Edited one comment in src/file.ts."],
+      ["Agent", "I'll scan for a low-risk comment."],
+      ["Agent", "I found a safe candidate."],
+      ["Agent", "Edited one comment in src/file.ts."],
     ]);
     expect(new Set(transcript.slice(1).map((entry) => entry.id)).size).toBe(3);
   });
 
   it("does not collapse final assistant messages across prompts", () => {
     const transcript = toAgentTranscript([
-      { type: "user-message", providerId: "codex", text: "first" },
+      { type: "user-message", providerId: "acp", text: "first" },
       {
         type: "item-completed",
-        providerId: "codex",
+        providerId: "acp",
         itemId: "msg-1",
         itemType: "agentMessage",
         text: "First result.",
         status: "completed",
       },
-      { type: "user-message", providerId: "codex", text: "second" },
+      { type: "user-message", providerId: "acp", text: "second" },
       {
         type: "item-completed",
-        providerId: "codex",
+        providerId: "acp",
         itemId: "msg-2",
         itemType: "agentMessage",
         text: "Second result.",
@@ -381,15 +381,15 @@ describe("toAgentTranscript", () => {
       },
     ]);
 
-    expect(transcript.map((entry) => entry.label)).toEqual(["You", "Codex", "You", "Codex"]);
+    expect(transcript.map((entry) => entry.label)).toEqual(["You", "Agent", "You", "Agent"]);
   });
 
   it("keeps primary and subagent narration with colliding item ids", () => {
     const transcript = toAgentTranscript([
-      { type: "user-message", providerId: "codex", threadId: "primary", text: "work" },
+      { type: "user-message", providerId: "acp", threadId: "primary", text: "work" },
       {
         type: "item-completed",
-        providerId: "codex",
+        providerId: "acp",
         threadId: "primary",
         turnId: "turn-1",
         itemId: "message-1",
@@ -398,7 +398,7 @@ describe("toAgentTranscript", () => {
       },
       {
         type: "item-completed",
-        providerId: "codex",
+        providerId: "acp",
         threadId: "subagent",
         turnId: "turn-1",
         itemId: "message-1",
@@ -416,7 +416,7 @@ describe("toAgentTranscript", () => {
     const transcript = toAgentTranscript([
       {
         type: "approval-requested",
-        providerId: "codex",
+        providerId: "acp",
         threadId: "root",
         turnId: "same-turn",
         itemId: "same-item",
@@ -424,7 +424,7 @@ describe("toAgentTranscript", () => {
       },
       {
         type: "approval-requested",
-        providerId: "codex",
+        providerId: "acp",
         threadId: "sub",
         turnId: "same-turn",
         itemId: "same-item",
@@ -432,7 +432,7 @@ describe("toAgentTranscript", () => {
       },
       {
         type: "approval-resolved",
-        providerId: "codex",
+        providerId: "acp",
         threadId: "sub",
         turnId: "same-turn",
         itemId: "same-item",
@@ -440,14 +440,14 @@ describe("toAgentTranscript", () => {
       },
       {
         type: "error",
-        providerId: "codex",
+        providerId: "acp",
         threadId: "sub",
         turnId: "same-turn",
         text: "Subagent failed",
       },
       {
         type: "turn-completed",
-        providerId: "codex",
+        providerId: "acp",
         threadId: "root",
         turnId: "same-turn",
         status: "failed",
@@ -466,7 +466,7 @@ describe("toAgentTranscript", () => {
     const transcript = toAgentTranscript([
       {
         type: "item-completed",
-        providerId: "codex",
+        providerId: "acp",
         itemId: "cmd-1",
         itemType: "commandExecution",
         summary: "git status",
@@ -474,15 +474,15 @@ describe("toAgentTranscript", () => {
       },
       {
         type: "approval-requested",
-        providerId: "codex",
+        providerId: "acp",
         itemId: "approval-1",
         summary: "Run tests?",
         status: "pending",
       },
-      { type: "approval-resolved", providerId: "codex", itemId: "approval-1", status: "accept" },
+      { type: "approval-resolved", providerId: "acp", itemId: "approval-1", status: "accept" },
       {
         type: "item-completed",
-        providerId: "codex",
+        providerId: "acp",
         itemId: "msg-1",
         itemType: "agentMessage",
         text: "Done.",
@@ -490,14 +490,14 @@ describe("toAgentTranscript", () => {
       },
     ]);
 
-    expect(transcript.map((entry) => entry.label)).toEqual(["Permission", "Working", "Codex"]);
+    expect(transcript.map((entry) => entry.label)).toEqual(["Permission", "Working", "Agent"]);
   });
 
   it("keeps the working block at the bottom while streaming after resolved chatter", () => {
     const transcript = toAgentTranscript([
       {
         type: "item-completed",
-        providerId: "codex",
+        providerId: "acp",
         itemId: "cmd-1",
         itemType: "commandExecution",
         summary: "git status",
@@ -505,15 +505,15 @@ describe("toAgentTranscript", () => {
       },
       {
         type: "approval-requested",
-        providerId: "codex",
+        providerId: "acp",
         itemId: "approval-1",
         summary: "Run tests?",
         status: "pending",
       },
-      { type: "approval-resolved", providerId: "codex", itemId: "approval-1", status: "accept" },
+      { type: "approval-resolved", providerId: "acp", itemId: "approval-1", status: "accept" },
       {
         type: "item-started",
-        providerId: "codex",
+        providerId: "acp",
         itemId: "cmd-2",
         itemType: "commandExecution",
         summary: "pnpm test",
@@ -528,7 +528,7 @@ describe("toAgentTranscript", () => {
     const transcript = toAgentTranscript([
       {
         type: "item-completed",
-        providerId: "codex",
+        providerId: "acp",
         itemId: "cmd-1",
         itemType: "commandExecution",
         summary: "git status",
@@ -536,7 +536,7 @@ describe("toAgentTranscript", () => {
       },
       {
         type: "approval-requested",
-        providerId: "codex",
+        providerId: "acp",
         itemId: "approval-1",
         summary: "Run tests?",
         status: "pending",
@@ -551,10 +551,10 @@ describe("toAgentTranscript", () => {
 
   it("coalesces assistant deltas and replaces them with the completed item", () => {
     const streamed: AgentPaneUpdate[] = [
-      { type: "user-message", providerId: "codex", turnId: "turn-1", text: "hello" },
+      { type: "user-message", providerId: "acp", turnId: "turn-1", text: "hello" },
       {
         type: "agent-message-delta",
-        providerId: "codex",
+        providerId: "acp",
         turnId: "turn-1",
         itemId: "message-1",
         itemType: "agentMessage",
@@ -562,7 +562,7 @@ describe("toAgentTranscript", () => {
       },
       {
         type: "agent-message-delta",
-        providerId: "codex",
+        providerId: "acp",
         turnId: "turn-1",
         itemId: "message-1",
         itemType: "agentMessage",
@@ -580,7 +580,7 @@ describe("toAgentTranscript", () => {
       ...streamed,
       {
         type: "item-completed",
-        providerId: "codex",
+        providerId: "acp",
         turnId: "turn-1",
         itemId: "message-1",
         itemType: "agentMessage",
@@ -595,11 +595,35 @@ describe("toAgentTranscript", () => {
     ]);
   });
 
+  it("coalesces thought deltas into one live activity", () => {
+    const transcript = toAgentTranscript([
+      {
+        type: "thought-message-delta",
+        providerId: "acp",
+        turnId: "turn-1",
+        itemId: "thought-1",
+        itemType: "thought",
+        text: "Inspect",
+      },
+      {
+        type: "thought-message-delta",
+        providerId: "acp",
+        turnId: "turn-1",
+        itemId: "thought-1",
+        itemType: "thought",
+        text: " code",
+      },
+    ]);
+
+    expect(transcript).toHaveLength(1);
+    expect(transcript[0]?.details).toMatchObject([{ detailText: "Inspect code" }]);
+  });
+
   it("promotes a completed plan into an openable result while its delta stays provisional activity", () => {
     const provisional = toAgentTranscript([
       {
         type: "plan-delta",
-        providerId: "codex",
+        providerId: "acp",
         threadId: "thread-1",
         turnId: "turn-1",
         itemId: "plan-1",
@@ -612,7 +636,7 @@ describe("toAgentTranscript", () => {
     const completed = toAgentTranscript([
       {
         type: "plan-delta",
-        providerId: "codex",
+        providerId: "acp",
         threadId: "thread-1",
         turnId: "turn-1",
         itemId: "plan-1",
@@ -621,7 +645,7 @@ describe("toAgentTranscript", () => {
       },
       {
         type: "item-completed",
-        providerId: "codex",
+        providerId: "acp",
         threadId: "thread-1",
         turnId: "turn-1",
         itemId: "plan-1",
@@ -648,7 +672,7 @@ describe("toAgentTranscript", () => {
     const unavailable = toAgentTranscript([
       {
         type: "item-completed",
-        providerId: "codex",
+        providerId: "acp",
         threadId: "thread-1",
         turnId: "turn-1",
         itemId: "plan-2",
@@ -661,10 +685,10 @@ describe("toAgentTranscript", () => {
 
   it("assigns a unique id to every entry and nested step (the reconcile key precondition)", () => {
     const transcript = toAgentTranscript([
-      { type: "user-message", providerId: "codex", turnId: "t1", itemId: "u1", text: "q1" },
+      { type: "user-message", providerId: "acp", turnId: "t1", itemId: "u1", text: "q1" },
       {
         type: "item-completed",
-        providerId: "codex",
+        providerId: "acp",
         turnId: "t1",
         itemId: "cmd1",
         itemType: "commandExecution",
@@ -673,7 +697,7 @@ describe("toAgentTranscript", () => {
       },
       {
         type: "item-completed",
-        providerId: "codex",
+        providerId: "acp",
         turnId: "t1",
         itemId: "cmd2",
         itemType: "commandExecution",
@@ -682,20 +706,20 @@ describe("toAgentTranscript", () => {
       },
       {
         type: "item-completed",
-        providerId: "codex",
+        providerId: "acp",
         turnId: "t1",
         itemId: "a1",
         itemType: "agentMessage",
         text: "answer one",
         status: "completed",
       },
-      { type: "turn-completed", providerId: "codex", turnId: "t1", status: "completed" },
+      { type: "turn-completed", providerId: "acp", turnId: "t1", status: "completed" },
       // A message with no itemId must still get a unique id, not collide on "".
-      { type: "warning", providerId: "codex", turnId: "t1", summary: "heads up" },
-      { type: "user-message", providerId: "codex", turnId: "t2", itemId: "u2", text: "q2" },
+      { type: "warning", providerId: "acp", turnId: "t1", summary: "heads up" },
+      { type: "user-message", providerId: "acp", turnId: "t2", itemId: "u2", text: "q2" },
       {
         type: "item-started",
-        providerId: "codex",
+        providerId: "acp",
         turnId: "t2",
         itemId: "cmd3",
         itemType: "commandExecution",
@@ -714,10 +738,10 @@ describe("toAgentTranscript", () => {
 
   it("keeps a durable entry's id stable as later messages arrive", () => {
     const prefix: AgentPaneUpdate[] = [
-      { type: "user-message", providerId: "codex", turnId: "t1", itemId: "u1", text: "q1" },
+      { type: "user-message", providerId: "acp", turnId: "t1", itemId: "u1", text: "q1" },
       {
         type: "item-completed",
-        providerId: "codex",
+        providerId: "acp",
         turnId: "t1",
         itemId: "a1",
         itemType: "agentMessage",
@@ -731,7 +755,7 @@ describe("toAgentTranscript", () => {
 
     const after = toAgentTranscript([
       ...prefix,
-      { type: "user-message", providerId: "codex", turnId: "t2", itemId: "u2", text: "q2" },
+      { type: "user-message", providerId: "acp", turnId: "t2", itemId: "u2", text: "q2" },
     ]);
     expect(after.find((entry) => entry.id === assistantId)?.text).toBe("answer one");
   });

@@ -16,31 +16,30 @@ async function expectTabs(
   await expect(page.locator(".editor-tab.active .editor-tab-label")).toHaveText(active);
 }
 
-// Real browser -> WSS -> HostCore coverage. Codex runs against the deterministic fake app server, preserving
-// its production process, protocol, provider identity, and routing without launching a real model.
-test("Claude and Codex sessions restore their own tabs and active image within one second", async ({
+// Real browser -> WSS -> HostCore coverage. Fake ACP runs through the production generic ACP process boundary.
+test("Claude and ACP sessions restore their own tabs and active image within one second", async ({
   page,
 }) => {
   const chips = page.locator(".session-chip");
   await expect(chips).toHaveCount(1);
 
-  await createSession(page, { branch: "codex-switch", provider: "codex" });
+  await createSession(page, { branch: "acp-switch", provider: "fake-acp" });
 
   await expect(chips).toHaveCount(2);
-  await expect(page.locator('.session-chip.active[title^="codex-switch —"]')).toBeVisible();
+  await expect(page.locator('.session-chip.active[title^="acp-switch —"]')).toBeVisible();
   await expect(
     page.locator('[data-kind="terminal:claude"][data-surface="structured-agent"]'),
   ).toBeVisible();
-  await expect(page.locator(".agent-surface .pane-label")).toHaveText("Codex");
+  await expect(page.locator(".agent-surface .pane-label")).toHaveText("Fake ACP");
 
   await openFile(page, "README.md");
   await openFile(page, "pixel.png");
   await expectTabs(page, ["README.md", "pixel.png"], "pixel.png");
   const image = page.locator(".editor-media img");
   await expect(image).toHaveJSProperty("naturalWidth", 8);
-  const codexMedia = new URL((await image.getAttribute("src")) as string);
-  expect(codexMedia.searchParams.get("session")).toBeTruthy();
-  expect(codexMedia.searchParams.get("path")).toMatch(/[\\/]pixel\.png$/);
+  const acpMedia = new URL((await image.getAttribute("src")) as string);
+  expect(acpMedia.searchParams.get("session")).toBeTruthy();
+  expect(acpMedia.searchParams.get("path")).toMatch(/[\\/]pixel\.png$/);
 
   // Selection rebinds the shared surfaces to the target's already-owned state. Wait for that surface before
   // driving session-scoped UI such as the omnibar.
@@ -55,30 +54,30 @@ test("Claude and Codex sessions restore their own tabs and active image within o
   await expect(page.locator(".editor")).toHaveAttribute("data-active-file", /[\\/]hello\.ts$/);
   await expectTabs(page, ["hello.ts", "notes.txt"], "hello.ts");
 
-  const claudeToCodex = await measureSessionSwitch(page, {
-    label: "codex-switch",
-    provider: "codex",
+  const claudeToAcp = await measureSessionSwitch(page, {
+    label: "acp-switch",
+    surface: "structured-agent",
     tabs: ["README.md", "pixel.png"],
     activeTab: "pixel.png",
     content: {
       kind: "image",
       pathSuffix: "/pixel.png",
-      sessionId: codexMedia.searchParams.get("session") as string,
+      sessionId: acpMedia.searchParams.get("session") as string,
     },
   });
-  await expect(page.locator('.session-chip.active[title^="codex-switch —"]')).toBeVisible();
+  await expect(page.locator('.session-chip.active[title^="acp-switch —"]')).toBeVisible();
   await expect(
     page.locator('[data-kind="terminal:claude"][data-surface="structured-agent"]'),
   ).toBeVisible();
   await expectTabs(page, ["README.md", "pixel.png"], "pixel.png");
   await expect(image).toHaveJSProperty("naturalWidth", 8);
   expect(new URL((await image.getAttribute("src")) as string).searchParams.get("session")).toBe(
-    codexMedia.searchParams.get("session"),
+    acpMedia.searchParams.get("session"),
   );
 
-  const codexToClaude = await measureSessionSwitch(page, {
+  const acpToClaude = await measureSessionSwitch(page, {
     label: "main",
-    provider: "claude",
+    surface: "terminal",
     tabs: ["hello.ts", "notes.txt"],
     activeTab: "hello.ts",
     content: { kind: "text", pathSuffix: "/hello.ts", marker: "greet" },
@@ -93,17 +92,17 @@ test("Claude and Codex sessions restore their own tabs and active image within o
   await expect(page.locator(".monaco-editor .view-lines").first()).toContainText("greet");
   await expect(page.locator(".editor-media")).toHaveCount(0);
 
-  const measurements = { budgetMs: SWITCH_BUDGET_MS, claudeToCodex, codexToClaude };
+  const measurements = { budgetMs: SWITCH_BUDGET_MS, claudeToAcp, acpToClaude };
   await test.info().attach("full-stack-session-switch-performance.json", {
     body: Buffer.from(JSON.stringify(measurements, null, 2)),
     contentType: "application/json",
   });
   expect(
-    claudeToCodex,
-    `full-stack Claude -> Codex switch exceeded ${SWITCH_BUDGET_MS}ms`,
+    claudeToAcp,
+    `full-stack Claude -> ACP switch exceeded ${SWITCH_BUDGET_MS}ms`,
   ).toBeLessThan(SWITCH_BUDGET_MS);
   expect(
-    codexToClaude,
-    `full-stack Codex -> Claude switch exceeded ${SWITCH_BUDGET_MS}ms`,
+    acpToClaude,
+    `full-stack ACP -> Claude switch exceeded ${SWITCH_BUDGET_MS}ms`,
   ).toBeLessThan(SWITCH_BUDGET_MS);
 });

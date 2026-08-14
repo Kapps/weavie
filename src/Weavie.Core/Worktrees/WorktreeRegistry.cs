@@ -102,26 +102,18 @@ public sealed class WorktreeRegistry {
 			FilePath,
 			text => {
 				var document = JsonSerializer.Deserialize<WorktreesDocument>(text);
-				if (document?.Worktrees is not { } entries) {
-					return [];
+				if (document?.Version != 2 || document.Worktrees is not { } entries) {
+					throw new JsonException("Worktree document requires version 2 and a worktrees array.");
 				}
 
-				return [.. entries
-				.Where(e => !string.IsNullOrWhiteSpace(e.Branch) && !string.IsNullOrWhiteSpace(e.Path))
-				.Select(e => new WorktreeRecord {
-					Branch = e.Branch,
-					Path = e.Path,
-					BaseRef = e.BaseRef,
-					CreatedAtUtc = e.CreatedAt,
-					AgentProviderId = string.IsNullOrWhiteSpace(e.AgentProviderId) ? null : e.AgentProviderId,
-				})];
+				return [.. entries.Select(ParseEntry)];
 			},
 			static () => [],
 			Log);
 
 	private void PersistLocked() {
 		var document = new WorktreesDocument {
-			Version = 1,
+			Version = 2,
 			Worktrees = [.. _items.Select(r => new WorktreeEntry {
 				Branch = r.Branch,
 				Path = r.Path,
@@ -135,6 +127,22 @@ public sealed class WorktreeRegistry {
 			FilePath,
 			JsonSerializer.Serialize(document, JsonOptions),
 			Log);
+	}
+
+	private static WorktreeRecord ParseEntry(WorktreeEntry entry) {
+		if (string.IsNullOrWhiteSpace(entry.Branch)
+			|| string.IsNullOrWhiteSpace(entry.Path)
+			|| string.IsNullOrWhiteSpace(entry.BaseRef)
+			|| string.IsNullOrWhiteSpace(entry.AgentProviderId)) {
+			throw new JsonException("Worktree entries require branch, path, baseRef, and agentProviderId.");
+		}
+		return new WorktreeRecord {
+			Branch = entry.Branch,
+			Path = entry.Path,
+			BaseRef = entry.BaseRef,
+			CreatedAtUtc = entry.CreatedAt,
+			AgentProviderId = entry.AgentProviderId,
+		};
 	}
 
 	private sealed class WorktreesDocument {

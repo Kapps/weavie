@@ -45,7 +45,7 @@ public sealed class ClaudeIdeIntegration : IAsyncDisposable {
 			request => {
 				var feedback = observe(request);
 				var decision = HookPolicy.Decide(
-					request, settings.RequireBool(CoreSettings.ClaudeAllowAllTools));
+					request, settings.RequireBool(AgentSettings.AllowAllPermissions));
 				string? message = feedback.Messages.FirstOrDefault();
 				return message is null ? decision : decision with { SystemMessage = message };
 			});

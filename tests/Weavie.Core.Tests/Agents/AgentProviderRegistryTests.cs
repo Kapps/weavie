@@ -3,21 +3,21 @@ using Xunit;
 
 namespace Weavie.Core.Tests.Agents;
 
-/// <summary>Provider registration is explicit and the compatibility phase requires exactly one provider.</summary>
+/// <summary>Provider registration and lookup are explicit.</summary>
 public sealed class AgentProviderRegistryTests {
 	[Fact]
-	public void Sole_WithOneProvider_ReturnsIt() {
+	public void RequireAvailable_WithRegisteredProvider_ReturnsIt() {
 		var registry = new AgentProviderRegistry();
 		var provider = new FakeProvider("claude");
 		registry.Register(provider);
 
-		Assert.Same(provider, registry.Sole());
+		Assert.Same(provider, registry.RequireAvailable("claude"));
 	}
 
 	[Fact]
-	public void Sole_WithNoProvider_FailsLoudly() {
+	public void RequireAvailable_WithUnknownProvider_FailsLoudly() {
 		var registry = new AgentProviderRegistry();
-		Assert.Throws<InvalidOperationException>(registry.Sole);
+		Assert.Throws<InvalidOperationException>(() => registry.RequireAvailable("unknown"));
 	}
 
 	[Fact]
@@ -30,10 +30,35 @@ public sealed class AgentProviderRegistryTests {
 	[Fact]
 	public void RequireAvailable_WithUnavailableProvider_FailsLoudly() {
 		var registry = new AgentProviderRegistry();
-		registry.Register(new FakeProvider("codex", available: false));
+		registry.Register(new FakeProvider("structured", available: false));
 
-		var ex = Assert.Throws<InvalidOperationException>(() => registry.RequireAvailable("codex"));
+		var ex = Assert.Throws<InvalidOperationException>(() => registry.RequireAvailable("structured"));
 		Assert.Contains("not exposed", ex.Message);
+	}
+
+	[Fact]
+	public void ReplaceAllPublishesOneAtomicCatalogChange() {
+		var registry = new AgentProviderRegistry();
+		int changes = 0;
+		registry.Changed += () => changes++;
+
+		registry.ReplaceAll([new FakeProvider("claude"), new FakeProvider("acp")]);
+
+		Assert.Equal(1, changes);
+		Assert.Equal(["claude", "acp"], registry.Providers.Select(provider => provider.Info.Id));
+	}
+
+	[Fact]
+	public void InvalidReplacementLeavesTheCurrentCatalogUntouched() {
+		var registry = new AgentProviderRegistry();
+		registry.Register(new FakeProvider("claude"));
+
+		Assert.Throws<InvalidOperationException>(() => registry.ReplaceAll([
+			new FakeProvider("acp"),
+			new FakeProvider("acp"),
+		]));
+
+		Assert.Equal("claude", Assert.Single(registry.Providers).Info.Id);
 	}
 
 	private sealed class FakeProvider : IAgentProvider {

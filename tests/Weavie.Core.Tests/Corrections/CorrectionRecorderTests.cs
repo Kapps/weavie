@@ -518,7 +518,7 @@ public sealed class CorrectionRecorderTests {
 
 	[Fact]
 	public void NullPromptTurn_RecordsWithNullPrompt() {
-		Boundary(null); // Codex's turn/started carries no prompt
+		Boundary(null); // ACP's turn/started carries no prompt
 		AgentEdit("app.cs", "agent line\n");
 		HandEdit("app.cs", "user line\n");
 

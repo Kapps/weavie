@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
+using Weavie.AcpDistribution;
 using Weavie.Core;
 using Weavie.Core.Commands;
 using Weavie.Core.FileSystem;
@@ -160,19 +161,19 @@ public sealed class HostCoreSessionRestoreTests {
 	}
 
 	[Fact]
-	public async Task CodexSession_RestoresAsCodexAfterRestart() {
+	public async Task StructuredSession_RestoresAsStructuredAfterRestart() {
 		await using var host = await TestHost.StartAsync();
 		var result = await host.CreateSessionAsync(new NewSessionRequest {
-			Branch = "codex-branch",
+			Branch = "structured-branch",
 			Base = "main",
-			AgentProviderId = "codex",
+			AgentProviderId = "structured",
 		});
 		Assert.True(result.Ok);
 
 		await host.RestartAsync();
 
-		var session = SessionById(host.Bridge, "codex-branch");
-		Assert.Equal("codex", session.GetProperty("providerId").GetString());
+		var session = SessionById(host.Bridge, "structured-branch");
+		Assert.Equal("structured", session.GetProperty("providerId").GetString());
 		Assert.Equal("structured", session.GetProperty("agentSurface").GetString());
 		Assert.Equal(2, session.GetProperty("agentInputProtocol").GetInt32());
 		Assert.True(session.GetProperty("loaded").GetBoolean());
@@ -180,20 +181,72 @@ public sealed class HostCoreSessionRestoreTests {
 	}
 
 	[Fact]
-	public async Task CodexWorktree_RestoresProvider_WhenSessionOverlayIsMissing() {
+	public async Task ReferencedAcpProviderCannotBeRemovedAndStillRestores() {
+		var catalog = new RecordingAcpCatalog();
+		await using var host = await TestHost.StartAsync(catalog);
+		var result = await host.CreateSessionAsync(new NewSessionRequest {
+			Branch = "structured-branch",
+			Base = "main",
+			AgentProviderId = "structured",
+		});
+		Assert.True(result.Ok);
+
+		var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+			host.HostRequestAsync<JsonElement>("acpRegistry", "remove", new { id = "structured" }));
+
+		Assert.Contains("still referenced", error.Message, StringComparison.Ordinal);
+		Assert.Empty(catalog.Removed);
+		await host.RestartAsync();
+		Assert.Equal("structured", SessionById(host.Bridge, "structured-branch")
+			.GetProperty("providerId").GetString());
+	}
+
+	[Fact]
+	public async Task ReferencedCustomAcpProviderCannotBeRemovedByReload() {
+		var catalog = new RecordingAcpCatalog {
+			LaunchSpecs = [AcpLaunch("structured")],
+			ReloadSpecs = [],
+		};
+		await using var host = await TestHost.StartAsync(catalog);
+		var result = await host.CreateSessionAsync(new NewSessionRequest {
+			Branch = "structured-branch",
+			Base = "main",
+			AgentProviderId = "structured",
+		});
+		Assert.True(result.Ok);
+
+		var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+			host.HostRequestAsync<JsonElement>("acpRegistry", "reload", new { }));
+
+		Assert.Contains("still referenced", error.Message, StringComparison.Ordinal);
+		Assert.Equal("structured", Assert.Single(catalog.LaunchSpecs).Id);
+	}
+
+	private static AcpLaunchSpec AcpLaunch(string id) => new() {
+		Id = id,
+		Name = id,
+		Version = null,
+		Command = id,
+		Arguments = [],
+		Environment = new Dictionary<string, string>(StringComparer.Ordinal),
+		Distribution = "custom",
+	};
+
+	[Fact]
+	public async Task StructuredWorktree_RestoresProvider_WhenSessionOverlayIsMissing() {
 		await using var host = await TestHost.StartAsync();
 		var result = await host.CreateSessionAsync(new NewSessionRequest {
-			Branch = "codex-branch",
+			Branch = "structured-branch",
 			Base = "main",
-			AgentProviderId = "codex",
+			AgentProviderId = "structured",
 		});
 		Assert.True(result.Ok);
 		string overlay = WeaviePaths.WorkspaceSessionsFile(WorkspaceId.ForPath(host.RepoRoot));
 
 		await host.RestartAsync(() => File.WriteAllText(overlay, """{"version":3,"sessions":[]}"""));
 
-		var session = SessionById(host.Bridge, "codex-branch");
-		Assert.Equal("codex", session.GetProperty("providerId").GetString());
+		var session = SessionById(host.Bridge, "structured-branch");
+		Assert.Equal("structured", session.GetProperty("providerId").GetString());
 		Assert.False(session.GetProperty("loaded").GetBoolean());
 	}
 
@@ -363,4 +416,24 @@ public sealed class HostCoreSessionRestoreTests {
 	private static string? RestoredActive(TestHost host, HostSession session) =>
 		host.Bridge.LastEvent(session.Address, "editor", "restore")?.GetProperty("session")
 			.GetProperty("active").GetString();
+}
+
+internal sealed class RecordingAcpCatalog : IAcpAgentCatalog {
+	public event Action? Changed;
+	public List<string> Removed { get; } = [];
+	public IReadOnlyList<AcpLaunchSpec> LaunchSpecs { get; set; } = [];
+	public IReadOnlyList<AcpLaunchSpec> ReloadSpecs { get; init; } = [];
+	public Task<IReadOnlyList<AcpRegistryAgent>> ListRegistryAsync(CancellationToken ct) =>
+		Task.FromResult<IReadOnlyList<AcpRegistryAgent>>([]);
+	public Task InstallAsync(string id, string distribution, CancellationToken ct) =>
+		Task.CompletedTask;
+	public void Remove(string id) {
+		Removed.Add(id);
+		Changed?.Invoke();
+	}
+	public void Reload(Action<IReadOnlyList<AcpLaunchSpec>> validate) {
+		validate(ReloadSpecs);
+		LaunchSpecs = ReloadSpecs;
+		Changed?.Invoke();
+	}
 }

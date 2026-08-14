@@ -56,7 +56,17 @@ public sealed class TerminalController : IDisposable {
 		string pane,
 		SettingsStore settings,
 		IPtyLauncher launcher,
-		ITerminalProcess process) {
+		ITerminalProcess process)
+		: this(messages, pane, settings, launcher, process, RestartPolicy.Always) {
+	}
+
+	internal TerminalController(
+		MessageFeatureChannel messages,
+		string pane,
+		SettingsStore settings,
+		IPtyLauncher launcher,
+		ITerminalProcess process,
+		RestartPolicy restartPolicy) {
 		ArgumentNullException.ThrowIfNull(messages);
 		ArgumentException.ThrowIfNullOrEmpty(pane);
 		ArgumentNullException.ThrowIfNull(settings);
@@ -76,7 +86,7 @@ public sealed class TerminalController : IDisposable {
 			$"terminal:{pane}",
 			StartTerminal,
 			StopTerminal,
-			new SupervisionOptions { Policy = RestartPolicy.Always },
+			new SupervisionOptions { Policy = restartPolicy },
 			LogSupervisor,
 			clock: null);
 		_supervisor.StateChanged += OnSupervisorStateChanged;
@@ -194,6 +204,8 @@ public sealed class TerminalController : IDisposable {
 	public void ResyncPane() =>
 		ResyncPaneCore(respawn => PostTermReset(respawn));
 
+	internal void ClearScrollback() => _scrollback?.Clear();
+
 	internal void ResyncPane(MessageTargetFeature messages) =>
 		ResyncPaneCore(respawn => messages.Publish("reset", new { respawn }));
 
@@ -258,6 +270,8 @@ public sealed class TerminalController : IDisposable {
 		// respawn=true: the child relaunches and re-establishes its modes, so the page does a full reset.
 		PostTermReset(respawn: true);
 	}
+
+	internal void Stop() => _supervisor.Stop();
 
 	/// <summary>
 	/// The terminal <c>reset</c> event: the page clears this pane and re-emits <c>ready</c>. Respawn

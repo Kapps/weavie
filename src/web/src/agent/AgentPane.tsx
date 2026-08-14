@@ -1,4 +1,5 @@
 import { type JSX, Show } from "solid-js";
+import { agentProviders } from "../chrome/agent-default";
 import { AgentPaneBody } from "./AgentPaneBody";
 import { AgentStatusLine } from "./AgentStatusLine";
 import { AgentWorkingStatus } from "./AgentWorkingStatus";
@@ -8,12 +9,16 @@ export function AgentPane(props: {
   inputProtocol: number;
   compact: boolean;
   model: AgentPaneModel;
-  providerId: "claude" | "codex" | null;
+  providerId: string | null;
   active: boolean;
   shortcut: string;
   onFocus: () => void;
+  backendId: string;
 }): JSX.Element {
-  const providerName = (): string => (props.providerId === "codex" ? "Codex" : "Agent");
+  const providerName = (): string =>
+    agentProviders(props.backendId).find((provider) => provider.id === props.providerId)?.name ??
+    props.providerId ??
+    "Agent";
 
   const focusPromptIn = (surface: EventTarget | null): void => {
     props.onFocus();
@@ -63,6 +68,7 @@ export function AgentPane(props: {
       class="agent-surface"
       classList={{ active: props.active }}
       data-kind="terminal:claude"
+      data-agent-provider={props.providerId ?? "unknown"}
       data-surface="structured-agent"
       onClick={focusPrompt}
       onPointerUp={focusPromptFromDisabled}

@@ -3,7 +3,6 @@ using Weavie.Core.Configuration;
 using Weavie.Core.Inference;
 using Weavie.Hosting.Inference;
 using Weavie.Hosting.Inference.Claude;
-using Weavie.Hosting.Inference.Codex;
 using Xunit;
 
 namespace Weavie.Hosting.Tests;
@@ -65,105 +64,6 @@ public sealed class AgentCliInferenceTests : IDisposable {
 		Assert.Equal(1, runner.Calls);
 	}
 
-	[Theory]
-	[InlineData(InferenceModelCategory.Utility, "gpt-5.6-luna", "low")]
-	[InlineData(InferenceModelCategory.Reasoning, "gpt-5.6-sol", "medium")]
-	public async Task Codex_UsesEphemeralIsolatedProfileAndCleansTemporaryFiles(
-		InferenceModelCategory category,
-		string model,
-		string effort) {
-		string command = Path.Combine(_dir, OperatingSystem.IsWindows() ? "codex.exe" : "codex");
-		File.WriteAllText(command, string.Empty);
-		SetPath("codex.path", command);
-		string? schema = null;
-		string[]? initialFiles = null;
-		var runner = new RecordingRunner((request, _) => {
-			string schemaPath = ValueAfter(request.Arguments, "--output-schema");
-			string outputPath = ValueAfter(request.Arguments, "--output-last-message");
-			schema = File.ReadAllText(schemaPath);
-			initialFiles = [.. Directory.GetFiles(request.WorkingDirectory)
-				.Select(path => Path.GetFileName(path)!)
-				.Order(StringComparer.Ordinal)];
-			File.WriteAllText(outputPath, "{\"branch\":\"bug/webm\"}");
-			return Task.FromResult(new AgentCliProcessResult(0, string.Empty));
-		});
-		var provider = new CodexCliInference(_settings, runner);
-
-		var result = Assert.IsType<InferenceProviderSuccess>(
-			await provider.QueryInferenceAsync(Request(category), CancellationToken.None));
-
-		Assert.Equal(model, result.ModelId);
-		Assert.Equal("{\"branch\":\"bug/webm\"}", result.OutputJson);
-		Assert.Equal(model, ValueAfter(runner.Request!.Arguments, "--model"));
-		Assert.Contains($"model_reasoning_effort=\"{effort}\"", runner.Request.Arguments);
-		Assert.Contains("--ephemeral", runner.Request.Arguments);
-		Assert.Contains("--ignore-user-config", runner.Request.Arguments);
-		Assert.Contains("--ignore-rules", runner.Request.Arguments);
-		Assert.Contains("--strict-config", runner.Request.Arguments);
-		AssertDisabled(runner.Request.Arguments, "apps");
-		AssertDisabled(runner.Request.Arguments, "browser_use");
-		AssertDisabled(runner.Request.Arguments, "computer_use");
-		AssertDisabled(runner.Request.Arguments, "image_generation");
-		AssertDisabled(runner.Request.Arguments, "multi_agent");
-		AssertDisabled(runner.Request.Arguments, "plugins");
-		AssertDisabled(runner.Request.Arguments, "shell_tool");
-		AssertDisabled(runner.Request.Arguments, "workspace_dependencies");
-		Assert.DoesNotContain("--sandbox", runner.Request.Arguments);
-		Assert.Contains("default_permissions=\"weavie-inference\"", runner.Request.Arguments);
-		Assert.Contains("permissions.weavie-inference.filesystem.:root=\"deny\"", runner.Request.Arguments);
-		Assert.Contains("permissions.weavie-inference.network.enabled=false", runner.Request.Arguments);
-		Assert.Contains("tools.web_search=false", runner.Request.Arguments);
-		Assert.Contains("web_search=\"disabled\"", runner.Request.Arguments);
-		Assert.Equal("never", ValueAfter(runner.Request.Arguments, "--ask-for-approval"));
-		AssertBefore(runner.Request.Arguments, "--ask-for-approval", "exec");
-		Assert.Contains("--json", runner.Request.Arguments);
-		Assert.True(runner.Request.CaptureStdout);
-		Assert.Equal(Request(category).MaxOutputBytes + (64 * 1024), runner.Request.MaxCapturedStdoutBytes);
-		Assert.DoesNotContain("app-server", runner.Request.Arguments);
-		Assert.Equal(Request(category).OutputSchemaJson, schema);
-		Assert.Equal(["output-schema.json"], Assert.IsType<string[]>(initialFiles));
-		Assert.False(Directory.Exists(runner.Request.WorkingDirectory));
-		Assert.Equal(1, runner.Calls);
-	}
-
-	[Fact]
-	public async Task Codex_NonzeroExitReturnsAfterOneProcessWithoutRetry() {
-		string command = Path.Combine(_dir, OperatingSystem.IsWindows() ? "codex.exe" : "codex");
-		File.WriteAllText(command, string.Empty);
-		SetPath("codex.path", command);
-		var runner = new RecordingRunner((_, _) => Task.FromResult(new AgentCliProcessResult(
-			7,
-			"{\"type\":\"error\",\"message\":\"Reconnecting... 5/5\"}\n"
-				+ "{\"type\":\"turn.failed\",\"error\":{\"message\":"
-				+ "\"unexpected status 401 Unauthorized: Invalid API key: secret-probe, "
-				+ "url: https://provider.invalid/v1/responses, request id: req-secret\"}}")));
-		var provider = new CodexCliInference(_settings, runner);
-
-		var result = Assert.IsType<InferenceProviderFailure>(
-			await provider.QueryInferenceAsync(Request(InferenceModelCategory.Utility), CancellationToken.None));
-
-		Assert.Equal(InferenceFailureKind.ProviderUnavailable, result.Kind);
-		Assert.Equal("Codex authentication was rejected. Run 'codex login' and try again.", result.Detail);
-		Assert.Equal(1, runner.Calls);
-		Assert.False(Directory.Exists(runner.Request!.WorkingDirectory));
-	}
-
-	[Fact]
-	public async Task Codex_DoesNotExposeUnknownFailureText() {
-		string command = Path.Combine(_dir, OperatingSystem.IsWindows() ? "codex.exe" : "codex");
-		File.WriteAllText(command, string.Empty);
-		SetPath("codex.path", command);
-		var runner = new RecordingRunner((_, _) => Task.FromResult(new AgentCliProcessResult(
-			7,
-			"{\"type\":\"turn.failed\",\"error\":{\"message\":\"bearer raw-secret-value\"}}")));
-		var provider = new CodexCliInference(_settings, runner);
-
-		var result = Assert.IsType<InferenceProviderFailure>(
-			await provider.QueryInferenceAsync(Request(InferenceModelCategory.Utility), CancellationToken.None));
-
-		Assert.Equal("Codex stopped without a safe failure reason.", result.Detail);
-	}
-
 	[Fact]
 	public async Task CancellationPropagatesAndStillCleansThePrivateDirectory() {
 		SetPath("claude.path", Path.Combine(_dir, "claude"));
@@ -194,22 +94,6 @@ public sealed class AgentCliInferenceTests : IDisposable {
 		int index = arguments.ToList().IndexOf(flag);
 		Assert.InRange(index, 0, arguments.Count - 2);
 		return arguments[index + 1];
-	}
-
-	private static void AssertDisabled(IReadOnlyList<string> arguments, string feature) {
-		for (int i = 0; i < arguments.Count - 1; i++) {
-			if (arguments[i] == "--disable" && arguments[i + 1] == feature) {
-				return;
-			}
-		}
-
-		Assert.Fail($"Expected Codex feature '{feature}' to be disabled.");
-	}
-
-	private static void AssertBefore(IReadOnlyList<string> arguments, string first, string second) {
-		int firstIndex = arguments.ToList().IndexOf(first);
-		int secondIndex = arguments.ToList().IndexOf(second);
-		Assert.True(firstIndex >= 0 && firstIndex < secondIndex, $"Expected '{first}' before '{second}'.");
 	}
 
 	public void Dispose() {

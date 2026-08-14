@@ -3,7 +3,7 @@ import type { AgentPaneUpdate } from "../bridge";
 import { requestLifecycles } from "./AgentPaneMessageFormat";
 
 const msg = (fields: Partial<AgentPaneUpdate> & { type: string }): AgentPaneUpdate => ({
-  providerId: "codex",
+  providerId: "acp",
   ...fields,
 });
 

@@ -77,13 +77,10 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow, IShellMenuAc
 		// The shared core over this workspace, driven by the app-global Core stores (shared across windows). One
 		// GitHub client backs both PR listing and review comments.
 		var github = new Weavie.Core.Review.GitHubReviewProvider(http: null, new Weavie.Core.Review.GitHubTokenSource());
-		var agentProviders = new Weavie.Core.Agents.AgentProviderRegistry();
-		agentProviders.Register(new Weavie.Hosting.Agents.Claude.ClaudeAgentProvider(_app.Settings, _app.ClaudeSessions));
-		agentProviders.Register(new Weavie.Hosting.Agents.Codex.CodexAgentProvider(
+		var agentProviders = Weavie.Hosting.Agents.AgentProviderComposition.Create(
 			_app.Settings,
-			new Weavie.Core.Sessions.CodexThreadStore(
-				new Weavie.Core.FileSystem.LocalFileSystem(),
-				Weavie.Core.WeaviePaths.CodexThreadsFile)));
+			_app.ClaudeSessions,
+			_app.AcpAgents);
 		_core = new HostCore(this, new HostServices {
 			Settings = _app.Settings,
 			CommandRegistry = _app.CommandRegistry,
@@ -91,6 +88,7 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow, IShellMenuAc
 			Keybindings = _app.Keybindings,
 			ThemeOverrides = _app.ThemeOverrides,
 			AgentProviders = agentProviders,
+			AcpAgents = _app.AcpAgents,
 			Inference = Weavie.Hosting.Inference.InferenceComposition.CreateDefault(_app.Settings, agentProviders),
 			RemoteAgents = _app.RemoteAgents,
 			RailState = _app.RailState,

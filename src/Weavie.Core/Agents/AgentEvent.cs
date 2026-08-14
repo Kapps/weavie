@@ -11,6 +11,9 @@ public sealed record AgentSessionStarted(string? Source) : AgentEvent;
 /// <summary>The provider's supervised runtime process changed state.</summary>
 public sealed record AgentProcessChanged(SupervisorStateChanged Change) : AgentEvent;
 
+/// <summary>The structured agent runtime can no longer serve the session.</summary>
+public sealed record AgentRuntimeFailed : AgentEvent;
+
 /// <summary>A user prompt entered the agentic loop; <paramref name="Prompt"/> is its text when the provider reports one.</summary>
 public sealed record AgentPromptSubmitted(string? SessionId, string? Prompt) : AgentEvent;
 
@@ -25,6 +28,12 @@ public sealed record AgentPermissionRequested : AgentEvent;
 
 /// <summary>The provider resolved a permission request.</summary>
 public sealed record AgentPermissionResolved(bool RequiresUserInput) : AgentEvent;
+
+/// <summary>The agent is requesting structured user input or authentication.</summary>
+public sealed record AgentInputRequested : AgentEvent;
+
+/// <summary>The provider resolved a structured input or authentication request.</summary>
+public sealed record AgentInputResolved(bool RequiresUserInput) : AgentEvent;
 
 /// <summary>A provider reported its current edit disposition.</summary>
 public sealed record AgentEditDispositionObserved(string Disposition) : AgentEvent;

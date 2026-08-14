@@ -163,7 +163,7 @@ test.describe("configured branch inference", () => {
 
   test("fills the compact branch field with the inferred name", async ({ page }) => {
     const inbox = page.locator(".session-inbox");
-    await inbox.getByRole("combobox", { name: "Agent provider" }).selectOption("codex");
+    await inbox.getByRole("combobox", { name: "Agent provider" }).selectOption("claude");
     await inbox
       .getByRole("textbox", { name: "Prompt for a new session" })
       .fill("Fix mobile branch inference");
@@ -180,7 +180,7 @@ test.describe("failed branch inference", () => {
 
   test("leaves the branch blank and requires manual input", async ({ page }) => {
     const inbox = page.locator(".session-inbox");
-    await inbox.getByRole("combobox", { name: "Agent provider" }).selectOption("codex");
+    await inbox.getByRole("combobox", { name: "Agent provider" }).selectOption("claude");
     await inbox
       .getByRole("textbox", { name: "Prompt for a new session" })
       .fill("Fix mobile branch inference");
@@ -188,7 +188,7 @@ test.describe("failed branch inference", () => {
     const branch = inbox.getByRole("textbox", { name: "Branch for the new session" });
     await expect(branch).toHaveValue("");
     await expect(inbox.getByRole("alert")).toHaveText(
-      "Branch suggestion failed: Codex authentication was rejected. Run 'codex login' and try again. Type a branch to continue.",
+      "Branch suggestion failed: Claude inference exited with code 7. Type a branch to continue.",
     );
     await expect(inbox.getByRole("button", { name: "Start", exact: true })).toBeDisabled();
     await branch.fill("fix/manual-branch-inference");
@@ -207,7 +207,7 @@ test.describe("automatic inference permission", () => {
     await allowAutomaticInference(page);
 
     const inbox = page.locator(".session-inbox");
-    await inbox.getByRole("combobox", { name: "Agent provider" }).selectOption("codex");
+    await inbox.getByRole("combobox", { name: "Agent provider" }).selectOption("claude");
     await inbox
       .getByRole("textbox", { name: "Prompt for a new session" })
       .fill("Fix mobile branch inference");
@@ -530,7 +530,7 @@ test("compact session inbox creates, resumes, and switches existing surfaces", a
   await newSessionPrompt.fill("Improve mobile navigation");
   await pasteImage(newSessionPrompt, PNG_B64);
   await expect(inbox.locator(".agent-attachment img")).toBeVisible();
-  await inbox.getByRole("combobox", { name: "Agent provider" }).selectOption("codex");
+  await inbox.getByRole("combobox", { name: "Agent provider" }).selectOption("fake-acp");
   const startButton = inbox.getByRole("button", { name: "Start", exact: true });
   const branch = inbox.getByRole("textbox", { name: "Branch for the new session" });
   await expect(branch).toHaveValue("");

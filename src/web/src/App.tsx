@@ -12,7 +12,11 @@ import {
 } from "solid-js";
 import { AgentPane } from "./agent/AgentPane";
 import { toggleActiveAgentMermaid } from "./agent/agent-mermaid";
-import { type AgentPaneModel, agentPaneModel } from "./agent/pane-store";
+import {
+  type AgentPaneModel,
+  agentAuthenticationTerminalActive,
+  agentPaneModel,
+} from "./agent/pane-store";
 import {
   activeBackendOffline,
   activeBackendPhase,
@@ -31,6 +35,7 @@ import {
   type TermSession,
   waitForClientSession,
 } from "./bridge";
+import { AcpRegistryModal } from "./chrome/AcpRegistryModal";
 import { defaultAgentProvider, setDefaultAgentProvider } from "./chrome/agent-default";
 import { ContextMenu, type ContextMenuEntry, type ContextMenuState } from "./chrome/ContextMenu";
 import { DeleteSessionDialog, type DeleteSessionState } from "./chrome/DeleteSessionDialog";
@@ -420,7 +425,7 @@ export default function App(): JSX.Element {
     sessions().flatMap((session) =>
       session.loaded &&
       session.backendId === activeBackendId() &&
-      session.agentSurface === "terminal" &&
+      (session.agentSurface === "terminal" || agentAuthenticationTerminalActive(session.owner)) &&
       session.owner !== null
         ? [session.owner]
         : [],
@@ -442,11 +447,19 @@ export default function App(): JSX.Element {
   const activeAgentSurface = createMemo<"terminal" | "structured" | "unavailable" | null>(() => {
     return selectedCatalogSession()?.agentSurface ?? null;
   });
+  const authenticationTerminalActive = createMemo(() =>
+    agentAuthenticationTerminalActive(selectedSession()),
+  );
+  const agentTerminalVisible = createMemo(
+    () => activeAgentSurface() === "terminal" || authenticationTerminalActive(),
+  );
   // Transcript state belongs to the exact session and is projected before selection can reveal it.
   const selectedAgentPane = createMemo<AgentPaneModel | null>(() =>
-    activeAgentSurface() === "structured" ? agentPaneModel(selectedSession()) : null,
+    activeAgentSurface() === "structured" && !authenticationTerminalActive()
+      ? agentPaneModel(selectedSession())
+      : null,
   );
-  const activeProviderId = createMemo<"claude" | "codex" | null>(
+  const activeProviderId = createMemo<string | null>(
     () => selectedCatalogSession()?.providerId ?? null,
   );
   const activeAgentInputProtocol = createMemo(
@@ -459,6 +472,8 @@ export default function App(): JSX.Element {
   const [diffAgainstOpen, setDiffAgainstOpen] = createSignal(false);
   const sourceTokenPrompt = selectedSourceTokenPrompt;
   const [registerAgentOpen, setRegisterAgentOpen] = createSignal(false);
+  const [acpRegistryOpen, setAcpRegistryOpen] = createSignal(false);
+  const [acpRegistryBackendId, setAcpRegistryBackendId] = createSignal(LOCAL_BACKEND_ID);
   // The cloud panel's anchor (computed from the cloud button's rect) when open, else null.
   const [remotePanelAnchor, setRemotePanelAnchor] = createSignal<PopoverAnchor | null>(null);
   const openSessions = (): void => {
@@ -471,6 +486,11 @@ export default function App(): JSX.Element {
   };
   const closeSessions = (): void => {
     setSessionsModalOpen(false);
+  };
+  const openAcpRegistry = (backendId: string): void => {
+    closeSessions();
+    setAcpRegistryBackendId(backendId);
+    setAcpRegistryOpen(true);
   };
   const sessionsModalActive = (): boolean => !compact() && sessionsModalOpen();
   createEffect(() => {
@@ -603,7 +623,11 @@ export default function App(): JSX.Element {
       editor.focusEditor();
       return;
     }
-    if (kind === AGENT_PANE_KIND && activeAgentSurface() === "structured") {
+    if (
+      kind === AGENT_PANE_KIND &&
+      activeAgentSurface() === "structured" &&
+      !authenticationTerminalActive()
+    ) {
       document.querySelector<HTMLTextAreaElement>(".agent-surface textarea")?.focus();
       return;
     }
@@ -725,7 +749,7 @@ export default function App(): JSX.Element {
       existing: boolean;
       prompt?: string;
       attachments?: { id: string; mime: string; dataB64: string }[];
-      agentProviderId: "claude" | "codex";
+      agentProviderId: string;
     },
   ): Promise<boolean> => {
     const selected = selectedSession();
@@ -1121,6 +1145,7 @@ export default function App(): JSX.Element {
           <Show when={selectedAgentPane()} keyed>
             {(model) => (
               <AgentPane
+                backendId={selectedCatalogSession()?.backendId ?? LOCAL_BACKEND_ID}
                 compact={compact()}
                 inputProtocol={activeAgentInputProtocol()}
                 model={model}
@@ -1138,8 +1163,8 @@ export default function App(): JSX.Element {
           <div
             class="terminal-surface agent-terminal-surface"
             classList={{
-              active: activeAgentSurface() === "terminal" && focusedKind() === AGENT_PANE_KIND,
-              hidden: activeAgentSurface() !== "terminal",
+              active: agentTerminalVisible() && focusedKind() === AGENT_PANE_KIND,
+              hidden: !agentTerminalVisible(),
             }}
             data-kind={kind}
             data-surface="terminal"
@@ -1152,7 +1177,9 @@ export default function App(): JSX.Element {
                 focusPane(kind);
               }}
             >
-              <span class="pane-label">Claude Code</span>
+              <span class="pane-label">
+                {authenticationTerminalActive() ? "Agent sign in" : "Claude Code"}
+              </span>
               <Show when={showPaneHints() && paneShortcut(numberOf(kind)) !== ""}>
                 <span class="pane-shortcut">{paneShortcut(numberOf(kind))}</span>
               </Show>
@@ -1168,7 +1195,7 @@ export default function App(): JSX.Element {
                       <TerminalView
                         session={session}
                         pane={pane}
-                        active={selected() && activeAgentSurface() === "terminal"}
+                        active={selected() && agentTerminalVisible()}
                         onFirstRender={() => {
                           dismissSplash();
                           startEditorOnce();
@@ -1526,6 +1553,7 @@ export default function App(): JSX.Element {
       }),
       // Sessions (Ctrl+Shift+N / palette / the rail's "+"): modal on desktop, native surface on mobile.
       registerCommand(CommandIds.showSessions, openSessions),
+      registerCommand(CommandIds.manageAcpAgents, () => openAcpRegistry(activeBackendId())),
       // Open Pull Request… (Ctrl+Shift+R / palette): pick a PR to check out as a session.
       registerCommand(CommandIds.openPr, () => setOpenPrOpen(true)),
       registerCommand(CommandIds.openCurrentPr, () => {
@@ -1743,11 +1771,11 @@ export default function App(): JSX.Element {
           inboxActive={compact() ? mobileSurface() === "inbox" : sessionsModalOpen()}
           sessions={sessions()}
           initialBackendId={defaultLocation()}
-          initialProviderId={defaultAgentProvider()}
+          initialProviderId={defaultAgentProvider(defaultLocation())}
           onOpen={openSession}
           onCreate={(seed, backendId, providerId) => {
             setLastLocation(backendId);
-            setDefaultAgentProvider(providerId);
+            setDefaultAgentProvider(backendId, providerId);
             promoteNextSessionOn(backendId);
             return createSessionAt(backendId, {
               branch: seed.branch,
@@ -1758,6 +1786,7 @@ export default function App(): JSX.Element {
               agentProviderId: providerId,
             });
           }}
+          onManageAcp={openAcpRegistry}
           surfaceTitle={mobileSurfaceTitle}
           onDismiss={closeSessions}
           onSurface={selectMobileSurface}
@@ -1843,6 +1872,12 @@ export default function App(): JSX.Element {
             setLastLocation(agentBackendId(name));
             openSessions();
           }}
+        />
+      </Show>
+      <Show when={acpRegistryOpen()}>
+        <AcpRegistryModal
+          backendId={acpRegistryBackendId()}
+          onClose={() => setAcpRegistryOpen(false)}
         />
       </Show>
       <Show when={remotePanelAnchor()}>

@@ -2,13 +2,14 @@ import type { CommandInfo, ResolvedKeybinding } from "../commands/types";
 import { ClientSessionState } from "./client-session-state";
 import { MessageBus } from "./message-bus";
 import type { MessageEnvelope, SessionAddress } from "./message-envelope";
+import type { AgentDefaults } from "./protocol-types";
 
 export interface SessionCatalogEntry {
   id: string;
   label: string;
   address: SessionAddress | null;
   loaded: boolean;
-  providerId: "claude" | "codex";
+  providerId: string;
   agentSurface: "terminal" | "structured" | "unavailable";
   agentInputProtocol: number;
   status: "starting" | "working" | "needsInput" | "idle" | "waiting" | "error";
@@ -39,6 +40,7 @@ export interface HostHello {
     recentTerms: string[];
   };
   testProfile: string;
+  agentDefaults: AgentDefaults;
   commandCatalog: {
     commands: CommandInfo[];
     keybindings: ResolvedKeybinding[];

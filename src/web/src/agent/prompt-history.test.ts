@@ -10,12 +10,12 @@ import {
 
 const user = (text: string): AgentPaneUpdate => ({
   type: "user-message",
-  providerId: "codex",
+  providerId: "acp",
   text,
 });
 const steer = (text: string): AgentPaneUpdate => ({
   type: "user-steer",
-  providerId: "codex",
+  providerId: "acp",
   text,
 });
 
@@ -23,7 +23,7 @@ describe("submittedPrompts", () => {
   it("collects user prompts and steers oldest-first, dropping blanks and adjacent dupes", () => {
     const messages: AgentPaneUpdate[] = [
       user("first"),
-      { type: "item-completed", providerId: "codex", itemType: "agentMessage", text: "answer" },
+      { type: "item-completed", providerId: "acp", itemType: "agentMessage", text: "answer" },
       user("  "),
       steer("second"),
       user("second"),
@@ -33,7 +33,7 @@ describe("submittedPrompts", () => {
   });
 
   it("returns an empty list when nothing was submitted", () => {
-    expect(submittedPrompts([{ type: "warning", providerId: "codex", text: "x" }])).toEqual([]);
+    expect(submittedPrompts([{ type: "warning", providerId: "acp", text: "x" }])).toEqual([]);
   });
 });
 

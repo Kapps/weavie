@@ -98,7 +98,7 @@ export async function allowAutomaticInference(page: Page): Promise<void> {
 
 export async function createSession(
   page: Page,
-  seed: { branch: string; provider: "claude" | "codex" },
+  seed: { branch: string; provider: string },
 ): Promise<void> {
   await runCommand(page, "Sessions");
   const inbox = page.locator(".session-inbox");

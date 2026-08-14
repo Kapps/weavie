@@ -1,13 +1,17 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { Agent, get as httpGet, type OutgoingHttpHeaders } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type FakeStep, writeFakeClaudeWrapper, writeFakeScript } from "./fake-claude";
-import { type FakeCodexInference, writeFakeCodexWrapper } from "./fake-codex";
+import {
+  type FakeInference,
+  type FakeStep,
+  writeFakeClaudeWrapper,
+  writeFakeScript,
+} from "./fake-claude";
 import { createGitWorkspace, createPrWorkspace, removeWorkspace } from "./git-workspace";
-import { headlessProgram, programExists } from "./test-programs";
+import { fakeAcpProgram, headlessProgram, programExists } from "./test-programs";
 
 export function headlessBuilt(): boolean {
   return programExists(headlessProgram);
@@ -28,7 +32,7 @@ export interface WeavieHost {
 
 export interface LaunchOptions {
   fakeScript: FakeStep[] | null;
-  inference: FakeCodexInference;
+  inference: FakeInference;
   automaticInference: boolean;
   // When true, the workspace is a PR scenario (base + head branches off a local "origin") and the host's PR
   // provider is stubbed (WEAVIE_FAKE_PRS) with the canned PR pointing at the head branch — the Open-PR journey.
@@ -210,19 +214,35 @@ export async function prepareFake(options: LaunchOptions): Promise<FakeScaffold>
   const pr = options.pr ? await createPrWorkspace() : null;
   const workspace = pr?.dir ?? (await createGitWorkspace());
   const wrapper = await writeFakeClaudeWrapper(home);
-  const codexWrapper = await writeFakeCodexWrapper(home, options.inference);
   const fakeLogPath = join(home, "fake-claude.log");
+  const weavieRoot = join(home, ".weavie");
+  await mkdir(join(weavieRoot, "acp"), { recursive: true });
+  await writeFile(
+    join(weavieRoot, "acp", "custom.json"),
+    JSON.stringify({
+      version: 1,
+      agents: [
+        {
+          id: "fake-acp",
+          name: "Fake ACP",
+          command: fakeAcpProgram.command,
+          args: [...fakeAcpProgram.args],
+          env: {},
+        },
+      ],
+    }),
+  );
   const env: NodeJS.ProcessEnv = {
     HOME: home,
     // Isolate Weavie's and Claude's on-disk config away from the developer's real home. $HOME alone doesn't do
     // this on Windows (the user-profile known folder ignores it), so pin the two roots explicitly: WEAVIE_ROOT
     // for ~/.weavie (settings, worktrees) and CLAUDE_CONFIG_DIR for ~/.claude (the IDE lock). Without it a run
-    // reads real settings (e.g. claude.allowAllTools) and writes real config — non-deterministic and polluting.
-    WEAVIE_ROOT: join(home, ".weavie"),
+    // reads real settings (e.g. agent.allowAllPermissions) and writes real config — non-deterministic and polluting.
+    WEAVIE_ROOT: weavieRoot,
     CLAUDE_CONFIG_DIR: join(home, ".claude"),
     WEAVIE_CLAUDE_PATH: wrapper,
     WEAVIE_CLAUDE_RESUMESESSION: "false",
-    WEAVIE_CODEX_PATH: codexWrapper,
+    WEAVIE_FAKE_CLAUDE_INFERENCE: options.inference,
   };
   if (options.automaticInference) {
     env.WEAVIE_INFERENCE_ENABLED = "true";

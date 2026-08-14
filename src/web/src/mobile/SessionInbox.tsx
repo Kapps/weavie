@@ -5,6 +5,7 @@ import {
 } from "../agent/AgentAttachmentStrip";
 import { agentImageError, encodeAgentImage, takePastedImages } from "../agent/pasted-images";
 import { backendPhase, connectedBackends, requestBranches, selectedSession } from "../bridge";
+import { agentProviders, defaultAgentProvider } from "../chrome/agent-default";
 import type { BranchPreviewState } from "../chrome/new-session-branch-preview";
 import type { RailSession } from "../chrome/session-store";
 import { setContext } from "../commands/context";
@@ -40,18 +41,15 @@ let attachmentSequence = 0;
 export function SessionInbox(props: {
   sessions: RailSession[];
   initialBackendId: string;
-  initialProviderId: "claude" | "codex";
+  initialProviderId: string;
   active: boolean;
   onOpen: (session: RailSession) => Promise<boolean>;
-  onCreate: (
-    seed: NewSessionSeed,
-    backendId: string,
-    providerId: "claude" | "codex",
-  ) => Promise<boolean>;
+  onCreate: (seed: NewSessionSeed, backendId: string, providerId: string) => Promise<boolean>;
+  onManageAcp: (backendId: string) => void;
 }): JSX.Element {
   const [prompt, setPrompt] = createSignal("");
   const [backendId, setBackendId] = createSignal(props.initialBackendId);
-  const [providerId, setProviderId] = createSignal<"claude" | "codex">(props.initialProviderId);
+  const [providerId, setProviderId] = createSignal(props.initialProviderId);
   const [base, setBase] = createSignal<"source" | "main">("source");
   const [existingBranch, setExistingBranch] = createSignal("");
   const [branches, setBranches] = createSignal<string[]>([]);
@@ -70,6 +68,11 @@ export function SessionInbox(props: {
   let wasActive = false;
   let previousBackendId = props.initialBackendId;
   let previousProviderId = props.initialProviderId;
+
+  const selectBackend = (id: string): void => {
+    setBackendId(id);
+    setProviderId(defaultAgentProvider(id));
+  };
 
   createEffect(() => {
     const active = props.active;
@@ -92,7 +95,7 @@ export function SessionInbox(props: {
   createEffect(() => {
     const available = connectedBackends();
     if (!available.some((backend) => backend.id === backendId())) {
-      setBackendId(props.initialBackendId);
+      selectBackend(props.initialBackendId);
     }
   });
 
@@ -243,6 +246,9 @@ export function SessionInbox(props: {
     const images = attachments();
     return (
       submitting() === null &&
+      agentProviders(backendId()).some(
+        (provider) => provider.id === providerId() && provider.available,
+      ) &&
       branchPreview().branch.trim().length > 0 &&
       images.every((attachment) => attachment.status === "ready")
     );
@@ -276,7 +282,7 @@ export function SessionInbox(props: {
       <select
         aria-label={locationLabel}
         value={backendId()}
-        onChange={(event) => setBackendId(event.currentTarget.value)}
+        onChange={(event) => selectBackend(event.currentTarget.value)}
       >
         <For each={connectedBackends()}>
           {(backend) => (
@@ -287,11 +293,29 @@ export function SessionInbox(props: {
       <select
         aria-label={providerLabel}
         value={providerId()}
-        onChange={(event) => setProviderId(event.currentTarget.value as "claude" | "codex")}
+        onChange={(event) => setProviderId(event.currentTarget.value)}
       >
-        <option value="claude">Claude Code</option>
-        <option value="codex">Codex</option>
+        <For each={agentProviders(backendId())}>
+          {(provider) => (
+            <option
+              value={provider.id}
+              disabled={!provider.available}
+              title={provider.unavailableReason ?? provider.name}
+            >
+              {provider.name}
+              {provider.available ? "" : " (Unavailable)"}
+            </option>
+          )}
+        </For>
       </select>
+      <Show
+        when={
+          agentProviders(backendId()).find((provider) => provider.id === providerId())
+            ?.unavailableReason
+        }
+      >
+        {(reason) => <small role="alert">{reason()}</small>}
+      </Show>
     </>
   );
 
@@ -303,6 +327,14 @@ export function SessionInbox(props: {
           <h1 id="session-inbox-title">Sessions</h1>
           <span>Pick up where your agents left off</span>
         </div>
+        <button
+          type="button"
+          class="session-inbox-manage-acp"
+          onClick={() => props.onManageAcp(backendId())}
+          title={`Manage ACP agents${keyHint(CommandIds.manageAcpAgents)}`}
+        >
+          Manage ACP agents
+        </button>
       </header>
 
       <div class="session-inbox-actions">

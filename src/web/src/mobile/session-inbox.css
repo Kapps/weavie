@@ -98,6 +98,23 @@
   font-size: var(--font-hint-size);
 }
 
+.session-inbox-manage-acp {
+  margin-left: auto;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: var(--font-hint-size);
+  cursor: pointer;
+}
+
+.session-inbox-manage-acp:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .session-inbox-actions,
 .session-inbox-action {
   display: flex;

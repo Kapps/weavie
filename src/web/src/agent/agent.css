@@ -300,6 +300,29 @@
   max-width: 100%;
 }
 
+.agent-entry-media {
+  display: block;
+  max-width: min(100%, 720px);
+  max-height: 440px;
+  margin-top: 7px;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  object-fit: contain;
+}
+
+a.agent-entry-media {
+  width: fit-content;
+  padding: 5px 7px;
+}
+
+.agent-entry-resource {
+  margin: 7px 0 0;
+  white-space: pre-wrap;
+  color: var(--dim);
+  font: inherit;
+  overflow-wrap: anywhere;
+}
+
 .agent-entry-main a {
   color: var(--accent);
   cursor: pointer;
@@ -720,7 +743,10 @@
 .agent-input-question {
   display: grid;
   gap: 3px;
+  min-inline-size: 0;
   margin-top: 5px;
+  padding: 0;
+  border: 0;
 }
 
 .agent-input-question small {
@@ -1265,6 +1291,15 @@
 
 .agent-control-option-label {
   color: var(--fg);
+}
+
+.agent-control-option-group {
+  padding-top: 2px;
+  color: var(--dim);
+  font-size: var(--font-metadata-size);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 
 .agent-control-option-desc {

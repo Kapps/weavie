@@ -18,6 +18,9 @@ import { setComposerDraft } from "./composer-store";
 export type { AgentPaneModel, AgentSectionLabel } from "./AgentPaneModel";
 
 const [models, setModels] = createSignal(new Map<ClientSession, AgentPaneModel>());
+const [authenticationTerminals, setAuthenticationTerminals] = createSignal(
+  new Map<ClientSession, boolean>(),
+);
 
 registerSessionFeature((session) => {
   const accumulator = new AgentPaneAccumulator((callback) => requestAnimationFrame(callback));
@@ -144,6 +147,12 @@ registerSessionFeature((session) => {
     accumulator.ingest("pane", message, publish);
   };
   const offPane = feature.on<AgentPaneWireUpdate>("pane", ingest);
+  const offAuthenticationTerminal = feature.on<{ active: boolean }>(
+    "authenticationTerminal",
+    ({ active }) => {
+      setAuthenticationTerminals((previous) => new Map(previous).set(session, active));
+    },
+  );
   const offBatch = feature.on<{ messages: AgentPaneWireUpdate[] }>("paneBatch", ({ messages }) => {
     for (const message of messages) {
       applyMessageState(message);
@@ -172,6 +181,7 @@ registerSessionFeature((session) => {
       historyReadId = null;
     }
     offPane();
+    offAuthenticationTerminal();
     offBatch();
     offReset();
     offHello();
@@ -181,9 +191,18 @@ registerSessionFeature((session) => {
       next.delete(session);
       return next;
     });
+    setAuthenticationTerminals((previous) => {
+      const next = new Map(previous);
+      next.delete(session);
+      return next;
+    });
   };
 });
 
 export function agentPaneModel(session: ClientSession | null): AgentPaneModel | null {
   return session === null ? null : (models().get(session) ?? null);
+}
+
+export function agentAuthenticationTerminalActive(session: ClientSession | null): boolean {
+  return session !== null && authenticationTerminals().get(session) === true;
 }

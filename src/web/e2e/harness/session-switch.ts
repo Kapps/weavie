@@ -2,7 +2,7 @@ import type { Page } from "@playwright/test";
 
 export interface SessionSwitchExpectation {
   label: string;
-  provider: "claude" | "codex";
+  surface: "structured-agent" | "terminal";
   tabs: string[];
   activeTab: string;
   content:
@@ -32,8 +32,7 @@ export async function measureSessionSwitch(
       const surface = document.querySelector<HTMLElement>(
         ".agent-surface, .agent-terminal-surface:not(.hidden)",
       );
-      const wantedSurface = target.provider === "codex" ? "structured-agent" : "terminal";
-      if (surface?.dataset.surface !== wantedSurface) {
+      if (surface?.dataset.surface !== target.surface) {
         return false;
       }
       const tabs = [...document.querySelectorAll<HTMLElement>(".editor-tab .editor-tab-label")];

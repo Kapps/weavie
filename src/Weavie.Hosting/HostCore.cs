@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Text.Json;
+using Weavie.AcpDistribution;
 using Weavie.Core;
 using Weavie.Core.Agents;
 using Weavie.Core.Commands;
@@ -47,6 +48,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 	private readonly ThemeOverridesStore _themeOverrides;
 	// App-global Claude-session-id map (keyed by cwd); each session resumes its own worktree's conversation.
 	private readonly AgentProviderRegistry _agentProviders;
+	private readonly IAcpAgentCatalog _acpAgents;
 	private readonly IInferenceService _inference;
 	// App-global remote-agent registry; included in hello and re-pushed on change (the web owns the
 	// connections, this owns persistence — see remote-agents.ts).
@@ -97,6 +99,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 	private Action? _onRemoteAgentsChanged;
 	private Action? _onRailStateChanged;
 	private Action? _onSearchStateChanged;
+	private Action? _onAgentProvidersChanged;
 	private IDisposable? _shellSettingSubscription;
 
 	/// <summary>
@@ -155,6 +158,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 		_keybindings = services.Keybindings;
 		_themeOverrides = services.ThemeOverrides;
 		_agentProviders = services.AgentProviders;
+		_acpAgents = services.AcpAgents;
 		_inference = services.Inference;
 		_remoteAgents = services.RemoteAgents;
 		_railState = services.RailState;
@@ -289,6 +293,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 	public string BuildBootstrap() {
 		return
 			string.Concat(LiveSettingGroups.Select(g => $"window.{g.Global} = {g.Build(_settings)};"))
+			+ $"window.__WEAVIE_AGENT__ = {BuildAgentDefaults()};"
 			+ $"window.__WEAVIE_THEME__ = {ThemeJson.Build(_settings, _themeOverrides, Log)};"
 			+ BuildTestProfileScript()
 			+ $"window.__WEAVIE_COMMANDS__ = {_keybindings.BuildCommandsJson()};"
@@ -308,8 +313,11 @@ public sealed partial class HostCore : IAsyncDisposable {
 		(FontSettings.Keys, "fonts", "__WEAVIE_FONTS__", FontSettings.BuildJson),
 		(NotificationSettings.Keys, "notification-prefs", "__WEAVIE_NOTIFICATIONS__", NotificationSettings.BuildJson),
 		(EditorSettings.Keys, "editorOptions", "__WEAVIE_EDITOR_OPTIONS__", EditorSettings.BuildJson),
-		(AgentSettings.Keys, "agent-settings", "__WEAVIE_AGENT_SETTINGS__", AgentSettings.BuildJson),
 	];
+
+	private string BuildAgentDefaults() => AgentSettings.BuildJson(
+		_settings,
+		[.. _agentProviders.Providers.Select(provider => provider.Info)]);
 
 	/// <summary>The app's build identity (SemVer with the build number as patch, e.g. <c>0.1.247</c>), stamped at build time.</summary>
 	public static string BuildNumber =>
@@ -341,6 +349,9 @@ public sealed partial class HostCore : IAsyncDisposable {
 				if (keys.Contains(change.Key)) {
 					_messages.Host.Feature("settings").PublishJson(eventName, build(_settings));
 				}
+			}
+			if (AgentSettings.Keys.Contains(change.Key)) {
+				_messages.Host.Feature("settings").PublishJson("agent-defaults", BuildAgentDefaults());
 			}
 
 			if (ThemeSettings.Keys.Contains(change.Key)) {
@@ -406,6 +417,10 @@ public sealed partial class HostCore : IAsyncDisposable {
 		// Find-in-files UI state (options + globs + recent terms): same re-push-on-change.
 		_onSearchStateChanged = PushSearchStateToWeb;
 		_searchState.Changed += _onSearchStateChanged;
+
+		_onAgentProvidersChanged = () =>
+			_messages.Host.Feature("settings").PublishJson("agent-defaults", BuildAgentDefaults());
+		_agentProviders.Changed += _onAgentProvidersChanged;
 
 		// Layout: when the store changes (a reconciled web edit, or an MCP setLayout), push the canonical
 		// document back so the web re-renders. Change events arrive off the UI thread.
@@ -554,6 +569,10 @@ public sealed partial class HostCore : IAsyncDisposable {
 		if (_onSearchStateChanged is not null) {
 			_searchState.Changed -= _onSearchStateChanged;
 			_onSearchStateChanged = null;
+		}
+		if (_onAgentProvidersChanged is not null) {
+			_agentProviders.Changed -= _onAgentProvidersChanged;
+			_onAgentProvidersChanged = null;
 		}
 	}
 }

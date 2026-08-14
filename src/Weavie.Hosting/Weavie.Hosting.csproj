@@ -13,6 +13,8 @@
   </PropertyGroup>
 
   <ItemGroup>
+	<ProjectReference Include="..\Weavie.AcpDistribution\Weavie.AcpDistribution.csproj" />
+    <ProjectReference Include="..\Weavie.AgentClientProtocol\Weavie.AgentClientProtocol.csproj" />
     <ProjectReference Include="..\Weavie.Core\Weavie.Core.csproj" />
   </ItemGroup>
 
@@ -20,18 +22,18 @@
     <AssemblyMetadata Include="SpawnContract" Value="$(SpawnContractVersion)" />
   </ItemGroup>
 
-	<ItemGroup>
-		<FrameworkReference Include="Microsoft.AspNetCore.App" />
-	</ItemGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
 
-	<ItemGroup>
-		<!-- The integration test harness drives the real HostCore and reaches a couple of internal test seams
-		     (e.g. exact session instances) to assert on host behavior the page can't trigger directly. -->
-		<InternalsVisibleTo Include="Weavie.Hosting.Tests" />
-		<InternalsVisibleTo Include="Weavie.LspHarness" />
-		<!-- The desktop shells publish under the assembly name "Weavie" (AssemblyName override); IVT keys on
-		     assembly name, not project name. The Win shell consumes internals here (HostBridge). -->
-		<InternalsVisibleTo Include="Weavie" />
-	</ItemGroup>
+  <ItemGroup>
+    <!-- The integration test harness drives the real HostCore and reaches a couple of internal test seams
+         (e.g. exact session instances) to assert on host behavior the page can't trigger directly. -->
+    <InternalsVisibleTo Include="Weavie.Hosting.Tests" />
+    <InternalsVisibleTo Include="Weavie.LspHarness" />
+    <!-- The desktop shells publish under the assembly name "Weavie" (AssemblyName override); IVT keys on
+         assembly name, not project name. The Win shell consumes internals here (HostBridge). -->
+    <InternalsVisibleTo Include="Weavie" />
+  </ItemGroup>
 
 </Project>

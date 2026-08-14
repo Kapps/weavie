@@ -48,9 +48,12 @@ export function AgentWorkingStatus(props: {
   );
 }
 
-function workingLabel(pending: "approval" | "input" | null): string {
+function workingLabel(pending: PendingRequestKind | null): string {
   if (pending === "approval") {
     return "Waiting on your approval";
+  }
+  if (pending === "authentication") {
+    return "Waiting for sign in";
   }
   return pending === "input" ? "Waiting on your answer" : "Working";
 }

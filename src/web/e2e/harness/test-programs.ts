@@ -44,6 +44,12 @@ export const fakeClaudeProgram = resolveProgram(
   ["fake-claude"],
 );
 
+export const fakeAcpProgram = resolveProgram(
+  "weavie-fake-acp",
+  ["tools", "Weavie.FakeAcp", "bin", "Debug", "net10.0"],
+  ["fake-acp"],
+);
+
 export function programExists(program: TestProgram): boolean {
   return existsSync(program.target);
 }

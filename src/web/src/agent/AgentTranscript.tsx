@@ -13,6 +13,7 @@ export function AgentTranscript(props: {
   entries: AgentTranscriptEntry[];
   expandedDetails: ReadonlySet<string>;
   keyboardApprovalId: string | null;
+  keyboardInputId: string | null;
   onDetailsToggle: (entryId: string, open: boolean) => void;
   providerName: string;
   sectionLabels: ReadonlyMap<string, AgentSectionLabel>;
@@ -70,6 +71,7 @@ export function AgentTranscript(props: {
                   detailsExpanded={props.expandedDetails.has(entry().id)}
                   entry={entry()}
                   keyboardApprovalId={props.keyboardApprovalId}
+                  keyboardInputId={props.keyboardInputId}
                   onDetailsToggle={(open) => props.onDetailsToggle(entry().id, open)}
                   sectionLabel={props.sectionLabels.get(entry().id) ?? null}
                   session={props.session}

@@ -44,13 +44,6 @@ public sealed class WorktreeManager {
 	public event Action<string>? Log;
 
 	/// <summary>
-	/// Creates a worktree on a new branch <paramref name="branch"/> started from <paramref name="baseRef"/>,
-	/// records it, and returns the record. Throws when <paramref name="branch"/> already exists.
-	/// </summary>
-	public Task<WorktreeRecord> CreateAsync(string branch, string baseRef, CancellationToken ct = default) =>
-		CreateAsync(branch, baseRef, "claude", ct);
-
-	/// <summary>
 	/// Creates a provider-bound worktree on a new branch <paramref name="branch"/> started from
 	/// <paramref name="baseRef"/>, records it, and returns the record.
 	/// </summary>
@@ -74,14 +67,6 @@ public sealed class WorktreeManager {
 		Registry.Add(record);
 		return record;
 	}
-
-	/// <summary>
-	/// Creates a worktree on the existing branch <paramref name="branch"/>, records it, and returns the record.
-	/// Returns the existing record if Weavie already tracks this branch, so callers don't duplicate it. Throws
-	/// when the branch doesn't exist.
-	/// </summary>
-	public Task<WorktreeRecord> AttachAsync(string branch, CancellationToken ct = default) =>
-		AttachAsync(branch, "claude", ct);
 
 	/// <summary>
 	/// Creates a provider-bound worktree on the existing branch <paramref name="branch"/>, records it, and returns

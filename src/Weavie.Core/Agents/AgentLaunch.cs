@@ -5,6 +5,9 @@ public enum AgentExecutableMode {
 	/// <summary>Launch the executable directly.</summary>
 	Direct,
 
+	/// <summary>Resolve the executable from the inherited PATH without invoking a shell.</summary>
+	SearchPath,
+
 	/// <summary>Resolve the executable through the user's interactive login shell.</summary>
 	LoginShell,
 }

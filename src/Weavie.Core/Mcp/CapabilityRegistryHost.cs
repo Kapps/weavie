@@ -49,7 +49,7 @@ public sealed class CapabilityRegistryHost : IAsyncDisposable {
 	/// <summary>The loopback registry port.</summary>
 	public int Port { get; }
 
-	/// <summary>The Streamable HTTP MCP endpoint URL for Codex.</summary>
+	/// <summary>The Streamable HTTP MCP endpoint URL for native agents.</summary>
 	public string StreamableHttpUrl => $"http://127.0.0.1:{Port}/mcp";
 
 	/// <inheritdoc/>

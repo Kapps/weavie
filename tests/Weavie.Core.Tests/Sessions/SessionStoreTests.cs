@@ -31,14 +31,14 @@ public sealed class SessionStoreTests {
 
 		store.Save([
 			Descriptor("aaaa", "a", loaded: true),
-			Descriptor("bbbb", "b", loaded: false) with { AgentProviderId = "codex" },
+			Descriptor("bbbb", "b", loaded: false) with { AgentProviderId = "acp" },
 		]);
 
 		var reloaded = new SessionStore(fs, StorePath);
 		Assert.Equal(2, reloaded.Items.Count);
 		Assert.True(reloaded.Items.Single(i => i.Id.Value == "aaaa").Loaded);
 		Assert.False(reloaded.Items.Single(i => i.Id.Value == "bbbb").Loaded);
-		Assert.Equal("codex", reloaded.Items.Single(i => i.Id.Value == "bbbb").AgentProviderId);
+		Assert.Equal("acp", reloaded.Items.Single(i => i.Id.Value == "bbbb").AgentProviderId);
 		Assert.DoesNotContain("activeId", fs.ReadAllText(StorePath));
 	}
 

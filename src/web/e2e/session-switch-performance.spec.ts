@@ -20,8 +20,8 @@ const TOOL_HEAVY_SWITCH_BUDGET_MS = 350;
 const CLAUDE_ACTIVE = "/workspace/claude/active.ts";
 const CLAUDE_LATE = "/workspace/claude/background.ts";
 const CLAUDE_OTHER = "/workspace/claude/other.ts";
-const CODEX_OTHER = "/workspace/codex/notes.ts";
-const CODEX_IMAGE = "/workspace/codex/pixel.png";
+const ACP_OTHER = "/workspace/acp/notes.ts";
+const ACP_IMAGE = "/workspace/acp/pixel.png";
 
 interface SessionFixture {
   catalog: MockSession;
@@ -36,10 +36,10 @@ const claude: SessionFixture = {
   active: CLAUDE_ACTIVE,
   marker: "CLAUDE_ACTIVE_MARKER",
 };
-const codex: SessionFixture = {
-  catalog: mockSession("codex-image", "codex-image", "codex"),
-  tabs: [CODEX_OTHER, CODEX_IMAGE],
-  active: CODEX_IMAGE,
+const acp: SessionFixture = {
+  catalog: mockSession("acp-image", "acp-image", "acp"),
+  tabs: [ACP_OTHER, ACP_IMAGE],
+  active: ACP_IMAGE,
   marker: null,
 };
 
@@ -56,7 +56,7 @@ function expectation(fixture: SessionFixture): SessionSwitchExpectation {
   const activeTab = fixture.active.split("/").at(-1) as string;
   return {
     label: fixture.catalog.label,
-    provider: fixture.catalog.providerId,
+    surface: fixture.catalog.providerId === "claude" ? "terminal" : "structured-agent",
     tabs: fixture.tabs.map((path) => path.split("/").at(-1) as string),
     activeTab,
     content:
@@ -81,51 +81,51 @@ test.beforeAll(() => {
 test("warm session-owned editor state switches fully paint within one second", async ({ page }) => {
   const host = await MockHost.start({
     distDir,
-    sessions: [claude.catalog, codex.catalog],
+    sessions: [claude.catalog, acp.catalog],
     files: {
       [CLAUDE_ACTIVE]: "export const value = 'CLAUDE_ACTIVE_MARKER';\n",
       [CLAUDE_OTHER]: "export const other = true;\n",
-      [CODEX_OTHER]: "export const note = true;\n",
+      [ACP_OTHER]: "export const note = true;\n",
     },
   });
-  host.setMedia(codex.catalog.address.incarnation, CODEX_IMAGE, PIXEL_RED);
+  host.setMedia(acp.catalog.address.incarnation, ACP_IMAGE, PIXEL_RED);
 
   try {
     await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
     await host.waitUntilConnected();
     restore(host, claude);
-    restore(host, codex);
+    restore(host, acp);
     await expect(page.locator(".editor")).toHaveAttribute("data-ready", "true", {
       timeout: 60_000,
     });
     await expect(page.locator(".monaco-editor .view-lines").first()).toContainText(claude.marker);
 
-    const claudeToCodex: number[] = [];
-    const codexToClaude: number[] = [];
+    const claudeToACP: number[] = [];
+    const acpToClaude: number[] = [];
     for (let sample = 0; sample < 3; sample++) {
-      claudeToCodex.push(await measureSessionSwitch(page, expectation(codex)));
-      codexToClaude.push(await measureSessionSwitch(page, expectation(claude)));
+      claudeToACP.push(await measureSessionSwitch(page, expectation(acp)));
+      acpToClaude.push(await measureSessionSwitch(page, expectation(claude)));
     }
-    const measurements = { budgetMs: SWITCH_BUDGET_MS, claudeToCodex, codexToClaude };
+    const measurements = { budgetMs: SWITCH_BUDGET_MS, claudeToACP, acpToClaude };
     await test.info().attach("session-switch-performance.json", {
       body: Buffer.from(JSON.stringify(measurements, null, 2)),
       contentType: "application/json",
     });
 
-    expect(Math.max(...claudeToCodex)).toBeLessThan(SWITCH_BUDGET_MS);
-    expect(Math.max(...codexToClaude)).toBeLessThan(SWITCH_BUDGET_MS);
+    expect(Math.max(...claudeToACP)).toBeLessThan(SWITCH_BUDGET_MS);
+    expect(Math.max(...acpToClaude)).toBeLessThan(SWITCH_BUDGET_MS);
   } finally {
     await host.close();
   }
 });
 
 test("long transcripts switch as a measured virtual window", async ({ page }) => {
-  const first = mockSession("long-first", "long-first", "codex");
-  const second = mockSession("long-second", "long-second", "codex");
+  const first = mockSession("long-first", "long-first", "acp");
+  const second = mockSession("long-second", "long-second", "acp");
   const host = await MockHost.start({ distDir, sessions: [first, second] });
   const transcript = (prefix: string) =>
     Array.from({ length: 800 }, (_, index) => ({
-      providerId: "codex",
+      providerId: "acp",
       type: "item-completed",
       itemId: `${prefix}-${index}`,
       itemType: "agentMessage",
@@ -263,14 +263,14 @@ test("long transcripts switch as a measured virtual window", async ({ page }) =>
 });
 
 test("tool-heavy transcripts switch through one preprojected structured pane", async ({ page }) => {
-  const first = mockSession("tool-heavy-first", "tool-heavy-first", "codex");
-  const second = mockSession("tool-heavy-second", "tool-heavy-second", "codex");
+  const first = mockSession("tool-heavy-first", "tool-heavy-first", "acp");
+  const second = mockSession("tool-heavy-second", "tool-heavy-second", "acp");
   const host = await MockHost.start({ distDir, sessions: [first, second] });
   const transcript = (turnId: string, count: number) => ({
     messages: [
-      { providerId: "codex", type: "user-message", turnId, text: `Run ${count} commands` },
+      { providerId: "acp", type: "user-message", turnId, text: `Run ${count} commands` },
       ...Array.from({ length: count }, (_, index) => ({
-        providerId: "codex",
+        providerId: "acp",
         type: "item-completed",
         turnId,
         itemId: `command-${index}`,
@@ -380,7 +380,7 @@ test("tool-heavy transcripts switch through one preprojected structured pane", a
     await expect(surface).not.toContainText("ran 15000 commands");
 
     const replacement = {
-      ...mockSession(second.id, "replacement", "codex"),
+      ...mockSession(second.id, "replacement", "acp"),
       address: { slot: second.address.slot, incarnation: "tool-heavy-replacement" },
     };
     host.setSessions([first, replacement]);
@@ -393,19 +393,19 @@ test("tool-heavy transcripts switch through one preprojected structured pane", a
 });
 
 test("remounting a structured pane preserves the session-owned edited draft", async ({ page }) => {
-  const first = mockSession("draft-first", "draft-first", "codex");
-  const second = mockSession("draft-second", "draft-second", "codex");
+  const first = mockSession("draft-first", "draft-first", "acp");
+  const second = mockSession("draft-second", "draft-second", "acp");
   const host = await MockHost.start({ distDir, sessions: [first, second] });
   const messages = [
-    { providerId: "codex" as const, type: "draft", text: "provider prefill" },
+    { providerId: "acp" as const, type: "draft", text: "provider prefill" },
     {
-      providerId: "codex" as const,
+      providerId: "acp" as const,
       type: "user-message",
       turnId: "draft-turn",
       text: "work",
     },
     ...["one", "two"].map((itemId) => ({
-      providerId: "codex" as const,
+      providerId: "acp" as const,
       type: "item-completed",
       turnId: "draft-turn",
       itemId,
@@ -440,7 +440,7 @@ test("remounting a structured pane preserves the session-owned edited draft", as
     await host.waitUntilConnected(reconnectCheckpoint);
     await expect(textarea).toHaveValue("user-edited draft");
     host.publishAgentPane(first.address, {
-      providerId: "codex",
+      providerId: "acp",
       type: "draft",
       text: "new provider prefill",
     });
@@ -462,21 +462,21 @@ test("remounting a structured pane preserves the session-owned edited draft", as
 test("a message for a background session mutates only its owned editor state", async ({ page }) => {
   const host = await MockHost.start({
     distDir,
-    sessions: [claude.catalog, codex.catalog],
+    sessions: [claude.catalog, acp.catalog],
     files: {
       [CLAUDE_ACTIVE]: "export const value = 'CLAUDE_ACTIVE_MARKER';\n",
       [CLAUDE_LATE]: "export const value = 'BACKGROUND_SESSION_MARKER';\n",
-      [CODEX_OTHER]: "export const note = true;\n",
+      [ACP_OTHER]: "export const note = true;\n",
     },
   });
-  host.setMedia(codex.catalog.address.incarnation, CODEX_IMAGE, PIXEL_RED);
+  host.setMedia(acp.catalog.address.incarnation, ACP_IMAGE, PIXEL_RED);
 
   try {
     await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
     await host.waitUntilConnected();
     restore(host, claude);
-    restore(host, codex);
-    await page.locator(`.session-chip[title^="${codex.catalog.label} —"]`).click();
+    restore(host, acp);
+    await page.locator(`.session-chip[title^="${acp.catalog.label} —"]`).click();
     await expect(page.locator(".editor-media img")).toHaveJSProperty("naturalWidth", 8);
 
     host.publishSession(claude.catalog.address, "editor", "openFile", {
@@ -502,13 +502,13 @@ test("a message for a background session mutates only its owned editor state", a
 test("a delayed background file response cannot repaint the selected session", async ({ page }) => {
   const host = await MockHost.start({
     distDir,
-    sessions: [claude.catalog, codex.catalog],
+    sessions: [claude.catalog, acp.catalog],
     files: {
       [CLAUDE_LATE]: "export const value = 'BACKGROUND_SESSION_MARKER';\n",
-      [CODEX_OTHER]: "export const note = true;\n",
+      [ACP_OTHER]: "export const note = true;\n",
     },
   });
-  host.setMedia(codex.catalog.address.incarnation, CODEX_IMAGE, PIXEL_RED);
+  host.setMedia(acp.catalog.address.incarnation, ACP_IMAGE, PIXEL_RED);
 
   try {
     await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
@@ -516,7 +516,7 @@ test("a delayed background file response cannot repaint the selected session", a
     host.publishSession(claude.catalog.address, "editor", "restore", {
       session: { active: null, open: [] },
     });
-    restore(host, codex);
+    restore(host, acp);
     await expect(page.locator(".editor")).toHaveAttribute("data-ready", "true", {
       timeout: 60_000,
     });
@@ -530,13 +530,13 @@ test("a delayed background file response cannot repaint the selected session", a
     });
     await host.waitForSession(claude.catalog.address, "request", "files", "stat", checkpoint);
 
-    await page.locator(`.session-chip[title^="${codex.catalog.label} —"]`).click();
+    await page.locator(`.session-chip[title^="${acp.catalog.label} —"]`).click();
     await expect(page.locator(".editor-media img")).toHaveJSProperty("naturalWidth", 8);
     host.resumeFileProvider();
     await expect(page.locator(".editor-media img")).toHaveAttribute(
       "src",
       new RegExp(
-        `session=${codex.catalog.address.incarnation}.*path=${encodeURIComponent(CODEX_IMAGE)}`,
+        `session=${acp.catalog.address.incarnation}.*path=${encodeURIComponent(ACP_IMAGE)}`,
       ),
     );
     await expect(page.locator(".editor-tab.active .editor-tab-label")).toHaveText("pixel.png");

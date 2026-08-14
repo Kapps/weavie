@@ -40,11 +40,26 @@ export function openUrlExternal(url: string): void {
   // The browser lives on the user's machine: a served tab opens the URL itself under the click's user gesture;
   // a native shell asks the LOCAL host, which allowlists http(s) at that trust boundary — untrusted terminal
   // content must never reach a file:// / custom-scheme OS opener. Never a remote backend.
+  const safeUrl = requireHttpUrl(url);
   if (isBrowserHostedShell()) {
-    window.open(url, "_blank", "noopener");
+    window.open(safeUrl, "_blank", "noopener");
     return;
   }
-  hostConnection(LOCAL_BACKEND_ID)?.host.feature("platform").publish("openUrl", { url });
+  hostConnection(LOCAL_BACKEND_ID)?.host.feature("platform").publish("openUrl", { url: safeUrl });
+}
+
+/** Rejects untrusted external-open schemes before either browser or native dispatch. */
+export function requireHttpUrl(value: string): string {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error("External links must use an absolute HTTP or HTTPS URL.");
+  }
+  if ((url.protocol !== "http:" && url.protocol !== "https:") || url.hostname.length === 0) {
+    throw new Error("External links must use an absolute HTTP or HTTPS URL.");
+  }
+  return value;
 }
 
 // Open a terminal `#N` as its forge issue/PR page: the host-pushed prefix for the selected session's origin +

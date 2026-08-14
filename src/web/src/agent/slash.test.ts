@@ -8,7 +8,6 @@ const entry = (name: string): AgentSlashEntry => ({
   description: name,
   commandId: null,
   insertText: name,
-  skillName: null,
 });
 
 describe("slashQuery", () => {

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Weavie.AcpDistribution;
 using Weavie.Core;
 using Weavie.Core.Agents;
 using Weavie.Core.Commands;
@@ -211,14 +212,15 @@ public sealed partial class HostCore {
 		}
 
 		string id = SessionId.New().Value;
-		var session = CreateSession(WorkspaceRoot, "claude", id);
+		string providerId = ResolveNewSessionProvider(null);
+		var session = CreateSession(WorkspaceRoot, providerId, id);
 		session.DisplayLabel = _workspaceSessionLabel;
 		var slot = new SessionSlot {
 			Id = id,
 			Label = _workspaceSessionLabel,
 			WorktreePath = WorkspaceRoot,
 			ManagedCheckout = false,
-			AgentProviderId = "claude",
+			AgentProviderId = providerId,
 			Session = session,
 			EditorSession = EditorSession.Empty,
 		};
@@ -248,7 +250,6 @@ public sealed partial class HostCore {
 				string label = status.Branch ?? Path.GetFileName(
 					status.Path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
 				string agentProviderId = ProviderFor(status, label);
-				BackfillWorktreeProvider(status, agentProviderId);
 				if (_sessions.Find(label) is not null) {
 					continue; // already surfaced
 				}
@@ -271,26 +272,20 @@ public sealed partial class HostCore {
 		}
 	}
 
-	private string ProviderFor(WorktreeStatus status, string slotId) =>
-		ProviderOrNull(status.AgentProviderId)
-		?? PersistedProviderFor(slotId, status.Path)
-		?? "claude";
+	private string ProviderFor(WorktreeStatus status, string slotId) {
+		if (status.IsManaged) {
+			return !string.IsNullOrWhiteSpace(status.AgentProviderId)
+				? status.AgentProviderId
+				: throw new InvalidDataException($"Managed worktree '{status.Path}' has no agent provider.");
+		}
+		return PersistedProviderFor(slotId, status.Path) ?? ResolveNewSessionProvider(null);
+	}
 
 	private string? PersistedProviderFor(string slotId, string worktreePath) {
 		string? provider = _sessionStore.Items.FirstOrDefault(item =>
 			string.Equals(item.Id.Value, slotId, StringComparison.Ordinal)
 			|| PathsEqual(item.WorktreePath, worktreePath))?.AgentProviderId;
 		return ProviderOrNull(provider);
-	}
-
-	private void BackfillWorktreeProvider(WorktreeStatus status, string agentProviderId) {
-		if (!status.IsManaged || ProviderOrNull(status.AgentProviderId) is not null) {
-			return;
-		}
-
-		if (_worktrees?.Registry.FindByPath(status.Path) is { } record) {
-			_worktrees.Registry.Add(record with { AgentProviderId = agentProviderId });
-		}
 	}
 
 	private static string? ProviderOrNull(string? provider) =>
@@ -318,6 +313,33 @@ public sealed partial class HostCore {
 		string? provider = requestedProvider?.Trim();
 		if (!string.IsNullOrEmpty(provider) && _agentProviders.FindInfo(provider) is not null) {
 			_settings.Set(AgentSettings.DefaultProvider, JsonSerializer.SerializeToElement(provider));
+		}
+	}
+
+	private void EnsureProviderCanBeRemoved(string providerId) {
+		ArgumentException.ThrowIfNullOrWhiteSpace(providerId);
+		bool isDefault = string.Equals(
+			_settings.RequireString(AgentSettings.DefaultProvider),
+			providerId,
+			StringComparison.Ordinal);
+		bool hasSession = _sessionStore.Items.Any(item =>
+			string.Equals(item.AgentProviderId, providerId, StringComparison.Ordinal))
+			|| _sessions?.Slots.Any(slot =>
+				string.Equals(slot.AgentProviderId, providerId, StringComparison.Ordinal)) == true;
+		bool hasWorktree = _worktrees?.Registry.Items.Any(item =>
+			string.Equals(item.AgentProviderId, providerId, StringComparison.Ordinal)) == true;
+		if (isDefault || hasSession || hasWorktree) {
+			throw new InvalidOperationException(
+				$"ACP agent '{providerId}' is still referenced by a session, worktree, or the default provider.");
+		}
+	}
+
+	private void EnsureProvidersCanBeReplaced(
+		IReadOnlySet<string> currentIds,
+		IReadOnlyList<AcpLaunchSpec> proposed) {
+		var proposedIds = proposed.Select(agent => agent.Id).ToHashSet(StringComparer.Ordinal);
+		foreach (string removed in currentIds.Where(id => !proposedIds.Contains(id))) {
+			EnsureProviderCanBeRemoved(removed);
 		}
 	}
 
@@ -1055,11 +1077,7 @@ public sealed partial class HostCore {
 			return CommandResult.Failure($"Couldn't check out '{branch}': {ex.Message}");
 		}
 
-		string slotProviderId = ProviderOrNull(record.AgentProviderId) ?? agentProviderId;
-		if (!freshWorktree && ProviderOrNull(record.AgentProviderId) is null) {
-			record = record with { AgentProviderId = slotProviderId };
-			worktrees.Registry.Add(record);
-		}
+		string slotProviderId = record.AgentProviderId;
 
 		if (freshWorktree) {
 			StartWorktreeSetup(record.Path);
@@ -1167,7 +1185,6 @@ public sealed partial class HostCore {
 				Mime = attachment.Mime,
 				Path = session.PastedImages.Write(attachment.Extension, attachment.Bytes),
 			})],
-			Skills = [],
 		};
 
 	private sealed record InitialSessionAttachment(

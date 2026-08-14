@@ -6,17 +6,18 @@ Pasting an image into an agent works when the provider runs on a remote/headless
 desktop clipboard. The browser captures the image bytes, or a native WebView reads them through the local host,
 then routes them to the backend and session captured at paste time.
 
-Claude and structured agents intentionally meet at the scratch-file boundary but use different delivery
-contracts. Claude receives a bracketed-pasted path in its PTY. A structured composer uploads each attachment,
-waits for the owning backend to acknowledge it, then submits the prompt and exact attachment ids as one turn;
-Codex serializes their resolved paths as app-server `localImage` input items.
+Claude's terminal surface and native ACP agents intentionally meet at the scratch-file boundary but use different
+delivery contracts. The TUI receives a bracketed-pasted path in its PTY. A structured composer uploads each
+attachment, waits for the owning backend to acknowledge it, then submits the prompt and exact attachment ids as
+one turn. The ACP client reads those backend-local files and sends standard base64 `image` content blocks; each
+adapter translates the block to its provider's native prompt format.
 
 ## Why Claude uses path injection
 
 Claude Code ingests an image from the OS clipboard or from a file path in the prompt. A remote/headless process
 cannot read the desktop clipboard, and there is no PTY escape sequence for image bytes. Injecting the scratch
-path as a bracketed paste makes the TUI render its normal `[Image #N]` chip, so the legacy terminal surface keeps
-that native interaction. Codex uses the same backend-local scratch path through its structured input protocol.
+path as a bracketed paste makes the TUI render its normal `[Image #N]` chip, so the terminal surface keeps that
+native interaction. Native agents use the same backend-local scratch file as the source of an ACP image block.
 
 ## Flow
 
@@ -32,7 +33,7 @@ flowchart LR
   stage --> ready
   submit --> claim["resolve every id in that session"]
   claim --> turn["AgentTurnSubmission"]
-  turn --> codex["Codex: text plus localImage items"]
+  turn --> acp["ACP: text plus image content blocks"]
   claudePaste["Claude terminal paste"] --> legacy["term-paste-image"]
   legacy --> pty["bracketed scratch path to PTY"]
 ```
@@ -44,9 +45,8 @@ flowchart LR
   and stages the client id in that session's `AgentAttachmentStore`. Submit resolves every id before invoking
   the provider once. Missing, removed, duplicate, or cross-session ids reject the entire submission without
   consuming ready attachments.
-- **Provider** (`AgentTurnSubmission`): text and attachments are an atomic provider-neutral input. The Codex
-  adapter maps it to one `turn/start` request; a future structured provider implements the same contract without
-  depending on Codex payloads.
+- **Provider** (`AgentTurnSubmission`): text and attachments are an atomic provider-neutral input.
+  `AcpAgentSession` maps them directly to one `session/prompt`; the ACP agent owns any provider translation.
 - **Claude compatibility** (`terminal/paste-image.ts`): the terminal-backed provider keeps the immediate
   `term-paste-image` route and bracketed PTY paste. It never enters the structured attachment contract.
 - **Storage** (`PastedImageStore`): files live in a per-session hidden workspace-data directory outside the
@@ -84,8 +84,8 @@ Browser-served shells let Ctrl/Cmd+V fall through to the DOM paste event instead
   submit-before-upload rejects without consuming it, and removal deletes its scratch file.
 - `HostCorePasteImageTests`: Claude writes the expected scratch file and bracketed PTY sequence; invalid and
   oversized data is rejected; native clipboard reads return the platform image.
-- `CodexAppServerProtocolTests` and `CodexAppServerSessionTests`: attachments become `localImage` items in the
-  same turn as the text prompt.
+- `AcpAgentSessionTests`: attachments become ACP image blocks in the same turn as text; adapter tests cover the
+  provider translations.
 - `composer-store.test.ts`: paste-time backend routing, acknowledgement gating, exact attachment ids, and
   backend/session state isolation.
 - `paste-image.test.ts` and `PastedImageStoreTests`: DOM image extraction, allowlisting, byte-exact storage,

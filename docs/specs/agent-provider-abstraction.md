@@ -2,6 +2,10 @@
 
 **Status:** implemented
 
+> Historical extraction plan. It records the Claude-terminal refactor that established the provider boundary;
+> the current native-provider architecture superseding its compatibility and single-provider assumptions is
+> [Native ACP agents](../concepts/native-acp-agents.md).
+
 Weavie currently embeds Claude Code as the agent in every session. The integration is capable but its
 responsibilities are spread across terminal lifecycle, CLI launch construction, conversation persistence,
 Claude's IDE protocol, standard MCP capabilities, hooks, permission observation, change tracking, session
@@ -39,7 +43,7 @@ Claude provider passes the parity gate in this document.
 The first provider-only release contains exactly one registered provider: Claude. Selection is therefore
 unconditional and introduces no setting or prompt. Existing state remains authoritative:
 
-- `claude.path`, `claude.resumeSession`, and `claude.allowAllTools` retain their keys, defaults, scopes, and
+- `claude.path`, `claude.resumeSession`, and the then-current permission setting retained their keys, defaults, scopes, and
   application modes.
 - `~/.weavie/claude-sessions.json` retains its format and path.
 - The terminal pane and bridge session remain `terminal:claude` and `"claude"`.
@@ -332,7 +336,7 @@ surface.
 | Standard MCP | Settings, commands, layout, theme, current-session identity, schemas, authentication, and model visibility are preserved. |
 | Claude IDE | Lock discovery, authorization, editor selection/open tabs, open/close file, openDiff, diagnostics behavior, and cleanup are preserved. |
 | Hooks | All configured events, additive user-hook behavior, relay discovery, pipe isolation, fail-open relay behavior, and decisions are preserved. |
-| Permissions | `claude.allowAllTools`, user deny precedence, edit-vs-tool axes, pass-through prompts, and NeedsInput recovery are preserved. |
+| Permissions | The then-current allow-all setting, user deny precedence, edit-vs-tool axes, pass-through prompts, and NeedsInput recovery are preserved. |
 | Edit mode | Plan/default/accept-edits observation, auto-keep, pending-diff dismissal, and review gating are preserved. |
 | Changes | Pre-edit baseline, post-edit disk observation, multi-edit behavior, scratch/workspace confinement, per-turn reset, and edit locations are preserved. |
 | Review | Blocking background openDiff, switch-in replay, keep/reject, undo/redo, per-file/turn actions, and session isolation are preserved. |
@@ -415,7 +419,7 @@ or when a name would make the new internal boundary false.
 - **Provider identity:** whether provider choice is global, per workspace, or per session is intentionally
   deferred. The likely durable answer is per session, but it must be designed with Codex resume and remote
   persistence rather than guessed here.
-- **Structured providers:** a future Codex app-server implementation may not be PTY-first. The session faÃ§ade
+- **Structured providers:** an ACP implementation is not PTY-first. The session faÃ§ade
   may use a different transport, but this extraction must not add speculative methods for it.
 - **Frontend migration:** replacing `"claude"` with `"agent"` touches layouts, persistence, bridge types,
   commands, tests, and user muscle memory. It is a separately versioned migration after a second provider works.

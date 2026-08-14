@@ -11,13 +11,13 @@ import {
 
 const message = (type: string, itemId?: string): AgentPaneUpdate => ({
   type,
-  providerId: "codex",
+  providerId: "acp",
   itemId: itemId ?? null,
 });
 
 const started = (startedAtMs: number): AgentPaneUpdate => ({
   type: "turn-started",
-  providerId: "codex",
+  providerId: "acp",
   startedAtMs,
 });
 
@@ -48,6 +48,19 @@ describe("hasActiveTurn", () => {
         { ...message("turn-completed"), isPrimaryThread: false },
       ]),
     ).toBe(true);
+  });
+
+  it("stays active while background work outlives the primary turn", () => {
+    const tool = { ...message("item-started", "background"), itemType: "tool", background: true };
+    expect(hasActiveTurn([started(1000), tool, message("turn-completed")])).toBe(true);
+    expect(
+      hasActiveTurn([
+        started(1000),
+        tool,
+        message("turn-completed"),
+        { ...message("item-completed", "background"), itemType: "tool", background: true },
+      ]),
+    ).toBe(false);
   });
 });
 
@@ -212,6 +225,21 @@ describe("activeTurnStartedAt", () => {
         { ...message("turn-completed"), isPrimaryThread: false },
       ]),
     ).toBe(2000);
+  });
+
+  it("uses the oldest live background start after the primary turn settles", () => {
+    expect(
+      activeTurnStartedAt([
+        started(1000),
+        {
+          ...message("item-started", "background"),
+          itemType: "tool",
+          background: true,
+          startedAtMs: 1500,
+        },
+        message("turn-completed"),
+      ]),
+    ).toBe(1500);
   });
 });
 

@@ -73,6 +73,9 @@ public sealed record AgentSessionContext {
 
 	/// <summary>The rail/session id this provider instance belongs to.</summary>
 	public required Func<string> CurrentSessionId { get; init; }
+
+	/// <summary>The host-owned visible terminal used for standard ACP terminal authentication.</summary>
+	public required IAgentAuthenticationTerminal AuthenticationTerminal { get; init; }
 }
 
 /// <summary>Creates provider sessions without exposing provider protocols to the host composition.</summary>

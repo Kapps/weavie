@@ -25,12 +25,6 @@ public static class CoreSettings {
 	/// <summary>The Claude conversation resume setting.</summary>
 	public const string ClaudeResumeSession = "claude.resumeSession";
 
-	/// <summary>The agent permission bypass setting.</summary>
-	public const string ClaudeAllowAllTools = "claude.allowAllTools";
-
-	/// <summary>The Codex executable path setting.</summary>
-	public const string CodexPath = "codex.path";
-
 	/// <summary>The pull-request review prompt setting.</summary>
 	public const string PullRequestAutoReviewPrompt = "pr.autoReviewPrompt";
 
@@ -137,16 +131,20 @@ public static class CoreSettings {
 		registry.Register(new SettingDefinition {
 			Key = AgentSettings.DefaultProvider,
 			Kind = SettingKind.String,
-			Description = "Agent provider used for newly-created sessions. Existing sessions keep their provider. "
-				+ "Claude is the default; Codex is selectable only once its native parity gate is available.",
-			Aliases = ["agent provider", "default agent", "new session agent", "provider", "codex provider"],
+			Description = "Agent provider used for newly-created sessions. Existing sessions keep their provider.",
+			Aliases = ["agent provider", "default agent", "new session agent", "provider"],
 			Apply = ApplyMode.NextSession,
 			Default = "claude",
-			Validate = static value => value is string provider
-				&& (string.Equals(provider, "claude", StringComparison.Ordinal)
-					|| string.Equals(provider, "codex", StringComparison.Ordinal))
-				? ValidationResult.Success
-				: ValidationResult.Failure("agent.defaultProvider must be 'claude' or 'codex'."),
+		});
+
+		registry.Register(new SettingDefinition {
+			Key = AgentSettings.AllowAllPermissions,
+			Kind = SettingKind.Bool,
+			Description = "Automatically select the strongest allow option advertised by an ACP agent. "
+				+ "On by default and applied to the next permission request.",
+			Aliases = ["allow all tools", "auto approve tools", "yolo mode", "bypass permissions"],
+			Apply = ApplyMode.Live,
+			Default = true,
 		});
 
 		registry.Register(new SettingDefinition {
@@ -161,8 +159,8 @@ public static class CoreSettings {
 		registry.Register(new SettingDefinition {
 			Key = InferenceSettings.Enabled,
 			Kind = SettingKind.Bool,
-			Description = "Allow Weavie features to make isolated model queries through the selected Claude or Codex "
-				+ "CLI. Calls use that CLI's existing authentication and never enter the interactive session transcript. "
+			Description = "Allow Weavie features to make isolated model queries through the selected provider's optional "
+				+ "inference capability. Calls never enter the interactive session transcript. "
 				+ "Off by default. Takes effect on the next query.",
 			Aliases = ["ad hoc inference", "utility inference", "model queries", "ai suggestions"],
 			Apply = ApplyMode.Live,
@@ -200,97 +198,6 @@ public static class CoreSettings {
 				"persist claude session", "auto resume"],
 			Apply = ApplyMode.NextSession,
 			Default = true,
-		});
-
-		registry.Register(new SettingDefinition {
-			Key = ClaudeAllowAllTools,
-			Kind = SettingKind.Bool,
-			Description = "Bypass agent permission prompts. Claude's permission hooks are auto-accepted without "
-				+ "changing its edit mode. Codex runs with danger-full-access and never asks for approval. Takes effect "
-				+ "on the next tool call or Codex turn.",
-			Aliases = ["allow all tools", "auto allow tools", "auto approve tools", "stop asking", "yolo mode",
-				"bypass permissions", "skip permissions", "auto run commands", "allow all"],
-			Apply = ApplyMode.Live,
-			Default = false,
-		});
-
-		registry.Register(new SettingDefinition {
-			Key = CodexPath,
-			Kind = SettingKind.Path,
-			Description = "Path to the codex binary used for native Codex app-server sessions. Auto-detected when "
-				+ "unset; set this when the Codex found on PATH cannot launch app-server correctly. Takes effect "
-				+ "on the next Codex session.",
-			Aliases = ["codex", "codex binary", "codex path"],
-			Apply = ApplyMode.NextSession,
-			ComputeDefault = DefaultCodexPath,
-		});
-
-		registry.Register(new SettingDefinition {
-			Key = CodexSettings.Model,
-			Kind = SettingKind.String,
-			Description = "Model passed to Codex app-server when starting a native Codex thread. Empty means Codex "
-				+ "uses its own configured default. Takes effect on the next Codex session.",
-			Aliases = ["codex model", "codex default model"],
-			Apply = ApplyMode.NextSession,
-			Default = "",
-		});
-
-		registry.Register(new SettingDefinition {
-			Key = CodexSettings.Sandbox,
-			Kind = SettingKind.String,
-			Description = "Sandbox mode passed to native Codex sessions: read-only, workspace-write, or "
-				+ "danger-full-access. Takes effect on the next Codex session.",
-			Aliases = ["codex sandbox", "codex permissions sandbox"],
-			Apply = ApplyMode.NextSession,
-			Default = "workspace-write",
-			Validate = static value => value is string mode
-				&& (string.Equals(mode, "read-only", StringComparison.Ordinal)
-					|| string.Equals(mode, "workspace-write", StringComparison.Ordinal)
-					|| string.Equals(mode, "danger-full-access", StringComparison.Ordinal))
-				? ValidationResult.Success
-				: ValidationResult.Failure("codex.sandbox must be read-only, workspace-write, or danger-full-access."),
-		});
-
-		registry.Register(new SettingDefinition {
-			Key = CodexSettings.ApprovalPolicy,
-			Kind = SettingKind.String,
-			Description = "Approval policy passed to native Codex sessions: untrusted, on-request, or never. "
-				+ "Takes effect on the next Codex session.",
-			Aliases = ["codex approvals", "codex approval policy", "codex ask approval"],
-			Apply = ApplyMode.NextSession,
-			Default = "on-request",
-			// "on-failure" was removed in Codex 0.143 (the app-server API rejects it); a stale persisted value
-			// resolves to the default, matching upstream's own on-failure → on-request config migration.
-			Validate = static value => value is string policy
-				&& (string.Equals(policy, "untrusted", StringComparison.Ordinal)
-					|| string.Equals(policy, "on-request", StringComparison.Ordinal)
-					|| string.Equals(policy, "never", StringComparison.Ordinal))
-				? ValidationResult.Success
-				: ValidationResult.Failure("codex.approvalPolicy must be untrusted, on-request, or never."),
-		});
-
-		// No Validate: efforts/tiers are per-model and open-ended (xhigh/max/ultra today, more tomorrow), so a
-		// fixed enum would reject future-valid values. A bad value surfaces as a loud Codex error on the next turn.
-		registry.Register(new SettingDefinition {
-			Key = CodexSettings.Effort,
-			Kind = SettingKind.String,
-			Description = "Reasoning effort passed to native Codex sessions (e.g. low, medium, high, xhigh). Empty "
-				+ "means Codex uses the model's default effort. Valid values depend on the model. Takes effect on "
-				+ "the next Codex session.",
-			Aliases = ["codex effort", "codex reasoning effort", "reasoning effort"],
-			Apply = ApplyMode.NextSession,
-			Default = "",
-		});
-
-		registry.Register(new SettingDefinition {
-			Key = CodexSettings.ServiceTier,
-			Kind = SettingKind.String,
-			Description = "Service tier passed to native Codex sessions. Empty (or 'standard') uses the standard "
-				+ "tier; 'priority' selects Fast Mode where the model supports it. Takes effect on the next Codex "
-				+ "session.",
-			Aliases = ["codex service tier", "codex fast mode", "fast mode"],
-			Apply = ApplyMode.NextSession,
-			Default = "",
 		});
 
 		registry.Register(new SettingDefinition {
@@ -388,41 +295,4 @@ public static class CoreSettings {
 		return "claude";
 	}
 
-	/// <summary>The auto-detected Codex binary; Windows avoids the packaged alias because child processes cannot reliably execute it.</summary>
-	private static object? DefaultCodexPath() {
-		if (OperatingSystem.IsWindows()) {
-			string standalone = Path.Combine(
-				Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-				".codex", "packages", "standalone", "current", "bin", "codex.exe");
-			if (File.Exists(standalone)) {
-				return standalone;
-			}
-
-			string localApp = Path.Combine(
-				Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-				"Programs", "OpenAI", "Codex", "bin", "codex.exe");
-			if (File.Exists(localApp)) {
-				return localApp;
-			}
-
-			string local = Path.Combine(
-				Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".local", "bin", "codex.exe");
-			if (File.Exists(local)) {
-				return local;
-			}
-		}
-
-		string? onPath = ExecutableFinder.FindOnPath("codex");
-		if (onPath is not null && !IsWindowsAppsAlias(onPath)) {
-			return onPath;
-		}
-
-		// On POSIX, match Claude's fallback: the interactive login shell may add Codex through nvm/asdf/mise
-		// even when the environment Weavie inherited at startup cannot resolve it yet.
-		return OperatingSystem.IsWindows() ? null : "codex";
-	}
-
-	private static bool IsWindowsAppsAlias(string path) =>
-		OperatingSystem.IsWindows()
-		&& path.Contains(@"\WindowsApps\", StringComparison.OrdinalIgnoreCase);
 }

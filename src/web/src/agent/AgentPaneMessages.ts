@@ -1,5 +1,6 @@
 import type { AgentPaneUpdate } from "../bridge";
 import { isAgentActivity, ProjectedAgentActivity } from "./AgentPaneActivitySummary";
+import { isAgentPaneDelta } from "./AgentPaneDelta";
 import { paneActivityIdentity, paneItemIdentity, paneTurnIdentity } from "./AgentPaneIdentity";
 import {
   displayStatus,
@@ -130,17 +131,13 @@ function coalesceStreaming(messages: readonly AgentPaneUpdate[]): AgentPaneUpdat
   const output: AgentPaneUpdate[] = [];
   const indexes = new Map<string, number>();
   for (const message of messages) {
-    if (message.type === "item-completed" && indexes.size === 0) {
-      output.push(message);
-      continue;
-    }
     const key = paneItemIdentity(message);
     if (message.type === "item-started" && key !== null) {
       indexes.set(key, output.length);
       output.push(message);
       continue;
     }
-    if (isDelta(message) && key !== null) {
+    if (isAgentPaneDelta(message) && key !== null) {
       let index = indexes.get(key);
       if (index === undefined) {
         index = output.length;
@@ -160,22 +157,20 @@ function coalesceStreaming(messages: readonly AgentPaneUpdate[]): AgentPaneUpdat
       };
       continue;
     }
-    if (message.type === "item-completed" && key !== null && indexes.has(key)) {
+    if (
+      (message.type === "item-completed" || message.type === "item-retracted") &&
+      key !== null &&
+      indexes.has(key)
+    ) {
       output[indexes.get(key)!] = message;
-      indexes.delete(key);
       continue;
+    }
+    if ((message.type === "item-completed" || message.type === "item-retracted") && key !== null) {
+      indexes.set(key, output.length);
     }
     output.push(message);
   }
   return output;
-}
-
-function isDelta(message: AgentPaneUpdate): boolean {
-  return (
-    message.type === "agent-message-delta" ||
-    message.type === "plan-delta" ||
-    message.type === "command-output-delta"
-  );
 }
 
 function collectResolved(messages: readonly AgentPaneUpdate[]): ReadonlyMap<string, string> {
@@ -198,17 +193,21 @@ function durableEntry(
   switch (message.type) {
     case "approval-requested":
       return entry(message, sequence, "request", "pending", "Permission", status);
+    case "authentication-requested":
+      return entry(message, sequence, "request", "pending", "Sign in", status);
     case "edit-location":
       return entry(message, sequence, "notice", "system", "Edit", status);
     case "error":
       return entry(message, sequence, "notice", "error", "Error", status);
+    case "goal":
+      return entry(message, sequence, "notice", "system", "Goal", status);
     case "input-requested":
       return entry(message, sequence, "request", "pending", "Input", status);
     case "interrupted":
       return entry(message, sequence, "notice", "warning", "Interrupted", status);
     case "item-completed":
       if (message.itemType === "agentMessage") {
-        return entry(message, sequence, "message", "assistant", "Codex", null);
+        return entry(message, sequence, "message", "assistant", "Agent", null);
       }
       return message.itemType === "plan" ? planEntry(message, sequence) : null;
     case "turn-completed": {
@@ -227,6 +226,8 @@ function durableEntry(
       return entry(message, sequence, "message", "user", "Steer", null);
     case "warning":
       return entry(message, sequence, "notice", "warning", "Warning", status);
+    case "notice":
+      return entry(message, sequence, "notice", "system", "Notice", status);
     default:
       return null;
   }
@@ -274,8 +275,11 @@ function entry(
 
 function actionMessage(message: AgentPaneUpdate): AgentPaneUpdate | null {
   return message.type === "approval-requested" ||
+    message.type === "authentication-requested" ||
     message.type === "edit-location" ||
-    message.type === "input-requested"
+    message.type === "input-requested" ||
+    (message.mediaData !== null && message.mediaData !== undefined) ||
+    (message.resourceUri !== null && message.resourceUri !== undefined)
     ? message
     : null;
 }

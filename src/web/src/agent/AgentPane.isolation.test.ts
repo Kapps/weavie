@@ -56,7 +56,7 @@ describe("agent pane model isolation", () => {
     createRoot((dispose) => {
       const model = createAgentPaneModel({} as ClientSession);
       const updates: AgentPaneUpdate[] = [
-        { type: "user-message", providerId: "codex", turnId: "turn-1", text: "Work" },
+        { type: "user-message", providerId: "acp", turnId: "turn-1", text: "Work" },
         { ...command("command-0"), type: "item-started", status: "inProgress" },
       ];
       model.replace(updates);
@@ -89,7 +89,7 @@ describe("agent pane model isolation", () => {
       const first = { ...command("command-1"), type: "item-started", status: "inProgress" };
       const second = { ...command("command-2"), type: "item-started", status: "inProgress" };
       const updates: AgentPaneUpdate[] = [
-        { type: "user-message", providerId: "codex", turnId: "turn-1", text: "Work" },
+        { type: "user-message", providerId: "acp", turnId: "turn-1", text: "Work" },
         first,
         second,
       ];
@@ -109,7 +109,7 @@ describe("agent pane model isolation", () => {
     createRoot((dispose) => {
       const model = createAgentPaneModel({} as ClientSession);
       const updates: AgentPaneUpdate[] = [
-        { type: "user-message", providerId: "codex", turnId: "turn-1", text: "Work" },
+        { type: "user-message", providerId: "acp", turnId: "turn-1", text: "Work" },
         { ...command("command-1"), type: "item-started", status: "inProgress" },
       ];
       model.replace(updates);
@@ -153,7 +153,7 @@ describe("agent pane model isolation", () => {
     createRoot((dispose) => {
       const model = createAgentPaneModel({} as ClientSession);
       const updates: AgentPaneUpdate[] = [
-        { type: "user-message", providerId: "codex", turnId: "turn-1", text: "Plan" },
+        { type: "user-message", providerId: "acp", turnId: "turn-1", text: "Plan" },
         command("command-1"),
       ];
       model.replace(updates);
@@ -186,7 +186,7 @@ describe("agent pane model isolation", () => {
 function message(itemId: string, text: string): AgentPaneUpdate {
   return {
     type: "item-completed",
-    providerId: "codex",
+    providerId: "acp",
     itemId,
     itemType: "agentMessage",
     status: "completed",
@@ -197,7 +197,7 @@ function message(itemId: string, text: string): AgentPaneUpdate {
 function command(itemId: string): AgentPaneUpdate {
   return {
     type: "item-completed",
-    providerId: "codex",
+    providerId: "acp",
     turnId: "turn-1",
     itemId,
     itemType: "commandExecution",
@@ -209,7 +209,7 @@ function command(itemId: string): AgentPaneUpdate {
 function plan(type: "item-completed" | "plan-delta", text: string): AgentPaneUpdate {
   return {
     type,
-    providerId: "codex",
+    providerId: "acp",
     threadId: "thread-1",
     turnId: "turn-1",
     itemId: "plan-1",

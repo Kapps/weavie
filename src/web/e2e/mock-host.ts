@@ -14,7 +14,7 @@ export interface MockSession {
   label: string;
   address: SessionAddress | null;
   loaded: boolean;
-  providerId: "claude" | "codex";
+  providerId: string;
   agentSurface: "terminal" | "structured";
   agentInputProtocol: number;
   status: "starting" | "working" | "needsInput" | "idle" | "waiting" | "error";
@@ -54,19 +54,15 @@ interface MessageWaiter {
   timer: ReturnType<typeof setTimeout>;
 }
 
-export function mockSession(
-  id: string,
-  label: string,
-  providerId: "claude" | "codex",
-): MockLiveSession {
+export function mockSession(id: string, label: string, providerId: string): MockLiveSession {
   return {
     id,
     label,
     address: { slot: id, incarnation: `${id}-incarnation` },
     loaded: true,
     providerId,
-    agentSurface: providerId === "codex" ? "structured" : "terminal",
-    agentInputProtocol: providerId === "codex" ? 2 : 0,
+    agentSurface: providerId === "claude" ? "terminal" : "structured",
+    agentInputProtocol: providerId === "claude" ? 0 : 2,
     status: "idle",
     hue: 200,
     monogram: label.slice(0, 1).toUpperCase(),
@@ -106,6 +102,26 @@ const DEFAULT_LAYOUT = {
     ],
   },
   focused: "p_agent",
+};
+
+const MOCK_AGENT_DEFAULTS = {
+  defaultProvider: "claude",
+  providers: [
+    {
+      id: "claude",
+      name: "Claude Code",
+      available: true,
+      unavailableReason: null,
+      surface: "terminal",
+    },
+    {
+      id: "acp",
+      name: "ACP",
+      available: true,
+      unavailableReason: null,
+      surface: "structured",
+    },
+  ],
 };
 
 export interface MockHostOptions {
@@ -772,6 +788,7 @@ export class MockHost {
         recentTerms: [],
       },
       testProfile: "",
+      agentDefaults: MOCK_AGENT_DEFAULTS,
       commandCatalog: this.commandCatalog,
     };
   }
@@ -874,7 +891,7 @@ const BOOTSTRAP_GLOBALS: Record<string, unknown> = {
   __WEAVIE_THEME__: { mode: "system", light: { id: "weavie-light" }, dark: { id: "weavie-dark" } },
   __WEAVIE_COMMANDS__: [],
   __WEAVIE_KEYBINDINGS__: [],
-  __WEAVIE_AGENT_SETTINGS__: { defaultProvider: "claude", middleClickAutoscroll: true },
+  __WEAVIE_AGENT__: { ...MOCK_AGENT_DEFAULTS, middleClickAutoscroll: true },
 };
 
 function injectBootstrap(html: string): string {

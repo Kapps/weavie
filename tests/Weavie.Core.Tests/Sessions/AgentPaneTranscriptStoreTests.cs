@@ -10,12 +10,13 @@ public sealed class AgentPaneTranscriptStoreTests {
 	private const string StorePath = "/weavie-agent-pane-tests/agent-pane.json";
 
 	private static AgentPaneMessage Message(string type, string? status = null, string? itemId = null) =>
-		new() { Type = type, ProviderId = "codex", Status = status, ItemId = itemId };
+		new() { Type = type, ProviderId = "acp", Status = status, ItemId = itemId };
 
 	[Theory]
 	[InlineData("user-message", null, true)]
 	[InlineData("user-steer", null, true)]
 	[InlineData("item-completed", null, true)]
+	[InlineData("item-retracted", null, true)]
 	[InlineData("interrupted", null, true)]
 	[InlineData("user-image", "submitted", true)]
 	[InlineData("user-image", "attached", false)]
@@ -45,6 +46,19 @@ public sealed class AgentPaneTranscriptStoreTests {
 
 		Assert.Equal(["user-message", "item-completed"], reloaded.Select(m => m.Type));
 		Assert.Equal("item-1", reloaded[1].ItemId);
+	}
+
+	[Fact]
+	public void Retraction_PersistsAsTheAuthoritativeItemOutcome() {
+		var fs = new InMemoryFileSystem();
+		var store = new AgentPaneTranscriptStore(fs, StorePath);
+		store.Append(Message("item-completed", status: "completed", itemId: "item-1"));
+		store.Append(Message("item-retracted", status: "retracted", itemId: "item-1"));
+
+		var reloaded = new AgentPaneTranscriptStore(fs, StorePath).Snapshot();
+
+		Assert.Equal(["item-completed", "item-retracted"], reloaded.Select(message => message.Type));
+		Assert.Equal("retracted", reloaded[^1].Status);
 	}
 
 	[Fact]

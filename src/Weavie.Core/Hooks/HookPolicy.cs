@@ -1,7 +1,7 @@
 namespace Weavie.Core.Hooks;
 
 /// <summary>
-/// Weavie's tool-permission gate, driven by <c>claude.allowAllTools</c>: off ⇒ everything passes through to
+/// Weavie's tool-permission gate, driven by <c>agent.allowAllPermissions</c>: off ⇒ everything passes through to
 /// Claude's flow; on ⇒ every PermissionRequest is auto-allowed EXCEPT two carve-outs that must keep passing
 /// through (a user <c>deny</c> rule still wins):
 /// <list type="bullet">
@@ -10,9 +10,9 @@ namespace Weavie.Core.Hooks;
 /// </list>
 /// </summary>
 public static class HookPolicy {
-	/// <summary>Returns the bridge's verdict for <paramref name="request"/> given the <c>claude.allowAllTools</c> setting.</summary>
+	/// <summary>Returns the bridge's verdict for <paramref name="request"/> given the shared permission-bypass setting.</summary>
 	/// <param name="request">The observed hook event.</param>
-	/// <param name="allowAllTools">Whether Weavie auto-allows tool calls (the <c>claude.allowAllTools</c> setting).</param>
+	/// <param name="allowAllTools">Whether Weavie automatically allows tool calls.</param>
 	public static HookDecision Decide(HookRequest request, bool allowAllTools) {
 		ArgumentNullException.ThrowIfNull(request);
 		if (allowAllTools

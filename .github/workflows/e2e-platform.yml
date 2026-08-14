@@ -34,8 +34,8 @@ jobs:
         working-directory: src/web
         run: pnpm install --frozen-lockfile
 
-      # Runner publish stages the matching self-contained Headless worker, its Vite UI, and NativeAOT
-      # hook relay under worker/. FakeClaude is the only separate process the test bundle needs.
+      # Runner publish stages the matching self-contained Headless worker, Vite UI, and hook relay.
+      # The generic ACP fake exercises the external agent process seam.
       - name: Publish self-contained test bundle
         shell: bash
         run: |
@@ -45,6 +45,9 @@ jobs:
           dotnet publish tools/Weavie.FakeClaude/Weavie.FakeClaude.csproj \
             -c Release -r ${{ inputs.rid }} --self-contained \
             -o artifacts/e2e-bundle/fake-claude
+          dotnet publish tools/Weavie.FakeAcp/Weavie.FakeAcp.csproj \
+            -c Release -r ${{ inputs.rid }} --self-contained \
+            -o artifacts/e2e-bundle/fake-acp
 
       - name: Verify test bundle
         shell: bash
@@ -54,6 +57,7 @@ jobs:
           test -f "artifacts/e2e-bundle/runner/worker/weavie-hook-relay${{ inputs.suffix }}"
           test -f "artifacts/e2e-bundle/runner/worker/wwwroot/index.html"
           test -f "artifacts/e2e-bundle/fake-claude/Weavie.FakeClaude${{ inputs.suffix }}"
+          test -f "artifacts/e2e-bundle/fake-acp/weavie-fake-acp${{ inputs.suffix }}"
 
       - name: Upload test bundle
         uses: actions/upload-artifact@v4
@@ -102,7 +106,8 @@ jobs:
               .e2e-bundle/runner/Weavie.Runner \
               .e2e-bundle/runner/worker/Weavie.Headless \
               .e2e-bundle/runner/worker/weavie-hook-relay \
-              .e2e-bundle/fake-claude/Weavie.FakeClaude
+              .e2e-bundle/fake-claude/Weavie.FakeClaude \
+              .e2e-bundle/fake-acp/weavie-fake-acp
           fi
           mkdir -p src/web/dist
           cp -R .e2e-bundle/runner/worker/wwwroot/. src/web/dist/

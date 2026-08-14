@@ -7,10 +7,26 @@ const questions: AgentInputQuestion[] = [
     id: "secret",
     header: "Secret",
     question: "Token?",
-    isSecret: true,
+    allowsOther: false,
+    kind: "string",
+    required: false,
+    format: null,
+    initialValues: [],
+    minimum: null,
+    maximum: null,
+    minimumLength: null,
+    maximumLength: null,
+    pattern: null,
     options: [],
   },
 ];
+
+const booleanQuestion: AgentInputQuestion = {
+  ...questions[0]!,
+  id: "enabled",
+  kind: "boolean",
+  required: true,
+};
 
 describe("agent input drafts", () => {
   it("retains unresolved answers and drops only the resolved request", () => {
@@ -27,5 +43,13 @@ describe("agent input drafts", () => {
 
     expect(agentInputDraft(session, "first", questions).answers()).toEqual({ secret: [] });
     expect(agentInputDraft(session, "second", questions).answers()).toEqual({ secret: ["keep"] });
+  });
+
+  it("submits an untouched required boolean as false", () => {
+    const session = {} as ClientSession;
+
+    expect(agentInputDraft(session, "boolean", [booleanQuestion]).answers()).toEqual({
+      enabled: ["false"],
+    });
   });
 });

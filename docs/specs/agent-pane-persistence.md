@@ -52,16 +52,17 @@ answer unrelated commands while its transcript is still being read from disk.
 
 ## Provider hydration
 
-Codex `thread/resume` is authoritative for history produced outside Weavie. Hydration raises one host-internal
-`PaneSnapshot` event. `AgentSessionHost` atomically replaces the in-memory transcript and journal, increments the
-generation, and tells connected client session owners to restart paging. This avoids broadcasting every hydrated
-item and avoids temporarily exposing the persisted seed as a second copy of the same conversation.
+ACP `session/load` is authoritative for history produced outside Weavie. While load is active, `AcpAgentSession`
+collects the provider's `session/update` stream instead of publishing it live. A successful load raises one
+host-internal `PaneSnapshot` event. `AgentSessionHost` atomically replaces the in-memory transcript and journal,
+increments the generation, and tells connected client session owners to restart paging. This avoids broadcasting
+every hydrated item and avoids temporarily exposing the persisted seed as a second copy of the same conversation.
 
 ```mermaid
 sequenceDiagram
   participant Store as AgentPaneTranscriptStore
   participant Host as AgentSessionHost
-  participant Codex as CodexAppServerSession
+  participant ACP as AcpAgentSession
   participant Web
 
   Host->>Store: read persisted durable history
@@ -75,7 +76,7 @@ sequenceDiagram
     Host-->>Web: older page + cursor
   end
 
-  Codex->>Host: authoritative PaneSnapshot
+  ACP->>Host: authoritative PaneSnapshot after session/load
   Host->>Store: replace durable history
   Host-->>Web: paneReset
   Web->>Host: agent.historyPage(cursor = null)
@@ -104,9 +105,8 @@ unbounded logical operation.
 JSONL append keeps the unbounded transcript off an O(n²) whole-file rewrite path. Loading is line-resilient: a
 torn final record is skipped and earlier records remain available. The transcript is deliberately uncapped.
 
-## Reset
+## Failure semantics
 
-`transcript-reset` clears the in-memory pane and deletes the journal when Codex starts a genuinely fresh thread,
-including recovery after a saved thread is rejected. An authoritative resumed-thread snapshot uses the atomic
-replacement path described above. A resume rejection that also prevents the replacement thread from starting
-surfaces as an error and leaves the saved mapping and transcript intact.
+There is no rejected-session recovery fallback. If `session/load` or `session/resume` rejects the exact persisted
+ACP session id, the native session fails visibly and retains its saved mapping and journal for diagnosis. Starting
+a different conversation is an explicit user action, never a silent transcript reset.

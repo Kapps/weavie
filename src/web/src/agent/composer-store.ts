@@ -16,8 +16,6 @@ export interface AgentComposerAttachment {
 export interface AgentComposerState {
   draft: string;
   attachments: AgentComposerAttachment[];
-  // Provider skill names staged from the slash menu; submitted as structured skill inputs and cleared on send.
-  skills: string[];
   submittingId: string | null;
   error: string | null;
 }
@@ -25,7 +23,6 @@ export interface AgentComposerState {
 const EMPTY: AgentComposerState = {
   draft: "",
   attachments: [],
-  skills: [],
   submittingId: null,
   error: null,
 };
@@ -68,29 +65,12 @@ export function removeComposerAttachment(session: ClientSession, id: string): vo
   }
 }
 
-/** Stages a provider skill (from the slash menu) for the next turn; ignores a duplicate. */
-export function stageSkill(session: ClientSession, name: string): void {
-  update(session, (state) =>
-    state.skills.includes(name)
-      ? state
-      : { ...state, skills: [...state.skills, name], error: null },
-  );
-}
-
-/** Removes a staged skill. */
-export function unstageSkill(session: ClientSession, name: string): void {
-  update(session, (state) => ({
-    ...state,
-    skills: state.skills.filter((skill) => skill !== name),
-  }));
-}
-
 export function submitAgentTurn(session: ClientSession): boolean {
   const state = stateFor(session);
   if (
     state.submittingId !== null ||
     state.attachments.some((attachment) => attachment.status !== "ready") ||
-    (state.draft.trim().length === 0 && state.attachments.length === 0 && state.skills.length === 0)
+    (state.draft.trim().length === 0 && state.attachments.length === 0)
   ) {
     return false;
   }
@@ -101,7 +81,6 @@ export function submitAgentTurn(session: ClientSession): boolean {
     id,
     prompt: state.draft.trim(),
     attachmentIds: state.attachments.map((attachment) => attachment.id),
-    skills: state.skills,
   });
   return true;
 }
@@ -221,7 +200,6 @@ registerSessionFeature((session) => {
       attachments: current.attachments.filter(
         (attachment) => !message.attachmentIds.includes(attachment.id),
       ),
-      skills: [],
       submittingId: null,
       error: null,
     }));

@@ -27,7 +27,7 @@ public sealed class WorktreeManagerTests {
 	public async Task Create_AddsWorktreeAndRecord() {
 		var (manager, registry, git) = NewManager();
 
-		var record = await manager.CreateAsync("feature", "main");
+		var record = await manager.CreateAsync("feature", "main", "acp");
 
 		Assert.Equal("feature", record.Branch);
 		Assert.StartsWith(WorktreesDir, record.Path);
@@ -40,10 +40,10 @@ public sealed class WorktreeManagerTests {
 	public async Task Create_WithProvider_RecordsProvider() {
 		var (manager, registry, _) = NewManager();
 
-		var record = await manager.CreateAsync("feature", "main", "codex");
+		var record = await manager.CreateAsync("feature", "main", "acp");
 
-		Assert.Equal("codex", record.AgentProviderId);
-		Assert.Equal("codex", Assert.Single(registry.Items).AgentProviderId);
+		Assert.Equal("acp", record.AgentProviderId);
+		Assert.Equal("acp", Assert.Single(registry.Items).AgentProviderId);
 	}
 
 	[Fact]
@@ -52,8 +52,8 @@ public sealed class WorktreeManagerTests {
 
 		// Two distinct branches that slugify to the same leaf must land in distinct directories: the second
 		// gets a "-2" suffix rather than colliding on the first's path.
-		var first = await manager.CreateAsync("feature/a", "main");
-		var second = await manager.CreateAsync("feature-a", "main");
+		var first = await manager.CreateAsync("feature/a", "main", "acp");
+		var second = await manager.CreateAsync("feature-a", "main", "acp");
 
 		Assert.Equal(Path.Combine(WorktreesDir, "feature-a"), first.Path);
 		Assert.Equal(Path.Combine(WorktreesDir, "feature-a-2"), second.Path);
@@ -65,7 +65,7 @@ public sealed class WorktreeManagerTests {
 
 		// A branch whose every character is stripped by slugification leaves no leaf; the path falls back to
 		// the "session" slug rather than landing directly on the worktrees dir.
-		var record = await manager.CreateAsync("///", "main");
+		var record = await manager.CreateAsync("///", "main", "acp");
 
 		Assert.Equal(Path.Combine(WorktreesDir, "session"), record.Path);
 	}
@@ -75,7 +75,7 @@ public sealed class WorktreeManagerTests {
 		var (manager, _, git) = NewManager();
 		git.Branches.Add("feature");
 
-		await Assert.ThrowsAsync<InvalidOperationException>(() => manager.CreateAsync("feature", "main"));
+		await Assert.ThrowsAsync<InvalidOperationException>(() => manager.CreateAsync("feature", "main", "acp"));
 	}
 
 	[Fact]
@@ -83,7 +83,7 @@ public sealed class WorktreeManagerTests {
 		var (manager, registry, git) = NewManager();
 		git.Branches.Add("feature");
 
-		var record = await manager.AttachAsync("feature");
+		var record = await manager.AttachAsync("feature", "acp");
 
 		Assert.Equal("feature", record.Branch);
 		Assert.StartsWith(WorktreesDir, record.Path);
@@ -96,10 +96,10 @@ public sealed class WorktreeManagerTests {
 		var (manager, registry, git) = NewManager();
 		git.Branches.Add("feature");
 
-		var record = await manager.AttachAsync("feature", "codex");
+		var record = await manager.AttachAsync("feature", "acp");
 
-		Assert.Equal("codex", record.AgentProviderId);
-		Assert.Equal("codex", Assert.Single(registry.Items).AgentProviderId);
+		Assert.Equal("acp", record.AgentProviderId);
+		Assert.Equal("acp", Assert.Single(registry.Items).AgentProviderId);
 	}
 
 	[Fact]
@@ -107,17 +107,17 @@ public sealed class WorktreeManagerTests {
 		var (manager, _, _) = NewManager();
 
 		// Attach requires the branch to already exist (inverse of Create's guard).
-		await Assert.ThrowsAsync<InvalidOperationException>(() => manager.AttachAsync("nope"));
+		await Assert.ThrowsAsync<InvalidOperationException>(() => manager.AttachAsync("nope", "acp"));
 	}
 
 	[Fact]
 	public async Task Attach_AlreadyTracked_ReturnsExistingRecord_WithoutDuplicating() {
 		var (manager, registry, git) = NewManager();
 		git.Branches.Add("feature");
-		var first = await manager.AttachAsync("feature");
+		var first = await manager.AttachAsync("feature", "acp");
 		int worktreeCountAfterFirst = git.Worktrees.Count;
 
-		var second = await manager.AttachAsync("feature");
+		var second = await manager.AttachAsync("feature", "acp");
 
 		Assert.Equal(first.Path, second.Path);
 		Assert.Single(registry.Items);
@@ -128,12 +128,12 @@ public sealed class WorktreeManagerTests {
 	public async Task Attach_AlreadyTracked_PreservesProvider() {
 		var (manager, _, git) = NewManager();
 		git.Branches.Add("feature");
-		var first = await manager.AttachAsync("feature", "codex");
+		var first = await manager.AttachAsync("feature", "acp");
 
 		var second = await manager.AttachAsync("feature", "claude");
 
 		Assert.Equal(first.Path, second.Path);
-		Assert.Equal("codex", second.AgentProviderId);
+		Assert.Equal("acp", second.AgentProviderId);
 	}
 
 	[Fact]
@@ -143,13 +143,13 @@ public sealed class WorktreeManagerTests {
 		// Managed, clean, merged -> safe to remove.
 		string donePath = Path.Combine(WorktreesDir, "done");
 		git.Worktrees.Add(new GitWorktree { Path = donePath, Branch = "done", Head = "d1" });
-		registry.Add(new WorktreeRecord { Branch = "done", Path = donePath, BaseRef = "main", CreatedAtUtc = DateTimeOffset.UnixEpoch });
+		registry.Add(new WorktreeRecord { Branch = "done", Path = donePath, BaseRef = "main", CreatedAtUtc = DateTimeOffset.UnixEpoch, AgentProviderId = "acp" });
 		git.MergedBranches.Add("done");
 
 		// Managed, dirty, unmerged -> not safe.
 		string wipPath = Path.Combine(WorktreesDir, "wip");
 		git.Worktrees.Add(new GitWorktree { Path = wipPath, Branch = "wip", Head = "w1" });
-		registry.Add(new WorktreeRecord { Branch = "wip", Path = wipPath, BaseRef = "main", CreatedAtUtc = DateTimeOffset.UnixEpoch });
+		registry.Add(new WorktreeRecord { Branch = "wip", Path = wipPath, BaseRef = "main", CreatedAtUtc = DateTimeOffset.UnixEpoch, AgentProviderId = "acp" });
 		git.DirtyPaths.Add(wipPath);
 
 		// Untracked: git knows it, the registry does not.
@@ -158,7 +158,7 @@ public sealed class WorktreeManagerTests {
 
 		// Orphan: registry has it, git no longer does.
 		string gonePath = Path.Combine(WorktreesDir, "gone");
-		registry.Add(new WorktreeRecord { Branch = "gone", Path = gonePath, BaseRef = "main", CreatedAtUtc = DateTimeOffset.UnixEpoch });
+		registry.Add(new WorktreeRecord { Branch = "gone", Path = gonePath, BaseRef = "main", CreatedAtUtc = DateTimeOffset.UnixEpoch, AgentProviderId = "acp" });
 
 		var list = await manager.ListAsync();
 
@@ -205,7 +205,7 @@ public sealed class WorktreeManagerTests {
 		var (manager, registry, git) = NewManager();
 		string wipPath = Path.Combine(WorktreesDir, "wip");
 		git.Worktrees.Add(new GitWorktree { Path = wipPath, Branch = "wip", Head = "w1" });
-		registry.Add(new WorktreeRecord { Branch = "wip", Path = wipPath, BaseRef = "main", CreatedAtUtc = DateTimeOffset.UnixEpoch });
+		registry.Add(new WorktreeRecord { Branch = "wip", Path = wipPath, BaseRef = "main", CreatedAtUtc = DateTimeOffset.UnixEpoch, AgentProviderId = "acp" });
 		git.DirtyPaths.Add(wipPath);
 
 		await Assert.ThrowsAsync<WorktreeDirtyException>(() => manager.RemoveAsync(wipPath, deleteBranch: false, force: false));
@@ -220,7 +220,7 @@ public sealed class WorktreeManagerTests {
 		string wipPath = Path.Combine(WorktreesDir, "wip");
 		git.Worktrees.Add(new GitWorktree { Path = wipPath, Branch = "wip", Head = "w1" });
 		git.Branches.Add("wip");
-		registry.Add(new WorktreeRecord { Branch = "wip", Path = wipPath, BaseRef = "main", CreatedAtUtc = DateTimeOffset.UnixEpoch });
+		registry.Add(new WorktreeRecord { Branch = "wip", Path = wipPath, BaseRef = "main", CreatedAtUtc = DateTimeOffset.UnixEpoch, AgentProviderId = "acp" });
 		git.DirtyPaths.Add(wipPath);
 
 		await manager.RemoveAsync(wipPath, deleteBranch: true, force: true);
@@ -235,7 +235,7 @@ public sealed class WorktreeManagerTests {
 		var (manager, registry, git) = NewManager();
 		string wtPath = Path.Combine(WorktreesDir, "locked");
 		git.Worktrees.Add(new GitWorktree { Path = wtPath, Branch = "locked", Head = "l1" });
-		registry.Add(new WorktreeRecord { Branch = "locked", Path = wtPath, BaseRef = "main", CreatedAtUtc = DateTimeOffset.UnixEpoch });
+		registry.Add(new WorktreeRecord { Branch = "locked", Path = wtPath, BaseRef = "main", CreatedAtUtc = DateTimeOffset.UnixEpoch, AgentProviderId = "acp" });
 		// The first attempt loses to a transient file lock; the bounded retry succeeds.
 		git.RemoveWorktreeFailures.Enqueue(new GitException(
 			"git worktree remove failed (exit 255): error: failed to delete '...': Directory not empty"));
@@ -261,7 +261,7 @@ public sealed class WorktreeManagerTests {
 		var clearedAtRemove = new List<string>();
 		try {
 			git.Worktrees.Add(new GitWorktree { Path = wtPath, Branch = "owned", Head = "o1" });
-			registry.Add(new WorktreeRecord { Branch = "owned", Path = wtPath, BaseRef = "main", CreatedAtUtc = DateTimeOffset.UnixEpoch });
+			registry.Add(new WorktreeRecord { Branch = "owned", Path = wtPath, BaseRef = "main", CreatedAtUtc = DateTimeOffset.UnixEpoch, AgentProviderId = "acp" });
 			// Capture the on-disk state at the moment git is asked to finalize: the working tree must be cleared
 			// down to just the .git link so git's removal runs against an empty tree (no lock race).
 			git.OnRemoveWorktree = p => clearedAtRemove.AddRange(Directory.EnumerateFileSystemEntries(p).Select(Path.GetFileName)!);
@@ -287,7 +287,7 @@ public sealed class WorktreeManagerTests {
 		File.WriteAllText(Path.Combine(wtPath, "leftover.txt"), "x");
 		try {
 			git.Worktrees.Add(new GitWorktree { Path = wtPath, Branch = "broken", Head = "b1" });
-			registry.Add(new WorktreeRecord { Branch = "broken", Path = wtPath, BaseRef = "main", CreatedAtUtc = DateTimeOffset.UnixEpoch });
+			registry.Add(new WorktreeRecord { Branch = "broken", Path = wtPath, BaseRef = "main", CreatedAtUtc = DateTimeOffset.UnixEpoch, AgentProviderId = "acp" });
 			// git can't finalize even against the cleared tree (a pre-broken .git linkage): not a transient lock,
 			// so no retry — we delete the remaining directory ourselves rather than leak it.
 			git.RemoveWorktreeFailures.Enqueue(new GitException("git worktree remove failed (exit 128): fatal: validation failed, cannot remove working tree: '.git' does not exist"));
@@ -314,7 +314,7 @@ public sealed class WorktreeManagerTests {
 		// hand). Weavie must not clear or delete a directory it doesn't own — git's failure surfaces instead.
 		string externalPath = Path.Combine(Path.GetTempPath(), "weavie-wt-mgr-tests", "external-" + Guid.NewGuid().ToString("n"));
 		git.Worktrees.Add(new GitWorktree { Path = externalPath, Branch = "external", Head = "e1" });
-		registry.Add(new WorktreeRecord { Branch = "external", Path = externalPath, BaseRef = "main", CreatedAtUtc = DateTimeOffset.UnixEpoch });
+		registry.Add(new WorktreeRecord { Branch = "external", Path = externalPath, BaseRef = "main", CreatedAtUtc = DateTimeOffset.UnixEpoch, AgentProviderId = "acp" });
 		git.RemoveWorktreeFailures.Enqueue(new GitException("git worktree remove failed (exit 128): fatal: 'external' is not a working tree"));
 
 		await Assert.ThrowsAsync<GitException>(() => manager.RemoveAsync(externalPath, deleteBranch: false, force: true));
@@ -329,7 +329,7 @@ public sealed class WorktreeManagerTests {
 		string externalPath = Path.Combine(Path.GetTempPath(), "weavie-wt-mgr-tests", "orphan-" + Guid.NewGuid().ToString("n"));
 		Directory.CreateDirectory(externalPath);
 		try {
-			registry.Add(new WorktreeRecord { Branch = "orphan", Path = externalPath, BaseRef = "main", CreatedAtUtc = DateTimeOffset.UnixEpoch });
+			registry.Add(new WorktreeRecord { Branch = "orphan", Path = externalPath, BaseRef = "main", CreatedAtUtc = DateTimeOffset.UnixEpoch, AgentProviderId = "acp" });
 
 			await Assert.ThrowsAsync<WorktreeOrphanException>(() => manager.RemoveAsync(externalPath, deleteBranch: false, force: true));
 
@@ -350,7 +350,7 @@ public sealed class WorktreeManagerTests {
 		git.Worktrees.Add(new GitWorktree { Path = extPath, Branch = "external", Head = "e1" });
 
 		string gonePath = Path.Combine(WorktreesDir, "gone");
-		registry.Add(new WorktreeRecord { Branch = "gone", Path = gonePath, BaseRef = "main", CreatedAtUtc = DateTimeOffset.UnixEpoch });
+		registry.Add(new WorktreeRecord { Branch = "gone", Path = gonePath, BaseRef = "main", CreatedAtUtc = DateTimeOffset.UnixEpoch, AgentProviderId = "acp" });
 
 		var report = await manager.ReconcileAsync();
 
@@ -367,7 +367,7 @@ public sealed class WorktreeManagerTests {
 		git.Worktrees.Add(new GitWorktree { Path = RepoRoot, Branch = "main", Head = "primary" });
 		string wtPath = Path.Combine(WorktreesDir, "feature");
 		git.Worktrees.Add(new GitWorktree { Path = wtPath, Branch = "feature", Head = "f1" });
-		registry.Add(new WorktreeRecord { Branch = "feature", Path = wtPath, BaseRef = "main", CreatedAtUtc = DateTimeOffset.UnixEpoch });
+		registry.Add(new WorktreeRecord { Branch = "feature", Path = wtPath, BaseRef = "main", CreatedAtUtc = DateTimeOffset.UnixEpoch, AgentProviderId = "acp" });
 
 		bool existedAtTeardown = false;
 		var provisioner = new RecordingProvisioner(p => existedAtTeardown = git.Worktrees.Any(w => w.Path == p));
@@ -387,7 +387,7 @@ public sealed class WorktreeManagerTests {
 		git.Worktrees.Add(new GitWorktree { Path = RepoRoot, Branch = "main", Head = "primary" });
 		string wipPath = Path.Combine(WorktreesDir, "wip");
 		git.Worktrees.Add(new GitWorktree { Path = wipPath, Branch = "wip", Head = "w1" });
-		registry.Add(new WorktreeRecord { Branch = "wip", Path = wipPath, BaseRef = "main", CreatedAtUtc = DateTimeOffset.UnixEpoch });
+		registry.Add(new WorktreeRecord { Branch = "wip", Path = wipPath, BaseRef = "main", CreatedAtUtc = DateTimeOffset.UnixEpoch, AgentProviderId = "acp" });
 		git.DirtyPaths.Add(wipPath);
 		var provisioner = new RecordingProvisioner(onTeardown: null);
 		var manager = new WorktreeManager(git, registry, RepoRoot, WorktreesDir, provisioner);

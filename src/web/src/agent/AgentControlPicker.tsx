@@ -108,6 +108,14 @@ export function AgentControlPicker(props: { session: ClientSession | null }): JS
                   pick(option.id);
                 }}
               >
+                <Show
+                  when={
+                    option.group !== null &&
+                    (index() === 0 || current().options[index() - 1]?.group !== option.group)
+                  }
+                >
+                  <span class="agent-control-option-group">{option.group}</span>
+                </Show>
                 <span class="agent-control-option-label">{option.label}</span>
                 <Show when={option.description !== null}>
                   <span class="agent-control-option-desc">{option.description}</span>

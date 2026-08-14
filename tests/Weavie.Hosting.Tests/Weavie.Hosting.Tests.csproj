@@ -17,6 +17,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Weavie.Hosting\Weavie.Hosting.csproj" />
+    <ProjectReference Include="..\..\tools\Weavie.FakeAcp\Weavie.FakeAcp.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
 </Project>

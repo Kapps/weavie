@@ -95,10 +95,10 @@ test.describe("native in-process bridge contract", () => {
             sessions: [
               {
                 id: "cx",
-                label: "codex",
+                label: "acp",
                 address,
                 loaded: true,
-                providerId: "codex",
+                providerId: "acp",
                 agentSurface: "structured",
                 agentInputProtocol: 2,
                 status: "idle",
@@ -146,7 +146,7 @@ test.describe("native in-process bridge contract", () => {
             textOffset: 0,
             textLength: 21,
             type: "item-completed",
-            providerId: "codex",
+            providerId: "acp",
             itemId: "answer",
             itemType: "agentMessage",
             status: "completed",

@@ -51,11 +51,14 @@ load it only when you need it.
   `worktree.setupCommand` + `test.profile` itself — deterministic, zero tokens, instant. The Claude
   setup flow is demoted to the override / unsupported-language fallback. Supersedes the "no bundled
   presets" stance. See [docs/concepts/workspace-autoconfig.md](docs/concepts/workspace-autoconfig.md).
-- **Typed ad-hoc inference** — isolated typed queries through the selected installed Claude/Codex CLI,
+- **Typed ad-hoc inference** — isolated typed queries through the selected installed Claude CLI,
   with caller-selected `Utility`/`Reasoning` categories, strict typed JSON validation, one Weavie attempt, and
   feature-owned failure handling. First consumer: convention-aware branch naming, which leaves the field blank
   for manual input when inference fails. See
   [docs/concepts/ad-hoc-inference.md](docs/concepts/ad-hoc-inference.md).
+- **Native ACP agents** — the native pane is one provider-neutral ACP client; registry distributions and custom
+  commands launch external ACP agents directly, with no private provider protocol inside Weavie. See
+  [docs/concepts/native-acp-agents.md](docs/concepts/native-acp-agents.md).
 - **Learn from corrections** — Weavie uniquely sees the user's *edit over the agent's output*, invisible to
   the model's transcript. Each correction is captured as a discrete event **at the moment the user acts** —
   an editor save that lands over an agent hunk, or a review-UI revert — gated to the lines the agent wrote
@@ -101,8 +104,8 @@ delegates so it works for both PTY children and `System.Diagnostics.Process`. Tr
   a flake, root-cause it and fix it.
 - **Never install a fake or stub binary into a shared PATH directory** (e.g. a stub `codex` beside
   node in nvm's bin) — it hijacks the real binary for every other session and the user's live app,
-  long after your task ends. Keep fakes under `temp/` and wire them in via settings (`codex.path`,
-  `TerminalController.ResolveClaudeLaunch`), scoped to your test.
+  long after your task ends. Keep fakes under `temp/` and wire them through an isolated test settings store or
+  `TerminalController.ResolveClaudeLaunch`, scoped to that test.
 
 ## Custom agents
 

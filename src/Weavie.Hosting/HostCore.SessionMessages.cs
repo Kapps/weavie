@@ -156,6 +156,7 @@ public sealed partial class HostCore {
 		PushRefLinkBase(session, target);
 		session.Claude?.ResyncPane(target.Feature("terminal.agent"));
 		session.Agent.ReplayState(target.Feature("agent"));
+		session.Agent.AuthenticationTerminal?.Controller.ResyncPane(target.Feature("terminal.agent"));
 		session.Shell.ResyncPane(target.Feature("terminal.shell"));
 	}
 

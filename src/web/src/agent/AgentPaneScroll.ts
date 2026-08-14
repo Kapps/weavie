@@ -4,6 +4,8 @@ import type { ClientSession } from "../bridge";
 import { registerCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 
+const turnStartAlignmentTolerance = 1;
+
 export function createAgentPaneScroll(
   session: ClientSession,
   body: Accessor<HTMLDivElement | undefined>,
@@ -46,7 +48,9 @@ export function createAgentPaneScroll(
     // apart (e.g. 745.671875 vs 746) even when the turn start is exactly at the viewport top,
     // which without slack flips this above-the-fold long after a jump with nothing left to
     // correct it.
-    setAgentTurnStartAbove(start !== undefined && start < (virtualizer.scrollOffset ?? 0) - 1);
+    setAgentTurnStartAbove(
+      start !== undefined && start + turnStartAlignmentTolerance < (virtualizer.scrollOffset ?? 0),
+    );
   };
 
   const noteControllerScroll = (top: number): void => {

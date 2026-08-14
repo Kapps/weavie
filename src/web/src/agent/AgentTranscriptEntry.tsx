@@ -1,12 +1,8 @@
 import { For, type JSX, Match, Show, Switch } from "solid-js";
 import type { ClientSession } from "../bridge";
 import { AgentMarkdown } from "./AgentMarkdown";
-import {
-  ApprovalActions,
-  EditLocationActions,
-  InputRequestActions,
-  PlanActions,
-} from "./AgentPaneActions";
+import { ApprovalActions, AuthenticationActions, InputRequestActions } from "./AgentPaneActions";
+import { EditLocationActions, PlanActions } from "./AgentPaneEditActions";
 import { AgentLinkedText } from "./AgentPaneLinks";
 import type { AgentActivityStep, AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 import type { AgentSectionLabel } from "./pane-store";
@@ -15,6 +11,7 @@ export function TranscriptEntry(props: {
   detailsExpanded: boolean;
   entry: AgentTranscriptEntry;
   keyboardApprovalId: string | null;
+  keyboardInputId: string | null;
   onDetailsToggle: (open: boolean) => void;
   sectionLabel: AgentSectionLabel | null;
   session: ClientSession;
@@ -62,6 +59,7 @@ export function TranscriptEntry(props: {
             />
           </Show>
         </Show>
+        <AgentMedia message={props.entry.actionMessage} session={props.session} />
         <Show when={props.entry.detailCount > 0}>
           <ActivityDetails
             entry={props.entry}
@@ -74,6 +72,7 @@ export function TranscriptEntry(props: {
         <EntryActions
           entry={props.entry}
           keyboardApprovalId={props.keyboardApprovalId}
+          keyboardInputId={props.keyboardInputId}
           session={props.session}
         />
       </div>
@@ -88,6 +87,7 @@ function showEntryHeader(entry: AgentTranscriptEntry): boolean {
 function EntryActions(props: {
   entry: AgentTranscriptEntry;
   keyboardApprovalId: string | null;
+  keyboardInputId: string | null;
   session: ClientSession;
 }): JSX.Element {
   return (
@@ -97,17 +97,33 @@ function EntryActions(props: {
           <Match when={message().type === "approval-requested" && props.entry.status === "pending"}>
             <ApprovalActions
               session={props.session}
-              requestId={message().itemId}
+              message={message()}
               answersToKeys={
                 props.keyboardApprovalId !== null && message().itemId === props.keyboardApprovalId
               }
             />
           </Match>
+          <Match
+            when={message().type === "authentication-requested" && props.entry.status === "pending"}
+          >
+            <AuthenticationActions session={props.session} message={message()} />
+          </Match>
           <Match when={message().type === "input-requested" && props.entry.status === "pending"}>
-            <InputRequestActions session={props.session} message={message()} />
+            <InputRequestActions
+              session={props.session}
+              message={message()}
+              answersToKeys={
+                props.keyboardInputId !== null && message().itemId === props.keyboardInputId
+              }
+            />
           </Match>
           <Match when={message().type === "edit-location"}>
-            <EditLocationActions session={props.session} target={message().text} />
+            <EditLocationActions session={props.session} message={message()} />
+          </Match>
+          <Match
+            when={(message().locations?.length ?? 0) > 0 || (message().diffs?.length ?? 0) > 0}
+          >
+            <EditLocationActions session={props.session} message={message()} />
           </Match>
           <Match when={message().type === "item-completed" && message().itemType === "plan"}>
             <PlanActions message={message()} session={props.session} />
@@ -143,12 +159,19 @@ function ActivityDetails(props: {
               <div class={`agent-activity-step agent-step-${step.tone}`}>
                 <span class="agent-step-status">{step.status ?? "done"}</span>
                 <span class="agent-step-label">{step.label}</span>
-                <Show when={step.actionMessage?.type === "edit-location"}>
+                <Show
+                  when={
+                    step.actionMessage?.type === "edit-location" ||
+                    (step.actionMessage?.locations?.length ?? 0) > 0 ||
+                    (step.actionMessage?.diffs?.length ?? 0) > 0
+                  }
+                >
                   <span class="agent-step-actions">
-                    <EditLocationActions
-                      session={props.session}
-                      target={step.actionMessage?.text}
-                    />
+                    <Show when={step.actionMessage}>
+                      {(message) => (
+                        <EditLocationActions session={props.session} message={message()} />
+                      )}
+                    </Show>
                   </span>
                 </Show>
                 <Show when={step.detailText !== null}>
@@ -162,6 +185,41 @@ function ActivityDetails(props: {
         </div>
       </Show>
     </details>
+  );
+}
+
+function AgentMedia(props: {
+  message: import("../bridge").AgentPaneUpdate | null;
+  session: ClientSession;
+}): JSX.Element {
+  const source = (): string | null => {
+    const message = props.message;
+    return message?.mediaData !== null && message?.mediaData !== undefined && message.mediaType
+      ? `data:${message.mediaType};base64,${message.mediaData}`
+      : null;
+  };
+  return (
+    <>
+      <Show when={source() !== null && props.message?.mediaType?.startsWith("image/")}>
+        <img class="agent-entry-media" src={source() ?? ""} alt="Agent-provided content" />
+      </Show>
+      <Show when={source() !== null && props.message?.mediaType?.startsWith("audio/")}>
+        <a class="agent-entry-media" href={source() ?? ""} download="agent-provided-audio">
+          Download agent-provided audio
+        </a>
+      </Show>
+      <Show when={props.message?.resourceUri}>
+        {(uri) => (
+          <pre class="agent-entry-resource">
+            {props.message?.type === "input-requested" && props.message.itemType === "url" ? (
+              uri()
+            ) : (
+              <AgentLinkedText session={props.session} text={uri()} />
+            )}
+          </pre>
+        )}
+      </Show>
+    </>
   );
 }
 

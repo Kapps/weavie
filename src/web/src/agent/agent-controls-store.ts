@@ -2,14 +2,10 @@
 // own controls stream; selection only chooses which owned state the status line renders.
 
 import { createSignal } from "solid-js";
-import type { AgentControlState, AgentModelChoice, ClientSession } from "../bridge";
+import type { AgentControlState, ClientSession } from "../bridge";
 import { createSessionFeatureValue } from "../messaging/session-feature-value";
 
-/** The reserved axis id for the merged model → effort / Fast control's cascading picker. */
-export const MODEL_AXIS = "model";
-
 const EMPTY: AgentControlState = {
-  modelControl: { value: "", valueLabel: "", models: [] },
   axes: [],
   slash: [],
 };
@@ -26,57 +22,11 @@ export function agentControlState(session: ClientSession | null): AgentControlSt
   return stateFor(session) ?? EMPTY;
 }
 
-/** The active model in a session's control state, or undefined before the host reports it. */
-export function currentModel(session: ClientSession | null): AgentModelChoice | undefined {
-  return agentControlState(session).modelControl.models.find((model) => model.current);
-}
-
 /** Sends a live provider-owned control change for a session to its host. */
 export function setAgentControl(session: ClientSession, axis: string, value: string): void {
   if (!session.closed) {
     session.feature("agent").publish("setControl", { axis, value });
   }
-}
-
-/** Toggles the command-owned axis to its other provider-advertised option. */
-export function toggleAgentControl(session: ClientSession, commandId: string): boolean {
-  const axis = agentControlState(session).axes.find(
-    (candidate) => candidate.commandId === commandId,
-  );
-  const target = axis?.options.find((option) => option.id !== axis.value);
-  if (axis === undefined || target === undefined) {
-    return false;
-  }
-  setAgentControl(session, axis.id, target.id);
-  return true;
-}
-
-/** Switches to a model (its default effort applies on the host). */
-export function selectModel(session: ClientSession, model: AgentModelChoice): void {
-  setAgentControl(session, "model", model.id);
-}
-
-/** Selects a specific effort under a model, switching to that model first when it isn't current. */
-export function selectModelEffort(
-  session: ClientSession,
-  model: AgentModelChoice,
-  effortId: string,
-): void {
-  if (!model.current) {
-    setAgentControl(session, "model", model.id);
-  }
-  setAgentControl(session, "effort", effortId);
-}
-
-/** Toggles Fast Mode for a model, switching to that model first when it isn't current. */
-export function toggleModelFast(session: ClientSession, model: AgentModelChoice): void {
-  if (model.fastTier === "") {
-    return;
-  }
-  if (!model.current) {
-    setAgentControl(session, "model", model.id);
-  }
-  setAgentControl(session, "serviceTier", model.fastOn ? "standard" : model.fastTier);
 }
 
 /** The axis whose picker is currently open, or null. */

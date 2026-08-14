@@ -19,9 +19,12 @@ public sealed class PosixPtyLauncher : IPtyLauncher {
 			environment[key] = value;
 		}
 
-		var (command, arguments) = launch.ExecutableMode == AgentExecutableMode.LoginShell
-			? ResolveLoginShell(launch)
-			: (launch.Command, launch.Arguments);
+		var (command, arguments) = launch.ExecutableMode switch {
+			AgentExecutableMode.Direct => (launch.Command, launch.Arguments),
+			AgentExecutableMode.SearchPath => ("/usr/bin/env", [launch.Command, .. launch.Arguments]),
+			AgentExecutableMode.LoginShell => ResolveLoginShell(launch),
+			_ => throw new InvalidOperationException($"Unknown executable mode '{launch.ExecutableMode}'."),
+		};
 		return new PtyLaunch {
 			Command = command,
 			Arguments = arguments,

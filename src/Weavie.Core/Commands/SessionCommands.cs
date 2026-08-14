@@ -10,6 +10,8 @@ namespace Weavie.Core.Commands;
 /// Declarations live in Core so every trigger sees them. See <c>docs/specs/multi-session-and-worktrees.md</c>.
 /// </summary>
 public static class SessionCommands {
+	private const string LifecycleExecutionLane = "weavie.session.lifecycle";
+
 	/// <summary>Creates a new session on its own worktree + branch (args <c>branch</c>/<c>base</c>/<c>prompt</c>); the programmatic entry.</summary>
 	public const string NewSession = "weavie.session.new";
 
@@ -67,6 +69,8 @@ public static class SessionCommands {
 
 		registry.Register(new CommandDefinition {
 			Id = NewSession,
+			SharedExecutionLane = LifecycleExecutionLane,
+			Scope = CommandScope.Host,
 			Title = "New Session",
 			RunsIn = CommandLocation.Core,
 			Category = "Session",
@@ -130,6 +134,7 @@ public static class SessionCommands {
 
 		registry.Register(new CommandDefinition {
 			Id = ForkSession,
+			SharedExecutionLane = LifecycleExecutionLane,
 			Title = "Fork Session",
 			RunsIn = CommandLocation.Core,
 			Category = "Session",
@@ -214,6 +219,8 @@ public static class SessionCommands {
 
 		registry.Register(new CommandDefinition {
 			Id = LoadSession,
+			SharedExecutionLane = LifecycleExecutionLane,
+			Scope = CommandScope.Host,
 			Title = "Load Session",
 			RunsIn = CommandLocation.Core,
 			Category = "Session",
@@ -228,6 +235,8 @@ public static class SessionCommands {
 
 		registry.Register(new CommandDefinition {
 			Id = UnloadSession,
+			SharedExecutionLane = LifecycleExecutionLane,
+			Scope = CommandScope.Host,
 			Title = "Unload Session",
 			RunsIn = CommandLocation.Core,
 			Category = "Session",
@@ -241,6 +250,8 @@ public static class SessionCommands {
 
 		registry.Register(new CommandDefinition {
 			Id = DeleteSession,
+			SharedExecutionLane = LifecycleExecutionLane,
+			Scope = CommandScope.Host,
 			Title = "Delete Session",
 			RunsIn = CommandLocation.Core,
 			Category = "Session",

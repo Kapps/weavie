@@ -1,6 +1,7 @@
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, type Page, test } from "@playwright/test";
+import type { CommandInfo } from "../src/commands/types";
 import { MockHost, mockSession } from "./mock-host";
 
 const distDir = join(dirname(fileURLToPath(import.meta.url)), "..", "dist");
@@ -83,22 +84,28 @@ test.describe("AgentMarkdown transcript links", () => {
           id: FULLSCREEN_COMMAND,
           title: "Toggle Fullscreen Pane",
           runsIn: "web",
+          owner: "backend",
+          executionLane: FULLSCREEN_COMMAND,
+          scope: "session",
           description: "",
           aliases: [],
           showInPalette: true,
           when: "",
           keys: ["alt+shift+enter"],
-        },
+        } satisfies CommandInfo,
         {
           id: TOGGLE_MERMAID_COMMAND,
           title: "Toggle Mermaid Preview",
           runsIn: "web",
+          owner: "backend",
+          executionLane: TOGGLE_MERMAID_COMMAND,
+          scope: "session",
           description: "",
           aliases: [],
           showInPalette: true,
           when: "agentFocused",
           keys: [mermaidKey],
-        },
+        } satisfies CommandInfo,
       ],
       keybindings: [
         { key: "alt+shift+enter", command: FULLSCREEN_COMMAND },

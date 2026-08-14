@@ -76,6 +76,21 @@ internal sealed class TestHost : IAsyncDisposable {
 	public static Task<TestHost> StartAsync(ISystemNotificationChannel notifications) =>
 		StartAsync(notifications, new InlineUiDispatcher());
 
+	/// <summary>Builds a live host over test-controlled native dialogs.</summary>
+	public static async Task<TestHost> StartWithDialogsAsync(IHostDialogs dialogs) {
+		ArgumentNullException.ThrowIfNull(dialogs);
+		var host = Create(
+			_ => { },
+			new StaticPullRequestProvider([], []),
+			new InlineUiDispatcher(),
+			NoopSystemNotificationChannel.Instance,
+			static settings => InferenceComposition.CreateDisabled(settings),
+			platform => platform.Dialogs = dialogs);
+		await host.Core.StartAsync().ConfigureAwait(false);
+		await host.ConnectAsync().ConfigureAwait(false);
+		return host;
+	}
+
 	/// <summary>Builds a live host over test-controlled notification and UI-thread adapters.</summary>
 	public static async Task<TestHost> StartAsync(
 		ISystemNotificationChannel notifications,
@@ -182,7 +197,22 @@ internal sealed class TestHost : IAsyncDisposable {
 		IPullRequestProvider pullRequests,
 		IUiDispatcher dispatcher,
 		ISystemNotificationChannel notifications,
-		Func<SettingsStore, IInferenceService> inferenceFor) {
+		Func<SettingsStore, IInferenceService> inferenceFor) =>
+		Create(
+			prepareRepo,
+			pullRequests,
+			dispatcher,
+			notifications,
+			inferenceFor,
+			static _ => { });
+
+	private static TestHost Create(
+		Action<string> prepareRepo,
+		IPullRequestProvider pullRequests,
+		IUiDispatcher dispatcher,
+		ISystemNotificationChannel notifications,
+		Func<SettingsStore, IInferenceService> inferenceFor,
+		Action<TestPlatform> configurePlatform) {
 		string tempRoot = Path.Combine(Path.GetTempPath(), "weavie-host-it-" + Guid.NewGuid().ToString("n"));
 		string repo = Path.Combine(tempRoot, "repo");
 		Directory.CreateDirectory(repo);
@@ -201,6 +231,7 @@ internal sealed class TestHost : IAsyncDisposable {
 		var services = IsolatedServices(tempRoot, sourceHttp, sourcesDir, pullRequests, inferenceFor);
 		var bridge = new FakeHostBridge();
 		var platform = new TestPlatform(bridge, dispatcher) { Notifications = notifications };
+		configurePlatform(platform);
 		var core = new HostCore(
 			platform,
 			services,
@@ -579,7 +610,7 @@ internal sealed class TestPlatform : IHostPlatform {
 	public IReadOnlyList<string> Recents => [];
 	public IShellWindow? Window { get; set; }
 	public IShellMenuActions MenuActions { get; set; } = NoopShellMenuActions.Instance;
-	public IHostDialogs? Dialogs => null;
+	public IHostDialogs? Dialogs { get; set; }
 	public ISystemNotificationChannel Notifications { get; set; } = NoopSystemNotificationChannel.Instance;
 
 	public int ActivationCount { get; private set; }

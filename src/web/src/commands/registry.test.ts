@@ -11,6 +11,8 @@ const env = vi.hoisted(() => ({
     (catalog: { commands: CommandInfo[]; keybindings: unknown[] }) => void
   >(),
   installHost: undefined as ((backendId: string) => void) | undefined,
+  installView: undefined as ((session: ClientSession) => void) | undefined,
+  viewRuns: new Map<string, (request: { id: string; args: unknown }) => Promise<CommandResult>>(),
   run: undefined as
     | ((request: { id: string; args: unknown }) => Promise<CommandResult>)
     | undefined,
@@ -87,8 +89,11 @@ vi.mock("../bridge", () => ({
     return () => {};
   },
   registerViewFeature: (installer: (session: ClientSession) => undefined | (() => void)) => {
+    env.installView = (session: ClientSession) => {
+      installer(session);
+    };
     if (env.selected !== null) {
-      installer(env.selected);
+      env.installView(env.selected);
     }
     return () => {};
   },
@@ -120,23 +125,31 @@ vi.mock("../notify/notify", () => ({
 // registry reads window.__WEAVIE_* at module load.
 vi.stubGlobal("window", {});
 
-env.selected = {
-  connection: { id: "local" },
-  address: { slot: "selected-slot", incarnation: "selected-incarnation" },
-  feature: () => ({
-    handle: (
-      name: string,
-      handler: (request: { id: string; args: unknown }) => Promise<CommandResult>,
-    ) => {
-      if (name === "runClient") {
-        env.clientRun = handler;
-      } else {
-        env.run = handler;
-      }
-      return () => {};
-    },
-  }),
-} as unknown as ClientSession;
+function fakeSession(slot: string, incarnation: string): ClientSession {
+  const session = {
+    connection: { id: "local" },
+    address: { slot, incarnation },
+    feature: () => ({
+      handleConcurrent: (
+        name: string,
+        handler: (request: { id: string; args: unknown }) => Promise<CommandResult>,
+      ) => {
+        if (name === "runClient") {
+          env.clientRun = handler;
+        } else {
+          if (slot === "selected-slot") {
+            env.run = handler;
+          }
+          env.viewRuns.set(`${slot}/${incarnation}`, handler);
+        }
+        return () => {};
+      },
+    }),
+  } as unknown as ClientSession;
+  return session;
+}
+
+env.selected = fakeSession("selected-slot", "selected-incarnation");
 
 const reg = await import("./registry");
 env.installHost?.("remote:r");
@@ -147,6 +160,8 @@ function cmd(id: string, runsIn: "web" | "core"): CommandInfo {
     id,
     title: id,
     runsIn,
+    executionLane: id,
+    scope: "session",
     description: "",
     aliases: [],
     showInPalette: true,
@@ -255,7 +270,7 @@ describe("dispatchCommand — core commands", () => {
   });
 
   it("routes a session lifecycle command to the exact selected session", async () => {
-    setCatalog("local", [cmd(CommandIds.unloadSession, "core")]);
+    setCatalog("local", [{ ...cmd(CommandIds.unloadSession, "core"), scope: "host" }]);
 
     await reg.dispatchCommand(CommandIds.unloadSession);
 
@@ -465,6 +480,63 @@ describe("session-bound web command requests", () => {
       ok: false,
       error: expect.stringContaining("No web handler"),
     });
+  });
+
+  it("orders related commands without blocking another execution lane", async () => {
+    const paste = { ...cmd("weavie.agent.paste", "web"), executionLane: "agent-input" };
+    const submit = { ...cmd("weavie.agent.submit", "web"), executionLane: "agent-input" };
+    const showLogs = cmd("weavie.view.logs", "web");
+    setCatalog("local", [paste, submit, showLogs]);
+    let releasePaste = (): void => {};
+    const pasteBlocked = new Promise<void>((resolve) => {
+      releasePaste = resolve;
+    });
+    let pasteEntered = false;
+    let submitRan = false;
+    reg.registerCommand(paste.id, async () => {
+      pasteEntered = true;
+      await pasteBlocked;
+    });
+    reg.registerCommand(submit.id, () => {
+      submitRan = true;
+    });
+    reg.registerCommand(showLogs.id, () => {});
+
+    const pasteResponse = env.run?.({ id: paste.id, args: undefined });
+    await vi.waitFor(() => expect(pasteEntered).toBe(true));
+    const submitResponse = env.run?.({ id: submit.id, args: undefined });
+
+    expect(await env.run?.({ id: showLogs.id, args: undefined })).toEqual({ ok: true });
+    expect(submitRan).toBe(false);
+
+    releasePaste();
+    await pasteResponse;
+    expect(await submitResponse).toEqual({ ok: true });
+    expect(submitRan).toBe(true);
+  });
+
+  it("does not share an execution lane between exact session owners", async () => {
+    const command = { ...cmd("web.owner-lane", "web"), executionLane: "shared-lane" };
+    setCatalog("local", [command]);
+    let releaseSelected = (): void => {};
+    const selectedBlocked = new Promise<void>((resolve) => {
+      releaseSelected = resolve;
+    });
+    reg.registerCommand(command.id, async (_args, { session }) => {
+      if (session?.address.slot === "selected-slot") {
+        await selectedBlocked;
+      }
+    });
+    const other = fakeSession("other-slot", "other-incarnation");
+    env.installView?.(other);
+    const selectedRun = env.viewRuns.get("selected-slot/selected-incarnation");
+    const otherRun = env.viewRuns.get("other-slot/other-incarnation");
+
+    const selectedResponse = selectedRun?.({ id: command.id, args: undefined });
+    expect(await otherRun?.({ id: command.id, args: undefined })).toEqual({ ok: true });
+
+    releaseSelected();
+    expect(await selectedResponse).toEqual({ ok: true });
   });
 });
 

@@ -2,6 +2,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, type Page, test } from "@playwright/test";
+import type { CommandInfo } from "../src/commands/types";
 import { MockHost, mockSession } from "./mock-host";
 
 // Drives the native Codex composer in a real browser against the mock host: it renders the structured agent
@@ -143,10 +144,13 @@ const paneMessage = (message: Record<string, unknown>) => ({
 const userMessage = (text: string) => paneMessage({ type: "user-message", text });
 
 // The agent slice of the command catalog, as the host pushes it — the UI reads all key labels from here.
-const agentCommand = (id: string, title: string, when: string, keys: string[]) => ({
+const agentCommand = (id: string, title: string, when: string, keys: string[]): CommandInfo => ({
   id,
   title,
   runsIn: "web",
+  owner: "backend",
+  executionLane: id === "weavie.agent.submit" ? "weavie.agent.input" : id,
+  scope: "session",
   description: "",
   aliases: [],
   showInPalette: true,

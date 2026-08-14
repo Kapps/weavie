@@ -30,7 +30,6 @@ const SESSION_LIFECYCLE = new Set<string>([
   CommandIds.unloadSession,
   CommandIds.deleteSession,
 ]);
-const HOST_SESSION_COMMANDS = new Set<string>([CommandIds.newSession, ...SESSION_LIFECYCLE]);
 
 // A web command handler. Return `false` to decline (let a keybinding's keystroke fall through);
 // anything else, including a Promise or undefined, consumes the event.
@@ -61,6 +60,7 @@ const catalogs = new Map<string, CommandCatalog>([
   ],
 ]);
 const handlers = new Map<string, CommandHandler>();
+const executionLanes = new Map<string, Promise<void>>();
 const changeSubscribers = new Set<() => void>();
 const sessionActivationSubscribers = new Set<(activation: SessionActivation) => void>();
 
@@ -144,6 +144,38 @@ function keybindingEntriesForClient(backendId: string): CatalogKeybinding[] {
 
 function commandForClient(backendId: string, id: string): CommandInfo | undefined {
   return commandsForClient(backendId).find((command) => command.id === id);
+}
+
+function executionLaneKey(
+  command: CommandInfo,
+  catalogBackendId: string,
+  session: ClientSession | null,
+): string {
+  if (command.owner === "client") {
+    return `${LOCAL_BACKEND_ID}\0${command.executionLane}`;
+  }
+  return session === null
+    ? `${catalogBackendId}\0${command.executionLane}`
+    : `${session.connection.id}\0${session.address.slot}\0${session.address.incarnation}\0${command.executionLane}`;
+}
+
+function trackExecutionLane<T>(lane: string, result: Promise<T>): Promise<T> {
+  const tail = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  executionLanes.set(lane, tail);
+  void tail.finally(() => {
+    if (executionLanes.get(lane) === tail) {
+      executionLanes.delete(lane);
+    }
+  });
+  return result;
+}
+
+function runInExecutionLane<T>(lane: string, run: () => Promise<T>): Promise<T> {
+  const prior = executionLanes.get(lane) ?? Promise.resolve();
+  return trackExecutionLane(lane, prior.catch(() => undefined).then(run));
 }
 
 /** Registers the handler for a web command id; returns an unregister function. */
@@ -263,7 +295,7 @@ async function routeCoreCommand(
   const run = async (): Promise<CommandResult> => {
     const result = await (command.owner === "client"
       ? invokeClientCommandOnHost(command.id, routedArgs)
-      : HOST_SESSION_COMMANDS.has(command.id)
+      : command.scope === "host"
         ? invokeSessionCommandOnBackend(target, command.id, routedArgs)
         : invokeCommandOnBackend(target, command.id, routedArgs));
     if (result.ok) {
@@ -312,9 +344,18 @@ function runKeybindingFromCatalog(backendId: string, id: string, args: unknown):
     log("warn", `no web handler registered for command '${id}'`);
     return false;
   }
+  const session = selectedSession();
+  const lane = executionLaneKey(command, backendId, session);
+  if (executionLanes.has(lane)) {
+    void runInExecutionLane(lane, async () => handler(args, { session })).catch((error: unknown) =>
+      notify("warn", String(error)),
+    );
+    return true;
+  }
+
   let outcome: ReturnType<CommandHandler>;
   try {
-    outcome = handler(args, { session: selectedSession() });
+    outcome = handler(args, { session });
   } catch (error) {
     // A thrown handler is a failure, not a decline — surface it (matching the palette) rather than swallow it
     // to the console, so a keyboard-run command isn't a silent no-op. It still consumed the key.
@@ -323,7 +364,7 @@ function runKeybindingFromCatalog(backendId: string, id: string, args: unknown):
   }
   // The sync return can't await a rejecting async handler; surface its rejection the same way.
   if (outcome instanceof Promise) {
-    void outcome.catch((error: unknown) => notify("warn", String(error)));
+    void trackExecutionLane(lane, outcome).catch((error: unknown) => notify("warn", String(error)));
     return true;
   }
   // Only an explicit `false` declines; undefined consumes the key.
@@ -358,17 +399,16 @@ function dispatchFromCatalog(backendId: string, id: string, args: unknown): Prom
     log("warn", `no web handler registered for command '${id}'`);
     return Promise.resolve({ ok: false, error: `No web handler for '${id}'.` });
   }
-  try {
-    return Promise.resolve(handler(args, { session: selectedSession() }))
-      .then((value) => ({ ok: value !== false }))
-      .catch((error: unknown) => {
-        log("error", `command '${id}' failed: ${String(error)}`);
-        return { ok: false, error: String(error) };
-      });
-  } catch (error) {
-    log("error", `command '${id}' threw: ${String(error)}`);
-    return Promise.resolve({ ok: false, error: String(error) });
-  }
+  const session = selectedSession();
+  return runInExecutionLane(executionLaneKey(command, backendId, session), async () => {
+    try {
+      const value = await handler(args, { session });
+      return { ok: value !== false };
+    } catch (error) {
+      log("error", `command '${id}' failed: ${String(error)}`);
+      return { ok: false, error: String(error) };
+    }
+  });
 }
 
 export function dispatchCommand(id: string, args?: unknown): Promise<CommandResult> {
@@ -446,24 +486,30 @@ async function runBoundWebCommand(
   id: string,
   args: unknown,
 ): Promise<CommandResult> {
+  const command = findCommandInCatalog(session.connection.id, id);
+  if (command?.runsIn !== "web") {
+    return { ok: false, error: `No web command '${id}' exists in this session's catalog.` };
+  }
   const handler = handlers.get(id);
   if (handler === undefined) {
     return { ok: false, error: `No web handler for '${id}'.` };
   }
-  try {
-    const outcome = await handler(args, { session });
-    return outcome === false
-      ? { ok: false, error: `Command '${id}' declined the request.` }
-      : { ok: true };
-  } catch (error) {
-    return { ok: false, error: String(error) };
-  }
+  return runInExecutionLane(executionLaneKey(command, session.connection.id, session), async () => {
+    try {
+      const outcome = await handler(args, { session });
+      return outcome === false
+        ? { ok: false, error: `Command '${id}' declined the request.` }
+        : { ok: true };
+    } catch (error) {
+      return { ok: false, error: String(error) };
+    }
+  });
 }
 
 registerViewFeature((session) =>
   session
     .feature("commands")
-    .handle<{ id: string; args: unknown }, CommandResult>("run", ({ id, args }) =>
+    .handleConcurrent<{ id: string; args: unknown }, CommandResult>("run", ({ id, args }) =>
       runBoundWebCommand(session, id, args),
     ),
 );
@@ -471,7 +517,7 @@ registerViewFeature((session) =>
 registerSessionFeature((session) =>
   session
     .feature("commands")
-    .handle<{ id: string; args: unknown }, CommandResult>("runClient", ({ id, args }) => {
+    .handleConcurrent<{ id: string; args: unknown }, CommandResult>("runClient", ({ id, args }) => {
       const command = findCommandInCatalog(LOCAL_BACKEND_ID, id);
       if (command?.owner !== "client") {
         return Promise.resolve({

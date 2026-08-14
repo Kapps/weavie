@@ -9,6 +9,11 @@ namespace Weavie.Core.Commands;
 /// ones. See <c>docs/specs/commands.md</c>.
 /// </summary>
 public static class CoreCommands {
+	private const string AgentInputExecutionLane = "weavie.agent.input";
+	private const string FontExecutionLane = "weavie.font";
+	private const string TestExecutionLane = "weavie.tests.execution";
+	private const string ThemeExecutionLane = "weavie.theme";
+
 	/// <summary>The pane-focus command id; bound to <c>ctrl+1..9</c> and dispatched with <c>{ "index": N }</c>.</summary>
 	public const string FocusPaneByIndex = "weavie.pane.focusByIndex";
 
@@ -615,6 +620,7 @@ public static class CoreCommands {
 
 		registry.Register(new CommandDefinition {
 			Id = RunTests,
+			SharedExecutionLane = TestExecutionLane,
 			Title = "Run Test",
 			RunsIn = CommandLocation.Core,
 			Category = "Tests",
@@ -627,6 +633,7 @@ public static class CoreCommands {
 
 		registry.Register(new CommandDefinition {
 			Id = RunTestsInFile,
+			SharedExecutionLane = TestExecutionLane,
 			Title = "Run Tests in File",
 			RunsIn = CommandLocation.Core,
 			Category = "Tests",
@@ -683,6 +690,7 @@ public static class CoreCommands {
 
 		registry.Register(new CommandDefinition {
 			Id = AgentPaste,
+			SharedExecutionLane = AgentInputExecutionLane,
 			Title = "Paste",
 			RunsIn = CommandLocation.Web,
 			Category = "Agent",
@@ -694,6 +702,7 @@ public static class CoreCommands {
 
 		registry.Register(new CommandDefinition {
 			Id = AgentSubmit,
+			SharedExecutionLane = AgentInputExecutionLane,
 			Title = "Submit Agent Prompt",
 			RunsIn = CommandLocation.Web,
 			Category = "Agent",
@@ -1434,6 +1443,7 @@ public static class CoreCommands {
 		// browser-zoom chords; a matched binding preventDefaults, so the chord changes the app font, not page zoom.
 		registry.Register(new CommandDefinition {
 			Id = IncreaseFontSize,
+			SharedExecutionLane = FontExecutionLane,
 			Title = "Increase Font Size",
 			RunsIn = CommandLocation.Core,
 			Owner = CommandOwner.Client,
@@ -1445,6 +1455,7 @@ public static class CoreCommands {
 
 		registry.Register(new CommandDefinition {
 			Id = DecreaseFontSize,
+			SharedExecutionLane = FontExecutionLane,
 			Title = "Decrease Font Size",
 			RunsIn = CommandLocation.Core,
 			Owner = CommandOwner.Client,
@@ -1456,6 +1467,7 @@ public static class CoreCommands {
 
 		registry.Register(new CommandDefinition {
 			Id = ResetFontSize,
+			SharedExecutionLane = FontExecutionLane,
 			Title = "Reset Font Size",
 			RunsIn = CommandLocation.Core,
 			Owner = CommandOwner.Client,
@@ -1470,6 +1482,7 @@ public static class CoreCommands {
 		// keybinding/runCommand-only; install-from-file is palette-visible (no args → native .vsix picker).
 		registry.Register(new CommandDefinition {
 			Id = InstallTheme,
+			SharedExecutionLane = ThemeExecutionLane,
 			Title = "Install Theme from Open VSX",
 			RunsIn = CommandLocation.Core,
 			Owner = CommandOwner.Client,
@@ -1484,6 +1497,7 @@ public static class CoreCommands {
 
 		registry.Register(new CommandDefinition {
 			Id = InstallThemeFromFile,
+			SharedExecutionLane = ThemeExecutionLane,
 			Title = "Install Theme from File…",
 			RunsIn = CommandLocation.Core,
 			Owner = CommandOwner.Client,
@@ -1496,6 +1510,7 @@ public static class CoreCommands {
 
 		registry.Register(new CommandDefinition {
 			Id = SelectTheme,
+			SharedExecutionLane = ThemeExecutionLane,
 			Title = "Select Theme",
 			RunsIn = CommandLocation.Core,
 			Owner = CommandOwner.Client,
@@ -1511,6 +1526,7 @@ public static class CoreCommands {
 
 		registry.Register(new CommandDefinition {
 			Id = CycleThemeMode,
+			SharedExecutionLane = ThemeExecutionLane,
 			Title = "Cycle Theme Mode",
 			RunsIn = CommandLocation.Core,
 			Owner = CommandOwner.Client,
@@ -1523,6 +1539,7 @@ public static class CoreCommands {
 
 		registry.Register(new CommandDefinition {
 			Id = UndoThemeOverride,
+			SharedExecutionLane = ThemeExecutionLane,
 			Title = "Undo Theme Override",
 			RunsIn = CommandLocation.Core,
 			Owner = CommandOwner.Client,
@@ -1533,6 +1550,7 @@ public static class CoreCommands {
 
 		registry.Register(new CommandDefinition {
 			Id = ResetTheme,
+			SharedExecutionLane = ThemeExecutionLane,
 			Title = "Reset Theme Overrides",
 			RunsIn = CommandLocation.Core,
 			Owner = CommandOwner.Client,

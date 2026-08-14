@@ -28,6 +28,12 @@ public sealed class MessageFeatureChannel : IMessageFeatureTarget {
 		Func<TRequest, CancellationToken, Task<ResponseWithCompletion<TResponse>>> handler) =>
 		_bus.HandleAfterResponse(_feature, name, handler, SessionExecution.Serialized);
 
+	internal IDisposable HandleKeyedAfterResponse<TRequest, TResponse>(
+		string name,
+		Func<TRequest, string> lane,
+		Func<TRequest, CancellationToken, Task<ResponseWithCompletion<TResponse>>> handler) =>
+		_bus.HandleKeyedAfterResponse(_feature, name, lane, handler);
+
 	internal IDisposable HandleAfterEvent<TEvent>(
 		string name,
 		Func<TEvent, CancellationToken, Task<Func<CancellationToken, Task>>> handler) =>
@@ -65,6 +71,12 @@ public sealed class MessageFeatureChannel : IMessageFeatureTarget {
 		string name,
 		Func<TRequest, CancellationToken, Task<TResponse>> handler) =>
 		_bus.Handle(_feature, name, handler, SessionExecution.Concurrent);
+
+	internal IDisposable HandleKeyed<TRequest, TResponse>(
+		string name,
+		Func<TRequest, string> lane,
+		Func<TRequest, CancellationToken, Task<TResponse>> handler) =>
+		_bus.HandleKeyed(_feature, name, lane, handler);
 
 	/// <summary>Registers an event handler that may run concurrently with other work in this feature.</summary>
 	public IDisposable HandleConcurrent<TEvent>(

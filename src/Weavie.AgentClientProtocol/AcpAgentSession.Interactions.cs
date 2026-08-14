@@ -107,6 +107,7 @@ public sealed partial class AcpAgentSession {
 						await _connection.RequestAsync(
 							"authenticate",
 							new { methodId },
+							generation,
 							authenticationCancellation.Token).ConfigureAwait(false);
 					} else {
 						var exit = await _context.AuthenticationTerminal.RunAsync(

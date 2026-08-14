@@ -305,7 +305,7 @@ public sealed partial class AcpAgentSession {
 		tool.Content = null;
 		tool.TerminalId = null;
 		foreach (var item in content.EnumerateArray()) {
-				switch (OptionalString(item, "type")) {
+			switch (OptionalString(item, "type")) {
 				case "content" when item.TryGetProperty("content", out var block):
 					blocks.Add(ReadToolContentBlock(block));
 					break;

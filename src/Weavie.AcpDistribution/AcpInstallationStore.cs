@@ -72,7 +72,7 @@ internal sealed class AcpInstallationStore {
 			case "npx" when agent.Command != "npx" || agent.Arguments.FirstOrDefault() != "--yes":
 				throw new InvalidDataException("An npx installation requires the exact npx runner and --yes.");
 			case "npx":
-				AcpDistributionService.PackageProcess("npx", agent.Arguments, windows: true);
+				AcpDistributionService.PackageProcess("npx", agent.Arguments, OperatingSystem.IsWindows());
 				return;
 			case "uvx" when agent.Command == "uvx":
 				return;

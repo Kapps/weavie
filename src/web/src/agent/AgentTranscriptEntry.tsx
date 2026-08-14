@@ -198,8 +198,8 @@ function AgentRichContent(props: {
     <For each={props.message?.content ?? []}>
       {(content) => {
         const source =
-          content.mediaData !== null && content.mediaData !== undefined && content.mediaType
-            ? `data:${content.mediaType};base64,${content.mediaData}`
+          content.mediaData !== null && content.mediaData !== undefined
+            ? `data:${content.mediaType ?? "application/octet-stream"};base64,${content.mediaData}`
             : null;
         return (
           <div class="agent-entry-rich-content">

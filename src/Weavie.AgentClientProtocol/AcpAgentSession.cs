@@ -8,7 +8,7 @@ using Weavie.Core.Sessions;
 namespace Weavie.AgentClientProtocol;
 
 /// <summary>One worktree-scoped ACP conversation rendered in Weavie's native pane.</summary>
-public sealed partial class AcpAgentSession : IStructuredAgentSession, IStructuredAgentControls {
+public sealed partial class AcpAgentSession : IStructuredAgentSession, IStructuredAgentControls, IStructuredAgentUsage {
 	private readonly AgentSessionContext _context;
 	private readonly AcpAgentDefinition _definition;
 	private readonly AcpSessionStore _sessions;
@@ -64,6 +64,7 @@ public sealed partial class AcpAgentSession : IStructuredAgentSession, IStructur
 	private bool _cancelRequested;
 	private bool _controlMutationActive;
 	private long _submissionEpoch;
+	private AgentUsageState _usageState = new(null, null, []);
 
 	/// <summary>Creates a supervised ACP conversation.</summary>
 	public AcpAgentSession(
@@ -99,6 +100,9 @@ public sealed partial class AcpAgentSession : IStructuredAgentSession, IStructur
 	public event Action<AgentControlState>? ControlStateChanged;
 
 	/// <inheritdoc/>
+	public event Action<AgentUsageState>? UsageStateChanged;
+
+	/// <inheritdoc/>
 	public AgentControlState ControlState {
 		get {
 			lock (_gate) {
@@ -108,6 +112,11 @@ public sealed partial class AcpAgentSession : IStructuredAgentSession, IStructur
 				};
 			}
 		}
+	}
+
+	/// <inheritdoc/>
+	public AgentUsageState UsageState {
+		get { lock (_gate) return _usageState; }
 	}
 
 	private void Emit(AgentPaneMessage message) {

@@ -37,11 +37,13 @@ const [byBackend, setByBackend] = createSignal(
 );
 
 function defaultsFor(backendId: string): AgentDefaults {
-  return byBackend().get(backendId) ?? {
-    defaultProvider: "",
-    middleClickAutoscroll: true,
-    providers: [],
-  };
+  return (
+    byBackend().get(backendId) ?? {
+      defaultProvider: "",
+      middleClickAutoscroll: true,
+      providers: [],
+    }
+  );
 }
 
 /** Whether Linux middle-click autoscroll is enabled for the structured agent transcript. */
@@ -77,7 +79,9 @@ registerHostFeature((connection) => {
     setByBackend((previous) => new Map(previous).set(connection.id, defaults));
   };
   const offHello = connection.onHello((hello) => update(hello.agentDefaults));
-  const offSettings = connection.host.feature("settings").on<AgentDefaults>("agent-defaults", update);
+  const offSettings = connection.host
+    .feature("settings")
+    .on<AgentDefaults>("agent-defaults", update);
   return () => {
     offHello();
     offSettings();

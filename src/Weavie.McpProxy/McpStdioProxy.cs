@@ -20,7 +20,14 @@ internal static class McpStdioProxy {
 			var completed = await Task.WhenAny(read, failed.Task).ConfigureAwait(false);
 			if (completed == failed.Task) await failed.Task.ConfigureAwait(false);
 			string? message = await read.ConfigureAwait(false);
-			if (message is null) break;
+			if (message is null) {
+				cancellation.Cancel();
+				try {
+					await Task.WhenAll(requests.Keys).ConfigureAwait(false);
+				} catch (OperationCanceledException) when (cancellation.IsCancellationRequested) {
+				}
+				return 0;
+			}
 			if (message.Length == 0) continue;
 			var request = RelayAsync(client, url, token, message, session, outputGate, cancellation.Token);
 			requests.TryAdd(request, 0);
@@ -37,11 +44,9 @@ internal static class McpStdioProxy {
 			_ = request.ContinueWith(
 				completed => requests.TryRemove(completed, out _),
 				CancellationToken.None,
-				TaskContinuationOptions.OnlyOnRanToCompletion | TaskContinuationOptions.ExecuteSynchronously,
+				TaskContinuationOptions.NotOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
 				TaskScheduler.Default);
 		}
-		await Task.WhenAll(requests.Keys).ConfigureAwait(false);
-		return 0;
 	}
 
 	private static async Task RelayAsync(
@@ -52,30 +57,30 @@ internal static class McpStdioProxy {
 		McpSession session,
 		SemaphoreSlim outputGate,
 		CancellationToken cancellationToken) {
-			using var request = new HttpRequestMessage(HttpMethod.Post, url) {
-				Content = new StringContent(message, Encoding.UTF8, "application/json"),
-			};
-			request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-			request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-			request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
-			if (session.Id is { } sessionId) {
-				request.Headers.TryAddWithoutValidation(SessionHeader, sessionId);
-			}
-			using var response = await client.SendAsync(
-				request,
-				HttpCompletionOption.ResponseHeadersRead,
-				cancellationToken).ConfigureAwait(false);
-			if (response.Headers.TryGetValues(SessionHeader, out var values)) {
-				session.Adopt(values.Single());
-			}
-			if (response.StatusCode == HttpStatusCode.Accepted) return;
-			response.EnsureSuccessStatusCode();
-			if (response.Content.Headers.ContentType?.MediaType == "text/event-stream") {
-				await RelayEventsAsync(response, outputGate, cancellationToken).ConfigureAwait(false);
-			} else {
-				string body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-				if (body.Length > 0) await WriteAsync(body, outputGate, cancellationToken).ConfigureAwait(false);
-			}
+		using var request = new HttpRequestMessage(HttpMethod.Post, url) {
+			Content = new StringContent(message, Encoding.UTF8, "application/json"),
+		};
+		request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+		request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+		request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
+		if (session.Id is { } sessionId) {
+			request.Headers.TryAddWithoutValidation(SessionHeader, sessionId);
+		}
+		using var response = await client.SendAsync(
+			request,
+			HttpCompletionOption.ResponseHeadersRead,
+			cancellationToken).ConfigureAwait(false);
+		if (response.Headers.TryGetValues(SessionHeader, out var values)) {
+			session.Adopt(values.Single());
+		}
+		if (response.StatusCode == HttpStatusCode.Accepted) return;
+		response.EnsureSuccessStatusCode();
+		if (response.Content.Headers.ContentType?.MediaType == "text/event-stream") {
+			await RelayEventsAsync(response, outputGate, cancellationToken).ConfigureAwait(false);
+		} else {
+			string body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+			if (body.Length > 0) await WriteAsync(body, outputGate, cancellationToken).ConfigureAwait(false);
+		}
 	}
 
 	private static async Task RelayEventsAsync(

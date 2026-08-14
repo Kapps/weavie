@@ -20,6 +20,7 @@ public sealed partial class AcpAgentSession {
 	public async ValueTask DisposeAsync() {
 		string? sessionId;
 		bool close;
+		long generation;
 		lock (_gate) {
 			if (_disposed) {
 				return;
@@ -28,6 +29,7 @@ public sealed partial class AcpAgentSession {
 			_controlMutations.Clear();
 			sessionId = _sessionId;
 			close = _ready && _supportsClose && sessionId is not null;
+			generation = _activeGeneration;
 		}
 
 		CancelPendingInteractions();
@@ -37,6 +39,7 @@ public sealed partial class AcpAgentSession {
 			closeRequest = _connection.RequestAsync(
 				"session/close",
 				new { sessionId },
+				generation,
 				CancellationToken.None);
 		}
 
@@ -80,11 +83,13 @@ public sealed partial class AcpAgentSession {
 				_content.Clear();
 				_turnItemIds.Clear();
 				_replayContentRole = null;
+				_usageState = new AgentUsageState(null, null, []);
 			}
 		}
 		CancelPendingInteractions();
 		AbandonClientRequests();
 		RaiseControls();
+		UsageStateChanged?.Invoke(UsageState);
 		RunRuntime(process.Generation, () => InitializeGenerationAsync(process));
 	}
 
@@ -106,6 +111,7 @@ public sealed partial class AcpAgentSession {
 					version = _context.Runtime.Build.ToString(System.Globalization.CultureInfo.InvariantCulture),
 				},
 			},
+			process.Generation,
 			CancellationToken.None).ConfigureAwait(false);
 		lock (_turnTransitionGate) {
 			lock (_gate) {
@@ -161,6 +167,7 @@ public sealed partial class AcpAgentSession {
 						cwd = Path.GetFullPath(_context.Workspace),
 						mcpServers = McpServers(),
 					},
+					generation,
 					CancellationToken.None).ConfigureAwait(false);
 				lock (_turnTransitionGate) {
 					lock (_gate) {
@@ -194,6 +201,7 @@ public sealed partial class AcpAgentSession {
 							cwd = Path.GetFullPath(_context.Workspace),
 							mcpServers = McpServers(),
 						},
+						generation,
 						CancellationToken.None).ConfigureAwait(false);
 					lock (_turnTransitionGate) {
 						lock (_gate) {
@@ -227,6 +235,7 @@ public sealed partial class AcpAgentSession {
 						cwd = Path.GetFullPath(_context.Workspace),
 						mcpServers = McpServers(),
 					},
+					generation,
 					CancellationToken.None).ConfigureAwait(false);
 				if (!OwnsGeneration(generation)) return;
 			}

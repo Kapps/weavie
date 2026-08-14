@@ -73,6 +73,7 @@ public sealed partial class AcpAgentSession {
 						prompt,
 						_meta = new { steering = new { idleBehavior = "promptRequired" } },
 					},
+					generation,
 					CancellationToken.None);
 			}
 			var result = await request.ConfigureAwait(false);
@@ -145,6 +146,7 @@ public sealed partial class AcpAgentSession {
 				request = _connection.RequestAsync(
 					"session/prompt",
 					new { sessionId, prompt },
+					generation,
 					CancellationToken.None);
 			}
 			var result = await request.ConfigureAwait(false);
@@ -381,7 +383,9 @@ public sealed partial class AcpAgentSession {
 			if (sessionId is not null) {
 				long generation;
 				lock (_gate) generation = _activeGeneration;
-				RunRuntime(generation, () => _connection.NotifyAsync("session/cancel", new { sessionId }));
+				RunRuntime(
+					generation,
+					() => _connection.NotifyAsync("session/cancel", new { sessionId }, generation));
 			}
 		}
 		if (CancelPendingInteractions() && sessionId is null) {

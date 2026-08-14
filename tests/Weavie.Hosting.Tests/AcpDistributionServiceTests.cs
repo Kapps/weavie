@@ -64,6 +64,26 @@ public sealed class AcpDistributionServiceTests : IDisposable {
 	}
 
 	[Fact]
+	public void PosixInstallationsPersistLiteralNpxArgumentsWithWhitespace() {
+		if (OperatingSystem.IsWindows()) return;
+		var fileSystem = new InMemoryFileSystem();
+		var store = new AcpInstallationStore(fileSystem, Path.Combine(_root, "installed.json"));
+		var launch = new AcpLaunchSpec {
+			Id = "sample",
+			Name = "Sample",
+			Command = "npx",
+			Arguments = ["--yes", "sample-acp@1.2.3", "--profile name"],
+			Environment = new Dictionary<string, string>(StringComparer.Ordinal),
+			Version = "1.2.3",
+			Distribution = "npx",
+		};
+
+		store.Save([launch]);
+
+		Assert.Equal(launch.Arguments, Assert.Single(store.Load()).Arguments);
+	}
+
+	[Fact]
 	public void CustomProfilesUseExactPathCommandsAndEnvironment() {
 		var fileSystem = new InMemoryFileSystem();
 		fileSystem.WriteAllText(Path.Combine(_root, "custom.json"),

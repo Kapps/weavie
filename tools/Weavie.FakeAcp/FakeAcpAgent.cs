@@ -247,8 +247,7 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 			await FileSystemAsync(text[9..], string.Empty, ct).ConfigureAwait(false);
 		} else if (text.StartsWith("fs:", StringComparison.Ordinal)) {
 			await FileSystemAsync(text[3..], "written through ACP", ct).ConfigureAwait(false);
-		}
-		else if (text.StartsWith("persist-probe:", StringComparison.Ordinal)) {
+		} else if (text.StartsWith("persist-probe:", StringComparison.Ordinal)) {
 			await Task.Delay(TimeSpan.FromMilliseconds(250), CancellationToken.None).ConfigureAwait(false);
 			File.WriteAllText(text["persist-probe:".Length..], "provider mutation");
 			Message("persistence failure did not stop the provider");

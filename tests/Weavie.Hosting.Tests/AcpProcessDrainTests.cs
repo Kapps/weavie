@@ -115,6 +115,37 @@ public sealed class AcpProcessDrainTests {
 	}
 
 	[Fact]
+	public async Task AcpConnection_RejectsOperationsOwnedByAReplacedGeneration() {
+		var definition = Definition(FakeExecutable(), []);
+		await using var connection = new AcpJsonRpcConnection(
+			definition,
+			Directory.GetCurrentDirectory(),
+			_ => { });
+		var started = Channel.CreateUnbounded<AcpProcessGeneration>();
+		connection.ProcessStarted += generation => started.Writer.TryWrite(generation);
+		connection.Start();
+		var first = await ReadGenerationAsync(started.Reader);
+		connection.Restart();
+		var second = await ReadGenerationAsync(started.Reader);
+
+		await Assert.ThrowsAsync<InvalidOperationException>(() => connection.RequestAsync(
+			"initialize",
+			new { protocolVersion = 1 },
+			first.Generation,
+			CancellationToken.None));
+		await Assert.ThrowsAsync<InvalidOperationException>(() => connection.NotifyAsync(
+			"session/cancel",
+			new { sessionId = "old" },
+			first.Generation));
+		var initialized = await connection.RequestAsync(
+			"initialize",
+			new { protocolVersion = 1 },
+			second.Generation,
+			CancellationToken.None);
+		Assert.Equal(1, initialized.GetProperty("protocolVersion").GetInt32());
+	}
+
+	[Fact]
 	public async Task AcpConnection_PublishesStartedBeforeAnImmediateProtocolFault() {
 		var definition = new AcpAgentDefinition {
 			Id = "immediate-malformed",

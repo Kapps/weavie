@@ -77,14 +77,28 @@ public sealed partial class AcpJsonRpcConnection : IAsyncDisposable {
 	internal bool IsLatestGeneration(long generation) => _supervisor.Generation == generation;
 
 	/// <summary>Sends a request and returns its result.</summary>
-	public async Task<JsonElement> RequestAsync(string method, object parameters, CancellationToken ct) {
+	public Task<JsonElement> RequestAsync(string method, object parameters, CancellationToken ct) =>
+		RequestAsync(method, parameters, expectedGeneration: null, ct);
+
+	internal Task<JsonElement> RequestAsync(
+		string method,
+		object parameters,
+		long expectedGeneration,
+		CancellationToken ct) =>
+		RequestAsync(method, parameters, (long?)expectedGeneration, ct);
+
+	private async Task<JsonElement> RequestAsync(
+		string method,
+		object parameters,
+		long? expectedGeneration,
+		CancellationToken ct) {
 		ArgumentException.ThrowIfNullOrEmpty(method);
 		ArgumentNullException.ThrowIfNull(parameters);
 		ct.ThrowIfCancellationRequested();
 		long id = Interlocked.Increment(ref _nextRequestId);
 		var completion = new TaskCompletionSource<JsonElement>(TaskCreationOptions.RunContinuationsAsynchronously);
 		try {
-			await WriteRequestAsync(id, method, parameters, completion).ConfigureAwait(false);
+			await WriteRequestAsync(id, method, parameters, expectedGeneration, completion).ConfigureAwait(false);
 		} catch {
 			_pending.TryRemove(id, out _);
 			throw;
@@ -101,10 +115,16 @@ public sealed partial class AcpJsonRpcConnection : IAsyncDisposable {
 	}
 
 	/// <summary>Sends an ACP notification.</summary>
-	public Task NotifyAsync(string method, object parameters) {
+	public Task NotifyAsync(string method, object parameters) =>
+		NotifyAsync(method, parameters, expectedGeneration: null);
+
+	internal Task NotifyAsync(string method, object parameters, long expectedGeneration) =>
+		NotifyAsync(method, parameters, (long?)expectedGeneration);
+
+	private Task NotifyAsync(string method, object parameters, long? expectedGeneration) {
 		ArgumentException.ThrowIfNullOrEmpty(method);
 		ArgumentNullException.ThrowIfNull(parameters);
-		return WriteAsync(new { jsonrpc = "2.0", method, @params = parameters });
+		return WriteAsync(new { jsonrpc = "2.0", method, @params = parameters }, expectedGeneration);
 	}
 
 	/// <summary>Returns a successful response to an agent request.</summary>
@@ -139,13 +159,13 @@ public sealed partial class AcpJsonRpcConnection : IAsyncDisposable {
 			return;
 		}
 		_cancelled.TryAdd(id, 0);
-		_ = SendCancellationAsync(id);
+		_ = SendCancellationAsync(id, pending.Generation);
 		pending.Completion.TrySetCanceled(ct);
 	}
 
-	private async Task SendCancellationAsync(long id) {
+	private async Task SendCancellationAsync(long id, long generation) {
 		try {
-			await NotifyAsync("$/cancel_request", new { requestId = id }).ConfigureAwait(false);
+			await NotifyAsync("$/cancel_request", new { requestId = id }, generation).ConfigureAwait(false);
 		} catch (Exception ex) when (ex is IOException or InvalidOperationException) {
 			_log($"[acp:{_definition.Id}] request cancellation could not be sent: {ex.Message}");
 		}
@@ -175,12 +195,14 @@ public sealed partial class AcpJsonRpcConnection : IAsyncDisposable {
 		}
 	}
 
-	private Task WriteAsync(object value) => WriteLineAsync(JsonSerializer.Serialize(value));
+	private Task WriteAsync(object value, long? expectedGeneration) =>
+		WriteLineAsync(JsonSerializer.Serialize(value), expectedGeneration);
 
 	private async Task WriteRequestAsync(
 		long id,
 		string method,
 		object parameters,
+		long? expectedGeneration,
 		TaskCompletionSource<JsonElement> completion) {
 		string line = JsonSerializer.Serialize(new { jsonrpc = "2.0", id, method, @params = parameters });
 		await _writeGate.WaitAsync().ConfigureAwait(false);
@@ -188,6 +210,9 @@ public sealed partial class AcpJsonRpcConnection : IAsyncDisposable {
 			Process process;
 			lock (_deliveryGate) {
 				process = RunningProcess(out long generation);
+				if (expectedGeneration is { } expected && generation != expected) {
+					throw new InvalidOperationException("The ACP operation belongs to a previous process generation.");
+				}
 				if (!_pending.TryAdd(id, new PendingRequest(generation, completion))) {
 					throw new InvalidOperationException($"ACP request id {id} is already pending.");
 				}
@@ -225,11 +250,16 @@ public sealed partial class AcpJsonRpcConnection : IAsyncDisposable {
 		}
 	}
 
-	private async Task WriteLineAsync(string line) {
+	private async Task WriteLineAsync(string line, long? expectedGeneration) {
 		await _writeGate.WaitAsync().ConfigureAwait(false);
 		try {
 			Process process;
-			lock (_deliveryGate) process = RunningProcess(out _);
+			lock (_deliveryGate) {
+				process = RunningProcess(out long generation);
+				if (expectedGeneration is { } expected && generation != expected) {
+					throw new InvalidOperationException("The ACP operation belongs to a previous process generation.");
+				}
+			}
 			await WriteLineAsync(process, line).ConfigureAwait(false);
 		} finally {
 			_writeGate.Release();

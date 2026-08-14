@@ -32,7 +32,7 @@ public sealed partial class HostSession {
 			WireTerminalMessages(
 				Bus.Feature("terminal.agent"),
 				authenticationTerminal.Controller,
-				inputFrozen,
+				acceptTerminalInput,
 				static (_, _) => { });
 		}
 

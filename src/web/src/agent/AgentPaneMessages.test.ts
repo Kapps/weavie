@@ -7,7 +7,7 @@ function toAgentTranscript(messages: readonly AgentPaneUpdate[]) {
   const projection = projectAgentTranscript(
     messages.map((message) =>
       message.type.endsWith("-requested") && message.requestId === undefined
-        ? { ...message, requestId: message.itemId }
+        ? { ...message, requestId: message.itemId ?? null }
         : message,
     ),
   );

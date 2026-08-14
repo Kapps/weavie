@@ -33,6 +33,25 @@ public sealed class McpStdioProxyTests {
 		Assert.Equal(0, process.ExitCode);
 	}
 
+	[Fact]
+	public async Task ProxyCancelsHeldHttpRequestsWhenItsOwnerClosesStdin() {
+		int port = FreePort();
+		string url = $"http://127.0.0.1:{port}/";
+		using var listener = new HttpListener();
+		listener.Prefixes.Add(url);
+		listener.Start();
+		using var process = StartProxy(url);
+
+		await process.StandardInput.WriteLineAsync("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"openDiff\"}");
+		var held = await listener.GetContextAsync().WaitAsync(TimeSpan.FromSeconds(5));
+		_ = await new StreamReader(held.Request.InputStream).ReadToEndAsync();
+		process.StandardInput.Close();
+
+		await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
+		held.Response.Abort();
+		Assert.Equal(0, process.ExitCode);
+	}
+
 	private static Process StartProxy(string url) {
 		string executable = Path.Combine(
 			AppContext.BaseDirectory,

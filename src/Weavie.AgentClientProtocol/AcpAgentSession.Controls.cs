@@ -70,21 +70,24 @@ public sealed partial class AcpAgentSession {
 		bool mode = mutation.Axis == "mode";
 		if (mode) {
 			result = await _connection.RequestAsync(
-					"session/set_mode",
+				"session/set_mode",
 				new { sessionId, modeId = mutation.Value },
+				generation,
 				CancellationToken.None).ConfigureAwait(false);
 		} else if (control.Kind == "boolean") {
 			if (!bool.TryParse(mutation.Value, out bool boolean)) {
 				throw new AcpProtocolException($"'{mutation.Value}' is not a boolean ACP configuration value.");
 			}
 			result = await _connection.RequestAsync(
-					"session/set_config_option",
+				"session/set_config_option",
 				new { sessionId, configId = mutation.Axis, type = "boolean", value = boolean },
+				generation,
 				CancellationToken.None).ConfigureAwait(false);
 		} else {
 			result = await _connection.RequestAsync(
-					"session/set_config_option",
+				"session/set_config_option",
 				new { sessionId, configId = mutation.Axis, value = mutation.Value },
+				generation,
 				CancellationToken.None).ConfigureAwait(false);
 		}
 		lock (_turnTransitionGate) {

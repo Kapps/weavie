@@ -410,6 +410,7 @@ test.describe("ACP composer", () => {
       paneMessage({
         type: "input-requested",
         itemId: "input-1",
+        requestId: "input-1",
         status: "pending",
         questions: [freeformQuestion],
       }),
@@ -428,6 +429,7 @@ test.describe("ACP composer", () => {
       paneMessage({
         type: "input-requested",
         itemId: "input-draft",
+        requestId: "input-draft",
         status: "pending",
         questions: [freeformQuestion],
       }),
@@ -518,6 +520,7 @@ test.describe("ACP composer", () => {
       paneMessage({
         type: "input-requested",
         itemId: "input-multiple",
+        requestId: "input-multiple",
         status: "pending",
         questions: [
           {
@@ -554,6 +557,7 @@ test.describe("ACP composer", () => {
       paneMessage({
         type: "input-requested",
         itemId: "input-array",
+        requestId: "input-array",
         status: "pending",
         questions: [
           {
@@ -588,6 +592,7 @@ test.describe("ACP composer", () => {
       paneMessage({
         type: "input-requested",
         itemId: "input-boolean",
+        requestId: "input-boolean",
         status: "pending",
         questions: [
           {
@@ -618,6 +623,7 @@ test.describe("ACP composer", () => {
       paneMessage({
         type: "input-requested",
         itemId: "input-validation",
+        requestId: "input-validation",
         status: "pending",
         questions: [{ ...freeformQuestion, pattern: "^ok$" }],
       }),
@@ -649,6 +655,7 @@ test.describe("ACP composer", () => {
       paneMessage({
         type: "input-requested",
         itemId: "form-decline",
+        requestId: "form-decline",
         itemType: "elicitation",
         status: "pending",
         questions: [freeformQuestion],
@@ -678,6 +685,7 @@ test.describe("ACP composer", () => {
       paneMessage({
         type: "input-requested",
         itemId: "url-decline",
+        requestId: "url-decline",
         itemType: "url",
         resourceUri: "https://example.test/login",
         status: "pending",
@@ -1131,6 +1139,7 @@ test.describe("ACP composer", () => {
       paneMessage({
         type: "approval-requested",
         itemId: "a1",
+        requestId: "a1",
         status: "pending",
         summary: "Run: dotnet test",
         actions: permissionActions,
@@ -1225,6 +1234,7 @@ test.describe("ACP composer", () => {
       paneMessage({
         type: "approval-requested",
         itemId: "a1",
+        requestId: "a1",
         status: "pending",
         summary: "Wants to run the test suite.",
         text: "dotnet test tests/Weavie.Hosting.Tests",
@@ -1254,6 +1264,7 @@ test.describe("ACP composer", () => {
       paneMessage({
         type: "approval-requested",
         itemId: "a1",
+        requestId: "a1",
         status: "pending",
         summary: "Wants to run the test suite.",
         text: "dotnet test tests/Weavie.Hosting.Tests",
@@ -1284,6 +1295,7 @@ test.describe("ACP composer", () => {
       paneMessage({
         type: "approval-requested",
         itemId: "a1",
+        requestId: "a1",
         status: "pending",
         summary: "Wants to run the test suite.",
         text: "dotnet test tests/Weavie.Hosting.Tests",

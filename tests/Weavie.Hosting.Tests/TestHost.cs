@@ -592,6 +592,10 @@ internal sealed class TestHost : IAsyncDisposable {
 			Sources = BuildSourceConnector(sourceHttp, sourcesDir),
 			// A fresh, uninstalled buffer — tests never tee Console (that would hijack the xunit console).
 			LogBuffer = new LogBuffer(LogBuffer.DefaultCapacity),
+			// Private to this host's tempRoot: concurrent TestHosts (and CrashReporterTests) never share a
+			// crash-report path, so their hello handshakes can't race each other's file rotation.
+			LastCrashFile = Path.Combine(tempRoot, "logs", "last-crash.log"),
+			PreviousCrashFile = Path.Combine(tempRoot, "logs", "previous-crash.log"),
 		};
 	}
 

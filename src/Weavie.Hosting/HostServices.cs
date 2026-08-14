@@ -85,6 +85,12 @@ public sealed record HostServices {
 	/// <summary>The process's captured console output (stdout/stderr teed into a bounded ring), backing the in-app log viewer.</summary>
 	public required LogBuffer LogBuffer { get; init; }
 
+	/// <summary>Where <see cref="CrashReporter"/> appends a terminating exception (<c>~/.weavie/logs/last-crash.log</c>).</summary>
+	public required string LastCrashFile { get; init; }
+
+	/// <summary>Where <see cref="CrashReporter"/> rotates the report once surfaced (<c>~/.weavie/logs/previous-crash.log</c>).</summary>
+	public required string PreviousCrashFile { get; init; }
+
 	/// <summary>
 	/// Builds the standard single-process store set — settings + keybindings watched live, console logging
 	/// wired — for hosts that own exactly one workspace per process (Mac/Linux/Headless).
@@ -127,6 +133,8 @@ public sealed record HostServices {
 			ReviewComments = github,
 			Sources = SourceConnector.CreateDefault(),
 			LogBuffer = logBuffer,
+			LastCrashFile = WeaviePaths.LastCrashFile,
+			PreviousCrashFile = WeaviePaths.PreviousCrashFile,
 		};
 	}
 

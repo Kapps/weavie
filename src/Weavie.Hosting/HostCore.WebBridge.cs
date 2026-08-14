@@ -596,12 +596,12 @@ public sealed partial class HostCore {
 
 	/// <summary>Surfaces a prior run's unhandled crash as a one-time toast pointing at the saved report.</summary>
 	private void SurfacePriorCrash() {
-		if (CrashReporter.TakePendingReport() is null) {
+		if (CrashReporter.TakePendingReport(_lastCrashFile, _previousCrashFile) is null) {
 			return;
 		}
 
 		// Keyed so two windows handling `ready` at once collapse to a single toast (matches the malformed-settings notice).
-		Notify("error", $"Weavie exited unexpectedly last session. A crash report was saved to {Weavie.Core.WeaviePaths.PreviousCrashFile}.", "prior-crash");
+		Notify("error", $"Weavie exited unexpectedly last session. A crash report was saved to {_previousCrashFile}.", "prior-crash");
 	}
 
 	/// <summary>Pushes a user-facing notification (rendered as a toast in the page).</summary>

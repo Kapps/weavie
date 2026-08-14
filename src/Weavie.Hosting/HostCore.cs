@@ -59,6 +59,10 @@ public sealed partial class HostCore : IAsyncDisposable {
 	private readonly SearchStateStore _searchState;
 	// App-global captured console output (stdout/stderr teed into a bounded ring), served by the in-app log viewer.
 	private readonly LogBuffer _logBuffer;
+	// Where a prior run's unhandled-crash report lives / rotates to; test hosts point these at a private temp
+	// dir so concurrent test processes never race the real path (or each other) — see HostServices.
+	private readonly string _lastCrashFile;
+	private readonly string _previousCrashFile;
 	// Lists open PRs for the Open-PR flow (GitHub by default; a static stub under the headless harness).
 	private readonly Weavie.Core.Review.IPullRequestProvider _pullRequests;
 	// Loads/posts a PR's review comments (same GitHub client, or the harness stub).
@@ -164,6 +168,8 @@ public sealed partial class HostCore : IAsyncDisposable {
 		_railState = services.RailState;
 		_searchState = services.SearchState;
 		_logBuffer = services.LogBuffer;
+		_lastCrashFile = services.LastCrashFile;
+		_previousCrashFile = services.PreviousCrashFile;
 		_pullRequests = services.PullRequests;
 		_reviewComments = services.ReviewComments;
 		_sources = services.Sources;
@@ -247,7 +253,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 		await _http.StartAsync().ConfigureAwait(false);
 		// Record any unhandled background-thread exception to a crash log (and stderr) before the runtime tears
 		// down, so a hard exit leaves a trace instead of vanishing; surfaced as a toast on the next launch.
-		CrashReporter.Install(line => Log($"[crash] {line}"));
+		CrashReporter.Install(line => Log($"[crash] {line}"), _lastCrashFile);
 
 		// Any launch context can carry a truncated environment and a stingy open-file limit — a Finder .app or
 		// desktop entry via launchd, a headless host under a supervisor. Raise the descriptor limit so a second

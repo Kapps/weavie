@@ -81,8 +81,10 @@ test("ACP steering and background completion return the session to idle @cross",
 
   await composer.fill("background");
   await composer.press("Enter");
-  const subagentActivity = surface.locator(".agent-entry-activity").last();
-  await expect(subagentActivity).toContainText("1 execute");
+  const subagentActivity = surface.locator(".agent-entry-activity", {
+    hasText: "execute: Background agent",
+  });
+  await expect(subagentActivity).toContainText("running");
   await expect(surface.locator(".agent-working")).toBeVisible();
   await composer.fill("finish-background");
   await composer.press("Enter");

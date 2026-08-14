@@ -1,5 +1,7 @@
 using System.Globalization;
+using System.Net.Mail;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Weavie.Core.Agents;
 
 namespace Weavie.AgentClientProtocol;
@@ -14,7 +16,9 @@ public sealed partial class AcpAgentSession {
 				throw new AcpProtocolException($"ACP repeated outstanding URL elicitation id '{elicitationId}'.");
 			}
 			var data = JsonSerializer.SerializeToElement(Array.Empty<object>());
-			if (!_pendingRequests.TryAdd(request.Id, new AcpPendingRequest(request, "url", data))) {
+			if (!_pendingRequests.TryAdd(
+				request.Id,
+				new AcpPendingRequest(request, "url", data, SessionId(), TurnId()))) {
 				_urlElicitations.TryRemove(elicitationId, out _);
 				throw new AcpProtocolException($"ACP request id '{request.Id}' is already pending.");
 			}
@@ -23,7 +27,8 @@ public sealed partial class AcpAgentSession {
 					Type = "input-requested",
 					ProviderId = _definition.Id,
 					ThreadId = SessionId(),
-					ItemId = request.Id,
+					ItemId = $"request:{request.Id}",
+					RequestId = request.Id,
 					ItemType = "url",
 					Summary = OptionalString(request.Parameters, "message") ?? "Open this link to continue",
 					ResourceUri = url,
@@ -40,14 +45,17 @@ public sealed partial class AcpAgentSession {
 			throw new AcpProtocolException($"Unsupported ACP elicitation mode '{mode}'.");
 		}
 		var questions = ReadQuestions(schema, OptionalString(request.Parameters, "message"));
-		if (!_pendingRequests.TryAdd(request.Id, new AcpPendingRequest(request, "input", schema.Clone()))) {
+		if (!_pendingRequests.TryAdd(
+			request.Id,
+			new AcpPendingRequest(request, "input", schema.Clone(), SessionId(), TurnId()))) {
 			throw new AcpProtocolException($"ACP request id '{request.Id}' is already pending.");
 		}
 		PublishInputRequest(state, request, () => new AgentPaneMessage {
 			Type = "input-requested",
 			ProviderId = _definition.Id,
 			ThreadId = SessionId(),
-			ItemId = request.Id,
+			ItemId = $"request:{request.Id}",
+			RequestId = request.Id,
 			ItemType = "elicitation",
 			Summary = OptionalString(request.Parameters, "message") ?? "Input requested",
 			Questions = questions,
@@ -86,10 +94,15 @@ public sealed partial class AcpAgentSession {
 				throw new AcpProtocolException($"Unsupported ACP elicitation property type '{kind}'.");
 			}
 			string title = OptionalString(value, "title") ?? property.Name;
-			if (OptionalString(value, "format") == "password") {
+			string? format = OptionalString(value, "format");
+			if (format == "password") {
 				throw new AcpProtocolException(
 					"ACP password forms are not supported; use a secure HTTPS URL elicitation instead.");
 			}
+			if (format is not null && (kind != "string" || format is not ("email" or "uri" or "date" or "date-time"))) {
+				throw new AcpProtocolException($"Unsupported ACP elicitation format '{format}'.");
+			}
+			if (OptionalString(value, "pattern") is { } pattern) ValidatePattern(pattern);
 			result.Add(new AgentInputQuestion {
 				Id = property.Name,
 				Header = title,
@@ -97,7 +110,7 @@ public sealed partial class AcpAgentSession {
 				AllowsOther = false,
 				Kind = kind,
 				Required = required.Contains(property.Name),
-				Format = OptionalString(value, "format"),
+				Format = format,
 				InitialValues = ReadDefaultValues(value, kind),
 				Minimum = ReadOptionalDouble(value, "minimum"),
 				Maximum = ReadOptionalDouble(value, "maximum"),
@@ -276,8 +289,36 @@ public sealed partial class AcpAgentSession {
 		if (minimum is not null && value.Length < minimum || maximum is not null && value.Length > maximum) {
 			throw new AcpProtocolException($"'{name}' does not meet its length constraint.");
 		}
+		if (OptionalString(schema, "pattern") is { } pattern
+			&& !Regex.IsMatch(value, pattern, RegexOptions.CultureInvariant)) {
+			throw new AcpProtocolException($"'{name}' does not match its required pattern.");
+		}
+		ValidateStringFormat(name, OptionalString(schema, "format"), value);
 		ValidateOption(name, ReadOptions(schema, "string"), value);
 		return value;
+	}
+
+	private static void ValidatePattern(string pattern) {
+		try {
+			_ = new Regex(pattern, RegexOptions.CultureInvariant);
+		} catch (ArgumentException ex) {
+			throw new AcpProtocolException("ACP elicitation pattern is not a valid regular expression.", ex);
+		}
+	}
+
+	private static void ValidateStringFormat(string name, string? format, string value) {
+		bool valid = format switch {
+			null => true,
+			"email" => MailAddress.TryCreate(value, out var address)
+				&& string.Equals(address.Address, value, StringComparison.OrdinalIgnoreCase),
+			"uri" => Uri.TryCreate(value, UriKind.Absolute, out _),
+			"date" => DateOnly.TryParseExact(value, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out _),
+			"date-time" => value.Contains('T')
+				&& Regex.IsMatch(value, "(?:Z|[+-][0-9]{2}:[0-9]{2})$", RegexOptions.CultureInvariant)
+				&& DateTimeOffset.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out _),
+			_ => false,
+		};
+		if (!valid) throw new AcpProtocolException($"'{name}' is not a valid {format} value.");
 	}
 
 	private static object ValidateNumber(string name, JsonElement schema, double value) {

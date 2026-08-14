@@ -90,8 +90,8 @@ public sealed class AcpAgentSessionTests {
 		var messages = fixture.Messages;
 		Assert.Contains(messages, message => message.Type == "item-completed"
 			&& message.ItemType == "thought" && message.Text == "inspect");
-		var edit = Assert.Single(messages, message => message.Type == "item-completed" && message.ItemId == "edit");
-		Assert.Equal("sample.txt", Assert.Single(edit.Locations!).Path);
+		var edit = Assert.Single(messages, message => message.Type == "item-completed" && message.ItemId == "tool:edit");
+		Assert.Equal("sample.txt", Path.GetFileName(Assert.Single(edit.Locations!).Path));
 		Assert.Equal("new", Assert.Single(edit.Diffs!).NewText);
 		Assert.Contains(messages, message => message.ItemType == "plan"
 			&& message.Text!.Contains("[~] Implement", StringComparison.Ordinal));
@@ -99,6 +99,41 @@ public sealed class AcpAgentSessionTests {
 			&& message.UsageUsed == 123 && message.UsageSize == 4096);
 		Assert.Contains(messages, message => message.Type == "item-completed" && message.Text == "rich response");
 		Assert.Equal(SessionStatus.Idle, fixture.Events.Status.Status);
+	}
+
+	[Fact]
+	public async Task NativeSession_PreservesOrderedRichToolContent() {
+		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
+		await fixture.StartAsync();
+
+		fixture.Submit("tool-content");
+		var tool = await fixture.WaitForMessageAsync(message => message.ItemId == "tool:content"
+			&& message.Type == "item-completed");
+
+		Assert.Collection(tool.Content!,
+			content => Assert.Equal(("text", "tool text"), (content.Type, content.Text)),
+			content => Assert.Equal(("image", "image/png", "aW1hZ2U="),
+				(content.Type, content.MediaType, content.MediaData)),
+			content => Assert.Equal(("resource_link", "https://example.test/result", "Result"),
+				(content.Type, content.ResourceUri, content.Name)),
+			content => Assert.Equal(("resource", "file:///result.txt", "embedded text"),
+				(content.Type, content.ResourceUri, content.Text)));
+	}
+
+	[Fact]
+	public async Task NativeSession_AcceptsEmptyFileWritesAndDiffResults() {
+		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
+		await fixture.StartAsync();
+		string path = Path.Combine(fixture.Workspace, "empty.txt");
+
+		fixture.Submit("fs-empty:" + path);
+		await fixture.WaitForMessageAsync(message => message.Text == "fs: ");
+		Assert.Equal(string.Empty, await File.ReadAllTextAsync(path));
+
+		fixture.Submit("empty-diff");
+		var tool = await fixture.WaitForMessageAsync(message => message.ItemId == "tool:empty-diff"
+			&& message.Type == "item-completed");
+		Assert.Equal(string.Empty, Assert.Single(tool.Diffs!).NewText);
 	}
 
 	[Fact]
@@ -192,7 +227,7 @@ public sealed class AcpAgentSessionTests {
 		await fixture.StartAsync();
 
 		fixture.Submit("hold");
-		await fixture.WaitForMessageAsync(message => message.ItemId == "hold" && message.Type == "item-started");
+		await fixture.WaitForMessageAsync(message => message.ItemId == "tool:hold" && message.Type == "item-started");
 		fixture.Submit("new direction");
 		await fixture.WaitForMessageAsync(message => message.Type == "item-completed"
 			&& message.Text == "steered: new direction");
@@ -201,7 +236,7 @@ public sealed class AcpAgentSessionTests {
 
 		fixture.Submit("background");
 		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed" && message.TurnId == "2");
-		var subagent = Assert.Single(fixture.Messages, message => message.ItemId == "subagent"
+		var subagent = Assert.Single(fixture.Messages, message => message.ItemId == "tool:subagent"
 			&& message.Type == "item-started");
 		Assert.Equal(SessionStatus.Waiting, fixture.Events.Status.Status);
 
@@ -234,7 +269,7 @@ public sealed class AcpAgentSessionTests {
 		fixture.Submit("permission");
 		var approval = await fixture.WaitForMessageAsync(message => message.Type == "approval-requested");
 		Assert.Equal(SessionStatus.NeedsInput, fixture.Events.Status.Status);
-		fixture.Session.ResolvePermission(approval.ItemId!, "allow-once");
+		fixture.Session.ResolvePermission(approval.RequestId!, "allow-once");
 		var resolved = await fixture.WaitForMessageAsync(message => message.Type == "approval-resolved");
 		Assert.Equal("allowed once", resolved.Status);
 		await fixture.WaitForMessageAsync(message => message.Type == "item-completed"
@@ -247,7 +282,7 @@ public sealed class AcpAgentSessionTests {
 		Assert.Equal("choice", question.Id);
 		Assert.Equal(["one", "two"], question.Options.Select(option => option.Value));
 		Assert.False(question.AllowsOther);
-		fixture.Session.ResolveInput(input.ItemId!, "accept", new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal) {
+		fixture.Session.ResolveInput(input.RequestId!, "accept", new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal) {
 			["choice"] = ["two"],
 		});
 		await fixture.WaitForMessageAsync(message => message.Type == "item-completed"
@@ -263,7 +298,7 @@ public sealed class AcpAgentSessionTests {
 
 		fixture.Submit("input-cancel");
 		var form = await fixture.WaitForMessageAsync(message => message.Type == "input-requested");
-		fixture.Session.ResolveInput(form.ItemId!, "cancel", new Dictionary<string, IReadOnlyList<string>>());
+		fixture.Session.ResolveInput(form.RequestId!, "cancel", new Dictionary<string, IReadOnlyList<string>>());
 		await fixture.WaitForMessageAsync(message => message.Text == "input action: cancel");
 		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed" && message.TurnId == "1");
 
@@ -271,7 +306,7 @@ public sealed class AcpAgentSessionTests {
 		var url = await fixture.WaitForMessageAsync(message => message.Type == "input-requested"
 			&& message.ItemType == "url");
 		Assert.Equal("https://example.test/login", url.ResourceUri);
-		fixture.Session.ResolveInput(url.ItemId!, "decline", new Dictionary<string, IReadOnlyList<string>>());
+		fixture.Session.ResolveInput(url.RequestId!, "decline", new Dictionary<string, IReadOnlyList<string>>());
 		await fixture.WaitForMessageAsync(message => message.Text == "URL action: decline");
 		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed" && message.TurnId == "2");
 		Assert.Equal(SessionStatus.Idle, fixture.Events.Status.Status);
@@ -286,7 +321,7 @@ public sealed class AcpAgentSessionTests {
 		var input = await fixture.WaitForMessageAsync(message => message.Type == "input-requested");
 		Assert.Equal(2, input.Questions!.Count);
 		Assert.All(input.Questions, question => Assert.Empty(question.Options));
-		fixture.Session.ResolveInput(input.ItemId!, "accept", new Dictionary<string, IReadOnlyList<string>> {
+		fixture.Session.ResolveInput(input.RequestId!, "accept", new Dictionary<string, IReadOnlyList<string>> {
 			["text"] = ["free"],
 			["values"] = ["one", "two"],
 		});
@@ -304,7 +339,7 @@ public sealed class AcpAgentSessionTests {
 		fixture.Submit("input-default-schema");
 		var input = await fixture.WaitForMessageAsync(message => message.Type == "input-requested");
 		Assert.Empty(input.Questions!);
-		fixture.Session.ResolveInput(input.ItemId!, "accept", new Dictionary<string, IReadOnlyList<string>>());
+		fixture.Session.ResolveInput(input.RequestId!, "accept", new Dictionary<string, IReadOnlyList<string>>());
 		await fixture.WaitForMessageAsync(message => message.Text == "default schema action: accept");
 		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed");
 
@@ -320,7 +355,7 @@ public sealed class AcpAgentSessionTests {
 		var input = await fixture.WaitForMessageAsync(message => message.Type == "input-requested");
 		var question = Assert.Single(input.Questions!);
 		Assert.Equal(["one", "two"], question.Options.Select(option => option.Value));
-		fixture.Session.ResolveInput(input.ItemId!, "accept", new Dictionary<string, IReadOnlyList<string>> {
+		fixture.Session.ResolveInput(input.RequestId!, "accept", new Dictionary<string, IReadOnlyList<string>> {
 			["values"] = ["one", "two"],
 		});
 		await fixture.WaitForMessageAsync(message => message.Text == "titled array: one,two");
@@ -343,7 +378,7 @@ public sealed class AcpAgentSessionTests {
 			&& message.ItemId == input.ItemId);
 		Assert.Equal(SessionStatus.NeedsInput, fixture.Events.Status.Status);
 		fixture.Session.ResolveInput(
-			input.ItemId!,
+			input.RequestId!,
 			"decline",
 			new Dictionary<string, IReadOnlyList<string>>());
 		var resolved = await fixture.WaitForMessageAsync(message => message.Type == "input-resolved"
@@ -506,9 +541,9 @@ public sealed class AcpAgentSessionTests {
 		await fixture.WaitForMessageAsync(message => message.Type == "error");
 
 		Assert.Equal("failed", failed.Status);
-		Assert.Contains(fixture.Messages, message => message.ItemId == "foreground-failure"
+		Assert.Contains(fixture.Messages, message => message.ItemId == "tool:foreground-failure"
 			&& message.Type == "item-completed" && message.Status == "failed");
-		Assert.Contains(fixture.Messages, message => message.ItemId == "subagent"
+		Assert.Contains(fixture.Messages, message => message.ItemId == "tool:subagent"
 			&& message.Type == "item-completed" && message.Status == "failed");
 		Assert.Equal(SessionStatus.Idle, fixture.Events.Status.Status);
 	}
@@ -542,7 +577,7 @@ public sealed class AcpAgentSessionTests {
 		Assert.Contains(fixture.Messages, message => message.Type == "item-retracted"
 			&& message.ItemId == "thought:thought");
 		Assert.Contains(fixture.Messages, message => message.Type == "item-retracted"
-			&& message.ItemId == "plan");
+			&& message.ItemId == "plan:current");
 	}
 
 	[Fact]
@@ -673,7 +708,7 @@ public sealed class AcpAgentSessionTests {
 		await fixture.StartAsync();
 
 		fixture.Submit("hold");
-		await fixture.WaitForMessageAsync(message => message.ItemId == "hold" && message.Type == "item-started");
+		await fixture.WaitForMessageAsync(message => message.ItemId == "tool:hold" && message.Type == "item-started");
 		fixture.Session.Interrupt();
 		var completed = await fixture.WaitForMessageAsync(message => message.Type == "turn-completed");
 
@@ -688,7 +723,7 @@ public sealed class AcpAgentSessionTests {
 		await fixture.StartAsync();
 
 		fixture.Submit("hold-cancel-error");
-		await fixture.WaitForMessageAsync(message => message.ItemId == "hold" && message.Type == "item-started");
+		await fixture.WaitForMessageAsync(message => message.ItemId == "tool:hold" && message.Type == "item-started");
 		fixture.Session.Interrupt();
 		var error = await fixture.WaitForMessageAsync(message => message.Type == "error");
 		var completed = await fixture.WaitForMessageAsync(message => message.Type == "turn-completed");
@@ -717,7 +752,7 @@ public sealed class AcpAgentSessionTests {
 		Assert.Equal(["1", "2"], plans.Select(message => message.TurnId));
 		Assert.Contains(plans, message => message.Text!.Contains("first persisted plan", StringComparison.Ordinal));
 		Assert.Contains(plans, message => message.Text!.Contains("second persisted plan", StringComparison.Ordinal));
-		Assert.Contains(snapshot, message => message.Type == "item-started" && message.ItemId == "replayed-background");
+		Assert.Contains(snapshot, message => message.Type == "item-started" && message.ItemId == "tool:replayed-background");
 		Assert.DoesNotContain(snapshot, message => message.Text?.Contains("hidden guidance", StringComparison.Ordinal) == true);
 		Assert.DoesNotContain(snapshot, message => message.Text?.Contains("hidden selection", StringComparison.Ordinal) == true);
 		Assert.All(snapshot, message => Assert.Equal("replay-session", message.ThreadId));
@@ -738,7 +773,7 @@ public sealed class AcpAgentSessionTests {
 		await fixture.StartAsync();
 
 		fixture.Submit("hold");
-		await fixture.WaitForMessageAsync(message => message.ItemId == "hold" && message.Type == "item-started");
+		await fixture.WaitForMessageAsync(message => message.ItemId == "tool:hold" && message.Type == "item-started");
 		fixture.Session.Restart();
 		await fixture.WaitForControlsAsync(state => state.Axes.Any(axis => axis.Id == "model"));
 		fixture.Submit("after active restart");
@@ -758,7 +793,7 @@ public sealed class AcpAgentSessionTests {
 		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
 		await fixture.StartAsync();
 		fixture.Submit("restart-update-race");
-		await fixture.WaitForMessageAsync(message => message.ItemId == "restart-update-race"
+		await fixture.WaitForMessageAsync(message => message.ItemId == "tool:restart-update-race"
 			&& message.Type == "item-started");
 
 		var block = fixture.Events.BlockNext<AgentTurnStopped>();

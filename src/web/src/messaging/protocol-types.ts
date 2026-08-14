@@ -63,6 +63,7 @@ export interface AgentPaneUpdate {
   turnId?: string | null;
   startedAtMs?: number | null;
   itemId?: string | null;
+  requestId?: string | null;
   itemType?: string | null;
   itemIds?: string[] | null;
   category?: string | null;
@@ -73,6 +74,7 @@ export interface AgentPaneUpdate {
   actions?: AgentActionOption[] | null;
   locations?: AgentPaneLocation[] | null;
   diffs?: AgentPaneDiff[] | null;
+  content?: AgentPaneContent[] | null;
   parentItemId?: string | null;
   background?: boolean | null;
   terminalId?: string | null;
@@ -81,6 +83,15 @@ export interface AgentPaneUpdate {
   mediaType?: string | null;
   mediaData?: string | null;
   resourceUri?: string | null;
+}
+
+export interface AgentPaneContent {
+  type: string;
+  text?: string | null;
+  mediaType?: string | null;
+  mediaData?: string | null;
+  resourceUri?: string | null;
+  name?: string | null;
 }
 
 export interface AgentActionOption {

@@ -13,6 +13,7 @@ const message = (type: string, itemId?: string): AgentPaneUpdate => ({
   type,
   providerId: "acp",
   itemId: itemId ?? null,
+  requestId: type.endsWith("-requested") ? (itemId ?? null) : null,
 });
 
 const started = (startedAtMs: number): AgentPaneUpdate => ({

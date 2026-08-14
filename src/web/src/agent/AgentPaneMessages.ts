@@ -279,7 +279,8 @@ function actionMessage(message: AgentPaneUpdate): AgentPaneUpdate | null {
     message.type === "edit-location" ||
     message.type === "input-requested" ||
     (message.mediaData !== null && message.mediaData !== undefined) ||
-    (message.resourceUri !== null && message.resourceUri !== undefined)
+    (message.resourceUri !== null && message.resourceUri !== undefined) ||
+    (message.content?.length ?? 0) > 0
     ? message
     : null;
 }

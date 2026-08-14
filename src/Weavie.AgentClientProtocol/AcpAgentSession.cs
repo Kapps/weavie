@@ -50,6 +50,8 @@ public sealed partial class AcpAgentSession : IStructuredAgentSession, IStructur
 	private bool _authenticating;
 	private bool _authenticationOpensSession;
 	private CancellationTokenSource? _authenticationCancellation;
+	private string? _authenticationItemId;
+	private long _authenticationSequence;
 	private bool _supportsLoad;
 	private bool _supportsResume;
 	private bool _supportsClose;
@@ -111,7 +113,7 @@ public sealed partial class AcpAgentSession : IStructuredAgentSession, IStructur
 	private void Emit(AgentPaneMessage message) {
 		if (message.TurnId is { Length: > 0 } turnId
 			&& message.ItemId is { Length: > 0 } itemId
-			&& message.Type is "user-message" or "user-image" or "agent-message-delta"
+			&& message.Type is "agent-message-delta"
 				or "thought-message-delta" or "plan-delta" or "item-started" or "item-completed") {
 			lock (_gate) {
 				if (!_turnItemIds.TryGetValue(turnId, out var items)) {
@@ -202,12 +204,12 @@ public sealed partial class AcpAgentSession : IStructuredAgentSession, IStructur
 			_steering = false;
 			_waitingForBackground = false;
 			_cancelRequested = false;
-			_pendingSubmissions.Clear();
 			_controlMutations.Clear();
 			_submissionEpoch++;
 			tools = TerminalizeActiveToolsLocked("failed");
 		}
 		if (generation > 0) {
+			_terminals.ReleaseGeneration(generation);
 			_connection.TerminateGeneration(
 				generation,
 				string.IsNullOrEmpty(error.Message) ? "ACP runtime failure." : error.Message);
@@ -296,7 +298,12 @@ public sealed partial class AcpAgentSession : IStructuredAgentSession, IStructur
 		});
 	}
 
-	private sealed record AcpPendingRequest(AcpClientRequest Request, string Kind, JsonElement Data);
+	private sealed record AcpPendingRequest(
+		AcpClientRequest Request,
+		string Kind,
+		JsonElement Data,
+		string? ThreadId,
+		string TurnId);
 
 	private sealed class AcpClientRequestState : IDisposable {
 		private readonly CancellationTokenSource _cancellation;
@@ -371,6 +378,7 @@ public sealed partial class AcpAgentSession : IStructuredAgentSession, IStructur
 		public string? Text { get; set; }
 		public IReadOnlyList<AgentPaneLocation>? Locations { get; set; }
 		public IReadOnlyList<AgentPaneDiff>? Diffs { get; set; }
+		public IReadOnlyList<AgentPaneContent>? Content { get; set; }
 		public string? TerminalId { get; set; }
 		public long? StartedAtMs { get; set; }
 		public bool MutationMetadataDisclosed { get; set; }

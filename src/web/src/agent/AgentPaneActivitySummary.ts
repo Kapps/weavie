@@ -159,7 +159,11 @@ function activityStep(message: AgentPaneUpdate, category: string): AgentActivity
 }
 
 function hasReviewTarget(message: AgentPaneUpdate): boolean {
-  return (message.locations?.length ?? 0) > 0 || (message.diffs?.length ?? 0) > 0;
+  return (
+    (message.locations?.length ?? 0) > 0 ||
+    (message.diffs?.length ?? 0) > 0 ||
+    (message.content?.length ?? 0) > 0
+  );
 }
 
 function activityCategory(message: AgentPaneUpdate): string | null {

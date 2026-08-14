@@ -14,7 +14,7 @@ export function ApprovalActions(props: {
   answersToKeys: boolean;
 }): JSX.Element {
   const choose = (optionId: string): void => {
-    const requestId = props.message.itemId;
+    const requestId = props.message.requestId;
     if (
       props.session !== null &&
       requestId !== null &&
@@ -130,7 +130,7 @@ export function UrlInputActions(props: {
   answersToKeys: boolean;
 }): JSX.Element {
   const resolve = (action: "accept" | "decline" | "cancel"): boolean => {
-    const requestId = props.message.itemId;
+    const requestId = props.message.requestId;
     if (requestId === null || requestId === undefined || requestId.length === 0) {
       return false;
     }
@@ -150,7 +150,7 @@ export function UrlInputActions(props: {
   });
   const open = async (): Promise<void> => {
     const url = props.message.resourceUri;
-    const requestId = props.message.itemId;
+    const requestId = props.message.requestId;
     if (url === null || url === undefined || requestId === null || requestId === undefined) {
       return;
     }
@@ -213,7 +213,7 @@ export function InputRequestActions(props: {
     action: "accept" | "decline" | "cancel",
     answers: Record<string, string[]>,
   ): boolean => {
-    const requestId = props.message.itemId;
+    const requestId = props.message.requestId;
     if (requestId === null || requestId === undefined || requestId.length === 0) {
       return false;
     }

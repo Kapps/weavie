@@ -4,7 +4,13 @@ import { ProjectedAgentActivity } from "./AgentPaneActivitySummary";
 import { projectAgentTranscript } from "./AgentPaneMessages";
 
 function toAgentTranscript(messages: readonly AgentPaneUpdate[]) {
-  const projection = projectAgentTranscript(messages);
+  const projection = projectAgentTranscript(
+    messages.map((message) =>
+      message.type.endsWith("-requested") && message.requestId === undefined
+        ? { ...message, requestId: message.itemId }
+        : message,
+    ),
+  );
   for (const entry of projection.entries) {
     const activity = projection.activities.get(entry.id);
     if (activity !== undefined) {

@@ -117,7 +117,8 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 		if (_requiresAuthentication && !_authenticated) {
 			throw new AcpAdapterException(-32000, "Sign in to the fake ACP agent.", null);
 		}
-		if (_fakeMode != "minimal-capabilities") RequireMcp(parameters);
+		if (_fakeMode == "minimal-capabilities") RequireStdioMcp(parameters);
+		else RequireMcp(parameters);
 		_sessionId = sessionId;
 		if (replay && sessionId == "replay-session") {
 			Update(new JsonObject {
@@ -217,6 +218,8 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 		else if (text == "finish-background") FinishBackground();
 		else if (text == "prompt-failure") PromptFailure();
 		else if (text == "shared-message-id") SharedMessageId();
+		else if (text == "tool-content") ToolContent();
+		else if (text == "empty-diff") EmptyDiff();
 		else if (text == "refusal") {
 			RichUpdates();
 			return new JsonObject { ["stopReason"] = "refusal" };
@@ -240,7 +243,11 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 		} else if (text == "terminal-cancel") await TerminalCancellationAsync(ct).ConfigureAwait(false);
 		else if (text == "cancel-before-dispatch") await CancelBeforeDispatchAsync().ConfigureAwait(false);
 		else if (text == "terminal-failure") await TerminalFailureAsync(ct).ConfigureAwait(false);
-		else if (text.StartsWith("fs:", StringComparison.Ordinal)) await FileSystemAsync(text[3..], ct).ConfigureAwait(false);
+		else if (text.StartsWith("fs-empty:", StringComparison.Ordinal)) {
+			await FileSystemAsync(text[9..], string.Empty, ct).ConfigureAwait(false);
+		} else if (text.StartsWith("fs:", StringComparison.Ordinal)) {
+			await FileSystemAsync(text[3..], "written through ACP", ct).ConfigureAwait(false);
+		}
 		else if (text.StartsWith("persist-probe:", StringComparison.Ordinal)) {
 			await Task.Delay(TimeSpan.FromMilliseconds(250), CancellationToken.None).ConfigureAwait(false);
 			File.WriteAllText(text["persist-probe:".Length..], "provider mutation");
@@ -330,7 +337,10 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 			["title"] = "Edit file",
 			["kind"] = "edit",
 			["status"] = "in_progress",
-			["locations"] = new JsonArray(new JsonObject { ["path"] = "sample.txt", ["line"] = 7 }),
+			["locations"] = new JsonArray(new JsonObject {
+				["path"] = Path.Combine(Environment.CurrentDirectory, "sample.txt"),
+				["line"] = 7,
+			}),
 		});
 		Update(new JsonObject {
 			["sessionUpdate"] = "plan",
@@ -344,7 +354,7 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 			["status"] = "completed",
 			["content"] = new JsonArray(new JsonObject {
 				["type"] = "diff",
-				["path"] = "sample.txt",
+				["path"] = Path.Combine(Environment.CurrentDirectory, "sample.txt"),
 				["oldText"] = "old",
 				["newText"] = "new",
 			}),
@@ -369,6 +379,67 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 			});
 		}
 	}
+
+	private void ToolContent() {
+		Update(new JsonObject {
+			["sessionUpdate"] = "tool_call",
+			["toolCallId"] = "content",
+			["title"] = "Rich tool content",
+			["kind"] = "read",
+			["status"] = "in_progress",
+		});
+		Update(new JsonObject {
+			["sessionUpdate"] = "tool_call_update",
+			["toolCallId"] = "content",
+			["status"] = "completed",
+			["content"] = new JsonArray(
+				Content(Text("tool text")),
+				Content(new JsonObject {
+					["type"] = "image",
+					["mimeType"] = "image/png",
+					["data"] = "aW1hZ2U=",
+				}),
+				Content(new JsonObject {
+					["type"] = "resource_link",
+					["uri"] = "https://example.test/result",
+					["name"] = "Result",
+				}),
+				Content(new JsonObject {
+					["type"] = "resource",
+					["resource"] = new JsonObject {
+						["uri"] = "file:///result.txt",
+						["mimeType"] = "text/plain",
+						["text"] = "embedded text",
+					},
+				})),
+		});
+	}
+
+	private void EmptyDiff() {
+		Update(new JsonObject {
+			["sessionUpdate"] = "tool_call",
+			["toolCallId"] = "empty-diff",
+			["title"] = "Empty file",
+			["kind"] = "edit",
+			["status"] = "in_progress",
+		});
+		Update(new JsonObject {
+			["sessionUpdate"] = "tool_call_update",
+			["toolCallId"] = "empty-diff",
+			["status"] = "completed",
+			["content"] = new JsonArray(new JsonObject {
+				["type"] = "diff",
+				["path"] = Path.Combine(Environment.CurrentDirectory, "empty.txt"),
+				["oldText"] = "before",
+				["newText"] = string.Empty,
+			}),
+		});
+	}
+
+	private static JsonObject Content(JsonObject block) => new() {
+		["type"] = "content",
+		["content"] = block,
+	};
 
 	private void StartBackground() => Update(new JsonObject {
 		["sessionUpdate"] = "tool_call",
@@ -543,11 +614,11 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 		},
 	};
 
-	private async Task FileSystemAsync(string path, CancellationToken ct) {
+	private async Task FileSystemAsync(string path, string content, CancellationToken ct) {
 		await Connection().RequestAsync("fs/write_text_file", new JsonObject {
 			["sessionId"] = _sessionId,
 			["path"] = path,
-			["content"] = "written through ACP",
+			["content"] = content,
 		}, ct).ConfigureAwait(false);
 		var result = await Connection().RequestAsync("fs/read_text_file", new JsonObject {
 			["sessionId"] = _sessionId,
@@ -734,6 +805,16 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 			&& headers.EnumerateArray().Any(header => AcpJson.OptionalString(header, "name") == "Authorization"
 				&& AcpJson.OptionalString(header, "value")?.StartsWith("Bearer ", StringComparison.Ordinal) == true))) {
 			throw AcpAdapterException.InvalidParams("Weavie HTTP MCP credentials are missing.");
+		}
+	}
+
+	private static void RequireStdioMcp(JsonElement parameters) {
+		var servers = AcpJson.RequiredArray(parameters, "mcpServers", "session open");
+		if (!servers.EnumerateArray().Any(server => AcpJson.OptionalString(server, "name") == "weavie"
+			&& AcpJson.OptionalString(server, "type") == "stdio"
+			&& AcpJson.OptionalString(server, "command") is { } command
+			&& Path.IsPathFullyQualified(command))) {
+			throw AcpAdapterException.InvalidParams("Weavie stdio MCP launch is missing.");
 		}
 	}
 

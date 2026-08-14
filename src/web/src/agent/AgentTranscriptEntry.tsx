@@ -60,6 +60,7 @@ export function TranscriptEntry(props: {
           </Show>
         </Show>
         <AgentMedia message={props.entry.actionMessage} session={props.session} />
+        <AgentRichContent message={props.entry.actionMessage} session={props.session} />
         <Show when={props.entry.detailCount > 0}>
           <ActivityDetails
             entry={props.entry}
@@ -179,12 +180,68 @@ function ActivityDetails(props: {
                     <AgentLinkedText session={props.session} text={step.detailText ?? ""} />
                   </pre>
                 </Show>
+                <AgentRichContent message={step.actionMessage ?? null} session={props.session} />
               </div>
             )}
           </For>
         </div>
       </Show>
     </details>
+  );
+}
+
+function AgentRichContent(props: {
+  message: import("../bridge").AgentPaneUpdate | null;
+  session: ClientSession;
+}): JSX.Element {
+  return (
+    <For each={props.message?.content ?? []}>
+      {(content) => {
+        const source =
+          content.mediaData !== null && content.mediaData !== undefined && content.mediaType
+            ? `data:${content.mediaType};base64,${content.mediaData}`
+            : null;
+        return (
+          <div class="agent-entry-rich-content">
+            <Show when={content.text !== null && content.text !== undefined}>
+              <pre class="agent-entry-text">
+                <AgentLinkedText session={props.session} text={content.text ?? ""} />
+              </pre>
+            </Show>
+            <Show when={source !== null && content.mediaType?.startsWith("image/")}>
+              <img
+                class="agent-entry-media"
+                src={source ?? ""}
+                alt={content.name ?? "Agent tool output"}
+              />
+            </Show>
+            <Show when={source !== null && !content.mediaType?.startsWith("image/")}>
+              <a
+                class="agent-entry-media"
+                href={source ?? ""}
+                download={content.name ?? "agent-tool-output"}
+              >
+                Download {content.name ?? "agent tool output"}
+              </a>
+            </Show>
+            <Show when={content.resourceUri}>
+              {(uri) => (
+                <pre class="agent-entry-resource">
+                  <AgentLinkedText
+                    session={props.session}
+                    text={
+                      content.name === undefined || content.name === null
+                        ? uri()
+                        : `${content.name} (${uri()})`
+                    }
+                  />
+                </pre>
+              )}
+            </Show>
+          </div>
+        );
+      }}
+    </For>
   );
 }
 

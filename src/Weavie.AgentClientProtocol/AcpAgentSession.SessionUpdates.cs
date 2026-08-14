@@ -6,7 +6,7 @@ namespace Weavie.AgentClientProtocol;
 public sealed partial class AcpAgentSession {
 	private void EmitPlan(JsonElement update) {
 		string turnId = TurnIdForUpdate(userMessage: false);
-		const string itemId = "plan";
+		const string itemId = "plan:current";
 		if (!update.TryGetProperty("entries", out var entries) || entries.ValueKind != JsonValueKind.Array) {
 			throw new AcpProtocolException("An ACP plan update is missing entries.");
 		}

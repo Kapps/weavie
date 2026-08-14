@@ -106,13 +106,15 @@ public sealed partial class AcpAgentSession {
 
 	private void ReadControlStateLocked(JsonElement setup) {
 		_controls.Clear();
-		if (setup.TryGetProperty("configOptions", out var config)) {
+		if (setup.TryGetProperty("configOptions", out var config)
+			&& config.ValueKind != JsonValueKind.Null) {
 			if (config.ValueKind != JsonValueKind.Array) {
 				throw new AcpProtocolException("ACP configOptions must be an array when present.");
 			}
 			ReadConfigOptionsLocked(config);
 		}
 		if (setup.TryGetProperty("modes", out var modes)) {
+			if (modes.ValueKind == JsonValueKind.Null) return;
 			if (modes.ValueKind != JsonValueKind.Object) {
 				throw new AcpProtocolException("ACP modes must be an object when present.");
 			}

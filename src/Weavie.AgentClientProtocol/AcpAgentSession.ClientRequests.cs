@@ -92,7 +92,7 @@ public sealed partial class AcpAgentSession {
 
 	private object WriteTextFile(AcpClientRequest request) {
 		string path = AllowedPath(request.Parameters, allowMissingLeaf: true);
-		string content = RequiredString(request.Parameters, "content", "fs/write_text_file request");
+		string content = RequiredText(request.Parameters, "content", "fs/write_text_file request");
 		var mutation = new AgentMutation.File(path, null, ProvidesEditLocation: true);
 		Observe(new AgentToolStarting(mutation));
 		try {
@@ -135,7 +135,11 @@ public sealed partial class AcpAgentSession {
 			Label = RequiredString(option, "name", "permission option"),
 			Kind = RequiredString(option, "kind", "permission option"),
 		}).ToArray();
-		if (!_pendingRequests.TryAdd(request.Id, new AcpPendingRequest(request, "permission", options.Clone()))) {
+		string? threadId = SessionId();
+		string turnId = TurnId();
+		if (!_pendingRequests.TryAdd(
+			request.Id,
+			new AcpPendingRequest(request, "permission", options.Clone(), threadId, turnId))) {
 			throw new AcpProtocolException($"ACP request id '{request.Id}' is already pending.");
 		}
 		if (!state.PublishDeferred(() => {
@@ -144,9 +148,10 @@ public sealed partial class AcpAgentSession {
 			Emit(new AgentPaneMessage {
 				Type = "approval-requested",
 				ProviderId = _definition.Id,
-				ThreadId = SessionId(),
-				TurnId = TurnId(),
-				ItemId = request.Id,
+				ThreadId = threadId,
+				TurnId = turnId,
+				ItemId = $"request:{request.Id}",
+				RequestId = request.Id,
 				ItemType = OptionalString(tool, "kind") ?? "tool",
 				Category = OptionalString(tool, "kind"),
 				Summary = OptionalString(tool, "title") ?? "Permission requested",
@@ -169,7 +174,10 @@ public sealed partial class AcpAgentSession {
 	}
 
 	private async Task<object> CreateTerminalAsync(AcpClientRequest request, CancellationToken ct) {
-		string terminalId = await _terminals.CreateAsync(request.Parameters, ct).ConfigureAwait(false);
+		string terminalId = await _terminals.CreateAsync(
+			request.Parameters,
+			request.Generation,
+			ct).ConfigureAwait(false);
 		return new { terminalId };
 	}
 
@@ -259,7 +267,9 @@ public sealed partial class AcpAgentSession {
 				state.Request.Id,
 				pending.Kind == "permission" ? "approval-resolved" : "input-resolved",
 				"cancelled",
-				pending.Kind == "permission");
+				pending.Kind == "permission",
+				pending.ThreadId,
+				pending.TurnId);
 		}
 	}
 
@@ -274,7 +284,9 @@ public sealed partial class AcpAgentSession {
 					state.Request.Id,
 					pending.Kind == "permission" ? "approval-resolved" : "input-resolved",
 					"cancelled",
-					pending.Kind == "permission");
+					pending.Kind == "permission",
+					pending.ThreadId,
+					pending.TurnId);
 			}
 		}
 		_urlElicitations.Clear();

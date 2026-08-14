@@ -43,22 +43,7 @@ Registry removal deletes the installed recipe. User-defined agents are independe
 ## Custom commands
 
 User-defined ACP commands live at `~/.weavie/acp/custom.json`:
-
-```json
-{
-  "version": 1,
-  "agents": [
-    {
-      "id": "my-agent",
-      "name": "My ACP Agent",
-      "command": "my-acp-agent",
-      "args": ["--stdio"],
-      "env": { "EXAMPLE": "value" }
-    }
-  ]
-}
-```
-
+/
 Commands may be absolute paths or PATH names. Parsing is strict: unknown fields, duplicate ids, malformed values,
 and collisions with installed registry agents produce one unavailable ACP configuration provider with the exact
 error. There is no preflight dependency probe or alternate executable lookup.

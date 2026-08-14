@@ -23,7 +23,13 @@ public sealed partial class AcpAgentSession {
 			EmitStaleInteraction(requestId, "permission");
 			return;
 		}
-		ResolveInteraction(requestId, "approval-resolved", PermissionStatus(option), permission: true);
+		ResolveInteraction(
+			requestId,
+			"approval-resolved",
+			PermissionStatus(option),
+			permission: true,
+			pending.ThreadId,
+			pending.TurnId);
 	}
 
 	/// <inheritdoc/>
@@ -60,7 +66,9 @@ public sealed partial class AcpAgentSession {
 			requestId,
 			"input-resolved",
 			action == "accept" ? "accepted" : action,
-			permission: false);
+			permission: false,
+			pending.ThreadId,
+			pending.TurnId);
 	}
 
 	/// <inheritdoc/>
@@ -131,6 +139,7 @@ public sealed partial class AcpAgentSession {
 					return;
 				}
 				bool requiresUserInput;
+				string authenticationItemId;
 				lock (_turnTransitionGate) {
 					lock (_gate) {
 						if (!ReferenceEquals(_authenticationCancellation, authenticationCancellation)
@@ -139,7 +148,10 @@ public sealed partial class AcpAgentSession {
 						_authenticating = false;
 						_authenticationOpensSession = false;
 						_authenticationCancellation = null;
-						_resolvedRequests.Add("authentication");
+						authenticationItemId = _authenticationItemId
+							?? throw new AcpProtocolException("The ACP authentication item identity is missing.");
+						_authenticationItemId = null;
+						_resolvedRequests.Add(authenticationItemId);
 						requiresUserInput = HasPendingInteractionLocked();
 					}
 					Observe(new AgentInputResolved(requiresUserInput));
@@ -147,7 +159,8 @@ public sealed partial class AcpAgentSession {
 						Type = "authentication-resolved",
 						ProviderId = _definition.Id,
 						ThreadId = SessionId(),
-						ItemId = "authentication",
+						ItemId = authenticationItemId,
+						RequestId = authenticationItemId,
 						Status = "accepted",
 					});
 				}
@@ -203,19 +216,26 @@ public sealed partial class AcpAgentSession {
 				entry.Key,
 				pending.Kind == "permission" ? "approval-resolved" : "input-resolved",
 				"cancelled",
-				pending.Kind == "permission");
+				pending.Kind == "permission",
+				pending.ThreadId,
+				pending.TurnId);
 		}
 		bool cancelAuthentication;
 		bool requiresUserInput;
+		string? authenticationItemId;
 		CancellationTokenSource? authenticationCancellation;
 		lock (_gate) {
 			cancelAuthentication = _authenticationPending;
 			_authenticationPending = false;
 			_authenticating = false;
 			_authenticationOpensSession = false;
+			authenticationItemId = _authenticationItemId;
+			_authenticationItemId = null;
 			authenticationCancellation = _authenticationCancellation;
 			_authenticationCancellation = null;
-			if (cancelAuthentication) _resolvedRequests.Add("authentication");
+			if (cancelAuthentication && authenticationItemId is not null) {
+				_resolvedRequests.Add(authenticationItemId);
+			}
 			requiresUserInput = HasPendingInteractionLocked();
 			authenticationCancellation?.Cancel();
 		}
@@ -225,13 +245,20 @@ public sealed partial class AcpAgentSession {
 			Type = "authentication-resolved",
 			ProviderId = _definition.Id,
 			ThreadId = SessionId(),
-			ItemId = "authentication",
+			ItemId = authenticationItemId,
+			RequestId = authenticationItemId,
 			Status = "cancelled",
 		});
 		return true;
 	}
 
-	private void ResolveInteraction(string requestId, string type, string status, bool permission) {
+	private void ResolveInteraction(
+		string requestId,
+		string type,
+		string status,
+		bool permission,
+		string? threadId,
+		string turnId) {
 		bool requiresUserInput;
 		lock (_gate) {
 			_resolvedRequests.Add(requestId);
@@ -242,8 +269,10 @@ public sealed partial class AcpAgentSession {
 		Emit(new AgentPaneMessage {
 			Type = type,
 			ProviderId = _definition.Id,
-			ThreadId = SessionId(),
-			ItemId = requestId,
+			ThreadId = threadId,
+			TurnId = turnId,
+			ItemId = $"request:{requestId}",
+			RequestId = requestId,
 			Status = status,
 		});
 	}

@@ -11,7 +11,8 @@ internal sealed class AcpTerminalManager : IAsyncDisposable {
 	private readonly string _workspace;
 	private readonly WorkspaceFileScope _scope;
 	private readonly Action<string> _log;
-	private readonly ConcurrentDictionary<string, AcpTerminal> _terminals = new(StringComparer.Ordinal);
+	private readonly ConcurrentDictionary<string, OwnedTerminal> _terminals = new(StringComparer.Ordinal);
+	private readonly ConcurrentDictionary<string, AcpTerminalOutput> _released = new(StringComparer.Ordinal);
 	private long _nextId;
 
 	public AcpTerminalManager(string workspace, WorkspaceFileScope scope, Action<string> log) {
@@ -20,7 +21,7 @@ internal sealed class AcpTerminalManager : IAsyncDisposable {
 		_log = log;
 	}
 
-	public async Task<string> CreateAsync(JsonElement parameters, CancellationToken ct) {
+	public async Task<string> CreateAsync(JsonElement parameters, long generation, CancellationToken ct) {
 		ct.ThrowIfCancellationRequested();
 		string id = Interlocked.Increment(ref _nextId).ToString(System.Globalization.CultureInfo.InvariantCulture);
 		string command = RequiredString(parameters, "command");
@@ -52,7 +53,7 @@ internal sealed class AcpTerminalManager : IAsyncDisposable {
 			: new Dictionary<string, string>(StringComparer.Ordinal);
 		long? limit = ReadOutputLimit(parameters);
 		var terminal = new AcpTerminal(id, command, arguments, cwd, environment, limit, _log);
-		if (!_terminals.TryAdd(id, terminal)) {
+		if (!_terminals.TryAdd(id, new OwnedTerminal(generation, terminal))) {
 			throw new InvalidOperationException($"ACP terminal id '{id}' is already in use.");
 		}
 		try {
@@ -65,7 +66,11 @@ internal sealed class AcpTerminalManager : IAsyncDisposable {
 		}
 	}
 
-	public AcpTerminalOutput Output(string id) => Resolve(id).Output();
+	public AcpTerminalOutput Output(string id) => _terminals.TryGetValue(id, out var owned)
+		? owned.Terminal.Output()
+		: _released.TryGetValue(id, out var output)
+			? output
+			: throw new KeyNotFoundException($"ACP terminal '{id}' does not exist.");
 
 	public Task<AcpTerminalExit> WaitAsync(string id, CancellationToken ct) => Resolve(id).WaitAsync(ct);
 
@@ -73,23 +78,36 @@ internal sealed class AcpTerminalManager : IAsyncDisposable {
 
 	public async Task ReleaseAsync(string id, CancellationToken ct) {
 		ct.ThrowIfCancellationRequested();
-		if (!_terminals.TryRemove(id, out var terminal)) {
+		if (!_terminals.TryRemove(id, out var owned)) {
 			throw new KeyNotFoundException($"ACP terminal '{id}' does not exist.");
 		}
-		await terminal.DisposeAsync().ConfigureAwait(false);
+		_released[id] = owned.Terminal.Output();
+		await owned.Terminal.DisposeAsync().ConfigureAwait(false);
+	}
+
+	public void ReleaseGeneration(long generation) {
+		foreach (var entry in _terminals.Where(entry => entry.Value.Generation == generation).ToArray()) {
+			if (_terminals.TryRemove(entry.Key, out var owned)) {
+				_released[entry.Key] = owned.Terminal.Output();
+				owned.Terminal.DisposeAsync().AsTask().GetAwaiter().GetResult();
+			}
+		}
 	}
 
 	public async ValueTask DisposeAsync() {
-		var terminals = _terminals.Values.ToArray();
+		var terminals = _terminals.Values.Select(value => value.Terminal).ToArray();
 		_terminals.Clear();
+		_released.Clear();
 		foreach (var terminal in terminals) {
 			await terminal.DisposeAsync().ConfigureAwait(false);
 		}
 	}
 
-	private AcpTerminal Resolve(string id) => _terminals.TryGetValue(id, out var terminal)
-		? terminal
+	private AcpTerminal Resolve(string id) => _terminals.TryGetValue(id, out var owned)
+		? owned.Terminal
 		: throw new KeyNotFoundException($"ACP terminal '{id}' does not exist.");
+
+	private sealed record OwnedTerminal(long Generation, AcpTerminal Terminal);
 
 	private static string RequiredString(JsonElement value, string property) =>
 		value.TryGetProperty(property, out var result) && result.ValueKind == JsonValueKind.String

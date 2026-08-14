@@ -73,6 +73,8 @@ public sealed partial class AcpAgentSession {
 				_sessionOpening = false;
 				_loadingTranscript = false;
 				_loadedMessages.Clear();
+				_controls.Clear();
+				_commands = [];
 				_tools.Clear();
 				_activeTools.Clear();
 				_content.Clear();
@@ -82,6 +84,7 @@ public sealed partial class AcpAgentSession {
 		}
 		CancelPendingInteractions();
 		AbandonClientRequests();
+		RaiseControls();
 		RunRuntime(process.Generation, () => InitializeGenerationAsync(process));
 	}
 
@@ -250,6 +253,13 @@ public sealed partial class AcpAgentSession {
 			}
 			throw;
 		}
+		if (loadSession) {
+			_sessions.Adopt(
+				_definition.Id,
+				_context.Workspace,
+				sessionId ?? throw new AcpProtocolException("ACP session setup returned no session id."),
+				_turnNumber);
+		}
 
 		lock (_turnTransitionGate) {
 			lock (_gate) {
@@ -293,6 +303,7 @@ public sealed partial class AcpAgentSession {
 		if (_authMethods.Count == 0) {
 			throw new AcpProtocolException("The ACP agent requires authentication but advertised no auth methods.");
 		}
+		string itemId;
 		lock (_gate) {
 			if (_authenticationPending) {
 				throw new AcpProtocolException("The ACP agent requested authentication more than once.");
@@ -300,6 +311,8 @@ public sealed partial class AcpAgentSession {
 			_authenticationPending = true;
 			_authenticating = false;
 			_authenticationOpensSession = opensSession;
+			itemId = $"authentication:{++_authenticationSequence}";
+			_authenticationItemId = itemId;
 		}
 		Observe(new AgentInputRequested());
 		Observe(new AgentInputResolved(RequiresUserInput: true));
@@ -307,7 +320,8 @@ public sealed partial class AcpAgentSession {
 			Type = "authentication-requested",
 			ProviderId = _definition.Id,
 			ThreadId = SessionId(),
-			ItemId = "authentication",
+			ItemId = itemId,
+			RequestId = itemId,
 			ItemType = "authentication",
 			Summary = message,
 			Actions = [.. _authMethods.Select(method => new AgentActionOption {
@@ -319,16 +333,28 @@ public sealed partial class AcpAgentSession {
 		});
 	}
 
-	private object[] McpServers() => _supportsHttpMcp ? [
-		new {
-			type = "http",
+	private object[] McpServers() {
+		if (_supportsHttpMcp) {
+			return [new {
+				type = "http",
+				name = "weavie",
+				url = _context.Registry.StreamableHttpUrl,
+				headers = new[] {
+					new { name = "Authorization", value = "Bearer " + _context.Registry.Credential.Token },
+				},
+			}];
+		}
+		return [new {
+			type = "stdio",
 			name = "weavie",
-			url = _context.Registry.StreamableHttpUrl,
-			headers = new[] {
-				new { name = "Authorization", value = "Bearer " + _context.Registry.Credential.Token },
+			command = McpProxyBinary.PathIn(AppContext.BaseDirectory),
+			args = Array.Empty<string>(),
+			env = new[] {
+				new { name = "WEAVIE_MCP_URL", value = _context.Registry.StreamableHttpUrl },
+				new { name = "WEAVIE_MCP_TOKEN", value = _context.Registry.Credential.Token },
 			},
-		},
-	] : [];
+		}];
+	}
 
 	private void ReadCapabilities(JsonElement initialized) {
 		if (!initialized.TryGetProperty("protocolVersion", out var version)
@@ -429,6 +455,11 @@ public sealed partial class AcpAgentSession {
 			&& result.GetString() is { Length: > 0 } text
 				? text
 				: throw new AcpProtocolException($"The {source} is missing '{property}'.");
+
+	private static string RequiredText(JsonElement value, string property, string source) =>
+		value.TryGetProperty(property, out var result) && result.ValueKind == JsonValueKind.String
+			? result.GetString()!
+			: throw new AcpProtocolException($"The {source} is missing string '{property}'.");
 
 	private static string? OptionalString(JsonElement value, string property) =>
 		value.TryGetProperty(property, out var result) && result.ValueKind == JsonValueKind.String

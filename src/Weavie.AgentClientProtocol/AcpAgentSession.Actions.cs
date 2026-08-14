@@ -14,6 +14,11 @@ public sealed partial class AcpAgentSession {
 		}
 
 		lock (_gate) {
+			ObjectDisposedException.ThrowIf(_disposed, this);
+			if (_runtimeFailed) {
+				throw new InvalidOperationException(
+					$"{_definition.Name} cannot accept prompts until its failed ACP runtime is restarted.");
+			}
 			_pendingSubmissions.AddLast(submission);
 		}
 		DispatchPendingSubmission();
@@ -385,7 +390,11 @@ public sealed partial class AcpAgentSession {
 	}
 
 	/// <inheritdoc/>
-	public void Restart() => Restart(clearSubmissions: true);
+	public void Restart() {
+		bool clearSubmissions;
+		lock (_gate) clearSubmissions = !_runtimeFailed;
+		Restart(clearSubmissions);
+	}
 
 	private void Restart(bool clearSubmissions) {
 		lock (_submissionDispatchGate) {
@@ -399,7 +408,9 @@ public sealed partial class AcpAgentSession {
 	private void TerminalizeForRestart(bool clearSubmissions) {
 		TerminalizedTool[] tools;
 		bool promptActive;
+		long generation;
 		lock (_gate) {
+			generation = _activeGeneration;
 			_activeGeneration = 0;
 			_ready = false;
 			if (clearSubmissions) _pendingSubmissions.Clear();
@@ -411,6 +422,7 @@ public sealed partial class AcpAgentSession {
 			_waitingForBackground = false;
 			tools = TerminalizeActiveToolsLocked("cancelled");
 		}
+		if (generation > 0) _terminals.ReleaseGeneration(generation);
 		ObserveTerminalizedTools(tools);
 		if (promptActive || tools.Length > 0) {
 			Observe(new AgentTurnStopped(WillResume: false));

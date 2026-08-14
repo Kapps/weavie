@@ -51,8 +51,8 @@ public sealed partial class AcpAgentSession {
 			case "user_message_chunk": EmitContent(update, "user-message-delta", "userMessage"); break;
 			case "agent_message_chunk": EmitContent(update, "agent-message-delta", "agentMessage"); break;
 			case "agent_thought_chunk": EmitContent(update, "thought-message-delta", "thought"); break;
-			case "tool_call": UpdateTool(update); break;
-			case "tool_call_update": UpdateTool(update); break;
+			case "tool_call": UpdateTool(update, initial: true); break;
+			case "tool_call_update": UpdateTool(update, initial: false); break;
 			case "plan": EmitPlan(update); break;
 			case "available_commands_update": UpdateCommands(update); break;
 			case "current_mode_update": UpdateMode(update); break;
@@ -148,20 +148,28 @@ public sealed partial class AcpAgentSession {
 		}
 	}
 
-	private void UpdateTool(JsonElement update) {
-		lock (_turnTransitionGate) UpdateToolSerialized(update);
+	private void UpdateTool(JsonElement update, bool initial) {
+		lock (_turnTransitionGate) UpdateToolSerialized(update, initial);
 	}
 
-	private void UpdateToolSerialized(JsonElement update) {
+	private void UpdateToolSerialized(JsonElement update, bool initial) {
 		string id = RequiredString(update, "toolCallId", "tool call update");
 		string turnId = TurnIdForUpdate(userMessage: false);
 		AcpToolState tool;
 		lock (_gate) {
-			if (!_tools.TryGetValue(id, out tool!)) {
-				tool = new AcpToolState { Id = id, TurnId = turnId };
+			bool exists = _tools.TryGetValue(id, out tool!);
+			if (initial) {
+				if (exists) throw new AcpProtocolException($"ACP tool call '{id}' was started more than once.");
+				tool = new AcpToolState {
+					Id = id,
+					TurnId = turnId,
+					Title = RequiredString(update, "title", "tool call"),
+				};
 				_tools.Add(id, tool);
+			} else if (!exists) {
+				throw new AcpProtocolException($"ACP updated unknown tool call '{id}'.");
 			}
-			tool.Title = OptionalString(update, "title") ?? tool.Title ?? id;
+			tool.Title = OptionalString(update, "title") ?? tool.Title;
 			if (OptionalString(update, "kind") is { } kind) {
 				tool.Kind = kind is "read" or "edit" or "delete" or "move" or "search" or "execute"
 					or "think" or "fetch" or "switch_mode" or "other" ? kind : "other";
@@ -275,7 +283,7 @@ public sealed partial class AcpAgentSession {
 		ProviderId = _definition.Id,
 		ThreadId = SessionId(),
 		TurnId = tool.TurnId,
-		ItemId = tool.Id,
+		ItemId = $"tool:{tool.Id}",
 		ItemType = "tool",
 		Category = tool.Kind,
 		Summary = tool.Title,
@@ -283,46 +291,116 @@ public sealed partial class AcpAgentSession {
 		Status = tool.Status,
 		Locations = tool.Locations,
 		Diffs = tool.Diffs,
+		Content = tool.Content,
 		TerminalId = tool.TerminalId,
 		StartedAtMs = tool.StartedAtMs,
 	});
 
-	private static void ReadToolContent(JsonElement content, AcpToolState tool) {
+	private void ReadToolContent(JsonElement content, AcpToolState tool) {
 		var text = new StringBuilder();
 		var diffs = new List<AgentPaneDiff>();
+		var blocks = new List<AgentPaneContent>();
 		tool.Text = null;
 		tool.Diffs = null;
+		tool.Content = null;
 		tool.TerminalId = null;
 		foreach (var item in content.EnumerateArray()) {
-			switch (OptionalString(item, "type")) {
+				switch (OptionalString(item, "type")) {
 				case "content" when item.TryGetProperty("content", out var block):
-					string? value = OptionalString(block, "text") ?? ResourceText(block);
-					if (!string.IsNullOrEmpty(value)) {
-						if (text.Length > 0) text.AppendLine();
-						text.Append(value);
-					}
+					blocks.Add(ReadToolContentBlock(block));
 					break;
 				case "diff":
+					string diffPath = RequiredAbsolutePath(item, "path", "tool diff");
 					diffs.Add(new AgentPaneDiff {
-						Path = RequiredString(item, "path", "tool diff"),
+						Path = diffPath,
 						OldText = OptionalString(item, "oldText"),
-						NewText = OptionalString(item, "newText") ?? string.Empty,
+						NewText = RequiredText(item, "newText", "tool diff"),
 					});
 					break;
 				case "terminal":
 					tool.TerminalId = RequiredString(item, "terminalId", "tool terminal");
+					AppendTerminalOutput(text, _terminals.Output(tool.TerminalId));
 					break;
 			}
 		}
 		tool.Text = text.Length > 0 ? text.ToString() : null;
 		tool.Diffs = diffs.Count > 0 ? diffs : null;
+		tool.Content = blocks.Count > 0 ? blocks : null;
+	}
+
+	private static AgentPaneContent ReadToolContentBlock(JsonElement block) {
+		string type = RequiredString(block, "type", "tool content block");
+		return type switch {
+			"text" => new AgentPaneContent {
+				Type = type,
+				Text = RequiredText(block, "text", "tool text content"),
+			},
+			"image" or "audio" => new AgentPaneContent {
+				Type = type,
+				MediaType = RequiredString(block, "mimeType", $"tool {type} content"),
+				MediaData = RequiredString(block, "data", $"tool {type} content"),
+			},
+			"resource_link" => new AgentPaneContent {
+				Type = type,
+				ResourceUri = RequiredString(block, "uri", "tool resource link"),
+				Name = RequiredString(block, "name", "tool resource link"),
+				Text = OptionalString(block, "description"),
+			},
+			"resource" => ReadEmbeddedToolResource(block),
+			_ => throw new AcpProtocolException($"Unsupported ACP tool content block '{type}'."),
+		};
+	}
+
+	private static AgentPaneContent ReadEmbeddedToolResource(JsonElement block) {
+		if (!block.TryGetProperty("resource", out var resource)
+			|| resource.ValueKind != JsonValueKind.Object) {
+			throw new AcpProtocolException("An ACP embedded tool resource requires a resource object.");
+		}
+		string uri = RequiredString(resource, "uri", "embedded tool resource");
+		bool hasText = resource.TryGetProperty("text", out var text) && text.ValueKind == JsonValueKind.String;
+		bool hasBlob = resource.TryGetProperty("blob", out var blob) && blob.ValueKind == JsonValueKind.String;
+		if (hasText == hasBlob) {
+			throw new AcpProtocolException("An ACP embedded tool resource requires exactly one of text or blob.");
+		}
+		return new AgentPaneContent {
+			Type = "resource",
+			ResourceUri = uri,
+			Text = hasText ? text.GetString() : null,
+			MediaType = OptionalString(resource, "mimeType"),
+			MediaData = hasBlob ? blob.GetString() : null,
+		};
+	}
+
+	private static void AppendTerminalOutput(StringBuilder text, AcpTerminalOutput output) {
+		if (text.Length > 0) text.AppendLine();
+		if (output.Truncated) text.AppendLine("… earlier terminal output truncated …");
+		text.Append(output.Output);
+		if (output.ExitStatus is { } exit) {
+			if (text.Length > 0 && text[^1] != '\n') text.AppendLine();
+			text.Append(exit.ExitCode is { } code ? $"[exit {code}]" : $"[{exit.Signal ?? "terminated"}]");
+		}
 	}
 
 	private static IReadOnlyList<AgentPaneLocation> ReadLocations(JsonElement locations) =>
 		[.. locations.EnumerateArray().Select(location => new AgentPaneLocation {
-			Path = RequiredString(location, "path", "tool location"),
-			Line = location.TryGetProperty("line", out var line) && line.TryGetInt32(out int number) ? number : null,
+			Path = RequiredAbsolutePath(location, "path", "tool location"),
+			Line = ReadLocationLine(location),
 		})];
+
+	private static long? ReadLocationLine(JsonElement location) {
+		if (!location.TryGetProperty("line", out var line) || line.ValueKind == JsonValueKind.Null) return null;
+		if (!line.TryGetUInt32(out uint number)) {
+			throw new AcpProtocolException("An ACP tool location line must be a non-negative 32-bit integer.");
+		}
+		return number;
+	}
+
+	private static string RequiredAbsolutePath(JsonElement value, string property, string source) {
+		string path = RequiredString(value, property, source);
+		return Path.IsPathFullyQualified(path)
+			? path
+			: throw new AcpProtocolException($"The ACP {source} requires an absolute '{property}'.");
+	}
 
 	private static AgentMutation Mutation(AcpToolState tool) {
 		if (tool.Kind is not ("edit" or "delete" or "move")) {

@@ -95,7 +95,10 @@ export function requestLifecycles(messages: readonly AgentPaneUpdate[]): Request
     const kind = REQUEST_KIND.get(message.type);
     if (kind !== undefined) {
       if (!byKey.has(key)) {
-        byKey.set(key, { requestId: message.itemId, kind, resolvedStatus: null });
+        if (message.requestId === null || message.requestId === undefined) {
+          throw new Error(`${message.type} is missing its provider request id.`);
+        }
+        byKey.set(key, { requestId: message.requestId, kind, resolvedStatus: null });
       }
     } else if (isResolutionMessage(message)) {
       const record = byKey.get(key);

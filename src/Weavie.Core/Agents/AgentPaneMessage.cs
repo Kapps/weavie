@@ -23,6 +23,9 @@ public sealed record AgentPaneMessage {
 	/// <summary>The item id associated with this update, when any.</summary>
 	public string? ItemId { get; init; }
 
+	/// <summary>The provider request id associated with an interactive pane item, when any.</summary>
+	public string? RequestId { get; init; }
+
 	/// <summary>The structured item kind, when any.</summary>
 	public string? ItemType { get; init; }
 
@@ -53,6 +56,9 @@ public sealed record AgentPaneMessage {
 	/// <summary>Structured diffs associated with this update.</summary>
 	public IReadOnlyList<AgentPaneDiff>? Diffs { get; init; }
 
+	/// <summary>Ordered rich content associated with a tool result.</summary>
+	public IReadOnlyList<AgentPaneContent>? Content { get; init; }
+
 	/// <summary>The parent tool call for a nested subagent update, when advertised.</summary>
 	public string? ParentItemId { get; init; }
 
@@ -79,6 +85,27 @@ public sealed record AgentPaneMessage {
 
 }
 
+/// <summary>One ordered rich-content block rendered from an agent tool result.</summary>
+public sealed record AgentPaneContent {
+	/// <summary>The stable ACP content-block kind.</summary>
+	public required string Type { get; init; }
+
+	/// <summary>Text carried by the block, when any.</summary>
+	public string? Text { get; init; }
+
+	/// <summary>The MIME type for inline binary content.</summary>
+	public string? MediaType { get; init; }
+
+	/// <summary>Base64-encoded inline binary content.</summary>
+	public string? MediaData { get; init; }
+
+	/// <summary>The resource URI carried by the block, when any.</summary>
+	public string? ResourceUri { get; init; }
+
+	/// <summary>The user-facing resource name, when any.</summary>
+	public string? Name { get; init; }
+}
+
 /// <summary>One exact action advertised by an agent interaction.</summary>
 public sealed record AgentActionOption {
 	/// <summary>The opaque value echoed to the provider.</summary>
@@ -97,7 +124,7 @@ public sealed record AgentPaneLocation {
 	public required string Path { get; init; }
 
 	/// <summary>The optional one-based line number.</summary>
-	public int? Line { get; init; }
+	public long? Line { get; init; }
 }
 
 /// <summary>A structured file diff reported by an agent tool.</summary>

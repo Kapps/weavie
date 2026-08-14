@@ -5,6 +5,7 @@ import { requestLifecycles } from "./AgentPaneMessageFormat";
 const msg = (fields: Partial<AgentPaneUpdate> & { type: string }): AgentPaneUpdate => ({
   providerId: "acp",
   ...fields,
+  requestId: fields.type.endsWith("-requested") ? fields.itemId : fields.requestId,
 });
 
 describe("requestLifecycles", () => {

@@ -197,6 +197,92 @@ public sealed class SessionMessageBusTests {
 	}
 
 	[Fact]
+	public async Task KeyedAfterResponseHandlerOnlyOwnsItsPartition() {
+		var transport = new RecordingTransport();
+		await using var router = new HostMessageRouter(transport, new InlineUiDispatcher(), _ => { });
+		await using var endpoint = router.OpenSession(new SessionAddress("a", "a1"));
+		endpoint.Activate();
+		var handlerEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		var releaseHandler = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		var afterResponseEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		var releaseAfterResponse = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		var fastEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		var queuedEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		int slowLaneEntries = 0;
+		var feature = endpoint.Bus.Feature("commands");
+		using var handler = feature.HandleKeyedAfterResponse<KeyedIncrement, Counter>(
+			"invoke",
+			request => request.Lane,
+			async (request, _) => {
+				bool firstSlow = request.Lane == "slow" && Interlocked.Increment(ref slowLaneEntries) == 1;
+				if (firstSlow) {
+					handlerEntered.TrySetResult();
+					await releaseHandler.Task;
+				} else if (request.Lane == "slow") {
+					queuedEntered.TrySetResult();
+				} else {
+					fastEntered.TrySetResult();
+				}
+
+				return new ResponseWithCompletion<Counter>(
+					new Counter(request.By),
+					async _ => {
+						if (firstSlow) {
+							afterResponseEntered.TrySetResult();
+							await releaseAfterResponse.Task;
+						}
+					});
+			});
+
+		try {
+			var slowDispatch = router.RouteAsync(
+				new WebPeer("page"),
+				MessageEnvelope.SessionRequest(
+					endpoint.Address,
+					"slow",
+					"commands",
+					"invoke",
+					JsonSerializer.SerializeToElement(new KeyedIncrement(1, "slow"))).ToJson());
+			await handlerEntered.Task;
+			var queuedDispatch = router.RouteAsync(
+				new WebPeer("page"),
+				MessageEnvelope.SessionRequest(
+					endpoint.Address,
+					"queued",
+					"commands",
+					"invoke",
+					JsonSerializer.SerializeToElement(new KeyedIncrement(2, "slow"))).ToJson());
+			var fastDispatch = router.RouteAsync(
+				new WebPeer("page"),
+				MessageEnvelope.SessionRequest(
+					endpoint.Address,
+					"fast",
+					"commands",
+					"invoke",
+					JsonSerializer.SerializeToElement(new KeyedIncrement(3, "fast"))).ToJson());
+
+			await fastEntered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+			await fastDispatch;
+			Assert.False(queuedEntered.Task.IsCompleted);
+			releaseHandler.TrySetResult();
+			await slowDispatch;
+			await queuedEntered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+			await queuedDispatch;
+			await afterResponseEntered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+			var drain = endpoint.Bus.DrainAsync();
+			Assert.False(drain.IsCompleted);
+			releaseAfterResponse.TrySetResult();
+			await drain.WaitAsync(TimeSpan.FromSeconds(2));
+			Assert.Equal(3, transport.Sent.Count(sent =>
+				MessageEnvelope.TryParse(sent.Json, out var envelope)
+				&& envelope is { Kind: MessageKind.Response }));
+		} finally {
+			releaseHandler.TrySetResult();
+			releaseAfterResponse.TrySetResult();
+		}
+	}
+
+	[Fact]
 	public async Task IdenticalRequestIdsFromDifferentPeersAreIndependentAndUnicast() {
 		var replies = new ConcurrentQueue<(WebPeer Peer, string Json)>();
 		var address = new SessionAddress("a", "a1");
@@ -952,6 +1038,8 @@ public sealed class SessionMessageBusTests {
 	}
 
 	private sealed record Increment(int By);
+
+	private sealed record KeyedIncrement(int By, string Lane);
 
 	private sealed record Counter(int Value);
 

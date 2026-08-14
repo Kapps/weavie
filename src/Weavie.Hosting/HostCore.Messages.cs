@@ -120,15 +120,17 @@ public sealed partial class HostCore {
 			"branches",
 			(_, ct) => ListBranchesAsync(ct));
 
-		_messages.Host.Feature("sessions").Handle<CommandRequest, CommandWireResult>(
+		_messages.Host.Feature("sessions").HandleKeyed<CommandRequest, CommandWireResult>(
 			"invoke",
+			CommandExecutionLane,
 			async (message, ct) => ToWireResult(
 				await InvokeHostSessionCommandAsync(message, ct).ConfigureAwait(false)));
 		_messages.Host.Feature("sessionCreation").Handle<HostBranchPreviewRequest, BranchPreviewResult>(
 			"previewBranch",
 			(message, ct) => PreviewBranchNameFromHostAsync(message, ct));
-		_messages.Host.Feature("commands").Handle<CommandRequest, CommandWireResult>(
+		_messages.Host.Feature("commands").HandleKeyed<CommandRequest, CommandWireResult>(
 			"invoke",
+			CommandExecutionLane,
 			async (message, ct) => ToWireResult(
 				await InvokeClientCommandOnHostAsync(message, ct).ConfigureAwait(false)));
 
@@ -189,6 +191,11 @@ public sealed partial class HostCore {
 			ct).ConfigureAwait(false);
 	}
 
+	private string CommandExecutionLane(CommandRequest message) =>
+		_commandRegistry.TryGet(message.Id, out var definition)
+			? definition.ExecutionLane
+			: "unknown-command";
+
 	private Task<CommandResult> NewSessionFromHostAsync(JsonElement? args, CancellationToken ct) {
 		if (args is not { ValueKind: JsonValueKind.Object } element) {
 			return Task.FromResult(CommandResult.Failure("New session arguments must be an object."));
@@ -198,7 +205,25 @@ public sealed partial class HostCore {
 			element.GetRawText(),
 			new JsonSerializerOptions(JsonSerializerDefaults.Web))
 			?? throw new JsonException("New session arguments were empty.");
-		return NewSessionAsync(SourceSlot(ReadString(element, "sourceId")), request, ct);
+		bool hasSource = element.TryGetProperty("source", out var sourceElement)
+			&& sourceElement.ValueKind != JsonValueKind.Null;
+		var source = ReadSessionAddress(element, "source");
+		return hasSource && source is null
+			? Task.FromResult(CommandResult.Failure("The source session address is invalid."))
+			: NewSessionAsync(source, request, ct);
+	}
+
+	private static SessionAddress? ReadSessionAddress(JsonElement args, string name) {
+		if (!args.TryGetProperty(name, out var value)
+			|| value.ValueKind != JsonValueKind.Object) {
+			return null;
+		}
+
+		string? slot = ReadString(value, "slot");
+		string? incarnation = ReadString(value, "incarnation");
+		return string.IsNullOrWhiteSpace(slot) || string.IsNullOrWhiteSpace(incarnation)
+			? null
+			: new SessionAddress(slot, incarnation);
 	}
 
 	private static string? ReadString(JsonElement? args, string name) =>

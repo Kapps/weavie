@@ -15,6 +15,7 @@ public delegate Task<CommandResult> ClientCommandInvoker(string id, string? args
 public sealed class CommandDispatcher {
 	private readonly Dictionary<string, Func<string?, CommandInvocationContext, CancellationToken, Task<CommandResult>>> _handlers =
 		new(StringComparer.Ordinal);
+	private readonly Dictionary<string, CommandExecutionLane> _executionLanes = new(StringComparer.Ordinal);
 
 	private readonly Lock _gate = new();
 
@@ -91,6 +92,17 @@ public sealed class CommandDispatcher {
 	/// </summary>
 	public async Task<CommandExecution> PrepareAsync(string id, string? argsJson, CancellationToken ct) {
 		var definition = Registry.Require(id);
+		return await PrepareInExecutionLaneAsync(
+			definition,
+			() => PrepareCoreAsync(definition, id, argsJson, ct),
+			ct).ConfigureAwait(false);
+	}
+
+	private async Task<CommandExecution> PrepareCoreAsync(
+		CommandDefinition definition,
+		string id,
+		string? argsJson,
+		CancellationToken ct) {
 		var context = new CommandInvocationContext();
 		CommandResult result;
 		if (definition.RunsIn == CommandLocation.Core) {
@@ -125,12 +137,78 @@ public sealed class CommandDispatcher {
 			return await PrepareAsync(id, argsJson, ct).ConfigureAwait(false);
 		}
 
-		var invoker = ClientInvoker;
-		var result = invoker is null
-			? CommandResult.Failure(
-				$"Command '{id}' belongs to the local presentation client, which isn't connected.")
-			: await invoker(id, argsJson, ct).ConfigureAwait(false);
-		return CommandExecution.Completed(result);
+		return await PrepareInExecutionLaneAsync(
+			definition,
+			async () => {
+				var invoker = ClientInvoker;
+				var result = invoker is null
+					? CommandResult.Failure(
+						$"Command '{id}' belongs to the local presentation client, which isn't connected.")
+					: await invoker(id, argsJson, ct).ConfigureAwait(false);
+				return CommandExecution.Completed(result);
+			},
+			ct).ConfigureAwait(false);
+	}
+
+	private async Task<CommandExecution> PrepareInExecutionLaneAsync(
+		CommandDefinition definition,
+		Func<Task<CommandExecution>> prepare,
+		CancellationToken ct) {
+		CommandExecutionLane lane;
+		lock (_gate) {
+			if (!_executionLanes.TryGetValue(definition.ExecutionLane, out lane!)) {
+				lane = new CommandExecutionLane();
+				_executionLanes.Add(definition.ExecutionLane, lane);
+			}
+		}
+
+		var lease = await lane.EnterAsync(ct).ConfigureAwait(false);
+		try {
+			var execution = await prepare().ConfigureAwait(false);
+			return new CommandExecution(
+				execution.Result,
+				async completionCt => {
+					try {
+						await execution.CompleteAsync(completionCt).ConfigureAwait(false);
+					} finally {
+						lease.Dispose();
+					}
+				});
+		} catch {
+			lease.Dispose();
+			throw;
+		}
+	}
+
+	private sealed class CommandExecutionLane {
+		private readonly object _gate = new();
+		private Task _tail = Task.CompletedTask;
+
+		public async Task<IDisposable> EnterAsync(CancellationToken ct) {
+			Task predecessor;
+			var turn = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+			lock (_gate) {
+				predecessor = _tail;
+				_tail = turn.Task;
+			}
+
+			try {
+				await predecessor.WaitAsync(ct).ConfigureAwait(false);
+			} catch {
+				_ = CompleteCancelledTurnAsync(predecessor, turn);
+				throw;
+			}
+
+			return new Registration(turn.SetResult);
+		}
+
+		private static async Task CompleteCancelledTurnAsync(Task predecessor, TaskCompletionSource turn) {
+			try {
+				await predecessor.ConfigureAwait(false);
+			} finally {
+				turn.TrySetResult();
+			}
+		}
 	}
 
 	private sealed class Registration : IDisposable {

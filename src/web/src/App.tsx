@@ -729,11 +729,11 @@ export default function App(): JSX.Element {
     },
   ): Promise<boolean> => {
     const selected = selectedSession();
-    const sourceId =
-      args.base === "source" && selected?.connection.id === backendId
-        ? selected.address.slot
+    const source =
+      !args.existing && args.base === "source" && selected?.connection.id === backendId
+        ? selected.address
         : undefined;
-    return dispatchCommandFromCatalog(backendId, CommandIds.newSession, { ...args, sourceId })
+    return dispatchCommandFromCatalog(backendId, CommandIds.newSession, { ...args, source })
       .then((result) => {
         if (!result.ok) {
           throw new Error(result.error ?? "The session could not be created.");

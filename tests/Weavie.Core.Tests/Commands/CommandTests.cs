@@ -148,6 +148,67 @@ public sealed class CommandTests {
 	}
 
 	[Fact]
+	public async Task ExecutionLanesOrderRelatedCommandsWithoutBlockingAnotherDomain() {
+		var registry = CoreCommands.CreateRegistry();
+		var dispatcher = new CommandDispatcher(registry);
+		var secondThemeEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		var fontEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		dispatcher.RegisterHandler(
+			CoreCommands.InstallThemeFromFile,
+			(_, _) => Task.FromResult(CommandResult.Success()));
+		dispatcher.RegisterHandler(CoreCommands.ResetTheme, (_, _) => {
+			secondThemeEntered.TrySetResult();
+			return Task.FromResult(CommandResult.Success());
+		});
+		dispatcher.RegisterHandler(CoreCommands.IncreaseFontSize, (_, _) => {
+			fontEntered.TrySetResult();
+			return Task.FromResult(CommandResult.Success());
+		});
+
+		var firstTheme = await dispatcher.PrepareAsync(
+			CoreCommands.InstallThemeFromFile,
+			null,
+			CancellationToken.None);
+		var secondThemeTask = dispatcher.PrepareAsync(CoreCommands.ResetTheme, null, CancellationToken.None);
+		var fontTask = dispatcher.PrepareAsync(CoreCommands.IncreaseFontSize, null, CancellationToken.None);
+
+		await fontEntered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+		var font = await fontTask;
+		Assert.False(secondThemeEntered.Task.IsCompleted);
+		await font.CompleteAsync(CancellationToken.None);
+
+		await firstTheme.CompleteAsync(CancellationToken.None);
+		var secondTheme = await secondThemeTask.WaitAsync(TimeSpan.FromSeconds(2));
+		await secondTheme.CompleteAsync(CancellationToken.None);
+		Assert.True(secondThemeEntered.Task.IsCompletedSuccessfully);
+	}
+
+	[Fact]
+	public async Task CancelledExecutionLaneWaiterDoesNotPoisonLaterCommands() {
+		var dispatcher = new CommandDispatcher(CoreCommands.CreateRegistry());
+		dispatcher.RegisterHandler(
+			CoreCommands.InstallThemeFromFile,
+			(_, _) => Task.FromResult(CommandResult.Success()));
+		dispatcher.RegisterHandler(
+			CoreCommands.ResetTheme,
+			(_, _) => Task.FromResult(CommandResult.Success()));
+
+		var first = await dispatcher.PrepareAsync(
+			CoreCommands.InstallThemeFromFile,
+			null,
+			CancellationToken.None);
+		using var cancellation = new CancellationTokenSource();
+		var cancelled = dispatcher.PrepareAsync(CoreCommands.ResetTheme, null, cancellation.Token);
+		cancellation.Cancel();
+		await Assert.ThrowsAnyAsync<OperationCanceledException>(() => cancelled);
+		var later = dispatcher.PrepareAsync(CoreCommands.ResetTheme, null, CancellationToken.None);
+
+		await first.CompleteAsync(CancellationToken.None);
+		var execution = await later.WaitAsync(TimeSpan.FromSeconds(2));
+		await execution.CompleteAsync(CancellationToken.None);
+	}
+
+	[Fact]
 	public void RegisterHandler_OnWebCommand_Throws() {
 		var dispatcher = new CommandDispatcher(RegistryWith(Web("weavie.diff.toggleLayout")));
 		Assert.Throws<InvalidOperationException>(() =>
@@ -259,12 +320,56 @@ public sealed class CommandTests {
 		Assert.Equal(CommandOwner.Client, command.Owner);
 	}
 
+	[Theory]
+	[InlineData(SessionCommands.NewSession)]
+	[InlineData(SessionCommands.LoadSession)]
+	[InlineData(SessionCommands.UnloadSession)]
+	[InlineData(SessionCommands.DeleteSession)]
+	public void CatalogOwnedSessionCommands_AreHostScoped(string id) {
+		var command = CoreCommands.CreateRegistry().Require(id);
+
+		Assert.Equal(CommandScope.Host, command.Scope);
+		Assert.Equal("weavie.session.lifecycle", command.ExecutionLane);
+	}
+
+	[Fact]
+	public void ForkSession_IsSessionScopedButSharesTheLifecycleLane() {
+		var command = CoreCommands.CreateRegistry().Require(SessionCommands.ForkSession);
+
+		Assert.Equal(CommandScope.Session, command.Scope);
+		Assert.Equal("weavie.session.lifecycle", command.ExecutionLane);
+	}
+
+	[Fact]
+	public async Task TestShellCommands_ExecuteInFifoOrder() {
+		var registry = CoreCommands.CreateRegistry();
+		var dispatcher = new CommandDispatcher(registry);
+		var secondEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		dispatcher.RegisterHandler(
+			CoreCommands.RunTests,
+			(_, _) => Task.FromResult(CommandResult.Success()));
+		dispatcher.RegisterHandler(CoreCommands.RunTestsInFile, (_, _) => {
+			secondEntered.TrySetResult();
+			return Task.FromResult(CommandResult.Success());
+		});
+
+		var first = await dispatcher.PrepareAsync(CoreCommands.RunTests, null, CancellationToken.None);
+		var secondTask = dispatcher.PrepareAsync(CoreCommands.RunTestsInFile, null, CancellationToken.None);
+
+		Assert.False(secondEntered.Task.IsCompleted);
+		await first.CompleteAsync(CancellationToken.None);
+		var second = await secondTask.WaitAsync(TimeSpan.FromSeconds(2));
+		await second.CompleteAsync(CancellationToken.None);
+	}
+
 	[Fact]
 	public void CommandCatalog_EmitsClientOwnership() {
-		var command = Core("weavie.font.increase") with { Owner = CommandOwner.Client };
+		var command = CoreCommands.CreateRegistry().Require(CoreCommands.IncreaseFontSize);
 
 		using var catalog = JsonDocument.Parse(CommandCatalog.BuildCommandsArrayJson([command], []));
 
 		Assert.Equal("client", catalog.RootElement[0].GetProperty("owner").GetString());
+		Assert.Equal("weavie.font", catalog.RootElement[0].GetProperty("executionLane").GetString());
+		Assert.Equal("session", catalog.RootElement[0].GetProperty("scope").GetString());
 	}
 }

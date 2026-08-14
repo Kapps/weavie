@@ -90,7 +90,7 @@ public sealed partial class HostCore {
 		}
 
 		var created = await NewSessionAsync(
-			SlotFor(source),
+			source.Address,
 			new NewSessionRequest {
 				Branch = headRef,
 				Existing = true,

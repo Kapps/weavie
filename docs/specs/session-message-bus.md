@@ -112,6 +112,13 @@ input, and one session cannot block another. Messages that read or mutate the sa
 the same feature even when another surface renders the result; for example, `agent.openPlan` reads
 agent transcript state and publishes its successful result through `editor.agentPlan`.
 
+Command routes are multiplexers, not one consistency boundary: `commands.invoke`, `commands.run`, and
+their host-scoped counterparts partition admission by the command catalog's execution lane. Different lanes
+run concurrently; one lane retains receive-order FIFO within its exact host or session owner. The command
+dispatcher enforces the same lanes for direct and MCP invocations, and session lifecycle commands additionally
+use the host's lifecycle gate. This keeps an unrelated command responsive while a long-running command waits
+on a process, network call, or recursive filesystem operation without racing related state mutations.
+
 Remote outbound transport preserves FIFO order within each exact `(scope, session, feature)` route
 and round-robins lazily encoded oversized-message chunks with small messages from other routes. One
 connection carries at most one partial oversized body while that interleaving is active, and its

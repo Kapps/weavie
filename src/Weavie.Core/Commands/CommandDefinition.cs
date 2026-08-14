@@ -21,6 +21,15 @@ public enum CommandOwner {
 	Client,
 }
 
+/// <summary>Which message-bus endpoint owns a backend Core command invocation.</summary>
+public enum CommandScope {
+	/// <summary>The invoking session owns the command.</summary>
+	Session,
+
+	/// <summary>The host catalog owns the command, including dormant-session lifecycle actions.</summary>
+	Host,
+}
+
 /// <summary>
 /// The outcome of running a command, returned to every caller (Claude over <c>runCommand</c>, and the web over
 /// the <c>command-result</c> reply). <see cref="DataJson"/> carries an optional command-specific payload as raw
@@ -80,6 +89,11 @@ public sealed record CommandDefinition {
 	/// <summary>The stable, namespaced id, e.g. <c>weavie.diff.toggleLayout</c>. Unique within the registry.</summary>
 	public required string Id { get; init; }
 
+	/// <summary>Commands sharing this lane execute in FIFO order; defaults to <see cref="Id"/>.</summary>
+	public string ExecutionLane => SharedExecutionLane ?? Id;
+
+	internal string? SharedExecutionLane { get; init; }
+
 	/// <summary>The palette label, e.g. "Toggle Diff: Inline / Side-by-Side".</summary>
 	public required string Title { get; init; }
 
@@ -88,6 +102,9 @@ public sealed record CommandDefinition {
 
 	/// <summary>Which connected host owns execution, metadata, and keybindings.</summary>
 	public CommandOwner Owner { get; init; }
+
+	/// <summary>Which backend endpoint owns Core execution.</summary>
+	public CommandScope Scope { get; init; }
 
 	/// <summary>Optional palette grouping, e.g. "View", "Terminal", "Diff".</summary>
 	public string? Category { get; init; }

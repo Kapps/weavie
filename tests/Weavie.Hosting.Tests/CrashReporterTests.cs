@@ -7,6 +7,14 @@ namespace Weavie.Hosting.Tests;
 /// <see cref="CrashReporter"/> hands the next launch a prior run's crash report exactly once, rotating it aside so
 /// it surfaces a single "exited unexpectedly" notice and keeps the detail for inspection.
 /// </summary>
+// Manipulates the process-wide WeaviePaths.LastCrashFile directly — serialize with the other HostIntegration
+// tests, since any of them driving a HostCore through "ready" calls CrashReporter.TakePendingReport() too
+// (HostCore.Messages.cs SurfacePriorCrash) and can rotate this test's freshly-written report away from under
+// it if it runs unserialized alongside them. Flaked 2026-08-14 01:58 UTC missing this attribute: the second
+// test below wrote "boom\nat Worker()" then immediately read back null, i.e. another concurrently-running
+// HostIntegration test's "ready" handshake won the race and rotated the file away first.
+// https://github.com/Kapps/weavie/actions/runs/31762186704/job/94650696389
+[Collection(TestCollections.HostIntegration)]
 public sealed class CrashReporterTests {
 	[Fact]
 	public void TakePendingReport_ReturnsNull_WhenLastRunExitedCleanly() {

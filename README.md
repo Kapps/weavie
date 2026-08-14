@@ -28,8 +28,10 @@ There are limitations though:
 ## Getting Started
 
 ### Client Setup
+
 1. Download the [latest tagged version](https://github.com/Kapps/weavie/releases/tag/main-latest) for your OS (no proper releases yet).
-2. Run it. If you find that features like running tests or creating a worktree don't work out of the box for your repo, just ask Claude to set an appropriate one.
+2. On Linux, install GTK 3 and WebKitGTK 4.1 version 2.42 or newer.
+3. Run it. If you find that features like running tests or creating a worktree don't work out of the box for your repo, just ask Claude to set an appropriate one.
 
 ### Remote Runner Setup
 **Remote setup must use a VPN or Tailscale. DO NOT expose the headless server to the internet.** There's authentication, but aside from the authentication the remote code hasn't been properly looked at.

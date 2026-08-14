@@ -67,7 +67,9 @@ internal sealed partial class WorkspaceHost : IWebSurface, IShellMenuActions {
 		_onKeyPress = OnKeyPress;
 		_ = GLib.g_signal_connect_data(
 			_webView, "key-press-event", Marshal.GetFunctionPointerForDelegate(_onKeyPress), IntPtr.Zero, IntPtr.Zero, 0);
-		WebKit.webkit_settings_set_enable_developer_extras(WebKit.webkit_web_view_get_settings(_webView), true);
+		IntPtr settings = WebKit.webkit_web_view_get_settings(_webView);
+		WebKit.webkit_settings_set_enable_developer_extras(settings, true);
+		WebKit.EnableNativeRefreshRate(settings);
 
 		Gtk.gtk_container_add(_window, _webView);
 		_hotkeys = new ApplicationHotkeys(

@@ -70,6 +70,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 		IAgentProvider agentProvider,
 		HostRuntimeInfo runtime,
 		Func<bool> inputFrozen,
+		Action<bool, Action> acceptTerminalInput,
 		Action<int, int> shellResized) {
 		ArgumentNullException.ThrowIfNull(endpoint);
 		ArgumentNullException.ThrowIfNull(settings);
@@ -86,6 +87,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 		ArgumentNullException.ThrowIfNull(agentProvider);
 		ArgumentNullException.ThrowIfNull(runtime);
 		ArgumentNullException.ThrowIfNull(inputFrozen);
+		ArgumentNullException.ThrowIfNull(acceptTerminalInput);
 		ArgumentNullException.ThrowIfNull(shellResized);
 
 		_endpoint = endpoint;
@@ -227,7 +229,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 			Agent.ReleaseHistoryReader(peer);
 			_ = Background.Run(_ => Lsp.DisconnectAsync(peer));
 		};
-		WireMessages(inputFrozen, shellResized);
+		WireMessages(inputFrozen, acceptTerminalInput, shellResized);
 	}
 
 	/// <summary>This live backend incarnation.</summary>

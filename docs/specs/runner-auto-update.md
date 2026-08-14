@@ -36,7 +36,7 @@ sequenceDiagram
     GH-->>R: build N, asset digest
     R->>GH: download + verify → versions/N/
     R->>W1: POST /control/drain (worker token)
-    Note over W1: waits for quiet (no turn, no prompt, no shell job), then exits 0
+    Note over W1: waits for safe sessions and two minutes without user input, then exits 0
     W1-->>R: exit 0
     R->>W2: spawn from versions/N/ (same WorkspaceBackend: port + token)
     C->>W2: WS reconnect (existing backoff loop)
@@ -142,28 +142,22 @@ across the swap.
    the gate, and draining never asks the user to confirm anything — updates apply automatically at
    the first quiet moment. A startup `503` from the worker is retryable: the process is running but
    its Core graph is not ready to drain yet. It has two phases:
-   - **Pending** — the box is busy. Everything keeps working normally; new prompts are allowed and
-     simply extend the wait. A passive *update pending* indicator names what is holding the update.
-     There is **no drain timeout** — a busy box holds the update until quiet, and *restart now* (a
-     command) lets the user accelerate; it is never automatic.
-   - **Restarting** — the moment the gate is satisfied, the worker **stops forwarding terminal
-     input** and pushes a *restarting* state the client renders as a full-UI blocking overlay
-     ("Updating…"), then exits `0`. The overlay spans exit → reconnect → reload-when-stale →
-     dismiss, typically a few seconds; it is the visible surface of the server-side input stop
-     (the authoritative mechanism — a lagging client cannot race it). If a session flips to
-     `Working` after commit but before exit (a prompt that was already in flight — `Working` is
-     only set when the `UserPromptSubmit`/`PreToolUse` hook arrives), the worker aborts the
-     commit, resumes input, and returns to pending. The residual race is bounded by hook latency
-     at the commit instant — accepted and stated, not papered over.
+   - **Pending** — the box is busy or received user input within the last two minutes. Everything
+     keeps working normally; new input is allowed and renews the wait. A passive *update pending*
+     indicator names what is holding the update. There is **no drain timeout** — a busy box holds the
+     update until quiet, and *restart now* (a command) lets the user accelerate; it is never automatic.
+   - **Restarting** — the moment the gate is satisfied, the worker **stops forwarding input** and
+     pushes a *restarting* state the client renders as a full-UI blocking overlay ("Updating…"), then
+     exits `0`. The browser preserves pending structured-composer text per session across the reload.
+     The overlay spans exit → reconnect → reload-when-stale → dismiss, typically a few seconds; it is
+     the visible surface of the server-side input stop.
 
    The gate is: **no session `Working`, `NeedsInput`, or `Waiting`** — `Working`/`NeedsInput` is an
    in-flight turn or a pending permission prompt whose tool call a kill would discard; `Waiting` is a
-   turn that *ended* but armed a self-continuation that a restart would destroy (see below) — **and no
-   shell pane with a foreground job** (`tcgetpgrp` on the pane's PTY differs from the shell's own
-   process group). The shell condition exists because unattended is the normal case: killing a dev
-   server or build left running in a pane at 3am is silent destruction no pending-UI warning excuses.
-   A genuinely idle prompt drains; a *waiting* session or a running job holds the update, named in the
-   indicator. Notes on the gate:
+   turn that *ended* but armed a self-continuation that a restart would destroy (see below) — **no shell
+   pane with a foreground job**, and **no user input within the last two minutes**. Input admission and
+   commit share the same Core lock: either input lands first and renews the hold, or commit freezes first
+   and rejects it. Notes on the gate:
    - There is no aggregate today — `SessionStatusMachine` is per-session and the loaded-session
      set is private to `HostCore`. The gate is a new Core-owned seam (all hosts get it). The
      foreground-job check is a small PTY-shim addition.
@@ -180,6 +174,8 @@ across the swap.
      update forever. `Waiting` clears the instant a turn ends with those registries empty.
    - **Background shell jobs** (`&`, `nohup`) are invisible to the foreground check and die at
      restart; the pending indicator says so.
+   - Terminal-generated device-query replies do not count as user input. Programmatic composer prefill
+     does not count either; only actual textarea input does.
 4. **Restart**: the runner sees the clean exit and respawns the same `WorkspaceBackend` from the
    staged version. `ProcessSupervisor` supports this — a clean exit under `OnFailure` lands in
    `Idle`, and `Start()` runs again from there — but the update path must go **`Stop()` →
@@ -244,11 +240,10 @@ Per the no-silent-fallback rule, every update state the user could care about is
 user is:
 
 - *Update pending — waiting on <the busy thing>* (a working session, an open permission prompt, a
-  session waiting on a scheduled task, a foreground shell job; background jobs will be terminated) —
-  a passive indicator in the web UI
-  with a *restart now* action. Updates never require confirmation: the indicator informs, and
-  restart-now accelerates. Restart-now is a **command** (palette + default keybinding + advertised
-  on the button, per the commands standard), not a bespoke button.
+  session waiting on a scheduled task, a foreground shell job, or recent keyboard input; background
+  jobs will be terminated) — a passive indicator in the web UI with a *restart now* action. Updates
+  never require confirmation: the indicator informs, and restart-now accelerates. Restart-now is a
+  **command**, not a bespoke button.
 - *Updating…* — the full-UI blocking overlay from the restart commit through reconnect/reload.
 - *Updated to build N* / *rolled back from build N* — web UI notice + runner status page.
 - *Runner is behind (build R < N) — restart the runner to apply* — runner status page; runner staleness
@@ -287,9 +282,9 @@ Poll cadence is fixed (15 min) — a knob would be a liability before anyone nee
 ## Implementation seams
 
 - **Worker drain gate (Core-first):** a `HostCore` drain seam — public busy aggregate over the
-  loaded sessions' `Status` plus the shells' foreground-job probe (PTY shim: `tcgetpgrp`), the
-  commit-phase input stop, the pending/restarting pushes, and a drain-complete callback — so every
-  host gets it. HTTP surface: token-gated `/control/drain` + `/control/status`
+  loaded sessions' `Status`, the shells' foreground-job probe (PTY shim: `tcgetpgrp`), and monotonic
+  recent-input timestamps, plus the commit-phase input stop, pending/restarting pushes, and a
+  drain-complete callback — so every host gets it. HTTP surface: token-gated `/control/drain` + `/control/status`
   (reports `BuildNumber`) in `src/Weavie.Headless/Program.cs`, covered by its existing
   default-deny middleware; exit via `IHostApplicationLifetime.StopApplication`. Status reports the worker's
   compiled spawn contract; contract 2 requires the authenticated `/control/health` endpoint.
@@ -297,8 +292,7 @@ Poll cadence is fixed (15 min) — a knob would be a liability before anyone nee
   orchestration methods on `BackendManager` behind `_gate`; `HeadlessLauncher` takes the
   spawn-time path provider; `RunnerOptions` gains the two flags; `RunnerStatusPage` surfaces
   attention-worthy states.
-- **Tests:** drain gate at the `HostCore` seam with the stubbed claude
-  (`TerminalController.ResolveClaudeLaunch`) driving hook-fed status, on `headless`; supervisor
+- **Tests:** drain gate at the `HostCore` seam with deterministic recent-input time; supervisor
   `Stop()`→`Start()` crash-history hygiene against `ISupervisorClock`; `BackendManager`
   restart-in-place vs a concurrent `Ensure`; full journey (drain → respawn → reconnect → chip
   reload → `--resume` arg asserted) on `headless`.

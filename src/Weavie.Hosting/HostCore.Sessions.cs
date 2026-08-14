@@ -424,6 +424,7 @@ public sealed partial class HostCore {
 				provider,
 				_runtime,
 				() => _drainInputFrozen,
+				(userInitiated, accept) => TryAcceptInput(session!.SlotId, userInitiated, accept),
 				_sessionStore.RecordShellSize);
 
 			// Persist the shell scrollback (keyed by worktree path, stable across reloads) so a reattaching client

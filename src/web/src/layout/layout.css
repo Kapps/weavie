@@ -49,8 +49,7 @@
   }
 }
 
-/* Pending-update indicator: a compact segment in the status footer (the update auto-applies once
-   sessions go idle), opening the card below with the holds + the explicit Restart Now (kills shell jobs). */
+/* Pending-update indicator: a compact segment in the status footer showing automatic drain holds. */
 .update-chip {
   border: none;
   border-radius: 4px;

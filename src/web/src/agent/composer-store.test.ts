@@ -10,6 +10,7 @@ const bridge = vi.hoisted(() => ({
       handlers: Map<string, (payload: Record<string, unknown>) => void>;
     }
   >(),
+  nextIncarnation: 0,
   posted: [] as Array<{
     backendId: string;
     slot: string;
@@ -18,6 +19,15 @@ const bridge = vi.hoisted(() => ({
     payload: Record<string, unknown>;
   }>,
 }));
+
+const drafts = new Map<string, string>();
+vi.stubGlobal("window", {
+  sessionStorage: {
+    getItem: (key: string) => drafts.get(key) ?? null,
+    setItem: (key: string, value: string) => drafts.set(key, value),
+    removeItem: (key: string) => drafts.delete(key),
+  },
+});
 
 vi.mock("../bridge", () => ({
   registerSessionFeature: (installer: (session: ClientSession) => undefined | (() => void)) => {
@@ -43,7 +53,7 @@ function ensureSession(
   const handlers = new Map<string, (payload: Record<string, unknown>) => void>();
   const client = {
     connection: { id: backendId },
-    address: { slot, incarnation: `${slot}-incarnation` },
+    address: { slot, incarnation: `${slot}-incarnation-${++bridge.nextIncarnation}` },
     feature: (feature: string) => ({
       on: (name: string, handler: (payload: Record<string, unknown>) => void) => {
         handlers.set(`${feature}.${name}`, handler);
@@ -75,6 +85,7 @@ const owner = (backendId: string, slot: string): ClientSession =>
 describe("agent composer attachments", () => {
   beforeEach(() => {
     bridge.posted.length = 0;
+    drafts.clear();
   });
 
   it("captures the backend and blocks submission until the remote upload is ready", async () => {
@@ -126,6 +137,33 @@ describe("agent composer attachments", () => {
 
     expect(store.composerState(sent).draft).toBe("");
     expect(store.composerState(kept).draft).toBe("keep me");
+    expect([...drafts.values()]).toEqual(["keep me"]);
+  });
+
+  it("restores a draft into a new session incarnation for the same backend and slot", () => {
+    const session = owner("remote-reload", "slot-reload");
+    store.setComposerDraft(session, "long response");
+
+    bridge.sessions.delete("remote-reload\u0000slot-reload");
+    const reloaded = owner("remote-reload", "slot-reload");
+
+    expect(store.composerState(reloaded).draft).toBe("long response");
+  });
+
+  it("isolates persisted drafts by backend and slot and removes empty drafts", () => {
+    const first = owner("remote-isolation", "slot-one");
+    const second = owner("remote-isolation", "slot-two");
+    const third = owner("other-backend", "slot-one");
+
+    store.setComposerDraft(first, "first");
+    store.setComposerDraft(second, "second");
+    store.setComposerDraft(third, "third");
+    store.setComposerDraft(second, "");
+
+    expect(store.composerState(first).draft).toBe("first");
+    expect(store.composerState(second).draft).toBe("");
+    expect(store.composerState(third).draft).toBe("third");
+    expect([...drafts.values()].sort()).toEqual(["first", "third"]);
   });
 
   it("submits staged skills as structured skill inputs and clears them once accepted", () => {

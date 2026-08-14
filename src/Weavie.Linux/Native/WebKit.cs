@@ -9,6 +9,7 @@ namespace Weavie.Linux.Native;
 internal static partial class WebKit {
 	private const string Lib = "libwebkit2gtk-4.1.so.0";
 	private const string Jsc = "libjavascriptcoregtk-4.1.so.0";
+	private const string PreferPageRenderingUpdatesNear60Fps = "PreferPageRenderingUpdatesNear60FPS";
 
 	/// <summary><c>WEBKIT_USER_CONTENT_INJECT_TOP_FRAME</c> — inject user scripts into the top frame only.</summary>
 	internal const int InjectTopFrame = 1;
@@ -42,6 +43,49 @@ internal static partial class WebKit {
 
 	[LibraryImport(Lib)]
 	internal static partial IntPtr webkit_web_view_get_settings(IntPtr webView);
+
+	[LibraryImport(Lib)]
+	private static partial IntPtr webkit_settings_get_all_features();
+
+	[LibraryImport(Lib)]
+	private static partial nuint webkit_feature_list_get_length(IntPtr features);
+
+	[LibraryImport(Lib)]
+	private static partial IntPtr webkit_feature_list_get(IntPtr features, nuint index);
+
+	[LibraryImport(Lib)]
+	private static partial IntPtr webkit_feature_get_identifier(IntPtr feature);
+
+	[LibraryImport(Lib)]
+	private static partial void webkit_settings_set_feature_enabled(
+		IntPtr settings, IntPtr feature, [MarshalAs(UnmanagedType.Bool)] bool enabled);
+
+	[LibraryImport(Lib)]
+	[return: MarshalAs(UnmanagedType.Bool)]
+	private static partial bool webkit_settings_get_feature_enabled(IntPtr settings, IntPtr feature);
+
+	[LibraryImport(Lib)]
+	private static partial void webkit_feature_list_unref(IntPtr features);
+
+	/// <summary>Lets rendering updates follow the display's native refresh rate instead of WebKit's 60fps preference.</summary>
+	internal static void EnableNativeRefreshRate(IntPtr settings) {
+		IntPtr features = webkit_settings_get_all_features();
+		try {
+			for (nuint index = 0; index < webkit_feature_list_get_length(features); index++) {
+				IntPtr feature = webkit_feature_list_get(features, index);
+				if (Marshal.PtrToStringUTF8(webkit_feature_get_identifier(feature)) == PreferPageRenderingUpdatesNear60Fps) {
+					webkit_settings_set_feature_enabled(settings, feature, false);
+					if (webkit_settings_get_feature_enabled(settings, feature))
+						throw new InvalidOperationException("WebKit refused native-refresh rendering updates.");
+					return;
+				}
+			}
+		} finally {
+			webkit_feature_list_unref(features);
+		}
+
+		throw new InvalidOperationException($"WebKit feature not found: {PreferPageRenderingUpdatesNear60Fps}");
+	}
 
 	[LibraryImport(Lib)]
 	internal static partial void webkit_settings_set_enable_developer_extras(

@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
-import { CommandIds } from "../src/commands/types";
+import { CommandIds, type CommandInfo } from "../src/commands/types";
 import { MockHost, mockSession } from "./mock-host";
 
 const distDir = join(dirname(fileURLToPath(import.meta.url)), "..", "dist");
@@ -63,11 +63,13 @@ test.describe("session-addressed WebSocket transport", () => {
           title: "New Session",
           runsIn: "core",
           owner: "backend",
+          executionLane: "weavie.session.lifecycle",
+          scope: "host",
           description: "Start or open a session.",
           aliases: [],
           showInPalette: true,
           keys: [],
-        },
+        } satisfies CommandInfo,
       ],
       keybindings: [],
     });
@@ -466,11 +468,13 @@ test.describe("session-addressed WebSocket transport", () => {
   }) => {
     const local = mockSession("local", "local", "codex");
     const remoteSession = mockSession("remote-codex", "codex", "codex");
-    const fontCommand = {
+    const fontCommand: CommandInfo = {
       id: "weavie.font.increase",
       title: "Increase Font Size",
       runsIn: "core",
       owner: "client",
+      executionLane: "weavie.font",
+      scope: "session",
       category: "View",
       description: "Increase the editor and terminal font size by one pixel.",
       aliases: [],
@@ -557,11 +561,13 @@ test.describe("session-addressed WebSocket transport", () => {
   }) => {
     const local = mockSession("local", "local", "codex");
     const remoteSession = mockSession("remote-codex", "codex", "codex");
-    const themeCommand = {
+    const themeCommand: CommandInfo = {
       id: "weavie.theme.cycleMode",
       title: "Cycle Theme Mode",
       runsIn: "core",
       owner: "client",
+      executionLane: "weavie.theme",
+      scope: "session",
       category: "Theme",
       description: "Cycle the appearance mode.",
       aliases: [],

@@ -133,8 +133,8 @@ public sealed class ProcessSupervisor : IDisposable {
 			_startedAt = _clock.UtcNow;
 			// The handle becomes current in the same lock hold that flips to Running, so a predecessor's late
 			// exit can never slip through the Running check while still matching _current.
-			launch = new SupervisedLaunch(this, 0);
 			_generation++;
+			launch = new SupervisedLaunch(this, 0, _generation);
 			_current = launch;
 			QueueStateChangedLocked(new SupervisorStateChanged(SupervisorState.Running, null, _restartCount));
 		}
@@ -319,8 +319,8 @@ public sealed class ProcessSupervisor : IDisposable {
 			_attempt = attempt;
 			_restartCount++;
 			_startedAt = _clock.UtcNow;
-			launch = new SupervisedLaunch(this, attempt);
 			_generation++;
+			launch = new SupervisedLaunch(this, attempt, _generation);
 			_current = launch;
 			QueueStateChangedLocked(new SupervisorStateChanged(SupervisorState.Running, null, _restartCount));
 		}

@@ -68,13 +68,13 @@ public sealed partial class CodexAppServerClient : IAsyncDisposable {
 	}
 
 	/// <summary>Raised for server notifications that do not expect a response.</summary>
-	public event Action<JsonElement>? NotificationReceived;
+	public event Action<long, JsonElement>? NotificationReceived;
 
 	/// <summary>Raised for server-initiated requests that must be answered with <see cref="Respond"/>.</summary>
 	public event Action<CodexServerRequest>? RequestReceived;
 
 	/// <summary>Raised each time the supervised app-server process starts or restarts.</summary>
-	public event Action<int>? ProcessStarted;
+	public event Action<long>? ProcessStarted;
 
 	/// <summary>Raised when the supervised app-server lifecycle changes state.</summary>
 	public event Action<SupervisorStateChanged>? ProcessStateChanged;
@@ -139,7 +139,7 @@ public sealed partial class CodexAppServerClient : IAsyncDisposable {
 		return ValueTask.CompletedTask;
 	}
 
-	private void HandleLine(string line) {
+	private void HandleLine(long generation, string line) {
 		if (string.IsNullOrWhiteSpace(line)) {
 			return;
 		}
@@ -169,18 +169,18 @@ public sealed partial class CodexAppServerClient : IAsyncDisposable {
 			return;
 		}
 
-		RaiseNotification(root.Clone());
+		RaiseNotification(generation, root.Clone());
 	}
 
-	private void RaiseNotification(JsonElement root) {
+	private void RaiseNotification(long generation, JsonElement root) {
 		var handlers = NotificationReceived;
 		if (handlers is null) {
 			return;
 		}
 
-		foreach (Action<JsonElement> handler in handlers.GetInvocationList()) {
+		foreach (Action<long, JsonElement> handler in handlers.GetInvocationList()) {
 			try {
-				handler(root);
+				handler(generation, root);
 			} catch (Exception ex) {
 				_log($"[codex-app-server] notification handler failed: {ex.Message}");
 			}

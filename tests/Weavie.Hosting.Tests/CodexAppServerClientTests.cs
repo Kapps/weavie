@@ -80,7 +80,7 @@ public sealed class CodexAppServerClientTests : IDisposable {
 	[Fact]
 	public async Task ExchangesRequestsNotificationsAndRestarts() {
 		var notifications = new List<string>();
-		var starts = new List<int>();
+		var starts = new List<long>();
 		var logs = new List<string>();
 		await using var client = new CodexAppServerClient(
 			TestNode.Command,
@@ -91,12 +91,12 @@ public sealed class CodexAppServerClientTests : IDisposable {
 			new Dictionary<string, string>(StringComparer.Ordinal) { ["WEAVIE_TEST"] = "weavie-test" },
 			logs.Add);
 		client.ProcessStarted += starts.Add;
-		client.NotificationReceived += root => {
+		client.NotificationReceived += (_, root) => {
 			if (root.GetProperty("method").GetString() == "turn/started") {
 				throw new InvalidOperationException("boom");
 			}
 		};
-		client.NotificationReceived += root => notifications.Add(root.GetProperty("method").GetString() ?? string.Empty);
+		client.NotificationReceived += (_, root) => notifications.Add(root.GetProperty("method").GetString() ?? string.Empty);
 
 		client.Start();
 		using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
@@ -145,8 +145,8 @@ public sealed class CodexAppServerClientTests : IDisposable {
 		var notifications = new List<string>();
 		var logs = new List<string>();
 		await using var client = EmptyClient(logs.Add);
-		client.NotificationReceived += _ => throw new InvalidOperationException("boom");
-		client.NotificationReceived += root => notifications.Add(root.GetProperty("method").GetString() ?? string.Empty);
+		client.NotificationReceived += (_, _) => throw new InvalidOperationException("boom");
+		client.NotificationReceived += (_, root) => notifications.Add(root.GetProperty("method").GetString() ?? string.Empty);
 
 		client.Start();
 		using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
@@ -167,7 +167,7 @@ public sealed class CodexAppServerClientTests : IDisposable {
 
 	[Fact]
 	public async Task Restart_StartsFreshServer() {
-		var starts = new List<int>();
+		var starts = new List<long>();
 		await using var client = EmptyClient(_ => { });
 		client.ProcessStarted += starts.Add;
 
@@ -187,7 +187,7 @@ public sealed class CodexAppServerClientTests : IDisposable {
 
 		Assert.Equal("fake-codex", first.GetProperty("userAgent").GetString());
 		Assert.Equal("fake-codex", second.GetProperty("userAgent").GetString());
-		Assert.Equal([0, 0], starts);
+		Assert.Equal([1, 2], starts);
 	}
 
 	[Fact]

@@ -46,9 +46,35 @@ if (args.includes("exec")) {
     send({ id: message.id, result: { userAgent: "fake-codex" } });
     return;
   }
+  if (message.method === "account/rateLimits/read") {
+    send({
+      id: message.id,
+      result: {
+        rateLimits: {
+          limitId: "codex",
+          limitName: null,
+          primary: { usedPercent: 25, windowDurationMins: 300, resetsAt: 1786665600 },
+          secondary: { usedPercent: 40, windowDurationMins: 10080, resetsAt: 1787184000 },
+        },
+      },
+    });
+    return;
+  }
   if (message.method === "thread/start") {
     send({ id: message.id, result: { thread: { id: "thread_fake" } } });
     send({ method: "thread/started", params: { thread: { id: "thread_fake" } } });
+    send({
+      method: "thread/tokenUsage/updated",
+      params: {
+        threadId: "thread_fake",
+        turnId: "startup",
+        tokenUsage: {
+          last: { totalTokens: 40000 },
+          total: { totalTokens: 65000 },
+          modelContextWindow: 200000,
+        },
+      },
+    });
     return;
   }
   if (message.method === "model/list") {
@@ -103,6 +129,18 @@ if (args.includes("exec")) {
     send({
       method: "turn/started",
       params: { threadId: "thread_fake", turn: { id: turnId, status: "running" } },
+    });
+    send({
+      method: "thread/tokenUsage/updated",
+      params: {
+        threadId: "thread_fake",
+        turnId,
+        tokenUsage: {
+          last: { totalTokens: 100000 },
+          total: { totalTokens: 150000 },
+          modelContextWindow: 200000,
+        },
+      },
     });
     send({
       method: "item/completed",

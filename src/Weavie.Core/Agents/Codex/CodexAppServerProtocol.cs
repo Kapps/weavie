@@ -55,6 +55,10 @@ public static class CodexAppServerProtocol {
 		return JsonSerializer.Serialize(new { method = "skills/list", id, @params = new { cwds = new[] { cwd } } });
 	}
 
+	/// <summary>Builds an account/rateLimits/read request for the current Codex account.</summary>
+	public static string AccountRateLimitsRead(long id) =>
+		JsonSerializer.Serialize(new { method = "account/rateLimits/read", id });
+
 	/// <summary>Builds a thread/start request, omitting an empty model so Codex uses its configured default.</summary>
 	public static string ThreadStart(
 		long id,

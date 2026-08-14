@@ -8,6 +8,7 @@ import { onCommandsChanged, runCommandWithFeedback } from "../commands/registry"
 import { CommandIds } from "../commands/types";
 import { AgentControlPicker } from "./AgentControlPicker";
 import { AgentModelPicker } from "./AgentModelPicker";
+import { AgentUsageIndicator } from "./AgentUsageIndicator";
 import {
   agentControlState,
   closeControlPicker,
@@ -15,6 +16,7 @@ import {
   openControlAxis,
   openControlPicker,
 } from "./agent-controls-store";
+import { hasAgentContextUsage } from "./agent-usage-store";
 
 // The dim strip under the composer. First segment is the merged model → effort / Fast control (its picker is a
 // cascading per-model submenu); Git diff totals stay beside it, followed by provider-owned axes and PR status.
@@ -77,6 +79,7 @@ export function AgentStatusLine(props: {
     <Show
       when={
         hasModel() ||
+        hasAgentContextUsage(props.session) ||
         state().axes.length > 0 ||
         hasDiff() ||
         diffError() !== null ||
@@ -96,6 +99,7 @@ export function AgentStatusLine(props: {
               <span class="agent-status-value">{modelLabel()}</span>
             </button>
           </Show>
+          <AgentUsageIndicator session={props.session} />
           <Show when={hasDiff()}>
             <button
               type="button"

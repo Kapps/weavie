@@ -8,13 +8,17 @@ namespace Weavie.Core.Processes;
 public sealed class SupervisedLaunch {
 	private readonly ProcessSupervisor _supervisor;
 
-	internal SupervisedLaunch(ProcessSupervisor supervisor, int attempt) {
+	internal SupervisedLaunch(ProcessSupervisor supervisor, int attempt, long generation) {
 		_supervisor = supervisor;
 		Attempt = attempt;
+		Generation = generation;
 	}
 
 	/// <summary>The launch attempt (0 = the first launch since <see cref="ProcessSupervisor.Start"/>).</summary>
 	public int Attempt { get; }
+
+	/// <summary>The monotonic identity of this launched instance.</summary>
+	public long Generation { get; }
 
 	/// <summary>
 	/// Whether this instance is still the supervisor's current one. False for a stopped predecessor, letting

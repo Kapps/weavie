@@ -1042,6 +1042,83 @@
   font-weight: 600;
 }
 
+.agent-status-usage {
+  display: inline-grid;
+  width: 18px;
+  height: 18px;
+  padding: 3px;
+  border: 0;
+  border-radius: 50%;
+  color: inherit;
+  background: transparent;
+  cursor: help;
+  place-items: center;
+}
+
+.agent-status-usage:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.agent-usage-circle {
+  width: 12px;
+  height: 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 62%, var(--border));
+  border-radius: 50%;
+  background: conic-gradient(
+    var(--accent) var(--agent-usage-percent),
+    color-mix(in srgb, var(--dim) 20%, transparent) 0
+  );
+}
+
+.agent-usage-tooltip {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 1000;
+  display: grid;
+  width: max-content;
+  min-width: 230px;
+  max-width: min(320px, calc(100vw - 16px));
+  padding: 7px 9px;
+  border: 1px solid color-mix(in srgb, var(--accent) 38%, var(--border));
+  border-radius: 4px;
+  color: var(--fg);
+  background: color-mix(in srgb, var(--bar) 94%, var(--bg));
+  box-shadow: 0 6px 20px color-mix(in srgb, var(--bg) 70%, transparent);
+  pointer-events: none;
+  white-space: normal;
+}
+
+.agent-usage-tooltip-section {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 12px;
+  padding: 5px 0;
+}
+
+.agent-usage-tooltip-section + .agent-usage-tooltip-section {
+  border-top: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
+}
+
+.agent-usage-tooltip-title {
+  min-width: 0;
+  font-weight: 600;
+}
+
+.agent-usage-tooltip-value {
+  color: color-mix(in srgb, var(--fg) 82%, var(--dim));
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.agent-usage-tooltip-detail {
+  grid-column: 1 / -1;
+  color: var(--dim);
+  font-size: var(--font-hint-size);
+  font-variant-numeric: tabular-nums;
+}
+
 .agent-model-picker {
   position: absolute;
   bottom: calc(100% + 3px);

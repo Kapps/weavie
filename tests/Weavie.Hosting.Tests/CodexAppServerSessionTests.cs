@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using Weavie.Core.Agents;
 using Weavie.Core.Commands;
@@ -586,6 +587,102 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		Assert.Equal("You have no weighted tokens left", error.Text);
 		Assert.Equal("failed", error.Status);
 	}
+
+	[Fact]
+	public async Task Usage_MergesThreadTokensWithSparseAccountLimitUpdates() {
+		ConcurrentQueue<AgentPaneMessage> messages = new();
+		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
+
+		session.Start();
+		await WaitForAsync(() => session.UsageState.RateLimits.Count == 2);
+		session.Submit(Submission("rate update", []));
+		await WaitForAsync(() =>
+			session.UsageState.ContextWindow is not null
+			&& session.UsageState.RateLimits[0].UsedPercent == 55
+			&& session.UsageState.TotalTokens == 66000);
+
+		var usage = session.UsageState;
+		Assert.Equal(40000, usage.ContextWindow!.UsedTokens);
+		Assert.Equal(200000, usage.ContextWindow.CapacityTokens);
+		Assert.Equal(66000, usage.TotalTokens);
+		Assert.Collection(
+			usage.RateLimits,
+			limit => {
+				Assert.Equal("main-bucket:primary", limit.Id);
+				Assert.Equal("Codex", limit.Label);
+				Assert.Equal(55, limit.UsedPercent);
+				Assert.Equal(300, limit.WindowMinutes);
+				Assert.Equal(DateTimeOffset.FromUnixTimeSeconds(1730947200), limit.ResetsAt);
+			},
+			limit => {
+				Assert.Equal("main-bucket:secondary", limit.Id);
+				Assert.Equal("Codex", limit.Label);
+				Assert.Equal(40, limit.UsedPercent);
+				Assert.Equal(10080, limit.WindowMinutes);
+			});
+	}
+
+	[Fact]
+	public async Task Usage_PreservesUpdateThatArrivesBeforeInitialSnapshot() {
+		File.WriteAllText(Path.Combine(_dir, "delay-rate-limits"), string.Empty);
+		await using var session = CreateSession(
+			new CapturingAgentEventSink(),
+			new ConcurrentQueue<AgentPaneMessage>());
+
+		session.Start();
+		await WaitForAsync(() => session.UsageState.RateLimits.Count == 2);
+
+		Assert.Collection(
+			session.UsageState.RateLimits,
+			limit => {
+				Assert.Equal(60, limit.UsedPercent);
+				Assert.Equal(300, limit.WindowMinutes);
+				Assert.Equal(DateTimeOffset.FromUnixTimeSeconds(1730947200), limit.ResetsAt);
+			},
+			limit => Assert.Equal(40, limit.UsedPercent));
+	}
+
+	[Fact]
+	public async Task Usage_IgnoresSnapshotFromPreviousProcessGeneration() {
+		var events = new CapturingAgentEventSink();
+		await using var session = CreateSession(events, new ConcurrentQueue<AgentPaneMessage>());
+
+		session.Start();
+		await WaitForAsync(() => session.UsageState.RateLimits.Count == 2);
+		session.Restart();
+		await WaitForAsync(() => events.Values.OfType<AgentSessionStarted>().Count() == 2);
+		await WaitForAsync(() => session.UsageState.RateLimits.Count == 2);
+
+		var stale = new CodexRateLimits(
+			"main-bucket",
+			"Stale",
+			[new AgentRateLimitUsage("main-bucket:primary", null, 99, 300, null)]);
+		Assert.False(ApplyRateLimitSnapshot(session, generation: 1, stale));
+		Assert.Equal(25, session.UsageState.RateLimits[0].UsedPercent);
+	}
+
+	[Fact]
+	public async Task Usage_TreatsRejectedRateLimitReadAsUnavailable() {
+		File.WriteAllText(Path.Combine(_dir, "reject-rate-limits"), string.Empty);
+		ConcurrentQueue<AgentPaneMessage> messages = new();
+		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
+		session.Start();
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
+
+		await LoadRateLimitsAsync(session, generation: 1);
+
+		Assert.Empty(session.UsageState.RateLimits);
+		Assert.DoesNotContain(messages, message => message.Type == "error");
+	}
+
+	[UnsafeAccessor(UnsafeAccessorKind.Method, Name = "ApplyRateLimitSnapshot")]
+	private static extern bool ApplyRateLimitSnapshot(
+		CodexAppServerSession session,
+		long generation,
+		CodexRateLimits snapshot);
+
+	[UnsafeAccessor(UnsafeAccessorKind.Method, Name = "LoadRateLimitsAsync")]
+	private static extern Task LoadRateLimitsAsync(CodexAppServerSession session, long generation);
 
 	[Fact]
 	public async Task AttachImage_SendsLocalImageWithNextPrompt() {

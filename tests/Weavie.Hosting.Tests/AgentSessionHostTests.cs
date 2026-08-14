@@ -16,6 +16,28 @@ namespace Weavie.Hosting.Tests;
 
 public sealed class AgentSessionHostTests {
 	[Fact]
+	public async Task StructuredUsage_IsPublishedAndReplayedForItsOwningSession() {
+		await using var fixture = CreateFixture(static () => "slot-1", static (_, _) => { }, 0);
+		var (bridge, session, host) = (fixture.Bridge, fixture.Session, fixture.Host);
+		var state = new AgentUsageState(
+			new(25000, 100000),
+			123456,
+			[new("provider:weekly", null, 42, 10080, DateTimeOffset.FromUnixTimeSeconds(1731547200))]);
+
+		session.EmitUsage(state);
+		var published = Assert.Single(bridge.PostedEventsNamed("usage")).GetProperty("state");
+		Assert.Equal(25000, published.GetProperty("contextWindow").GetProperty("usedTokens").GetInt64());
+		Assert.Equal(123456, published.GetProperty("totalTokens").GetInt64());
+		Assert.Equal(42, published.GetProperty("rateLimits")[0].GetProperty("usedPercent").GetDouble());
+
+		bridge.Clear();
+		host.ReplayState();
+		var replayed = Assert.Single(bridge.PostedEventsNamed("usage")).GetProperty("state");
+		Assert.Equal(100000, replayed.GetProperty("contextWindow").GetProperty("capacityTokens").GetInt64());
+		Assert.Equal(1731547200000, replayed.GetProperty("rateLimits")[0].GetProperty("resetsAtMs").GetInt64());
+	}
+
+	[Fact]
 	public async Task StructuredProvider_DoesNotStartUntilSlotIsKnown() {
 		string slot = string.Empty;
 		// Window 0 so each live message posts its own agent-pane frame, asserted synchronously below.
@@ -595,9 +617,12 @@ public sealed class AgentSessionHostTests {
 		public IAgentSession CreateSession(AgentSessionContext context) => session;
 	}
 
-	private sealed class FakeStructuredSession : IStructuredAgentSession {
+	private sealed class FakeStructuredSession : IStructuredAgentSession, IStructuredAgentUsage {
 		public event Action<AgentPaneMessage>? PaneMessage;
 		public event Action<IReadOnlyList<AgentPaneMessage>>? PaneSnapshot;
+		public event Action<AgentUsageState>? UsageStateChanged;
+
+		public AgentUsageState UsageState { get; private set; } = new(null, null, []);
 
 		public bool Started { get; private set; }
 
@@ -609,6 +634,11 @@ public sealed class AgentSessionHostTests {
 		public void Emit(AgentPaneMessage message) => PaneMessage?.Invoke(message);
 
 		public void Replace(IReadOnlyList<AgentPaneMessage> messages) => PaneSnapshot?.Invoke(messages);
+
+		public void EmitUsage(AgentUsageState state) {
+			UsageState = state;
+			UsageStateChanged?.Invoke(state);
+		}
 
 		public void Submit(AgentTurnSubmission submission) => throw new NotSupportedException();
 

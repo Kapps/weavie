@@ -16,13 +16,10 @@ export function MobileWorkspace(props: {
   inboxActive: boolean;
   sessions: RailSession[];
   initialBackendId: string;
-  initialProviderId: "claude" | "codex";
+  initialProviderId: string;
   onOpen: (session: RailSession) => Promise<boolean>;
-  onCreate: (
-    seed: NewSessionSeed,
-    backendId: string,
-    providerId: "claude" | "codex",
-  ) => Promise<boolean>;
+  onCreate: (seed: NewSessionSeed, backendId: string, providerId: string) => Promise<boolean>;
+  onManageAcp: (backendId: string) => void;
   onSurface: (surface: MobileSurface) => void;
   onDismiss: () => void;
   onSwipeCancel: () => void;
@@ -48,6 +45,7 @@ export function MobileWorkspace(props: {
           initialProviderId={props.initialProviderId}
           onOpen={props.onOpen}
           onCreate={props.onCreate}
+          onManageAcp={props.onManageAcp}
         />
       </SessionInboxSurface>
       <MobileSurfaceBar

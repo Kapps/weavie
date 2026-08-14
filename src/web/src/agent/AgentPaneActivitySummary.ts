@@ -147,7 +147,7 @@ export function isAgentActivity(message: AgentPaneUpdate): boolean {
 function activityStep(message: AgentPaneUpdate, category: string): AgentActivityStep {
   const summary = activityStepSummary(message);
   const normalized = normalizeText(summary);
-  return {
+  const step: AgentActivityStep = {
     category,
     detailText: normalizeText(message.text),
     id: activityStepId(message, category),
@@ -155,6 +155,15 @@ function activityStep(message: AgentPaneUpdate, category: string): AgentActivity
     status: activityStatus(message),
     tone: activityTone(message),
   };
+  return hasReviewTarget(message) ? { ...step, actionMessage: message } : step;
+}
+
+function hasReviewTarget(message: AgentPaneUpdate): boolean {
+  return (
+    (message.locations?.length ?? 0) > 0 ||
+    (message.diffs?.length ?? 0) > 0 ||
+    (message.content?.length ?? 0) > 0
+  );
 }
 
 function activityCategory(message: AgentPaneUpdate): string | null {

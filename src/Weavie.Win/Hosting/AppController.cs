@@ -1,3 +1,4 @@
+using Weavie.AcpDistribution;
 using Weavie.Core;
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
@@ -64,6 +65,7 @@ internal sealed class AppController : ApplicationContext {
 			Console.WriteLine(line);
 			Console.Out.Flush();
 		};
+		AcpAgents = AcpDistributionService.CreateDefault();
 
 		// Per-theme color overrides (~/.weavie/theme-overrides.json) — app-global so a change reaches every window;
 		// appearance itself is normal settings (theme.mode/theme.light/theme.dark).
@@ -143,6 +145,9 @@ internal sealed class AppController : ApplicationContext {
 
 	/// <summary>App-global Claude-session-id map (claude-sessions.json), shared so every session resumes its own.</summary>
 	public ClaudeSessionStore ClaudeSessions { get; }
+
+	/// <summary>App-global ACP agent installations and registry operations.</summary>
+	public IAcpAgentCatalog AcpAgents { get; }
 
 	/// <summary>App-global remote-agent registry (remote-agents.json), shared so a connect/disconnect reaches every window.</summary>
 	public RemoteAgentStore RemoteAgents { get; }

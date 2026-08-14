@@ -4,7 +4,7 @@ using Xunit;
 namespace Weavie.Core.Tests;
 
 /// <summary>
-/// The <c>claude.allowAllTools</c> gate: when on, auto-allows non-edit PermissionRequest events;
+/// The <c>agent.allowAllPermissions</c> gate: when on, auto-allows non-edit PermissionRequest events;
 /// edits (governed by Claude's own mode), interactive prompts (ExitPlanMode/AskUserQuestion), and
 /// observation-only PreToolUse/PostToolUse pass through.
 /// </summary>

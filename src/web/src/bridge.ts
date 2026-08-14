@@ -523,7 +523,7 @@ export interface BranchPreviewResult {
 export function requestBranchPreview(
   backendId: string,
   prompt: string,
-  agentProviderId: "claude" | "codex",
+  agentProviderId: string,
   signal: AbortSignal,
 ): Promise<BranchPreviewResult> {
   const connection = hostConnection(backendId);

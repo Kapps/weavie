@@ -50,8 +50,13 @@ export function clearAgentInputDraft(session: ClientSession, requestKey: string)
 function defaultAnswers(questions: readonly AgentInputQuestion[]): AgentInputAnswers {
   const answers: AgentInputAnswers = {};
   for (const question of questions) {
-    const first = question.options[0]?.label ?? "";
-    answers[question.id] = first.length > 0 ? [first] : [];
+    if (question.initialValues.length > 0) {
+      answers[question.id] = [...question.initialValues];
+    } else if (question.kind === "boolean") {
+      answers[question.id] = ["false"];
+    } else {
+      answers[question.id] = [];
+    }
   }
   return answers;
 }

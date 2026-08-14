@@ -36,7 +36,7 @@ public sealed class WorktreeIntegrationTests : IDisposable {
 	public async Task CreateListRemove_RoundTrips() {
 		var manager = NewManager();
 
-		var record = await manager.CreateAsync("feature", "main");
+		var record = await manager.CreateAsync("feature", "main", "acp");
 		Assert.True(Directory.Exists(record.Path));
 
 		var list = await manager.ListAsync();
@@ -59,7 +59,7 @@ public sealed class WorktreeIntegrationTests : IDisposable {
 	[Fact]
 	public async Task DirtyWorktree_RemovalGuarded() {
 		var manager = NewManager();
-		var record = await manager.CreateAsync("wip", "main");
+		var record = await manager.CreateAsync("wip", "main", "acp");
 		File.WriteAllText(Path.Combine(record.Path, "scratch.txt"), "uncommitted\n");
 
 		Assert.True(await _git.HasUncommittedChangesAsync(record.Path));
@@ -74,7 +74,7 @@ public sealed class WorktreeIntegrationTests : IDisposable {
 	[Fact]
 	public async Task GetChangeState_ClassifiesCleanUntrackedAndModified() {
 		var manager = NewManager();
-		var record = await manager.CreateAsync("changes", "main");
+		var record = await manager.CreateAsync("changes", "main", "acp");
 
 		// Fresh worktree off a commit: clean, no untracked files.
 		var clean = await _git.GetChangeStateAsync(record.Path);
@@ -104,7 +104,7 @@ public sealed class WorktreeIntegrationTests : IDisposable {
 		File.WriteAllText(Path.Combine(_repo, "rename-me.txt"), "rename\n");
 		RunGit(_repo, "add", "-A");
 		RunGit(_repo, "-c", "user.email=test@weavie.dev", "-c", "user.name=Weavie Test", "commit", "-m", "more files");
-		var record = await NewManager().CreateAsync("staged-changes", "main");
+		var record = await NewManager().CreateAsync("staged-changes", "main", "acp");
 
 		File.WriteAllText(Path.Combine(record.Path, "readme.txt"), "edited\n");
 		File.Delete(Path.Combine(record.Path, "delete-me.txt"));
@@ -122,7 +122,7 @@ public sealed class WorktreeIntegrationTests : IDisposable {
 	[Fact]
 	public async Task ExternallyRemovedWorktree_SurfacedAsOrphan_AndReconciled() {
 		var manager = NewManager();
-		var record = await manager.CreateAsync("ghost", "main");
+		var record = await manager.CreateAsync("ghost", "main", "acp");
 
 		// Remove out of band: git forgets it, the registry still has it.
 		RunGit(_repo, "worktree", "remove", record.Path);
@@ -143,7 +143,7 @@ public sealed class WorktreeIntegrationTests : IDisposable {
 		// A branch that exists but isn't checked out anywhere.
 		RunGit(_repo, "branch", "existing", "main");
 
-		var record = await manager.AttachAsync("existing");
+		var record = await manager.AttachAsync("existing", "acp");
 
 		Assert.Equal("existing", record.Branch);
 		Assert.True(Directory.Exists(record.Path));
@@ -156,7 +156,7 @@ public sealed class WorktreeIntegrationTests : IDisposable {
 	public async Task Attach_BranchCheckedOutElsewhere_Throws() {
 		var manager = NewManager();
 		// 'main' is checked out in the primary repo, so a second worktree can't attach to it.
-		await Assert.ThrowsAsync<GitException>(() => manager.AttachAsync("main"));
+		await Assert.ThrowsAsync<GitException>(() => manager.AttachAsync("main", "acp"));
 	}
 
 	[Fact]
@@ -209,7 +209,7 @@ public sealed class WorktreeIntegrationTests : IDisposable {
 	[Fact]
 	public async Task HalfRemovedWorktree_DirectoryRemains_DeletedDirectly() {
 		var manager = NewManager();
-		var record = await manager.CreateAsync("half", "main");
+		var record = await manager.CreateAsync("half", "main", "acp");
 
 		// Simulate a lock-induced half-removal: git's record is gone but the directory remains on disk with
 		// leftover files (the state a Windows file lock leaves behind), and the registry row survives.
@@ -227,7 +227,7 @@ public sealed class WorktreeIntegrationTests : IDisposable {
 	[Fact]
 	public async Task Remove_ClearsContentsThenGitFinalizes_RecordGone_BranchKept_NoPrune() {
 		var manager = NewManager();
-		var record = await manager.CreateAsync("keepbranch", "main");
+		var record = await manager.CreateAsync("keepbranch", "main", "acp");
 		// Extra working-tree content (incl. a nested dir) that our clear step must remove before git finalizes.
 		File.WriteAllText(Path.Combine(record.Path, "scratch.txt"), "wip\n");
 		Directory.CreateDirectory(Path.Combine(record.Path, "nested"));
@@ -250,7 +250,7 @@ public sealed class WorktreeIntegrationTests : IDisposable {
 		}
 
 		var manager = NewManager();
-		var record = await manager.CreateAsync("withlink", "main");
+		var record = await manager.CreateAsync("withlink", "main", "acp");
 
 		// A directory OUTSIDE the worktree whose contents MUST survive the worktree's deletion — this stands in
 		// for the primary checkout that a worktree's node_modules is junctioned into during live testing.

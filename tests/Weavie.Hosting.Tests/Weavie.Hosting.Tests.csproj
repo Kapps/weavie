@@ -17,6 +17,23 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Weavie.Hosting\Weavie.Hosting.csproj" />
+    <ProjectReference Include="..\..\tools\Weavie.FakeAcp\Weavie.FakeAcp.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\src\Weavie.McpProxy\Weavie.McpProxy.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
+
+  <Target Name="CopyMcpProxyForTests" AfterTargets="Build">
+    <PropertyGroup>
+      <_McpProxyExe Condition="$([MSBuild]::IsOSPlatform('Windows'))">weavie-mcp-proxy.exe</_McpProxyExe>
+      <_McpProxyExe Condition="'$(_McpProxyExe)' == ''">weavie-mcp-proxy</_McpProxyExe>
+      <_McpProxyDir>$(MSBuildProjectDirectory)\..\..\src\Weavie.McpProxy\bin\$(Configuration)\net10.0\</_McpProxyDir>
+    </PropertyGroup>
+    <ItemGroup>
+      <_McpProxyOutput Include="$(_McpProxyDir)$(_McpProxyExe)" />
+      <_McpProxyOutput Include="$(_McpProxyDir)weavie-mcp-proxy.dll" />
+      <_McpProxyOutput Include="$(_McpProxyDir)weavie-mcp-proxy.deps.json" />
+      <_McpProxyOutput Include="$(_McpProxyDir)weavie-mcp-proxy.runtimeconfig.json" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_McpProxyOutput)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+  </Target>
 
 </Project>

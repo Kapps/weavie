@@ -9,7 +9,7 @@ public enum HookDecisionKind {
 	/// <summary>No opinion — defer to Claude's normal flow (openDiff for edits, the terminal prompt otherwise).</summary>
 	PassThrough,
 
-	/// <summary>Allow the tool without prompting (the claude.allowAllTools bypass).</summary>
+	/// <summary>Allow the tool without prompting through Weavie's shared permission bypass.</summary>
 	Allow,
 
 	/// <summary>Block the tool.</summary>

@@ -1,6 +1,6 @@
 namespace Weavie.Core.Agents;
 
-/// <summary>One selectable value for a control axis — a model, an approval policy, a sandbox mode.</summary>
+/// <summary>One selectable value for a provider-owned session configuration option.</summary>
 public sealed record AgentControlOption {
 	/// <summary>The value echoed back to <see cref="IStructuredAgentControls.SetControl"/> when picked.</summary>
 	public required string Id { get; init; }
@@ -10,15 +10,27 @@ public sealed record AgentControlOption {
 
 	/// <summary>Optional one-line description shown under the label.</summary>
 	public string? Description { get; init; }
+
+	/// <summary>Optional provider-owned group label for clustered selector values.</summary>
+	public string? Group { get; init; }
 }
 
-/// <summary>One adjustable control on a session (mode, approvals, sandbox) with its current value and choices.</summary>
+/// <summary>One ordered provider-owned session configuration option.</summary>
 public sealed record AgentControlAxis {
 	/// <summary>The provider-opaque axis key the web echoes back verbatim (e.g. <c>sandbox</c>).</summary>
 	public required string Id { get; init; }
 
 	/// <summary>The user-facing axis name, e.g. "Sandbox".</summary>
 	public required string Label { get; init; }
+
+	/// <summary>The optional provider description shown with the control.</summary>
+	public string? Description { get; init; }
+
+	/// <summary>The provider's semantic category, used only for presentation ordering.</summary>
+	public string? Category { get; init; }
+
+	/// <summary>The option shape: <c>select</c> or <c>boolean</c>.</summary>
+	public required string Kind { get; init; }
 
 	/// <summary>The current option id.</summary>
 	public required string Value { get; init; }
@@ -29,49 +41,11 @@ public sealed record AgentControlAxis {
 	/// <summary>The choices offered when the axis is opened.</summary>
 	public required IReadOnlyList<AgentControlOption> Options { get; init; }
 
-	/// <summary>The command that operates this axis, used to advertise its effective keybinding.</summary>
-	public string? CommandId { get; init; }
-}
-
-/// <summary>One model in the combined model control, with the reasoning efforts and Fast state it offers.</summary>
-public sealed record AgentModelChoice {
-	/// <summary>The model id echoed back as the <c>model</c> control value.</summary>
-	public required string Id { get; init; }
-
-	/// <summary>The user-facing model name, e.g. "GPT-5.5".</summary>
-	public required string Label { get; init; }
-
-	/// <summary>Whether this is the session's active model.</summary>
-	public required bool Current { get; init; }
-
-	/// <summary>The effort id selected for this model — the effective effort when current, else the model default.</summary>
-	public required string Effort { get; init; }
-
-	/// <summary>The reasoning efforts this model offers, as options for its submenu.</summary>
-	public required IReadOnlyList<AgentControlOption> Efforts { get; init; }
-
-	/// <summary>The service-tier id that turns Fast Mode on for this model, or empty when it offers no Fast tier.</summary>
-	public required string FastTier { get; init; }
-
-	/// <summary>Whether Fast Mode is on (only ever true for the active model).</summary>
-	public required bool FastOn { get; init; }
-}
-
-/// <summary>The merged model → effort / Fast control: one status-line item whose picker opens a per-model submenu.</summary>
-public sealed record AgentModelControl {
-	/// <summary>The active model id.</summary>
-	public required string Value { get; init; }
-
-	/// <summary>The composite status-line label, e.g. "GPT-5.5 (X-High) ⚡".</summary>
-	public required string ValueLabel { get; init; }
-
-	/// <summary>The selectable models, each carrying its efforts and Fast state for the submenu.</summary>
-	public required IReadOnlyList<AgentModelChoice> Models { get; init; }
 }
 
 /// <summary>
-/// One slash-menu entry. Exactly one action is set: <see cref="CommandId"/> dispatches a built-in command,
-/// <see cref="InsertText"/> inserts text, or <see cref="SkillName"/> stages a provider skill for the next turn.
+/// One slash-menu entry. <see cref="CommandId"/> dispatches a Weavie command; otherwise
+/// <see cref="InsertText"/> inserts the provider command into the composer.
 /// </summary>
 public sealed record AgentSlashEntry {
 	/// <summary>A stable id, unique within the menu.</summary>
@@ -89,16 +63,11 @@ public sealed record AgentSlashEntry {
 	/// <summary>When set, selecting the entry replaces the slash query with this text.</summary>
 	public string? InsertText { get; init; }
 
-	/// <summary>When set, selecting the entry stages this provider skill, submitted as a structured skill input.</summary>
-	public string? SkillName { get; init; }
 }
 
 /// <summary>The provider-neutral control + slash surface for one structured-agent session, pushed to the web.</summary>
 public sealed record AgentControlState {
-	/// <summary>The merged model / effort / Fast control shown first in the status line.</summary>
-	public required AgentModelControl ModelControl { get; init; }
-
-	/// <summary>The remaining adjustable control axes (mode, approvals, sandbox) shown in the composer status line.</summary>
+	/// <summary>The provider-owned configuration options, in the provider's order.</summary>
 	public required IReadOnlyList<AgentControlAxis> Axes { get; init; }
 
 	/// <summary>The slash-menu entries offered when the composer starts with a slash.</summary>

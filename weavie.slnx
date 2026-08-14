@@ -1,9 +1,12 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/Weavie.AcpDistribution/Weavie.AcpDistribution.csproj" />
+    <Project Path="src/Weavie.AgentClientProtocol/Weavie.AgentClientProtocol.csproj" />
     <Project Path="src/Weavie.Analyzers/Weavie.Analyzers.csproj" />
     <Project Path="src/Weavie.Core/Weavie.Core.csproj" />
     <Project Path="src/Weavie.Headless/Weavie.Headless.csproj" />
     <Project Path="src/Weavie.HookRelay/Weavie.HookRelay.csproj" />
+    <Project Path="src/Weavie.McpProxy/Weavie.McpProxy.csproj" />
     <Project Path="src/Weavie.Hosting/Weavie.Hosting.csproj" />
     <Project Path="src/Weavie.Linux/Weavie.Linux.csproj" />
     <Project Path="src/Weavie.Runner/Weavie.Runner.csproj" />
@@ -19,6 +22,7 @@
     <Project Path="tests/Weavie.Runner.Tests/Weavie.Runner.Tests.csproj" />
   </Folder>
   <Folder Name="/tools/">
+    <Project Path="tools/Weavie.FakeAcp/Weavie.FakeAcp.csproj" />
     <Project Path="tools/Weavie.FakeClaude/Weavie.FakeClaude.csproj" />
     <Project Path="tools/Weavie.IdeHarness/Weavie.IdeHarness.csproj" />
     <Project Path="tools/Weavie.LspHarness/Weavie.LspHarness.csproj" />

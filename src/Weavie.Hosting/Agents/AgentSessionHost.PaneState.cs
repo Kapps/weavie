@@ -12,7 +12,7 @@ public sealed partial class AgentSessionHost {
 
 		string key = AgentPaneIdentity.ItemKey(threadId, turnId, itemId)!;
 		lock (_paneGate) {
-			if (_paneItemIndexes.ContainsKey(key)) {
+			if (_paneActiveItems.Contains(key)) {
 				return false;
 			}
 
@@ -93,14 +93,16 @@ public sealed partial class AgentSessionHost {
 		string? key = AgentPaneIdentity.ItemKey(message);
 		if (key is not null && IsDelta(message)) {
 			_paneMessages.Add(message with { Text = null });
-			_paneItemIndexes.Add(key, index);
+			_paneItemIndexes[key] = index;
+			_paneActiveItems.Add(key);
 			var buffer = new PaneDeltaBuffer(message);
 			buffer.Text.Append(message.Text);
 			_paneDeltaBuffers.Add(index, buffer);
 		} else {
 			_paneMessages.Add(message);
-			if (key is not null && message.Type == "item-started") {
-				_paneItemIndexes.Add(key, index);
+			if (key is not null) {
+				_paneItemIndexes[key] = index;
+				if (message.Type == "item-started") _paneActiveItems.Add(key);
 			}
 		}
 
@@ -143,6 +145,7 @@ public sealed partial class AgentSessionHost {
 		}
 
 		if (message.Type == "item-started") {
+			_paneActiveItems.Add(key);
 			if (_paneItemIndexes.TryGetValue(key, out int startedIndex)) {
 				_paneDeltaBuffers.Remove(startedIndex);
 				_paneMessages[startedIndex] = message;
@@ -155,6 +158,7 @@ public sealed partial class AgentSessionHost {
 		}
 
 		if (IsDelta(message)) {
+			_paneActiveItems.Add(key);
 			if (!_paneItemIndexes.TryGetValue(key, out int deltaIndex)) {
 				deltaIndex = _paneMessages.Count;
 				_paneItemIndexes[key] = deltaIndex;
@@ -174,13 +178,19 @@ public sealed partial class AgentSessionHost {
 				message);
 		}
 
-		if (message.Type == "item-completed" && _paneItemIndexes.Remove(key, out int completedIndex)) {
-			_paneDeltaBuffers.Remove(completedIndex);
-			_paneMessages[completedIndex] = message;
-			_paneRevisions[completedIndex] = ++_nextPaneRevision;
-			return RecordAtLocked(completedIndex);
+		if (message.Type is "item-completed" or "item-retracted") {
+			_paneActiveItems.Remove(key);
+			if (_paneItemIndexes.TryGetValue(key, out int completedIndex)) {
+				_paneDeltaBuffers.Remove(completedIndex);
+				_paneMessages[completedIndex] = message;
+				_paneRevisions[completedIndex] = ++_nextPaneRevision;
+				return RecordAtLocked(completedIndex);
+			}
+			_paneItemIndexes[key] = _paneMessages.Count;
+			return AppendPaneMessageLocked(message);
 		}
 
+		if (!_paneItemIndexes.ContainsKey(key)) _paneItemIndexes[key] = _paneMessages.Count;
 		return AppendPaneMessageLocked(message);
 	}
 
@@ -206,6 +216,7 @@ public sealed partial class AgentSessionHost {
 		_paneOrdinals.Clear();
 		_paneRevisions.Clear();
 		_paneItemIndexes.Clear();
+		_paneActiveItems.Clear();
 		_paneDeltaBuffers.Clear();
 		_historyReads.Clear();
 		_nextPaneOrdinal = 0;
@@ -213,7 +224,8 @@ public sealed partial class AgentSessionHost {
 	}
 
 	private static bool IsDelta(AgentPaneMessage message) =>
-		message.Type is "agent-message-delta" or "plan-delta" or "command-output-delta";
+		message.Type is "agent-message-delta" or "thought-message-delta" or "user-message-delta"
+			or "plan-delta" or "command-output-delta";
 
 	private sealed class PaneDeltaBuffer(AgentPaneMessage latest) {
 		public AgentPaneMessage Latest { get; set; } = latest;

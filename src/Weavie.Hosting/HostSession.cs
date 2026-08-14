@@ -167,6 +167,15 @@ public sealed partial class HostSession : IAsyncDisposable {
 		Events = eventRouter;
 		var agentDiffPresenter = new PermissionModeDiffPresenter(DiffPresenter, ObservedMode);
 		bool exposeRegistryIdeTools = agentProvider.Info.Capabilities.HasFlag(AgentProviderCapabilities.StructuredPane);
+		IAgentAuthenticationTerminal authenticationTerminal = exposeRegistryIdeTools
+			? new AgentAuthenticationTerminal(
+				Bus.Feature("agent"),
+				Bus.Feature("terminal.agent"),
+				settings,
+				ptyLauncher,
+				workspaceRoot,
+				$"{agentPaneTranscriptPath}.authentication-terminal")
+			: UnavailableAgentAuthenticationTerminal.Instance;
 		var registry = new CapabilityRegistryHost(
 			AgentSessionCredential.Create(),
 			agentDiffPresenter,
@@ -193,6 +202,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 				Runtime = runtime,
 				Events = eventRouter,
 				CurrentSessionId = () => SlotId,
+				AuthenticationTerminal = authenticationTerminal,
 			},
 				Bus.Feature("agent"),
 				Bus.Feature("terminal.agent"),
@@ -548,7 +558,6 @@ public sealed partial class HostSession : IAsyncDisposable {
 			Id = Guid.NewGuid().ToString("n"),
 			Text = text,
 			Attachments = [],
-			Skills = [],
 		});
 	}
 

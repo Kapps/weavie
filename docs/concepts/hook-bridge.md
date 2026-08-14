@@ -8,7 +8,7 @@ intercepts:
 1. The **openDiff presenter policy** (`PermissionModeDiffPresenter`) — handles the *edit* path: a blocking
    Keep/Reject review in `default`, auto-keep when Claude's *observed* mode auto-applies edits (acceptEdits).
 2. The **hook bridge** (this doc) — sees *every* tool call, is the **change-recording stream**, **observes**
-   Claude's `permission_mode`, and enforces Weavie's tool-permission axis: with `claude.allowAllTools` on it
+   Claude's `permission_mode`, and enforces Weavie's tool-permission axis: with `agent.allowAllPermissions` on it
    returns `allow` for non-edit tools (edits stay with Claude's own mode). The two axes are described in
    [../specs/permission-modes-and-change-tracking.md](../specs/permission-modes-and-change-tracking.md).
 
@@ -76,8 +76,8 @@ Two invariants keep it safe:
 - `HookProtocol` — pipe name (`weavie-hook-<port>`), env var, length-prefixed framing.
 - `HookRequest` — parses the stdin JSON (event, tool, raw `tool_input`, session, cwd).
 - `HookDecision` / `HookPolicy` — the verdict + its stdout JSON serialization (`hookSpecificOutput` permission
-  block and/or top-level `systemMessage`); `Decide(request, allowAllTools)` is the gate seam — `PassThrough`
-  unless `claude.allowAllTools` is on, when a non-edit `PermissionRequest` returns `Allow`. `IdeIntegration` attaches
+  block and/or top-level `systemMessage`); `Decide(request, allowAllPermissions)` is the gate seam — `PassThrough`
+  unless `agent.allowAllPermissions` is on, when a non-edit `PermissionRequest` returns `Allow`. `IdeIntegration` attaches
   the edit jump-link `systemMessage`, and an `ObservedPermissionMode` subscribes to the same stream.
 - `HookBridgeServer` — the in-process pipe listener; raises `Observed`, replies with the decision.
 - `HookRelayClient` — the relay logic, linked into the standalone `Weavie.HookRelay` exe: stdin → pipe → stdout, fail-open.

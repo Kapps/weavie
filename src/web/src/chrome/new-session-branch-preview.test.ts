@@ -26,7 +26,7 @@ const deferred = <T>(): Deferred<T> => {
 const context = (prompt: string): BranchPreviewContext => ({
   backendId: "local",
   prompt,
-  providerId: "codex",
+  providerId: "acp",
 });
 
 afterEach(() => {
@@ -163,7 +163,7 @@ describe("NewSessionBranchPreview", () => {
     const preview = new NewSessionBranchPreview(
       async () => ({
         branch: "",
-        error: "Codex authentication was rejected. Run 'codex login' and try again.",
+        error: "ACP authentication was rejected. Run 'acp login' and try again.",
       }),
       (next) => {
         state = next;
@@ -175,7 +175,7 @@ describe("NewSessionBranchPreview", () => {
 
     expect(state).toEqual({
       branch: "",
-      error: "Codex authentication was rejected. Run 'codex login' and try again.",
+      error: "ACP authentication was rejected. Run 'acp login' and try again.",
       manual: false,
       status: "error",
     });

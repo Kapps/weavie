@@ -54,14 +54,14 @@ public sealed class AgentSessionHostTests {
 
 		session.Emit(new AgentPaneMessage {
 			Type = "agent-message-delta",
-			ProviderId = "codex",
+			ProviderId = "structured",
 			TurnId = "turn-1",
 			ItemId = "item-1",
 			Text = "hello ",
 		});
 		session.Emit(new AgentPaneMessage {
 			Type = "agent-message-delta",
-			ProviderId = "codex",
+			ProviderId = "structured",
 			TurnId = "turn-1",
 			ItemId = "item-1",
 			Text = "world",
@@ -74,7 +74,7 @@ public sealed class AgentSessionHostTests {
 
 		session.Emit(new AgentPaneMessage {
 			Type = "agent-message-delta",
-			ProviderId = "codex",
+			ProviderId = "structured",
 			ThreadId = "thread-a",
 			TurnId = "turn-shared",
 			ItemId = "item-shared",
@@ -82,7 +82,7 @@ public sealed class AgentSessionHostTests {
 		});
 		session.Emit(new AgentPaneMessage {
 			Type = "agent-message-delta",
-			ProviderId = "codex",
+			ProviderId = "structured",
 			ThreadId = "thread-b",
 			TurnId = "turn-shared",
 			ItemId = "item-shared",
@@ -107,7 +107,7 @@ public sealed class AgentSessionHostTests {
 		foreach (var collision in collisions) {
 			session.Emit(new AgentPaneMessage {
 				Type = "agent-message-delta",
-				ProviderId = "codex",
+				ProviderId = "structured",
 				ThreadId = collision.Thread,
 				TurnId = collision.Turn,
 				ItemId = "item-collision",
@@ -120,6 +120,35 @@ public sealed class AgentSessionHostTests {
 			.Where(value => value.GetProperty("itemId").GetString() == "item-collision")
 			.Select(value => value.GetProperty("text").GetString())];
 		Assert.Equal(collisions.Select(collision => collision.Text), collisionTexts);
+	}
+
+	[Fact]
+	public async Task ReplayStateRestoresAnActiveAuthenticationTerminal() {
+		await using var fixture = CreateFixture(
+			static () => "slot-1",
+			static (_, _) => { },
+			0,
+			withAuthenticationTerminal: true);
+		var terminal = Assert.IsType<AgentAuthenticationTerminal>(fixture.Host.AuthenticationTerminal);
+		using var cancellation = new CancellationTokenSource();
+		var authentication = terminal.RunAsync(new AgentLaunch {
+			Command = "login",
+			Arguments = [],
+			WorkingDirectory = Path.GetDirectoryName(fixture.TranscriptPath)!,
+			RemoveEnvironment = [],
+			Environment = new Dictionary<string, string>(StringComparer.Ordinal),
+			ExecutableMode = AgentExecutableMode.SearchPath,
+			WorkingDirectoryMode = AgentWorkingDirectoryMode.Fixed,
+			OutputCapture = new AgentOutputCapture.Disabled(),
+		}, cancellation.Token);
+		fixture.Bridge.Clear();
+
+		fixture.Host.ReplayState();
+
+		Assert.True(Assert.Single(fixture.Bridge.PostedEventsNamed("authenticationTerminal"))
+			.GetProperty("active").GetBoolean());
+		cancellation.Cancel();
+		await Assert.ThrowsAnyAsync<OperationCanceledException>(() => authentication);
 	}
 
 	[Fact]
@@ -224,8 +253,17 @@ public sealed class AgentSessionHostTests {
 				Id = "choice",
 				Header = "Choose",
 				Question = "Which option?",
-				IsSecret = false,
-				Options = [new AgentInputOption { Label = "Value", Description = description }],
+				AllowsOther = false,
+				Kind = "string",
+				Required = true,
+				Format = null,
+				InitialValues = ["value"],
+				Minimum = null,
+				Maximum = null,
+				MinimumLength = null,
+				MaximumLength = null,
+				Pattern = null,
+				Options = [new AgentInputOption { Value = "value", Label = "Value", Description = description }],
 			}],
 		};
 
@@ -253,7 +291,7 @@ public sealed class AgentSessionHostTests {
 		string initial = new('a', AgentSessionHost.HistoryPageTargetBytes * 2);
 		var delta = new AgentPaneMessage {
 			Type = "agent-message-delta",
-			ProviderId = "codex",
+			ProviderId = "structured",
 			TurnId = "turn",
 			ItemId = "streaming",
 			Text = initial,
@@ -319,6 +357,29 @@ public sealed class AgentSessionHostTests {
 	}
 
 	[Fact]
+	public async Task PersistedRetraction_ReplacesTheCompletedItemAfterReload() {
+		await using var fixture = CreateFixture(
+			static () => "slot-1",
+			static (fileSystem, transcriptPath) => {
+				var store = new AgentPaneTranscriptStore(fileSystem, transcriptPath);
+				store.Append(Completed("item-1", "refused result"));
+				store.Append(Completed("item-1", "refused result") with {
+					Type = "item-retracted",
+					Text = null,
+					Status = "retracted",
+				});
+			},
+			0);
+
+		await fixture.Host.DrainPaneAsync(CancellationToken.None);
+		var retracted = Assert.Single(await History(fixture.Host));
+
+		Assert.Equal("item-retracted", retracted.GetProperty("type").GetString());
+		Assert.Equal("item-1", retracted.GetProperty("itemId").GetString());
+		Assert.Equal("retracted", retracted.GetProperty("status").GetString());
+	}
+
+	[Fact]
 	public async Task PersistedTranscriptReplaysWhenActivationBeatsJournalLoad() {
 		string dir = Path.Combine(Path.GetTempPath(), "weavie-agent-host-tests", Guid.NewGuid().ToString("N"));
 		Directory.CreateDirectory(dir);
@@ -354,7 +415,7 @@ public sealed class AgentSessionHostTests {
 		var (bridge, session, host) = (fixture.Bridge, fixture.Session, fixture.Host);
 		var delta = new AgentPaneMessage {
 			Type = "agent-message-delta",
-			ProviderId = "codex",
+			ProviderId = "structured",
 			TurnId = "turn",
 			ItemId = "preload-live",
 			Text = "a",
@@ -388,7 +449,7 @@ public sealed class AgentSessionHostTests {
 
 		session.Emit(new AgentPaneMessage {
 			Type = "plan-delta",
-			ProviderId = "codex",
+			ProviderId = "structured",
 			ThreadId = threadId,
 			TurnId = turnId,
 			ItemId = itemId,
@@ -399,7 +460,7 @@ public sealed class AgentSessionHostTests {
 
 		session.Emit(new AgentPaneMessage {
 			Type = "item-completed",
-			ProviderId = "codex",
+			ProviderId = "structured",
 			ThreadId = threadId,
 			TurnId = turnId,
 			ItemId = itemId,
@@ -412,8 +473,23 @@ public sealed class AgentSessionHostTests {
 		Assert.False(host.TryGetCompletedPlan(threadId, "another-turn", itemId, out _));
 		Assert.False(host.TryGetCompletedPlan(threadId, turnId, "another-item", out _));
 
-		session.Emit(new AgentPaneMessage { Type = "transcript-reset", ProviderId = "codex" });
+		session.Emit(new AgentPaneMessage { Type = "transcript-reset", ProviderId = "structured" });
 		Assert.False(host.TryGetCompletedPlan(threadId, turnId, itemId, out _));
+	}
+
+	[Fact]
+	public async Task LaterTerminalOutcome_ReconcilesTheCompletedItemInPlace() {
+		await using var fixture = CreateFixture(static () => "slot-1", static (_, _) => { }, 0);
+		var (session, host) = (fixture.Session, fixture.Host);
+		session.Emit(Completed("task", "provisional"));
+		session.Emit(Completed("task", "authoritative") with { Status = "failed" });
+		await host.DrainPaneAsync(CancellationToken.None);
+
+		var item = Assert.Single(await History(host), message =>
+			message.GetProperty("itemId").GetString() == "task");
+
+		Assert.Equal("authoritative", item.GetProperty("text").GetString());
+		Assert.Equal("failed", item.GetProperty("status").GetString());
 	}
 
 	// A page may request history while async provider resume replaces it. The cursor may see either generation,
@@ -428,7 +504,7 @@ public sealed class AgentSessionHostTests {
 
 		for (int iteration = 0; iteration < 40; iteration++) {
 			// Restore a wide prior generation so the history copy and replacement overlap real work.
-			session.Emit(new AgentPaneMessage { Type = "transcript-reset", ProviderId = "codex" });
+			session.Emit(new AgentPaneMessage { Type = "transcript-reset", ProviderId = "structured" });
 			for (int i = 0; i < 100; i++) {
 				session.Emit(Completed($"seed-{i}", $"seed {i}"));
 			}
@@ -482,7 +558,7 @@ public sealed class AgentSessionHostTests {
 
 	private static AgentPaneMessage Completed(string itemId, string text) => new() {
 		Type = "item-completed",
-		ProviderId = "codex",
+		ProviderId = "structured",
 		TurnId = "turn",
 		ItemId = itemId,
 		Text = text,
@@ -495,14 +571,35 @@ public sealed class AgentSessionHostTests {
 		var fileSystem = new InMemoryFileSystem();
 		string transcriptPath = Path.Combine(dir, "agent-pane.json");
 		seedTranscript(fileSystem, transcriptPath);
-		return CreateFixture(slot, fileSystem, transcriptPath, paneCoalesceMs);
+		return CreateFixture(slot, fileSystem, transcriptPath, paneCoalesceMs, withAuthenticationTerminal: false);
+	}
+
+	private static HostFixture CreateFixture(
+		Func<string> slot,
+		Action<IFileSystem, string> seedTranscript,
+		long paneCoalesceMs,
+		bool withAuthenticationTerminal) {
+		string dir = Path.Combine(Path.GetTempPath(), "weavie-agent-host-tests", Guid.NewGuid().ToString("N"));
+		Directory.CreateDirectory(dir);
+		var fileSystem = new InMemoryFileSystem();
+		string transcriptPath = Path.Combine(dir, "agent-pane.json");
+		seedTranscript(fileSystem, transcriptPath);
+		return CreateFixture(slot, fileSystem, transcriptPath, paneCoalesceMs, withAuthenticationTerminal);
 	}
 
 	private static HostFixture CreateFixture(
 		Func<string> slot,
 		IFileSystem fileSystem,
 		string transcriptPath,
-		long paneCoalesceMs) {
+		long paneCoalesceMs) =>
+		CreateFixture(slot, fileSystem, transcriptPath, paneCoalesceMs, withAuthenticationTerminal: false);
+
+	private static HostFixture CreateFixture(
+		Func<string> slot,
+		IFileSystem fileSystem,
+		string transcriptPath,
+		long paneCoalesceMs,
+		bool withAuthenticationTerminal) {
 		string dir = Path.GetDirectoryName(transcriptPath)!;
 		var settings = CoreSettings.CreateStore(Path.Combine(dir, "settings.toml"), enableWatcher: false);
 		settings.Set(AgentSettings.PaneCoalesceMs, JsonSerializer.SerializeToElement(paneCoalesceMs));
@@ -522,6 +619,15 @@ public sealed class AgentSessionHostTests {
 			new ThemeOverridesStore(fileSystem, "/theme-overrides.json"),
 			slot);
 		var session = new FakeStructuredSession();
+		IAgentAuthenticationTerminal authenticationTerminal = withAuthenticationTerminal
+			? new AgentAuthenticationTerminal(
+				bridge.SessionFeature("agent"),
+				bridge.SessionFeature("terminal.agent"),
+					settings,
+					new NoopPtyLauncher(),
+					dir,
+					Path.Combine(dir, "authentication.scrollback"))
+			: UnavailableAgentAuthenticationTerminal.Instance;
 		var host = new AgentSessionHost(
 			new FakeStructuredProvider(session),
 			new AgentSessionContext {
@@ -534,13 +640,14 @@ public sealed class AgentSessionHostTests {
 				Runtime = new HostRuntimeInfo(HostTransport.Local, Managed: false, "test"),
 				Events = new NullAgentEventSink(),
 				CurrentSessionId = slot,
+				AuthenticationTerminal = authenticationTerminal,
 			},
 			bridge.SessionFeature("agent"),
 			bridge.SessionFeature("terminal.agent"),
 			settings,
 			new NoopPtyLauncher(),
 			transcriptPath);
-		return new HostFixture(bridge, session, host, registry, settings);
+		return new HostFixture(bridge, session, host, registry, settings, transcriptPath);
 	}
 
 	private sealed class BlockingReadFileSystem : IFileSystem {
@@ -553,7 +660,7 @@ public sealed class AgentSessionHostTests {
 			_release = release;
 			_inner.WriteAllText(
 				blockedPath,
-				"{\"type\":\"item-completed\",\"providerId\":\"codex\",\"text\":\"persisted after activation\"}\n");
+				"{\"type\":\"item-completed\",\"providerId\":\"structured\",\"text\":\"persisted after activation\"}\n");
 		}
 
 		public bool FileExists(string path) => _inner.FileExists(path);
@@ -592,12 +699,15 @@ public sealed class AgentSessionHostTests {
 		FakeStructuredSession session,
 		AgentSessionHost host,
 		CapabilityRegistryHost registry,
-		SettingsStore settings) : IAsyncDisposable {
+		SettingsStore settings,
+		string transcriptPath) : IAsyncDisposable {
 		public FakeHostBridge Bridge => bridge;
 
 		public FakeStructuredSession Session => session;
 
 		public AgentSessionHost Host => host;
+
+		public string TranscriptPath => transcriptPath;
 
 		public async ValueTask DisposeAsync() {
 			await host.DisposeAsync();
@@ -608,8 +718,8 @@ public sealed class AgentSessionHostTests {
 
 	private sealed class FakeStructuredProvider(FakeStructuredSession session) : IAgentProvider {
 		public AgentProviderInfo Info { get; } = new() {
-			Id = "codex",
-			Name = "Codex",
+			Id = "structured",
+			Name = "Structured",
 			Capabilities = AgentProviderCapabilities.StructuredPane,
 			Available = true,
 		};
@@ -628,7 +738,7 @@ public sealed class AgentSessionHostTests {
 
 		public void Start() {
 			Started = true;
-			PaneMessage?.Invoke(new AgentPaneMessage { Type = "started", ProviderId = "codex" });
+			PaneMessage?.Invoke(new AgentPaneMessage { Type = "started", ProviderId = "structured" });
 		}
 
 		public void Emit(AgentPaneMessage message) => PaneMessage?.Invoke(message);
@@ -648,9 +758,15 @@ public sealed class AgentSessionHostTests {
 
 		public void Restart() => throw new NotSupportedException();
 
-		public void ResolveApproval(string requestId, string decision) => throw new NotSupportedException();
+		public void ResolvePermission(string requestId, string optionId) => throw new NotSupportedException();
 
-		public void ResolveInput(string requestId, IReadOnlyDictionary<string, IReadOnlyList<string>> answers) =>
+		public void ResolveInput(
+			string requestId,
+			string action,
+			IReadOnlyDictionary<string, IReadOnlyList<string>> answers) =>
+			throw new NotSupportedException();
+
+		public void Authenticate(string methodId, IReadOnlyDictionary<string, IReadOnlyList<string>> answers) =>
 			throw new NotSupportedException();
 
 		public ValueTask DisposeAsync() => ValueTask.CompletedTask;

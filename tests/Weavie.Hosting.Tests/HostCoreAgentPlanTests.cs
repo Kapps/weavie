@@ -18,11 +18,11 @@ public sealed class HostCoreAgentPlanTests {
 		var created = await host.CreateSessionAsync(new NewSessionRequest {
 			Branch = "agent-plan",
 			Base = "main",
-			AgentProviderId = "codex",
+			AgentProviderId = "structured",
 		});
 		Assert.True(created.Ok, created.Error);
 		var session = host.Session("agent-plan");
-		Submit(host, session, FakeCodexAgentProvider.PlanPrompt);
+		Submit(host, session, FakeStructuredAgentProvider.PlanPrompt);
 		host.Bridge.Clear();
 
 		bool wrongSession = await host.SessionRequestAsync<bool>(
@@ -44,7 +44,7 @@ public sealed class HostCoreAgentPlanTests {
 			AgentPaneIdentity.ItemKey("thread-fake", "turn-1", "plan-1"),
 			plan.GetProperty("id").GetString());
 		Assert.Equal("Plan", plan.GetProperty("title").GetString());
-		Assert.Equal(FakeCodexAgentProvider.PlanMarkdown, plan.GetProperty("markdown").GetString());
+		Assert.Equal(FakeStructuredAgentProvider.PlanMarkdown, plan.GetProperty("markdown").GetString());
 	}
 
 	[Fact]
@@ -53,12 +53,12 @@ public sealed class HostCoreAgentPlanTests {
 		var created = await host.CreateSessionAsync(new NewSessionRequest {
 			Branch = "stale-agent-plan",
 			Base = "main",
-			AgentProviderId = "codex",
+			AgentProviderId = "structured",
 		});
 		Assert.True(created.Ok, created.Error);
 		var session = host.Session("stale-agent-plan");
-		Submit(host, session, FakeCodexAgentProvider.PlanPrompt);
-		Submit(host, session, FakeCodexAgentProvider.ResetPrompt);
+		Submit(host, session, FakeStructuredAgentProvider.PlanPrompt);
+		Submit(host, session, FakeStructuredAgentProvider.ResetPrompt);
 		host.Bridge.Clear();
 
 		bool opened = await host.SessionRequestAsync<bool>(
@@ -77,11 +77,11 @@ public sealed class HostCoreAgentPlanTests {
 		var created = await host.CreateSessionAsync(new NewSessionRequest {
 			Branch = "background-agent-plan",
 			Base = "main",
-			AgentProviderId = "codex",
+			AgentProviderId = "structured",
 		});
 		Assert.True(created.Ok, created.Error);
 		var background = host.Session("background-agent-plan");
-		Submit(host, background, FakeCodexAgentProvider.PlanPrompt);
+		Submit(host, background, FakeStructuredAgentProvider.PlanPrompt);
 		host.SelectWorkspaceSession();
 		host.Bridge.Clear();
 

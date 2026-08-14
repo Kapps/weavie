@@ -13,9 +13,9 @@ public sealed class HostCoreAgentDefaultTests {
 	public async Task Bootstrap_InjectsTheDefaultProvider() {
 		await using var host = await TestHost.StartAsync();
 
-		Assert.Contains(
-			"window.__WEAVIE_AGENT_SETTINGS__ = {\"defaultProvider\":\"claude\",\"middleClickAutoscroll\":true};",
-			host.Core.BuildBootstrap());
+		string bootstrap = host.Core.BuildBootstrap();
+		Assert.Contains("window.__WEAVIE_AGENT__ = {\"defaultProvider\":\"claude\",\"middleClickAutoscroll\":true,\"providers\":[", bootstrap);
+		Assert.Contains("\"id\":\"claude\",\"name\":\"Claude Code\"", bootstrap);
 	}
 
 	[Fact]
@@ -23,11 +23,11 @@ public sealed class HostCoreAgentDefaultTests {
 		await using var host = await TestHost.StartAsync();
 		host.Bridge.Clear();
 
-		host.HostEvent("agentDefaults", "setProvider", new { providerId = "codex" });
+		host.HostEvent("agentDefaults", "setProvider", new { providerId = "structured" });
 
-		var push = host.Bridge.LastEvent("settings", "agent-settings");
+		var push = host.Bridge.LastEvent("settings", "agent-defaults");
 		Assert.True(push.HasValue);
-		Assert.Equal("codex", push!.Value.GetProperty("defaultProvider").GetString());
+		Assert.Equal("structured", push!.Value.GetProperty("defaultProvider").GetString());
 	}
 
 	[Fact]
@@ -37,7 +37,7 @@ public sealed class HostCoreAgentDefaultTests {
 
 		host.HostEvent("agentDefaults", "setProvider", new { providerId = "claude" });
 
-		Assert.False(host.Bridge.LastEvent("settings", "agent-settings").HasValue);
+		Assert.False(host.Bridge.LastEvent("settings", "agent-defaults").HasValue);
 	}
 
 	[Fact]
@@ -47,6 +47,6 @@ public sealed class HostCoreAgentDefaultTests {
 
 		host.HostEvent("agentDefaults", "setProvider", new { providerId = "ghost" });
 
-		Assert.False(host.Bridge.LastEvent("settings", "agent-settings").HasValue);
+		Assert.False(host.Bridge.LastEvent("settings", "agent-defaults").HasValue);
 	}
 }

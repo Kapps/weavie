@@ -5,7 +5,7 @@ export const BRANCH_PREVIEW_DEBOUNCE_MS = 500;
 export interface BranchPreviewContext {
   backendId: string;
   prompt: string;
-  providerId: "claude" | "codex";
+  providerId: string;
 }
 
 export type BranchPreviewStatus = "idle" | "waiting" | "loading" | "ready" | "error";

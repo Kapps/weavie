@@ -12,7 +12,7 @@ describe("agent turn starts", () => {
       input("user-image", "turn-1", "steer-image", "/tmp/steer.png"),
       {
         type: "item-completed",
-        providerId: "codex",
+        providerId: "acp",
         threadId: "thread-1",
         turnId: "turn-1",
         itemId: "answer",
@@ -43,5 +43,5 @@ function input(
   itemId: string,
   text: string,
 ): AgentPaneUpdate {
-  return { type, providerId: "codex", threadId: "thread-1", turnId, itemId, text };
+  return { type, providerId: "acp", threadId: "thread-1", turnId, itemId, text };
 }

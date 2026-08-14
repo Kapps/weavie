@@ -62,6 +62,12 @@ public static class CoreCommands {
 	/// <summary>Restarts the Claude pane in place (recovers a crashed / crash-looped Claude).</summary>
 	public const string RestartAgent = "weavie.agent.restart";
 
+	/// <summary>Opens the ACP Registry manager.</summary>
+	public const string ManageAcpAgents = "weavie.agent.manageAcp";
+
+	/// <summary>Reloads installed and custom ACP agent definitions while the registry manager is open.</summary>
+	public const string ReloadAcpAgents = "weavie.agent.reloadAcp";
+
 	/// <summary>Applies a pending update now instead of waiting for the drain gate (kills running shell jobs).</summary>
 	public const string RestartForUpdate = "weavie.update.restartNow";
 
@@ -118,6 +124,18 @@ public static class CoreCommands {
 
 	/// <summary>Declines the agent's newest pending approval request.</summary>
 	public const string AgentDecline = "weavie.agent.decline";
+
+	/// <summary>Declines the agent's newest pending input request.</summary>
+	public const string AgentDeclineInput = "weavie.agent.declineInput";
+
+	/// <summary>Cancels the agent's newest pending input request.</summary>
+	public const string AgentCancelInput = "weavie.agent.cancelInput";
+
+	/// <summary>Accepts the agent's newest pending input request with its current answers.</summary>
+	public const string AgentAcceptInput = "weavie.agent.acceptInput";
+
+	/// <summary>Starts the first advertised authentication method on the newest authentication request.</summary>
+	public const string AgentAuthenticate = "weavie.agent.authenticate";
 
 	/// <summary>Clears the focused terminal's scrollback (the right-click "Clear" action).</summary>
 	public const string TerminalClear = "weavie.terminal.clear";
@@ -607,6 +625,17 @@ public static class CoreCommands {
 			Aliases = ["restart agent", "reopen agent", "relaunch agent", "agent crashed"],
 		});
 
+		registry.Register(new CommandDefinition {
+			Id = ManageAcpAgents,
+			Title = "Manage ACP Agents…",
+			RunsIn = CommandLocation.Web,
+			Category = "Agent",
+			Description = "Install, update, or remove native agents from the official ACP Registry.",
+			Aliases = ["ACP registry", "install agent", "manage agents", "add ACP agent"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+a" }],
+			KeybindingsActiveInModal = true,
+		});
+
 		// No default keybinding: only meaningful while an update is pending (the update indicator's
 		// button is the primary affordance; the handler fails cleanly otherwise).
 		registry.Register(new CommandDefinition {
@@ -765,7 +794,7 @@ public static class CoreCommands {
 			RunsIn = CommandLocation.Web,
 			Category = "Agent",
 			Description = "Toggle Plan mode for the active agent conversation; the selected mode applies from the next turn.",
-			Aliases = ["plan mode", "toggle plan", "codex plan", "plan"],
+			Aliases = ["plan mode", "toggle plan", "agent plan", "plan"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "shift+tab" }],
 			When = "agentFocused && !agentSlashMenuOpen && !agentControlPickerOpen",
 		});
@@ -776,7 +805,7 @@ public static class CoreCommands {
 			RunsIn = CommandLocation.Web,
 			Category = "Agent",
 			Description = "Open the newest completed plan for the active agent in the editor.",
-			Aliases = ["open plan", "show plan", "agent plan", "codex plan"],
+			Aliases = ["open plan", "show plan", "agent plan"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "alt+p" }],
 			When = "agentFocused",
 		});
@@ -788,7 +817,7 @@ public static class CoreCommands {
 			Category = "Agent",
 			Description = "Choose the model for the active agent session. Opens a picker, or pass 'value' to set it "
 				+ "directly; the change applies live from the next turn.",
-			Aliases = ["select model", "change model", "switch model", "codex model", "model"],
+			Aliases = ["select model", "change model", "switch model", "agent model", "model"],
 			When = "agentFocused",
 			ArgsSchemaJson = "{\"value\":{\"type\":\"string\",\"description\":\"Model id to select; omit to open the picker\"}}",
 		});
@@ -824,7 +853,7 @@ public static class CoreCommands {
 			Category = "Agent",
 			Description = "Choose how hard the active agent reasons. Opens a picker, or pass 'value' to set it "
 				+ "directly; the change applies live from the next turn.",
-			Aliases = ["select effort", "reasoning effort", "change effort", "codex effort", "effort"],
+			Aliases = ["select effort", "reasoning effort", "change effort", "agent effort", "effort"],
 			When = "agentFocused",
 			ArgsSchemaJson = "{\"value\":{\"type\":\"string\",\"description\":\"Effort id to select; omit to open the picker\"}}",
 		});
@@ -836,7 +865,7 @@ public static class CoreCommands {
 			Category = "Agent",
 			Description = "Turn Fast Mode on or off for the active agent session, where the model supports it; the "
 				+ "change applies live from the next turn.",
-			Aliases = ["toggle fast mode", "fast mode", "codex fast", "priority tier", "fast"],
+			Aliases = ["toggle fast mode", "fast mode", "agent fast", "priority tier", "fast"],
 			When = "agentFocused",
 		});
 
@@ -873,6 +902,61 @@ public static class CoreCommands {
 			Aliases = ["decline", "deny request", "reject tool", "no"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "alt+n" }],
 			When = "agentFocused && agentApprovalPending",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = AgentDeclineInput,
+			Title = "Decline Agent Input Request",
+			RunsIn = CommandLocation.Web,
+			Category = "Agent",
+			Description = "Decline the agent's pending input or browser request.",
+			Aliases = ["decline input", "deny question", "decline browser request", "no"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "alt+n" }],
+			When = "agentFocused && agentInputPending",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = AgentCancelInput,
+			Title = "Cancel Agent Input Request",
+			RunsIn = CommandLocation.Web,
+			Category = "Agent",
+			Description = "Dismiss the agent's pending input or browser request as cancelled.",
+			Aliases = ["cancel input", "dismiss question", "cancel browser request"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "alt+shift+n" }],
+			When = "agentFocused && agentInputPending",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = AgentAcceptInput,
+			Title = "Submit Agent Input",
+			RunsIn = CommandLocation.Web,
+			Category = "Agent",
+			Description = "Submit the current answers to the agent's pending input request.",
+			Aliases = ["submit agent input", "answer question", "accept input"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "alt+enter" }],
+			When = "agentFocused && agentInputPending",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = AgentAuthenticate,
+			Title = "Authenticate Agent",
+			RunsIn = CommandLocation.Web,
+			Category = "Agent",
+			Description = "Start the first advertised method for the agent's pending authentication request.",
+			Aliases = ["authenticate agent", "sign in agent", "log in agent"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "alt+a" }],
+			When = "agentFocused && agentAuthenticationPending",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = ReloadAcpAgents,
+			Title = "Reload ACP Agents",
+			RunsIn = CommandLocation.Web,
+			Category = "Agent",
+			Description = "Reload and validate installed and custom ACP launch definitions from disk.",
+			Aliases = ["reload acp agents", "refresh custom agents"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "alt+r" }],
+			When = "acpRegistryOpen",
 		});
 
 		// Clear the focused terminal's scrollback. Right-click surface only (no chord — many shells own Ctrl+L);

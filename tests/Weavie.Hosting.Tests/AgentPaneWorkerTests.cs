@@ -10,7 +10,7 @@ public sealed class AgentPaneWorkerTests {
 	[Fact]
 	public async Task OutputDrainPropagatesAnEarlierPublicationFailure() {
 		await using var output = new AgentPaneOutput(new ThrowingTarget(), 0, _ => { });
-		output.Live(new AgentPaneRecord(0, 1, 1, new AgentPaneMessage { Type = "started", ProviderId = "codex" }));
+		output.Live(new AgentPaneRecord(0, 1, 1, new AgentPaneMessage { Type = "started", ProviderId = "structured" }));
 
 		var error = await Assert.ThrowsAsync<IOException>(() =>
 			output.DrainAsync(CancellationToken.None));
@@ -91,7 +91,7 @@ public sealed class AgentPaneWorkerTests {
 
 		public string ReadAllText(string path) {
 			release.Wait();
-			return "{\"type\":\"item-completed\",\"providerId\":\"codex\",\"text\":\"persisted\"}\n";
+			return "{\"type\":\"item-completed\",\"providerId\":\"structured\",\"text\":\"persisted\"}\n";
 		}
 
 		public bool DirectoryExists(string path) => throw new NotSupportedException();

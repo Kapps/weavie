@@ -20,8 +20,15 @@ function hookDecision(log: string): string {
   return log.split("\n").find((line) => line.startsWith("hook ->")) ?? "";
 }
 
-test.describe("permission gate — default (claude.allowAllTools off)", () => {
-  test.use({ fakeScript: { steps: [bashPermission] } });
+test.describe("permission gate — agent.allowAllPermissions off", () => {
+  test.use({
+    fakeScript: {
+      steps: [
+        { op: "mcp", tool: "setSetting", args: { key: "agent.allowAllPermissions", value: false } },
+        bashPermission,
+      ],
+    },
+  });
 
   test("a tool call passes through to claude's own prompt @cross", async ({ weavie }) => {
     // PassThrough → empty decision: Weavie defers to claude's own permission flow, never auto-allows.
@@ -31,11 +38,11 @@ test.describe("permission gate — default (claude.allowAllTools off)", () => {
   });
 });
 
-test.describe("permission gate — claude.allowAllTools on", () => {
+test.describe("permission gate — agent.allowAllPermissions on", () => {
   test.use({
     fakeScript: {
       steps: [
-        { op: "mcp", tool: "setSetting", args: { key: "claude.allowAllTools", value: true } },
+        { op: "mcp", tool: "setSetting", args: { key: "agent.allowAllPermissions", value: true } },
         bashPermission,
       ],
     },

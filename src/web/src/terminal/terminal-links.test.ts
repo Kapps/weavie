@@ -27,7 +27,7 @@ vi.mock("./ref-link-store", () => ({
   refLinkPrefixFor: () => refPrefix.value,
 }));
 
-const { wireTerminalLinks } = await import("./terminal-links");
+const { openUrlExternal, wireTerminalLinks } = await import("./terminal-links");
 
 const owner = {
   connection: { id: "remote-a" },
@@ -152,6 +152,22 @@ describe("auto-link provider", () => {
     const { provide } = oneLine("visit https://example.com/ today");
     provide()[0]?.activate({ button: 0 } as MouseEvent, "https://example.com/");
     expect(open).toHaveBeenCalledWith("https://example.com/", "_blank", "noopener");
+    expect(postedLocal).toEqual([]);
+    vi.unstubAllGlobals();
+  });
+
+  it("rejects non-web schemes before browser or native dispatch", () => {
+    browserShell.value = true;
+    const open = vi.fn();
+    vi.stubGlobal("window", { open });
+
+    expect(() => openUrlExternal("javascript:alert(1)")).toThrow(
+      "External links must use an absolute HTTP or HTTPS URL.",
+    );
+    expect(() => openUrlExternal("data:text/html,unsafe")).toThrow(
+      "External links must use an absolute HTTP or HTTPS URL.",
+    );
+    expect(open).not.toHaveBeenCalled();
     expect(postedLocal).toEqual([]);
     vi.unstubAllGlobals();
   });

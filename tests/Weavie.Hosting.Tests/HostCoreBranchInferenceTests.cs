@@ -11,7 +11,7 @@ namespace Weavie.Hosting.Tests;
 public sealed class HostCoreBranchInferenceTests {
 	[Theory]
 	[InlineData("claude")]
-	[InlineData("codex")]
+	[InlineData("structured")]
 	public async Task Preview_UsesSelectedProviderAndValidatedUtilityProposalWithRepositoryContext(
 		string agentProviderId) {
 		var inference = new BranchInferenceStub(new InferenceSuccess<BranchNameInferenceOutput> {
@@ -139,7 +139,7 @@ public sealed class HostCoreBranchInferenceTests {
 				JsonSerializer.SerializeToElement(new {
 					sourceId = host.WorkspaceSession.SlotId,
 					prompt = "Fix WebM",
-					agentProviderId = "codex",
+					agentProviderId = "structured",
 				})).ToJson());
 		await inference.Started.Task;
 

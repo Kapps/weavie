@@ -9,7 +9,7 @@ import {
 
 const plan = (itemId: string): AgentPaneUpdate => ({
   type: "item-completed",
-  providerId: "codex",
+  providerId: "acp",
   threadId: "thread-1",
   turnId: "turn-1",
   itemId,

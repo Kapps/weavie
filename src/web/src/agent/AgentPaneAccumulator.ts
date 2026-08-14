@@ -1,4 +1,5 @@
 import type { AgentPaneHistoryFragment, AgentPaneUpdate, AgentPaneWireUpdate } from "../bridge";
+import { isAgentPaneDelta } from "./AgentPaneDelta";
 import {
   type AgentPaneHistoryState,
   createAgentPaneHistoryState,
@@ -177,14 +178,10 @@ export class AgentPaneAccumulator {
   }
 
   private store(state: SlotState, message: AgentPaneUpdate, deltaMode: "append" | "base"): number {
-    if (message.type === "item-completed" && state.indexes.size === 0) {
-      state.messages.push(message);
-      return state.messages.length - 1;
-    }
     const key = itemKey(message);
     // Every path only mutates state.messages (O(1)); a single per-frame flush publishes the snapshot. Publishing
     // synchronously here would rebuild the whole transcript on every message — O(N²) across a turn or a replay.
-    if (key !== null && isDelta(message)) {
+    if (key !== null && isAgentPaneDelta(message)) {
       return this.bufferDelta(state, key, message, deltaMode);
     } else if (key !== null && message.type === "item-started") {
       const index = state.indexes.get(key);
@@ -198,20 +195,27 @@ export class AgentPaneAccumulator {
       state.buffersByIndex.delete(index);
       state.messages[index] = message;
       return index;
-    } else if (key !== null && message.type === "item-completed") {
+    } else if (
+      key !== null &&
+      (message.type === "item-completed" || message.type === "item-retracted")
+    ) {
       const index = state.indexes.get(key);
       state.buffers.delete(key);
       if (index !== undefined) {
         state.buffersByIndex.delete(index);
       }
-      state.indexes.delete(key);
       if (index === undefined) {
+        const next = state.messages.length;
+        state.indexes.set(key, next);
         state.messages.push(message);
-        return state.messages.length - 1;
+        return next;
       }
       state.messages[index] = message;
       return index;
     } else {
+      if (key !== null && !state.indexes.has(key)) {
+        state.indexes.set(key, state.messages.length);
+      }
       state.messages.push(message);
       return state.messages.length - 1;
     }
@@ -356,12 +360,4 @@ export class AgentPaneAccumulator {
 
 function itemKey(message: AgentPaneUpdate): string | null {
   return paneItemIdentity(message);
-}
-
-function isDelta(message: AgentPaneUpdate): boolean {
-  return (
-    message.type === "agent-message-delta" ||
-    message.type === "plan-delta" ||
-    message.type === "command-output-delta"
-  );
 }

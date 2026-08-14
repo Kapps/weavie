@@ -165,28 +165,6 @@ describe("agent composer attachments", () => {
     expect(store.composerState(third).draft).toBe("third");
     expect([...drafts.values()].sort()).toEqual(["first", "third"]);
   });
-
-  it("submits staged skills as structured skill inputs and clears them once accepted", () => {
-    const session = owner("remote-s", "slot-s");
-    store.stageSkill(session, "review-pr");
-    store.stageSkill(session, "review-pr"); // duplicate ignored
-    expect(store.composerState(session).skills).toEqual(["review-pr"]);
-
-    expect(store.submitAgentTurn(session)).toBe(true);
-    const submission = bridge.posted.find(({ name }) => name === "submit");
-    expect(submission?.payload).toMatchObject({
-      prompt: "",
-      skills: ["review-pr"],
-    });
-
-    deliver("remote-s", "slot-s", "submissionState", {
-      id: submission?.payload.id,
-      attachmentIds: [],
-      status: "accepted",
-      error: "",
-    });
-    expect(store.composerState(session).skills).toEqual([]);
-  });
 });
 
 function pasteEvent(blob: Blob): ClipboardEvent {

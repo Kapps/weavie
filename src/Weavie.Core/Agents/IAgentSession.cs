@@ -36,11 +36,17 @@ public interface IStructuredAgentSession : IAgentSession {
 	/// <summary>Restarts the structured runtime process.</summary>
 	void Restart();
 
-	/// <summary>Resolves a provider approval request.</summary>
-	void ResolveApproval(string requestId, string decision);
+	/// <summary>Selects one exact provider-advertised permission option.</summary>
+	void ResolvePermission(string requestId, string optionId);
 
-	/// <summary>Answers a provider request for structured user input.</summary>
-	void ResolveInput(string requestId, IReadOnlyDictionary<string, IReadOnlyList<string>> answers);
+	/// <summary>Resolves a provider request for structured user input.</summary>
+	void ResolveInput(
+		string requestId,
+		string action,
+		IReadOnlyDictionary<string, IReadOnlyList<string>> answers);
+
+	/// <summary>Starts one exact provider-advertised authentication method.</summary>
+	void Authenticate(string methodId, IReadOnlyDictionary<string, IReadOnlyList<string>> answers);
 
 	/// <summary>Raised when the provider has a structured pane state update for the web UI.</summary>
 	event Action<AgentPaneMessage> PaneMessage;

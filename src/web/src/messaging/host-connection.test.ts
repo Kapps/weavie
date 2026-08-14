@@ -14,7 +14,7 @@ const entry = (id: string, session: SessionAddress): SessionCatalogEntry => ({
   label: id,
   address: session,
   loaded: true,
-  providerId: "codex",
+  providerId: "acp",
   agentSurface: "structured",
   agentInputProtocol: 1,
   status: "idle",
@@ -41,6 +41,7 @@ const hello = (hostIncarnation: string, sessions: SessionCatalogEntry[]): HostHe
     recentTerms: [],
   },
   testProfile: "",
+  agentDefaults: { defaultProvider: "acp", middleClickAutoscroll: true, providers: [] },
   commandCatalog: { commands: [], keybindings: [] },
 });
 

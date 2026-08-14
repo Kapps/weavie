@@ -20,10 +20,18 @@ public sealed class PtyLauncherTests {
 	public void Windows_CommandShim_PreservesArgumentsAndEnvironment() {
 		var resolved = new WindowsPtyLauncher().Resolve(Launch("agent.cmd", AgentExecutableMode.LoginShell));
 
-		Assert.Equal(Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe", resolved.Command);
-		Assert.Equal(["/c", "agent.cmd", "--flag", "value"], resolved.Arguments);
+		Assert.Equal(Path.Combine(Environment.SystemDirectory, "cmd.exe"), resolved.Command);
+		Assert.Equal(["/d", "/s", "/v:off", "/c", "agent.cmd", "--flag", "value"], resolved.Arguments);
 		Assert.Equal(["SECRET"], resolved.RemoveEnvironment);
 		Assert.Equal("1", resolved.Environment["X"]);
+	}
+
+	[Fact]
+	public void Posix_SearchPath_UsesTheSystemEnvironmentLauncherWithoutAShell() {
+		var resolved = new PosixPtyLauncher().Resolve(Launch("npx", AgentExecutableMode.SearchPath));
+
+		Assert.Equal("/usr/bin/env", resolved.Command);
+		Assert.Equal(["npx", "--flag", "value"], resolved.Arguments);
 	}
 
 	[Fact]

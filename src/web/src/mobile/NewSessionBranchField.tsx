@@ -16,7 +16,7 @@ export function NewSessionBranchField(props: {
   backendId: string;
   hasInput: boolean;
   prompt: string;
-  providerId: "claude" | "codex";
+  providerId: string;
   onChange: (state: BranchPreviewState) => void;
   register: (actions: NewSessionBranchActions) => void;
 }): JSX.Element {

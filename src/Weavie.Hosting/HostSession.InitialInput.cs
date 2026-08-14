@@ -12,8 +12,8 @@ public sealed partial class HostSession {
 	/// <summary>Queues the session's first input until its agent reports that it is ready.</summary>
 	internal void QueueInitialInput(AgentTurnSubmission input) {
 		ArgumentNullException.ThrowIfNull(input);
-		if (input.Text.Trim().Length == 0 && input.Attachments.Count == 0 && input.Skills.Count == 0) {
-			throw new ArgumentException("Initial agent input must include text, an image, or a skill.", nameof(input));
+		if (input.Text.Trim().Length == 0 && input.Attachments.Count == 0) {
+			throw new ArgumentException("Initial agent input must include text or an image.", nameof(input));
 		}
 		lock (_initialInputGate) {
 			ObjectDisposedException.ThrowIf(!_acceptInitialInput, this);

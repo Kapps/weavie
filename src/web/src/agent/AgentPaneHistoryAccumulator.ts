@@ -1,4 +1,5 @@
 import type { AgentPaneHistoryFragment, AgentPaneUpdate, AgentPaneWireUpdate } from "../bridge";
+import { isAgentPaneDelta } from "./AgentPaneDelta";
 import { paneItemIdentity } from "./AgentPaneIdentity";
 
 export interface HistoryItemBuffer {
@@ -124,7 +125,7 @@ function mergeCumulativeDelta(
   buffers: ReadonlyMap<string, HistoryItemBuffer>,
   history: AgentPaneWireUpdate,
 ): AgentPaneWireUpdate {
-  if (!isDelta(history)) {
+  if (!isAgentPaneDelta(history)) {
     return history;
   }
   const key = paneItemIdentity(history);
@@ -154,14 +155,6 @@ function mergeCumulativeDelta(
   buffer.chunks = tail;
   buffer.text = text;
   return { ...template, text, textOffset: 0, textLength: text.length };
-}
-
-function isDelta(message: AgentPaneUpdate): boolean {
-  return (
-    message.type === "agent-message-delta" ||
-    message.type === "plan-delta" ||
-    message.type === "command-output-delta"
-  );
 }
 
 export function isAgentPaneWireUpdate(message: AgentPaneUpdate): message is AgentPaneWireUpdate {

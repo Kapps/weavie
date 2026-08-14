@@ -19,7 +19,7 @@ public sealed class HostCoreStructuredAgentLifecycleTests {
 			new NewSessionRequest {
 				Branch = "structured-lifecycle",
 				Base = "main",
-				AgentProviderId = "codex",
+				AgentProviderId = "structured",
 			},
 			CancellationToken.None);
 

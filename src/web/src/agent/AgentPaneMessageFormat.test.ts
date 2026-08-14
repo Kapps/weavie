@@ -3,8 +3,9 @@ import type { AgentPaneUpdate } from "../bridge";
 import { requestLifecycles } from "./AgentPaneMessageFormat";
 
 const msg = (fields: Partial<AgentPaneUpdate> & { type: string }): AgentPaneUpdate => ({
-  providerId: "codex",
+  providerId: "acp",
   ...fields,
+  ...(fields.type.endsWith("-requested") ? { requestId: fields.itemId ?? null } : {}),
 });
 
 describe("requestLifecycles", () => {

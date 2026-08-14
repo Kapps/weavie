@@ -6,14 +6,14 @@ import { MockHost, mockSession } from "./mock-host";
 
 const distDir = join(dirname(fileURLToPath(import.meta.url)), "..", "dist");
 
-// Guards the AgentMarkdown linkify contract for the native (Codex) transcript, against a real browser + the
+// Guards the AgentMarkdown linkify contract for the native (ACP) transcript, against a real browser + the
 // mock host: an assistant markdown message that quotes a file path inside inline `code` must render that path
 // as a clickable link (an <a> INSIDE the <code>), a path whose filename contains `@` (the Playwright recording
 // naming) must match, and a path inside a FENCED code block must stay literal (no <a> in <pre>). Clicking an
 // inline-code link must post a `reveal-file` for that path. Regression cover for the fix that stopped excluding
 // inline `code` from linkify and widened the path grammar to allow `@`.
 
-const codexSession = mockSession("cx", "codex", "codex");
+const acpSession = mockSession("cx", "acp", "acp");
 
 const AT_PATH = "src/web/e2e/.recordings/page@883bef3dba4a5a81116faeb690fc011f.webm";
 const TSX_PATH = "src/web/src/agent/AgentMarkdown.tsx";
@@ -53,7 +53,7 @@ const ASSISTANT_MARKDOWN = [
 ].join("\n");
 
 const assistantMessage = () => ({
-  providerId: "codex",
+  providerId: "acp",
   type: "item-completed",
   itemId: "m1",
   itemType: "agentMessage",
@@ -67,10 +67,10 @@ test.describe("AgentMarkdown transcript links", () => {
   test.beforeEach(async () => {
     host = await MockHost.start({
       distDir,
-      sessions: [codexSession],
+      sessions: [acpSession],
       files: { [ABS_TSX_PATH]: "export const promptFocusProbe = true;\n" },
     });
-    host.setMedia(codexSession.address.incarnation, ABS_AT_PATH, Buffer.from("focus probe"));
+    host.setMedia(acpSession.address.incarnation, ABS_AT_PATH, Buffer.from("focus probe"));
   });
 
   test.afterEach(async () => {
@@ -118,7 +118,7 @@ test.describe("AgentMarkdown transcript links", () => {
     await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
     await host.waitUntilConnected();
     publishCommands("alt+m");
-    host.publishSession(codexSession.address, "editor", "restore", {
+    host.publishSession(acpSession.address, "editor", "restore", {
       session: {
         active: ABS_TSX_PATH,
         open: [{ path: ABS_TSX_PATH, viewState: null, preview: true }],
@@ -126,23 +126,23 @@ test.describe("AgentMarkdown transcript links", () => {
     });
   }
 
-  // Mounts the Codex session and pushes the assistant message after `ready` proves App is listening.
+  // Mounts the ACP session and pushes the assistant message after `ready` proves App is listening.
   async function mount(page: Page): Promise<void> {
     await connect(page);
-    host.publishAgentPane(codexSession.address, assistantMessage());
+    host.publishAgentPane(acpSession.address, assistantMessage());
     await expect(page.locator(".agent-markdown")).toBeVisible();
   }
 
   test("hydrates a Mermaid fence only after its assistant item completes", async ({ page }) => {
     await connect(page);
     const identity = {
-      providerId: "codex",
+      providerId: "acp",
       threadId: "thread-mermaid",
       turnId: "turn-mermaid",
       itemId: "message-mermaid",
       itemType: "agentMessage",
     };
-    host.publishAgentPane(codexSession.address, {
+    host.publishAgentPane(acpSession.address, {
       ...identity,
       type: "agent-message-delta",
       status: "inProgress",
@@ -153,7 +153,7 @@ test.describe("AgentMarkdown transcript links", () => {
     await expect(markdown.locator("pre.mermaid-pending")).toContainText("flowchart LR");
     await expect(markdown.locator(".mermaid-rendered")).toHaveCount(0);
 
-    host.publishAgentPane(codexSession.address, {
+    host.publishAgentPane(acpSession.address, {
       ...identity,
       type: "item-completed",
       status: "completed",
@@ -182,8 +182,8 @@ test.describe("AgentMarkdown transcript links", () => {
     page,
   }) => {
     await connect(page);
-    host.publishAgentPane(codexSession.address, {
-      providerId: "codex",
+    host.publishAgentPane(acpSession.address, {
+      providerId: "acp",
       type: "item-completed",
       itemId: "invalid-mermaid",
       itemType: "agentMessage",
@@ -209,8 +209,8 @@ test.describe("AgentMarkdown transcript links", () => {
     page,
   }) => {
     await connect(page);
-    host.publishAgentPane(codexSession.address, {
-      providerId: "codex",
+    host.publishAgentPane(acpSession.address, {
+      providerId: "acp",
       type: "item-completed",
       itemId: "mixed-mermaid",
       itemType: "agentMessage",
@@ -255,12 +255,12 @@ test.describe("AgentMarkdown transcript links", () => {
     await page.keyboard.press("Alt+Shift+Enter");
     await expect(page.locator(".fullscreen-exit")).toBeVisible();
     await page.locator(".agent-markdown code a", { hasText: TSX_PATH }).click();
-    const reveal = await host.waitForSession(codexSession.address, "event", "files", "reveal");
+    const reveal = await host.waitForSession(acpSession.address, "event", "files", "reveal");
     expect(reveal.payload).toMatchObject({ path: TSX_PATH, preview: true });
     await expect(composer).toBeFocused();
 
     // The host reply selects a different pane, so that new surface intentionally takes focus from the prompt.
-    host.publishSession(codexSession.address, "editor", "openFile", {
+    host.publishSession(acpSession.address, "editor", "openFile", {
       path: ABS_TSX_PATH,
       line: 1,
       preview: true,
@@ -282,7 +282,7 @@ test.describe("AgentMarkdown transcript links", () => {
     await page.locator(".fullscreen-exit").click();
 
     // An already-mounted media destination also regains focus when its link is opened again.
-    host.publishSession(codexSession.address, "editor", "openFile", {
+    host.publishSession(acpSession.address, "editor", "openFile", {
       path: ABS_AT_PATH,
       line: 1,
       preview: true,
@@ -293,7 +293,7 @@ test.describe("AgentMarkdown transcript links", () => {
     const checkpoint = host.checkpoint();
     await page.locator(".agent-markdown code a", { hasText: AT_PATH }).click();
     const mediaReveal = await host.waitForSession(
-      codexSession.address,
+      acpSession.address,
       "event",
       "files",
       "reveal",
@@ -301,7 +301,7 @@ test.describe("AgentMarkdown transcript links", () => {
     );
     expect(mediaReveal.payload).toMatchObject({ path: AT_PATH });
     await expect(composer).toBeFocused();
-    host.publishSession(codexSession.address, "editor", "openFile", {
+    host.publishSession(acpSession.address, "editor", "openFile", {
       path: ABS_AT_PATH,
       line: 1,
       preview: true,
@@ -323,7 +323,7 @@ test.describe("AgentMarkdown transcript links", () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await connect(page);
     await page.getByRole("button", { name: "Agent", exact: true }).click();
-    host.publishAgentPane(codexSession.address, assistantMessage());
+    host.publishAgentPane(acpSession.address, assistantMessage());
 
     const agent = page.locator(".agent-surface");
     const editor = page.locator(".editor-surface");
@@ -336,11 +336,11 @@ test.describe("AgentMarkdown transcript links", () => {
     });
 
     await page.locator(".agent-markdown code a", { hasText: TSX_PATH }).click();
-    const reveal = await host.waitForSession(codexSession.address, "event", "files", "reveal");
+    const reveal = await host.waitForSession(acpSession.address, "event", "files", "reveal");
     expect(reveal.payload).toMatchObject({ path: TSX_PATH, preview: true });
     await expect(page.locator(".mobile-surface-button.active")).toHaveText("Agent");
 
-    host.publishSession(codexSession.address, "editor", "openFile", {
+    host.publishSession(acpSession.address, "editor", "openFile", {
       path: ABS_TSX_PATH,
       line: 1,
       preview: true,

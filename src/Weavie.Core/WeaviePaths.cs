@@ -47,11 +47,20 @@ public static class WeaviePaths {
 	/// </summary>
 	public static string ClaudeSessionsFile { get; } = Path.Combine(Root, "claude-sessions.json");
 
-	/// <summary>
-	/// The Codex app-server thread id per working directory: <c>~/.weavie/codex-threads.json</c>, so a reopened
-	/// native Codex session resumes its prior thread. App-global. See <see cref="Sessions.CodexThreadStore"/>.
-	/// </summary>
-	public static string CodexThreadsFile { get; } = Path.Combine(Root, "codex-threads.json");
+	/// <summary>The provider-keyed ACP conversation associations: <c>~/.weavie/acp-sessions.json</c>.</summary>
+	public static string AcpSessionsFile { get; } = Path.Combine(Root, "acp-sessions.json");
+
+	/// <summary>Root for ACP registry installations and custom launch profiles.</summary>
+	public static string AcpRoot { get; } = Path.Combine(Root, "acp");
+
+	/// <summary>Installed ACP registry launch recipes: <c>~/.weavie/acp/installations.json</c>.</summary>
+	public static string AcpInstallationsFile { get; } = Path.Combine(AcpRoot, "installations.json");
+
+	/// <summary>User-defined ACP launch profiles: <c>~/.weavie/acp/custom.json</c>.</summary>
+	public static string AcpCustomAgentsFile { get; } = Path.Combine(AcpRoot, "custom.json");
+
+	/// <summary>Downloaded ACP binary packages: <c>~/.weavie/acp/packages</c>.</summary>
+	public static string AcpPackages { get; } = Path.Combine(AcpRoot, "packages");
 
 	/// <summary>
 	/// The registered remote agents: <c>~/.weavie/remote-agents.json</c>. Its own file, never settings.toml — it

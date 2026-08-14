@@ -3,21 +3,13 @@ import { type RequestKind, requestLifecycles } from "./AgentPaneMessageFormat";
 
 /**
  * Whether the pane's latest turn is still running (started with no completion yet). An interrupted turn
- * also ends with `turn-completed` — Codex reports it as status "interrupted", never as a separate type.
+ * also ends with `turn-completed` using status "interrupted", never as a separate type.
  */
 export function hasActiveTurn(messages: readonly AgentPaneUpdate[]): boolean {
-  let active = false;
-  for (const message of messages) {
-    if (!isPrimary(message)) {
-      continue;
-    }
-    if (message.type === "turn-started") {
-      active = true;
-    } else if (message.type === "turn-completed") {
-      active = false;
-    }
-  }
-  return active;
+  const progress = turnProgress(messages);
+  return (
+    progress.primaryActive || progress.activeTools.size > 0 || progress.providerActive.size > 0
+  );
 }
 
 /**
@@ -25,18 +17,55 @@ export function hasActiveTurn(messages: readonly AgentPaneUpdate[]): boolean {
  * Derived from the message stream so reconnecting and replaying cannot reset the elapsed clock.
  */
 export function activeTurnStartedAt(messages: readonly AgentPaneUpdate[]): number | null {
-  let startedAt: number | null = null;
+  const progress = turnProgress(messages);
+  const timestamps = [progress.primaryStartedAt, ...progress.activeTools.values()].filter(
+    (value): value is number => value !== null,
+  );
+  return timestamps.length === 0 ? null : Math.min(...timestamps);
+}
+
+interface TurnProgress {
+  activeTools: Map<string, number | null>;
+  primaryActive: boolean;
+  primaryStartedAt: number | null;
+  providerActive: Set<string>;
+}
+
+function turnProgress(messages: readonly AgentPaneUpdate[]): TurnProgress {
+  let primaryActive = false;
+  let primaryStartedAt: number | null = null;
+  const activeTools = new Map<string, number | null>();
+  const providerManaged = new Set<string>();
+  let providerActive = new Set<string>();
   for (const message of messages) {
-    if (!isPrimary(message)) {
-      continue;
+    if (isPrimary(message)) {
+      if (message.type === "turn-started") {
+        primaryActive = true;
+        primaryStartedAt = message.startedAtMs ?? null;
+      } else if (message.type === "turn-completed") {
+        primaryActive = false;
+        primaryStartedAt = null;
+      }
     }
-    if (message.type === "turn-started") {
-      startedAt = message.startedAtMs ?? null;
-    } else if (message.type === "turn-completed") {
-      startedAt = null;
+    if (message.type === "background-state") {
+      providerActive = new Set(message.itemIds ?? []);
+      for (const id of providerActive) providerManaged.add(id);
+    }
+    if (message.itemType === "tool" && message.itemId !== null && message.itemId !== undefined) {
+      if (message.type === "item-started") {
+        activeTools.set(
+          message.itemId,
+          message.startedAtMs ?? activeTools.get(message.itemId) ?? null,
+        );
+      } else if (message.type === "item-completed" || message.type === "item-retracted") {
+        activeTools.delete(message.itemId);
+      }
     }
   }
-  return startedAt;
+  for (const id of providerManaged) {
+    if (!providerActive.has(id)) activeTools.delete(id);
+  }
+  return { activeTools, primaryActive, primaryStartedAt, providerActive };
 }
 
 export type PendingRequestKind = RequestKind;

@@ -30,24 +30,34 @@ public sealed class SessionStatusMachine {
 	/// <summary>Feeds a normalized agent event into the machine.</summary>
 	public void Observe(AgentEvent value) {
 		ArgumentNullException.ThrowIfNull(value);
-		Apply(current => value switch {
-			AgentPromptSubmitted => SessionStatus.Working,
-			AgentToolStarting => SessionStatus.Working,
-			// The tool ran — in particular, the user approved its permission prompt — so the turn is live again.
-			AgentToolCompleted => SessionStatus.Working,
-			AgentNotification notification => ClassifyNotification(notification, current),
-			// A turn ending with a pending wakeup / in-flight background task is idle-but-not-done: it will
-			// resume itself, so it settles to Waiting (which holds the update drain) rather than Idle.
-			AgentTurnStopped stopped => stopped.WillResume ? SessionStatus.Waiting : SessionStatus.Idle,
-			// A mid-turn auto-compact also fires SessionStart (source=compact); only the other sources
-			// (startup/resume/clear) mean claude is up and waiting.
-			AgentSessionStarted started when started.Source != "compact" => SessionStatus.Idle,
-			AgentPermissionResolved permission => permission.RequiresUserInput
-				? SessionStatus.NeedsInput
-				: SessionStatus.Working,
-			AgentProcessChanged process => StatusForSupervisor(process.Change),
-			_ => null,
-		});
+		Apply(current => current == SessionStatus.Error
+			&& value is not AgentSessionStarted
+			&& value is not AgentProcessChanged { Change.State: SupervisorState.Running }
+			? null
+			: value switch {
+				AgentRuntimeFailed => SessionStatus.Error,
+				AgentPromptSubmitted => SessionStatus.Working,
+				AgentToolStarting => SessionStatus.Working,
+				// The tool ran — in particular, the user approved its permission prompt — so the turn is live again.
+				AgentToolCompleted => SessionStatus.Working,
+				AgentNotification notification => ClassifyNotification(notification, current),
+				// A turn ending with a pending wakeup / in-flight background task is idle-but-not-done: it will
+				// resume itself, so it settles to Waiting (which holds the update drain) rather than Idle.
+				AgentTurnStopped stopped => stopped.WillResume ? SessionStatus.Waiting : SessionStatus.Idle,
+				// A mid-turn auto-compact also fires SessionStart (source=compact); only the other sources
+				// (startup/resume/clear) mean claude is up and waiting.
+				AgentSessionStarted started when started.Source != "compact" => SessionStatus.Idle,
+				AgentPermissionResolved permission => permission.RequiresUserInput
+					? SessionStatus.NeedsInput
+					: SessionStatus.Working,
+				AgentInputResolved input => input.RequiresUserInput
+					? SessionStatus.NeedsInput
+					: SessionStatus.Working,
+				AgentProcessChanged { Change.State: SupervisorState.Running }
+					when current == SessionStatus.Error => SessionStatus.Starting,
+				AgentProcessChanged process => StatusForSupervisor(process.Change),
+				_ => null,
+			});
 	}
 
 	/// <summary>
@@ -97,6 +107,7 @@ public sealed class SessionStatusMachine {
 		change.State switch {
 			SupervisorState.Failed => SessionStatus.Error,
 			SupervisorState.BackingOff when change.ExitCode is not null => SessionStatus.Error,
+			SupervisorState.Idle when change.ExitCode is not null => SessionStatus.Error,
 			SupervisorState.Running when change.RestartCount > 0 => SessionStatus.Starting,
 			_ => null,
 		};

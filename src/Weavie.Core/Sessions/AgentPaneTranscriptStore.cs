@@ -96,7 +96,7 @@ public sealed class AgentPaneTranscriptStore {
 		return message.Type switch {
 			"user-message" or "user-steer" => true,
 			"user-image" => string.Equals(message.Status, "submitted", StringComparison.Ordinal),
-			"item-completed" => true,
+			"item-completed" or "item-retracted" => true,
 			"interrupted" => true,
 			_ => false,
 		};

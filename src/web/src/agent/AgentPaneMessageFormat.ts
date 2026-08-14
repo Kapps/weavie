@@ -48,10 +48,14 @@ export function hasItemId(
 }
 
 export function isResolutionMessage(message: AgentPaneUpdate): boolean {
-  return message.type === "approval-resolved" || message.type === "input-resolved";
+  return (
+    message.type === "approval-resolved" ||
+    message.type === "authentication-resolved" ||
+    message.type === "input-resolved"
+  );
 }
 
-export type RequestKind = "approval" | "input";
+export type RequestKind = "approval" | "authentication" | "input";
 
 export interface RequestLifecycle {
   /** Thread+turn+item-scoped pane identity — the key a resolution matches its request on. */
@@ -66,6 +70,7 @@ export interface RequestLifecycle {
 // A Map, not an object literal, so a message type like "toString" can't match through the prototype chain.
 const REQUEST_KIND = new Map<string, RequestKind>([
   ["approval-requested", "approval"],
+  ["authentication-requested", "authentication"],
   ["input-requested", "input"],
 ]);
 
@@ -90,7 +95,10 @@ export function requestLifecycles(messages: readonly AgentPaneUpdate[]): Request
     const kind = REQUEST_KIND.get(message.type);
     if (kind !== undefined) {
       if (!byKey.has(key)) {
-        byKey.set(key, { requestId: message.itemId, kind, resolvedStatus: null });
+        if (message.requestId === null || message.requestId === undefined) {
+          throw new Error(`${message.type} is missing its provider request id.`);
+        }
+        byKey.set(key, { requestId: message.requestId, kind, resolvedStatus: null });
       }
     } else if (isResolutionMessage(message)) {
       const record = byKey.get(key);

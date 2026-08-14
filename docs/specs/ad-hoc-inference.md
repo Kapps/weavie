@@ -11,9 +11,10 @@ polluting or resuming the interactive agent transcript.
 ## Ownership and boundaries
 
 `IAgentInferenceProvider` is an optional capability subtype of `IAgentProvider`. `InferenceService` resolves the
-caller-supplied provider id through the existing `AgentProviderRegistry`; Claude and Codex therefore share their
-installed CLI path, authentication, entitlement, and provider identity with interactive sessions. There is no
-parallel inference-provider registry or `inference.provider` setting.
+caller-supplied provider id through the existing `AgentProviderRegistry`. Terminal Claude implements the capability
+through its installed CLI path, authentication, entitlement, and provider identity. Registry ACP providers do not;
+selecting one fails visibly without switching providers. There is no parallel inference-provider registry or
+`inference.provider` setting.
 
 The inference facet has no session-creation, terminal, editor, MCP, or mutation API. It is a generic internal API
 for trusted feature code; there is no bridge message, command, or MCP tool accepting an arbitrary prompt. Any future
@@ -41,10 +42,10 @@ metadata is a programming error. Runtime, CLI, and model failures are values.
 The provider seam contains only category, final prompt, generated JSON Schema, and output byte bound. Providers do
 not receive a feature or query id and never switch on product behavior:
 
-| Category | Intended work | Codex profile | Claude profile |
-|---|---|---|---|
-| `Utility` | naming, extraction, classification | `gpt-5.6-luna`, low | `haiku`, low |
-| `Reasoning` | critique, diagnosis, risk ranking | `gpt-5.6-sol`, medium | `sonnet`, medium |
+| Category | Intended work | Claude profile |
+|---|---|---|
+| `Utility` | naming, extraction, classification | `haiku`, low |
+| `Reasoning` | critique, diagnosis, risk ranking | `sonnet`, medium |
 
 There is no default category, model override, escalation, repair call, provider fallback, or Weavie retry.
 
@@ -54,16 +55,8 @@ Claude uses print mode with safe mode, `--tools ""`, strict MCP configuration, n
 model/effort, and `--json-schema`. The process inherits the normal Claude environment: an intentionally configured
 `ANTHROPIC_API_KEY` remains available, while an unset key lets the CLI use its stored OAuth/subscription login.
 
-Codex uses `codex exec` with an ephemeral rollout, ignored user config and exec rules, no repository requirement,
-approval policy `never`, the mapped model/effort, an output-schema file, and a final-message file. Its stable
-`shell_tool` feature and every configurable built-in tool surface are disabled: apps, browser/computer use, image
-generation, multi-agent, plugins, workspace dependencies, and web search. A per-call permission profile denies all
-filesystem reads/writes and network access to model tools, containing local-image access and the independently
-registered `apply_patch` tool. Strict config parsing makes an unsupported restriction fail closed
-instead of silently restoring access. The CLI itself can still read its authentication and write the requested
-structured-result file outside the tool sandbox. Its working directory is a private, empty Weavie temporary
-directory; it receives no Weavie MCP configuration. The temporary schema/output are deleted on every success,
-failure, timeout, and cancellation path. Claude's tool set is explicitly empty as well.
+Claude's working directory is a private, empty Weavie temporary directory. It receives no Weavie MCP configuration,
+and its tool set is explicitly empty.
 
 Weavie starts one CLI process and does not retry. A CLI may internally retry transport operations without exposing
 a supported control; the query deadline is the reliable outer latency bound.
@@ -71,8 +64,8 @@ a supported control; the query deadline is the reliable outer latency bound.
 ## Structured output and validation
 
 The service derives a JSON Schema from `TResponse`. Claude must return the CLI envelope's
-`structured_output`; Weavie never extracts JSON from prose. Codex must write the schema-constrained final message.
-Both paths then pass the raw JSON to the shared local validator, which:
+`structured_output`; Weavie never extracts JSON from prose. The raw JSON then passes through the shared local
+validator, which:
 
 1. rejects output beyond the query's byte limit;
 2. parses exactly one JSON value;
@@ -118,7 +111,7 @@ sequenceDiagram
     participant F as Feature
     participant S as InferenceService
     participant A as Selected IAgentInferenceProvider
-    participant C as Installed Claude/Codex CLI
+    participant C as Installed Claude CLI
 
     F->>F: collect typed context
     F->>F: build prompt

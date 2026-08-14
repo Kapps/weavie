@@ -67,9 +67,10 @@ test("Linux middle-click autoscrolls the agent transcript and responds live", as
 
     await page.mouse.click(origin.x, origin.y, { button: "middle" });
     await expect(body).toHaveClass(/agent-middle-click-autoscrolling/);
-    host.publishHost("settings", "agent-settings", {
+    host.publishHost("settings", "agent-defaults", {
       defaultProvider: "claude",
       middleClickAutoscroll: false,
+      providers: [],
     });
     await expect(body).not.toHaveClass(/agent-middle-click-autoscrolling/);
     await page.mouse.click(origin.x, origin.y, { button: "middle" });

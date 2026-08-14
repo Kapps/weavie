@@ -7,26 +7,22 @@ import { keyHint } from "../commands/key-hint";
 import { onCommandsChanged, runCommandWithFeedback } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { AgentControlPicker } from "./AgentControlPicker";
-import { AgentModelPicker } from "./AgentModelPicker";
 import { AgentUsageIndicator } from "./AgentUsageIndicator";
+import { agentControlCommand } from "./agent-control-commands";
 import {
   agentControlState,
   closeControlPicker,
-  MODEL_AXIS,
   openControlAxis,
   openControlPicker,
 } from "./agent-controls-store";
 import { hasAgentContextUsage } from "./agent-usage-store";
 
-// The dim strip under the composer. First segment is the merged model → effort / Fast control (its picker is a
-// cascading per-model submenu); Git diff totals stay beside it, followed by provider-owned axes and PR status.
+// The dim strip under the composer: provider-owned ACP controls, Git diff totals, and PR status.
 export function AgentStatusLine(props: {
   compact: boolean;
   session: ClientSession | null;
 }): JSX.Element {
   const state = (): ReturnType<typeof agentControlState> => agentControlState(props.session);
-  const modelLabel = (): string => state().modelControl.valueLabel;
-  const hasModel = (): boolean => state().modelControl.models.length > 0;
   const [commandsVersion, setCommandsVersion] = createSignal(0);
   onCleanup(onCommandsChanged(() => setCommandsVersion((version) => version + 1)));
   const prStatus = () => pullRequestStatus(props.session);
@@ -62,9 +58,10 @@ export function AgentStatusLine(props: {
   };
   const axisTitle = (axis: ReturnType<typeof state>["axes"][number]): string => {
     commandsVersion();
-    return `${axis.label}: ${axis.valueLabel} — click to change${
-      axis.commandId === null ? "" : keyHint(axis.commandId)
-    }`;
+    const description = axis.description === null ? "" : ` — ${axis.description}`;
+    const command = agentControlCommand(axis);
+    const hint = command === null ? "" : keyHint(command);
+    return `${axis.label}: ${axis.valueLabel}${hint}${description}`;
   };
   // Switching sessions abandons an open picker so it can't apply to the wrong session.
   createEffect(() => {
@@ -78,7 +75,6 @@ export function AgentStatusLine(props: {
   return (
     <Show
       when={
-        hasModel() ||
         hasAgentContextUsage(props.session) ||
         state().axes.length > 0 ||
         hasDiff() ||
@@ -89,16 +85,6 @@ export function AgentStatusLine(props: {
     >
       <div class="agent-status-line" classList={{ "agent-status-line-compact": props.compact }}>
         <div class="agent-status-scroll">
-          <Show when={hasModel()}>
-            <button
-              type="button"
-              class="agent-status-segment agent-status-model"
-              title={`Model — ${modelLabel()} — click to change model, effort, or Fast Mode`}
-              onClick={() => openControlPicker(MODEL_AXIS)}
-            >
-              <span class="agent-status-value">{modelLabel()}</span>
-            </button>
-          </Show>
           <AgentUsageIndicator session={props.session} />
           <Show when={hasDiff()}>
             <button
@@ -159,7 +145,6 @@ export function AgentStatusLine(props: {
             )}
           </Show>
         </div>
-        <AgentModelPicker session={props.session} />
         <AgentControlPicker session={props.session} />
       </div>
     </Show>

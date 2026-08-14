@@ -138,7 +138,7 @@ public sealed class McpServerTests {
 		int port = server.Start();
 
 		using var response = await PostHttpAsync(port, token: null, Request(20, "initialize",
-			"{\"protocolVersion\":\"2025-03-26\",\"capabilities\":{},\"clientInfo\":{\"name\":\"codex\",\"version\":\"1\"}}"));
+			"{\"protocolVersion\":\"2025-03-26\",\"capabilities\":{},\"clientInfo\":{\"name\":\"acp\",\"version\":\"1\"}}"));
 
 		Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
 	}
@@ -149,7 +149,7 @@ public sealed class McpServerTests {
 		int port = server.Start();
 
 		using var response = await PostHttpAsync(port, Token, Request(21, "initialize",
-			"{\"protocolVersion\":\"2025-03-26\",\"capabilities\":{},\"clientInfo\":{\"name\":\"codex\",\"version\":\"1\"}}"));
+			"{\"protocolVersion\":\"2025-03-26\",\"capabilities\":{},\"clientInfo\":{\"name\":\"acp\",\"version\":\"1\"}}"));
 		using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
 
 		Assert.Equal(HttpStatusCode.OK, response.StatusCode);

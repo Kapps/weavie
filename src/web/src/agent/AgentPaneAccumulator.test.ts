@@ -19,6 +19,28 @@ describe("AgentPaneAccumulator", () => {
     expect(messages[0]?.text).toHaveLength(1_000);
   });
 
+  it("buffers thought and user chunks with the same delta contract", () => {
+    const scheduled: Array<() => void> = [];
+    const accumulator = new AgentPaneAccumulator((callback) => scheduled.push(callback));
+    let messages: AgentPaneUpdate[] = [];
+    const publish = (value: AgentPaneUpdate[]): void => {
+      messages = value;
+    };
+    for (const [type, itemId] of [
+      ["thought-message-delta", "thought"],
+      ["user-message-delta", "user"],
+    ] as const) {
+      accumulator.ingest("slot-1", { ...update(type, "first"), itemId }, publish);
+      accumulator.ingest("slot-1", { ...update(type, " second"), itemId }, publish);
+    }
+    scheduled[0]?.();
+
+    expect(messages.map((message) => [message.itemId, message.text])).toEqual([
+      ["thought", "first second"],
+      ["user", "first second"],
+    ]);
+  });
+
   it("replaces buffered state with completion without publishing a stale frame", () => {
     const scheduled: Array<() => void> = [];
     const accumulator = new AgentPaneAccumulator((callback) => scheduled.push(callback));
@@ -34,6 +56,38 @@ describe("AgentPaneAccumulator", () => {
     scheduled[0]?.();
 
     expect(messages).toEqual([update("item-completed", "final")]);
+  });
+
+  it("reconciles a completed item when a later terminal outcome corrects it", () => {
+    const accumulator = new AgentPaneAccumulator((callback) => callback());
+    let messages: AgentPaneUpdate[] = [];
+    const publish = (value: AgentPaneUpdate[]): void => {
+      messages = value;
+    };
+    accumulator.ingest(
+      "slot-1",
+      { ...update("item-completed", "provisional"), status: "completed" },
+      publish,
+    );
+    accumulator.ingest(
+      "slot-1",
+      { ...update("item-completed", "authoritative"), status: "failed" },
+      publish,
+    );
+
+    expect(messages).toEqual([{ ...update("item-completed", "authoritative"), status: "failed" }]);
+  });
+
+  it("tombstones a completed item when the provider retracts it", () => {
+    const accumulator = new AgentPaneAccumulator((callback) => callback());
+    let messages: AgentPaneUpdate[] = [];
+    const publish = (value: AgentPaneUpdate[]): void => {
+      messages = value;
+    };
+    accumulator.ingest("slot-1", update("item-completed", "refused"), publish);
+    accumulator.ingest("slot-1", { ...update("item-retracted", ""), status: "retracted" }, publish);
+
+    expect(messages).toEqual([{ ...update("item-retracted", ""), status: "retracted" }]);
   });
 
   it("keeps equal turn and item ids distinct across threads", () => {
@@ -264,6 +318,25 @@ describe("AgentPaneAccumulator", () => {
     expect(messages.map((message) => message.text)).toEqual(["abcd"]);
   });
 
+  it("reconciles cumulative thought history with a newer live chunk", () => {
+    const accumulator = new AgentPaneAccumulator((callback) => callback());
+    let messages: AgentPaneUpdate[] = [];
+    const publish = (value: AgentPaneUpdate[]): void => {
+      messages = value;
+    };
+
+    accumulator.ingest("slot-1", wireKindDelta("thought-message-delta", 1, 1, 3, "c"), publish);
+    accumulator.mergeHistory(
+      "slot-1",
+      1,
+      history(wireKindDelta("thought-message-delta", 1, 1, 2, "ab")),
+      true,
+      publish,
+    );
+
+    expect(messages.map((message) => message.text)).toEqual(["abc"]);
+  });
+
   it("preserves a newer live delta while its older cumulative history is fragmented", () => {
     const accumulator = new AgentPaneAccumulator((callback) => callback());
     let messages: AgentPaneUpdate[] = [];
@@ -340,7 +413,7 @@ describe("AgentPaneAccumulator", () => {
 function update(type: string, text: string): AgentPaneUpdate {
   return {
     type,
-    providerId: "codex",
+    providerId: "acp",
     turnId: "turn-1",
     itemId: "item-1",
     itemType: "commandExecution",
@@ -371,9 +444,19 @@ function wireDelta(
   revision: number,
   text: string,
 ): AgentPaneWireUpdate {
+  return wireKindDelta("agent-message-delta", generation, ordinal, revision, text);
+}
+
+function wireKindDelta(
+  type: string,
+  generation: number,
+  ordinal: number,
+  revision: number,
+  text: string,
+): AgentPaneWireUpdate {
   return {
     ...wireUpdate(generation, ordinal, revision, text),
-    type: "agent-message-delta",
+    type,
     itemId: "item-1",
   };
 }

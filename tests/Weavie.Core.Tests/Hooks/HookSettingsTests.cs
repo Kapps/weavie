@@ -13,7 +13,7 @@ public sealed class HookSettingsTests {
 		using var doc = JsonDocument.Parse(HookSettings.BuildJson(RelayPath));
 		var hooks = doc.RootElement.GetProperty("hooks");
 
-		// The gate matches every tool so claude.allowAllTools can bypass anything that would prompt, and
+		// The gate matches every tool so agent.allowAllPermissions can bypass anything that would prompt, and
 		// Pre/PostToolUse match every tool so the session status sees each tool start/finish — an approved
 		// permission prompt is only observable as the gated tool's PostToolUse, so the old edit-only matcher
 		// left an approved Bash stuck at NeedsInput.

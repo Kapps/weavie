@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Weavie.AcpDistribution;
 using Weavie.Core.Commands;
 using Weavie.Core.Git;
 using Weavie.Core.Layout;
@@ -115,6 +116,24 @@ public sealed partial class HostCore {
 				RememberDefaultProvider(message.ProviderId);
 				return Task.CompletedTask;
 			});
+
+		var acpRegistry = _messages.Host.Feature("acpRegistry");
+		acpRegistry.Handle<EmptyMessage, IReadOnlyList<AcpRegistryAgent>>(
+			"list",
+			(_, ct) => _acpAgents.ListRegistryAsync(ct));
+		acpRegistry.Handle<AcpInstallMessage>(
+			"install",
+			(message, ct) => _acpAgents.InstallAsync(message.Id, message.Distribution, ct));
+		acpRegistry.Handle<AcpAgentMessage>("remove", (message, _) => {
+			EnsureProviderCanBeRemoved(message.Id);
+			_acpAgents.Remove(message.Id);
+			return Task.CompletedTask;
+		});
+		acpRegistry.Handle<EmptyMessage>("reload", (_, _) => {
+			var currentIds = _acpAgents.LaunchSpecs.Select(agent => agent.Id).ToHashSet(StringComparer.Ordinal);
+			_acpAgents.Reload(proposed => EnsureProvidersCanBeReplaced(currentIds, proposed));
+			return Task.CompletedTask;
+		});
 
 		_messages.Host.Feature("git").Handle<EmptyMessage, string[]>(
 			"branches",
@@ -281,6 +300,7 @@ public sealed partial class HostCore {
 					search.Options.Exclude),
 				[.. search.RecentTerms]),
 			ResolvedTestProfile(),
+			ParseJsonElement(BuildAgentDefaults()),
 			new CommandCatalogSnapshot(
 				ParseJsonElement(_keybindings.BuildCommandsJson()),
 				ParseJsonElement(_keybindings.BuildKeybindingsJson())));
@@ -353,6 +373,7 @@ public sealed partial class HostCore {
 		RailSnapshot Rail,
 		SearchSnapshot Search,
 		string TestProfile,
+		JsonElement AgentDefaults,
 		CommandCatalogSnapshot CommandCatalog);
 
 	private sealed record CommandCatalogSnapshot(JsonElement Commands, JsonElement Keybindings);
@@ -381,3 +402,7 @@ public sealed partial class HostCore {
 			? new RailSelection(selected.BackendId, selected.Slot)
 			: null;
 }
+
+internal sealed record AcpInstallMessage(string Id, string Distribution);
+
+internal sealed record AcpAgentMessage(string Id);

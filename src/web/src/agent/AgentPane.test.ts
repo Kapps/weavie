@@ -9,7 +9,7 @@ function message(id: string, tone: "assistant" | "user"): AgentTranscriptEntry {
     details: [],
     id,
     kind: "message",
-    label: tone === "assistant" ? "Codex" : "You",
+    label: tone === "assistant" ? "ACP" : "You",
     status: null,
     streaming: false,
     summary: null,

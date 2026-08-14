@@ -77,6 +77,7 @@ public sealed class HostHandle : IAsyncDisposable {
 			RedirectStandardError = true,
 			UseShellExecute = false,
 		};
+		psi.Environment["WEAVIE_ROOT"] = IsolatedWeavieRoot(args);
 		psi.ArgumentList.Add(dll);
 		foreach (string arg in args) {
 			psi.ArgumentList.Add(arg);
@@ -155,6 +156,7 @@ public sealed class HostHandle : IAsyncDisposable {
 			RedirectStandardError = true,
 			UseShellExecute = false,
 		};
+		psi.Environment["WEAVIE_ROOT"] = IsolatedWeavieRoot(args);
 		psi.ArgumentList.Add(dll);
 		foreach (string arg in args) {
 			psi.ArgumentList.Add(arg);
@@ -175,6 +177,20 @@ public sealed class HostHandle : IAsyncDisposable {
 		}
 
 		return (process.ExitCode, Snapshot(output));
+	}
+
+	private static string IsolatedWeavieRoot(IReadOnlyList<string> args) {
+		int workspace = -1;
+		for (int index = 0; index < args.Count; index++) {
+			if (args[index] == "--workspace") {
+				workspace = index;
+				break;
+			}
+		}
+		if (workspace < 0 || workspace + 1 >= args.Count) {
+			return Path.Combine(Path.GetTempPath(), "weavie-remote-tests", Guid.NewGuid().ToString("N"));
+		}
+		return Path.Combine(Path.GetFullPath(args[workspace + 1]), ".weavie-test-state");
 	}
 
 	/// <summary>Waits for this successfully-started host to exit and returns its exit code.</summary>

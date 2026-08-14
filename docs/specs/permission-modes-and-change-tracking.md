@@ -1,10 +1,11 @@
 # Permission model & change tracking
 
 Status: implemented
-Last updated: 2026-07-12
+Last updated: 2026-08-13
 
 How Weavie governs what embedded agents may do, and how it records their changes in a way that keeps
-working no matter how much they are or aren't asking. Claude and Codex use different provider mechanisms.
+working no matter how much they are or aren't asking. Terminal Claude and native ACP agents use different
+provider mechanisms.
 This supersedes the earlier
 single-`claude.permissionMode`-setting design (kept in git history): permission is now split into two
 orthogonal axes, only one of which Weavie owns.
@@ -14,10 +15,11 @@ orthogonal axes, only one of which Weavie owns.
 | Axis | Controls | Owner | Set by | Weavie's role |
 |---|---|---|---|---|
 | **Edit mode** | how *edits* are handled — `default` (review each), `acceptEdits` (auto-apply), `plan` (read-only) | **Claude Code** | the user, via Shift+Tab in the Claude pane | **observes** it (cannot set it at runtime — see below) |
-| **Tool-call permission** | whether *non-edit* tools (Bash & other commands) auto-run | **Weavie** | the `claude.allowAllTools` setting | **enforces** it, via the hook |
+| **Tool-call permission** | whether *non-edit* tools (Bash & other commands) auto-run | **Weavie** | the `agent.allowAllPermissions` setting | **enforces** it, via the hook |
 
 They are orthogonal and never contradict: Claude's mode only ever auto-accepts *edits*; Weavie's hook owns
-*everything else*. So "bypass everything" isn't a mode — it's the composition **acceptEdits + allowAllTools**.
+*everything else*. So "bypass everything" isn't a mode — it's the composition **acceptEdits +
+agent.allowAllPermissions**.
 
 ### Why Weavie doesn't just force Claude's native mode
 
@@ -36,25 +38,26 @@ carries `permission_mode`, which Weavie folds into an `ObservedPermissionMode` m
 (`Weavie.Core.Hooks`). That mirror is the single signal for "are edits auto-applying," used to gate the
 post-turn review surface and the openDiff auto-keep. There is no second source of truth to desync from.
 
-## Enforcement: the hook is the single gate
+## Enforcement in terminal Claude
 
 Claude is always launched in its own `default` mode (Weavie passes no `--permission-mode` /
 `--dangerously-skip-permissions`), and Weavie's PermissionRequest hook is the decision point (it fires only when a prompt would otherwise appear, so an auto-allowed tool costs nothing):
 
-- **`claude.allowAllTools` off** → the hook passes through: Claude's normal flow (edits → its mode / the
+- **`agent.allowAllPermissions` off** → the hook passes through: Claude's normal flow (edits → its mode / the
   openDiff review; Bash → its own terminal prompt).
-- **`claude.allowAllTools` on** → the hook returns `decision.behavior: allow` for every non-edit PermissionRequest
+- **`agent.allowAllPermissions` on** → the hook returns `decision.behavior: allow` for every non-edit PermissionRequest
   (Bash, PowerShell, WebFetch, MCP), suppressing the prompt. Edit tools always pass through here — their permission is the
   edit mode, and a hook `allow` would override it, breaking the orthogonality.
 
 Precedence in Claude Code is `deny > hook > ask > allow`, so a user's own `deny` rule still wins and the hook
-reliably suppresses an otherwise-`ask` prompt. `HookPolicy.Decide(request, allowAllTools)` is the seam; the
+reliably suppresses an otherwise-`ask` prompt. `HookPolicy.Decide(request, allowAllPermissions)` is the seam; the
 live setting is read per call in `IdeIntegration`. See [../concepts/hook-bridge.md](../concepts/hook-bridge.md).
 
-> **Coverage.** The gate is the `PermissionRequest` hook with a `*` matcher, so `allowAllTools` auto-allows
+> **Coverage.** The gate is the `PermissionRequest` hook with a `*` matcher, so `agent.allowAllPermissions` auto-allows
 > *every* non-edit tool that would prompt (Bash, PowerShell, WebFetch, MCP). PermissionRequest fires only
-> when a dialog would appear, so it never runs for auto-allowed tools; `PreToolUse`/`PostToolUse` stay scoped
-> to the edit tools for change tracking. Per-tool control remains a possible refinement.
+> when a dialog would appear, so it never runs for auto-allowed tools. `PreToolUse`/`PostToolUse` observe every
+> tool for activity; change tracking filters their feed to structured edit tools. Per-tool control remains a
+> possible refinement.
 
 ## Change tracking (permission-independent)
 
@@ -73,26 +76,22 @@ check. Edits are recorded whether they were reviewed (default), auto-applied (ac
   `PermissionModeDiffPresenter` auto-keeps it when the observed mode auto-applies edits (so it never blocks
   redundantly under acceptEdits). `AutoAppliesEdits` now drives only that openDiff auto-keep, not the navigator.
 
-### Native Codex
+### Native ACP agents
 
-Codex uses the same `claude.allowAllTools` compatibility setting as Weavie's shared bypass toggle:
+Weavie does not choose provider-specific sandbox or approval flags. Registry and custom ACP launch recipes own
+their command line and environment; provider-owned policy and settings remain in force.
 
-- off: `codex.sandbox` and `codex.approvalPolicy` are passed through;
-- on: every Codex turn uses `danger-full-access` plus `never`, and any permission request still emitted by
-  app-server is accepted immediately without rendering an approval card.
+An ACP agent may still issue `session/request_permission`. With `agent.allowAllPermissions` on—the default—the
+client selects the strongest advertised allow option. With it off, the native pane renders the provider's exact
+options and returns the user's selection. This is also the permission path for custom ACP executables.
 
-This does not bypass Codex hook trust. Native Codex injects no Weavie lifecycle hooks and does not pass
-`--dangerously-bypass-hook-trust`.
+Native change tracking consumes structured ACP tool locations and diffs. Command, MCP, and dynamic-tool items
+still drive activity/status, but unenumerated filesystem side-effects do not enter turn review, matching Claude
+Bash. Change and correction capture must never discover mutations by walking or snapshotting the workspace: its
+work is bounded by provider-reported or already-tracked paths, never by the number of files in the workspace.
 
-Codex change tracking consumes only structured `fileChange` notifications whose paths the provider reports.
-Command, MCP, and dynamic-tool items still drive activity/status, but their unenumerated filesystem side-effects
-do not enter turn review, matching Claude Bash. Change and correction capture must never discover mutations by
-walking or snapshotting the workspace: its work is bounded by provider-reported or already-tracked paths, never
-by the number of files in the workspace.
-
-Codex Plan mode is independent of sandbox and approval policy. Weavie discovers Codex's collaboration presets
-at runtime and attaches the conversation's selected preset to each new `turn/start`; the existing permission
-controls continue to determine what an eventual implementation turn may do.
+Plan mode is a provider-owned ACP session mode and remains independent of permission handling. The client
+discovers modes at runtime and sends changes through `session/set_mode`.
 
 ## Architecture / placement
 
@@ -101,30 +100,31 @@ Weavie.Core/
   Hooks/
     HookRequest.cs            // + PermissionMode (parsed from permission_mode)
     ObservedPermissionMode.cs // the observed-mode mirror (Observe / Current / AutoAppliesEdits)
-    HookPolicy.cs             // Decide(request, allowAllTools): allow non-edit PermissionRequest when on
+    HookPolicy.cs             // reads agent.allowAllPermissions for terminal Claude
     HookSettings.cs           // the hooks block (tool matcher) written to claude's --settings
   Configuration/
-    CoreSettings.cs           // claude.allowAllTools (Bool, Live) — replaces claude.permissionMode
+    CoreSettings.cs           // agent.allowAllPermissions (Bool, Live)
   Mcp/
     PermissionModeDiffPresenter.cs  // openDiff auto-keep keyed on the observed mode
-    IdeIntegration.cs               // hook decision reads claude.allowAllTools live
-  Changes/                    // SessionChangeTracker + the turn/session feeds (see turn-review.md)
-src/Weavie.Win | Mac | Linux/ // each host: construct ObservedPermissionMode, pass it to the presenter,
-                              // subscribe it to HookBridge.Observed (AutoAppliesEdits drives the openDiff
-                              // auto-keep only; the review push is unconditional)
+  Agents/Claude/
+    ClaudeIdeIntegration.cs         // hook decision reads agent.allowAllPermissions live
+  Changes/                          // SessionChangeTracker + the turn/session feeds
+Weavie.AgentClientProtocol/
+  AcpAgentSession.ClientRequests.cs // ACP permission options, automatic or native-pane resolution
+Weavie.Hosting/
+  Agents/AgentProviderComposition.cs // terminal Claude and native ACP provider composition
 ```
 
 ## Open questions / follow-ups
 
 - **Widen the hook matcher (DONE).** The permission gate is the `PermissionRequest` hook with a `*` matcher,
-  so `allowAllTools` covers every prompting tool. `PreToolUse`/`PostToolUse` also match `*` — the session
+  so `agent.allowAllPermissions` covers every prompting tool. `PreToolUse`/`PostToolUse` also match `*` — the session
   status needs every tool start/finish (an approved permission prompt is only observable as the gated tool's
   `PostToolUse`) — and change tracking filters to the edit tools by tool name.
-- **Per-tool permission.** Grow `claude.allowAllTools` (bool) into a per-tool allow/deny/ask map — the
+- **Per-tool permission.** Grow `agent.allowAllPermissions` (bool) into a per-tool allow/deny/ask map — the
   fine-grained version of the tool axis. Edits still defer to the mode unless explicitly overridden.
-- **UI mode indicator.** Surface the observed edit mode (and the `allowAllTools` state) in the chrome so both
+- **UI mode indicator.** Surface the observed edit mode (and the allow-all state) in the chrome so both
   axes are visible at a glance; optimistically update the displayed mode the instant a Shift+Tab sequence
   passes through the PTY, then confirm on the next hook event (the observe path lags by one tool call).
-- **`plan` mode.** Observed and gated correctly (read-only → no auto-apply, no navigator); there is no
-  Weavie-side plan behavior yet.
-```
+- **Terminal `plan` mode.** Observed and gated correctly (read-only → no auto-apply, no navigator); the TUI
+  remains provider-owned while native ACP plans render from structured plan updates.

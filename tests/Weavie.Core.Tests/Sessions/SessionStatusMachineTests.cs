@@ -290,6 +290,29 @@ public sealed class SessionStatusMachineTests {
 	}
 
 	[Fact]
+	public void SupervisedRuntimeExitWithoutRestart_GoesError() {
+		var machine = new SessionStatusMachine();
+		machine.Observe(Hook(HookEventKind.Stop));
+
+		machine.ObserveSupervisor(new SupervisorStateChanged(SupervisorState.Idle, 0, 0));
+
+		Assert.Equal(SessionStatus.Error, machine.Status);
+	}
+
+	[Fact]
+	public void RuntimeFailure_RemainsErrorUntilTheSessionStartsAgain() {
+		var machine = new SessionStatusMachine();
+		machine.Observe(new AgentRuntimeFailed());
+
+		machine.Observe(new AgentTurnStopped(WillResume: false));
+		machine.Observe(new AgentPromptSubmitted("thread", "late prompt"));
+
+		Assert.Equal(SessionStatus.Error, machine.Status);
+		machine.Observe(new AgentSessionStarted("restart"));
+		Assert.Equal(SessionStatus.Idle, machine.Status);
+	}
+
+	[Fact]
 	public void SupervisorRestart_GoesStarting() {
 		var machine = new SessionStatusMachine();
 		machine.Observe(Hook(HookEventKind.Stop));
@@ -302,6 +325,16 @@ public sealed class SessionStatusMachineTests {
 		var machine = new SessionStatusMachine();
 		machine.Observe(Hook(HookEventKind.Stop));
 		machine.Observe(new AgentProcessChanged(new SupervisorStateChanged(SupervisorState.Running, null, 1)));
+		Assert.Equal(SessionStatus.Starting, machine.Status);
+	}
+
+	[Fact]
+	public void ExplicitProviderRestart_GoesStartingEvenWhenRestartCountIsZero() {
+		var machine = new SessionStatusMachine();
+		machine.Observe(new AgentRuntimeFailed());
+
+		machine.Observe(new AgentProcessChanged(new SupervisorStateChanged(SupervisorState.Running, null, 0)));
+
 		Assert.Equal(SessionStatus.Starting, machine.Status);
 	}
 

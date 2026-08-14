@@ -1,4 +1,5 @@
 import type { JSX } from "solid-js";
+import { agentProviders } from "../chrome/agent-default";
 import { type RailSession, STATUS_SHORT } from "../chrome/session-store";
 
 /** One compact session target with its location, provider, and live/dormant state. */
@@ -20,7 +21,10 @@ export function SessionInboxRow(props: {
       <span class="session-inbox-details">
         <strong>{session().label}</strong>
         <span>
-          {session().locationName} · {session().providerId === "codex" ? "Codex" : "Claude Code"}
+          {session().locationName} ·{" "}
+          {agentProviders(session().backendId).find(
+            (provider) => provider.id === session().providerId,
+          )?.name ?? session().providerId}
         </span>
       </span>
       <span class="session-inbox-state">

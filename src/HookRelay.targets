@@ -31,6 +31,10 @@
     <!-- macOS hosts run managed code from the .app's MonoBundle; that's where the host exe's
          AppContext.BaseDirectory points, so the relay must sit there (appended to $(OutDir) in the targets). -->
     <_HookRelayDestSuffix Condition="$(TargetFramework.Contains('-macos'))">$(AssemblyName).app/Contents/MonoBundle/</_HookRelayDestSuffix>
+    <_McpProxyProj>$(MSBuildThisFileDirectory)Weavie.McpProxy\Weavie.McpProxy.csproj</_McpProxyProj>
+    <_McpProxyDir>$(MSBuildThisFileDirectory)Weavie.McpProxy\</_McpProxyDir>
+    <_McpProxyExe Condition="$([MSBuild]::IsOSPlatform('Windows'))">weavie-mcp-proxy.exe</_McpProxyExe>
+    <_McpProxyExe Condition="'$(_McpProxyExe)' == ''">weavie-mcp-proxy</_McpProxyExe>
   </PropertyGroup>
 
   <ItemGroup>
@@ -39,6 +43,8 @@
     <_HookRelaySource Include="$(_HookRelayProj)" />
     <_HookRelaySource Include="$(MSBuildThisFileDirectory)Weavie.Core\Hooks\HookProtocol.cs" />
     <_HookRelaySource Include="$(MSBuildThisFileDirectory)Weavie.Core\Hooks\HookRelayClient.cs" />
+    <_HookRelaySource Include="$(_McpProxyDir)**\*.cs" />
+    <_HookRelaySource Include="$(_McpProxyProj)" />
   </ItemGroup>
 
   <!-- Win/Linux/Headless Debug: a fast managed (framework-dependent) build — the host resolves the system
@@ -47,14 +53,19 @@
           Condition="'$(Configuration)' == 'Debug' And '$(_HookRelayDestSuffix)' == ''"
           AfterTargets="Build"
           Inputs="@(_HookRelaySource)"
-          Outputs="$(OutDir)weavie-hook-relay.dll">
+          Outputs="$(OutDir)weavie-hook-relay.dll;$(OutDir)weavie-mcp-proxy.dll">
     <Message Importance="high" Text="weavie: building hook relay (Debug, managed) -> $(OutDir)" />
     <Exec Command="dotnet build &quot;$(_HookRelayProj)&quot; -c $(Configuration) --nologo -v q" />
+    <Exec Command="dotnet build &quot;$(_McpProxyProj)&quot; -c $(Configuration) --nologo -v q" />
     <ItemGroup>
       <_RelayDebugOut Include="$(_HookRelayDir)bin\$(Configuration)\net10.0\$(_HookRelayExe)" />
       <_RelayDebugOut Include="$(_HookRelayDir)bin\$(Configuration)\net10.0\weavie-hook-relay.dll" />
       <_RelayDebugOut Include="$(_HookRelayDir)bin\$(Configuration)\net10.0\weavie-hook-relay.deps.json" />
       <_RelayDebugOut Include="$(_HookRelayDir)bin\$(Configuration)\net10.0\weavie-hook-relay.runtimeconfig.json" />
+      <_RelayDebugOut Include="$(_McpProxyDir)bin\$(Configuration)\net10.0\$(_McpProxyExe)" />
+      <_RelayDebugOut Include="$(_McpProxyDir)bin\$(Configuration)\net10.0\weavie-mcp-proxy.dll" />
+      <_RelayDebugOut Include="$(_McpProxyDir)bin\$(Configuration)\net10.0\weavie-mcp-proxy.deps.json" />
+      <_RelayDebugOut Include="$(_McpProxyDir)bin\$(Configuration)\net10.0\weavie-mcp-proxy.runtimeconfig.json" />
     </ItemGroup>
     <Copy SourceFiles="@(_RelayDebugOut)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
   </Target>
@@ -69,10 +80,13 @@
           Condition="'$(Configuration)' == 'Debug' And '$(_HookRelayDestSuffix)' != ''"
           AfterTargets="Build"
           Inputs="@(_HookRelaySource)"
-          Outputs="$(OutDir)$(_HookRelayDestSuffix)$(_HookRelayExe)">
+          Outputs="$(OutDir)$(_HookRelayDestSuffix)$(_HookRelayExe);$(OutDir)$(_HookRelayDestSuffix)$(_McpProxyExe)">
     <Message Importance="high" Text="weavie: building hook relay (Debug, self-contained single-file $(_HookRelayRid)) -> $(OutDir)$(_HookRelayDestSuffix)" />
     <Exec Command="dotnet publish &quot;$(_HookRelayProj)&quot; -c $(Configuration) -r $(_HookRelayRid) --self-contained -p:PublishAot=false -p:PublishSingleFile=true -p:PublishTrimmed=false --nologo -v q" />
+    <Exec Command="dotnet publish &quot;$(_McpProxyProj)&quot; -c $(Configuration) -r $(_HookRelayRid) --self-contained -p:PublishAot=false -p:PublishSingleFile=true -p:PublishTrimmed=false --nologo -v q" />
     <Copy SourceFiles="$(_HookRelayDir)bin\$(Configuration)\net10.0\$(_HookRelayRid)\publish\$(_HookRelayExe)"
+          DestinationFolder="$(OutDir)$(_HookRelayDestSuffix)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(_McpProxyDir)bin\$(Configuration)\net10.0\$(_HookRelayRid)\publish\$(_McpProxyExe)"
           DestinationFolder="$(OutDir)$(_HookRelayDestSuffix)" SkipUnchangedFiles="true" />
   </Target>
 
@@ -80,10 +94,13 @@
           Condition="'$(Configuration)' != 'Debug'"
           AfterTargets="Build"
           Inputs="@(_HookRelaySource)"
-          Outputs="$(OutDir)$(_HookRelayDestSuffix)$(_HookRelayExe)">
+          Outputs="$(OutDir)$(_HookRelayDestSuffix)$(_HookRelayExe);$(OutDir)$(_HookRelayDestSuffix)$(_McpProxyExe)">
     <Message Importance="high" Text="weavie: building hook relay (Release, NativeAOT $(_HookRelayRid)) -> $(OutDir)$(_HookRelayDestSuffix)" />
     <Exec Command="dotnet publish &quot;$(_HookRelayProj)&quot; -c $(Configuration) -r $(_HookRelayRid) --nologo -v q" />
+    <Exec Command="dotnet publish &quot;$(_McpProxyProj)&quot; -c $(Configuration) -r $(_HookRelayRid) --nologo -v q" />
     <Copy SourceFiles="$(_HookRelayDir)bin\$(Configuration)\net10.0\$(_HookRelayRid)\publish\$(_HookRelayExe)"
+          DestinationFolder="$(OutDir)$(_HookRelayDestSuffix)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(_McpProxyDir)bin\$(Configuration)\net10.0\$(_HookRelayRid)\publish\$(_McpProxyExe)"
           DestinationFolder="$(OutDir)$(_HookRelayDestSuffix)" SkipUnchangedFiles="true" />
   </Target>
 
@@ -96,6 +113,10 @@
     <ItemGroup>
       <ResolvedFileToPublish Include="$(OutDir)$(_HookRelayExe)">
         <RelativePath>$(_HookRelayExe)</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      </ResolvedFileToPublish>
+      <ResolvedFileToPublish Include="$(OutDir)$(_McpProxyExe)">
+        <RelativePath>$(_McpProxyExe)</RelativePath>
         <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
       </ResolvedFileToPublish>
     </ItemGroup>

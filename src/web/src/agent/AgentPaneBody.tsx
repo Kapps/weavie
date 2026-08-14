@@ -191,6 +191,7 @@ export function AgentPaneBody(props: {
             entries={props.model.entries}
             expandedDetails={expandedDetails()}
             keyboardApprovalId={props.model.keyboardApprovalId()}
+            keyboardInputId={props.model.keyboardInputId()}
             onDetailsToggle={(entryId, open) => {
               props.model.setActivityExpanded(entryId, open);
               setExpandedDetails((current) => toggleMember(current, entryId, open));
@@ -244,6 +245,7 @@ export function AgentPaneBody(props: {
               detailsExpanded={false}
               entry={props.model.pinnedRequest()!}
               keyboardApprovalId={props.model.keyboardApprovalId()}
+              keyboardInputId={props.model.keyboardInputId()}
               onDetailsToggle={() => {}}
               sectionLabel={null}
               session={props.model.session}

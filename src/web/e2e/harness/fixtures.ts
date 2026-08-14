@@ -1,7 +1,7 @@
 import { writeFile } from "node:fs/promises";
 import { test as base, expect } from "@playwright/test";
-import { fakeClaudeBuilt } from "./fake-claude";
-import type { FakeCodexInference } from "./fake-codex";
+import { type FakeInference, fakeClaudeBuilt } from "./fake-claude";
+import { fakeAcpProgram, programExists } from "./test-programs";
 import { headlessBuilt, launchHeadless, type WeavieHost } from "./weavie-host";
 import { launchRemote, runnerBuilt } from "./weavie-runner";
 
@@ -10,7 +10,7 @@ import { launchRemote, runnerBuilt } from "./weavie-runner";
 // because Playwright mangles a bare top-level array option value into [value, config].
 type WeavieOptions = {
   fakeScript: { steps: import("./fake-claude").FakeStep[] } | null;
-  inference: FakeCodexInference;
+  inference: FakeInference;
   automaticInference: boolean;
   dismissInferenceOffer: boolean;
   // Set via test.use to run page setup (e.g. addInitScript recorders) BEFORE the fixture's first
@@ -71,6 +71,9 @@ export const test = base.extend<WeavieOptions & WeavieFixtures>({
       }
       if (!fakeClaudeBuilt()) {
         throw new Error("Weavie.FakeClaude not built — run: dotnet build tools/Weavie.FakeClaude");
+      }
+      if (!programExists(fakeAcpProgram)) {
+        throw new Error("Weavie.FakeAcp not built — run: dotnet build tools/Weavie.FakeAcp");
       }
       if (remote && !runnerBuilt()) {
         throw new Error("Weavie.Runner not built — run: dotnet build src/Weavie.Runner");

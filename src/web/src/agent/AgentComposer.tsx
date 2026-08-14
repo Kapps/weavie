@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, type JSX, onCleanup, Show } from "solid-js";
 import type { AgentSlashEntry, ClientSession } from "../bridge";
 import { readClipboardImage, readClipboardText } from "../clipboard-read";
 import { setContext } from "../commands/context";
@@ -10,15 +10,8 @@ import { sendPastedImage, sendPastedImagesFromClipboard } from "../terminal/past
 import { AgentAttachmentStrip } from "./AgentAttachmentStrip";
 import { AgentSlashMenu } from "./AgentSlashMenu";
 import { AgentWorkingStatus } from "./AgentWorkingStatus";
-import {
-  agentControlState,
-  currentModel,
-  MODEL_AXIS,
-  openControlPicker,
-  setAgentControl,
-  toggleAgentControl,
-  toggleModelFast,
-} from "./agent-controls-store";
+import { agentControlForCommand } from "./agent-control-commands";
+import { agentControlState, openControlPicker, setAgentControl } from "./agent-controls-store";
 import {
   type AgentPlanIdentity,
   planIdentityArgsSupplied,
@@ -29,9 +22,7 @@ import {
   composerState,
   removeComposerAttachment,
   setComposerDraft,
-  stageSkill,
   submitAgentTurn,
-  unstageSkill,
   uploadAgentImage,
 } from "./composer-store";
 import {
@@ -64,7 +55,15 @@ export function AgentComposer(props: {
   const canInterrupt = createMemo(() => props.session !== null && props.turnActive);
 
   createEffect(() => setContext("agentApprovalPending", props.pendingKind === "approval"));
-  onCleanup(() => setContext("agentApprovalPending", false));
+  createEffect(() => setContext("agentInputPending", props.pendingKind === "input"));
+  createEffect(() =>
+    setContext("agentAuthenticationPending", props.pendingKind === "authentication"),
+  );
+  onCleanup(() => {
+    setContext("agentApprovalPending", false);
+    setContext("agentInputPending", false);
+    setContext("agentAuthenticationPending", false);
+  });
 
   const canSubmit = createMemo(() => {
     const state = composer();
@@ -78,7 +77,7 @@ export function AgentComposer(props: {
       props.session !== null &&
       state.submittingId === null &&
       state.attachments.every((attachment) => attachment.status === "ready") &&
-      (state.draft.trim().length > 0 || state.attachments.length > 0 || state.skills.length > 0)
+      (state.draft.trim().length > 0 || state.attachments.length > 0)
     );
   });
 
@@ -121,10 +120,6 @@ export function AgentComposer(props: {
     if (entry.commandId !== null) {
       setComposerDraft(session, "");
       void runCommandWithFeedback(entry.commandId);
-    } else if (entry.skillName !== null) {
-      // Stage the skill so it submits as a structured skill input; clear the "/query" it replaces.
-      stageSkill(session, entry.skillName);
-      setComposerDraft(session, "");
     } else if (entry.insertText !== null) {
       setComposerDraft(session, entry.insertText);
       placeCaretAfterDraftUpdate(entry.insertText, entry.insertText.length);
@@ -228,7 +223,6 @@ export function AgentComposer(props: {
         id: "",
         prompt: state.draft.trim(),
         attachmentIds: [],
-        skills: [],
       });
       setComposerDraft(session, "");
     } else if (!submitAgentTurn(session)) {
@@ -248,48 +242,22 @@ export function AgentComposer(props: {
     return true;
   };
 
-  // A control command applies its `value` arg directly (palette / Claude), or opens the picker when bare.
-  const registerSelect = (commandId: string, axis: string): (() => void) =>
+  // A semantic command targets the matching ACP-owned option without assuming its transport shape.
+  const registerSelect = (commandId: string): (() => void) =>
     registerCommand(commandId, (args: unknown) => {
       const session = props.session;
       if (session === null) {
         return false;
       }
-      const value = (args as { value?: unknown } | undefined)?.value;
-      if (typeof value === "string" && value.length > 0) {
-        setAgentControl(session, axis, value);
-      } else {
-        openControlPicker(axis);
-      }
-      return true;
-    });
-
-  // A decision command answers the same approval the card chips advertise (turn-progress.pendingApproval).
-  const registerDecision = (commandId: string, decision: string): (() => void) =>
-    registerCommand(commandId, () => {
-      const session = props.session;
-      if (session === null || props.pendingApprovalId === null) {
-        return false;
-      }
-      session.feature("agent").publish("approval", {
-        requestId: props.pendingApprovalId,
-        decision,
-      });
-      return true;
-    });
-
-  // Applies a `value` arg to an axis directly (palette / Claude), or opens the merged model picker when bare.
-  const registerModelSelect = (commandId: string, axis: string): (() => void) =>
-    registerCommand(commandId, (args: unknown) => {
-      const session = props.session;
-      if (session === null) {
+      const axis = agentControlForCommand(agentControlState(session).axes, commandId);
+      if (axis === undefined) {
         return false;
       }
       const value = (args as { value?: unknown } | undefined)?.value;
       if (typeof value === "string" && value.length > 0) {
-        setAgentControl(session, axis, value);
+        setAgentControl(session, axis.id, value);
       } else {
-        openControlPicker(MODEL_AXIS);
+        openControlPicker(axis.id);
       }
       return true;
     });
@@ -316,32 +284,36 @@ export function AgentComposer(props: {
   });
   const offTogglePlan = registerCommand(CommandIds.togglePlanMode, () => {
     const session = props.session;
-    return session !== null && toggleAgentControl(session, CommandIds.togglePlanMode);
+    if (session === null) {
+      return false;
+    }
+    const mode = agentControlForCommand(agentControlState(session).axes, CommandIds.togglePlanMode);
+    const plan = mode?.options.find((option) => option.id === "plan");
+    const other = mode?.options.find((option) => option.id !== "plan");
+    const target = mode?.value === "plan" ? other : plan;
+    if (mode === undefined || target === undefined) {
+      return false;
+    }
+    setAgentControl(session, mode.id, target.id);
+    return true;
   });
-  // Model and Effort share one cascading picker; a value arg applies directly.
-  const offSelectModel = registerModelSelect(CommandIds.selectModel, "model");
-  const offSelectEffort = registerModelSelect(CommandIds.selectEffort, "effort");
-  const offSelectApproval = registerSelect(CommandIds.selectApprovalPolicy, "approvalPolicy");
-  const offSelectSandbox = registerSelect(CommandIds.selectSandbox, "sandbox");
-  // Fast Mode toggles the active model's service tier without opening a picker.
+  const offSelectModel = registerSelect(CommandIds.selectModel);
+  const offSelectEffort = registerSelect(CommandIds.selectEffort);
+  const offSelectApproval = registerSelect(CommandIds.selectApprovalPolicy);
+  const offSelectSandbox = registerSelect(CommandIds.selectSandbox);
   const offToggleFast = registerCommand(CommandIds.toggleFastMode, () => {
     const session = props.session;
     if (session === null) {
       return false;
     }
-    const model = currentModel(session);
-    if (model === undefined || model.fastTier === "") {
+    const fast = agentControlForCommand(agentControlState(session).axes, CommandIds.toggleFastMode);
+    const target = fast?.options.find((option) => option.id !== fast.value);
+    if (fast === undefined || target === undefined) {
       return false;
     }
-    toggleModelFast(session, model);
+    setAgentControl(session, fast.id, target.id);
     return true;
   });
-  const offApprove = registerDecision(CommandIds.agentApprove, "accept");
-  const offApproveForSession = registerDecision(
-    CommandIds.agentApproveForSession,
-    "acceptForSession",
-  );
-  const offDecline = registerDecision(CommandIds.agentDecline, "decline");
   onCleanup(offPaste);
   onCleanup(offSubmit);
   onCleanup(offInterrupt);
@@ -352,9 +324,6 @@ export function AgentComposer(props: {
   onCleanup(offSelectSandbox);
   onCleanup(offSelectEffort);
   onCleanup(offToggleFast);
-  onCleanup(offApprove);
-  onCleanup(offApproveForSession);
-  onCleanup(offDecline);
 
   return (
     <form
@@ -382,28 +351,6 @@ export function AgentComposer(props: {
             }
           }}
         />
-      </Show>
-      <Show when={composer().skills.length > 0}>
-        <div class="agent-skills">
-          <For each={composer().skills}>
-            {(skill) => (
-              <span class="agent-skill-chip">
-                /{skill}
-                <button
-                  type="button"
-                  title="Remove skill"
-                  onClick={() => {
-                    if (props.session !== null) {
-                      unstageSkill(props.session, skill);
-                    }
-                  }}
-                >
-                  ×
-                </button>
-              </span>
-            )}
-          </For>
-        </div>
       </Show>
       <AgentSlashMenu
         entries={slashEntries()}

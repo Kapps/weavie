@@ -189,3 +189,95 @@
   color: var(--accent);
   opacity: 0.7;
 }
+
+.acp-registry-dialog {
+  width: min(760px, 94vw);
+  max-height: min(760px, 90vh);
+  padding: 24px;
+  overflow: hidden;
+}
+
+.acp-registry-heading,
+.acp-registry-agent,
+.acp-registry-agent-title,
+.acp-registry-agent-actions {
+  display: flex;
+  align-items: center;
+}
+
+.acp-registry-heading {
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.acp-registry-heading > button {
+  border: 0;
+  background: transparent;
+  color: var(--dim);
+  font: inherit;
+  font-size: 1.4em;
+  cursor: pointer;
+}
+
+.acp-registry-list {
+  max-height: min(610px, 70vh);
+  margin-top: 18px;
+  overflow-y: auto;
+  border-top: 1px solid var(--border);
+}
+
+.acp-registry-agent {
+  justify-content: space-between;
+  gap: 20px;
+  padding: 14px 2px;
+  border-bottom: 1px solid var(--border);
+}
+
+.acp-registry-agent-copy {
+  min-width: 0;
+}
+
+.acp-registry-agent-title {
+  gap: 8px;
+}
+
+.acp-registry-agent-title > span,
+.acp-registry-agent p,
+.acp-registry-state {
+  color: var(--dim);
+  font-size: var(--font-hint-size);
+}
+
+.acp-registry-agent p {
+  margin: 5px 0 0;
+  line-height: 1.35;
+}
+
+.acp-registry-agent-title > span.acp-registry-installed {
+  color: var(--accent);
+}
+
+.acp-registry-agent-actions {
+  flex: 0 0 auto;
+  gap: 7px;
+}
+
+.acp-registry-agent-actions button,
+.acp-registry-agent-actions select {
+  padding: 6px 9px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: var(--font-hint-size);
+}
+
+.acp-registry-agent-actions button:not(:disabled) {
+  cursor: pointer;
+}
+
+.acp-registry-state {
+  padding: 30px 0;
+  text-align: center;
+}

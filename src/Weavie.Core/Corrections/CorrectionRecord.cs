@@ -19,7 +19,7 @@ public sealed record CorrectionFile {
 /// <see cref="CorrectionCorpus"/>; the corpus stores these raw — all reasoning over them is Claude's.
 /// </summary>
 public sealed record CorrectionRecord {
-	/// <summary>The user prompt whose output was corrected; <see langword="null"/> when the provider carries none (Codex).</summary>
+	/// <summary>The user prompt whose output was corrected; <see langword="null"/> when the provider carries none.</summary>
 	[JsonPropertyName("prompt")]
 	public string? Prompt { get; init; }
 

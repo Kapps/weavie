@@ -12,12 +12,14 @@ public sealed partial class AgentSessionHost : IAsyncDisposable {
 	private readonly List<long> _paneOrdinals = [];
 	private readonly List<long> _paneRevisions = [];
 	private readonly Dictionary<string, int> _paneItemIndexes = new(StringComparer.Ordinal);
+	private readonly HashSet<string> _paneActiveItems = new(StringComparer.Ordinal);
 	private readonly Dictionary<int, PaneDeltaBuffer> _paneDeltaBuffers = [];
 	private readonly Dictionary<object, HistoryRead> _historyReads = [];
 	private readonly object _directHistoryReader = new();
 	private readonly Lock _paneGate = new();
 	private readonly AgentPaneOutput _paneOutput;
 	private readonly AgentPaneJournal? _paneJournal;
+	private readonly IAgentAuthenticationTerminal _authenticationTerminal;
 	private long _paneGeneration;
 	private long _nextPaneOrdinal;
 	private long _nextPaneRevision;
@@ -39,12 +41,19 @@ public sealed partial class AgentSessionHost : IAsyncDisposable {
 		ArgumentNullException.ThrowIfNull(ptyLauncher);
 		ArgumentException.ThrowIfNullOrEmpty(transcriptPath);
 		_messages = messages;
+		_authenticationTerminal = context.AuthenticationTerminal;
+		AuthenticationTerminal = context.AuthenticationTerminal as AgentAuthenticationTerminal;
 		_paneOutput = new AgentPaneOutput(
 			messages,
 			settings.RequireInt(AgentSettings.PaneCoalesceMs),
 			Console.WriteLine);
 		Provider = provider.Info;
-		Session = provider.CreateSession(context);
+		try {
+			Session = provider.CreateSession(context);
+		} catch {
+			_authenticationTerminal.DisposeAsync().AsTask().GetAwaiter().GetResult();
+			throw;
+		}
 		if (Session is ITerminalAgentSession terminalSession) {
 			Terminal = new TerminalController(
 				terminalMessages,
@@ -95,10 +104,16 @@ public sealed partial class AgentSessionHost : IAsyncDisposable {
 	/// <summary>The provider's live context, token, and rate-limit usage, when it exposes them.</summary>
 	public IStructuredAgentUsage? Usage { get; }
 
+	internal AgentAuthenticationTerminal? AuthenticationTerminal { get; }
+
 	/// <inheritdoc/>
 	public async ValueTask DisposeAsync() {
 		Terminal?.Dispose();
-		await DisposeProviderAsync().ConfigureAwait(false);
+		try {
+			await DisposeProviderAsync().ConfigureAwait(false);
+		} finally {
+			await _authenticationTerminal.DisposeAsync().ConfigureAwait(false);
+		}
 		if (Structured is { } structured) {
 			structured.PaneMessage -= PublishPaneMessage;
 			structured.PaneSnapshot -= ReplacePaneSnapshot;
@@ -132,6 +147,9 @@ public sealed partial class AgentSessionHost : IAsyncDisposable {
 		_paneJournal?.WaitUntilReadyAsync(ct) ?? Task.CompletedTask;
 
 	private void ReplayState(IMessageFeatureTarget messages) {
+		if (AuthenticationTerminal is { } authenticationTerminal) {
+			messages.Publish("authenticationTerminal", new { active = authenticationTerminal.Active });
+		}
 		if (Structured is null) {
 			return;
 		}

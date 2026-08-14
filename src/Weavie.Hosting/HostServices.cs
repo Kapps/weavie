@@ -1,3 +1,4 @@
+using Weavie.AcpDistribution;
 using Weavie.Core;
 using Weavie.Core.Agents;
 using Weavie.Core.Commands;
@@ -12,8 +13,8 @@ using Weavie.Core.Sessions;
 using Weavie.Core.Sources;
 using Weavie.Core.Suggestions;
 using Weavie.Core.Theming;
+using Weavie.Hosting.Agents;
 using Weavie.Hosting.Agents.Claude;
-using Weavie.Hosting.Agents.Codex;
 using Weavie.Hosting.Inference;
 
 namespace Weavie.Hosting;
@@ -41,6 +42,9 @@ public sealed record HostServices {
 
 	/// <summary>The required embedded-agent provider catalog.</summary>
 	public required AgentProviderRegistry AgentProviders { get; init; }
+
+	/// <summary>The installed ACP catalog and official registry operations.</summary>
+	public required IAcpAgentCatalog AcpAgents { get; init; }
 
 	/// <summary>The app-global typed inference service over the installed agent providers.</summary>
 	public required IInferenceService Inference { get; init; }
@@ -98,11 +102,8 @@ public sealed record HostServices {
 		themeOverrides.Log += Log;
 		var claudeSessions = new ClaudeSessionStore(new LocalFileSystem(), WeaviePaths.ClaudeSessionsFile);
 		claudeSessions.Log += Log;
-		var agentProviders = new AgentProviderRegistry();
-		agentProviders.Register(new ClaudeAgentProvider(settings, claudeSessions));
-		agentProviders.Register(new CodexAgentProvider(
-			settings,
-			new CodexThreadStore(new LocalFileSystem(), WeaviePaths.CodexThreadsFile)));
+		var acpAgents = AcpDistributionService.CreateDefault();
+		var agentProviders = AgentProviderComposition.Create(settings, claudeSessions, acpAgents);
 		var remoteAgents = new RemoteAgentStore(new LocalFileSystem(), path: null);
 		remoteAgents.Log += Log;
 		var railState = new RailStateStore(new LocalFileSystem(), path: null);
@@ -117,6 +118,7 @@ public sealed record HostServices {
 			Keybindings = keybindings,
 			ThemeOverrides = themeOverrides,
 			AgentProviders = agentProviders,
+			AcpAgents = acpAgents,
 			Inference = InferenceComposition.CreateDefault(settings, agentProviders),
 			RemoteAgents = remoteAgents,
 			RailState = railState,

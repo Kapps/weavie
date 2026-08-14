@@ -17,7 +17,7 @@ public sealed class HostCoreStructuredAttachmentTests {
 		var result = await host.CreateSessionAsync(new NewSessionRequest {
 			Branch = "new-session-image",
 			Base = "main",
-			AgentProviderId = "codex",
+			AgentProviderId = "structured",
 			Prompt = "describe this",
 			Attachments = [new NewSessionAttachment {
 				Id = "image-1",
@@ -44,7 +44,7 @@ public sealed class HostCoreStructuredAttachmentTests {
 		var result = await host.CreateSessionAsync(new NewSessionRequest {
 			Branch = "invalid-image",
 			Base = "main",
-			AgentProviderId = "codex",
+			AgentProviderId = "structured",
 			Attachments = [new NewSessionAttachment {
 				Id = "image-1",
 				Mime = "image/tiff",
@@ -59,7 +59,7 @@ public sealed class HostCoreStructuredAttachmentTests {
 
 	[Fact]
 	public async Task UploadThenSubmit_ClaimsTheExactRemoteAttachment() {
-		await using var host = await StartCodexAsync("structured-images");
+		await using var host = await StartStructuredAsync("structured-images");
 		var session = host.SelectedSession;
 
 		Upload(host, session, "image-1", "image/png", PngBytes);
@@ -100,7 +100,7 @@ public sealed class HostCoreStructuredAttachmentTests {
 
 	[Fact]
 	public async Task SubmitBeforeUpload_IsRejectedWithoutConsumingTheLaterAttachment() {
-		await using var host = await StartCodexAsync("attachment-race");
+		await using var host = await StartStructuredAsync("attachment-race");
 		var session = host.SelectedSession;
 
 		Submit(host, session, "submission-early", "describe it", ["image-1"]);
@@ -117,7 +117,7 @@ public sealed class HostCoreStructuredAttachmentTests {
 
 	[Fact]
 	public async Task RemoveAttachment_DeletesItsScratchFile() {
-		await using var host = await StartCodexAsync("remove-image");
+		await using var host = await StartStructuredAsync("remove-image");
 		var session = host.SelectedSession;
 		Upload(host, session, "image-1", "image/png", PngBytes);
 		string directory = host.SelectedSession.PastedImages.Directory;
@@ -136,12 +136,12 @@ public sealed class HostCoreStructuredAttachmentTests {
 			host.Bridge.LastEvent(session.Address, "agent", "attachmentState")?.GetProperty("status").GetString());
 	}
 
-	private static async Task<TestHost> StartCodexAsync(string branch) {
+	private static async Task<TestHost> StartStructuredAsync(string branch) {
 		var host = await TestHost.StartAsync();
 		var result = await host.CreateSessionAsync(new NewSessionRequest {
 			Branch = branch,
 			Base = "main",
-			AgentProviderId = "codex",
+			AgentProviderId = "structured",
 		});
 		Assert.True(result.Ok, result.Error);
 		return host;

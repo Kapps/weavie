@@ -2,6 +2,8 @@ import { chmod, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fakeClaudeProgram, programExists } from "./test-programs";
 
+export type FakeInference = "disabled" | "failure" | "success";
+
 export function fakeClaudeBuilt(): boolean {
   return programExists(fakeClaudeProgram);
 }

@@ -44,7 +44,7 @@ export default defineConfig({
   // for the same reason: those hosted runners measurably slow down over a long serial run (workers: 1 means
   // no contention from our own tests, so this is runner-side, not something more concurrency would fix).
   // Seen twice on windows-latest, always a full-stack round-trip near the tail of the ~176-test run, both
-  // unrelated to the PR that surfaced them: 2026-07-25 20:22 UTC, codex-composer.spec.ts's "ready" wait
+  // unrelated to the PR that surfaced them: 2026-07-25 20:22 UTC, agent-composer.spec.ts's "ready" wait
   // (https://github.com/Kapps/weavie/actions/runs/30172909228/job/89716872651, fixed in mock-host.ts's own
   // timeout — that one isn't gated by this `expect.timeout`); and 2026-07-26 03:25 UTC, diff-review.spec.ts's
   // omnibar-row wait (https://github.com/Kapps/weavie/actions/runs/30185766515/job/89750062772), fixed here.
@@ -65,7 +65,7 @@ export default defineConfig({
         "headless-host.spec.ts",
         "native-bridge.spec.ts",
         "middle-click-autoscroll.spec.ts",
-        "codex-composer.spec.ts",
+        "agent-composer.spec.ts",
         "runner-connect.spec.ts",
         "session-switch-performance.spec.ts",
         "process-tree.spec.ts",

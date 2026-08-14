@@ -248,9 +248,10 @@ export function TerminalView(props: {
       refit();
     });
 
-    const sendInput = (data: string): void => {
+    const sendInput = (data: string, userInitiated: boolean): void => {
       messages.publish("input", {
         dataB64: bytesToBase64(encoder.encode(data)),
+        userInitiated,
       });
     };
 
@@ -282,7 +283,7 @@ export function TerminalView(props: {
         !e.metaKey
       ) {
         e.preventDefault();
-        sendInput("\x1b[13;2u");
+        sendInput("\x1b[13;2u", true);
         return false;
       }
       return true;
@@ -295,9 +296,14 @@ export function TerminalView(props: {
     // Only the answer shapes are dropped: real keystrokes typed during the window still reach the child.
     let replaysParsing = 0;
     term.onData((data) => {
-      if (replaysParsing === 0 || !isReplayedQueryAnswer(data)) {
-        sendInput(data);
+      if (isReplayedQueryAnswer(data)) {
+        if (replaysParsing === 0) {
+          sendInput(data, false);
+        }
+        return;
       }
+
+      sendInput(data, true);
     });
 
     term.onResize(({ cols, rows }) => {

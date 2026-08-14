@@ -4,23 +4,21 @@ using Weavie.Core.Sessions;
 
 namespace Weavie.Hosting;
 
-// The update drain gate: BeginDrain holds until no session is Working/NeedsInput/Waiting (a pending
-// scheduled wakeup or background task) and no shell pane runs a foreground job, then freezes terminal
-// input, tells the page it's restarting, and invokes
-// the exit callback. There is deliberately NO drain timeout — a busy box holds the update until
-// quiet, and only the user's explicit restart-now overrides. See docs/specs/runner-auto-update.md.
+// The update drain waits for safe sessions, quiet shells, and recent input, then freezes input and exits.
+// It has no timeout; only the user's explicit restart-now overrides. See docs/specs/runner-auto-update.md.
 public sealed partial class HostCore {
-	// Shell foreground jobs emit no event, so a pending drain re-samples them (and everything else)
+	// Shell foreground jobs and elapsed input grace emit no event, so a pending drain re-samples them
 	// on this cadence; session status changes re-evaluate immediately via WireSession.
 	private static readonly TimeSpan DrainTickInterval = TimeSpan.FromSeconds(2);
+	internal static readonly TimeSpan RecentInputGrace = TimeSpan.FromMinutes(2);
 
 	private readonly object _drainGate = new();
+	private readonly Dictionary<string, long> _lastInputTimestamps = new(StringComparer.Ordinal);
 	private Action? _drainExit; // non-null while a drain is in progress
 	private CancellationTokenSource? _drainTick;
 	private bool _drainCommitted;
 	private string? _lastDrainPendingJson;
-	// Checked by terminal input dispatch: once a restart commits, no further keystrokes reach any
-	// PTY — the authoritative input stop the page's "Updating…" overlay surfaces.
+	// The authoritative input stop the page's "Updating…" overlay surfaces.
 	private volatile bool _drainInputFrozen;
 
 	/// <summary>Whether an update drain is in progress (waiting for quiet, or already committed).</summary>
@@ -34,7 +32,7 @@ public sealed partial class HostCore {
 
 	/// <summary>
 	/// Begins draining for an update restart: the core keeps serving normally, pushes the holds to the
-	/// page, and calls <paramref name="exit"/> (once) at the first moment nothing is busy. Idempotent —
+	/// page, and calls <paramref name="exit"/> (once) at the first safe, input-quiet moment. Idempotent —
 	/// a second call while draining is the same drain (the staged build only got newer).
 	/// </summary>
 	public void BeginDrain(Action exit) {
@@ -99,10 +97,9 @@ public sealed partial class HostCore {
 	}
 
 	/// <summary>
-	/// Re-checks the gate: still busy → push the holds; quiet → commit. Committing freezes input FIRST
-	/// and re-checks once more, because a prompt already in flight can flip a session Working between
-	/// the check and the freeze (Working is only set when its hook arrives) — the residual race after
-	/// the freeze is bounded by that hook latency. Called on any session status change and on the tick.
+	/// Re-checks the gate: still busy/recently active → push the holds; safe and quiet → commit. The freeze
+	/// and input admission share <see cref="_drainGate"/>: either commit wins and rejects input, or input wins
+	/// and renews the hold.
 	/// </summary>
 	private void EvaluateDrain() {
 		Action? exit = null;
@@ -111,10 +108,11 @@ public sealed partial class HostCore {
 				return;
 			}
 
-			var holds = DrainHolds();
+			long now = _drainTime.GetTimestamp();
+			var holds = DrainHolds(now);
 			if (holds.Count == 0) {
 				_drainInputFrozen = true;
-				holds = DrainHolds();
+				holds = DrainHolds(now);
 				if (holds.Count == 0) {
 					_drainCommitted = true;
 					exit = _drainExit;
@@ -132,12 +130,8 @@ public sealed partial class HostCore {
 		CommitDrainRestart(exit);
 	}
 
-	/// <summary>
-	/// What's holding the drain: each loaded session that is Working / awaiting a permission answer,
-	/// and each shell pane with a foreground job (killing one unattended would be silent destruction;
-	/// background jobs are invisible to the probe and die at restart — the page says so).
-	/// </summary>
-	private List<(string Session, string Reason)> DrainHolds() {
+	/// <summary>Every session condition currently holding the automatic update.</summary>
+	private List<(string Session, string Reason)> DrainHolds(long now) {
 		var holds = new List<(string, string)>();
 		foreach (var session in LoadedSessions()) {
 			string label = SlotLabelFor(session);
@@ -159,6 +153,11 @@ public sealed partial class HostCore {
 			if (session.Shell.HasForegroundJob) {
 				holds.Add((label, "shell-job"));
 			}
+
+			if (_lastInputTimestamps.TryGetValue(session.SlotId, out long lastInput)
+				&& _drainTime.GetElapsedTime(lastInput, now) < RecentInputGrace) {
+				holds.Add((label, "recent-input"));
+			}
 		}
 
 		return holds;
@@ -178,6 +177,27 @@ public sealed partial class HostCore {
 
 		_lastDrainPendingJson = json;
 		_messages.Host.Feature("updates").PublishJson("pending", json);
+	}
+
+	private void TryAcceptInput(string slot, bool userInitiated, Action accept) {
+		ArgumentNullException.ThrowIfNull(accept);
+		bool reevaluate;
+		lock (_drainGate) {
+			if (_drainInputFrozen) {
+				return;
+			}
+
+			accept();
+
+			if (userInitiated) {
+				_lastInputTimestamps[slot] = _drainTime.GetTimestamp();
+			}
+			reevaluate = _drainExit is not null;
+		}
+
+		if (reevaluate) {
+			EvaluateDrain();
+		}
 	}
 
 	private void CommitDrainRestart(Action exit) {
@@ -201,4 +221,6 @@ public sealed partial class HostCore {
 			// Commit or dispose ended the drain.
 		}
 	}
+
+	internal void EvaluateDrainForTest() => EvaluateDrain();
 }

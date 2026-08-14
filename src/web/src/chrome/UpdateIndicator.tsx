@@ -10,16 +10,14 @@ const holdReasonText: Record<UpdateHold["reason"], string> = {
   "needs-input": "Claude awaits input",
   "shell-job": "shell job running",
   "waiting-on-task": "waiting on a scheduled task",
+  "recent-input": "recent keyboard input",
 };
 const holdText = (hold: UpdateHold): string => `${hold.session}: ${holdReasonText[hold.reason]}`;
 
 /**
  * The pending-update indicator, at home in the status footer beside the branch: a compact
  * "⟳ Update ready" segment that opens a card (a portalled popover anchored above it, so the footer's
- * `overflow: hidden` can't clip it) listing what holds the update plus the explicit Restart Now. Present
- * only while an update is pending; hidden once the restart commits (the blocking overlay takes over).
- * Visibility keys on `updatePending` (steady) rather than `updateHolds` so a mid-drain reconnect's
- * transient holds clear doesn't flicker the chip.
+ * `overflow: hidden` can't clip it) with current holds and the explicit Restart Now action.
  */
 export function UpdateIndicator(): JSX.Element {
   const [open, setOpen] = createSignal(false);
@@ -62,7 +60,7 @@ export function UpdateIndicator(): JSX.Element {
         type="button"
         class="footer-seg update-chip"
         classList={{ "update-chip-open": open() }}
-        title="Update ready — applies when your sessions go idle. Click for details."
+        title="Update ready — applies when your workspace is quiet. Click for details."
         onClick={toggle}
       >
         <span class="update-chip-glyph" aria-hidden="true">
@@ -93,8 +91,8 @@ export function UpdateIndicator(): JSX.Element {
                 </button>
               </div>
               <span class="update-card-body">
-                Applies on its own once your sessions go idle. Restarting now reloads every session
-                (conversations are kept) and ends background shell jobs.
+                Applies automatically once the workspace is quiet and you haven't typed for two
+                minutes. Pending composer text is restored after the reload.
               </span>
               <ul class="update-card-holds">
                 <For each={updateHolds() ?? []}>{(hold) => <li>{holdText(hold)}</li>}</For>

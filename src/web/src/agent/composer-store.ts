@@ -1,5 +1,6 @@
 import { createSignal } from "solid-js";
 import { type ClientSession, registerSessionFeature } from "../bridge";
+import { persistSessionDraft, sessionDraft } from "../messaging/session-drafts";
 import { agentImageError, encodeAgentImage, takePastedImages } from "./pasted-images";
 
 export type AgentAttachmentStatus = "reading" | "transferring" | "ready" | "failed";
@@ -30,6 +31,7 @@ const EMPTY: AgentComposerState = {
 };
 const [states, setStates] = createSignal(new Map<ClientSession, AgentComposerState>());
 let sequence = 0;
+const DRAFT_KIND = "agent-composer";
 
 const nextId = (prefix: string): string =>
   `${prefix}-${Date.now().toString(36)}-${(++sequence).toString(36)}`;
@@ -278,12 +280,16 @@ function update(
   apply: (state: AgentComposerState) => AgentComposerState,
 ): void {
   if (!session.closed) {
-    setStates((current) => new Map(current).set(session, apply(current.get(session) ?? EMPTY)));
+    const next = apply(stateFor(session));
+    setStates((current) => new Map(current).set(session, next));
+    persistSessionDraft(session, DRAFT_KIND, next.draft);
   }
 }
 
 function stateFor(session: ClientSession): AgentComposerState {
-  return session.closed ? EMPTY : (states().get(session) ?? EMPTY);
+  return session.closed
+    ? EMPTY
+    : (states().get(session) ?? { ...EMPTY, draft: sessionDraft(session, DRAFT_KIND) });
 }
 
 function revoke(attachment: AgentComposerAttachment): void {

@@ -423,6 +423,7 @@ export function AgentComposer(props: {
         onInput={(event) => {
           if (props.session !== null) {
             setComposerDraft(props.session, event.currentTarget.value);
+            props.session.feature("agent").publish("typing", {});
             // Editing starts a fresh draft, ending any history browse.
             if (historyCursor().cursor !== null) {
               setHistoryCursor(IDLE_CURSOR);

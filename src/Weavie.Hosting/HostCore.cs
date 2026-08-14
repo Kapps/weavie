@@ -32,6 +32,7 @@ namespace Weavie.Hosting;
 /// </summary>
 public sealed partial class HostCore : IAsyncDisposable {
 	private readonly IHostPlatform _platform;
+	private readonly TimeProvider _drainTime;
 	private readonly HostRuntimeInfo _runtime;
 	private readonly IWebTransportHub _bridge;
 	private readonly HostMessageRouter _messages;
@@ -107,13 +108,25 @@ public sealed partial class HostCore : IAsyncDisposable {
 		HostServices services,
 		string workspaceRoot,
 		WorkspaceHttpServerOptions httpOptions,
-		IWorkspaceWebSocketBridge httpBridge) {
+		IWorkspaceWebSocketBridge httpBridge)
+		: this(platform, services, workspaceRoot, httpOptions, httpBridge, TimeProvider.System) {
+	}
+
+	internal HostCore(
+		IHostPlatform platform,
+		HostServices services,
+		string workspaceRoot,
+		WorkspaceHttpServerOptions httpOptions,
+		IWorkspaceWebSocketBridge httpBridge,
+		TimeProvider drainTime) {
 		ArgumentNullException.ThrowIfNull(platform);
 		ArgumentNullException.ThrowIfNull(services);
 		ArgumentException.ThrowIfNullOrEmpty(workspaceRoot);
 		ArgumentNullException.ThrowIfNull(httpOptions);
 		ArgumentNullException.ThrowIfNull(httpBridge);
+		ArgumentNullException.ThrowIfNull(drainTime);
 		_platform = platform;
+		_drainTime = drainTime;
 		// The build a managed worker actually loaded (its own versions/<build>/ path), or the dev version — surfaced
 		// to the embedded claude so it knows whether it's a remote worker and on which build. See HostRuntimeInfo.
 		_runtime = HostRuntimeInfo.Resolve(platform.Transport, AppContext.BaseDirectory, BuildNumber);

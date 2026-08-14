@@ -11,13 +11,16 @@ namespace Weavie.Hosting;
 public sealed partial class HostSession {
 	private readonly OrderedAfterResponse _fileSaveCompletions = new();
 
-	private void WireMessages(Func<bool> inputFrozen, Action<int, int> shellResized) {
-		WireTerminalMessages(Bus.Feature("terminal.shell"), Shell, inputFrozen, shellResized);
+	private void WireMessages(
+		Func<bool> inputFrozen,
+		Action<bool, Action> acceptTerminalInput,
+		Action<int, int> shellResized) {
+		WireTerminalMessages(Bus.Feature("terminal.shell"), Shell, acceptTerminalInput, shellResized);
 		if (Claude is { } agentTerminal) {
 			WireTerminalMessages(
 				Bus.Feature("terminal.agent"),
 				agentTerminal,
-				inputFrozen,
+				acceptTerminalInput,
 				static (_, _) => { });
 			Bus.Feature("terminal.agent").Handle<ImagePasteMessage>(
 				"pasteImage",
@@ -105,19 +108,17 @@ public sealed partial class HostSession {
 			"resolveDiff",
 			(message, _) => Task.FromResult(
 				DiffPresenter.Resolve(message.Id, message.Kept, message.FinalContents)));
-		WireAgentMessages(Bus.Feature("agent"), inputFrozen);
+		WireAgentMessages(Bus.Feature("agent"), inputFrozen, acceptTerminalInput);
 	}
 
 	private static void WireTerminalMessages(
 		Messaging.MessageFeatureChannel messages,
 		TerminalController terminal,
-		Func<bool> inputFrozen,
+		Action<bool, Action> acceptInput,
 		Action<int, int> resized) {
 		messages.Handle<TerminalInputMessage>("input", (message, _) => {
-			if (!inputFrozen()) {
-				terminal.Write(Convert.FromBase64String(message.DataB64));
-			}
-
+			byte[] data = Convert.FromBase64String(message.DataB64);
+			acceptInput(message.UserInitiated, () => terminal.Write(data));
 			return Task.CompletedTask;
 		});
 		messages.Handle<TerminalSizeMessage>("resize", (message, _) => {
@@ -137,7 +138,12 @@ public sealed partial class HostSession {
 
 	private void WireAgentMessages(
 		Messaging.MessageFeatureChannel messages,
-		Func<bool> inputFrozen) {
+		Func<bool> inputFrozen,
+		Action<bool, Action> acceptInput) {
+		messages.Handle<EmptyMessage>("typing", (_, _) => {
+			acceptInput(true, static () => { });
+			return Task.CompletedTask;
+		});
 		messages.HandleOwned<AgentPaneHistoryRequest, object>(
 			"historyPage",
 			async (message, peer, ct) => AgentPaneProtocol.HistoryPage(
@@ -271,8 +277,7 @@ public sealed partial class HostSession {
 
 	private sealed record EmptyMessage;
 
-	private sealed record TerminalInputMessage(string DataB64);
-
+	private sealed record TerminalInputMessage(string DataB64, bool UserInitiated);
 	private sealed record TerminalSizeMessage(int Columns, int Rows);
 
 	private sealed record TerminalCwdMessage(string Cwd);

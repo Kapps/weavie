@@ -118,6 +118,12 @@ describe("update-store", () => {
     expect(store.updateRestarting()).toBe(true);
   });
 
+  it("surfaces recent keyboard input as an automatic-update hold", () => {
+    deliverPending(local, [{ session: "main", reason: "recent-input" }]);
+
+    expect(store.updateHolds()).toEqual([{ session: "main", reason: "recent-input" }]);
+  });
+
   it("announces once when an update first stages, then refreshes holds silently", () => {
     deliverPending(local, [{ session: "main", reason: "working" }]);
     expect(notifySpy).toHaveBeenCalledTimes(1);

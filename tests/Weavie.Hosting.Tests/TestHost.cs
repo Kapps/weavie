@@ -38,13 +38,14 @@ internal sealed class TestHost : IAsyncDisposable {
 	private long _requestSequence;
 	private string _selectedSlot = string.Empty;
 
-	private TestHost(string tempRoot, string repoRoot, HostServices services, FakeHostBridge bridge, TestPlatform platform, HostCore core, StubHttpMessageHandler sourceHttp, string sourcesDir) {
+	private TestHost(string tempRoot, string repoRoot, HostServices services, FakeHostBridge bridge, TestPlatform platform, HostCore core, ManualTimeProvider time, StubHttpMessageHandler sourceHttp, string sourcesDir) {
 		_tempRoot = tempRoot;
 		RepoRoot = repoRoot;
 		_services = services;
 		Bridge = bridge;
 		Platform = platform;
 		Core = core;
+		Time = time;
 		SourceHttp = sourceHttp;
 		SourcesDir = sourcesDir;
 		bridge.RequestResponder = RespondToViewRequest;
@@ -53,6 +54,7 @@ internal sealed class TestHost : IAsyncDisposable {
 	public FakeHostBridge Bridge { get; private set; }
 	public TestPlatform Platform { get; private set; }
 	public HostCore Core { get; private set; }
+	public ManualTimeProvider Time { get; }
 
 	/// <summary>The stub backing the source system's HTTP calls (the Notion token validate + API); set its responder per test.</summary>
 	public StubHttpMessageHandler SourceHttp { get; }
@@ -232,13 +234,15 @@ internal sealed class TestHost : IAsyncDisposable {
 		var bridge = new FakeHostBridge();
 		var platform = new TestPlatform(bridge, dispatcher) { Notifications = notifications };
 		configurePlatform(platform);
+		var time = new ManualTimeProvider();
 		var core = new HostCore(
 			platform,
 			services,
 			repo,
 			WorkspaceHttpServerOptions.Native(Path.Combine(tempRoot, "wwwroot")),
-			UnavailableWorkspaceWebSocketBridge.Instance);
-		return new TestHost(tempRoot, repo, services, bridge, platform, core, sourceHttp, sourcesDir);
+			UnavailableWorkspaceWebSocketBridge.Instance,
+			time);
+		return new TestHost(tempRoot, repo, services, bridge, platform, core, time, sourceHttp, sourcesDir);
 	}
 
 	/// <summary>The workspace-checkout session's incarnation, used by media URLs.</summary>
@@ -496,7 +500,8 @@ internal sealed class TestHost : IAsyncDisposable {
 			_services,
 			RepoRoot,
 			WorkspaceHttpServerOptions.Native(Path.Combine(_tempRoot, "wwwroot")),
-			UnavailableWorkspaceWebSocketBridge.Instance);
+			UnavailableWorkspaceWebSocketBridge.Instance,
+			Time);
 		await Core.StartAsync().ConfigureAwait(false);
 		await ConnectAsync().ConfigureAwait(false);
 	}

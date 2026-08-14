@@ -4,7 +4,7 @@ import { notify } from "../notify/notify";
 
 export type UpdateHold = {
   session: string;
-  reason: "working" | "needs-input" | "shell-job" | "waiting-on-task";
+  reason: "working" | "needs-input" | "shell-job" | "waiting-on-task" | "recent-input";
 };
 
 interface UpdateState {
@@ -38,7 +38,7 @@ registerHostFeature((connection) => {
       if (!state.pending) {
         notify(
           "info",
-          "Update ready — it'll apply on its own once your sessions go idle.",
+          "Update ready — it'll apply once your workspace is quiet.",
           `${UPDATE_TOAST_KEY}:${connection.id}`,
         );
       }

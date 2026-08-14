@@ -41,8 +41,9 @@ export interface NotificationPrefs {
   gates: Record<AttentionKindName, boolean>;
 }
 
-export interface AgentDefaults {
+export interface AgentSettingsSpec {
   defaultProvider: "claude" | "codex";
+  middleClickAutoscroll: boolean;
 }
 
 export interface AgentPaneUpdate {

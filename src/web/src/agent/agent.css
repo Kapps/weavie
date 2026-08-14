@@ -120,6 +120,26 @@
     var(--bg);
 }
 
+.agent-body.agent-middle-click-autoscrolling {
+  cursor: all-scroll;
+}
+
+.agent-body.agent-middle-click-autoscrolling::after {
+  position: fixed;
+  z-index: 2;
+  top: var(--agent-autoscroll-y);
+  left: var(--agent-autoscroll-x);
+  width: 11px;
+  height: 15px;
+  border: 1px solid var(--bg);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--fg) 72%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--fg) 30%, transparent);
+  content: "";
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+}
+
 .agent-body,
 .agent-pending-request {
   color: var(--fg);

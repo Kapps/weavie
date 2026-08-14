@@ -295,7 +295,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 		(FontSettings.Keys, "fonts", "__WEAVIE_FONTS__", FontSettings.BuildJson),
 		(NotificationSettings.Keys, "notification-prefs", "__WEAVIE_NOTIFICATIONS__", NotificationSettings.BuildJson),
 		(EditorSettings.Keys, "editorOptions", "__WEAVIE_EDITOR_OPTIONS__", EditorSettings.BuildJson),
-		(AgentSettings.Keys, "agent-defaults", "__WEAVIE_AGENT__", AgentSettings.BuildJson),
+		(AgentSettings.Keys, "agent-settings", "__WEAVIE_AGENT_SETTINGS__", AgentSettings.BuildJson),
 	];
 
 	/// <summary>The app's build identity (SemVer with the build number as patch, e.g. <c>0.1.247</c>), stamped at build time.</summary>

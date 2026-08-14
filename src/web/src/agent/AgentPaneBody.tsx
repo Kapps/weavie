@@ -14,6 +14,7 @@ import { setContext } from "../commands/context";
 import { liveKeyLabel } from "../commands/keys-live";
 import { CommandIds } from "../commands/types";
 import { AgentComposer } from "./AgentComposer";
+import { installAgentMiddleClickAutoscroll } from "./AgentMiddleClickAutoscroll";
 import { createAgentPaneScroll } from "./AgentPaneScroll";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 import { AgentTranscript } from "./AgentTranscript";
@@ -141,6 +142,7 @@ export function AgentPaneBody(props: {
     if (saved !== undefined && saved.width !== element.clientWidth) {
       virtualizer.measure();
     }
+    onCleanup(installAgentMiddleClickAutoscroll(element));
     const measureScrollbar = (): void => {
       setScrollbarInlineSize(element.offsetWidth - element.clientWidth);
     };

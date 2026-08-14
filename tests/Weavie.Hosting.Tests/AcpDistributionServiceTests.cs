@@ -50,13 +50,13 @@ public sealed class AcpDistributionServiceTests : IDisposable {
 
 	[Fact]
 	public void WindowsNpxUsesTheStandardShimWithoutAUserControlledShellExpression() {
-		var (Command, Arguments) = AcpDistributionService.PackageProcess(
+		var (command, arguments) = AcpDistributionService.PackageProcess(
 			"npx",
 			["--yes", "@scope/sample@1.2.3", "--stdio"],
 			windows: true);
 
-		Assert.Equal("npx", Command);
-		Assert.Equal(["--yes", "@scope/sample@1.2.3", "--stdio"], Arguments);
+		Assert.Equal("npx", command);
+		Assert.Equal(["--yes", "@scope/sample@1.2.3", "--stdio"], arguments);
 		Assert.Throws<InvalidDataException>(() => AcpDistributionService.PackageProcess(
 			"npx",
 			["sample&calc"],

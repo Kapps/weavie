@@ -106,6 +106,7 @@ const DEFAULT_LAYOUT = {
 
 const MOCK_AGENT_DEFAULTS = {
   defaultProvider: "claude",
+  middleClickAutoscroll: true,
   providers: [
     {
       id: "claude",

@@ -1023,7 +1023,7 @@ test.describe("session-addressed WebSocket transport", () => {
       inbox.getByRole("combobox", { name: "Existing branch for the session" }),
     ).toBeVisible();
 
-    await page.getByRole("button", { name: "Agent" }).click();
+    await page.getByRole("button", { name: "Agent", exact: true }).click();
     const agentComposer = page.locator("[data-agent-composer]");
     await expect(agentComposer).toBeVisible();
     host.publishAgentPane(primary.address, {

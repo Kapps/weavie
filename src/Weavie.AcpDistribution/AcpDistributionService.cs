@@ -175,8 +175,8 @@ public sealed class AcpDistributionService : IAcpAgentCatalog {
 		string[] arguments = runner == "npx"
 			? ["--yes", packageName, .. Values(package.Arguments, id)]
 			: [packageName, .. Values(package.Arguments, id)];
-		var (Command, Arguments) = PackageProcess(runner, arguments, OperatingSystem.IsWindows());
-		return Launch(entry, runner, Command, Arguments, package.Environment);
+		var (command, processArguments) = PackageProcess(runner, arguments, OperatingSystem.IsWindows());
+		return Launch(entry, runner, command, processArguments, package.Environment);
 	}
 
 	internal static (string Command, IReadOnlyList<string> Arguments) PackageProcess(

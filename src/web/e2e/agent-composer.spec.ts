@@ -636,7 +636,7 @@ test.describe("ACP composer", () => {
     await page.keyboard.press("Alt+Enter");
     await expect(input).toBeFocused();
     expect(await input.evaluate((element) => element.validationMessage)).not.toBe("");
-    expect(host.received).toHaveLength(beforeInvalid);
+    expect(lastAgentPayload("input")).toBeUndefined();
 
     await input.fill("ok");
     await page.locator("[data-agent-composer] textarea").click();

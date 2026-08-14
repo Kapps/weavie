@@ -71,6 +71,10 @@ public sealed partial class AgentSessionHost : IAsyncDisposable {
 			Controls = controls;
 			controls.ControlStateChanged += PublishControlState;
 		}
+		if (Session is IStructuredAgentUsage usage) {
+			Usage = usage;
+			usage.UsageStateChanged += PublishUsageState;
+		}
 	}
 
 	/// <summary>The selected provider identity.</summary>
@@ -88,6 +92,9 @@ public sealed partial class AgentSessionHost : IAsyncDisposable {
 	/// <summary>The provider's live model/approvals/sandbox controls, when it exposes them.</summary>
 	public IStructuredAgentControls? Controls { get; }
 
+	/// <summary>The provider's live context, token, and rate-limit usage, when it exposes them.</summary>
+	public IStructuredAgentUsage? Usage { get; }
+
 	/// <inheritdoc/>
 	public async ValueTask DisposeAsync() {
 		Terminal?.Dispose();
@@ -98,6 +105,9 @@ public sealed partial class AgentSessionHost : IAsyncDisposable {
 		}
 		if (Controls is { } controls) {
 			controls.ControlStateChanged -= PublishControlState;
+		}
+		if (Usage is { } usage) {
+			usage.UsageStateChanged -= PublishUsageState;
 		}
 		if (_paneJournal is { } journal) {
 			await journal.DisposeAsync().ConfigureAwait(false);
@@ -127,6 +137,7 @@ public sealed partial class AgentSessionHost : IAsyncDisposable {
 		}
 
 		ReplayControls(messages);
+		ReplayUsage(messages);
 	}
 
 	/// <summary>Replays the current control state, so a (re)connecting web view shows the live model/approvals/sandbox.</summary>
@@ -138,11 +149,20 @@ public sealed partial class AgentSessionHost : IAsyncDisposable {
 		}
 	}
 
+	private void ReplayUsage(IMessageFeatureTarget messages) {
+		if (Usage is not null) {
+			messages.Publish("usage", AgentUsageProtocol.Message(Usage.UsageState));
+		}
+	}
+
 	/// <summary>Disposes provider integration after the terminal has already stopped.</summary>
 	public ValueTask DisposeProviderAsync() => Session.DisposeAsync();
 
 	private void PublishControlState(AgentControlState state) =>
 		_messages.Publish("controls", AgentControlsProtocol.Message(state));
+
+	private void PublishUsageState(AgentUsageState state) =>
+		_messages.Publish("usage", AgentUsageProtocol.Message(state));
 
 	private sealed class AgentTerminalProcess(ITerminalAgentSession session) : ITerminalProcess {
 		public AgentLaunch ResolveLaunch() => session.ResolveLaunch();

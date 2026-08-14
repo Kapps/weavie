@@ -138,6 +138,25 @@ export interface AgentControlState {
   slash: AgentSlashEntry[];
 }
 
+export interface AgentContextWindowUsage {
+  usedTokens: number;
+  capacityTokens: number;
+}
+
+export interface AgentRateLimitUsage {
+  id: string;
+  label: string | null;
+  usedPercent: number;
+  windowMinutes: number | null;
+  resetsAtMs: number | null;
+}
+
+export interface AgentUsageState {
+  contextWindow: AgentContextWindowUsage | null;
+  totalTokens: number | null;
+  rateLimits: AgentRateLimitUsage[];
+}
+
 export interface SuggestionAction {
   label: string;
   kind: "RunCommand" | "Snooze" | "DismissForever";

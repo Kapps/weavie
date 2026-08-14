@@ -35,8 +35,8 @@ public sealed partial class CodexAppServerClient {
 			_process = process;
 		}
 
-		ProcessStarted?.Invoke(launch.Attempt);
-		_ = ReadStdoutAsync(process);
+		ProcessStarted?.Invoke(launch.Generation);
+		_ = ReadStdoutAsync(process, launch.Generation);
 		_ = ReadStderrAsync(process);
 	}
 
@@ -94,11 +94,11 @@ public sealed partial class CodexAppServerClient {
 			[]);
 	}
 
-	private async Task ReadStdoutAsync(Process process) {
+	private async Task ReadStdoutAsync(Process process, long generation) {
 		try {
 			while (!process.HasExited && await process.StandardOutput.ReadLineAsync().ConfigureAwait(false) is { } line) {
 				try {
-					HandleLine(line);
+					HandleLine(generation, line);
 				} catch (JsonException ex) {
 					// A stray non-JSON line (runtime warning, update banner) must not kill the pump — that would
 					// leave the live process's responses unread and hang every later request forever.

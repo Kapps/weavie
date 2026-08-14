@@ -70,7 +70,7 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 	/// <inheritdoc/>
 	public event Action<IReadOnlyList<AgentPaneMessage>>? PaneSnapshot;
 
-	private void HandleNotification(JsonElement root) {
+	private void HandleNotification(long generation, JsonElement root) {
 		// Track the turn boundary before anything that can throw, so the active-turn id can never silently
 		// desync from Codex and leave a later steer targeting a turn the server has already moved past.
 		string method = root.GetStringOrEmpty("method");
@@ -80,6 +80,7 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 		}
 
 		bool primary = IsPrimaryThread(root);
+		ObserveUsage(generation, method, root);
 		if (primary && method == "turn/started") {
 			RememberTurn(root);
 		} else if (primary && method is "turn/completed" or "turn/interrupted") {

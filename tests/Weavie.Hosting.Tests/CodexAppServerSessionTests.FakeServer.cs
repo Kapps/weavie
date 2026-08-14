@@ -12,11 +12,25 @@ function record(name, value) {
   fs.writeFileSync(name + ".tmp", JSON.stringify(value));
   fs.renameSync(name + ".tmp", name);
 }
+function sendRateLimits(id) {
+  send({ id, result: {
+    rateLimits: { limitId: "main-bucket", limitName: null,
+      primary: { usedPercent: 25, windowDurationMins: 300, resetsAt: 1730947200 },
+      secondary: { usedPercent: 40, windowDurationMins: 10080, resetsAt: 1731547200 } },
+  } });
+}
+let pendingRateLimitsRead = null;
 record("app-server-args.json", process.argv.slice(2));
 readline.createInterface({ input: process.stdin }).on("line", line => {
   const message = JSON.parse(line);
   if (message.method === "initialize") {
     send({ id: message.id, result: { userAgent: "fake-codex" } });
+	} else if (message.method === "account/rateLimits/read") {
+	  record("rate-limits-read.json", message);
+	  if (fs.existsSync("reject-rate-limits")) {
+		send({ id: message.id, error: { code: -32600, message: "Rate limits unavailable" } });
+	  } else if (fs.existsSync("delay-rate-limits")) pendingRateLimitsRead = message.id;
+	  else sendRateLimits(message.id);
   } else if (message.method === "thread/start") {
     record("thread-start.json", message);
     if (fs.existsSync("start-fails")) {
@@ -25,6 +39,16 @@ readline.createInterface({ input: process.stdin }).on("line", line => {
       send({ id: message.id, result: { thread: { id: "thread_fake" } } });
       if (!fs.existsSync("omit-thread-started")) {
         send({ method: "thread/started", params: { thread: { id: "thread_fake" } } });
+      }
+      if (pendingRateLimitsRead !== null) {
+        send({ method: "account/rateLimits/updated", params: { rateLimits: {
+          primary: { usedPercent: 55 }
+        } } });
+        send({ method: "account/rateLimits/updated", params: { rateLimits: {
+          limitId: "main-bucket", primary: { usedPercent: 60 }
+        } } });
+        sendRateLimits(pendingRateLimitsRead);
+        pendingRateLimitsRead = null;
       }
     }
   } else if (message.method === "thread/resume") {
@@ -84,6 +108,24 @@ readline.createInterface({ input: process.stdin }).on("line", line => {
     }
     send({ id: message.id, result: { turn: { id: "turn_fake" } } });
     send({ method: "turn/started", params: { threadId: "thread_fake", turn: { id: "turn_fake", status: "running" } } });
+    send({ method: "thread/tokenUsage/updated", params: { threadId: "thread_fake", turnId: "turn_fake",
+      tokenUsage: {
+        last: { totalTokens: 40000 },
+        total: { totalTokens: 65000 },
+        modelContextWindow: 200000
+      }
+    } });
+	if (message.params.input[0].text === "rate update") {
+	  send({ method: "account/rateLimits/updated", params: { rateLimits: {
+		limitName: "Codex", primary: { usedPercent: 55 }
+	  } } });
+      send({ method: "account/rateLimits/updated", params: { rateLimits: {
+        limitId: "reviews", primary: { usedPercent: 90 }
+      } } });
+      send({ method: "thread/tokenUsage/updated", params: { threadId: "thread_fake",
+        tokenUsage: { last: { totalTokens: 40000 }, total: { totalTokens: 66000 }, modelContextWindow: 200000 }
+      } });
+    }
     if (message.params.input[0].text === "subagent") {
       send({ method: "thread/started", params: { thread: { id: "thread_sub" } } });
       send({ method: "turn/started", params: { threadId: "thread_sub", turn: { id: "turn_sub", status: "running" } } });

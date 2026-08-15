@@ -77,6 +77,7 @@ public sealed partial class AcpAgentSession {
 				_loadingTranscript = false;
 				_loadedMessages.Clear();
 				_controls.Clear();
+				_configOwnsMode = false;
 				_commands = [];
 				_tools.Clear();
 				_activeTools.Clear();

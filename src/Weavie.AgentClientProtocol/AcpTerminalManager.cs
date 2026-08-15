@@ -66,11 +66,18 @@ internal sealed class AcpTerminalManager : IAsyncDisposable {
 		}
 	}
 
-	public AcpTerminalOutput Output(string id) => _terminals.TryGetValue(id, out var owned)
-		? owned.Terminal.Output()
-		: _released.TryGetValue(id, out var output)
-			? output
-			: throw new KeyNotFoundException($"ACP terminal '{id}' does not exist.");
+	public AcpTerminalOutput Output(string id) => TryOutput(id, out var output)
+		? output
+		: throw new KeyNotFoundException($"ACP terminal '{id}' does not exist.");
+
+	/// <summary>Reports the output of a client-created terminal; agent-owned ids are simply unknown here.</summary>
+	public bool TryOutput(string id, out AcpTerminalOutput output) {
+		if (_terminals.TryGetValue(id, out var owned)) {
+			output = owned.Terminal.Output();
+			return true;
+		}
+		return _released.TryGetValue(id, out output!);
+	}
 
 	public Task<AcpTerminalExit> WaitAsync(string id, CancellationToken ct) => Resolve(id).WaitAsync(ct);
 

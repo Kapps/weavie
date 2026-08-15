@@ -32,6 +32,34 @@ public sealed class AcpSessionStoreTests {
 	}
 
 	[Fact]
+	public void ForeignDocumentVersion_StartsEmptyAndIsTakenOverByTheNextWrite() {
+		var fileSystem = new InMemoryFileSystem([
+			new(StorePath, "{\"version\":1,\"sessions\":[{\"providerId\":\"acp\",\"cwd\":\"/old\",\"sessionId\":\"x\"}]}"),
+		]);
+		var store = new AcpSessionStore(fileSystem, StorePath);
+
+		Assert.Null(store.Resolve("acp", "/old"));
+
+		store.Adopt("acp", Workspace, "thread-1", 3);
+		var reloaded = new AcpSessionStore(fileSystem, StorePath);
+
+		Assert.Equal("thread-1", reloaded.Resolve("acp", Workspace));
+		Assert.Null(reloaded.Resolve("acp", "/old"));
+	}
+
+	[Fact]
+	public void MissingDocumentVersion_FailsWithoutReplacingOriginalData() {
+		const string malformed = "{\"sessions\":[]}";
+		var fileSystem = new InMemoryFileSystem([new(StorePath, malformed)]);
+		var store = new AcpSessionStore(fileSystem, StorePath);
+
+		var error = Assert.Throws<AcpSessionStoreException>(() => store.Resolve("acp", Workspace));
+
+		Assert.Contains("numeric version", error.Message, StringComparison.Ordinal);
+		Assert.Equal(malformed, fileSystem.ReadAllText(StorePath));
+	}
+
+	[Fact]
 	public void FailedAtomicWrite_DoesNotMutateInMemoryAssociation() {
 		var inner = new InMemoryFileSystem();
 		var store = new AcpSessionStore(new FailingAtomicFileSystem(inner), StorePath);

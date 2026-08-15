@@ -19,22 +19,14 @@ public sealed class AgentSessionHostTests {
 	public async Task StructuredUsage_IsPublishedAndReplayedForItsOwningSession() {
 		await using var fixture = CreateFixture(static () => "slot-1", static (_, _) => { }, 0);
 		var (bridge, session, host) = (fixture.Bridge, fixture.Session, fixture.Host);
-		var state = new AgentUsageState(
-			new(25000, 100000),
-			123456,
-			[new("provider:weekly", null, 42, 10080, DateTimeOffset.FromUnixTimeSeconds(1731547200))]);
-
-		session.EmitUsage(state);
+		session.EmitUsage(new AgentContextWindowUsage(25000, 100000));
 		var published = Assert.Single(bridge.PostedEventsNamed("usage")).GetProperty("state");
-		Assert.Equal(25000, published.GetProperty("contextWindow").GetProperty("usedTokens").GetInt64());
-		Assert.Equal(123456, published.GetProperty("totalTokens").GetInt64());
-		Assert.Equal(42, published.GetProperty("rateLimits")[0].GetProperty("usedPercent").GetDouble());
+		Assert.Equal(25000, published.GetProperty("usedTokens").GetInt64());
 
 		bridge.Clear();
 		host.ReplayState();
 		var replayed = Assert.Single(bridge.PostedEventsNamed("usage")).GetProperty("state");
-		Assert.Equal(100000, replayed.GetProperty("contextWindow").GetProperty("capacityTokens").GetInt64());
-		Assert.Equal(1731547200000, replayed.GetProperty("rateLimits")[0].GetProperty("resetsAtMs").GetInt64());
+		Assert.Equal(100000, replayed.GetProperty("capacityTokens").GetInt64());
 	}
 
 	[Fact]
@@ -730,9 +722,9 @@ public sealed class AgentSessionHostTests {
 	private sealed class FakeStructuredSession : IStructuredAgentSession, IStructuredAgentUsage {
 		public event Action<AgentPaneMessage>? PaneMessage;
 		public event Action<IReadOnlyList<AgentPaneMessage>>? PaneSnapshot;
-		public event Action<AgentUsageState>? UsageStateChanged;
+		public event Action<AgentContextWindowUsage?>? ContextUsageChanged;
 
-		public AgentUsageState UsageState { get; private set; } = new(null, null, []);
+		public AgentContextWindowUsage? ContextUsage { get; private set; }
 
 		public bool Started { get; private set; }
 
@@ -745,9 +737,9 @@ public sealed class AgentSessionHostTests {
 
 		public void Replace(IReadOnlyList<AgentPaneMessage> messages) => PaneSnapshot?.Invoke(messages);
 
-		public void EmitUsage(AgentUsageState state) {
-			UsageState = state;
-			UsageStateChanged?.Invoke(state);
+		public void EmitUsage(AgentContextWindowUsage context) {
+			ContextUsage = context;
+			ContextUsageChanged?.Invoke(context);
 		}
 
 		public void Submit(AgentTurnSubmission submission) => throw new NotSupportedException();

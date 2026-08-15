@@ -54,12 +54,9 @@ public sealed partial class AcpAgentSession {
 	private void EmitUsage(JsonElement update) {
 		long used = ReadRequiredNonNegativeInt64(update, "used", "usage update");
 		long size = ReadRequiredNonNegativeInt64(update, "size", "usage update");
-		AgentUsageState state;
-		lock (_gate) {
-			_usageState = new AgentUsageState(new AgentContextWindowUsage(used, size), null, []);
-			state = _usageState;
-		}
-		UsageStateChanged?.Invoke(state);
+		AgentContextWindowUsage context = new(used, size);
+		_contextUsage = context;
+		ContextUsageChanged?.Invoke(context);
 		PublishPane(new AgentPaneMessage {
 			Type = "usage",
 			ProviderId = _definition.Id,

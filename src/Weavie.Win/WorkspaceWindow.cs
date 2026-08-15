@@ -97,6 +97,8 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow, IShellMenuAc
 			ReviewComments = github,
 			Sources = Weavie.Core.Sources.SourceConnector.CreateDefault(),
 			LogBuffer = _app.LogBuffer,
+			LastCrashFile = Weavie.Core.WeaviePaths.LastCrashFile,
+			PreviousCrashFile = Weavie.Core.WeaviePaths.PreviousCrashFile,
 		}, workspaceRoot,
 		WorkspaceHttpServerOptions.Native(Path.Combine(AppContext.BaseDirectory, "wwwroot")),
 		UnavailableWorkspaceWebSocketBridge.Instance);

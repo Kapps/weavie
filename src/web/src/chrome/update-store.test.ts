@@ -9,6 +9,7 @@ const bridgeHarness = vi.hoisted(() => ({
   installer: undefined as ((connection: HostConnection) => undefined | (() => void)) | undefined,
 }));
 vi.mock("../bridge", () => ({
+  LOCAL_BACKEND_ID: "local",
   activeBackendId: () => bridgeHarness.activeBackendId,
   registerHostFeature: (installer: (connection: HostConnection) => undefined | (() => void)) => {
     bridgeHarness.installer = installer;
@@ -183,6 +184,20 @@ describe("update-store", () => {
     expect(store.updateRestarting()).toBe(false);
     expect(notifySpy).toHaveBeenCalledWith("info", "Weavie updated to build 0.1.201.");
     expect(notifySpy).not.toHaveBeenCalledWith("warn", expect.any(String));
+  });
+
+  it("reports a remote backend running another build, and nothing while the builds agree", () => {
+    bridgeHarness.activeBackendId = remote.id;
+    deliverHello(remote, "0.1.200");
+    expect(store.activeBackendBuildMismatch()).toEqual({ client: "0.1.100", backend: "0.1.200" });
+
+    deliverHello(remote, "0.1.100");
+    expect(store.activeBackendBuildMismatch()).toBeNull();
+
+    // The local host serves the client, so it is never the mismatched side.
+    bridgeHarness.activeBackendId = local.id;
+    deliverHello(local, "0.1.100");
+    expect(store.activeBackendBuildMismatch()).toBeNull();
   });
 
   it("warns when a remote worker returns on its previous build", () => {

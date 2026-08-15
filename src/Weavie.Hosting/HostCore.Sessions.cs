@@ -212,7 +212,7 @@ public sealed partial class HostCore {
 		}
 
 		string id = SessionId.New().Value;
-		string providerId = ResolveNewSessionProvider(null);
+		string providerId = AvailableWorkspaceSessionProvider();
 		var session = CreateSession(WorkspaceRoot, providerId, id);
 		session.DisplayLabel = _workspaceSessionLabel;
 		var slot = new SessionSlot {
@@ -296,6 +296,24 @@ public sealed partial class HostCore {
 			Path.GetFullPath(a).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
 			Path.GetFullPath(b).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
 			OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+
+	/// <summary>
+	/// The provider for the workspace's own session, which Weavie opens on the user's behalf. The standing
+	/// default can name a provider that is gone or unusable (an ACP agent since removed), and that must not stop
+	/// the workspace from opening: it falls to an available provider and says so at hello.
+	/// </summary>
+	private string AvailableWorkspaceSessionProvider() {
+		string preferred = ResolveNewSessionProvider(null);
+		if (_agentProviders.FindInfo(preferred) is { Available: true }) {
+			return preferred;
+		}
+
+		var replacement = _agentProviders.Providers.Select(provider => provider.Info).FirstOrDefault(info => info.Available)
+			?? throw new InvalidOperationException($"No agent provider is available to replace '{preferred}'.");
+		_sessionStartupNotices.Add(
+			("warn", $"Your default agent '{preferred}' isn't available — this session opened with {replacement.Name}."));
+		return replacement.Id;
+	}
 
 	private string ResolveNewSessionProvider(string? requestedProvider) {
 		if (!string.IsNullOrWhiteSpace(requestedProvider)) {

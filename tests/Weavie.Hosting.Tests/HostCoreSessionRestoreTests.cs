@@ -3,6 +3,7 @@ using System.Text.Json;
 using Weavie.AcpDistribution;
 using Weavie.Core;
 using Weavie.Core.Commands;
+using Weavie.Core.Configuration;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Sessions;
 using Weavie.Core.Workspaces;
@@ -268,6 +269,52 @@ public sealed class HostCoreSessionRestoreTests {
 		Assert.Equal("removed-provider", stale.GetProperty("providerId").GetString());
 		Assert.Equal("unavailable", stale.GetProperty("agentSurface").GetString());
 		Assert.False(stale.GetProperty("loaded").GetBoolean());
+	}
+
+	[Fact]
+	public async Task LoadedSessionWhoseProviderIsGone_StaysDormantInsteadOfFailingTheHostStart() {
+		await using var host = await TestHost.StartAsync();
+		Assert.True((await host.CreateSessionAsync(new NewSessionRequest {
+			Branch = "structured-branch",
+			Base = "main",
+			AgentProviderId = "structured",
+		})).Ok);
+		var registry = new WorktreeRegistry(
+			new LocalFileSystem(),
+			WeaviePaths.WorkspaceWorktreesFile(WorkspaceId.ForPath(host.RepoRoot)));
+
+		// The provider a LOADED session was created with is gone by the next start (an ACP agent since removed).
+		await host.RestartAsync(() => registry.Add(
+			Assert.IsType<WorktreeRecord>(registry.FindByBranch("structured-branch"))
+				with { AgentProviderId = "removed-provider" }));
+
+		var stale = SessionById(host.Bridge, "structured-branch");
+		Assert.False(stale.GetProperty("loaded").GetBoolean());
+		Assert.Same(host.WorkspaceSession, host.SelectedSession);
+		Assert.Contains(
+			host.Bridge.PostedEvents("notifications", "show"),
+			notification => notification.GetProperty("message").GetString()!
+				.Contains("removed-provider", StringComparison.Ordinal));
+	}
+
+	[Fact]
+	public async Task DefaultProviderThatIsGone_StillOpensTheWorkspaceSession() {
+		// The standing default names a provider that no longer exists; the workspace must still open — its own
+		// session is the one place the user has no way to pick a different agent first.
+		await using var host = TestHost.CreateUnstarted();
+		host.Settings.Set(AgentSettings.DefaultProvider, JsonSerializer.SerializeToElement("removed-provider"));
+
+		await host.Core.StartAsync();
+		await host.ConnectAsync();
+
+		var workspace = SessionEntry(
+			host.Bridge,
+			session => session.GetProperty("label").GetString() == host.WorkspaceSession.DisplayLabel);
+		Assert.Equal("claude", workspace.GetProperty("providerId").GetString());
+		Assert.Contains(
+			host.Bridge.PostedEvents("notifications", "show"),
+			notification => notification.GetProperty("message").GetString()!
+				.Contains("removed-provider", StringComparison.Ordinal));
 	}
 
 	[Fact]

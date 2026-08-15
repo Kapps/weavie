@@ -3,7 +3,8 @@ namespace Weavie.Core.FileActivity;
 internal interface IWorkspaceDirectoryWatchSet : IDisposable {
 	int Count { get; }
 
-	void Reconcile(IReadOnlyList<string> directories);
+	/// <summary>Installs and drops watches to match <paramref name="directories"/>; true when the set changed.</summary>
+	bool Reconcile(IReadOnlyList<string> directories);
 
 	void EnsureWatching(string directory);
 }
@@ -40,25 +41,30 @@ internal sealed class FileSystemWorkspaceDirectoryWatchSet : IWorkspaceDirectory
 		get { lock (_gate) { return _watchers.Count; } }
 	}
 
-	public void Reconcile(IReadOnlyList<string> directories) {
+	public bool Reconcile(IReadOnlyList<string> directories) {
 		var comparer = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
 		var desired = directories.ToHashSet(comparer);
 		lock (_gate) {
 			if (_disposed) {
-				return;
+				return false;
 			}
 
+			bool changed = false;
 			foreach (string path in _watchers.Keys.Where(path => !desired.Contains(path)).ToArray()) {
 				_watchers.Remove(path, out var obsolete);
 				obsolete!.EnableRaisingEvents = false;
 				obsolete.Dispose();
+				changed = true;
 			}
 
 			foreach (string path in desired) {
 				if (!_watchers.ContainsKey(path)) {
 					TryAdd(path);
+					changed = true;
 				}
 			}
+
+			return changed;
 		}
 	}
 
@@ -147,7 +153,11 @@ internal sealed class RecursiveWorkspaceDirectoryWatchSet : IWorkspaceDirectoryW
 		get { lock (_gate) { return _watcher is null ? 0 : 1; } }
 	}
 
-	public void Reconcile(IReadOnlyList<string> directories) => EnsureWatching(_root);
+	public bool Reconcile(IReadOnlyList<string> directories) {
+		bool watching = Count > 0;
+		EnsureWatching(_root);
+		return !watching && Count > 0;
+	}
 
 	public void EnsureWatching(string directory) {
 		if (!Directory.Exists(_root)) {

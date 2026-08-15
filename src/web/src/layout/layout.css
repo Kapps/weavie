@@ -34,6 +34,13 @@
   color: var(--fg);
   box-shadow: 0 4px 18px rgb(0 0 0 / 45%);
 }
+/* Same pill, for a backend whose build can't speak to this client — a state no retry resolves. */
+.connection-banner-error {
+  border-color: var(--bad);
+  max-width: min(46em, calc(100% - 2em));
+  /* It stays for as long as the mismatch does, so it must never sit between the user and the panes. */
+  pointer-events: none;
+}
 .connection-spinner {
   width: 0.9em;
   height: 0.9em;

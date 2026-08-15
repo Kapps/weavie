@@ -1,5 +1,5 @@
 import { createMemo, createSignal } from "solid-js";
-import { activeBackendId, registerHostFeature } from "../bridge";
+import { activeBackendId, LOCAL_BACKEND_ID, registerHostFeature } from "../bridge";
 import { notify } from "../notify/notify";
 
 export type UpdateHold = {
@@ -17,6 +17,7 @@ const UPDATED_KEY = "weavie-updated-to";
 const UPDATE_TOAST_KEY = "weavie-update-ready";
 const EMPTY: UpdateState = { holds: null, restarting: false, pending: false };
 const [states, setStates] = createSignal(new Map<string, UpdateState>());
+const [builds, setBuilds] = createSignal(new Map<string, string>());
 
 function notifyUpdated(buildNumber: string): void {
   notify("info", `Weavie updated to build ${buildNumber}.`);
@@ -51,6 +52,7 @@ registerHostFeature((connection) => {
   const offHello = connection.onHello((hello) => {
     const previousBuildNumber = buildNumber;
     buildNumber = hello.buildNumber;
+    setBuilds((previous) => new Map(previous).set(connection.id, hello.buildNumber));
     if (connection.isLocal) {
       const boot = window.__WEAVIE_SHELL__?.buildNumber;
       if (boot !== undefined && boot !== "" && hello.buildNumber !== boot) {
@@ -85,8 +87,32 @@ registerHostFeature((connection) => {
       next.delete(connection.id);
       return next;
     });
+    setBuilds((previous) => {
+      const next = new Map(previous);
+      next.delete(connection.id);
+      return next;
+    });
   };
 });
+
+/**
+ * The builds a remote backend and this client run when they differ. Weavie ships its host and client
+ * together, so a backend on another build speaks a different protocol: its features go missing rather than
+ * degrade, and the user has to be told which side to update.
+ */
+export function backendBuildMismatch(
+  backendId: string,
+): { client: string; backend: string } | null {
+  const known = builds();
+  const client = known.get(LOCAL_BACKEND_ID);
+  const backend = known.get(backendId);
+  return backendId !== LOCAL_BACKEND_ID &&
+    client !== undefined &&
+    backend !== undefined &&
+    client !== backend
+    ? { client, backend }
+    : null;
+}
 
 export function surfacePostUpdateNotice(): void {
   const updatedTo = window.sessionStorage.getItem(UPDATED_KEY);
@@ -101,3 +127,6 @@ const selectedState = (): UpdateState => states().get(activeBackendId()) ?? EMPT
 export const updateHolds = createMemo(() => selectedState().holds);
 export const updatePending = createMemo(() => selectedState().pending);
 export const updateRestarting = createMemo(() => selectedState().restarting);
+
+/** The selected backend's build mismatch, or null while it matches this client. */
+export const activeBackendBuildMismatch = createMemo(() => backendBuildMismatch(activeBackendId()));

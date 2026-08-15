@@ -81,7 +81,11 @@ import { suggestions } from "./chrome/suggestions-store";
 import { TitleBar } from "./chrome/TitleBar";
 import { UpdateOverlay } from "./chrome/UpdateOverlay";
 import { UrlPrompt } from "./chrome/UrlPrompt";
-import { surfacePostUpdateNotice, updateRestarting } from "./chrome/update-store";
+import {
+  activeBackendBuildMismatch,
+  surfacePostUpdateNotice,
+  updateRestarting,
+} from "./chrome/update-store";
 import { hostWindowFocused, windowMaximized } from "./chrome/window-state";
 import { writeClipboard } from "./clipboard";
 import { paneFocusContext, setContext } from "./commands/context";
@@ -1824,6 +1828,16 @@ export default function App(): JSX.Element {
                 {connectionLabel()}…
               </span>
             </output>
+          </Show>
+          <Show when={!activeBackendOffline() && activeBackendBuildMismatch()}>
+            {(mismatch) => (
+              <output class="connection-banner connection-banner-error" role="alert">
+                <span>
+                  {connectionLabel()} runs build {mismatch().backend} — this client is{" "}
+                  {mismatch().client}. Sessions there won't work until both run the same build.
+                </span>
+              </output>
+            )}
           </Show>
         </div>
       </div>

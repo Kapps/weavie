@@ -4,6 +4,8 @@ namespace Weavie.Hosting;
 
 // The loaded overlay on top of git-worktree reconciliation. Client selection is deliberately absent.
 public sealed partial class HostCore {
+	private readonly List<(string Level, string Message)> _sessionStartupNotices = [];
+
 	private void PersistSessionState() {
 		if (_sessions is null) {
 			return;
@@ -54,11 +56,31 @@ public sealed partial class HostCore {
 		}
 
 		foreach (var slot in toLoad) {
-			LoadSlotInBackground(slot);
+			// One session that can no longer load — a provider the user has since removed, a worktree that moved —
+			// leaves that slot dormant and tells the user at hello. It never takes the whole host down with it.
+			try {
+				LoadSlotInBackground(slot);
+			} catch (Exception error) {
+				_sessionStartupNotices.Add(
+					("error", $"Couldn't restore the session '{slot.Label}': {Innermost(error).Message}"));
+				Log($"[sessions] restoring '{slot.Label}' failed: {error}");
+			}
 		}
 
 		if (firstOpen || _sessions.Slots.Count == 0) {
 			EnsureWorkspaceSession();
 		}
 	}
+
+	// Raised while no page is connected, so the notices wait for the first hello (as the crash report does).
+	private void SurfaceSessionStartupNotices() {
+		foreach (var (level, message) in _sessionStartupNotices) {
+			Notify(level, message);
+		}
+
+		_sessionStartupNotices.Clear();
+	}
+
+	private static Exception Innermost(Exception error) =>
+		error is AggregateException aggregate ? aggregate.Flatten().InnerExceptions[0] : error;
 }

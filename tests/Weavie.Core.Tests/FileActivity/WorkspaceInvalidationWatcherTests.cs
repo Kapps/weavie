@@ -32,7 +32,6 @@ public sealed class WorkspaceInvalidationWatcherTests : IDisposable {
 			},
 			_ => { },
 			debounceMs: 80,
-			TimeSpan.FromHours(1),
 			path => new FileSystemWatcher(path));
 		var run = watcher.RunAsync(CancellationToken.None);
 		await watcher.Ready;
@@ -88,7 +87,6 @@ public sealed class WorkspaceInvalidationWatcherTests : IDisposable {
 			},
 			_ => { },
 			debounceMs: 20,
-			TimeSpan.FromHours(1),
 			path => new FileSystemWatcher(path));
 		var run = watcher.RunAsync(CancellationToken.None);
 		await watcher.Ready;
@@ -141,7 +139,6 @@ public sealed class WorkspaceInvalidationWatcherTests : IDisposable {
 			_ => { },
 			_ => { },
 			debounceMs: 1,
-			TimeSpan.FromHours(1),
 			path => {
 				paths.Add(path);
 				var created = new FileSystemWatcher(path);
@@ -175,7 +172,6 @@ public sealed class WorkspaceInvalidationWatcherTests : IDisposable {
 			_ => { },
 			_ => { },
 			debounceMs: 1,
-			TimeSpan.FromHours(1),
 			path => {
 				watched.Add(path);
 				return new FileSystemWatcher(path);
@@ -207,7 +203,6 @@ public sealed class WorkspaceInvalidationWatcherTests : IDisposable {
 			},
 			_ => { },
 			debounceMs: 20,
-			TimeSpan.FromHours(1),
 			path => {
 				watched.Add(path);
 				return new FileSystemWatcher(path);
@@ -242,7 +237,6 @@ public sealed class WorkspaceInvalidationWatcherTests : IDisposable {
 			},
 			_ => { },
 			debounceMs: 20,
-			TimeSpan.FromHours(1),
 			path => {
 				watched.Add(path);
 				return new FileSystemWatcher(path);
@@ -280,7 +274,6 @@ public sealed class WorkspaceInvalidationWatcherTests : IDisposable {
 			},
 			_ => { },
 			debounceMs: 20,
-			TimeSpan.FromHours(1),
 			path => new FileSystemWatcher(path));
 		var run = watcher.RunAsync(CancellationToken.None);
 		await watcher.Ready;
@@ -318,7 +311,6 @@ public sealed class WorkspaceInvalidationWatcherTests : IDisposable {
 			_ => { },
 			_ => { },
 			debounceMs: 1,
-			TimeSpan.FromHours(1),
 			path => new FileSystemWatcher(path));
 		var run = watcher.RunAsync(CancellationToken.None);
 		await started.Task;
@@ -340,7 +332,6 @@ public sealed class WorkspaceInvalidationWatcherTests : IDisposable {
 			},
 			_ => { },
 			debounceMs: 30_000,
-			TimeSpan.FromHours(1),
 			path => new FileSystemWatcher(path));
 		watcher.Record(Path.Combine(_dir, "pending.md"), FileInvalidationKind.Changed);
 
@@ -361,7 +352,6 @@ public sealed class WorkspaceInvalidationWatcherTests : IDisposable {
 			},
 			_ => { },
 			debounceMs: 1,
-			TimeSpan.FromHours(1),
 			path => new FileSystemWatcher(path));
 		var run = watcher.RunAsync(CancellationToken.None);
 		await watcher.Ready;

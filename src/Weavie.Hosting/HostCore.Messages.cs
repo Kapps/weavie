@@ -308,6 +308,7 @@ public sealed partial class HostCore {
 		Ready?.Invoke();
 		MarkAutoConfigPageReady();
 		SurfacePriorCrash();
+		SurfaceSessionStartupNotices();
 		if (_settings.IsMalformed) {
 			NotifySettingsMalformed(true);
 		}

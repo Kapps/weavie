@@ -57,6 +57,13 @@ test("ACP controls and rich structured output stay native @cross", async ({ page
   await activity.locator("summary").click();
   await expect(activity.getByRole("button", { name: "Review edit" })).toBeVisible();
   await expect(surface.locator(".agent-working")).toHaveCount(0);
+
+  // The agent reported 123 of 4096 context tokens; the circle renders that share.
+  const usage = surface.getByRole("button", { name: "Context window 3% used" });
+  await expect(usage.locator(".agent-usage-circle")).toBeVisible();
+  await usage.hover();
+  // The grouping separator follows the browser locale; the token counts do not.
+  await expect(page.getByRole("tooltip")).toContainText(/123 of 4.?096 tokens/);
 });
 
 test("ACP steering and background completion return the session to idle @cross", async ({

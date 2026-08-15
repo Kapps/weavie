@@ -1143,10 +1143,6 @@ a.agent-entry-media {
   padding: 5px 0;
 }
 
-.agent-usage-tooltip-section + .agent-usage-tooltip-section {
-  border-top: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
-}
-
 .agent-usage-tooltip-title {
   min-width: 0;
   font-weight: 600;

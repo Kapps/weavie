@@ -83,13 +83,13 @@ public sealed partial class AcpAgentSession {
 				_content.Clear();
 				_turnItemIds.Clear();
 				_replayContentRole = null;
-				_usageState = new AgentUsageState(null, null, []);
+				_contextUsage = null;
 			}
 		}
 		CancelPendingInteractions();
 		AbandonClientRequests();
 		RaiseControls();
-		UsageStateChanged?.Invoke(UsageState);
+		ContextUsageChanged?.Invoke(ContextUsage);
 		RunRuntime(process.Generation, () => InitializeGenerationAsync(process));
 	}
 

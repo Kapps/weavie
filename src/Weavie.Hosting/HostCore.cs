@@ -79,6 +79,8 @@ public sealed partial class HostCore : IAsyncDisposable {
 	// Every loaded or dormant session slot. Which one a page displays is client state and never appears here.
 	private SessionManager? _sessions;
 	private string _workspaceSessionLabel = string.Empty;
+	// Empty unless the startup shell probe failed; surfaced at hello, where the user can actually see it.
+	private string _environmentImportFailure = string.Empty;
 	private WorktreeManager? _worktrees;
 	private ShellWorktreeProvisioner? _worktreeProvisioner;
 	// StartAsync is idempotent: the Windows shell kicks it off early to overlap the slow WebView2 environment
@@ -260,7 +262,8 @@ public sealed partial class HostCore : IAsyncDisposable {
 		// session can't exhaust it mid-switch, and import the login-shell environment so spawned children (LSP
 		// servers, git) resolve as from a terminal. Both no-op on Windows and when nothing needs raising.
 		PosixFileLimit.RaiseToHardLimit(line => Log($"[fd] {line}"));
-		await LoginShellEnvironment.ImportOnceAsync(line => Log($"[env] {line}")).ConfigureAwait(false);
+		_environmentImportFailure =
+			await LoginShellEnvironment.ImportOnceAsync(line => Log($"[env] {line}")).ConfigureAwait(false);
 
 		_bridge.MessageReceived += OnWebMessage;
 		_bridge.PeerDisconnected += OnWebPeerDisconnected;

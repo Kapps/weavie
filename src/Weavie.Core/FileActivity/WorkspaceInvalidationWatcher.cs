@@ -9,14 +9,12 @@ namespace Weavie.Core.FileActivity;
 /// only inventoried paths; filtering for domain-specific consumers belongs in their projections.
 /// </summary>
 public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
-	private static readonly TimeSpan InventoryRefreshInterval = TimeSpan.FromSeconds(2);
 	private static readonly StringComparer PathComparer =
 		OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
 	private readonly WorkspaceInventory _inventory;
 	private readonly Action<IReadOnlyList<FileInvalidation>> _onChanges;
 	private readonly Action<string> _log;
 	private readonly TimeSpan _debounce;
-	private readonly TimeSpan _refreshInterval;
 	private readonly ConcurrentDictionary<string, FileInvalidationKind> _pending = new(PathComparer);
 	private readonly IWorkspaceDirectoryWatchSet _directoryWatchers;
 	private readonly Channel<bool> _refreshSignals = Channel.CreateBounded<bool>(new BoundedChannelOptions(1) {
@@ -51,7 +49,6 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 			onChanges,
 			log,
 			debounceMs,
-			InventoryRefreshInterval,
 			path => new FileSystemWatcher(path),
 			usePlatformWatcher: true) { }
 
@@ -60,14 +57,12 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 		Action<IReadOnlyList<FileInvalidation>> onChanges,
 		Action<string> log,
 		int debounceMs,
-		TimeSpan refreshInterval,
 		Func<string, FileSystemWatcher> createWatcher)
 		: this(
 			inventory,
 			onChanges,
 			log,
 			debounceMs,
-			refreshInterval,
 			createWatcher,
 			usePlatformWatcher: false) { }
 
@@ -76,7 +71,6 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 		Action<IReadOnlyList<FileInvalidation>> onChanges,
 		Action<string> log,
 		int debounceMs,
-		TimeSpan refreshInterval,
 		Func<string, FileSystemWatcher> createWatcher,
 		bool usePlatformWatcher) {
 		ArgumentNullException.ThrowIfNull(inventory);
@@ -87,15 +81,10 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 			throw new ArgumentOutOfRangeException(nameof(debounceMs));
 		}
 
-		if (refreshInterval <= TimeSpan.Zero) {
-			throw new ArgumentOutOfRangeException(nameof(refreshInterval));
-		}
-
 		_inventory = inventory;
 		_onChanges = onChanges;
 		_log = log;
 		_debounce = TimeSpan.FromMilliseconds(debounceMs);
-		_refreshInterval = refreshInterval;
 		_directoryWatchers = usePlatformWatcher && OperatingSystem.IsLinux()
 			? new LinuxWorkspaceDirectoryWatchSet(OnCreated, OnChanged, OnDeleted, OnRenamed, OnError)
 			: usePlatformWatcher
@@ -120,8 +109,9 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 	public Task Ready => _ready.Task;
 
 	/// <summary>
-	/// Loads the inventory asynchronously, then watches its directories until cancelled or stopped. Throws when
-	/// the authoritative inventory or platform watcher fails.
+	/// Loads the inventory asynchronously, then watches its directories until cancelled or stopped. Every
+	/// refresh is driven by an observed event — an idle workspace costs nothing. Throws when the authoritative
+	/// inventory or platform watcher fails.
 	/// </summary>
 	public async Task RunAsync(CancellationToken ct) {
 		lock (_flushLock) {
@@ -148,28 +138,8 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 			try {
 				await RefreshAsync(initial: true, runCt).ConfigureAwait(false);
 				_ready.TrySetResult();
-				using var timer = new PeriodicTimer(_refreshInterval);
-				var tick = timer.WaitForNextTickAsync(runCt).AsTask();
-				var signal = _refreshSignals.Reader.WaitToReadAsync(runCt).AsTask();
-				while (true) {
-					Task completed = await Task.WhenAny(signal, tick).ConfigureAwait(false);
-					if (completed == signal) {
-						if (!await signal.ConfigureAwait(false)) {
-							break;
-						}
-
-						while (_refreshSignals.Reader.TryRead(out _)) { }
-						signal = _refreshSignals.Reader.WaitToReadAsync(runCt).AsTask();
-					}
-
-					if (tick.IsCompleted) {
-						if (!await tick.ConfigureAwait(false)) {
-							break;
-						}
-
-						tick = timer.WaitForNextTickAsync(runCt).AsTask();
-					}
-
+				while (await _refreshSignals.Reader.WaitToReadAsync(runCt).ConfigureAwait(false)) {
+					while (_refreshSignals.Reader.TryRead(out _)) { }
 					if (Interlocked.Exchange(ref _watcherFailure, null) is { } failure) {
 						throw new IOException("Workspace file watching failed.", failure);
 					}
@@ -234,8 +204,9 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 		}
 
 		Volatile.Write(ref _files, nextFiles);
-		_directoryWatchers.Reconcile(snapshot.Directories);
-		_log($"workspace watcher on {_inventory.Root} ({_directoryWatchers.Count} flat directories)");
+		if (_directoryWatchers.Reconcile(snapshot.Directories)) {
+			_log($"workspace watcher on {_inventory.Root} ({_directoryWatchers.Count} flat directories)");
+		}
 	}
 
 	private void SignalRefresh() => _refreshSignals.Writer.TryWrite(true);

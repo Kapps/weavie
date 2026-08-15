@@ -36,23 +36,28 @@ internal sealed partial class LinuxWorkspaceDirectoryWatchSet : IWorkspaceDirect
 		get { lock (_gate) { return _pathWatches.Count; } }
 	}
 
-	public void Reconcile(IReadOnlyList<string> directories) {
+	public bool Reconcile(IReadOnlyList<string> directories) {
 		var desired = directories.ToHashSet(StringComparer.Ordinal);
 		lock (_gate) {
 			if (_disposed) {
-				return;
+				return false;
 			}
 
 			EnsureStarted();
+			bool changed = false;
 			foreach (string path in _pathWatches.Keys.Where(path => !desired.Contains(path)).ToArray()) {
 				Remove(path);
+				changed = true;
 			}
 
 			foreach (string path in desired) {
 				if (!_pathWatches.ContainsKey(path)) {
 					Add(path);
+					changed = true;
 				}
 			}
+
+			return changed;
 		}
 	}
 

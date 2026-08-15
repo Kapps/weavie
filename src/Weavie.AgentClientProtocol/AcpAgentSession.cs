@@ -63,6 +63,7 @@ public sealed partial class AcpAgentSession : IStructuredAgentSession, IStructur
 	private bool _runtimeFailed;
 	private bool _cancelRequested;
 	private bool _controlMutationActive;
+	private bool _configOwnsMode;
 	private long _submissionEpoch;
 	private AgentUsageState _usageState = new(null, null, []);
 

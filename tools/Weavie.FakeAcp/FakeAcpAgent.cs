@@ -241,6 +241,7 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 		else if (text is "terminal-output" or "terminal-null-optionals") {
 			await TerminalOutputAsync(text == "terminal-null-optionals", ct).ConfigureAwait(false);
 		} else if (text == "terminal-cancel") await TerminalCancellationAsync(ct).ConfigureAwait(false);
+		else if (text == "agent-terminal") AgentOwnedTerminal();
 		else if (text == "cancel-before-dispatch") await CancelBeforeDispatchAsync().ConfigureAwait(false);
 		else if (text == "terminal-failure") await TerminalFailureAsync(ct).ConfigureAwait(false);
 		else if (text.StartsWith("fs-empty:", StringComparison.Ordinal)) {
@@ -627,6 +628,28 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 		Message("fs: " + result.GetProperty("content").GetString());
 	}
 
+	// Shipping agents run commands themselves and embed a terminal id the client never created.
+	private void AgentOwnedTerminal() {
+		Update(new JsonObject {
+			["sessionUpdate"] = "tool_call",
+			["toolCallId"] = "agent-exec",
+			["title"] = "echo hello",
+			["kind"] = "execute",
+			["status"] = "in_progress",
+			["content"] = new JsonArray(new JsonObject {
+				["type"] = "terminal",
+				["terminalId"] = "agent-owned-terminal",
+			}),
+		});
+		Update(new JsonObject {
+			["sessionUpdate"] = "tool_call_update",
+			["toolCallId"] = "agent-exec",
+			["status"] = "completed",
+			["rawOutput"] = "hello",
+		});
+		Message("agent terminal finished");
+	}
+
 	private async Task TerminalFailureAsync(CancellationToken ct) {
 		await Connection().RequestAsync("terminal/create", new JsonObject {
 			["sessionId"] = _sessionId,
@@ -730,6 +753,9 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 
 	private JsonObject SetMode(JsonElement parameters) {
 		RequireSession(parameters);
+		if (_fakeMode == "mirrored-mode") {
+			throw AcpAdapterException.InvalidParams("The mirrored mode axis is written through set_config_option.");
+		}
 		_mode = AcpJson.RequiredString(parameters, "modeId", "session/set_mode");
 		return Setup();
 	}
@@ -746,7 +772,9 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 			}
 			_model = model;
 		} else if (id == "fast") _fast = value.GetBoolean();
-		else throw AcpAdapterException.InvalidParams($"Unknown fake config '{id}'.");
+		else if (id == "mode" && _fakeMode == "mirrored-mode") {
+			_mode = value.GetString() ?? throw AcpAdapterException.InvalidParams("mode must be a string");
+		} else throw AcpAdapterException.InvalidParams($"Unknown fake config '{id}'.");
 		return Setup();
 	}
 
@@ -759,7 +787,24 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 		}),
 	});
 
-	private JsonObject Setup() => new() {
+	// Shipping agents mirror one mode axis in both configOptions and the legacy modes block.
+	private JsonObject Setup() {
+		var setup = SetupCore();
+		if (_fakeMode != "mirrored-mode") return setup;
+		((JsonArray)setup["configOptions"]!).Insert(0, new JsonObject {
+			["id"] = "mode",
+			["name"] = "Mode",
+			["category"] = "mode",
+			["type"] = "select",
+			["currentValue"] = _mode,
+			["options"] = new JsonArray(
+				new JsonObject { ["value"] = "default", ["name"] = "Default" },
+				new JsonObject { ["value"] = "plan", ["name"] = "Plan" }),
+		});
+		return setup;
+	}
+
+	private JsonObject SetupCore() => new() {
 		["configOptions"] = new JsonArray(
 			new JsonObject {
 				["id"] = "model",

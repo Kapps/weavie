@@ -62,6 +62,11 @@ The client speaks ACP protocol version 1 over strict JSON-RPC framing. It uses c
 Unsupported optional capabilities stay absent from the UI; they do not create another session type. Malformed
 advertised data or protocol output fails the exact agent generation visibly.
 
+Agents mirror one mode axis in both `configOptions` and the legacy `modes` block. The configuration option owns
+that axis, because `session/set_config_option` is what writes it back; a legacy-only mode axis is written with
+`session/set_mode`. A tool may also embed a terminal the agent runs itself, so an embedded terminal id that
+Weavie never created carries no client-side output rather than failing the session.
+
 The generic idle condition is the absence of a primary prompt and live ACP tool calls. A prompt response may arrive
 while a tool remains active; the session stays Waiting until the tool completes. Runtime failure and explicit
 restart terminalize partial content and active tools so stale work cannot appear live.
@@ -75,8 +80,9 @@ the strongest allow choice the agent advertises; provider sandboxing remains pro
 ACP session ids are stored by exact provider id and canonical workspace before the first prompt is sent. If that
 atomic write fails, the exact agent generation is terminated before it can do work. Provider transcripts remain
 provider-owned; Weavie's pane journal is rendering state. Loading asks a capable agent for its transcript and
-replaces the pane snapshot before accepting new turns. Malformed or unreadable association data is never reset or
-overwritten.
+replaces the pane snapshot before accepting new turns. Malformed or unreadable association data at the current
+document version is never reset or overwritten. A document written at another version holds nothing this build can
+read — Weavie carries no migrations — so it starts with no associations and the next write takes the file over.
 
 There is no legacy Codex wire, bundled private-provider adapter, protocol negotiation, or migration branch. Host
 and web protocol changes move together.

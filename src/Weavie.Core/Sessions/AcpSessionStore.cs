@@ -6,6 +6,7 @@ namespace Weavie.Core.Sessions;
 
 /// <summary>Persists the ACP conversation associated with each provider and working directory.</summary>
 public sealed class AcpSessionStore {
+	private const int Version = 2;
 	private static readonly JsonSerializerOptions JsonOptions = new() {
 		WriteIndented = true,
 		UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
@@ -114,10 +115,19 @@ public sealed class AcpSessionStore {
 		: Deserialize(_fileSystem.ReadAllText(FilePath));
 
 	private static List<Entry> Deserialize(string text) {
+		using var probe = JsonDocument.Parse(text);
+		if (probe.RootElement.ValueKind != JsonValueKind.Object
+			|| !probe.RootElement.TryGetProperty("version", out var format)
+			|| !format.TryGetInt32(out int version)) {
+			throw new JsonException("The ACP session document requires a numeric version.");
+		}
+		// Weavie carries no document migrations, so another generation's associations are unreadable here and
+		// the next write takes the file over. Malformed data at this version still fails without a reset.
+		if (version != Version) return [];
 		var document = JsonSerializer.Deserialize<Document>(text, JsonOptions)
 			?? throw new JsonException("The ACP session document is empty.");
-		if (document.Version != 2 || document.Sessions is null) {
-			throw new JsonException("The ACP session document requires version 2 and a sessions array.");
+		if (document.Sessions is null) {
+			throw new JsonException("The ACP session document requires a sessions array.");
 		}
 		var identities = new HashSet<string>(StringComparer.Ordinal);
 		var result = new List<Entry>();
@@ -153,7 +163,7 @@ public sealed class AcpSessionStore {
 
 	private void Persist(IReadOnlyList<Entry> entries) {
 		var document = new Document {
-			Version = 2,
+			Version = Version,
 			Sessions = [.. entries.Select(item => new StoredEntry {
 				ProviderId = item.ProviderId,
 				Cwd = item.Cwd,

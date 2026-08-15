@@ -56,6 +56,7 @@ public sealed partial class AcpAgentSession {
 	private async Task DeliverControlMutationAsync(AcpControlMutation mutation, long generation) {
 		AgentControlAxis control;
 		string sessionId;
+		bool mode;
 		lock (_gate) {
 			if (!_ready || _sessionId is null) return;
 			if (!_controls.TryGetValue(mutation.Axis, out control!)
@@ -64,10 +65,10 @@ public sealed partial class AcpAgentSession {
 					$"ACP no longer advertises '{mutation.Value}' for the '{mutation.Axis}' control.");
 			}
 			sessionId = _sessionId;
+			mode = mutation.Axis == "mode" && !_configOwnsMode;
 		}
 
 		JsonElement result;
-		bool mode = mutation.Axis == "mode";
 		if (mode) {
 			result = await _connection.RequestAsync(
 				"session/set_mode",
@@ -116,6 +117,7 @@ public sealed partial class AcpAgentSession {
 			}
 			ReadConfigOptionsLocked(config);
 		}
+		_configOwnsMode = _controls.ContainsKey("mode");
 		if (setup.TryGetProperty("modes", out var modes)) {
 			if (modes.ValueKind == JsonValueKind.Null) return;
 			if (modes.ValueKind != JsonValueKind.Object) {
@@ -136,14 +138,11 @@ public sealed partial class AcpAgentSession {
 	}
 
 	private void ReplaceConfigOptionsLocked(JsonElement config) {
-		_controls.TryGetValue("mode", out var mode);
+		var legacyMode = _configOwnsMode ? null : _controls.GetValueOrDefault("mode");
 		_controls.Clear();
 		ReadConfigOptionsLocked(config);
-		if (mode is null) return;
-		if (_controls.ContainsKey("mode")) {
-			throw new AcpProtocolException("ACP advertised both a mode and a configuration option named 'mode'.");
-		}
-		_controls.Add("mode", mode);
+		_configOwnsMode = _controls.ContainsKey("mode");
+		if (!_configOwnsMode && legacyMode is not null) _controls.Add("mode", legacyMode);
 	}
 
 	private void UpdateMode(JsonElement update) {
@@ -256,10 +255,10 @@ public sealed partial class AcpAgentSession {
 		Group = group,
 	};
 
+	// Agents mirror one mode axis in both configOptions and the legacy modes block. The config option owns
+	// it, because session/set_config_option is what writes it back.
 	private void ReadModesLocked(JsonElement modes) {
-		if (_controls.ContainsKey("mode")) {
-			throw new AcpProtocolException("ACP advertised both modes and a configuration option named 'mode'.");
-		}
+		if (_configOwnsMode) return;
 		string current = RequiredString(modes, "currentModeId", "session mode state");
 		if (!modes.TryGetProperty("availableModes", out var available) || available.ValueKind != JsonValueKind.Array) {
 			throw new AcpProtocolException("The ACP session mode state is missing availableModes.");

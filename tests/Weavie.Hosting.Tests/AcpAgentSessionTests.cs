@@ -537,6 +537,39 @@ public sealed class AcpAgentSessionTests {
 	}
 
 	[Fact]
+	public async Task NativeSession_KeepsRunningWhenAToolEmbedsAnAgentOwnedTerminal() {
+		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
+		await fixture.StartAsync();
+
+		fixture.Submit("agent-terminal");
+		var tool = await fixture.WaitForMessageAsync(message => message.ItemId == "tool:agent-exec"
+			&& message.Type == "item-completed");
+		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed");
+
+		Assert.Equal("agent-owned-terminal", tool.TerminalId);
+		Assert.DoesNotContain(fixture.Messages, message => message.Type == "error");
+		Assert.Equal(SessionStatus.Idle, fixture.Events.Status.Status);
+	}
+
+	[Fact]
+	public async Task NativeSession_MirroredModeIsOneConfigOwnedAxis() {
+		await using var fixture = AcpAgentSessionFixture.CreateMirroredModeAdapter();
+		var started = await fixture.StartAsync();
+
+		Assert.Equal("default", Assert.Single(started.Axes, axis => axis.Id == "mode").Value);
+
+		fixture.Session.SetControl("mode", "plan");
+		var controls = await fixture.WaitForControlsAsync(state =>
+			state.Axes.Any(axis => axis.Id == "mode" && axis.Value == "plan"));
+		fixture.Submit("control-state");
+		await fixture.WaitForMessageAsync(message => message.Text == "control state: alpha/plan/False");
+		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed");
+
+		Assert.Equal("plan", Assert.Single(controls.Axes, axis => axis.Id == "mode").Value);
+		Assert.DoesNotContain(fixture.Messages, message => message.Type == "error");
+	}
+
+	[Fact]
 	public async Task NativeSession_PromptFailureTerminalizesEveryActiveTool() {
 		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
 		await fixture.StartAsync();

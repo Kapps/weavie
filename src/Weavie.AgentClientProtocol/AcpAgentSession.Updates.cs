@@ -317,9 +317,12 @@ public sealed partial class AcpAgentSession {
 						NewText = RequiredText(item, "newText", "tool diff"),
 					});
 					break;
+				// A tool may embed a terminal the agent runs itself; only a client-created one has output here.
 				case "terminal":
 					tool.TerminalId = RequiredString(item, "terminalId", "tool terminal");
-					AppendTerminalOutput(text, _terminals.Output(tool.TerminalId));
+					if (_terminals.TryOutput(tool.TerminalId, out var terminal)) {
+						AppendTerminalOutput(text, terminal);
+					}
 					break;
 			}
 		}

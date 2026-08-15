@@ -179,6 +179,9 @@ public sealed partial class HostCore {
 		_messages.Host.Feature("updates").PublishJson("pending", json);
 	}
 
+	// Only the admit-or-reject decision (and the timestamp bookkeeping it depends on) needs to run under
+	// _drainGate: that's the only state EvaluateDrain's freeze/commit race cares about. accept() reaches a
+	// blocking PTY write, which must never execute while holding a lock shared by every other loaded session.
 	private void TryAcceptInput(string slot, bool userInitiated, Action accept) {
 		ArgumentNullException.ThrowIfNull(accept);
 		bool reevaluate;
@@ -187,13 +190,13 @@ public sealed partial class HostCore {
 				return;
 			}
 
-			accept();
-
 			if (userInitiated) {
 				_lastInputTimestamps[slot] = _drainTime.GetTimestamp();
 			}
 			reevaluate = _drainExit is not null;
 		}
+
+		accept();
 
 		if (reevaluate) {
 			EvaluateDrain();

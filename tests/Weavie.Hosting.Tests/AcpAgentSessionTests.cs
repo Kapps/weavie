@@ -95,8 +95,13 @@ public sealed class AcpAgentSessionTests {
 		Assert.Equal("new", Assert.Single(edit.Diffs!).NewText);
 		Assert.Contains(messages, message => message.ItemType == "plan"
 			&& message.Text!.Contains("[~] Implement", StringComparison.Ordinal));
-		Assert.Contains(messages, message => message.Type == "usage"
-			&& message.UsageUsed == 123 && message.UsageSize == 4096);
+		var usage = fixture.Session.Snapshot;
+		Assert.Equal(new AgentContextWindowUsage(123, 4096), usage.ContextWindow);
+		var limit = Assert.Single(usage.Limits);
+		Assert.Equal("seven_day", limit.Id);
+		Assert.Equal(AgentUsageLimitStatus.Warning, limit.Status);
+		Assert.Equal(62, limit.UsedPercent);
+		Assert.Equal(DateTimeOffset.FromUnixTimeSeconds(4102444800), limit.ResetsAt);
 		Assert.Contains(messages, message => message.Type == "item-completed" && message.Text == "rich response");
 		Assert.Equal(SessionStatus.Idle, fixture.Events.Status.Status);
 	}

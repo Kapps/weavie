@@ -62,8 +62,12 @@ test("ACP controls and rich structured output stay native @cross", async ({ page
   const usage = surface.getByRole("button", { name: "Context window 3% used" });
   await expect(usage.locator(".agent-usage-circle")).toBeVisible();
   await usage.hover();
+  const tooltip = page.getByRole("tooltip");
   // The grouping separator follows the browser locale; the token counts do not.
-  await expect(page.getByRole("tooltip")).toContainText(/123 of 4.?096 tokens/);
+  await expect(tooltip).toContainText(/123 of 4.?096 tokens/);
+  // The agent also reported a weekly window at 0.62 utilization through Claude's _meta extension.
+  await expect(tooltip).toContainText("Weekly limit");
+  await expect(tooltip).toContainText("62% used · approaching limit");
 });
 
 test("ACP steering and background completion return the session to idle @cross", async ({

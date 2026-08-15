@@ -15,7 +15,7 @@ import {
   openControlAxis,
   openControlPicker,
 } from "./agent-controls-store";
-import { agentContextUsage } from "./agent-usage-store";
+import { agentUsage } from "./agent-usage-store";
 
 // The dim strip under the composer: provider-owned ACP controls, Git diff totals, and PR status.
 export function AgentStatusLine(props: {
@@ -75,7 +75,7 @@ export function AgentStatusLine(props: {
   return (
     <Show
       when={
-        agentContextUsage(props.session) !== null ||
+        agentUsage(props.session)?.contextWindow != null ||
         state().axes.length > 0 ||
         hasDiff() ||
         diffError() !== null ||

@@ -64,7 +64,8 @@ public sealed partial class AcpAgentSession : IStructuredAgentSession, IStructur
 	private bool _cancelRequested;
 	private bool _controlMutationActive;
 	private long _submissionEpoch;
-	private volatile AgentContextWindowUsage? _contextUsage;
+	private AgentContextWindowUsage? _contextUsage;
+	private readonly Dictionary<string, AgentUsageLimit> _usageLimits = [];
 
 	/// <summary>Creates a supervised ACP conversation.</summary>
 	public AcpAgentSession(
@@ -100,7 +101,7 @@ public sealed partial class AcpAgentSession : IStructuredAgentSession, IStructur
 	public event Action<AgentControlState>? ControlStateChanged;
 
 	/// <inheritdoc/>
-	public event Action<AgentContextWindowUsage?>? ContextUsageChanged;
+	public event Action<AgentUsageSnapshot>? UsageChanged;
 
 	/// <inheritdoc/>
 	public AgentControlState ControlState {
@@ -115,7 +116,9 @@ public sealed partial class AcpAgentSession : IStructuredAgentSession, IStructur
 	}
 
 	/// <inheritdoc/>
-	public AgentContextWindowUsage? ContextUsage => _contextUsage;
+	public AgentUsageSnapshot Snapshot {
+		get { lock (_gate) return new(_contextUsage, [.. _usageLimits.Values]); }
+	}
 
 	private void Emit(AgentPaneMessage message) {
 		if (message.TurnId is { Length: > 0 } turnId

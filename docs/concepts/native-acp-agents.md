@@ -62,6 +62,15 @@ The client speaks ACP protocol version 1 over strict JSON-RPC framing. It uses c
 Unsupported optional capabilities stay absent from the UI; they do not create another session type. Malformed
 advertised data or protocol output fails the exact agent generation visibly.
 
+### Usage windows
+
+`usage_update` carries only context-window `used`/`size`. Usage windows — the 5-hour and weekly quotas — are a
+vendor extension: Claude's adapter attaches `_meta["_claude/rateLimit"]` to that same update, one window per
+event, so Weavie accumulates them by window id. Utilization arrives as a 0-1 fraction and only once a warning
+threshold is crossed, so a window renders its status and reset time even with no percentage. Codex's adapter
+reports no window over the protocol at all — it renders them as markdown inside its `/status` reply — so its
+sessions show the context circle alone until it exposes structured data.
+
 The generic idle condition is the absence of a primary prompt and live ACP tool calls. A prompt response may arrive
 while a tool remains active; the session stays Waiting until the tool completes. Runtime failure and explicit
 restart terminalize partial content and active tools so stale work cannot appear live.

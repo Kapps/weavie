@@ -260,9 +260,17 @@ public sealed class MessageOperationSupervisionTests {
 		operation.StartWatchdog();
 		var supervised = operation.SuperviseAsync(() => handler.Task);
 
+		// Flaked on main CI 2026-08-15 03:15 UTC (.NET tests, linux):
+		// https://github.com/Kapps/weavie/actions/runs/31861262573/job/94954950325 — timed out
+		// waiting 2s for slowEntered. Root cause: the "slow" callback blocks a thread-pool thread
+		// synchronously (GetAwaiter().GetResult()), and under heavy parallel test-run contention the
+		// pool can take longer than 2s to schedule that continuation. Not a regression in the
+		// watchdog itself. Widened to 10s to absorb pool contention while still failing fast if the
+		// watchdog genuinely stops firing.
+		var flakeTolerance = TimeSpan.FromSeconds(10);
 		try {
-			await slowEntered.Task.WaitAsync(TimeSpan.FromSeconds(2));
-			await timedOut.Task.WaitAsync(TimeSpan.FromSeconds(2));
+			await slowEntered.Task.WaitAsync(flakeTolerance);
+			await timedOut.Task.WaitAsync(flakeTolerance);
 			await Assert.ThrowsAsync<MessageOperationTimeoutException>(() => supervised);
 			Assert.True(operation.HasTimedOut);
 		} finally {

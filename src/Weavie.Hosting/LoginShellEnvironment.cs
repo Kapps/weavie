@@ -17,28 +17,30 @@ public static class LoginShellEnvironment {
 	private static readonly HashSet<string> Skip = new(StringComparer.Ordinal) { "_", "SHLVL", "PWD", "OLDPWD" };
 
 	private static bool _imported;
+	private static string _failure = string.Empty;
 
 	/// <summary>Marks the import as already done, so a test host never spawns the developer's real shell.</summary>
 	internal static void MarkImported() => _imported = true;
 
 	/// <summary>
 	/// Imports the login-shell environment on the first call (macOS/Linux); a no-op on Windows and on later calls.
+	/// Returns a user-facing explanation of why the environment could not be read, empty when it was.
 	/// </summary>
-	/// <param name="log">Sink for a one-line note of what was imported, or why the probe was skipped.</param>
-	public static async Task ImportOnceAsync(Action<string> log) {
+	/// <param name="log">Sink for a one-line note of what was imported.</param>
+	public static async Task<string> ImportOnceAsync(Action<string> log) {
 		ArgumentNullException.ThrowIfNull(log);
 		if (_imported) {
-			return;
+			return _failure;
 		}
 
 		_imported = true;
 		if (!OperatingSystem.IsMacOS() && !OperatingSystem.IsLinux()) {
-			return;
+			return _failure;
 		}
 
-		string? fenced = await ReadLoginShellEnvAsync(log).ConfigureAwait(false);
+		string? fenced = await ReadLoginShellEnvAsync().ConfigureAwait(false);
 		if (string.IsNullOrEmpty(fenced)) {
-			return;
+			return _failure;
 		}
 
 		var imports = ResolveImports(ParseEnv(fenced));
@@ -47,12 +49,19 @@ public static class LoginShellEnvironment {
 		}
 
 		log($"imported login-shell environment ({imports.Count} vars)");
+		return _failure;
 	}
 
+	/// <summary>Explains a probe whose fenced body never arrived — the shell never ran our command.</summary>
+	internal static string HijackedMessage(string shell) =>
+		$"Weavie could not read your shell environment: {shell} startup replaced the shell (an `exec` into another "
+		+ "shell) before Weavie's probe ran, so anything launched through it may open that shell instead.";
+
 	// `-i` is essential: vars usually live in the interactive rc (~/.zshrc), not the login profile (~/.zprofile).
-	private static async Task<string?> ReadLoginShellEnvAsync(Action<string> log) {
+	private static async Task<string?> ReadLoginShellEnvAsync() {
+		string shell = LoginShell();
 		var psi = new ProcessStartInfo {
-			FileName = LoginShell(),
+			FileName = shell,
 			RedirectStandardOutput = true,
 			RedirectStandardError = true,
 			UseShellExecute = false,
@@ -66,26 +75,26 @@ public static class LoginShellEnvironment {
 
 		Process? process = null;
 		try {
-			process = Process.Start(psi);
-			if (process is null) {
-				return null;
-			}
+			process = Process.Start(psi)
+				?? throw new InvalidOperationException($"{shell} did not start.");
 
 			// Drain both pipes so a chatty rc file can't deadlock the child, and bound the probe so a bad shell can't hang startup.
 			using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
 			var stdout = process.StandardOutput.ReadToEndAsync(cts.Token);
 			_ = process.StandardError.ReadToEndAsync(cts.Token);
 			await process.WaitForExitAsync(cts.Token).ConfigureAwait(false);
-			return ExtractFenced(await stdout.ConfigureAwait(false));
+			string? fenced = ExtractFenced(await stdout.ConfigureAwait(false));
+			_failure = fenced is null ? HijackedMessage(shell) : string.Empty;
+			return fenced;
 		} catch (OperationCanceledException) {
 			if (process is { HasExited: false }) {
 				process.Kill(entireProcessTree: true);
 			}
 
-			log("login-shell environment probe timed out; keeping inherited environment");
+			_failure = $"Weavie could not read your shell environment: {shell} startup did not finish within 5s.";
 			return null;
 		} catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException or IOException) {
-			log($"login-shell environment probe failed: {ex.Message}; keeping inherited environment");
+			_failure = $"Weavie could not read your shell environment: {ex.Message}";
 			return null;
 		} finally {
 			process?.Dispose();

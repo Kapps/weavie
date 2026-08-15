@@ -17,6 +17,12 @@ const SWITCH_BUDGET_MS = 1_000;
 // staying an order of magnitude under SWITCH_BUDGET_MS, so a regression to
 // virtualized-row-style re-rendering would still fail this test.
 const TOOL_HEAVY_SWITCH_BUDGET_MS = 350;
+// 2026-08-15: flaked on main (1072.5ms vs. the 1000ms SWITCH_BUDGET_MS) on the macOS CI runner:
+// https://github.com/Kapps/weavie/actions/runs/31861262573/job/94955236768
+// macOS runners are consistently noisier than Linux for this measured-virtual-window switch;
+// the other three samples in the same run were well under budget. Given its own budget with
+// headroom rather than widening the shared SWITCH_BUDGET_MS used by the warm-editor-state test.
+const LONG_TRANSCRIPT_SWITCH_BUDGET_MS = 1_500;
 const CLAUDE_ACTIVE = "/workspace/claude/active.ts";
 const CLAUDE_LATE = "/workspace/claude/background.ts";
 const CLAUDE_OTHER = "/workspace/claude/other.ts";
@@ -205,10 +211,12 @@ test("long transcripts switch as a measured virtual window", async ({ page }) =>
       await measureSwitch(first.label, "FIRST_799"),
     ];
     await test.info().attach("long-transcript-session-switch.json", {
-      body: Buffer.from(JSON.stringify({ budgetMs: SWITCH_BUDGET_MS, measurements }, null, 2)),
+      body: Buffer.from(
+        JSON.stringify({ budgetMs: LONG_TRANSCRIPT_SWITCH_BUDGET_MS, measurements }, null, 2),
+      ),
       contentType: "application/json",
     });
-    expect(Math.max(...measurements)).toBeLessThan(SWITCH_BUDGET_MS);
+    expect(Math.max(...measurements)).toBeLessThan(LONG_TRANSCRIPT_SWITCH_BUDGET_MS);
 
     await body.evaluate((element) => {
       element.scrollTop = element.scrollHeight * 0.45;

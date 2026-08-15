@@ -15,9 +15,18 @@ public sealed class LoginShellEnvironmentTests {
 			LoginShellEnvironment.ExtractFenced(
 				"Welcome!\n__WEAVIE_ENV_BEGIN__PATH=/usr/bin\0DOTNET_ROOT=/opt/dotnet\0__WEAVIE_ENV_END__\n"));
 
+	// An rc that `exec`s another shell (a common bash→nushell/fish chain) never reaches our command, so the fence
+	// never lands. That is a real failure the user must see, not an environment silently left as inherited.
 	[Fact]
 	public void ExtractFenced_ReturnsNull_WhenMarkersMissing() =>
 		Assert.Null(LoginShellEnvironment.ExtractFenced("rc file printed nothing useful"));
+
+	[Fact]
+	public void HijackedMessage_NamesTheShellAndTheExec() {
+		string message = LoginShellEnvironment.HijackedMessage("/usr/bin/bash");
+		Assert.Contains("/usr/bin/bash", message, StringComparison.Ordinal);
+		Assert.Contains("exec", message, StringComparison.Ordinal);
+	}
 
 	[Fact]
 	public void ParseEnv_SplitsPairs_AndToleratesEqualsInValues() {

@@ -309,6 +309,10 @@ public sealed partial class HostCore {
 		MarkAutoConfigPageReady();
 		SurfacePriorCrash();
 		SurfaceSessionStartupNotices();
+		if (_environmentImportFailure.Length > 0) {
+			Notify("warn", _environmentImportFailure, "shell-environment");
+		}
+
 		if (_settings.IsMalformed) {
 			NotifySettingsMalformed(true);
 		}

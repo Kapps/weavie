@@ -10,7 +10,7 @@ namespace Weavie.Hosting;
 // returns a bounded tail as the command's data payload — so Claude can read errors over runCommand that would
 // otherwise only surface in the terminal the app was launched from.
 public sealed partial class HostCore {
-	// The source-tab key for the diagnostics view; never fetched (the host fills its content directly).
+	// The source-tab path/key for the diagnostics view; never fetched (the host fills its content directly).
 	private const string LogsTarget = "about:logs";
 	// The source identity stamped on the logs tab's messages — the web keys the tab icon off it (like ISource.Id).
 	private const string LogsSourceId = "logs";
@@ -21,24 +21,19 @@ public sealed partial class HostCore {
 
 	private CommandResult ShowLogs(HostSession session) {
 		var (lines, dropped) = _logBuffer.Snapshot();
-		string full = string.Join('\n', lines);
 
-		// Human tab: the web opens a source tab only on `source-loading`, so post it first; the `source-doc` then
-		// fills the tab with the full buffer as pre-rendered `html` (SourceView re-sanitizes it via DOMPurify).
-		// Claude's plaintext channel is the DataJson tail below, so no `markdown` duplicate rides the bridge.
-		var messages = session.Bus.Feature("sources");
-		messages.Publish("loading", new {
+		// Human tab: fill the target's document state, then open the tab — the host owns tab opening, and the
+		// snapshot is already in hand, so the tab arrives titled and populated with no `loading` state to resolve.
+		// State (not a bare publish) so a reconnecting client replays it into the still-open tab. Claude's
+		// plaintext channel is the DataJson tail below, so no `markdown` duplicate rides the bridge.
+		session.State.Set("sources", LogsTarget, "document", new {
 			target = LogsTarget,
 			title = LogsTitle,
-			sourceId = LogsSourceId,
-		});
-		messages.Publish("document", new {
-			target = LogsTarget,
-			title = LogsTitle,
-			html = LogsHtml(full, dropped),
+			html = LogsHtml(string.Join('\n', lines), dropped),
 			editedTime = "",
 			sourceId = LogsSourceId,
 		});
+		session.OpenEditorOverlay(LogsTarget, "source");
 
 		// Claude channel: the most-recent tail, with the omitted count surfaced so a truncation is never silent.
 		int shown = Math.Min(lines.Count, LogTailForClaude);

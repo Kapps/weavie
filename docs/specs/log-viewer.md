@@ -26,7 +26,7 @@ flowchart LR
   end
   Cmd["weavie.view.logs"] --> Show["HostCore.ShowLogs()"]
   Ring --> Show
-  Show -->|source-loading + source-doc html| Tab["about:logs source tab"]
+  Show -->|sources document html + editor openOverlay| Tab["about:logs source tab"]
   Show -->|CommandResult.DataJson tail| Claude["Claude (runCommand)"]
 ```
 
@@ -50,12 +50,14 @@ tests build `HostServices` inline and inject a fresh `new LogBuffer(...)`, never
 
 `HostCore.ShowLogs()` (`HostCore.Logs.cs`) snapshots the buffer and:
 
-1. Posts `source-loading` (`target: "about:logs"`, `sourceId: "logs"` — keys the tab icon) — the only message
-   the web opens a source tab on — then
-   `source-doc` (same target, `title: "Weavie Logs"`, `html`) — the full buffer as an escaped `<pre>` (via
-   `WebUtility.HtmlEncode`; `SourceView` re-sanitizes with DOMPurify), prefixed with a dropped-lines marker when
-   the ring evicted earlier output. `html` is the source-doc body for host-rendered docs; Notion docs send
-   `markdown` instead.
+1. Sets the session-state `sources` document for `target: "about:logs"` (`sourceId: "logs"` — keys the tab icon;
+   `title: "Weavie Logs"`; `html`) — the full buffer as an escaped `<pre>` (via `WebUtility.HtmlEncode`;
+   `SourceView` re-sanitizes with DOMPurify), prefixed with a dropped-lines marker when the ring evicted earlier
+   output. `html` is the document body for host-rendered docs; Notion docs send `markdown` instead. It then opens
+   the tab with `OpenEditorOverlay(target, "source")` — **the host opens source tabs**, exactly as the Notion path
+   does; the document event alone only fills the store, so without the overlay the command is a toast with nothing
+   behind it. The snapshot is already in hand, so there is no `loading` state to resolve. Durable state (not a
+   bare publish) means a reconnecting client replays the document into its restored tab.
 2. Returns `CommandResult.Success(message, dataJson)` where `dataJson` is `{ log, shown, omitted }` — the last
    `LogTailForClaude` (500) lines, with `omitted = dropped + (buffered − shown)` so Claude sees when more exists.
 
@@ -75,7 +77,8 @@ reachable from the palette and from Claude.
 ## Not in v1
 
 - **Snapshot, not live tail.** The tab shows a point-in-time snapshot; re-running the command refreshes it.
-- **No stale restore.** A persisted `about:logs` tab restores empty on relaunch (source-tab content is never
-  persisted — same as a Notion tab); re-running the command repopulates it.
+- **No stale restore.** A persisted `about:logs` tab restores empty on **relaunch** (source-tab content is never
+  persisted — same as a Notion tab); re-running the command repopulates it. A page reload inside a running host
+  replays the snapshot from session state.
 - **Earliest process output** (banners printed before the host builds `HostServices`/`AppController`) predates
   the tee and isn't captured; the diagnostics that motivate this feature all come later.

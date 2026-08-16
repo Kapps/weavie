@@ -48,7 +48,7 @@ public sealed partial class AgentSessionHost {
 		}
 	}
 
-	private void ReplacePaneSnapshot(IReadOnlyList<AgentPaneMessage> messages) {
+	private void RestorePaneSnapshot(IReadOnlyList<AgentPaneMessage> messages) {
 		ArgumentNullException.ThrowIfNull(messages);
 		lock (_paneGate) {
 			// Filling an empty pane is not a new epoch. A generation change tells every client its ordinals are
@@ -62,12 +62,15 @@ public sealed partial class AgentSessionHost {
 				return;
 			}
 
+			// Replacing content does void those ordinals. paneReset says so, but it is a broadcast: a page that
+			// misses it is stranded, and a reset alone leaves nothing else to notice. So the restored records
+			// also go out live in the new generation -- observing one carries the same meaning, and that path
+			// needs no delivery guarantee. Reset first: it discards anything still buffered from the old epoch.
 			ResetPaneLocked();
-			foreach (var message in messages) {
-				StorePaneMessageLocked(message);
-			}
-
 			_paneOutput.Reset();
+			foreach (var message in messages) {
+				_paneOutput.Live(StorePaneMessageLocked(message));
+			}
 		}
 	}
 

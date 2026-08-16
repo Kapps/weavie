@@ -64,7 +64,7 @@ public sealed partial class AgentSessionHost : IAsyncDisposable {
 		} else if (Session is IStructuredAgentSession structuredSession) {
 			Structured = structuredSession;
 			structuredSession.PaneMessage += PublishPaneMessage;
-			structuredSession.PaneSnapshot += ReplacePaneSnapshot;
+			structuredSession.PaneSnapshot += RestorePaneSnapshot;
 		} else {
 			throw new InvalidOperationException($"Provider '{Provider.Id}' returned an unsupported agent session.");
 		}
@@ -112,7 +112,7 @@ public sealed partial class AgentSessionHost : IAsyncDisposable {
 		}
 		if (Structured is { } structured) {
 			structured.PaneMessage -= PublishPaneMessage;
-			structured.PaneSnapshot -= ReplacePaneSnapshot;
+			structured.PaneSnapshot -= RestorePaneSnapshot;
 		}
 		if (Controls is { } controls) {
 			controls.ControlStateChanged -= PublishControlState;

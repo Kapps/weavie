@@ -75,6 +75,15 @@ Elicitation is an explicit trust boundary. Form and URL cards support accept, de
 require absolute HTTP(S) URLs. Password fields and unsafe URL schemes are rejected visibly. Permissions default to
 the strongest allow choice the agent advertises; provider sandboxing remains provider-owned.
 
+### Usage windows
+
+`usage_update` carries only context-window `used`/`size`. Usage windows — the 5-hour and weekly quotas — are a
+vendor extension: Claude's adapter attaches `_meta["_claude/rateLimit"]` to that same update, one window per
+event, so Weavie accumulates them by window id. Utilization arrives as a 0-1 fraction and only once a warning
+threshold is crossed, so a window renders its status and reset time even with no percentage. Codex's adapter
+reports no window over the protocol at all — it renders them as markdown inside its `/status` reply — so its
+sessions show the context circle alone until it exposes structured data.
+
 ## Persistence
 
 ACP session ids are stored by exact provider id and canonical workspace before the first prompt is sent. If that

@@ -85,12 +85,13 @@ public sealed partial class AcpAgentSession {
 				_turnItemIds.Clear();
 				_replayContentRole = null;
 				_contextUsage = null;
+				_usageLimits.Clear();
 			}
 		}
 		CancelPendingInteractions();
 		AbandonClientRequests();
 		RaiseControls();
-		ContextUsageChanged?.Invoke(ContextUsage);
+		UsageChanged?.Invoke(Snapshot);
 		RunRuntime(process.Generation, () => InitializeGenerationAsync(process));
 	}
 

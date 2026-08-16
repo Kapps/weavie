@@ -82,7 +82,7 @@ public sealed partial class AgentSessionHost : IAsyncDisposable {
 		}
 		if (Session is IStructuredAgentUsage usage) {
 			Usage = usage;
-			usage.ContextUsageChanged += PublishContextUsage;
+			usage.UsageChanged += PublishUsage;
 		}
 	}
 
@@ -101,7 +101,7 @@ public sealed partial class AgentSessionHost : IAsyncDisposable {
 	/// <summary>The provider's live model/approvals/sandbox controls, when it exposes them.</summary>
 	public IStructuredAgentControls? Controls { get; }
 
-	/// <summary>The provider's live context-window usage, when it exposes it.</summary>
+	/// <summary>The provider's live context-window and usage-limit reporting, when it exposes it.</summary>
 	public IStructuredAgentUsage? Usage { get; }
 
 	internal AgentAuthenticationTerminal? AuthenticationTerminal { get; }
@@ -122,7 +122,7 @@ public sealed partial class AgentSessionHost : IAsyncDisposable {
 			controls.ControlStateChanged -= PublishControlState;
 		}
 		if (Usage is { } usage) {
-			usage.ContextUsageChanged -= PublishContextUsage;
+			usage.UsageChanged -= PublishUsage;
 		}
 		if (_paneJournal is { } journal) {
 			await journal.DisposeAsync().ConfigureAwait(false);
@@ -169,7 +169,7 @@ public sealed partial class AgentSessionHost : IAsyncDisposable {
 
 	private void ReplayUsage(IMessageFeatureTarget messages) {
 		if (Usage is not null) {
-			messages.Publish("usage", AgentUsageProtocol.Message(Usage.ContextUsage));
+			messages.Publish("usage", AgentUsageProtocol.Message(Usage.Snapshot));
 		}
 	}
 
@@ -179,8 +179,8 @@ public sealed partial class AgentSessionHost : IAsyncDisposable {
 	private void PublishControlState(AgentControlState state) =>
 		_messages.Publish("controls", AgentControlsProtocol.Message(state));
 
-	private void PublishContextUsage(AgentContextWindowUsage? context) =>
-		_messages.Publish("usage", AgentUsageProtocol.Message(context));
+	private void PublishUsage(AgentUsageSnapshot usage) =>
+		_messages.Publish("usage", AgentUsageProtocol.Message(usage));
 
 	private sealed class AgentTerminalProcess(ITerminalAgentSession session) : ITerminalProcess {
 		public AgentLaunch ResolveLaunch() => session.ResolveLaunch();

@@ -1,12 +1,13 @@
-import type { AgentContextWindowUsage, ClientSession } from "../bridge";
+import type { AgentUsageSnapshot, ClientSession } from "../bridge";
 import { createSessionFeatureValue } from "../messaging/session-feature-value";
 
-const contextFor = createSessionFeatureValue<
-  { state: AgentContextWindowUsage | null },
-  AgentContextWindowUsage | null
->("agent", "usage", ({ state }) => state);
+const snapshotFor = createSessionFeatureValue<{ state: AgentUsageSnapshot }, AgentUsageSnapshot>(
+  "agent",
+  "usage",
+  ({ state }) => state,
+);
 
-/** One exact session's provider-reported context window, or null before any snapshot is available. */
-export function agentContextUsage(session: ClientSession | null): AgentContextWindowUsage | null {
-  return contextFor(session);
+/** One exact session's provider-reported usage, or null before any snapshot is available. */
+export function agentUsage(session: ClientSession | null): AgentUsageSnapshot | null {
+  return snapshotFor(session);
 }

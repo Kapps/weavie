@@ -144,8 +144,6 @@ internal static class AgentPaneProtocol {
 		parentItemId = record.Message.ParentItemId,
 		background = record.Message.Background,
 		terminalId = record.Message.TerminalId,
-		usageUsed = record.Message.UsageUsed,
-		usageSize = record.Message.UsageSize,
 		mediaType = record.Message.MediaType,
 		mediaData = record.Message.MediaData,
 		resourceUri = record.Message.ResourceUri,

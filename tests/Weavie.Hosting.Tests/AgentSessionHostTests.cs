@@ -19,14 +19,24 @@ public sealed class AgentSessionHostTests {
 	public async Task StructuredUsage_IsPublishedAndReplayedForItsOwningSession() {
 		await using var fixture = CreateFixture(static () => "slot-1", static (_, _) => { }, 0);
 		var (bridge, session, host) = (fixture.Bridge, fixture.Session, fixture.Host);
-		session.EmitUsage(new AgentContextWindowUsage(25000, 100000));
+		session.EmitUsage(new AgentUsageSnapshot(
+			new(25000, 100000),
+			[new("seven_day", AgentUsageLimitStatus.Warning, 62, DateTimeOffset.FromUnixTimeSeconds(1731547200))]));
 		var published = Assert.Single(bridge.PostedEventsNamed("usage")).GetProperty("state");
-		Assert.Equal(25000, published.GetProperty("usedTokens").GetInt64());
+		Assert.Equal(25000, published.GetProperty("contextWindow").GetProperty("usedTokens").GetInt64());
+		var limit = Assert.Single(published.GetProperty("limits").EnumerateArray());
+		Assert.Equal("seven_day", limit.GetProperty("id").GetString());
+		Assert.Equal("warning", limit.GetProperty("status").GetString());
+		Assert.Equal(62, limit.GetProperty("usedPercent").GetDouble());
 
 		bridge.Clear();
 		host.ReplayState();
 		var replayed = Assert.Single(bridge.PostedEventsNamed("usage")).GetProperty("state");
-		Assert.Equal(100000, replayed.GetProperty("capacityTokens").GetInt64());
+		Assert.Equal(100000, replayed.GetProperty("contextWindow").GetProperty("capacityTokens").GetInt64());
+		Assert.Equal(
+			1731547200000,
+			Assert.Single(replayed.GetProperty("limits").EnumerateArray())
+				.GetProperty("resetsAtMs").GetInt64());
 	}
 
 	[Fact]
@@ -722,9 +732,9 @@ public sealed class AgentSessionHostTests {
 	private sealed class FakeStructuredSession : IStructuredAgentSession, IStructuredAgentUsage {
 		public event Action<AgentPaneMessage>? PaneMessage;
 		public event Action<IReadOnlyList<AgentPaneMessage>>? PaneSnapshot;
-		public event Action<AgentContextWindowUsage?>? ContextUsageChanged;
+		public event Action<AgentUsageSnapshot>? UsageChanged;
 
-		public AgentContextWindowUsage? ContextUsage { get; private set; }
+		public AgentUsageSnapshot Snapshot { get; private set; } = new(null, []);
 
 		public bool Started { get; private set; }
 
@@ -737,9 +747,9 @@ public sealed class AgentSessionHostTests {
 
 		public void Replace(IReadOnlyList<AgentPaneMessage> messages) => PaneSnapshot?.Invoke(messages);
 
-		public void EmitUsage(AgentContextWindowUsage context) {
-			ContextUsage = context;
-			ContextUsageChanged?.Invoke(context);
+		public void EmitUsage(AgentUsageSnapshot usage) {
+			Snapshot = usage;
+			UsageChanged?.Invoke(usage);
 		}
 
 		public void Submit(AgentTurnSubmission submission) => throw new NotSupportedException();

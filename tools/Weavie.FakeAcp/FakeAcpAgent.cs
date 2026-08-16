@@ -360,6 +360,20 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 			}),
 		});
 		Update(new JsonObject { ["sessionUpdate"] = "usage_update", ["used"] = 123, ["size"] = 4096 });
+		// Usage windows ride the same update through Claude's vendor _meta extension.
+		Update(new JsonObject {
+			["sessionUpdate"] = "usage_update",
+			["used"] = 123,
+			["size"] = 4096,
+			["_meta"] = new JsonObject {
+				["_claude/rateLimit"] = new JsonObject {
+					["status"] = "allowed_warning",
+					["rateLimitType"] = "seven_day",
+					["utilization"] = 0.62,
+					["resetsAt"] = 4102444800,
+				},
+			},
+		});
 		Message("rich response");
 	}
 

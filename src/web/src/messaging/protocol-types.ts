@@ -78,8 +78,6 @@ export interface AgentPaneUpdate {
   parentItemId?: string | null;
   background?: boolean | null;
   terminalId?: string | null;
-  usageUsed?: number | null;
-  usageSize?: number | null;
   mediaType?: string | null;
   mediaData?: string | null;
   resourceUri?: string | null;
@@ -185,6 +183,18 @@ export interface AgentControlState {
 export interface AgentContextWindowUsage {
   usedTokens: number;
   capacityTokens: number;
+}
+
+export interface AgentUsageLimit {
+  id: string;
+  status: "allowed" | "warning" | "exhausted";
+  usedPercent: number | null;
+  resetsAtMs: number | null;
+}
+
+export interface AgentUsageSnapshot {
+  contextWindow: AgentContextWindowUsage | null;
+  limits: AgentUsageLimit[];
 }
 
 export interface SuggestionAction {

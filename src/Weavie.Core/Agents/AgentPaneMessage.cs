@@ -68,12 +68,6 @@ public sealed record AgentPaneMessage {
 	/// <summary>The terminal referenced by a tool update, when any.</summary>
 	public string? TerminalId { get; init; }
 
-	/// <summary>Context-window tokens currently used, when reported.</summary>
-	public long? UsageUsed { get; init; }
-
-	/// <summary>Total context-window size, when reported.</summary>
-	public long? UsageSize { get; init; }
-
 	/// <summary>The MIME type for inline media content.</summary>
 	public string? MediaType { get; init; }
 

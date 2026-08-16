@@ -1143,6 +1143,10 @@ a.agent-entry-media {
   padding: 5px 0;
 }
 
+.agent-usage-tooltip-section + .agent-usage-tooltip-section {
+  border-top: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
+}
+
 .agent-usage-tooltip-title {
   min-width: 0;
   font-weight: 600;
@@ -1152,6 +1156,14 @@ a.agent-entry-media {
   color: color-mix(in srgb, var(--fg) 82%, var(--dim));
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+.agent-usage-tooltip-value[data-status="warning"] {
+  color: var(--warn);
+}
+
+.agent-usage-tooltip-value[data-status="exhausted"] {
+  color: var(--bad);
 }
 
 .agent-usage-tooltip-detail {

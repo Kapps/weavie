@@ -122,6 +122,22 @@ public sealed class StructuredPanePersistenceTests {
 		Assert.Empty(missing);
 	}
 
+	// A provider emits its own chrome (thread-ready) before it replays, so a restore always lands over a
+	// non-empty pane and does void the ordinals a client holds. paneReset says so, but it is a broadcast a page
+	// reconnecting mid-load can miss, and a bare reset leaves nothing else to notice. The restored records must
+	// therefore be readable straight off the live stream, without the client ever asking for history.
+	[Fact]
+	public async Task ProviderReplay_RepublishesRestoredRecordsLive() {
+		await using var host = await StartWithStructuredSessionAsync("structured-branch");
+		var session = host.Session("structured-branch");
+		Submit(host, session, "hello");
+
+		await host.RestartAsync();
+		session = host.Session("structured-branch");
+
+		Assert.True(HasPaneMessage(host.Bridge, session, "item-completed", "echo: hello"));
+	}
+
 	[Fact]
 	public async Task LifecycleSync_DoesNotPushTranscriptHistory() {
 		await using var host = await StartWithStructuredSessionAsync("structured-branch");

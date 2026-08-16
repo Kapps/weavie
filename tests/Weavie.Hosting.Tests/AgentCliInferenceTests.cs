@@ -46,7 +46,7 @@ public sealed class AgentCliInferenceTests : IDisposable {
 		Assert.DoesNotContain("--fallback-model", runner.Request.Arguments);
 		Assert.Empty(runner.Request.RemoveEnvironment);
 		Assert.Contains("fix webm", runner.Request.StandardInput, StringComparison.Ordinal);
-		Assert.False(Directory.Exists(runner.Request.WorkingDirectory));
+		Assert.Equal(_dir, runner.Request.WorkingDirectory);
 		Assert.Equal(1, runner.Calls);
 	}
 
@@ -65,7 +65,7 @@ public sealed class AgentCliInferenceTests : IDisposable {
 	}
 
 	[Fact]
-	public async Task CancellationPropagatesAndStillCleansThePrivateDirectory() {
+	public async Task CancellationPropagatesAndLeavesTheOwningWorkspaceIntact() {
 		SetPath("claude.path", Path.Combine(_dir, "claude"));
 		var runner = new RecordingRunner((_, ct) => Task.FromCanceled<AgentCliProcessResult>(ct));
 		var provider = new ClaudeCliInference(_settings, runner);
@@ -75,15 +75,17 @@ public sealed class AgentCliInferenceTests : IDisposable {
 		await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
 			provider.QueryInferenceAsync(Request(InferenceModelCategory.Utility), cancellation.Token));
 
-		Assert.False(Directory.Exists(runner.Request!.WorkingDirectory));
+		Assert.Equal(_dir, runner.Request!.WorkingDirectory);
+		Assert.True(Directory.Exists(_dir));
 		Assert.Equal(1, runner.Calls);
 	}
 
 	private void SetPath(string key, string value) =>
 		_settings.Set(key, JsonSerializer.SerializeToElement(value));
 
-	private static InferenceProviderRequest Request(InferenceModelCategory category) => new() {
+	private InferenceProviderRequest Request(InferenceModelCategory category) => new() {
 		Category = category,
+		Workspace = _dir,
 		Prompt = "Return one branch name.\n\n{\"prompt\":\"fix webm\"}",
 		OutputSchemaJson = "{\"type\":\"object\",\"properties\":{\"branch\":{\"type\":\"string\"}},"
 			+ "\"required\":[\"branch\"],\"additionalProperties\":false}",

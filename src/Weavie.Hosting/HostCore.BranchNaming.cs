@@ -27,8 +27,10 @@ public sealed partial class HostCore {
 			return new BranchPreviewResult(string.Empty, $"Couldn't read repository branch information: {ex.Message}");
 		}
 
+		// The branch is named before its session exists, so the request is owned by the workspace it forks from.
+		var owner = new InferenceOwner { AgentProviderId = agentProviderId, Workspace = sourceRoot };
 		var result = await _inference.QueryAsync(
-			agentProviderId,
+			owner,
 			InferenceModelCategory.Utility,
 			BranchNameInference.BuildPrompt(input),
 			BranchNameInference.ResponseType,

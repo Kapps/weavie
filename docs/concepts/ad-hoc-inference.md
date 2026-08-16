@@ -4,42 +4,63 @@ Weavie has two model-execution modes:
 
 - **Agent sessions** are persistent, transcript-bearing, tool-capable runtimes attached to a worktree.
 - **Ad-hoc inference** is one isolated query over exactly the typed data a feature supplies. It has no interactive
-  session, resume identity, Weavie MCP connection, or target-workspace working directory.
+  session, resume identity, Weavie MCP connection, or persisted transcript.
 
-The query asks the selected agent provider for its optional inference capability. Terminal Claude implements that
-capability with `claude --print` and its normal authentication selection. Registry ACP agents do not: selecting one
-returns a visible “does not support ad-hoc inference” result. There is no provider switch or hidden fallback.
+## Session-owned by construction
+
+Inference is never routed independently of the work it is about. Every query names an `InferenceOwner` — the
+session's agent provider plus its worktree root — and the service derives both the provider and the working
+directory from it. There is no `inference.provider` setting and no provider picker: the agent that renders your
+session is the agent that answers questions about it.
+
+The query runs **in the owning worktree**, not a scratch directory. Inference is about the user's code, so the agent
+sees the repository it is reasoning over — including whatever conventions `AGENTS.md` already documents. Keeping the
+working directory stable across queries also keeps the provider's cached prompt prefix intact.
 
 Features call one internal generic API with a complete prompt, strict response `JsonTypeInfo<T>`, invocation origin,
 and resource bounds. A shared prompt builder serializes typed feature context behind the same untrusted-data framing.
-There is no operation registry or provider method per feature. The caller chooses a provider-neutral category:
+The caller chooses a provider-neutral category (`Utility` or `Reasoning`); provider model ids stay inside the
+provider.
 
-| Category | Claude profile |
-|---|---|
-| `Utility` | Haiku, low effort |
-| `Reasoning` | Sonnet, medium effort |
+## Two providers, one contract
 
-Provider model ids stay inside the Claude implementation. Weavie starts exactly one CLI process and never retries, repairs,
-escalates, or switches models/providers. The installed CLI may have internal transport behavior its supported flags
-do not expose; the query deadline is the outer latency bound.
+**Terminal Claude** runs `claude --print` in safe mode with tools disabled, strict MCP configuration, no slash
+commands, no session persistence, and a JSON Schema derived from the response type.
 
-Claude runs in safe mode with tools disabled, strict empty MCP configuration, no slash commands, and no session
-persistence. The process runs in a private empty directory and never receives a Weavie MCP connection.
+**Any ACP agent** runs one transient process, one throwaway session, and one prompt turn. Isolation is structural
+rather than declarative: Weavie advertises no client capabilities, passes no MCP servers, and refuses every agent
+request — filesystem, terminal, permission, and elicitation alike. An agent with nothing to reach for makes no tool
+calls.
 
-Claude receives a JSON Schema derived from the response type. Weavie independently rejects oversized, malformed,
-missing, unknown, or incorrectly typed members. The feature performs semantic and authoritative validation after
-typed decoding. A branch proposal must additionally pass Git syntax and collision checks; model output is never
-authoritative state.
-The compact new-session composer requests that proposal after 500 ms without typing and displays it in an editable
-branch field before creation. New typing or manual branch input cancels the superseded CLI process.
+ACP has no output-schema field, so the schema travels in the prompt and Weavie enforces it locally: the reply must be
+exactly one JSON value, or the query fails. Prose, explanations, and markdown fences are rejected rather than
+salvaged.
 
-Every non-cancellation failure takes the feature's visible failure path. Branch preview returns an empty field and
-shows the failure reason while requiring manual input; it never manufactures a branch name. Caller cancellation
-propagates because canceled work must not continue into a side effect.
+Weavie starts exactly one process per query and never retries, repairs, escalates, or switches models or providers.
+The query deadline is the outer latency bound.
+
+## Weavie does not choose models
+
+ACP exposes model and reasoning-level selectors — `configOptions` carries the reserved `model` and `thought_level`
+categories — but no cost, capability, or ordering semantics for their values. Option ids and value ids are
+agent-defined opaque strings, presence is not guaranteed, and the option set changes when another option changes. No
+amount of probing recovers price, because ACP reports tokens and never a rate.
+
+So Weavie doesn't try. Every category runs the agent's own configured model at its own configured effort, and the
+receipt reports which model answered. Measurement on the two shipped registry agents showed the defaults are already
+right for a fifty-token query; overriding them cost a fresh cache lineage and, on a small model, produced slower,
+longer, unparseable output.
+
+## Failures are values
+
+Every non-cancellation failure takes the feature's visible failure path with a reason that names the actual cause —
+an unparseable reply, an authentication demand, an agent that never started. Branch preview returns an empty field
+and shows that reason while requiring manual input; it never manufactures a branch name. Caller cancellation
+propagates, because canceled work must not continue into a side effect.
+
 `inference.enabled` is off by default, and automatic/event-triggered calls additionally require
 `inference.allowAutomatic`. When either gate is off, the first page connection in an app run offers a persistent
-notification whose **Allow** command enables and verifies both settings. Closing it changes no policy; the offer may
-return after the app is relaunched.
+notification whose **Allow** command enables and verifies both settings.
 
 The complete contract and first proving flow are in
 [the ad-hoc inference specification](../specs/ad-hoc-inference.md).

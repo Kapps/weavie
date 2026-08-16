@@ -73,7 +73,7 @@ public sealed class InferenceServiceTests : IDisposable {
 		var first = Assert.IsType<InferenceSuccess<TestOutput>>(
 			await Query(service, "first", UserOptions(), CancellationToken.None));
 		var second = Assert.IsType<InferenceSuccess<CountOutput>>(await service.QueryAsync(
-			"test-agent",
+			Owner("test-agent"),
 			InferenceModelCategory.Utility,
 			"second",
 			StrictType<CountOutput>(),
@@ -178,7 +178,7 @@ public sealed class InferenceServiceTests : IDisposable {
 		var provider = new FakeProvider(Success("{\"value\":\"unused\"}"));
 
 		var result = await Service(provider).QueryAsync(
-			"test-agent",
+			Owner("test-agent"),
 			InferenceModelCategory.Reasoning,
 			"task",
 			StrictType<TestOutput>(),
@@ -197,7 +197,7 @@ public sealed class InferenceServiceTests : IDisposable {
 		};
 
 		await Assert.ThrowsAsync<InvalidOperationException>(() => Service(provider).QueryAsync(
-			"test-agent",
+			Owner("test-agent"),
 			InferenceModelCategory.Utility,
 			"task",
 			(JsonTypeInfo<TestOutput>)loose.GetTypeInfo(typeof(TestOutput)),
@@ -211,7 +211,7 @@ public sealed class InferenceServiceTests : IDisposable {
 		string prompt,
 		InferenceQueryOptions options,
 		CancellationToken ct) => service.QueryAsync(
-			"test-agent",
+			Owner("test-agent"),
 			InferenceModelCategory.Utility,
 			prompt,
 			StrictType<TestOutput>(),
@@ -223,6 +223,11 @@ public sealed class InferenceServiceTests : IDisposable {
 		providers.Register(provider);
 		return new InferenceService(_settings, providers);
 	}
+
+	private static InferenceOwner Owner(string agentProviderId) => new() {
+		AgentProviderId = agentProviderId,
+		Workspace = Path.GetTempPath(),
+	};
 
 	private static InferenceQueryOptions UserOptions() =>
 		Options(InferenceInvocationOrigin.UserInitiated);

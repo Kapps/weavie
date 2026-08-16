@@ -16,17 +16,15 @@ public sealed partial class AcpAgentSession {
 				throw new AcpProtocolException($"ACP repeated outstanding URL elicitation id '{elicitationId}'.");
 			}
 			var data = JsonSerializer.SerializeToElement(Array.Empty<object>());
-			if (!_pendingRequests.TryAdd(
-				request.Id,
-				new AcpPendingRequest(request, "url", data, SessionId(), TurnId()))) {
+			var urlPending = new AcpPendingRequest(request, "url", data, SessionId(), TurnId());
+			if (!_pendingRequests.TryAdd(request.Id, urlPending)) {
 				_urlElicitations.TryRemove(elicitationId, out _);
 				throw new AcpProtocolException($"ACP request id '{request.Id}' is already pending.");
 			}
 			try {
-				PublishInputRequest(state, request, () => new AgentPaneMessage {
+				PublishInputRequest(state, urlPending, () => new AgentPaneMessage {
 					Type = "input-requested",
 					ProviderId = _definition.Id,
-					ThreadId = SessionId(),
 					ItemId = $"request:{request.Id}",
 					RequestId = request.Id,
 					ItemType = "url",
@@ -45,15 +43,13 @@ public sealed partial class AcpAgentSession {
 			throw new AcpProtocolException($"Unsupported ACP elicitation mode '{mode}'.");
 		}
 		var questions = ReadQuestions(schema, OptionalString(request.Parameters, "message"));
-		if (!_pendingRequests.TryAdd(
-			request.Id,
-			new AcpPendingRequest(request, "input", schema.Clone(), SessionId(), TurnId()))) {
+		var pending = new AcpPendingRequest(request, "input", schema.Clone(), SessionId(), TurnId());
+		if (!_pendingRequests.TryAdd(request.Id, pending)) {
 			throw new AcpProtocolException($"ACP request id '{request.Id}' is already pending.");
 		}
-		PublishInputRequest(state, request, () => new AgentPaneMessage {
+		PublishInputRequest(state, pending, () => new AgentPaneMessage {
 			Type = "input-requested",
 			ProviderId = _definition.Id,
-			ThreadId = SessionId(),
 			ItemId = $"request:{request.Id}",
 			RequestId = request.Id,
 			ItemType = "elicitation",
@@ -66,14 +62,16 @@ public sealed partial class AcpAgentSession {
 
 	private void PublishInputRequest(
 		AcpClientRequestState state,
-		AcpClientRequest request,
+		AcpPendingRequest pending,
 		Func<AgentPaneMessage> createMessage) {
 		if (state.PublishDeferred(() => {
 			Observe(new AgentInputRequested());
 			Observe(new AgentInputResolved(RequiresUserInput: true));
-			Emit(createMessage());
+			// The pane keys an item by (threadId, turnId, itemId), and the resolution reads its identity off this
+			// same record -- so stamping it here is what keeps the two from ever disagreeing.
+			Emit(createMessage() with { ThreadId = pending.ThreadId, TurnId = pending.TurnId });
 		})) return;
-		_pendingRequests.TryRemove(request.Id, out _);
+		_pendingRequests.TryRemove(pending.Request.Id, out _);
 		state.Token.ThrowIfCancellationRequested();
 	}
 

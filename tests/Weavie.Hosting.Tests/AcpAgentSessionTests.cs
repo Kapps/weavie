@@ -317,6 +317,25 @@ public sealed class AcpAgentSessionTests {
 		Assert.Equal(SessionStatus.Idle, fixture.Events.Status.Status);
 	}
 
+	// The pane keys every item by (threadId, turnId, itemId), so a request and its resolution have to agree on all
+	// three. Disagree and the client files the resolution under a key it never looks up for that entry: the card
+	// stays pending forever, still rendering live buttons that resolve a request the session already settled.
+	[Fact]
+	public async Task NativeSession_ResolvesAnInputRequestUnderTheIdentityItAnnounced() {
+		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: false, persistedSessionId: null);
+		await fixture.StartAsync();
+
+		fixture.Submit("input-default-schema");
+		var requested = await fixture.WaitForMessageAsync(message => message.Type == "input-requested");
+		fixture.Session.ResolveInput(
+			requested.RequestId!, "accept", new Dictionary<string, IReadOnlyList<string>>());
+		var resolved = await fixture.WaitForMessageAsync(message => message.Type == "input-resolved");
+
+		Assert.Equal(
+			(requested.ThreadId, requested.TurnId, requested.ItemId),
+			(resolved.ThreadId, resolved.TurnId, resolved.ItemId));
+	}
+
 	[Fact]
 	public async Task NativeSession_TreatsNullStableAcpFormOptionsAsAbsent() {
 		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: false, persistedSessionId: null);

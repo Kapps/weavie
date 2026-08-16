@@ -810,6 +810,19 @@ public sealed class AcpAgentSessionTests {
 		Assert.Contains(plans, message => message.Text!.Contains("first persisted plan", StringComparison.Ordinal));
 		Assert.Contains(plans, message => message.Text!.Contains("second persisted plan", StringComparison.Ordinal));
 		Assert.Contains(snapshot, message => message.Type == "item-started" && message.ItemId == "tool:replayed-background");
+		// The pane places a record where its stream first appears, so a restore has to arrive in conversation order:
+		// every prompt ahead of the work it asked for, and ahead of the turn boundary the pane derives from it.
+		Assert.Equal(
+			[
+				("1", "userMessage:replayed-user-1"),
+				("1", "plan:current"),
+				("1", "agentMessage:replayed-agent-1"),
+				("2", "userMessage:replayed-user-2"),
+				("2", "plan:current"),
+				("2", "agentMessage:replayed-agent-2"),
+				("2", "tool:replayed-background"),
+			],
+			snapshot.Select(message => (message.TurnId, message.ItemId)).Distinct());
 		Assert.DoesNotContain(snapshot, message => message.Text?.Contains("hidden guidance", StringComparison.Ordinal) == true);
 		Assert.DoesNotContain(snapshot, message => message.Text?.Contains("hidden selection", StringComparison.Ordinal) == true);
 		Assert.All(snapshot, message => Assert.Equal("replay-session", message.ThreadId));

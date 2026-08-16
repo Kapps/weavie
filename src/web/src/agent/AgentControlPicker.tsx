@@ -1,5 +1,6 @@
 import { createEffect, createMemo, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
 import type { AgentControlAxis, ClientSession } from "../bridge";
+import { dismissOnOutsideInteraction } from "../chrome/popover-dismiss";
 import {
   agentControlState,
   closeControlPicker,
@@ -78,12 +79,14 @@ export function AgentControlPicker(props: { session: ClientSession | null }): JS
   };
 
   // Only listen while open, in capture phase so the pick beats the composer's own history/keydown handling.
+  // Anything outside the picker and its status-line segment dismisses it — the segment owns its own toggle.
   createEffect(() => {
     if (axis() === null) {
       return;
     }
     window.addEventListener("keydown", onKeyDown, { capture: true });
     onCleanup(() => window.removeEventListener("keydown", onKeyDown, { capture: true }));
+    dismissOnOutsideInteraction(".agent-control-picker, .agent-status-axis", closeControlPicker);
   });
 
   return (

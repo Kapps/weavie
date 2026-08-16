@@ -6,6 +6,7 @@ import { findCommand, registerCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { canonicalFsPath } from "../editor/fs-path";
 import { createFileFinder, type FileRow, rankFiles, splitPath } from "./file-search";
+import { dismissOnOutsideInteraction } from "./popover-dismiss";
 import { recentFiles } from "./recent-files-store";
 
 // How many rows the dropdown shows at once. The host remembers many more (top 50, frecency-ranked); the search
@@ -143,13 +144,6 @@ function RecentFilesMenu(props: {
     panelEl.style.maxHeight = `${anchor.top - margin - 2}px`;
   };
 
-  const onPointerDown = (event: PointerEvent): void => {
-    const target = event.target as HTMLElement;
-    // A click on the toggle is handled by its own onClick (which closes); ignore it here so the two don't race.
-    if (!target.closest(".recent-menu") && !target.closest(".footer-recent-toggle")) {
-      props.onClose();
-    }
-  };
   // Escape is handled on the input while it holds focus; this backstops a Tab that moved focus onto a row.
   const onWindowKeyDown = (event: KeyboardEvent): void => {
     if (event.key === "Escape") {
@@ -165,14 +159,10 @@ function RecentFilesMenu(props: {
       }
       inputEl?.focus();
     });
-    window.addEventListener("pointerdown", onPointerDown);
+    // The toggle counts as inside: its own onClick closes the menu, so the two don't race.
+    dismissOnOutsideInteraction(".recent-menu, .footer-recent-toggle", props.onClose);
     window.addEventListener("keydown", onWindowKeyDown);
-    window.addEventListener("blur", props.onClose);
-    onCleanup(() => {
-      window.removeEventListener("pointerdown", onPointerDown);
-      window.removeEventListener("keydown", onWindowKeyDown);
-      window.removeEventListener("blur", props.onClose);
-    });
+    onCleanup(() => window.removeEventListener("keydown", onWindowKeyDown));
   });
 
   return (

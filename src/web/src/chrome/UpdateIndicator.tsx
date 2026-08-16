@@ -3,6 +3,7 @@ import { Portal } from "solid-js/web";
 import { keyHint } from "../commands/key-hint";
 import { runCommandWithFeedback } from "../commands/registry";
 import { CommandIds } from "../commands/types";
+import { dismissOnOutsideInteraction } from "./popover-dismiss";
 import { type UpdateHold, updateHolds, updatePending, updateRestarting } from "./update-store";
 
 const holdReasonText: Record<UpdateHold["reason"], string> = {
@@ -35,24 +36,15 @@ export function UpdateIndicator(): JSX.Element {
     setAnchor({ right: window.innerWidth - rect.right, bottom: window.innerHeight - rect.top + 6 });
     setOpen((v) => !v);
   };
-  const onPointerDown = (event: PointerEvent): void => {
-    if (!(event.target as HTMLElement).closest(".update-card, .update-chip")) {
-      setOpen(false);
-    }
-  };
+  // The chip counts as inside: its own onClick toggles the card, so the two don't race.
+  dismissOnOutsideInteraction(".update-card, .update-chip", () => setOpen(false));
   const onKeyDown = (event: KeyboardEvent): void => {
     if (event.key === "Escape") {
       setOpen(false);
     }
   };
-  onMount(() => {
-    window.addEventListener("pointerdown", onPointerDown);
-    window.addEventListener("keydown", onKeyDown);
-  });
-  onCleanup(() => {
-    window.removeEventListener("pointerdown", onPointerDown);
-    window.removeEventListener("keydown", onKeyDown);
-  });
+  onMount(() => window.addEventListener("keydown", onKeyDown));
+  onCleanup(() => window.removeEventListener("keydown", onKeyDown));
 
   return (
     <Show when={!updateRestarting() && updatePending()}>

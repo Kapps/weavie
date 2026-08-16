@@ -116,4 +116,13 @@ describe("agent controls store", () => {
     store.closeControlPicker();
     expect(store.openControlAxis()).toBeNull();
   });
+
+  it("toggles the open axis so a segment closes the picker it opened", () => {
+    store.toggleControlPicker("model");
+    expect(store.openControlAxis()).toBe("model");
+    store.toggleControlPicker("mode");
+    expect(store.openControlAxis()).toBe("mode");
+    store.toggleControlPicker("mode");
+    expect(store.openControlAxis()).toBeNull();
+  });
 });

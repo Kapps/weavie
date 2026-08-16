@@ -43,35 +43,61 @@ async function registerGreetDefinition(page: Page): Promise<void> {
 }
 
 // The viewport point of `word`'s middle character on `line`, read from Monaco's own layout.
+//
+// The point is only taken once two consecutive frames agree on it. A single reading is not safe: the editor's
+// own offset in the window keeps moving while the shell lays out (rail, tab strip, status bar) and while the
+// session finishes starting, so a point captured too early addresses a place the line is no longer at by the
+// time the click lands — which reads as "the peek never opened" rather than "we clicked the wrong pixel".
 async function wordPoint(
   page: Page,
   line: number,
   word: string,
 ): Promise<{ x: number; y: number }> {
   const point = await page.evaluate(
-    (target) => {
-      const editor = (window as WeavieWindow).__WEAVIE_EDITOR__;
-      const model = editor?.getModel();
-      const dom = editor?.getDomNode();
-      if (editor === undefined || model === null || model === undefined || dom === null) {
-        return null;
+    async (target) => {
+      const read = (): { x: number; y: number } | null => {
+        const editor = (window as WeavieWindow).__WEAVIE_EDITOR__;
+        const model = editor?.getModel();
+        const dom = editor?.getDomNode();
+        if (editor === undefined || model === null || model === undefined || dom == null) {
+          return null;
+        }
+        const index = model.getLineContent(target.line).indexOf(target.word);
+        if (index < 0) {
+          return null;
+        }
+        const column = index + 1 + Math.floor(target.word.length / 2);
+        const spot = editor.getScrolledVisiblePosition({ lineNumber: target.line, column });
+        if (spot === null) {
+          return null;
+        }
+        const rect = dom.getBoundingClientRect();
+        return { x: rect.left + spot.left, y: rect.top + spot.top + spot.height / 2 };
+      };
+      const nextFrame = (): Promise<void> =>
+        new Promise((resolve) => requestAnimationFrame(() => resolve()));
+
+      let previous = read();
+      for (let frame = 0; frame < 240; frame++) {
+        await nextFrame();
+        const current = read();
+        if (
+          current !== null &&
+          previous !== null &&
+          Math.abs(current.x - previous.x) < 0.5 &&
+          Math.abs(current.y - previous.y) < 0.5
+        ) {
+          return current;
+        }
+        previous = current;
       }
-      const index = model.getLineContent(target.line).indexOf(target.word);
-      if (index < 0) {
-        return null;
-      }
-      const column = index + 1 + Math.floor(target.word.length / 2);
-      const spot = editor.getScrolledVisiblePosition({ lineNumber: target.line, column });
-      if (spot === null || dom === undefined) {
-        return null;
-      }
-      const rect = dom.getBoundingClientRect();
-      return { x: rect.left + spot.left, y: rect.top + spot.top + spot.height / 2 };
+      // Never settled: report that, rather than clicking a point known to be moving.
+      return null;
     },
     { line, word },
   );
   if (point === null) {
-    throw new Error(`no "${word}" on line ${line}`);
+    throw new Error(`no settled position for "${word}" on line ${line}`);
   }
   return point;
 }

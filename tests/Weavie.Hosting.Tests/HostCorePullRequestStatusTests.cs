@@ -117,6 +117,11 @@ public sealed class HostCorePullRequestStatusTests {
 		public Task<PullRequestSummary?> GetAsync(RepoRef repo, int number, CancellationToken ct = default) =>
 			Task.FromResult<PullRequestSummary?>(null);
 
+		public Task<PullRequestSummary?> FindForCommitAsync(RepoRef repo, string sha, CancellationToken ct = default) =>
+			Task.FromResult<PullRequestSummary?>(null);
+
+		public string CommitUrl(RepoRef repo, string sha) => GitHubReviewProvider.WebCommitUrl(repo, sha);
+
 		public string RefUrlBase(RepoRef repo) => GitHubReviewProvider.WebRefUrlBase(repo);
 	}
 

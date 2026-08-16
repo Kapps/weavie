@@ -10,7 +10,7 @@ namespace Weavie.Core.Git;
 /// short-lived <c>git</c> process (a transient one-shot helper, exempt from <c>ProcessSupervisor</c>),
 /// captures stdout/stderr, and throws <see cref="GitException"/> when a required command fails.
 /// </summary>
-public sealed class GitService : IGitService {
+public sealed partial class GitService : IGitService {
 	private const string HeadsPrefix = "refs/heads/";
 
 	// A read-only dirty probe: `--no-optional-locks` refreshes the index in-core instead of taking

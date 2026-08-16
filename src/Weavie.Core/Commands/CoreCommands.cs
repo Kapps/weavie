@@ -188,6 +188,12 @@ public static class CoreCommands {
 	/// <summary>Reviews the working tree's uncommitted changes — its diff against HEAD.</summary>
 	public const string DiffAgainstHead = "weavie.diff.againstHead";
 
+	/// <summary>Shows or hides the faded per-line blame annotations by flipping <c>editor.gitBlame</c>.</summary>
+	public const string ToggleBlame = "weavie.git.toggleBlame";
+
+	/// <summary>Opens the blame popover for the editor cursor's line; palette-only, no default keybinding.</summary>
+	public const string ShowBlame = "weavie.git.showBlame";
+
 	/// <summary>Jumps into the post-turn review (acceptEdits/bypass) at the first changed file; palette-only, no default keybinding.</summary>
 	public const string ReviewOpen = "weavie.review.open";
 
@@ -1167,6 +1173,33 @@ public static class CoreCommands {
 			Category = "Diff",
 			Description = "Review the working tree's uncommitted changes (its diff against HEAD) in the inline-diff navigator.",
 			Aliases = ["diff against head", "uncommitted changes", "review uncommitted changes", "working tree diff", "diff working tree"],
+		});
+
+		// Blame: the faded per-line annotation and the popover behind it. The toggle flips the `editor.gitBlame`
+		// setting (Core, so it persists); showing the popover needs the editor's cursor, so that half is web-run.
+		registry.Register(new CommandDefinition {
+			Id = ToggleBlame,
+			Title = "Toggle Git Blame Annotations",
+			RunsIn = CommandLocation.Core,
+			Owner = CommandOwner.Client,
+			Category = "Git",
+			Description = "Show or hide the faded per-line blame annotations (the 'editor.gitBlame' setting). "
+				+ "Turning them back on restores every line; set 'editor.gitBlame' to 'currentLine' for only the "
+				+ "cursor's line.",
+			Aliases = ["toggle blame", "toggle git blame", "show blame", "hide blame", "blame annotations",
+				"toggle gitlens", "line authorship"],
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = ShowBlame,
+			Title = "Show Blame for This Line",
+			RunsIn = CommandLocation.Web,
+			Category = "Git",
+			When = "editorFocused",
+			Description = "Open the blame popover for the cursor's line: the commit that wrote it, the change it "
+				+ "came from, its pull request, and the other commits that touched the line or the file.",
+			Aliases = ["show blame", "blame this line", "who wrote this", "line history", "commit for this line",
+				"open blame", "blame popover"],
 		});
 
 		// Post-turn review (acceptEdits/bypass): inline in the editor via the diff toolbar, a 2D navigator

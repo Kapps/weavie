@@ -71,13 +71,22 @@ public static class EditorSettings {
 	/// <summary>Start playback when a video file opens in the media pane (custom behavior).</summary>
 	public const string VideoAutoplay = "editor.videoAutoplay";
 
+	/// <summary>Which lines carry the faded Git blame annotation — none/the cursor's/every line (custom behavior).</summary>
+	public const string GitBlame = "editor.gitBlame";
+
 	/// <summary>Every editor-option key — the host subscribes to all of them to re-push on any change.</summary>
 	public static readonly IReadOnlyList<string> Keys = [
 		InlayHints, Minimap, BracketPairColorization, SmoothScrolling, CursorSmoothCaretAnimation,
 		RenderWhitespace, ScrollBeyondLastLine, WordWrap, LineNumbers, CursorBlinking, RenderLineHighlight,
 		StickyScroll, FontLigatures, IndentGuides, HoverDelay, SuggestExpandDocs, CommentProse, PaneShortcutHints,
-		VideoAutoplay,
+		VideoAutoplay, GitBlame,
 	];
+
+	/// <summary>The <see cref="GitBlame"/> value meaning "no annotation" — what the toggle command turns off to.</summary>
+	public const string GitBlameOff = "off";
+
+	/// <summary>The <see cref="GitBlame"/> value annotating every line — what the toggle command turns back on to.</summary>
+	public const string GitBlameAll = "all";
 
 	// Monaco's standard default; long enough to avoid flicker on a quick mouse pass. 0 (instant) is the floor.
 	private const long DefaultHoverDelay = 300;
@@ -170,6 +179,15 @@ public static class EditorSettings {
 				+ "turn it off to open videos paused.",
 			["video autoplay", "autoplay video", "autoplay", "auto play videos", "play videos automatically"],
 			true));
+
+		registry.Register(Choice(GitBlame,
+			"Show who last changed each line as a faded annotation at the end of it — author, when, and the commit "
+				+ "subject. Click one to see the change that line came from, its pull request, and the other commits "
+				+ "that touched the line or the file. 'all' annotates every line; 'currentLine' only the line the "
+				+ "cursor is on; 'off' none.",
+			["git blame", "blame", "blame annotations", "git lens", "gitlens", "line authorship", "who wrote this",
+				"inline blame", "commit annotations"],
+			[GitBlameOff, "currentLine", GitBlameAll], GitBlameAll));
 	}
 
 	/// <summary>
@@ -203,6 +221,7 @@ public static class EditorSettings {
 		writer.WriteString("commentProse", store.RequireString(CommentProse));
 		writer.WriteBoolean("paneShortcutHints", store.RequireBool(PaneShortcutHints));
 		writer.WriteBoolean("videoAutoplay", store.RequireBool(VideoAutoplay));
+		writer.WriteString("gitBlame", store.RequireString(GitBlame));
 		writer.WriteEndObject();
 	}
 

@@ -25,6 +25,7 @@ import type {
 import type { CommentProse } from "./comment-prose";
 import type { EditorHost } from "./editor-host";
 import { normalizePath, samePath } from "./fs-path";
+import type { GitBlameController } from "./git-blame";
 import type {
   HunkRevert,
   HunkUnkeep,
@@ -211,6 +212,11 @@ export interface EditorController {
   flushSession(session: ClientSession): Promise<void>;
   /** Open the first file in the review set landed on its first change (the manual "jump into review"). */
   openFirstReviewFile(): boolean;
+  /**
+   * Opens the blame popover for the cursor's line, or reports why that line has no commit behind it. False
+   * only when no editor is mounted, so the command declines rather than appearing to do nothing.
+   */
+  showBlameAtCursor(): boolean;
   /** The active file's current working-copy text (reactive), for the Preview overlay; "" when none. */
   activeContent(): string;
   /** Whether an inline openDiff review is showing (reactive), so Preview suspends rather than hiding it. */
@@ -231,6 +237,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   let host: EditorHost | undefined;
   let inlineDiff: InlineDiff | undefined;
   let commentProse: CommentProse | undefined;
+  let gitBlame: GitBlameController | undefined;
   // Captured from the dynamic inline-diff import in start(); used by the show-diff handler, which can
   // only fire once the editor host (and thus this import) is up.
   let firstChangedLine: ((original: string, modified: string) => number) | undefined;
@@ -827,10 +834,11 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         host = created;
         // inline-diff + comment-prose pull Monaco; import them here (the chunk is already loaded by the
         // editor host above) so they stay off the first-paint entry chunk.
-        const [diff, prose, symbolMod] = await Promise.all([
+        const [diff, prose, symbolMod, blame] = await Promise.all([
           import("./inline-diff"),
           import("./comment-prose"),
           import("../symbols/symbol-source"),
+          import("./git-blame"),
         ]);
         symbolSource = symbolMod.createSymbolSource(created.editor);
         firstChangedLine = diff.firstChangedLine;
@@ -861,6 +869,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         commentProse = prose.createCommentProse(created.editor, {
           isBlocked: (uri) => inlineDiff?.hasDiffForUri(uri) ?? false,
         });
+        gitBlame = blame.createGitBlame(created.editor);
         const session = selectedSession();
         if (session !== null) {
           await rebindSession(session);
@@ -1569,6 +1578,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       openReviewFile(first);
       return true;
     },
+    showBlameAtCursor: () => gitBlame?.showAtCursor() ?? false,
     activeContent,
     reviewActive,
     parkedReviewCount,
@@ -1609,6 +1619,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         sub.dispose();
       }
       commentProse?.dispose();
+      gitBlame?.dispose();
       inlineDiff?.dispose();
       host?.dispose();
       offSelection();

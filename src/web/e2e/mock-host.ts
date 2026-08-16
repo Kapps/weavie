@@ -888,7 +888,9 @@ const BOOTSTRAP_GLOBALS: Record<string, unknown> = {
     soundPack: "weavie",
     gates: { turnComplete: true, needsInput: true, failed: true },
   },
-  __WEAVIE_EDITOR_OPTIONS__: {},
+  // The mock host serves no git feature, so blame is off here — otherwise every opened file would issue a
+  // `git.blame` request nothing answers.
+  __WEAVIE_EDITOR_OPTIONS__: { gitBlame: "off" },
   __WEAVIE_THEME__: { mode: "system", light: { id: "weavie-light" }, dark: { id: "weavie-dark" } },
   __WEAVIE_COMMANDS__: [],
   __WEAVIE_KEYBINDINGS__: [],

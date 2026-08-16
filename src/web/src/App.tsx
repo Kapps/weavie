@@ -102,6 +102,8 @@ import {
   registerCommand,
 } from "./commands/registry";
 import { CommandIds } from "./commands/types";
+import { BlamePopover } from "./editor/BlamePopover";
+import { blameTarget } from "./editor/blame-store";
 import { ConfirmDialog } from "./editor/ConfirmDialog";
 import { EditorEmptyState } from "./editor/EditorEmptyState";
 import { createEditorController } from "./editor/editor-controller";
@@ -1458,6 +1460,9 @@ export default function App(): JSX.Element {
       // Post-turn review (acceptEdits/bypass): drive the inline toolbar's file axis. next/prev DECLINE (fall
       // through to the editor) when no multi-file review is active, so Ctrl+Left/Right keep Win/Linux word-nav
       // outside one.
+      // Blame: opens the popover on the cursor's line, or says why that line has no commit behind it. Declines
+      // only with no editor mounted, so the palette entry never looks like it silently did nothing.
+      registerCommand(CommandIds.showBlame, () => editor.showBlameAtCursor()),
       registerCommand(CommandIds.reviewOpen, () => editor.openFirstReviewFile()),
       registerCommand(CommandIds.reviewNextFile, () => editor.inline.nextFile()),
       registerCommand(CommandIds.reviewPrevFile, () => editor.inline.prevFile()),
@@ -2011,6 +2016,11 @@ export default function App(): JSX.Element {
         {(state) => (
           <EmbedLightbox state={state()} onStep={stepEmbedZoom} onClose={closeEmbedZoom} />
         )}
+      </Show>
+      {/* The blame popover for a clicked line annotation. Keyed so picking another line rebuilds it against
+          the new target rather than leaving the previous commit's resources in place. */}
+      <Show when={blameTarget()} keyed>
+        {(target) => <BlamePopover target={target} />}
       </Show>
     </div>
   );

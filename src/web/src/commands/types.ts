@@ -112,6 +112,8 @@ export const CommandIds = {
   diffAgainst: "weavie.diff.against",
   diffAgainstParent: "weavie.diff.againstParent",
   diffAgainstHead: "weavie.diff.againstHead",
+  toggleBlame: "weavie.git.toggleBlame",
+  showBlame: "weavie.git.showBlame",
   reviewOpen: "weavie.review.open",
   reviewNextFile: "weavie.review.nextFile",
   reviewPrevFile: "weavie.review.prevFile",

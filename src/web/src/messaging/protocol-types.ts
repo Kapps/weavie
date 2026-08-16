@@ -247,9 +247,13 @@ export interface EditorOptionsSpec {
   commentProse: CommentProseMode;
   paneShortcutHints: boolean;
   videoAutoplay: boolean;
+  gitBlame: GitBlameMode;
 }
 
 export type CommentProseMode = "none" | "documentation" | "multiline" | "all";
+
+/** Which lines carry the faded blame annotation: none, the cursor's line, or every line. */
+export type GitBlameMode = "off" | "currentLine" | "all";
 
 export interface SearchMatch {
   path: string;

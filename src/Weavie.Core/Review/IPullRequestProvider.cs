@@ -30,6 +30,19 @@ public interface IPullRequestProvider {
 	Task<PullRequestSummary?> GetAsync(RepoRef repo, int number, CancellationToken ct = default);
 
 	/// <summary>
+	/// The pull request that brought <paramref name="sha"/> into the repository, or <c>null</c> when the forge
+	/// knows of none — how a blamed line reaches the discussion behind it without parsing the commit message.
+	/// Prefers a merged pull request when the commit belongs to more than one.
+	/// </summary>
+	Task<PullRequestSummary?> FindForCommitAsync(RepoRef repo, string sha, CancellationToken ct = default);
+
+	/// <summary>
+	/// The forge web URL for one commit (e.g. <c>https://github.com/owner/repo/commit/&lt;sha&gt;</c>). Built from the
+	/// repo identity, not a forge call, so it needs no credential.
+	/// </summary>
+	string CommitUrl(RepoRef repo, string sha);
+
+	/// <summary>
 	/// The forge web-URL prefix a bare issue/PR number appends to (e.g. <c>https://github.com/owner/repo/pull/</c>),
 	/// so a terminal <c>#N</c> can link to its page. Built from the repo identity, not a forge API call, so it needs
 	/// no credential. GitHub's <c>/pull/N</c> resolves an issue too (it redirects), so one form covers both; a forge

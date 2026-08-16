@@ -457,6 +457,18 @@ public sealed class WorktreeManagerTests {
 
 		public Task<string> ShowFileAtRefAsync(string repositoryDirectory, string reference, string path, CancellationToken ct = default) => Task.FromResult(string.Empty);
 
+		public Task<GitBlame> BlameFileAsync(string worktreeDirectory, string path, CancellationToken ct = default) =>
+			Task.FromResult(GitBlame.Empty);
+
+		public Task<IReadOnlyList<GitCommit>> LogFileAsync(string worktreeDirectory, string path, int limit, CancellationToken ct = default) =>
+			Task.FromResult<IReadOnlyList<GitCommit>>([]);
+
+		public Task<IReadOnlyList<GitLineCommit>> LogLinesAsync(string worktreeDirectory, string path, int startLine, int endLine, int limit, CancellationToken ct = default) =>
+			Task.FromResult<IReadOnlyList<GitLineCommit>>([]);
+
+		public Task<GitDiffHunk?> CommitHunkAsync(string worktreeDirectory, string commit, string path, int line, CancellationToken ct = default) =>
+			Task.FromResult<GitDiffHunk?>(null);
+
 		public Task<bool> BranchExistsAsync(string directory, string branch, CancellationToken ct = default) => Task.FromResult(Branches.Contains(branch));
 
 		public Task<IReadOnlyList<string>> ListBranchesAsync(string directory, CancellationToken ct = default) =>

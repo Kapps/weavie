@@ -76,20 +76,31 @@ export function createGitBlame(editor: monaco.editor.IStandaloneCodeEditor): Git
     optionsByLabel.clear();
   };
 
+  // The automatic path: annotations off means no probe at all, so turning blame off costs nothing per file.
   const load = (): void => {
-    const model = fileModel();
-    if (mode === "off" || model === null) {
+    if (mode === "off") {
       clear();
       return;
+    }
+    void fetchBlame();
+  };
+
+  // Loads the active model's blame regardless of mode, so an explicit Show Blame answers even with
+  // annotations off. Resolves once the snapshot is in place (or known unavailable).
+  const fetchBlame = (): Promise<void> => {
+    const model = fileModel();
+    if (model === null) {
+      clear();
+      return Promise.resolve();
     }
     const session = sessionForUri(model.uri);
     if (session === undefined) {
       clear();
-      return;
+      return Promise.resolve();
     }
     const uri = model.uri.toString();
     const token = ++loadToken;
-    void session
+    return session
       .feature("git")
       .request<BlameResponse, { path: string }>("blame", { path: sessionUriHostPath(model.uri) })
       .then((response) => {
@@ -128,6 +139,11 @@ export function createGitBlame(editor: monaco.editor.IStandaloneCodeEditor): Git
     const created: monaco.editor.IModelDecorationOptions = {
       // NeverGrowsWhenTypingAtEdges: typing at the end of an annotated line extends the line, not the marker.
       stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
+      // The anchor is a zero-width range at the end of the line — it marks a position, not a span — and
+      // Monaco discards injected text on an empty range unless told otherwise
+      // (textModel.ts: getAllInjectedText filters `showIfCollapsed || !range.isEmpty()`). Without this the
+      // decorations exist on the model and nothing whatsoever paints.
+      showIfCollapsed: true,
       after: {
         content: GAP + label,
         inlineClassName: BLAME_CLASS,
@@ -262,9 +278,11 @@ export function createGitBlame(editor: monaco.editor.IStandaloneCodeEditor): Git
     if (options.gitBlame === mode) {
       return;
     }
-    const wasOff = mode === "off";
     mode = options.gitBlame;
-    if (wasOff) {
+    // Turning them off drops the snapshot too, so nothing stale survives to answer a later question from.
+    if (mode === "off") {
+      clear();
+    } else if (loadedUri === null) {
       load();
     } else {
       render();
@@ -288,28 +306,44 @@ export function createGitBlame(editor: monaco.editor.IStandaloneCodeEditor): Git
 
   load();
 
-  return {
-    showAtCursor: () => {
-      const position = editor.getPosition();
-      const visible = position === null ? null : editor.getScrolledVisiblePosition(position);
-      const container = editor.getDomNode();
-      if (position === null || visible === null || container === null) {
-        return false;
-      }
-      const bounds = container.getBoundingClientRect();
-      const top = bounds.top + visible.top;
-      if (
-        open(position.lineNumber, new DOMRect(bounds.left + visible.left, top, 0, visible.height))
-      ) {
-        return true;
-      }
-      // Asked directly and there's no answer: say why. Git's own reason when it gave one (untracked file, no
-      // repository), otherwise the line itself is simply newer than the last save.
+  // Opens the cursor's line, or explains why it has no commit. Git's own reason when it gave one (untracked
+  // file, no repository); otherwise the line is simply newer than the last save.
+  const openCursorOrExplain = (line: number): void => {
+    const visible = editor.getScrolledVisiblePosition({ lineNumber: line, column: 1 });
+    const container = editor.getDomNode();
+    if (visible === null || container === null) {
+      return;
+    }
+    const bounds = container.getBoundingClientRect();
+    const anchor = new DOMRect(
+      bounds.left + visible.left,
+      bounds.top + visible.top,
+      0,
+      visible.height,
+    );
+    if (!open(line, anchor)) {
       notify(
         "info",
         blameError ?? "That line isn't in a commit yet — save the file to blame it.",
         "weavie-blame",
       );
+    }
+  };
+
+  return {
+    showAtCursor: () => {
+      const line = editor.getPosition()?.lineNumber;
+      const model = fileModel();
+      if (line === undefined || model === null) {
+        return false;
+      }
+      // Asking for a line's blame is a question about the file, not about whether annotations are painted —
+      // so with them off (nothing loaded) fetch on demand rather than answering from an empty snapshot.
+      if (loadedUri === model.uri.toString()) {
+        openCursorOrExplain(line);
+      } else {
+        void fetchBlame().then(() => openCursorOrExplain(line));
+      }
       return true;
     },
     dispose: () => {

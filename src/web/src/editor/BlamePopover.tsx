@@ -241,6 +241,13 @@ export function BlamePopover(props: { target: BlameTarget }): JSX.Element {
                     class={`weavie-blame-hunk-line ${hunkLineClass(line)}${
                       index() === focusIndex() ? " weavie-blame-focus" : ""
                     }`}
+                    // A tall hunk can push the blamed line below the fold, leaving the panel open on a
+                    // change with no visible connection to the line that was clicked.
+                    ref={(element) => {
+                      if (index() === focusIndex()) {
+                        queueMicrotask(() => element.scrollIntoView({ block: "nearest" }));
+                      }
+                    }}
                   >
                     {line === "" ? " " : line}
                   </div>

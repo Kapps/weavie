@@ -1,8 +1,16 @@
+using System.Collections.Concurrent;
 using Weavie.Core.Agents;
 
 namespace Weavie.Hosting.Tests;
 
 internal sealed class FakeStructuredAgentProvider : IAgentProvider {
+	// The provider owns its conversation the way a real agent owns its on-disk transcript: it outlives a worker
+	// restart and is replayed on load. Keyed by worktree so each session replays only its own.
+	private static readonly ConcurrentDictionary<string, List<AgentPaneMessage>> Transcripts =
+		new(StringComparer.Ordinal);
+
+	/// <summary>Drops every provider-owned transcript, modelling an agent that cannot replay.</summary>
+	public static void ForgetTranscripts() => Transcripts.Clear();
 	/// <summary>A prompt that makes the fake abandon its thread (emit a <c>transcript-reset</c>) instead of answering.</summary>
 	public const string ResetPrompt = "reset-thread";
 
@@ -21,17 +29,29 @@ internal sealed class FakeStructuredAgentProvider : IAgentProvider {
 		Available = true,
 	};
 
-	public IAgentSession CreateSession(AgentSessionContext context) => new FakeStructuredAgentSession(context.Events);
+	public IAgentSession CreateSession(AgentSessionContext context) {
+		ArgumentNullException.ThrowIfNull(context);
+		return new FakeStructuredAgentSession(
+			context.Events,
+			Transcripts.GetOrAdd(context.Workspace, static _ => []));
+	}
 
 	// Emits a deterministic, persistable turn (a user echo + a completed agent message) so the transcript store
 	// has real content to persist and replay. Keeps everything synchronous for race-free tests.
-	private sealed class FakeStructuredAgentSession(IAgentEventSink events) : IStructuredAgentSession, IStructuredAgentControls {
+	private sealed class FakeStructuredAgentSession(IAgentEventSink events, List<AgentPaneMessage> transcript)
+		: IStructuredAgentSession, IStructuredAgentControls {
 		private bool _started;
 		private int _turns;
 
 		public event Action<AgentPaneMessage>? PaneMessage;
-		public event Action<IReadOnlyList<AgentPaneMessage>>? PaneSnapshot { add { } remove { } }
+		public event Action<IReadOnlyList<AgentPaneMessage>>? PaneSnapshot;
 		public event Action<AgentControlState>? ControlStateChanged;
+
+		// Every replayable record the provider emits, so a reload can hand back the same conversation.
+		private void Emit(AgentPaneMessage message) {
+			transcript.Add(message);
+			PaneMessage?.Invoke(message);
+		}
 
 		public AgentControlState ControlState { get; } = new() {
 			Axes = [
@@ -49,6 +69,11 @@ internal sealed class FakeStructuredAgentProvider : IAgentProvider {
 			_started = true;
 			events.Observe(new AgentSessionStarted("startup"));
 			PaneMessage?.Invoke(new AgentPaneMessage { Type = "thread-ready", ProviderId = "structured", Status = "ready" });
+			if (transcript.Count > 0) {
+				_turns = transcript.Count(message => message.Type == "user-message");
+				PaneSnapshot?.Invoke([.. transcript]);
+			}
+
 			ControlStateChanged?.Invoke(ControlState);
 		}
 
@@ -59,6 +84,7 @@ internal sealed class FakeStructuredAgentProvider : IAgentProvider {
 			}
 
 			if (submission.Text == ResetPrompt) {
+				transcript.Clear();
 				PaneMessage?.Invoke(new AgentPaneMessage { Type = "transcript-reset", ProviderId = "structured" });
 				return;
 			}
@@ -66,7 +92,7 @@ internal sealed class FakeStructuredAgentProvider : IAgentProvider {
 				_turns++;
 				string turn = $"turn-{_turns}";
 				string planItem = $"plan-{_turns}";
-				PaneMessage?.Invoke(new AgentPaneMessage {
+				Emit(new AgentPaneMessage {
 					Type = "plan-delta",
 					ProviderId = "structured",
 					ThreadId = "thread-fake",
@@ -77,7 +103,7 @@ internal sealed class FakeStructuredAgentProvider : IAgentProvider {
 					Text = "# Plan",
 					Status = "inProgress",
 				});
-				PaneMessage?.Invoke(new AgentPaneMessage {
+				Emit(new AgentPaneMessage {
 					Type = "item-completed",
 					ProviderId = "structured",
 					ThreadId = "thread-fake",
@@ -93,14 +119,14 @@ internal sealed class FakeStructuredAgentProvider : IAgentProvider {
 
 			_turns++;
 			string item = $"item-{_turns}";
-			PaneMessage?.Invoke(new AgentPaneMessage {
+			Emit(new AgentPaneMessage {
 				Type = "user-message",
 				ProviderId = "structured",
 				ThreadId = "thread-fake",
 				TurnId = $"turn-{_turns}",
 				Text = submission.Text,
 			});
-			PaneMessage?.Invoke(new AgentPaneMessage {
+			Emit(new AgentPaneMessage {
 				Type = "item-completed",
 				ProviderId = "structured",
 				ThreadId = "thread-fake",

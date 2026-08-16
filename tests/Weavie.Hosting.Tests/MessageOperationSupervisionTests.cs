@@ -132,6 +132,9 @@ public sealed class MessageOperationSupervisionTests {
 		await entered.Task.WaitAsync(TimeSpan.FromSeconds(2));
 		await dispatch.WaitAsync(TimeSpan.FromSeconds(2));
 
+		// The timeout settles the operation and writes its response on the supervision path, which can outlive
+		// RouteAsync returning. Wait for it instead of racing the scheduler -- still exactly one response.
+		await Wait.UntilAsync(() => transport.Envelopes(MessageKind.Response).Any());
 		var response = Assert.Single(transport.Envelopes(MessageKind.Response));
 		Assert.Contains("msg-", response.Error, StringComparison.Ordinal);
 		Assert.Contains("lifecycle.sync", response.Error, StringComparison.Ordinal);

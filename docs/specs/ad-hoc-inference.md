@@ -11,24 +11,26 @@ polluting or resuming the interactive agent transcript.
 ## Ownership and boundaries
 
 `IAgentInferenceProvider` is an optional capability subtype of `IAgentProvider`. `InferenceService` resolves the
-caller-supplied provider id through the existing `AgentProviderRegistry`. Terminal Claude implements the capability
-through its installed CLI path, authentication, entitlement, and provider identity. Registry ACP providers do not;
-selecting one fails visibly without switching providers. There is no parallel inference-provider registry or
-`inference.provider` setting.
+owning session's provider id through the existing `AgentProviderRegistry`. Terminal Claude implements the capability
+through its installed CLI path; every ACP agent implements it through one transient process and one throwaway
+session. There is no parallel inference-provider registry and no `inference.provider` setting: a query is owned by
+the session it is about, so the owner supplies both the provider and the worktree.
 
 The inference facet has no session-creation, terminal, editor, MCP, or mutation API. It is a generic internal API
 for trusted feature code; there is no bridge message, command, or MCP tool accepting an arbitrary prompt. Any future
 external surface owns its allowlist rather than pushing feature identity into provider transport.
 
-Each call starts one transient CLI process. It does not create a durable thread or resume identity, and the process
-is killed as a tree when the caller or query deadline cancels. Transient helpers are exempt from
-`ProcessSupervisor`; its restart behavior would violate the one-attempt contract.
+Each call starts one transient process. It does not create a durable thread or resume identity, and the process is
+killed as a tree when the caller or query deadline cancels. Transient helpers are exempt from `ProcessSupervisor`;
+its restart behavior would violate the one-attempt contract. No process is pooled: provider prompt caches are
+keyed by prefix rather than by connection, so a fresh process still reads a warm cache and pooling would buy only
+the process start.
 
 ## Typed query contract
 
 `IInferenceService.QueryAsync<TResponse>` accepts:
 
-- the selected existing agent-provider id;
+- an `InferenceOwner`: the owning session's agent-provider id and worktree root;
 - a caller-selected `InferenceModelCategory`;
 - one complete provider-agnostic prompt;
 - strict `JsonTypeInfo<TResponse>` response metadata;
@@ -39,33 +41,46 @@ declared `JsonTypeInfo<TInput>` and applies consistent untrusted-data framing, s
 plumbing. Response metadata must reject unknown members and respect required constructor parameters; non-strict
 metadata is a programming error. Runtime, CLI, and model failures are values.
 
-The provider seam contains only category, final prompt, generated JSON Schema, and output byte bound. Providers do
-not receive a feature or query id and never switch on product behavior:
+The provider seam contains only category, owning worktree, final prompt, generated JSON Schema, and output byte
+bound. Providers do not receive a feature or query id and never switch on product behavior:
 
-| Category | Intended work | Claude profile |
-|---|---|---|
-| `Utility` | naming, extraction, classification | `haiku`, low |
-| `Reasoning` | critique, diagnosis, risk ranking | `sonnet`, medium |
+| Category | Intended work | Terminal Claude profile | ACP agent |
+|---|---|---|---|
+| `Utility` | naming, extraction, classification | `haiku`, low | the agent's configured model |
+| `Reasoning` | critique, diagnosis, risk ranking | `sonnet`, medium | the agent's configured model |
 
 There is no default category, model override, escalation, repair call, provider fallback, or Weavie retry.
 
-## CLI isolation
+ACP exposes the reserved `model` and `thought_level` config-option categories but attaches no cost, capability, or
+ordering semantics to their values, and reports token counts without rates. Weavie therefore never selects a model
+or effort for an ACP agent; it runs the agent's own configuration and records which model answered.
 
-Claude uses print mode with safe mode, `--tools ""`, strict MCP configuration, no session persistence, the mapped
-model/effort, and `--json-schema`. The process inherits the normal Claude environment: an intentionally configured
-`ANTHROPIC_API_KEY` remains available, while an unset key lets the CLI use its stored OAuth/subscription login.
+## Process isolation
 
-Claude's working directory is a private, empty Weavie temporary directory. It receives no Weavie MCP configuration,
-and its tool set is explicitly empty.
+Terminal Claude uses print mode with safe mode, `--tools ""`, strict MCP configuration, no session persistence, the
+mapped model/effort, and `--json-schema`. The process inherits the normal Claude environment: an intentionally
+configured `ANTHROPIC_API_KEY` remains available, while an unset key lets the CLI use its stored OAuth/subscription
+login.
 
-Weavie starts one CLI process and does not retry. A CLI may internally retry transport operations without exposing
+An ACP agent is isolated structurally rather than by flags, because ACP has no tool-suppression control. Weavie
+advertises empty `clientCapabilities`, passes an empty `mcpServers` list, and refuses every agent-initiated request
+— `fs/*`, `terminal/*`, `session/request_permission`, and elicitation. The session is created, prompted once, and
+closed; its id is never persisted.
+
+Both providers run in the **owning worktree**. Inference reasons about the user's repository, so the working
+directory is the repository, and a stable working directory keeps the provider's cached prefix intact across
+queries. Neither provider is granted a Weavie MCP connection.
+
+Weavie starts one process and does not retry. A provider may internally retry transport operations without exposing
 a supported control; the query deadline is the reliable outer latency bound.
 
 ## Structured output and validation
 
-The service derives a JSON Schema from `TResponse`. Claude must return the CLI envelope's
-`structured_output`; Weavie never extracts JSON from prose. The raw JSON then passes through the shared local
-validator, which:
+The service derives a JSON Schema from `TResponse`. Terminal Claude must return the CLI envelope's
+`structured_output`. ACP carries no output-schema field, so the schema travels in the prompt and the reply must be
+**exactly one JSON value** — leading prose, trailing commentary, and markdown fences are rejected rather than
+salvaged, which is the same strictness expressed against a different transport. The raw JSON then passes through
+the shared local validator, which:
 
 1. rejects output beyond the query's byte limit;
 2. parses exactly one JSON value;
@@ -110,15 +125,15 @@ Receipts may contain provider/model ids, category, duration, upstream request id
 sequenceDiagram
     participant F as Feature
     participant S as InferenceService
-    participant A as Selected IAgentInferenceProvider
-    participant C as Installed Claude CLI
+    participant A as Owning session's IAgentInferenceProvider
+    participant C as Claude CLI or ACP agent
 
     F->>F: collect typed context
     F->>F: build prompt
-    F->>S: agent provider + category + prompt + response type + options
+    F->>S: owner + category + prompt + response type + options
     S->>S: policy, strict metadata, size, schema
     S->>A: one isolated query
-    A->>C: one ephemeral process
+    A->>C: one ephemeral process in the owning worktree
     C-->>A: structured JSON or failure
     A-->>S: sanitized result
     S->>S: strict decode + domain validation
@@ -136,7 +151,8 @@ sequenceDiagram
 The shared Sessions composer issues one host-scoped preview request after the prompt has been idle for 500 ms.
 When “Current session” is selected, the request carries that exact slot; “Main branch” needs no live session.
 The host sends only the text prompt, source checkout's current branch, and up to twenty local branches ordered by
-tip committer date. It passes the provider already selected in the composer and permits only `Utility`.
+tip committer date. The owner is the source workspace and the provider already selected in the composer — the
+branch is named before its session exists — and only `Utility` is permitted.
 
 A proposed name is trimmed, checked with `GitService.IsValidBranchName`, checked against loaded/worktree labels,
 and checked against Git branch existence. Every other non-cancellation outcome returns an empty branch and marks

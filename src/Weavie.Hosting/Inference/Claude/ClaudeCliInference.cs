@@ -26,7 +26,6 @@ internal sealed class ClaudeCliInference : IInferenceProvider {
 		CancellationToken ct) {
 		ArgumentNullException.ThrowIfNull(request);
 		var profile = Profile(request.Category);
-		using var temp = InferenceTempDirectory.Create();
 		try {
 			string command = _settings.RequireString(CoreSettings.ClaudePath);
 			if (string.IsNullOrWhiteSpace(command)) {
@@ -34,7 +33,7 @@ internal sealed class ClaudeCliInference : IInferenceProvider {
 			}
 			var result = await _processes.RunAsync(new AgentCliProcessRequest {
 				Command = command,
-				WorkingDirectory = temp.Path,
+				WorkingDirectory = Path.GetFullPath(request.Workspace),
 				Arguments = [
 					"--print",
 					"--safe-mode",

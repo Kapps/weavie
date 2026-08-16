@@ -184,12 +184,14 @@ public sealed class HostCoreBranchInferenceTests {
 
 		public string? AgentProviderId { get; private set; }
 
+		public string? Workspace { get; private set; }
+
 		public InferenceInvocationOrigin Origin { get; private set; }
 
 		public string? Prompt { get; private set; }
 
 		public Task<InferenceResult<TResponse>> QueryAsync<TResponse>(
-			string agentProviderId,
+			InferenceOwner owner,
 			InferenceModelCategory category,
 			string prompt,
 			JsonTypeInfo<TResponse> responseType,
@@ -199,7 +201,8 @@ public sealed class HostCoreBranchInferenceTests {
 			Assert.Same(BranchNameInference.ResponseType, responseType);
 			Assert.Same(BranchNameInference.QueryOptions, options);
 			Calls++;
-			AgentProviderId = agentProviderId;
+			AgentProviderId = owner.AgentProviderId;
+			Workspace = owner.Workspace;
 			Category = category;
 			Origin = options.Origin;
 			Prompt = prompt;
@@ -213,7 +216,7 @@ public sealed class HostCoreBranchInferenceTests {
 		public TaskCompletionSource Cancelled { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
 		public async Task<InferenceResult<TResponse>> QueryAsync<TResponse>(
-			string agentProviderId,
+			InferenceOwner owner,
 			InferenceModelCategory category,
 			string prompt,
 			JsonTypeInfo<TResponse> responseType,

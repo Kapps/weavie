@@ -14,6 +14,11 @@ if (Environment.GetEnvironmentVariable("WEAVIE_FAKE_ACP_MODE") == "mixed-request
 	return;
 }
 
+if (args is ["inference", var inferenceVariant]) {
+	await InferenceFake.RunAsync(inferenceVariant).ConfigureAwait(false);
+	return;
+}
+
 if (args is ["echo-and-exit"]) {
 	string line = await Console.In.ReadLineAsync().ConfigureAwait(false)
 		?? throw new EndOfStreamException("The echo fake expected one request.");

@@ -17,7 +17,7 @@ public interface IInferenceService {
 	/// exact behavior it uses when inference is disabled.
 	/// </summary>
 	Task<InferenceResult<TResponse>> QueryAsync<TResponse>(
-		string agentProviderId,
+		InferenceOwner owner,
 		InferenceModelCategory category,
 		string prompt,
 		JsonTypeInfo<TResponse> responseType,
@@ -48,17 +48,20 @@ public sealed class InferenceService : IInferenceService {
 
 	/// <inheritdoc/>
 	public async Task<InferenceResult<TResponse>> QueryAsync<TResponse>(
-		string agentProviderId,
+		InferenceOwner owner,
 		InferenceModelCategory category,
 		string prompt,
 		JsonTypeInfo<TResponse> responseType,
 		InferenceQueryOptions options,
 		CancellationToken ct) {
-		ArgumentException.ThrowIfNullOrWhiteSpace(agentProviderId);
+		ArgumentNullException.ThrowIfNull(owner);
+		ArgumentException.ThrowIfNullOrWhiteSpace(owner.AgentProviderId);
+		ArgumentException.ThrowIfNullOrWhiteSpace(owner.Workspace);
 		ArgumentException.ThrowIfNullOrWhiteSpace(prompt);
 		ArgumentNullException.ThrowIfNull(responseType);
 		ArgumentNullException.ThrowIfNull(options);
 		ValidateQuery(responseType, options);
+		string agentProviderId = owner.AgentProviderId;
 
 		ct.ThrowIfCancellationRequested();
 		if (!_settings.RequireBool(InferenceSettings.Enabled)) {
@@ -94,6 +97,7 @@ public sealed class InferenceService : IInferenceService {
 		string schema = JsonSchemaExporter.GetJsonSchemaAsNode(responseType, SchemaOptions).ToJsonString();
 		var request = new InferenceProviderRequest {
 			Category = category,
+			Workspace = owner.Workspace,
 			Prompt = prompt,
 			OutputSchemaJson = schema,
 			MaxOutputBytes = options.MaxOutputBytes,

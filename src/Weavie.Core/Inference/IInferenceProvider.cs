@@ -11,6 +11,9 @@ public sealed record InferenceProviderRequest {
 	/// <summary>The requested provider-neutral model category.</summary>
 	public required InferenceModelCategory Category { get; init; }
 
+	/// <summary>The owning worktree root the query runs in.</summary>
+	public required string Workspace { get; init; }
+
 	/// <summary>The complete provider-agnostic prompt.</summary>
 	public required string Prompt { get; init; }
 

@@ -34,19 +34,14 @@ public sealed class PosixPtyLauncher : IPtyLauncher {
 	}
 
 	private static (string Command, IReadOnlyList<string> Arguments) ResolveLoginShell(AgentLaunch launch) {
-		string args = FormatExecArgs(launch.Arguments);
-		return (LoginShellEnvironment.LoginShell(), ["-l", "-i", "-c", $"exec '{launch.Command}'{args}"]);
+		string command = string.Join(
+			' ',
+			launch.Arguments.Prepend(launch.Command).Select(ShellQuote));
+		return (LoginShellEnvironment.LoginShell(), ["-l", "-i", "-c", $"exec {command}"]);
 	}
 
-	private static string FormatExecArgs(IReadOnlyList<string> args) {
-		if (args.Count == 0) {
-			return string.Empty;
-		}
-
-		var sb = new System.Text.StringBuilder();
-		foreach (string arg in args) {
-			sb.Append(' ').Append(arg.StartsWith('-') ? arg : $"'{arg}'");
-		}
-		return sb.ToString();
-	}
+	// Single-quoted, with embedded quotes closed and re-opened ('\'') — the only POSIX form that keeps an
+	// arbitrary argument (a prompt with an apostrophe, spaces, newlines, or $) literal for the shell.
+	private static string ShellQuote(string argument) =>
+		$"'{argument.Replace("'", "'\\''", StringComparison.Ordinal)}'";
 }

@@ -9,6 +9,13 @@ public interface ITerminalAgentSession : IAgentSession {
 	/// <summary>Builds the next child launch from the provider's current conversation state.</summary>
 	AgentLaunch ResolveLaunch();
 
+	/// <summary>
+	/// Sets the opening turn a not-yet-launched session starts with, for the provider to carry into its launch.
+	/// Consumed by the first <see cref="ResolveLaunch"/>, so a restart never replays it. Throws once the session
+	/// has launched: the opening turn is part of starting the agent, not something typed at it afterwards.
+	/// </summary>
+	void SeedFirstTurn(AgentTurnSubmission turn);
+
 	/// <summary>Observes raw output from the current PTY child.</summary>
 	void ObserveTerminalOutput(ReadOnlyMemory<byte> data);
 

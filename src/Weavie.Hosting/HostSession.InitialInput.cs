@@ -9,7 +9,12 @@ public sealed partial class HostSession {
 	private bool _initialInputAssigned;
 	private bool _acceptInitialInput = true;
 
-	/// <summary>Queues the session's first input until its agent reports that it is ready.</summary>
+	/// <summary>
+	/// Sets the session's first input. A terminal-backed agent takes it as part of its launch — the provider's own
+	/// entry point for an opening turn — because a TUI that has not finished starting discards or re-frames written
+	/// input, so injecting keystrokes would race its startup and silently lose the prompt. A structured agent has a
+	/// real readiness report, so its first turn is submitted over the protocol once the agent goes idle.
+	/// </summary>
 	internal void QueueInitialInput(AgentTurnSubmission input) {
 		ArgumentNullException.ThrowIfNull(input);
 		if (input.Text.Trim().Length == 0 && input.Attachments.Count == 0) {
@@ -22,6 +27,11 @@ public sealed partial class HostSession {
 			}
 
 			_initialInputAssigned = true;
+			if (Agent.TerminalSession is { } terminal) {
+				terminal.SeedFirstTurn(input);
+				return;
+			}
+
 			_initialInput = input;
 			Status.Changed += DeliverInitialInput;
 		}

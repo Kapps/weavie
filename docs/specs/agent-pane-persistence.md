@@ -71,6 +71,11 @@ ACP `session/load` is the only source of history produced outside this process. 
 `AcpAgentSession` collects the provider's `session/update` stream instead of publishing it live, so a
 half-replayed conversation is never rendered. A successful load raises one host-internal `PaneSnapshot` event.
 
+The collected stream must stay in conversation order, because the pane places a record where its stream first
+appears and derives turn boundaries from where the prompts sit. Agent content is positioned by the delta it
+streams; a replayed user prompt has neither that nor the local submission that places it live, so it is closed
+— and published — the moment the replay moves past it, rather than at the end of the load.
+
 On a cold load the pane is empty, so `AgentSessionHost` stores the snapshot and streams it as live records
 inside the existing generation: connected clients receive the transcript without being told to re-sync, and a
 client that has already paged history keeps every ordinal it holds. Only a snapshot arriving over existing

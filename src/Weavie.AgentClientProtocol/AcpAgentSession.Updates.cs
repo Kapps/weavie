@@ -47,6 +47,7 @@ public sealed partial class AcpAgentSession {
 			}
 		}
 		string kind = RequiredString(update, "sessionUpdate", "session/update notification");
+		if (kind != "user_message_chunk") CloseReplayedUserMessage(null);
 		switch (kind) {
 			case "user_message_chunk": EmitContent(update, "user-message-delta", "userMessage"); break;
 			case "agent_message_chunk": EmitContent(update, "agent-message-delta", "agentMessage"); break;
@@ -88,6 +89,7 @@ public sealed partial class AcpAgentSession {
 		string? advertisedKey = advertisedId is null ? null : $"{itemType}:{advertisedId}";
 		string turnId = TurnIdForContent(itemType, advertisedKey);
 		string id = advertisedKey ?? $"{itemType}:{turnId}";
+		if (itemType == "userMessage") CloseReplayedUserMessage(id);
 		string? type = OptionalString(content, "type");
 		string? text = type == "text" ? OptionalString(content, "text") : ResourceText(content);
 		AcpContentState state;
@@ -119,10 +121,23 @@ public sealed partial class AcpAgentSession {
 		PublishPane(message);
 	}
 
-	private void CompleteContentStreams() {
+	// A replayed user prompt has no local submission to place it and no streamed delta holding its position, so it
+	// exists only once its stream ends. Close it as soon as the replay moves past it, or every prompt lands at the
+	// end of the load -- after the responses it asked for, and with the turn boundaries the pane derives from it.
+	private void CloseReplayedUserMessage(string? keepId) {
+		lock (_gate) {
+			if (!_loadingTranscript) return;
+		}
+		CompleteContentStreams(state => state.ItemType == "userMessage"
+			&& !string.Equals(state.Id, keepId, StringComparison.Ordinal));
+	}
+
+	private void CompleteContentStreams() => CompleteContentStreams(static _ => true);
+
+	private void CompleteContentStreams(Func<AcpContentState, bool> match) {
 		AcpContentState[] content;
 		lock (_gate) {
-			content = [.. _content.Values];
+			content = [.. _content.Values.Where(match)];
 			foreach (var state in content) _content.Remove(state.Id);
 		}
 		foreach (var state in content) {

@@ -5,6 +5,7 @@ import { evaluateWhen } from "../commands/context";
 import { keyLabelInCatalog } from "../commands/key-hint";
 import { findCommandInCatalog, runCommandFromCatalogWithFeedback } from "../commands/registry";
 import { CommandIds } from "../commands/types";
+import { dismissOnOutsideInteraction } from "./popover-dismiss";
 
 // The resolved shortcut for a command, formatted for display ("" when unbound) — so a menu item advertises
 // its keybinding (keyboard-first), read live from the catalog rather than hardcoded.
@@ -39,23 +40,15 @@ export function Menu(props: { recents: string[] }): JSX.Element {
     }
   };
 
-  // Dismiss on any outside pointer-down or Escape while a menu is open.
-  const onPointerDown = (e: PointerEvent): void => {
-    if (!(e.target as HTMLElement).closest(".tb-menu")) {
-      close();
-    }
-  };
+  // Dismiss on any outside pointer-down, a window blur, or Escape while a menu is open.
+  dismissOnOutsideInteraction(".tb-menu", close);
   const onKeyDown = (e: KeyboardEvent): void => {
     if (e.key === "Escape") {
       close();
     }
   };
-  window.addEventListener("pointerdown", onPointerDown);
   window.addEventListener("keydown", onKeyDown);
-  onCleanup(() => {
-    window.removeEventListener("pointerdown", onPointerDown);
-    window.removeEventListener("keydown", onKeyDown);
-  });
+  onCleanup(() => window.removeEventListener("keydown", onKeyDown));
 
   const commandAction = (command: string, args?: unknown): void => {
     close();

@@ -4,6 +4,7 @@ import { Portal } from "solid-js/web";
 import { formatKey } from "../commands/keybindings";
 import { findCommand, runCommandWithFeedback } from "../commands/registry";
 import { modalActive, onModalOpened } from "./modal-state";
+import { dismissOnOutsideInteraction } from "./popover-dismiss";
 
 // One row: a command to dispatch, an optional label override (defaults to the command's catalog title), and
 // a danger flag for destructive actions.
@@ -237,11 +238,6 @@ function MenuPanel(props: {
  */
 export function ContextMenu(props: { menu: ContextMenuState; onClose: () => void }): JSX.Element {
   let stopModalListener = (): void => {};
-  const onPointerDown = (event: PointerEvent): void => {
-    if (!(event.target as HTMLElement).closest(".context-menu")) {
-      props.onClose();
-    }
-  };
   const onKeyDown = (event: KeyboardEvent): void => {
     if (event.key === "Escape") {
       props.onClose();
@@ -253,15 +249,12 @@ export function ContextMenu(props: { menu: ContextMenuState; onClose: () => void
       return;
     }
     stopModalListener = onModalOpened(props.onClose);
-    window.addEventListener("pointerdown", onPointerDown);
+    dismissOnOutsideInteraction(".context-menu", props.onClose);
     window.addEventListener("keydown", onKeyDown);
-    window.addEventListener("blur", props.onClose);
   });
   onCleanup(() => {
     stopModalListener();
-    window.removeEventListener("pointerdown", onPointerDown);
     window.removeEventListener("keydown", onKeyDown);
-    window.removeEventListener("blur", props.onClose);
   });
 
   return (

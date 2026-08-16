@@ -1018,6 +1018,33 @@ test.describe("ACP composer", () => {
     await expect(picker).toBeHidden();
   });
 
+  test("a control picker is dismissed by clicking away or its own segment", async ({ page }) => {
+    await mountAgent(page);
+
+    const model = page.locator(".agent-status-segment", { hasText: "Model" });
+    const picker = page.locator(".agent-control-picker");
+    await model.click();
+    await expect(picker).toBeVisible();
+
+    // Clicking anywhere outside closes it — without applying an option.
+    await page.locator(".agent-body").click();
+    await expect(picker).toBeHidden();
+    expect(lastAgentPayload("setControl")).toBeUndefined();
+
+    // The segment that opened it closes it again.
+    await model.click();
+    await expect(picker).toBeVisible();
+    await model.click();
+    await expect(picker).toBeHidden();
+
+    // Another axis's segment switches the picker instead of leaving the first one open.
+    await model.click();
+    await page.locator(".agent-status-segment", { hasText: "Fast" }).click();
+    await expect(picker).toHaveCount(1);
+    await expect(picker).toContainText("Fast");
+    expect(lastAgentPayload("setControl")).toBeUndefined();
+  });
+
   test("the reasoning picker applies the provider-owned thought level", async ({ page }) => {
     await mountAgent(page);
 
@@ -1103,6 +1130,23 @@ test.describe("ACP composer", () => {
     await expect(textarea).toHaveValue("/review-pr ");
     await expect(textarea).toBeFocused();
     await page.screenshot({ path: join(shotsDir, "05-provider-command.png") });
+  });
+
+  test("clicking outside the composer dismisses the slash menu", async ({ page }) => {
+    await mountAgent(page);
+
+    const textarea = page.locator("[data-agent-composer] textarea");
+    await textarea.click();
+    await page.keyboard.type("/");
+    const menu = page.locator(".agent-slash-menu");
+    await expect(menu).toBeVisible();
+
+    // A click inside the composer is still the query's own surface; only leaving it dismisses.
+    await textarea.click();
+    await expect(menu).toBeVisible();
+    await page.locator(".agent-body").click();
+    await expect(menu).toBeHidden();
+    await expect(textarea).toHaveValue("/");
   });
 
   // Pins the composer's turn-progress wiring: the working row (with elapsed time), the Run→Steer submit

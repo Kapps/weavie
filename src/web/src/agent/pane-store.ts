@@ -23,7 +23,12 @@ const [authenticationTerminals, setAuthenticationTerminals] = createSignal(
 );
 
 registerSessionFeature((session) => {
-  const accumulator = new AgentPaneAccumulator((callback) => requestAnimationFrame(callback));
+  const accumulator = new AgentPaneAccumulator(
+    (callback) => requestAnimationFrame(callback),
+    // Deferred: the accumulator raises this while it is still writing the record that changed the generation,
+    // and resyncing mutates that same slot. `resyncPane` is hoisted; it only runs once setup has finished.
+    () => queueMicrotask(resyncPane),
+  );
   const feature = session.feature("agent");
   let historyAbort: AbortController | null = null;
   let historyComplete = false;
@@ -159,7 +164,9 @@ registerSessionFeature((session) => {
     }
     accumulator.ingestBatch("pane", messages, publish);
   });
-  const offReset = feature.on("paneReset", () => {
+  // Re-fetch the transcript from the host, discarding every ordinal this client holds. Reached two ways: the
+  // host announcing a reset, and a live record arriving from a newer generation, which says the same thing.
+  function resyncPane(): void {
     historyAbort?.abort();
     historyAbort = null;
     if (historyReadId !== null) {
@@ -172,7 +179,9 @@ registerSessionFeature((session) => {
     appliedDrafts = 0;
     accumulator.reset("pane", () => model.reset());
     startHistory();
-  });
+  }
+
+  const offReset = feature.on("paneReset", resyncPane);
   startHistory();
   return () => {
     historyAbort?.abort();

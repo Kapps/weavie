@@ -17,7 +17,7 @@ namespace Weavie.Hosting.Tests;
 public sealed class AgentSessionHostTests {
 	[Fact]
 	public async Task StructuredUsage_IsPublishedAndReplayedForItsOwningSession() {
-		await using var fixture = CreateFixture(static () => "slot-1", static (_, _) => { }, 0);
+		await using var fixture = CreateFixture(static () => "slot-1", 0);
 		var (bridge, session, host) = (fixture.Bridge, fixture.Session, fixture.Host);
 		session.EmitUsage(new AgentUsageSnapshot(
 			new(25000, 100000),
@@ -43,7 +43,7 @@ public sealed class AgentSessionHostTests {
 	public async Task StructuredProvider_DoesNotStartUntilSlotIsKnown() {
 		string slot = string.Empty;
 		// Window 0 so each live message posts its own agent-pane frame, asserted synchronously below.
-		await using var fixture = CreateFixture(() => slot, static (_, _) => { }, 0);
+		await using var fixture = CreateFixture(() => slot, 0);
 		var (bridge, session, host) = (fixture.Bridge, fixture.Session, fixture.Host);
 
 		Assert.False(session.Started);
@@ -128,7 +128,6 @@ public sealed class AgentSessionHostTests {
 	public async Task ReplayStateRestoresAnActiveAuthenticationTerminal() {
 		await using var fixture = CreateFixture(
 			static () => "slot-1",
-			static (_, _) => { },
 			0,
 			withAuthenticationTerminal: true);
 		var terminal = Assert.IsType<AgentAuthenticationTerminal>(fixture.Host.AuthenticationTerminal);
@@ -136,7 +135,7 @@ public sealed class AgentSessionHostTests {
 		var authentication = terminal.RunAsync(new AgentLaunch {
 			Command = "login",
 			Arguments = [],
-			WorkingDirectory = Path.GetDirectoryName(fixture.TranscriptPath)!,
+			WorkingDirectory = fixture.Workspace,
 			RemoveEnvironment = [],
 			Environment = new Dictionary<string, string>(StringComparer.Ordinal),
 			ExecutableMode = AgentExecutableMode.SearchPath,
@@ -155,7 +154,7 @@ public sealed class AgentSessionHostTests {
 
 	[Fact]
 	public async Task History_is_byte_paged_without_dropping_messages() {
-		await using var fixture = CreateFixture(static () => "slot-1", static (_, _) => { }, 0);
+		await using var fixture = CreateFixture(static () => "slot-1", 0);
 		var (bridge, session, host) = (fixture.Bridge, fixture.Session, fixture.Host);
 
 		host.Structured!.Start();
@@ -172,7 +171,7 @@ public sealed class AgentSessionHostTests {
 
 	[Fact]
 	public async Task Completed_history_baseline_returns_only_later_record_revisions() {
-		await using var fixture = CreateFixture(static () => "slot-1", static (_, _) => { }, 0);
+		await using var fixture = CreateFixture(static () => "slot-1", 0);
 		var (session, host) = (fixture.Session, fixture.Host);
 		host.Structured!.Start();
 		for (int index = 0; index < 10; index++) {
@@ -200,7 +199,7 @@ public sealed class AgentSessionHostTests {
 
 	[Fact]
 	public async Task Oversized_history_record_is_fragmented_within_the_page_budget() {
-		await using var fixture = CreateFixture(static () => "slot-1", static (_, _) => { }, 0);
+		await using var fixture = CreateFixture(static () => "slot-1", 0);
 		var (session, host) = (fixture.Session, fixture.Host);
 		string text = string.Concat(Enumerable.Repeat("snowman ☃ emoji 😀 quote \\\"\n", 20_000));
 
@@ -247,7 +246,7 @@ public sealed class AgentSessionHostTests {
 
 	[Fact]
 	public async Task Oversized_history_metadata_is_fragmented_within_the_page_budget() {
-		await using var fixture = CreateFixture(static () => "slot-1", static (_, _) => { }, 0);
+		await using var fixture = CreateFixture(static () => "slot-1", 0);
 		var (session, host) = (fixture.Session, fixture.Host);
 		string description = string.Concat(Enumerable.Repeat("metadata ☃ 😀 \\\"\n", 30_000));
 		var message = Completed("oversized-metadata", "short") with {
@@ -288,7 +287,7 @@ public sealed class AgentSessionHostTests {
 
 	[Fact]
 	public async Task Fragmented_history_read_keeps_one_immutable_revision_while_live_output_changes() {
-		await using var fixture = CreateFixture(static () => "slot-1", static (_, _) => { }, 0);
+		await using var fixture = CreateFixture(static () => "slot-1", 0);
 		var (session, host) = (fixture.Session, fixture.Host);
 		string initial = new('a', AgentSessionHost.HistoryPageTargetBytes * 2);
 		var delta = new AgentPaneMessage {
@@ -324,7 +323,7 @@ public sealed class AgentSessionHostTests {
 
 	[Fact]
 	public async Task LiveMessages_within_the_window_coalesce_into_one_batch_frame() {
-		await using var fixture = CreateFixture(static () => "slot-1", static (_, _) => { }, 200);
+		await using var fixture = CreateFixture(static () => "slot-1", 200);
 		var (bridge, session, host) = (fixture.Bridge, fixture.Session, fixture.Host);
 
 		host.Structured!.Start(); // "started"
@@ -341,109 +340,47 @@ public sealed class AgentSessionHostTests {
 		Assert.Equal(6, Batched(bridge).Count);
 	}
 
+	// The regression that stranded live pages: a provider replay used to reset the pane, and every client holding
+	// the old ordinals was told to throw them away mid-load. Filling an empty pane invalidates nothing.
 	[Fact]
-	public async Task StructuredProvider_SeedsPersistedTranscript_BeforeStart() {
-		// A prior session's persisted result — the durable transcript on disk before this session is built.
-		await using var fixture = CreateFixture(
-			static () => "slot-1",
-			static (fileSystem, transcriptPath) =>
-				new AgentPaneTranscriptStore(fileSystem, transcriptPath).Append(Completed("item-1", "prior result")),
-			0);
-
-		// The provider has not hydrated yet; persisted history is still available once the journal worker loads it.
-		Assert.False(fixture.Session.Started);
-		await fixture.Host.DrainPaneAsync(CancellationToken.None);
-		var replayed = Assert.Single(await History(fixture.Host));
-		Assert.Equal("item-completed", replayed.GetProperty("type").GetString());
-		Assert.Equal("prior result", replayed.GetProperty("text").GetString());
-	}
-
-	[Fact]
-	public async Task PersistedRetraction_ReplacesTheCompletedItemAfterReload() {
-		await using var fixture = CreateFixture(
-			static () => "slot-1",
-			static (fileSystem, transcriptPath) => {
-				var store = new AgentPaneTranscriptStore(fileSystem, transcriptPath);
-				store.Append(Completed("item-1", "refused result"));
-				store.Append(Completed("item-1", "refused result") with {
-					Type = "item-retracted",
-					Text = null,
-					Status = "retracted",
-				});
-			},
-			0);
-
-		await fixture.Host.DrainPaneAsync(CancellationToken.None);
-		var retracted = Assert.Single(await History(fixture.Host));
-
-		Assert.Equal("item-retracted", retracted.GetProperty("type").GetString());
-		Assert.Equal("item-1", retracted.GetProperty("itemId").GetString());
-		Assert.Equal("retracted", retracted.GetProperty("status").GetString());
-	}
-
-	[Fact]
-	public async Task PersistedTranscriptReplaysWhenActivationBeatsJournalLoad() {
-		string dir = Path.Combine(Path.GetTempPath(), "weavie-agent-host-tests", Guid.NewGuid().ToString("N"));
-		Directory.CreateDirectory(dir);
-		string transcriptPath = Path.Combine(dir, "agent-pane.json");
-		using var release = new ManualResetEventSlim();
-		var fileSystem = new BlockingReadFileSystem(transcriptPath, release);
-		await using var fixture = CreateFixture(
-			static () => "slot-1",
-			fileSystem,
-			transcriptPath,
-			0);
-
-		var read = fixture.Host.ReadHistoryPageAsync(null, CancellationToken.None);
-		Assert.False(read.IsCompleted);
-		release.Set();
-
-		var message = Assert.Single(AssembleHistory([await read]));
-		Assert.Equal("persisted after activation", message.GetProperty("text").GetString());
-	}
-
-	[Fact]
-	public async Task JournalSeedPreservesPreloadLiveRevisionsAndDeltaState() {
-		string dir = Path.Combine(Path.GetTempPath(), "weavie-agent-host-tests", Guid.NewGuid().ToString("N"));
-		Directory.CreateDirectory(dir);
-		string transcriptPath = Path.Combine(dir, "agent-pane.json");
-		using var release = new ManualResetEventSlim();
-		var fileSystem = new BlockingReadFileSystem(transcriptPath, release);
-		await using var fixture = CreateFixture(
-			static () => "slot-1",
-			fileSystem,
-			transcriptPath,
-			0);
+	public async Task ProviderReplayIntoAnEmptyPane_KeepsOneGeneration() {
+		await using var fixture = CreateFixture(static () => "slot-1", 0);
 		var (bridge, session, host) = (fixture.Bridge, fixture.Session, fixture.Host);
-		var delta = new AgentPaneMessage {
-			Type = "agent-message-delta",
-			ProviderId = "structured",
-			TurnId = "turn",
-			ItemId = "preload-live",
-			Text = "a",
-		};
 
-		session.Emit(delta);
-		session.Emit(delta with { Text = "b" });
-		release.Set();
+		session.Replace([Completed("restored-0", "restored a"), Completed("restored-1", "restored b")]);
 		await host.DrainPaneAsync(CancellationToken.None);
-		long beforeSeed = bridge.PostedEventsNamed("pane")
-			.Where(message => message.GetProperty("itemId").GetString() == "preload-live")
-			.Max(message => message.GetProperty("revision").GetInt64());
 
+		Assert.Empty(bridge.PostedEventsNamed("paneReset"));
+		var live = bridge.PostedEventsNamed("pane");
+		Assert.Equal(2, live.Count);
+		Assert.Single(live.Select(message => message.GetProperty("generation").GetInt64()).Distinct());
+		Assert.Equal(
+			["restored-0", "restored-1"],
+			(await History(host)).Select(message => message.GetProperty("itemId").GetString()));
+	}
+
+	// A replay over existing content genuinely voids those ordinals, so that case must still announce a reset.
+	[Fact]
+	public async Task ProviderReplayOverExistingContent_ResetsTheGeneration() {
+		await using var fixture = CreateFixture(static () => "slot-1", 0);
+		var (bridge, session, host) = (fixture.Bridge, fixture.Session, fixture.Host);
+		session.Emit(Completed("stale-0", "stale"));
+		await host.DrainPaneAsync(CancellationToken.None);
+		long before = bridge.PostedEventsNamed("pane").Max(message => message.GetProperty("generation").GetInt64());
 		bridge.Clear();
-		session.Emit(delta with { Text = "c" });
+
+		session.Replace([Completed("restored-0", "restored a")]);
 		await host.DrainPaneAsync(CancellationToken.None);
-		var live = Assert.Single(bridge.PostedEventsNamed("pane"));
-		Assert.True(live.GetProperty("revision").GetInt64() > beforeSeed);
-		var cumulative = Assert.Single(await History(host), message =>
-			message.GetProperty("itemId").GetString() == "preload-live");
-		Assert.Equal("abc", cumulative.GetProperty("text").GetString());
+
+		Assert.NotEmpty(bridge.PostedEventsNamed("paneReset"));
+		var restored = Assert.Single(await History(host));
+		Assert.Equal("restored-0", restored.GetProperty("itemId").GetString());
+		Assert.True(restored.GetProperty("generation").GetInt64() > before);
 	}
 
 	[Fact]
 	public async Task CompletedPlan_IsAvailableOnlyForItsExactCurrentIdentity() {
-		await using var fixture = CreateFixture(static () => "slot-1", static (_, _) => { }, 0);
+		await using var fixture = CreateFixture(static () => "slot-1", 0);
 		var (session, host) = (fixture.Session, fixture.Host);
 		const string threadId = "thread-plan";
 		const string turnId = "turn-plan";
@@ -481,7 +418,7 @@ public sealed class AgentSessionHostTests {
 
 	[Fact]
 	public async Task LaterTerminalOutcome_ReconcilesTheCompletedItemInPlace() {
-		await using var fixture = CreateFixture(static () => "slot-1", static (_, _) => { }, 0);
+		await using var fixture = CreateFixture(static () => "slot-1", 0);
 		var (session, host) = (fixture.Session, fixture.Host);
 		session.Emit(Completed("task", "provisional"));
 		session.Emit(Completed("task", "authoritative") with { Status = "failed" });
@@ -498,7 +435,7 @@ public sealed class AgentSessionHostTests {
 	// but the next read must converge to the authoritative replacement.
 	[Fact]
 	public async Task HistoryRead_RacingHydrate_ConvergesToHydratedTranscript() {
-		await using var fixture = CreateFixture(static () => "slot-1", static (_, _) => { }, 0);
+		await using var fixture = CreateFixture(static () => "slot-1", 0);
 		var (session, host) = (fixture.Session, fixture.Host);
 
 		// A resumed thread re-emits transcript-reset + its completed items; this is the authoritative end state.
@@ -567,42 +504,16 @@ public sealed class AgentSessionHostTests {
 		Status = "completed",
 	};
 
-	private static HostFixture CreateFixture(Func<string> slot, Action<IFileSystem, string> seedTranscript, long paneCoalesceMs) {
-		string dir = Path.Combine(Path.GetTempPath(), "weavie-agent-host-tests", Guid.NewGuid().ToString("N"));
-		Directory.CreateDirectory(dir);
-		var fileSystem = new InMemoryFileSystem();
-		string transcriptPath = Path.Combine(dir, "agent-pane.json");
-		seedTranscript(fileSystem, transcriptPath);
-		return CreateFixture(slot, fileSystem, transcriptPath, paneCoalesceMs, withAuthenticationTerminal: false);
-	}
+	private static HostFixture CreateFixture(Func<string> slot, long paneCoalesceMs) =>
+		CreateFixture(slot, paneCoalesceMs, withAuthenticationTerminal: false);
 
 	private static HostFixture CreateFixture(
 		Func<string> slot,
-		Action<IFileSystem, string> seedTranscript,
 		long paneCoalesceMs,
 		bool withAuthenticationTerminal) {
 		string dir = Path.Combine(Path.GetTempPath(), "weavie-agent-host-tests", Guid.NewGuid().ToString("N"));
 		Directory.CreateDirectory(dir);
 		var fileSystem = new InMemoryFileSystem();
-		string transcriptPath = Path.Combine(dir, "agent-pane.json");
-		seedTranscript(fileSystem, transcriptPath);
-		return CreateFixture(slot, fileSystem, transcriptPath, paneCoalesceMs, withAuthenticationTerminal);
-	}
-
-	private static HostFixture CreateFixture(
-		Func<string> slot,
-		IFileSystem fileSystem,
-		string transcriptPath,
-		long paneCoalesceMs) =>
-		CreateFixture(slot, fileSystem, transcriptPath, paneCoalesceMs, withAuthenticationTerminal: false);
-
-	private static HostFixture CreateFixture(
-		Func<string> slot,
-		IFileSystem fileSystem,
-		string transcriptPath,
-		long paneCoalesceMs,
-		bool withAuthenticationTerminal) {
-		string dir = Path.GetDirectoryName(transcriptPath)!;
 		var settings = CoreSettings.CreateStore(Path.Combine(dir, "settings.toml"), enableWatcher: false);
 		settings.Set(AgentSettings.PaneCoalesceMs, JsonSerializer.SerializeToElement(paneCoalesceMs));
 		var commandRegistry = CoreCommands.CreateRegistry();
@@ -647,53 +558,8 @@ public sealed class AgentSessionHostTests {
 			bridge.SessionFeature("agent"),
 			bridge.SessionFeature("terminal.agent"),
 			settings,
-			new NoopPtyLauncher(),
-			transcriptPath);
-		return new HostFixture(bridge, session, host, registry, settings, transcriptPath);
-	}
-
-	private sealed class BlockingReadFileSystem : IFileSystem {
-		private readonly InMemoryFileSystem _inner = new();
-		private readonly string _blockedPath;
-		private readonly ManualResetEventSlim _release;
-
-		public BlockingReadFileSystem(string blockedPath, ManualResetEventSlim release) {
-			_blockedPath = blockedPath;
-			_release = release;
-			_inner.WriteAllText(
-				blockedPath,
-				"{\"type\":\"item-completed\",\"providerId\":\"structured\",\"text\":\"persisted after activation\"}\n");
-		}
-
-		public bool FileExists(string path) => _inner.FileExists(path);
-
-		public bool DirectoryExists(string path) => _inner.DirectoryExists(path);
-
-		public bool TryGetStat(string path, out FileStat stat) => _inner.TryGetStat(path, out stat);
-
-		public IReadOnlyList<DirectoryEntry> EnumerateDirectory(string path) => _inner.EnumerateDirectory(path);
-
-		public string ReadAllText(string path) {
-			if (string.Equals(path, _blockedPath, StringComparison.Ordinal)) {
-				_release.Wait();
-			}
-
-			return _inner.ReadAllText(path);
-		}
-
-		public bool TryReadAllText(string path, out string contents) => _inner.TryReadAllText(path, out contents);
-
-		public byte[] ReadAllBytes(string path) => _inner.ReadAllBytes(path);
-
-		public void WriteAllText(string path, string contents) => _inner.WriteAllText(path, contents);
-
-		public void WriteAllBytes(string path, byte[] contents) => _inner.WriteAllBytes(path, contents);
-
-		public void AppendAllText(string path, string contents) => _inner.AppendAllText(path, contents);
-
-		public void WriteAllTextAtomic(string path, string contents) => _inner.WriteAllTextAtomic(path, contents);
-
-		public void DeleteFile(string path) => _inner.DeleteFile(path);
+			new NoopPtyLauncher());
+		return new HostFixture(bridge, session, host, registry, settings, dir);
 	}
 
 	private sealed class HostFixture(
@@ -702,14 +568,14 @@ public sealed class AgentSessionHostTests {
 		AgentSessionHost host,
 		CapabilityRegistryHost registry,
 		SettingsStore settings,
-		string transcriptPath) : IAsyncDisposable {
+		string workspace) : IAsyncDisposable {
 		public FakeHostBridge Bridge => bridge;
 
 		public FakeStructuredSession Session => session;
 
 		public AgentSessionHost Host => host;
 
-		public string TranscriptPath => transcriptPath;
+		public string Workspace => workspace;
 
 		public async ValueTask DisposeAsync() {
 			await host.DisposeAsync();

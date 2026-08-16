@@ -18,7 +18,6 @@ public sealed partial class AgentSessionHost : IAsyncDisposable {
 	private readonly object _directHistoryReader = new();
 	private readonly Lock _paneGate = new();
 	private readonly AgentPaneOutput _paneOutput;
-	private readonly AgentPaneJournal? _paneJournal;
 	private readonly IAgentAuthenticationTerminal _authenticationTerminal;
 	private long _paneGeneration;
 	private long _nextPaneOrdinal;
@@ -31,15 +30,13 @@ public sealed partial class AgentSessionHost : IAsyncDisposable {
 		MessageFeatureChannel messages,
 		MessageFeatureChannel terminalMessages,
 		SettingsStore settings,
-		IPtyLauncher ptyLauncher,
-		string transcriptPath) {
+		IPtyLauncher ptyLauncher) {
 		ArgumentNullException.ThrowIfNull(provider);
 		ArgumentNullException.ThrowIfNull(context);
 		ArgumentNullException.ThrowIfNull(messages);
 		ArgumentNullException.ThrowIfNull(terminalMessages);
 		ArgumentNullException.ThrowIfNull(settings);
 		ArgumentNullException.ThrowIfNull(ptyLauncher);
-		ArgumentException.ThrowIfNullOrEmpty(transcriptPath);
 		_messages = messages;
 		_authenticationTerminal = context.AuthenticationTerminal;
 		AuthenticationTerminal = context.AuthenticationTerminal as AgentAuthenticationTerminal;
@@ -65,11 +62,6 @@ public sealed partial class AgentSessionHost : IAsyncDisposable {
 			};
 		} else if (Session is IStructuredAgentSession structuredSession) {
 			Structured = structuredSession;
-			_paneJournal = new AgentPaneJournal(
-				context.FileSystem,
-				transcriptPath,
-				SeedPersistedPane,
-				Console.WriteLine);
 			structuredSession.PaneMessage += PublishPaneMessage;
 			structuredSession.PaneSnapshot += ReplacePaneSnapshot;
 		} else {
@@ -124,9 +116,6 @@ public sealed partial class AgentSessionHost : IAsyncDisposable {
 		if (Usage is { } usage) {
 			usage.UsageChanged -= PublishUsage;
 		}
-		if (_paneJournal is { } journal) {
-			await journal.DisposeAsync().ConfigureAwait(false);
-		}
 		await _paneOutput.DisposeAsync().ConfigureAwait(false);
 	}
 
@@ -136,15 +125,7 @@ public sealed partial class AgentSessionHost : IAsyncDisposable {
 	internal void ReplayState(MessageTargetFeature messages) =>
 		ReplayState((IMessageFeatureTarget)messages);
 
-	internal async Task DrainPaneAsync(CancellationToken ct) {
-		if (_paneJournal is { } journal) {
-			await journal.DrainAsync(ct).ConfigureAwait(false);
-		}
-		await _paneOutput.DrainAsync(ct).ConfigureAwait(false);
-	}
-
-	internal Task WaitForPaneReadyAsync(CancellationToken ct) =>
-		_paneJournal?.WaitUntilReadyAsync(ct) ?? Task.CompletedTask;
+	internal Task DrainPaneAsync(CancellationToken ct) => _paneOutput.DrainAsync(ct);
 
 	private void ReplayState(IMessageFeatureTarget messages) {
 		if (AuthenticationTerminal is { } authenticationTerminal) {

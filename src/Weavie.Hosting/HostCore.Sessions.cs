@@ -453,9 +453,12 @@ public sealed partial class HostCore {
 				// Pasted images go in a per-session subdir (keyed by worktree, like the scrollback log) so unloading
 				// one session's images never touches another's.
 				Path.Combine(WeaviePaths.WorkspacePastedImagesDir(Id), WorkspaceId.ForPath(cwd).Value),
-				// The structured agent pane's durable transcript (keyed by worktree, like the shell scrollback log)
-				// so its output restores across reload/unload/restart. Terminal-backed providers ignore it.
-				WeaviePaths.WorkspaceAgentPaneFile(Id, WorkspaceId.ForPath(cwd).Value),
+				// Scrollback for the visible terminal an ACP agent uses to sign in, keyed by worktree like the
+				// shell log. The pane transcript itself is provider-owned and never cached by Weavie.
+				WeaviePaths.WorkspaceTerminalLogFile(
+					Id,
+					WorkspaceId.ForPath(cwd).Value,
+					"agent-authentication"),
 				_commandRegistry,
 				_keybindings,
 				_themeOverrides,

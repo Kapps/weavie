@@ -1,20 +1,38 @@
-# Native agent pane persistence
+# Native agent pane state
 
 The native structured-agent pane renders provider-neutral `AgentPaneMessage` records owned by
-`AgentSessionHost`. The transcript survives session unloads and worker restarts without making session sync or
-the shared message transport proportional to the transcript's size.
+`AgentSessionHost`, without making session sync or the shared message transport proportional to the
+transcript's size.
 
 ## Ownership
 
-Each worktree has an owner-only transcript at
-`~/.weavie/workspaces/<id>/agent-panes/<worktreeDigest>.json`
-(`WeaviePaths.WorkspaceAgentPaneFile`). `AgentPaneTranscriptStore` persists the durable message subset as
-append-only JSONL and reports I/O failures through its `Log` event.
+**The provider owns the transcript; Weavie caches nothing.** `AgentSessionHost` materializes the pane in memory
+for as long as the session is loaded, and a cold load starts empty until the provider replays its own
+conversation. A provider that cannot replay comes back empty rather than being handed a stale local copy that
+looks live — the same reason `AcpAgentSession` emits `transcript-reset` when a persisted session can be neither
+loaded nor resumed.
 
-`AgentSessionHost` is the single transcript owner. It maintains the materialized in-memory pane, journals live
-messages, seeds persisted history on its journal worker, and replaces both stores when the provider supplies an
-authoritative resumed-thread snapshot. The replacement increments a generation and publishes `paneReset`; it
-does not replay the replacement through the live-message path.
+Switching between loaded sessions never touches this path: it is served from the in-memory pane at a settled
+generation.
+
+## Generations
+
+A record is addressed by `(generation, ordinal, revision)`. Clearing the pane restarts ordinals, so the
+generation is what lets a client tell new content from old — and a generation change is a specific claim:
+*every ordinal you hold is void, re-fetch.*
+
+It therefore changes only when content is genuinely discarded:
+
+- a provider `transcript-reset` — the conversation is gone;
+- a provider snapshot replacing a **non-empty** pane.
+
+A snapshot filling an **empty** pane invalidates nothing, so it streams into the current generation as ordinary
+live records. Restoring a transcript is not an epoch change, and treating it as one used to force every
+connected client into a mid-load re-sync.
+
+Clients must survive a generation change they did not see announced — `paneReset` is a broadcast, and a
+reconnecting page can miss one. Observing a live record from a newer generation is itself sufficient notice:
+the client discards its state and re-fetches history.
 
 ## Pull-paged history
 
@@ -47,39 +65,32 @@ that completed its prior read supplies the generation and global mutation revisi
 only records changed after that revision, or an empty page when the transcript is unchanged. A generation change
 returns the complete replacement.
 
-The journal readiness task is awaited by `historyPage`, not session sync. A newly loaded session can therefore
-answer unrelated commands while its transcript is still being read from disk.
-
 ## Provider hydration
 
-ACP `session/load` is authoritative for history produced outside Weavie. While load is active, `AcpAgentSession`
-collects the provider's `session/update` stream instead of publishing it live. A successful load raises one
-host-internal `PaneSnapshot` event. `AgentSessionHost` atomically replaces the in-memory transcript and journal,
-increments the generation, and tells connected client session owners to restart paging. This avoids broadcasting
-every hydrated item and avoids temporarily exposing the persisted seed as a second copy of the same conversation.
+ACP `session/load` is the only source of history produced outside this process. While load is active,
+`AcpAgentSession` collects the provider's `session/update` stream instead of publishing it live, so a
+half-replayed conversation is never rendered. A successful load raises one host-internal `PaneSnapshot` event.
+
+On a cold load the pane is empty, so `AgentSessionHost` stores the snapshot and streams it as live records
+inside the existing generation: connected clients receive the transcript without being told to re-sync, and a
+client that has already paged history keeps every ordinal it holds. Only a snapshot arriving over existing
+content resets the generation and publishes `paneReset`.
 
 ```mermaid
 sequenceDiagram
-  participant Store as AgentPaneTranscriptStore
   participant Host as AgentSessionHost
   participant ACP as AcpAgentSession
   participant Web
 
-  Host->>Store: read persisted durable history
   Web->>Host: lifecycle.sync
   Host-->>Web: bounded controls and attachments
   Web->>Host: agent.historyPage(cursor = null)
-  Host->>Host: await journal readiness
-  Host-->>Web: newest page + fixed cursor
-  loop until cursor is null
-    Web->>Host: agent.historyPage(cursor)
-    Host-->>Web: older page + cursor
-  end
+  Host-->>Web: empty page (pane not yet populated)
 
-  ACP->>Host: authoritative PaneSnapshot after session/load
-  Host->>Store: replace durable history
-  Host-->>Web: paneReset
-  Web->>Host: agent.historyPage(cursor = null)
+  ACP->>Host: PaneSnapshot after session/load
+  Host->>Host: empty pane, so keep the generation
+  Host-->>Web: live records
+  Note over Web: transcript appears; no re-sync
 ```
 
 ## Transport isolation
@@ -94,19 +105,11 @@ chunks.
 This transport fairness is defense in depth. Paging is what prevents transcript loading itself from becoming one
 unbounded logical operation.
 
-## What persists
-
-`AgentPaneTranscriptStore.IsPersistable` keeps only durable conversation:
-
-- **Persisted:** `user-message`, `user-steer`, submitted `user-image`, `item-completed`, and `interrupted`.
-- **Live only:** turn lifecycle, in-progress items, streaming deltas, incremental diffs, prompts, drafts,
-  edit locations, thread readiness, and transient launch/stderr warnings and errors.
-
-JSONL append keeps the unbounded transcript off an O(n²) whole-file rewrite path. Loading is line-resilient: a
-torn final record is skipped and earlier records remain available. The transcript is deliberately uncapped.
-
 ## Failure semantics
 
 There is no rejected-session recovery fallback. If `session/load` or `session/resume` rejects the exact persisted
-ACP session id, the native session fails visibly and retains its saved mapping and journal for diagnosis. Starting
-a different conversation is an explicit user action, never a silent transcript reset.
+ACP session id, the native session fails visibly and retains its saved mapping for diagnosis. Starting a
+different conversation is an explicit user action, never a silent transcript reset.
+
+Weavie holds no second copy to fall back to, which is deliberate: a cached transcript shown after the provider
+failed would render a dead session as a live one.

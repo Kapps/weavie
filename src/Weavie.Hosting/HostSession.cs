@@ -61,7 +61,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 		string workspaceRoot,
 		string scratchDir,
 		string pastedImagesDir,
-		string agentPaneTranscriptPath,
+		string authenticationTerminalLogPath,
 		CommandRegistry commandRegistry,
 		KeybindingStore keybindings,
 		ThemeOverridesStore themeOverrides,
@@ -78,7 +78,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 		ArgumentException.ThrowIfNullOrEmpty(workspaceRoot);
 		ArgumentException.ThrowIfNullOrEmpty(scratchDir);
 		ArgumentException.ThrowIfNullOrEmpty(pastedImagesDir);
-		ArgumentException.ThrowIfNullOrEmpty(agentPaneTranscriptPath);
+		ArgumentException.ThrowIfNullOrEmpty(authenticationTerminalLogPath);
 		ArgumentNullException.ThrowIfNull(commandRegistry);
 		ArgumentNullException.ThrowIfNull(keybindings);
 		ArgumentNullException.ThrowIfNull(themeOverrides);
@@ -174,7 +174,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 				settings,
 				ptyLauncher,
 				workspaceRoot,
-				$"{agentPaneTranscriptPath}.authentication-terminal")
+				authenticationTerminalLogPath)
 			: UnavailableAgentAuthenticationTerminal.Instance;
 		var registry = new CapabilityRegistryHost(
 			AgentSessionCredential.Create(),
@@ -207,8 +207,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 				Bus.Feature("agent"),
 				Bus.Feature("terminal.agent"),
 				settings,
-			ptyLauncher,
-			agentPaneTranscriptPath);
+			ptyLauncher);
 		Claude = Agent.Terminal;
 		// When the agent flips into an auto-apply mode (e.g. Shift+Tab to acceptEdits, clearing a pending openDiff in
 		// the TUI), tear down any stale blocking openDiff — left alone it strands its review model over the editor

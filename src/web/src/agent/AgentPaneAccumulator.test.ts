@@ -274,6 +274,26 @@ describe("AgentPaneAccumulator", () => {
     expect(snapshots[0]?.map((message) => message.text)).toEqual(["first"]);
   });
 
+  // Dropping the slot on a generation change is only half the recovery: without telling the owner to re-fetch,
+  // the pane is stranded rendering whatever happens to arrive next.
+  it("reports a generation change so the owner can re-fetch", () => {
+    const changed: string[] = [];
+    const accumulator = new AgentPaneAccumulator(
+      (callback) => callback(),
+      (slot) => changed.push(slot),
+    );
+    const publish = (): void => {};
+
+    accumulator.ingest("slot-1", wireDelta(1, 1, 1, "first"), publish);
+    expect(changed).toEqual([]);
+
+    accumulator.ingest("slot-1", wireDelta(1, 2, 2, "same generation"), publish);
+    expect(changed).toEqual([]);
+
+    accumulator.ingest("slot-1", wireDelta(2, 1, 1, "new generation"), publish);
+    expect(changed).toEqual(["slot-1"]);
+  });
+
   it("ignores a stale history page after a new transcript generation arrives", () => {
     const accumulator = new AgentPaneAccumulator((callback) => callback());
     let messages: AgentPaneUpdate[] = [];

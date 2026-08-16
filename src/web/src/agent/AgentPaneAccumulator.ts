@@ -32,7 +32,12 @@ type Publish = (messages: AgentPaneUpdate[], changes: AgentPaneUpdate[]) => void
 export class AgentPaneAccumulator {
   private readonly slots = new Map<string, SlotState>();
 
-  constructor(private readonly schedule: (callback: () => void) => void) {}
+  constructor(
+    private readonly schedule: (callback: () => void) => void,
+    // A live record from a newer generation voids every ordinal this client holds. Dropping the slot is only
+    // half the recovery: the owner has to re-fetch, or the pane is stranded showing whatever arrives next.
+    private readonly onGenerationChanged: (slot: string) => void = () => {},
+  ) {}
 
   ingest(slot: string, incoming: AgentPaneUpdate, publish: Publish): void {
     const state = this.stateForUpdate(slot, incoming);
@@ -345,9 +350,15 @@ export class AgentPaneAccumulator {
       return null;
     }
     if (state.generation !== incoming.generation) {
+      // Adopting a generation for the first time is initialization; replacing one is invalidation, and only
+      // that second case leaves the owner holding ordinals it can no longer trust.
+      const invalidated = state.generation !== null;
       this.slots.delete(slot);
       state = this.state(slot);
       state.generation = incoming.generation;
+      if (invalidated) {
+        this.onGenerationChanged(slot);
+      }
     }
     const revision = state.revisions.get(incoming.ordinal);
     if (revision !== undefined && incoming.revision <= revision) {

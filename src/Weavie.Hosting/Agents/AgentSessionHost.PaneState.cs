@@ -40,76 +40,35 @@ public sealed partial class AgentSessionHost {
 		lock (_paneGate) {
 			if (message.Type == "transcript-reset") {
 				ResetPaneLocked();
-				_paneJournal?.Clear();
 				_paneOutput.Reset();
 				return;
 			}
 
-			var record = StorePaneMessageLocked(message);
-			_paneJournal?.Append(message);
-			_paneOutput.Live(record);
+			_paneOutput.Live(StorePaneMessageLocked(message));
 		}
 	}
 
 	private void ReplacePaneSnapshot(IReadOnlyList<AgentPaneMessage> messages) {
 		ArgumentNullException.ThrowIfNull(messages);
 		lock (_paneGate) {
-			ResetPaneLocked();
-			_paneJournal?.Clear();
-			foreach (var message in messages) {
-				StorePaneMessageLocked(message);
-				_paneJournal?.Append(message);
-			}
-			_paneOutput.Reset();
-		}
-	}
+			// Filling an empty pane is not a new epoch. A generation change tells every client its ordinals are
+			// void and it must re-fetch; restoring a transcript into a pane that holds nothing invalidates
+			// nothing, so the restore streams into the current generation instead.
+			if (_paneMessages.Count == 0) {
+				foreach (var message in messages) {
+					_paneOutput.Live(StorePaneMessageLocked(message));
+				}
 
-	private void SeedPersistedPane(IReadOnlyList<AgentPaneMessage> persisted) {
-		if (persisted.Count == 0) {
-			return;
-		}
-
-		lock (_paneGate) {
-			if (_paneGeneration != 0) {
 				return;
 			}
 
-			var live = PaneSnapshotLocked();
-			ClearPaneLocked();
-			_nextPaneOrdinal = -persisted.Count;
-			_nextPaneRevision = -persisted.Count;
-			foreach (var message in persisted) {
+			ResetPaneLocked();
+			foreach (var message in messages) {
 				StorePaneMessageLocked(message);
 			}
-			foreach (var record in live) {
-				RestoreLivePaneRecordLocked(record);
-			}
-		}
-	}
 
-	private void RestoreLivePaneRecordLocked(AgentPaneRecord record) {
-		int index = _paneMessages.Count;
-		var message = record.Message;
-		string? key = AgentPaneIdentity.ItemKey(message);
-		if (key is not null && IsDelta(message)) {
-			_paneMessages.Add(message with { Text = null });
-			_paneItemIndexes[key] = index;
-			_paneActiveItems.Add(key);
-			var buffer = new PaneDeltaBuffer(message);
-			buffer.Text.Append(message.Text);
-			_paneDeltaBuffers.Add(index, buffer);
-		} else {
-			_paneMessages.Add(message);
-			if (key is not null) {
-				_paneItemIndexes[key] = index;
-				if (message.Type == "item-started") _paneActiveItems.Add(key);
-			}
+			_paneOutput.Reset();
 		}
-
-		_paneOrdinals.Add(record.Ordinal);
-		_paneRevisions.Add(record.Revision);
-		_nextPaneOrdinal = Math.Max(_nextPaneOrdinal, record.Ordinal);
-		_nextPaneRevision = Math.Max(_nextPaneRevision, record.Revision);
 	}
 
 	private List<AgentPaneRecord> PaneSnapshotLocked() => PaneSnapshotLocked(null);

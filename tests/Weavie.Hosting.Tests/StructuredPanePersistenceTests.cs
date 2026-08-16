@@ -80,13 +80,10 @@ public sealed class StructuredPanePersistenceTests {
 			message.GetProperty("type").GetString() == type
 			&& message.GetProperty("text").GetString() == text);
 
-	private static string[] TranscriptFiles(TestHost host) {
-		string dir = WeaviePaths.WorkspaceAgentPanesDir(WorkspaceId.ForPath(host.RepoRoot));
-		return Directory.Exists(dir) ? Directory.GetFiles(dir, "*.json") : [];
-	}
-
+	// Weavie keeps no transcript cache: a provider that cannot replay its own conversation comes back empty
+	// rather than being handed a stale copy that looks live.
 	[Fact]
-	public async Task StructuredPaneTranscript_SurvivesWorkerRestart() {
+	public async Task WithoutProviderReplay_RestartComesUpEmpty() {
 		await using var host = await StartWithStructuredSessionAsync("structured-branch");
 		var session = host.Session("structured-branch");
 		host.SessionEvent(
@@ -98,32 +95,8 @@ public sealed class StructuredPanePersistenceTests {
 
 		await host.RestartAsync();
 		session = host.Session("structured-branch");
-		var history = await ReadHistoryAsync(host, session);
 
-		Assert.True(Contains(history, "user-message", "hello"));
-		Assert.True(Contains(history, "item-completed", "echo: hello"));
-	}
-
-	[Fact]
-	public async Task StructuredPaneTranscript_ReturnsWhenDormantSessionLoadsOnAConnectedPage() {
-		await using var host = await StartWithStructuredSessionAsync("structured-branch");
-		var session = host.Session("structured-branch");
-		host.SessionEvent(
-			session,
-			"agent",
-			"submit",
-			new { id = "", prompt = "hello", attachmentIds = Array.Empty<string>(), skills = Array.Empty<string>() });
-		Assert.True(HasPaneMessage(host.Bridge, session, "item-completed", "echo: hello"));
-		Assert.True((await host.UnloadSessionAsync("structured-branch")).Ok);
-		host.Bridge.Clear();
-
-		var loaded = await host.InvokeClientCommandAsync(
-			SessionCommands.LoadSession,
-			new { id = "structured-branch" });
-		Assert.True(loaded.Ok, loaded.Error);
-		session = host.Session("structured-branch");
-		var history = await ReadHistoryAsync(host, session);
-		Assert.True(Contains(history, "item-completed", "echo: hello"));
+		Assert.False(Contains(await ReadHistoryAsync(host, session), "item-completed", "echo: hello"));
 	}
 
 	[Fact]
@@ -171,8 +144,6 @@ public sealed class StructuredPanePersistenceTests {
 			"agent",
 			"submit",
 			new { id = "", prompt = "hello", attachmentIds = Array.Empty<string>(), skills = Array.Empty<string>() });
-		Assert.Single(TranscriptFiles(host));
-
 		host.SessionEvent(
 			session,
 			"agent",
@@ -185,7 +156,6 @@ public sealed class StructuredPanePersistenceTests {
 			});
 
 		Assert.NotNull(host.Bridge.LastEvent(session.Address, "agent", "paneReset"));
-		Assert.Empty(TranscriptFiles(host)); // the stale transcript file is removed
 
 		await host.RestartAsync();
 		session = host.Session("structured-branch");

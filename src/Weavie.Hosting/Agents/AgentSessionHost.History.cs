@@ -36,7 +36,6 @@ public sealed partial class AgentSessionHost {
 		AgentPaneHistoryRequest request,
 		object reader,
 		CancellationToken ct) {
-		await WaitForPaneReadyAsync(ct).ConfigureAwait(false);
 		ct.ThrowIfCancellationRequested();
 
 		HistoryRead read;

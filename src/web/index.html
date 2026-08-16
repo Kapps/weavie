@@ -33,9 +33,22 @@
     <!-- Boot error capture. A CLASSIC inline script, run outside the ES-module graph: if a module fails
          to load or link (e.g. a bad import), main.tsx — and the error handlers it would install — never
          runs, so without this a boot failure is invisible (splash hangs forever, no log). This forwards
-         uncaught errors to the host log until main.tsx installs the runtime handlers. -->
+         uncaught errors to the host log until main.tsx installs the runtime handlers.
+
+         A failed fetch of the entry module or one of its static-import dependencies (transient network
+         blip; a browser fires `error` on the `<script type=module>` element itself when its graph fails
+         to load) leaves the splash up forever with nothing — the host-log forward above is a no-op
+         outside a native WebView, so a plain browser tab gets no recovery at all. Self-heal with one
+         bounded reload instead: a repeat failure (bad deploy, not a blip) still gives up rather than
+         reload-looping. 2026-08-16 07:16 UTC, run https://github.com/Kapps/weavie/actions/runs/31933442738/job/95132055144
+         — Windows e2e shard 1/6 timed out waiting for connection.hello because `preload-helper-*.js`
+         failed with net::ERR_NO_BUFFER_SPACE (confirmed root cause #4 in docs/specs/e2e-flake-analysis.md
+         — hosted-Windows-runner socket exhaustion; the 2026-07-31 fix there reduced the eager-preload
+         footprint but the OS-level exhaustion can still hit any boot request, just less often). This
+         reload is the actual fix for that class, in production and in this test alike. -->
     <script>
       (() => {
+        var RETRY_KEY = "weavie-boot-module-retry";
         function toHost(level, message) {
           try {
             const h = window.webkit?.messageHandlers?.weavie || window.chrome?.webview;
@@ -47,10 +60,26 @@
             }
           } catch (_err) {}
         }
+        function retryBootModule() {
+          try {
+            if (sessionStorage.getItem(RETRY_KEY) === "1") {
+              toHost("error", "boot module failed to load twice; giving up");
+              return;
+            }
+            sessionStorage.setItem(RETRY_KEY, "1");
+          } catch (_err) {
+            return;
+          }
+          toHost("warn", "boot module failed to load; reloading once");
+          location.reload();
+        }
         function onError(e) {
           var t = e.target;
           if (t && t !== window && t.tagName) {
             toHost("warn", `resource failed to load: ${t.src || t.href || t.tagName}`);
+            if (t.tagName === "SCRIPT" && t.type === "module") {
+              retryBootModule();
+            }
           } else {
             const at = e.filename ? ` @ ${e.filename}:${e.lineno}:${e.colno}` : "";
             toHost("error", `uncaught: ${e.message || "unknown error"}${at}`);
@@ -65,6 +94,9 @@
         window.__WEAVIE_CLEAR_BOOT_ERROR_CAPTURE__ = () => {
           window.removeEventListener("error", onError, true);
           window.removeEventListener("unhandledrejection", onRejection);
+          try {
+            sessionStorage.removeItem(RETRY_KEY);
+          } catch (_err) {}
           delete window.__WEAVIE_CLEAR_BOOT_ERROR_CAPTURE__;
         };
       })();

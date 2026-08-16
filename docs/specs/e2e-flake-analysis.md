@@ -132,6 +132,34 @@ so shell code can route an editor model without importing the editor runtime. Th
 entry's static chunk graph and fails if that boundary regresses. This repairs both the accidental eager
 7.9 MB download and the Windows socket-allocation failure without a retry, skip, or wider timeout.
 
+## 2026-08-16 occurrence: #4 recurrence — `preload-helper-*.js` ERR_NO_BUFFER_SPACE, run 31933442738
+
+Windows `chromium` project, `agent-composer.spec.ts:651` ("form and URL requests expose distinct decline
+and cancel actions"), shard 1/6, job
+https://github.com/Kapps/weavie/actions/runs/31933442738/job/95132055144 — `mountAgent`'s
+`host.waitUntilConnected()` timed out after the full 30s Windows budget with "timed out waiting for host
+request connection.hello". The trace's network log (`0-trace.network`) shows only 10 boot requests total —
+no accidental eager-download burst this time — and one failure:
+`assets/preload-helper-C4sQ6-fm.js` (a static-import dependency of the entry chunk `main-*.js`) with
+`_failureText: "net::ERR_NO_BUFFER_SPACE"`. Same signature as confirmed root cause #4 above.
+
+**New datum:** the 2026-07-31 fix for #4 removed the *accidental* eager Monaco preload burst, but this run
+proves the underlying OS-level socket exhaustion can still hit a lean boot (10 requests, one of them a
+few-KB helper chunk) on a sufficiently stressed hosted Windows runner — it was never fully eliminated, only
+made rarer. Confirms the doc's standing conclusion: this is a hosted-Windows-runner environmental limit, not
+something bundle-graph trimming alone can close out.
+
+**Fix:** a failed fetch of the entry module or any of its static-import dependencies makes the browser fire
+`error` on the `<script type=module>` tag itself (per the HTML module-script-graph spec) — before any of
+`main.tsx`'s own error handlers exist to catch it. `index.html`'s boot-error-capture script already detected
+this (`resource failed to load: ...`) but only forwarded it to a native host log, a no-op in a plain browser
+tab (this test, and `isBrowserHostedShell()` mode) — so the splash just hung forever with zero recovery.
+Added a single bounded auto-reload on that specific failure (entry-script `error`, `type=module`), guarded
+by a `sessionStorage` flag so a genuine repeat failure (bad deploy, not a network blip) still gives up rather
+than reload-looping. This is a real fix, not a test-side retry: it self-heals the same transient-network
+class in production, not just this run's exhaustion window. Not verified locally (per the guidance below,
+Windows-runner-only) — validate by watching for a repeat of this exact symptom across future Windows CI runs.
+
 ## Reproduction & forensics techniques that worked
 
 - **Parse the Playwright trace DOM directly.** `trace.zip` → `0-trace.trace` is JSONL; `frame-snapshot`

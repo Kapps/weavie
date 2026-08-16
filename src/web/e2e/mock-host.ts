@@ -749,7 +749,13 @@ export class MockHost {
     if (existing !== undefined) {
       return Promise.resolve(existing);
     }
-    const timeoutMs = process.platform === "linux" ? 15_000 : 30_000;
+    // This wait fires before Playwright's own per-test timeout (see playwright.config.ts) so a genuine
+    // hang reports a clear "timed out waiting for X" instead of a blunt kill. Windows/macOS hosted runners
+    // are slower and noisier than Linux, so they get a wider budget — widened again after a repeat: 2026-08-16
+    // 07:22 UTC, agent-composer.spec.ts's connection.hello wait missed the prior 30s budget by ~300ms on
+    // windows-latest, unrelated to the PR that surfaced it
+    // (https://github.com/Kapps/weavie/actions/runs/31933442738/job/95132055144).
+    const timeoutMs = process.platform === "linux" ? 15_000 : 45_000;
     return new Promise<MessageEnvelope>((resolve, reject) => {
       const waiter: MessageWaiter = {
         selector,

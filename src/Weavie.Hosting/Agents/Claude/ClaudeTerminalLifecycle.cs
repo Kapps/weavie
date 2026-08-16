@@ -14,6 +14,8 @@ public sealed class ClaudeTerminalLifecycle : ITerminalProcess {
 	private readonly ClaudeLaunchConfiguration _configuration;
 	private readonly Lock _gate = new();
 	private ClaudeStartupWatcher? _startupWatcher;
+	private AgentTurnSubmission? _firstTurn;
+	private bool _launched;
 
 	/// <summary>Creates the Claude terminal lifecycle rooted at <paramref name="workspace"/>.</summary>
 	public ClaudeTerminalLifecycle(
@@ -44,12 +46,21 @@ public sealed class ClaudeTerminalLifecycle : ITerminalProcess {
 		AddFileArgument(args, "--settings", _configuration.SettingsFilePath);
 		AddFileArgument(args, "--append-system-prompt-file", _configuration.SystemPromptFilePath);
 		var managed = ResolveConversationLaunch();
+		AgentTurnSubmission? firstTurn;
 		lock (_gate) {
 			_startupWatcher = managed is not null ? new ClaudeStartupWatcher() : null;
+			_launched = true;
+			firstTurn = _firstTurn;
+			_firstTurn = null;
 		}
 		if (managed is { } conversation) {
 			args.Add(conversation.Resume ? "--resume" : "--session-id");
 			args.Add(conversation.SessionId);
+		}
+		if (firstTurn is { } turn) {
+			// Claude's opening-prompt argument. Image paths lead the text: Claude attaches an image named by a
+			// bare path in the prompt.
+			args.Add(string.Join('\n', turn.Attachments.Select(attachment => attachment.Path).Append(turn.Text)));
 		}
 
 		string? logPath = Environment.GetEnvironmentVariable("WEAVIE_PTY_LOG");
@@ -65,6 +76,19 @@ public sealed class ClaudeTerminalLifecycle : ITerminalProcess {
 				? new AgentOutputCapture.Disabled()
 				: new AgentOutputCapture.File(logPath),
 		};
+	}
+
+	/// <inheritdoc/>
+	public void SeedFirstTurn(AgentTurnSubmission turn) {
+		ArgumentNullException.ThrowIfNull(turn);
+		lock (_gate) {
+			if (_launched) {
+				throw new InvalidOperationException(
+					"Claude has already launched in this worktree, so it can no longer be given an opening turn.");
+			}
+
+			_firstTurn = turn;
+		}
 	}
 
 	/// <summary>Updates Claude conversation persistence from its hook stream.</summary>

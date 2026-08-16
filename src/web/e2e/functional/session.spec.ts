@@ -100,6 +100,31 @@ test("Shift+Enter starts a named session from the prompt", async ({ page }) => {
   await expect(chips).toHaveCount(2);
 });
 
+// The composer's prompt is the session's opening turn, so it has to reach the agent itself. It rides the
+// agent's launch rather than being typed into a starting TUI, which discards or re-frames written input and
+// used to swallow the prompt outright. The empty script only turns the fake's log on (it echoes its launch).
+test.describe("new-session prompt", () => {
+  test.use({ fakeScript: { steps: [] } });
+
+  test("reaches the agent it starts", async ({ page, weavie }) => {
+    await runCommand(page, "Sessions");
+    const inbox = page.locator(".session-inbox");
+    await inbox.getByRole("combobox", { name: "Agent provider" }).selectOption("claude");
+    await inbox
+      .getByRole("textbox", { name: "Branch for the new session" })
+      .fill("e2e/session-prompt");
+    await inbox
+      .getByRole("textbox", { name: "Prompt for a new session" })
+      .fill("don't lose this prompt");
+    await inbox.getByRole("button", { name: "Start", exact: true }).click();
+    await expect(inbox).toBeHidden();
+
+    await expect
+      .poll(() => weavie.fakeLog(), { timeout: 30_000 })
+      .toContain("prompt don't lose this prompt");
+  });
+});
+
 test("reload restores the client-selected stable session slot @cross", async ({ page, weavie }) => {
   const initialSlot = await activeSessionSlot(page);
   await createSession(page, { branch: "e2e/session-reload", provider: "claude" });

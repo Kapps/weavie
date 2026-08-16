@@ -68,6 +68,14 @@ does not switch an active session.
 A setup command runs only for a newly created worktree. Reusing an existing slot or worktree never re-seeds
 its initial prompt.
 
+The initial prompt is the new session's opening turn, delivered through the agent's own entry point — never by
+writing keystrokes at it. A terminal-backed agent carries it into its launch (Claude's positional prompt
+argument, image paths first), consumed by the first launch so a restart never resubmits it; a structured agent
+submits it over the protocol once the agent reports idle. Injection is not an option for a terminal agent: its
+TUI discards input written while it is still starting, and once running it reads a burst of raw input as a
+paste, so the submit key riding that burst becomes text and the turn is never sent — either way the prompt
+disappears silently.
+
 ## Loading, unloading, and deleting
 
 Loading a dormant slot:

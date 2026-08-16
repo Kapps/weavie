@@ -52,6 +52,7 @@ public sealed partial class AgentSessionHost : IAsyncDisposable {
 			throw;
 		}
 		if (Session is ITerminalAgentSession terminalSession) {
+			TerminalSession = terminalSession;
 			Terminal = new TerminalController(
 				terminalMessages,
 				"agent",
@@ -86,6 +87,9 @@ public sealed partial class AgentSessionHost : IAsyncDisposable {
 
 	/// <summary>The provider's compatibility terminal pane, when terminal-backed.</summary>
 	public TerminalController? Terminal { get; }
+
+	/// <summary>The provider's terminal-facing session, when terminal-backed.</summary>
+	public ITerminalAgentSession? TerminalSession { get; }
 
 	/// <summary>The provider's structured runtime, when native-pane backed.</summary>
 	public IStructuredAgentSession? Structured { get; }

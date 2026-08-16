@@ -64,6 +64,7 @@ internal sealed class TestTerminalProcess : ITerminalProcess {
 /// <summary>An <see cref="ITerminal"/> that never spawns a child but lets the test raise its output/exit events.</summary>
 internal sealed class ScriptableTerminal : ITerminal {
 	private readonly List<(int Columns, int Rows)> _resizes = [];
+	private readonly List<byte[]> _writes = [];
 
 	public event Action<byte[]>? Output;
 	public event Action<int>? Exited;
@@ -78,15 +79,16 @@ internal sealed class ScriptableTerminal : ITerminal {
 	/// <summary>The start info of the spawn, so a test can assert the child's initial (pre-spawn) size.</summary>
 	public TerminalStartInfo? LastStartInfo { get; private set; }
 
+	/// <summary>Every <see cref="Write"/> call in order, so a test can assert what reached the child's stdin.</summary>
+	public IReadOnlyList<byte[]> Writes => _writes;
+
 	public void Start(TerminalStartInfo startInfo) {
 		LastStartInfo = startInfo;
 		IsRunning = true;
 		_ = Exited; // ITerminal requires the event; this fake never exits on its own (CS0067 suppression)
 	}
 
-	public void Write(byte[] data) {
-		// no child to write to
-	}
+	public void Write(byte[] data) => _writes.Add(data);
 
 	public void Resize(int columns, int rows) => _resizes.Add((columns, rows));
 

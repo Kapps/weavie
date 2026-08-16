@@ -413,8 +413,21 @@ public sealed class TerminalController : IDisposable {
 	/// </summary>
 	public void WriteBracketedPaste(string text) {
 		ArgumentNullException.ThrowIfNull(text);
-		Write(Encoding.UTF8.GetBytes($"\x1b[200~{text}\x1b[201~"));
+		Write(Encoding.UTF8.GetBytes(Bracketed(text)));
 	}
+
+	/// <summary>
+	/// Submits one agent turn: every part in <paramref name="parts"/> bracketed-paste framed, then the submit key,
+	/// in a single write. A TUI classifies a burst of raw input as a paste, so a submit key sharing that burst is
+	/// absorbed as pasted text and the turn is never sent — the framing is what tells the two apart, and one write
+	/// keeps the boundary from depending on how the child's reads happen to split.
+	/// </summary>
+	public void WriteAgentTurn(IReadOnlyList<string> parts) {
+		ArgumentNullException.ThrowIfNull(parts);
+		Write(Encoding.UTF8.GetBytes(string.Concat(parts.Select(Bracketed)) + "\r"));
+	}
+
+	private static string Bracketed(string text) => $"\x1b[200~{text}\x1b[201~";
 
 	/// <summary>
 	/// Whether a job (build, dev server) is running in this pane — the PTY's foreground process group

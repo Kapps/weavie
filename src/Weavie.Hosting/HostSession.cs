@@ -1,4 +1,3 @@
-using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Weavie.Core.Agents;
@@ -563,11 +562,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 	/// <summary>Sends one atomic input to the active agent using the provider's native input path.</summary>
 	private void SendAgentInput(AgentTurnSubmission input) {
 		if (Claude is not null) {
-			foreach (var attachment in input.Attachments) {
-				SendAgentImagePath(attachment.Path);
-			}
-			Claude.Write(Encoding.UTF8.GetBytes(input.Text));
-			Claude.Write([(byte)'\r']);
+			Claude.WriteAgentTurn([.. input.Attachments.Select(attachment => attachment.Path), input.Text]);
 			return;
 		}
 

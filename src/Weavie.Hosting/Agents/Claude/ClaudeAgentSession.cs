@@ -71,6 +71,9 @@ public sealed class ClaudeAgentSession : ITerminalAgentSession {
 	public AgentLaunch ResolveLaunch() => _terminal.ResolveLaunch();
 
 	/// <inheritdoc/>
+	public void SeedFirstTurn(AgentTurnSubmission turn) => _terminal.SeedFirstTurn(turn);
+
+	/// <inheritdoc/>
 	public void ObserveTerminalOutput(ReadOnlyMemory<byte> data) => _terminal.ObserveTerminalOutput(data);
 
 	/// <inheritdoc/>

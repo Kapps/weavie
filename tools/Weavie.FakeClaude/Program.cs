@@ -24,6 +24,12 @@ if (args.Contains("--print", StringComparer.Ordinal)) {
 // The banner doubles as the startup marker a test can wait for in the claude pane.
 Emit("ready");
 
+// A session's opening turn arrives as the positional prompt argument (never as keystrokes), so echoing it
+// lets a full-stack test see that the prompt the user typed reached the agent.
+if (PositionalPrompt(args) is { } openingTurn) {
+	Emit($"prompt {openingTurn}");
+}
+
 if (!string.IsNullOrEmpty(scriptPath) && File.Exists(scriptPath)) {
 	try {
 		await RunScriptAsync(scriptPath, mcpConfigPath).ConfigureAwait(false);
@@ -280,6 +286,20 @@ static async Task BlockOnStdinAsync() {
 	while (await stdin.ReadAsync(buffer).ConfigureAwait(false) > 0) {
 		// Discard keystrokes; a real TUI would render them.
 	}
+}
+
+// The first argument that is neither a flag nor a flag's value — every flag Weavie passes takes one value.
+static string? PositionalPrompt(string[] args) {
+	for (int i = 0; i < args.Length; i++) {
+		if (args[i].StartsWith('-')) {
+			i++;
+			continue;
+		}
+
+		return args[i];
+	}
+
+	return null;
 }
 
 static string? ArgValue(string[] args, string name) {

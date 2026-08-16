@@ -38,9 +38,24 @@ public sealed class PtyLauncherTests {
 	public void Posix_LoginShell_WrapsLogicalCommandAndAddsTerminalEnvironment() {
 		var resolved = new PosixPtyLauncher().Resolve(Launch("agent", AgentExecutableMode.LoginShell));
 
-		Assert.Equal(["-l", "-i", "-c", "exec 'agent' --flag 'value'"], resolved.Arguments);
+		Assert.Equal(["-l", "-i", "-c", "exec 'agent' '--flag' 'value'"], resolved.Arguments);
 		Assert.Equal("xterm-256color", resolved.Environment["TERM"]);
 		Assert.Equal("truecolor", resolved.Environment["COLORTERM"]);
 		Assert.Equal("1", resolved.Environment["X"]);
+	}
+
+	[Fact]
+	public void Posix_LoginShell_KeepsAnArgumentWithQuotesAndNewlinesIntact() {
+		// A session's opening prompt is a launch argument, so ordinary prose ("don't", newlines, $VAR) has to
+		// survive the shell verbatim rather than break or expand inside the command it renders.
+		var launch = Launch("agent", AgentExecutableMode.LoginShell) with {
+			Arguments = ["don't $HOME\nsecond line"],
+		};
+
+		var resolved = new PosixPtyLauncher().Resolve(launch);
+
+		Assert.Equal(
+			["-l", "-i", "-c", "exec 'agent' 'don'\\''t $HOME\nsecond line'"],
+			resolved.Arguments);
 	}
 }

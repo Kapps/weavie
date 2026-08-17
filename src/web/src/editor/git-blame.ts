@@ -32,6 +32,10 @@ const GAP = "    ";
 // fill in a frame later.
 const OVERSCAN = 20;
 
+// A file can be rewritten many times in one agent turn, and each write reports separately. Blame only has to
+// describe where the writes settled, so a burst collapses into one probe instead of one per write.
+const RELOAD_DEBOUNCE_MS = 150;
+
 interface BlameResponse {
   commits: BlameSnapshot["commits"];
   lineCommits: number[];
@@ -64,6 +68,9 @@ export function createGitBlame(editor: monaco.editor.IStandaloneCodeEditor): Git
   let blameError: string | null = null;
   let loadToken = 0;
   let frame: number | undefined;
+  // What the last applied decoration set was, so an identical render is skipped outright.
+  let renderedKey = "";
+  let reloadTimer: ReturnType<typeof setTimeout> | undefined;
   const decorations = editor.createDecorationsCollection([]);
   // One options object per distinct label, so scrolling back over a line reuses it instead of allocating anew.
   const optionsByLabel = new Map<string, monaco.editor.IModelDecorationOptions>();
@@ -77,10 +84,8 @@ export function createGitBlame(editor: monaco.editor.IStandaloneCodeEditor): Git
     snapshot = EMPTY_BLAME;
     blameError = null;
     loadedUri = null;
+    renderedKey = "";
     decorations.clear();
-    // Sticky scroll renders its own copy of the pinned lines and only rebuilds it on scroll, so without a
-    // forced redraw the labels linger up there after the decorations are gone.
-    editor.render(true);
     // Labels are per-file (and go stale as "3 days ago" becomes "4 days ago"), so the cache lives no longer
     // than the model it was built for.
     optionsByLabel.clear();
@@ -197,6 +202,11 @@ export function createGitBlame(editor: monaco.editor.IStandaloneCodeEditor): Git
     }
     const now = Date.now() / 1000;
     const deltas: monaco.editor.IModelDeltaDecoration[] = [];
+    // What this render would produce, so an unchanged one costs nothing. Scrolling fires continuously but only
+    // crosses a line boundary occasionally, and replacing the whole decoration collection makes Monaco redo
+    // every annotated line — which is the expensive half, since injected text takes a line off its fast
+    // render path.
+    let key = "";
     for (const line of annotatedLines(model)) {
       const blamed = blameAt(snapshot, line);
       // In `all`, label only where a commit's run begins: one commit usually owns a stretch of consecutive
@@ -207,11 +217,17 @@ export function createGitBlame(editor: monaco.editor.IStandaloneCodeEditor): Git
         continue;
       }
       const column = model.getLineMaxColumn(line);
+      const label = blameLabel(blamed.commit, now);
+      key += `${line} ${label}`;
       deltas.push({
         range: new monaco.Range(line, column, line, column),
-        options: optionsFor(blameLabel(blamed.commit, now)),
+        options: optionsFor(label),
       });
     }
+    if (key === renderedKey) {
+      return;
+    }
+    renderedKey = key;
     decorations.set(deltas);
   };
 
@@ -303,6 +319,11 @@ export function createGitBlame(editor: monaco.editor.IStandaloneCodeEditor): Git
     // Turning them off drops the snapshot too, so nothing stale survives to answer a later question from.
     if (mode === "off") {
       clear();
+      // The one place a forced redraw is warranted: the model stays on screen with its annotations removed,
+      // and sticky scroll holds its own copy of the pinned lines that it only rebuilds on scroll. Anywhere
+      // else — a model swap, teardown — the view is about to repaint anyway, and forcing a synchronous render
+      // from inside Monaco's own event would be re-entering it for nothing.
+      editor.render(true);
     } else if (loadedUri === null) {
       load();
     } else {
@@ -320,7 +341,8 @@ export function createGitBlame(editor: monaco.editor.IStandaloneCodeEditor): Git
       }
       const active = normalizePath(sessionUriHostPath(model.uri));
       if (message.changes.some((change) => normalizePath(change.path) === active)) {
-        load();
+        clearTimeout(reloadTimer);
+        reloadTimer = setTimeout(load, RELOAD_DEBOUNCE_MS);
       }
     }),
   );
@@ -371,6 +393,7 @@ export function createGitBlame(editor: monaco.editor.IStandaloneCodeEditor): Git
       loadToken++;
       // Leaving it open would strand the panel on a torn-down session, whose bus rejects every request.
       closeBlame();
+      clearTimeout(reloadTimer);
       if (frame !== undefined) {
         cancelAnimationFrame(frame);
       }

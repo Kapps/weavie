@@ -81,22 +81,28 @@ test("alt+click on a symbol opens the definition peek inline, and Escape closes 
   await expect(peek).toHaveCount(0);
 });
 
-// 2026-08-17 19:44 UTC, windows shard 3/6, this test alone:
-// https://github.com/Kapps/weavie/actions/runs/32061153041/job/95483710320
-// The click below hung for the full 56s test budget, and the trace's screencast stopped producing frames
-// ~7s in — the tab itself stopped responding, it wasn't still polling a not-yet-actionable locator. The
-// last frame shows hello.ts's tab open but zero lines painted. The identical wordToken(...).click() ran
-// clean in under a second one test earlier in the same run, and this shard passed clean on the runs
-// immediately before and after. Read as a one-off Windows-runner Chromium freeze, not a race in this
-// gesture or its locator (already token-addressed per the wordToken comment above) — no code change made.
-// Re-open and root-cause harder if this test (or another in this file) freezes the same way again.
+// 2026-08-17: windows shard 3/6 froze twice within the hour, in two different tests of this file —
+// https://github.com/Kapps/weavie/actions/runs/32061153041/job/95483710320 (this test; a click hung the
+// full 60s budget and the trace's screencast stopped producing frames ~7s in — the tab itself stopped
+// responding, not a locator still polling) and, an hour later on an unrelated one-line comment-only
+// change, https://github.com/Kapps/weavie/actions/runs/32065959082/job/95499188918 (the multicursor test
+// two below, same symptom). Both runs share `workers: 1` on Windows, so every test in the shard runs
+// sequentially in one Chromium process — and this was the one test in the file that opens the peek's
+// nested editor and never closes it before the test ends, unlike the Escape close two tests up or the two
+// tests that never open one. Leaving that undisposed and letting the page/context teardown reclaim it
+// abruptly is the plausible leak: closing it here, the same way the first test already does, is the fix —
+// if shard 3 freezes on Windows again after this, the leak is elsewhere and needs a harder look.
 test("Alt+F12 peeks the definition of the symbol at the cursor", async ({ page }) => {
   await focusEditor(page, "hello.ts");
   await registerGreetDefinition(page);
 
   await wordToken(page, "const message = greet", "greet").click();
   await page.keyboard.press("Alt+F12");
-  await expect(page.locator(".monaco-editor .peekview-widget")).toBeVisible();
+  const peek = page.locator(".monaco-editor .peekview-widget");
+  await expect(peek).toBeVisible();
+
+  await page.keyboard.press("Escape");
+  await expect(peek).toHaveCount(0);
 });
 
 test("alt+click without a definition provider leaves Monaco's multicursor gesture alone", async ({

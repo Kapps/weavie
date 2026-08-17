@@ -7,6 +7,24 @@ import { expect, test } from "../harness/fixtures";
 // bundles no language server), so these pin Weavie's gesture + command wiring and the widget opening, not
 // LSP resolution. Where no provider can exist (plain text), the gesture must leave Monaco's built-in
 // alt+click multicursor untouched.
+//
+// OPEN, UNRESOLVED — 2026-08-17: this file's windows shard 3/6 hung the full 60s test budget three times
+// in one afternoon, each time on a different test here, always waiting on a wordToken(...).click() for
+// hello.ts's "greet" token:
+//   https://github.com/Kapps/weavie/actions/runs/32061153041/job/95483710320 (Alt+F12 test)
+//   https://github.com/Kapps/weavie/actions/runs/32065959082/job/95499188918 (multicursor test)
+//   https://github.com/Kapps/weavie/actions/runs/32067115833/job/95503117733 (multicursor test again,
+//     AFTER closing the Alt+F12 test's peek below — ruling out that as the cause)
+// First read as a frozen browser tab (run 1's trace screencast stopped producing frames ~7s in), but run 3's
+// trace screencast kept producing frames at a steady ~270ms cadence for the entire 59s hang — the tab was
+// alive and rendering the whole time. Its mid-hang screenshots show the hello.ts tab open, data-active-file
+// presumably already stamped (focusEditor's own asserts passed), and the editor pane completely blank — no
+// view-lines ever painted. That points at a real gap between "the model swap landed" (editor-host.ts's
+// reflectActiveFile, driven by onDidChangeModel) and Monaco actually rendering that model's content, not at
+// this spec's locators or gesture wiring — closing the Alt+F12 test's leaked peek widget (below) was worth
+// doing regardless but did not stop the recurrence, it just moved to the next test in the file. Root cause
+// is still open; look at monaco-setup.ts's automaticLayout / editor-host.ts's model-swap path before
+// touching this file again over a Windows-only hang here.
 
 import type { WeavieWindow } from "../harness/weavie-window";
 
@@ -81,17 +99,9 @@ test("alt+click on a symbol opens the definition peek inline, and Escape closes 
   await expect(peek).toHaveCount(0);
 });
 
-// 2026-08-17: windows shard 3/6 froze twice within the hour, in two different tests of this file —
-// https://github.com/Kapps/weavie/actions/runs/32061153041/job/95483710320 (this test; a click hung the
-// full 60s budget and the trace's screencast stopped producing frames ~7s in — the tab itself stopped
-// responding, not a locator still polling) and, an hour later on an unrelated one-line comment-only
-// change, https://github.com/Kapps/weavie/actions/runs/32065959082/job/95499188918 (the multicursor test
-// two below, same symptom). Both runs share `workers: 1` on Windows, so every test in the shard runs
-// sequentially in one Chromium process — and this was the one test in the file that opens the peek's
-// nested editor and never closes it before the test ends, unlike the Escape close two tests up or the two
-// tests that never open one. Leaving that undisposed and letting the page/context teardown reclaim it
-// abruptly is the plausible leak: closing it here, the same way the first test already does, is the fix —
-// if shard 3 freezes on Windows again after this, the leak is elsewhere and needs a harder look.
+// Closes its own peek before returning (like the test above) rather than leaving the page/context teardown
+// to reclaim it — good hygiene on its own, though the file-level note above found it wasn't the actual
+// cause of this file's Windows-only hang.
 test("Alt+F12 peeks the definition of the symbol at the cursor", async ({ page }) => {
   await focusEditor(page, "hello.ts");
   await registerGreetDefinition(page);

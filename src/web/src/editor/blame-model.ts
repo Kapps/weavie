@@ -74,13 +74,26 @@ export function applyEdit(snapshot: BlameSnapshot, edit: LineEdit): BlameSnapsho
 }
 
 /**
- * True when `line` begins a run — the line above it belongs to a different commit, or to none. One commit
- * usually owns a stretch of consecutive lines, and repeating its label down every one of them is noise; the
- * label belongs where the change starts.
+ * True when `line` is where its commit's run carries the label — the first line of the run with code on it,
+ * per `hasContent`. One commit usually owns a stretch of consecutive lines, and repeating its label down every
+ * one of them is noise; a run that opens on blank lines hands the label down to the code it introduced rather
+ * than hanging it off nothing.
  */
-export function startsRun(snapshot: BlameSnapshot, line: number): boolean {
+export function labelsRun(
+  snapshot: BlameSnapshot,
+  line: number,
+  hasContent: (line: number) => boolean,
+): boolean {
   const current = snapshot.lineCommits[line - 1];
-  return current !== undefined && current !== LOCAL && current !== snapshot.lineCommits[line - 2];
+  if (current === undefined || current === LOCAL || !hasContent(line)) {
+    return false;
+  }
+  for (let above = line - 1; snapshot.lineCommits[above - 1] === current; above--) {
+    if (hasContent(above)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 /** What `line` (1-based) is attributed to, or null when nothing is — a locally typed or out-of-range line. */

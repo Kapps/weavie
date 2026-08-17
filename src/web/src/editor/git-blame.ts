@@ -15,7 +15,7 @@ import {
   blameAt,
   blameLabel,
   EMPTY_BLAME,
-  startsRun,
+  labelsRun,
 } from "./blame-model";
 import { closeBlame, openBlame } from "./blame-store";
 import { normalizePath } from "./fs-path";
@@ -24,9 +24,6 @@ import { SESSION_FILE_SCHEME, sessionForUri, sessionUriHostPath } from "./sessio
 
 /** The CSS class on the injected annotation — also the click target's marker. */
 const BLAME_CLASS = "weavie-blame";
-
-// Keeps the annotation clear of the code it follows, in the editor's own monospace advance.
-const GAP = "    ";
 
 // Lines above and below the viewport, so an ordinary scroll reveals annotated lines rather than blank ones that
 // fill in a frame later.
@@ -160,7 +157,8 @@ export function createGitBlame(editor: monaco.editor.IStandaloneCodeEditor): Git
       // decorations exist on the model and nothing whatsoever paints.
       showIfCollapsed: true,
       after: {
-        content: GAP + label,
+        // No leading gap: it is the class's left margin, outside the annotation's hit area (git-blame.css).
+        content: label,
         inlineClassName: BLAME_CLASS,
         // The annotation is not text: End / Right-arrow at the end of a line must stop at the code, never
         // walk the caret into the label.
@@ -201,6 +199,9 @@ export function createGitBlame(editor: monaco.editor.IStandaloneCodeEditor): Git
       return;
     }
     const now = Date.now() / 1000;
+    // An annotation on a blank line has nothing to sit beside — it reads as the line's own content, and the
+    // line it describes is the code below it anyway.
+    const hasContent = (line: number): boolean => model.getLineFirstNonWhitespaceColumn(line) > 0;
     const deltas: monaco.editor.IModelDeltaDecoration[] = [];
     // What this render would produce, so an unchanged one costs nothing. Scrolling fires continuously but only
     // crosses a line boundary occasionally, and replacing the whole decoration collection makes Monaco redo
@@ -209,11 +210,15 @@ export function createGitBlame(editor: monaco.editor.IStandaloneCodeEditor): Git
     let key = "";
     for (const line of annotatedLines(model)) {
       const blamed = blameAt(snapshot, line);
-      // In `all`, label only where a commit's run begins: one commit usually owns a stretch of consecutive
-      // lines, and repeating it down every one of them is what makes the whole file unreadable. Keyed off the
-      // file, not the viewport, so scrolling never moves a label. `currentLine` always labels the cursor's
-      // line — the point there is to answer for that exact line.
-      if (blamed === null || (mode === "all" && !startsRun(snapshot, line))) {
+      // In `all`, label one line per run — its first with code on it: one commit usually owns a stretch of
+      // consecutive lines, and repeating it down every one of them is what makes the whole file unreadable.
+      // Keyed off the file, not the viewport, so scrolling never moves a label. `currentLine` labels the
+      // cursor's line — the point there is to answer for that exact line.
+      if (
+        blamed === null ||
+        !hasContent(line) ||
+        (mode === "all" && !labelsRun(snapshot, line, hasContent))
+      ) {
         continue;
       }
       const column = model.getLineMaxColumn(line);

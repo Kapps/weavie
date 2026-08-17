@@ -206,11 +206,16 @@ public sealed partial class AcpAgentSession {
 						generation,
 						CancellationToken.None).ConfigureAwait(false);
 					lock (_turnTransitionGate) {
+						TerminalizedTool[] interrupted;
 						lock (_gate) {
 							if (_disposed || _activeGeneration != generation) return;
 							loaded = true;
+							// session/load always replays into a freshly spawned agent, so a tool the transcript
+							// still calls running died with the process that ran it and can never terminalize.
+							interrupted = TerminalizeActiveToolsLocked("cancelled");
 						}
 						CompleteContentStreams();
+						PublishTerminalizedToolMessages(interrupted);
 					}
 				} finally {
 					IReadOnlyList<AgentPaneMessage>? snapshot = null;
@@ -295,18 +300,13 @@ public sealed partial class AcpAgentSession {
 		}
 	}
 
+	// A freshly opened session owns no running tool call — the generation reset cleared them and a replayed one
+	// is history — so the only setup state to restore is a request still waiting on the user.
 	private void RestoreSetupActivity() {
-		AcpToolState[] unobserved;
-		bool active;
 		bool requiresInput;
 		lock (_gate) {
-			unobserved = [.. _activeTools.Select(id => _tools[id]).Where(tool => !tool.StartedObserved)];
-			active = HasBackgroundWorkLocked();
-			_waitingForBackground = active;
 			requiresInput = HasPendingInteractionLocked();
 		}
-		foreach (var tool in unobserved) EnsureObservedMutation(tool);
-		if (active) Observe(new AgentTurnStopped(WillResume: true));
 		if (requiresInput) Observe(new AgentInputResolved(RequiresUserInput: true));
 	}
 

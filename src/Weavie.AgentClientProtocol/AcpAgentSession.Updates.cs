@@ -214,7 +214,9 @@ public sealed partial class AcpAgentSession {
 					? rawOutput.GetString()
 					: rawOutput.GetRawText();
 			}
-			if (tool.Status is "completed" or "failed") {
+			// "cancelled" is terminal too, so a straggling update cannot re-admit a tool the session already
+			// terminalized: nothing would settle it again and the session would hold Waiting for good.
+			if (tool.Status is "completed" or "failed" or "cancelled") {
 				_activeTools.Remove(id);
 			} else {
 				_activeTools.Add(id);

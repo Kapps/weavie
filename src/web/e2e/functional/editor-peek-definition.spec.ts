@@ -81,6 +81,15 @@ test("alt+click on a symbol opens the definition peek inline, and Escape closes 
   await expect(peek).toHaveCount(0);
 });
 
+// 2026-08-17 19:44 UTC, windows shard 3/6, this test alone:
+// https://github.com/Kapps/weavie/actions/runs/32061153041/job/95483710320
+// The click below hung for the full 56s test budget, and the trace's screencast stopped producing frames
+// ~7s in — the tab itself stopped responding, it wasn't still polling a not-yet-actionable locator. The
+// last frame shows hello.ts's tab open but zero lines painted. The identical wordToken(...).click() ran
+// clean in under a second one test earlier in the same run, and this shard passed clean on the runs
+// immediately before and after. Read as a one-off Windows-runner Chromium freeze, not a race in this
+// gesture or its locator (already token-addressed per the wordToken comment above) — no code change made.
+// Re-open and root-cause harder if this test (or another in this file) freezes the same way again.
 test("Alt+F12 peeks the definition of the symbol at the cursor", async ({ page }) => {
   await focusEditor(page, "hello.ts");
   await registerGreetDefinition(page);

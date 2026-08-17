@@ -32,12 +32,18 @@ export interface BlameLine {
 
 /** A buffer edit reduced to its effect on line identity. */
 export interface LineEdit {
-  /** The line the edit starts on; it survives the edit, so its attribution is kept. */
+  /** The first line the edit touches. */
   startLine: number;
-  /** How many whole lines after `startLine` the edit removed. */
+  /** How many whole lines the edit removed. */
   removedLines: number;
-  /** How many new lines the edit inserted after `startLine`. */
+  /** How many new lines the edit inserted. */
   addedLines: number;
+  /**
+   * True when the edit begins at column 1, so `startLine` is consumed whole rather than partly surviving.
+   * It decides which side of the seam keeps its attribution: an edit starting mid-line leaves the head of
+   * `startLine` in place, while one starting at its first column leaves only the tail of the last removed line.
+   */
+  fromLineStart: boolean;
 }
 
 /** A line the buffer has but no commit does — typed since the last save, so nothing is attributed to it. */
@@ -56,18 +62,14 @@ export function applyEdit(snapshot: BlameSnapshot, edit: LineEdit): BlameSnapsho
   }
   const lineCommits = [...snapshot.lineCommits];
   const lineOriginals = [...snapshot.lineOriginals];
-  // Splice after `startLine` (a 1-based line is a 0-based index into the lines that follow it), so the line the
-  // edit began on keeps its attribution and only whole lines it replaced are dropped.
-  lineCommits.splice(
-    edit.startLine,
-    edit.removedLines,
-    ...Array<number>(edit.addedLines).fill(LOCAL),
-  );
-  lineOriginals.splice(
-    edit.startLine,
-    edit.removedLines,
-    ...Array<number>(edit.addedLines).fill(0),
-  );
+  // Which line survives the seam decides where to splice. An edit starting mid-line keeps the head of
+  // `startLine`, so the removed lines are the ones after it (0-based index `startLine`). An edit starting at
+  // column 1 consumes `startLine` whole and leaves the tail of the last removed line in its place, so the
+  // range to drop begins at `startLine` itself (index `startLine - 1`) — otherwise the surviving text keeps
+  // the attribution of the line that was deleted out from under it.
+  const at = edit.fromLineStart ? edit.startLine - 1 : edit.startLine;
+  lineCommits.splice(at, edit.removedLines, ...Array<number>(edit.addedLines).fill(LOCAL));
+  lineOriginals.splice(at, edit.removedLines, ...Array<number>(edit.addedLines).fill(0));
   return { commits: snapshot.commits, lineCommits, lineOriginals };
 }
 

@@ -48,9 +48,14 @@ public sealed partial class HostCore {
 			return new CommitHunkResult(null, $"'{request.Sha}' isn't a commit.");
 		}
 
+		// Clamping a bad line would answer with the commit's first hunk as though it were this line's change.
+		if (request.Line <= 0) {
+			return new CommitHunkResult(null, $"Line {request.Line} isn't a line in this file.");
+		}
+
 		try {
 			var hunk = await new GitService()
-				.CommitHunkAsync(session.WorkspaceRoot, request.Sha, relative, Math.Max(request.Line, 1), ct)
+				.CommitHunkAsync(session.WorkspaceRoot, request.Sha, relative, request.Line, ct)
 				.ConfigureAwait(false);
 			return new CommitHunkResult(
 				hunk is null ? null : new HunkWire(hunk.Header, hunk.OldStart, hunk.NewStart, hunk.Lines),
@@ -68,17 +73,24 @@ public sealed partial class HostCore {
 			return new HistoryResult([], false, NotInWorktree(session, request.Path));
 		}
 
+		// A line-scoped walk is anchored at the commit blame attributed the line to, using that commit's line
+		// number — the working tree's numbering doesn't address the same line anywhere else in history.
+		bool byLine = request.Line > 0;
+		if (byLine && !GitService.IsCommitSha(request.Sha)) {
+			return new HistoryResult([], false, $"'{request.Sha}' isn't a commit.");
+		}
+
 		try {
 			var git = new GitService();
 			// One over the limit distinguishes "that's all of it" from "there is more", so the web can say which.
 			// A file-scoped entry carries no line, so selecting it shows the commit without an area diff — the
 			// commit touched the file, not necessarily this line.
-			var commits = request.Line > 0
-				? (await git.LogLinesAsync(session.WorkspaceRoot, relative, request.Line, request.Line, BlameHistoryLimit + 1, ct).ConfigureAwait(false))
+			var commits = byLine
+				? (await git.LogLinesAsync(session.WorkspaceRoot, request.Sha, relative, request.Line, request.Line, BlameHistoryLimit + 1, ct).ConfigureAwait(false))
 					.Select(c => new CommitWire(c.Commit.Sha, c.Commit.Author, c.Commit.TimeUnix, c.Commit.Summary, c.Line))
 				: (await git.LogFileAsync(session.WorkspaceRoot, relative, BlameHistoryLimit + 1, ct).ConfigureAwait(false))
 					.Select(c => new CommitWire(c.Sha, c.Author, c.TimeUnix, c.Summary, 0));
-			var page = commits.Take(BlameHistoryLimit + 1).ToList();
+			var page = commits.ToList();
 			return new HistoryResult(
 				[.. page.Take(BlameHistoryLimit)],
 				page.Count > BlameHistoryLimit,
@@ -128,7 +140,9 @@ public sealed partial class HostCore {
 
 	private sealed record CommitHunkRequest(string Path, string Sha, int Line);
 
-	private sealed record HistoryRequest(string Path, int Line);
+	// Sha + Line address the line inside the commit blame attributed it to; Line 0 asks for the file's history,
+	// which needs no anchor.
+	private sealed record HistoryRequest(string Path, string Sha, int Line);
 
 	private sealed record CommitRefRequest(string Sha);
 

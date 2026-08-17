@@ -50,6 +50,7 @@ public sealed partial class GitService {
 	/// <inheritdoc/>
 	public async Task<IReadOnlyList<GitLineCommit>> LogLinesAsync(
 		string worktreeDirectory,
+		string startCommit,
 		string path,
 		int startLine,
 		int endLine,
@@ -60,10 +61,19 @@ public sealed partial class GitService {
 		ArgumentOutOfRangeException.ThrowIfNegativeOrZero(startLine);
 		ArgumentOutOfRangeException.ThrowIfLessThan(endLine, startLine);
 		ArgumentOutOfRangeException.ThrowIfNegativeOrZero(limit);
+		if (!IsCommitSha(startCommit)) {
+			throw new GitException($"'{startCommit}' is not a commit sha.");
+		}
+
 		// -L takes its path inside the argument, so a path that starts with '-' still cannot read as an option.
 		string range = string.Create(CultureInfo.InvariantCulture, $"{startLine},{endLine}:{path}");
-		// The patch stays on despite being far too narrow to read: its @@ header is where Git reports the line's
-		// number in each older commit, which is the anchor CommitHunkAsync needs to show that change in context.
+		// The traversal starts at startCommit, not HEAD, because the line numbers come from a blame of the
+		// working tree and only mean anything in the commit that blame attributed them to. Walking from HEAD
+		// with those numbers reports a different line whenever the file has uncommitted line-count changes
+		// above it — and fails outright when the working tree is the longer of the two.
+		//
+		// The patch stays on despite being far too narrow to read: its @@ header is where Git reports the
+		// line's number in each older commit, the anchor CommitHunkAsync needs to show that change in context.
 		var result = await RunCheckedAsync(
 			worktreeDirectory,
 			[
@@ -71,6 +81,7 @@ public sealed partial class GitService {
 				"log",
 				"-L",
 				range,
+				startCommit,
 				LogFormat,
 				"--max-count=" + limit.ToString(CultureInfo.InvariantCulture),
 			],

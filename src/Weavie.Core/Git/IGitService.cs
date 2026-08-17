@@ -181,9 +181,15 @@ public interface IGitService {
 	/// of <paramref name="path"/> (<c>git log -L</c>), newest first — the "other commits that changed this line" list.
 	/// Git follows the range back through each rewrite, so each result also carries where the line sat in that
 	/// commit, which is what <see cref="CommitHunkAsync"/> needs to show the change around it.
+	/// <para>
+	/// The traversal starts at <paramref name="startCommit"/> and the line numbers must be that commit's, as
+	/// <see cref="BlameFileAsync"/> reports them. Line numbers from the working tree do not address the same line
+	/// in <c>HEAD</c> once a file has uncommitted line-count changes. Throws when it isn't a full commit sha.
+	/// </para>
 	/// </summary>
 	Task<IReadOnlyList<GitLineCommit>> LogLinesAsync(
 		string worktreeDirectory,
+		string startCommit,
 		string path,
 		int startLine,
 		int endLine,

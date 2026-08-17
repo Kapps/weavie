@@ -95,6 +95,20 @@ commit's `@@` header, so the history response carries a per-commit `line` alongs
 body is deliberately unread: `-L` emits a bare one-line hunk with no context, unreadable on its own, so the
 line number is taken from it and the *contexted* hunk comes from `git show`.
 
+**The line walk must start at the blamed commit, not `HEAD`.** Blame numbers lines against the *working tree*;
+`git log -L` numbers them against whatever commit it starts from. Walking from `HEAD` with a working-tree line
+number answers about a different line the moment the file has uncommitted line-count changes above it, and
+fails outright (`fatal: file has only N lines`) when the tree is the longer of the two. Since the agent is
+editing files constantly, "has uncommitted changes" is the normal state here, so the request carries the
+blamed commit's sha and *its* line number:
+
+```
+git log -L <originalLine>,<originalLine>:<path> <blamedSha>
+```
+
+A line no commit holds yet has no anchor, so it has no line history — the popover says so instead of quietly
+showing the file's.
+
 File-scoped history has no such mapping — a commit that changed the file needn't have changed this line — so
 those entries carry `line: 0` and the popover says the change is elsewhere rather than presenting some other
 part of the commit as if it were this line's.

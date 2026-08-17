@@ -89,16 +89,56 @@ public sealed class GitBlameIntegrationTests : IDisposable {
 		string second = Commit("second");
 		// A commit that only shifts the line down must not be reported as having changed it.
 		Write("notes.md", "header\nalpha\nBRAVO\n");
-		Commit("prepend");
+		string prepend = Commit("prepend");
 
 		var git = new GitService();
-		var commits = await git.LogLinesAsync(_repo, "notes.md", 3, 3, 10);
+		var commits = await git.LogLinesAsync(_repo, prepend, "notes.md", 3, 3, 10);
 
 		Assert.Equal([second, first], commits.Select(c => c.Commit.Sha));
 		// The line sat at 2 in both, before the prepend pushed it to 3 — the anchor for each one's hunk.
 		Assert.Equal([2, 2], commits.Select(c => c.Line));
 		var hunk = await git.CommitHunkAsync(_repo, second, "notes.md", commits[0].Line);
 		Assert.Contains("+BRAVO", Assert.IsType<GitDiffHunk>(hunk).Lines);
+	}
+
+	[Fact]
+	public async Task LogLines_AnchoredAtTheBlamedCommitAnswersAboutTheBlamedLine() {
+		// The defect this pins: blame numbers lines against the WORKING TREE, `git log -L` against whatever
+		// commit it starts from. Walking from HEAD with a working-tree line number reports a different line
+		// once the file has uncommitted line-count changes above it — and dies outright when the tree is longer.
+		Write("notes.md", "alpha\nbravo\ncharlie\n");
+		Commit("first");
+		Write("notes.md", "alpha\nBRAVO\ncharlie\n");
+		string second = Commit("second");
+		// Two uncommitted lines above it: "BRAVO" is line 4 in the buffer but line 2 in the commit that wrote it.
+		Write("notes.md", "new\nlines\nalpha\nBRAVO\ncharlie\n");
+
+		var git = new GitService();
+		var blame = await git.BlameFileAsync(_repo, "notes.md");
+		int bufferLine = 4;
+		var blamed = blame.Commits[blame.LineCommits[bufferLine - 1]];
+		int originalLine = blame.LineOriginalLines[bufferLine - 1];
+		Assert.Equal(second, blamed.Sha);
+		Assert.Equal(2, originalLine);
+
+		var commits = await git.LogLinesAsync(_repo, blamed.Sha, "notes.md", originalLine, originalLine, 10);
+
+		Assert.Equal(["second", "first"], commits.Select(c => c.Commit.Summary));
+
+		// The buffer's own numbering, walked from HEAD, is the wrong question: the tree is longer than HEAD,
+		// so Git refuses it rather than quietly answering about some other line.
+		string head = await git.GetHeadCommitAsync(_repo);
+		await Assert.ThrowsAsync<GitException>(
+			() => git.LogLinesAsync(_repo, head, "notes.md", bufferLine, bufferLine, 10));
+	}
+
+	[Fact]
+	public async Task LogLines_RejectsAnythingThatIsNotAFullSha() {
+		Write("notes.md", "alpha\n");
+		Commit("first");
+
+		await Assert.ThrowsAsync<GitException>(
+			() => new GitService().LogLinesAsync(_repo, "HEAD", "notes.md", 1, 1, 10));
 	}
 
 	[Fact]

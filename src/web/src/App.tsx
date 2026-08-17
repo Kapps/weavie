@@ -1460,12 +1460,12 @@ export default function App(): JSX.Element {
       // Post-turn review (acceptEdits/bypass): drive the inline toolbar's file axis. next/prev DECLINE (fall
       // through to the editor) when no multi-file review is active, so Ctrl+Left/Right keep Win/Linux word-nav
       // outside one.
-      // Blame: opens the popover on the cursor's line, or says why that line has no commit behind it. Declines
-      // only with no editor mounted, so the palette entry never looks like it silently did nothing.
-      registerCommand(CommandIds.showBlame, () => editor.showBlameAtCursor()),
       registerCommand(CommandIds.reviewOpen, () => editor.openFirstReviewFile()),
       registerCommand(CommandIds.reviewNextFile, () => editor.inline.nextFile()),
       registerCommand(CommandIds.reviewPrevFile, () => editor.inline.prevFile()),
+      // Blame: opens the popover on the cursor's line, or says why that line has no commit behind it. Declines
+      // only with no editor mounted, so the palette entry never looks like it silently did nothing.
+      registerCommand(CommandIds.showBlame, () => editor.showBlameAtCursor()),
       // Editor tabs. Targeted commands take an optional `path` (the context menu's right-clicked tab; keyboard
       // / palette omit it for the active tab). next/prev return whether they stepped, so Ctrl+Tab falls
       // through to the editor with <2 tabs.

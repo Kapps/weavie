@@ -48,20 +48,24 @@ public sealed class HostCoreGitBlameTests {
 
 	[Fact]
 	public async Task HistoryListsTheCommitsBehindTheLineAndTheFile() {
+		string second = string.Empty;
 		await using var host = await TestHost.StartAsync(repo => {
 			File.WriteAllText(Path.Combine(repo, "notes.md"), "alpha\nbravo\n");
 			Commit(repo, "first");
 			File.WriteAllText(Path.Combine(repo, "notes.md"), "alpha\nBRAVO\n");
 			Commit(repo, "second");
+			second = ReadHead(repo);
 			File.WriteAllText(Path.Combine(repo, "notes.md"), "ALPHA\nBRAVO\n");
 			Commit(repo, "third");
 		});
 		string path = Path.Combine(host.RepoRoot, "notes.md");
 
+		// The line walk is addressed the way blame reports it: the commit that wrote the line, and its number
+		// in that commit.
 		var lineHistory = await host.SessionRequestAsync<JsonElement>(
-			host.WorkspaceSession, "git", "history", new { path, line = 2 });
+			host.WorkspaceSession, "git", "history", new { path, sha = second, line = 2 });
 		var fileHistory = await host.SessionRequestAsync<JsonElement>(
-			host.WorkspaceSession, "git", "history", new { path, line = 0 });
+			host.WorkspaceSession, "git", "history", new { path, sha = string.Empty, line = 0 });
 
 		// Line 2 was written by "second" and untouched by "third"; the file itself carries all three.
 		Assert.Equal(["second", "first"], Summaries(lineHistory));
@@ -71,6 +75,72 @@ public sealed class HostCoreGitBlameTests {
 		Assert.Equal(2, lineHistory.GetProperty("commits").EnumerateArray().First().GetProperty("line").GetInt32());
 		// A file-scoped entry carries no line: the commit touched the file, not necessarily this line.
 		Assert.Equal(0, fileHistory.GetProperty("commits").EnumerateArray().First().GetProperty("line").GetInt32());
+	}
+
+	[Fact]
+	public async Task LineHistoryAnswersAboutTheBlamedLineWhileTheFileHasUncommittedChanges() {
+		// The editor asks about a line of a file the agent is midway through editing — the normal state here.
+		// Blame's numbering is the working tree's, so the walk has to be anchored at the commit blame named.
+		await using var host = await TestHost.StartAsync(repo => {
+			File.WriteAllText(Path.Combine(repo, "notes.md"), "alpha\nbravo\ncharlie\n");
+			Commit(repo, "first");
+			File.WriteAllText(Path.Combine(repo, "notes.md"), "alpha\nBRAVO\ncharlie\n");
+			Commit(repo, "second");
+			// Uncommitted: the tree is now longer than HEAD, and "BRAVO" has moved down two lines.
+			File.WriteAllText(Path.Combine(repo, "notes.md"), "new\nlines\nalpha\nBRAVO\ncharlie\n");
+		});
+		string path = Path.Combine(host.RepoRoot, "notes.md");
+
+		var blame = await host.SessionRequestAsync<JsonElement>(
+			host.WorkspaceSession, "git", "blame", new { path });
+		var commits = blame.GetProperty("commits").EnumerateArray().ToList();
+		int index = blame.GetProperty("lineCommits").EnumerateArray().ElementAt(3).GetInt32();
+		string sha = commits[index].GetProperty("sha").GetString() ?? string.Empty;
+		int originalLine = blame.GetProperty("lineOriginals").EnumerateArray().ElementAt(3).GetInt32();
+		Assert.Equal("second", commits[index].GetProperty("summary").GetString());
+		Assert.Equal(2, originalLine);
+
+		var history = await host.SessionRequestAsync<JsonElement>(
+			host.WorkspaceSession, "git", "history", new { path, sha, line = originalLine });
+
+		Assert.Equal(JsonValueKind.Null, history.GetProperty("error").ValueKind);
+		Assert.Equal(["second", "first"], Summaries(history));
+	}
+
+	[Fact]
+	public async Task ALineHistoryWithoutACommitAnchorIsRefused() {
+		await using var host = await TestHost.StartAsync(repo => {
+			File.WriteAllText(Path.Combine(repo, "notes.md"), "alpha\n");
+			Commit(repo, "first");
+		});
+
+		var history = await host.SessionRequestAsync<JsonElement>(
+			host.WorkspaceSession,
+			"git",
+			"history",
+			new { path = Path.Combine(host.RepoRoot, "notes.md"), sha = "HEAD", line = 1 });
+
+		Assert.Contains("isn't a commit", history.GetProperty("error").GetString());
+		Assert.Empty(history.GetProperty("commits").EnumerateArray());
+	}
+
+	[Fact]
+	public async Task ANonPositiveLineIsRefusedRatherThanClampedToTheFirstHunk() {
+		string sha = string.Empty;
+		await using var host = await TestHost.StartAsync(repo => {
+			File.WriteAllText(Path.Combine(repo, "notes.md"), "alpha\nbravo\n");
+			Commit(repo, "first");
+			sha = ReadHead(repo);
+		});
+
+		var hunk = await host.SessionRequestAsync<JsonElement>(
+			host.WorkspaceSession,
+			"git",
+			"commitHunk",
+			new { path = Path.Combine(host.RepoRoot, "notes.md"), sha, line = 0 });
+
+		Assert.Equal(JsonValueKind.Null, hunk.GetProperty("hunk").ValueKind);
+		Assert.Contains("isn't a line", hunk.GetProperty("error").GetString());
 	}
 
 	[Fact]

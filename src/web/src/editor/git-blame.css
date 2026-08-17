@@ -21,6 +21,9 @@
    view zone can't — vscode's workbench captures keydowns before they reach it). */
 .weavie-blame-popover {
   position: fixed;
+  /* Hidden until placed beside its annotation, so it never flashes at the viewport origin first. The
+     component reveals it after measuring (matching the rail popover). */
+  visibility: hidden;
   z-index: 60;
   display: flex;
   flex-direction: column;

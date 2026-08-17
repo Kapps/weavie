@@ -20,11 +20,12 @@ function commit(sha: string, over: Partial<BlameCommit> = {}): BlameCommit {
   };
 }
 
-// Three lines, the middle one from a different commit — enough to tell a shift from a drop.
+// One distinct commit per line, so a test can tell which line survived a seam — with a shared commit the
+// mis-attribution this guards against is invisible.
 function snapshot(): BlameSnapshot {
   return {
-    commits: [commit("aaa"), commit("bbb")],
-    lineCommits: [0, 1, 0],
+    commits: [commit("aaa"), commit("bbb"), commit("ccc")],
+    lineCommits: [0, 1, 2],
     lineOriginals: [1, 2, 3],
   };
 }
@@ -35,32 +36,71 @@ const shas = (s: BlameSnapshot): (string | null)[] =>
 describe("applyEdit", () => {
   it("keeps every line's attribution when nothing changes line count", () => {
     // Typing within line 2: the range starts and ends on it, so no whole line is added or removed.
-    const next = applyEdit(snapshot(), { startLine: 2, removedLines: 0, addedLines: 0 });
+    const next = applyEdit(snapshot(), {
+      startLine: 2,
+      removedLines: 0,
+      addedLines: 0,
+      fromLineStart: false,
+    });
 
-    expect(shas(next)).toEqual(["aaa", "bbb", "aaa"]);
+    expect(shas(next)).toEqual(["aaa", "bbb", "ccc"]);
   });
 
-  it("pushes later lines down and leaves the inserted ones unattributed", () => {
-    const next = applyEdit(snapshot(), { startLine: 1, removedLines: 0, addedLines: 2 });
+  it("splitting a line mid-way keeps the head's attribution and leaves the new line unattributed", () => {
+    const next = applyEdit(snapshot(), {
+      startLine: 1,
+      removedLines: 0,
+      addedLines: 2,
+      fromLineStart: false,
+    });
 
-    // The line the edit started on keeps its commit; the two new lines belong to no commit yet.
-    expect(shas(next)).toEqual(["aaa", null, null, "bbb", "aaa"]);
+    expect(shas(next)).toEqual(["aaa", null, null, "bbb", "ccc"]);
   });
 
-  it("pulls later lines up when whole lines are deleted", () => {
-    const next = applyEdit(snapshot(), { startLine: 1, removedLines: 2, addedLines: 0 });
+  it("inserting at the start of a line pushes that line down rather than displacing it", () => {
+    // Pasting above line 2: the new lines take its place and it moves down still wearing its own commit.
+    const next = applyEdit(snapshot(), {
+      startLine: 2,
+      removedLines: 0,
+      addedLines: 2,
+      fromLineStart: true,
+    });
+
+    expect(shas(next)).toEqual(["aaa", null, null, "bbb", "ccc"]);
+  });
+
+  it("deleting whole lines leaves the surviving line wearing its own commit", () => {
+    // Select from the start of line 1 to the start of line 3 and delete: lines 1-2 go, line 3 survives as
+    // line 1. It must keep "ccc" — the seam is where a naive splice hands it the deleted line's commit.
+    const next = applyEdit(snapshot(), {
+      startLine: 1,
+      removedLines: 2,
+      addedLines: 0,
+      fromLineStart: true,
+    });
+
+    expect(shas(next)).toEqual(["ccc"]);
+  });
+
+  it("keeps the head's attribution when a mid-line selection spanning lines is replaced", () => {
+    // From mid-line 1 to mid-line 3: the merged line begins with line 1's text, so it keeps "aaa".
+    const next = applyEdit(snapshot(), {
+      startLine: 1,
+      removedLines: 2,
+      addedLines: 0,
+      fromLineStart: false,
+    });
 
     expect(shas(next)).toEqual(["aaa"]);
   });
 
-  it("keeps the anchor's attribution when a multi-line selection is replaced", () => {
-    const next = applyEdit(snapshot(), { startLine: 1, removedLines: 2, addedLines: 1 });
-
-    expect(shas(next)).toEqual(["aaa", null]);
-  });
-
   it("carries each line's original number with it", () => {
-    const next = applyEdit(snapshot(), { startLine: 1, removedLines: 0, addedLines: 1 });
+    const next = applyEdit(snapshot(), {
+      startLine: 1,
+      removedLines: 0,
+      addedLines: 1,
+      fromLineStart: false,
+    });
 
     expect(blameAt(next, 1)?.originalLine).toBe(1);
     expect(blameAt(next, 2)).toBeNull();

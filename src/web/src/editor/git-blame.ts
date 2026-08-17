@@ -10,7 +10,7 @@ import { type GitBlameMode, registerSessionFeature } from "../bridge";
 import { currentEditorOptions, onEditorOptionsChanged } from "../editor-options";
 import { notify } from "../notify/notify";
 import { applyEdit, type BlameSnapshot, blameAt, blameLabel, EMPTY_BLAME } from "./blame-model";
-import { openBlame } from "./blame-store";
+import { closeBlame, openBlame } from "./blame-store";
 import { normalizePath } from "./fs-path";
 import { monaco } from "./monaco-setup";
 import { SESSION_FILE_SCHEME, sessionForUri, sessionUriHostPath } from "./session-uri";
@@ -71,6 +71,9 @@ export function createGitBlame(editor: monaco.editor.IStandaloneCodeEditor): Git
     blameError = null;
     loadedUri = null;
     decorations.clear();
+    // Sticky scroll renders its own copy of the pinned lines and only rebuilds it on scroll, so without a
+    // forced redraw the labels linger up there after the decorations are gone.
+    editor.render(true);
     // Labels are per-file (and go stale as "3 days ago" becomes "4 days ago"), so the cache lives no longer
     // than the model it was built for.
     optionsByLabel.clear();
@@ -165,15 +168,18 @@ export function createGitBlame(editor: monaco.editor.IStandaloneCodeEditor): Git
       const line = editor.getPosition()?.lineNumber;
       return line === undefined || line > model.getLineCount() ? [] : [line];
     }
-    const lines: number[] = [];
+    // A set, not a list: a collapsed region (comment prose, folding) splits the viewport into several ranges,
+    // and widening each by the overscan makes neighbouring ones overlap — so a line lands in two windows and
+    // would otherwise be decorated, and painted, twice.
+    const lines = new Set<number>();
     for (const range of editor.getVisibleRanges()) {
       const from = Math.max(range.startLineNumber - OVERSCAN, 1);
       const to = Math.min(range.endLineNumber + OVERSCAN, model.getLineCount());
       for (let line = from; line <= to; line++) {
-        lines.push(line);
+        lines.add(line);
       }
     }
-    return lines;
+    return [...lines];
   };
 
   const render = (): void => {
@@ -231,6 +237,9 @@ export function createGitBlame(editor: monaco.editor.IStandaloneCodeEditor): Git
 
   const subscriptions: monaco.IDisposable[] = [
     editor.onDidChangeModel(() => {
+      // The popover describes a line of the model being replaced; a keyboard file switch never produces the
+      // outside pointerdown that would otherwise dismiss it.
+      closeBlame();
       clear();
       load();
     }),
@@ -248,6 +257,7 @@ export function createGitBlame(editor: monaco.editor.IStandaloneCodeEditor): Git
           startLine: change.range.startLineNumber,
           removedLines: change.range.endLineNumber - change.range.startLineNumber,
           addedLines: change.text.split("\n").length - 1,
+          fromLineStart: change.range.startColumn === 1,
         });
       }
       scheduleRender();
@@ -348,6 +358,8 @@ export function createGitBlame(editor: monaco.editor.IStandaloneCodeEditor): Git
     },
     dispose: () => {
       loadToken++;
+      // Leaving it open would strand the panel on a torn-down session, whose bus rejects every request.
+      closeBlame();
       if (frame !== undefined) {
         cancelAnimationFrame(frame);
       }

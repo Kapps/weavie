@@ -463,7 +463,7 @@ public sealed class WorktreeManagerTests {
 		public Task<IReadOnlyList<GitCommit>> LogFileAsync(string worktreeDirectory, string path, int limit, CancellationToken ct = default) =>
 			Task.FromResult<IReadOnlyList<GitCommit>>([]);
 
-		public Task<IReadOnlyList<GitLineCommit>> LogLinesAsync(string worktreeDirectory, string path, int startLine, int endLine, int limit, CancellationToken ct = default) =>
+		public Task<IReadOnlyList<GitLineCommit>> LogLinesAsync(string worktreeDirectory, string startCommit, string path, int startLine, int endLine, int limit, CancellationToken ct = default) =>
 			Task.FromResult<IReadOnlyList<GitLineCommit>>([]);
 
 		public Task<GitDiffHunk?> CommitHunkAsync(string worktreeDirectory, string commit, string path, int line, CancellationToken ct = default) =>

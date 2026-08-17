@@ -317,13 +317,12 @@ export function createGitBlame(editor: monaco.editor.IStandaloneCodeEditor): Git
     }
     mode = options.gitBlame;
     // Turning them off drops the snapshot too, so nothing stale survives to answer a later question from.
+    // Sticky scroll keeps its own rendered copy of the pinned lines and rebuilds it only on scroll, so a label
+    // can outlive the decorations up there until the next scroll. `editor.render(true)` does not reach that
+    // copy — driving the real app proved it — so there is nothing here that would honestly fix it. See
+    // docs/specs/git-blame.md.
     if (mode === "off") {
       clear();
-      // The one place a forced redraw is warranted: the model stays on screen with its annotations removed,
-      // and sticky scroll holds its own copy of the pinned lines that it only rebuilds on scroll. Anywhere
-      // else — a model swap, teardown — the view is about to repaint anyway, and forcing a synchronous render
-      // from inside Monaco's own event would be re-entering it for nothing.
-      editor.render(true);
     } else if (loadedUri === null) {
       load();
     } else {

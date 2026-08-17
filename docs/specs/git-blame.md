@@ -138,6 +138,14 @@ forge is the authoritative source. It prefers the merged pull request when a com
 `CommitUrl` is built from the repo identity, so the `Commit ↗` link needs no credential and appears even when
 the PR lookup fails or finds nothing.
 
+## Known limitation: sticky scroll holds a stale label
+
+Sticky scroll renders its **own** copy of the pinned lines and rebuilds it on scroll, not when decorations
+change. Turning annotations off while a pinned line carries one therefore leaves that label in the header
+until the next scroll. `editor.render(true)` does not reach that copy — verified by driving the real app —
+and Monaco exposes no supported way to invalidate it, so there is no honest fix on our side. It affects only
+the sticky header, only until the next scroll, and never the code lines themselves.
+
 ## Testing
 
 | Level | Covers |

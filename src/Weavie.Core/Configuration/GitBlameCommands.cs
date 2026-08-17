@@ -16,8 +16,9 @@ public static class GitBlameCommands {
 		dispatcher.RegisterHandler(CoreCommands.ToggleBlame, (_, _) => Task.FromResult(Toggle(settings)));
 	}
 
-	// Off from any showing mode; back to the default from off. A user who chose 'all' set that deliberately, so
-	// turning blame off and on again is not the place to rewrite their choice.
+	// Off from any showing mode; back to the default from off. Toggling off and on therefore lands on
+	// 'currentLine' even for someone who had chosen 'all' — a toggle only carries one bit, so the mode it
+	// restores has to be a fixed one. Changing modes is the setting's job, not this command's.
 	private static CommandResult Toggle(SettingsStore settings) {
 		try {
 			bool showing = !string.Equals(

@@ -102,6 +102,8 @@ import {
   registerCommand,
 } from "./commands/registry";
 import { CommandIds } from "./commands/types";
+import { BlamePopover } from "./editor/BlamePopover";
+import { blameTarget } from "./editor/blame-store";
 import { ConfirmDialog } from "./editor/ConfirmDialog";
 import { EditorEmptyState } from "./editor/EditorEmptyState";
 import { createEditorController } from "./editor/editor-controller";
@@ -1461,6 +1463,9 @@ export default function App(): JSX.Element {
       registerCommand(CommandIds.reviewOpen, () => editor.openFirstReviewFile()),
       registerCommand(CommandIds.reviewNextFile, () => editor.inline.nextFile()),
       registerCommand(CommandIds.reviewPrevFile, () => editor.inline.prevFile()),
+      // Blame: opens the popover on the cursor's line, or says why that line has no commit behind it. Declines
+      // only with no editor mounted, so the palette entry never looks like it silently did nothing.
+      registerCommand(CommandIds.showBlame, () => editor.showBlameAtCursor()),
       // Editor tabs. Targeted commands take an optional `path` (the context menu's right-clicked tab; keyboard
       // / palette omit it for the active tab). next/prev return whether they stepped, so Ctrl+Tab falls
       // through to the editor with <2 tabs.
@@ -2011,6 +2016,11 @@ export default function App(): JSX.Element {
         {(state) => (
           <EmbedLightbox state={state()} onStep={stepEmbedZoom} onClose={closeEmbedZoom} />
         )}
+      </Show>
+      {/* The blame popover for a clicked line annotation. Keyed so picking another line rebuilds it against
+          the new target rather than leaving the previous commit's resources in place. */}
+      <Show when={blameTarget()} keyed>
+        {(target) => <BlamePopover target={target} />}
       </Show>
     </div>
   );

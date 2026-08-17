@@ -163,4 +163,48 @@ public interface IGitService {
 	/// empty string when the file doesn't exist there — the diff baseline for a PR file (empty ⇒ added in the PR).
 	/// </summary>
 	Task<string> ShowFileAtRefAsync(string repositoryDirectory, string reference, string path, CancellationToken ct = default);
+
+	/// <summary>
+	/// Blames <paramref name="path"/> (worktree-relative) against the working tree, so lines edited but not yet
+	/// committed come back as <see cref="BlameCommit.Uncommitted"/> rather than attributed to whoever wrote them last.
+	/// </summary>
+	Task<GitBlame> BlameFileAsync(string worktreeDirectory, string path, CancellationToken ct = default);
+
+	/// <summary>
+	/// Up to <paramref name="limit"/> commits that changed <paramref name="path"/>, newest first, following the
+	/// file across renames — the "other commits that changed this file" list.
+	/// </summary>
+	Task<IReadOnlyList<GitCommit>> LogFileAsync(string worktreeDirectory, string path, int limit, CancellationToken ct = default);
+
+	/// <summary>
+	/// Up to <paramref name="limit"/> commits that changed lines <paramref name="startLine"/>–<paramref name="endLine"/>
+	/// of <paramref name="path"/> (<c>git log -L</c>), newest first — the "other commits that changed this line" list.
+	/// Git follows the range back through each rewrite, so each result also carries where the line sat in that
+	/// commit, which is what <see cref="CommitHunkAsync"/> needs to show the change around it.
+	/// <para>
+	/// The traversal starts at <paramref name="startCommit"/> and the line numbers must be that commit's, as
+	/// <see cref="BlameFileAsync"/> reports them. Line numbers from the working tree do not address the same line
+	/// in <c>HEAD</c> once a file has uncommitted line-count changes. Throws when it isn't a full commit sha.
+	/// </para>
+	/// </summary>
+	Task<IReadOnlyList<GitLineCommit>> LogLinesAsync(
+		string worktreeDirectory,
+		string startCommit,
+		string path,
+		int startLine,
+		int endLine,
+		int limit,
+		CancellationToken ct = default);
+
+	/// <summary>
+	/// The one hunk of <paramref name="commit"/>'s diff to <paramref name="path"/> that covers
+	/// <paramref name="line"/> (numbered as of that commit), or <c>null</c> when the commit didn't change that line.
+	/// Throws when <paramref name="commit"/> isn't a full commit sha.
+	/// </summary>
+	Task<GitDiffHunk?> CommitHunkAsync(
+		string worktreeDirectory,
+		string commit,
+		string path,
+		int line,
+		CancellationToken ct = default);
 }

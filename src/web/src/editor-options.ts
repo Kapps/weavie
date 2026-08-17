@@ -36,6 +36,7 @@ const DEFAULT_OPTIONS: EditorOptionsSpec = {
   commentProse: "documentation",
   paneShortcutHints: true,
   videoAutoplay: true,
+  gitBlame: "currentLine",
 };
 
 let current: EditorOptionsSpec = hostInjected(

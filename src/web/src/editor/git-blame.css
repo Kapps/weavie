@@ -1,0 +1,216 @@
+/* The per-line blame annotation (git-blame.ts) and the popover behind it (BlamePopover.tsx). */
+
+/* Injected text at the end of an annotated line. It sits in the code's own type so it can't disturb the line's
+   metrics, and carries no weight of its own: the point is to be readable when looked for and ignorable when
+   not. Opacity rather than a fixed colour, so it fades against whatever the active theme paints behind it. */
+.weavie-blame {
+  font-size: var(--font-metadata-size);
+  font-style: italic;
+  color: var(--dim, #6f7884);
+  opacity: 0.62;
+  cursor: pointer;
+}
+
+.weavie-blame:hover {
+  opacity: 1;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* The popover: an app-level panel, not a Monaco widget, so it owns real focus and keyboard handling (a
+   view zone can't — vscode's workbench captures keydowns before they reach it). */
+.weavie-blame-popover {
+  position: fixed;
+  /* Hidden until placed beside its annotation, so it never flashes at the viewport origin first. The
+     component reveals it after measuring (matching the rail popover). */
+  visibility: hidden;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  width: 560px;
+  max-height: 70vh;
+  overflow: hidden;
+  background: var(--bar, #101319);
+  border: 1px solid var(--border, #191c21);
+  border-radius: 8px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+  font-family: var(--font-chrome-family);
+  font-size: var(--font-chrome-size);
+  color: var(--fg, #cdd5dc);
+}
+
+.weavie-blame-popover:focus-visible {
+  outline: none;
+}
+
+.weavie-blame-head {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border, #191c21);
+}
+
+.weavie-blame-subject {
+  font-size: calc(var(--font-chrome-size) + 1px);
+  font-weight: 600;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.weavie-blame-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  color: var(--dim, #6f7884);
+  font-size: var(--font-hint-size);
+}
+
+.weavie-blame-sha {
+  font-family: var(--font-content-family);
+}
+
+/* Links out to the forge — the escape hatch to the whole commit or the whole pull request, deliberately
+   secondary to the change shown below. */
+.weavie-blame-links {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.weavie-blame-link {
+  padding: 2px 8px;
+  border: 1px solid var(--border, #191c21);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--fg, #cdd5dc);
+  font: inherit;
+  font-size: var(--font-hint-size);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.weavie-blame-link:hover {
+  background: var(--list-hover-bg, #111419);
+  border-color: var(--accent, #54c6a4);
+  color: var(--accent, #54c6a4);
+}
+
+/* The change itself: the hunk of the shown commit that covers this line. The whole point of the panel, so it
+   gets the content typeface and the most room. */
+.weavie-blame-hunk {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 0;
+  font-family: var(--font-content-family);
+  font-size: var(--font-metadata-size);
+  line-height: 1.5;
+  white-space: pre;
+}
+
+.weavie-blame-hunk-line {
+  padding: 0 12px;
+}
+
+.weavie-blame-added {
+  background: rgba(111, 220, 102, 0.12);
+  color: var(--ok, #6fdc66);
+}
+
+.weavie-blame-removed {
+  background: rgba(224, 122, 122, 0.12);
+  color: var(--bad, #e07a7a);
+}
+
+.weavie-blame-context {
+  color: var(--dim, #6f7884);
+}
+
+/* The line the popover was opened from, marked so the change reads against the code it explains. */
+.weavie-blame-focus {
+  box-shadow: inset 2px 0 0 var(--accent, #54c6a4);
+}
+
+.weavie-blame-note {
+  padding: 12px;
+  color: var(--dim, #6f7884);
+}
+
+/* History: the other commits that touched this line or this file. Picking one re-points the panel above at it,
+   so the diff stays the subject and the list is navigation. */
+.weavie-blame-history {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--border, #191c21);
+  max-height: 40%;
+  min-height: 0;
+}
+
+.weavie-blame-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 6px 8px 0;
+}
+
+.weavie-blame-tab {
+  padding: 4px 10px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--dim, #6f7884);
+  font: inherit;
+  cursor: pointer;
+}
+
+.weavie-blame-tab:hover {
+  color: var(--fg, #cdd5dc);
+}
+
+.weavie-blame-tab[aria-selected="true"] {
+  color: var(--fg, #cdd5dc);
+  border-bottom-color: var(--accent, #54c6a4);
+}
+
+.weavie-blame-list {
+  overflow: auto;
+  padding: 4px;
+}
+
+.weavie-blame-entry {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg, #cdd5dc);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.weavie-blame-entry:hover {
+  background: var(--list-hover-bg, #111419);
+}
+
+.weavie-blame-entry[aria-current="true"] {
+  background: var(--list-active-bg, #161a21);
+  color: var(--list-active-fg, #eef2f8);
+}
+
+.weavie-blame-entry-when {
+  flex: 0 0 auto;
+  width: 90px;
+  color: var(--dim, #6f7884);
+  font-size: var(--font-hint-size);
+}
+
+.weavie-blame-entry-summary {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

@@ -61,6 +61,25 @@ public sealed partial class GitHubReviewProvider : IPullRequestProvider, IReview
 	}
 
 	/// <inheritdoc/>
+	public async Task<PullRequestSummary?> FindForCommitAsync(RepoRef repo, string sha, CancellationToken ct = default) {
+		ArgumentNullException.ThrowIfNull(repo);
+		ArgumentException.ThrowIfNullOrWhiteSpace(sha);
+		string? body = await SendOrNullAsync(
+			repo, $"/repos/{repo.Owner}/{repo.Name}/commits/{Uri.EscapeDataString(sha)}/pulls?per_page=10", ct).ConfigureAwait(false);
+		if (body is null) {
+			return null;
+		}
+
+		var pullRequests = ParsePullRequests(body);
+		// A commit reachable from several pull requests (a branch merged onto another before landing) is best
+		// explained by the one that actually merged it.
+		return pullRequests.FirstOrDefault(p => p.State == PullRequestState.Merged) ?? pullRequests.FirstOrDefault();
+	}
+
+	/// <inheritdoc/>
+	public string CommitUrl(RepoRef repo, string sha) => WebCommitUrl(repo, sha);
+
+	/// <inheritdoc/>
 	public async Task<IReadOnlyList<ReviewComment>> ListAsync(RepoRef repo, int number, CancellationToken ct = default) {
 		ArgumentNullException.ThrowIfNull(repo);
 		string body = await SendAsync(
@@ -177,6 +196,13 @@ public sealed partial class GitHubReviewProvider : IPullRequestProvider, IReview
 	public static string WebRefUrlBase(RepoRef repo) {
 		ArgumentNullException.ThrowIfNull(repo);
 		return $"https://{repo.Host}/{repo.Owner}/{repo.Name}/pull/";
+	}
+
+	/// <summary>The web URL for one commit — <c>https://{host}/{owner}/{repo}/commit/{sha}</c>. Pure, for tests.</summary>
+	public static string WebCommitUrl(RepoRef repo, string sha) {
+		ArgumentNullException.ThrowIfNull(repo);
+		ArgumentException.ThrowIfNullOrWhiteSpace(sha);
+		return $"https://{repo.Host}/{repo.Owner}/{repo.Name}/commit/{sha}";
 	}
 
 	/// <inheritdoc/>

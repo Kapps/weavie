@@ -351,6 +351,17 @@ test("the software keyboard keeps Claude reachable without scrolling the documen
 // spoofing the client's reported platform independently of the real OS interferes with the host's real
 // platform-specific terminal negotiation (e.g. win32-input-mode) — a confound the sandbox can't reproduce.
 // This test below already exercises the real bug end to end and is the regression coverage for it.
+//
+// 2026-08-17: failed differently on the macOS shard, before any of the above —
+// https://github.com/Kapps/weavie/actions/runs/32065959082/job/95498706809. The very first assertion,
+// `matchMedia("(pointer: coarse)").matches`, read false; the trace shows it evaluated in 3ms right after a
+// clean `.session-inbox-row` click, with no console error and the context's own 390x844 viewport already
+// correctly applied — not a hang or a race, the browser just reported the wrong media feature for a
+// `hasTouch: true` context on that run. This mobile project sets `hasTouch` but not `isMobile`; Chromium's
+// pointer/hover media emulation may not be deterministic from `hasTouch` alone without it, which would make
+// `isMobile: true` in playwright.config.ts the real fix — but that changes every test in this file's
+// project, unverifiable from this sandbox (no Windows/macOS runner), so left alone pending another
+// occurrence rather than guessed at here.
 test("the terminal cursor exposes native paste in both terminal panes", async ({ page }) => {
   await page.locator(".session-inbox-row").click();
   expect(await page.evaluate(() => matchMedia("(pointer: coarse)").matches)).toBe(true);

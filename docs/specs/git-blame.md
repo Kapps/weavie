@@ -1,7 +1,7 @@
 # Git blame annotations
 
 Status: implemented
-Last updated: 2026-08-16
+Last updated: 2026-08-17
 
 Who last changed each line, shown as faded text at the end of it, and a popover behind each one that answers
 the question the annotation raises: **what was the change that produced this line?** The popover's subject is
@@ -17,6 +17,12 @@ request. Those are one click out to the forge.
 | Popover head | Subject, author, when, short sha, and `PR #N ↗` / `Commit ↗` links |
 | Popover body | The hunk of that commit covering this line, with the blamed line marked |
 | Popover foot | **This line** / **This file** history; picking one re-points the body at that commit |
+
+The panel is at most 70vh, and each of its two scrollable sections is bounded within that: the hunk at 40vh,
+the history at 24vh. Flex shrinks siblings in proportion to their content, so an unbounded hunk squeezed the
+history under it to a sliver and pushed its buttons past the panel's edge — a 160-line commit left nothing of
+the foot to click. Both bounds are viewport-relative; a percentage would not resolve, since the panel's own
+height is content-driven up to its maximum.
 
 ### Settings and commands
 
@@ -35,14 +41,26 @@ and back on returns to the default rather than rewriting an `all` preference the
 
 ### One label per run, not per line
 
-`all` annotates only the lines that **start** a run — where the line above belongs to a different commit, or
-to none. A commit usually owns a stretch of consecutive lines, and repeating its label down every one of them
-is what makes a whole file unreadable; the label belongs where the change begins. A file written in a single
-commit therefore carries exactly one label, at its top, and a locally typed line splits the run either side of
-it.
+`all` annotates one line per run — a run being a stretch whose line above belongs to a different commit, or to
+none. A commit usually owns several consecutive lines, and repeating its label down every one of them is what
+makes a whole file unreadable; the label belongs where the change begins. A file written in a single commit
+therefore carries exactly one label, near its top, and a locally typed line splits the run either side of it.
 
-Run starts are computed from the file, not the viewport, so scrolling never moves a label — a run beginning
-above the visible window stays unlabelled there rather than acquiring a label at the window's edge.
+The labelled line is the run's first one **with code on it**. A blank line carries no annotation in either
+mode: there is nothing beside it for the label to follow, so it lands where the line's own text would be and
+reads as content the file doesn't have. A commit that appended a block owns the blank separator above it, so
+its run opens on an empty line and hands the label down to the code it introduced — still exactly one label
+for the run.
+
+Runs are computed from the file, not the viewport, so scrolling never moves a label — a run beginning above
+the visible window stays unlabelled there rather than acquiring a label at the window's edge.
+
+### The gap belongs to the line
+
+The annotation is held clear of the code by the class's **left margin**, not by leading spaces in the injected
+text. Margin sits outside the element's box, so the space between a line and its label is dead to the pointer:
+clicking just past the end of a line — how a user puts the caret there — lands on the line, not on the popover
+trigger.
 
 ## Blame is a property of the file on disk
 
@@ -154,4 +172,5 @@ the sticky header, only until the next scroll, and never the code lines themselv
 | `UnifiedDiffTests` | Hunk selection by post-image line; counts (not prefixes) ending a hunk, so a patch of a patch reads correctly |
 | `GitBlameIntegrationTests` | Real `git`: attribution, uncommitted lines, the blamed line anchoring the right hunk, line history reaching past a rewrite, rename following, merges |
 | `HostCoreGitBlameTests` | The session bus: absolute-path resolution, out-of-worktree refusal, non-sha refusal, forge links |
-| `blame-model.test.ts` | Line re-alignment through inserts, deletes, and replacements; label and relative-time formatting |
+| `blame-model.test.ts` | Line re-alignment through inserts, deletes, and replacements; which line of a run carries its label; label and relative-time formatting |
+| `git-blame.spec.ts` | The painted result: which lines carry a label, that blank ones never do, that the gap beside a line isn't the popover's trigger, and that a long hunk leaves the history on screen |

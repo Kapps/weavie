@@ -4,6 +4,10 @@
    metrics, and carries no weight of its own: the point is to be readable when looked for and ignorable when
    not. Opacity rather than a fixed colour, so it fades against whatever the active theme paints behind it. */
 .weavie-blame {
+  /* The gap to the code, as margin rather than leading spaces: margin sits outside the box, so the space
+     between the line and its annotation is dead to the pointer. Clicking just past the end of a line — to put
+     the caret there — must not open the popover. */
+  margin-left: 3em;
   font-size: var(--font-metadata-size);
   font-style: italic;
   color: var(--dim, #6f7884);
@@ -102,6 +106,9 @@
 .weavie-blame-hunk {
   flex: 1 1 auto;
   min-height: 0;
+  /* Bounded so a long hunk can't crowd out the history below it. Flex shrinks items in proportion to their
+     content, so an unbounded 300-line diff squeezed the list to a sliver of the panel. */
+  max-height: 40vh;
   overflow: auto;
   padding: 8px 0;
   font-family: var(--font-content-family);
@@ -144,7 +151,9 @@
   display: flex;
   flex-direction: column;
   border-top: 1px solid var(--border, #191c21);
-  max-height: 40%;
+  /* A share of the viewport, like the hunk above: a percentage never resolved here, since the panel's own
+     height is content-driven up to its max. */
+  max-height: 24vh;
   min-height: 0;
 }
 

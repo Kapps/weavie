@@ -5,8 +5,8 @@ import {
   type BlameSnapshot,
   blameAt,
   blameLabel,
+  labelsRun,
   relativeTime,
-  startsRun,
 } from "./blame-model";
 
 function commit(sha: string, over: Partial<BlameCommit> = {}): BlameCommit {
@@ -109,16 +109,22 @@ describe("applyEdit", () => {
   });
 });
 
-describe("startsRun", () => {
+describe("labelsRun", () => {
   // Five lines: one commit owns 1-3, another 4-5 — the shape that made annotating every line unreadable.
   const runs: BlameSnapshot = {
     commits: [commit("aaa"), commit("bbb")],
     lineCommits: [0, 0, 0, 1, 1],
     lineOriginals: [1, 2, 3, 4, 5],
   };
+  const filled = (): boolean => true;
+  // Lines given as text, so a case reads as the file it describes.
+  const content =
+    (lines: string[]) =>
+    (line: number): boolean =>
+      (lines[line - 1] ?? "").trim().length > 0;
 
   it("marks only the first line of each run", () => {
-    expect([1, 2, 3, 4, 5].map((line) => startsRun(runs, line))).toEqual([
+    expect([1, 2, 3, 4, 5].map((line) => labelsRun(runs, line, filled))).toEqual([
       true,
       false,
       false,
@@ -135,12 +141,42 @@ describe("startsRun", () => {
     };
 
     // The line below the insert opens a new run: its neighbour above belongs to no commit.
-    expect([1, 2, 3].map((line) => startsRun(typed, line))).toEqual([true, false, true]);
+    expect([1, 2, 3].map((line) => labelsRun(typed, line, filled))).toEqual([true, false, true]);
+  });
+
+  // A commit that appended a block owns the blank separator above it, so its run opens on empty lines.
+  const blankOpening: BlameSnapshot = {
+    commits: [commit("aaa"), commit("bbb")],
+    lineCommits: [0, 1, 1, 1],
+    lineOriginals: [1, 2, 3, 4],
+  };
+
+  it("hands the label down to the run's first line with code on it", () => {
+    const lines = ["const kept = 1;", "", "  ", "const added = 2;"];
+
+    // The label belongs on the code the commit introduced, not on the empty lines above it — and it is still
+    // shown exactly once for the run.
+    expect([1, 2, 3, 4].map((line) => labelsRun(blankOpening, line, content(lines)))).toEqual([
+      true,
+      false,
+      false,
+      true,
+    ]);
+  });
+
+  it("labels nothing when a whole run is blank", () => {
+    const lines = ["const kept = 1;", "", "", ""];
+
+    expect([2, 3, 4].map((line) => labelsRun(blankOpening, line, content(lines)))).toEqual([
+      false,
+      false,
+      false,
+    ]);
   });
 
   it("is false for a line with no attribution or past the end", () => {
-    expect(startsRun(runs, 6)).toBe(false);
-    expect(startsRun(runs, 0)).toBe(false);
+    expect(labelsRun(runs, 6, filled)).toBe(false);
+    expect(labelsRun(runs, 0, filled)).toBe(false);
   });
 });
 

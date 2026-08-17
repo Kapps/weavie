@@ -196,18 +196,29 @@ test("the cursor on a blank line is left unannotated", async ({ page }) => {
 
 test("the gap after a line belongs to the line, not to its annotation", async ({ page }) => {
   await openFile(page, "hello.ts");
-  const annotation = page.locator(".weavie-blame").first();
-  await expect(annotation).toBeVisible();
+  await expect(page.locator(".weavie-blame").first()).toBeVisible();
 
-  // The annotation is held clear of the code by a margin, which is outside its hit area.
-  const gap = await annotation.evaluate((element) =>
-    Number.parseFloat(getComputedStyle(element).marginLeft),
-  );
-  expect(gap).toBeGreaterThan(20);
+  // The annotation is held clear of the code by a margin, which lies outside its hit area. Read in one go
+  // from a freshly queried element, and retried: Monaco replaces a line's spans as it re-renders, and a
+  // detached one answers every computed style with "".
+  let marker: { gap: number; left: number; middle: number } | undefined;
+  await expect(async () => {
+    marker = await page.evaluate(() => {
+      const label = document.querySelector(".weavie-blame");
+      const box = label?.getBoundingClientRect();
+      return label === null || box === undefined
+        ? undefined
+        : {
+            gap: Number.parseFloat(getComputedStyle(label).marginLeft),
+            left: box.left,
+            middle: box.top + box.height / 2,
+          };
+    });
+    expect(marker?.gap ?? Number.NaN).toBeGreaterThan(20);
+  }).toPass();
 
   // Clicking in that gap is how a user puts the caret at the end of a line; it must not open the popover.
-  const box = await annotation.boundingBox();
-  await page.mouse.click((box?.x ?? 0) - gap / 2, (box?.y ?? 0) + (box?.height ?? 0) / 2);
+  await page.mouse.click((marker?.left ?? 0) - (marker?.gap ?? 0) / 2, marker?.middle ?? 0);
   await expect(page.getByRole("dialog", { name: "Git blame" })).toHaveCount(0);
 
   // The label itself is still the front door.

@@ -304,24 +304,53 @@
 
 .session-inbox-row {
   display: flex;
-  align-items: center;
-  gap: 10px;
+  align-items: stretch;
   width: 100%;
-  min-height: 58px;
-  padding: 8px 10px;
   border: 1px solid var(--border);
   border-radius: 11px;
   background: var(--bar);
   color: var(--fg);
-  text-align: left;
 }
 
 .session-inbox-row.active {
   border-color: color-mix(in srgb, var(--accent) 65%, var(--border));
 }
 
-.session-inbox-row:disabled {
+.session-inbox-open {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  min-height: 58px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+.session-inbox-open:disabled {
   opacity: 0.45;
+}
+
+.session-inbox-manage {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  color: var(--dim);
+  cursor: pointer;
+}
+
+.session-inbox-manage:hover {
+  color: var(--fg);
 }
 
 .session-inbox-monogram {
@@ -391,5 +420,11 @@
 
   .app.compact.mobile-inbox .session-inbox {
     display: flex;
+  }
+
+  /* A hold opens the session menu, so suppress the platform's own press-and-hold callout/selection. */
+  .app.compact .session-inbox-row {
+    -webkit-touch-callout: none;
+    user-select: none;
   }
 }

@@ -130,6 +130,13 @@ export const test = base.extend<WeavieOptions & WeavieFixtures>({
                 editorPane: rect(".editor-surface .editor-pane"),
                 editor: rect(".editor-surface .editor"),
                 monaco: rect(".editor-surface .monaco-editor"),
+                // A healthy rect with only the first line rendered means Monaco latched the 5px clamp while
+                // the container was 0-height and recovered later — the rects alone can't tell that apart.
+                monacoViewportHeight: window.__WEAVIE_EDITOR__?.getLayoutInfo().height ?? null,
+                modelLineCount: window.__WEAVIE_EDITOR__?.getModel()?.getLineCount() ?? null,
+                renderedLines: [...document.querySelectorAll(".view-line")].map((line) =>
+                  (line.textContent ?? "").replace(/\s+/g, " "),
+                ),
                 review: window.__WEAVIE_REVIEW__ ?? null,
               },
               null,

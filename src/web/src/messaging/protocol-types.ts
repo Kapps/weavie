@@ -252,7 +252,7 @@ export interface EditorOptionsSpec {
 
 export type CommentProseMode = "none" | "documentation" | "multiline" | "all";
 
-/** Which lines carry the faded blame annotation: none, the cursor's line, or every line. */
+/** Which lines carry the faded blame annotation: none, the cursor's line, or each line starting a commit's run. */
 export type GitBlameMode = "off" | "currentLine" | "all";
 
 export interface SearchMatch {

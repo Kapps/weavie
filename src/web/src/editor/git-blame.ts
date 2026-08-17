@@ -9,7 +9,14 @@
 import { type GitBlameMode, registerSessionFeature } from "../bridge";
 import { currentEditorOptions, onEditorOptionsChanged } from "../editor-options";
 import { notify } from "../notify/notify";
-import { applyEdit, type BlameSnapshot, blameAt, blameLabel, EMPTY_BLAME } from "./blame-model";
+import {
+  applyEdit,
+  type BlameSnapshot,
+  blameAt,
+  blameLabel,
+  EMPTY_BLAME,
+  startsRun,
+} from "./blame-model";
 import { closeBlame, openBlame } from "./blame-store";
 import { normalizePath } from "./fs-path";
 import { monaco } from "./monaco-setup";
@@ -192,7 +199,11 @@ export function createGitBlame(editor: monaco.editor.IStandaloneCodeEditor): Git
     const deltas: monaco.editor.IModelDeltaDecoration[] = [];
     for (const line of annotatedLines(model)) {
       const blamed = blameAt(snapshot, line);
-      if (blamed === null) {
+      // In `all`, label only where a commit's run begins: one commit usually owns a stretch of consecutive
+      // lines, and repeating it down every one of them is what makes the whole file unreadable. Keyed off the
+      // file, not the viewport, so scrolling never moves a label. `currentLine` always labels the cursor's
+      // line — the point there is to answer for that exact line.
+      if (blamed === null || (mode === "all" && !startsRun(snapshot, line))) {
         continue;
       }
       const column = model.getLineMaxColumn(line);

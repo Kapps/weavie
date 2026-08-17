@@ -6,6 +6,7 @@ import {
   blameAt,
   blameLabel,
   relativeTime,
+  startsRun,
 } from "./blame-model";
 
 function commit(sha: string, over: Partial<BlameCommit> = {}): BlameCommit {
@@ -105,6 +106,41 @@ describe("applyEdit", () => {
     expect(blameAt(next, 1)?.originalLine).toBe(1);
     expect(blameAt(next, 2)).toBeNull();
     expect(blameAt(next, 3)?.originalLine).toBe(2);
+  });
+});
+
+describe("startsRun", () => {
+  // Five lines: one commit owns 1-3, another 4-5 — the shape that made annotating every line unreadable.
+  const runs: BlameSnapshot = {
+    commits: [commit("aaa"), commit("bbb")],
+    lineCommits: [0, 0, 0, 1, 1],
+    lineOriginals: [1, 2, 3, 4, 5],
+  };
+
+  it("marks only the first line of each run", () => {
+    expect([1, 2, 3, 4, 5].map((line) => startsRun(runs, line))).toEqual([
+      true,
+      false,
+      false,
+      true,
+      false,
+    ]);
+  });
+
+  it("restarts a run that a locally typed line interrupts", () => {
+    const typed: BlameSnapshot = {
+      commits: [commit("aaa")],
+      lineCommits: [0, -1, 0],
+      lineOriginals: [1, 0, 2],
+    };
+
+    // The line below the insert opens a new run: its neighbour above belongs to no commit.
+    expect([1, 2, 3].map((line) => startsRun(typed, line))).toEqual([true, false, true]);
+  });
+
+  it("is false for a line with no attribution or past the end", () => {
+    expect(startsRun(runs, 6)).toBe(false);
+    expect(startsRun(runs, 0)).toBe(false);
   });
 });
 

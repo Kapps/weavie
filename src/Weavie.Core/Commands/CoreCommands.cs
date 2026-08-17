@@ -1183,9 +1183,9 @@ public static class CoreCommands {
 			RunsIn = CommandLocation.Core,
 			Owner = CommandOwner.Client,
 			Category = "Git",
-			Description = "Show or hide the faded per-line blame annotations (the 'editor.gitBlame' setting). "
-				+ "Turning them back on restores every line; set 'editor.gitBlame' to 'currentLine' for only the "
-				+ "cursor's line.",
+			Description = "Show or hide the faded blame annotations (the 'editor.gitBlame' setting). Turning them "
+				+ "back on restores the default, the cursor's line only; set 'editor.gitBlame' to 'all' to annotate "
+				+ "every line that starts a commit's run.",
 			Aliases = ["toggle blame", "toggle git blame", "show blame", "hide blame", "blame annotations",
 				"toggle gitlens", "line authorship"],
 		});

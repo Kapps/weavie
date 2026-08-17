@@ -16,15 +16,15 @@ public static class GitBlameCommands {
 		dispatcher.RegisterHandler(CoreCommands.ToggleBlame, (_, _) => Task.FromResult(Toggle(settings)));
 	}
 
-	// Off from any showing mode; back to annotating every line from off. A user who chose 'currentLine' set that
-	// deliberately, so turning blame off and on again is not the place to rewrite their choice.
+	// Off from any showing mode; back to the default from off. A user who chose 'all' set that deliberately, so
+	// turning blame off and on again is not the place to rewrite their choice.
 	private static CommandResult Toggle(SettingsStore settings) {
 		try {
 			bool showing = !string.Equals(
 				settings.RequireString(EditorSettings.GitBlame),
 				EditorSettings.GitBlameOff,
 				StringComparison.Ordinal);
-			string next = showing ? EditorSettings.GitBlameOff : EditorSettings.GitBlameAll;
+			string next = showing ? EditorSettings.GitBlameOff : EditorSettings.GitBlameCurrentLine;
 			using var value = JsonDocument.Parse(JsonSerializer.Serialize(next));
 			return settings.Set(EditorSettings.GitBlame, value.RootElement).ShadowedByEnv is { Length: > 0 } variable
 				? CommandResult.Success(

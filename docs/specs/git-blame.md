@@ -12,7 +12,7 @@ request. Those are one click out to the forge.
 
 | Where | What |
 |-------|------|
-| End of a line | `Kapps, 3 days ago • Fix the drain race`, dimmed and italic; `Uncommitted changes` for a working-tree line |
+| End of the cursor's line | `Kapps, 3 days ago • Fix the drain race`, dimmed and italic; `Uncommitted changes` for a working-tree line |
 | Click an annotation | The blame popover, anchored beside it |
 | Popover head | Subject, author, when, short sha, and `PR #N ↗` / `Commit ↗` links |
 | Popover body | The hunk of that commit covering this line, with the blamed line marked |
@@ -22,8 +22,8 @@ request. Those are one click out to the forge.
 
 | id | kind | behavior |
 |----|------|----------|
-| `editor.gitBlame` | setting, `off` \| `currentLine` \| `all`, default `all` | Which lines are annotated |
-| `weavie.git.toggleBlame` | Core command | Flips the setting: any showing mode → `off`, `off` → `all` |
+| `editor.gitBlame` | setting, `off` \| `currentLine` \| `all`, default `currentLine` | Which lines are annotated |
+| `weavie.git.toggleBlame` | Core command | Flips the setting: any showing mode → `off`, `off` → `currentLine` |
 | `weavie.git.showBlame` | Web command, `editorFocused` | Opens the popover on the cursor's line, or says why that line has no commit behind it |
 
 Neither command has a default keybinding; both are palette- and MCP-reachable, and bindable in
@@ -31,7 +31,18 @@ Neither command has a default keybinding; both are palette- and MCP-reachable, a
 
 The toggle owns no state of its own — it writes `editor.gitBlame`. The setting, the palette, the keybinding,
 and `mcp__weavie__setSetting` therefore cannot disagree, and the choice survives a restart. Turning blame off
-and back on returns to `all` rather than rewriting a `currentLine` preference the user set deliberately.
+and back on returns to the default rather than rewriting an `all` preference the user set deliberately.
+
+### One label per run, not per line
+
+`all` annotates only the lines that **start** a run — where the line above belongs to a different commit, or
+to none. A commit usually owns a stretch of consecutive lines, and repeating its label down every one of them
+is what makes a whole file unreadable; the label belongs where the change begins. A file written in a single
+commit therefore carries exactly one label, at its top, and a locally typed line splits the run either side of
+it.
+
+Run starts are computed from the file, not the viewport, so scrolling never moves a label — a run beginning
+above the visible window stays unlabelled there rather than acquiring a label at the window's edge.
 
 ## Blame is a property of the file on disk
 

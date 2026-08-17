@@ -73,6 +73,16 @@ export function applyEdit(snapshot: BlameSnapshot, edit: LineEdit): BlameSnapsho
   return { commits: snapshot.commits, lineCommits, lineOriginals };
 }
 
+/**
+ * True when `line` begins a run — the line above it belongs to a different commit, or to none. One commit
+ * usually owns a stretch of consecutive lines, and repeating its label down every one of them is noise; the
+ * label belongs where the change starts.
+ */
+export function startsRun(snapshot: BlameSnapshot, line: number): boolean {
+  const current = snapshot.lineCommits[line - 1];
+  return current !== undefined && current !== LOCAL && current !== snapshot.lineCommits[line - 2];
+}
+
 /** What `line` (1-based) is attributed to, or null when nothing is — a locally typed or out-of-range line. */
 export function blameAt(snapshot: BlameSnapshot, line: number): BlameLine | null {
   const index = snapshot.lineCommits[line - 1];

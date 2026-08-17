@@ -12,7 +12,7 @@ import { expect, test } from "../harness/fixtures";
 //
 // The harness workspace is a git repo whose seed files are committed as "seed" by "Weavie E2E".
 
-test("every line carries a blame annotation naming who last changed it", async ({ page }) => {
+test("the cursor's line is annotated by default, and only it", async ({ page }) => {
   await openFile(page, "hello.ts");
 
   const annotations = page.locator(".weavie-blame");
@@ -20,8 +20,8 @@ test("every line carries a blame annotation naming who last changed it", async (
   // `\s` rather than literal spaces: Monaco renders the injected text's spacing as non-breaking spaces, and
   // the label is padded away from the code it follows, so neither the gap nor the separators are plain " ".
   await expect(annotations.first()).toContainText(/Weavie\sE2E,\s.+\s•\sseed/);
-  // Annotated per visible line, not just once for the file.
-  expect(await annotations.count()).toBeGreaterThan(1);
+  // `currentLine` is the default: one label, on the line the cursor is on — not down the whole file.
+  await expect(annotations).toHaveCount(1);
 });
 
 test("clicking an annotation opens the change that produced the line", async ({ page }) => {
@@ -55,52 +55,78 @@ test("turning blame off removes the annotations and turning it back on restores 
   await expect(page.locator(".weavie-blame").first()).toBeVisible();
 });
 
-test("a line is annotated exactly once when a collapsed comment splits the viewport", async ({
-  page,
-  weavie,
-}) => {
-  // Weavie collapses doc comments into a view zone (comment prose), which splits the editor into several
-  // visible ranges. Widening each by the overscan makes neighbours overlap, so without a dedupe the same line
-  // is decorated — and painted — two or three times. `hello.ts` has no doc comment and cannot catch it.
-  // The doc comment sits in the MIDDLE: collapsing it leaves a visible range on either side. At the top it
-  // would only shorten the single range, and the overlap this guards against never happens.
-  const name = "documented.ts";
-  await writeFile(
-    join(weavie.workspace, name),
-    "export const first = 1;\nexport const second = 2;\n" +
-      "/**\n * A documented function, so comment prose collapses this block.\n */\n" +
-      "export function documented(): number {\n  return first + second;\n}\n\n" +
-      "export const answer = documented();\n",
-  );
-  execFileSync("git", ["add", "-A"], { cwd: weavie.workspace, stdio: "ignore" });
-  execFileSync(
-    "git",
-    [
-      "-c",
-      "user.email=e2e@example.com",
-      "-c",
-      "user.name=Weavie E2E",
-      "-c",
-      "commit.gpgsign=false",
-      "commit",
-      "-q",
-      "-m",
-      "document it",
-    ],
-    { cwd: weavie.workspace, stdio: "ignore" },
-  );
+// `all` is not the default, so these drive the setting the way a user would — over the capability registry.
+test.describe("annotating every run", () => {
+  test.use({
+    fakeScript: {
+      steps: [{ op: "mcp", tool: "setSetting", args: { key: "editor.gitBlame", value: "all" } }],
+    },
+  });
 
-  await openFile(page, name);
-  await expect(page.locator(".weavie-blame").first()).toBeVisible();
+  test("one commit's stretch of lines is labelled once, at its top", async ({ page }) => {
+    await openFile(page, "hello.ts");
 
-  // Count the labels against the lines they sit on: one apiece, however the viewport is carved up.
-  const perLine = await page.evaluate(() =>
-    [...document.querySelectorAll(".view-line")].map(
-      (line) => line.querySelectorAll(".weavie-blame").length,
-    ),
-  );
-  expect(perLine.filter((count) => count > 0).length).toBeGreaterThan(0);
-  expect(perLine.every((count) => count <= 1)).toBe(true);
+    // Every line of hello.ts came from the same commit, so `all` must label exactly one — the run's first
+    // line. Repeating the same label down every line is what made this mode unreadable.
+    const annotations = page.locator(".weavie-blame");
+    await expect(annotations).toHaveCount(1, { timeout: 15_000 });
+    await expect(annotations.first()).toContainText(/Weavie\sE2E,\s.+\s•\sseed/);
+
+    const firstAnnotatedLine = await page.evaluate(() =>
+      [...document.querySelectorAll(".view-line")].findIndex(
+        (line) => line.querySelector(".weavie-blame") !== null,
+      ),
+    );
+    expect(firstAnnotatedLine).toBe(0);
+  });
+
+  test("a line is annotated exactly once when a collapsed comment splits the viewport", async ({
+    page,
+    weavie,
+  }) => {
+    // Weavie collapses doc comments into a view zone (comment prose), which splits the editor into several
+    // visible ranges. Widening each by the overscan makes neighbours overlap, so without a dedupe the same
+    // line is decorated — and painted — two or three times. `hello.ts` has no doc comment and cannot catch it.
+    // The doc comment sits in the MIDDLE: collapsing it leaves a visible range on either side. At the top it
+    // would only shorten the single range, and the overlap this guards against never happens.
+    const name = "documented.ts";
+    await writeFile(
+      join(weavie.workspace, name),
+      "export const first = 1;\nexport const second = 2;\n" +
+        "/**\n * A documented function, so comment prose collapses this block.\n */\n" +
+        "export function documented(): number {\n  return first + second;\n}\n\n" +
+        "export const answer = documented();\n",
+    );
+    execFileSync("git", ["add", "-A"], { cwd: weavie.workspace, stdio: "ignore" });
+    execFileSync(
+      "git",
+      [
+        "-c",
+        "user.email=e2e@example.com",
+        "-c",
+        "user.name=Weavie E2E",
+        "-c",
+        "commit.gpgsign=false",
+        "commit",
+        "-q",
+        "-m",
+        "document it",
+      ],
+      { cwd: weavie.workspace, stdio: "ignore" },
+    );
+
+    await openFile(page, name);
+    await expect(page.locator(".weavie-blame").first()).toBeVisible({ timeout: 15_000 });
+
+    // Count the labels against the lines they sit on: one apiece, however the viewport is carved up.
+    const perLine = await page.evaluate(() =>
+      [...document.querySelectorAll(".view-line")].map(
+        (line) => line.querySelectorAll(".weavie-blame").length,
+      ),
+    );
+    expect(perLine.filter((count) => count > 0).length).toBeGreaterThan(0);
+    expect(perLine.every((count) => count <= 1)).toBe(true);
+  });
 });
 
 test("Show Blame answers for the cursor's line even with annotations off", async ({ page }) => {

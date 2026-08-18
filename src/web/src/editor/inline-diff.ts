@@ -11,6 +11,7 @@ import { CommandIds } from "../commands/types";
 import { onFontsChanged } from "../fonts";
 import { reviewToModelLine } from "./diff-geometry";
 import { monaco } from "./monaco-setup";
+import { REVEAL_SCROLL } from "./reveal-scroll";
 import { sessionFileUri } from "./session-uri";
 
 const DIFF_OPTIONS = {
@@ -679,7 +680,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
 
   // Reveal a hunk's anchor line: center it, land the cursor there, focus the editor.
   const reveal = (line: number): void => {
-    editor.revealLineInCenter(line);
+    editor.revealLineInCenter(line, REVEAL_SCROLL);
     editor.setPosition({ lineNumber: line, column: 1 });
     editor.focus();
   };

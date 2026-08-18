@@ -36,6 +36,7 @@ import type {
 import { mediaTypeOf } from "./media/media-types";
 import { createNavHistory, type NavHistory } from "./nav-history";
 import { setAgentPlan } from "./plan/plan-store";
+import { REVEAL_SCROLL } from "./reveal-scroll";
 import {
   type ActivateResult,
   activateTabFor,
@@ -416,7 +417,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       previewReturn = host.editor.saveViewState();
     }
     host.editor.setSelection(sym.range);
-    host.editor.revealRangeInCenterIfOutsideViewport(sym.range);
+    host.editor.revealRangeInCenterIfOutsideViewport(sym.range, REVEAL_SCROLL);
   };
 
   // Dismissed without choosing: restore the pre-preview scroll/cursor.
@@ -439,7 +440,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     if (isActiveFile(sym.path)) {
       activateDestinationFor(session);
       host.editor.setSelection(sym.range);
-      host.editor.revealRangeInCenterIfOutsideViewport(sym.range);
+      host.editor.revealRangeInCenterIfOutsideViewport(sym.range, REVEAL_SCROLL);
       host.editor.focus();
     } else {
       openFile(sym.path, sym.range.startLineNumber);

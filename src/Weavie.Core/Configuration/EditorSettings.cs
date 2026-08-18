@@ -119,7 +119,7 @@ public static class EditorSettings {
 		registry.Register(Toggle(BracketPairColorization,
 			"Colorize matching bracket pairs by nesting depth.",
 			["bracket pair colorization", "bracket colors", "rainbow brackets"], true));
-		registry.Register(Toggle(SmoothScrolling, "Animate editor scrolling instead of jumping.",
+		registry.Register(Toggle(SmoothScrolling, "Animate editor and terminal scrolling instead of jumping.",
 			["smooth scrolling", "animated scrolling"], true));
 		registry.Register(Choice(CursorSmoothCaretAnimation, "Animate the cursor's caret as it moves.",
 			["cursor animation", "caret animation", "smooth caret"], ["off", "on", "explicit"], "off"));

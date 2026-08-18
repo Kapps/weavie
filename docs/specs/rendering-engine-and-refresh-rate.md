@@ -147,15 +147,20 @@ Extending the measurement to GTK4's renderers and WebKit's GTK4 build (same mach
 | GTK4 frame clock, `GSK_RENDERER=cairo` (software) | 695 ticks/3s = **231.7Hz** |
 | GTK4 frame clock, `GSK_RENDERER=gl` / `ngl` | 173-180 ticks/3s = **60Hz** |
 | GTK4 frame clock, `GSK_RENDERER=vulkan` | `Error 71 (Protocol error)` |
-| webkitgtk-6.0 (GTK4), `__NV_DISABLE_EXPLICIT_SYNC=1` | `Error 71 (Protocol error)` |
+| webkitgtk-6.0 (GTK4), default renderer | `Error 71 (Protocol error)` — GTK4 defaults to Vulkan |
+| webkitgtk-6.0 (GTK4), `GSK_RENDERER=gl` | 189 frames/3s = **62.5Hz**, p50 16.00ms |
+| webkitgtk-6.0 (GTK4), `GSK_RENDERER=cairo` | 189 frames/3s = **62.5Hz**, p50 16.00ms |
 
 So the split is not GTK3 against GTK4: on this NVIDIA/Wayland box every **software** buffer path reaches
 the panel's rate (GTK4 cairo 231.7Hz, WebKit's SHM renderer free-running at its 62.5Hz timer) while every
 **accelerated** one lands on exactly 60. Mesa also logs `failed to create dri2 screen` for `10de:2684`
 under GTK4, so its GL renderers are not on a healthy path to begin with.
 
-That closes the port question: **webkitgtk-6.0 cannot even start here**, and GTK4's accelerated renderers
-are capped like GTK3's WebKit is. Porting the host to GTK4 would trade a 60Hz app for a crashing one.
+That closes the port question. webkitgtk-6.0 runs once GTK4's default Vulkan renderer is replaced (that
+renderer hits the same protocol bug on its own, with no WebKit involved), and it then measures 62.5Hz on
+both `gl` and `cairo` — a p50 of exactly 16.00ms, which is the vblank monitor's `1000 / 60` integer-millisecond
+timer, not a display rate. So **WebKit's GTK4 build never receives vblanks here at all**, and no WebKit
+configuration on this machine exceeds ~63Hz while the toolkit beneath it reaches 231-236Hz.
 
 Caveat on the GTK3 reading above: that probe ticks a `GtkDrawingArea` with no draw handler, so its 236Hz
 clock does not prove GTK3 is presenting accelerated frames at that rate — only that its clock is not the

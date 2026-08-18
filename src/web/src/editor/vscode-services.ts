@@ -40,6 +40,7 @@ import { applyMonacoTheme } from "../theme/monaco-theme";
 import { registerBroadGrammars } from "./grammars/register-broad-grammars";
 import { installHostFileProvider } from "./host-file-provider";
 import { getNotificationServiceOverride } from "./notification-service";
+import { REVEAL_SCROLL } from "./reveal-scroll";
 
 declare global {
   interface Window {
@@ -102,7 +103,7 @@ const openEditor: OpenEditor = (modelRef, options) => {
   activeEditor.setModel(modelRef.object.textEditorModel);
   if (selection !== undefined) {
     activeEditor.setSelection(selection);
-    activeEditor.revealRangeInCenterIfOutsideViewport(selection);
+    activeEditor.revealRangeInCenterIfOutsideViewport(selection, REVEAL_SCROLL);
   }
   activeEditor.focus();
   return Promise.resolve(activeEditor);

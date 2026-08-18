@@ -6,12 +6,15 @@ import {
 import { agentImageError, encodeAgentImage, takePastedImages } from "../agent/pasted-images";
 import { backendPhase, connectedBackends, requestBranches, selectedSession } from "../bridge";
 import { agentProviders, defaultAgentProvider } from "../chrome/agent-default";
+import { ContextMenu, type ContextMenuState } from "../chrome/ContextMenu";
 import type { BranchPreviewState } from "../chrome/new-session-branch-preview";
+import { sessionMenuAt } from "../chrome/session-menu";
 import type { RailSession } from "../chrome/session-store";
 import { setContext } from "../commands/context";
 import { keyHint } from "../commands/key-hint";
 import { registerCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
+import { holdToOpen } from "./long-press";
 import { type NewSessionBranchActions, NewSessionBranchField } from "./NewSessionBranchField";
 import { SessionInboxRow } from "./SessionInboxRow";
 
@@ -43,6 +46,7 @@ export function SessionInbox(props: {
   initialBackendId: string;
   initialProviderId: string;
   active: boolean;
+  compact: boolean;
   onOpen: (session: RailSession) => Promise<boolean>;
   onCreate: (seed: NewSessionSeed, backendId: string, providerId: string) => Promise<boolean>;
   onManageAcp: (backendId: string) => void;
@@ -57,6 +61,7 @@ export function SessionInbox(props: {
   const [loadingBranches, setLoadingBranches] = createSignal(false);
   const [submitting, setSubmitting] = createSignal<"new" | "existing" | null>(null);
   const [attachments, setAttachments] = createSignal<NewSessionAttachmentDraft[]>([]);
+  const [sessionMenu, setSessionMenu] = createSignal<ContextMenuState | null>(null);
   const [branchPreview, setBranchPreview] = createSignal<BranchPreviewState>({
     branch: "",
     error: null,
@@ -68,6 +73,30 @@ export function SessionInbox(props: {
   let wasActive = false;
   let previousBackendId = props.initialBackendId;
   let previousProviderId = props.initialProviderId;
+
+  // Touch chrome has no rail, so the list is where a session is managed. The gesture lives on the list, not on
+  // a row: rows are rebuilt on every catalog tick, which would drop a hold in progress. Desktop opts out — the
+  // inbox is a modal there, which can host neither this menu nor the confirm a delete raises.
+  const openSessionMenu = (session: RailSession, x: number, y: number): void => {
+    setSessionMenu(sessionMenuAt(session, x, y, false));
+  };
+  const holdRow = holdToOpen((x, y, pressed) => {
+    const row = pressed instanceof Element ? pressed.closest("[data-session-id]") : null;
+    if (!props.compact || row === null) {
+      return false;
+    }
+    // Resolved by identity against the live list, so the menu describes the session as it is now.
+    const session = props.sessions.find(
+      (candidate) =>
+        candidate.id === row.getAttribute("data-session-id") &&
+        candidate.backendId === row.getAttribute("data-backend-id"),
+    );
+    if (session === undefined) {
+      return false;
+    }
+    openSessionMenu(session, x, y);
+    return true;
+  });
 
   const selectBackend = (id: string): void => {
     setBackendId(id);
@@ -469,16 +498,27 @@ export function SessionInbox(props: {
         </section>
       </div>
 
-      <section class="session-inbox-list" aria-label="Available sessions">
+      <section class="session-inbox-list" aria-label="Available sessions" {...holdRow}>
         <Show
           when={props.sessions.length > 0}
           fallback={<p class="session-inbox-empty">No sessions yet.</p>}
         >
           <For each={props.sessions}>
-            {(session) => <SessionInboxRow session={session} onOpen={props.onOpen} />}
+            {(session) => (
+              <SessionInboxRow
+                session={session}
+                compact={props.compact}
+                onOpen={props.onOpen}
+                onManage={openSessionMenu}
+              />
+            )}
           </For>
         </Show>
       </section>
+
+      <Show when={sessionMenu()}>
+        {(menu) => <ContextMenu menu={menu()} onClose={() => setSessionMenu(null)} />}
+      </Show>
     </main>
   );
 }

@@ -472,6 +472,79 @@ test("Claude Code accepts back swipes beside the screen edge, never on it", asyn
   await expect(page.locator(".session-inbox")).toBeVisible();
 });
 
+// Touch chrome hides the session rail, so the inbox row is where a session is managed: hold it (the
+// stand-in for right-click) or tap its actions button, and the entries are the rail's own command rows.
+test("a compact session row manages its session from a hold and its actions button", async ({
+  page,
+}) => {
+  const inbox = page.locator(".session-inbox");
+  const row = inbox.locator(".session-inbox-row").first();
+  const menu = page.locator(".context-menu");
+  const manage = row.getByRole("button", { name: /^Manage / });
+  await expect(row).toBeVisible();
+
+  const bounds = await row.boundingBox();
+  if (bounds === null) {
+    throw new Error("Missing session row bounds");
+  }
+  const touch = await page.context().newCDPSession(page);
+  const point = { x: bounds.x + 60, y: bounds.y + bounds.height / 2 };
+  const hold = async (): Promise<void> => {
+    await touch.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [point] });
+    await expect(menu).toBeVisible();
+  };
+
+  // A press that drifts is the user scrolling the list, so it must never arm the menu. Only a real wait past
+  // the hold deadline can prove "never opens" — an immediate assertion would pass before the timer fires.
+  await touch.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [point] });
+  for (const dy of [12, 30, 48]) {
+    await touch.send("Input.dispatchTouchEvent", {
+      type: "touchMove",
+      touchPoints: [{ x: point.x, y: point.y - dy }],
+    });
+  }
+  await page.waitForTimeout(800);
+  await expect(menu).toHaveCount(0);
+  await touch.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  await expect(inbox).toBeVisible();
+
+  await hold();
+  await touch.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+
+  // The click the release synthesizes lands on the menu that just appeared under the finger — it must not
+  // run one of its rows, nor fall through to the row and open the session.
+  await expect(menu).toBeVisible();
+  await expect(page.locator(".confirm-dialog")).toHaveCount(0);
+  await expect(inbox).toBeVisible();
+  await expect(menu.locator(".context-menu-item")).toHaveText(["Unload session", "Delete…"]);
+  const rowHeights = await menu
+    .locator(".context-menu-item")
+    .evaluateAll((items) => items.map((item) => item.getBoundingClientRect().height));
+  expect(Math.min(...rowHeights)).toBeGreaterThanOrEqual(44);
+
+  await menu.locator(".context-menu-item", { hasText: "Unload session" }).click();
+  await expect(row.locator(".session-inbox-state")).toHaveText("Unloaded");
+
+  // Sliding off the row before lifting cancels the touch, which synthesizes no click at all — so nothing may
+  // stay armed to eat the tap that follows.
+  await hold();
+  await touch.send("Input.dispatchTouchEvent", {
+    type: "touchMove",
+    touchPoints: [{ x: point.x, y: point.y + 60 }],
+  });
+  await touch.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  await expect(menu.locator(".context-menu-item")).toHaveText(["Load session", "Delete…"]);
+  await menu.locator(".context-menu-item", { hasText: "Load session" }).click();
+  await expect(row.locator(".session-inbox-state")).not.toHaveText("Unloaded");
+
+  await manage.click();
+  await menu.locator(".context-menu-item.danger", { hasText: "Delete" }).click();
+  const dialog = page.locator(".confirm-dialog");
+  await expect(dialog).toBeVisible();
+  await dialog.locator(".confirm-btn-danger").click();
+  await expect(page.locator(".toast", { hasText: "was deleted." })).toHaveCount(1);
+});
+
 test("WebM video opens inline in the compact editor", async ({ page }) => {
   await page.getByRole("button", { name: "Code", exact: true }).click();
   await page.getByRole("button", { name: "Files" }).click();

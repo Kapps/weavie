@@ -8,6 +8,8 @@
 using System.Runtime.InteropServices;
 
 internal partial class DisplayRefresh {
+	private const string DrmSysfs = "/sys/class/drm";
+
 	[LibraryImport("libgtk-3.so.0")]
 	private static partial void gtk_init(IntPtr argc, IntPtr argv);
 
@@ -45,16 +47,36 @@ internal partial class DisplayRefresh {
 		}
 
 		int best = 0;
+		List<(int Width, int Height)> gdkSizes = [];
 		for (int i = 0; i < gdk_display_get_n_monitors(display); i++) {
 			IntPtr monitor = gdk_display_get_monitor(display, i);
 			int milliHz = gdk_monitor_get_refresh_rate(monitor);
 			int widthMm = gdk_monitor_get_width_mm(monitor);
 			int heightMm = gdk_monitor_get_height_mm(monitor);
 			best = Math.Max(best, milliHz);
+			gdkSizes.Add((widthMm, heightMm));
 			string model = Marshal.PtrToStringUTF8(gdk_monitor_get_model(monitor)) ?? "(unnamed)";
 			Console.WriteLine($"monitor {i} [{model}]: gdk refresh = {milliHz / 1000.0:0.###} Hz"
 				+ $"  physical = {widthMm}x{heightMm} mm"
 				+ (widthMm == 0 || heightMm == 0 ? "  <-- 0mm cannot match a DRM connector" : string.Empty));
+		}
+
+		// The size WebKit compares against: what the kernel derived from each connected connector's EDID.
+		bool matched = false;
+		foreach (string connector in Directory.Exists(DrmSysfs) ? Directory.GetDirectories(DrmSysfs) : []) {
+			string statusPath = Path.Combine(connector, "status");
+			string edidPath = Path.Combine(connector, "edid");
+			if (!File.Exists(statusPath) || File.ReadAllText(statusPath).Trim() != "connected") {
+				continue;
+			}
+
+			(int Width, int Height) size = File.Exists(edidPath)
+				? EdidSizeMm(File.ReadAllBytes(edidPath))
+				: (0, 0);
+			bool hit = gdkSizes.Contains(size);
+			matched |= hit;
+			Console.WriteLine($"connector {Path.GetFileName(connector)}: edid physical = {size.Width}x{size.Height} mm"
+				+ (hit ? "  <-- matches a GDK monitor" : "  <-- matches no GDK monitor"));
 		}
 
 		// WebKit opens the primary node read-write and matches a connector by the monitor's physical size.
@@ -79,10 +101,26 @@ internal partial class DisplayRefresh {
 			Console.WriteLine("VERDICT: no usable DRM node -> WebKit uses its timer, hardcoded to 60fps.");
 		} else if (best <= 60000) {
 			Console.WriteLine($"VERDICT: GDK reports {best / 1000.0:0.###} Hz -> WebKit paces rendering at that rate.");
+		} else if (!matched) {
+			Console.WriteLine($"VERDICT: GDK reports {best / 1000.0:0.###} Hz, but no connector's EDID size matches a"
+				+ " GDK monitor -> WebKit cannot find the CRTC and falls back to its 60fps timer.");
 		} else {
-			Console.WriteLine($"VERDICT: GDK reports {best / 1000.0:0.###} Hz and DRM is open -> the pipeline can pace"
-				+ " above 60fps. If the app still measures 60, the vblank monitor failed to match a connector"
-				+ " (run the app from a terminal and look for: Failed to create DRM vblank monitor).");
+			Console.WriteLine($"VERDICT: GDK reports {best / 1000.0:0.###} Hz, DRM is open, and a connector matches"
+				+ " -> nothing here explains a 60fps cap; run the app from a terminal and look for:"
+				+ " Failed to create DRM vblank monitor.");
 		}
+	}
+
+	// EDID carries the physical size twice: whole centimetres in the basic block, and millimetres in the first
+	// detailed timing descriptor. The kernel prefers the detailed one, so read that and fall back to cm.
+	private static (int Width, int Height) EdidSizeMm(byte[] edid) {
+		if (edid.Length < 128) {
+			return (0, 0);
+		}
+
+		const int detailed = 54;
+		int width = ((edid[detailed + 14] >> 4) << 8) | edid[detailed + 12];
+		int height = ((edid[detailed + 14] & 0x0F) << 8) | edid[detailed + 13];
+		return width > 0 && height > 0 ? (width, height) : (edid[21] * 10, edid[22] * 10);
 	}
 }

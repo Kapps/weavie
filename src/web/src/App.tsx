@@ -251,12 +251,14 @@ export default function App(): JSX.Element {
   // The last pane the user actually worked in (claude/shell/editor). Unlike focusedKind it survives focus
   // moving to the omnibar / a dialog, so it's the stable fullscreen target and the pane Ctrl+N switches show.
   const [activePane, setActivePane] = createSignal<string | null>(null);
-  const selectMobileSurface = (surface: MobileSurface): void => {
-    navigateMobileSurface(surface);
-    if (surface !== "inbox") {
+  // Compact surfaces are history entries, so the browser navigates them too (its own edge gesture, the OS
+  // back button). Following the surface keeps the active pane right however it changed.
+  createEffect(() => {
+    const surface = mobileSurface();
+    if (compact() && surface !== "inbox") {
       setActivePane(surface);
     }
-  };
+  });
   const previewMobileSurface = (
     target: MobileSurface,
     direction: MobileSwipeDirection,
@@ -274,7 +276,7 @@ export default function App(): JSX.Element {
       target,
     });
   };
-  const previewMobileBack = (progress: number): void => {
+  const beginMobileBack = (): void => {
     const target = mobileHistory.backTarget();
     if (!compact() || target === null) {
       return;
@@ -283,19 +285,29 @@ export default function App(): JSX.Element {
       direction: -1,
       navigation: "back",
       phase: "tracking",
-      progress,
+      progress: 0,
       source: mobileSurface(),
       target,
     });
   };
+  // Only the gesture's start opens a back transition; every later tick moves that one. A gesture whose
+  // transition was dropped mid-swipe therefore commits nothing instead of re-deriving a second move.
+  const previewMobileBack = (progress: number): void => {
+    const transition = mobileTransition();
+    if (
+      transition === null ||
+      transition.navigation !== "back" ||
+      transition.phase !== "tracking"
+    ) {
+      return;
+    }
+    setMobileTransition({ ...transition, progress });
+  };
   const commitMobileTransition = (transition: MobileTransition): void => {
     if (transition.navigation === "back") {
-      if (transition.target !== "inbox") {
-        setActivePane(transition.target);
-      }
       mobileHistory.back();
     } else {
-      selectMobileSurface(transition.target);
+      navigateMobileSurface(transition.target);
     }
   };
   const settleMobileTransition = (commit: boolean): void => {
@@ -337,11 +349,20 @@ export default function App(): JSX.Element {
     }
     setMobileTransition(null);
   };
+  // A navigation Weavie didn't drive leaves a transition without the surface it was moving off, so it can
+  // neither preview nor commit — dropping it is what keeps one browser gesture from landing two moves.
+  createEffect(() => {
+    const transition = mobileTransition();
+    if (transition !== null && transition.source !== mobileSurface()) {
+      setMobileTransition(null);
+    }
+  });
   const mobileBackSwipe = createMobileBackSwipe({
     canStart: () => compact() && mobileHistory.backTarget() !== null,
     onCancel: () => settleMobileTransition(false),
     onCommit: () => settleMobileTransition(true),
     onProgress: previewMobileBack,
+    onStart: beginMobileBack,
   });
   // Pane kinds in DFS order; index + 1 is the pane's Ctrl+N number. Always the REAL layout, so the numbers
   // stay stable in fullscreen.
@@ -1798,7 +1819,7 @@ export default function App(): JSX.Element {
           onManageAcp={openAcpRegistry}
           surfaceTitle={mobileSurfaceTitle}
           onDismiss={closeSessions}
-          onSurface={selectMobileSurface}
+          onSurface={navigateMobileSurface}
           onSwipeCancel={() => settleMobileTransition(false)}
           onSwipeCommit={() => settleMobileTransition(true)}
           onSwipeProgress={previewMobileSurface}

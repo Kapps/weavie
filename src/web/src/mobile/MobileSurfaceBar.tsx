@@ -1,4 +1,5 @@
 import { For, type JSX } from "solid-js";
+import { startsOnBrowserEdge } from "./browser-edge";
 
 export type MobileSurface = "inbox" | "terminal:claude" | "terminal:shell" | "editor";
 
@@ -39,10 +40,10 @@ export function MobileSurfaceBar(props: {
       aria-label="Workspace surfaces"
       tabIndex={-1}
       onPointerDown={(event) => {
-        start = { x: event.clientX, y: event.clientY };
+        start = startsOnBrowserEdge(event.clientX) ? null : { x: event.clientX, y: event.clientY };
         direction = null;
         swiped = false;
-        if (event.pointerId !== 0 && event.target instanceof Element) {
+        if (start !== null && event.pointerId !== 0 && event.target instanceof Element) {
           event.target.setPointerCapture(event.pointerId);
         }
       }}

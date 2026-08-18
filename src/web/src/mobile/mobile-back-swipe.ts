@@ -1,7 +1,10 @@
+import { BROWSER_EDGE_WIDTH, startsOnBrowserEdge } from "./browser-edge";
+
 const MIN_DISTANCE = 48;
 const INTENT_DISTANCE = 12;
 const HORIZONTAL_DOMINANCE = 1.5;
-const TERMINAL_EDGE_WIDTH = 28;
+// xterm owns the terminal body, so a terminal back swipe gets the strip just inside the browser's edge.
+const TERMINAL_EDGE_LIMIT = BROWSER_EDGE_WIDTH + 32;
 
 interface Point {
   x: number;
@@ -15,6 +18,7 @@ export interface MobileBackSwipeCallbacks {
   onCancel: () => void;
   onCommit: () => void;
   onProgress: (progress: number) => void;
+  onStart: () => void;
 }
 
 /** Tracks a rightward back gesture over pane chrome or non-interactive agent output. */
@@ -77,6 +81,7 @@ export function createMobileBackSwipe(callbacks: MobileBackSwipeCallbacks): {
         return;
       }
       state = "horizontal";
+      callbacks.onStart();
     }
     event.preventDefault();
     callbacks.onProgress(Math.min(1, Math.max(0, dx / window.innerWidth)));
@@ -118,6 +123,7 @@ function acceptsBackSwipe(target: Element, startX: number): boolean {
   const surface = target.closest(".agent-surface, .terminal-surface, .editor-surface");
   if (
     surface === null ||
+    startsOnBrowserEdge(startX) ||
     target.closest(
       "button, a, input, textarea, select, summary, [contenteditable], [role='button'], [role='link'], [role='menuitem'], [role='option'], [tabindex]:not([tabindex='-1'])",
     ) !== null
@@ -142,7 +148,7 @@ function acceptsBackSwipe(target: Element, startX: number): boolean {
   }
   return (
     target.closest(".pane-head, .editor-tabs") !== null ||
-    (startX <= TERMINAL_EDGE_WIDTH && target.closest(".terminal-surface") !== null) ||
+    (startX <= TERMINAL_EDGE_LIMIT && target.closest(".terminal-surface") !== null) ||
     (target.closest(".agent-surface") !== null && target.closest("[data-agent-composer]") === null)
   );
 }

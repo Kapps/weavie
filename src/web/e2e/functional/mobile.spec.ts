@@ -448,21 +448,27 @@ test("touch scrolling and tapping a mouse-aware Claude prompt send valid input",
   });
 });
 
-test("Claude Code accepts back swipes only from the terminal edge", async ({ page }) => {
+test("Claude Code accepts back swipes beside the screen edge, never on it", async ({ page }) => {
   await page.locator(".session-inbox-row").click();
   const terminal = page.locator('.terminal-surface[data-kind="terminal:claude"]');
   const body = terminal.locator(".xterm-screen");
   await expect(body).toBeVisible();
 
-  await dispatchPaneTouch(body, "touchstart", { x: 80, y: 240 });
-  await dispatchPaneTouch(body, "touchmove", { x: 220, y: 240 });
-  await dispatchPaneTouch(body, "touchend", { x: 220, y: 240 });
+  await dispatchPaneTouch(body, "touchstart", { x: 100, y: 240 });
+  await dispatchPaneTouch(body, "touchmove", { x: 240, y: 240 });
+  await dispatchPaneTouch(body, "touchend", { x: 240, y: 240 });
   await expect(terminal).toBeVisible();
   await expect(page.locator(".session-inbox")).toBeHidden();
 
   await dispatchPaneTouch(body, "touchstart", { x: 16, y: 240 });
   await dispatchPaneTouch(body, "touchmove", { x: 156, y: 240 });
   await dispatchPaneTouch(body, "touchend", { x: 156, y: 240 });
+  await expect(terminal).toBeVisible();
+  await expect(page.locator(".session-inbox")).toBeHidden();
+
+  await dispatchPaneTouch(body, "touchstart", { x: 48, y: 240 });
+  await dispatchPaneTouch(body, "touchmove", { x: 188, y: 240 });
+  await dispatchPaneTouch(body, "touchend", { x: 188, y: 240 });
   await expect(page.locator(".session-inbox")).toBeVisible();
 });
 
@@ -731,6 +737,20 @@ test("compact session inbox creates, resumes, and switches existing surfaces", a
   await agentFileLink.click();
   await expect(page.locator(".mobile-surface-button.active")).toHaveText("Code");
 
+  // The browser navigating mid-swipe — its own edge gesture, the OS back button — takes the surface the
+  // transition was moving off, so the transition goes rather than committing a second move on top of it.
+  await dispatchPaneTouch(editorChrome, "touchstart", { x: 80, y: 240 });
+  await dispatchPaneTouch(editorChrome, "touchmove", { x: 220, y: 240 });
+  await expect(page.locator(".app.mobile-transition")).toHaveCount(1);
+  await page.evaluate(() => history.back());
+  await expect(page.locator(".mobile-surface-button.active")).toHaveText("Agent");
+  await expect(page.locator(".app.mobile-transition")).toHaveCount(0);
+  await dispatchPaneTouch(editorChrome, "touchend", { x: 270, y: 240 });
+  await expect(page.locator(".mobile-surface-button.active")).toHaveText("Agent");
+  await expect(inbox).toBeHidden();
+  await page.goForward();
+  await expect(page.locator(".mobile-surface-button.active")).toHaveText("Code");
+
   await dispatchPaneTouch(editorChrome, "touchstart", { x: 80, y: 240 });
   await dispatchPaneTouch(editorChrome, "touchmove", { x: 220, y: 240 });
   await expect(agentSurface).toBeVisible();
@@ -743,6 +763,14 @@ test("compact session inbox creates, resumes, and switches existing surfaces", a
   await dispatchPaneTouch(editorChrome, "touchend", { x: 270, y: 240 });
   await expect(page.locator(".mobile-surface-button.active")).toHaveText("Agent");
   await expect(agentSurface).toBeVisible();
+
+  // A swipe off the screen edge is iOS's own back gesture, which pops the same history Weavie navigates:
+  // tracking it here as well left the touch driving two back navigations at once.
+  await dispatchPaneTouch(agentBody, "touchstart", { x: 12, y: 240 });
+  expect(await dispatchPaneTouch(agentBody, "touchmove", { x: 220, y: 240 })).toBe(true);
+  await dispatchPaneTouch(agentBody, "touchend", { x: 270, y: 240 });
+  await expect(inbox).toBeHidden();
+  await expect(page.locator(".app.mobile-transition")).toHaveCount(0);
 
   await dispatchPaneTouch(agentBody, "touchstart", { x: 80, y: 240 });
   await dispatchPaneTouch(agentBody, "touchmove", { x: 220, y: 240 });
@@ -757,6 +785,30 @@ test("compact session inbox creates, resumes, and switches existing surfaces", a
   await expect(page.locator(".mobile-surface-button.active")).toHaveText("Agent");
 
   const bar = page.locator(".mobile-surface-bar");
+  // The bar swipes both ways and reaches both screen edges, which the browser navigates history from.
+  for (const edge of [12, 378]) {
+    await bar.dispatchEvent("pointerdown", {
+      clientX: edge,
+      clientY: 20,
+      pointerId: 0,
+      pointerType: "touch",
+    });
+    await bar.dispatchEvent("pointermove", {
+      clientX: 195,
+      clientY: 20,
+      pointerId: 0,
+      pointerType: "touch",
+    });
+    await bar.dispatchEvent("pointerup", {
+      clientX: 195,
+      clientY: 20,
+      pointerId: 0,
+      pointerType: "touch",
+    });
+    await expect(page.locator(".app.mobile-transition")).toHaveCount(0);
+    await expect(page.locator(".mobile-surface-button.active")).toHaveText("Agent");
+  }
+
   await bar.dispatchEvent("pointerdown", {
     clientX: 300,
     clientY: 20,

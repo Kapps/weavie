@@ -1,5 +1,5 @@
 import type { Locator, Page } from "@playwright/test";
-import { openFile } from "../harness/actions";
+import { awaitEditorLaidOut, openFile } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 
 // Alt+Click on a symbol peeks its definition inline — the same embedded window Find All References uses —
@@ -130,6 +130,12 @@ test("alt+click during a multicursor session adds a cursor instead of peeking", 
       },
     ]);
   });
+  // Flaked 2026-08-18 on Windows CI: https://github.com/Kapps/weavie/actions/runs/32096266021/job/95602915943
+  // (`renderedLines` showed only one, empty line at teardown while `.editor`/`.monaco` read a healthy
+  // 742x709 — the same transient 0-height-container clamp `openFile` already guards against via
+  // `awaitEditorLaidOut`, recurring here because `setSelections` addresses rendered text again without
+  // re-waiting for it). Re-applying the same wait before the click.
+  await awaitEditorLaidOut(page);
   await altClick(wordToken(page, "const message = greet", "greet"));
   await page.waitForFunction(
     () => ((window as WeavieWindow).__WEAVIE_EDITOR__?.getSelections() ?? []).length === 3,

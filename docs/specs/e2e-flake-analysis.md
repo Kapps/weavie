@@ -85,6 +85,17 @@ a real fix here and not just a better error message.
 `renderedLines` — which separates "collapsed while the test ran" from a genuinely healthy editor at a
 glance, the distinction the rects alone could not make.
 
+**2026-08-18 recurrence, run 32096266021:** the same symptom hit a *different* line in the same file —
+`editor-peek-definition.spec.ts:133` ("alt+click during a multicursor session adds a cursor instead of
+peeking"). Identical fingerprint: call log stuck on `waiting for locator(...)` for the full 60s,
+`renderedLines` at teardown was `[""]` (exactly one, empty line — the 5px-clamp signature) while
+`.editor`/`.monaco` read a healthy `742×709`. `awaitEditorLaidOut` didn't cover this one because the test
+calls `editor.setSelections(...)` through `page.evaluate` *after* `openFile` and then addresses rendered
+text again — a second window for the same transient collapse that `openFile`'s guard doesn't span. Fixed
+by calling `awaitEditorLaidOut` again right before that click, rather than widening `openFile`'s guard to
+every possible later mutation. If a third call site turns up the same way, that's the signal to stop
+patching individual sites and gate `wordToken`/`altClick` themselves on layout instead.
+
 ## CONFIRMED + FIXED: #1 (S2-race) — a test walk-race, not a product bug
 
 **Symptom:** after a PR→PR→PR switch storm settling on #101 (files `feature.ts`, `hello.ts`),

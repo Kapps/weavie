@@ -40,6 +40,7 @@ export function MobileWorkspace(props: {
       >
         <SessionInbox
           active={props.inboxActive}
+          compact={props.compact}
           sessions={props.sessions}
           initialBackendId={props.initialBackendId}
           initialProviderId={props.initialProviderId}

@@ -6,6 +6,7 @@
 export interface ModelHandle {
   uri: unknown;
   getLineContent(line: number): string;
+  getLineCount(): number;
 }
 
 /** The slice of the live Monaco editor (window.__WEAVIE_EDITOR__) the specs drive. */
@@ -35,6 +36,7 @@ export interface EditorHandle {
     height: number;
   } | null;
   getDomNode(): { getBoundingClientRect(): { left: number; top: number } } | null;
+  getLayoutInfo(): { width: number; height: number };
 }
 
 /** The slice of the monaco namespace (window.__WEAVIE_MONACO__) the specs use to mock LSP providers. */

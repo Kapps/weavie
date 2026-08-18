@@ -1,5 +1,6 @@
 import { expect, type Page } from "@playwright/test";
 import { mediaTypeOf } from "../../src/editor/media/media-types";
+import type { WeavieWindow } from "./weavie-window";
 
 // The editor chunk is deferred past the shell's first paint, so it isn't up when the splash clears — it stamps
 // `data-ready` on `.editor` once Monaco is live. Editor-driving helpers wait on this; non-editor tests don't.
@@ -59,7 +60,29 @@ export async function openFile(page: Page, name: string): Promise<void> {
       "data-active-file",
       new RegExp(`[\\\\/]${escaped}$`),
     );
+    await awaitEditorLaidOut(page);
   }
+}
+
+// Monaco sizes its viewport as max(5, container.clientHeight), so a container that is momentarily 0-height when
+// it measures leaves it latched at 5px — rendering the first line and NOTHING else. Every later line is then
+// simply absent from the DOM, and a locator addressing one waits out the whole test timeout with nothing to
+// report but "waiting for locator". Binding the model says which file the editor holds, not that it has room to
+// draw it, so wait for the viewport to agree with its container before a spec addresses rendered text.
+export async function awaitEditorLaidOut(page: Page): Promise<void> {
+  await expect
+    .poll(
+      () =>
+        page.evaluate(() => {
+          const editor = (window as WeavieWindow).__WEAVIE_EDITOR__;
+          const container = document.querySelector(".editor-surface .editor");
+          return editor === undefined || container === null
+            ? null
+            : editor.getLayoutInfo().height - container.clientHeight;
+        }),
+      { message: "Monaco's viewport never matched its container (editor stuck at the 5px clamp)" },
+    )
+    .toBe(0);
 }
 
 // Run a command through the command palette (Show All Commands), matching by title text. Exercises the

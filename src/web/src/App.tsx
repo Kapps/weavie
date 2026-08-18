@@ -88,6 +88,7 @@ import {
 } from "./chrome/update-store";
 import { hostWindowFocused, windowMaximized } from "./chrome/window-state";
 import { writeClipboard } from "./clipboard";
+import { installCodeBlockCopy } from "./code-block-copy";
 import { paneFocusContext, setContext } from "./commands/context";
 import { installDoubleShift } from "./commands/double-shift";
 import { keyHint } from "./commands/key-hint";
@@ -1683,6 +1684,7 @@ export default function App(): JSX.Element {
     const offKeybindings = installKeybindings();
     // Double-tapping Shift mirrors $mod+P (Go to File) — a gesture the chord resolver can't express.
     const offDoubleShift = installDoubleShift(() => dispatchCommand(CommandIds.focusOmnibarFiles));
+    const offCodeBlockCopy = installCodeBlockCopy();
 
     // A browser tab can't read the clipboard programmatically, so terminal Paste (a clipboard read) is gated
     // off it in the command catalog — Ctrl+V there falls through to xterm's native paste instead. Session-static.
@@ -1711,6 +1713,7 @@ export default function App(): JSX.Element {
       offEditorOptions();
       offKeybindings();
       offDoubleShift();
+      offCodeBlockCopy();
       for (const off of offCommands) {
         off();
       }

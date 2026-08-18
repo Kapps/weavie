@@ -65,6 +65,7 @@ export default defineConfig({
         "headless-host.spec.ts",
         "native-bridge.spec.ts",
         "middle-click-autoscroll.spec.ts",
+        "code-block-copy.spec.ts",
         "agent-composer.spec.ts",
         "runner-connect.spec.ts",
         "session-switch-performance.spec.ts",

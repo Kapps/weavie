@@ -100,3 +100,40 @@ the app on this machine.
 Diagnostics retained in `Weavie.Mac`: `WEAVIE_DEBUG_PERFORMANCE=1` enables the latency HUD/meter (and
 gates the `WEAVIE_FPSPROBE=1` probe and `WEAVIE_AUTOBENCH=1` benchmark sub-flags); the app logs
 `NSScreen.maximumFramesPerSecond` at startup.
+
+## Linux (2026-08-18): WebKitGTK caps at 60Hz on a 240Hz panel
+
+The same question on `Weavie.Linux` (GTK3 + WebKitGTK 4.1), measured on an NVIDIA/Wayland box with a
+240Hz LG UltraGear. Flipping `PreferPageRenderingUpdatesNear60FPS` — the lever that solved macOS — is
+already done in `Weavie.Linux/Native/WebKit.cs` and changes nothing here.
+
+Each layer measured independently (`tools/` holds the probes):
+
+| layer | measured | verdict |
+|---|---|---|
+| panel / compositor / driver (Firefox `requestAnimationFrame`) | 721 frames/3s = **240Hz** | fine |
+| `gdk_monitor_get_refresh_rate` | **240.023 Hz** | fine |
+| DRM connector match (EDID size vs GDK's) | `card1-HDMI-A-1` 697x392mm, matches | fine |
+| **GTK3 frame clock** (`gtk-tick.cs`) | 708 ticks/3s = **236Hz**, p50 4.17ms | fine — not the ceiling |
+| GTK4 frame clock (`gtk4-tick.cs`) | 182 ticks/3s = **60.7Hz**, p50 16.67ms | a port to webkitgtk-6.0 would be *worse* |
+| **bare WebKitGTK window** (`webkit-fps.cs`) | 180 frames/3s = **exactly 60.0** | the cap |
+
+Conclusions:
+
+- **The cap is inside WebKitGTK, not Weavie.** A window containing nothing but a moving box measures
+  the same 60.0, and every surface the app renders inherits it.
+- **It is not the vblank monitor's pacing.** `WEBKIT_FORCE_VBLANK_TIMER=1` should free-run at 62.5fps
+  (the monitor's `sleep_for(milliseconds(1000 / 60))` — integer division, so 16ms, not 16.67ms) and on
+  the SHM path it does, giving 188 frames/3s. On the DMA-BUF path it still lands on exactly 180, so
+  something downstream imposes 60 regardless of the clock WebKit uses.
+- **GTK3 is not the ceiling and GTK4 is worse**, which removes the obvious "port the host" answer.
+  Measure before porting: GTK3's clock only falls back to its hardcoded 16667us when presentation
+  timings give it nothing, and here it gets them.
+- **NVIDIA explicit sync is forced off** by `LinuxGraphicsCompatibility` (WebKit bug 280210, still
+  NEW upstream, affecting 2.46 through 2.50.5). Without it a bare WebKitGTK window dies with
+  `Error 71 (Protocol error) dispatching to Wayland display`, so the implicit-sync path cannot be
+  A/B'd against explicit sync while that bug is open — it remains the prime suspect for the cap.
+
+Open: whether WebKit's `DisplayLink` believes the display is 60 or 240 (`WEBKIT_DISPLAY_REFRESH_THROTTLE_FPS`
+set to a non-factor makes it log the rate through `WTFLogAlways`). That answer decides between an
+upstream WebKitGTK report and chasing the DMA-BUF present path.

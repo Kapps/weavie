@@ -20,7 +20,7 @@ internal partial class WebKitFps {
 		<script>
 		const intervals = [];
 		let last = performance.now();
-		const end = last + 3000;
+		const end = last + 10000;
 		const box = document.getElementById('box');
 		const tick = (now) => {
 			intervals.push(now - last);
@@ -29,10 +29,16 @@ internal partial class WebKitFps {
 			box.style.transform = `translateX(${(now / 8) % 200}px)`;
 			if (now < end) { requestAnimationFrame(tick); return; }
 			const sorted = intervals.slice(1).sort((a, b) => a - b);
-			const p50 = sorted[sorted.length >> 1];
-			document.title = `FPS ${intervals.length} frames in 3s = ${(intervals.length / 3).toFixed(0)} Hz`
-				+ ` | p50 ${p50.toFixed(2)}ms = ${(1000 / p50).toFixed(0)} Hz`
-				+ ` | p95 ${sorted[(sorted.length * 0.95) | 0].toFixed(2)}ms`;
+			const counts = new Map();
+			for (const value of sorted) {
+				const ms = Math.round(value);
+				counts.set(ms, (counts.get(ms) ?? 0) + 1);
+			}
+			const shape = [...counts.entries()]
+				.sort((a, b) => b[1] - a[1]).slice(0, 3)
+				.map(([ms, n]) => `${ms}ms x${n}`).join(", ");
+			document.title = `FPS ${intervals.length} frames in 10s = ${(intervals.length / 10).toFixed(1)} Hz`
+				+ ` | p50 ${sorted[sorted.length >> 1].toFixed(2)}ms | intervals: ${shape}`;
 		};
 		requestAnimationFrame(tick);
 		</script></body></html>
@@ -90,10 +96,17 @@ internal partial class WebKitFps {
 	[LibraryImport("libglib-2.0.so.0")]
 	private static partial uint g_timeout_add(uint interval, IntPtr function, IntPtr data);
 
+	[LibraryImport("libgobject-2.0.so.0", StringMarshalling = StringMarshalling.Utf8)]
+	private static partial ulong g_signal_connect_data(
+		IntPtr instance, string signal, IntPtr handler, IntPtr data, IntPtr destroy, int flags);
+
 	private delegate int SourceFunc(IntPtr data);
+
+	private delegate void Closed(IntPtr widget, IntPtr data);
 
 	private static IntPtr view;
 	private static SourceFunc? poll;
+	private static Closed? closed;
 
 	private static void Main(string[] args) {
 		bool keep60 = args.Contains("--60fps-pref");
@@ -108,12 +121,17 @@ internal partial class WebKitFps {
 
 		Console.WriteLine($"PreferPageRenderingUpdatesNear60FPS: {(keep60 ? "left enabled" : "disabled (as Weavie does)")}"
 			+ $"   vblank timer forced: {Environment.GetEnvironmentVariable("WEBKIT_FORCE_VBLANK_TIMER") ?? "no"}");
-		Console.WriteLine("measuring for 3s — leave the window visible and unobstructed...");
+		Console.WriteLine("measuring for 10s — leave the window visible and unobstructed...");
+		Console.WriteLine("600 frames = a real 60Hz vsync; 625 = WebKit's hardcoded-60 timer (16ms sleep); 2400 = 240Hz.");
 
 		gtk_container_add(window, view);
 		webkit_web_view_load_html(view, Page, IntPtr.Zero);
 		gtk_widget_show_all(window);
 
+		// Closing the window mid-measurement must end the run, not leave the poll calling into a dead view.
+		closed = (_, _) => gtk_main_quit();
+		g_signal_connect_data(window, "destroy", Marshal.GetFunctionPointerForDelegate(closed),
+			IntPtr.Zero, IntPtr.Zero, 0);
 		poll = ReadTitle;
 		g_timeout_add(250, Marshal.GetFunctionPointerForDelegate(poll), IntPtr.Zero);
 		gtk_main();

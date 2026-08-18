@@ -54,7 +54,18 @@ async function registerGreetDefinition(page: Page): Promise<void> {
 // `last()` takes the innermost span holding the word: a highlighted line nests one span per token inside a
 // span for the whole line, while plain text is a single span — this addresses the text either way, and never
 // the full-width line element, whose centre can land past the end of the code.
-function wordToken(page: Page, lineText: string, word: string): Locator {
+//
+// Flaked on this exact call site three times on Windows CI (issue #625 run 31993224310; 2026-08-18 runs
+// 32096266021 and 32104522458 — https://github.com/Kapps/weavie/actions/runs/32104522458/job/95611908477)
+// with the same fingerprint each time: `renderedLines` showed only one, empty line at teardown while
+// `.editor`/`.monaco` read a healthy size — Monaco's viewport transiently clamped to 5px (see
+// docs/specs/e2e-flake-analysis.md), so the word's `.view-line` never rendered and the locator waited out
+// the full budget. `openFile`'s `awaitEditorLaidOut` guard only covers the layout at file-open time; any
+// later relayout (a click, a `page.evaluate` mutation, even just more of the shell settling) can reopen the
+// same window. Per the doc's own guidance, a third call site needing the same patch is the signal to stop
+// re-applying the wait at each one and gate the shared helper instead.
+async function wordToken(page: Page, lineText: string, word: string): Promise<Locator> {
+  await awaitEditorLaidOut(page);
   return page
     .locator(".view-line", { hasText: lineText })
     .locator("span", { hasText: word })
@@ -71,7 +82,7 @@ test("alt+click on a symbol opens the definition peek inline, and Escape closes 
   await focusEditor(page, "hello.ts");
   await registerGreetDefinition(page);
 
-  await altClick(wordToken(page, "const message = greet", "greet"));
+  await altClick(await wordToken(page, "const message = greet", "greet"));
   const peek = page.locator(".monaco-editor .peekview-widget");
   await expect(peek).toBeVisible();
   // The peek embeds its own editor showing the definition's file — the small window into the file.
@@ -85,7 +96,7 @@ test("Alt+F12 peeks the definition of the symbol at the cursor", async ({ page }
   await focusEditor(page, "hello.ts");
   await registerGreetDefinition(page);
 
-  await wordToken(page, "const message = greet", "greet").click();
+  await (await wordToken(page, "const message = greet", "greet")).click();
   await page.keyboard.press("Alt+F12");
   await expect(page.locator(".monaco-editor .peekview-widget")).toBeVisible();
 });
@@ -95,7 +106,7 @@ test("alt+click without a definition provider leaves Monaco's multicursor gestur
 }) => {
   await focusEditor(page, "notes.txt");
 
-  await altClick(wordToken(page, "just plain text", "plain"));
+  await altClick(await wordToken(page, "just plain text", "plain"));
   // Monaco's default alt+click added a second cursor — the gesture declined and didn't swallow the click.
   await page.waitForFunction(
     () => ((window as WeavieWindow).__WEAVIE_EDITOR__?.getSelections() ?? []).length === 2,
@@ -130,13 +141,8 @@ test("alt+click during a multicursor session adds a cursor instead of peeking", 
       },
     ]);
   });
-  // Flaked 2026-08-18 on Windows CI: https://github.com/Kapps/weavie/actions/runs/32096266021/job/95602915943
-  // (`renderedLines` showed only one, empty line at teardown while `.editor`/`.monaco` read a healthy
-  // 742x709 — the same transient 0-height-container clamp `openFile` already guards against via
-  // `awaitEditorLaidOut`, recurring here because `setSelections` addresses rendered text again without
-  // re-waiting for it). Re-applying the same wait before the click.
-  await awaitEditorLaidOut(page);
-  await altClick(wordToken(page, "const message = greet", "greet"));
+  // `wordToken` re-waits for editor layout itself (see its doc comment) — no separate guard needed here.
+  await altClick(await wordToken(page, "const message = greet", "greet"));
   await page.waitForFunction(
     () => ((window as WeavieWindow).__WEAVIE_EDITOR__?.getSelections() ?? []).length === 3,
   );

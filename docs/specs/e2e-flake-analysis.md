@@ -96,6 +96,18 @@ by calling `awaitEditorLaidOut` again right before that click, rather than widen
 every possible later mutation. If a third call site turns up the same way, that's the signal to stop
 patching individual sites and gate `wordToken`/`altClick` themselves on layout instead.
 
+**2026-08-18 third occurrence, run 32104522458:** hit *again*, same file, same original line —
+`editor-peek-definition.spec.ts:84` ("Alt+F12 peeks the definition of the symbol at the cursor",
+[job 95611908477](https://github.com/Kapps/weavie/actions/runs/32104522458/job/95611908477)) — despite
+that test going through `openFile`'s guard via `focusEditor` just a few lines earlier, with only a plain
+click and a `page.evaluate` (no `setSelections`) in between. Same fingerprint again: 60s stuck on
+`wordToken(...).click()`, healthy rects at teardown. This is exactly the third call site the prior
+occurrence predicted, so per that note the per-site patching stopped: `wordToken` (the shared helper both
+flaked tests route through) now calls `awaitEditorLaidOut` itself before building its locator, so every
+caller re-waits for layout for free instead of each test needing its own reasoning about what might have
+relaid-out since `openFile`. The multicursor test's standalone `awaitEditorLaidOut` call (added for the
+previous occurrence) was removed as redundant.
+
 ## CONFIRMED + FIXED: #1 (S2-race) — a test walk-race, not a product bug
 
 **Symptom:** after a PR→PR→PR switch storm settling on #101 (files `feature.ts`, `hello.ts`),

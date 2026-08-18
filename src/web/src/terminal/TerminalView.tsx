@@ -28,6 +28,8 @@ function uriToPath(pathname: string): string {
 // away-and-back (a PR-switch storm) reuses the live context instead of churning a fresh one each toggle —
 // browsers reclaim WebGL contexts lazily, so churn would pile up unfreed contexts and blow the cap.
 const HIDDEN_WEBGL_DISPOSE_MS = 2000;
+// Matches Monaco's own wheel-scroll animation, so both panes glide at the same rate.
+const SMOOTH_SCROLL_MS = 125;
 
 // xterm.js pane wired to one C# PTY through its ClientSession feature. The captured feature owns both the
 // session and pane identity; on mount `ready` starts/sizes that child. Hidden sessions retain their buffers.
@@ -68,6 +70,8 @@ export function TerminalView(props: {
     lineHeight: 1.0,
     theme: currentXtermTheme(),
     cursorBlink: true,
+    // Without a duration, a wheel notch lands in a single frame; xterm and Monaco share the same scroller.
+    smoothScrollDuration: SMOOTH_SCROLL_MS,
     scrollback: 8000,
     allowProposedApi: true,
     // xterm's own right-click handler unconditionally loads the clicked word into this same hidden textarea

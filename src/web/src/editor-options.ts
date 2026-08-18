@@ -20,7 +20,7 @@ const DEFAULT_OPTIONS: EditorOptionsSpec = {
   inlayHints: "on",
   minimap: false,
   bracketPairColorization: true,
-  smoothScrolling: false,
+  smoothScrolling: true,
   cursorSmoothCaretAnimation: "off",
   renderWhitespace: "none",
   scrollBeyondLastLine: true,

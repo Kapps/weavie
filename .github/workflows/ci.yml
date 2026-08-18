@@ -51,9 +51,12 @@ jobs:
       - uses: ./.github/actions/setup-dotnet
 
       - name: Install Linux native host test dependencies
+        env:
+          DEBIAN_FRONTEND: noninteractive
+          NEEDRESTART_MODE: a
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
+          sudo -E apt-get update
+          sudo -E apt-get install -y --no-install-recommends \
             dbus-daemon \
             gstreamer1.0-plugins-good \
             libwebkit2gtk-4.1-0 \

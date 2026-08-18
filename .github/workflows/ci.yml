@@ -53,7 +53,7 @@ jobs:
       - name: Install Linux native host test dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --no-install-recommends \
+          sudo apt-get install -y --no-install-recommends \
             dbus-daemon \
             gstreamer1.0-plugins-good \
             libwebkit2gtk-4.1-0 \

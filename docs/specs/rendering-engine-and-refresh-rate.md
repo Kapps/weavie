@@ -134,9 +134,16 @@ Conclusions:
   `Error 71 (Protocol error) dispatching to Wayland display`, so the implicit-sync path cannot be
   A/B'd against explicit sync while that bug is open — it remains the prime suspect for the cap.
 
-Open: whether WebKit's `DisplayLink` believes the display is 60 or 240 (`WEBKIT_DISPLAY_REFRESH_THROTTLE_FPS`
-set to a non-factor makes it log the rate through `WTFLogAlways`). That answer decides between an
-upstream WebKitGTK report and chasing the DMA-BUF present path.
+Two further facts pin the mechanism (measured via `tools/vblank-shim.c` + `tools/refresh-lab.sh`):
+
+- The SHM run's 62.5Hz free-run (p50 16.00ms) is the fallback timer's cadence, so **WebKit's DRM vblank
+  monitor fails on that machine** even though the connector matches and both nodes open — the nominal rate
+  then comes from the timer's hardcoded 60, not from GDK's 240.
+- **Rendering updates follow the believed nominal rate, not the tick cadence**: pacing the fallback timer's
+  sleeps to a perfect 240Hz grid (2425 ticks/10s, verified) still measures 60.1Hz rAF. Speeding the pacer
+  is useless; the workaround must make the DRM monitor path *succeed*, because only that path carries GDK's
+  real rate as the nominal — `tools/vblank-shim.c` does so by emulating `drmWaitVBlank` on a precise grid
+  when the driver refuses the ioctl.
 
 ### The cap follows the accelerated buffer path, not the toolkit
 

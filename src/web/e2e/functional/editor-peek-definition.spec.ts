@@ -130,6 +130,19 @@ test("alt+click during a multicursor session adds a cursor instead of peeking", 
       },
     ]);
   });
+  // Flaked on windows-latest, e2e (windows) shard 3/6: 2026-08-18 05:11 UTC
+  // (https://github.com/Kapps/weavie/actions/runs/32096266021/job/95602915943). This click hung the
+  // full 60s budget then reported "Target page, context or browser has been closed" — same signature
+  // as the #626/#627 investigations, but the trace ruled out both: screencast frames kept arriving
+  // continuously the whole time (the tab wasn't frozen, unlike #626), and the viewport-layout dump
+  // showed the container at its correct, non-collapsed size (742x709, unlike the 0-height case #627
+  // fixed in openFile) yet Monaco had rendered only one blank line against a 7-line model. That matches
+  // #627's own latch theory — a 0-height moment made Monaco clamp to 1 line and never re-measured after
+  // recovering — just triggered by this test's `editor.setSelections` call re-revealing the selection
+  // rather than by the initial file open, which is the only call site #627 guards. Left as a dated note
+  // rather than a guess-fix: the real fix likely belongs on the recovery side (Monaco/the editor should
+  // re-layout on its own once its container is healthy again) rather than adding a wait at yet another
+  // call site.
   await altClick(wordToken(page, "const message = greet", "greet"));
   await page.waitForFunction(
     () => ((window as WeavieWindow).__WEAVIE_EDITOR__?.getSelections() ?? []).length === 3,

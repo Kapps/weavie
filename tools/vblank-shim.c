@@ -1,6 +1,10 @@
-// LD_PRELOAD lab for WebKitGTK's 60Hz cap: traces the pacing primitives (DRM vblank waits, the hardcoded
-// 60fps timer's 16ms sleeps, EGL swap cadence) and can replace either pacer with a precise VBLANK_SHIM_HZ
-// grid. Built and driven by tools/refresh-lab.sh; only activates in processes named in VBLANK_SHIM_COMM.
+// LD_PRELOAD lab for WebKitGTK's 60Hz cap. Traces the pacing primitives (DRM vblank waits, the hardcoded
+// 60fps timer's 16ms sleeps, EGL swap cadence) and the whole DRM discovery path WebKit's vblank monitor
+// walks (drmGetDevices2 -> resources -> connector -> encoder -> crtc). Two repair modes: VBLANK_SHIM_FIX
+// emulates drmWaitVBlank on a precise VBLANK_SHIM_HZ grid when the driver refuses it, and
+// VBLANK_SHIM_STEER fills in the encoder/crtc ids some drivers hide from non-master clients so the
+// monitor constructs at all (a wrong crtc only fails the wait, which the emulator covers). Built and
+// driven by tools/refresh-lab.sh; only activates in processes named in VBLANK_SHIM_COMM.
 #define _GNU_SOURCE
 #include <dlfcn.h>
 #include <errno.h>
@@ -17,7 +21,7 @@
 typedef struct { unsigned type; unsigned sequence; unsigned long signal; } DrmVBlankReq;
 typedef struct { unsigned type; unsigned sequence; long tval_sec; long tval_usec; } DrmVBlankRep;
 
-static int enabled, fix_drm, force_drm, fix_timer, swap0;
+static int enabled, fix_drm, force_drm, fix_timer, swap0, steer;
 static double hz = 240.0;
 static _Atomic unsigned drm_calls, drm_fails, timer_hits, swap_calls;
 static _Atomic int swap0_done;
@@ -66,10 +70,11 @@ __attribute__((constructor)) static void shim_init(void) {
 	force_drm = (e = getenv("VBLANK_SHIM_FORCE")) && *e && strcmp(e, "0");
 	fix_timer = (e = getenv("VBLANK_SHIM_TIMERFIX")) && *e && strcmp(e, "0");
 	swap0 = (e = getenv("VBLANK_SHIM_SWAP0")) && *e && strcmp(e, "0");
+	steer = (e = getenv("VBLANK_SHIM_STEER")) && *e && strcmp(e, "0");
 	if ((e = getenv("VBLANK_SHIM_HZ")) && atof(e) > 0)
 		hz = atof(e);
-	note("active in '%s' (fix_drm=%d force_drm=%d fix_timer=%d swap0=%d hz=%.3f)",
-		comm, fix_drm, force_drm, fix_timer, swap0, hz);
+	note("active in '%s' (fix_drm=%d force_drm=%d fix_timer=%d swap0=%d steer=%d hz=%.3f)",
+		comm, fix_drm, force_drm, fix_timer, swap0, steer, hz);
 }
 
 __attribute__((destructor)) static void shim_summary(void) {
@@ -78,10 +83,24 @@ __attribute__((destructor)) static void shim_summary(void) {
 			(unsigned)drm_calls, (unsigned)drm_fails, (unsigned)timer_hits, (unsigned)swap_calls);
 }
 
+
+// RTLD_NEXT can miss symbols a caller satisfies internally (Mesa's EGL carries its own libdrm copy and
+// still dispatches through the interposable PLT), so resolution falls back to the canonical library —
+// and a wrapper must never forward to NULL.
+static void *resolve(const char *sym, const char *lib) {
+	void *p = dlsym(RTLD_NEXT, sym);
+	if (p == NULL && lib != NULL) {
+		void *handle = dlopen(lib, RTLD_LAZY | RTLD_LOCAL);
+		if (handle != NULL)
+			p = dlsym(handle, sym);
+	}
+	return p;
+}
+
 static int real_clock_nanosleep(clockid_t c, int flags, const struct timespec *rq, struct timespec *rm) {
 	static int (*real)(clockid_t, int, const struct timespec *, struct timespec *);
 	if (!real)
-		real = dlsym(RTLD_NEXT, "clock_nanosleep");
+		real = resolve("clock_nanosleep", NULL);
 	return real(c, flags, rq, rm);
 }
 
@@ -98,10 +117,143 @@ static void sleep_to_grid(void) {
 	}
 }
 
+
+// ---- DRM discovery: every call DisplayVBlankMonitorDRM::create() can make, so a trace shows exactly
+// where it gives up. Struct mirrors cover only the UAPI-stable prefixes the logging reads.
+
+typedef struct { char **nodes; int available_nodes; int bustype; } DrmDeviceHead;
+
+typedef struct {
+	int count_fbs; uint32_t *fbs;
+	int count_crtcs; uint32_t *crtcs;
+	int count_connectors; uint32_t *connectors;
+	int count_encoders; uint32_t *encoders;
+	uint32_t min_width, max_width, min_height, max_height;
+} DrmModeRes;
+
+typedef struct {
+	uint32_t connector_id, encoder_id, connector_type, connector_type_id;
+	int connection;
+	uint32_t mm_width, mm_height;
+	int subpixel;
+	int count_modes; void *modes;
+	int count_props; uint32_t *props; uint64_t *prop_values;
+	int count_encoders; uint32_t *encoders;
+} DrmModeConnector;
+
+typedef struct { uint32_t encoder_id, encoder_type, crtc_id, possible_crtcs, possible_clones; } DrmModeEncoder;
+
+static _Atomic uint32_t steer_crtc;
+
+static void fd_path(int fd, char *buf, size_t n) {
+	char link[64];
+	snprintf(link, sizeof link, "/proc/self/fd/%d", fd);
+	ssize_t r = readlink(link, buf, n - 1);
+	buf[r > 0 ? r : 0] = 0;
+}
+
+int drmGetDevices2(uint32_t flags, void **devices, int max_devices) {
+	static int (*real)(uint32_t, void **, int);
+	if (!real)
+		real = resolve("drmGetDevices2", "libdrm.so.2");
+	if (real == NULL)
+		return -ENOSYS;
+	int r = real(flags, devices, max_devices);
+	if (enabled) {
+		note("drmGetDevices2(max=%d) -> %d", max_devices, r);
+		if (devices)
+			for (int i = 0; i < r; i++) {
+				DrmDeviceHead *d = devices[i];
+				note("  device[%d] available_nodes=0x%x primary=%s", i, d->available_nodes,
+					(d->available_nodes & 1) && d->nodes ? d->nodes[0] : "(none)");
+			}
+	}
+	return r;
+}
+
+void *drmModeGetResources(int fd) {
+	static void *(*real)(int);
+	if (!real)
+		real = resolve("drmModeGetResources", "libdrm.so.2");
+	if (real == NULL)
+		return NULL;
+	DrmModeRes *res = real(fd);
+	if (enabled) {
+		char path[128];
+		fd_path(fd, path, sizeof path);
+		if (res == NULL) {
+			note("drmModeGetResources(fd=%d %s) -> NULL errno=%d", fd, path, errno);
+		} else {
+			if (res->count_crtcs > 0)
+				atomic_store(&steer_crtc, res->crtcs[0]);
+			note("drmModeGetResources(fd=%d %s) -> crtcs=%d connectors=%d encoders=%d",
+				fd, path, res->count_crtcs, res->count_connectors, res->count_encoders);
+		}
+	}
+	return res;
+}
+
+void *drmModeGetConnector(int fd, uint32_t connector_id) {
+	static void *(*real)(int, uint32_t);
+	if (!real)
+		real = resolve("drmModeGetConnector", "libdrm.so.2");
+	if (real == NULL)
+		return NULL;
+	DrmModeConnector *c = real(fd, connector_id);
+	if (enabled) {
+		if (c == NULL) {
+			note("drmModeGetConnector(fd=%d id=%u) -> NULL errno=%d", fd, connector_id, errno);
+		} else {
+			note("drmModeGetConnector(fd=%d id=%u) connection=%d encoder_id=%u mm=%ux%u encoders=%d",
+				fd, connector_id, c->connection, c->encoder_id, c->mm_width, c->mm_height, c->count_encoders);
+			if (steer && c->connection == 1 && c->encoder_id == 0 && c->count_encoders > 0 && c->encoders) {
+				c->encoder_id = c->encoders[0];
+				note("  steer: connected but encoder_id=0 -> using encoder %u", c->encoder_id);
+			}
+		}
+	}
+	return c;
+}
+
+void *drmModeGetEncoder(int fd, uint32_t encoder_id) {
+	static void *(*real)(int, uint32_t);
+	if (!real)
+		real = resolve("drmModeGetEncoder", "libdrm.so.2");
+	if (real == NULL)
+		return NULL;
+	DrmModeEncoder *enc = real(fd, encoder_id);
+	if (enabled) {
+		if (enc == NULL) {
+			note("drmModeGetEncoder(fd=%d id=%u) -> NULL errno=%d", fd, encoder_id, errno);
+		} else {
+			note("drmModeGetEncoder(fd=%d id=%u) crtc_id=%u", fd, encoder_id, enc->crtc_id);
+			uint32_t fallback = atomic_load(&steer_crtc);
+			if (steer && enc->crtc_id == 0 && fallback != 0) {
+				enc->crtc_id = fallback;
+				note("  steer: crtc_id=0 -> using crtc %u (a wrong pipe only fails the wait, which the emulator covers)", fallback);
+			}
+		}
+	}
+	return enc;
+}
+
+int gdk_monitor_get_width_mm(void *monitor) {
+	static int (*real)(void *);
+	static _Atomic unsigned seen;
+	if (!real)
+		real = resolve("gdk_monitor_get_width_mm", "libgdk-3.so.0");
+	if (real == NULL)
+		return 0;
+	int mm = real(monitor);
+	if (enabled && atomic_fetch_add(&seen, 1) < 4)
+		note("gdk_monitor_get_width_mm -> %d (screen lookup succeeded; discovery is running)", mm);
+	return mm;
+}
+
 int drmWaitVBlank(int fd, void *vbl) {
 	static int (*real)(int, void *);
 	if (!real)
-		real = dlsym(RTLD_NEXT, "drmWaitVBlank");
+		real = resolve("drmWaitVBlank", "libdrm.so.2");
 	if (!enabled)
 		return real ? real(fd, vbl) : (errno = ENOSYS, -1);
 	DrmVBlankReq req = *(DrmVBlankReq *)vbl;
@@ -155,7 +307,7 @@ static int timer_hit(const char *via) {
 int nanosleep(const struct timespec *rq, struct timespec *rm) {
 	static int (*real)(const struct timespec *, struct timespec *);
 	if (!real)
-		real = dlsym(RTLD_NEXT, "nanosleep");
+		real = resolve("nanosleep", NULL);
 	if (enabled && is_timer_sleep(rq) && timer_hit("nanosleep"))
 		return 0;
 	return real(rq, rm);
@@ -171,11 +323,13 @@ unsigned int eglSwapBuffers(void *display, void *surface) {
 	static unsigned int (*real)(void *, void *);
 	static unsigned int (*real_interval)(void *, int);
 	if (!real)
-		real = dlsym(RTLD_NEXT, "eglSwapBuffers");
+		real = resolve("eglSwapBuffers", "libEGL.so.1");
+	if (real == NULL)
+		return 0;
 	if (enabled) {
 		if (swap0 && !atomic_exchange(&swap0_done, 1)) {
 			if (!real_interval)
-				real_interval = dlsym(RTLD_NEXT, "eglSwapInterval");
+				real_interval = resolve("eglSwapInterval", "libEGL.so.1");
 			if (real_interval)
 				note("forced eglSwapInterval(0) -> %u", real_interval(display, 0));
 		}
@@ -191,7 +345,9 @@ unsigned int eglSwapBuffers(void *display, void *surface) {
 unsigned int eglSwapInterval(void *display, int interval) {
 	static unsigned int (*real)(void *, int);
 	if (!real)
-		real = dlsym(RTLD_NEXT, "eglSwapInterval");
+		real = resolve("eglSwapInterval", "libEGL.so.1");
+	if (real == NULL)
+		return 0;
 	if (enabled)
 		note("app eglSwapInterval(%d)%s", interval, swap0 ? " -> 0" : "");
 	return real(display, swap0 ? 0 : interval);
@@ -201,7 +357,9 @@ int gdk_monitor_get_refresh_rate(void *monitor) {
 	static int (*real)(void *);
 	static _Atomic int last = -1;
 	if (!real)
-		real = dlsym(RTLD_NEXT, "gdk_monitor_get_refresh_rate");
+		real = resolve("gdk_monitor_get_refresh_rate", "libgdk-3.so.0");
+	if (real == NULL)
+		return 0;
 	int rate = real(monitor);
 	if (enabled && atomic_exchange(&last, rate) != rate)
 		note("gdk_monitor_get_refresh_rate -> %d mHz", rate);

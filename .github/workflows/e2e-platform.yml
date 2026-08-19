@@ -138,11 +138,18 @@ jobs:
           restore-keys: playwright-${{ runner.os }}-
 
       # Hang, 2026-08-19 ~19:52 UTC: https://github.com/Kapps/weavie/actions/runs/32295180447 —
-      # 5/6 Linux shards stuck here for over an hour (job started 19:52, still not past this step
-      # at 20:53). `--with-deps` shells out to apt-get, which can stall indefinitely on a flaky
-      # archive mirror on hosted Ubuntu runners (known upstream: actions/runner-images#11347,
-      # microsoft/playwright#20665/#41133) — not caused by this repo's code. Bounding each attempt
-      # with `timeout` and retrying turns an indefinite hang into a bounded, self-healing failure.
+      # 5/6 Linux shards stuck here for over an hour. `--with-deps` shells out to `sudo apt-get`,
+      # which can stall indefinitely on a flaky archive mirror on hosted Ubuntu runners (known
+      # upstream: actions/runner-images#11347, microsoft/playwright#20665/#41133) — not caused by
+      # this repo's code.
+      #
+      # Follow-up, 2026-08-19 ~21:05 UTC: https://github.com/Kapps/weavie/actions/runs/32301304438/job/96224774374
+      # First bounded-retry attempt (`timeout 5m`, no cleanup) correctly killed the stuck attempt,
+      # but `timeout` only signals the `pnpm exec` process it launched directly — the `sudo
+      # apt-get` grandchild it spawns survives as an orphan holding the dpkg lock, so every retry
+      # after the first failed instantly with "Could not get lock /var/lib/dpkg/lock-frontend".
+      # Clearing that lock (and any surviving apt-get/dpkg process) before each retry lets the
+      # retry actually retry.
       - name: Install Playwright Chromium (Linux)
         if: runner.os == 'Linux'
         working-directory: src/web
@@ -156,7 +163,10 @@ jobs:
               echo "playwright install --with-deps timed out after $attempt attempts" >&2
               exit 1
             fi
-            echo "playwright install --with-deps timed out (attempt $attempt), retrying..." >&2
+            echo "playwright install --with-deps timed out (attempt $attempt); clearing the apt lock left behind by the timeout and retrying..." >&2
+            sudo pkill -9 -f 'apt-get|dpkg' || true
+            sudo rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock /var/lib/apt/lists/lock
+            sudo dpkg --configure -a || true
           done
 
       - name: Install Playwright Chromium (macOS / Windows)

@@ -93,6 +93,7 @@ for i in "${!names[@]}"; do
 	grep -E "^FPS" "$log" || echo "  (no FPS line — see $log)"
 	grep -m1 "rejected" "$log" | sed 's/^/  /'
 	grep -m8 -E "vblank-shim.*(syncpatch|steer|active|drmWaitVBlank #0|refresh_rate|emulation)" "$log" | sed 's/^/  /'
+	grep -m10 -E "point [0-9]+ signaled" "$log" | sed 's/^/  /'
 	grep -m4 "summary:" "$log" | sed 's/^/  /'
 	grep -m3 "hist " "$log" | sed 's/^/  /'
 done

@@ -53,6 +53,7 @@ jobs:
       # Build the exact trusted push commit that passed CI, never a newer unvalidated main tip.
       - uses: actions/checkout@v4
         with:
+          persist-credentials: false
           ref: ${{ github.event.workflow_run.head_sha }}
 
       - name: Set up toolchain and build web app
@@ -121,6 +122,7 @@ jobs:
       # releases check out their own ref.
       - uses: actions/checkout@v4
         with:
+          persist-credentials: false
           ref: >-
             ${{ github.event_name == 'workflow_run' &&
                 github.event.workflow_run.head_sha || github.ref }}

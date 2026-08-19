@@ -1,7 +1,13 @@
-# Shared toolchain for every publish job: .NET SDK, pnpm/Node, the NuGet cache, and the web UI
-# build (each shell embeds wwwroot; Weavie.Mac hard-errors without it).
+# Shared toolchain for every publish job: .NET SDK, pnpm/Node, a restore-only NuGet cache, and the
+# web UI build (each shell embeds wwwroot; Weavie.Mac hard-errors without it).
+#
+# This deliberately does NOT reuse setup-dotnet/setup-web: those save caches, and this action runs in
+# release.yml, which checks out a caller-chosen ref (workflow_dispatch on any branch, a v* tag) and
+# then executes that ref's code — pnpm lifecycle scripts, MSBuild targets. A save here would write
+# that code's output into the cache scope every later privileged run restores from, so release only
+# ever reads entries that ci.yml populated from trusted main pushes.
 name: publish setup
-description: .NET + pnpm/Node toolchain, NuGet cache, and the web UI build every publish needs.
+description: .NET + pnpm/Node toolchain, restore-only NuGet cache, and the web UI build.
 
 runs:
   using: composite
@@ -13,10 +19,11 @@ runs:
         dotnet-version: '10.0.x'
 
     - name: Set up pnpm
-      uses: pnpm/action-setup@v4
+      # Pinned to the v4.3.0 commit: a mutable tag on a third-party action is arbitrary code in the
+      # job that builds the published binaries.
+      uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
       with:
-        # Keep in sync with the packageManager field in src/web/package.json.
-        version: 11.8.0
+        package_json_file: src/web/package.json
 
     - name: Set up Node
       uses: actions/setup-node@v4
@@ -24,11 +31,11 @@ runs:
         # pnpm 11.x requires Node >= 22.13 (it loads the built-in node:sqlite module), so Node 20
         # crashes setup-node's pnpm cache probe. Keep this at 22+.
         node-version: 22
-        cache: pnpm
-        cache-dependency-path: src/web/pnpm-lock.yaml
+        # No `cache: pnpm` — setup-node's cache always saves, and its key format is its own private
+        # detail, so there is no restore-only form of it to use here.
 
-    - name: Cache NuGet packages
-      uses: actions/cache@v4
+    - name: Restore NuGet packages
+      uses: actions/cache/restore@v4
       with:
         path: ~/.nuget/packages
         key: nuget-${{ runner.os }}-${{ hashFiles('**/Directory.Packages.props', '**/*.csproj') }}

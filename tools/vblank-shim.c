@@ -347,38 +347,83 @@ int clock_nanosleep(clockid_t c, int flags, const struct timespec *rq, struct ti
 	return real_clock_nanosleep(c, flags, rq, rm);
 }
 
+// GDK and drivers fetch EGL entry points through eglGetProcAddress, whose raw driver pointers bypass the
+// PLT — the reason no swap ever appeared in earlier traces. Interposing it routes the two calls that
+// matter back through the wrappers, and the wrappers prefer the driver pointer it captured.
+static unsigned int (*swap_from_getproc)(void *, void *);
+static unsigned int (*interval_from_getproc)(void *, int);
+
 unsigned int eglSwapBuffers(void *display, void *surface) {
-	static unsigned int (*real)(void *, void *);
-	static unsigned int (*real_interval)(void *, int);
-	if (!real)
-		real = resolve("eglSwapBuffers", "libEGL.so.1");
+	static unsigned int (*fallback)(void *, void *);
+	static unsigned int (*fallback_interval)(void *, int);
+	unsigned int (*real)(void *, void *) = swap_from_getproc;
+	if (real == NULL) {
+		if (!fallback)
+			fallback = resolve("eglSwapBuffers", "libEGL.so.1");
+		real = fallback;
+	}
 	if (real == NULL)
 		return 0;
-	if (enabled) {
-		if (swap0 && !atomic_exchange(&swap0_done, 1)) {
-			if (!real_interval)
-				real_interval = resolve("eglSwapInterval", "libEGL.so.1");
-			if (real_interval)
-				note("forced eglSwapInterval(0) -> %u", real_interval(display, 0));
+	if (!enabled)
+		return real(display, surface);
+	if (swap0 && !atomic_exchange(&swap0_done, 1)) {
+		unsigned int (*set)(void *, int) = interval_from_getproc;
+		if (set == NULL) {
+			if (!fallback_interval)
+				fallback_interval = resolve("eglSwapInterval", "libEGL.so.1");
+			set = fallback_interval;
 		}
-		unsigned n = atomic_fetch_add(&swap_calls, 1);
-		uint64_t t = now_ns();
-		uint64_t prev = atomic_exchange(&swap_last, t);
-		if (prev && (n < 6 || n % 240 == 0))
-			note("eglSwapBuffers #%u dt=%.2fms", n, (double)(t - prev) / 1e6);
+		if (set)
+			note("forced eglSwapInterval(0) -> %u", set(display, 0));
 	}
-	return real(display, surface);
+	unsigned n = atomic_fetch_add(&swap_calls, 1);
+	uint64_t t0 = now_ns();
+	unsigned int ok = real(display, surface);
+	uint64_t t1 = now_ns();
+	uint64_t prev = atomic_exchange(&swap_last, t1);
+	if (n < 12 || n % 240 == 0)
+		note("eglSwapBuffers #%u dt=%.2fms blocked=%.2fms", n,
+			prev ? (double)(t1 - prev) / 1e6 : 0.0, (double)(t1 - t0) / 1e6);
+	return ok;
 }
 
 unsigned int eglSwapInterval(void *display, int interval) {
-	static unsigned int (*real)(void *, int);
-	if (!real)
-		real = resolve("eglSwapInterval", "libEGL.so.1");
+	static unsigned int (*fallback)(void *, int);
+	unsigned int (*real)(void *, int) = interval_from_getproc;
+	if (real == NULL) {
+		if (!fallback)
+			fallback = resolve("eglSwapInterval", "libEGL.so.1");
+		real = fallback;
+	}
 	if (real == NULL)
 		return 0;
 	if (enabled)
 		note("app eglSwapInterval(%d)%s", interval, swap0 ? " -> 0" : "");
 	return real(display, swap0 ? 0 : interval);
+}
+
+void *eglGetProcAddress(const char *name) {
+	static void *(*real)(const char *);
+	if (!real)
+		real = resolve("eglGetProcAddress", "libEGL.so.1");
+	if (real == NULL)
+		return NULL;
+	void *p = real(name);
+	if (p == NULL || name == NULL)
+		return p;
+	if (strcmp(name, "eglSwapBuffers") == 0) {
+		swap_from_getproc = (unsigned int (*)(void *, void *))p;
+		if (enabled)
+			note("eglGetProcAddress(eglSwapBuffers) -> interposed");
+		return (void *)eglSwapBuffers;
+	}
+	if (strcmp(name, "eglSwapInterval") == 0) {
+		interval_from_getproc = (unsigned int (*)(void *, int))p;
+		if (enabled)
+			note("eglGetProcAddress(eglSwapInterval) -> interposed");
+		return (void *)eglSwapInterval;
+	}
+	return p;
 }
 
 int gdk_monitor_get_refresh_rate(void *monitor) {

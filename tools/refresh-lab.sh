@@ -19,12 +19,13 @@ STARTED="$(date '+%Y-%m-%d %H:%M:%S')"
 
 # THROTTLE_FPS=7 never divides a real rate, so WebKit rejects it and prints the rate it believes —
 # making every armed run self-report its nominal on stderr.
-names=(baseline believed-rate trace fix fix-shm)
+names=(baseline believed-rate trace fix fix-swap0 fix-shm)
 arms=(
 	""
 	"WEBKIT_DISPLAY_REFRESH_THROTTLE_FPS=7"
 	"LD_PRELOAD=$SHIM"
 	"LD_PRELOAD=$SHIM VBLANK_SHIM_STEER=1 VBLANK_SHIM_FIX=1 $HZARG WEBKIT_DISPLAY_REFRESH_THROTTLE_FPS=7"
+	"LD_PRELOAD=$SHIM VBLANK_SHIM_STEER=1 VBLANK_SHIM_FIX=1 VBLANK_SHIM_SWAP0=1 $HZARG WEBKIT_DISPLAY_REFRESH_THROTTLE_FPS=7"
 	"LD_PRELOAD=$SHIM VBLANK_SHIM_STEER=1 VBLANK_SHIM_FIX=1 $HZARG WEBKIT_DISPLAY_REFRESH_THROTTLE_FPS=7 WEBKIT_DISABLE_DMABUF_RENDERER=1"
 )
 

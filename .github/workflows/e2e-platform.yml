@@ -150,13 +150,22 @@ jobs:
       # after the first failed instantly with "Could not get lock /var/lib/dpkg/lock-frontend".
       # Clearing that lock (and any surviving apt-get/dpkg process) before each retry lets the
       # retry actually retry.
+      #
+      # Follow-up, 2026-08-19 ~21:48 UTC: https://github.com/Kapps/weavie/actions/runs/32303798223/job/96234015439
+      # With the lock cleared, all 3 attempts genuinely retried apt-get from scratch — but all 3 still
+      # hit the 5m timeout. Root cause this time wasn't a true hang: `azure.archive.ubuntu.com` (the
+      # runner's default mirror) failed outright each attempt (`Ign:` lines), apt fell back to
+      # `archive.ubuntu.com` after ~2m of retries against the dead mirror, leaving too little of the
+      # 5m budget for the actual package fetch (already slow: ~56 kB/s observed in the prior run).
+      # Widened to 10m so a genuinely-progressing-but-slow attempt (mirror fallback + a throttled
+      # fetch) fits inside one attempt instead of being killed and retried for no reason.
       - name: Install Playwright Chromium (Linux)
         if: runner.os == 'Linux'
         working-directory: src/web
         shell: bash
         run: |
           for attempt in 1 2 3; do
-            if timeout 5m pnpm exec playwright install --with-deps chromium; then
+            if timeout 10m pnpm exec playwright install --with-deps chromium; then
               break
             fi
             if [[ $attempt == 3 ]]; then

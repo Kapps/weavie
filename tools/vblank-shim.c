@@ -23,7 +23,7 @@
 typedef struct { unsigned type; unsigned sequence; unsigned long signal; } DrmVBlankReq;
 typedef struct { unsigned type; unsigned sequence; long tval_sec; long tval_usec; } DrmVBlankRep;
 
-static int enabled, fix_drm, force_drm, fix_timer, swap0, steer, hz_from_env, fastfence;
+static int enabled, fix_drm, force_drm, fix_timer, swap0, steer, hz_from_env, fastfence, syncpatch;
 static double hz = 240.0;
 static _Atomic unsigned drm_calls, drm_fails, timer_hits, swap_calls;
 static _Atomic unsigned commit_calls, frame_reqs, attach_calls, shm_buffers, dmabuf_buffers, draw_calls;
@@ -32,6 +32,12 @@ static _Atomic unsigned flush_calls, clientwait_calls;
 // Steady-state distributions for the three edges of the present loop: how often the surface commits, how
 // fast the compositor answers a commit, and how long the client then sits before committing again.
 static _Atomic unsigned hist_commit[6], hist_cb_latency[6], hist_commit_after_cb[6];
+static _Atomic unsigned sync_injected;
+static void *(*real_marshal_flags)(void *, uint32_t, const void *, uint32_t, uint32_t, void *);
+static void (*real_marshal_array_fn)(void *, uint32_t, void *);
+static uint32_t (*real_proxy_version)(void *);
+static void sync_observe(void *proxy, uint32_t opcode, void *args, const char *cls);
+static void sync_observe_created(void *proxy, uint32_t opcode, void *args, void *created, const char *cls);
 static _Atomic int fence_fd_ring[16];
 static _Atomic uint64_t fence_birth_ring[16];
 static _Atomic uint64_t commit_last, draw_last, framecb_last, release_last;
@@ -116,12 +122,13 @@ __attribute__((constructor)) static void shim_init(void) {
 	swap0 = (e = getenv("VBLANK_SHIM_SWAP0")) && *e && strcmp(e, "0");
 	steer = (e = getenv("VBLANK_SHIM_STEER")) && *e && strcmp(e, "0");
 	fastfence = (e = getenv("VBLANK_SHIM_FASTFENCE")) && *e && strcmp(e, "0");
+	syncpatch = (e = getenv("VBLANK_SHIM_SYNCPATCH")) && *e && strcmp(e, "0");
 	if ((e = getenv("VBLANK_SHIM_HZ")) && atof(e) > 0) {
 		hz = atof(e);
 		hz_from_env = 1;
 	}
-	note("active in '%s' (fix_drm=%d force_drm=%d fix_timer=%d swap0=%d steer=%d fastfence=%d hz=%.3f)",
-		comm, fix_drm, force_drm, fix_timer, swap0, steer, fastfence, hz);
+	note("active in '%s' (fix_drm=%d force_drm=%d fix_timer=%d swap0=%d steer=%d fastfence=%d syncpatch=%d hz=%.3f)",
+		comm, fix_drm, force_drm, fix_timer, swap0, steer, fastfence, syncpatch, hz);
 }
 
 __attribute__((destructor)) static void shim_summary(void) {
@@ -140,6 +147,8 @@ __attribute__((destructor)) static void shim_summary(void) {
 		hist_note("cb-after-commit", hist_cb_latency);
 		hist_note("commit-after-cb", hist_commit_after_cb);
 	}
+	if (enabled && sync_injected)
+		note("summary: syncpatch armed %u naked commits", (unsigned)sync_injected);
 	if (enabled && (fence_dups || flush_calls || clientwait_calls))
 		note("summary: sync_file exports=%u, observed signals=%u, glFlush=%u, eglClientWaitSync=%u",
 			(unsigned)fence_dups, (unsigned)fence_signals,
@@ -365,17 +374,20 @@ void gdk_cairo_draw_from_gl(void *cr, void *window, int source, int source_type,
 			prev ? (double)(t1 - prev) / 1e6 : 0.0, (double)(t1 - t0) / 1e6, width, height);
 }
 
-static void wl_track(void *proxy, uint32_t opcode) {
+static const char *wl_cls(void *proxy) {
 	static const char *(*get_class)(void *);
-	if (!enabled)
-		return;
 	if (!get_class)
 		get_class = resolve("wl_proxy_get_class", "libwayland-client.so.0");
-	if (get_class == NULL)
+	return get_class ? get_class(proxy) : NULL;
+}
+
+static void wl_track(void *proxy, uint32_t opcode, void *args) {
+	if (!enabled)
 		return;
-	const char *cls = get_class(proxy);
+	const char *cls = wl_cls(proxy);
 	if (cls == NULL)
 		return;
+	sync_observe(proxy, opcode, args, cls);
 	if (strcmp(cls, "wl_surface") == 0) {
 		if (opcode == 6) {
 			unsigned n = atomic_fetch_add(&commit_calls, 1);
@@ -402,11 +414,13 @@ static void wl_track(void *proxy, uint32_t opcode) {
 
 void wl_proxy_marshal_array(void *proxy, uint32_t opcode, void *args) {
 	static void (*real)(void *, uint32_t, void *);
-	if (!real)
+	if (!real) {
 		real = resolve("wl_proxy_marshal_array", "libwayland-client.so.0");
+		real_marshal_array_fn = real;
+	}
 	if (real == NULL)
 		return;
-	wl_track(proxy, opcode);
+	wl_track(proxy, opcode, args);
 	real(proxy, opcode, args);
 }
 
@@ -416,10 +430,12 @@ void *wl_proxy_marshal_array_constructor(void *proxy, uint32_t opcode, void *arg
 		real = resolve("wl_proxy_marshal_array_constructor", "libwayland-client.so.0");
 	if (real == NULL)
 		return NULL;
-	wl_track(proxy, opcode);
+	wl_track(proxy, opcode, args);
 	void *created = real(proxy, opcode, args, interface);
 	if (enabled && opcode == 3 && created != NULL)
 		frame_proxy_add(created);
+	if (enabled && created != NULL)
+		sync_observe_created(proxy, opcode, args, created, wl_cls(proxy));
 	return created;
 }
 
@@ -430,24 +446,31 @@ void *wl_proxy_marshal_array_constructor_versioned(void *proxy, uint32_t opcode,
 		real = resolve("wl_proxy_marshal_array_constructor_versioned", "libwayland-client.so.0");
 	if (real == NULL)
 		return NULL;
-	wl_track(proxy, opcode);
+	wl_track(proxy, opcode, args);
 	void *created = real(proxy, opcode, args, interface, version);
 	if (enabled && opcode == 3 && created != NULL)
 		frame_proxy_add(created);
+	if (enabled && created != NULL)
+		sync_observe_created(proxy, opcode, args, created, wl_cls(proxy));
 	return created;
 }
 
 void *wl_proxy_marshal_array_flags(void *proxy, uint32_t opcode, const void *interface, uint32_t version,
 	uint32_t flags, void *args) {
 	static void *(*real)(void *, uint32_t, const void *, uint32_t, uint32_t, void *);
-	if (!real)
+	if (!real) {
 		real = resolve("wl_proxy_marshal_array_flags", "libwayland-client.so.0");
+		real_marshal_flags = real;
+		real_proxy_version = (uint32_t (*)(void *))resolve("wl_proxy_get_version", "libwayland-client.so.0");
+	}
 	if (real == NULL)
 		return NULL;
-	wl_track(proxy, opcode);
+	wl_track(proxy, opcode, args);
 	void *created = real(proxy, opcode, interface, version, flags, args);
 	if (enabled && opcode == 3 && created != NULL)
 		frame_proxy_add(created);
+	if (enabled && created != NULL)
+		sync_observe_created(proxy, opcode, args, created, wl_cls(proxy));
 	return created;
 }
 
@@ -687,6 +710,218 @@ int eglClientWaitSyncKHR(void *dpy, void *sync, int flags, uint64_t timeout) {
 	if (enabled && (took > 2000000 || n < 4 || n % 600 == 0))
 		note("eglClientWaitSync #%u took=%.2fms -> %d", n, (double)took / 1e6, r);
 	return r;
+}
+
+
+// ---- explicit-sync completion: NVIDIA's egl-wayland2 registers wp_linux_drm_syncobj_surface_v1 on the
+// toplevel for its own EGL swapchain, after which the protocol demands acquire+release points on EVERY
+// buffered commit — and GDK/WebKit's own commits carry none, which the compositor punishes by killing the
+// connection ("no acquire point is set", the Error 71 crash). The patch captures the manager and surface
+// objects from egl-wayland2's marshals, imports two private timelines (one this shim pre-signals for
+// acquire — correct for content completed before commit — and one only the compositor signals for
+// release), and arms any naked commit right before forwarding it.
+
+typedef union {
+	int32_t i;
+	uint32_t u;
+	int32_t f;
+	const char *s;
+	void *o;
+	uint32_t n;
+	void *a;
+	int32_t h;
+} WlArg;
+
+static const char *const sync_manager_name = "wp_linux_drm_syncobj_manager_v1";
+static const char *const sync_surface_name = "wp_linux_drm_syncobj_surface_v1";
+
+struct WlMessage { const char *name; const char *signature; const void **types; };
+struct WlInterface {
+	const char *name;
+	int version;
+	int method_count;
+	const struct WlMessage *methods;
+	int event_count;
+	const void *events;
+};
+
+static const void *timeline_types[2] = { NULL, NULL };
+static const struct WlMessage timeline_requests[1] = { { "destroy", "", timeline_types } };
+static const struct WlInterface timeline_interface = {
+	"wp_linux_drm_syncobj_timeline_v1", 1, 1, timeline_requests, 0, NULL,
+};
+
+static void *sync_manager_proxy;
+static struct {
+	void *surface;
+	void *sync_surface;
+	int armed;
+	int buffer_pending;
+} sync_surfaces[8];
+
+static struct {
+	int drm_fd;
+	uint32_t acquire_handle;
+	uint64_t next_point;
+	void *acquire_timeline;
+	void *release_timeline;
+	int failed;
+} sync_state = { .drm_fd = -1 };
+
+static int sync_slot_for(void *surface) {
+	for (unsigned i = 0; i < 8; i++)
+		if (sync_surfaces[i].surface == surface)
+			return (int)i;
+	return -1;
+}
+
+static void *sync_import_timeline(int (*syncobj_create)(int, uint32_t, uint32_t *),
+	int (*syncobj_to_fd)(int, uint32_t, int *), uint32_t *handle_out) {
+	uint32_t handle = 0;
+	int sync_fd = -1;
+	if (syncobj_create(sync_state.drm_fd, 0, &handle) != 0)
+		return NULL;
+	if (syncobj_to_fd(sync_state.drm_fd, handle, &sync_fd) != 0 || sync_fd < 0)
+		return NULL;
+	WlArg args[2];
+	args[0].o = NULL;
+	args[1].h = sync_fd;
+	uint32_t version = real_proxy_version ? real_proxy_version(sync_manager_proxy) : 1;
+	void *timeline = real_marshal_flags(sync_manager_proxy, 2 /* import_timeline */,
+		&timeline_interface, version, 0, args);
+	if (timeline != NULL && handle_out != NULL)
+		*handle_out = handle;
+	return timeline;
+}
+
+static int sync_setup(void) {
+	if (sync_state.failed)
+		return 0;
+	if (sync_state.acquire_timeline != NULL)
+		return 1;
+	if (sync_manager_proxy == NULL || real_marshal_flags == NULL)
+		return 0;
+	static const char *nodes[] = { "/dev/dri/renderD128", "/dev/dri/renderD129", "/dev/dri/card1", "/dev/dri/card0" };
+	void *libdrm = dlopen("libdrm.so.2", RTLD_LAZY | RTLD_LOCAL);
+	int (*syncobj_create)(int, uint32_t, uint32_t *) = libdrm ? dlsym(libdrm, "drmSyncobjCreate") : NULL;
+	int (*syncobj_to_fd)(int, uint32_t, int *) = libdrm ? dlsym(libdrm, "drmSyncobjHandleToFD") : NULL;
+	if (syncobj_create == NULL || syncobj_to_fd == NULL) {
+		sync_state.failed = 1;
+		return 0;
+	}
+	for (unsigned i = 0; i < sizeof nodes / sizeof nodes[0] && sync_state.drm_fd < 0; i++) {
+		int fd = open(nodes[i], O_RDWR | O_CLOEXEC);
+		uint32_t probe = 0;
+		if (fd >= 0 && syncobj_create(fd, 0, &probe) == 0)
+			sync_state.drm_fd = fd;
+		else if (fd >= 0)
+			close(fd);
+	}
+	if (sync_state.drm_fd < 0) {
+		sync_state.failed = 1;
+		return 0;
+	}
+	sync_state.acquire_timeline = sync_import_timeline(syncobj_create, syncobj_to_fd, &sync_state.acquire_handle);
+	uint32_t unused = 0;
+	sync_state.release_timeline = sync_import_timeline(syncobj_create, syncobj_to_fd, &unused);
+	sync_state.next_point = 1;
+	if (sync_state.acquire_timeline == NULL || sync_state.release_timeline == NULL) {
+		sync_state.failed = 1;
+		note("syncpatch: timeline import failed");
+		return 0;
+	}
+	note("syncpatch: private acquire/release timelines imported (drm fd ready)");
+	return 1;
+}
+
+static void sync_set_point(void *sync_surface, uint32_t opcode, void *timeline, uint64_t point) {
+	WlArg args[3];
+	args[0].o = timeline;
+	args[1].u = (uint32_t)(point >> 32);
+	args[2].u = (uint32_t)point;
+	if (real_marshal_array_fn != NULL) {
+		real_marshal_array_fn(sync_surface, opcode, args);
+	} else if (real_marshal_flags != NULL) {
+		real_marshal_flags(sync_surface, opcode, NULL,
+			real_proxy_version ? real_proxy_version(sync_surface) : 1, 0, args);
+	}
+}
+
+// Runs before a commit is forwarded: if the surface is under explicit sync and this commit attached a
+// buffer without egl-wayland arming it, sign it with a pre-signaled acquire point and a fresh release point.
+static void sync_before_commit(void *surface) {
+	int slot = sync_slot_for(surface);
+	if (slot < 0 || sync_surfaces[slot].sync_surface == NULL)
+		return;
+	int naked = sync_surfaces[slot].buffer_pending && !sync_surfaces[slot].armed;
+	sync_surfaces[slot].buffer_pending = 0;
+	sync_surfaces[slot].armed = 0;
+	if (!naked || !syncpatch)
+		return;
+	if (!sync_setup())
+		return;
+	static int (*timeline_signal)(int, const uint32_t *, uint64_t *, uint32_t);
+	if (!timeline_signal) {
+		void *libdrm = dlopen("libdrm.so.2", RTLD_LAZY | RTLD_LOCAL);
+		timeline_signal = libdrm ? dlsym(libdrm, "drmSyncobjTimelineSignal") : NULL;
+	}
+	if (timeline_signal == NULL)
+		return;
+	uint64_t point = sync_state.next_point++;
+	if (timeline_signal(sync_state.drm_fd, &sync_state.acquire_handle, &point, 1) != 0) {
+		note("syncpatch: pre-signal failed (errno=%d)", errno);
+		return;
+	}
+	sync_set_point(sync_surfaces[slot].sync_surface, 1 /* set_acquire_point */, sync_state.acquire_timeline, point);
+	sync_set_point(sync_surfaces[slot].sync_surface, 2 /* set_release_point */, sync_state.release_timeline, point);
+	unsigned n = atomic_fetch_add(&sync_injected, 1);
+	if (n < 8 || n % 600 == 0)
+		note("syncpatch: armed naked commit #%u (acquire point %llu, pre-signaled)", n, (unsigned long long)point);
+}
+
+// Observes every marshal (before forwarding) to track the protocol objects and per-surface state.
+static void sync_observe(void *proxy, uint32_t opcode, void *args, const char *cls) {
+	if (cls == NULL)
+		return;
+	if (strcmp(cls, sync_manager_name) == 0) {
+		sync_manager_proxy = proxy;
+		return;
+	}
+	if (strcmp(cls, sync_surface_name) == 0) {
+		for (unsigned i = 0; i < 8; i++)
+			if (sync_surfaces[i].sync_surface == proxy) {
+				if (opcode == 1)
+					sync_surfaces[i].armed = 1;
+				else if (opcode == 0)
+					sync_surfaces[i].sync_surface = NULL;
+			}
+		return;
+	}
+	if (strcmp(cls, "wl_surface") == 0) {
+		if (opcode == 1 && args != NULL && ((WlArg *)args)[0].o != NULL) {
+			int slot = sync_slot_for(proxy);
+			if (slot >= 0)
+				sync_surfaces[slot].buffer_pending = 1;
+		} else if (opcode == 6) {
+			sync_before_commit(proxy);
+		}
+	}
+}
+
+// After a constructor returns: manager.get_surface pairs the new syncobj surface with its wl_surface.
+static void sync_observe_created(void *proxy, uint32_t opcode, void *args, void *created, const char *cls) {
+	if (cls == NULL || created == NULL || args == NULL)
+		return;
+	if (strcmp(cls, sync_manager_name) == 0 && opcode == 1) {
+		void *surface = ((WlArg *)args)[1].o;
+		for (unsigned i = 0; i < 8; i++)
+			if (sync_surfaces[i].surface == surface || sync_surfaces[i].surface == NULL) {
+				sync_surfaces[i].surface = surface;
+				sync_surfaces[i].sync_surface = created;
+				note("syncpatch: explicit sync registered on surface %p", surface);
+				break;
+			}
+	}
 }
 
 int drmWaitVBlank(int fd, void *vbl) {

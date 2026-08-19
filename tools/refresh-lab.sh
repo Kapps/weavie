@@ -14,7 +14,13 @@ HZARG=""
 [ "$HZ" != "auto" ] && HZARG="VBLANK_SHIM_HZ=$HZ"
 SHIM=/tmp/vblank-shim.so
 cc -O2 -Wall -fPIC -shared -o "$SHIM" tools/vblank-shim.c || exit 1
-export __NV_DISABLE_EXPLICIT_SYNC=1
+# NVIDIA 560+ ships egl-wayland2 with correct explicit sync; forcing implicit there degrades performance
+# and is suspected of the 60Hz fence stall itself. Set REFRESH_LAB_KEEP_EXPLICIT_SYNC=1 to leave it on.
+if [ -z "${REFRESH_LAB_KEEP_EXPLICIT_SYNC:-}" ]; then
+	export __NV_DISABLE_EXPLICIT_SYNC=1
+else
+	echo "explicit sync left ENABLED (no __NV_DISABLE_EXPLICIT_SYNC)"
+fi
 STARTED="$(date '+%Y-%m-%d %H:%M:%S')"
 
 echo "== environment"

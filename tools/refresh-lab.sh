@@ -17,6 +17,12 @@ cc -O2 -Wall -fPIC -shared -o "$SHIM" tools/vblank-shim.c || exit 1
 export __NV_DISABLE_EXPLICIT_SYNC=1
 STARTED="$(date '+%Y-%m-%d %H:%M:%S')"
 
+echo "== environment"
+echo "  kernel: $(uname -r)   desktop: ${XDG_CURRENT_DESKTOP:-?} (${XDG_SESSION_TYPE:-?})"
+command -v nvidia-smi >/dev/null 2>&1 && echo "  nvidia: $(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -1)   nvidia_drm modeset: $(cat /sys/module/nvidia_drm/parameters/modeset 2>/dev/null)"
+{ pacman -Q webkit2gtk-4.1 2>/dev/null || dpkg -l 2>/dev/null | awk '/libwebkit2gtk-4.1/{print $2" "$3}'; } | sed 's/^/  webkit: /'
+command -v kwin_wayland >/dev/null 2>&1 && echo "  kwin: $(kwin_wayland --version 2>/dev/null | head -1)"
+
 # THROTTLE_FPS=7 never divides a real rate, so WebKit rejects it and prints the rate it believes —
 # making every armed run self-report its nominal on stderr.
 names=(baseline believed-rate trace fix fix-swap0 fix-shm)
@@ -36,7 +42,8 @@ for i in "${!names[@]}"; do
 	env ${arms[$i]} timeout 90 dotnet run tools/webkit-fps.cs >"$log" 2>&1
 	grep -E "^FPS" "$log" || echo "  (no FPS line — see $log)"
 	grep -m1 "rejected" "$log" | sed 's/^/  /'
-	grep -m20 "vblank-shim" "$log" | sed 's/^/  /'
+	grep -m26 "vblank-shim" "$log" | sed 's/^/  /'
+	grep -m4 "summary:" "$log" | sed 's/^/  /'
 done
 
 echo

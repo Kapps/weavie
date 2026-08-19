@@ -24,6 +24,8 @@ typedef struct { unsigned type; unsigned sequence; long tval_sec; long tval_usec
 static int enabled, fix_drm, force_drm, fix_timer, swap0, steer, hz_from_env;
 static double hz = 240.0;
 static _Atomic unsigned drm_calls, drm_fails, timer_hits, swap_calls;
+static _Atomic unsigned commit_calls, frame_reqs, attach_calls, shm_buffers, dmabuf_buffers, draw_calls;
+static _Atomic uint64_t commit_last, draw_last;
 static _Atomic int swap0_done;
 static _Atomic uint64_t grid_next, swap_last;
 
@@ -83,6 +85,10 @@ __attribute__((destructor)) static void shim_summary(void) {
 	if (enabled && (drm_calls || timer_hits || swap_calls))
 		note("summary: drmWaitVBlank=%u (failed %u), 16ms timer sleeps=%u, eglSwapBuffers=%u",
 			(unsigned)drm_calls, (unsigned)drm_fails, (unsigned)timer_hits, (unsigned)swap_calls);
+	if (enabled && (commit_calls || draw_calls || attach_calls))
+		note("summary: wl commits=%u, frame reqs=%u, attaches=%u, shm buffers=%u, dmabuf buffers=%u, gl draws=%u",
+			(unsigned)commit_calls, (unsigned)frame_reqs, (unsigned)attach_calls,
+			(unsigned)shm_buffers, (unsigned)dmabuf_buffers, (unsigned)draw_calls);
 }
 
 
@@ -276,6 +282,104 @@ int gdk_monitor_get_height_mm(void *monitor) {
 	int mm = real(monitor);
 	atomic_store(&gdk_h_mm, mm);
 	return mm;
+}
+
+
+// ---- presentation tracing: WebKit's GTK3 backing store paints with gdk_cairo_draw_from_gl during the
+// widget's draw cycle and only then tells the web process FrameDone, so the paint cadence IS the frame
+// pacer; the commit stream underneath shows what actually reaches the compositor and with which buffers.
+
+void gdk_cairo_draw_from_gl(void *cr, void *window, int source, int source_type, int buffer_scale,
+	int x, int y, int width, int height) {
+	static void (*real)(void *, void *, int, int, int, int, int, int, int);
+	if (!real)
+		real = resolve("gdk_cairo_draw_from_gl", "libgdk-3.so.0");
+	if (real == NULL)
+		return;
+	if (!enabled) {
+		real(cr, window, source, source_type, buffer_scale, x, y, width, height);
+		return;
+	}
+	unsigned n = atomic_fetch_add(&draw_calls, 1);
+	uint64_t t0 = now_ns();
+	real(cr, window, source, source_type, buffer_scale, x, y, width, height);
+	uint64_t t1 = now_ns();
+	uint64_t prev = atomic_exchange(&draw_last, t1);
+	if (n < 12 || n % 240 == 0)
+		note("gdk_cairo_draw_from_gl #%u dt=%.2fms took=%.2fms (%dx%d)", n,
+			prev ? (double)(t1 - prev) / 1e6 : 0.0, (double)(t1 - t0) / 1e6, width, height);
+}
+
+static void wl_track(void *proxy, uint32_t opcode) {
+	static const char *(*get_class)(void *);
+	if (!enabled)
+		return;
+	if (!get_class)
+		get_class = resolve("wl_proxy_get_class", "libwayland-client.so.0");
+	if (get_class == NULL)
+		return;
+	const char *cls = get_class(proxy);
+	if (cls == NULL)
+		return;
+	if (strcmp(cls, "wl_surface") == 0) {
+		if (opcode == 6) {
+			unsigned n = atomic_fetch_add(&commit_calls, 1);
+			uint64_t t = now_ns();
+			uint64_t prev = atomic_exchange(&commit_last, t);
+			if (n < 12 || n % 240 == 0)
+				note("wl_surface.commit #%u dt=%.2fms", n, prev ? (double)(t - prev) / 1e6 : 0.0);
+		} else if (opcode == 3) {
+			atomic_fetch_add(&frame_reqs, 1);
+		} else if (opcode == 1) {
+			atomic_fetch_add(&attach_calls, 1);
+		}
+	} else if (strcmp(cls, "wl_shm_pool") == 0 && opcode == 0) {
+		atomic_fetch_add(&shm_buffers, 1);
+	} else if (strcmp(cls, "zwp_linux_buffer_params_v1") == 0 && (opcode == 1 || opcode == 2)) {
+		atomic_fetch_add(&dmabuf_buffers, 1);
+	}
+}
+
+void wl_proxy_marshal_array(void *proxy, uint32_t opcode, void *args) {
+	static void (*real)(void *, uint32_t, void *);
+	if (!real)
+		real = resolve("wl_proxy_marshal_array", "libwayland-client.so.0");
+	if (real == NULL)
+		return;
+	wl_track(proxy, opcode);
+	real(proxy, opcode, args);
+}
+
+void *wl_proxy_marshal_array_constructor(void *proxy, uint32_t opcode, void *args, const void *interface) {
+	static void *(*real)(void *, uint32_t, void *, const void *);
+	if (!real)
+		real = resolve("wl_proxy_marshal_array_constructor", "libwayland-client.so.0");
+	if (real == NULL)
+		return NULL;
+	wl_track(proxy, opcode);
+	return real(proxy, opcode, args, interface);
+}
+
+void *wl_proxy_marshal_array_constructor_versioned(void *proxy, uint32_t opcode, void *args,
+	const void *interface, uint32_t version) {
+	static void *(*real)(void *, uint32_t, void *, const void *, uint32_t);
+	if (!real)
+		real = resolve("wl_proxy_marshal_array_constructor_versioned", "libwayland-client.so.0");
+	if (real == NULL)
+		return NULL;
+	wl_track(proxy, opcode);
+	return real(proxy, opcode, args, interface, version);
+}
+
+void *wl_proxy_marshal_array_flags(void *proxy, uint32_t opcode, const void *interface, uint32_t version,
+	uint32_t flags, void *args) {
+	static void *(*real)(void *, uint32_t, const void *, uint32_t, uint32_t, void *);
+	if (!real)
+		real = resolve("wl_proxy_marshal_array_flags", "libwayland-client.so.0");
+	if (real == NULL)
+		return NULL;
+	wl_track(proxy, opcode);
+	return real(proxy, opcode, interface, version, flags, args);
 }
 
 int drmWaitVBlank(int fd, void *vbl) {

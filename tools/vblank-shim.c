@@ -23,7 +23,7 @@
 typedef struct { unsigned type; unsigned sequence; unsigned long signal; } DrmVBlankReq;
 typedef struct { unsigned type; unsigned sequence; long tval_sec; long tval_usec; } DrmVBlankRep;
 
-static int enabled, fix_drm, force_drm, fix_timer, swap0, steer, hz_from_env, fastfence, syncpatch;
+static int enabled, fix_drm, force_drm, fix_timer, swap0, steer, hz_from_env, fastfence, syncpatch, cbturbo;
 static double hz = 240.0;
 static _Atomic unsigned drm_calls, drm_fails, timer_hits, swap_calls;
 static _Atomic unsigned commit_calls, frame_reqs, attach_calls, shm_buffers, dmabuf_buffers, draw_calls;
@@ -32,31 +32,40 @@ static _Atomic unsigned flush_calls, clientwait_calls;
 // Steady-state distributions for the three edges of the present loop: how often the surface commits, how
 // fast the compositor answers a commit, and how long the client then sits before committing again.
 static _Atomic unsigned hist_commit[6], hist_cb_latency[6], hist_commit_after_cb[6];
-static _Atomic unsigned sync_injected, sync_dropped;
+static _Atomic unsigned sync_injected, sync_dropped, turbo_fires;
 static void *(*real_marshal_flags)(void *, uint32_t, const void *, uint32_t, uint32_t, void *);
 static void (*real_marshal_array_fn)(void *, uint32_t, void *);
 static uint32_t (*real_proxy_version)(void *);
 static int sync_observe(void *proxy, uint32_t opcode, void *args, const char *cls);
+static uint32_t wl_id(void *proxy);
+static int sync_slot_for_id(uint32_t surface_id);
+static void turbo_stash(uint32_t surface_id, void *thunk);
+static uint32_t last_frame_surface_id;
 static void sync_observe_created(void *proxy, uint32_t opcode, void *args, void *created, const char *cls);
 static _Atomic int fence_fd_ring[16];
 static _Atomic uint64_t fence_birth_ring[16];
 static _Atomic uint64_t commit_last, draw_last, framecb_last, release_last;
 // The last frame-callback proxies handed out by wl_surface.frame, so listener wrapping can tell a real
 // frame callback from a wl_display.sync roundtrip (both are wl_callback objects).
-static _Atomic(void *) frame_proxies[64];
+static struct {
+	_Atomic(void *) proxy;
+	uint32_t surface_id;
+} frame_ring[64];
 static _Atomic unsigned frame_proxy_next;
 
 static void frame_proxy_add(void *proxy) {
-	frame_proxies[atomic_fetch_add(&frame_proxy_next, 1) % 64] = proxy;
+	unsigned slot = atomic_fetch_add(&frame_proxy_next, 1) % 64;
+	frame_ring[slot].surface_id = last_frame_surface_id;
+	frame_ring[slot].proxy = proxy;
 }
 
-// Consumes the entry: a fired wl_callback is destroyed and malloc recycles its address, so a stale match
-// would misclassify a later display.sync callback as a frame callback.
-static int frame_proxy_known(void *proxy) {
+// Consumes the entry (a fired wl_callback is destroyed and malloc recycles its address, so a stale match
+// would misclassify a later display.sync callback) and reports which wl_surface requested it.
+static uint32_t frame_proxy_take(void *proxy) {
 	for (unsigned i = 0; i < 64; i++) {
 		void *expected = proxy;
-		if (atomic_compare_exchange_strong(&frame_proxies[i], &expected, (void *)NULL))
-			return 1;
+		if (atomic_compare_exchange_strong(&frame_ring[i].proxy, &expected, (void *)NULL))
+			return frame_ring[i].surface_id;
 	}
 	return 0;
 }
@@ -123,12 +132,13 @@ __attribute__((constructor)) static void shim_init(void) {
 	steer = (e = getenv("VBLANK_SHIM_STEER")) && *e && strcmp(e, "0");
 	fastfence = (e = getenv("VBLANK_SHIM_FASTFENCE")) && *e && strcmp(e, "0");
 	syncpatch = (e = getenv("VBLANK_SHIM_SYNCPATCH")) && *e && strcmp(e, "0");
+	cbturbo = (e = getenv("VBLANK_SHIM_CBTURBO")) && *e && strcmp(e, "0");
 	if ((e = getenv("VBLANK_SHIM_HZ")) && atof(e) > 0) {
 		hz = atof(e);
 		hz_from_env = 1;
 	}
-	note("active in '%s' (fix_drm=%d force_drm=%d fix_timer=%d swap0=%d steer=%d fastfence=%d syncpatch=%d hz=%.3f)",
-		comm, fix_drm, force_drm, fix_timer, swap0, steer, fastfence, syncpatch, hz);
+	note("active in '%s' (fix_drm=%d force_drm=%d fix_timer=%d swap0=%d steer=%d fastfence=%d syncpatch=%d cbturbo=%d hz=%.3f)",
+		comm, fix_drm, force_drm, fix_timer, swap0, steer, fastfence, syncpatch, cbturbo, hz);
 }
 
 __attribute__((destructor)) static void shim_summary(void) {
@@ -147,9 +157,9 @@ __attribute__((destructor)) static void shim_summary(void) {
 		hist_note("cb-after-commit", hist_cb_latency);
 		hist_note("commit-after-cb", hist_commit_after_cb);
 	}
-	if (enabled && (sync_injected || sync_dropped))
-		note("summary: syncpatch armed %u naked commits, dropped %u SHM attaches",
-			(unsigned)sync_injected, (unsigned)sync_dropped);
+	if (enabled && (sync_injected || sync_dropped || turbo_fires))
+		note("summary: syncpatch armed %u naked commits, dropped %u SHM attaches, turbo-fired %u callbacks",
+			(unsigned)sync_injected, (unsigned)sync_dropped, (unsigned)turbo_fires);
 	if (enabled && (fence_dups || flush_calls || clientwait_calls))
 		note("summary: sync_file exports=%u, observed signals=%u, glFlush=%u, eglClientWaitSync=%u",
 			(unsigned)fence_dups, (unsigned)fence_signals,
@@ -404,6 +414,7 @@ static int wl_track(void *proxy, uint32_t opcode, void *args) {
 				note("wl_surface.commit #%u dt=%.2fms", n, prev ? (double)(t - prev) / 1e6 : 0.0);
 		} else if (opcode == 3) {
 			atomic_fetch_add(&frame_reqs, 1);
+			last_frame_surface_id = wl_id(proxy);
 		} else if (opcode == 1) {
 			atomic_fetch_add(&attach_calls, 1);
 		}
@@ -486,10 +497,12 @@ void *wl_proxy_marshal_array_flags(void *proxy, uint32_t opcode, const void *int
 // ---- event delivery: frame callbacks and buffer releases are server->client, invisible to the marshal
 // wrappers — wrapping the listeners at registration shows which of the two arrives at the clamped rate.
 
-typedef struct { void **listener; void *data; } WlThunk;
+typedef struct { void **listener; void *data; void *proxy; _Atomic int fired; } WlThunk;
 
 static void frame_done_thunk(void *data, void *callback, uint32_t serial) {
 	WlThunk *thunk = data;
+	if (atomic_exchange(&thunk->fired, 1))
+		return;
 	unsigned n = atomic_fetch_add(&framecb_events, 1);
 	uint64_t t = now_ns();
 	uint64_t prev = atomic_exchange(&framecb_last, t);
@@ -527,12 +540,17 @@ int wl_proxy_add_listener(void *proxy, void (**implementation)(void), void *data
 	const char *cls = get_class ? get_class(proxy) : NULL;
 	if (cls != NULL && (strcmp(cls, "wl_callback") == 0 || strcmp(cls, "wl_buffer") == 0)) {
 		int frame = strcmp(cls, "wl_callback") == 0;
-		if (!frame || frame_proxy_known(proxy)) {
+		uint32_t frame_surface = frame ? frame_proxy_take(proxy) : 0;
+		if (!frame || frame_surface != 0) {
 			// Lab tool: one small allocation per wrapped listener, never freed.
 			WlThunk *thunk = malloc(sizeof *thunk);
 			if (thunk != NULL) {
 				thunk->listener = (void **)implementation;
 				thunk->data = data;
+				thunk->proxy = proxy;
+				atomic_store(&thunk->fired, 0);
+				if (frame && cbturbo)
+					turbo_stash(frame_surface, thunk);
 				static void (*frame_thunk[1])(void);
 				static void (*release_thunk[1])(void);
 				frame_thunk[0] = (void (*)(void))frame_done_thunk;
@@ -766,6 +784,7 @@ static struct {
 	uint32_t surface_id;
 	uint32_t sync_surface_id;
 	void *sync_surface;
+	void *pending_thunk;
 	int armed;
 	int buffer_pending;
 } sync_surfaces[8];
@@ -829,6 +848,27 @@ static int sync_slot_for_id(uint32_t surface_id) {
 			return (int)i;
 	return -1;
 }
+
+static void turbo_stash(uint32_t surface_id, void *thunk) {
+	int slot = sync_slot_for_id(surface_id);
+	if (slot >= 0)
+		sync_surfaces[slot].pending_thunk = thunk;
+}
+
+static int turbo_fire(void *data) {
+	WlThunk *thunk = data;
+	if (!atomic_exchange(&thunk->fired, 1)) {
+		struct timespec t;
+		clock_gettime(CLOCK_MONOTONIC, &t);
+		unsigned n = atomic_fetch_add(&turbo_fires, 1);
+		if (n < 8 || n % 600 == 0)
+			note("cbturbo: early frame callback #%u", n);
+		((void (*)(void *, void *, uint32_t))thunk->listener[0])(thunk->data, thunk->proxy,
+			(uint32_t)(t.tv_sec * 1000 + t.tv_nsec / 1000000));
+	}
+	return 0;
+}
+
 
 static int sync_open_drm(void) {
 	if (sync_state.drm_fd >= 0)
@@ -932,6 +972,15 @@ static void sync_before_commit(void *surface) {
 	unsigned seen = atomic_fetch_add(&commits_seen, 1);
 	if (seen < 6)
 		note("syncpatch: commit on tracked surface (naked=%d, syncpatch=%d)", naked, syncpatch);
+	if (cbturbo && sync_surfaces[slot].pending_thunk != NULL) {
+		static unsigned (*timeout_add)(unsigned, int (*)(void *), void *);
+		if (!timeout_add)
+			timeout_add = resolve("g_timeout_add", "libglib-2.0.so.0");
+		if (timeout_add != NULL) {
+			timeout_add(2, turbo_fire, sync_surfaces[slot].pending_thunk);
+			sync_surfaces[slot].pending_thunk = NULL;
+		}
+	}
 	if (!naked || !syncpatch)
 		return;
 	if (!sync_setup())

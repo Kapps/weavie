@@ -31,12 +31,10 @@ command -v kwin_wayland >/dev/null 2>&1 && echo "  kwin: $(kwin_wayland --versio
 
 # THROTTLE_FPS=7 never divides a real rate, so WebKit rejects it and prints the rate it believes —
 # making every armed run self-report its nominal on stderr.
-names=(baseline trace fix fix-syncpatch fix-shm)
+names=(fix-syncpatch fix-turbo fix-shm)
 arms=(
-	""
-	"LD_PRELOAD=$SHIM"
-	"LD_PRELOAD=$SHIM VBLANK_SHIM_STEER=1 VBLANK_SHIM_FIX=1 $HZARG WEBKIT_DISPLAY_REFRESH_THROTTLE_FPS=7"
 	"LD_PRELOAD=$SHIM VBLANK_SHIM_STEER=1 VBLANK_SHIM_FIX=1 VBLANK_SHIM_SYNCPATCH=1 $HZARG WEBKIT_DISPLAY_REFRESH_THROTTLE_FPS=7"
+	"LD_PRELOAD=$SHIM VBLANK_SHIM_STEER=1 VBLANK_SHIM_FIX=1 VBLANK_SHIM_SYNCPATCH=1 VBLANK_SHIM_CBTURBO=1 $HZARG WEBKIT_DISPLAY_REFRESH_THROTTLE_FPS=7"
 	"LD_PRELOAD=$SHIM VBLANK_SHIM_STEER=1 VBLANK_SHIM_FIX=1 $HZARG WEBKIT_DISPLAY_REFRESH_THROTTLE_FPS=7 WEBKIT_DISABLE_DMABUF_RENDERER=1"
 )
 
@@ -76,7 +74,7 @@ for i in "${!names[@]}"; do
 	log="/tmp/refresh-lab-${names[$i]}.log"
 	echo "== ${names[$i]}"
 	# shellcheck disable=SC2086
-	if [ "${names[$i]}" = "fix" ]; then
+	if [ "${names[$i]}" = "__never__" ]; then
 		env ${arms[$i]} timeout 90 dotnet run tools/webkit-fps.cs >"$log" 2>&1 &
 		RUN=$!
 		tries=0
@@ -92,7 +90,7 @@ for i in "${!names[@]}"; do
 	fi
 	grep -E "^FPS" "$log" || echo "  (no FPS line — see $log)"
 	grep -m1 "rejected" "$log" | sed 's/^/  /'
-	grep -m8 -E "vblank-shim.*(syncpatch|steer|active|drmWaitVBlank #0|refresh_rate|emulation)" "$log" | sed 's/^/  /'
+	grep -m10 -E "vblank-shim.*(syncpatch|cbturbo|active)" "$log" | sed 's/^/  /'
 	grep -m10 -E "point [0-9]+ signaled" "$log" | sed 's/^/  /'
 	grep -m4 "summary:" "$log" | sed 's/^/  /'
 	grep -m3 "hist " "$log" | sed 's/^/  /'

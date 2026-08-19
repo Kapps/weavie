@@ -76,6 +76,12 @@ async function altClick(word: Locator): Promise<void> {
   await word.click({ modifiers: ["Alt"] });
 }
 
+// Flaked 2026-08-19 ~21:20 UTC, run 32302259233 (https://github.com/Kapps/weavie/actions/runs/32302259233/job/96228596384):
+// 60s timeout inside word.click(), same fingerprint as the wordToken 5px-viewport-clamp flake documented
+// in docs/specs/e2e-flake-analysis.md — the fourth occurrence despite that doc's existing wordToken guard.
+// No fresh diagnostic data was available (a separate CI bug was silently skipping the failure-trace
+// upload; fixed in e2e-platform.yml), so no test-code change is made here per that doc's "get the datum
+// first" policy — see the doc for the full history and what happens on the next occurrence.
 test("alt+click on a symbol opens the definition peek inline, and Escape closes it", async ({
   page,
 }) => {

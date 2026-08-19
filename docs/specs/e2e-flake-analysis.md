@@ -108,6 +108,24 @@ caller re-waits for layout for free instead of each test needing its own reasoni
 relaid-out since `openFile`. The multicursor test's standalone `awaitEditorLaidOut` call (added for the
 previous occurrence) was removed as redundant.
 
+**2026-08-19 fourth occurrence, ~21:20 UTC, run 32302259233:** hit again, same file, same helpers —
+`editor-peek-definition.spec.ts:79` ("alt+click on a symbol opens the definition peek inline, and Escape
+closes it", [job 96228596384](https://github.com/Kapps/weavie/actions/runs/32302259233/job/96228596384))
+— despite the `wordToken` guard from the previous occurrence already being in place. Same fingerprint:
+60s test timeout inside `word.click()`, surfaced as `Target page, context or browser has been closed`
+once the timeout tore the page down.
+
+No new datum this time either, but for a different reason than the 2026-07-23 gap this doc already
+complains about: **the "Upload e2e failure traces" step itself never fires.** Its `if:` was
+`steps.playwright.outcome == 'failure'` with no status-check function, which GitHub Actions silently
+ANDs with `success()` — always false once the Playwright step has already failed, so the step always
+shows `skipped` and `viewport-layout.json`/`console-errors.txt`/`weavie-host.log` never reach the
+artifact even when a shard goes red. Fixed in `e2e-platform.yml` to match the working `!cancelled()`
+guard already on the blob-report upload beside it. Per this doc's own guidance ("get the datum first"),
+no test-code change is made here on a fourth occurrence with no new evidence — that would be a guess.
+The next occurrence, if any, will finally have the forensics to confirm whether this is still the same
+transient collapse or something new.
+
 ## CONFIRMED + FIXED: #1 (S2-race) — a test walk-race, not a product bug
 
 **Symptom:** after a PR→PR→PR switch storm settling on #101 (files `feature.ts`, `hello.ts`),

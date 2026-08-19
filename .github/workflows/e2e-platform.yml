@@ -188,8 +188,13 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+      # Bug, 2026-08-19 ~21:17 UTC: https://github.com/Kapps/weavie/actions/runs/32302259233/job/96228596384
+      # This `if` had no status-check function, so GitHub Actions implicitly ANDs it with `success()` —
+      # which is always false once the prior step has already failed, so the condition never fires and
+      # failure diagnostics (viewport-layout.json, console-errors.txt, weavie-host.log) never get
+      # uploaded. Matches the working `!cancelled()` guard already used on the blob-report upload above.
       - name: Upload e2e failure traces
-        if: ${{ steps.playwright.outcome == 'failure' }}
+        if: ${{ !cancelled() && steps.playwright.outcome == 'failure' }}
         uses: actions/upload-artifact@v4
         with:
           name: e2e-traces-${{ inputs.platform }}-${{ matrix.shard }}-of-${{ matrix.shards }}

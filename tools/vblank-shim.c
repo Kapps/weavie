@@ -10,6 +10,8 @@
 #include <errno.h>
 #include <stdarg.h>
 #include <stdatomic.h>
+#include <fcntl.h>
+#include <poll.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -21,11 +23,13 @@
 typedef struct { unsigned type; unsigned sequence; unsigned long signal; } DrmVBlankReq;
 typedef struct { unsigned type; unsigned sequence; long tval_sec; long tval_usec; } DrmVBlankRep;
 
-static int enabled, fix_drm, force_drm, fix_timer, swap0, steer, hz_from_env;
+static int enabled, fix_drm, force_drm, fix_timer, swap0, steer, hz_from_env, fastfence;
 static double hz = 240.0;
 static _Atomic unsigned drm_calls, drm_fails, timer_hits, swap_calls;
 static _Atomic unsigned commit_calls, frame_reqs, attach_calls, shm_buffers, dmabuf_buffers, draw_calls;
-static _Atomic unsigned framecb_events, release_events;
+static _Atomic unsigned framecb_events, release_events, fence_dups, fence_signals;
+static _Atomic int fence_fd_ring[16];
+static _Atomic uint64_t fence_birth_ring[16];
 static _Atomic uint64_t commit_last, draw_last, framecb_last, release_last;
 // The last frame-callback proxies handed out by wl_surface.frame, so listener wrapping can tell a real
 // frame callback from a wl_display.sync roundtrip (both are wl_callback objects).
@@ -89,12 +93,13 @@ __attribute__((constructor)) static void shim_init(void) {
 	fix_timer = (e = getenv("VBLANK_SHIM_TIMERFIX")) && *e && strcmp(e, "0");
 	swap0 = (e = getenv("VBLANK_SHIM_SWAP0")) && *e && strcmp(e, "0");
 	steer = (e = getenv("VBLANK_SHIM_STEER")) && *e && strcmp(e, "0");
+	fastfence = (e = getenv("VBLANK_SHIM_FASTFENCE")) && *e && strcmp(e, "0");
 	if ((e = getenv("VBLANK_SHIM_HZ")) && atof(e) > 0) {
 		hz = atof(e);
 		hz_from_env = 1;
 	}
-	note("active in '%s' (fix_drm=%d force_drm=%d fix_timer=%d swap0=%d steer=%d hz=%.3f)",
-		comm, fix_drm, force_drm, fix_timer, swap0, steer, hz);
+	note("active in '%s' (fix_drm=%d force_drm=%d fix_timer=%d swap0=%d steer=%d fastfence=%d hz=%.3f)",
+		comm, fix_drm, force_drm, fix_timer, swap0, steer, fastfence, hz);
 }
 
 __attribute__((destructor)) static void shim_summary(void) {
@@ -108,6 +113,9 @@ __attribute__((destructor)) static void shim_summary(void) {
 	if (enabled && (framecb_events || release_events))
 		note("summary: frame callbacks delivered=%u, buffer releases delivered=%u",
 			(unsigned)framecb_events, (unsigned)release_events);
+	if (enabled && fence_dups)
+		note("summary: render fences created=%u, observed signals=%u",
+			(unsigned)fence_dups, (unsigned)fence_signals);
 }
 
 
@@ -422,7 +430,8 @@ static void frame_done_thunk(void *data, void *callback, uint32_t serial) {
 	uint64_t t = now_ns();
 	uint64_t prev = atomic_exchange(&framecb_last, t);
 	if (n < 12 || n % 240 == 0)
-		note("frame callback #%u dt=%.2fms", n, prev ? (double)(t - prev) / 1e6 : 0.0);
+		note("frame callback #%u dt=%.2fms latency-after-commit=%.2fms", n,
+			prev ? (double)(t - prev) / 1e6 : 0.0, (double)(t - atomic_load(&commit_last)) / 1e6);
 	((void (*)(void *, void *, uint32_t))thunk->listener[0])(thunk->data, callback, serial);
 }
 
@@ -432,7 +441,8 @@ static void buffer_release_thunk(void *data, void *buffer) {
 	uint64_t t = now_ns();
 	uint64_t prev = atomic_exchange(&release_last, t);
 	if (n < 12 || n % 240 == 0)
-		note("wl_buffer release #%u dt=%.2fms", n, prev ? (double)(t - prev) / 1e6 : 0.0);
+		note("wl_buffer release #%u dt=%.2fms latency-after-commit=%.2fms", n,
+			prev ? (double)(t - prev) / 1e6 : 0.0, (double)(t - atomic_load(&commit_last)) / 1e6);
 	((void (*)(void *, void *))thunk->listener[0])(thunk->data, buffer);
 }
 
@@ -465,6 +475,89 @@ int wl_proxy_add_listener(void *proxy, void (**implementation)(void), void *data
 		}
 	}
 	return real(proxy, implementation, data);
+}
+
+
+// ---- render fence: the UI process paints a dmabuf frame only after the web process's render fence
+// signals, so the fence's creation-to-signal latency is the last unmeasured edge of the 60Hz loop.
+// fastfence replaces it: glFinish (a short synchronous GPU wait) plus an already-readable pipe.
+
+static void (*glfinish_from_getproc)(void);
+static int (*dupfence_from_getproc)(void *, void *);
+
+static void fence_ring_add(int fd) {
+	uint64_t t = now_ns();
+	for (unsigned i = 0; i < 16; i++) {
+		int empty = -1;
+		if (atomic_compare_exchange_strong(&fence_fd_ring[i], &empty, fd)) {
+			fence_birth_ring[i] = t;
+			return;
+		}
+	}
+}
+
+static void fence_check_signal(int fd) {
+	for (unsigned i = 0; i < 16; i++) {
+		if (atomic_load(&fence_fd_ring[i]) == fd) {
+			unsigned n = atomic_fetch_add(&fence_signals, 1);
+			if (n < 12 || n % 240 == 0)
+				note("render fence fd=%d signaled after %.2fms", fd,
+					(double)(now_ns() - fence_birth_ring[i]) / 1e6);
+			atomic_store(&fence_fd_ring[i], -1);
+			return;
+		}
+	}
+}
+
+__attribute__((constructor)) static void fence_ring_init(void) {
+	for (unsigned i = 0; i < 16; i++)
+		atomic_store(&fence_fd_ring[i], -1);
+}
+
+int eglDupNativeFenceFDANDROID(void *dpy, void *sync) {
+	unsigned n = atomic_fetch_add(&fence_dups, 1);
+	if (fastfence) {
+		if (glfinish_from_getproc == NULL)
+			glfinish_from_getproc = (void (*)(void))resolve("glFinish", "libGLESv2.so.2");
+		if (glfinish_from_getproc == NULL)
+			glfinish_from_getproc = (void (*)(void))resolve("glFinish", "libGL.so.1");
+		int fds[2];
+		if (glfinish_from_getproc != NULL && pipe2(fds, O_CLOEXEC) == 0) {
+			uint64_t t0 = now_ns();
+			glfinish_from_getproc();
+			char byte = 1;
+			if (write(fds[1], &byte, 1) < 0) { /* readable either way once closed */ }
+			close(fds[1]);
+			if (n < 8 || n % 600 == 0)
+				note("fastfence #%u: glFinish took %.2fms -> pre-signaled pipe fd=%d",
+					n, (double)(now_ns() - t0) / 1e6, fds[0]);
+			return fds[0];
+		}
+	}
+	int (*real)(void *, void *) = dupfence_from_getproc;
+	if (real == NULL)
+		real = (int (*)(void *, void *))resolve("eglDupNativeFenceFDANDROID", "libEGL.so.1");
+	if (real == NULL)
+		return -1;
+	int fd = real(dpy, sync);
+	if (fd >= 0) {
+		fence_ring_add(fd);
+		if (n < 8 || n % 600 == 0)
+			note("render fence created fd=%d (#%u)", fd, n);
+	}
+	return fd;
+}
+
+int poll(struct pollfd *fds, nfds_t nfds, int timeout) {
+	static int (*real)(struct pollfd *, nfds_t, int);
+	if (!real)
+		real = resolve("poll", NULL);
+	int r = real(fds, nfds, timeout);
+	if (enabled && r > 0 && atomic_load(&fence_dups) > atomic_load(&fence_signals))
+		for (nfds_t i = 0; i < nfds; i++)
+			if (fds[i].revents & POLLIN)
+				fence_check_signal(fds[i].fd);
+	return r;
 }
 
 int drmWaitVBlank(int fd, void *vbl) {
@@ -605,6 +698,16 @@ void *eglGetProcAddress(const char *name) {
 		if (enabled)
 			note("eglGetProcAddress(eglSwapBuffers) -> interposed");
 		return (void *)eglSwapBuffers;
+	}
+	if (strcmp(name, "eglDupNativeFenceFDANDROID") == 0) {
+		dupfence_from_getproc = (int (*)(void *, void *))p;
+		if (enabled)
+			note("eglGetProcAddress(eglDupNativeFenceFDANDROID) -> interposed");
+		return (void *)eglDupNativeFenceFDANDROID;
+	}
+	if (strcmp(name, "glFinish") == 0) {
+		glfinish_from_getproc = (void (*)(void))p;
+		return p;
 	}
 	if (strcmp(name, "eglSwapInterval") == 0) {
 		interval_from_getproc = (unsigned int (*)(void *, int))p;

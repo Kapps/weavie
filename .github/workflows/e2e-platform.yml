@@ -137,10 +137,27 @@ jobs:
           key: playwright-${{ runner.os }}-${{ hashFiles('src/web/pnpm-lock.yaml') }}
           restore-keys: playwright-${{ runner.os }}-
 
+      # Hang, 2026-08-19 ~19:52 UTC: https://github.com/Kapps/weavie/actions/runs/32295180447 —
+      # 5/6 Linux shards stuck here for over an hour (job started 19:52, still not past this step
+      # at 20:53). `--with-deps` shells out to apt-get, which can stall indefinitely on a flaky
+      # archive mirror on hosted Ubuntu runners (known upstream: actions/runner-images#11347,
+      # microsoft/playwright#20665/#41133) — not caused by this repo's code. Bounding each attempt
+      # with `timeout` and retrying turns an indefinite hang into a bounded, self-healing failure.
       - name: Install Playwright Chromium (Linux)
         if: runner.os == 'Linux'
         working-directory: src/web
-        run: pnpm exec playwright install --with-deps chromium
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            if timeout 5m pnpm exec playwright install --with-deps chromium; then
+              break
+            fi
+            if [[ $attempt == 3 ]]; then
+              echo "playwright install --with-deps timed out after $attempt attempts" >&2
+              exit 1
+            fi
+            echo "playwright install --with-deps timed out (attempt $attempt), retrying..." >&2
+          done
 
       - name: Install Playwright Chromium (macOS / Windows)
         if: runner.os != 'Linux'

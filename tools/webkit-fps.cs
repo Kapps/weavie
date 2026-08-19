@@ -20,7 +20,7 @@ internal partial class WebKitFps {
 		<script>
 		const intervals = [];
 		let last = performance.now();
-		const end = last + 10000;
+		const end = last + 3000;
 		const box = document.getElementById('box');
 		const tick = (now) => {
 			intervals.push(now - last);
@@ -37,7 +37,7 @@ internal partial class WebKitFps {
 			const shape = [...counts.entries()]
 				.sort((a, b) => b[1] - a[1]).slice(0, 3)
 				.map(([ms, n]) => `${ms}ms x${n}`).join(", ");
-			document.title = `FPS ${intervals.length} frames in 10s = ${(intervals.length / 10).toFixed(1)} Hz`
+			document.title = `FPS ${intervals.length} frames in 3s = ${(intervals.length / 3).toFixed(1)} Hz`
 				+ ` | p50 ${sorted[sorted.length >> 1].toFixed(2)}ms | intervals: ${shape}`;
 		};
 		requestAnimationFrame(tick);
@@ -121,8 +121,7 @@ internal partial class WebKitFps {
 
 		Console.WriteLine($"PreferPageRenderingUpdatesNear60FPS: {(keep60 ? "left enabled" : "disabled (as Weavie does)")}"
 			+ $"   vblank timer forced: {Environment.GetEnvironmentVariable("WEBKIT_FORCE_VBLANK_TIMER") ?? "no"}");
-		Console.WriteLine("measuring for 10s — leave the window visible and unobstructed...");
-		Console.WriteLine("600 frames = a real 60Hz vsync; 625 = WebKit's hardcoded-60 timer (16ms sleep); 2400 = 240Hz.");
+		Console.WriteLine("measuring for 3s — leave the window visible and unobstructed...");
 
 		gtk_container_add(window, view);
 		webkit_web_view_load_html(view, Page, IntPtr.Zero);

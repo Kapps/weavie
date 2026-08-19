@@ -100,3 +100,96 @@ the app on this machine.
 Diagnostics retained in `Weavie.Mac`: `WEAVIE_DEBUG_PERFORMANCE=1` enables the latency HUD/meter (and
 gates the `WEAVIE_FPSPROBE=1` probe and `WEAVIE_AUTOBENCH=1` benchmark sub-flags); the app logs
 `NSScreen.maximumFramesPerSecond` at startup.
+
+## Linux (2026-08-18): WebKitGTK caps at 60Hz on a 240Hz panel
+
+The same question on `Weavie.Linux` (GTK3 + WebKitGTK 4.1), measured on an NVIDIA/Wayland box with a
+240Hz LG UltraGear. Flipping `PreferPageRenderingUpdatesNear60FPS` — the lever that solved macOS — is
+already done in `Weavie.Linux/Native/WebKit.cs` and changes nothing here.
+
+Each layer measured independently (`tools/` holds the probes):
+
+| layer | measured | verdict |
+|---|---|---|
+| panel / compositor / driver (Firefox `requestAnimationFrame`) | 721 frames/3s = **240Hz** | fine |
+| `gdk_monitor_get_refresh_rate` | **240.023 Hz** | fine |
+| DRM connector match (EDID size vs GDK's) | `card1-HDMI-A-1` 697x392mm, matches | fine |
+| **GTK3 frame clock** (`gtk-tick.cs`) | 708 ticks/3s = **236Hz**, p50 4.17ms | fine — not the ceiling |
+| GTK4 frame clock (`gtk4-tick.cs`) | 182 ticks/3s = **60.7Hz**, p50 16.67ms | a port to webkitgtk-6.0 would be *worse* |
+| **bare WebKitGTK window** (`webkit-fps.cs`) | 180 frames/3s = **exactly 60.0** | the cap |
+
+Conclusions:
+
+- **The cap is inside WebKitGTK, not Weavie.** A window containing nothing but a moving box measures
+  the same 60.0, and every surface the app renders inherits it.
+- **It is not the vblank monitor's pacing.** `WEBKIT_FORCE_VBLANK_TIMER=1` should free-run at 62.5fps
+  (the monitor's `sleep_for(milliseconds(1000 / 60))` — integer division, so 16ms, not 16.67ms) and on
+  the SHM path it does, giving 188 frames/3s. On the DMA-BUF path it still lands on exactly 180, so
+  something downstream imposes 60 regardless of the clock WebKit uses.
+- **GTK3 is not the ceiling and GTK4 is worse**, which removes the obvious "port the host" answer.
+  Measure before porting: GTK3's clock only falls back to its hardcoded 16667us when presentation
+  timings give it nothing, and here it gets them.
+- **NVIDIA explicit sync is forced off** by `LinuxGraphicsCompatibility` (WebKit bug 280210, still
+  NEW upstream, affecting 2.46 through 2.50.5). Without it a bare WebKitGTK window dies with
+  `Error 71 (Protocol error) dispatching to Wayland display`, so the implicit-sync path cannot be
+  A/B'd against explicit sync while that bug is open — it remains the prime suspect for the cap.
+
+Two further facts pin the mechanism (measured via `tools/vblank-shim.c` + `tools/refresh-lab.sh`):
+
+- The SHM run's 62.5Hz free-run (p50 16.00ms) is the fallback timer's cadence, so **WebKit's DRM vblank
+  monitor fails on that machine** even though the connector matches and both nodes open — the nominal rate
+  then comes from the timer's hardcoded 60, not from GDK's 240.
+- **Rendering updates follow the believed nominal rate, not the tick cadence**: pacing the fallback timer's
+  sleeps to a perfect 240Hz grid (2425 ticks/10s, verified) still measures 60.1Hz rAF. Speeding the pacer
+  is useless; the workaround must make the DRM monitor path *succeed*, because only that path carries GDK's
+  real rate as the nominal — `tools/vblank-shim.c` does so by emulating `drmWaitVBlank` on a precise grid
+  when the driver refuses the ioctl.
+
+### Root cause (2026-08-19): a 3mm EDID rounding disagreement
+
+The full-discovery trace (`tools/vblank-shim.c` interposing every libdrm call the monitor makes) caught it:
+
+```
+gdk_monitor_get_width_mm -> 697                                  (compositor: EDID detailed-timing mm)
+drmModeGetConnector(card1, 823) connection=1 ... mm=700x390      (kernel: EDID centimetre fields x10)
+```
+
+EDID stores the physical size twice — whole centimetres in the base block and exact millimetres in the
+detailed timing descriptor. The kernel populates the connector from the centimetre fields (700x390); the
+compositor hands GDK the detailed-timing values (697x392). `DisplayVBlankMonitorDRM::create()` matches
+connectors against the GDK size with **exact equality**, so the 3mm disagreement means no connector ever
+matches, create() fails, and WebKit silently runs its hardcoded-60 timer — the entire 60Hz cap. This will
+reproduce on any monitor whose true size is not a whole number of centimetres, i.e. almost all of them;
+it goes unnoticed upstream because `PreferPageRenderingUpdatesNear60FPS` defaults everyone to 60 anyway.
+
+The workaround (shim steer mode) patches connected connectors' mm fields to GDK's values (within a
+±10mm cm-rounding tolerance) at the moment of comparison; the monitor then constructs with GDK's real
+refresh rate as its nominal, and the wait either uses real vblanks or the shim's emulated grid.
+
+### The cap follows the accelerated buffer path, not the toolkit
+
+Extending the measurement to GTK4's renderers and WebKit's GTK4 build (same machine):
+
+| path | measured |
+|---|---|
+| GTK4 frame clock, `GSK_RENDERER=cairo` (software) | 695 ticks/3s = **231.7Hz** |
+| GTK4 frame clock, `GSK_RENDERER=gl` / `ngl` | 173-180 ticks/3s = **60Hz** |
+| GTK4 frame clock, `GSK_RENDERER=vulkan` | `Error 71 (Protocol error)` |
+| webkitgtk-6.0 (GTK4), default renderer | `Error 71 (Protocol error)` — GTK4 defaults to Vulkan |
+| webkitgtk-6.0 (GTK4), `GSK_RENDERER=gl` | 189 frames/3s = **62.5Hz**, p50 16.00ms |
+| webkitgtk-6.0 (GTK4), `GSK_RENDERER=cairo` | 189 frames/3s = **62.5Hz**, p50 16.00ms |
+
+So the split is not GTK3 against GTK4: on this NVIDIA/Wayland box every **software** buffer path reaches
+the panel's rate (GTK4 cairo 231.7Hz, WebKit's SHM renderer free-running at its 62.5Hz timer) while every
+**accelerated** one lands on exactly 60. Mesa also logs `failed to create dri2 screen` for `10de:2684`
+under GTK4, so its GL renderers are not on a healthy path to begin with.
+
+That closes the port question. webkitgtk-6.0 runs once GTK4's default Vulkan renderer is replaced (that
+renderer hits the same protocol bug on its own, with no WebKit involved), and it then measures 62.5Hz on
+both `gl` and `cairo` — a p50 of exactly 16.00ms, which is the vblank monitor's `1000 / 60` integer-millisecond
+timer, not a display rate. So **WebKit's GTK4 build never receives vblanks here at all**, and no WebKit
+configuration on this machine exceeds ~63Hz while the toolkit beneath it reaches 231-236Hz.
+
+Caveat on the GTK3 reading above: that probe ticks a `GtkDrawingArea` with no draw handler, so its 236Hz
+clock does not prove GTK3 is presenting accelerated frames at that rate — only that its clock is not the
+thing imposing 60.

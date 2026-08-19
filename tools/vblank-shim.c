@@ -771,6 +771,24 @@ static struct {
 } sync_surfaces[8];
 
 static uint32_t (*real_proxy_id)(void *);
+
+// egl-wayland's imported timelines, mirrored as our own syncobj handles so the emulated-vblank thread can
+// query exactly when each acquire point (an NVIDIA GPU fence) and release point (KWin's done-signal)
+// materialises — separating a late-signaling driver fence from a late-scheduling compositor.
+static struct {
+	uint32_t proxy_id;
+	uint32_t handle;
+} watched_timelines[4];
+static struct {
+	uint32_t timeline_id;
+	uint64_t point;
+	uint64_t set_ns;
+	int is_acquire;
+} pending_points[32];
+static _Atomic unsigned pending_next;
+static int (*drm_syncobj_query)(int, uint32_t *, uint64_t *, uint32_t);
+static int pending_fd_to_import = -1;
+
 static _Atomic uint32_t shm_buffer_ids[32];
 static _Atomic unsigned shm_buffer_next;
 
@@ -812,6 +830,27 @@ static int sync_slot_for_id(uint32_t surface_id) {
 	return -1;
 }
 
+static int sync_open_drm(void) {
+	if (sync_state.drm_fd >= 0)
+		return 1;
+	static const char *nodes[] = { "/dev/dri/renderD128", "/dev/dri/renderD129", "/dev/dri/card1", "/dev/dri/card0" };
+	void *libdrm = dlopen("libdrm.so.2", RTLD_LAZY | RTLD_LOCAL);
+	int (*syncobj_create)(int, uint32_t, uint32_t *) = libdrm ? dlsym(libdrm, "drmSyncobjCreate") : NULL;
+	if (syncobj_create == NULL)
+		return 0;
+	for (unsigned i = 0; i < sizeof nodes / sizeof nodes[0]; i++) {
+		int fd = open(nodes[i], O_RDWR | O_CLOEXEC);
+		uint32_t probe = 0;
+		if (fd >= 0 && syncobj_create(fd, 0, &probe) == 0) {
+			sync_state.drm_fd = fd;
+			return 1;
+		}
+		if (fd >= 0)
+			close(fd);
+	}
+	return 0;
+}
+
 static void *sync_import_timeline(int (*syncobj_create)(int, uint32_t, uint32_t *),
 	int (*syncobj_to_fd)(int, uint32_t, int *), uint32_t *handle_out) {
 	uint32_t handle = 0;
@@ -841,7 +880,6 @@ static int sync_setup(void) {
 		note("syncpatch: bail — manager=%p marshal_flags=%p", sync_manager_proxy, (void *)real_marshal_flags);
 		return 0;
 	}
-	static const char *nodes[] = { "/dev/dri/renderD128", "/dev/dri/renderD129", "/dev/dri/card1", "/dev/dri/card0" };
 	void *libdrm = dlopen("libdrm.so.2", RTLD_LAZY | RTLD_LOCAL);
 	int (*syncobj_create)(int, uint32_t, uint32_t *) = libdrm ? dlsym(libdrm, "drmSyncobjCreate") : NULL;
 	int (*syncobj_to_fd)(int, uint32_t, int *) = libdrm ? dlsym(libdrm, "drmSyncobjHandleToFD") : NULL;
@@ -850,15 +888,7 @@ static int sync_setup(void) {
 		note("syncpatch: bail — libdrm syncobj symbols missing");
 		return 0;
 	}
-	for (unsigned i = 0; i < sizeof nodes / sizeof nodes[0] && sync_state.drm_fd < 0; i++) {
-		int fd = open(nodes[i], O_RDWR | O_CLOEXEC);
-		uint32_t probe = 0;
-		if (fd >= 0 && syncobj_create(fd, 0, &probe) == 0)
-			sync_state.drm_fd = fd;
-		else if (fd >= 0)
-			close(fd);
-	}
-	if (sync_state.drm_fd < 0) {
+	if (!sync_open_drm()) {
 		sync_state.failed = 1;
 		note("syncpatch: bail — no DRM node accepted a syncobj");
 		return 0;
@@ -931,6 +961,8 @@ static int sync_observe(void *proxy, uint32_t opcode, void *args, const char *cl
 		return 0;
 	if (strcmp(cls, sync_manager_name) == 0) {
 		sync_manager_proxy = proxy;
+		if (opcode == 2 && args != NULL && syncpatch)
+			pending_fd_to_import = ((WlArg *)args)[1].h;
 		return 0;
 	}
 	if (strcmp(cls, sync_surface_name) == 0) {
@@ -942,6 +974,14 @@ static int sync_observe(void *proxy, uint32_t opcode, void *args, const char *cl
 				else if (opcode == 0)
 					sync_surfaces[i].sync_surface = NULL;
 			}
+		if (syncpatch && (opcode == 1 || opcode == 2) && args != NULL) {
+			WlArg *point_args = (WlArg *)args;
+			unsigned slot = atomic_fetch_add(&pending_next, 1) % 32;
+			pending_points[slot].timeline_id = wl_id(point_args[0].o);
+			pending_points[slot].point = ((uint64_t)point_args[1].u << 32) | point_args[2].u;
+			pending_points[slot].set_ns = now_ns();
+			pending_points[slot].is_acquire = opcode == 1;
+		}
 		return 0;
 	}
 	if (strcmp(cls, "wl_surface") == 0) {
@@ -972,6 +1012,29 @@ static void sync_observe_created(void *proxy, uint32_t opcode, void *args, void 
 		return;
 	if (strcmp(cls, "wl_shm_pool") == 0 && opcode == 0) {
 		shm_buffer_add(wl_id(created));
+		return;
+	}
+	if (strcmp(cls, sync_manager_name) == 0 && opcode == 2 && pending_fd_to_import >= 0) {
+		int fd = pending_fd_to_import;
+		pending_fd_to_import = -1;
+		if (sync_open_drm()) {
+			static int (*fd_to_handle)(int, int, uint32_t *);
+			if (!fd_to_handle) {
+				void *libdrm = dlopen("libdrm.so.2", RTLD_LAZY | RTLD_LOCAL);
+				fd_to_handle = libdrm ? dlsym(libdrm, "drmSyncobjFDToHandle") : NULL;
+				drm_syncobj_query = libdrm ? dlsym(libdrm, "drmSyncobjQuery") : NULL;
+			}
+			uint32_t handle = 0;
+			if (fd_to_handle != NULL && fd_to_handle(sync_state.drm_fd, fd, &handle) == 0)
+				for (unsigned i = 0; i < 4; i++)
+					if (watched_timelines[i].proxy_id == 0) {
+						watched_timelines[i].proxy_id = wl_id(created);
+						watched_timelines[i].handle = handle;
+						note("syncpatch: watching egl-wayland timeline #%u (syncobj handle %u)",
+							watched_timelines[i].proxy_id, handle);
+						break;
+					}
+		}
 		return;
 	}
 	if (strcmp(cls, sync_manager_name) == 0 && opcode == 1) {
@@ -1016,6 +1079,30 @@ int drmWaitVBlank(int fd, void *vbl) {
 		return r;
 	}
 	sleep_to_grid();
+	if (syncpatch && drm_syncobj_query != NULL && sync_state.drm_fd >= 0) {
+		uint64_t t = now_ns();
+		for (unsigned i = 0; i < 32; i++) {
+			if (pending_points[i].timeline_id == 0)
+				continue;
+			for (unsigned w = 0; w < 4; w++) {
+				if (watched_timelines[w].proxy_id != pending_points[i].timeline_id)
+					continue;
+				uint32_t handle = watched_timelines[w].handle;
+				uint64_t value = 0;
+				if (drm_syncobj_query(sync_state.drm_fd, &handle, &value, 1) == 0
+					&& value >= pending_points[i].point) {
+					static _Atomic unsigned observed;
+					unsigned n = atomic_fetch_add(&observed, 1);
+					if (n < 16 || n % 240 == 0)
+						note("%s point %llu signaled %.2fms after set",
+							pending_points[i].is_acquire ? "acquire" : "release",
+							(unsigned long long)pending_points[i].point,
+							(double)(t - pending_points[i].set_ns) / 1e6);
+					pending_points[i].timeline_id = 0;
+				}
+			}
+		}
+	}
 	static _Atomic unsigned seq;
 	uint64_t t = now_ns();
 	DrmVBlankRep *rep = vbl;

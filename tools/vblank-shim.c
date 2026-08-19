@@ -29,6 +29,9 @@ static _Atomic unsigned drm_calls, drm_fails, timer_hits, swap_calls;
 static _Atomic unsigned commit_calls, frame_reqs, attach_calls, shm_buffers, dmabuf_buffers, draw_calls;
 static _Atomic unsigned framecb_events, release_events, fence_dups, fence_signals;
 static _Atomic unsigned flush_calls, clientwait_calls;
+// Steady-state distributions for the three edges of the present loop: how often the surface commits, how
+// fast the compositor answers a commit, and how long the client then sits before committing again.
+static _Atomic unsigned hist_commit[6], hist_cb_latency[6], hist_commit_after_cb[6];
 static _Atomic int fence_fd_ring[16];
 static _Atomic uint64_t fence_birth_ring[16];
 static _Atomic uint64_t commit_last, draw_last, framecb_last, release_last;
@@ -49,6 +52,20 @@ static int frame_proxy_known(void *proxy) {
 }
 static _Atomic int swap0_done;
 static _Atomic uint64_t grid_next, swap_last;
+
+static void note(const char *fmt, ...);
+
+static void bucket(_Atomic unsigned *hist, uint64_t ns) {
+	double ms = (double)ns / 1e6;
+	int i = ms < 2 ? 0 : ms < 6 ? 1 : ms < 10 ? 2 : ms < 14 ? 3 : ms < 18 ? 4 : 5;
+	atomic_fetch_add(&hist[i], 1);
+}
+
+static void hist_note(const char *name, _Atomic unsigned *hist) {
+	note("hist %-18s <2ms:%-4u 2-6:%-4u 6-10:%-4u 10-14:%-4u 14-18:%-4u >=18:%u", name,
+		(unsigned)hist[0], (unsigned)hist[1], (unsigned)hist[2],
+		(unsigned)hist[3], (unsigned)hist[4], (unsigned)hist[5]);
+}
 
 static uint64_t now_ns(void) {
 	struct timespec t;
@@ -114,6 +131,11 @@ __attribute__((destructor)) static void shim_summary(void) {
 	if (enabled && (framecb_events || release_events))
 		note("summary: frame callbacks delivered=%u, buffer releases delivered=%u",
 			(unsigned)framecb_events, (unsigned)release_events);
+	if (enabled && commit_calls > 30) {
+		hist_note("commit-interval", hist_commit);
+		hist_note("cb-after-commit", hist_cb_latency);
+		hist_note("commit-after-cb", hist_commit_after_cb);
+	}
 	if (enabled && (fence_dups || flush_calls || clientwait_calls))
 		note("summary: sync_file exports=%u, observed signals=%u, glFlush=%u, eglClientWaitSync=%u",
 			(unsigned)fence_dups, (unsigned)fence_signals,
@@ -355,6 +377,11 @@ static void wl_track(void *proxy, uint32_t opcode) {
 			unsigned n = atomic_fetch_add(&commit_calls, 1);
 			uint64_t t = now_ns();
 			uint64_t prev = atomic_exchange(&commit_last, t);
+			if (prev != 0)
+				bucket(hist_commit, t - prev);
+			uint64_t cb = atomic_load(&framecb_last);
+			if (cb != 0 && t > cb)
+				bucket(hist_commit_after_cb, t - cb);
 			if (n < 12 || n % 240 == 0)
 				note("wl_surface.commit #%u dt=%.2fms", n, prev ? (double)(t - prev) / 1e6 : 0.0);
 		} else if (opcode == 3) {
@@ -431,9 +458,12 @@ static void frame_done_thunk(void *data, void *callback, uint32_t serial) {
 	unsigned n = atomic_fetch_add(&framecb_events, 1);
 	uint64_t t = now_ns();
 	uint64_t prev = atomic_exchange(&framecb_last, t);
+	uint64_t commit = atomic_load(&commit_last);
+	if (commit != 0 && t > commit)
+		bucket(hist_cb_latency, t - commit);
 	if (n < 12 || n % 240 == 0)
 		note("frame callback #%u dt=%.2fms latency-after-commit=%.2fms", n,
-			prev ? (double)(t - prev) / 1e6 : 0.0, (double)(t - atomic_load(&commit_last)) / 1e6);
+			prev ? (double)(t - prev) / 1e6 : 0.0, (double)(t - commit) / 1e6);
 	((void (*)(void *, void *, uint32_t))thunk->listener[0])(thunk->data, callback, serial);
 }
 

@@ -28,6 +28,7 @@ static double hz = 240.0;
 static _Atomic unsigned drm_calls, drm_fails, timer_hits, swap_calls;
 static _Atomic unsigned commit_calls, frame_reqs, attach_calls, shm_buffers, dmabuf_buffers, draw_calls;
 static _Atomic unsigned framecb_events, release_events, fence_dups, fence_signals;
+static _Atomic unsigned flush_calls, clientwait_calls;
 static _Atomic int fence_fd_ring[16];
 static _Atomic uint64_t fence_birth_ring[16];
 static _Atomic uint64_t commit_last, draw_last, framecb_last, release_last;
@@ -113,9 +114,10 @@ __attribute__((destructor)) static void shim_summary(void) {
 	if (enabled && (framecb_events || release_events))
 		note("summary: frame callbacks delivered=%u, buffer releases delivered=%u",
 			(unsigned)framecb_events, (unsigned)release_events);
-	if (enabled && fence_dups)
-		note("summary: render fences created=%u, observed signals=%u",
-			(unsigned)fence_dups, (unsigned)fence_signals);
+	if (enabled && (fence_dups || flush_calls || clientwait_calls))
+		note("summary: sync_file exports=%u, observed signals=%u, glFlush=%u, eglClientWaitSync=%u",
+			(unsigned)fence_dups, (unsigned)fence_signals,
+			(unsigned)flush_calls, (unsigned)clientwait_calls);
 }
 
 
@@ -560,6 +562,99 @@ int poll(struct pollfd *fds, nfds_t nfds, int timeout) {
 	return r;
 }
 
+
+// ---- kernel-level implicit sync: no EGL fence is ever created, so the only remaining fence carriers are
+// the dma-buf sync_file ioctls and blocking inside GL itself. fastfence here swaps the exported sync fd
+// for an already-readable pipe — implicit sync still serialises the actual GPU accesses.
+
+#define DMABUF_EXPORT_SYNC_FILE 0xc0086202u
+#define DMABUF_IMPORT_SYNC_FILE 0x40086203u
+
+int ioctl(int fd, unsigned long request, ...) {
+	static int (*real)(int, unsigned long, void *);
+	va_list ap;
+	va_start(ap, request);
+	void *arg = va_arg(ap, void *);
+	va_end(ap);
+	if (!real)
+		real = resolve("ioctl", NULL);
+	int r = real(fd, request, arg);
+	if (!enabled || r != 0 || arg == NULL)
+		return r;
+	if ((unsigned)request == DMABUF_EXPORT_SYNC_FILE) {
+		int *sync_fd = &((int32_t *)arg)[1];
+		unsigned n = atomic_fetch_add(&fence_dups, 1);
+		if (fastfence) {
+			int fds[2];
+			if (pipe2(fds, O_CLOEXEC) == 0) {
+				char byte = 1;
+				if (write(fds[1], &byte, 1) < 0) { /* readable either way once closed */ }
+				close(fds[1]);
+				close(*sync_fd);
+				*sync_fd = fds[0];
+				if (n < 8 || n % 600 == 0)
+					note("fastfence: export_sync_file #%u -> pre-signaled pipe fd=%d", n, fds[0]);
+				return 0;
+			}
+		}
+		fence_ring_add(*sync_fd);
+		if (n < 8 || n % 600 == 0)
+			note("dmabuf export_sync_file -> fd=%d (#%u)", *sync_fd, n);
+	} else if ((unsigned)request == DMABUF_IMPORT_SYNC_FILE) {
+		static _Atomic unsigned imports;
+		unsigned n = atomic_fetch_add(&imports, 1);
+		if (n < 8 || n % 600 == 0)
+			note("dmabuf import_sync_file (#%u)", n);
+	}
+	return r;
+}
+
+// Blocking inside GL is the other hiding place: an implicit-sync stall surfaces as a slow flush or wait.
+static void (*glflush_from_getproc)(void);
+
+void glFlush(void) {
+	static void (*real)(void);
+	if (!real) {
+		real = glflush_from_getproc;
+		if (!real)
+			real = (void (*)(void))resolve("glFlush", "libGLESv2.so.2");
+		if (!real)
+			real = (void (*)(void))resolve("glFlush", "libGL.so.1");
+	}
+	if (!real)
+		return;
+	if (!enabled) {
+		real();
+		return;
+	}
+	unsigned n = atomic_fetch_add(&flush_calls, 1);
+	uint64_t t0 = now_ns();
+	real();
+	uint64_t took = now_ns() - t0;
+	if (took > 2000000 || n < 4 || n % 600 == 0)
+		note("glFlush #%u took=%.2fms", n, (double)took / 1e6);
+}
+
+static int (*clientwait_from_getproc)(void *, void *, int, uint64_t);
+
+int eglClientWaitSyncKHR(void *dpy, void *sync, int flags, uint64_t timeout) {
+	static int (*real)(void *, void *, int, uint64_t);
+	if (!real) {
+		real = clientwait_from_getproc;
+		if (!real)
+			real = (int (*)(void *, void *, int, uint64_t))resolve("eglClientWaitSyncKHR", "libEGL.so.1");
+	}
+	if (!real)
+		return 0;
+	unsigned n = atomic_fetch_add(&clientwait_calls, 1);
+	uint64_t t0 = now_ns();
+	int r = real(dpy, sync, flags, timeout);
+	uint64_t took = now_ns() - t0;
+	if (enabled && (took > 2000000 || n < 4 || n % 600 == 0))
+		note("eglClientWaitSync #%u took=%.2fms -> %d", n, (double)took / 1e6, r);
+	return r;
+}
+
 int drmWaitVBlank(int fd, void *vbl) {
 	static int (*real)(int, void *);
 	if (!real)
@@ -708,6 +803,14 @@ void *eglGetProcAddress(const char *name) {
 	if (strcmp(name, "glFinish") == 0) {
 		glfinish_from_getproc = (void (*)(void))p;
 		return p;
+	}
+	if (strcmp(name, "glFlush") == 0) {
+		glflush_from_getproc = (void (*)(void))p;
+		return (void *)glFlush;
+	}
+	if (strcmp(name, "eglClientWaitSyncKHR") == 0 || strcmp(name, "eglClientWaitSync") == 0) {
+		clientwait_from_getproc = (int (*)(void *, void *, int, uint64_t))p;
+		return (void *)eglClientWaitSyncKHR;
 	}
 	if (strcmp(name, "eglSwapInterval") == 0) {
 		interval_from_getproc = (unsigned int (*)(void *, int))p;

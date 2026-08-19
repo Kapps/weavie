@@ -115,16 +115,31 @@ closes it", [job 96228596384](https://github.com/Kapps/weavie/actions/runs/32302
 60s test timeout inside `word.click()`, surfaced as `Target page, context or browser has been closed`
 once the timeout tore the page down.
 
-No new datum this time either, but for a different reason than the 2026-07-23 gap this doc already
-complains about: **the "Upload e2e failure traces" step itself never fires.** Its `if:` was
+No new datum this time, but for a different reason than the 2026-07-23 gap this doc already complains
+about: **the "Upload e2e failure traces" step itself never fires.** Its `if:` was
 `steps.playwright.outcome == 'failure'` with no status-check function, which GitHub Actions silently
 ANDs with `success()` — always false once the Playwright step has already failed, so the step always
 shows `skipped` and `viewport-layout.json`/`console-errors.txt`/`weavie-host.log` never reach the
 artifact even when a shard goes red. Fixed in `e2e-platform.yml` to match the working `!cancelled()`
-guard already on the blob-report upload beside it. Per this doc's own guidance ("get the datum first"),
-no test-code change is made here on a fourth occurrence with no new evidence — that would be a guess.
-The next occurrence, if any, will finally have the forensics to confirm whether this is still the same
-transient collapse or something new.
+guard already on the blob-report upload beside it.
+
+**2026-08-19 fifth occurrence, ~22:01 UTC, run 32305865719:** hit again within the same hour, same
+file, a *different* test — `editor-peek-definition.spec.ts:101` ("Alt+F12 peeks the definition of the
+symbol at the cursor", [job 96239656621](https://github.com/Kapps/weavie/actions/runs/32305865719/job/96239656621)).
+With the trace-upload fix above now landed, this occurrence finally has the datum the fourth one
+lacked: `viewport-layout.json` reads `.editor`/`.monaco` healthy at `742×709` (`monacoViewportHeight:
+709`) with `modelLineCount: 7`, but `renderedLines: [""]` — one empty line, the exact 5px-clamp
+signature from the confirmed root cause above — and `console-errors.txt` is `(none)`. This **confirms**
+the fourth occurrence was the same collapse, not a new failure mode; the `wordToken` guard (applied
+after the third occurrence) demonstrably doesn't eliminate it, only reduces its frequency. Two
+occurrences in one PR's CI (unrelated to that PR's diff) is denser than this flake's historical rate —
+plausibly a rougher day for the hosted Windows fleet, not a new defect.
+
+No test-code change is made here either: per this doc's own confirmed-root-cause section, the actual
+fix is an explicit Monaco `layout()` call forced when a collapse is detected, and that still wants the
+datum this doc's TODO already names (a controlled repro forcing the 0-height case, not just another
+transient-collapse attachment) before landing — a guess at the trigger would just be a sixth attempt at
+the same shape of patch. Filed as-is for the next agent with real repro capability.
 
 ## CONFIRMED + FIXED: #1 (S2-race) — a test walk-race, not a product bug
 

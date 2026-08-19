@@ -144,6 +144,7 @@ typedef struct {
 typedef struct { uint32_t encoder_id, encoder_type, crtc_id, possible_crtcs, possible_clones; } DrmModeEncoder;
 
 static _Atomic uint32_t steer_crtc;
+static _Atomic int gdk_w_mm, gdk_h_mm;
 
 static void fd_path(int fd, char *buf, size_t n) {
 	char link[64];
@@ -206,6 +207,19 @@ void *drmModeGetConnector(int fd, uint32_t connector_id) {
 		} else {
 			note("drmModeGetConnector(fd=%d id=%u) connection=%d encoder_id=%u mm=%ux%u encoders=%d",
 				fd, connector_id, c->connection, c->encoder_id, c->mm_width, c->mm_height, c->count_encoders);
+			if (steer && c->connection == 1) {
+				int gw = atomic_load(&gdk_w_mm);
+				int gh = atomic_load(&gdk_h_mm);
+				int dw = (int)c->mm_width - gw;
+				int dh = (int)c->mm_height - gh;
+				// cm-quantisation error is bounded by +-5mm per axis; anything further apart is a different monitor.
+				if (gw > 0 && gh > 0 && (dw != 0 || dh != 0) && dw >= -10 && dw <= 10 && dh >= -10 && dh <= 10) {
+					note("  steer: kernel mm %ux%u (EDID cm-fields x10) != gdk %dx%d (compositor's detailed-timing mm)"
+						" -> reporting gdk's so WebKit's exact match succeeds", c->mm_width, c->mm_height, gw, gh);
+					c->mm_width = (uint32_t)gw;
+					c->mm_height = (uint32_t)gh;
+				}
+			}
 			if (steer && c->connection == 1 && c->encoder_id == 0 && c->count_encoders > 0 && c->encoders) {
 				c->encoder_id = c->encoders[0];
 				note("  steer: connected but encoder_id=0 -> using encoder %u", c->encoder_id);
@@ -245,8 +259,20 @@ int gdk_monitor_get_width_mm(void *monitor) {
 	if (real == NULL)
 		return 0;
 	int mm = real(monitor);
+	atomic_store(&gdk_w_mm, mm);
 	if (enabled && atomic_fetch_add(&seen, 1) < 4)
 		note("gdk_monitor_get_width_mm -> %d (screen lookup succeeded; discovery is running)", mm);
+	return mm;
+}
+
+int gdk_monitor_get_height_mm(void *monitor) {
+	static int (*real)(void *);
+	if (!real)
+		real = resolve("gdk_monitor_get_height_mm", "libgdk-3.so.0");
+	if (real == NULL)
+		return 0;
+	int mm = real(monitor);
+	atomic_store(&gdk_h_mm, mm);
 	return mm;
 }
 

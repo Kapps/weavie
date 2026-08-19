@@ -145,6 +145,27 @@ Two further facts pin the mechanism (measured via `tools/vblank-shim.c` + `tools
   real rate as the nominal — `tools/vblank-shim.c` does so by emulating `drmWaitVBlank` on a precise grid
   when the driver refuses the ioctl.
 
+### Root cause (2026-08-19): a 3mm EDID rounding disagreement
+
+The full-discovery trace (`tools/vblank-shim.c` interposing every libdrm call the monitor makes) caught it:
+
+```
+gdk_monitor_get_width_mm -> 697                                  (compositor: EDID detailed-timing mm)
+drmModeGetConnector(card1, 823) connection=1 ... mm=700x390      (kernel: EDID centimetre fields x10)
+```
+
+EDID stores the physical size twice — whole centimetres in the base block and exact millimetres in the
+detailed timing descriptor. The kernel populates the connector from the centimetre fields (700x390); the
+compositor hands GDK the detailed-timing values (697x392). `DisplayVBlankMonitorDRM::create()` matches
+connectors against the GDK size with **exact equality**, so the 3mm disagreement means no connector ever
+matches, create() fails, and WebKit silently runs its hardcoded-60 timer — the entire 60Hz cap. This will
+reproduce on any monitor whose true size is not a whole number of centimetres, i.e. almost all of them;
+it goes unnoticed upstream because `PreferPageRenderingUpdatesNear60FPS` defaults everyone to 60 anyway.
+
+The workaround (shim steer mode) patches connected connectors' mm fields to GDK's values (within a
+±10mm cm-rounding tolerance) at the moment of comparison; the monitor then constructs with GDK's real
+refresh rate as its nominal, and the wait either uses real vblanks or the shim's emulated grid.
+
 ### The cap follows the accelerated buffer path, not the toolkit
 
 Extending the measurement to GTK4's renderers and WebKit's GTK4 build (same machine):

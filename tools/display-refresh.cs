@@ -112,15 +112,21 @@ internal partial class DisplayRefresh {
 	}
 
 	// EDID carries the physical size twice: whole centimetres in the basic block, and millimetres in the first
-	// detailed timing descriptor. The kernel prefers the detailed one, so read that and fall back to cm.
+	// detailed timing descriptor. The kernel exposes the centimetre fields x10 on the connector (proven by a
+	// drmModeGetConnector trace: 700x390 against the compositor's detailed-timing 697x392), so compare those —
+	// WebKit's connector match is exact equality against GDK, and that off-by-rounding is the whole failure.
 	private static (int Width, int Height) EdidSizeMm(byte[] edid) {
 		if (edid.Length < 128) {
 			return (0, 0);
 		}
 
+		if (edid[21] > 0 && edid[22] > 0) {
+			return (edid[21] * 10, edid[22] * 10);
+		}
+
 		const int detailed = 54;
 		int width = ((edid[detailed + 14] >> 4) << 8) | edid[detailed + 12];
 		int height = ((edid[detailed + 14] & 0x0F) << 8) | edid[detailed + 13];
-		return width > 0 && height > 0 ? (width, height) : (edid[21] * 10, edid[22] * 10);
+		return (width, height);
 	}
 }

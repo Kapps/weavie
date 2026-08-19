@@ -32,11 +32,11 @@ static _Atomic unsigned flush_calls, clientwait_calls;
 // Steady-state distributions for the three edges of the present loop: how often the surface commits, how
 // fast the compositor answers a commit, and how long the client then sits before committing again.
 static _Atomic unsigned hist_commit[6], hist_cb_latency[6], hist_commit_after_cb[6];
-static _Atomic unsigned sync_injected;
+static _Atomic unsigned sync_injected, sync_dropped;
 static void *(*real_marshal_flags)(void *, uint32_t, const void *, uint32_t, uint32_t, void *);
 static void (*real_marshal_array_fn)(void *, uint32_t, void *);
 static uint32_t (*real_proxy_version)(void *);
-static void sync_observe(void *proxy, uint32_t opcode, void *args, const char *cls);
+static int sync_observe(void *proxy, uint32_t opcode, void *args, const char *cls);
 static void sync_observe_created(void *proxy, uint32_t opcode, void *args, void *created, const char *cls);
 static _Atomic int fence_fd_ring[16];
 static _Atomic uint64_t fence_birth_ring[16];
@@ -147,8 +147,9 @@ __attribute__((destructor)) static void shim_summary(void) {
 		hist_note("cb-after-commit", hist_cb_latency);
 		hist_note("commit-after-cb", hist_commit_after_cb);
 	}
-	if (enabled && sync_injected)
-		note("summary: syncpatch armed %u naked commits", (unsigned)sync_injected);
+	if (enabled && (sync_injected || sync_dropped))
+		note("summary: syncpatch armed %u naked commits, dropped %u SHM attaches",
+			(unsigned)sync_injected, (unsigned)sync_dropped);
 	if (enabled && (fence_dups || flush_calls || clientwait_calls))
 		note("summary: sync_file exports=%u, observed signals=%u, glFlush=%u, eglClientWaitSync=%u",
 			(unsigned)fence_dups, (unsigned)fence_signals,
@@ -381,13 +382,14 @@ static const char *wl_cls(void *proxy) {
 	return get_class ? get_class(proxy) : NULL;
 }
 
-static void wl_track(void *proxy, uint32_t opcode, void *args) {
+static int wl_track(void *proxy, uint32_t opcode, void *args) {
 	if (!enabled)
-		return;
+		return 0;
 	const char *cls = wl_cls(proxy);
 	if (cls == NULL)
-		return;
-	sync_observe(proxy, opcode, args, cls);
+		return 0;
+	if (sync_observe(proxy, opcode, args, cls))
+		return 1;
 	if (strcmp(cls, "wl_surface") == 0) {
 		if (opcode == 6) {
 			unsigned n = atomic_fetch_add(&commit_calls, 1);
@@ -405,11 +407,13 @@ static void wl_track(void *proxy, uint32_t opcode, void *args) {
 		} else if (opcode == 1) {
 			atomic_fetch_add(&attach_calls, 1);
 		}
+		return 0;
 	} else if (strcmp(cls, "wl_shm_pool") == 0 && opcode == 0) {
 		atomic_fetch_add(&shm_buffers, 1);
 	} else if (strcmp(cls, "zwp_linux_buffer_params_v1") == 0 && (opcode == 1 || opcode == 2)) {
 		atomic_fetch_add(&dmabuf_buffers, 1);
 	}
+	return 0;
 }
 
 void wl_proxy_marshal_array(void *proxy, uint32_t opcode, void *args) {
@@ -420,7 +424,8 @@ void wl_proxy_marshal_array(void *proxy, uint32_t opcode, void *args) {
 	}
 	if (real == NULL)
 		return;
-	wl_track(proxy, opcode, args);
+	if (wl_track(proxy, opcode, args))
+		return;
 	real(proxy, opcode, args);
 }
 
@@ -430,7 +435,8 @@ void *wl_proxy_marshal_array_constructor(void *proxy, uint32_t opcode, void *arg
 		real = resolve("wl_proxy_marshal_array_constructor", "libwayland-client.so.0");
 	if (real == NULL)
 		return NULL;
-	wl_track(proxy, opcode, args);
+	if (wl_track(proxy, opcode, args))
+		return NULL;
 	void *created = real(proxy, opcode, args, interface);
 	if (enabled && opcode == 3 && created != NULL)
 		frame_proxy_add(created);
@@ -446,7 +452,8 @@ void *wl_proxy_marshal_array_constructor_versioned(void *proxy, uint32_t opcode,
 		real = resolve("wl_proxy_marshal_array_constructor_versioned", "libwayland-client.so.0");
 	if (real == NULL)
 		return NULL;
-	wl_track(proxy, opcode, args);
+	if (wl_track(proxy, opcode, args))
+		return NULL;
 	void *created = real(proxy, opcode, args, interface, version);
 	if (enabled && opcode == 3 && created != NULL)
 		frame_proxy_add(created);
@@ -465,7 +472,8 @@ void *wl_proxy_marshal_array_flags(void *proxy, uint32_t opcode, const void *int
 	}
 	if (real == NULL)
 		return NULL;
-	wl_track(proxy, opcode, args);
+	if (wl_track(proxy, opcode, args))
+		return NULL;
 	void *created = real(proxy, opcode, interface, version, flags, args);
 	if (enabled && opcode == 3 && created != NULL)
 		frame_proxy_add(created);
@@ -763,6 +771,22 @@ static struct {
 } sync_surfaces[8];
 
 static uint32_t (*real_proxy_id)(void *);
+static _Atomic uint32_t shm_buffer_ids[32];
+static _Atomic unsigned shm_buffer_next;
+
+static void shm_buffer_add(uint32_t id) {
+	if (id != 0)
+		shm_buffer_ids[atomic_fetch_add(&shm_buffer_next, 1) % 32] = id;
+}
+
+static int shm_buffer_known(uint32_t id) {
+	if (id == 0)
+		return 0;
+	for (unsigned i = 0; i < 32; i++)
+		if (atomic_load(&shm_buffer_ids[i]) == id)
+			return 1;
+	return 0;
+}
 
 static uint32_t wl_id(void *proxy) {
 	if (!real_proxy_id)
@@ -902,12 +926,12 @@ static void sync_before_commit(void *surface) {
 }
 
 // Observes every marshal (before forwarding) to track the protocol objects and per-surface state.
-static void sync_observe(void *proxy, uint32_t opcode, void *args, const char *cls) {
+static int sync_observe(void *proxy, uint32_t opcode, void *args, const char *cls) {
 	if (cls == NULL)
-		return;
+		return 0;
 	if (strcmp(cls, sync_manager_name) == 0) {
 		sync_manager_proxy = proxy;
-		return;
+		return 0;
 	}
 	if (strcmp(cls, sync_surface_name) == 0) {
 		uint32_t id = wl_id(proxy);
@@ -918,23 +942,38 @@ static void sync_observe(void *proxy, uint32_t opcode, void *args, const char *c
 				else if (opcode == 0)
 					sync_surfaces[i].sync_surface = NULL;
 			}
-		return;
+		return 0;
 	}
 	if (strcmp(cls, "wl_surface") == 0) {
 		if (opcode == 1 && args != NULL && ((WlArg *)args)[0].o != NULL) {
 			int slot = sync_slot_for_id(wl_id(proxy));
-			if (slot >= 0)
+			if (slot >= 0) {
+				// An SHM buffer can never satisfy explicit sync; a bufferless commit is legal, so the
+				// stray cairo frame is dropped rather than armed. Content flows through the EGL swapchain.
+				if (syncpatch && sync_surfaces[slot].sync_surface != NULL
+					&& shm_buffer_known(wl_id(((WlArg *)args)[0].o))) {
+					unsigned n = atomic_fetch_add(&sync_dropped, 1);
+					if (n < 8 || n % 600 == 0)
+						note("syncpatch: dropped naked SHM attach #%u on wl_surface#%u", n, wl_id(proxy));
+					return 1;
+				}
 				sync_surfaces[slot].buffer_pending = 1;
+			}
 		} else if (opcode == 6) {
 			sync_before_commit(proxy);
 		}
 	}
+	return 0;
 }
 
 // After a constructor returns: manager.get_surface pairs the new syncobj surface with its wl_surface.
 static void sync_observe_created(void *proxy, uint32_t opcode, void *args, void *created, const char *cls) {
 	if (cls == NULL || created == NULL || args == NULL)
 		return;
+	if (strcmp(cls, "wl_shm_pool") == 0 && opcode == 0) {
+		shm_buffer_add(wl_id(created));
+		return;
+	}
 	if (strcmp(cls, sync_manager_name) == 0 && opcode == 1) {
 		uint32_t surface_id = wl_id(((WlArg *)args)[1].o);
 		for (unsigned i = 0; i < 8; i++)

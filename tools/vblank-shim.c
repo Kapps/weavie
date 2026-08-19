@@ -752,12 +752,23 @@ static const struct WlInterface timeline_interface = {
 };
 
 static void *sync_manager_proxy;
+// Keyed by wayland object id, not proxy pointer: GDK reaches the same wl_surface through queue-wrapper
+// proxies, which are distinct pointers sharing the object id.
 static struct {
-	void *surface;
+	uint32_t surface_id;
+	uint32_t sync_surface_id;
 	void *sync_surface;
 	int armed;
 	int buffer_pending;
 } sync_surfaces[8];
+
+static uint32_t (*real_proxy_id)(void *);
+
+static uint32_t wl_id(void *proxy) {
+	if (!real_proxy_id)
+		real_proxy_id = (uint32_t (*)(void *))resolve("wl_proxy_get_id", "libwayland-client.so.0");
+	return real_proxy_id ? real_proxy_id(proxy) : 0;
+}
 
 static struct {
 	int drm_fd;
@@ -768,9 +779,11 @@ static struct {
 	int failed;
 } sync_state = { .drm_fd = -1 };
 
-static int sync_slot_for(void *surface) {
+static int sync_slot_for_id(uint32_t surface_id) {
+	if (surface_id == 0)
+		return -1;
 	for (unsigned i = 0; i < 8; i++)
-		if (sync_surfaces[i].surface == surface)
+		if (sync_surfaces[i].surface_id == surface_id)
 			return (int)i;
 	return -1;
 }
@@ -799,14 +812,18 @@ static int sync_setup(void) {
 		return 0;
 	if (sync_state.acquire_timeline != NULL)
 		return 1;
-	if (sync_manager_proxy == NULL || real_marshal_flags == NULL)
+	if (sync_manager_proxy == NULL || real_marshal_flags == NULL) {
+		sync_state.failed = 1;
+		note("syncpatch: bail — manager=%p marshal_flags=%p", sync_manager_proxy, (void *)real_marshal_flags);
 		return 0;
+	}
 	static const char *nodes[] = { "/dev/dri/renderD128", "/dev/dri/renderD129", "/dev/dri/card1", "/dev/dri/card0" };
 	void *libdrm = dlopen("libdrm.so.2", RTLD_LAZY | RTLD_LOCAL);
 	int (*syncobj_create)(int, uint32_t, uint32_t *) = libdrm ? dlsym(libdrm, "drmSyncobjCreate") : NULL;
 	int (*syncobj_to_fd)(int, uint32_t, int *) = libdrm ? dlsym(libdrm, "drmSyncobjHandleToFD") : NULL;
 	if (syncobj_create == NULL || syncobj_to_fd == NULL) {
 		sync_state.failed = 1;
+		note("syncpatch: bail — libdrm syncobj symbols missing");
 		return 0;
 	}
 	for (unsigned i = 0; i < sizeof nodes / sizeof nodes[0] && sync_state.drm_fd < 0; i++) {
@@ -819,6 +836,7 @@ static int sync_setup(void) {
 	}
 	if (sync_state.drm_fd < 0) {
 		sync_state.failed = 1;
+		note("syncpatch: bail — no DRM node accepted a syncobj");
 		return 0;
 	}
 	sync_state.acquire_timeline = sync_import_timeline(syncobj_create, syncobj_to_fd, &sync_state.acquire_handle);
@@ -850,12 +868,16 @@ static void sync_set_point(void *sync_surface, uint32_t opcode, void *timeline, 
 // Runs before a commit is forwarded: if the surface is under explicit sync and this commit attached a
 // buffer without egl-wayland arming it, sign it with a pre-signaled acquire point and a fresh release point.
 static void sync_before_commit(void *surface) {
-	int slot = sync_slot_for(surface);
+	static _Atomic unsigned commits_seen;
+	int slot = sync_slot_for_id(wl_id(surface));
 	if (slot < 0 || sync_surfaces[slot].sync_surface == NULL)
 		return;
 	int naked = sync_surfaces[slot].buffer_pending && !sync_surfaces[slot].armed;
 	sync_surfaces[slot].buffer_pending = 0;
 	sync_surfaces[slot].armed = 0;
+	unsigned seen = atomic_fetch_add(&commits_seen, 1);
+	if (seen < 6)
+		note("syncpatch: commit on tracked surface (naked=%d, syncpatch=%d)", naked, syncpatch);
 	if (!naked || !syncpatch)
 		return;
 	if (!sync_setup())
@@ -888,8 +910,9 @@ static void sync_observe(void *proxy, uint32_t opcode, void *args, const char *c
 		return;
 	}
 	if (strcmp(cls, sync_surface_name) == 0) {
+		uint32_t id = wl_id(proxy);
 		for (unsigned i = 0; i < 8; i++)
-			if (sync_surfaces[i].sync_surface == proxy) {
+			if (sync_surfaces[i].sync_surface_id == id && id != 0) {
 				if (opcode == 1)
 					sync_surfaces[i].armed = 1;
 				else if (opcode == 0)
@@ -899,7 +922,7 @@ static void sync_observe(void *proxy, uint32_t opcode, void *args, const char *c
 	}
 	if (strcmp(cls, "wl_surface") == 0) {
 		if (opcode == 1 && args != NULL && ((WlArg *)args)[0].o != NULL) {
-			int slot = sync_slot_for(proxy);
+			int slot = sync_slot_for_id(wl_id(proxy));
 			if (slot >= 0)
 				sync_surfaces[slot].buffer_pending = 1;
 		} else if (opcode == 6) {
@@ -913,12 +936,14 @@ static void sync_observe_created(void *proxy, uint32_t opcode, void *args, void 
 	if (cls == NULL || created == NULL || args == NULL)
 		return;
 	if (strcmp(cls, sync_manager_name) == 0 && opcode == 1) {
-		void *surface = ((WlArg *)args)[1].o;
+		uint32_t surface_id = wl_id(((WlArg *)args)[1].o);
 		for (unsigned i = 0; i < 8; i++)
-			if (sync_surfaces[i].surface == surface || sync_surfaces[i].surface == NULL) {
-				sync_surfaces[i].surface = surface;
+			if (sync_surfaces[i].surface_id == surface_id || sync_surfaces[i].surface_id == 0) {
+				sync_surfaces[i].surface_id = surface_id;
 				sync_surfaces[i].sync_surface = created;
-				note("syncpatch: explicit sync registered on surface %p", surface);
+				sync_surfaces[i].sync_surface_id = wl_id(created);
+				note("syncpatch: explicit sync registered on wl_surface#%u (syncobj surface #%u)",
+					surface_id, sync_surfaces[i].sync_surface_id);
 				break;
 			}
 	}

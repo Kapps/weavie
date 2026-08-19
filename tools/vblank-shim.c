@@ -21,7 +21,7 @@
 typedef struct { unsigned type; unsigned sequence; unsigned long signal; } DrmVBlankReq;
 typedef struct { unsigned type; unsigned sequence; long tval_sec; long tval_usec; } DrmVBlankRep;
 
-static int enabled, fix_drm, force_drm, fix_timer, swap0, steer;
+static int enabled, fix_drm, force_drm, fix_timer, swap0, steer, hz_from_env;
 static double hz = 240.0;
 static _Atomic unsigned drm_calls, drm_fails, timer_hits, swap_calls;
 static _Atomic int swap0_done;
@@ -71,8 +71,10 @@ __attribute__((constructor)) static void shim_init(void) {
 	fix_timer = (e = getenv("VBLANK_SHIM_TIMERFIX")) && *e && strcmp(e, "0");
 	swap0 = (e = getenv("VBLANK_SHIM_SWAP0")) && *e && strcmp(e, "0");
 	steer = (e = getenv("VBLANK_SHIM_STEER")) && *e && strcmp(e, "0");
-	if ((e = getenv("VBLANK_SHIM_HZ")) && atof(e) > 0)
+	if ((e = getenv("VBLANK_SHIM_HZ")) && atof(e) > 0) {
 		hz = atof(e);
+		hz_from_env = 1;
+	}
 	note("active in '%s' (fix_drm=%d force_drm=%d fix_timer=%d swap0=%d steer=%d hz=%.3f)",
 		comm, fix_drm, force_drm, fix_timer, swap0, steer, hz);
 }
@@ -387,7 +389,14 @@ int gdk_monitor_get_refresh_rate(void *monitor) {
 	if (real == NULL)
 		return 0;
 	int rate = real(monitor);
-	if (enabled && atomic_exchange(&last, rate) != rate)
+	if (enabled && atomic_exchange(&last, rate) != rate) {
 		note("gdk_monitor_get_refresh_rate -> %d mHz", rate);
+		// The vblank monitor reads this during construction, before its first wait — so the emulation grid
+		// can take its rate from the display itself instead of a hardcoded guess.
+		if (!hz_from_env && rate > 1000) {
+			hz = rate / 1000.0;
+			note("emulation grid <- %.3f Hz (from gdk)", hz);
+		}
+	}
 	return rate;
 }

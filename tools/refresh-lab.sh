@@ -9,7 +9,9 @@
 # drmWaitVBlank on a precise grid when the driver refuses the ioctl.
 set -u
 cd "$(dirname "$0")/.."
-HZ="${1:-240}"
+HZ="${1:-auto}"
+HZARG=""
+[ "$HZ" != "auto" ] && HZARG="VBLANK_SHIM_HZ=$HZ"
 SHIM=/tmp/vblank-shim.so
 cc -O2 -Wall -fPIC -shared -o "$SHIM" tools/vblank-shim.c || exit 1
 export __NV_DISABLE_EXPLICIT_SYNC=1
@@ -22,8 +24,8 @@ arms=(
 	""
 	"WEBKIT_DISPLAY_REFRESH_THROTTLE_FPS=7"
 	"LD_PRELOAD=$SHIM"
-	"LD_PRELOAD=$SHIM VBLANK_SHIM_STEER=1 VBLANK_SHIM_FIX=1 VBLANK_SHIM_HZ=$HZ WEBKIT_DISPLAY_REFRESH_THROTTLE_FPS=7"
-	"LD_PRELOAD=$SHIM VBLANK_SHIM_STEER=1 VBLANK_SHIM_FIX=1 VBLANK_SHIM_HZ=$HZ WEBKIT_DISPLAY_REFRESH_THROTTLE_FPS=7 WEBKIT_DISABLE_DMABUF_RENDERER=1"
+	"LD_PRELOAD=$SHIM VBLANK_SHIM_STEER=1 VBLANK_SHIM_FIX=1 $HZARG WEBKIT_DISPLAY_REFRESH_THROTTLE_FPS=7"
+	"LD_PRELOAD=$SHIM VBLANK_SHIM_STEER=1 VBLANK_SHIM_FIX=1 $HZARG WEBKIT_DISPLAY_REFRESH_THROTTLE_FPS=7 WEBKIT_DISABLE_DMABUF_RENDERER=1"
 )
 
 for i in "${!names[@]}"; do
@@ -43,7 +45,7 @@ JOURNAL="$(journalctl --since "$STARTED" --no-pager 2>/dev/null | grep -iaE 'vbl
 	|| echo "  (nothing readable — the silent !displayID timer path logs no fault at all)"
 
 echo
-echo "== summary (panel target: ${HZ}Hz)"
+echo "== summary (panel target: ${HZ})"
 for n in "${names[@]}"; do
 	printf "  %-14s %s\n" "$n" "$(grep -m1 '^FPS' "/tmp/refresh-lab-$n.log" 2>/dev/null || echo '—')"
 done
@@ -51,5 +53,6 @@ echo "  full logs: /tmp/refresh-lab-*.log"
 echo
 echo "How to read it: 'trace' now walks the whole DRM discovery (devices -> resources -> connector ->"
 echo "encoder), so the last line before it stops names the failing step. 'fix' should self-report"
-echo "'refresh rate ${HZ}fps' in its rejected-line if the monitor constructed; ~$((HZ * 10)) frames means won."
-echo "'fix-shm' isolates DMA-BUF presentation: ~${HZ}0 frames there but 60 in 'fix' = present-path clamp."
+echo "the panel's rate in its rejected-line if the monitor constructed; ~10x that in frames means won."
+echo "'fix-shm' isolates DMA-BUF presentation: full rate there but 60 in 'fix' = present-path clamp."
+echo "Keep the probe window visible and unoccluded for the whole run — occluded Wayland windows are throttled."

@@ -34,11 +34,56 @@ arms=(
 	"LD_PRELOAD=$SHIM VBLANK_SHIM_STEER=1 VBLANK_SHIM_FIX=1 $HZARG WEBKIT_DISPLAY_REFRESH_THROTTLE_FPS=7 WEBKIT_DISABLE_DMABUF_RENDERER=1"
 )
 
+
+# The web process resolves GL through private dlsym handles no interpose can reach, so instead of guessing
+# APIs, ask the kernel: wchan names the kernel symbol each thread is blocked in, per thread, mid-frame.
+sample_blocks() {
+	echo "  -- mid-run thread blocks (kernel wchan, 12 samples)"
+	{
+		for pass in $(seq 1 12); do
+			for pid in $(pgrep -x webkit-fps) $(pgrep -x WebKitWebProces); do
+				proc="$(cat "/proc/$pid/comm" 2>/dev/null)"
+				for task in /proc/"$pid"/task/*; do
+					wchan="$(cat "$task/wchan" 2>/dev/null)"
+					thread="$(cat "$task/comm" 2>/dev/null)"
+					[ -n "$wchan" ] && [ "$wchan" != "0" ] && echo "$proc/$thread blocked_in=$wchan"
+				done
+			done
+			sleep 0.15
+		done
+	} | sort | uniq -c | sort -rn | head -18 | sed 's/^/  /'
+	if sudo -n true 2>/dev/null; then
+		echo "  -- kernel stacks mentioning fence/sync (needs root)"
+		for pid in $(pgrep -x webkit-fps) $(pgrep -x WebKitWebProces); do
+			for task in /proc/"$pid"/task/*; do
+				stack="$(sudo -n cat "$task/stack" 2>/dev/null)"
+				if echo "$stack" | grep -qiE "fence|sync_file"; then
+					echo "  == $(cat "$task/comm" 2>/dev/null) ($task)"
+					echo "$stack" | head -10 | sed 's/^/    /'
+				fi
+			done
+		done
+	fi
+}
+
 for i in "${!names[@]}"; do
 	log="/tmp/refresh-lab-${names[$i]}.log"
 	echo "== ${names[$i]}"
 	# shellcheck disable=SC2086
-	env ${arms[$i]} timeout 90 dotnet run tools/webkit-fps.cs >"$log" 2>&1
+	if [ "${names[$i]}" = "fix" ]; then
+		env ${arms[$i]} timeout 90 dotnet run tools/webkit-fps.cs >"$log" 2>&1 &
+		RUN=$!
+		tries=0
+		until pgrep -x webkit-fps >/dev/null 2>&1 || [ "$tries" -ge 120 ]; do
+			sleep 0.25
+			tries=$((tries + 1))
+		done
+		sleep 1.5
+		sample_blocks
+		wait "$RUN"
+	else
+		env ${arms[$i]} timeout 90 dotnet run tools/webkit-fps.cs >"$log" 2>&1
+	fi
 	grep -E "^FPS" "$log" || echo "  (no FPS line — see $log)"
 	grep -m1 "rejected" "$log" | sed 's/^/  /'
 	grep -m26 "vblank-shim" "$log" | sed 's/^/  /'

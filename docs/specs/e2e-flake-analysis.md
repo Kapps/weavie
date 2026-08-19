@@ -214,6 +214,27 @@ so shell code can route an editor model without importing the editor runtime. Th
 entry's static chunk graph and fails if that boundary regresses. This repairs both the accidental eager
 7.9 MB download and the Windows socket-allocation failure without a retry, skip, or wider timeout.
 
+## Open: `.editor[data-active-file]` stays empty through `openFile`
+
+**Symptom, 2026-08-19 ~22:15 UTC, run 32307034002:** `diff-review.spec.ts:202` ("keep-all clears both
+the pending and the faded accepted band",
+[job 96242942711](https://github.com/Kapps/weavie/actions/runs/32307034002/job/96242942711)), Windows
+`e2e (linux) / shard (3/6)` — its very first action, `openFile(page, "hello.ts")`, timed out after 30s.
+Different fingerprint from the Monaco-viewport-clamp family above: the `.editor` locator resolved fine
+(63 polls, `data-ready="true"`), but its `data-active-file` attribute read `""` the whole time instead
+of matching `hello.ts` — the editor never picked up the file at all, not a rendering/viewport problem.
+`console-errors.txt` and the other 40 tests in the same shard (including three `openFile` calls in the
+immediately-preceding `editor-peek-definition.spec.ts` tests, all green) give no reason to suspect a
+real regression in file-opening.
+
+No fix attempted: this is the third distinct Windows-only flake symptom seen on this PR's CI within
+about 45 minutes (the other two being confirmed recurrences of the Monaco-clamp family above), on a PR
+whose diff touches only `.github/workflows/e2e-platform.yml`. That density, plus three different
+concrete symptoms rather than one repeating, points at the hosted Windows fleet having a rough day
+rather than one fixable defect — consistent with this doc's existing "resource-starved hosted Windows
+runner" theory for root cause #4. Logged here per policy (no flake goes uncommented) for whoever hits
+it next; needs its own forensics before any fix is more than a guess.
+
 ## Reproduction & forensics techniques that worked
 
 - **Parse the Playwright trace DOM directly.** `trace.zip` → `0-trace.trace` is JSONL; `frame-snapshot`

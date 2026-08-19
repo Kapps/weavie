@@ -44,10 +44,14 @@ static void frame_proxy_add(void *proxy) {
 	frame_proxies[atomic_fetch_add(&frame_proxy_next, 1) % 64] = proxy;
 }
 
+// Consumes the entry: a fired wl_callback is destroyed and malloc recycles its address, so a stale match
+// would misclassify a later display.sync callback as a frame callback.
 static int frame_proxy_known(void *proxy) {
-	for (unsigned i = 0; i < 64; i++)
-		if (atomic_load(&frame_proxies[i]) == proxy)
+	for (unsigned i = 0; i < 64; i++) {
+		void *expected = proxy;
+		if (atomic_compare_exchange_strong(&frame_proxies[i], &expected, (void *)NULL))
 			return 1;
+	}
 	return 0;
 }
 static _Atomic int swap0_done;

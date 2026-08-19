@@ -88,6 +88,7 @@ for i in "${!names[@]}"; do
 	grep -m1 "rejected" "$log" | sed 's/^/  /'
 	grep -m26 "vblank-shim" "$log" | sed 's/^/  /'
 	grep -m4 "summary:" "$log" | sed 's/^/  /'
+	grep -m3 "hist " "$log" | sed 's/^/  /'
 done
 
 echo

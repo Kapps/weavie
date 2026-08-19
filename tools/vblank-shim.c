@@ -25,7 +25,23 @@ static int enabled, fix_drm, force_drm, fix_timer, swap0, steer, hz_from_env;
 static double hz = 240.0;
 static _Atomic unsigned drm_calls, drm_fails, timer_hits, swap_calls;
 static _Atomic unsigned commit_calls, frame_reqs, attach_calls, shm_buffers, dmabuf_buffers, draw_calls;
-static _Atomic uint64_t commit_last, draw_last;
+static _Atomic unsigned framecb_events, release_events;
+static _Atomic uint64_t commit_last, draw_last, framecb_last, release_last;
+// The last frame-callback proxies handed out by wl_surface.frame, so listener wrapping can tell a real
+// frame callback from a wl_display.sync roundtrip (both are wl_callback objects).
+static _Atomic(void *) frame_proxies[64];
+static _Atomic unsigned frame_proxy_next;
+
+static void frame_proxy_add(void *proxy) {
+	frame_proxies[atomic_fetch_add(&frame_proxy_next, 1) % 64] = proxy;
+}
+
+static int frame_proxy_known(void *proxy) {
+	for (unsigned i = 0; i < 64; i++)
+		if (atomic_load(&frame_proxies[i]) == proxy)
+			return 1;
+	return 0;
+}
 static _Atomic int swap0_done;
 static _Atomic uint64_t grid_next, swap_last;
 
@@ -89,6 +105,9 @@ __attribute__((destructor)) static void shim_summary(void) {
 		note("summary: wl commits=%u, frame reqs=%u, attaches=%u, shm buffers=%u, dmabuf buffers=%u, gl draws=%u",
 			(unsigned)commit_calls, (unsigned)frame_reqs, (unsigned)attach_calls,
 			(unsigned)shm_buffers, (unsigned)dmabuf_buffers, (unsigned)draw_calls);
+	if (enabled && (framecb_events || release_events))
+		note("summary: frame callbacks delivered=%u, buffer releases delivered=%u",
+			(unsigned)framecb_events, (unsigned)release_events);
 }
 
 
@@ -357,7 +376,10 @@ void *wl_proxy_marshal_array_constructor(void *proxy, uint32_t opcode, void *arg
 	if (real == NULL)
 		return NULL;
 	wl_track(proxy, opcode);
-	return real(proxy, opcode, args, interface);
+	void *created = real(proxy, opcode, args, interface);
+	if (enabled && opcode == 3 && created != NULL)
+		frame_proxy_add(created);
+	return created;
 }
 
 void *wl_proxy_marshal_array_constructor_versioned(void *proxy, uint32_t opcode, void *args,
@@ -368,7 +390,10 @@ void *wl_proxy_marshal_array_constructor_versioned(void *proxy, uint32_t opcode,
 	if (real == NULL)
 		return NULL;
 	wl_track(proxy, opcode);
-	return real(proxy, opcode, args, interface, version);
+	void *created = real(proxy, opcode, args, interface, version);
+	if (enabled && opcode == 3 && created != NULL)
+		frame_proxy_add(created);
+	return created;
 }
 
 void *wl_proxy_marshal_array_flags(void *proxy, uint32_t opcode, const void *interface, uint32_t version,
@@ -379,7 +404,67 @@ void *wl_proxy_marshal_array_flags(void *proxy, uint32_t opcode, const void *int
 	if (real == NULL)
 		return NULL;
 	wl_track(proxy, opcode);
-	return real(proxy, opcode, interface, version, flags, args);
+	void *created = real(proxy, opcode, interface, version, flags, args);
+	if (enabled && opcode == 3 && created != NULL)
+		frame_proxy_add(created);
+	return created;
+}
+
+
+// ---- event delivery: frame callbacks and buffer releases are server->client, invisible to the marshal
+// wrappers — wrapping the listeners at registration shows which of the two arrives at the clamped rate.
+
+typedef struct { void **listener; void *data; } WlThunk;
+
+static void frame_done_thunk(void *data, void *callback, uint32_t serial) {
+	WlThunk *thunk = data;
+	unsigned n = atomic_fetch_add(&framecb_events, 1);
+	uint64_t t = now_ns();
+	uint64_t prev = atomic_exchange(&framecb_last, t);
+	if (n < 12 || n % 240 == 0)
+		note("frame callback #%u dt=%.2fms", n, prev ? (double)(t - prev) / 1e6 : 0.0);
+	((void (*)(void *, void *, uint32_t))thunk->listener[0])(thunk->data, callback, serial);
+}
+
+static void buffer_release_thunk(void *data, void *buffer) {
+	WlThunk *thunk = data;
+	unsigned n = atomic_fetch_add(&release_events, 1);
+	uint64_t t = now_ns();
+	uint64_t prev = atomic_exchange(&release_last, t);
+	if (n < 12 || n % 240 == 0)
+		note("wl_buffer release #%u dt=%.2fms", n, prev ? (double)(t - prev) / 1e6 : 0.0);
+	((void (*)(void *, void *))thunk->listener[0])(thunk->data, buffer);
+}
+
+int wl_proxy_add_listener(void *proxy, void (**implementation)(void), void *data) {
+	static int (*real)(void *, void (**)(void), void *);
+	static const char *(*get_class)(void *);
+	if (!real)
+		real = resolve("wl_proxy_add_listener", "libwayland-client.so.0");
+	if (real == NULL)
+		return -1;
+	if (!enabled)
+		return real(proxy, implementation, data);
+	if (!get_class)
+		get_class = resolve("wl_proxy_get_class", "libwayland-client.so.0");
+	const char *cls = get_class ? get_class(proxy) : NULL;
+	if (cls != NULL && (strcmp(cls, "wl_callback") == 0 || strcmp(cls, "wl_buffer") == 0)) {
+		int frame = strcmp(cls, "wl_callback") == 0;
+		if (!frame || frame_proxy_known(proxy)) {
+			// Lab tool: one small allocation per wrapped listener, never freed.
+			WlThunk *thunk = malloc(sizeof *thunk);
+			if (thunk != NULL) {
+				thunk->listener = (void **)implementation;
+				thunk->data = data;
+				static void (*frame_thunk[1])(void);
+				static void (*release_thunk[1])(void);
+				frame_thunk[0] = (void (*)(void))frame_done_thunk;
+				release_thunk[0] = (void (*)(void))buffer_release_thunk;
+				return real(proxy, frame ? frame_thunk : release_thunk, thunk);
+			}
+		}
+	}
+	return real(proxy, implementation, data);
 }
 
 int drmWaitVBlank(int fd, void *vbl) {

@@ -73,6 +73,12 @@ async function registerGreetDefinition(page: Page): Promise<void> {
 // clamp's one-line placeholder, which is the actual defect signature. `awaitEditorLaidOut` (actions.ts) now
 // also requires more than one `.view-line` to be rendered whenever the model has more than one line, so the
 // wait matches what the doc's forensics actually showed instead of a proxy for it.
+//
+// Same day, that fix's own PR CI (run 32335659526) hit two fresh failures on this test and the sibling
+// Alt+F12 one, both timing out at ~33.7s on the same -1 signature — the new poll had inherited the suite's
+// global 30s `expect.timeout`, shorter than the ~60s budget this wait always had via the click()'s own
+// actionability wait beforehand. `awaitEditorLaidOut` now sets an explicit timeout matching that budget
+// instead (see its comment in actions.ts) — the check is unchanged, only its runway was too short.
 async function wordToken(page: Page, lineText: string, word: string): Promise<Locator> {
   await awaitEditorLaidOut(page);
   return page

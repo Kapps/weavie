@@ -132,6 +132,20 @@ a retry, skip, or widened timeout — `expect.poll`'s existing polling now waits
 and soak per the guidance below; this is not reproducible locally so it can only be validated by watching
 Windows CI stay clean on this test across subsequent runs.
 
+**Immediate self-correction, same day, PR #640's own CI (run 32335659526):** the fix above landed with an
+unintended side effect — its `expect.poll` inherited the suite's global `expect.timeout` (30s on
+Windows/macOS), which is *shorter* than the budget this wait always effectively had. Before the fix, the
+clamp's failure mode surfaced in the subsequent `word.click()`'s own actionability wait, which isn't bound
+by `expect.timeout` and so could run for the test's full ~60s. Making the check stricter without also
+carrying that budget forward meant a slow-but-real recovery that used to finish inside ~60s could now get
+cut off at 30s instead — and it did: the PR's own `e2e (windows) / shard (3/6)` run hit two *fresh* failures
+(`editor-peek-definition.spec.ts:104` and `:126`) on the exact -1 (clamp-still-active) signature, both timing
+out at ~33.7s. Fixed by giving `awaitEditorLaidOut`'s poll an explicit timeout matching the platform's test
+budget (45s on Windows/macOS, 15s on Linux where this flake doesn't occur and the whole test timeout is only
+30s) instead of inheriting the shorter global default. This is a genuine correction to this PR's own diff, not
+a new masking layer — the check itself is unchanged; only the time it's given to resolve now matches what the
+wait already implicitly had.
+
 ## CONFIRMED + FIXED: #1 (S2-race) — a test walk-race, not a product bug
 
 **Symptom:** after a PR→PR→PR switch storm settling on #101 (files `feature.ts`, `hello.ts`),

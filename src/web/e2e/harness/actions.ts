@@ -78,6 +78,14 @@ export async function openFile(page: Page, name: string): Promise<void> {
 // time*, not that the clamped single-line viewport has actually re-rendered every line back in). So also require
 // the DOM to hold more than the clamp's one-line placeholder whenever the model has more than one line —
 // checking the actual rendered output, not a derived number that can agree while the render is still catching up.
+//
+// The poll needs more runway than the suite's default `expect.timeout` (playwright.config.ts): that default
+// (30s on Windows/macOS) is what this test's OWN PR CI run (32335659526) hit two fresh failures against within
+// hours of landing — the poll timed out at 30s on the exact -1 (clamp-still-active) signature, where previously
+// the failure surfaced later, in the click()'s own actionability wait, which isn't bound by `expect.timeout` and
+// so had the full ~60s test budget to let a slow-but-genuine recovery finish. Matching that budget here (instead
+// of inheriting the shorter global default) restores the runway this wait always implicitly had, rather than
+// quietly shrinking it as a side effect of making the check stricter.
 export async function awaitEditorLaidOut(page: Page): Promise<void> {
   await expect
     .poll(
@@ -96,7 +104,10 @@ export async function awaitEditorLaidOut(page: Page): Promise<void> {
           const renderedLineCount = document.querySelectorAll(".view-line").length;
           return modelLineCount > 1 && renderedLineCount <= 1 ? -1 : 0;
         }),
-      { message: "Monaco's viewport never matched its container (editor stuck at the 5px clamp)" },
+      {
+        message: "Monaco's viewport never matched its container (editor stuck at the 5px clamp)",
+        timeout: process.platform === "linux" ? 15_000 : 45_000,
+      },
     )
     .toBe(0);
 }

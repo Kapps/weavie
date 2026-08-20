@@ -128,6 +128,13 @@ jobs:
       - name: Set up toolchain and build web app
         uses: ./.github/actions/publish-setup
 
+      # The Linux host compiles its display-sync library against libdrm's headers.
+      - name: Install Linux native build dependencies
+        if: matrix.name == 'linux-x64'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends libdrm-dev pkg-config
+
       # The hosted image's default Xcode lags the .NET macOS workload's requirement (e.g. workload
       # 26.5.10301 needs Xcode 26.6, but the image defaults to 26.5). Both ship side-by-side on the
       # runner, so select the newest installed one rather than a version pinned here that would

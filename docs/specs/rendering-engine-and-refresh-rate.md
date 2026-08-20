@@ -1,4 +1,4 @@
-# Rendering engine & 120Hz refresh rate
+# Rendering engine & refresh rate
 
 The vault's GUI & Platform note calls a **120Hz display "the single biggest lever" for perceived
 typing latency**. On macOS, Weavie's editor and terminal are stuck at **60Hz** — not because of the
@@ -100,3 +100,108 @@ the app on this machine.
 Diagnostics retained in `Weavie.Mac`: `WEAVIE_DEBUG_PERFORMANCE=1` enables the latency HUD/meter (and
 gates the `WEAVIE_FPSPROBE=1` probe and `WEAVIE_AUTOBENCH=1` benchmark sub-flags); the app logs
 `NSScreen.maximumFramesPerSecond` at startup.
+
+## Linux (2026-08-19): GTK 4 + a display-sync library → 240Hz
+
+Measured on CachyOS (kernel 7.1.8), KDE/KWin 6.7.4 Wayland, NVIDIA 610.57.04 / RTX 4090, LG UltraGear at
+240.023Hz. The Linux host rendered every surface at exactly **60Hz**; it now measures **240.3Hz** (p50
+4.00ms) in the running app. Two independent caps had to come off, and each was proved load-bearing by
+measuring with the other one already lifted.
+
+Flipping `PreferPageRenderingUpdatesNear60FPS` — the whole fix on macOS — changes nothing here, because
+neither cap is that preference.
+
+### Establishing that the machine was never the problem
+
+| probe | result |
+|---|---|
+| raw `wl_egl` + EGL client (`es2gears_wayland`) | **240.6 FPS** |
+| GTK 3 window, cairo (SHM) drawing | 236.6Hz, frame timings complete, `refresh_interval` 4166us |
+| GTK 3 window, `GtkGLArea` | **59.7Hz**, timings *never* complete, `refresh_interval` 0 |
+| GTK 4 window, `GtkGLArea` | **229.5Hz**, timings complete, `refresh_interval` 4166us |
+| GTK 3 under XWayland (`GDK_BACKEND=x11`) | 59.3Hz — XWayland is its own 60Hz ceiling |
+
+NVIDIA, KWin, and the dma-buf path all reach 240. Only GTK 3's accelerated path does not.
+
+### Cap 1 — GDK 3's frame clock free-runs at a hardcoded 60Hz for GL windows
+
+`gdk/wayland/gdkwindow-wayland.c` deliberately clears `pending_commit` for a GL frame ("it'll be done
+implicitly by `eglSwapBuffers()`"). `on_frame_clock_after_paint` then returns early, so GDK never requests
+a `wl_surface.frame`, never sets `awaiting_frame`, and never records frame timings. With no complete
+timings, `gdk/gdkframeclockidle.c` falls back to its `FRAME_INTERVAL` of **16667us**. That is the 60Hz, and
+it is not reachable from outside GTK: the fix lives behind `_gdk_frame_clock_freeze`/`_thaw`, which GTK 3
+does not export.
+
+WebKitGTK's UI process paints through `gdk_cairo_draw_from_gl`, so the window is always a GL window — and
+it sends `FrameDone` to the web process from `paint()`, so the web process inherits the cap too. That
+handshake is what earlier investigation mistook for a WebKit-internal pacer.
+
+**Fix: `Weavie.Linux` now runs on GTK 4 + webkitgtk-6.0**, whose frame clock is driven by real presentation
+feedback on every path. A GTK 3 host with a *perfectly working* 240Hz vblank monitor still measures exactly
+60.0Hz; the same page on GTK 4 measures 223Hz. The port is not optional.
+
+### Cap 2 — WebKit's DRM vblank monitor never constructs
+
+`DisplayVBlankMonitorDRM::create()` needs a connected DRM connector whose EDID millimetres *exactly* equal
+`gdk_monitor_get_*_mm`, **and** a working `drmWaitVBlank`. Otherwise WebKit silently uses
+`DisplayVBlankMonitorTimer` — nominal 60fps, `sleep_for(1000 / 60)` — and a p50 of exactly **16.00ms** is
+that timer's fingerprint. Both preconditions fail on an ordinary desktop:
+
+- **The sizes disagree by 3mm.** EDID stores the physical size twice: whole centimetres in the base block
+  (what the kernel puts on the connector — 700x390 here) and exact millimetres in the detailed timing
+  descriptor (what the compositor hands GDK — 697x392). Any monitor that is not a whole number of
+  centimetres reproduces this, on every driver.
+- **`drmWaitVBlank` returns `EOPNOTSUPP` (errno 95).** `nvidia_drm` has a `vblank` module parameter —
+  *"Enable drm vblank notification support (1 = enable, 0 = disable (default))"* — and it is off by
+  default. (Earlier notes recorded the wrong errno: libdrm's `drmWaitVBlank` returns `-1` with `errno`
+  set, not `-errno`, so `strerror(-ret)` prints nonsense. WebKit's own logging has the same bug.)
+
+**Fix: `src/Weavie.Linux/native/weavie-display-sync.c`**, a 200-line library the host `dlopen`s with
+`RTLD_GLOBAL` before GTK, so it sits in front of libdrm for this process:
+
+- `drmModeGetConnector` reports the size the compositor reports, for any connected connector within the
+  one centimetre that EDID's own rounding can explain.
+- `drmWaitVBlank` forwards to the driver and, only when the driver has no vblank to wait on, answers on a
+  monotonic grid at that CRTC's refresh rate. The compositor still vsyncs what the cadence produces; this
+  only replaces WebKit's hardcoded-60 timer with the display's real period.
+
+`Native/DisplaySync.cs` loads it and registers the monitors GDK reports (re-registering on display change).
+No `LD_PRELOAD` and no re-exec: an in-process `dlopen(RTLD_GLOBAL)` before libdrm is loaded is enough.
+
+### Measuring it
+
+`tools/refresh-rate.cs` runs the shipping engine both ways:
+
+```
+dotnet run tools/refresh-rate.cs                                     # 60 Hz, p50 16.00ms — WebKit's floor
+dotnet run tools/refresh-rate.cs --display-sync <built .so>          # 228 Hz, p50 4.00ms
+```
+
+| stack | measured |
+|---|---|
+| GTK 3 + webkit2gtk-4.1, vblank monitor working at 240 | **60.0Hz** (p50 17.00ms) |
+| GTK 4 + webkitgtk-6.0, stock | 60Hz (p50 16.00ms) |
+| GTK 4 + webkitgtk-6.0, vblank working but sizes not reconciled | 58Hz (p50 16.00ms) |
+| GTK 4 + webkitgtk-6.0, both fixes | **228Hz** (p50 4.00ms) |
+| the real Weavie app, both fixes | **240.3Hz** (p50 4.00ms) |
+
+### Renderer
+
+GTK 4 defaults to its Vulkan renderer, which measures ~140Hz against ~228Hz for its GL renderer on this
+NVIDIA box. `LinuxGraphicsCompatibility` therefore asks for `GSK_RENDERER=gl` when `nvidia_drm` is loaded
+and the user has not chosen one themselves.
+
+### What the port changed beyond the frame rate
+
+- Window **position** is no longer saved or restored: GTK 4 has no client-side positioning on either
+  backend (GTK 3 already had none on Wayland). Size and maximized state still round-trip.
+- The clipboard and the folder picker are async in GTK 4; both are bridged back to the synchronous answer
+  the host bus expects through one nested main loop (`Native/MainLoopWait.cs`) — the same nesting GTK 3
+  did inside `gtk_clipboard_wait_for_text` and `gtk_native_dialog_run`.
+- `gtk_clipboard_store` has no GTK 4 equivalent; clipboard persistence after exit is the compositor's
+  clipboard manager's job now.
+- X11 global hotkeys own a private X connection watched on the main loop, because GTK 4 removed
+  `gdk_window_add_filter`. The grabs run under an error handler that records failures instead of Xlib's
+  default one, which exits the process.
+- The window icon comes from the themed name `LinuxDesktopIdentity` already installs, so the host no
+  longer links gdk-pixbuf.

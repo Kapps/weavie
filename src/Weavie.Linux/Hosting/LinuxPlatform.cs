@@ -67,39 +67,64 @@ internal sealed class LinuxPlatform : IHostPlatform {
 
 	public void ActivateWindow(string? activationToken) => _activateWindow(activationToken);
 
-	// Host-bus handlers enter the GTK main thread before reaching the clipboard API. Store so the text
-	// survives this process exiting (X11 clipboards otherwise vanish with their owner).
-	public void WriteClipboard(string text) {
-		IntPtr clipboard = Gtk.gtk_clipboard_get(Gtk.SelectionClipboard);
-		Gtk.gtk_clipboard_set_text(clipboard, text ?? string.Empty, -1);
-		Gtk.gtk_clipboard_store(clipboard);
-	}
+	// Host-bus handlers enter the GTK main thread before reaching the clipboard, whose reads are async in
+	// GTK 4; the nested loop gives the bus back the synchronous answer it expects.
+	public void WriteClipboard(string text) =>
+		Gdk.gdk_clipboard_set_text(Clipboard, text ?? string.Empty);
 
 	public string ReadClipboard() {
-		IntPtr clipboard = Gtk.gtk_clipboard_get(Gtk.SelectionClipboard);
-		IntPtr text = Gtk.gtk_clipboard_wait_for_text(clipboard);
-		if (text == IntPtr.Zero) {
-			return string.Empty;
-		}
+		IntPtr clipboard = Clipboard;
+		return MainLoopWait.For(
+			callback => Gdk.gdk_clipboard_read_text_async(clipboard, IntPtr.Zero, callback, IntPtr.Zero),
+			result => {
+				IntPtr text = Gdk.gdk_clipboard_read_text_finish(clipboard, result, out IntPtr error);
+				GLib.g_clear_error(ref error);
+				if (text == IntPtr.Zero) {
+					return string.Empty;
+				}
 
-		try {
-			return Marshal.PtrToStringUTF8(text) ?? string.Empty;
-		} finally {
-			GLib.g_free(text);
-		}
+				try {
+					return Marshal.PtrToStringUTF8(text) ?? string.Empty;
+				} finally {
+					GLib.g_free(text);
+				}
+			});
 	}
 
 	public ClipboardImage ReadClipboardImage() {
-		IntPtr clipboard = Gtk.gtk_clipboard_get(Gtk.SelectionClipboard);
-		IntPtr pixbuf = Gtk.gtk_clipboard_wait_for_image(clipboard);
-		if (pixbuf == IntPtr.Zero) {
+		IntPtr clipboard = Clipboard;
+		return MainLoopWait.For(
+			callback => Gdk.gdk_clipboard_read_texture_async(clipboard, IntPtr.Zero, callback, IntPtr.Zero),
+			result => {
+				IntPtr texture = Gdk.gdk_clipboard_read_texture_finish(clipboard, result, out IntPtr error);
+				GLib.g_clear_error(ref error);
+				if (texture == IntPtr.Zero) {
+					return ClipboardImage.None;
+				}
+
+				try {
+					return EncodePng(texture);
+				} finally {
+					GLib.g_object_unref(texture);
+				}
+			});
+	}
+
+	private static IntPtr Clipboard => Gdk.gdk_display_get_clipboard(Gdk.gdk_display_get_default());
+
+	private static ClipboardImage EncodePng(IntPtr texture) {
+		IntPtr encoded = Gdk.gdk_texture_save_to_png_bytes(texture);
+		if (encoded == IntPtr.Zero) {
 			return ClipboardImage.None;
 		}
 
 		try {
-			return GdkPixbuf.EncodePng(pixbuf) is { } bytes ? new ClipboardImage("image/png", bytes) : ClipboardImage.None;
+			IntPtr data = GLib.g_bytes_get_data(encoded, out nuint size);
+			byte[] png = new byte[size];
+			Marshal.Copy(data, png, 0, (int)size);
+			return new ClipboardImage("image/png", png);
 		} finally {
-			GLib.g_object_unref(pixbuf);
+			GLib.g_bytes_unref(encoded);
 		}
 	}
 

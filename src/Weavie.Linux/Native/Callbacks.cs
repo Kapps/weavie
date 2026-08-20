@@ -22,17 +22,29 @@ internal delegate void WidgetCallback(IntPtr widget, IntPtr userData);
 [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
 internal delegate void PropertyNotifyCallback(IntPtr instance, IntPtr property, IntPtr userData);
 
-/// <summary>GTK <c>key-press-event</c> handler: <c>(widget, GdkEventKey*, userData)</c>.</summary>
+/// <summary>GTK <c>key-pressed</c> handler on a key controller: <c>(controller, keyval, keycode, state, userData)</c>.</summary>
 [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-internal delegate int KeyEventCallback(IntPtr widget, IntPtr keyEvent, IntPtr userData);
+internal delegate int KeyPressedCallback(IntPtr controller, uint keyval, uint keycode, uint state, IntPtr userData);
 
-/// <summary>GDK native-event filter: <c>(xevent, event, userData)</c>.</summary>
+/// <summary>GIO <c>GAsyncReadyCallback</c>: <c>(sourceObject, GAsyncResult*, userData)</c>.</summary>
 [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-internal delegate int NativeEventFilter(IntPtr nativeEvent, IntPtr gdkEvent, IntPtr userData);
+internal delegate void AsyncReadyCallback(IntPtr sourceObject, IntPtr result, IntPtr userData);
 
-/// <summary>WebKit <c>script-message-received</c> handler: <c>(manager, WebKitJavascriptResult*, userData)</c>.</summary>
+/// <summary>GLib <c>GUnixFDSourceFunc</c>: <c>(fd, condition, userData)</c>, returning 0 to remove the source.</summary>
 [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-internal delegate void ScriptMessageCallback(IntPtr manager, IntPtr jsResult, IntPtr userData);
+internal delegate int UnixFdSourceFunc(int fd, int condition, IntPtr userData);
+
+/// <summary>Xlib error handler: <c>(display, XErrorEvent*)</c>; the return value is ignored.</summary>
+[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+internal delegate int X11ErrorHandler(IntPtr display, IntPtr error);
+
+/// <summary>GIO <c>GListModel::items-changed</c> handler: <c>(model, position, removed, added, userData)</c>.</summary>
+[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+internal delegate void ItemsChangedCallback(IntPtr model, uint position, uint removed, uint added, IntPtr userData);
+
+/// <summary>WebKit <c>script-message-received</c> handler: <c>(manager, JSCValue*, userData)</c>.</summary>
+[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+internal delegate void ScriptMessageCallback(IntPtr manager, IntPtr jsValue, IntPtr userData);
 
 /// <summary>WebKit <c>WebKitURISchemeRequestCallback</c>: <c>(WebKitURISchemeRequest*, userData)</c>.</summary>
 [UnmanagedFunctionPointer(CallingConvention.Cdecl)]

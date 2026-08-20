@@ -3,24 +3,33 @@ using Weavie.Linux.Hosting;
 using Weavie.Linux.Native;
 
 LinuxGraphicsCompatibility.Apply();
+// Before GTK: the display-sync library only wins symbol resolution while libdrm is still unloaded.
+DisplaySync.Load();
 GLib.g_set_prgname(LinuxDesktopIdentity.AppId);
 LinuxDesktopIdentity.EnsureInstalled();
-Gtk.gtk_init(IntPtr.Zero, IntPtr.Zero);
+Gtk.gtk_init();
+DisplaySync.TrackMonitors();
 
 const string missingAudioSink =
 	"Weavie may freeze or crash because GStreamer's 'autoaudiosink' element is missing. "
 	+ "Install GStreamer Good Plug-ins, then restart Weavie.\n\n"
 	+ "Debian/Ubuntu: gstreamer1.0-plugins-good\nFedora: gstreamer1-plugins-good\nArch: gst-plugins-good";
 if (!GStreamer.HasAutoAudioSink()) {
-	IntPtr dialog = Gtk.gtk_message_dialog_new(
-		IntPtr.Zero, Gtk.DialogModal, Gtk.MessageWarning, Gtk.ButtonsOk, missingAudioSink);
-	Gtk.gtk_window_set_title(dialog, "Missing Linux dependency");
-	_ = Gtk.gtk_dialog_run(dialog);
-	Gtk.gtk_widget_destroy(dialog);
+	IntPtr dialog = Gtk.gtk_alert_dialog_new(IntPtr.Zero);
+	Gtk.gtk_alert_dialog_set_message(dialog, missingAudioSink);
+	Gtk.gtk_alert_dialog_set_modal(dialog, true);
+	_ = MainLoopWait.For(
+		callback => Gtk.gtk_alert_dialog_choose(dialog, IntPtr.Zero, IntPtr.Zero, callback, IntPtr.Zero),
+		result => {
+			int button = Gtk.gtk_alert_dialog_choose_finish(dialog, result, out IntPtr error);
+			GLib.g_clear_error(ref error);
+			return button;
+		});
+	GLib.g_object_unref(dialog);
 }
 
 var host = new WorkspaceHost();
 host.Start();
-Gtk.gtk_main();
+GtkMain.Run();
 host.Shutdown();
 return 0;

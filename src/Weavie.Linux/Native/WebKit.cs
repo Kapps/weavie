@@ -3,12 +3,12 @@ using System.Runtime.InteropServices;
 namespace Weavie.Linux.Native;
 
 /// <summary>
-/// P/Invoke into WebKitGTK 4.1 and its JavaScriptCore-GTK companion — web view, user-content manager, the
-/// custom <c>app://</c> scheme, and outbound <c>evaluateJavaScript</c>. 4.1 is the libsoup3 ABI on current distros.
+/// P/Invoke into WebKitGTK 6.0 (the GTK 4 API) and its JavaScriptCore-GTK companion — web view,
+/// user-content manager, the custom <c>app://</c> scheme, and outbound <c>evaluateJavaScript</c>.
 /// </summary>
 internal static partial class WebKit {
-	private const string Lib = "libwebkit2gtk-4.1.so.0";
-	private const string Jsc = "libjavascriptcoregtk-4.1.so.0";
+	private const string Lib = "libwebkitgtk-6.0.so.4";
+	private const string Jsc = "libjavascriptcoregtk-6.0.so.1";
 	private const string PreferPageRenderingUpdatesNear60Fps = "PreferPageRenderingUpdatesNear60FPS";
 
 	/// <summary><c>WEBKIT_USER_CONTENT_INJECT_TOP_FRAME</c> — inject user scripts into the top frame only.</summary>
@@ -24,12 +24,11 @@ internal static partial class WebKit {
 	internal static partial void webkit_web_context_register_uri_scheme(
 		IntPtr context, string scheme, IntPtr callback, IntPtr userData, IntPtr destroyNotify);
 
-	[LibraryImport(Lib)]
-	internal static partial IntPtr webkit_user_content_manager_new();
-
+	/// <summary>Registers a script-message channel in the page's main world (a NULL world name).</summary>
 	[LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
 	[return: MarshalAs(UnmanagedType.Bool)]
-	internal static partial bool webkit_user_content_manager_register_script_message_handler(IntPtr manager, string name);
+	internal static partial bool webkit_user_content_manager_register_script_message_handler(
+		IntPtr manager, string name, IntPtr worldName);
 
 	[LibraryImport(Lib)]
 	internal static partial void webkit_user_content_manager_add_script(IntPtr manager, IntPtr script);
@@ -39,7 +38,11 @@ internal static partial class WebKit {
 		string source, int injectedFrames, int injectionTime, IntPtr allowList, IntPtr blockList);
 
 	[LibraryImport(Lib)]
-	internal static partial IntPtr webkit_web_view_new_with_user_content_manager(IntPtr manager);
+	internal static partial IntPtr webkit_web_view_new();
+
+	/// <summary>The view's own user-content manager — the one script messages and injected scripts go through.</summary>
+	[LibraryImport(Lib)]
+	internal static partial IntPtr webkit_web_view_get_user_content_manager(IntPtr webView);
 
 	[LibraryImport(Lib)]
 	internal static partial IntPtr webkit_web_view_get_settings(IntPtr webView);
@@ -112,9 +115,6 @@ internal static partial class WebKit {
 	[LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
 	internal static partial void webkit_uri_scheme_request_finish(
 		IntPtr request, IntPtr stream, long streamLength, string contentType);
-
-	[LibraryImport(Lib)]
-	internal static partial IntPtr webkit_javascript_result_get_js_value(IntPtr jsResult);
 
 	[LibraryImport(Jsc)]
 	internal static partial IntPtr jsc_value_to_string(IntPtr value);

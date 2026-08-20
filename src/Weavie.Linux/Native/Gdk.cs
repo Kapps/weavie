@@ -2,9 +2,9 @@ using System.Runtime.InteropServices;
 
 namespace Weavie.Linux.Native;
 
-/// <summary>GDK event accessors and key/modifier values used by the GTK web-view keyboard bridge.</summary>
+/// <summary>GDK 4 — display/backend identity, keyval helpers, and the clipboard the host bus reads and writes.</summary>
 internal static partial class Gdk {
-	private const string Lib = "libgdk-3.so.0";
+	private const string Lib = Gtk.Lib;
 
 	internal const uint ShiftMask = 1 << 0;
 	internal const uint ControlMask = 1 << 2;
@@ -14,8 +14,6 @@ internal static partial class Gdk {
 	internal const uint MetaMask = 1 << 28;
 	internal const uint Tab = 0xff09;
 	internal const uint IsoLeftTab = 0xfe20;
-	internal const int FilterContinue = 0;
-	internal const int FilterRemove = 2;
 
 	internal enum DisplayBackend {
 		X11,
@@ -36,10 +34,17 @@ internal static partial class Gdk {
 	internal static partial IntPtr gdk_display_get_default();
 
 	[LibraryImport(Lib)]
-	internal static partial IntPtr gdk_screen_get_default();
+	internal static partial IntPtr gdk_display_get_monitors(IntPtr display);
 
 	[LibraryImport(Lib)]
-	internal static partial IntPtr gdk_screen_get_active_window(IntPtr screen);
+	internal static partial int gdk_monitor_get_width_mm(IntPtr monitor);
+
+	[LibraryImport(Lib)]
+	internal static partial int gdk_monitor_get_height_mm(IntPtr monitor);
+
+	/// <summary>The monitor's refresh rate in millihertz, or 0 when the compositor does not report one.</summary>
+	[LibraryImport(Lib)]
+	internal static partial int gdk_monitor_get_refresh_rate(IntPtr monitor);
 
 	[LibraryImport(Lib)]
 	internal static partial uint gdk_unicode_to_keyval(uint wc);
@@ -50,32 +55,29 @@ internal static partial class Gdk {
 	[LibraryImport(Lib)]
 	internal static partial IntPtr gdk_keyval_name(uint keyval);
 
+	[LibraryImport(Lib)]
+	internal static partial IntPtr gdk_display_get_clipboard(IntPtr display);
+
 	[LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
-	internal static partial void gdk_wayland_display_set_startup_notification_id(IntPtr display, string startupId);
+	internal static partial void gdk_clipboard_set_text(IntPtr clipboard, string text);
 
 	[LibraryImport(Lib)]
-	internal static partial void gdk_window_add_filter(IntPtr window, IntPtr function, IntPtr data);
+	internal static partial void gdk_clipboard_read_text_async(
+		IntPtr clipboard, IntPtr cancellable, IntPtr callback, IntPtr userData);
+
+	/// <summary>The clipboard text as a newly-allocated UTF-8 string (free with <see cref="GLib.g_free"/>), or NULL.</summary>
+	[LibraryImport(Lib)]
+	internal static partial IntPtr gdk_clipboard_read_text_finish(IntPtr clipboard, IntPtr result, out IntPtr error);
 
 	[LibraryImport(Lib)]
-	internal static partial void gdk_window_remove_filter(IntPtr window, IntPtr function, IntPtr data);
+	internal static partial void gdk_clipboard_read_texture_async(
+		IntPtr clipboard, IntPtr cancellable, IntPtr callback, IntPtr userData);
 
+	/// <summary>The clipboard image as a GdkTexture (unref when done), or NULL.</summary>
 	[LibraryImport(Lib)]
-	internal static partial IntPtr gdk_x11_display_get_xdisplay(IntPtr display);
+	internal static partial IntPtr gdk_clipboard_read_texture_finish(IntPtr clipboard, IntPtr result, out IntPtr error);
 
+	/// <summary>Encodes a GdkTexture as PNG into a GBytes (unref with <see cref="GLib.g_bytes_unref"/>).</summary>
 	[LibraryImport(Lib)]
-	internal static partial nuint gdk_x11_window_get_xid(IntPtr window);
-
-	[LibraryImport(Lib)]
-	internal static partial void gdk_x11_display_error_trap_push(IntPtr display);
-
-	[LibraryImport(Lib)]
-	internal static partial int gdk_x11_display_error_trap_pop(IntPtr display);
-
-	[LibraryImport(Lib)]
-	[return: MarshalAs(UnmanagedType.Bool)]
-	internal static partial bool gdk_event_get_state(IntPtr keyEvent, out uint state);
-
-	[LibraryImport(Lib)]
-	[return: MarshalAs(UnmanagedType.Bool)]
-	internal static partial bool gdk_event_get_keyval(IntPtr keyEvent, out uint keyval);
+	internal static partial IntPtr gdk_texture_save_to_png_bytes(IntPtr texture);
 }

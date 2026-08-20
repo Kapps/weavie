@@ -9,11 +9,24 @@ namespace Weavie.Linux.Native;
 /// <see cref="Invoke"/>.
 /// </summary>
 internal static class GtkMain {
+	private static IntPtr _loop;
+
 	// One kept-alive trampoline; actions are parked in a token-keyed table so no managed pointer crosses native.
 	private static readonly GSourceFunc Trampoline = RunQueued;
 	private static readonly IntPtr TrampolinePtr = Marshal.GetFunctionPointerForDelegate(Trampoline);
 	private static readonly ConcurrentDictionary<nint, Action> Pending = new();
 	private static long _nextToken;
+
+	/// <summary>Runs the GTK main loop until <see cref="Quit"/>. GTK 4 has no <c>gtk_main</c>; the loop is ours.</summary>
+	internal static void Run() {
+		_loop = GLib.g_main_loop_new(IntPtr.Zero, false);
+		GLib.g_main_loop_run(_loop);
+		GLib.g_main_loop_unref(_loop);
+		_loop = IntPtr.Zero;
+	}
+
+	/// <summary>Ends the loop <see cref="Run"/> is pumping, returning control to the host's shutdown.</summary>
+	internal static void Quit() => GLib.g_main_loop_quit(_loop);
 
 	/// <summary>Queues <paramref name="action"/> to run on the GTK main thread.</summary>
 	internal static void Invoke(Action action) {

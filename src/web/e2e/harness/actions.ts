@@ -69,6 +69,15 @@ export async function openFile(page: Page, name: string): Promise<void> {
 // simply absent from the DOM, and a locator addressing one waits out the whole test timeout with nothing to
 // report but "waiting for locator". Binding the model says which file the editor holds, not that it has room to
 // draw it, so wait for the viewport to agree with its container before a spec addresses rendered text.
+//
+// Height agreement alone isn't sufficient proof the clamp has cleared: `editor-peek-definition.spec.ts`'s
+// multicursor test kept flaking on Windows CI (runs 31993224310, 32096266021, 32104522458, 32333399943 — the
+// last one after this exact height check was already gating every call site) with the documented fingerprint —
+// `renderedLines` showing a single, often-blank line at teardown while `.editor`/`.monaco` read a healthy size.
+// A height-only check can pass on a stale read (Monaco's `getLayoutInfo()` reflects the size *at measurement
+// time*, not that the clamped single-line viewport has actually re-rendered every line back in). So also require
+// the DOM to hold more than the clamp's one-line placeholder whenever the model has more than one line —
+// checking the actual rendered output, not a derived number that can agree while the render is still catching up.
 export async function awaitEditorLaidOut(page: Page): Promise<void> {
   await expect
     .poll(
@@ -76,9 +85,16 @@ export async function awaitEditorLaidOut(page: Page): Promise<void> {
         page.evaluate(() => {
           const editor = (window as WeavieWindow).__WEAVIE_EDITOR__;
           const container = document.querySelector(".editor-surface .editor");
-          return editor === undefined || container === null
-            ? null
-            : editor.getLayoutInfo().height - container.clientHeight;
+          if (editor === undefined || container === null) {
+            return null;
+          }
+          const heightDiff = editor.getLayoutInfo().height - container.clientHeight;
+          if (heightDiff !== 0) {
+            return heightDiff;
+          }
+          const modelLineCount = editor.getModel()?.getLineCount() ?? 0;
+          const renderedLineCount = document.querySelectorAll(".view-line").length;
+          return modelLineCount > 1 && renderedLineCount <= 1 ? -1 : 0;
         }),
       { message: "Monaco's viewport never matched its container (editor stuck at the 5px clamp)" },
     )

@@ -1,7 +1,7 @@
 # E2E flake analysis (Windows-dominated)
 
 Status: living document — root causes confirmed where noted, open where noted
-Last updated: 2026-08-17
+Last updated: 2026-08-20
 
 A forensic catalog of the e2e suite's flakes, their confirmed/suspected root causes, and the
 techniques that produced those findings. Retries are off by policy (a flake fails the run), so every
@@ -107,6 +107,30 @@ flaked tests route through) now calls `awaitEditorLaidOut` itself before buildin
 caller re-waits for layout for free instead of each test needing its own reasoning about what might have
 relaid-out since `openFile`. The multicursor test's standalone `awaitEditorLaidOut` call (added for the
 previous occurrence) was removed as redundant.
+
+**2026-08-20 fourth occurrence, run 32333399943:** hit a fourth time on the multicursor test
+(`editor-peek-definition.spec.ts:117`, ["alt+click during a multicursor session adds a cursor instead of
+peeking"](https://github.com/Kapps/weavie/actions/runs/32333399943/job/96318875803)) — main's post-merge CI
+for PR #639 — **despite** the shared-helper gate from the third occurrence already covering this call site.
+Identical fingerprint once more: `renderedLines: [""]`, `.editor`/`.monaco` healthy (742×709) at teardown,
+`console-errors.txt` empty, `Error: locator.click: Target page, context or browser has been closed` (the
+final rejection Playwright surfaces on a `word.click()` still pending when the 60s test timeout tears the
+page down — not a new symptom, the same never-resolved locator as the prior three).
+
+**Root cause of the gate's miss:** `awaitEditorLaidOut` only compared `editor.getLayoutInfo().height` to
+the container's `clientHeight`. Monaco's `ResizeObserver` callback re-measures and calls `layout()`
+synchronously on a resize, but "the numbers agree" is a read taken at one instant over a CDP round-trip —
+it proves the clamp isn't active *at that instant*, not that the DOM has actually caught up rendering every
+line back in (or that a fresh collapse hasn't started by the time the click's own separate round-trip
+resolves the locator). The height diff is a proxy for the actual defect; **the real defect, per every one of
+these four occurrences' forensics, is the DOM only holding the clamp's one-line placeholder.**
+
+**Fix:** `awaitEditorLaidOut` now also polls the actual DOM: it requires more than one `.view-line` element
+present whenever the model has more than one line, alongside the existing height check. This checks the
+documented failure signature directly instead of a derived number that can agree while the render lags. Not
+a retry, skip, or widened timeout — `expect.poll`'s existing polling now waits on a truer condition. Land
+and soak per the guidance below; this is not reproducible locally so it can only be validated by watching
+Windows CI stay clean on this test across subsequent runs.
 
 ## CONFIRMED + FIXED: #1 (S2-race) — a test walk-race, not a product bug
 

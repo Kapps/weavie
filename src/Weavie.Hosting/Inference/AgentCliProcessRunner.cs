@@ -60,8 +60,15 @@ internal sealed class AgentCliProcessRunner : IAgentCliProcessRunner {
 			ct);
 		var stderr = ReadAsync(process.StandardError.BaseStream, 1, capture: false, ct);
 		try {
-			await process.StandardInput.WriteAsync(request.StandardInput.AsMemory(), ct).ConfigureAwait(false);
-			process.StandardInput.Close();
+			try {
+				await process.StandardInput.WriteAsync(request.StandardInput.AsMemory(), ct).ConfigureAwait(false);
+				process.StandardInput.Close();
+			} catch (IOException) when (!ct.IsCancellationRequested) {
+				// The CLI can exit (and close its end of the pipe) before consuming stdin — e.g. an
+				// immediate argument-validation failure. That's not a runner failure: the process's
+				// real exit code and captured stdout below still apply.
+			}
+
 			var exited = process.WaitForExitAsync(ct);
 			var first = await Task.WhenAny(exited, stdout, stderr).ConfigureAwait(false);
 			if (first.IsFaulted || first.IsCanceled) {

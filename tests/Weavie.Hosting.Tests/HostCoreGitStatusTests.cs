@@ -4,7 +4,7 @@ namespace Weavie.Hosting.Tests;
 
 public sealed class HostCoreGitStatusTests {
 	[Fact]
-	public async Task StatusPollTracksManualCommitAndExternalNonLanguageEdit() {
+	public async Task GitMetadataAndFileActivityRefreshStatus() {
 		await using var host = await TestHost.StartAsync(repo => {
 			File.WriteAllText(Path.Combine(repo, "readme.txt"), "replacement\nsecond\n");
 			File.WriteAllText(Path.Combine(repo, "untracked.txt"), "new file\n");

@@ -1,4 +1,3 @@
-using System.Threading.Channels;
 using Xunit;
 
 namespace Weavie.Hosting.Tests;
@@ -22,9 +21,7 @@ public sealed class GitStatusMonitorTests {
 
 				return Snapshot(call);
 			},
-			published.Add,
-			Task.Delay,
-			TimeSpan.FromSeconds(1));
+			published.Add);
 
 		monitor.RequestRefresh();
 		await firstStarted.Task;
@@ -46,9 +43,7 @@ public sealed class GitStatusMonitorTests {
 		var monitor = new GitStatusMonitor(
 			background,
 			_ => Task.FromResult(expected),
-			_ => { },
-			Task.Delay,
-			TimeSpan.FromSeconds(1));
+			_ => { });
 
 		monitor.RequestRefresh();
 		await Wait.UntilAsync(() => monitor.Latest is not null);
@@ -57,39 +52,43 @@ public sealed class GitStatusMonitorTests {
 	}
 
 	[Fact]
-	public async Task PollInterval_RefreshesWithoutAnExternalSignal() {
+	public async Task IdleMonitor_DoesNotResolveWithoutARefreshRequest() {
 		await using var background = new SessionTaskScope(_ => { });
-		var delay = new ManualDelay();
 		int calls = 0;
 		var monitor = new GitStatusMonitor(
 			background,
 			_ => Task.FromResult(Snapshot(Interlocked.Increment(ref calls))),
-			_ => { },
-			delay.WaitAsync,
-			TimeSpan.FromSeconds(1));
+			_ => { });
 
-		var firstPoll = await delay.NextAsync();
-		Assert.Equal(TimeSpan.FromSeconds(1), firstPoll.Duration);
-		firstPoll.Elapsed.TrySetResult();
+		await monitor.Waiting;
+		await Task.Delay(TimeSpan.FromMilliseconds(1100));
+		Assert.Equal(0, calls);
+	}
 
+	[Fact]
+	public async Task EqualRefreshes_AreNotRepublished() {
+		await using var background = new SessionTaskScope(_ => { });
+		var snapshot = Snapshot(3);
+		int calls = 0;
+		int publications = 0;
+		var monitor = new GitStatusMonitor(
+			background,
+			_ => {
+				Interlocked.Increment(ref calls);
+				return Task.FromResult(snapshot);
+			},
+			_ => Interlocked.Increment(ref publications));
+
+		monitor.RequestRefresh();
 		await Wait.UntilAsync(() => calls == 1);
+		monitor.RequestRefresh();
+		await Wait.UntilAsync(() => calls == 2);
+
+		Assert.Equal(1, publications);
+		Assert.Equal(snapshot, monitor.Latest);
 	}
 
 	private static GitStatusSnapshot Snapshot(int added) =>
 		new("feature", true, added, 1, null);
 
-	private sealed class ManualDelay {
-		private readonly Channel<DelayCall> _calls = Channel.CreateUnbounded<DelayCall>();
-
-		public async Task WaitAsync(TimeSpan duration, CancellationToken ct) {
-			var elapsed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-			using var registration = ct.Register(() => elapsed.TrySetCanceled(ct));
-			await _calls.Writer.WriteAsync(new DelayCall(duration, elapsed), ct);
-			await elapsed.Task;
-		}
-
-		public ValueTask<DelayCall> NextAsync() => _calls.Reader.ReadAsync();
-	}
-
-	private sealed record DelayCall(TimeSpan Duration, TaskCompletionSource Elapsed);
 }

@@ -9,27 +9,18 @@ internal sealed class GitStatusMonitor {
 		new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
 	private readonly Func<CancellationToken, Task<GitStatusSnapshot>> _resolve;
 	private readonly Action<GitStatusSnapshot> _publish;
-	private readonly Func<TimeSpan, CancellationToken, Task> _delay;
-	private readonly TimeSpan _pollInterval;
+	private readonly TaskCompletionSource _waiting = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
 	public GitStatusMonitor(
 		SessionTaskScope background,
 		Func<CancellationToken, Task<GitStatusSnapshot>> resolve,
-		Action<GitStatusSnapshot> publish,
-		Func<TimeSpan, CancellationToken, Task> delay,
-		TimeSpan pollInterval) {
+		Action<GitStatusSnapshot> publish) {
 		ArgumentNullException.ThrowIfNull(background);
 		ArgumentNullException.ThrowIfNull(resolve);
 		ArgumentNullException.ThrowIfNull(publish);
-		ArgumentNullException.ThrowIfNull(delay);
-		if (pollInterval <= TimeSpan.Zero) {
-			throw new ArgumentOutOfRangeException(nameof(pollInterval));
-		}
 
 		_resolve = resolve;
 		_publish = publish;
-		_delay = delay;
-		_pollInterval = pollInterval;
 		_ = background.Run(RunAsync);
 	}
 
@@ -45,9 +36,11 @@ internal sealed class GitStatusMonitor {
 
 	public void RequestRefresh() => _signals.Writer.TryWrite(true);
 
+	internal Task Waiting => _waiting.Task;
+
 	private async Task RunAsync(CancellationToken ct) {
-		while (true) {
-			await WaitForRefreshAsync(ct).ConfigureAwait(false);
+		_waiting.TrySetResult();
+		while (await _signals.Reader.WaitToReadAsync(ct).ConfigureAwait(false)) {
 			while (_signals.Reader.TryRead(out _)) {
 			}
 
@@ -61,19 +54,6 @@ internal sealed class GitStatusMonitor {
 			if (changed) {
 				_publish(snapshot);
 			}
-		}
-	}
-
-	private async Task WaitForRefreshAsync(CancellationToken ct) {
-		using var race = CancellationTokenSource.CreateLinkedTokenSource(ct);
-		Task signal = _signals.Reader.WaitToReadAsync(race.Token).AsTask();
-		var poll = _delay(_pollInterval, race.Token);
-		var winner = await Task.WhenAny(signal, poll).ConfigureAwait(false);
-		await winner.ConfigureAwait(false);
-		race.Cancel();
-		try {
-			await (ReferenceEquals(winner, signal) ? poll : signal).ConfigureAwait(false);
-		} catch (OperationCanceledException) when (race.IsCancellationRequested) {
 		}
 	}
 }

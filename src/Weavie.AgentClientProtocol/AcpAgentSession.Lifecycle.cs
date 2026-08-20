@@ -279,15 +279,17 @@ public sealed partial class AcpAgentSession {
 
 		lock (_turnTransitionGate) {
 			lock (_gate) {
-				if (_disposed || _activeGeneration != generation) {
-					_openingSessionId = null;
-					_sessionOpening = false;
-					return;
-				}
+				if (_disposed || _activeGeneration != generation) return;
 				_sessionId = sessionId;
 				_openingSessionId = null;
 				_sessionOpening = false;
 				ReadControlStateLocked(setup);
+			}
+		}
+		await RestoreControlDefaultsAsync(generation).ConfigureAwait(false);
+		lock (_turnTransitionGate) {
+			lock (_gate) {
+				if (_disposed || _activeGeneration != generation) return;
 				_ready = true;
 			}
 			if (!_connection.ReportHealthy(generation)) {

@@ -22,7 +22,8 @@ public static class AgentProviderComposition {
 		var providers = new AgentProviderRegistry();
 		var claude = new ClaudeAgentProvider(settings, claudeSessions);
 		var sessions = new AcpSessionStore(new LocalFileSystem(), Weavie.Core.WeaviePaths.AcpSessionsFile);
-		void Rebuild() => providers.ReplaceAll([claude, .. BuildAcpProviders(acpAgents, sessions)]);
+		var controls = new AcpControlStore(new LocalFileSystem(), Weavie.Core.WeaviePaths.AcpControlsFile);
+		void Rebuild() => providers.ReplaceAll([claude, .. BuildAcpProviders(acpAgents, sessions, controls)]);
 		Rebuild();
 		acpAgents.Changed += Rebuild;
 		return providers;
@@ -30,7 +31,8 @@ public static class AgentProviderComposition {
 
 	private static IReadOnlyList<IAgentProvider> BuildAcpProviders(
 		IAcpAgentCatalog catalog,
-		AcpSessionStore sessions) {
+		AcpSessionStore sessions,
+		AcpControlStore controls) {
 		IReadOnlyList<AcpLaunchSpec> launches;
 		try {
 			launches = catalog.LaunchSpecs;
@@ -53,7 +55,7 @@ public static class AgentProviderComposition {
 				Arguments = launch.Arguments,
 				Environment = launch.Environment,
 				Distribution = launch.Distribution,
-			}, sessions, Console.WriteLine));
+			}, sessions, controls, Console.WriteLine));
 		}
 		return providers;
 	}

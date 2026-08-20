@@ -184,6 +184,25 @@ public sealed class AcpAgentSessionTests {
 	}
 
 	[Fact]
+	public async Task NativeSession_RestoresAcceptedControlsBeforeRestartBecomesReady() {
+		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
+		await fixture.StartAsync();
+		fixture.Session.SetControl("model", "beta");
+		await fixture.WaitForControlsAsync(state =>
+			state.Axes.Any(axis => axis.Id == "model" && axis.Value == "beta"));
+		var oldStarts = fixture.Events.Values
+			.OfType<AgentSessionStarted>()
+			.ToHashSet(ReferenceEqualityComparer.Instance);
+
+		fixture.Session.Restart();
+		await fixture.Events.WaitForAsync(value => value is AgentSessionStarted started && !oldStarts.Contains(started));
+		fixture.Submit("control-state");
+		await fixture.WaitForMessageAsync(message => message.Text == "control state: beta/default/False");
+
+		Assert.Equal("beta", Assert.Single(fixture.Session.ControlState.Axes, axis => axis.Id == "model").Value);
+	}
+
+	[Fact]
 	public async Task NativeSession_DisposeTerminatesANonresponsiveCloseRequest() {
 		await using var fixture = AcpAgentSessionFixture.CreateHeldCloseAdapter();
 		await fixture.StartAsync();

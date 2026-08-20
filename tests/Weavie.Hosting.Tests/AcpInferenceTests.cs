@@ -90,6 +90,7 @@ public sealed class AcpInferenceTests : IDisposable {
 			Distribution = "custom",
 		},
 		new AcpSessionStore(new LocalFileSystem(), Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("n"))),
+		new AcpControlStore(new LocalFileSystem(), Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("n"))),
 		_ => { });
 
 	private InferenceProviderRequest Request() => new() {

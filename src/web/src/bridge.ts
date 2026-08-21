@@ -520,9 +520,16 @@ export interface BranchPreviewResult {
   error: string | null;
 }
 
+export interface EncodedImageAttachment {
+  id: string;
+  mime: string;
+  dataB64: string;
+}
+
 export function requestBranchPreview(
   backendId: string,
   prompt: string,
+  attachments: readonly EncodedImageAttachment[],
   agentProviderId: string,
   signal: AbortSignal,
 ): Promise<BranchPreviewResult> {
@@ -535,6 +542,7 @@ export function requestBranchPreview(
         {
           sourceId: active?.connection.id === backendId ? active.address.slot : null,
           prompt,
+          attachments,
           agentProviderId,
         },
         signal,

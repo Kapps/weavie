@@ -50,25 +50,38 @@ internal sealed partial class WorkspaceHost {
 
 	// The native (OS-themed) Open Folder picker; returns the chosen directory or null if cancelled.
 	private string? PickFolder() {
-		IntPtr dialog = Gtk.gtk_file_chooser_native_new(
-			"Open Folder", _window, Gtk.FileChooserActionSelectFolder, "_Open", "_Cancel");
+		IntPtr dialog = Gtk.gtk_file_dialog_new();
+		Gtk.gtk_file_dialog_set_title(dialog, "Open Folder");
 		try {
-			if (Gtk.gtk_native_dialog_run(dialog) != Gtk.ResponseAccept) {
-				return null;
-			}
+			return MainLoopWait.For(
+				callback => Gtk.gtk_file_dialog_select_folder(dialog, _window, IntPtr.Zero, callback, IntPtr.Zero),
+				result => ChosenPath(dialog, result));
+		} finally {
+			GLib.g_object_unref(dialog);
+		}
+	}
 
-			IntPtr namePtr = Gtk.gtk_file_chooser_get_filename(dialog);
-			if (namePtr == IntPtr.Zero) {
+	// Cancelling the picker is reported as an error, so a null folder and a reported error both mean "no choice".
+	private static string? ChosenPath(IntPtr dialog, IntPtr result) {
+		IntPtr folder = Gtk.gtk_file_dialog_select_folder_finish(dialog, result, out IntPtr error);
+		GLib.g_clear_error(ref error);
+		if (folder == IntPtr.Zero) {
+			return null;
+		}
+
+		try {
+			IntPtr path = GLib.g_file_get_path(folder);
+			if (path == IntPtr.Zero) {
 				return null;
 			}
 
 			try {
-				return Marshal.PtrToStringUTF8(namePtr);
+				return Marshal.PtrToStringUTF8(path);
 			} finally {
-				GLib.g_free(namePtr);
+				GLib.g_free(path);
 			}
 		} finally {
-			Gtk.gtk_native_dialog_destroy(dialog);
+			GLib.g_object_unref(folder);
 		}
 	}
 }

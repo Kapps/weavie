@@ -40,6 +40,33 @@ public sealed class AcpInferenceTests : IDisposable {
 		Assert.Equal(4096, result.Usage.CachedInputTokens);
 	}
 
+	[Fact]
+	public async Task SendsImagesAsNativeContentBlocks() {
+		var provider = Provider(
+			AcpAgentSessionFixture.ExecutablePath("tools", "Weavie.FakeAcp", "weavie-fake-acp"),
+			["inference", "image"]);
+
+		var result = Assert.IsType<InferenceProviderSuccess>(
+			await provider.QueryInferenceAsync(RequestWithImage(), CancellationToken.None));
+
+		using var output = JsonDocument.Parse(result.OutputJson);
+		Assert.Equal("image/png", output.RootElement.GetProperty("imageMime").GetString());
+		Assert.Equal("AQIDBA==", output.RootElement.GetProperty("imageData").GetString());
+	}
+
+	[Fact]
+	public async Task RejectsImagesWhenTheAgentDoesNotAdvertiseThem() {
+		var provider = Provider(
+			AcpAgentSessionFixture.ExecutablePath("tools", "Weavie.FakeAcp", "weavie-fake-acp"),
+			["inference", "no-image-capability"]);
+
+		var failure = Assert.IsType<InferenceProviderFailure>(
+			await provider.QueryInferenceAsync(RequestWithImage(), CancellationToken.None));
+
+		Assert.Equal(InferenceFailureKind.InputRejected, failure.Kind);
+		Assert.Contains("does not accept image prompts", failure.Detail, StringComparison.Ordinal);
+	}
+
 	[Theory]
 	[InlineData("prose")]
 	[InlineData("empty")]
@@ -90,13 +117,19 @@ public sealed class AcpInferenceTests : IDisposable {
 			Distribution = "custom",
 		},
 		new AcpSessionStore(new LocalFileSystem(), Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("n"))),
+		new AcpControlStore(new LocalFileSystem(), Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("n"))),
 		_ => { });
 
 	private InferenceProviderRequest Request() => new() {
 		Category = InferenceModelCategory.Utility,
 		Workspace = _workspace,
 		Prompt = "Propose one branch name.",
+		Images = [],
 		OutputSchemaJson = "{\"type\":\"object\",\"properties\":{\"branch\":{\"type\":\"string\"}}}",
 		MaxOutputBytes = 4096,
+	};
+
+	private InferenceProviderRequest RequestWithImage() => Request() with {
+		Images = [new InferenceInputImage { Mime = "image/png", Bytes = new byte[] { 1, 2, 3, 4 } }],
 	};
 }

@@ -12,6 +12,8 @@ internal static class InferenceFake {
 	public static async Task RunAsync(string variant) {
 		bool refusedProbe = false;
 		string cwd = string.Empty;
+		string imageMime = string.Empty;
+		string imageData = string.Empty;
 		while (await Console.In.ReadLineAsync().ConfigureAwait(false) is { } line) {
 			if (line.Length == 0) continue;
 			using var document = JsonDocument.Parse(line);
@@ -25,7 +27,13 @@ internal static class InferenceFake {
 			var id = root.TryGetProperty("id", out var raw) ? JsonNode.Parse(raw.GetRawText()) : null;
 			switch (method) {
 				case "initialize":
-					Respond(id, new JsonObject { ["protocolVersion"] = 1 });
+					var initialized = new JsonObject { ["protocolVersion"] = 1 };
+					if (variant != "no-image-capability") {
+						initialized["agentCapabilities"] = new JsonObject {
+							["promptCapabilities"] = new JsonObject { ["image"] = true },
+						};
+					}
+					Respond(id, initialized);
 					break;
 				case "session/new":
 					cwd = root.GetProperty("params").GetProperty("cwd").GetString() ?? string.Empty;
@@ -45,7 +53,12 @@ internal static class InferenceFake {
 					});
 					break;
 				case "session/prompt":
-					Chunk(Reply(variant, cwd, refusedProbe));
+					foreach (var block in root.GetProperty("params").GetProperty("prompt").EnumerateArray()) {
+						if (AcpJson.OptionalString(block, "type") != "image") continue;
+						imageMime = AcpJson.OptionalString(block, "mimeType") ?? string.Empty;
+						imageData = AcpJson.OptionalString(block, "data") ?? string.Empty;
+					}
+					Chunk(Reply(variant, cwd, refusedProbe, imageMime, imageData));
 					Respond(id, new JsonObject {
 						["stopReason"] = variant == "refusal" ? "refusal" : "end_turn",
 						["usage"] = new JsonObject {
@@ -66,18 +79,28 @@ internal static class InferenceFake {
 		}
 	}
 
-	private static string Reply(string variant, string cwd, bool refusedProbe) => variant switch {
-		"prose" => "Here you go!\n\n```json\n{\"branch\":\"feat/fenced\"}\n```",
-		"empty" => string.Empty,
-		// Valid JSON that is far past any sane output bound, to prove the client stops accumulating.
-		"oversize" => "{\"branch\":\"" + new string('x', 200_000) + "\"}",
-		"refusal" => string.Empty,
-		_ => JsonSerializer.Serialize(new JsonObject {
-			["branch"] = "feat/fake-branch",
-			["cwd"] = cwd,
-			["refusedProbe"] = refusedProbe,
-		}),
-	};
+	private static string Reply(
+		string variant,
+		string cwd,
+		bool refusedProbe,
+		string imageMime,
+		string imageData) => variant switch {
+			"prose" => "Here you go!\n\n```json\n{\"branch\":\"feat/fenced\"}\n```",
+			"empty" => string.Empty,
+			// Valid JSON that is far past any sane output bound, to prove the client stops accumulating.
+			"oversize" => "{\"branch\":\"" + new string('x', 200_000) + "\"}",
+			"refusal" => string.Empty,
+			"image" => JsonSerializer.Serialize(new JsonObject {
+				["branch"] = "feat/fake-branch",
+				["imageMime"] = imageMime,
+				["imageData"] = imageData,
+			}),
+			_ => JsonSerializer.Serialize(new JsonObject {
+				["branch"] = "feat/fake-branch",
+				["cwd"] = cwd,
+				["refusedProbe"] = refusedProbe,
+			}),
+		};
 
 	private static void Probe() => Write(new JsonObject {
 		["jsonrpc"] = "2.0",

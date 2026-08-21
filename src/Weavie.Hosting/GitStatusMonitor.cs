@@ -4,32 +4,43 @@ namespace Weavie.Hosting;
 
 /// <summary>Owns one session incarnation's serialized, coalesced Git-status refreshes.</summary>
 internal sealed class GitStatusMonitor {
+	private static readonly TimeSpan MinimumRefreshInterval = TimeSpan.FromSeconds(10);
 	private readonly Lock _snapshotGate = new();
-	private readonly Channel<bool> _signals = Channel.CreateUnbounded<bool>(
-		new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
+	private readonly Channel<bool> _signals = Channel.CreateBounded<bool>(new BoundedChannelOptions(1) {
+		FullMode = BoundedChannelFullMode.DropWrite,
+		SingleReader = true,
+		SingleWriter = false,
+	});
 	private readonly Func<CancellationToken, Task<GitStatusSnapshot>> _resolve;
 	private readonly Action<GitStatusSnapshot> _publish;
 	private readonly Func<TimeSpan, CancellationToken, Task> _delay;
-	private readonly TimeSpan _pollInterval;
+	private readonly TimeSpan _minimumRefreshInterval;
+	private readonly TaskCompletionSource _waiting = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
 	public GitStatusMonitor(
 		SessionTaskScope background,
 		Func<CancellationToken, Task<GitStatusSnapshot>> resolve,
+		Action<GitStatusSnapshot> publish)
+		: this(background, resolve, publish, Task.Delay, MinimumRefreshInterval) { }
+
+	internal GitStatusMonitor(
+		SessionTaskScope background,
+		Func<CancellationToken, Task<GitStatusSnapshot>> resolve,
 		Action<GitStatusSnapshot> publish,
 		Func<TimeSpan, CancellationToken, Task> delay,
-		TimeSpan pollInterval) {
+		TimeSpan minimumRefreshInterval) {
 		ArgumentNullException.ThrowIfNull(background);
 		ArgumentNullException.ThrowIfNull(resolve);
 		ArgumentNullException.ThrowIfNull(publish);
 		ArgumentNullException.ThrowIfNull(delay);
-		if (pollInterval <= TimeSpan.Zero) {
-			throw new ArgumentOutOfRangeException(nameof(pollInterval));
+		if (minimumRefreshInterval <= TimeSpan.Zero) {
+			throw new ArgumentOutOfRangeException(nameof(minimumRefreshInterval));
 		}
 
 		_resolve = resolve;
 		_publish = publish;
 		_delay = delay;
-		_pollInterval = pollInterval;
+		_minimumRefreshInterval = minimumRefreshInterval;
 		_ = background.Run(RunAsync);
 	}
 
@@ -45,9 +56,13 @@ internal sealed class GitStatusMonitor {
 
 	public void RequestRefresh() => _signals.Writer.TryWrite(true);
 
+	internal Task Waiting => _waiting.Task;
+
 	private async Task RunAsync(CancellationToken ct) {
-		while (true) {
-			await WaitForRefreshAsync(ct).ConfigureAwait(false);
+		_waiting.TrySetResult();
+		var cooldown = Task.CompletedTask;
+		while (await _signals.Reader.WaitToReadAsync(ct).ConfigureAwait(false)) {
+			await cooldown.ConfigureAwait(false);
 			while (_signals.Reader.TryRead(out _)) {
 			}
 
@@ -61,19 +76,8 @@ internal sealed class GitStatusMonitor {
 			if (changed) {
 				_publish(snapshot);
 			}
-		}
-	}
 
-	private async Task WaitForRefreshAsync(CancellationToken ct) {
-		using var race = CancellationTokenSource.CreateLinkedTokenSource(ct);
-		Task signal = _signals.Reader.WaitToReadAsync(race.Token).AsTask();
-		var poll = _delay(_pollInterval, race.Token);
-		var winner = await Task.WhenAny(signal, poll).ConfigureAwait(false);
-		await winner.ConfigureAwait(false);
-		race.Cancel();
-		try {
-			await (ReferenceEquals(winner, signal) ? poll : signal).ConfigureAwait(false);
-		} catch (OperationCanceledException) when (race.IsCancellationRequested) {
+			cooldown = _delay(_minimumRefreshInterval, ct);
 		}
 	}
 }

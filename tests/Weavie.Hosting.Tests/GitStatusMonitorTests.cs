@@ -10,6 +10,7 @@ public sealed class GitStatusMonitorTests {
 		var firstStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		var releaseFirst = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		var published = new List<GitStatusSnapshot>();
+		var delay = new ManualDelay();
 		int calls = 0;
 		var monitor = new GitStatusMonitor(
 			background,
@@ -23,8 +24,8 @@ public sealed class GitStatusMonitorTests {
 				return Snapshot(call);
 			},
 			published.Add,
-			Task.Delay,
-			TimeSpan.FromSeconds(1));
+			delay.WaitAsync,
+			TimeSpan.FromSeconds(10));
 
 		monitor.RequestRefresh();
 		await firstStarted.Task;
@@ -33,6 +34,10 @@ public sealed class GitStatusMonitorTests {
 		Assert.Equal(1, calls);
 
 		releaseFirst.TrySetResult();
+		var cooldown = await delay.NextAsync();
+		Assert.Equal(TimeSpan.FromSeconds(10), cooldown.Duration);
+		Assert.Equal(1, calls);
+		cooldown.Elapsed.TrySetResult();
 		await Wait.UntilAsync(() => published.Count == 2);
 
 		Assert.Equal(2, calls);
@@ -46,9 +51,7 @@ public sealed class GitStatusMonitorTests {
 		var monitor = new GitStatusMonitor(
 			background,
 			_ => Task.FromResult(expected),
-			_ => { },
-			Task.Delay,
-			TimeSpan.FromSeconds(1));
+			_ => { });
 
 		monitor.RequestRefresh();
 		await Wait.UntilAsync(() => monitor.Latest is not null);
@@ -57,22 +60,50 @@ public sealed class GitStatusMonitorTests {
 	}
 
 	[Fact]
-	public async Task PollInterval_RefreshesWithoutAnExternalSignal() {
+	public async Task IdleMonitor_DoesNotResolveWithoutARefreshRequest() {
 		await using var background = new SessionTaskScope(_ => { });
-		var delay = new ManualDelay();
 		int calls = 0;
+		var delay = new ManualDelay();
 		var monitor = new GitStatusMonitor(
 			background,
 			_ => Task.FromResult(Snapshot(Interlocked.Increment(ref calls))),
 			_ => { },
 			delay.WaitAsync,
-			TimeSpan.FromSeconds(1));
+			TimeSpan.FromSeconds(10));
 
-		var firstPoll = await delay.NextAsync();
-		Assert.Equal(TimeSpan.FromSeconds(1), firstPoll.Duration);
-		firstPoll.Elapsed.TrySetResult();
+		await monitor.Waiting;
+		await Task.Yield();
+		Assert.Equal(0, calls);
+		Assert.Equal(0, delay.Calls);
+	}
 
+	[Fact]
+	public async Task EqualRefreshes_AreNotRepublished() {
+		await using var background = new SessionTaskScope(_ => { });
+		var snapshot = Snapshot(3);
+		int calls = 0;
+		int publications = 0;
+		var delay = new ManualDelay();
+		var monitor = new GitStatusMonitor(
+			background,
+			_ => {
+				Interlocked.Increment(ref calls);
+				return Task.FromResult(snapshot);
+			},
+			_ => Interlocked.Increment(ref publications),
+			delay.WaitAsync,
+			TimeSpan.FromSeconds(10));
+
+		monitor.RequestRefresh();
 		await Wait.UntilAsync(() => calls == 1);
+		monitor.RequestRefresh();
+		var cooldown = await delay.NextAsync();
+		Assert.Equal(1, calls);
+		cooldown.Elapsed.TrySetResult();
+		await Wait.UntilAsync(() => calls == 2);
+
+		Assert.Equal(1, publications);
+		Assert.Equal(snapshot, monitor.Latest);
 	}
 
 	private static GitStatusSnapshot Snapshot(int added) =>
@@ -80,8 +111,12 @@ public sealed class GitStatusMonitorTests {
 
 	private sealed class ManualDelay {
 		private readonly Channel<DelayCall> _calls = Channel.CreateUnbounded<DelayCall>();
+		private int _callCount;
+
+		public int Calls => Volatile.Read(ref _callCount);
 
 		public async Task WaitAsync(TimeSpan duration, CancellationToken ct) {
+			Interlocked.Increment(ref _callCount);
 			var elapsed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 			using var registration = ct.Register(() => elapsed.TrySetCanceled(ct));
 			await _calls.Writer.WriteAsync(new DelayCall(duration, elapsed), ct);

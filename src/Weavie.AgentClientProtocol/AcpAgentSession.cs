@@ -12,6 +12,7 @@ public sealed partial class AcpAgentSession : IStructuredAgentSession, IStructur
 	private readonly AgentSessionContext _context;
 	private readonly AcpAgentDefinition _definition;
 	private readonly AcpSessionStore _sessions;
+	private readonly AcpControlStore _controlDefaults;
 	private readonly Action<string> _log;
 	private readonly AcpJsonRpcConnection _connection;
 	private readonly WorkspaceFileScope _fileScope;
@@ -73,14 +74,17 @@ public sealed partial class AcpAgentSession : IStructuredAgentSession, IStructur
 		AgentSessionContext context,
 		AcpAgentDefinition definition,
 		AcpSessionStore sessions,
+		AcpControlStore controlDefaults,
 		Action<string> log) {
 		ArgumentNullException.ThrowIfNull(context);
 		ArgumentNullException.ThrowIfNull(definition);
 		ArgumentNullException.ThrowIfNull(sessions);
+		ArgumentNullException.ThrowIfNull(controlDefaults);
 		ArgumentNullException.ThrowIfNull(log);
 		_context = context;
 		_definition = definition;
 		_sessions = sessions;
+		_controlDefaults = controlDefaults;
 		_log = log;
 		_fileScope = new WorkspaceFileScope([context.Workspace]);
 		_terminals = new AcpTerminalManager(context.Workspace, _fileScope, log);

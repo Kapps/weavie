@@ -279,15 +279,17 @@ public sealed partial class AcpAgentSession {
 
 		lock (_turnTransitionGate) {
 			lock (_gate) {
-				if (_disposed || _activeGeneration != generation) {
-					_openingSessionId = null;
-					_sessionOpening = false;
-					return;
-				}
+				if (_disposed || _activeGeneration != generation) return;
 				_sessionId = sessionId;
 				_openingSessionId = null;
 				_sessionOpening = false;
 				ReadControlStateLocked(setup);
+			}
+		}
+		await RestoreControlDefaultsAsync(generation).ConfigureAwait(false);
+		lock (_turnTransitionGate) {
+			lock (_gate) {
+				if (_disposed || _activeGeneration != generation) return;
 				_ready = true;
 			}
 			if (!_connection.ReportHealthy(generation)) {
@@ -368,28 +370,18 @@ public sealed partial class AcpAgentSession {
 	}
 
 	private void ReadCapabilities(JsonElement initialized) {
-		if (!initialized.TryGetProperty("protocolVersion", out var version)
-			|| !version.TryGetInt32(out int protocolVersion)
-			|| protocolVersion != 1) {
-			throw new AcpProtocolException("The ACP agent did not negotiate stable protocol version 1.");
-		}
-		JsonElement capabilities = default;
-		if (initialized.TryGetProperty("agentCapabilities", out var advertised)
-			&& advertised.ValueKind != JsonValueKind.Null) {
-			if (advertised.ValueKind != JsonValueKind.Object) {
-				throw new AcpProtocolException("ACP agentCapabilities must be an object when present.");
-			}
-			capabilities = advertised;
-		}
-
-		_supportsLoad = ReadBool(capabilities, "loadSession");
-		_supportsClose = HasObject(capabilities, "sessionCapabilities", "close");
-		_supportsResume = HasObject(capabilities, "sessionCapabilities", "resume");
-		_supportsImages = ReadBool(capabilities, "promptCapabilities", "image");
-		_supportsEmbeddedContext = ReadBool(capabilities, "promptCapabilities", "embeddedContext");
-		_supportsHttpMcp = ReadBool(capabilities, "mcpCapabilities", "http");
+		var capabilities = AcpCapabilities.Read(initialized);
+		_supportsLoad = AcpCapabilities.Boolean(capabilities, "loadSession");
+		_supportsClose = AcpCapabilities.HasObject(capabilities, "sessionCapabilities", "close");
+		_supportsResume = AcpCapabilities.HasObject(capabilities, "sessionCapabilities", "resume");
+		_supportsImages = AcpCapabilities.Boolean(capabilities, "promptCapabilities", "image");
+		_supportsEmbeddedContext = AcpCapabilities.Boolean(
+			capabilities,
+			"promptCapabilities",
+			"embeddedContext");
+		_supportsHttpMcp = AcpCapabilities.Boolean(capabilities, "mcpCapabilities", "http");
 		_supportsSteering = initialized.TryGetProperty("_meta", out var meta)
-			&& ReadBool(meta, "steering", "supported");
+			&& AcpCapabilities.Boolean(meta, "steering", "supported");
 	}
 
 	private void ReadAuthMethods(JsonElement initialized) {
@@ -443,23 +435,6 @@ public sealed partial class AcpAgentSession {
 		}
 		return result;
 	}
-
-	private static bool ReadBool(JsonElement parent, string child, string property) =>
-		parent.ValueKind == JsonValueKind.Object
-		&& parent.TryGetProperty(child, out var value) && ReadBool(value, property);
-
-	private static bool ReadBool(JsonElement parent, string property) =>
-		parent.ValueKind == JsonValueKind.Object
-		&& parent.TryGetProperty(property, out var value)
-		&& value.ValueKind is JsonValueKind.True or JsonValueKind.False
-		&& value.GetBoolean();
-
-	private static bool HasObject(JsonElement parent, string child, string property) =>
-		parent.ValueKind == JsonValueKind.Object
-		&& parent.TryGetProperty(child, out var value)
-		&& value.ValueKind == JsonValueKind.Object
-		&& value.TryGetProperty(property, out var result)
-		&& result.ValueKind == JsonValueKind.Object;
 
 	private static string RequiredString(JsonElement value, string property, string source) =>
 		value.TryGetProperty(property, out var result) && result.ValueKind == JsonValueKind.String

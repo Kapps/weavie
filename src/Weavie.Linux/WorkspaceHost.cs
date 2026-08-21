@@ -13,7 +13,7 @@ using LayoutGeometry = Weavie.Core.Layout.WindowState;
 namespace Weavie.Linux;
 
 /// <summary>
-/// GTK + WebKitGTK host: a thin shell over <see cref="HostCore"/> owning only the native window, web view,
+/// GTK 4 + WebKitGTK host: a thin shell over <see cref="HostCore"/> owning only the native window, web view,
 /// <c>app://</c> scheme, main-loop bridge, and geometry; the rest lives in the shared core. Launch reopens the
 /// last workspace (else the <c>workspace</c> setting); with neither, it shows the welcome screen
 /// (<c>WorkspaceHost.Welcome.cs</c>) until the user opens a folder.
@@ -37,15 +37,14 @@ internal sealed partial class WorkspaceHost : IWebSurface, IShellMenuActions {
 	private IntPtr _window;
 	private IntPtr _webView;
 	private IntPtr _contentManager;
-	private bool _shown;
 	// Kept alive: native holds a bare function pointer to this.
 	private WidgetCallback? _onDestroy;
-	private KeyEventCallback? _onKeyPress;
+	private KeyPressedCallback? _onKeyPress;
 	private PropertyNotifyCallback? _onWindowStateChanged;
 
 	/// <summary>
 	/// Builds the window, view, scheme handler, and bridge, then opens the resolved workspace or — when there is
-	/// none — the welcome screen. Must run on the GTK main thread (after <c>gtk_init</c>, before <c>gtk_main</c>).
+	/// none — the welcome screen. Must run on the GTK main thread (after <c>gtk_init</c>, before the main loop).
 	/// </summary>
 	internal void Start() {
 		string wwwroot = Path.Combine(AppContext.BaseDirectory, "wwwroot");
@@ -60,22 +59,20 @@ internal sealed partial class WorkspaceHost : IWebSurface, IShellMenuActions {
 
 		_scheme = new AppSchemeHandler(wwwroot);
 		_scheme.Register(WebKit.webkit_web_context_get_default());
-		_contentManager = WebKit.webkit_user_content_manager_new();
+		_webView = WebKit.webkit_web_view_new();
+		_contentManager = WebKit.webkit_web_view_get_user_content_manager(_webView);
 		_bridge.RegisterOn(_contentManager);
-		_webView = WebKit.webkit_web_view_new_with_user_content_manager(_contentManager);
 		_bridge.Attach(_webView);
-		_onKeyPress = OnKeyPress;
-		_ = GLib.g_signal_connect_data(
-			_webView, "key-press-event", Marshal.GetFunctionPointerForDelegate(_onKeyPress), IntPtr.Zero, IntPtr.Zero, 0);
+		AttachKeyController();
 		IntPtr settings = WebKit.webkit_web_view_get_settings(_webView);
 		WebKit.webkit_settings_set_enable_developer_extras(settings, true);
 		WebKit.EnableNativeRefreshRate(settings);
 
-		Gtk.gtk_container_add(_window, _webView);
+		Gtk.gtk_window_set_child(_window, _webView);
 		_hotkeys = new ApplicationHotkeys(
 			_services.CommandRegistry,
 			_services.Keybindings,
-			new LinuxGlobalHotkeys(ApplyWaylandActivationToken),
+			new LinuxGlobalHotkeys(ApplyActivationToken),
 			ToggleWindow,
 			Log);
 
@@ -88,12 +85,10 @@ internal sealed partial class WorkspaceHost : IWebSurface, IShellMenuActions {
 	}
 
 	private void CreateNativeWindow() {
-		_window = Gtk.gtk_window_new(Gtk.WindowToplevel);
+		_window = Gtk.gtk_window_new();
 		Gtk.gtk_window_set_title(_window, "weavie");
 		Gtk.gtk_window_set_default_size(_window, WelcomeWidth, WelcomeHeight);
-		IntPtr icon = GdkPixbuf.LoadFile(Path.Combine(AppContext.BaseDirectory, "weavie.png"));
-		Gtk.gtk_window_set_icon(_window, icon);
-		GLib.g_object_unref(icon);
+		Gtk.gtk_window_set_icon_name(_window, LinuxDesktopIdentity.AppId);
 		_onDestroy = OnWindowDestroy;
 		_ = GLib.g_signal_connect_data(
 			_window, "destroy", Marshal.GetFunctionPointerForDelegate(_onDestroy), IntPtr.Zero, IntPtr.Zero, 0);
@@ -101,7 +96,7 @@ internal sealed partial class WorkspaceHost : IWebSurface, IShellMenuActions {
 		_ = GLib.g_signal_connect_data(
 			_window, "notify::is-active", Marshal.GetFunctionPointerForDelegate(_onWindowStateChanged), IntPtr.Zero, IntPtr.Zero, 0);
 		_ = GLib.g_signal_connect_data(
-			_window, "notify::is-maximized", Marshal.GetFunctionPointerForDelegate(_onWindowStateChanged), IntPtr.Zero, IntPtr.Zero, 0);
+			_window, "notify::maximized", Marshal.GetFunctionPointerForDelegate(_onWindowStateChanged), IntPtr.Zero, IntPtr.Zero, 0);
 	}
 
 	/// <summary>
@@ -120,11 +115,12 @@ internal sealed partial class WorkspaceHost : IWebSurface, IShellMenuActions {
 		_core.Ready += PushWindowState;
 
 		// Linux can't enumerate monitor work-areas (no GDK binding), so the on-screen guard is inert and saved
-		// bounds are trusted; the empty screen list leaves it that way.
+		// bounds are trusted; the empty screen list leaves it that way. Only the size and maximized state are
+		// applied — GTK 4 has no client-side window positioning on either backend.
 		var placement = WindowPlacement.Resolve(_core.SavedWindow, [], 1280, 840);
 		ApplyGeometry(placement);
 
-		// Synchronous before gtk_main (or on the main loop when opened from welcome): StartAsync does I/O (git) but
+		// Synchronous before the main loop starts (or on it when opened from welcome): StartAsync does I/O (git) but
 		// touches nothing GTK-affine.
 		_core.StartAsync().GetAwaiter().GetResult();
 
@@ -136,26 +132,15 @@ internal sealed partial class WorkspaceHost : IWebSurface, IShellMenuActions {
 		WebKit.webkit_web_view_load_uri(_webView, _core.WorkspaceNativePageUrl);
 	}
 
-	/// <summary>Sizes/positions the window for <paramref name="placement"/>; resizes live when already on screen (welcome → workspace).</summary>
+	/// <summary>Sizes the window for <paramref name="placement"/>, live when it is already on screen (welcome → workspace).</summary>
 	private void ApplyGeometry(StartupPlacement placement) {
-		if (_shown) {
-			Gtk.gtk_window_resize(_window, placement.Width, placement.Height);
-		} else {
-			Gtk.gtk_window_set_default_size(_window, placement.Width, placement.Height);
-		}
-
-		if (placement.UseSaved) {
-			Gtk.gtk_window_move(_window, placement.X, placement.Y);
-			if (placement.Maximized) {
-				Gtk.gtk_window_maximize(_window);
-			}
+		Gtk.gtk_window_set_default_size(_window, placement.Width, placement.Height);
+		if (placement is { UseSaved: true, Maximized: true }) {
+			Gtk.gtk_window_maximize(_window);
 		}
 	}
 
-	private void ShowWindow() {
-		Gtk.gtk_widget_show_all(_window);
-		_shown = true;
-	}
+	private void ShowWindow() => Gtk.gtk_window_present(_window);
 
 	/// <summary>Persists geometry, tears down the core, and disposes the app stores; called after the main loop exits.</summary>
 	internal void Shutdown() {
@@ -168,51 +153,31 @@ internal sealed partial class WorkspaceHost : IWebSurface, IShellMenuActions {
 
 	private void OnWindowDestroy(IntPtr widget, IntPtr userData) {
 		SaveWindowState();
-		Gtk.gtk_main_quit();
+		GtkMain.Quit();
 	}
 
 	private void ToggleWindow() {
 		if (IsWindowActive()) {
-			Gtk.gtk_widget_hide(_window);
+			Gtk.gtk_widget_set_visible(_window, false);
 			return;
 		}
 
-		Gtk.gtk_widget_show_all(_window);
-		Gtk.gtk_window_present(_window);
-		_shown = true;
+		ShowWindow();
 	}
 
-	private bool IsWindowActive() {
-		IntPtr display = Gdk.gdk_display_get_default();
-		if (Gdk.GetDisplayBackend(display) != Gdk.DisplayBackend.X11) {
-			return Gtk.gtk_window_is_active(_window);
-		}
+	private bool IsWindowActive() => Gtk.gtk_window_is_active(_window);
 
-		IntPtr active = Gdk.gdk_screen_get_active_window(Gdk.gdk_screen_get_default());
-		if (active == IntPtr.Zero) {
-			return Gtk.gtk_window_is_active(_window);
-		}
-		try {
-			return Gdk.gdk_x11_window_get_xid(active)
-				== Gdk.gdk_x11_window_get_xid(Gtk.gtk_widget_get_window(_window));
-		} finally {
-			GLib.g_object_unref(active);
-		}
-	}
-
-	private void ApplyWaylandActivationToken(string token) {
+	private void ApplyActivationToken(string token) {
 		if (!Gtk.gtk_window_is_active(_window)) {
-			Gdk.gdk_wayland_display_set_startup_notification_id(Gdk.gdk_display_get_default(), token);
+			Gtk.gtk_window_set_startup_id(_window, token);
 		}
 	}
 
 	private void ActivateWindow(string? activationToken) {
 		if (!string.IsNullOrEmpty(activationToken)) {
-			ApplyWaylandActivationToken(activationToken);
+			ApplyActivationToken(activationToken);
 		}
-		Gtk.gtk_widget_show_all(_window);
-		Gtk.gtk_window_present(_window);
-		_shown = true;
+		ShowWindow();
 	}
 
 	private void OnWindowStateChanged(IntPtr instance, IntPtr property, IntPtr userData) =>
@@ -256,20 +221,24 @@ internal sealed partial class WorkspaceHost : IWebSurface, IShellMenuActions {
 		_core.SaveWindow(CaptureWindowState());
 	}
 
-	/// <summary>Snapshots the current geometry, keeping the prior un-maximized restore bounds while maximized.</summary>
+	/// <summary>
+	/// Snapshots the current geometry. A maximized or hidden window is not reporting the bounds to restore to
+	/// — hidden it reports nothing at all — so the last ones it did report stand.
+	/// </summary>
 	private LayoutGeometry CaptureWindowState() {
-		if (Gtk.gtk_window_is_maximized(_window) && _core!.SavedWindow is { } prior) {
-			return prior with { Maximized = true };
+		bool maximized = Gtk.gtk_window_is_maximized(_window);
+		int width = Gtk.gtk_widget_get_width(_window);
+		int height = Gtk.gtk_widget_get_height(_window);
+		if ((maximized || width == 0 || height == 0) && _core!.SavedWindow is { } prior) {
+			return prior with { Maximized = maximized };
 		}
 
-		Gtk.gtk_window_get_size(_window, out int width, out int height);
-		Gtk.gtk_window_get_position(_window, out int x, out int y);
 		return new LayoutGeometry {
-			X = x,
-			Y = y,
+			X = 0,
+			Y = 0,
 			Width = width,
 			Height = height,
-			Maximized = false,
+			Maximized = maximized,
 		};
 	}
 }

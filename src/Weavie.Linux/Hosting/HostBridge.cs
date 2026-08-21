@@ -32,7 +32,7 @@ internal sealed class HostBridge : IWebTransportHub {
 	/// the delivery signal. Must be called before the page loads.
 	/// </summary>
 	internal void RegisterOn(IntPtr userContentManager) {
-		WebKit.webkit_user_content_manager_register_script_message_handler(userContentManager, "weavie");
+		WebKit.webkit_user_content_manager_register_script_message_handler(userContentManager, "weavie", IntPtr.Zero);
 		_ = GLib.g_signal_connect_data(
 			userContentManager,
 			"script-message-received::weavie",
@@ -65,9 +65,8 @@ internal sealed class HostBridge : IWebTransportHub {
 	}
 
 	// Main thread: extract the JS value as a string, free WebKit's copy, and forward the raw JSON body.
-	private void OnScriptMessage(IntPtr manager, IntPtr jsResult, IntPtr userData) {
-		IntPtr value = WebKit.webkit_javascript_result_get_js_value(jsResult);
-		IntPtr stringPtr = WebKit.jsc_value_to_string(value);
+	private void OnScriptMessage(IntPtr manager, IntPtr jsValue, IntPtr userData) {
+		IntPtr stringPtr = WebKit.jsc_value_to_string(jsValue);
 		string body = Marshal.PtrToStringUTF8(stringPtr) ?? string.Empty;
 		GLib.g_free(stringPtr);
 		MessageReceived?.Invoke(WebPeer.Native, body);

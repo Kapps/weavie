@@ -1,5 +1,5 @@
 import { createEffect, createSignal, type JSX, onCleanup, Show } from "solid-js";
-import { backendPhase, requestBranchPreview } from "../bridge";
+import { backendPhase, type EncodedImageAttachment, requestBranchPreview } from "../bridge";
 import {
   type BranchPreviewState,
   NewSessionBranchPreview,
@@ -14,7 +14,8 @@ export interface NewSessionBranchActions {
 export function NewSessionBranchField(props: {
   active: boolean;
   backendId: string;
-  hasInput: boolean;
+  attachments: readonly EncodedImageAttachment[];
+  inputReady: boolean;
   prompt: string;
   providerId: string;
   onChange: (state: BranchPreviewState) => void;
@@ -28,7 +29,13 @@ export function NewSessionBranchField(props: {
   });
   const preview = new NewSessionBranchPreview(
     (context, signal) =>
-      requestBranchPreview(context.backendId, context.prompt, context.providerId, signal),
+      requestBranchPreview(
+        context.backendId,
+        context.prompt,
+        context.attachments,
+        context.providerId,
+        signal,
+      ),
     (next) => {
       setState(next);
       props.onChange(next);
@@ -39,8 +46,13 @@ export function NewSessionBranchField(props: {
   createEffect(() => {
     const prompt = props.prompt.trim();
     preview.update(
-      props.active && props.hasInput && backendPhase(props.backendId) === "online"
-        ? { backendId: props.backendId, prompt, providerId: props.providerId }
+      props.active && props.inputReady && backendPhase(props.backendId) === "online"
+        ? {
+            backendId: props.backendId,
+            prompt,
+            attachments: props.attachments,
+            providerId: props.providerId,
+          }
         : null,
     );
   });

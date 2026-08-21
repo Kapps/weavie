@@ -2,11 +2,10 @@ import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
-import { CommandIds, type CommandInfo } from "../src/commands/types";
+import { CommandIds } from "../src/commands/types";
 import { MockHost, mockSession } from "./mock-host";
 
 const distDir = join(dirname(fileURLToPath(import.meta.url)), "..", "dist");
-
 test.beforeAll(() => {
   if (!existsSync(join(distDir, "index.html"))) {
     throw new Error(
@@ -193,7 +192,11 @@ test.describe("session-addressed WebSocket transport", () => {
     const preview = host.waitForHost("request", "sessionCreation", "previewBranch");
     await draft.fill("Fix branch inference");
     const request = await preview;
-    expect(request.payload).toMatchObject({ sourceId: "main", agentProviderId: "claude" });
+    expect(request.payload).toMatchObject({
+      sourceId: "main",
+      attachments: [],
+      agentProviderId: "claude",
+    });
     host.respond(request, { branch: "", error: "The inference provider failed." });
 
     const branch = inbox.getByRole("textbox", { name: "Branch for the new session" });

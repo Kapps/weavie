@@ -36,6 +36,8 @@ public sealed class LinuxWaylandIdentityTests {
 			weston = Start(westonInfo, output);
 			await WaitForSocketAsync(Path.Combine(runtime, socketName), weston, output)
 				.WaitAsync(TimeSpan.FromSeconds(10));
+			await WaitForCompositorAsync(runtime, socketName, output)
+				.WaitAsync(TimeSpan.FromSeconds(10));
 
 			var appIdPublished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 			var appInfo = new ProcessStartInfo("dbus-run-session") {
@@ -119,6 +121,25 @@ public sealed class LinuxWaylandIdentityTests {
 			}
 
 			await Task.Delay(20);
+		}
+	}
+
+	private static async Task WaitForCompositorAsync(
+		string runtime,
+		string socketName,
+		ConcurrentQueue<string> output) {
+		var info = new ProcessStartInfo("wayland-info") {
+			RedirectStandardError = true,
+			RedirectStandardOutput = true,
+			UseShellExecute = false,
+		};
+		info.Environment["XDG_RUNTIME_DIR"] = runtime;
+		info.Environment["WAYLAND_DISPLAY"] = socketName;
+		using var process = Start(info, output);
+		await process.WaitForExitAsync();
+		if (process.ExitCode != 0) {
+			throw new InvalidOperationException(
+				$"Wayland compositor handshake failed.\n{string.Join('\n', output)}");
 		}
 	}
 

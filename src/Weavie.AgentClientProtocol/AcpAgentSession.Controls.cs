@@ -36,7 +36,7 @@ public sealed partial class AcpAgentSession {
 		}
 		_ = Task.Run(async () => {
 			try {
-				await DeliverControlMutationAsync(mutation, generation).ConfigureAwait(false);
+				await DeliverControlMutationAsync(mutation, generation, persist: true).ConfigureAwait(false);
 			} catch (Exception ex) when (ex is not OperationCanceledException) {
 				lock (_turnTransitionGate) {
 					if (OwnsGeneration(generation)) {
@@ -53,12 +53,12 @@ public sealed partial class AcpAgentSession {
 		});
 	}
 
-	private async Task DeliverControlMutationAsync(AcpControlMutation mutation, long generation) {
+	private async Task DeliverControlMutationAsync(AcpControlMutation mutation, long generation, bool persist) {
 		AgentControlAxis control;
 		string sessionId;
 		bool mode;
 		lock (_gate) {
-			if (!_ready || _sessionId is null) return;
+			if (_sessionId is null) return;
 			if (!_controls.TryGetValue(mutation.Axis, out control!)
 				|| control.Options.All(option => option.Id != mutation.Value)) {
 				throw new AcpProtocolException(
@@ -96,8 +96,40 @@ public sealed partial class AcpAgentSession {
 				if (_disposed || _activeGeneration != generation) return;
 				if (mode) _controls[mutation.Axis] = WithValue(control, mutation.Value);
 				else ReadControlResultLocked(result);
+				if (persist) _controlDefaults.Set(_definition.Id, mutation.Axis, _controls[mutation.Axis].Value);
 			}
 			RaiseControls();
+		}
+	}
+
+	private async Task RestoreControlDefaultsAsync(long generation) {
+		var pending = new Dictionary<string, string>(_controlDefaults.Resolve(_definition.Id), StringComparer.Ordinal);
+		while (pending.Count > 0) {
+			AcpControlMutation? mutation = null;
+			bool consumed = false;
+			string? stale = null;
+			lock (_gate) {
+				foreach (var control in _controls.Values) {
+					if (!pending.Remove(control.Id, out string? value)) continue;
+					consumed = true;
+					if (control.Options.All(option => option.Id != value)) {
+						_controlDefaults.Clear(_definition.Id, control.Id, value);
+						stale = $"Saved {_definition.Name} control '{control.Id}' value '{value}' is no longer advertised and was forgotten.";
+						break;
+					}
+					if (control.Value != value) mutation = new AcpControlMutation(control.Id, value);
+					break;
+				}
+			}
+			if (stale is not null) {
+				EmitFailure(new AcpProtocolException(stale));
+				continue;
+			}
+			if (mutation is null) {
+				if (consumed) continue;
+				break;
+			}
+			await DeliverControlMutationAsync(mutation, generation, persist: false).ConfigureAwait(false);
 		}
 	}
 

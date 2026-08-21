@@ -178,6 +178,20 @@ budget (45s on Windows/macOS, 15s on Linux where this flake doesn't occur and th
 a new masking layer — the check itself is unchanged; only the time it's given to resolve now matches what the
 wait already implicitly had.
 
+**2026-08-21 sixth occurrence, ~03:35 UTC, run 32443335292** (PR #648's own CI, a documentation-only change
+that never touches this test file or the editor/harness code,
+[job 96658873531](https://github.com/Kapps/weavie/actions/runs/32443335292/job/96658873531)): hit again on
+the multicursor test (`editor-peek-definition.spec.ts:142`) — the *fourth* time this exact test has surfaced
+this family. This time the named error fired directly — `Monaco's viewport never matched its container
+(editor stuck at the 5px clamp)` — i.e. `awaitEditorLaidOut`'s poll ran its full platform budget (45s on
+Windows) and the clamp was genuinely still active at the end, not a generic locator timeout. That the guard
+fired and reported cleanly is the fix from the "CONFIRMED + FIXED" entry above working as designed; the
+underlying transient collapse itself is unchanged. No new fix attempted — a PR that touches only this doc
+cannot itself be the trigger, and this doc's own guidance already says the remaining next step (an explicit
+forced `layout()` call on detected collapse) needs a controlled local repro this environment doesn't have.
+Re-ran the job once per the CI-red flake-confirmation policy (the diff cannot own an e2e regression) —
+tracked here regardless of that outcome per the no-flake-goes-uncommented convention.
+
 ## CONFIRMED + FIXED: #1 (S2-race) — a test walk-race, not a product bug
 
 **Symptom:** after a PR→PR→PR switch storm settling on #101 (files `feature.ts`, `hello.ts`),

@@ -250,6 +250,9 @@ public sealed partial class HostCore {
 				string label = status.Branch ?? Path.GetFileName(
 					status.Path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
 				string agentProviderId = ProviderFor(status, label);
+				if (status is { IsManaged: true, Branch: not null }) {
+					_worktrees.RecoverOwnedRecord(status, agentProviderId);
+				}
 				if (_sessions.Find(label) is not null) {
 					continue; // already surfaced
 				}
@@ -274,9 +277,9 @@ public sealed partial class HostCore {
 
 	private string ProviderFor(WorktreeStatus status, string slotId) {
 		if (status.IsManaged) {
-			return !string.IsNullOrWhiteSpace(status.AgentProviderId)
-				? status.AgentProviderId
-				: throw new InvalidDataException($"Managed worktree '{status.Path}' has no agent provider.");
+			return ProviderOrNull(status.AgentProviderId)
+				?? PersistedProviderFor(slotId, status.Path)
+				?? ResolveNewSessionProvider(null);
 		}
 		return PersistedProviderFor(slotId, status.Path) ?? ResolveNewSessionProvider(null);
 	}
@@ -872,7 +875,7 @@ public sealed partial class HostCore {
 			}, CancellationToken.None).ConfigureAwait(false);
 			Notify("info", target.ManagedCheckout
 				? $"Session '{label}' was deleted. Its branch was kept."
-				: $"Session '{label}' was deleted.");
+				: $"Session '{label}' was deleted. Its checkout was kept.");
 			return CommandResult.Success();
 		} catch (WorktreeDirtyException) {
 			return CommandResult.Failure(

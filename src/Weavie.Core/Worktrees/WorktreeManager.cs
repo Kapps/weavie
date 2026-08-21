@@ -4,9 +4,8 @@ using Weavie.Core.Git;
 namespace Weavie.Core.Worktrees;
 
 /// <summary>
-/// Creates, lists, classifies, and removes the git worktrees backing Weavie's per-session work, keeping the
-/// persisted <see cref="WorktreeRegistry"/> reconciled against live <c>git worktree list</c> output so nothing
-/// leaks; removal is guarded against discarding uncommitted work.
+/// Creates, lists, classifies, and removes the git worktrees backing Weavie's per-session work. Ownership is
+/// enforced by the managed directory; the registry supplies metadata and is repaired when lost.
 /// </summary>
 public sealed class WorktreeManager {
 	// One OS-independent case-insensitive comparer: paths are compared only for identity and containment, Weavie
@@ -98,9 +97,8 @@ public sealed class WorktreeManager {
 	}
 
 	/// <summary>
-	/// Returns a status for every worktree — Weavie-managed, primary checkout, and present-in-git-but-untracked.
-	/// Managed entries git no longer knows about appear with <see cref="WorktreeStatus.Exists"/> false so the
-	/// caller can prune them.
+	/// Returns every worktree, treating the dedicated worktree directory as authoritative for ownership and the
+	/// registry as metadata. Registry entries git no longer knows about are returned for pruning.
 	/// </summary>
 	public async Task<IReadOnlyList<WorktreeStatus>> ListAsync(CancellationToken ct = default) {
 		var gitWorktrees = await _git.ListWorktreesAsync(_repositoryRoot, ct).ConfigureAwait(false);
@@ -118,6 +116,7 @@ public sealed class WorktreeManager {
 			seen.Add(normalized);
 			var record = Registry.FindByPath(normalized);
 			bool isPrimary = PathComparer.Equals(normalized, normalizedRoot);
+			bool isManaged = record is not null || (!isPrimary && IsWithinWorktreesDir(normalized));
 			bool exists = !worktree.IsPrunable;
 			bool isDirty = exists && !isPrimary && await _git.HasUncommittedChangesAsync(worktree.Path, ct).ConfigureAwait(false);
 			bool isMerged = exists && !isPrimary
@@ -131,7 +130,7 @@ public sealed class WorktreeManager {
 				Branch = worktree.Branch,
 				BaseRef = record?.BaseRef,
 				AgentProviderId = record?.AgentProviderId,
-				IsManaged = record is not null,
+				IsManaged = isManaged,
 				IsPrimary = isPrimary,
 				Exists = exists,
 				IsDirty = isDirty,
@@ -160,6 +159,30 @@ public sealed class WorktreeManager {
 		}
 
 		return result;
+	}
+
+	/// <summary>Repairs metadata for an existing checkout whose owned directory proves Weavie created it.</summary>
+	public void RecoverOwnedRecord(WorktreeStatus status, string agentProviderId) {
+		ArgumentNullException.ThrowIfNull(status);
+		ArgumentException.ThrowIfNullOrEmpty(agentProviderId);
+		string normalized = Normalize(status.Path);
+		if (Registry.FindByPath(normalized) is not null) {
+			return;
+		}
+		if (!status.Exists
+			|| status.IsPrimary
+			|| !IsWithinWorktreesDir(normalized)
+			|| string.IsNullOrWhiteSpace(status.Branch)) {
+			throw new InvalidOperationException($"Cannot recover ownership metadata for '{status.Path}'.");
+		}
+
+		Registry.Add(new WorktreeRecord {
+			Branch = status.Branch,
+			Path = normalized,
+			BaseRef = status.BaseRef ?? status.Branch,
+			CreatedAtUtc = status.CreatedAtUtc ?? DateTimeOffset.UtcNow,
+			AgentProviderId = agentProviderId,
+		});
 	}
 
 	/// <summary>
@@ -353,7 +376,7 @@ public sealed class WorktreeManager {
 
 		int pruned = 0;
 		foreach (var status in statuses) {
-			if (status.IsManaged && !status.Exists) {
+			if (!status.Exists && Registry.FindByPath(status.Path) is not null) {
 				Registry.Remove(Normalize(status.Path));
 				pruned++;
 			}

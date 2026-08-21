@@ -152,8 +152,8 @@ public sealed class WorktreeManagerTests {
 		registry.Add(new WorktreeRecord { Branch = "wip", Path = wipPath, BaseRef = "main", CreatedAtUtc = DateTimeOffset.UnixEpoch, AgentProviderId = "acp" });
 		git.DirtyPaths.Add(wipPath);
 
-		// Untracked: git knows it, the registry does not.
-		string extPath = Path.Combine(WorktreesDir, "external");
+		// Untracked: git knows it, the registry does not, and it lives outside Weavie's owned directory.
+		string extPath = Path.Combine(Path.GetDirectoryName(WorktreesDir)!, "external");
 		git.Worktrees.Add(new GitWorktree { Path = extPath, Branch = "external", Head = "e1" });
 
 		// Orphan: registry has it, git no longer does.
@@ -186,6 +186,23 @@ public sealed class WorktreeManagerTests {
 	}
 
 	[Fact]
+	public async Task ListAndRecover_OwnedDirectorySurvivesMissingRegistryMetadata() {
+		var (manager, registry, git) = NewManager();
+		string path = Path.Combine(WorktreesDir, "recovered");
+		git.Worktrees.Add(new GitWorktree { Path = path, Branch = "recovered", Head = "r1" });
+
+		var status = (await manager.ListAsync()).Single(item => item.Branch == "recovered");
+		manager.RecoverOwnedRecord(status, "acp");
+
+		Assert.True(status.IsManaged);
+		Assert.False(status.IsUntracked);
+		var record = Assert.Single(registry.Items);
+		Assert.Equal("recovered", record.Branch);
+		Assert.Equal("recovered", record.BaseRef);
+		Assert.Equal("acp", record.AgentProviderId);
+	}
+
+	[Fact]
 	public async Task List_PrunableGitWorktree_DoesNotProbeMissingDirectory() {
 		var (manager, _, git) = NewManager();
 		string stalePath = Path.Combine(WorktreesDir, "stale");
@@ -198,6 +215,21 @@ public sealed class WorktreeManagerTests {
 		Assert.False(stale.Exists);
 		Assert.False(stale.IsDirty);
 		Assert.False(stale.IsMerged);
+		Assert.Equal(0, (await manager.ReconcileAsync()).OrphansPruned);
+		Assert.Equal(0, (await manager.ReconcileAsync()).OrphansPruned);
+	}
+
+	[Fact]
+	public async Task List_DetachedOwnedDirectoryRemainsManagedWithoutRegistryMetadata() {
+		var (manager, _, git) = NewManager();
+		string path = Path.Combine(WorktreesDir, "detached");
+		git.Worktrees.Add(new GitWorktree { Path = path, Branch = null, Head = "d1" });
+
+		var status = (await manager.ListAsync()).Single(item => item.Path == path);
+
+		Assert.True(status.IsManaged);
+		Assert.False(status.IsUntracked);
+		Assert.Null(status.Branch);
 	}
 
 	[Fact]
@@ -346,7 +378,7 @@ public sealed class WorktreeManagerTests {
 	public async Task Reconcile_PrunesOrphans_AndCountsUntracked() {
 		var (manager, registry, git) = NewManager();
 
-		string extPath = Path.Combine(WorktreesDir, "external");
+		string extPath = Path.Combine(Path.GetDirectoryName(WorktreesDir)!, "external");
 		git.Worktrees.Add(new GitWorktree { Path = extPath, Branch = "external", Head = "e1" });
 
 		string gonePath = Path.Combine(WorktreesDir, "gone");

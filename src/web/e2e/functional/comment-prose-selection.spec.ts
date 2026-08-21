@@ -80,10 +80,15 @@ const selectionCovers = async (page: Page, text: string): Promise<boolean> => {
   );
 };
 
-// Asserted before every keypress: a chord only reaches the editor when it holds keyboard focus, so a press
-// that silently lands elsewhere fails here and names itself instead of reading as a product failure.
-const editorHasFocus = (page: Page) =>
-  page.evaluate(() => (window as WeavieWindow).__WEAVIE_EDITOR__?.hasTextFocus() ?? false);
+// Waited on before every keypress: a chord only reaches the editor when it holds keyboard focus. Focus settles
+// asynchronously after a click, so this waits for it rather than sampling once — and fails loudly, naming
+// focus, if it never lands. The keypress that follows happens once, with its assertions outside any loop.
+const awaitEditorFocus = (page: Page) =>
+  expect
+    .poll(() =>
+      page.evaluate(() => (window as WeavieWindow).__WEAVIE_EDITOR__?.hasTextFocus() ?? false),
+    )
+    .toBe(true);
 
 test("a selection reaching into a comment block leaves it raw", async ({ weavie, page }) => {
   writeFileSync(join(weavie.workspace, "docs.ts"), DOC_SOURCE);
@@ -109,7 +114,7 @@ test("a selection reaching into a comment block leaves it raw", async ({ weavie,
   await expect(codeLines(page)).not.toContainText("Formats a name");
 
   // Select All reaches into every block, so none stays collapsed over selected text.
-  expect(await editorHasFocus(page)).toBe(true);
+  await awaitEditorFocus(page);
   await page.keyboard.press("ControlOrMeta+a");
   await expect(prose(page)).toHaveCount(0);
   await expect(codeLines(page)).toContainText("Formats a name");
@@ -143,7 +148,7 @@ test("clicking prose and arrowing into a collapsed block still work", async ({ w
   expect(await caretLine(page)).toBe(8);
 
   // Walk down to the blank line above the second (still collapsed) block, by the keyboard path a user takes.
-  expect(await editorHasFocus(page)).toBe(true);
+  await awaitEditorFocus(page);
   await page.keyboard.press("ArrowDown");
   await page.keyboard.press("ArrowDown");
   expect(await caretLine(page)).toBe(10);

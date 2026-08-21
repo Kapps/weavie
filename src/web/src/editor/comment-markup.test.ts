@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { commentSyntaxFor, parseCommentLines, scanCommentBlocks } from "./comment-markup";
+import {
+  commentSyntaxFor,
+  parseCommentLines,
+  scanCommentBlocks,
+  spanTouchesBlock,
+} from "./comment-markup";
 
 const DEFAULT = commentSyntaxFor("plaintext-unknown");
 
@@ -140,5 +145,36 @@ describe("parseCommentLines — XML doc", () => {
     const runs = parseCommentLines(['<param name="count">the total</param>'], true)[0]!;
     expect(runs).toContainEqual({ code: "count" });
     expect(runs.some((r) => "text" in r && r.text.includes("the total"))).toBe(true);
+  });
+});
+
+describe("spanTouchesBlock", () => {
+  const block = { startLine: 10, endLine: 12, doc: true, content: ["a", "b", "c"] };
+  const span = (sl: number, sc: number, el: number, ec: number) => ({
+    startLineNumber: sl,
+    startColumn: sc,
+    endLineNumber: el,
+    endColumn: ec,
+  });
+
+  it("is true for a selection that starts, ends, or spans inside the block", () => {
+    expect(spanTouchesBlock(block, span(8, 1, 10, 4))).toBe(true);
+    expect(spanTouchesBlock(block, span(12, 3, 14, 1))).toBe(true);
+    expect(spanTouchesBlock(block, span(11, 2, 11, 5))).toBe(true);
+    expect(spanTouchesBlock(block, span(1, 1, 40, 1))).toBe(true);
+  });
+
+  it("is true for a bare caret on any of the block's lines, including column 1", () => {
+    expect(spanTouchesBlock(block, span(10, 1, 10, 1))).toBe(true);
+    expect(spanTouchesBlock(block, span(12, 6, 12, 6))).toBe(true);
+  });
+
+  it("is false for a selection that stops at column 1 of the block's first line", () => {
+    expect(spanTouchesBlock(block, span(8, 1, 10, 1))).toBe(false);
+  });
+
+  it("is false for selections wholly above or below the block", () => {
+    expect(spanTouchesBlock(block, span(1, 1, 9, 20))).toBe(false);
+    expect(spanTouchesBlock(block, span(13, 1, 20, 1))).toBe(false);
   });
 });

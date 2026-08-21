@@ -1,5 +1,7 @@
 using System.Text.Json;
+using Weavie.Core;
 using Weavie.Core.Commands;
+using Weavie.Core.Workspaces;
 using Weavie.Hosting.Messaging;
 using Xunit;
 
@@ -581,6 +583,47 @@ public sealed class HostCoreSessionDeleteTests {
 		Assert.Equal(["feature"], SessionIds(host));
 		Assert.Equal("feature", host.SelectedSession.SlotId);
 		Assert.True(Directory.Exists(host.RepoRoot));
+	}
+
+	[Fact]
+	public async Task RegistryLossDoesNotPreventDeletingTheOwnedCheckout() {
+		await using var host = await TestHost.StartAsync();
+		Assert.True((await host.CreateSessionAsync("feature")).Ok);
+		string checkout = host.Session("feature").WorkspaceRoot;
+		string registry = WeaviePaths.WorkspaceWorktreesFile(WorkspaceId.ForPath(host.RepoRoot));
+
+		await host.RestartAsync(() => File.Delete(registry));
+		var classification = await host.DeleteSessionAsync("feature", force: false, classify: true);
+		using (var data = JsonDocument.Parse(classification.DataJson!)) {
+			Assert.True(data.RootElement.GetProperty("removesCheckout").GetBoolean());
+		}
+
+		var result = await host.DeleteSessionAsync("feature", force: false, classify: false);
+
+		Assert.True(result.Ok, result.Error);
+		Assert.False(Directory.Exists(checkout));
+		await host.RestartAsync();
+		Assert.DoesNotContain("feature", SessionIds(host));
+	}
+
+	[Fact]
+	public async Task RegistryLossDoesNotPreventDeletingADetachedOwnedCheckout() {
+		await using var host = await TestHost.StartAsync();
+		Assert.True((await host.CreateSessionAsync("detached")).Ok);
+		string checkout = host.Session("detached").WorkspaceRoot;
+		TestHost.RunGit(checkout, "checkout", "--detach");
+		string registry = WeaviePaths.WorkspaceWorktreesFile(WorkspaceId.ForPath(host.RepoRoot));
+
+		await host.RestartAsync(() => File.Delete(registry));
+		var classification = await host.DeleteSessionAsync("detached", force: false, classify: true);
+		using (var data = JsonDocument.Parse(classification.DataJson!)) {
+			Assert.True(data.RootElement.GetProperty("removesCheckout").GetBoolean());
+		}
+
+		var result = await host.DeleteSessionAsync("detached", force: false, classify: false);
+
+		Assert.True(result.Ok, result.Error);
+		Assert.False(Directory.Exists(checkout));
 	}
 
 	[Fact]

@@ -271,6 +271,7 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 			? new AtomicWriteFailureFileSystem(fileSystem)
 			: fileSystem;
 		var store = new AcpSessionStore(sessionFileSystem, Path.Combine(root, "acp-sessions.json"));
+		var controls = new AcpControlStore(sessionFileSystem, Path.Combine(root, "acp-controls.json"));
 		if (persistedSessionId is not null) store.Adopt(providerId, root, persistedSessionId, 0);
 		var events = new RecordingAgentEventSink();
 		var definition = new AcpAgentDefinition {
@@ -296,6 +297,7 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 			},
 			definition,
 			store,
+			controls,
 			events.Logs.Enqueue);
 		return new AcpAgentSessionFixture(
 			root,

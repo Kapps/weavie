@@ -8,15 +8,18 @@ namespace Weavie.AgentClientProtocol;
 public sealed class AcpAgentProvider : IAgentProvider, IAgentInferenceProvider {
 	private readonly AcpAgentDefinition _definition;
 	private readonly AcpSessionStore _sessions;
+	private readonly AcpControlStore _controls;
 	private readonly Action<string> _log;
 
 	/// <summary>Creates a provider for <paramref name="definition"/>.</summary>
-	public AcpAgentProvider(AcpAgentDefinition definition, AcpSessionStore sessions, Action<string> log) {
+	public AcpAgentProvider(AcpAgentDefinition definition, AcpSessionStore sessions, AcpControlStore controls, Action<string> log) {
 		ArgumentNullException.ThrowIfNull(definition);
 		ArgumentNullException.ThrowIfNull(sessions);
+		ArgumentNullException.ThrowIfNull(controls);
 		ArgumentNullException.ThrowIfNull(log);
 		_definition = definition;
 		_sessions = sessions;
+		_controls = controls;
 		_log = log;
 		Info = new AgentProviderInfo {
 			Id = definition.Id,
@@ -36,7 +39,7 @@ public sealed class AcpAgentProvider : IAgentProvider, IAgentInferenceProvider {
 
 	/// <inheritdoc/>
 	public IAgentSession CreateSession(AgentSessionContext context) =>
-		new AcpAgentSession(context, _definition, _sessions, _log);
+		new AcpAgentSession(context, _definition, _sessions, _controls, _log);
 
 	/// <inheritdoc/>
 	/// <remarks>

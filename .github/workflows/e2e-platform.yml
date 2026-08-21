@@ -137,10 +137,46 @@ jobs:
           key: playwright-${{ runner.os }}-${{ hashFiles('src/web/pnpm-lock.yaml') }}
           restore-keys: playwright-${{ runner.os }}-
 
+      # Hang, 2026-08-19 ~19:52 UTC: https://github.com/Kapps/weavie/actions/runs/32295180447 —
+      # 5/6 Linux shards stuck here for over an hour. `--with-deps` shells out to `sudo apt-get`,
+      # which can stall indefinitely on a flaky archive mirror on hosted Ubuntu runners (known
+      # upstream: actions/runner-images#11347, microsoft/playwright#20665/#41133) — not caused by
+      # this repo's code.
+      #
+      # Follow-up, 2026-08-19 ~21:05 UTC: https://github.com/Kapps/weavie/actions/runs/32301304438/job/96224774374
+      # First bounded-retry attempt (`timeout 5m`, no cleanup) correctly killed the stuck attempt,
+      # but `timeout` only signals the `pnpm exec` process it launched directly — the `sudo
+      # apt-get` grandchild it spawns survives as an orphan holding the dpkg lock, so every retry
+      # after the first failed instantly with "Could not get lock /var/lib/dpkg/lock-frontend".
+      # Clearing that lock (and any surviving apt-get/dpkg process) before each retry lets the
+      # retry actually retry.
+      #
+      # Follow-up, 2026-08-19 ~21:48 UTC: https://github.com/Kapps/weavie/actions/runs/32303798223/job/96234015439
+      # With the lock cleared, all 3 attempts genuinely retried apt-get from scratch — but all 3 still
+      # hit the 5m timeout. Root cause this time wasn't a true hang: `azure.archive.ubuntu.com` (the
+      # runner's default mirror) failed outright each attempt (`Ign:` lines), apt fell back to
+      # `archive.ubuntu.com` after ~2m of retries against the dead mirror, leaving too little of the
+      # 5m budget for the actual package fetch (already slow: ~56 kB/s observed in the prior run).
+      # Widened to 10m so a genuinely-progressing-but-slow attempt (mirror fallback + a throttled
+      # fetch) fits inside one attempt instead of being killed and retried for no reason.
       - name: Install Playwright Chromium (Linux)
         if: runner.os == 'Linux'
         working-directory: src/web
-        run: pnpm exec playwright install --with-deps chromium
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            if timeout 10m pnpm exec playwright install --with-deps chromium; then
+              break
+            fi
+            if [[ $attempt == 3 ]]; then
+              echo "playwright install --with-deps timed out after $attempt attempts" >&2
+              exit 1
+            fi
+            echo "playwright install --with-deps timed out (attempt $attempt); clearing the apt lock left behind by the timeout and retrying..." >&2
+            sudo pkill -9 -f 'apt-get|dpkg' || true
+            sudo rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock /var/lib/apt/lists/lock
+            sudo dpkg --configure -a || true
+          done
 
       - name: Install Playwright Chromium (macOS / Windows)
         if: runner.os != 'Linux'
@@ -161,8 +197,13 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+      # Bug, 2026-08-19 ~21:17 UTC: https://github.com/Kapps/weavie/actions/runs/32302259233/job/96228596384
+      # This `if` had no status-check function, so GitHub Actions implicitly ANDs it with `success()` —
+      # which is always false once the prior step has already failed, so the condition never fires and
+      # failure diagnostics (viewport-layout.json, console-errors.txt, weavie-host.log) never get
+      # uploaded. Matches the working `!cancelled()` guard already used on the blob-report upload above.
       - name: Upload e2e failure traces
-        if: ${{ steps.playwright.outcome == 'failure' }}
+        if: ${{ !cancelled() && steps.playwright.outcome == 'failure' }}
         uses: actions/upload-artifact@v4
         with:
           name: e2e-traces-${{ inputs.platform }}-${{ matrix.shard }}-of-${{ matrix.shards }}

@@ -64,6 +64,21 @@ async function registerGreetDefinition(page: Page): Promise<void> {
 // later relayout (a click, a `page.evaluate` mutation, even just more of the shell settling) can reopen the
 // same window. Per the doc's own guidance, a third call site needing the same patch is the signal to stop
 // re-applying the wait at each one and gate the shared helper instead.
+//
+// 2026-08-20 04:51 UTC, recurred a fourth time on this exact test — main's post-merge CI for PR #639, run
+// https://github.com/Kapps/weavie/actions/runs/32333399943/job/96318875803 — despite `wordToken` already
+// gating on `awaitEditorLaidOut` above. Same fingerprint: `renderedLines: [""]`, healthy `.editor`/`.monaco`
+// rects at teardown, `console-errors.txt` empty. The gating check only compared Monaco's reported viewport
+// height to the container's `clientHeight`; that can agree on a stale read while the DOM still holds the
+// clamp's one-line placeholder, which is the actual defect signature. `awaitEditorLaidOut` (actions.ts) now
+// also requires more than one `.view-line` to be rendered whenever the model has more than one line, so the
+// wait matches what the doc's forensics actually showed instead of a proxy for it.
+//
+// Same day, that fix's own PR CI (run 32335659526) hit two fresh failures on this test and the sibling
+// Alt+F12 one, both timing out at ~33.7s on the same -1 signature — the new poll had inherited the suite's
+// global 30s `expect.timeout`, shorter than the ~60s budget this wait always had via the click()'s own
+// actionability wait beforehand. `awaitEditorLaidOut` now sets an explicit timeout matching that budget
+// instead (see its comment in actions.ts) — the check is unchanged, only its runway was too short.
 async function wordToken(page: Page, lineText: string, word: string): Promise<Locator> {
   await awaitEditorLaidOut(page);
   return page
@@ -76,6 +91,12 @@ async function altClick(word: Locator): Promise<void> {
   await word.click({ modifiers: ["Alt"] });
 }
 
+// Flaked 2026-08-19 ~21:20 UTC, run 32302259233 (https://github.com/Kapps/weavie/actions/runs/32302259233/job/96228596384):
+// 60s timeout inside word.click(), same fingerprint as the wordToken 5px-viewport-clamp flake documented
+// in docs/specs/e2e-flake-analysis.md — the fourth occurrence despite that doc's existing wordToken guard.
+// No fresh diagnostic data was available (a separate CI bug was silently skipping the failure-trace
+// upload; fixed in e2e-platform.yml), so no test-code change is made here per that doc's "get the datum
+// first" policy — see the doc for the full history and what happens on the next occurrence.
 test("alt+click on a symbol opens the definition peek inline, and Escape closes it", async ({
   page,
 }) => {
@@ -92,6 +113,10 @@ test("alt+click on a symbol opens the definition peek inline, and Escape closes 
   await expect(peek).toHaveCount(0);
 });
 
+// Flaked 2026-08-19 ~22:01 UTC, run 32305865719 (https://github.com/Kapps/weavie/actions/runs/32305865719/job/96239656621):
+// same 5px-viewport-clamp fingerprint as the sibling test above, now with confirmed forensics
+// (viewport-layout.json: healthy 742x709 but renderedLines: [""]) — see docs/specs/e2e-flake-analysis.md
+// for the full history and why no test-code change was made here (no repro capability, would be a guess).
 test("Alt+F12 peeks the definition of the symbol at the cursor", async ({ page }) => {
   await focusEditor(page, "hello.ts");
   await registerGreetDefinition(page);

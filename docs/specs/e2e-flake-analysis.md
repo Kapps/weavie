@@ -1,7 +1,7 @@
 # E2E flake analysis (Windows-dominated)
 
 Status: living document — root causes confirmed where noted, open where noted
-Last updated: 2026-08-17
+Last updated: 2026-08-20
 
 A forensic catalog of the e2e suite's flakes, their confirmed/suspected root causes, and the
 techniques that produced those findings. Retries are off by policy (a flake fails the run), so every
@@ -107,6 +107,76 @@ flaked tests route through) now calls `awaitEditorLaidOut` itself before buildin
 caller re-waits for layout for free instead of each test needing its own reasoning about what might have
 relaid-out since `openFile`. The multicursor test's standalone `awaitEditorLaidOut` call (added for the
 previous occurrence) was removed as redundant.
+
+**2026-08-19 fourth occurrence, ~21:20 UTC, run 32302259233:** hit again, same file, same helpers —
+`editor-peek-definition.spec.ts:79` ("alt+click on a symbol opens the definition peek inline, and Escape
+closes it", [job 96228596384](https://github.com/Kapps/weavie/actions/runs/32302259233/job/96228596384))
+— despite the `wordToken` guard from the previous occurrence already being in place. Same fingerprint:
+60s test timeout inside `word.click()`, surfaced as `Target page, context or browser has been closed`
+once the timeout tore the page down.
+
+No new datum this time, but for a different reason than the 2026-07-23 gap this doc already complains
+about: **the "Upload e2e failure traces" step itself never fires.** Its `if:` was
+`steps.playwright.outcome == 'failure'` with no status-check function, which GitHub Actions silently
+ANDs with `success()` — always false once the Playwright step has already failed, so the step always
+shows `skipped` and `viewport-layout.json`/`console-errors.txt`/`weavie-host.log` never reach the
+artifact even when a shard goes red. Fixed in `e2e-platform.yml` to match the working `!cancelled()`
+guard already on the blob-report upload beside it.
+
+**2026-08-19 fifth occurrence, ~22:01 UTC, run 32305865719:** hit again within the same hour, same
+file, a *different* test — `editor-peek-definition.spec.ts:101` ("Alt+F12 peeks the definition of the
+symbol at the cursor", [job 96239656621](https://github.com/Kapps/weavie/actions/runs/32305865719/job/96239656621)).
+With the trace-upload fix above now landed, this occurrence finally has the datum the fourth one
+lacked: `viewport-layout.json` reads `.editor`/`.monaco` healthy at `742×709` (`monacoViewportHeight:
+709`) with `modelLineCount: 7`, but `renderedLines: [""]` — one empty line, the exact 5px-clamp
+signature from the confirmed root cause above — and `console-errors.txt` is `(none)`. This **confirms**
+the fourth occurrence was the same collapse, not a new failure mode; the `wordToken` guard (applied
+after the third occurrence) demonstrably doesn't eliminate it, only reduces its frequency. Two
+occurrences in one PR's CI (unrelated to that PR's diff) is denser than this flake's historical rate —
+plausibly a rougher day for the hosted Windows fleet, not a new defect.
+
+No test-code change is made here either: per this doc's own confirmed-root-cause section, the actual
+fix is an explicit Monaco `layout()` call forced when a collapse is detected, and that still wants the
+datum this doc's TODO already names (a controlled repro forcing the 0-height case, not just another
+transient-collapse attachment) before landing — a guess at the trigger would just be a sixth attempt at
+the same shape of patch. Filed as-is for the next agent with real repro capability.
+**2026-08-20 fourth occurrence, run 32333399943:** hit a fourth time on the multicursor test
+(`editor-peek-definition.spec.ts:117`, ["alt+click during a multicursor session adds a cursor instead of
+peeking"](https://github.com/Kapps/weavie/actions/runs/32333399943/job/96318875803)) — main's post-merge CI
+for PR #639 — **despite** the shared-helper gate from the third occurrence already covering this call site.
+Identical fingerprint once more: `renderedLines: [""]`, `.editor`/`.monaco` healthy (742×709) at teardown,
+`console-errors.txt` empty, `Error: locator.click: Target page, context or browser has been closed` (the
+final rejection Playwright surfaces on a `word.click()` still pending when the 60s test timeout tears the
+page down — not a new symptom, the same never-resolved locator as the prior three).
+
+**Root cause of the gate's miss:** `awaitEditorLaidOut` only compared `editor.getLayoutInfo().height` to
+the container's `clientHeight`. Monaco's `ResizeObserver` callback re-measures and calls `layout()`
+synchronously on a resize, but "the numbers agree" is a read taken at one instant over a CDP round-trip —
+it proves the clamp isn't active *at that instant*, not that the DOM has actually caught up rendering every
+line back in (or that a fresh collapse hasn't started by the time the click's own separate round-trip
+resolves the locator). The height diff is a proxy for the actual defect; **the real defect, per every one of
+these four occurrences' forensics, is the DOM only holding the clamp's one-line placeholder.**
+
+**Fix:** `awaitEditorLaidOut` now also polls the actual DOM: it requires more than one `.view-line` element
+present whenever the model has more than one line, alongside the existing height check. This checks the
+documented failure signature directly instead of a derived number that can agree while the render lags. Not
+a retry, skip, or widened timeout — `expect.poll`'s existing polling now waits on a truer condition. Land
+and soak per the guidance below; this is not reproducible locally so it can only be validated by watching
+Windows CI stay clean on this test across subsequent runs.
+
+**Immediate self-correction, same day, PR #640's own CI (run 32335659526):** the fix above landed with an
+unintended side effect — its `expect.poll` inherited the suite's global `expect.timeout` (30s on
+Windows/macOS), which is *shorter* than the budget this wait always effectively had. Before the fix, the
+clamp's failure mode surfaced in the subsequent `word.click()`'s own actionability wait, which isn't bound
+by `expect.timeout` and so could run for the test's full ~60s. Making the check stricter without also
+carrying that budget forward meant a slow-but-real recovery that used to finish inside ~60s could now get
+cut off at 30s instead — and it did: the PR's own `e2e (windows) / shard (3/6)` run hit two *fresh* failures
+(`editor-peek-definition.spec.ts:104` and `:126`) on the exact -1 (clamp-still-active) signature, both timing
+out at ~33.7s. Fixed by giving `awaitEditorLaidOut`'s poll an explicit timeout matching the platform's test
+budget (45s on Windows/macOS, 15s on Linux where this flake doesn't occur and the whole test timeout is only
+30s) instead of inheriting the shorter global default. This is a genuine correction to this PR's own diff, not
+a new masking layer — the check itself is unchanged; only the time it's given to resolve now matches what the
+wait already implicitly had.
 
 ## CONFIRMED + FIXED: #1 (S2-race) — a test walk-race, not a product bug
 
@@ -219,6 +289,27 @@ doesn't cover (the entry document failing to fetch never reaches the module grap
 `<script type=module>` element). This PR was rebased onto `main` and landed at this point specifically
 because of this recurrence; the entry-page-fetch case remains open — the next occurrence of *that* specific
 shape should look at Playwright's own navigation retry/timeout rather than the module-graph error path.
+
+## Open: `.editor[data-active-file]` stays empty through `openFile`
+
+**Symptom, 2026-08-19 ~22:15 UTC, run 32307034002:** `diff-review.spec.ts:202` ("keep-all clears both
+the pending and the faded accepted band",
+[job 96242942711](https://github.com/Kapps/weavie/actions/runs/32307034002/job/96242942711)), Windows
+`e2e (linux) / shard (3/6)` — its very first action, `openFile(page, "hello.ts")`, timed out after 30s.
+Different fingerprint from the Monaco-viewport-clamp family above: the `.editor` locator resolved fine
+(63 polls, `data-ready="true"`), but its `data-active-file` attribute read `""` the whole time instead
+of matching `hello.ts` — the editor never picked up the file at all, not a rendering/viewport problem.
+`console-errors.txt` and the other 40 tests in the same shard (including three `openFile` calls in the
+immediately-preceding `editor-peek-definition.spec.ts` tests, all green) give no reason to suspect a
+real regression in file-opening.
+
+No fix attempted: this is the third distinct Windows-only flake symptom seen on this PR's CI within
+about 45 minutes (the other two being confirmed recurrences of the Monaco-clamp family above), on a PR
+whose diff touches only `.github/workflows/e2e-platform.yml`. That density, plus three different
+concrete symptoms rather than one repeating, points at the hosted Windows fleet having a rough day
+rather than one fixable defect — consistent with this doc's existing "resource-starved hosted Windows
+runner" theory for root cause #4. Logged here per policy (no flake goes uncommented) for whoever hits
+it next; needs its own forensics before any fix is more than a guess.
 
 ## Reproduction & forensics techniques that worked
 

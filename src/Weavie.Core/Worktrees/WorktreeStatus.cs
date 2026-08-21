@@ -17,7 +17,7 @@ public sealed record WorktreeStatus {
 	/// <summary>The agent provider Weavie recorded for this worktree-backed session, when known.</summary>
 	public string? AgentProviderId { get; init; }
 
-	/// <summary>True when this worktree is in Weavie's registry (Weavie created/tracks it).</summary>
+	/// <summary>True when Weavie owns the checkout by its managed location or registry record.</summary>
 	public required bool IsManaged { get; init; }
 
 	/// <summary>True for the workspace's primary checkout (the folder the user opened) — never auto-removed.</summary>
@@ -35,10 +35,10 @@ public sealed record WorktreeStatus {
 	/// <summary>When Weavie created the worktree (UTC), when known.</summary>
 	public DateTimeOffset? CreatedAtUtc { get; init; }
 
-	/// <summary>A Weavie-created worktree git no longer knows about — a stale registry row to prune.</summary>
+	/// <summary>An owned worktree git does not presently report as live.</summary>
 	public bool IsOrphan => IsManaged && !Exists;
 
-	/// <summary>A worktree git reports that Weavie did not create (external, or its registry row was lost).</summary>
+	/// <summary>A worktree git reports outside Weavie's managed directory with no ownership record.</summary>
 	public bool IsUntracked => !IsManaged && !IsPrimary && Exists;
 
 	/// <summary>Removable without losing work: present, not the primary checkout, clean, and fully merged.</summary>

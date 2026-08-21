@@ -1,8 +1,8 @@
 namespace Weavie.Core.Worktrees;
 
 /// <summary>
-/// One worktree Weavie created, as recorded in the per-workspace <see cref="WorktreeRegistry"/> — the source
-/// of truth for "Weavie made this," reconciled against git.
+/// Persisted metadata for one Weavie-owned worktree. The managed directory remains authoritative for ownership
+/// if this recoverable record is lost.
 /// </summary>
 public sealed record WorktreeRecord {
 	/// <summary>The branch checked out in this worktree (created together with it).</summary>

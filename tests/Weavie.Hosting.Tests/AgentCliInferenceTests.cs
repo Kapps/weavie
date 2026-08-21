@@ -186,5 +186,31 @@ public sealed class AgentCliProcessRunnerTests : IDisposable {
 		}, cancellation.Token));
 	}
 
+	[Fact]
+	public async Task AnImmediateExitBeforeReadingStdinStillReturnsTheRealExitCode() {
+		// Documented flake: run https://github.com/Kapps/weavie/actions/runs/32336492459/job/96327365504
+		// (2026-08-20) — mobile.spec.ts "failed branch inference" got "The Claude inference process failed"
+		// instead of "Claude inference exited with code 7" on macOS CI. Root cause: RunAsync wrote to stdin
+		// before the child (which exits immediately without reading it) had its pipe drained, racing a
+		// broken-pipe IOException that shadowed the real exit code. Fixed by swallowing that write's
+		// IOException in AgentCliProcessRunner.RunAsync. A payload past the OS pipe buffer forces the write
+		// to block until drained, so an already-exited reader deterministically reproduces the broken pipe.
+		var runner = new AgentCliProcessRunner();
+
+		var result = await runner.RunAsync(new AgentCliProcessRequest {
+			Command = "/bin/sh",
+			WorkingDirectory = _dir,
+			Arguments = ["-c", "exit 7"],
+			PathEntries = [],
+			Environment = new Dictionary<string, string>(StringComparer.Ordinal),
+			RemoveEnvironment = [],
+			StandardInput = new string('x', 4 * 1024 * 1024),
+			MaxCapturedStdoutBytes = 1024,
+			CaptureStdout = true,
+		}, CancellationToken.None);
+
+		Assert.Equal(7, result.ExitCode);
+	}
+
 	public void Dispose() => Directory.Delete(_dir, recursive: true);
 }

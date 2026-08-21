@@ -15,7 +15,12 @@ public sealed class ClaudeAgentProvider : IAgentInferenceProvider {
 
 	/// <summary>Creates the provider over the app-global Claude conversation store.</summary>
 	public ClaudeAgentProvider(SettingsStore settings, ClaudeSessionStore sessions)
-		: this(sessions, new ClaudeCliInference(settings, new AgentCliProcessRunner())) { }
+		: this(
+			sessions,
+			new ClaudeCliInference(
+				settings,
+				new AgentCliProcessRunner(),
+				WeaviePaths.Internal("inference-images"))) { }
 
 	internal ClaudeAgentProvider(ClaudeSessionStore sessions, IInferenceProvider inference) {
 		ArgumentNullException.ThrowIfNull(sessions);

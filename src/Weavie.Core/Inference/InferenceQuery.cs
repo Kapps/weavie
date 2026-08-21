@@ -15,6 +15,24 @@ public sealed record InferenceOwner {
 	public required string Workspace { get; init; }
 }
 
+/// <summary>One validated image supplied as provider-native input to an isolated inference query.</summary>
+public sealed record InferenceInputImage {
+	/// <summary>The supported image MIME type.</summary>
+	public required string Mime { get; init; }
+
+	/// <summary>The exact decoded image bytes.</summary>
+	public required ReadOnlyMemory<byte> Bytes { get; init; }
+}
+
+/// <summary>The complete provider-neutral input to one isolated inference query.</summary>
+public sealed record InferenceInput {
+	/// <summary>The textual query instructions; empty is valid when at least one image is present.</summary>
+	public required string Prompt { get; init; }
+
+	/// <summary>The exact images supplied beside <see cref="Prompt"/>.</summary>
+	public required IReadOnlyList<InferenceInputImage> Images { get; init; }
+}
+
 /// <summary>Execution policy and resource bounds for one typed inference query.</summary>
 public sealed record InferenceQueryOptions {
 	/// <summary>Whether a person directly initiated the query.</summary>
@@ -22,6 +40,12 @@ public sealed record InferenceQueryOptions {
 
 	/// <summary>The maximum prompt size in UTF-8 bytes.</summary>
 	public required int MaxPromptBytes { get; init; }
+
+	/// <summary>The maximum number of native image inputs.</summary>
+	public required int MaxImageCount { get; init; }
+
+	/// <summary>The maximum aggregate decoded bytes across native image inputs.</summary>
+	public required long MaxImageBytes { get; init; }
 
 	/// <summary>The maximum structured-response size in UTF-8 bytes.</summary>
 	public required int MaxOutputBytes { get; init; }

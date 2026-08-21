@@ -1,6 +1,6 @@
 import { createEffect, createMemo, createSignal, type JSX, onCleanup, Show } from "solid-js";
 import type { AgentSlashEntry, ClientSession } from "../bridge";
-import { readClipboardImage, readClipboardText } from "../clipboard-read";
+import { readClipboardContent } from "../clipboard-read";
 import { setContext } from "../commands/context";
 import { keyHint } from "../commands/key-hint";
 import { dispatchCommand, registerCommand, runCommandWithFeedback } from "../commands/registry";
@@ -175,31 +175,30 @@ export function AgentComposer(props: {
     const selectionStart = textareaRef?.selectionStart;
     const selectionEnd = textareaRef?.selectionEnd;
     try {
-      const image = await readClipboardImage();
-      if (image.mime.length > 0) {
+      const content = await readClipboardContent();
+      if (content.kind === "image") {
         if (inputProtocol >= 2) {
           uploadAgentImage(
             session,
-            image.mime,
-            image.dataB64,
-            `data:${image.mime};base64,${image.dataB64}`,
+            content.mime,
+            content.dataB64,
+            `data:${content.mime};base64,${content.dataB64}`,
           );
         } else {
-          sendPastedImage(session, image.mime, image.dataB64);
+          sendPastedImage(session, content.mime, content.dataB64);
         }
         return;
       }
-      const text = await readClipboardText();
-      if (text.length === 0) {
+      if (content.kind !== "text") {
         return;
       }
       const current = composerState(session).draft;
       const start = selectionStart ?? current.length;
       const end = selectionEnd ?? start;
-      const draft = current.slice(0, start) + text + current.slice(end);
+      const draft = current.slice(0, start) + content.text + current.slice(end);
       setComposerDraft(session, draft);
       if (props.session === session) {
-        placeCaretAfterDraftUpdate(draft, start + text.length);
+        placeCaretAfterDraftUpdate(draft, start + content.text.length);
       }
     } catch (error) {
       notify(

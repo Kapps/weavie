@@ -14,7 +14,8 @@ test.beforeAll(() => {
   }
 });
 
-// Both tests need the same Linux-shelled workspace holding one scrollable transcript.
+// Both tests need the same workspace holding one scrollable transcript. The shell claims macOS — the one
+// platform whose engine has no autoscroll of its own — so a re-introduced platform gate fails here.
 async function openAutoscrollPane(
   page: Page,
   name: string,
@@ -22,8 +23,8 @@ async function openAutoscrollPane(
   const session = mockSession(name, name, "codex");
   await page.addInitScript(() => {
     window.__WEAVIE_SHELL__ = {
-      platform: "linux",
-      titleBar: "linux",
+      platform: "mac",
+      titleBar: "mac",
       workspaceLabel: "autoscroll-test",
       recents: [],
       buildNumber: "test",
@@ -58,7 +59,7 @@ async function paneOrigin(target: Locator): Promise<{ x: number; y: number }> {
   return { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 };
 }
 
-test("Linux middle-click autoscrolls the agent transcript and responds live", async ({ page }) => {
+test("middle-click autoscrolls the agent transcript and responds live", async ({ page }) => {
   const { host, body } = await openAutoscrollPane(page, "autoscroll");
 
   try {
@@ -67,27 +68,27 @@ test("Linux middle-click autoscrolls the agent transcript and responds live", as
     const origin = await paneOrigin(body);
 
     await page.mouse.click(origin.x, origin.y, { button: "middle" });
-    await expect(body).toHaveClass(/agent-middle-click-autoscrolling/);
+    await expect(body).toHaveClass(/middle-click-autoscrolling/);
     await page.mouse.move(origin.x, origin.y - 100);
     await expect.poll(() => body.evaluate((element) => element.scrollTop)).toBeLessThan(initialTop);
     await page.keyboard.press("Escape");
-    await expect(body).not.toHaveClass(/agent-middle-click-autoscrolling/);
+    await expect(body).not.toHaveClass(/middle-click-autoscrolling/);
 
     await page.mouse.move(origin.x, origin.y);
     await page.mouse.down({ button: "middle" });
     await page.mouse.move(origin.x, origin.y + 100);
     await page.mouse.up({ button: "middle" });
-    await expect(body).not.toHaveClass(/agent-middle-click-autoscrolling/);
+    await expect(body).not.toHaveClass(/middle-click-autoscrolling/);
 
     await page.mouse.click(origin.x, origin.y, { button: "middle" });
-    await expect(body).toHaveClass(/agent-middle-click-autoscrolling/);
+    await expect(body).toHaveClass(/middle-click-autoscrolling/);
     host.publishHost("settings", "editorOptions", {
       gitBlame: "off",
       middleClickAutoscroll: false,
     });
-    await expect(body).not.toHaveClass(/agent-middle-click-autoscrolling/);
+    await expect(body).not.toHaveClass(/middle-click-autoscrolling/);
     await page.mouse.click(origin.x, origin.y, { button: "middle" });
-    await expect(body).not.toHaveClass(/agent-middle-click-autoscrolling/);
+    await expect(body).not.toHaveClass(/middle-click-autoscrolling/);
   } finally {
     await host.close();
   }
@@ -129,20 +130,69 @@ test("the autoscroll registers no global wheel listener unless it is running", a
 
     const origin = await paneOrigin(body);
     await page.mouse.click(origin.x, origin.y, { button: "middle" });
-    await expect(body).toHaveClass(/agent-middle-click-autoscrolling/);
+    await expect(body).toHaveClass(/middle-click-autoscrolling/);
     expect(await wheelListeners()).toBeGreaterThan(0);
 
     await page.keyboard.press("Escape");
-    await expect(body).not.toHaveClass(/agent-middle-click-autoscrolling/);
+    await expect(body).not.toHaveClass(/middle-click-autoscrolling/);
     await expect.poll(wheelListeners).toBe(0);
   } finally {
     await host.close();
   }
 });
 
-// The editor's autoscroll is Monaco's own `scrollOnMiddleClick` contribution, wired to the same setting as the
-// transcript's hand-rolled one. Unlike that one it is not Linux-only: Monaco's viewport is not a native
-// scrollable element, so no platform autoscrolls it for free.
+// The gesture belongs to the app, not to one pane: it takes whichever surface under the pointer can scroll —
+// here the session rail, whose rows are buttons, so a click target that acts on its own left button still
+// autoscrolls.
+test("middle-click autoscrolls any scrollable surface, not just the transcript", async ({
+  page,
+}) => {
+  // Two sessions load; the rest are chips, enough of them to overflow the rail.
+  const sessions = Array.from({ length: 40 }, (_, index) => ({
+    ...mockSession(`rail-${index}`, `rail-${index}`, "acp"),
+    loaded: index < 2,
+  }));
+  const host = await MockHost.start({ distDir, sessions });
+
+  try {
+    await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
+    await host.waitUntilConnected();
+    const rail = page.locator(".session-rail");
+    await expect(page.locator(".session-chip")).toHaveCount(sessions.length);
+    expect(
+      await rail.evaluate((element) => element.scrollHeight - element.clientHeight),
+    ).toBeGreaterThan(0);
+
+    // Arming over a chip and dismissing it in place swallows the whole click: the scroll ends without also
+    // switching to the session under the pointer. The same click switches once nothing is armed.
+    const chip = page.locator('[data-session-slot="rail-1"]');
+    const at = await paneOrigin(chip);
+    await page.mouse.click(at.x, at.y, { button: "middle" });
+    await expect(rail).toHaveClass(/middle-click-autoscrolling/);
+    await page.mouse.click(at.x, at.y);
+    await expect(rail).not.toHaveClass(/middle-click-autoscrolling/);
+    await expect(chip).not.toHaveClass(/active/);
+    await page.mouse.click(at.x, at.y);
+    await expect(chip).toHaveClass(/active/);
+
+    const origin = await paneOrigin(rail);
+    await page.mouse.click(origin.x, origin.y, { button: "middle" });
+    await expect(rail).toHaveClass(/middle-click-autoscrolling/);
+    await expect(page.locator(".middle-click-autoscroll-origin")).toBeVisible();
+    await page.mouse.move(origin.x, origin.y + 120);
+    await expect.poll(() => rail.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+
+    await page.keyboard.press("Escape");
+    await expect(rail).not.toHaveClass(/middle-click-autoscrolling/);
+    await expect(page.locator(".middle-click-autoscroll-origin")).toHaveCount(0);
+  } finally {
+    await host.close();
+  }
+});
+
+// The editor's autoscroll is Monaco's own `scrollOnMiddleClick` contribution, wired to the same setting: its
+// viewport is not a native scrollable element, so the app-level gesture skips it (`.monaco-editor` owns the
+// middle button) and Monaco scrolls itself.
 test("middle-click autoscrolls the editor and responds live", async ({ page }) => {
   const session = mockSession("editor-autoscroll", "editor-autoscroll", "acp");
   const host = await MockHost.start({ distDir, sessions: [session] });
@@ -191,6 +241,51 @@ test("middle-click autoscrolls the editor and responds live", async ({ page }) =
       .toBe(false);
     await page.mouse.click(origin.x, origin.y, { button: "middle" });
     await expect(editor).not.toHaveClass(/scroll-editor-on-middle-click-editor/);
+  } finally {
+    await host.close();
+  }
+});
+
+// The tab strip claims the middle button for close (`data-middle-click`). The app-level gesture sees the press
+// first — capture phase, before the tab's own handler — so without that opt-out it would swallow the close.
+test("middle-clicking an editor tab closes it instead of starting an autoscroll", async ({
+  page,
+}) => {
+  const session = mockSession("editor-tabs", "editor-tabs", "acp");
+  const host = await MockHost.start({ distDir, sessions: [session] });
+
+  try {
+    // Enough tabs to overflow the strip: the track then IS a scrollable surface, so the gesture would take
+    // the press for itself (and the tab would never close) without the opt-out.
+    const files = Array.from({ length: 14 }, (_, index) => `/module-${index}.ts`);
+    for (const path of files) {
+      host.files.set(path, "export const value = 1;\n");
+    }
+    await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
+    await host.waitUntilConnected();
+    for (const path of files) {
+      host.publishSession(session.address, "editor", "openFile", {
+        path,
+        line: 1,
+        preview: false,
+        scratch: false,
+      });
+    }
+    await expect(page.locator(".editor-tab")).toHaveCount(files.length);
+    const track = page.locator(".editor-tabs-track");
+    expect(
+      await track.evaluate((element) => element.scrollWidth - element.clientWidth),
+    ).toBeGreaterThan(1);
+
+    const tab = page.locator(".editor-tab", { hasText: "module-13.ts" });
+    const origin = await paneOrigin(tab.locator(".editor-tab-main"));
+    await page.mouse.click(origin.x, origin.y, { button: "middle" });
+
+    // The clicked tab going away is the whole assertion — this host doesn't model the editor's view list, so
+    // what happens to the OTHER tabs is its business, not the gesture's.
+    await expect(tab).toHaveCount(0);
+    await expect(page.locator(".middle-click-autoscroll-origin")).toHaveCount(0);
+    await expect(page.locator(".middle-click-autoscrolling")).toHaveCount(0);
   } finally {
     await host.close();
   }

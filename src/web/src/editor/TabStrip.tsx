@@ -215,13 +215,14 @@ export function TabStrip(props: {
                 }}
                 title={view.kind === "plan" ? tabLabel(view, props.session()) : view.path}
               >
+                {/* data-middle-click claims the middle button (close) from the app's autoscroll. */}
                 <button
                   type="button"
                   class="editor-tab-main"
+                  data-middle-click="close"
                   onClick={() => props.actions.activate(view.path)}
                   onDblClick={() => props.actions.promote(view.path)}
                   onMouseDown={(event) => {
-                    // Middle-click closes; preventDefault avoids autoscroll.
                     if (event.button === 1) {
                       event.preventDefault();
                       props.actions.close(view.path);

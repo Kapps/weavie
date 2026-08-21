@@ -79,17 +79,36 @@ export function killProcessTree(proc: ChildProcess): Promise<void> {
       // own exit code is not: `/T` returns non-zero (e.g. 255) merely because a descendant self-exited before
       // it got there, while the root is dying and `close` is a beat behind.
       proc.once("close", () => settle(resolve));
-      const taskkill = spawn("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore" });
-      taskkill.once("exit", (code) => {
-        // The kill attempt is done; `close` follows within a beat if the tree died. Bound the wait so a
-        // genuinely surviving tree fails teardown loudly instead of hanging it forever.
+      // `/T` snapshots the process tree at the moment taskkill is invoked, so a descendant spawned a beat
+      // later (e.g. a shell forking a helper) escapes the first pass and survives. Re-enumerate once before
+      // giving up — this was observed flaking CI (e2e windows shard 3/6,
+      // https://github.com/Kapps/weavie/actions/runs/32437842724, 2026-08-21): the tree closed shortly after
+      // a single taskkill pass timed out.
+      const attemptKill = (onExit: (code: number | null) => void): void => {
+        const taskkill = spawn("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore" });
+        taskkill.once("exit", onExit);
+        taskkill.once("error", (error) => settle(() => reject(error)));
+      };
+      attemptKill((firstCode) => {
         setTimeout(() => {
-          settle(() =>
-            reject(new Error(`process tree ${pid} survived taskkill (exit ${code ?? -1})`)),
-          );
+          if (settled) {
+            return;
+          }
+          attemptKill((secondCode) => {
+            // The second kill attempt is done; `close` follows within a beat if the tree died. Bound the wait
+            // so a genuinely surviving tree fails teardown loudly instead of hanging it forever.
+            setTimeout(() => {
+              settle(() =>
+                reject(
+                  new Error(
+                    `process tree ${pid} survived taskkill (exit ${secondCode ?? firstCode ?? -1})`,
+                  ),
+                ),
+              );
+            }, 5000).unref();
+          });
         }, 5000).unref();
       });
-      taskkill.once("error", (error) => settle(() => reject(error)));
     });
   }
   if (proc.exitCode !== null || proc.signalCode !== null) {

@@ -13,6 +13,7 @@ import {
 } from "../editor-options";
 import { currentFonts, onFontsChanged } from "../fonts";
 import { registerActiveEditor } from "./vscode-services";
+import { wheelScrollSensitivity } from "./wheel-scroll-sensitivity";
 
 // Workers + the VSCode service substrate are wired in `vscode-services.ts` (initEditorServices), which must run
 // before any editor is created. TS/JS intelligence comes from a real LSP server (lsp/lsp-client.ts), not ts.worker.
@@ -95,7 +96,10 @@ function toMonacoOptions(o: EditorOptionsSpec): monaco.editor.IEditorOptions {
     cursorSmoothCaretAnimation: o.cursorSmoothCaretAnimation,
     renderWhitespace: o.renderWhitespace,
     scrollBeyondLastLine: o.scrollBeyondLastLine,
-    mouseWheelScrollSensitivity: o.mouseWheelScrollSensitivity,
+    mouseWheelScrollSensitivity: wheelScrollSensitivity(
+      o.mouseWheelScrollSensitivity,
+      window.__WEAVIE_SHELL__?.platform,
+    ),
     fastScrollSensitivity: o.fastScrollSensitivity,
     scrollOnMiddleClick: o.middleClickAutoscroll,
     wordWrap: o.wordWrap,

@@ -1,4 +1,4 @@
-import { agentMiddleClickAutoscrollEnabled } from "../chrome/agent-default";
+import { currentEditorOptions } from "../editor-options";
 
 const DEAD_ZONE = 5;
 const EXCLUDED = "a,button,input,textarea,select,[contenteditable]:not([contenteditable='false'])";
@@ -25,7 +25,7 @@ export function installAgentMiddleClickAutoscroll(element: HTMLElement): () => v
     element.classList.remove("agent-middle-click-autoscrolling");
   };
   const animate = (time: number): void => {
-    if (!scrolling || !agentMiddleClickAutoscrollEnabled()) {
+    if (!scrolling || !currentEditorOptions().middleClickAutoscroll) {
       stop();
       return;
     }
@@ -53,7 +53,7 @@ export function installAgentMiddleClickAutoscroll(element: HTMLElement): () => v
       event.ctrlKey ||
       event.metaKey ||
       event.shiftKey ||
-      !agentMiddleClickAutoscrollEnabled() ||
+      !currentEditorOptions().middleClickAutoscroll ||
       !(target instanceof Element) ||
       !element.contains(target) ||
       target.closest(EXCLUDED) !== null ||

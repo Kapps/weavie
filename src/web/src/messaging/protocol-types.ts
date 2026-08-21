@@ -43,7 +43,6 @@ export interface NotificationPrefs {
 
 export interface AgentDefaults {
   defaultProvider: string;
-  middleClickAutoscroll: boolean;
   providers: AgentProviderInfo[];
 }
 
@@ -235,6 +234,9 @@ export interface EditorOptionsSpec {
   cursorSmoothCaretAnimation: "off" | "on" | "explicit";
   renderWhitespace: "none" | "boundary" | "selection" | "trailing" | "all";
   scrollBeyondLastLine: boolean;
+  mouseWheelScrollSensitivity: number;
+  fastScrollSensitivity: number;
+  middleClickAutoscroll: boolean;
   wordWrap: "off" | "on" | "wordWrapColumn" | "bounded";
   lineNumbers: "on" | "off" | "relative" | "interval";
   cursorBlinking: "blink" | "smooth" | "phase" | "expand" | "solid";

@@ -19,7 +19,6 @@ declare global {
 
 const DEFAULT: AgentDefaults = {
   defaultProvider: "claude",
-  middleClickAutoscroll: true,
   providers: [
     {
       id: "claude",
@@ -40,15 +39,9 @@ function defaultsFor(backendId: string): AgentDefaults {
   return (
     byBackend().get(backendId) ?? {
       defaultProvider: "",
-      middleClickAutoscroll: true,
       providers: [],
     }
   );
-}
-
-/** Whether Linux middle-click autoscroll is enabled for the structured agent transcript. */
-export function agentMiddleClickAutoscrollEnabled(): boolean {
-  return defaultsFor(LOCAL_BACKEND_ID).middleClickAutoscroll;
 }
 
 /** The provider the New Session prompt should preselect. */

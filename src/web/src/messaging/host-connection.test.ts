@@ -41,7 +41,7 @@ const hello = (hostIncarnation: string, sessions: SessionCatalogEntry[]): HostHe
     recentTerms: [],
   },
   testProfile: "",
-  agentDefaults: { defaultProvider: "acp", middleClickAutoscroll: true, providers: [] },
+  agentDefaults: { defaultProvider: "acp", providers: [] },
   commandCatalog: { commands: [], keybindings: [] },
 });
 

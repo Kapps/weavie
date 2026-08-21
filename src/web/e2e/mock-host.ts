@@ -106,7 +106,6 @@ const DEFAULT_LAYOUT = {
 
 const MOCK_AGENT_DEFAULTS = {
   defaultProvider: "claude",
-  middleClickAutoscroll: true,
   providers: [
     {
       id: "claude",
@@ -896,11 +895,11 @@ const BOOTSTRAP_GLOBALS: Record<string, unknown> = {
   },
   // The mock host serves no git feature, so blame is off here — otherwise every opened file would issue a
   // `git.blame` request nothing answers.
-  __WEAVIE_EDITOR_OPTIONS__: { gitBlame: "off" },
+  __WEAVIE_EDITOR_OPTIONS__: { gitBlame: "off", middleClickAutoscroll: true },
   __WEAVIE_THEME__: { mode: "system", light: { id: "weavie-light" }, dark: { id: "weavie-dark" } },
   __WEAVIE_COMMANDS__: [],
   __WEAVIE_KEYBINDINGS__: [],
-  __WEAVIE_AGENT__: { ...MOCK_AGENT_DEFAULTS, middleClickAutoscroll: true },
+  __WEAVIE_AGENT__: MOCK_AGENT_DEFAULTS,
 };
 
 function injectBootstrap(html: string): string {

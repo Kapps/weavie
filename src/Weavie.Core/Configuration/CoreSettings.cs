@@ -148,15 +148,6 @@ public static class CoreSettings {
 		});
 
 		registry.Register(new SettingDefinition {
-			Key = AgentSettings.MiddleClickAutoscroll,
-			Kind = SettingKind.Bool,
-			Description = "Use middle-click autoscroll in the Linux structured-agent transcript. On by default.",
-			Aliases = ["middle click autoscroll", "middle mouse scrolling", "Linux autoscroll"],
-			Apply = ApplyMode.Live,
-			Default = true,
-		});
-
-		registry.Register(new SettingDefinition {
 			Key = InferenceSettings.Enabled,
 			Kind = SettingKind.Bool,
 			Description = "Allow Weavie features to make isolated model queries through the selected provider's optional "

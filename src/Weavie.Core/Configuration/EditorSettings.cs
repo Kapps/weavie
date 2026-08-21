@@ -35,6 +35,15 @@ public static class EditorSettings {
 	/// <summary>Allow scrolling past the last line.</summary>
 	public const string ScrollBeyondLastLine = "editor.scrollBeyondLastLine";
 
+	/// <summary>Multiplier on the distance one mouse-wheel notch scrolls.</summary>
+	public const string MouseWheelScrollSensitivity = "editor.mouseWheelScrollSensitivity";
+
+	/// <summary>Multiplier on the scroll distance while Alt is held.</summary>
+	public const string FastScrollSensitivity = "editor.fastScrollSensitivity";
+
+	/// <summary>Middle-click then move the mouse to scroll continuously, in the editor and the agent transcript.</summary>
+	public const string MiddleClickAutoscroll = "editor.middleClickAutoscroll";
+
 	/// <summary>Wrap long lines.</summary>
 	public const string WordWrap = "editor.wordWrap";
 
@@ -77,7 +86,8 @@ public static class EditorSettings {
 	/// <summary>Every editor-option key — the host subscribes to all of them to re-push on any change.</summary>
 	public static readonly IReadOnlyList<string> Keys = [
 		InlayHints, Minimap, BracketPairColorization, SmoothScrolling, CursorSmoothCaretAnimation,
-		RenderWhitespace, ScrollBeyondLastLine, WordWrap, LineNumbers, CursorBlinking, RenderLineHighlight,
+		RenderWhitespace, ScrollBeyondLastLine, MouseWheelScrollSensitivity, FastScrollSensitivity,
+		MiddleClickAutoscroll, WordWrap, LineNumbers, CursorBlinking, RenderLineHighlight,
 		StickyScroll, FontLigatures, IndentGuides, HoverDelay, SuggestExpandDocs, CommentProse, PaneShortcutHints,
 		VideoAutoplay, GitBlame,
 	];
@@ -97,6 +107,13 @@ public static class EditorSettings {
 	// Monaco's standard default; long enough to avoid flicker on a quick mouse pass. 0 (instant) is the floor.
 	private const long DefaultHoverDelay = 300;
 	private const long MaxHoverDelay = 5000;
+
+	// Measured in Chromium: a wheel notch scrolls 50px at a multiplier of 1 — under three lines, slower than the
+	// rest of the desktop. 5 lands a notch near 14 lines. The two multiply, so Alt-scroll is 25x the baseline.
+	private const long DefaultMouseWheelScrollSensitivity = 5;
+	private const long DefaultFastScrollSensitivity = 5;
+	private const long MinScrollSensitivity = 1;
+	private const long MaxScrollSensitivity = 20;
 
 	/// <summary>Registers every editor-behavior setting into <paramref name="registry"/>.</summary>
 	public static void Register(SettingsRegistry registry) {
@@ -129,6 +146,26 @@ public static class EditorSettings {
 		registry.Register(Toggle(ScrollBeyondLastLine, "Allow scrolling past the last line of the file.",
 			["scroll beyond last line", "scroll past end"], true));
 
+		registry.Register(Ranged(MouseWheelScrollSensitivity,
+			"How far one mouse-wheel notch scrolls the editor, as a multiplier. Defaults to 5; Monaco's own "
+				+ "default of 1 scrolls under three lines a notch, which feels slower than the rest of the desktop.",
+			["scroll speed", "mouse wheel speed", "scroll sensitivity", "mouse wheel scroll sensitivity",
+				"lines per scroll", "wheel scroll speed", "scroll faster", "scroll slower"],
+			DefaultMouseWheelScrollSensitivity, MinScrollSensitivity, MaxScrollSensitivity, "times"));
+		registry.Register(Ranged(FastScrollSensitivity,
+			"How far the editor scrolls while Alt is held, as a multiplier applied on top of "
+				+ "editor.mouseWheelScrollSensitivity — the two multiply, so the defaults make Alt-scroll 25x a "
+				+ "normal notch.",
+			["fast scroll", "fast scroll sensitivity", "alt scroll speed", "fast scrolling"],
+			DefaultFastScrollSensitivity, MinScrollSensitivity, MaxScrollSensitivity, "times"));
+		registry.Register(Toggle(MiddleClickAutoscroll,
+			"Middle-click, then move the mouse to scroll continuously — further from the click point scrolls "
+				+ "faster. Middle-click again (or press Escape) to stop. Applies to the editor on every platform, "
+				+ "and to the structured-agent transcript on Linux (elsewhere the system scrolls it). On by default.",
+			["middle click autoscroll", "autoscroll", "auto scroll", "middle mouse scrolling", "middle click scroll",
+				"scroll on middle click", "drag to scroll", "Linux autoscroll"],
+			true));
+
 		// Common preferences (defaults = Monaco's).
 		registry.Register(Choice(WordWrap, "Wrap long lines so they stay within the viewport.",
 			["word wrap", "line wrap", "wrap lines"], ["off", "on", "wordWrapColumn", "bounded"], "off"));
@@ -146,16 +183,11 @@ public static class EditorSettings {
 		registry.Register(Toggle(IndentGuides, "Show indentation guide lines.",
 			["indent guides", "indentation guides", "indent lines"], true));
 
-		registry.Register(new SettingDefinition {
-			Key = HoverDelay,
-			Kind = SettingKind.Int,
-			Description = "Delay in milliseconds before the hover tooltip appears over a symbol. "
+		registry.Register(Ranged(HoverDelay,
+			"Delay in milliseconds before the hover tooltip appears over a symbol. "
 				+ "Defaults to 300 (Monaco's standard); 0 means it appears instantly.",
-			Aliases = ["hover delay", "hover duration", "hover time", "tooltip delay", "tooltip duration"],
-			Apply = ApplyMode.Live,
-			Default = DefaultHoverDelay,
-			Validate = ValidateHoverDelay,
-		});
+			["hover delay", "hover duration", "hover time", "tooltip delay", "tooltip duration"],
+			DefaultHoverDelay, 0, MaxHoverDelay, "milliseconds"));
 
 		registry.Register(Toggle(SuggestExpandDocs,
 			"Auto-expand the documentation panel beside the autocomplete list, so a function's docs and "
@@ -216,6 +248,9 @@ public static class EditorSettings {
 		writer.WriteString("cursorSmoothCaretAnimation", store.RequireString(CursorSmoothCaretAnimation));
 		writer.WriteString("renderWhitespace", store.RequireString(RenderWhitespace));
 		writer.WriteBoolean("scrollBeyondLastLine", store.RequireBool(ScrollBeyondLastLine));
+		writer.WriteNumber("mouseWheelScrollSensitivity", store.RequireInt(MouseWheelScrollSensitivity));
+		writer.WriteNumber("fastScrollSensitivity", store.RequireInt(FastScrollSensitivity));
+		writer.WriteBoolean("middleClickAutoscroll", store.RequireBool(MiddleClickAutoscroll));
 		writer.WriteString("wordWrap", store.RequireString(WordWrap));
 		writer.WriteString("lineNumbers", store.RequireString(LineNumbers));
 		writer.WriteString("cursorBlinking", store.RequireString(CursorBlinking));
@@ -255,8 +290,19 @@ public static class EditorSettings {
 			Default = def,
 		};
 
-	private static ValidationResult ValidateHoverDelay(object? value) =>
-		value is long ms && ms is >= 0 and <= MaxHoverDelay
-			? ValidationResult.Success
-			: ValidationResult.Failure($"hover delay must be between 0 and {MaxHoverDelay} milliseconds.");
+	// A bounded integer setting. Out-of-range fails loudly at the surface that set it — never clamped.
+	private static SettingDefinition Ranged(
+		string key, string description, IReadOnlyList<string> aliases, long def, long min, long max,
+		string unit) =>
+		new() {
+			Key = key,
+			Kind = SettingKind.Int,
+			Description = description,
+			Aliases = aliases,
+			Apply = ApplyMode.Live,
+			Default = def,
+			Validate = value => value is long number && number >= min && number <= max
+				? ValidationResult.Success
+				: ValidationResult.Failure($"{key} must be between {min} and {max} {unit}."),
+		};
 }

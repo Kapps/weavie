@@ -1,7 +1,7 @@
 # E2E flake analysis (Windows-dominated)
 
 Status: living document — root causes confirmed where noted, open where noted
-Last updated: 2026-08-20
+Last updated: 2026-08-21
 
 A forensic catalog of the e2e suite's flakes, their confirmed/suspected root causes, and the
 techniques that produced those findings. Retries are off by policy (a flake fails the run), so every
@@ -271,6 +271,33 @@ concrete symptoms rather than one repeating, points at the hosted Windows fleet 
 rather than one fixable defect — consistent with this doc's existing "resource-starved hosted Windows
 runner" theory for root cause #4. Logged here per policy (no flake goes uncommented) for whoever hits
 it next; needs its own forensics before any fix is more than a guess.
+
+**2026-08-21 seventh occurrence, run 32450713733 — first on macOS, and the clamp was NOT active:** the
+multicursor test (`editor-peek-definition.spec.ts:142`,
+[job 96679218889](https://github.com/Kapps/weavie/actions/runs/32450713733/job/96679218889)) failed on
+`e2e (macos) / shard (3/6)` of PR #649, whose diff touches only the git-blame annotation. Familiar teardown
+fingerprint — `renderedLines: [""]`, `.editor`/`.monaco` healthy at `742×709`, `monacoViewportHeight: 709`,
+`modelLineCount: 7`, `console-errors.txt` `(none)` — but two things here are new.
+
+**It is not Windows-only.** Every prior occurrence was Windows; this one is macOS, on a shard whose other
+41 tests passed. The "hosted Windows fleet under stress" framing above does not cover it.
+
+**The 5px clamp was not active at any point during the wait.** This is the first occurrence where the
+stricter `awaitEditorLaidOut` (height agreement **and** `>1 .view-line`) polled through the whole failure:
+it returned `-1` for its full 45s runway, and `-1` is only reachable *after* `heightDiff !== 0` has been
+ruled out on that same evaluation. So Monaco reported a 709px viewport agreeing with its 709px container,
+continuously, for 45 seconds, while the DOM held one empty `.view-line` for a 7-line model. A clamped
+viewport reports height 5, not 709 — so the container never collapsed here, or had long since recovered
+while the render did not.
+
+**This invalidates the fix this doc has been holding for.** "Force an explicit Monaco `layout()` when a
+collapse is detected" was premised on the container being 0-height and Monaco not having re-measured;
+`layout()` is already correct throughout this occurrence, so it would have had nothing to correct. The
+shape to chase instead is a **stalled view render under a healthy layout**: one empty rendered line is what
+an *empty* model renders, so the next datum worth having is whether the view is still bound to the
+pre-swap (empty) model while `editor.getModel()` already reports the 7-line one — i.e. a model-swap render
+that never landed, not a viewport collapse. Recording the reading, not a guess at the fix: per this doc's
+own policy the next step is a controlled repro of that swap, not a seventh patch of the same shape.
 
 ## Reproduction & forensics techniques that worked
 

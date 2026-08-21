@@ -1,6 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { openFile, typeInEditor } from "../harness/actions";
+import { clickIntoEditor, openFile, typeInEditor } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 
 // Omnibar → open a file → Monaco renders it with syntax highlighting. Highlighting is observed via Monaco's
@@ -17,6 +17,52 @@ test("omnibar opens a file and Monaco highlights it", async ({ page }) => {
   expect(tokenClasses.length).toBeGreaterThan(1);
 });
 
+// Clicking into the editor must not scroll the file out of view. Monaco sizes `.view-lines` to the whole
+// scrollable content, so with `scrollBeyondLastLine` it is taller than the viewport even for a 7-line file —
+// and Playwright reveals an element before clicking it. The browser satisfies that reveal by natively
+// scrolling the `overflow:hidden` guard, which Monaco folds straight back into its own scroll position
+// (`editorScrollbar.ts`'s `onBrowserDesperateReveal`), leaving the editor pinned at its last line with every
+// other line absent from the DOM. That cost this suite six red CI runs before the cause was found, so both
+// halves are pinned here: the damage the container does, and that the helper's target cannot do it.
+test("clicking into the editor never scrolls the file away", async ({ page }) => {
+  await openFile(page, "hello.ts");
+
+  const sizes = await page.evaluate(() => {
+    const box = (selector: string) =>
+      (document.querySelector(`.monaco-editor ${selector}`) as HTMLElement).getBoundingClientRect()
+        .height;
+    return {
+      guard: box(".overflow-guard"),
+      container: box(".view-lines"),
+      line: box(".view-line"),
+    };
+  });
+  // The container overflows the viewport — revealing it has somewhere to scroll to...
+  expect(sizes.container).toBeGreaterThan(sizes.guard);
+  // ...and a single line does not, which is why that is what `clickIntoEditor` targets.
+  expect(sizes.line).toBeLessThanOrEqual(sizes.guard);
+
+  // And a native scroll of the guard — what the browser does to reveal an element taller than it — is folded
+  // into Monaco's own scroll position, landing on a legal maximum that nothing scrolls back from. One line
+  // left in the DOM is the fingerprint this cost six CI runs to recognise.
+  const scrolled = await page.evaluate(async () => {
+    const guard = document.querySelector(".monaco-editor .overflow-guard") as HTMLElement;
+    guard.scrollTop = 500;
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    return {
+      guardScrollTop: guard.scrollTop,
+      renderedLines: document.querySelectorAll(".view-line").length,
+    };
+  });
+  expect(scrolled).toEqual({ guardScrollTop: 0, renderedLines: 1 });
+
+  // The helper leaves the whole file on screen.
+  await page.reload();
+  await openFile(page, "hello.ts");
+  await clickIntoEditor(page);
+  await expect(page.locator(".monaco-editor .view-line")).toHaveCount(7);
+});
+
 // Highlighting must survive an EDIT, not just first render. monaco-vscode-api's incremental re-tokenizer loads
 // vscode-textmate's diff helpers (applyStateStackDiff / diffStateStacksRefEq / INITIAL) through a dynamic import
 // a bundler can flatten to `undefined` — freshly typed lines then never colour (a silent, edit-only break). This
@@ -28,7 +74,7 @@ test("syntax highlighting survives typing new code (incremental re-tokenization)
   await openFile(page, "hello.ts");
 
   // Type a distinctive line AFTER first render, so its tokens come purely from the incremental re-tokenizer.
-  await page.locator(".monaco-editor .view-lines").first().click();
+  await clickIntoEditor(page);
   await page.keyboard.press("ControlOrMeta+End");
   await page.keyboard.type("\nconst added: number = 987654;");
 
@@ -59,7 +105,7 @@ test("editing then saving persists to disk @cross", async ({ page, weavie }) => 
   await openFile(page, "hello.ts");
 
   const marker = `// edit-${Date.now()}\n`;
-  await page.locator(".monaco-editor .view-lines").first().click();
+  await clickIntoEditor(page);
   await page.keyboard.press("ControlOrMeta+Home");
   await typeInEditor(page, marker);
 

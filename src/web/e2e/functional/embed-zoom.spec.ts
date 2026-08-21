@@ -1,4 +1,4 @@
-import { openFile, runCommand } from "../harness/actions";
+import { clickIntoEditor, openFile, runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { ZOOM_IMAGE_SRC } from "../harness/git-workspace";
 
@@ -97,7 +97,7 @@ test("preview embeds zoom into the full-app lightbox (magnifier, arrows, Escape,
 // non-Linux runners) rather than marking this one test slow.
 test("the zoom chord declines in a plain Monaco view — no lightbox", async ({ page }) => {
   await openFile(page, "hello.ts");
-  await page.locator(".monaco-editor .view-lines").first().click();
+  await clickIntoEditor(page);
   await page.keyboard.press("ControlOrMeta+Shift+z");
   // Declined ⇒ nothing to await; a settle keeps a late-open from slipping past the count check.
   await page.waitForTimeout(400);

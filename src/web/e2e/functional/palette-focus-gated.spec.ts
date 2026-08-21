@@ -1,3 +1,4 @@
+import { clickIntoEditor } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 
 // Regression (#108): opening the command palette moves DOM focus to the omnibar input, which fired focusin
@@ -58,7 +59,7 @@ test("palette hides terminal-gated Copy when the editor was focused before openi
   await expect(page.locator(".tb-omnibar-row", { hasText: "hello.ts" }).first()).toBeVisible();
   await input.press("Enter");
   await expect(page.locator(".editor-tab", { hasText: "hello.ts" })).toBeVisible();
-  await page.locator(".monaco-editor .view-lines").first().click();
+  await clickIntoEditor(page);
   await expect(page.locator('.editor-surface[data-kind="editor"]')).toHaveClass(/\bactive\b/);
 
   await expect(async () => {

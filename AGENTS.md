@@ -103,7 +103,7 @@ delegates so it works for both PTY children and `System.Diagnostics.Process`. Tr
   outside your scope or ambiguous, say so and ask — don't ignore it.
 - **Never accept a flaky test and hide it — that's a silent fallback.** A skip, a quarantine, a
   retry loop, a loosened assertion, or "re-ran it and it passed" all bury the defect. When you find
-  a flake, root-cause it and fix it.
+  a flake, root-cause it and fix it. See [docs/specs/e2e-flake-policy.md](docs/specs/e2e-flake-policy.md).
 - **Never install a fake or stub binary into a shared PATH directory** (e.g. a stub `codex` beside
   node in nvm's bin) — it hijacks the real binary for every other session and the user's live app,
   long after your task ends. Keep fakes under `temp/` and wire them through an isolated test settings store or

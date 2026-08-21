@@ -1,5 +1,6 @@
 import {
   activeSessionSlot,
+  clickIntoEditor,
   createSession,
   openFile,
   waitForSessionSwitch,
@@ -22,7 +23,7 @@ test("clicking the terminal head focuses the terminal, not the editor", async ({
 
   // Start with the editor genuinely focused: open a file and click into Monaco.
   await openFile(page, "hello.ts");
-  await page.locator(".monaco-editor .view-lines").first().click();
+  await clickIntoEditor(page);
   await expect(editor).toHaveClass(/\bactive\b/);
 
   // Click the terminal's head — the title bar, the natural "select this terminal" target.
@@ -40,7 +41,7 @@ test("typing after clicking the terminal head does not leak into the editor", as
   const viewLines = page.locator(".monaco-editor .view-lines").first();
 
   await openFile(page, "hello.ts");
-  await viewLines.click();
+  await clickIntoEditor(page);
   await page.keyboard.press("ControlOrMeta+Home");
 
   await page.locator('.terminal-surface[data-kind="terminal:shell"] .pane-head').click();

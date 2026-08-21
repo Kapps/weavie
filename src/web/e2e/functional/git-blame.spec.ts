@@ -1,8 +1,10 @@
 import { execFileSync } from "node:child_process";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import type { Page } from "@playwright/test";
 import { openFile, runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
+import type { EditorHandle, ModelHandle, WeavieWindow } from "../harness/weavie-window";
 
 // Writes and commits one file in the harness workspace, so a test can build the blame shape it needs.
 async function commitFile(
@@ -194,32 +196,82 @@ test("the cursor on a blank line is left unannotated", async ({ page }) => {
   await expect(page.locator(".weavie-blame")).toHaveCount(0);
 });
 
+// Where the annotated line's own code ends and where its annotation begins — the gap between them. Runs in
+// the page; hand it to `page.evaluate`.
+function annotationGeometry(): { code: number; annotation: number; middle: number } {
+  const label = document.querySelector(".weavie-blame") as HTMLElement;
+  const line = label.closest(".view-line") as HTMLElement;
+  const box = label.getBoundingClientRect();
+  return {
+    // Every span of the line that is not the annotation or the gap in front of it, so `code` is where the
+    // code itself ends however that gap is drawn.
+    code: Math.max(
+      ...[...line.querySelectorAll("span > span")]
+        .filter((span) => !span.className.includes("weavie-blame"))
+        .map((span) => span.getBoundingClientRect().right),
+    ),
+    annotation: box.left,
+    middle: box.top + box.height / 2,
+  };
+}
+
+// The line geometry, retried as a whole: Monaco replaces a line's spans as it re-renders, and a detached one
+// measures as zero.
+async function annotatedLineGeometry(page: Page): Promise<ReturnType<typeof annotationGeometry>> {
+  let geometry: ReturnType<typeof annotationGeometry> | undefined;
+  await expect(async () => {
+    geometry = await page.evaluate(annotationGeometry);
+    // A line whose spans were all replaced mid-measure reports no code at all, which must retry, not pass.
+    expect(geometry.code).toBeGreaterThan(0);
+    expect(geometry.annotation - geometry.code).toBeGreaterThan(20);
+  }).toPass();
+  return geometry as ReturnType<typeof annotationGeometry>;
+}
+
+test("the end of an annotated line measures at its code, not past the gap", async ({ page }) => {
+  await openFile(page, "hello.ts");
+  await expect(page.locator(".weavie-blame").first()).toBeVisible();
+
+  // Select the line's last character, leaving the caret at the line's end — where the gap begins. Monaco
+  // measures that column at the FIRST character injected there, so drawing the gap as space in front of the
+  // annotation (a margin, a padding) put the caret and the selection band a whole gap to the right, beside the
+  // annotation instead of at the code. The gap is injected text of its own for exactly that reason.
+  await page.keyboard.press("End");
+  await page.keyboard.press("ArrowLeft");
+  await page.keyboard.press("Shift+ArrowRight");
+  await expect(page.locator(".view-overlays .selected-text")).toHaveCount(1);
+
+  const geometry = await annotatedLineGeometry(page);
+  const painted = await page.evaluate(() => ({
+    // Monaco insets the caret by a pixel so a caret at column 1 stays on screen.
+    caret: (document.querySelector(".cursors-layer .cursor") as HTMLElement).getBoundingClientRect()
+      .left,
+    selection: (
+      document.querySelector(".view-overlays .selected-text") as HTMLElement
+    ).getBoundingClientRect().right,
+  }));
+
+  expect(Math.abs(painted.caret - geometry.code)).toBeLessThan(2);
+  expect(Math.abs(painted.selection - geometry.code)).toBeLessThan(2);
+});
+
 test("the gap after a line belongs to the line, not to its annotation", async ({ page }) => {
   await openFile(page, "hello.ts");
   await expect(page.locator(".weavie-blame").first()).toBeVisible();
 
-  // The annotation is held clear of the code by a margin, which lies outside its hit area. Read in one go
-  // from a freshly queried element, and retried: Monaco replaces a line's spans as it re-renders, and a
-  // detached one answers every computed style with "".
-  let marker: { gap: number; left: number; middle: number } | undefined;
-  await expect(async () => {
-    marker = await page.evaluate(() => {
-      const label = document.querySelector(".weavie-blame");
-      const box = label?.getBoundingClientRect();
-      return label === null || box === undefined
-        ? undefined
-        : {
-            gap: Number.parseFloat(getComputedStyle(label).marginLeft),
-            left: box.left,
-            middle: box.top + box.height / 2,
-          };
-    });
-    expect(marker?.gap ?? Number.NaN).toBeGreaterThan(20);
-  }).toPass();
-
-  // Clicking in that gap is how a user puts the caret at the end of a line; it must not open the popover.
-  await page.mouse.click((marker?.left ?? 0) - (marker?.gap ?? 0) / 2, marker?.middle ?? 0);
+  // Clicking in the gap is how a user puts the caret at the end of a line; it must not open the popover.
+  const geometry = await annotatedLineGeometry(page);
+  await page.mouse.click((geometry.code + geometry.annotation) / 2, geometry.middle);
   await expect(page.getByRole("dialog", { name: "Git blame" })).toHaveCount(0);
+
+  // And it puts the caret at the end of the line, which is what the click was for.
+  const caret = await page.evaluate(() => {
+    const editor = (window as unknown as WeavieWindow).__WEAVIE_EDITOR__ as EditorHandle;
+    const position = editor.getPosition() as { lineNumber: number; column: number };
+    const model = editor.getModel() as ModelHandle;
+    return { column: position.column, end: model.getLineContent(position.lineNumber).length + 1 };
+  });
+  expect(caret.column).toBe(caret.end);
 
   // The label itself is still the front door.
   await page.locator(".weavie-blame").first().click();

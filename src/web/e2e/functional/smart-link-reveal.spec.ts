@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
-import { awaitEditorReady } from "../harness/actions";
+import { awaitEditorReady, expectRevealed } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 
 // Smart link matching, full stack: a clicked terminal file link whose relative path doesn't resolve is
@@ -80,14 +80,8 @@ test("a link missing its leading folders opens the unique suffix match at its li
 
   await clickClaudeLink(page, "services/payment.ts:9");
 
-  await expect(page.locator(".editor")).toHaveAttribute(
-    "data-active-file",
-    /[\\/]src[\\/]services[\\/]payment\.ts$/,
-  );
   // The link's :9 rides the recovery — the reveal lands on that line, not line 1.
-  await expect
-    .poll(() => page.evaluate(() => window.__WEAVIE_EDITOR__?.getPosition()?.lineNumber))
-    .toBe(9);
+  await expectRevealed(page, "src/services/payment.ts", 9);
 });
 
 test("an ambiguous bare filename opens Go-to-File preloaded with the term and lists the candidates", async ({
@@ -131,11 +125,5 @@ test("an ambiguous bare filename opens Go-to-File preloaded with the term and li
     .trim()
     .replaceAll("\\", "/");
   await input.press("Enter");
-  await expect(page.locator(".editor")).toHaveAttribute(
-    "data-active-file",
-    new RegExp(`[\\\\/]${picked.replaceAll("/", "[\\\\/]")}[\\\\/]config\\.ts$`),
-  );
-  await expect
-    .poll(() => page.evaluate(() => window.__WEAVIE_EDITOR__?.getPosition()?.lineNumber))
-    .toBe(3);
+  await expectRevealed(page, `${picked}/config.ts`, 3);
 });

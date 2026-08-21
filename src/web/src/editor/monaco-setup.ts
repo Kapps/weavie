@@ -12,6 +12,7 @@ import {
   onEditorOptionsChanged,
 } from "../editor-options";
 import { currentFonts, onFontsChanged } from "../fonts";
+import { guardCollapsedScroll } from "./collapsed-scroll";
 import { registerActiveEditor } from "./vscode-services";
 
 // Workers + the VSCode service substrate are wired in `vscode-services.ts` (initEditorServices), which must run
@@ -71,6 +72,10 @@ export function createEditor(container: HTMLElement): monaco.editor.IStandaloneC
     applySuggestExpandDocs(next.suggestExpandDocs);
   });
   editor.onDidDispose(offEditorOptions);
+
+  // A 0-height container clamps Monaco's viewport to 5px; this keeps the scroll that clamp causes from
+  // outliving it (see collapsed-scroll.ts).
+  guardCollapsedScroll(editor);
 
   // The editor service opens go-to-def / reveal-file targets through this editor.
   registerActiveEditor(editor);

@@ -215,12 +215,27 @@ does) but undoing a scroll that was only meaningful for a collapsed viewport. A 
 to 0 when the content fits" is the wrong shape — with `scrollBeyondLastLine` a user may legitimately park
 a short file with its last line at the top, and that would fight them.
 
-No fix is attempted here: the product change this points at (restoring the scroll offset the collapse
-displaced, without overriding a scroll the user chose) is a design call on the editor's layout handling,
-not on the comment-prose diff this run belongs to. **The forensic gap that hid this for six occurrences is
-now closed, though: `viewport-layout.json` reports element rects, which were healthy every time and so
-read as "recovered", while the scroll offset that actually broke the render lives only in the trace's DOM
-snapshot.** Capturing `editor.getScrollTop()` alongside the rects would have named this on occurrence one.
+**The forensic gap that hid this for six occurrences:** `viewport-layout.json` reports element rects, which
+were healthy every time and so read as "recovered", while the scroll offset that actually broke the render
+lives only in the trace's DOM snapshot. It now carries `scrollTop` and `contentHeight`, which name this
+directly.
+
+## CONFIRMED + FIXED: the collapse's scroll outlives the collapse
+
+**Controlled repro, on Linux, no Windows timing needed** (`e2e/functional/collapsed-scroll.spec.ts`): force
+`.editor` to `height/min-height/flex: 0`, scroll while Monaco is clamped, restore the height. The numbers
+fall out exactly as the CI traces recorded them — clamped viewport 5px, content 154px, so the clamped
+maximum is `154 − 5 = 149`; on recovery `scrollBeyondLastLine` grows the scrollable content to 841px and
+Monaco re-clamps to `841 − 709 = 132`. **That is the 132 both Windows traces show**, and it renders exactly
+one blank line. This is the repro this doc's TODO had been waiting on since the first occurrence.
+
+**Fix (`src/web/src/editor/collapsed-scroll.ts`, bound in `createEditor` so every editor gets it by
+construction):** the editor remembers the scroll offset from the last viewport tall enough to show a line,
+and restores it when the viewport comes back from being shorter than that. A scroll taken while the editor
+couldn't display a single line is an artifact of the measurement, never the user's intent — so it's undone,
+while any scroll the user could actually see and make is left alone. Verified both ways against a real
+build: with the guard removed the repro lands on `scrollTop: 132`, with it in place on `0` with every line
+rendered.
 
 ## CONFIRMED + FIXED: #1 (S2-race) — a test walk-race, not a product bug
 

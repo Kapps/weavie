@@ -19,6 +19,7 @@ import {
   type Inline,
   parseCommentLines,
   scanCommentBlocks,
+  spanTouchesBlock,
 } from "./comment-markup";
 import { monaco } from "./monaco-setup";
 import { SESSION_FILE_SCHEME } from "./session-uri";
@@ -139,8 +140,8 @@ export function createCommentProse(
   let zoneIds: string[] = [];
   // Start line of the block expanded this tick — a transient hint so the first render after a click keeps it raw.
   let pendingExpand: number | undefined;
-  // The block the caret was last in, so a cursor move only re-renders when it crosses into/out of a block.
-  let lastCursorBlock: number | undefined;
+  // The blocks the last render left raw, so a selection change only re-renders when that set changes.
+  let lastRawKey = "";
   // The exact line the caret was last on, so the cursor handler can spot a single arrow step that a collapsed
   // block swallowed whole and pull the caret in, rather than letting one keypress skip the comment.
   let lastCursorLine: number | undefined;
@@ -148,6 +149,9 @@ export function createCommentProse(
   let adjusting = false;
   // Blocks from the last render, reused by the cursor handler so an ordinary move doesn't re-scan the file.
   let cachedBlocks: CommentBlock[] = [];
+  // Start lines of the blocks the last render actually collapsed, so only a genuinely hidden block can swallow
+  // an arrow step (see crossedBlock) — a block the selection left raw is walked line by line like any code.
+  let collapsedStarts = new Set<number>();
   let rescanTimer: ReturnType<typeof setTimeout> | undefined;
 
   const clearRender = (): void => {
@@ -161,10 +165,19 @@ export function createCommentProse(
     }
   };
 
-  // The block (if any) whose range contains `line`. Hidden areas keep the caret out of a collapsed block, so a
-  // block holds the caret only once opened (clicked or arrowed into — see onCursor).
-  const blockAt = (blocks: CommentBlock[], line: number | undefined): CommentBlock | undefined =>
-    line === undefined ? undefined : blocks.find((b) => line >= b.startLine && line <= b.endLine);
+  // Start lines of the blocks any selection reaches into, in block order. Prose would hide the text the user
+  // highlighted, so those blocks stay raw — an empty selection is the caret, so this also covers the block
+  // being edited. Hidden areas keep the caret out of a collapsed block until it's opened (see onSelection).
+  const selectedBlockStarts = (blocks: CommentBlock[]): number[] => {
+    const selections = editor.getSelections() ?? [];
+    return blocks
+      .filter(
+        (block) =>
+          blockInMode(block, mode) &&
+          selections.some((selection) => spanTouchesBlock(block, selection)),
+      )
+      .map((block) => block.startLine);
+  };
 
   const isFileModel = (model: monaco.editor.ITextModel | null): model is monaco.editor.ITextModel =>
     model !== null && model.uri.scheme === SESSION_FILE_SCHEME;
@@ -178,6 +191,8 @@ export function createCommentProse(
     const model = editor.getModel();
     if (mode === "none" || !isFileModel(model) || deps.isBlocked(model.uri.toString())) {
       cachedBlocks = [];
+      collapsedStarts = new Set();
+      lastRawKey = "";
       hiddenEditor.setHiddenAreas([], HIDDEN_AREAS_SOURCE);
       editor.setScrollTop(scrollTop);
       return;
@@ -186,15 +201,16 @@ export function createCommentProse(
     const syntax = commentSyntaxFor(model.getLanguageId());
     const blocks = scanCommentBlocks(model.getLinesContent(), syntax);
     cachedBlocks = blocks;
-    const caret = editor.getPosition()?.lineNumber;
-    const caretBlock = blockAt(blocks, caret);
+    const raw = selectedBlockStarts(blocks);
 
+    collapsedStarts = new Set();
     const hidden: monaco.IRange[] = [];
     const lineHeight = editor.getOption(monaco.editor.EditorOption.lineHeight);
     const zones: monaco.editor.IViewZone[] = [];
     for (const block of blocks) {
-      // Leave a block raw while it's being edited: the one the caret sits in, or the one just clicked open.
-      if (block.startLine === pendingExpand || block === caretBlock) {
+      // Leave a block raw while the user is in it: any block a selection reaches into (prose would hide the
+      // highlighted text), or the one just clicked open.
+      if (block.startLine === pendingExpand || raw.includes(block.startLine)) {
         continue;
       }
       // Leave blocks the active mode doesn't cover as plain code.
@@ -207,6 +223,7 @@ export function createCommentProse(
       }
       const node = buildProseNode(editor, lines, indentPixelsFor(editor, model, block.startLine));
       attachClickToEdit(node, block.startLine);
+      collapsedStarts.add(block.startLine);
       hidden.push(new monaco.Range(block.startLine, 1, block.endLine, 1));
       // The zone is exactly the raw comment's footprint (one editor-line-tall source line each, see
       // buildProseNode), so collapse/expand never reflows the code below.
@@ -231,12 +248,12 @@ export function createCommentProse(
 
     // Undo any scroll Monaco shifted while zones were torn down and rebuilt above (see the pin at the top).
     editor.setScrollTop(scrollTop);
-    lastCursorBlock = caretBlock?.startLine;
+    lastRawKey = raw.join(",");
   };
 
   // Reveal a collapsed block's raw text and land the caret on `caretLine` (first line when opened from the top,
-  // last when arrowed up into from below). Re-renders to un-hide it; scroll is pinned to absorb any shift and
-  // `adjusting` swallows the re-entrant cursor event the setPosition fires.
+  // last when arrowed up into from below). Un-hides it, then re-renders around the landed caret; scroll is
+  // pinned to absorb any shift and `adjusting` swallows the re-entrant cursor event the setPosition fires.
   const openBlockInline = (startLine: number, caretLine: number): void => {
     const scrollTop = editor.getScrollTop();
     adjusting = true;
@@ -245,12 +262,14 @@ export function createCommentProse(
     const model = editor.getModel();
     const column = (model?.getLineFirstNonWhitespaceColumn(caretLine) ?? 1) || 1;
     editor.setPosition({ lineNumber: caretLine, column });
+    // Re-render with the caret inside: the block now holds itself raw, and blocks the previous selection was
+    // holding open re-collapse. render() stays the only writer of lastRawKey, so it always describes the screen.
+    pendingExpand = undefined;
+    render();
     editor.setScrollTop(scrollTop);
     editor.focus();
-    pendingExpand = undefined;
     adjusting = false;
     lastCursorLine = caretLine;
-    lastCursorBlock = startLine;
   };
 
   // Clicking the prose opens the block for editing with the caret on its first line.
@@ -272,21 +291,24 @@ export function createCommentProse(
   };
 
   // The collapsed block the caret stepped ACROSS in one move (the move's endpoints bracket it), so the caret
-  // can be pulled inside rather than skipping the whole comment.
+  // can be pulled inside rather than skipping the whole comment. Only hidden lines can be stepped over, so a
+  // block left raw by a selection is never pulled into — collapsing that selection just lands where it lands.
   const crossedBlock = (from: number, to: number): CommentBlock | undefined => {
+    const collapsed = cachedBlocks.filter((b) => collapsedStarts.has(b.startLine));
     if (to > from + 1) {
-      return cachedBlocks.find((b) => b.startLine === from + 1 && b.endLine === to - 1);
+      return collapsed.find((b) => b.startLine === from + 1 && b.endLine === to - 1);
     }
     if (to < from - 1) {
-      return cachedBlocks.find((b) => b.endLine === from - 1 && b.startLine === to + 1);
+      return collapsed.find((b) => b.endLine === from - 1 && b.startLine === to + 1);
     }
     return undefined;
   };
 
-  // A cursor move matters two ways: (1) a single arrow step a collapsed block swallowed whole — open it on its
-  // near edge so editing costs one keypress; (2) crossing into/out of a block — re-render so the one left
-  // re-collapses and the one entered stays raw. Reuses the last render's blocks rather than re-scanning.
-  const onCursor = (): void => {
+  // A selection change matters two ways: (1) a single arrow step a collapsed block swallowed whole — open it on
+  // its near edge so editing costs one keypress; (2) the set of blocks the selection touches changed —
+  // re-render so the ones left re-collapse and the ones reached stay raw. Reuses the last render's blocks
+  // rather than re-scanning.
+  const onSelection = (): void => {
     if (adjusting) {
       return;
     }
@@ -301,8 +323,7 @@ export function createCommentProse(
         return;
       }
     }
-    const current = blockAt(cachedBlocks, line)?.startLine;
-    if (current !== lastCursorBlock) {
+    if (selectedBlockStarts(cachedBlocks).join(",") !== lastRawKey) {
       render();
     }
   };
@@ -315,7 +336,9 @@ export function createCommentProse(
       render();
     }),
     editor.onDidChangeModelContent(scheduleRescan),
-    editor.onDidChangeCursorPosition(onCursor),
+    // Selection rather than position: selecting to the caret's own side (e.g. select-all from the file's end)
+    // moves no caret but still reaches into blocks.
+    editor.onDidChangeCursorSelection(onSelection),
   ];
   const offFonts = onFontsChanged(render);
   const offOptions = onEditorOptionsChanged((options) => {

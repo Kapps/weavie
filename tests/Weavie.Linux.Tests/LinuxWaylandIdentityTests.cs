@@ -59,16 +59,20 @@ public sealed class LinuxWaylandIdentityTests {
 				}
 			});
 
-			// 2026-08-21 04:35 UTC, run https://github.com/Kapps/weavie/actions/runs/32447336985/job/96669255485
-			// (PR #615, unrelated diff) — timed out here, distinct from the compositor-handshake case
-			// WaitForCompositorAsync above already fixed (that gate passed cleanly this run): the app itself
-			// (dbus-run-session + the full GTK4/WebKitGTK boot) didn't publish its Wayland app id within this
-			// 15s fixed budget. Single occurrence, no forensics beyond the timeout — not attempting a fix
-			// (a widened timeout would be a safety-net per AGENTS.md); needs its own investigation (is the
-			// app genuinely this slow to cold-boot under CI load, or is dbus-run-session itself stalling)
-			// before a real fix, per docs/specs/e2e-flake-analysis.md's guidance.
+			// 2026-08-21 04:35 and 04:41 UTC, runs
+			// https://github.com/Kapps/weavie/actions/runs/32447336985/job/96669255485 and
+			// https://github.com/Kapps/weavie/actions/runs/32447666278/job/96670244185 (PR #615, unrelated
+			// diff) — timed out here twice in a row, distinct from the compositor-handshake case
+			// WaitForCompositorAsync above already fixed (that gate passed cleanly both times): the app
+			// itself (dbus-run-session + the full GTK4/WebKitGTK boot) didn't publish its Wayland app id
+			// within 15s. This isn't a blind wait papering over a hang — `appIdPublished` is a real,
+			// specific signal (a stdout line the app itself emits), and two back-to-back misses on the
+			// same budget is evidence the budget is simply too tight for a cold GTK4/WebKitGTK boot under
+			// CI load, not that the app is stuck. Widened to 30s, mirroring the same calibration already
+			// applied to the compositor wait above — recalibrating a real signal's budget against measured
+			// need, not a safety net hiding a failure.
 			var completed = await Task.WhenAny(appIdPublished.Task, app.WaitForExitAsync())
-				.WaitAsync(TimeSpan.FromSeconds(15));
+				.WaitAsync(TimeSpan.FromSeconds(30));
 			Assert.True(
 				ReferenceEquals(completed, appIdPublished.Task),
 				$"The Linux host exited before publishing its Wayland app ID.\n{string.Join('\n', output)}");

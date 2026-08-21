@@ -300,6 +300,26 @@ rather than one fixable defect — consistent with this doc's existing "resource
 runner" theory for root cause #4. Logged here per policy (no flake goes uncommented) for whoever hits
 it next; needs its own forensics before any fix is more than a guess.
 
+## Open: `session-inbox-row` bounding box is `null` right after `toBeVisible()` passes
+
+**Symptom, 2026-08-21 ~03:44 UTC, run 32444011916:** `mobile.spec.ts:477` ("a compact session row
+manages its session from a hold and its actions button",
+[job 96660705532](https://github.com/Kapps/weavie/actions/runs/32444011916/job/96660705532)), Windows
+`e2e (windows) / shard (6/6)` — `await expect(row).toBeVisible()` passed, but the very next call,
+`row.boundingBox()`, returned `null` and the test threw its own explicit `"Missing session row bounds"`
+error rather than timing out. `boundingBox()` re-resolves the locator at call time and returns `null`
+once the match isn't actionable, so the most likely shape is a re-render (a list update swapping the row
+DOM node) landing in the gap between the two round-trips — the same "checked-then-changed" race pattern
+as the S2-race walk fix above, but on the mobile session-inbox list rather than the PR-review file set.
+All 29 other jobs in this run (every Linux/macOS shard plus the other five Windows shards) were green;
+this is a single isolated occurrence, not a fleet-wide event like the density above.
+
+No fix attempted: first-ever occurrence of this fingerprint, no trace/screenshot review done yet, and
+this PR's diff (`docs/specs/e2e-flake-analysis.md` only) cannot be the cause. A real fix — e.g. reading
+`boundingBox()` in a `expect.poll` alongside the visibility check, or re-querying `row` immediately
+before use — would be a reasonable next step once a second occurrence confirms the race theory; doing it
+now on one data point would be exactly the guess this doc's guidance warns against.
+
 ## Reproduction & forensics techniques that worked
 
 - **Parse the Playwright trace DOM directly.** `trace.zip` → `0-trace.trace` is JSONL; `frame-snapshot`

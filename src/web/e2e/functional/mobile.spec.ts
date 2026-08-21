@@ -474,6 +474,11 @@ test("Claude Code accepts back swipes beside the screen edge, never on it", asyn
 
 // Touch chrome hides the session rail, so the inbox row is where a session is managed: hold it (the
 // stand-in for right-click) or tap its actions button, and the entries are the rail's own command rows.
+//
+// Flaked 2026-08-21 ~03:44 UTC, run 32444011916 (https://github.com/Kapps/weavie/actions/runs/32444011916/job/96660705532):
+// row.boundingBox() below returned null immediately after `toBeVisible()` passed on the same locator —
+// see docs/specs/e2e-flake-analysis.md for the working theory (a list re-render racing the two round-trips)
+// and why no fix landed yet (first occurrence, no forensics, PR diff couldn't be the cause).
 test("a compact session row manages its session from a hold and its actions button", async ({
   page,
 }) => {

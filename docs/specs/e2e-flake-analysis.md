@@ -29,7 +29,11 @@ macOS 1-offs: `diff.spec.ts:28` (DIFF_MARKER), `font-zoom.spec.ts:17` (font read
 guarded by the `expect.poll` on line 24). Linux 1-off: `terminal-reattach.spec.ts:32` (alt-screen
 `null` — claude pane not yet registered in `__WEAVIE_TERMINALS__` within the poll budget).
 
-## Confirmed root cause: #2 (S3) — the editor lays out at 5px and (on Windows) never recovers
+## SUPERSEDED: #2 (S3) — "the editor lays out at 5px and never recovers"
+
+> The clamp below is real, but it is only the trigger. What survives it is a **scroll**, and what causes that
+> scroll is the test's own click. See "CONFIRMED + FIXED: the click scrolls the editor" below before acting on
+> anything in this section.
 
 **Symptom, from the trace DOM:** the `.monaco-editor` is `width:768px; height:5px`. The changed-line
 band (`.weavie-inline-added`) exists but is `hidden` — the `.view-line` sits at `top:22px`, below the
@@ -220,22 +224,38 @@ were healthy every time and so read as "recovered", while the scroll offset that
 lives only in the trace's DOM snapshot. It now carries `scrollTop` and `contentHeight`, which name this
 directly.
 
-## CONFIRMED + FIXED: the collapse's scroll outlives the collapse
+## CONFIRMED + FIXED: the click scrolls the editor
 
-**Controlled repro, on Linux, no Windows timing needed** (`e2e/functional/collapsed-scroll.spec.ts`): force
-`.editor` to `height/min-height/flex: 0`, scroll while Monaco is clamped, restore the height. The numbers
-fall out exactly as the CI traces recorded them — clamped viewport 5px, content 154px, so the clamped
-maximum is `154 − 5 = 149`; on recovery `scrollBeyondLastLine` grows the scrollable content to 841px and
-Monaco re-clamps to `841 − 709 = 132`. **That is the 132 both Windows traces show**, and it renders exactly
-one blank line. This is the repro this doc's TODO had been waiting on since the first occurrence.
+**Attribution, from the trace's own timeline** (run 32535956742, job 96937592781): `.lines-content` reads
+`top: 0px` through the snapshot after `Frame.evaluateExpression`, and `-132px` at the *input* snapshot of the
+very next call — `Frame.click` on `.monaco-editor .view-lines`. The scroll happens **during the click**, not
+during a layout.
 
-**Fix (`src/web/src/editor/collapsed-scroll.ts`, bound in `createEditor` so every editor gets it by
-construction):** the editor remembers the scroll offset from the last viewport tall enough to show a line,
-and restores it when the viewport comes back from being shorter than that. A scroll taken while the editor
-couldn't display a single line is an artifact of the measurement, never the user's intent — so it's undone,
-while any scroll the user could actually see and make is left alone. Verified both ways against a real
-build: with the guard removed the repro lands on `scrollTop: 132`, with it in place on `0` with every line
-rendered.
+**Mechanism.** `scrollBeyondLastLine` makes `.view-lines` taller than the viewport (841px against 709px for
+`hello.ts`), and Playwright scrolls a click point into view before clicking. Normally the container's centre
+is on-screen and nothing moves — that's why this never reproduces on a healthy editor, on any OS. But while
+the container is momentarily 0-height, Monaco's viewport is clamped to 5px, the centre point is off-screen,
+and the actionability scroll lands on Monaco's maximum offset. `scrollTop` is bounded by content height, not
+viewport height, so the container's recovery leaves it there: a full-size editor parked past the last line,
+rendering the trailing empty line and nothing else, for the rest of the test.
+
+**Fix:** `clickIntoEditor` (`e2e/harness/actions.ts`) targets `.monaco-editor`, which *is* the viewport, so
+its click point is always in view and no scroll is ever needed. `editor-peek-definition.spec.ts` — the spec
+that produced all six occurrences — now routes its `focusEditor` through it. Sixteen other call sites still
+click `.view-lines`; none has flaked, and the helper is there for them.
+
+**Rejected fix, recorded so attempt #8 doesn't repeat it:** an editor-side guard that remembers the scroll
+offset from the last usable viewport and restores it when the viewport returns. It was built, it fixed a
+forced repro, and it was removed — twice wrong. An "unusable" viewport is not only the transient collapse; it
+is the steady state of any pane not in the current layout (`display:none` measures as `max(5, 0)`), so the
+guard would undo *legitimate* reveals: open-at-line, `beginReview`'s reveal of a hunk, `restoreViewState` on
+a tab activated while hidden. And it doesn't even catch this flake — the actionability scroll can land after
+the container has recovered, with the viewport healthy and the guard disarmed.
+
+**Datum that closed it:** `viewport-layout.json` now carries `scrollTop` and `contentHeight`. It reported
+`scrollTop: 132, contentHeight: 841` on the first failure after landing, which is what made the state
+unambiguous. The element rects it had been reporting were healthy every time — nothing was ever the wrong
+size — which is why six occurrences read as "recovered".
 
 ## CONFIRMED + FIXED: #1 (S2-race) — a test walk-race, not a product bug
 

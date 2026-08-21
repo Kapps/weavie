@@ -1,5 +1,5 @@
 import type { Locator, Page } from "@playwright/test";
-import { awaitEditorLaidOut, openFile } from "../harness/actions";
+import { awaitEditorLaidOut, clickIntoEditor, openFile } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 
 // Alt+Click on a symbol peeks its definition inline — the same embedded window Find All References uses —
@@ -12,7 +12,7 @@ import type { WeavieWindow } from "../harness/weavie-window";
 
 async function focusEditor(page: Page, name: string): Promise<void> {
   await openFile(page, name);
-  await page.locator(".monaco-editor .view-lines").first().click();
+  await clickIntoEditor(page);
   await expect(page.locator('.editor-surface[data-kind="editor"]')).toHaveClass(/\bactive\b/);
 }
 

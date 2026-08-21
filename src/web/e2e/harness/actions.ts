@@ -158,9 +158,20 @@ export async function createSession(
   await expect(inbox).toBeHidden();
 }
 
+// Click into the editor to give it keyboard focus. Targets `.monaco-editor`, which is exactly the viewport, and
+// never `.view-lines`: with `scrollBeyondLastLine` that container is taller than the viewport, so Playwright
+// scrolls its centre point into view before clicking — and when the editor is momentarily collapsed (a 0-height
+// container clamps Monaco's viewport to 5px) that point is off-screen, so the scroll lands on Monaco's maximum
+// offset, leaving the editor parked past the last line and rendering one blank line long after the collapse
+// heals. A viewport-sized target is always in view, so clicking it never scrolls.
+// See docs/specs/e2e-flake-analysis.md.
+export async function clickIntoEditor(page: Page): Promise<void> {
+  await awaitEditorReady(page);
+  await page.locator(".monaco-editor").first().click();
+}
+
 // Type text at the current caret in the focused Monaco editor.
 export async function typeInEditor(page: Page, text: string): Promise<void> {
-  await awaitEditorReady(page);
-  await page.locator(".monaco-editor .view-lines").first().click();
+  await clickIntoEditor(page);
   await page.keyboard.type(text);
 }

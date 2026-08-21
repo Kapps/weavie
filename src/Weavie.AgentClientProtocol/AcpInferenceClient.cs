@@ -99,11 +99,19 @@ internal sealed class AcpInferenceClient : IAsyncDisposable {
 		string model = _definition.Id;
 		_maxReplyBytes = request.MaxOutputBytes;
 		try {
-			await RequestAsync("initialize", new {
+			var initialized = await RequestAsync("initialize", new {
 				protocolVersion = 1,
 				clientCapabilities = new { },
 				clientInfo = new { name = "weavie", title = "Weavie", version = "1" },
 			}, ct).ConfigureAwait(false);
+			var capabilities = AcpCapabilities.Read(initialized);
+			if (request.Images.Count > 0
+				&& !AcpCapabilities.Boolean(capabilities, "promptCapabilities", "image")) {
+				return Failure(
+					model,
+					InferenceFailureKind.InputRejected,
+					$"The ACP agent '{_definition.Name}' does not accept image prompts.");
+			}
 
 			var setup = await RequestAsync("session/new", new {
 				cwd = Path.GetFullPath(request.Workspace),
@@ -115,7 +123,7 @@ internal sealed class AcpInferenceClient : IAsyncDisposable {
 
 			var turn = await RequestAsync("session/prompt", new {
 				sessionId,
-				prompt = new[] { new { type = "text", text = BuildPrompt(request) } },
+				prompt = BuildPrompt(request),
 			}, ct).ConfigureAwait(false);
 
 			string stopReason = RequiredString(turn, "stopReason");
@@ -150,11 +158,21 @@ internal sealed class AcpInferenceClient : IAsyncDisposable {
 	}
 
 	// ACP has no output-schema field, so the schema travels in the prompt and Weavie enforces it locally.
-	private static string BuildPrompt(InferenceProviderRequest request) =>
-		request.Prompt
-		+ "\n\nRespond with exactly one JSON value matching this schema, and nothing else — no prose, no "
-		+ "explanation, and no markdown code fences. Do not use any tools.\n\nSchema:\n"
-		+ request.OutputSchemaJson;
+	private static object[] BuildPrompt(InferenceProviderRequest request) {
+		var blocks = new List<object> { new {
+			type = "text",
+			text = request.Prompt
+				+ "\n\nRespond with exactly one JSON value matching this schema, and nothing else — no prose, no "
+				+ "explanation, and no markdown code fences. Do not use any tools.\n\nSchema:\n"
+				+ request.OutputSchemaJson,
+		} };
+		blocks.AddRange(request.Images.Select(image => (object)new {
+			type = "image",
+			mimeType = image.Mime,
+			data = Convert.ToBase64String(image.Bytes.Span),
+		}));
+		return [.. blocks];
+	}
 
 	private static InferenceProviderResult Decode(string reply, string model, InferenceUsage? usage) {
 		if (reply.Length == 0) {

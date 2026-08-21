@@ -3,7 +3,7 @@
 import type { Terminal } from "@xterm/xterm";
 import { type ClientSession, isBrowserHostedShell, type TermSession } from "../bridge";
 import { writeClipboard } from "../clipboard";
-import { readClipboardImage, readClipboardText } from "../clipboard-read";
+import { readClipboardContent, readClipboardText } from "../clipboard-read";
 import { registerCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { notify } from "../notify/notify";
@@ -48,11 +48,15 @@ function focusedTerminal(): RegisteredTerminal | undefined {
 async function pasteFromHost(target: RegisteredTerminal): Promise<void> {
   try {
     if (target.pane === "claude") {
-      const image = await readClipboardImage();
-      if (image.mime.length > 0) {
-        sendPastedImage(target.session, image.mime, image.dataB64);
+      const content = await readClipboardContent();
+      if (content.kind === "image") {
+        sendPastedImage(target.session, content.mime, content.dataB64);
         return;
       }
+      if (content.kind === "text") {
+        target.term.paste(content.text);
+      }
+      return;
     }
     const text = await readClipboardText();
     if (text.length > 0) {

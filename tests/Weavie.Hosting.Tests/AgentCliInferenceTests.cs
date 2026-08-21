@@ -28,7 +28,7 @@ public sealed class AgentCliInferenceTests : IDisposable {
 			0,
 			"{\"is_error\":false,\"session_id\":\"session-1\","
 				+ "\"structured_output\":{\"branch\":\"bug/webm\"}}")));
-		var provider = new ClaudeCliInference(_settings, runner);
+		var provider = Provider(runner);
 
 		var result = Assert.IsType<InferenceProviderSuccess>(
 			await provider.QueryInferenceAsync(Request(category), CancellationToken.None));
@@ -55,7 +55,7 @@ public sealed class AgentCliInferenceTests : IDisposable {
 		SetPath("claude.path", Path.Combine(_dir, "claude"));
 		var runner = new RecordingRunner((_, _) => Task.FromResult(
 			new AgentCliProcessResult(0, "{\"is_error\":false,\"result\":\"{\\\"branch\\\":\\\"wrong\\\"}\"}")));
-		var provider = new ClaudeCliInference(_settings, runner);
+		var provider = Provider(runner);
 
 		var result = Assert.IsType<InferenceProviderFailure>(
 			await provider.QueryInferenceAsync(Request(InferenceModelCategory.Utility), CancellationToken.None));
@@ -65,10 +65,41 @@ public sealed class AgentCliInferenceTests : IDisposable {
 	}
 
 	[Fact]
+	public async Task Claude_MaterializesImagesBeforeThePromptAndDeletesThemAfterward() {
+		SetPath("claude.path", Path.Combine(_dir, "claude"));
+		string? imagePath = null;
+		var runner = new RecordingRunner((request, _) => {
+			imagePath = request.StandardInput.Split('\n')[0];
+			Assert.EndsWith(".png", imagePath, StringComparison.Ordinal);
+			Assert.Equal([1, 2, 3, 4], File.ReadAllBytes(imagePath));
+			Assert.Contains("{\"prompt\":\"fix webm\"}", request.StandardInput, StringComparison.Ordinal);
+			return Task.FromResult(new AgentCliProcessResult(
+				0,
+				"{\"is_error\":false,\"structured_output\":{\"branch\":\"bug/image\"}}"));
+		});
+		var provider = Provider(runner);
+
+		var result = await provider.QueryInferenceAsync(
+			RequestWithImage(InferenceModelCategory.Utility),
+			CancellationToken.None);
+
+		Assert.IsType<InferenceProviderSuccess>(result);
+		Assert.NotNull(imagePath);
+		Assert.False(Directory.Exists(Path.GetDirectoryName(imagePath)));
+		string imageRoot = Path.Combine(_dir, "inference-images");
+		Assert.True(Directory.Exists(imageRoot));
+		if (!OperatingSystem.IsWindows()) {
+			Assert.Equal(
+				UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute,
+				File.GetUnixFileMode(imageRoot));
+		}
+	}
+
+	[Fact]
 	public async Task CancellationPropagatesAndLeavesTheOwningWorkspaceIntact() {
 		SetPath("claude.path", Path.Combine(_dir, "claude"));
 		var runner = new RecordingRunner((_, ct) => Task.FromCanceled<AgentCliProcessResult>(ct));
-		var provider = new ClaudeCliInference(_settings, runner);
+		var provider = Provider(runner);
 		using var cancellation = new CancellationTokenSource();
 		cancellation.Cancel();
 
@@ -83,14 +114,25 @@ public sealed class AgentCliInferenceTests : IDisposable {
 	private void SetPath(string key, string value) =>
 		_settings.Set(key, JsonSerializer.SerializeToElement(value));
 
+	private ClaudeCliInference Provider(IAgentCliProcessRunner runner) =>
+		new(_settings, runner, Path.Combine(_dir, "inference-images"));
+
 	private InferenceProviderRequest Request(InferenceModelCategory category) => new() {
 		Category = category,
 		Workspace = _dir,
 		Prompt = "Return one branch name.\n\n{\"prompt\":\"fix webm\"}",
+		Images = [],
 		OutputSchemaJson = "{\"type\":\"object\",\"properties\":{\"branch\":{\"type\":\"string\"}},"
 			+ "\"required\":[\"branch\"],\"additionalProperties\":false}",
 		MaxOutputBytes = 4096,
 	};
+
+	private InferenceProviderRequest RequestWithImage(InferenceModelCategory category) {
+		var request = Request(category);
+		return request with {
+			Images = [new InferenceInputImage { Mime = "image/png", Bytes = new byte[] { 1, 2, 3, 4 } }],
+		};
+	}
 
 	private static string ValueAfter(IReadOnlyList<string> arguments, string flag) {
 		int index = arguments.ToList().IndexOf(flag);

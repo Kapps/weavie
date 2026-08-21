@@ -64,6 +64,21 @@ async function registerGreetDefinition(page: Page): Promise<void> {
 // later relayout (a click, a `page.evaluate` mutation, even just more of the shell settling) can reopen the
 // same window. Per the doc's own guidance, a third call site needing the same patch is the signal to stop
 // re-applying the wait at each one and gate the shared helper instead.
+//
+// 2026-08-20 04:51 UTC, recurred a fourth time on this exact test — main's post-merge CI for PR #639, run
+// https://github.com/Kapps/weavie/actions/runs/32333399943/job/96318875803 — despite `wordToken` already
+// gating on `awaitEditorLaidOut` above. Same fingerprint: `renderedLines: [""]`, healthy `.editor`/`.monaco`
+// rects at teardown, `console-errors.txt` empty. The gating check only compared Monaco's reported viewport
+// height to the container's `clientHeight`; that can agree on a stale read while the DOM still holds the
+// clamp's one-line placeholder, which is the actual defect signature. `awaitEditorLaidOut` (actions.ts) now
+// also requires more than one `.view-line` to be rendered whenever the model has more than one line, so the
+// wait matches what the doc's forensics actually showed instead of a proxy for it.
+//
+// Same day, that fix's own PR CI (run 32335659526) hit two fresh failures on this test and the sibling
+// Alt+F12 one, both timing out at ~33.7s on the same -1 signature — the new poll had inherited the suite's
+// global 30s `expect.timeout`, shorter than the ~60s budget this wait always had via the click()'s own
+// actionability wait beforehand. `awaitEditorLaidOut` now sets an explicit timeout matching that budget
+// instead (see its comment in actions.ts) — the check is unchanged, only its runway was too short.
 async function wordToken(page: Page, lineText: string, word: string): Promise<Locator> {
   await awaitEditorLaidOut(page);
   return page

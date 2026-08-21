@@ -4,7 +4,7 @@ namespace Weavie.Hosting.Tests;
 
 public sealed class HostCoreGitStatusTests {
 	[Fact]
-	public async Task StatusPollTracksManualCommitAndExternalNonLanguageEdit() {
+	public async Task GitMetadataAndFileActivityRefreshStatus() {
 		await using var host = await TestHost.StartAsync(repo => {
 			File.WriteAllText(Path.Combine(repo, "readme.txt"), "replacement\nsecond\n");
 			File.WriteAllText(Path.Combine(repo, "untracked.txt"), "new file\n");
@@ -23,10 +23,10 @@ public sealed class HostCoreGitStatusTests {
 			"-c", "user.name=Weavie Test",
 			"-c", "commit.gpgsign=false",
 			"commit", "--quiet", "-m", "manual shell commit");
-		await Wait.UntilAsync(() => HasCounts(host, 1, 0));
+		await Wait.UntilAsync(() => HasCounts(host, 1, 0), TimeSpan.FromSeconds(15));
 
 		File.WriteAllText(Path.Combine(host.RepoRoot, "readme.txt"), "external edit\n");
-		await Wait.UntilAsync(() => HasCounts(host, 2, 2));
+		await Wait.UntilAsync(() => HasCounts(host, 2, 2), TimeSpan.FromSeconds(15));
 	}
 
 	private static bool HasCounts(TestHost host, int added, int removed) =>

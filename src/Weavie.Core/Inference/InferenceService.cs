@@ -7,6 +7,7 @@ using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using Weavie.Core.Agents;
 using Weavie.Core.Configuration;
+using Weavie.Core.Editor;
 
 namespace Weavie.Core.Inference;
 
@@ -19,7 +20,7 @@ public interface IInferenceService {
 	Task<InferenceResult<TResponse>> QueryAsync<TResponse>(
 		InferenceOwner owner,
 		InferenceModelCategory category,
-		string prompt,
+		InferenceInput input,
 		JsonTypeInfo<TResponse> responseType,
 		InferenceQueryOptions options,
 		CancellationToken ct);
@@ -50,14 +51,30 @@ public sealed class InferenceService : IInferenceService {
 	public async Task<InferenceResult<TResponse>> QueryAsync<TResponse>(
 		InferenceOwner owner,
 		InferenceModelCategory category,
-		string prompt,
+		InferenceInput input,
 		JsonTypeInfo<TResponse> responseType,
 		InferenceQueryOptions options,
 		CancellationToken ct) {
 		ArgumentNullException.ThrowIfNull(owner);
 		ArgumentException.ThrowIfNullOrWhiteSpace(owner.AgentProviderId);
 		ArgumentException.ThrowIfNullOrWhiteSpace(owner.Workspace);
-		ArgumentException.ThrowIfNullOrWhiteSpace(prompt);
+		ArgumentNullException.ThrowIfNull(input);
+		ArgumentNullException.ThrowIfNull(input.Images);
+		if (string.IsNullOrWhiteSpace(input.Prompt) && input.Images.Count == 0) {
+			throw new ArgumentException("Inference input requires text or at least one image.", nameof(input));
+		}
+		foreach (var image in input.Images) {
+			ArgumentException.ThrowIfNullOrWhiteSpace(image.Mime);
+			if (image.Bytes.IsEmpty) {
+				throw new ArgumentException("Inference images cannot be empty.", nameof(input));
+			}
+			if (!PastedImageMedia.TryExtension(image.Mime, out _)) {
+				throw new ArgumentException($"Unsupported inference image type '{image.Mime}'.", nameof(input));
+			}
+			if (image.Bytes.Length > PastedImageMedia.MaxBytes) {
+				throw new ArgumentException("An inference image exceeds the supported size limit.", nameof(input));
+			}
+		}
 		ArgumentNullException.ThrowIfNull(responseType);
 		ArgumentNullException.ThrowIfNull(options);
 		ValidateQuery(responseType, options);
@@ -71,8 +88,22 @@ public sealed class InferenceService : IInferenceService {
 			&& !_settings.RequireBool(InferenceSettings.AllowAutomatic)) {
 			return Failure<TResponse>(InferenceFailureKind.PolicyDenied, "Automatic inference is disabled.");
 		}
-		if (Encoding.UTF8.GetByteCount(prompt) > options.MaxPromptBytes) {
+		if (Encoding.UTF8.GetByteCount(input.Prompt) > options.MaxPromptBytes) {
 			return Failure<TResponse>(InferenceFailureKind.InputRejected, "The inference prompt exceeds its declared size limit.");
+		}
+		if (input.Images.Count > options.MaxImageCount) {
+			return Failure<TResponse>(
+				InferenceFailureKind.InputRejected,
+				$"The inference query accepts up to {options.MaxImageCount} images.");
+		}
+		long imageBytes = 0;
+		foreach (var image in input.Images) {
+			if (image.Bytes.Length > options.MaxImageBytes - imageBytes) {
+				return Failure<TResponse>(
+					InferenceFailureKind.InputRejected,
+					$"The inference images exceed the query's {options.MaxImageBytes / (1024 * 1024)} MB limit.");
+			}
+			imageBytes += image.Bytes.Length;
 		}
 
 		IAgentProvider agentProvider;
@@ -98,7 +129,8 @@ public sealed class InferenceService : IInferenceService {
 		var request = new InferenceProviderRequest {
 			Category = category,
 			Workspace = owner.Workspace,
-			Prompt = prompt,
+			Prompt = input.Prompt,
+			Images = input.Images,
 			OutputSchemaJson = schema,
 			MaxOutputBytes = options.MaxOutputBytes,
 		};
@@ -166,7 +198,11 @@ public sealed class InferenceService : IInferenceService {
 	private static void ValidateQuery<TResponse>(
 		JsonTypeInfo<TResponse> responseType,
 		InferenceQueryOptions options) {
-		if (options.MaxPromptBytes <= 0 || options.MaxOutputBytes <= 0 || options.TimeBudget <= TimeSpan.Zero) {
+		if (options.MaxPromptBytes <= 0
+			|| options.MaxImageCount <= 0
+			|| options.MaxImageBytes <= 0
+			|| options.MaxOutputBytes <= 0
+			|| options.TimeBudget <= TimeSpan.Zero) {
 			throw new ArgumentException("Inference query bounds must be positive.", nameof(options));
 		}
 		if (responseType.Options.UnmappedMemberHandling != JsonUnmappedMemberHandling.Disallow

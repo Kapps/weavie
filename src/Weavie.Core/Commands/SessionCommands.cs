@@ -10,6 +10,7 @@ namespace Weavie.Core.Commands;
 /// Declarations live in Core so every trigger sees them. See <c>docs/specs/multi-session-and-worktrees.md</c>.
 /// </summary>
 public static class SessionCommands {
+	private const string NewSessionInputExecutionLane = "weavie.session.input";
 	private const string LifecycleExecutionLane = "weavie.session.lifecycle";
 
 	/// <summary>Creates a new session on its own worktree + branch (args <c>branch</c>/<c>base</c>/<c>prompt</c>); the programmatic entry.</summary>
@@ -20,6 +21,9 @@ public static class SessionCommands {
 
 	/// <summary>Submits the focused new-session composer; <c>Shift+Enter</c>.</summary>
 	public const string SubmitNewSession = "weavie.session.submitNew";
+
+	/// <summary>Pastes the local clipboard into the focused new-session composer; <c>Ctrl+V</c> / <c>⌘V</c>.</summary>
+	public const string PasteNewSession = "weavie.session.pasteNew";
 
 	/// <summary>Opens the pull-request picker (check out a PR's branch as a session) in the UI; <c>$mod+Shift+r</c>.</summary>
 	public const string OpenPr = "weavie.pr.open";
@@ -98,7 +102,22 @@ public static class SessionCommands {
 		});
 
 		registry.Register(new CommandDefinition {
+			Id = PasteNewSession,
+			SharedExecutionLane = NewSessionInputExecutionLane,
+			Title = "Paste Into New Session Prompt",
+			RunsIn = CommandLocation.Web,
+			Owner = CommandOwner.Client,
+			Category = "Session",
+			Description = "Paste the local clipboard into the focused new-session composer, including images.",
+			Aliases = ["paste", "paste clipboard", "paste image", "paste into new session"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+v", When = "newSessionPromptFocused && !browserShell" }],
+			KeybindingsActiveInModal = true,
+			ShowInPalette = false,
+		});
+
+		registry.Register(new CommandDefinition {
 			Id = SubmitNewSession,
+			SharedExecutionLane = NewSessionInputExecutionLane,
 			Title = "Start New Session",
 			RunsIn = CommandLocation.Web,
 			Owner = CommandOwner.Client,

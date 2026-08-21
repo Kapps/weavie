@@ -1169,10 +1169,23 @@ public sealed partial class HostCore {
 		IReadOnlyList<NewSessionAttachment> attachments,
 		out InitialSessionInput? input,
 		out string error) {
+		if (!TryDecodeAttachments(attachments, out var decoded, out error)) {
+			input = null;
+			return false;
+		}
+
+		input = InitialSessionInput.Create(prompt, decoded);
+		return true;
+	}
+
+	private static bool TryDecodeAttachments(
+		IReadOnlyList<NewSessionAttachment> attachments,
+		out IReadOnlyList<InitialSessionAttachment> decoded,
+		out string error) {
 		ArgumentNullException.ThrowIfNull(attachments);
 		try {
 			var ids = new HashSet<string>(StringComparer.Ordinal);
-			var decoded = new List<InitialSessionAttachment>(attachments.Count);
+			var images = new List<InitialSessionAttachment>(attachments.Count);
 			foreach (var attachment in attachments) {
 				if (string.IsNullOrWhiteSpace(attachment.Id)) {
 					throw new InvalidOperationException("A new-session image is missing its attachment id.");
@@ -1182,14 +1195,14 @@ public sealed partial class HostCore {
 				}
 
 				var (extension, bytes) = PastedImageMedia.Decode(attachment.Mime, attachment.DataB64);
-				decoded.Add(new InitialSessionAttachment(attachment.Id, attachment.Mime, extension, bytes));
+				images.Add(new InitialSessionAttachment(attachment.Id, attachment.Mime, extension, bytes));
 			}
 
-			input = InitialSessionInput.Create(prompt, decoded);
+			decoded = images;
 			error = string.Empty;
 			return true;
 		} catch (Exception ex) when (ex is FormatException or InvalidOperationException) {
-			input = null;
+			decoded = [];
 			error = ex.Message;
 			return false;
 		}

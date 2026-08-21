@@ -21,6 +21,7 @@ beforeEach(() => {
   commandState.entries = [];
   commandState.run.mockClear();
   setContext("nativeShell", true);
+  setContext("browserShell", false);
   setContext("modalOpen", false);
   setContext("newSessionPromptFocused", false);
 });
@@ -192,6 +193,58 @@ describe("keyboard resolver", () => {
     } as unknown as KeyboardEvent);
 
     expect(commandState.run).toHaveBeenCalledWith("local", "weavie.session.submitNew", undefined);
+    dispose();
+    vi.unstubAllGlobals();
+  });
+
+  it("routes new-session paste only from the focused native modal prompt", () => {
+    commandState.entries = [
+      {
+        catalogBackendId: "local",
+        binding: {
+          key: "ctrl+v",
+          command: "weavie.session.pasteNew",
+          when: "newSessionPromptFocused && !browserShell",
+          activeInModal: true,
+        },
+      },
+    ];
+    let keydown: ((event: KeyboardEvent) => void) | undefined;
+    vi.stubGlobal("window", {
+      addEventListener: (type: string, handler: (event: KeyboardEvent) => void) => {
+        if (type === "keydown") {
+          keydown = handler;
+        }
+      },
+      removeEventListener: vi.fn(),
+    });
+    const dispose = installKeybindings();
+    setContext("modalOpen", true);
+    setContext("newSessionPromptFocused", true);
+    const paste = (): void =>
+      keydown?.({
+        key: "v",
+        isComposing: false,
+        ctrlKey: true,
+        metaKey: false,
+        shiftKey: false,
+        altKey: false,
+        preventDefault: vi.fn(),
+        stopPropagation: vi.fn(),
+      } as unknown as KeyboardEvent);
+
+    paste();
+    expect(commandState.run).toHaveBeenCalledWith("local", "weavie.session.pasteNew", undefined);
+
+    commandState.run.mockClear();
+    setContext("browserShell", true);
+    paste();
+    expect(commandState.run).not.toHaveBeenCalled();
+
+    setContext("browserShell", false);
+    setContext("newSessionPromptFocused", false);
+    paste();
+    expect(commandState.run).not.toHaveBeenCalled();
     dispose();
     vi.unstubAllGlobals();
   });

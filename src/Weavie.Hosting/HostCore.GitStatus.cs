@@ -4,16 +4,17 @@ namespace Weavie.Hosting;
 
 // Publishes each session's Git-owned branch, dirty state, and diff-against-HEAD line totals.
 public sealed partial class HostCore {
-	private static readonly TimeSpan GitStatusPollInterval = TimeSpan.FromSeconds(1);
-
 	private void AttachGitStatus(HostSession session) {
 		var monitor = new GitStatusMonitor(
 			session.Background,
 			ct => ResolveGitStatusAsync(session, ct),
-			status => session.Bus.BroadcastTarget.Feature("git").Publish("status", status),
-			Task.Delay,
-			GitStatusPollInterval);
+			status => session.Bus.BroadcastTarget.Feature("git").Publish("status", status));
 		session.AttachGitStatus(monitor);
+		_ = new GitMetadataWatcher(
+			session.Background,
+			session.WorkspaceRoot,
+			monitor.RequestRefresh,
+			error => PostForSession(session, () => Notify(session, "warn", error.Message)));
 		monitor.RequestRefresh();
 	}
 

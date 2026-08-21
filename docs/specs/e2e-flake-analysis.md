@@ -187,18 +187,40 @@ Windows runway already in place, and it still failed on the `-1` signature after
 `viewport-layout.json`: `.editor`/`.monaco` healthy at `742×709`, `monacoViewportHeight: 709`,
 `modelLineCount: 7`, `renderedLines: [""]`; `console-errors.txt` `(none)`.
 
-**What this datum changes:** the collapse is not transient in this occurrence. For 45s of continuous
-polling the height check *agreed* — Monaco reported the full 709px viewport — while the DOM held one
-blank line throughout, and it was still blank at teardown. Prior occurrences were read as a collapse that
-had recovered by the time the rects were captured; here the *size* recovers while the *lines* never
-re-render. Runway is therefore not the missing ingredient: more time cannot fix a view that has finished
-relaying out and is still empty. That strengthens the confirmed section's named fix — force an explicit
-Monaco `layout()` when a blank DOM is observed alongside healthy rects — over any further waiting, and it
-retires the "slow-but-genuine recovery" reading that motivated the 45s budget.
+**What this datum changes — the editor is SCROLLED, not clamped.** Reading the DOM snapshot out of
+`trace.zip` (not just the teardown rects) shows `.lines-content` at `top: -132px`, i.e. `scrollTop = 132`,
+while `.monaco-editor` and its `overflow-guard` are a healthy `742×709` throughout. `hello.ts` is 7 lines
+at a 22px line height: content is 154px, and Monaco's `scrollBeyondLastLine` allows scrolling until the
+last line sits at the top — a maximum `scrollTop` of `154 − 22 = 132`. **The editor is scrolled exactly to
+its maximum**, so the only line in view is the empty trailing line 7. That is the whole of
+`renderedLines: [""]` and the single `.view-line`: not a clamped viewport rendering line 1, but a
+full-size viewport parked past the end of the file. The second failure on the next run
+([job 96693564077](https://github.com/Kapps/weavie/actions/runs/32455822294/job/96693564077), the
+*sibling* test at `:100`) carries the same `top: -132px`, and its snapshots show the value flipping from
+`top: 0px` to `-132px` mid-test and staying.
 
-No test-code change here, per this doc's standing policy: the trigger still isn't reproducible off the
-hosted Windows fleet, and a forced-`layout()` patch written blind would be the seventh attempt at the same
-shape of guess. The next agent with real repro capability has the sharper target above.
+**Why it never recovers, and why waiting cannot fix it:** 132 is a *legitimate* scroll offset. Monaco
+keeps `scrollTop` inside `[0, contentHeight − lineHeight]` when `scrollBeyondLastLine` is on, and that
+bound doesn't depend on the viewport height — so a resize back to 709px leaves it untouched. Nothing in
+Monaco or the app resets it, which is exactly why every occurrence outlives its poll no matter how much
+runway it gets.
+
+**Working mechanism (fits every occurrence's forensics):** the transient 0-height collapse this doc
+already confirmed is real, but it is only the *trigger*. While the viewport is clamped to 5px, anything
+that reveals the caret — a focus, a `setPosition`, a restore — must scroll to bring that line into 5px of
+space, which lands at or near the maximum. The container then recovers to its true height, as the doc's
+local repro shows it reliably does, and the scroll offset it left behind survives. The clamp heals; its
+side effect does not. This reframes the fix: the target is not making the editor lay out (it already
+does) but undoing a scroll that was only meaningful for a collapsed viewport. A blanket "clamp scrollTop
+to 0 when the content fits" is the wrong shape — with `scrollBeyondLastLine` a user may legitimately park
+a short file with its last line at the top, and that would fight them.
+
+No fix is attempted here: the product change this points at (restoring the scroll offset the collapse
+displaced, without overriding a scroll the user chose) is a design call on the editor's layout handling,
+not on the comment-prose diff this run belongs to. **The forensic gap that hid this for six occurrences is
+now closed, though: `viewport-layout.json` reports element rects, which were healthy every time and so
+read as "recovered", while the scroll offset that actually broke the render lives only in the trace's DOM
+snapshot.** Capturing `editor.getScrollTop()` alongside the rects would have named this on occurrence one.
 
 ## CONFIRMED + FIXED: #1 (S2-race) — a test walk-race, not a product bug
 

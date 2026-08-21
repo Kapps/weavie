@@ -130,9 +130,13 @@ export const test = base.extend<WeavieOptions & WeavieFixtures>({
                 editorPane: rect(".editor-surface .editor-pane"),
                 editor: rect(".editor-surface .editor"),
                 monaco: rect(".editor-surface .monaco-editor"),
-                // A healthy rect with only the first line rendered means Monaco latched the 5px clamp while
-                // the container was 0-height and recovered later — the rects alone can't tell that apart.
+                // A healthy rect with only one line rendered means the viewport recovered but the render
+                // didn't — read scrollTop against contentHeight to see whether it's parked past the end.
                 monacoViewportHeight: window.__WEAVIE_EDITOR__?.getLayoutInfo().height ?? null,
+                // The offset the rects can't show: a viewport that recovers from the 5px clamp keeps the
+                // scroll the collapse left behind, so it renders the file's tail (often one blank line).
+                scrollTop: window.__WEAVIE_EDITOR__?.getScrollTop() ?? null,
+                contentHeight: window.__WEAVIE_EDITOR__?.getContentHeight() ?? null,
                 modelLineCount: window.__WEAVIE_EDITOR__?.getModel()?.getLineCount() ?? null,
                 renderedLines: [...document.querySelectorAll(".view-line")].map((line) =>
                   (line.textContent ?? "").replace(/\s+/g, " "),

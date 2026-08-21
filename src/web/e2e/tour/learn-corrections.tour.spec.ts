@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { openFile, runCommand } from "../harness/actions";
+import { clickIntoEditor, openFile, runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { appliedEdit } from "../harness/review";
 
@@ -142,7 +142,7 @@ test("three corrections fill the ring, the card offers /learn, Yes prefills the 
   await openFile(page, "notes.txt");
   await expect(page.locator(".weavie-inline-added").first()).toBeVisible({ timeout: 20_000 });
   await hold(page, 1200);
-  await page.locator(".monaco-editor .view-lines").first().click();
+  await clickIntoEditor(page);
   await page.keyboard.press("ControlOrMeta+Home");
   await page.keyboard.press("End");
   await page.keyboard.type(" (reviewed)", { delay: 40 });

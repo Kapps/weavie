@@ -1,4 +1,4 @@
-import { openFile, runCommand, typeInEditor } from "../harness/actions";
+import { clickIntoEditor, openFile, runCommand, typeInEditor } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 
 // Text-editing journeys beyond the open→save→persist path in editor.spec.ts: Monaco-native undo/redo isn't
@@ -27,12 +27,12 @@ test("undo and redo work in the editor and aren't hijacked by diff keybindings",
 
 test("edits in two tabs stay isolated across a tab switch", async ({ page }) => {
   await openFile(page, "hello.ts");
-  await page.locator(".monaco-editor .view-lines").first().click();
+  await clickIntoEditor(page);
   await page.keyboard.press("ControlOrMeta+Home");
   await typeInEditor(page, "HELLOEDIT");
 
   await openFile(page, "notes.txt");
-  await page.locator(".monaco-editor .view-lines").first().click();
+  await clickIntoEditor(page);
   await page.keyboard.press("ControlOrMeta+Home");
   await typeInEditor(page, "NOTESEDIT");
   await expect(page.locator(".monaco-editor .view-lines")).toContainText("NOTESEDIT");
@@ -49,7 +49,7 @@ test("closing an unsaved scratch buffer prompts before discarding", async ({ pag
   const tab = page.locator(".editor-tab").last();
   await expect(tab).toBeVisible();
 
-  await page.locator(".monaco-editor .view-lines").first().click();
+  await clickIntoEditor(page);
   await typeInEditor(page, "SCRATCHEDIT");
 
   await tab.hover();

@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { openFile, runCommand } from "../harness/actions";
+import { clickIntoEditor, openFile, runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { navChord } from "../harness/navigator";
 import { appliedEdit } from "../harness/review";
@@ -199,11 +199,6 @@ test.describe("applied review — accepted band fades (kept, not vanished) + inl
     await expect(page.locator(ACCEPTED)).toHaveCount(0);
   });
 
-  // Flaked 2026-08-19 ~22:15 UTC, run 32307034002 (https://github.com/Kapps/weavie/actions/runs/32307034002/job/96242942711):
-  // openFile("hello.ts") timed out after 30s on Windows — .editor resolved fine but data-active-file
-  // stayed empty the whole time. Different fingerprint from the Monaco-viewport-clamp family documented
-  // in docs/specs/e2e-flake-analysis.md; logged there as an open item. No fix attempted (no repro, no
-  // reason to suspect a real regression — see the doc for why).
   test("keep-all clears both the pending and the faded accepted band", async ({ page }) => {
     await openFile(page, "hello.ts");
     await focusFirstHunk(page);
@@ -320,7 +315,7 @@ test.describe("applied review — Shift+Enter never types into the file (regress
     const before = read(weavie.workspace, "hello.ts");
 
     // Focus the editor (so a fall-through really would type) and mash the undo chords.
-    await page.locator(".monaco-editor .view-lines").first().click();
+    await clickIntoEditor(page);
     for (let i = 0; i < 4; i++) {
       await page.keyboard.press("ControlOrMeta+Shift+Enter");
       await page.keyboard.press("ControlOrMeta+Shift+Backspace");

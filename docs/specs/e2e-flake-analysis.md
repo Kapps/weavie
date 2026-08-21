@@ -268,6 +268,17 @@ so shell code can route an editor model without importing the editor runtime. Th
 entry's static chunk graph and fails if that boundary regresses. This repairs both the accidental eager
 7.9 MB download and the Windows socket-allocation failure without a retry, skip, or wider timeout.
 
+**2026-08-21 occurrence, run 32440535329:** `font-zoom.spec.ts:17` ("Increase / Decrease / Reset Font
+Size resize the editor live"), `e2e (windows) / shard (4/6)`,
+[job 96650799420](https://github.com/Kapps/weavie/actions/runs/32440535329/job/96650799420) — the
+`#splash` wait timed out at 40s during fixture boot, same class as this section and the 2026-07-23
+occurrence above. Hit in the same CI run as a separate, unrelated Monaco-clamp recurrence (shard 3/6,
+documented above) and a GitHub Actions `ArtifactService` upload timeout on a fully-green Linux shard
+(5/6) — three different failure classes across three shards in one run, on a PR whose diff by this point
+touched only a harness taskkill retry and doc/comment updates. That density across unrelated symptoms is
+this doc's own signature for "the hosted fleet is having a rough day," not a fixable defect on this PR;
+no test-code change made.
+
 ## Open: `.editor[data-active-file]` stays empty through `openFile`
 
 **Symptom, 2026-08-19 ~22:15 UTC, run 32307034002:** `diff-review.spec.ts:202` ("keep-all clears both

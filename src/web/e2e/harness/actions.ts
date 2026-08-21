@@ -156,6 +156,22 @@ export async function createSession(
   await inbox.getByRole("textbox", { name: "Branch for the new session" }).fill(seed.branch);
   await inbox.getByRole("button", { name: "Start", exact: true }).click();
   await expect(inbox).toBeHidden();
+  await expect(page.locator(`.session-chip.active[title^="${seed.branch} —"]`)).toBeVisible();
+}
+
+// Asserts a reveal landed: the editor is showing `file` (a workspace-relative path) with the caret on `line`.
+export async function expectRevealed(page: Page, file: string, line: number): Promise<void> {
+  const pattern = file
+    .split("/")
+    .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .join("[\\\\/]");
+  await expect(page.locator(".editor")).toHaveAttribute(
+    "data-active-file",
+    new RegExp(`[\\\\/]${pattern}$`),
+  );
+  await expect
+    .poll(() => page.evaluate(() => window.__WEAVIE_EDITOR__?.getPosition()?.lineNumber))
+    .toBe(line);
 }
 
 // Type text at the current caret in the focused Monaco editor.

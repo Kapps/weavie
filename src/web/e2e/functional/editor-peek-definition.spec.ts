@@ -91,6 +91,12 @@ async function altClick(word: Locator): Promise<void> {
   await word.click({ modifiers: ["Alt"] });
 }
 
+// Flaked 2026-08-19 ~21:20 UTC, run 32302259233 (https://github.com/Kapps/weavie/actions/runs/32302259233/job/96228596384):
+// 60s timeout inside word.click(), same fingerprint as the wordToken 5px-viewport-clamp flake documented
+// in docs/specs/e2e-flake-analysis.md — the fourth occurrence despite that doc's existing wordToken guard.
+// No fresh diagnostic data was available (a separate CI bug was silently skipping the failure-trace
+// upload; fixed in e2e-platform.yml), so no test-code change is made here per that doc's "get the datum
+// first" policy — see the doc for the full history and what happens on the next occurrence.
 test("alt+click on a symbol opens the definition peek inline, and Escape closes it", async ({
   page,
 }) => {
@@ -107,6 +113,10 @@ test("alt+click on a symbol opens the definition peek inline, and Escape closes 
   await expect(peek).toHaveCount(0);
 });
 
+// Flaked 2026-08-19 ~22:01 UTC, run 32305865719 (https://github.com/Kapps/weavie/actions/runs/32305865719/job/96239656621):
+// same 5px-viewport-clamp fingerprint as the sibling test above, now with confirmed forensics
+// (viewport-layout.json: healthy 742x709 but renderedLines: [""]) — see docs/specs/e2e-flake-analysis.md
+// for the full history and why no test-code change was made here (no repro capability, would be a guess).
 test("Alt+F12 peeks the definition of the symbol at the cursor", async ({ page }) => {
   await focusEditor(page, "hello.ts");
   await registerGreetDefinition(page);

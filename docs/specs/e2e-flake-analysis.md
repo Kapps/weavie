@@ -108,6 +108,38 @@ caller re-waits for layout for free instead of each test needing its own reasoni
 relaid-out since `openFile`. The multicursor test's standalone `awaitEditorLaidOut` call (added for the
 previous occurrence) was removed as redundant.
 
+**2026-08-19 fourth occurrence, ~21:20 UTC, run 32302259233:** hit again, same file, same helpers —
+`editor-peek-definition.spec.ts:79` ("alt+click on a symbol opens the definition peek inline, and Escape
+closes it", [job 96228596384](https://github.com/Kapps/weavie/actions/runs/32302259233/job/96228596384))
+— despite the `wordToken` guard from the previous occurrence already being in place. Same fingerprint:
+60s test timeout inside `word.click()`, surfaced as `Target page, context or browser has been closed`
+once the timeout tore the page down.
+
+No new datum this time, but for a different reason than the 2026-07-23 gap this doc already complains
+about: **the "Upload e2e failure traces" step itself never fires.** Its `if:` was
+`steps.playwright.outcome == 'failure'` with no status-check function, which GitHub Actions silently
+ANDs with `success()` — always false once the Playwright step has already failed, so the step always
+shows `skipped` and `viewport-layout.json`/`console-errors.txt`/`weavie-host.log` never reach the
+artifact even when a shard goes red. Fixed in `e2e-platform.yml` to match the working `!cancelled()`
+guard already on the blob-report upload beside it.
+
+**2026-08-19 fifth occurrence, ~22:01 UTC, run 32305865719:** hit again within the same hour, same
+file, a *different* test — `editor-peek-definition.spec.ts:101` ("Alt+F12 peeks the definition of the
+symbol at the cursor", [job 96239656621](https://github.com/Kapps/weavie/actions/runs/32305865719/job/96239656621)).
+With the trace-upload fix above now landed, this occurrence finally has the datum the fourth one
+lacked: `viewport-layout.json` reads `.editor`/`.monaco` healthy at `742×709` (`monacoViewportHeight:
+709`) with `modelLineCount: 7`, but `renderedLines: [""]` — one empty line, the exact 5px-clamp
+signature from the confirmed root cause above — and `console-errors.txt` is `(none)`. This **confirms**
+the fourth occurrence was the same collapse, not a new failure mode; the `wordToken` guard (applied
+after the third occurrence) demonstrably doesn't eliminate it, only reduces its frequency. Two
+occurrences in one PR's CI (unrelated to that PR's diff) is denser than this flake's historical rate —
+plausibly a rougher day for the hosted Windows fleet, not a new defect.
+
+No test-code change is made here either: per this doc's own confirmed-root-cause section, the actual
+fix is an explicit Monaco `layout()` call forced when a collapse is detected, and that still wants the
+datum this doc's TODO already names (a controlled repro forcing the 0-height case, not just another
+transient-collapse attachment) before landing — a guess at the trigger would just be a sixth attempt at
+the same shape of patch. Filed as-is for the next agent with real repro capability.
 **2026-08-20 fourth occurrence, run 32333399943:** hit a fourth time on the multicursor test
 (`editor-peek-definition.spec.ts:117`, ["alt+click during a multicursor session adds a cursor instead of
 peeking"](https://github.com/Kapps/weavie/actions/runs/32333399943/job/96318875803)) — main's post-merge CI
@@ -218,6 +250,27 @@ the established HTTP connections. Session-URI ownership parsing is separate from
 so shell code can route an editor model without importing the editor runtime. The build traverses each
 entry's static chunk graph and fails if that boundary regresses. This repairs both the accidental eager
 7.9 MB download and the Windows socket-allocation failure without a retry, skip, or wider timeout.
+
+## Open: `.editor[data-active-file]` stays empty through `openFile`
+
+**Symptom, 2026-08-19 ~22:15 UTC, run 32307034002:** `diff-review.spec.ts:202` ("keep-all clears both
+the pending and the faded accepted band",
+[job 96242942711](https://github.com/Kapps/weavie/actions/runs/32307034002/job/96242942711)), Windows
+`e2e (linux) / shard (3/6)` — its very first action, `openFile(page, "hello.ts")`, timed out after 30s.
+Different fingerprint from the Monaco-viewport-clamp family above: the `.editor` locator resolved fine
+(63 polls, `data-ready="true"`), but its `data-active-file` attribute read `""` the whole time instead
+of matching `hello.ts` — the editor never picked up the file at all, not a rendering/viewport problem.
+`console-errors.txt` and the other 40 tests in the same shard (including three `openFile` calls in the
+immediately-preceding `editor-peek-definition.spec.ts` tests, all green) give no reason to suspect a
+real regression in file-opening.
+
+No fix attempted: this is the third distinct Windows-only flake symptom seen on this PR's CI within
+about 45 minutes (the other two being confirmed recurrences of the Monaco-clamp family above), on a PR
+whose diff touches only `.github/workflows/e2e-platform.yml`. That density, plus three different
+concrete symptoms rather than one repeating, points at the hosted Windows fleet having a rough day
+rather than one fixable defect — consistent with this doc's existing "resource-starved hosted Windows
+runner" theory for root cause #4. Logged here per policy (no flake goes uncommented) for whoever hits
+it next; needs its own forensics before any fix is more than a guess.
 
 ## Reproduction & forensics techniques that worked
 

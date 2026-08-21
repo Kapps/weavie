@@ -24,6 +24,7 @@ import "./chrome/search-panel.css";
 import "./chrome/titlebar.css";
 import "./chrome/omnibar.css";
 import "./chrome/resize-frame.css";
+import "./chrome/middle-click-autoscroll.css";
 import "./notify/notify.css";
 import "./notify/suggestions.css";
 import "./editor/confirm-dialog.css";

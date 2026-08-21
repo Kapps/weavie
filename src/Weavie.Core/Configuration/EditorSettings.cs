@@ -41,7 +41,7 @@ public static class EditorSettings {
 	/// <summary>Multiplier on the scroll distance while Alt is held.</summary>
 	public const string FastScrollSensitivity = "editor.fastScrollSensitivity";
 
-	/// <summary>Middle-click then move the mouse to scroll continuously, in the editor and the agent transcript.</summary>
+	/// <summary>Middle-click then move the mouse to scroll continuously, on any scrollable surface.</summary>
 	public const string MiddleClickAutoscroll = "editor.middleClickAutoscroll";
 
 	/// <summary>Wrap long lines.</summary>
@@ -160,10 +160,11 @@ public static class EditorSettings {
 			DefaultFastScrollSensitivity, MinScrollSensitivity, MaxScrollSensitivity, "times"));
 		registry.Register(Toggle(MiddleClickAutoscroll,
 			"Middle-click, then move the mouse to scroll continuously — further from the click point scrolls "
-				+ "faster. Middle-click again (or press Escape) to stop. Applies to the editor on every platform, "
-				+ "and to the structured-agent transcript on Linux (elsewhere the system scrolls it). On by default.",
+				+ "faster. Middle-click again (or press Escape) to stop. Applies on every platform, to the editor "
+				+ "and to every scrollable pane — the agent transcript, the file tree, the session rail. On by "
+				+ "default.",
 			["middle click autoscroll", "autoscroll", "auto scroll", "middle mouse scrolling", "middle click scroll",
-				"scroll on middle click", "drag to scroll", "Linux autoscroll"],
+				"scroll on middle click", "drag to scroll"],
 			true));
 
 		// Common preferences (defaults = Monaco's).

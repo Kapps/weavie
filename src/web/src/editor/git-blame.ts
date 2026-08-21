@@ -25,6 +25,11 @@ import { SESSION_FILE_SCHEME, sessionForUri, sessionUriHostPath } from "./sessio
 /** The CSS class on the injected annotation — also the click target's marker. */
 const BLAME_CLASS = "weavie-blame";
 
+// The gap holding the annotation clear of the code, as injected characters rather than CSS space in front of
+// them: Monaco measures a line's end column at the first character injected there. See docs/specs/git-blame.md.
+const GAP_CLASS = "weavie-blame-gap";
+const GAP = "\u00a0".repeat(4);
+
 // Lines above and below the viewport, so an ordinary scroll reveals annotated lines rather than blank ones that
 // fill in a frame later.
 const OVERSCAN = 20;
@@ -156,8 +161,15 @@ export function createGitBlame(editor: monaco.editor.IStandaloneCodeEditor): Git
       // (textModel.ts: getAllInjectedText filters `showIfCollapsed || !range.isEmpty()`). Without this the
       // decorations exist on the model and nothing whatsoever paints.
       showIfCollapsed: true,
+      // Ahead of the label by construction: Monaco orders injected text before-then-after on a column.
+      before: {
+        content: GAP,
+        inlineClassName: GAP_CLASS,
+        cursorStops: monaco.editor.InjectedTextCursorStops.None,
+        inlineClassNameAffectsLetterSpacing: false,
+      },
       after: {
-        // No leading gap: it is the class's left margin, outside the annotation's hit area (git-blame.css).
+        // The label alone: the gap ahead of it is the `before` above, so this span's box is the click target.
         content: label,
         inlineClassName: BLAME_CLASS,
         // The annotation is not text: End / Right-arrow at the end of a line must stop at the code, never

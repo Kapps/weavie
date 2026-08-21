@@ -108,9 +108,7 @@ public static class EditorSettings {
 	private const long DefaultHoverDelay = 300;
 	private const long MaxHoverDelay = 5000;
 
-	// Measured in Chromium: a wheel notch scrolls 50px at a multiplier of 1 — under three lines, slower than the
-	// rest of the desktop. 5 lands a notch near 14 lines. The two multiply, so Alt-scroll is 25x the baseline.
-	private const long DefaultMouseWheelScrollSensitivity = 5;
+	private const long DefaultMouseWheelScrollSensitivity = 1;
 	private const long DefaultFastScrollSensitivity = 5;
 	private const long MinScrollSensitivity = 1;
 	private const long MaxScrollSensitivity = 20;
@@ -147,14 +145,14 @@ public static class EditorSettings {
 			["scroll beyond last line", "scroll past end"], true));
 
 		registry.Register(Ranged(MouseWheelScrollSensitivity,
-			"How far one mouse-wheel notch scrolls the editor, as a multiplier. Defaults to 5; Monaco's own "
-				+ "default of 1 scrolls under three lines a notch, which feels slower than the rest of the desktop.",
+			"How far one mouse-wheel notch scrolls the editor, as a multiplier. Defaults to Monaco's standard 1. "
+				+ "The Linux host normalizes its smaller wheel delta before applying this preference.",
 			["scroll speed", "mouse wheel speed", "scroll sensitivity", "mouse wheel scroll sensitivity",
 				"lines per scroll", "wheel scroll speed", "scroll faster", "scroll slower"],
 			DefaultMouseWheelScrollSensitivity, MinScrollSensitivity, MaxScrollSensitivity, "times"));
 		registry.Register(Ranged(FastScrollSensitivity,
 			"How far the editor scrolls while Alt is held, as a multiplier applied on top of "
-				+ "editor.mouseWheelScrollSensitivity — the two multiply, so the defaults make Alt-scroll 25x a "
+				+ "editor.mouseWheelScrollSensitivity — the two multiply, so the defaults make Alt-scroll 5x a "
 				+ "normal notch.",
 			["fast scroll", "fast scroll sensitivity", "alt scroll speed", "fast scrolling"],
 			DefaultFastScrollSensitivity, MinScrollSensitivity, MaxScrollSensitivity, "times"));

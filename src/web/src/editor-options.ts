@@ -24,7 +24,7 @@ const DEFAULT_OPTIONS: EditorOptionsSpec = {
   cursorSmoothCaretAnimation: "off",
   renderWhitespace: "none",
   scrollBeyondLastLine: true,
-  mouseWheelScrollSensitivity: 5,
+  mouseWheelScrollSensitivity: 1,
   fastScrollSensitivity: 5,
   middleClickAutoscroll: true,
   wordWrap: "off",

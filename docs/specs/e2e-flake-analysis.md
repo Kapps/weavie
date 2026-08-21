@@ -1,7 +1,7 @@
 # E2E flake analysis (Windows-dominated)
 
 Status: living document — root causes confirmed where noted, open where noted
-Last updated: 2026-08-20
+Last updated: 2026-08-21
 
 A forensic catalog of the e2e suite's flakes, their confirmed/suspected root causes, and the
 techniques that produced those findings. Retries are off by policy (a flake fails the run), so every
@@ -177,6 +177,23 @@ budget (45s on Windows/macOS, 15s on Linux where this flake doesn't occur and th
 30s) instead of inheriting the shorter global default. This is a genuine correction to this PR's own diff, not
 a new masking layer — the check itself is unchanged; only the time it's given to resolve now matches what the
 wait already implicitly had.
+
+**2026-08-21 occurrence, run 32439768067:** hit twice in one shard on PR #646's own CI — both
+`editor-peek-definition.spec.ts:100` ("alt+click on a symbol opens the definition peek inline, and Escape
+closes it") and `:142` ("alt+click during a multicursor session adds a cursor instead of peeking"),
+[job 96648493335](https://github.com/Kapps/weavie/actions/runs/32439768067/job/96648493335), `e2e (windows) /
+shard (3/6)`. Both timed out at the full 45s `awaitEditorLaidOut` budget on the same -1
+(clamp-still-active) signature — the budget fix from the immediately preceding occurrence didn't make this
+one disappear, only the 30s-cutoff self-inflicted regression. No fresh datum: this shard's
+`e2e-blob-windows-3-of-6`/`e2e-traces-windows-3-of-6` artifacts never appear in the run's artifact list at
+all (same upload-never-fires gap as the fourth occurrence above; not re-diagnosed here), so
+`viewport-layout.json`/`console-errors.txt` weren't captured. Re-running the job to get a clean datum
+wasn't possible here (the GitHub App token lacks `rerun-failed-jobs` permission: 403). PR #646's own diff
+touches only `killProcessTree`'s Windows taskkill retry in the e2e harness — unrelated to Monaco/editor
+code — so this is not a regression from that change. No test-code change made: every mitigation this doc
+already tried (wordToken gating, DOM-render check, matched timeout budget) is in place and still not
+sufficient at the full 45s runway, and a further change without a fresh datum would be a guess. Logged for
+the next agent with real datum or Windows repro access.
 
 ## CONFIRMED + FIXED: #1 (S2-race) — a test walk-race, not a product bug
 

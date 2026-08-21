@@ -97,6 +97,12 @@ async function altClick(word: Locator): Promise<void> {
 // No fresh diagnostic data was available (a separate CI bug was silently skipping the failure-trace
 // upload; fixed in e2e-platform.yml), so no test-code change is made here per that doc's "get the datum
 // first" policy — see the doc for the full history and what happens on the next occurrence.
+//
+// Flaked again 2026-08-21, run 32439768067 (https://github.com/Kapps/weavie/actions/runs/32439768067/job/96648493335),
+// same -1 (clamp-still-active) signature at the full 45s awaitEditorLaidOut budget, alongside the
+// multicursor test below in the same shard. No fresh datum this time either — the shard's blob/traces
+// artifacts never appear in the run, so viewport-layout.json/console-errors.txt weren't captured. See
+// docs/specs/e2e-flake-analysis.md for the full history.
 test("alt+click on a symbol opens the definition peek inline, and Escape closes it", async ({
   page,
 }) => {
@@ -139,6 +145,10 @@ test("alt+click without a definition provider leaves Monaco's multicursor gestur
   await expect(page.locator(".monaco-editor .peekview-widget")).toHaveCount(0);
 });
 
+// Flaked 2026-08-21, run 32439768067 (https://github.com/Kapps/weavie/actions/runs/32439768067/job/96648493335):
+// same 5px-viewport-clamp fingerprint as the sibling test above, same run — see
+// docs/specs/e2e-flake-analysis.md for the full history and why no test-code change was made here (no
+// fresh datum, no repro capability).
 test("alt+click during a multicursor session adds a cursor instead of peeking", async ({
   page,
 }) => {

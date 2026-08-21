@@ -1,7 +1,7 @@
 # E2E flake analysis (Windows-dominated)
 
 Status: living document — root causes confirmed where noted, open where noted
-Last updated: 2026-08-20
+Last updated: 2026-08-21
 
 A forensic catalog of the e2e suite's flakes, their confirmed/suspected root causes, and the
 techniques that produced those findings. Retries are off by policy (a flake fails the run), so every
@@ -177,6 +177,28 @@ budget (45s on Windows/macOS, 15s on Linux where this flake doesn't occur and th
 30s) instead of inheriting the shorter global default. This is a genuine correction to this PR's own diff, not
 a new masking layer — the check itself is unchanged; only the time it's given to resolve now matches what the
 wait already implicitly had.
+
+**2026-08-21 sixth occurrence, run 32451606527:** hit again on `editor-peek-definition.spec.ts:120`
+("Alt+F12 peeks the definition of the symbol at the cursor",
+[job 96681686269](https://github.com/Kapps/weavie/actions/runs/32451606527/job/96681686269)) — PR #650's
+CI, whose diff is comment-prose rendering; the `hello.ts` fixture carries no comments, so that feature is
+inert for this test. First occurrence with **both** the strict `>1 .view-line` check and the explicit 45s
+Windows runway already in place, and it still failed on the `-1` signature after the full 45s poll.
+`viewport-layout.json`: `.editor`/`.monaco` healthy at `742×709`, `monacoViewportHeight: 709`,
+`modelLineCount: 7`, `renderedLines: [""]`; `console-errors.txt` `(none)`.
+
+**What this datum changes:** the collapse is not transient in this occurrence. For 45s of continuous
+polling the height check *agreed* — Monaco reported the full 709px viewport — while the DOM held one
+blank line throughout, and it was still blank at teardown. Prior occurrences were read as a collapse that
+had recovered by the time the rects were captured; here the *size* recovers while the *lines* never
+re-render. Runway is therefore not the missing ingredient: more time cannot fix a view that has finished
+relaying out and is still empty. That strengthens the confirmed section's named fix — force an explicit
+Monaco `layout()` when a blank DOM is observed alongside healthy rects — over any further waiting, and it
+retires the "slow-but-genuine recovery" reading that motivated the 45s budget.
+
+No test-code change here, per this doc's standing policy: the trigger still isn't reproducible off the
+hosted Windows fleet, and a forced-`layout()` patch written blind would be the seventh attempt at the same
+shape of guess. The next agent with real repro capability has the sharper target above.
 
 ## CONFIRMED + FIXED: #1 (S2-race) — a test walk-race, not a product bug
 

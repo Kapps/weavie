@@ -19,7 +19,28 @@ internal static class FakePullRequests {
 		var prsEl = root.ValueKind == JsonValueKind.Array ? root
 			: root.TryGetProperty("prs", out var p) ? p : default;
 		var commentsEl = root.ValueKind == JsonValueKind.Object && root.TryGetProperty("comments", out var c) ? c : default;
-		return new StaticPullRequestProvider(ParsePrs(prsEl), ParseComments(commentsEl));
+		var provider = new StaticPullRequestProvider(ParsePrs(prsEl), ParseComments(commentsEl));
+		SeedCommits(provider, prsEl);
+		return provider;
+	}
+
+	// Each PR may list the commit shas it merged ("commits": ["abc…"]), so a blamed line resolves to its PR offline.
+	private static void SeedCommits(StaticPullRequestProvider provider, JsonElement array) {
+		if (array.ValueKind != JsonValueKind.Array) {
+			return;
+		}
+
+		foreach (var pr in array.EnumerateArray()) {
+			if (!pr.TryGetProperty("commits", out var commits) || commits.ValueKind != JsonValueKind.Array) {
+				continue;
+			}
+
+			foreach (var sha in commits.EnumerateArray()) {
+				if (sha.ValueKind == JsonValueKind.String && sha.GetString() is { Length: > 0 } value) {
+					provider.PullRequestsByCommit[value] = Int(pr, "number");
+				}
+			}
+		}
 	}
 
 	private static IReadOnlyList<PullRequestSummary> ParsePrs(JsonElement array) {

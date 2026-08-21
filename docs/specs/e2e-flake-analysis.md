@@ -1,7 +1,7 @@
 # E2E flake analysis (Windows-dominated)
 
 Status: living document — root causes confirmed where noted, open where noted
-Last updated: 2026-07-23
+Last updated: 2026-08-17
 
 A forensic catalog of the e2e suite's flakes, their confirmed/suspected root causes, and the
 techniques that produced those findings. Retries are off by policy (a flake fails the run), so every
@@ -58,6 +58,55 @@ Next step to close it: the `viewport-layout.json` failure attachment (added in `
 S3/diff-against failure will show definitively whether `.editor` is `Wx0` (layout stall — chase the
 flex/pane-slot chain or the boot ordering) or full-size with `monaco` at `Wx5` (a Monaco
 non-recovery — force an explicit `layout()`). Until that datum exists, a "fix" is a guess.
+
+## CONFIRMED + FIXED: the 5px clamp renders ONE line, so a locator for any other line matches nothing
+
+**Symptom (issue #625, Windows run 31993224310):** `editor-peek-definition.spec.ts:84` burned its full
+60s on `wordToken(...).click()`. The call log stops at `waiting for locator(...)` with no
+`locator resolved to` line — the locator matched **nothing** for the whole budget, so this is not an
+actionability failure. `viewport-layout.json` read a healthy `742×709` for both `.editor` and
+`.monaco-editor` and `console-errors.txt` was `(none)`, so neither reading #2 predicts (`Wx0` stall,
+`Wx5` non-recovery) was present.
+
+**What those rects cannot tell you:** they are captured at *teardown*. Reproduced locally — force
+`.editor` to 0-height and Monaco clamps its viewport to `max(5, 0) = 5` and renders **only line 1**;
+every later line is absent from the DOM entirely. Restore the height and it is back to all 7 lines
+within a frame. A *transient* collapse therefore leaves healthy rects at teardown and an unfindable
+line during the test — exactly the datum shape observed. The lesson generalizes: `data-active-file`
+says which file the editor holds, never that it has room to draw it.
+
+**Fix:** `openFile` now waits for Monaco's viewport to agree with its container (`awaitEditorLaidOut`,
+`e2e/harness/actions.ts`) before any spec addresses rendered text. A transient collapse is waited out;
+a permanent one fails at once naming the clamp, instead of spending the test timeout on a locator that
+could never match. The healthy teardown rects are evidence this occurrence *did* recover, so waiting is
+a real fix here and not just a better error message.
+
+**Datum added:** `viewport-layout.json` now also carries `monacoViewportHeight`, `modelLineCount`, and
+`renderedLines` — which separates "collapsed while the test ran" from a genuinely healthy editor at a
+glance, the distinction the rects alone could not make.
+
+**2026-08-18 recurrence, run 32096266021:** the same symptom hit a *different* line in the same file —
+`editor-peek-definition.spec.ts:133` ("alt+click during a multicursor session adds a cursor instead of
+peeking"). Identical fingerprint: call log stuck on `waiting for locator(...)` for the full 60s,
+`renderedLines` at teardown was `[""]` (exactly one, empty line — the 5px-clamp signature) while
+`.editor`/`.monaco` read a healthy `742×709`. `awaitEditorLaidOut` didn't cover this one because the test
+calls `editor.setSelections(...)` through `page.evaluate` *after* `openFile` and then addresses rendered
+text again — a second window for the same transient collapse that `openFile`'s guard doesn't span. Fixed
+by calling `awaitEditorLaidOut` again right before that click, rather than widening `openFile`'s guard to
+every possible later mutation. If a third call site turns up the same way, that's the signal to stop
+patching individual sites and gate `wordToken`/`altClick` themselves on layout instead.
+
+**2026-08-18 third occurrence, run 32104522458:** hit *again*, same file, same original line —
+`editor-peek-definition.spec.ts:84` ("Alt+F12 peeks the definition of the symbol at the cursor",
+[job 95611908477](https://github.com/Kapps/weavie/actions/runs/32104522458/job/95611908477)) — despite
+that test going through `openFile`'s guard via `focusEditor` just a few lines earlier, with only a plain
+click and a `page.evaluate` (no `setSelections`) in between. Same fingerprint again: 60s stuck on
+`wordToken(...).click()`, healthy rects at teardown. This is exactly the third call site the prior
+occurrence predicted, so per that note the per-site patching stopped: `wordToken` (the shared helper both
+flaked tests route through) now calls `awaitEditorLaidOut` itself before building its locator, so every
+caller re-waits for layout for free instead of each test needing its own reasoning about what might have
+relaid-out since `openFile`. The multicursor test's standalone `awaitEditorLaidOut` call (added for the
+previous occurrence) was removed as redundant.
 
 ## CONFIRMED + FIXED: #1 (S2-race) — a test walk-race, not a product bug
 

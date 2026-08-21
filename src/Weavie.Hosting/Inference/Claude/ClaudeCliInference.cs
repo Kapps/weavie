@@ -1,6 +1,8 @@
 using System.ComponentModel;
 using System.Text.Json;
 using Weavie.Core.Configuration;
+using Weavie.Core.Editor;
+using Weavie.Core.FileSystem;
 using Weavie.Core.Inference;
 
 namespace Weavie.Hosting.Inference.Claude;
@@ -9,12 +11,18 @@ internal sealed class ClaudeCliInference : IInferenceProvider {
 	private const int EnvelopeOverheadBytes = 64 * 1024;
 	private readonly SettingsStore _settings;
 	private readonly IAgentCliProcessRunner _processes;
+	private readonly string _imageRoot;
 
-	public ClaudeCliInference(SettingsStore settings, IAgentCliProcessRunner processes) {
+	public ClaudeCliInference(
+		SettingsStore settings,
+		IAgentCliProcessRunner processes,
+		string imageRoot) {
 		ArgumentNullException.ThrowIfNull(settings);
 		ArgumentNullException.ThrowIfNull(processes);
+		ArgumentException.ThrowIfNullOrWhiteSpace(imageRoot);
 		_settings = settings;
 		_processes = processes;
+		_imageRoot = imageRoot;
 	}
 
 	public InferenceProviderInfo InferenceInfo { get; } = new() {
@@ -26,7 +34,24 @@ internal sealed class ClaudeCliInference : IInferenceProvider {
 		CancellationToken ct) {
 		ArgumentNullException.ThrowIfNull(request);
 		var profile = Profile(request.Category);
+		string? imageDirectory = null;
 		try {
+			var imagePaths = new List<string>(request.Images.Count);
+			if (request.Images.Count > 0) {
+				SecureFile.CreateDirectory(_imageRoot);
+				imageDirectory = Path.Combine(_imageRoot, Guid.NewGuid().ToString("n"));
+				SecureFile.CreateDirectory(imageDirectory);
+				for (int index = 0; index < request.Images.Count; index++) {
+					var image = request.Images[index];
+					if (!PastedImageMedia.TryExtension(image.Mime, out string extension)) {
+						throw new InvalidOperationException($"Unsupported inference image type '{image.Mime}'.");
+					}
+					string path = Path.Combine(imageDirectory, $"image-{index + 1}{extension}");
+					SecureFile.WriteAllBytes(path, image.Bytes.ToArray());
+					imagePaths.Add(path);
+				}
+			}
+
 			string command = _settings.RequireString(CoreSettings.ClaudePath);
 			if (string.IsNullOrWhiteSpace(command)) {
 				return NotConfigured(profile.Model);
@@ -49,7 +74,7 @@ internal sealed class ClaudeCliInference : IInferenceProvider {
 				PathEntries = [],
 				Environment = new Dictionary<string, string>(StringComparer.Ordinal),
 				RemoveEnvironment = [],
-				StandardInput = request.Prompt,
+				StandardInput = string.Join('\n', imagePaths.Append(request.Prompt)),
 				MaxCapturedStdoutBytes = request.MaxOutputBytes + EnvelopeOverheadBytes,
 				CaptureStdout = true,
 			}, ct).ConfigureAwait(false);
@@ -64,6 +89,10 @@ internal sealed class ClaudeCliInference : IInferenceProvider {
 			return NotConfigured(profile.Model);
 		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
 			return Failure(profile.Model, "The Claude inference process failed.");
+		} finally {
+			if (imageDirectory is not null && Directory.Exists(imageDirectory)) {
+				Directory.Delete(imageDirectory, recursive: true);
+			}
 		}
 	}
 

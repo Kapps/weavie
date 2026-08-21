@@ -57,6 +57,23 @@ public sealed class StaticPullRequestProvider : IPullRequestProvider, IReviewCom
 		return Task.FromResult(_pullRequests.FirstOrDefault(p => p.Number == number));
 	}
 
+	/// <summary>
+	/// Commit sha → pull-request number, seeded by the harness so a blamed line resolves to a PR offline. A sha
+	/// with no entry has no pull request, exactly as the forge would report.
+	/// </summary>
+	public Dictionary<string, int> PullRequestsByCommit { get; } = new(StringComparer.Ordinal);
+
+	/// <inheritdoc/>
+	public Task<PullRequestSummary?> FindForCommitAsync(RepoRef repo, string sha, CancellationToken ct = default) {
+		ArgumentNullException.ThrowIfNull(repo);
+		return Task.FromResult(PullRequestsByCommit.TryGetValue(sha, out int number)
+			? _pullRequests.FirstOrDefault(p => p.Number == number)
+			: null);
+	}
+
+	/// <inheritdoc/>
+	public string CommitUrl(RepoRef repo, string sha) => GitHubReviewProvider.WebCommitUrl(repo, sha);
+
 	/// <inheritdoc/>
 	public string RefUrlBase(RepoRef repo) => GitHubReviewProvider.WebRefUrlBase(repo);
 

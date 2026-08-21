@@ -2,14 +2,22 @@ namespace Weavie.Hosting.Tests;
 
 /// <summary>Polling wait for bridge assertions: retries a selector until it yields a value, else times out.</summary>
 internal static class Wait {
-	public static async Task UntilAsync(Func<bool> condition) {
+	public static Task UntilAsync(Func<bool> condition) =>
+		UntilAsync(condition, TimeSpan.FromSeconds(5));
+
+	public static async Task UntilAsync(Func<bool> condition, TimeSpan timeout) {
 		ArgumentNullException.ThrowIfNull(condition);
-		for (int i = 0; i < 200; i++) {
+		ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(timeout, TimeSpan.Zero);
+		using var stopping = new CancellationTokenSource(timeout);
+		while (!stopping.IsCancellationRequested) {
 			if (condition()) {
 				return;
 			}
 
-			await Task.Delay(25);
+			try {
+				await Task.Delay(25, stopping.Token);
+			} catch (OperationCanceledException) when (stopping.IsCancellationRequested) {
+			}
 		}
 
 		throw new TimeoutException("Condition was not met within the timeout.");

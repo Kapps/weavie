@@ -1,5 +1,5 @@
-import type { Page } from "@playwright/test";
-import { openFile } from "../harness/actions";
+import type { Locator, Page } from "@playwright/test";
+import { awaitEditorLaidOut, openFile } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 
 // Alt+Click on a symbol peeks its definition inline — the same embedded window Find All References uses —
@@ -42,44 +42,38 @@ async function registerGreetDefinition(page: Page): Promise<void> {
   });
 }
 
-// The viewport point of `word`'s middle character on `line`, read from Monaco's own layout.
-async function wordPoint(
-  page: Page,
-  line: number,
-  word: string,
-): Promise<{ x: number; y: number }> {
-  const point = await page.evaluate(
-    (target) => {
-      const editor = (window as WeavieWindow).__WEAVIE_EDITOR__;
-      const model = editor?.getModel();
-      const dom = editor?.getDomNode();
-      if (editor === undefined || model === null || model === undefined || dom === null) {
-        return null;
-      }
-      const index = model.getLineContent(target.line).indexOf(target.word);
-      if (index < 0) {
-        return null;
-      }
-      const column = index + 1 + Math.floor(target.word.length / 2);
-      const spot = editor.getScrolledVisiblePosition({ lineNumber: target.line, column });
-      if (spot === null || dom === undefined) {
-        return null;
-      }
-      const rect = dom.getBoundingClientRect();
-      return { x: rect.left + spot.left, y: rect.top + spot.top + spot.height / 2 };
-    },
-    { line, word },
-  );
-  if (point === null) {
-    throw new Error(`no "${word}" on line ${line}`);
-  }
-  return point;
+// The rendered token for `word` on the line containing `lineText`.
+//
+// Monaco gives each token its own span, so the gesture can address the word itself instead of a viewport
+// coordinate computed from the editor's layout. That matters: the editor's offset in the window keeps moving
+// while the shell lays out and the session starts, and a coordinate measured before it settles addresses a
+// place the line has left by the time the click lands — which reads as "the peek never opened" rather than
+// "we clicked the wrong pixel". Waiting for the reading to stop changing wasn't enough either, because it can
+// sit stably wrong for many frames while the chrome is still assembling. Handing the target to Playwright
+// puts its actionability checks — visible, stable, receives pointer events — at the moment of the click.
+// `last()` takes the innermost span holding the word: a highlighted line nests one span per token inside a
+// span for the whole line, while plain text is a single span — this addresses the text either way, and never
+// the full-width line element, whose centre can land past the end of the code.
+//
+// Flaked on this exact call site three times on Windows CI (issue #625 run 31993224310; 2026-08-18 runs
+// 32096266021 and 32104522458 — https://github.com/Kapps/weavie/actions/runs/32104522458/job/95611908477)
+// with the same fingerprint each time: `renderedLines` showed only one, empty line at teardown while
+// `.editor`/`.monaco` read a healthy size — Monaco's viewport transiently clamped to 5px (see
+// docs/specs/e2e-flake-analysis.md), so the word's `.view-line` never rendered and the locator waited out
+// the full budget. `openFile`'s `awaitEditorLaidOut` guard only covers the layout at file-open time; any
+// later relayout (a click, a `page.evaluate` mutation, even just more of the shell settling) can reopen the
+// same window. Per the doc's own guidance, a third call site needing the same patch is the signal to stop
+// re-applying the wait at each one and gate the shared helper instead.
+async function wordToken(page: Page, lineText: string, word: string): Promise<Locator> {
+  await awaitEditorLaidOut(page);
+  return page
+    .locator(".view-line", { hasText: lineText })
+    .locator("span", { hasText: word })
+    .last();
 }
 
-async function altClick(page: Page, point: { x: number; y: number }): Promise<void> {
-  await page.keyboard.down("Alt");
-  await page.mouse.click(point.x, point.y);
-  await page.keyboard.up("Alt");
+async function altClick(word: Locator): Promise<void> {
+  await word.click({ modifiers: ["Alt"] });
 }
 
 test("alt+click on a symbol opens the definition peek inline, and Escape closes it", async ({
@@ -88,7 +82,7 @@ test("alt+click on a symbol opens the definition peek inline, and Escape closes 
   await focusEditor(page, "hello.ts");
   await registerGreetDefinition(page);
 
-  await altClick(page, await wordPoint(page, 5, "greet"));
+  await altClick(await wordToken(page, "const message = greet", "greet"));
   const peek = page.locator(".monaco-editor .peekview-widget");
   await expect(peek).toBeVisible();
   // The peek embeds its own editor showing the definition's file — the small window into the file.
@@ -102,8 +96,7 @@ test("Alt+F12 peeks the definition of the symbol at the cursor", async ({ page }
   await focusEditor(page, "hello.ts");
   await registerGreetDefinition(page);
 
-  const point = await wordPoint(page, 5, "greet");
-  await page.mouse.click(point.x, point.y);
+  await (await wordToken(page, "const message = greet", "greet")).click();
   await page.keyboard.press("Alt+F12");
   await expect(page.locator(".monaco-editor .peekview-widget")).toBeVisible();
 });
@@ -113,7 +106,7 @@ test("alt+click without a definition provider leaves Monaco's multicursor gestur
 }) => {
   await focusEditor(page, "notes.txt");
 
-  await altClick(page, await wordPoint(page, 1, "plain"));
+  await altClick(await wordToken(page, "just plain text", "plain"));
   // Monaco's default alt+click added a second cursor — the gesture declined and didn't swallow the click.
   await page.waitForFunction(
     () => ((window as WeavieWindow).__WEAVIE_EDITOR__?.getSelections() ?? []).length === 2,
@@ -148,7 +141,8 @@ test("alt+click during a multicursor session adds a cursor instead of peeking", 
       },
     ]);
   });
-  await altClick(page, await wordPoint(page, 5, "greet"));
+  // `wordToken` re-waits for editor layout itself (see its doc comment) — no separate guard needed here.
+  await altClick(await wordToken(page, "const message = greet", "greet"));
   await page.waitForFunction(
     () => ((window as WeavieWindow).__WEAVIE_EDITOR__?.getSelections() ?? []).length === 3,
   );

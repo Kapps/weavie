@@ -271,6 +271,7 @@ public sealed partial class HostCore {
 		return PreviewBranchNameAsync(
 			source?.WorktreePath ?? WorkspaceRoot,
 			message.Prompt,
+			message.Attachments,
 			message.AgentProviderId,
 			ct);
 	}

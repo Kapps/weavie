@@ -34,9 +34,14 @@ export function openControlAxis(): string | null {
   return openAxis();
 }
 
-/** Opens the picker for an axis (from a status-line segment or a `/model`-style command). */
+/** Opens the picker for an axis (from a `/model`-style command). */
 export function openControlPicker(axis: string): void {
   setOpenAxis(axis);
+}
+
+/** Toggles an axis's picker: a status-line segment closes the picker it opened, and switches axes otherwise. */
+export function toggleControlPicker(axis: string): void {
+  setOpenAxis((current) => (current === axis ? null : axis));
 }
 
 /** Closes any open control picker. */

@@ -20,7 +20,7 @@ internal sealed class LinuxGlobalHotkeys : IGlobalHotkeyRegistrar {
 
 		_backend = Gdk.GetDisplayBackend(display) switch {
 			Gdk.DisplayBackend.Wayland => new WaylandGlobalHotkeys(new XdgGlobalShortcutsPortal()),
-			Gdk.DisplayBackend.X11 => new X11GlobalHotkeys(display),
+			Gdk.DisplayBackend.X11 => new X11GlobalHotkeys(),
 			_ => new UnsupportedLinuxGlobalHotkeys(),
 		};
 		_backend.Pressed += OnPressed;

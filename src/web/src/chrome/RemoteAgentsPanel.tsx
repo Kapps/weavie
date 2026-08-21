@@ -3,7 +3,7 @@ import { createMemo, createSignal, For, type JSX, onCleanup, onMount, Show } fro
 import { Portal } from "solid-js/web";
 import { ContextMenu, type ContextMenuState } from "./ContextMenu";
 import { type PopoverAnchor, placeRailPopover } from "./popover-position";
-import { sessionMenuEntries } from "./session-menu";
+import { sessionMenuAt } from "./session-menu";
 import type { RailSession, RemoteAgentRow } from "./session-store";
 
 // The cloud panel: manage + pick remote agents, opened from the rail's cloud button. Lists each agent
@@ -71,12 +71,7 @@ export function RemoteAgentsPanel(props: {
   const [menu, setMenu] = createSignal<ContextMenuState | null>(null);
   const openMenu = (event: MouseEvent, session: RailSession): void => {
     event.preventDefault();
-    setMenu({
-      x: event.clientX,
-      y: event.clientY,
-      header: `${session.label} @ ${session.locationName}`,
-      entries: sessionMenuEntries(session, false),
-    });
+    setMenu(sessionMenuAt(session, event.clientX, event.clientY, false));
   };
 
   return (

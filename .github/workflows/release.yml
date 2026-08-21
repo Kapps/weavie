@@ -53,6 +53,7 @@ jobs:
       # Build the exact trusted push commit that passed CI, never a newer unvalidated main tip.
       - uses: actions/checkout@v4
         with:
+          persist-credentials: false
           ref: ${{ github.event.workflow_run.head_sha }}
 
       - name: Set up toolchain and build web app
@@ -121,12 +122,20 @@ jobs:
       # releases check out their own ref.
       - uses: actions/checkout@v4
         with:
+          persist-credentials: false
           ref: >-
             ${{ github.event_name == 'workflow_run' &&
                 github.event.workflow_run.head_sha || github.ref }}
 
       - name: Set up toolchain and build web app
         uses: ./.github/actions/publish-setup
+
+      # The Linux host compiles its display-sync library against libdrm's headers.
+      - name: Install Linux native build dependencies
+        if: matrix.name == 'linux-x64'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends libdrm-dev pkg-config
 
       # The hosted image's default Xcode lags the .NET macOS workload's requirement (e.g. workload
       # 26.5.10301 needs Xcode 26.6, but the image defaults to 26.5). Both ship side-by-side on the

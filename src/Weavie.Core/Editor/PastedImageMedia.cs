@@ -33,7 +33,7 @@ public static class PastedImageMedia {
 				$"Can't paste that image type ({(mime.Length == 0 ? "unknown" : mime)}) — use PNG, JPEG, GIF, or WebP.");
 		}
 
-		long approximateBytes = (long)dataB64.Length / 4 * 3;
+		long approximateBytes = DecodedByteUpperBound(dataB64);
 		if (approximateBytes > MaxBytes) {
 			throw new InvalidOperationException(
 				$"That image is {approximateBytes / (1024.0 * 1024.0):0.0} MB — Weavie accepts agent images up to {MaxBytes / (1024 * 1024)} MB.");
@@ -45,5 +45,11 @@ public static class PastedImageMedia {
 		}
 
 		return (extension, bytes);
+	}
+
+	/// <summary>Returns a conservative decoded-byte bound for base64 text without allocating its output.</summary>
+	public static long DecodedByteUpperBound(string dataB64) {
+		ArgumentNullException.ThrowIfNull(dataB64);
+		return (long)dataB64.Length / 4 * 3;
 	}
 }

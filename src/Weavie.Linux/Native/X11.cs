@@ -61,4 +61,40 @@ internal static partial class X11 {
 	[LibraryImport(Lib)]
 	internal static partial int XSync(IntPtr display, int discard);
 
+	/// <summary>An X protocol error, as the error handler receives it.</summary>
+	[StructLayout(LayoutKind.Sequential)]
+	internal struct ErrorEvent {
+		internal int _type;
+		internal IntPtr _display;
+		internal nuint _resourceId;
+		internal nuint _serial;
+		internal byte _errorCode;
+		internal byte _requestCode;
+		internal byte _minorCode;
+	}
+
+	/// <summary>Opens a private connection to <paramref name="displayName"/> (NULL for <c>$DISPLAY</c>).</summary>
+	[LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
+	internal static partial IntPtr XOpenDisplay(string? displayName);
+
+	[LibraryImport(Lib)]
+	internal static partial int XCloseDisplay(IntPtr display);
+
+	/// <summary>The connection's file descriptor, so the main loop can watch it for readable events.</summary>
+	[LibraryImport(Lib)]
+	internal static partial int XConnectionNumber(IntPtr display);
+
+	[LibraryImport(Lib)]
+	internal static partial int XPending(IntPtr display);
+
+	/// <summary>Reads the next event into a caller-owned buffer the size of an <c>XEvent</c> union.</summary>
+	[LibraryImport(Lib)]
+	internal static partial int XNextEvent(IntPtr display, IntPtr eventBuffer);
+
+	/// <summary>Installs an error handler, returning the one it replaced. Xlib's default one exits the process.</summary>
+	[LibraryImport(Lib)]
+	internal static partial IntPtr XSetErrorHandler(IntPtr handler);
+
+	/// <summary>An <c>XEvent</c> is a union of 24 machine words; every read needs a buffer that large.</summary>
+	internal static int EventSize => 24 * IntPtr.Size;
 }

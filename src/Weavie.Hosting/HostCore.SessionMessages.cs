@@ -114,6 +114,20 @@ public sealed partial class HostCore {
 			"query",
 			(message, ct) => SearchInFilesAsync(session, message, ct));
 
+		var git = session.Bus.Feature("git");
+		git.HandleConcurrent<FilePathRequest, BlameResult>(
+			"blame",
+			(message, ct) => BlameFileAsync(session, message, ct));
+		git.HandleConcurrent<CommitHunkRequest, CommitHunkResult>(
+			"commitHunk",
+			(message, ct) => CommitHunkAsync(session, message, ct));
+		git.HandleConcurrent<HistoryRequest, HistoryResult>(
+			"history",
+			(message, ct) => BlameHistoryAsync(session, message, ct));
+		git.HandleConcurrent<CommitRefRequest, CommitRefResult>(
+			"commitRef",
+			(message, ct) => CommitRefAsync(message, ct));
+
 		var pullRequests = session.Bus.Feature("pullRequests");
 		pullRequests.Handle<PullRequestQuery, PullRequestWire[]>(
 			"list",
@@ -194,7 +208,11 @@ public sealed partial class HostCore {
 
 	private sealed record CommandRequest(string Id, JsonElement? Args);
 
-	private sealed record HostBranchPreviewRequest(string? SourceId, string? Prompt, string AgentProviderId);
+	private sealed record HostBranchPreviewRequest(
+		string? SourceId,
+		string? Prompt,
+		IReadOnlyList<NewSessionAttachment> Attachments,
+		string AgentProviderId);
 
 	private sealed record BranchPreviewResult(string Branch, string? Error);
 

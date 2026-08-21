@@ -21,6 +21,8 @@ jobs:
       NODE_OPTIONS: --max-old-space-size=4096
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Test rolling release publisher
         run: bash .github/scripts/test-publish-main-latest.sh
@@ -48,15 +50,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/setup-dotnet
 
+      # libdrm's headers describe the structs the display-sync library rewrites; libwebkitgtk-6.0-4 pulls
+      # in the GTK 4 stack the host renders through.
       - name: Install Linux native host test dependencies
         run: |
           sudo apt-get update
           sudo apt-get install --no-install-recommends \
             dbus-daemon \
             gstreamer1.0-plugins-good \
-            libwebkit2gtk-4.1-0 \
+            libdrm-dev \
+            libwebkitgtk-6.0-4 \
+            pkg-config \
+            wayland-utils \
             weston
 
       - name: Test Core
@@ -99,7 +108,16 @@ jobs:
             restore: src/Weavie.Win/Weavie.Win.csproj
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/setup-dotnet
+
+      # The Linux host compiles its display-sync library against libdrm's headers.
+      - name: Install Linux native build dependencies
+        if: matrix.name == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends libdrm-dev pkg-config
 
       # net10.0-macos follows Xcode's SDK and workload versions. Select the newest real bundle before
       # restoring the one solution-wide format workspace that can evaluate every platform project.

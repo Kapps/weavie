@@ -749,7 +749,13 @@ export class MockHost {
     if (existing !== undefined) {
       return Promise.resolve(existing);
     }
-    const timeoutMs = process.platform === "linux" ? 15_000 : 30_000;
+    // This wait fires before Playwright's own per-test timeout (see playwright.config.ts) so a genuine
+    // hang reports a clear "timed out waiting for X" instead of a blunt kill. Windows/macOS hosted runners
+    // are slower and noisier than Linux, so they get a wider budget — widened again after a repeat: 2026-08-16
+    // 07:22 UTC, agent-composer.spec.ts's connection.hello wait missed the prior 30s budget by ~300ms on
+    // windows-latest, unrelated to the PR that surfaced it
+    // (https://github.com/Kapps/weavie/actions/runs/31933442738/job/95132055144).
+    const timeoutMs = process.platform === "linux" ? 15_000 : 45_000;
     return new Promise<MessageEnvelope>((resolve, reject) => {
       const waiter: MessageWaiter = {
         selector,
@@ -888,7 +894,9 @@ const BOOTSTRAP_GLOBALS: Record<string, unknown> = {
     soundPack: "weavie",
     gates: { turnComplete: true, needsInput: true, failed: true },
   },
-  __WEAVIE_EDITOR_OPTIONS__: {},
+  // The mock host serves no git feature, so blame is off here — otherwise every opened file would issue a
+  // `git.blame` request nothing answers.
+  __WEAVIE_EDITOR_OPTIONS__: { gitBlame: "off" },
   __WEAVIE_THEME__: { mode: "system", light: { id: "weavie-light" }, dark: { id: "weavie-dark" } },
   __WEAVIE_COMMANDS__: [],
   __WEAVIE_KEYBINDINGS__: [],

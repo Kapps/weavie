@@ -1,6 +1,21 @@
 import { CommandIds } from "../commands/types";
-import type { ContextMenuEntry } from "./ContextMenu";
+import type { ContextMenuEntry, ContextMenuState } from "./ContextMenu";
 import type { RailSession } from "./session-store";
+
+/** The whole open menu for a session, named by its label (qualified by location when it isn't local). */
+export function sessionMenuAt(
+  session: RailSession,
+  x: number,
+  y: number,
+  inRail: boolean,
+): ContextMenuState {
+  return {
+    x,
+    y,
+    header: session.isLocal ? session.label : `${session.label} @ ${session.locationName}`,
+    entries: sessionMenuEntries(session, inRail),
+  };
+}
 
 // The right-click entries for a session chip, shared by the rail and the cloud panel so both menus stay
 // identical and command-driven. Every command carries the session's owning `backendId`, so a remote session's

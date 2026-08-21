@@ -15,10 +15,13 @@ export function installAgentMiddleClickAutoscroll(element: HTMLElement): () => v
   let originY = 0;
   let pointerY = 0;
   let movedWhileHeld = false;
+  let held: AbortController | null = null;
   const stop = (): void => {
     scrolling = false;
     cancelAnimationFrame(frame);
     frame = 0;
+    held?.abort();
+    held = null;
     element.classList.remove("agent-middle-click-autoscrolling");
   };
   const animate = (time: number): void => {
@@ -59,6 +62,15 @@ export function installAgentMiddleClickAutoscroll(element: HTMLElement): () => v
       return;
     }
     consume(event);
+    // Bound to the drag: a window-level wheel listener — passive or not — takes the page off WebKit's
+    // async-scrolling path, so it must not outlive an active autoscroll.
+    held = new AbortController();
+    const heldOptions = { capture: true, signal: held.signal };
+    window.addEventListener("mousemove", onMouseMove, heldOptions);
+    window.addEventListener("mouseup", onMouseUp, heldOptions);
+    window.addEventListener("keydown", onKeyDown, heldOptions);
+    window.addEventListener("wheel", stop, heldOptions);
+    window.addEventListener("blur", stop, { signal: held.signal });
     scrolling = true;
     originY = pointerY = event.clientY;
     movedWhileHeld = false;
@@ -88,13 +100,10 @@ export function installAgentMiddleClickAutoscroll(element: HTMLElement): () => v
     }
   };
   const controller = new AbortController();
-  const options = { capture: true, signal: controller.signal };
-  document.addEventListener("mousedown", onMouseDown, options);
-  window.addEventListener("mousemove", onMouseMove, options);
-  window.addEventListener("mouseup", onMouseUp, options);
-  window.addEventListener("keydown", onKeyDown, options);
-  window.addEventListener("wheel", stop, options);
-  window.addEventListener("blur", stop, { signal: controller.signal });
+  document.addEventListener("mousedown", onMouseDown, {
+    capture: true,
+    signal: controller.signal,
+  });
   return () => {
     controller.abort();
     stop();

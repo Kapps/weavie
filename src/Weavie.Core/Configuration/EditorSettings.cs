@@ -71,13 +71,28 @@ public static class EditorSettings {
 	/// <summary>Start playback when a video file opens in the media pane (custom behavior).</summary>
 	public const string VideoAutoplay = "editor.videoAutoplay";
 
+	/// <summary>Which lines carry the faded Git blame annotation — none/the cursor's/every line (custom behavior).</summary>
+	public const string GitBlame = "editor.gitBlame";
+
 	/// <summary>Every editor-option key — the host subscribes to all of them to re-push on any change.</summary>
 	public static readonly IReadOnlyList<string> Keys = [
 		InlayHints, Minimap, BracketPairColorization, SmoothScrolling, CursorSmoothCaretAnimation,
 		RenderWhitespace, ScrollBeyondLastLine, WordWrap, LineNumbers, CursorBlinking, RenderLineHighlight,
 		StickyScroll, FontLigatures, IndentGuides, HoverDelay, SuggestExpandDocs, CommentProse, PaneShortcutHints,
-		VideoAutoplay,
+		VideoAutoplay, GitBlame,
 	];
+
+	/// <summary>The <see cref="GitBlame"/> value meaning "no annotation" — what the toggle command turns off to.</summary>
+	public const string GitBlameOff = "off";
+
+	/// <summary>
+	/// The <see cref="GitBlame"/> default: only the cursor's line is annotated. Also what the toggle command
+	/// turns back on to.
+	/// </summary>
+	public const string GitBlameCurrentLine = "currentLine";
+
+	/// <summary>The <see cref="GitBlame"/> value annotating each line that starts a commit's run.</summary>
+	public const string GitBlameAll = "all";
 
 	// Monaco's standard default; long enough to avoid flicker on a quick mouse pass. 0 (instant) is the floor.
 	private const long DefaultHoverDelay = 300;
@@ -104,8 +119,8 @@ public static class EditorSettings {
 		registry.Register(Toggle(BracketPairColorization,
 			"Colorize matching bracket pairs by nesting depth.",
 			["bracket pair colorization", "bracket colors", "rainbow brackets"], true));
-		registry.Register(Toggle(SmoothScrolling, "Animate editor scrolling instead of jumping.",
-			["smooth scrolling", "animated scrolling"], false));
+		registry.Register(Toggle(SmoothScrolling, "Animate editor and terminal scrolling instead of jumping.",
+			["smooth scrolling", "animated scrolling"], true));
 		registry.Register(Choice(CursorSmoothCaretAnimation, "Animate the cursor's caret as it moves.",
 			["cursor animation", "caret animation", "smooth caret"], ["off", "on", "explicit"], "off"));
 		registry.Register(Choice(RenderWhitespace, "Render whitespace characters (spaces and tabs).",
@@ -170,6 +185,16 @@ public static class EditorSettings {
 				+ "turn it off to open videos paused.",
 			["video autoplay", "autoplay video", "autoplay", "auto play videos", "play videos automatically"],
 			true));
+
+		registry.Register(Choice(GitBlame,
+			"Show who last changed a line as a faded annotation at the end of it — author, when, and the commit "
+				+ "subject. Click one to see the change that line came from, its pull request, and the other commits "
+				+ "that touched the line or the file. 'currentLine' (the default) annotates only the line the cursor "
+				+ "is on; 'all' annotates every line that starts a commit's run, so a stretch of lines from one "
+				+ "commit is labelled once at its top rather than on every line; 'off' none.",
+			["git blame", "blame", "blame annotations", "git lens", "gitlens", "line authorship", "who wrote this",
+				"inline blame", "commit annotations"],
+			[GitBlameOff, GitBlameCurrentLine, GitBlameAll], GitBlameCurrentLine));
 	}
 
 	/// <summary>
@@ -203,6 +228,7 @@ public static class EditorSettings {
 		writer.WriteString("commentProse", store.RequireString(CommentProse));
 		writer.WriteBoolean("paneShortcutHints", store.RequireBool(PaneShortcutHints));
 		writer.WriteBoolean("videoAutoplay", store.RequireBool(VideoAutoplay));
+		writer.WriteString("gitBlame", store.RequireString(GitBlame));
 		writer.WriteEndObject();
 	}
 

@@ -448,22 +448,101 @@ test("touch scrolling and tapping a mouse-aware Claude prompt send valid input",
   });
 });
 
-test("Claude Code accepts back swipes only from the terminal edge", async ({ page }) => {
+test("Claude Code accepts back swipes beside the screen edge, never on it", async ({ page }) => {
   await page.locator(".session-inbox-row").click();
   const terminal = page.locator('.terminal-surface[data-kind="terminal:claude"]');
   const body = terminal.locator(".xterm-screen");
   await expect(body).toBeVisible();
 
-  await dispatchPaneTouch(body, "touchstart", { x: 80, y: 240 });
-  await dispatchPaneTouch(body, "touchmove", { x: 220, y: 240 });
-  await dispatchPaneTouch(body, "touchend", { x: 220, y: 240 });
+  await dispatchPaneTouch(body, "touchstart", { x: 100, y: 240 });
+  await dispatchPaneTouch(body, "touchmove", { x: 240, y: 240 });
+  await dispatchPaneTouch(body, "touchend", { x: 240, y: 240 });
   await expect(terminal).toBeVisible();
   await expect(page.locator(".session-inbox")).toBeHidden();
 
   await dispatchPaneTouch(body, "touchstart", { x: 16, y: 240 });
   await dispatchPaneTouch(body, "touchmove", { x: 156, y: 240 });
   await dispatchPaneTouch(body, "touchend", { x: 156, y: 240 });
+  await expect(terminal).toBeVisible();
+  await expect(page.locator(".session-inbox")).toBeHidden();
+
+  await dispatchPaneTouch(body, "touchstart", { x: 48, y: 240 });
+  await dispatchPaneTouch(body, "touchmove", { x: 188, y: 240 });
+  await dispatchPaneTouch(body, "touchend", { x: 188, y: 240 });
   await expect(page.locator(".session-inbox")).toBeVisible();
+});
+
+// Touch chrome hides the session rail, so the inbox row is where a session is managed: hold it (the
+// stand-in for right-click) or tap its actions button, and the entries are the rail's own command rows.
+test("a compact session row manages its session from a hold and its actions button", async ({
+  page,
+}) => {
+  const inbox = page.locator(".session-inbox");
+  const row = inbox.locator(".session-inbox-row").first();
+  const menu = page.locator(".context-menu");
+  const manage = row.getByRole("button", { name: /^Manage / });
+  await expect(row).toBeVisible();
+
+  const bounds = await row.boundingBox();
+  if (bounds === null) {
+    throw new Error("Missing session row bounds");
+  }
+  const touch = await page.context().newCDPSession(page);
+  const point = { x: bounds.x + 60, y: bounds.y + bounds.height / 2 };
+  const hold = async (): Promise<void> => {
+    await touch.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [point] });
+    await expect(menu).toBeVisible();
+  };
+
+  // A press that drifts is the user scrolling the list, so it must never arm the menu. Only a real wait past
+  // the hold deadline can prove "never opens" — an immediate assertion would pass before the timer fires.
+  await touch.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [point] });
+  for (const dy of [12, 30, 48]) {
+    await touch.send("Input.dispatchTouchEvent", {
+      type: "touchMove",
+      touchPoints: [{ x: point.x, y: point.y - dy }],
+    });
+  }
+  await page.waitForTimeout(800);
+  await expect(menu).toHaveCount(0);
+  await touch.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  await expect(inbox).toBeVisible();
+
+  await hold();
+  await touch.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+
+  // The click the release synthesizes lands on the menu that just appeared under the finger — it must not
+  // run one of its rows, nor fall through to the row and open the session.
+  await expect(menu).toBeVisible();
+  await expect(page.locator(".confirm-dialog")).toHaveCount(0);
+  await expect(inbox).toBeVisible();
+  await expect(menu.locator(".context-menu-item")).toHaveText(["Unload session", "Delete…"]);
+  const rowHeights = await menu
+    .locator(".context-menu-item")
+    .evaluateAll((items) => items.map((item) => item.getBoundingClientRect().height));
+  expect(Math.min(...rowHeights)).toBeGreaterThanOrEqual(44);
+
+  await menu.locator(".context-menu-item", { hasText: "Unload session" }).click();
+  await expect(row.locator(".session-inbox-state")).toHaveText("Unloaded");
+
+  // Sliding off the row before lifting cancels the touch, which synthesizes no click at all — so nothing may
+  // stay armed to eat the tap that follows.
+  await hold();
+  await touch.send("Input.dispatchTouchEvent", {
+    type: "touchMove",
+    touchPoints: [{ x: point.x, y: point.y + 60 }],
+  });
+  await touch.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  await expect(menu.locator(".context-menu-item")).toHaveText(["Load session", "Delete…"]);
+  await menu.locator(".context-menu-item", { hasText: "Load session" }).click();
+  await expect(row.locator(".session-inbox-state")).not.toHaveText("Unloaded");
+
+  await manage.click();
+  await menu.locator(".context-menu-item.danger", { hasText: "Delete" }).click();
+  const dialog = page.locator(".confirm-dialog");
+  await expect(dialog).toBeVisible();
+  await dialog.locator(".confirm-btn-danger").click();
+  await expect(page.locator(".toast", { hasText: "was deleted." })).toHaveCount(1);
 });
 
 test("WebM video opens inline in the compact editor", async ({ page }) => {
@@ -731,6 +810,20 @@ test("compact session inbox creates, resumes, and switches existing surfaces", a
   await agentFileLink.click();
   await expect(page.locator(".mobile-surface-button.active")).toHaveText("Code");
 
+  // The browser navigating mid-swipe — its own edge gesture, the OS back button — takes the surface the
+  // transition was moving off, so the transition goes rather than committing a second move on top of it.
+  await dispatchPaneTouch(editorChrome, "touchstart", { x: 80, y: 240 });
+  await dispatchPaneTouch(editorChrome, "touchmove", { x: 220, y: 240 });
+  await expect(page.locator(".app.mobile-transition")).toHaveCount(1);
+  await page.evaluate(() => history.back());
+  await expect(page.locator(".mobile-surface-button.active")).toHaveText("Agent");
+  await expect(page.locator(".app.mobile-transition")).toHaveCount(0);
+  await dispatchPaneTouch(editorChrome, "touchend", { x: 270, y: 240 });
+  await expect(page.locator(".mobile-surface-button.active")).toHaveText("Agent");
+  await expect(inbox).toBeHidden();
+  await page.goForward();
+  await expect(page.locator(".mobile-surface-button.active")).toHaveText("Code");
+
   await dispatchPaneTouch(editorChrome, "touchstart", { x: 80, y: 240 });
   await dispatchPaneTouch(editorChrome, "touchmove", { x: 220, y: 240 });
   await expect(agentSurface).toBeVisible();
@@ -743,6 +836,14 @@ test("compact session inbox creates, resumes, and switches existing surfaces", a
   await dispatchPaneTouch(editorChrome, "touchend", { x: 270, y: 240 });
   await expect(page.locator(".mobile-surface-button.active")).toHaveText("Agent");
   await expect(agentSurface).toBeVisible();
+
+  // A swipe off the screen edge is iOS's own back gesture, which pops the same history Weavie navigates:
+  // tracking it here as well left the touch driving two back navigations at once.
+  await dispatchPaneTouch(agentBody, "touchstart", { x: 12, y: 240 });
+  expect(await dispatchPaneTouch(agentBody, "touchmove", { x: 220, y: 240 })).toBe(true);
+  await dispatchPaneTouch(agentBody, "touchend", { x: 270, y: 240 });
+  await expect(inbox).toBeHidden();
+  await expect(page.locator(".app.mobile-transition")).toHaveCount(0);
 
   await dispatchPaneTouch(agentBody, "touchstart", { x: 80, y: 240 });
   await dispatchPaneTouch(agentBody, "touchmove", { x: 220, y: 240 });
@@ -757,6 +858,30 @@ test("compact session inbox creates, resumes, and switches existing surfaces", a
   await expect(page.locator(".mobile-surface-button.active")).toHaveText("Agent");
 
   const bar = page.locator(".mobile-surface-bar");
+  // The bar swipes both ways and reaches both screen edges, which the browser navigates history from.
+  for (const edge of [12, 378]) {
+    await bar.dispatchEvent("pointerdown", {
+      clientX: edge,
+      clientY: 20,
+      pointerId: 0,
+      pointerType: "touch",
+    });
+    await bar.dispatchEvent("pointermove", {
+      clientX: 195,
+      clientY: 20,
+      pointerId: 0,
+      pointerType: "touch",
+    });
+    await bar.dispatchEvent("pointerup", {
+      clientX: 195,
+      clientY: 20,
+      pointerId: 0,
+      pointerType: "touch",
+    });
+    await expect(page.locator(".app.mobile-transition")).toHaveCount(0);
+    await expect(page.locator(".mobile-surface-button.active")).toHaveText("Agent");
+  }
+
   await bar.dispatchEvent("pointerdown", {
     clientX: 300,
     clientY: 20,

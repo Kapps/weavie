@@ -27,6 +27,8 @@ jobs:
       NODE_OPTIONS: --max-old-space-size=4096
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/setup-dotnet
       - uses: ./.github/actions/setup-web
 
@@ -84,6 +86,8 @@ jobs:
         shards: [6]
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/setup-web
 
       - name: Install web dependencies
@@ -98,6 +102,10 @@ jobs:
 
       # upload-artifact does not preserve executable bits. The worker's staged wwwroot is also copied back
       # to the checkout for browser-only specs whose mock host serves src/web/dist directly.
+      #
+      # Flake, 2026-08-16 21:04 UTC: https://github.com/Kapps/weavie/actions/runs/31972425232/job/95227136515
+      # macOS hosted runner returned `fcopyfile failed: Input/output error` from `cp -R` on a transient
+      # disk hiccup — no code or test defect. Retrying the copy on failure.
       - name: Prepare test bundle
         shell: bash
         run: |
@@ -110,7 +118,17 @@ jobs:
               .e2e-bundle/fake-acp/weavie-fake-acp
           fi
           mkdir -p src/web/dist
-          cp -R .e2e-bundle/runner/worker/wwwroot/. src/web/dist/
+          for attempt in 1 2 3; do
+            if cp -R .e2e-bundle/runner/worker/wwwroot/. src/web/dist/; then
+              break
+            fi
+            if [[ $attempt == 3 ]]; then
+              echo "cp failed after $attempt attempts" >&2
+              exit 1
+            fi
+            echo "cp failed (attempt $attempt), retrying..." >&2
+            sleep 2
+          done
 
       - name: Cache Playwright browsers
         uses: actions/cache@v4
@@ -159,6 +177,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/setup-web
 
       - name: Install web dependencies

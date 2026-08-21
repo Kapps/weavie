@@ -71,6 +71,14 @@ The generic idle condition is the absence of a primary prompt and live ACP tool 
 while a tool remains active; the session stays Waiting until the tool completes. Runtime failure and explicit
 restart terminalize partial content and active tools so stale work cannot appear live.
 
+**Only the current agent process can own live work.** `session/load` always replays into a freshly spawned agent, so
+a tool call the transcript still calls running died with the process that ran it — no terminal update can ever
+arrive for it. Such a tool is recorded as cancelled when the replay ends, never counted as background work. Left
+live it would be unsettleable: Waiting has no other exit, so one interrupted tool would pin the session for the
+host's whole life and hold the update drain with it. The judgement happens once the replay is over rather than per
+update, because a finished tool replays as two frames whose first one is non-terminal. For the same reason
+`session/resume` must not replay: it is the reconnect path, where the pane content is already loaded.
+
 Elicitation is an explicit trust boundary. Form and URL cards support accept, decline, and cancel; browser flows
 require absolute HTTP(S) URLs. Password fields and unsafe URL schemes are rejected visibly. Permissions default to
 the strongest allow choice the agent advertises; provider sandboxing remains provider-owned.

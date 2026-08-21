@@ -3,7 +3,7 @@ import { formatKey } from "../commands/keybindings";
 import { findCommand, getKeybindings } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { ContextMenu, type ContextMenuState } from "./ContextMenu";
-import { sessionMenuEntries } from "./session-menu";
+import { sessionMenuAt } from "./session-menu";
 import type { RailSession } from "./session-store";
 
 // A filled cloud silhouette, reused for the remote marker on a promoted chip and the cloud button glyph.
@@ -53,12 +53,7 @@ export function SessionRail(props: {
   const [menu, setMenu] = createSignal<ContextMenuState | null>(null);
   const openMenu = (event: MouseEvent, session: RailSession): void => {
     event.preventDefault();
-    setMenu({
-      x: event.clientX,
-      y: event.clientY,
-      header: session.isLocal ? session.label : `${session.label} @ ${session.locationName}`,
-      entries: sessionMenuEntries(session, true),
-    });
+    setMenu(sessionMenuAt(session, event.clientX, event.clientY, true));
   };
 
   return (

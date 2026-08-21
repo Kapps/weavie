@@ -1,5 +1,7 @@
+using Weavie.Core.Editor;
 using Weavie.Core.Git;
 using Weavie.Core.Inference;
+using Weavie.Core.Sessions;
 
 namespace Weavie.Hosting;
 
@@ -7,10 +9,19 @@ public sealed partial class HostCore {
 	private async Task<BranchPreviewResult> PreviewBranchNameAsync(
 		string sourceRoot,
 		string? prompt,
+		IReadOnlyList<NewSessionAttachment> attachments,
 		string agentProviderId,
 		CancellationToken ct) {
-		if (string.IsNullOrWhiteSpace(prompt)) {
-			return new BranchPreviewResult(string.Empty, "Type a prompt before requesting a branch suggestion.");
+		if (!ValidateBranchPreviewAttachments(attachments, out string attachmentError)) {
+			return new BranchPreviewResult(string.Empty, attachmentError);
+		}
+		if (!TryDecodeInitialInput(prompt, attachments, out var initialInput, out string inputError)) {
+			return new BranchPreviewResult(string.Empty, inputError);
+		}
+		if (initialInput is null) {
+			return new BranchPreviewResult(
+				string.Empty,
+				"Type a prompt or attach an image before requesting a branch suggestion.");
 		}
 
 		var git = new GitService();
@@ -19,7 +30,7 @@ public sealed partial class HostCore {
 		try {
 			taken = await TakenBranchNamesAsync(ct).ConfigureAwait(false);
 			input = new BranchNameInferenceInput {
-				Prompt = prompt.Trim(),
+				Prompt = initialInput.Text,
 				CurrentBranch = await git.GetCurrentBranchAsync(sourceRoot, ct).ConfigureAwait(false) ?? string.Empty,
 				RecentBranches = await git.ListRecentBranchesAsync(sourceRoot, 20, ct).ConfigureAwait(false),
 			};
@@ -32,7 +43,13 @@ public sealed partial class HostCore {
 		var result = await _inference.QueryAsync(
 			owner,
 			InferenceModelCategory.Utility,
-			BranchNameInference.BuildPrompt(input),
+			new InferenceInput {
+				Prompt = BranchNameInference.BuildPrompt(input),
+				Images = [.. initialInput.Attachments.Select(image => new InferenceInputImage {
+					Mime = image.Mime,
+					Bytes = image.Bytes,
+				})],
+			},
 			BranchNameInference.ResponseType,
 			BranchNameInference.QueryOptions,
 			ct).ConfigureAwait(false);
@@ -63,6 +80,29 @@ public sealed partial class HostCore {
 		} catch (GitException ex) {
 			return new BranchPreviewResult(string.Empty, $"Couldn't validate the suggested branch name: {ex.Message}");
 		}
+	}
+
+	private static bool ValidateBranchPreviewAttachments(
+		IReadOnlyList<NewSessionAttachment> attachments,
+		out string error) {
+		var options = BranchNameInference.QueryOptions;
+		if (attachments.Count > options.MaxImageCount) {
+			error = $"Branch suggestions accept up to {options.MaxImageCount} images.";
+			return false;
+		}
+
+		long imageBytes = 0;
+		foreach (var attachment in attachments) {
+			long upperBound = PastedImageMedia.DecodedByteUpperBound(attachment.DataB64);
+			if (upperBound > options.MaxImageBytes - imageBytes) {
+				error = $"Branch-suggestion images can total up to {options.MaxImageBytes / (1024 * 1024)} MB.";
+				return false;
+			}
+			imageBytes += upperBound;
+		}
+
+		error = string.Empty;
+		return true;
 	}
 
 	private async Task<HashSet<string>> TakenBranchNamesAsync(CancellationToken ct) {

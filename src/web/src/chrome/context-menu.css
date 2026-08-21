@@ -85,3 +85,13 @@
 .context-menu-item.danger:focus .context-menu-keys {
   color: rgba(255, 255, 255, 0.75);
 }
+/* Touch chrome: same menu, touch-sized rows. Keyed off the compact media query rather than `.app.compact`,
+   because the menu is portaled to <body>, outside the app element. */
+@media (max-width: 760px), ((max-height: 520px) and (pointer: coarse)) {
+  .context-menu {
+    min-width: 14em;
+  }
+  .context-menu-item {
+    min-height: 44px;
+  }
+}

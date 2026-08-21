@@ -24,6 +24,15 @@ public sealed class SessionCommandsTests {
 		Assert.Equal("Shift+Enter", submitBinding.Key);
 		Assert.Equal("newSessionPromptFocused", submitBinding.When);
 		Assert.True(submitDef.KeybindingsActiveInModal);
+		Assert.True(registry.TryGet(SessionCommands.PasteNewSession, out var pasteDef));
+		Assert.Equal(CommandLocation.Web, pasteDef!.RunsIn);
+		Assert.Equal(CommandOwner.Client, pasteDef.Owner);
+		Assert.False(pasteDef.ShowInPalette);
+		var pasteBinding = Assert.Single(pasteDef.DefaultKeybindings);
+		Assert.Equal("$mod+v", pasteBinding.Key);
+		Assert.Equal("newSessionPromptFocused && !browserShell", pasteBinding.When);
+		Assert.True(pasteDef.KeybindingsActiveInModal);
+		Assert.Equal(pasteDef.ExecutionLane, submitDef.ExecutionLane);
 		Assert.True(registry.TryGet(SessionCommands.ForkSession, out var forkDef));
 		Assert.Equal(CommandLocation.Core, forkDef!.RunsIn);
 		Assert.True(registry.TryGet(SessionCommands.LoadSession, out var loadDef));

@@ -3,129 +3,101 @@ using System.Runtime.InteropServices;
 namespace Weavie.Linux.Native;
 
 /// <summary>
-/// P/Invoke into GTK 3 — create the top-level window that hosts the WebKit view, capture/restore its
-/// geometry, and run the main loop.
+/// P/Invoke into GTK 4 — the top-level window that hosts the WebKit view, its geometry, the key controller,
+/// and the native dialogs. GTK 4 ships GDK, GSK, and GTK in one library, so the GDK bindings share this name.
 /// </summary>
 internal static partial class Gtk {
-	private const string Lib = "libgtk-3.so.0";
+	internal const string Lib = "libgtk-4.so.1";
 
-	/// <summary><c>GTK_WINDOW_TOPLEVEL</c>, the only window type the host creates.</summary>
-	internal const int WindowToplevel = 0;
-
-	/// <summary><c>GDK_SELECTION_CLIPBOARD</c> as a GdkAtom (predefined atom 69) — the system clipboard selection.</summary>
-	internal static readonly IntPtr SelectionClipboard = new(69);
-
-	/// <summary><c>GTK_FILE_CHOOSER_ACTION_SELECT_FOLDER</c> — the Open Folder picker mode.</summary>
-	internal const int FileChooserActionSelectFolder = 2;
-
-	/// <summary><c>GTK_RESPONSE_ACCEPT</c> — the picker's accept response.</summary>
-	internal const int ResponseAccept = -3;
-
-	/// <summary>GTK enum values for a modal warning dialog with one OK button.</summary>
-	internal const int DialogModal = 1;
-	internal const int MessageWarning = 1;
-	internal const int ButtonsOk = 1;
+	/// <summary><c>GTK_PHASE_CAPTURE</c> — run a controller before the widget it is attached to sees the event.</summary>
+	internal const int PhaseCapture = 1;
 
 	[LibraryImport(Lib)]
-	internal static partial void gtk_init(IntPtr argc, IntPtr argv);
+	internal static partial void gtk_init();
 
 	[LibraryImport(Lib)]
-	internal static partial IntPtr gtk_window_new(int type);
+	internal static partial IntPtr gtk_window_new();
 
 	[LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
 	internal static partial void gtk_window_set_title(IntPtr window, string title);
 
-	[LibraryImport(Lib)]
-	internal static partial void gtk_window_set_icon(IntPtr window, IntPtr icon);
+	/// <summary>Names the themed icon the shell shows for the window — the one <c>LinuxDesktopIdentity</c> installs.</summary>
+	[LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
+	internal static partial void gtk_window_set_icon_name(IntPtr window, string name);
+
+	/// <summary>Hands the window the activation token that lets the compositor raise it.</summary>
+	[LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
+	internal static partial void gtk_window_set_startup_id(IntPtr window, string startupId);
 
 	[LibraryImport(Lib)]
 	internal static partial void gtk_window_set_default_size(IntPtr window, int width, int height);
 
 	[LibraryImport(Lib)]
-	internal static partial void gtk_window_move(IntPtr window, int x, int y);
-
-	[LibraryImport(Lib)]
-	internal static partial void gtk_window_resize(IntPtr window, int width, int height);
-
-	[LibraryImport(Lib)]
 	internal static partial void gtk_window_maximize(IntPtr window);
-
-	[LibraryImport(Lib)]
-	internal static partial void gtk_window_get_size(IntPtr window, out int width, out int height);
-
-	[LibraryImport(Lib)]
-	internal static partial void gtk_window_get_position(IntPtr window, out int x, out int y);
 
 	[LibraryImport(Lib)]
 	[return: MarshalAs(UnmanagedType.Bool)]
 	internal static partial bool gtk_window_is_maximized(IntPtr window);
 
 	[LibraryImport(Lib)]
-	internal static partial void gtk_container_add(IntPtr container, IntPtr widget);
-
-	[LibraryImport(Lib)]
-	internal static partial void gtk_widget_show_all(IntPtr widget);
-
-	[LibraryImport(Lib)]
-	internal static partial void gtk_widget_hide(IntPtr widget);
-
-	[LibraryImport(Lib)]
-	internal static partial IntPtr gtk_widget_get_window(IntPtr widget);
-
-	[LibraryImport(Lib)]
 	[return: MarshalAs(UnmanagedType.Bool)]
 	internal static partial bool gtk_window_is_active(IntPtr window);
 
 	[LibraryImport(Lib)]
+	internal static partial void gtk_window_set_child(IntPtr window, IntPtr child);
+
+	[LibraryImport(Lib)]
 	internal static partial void gtk_window_present(IntPtr window);
 
+	[LibraryImport(Lib)]
+	internal static partial void gtk_window_destroy(IntPtr window);
+
+	[LibraryImport(Lib)]
+	internal static partial int gtk_widget_get_width(IntPtr widget);
+
+	[LibraryImport(Lib)]
+	internal static partial int gtk_widget_get_height(IntPtr widget);
+
+	[LibraryImport(Lib)]
+	internal static partial void gtk_widget_set_visible(IntPtr widget, [MarshalAs(UnmanagedType.Bool)] bool visible);
+
+	[LibraryImport(Lib)]
+	internal static partial IntPtr gtk_event_controller_key_new();
+
+	[LibraryImport(Lib)]
+	internal static partial void gtk_event_controller_set_propagation_phase(IntPtr controller, int phase);
+
+	[LibraryImport(Lib)]
+	internal static partial void gtk_widget_add_controller(IntPtr widget, IntPtr controller);
+
+	/// <summary>Creates an alert with no formatted message; <see cref="gtk_alert_dialog_set_message"/> supplies the text.</summary>
+	[LibraryImport(Lib)]
+	internal static partial IntPtr gtk_alert_dialog_new(IntPtr format);
+
 	[LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
-	internal static partial IntPtr gtk_message_dialog_new(
-		IntPtr parent, int flags, int type, int buttons, string messageFormat);
+	internal static partial void gtk_alert_dialog_set_message(IntPtr dialog, string message);
 
 	[LibraryImport(Lib)]
-	internal static partial int gtk_dialog_run(IntPtr dialog);
+	internal static partial void gtk_alert_dialog_set_modal(IntPtr dialog, [MarshalAs(UnmanagedType.Bool)] bool modal);
 
 	[LibraryImport(Lib)]
-	internal static partial void gtk_widget_destroy(IntPtr widget);
+	internal static partial void gtk_alert_dialog_choose(
+		IntPtr dialog, IntPtr parent, IntPtr cancellable, IntPtr callback, IntPtr userData);
 
 	[LibraryImport(Lib)]
-	internal static partial void gtk_main();
+	internal static partial int gtk_alert_dialog_choose_finish(IntPtr dialog, IntPtr result, out IntPtr error);
 
 	[LibraryImport(Lib)]
-	internal static partial void gtk_main_quit();
-
-	[LibraryImport(Lib)]
-	internal static partial IntPtr gtk_clipboard_get(IntPtr selection);
+	internal static partial IntPtr gtk_file_dialog_new();
 
 	[LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
-	internal static partial void gtk_clipboard_set_text(IntPtr clipboard, string text, int len);
-
-	/// <summary>Persists the clipboard contents with the clipboard manager so they survive this process exiting.</summary>
-	[LibraryImport(Lib)]
-	internal static partial void gtk_clipboard_store(IntPtr clipboard);
-
-	/// <summary>Returns a newly-allocated UTF-8 string (free with <see cref="GLib.g_free"/>) or NULL.</summary>
-	[LibraryImport(Lib)]
-	internal static partial IntPtr gtk_clipboard_wait_for_text(IntPtr clipboard);
-
-	/// <summary>The clipboard's image as a new GdkPixbuf (unref with <see cref="GLib.g_object_unref"/>), or NULL.</summary>
-	[LibraryImport(Lib)]
-	internal static partial IntPtr gtk_clipboard_wait_for_image(IntPtr clipboard);
-
-	/// <summary>Creates a native (OS-themed) file chooser; non-variadic, unlike <c>gtk_file_chooser_dialog_new</c>.</summary>
-	[LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
-	internal static partial IntPtr gtk_file_chooser_native_new(
-		string title, IntPtr parent, int action, string? acceptLabel, string? cancelLabel);
-
-	/// <summary>Runs the native dialog modally, returning its response id (<see cref="ResponseAccept"/> on accept).</summary>
-	[LibraryImport(Lib)]
-	internal static partial int gtk_native_dialog_run(IntPtr dialog);
-
-	/// <summary>The chosen path as a newly-allocated UTF-8 string (free with <see cref="GLib.g_free"/>), or NULL.</summary>
-	[LibraryImport(Lib)]
-	internal static partial IntPtr gtk_file_chooser_get_filename(IntPtr chooser);
+	internal static partial void gtk_file_dialog_set_title(IntPtr dialog, string title);
 
 	[LibraryImport(Lib)]
-	internal static partial void gtk_native_dialog_destroy(IntPtr dialog);
+	internal static partial void gtk_file_dialog_select_folder(
+		IntPtr dialog, IntPtr parent, IntPtr cancellable, IntPtr callback, IntPtr userData);
+
+	/// <summary>The chosen folder as a GFile (unref when done), or NULL when the picker was cancelled.</summary>
+	[LibraryImport(Lib)]
+	internal static partial IntPtr gtk_file_dialog_select_folder_finish(IntPtr dialog, IntPtr result, out IntPtr error);
 }

@@ -5,6 +5,7 @@ import "@xterm/xterm/css/xterm.css";
 import { createEffect, type JSX, onCleanup, onMount } from "solid-js";
 import { type ClientSession, isBrowserHostedShell, log, type TermSession } from "../bridge";
 import { IS_MAC } from "../commands/keybindings";
+import { currentEditorOptions, onEditorOptionsChanged } from "../editor-options";
 import { currentFonts, onFontsChanged } from "../fonts";
 import { currentXtermTheme, onXtermThemeChanged } from "../theme";
 import { base64ToBytes, bytesToBase64 } from "./base64";
@@ -28,6 +29,9 @@ function uriToPath(pathname: string): string {
 // away-and-back (a PR-switch storm) reuses the live context instead of churning a fresh one each toggle —
 // browsers reclaim WebGL contexts lazily, so churn would pile up unfreed contexts and blow the cap.
 const HIDDEN_WEBGL_DISPOSE_MS = 2000;
+// Monaco's own wheel-scroll animation length, so both panes glide at the same rate under one setting.
+const SMOOTH_SCROLL_MS = 125;
+const smoothScroll = (): number => (currentEditorOptions().smoothScrolling ? SMOOTH_SCROLL_MS : 0);
 
 // xterm.js pane wired to one C# PTY through its ClientSession feature. The captured feature owns both the
 // session and pane identity; on mount `ready` starts/sizes that child. Hidden sessions retain their buffers.
@@ -68,6 +72,8 @@ export function TerminalView(props: {
     lineHeight: 1.0,
     theme: currentXtermTheme(),
     cursorBlink: true,
+    // Without a duration, a wheel notch lands in a single frame; xterm and Monaco share the same scroller.
+    smoothScrollDuration: smoothScroll(),
     scrollback: 8000,
     allowProposedApi: true,
     // xterm's own right-click handler unconditionally loads the clicked word into this same hidden textarea
@@ -144,6 +150,9 @@ export function TerminalView(props: {
       term.options.fontSize = config.terminal.size;
       term.options.fontWeight = config.terminal.weight as FontWeight;
       refit();
+    });
+    const offEditorOptions = onEditorOptionsChanged(() => {
+      term.options.smoothScrollDuration = smoothScroll();
     });
 
     // Apply live theme changes to this terminal.
@@ -394,6 +403,7 @@ export function TerminalView(props: {
       offExit();
       offReset();
       offFonts();
+      offEditorOptions();
       offTheme();
       offRegister();
       offClipboard.dispose();

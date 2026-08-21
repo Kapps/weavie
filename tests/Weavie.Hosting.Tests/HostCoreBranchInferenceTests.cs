@@ -37,6 +37,68 @@ public sealed class HostCoreBranchInferenceTests {
 		Assert.Null(host.Core.SessionForTest("bug/webm-fails-to-load"));
 	}
 
+	[Fact]
+	public async Task ImageOnlyPreview_PassesTheExactDecodedImageToInference() {
+		var inference = new BranchInferenceStub(new InferenceSuccess<BranchNameInferenceOutput> {
+			Value = new BranchNameInferenceOutput { Branch = "bug/screenshot-layout" },
+			Receipt = Receipt(),
+		});
+		await using var host = await TestHost.StartAsync(_ => { }, _ => inference);
+
+		var result = await PreviewWithAttachmentsAsync(
+			host,
+			string.Empty,
+			"structured",
+			[new NewSessionAttachment { Id = "image-1", Mime = "image/png", DataB64 = "AQIDBA==" }]);
+
+		Assert.Equal("bug/screenshot-layout", result.Branch);
+		Assert.Contains("\"prompt\":\"\"", inference.Prompt, StringComparison.Ordinal);
+		var image = Assert.Single(inference.Images!);
+		Assert.Equal("image/png", image.Mime);
+		Assert.Equal([1, 2, 3, 4], image.Bytes.ToArray());
+	}
+
+	[Fact]
+	public async Task InvalidImage_FailsBeforeInference() {
+		var inference = new BranchInferenceStub(new InferenceSuccess<BranchNameInferenceOutput> {
+			Value = new BranchNameInferenceOutput { Branch = "should-not-run" },
+			Receipt = Receipt(),
+		});
+		await using var host = await TestHost.StartAsync(_ => { }, _ => inference);
+
+		var result = await PreviewWithAttachmentsAsync(
+			host,
+			string.Empty,
+			"structured",
+			[new NewSessionAttachment { Id = "image-1", Mime = "text/plain", DataB64 = "AQ==" }]);
+
+		Assert.Empty(result.Branch);
+		Assert.Contains("image type", result.Error, StringComparison.Ordinal);
+		Assert.Equal(0, inference.Calls);
+	}
+
+	[Fact]
+	public async Task TooManyImages_FailBeforeInferenceOrDecoding() {
+		var inference = new BranchInferenceStub(new InferenceSuccess<BranchNameInferenceOutput> {
+			Value = new BranchNameInferenceOutput { Branch = "should-not-run" },
+			Receipt = Receipt(),
+		});
+		await using var host = await TestHost.StartAsync(_ => { }, _ => inference);
+		var attachments = Enumerable.Range(1, BranchNameInference.QueryOptions.MaxImageCount + 1)
+			.Select(index => new NewSessionAttachment {
+				Id = $"image-{index}",
+				Mime = "image/png",
+				DataB64 = "AQ==",
+			})
+			.ToArray();
+
+		var result = await PreviewWithAttachmentsAsync(host, string.Empty, "structured", attachments);
+
+		Assert.Empty(result.Branch);
+		Assert.Contains("up to", result.Error, StringComparison.Ordinal);
+		Assert.Equal(0, inference.Calls);
+	}
+
 	[Theory]
 	[InlineData(InferenceFailureKind.Disabled)]
 	[InlineData(InferenceFailureKind.PolicyDenied)]
@@ -114,7 +176,12 @@ public sealed class HostCoreBranchInferenceTests {
 		var result = await host.HostRequestAsync<JsonElement>(
 			"sessionCreation",
 			"previewBranch",
-			new { sourceId = "missing", prompt = "Fix WebM", agentProviderId = "claude" });
+			new {
+				sourceId = "missing",
+				prompt = "Fix WebM",
+				attachments = Array.Empty<object>(),
+				agentProviderId = "claude",
+			});
 
 		Assert.Equal(string.Empty, result.GetProperty("branch").GetString());
 		Assert.Equal("The source session no longer exists.", result.GetProperty("error").GetString());
@@ -139,6 +206,7 @@ public sealed class HostCoreBranchInferenceTests {
 				JsonSerializer.SerializeToElement(new {
 					sourceId = host.WorkspaceSession.SlotId,
 					prompt = "Fix WebM",
+					attachments = Array.Empty<object>(),
 					agentProviderId = "structured",
 				})).ToJson());
 		await inference.Started.Task;
@@ -156,11 +224,18 @@ public sealed class HostCoreBranchInferenceTests {
 		Assert.Null(host.Core.SessionForTest("fix-webm"));
 	}
 
-	private static async Task<BranchPreview> PreviewAsync(TestHost host, string prompt, string agentProviderId) {
+	private static Task<BranchPreview> PreviewAsync(TestHost host, string prompt, string agentProviderId) =>
+		PreviewWithAttachmentsAsync(host, prompt, agentProviderId, []);
+
+	private static async Task<BranchPreview> PreviewWithAttachmentsAsync(
+		TestHost host,
+		string prompt,
+		string agentProviderId,
+		IReadOnlyList<NewSessionAttachment> attachments) {
 		var result = await host.HostRequestAsync<JsonElement>(
 			"sessionCreation",
 			"previewBranch",
-			new { sourceId = host.WorkspaceSession.SlotId, prompt, agentProviderId });
+			new { sourceId = host.WorkspaceSession.SlotId, prompt, attachments, agentProviderId });
 		return new BranchPreview(
 			result.GetProperty("branch").GetString()!,
 			result.GetProperty("error").ValueKind == JsonValueKind.Null
@@ -190,10 +265,12 @@ public sealed class HostCoreBranchInferenceTests {
 
 		public string? Prompt { get; private set; }
 
+		public IReadOnlyList<InferenceInputImage>? Images { get; private set; }
+
 		public Task<InferenceResult<TResponse>> QueryAsync<TResponse>(
 			InferenceOwner owner,
 			InferenceModelCategory category,
-			string prompt,
+			InferenceInput input,
 			JsonTypeInfo<TResponse> responseType,
 			InferenceQueryOptions options,
 			CancellationToken ct) {
@@ -205,7 +282,8 @@ public sealed class HostCoreBranchInferenceTests {
 			Workspace = owner.Workspace;
 			Category = category;
 			Origin = options.Origin;
-			Prompt = prompt;
+			Prompt = input.Prompt;
+			Images = input.Images;
 			return Task.FromResult((InferenceResult<TResponse>)(object)result);
 		}
 	}
@@ -218,7 +296,7 @@ public sealed class HostCoreBranchInferenceTests {
 		public async Task<InferenceResult<TResponse>> QueryAsync<TResponse>(
 			InferenceOwner owner,
 			InferenceModelCategory category,
-			string prompt,
+			InferenceInput input,
 			JsonTypeInfo<TResponse> responseType,
 			InferenceQueryOptions options,
 			CancellationToken ct) {

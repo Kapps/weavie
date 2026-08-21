@@ -428,6 +428,45 @@ describe("AgentPaneAccumulator", () => {
 
     expect(messages.map((message) => message.text)).toEqual(["abcde"]);
   });
+  // A cold load races the pane's own history read against the provider's replay, which arrives as live records
+  // in the same generation. Whichever lands first, the whole conversation has to survive.
+  it("keeps a provider replay that lands after an empty history read", () => {
+    const scheduled: Array<() => void> = [];
+    const accumulator = new AgentPaneAccumulator((callback) => scheduled.push(callback));
+    let messages: AgentPaneUpdate[] = [];
+    const publish = (value: AgentPaneUpdate[]): void => {
+      messages = value;
+    };
+    accumulator.mergeHistory("slot-1", 1, [], true, publish);
+    const replay = Array.from({ length: 25 }, (_, index) =>
+      wireUpdate(1, index + 1, 1, `turn ${index + 1}`),
+    );
+    accumulator.ingestBatch("slot-1", replay, publish);
+    for (const flush of scheduled) {
+      flush();
+    }
+
+    expect(messages.map((message) => message.text)).toEqual(replay.map((message) => message.text));
+  });
+
+  it("keeps a provider replay the history read then reports as well", () => {
+    const scheduled: Array<() => void> = [];
+    const accumulator = new AgentPaneAccumulator((callback) => scheduled.push(callback));
+    let messages: AgentPaneUpdate[] = [];
+    const publish = (value: AgentPaneUpdate[]): void => {
+      messages = value;
+    };
+    const replay = Array.from({ length: 25 }, (_, index) =>
+      wireUpdate(1, index + 1, 1, `turn ${index + 1}`),
+    );
+    accumulator.ingestBatch("slot-1", replay, publish);
+    for (const flush of scheduled) {
+      flush();
+    }
+    accumulator.mergeHistory("slot-1", 1, history(...replay), true, publish);
+
+    expect(messages.map((message) => message.text)).toEqual(replay.map((message) => message.text));
+  });
 });
 
 function update(type: string, text: string): AgentPaneUpdate {

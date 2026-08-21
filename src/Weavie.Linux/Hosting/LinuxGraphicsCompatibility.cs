@@ -8,12 +8,20 @@ namespace Weavie.Linux.Hosting;
 internal static class LinuxGraphicsCompatibility {
 	private const string WaylandDisplay = "WAYLAND_DISPLAY";
 	private const string DisableNvidiaExplicitSync = "__NV_DISABLE_EXPLICIT_SYNC";
+	private const string GskRenderer = "GSK_RENDERER";
+	private const string NvidiaDrmModule = "/sys/module/nvidia_drm";
 	private const string ReexecMarker = "WEAVIE_NVIDIA_IMPLICIT_SYNC_REEXEC";
 	private const string SelfCommandLine = "/proc/self/cmdline";
 	private const string SelfExecutable = "/proc/self/exe";
 
 	/// <summary>Applies startup compatibility before any GTK or WebKit native call.</summary>
 	internal static void Apply() {
+		EnsureImplicitSyncOnNvidiaWayland();
+		PreferGlRendererOnNvidia();
+	}
+
+	// Never returns when the handoff is needed: the variable has to be in the environment from process start.
+	private static void EnsureImplicitSyncOnNvidiaWayland() {
 		string? marker = Environment.GetEnvironmentVariable(ReexecMarker);
 		if (marker is not null) {
 			string processId = Environment.ProcessId.ToString(CultureInfo.InvariantCulture);
@@ -37,6 +45,16 @@ internal static class LinuxGraphicsCompatibility {
 		SetNativeEnvironmentVariable(DisableNvidiaExplicitSync, "1");
 		SetNativeEnvironmentVariable(ReexecMarker, Environment.ProcessId.ToString(CultureInfo.InvariantCulture));
 		ReplaceCurrentProcess();
+	}
+
+	// GTK 4 picks Vulkan by default, which measures at roughly 60% of its GL renderer's frame rate on NVIDIA.
+	// An explicit choice in the environment is the user's and stands. Set natively and only here, after any
+	// process handoff, so GTK sees it and the managed children Weavie spawns do not inherit it.
+	private static void PreferGlRendererOnNvidia() {
+		if (Directory.Exists(NvidiaDrmModule)
+			&& string.IsNullOrEmpty(Environment.GetEnvironmentVariable(GskRenderer))) {
+			SetNativeEnvironmentVariable(GskRenderer, "gl");
+		}
 	}
 
 	private static void SetNativeEnvironmentVariable(string name, string value) {

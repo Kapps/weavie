@@ -80,23 +80,62 @@ public sealed class StructuredPanePersistenceTests {
 			message.GetProperty("type").GetString() == type
 			&& message.GetProperty("text").GetString() == text);
 
+	private static void Submit(TestHost host, HostSession session, string prompt) =>
+		host.SessionEvent(
+			session,
+			"agent",
+			"submit",
+			new { id = "", prompt, attachmentIds = Array.Empty<string>(), skills = Array.Empty<string>() });
+
 	// Weavie keeps no transcript cache: a provider that cannot replay its own conversation comes back empty
 	// rather than being handed a stale copy that looks live.
 	[Fact]
 	public async Task WithoutProviderReplay_RestartComesUpEmpty() {
 		await using var host = await StartWithStructuredSessionAsync("structured-branch");
 		var session = host.Session("structured-branch");
-		host.SessionEvent(
-			session,
-			"agent",
-			"submit",
-			new { id = "", prompt = "hello", attachmentIds = Array.Empty<string>(), skills = Array.Empty<string>() });
+		Submit(host, session, "hello");
 		Assert.True(HasPaneMessage(host.Bridge, session, "item-completed", "echo: hello"));
+
+		await host.RestartAsync(FakeStructuredAgentProvider.ForgetTranscripts);
+		session = host.Session("structured-branch");
+
+		Assert.False(Contains(await ReadHistoryAsync(host, session), "item-completed", "echo: hello"));
+	}
+
+	// The provider is now the only source of the transcript, so a replayed conversation has to arrive whole:
+	// every turn the user had before the restart must be readable after it, not just the leading few.
+	[Fact]
+	public async Task ProviderReplay_RestoresEveryTurn() {
+		await using var host = await StartWithStructuredSessionAsync("structured-branch");
+		var session = host.Session("structured-branch");
+		const int turns = 25;
+		for (int turn = 1; turn <= turns; turn++) {
+			Submit(host, session, $"hello {turn}");
+		}
 
 		await host.RestartAsync();
 		session = host.Session("structured-branch");
 
-		Assert.False(Contains(await ReadHistoryAsync(host, session), "item-completed", "echo: hello"));
+		var history = await ReadHistoryAsync(host, session);
+		int[] missing = [.. Enumerable.Range(1, turns)
+			.Where(turn => !Contains(history, "item-completed", $"echo: hello {turn}"))];
+		Assert.Empty(missing);
+	}
+
+	// A provider emits its own chrome (thread-ready) before it replays, so a restore always lands over a
+	// non-empty pane and does void the ordinals a client holds. paneReset says so, but it is a broadcast a page
+	// reconnecting mid-load can miss, and a bare reset leaves nothing else to notice. The restored records must
+	// therefore be readable straight off the live stream, without the client ever asking for history.
+	[Fact]
+	public async Task ProviderReplay_RepublishesRestoredRecordsLive() {
+		await using var host = await StartWithStructuredSessionAsync("structured-branch");
+		var session = host.Session("structured-branch");
+		Submit(host, session, "hello");
+
+		await host.RestartAsync();
+		session = host.Session("structured-branch");
+
+		Assert.True(HasPaneMessage(host.Bridge, session, "item-completed", "echo: hello"));
 	}
 
 	[Fact]

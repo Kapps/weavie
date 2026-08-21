@@ -28,7 +28,7 @@ internal sealed partial class WorkspaceHost {
 		ShowWelcome();
 	}
 
-	void IShellMenuActions.Quit() => Gtk.gtk_widget_destroy(_window);
+	void IShellMenuActions.Quit() => Gtk.gtk_window_destroy(_window);
 
 	private void ReplaceWorkspace(string root) {
 		_welcome?.Detach();

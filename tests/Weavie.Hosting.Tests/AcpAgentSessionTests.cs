@@ -317,6 +317,25 @@ public sealed class AcpAgentSessionTests {
 		Assert.Equal(SessionStatus.Idle, fixture.Events.Status.Status);
 	}
 
+	// The pane keys every item by (threadId, turnId, itemId), so a request and its resolution have to agree on all
+	// three. Disagree and the client files the resolution under a key it never looks up for that entry: the card
+	// stays pending forever, still rendering live buttons that resolve a request the session already settled.
+	[Fact]
+	public async Task NativeSession_ResolvesAnInputRequestUnderTheIdentityItAnnounced() {
+		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: false, persistedSessionId: null);
+		await fixture.StartAsync();
+
+		fixture.Submit("input-default-schema");
+		var requested = await fixture.WaitForMessageAsync(message => message.Type == "input-requested");
+		fixture.Session.ResolveInput(
+			requested.RequestId!, "accept", new Dictionary<string, IReadOnlyList<string>>());
+		var resolved = await fixture.WaitForMessageAsync(message => message.Type == "input-resolved");
+
+		Assert.Equal(
+			(requested.ThreadId, requested.TurnId, requested.ItemId),
+			(resolved.ThreadId, resolved.TurnId, resolved.ItemId));
+	}
+
 	[Fact]
 	public async Task NativeSession_TreatsNullStableAcpFormOptionsAsAbsent() {
 		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: false, persistedSessionId: null);
@@ -790,11 +809,38 @@ public sealed class AcpAgentSessionTests {
 		Assert.Equal(["1", "2"], plans.Select(message => message.TurnId));
 		Assert.Contains(plans, message => message.Text!.Contains("first persisted plan", StringComparison.Ordinal));
 		Assert.Contains(plans, message => message.Text!.Contains("second persisted plan", StringComparison.Ordinal));
-		Assert.Contains(snapshot, message => message.Type == "item-started" && message.ItemId == "tool:replayed-background");
+		// The transcript still calls this one running, but the process that ran it is gone: it replays as an
+		// interrupted row, not a spinner nothing will ever resolve.
+		Assert.Contains(snapshot, message => message.Type == "item-completed"
+			&& message.ItemId == "tool:replayed-background"
+			&& message.Status == "cancelled");
+		// A tool that finished replays as pending-then-completed. Judging each frame on its own would file the
+		// first as interrupted, persisting a second record that contradicts the one that follows it.
+		Assert.Equal(
+			["completed"],
+			snapshot
+				.Where(message => message.ItemId == "tool:replayed-finished" && message.Type == "item-completed")
+				.Select(message => message.Status));
+		// The pane places a record where its stream first appears, so a restore has to arrive in conversation order:
+		// every prompt ahead of the work it asked for, and ahead of the turn boundary the pane derives from it.
+		Assert.Equal(
+			[
+				("1", "userMessage:replayed-user-1"),
+				("1", "plan:current"),
+				("1", "agentMessage:replayed-agent-1"),
+				("2", "userMessage:replayed-user-2"),
+				("2", "plan:current"),
+				("2", "agentMessage:replayed-agent-2"),
+				("2", "tool:replayed-finished"),
+				("2", "tool:replayed-background"),
+			],
+			snapshot.Select(message => (message.TurnId, message.ItemId)).Distinct());
 		Assert.DoesNotContain(snapshot, message => message.Text?.Contains("hidden guidance", StringComparison.Ordinal) == true);
 		Assert.DoesNotContain(snapshot, message => message.Text?.Contains("hidden selection", StringComparison.Ordinal) == true);
 		Assert.All(snapshot, message => Assert.Equal("replay-session", message.ThreadId));
-		Assert.Equal(SessionStatus.Waiting, fixture.Events.Status.Status);
+		// Loading a transcript must not leave the session Waiting on work that died with the previous process:
+		// nothing would ever settle it, so it would hold the update drain for the life of the host.
+		Assert.Equal(SessionStatus.Idle, fixture.Events.Status.Status);
 
 		fixture.Session.Restart();
 		await fixture.WaitForControlsAsync(state => state.Axes.Any(axis => axis.Id == "model"));

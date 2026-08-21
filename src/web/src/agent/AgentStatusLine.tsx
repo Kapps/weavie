@@ -13,7 +13,7 @@ import {
   agentControlState,
   closeControlPicker,
   openControlAxis,
-  openControlPicker,
+  toggleControlPicker,
 } from "./agent-controls-store";
 import { agentUsage } from "./agent-usage-store";
 
@@ -113,9 +113,9 @@ export function AgentStatusLine(props: {
             {(axis) => (
               <button
                 type="button"
-                class="agent-status-segment"
+                class="agent-status-segment agent-status-axis"
                 title={axisTitle(axis)}
-                onClick={() => openControlPicker(axis.id)}
+                onClick={() => toggleControlPicker(axis.id)}
               >
                 <span class="agent-status-key">{axis.label}</span>
                 <span class="agent-status-value">{axis.valueLabel}</span>

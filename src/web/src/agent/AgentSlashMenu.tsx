@@ -1,5 +1,6 @@
 import { createEffect, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
 import type { AgentSlashEntry } from "../bridge";
+import { dismissOnOutsideInteraction } from "../chrome/popover-dismiss";
 import { setContext } from "../commands/context";
 import { liveKeyLabel } from "../commands/keys-live";
 
@@ -48,13 +49,15 @@ export function AgentSlashMenu(props: {
     }
   };
 
-  // Capture phase so the menu beats the composer's own history keydown while it is open.
+  // Capture phase so the menu beats the composer's own history keydown while it is open. The whole composer
+  // counts as inside — the query lives in its textarea — so only a click that leaves it dismisses the menu.
   createEffect(() => {
     if (props.entries.length === 0) {
       return;
     }
     window.addEventListener("keydown", onKeyDown, { capture: true });
     onCleanup(() => window.removeEventListener("keydown", onKeyDown, { capture: true }));
+    dismissOnOutsideInteraction("[data-agent-composer]", props.onDismiss);
   });
 
   return (

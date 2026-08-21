@@ -20,7 +20,7 @@ const DEFAULT_OPTIONS: EditorOptionsSpec = {
   inlayHints: "on",
   minimap: false,
   bracketPairColorization: true,
-  smoothScrolling: false,
+  smoothScrolling: true,
   cursorSmoothCaretAnimation: "off",
   renderWhitespace: "none",
   scrollBeyondLastLine: true,
@@ -36,6 +36,7 @@ const DEFAULT_OPTIONS: EditorOptionsSpec = {
   commentProse: "documentation",
   paneShortcutHints: true,
   videoAutoplay: true,
+  gitBlame: "currentLine",
 };
 
 let current: EditorOptionsSpec = hostInjected(

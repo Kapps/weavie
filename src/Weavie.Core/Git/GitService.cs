@@ -10,11 +10,11 @@ namespace Weavie.Core.Git;
 /// short-lived <c>git</c> process (a transient one-shot helper, exempt from <c>ProcessSupervisor</c>),
 /// captures stdout/stderr, and throws <see cref="GitException"/> when a required command fails.
 /// </summary>
-public sealed class GitService : IGitService {
+public sealed partial class GitService : IGitService {
 	private const string HeadsPrefix = "refs/heads/";
 
 	// A read-only dirty probe: `--no-optional-locks` refreshes the index in-core instead of taking
-	// `.git/index.lock`, so this background/footer poll can never collide with a concurrent `git diff` or
+	// `.git/index.lock`, so this background/footer probe can never collide with a concurrent `git diff` or
 	// `git add` on the same repo (the index-lock race behind the diff-against CI flakes).
 	private static readonly string[] PorcelainStatusArgs = ["--no-optional-locks", "status", "--porcelain"];
 	private static readonly string[] PorcelainStatusZArgs = ["--no-optional-locks", "status", "--porcelain", "-z"];

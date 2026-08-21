@@ -158,6 +158,20 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 				["messageId"] = "replayed-agent-2",
 				["content"] = Text("persisted transcript"),
 			});
+			// A finished tool replays as two frames, the first always non-terminal — so a load must judge what
+			// is still running only once the replay is over, not frame by frame.
+			Update(new JsonObject {
+				["sessionUpdate"] = "tool_call",
+				["toolCallId"] = "replayed-finished",
+				["title"] = "Persisted finished task",
+				["kind"] = "execute",
+				["status"] = "pending",
+			});
+			Update(new JsonObject {
+				["sessionUpdate"] = "tool_call_update",
+				["toolCallId"] = "replayed-finished",
+				["status"] = "completed",
+			});
 			Update(new JsonObject {
 				["sessionUpdate"] = "tool_call",
 				["toolCallId"] = "replayed-background",

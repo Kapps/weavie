@@ -26,7 +26,13 @@ const deferred = <T>(): Deferred<T> => {
 const context = (prompt: string): BranchPreviewContext => ({
   backendId: "local",
   prompt,
+  attachments: [],
   providerId: "acp",
+});
+
+const imageContext = (dataB64: string): BranchPreviewContext => ({
+  ...context(""),
+  attachments: [{ id: "image-1", mime: "image/png", dataB64 }],
 });
 
 afterEach(() => {
@@ -76,9 +82,9 @@ describe("NewSessionBranchPreview", () => {
       },
     );
 
-    preview.update(context("first"));
+    preview.update(imageContext("first"));
     await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_DEBOUNCE_MS);
-    preview.update(context("second"));
+    preview.update(imageContext("second"));
     expect(calls[0]!.signal.aborted).toBe(true);
     calls[0]!.result.resolve({ branch: "stale", error: null });
     await Promise.resolve();
@@ -122,6 +128,7 @@ describe("NewSessionBranchPreview", () => {
     expect(calls[0]!.context).toEqual({
       backendId: "local",
       prompt: "second",
+      attachments: [],
       providerId: "claude",
     });
     expect(state).toEqual({ branch: "automatic", error: null, manual: false, status: "ready" });

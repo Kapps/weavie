@@ -7,12 +7,6 @@ namespace Weavie.Linux.Tests;
 
 [SupportedOSPlatform("linux")]
 public sealed class LinuxWaylandIdentityTests {
-	// Documented flake: run https://github.com/Kapps/weavie/actions/runs/32336492459/job/96326970467
-	// (2026-08-20) timed out waiting 15s for the app-id publish. This test races a real headless weston
-	// compositor plus a real app process against a fixed budget, so it's inherently sensitive to CI-runner
-	// load (see PR #606, #639 for prior reports of the same fragility) and isn't locally reproducible
-	// without weston. Widened both budgets below to give the compositor/app more headroom under load;
-	// the assertions and what's being waited for are unchanged.
 	[Fact]
 	public async Task LinuxHost_PublishesTheDesktopAppIdToWayland() {
 		const string appId = "io.github.kapps.weavie";
@@ -41,7 +35,9 @@ public sealed class LinuxWaylandIdentityTests {
 			westonInfo.Environment["XDG_RUNTIME_DIR"] = runtime;
 			weston = Start(westonInfo, output);
 			await WaitForSocketAsync(Path.Combine(runtime, socketName), weston, output)
-				.WaitAsync(TimeSpan.FromSeconds(20));
+				.WaitAsync(TimeSpan.FromSeconds(10));
+			await WaitForCompositorAsync(runtime, socketName, output)
+				.WaitAsync(TimeSpan.FromSeconds(10));
 
 			var appIdPublished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 			var appInfo = new ProcessStartInfo("dbus-run-session") {
@@ -64,7 +60,7 @@ public sealed class LinuxWaylandIdentityTests {
 			});
 
 			var completed = await Task.WhenAny(appIdPublished.Task, app.WaitForExitAsync())
-				.WaitAsync(TimeSpan.FromSeconds(30));
+				.WaitAsync(TimeSpan.FromSeconds(15));
 			Assert.True(
 				ReferenceEquals(completed, appIdPublished.Task),
 				$"The Linux host exited before publishing its Wayland app ID.\n{string.Join('\n', output)}");
@@ -125,6 +121,25 @@ public sealed class LinuxWaylandIdentityTests {
 			}
 
 			await Task.Delay(20);
+		}
+	}
+
+	private static async Task WaitForCompositorAsync(
+		string runtime,
+		string socketName,
+		ConcurrentQueue<string> output) {
+		var info = new ProcessStartInfo("wayland-info") {
+			RedirectStandardError = true,
+			RedirectStandardOutput = true,
+			UseShellExecute = false,
+		};
+		info.Environment["XDG_RUNTIME_DIR"] = runtime;
+		info.Environment["WAYLAND_DISPLAY"] = socketName;
+		using var process = Start(info, output);
+		await process.WaitForExitAsync();
+		if (process.ExitCode != 0) {
+			throw new InvalidOperationException(
+				$"Wayland compositor handshake failed.\n{string.Join('\n', output)}");
 		}
 	}
 

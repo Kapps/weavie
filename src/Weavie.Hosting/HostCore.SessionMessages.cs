@@ -208,7 +208,11 @@ public sealed partial class HostCore {
 
 	private sealed record CommandRequest(string Id, JsonElement? Args);
 
-	private sealed record HostBranchPreviewRequest(string? SourceId, string? Prompt, string AgentProviderId);
+	private sealed record HostBranchPreviewRequest(
+		string? SourceId,
+		string? Prompt,
+		IReadOnlyList<NewSessionAttachment> Attachments,
+		string AgentProviderId);
 
 	private sealed record BranchPreviewResult(string Branch, string? Error);
 

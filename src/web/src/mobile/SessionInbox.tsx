@@ -1,28 +1,26 @@
 import { createEffect, createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js";
-import {
-  AgentAttachmentStrip,
-  type AgentAttachmentViewStatus,
-} from "../agent/AgentAttachmentStrip";
-import { agentImageError, encodeAgentImage, takePastedImages } from "../agent/pasted-images";
+import { AgentAttachmentStrip } from "../agent/AgentAttachmentStrip";
 import { backendPhase, connectedBackends, requestBranches, selectedSession } from "../bridge";
 import { agentProviders, defaultAgentProvider } from "../chrome/agent-default";
 import { ContextMenu, type ContextMenuState } from "../chrome/ContextMenu";
 import type { BranchPreviewState } from "../chrome/new-session-branch-preview";
 import { sessionMenuAt } from "../chrome/session-menu";
 import type { RailSession } from "../chrome/session-store";
+import { readClipboardContent } from "../clipboard-read";
 import { setContext } from "../commands/context";
 import { keyHint } from "../commands/key-hint";
 import { registerCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
+import { notify } from "../notify/notify";
 import { holdToOpen } from "./long-press";
 import { type NewSessionBranchActions, NewSessionBranchField } from "./NewSessionBranchField";
+import {
+  createNewSessionAttachments,
+  type NewSessionSeedAttachment,
+} from "./new-session-attachments";
 import { SessionInboxRow } from "./SessionInboxRow";
 
-export interface NewSessionSeedAttachment {
-  id: string;
-  mime: string;
-  dataB64: string;
-}
+export type { NewSessionSeedAttachment } from "./new-session-attachments";
 
 export interface NewSessionSeed {
   branch: string;
@@ -31,14 +29,6 @@ export interface NewSessionSeed {
   prompt: string;
   attachments: NewSessionSeedAttachment[];
 }
-
-interface NewSessionAttachmentDraft extends NewSessionSeedAttachment {
-  previewUrl: string;
-  status: AgentAttachmentViewStatus;
-  error: string | null;
-}
-
-let attachmentSequence = 0;
 
 /** The shared Sessions surface for starting, opening, and resuming sessions. */
 export function SessionInbox(props: {
@@ -60,7 +50,8 @@ export function SessionInbox(props: {
   const [branchListError, setBranchListError] = createSignal("");
   const [loadingBranches, setLoadingBranches] = createSignal(false);
   const [submitting, setSubmitting] = createSignal<"new" | "existing" | null>(null);
-  const [attachments, setAttachments] = createSignal<NewSessionAttachmentDraft[]>([]);
+  const attachmentStore = createNewSessionAttachments();
+  const attachments = attachmentStore.attachments;
   const [sessionMenu, setSessionMenu] = createSignal<ContextMenuState | null>(null);
   const [branchPreview, setBranchPreview] = createSignal<BranchPreviewState>({
     branch: "",
@@ -186,7 +177,7 @@ export function SessionInbox(props: {
       )
     ) {
       setPrompt("");
-      clearAttachments();
+      attachmentStore.clear();
       branchActions?.reset();
     }
     setSubmitting(null);
@@ -208,65 +199,29 @@ export function SessionInbox(props: {
     setSubmitting(null);
   };
 
-  const removeAttachment = (id: string): void => {
-    setAttachments((current) => {
-      const removed = current.find((attachment) => attachment.id === id);
-      if (removed !== undefined) {
-        URL.revokeObjectURL(removed.previewUrl);
+  const paste = async (selectionStart: number, selectionEnd: number): Promise<void> => {
+    try {
+      const content = await readClipboardContent();
+      if (content.kind === "image") {
+        attachmentStore.addEncodedImage(content.mime, content.dataB64);
+        return;
       }
-      return current.filter((attachment) => attachment.id !== id);
-    });
-  };
-
-  const clearAttachments = (): void => {
-    for (const attachment of attachments()) {
-      URL.revokeObjectURL(attachment.previewUrl);
-    }
-    setAttachments([]);
-  };
-
-  const captureImagePaste = (event: ClipboardEvent): void => {
-    for (const blob of takePastedImages(event)) {
-      const id = `new-session-image-${Date.now().toString(36)}-${(++attachmentSequence).toString(36)}`;
-      const previewUrl = URL.createObjectURL(blob);
-      const draft: NewSessionAttachmentDraft = {
-        id,
-        mime: blob.type,
-        dataB64: "",
-        previewUrl,
-        status: "reading",
-        error: null,
-      };
-      setAttachments((current) => [...current, draft]);
-      void encodeAgentImage(blob).then(
-        (dataB64) => {
-          const error = agentImageError(blob.type, dataB64);
-          setAttachments((current) =>
-            current.map((attachment) =>
-              attachment.id === id
-                ? {
-                    ...attachment,
-                    dataB64,
-                    status: error === null ? "ready" : "failed",
-                    error,
-                  }
-                : attachment,
-            ),
-          );
-        },
-        (error: unknown) => {
-          setAttachments((current) =>
-            current.map((attachment) =>
-              attachment.id === id
-                ? {
-                    ...attachment,
-                    status: "failed",
-                    error: error instanceof Error ? error.message : String(error),
-                  }
-                : attachment,
-            ),
-          );
-        },
+      if (content.kind !== "text") {
+        return;
+      }
+      const current = prompt();
+      const next = current.slice(0, selectionStart) + content.text + current.slice(selectionEnd);
+      setPrompt(next);
+      queueMicrotask(() => {
+        if (document.activeElement === promptInput && promptInput.value === next) {
+          const caret = selectionStart + content.text.length;
+          promptInput.setSelectionRange(caret, caret);
+        }
+      });
+    } catch (error) {
+      notify(
+        "warn",
+        `Couldn't paste from the clipboard: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
   };
@@ -290,7 +245,13 @@ export function SessionInbox(props: {
   });
 
   onMount(() => {
-    onCleanup(
+    const cleanups = [
+      registerCommand(CommandIds.pasteNewSession, () => {
+        if (!props.active || document.activeElement !== promptInput) {
+          return false;
+        }
+        return paste(promptInput.selectionStart, promptInput.selectionEnd);
+      }),
       registerCommand(CommandIds.submitNewSession, () => {
         if (!props.active || document.activeElement !== promptInput || !canStart()) {
           return false;
@@ -298,11 +259,16 @@ export function SessionInbox(props: {
         void submitNew();
         return true;
       }),
-    );
+    ];
+    onCleanup(() => {
+      for (const cleanup of cleanups) {
+        cleanup();
+      }
+    });
   });
 
   onCleanup(() => {
-    clearAttachments();
+    attachmentStore.clear();
     setContext("newSessionPromptFocused", false);
   });
 
@@ -385,10 +351,10 @@ export function SessionInbox(props: {
               onFocus={() => setContext("newSessionPromptFocused", props.active)}
               onBlur={() => setContext("newSessionPromptFocused", false)}
               onInput={(event) => setPrompt(event.currentTarget.value)}
-              onPaste={captureImagePaste}
+              onPaste={attachmentStore.capturePaste}
             />
             <Show when={attachments().length > 0}>
-              <AgentAttachmentStrip attachments={attachments()} onRemove={removeAttachment} />
+              <AgentAttachmentStrip attachments={attachments()} onRemove={attachmentStore.remove} />
             </Show>
             <Show when={attachments().find((attachment) => attachment.error !== null)}>
               {(attachment) => (
@@ -418,7 +384,11 @@ export function SessionInbox(props: {
             <NewSessionBranchField
               active={props.active}
               backendId={backendId()}
-              hasInput={prompt().trim().length > 0}
+              attachments={attachments().map(({ id, mime, dataB64 }) => ({ id, mime, dataB64 }))}
+              inputReady={
+                (prompt().trim().length > 0 || attachments().length > 0) &&
+                attachments().every((attachment) => attachment.status === "ready")
+              }
               prompt={prompt()}
               providerId={providerId()}
               onChange={setBranchPreview}

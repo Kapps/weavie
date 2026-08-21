@@ -65,6 +65,7 @@ jobs:
             libdrm-dev \
             libwebkitgtk-6.0-4 \
             pkg-config \
+            wayland-utils \
             weston
 
       - name: Test Core

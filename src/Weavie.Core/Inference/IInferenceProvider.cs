@@ -17,6 +17,9 @@ public sealed record InferenceProviderRequest {
 	/// <summary>The complete provider-agnostic prompt.</summary>
 	public required string Prompt { get; init; }
 
+	/// <summary>The exact images supplied as provider-native content beside <see cref="Prompt"/>.</summary>
+	public required IReadOnlyList<InferenceInputImage> Images { get; init; }
+
 	/// <summary>The strict JSON schema generated from the output type.</summary>
 	public required string OutputSchemaJson { get; init; }
 

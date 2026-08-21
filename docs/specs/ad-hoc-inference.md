@@ -32,17 +32,19 @@ the process start.
 
 - an `InferenceOwner`: the owning session's agent-provider id and worktree root;
 - a caller-selected `InferenceModelCategory`;
-- one complete provider-agnostic prompt;
+- one complete provider-agnostic text prompt plus exact decoded images;
 - strict `JsonTypeInfo<TResponse>` response metadata;
-- invocation origin, prompt/output byte bounds, and a one-attempt time budget.
+- invocation origin, prompt/output byte bounds, image-count and aggregate-image byte bounds, and a one-attempt time
+  budget.
 
 `InferencePrompts.WithJsonInput` is the shared path for typed feature context. It serializes the input through its
 declared `JsonTypeInfo<TInput>` and applies consistent untrusted-data framing, so features do not reproduce prompt
 plumbing. Response metadata must reject unknown members and respect required constructor parameters; non-strict
 metadata is a programming error. Runtime, CLI, and model failures are values.
 
-The provider seam contains only category, owning worktree, final prompt, generated JSON Schema, and output byte
-bound. Providers do not receive a feature or query id and never switch on product behavior:
+The provider seam contains only category, owning worktree, final prompt, native image inputs, generated JSON Schema,
+and output byte bound. Images remain outside the prompt-size budget and are never serialized into its typed JSON.
+Providers do not receive a feature or query id and never switch on product behavior:
 
 | Category | Intended work | Terminal Claude profile | ACP agent |
 |---|---|---|---|
@@ -58,11 +60,15 @@ or effort for an ACP agent; it runs the agent's own configuration and records wh
 ## Process isolation
 
 Terminal Claude uses print mode with safe mode, `--tools ""`, strict MCP configuration, no session persistence, the
-mapped model/effort, and `--json-schema`. The process inherits the normal Claude environment: an intentionally
+mapped model/effort, and `--json-schema`. Images are written to an owner-only temporary directory outside the
+repository, their paths lead the prompt, and the directory is deleted when the attempt ends. The process inherits
+the normal Claude environment: an intentionally
 configured `ANTHROPIC_API_KEY` remains available, while an unset key lets the CLI use its stored OAuth/subscription
 login.
 
-An ACP agent is isolated structurally rather than by flags, because ACP has no tool-suppression control. Weavie
+An ACP agent receives images as native `image` content blocks only when its initialize response advertises
+`promptCapabilities.image`; an image query against any other ACP agent fails as `InputRejected`. The agent is
+isolated structurally rather than by flags, because ACP has no tool-suppression control. Weavie
 advertises empty `clientCapabilities`, passes an empty `mcpServers` list, and refuses every agent-initiated request
 — `fs/*`, `terminal/*`, `session/request_permission`, and elicitation. The session is created, prompted once, and
 closed; its id is never persisted.
@@ -130,7 +136,7 @@ sequenceDiagram
 
     F->>F: collect typed context
     F->>F: build prompt
-    F->>S: owner + category + prompt + response type + options
+    F->>S: owner + category + text/images + response type + options
     S->>S: policy, strict metadata, size, schema
     S->>A: one isolated query
     A->>C: one ephemeral process in the owning worktree
@@ -148,11 +154,13 @@ sequenceDiagram
 
 ## First consumer: branch naming
 
-The shared Sessions composer issues one host-scoped preview request after the prompt has been idle for 500 ms.
-When “Current session” is selected, the request carries that exact slot; “Main branch” needs no live session.
-The host sends only the text prompt, source checkout's current branch, and up to twenty local branches ordered by
-tip committer date. The owner is the source workspace and the provider already selected in the composer — the
-branch is named before its session exists — and only `Utility` is permitted.
+The shared Sessions composer issues one host-scoped preview request after its text-and-image draft has been idle for
+500 ms. When “Current session” is selected, the request carries that exact slot; “Main branch” needs no live session.
+The host sends the text prompt, up to four exact validated images totaling at most 20 MB, the source checkout's
+current branch, and up to twenty local branches ordered by tip committer date. An image-only draft is valid input.
+The owner is the source workspace and the provider already selected in the composer — the branch is named before
+its session exists — and only `Utility` is permitted. An over-budget draft takes the same visible failure path as a
+provider rejection.
 
 A proposed name is trimmed, checked with `GitService.IsValidBranchName`, checked against loaded/worktree labels,
 and checked against Git branch existence. Every other non-cancellation outcome returns an empty branch and marks
@@ -176,7 +184,7 @@ answer arrives. It is not a hidden agent loop and never mutates the workspace.
 
 | Surface | Trigger | Category | Typed result | Disabled or query-failure behavior |
 |---|---|---|---|---|
-| Branch-name preview | Automatic after prompt idle | `Utility` | Valid branch candidate | Empty field; user types a branch |
+| Branch-name preview | Automatic after draft idle | `Utility` | Valid branch candidate | Empty field; user types a branch |
 | Plan review | Explicit review action | `Reasoning` | Prioritized findings | Plan remains available without review |
 | Failed-test diagnosis | Explicit offer after a failed run | `Reasoning` | Diagnosis and proposed next action | Existing failed-test result remains unchanged |
 | Semantic file review | Automatic after editor idle | `Utility` | High-impact, located suggestions | No semantic suggestions |
@@ -184,8 +192,8 @@ answer arrives. It is not a hidden agent loop and never mutates the workspace.
 ### Branch-name preview
 
 The proving slice resolves a repository-specific convention that deterministic slugification cannot infer. As the
-user types a session prompt, Weavie waits for 500 ms of inactivity and asks the selected provider for a branch name
-using the prompt, current branch, and twenty most recent local branches. This lets examples such as
+user edits a session's text or image input, Weavie waits for 500 ms of inactivity and asks the selected provider for
+a branch name using that input, the current branch, and twenty most recent local branches. This lets examples such as
 `kapps/fix-webm` and `bug/webm-fails-to-load` emerge from each repository's own history without teaching Weavie a
 global prefix convention.
 

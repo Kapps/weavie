@@ -1,10 +1,11 @@
-import type { BranchPreviewResult } from "../bridge";
+import type { BranchPreviewResult, EncodedImageAttachment } from "../bridge";
 
 export const BRANCH_PREVIEW_DEBOUNCE_MS = 500;
 
 export interface BranchPreviewContext {
   backendId: string;
   prompt: string;
+  attachments: readonly EncodedImageAttachment[];
   providerId: string;
 }
 
@@ -31,7 +32,23 @@ const sameContext = (
     right !== null &&
     left.backendId === right.backendId &&
     left.prompt === right.prompt &&
+    sameAttachments(left.attachments, right.attachments) &&
     left.providerId === right.providerId);
+
+const sameAttachments = (
+  left: readonly EncodedImageAttachment[],
+  right: readonly EncodedImageAttachment[],
+): boolean =>
+  left.length === right.length &&
+  left.every((attachment, index) => {
+    const other = right[index];
+    return (
+      other !== undefined &&
+      attachment.id === other.id &&
+      attachment.mime === other.mime &&
+      attachment.dataB64 === other.dataB64
+    );
+  });
 
 /** Owns one debounced, cancellable branch preview without allowing stale or automatic writes over user input. */
 export class NewSessionBranchPreview {

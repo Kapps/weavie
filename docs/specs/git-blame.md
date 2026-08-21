@@ -1,7 +1,7 @@
 # Git blame annotations
 
 Status: implemented
-Last updated: 2026-08-17
+Last updated: 2026-08-21
 
 Who last changed each line, shown as faded text at the end of it, and a popover behind each one that answers
 the question the annotation raises: **what was the change that produced this line?** The popover's subject is
@@ -57,10 +57,20 @@ the visible window stays unlabelled there rather than acquiring a label at the w
 
 ### The gap belongs to the line
 
-The annotation is held clear of the code by the class's **left margin**, not by leading spaces in the injected
-text. Margin sits outside the element's box, so the space between a line and its label is dead to the pointer:
-clicking just past the end of a line — how a user puts the caret there — lands on the line, not on the popover
-trigger.
+The annotation is held clear of the code by **injected text of its own** — four non-breaking spaces — not by
+CSS space in front of the label. Monaco measures a line's end column at the *first character* injected there,
+so a margin, a padding or an indent ahead of that character is counted into the end of the line itself: the
+caret and the selection band on the last character then land a whole gap to the right, beside the annotation
+instead of at the code. A real character at the line's end keeps that measurement honest.
+
+The gap is the decoration's `before` and the label its `after`, both on the same column of an empty range:
+Monaco sorts injected text by line, column, then a `before`-first order, so the two spans can never come out
+reversed. Two `after`s would be ordered by the decoration tree instead, which is not a guarantee.
+
+The gap is its own span under its own class, so clicking it lands on the line rather than on the popover: the
+trigger matches the label's class alone. Neither injection takes a cursor stop, so a click anywhere in either
+normalizes to the line's end column — which is where a user clicking just past the end of a line wants the
+caret.
 
 ## Blame is a property of the file on disk
 

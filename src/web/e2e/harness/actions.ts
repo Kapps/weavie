@@ -64,28 +64,11 @@ export async function openFile(page: Page, name: string): Promise<void> {
   }
 }
 
-// Monaco sizes its viewport as max(5, container.clientHeight), so a container that is momentarily 0-height when
-// it measures leaves it latched at 5px — rendering the first line and NOTHING else. Every later line is then
-// simply absent from the DOM, and a locator addressing one waits out the whole test timeout with nothing to
-// report but "waiting for locator". Binding the model says which file the editor holds, not that it has room to
-// draw it, so wait for the viewport to agree with its container before a spec addresses rendered text.
-//
-// Height agreement alone isn't sufficient proof the clamp has cleared: `editor-peek-definition.spec.ts`'s
-// multicursor test kept flaking on Windows CI (runs 31993224310, 32096266021, 32104522458, 32333399943 — the
-// last one after this exact height check was already gating every call site) with the documented fingerprint —
-// `renderedLines` showing a single, often-blank line at teardown while `.editor`/`.monaco` read a healthy size.
-// A height-only check can pass on a stale read (Monaco's `getLayoutInfo()` reflects the size *at measurement
-// time*, not that the clamped single-line viewport has actually re-rendered every line back in). So also require
-// the DOM to hold more than the clamp's one-line placeholder whenever the model has more than one line —
-// checking the actual rendered output, not a derived number that can agree while the render is still catching up.
-//
-// The poll needs more runway than the suite's default `expect.timeout` (playwright.config.ts): that default
-// (30s on Windows/macOS) is what this test's OWN PR CI run (32335659526) hit two fresh failures against within
-// hours of landing — the poll timed out at 30s on the exact -1 (clamp-still-active) signature, where previously
-// the failure surfaced later, in the click()'s own actionability wait, which isn't bound by `expect.timeout` and
-// so had the full ~60s test budget to let a slow-but-genuine recovery finish. Matching that budget here (instead
-// of inheriting the shorter global default) restores the runway this wait always implicitly had, rather than
-// quietly shrinking it as a side effect of making the check stricter.
+// Wait until Monaco has actually drawn the file, not merely bound it. Two things can leave the editor holding
+// a model it isn't showing: the viewport clamped to `max(5, container.clientHeight)` because the container was
+// momentarily 0-height, and a render that hasn't caught up with a viewport that already reports the right size.
+// Either way the DOM holds one line and every locator addressing another waits out the whole test budget with
+// nothing to report, so check the rendered output directly and not just the derived height.
 export async function awaitEditorLaidOut(page: Page): Promise<void> {
   await expect
     .poll(
@@ -105,8 +88,8 @@ export async function awaitEditorLaidOut(page: Page): Promise<void> {
           return modelLineCount > 1 && renderedLineCount <= 1 ? -1 : 0;
         }),
       {
-        message: "Monaco's viewport never matched its container (editor stuck at the 5px clamp)",
-        timeout: process.platform === "linux" ? 15_000 : 45_000,
+        message:
+          "Monaco never drew the file's lines (viewport clamped, or the render never landed)",
       },
     )
     .toBe(0);
@@ -174,9 +157,29 @@ export async function expectRevealed(page: Page, file: string, line: number): Pr
     .toBe(line);
 }
 
-// Type text at the current caret in the focused Monaco editor.
+// Click into Monaco: focuses the editor pane and puts the caret on the first rendered line.
+//
+// The target is a `.view-line`, never the `.view-lines` container. Monaco sizes that container to the whole
+// scrollable content — with `scrollBeyondLastLine` a 7-line file is 853px tall inside a 709px viewport — and
+// Playwright reveals an element before clicking it. The browser satisfies that by natively scrolling the
+// `overflow:hidden` ancestor, which Monaco deliberately folds back into its own scroll position
+// (`editorScrollbar.ts`'s `onBrowserDesperateReveal`). The editor ends scrolled to its maximum, rendering only
+// the file's last line, and every later locator for any other line matches nothing. A single `.view-line` is
+// one line tall and always inside the viewport, so the reveal is a no-op.
+export async function clickIntoEditor(page: Page): Promise<void> {
+  await awaitEditorReady(page);
+  // Near the line's start, not its centre: a line's box spans the whole content width, so on a short line the
+  // centre lands on the git-blame annotation injected after the code — which owns that click and swallows it,
+  // leaving the editor unfocused.
+  await page
+    .locator(".monaco-editor .view-line")
+    .first()
+    .click({ position: { x: 4, y: 4 } });
+}
+
+// Type text at the current caret in the focused Monaco editor. Callers place the caret themselves (a click
+// into the editor, Home/End); typing does not move it first.
 export async function typeInEditor(page: Page, text: string): Promise<void> {
   await awaitEditorReady(page);
-  await page.locator(".monaco-editor .view-lines").first().click();
   await page.keyboard.type(text);
 }

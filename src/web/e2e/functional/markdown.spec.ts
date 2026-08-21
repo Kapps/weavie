@@ -1,4 +1,4 @@
-import { openFile, typeInEditor } from "../harness/actions";
+import { clickIntoEditor, openFile, typeInEditor } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 
 // Open a markdown file → edit it → toggle preview → the preview renders HTML reflecting the edited content
@@ -8,7 +8,7 @@ test("markdown preview renders edited content as HTML", async ({ page }) => {
   await openFile(page, "README.md");
 
   const heading = `Marker ${Date.now()}`;
-  await page.locator(".monaco-editor .view-lines").first().click();
+  await clickIntoEditor(page);
   await page.keyboard.press("ControlOrMeta+End");
   await typeInEditor(page, `\n\n# ${heading}\n`);
 

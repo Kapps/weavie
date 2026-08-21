@@ -4,10 +4,6 @@
    metrics, and carries no weight of its own: the point is to be readable when looked for and ignorable when
    not. Opacity rather than a fixed colour, so it fades against whatever the active theme paints behind it. */
 .weavie-blame {
-  /* The gap to the code, as margin rather than leading spaces: margin sits outside the box, so the space
-     between the line and its annotation is dead to the pointer. Clicking just past the end of a line — to put
-     the caret there — must not open the popover. */
-  margin-left: 3em;
   font-size: var(--font-metadata-size);
   font-style: italic;
   color: var(--dim, #6f7884);

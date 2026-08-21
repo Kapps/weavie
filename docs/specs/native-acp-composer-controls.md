@@ -50,6 +50,11 @@ The host validates every selected value against the current advertised axis befo
 optimistic or legacy response fallback. Mode changes use `session/set_mode` and are reconciled by the provider's
 mode updates.
 
+Accepted control values are stored as opaque provider defaults in `~/.weavie/acp-controls.json`. On every
+`session/new`, `session/load`, or `session/resume`, the ACP client reapplies advertised saved values in catalog
+order and consumes each authoritative response before the session becomes ready. This preserves selections
+across process and conversation lifetimes without teaching Weavie any provider-specific model or value catalog.
+
 The ACP agent advertises models, reasoning levels, fast mode, modes, commands, skills, and plugins. Skills and
 provider commands stay provider-owned: choosing one inserts its advertised slash invocation for the agent to
 interpret. Weavie never accepts a web-supplied skill path.

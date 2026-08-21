@@ -50,6 +50,9 @@ public static class WeaviePaths {
 	/// <summary>The provider-keyed ACP conversation associations: <c>~/.weavie/acp-sessions.json</c>.</summary>
 	public static string AcpSessionsFile { get; } = Path.Combine(Root, "acp-sessions.json");
 
+	/// <summary>The provider-keyed ACP control defaults: <c>~/.weavie/acp-controls.json</c>.</summary>
+	public static string AcpControlsFile { get; } = Path.Combine(Root, "acp-controls.json");
+
 	/// <summary>Root for ACP registry installations and custom launch profiles.</summary>
 	public static string AcpRoot { get; } = Path.Combine(Root, "acp");
 

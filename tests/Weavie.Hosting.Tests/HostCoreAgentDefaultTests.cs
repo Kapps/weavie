@@ -14,7 +14,7 @@ public sealed class HostCoreAgentDefaultTests {
 		await using var host = await TestHost.StartAsync();
 
 		string bootstrap = host.Core.BuildBootstrap();
-		Assert.Contains("window.__WEAVIE_AGENT__ = {\"defaultProvider\":\"claude\",\"middleClickAutoscroll\":true,\"providers\":[", bootstrap);
+		Assert.Contains("window.__WEAVIE_AGENT__ = {\"defaultProvider\":\"claude\",\"providers\":[", bootstrap);
 		Assert.Contains("\"id\":\"claude\",\"name\":\"Claude Code\"", bootstrap);
 	}
 

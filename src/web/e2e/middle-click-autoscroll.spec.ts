@@ -49,11 +49,11 @@ async function openAutoscrollPane(
   return { host, body };
 }
 
-// The transcript's center, where a middle click starts an autoscroll.
-async function paneOrigin(body: Locator): Promise<{ x: number; y: number }> {
-  const bounds = await body.boundingBox();
+// The centre of a scrollable surface, where a middle click starts an autoscroll.
+async function paneOrigin(target: Locator): Promise<{ x: number; y: number }> {
+  const bounds = await target.boundingBox();
   if (bounds === null) {
-    throw new Error("agent transcript has no bounds");
+    throw new Error("autoscroll target has no bounds");
   }
   return { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 };
 }
@@ -81,10 +81,9 @@ test("Linux middle-click autoscrolls the agent transcript and responds live", as
 
     await page.mouse.click(origin.x, origin.y, { button: "middle" });
     await expect(body).toHaveClass(/agent-middle-click-autoscrolling/);
-    host.publishHost("settings", "agent-defaults", {
-      defaultProvider: "claude",
+    host.publishHost("settings", "editorOptions", {
+      gitBlame: "off",
       middleClickAutoscroll: false,
-      providers: [],
     });
     await expect(body).not.toHaveClass(/agent-middle-click-autoscrolling/);
     await page.mouse.click(origin.x, origin.y, { button: "middle" });
@@ -136,6 +135,62 @@ test("the autoscroll registers no global wheel listener unless it is running", a
     await page.keyboard.press("Escape");
     await expect(body).not.toHaveClass(/agent-middle-click-autoscrolling/);
     await expect.poll(wheelListeners).toBe(0);
+  } finally {
+    await host.close();
+  }
+});
+
+// The editor's autoscroll is Monaco's own `scrollOnMiddleClick` contribution, wired to the same setting as the
+// transcript's hand-rolled one. Unlike that one it is not Linux-only: Monaco's viewport is not a native
+// scrollable element, so no platform autoscrolls it for free.
+test("middle-click autoscrolls the editor and responds live", async ({ page }) => {
+  const session = mockSession("editor-autoscroll", "editor-autoscroll", "acp");
+  const host = await MockHost.start({ distDir, sessions: [session] });
+
+  try {
+    host.files.set(
+      "/long.ts",
+      Array.from({ length: 400 }, (_, index) => `export const line${index} = ${index};`).join("\n"),
+    );
+    await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
+    await host.waitUntilConnected();
+    host.publishSession(session.address, "editor", "openFile", {
+      path: "/long.ts",
+      line: 1,
+      preview: false,
+      scratch: false,
+    });
+
+    const editor = page.locator(".monaco-editor").first();
+    await expect(editor).toBeVisible();
+    await expect(page.locator(".monaco-editor .view-lines").first()).toContainText("line0 = 0");
+    const scrollTop = (): Promise<number> =>
+      page.evaluate(() => window.__WEAVIE_EDITOR__?.getScrollTop() ?? -1);
+    await expect.poll(scrollTop).toBe(0);
+
+    const origin = await paneOrigin(editor);
+
+    // A middle click arms the scroll; moving away from the click point drives it, faster the further you go.
+    await page.mouse.click(origin.x, origin.y, { button: "middle" });
+    await expect(editor).toHaveClass(/scroll-editor-on-middle-click-editor/);
+    await page.mouse.move(origin.x, origin.y + 120);
+    await expect.poll(scrollTop).toBeGreaterThan(0);
+
+    // Any key ends the scroll, matching the transcript's Escape.
+    await page.keyboard.press("Escape");
+    await expect(editor).not.toHaveClass(/scroll-editor-on-middle-click-editor/);
+
+    host.publishHost("settings", "editorOptions", {
+      gitBlame: "off",
+      middleClickAutoscroll: false,
+    });
+    await expect
+      .poll(() =>
+        page.evaluate(() => window.__WEAVIE_EDITOR__?.getRawOptions().scrollOnMiddleClick),
+      )
+      .toBe(false);
+    await page.mouse.click(origin.x, origin.y, { button: "middle" });
+    await expect(editor).not.toHaveClass(/scroll-editor-on-middle-click-editor/);
   } finally {
     await host.close();
   }

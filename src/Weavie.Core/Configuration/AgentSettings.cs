@@ -11,14 +11,11 @@ public static class AgentSettings {
 	/// <summary>How long (ms) to batch a structured pane's live messages into one bridge frame; 0 sends each inline.</summary>
 	public const string PaneCoalesceMs = "agent.paneCoalesceMs";
 
-	/// <summary>Linux middle-click autoscroll for the structured-agent transcript.</summary>
-	public const string MiddleClickAutoscroll = "linux.agentMiddleClickAutoscroll";
-
 	/// <summary>Automatically selects an advertised allow option for ACP permission requests.</summary>
 	public const string AllowAllPermissions = "agent.allowAllPermissions";
 
 	/// <summary>The keys the host subscribes to, to re-push on change.</summary>
-	public static readonly IReadOnlyList<string> Keys = [DefaultProvider, MiddleClickAutoscroll];
+	public static readonly IReadOnlyList<string> Keys = [DefaultProvider];
 
 	/// <summary>Builds the resolved agent defaults for the web (the bootstrap global or the change push).</summary>
 	public static string BuildJson(SettingsStore store, IReadOnlyList<AgentProviderInfo> providers) {
@@ -26,7 +23,6 @@ public static class AgentSettings {
 		ArgumentNullException.ThrowIfNull(providers);
 		return JsonWrite.Object(writer => {
 			writer.WriteString("defaultProvider", store.RequireString(DefaultProvider));
-			writer.WriteBoolean("middleClickAutoscroll", store.RequireBool(MiddleClickAutoscroll));
 			writer.WriteStartArray("providers");
 			foreach (var provider in providers) {
 				writer.WriteStartObject();

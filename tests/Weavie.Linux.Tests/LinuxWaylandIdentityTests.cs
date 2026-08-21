@@ -59,6 +59,14 @@ public sealed class LinuxWaylandIdentityTests {
 				}
 			});
 
+			// 2026-08-21 04:35 UTC, run https://github.com/Kapps/weavie/actions/runs/32447336985/job/96669255485
+			// (PR #615, unrelated diff) — timed out here, distinct from the compositor-handshake case
+			// WaitForCompositorAsync above already fixed (that gate passed cleanly this run): the app itself
+			// (dbus-run-session + the full GTK4/WebKitGTK boot) didn't publish its Wayland app id within this
+			// 15s fixed budget. Single occurrence, no forensics beyond the timeout — not attempting a fix
+			// (a widened timeout would be a safety-net per AGENTS.md); needs its own investigation (is the
+			// app genuinely this slow to cold-boot under CI load, or is dbus-run-session itself stalling)
+			// before a real fix, per docs/specs/e2e-flake-analysis.md's guidance.
 			var completed = await Task.WhenAny(appIdPublished.Task, app.WaitForExitAsync())
 				.WaitAsync(TimeSpan.FromSeconds(15));
 			Assert.True(

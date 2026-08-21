@@ -311,6 +311,28 @@ rather than one fixable defect — consistent with this doc's existing "resource
 runner" theory for root cause #4. Logged here per policy (no flake goes uncommented) for whoever hits
 it next; needs its own forensics before any fix is more than a guess.
 
+## Open: Linux `LinuxWaylandIdentityTests` times out after the compositor handshake succeeds
+
+**Symptom, 2026-08-21 04:35 UTC, run 32447336985:**
+[job 96669255485](https://github.com/Kapps/weavie/actions/runs/32447336985/job/96669255485), PR #615
+(diff touches only `src/web/index.html` and this doc — unrelated) — `.NET tests` /
+`Weavie.Linux.Tests.LinuxWaylandIdentityTests.LinuxHost_PublishesTheDesktopAppIdToWayland` failed with
+`System.TimeoutException` at the app-boot wait (`tests/Weavie.Linux.Tests/LinuxWaylandIdentityTests.cs`,
+`Task.WhenAny(appIdPublished.Task, app.WaitForExitAsync()).WaitAsync(TimeSpan.FromSeconds(15))`).
+
+**Distinct from the already-fixed case:** PR #641's `WaitForCompositorAsync` readiness gate (commit
+`ace5300`) runs immediately before this wait and evidently passed cleanly — the compositor handshake is
+not what timed out. This time the spawned app itself (`dbus-run-session` launching the full
+GTK4/WebKitGTK boot) never published its Wayland app id within the fixed 15s budget. Same shape as root
+cause #4's Windows-runner resource-exhaustion pattern, but on the hosted Linux runner instead, and a
+different stage of this specific test than the one already fixed.
+
+No fix attempted: single occurrence, no forensics beyond the timeout, and the diff it landed on doesn't
+touch anything related. A widened timeout would be a safety-net per `AGENTS.md`'s "no safety-net
+timeouts" rule. Needs its own investigation — is the app genuinely this slow to cold-boot under CI load,
+or is `dbus-run-session` itself stalling — before a real fix (e.g. a `WaitForAppReadyAsync`-style gate
+analogous to `WaitForCompositorAsync`) is more than a guess.
+
 ## Reproduction & forensics techniques that worked
 
 - **Parse the Playwright trace DOM directly.** `trace.zip` → `0-trace.trace` is JSONL; `frame-snapshot`

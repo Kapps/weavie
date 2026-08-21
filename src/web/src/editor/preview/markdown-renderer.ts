@@ -1,5 +1,6 @@
 import DOMPurify from "dompurify";
 import MarkdownIt from "markdown-it";
+import { isFileLineReference } from "../../content-links";
 import { highlightFence } from "./highlight";
 
 export interface MarkdownProfile {
@@ -32,6 +33,10 @@ export function createMarkdownRenderer(profile: MarkdownProfile): (content: stri
 
   if (profile.safeLinksOnly) {
     markdown.validateLink = isSafeAgentLink;
+    // `hello.ts:42` reads as a `hello.ts:` URI scheme to the link policies here and in DOMPurify, which then
+    // drop the href and leave a dead link. Marking it explicitly relative keeps an authored file link whole.
+    const normalize = markdown.normalizeLink.bind(markdown);
+    markdown.normalizeLink = (url) => normalize(isFileLineReference(url) ? `./${url}` : url);
   }
 
   return (content: string): HTMLElement => {

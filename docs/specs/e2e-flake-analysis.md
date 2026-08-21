@@ -251,6 +251,20 @@ so shell code can route an editor model without importing the editor runtime. Th
 entry's static chunk graph and fails if that boundary regresses. This repairs both the accidental eager
 7.9 MB download and the Windows socket-allocation failure without a retry, skip, or wider timeout.
 
+**2026-08-21 recurrence, ~03:18 UTC, run 32442542060** (main's post-merge CI for PR #647,
+[job 96656628608](https://github.com/Kapps/weavie/actions/runs/32442542060/job/96656628608)): a different
+trigger point and a different spec — `agent-composer.spec.ts:1048` ("the reasoning picker applies the
+provider-owned thought level"), Windows `e2e (windows) / shard (1/6)`. This time `page.goto` itself threw
+`net::ERR_NO_BUFFER_SPACE`, not a sub-resource fetch during boot, and it happened as test #17 of 44 in an
+otherwise-clean shard (16 prior tests passed) rather than on the very first navigation. The already-landed
+fix above addresses the entry page's *initial* resource burst; this occurrence's socket pressure had
+accumulated over many prior navigations in the same serial Windows worker instead. `workers` is already
+pinned to `1` on Windows and retries are off by repo policy (`playwright.config.ts`), so there is no
+config lever left to pull, and the OS-level `WSAENOBUFS` carries no app-side diagnostic (no trace, no
+console error) to chase toward a code fix. No fix attempted — logged per this doc's guidance rather than
+guessed at. PR #647's diff (editor scroll-sensitivity settings) does not touch navigation, sockets, or
+this test's file, ruling it out as the cause.
+
 ## Open: `.editor[data-active-file]` stays empty through `openFile`
 
 **Symptom, 2026-08-19 ~22:15 UTC, run 32307034002:** `diff-review.spec.ts:202` ("keep-all clears both

@@ -1045,6 +1045,13 @@ test.describe("ACP composer", () => {
     expect(lastAgentPayload("setControl")).toBeUndefined();
   });
 
+  // Flaked 2026-08-21 ~03:18 UTC, run 32442542060 (https://github.com/Kapps/weavie/actions/runs/32442542060/job/96656628608):
+  // mountAgent's page.goto failed outright with net::ERR_NO_BUFFER_SPACE (WSAENOBUFS) on Windows shard 1/6,
+  // test #17 of 44 in that shard — a recurrence of the Windows socket/buffer-exhaustion class documented as
+  // root cause #4 in docs/specs/e2e-flake-analysis.md, but on a live navigation deep into a serial run rather
+  // than the eager-preload boot-time burst that class's existing fix addressed. No fix attempted here: workers
+  // is already 1 on Windows and retries are off by repo policy, so there is no lever to pull without new
+  // forensics (the OS-level error carries no app-side diagnostic to chase). Logged per the doc's guidance.
   test("the reasoning picker applies the provider-owned thought level", async ({ page }) => {
     await mountAgent(page);
 

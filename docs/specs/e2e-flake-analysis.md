@@ -209,6 +209,17 @@ than reload-looping. This is a real fix, not a test-side retry: it self-heals th
 class in production, not just this run's exhaustion window. Not verified locally (per the guidance below,
 Windows-runner-only) — validate by watching for a repeat of this exact symptom across future Windows CI runs.
 
+**2026-08-21 recurrence, run 32442542060:** hit again on `main` before this fix had landed — Windows
+`chromium` project, `agent-composer.spec.ts:1048` ("the reasoning picker applies the provider-owned thought
+level"), shard 1/6, job
+https://github.com/Kapps/weavie/actions/runs/32442542060/job/96656628608. Same signature:
+`page.goto` failed outright with `net::ERR_NO_BUFFER_SPACE` fetching the entry page itself this time (not a
+dependency chunk) — the broadest form of the same OS-level socket exhaustion, and one this PR's reload
+doesn't cover (the entry document failing to fetch never reaches the module graph, so no `error` fires on a
+`<script type=module>` element). This PR was rebased onto `main` and landed at this point specifically
+because of this recurrence; the entry-page-fetch case remains open — the next occurrence of *that* specific
+shape should look at Playwright's own navigation retry/timeout rather than the module-graph error path.
+
 ## Reproduction & forensics techniques that worked
 
 - **Parse the Playwright trace DOM directly.** `trace.zip` → `0-trace.trace` is JSONL; `frame-snapshot`

@@ -45,7 +45,14 @@
          failed with net::ERR_NO_BUFFER_SPACE (confirmed root cause #4 in docs/specs/e2e-flake-analysis.md
          — hosted-Windows-runner socket exhaustion; the 2026-07-31 fix there reduced the eager-preload
          footprint but the OS-level exhaustion can still hit any boot request, just less often). This
-         reload is the actual fix for that class, in production and in this test alike. -->
+         reload is the actual fix for that class, in production and in this test alike.
+
+         2026-08-21 03:17 UTC, run https://github.com/Kapps/weavie/actions/runs/32442542060/job/96656628608
+         — recurred once more (Windows e2e shard 1/6, chromium project, agent-composer.spec.ts:1048), same
+         ERR_NO_BUFFER_SPACE signature but on `page.goto` itself (the entry page fetch, not a module-graph
+         dependency) — a case this reload doesn't cover, since the module graph never starts loading if the
+         document fetch itself fails. This PR was rebased onto main and landed because of that recurrence;
+         see docs/specs/e2e-flake-analysis.md for the still-open entry-page-fetch case. -->
     <script>
       (() => {
         var RETRY_KEY = "weavie-boot-module-retry";

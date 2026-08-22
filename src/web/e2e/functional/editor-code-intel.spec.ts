@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test";
-import { openFile } from "../harness/actions";
+import { clickIntoEditor, openFile } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 
 // Regression (feat/find-references): the editor right-click menu had lost its code-intelligence actions,
@@ -15,7 +15,7 @@ async function focusEditor(page: Page): Promise<void> {
   await openFile(page, "hello.ts");
   // Click into Monaco so the editor pane is the focused pane (editorFocused = true) — the gate the three
   // commands carry, and the pre-open focus the palette evaluates `when` against.
-  await page.locator(".monaco-editor .view-lines").first().click();
+  await clickIntoEditor(page);
   await expect(page.locator('.editor-surface[data-kind="editor"]')).toHaveClass(/\bactive\b/);
 }
 
@@ -25,7 +25,7 @@ test("editor right-click menu lists the code-intelligence actions above the clip
   await focusEditor(page);
 
   // Right-click inside Monaco → Weavie's OWN context menu (Monaco's native menu is disabled via contextmenu:false).
-  await page.locator(".monaco-editor .view-lines").first().click({ button: "right" });
+  await page.locator(".monaco-editor .view-line").first().click({ button: "right" });
   const menu = page.locator(".context-menu");
   await expect(menu).toBeVisible();
 

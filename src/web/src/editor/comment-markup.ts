@@ -289,3 +289,21 @@ function parseInline(text: string): Inline[] {
 export function parseCommentLines(content: string[], xmlDoc: boolean): Inline[][] {
   return content.map((line) => (xmlDoc ? parseXmlDocLine(line) : parseInline(line)));
 }
+
+/** A selected line/column span, structurally compatible with Monaco's `Selection` (start before end). */
+export interface SelectionSpan {
+  startLineNumber: number;
+  startColumn: number;
+  endLineNumber: number;
+  endColumn: number;
+}
+
+/**
+ * Whether `span` reaches into `block`'s lines. A non-empty span ending at column 1 stops before that line's
+ * text, so it doesn't count as touching it; an empty span is the bare caret.
+ */
+export function spanTouchesBlock(block: CommentBlock, span: SelectionSpan): boolean {
+  const empty = span.startLineNumber === span.endLineNumber && span.startColumn === span.endColumn;
+  const endLine = !empty && span.endColumn === 1 ? span.endLineNumber - 1 : span.endLineNumber;
+  return block.startLine <= endLine && block.endLine >= span.startLineNumber;
+}

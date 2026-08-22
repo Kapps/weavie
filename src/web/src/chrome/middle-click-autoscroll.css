@@ -1,0 +1,20 @@
+/* Middle-click autoscroll: the panning cursor over the surface being scrolled, and the origin marker the
+   pointer's distance — and so the scroll speed — is measured from. */
+
+.middle-click-autoscrolling,
+.middle-click-autoscrolling * {
+  cursor: all-scroll;
+}
+
+.middle-click-autoscroll-origin {
+  position: fixed;
+  z-index: 100;
+  width: 11px;
+  height: 15px;
+  border: 1px solid var(--bg);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--fg) 72%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--fg) 30%, transparent);
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+}

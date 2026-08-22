@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   activeSessionSlot,
+  clickIntoEditor,
   createSession,
   openFile,
   waitForSessionSwitch,
@@ -30,7 +31,7 @@ test("concurrent edits land in each session's own worktree and survive a switch 
 
   // Session one edits hello.ts in the workspace checkout.
   await openFile(page, "hello.ts");
-  await page.locator(".monaco-editor .view-lines").first().click();
+  await clickIntoEditor(page);
   await page.keyboard.press("ControlOrMeta+Home");
   await page.keyboard.type("SESSIONONEMARKER");
   await saveActiveEditor(page);
@@ -41,7 +42,7 @@ test("concurrent edits land in each session's own worktree and survive a switch 
   await expect(chips).toHaveCount(2);
   await waitForSessionSwitch(page, primarySlot);
   await openFile(page, "hello.ts");
-  await page.locator(".monaco-editor .view-lines").first().click();
+  await clickIntoEditor(page);
   await page.keyboard.press("ControlOrMeta+Home");
   await page.keyboard.type("SESSIONTWOMARKER");
   await saveActiveEditor(page);

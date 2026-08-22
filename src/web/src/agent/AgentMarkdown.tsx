@@ -1,6 +1,6 @@
 import { createEffect, type JSX, onCleanup, onMount } from "solid-js";
 import type { ClientSession } from "../bridge";
-import { findContentLinks, parseFileReference } from "../content-links";
+import { type ContentLinkKind, findContentLinks, parseFileReference } from "../content-links";
 import { hydrateMermaid } from "../editor/preview/diagrams";
 import { createMarkdownRenderer } from "../editor/preview/markdown-renderer";
 import { refLinkPrefixFor } from "../terminal/ref-link-store";
@@ -90,26 +90,37 @@ function renderCached(cacheKey: object, content: string, includeRefs: boolean): 
 
 function activate(anchor: HTMLAnchorElement, session: ClientSession | null): void {
   const target = anchor.dataset.agentTarget ?? anchor.getAttribute("href") ?? "";
-  if (anchor.dataset.agentKind === "ref") {
-    const prefix = session === null ? null : refLinkPrefixFor(session);
-    if (prefix !== null) {
-      openUrlExternal(prefix + target.slice(1));
+  // A linkified span carries the kind the shared grammar already decided; re-deriving it from the text here
+  // would misread `processor.go:1654` as a `processor.go:` URI scheme. Only an authored href needs classifying.
+  switch (anchor.dataset.agentKind ?? classifyHref(target)) {
+    case "ref": {
+      const prefix = session === null ? null : refLinkPrefixFor(session);
+      if (prefix !== null) {
+        openUrlExternal(prefix + target.slice(1));
+      }
+      return;
     }
-    return;
+    case "url":
+      openUrlExternal(target);
+      return;
+    case "file": {
+      const { path, line } = parseFileReference(target);
+      session?.feature("files").publish("reveal", { path, line, preview: true });
+      return;
+    }
+    default:
+      return;
   }
+}
 
-  if (/^https?:\/\//i.test(target)) {
-    openUrlExternal(target);
-    return;
+/** Classifies a link the markdown author wrote (as opposed to one linkify found), or null for an in-page jump. */
+function classifyHref(href: string): ContentLinkKind | null {
+  if (/^https?:\/\//i.test(href)) {
+    return "url";
   }
-
-  if (
-    target.startsWith("file:///") ||
-    (target.length > 0 && !target.startsWith("#") && !hasScheme(target))
-  ) {
-    const { path, line } = parseFileReference(target);
-    session?.feature("files").publish("reveal", { path, line, preview: true });
-  }
+  // isSafeAgentLink already rejected every other scheme before this href reached the DOM, so what is left
+  // is a workspace path.
+  return href.length > 0 && !href.startsWith("#") ? "file" : null;
 }
 
 function linkifyText(root: HTMLElement, includeRefs: boolean): void {
@@ -144,8 +155,4 @@ function linkifyText(root: HTMLElement, includeRefs: boolean): void {
     fragment.append(node.data.slice(cursor));
     node.replaceWith(fragment);
   }
-}
-
-function hasScheme(value: string): boolean {
-  return /^[A-Za-z][A-Za-z\d+.-]*:/.test(value) && !/^[A-Za-z]:[\\/]/.test(value);
 }

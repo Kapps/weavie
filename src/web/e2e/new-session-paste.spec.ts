@@ -41,7 +41,11 @@ test("desktop image paste participates in preview and submit while text remains 
     );
     host.onHost("request", "sessionCreation", "previewBranch", (request) => {
       branchPreviews.push(request.payload);
-      host.respond(request, { branch: "bug/image-only-task", error: null });
+      host.respond(request, {
+        branch: "bug/image-only-task",
+        error: null,
+        needsMoreDetail: false,
+      });
     });
 
     await page.setViewportSize({ width: 1200, height: 800 });
@@ -125,6 +129,8 @@ test("desktop image paste participates in preview and submit while text remains 
 
     clipboardImage = { mime: "image/png", dataB64: PNG_B64 };
     clipboardText = "";
+    // The typed name has to replace a landed suggestion, so wait for one rather than race it.
+    await expect(branch).toHaveValue("bug/image-only-task");
     await branch.fill("bug/native-image-paste");
     await prompt.focus();
     const invocation = host.waitForHost("request", "sessions", "invoke");

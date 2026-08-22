@@ -13,9 +13,16 @@ string? mcpConfigPath = ArgValue(args, "--mcp-config");
 string? scriptPath = Environment.GetEnvironmentVariable("WEAVIE_FAKE_CLAUDE_SCRIPT");
 
 if (args.Contains("--print", StringComparer.Ordinal)) {
-	if (Environment.GetEnvironmentVariable("WEAVIE_FAKE_CLAUDE_INFERENCE") == "success") {
+	// A "needsDetail" run answers the way the model does for a draft that names no task: vague until the
+	// draft the query carries grows past a handful of words.
+	string? mode = Environment.GetEnvironmentVariable("WEAVIE_FAKE_CLAUDE_INFERENCE");
+	bool vague = mode == "needsDetail"
+		&& Draft(await Console.In.ReadToEndAsync().ConfigureAwait(false))
+			.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).Length < 5;
+	if (mode is "success" or "needsDetail") {
 		Console.Out.WriteLine("{\"is_error\":false,\"session_id\":\"fake-inference\","
-			+ "\"structured_output\":{\"branch\":\"fix/mobile-branch-inference\"}}");
+			+ "\"structured_output\":{\"branch\":" + (vague ? "\"\"" : "\"fix/mobile-branch-inference\"")
+			+ ",\"needsMoreDetail\":" + (vague ? "true" : "false") + "}}");
 		return 0;
 	}
 	return 7;
@@ -40,6 +47,19 @@ if (!string.IsNullOrEmpty(scriptPath) && File.Exists(scriptPath)) {
 
 await BlockOnStdinAsync().ConfigureAwait(false);
 return 0;
+
+// Reads the draft an inference query carries out of its JSON input block.
+static string Draft(string stdin) {
+	const string Key = "\"prompt\":\"";
+	int start = stdin.IndexOf(Key, StringComparison.Ordinal);
+	if (start < 0) {
+		return string.Empty;
+	}
+
+	int value = start + Key.Length;
+	int end = stdin.IndexOf('"', value);
+	return end < 0 ? string.Empty : stdin[value..end];
+}
 
 // Writes a marker to the PTY (so it shows in the claude pane) and, when WEAVIE_FAKE_CLAUDE_LOG is set, to
 // that file too — the file is the only channel a test can read directly (the PTY is base64 over the bridge).

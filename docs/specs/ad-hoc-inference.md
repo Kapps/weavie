@@ -154,8 +154,11 @@ sequenceDiagram
 
 ## First consumer: branch naming
 
-The shared Sessions composer issues one host-scoped preview request after its text-and-image draft has been idle for
-500 ms. When “Current session” is selected, the request carries that exact slot; “Main branch” needs no live session.
+The shared Sessions composer spends one host-scoped preview request per draft. It asks once the draft carries at
+least three words (or any image) and has been idle for 1200 ms, and it settles there: growing the prompt afterwards
+never buys a second name. Leaving the prompt field or pressing Start asks immediately for a draft that has not been
+asked about yet, so submission never races the idle window. When “Current session” is selected, the request carries
+that exact slot; “Main branch” needs no live session.
 The host sends the text prompt, up to four exact validated images totaling at most 20 MB, the source checkout's
 current branch, and up to twenty local branches ordered by tip committer date. An image-only draft is valid input.
 The owner is the source workspace and the provider already selected in the composer — the branch is named before
@@ -163,14 +166,17 @@ its session exists — and only `Utility` is permitted. An over-budget draft tak
 provider rejection.
 
 A proposed name is trimmed, checked with `GitService.IsValidBranchName`, checked against loaded/worktree labels,
-and checked against Git branch existence. Every other non-cancellation outcome returns an empty branch and marks
-the failure. The composer explains that the user must type a branch, and Start stays disabled until they do. The
-editable field is the only branch creation submits.
+and checked against Git branch existence. The model reports a draft that names no specific task as `needsMoreDetail`
+instead of guessing one: that is the single outcome the composer stays open on, asking again once the draft grows.
+Every other non-cancellation outcome returns an empty branch and marks the failure. The composer explains that the
+user must type a branch, and Start stays disabled until they do. The editable field is the only branch creation
+submits.
 
-Typing, provider/location changes, manual branch input, hiding the composer, and submission cancel pending work.
-The client keys results to the complete draft and never lets a stale response or automatic result overwrite manual
-input. Start stays disabled until the field contains a branch. A transport failure leaves the field blank and
-editable and shows that preview is unavailable.
+Manual branch input and a settled name both stop automatic work; `weavie.session.resuggestBranch` — the field's
+control, unbound by default — is how the user asks for another name and replaces either. A query already in flight
+runs to completion rather than restarting under continued typing, and the client never lets a stale response or an
+automatic result overwrite manual input. A transport failure leaves the field blank and editable and shows that
+preview is unavailable.
 
 Programmatic `weavie.session.new` and fork calls also require a branch and never perform hidden inference. An
 explicit branch is revalidated and used unchanged; omission or collision fails rather than silently substituting a
@@ -184,22 +190,23 @@ answer arrives. It is not a hidden agent loop and never mutates the workspace.
 
 | Surface | Trigger | Category | Typed result | Disabled or query-failure behavior |
 |---|---|---|---|---|
-| Branch-name preview | Automatic after draft idle | `Utility` | Valid branch candidate | Empty field; user types a branch |
+| Branch-name preview | Automatic once per idle draft | `Utility` | Valid branch candidate | Empty field; user types a branch |
 | Plan review | Explicit review action | `Reasoning` | Prioritized findings | Plan remains available without review |
 | Failed-test diagnosis | Explicit offer after a failed run | `Reasoning` | Diagnosis and proposed next action | Existing failed-test result remains unchanged |
 | Semantic file review | Automatic after editor idle | `Utility` | High-impact, located suggestions | No semantic suggestions |
 
 ### Branch-name preview
 
-The proving slice resolves a repository-specific convention that deterministic slugification cannot infer. As the
-user edits a session's text or image input, Weavie waits for 500 ms of inactivity and asks the selected provider for
-a branch name using that input, the current branch, and twenty most recent local branches. This lets examples such as
+The proving slice resolves a repository-specific convention that deterministic slugification cannot infer. Once a
+session's text or image input is worth naming and has gone idle, Weavie asks the selected provider for a branch name
+using that input, the current branch, and twenty most recent local branches. This lets examples such as
 `kapps/fix-webm` and `bug/webm-fails-to-load` emerge from each repository's own history without teaching Weavie a
 global prefix convention.
 
-The suggestion populates the editable branch field before session creation. It is never requested on every
-keystroke, and session creation never waits for it. Manual input wins until the user clears it. The complete
-lifecycle and validation rules are defined in [First consumer: branch naming](#first-consumer-branch-naming).
+The suggestion populates the editable branch field before session creation. One draft costs one query — never a
+query per keystroke, per pause, or per discarded partial prompt — and creation waits for that query only when it has
+not run yet. Manual input wins until the user clears it. The complete lifecycle and validation rules are defined in
+[First consumer: branch naming](#first-consumer-branch-naming).
 
 ### Plan review
 

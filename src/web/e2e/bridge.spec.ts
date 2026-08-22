@@ -197,7 +197,11 @@ test.describe("session-addressed WebSocket transport", () => {
       attachments: [],
       agentProviderId: "claude",
     });
-    host.respond(request, { branch: "", error: "The inference provider failed." });
+    host.respond(request, {
+      branch: "",
+      error: "The inference provider failed.",
+      needsMoreDetail: false,
+    });
 
     const branch = inbox.getByRole("textbox", { name: "Branch for the new session" });
     await expect(branch).toHaveValue("");

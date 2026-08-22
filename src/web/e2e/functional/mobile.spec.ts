@@ -175,6 +175,43 @@ test.describe("configured branch inference", () => {
   });
 });
 
+test.describe("vague branch inference", () => {
+  test.use({ inference: "needsDetail", automaticInference: true });
+
+  test("keeps listening until the prompt names a task", async ({ page }) => {
+    const inbox = page.locator(".session-inbox");
+    await inbox.getByRole("combobox", { name: "Agent provider" }).selectOption("claude");
+    const composer = inbox.getByRole("textbox", { name: "Prompt for a new session" });
+    await composer.fill("fix the bug");
+
+    const branch = inbox.getByRole("textbox", { name: "Branch for the new session" });
+    await expect(branch).toHaveAttribute("placeholder", "Say more, or type a name");
+
+    await composer.fill("fix the bug in the review pane");
+    await expect(branch).toHaveValue("fix/mobile-branch-inference");
+    await expect(inbox.getByRole("alert")).toHaveCount(0);
+  });
+});
+
+test.describe("re-suggesting a branch", () => {
+  test.use({ inference: "success", automaticInference: true });
+
+  test("replaces a typed name when asked for another suggestion", async ({ page }) => {
+    const inbox = page.locator(".session-inbox");
+    await inbox.getByRole("combobox", { name: "Agent provider" }).selectOption("claude");
+    await inbox
+      .getByRole("textbox", { name: "Prompt for a new session" })
+      .fill("Fix mobile branch inference");
+
+    const branch = inbox.getByRole("textbox", { name: "Branch for the new session" });
+    await expect(branch).toHaveValue("fix/mobile-branch-inference");
+
+    await branch.fill("mine/hand-written");
+    await inbox.getByRole("button", { name: "Suggest a branch name again" }).click();
+    await expect(branch).toHaveValue("fix/mobile-branch-inference");
+  });
+});
+
 test.describe("failed branch inference", () => {
   test.use({ inference: "failure", automaticInference: true });
 

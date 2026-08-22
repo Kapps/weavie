@@ -182,17 +182,22 @@ export function SessionInbox(props: {
     const images = attachments();
     if (
       submitting() !== null ||
-      branchPreview().branch.trim().length === 0 ||
+      (text.length === 0 && images.length === 0) ||
       images.some((attachment) => attachment.status !== "ready")
     ) {
       return;
     }
-    branchActions?.cancel();
     setSubmitting("new");
+    // Starting is the last word on the prompt, so it names the branch now if nothing has landed yet.
+    const branch = (await branchActions?.resolve()) ?? "";
+    if (branch.length === 0) {
+      setSubmitting(null);
+      return;
+    }
     if (
       await props.onCreate(
         {
-          branch: branchPreview().branch.trim(),
+          branch,
           base: base(),
           existing: false,
           prompt: text,
@@ -254,12 +259,14 @@ export function SessionInbox(props: {
 
   const canStart = (): boolean => {
     const images = attachments();
+    const preview = branchPreview();
     return (
       submitting() === null &&
+      (prompt().trim().length > 0 || images.length > 0) &&
       agentProviders(backendId()).some(
         (provider) => provider.id === providerId() && provider.available,
       ) &&
-      branchPreview().branch.trim().length > 0 &&
+      (preview.branch.trim().length > 0 || preview.status !== "error") &&
       images.every((attachment) => attachment.status === "ready")
     );
   };
@@ -367,6 +374,13 @@ export function SessionInbox(props: {
             onSubmit={(event) => {
               event.preventDefault();
               void submitNew();
+            }}
+            // Focus landing elsewhere in the composer means the draft is done; leaving it entirely
+            // (closing Sessions) must not spend a query on a draft nobody submitted.
+            onFocusOut={(event) => {
+              if (event.currentTarget.contains(event.relatedTarget as Node | null)) {
+                branchActions?.flush();
+              }
             }}
           >
             <textarea

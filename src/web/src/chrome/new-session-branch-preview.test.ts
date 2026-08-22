@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { BranchPreviewResult } from "../bridge";
 import {
-  BRANCH_PREVIEW_DEBOUNCE_MS,
+  BRANCH_PREVIEW_IDLE_MS,
   type BranchPreviewContext,
   type BranchPreviewState,
   NewSessionBranchPreview,
@@ -35,30 +35,41 @@ const imageContext = (dataB64: string): BranchPreviewContext => ({
   attachments: [{ id: "image-1", mime: "image/png", dataB64 }],
 });
 
+const named = (branch: string): BranchPreviewResult => ({
+  branch,
+  error: null,
+  needsMoreDetail: false,
+});
+
+const MORE_DETAIL: BranchPreviewResult = { branch: "", error: null, needsMoreDetail: true };
+
 afterEach(() => {
   vi.useRealTimers();
 });
 
 describe("NewSessionBranchPreview", () => {
-  it("debounces a typing burst and requests only the latest prompt", async () => {
+  it("waits for an idle prompt with enough words to name", async () => {
     vi.useFakeTimers();
     const requests: BranchPreviewContext[] = [];
     const states: BranchPreviewState[] = [];
     const preview = new NewSessionBranchPreview(
       async (request) => {
         requests.push(request);
-        return { branch: "bug/webm-fails-to-load", error: null };
+        return named("bug/webm-fails-to-load");
       },
       (state) => states.push(state),
     );
 
-    preview.update(context("WebM"));
-    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_DEBOUNCE_MS - 1);
-    expect(requests).toEqual([]);
     preview.update(context("WebM fails"));
-    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_DEBOUNCE_MS);
+    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS * 2);
+    expect(requests).toEqual([]);
 
-    expect(requests).toEqual([context("WebM fails")]);
+    preview.update(context("WebM fails to load"));
+    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS - 1);
+    expect(requests).toEqual([]);
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect(requests).toEqual([context("WebM fails to load")]);
     expect(states.at(-1)).toEqual({
       branch: "bug/webm-fails-to-load",
       error: null,
@@ -67,7 +78,34 @@ describe("NewSessionBranchPreview", () => {
     });
   });
 
-  it("aborts superseded work and ignores a provider that resolves it anyway", async () => {
+  it("settles on the first name and never re-queries as the prompt grows", async () => {
+    vi.useFakeTimers();
+    const requests: BranchPreviewContext[] = [];
+    let state: BranchPreviewState | undefined;
+    const preview = new NewSessionBranchPreview(
+      async (request) => {
+        requests.push(request);
+        return named("bug/webm-fails-to-load");
+      },
+      (next) => {
+        state = next;
+      },
+    );
+
+    preview.update(context("WebM fails to load"));
+    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS);
+    expect(requests).toHaveLength(1);
+
+    preview.update(context("WebM fails to load in the review pane"));
+    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS * 4);
+    preview.flush();
+    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS);
+
+    expect(requests).toHaveLength(1);
+    expect(state?.branch).toBe("bug/webm-fails-to-load");
+  });
+
+  it("lets an in-flight query finish instead of restarting it on every keystroke", async () => {
     vi.useFakeTimers();
     const calls: Array<{ result: Deferred<BranchPreviewResult>; signal: AbortSignal }> = [];
     let state: BranchPreviewState | undefined;
@@ -82,38 +120,256 @@ describe("NewSessionBranchPreview", () => {
       },
     );
 
-    preview.update(imageContext("first"));
-    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_DEBOUNCE_MS);
-    preview.update(imageContext("second"));
-    expect(calls[0]!.signal.aborted).toBe(true);
-    calls[0]!.result.resolve({ branch: "stale", error: null });
-    await Promise.resolve();
-    expect(state?.branch).toBe("");
+    preview.update(context("WebM fails to load"));
+    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS);
+    preview.update(context("WebM fails to load in review"));
+    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS * 2);
 
-    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_DEBOUNCE_MS);
-    calls[1]!.result.resolve({ branch: "fresh", error: null });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.signal.aborted).toBe(false);
+    calls[0]!.result.resolve(named("bug/webm-fails-to-load"));
     await Promise.resolve();
-    expect(state).toEqual({ branch: "fresh", error: null, manual: false, status: "ready" });
+    expect(state?.branch).toBe("bug/webm-fails-to-load");
   });
 
-  it("lets manual input win until the field is explicitly cleared", async () => {
+  it("keeps listening while the model says the prompt names no task yet", async () => {
     vi.useFakeTimers();
-    const calls: Array<{ context: BranchPreviewContext; signal: AbortSignal }> = [];
+    const requests: BranchPreviewContext[] = [];
     let state: BranchPreviewState | undefined;
     const preview = new NewSessionBranchPreview(
-      async (request, signal) => {
-        calls.push({ context: request, signal });
-        return { branch: "automatic", error: null };
+      async (request) => {
+        requests.push(request);
+        return request.prompt.includes("review") ? named("bug/review-pane") : MORE_DETAIL;
       },
       (next) => {
         state = next;
       },
     );
 
-    preview.update(context("first"));
+    preview.update(context("fix the bug"));
+    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS);
+    expect(state?.status).toBe("needsDetail");
+
+    // The same prompt is the same question; only new words are worth asking about again.
+    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS * 4);
+    expect(requests).toHaveLength(1);
+
+    preview.update(context("fix the bug in the review pane"));
+    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS);
+    expect(requests).toHaveLength(2);
+    expect(state).toEqual({
+      branch: "bug/review-pane",
+      error: null,
+      manual: false,
+      status: "ready",
+    });
+  });
+
+  it("names the branch immediately when focus leaves a prompt too short to have queried", async () => {
+    vi.useFakeTimers();
+    const requests: BranchPreviewContext[] = [];
+    let state: BranchPreviewState | undefined;
+    const preview = new NewSessionBranchPreview(
+      async (request) => {
+        requests.push(request);
+        return named("bug/webm");
+      },
+      (next) => {
+        state = next;
+      },
+    );
+
+    preview.update(context("WebM broken"));
+    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS * 2);
+    expect(requests).toEqual([]);
+
+    preview.flush();
+    await Promise.resolve();
+    expect(requests).toEqual([context("WebM broken")]);
+    expect(state?.branch).toBe("bug/webm");
+  });
+
+  it("resolves a name for a submission that outran the idle window", async () => {
+    vi.useFakeTimers();
+    const requests: BranchPreviewContext[] = [];
+    const preview = new NewSessionBranchPreview(
+      async (request) => {
+        requests.push(request);
+        return named("bug/webm-fails-to-load");
+      },
+      () => {},
+    );
+
+    preview.update(context("WebM fails to load"));
+    expect(await preview.resolve()).toBe("bug/webm-fails-to-load");
+    expect(requests).toHaveLength(1);
+
+    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS * 2);
+    expect(requests).toHaveLength(1);
+  });
+
+  it("answers a submission for the draft as it now reads, not the query already in flight", async () => {
+    vi.useFakeTimers();
+    const calls: Array<{ context: BranchPreviewContext; result: Deferred<BranchPreviewResult> }> =
+      [];
+    let state: BranchPreviewState | undefined;
+    const preview = new NewSessionBranchPreview(
+      (request) => {
+        const result = deferred<BranchPreviewResult>();
+        calls.push({ context: request, result });
+        return result.promise;
+      },
+      (next) => {
+        state = next;
+      },
+    );
+
+    preview.update(context("fix the bug"));
+    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS);
+    expect(calls).toHaveLength(1);
+
+    preview.update(context("fix the bug in the review pane"));
+    const submission = preview.resolve();
+    calls[0]!.result.resolve(MORE_DETAIL);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(calls).toHaveLength(2);
+    expect(calls[1]!.context.prompt).toBe("fix the bug in the review pane");
+    calls[1]!.result.resolve(named("bug/review-pane"));
+    expect(await submission).toBe("bug/review-pane");
+    expect(state?.status).toBe("ready");
+  });
+
+  it("names the draft again when the host it would be created on changes", async () => {
+    vi.useFakeTimers();
+    const requests: BranchPreviewContext[] = [];
+    let state: BranchPreviewState | undefined;
+    const preview = new NewSessionBranchPreview(
+      async (request) => {
+        requests.push(request);
+        return named(`${request.backendId}/webm-fails-to-load`);
+      },
+      (next) => {
+        state = next;
+      },
+    );
+
+    preview.update(context("WebM fails to load"));
+    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS);
+    expect(state?.branch).toBe("local/webm-fails-to-load");
+
+    preview.update({ ...context("WebM fails to load"), backendId: "remote-1" });
+    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS);
+
+    expect(requests).toHaveLength(2);
+    expect(state?.branch).toBe("remote-1/webm-fails-to-load");
+  });
+
+  it("explains a submission it still cannot name", async () => {
+    vi.useFakeTimers();
+    let state: BranchPreviewState | undefined;
+    const preview = new NewSessionBranchPreview(
+      async () => MORE_DETAIL,
+      (next) => {
+        state = next;
+      },
+    );
+
+    preview.update(context("fix the bug"));
+    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS);
+
+    expect(await preview.resolve()).toBe("");
+    expect(state).toEqual({
+      branch: "",
+      error: "the prompt doesn't describe a specific task yet.",
+      manual: false,
+      status: "error",
+    });
+  });
+
+  it("re-runs a settled suggestion only when asked to", async () => {
+    vi.useFakeTimers();
+    const branches = ["bug/first-guess", "bug/second-guess"];
+    let state: BranchPreviewState | undefined;
+    const preview = new NewSessionBranchPreview(
+      async () => named(branches.shift() ?? "bug/exhausted"),
+      (next) => {
+        state = next;
+      },
+    );
+
+    preview.update(context("WebM fails to load"));
+    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS);
+    expect(state?.branch).toBe("bug/first-guess");
+
+    preview.update(context("WebM fails to load in the review pane"));
+    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS);
+    expect(state?.branch).toBe("bug/first-guess");
+
+    preview.refresh();
+    await Promise.resolve();
+    expect(state).toEqual({
+      branch: "bug/second-guess",
+      error: null,
+      manual: false,
+      status: "ready",
+    });
+  });
+
+  it("replaces a typed name on refresh and abandons the work it supersedes", async () => {
+    vi.useFakeTimers();
+    const calls: Array<{ result: Deferred<BranchPreviewResult>; signal: AbortSignal }> = [];
+    let state: BranchPreviewState | undefined;
+    const preview = new NewSessionBranchPreview(
+      (_request, signal) => {
+        const result = deferred<BranchPreviewResult>();
+        calls.push({ result, signal });
+        return result.promise;
+      },
+      (next) => {
+        state = next;
+      },
+    );
+
+    preview.update(imageContext("shot"));
+    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS);
+    preview.edit("mine/typed-name");
+    expect(state?.manual).toBe(true);
+
+    preview.refresh();
+    expect(calls[0]!.signal.aborted).toBe(true);
+    calls[0]!.result.resolve(named("stale"));
+    await Promise.resolve();
+    expect(state?.status).toBe("loading");
+
+    calls[1]!.result.resolve(named("bug/screenshot"));
+    await Promise.resolve();
+    expect(state).toEqual({
+      branch: "bug/screenshot",
+      error: null,
+      manual: false,
+      status: "ready",
+    });
+  });
+
+  it("lets manual input win until the field is explicitly cleared", async () => {
+    vi.useFakeTimers();
+    const calls: BranchPreviewContext[] = [];
+    let state: BranchPreviewState | undefined;
+    const preview = new NewSessionBranchPreview(
+      async (request) => {
+        calls.push(request);
+        return named("automatic");
+      },
+      (next) => {
+        state = next;
+      },
+    );
+
+    preview.update(context("first prompt here"));
     preview.edit("mine/fix-webm");
-    preview.update({ ...context("second"), providerId: "claude" });
-    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_DEBOUNCE_MS);
+    preview.update({ ...context("second prompt here"), providerId: "claude" });
+    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS);
     expect(calls).toEqual([]);
     expect(state).toEqual({
       branch: "mine/fix-webm",
@@ -123,11 +379,11 @@ describe("NewSessionBranchPreview", () => {
     });
 
     preview.edit("");
-    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_DEBOUNCE_MS);
+    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS);
     expect(calls).toHaveLength(1);
-    expect(calls[0]!.context).toEqual({
+    expect(calls[0]).toEqual({
       backendId: "local",
-      prompt: "second",
+      prompt: "second prompt here",
       attachments: [],
       providerId: "claude",
     });
@@ -146,8 +402,8 @@ describe("NewSessionBranchPreview", () => {
       },
     );
 
-    preview.update(context("fix it"));
-    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_DEBOUNCE_MS);
+    preview.update(context("fix it now"));
+    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS);
     expect(state).toEqual({
       branch: "",
       error: "The host is offline.",
@@ -164,21 +420,26 @@ describe("NewSessionBranchPreview", () => {
     });
   });
 
-  it("preserves the reason when inference fails", async () => {
+  it("preserves the reason when inference fails and stops retrying it", async () => {
     vi.useFakeTimers();
+    const requests: BranchPreviewContext[] = [];
     let state: BranchPreviewState | undefined;
     const preview = new NewSessionBranchPreview(
-      async () => ({
-        branch: "",
-        error: "ACP authentication was rejected. Run 'acp login' and try again.",
-      }),
+      async (request) => {
+        requests.push(request);
+        return {
+          branch: "",
+          error: "ACP authentication was rejected. Run 'acp login' and try again.",
+          needsMoreDetail: false,
+        };
+      },
       (next) => {
         state = next;
       },
     );
 
-    preview.update(context("fix it"));
-    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_DEBOUNCE_MS);
+    preview.update(context("fix it now"));
+    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS);
 
     expect(state).toEqual({
       branch: "",
@@ -186,5 +447,9 @@ describe("NewSessionBranchPreview", () => {
       manual: false,
       status: "error",
     });
+
+    preview.update(context("fix it now please"));
+    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS * 2);
+    expect(requests).toHaveLength(1);
   });
 });

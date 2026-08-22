@@ -110,11 +110,11 @@ public sealed partial class HostCore {
 			return Task.CompletedTask;
 		});
 
-		_messages.Host.Feature("agentDefaults").Handle<AgentProviderMessage>(
+		_messages.Host.Feature("agentDefaults").Handle<AgentProviderMessage, JsonElement>(
 			"setProvider",
 			(message, _) => {
 				RememberDefaultProvider(message.ProviderId);
-				return Task.CompletedTask;
+				return Task.FromResult(ParseJsonElement(BuildAgentDefaults()));
 			});
 
 		var acpRegistry = _messages.Host.Feature("acpRegistry");

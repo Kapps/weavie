@@ -584,6 +584,7 @@ public sealed partial class HostCore {
 			return Task.FromResult(CommandResult.Failure(error));
 		}
 		string provider = ResolveNewSessionProvider(request.AgentProviderId);
+		RememberDefaultProvider(provider);
 		return RunSessionLifecycleAsync(() => {
 			var source = sourceAddress is null ? null : _sessions?.Find(sourceAddress.Slot);
 			if (sourceAddress is not null && source?.Session?.Address != sourceAddress) {

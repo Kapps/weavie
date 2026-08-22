@@ -1,3 +1,5 @@
+using System.Text.Json;
+using Weavie.Core.Sessions;
 using Xunit;
 
 namespace Weavie.Hosting.Tests;
@@ -23,11 +25,13 @@ public sealed class HostCoreAgentDefaultTests {
 		await using var host = await TestHost.StartAsync();
 		host.Bridge.Clear();
 
-		host.HostEvent("agentDefaults", "setProvider", new { providerId = "structured" });
+		var response = await host.HostRequestAsync<JsonElement>(
+			"agentDefaults", "setProvider", new { providerId = "structured" });
 
 		var push = host.Bridge.LastEvent("settings", "agent-defaults");
 		Assert.True(push.HasValue);
 		Assert.Equal("structured", push!.Value.GetProperty("defaultProvider").GetString());
+		Assert.Equal("structured", response.GetProperty("defaultProvider").GetString());
 	}
 
 	[Fact]
@@ -35,9 +39,11 @@ public sealed class HostCoreAgentDefaultTests {
 		await using var host = await TestHost.StartAsync(); // ships defaulting to claude
 		host.Bridge.Clear();
 
-		host.HostEvent("agentDefaults", "setProvider", new { providerId = "claude" });
+		var response = await host.HostRequestAsync<JsonElement>(
+			"agentDefaults", "setProvider", new { providerId = "claude" });
 
 		Assert.False(host.Bridge.LastEvent("settings", "agent-defaults").HasValue);
+		Assert.Equal("claude", response.GetProperty("defaultProvider").GetString());
 	}
 
 	[Fact]
@@ -45,8 +51,24 @@ public sealed class HostCoreAgentDefaultTests {
 		await using var host = await TestHost.StartAsync();
 		host.Bridge.Clear();
 
-		host.HostEvent("agentDefaults", "setProvider", new { providerId = "ghost" });
+		var response = await host.HostRequestAsync<JsonElement>(
+			"agentDefaults", "setProvider", new { providerId = "ghost" });
 
 		Assert.False(host.Bridge.LastEvent("settings", "agent-defaults").HasValue);
+		Assert.Equal("claude", response.GetProperty("defaultProvider").GetString());
+	}
+
+	[Fact]
+	public async Task CreatingSession_RemembersItsProvider() {
+		await using var host = await TestHost.StartAsync();
+
+		var result = await host.CreateSessionAsync(new NewSessionRequest {
+			Branch = "remember-structured",
+			Base = "main",
+			AgentProviderId = "structured",
+		});
+
+		Assert.True(result.Ok);
+		Assert.Contains("window.__WEAVIE_AGENT__ = {\"defaultProvider\":\"structured\"", host.Core.BuildBootstrap());
 	}
 }

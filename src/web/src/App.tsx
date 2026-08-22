@@ -36,7 +36,6 @@ import {
   waitForClientSession,
 } from "./bridge";
 import { AcpRegistryModal } from "./chrome/AcpRegistryModal";
-import { defaultAgentProvider, setDefaultAgentProvider } from "./chrome/agent-default";
 import { ContextMenu, type ContextMenuEntry, type ContextMenuState } from "./chrome/ContextMenu";
 import { DeleteSessionDialog, type DeleteSessionState } from "./chrome/DeleteSessionDialog";
 import { DiffAgainstPrompt } from "./chrome/DiffAgainstPrompt";
@@ -1804,11 +1803,9 @@ export default function App(): JSX.Element {
           inboxActive={compact() ? mobileSurface() === "inbox" : sessionsModalOpen()}
           sessions={sessions()}
           initialBackendId={defaultLocation()}
-          initialProviderId={defaultAgentProvider(defaultLocation())}
           onOpen={openSession}
           onCreate={(seed, backendId, providerId) => {
             setLastLocation(backendId);
-            setDefaultAgentProvider(backendId, providerId);
             promoteNextSessionOn(backendId);
             return createSessionAt(backendId, {
               branch: seed.branch,

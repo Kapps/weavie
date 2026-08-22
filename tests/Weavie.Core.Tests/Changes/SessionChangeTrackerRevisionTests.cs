@@ -111,6 +111,22 @@ public sealed class SessionChangeTrackerRevisionTests {
 	}
 
 	[Fact]
+	public void ApplyRevision_FileTheAgentNeverTouched_SeedsReviewStateSoTheEditIsReviewable() {
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllText("/w/a.cs", "// one\n// two\n// three\ncode\n");
+		var tracker = Tracker(fileSystem);
+
+		var outcome = tracker.ApplyRevision("/w/a.cs", new LineRange(1, 4), "// one\n// two\n// three", "// short");
+
+		Assert.Equal(ReviseApplyOutcome.Applied, outcome);
+		// Without a seeded baseline the write would land with no review band and nothing to revert.
+		var change = tracker.GetTurn("/w/a.cs");
+		Assert.NotNull(change);
+		Assert.Equal("// one\n// two\n// three\ncode\n", change!.BaselineText);
+		Assert.Equal("// short\ncode\n", change.CurrentText);
+	}
+
+	[Fact]
 	public void ApplyRevision_OutOfBoundsRange_WritesNothing() {
 		var fileSystem = new InMemoryFileSystem();
 		var tracker = Staged(fileSystem, "code\n", "// one\ncode\n");

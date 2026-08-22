@@ -4,6 +4,7 @@ using System.Text.Json.Serialization.Metadata;
 using Weavie.Core.Agents;
 using Weavie.Core.Configuration;
 using Weavie.Core.Inference;
+using Weavie.Core.Revise;
 using Xunit;
 
 namespace Weavie.Core.Tests.Inference;
@@ -25,6 +26,22 @@ public sealed class InferenceServiceTests : IDisposable {
 
 		Assert.Equal(InferenceFailureKind.Disabled, Assert.IsType<InferenceFailure<TestOutput>>(result).Kind);
 		Assert.Equal(0, provider.Calls);
+	}
+
+	[Fact]
+	public async Task ShippedTextOnlyQueryOptions_PassBoundsValidation() {
+		Enable();
+		var provider = new FakeProvider(Success("{\"value\":\"ok\"}"));
+
+		// A text-only feature declares no image capacity. Rejecting that killed every revision before the provider
+		// was reached, and the throw escaped a detached caller entirely — nothing reached the user.
+		var result = await Query(
+			Service(provider),
+			"task",
+			ReviseQuery.OptionsFor(InferenceInvocationOrigin.UserInitiated),
+			CancellationToken.None);
+
+		Assert.IsType<InferenceSuccess<TestOutput>>(result);
 	}
 
 	[Fact]

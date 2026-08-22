@@ -1106,7 +1106,8 @@ public static class CoreCommands {
 			Description = "Rewrite the selected lines in place against an instruction you type. The selection is "
 				+ "tinted while the model works, and the edit is one undo step.",
 			Aliases = ["revise", "rewrite selection", "shorten comment", "reword"],
-			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+alt+r", When = "!terminalFocused" }],
+			When = "editorFocused",
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+alt+e" }],
 		});
 
 		registry.Register(new CommandDefinition {

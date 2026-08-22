@@ -70,10 +70,29 @@ public sealed class ReviseServiceTests {
 	}
 
 	[Fact]
+	public async Task RunAsync_RailThrows_StillReachesTheUser() {
+		var fileSystem = new InMemoryFileSystem();
+		var surface = new FakeSurface();
+		var service = new ReviseService(
+			new FakeInference(() => throw new ArgumentException("bounds must be positive")),
+			Staged(fileSystem),
+			surface);
+
+		// The host runs this detached, so an escaping throw would leave the tint vanishing with no edit, no
+		// toast, and no trace the user can see.
+		var results = await Run(service, Target());
+
+		Assert.Equal(ReviseOutcome.QueryFailed, Assert.Single(results).Outcome);
+		Assert.Equal("bounds must be positive", Assert.Single(surface.Failures));
+		Assert.Empty(service.InFlight);
+	}
+
+	[Fact]
 	public async Task RunAsync_OverlappingTarget_RefusedWithoutQuerying() {
 		var fileSystem = new InMemoryFileSystem();
 		var inference = new FakeInference(() => Reply((1, "// short")));
-		var service = new ReviseService(inference, Staged(fileSystem), new FakeSurface());
+		var surface = new FakeSurface();
+		var service = new ReviseService(inference, Staged(fileSystem), surface);
 
 		// The second target covers lines the first already claims, so only one region reaches the model.
 		var results = await Run(
@@ -82,6 +101,8 @@ public sealed class ReviseServiceTests {
 		Assert.Equal(ReviseOutcome.Applied, results[0].Outcome);
 		Assert.Equal(ReviseOutcome.AlreadyInFlight, results[1].Outcome);
 		Assert.Equal(1, inference.Calls);
+		// The refusal reaches the user; the caller discards the results, so the surface is the only channel.
+		Assert.Equal("that region is already being revised", Assert.Single(surface.Failures));
 	}
 
 	[Fact]
@@ -150,9 +171,10 @@ public sealed class ReviseServiceTests {
 
 		var results = await Run(service, Target());
 
-		// A no-op revision never reaches the editor for confirmation.
+		// A no-op never reaches the editor for confirmation, but the user is still told why nothing changed —
+		// the tint vanishing with the text untouched would otherwise read as a silent failure.
 		Assert.Equal(ReviseOutcome.Unchanged, Assert.Single(results).Outcome);
-		Assert.Empty(surface.Failures);
+		Assert.Equal("the model returned it unchanged", Assert.Single(surface.Failures));
 	}
 
 	[Fact]

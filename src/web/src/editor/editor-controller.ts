@@ -1424,10 +1424,12 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       review.on<TurnDiff>("diff", (message) => setTurnDiffFor(session, message)),
       review.on<ReviewComments>("comments", (message) => setReviewCommentsFor(session, message)),
       review.on("reset", () => resetReviewFor(session)),
-      revise.on<{ regions: ReviseRegion[] }>("state", ({ regions }) => reviseMarks?.set(regions)),
+      revise.on<{ regions: ReviseRegion[] }>("state", ({ regions }) =>
+        reviseMarks?.set(session, regions),
+      ),
       // The host asks before it writes: only this page knows whether the buffer is dirty or the region moved.
       revise.handle<{ id: number }, { ok: boolean; reason: string }>("confirm", ({ id }) => {
-        const refusal = reviseMarks?.verify(id) ?? null;
+        const refusal = reviseMarks?.verify(session, id) ?? null;
         return { ok: refusal === null, reason: refusal ?? "" };
       }),
       review.on<ReviewHistory>("history", (history) => {
@@ -1569,25 +1571,32 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         return;
       }
       const startLine = selection.startLineNumber;
-      const endLine = selection.endLineNumber;
-      // Whole lines: the host splices line ranges, and the guard text must match what it will read back.
-      const originalText = model.getValueInRange({
-        startLineNumber: startLine,
-        startColumn: 1,
-        endLineNumber: endLine,
-        endColumn: model.getLineMaxColumn(endLine),
-      });
+      // A selection ending at column 1 stops before that line, so the line isn't part of the region.
+      const endLine =
+        selection.endColumn === 1 && selection.endLineNumber > startLine
+          ? selection.endLineNumber - 1
+          : selection.endLineNumber;
+      // Line content joined with \n: the host splices line ranges and compares its guard the same way, so a
+      // CRLF file must not send the model's \r\n back.
+      const originalText = model
+        .getLinesContent()
+        .slice(startLine - 1, endLine)
+        .join("\n");
       const path = sessionUriHostPath(model.uri);
       void deps.promptRevision(endLine - startLine + 1).then((instruction) => {
-        if (instruction !== null) {
+        if (instruction === null) {
+          return;
+        }
+        // Flush the pending save first, so the host's guard reads the same content the editor shows.
+        afterFlush(session, path, () =>
           session.feature("revise").publish("start", {
             path,
             startLine,
             endLineExclusive: endLine + 1,
             originalText,
             instruction,
-          });
-        }
+          }),
+        );
       });
     },
     selectionText: () => {

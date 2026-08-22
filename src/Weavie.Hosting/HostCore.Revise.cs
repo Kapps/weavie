@@ -1,4 +1,5 @@
 using Weavie.Core.Changes;
+using Weavie.Core.Editor;
 using Weavie.Core.Inference;
 using Weavie.Core.Revise;
 
@@ -14,6 +15,12 @@ public sealed partial class HostCore {
 		string instruction = message.Instruction.Trim();
 		if (instruction.Length == 0) {
 			Notify(session, "warn", "Type what you want done to the selection.");
+			return;
+		}
+
+		// Every path-taking handler guards first: an unguarded path here would write anywhere on disk.
+		if (!BufferStore.IsWithinWorkspace(session.WorkspaceRoot, message.Path)) {
+			Notify(session, "warn", "That file is outside this session's workspace.");
 			return;
 		}
 

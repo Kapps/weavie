@@ -25,6 +25,12 @@ public sealed partial class SessionChangeTracker {
 		ArgumentNullException.ThrowIfNull(originalText);
 		ArgumentNullException.ThrowIfNull(replacement);
 		lock (_gate) {
+			// A revision is offered on any selection, so the file may be one the agent never touched. Seed its
+			// review state first, or the write would land with no baseline and no way to review or revert it.
+			if (!_reviewBaseline.ContainsKey(path)) {
+				CaptureBaseline(path);
+			}
+
 			if (TrySplice(path, range, originalText, SplitLines(replacement)) is not { } spliced) {
 				return ReviseApplyOutcome.GuardMismatch;
 			}

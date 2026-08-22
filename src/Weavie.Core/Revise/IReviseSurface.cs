@@ -15,18 +15,3 @@ public interface IReviseSurface {
 	/// <summary>Tells the user a region's revision failed, and why.</summary>
 	void Failed(ReviseRegion region, string reason);
 }
-
-/// <summary>The surface for a host with no page attached: nothing to render, and no editor to object.</summary>
-public sealed class NoopReviseSurface : IReviseSurface {
-	/// <summary>The shared instance.</summary>
-	public static NoopReviseSurface Instance { get; } = new();
-
-	/// <inheritdoc/>
-	public void Publish(IReadOnlyList<ReviseRegion> inFlight) { }
-
-	/// <inheritdoc/>
-	public Task<string?> ConfirmAsync(ReviseRegion region, CancellationToken cancellationToken) => Task.FromResult<string?>(null);
-
-	/// <inheritdoc/>
-	public void Failed(ReviseRegion region, string reason) { }
-}

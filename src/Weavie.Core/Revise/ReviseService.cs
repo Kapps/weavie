@@ -70,8 +70,8 @@ public sealed class ReviseService {
 				};
 				minted.Add(region);
 				if (_inFlight.Concat(accepted).Any(other => Overlaps(other, region))) {
-					refused[region.Id] = new ReviseResult(
-						region, ReviseOutcome.AlreadyInFlight, "That region is already being revised.");
+					refused[region.Id] = Fail(
+						region, ReviseOutcome.AlreadyInFlight, "that region is already being revised");
 					continue;
 				}
 
@@ -111,13 +111,20 @@ public sealed class ReviseService {
 				Id = region.Id, Path = region.Path, Text = region.OriginalText,
 			})],
 		};
-		var query = await _inference.QueryAsync(
-			owner,
-			InferenceModelCategory.Utility,
-			new InferenceInput { Prompt = ReviseQuery.BuildPrompt(input), Images = [] },
-			ReviseQuery.ResponseType,
-			ReviseQuery.OptionsFor(origin),
-			cancellationToken);
+		InferenceResult<ReviseQueryOutput> query;
+		try {
+			query = await _inference.QueryAsync(
+				owner,
+				InferenceModelCategory.Utility,
+				new InferenceInput { Prompt = ReviseQuery.BuildPrompt(input), Images = [] },
+				ReviseQuery.ResponseType,
+				ReviseQuery.OptionsFor(origin),
+				cancellationToken);
+		} catch (Exception ex) when (ex is not OperationCanceledException) {
+			// The caller runs this detached, so an escaping throw would reach no one: the tint would vanish with
+			// no edit and no explanation. Cancellation is not a failure and still propagates.
+			return [.. accepted.Select(region => Fail(region, ReviseOutcome.QueryFailed, ex.Message))];
+		}
 
 		if (query is InferenceFailure<ReviseQueryOutput> failure) {
 			return [.. accepted.Select(region => Fail(region, ReviseOutcome.QueryFailed, failure.Detail))];
@@ -143,11 +150,12 @@ public sealed class ReviseService {
 		IReadOnlyDictionary<int, string?> revisions,
 		CancellationToken cancellationToken) {
 		if (!revisions.TryGetValue(region.Id, out string? replacement) || replacement is null) {
-			return Fail(region, ReviseOutcome.NotProposed, "The model returned no usable revision for this region.");
+			return Fail(region, ReviseOutcome.NotProposed, "the model returned no usable revision for it");
 		}
 
 		if (string.Equals(replacement, region.OriginalText, StringComparison.Ordinal)) {
-			return new ReviseResult(region, ReviseOutcome.Unchanged, string.Empty);
+			// The tint vanishing with the text unchanged reads as a silent failure unless we say why.
+			return Fail(region, ReviseOutcome.Unchanged, "the model returned it unchanged");
 		}
 
 		if (await _surface.ConfirmAsync(region, cancellationToken) is { } refusal) {
@@ -157,7 +165,7 @@ public sealed class ReviseService {
 		try {
 			return _changes.ApplyRevision(region.Path, region.Range, region.OriginalText, replacement) switch {
 				ReviseApplyOutcome.Applied => new ReviseResult(region, ReviseOutcome.Applied, string.Empty),
-				_ => Fail(region, ReviseOutcome.Changed, "The file changed while the region was being revised."),
+				_ => Fail(region, ReviseOutcome.Changed, "the file changed while it was being revised"),
 			};
 		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
 			return Fail(region, ReviseOutcome.WriteFailed, ex.Message);
@@ -177,12 +185,19 @@ public sealed class ReviseService {
 
 	private void Retire(ReviseRegion region) => RetireAll([region]);
 
+	// Snapshot inside the lock that mutates the set: two concurrent runs publishing stale snapshots out of order
+	// would leave the client tinting a region that already finished.
 	private void RetireAll(IReadOnlyList<ReviseRegion> regions) {
+		ReviseRegion[] remaining;
 		lock (_gate) {
-			_inFlight.RemoveAll(region => regions.Any(retired => retired.Id == region.Id));
+			if (_inFlight.RemoveAll(region => regions.Any(retired => retired.Id == region.Id)) == 0) {
+				return;
+			}
+
+			remaining = [.. _inFlight];
 		}
 
-		Publish();
+		_surface.Publish(remaining);
 	}
 
 	private void Publish() => _surface.Publish(InFlight);

@@ -40,10 +40,7 @@ internal sealed class SessionReviseSurface : IReviseSurface {
 
 	/// <inheritdoc/>
 	public void Failed(ReviseRegion region, string reason) =>
-		_session.Bus.Feature("notifications").Publish("show", new {
-			level = "warn",
-			message = $"Couldn't revise {Path.GetFileName(region.Path)}: {reason}",
-		});
+		_session.Notify("warn", $"Couldn't revise {Path.GetFileName(region.Path)}: {reason}.");
 }
 
 /// <summary>Asks the bound view whether a region's write may land.</summary>

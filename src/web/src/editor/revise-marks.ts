@@ -3,7 +3,8 @@
 // streaming — so elapsed time is the only honest signal. The decoration also anchors the write: Monaco moves it
 // with the text, so `verify` compares what the region holds NOW against what the host captured.
 import * as monaco from "monaco-editor";
-import { isDirtyPath } from "./dirty-store";
+import { type ClientSession, selectedSession } from "../bridge";
+import { dirtyPathsFor } from "./dirty-store";
 import { normalizePath } from "./fs-path";
 
 /** One region the host is currently revising. */
@@ -17,16 +18,14 @@ export interface ReviseRegion {
 
 export interface ReviseMarksDeps {
   /** The host path of the editor's current model, or null when it isn't a session file. */
-  activePath(): string | null;
+  activePath: () => string | null;
 }
 
 export interface ReviseMarks {
-  /** Replaces the in-flight set and re-renders. */
-  set(regions: ReviseRegion[]): void;
-  /** Re-renders the marks, e.g. after a tab switch brings a different file's regions into view. */
-  refresh(): void;
-  /** Null when region `id`'s write may land, else the reason it must not. */
-  verify(id: number): string | null;
+  /** Replaces `session`'s in-flight set. Regions render only while that session is the selected one. */
+  set(session: ClientSession, regions: ReviseRegion[]): void;
+  /** Null when region `id` of `session` may be written, else the reason it must not. */
+  verify(session: ClientSession, id: number): string | null;
   dispose(): void;
 }
 
@@ -41,20 +40,16 @@ export function createReviseMarks(
   editor: monaco.editor.IStandaloneCodeEditor,
   deps: ReviseMarksDeps,
 ): ReviseMarks {
-  let regions: ReviseRegion[] = [];
+  // Regions arrive on every loaded session's bus, so they are kept per session and only the selected session's
+  // are rendered; one shared set would let another session's retire wipe this one's tint.
+  const bySession = new Map<ClientSession, ReviseRegion[]>();
   let rendered: Rendered[] = [];
   let ticker: ReturnType<typeof setInterval> | undefined;
-  const startedAt = new Map<number, number>();
+  const startedAt = new Map<ClientSession, Map<number, number>>();
 
-  const elapsed = (id: number): string => {
-    const started = startedAt.get(id) ?? Date.now();
+  const elapsed = (session: ClientSession, id: number): string => {
+    const started = startedAt.get(session)?.get(id) ?? Date.now();
     return `Revising… ${Math.max(0, Math.round((Date.now() - started) / 1000))}s`;
-  };
-
-  const tick = (): void => {
-    for (const entry of rendered) {
-      entry.pill.textContent = elapsed(entry.region.id);
-    }
   };
 
   const teardown = (): void => {
@@ -71,13 +66,14 @@ export function createReviseMarks(
 
   const render = (): void => {
     teardown();
+    const session = selectedSession();
     const model = editor.getModel();
     const active = deps.activePath();
-    if (model === null || active === null) {
+    if (session === null || model === null || active === null) {
       return;
     }
 
-    for (const region of regions) {
+    for (const region of bySession.get(session) ?? []) {
       if (normalizePath(region.path) !== normalizePath(active)) {
         continue;
       }
@@ -88,23 +84,25 @@ export function createReviseMarks(
           options: {
             isWholeLine: true,
             className: "weavie-revising",
-            // The region must not swallow text typed at its edges, or the guard would compare the wrong lines.
+            // The region must not swallow text typed at its edges, or the guard would cover the wrong lines.
             stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
           },
         },
       ]);
       const pill = document.createElement("span");
       pill.className = "weavie-revising-pill";
-      pill.textContent = elapsed(region.id);
+      pill.textContent = elapsed(session, region.id);
       const widget: monaco.editor.IContentWidget = {
         getId: () => `weavie.revising.${region.id}`,
         getDomNode: () => pill,
+        // Anchored at the region's left edge, above the first line: at the line's END a long first line pushes
+        // the pill past the viewport and Monaco clips it, so the user gets the wash and no elapsed indicator.
         getPosition: () => ({
-          position: {
-            lineNumber: region.startLine,
-            column: model.getLineMaxColumn(region.startLine),
-          },
-          preference: [monaco.editor.ContentWidgetPositionPreference.EXACT],
+          position: { lineNumber: region.startLine, column: 1 },
+          preference: [
+            monaco.editor.ContentWidgetPositionPreference.ABOVE,
+            monaco.editor.ContentWidgetPositionPreference.BELOW,
+          ],
         }),
       };
       editor.addContentWidget(widget);
@@ -112,42 +110,59 @@ export function createReviseMarks(
     }
 
     if (rendered.length > 0) {
-      ticker = setInterval(tick, 1000);
+      ticker = setInterval(() => {
+        for (const entry of rendered) {
+          entry.pill.textContent = elapsed(session, entry.region.id);
+        }
+      }, 1000);
     }
   };
 
+  // A model swap must re-render, or the pill stays anchored over whatever file is now showing and `verify`
+  // reads a decoration belonging to the previous model.
+  const modelListener = editor.onDidChangeModel(() => render());
+
   return {
-    set(next: ReviseRegion[]): void {
-      regions = next;
-      const live = new Set(next.map((region) => region.id));
-      for (const id of [...startedAt.keys()]) {
+    set(session: ClientSession, regions: ReviseRegion[]): void {
+      if (regions.length === 0) {
+        bySession.delete(session);
+      } else {
+        bySession.set(session, regions);
+      }
+      const live = new Set(regions.map((region) => region.id));
+      const started = startedAt.get(session) ?? new Map<number, number>();
+      for (const id of [...started.keys()]) {
         if (!live.has(id)) {
-          startedAt.delete(id);
+          started.delete(id);
         }
       }
-      for (const region of next) {
-        if (!startedAt.has(region.id)) {
-          startedAt.set(region.id, Date.now());
+      for (const region of regions) {
+        if (!started.has(region.id)) {
+          started.set(region.id, Date.now());
         }
+      }
+      if (started.size === 0) {
+        startedAt.delete(session);
+      } else {
+        startedAt.set(session, started);
       }
       render();
     },
-    refresh: render,
-    verify(id: number): string | null {
-      const region = regions.find((candidate) => candidate.id === id);
+    verify(session: ClientSession, id: number): string | null {
+      const region = (bySession.get(session) ?? []).find((candidate) => candidate.id === id);
       if (region === undefined) {
         return "the revision is no longer tracked";
       }
 
       // VS Code skips resolving a dirty model, so a host write would be dropped and then lost to the next
       // autosave. Refusing is the only honest answer.
-      if (isDirtyPath(region.path)) {
+      if (dirtyPathsFor(session).has(normalizePath(region.path))) {
         return "the file has unsaved changes";
       }
 
       const entry = rendered.find((candidate) => candidate.region.id === id);
       const model = editor.getModel();
-      if (entry === undefined || model === null) {
+      if (session !== selectedSession() || entry === undefined || model === null) {
         return null; // Not on screen: nothing here can contradict the host's own content guard.
       }
 
@@ -156,19 +171,19 @@ export function createReviseMarks(
         return "the region was deleted";
       }
 
-      const current = model.getValueInRange({
-        startLineNumber: range.startLineNumber,
-        startColumn: 1,
-        endLineNumber: range.endLineNumber,
-        endColumn: model.getLineMaxColumn(range.endLineNumber),
-      });
+      // Line content joined with \n, matching the guard the host compares against.
+      const current = model
+        .getLinesContent()
+        .slice(range.startLineNumber - 1, range.endLineNumber)
+        .join("\n");
       return current === region.originalText
         ? null
         : "the region changed while it was being revised";
     },
     dispose(): void {
-      regions = [];
+      bySession.clear();
       startedAt.clear();
+      modelListener.dispose();
       teardown();
     },
   };

@@ -21,7 +21,7 @@
   white-space: nowrap;
   font-family: var(--font-chrome-family);
   font-size: var(--font-metadata-size);
-  color: var(--fg-muted, #8a8a8a);
+  color: var(--dim, #8a8a8a);
   background: color-mix(in srgb, var(--accent, #6a8fc4) 18%, var(--bg, #1e1e1e));
 }
 

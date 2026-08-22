@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const runtime = vi.hoisted(() => ({
-  notifications: [] as Array<{ method: string; show: boolean | undefined }>,
+  // Did the base client swallow the failure instead of rethrowing it?
+  logged: [] as Array<{ message: string; show: boolean | "force" | undefined }>,
+  swallow: false,
   stops: 0,
 }));
 
@@ -9,60 +11,110 @@ vi.mock("monaco-languageclient", () => ({
   MonacoLanguageClient: class {
     state = 3;
 
+    error(message: string, _data?: unknown, showNotification?: boolean | "force"): void {
+      runtime.logged.push({ message, show: showNotification });
+    }
+
     stop(): Promise<void> {
       runtime.stops += 1;
       return Promise.resolve();
     }
 
     handleFailedRequest<T>(
-      type: { method: string },
+      _type: { method: string },
       _token: unknown,
-      _error: unknown,
+      error: unknown,
       defaultValue: T,
-      showNotification?: boolean,
     ): T {
-      runtime.notifications.push({ method: type.method, show: showNotification });
-      return defaultValue;
+      if (runtime.swallow) {
+        return defaultValue; // upstream's dead-connection / content-modified paths return instead of throwing
+      }
+      throw error;
     }
   },
 }));
-vi.mock("vscode-languageclient", () => ({
-  CodeLensRequest: { method: "textDocument/codeLens" },
-  CodeLensResolveRequest: { method: "codeLens/resolve" },
-  DocumentDiagnosticRequest: { method: "textDocument/diagnostic" },
-  DocumentHighlightRequest: { method: "textDocument/documentHighlight" },
-  State: { Stopped: 1, Running: 2, Starting: 3 },
-}));
+vi.mock("vscode-languageclient");
 
+import { setNotifySink } from "../notify/notify";
 import { createWeavieLanguageClient } from "./weavie-language-client";
 
+const raised: Array<{ level: string; message: string; key: string | undefined }> = [];
+
 beforeEach(() => {
-  runtime.notifications.splice(0);
+  runtime.logged.splice(0);
+  runtime.swallow = false;
   runtime.stops = 0;
+  raised.length = 0;
+  setNotifySink(
+    (level, message, key) => raised.push({ level, message, key }),
+    () => {},
+  );
 });
 
+// The failure the base client rethrows, as the provider that invoked the request sees it.
+function fail(method: string, error: unknown, show?: boolean): unknown {
+  const client = createWeavieLanguageClient({} as never);
+  try {
+    return client.handleFailedRequest({ method } as never, undefined, error, null, show);
+  } catch (thrown) {
+    return thrown;
+  }
+}
+
 describe("Weavie language client notifications", () => {
-  it("suppresses passive provider failures but preserves deliberate navigation failures", () => {
-    const client = createWeavieLanguageClient({} as never);
-    const fail = (method: string, show: boolean | undefined): void => {
-      client.handleFailedRequest({ method } as never, undefined, new Error("failed"), null, show);
-    };
+  it("warns only for the requests the user invoked and waits on", () => {
+    fail("textDocument/definition", new Error("no SDK"));
+    fail("textDocument/references", new Error("no SDK"));
+    fail("workspace/symbol", new Error("no SDK"));
+    fail("workspace/executeCommand", new Error("no SDK"));
+    fail("textDocument/documentHighlight", new Error("file too large"));
+    fail("textDocument/semanticTokens/full", new Error("file too large"));
+    fail("textDocument/documentSymbol", new Error("busy"));
+    fail("textDocument/codeLens", new Error("busy"));
 
-    fail("textDocument/codeLens", undefined);
-    fail("codeLens/resolve", undefined);
-    fail("textDocument/diagnostic", undefined);
-    fail("textDocument/documentHighlight", undefined);
-    fail("textDocument/references", undefined);
-    fail("textDocument/rename", false);
-
-    expect(runtime.notifications).toEqual([
-      { method: "textDocument/codeLens", show: false },
-      { method: "codeLens/resolve", show: false },
-      { method: "textDocument/diagnostic", show: false },
-      { method: "textDocument/documentHighlight", show: false },
-      { method: "textDocument/references", show: true },
-      { method: "textDocument/rename", show: false },
+    expect(raised).toEqual([
+      {
+        level: "warn",
+        message: "Go to Definition failed: no SDK",
+        key: "lsp:textDocument/definition",
+      },
+      {
+        level: "warn",
+        message: "Find All References failed: no SDK",
+        key: "lsp:textDocument/references",
+      },
+      {
+        level: "warn",
+        message: "Go to Symbol in Workspace failed: no SDK",
+        key: "lsp:workspace/symbol",
+      },
+      { level: "warn", message: "Command failed: no SDK", key: "lsp:workspace/executeCommand" },
     ]);
+  });
+
+  it("stays silent when the request was cancelled or the failure was swallowed", () => {
+    const cancelled = new Error("Canceled");
+    cancelled.name = "Canceled";
+    expect(fail("textDocument/definition", cancelled)).toBe(cancelled);
+
+    runtime.swallow = true;
+    expect(fail("textDocument/definition", new Error("connection inactive"))).toBeNull();
+
+    expect(raised).toEqual([]);
+  });
+
+  it("leaves the notification to a caller that surfaces the failure itself", () => {
+    fail("textDocument/definition", new Error("no SDK"), false);
+    expect(raised).toEqual([]);
+  });
+
+  it("logs the base client's own failure reports instead of toasting them", () => {
+    const client = createWeavieLanguageClient({} as never);
+
+    client.error("Server initialization failed.", new Error("no SDK"), "force");
+
+    expect(runtime.logged).toEqual([{ message: "Server initialization failed.", show: false }]);
+    expect(raised).toEqual([]);
   });
 
   it("does not ask the upstream client to stop before initialization finishes", async () => {

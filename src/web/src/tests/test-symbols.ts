@@ -15,7 +15,10 @@ export { collectTests, innermostHitAt } from "./test-match";
 export async function getDocumentSymbols(model: monaco.editor.ITextModel): Promise<SymbolNode[]> {
   const service = StandaloneServices.get(ILanguageFeaturesService);
   for (const provider of service.documentSymbolProvider.ordered(model)) {
-    const symbols = await provider.provideDocumentSymbols(model, CancellationToken.None);
+    // A provider that fails means no lens on this file; the language client already logged why.
+    const symbols = await Promise.resolve(
+      provider.provideDocumentSymbols(model, CancellationToken.None),
+    ).catch(() => null);
     if (symbols != null && symbols.length > 0) {
       return symbols as unknown as SymbolNode[];
     }

@@ -868,6 +868,35 @@ test.describe("ACP composer", () => {
     await expect(plan).toBeVisible();
   });
 
+  // The order a reconnect resync replays in: the editor session (reopening the plan tab) lands before the plan
+  // document, so the pane mounts against an empty store and must still render once the content arrives.
+  test("a plan tab restored before its document renders when the document replays", async ({
+    page,
+  }) => {
+    await mountAgent(page);
+    publishCatalog();
+    const planPath = "agent-plan:cx:thread-plan:turn-plan:plan-1";
+
+    host.publishSession(agentSession.address, "editor", "restore", {
+      session: {
+        active: planPath,
+        open: [{ path: planPath, kind: "plan", viewState: null }],
+      },
+    });
+    await expect(page.locator(".editor-plan")).toBeVisible();
+
+    host.publishSession(agentSession.address, "editor", "agentPlan", {
+      id: "cx:thread-plan:turn-plan:plan-1",
+      path: planPath,
+      title: "Implementation plan",
+      markdown: "# Implementation\n\n1. Add the plan document.",
+    });
+
+    await expect(page.locator(".editor-plan-head h1")).toHaveText("Implementation plan");
+    await expect(page.locator(".agent-markdown")).toContainText("Add the plan document.");
+    await expect(page.locator(".editor-tab", { hasText: "Implementation plan" })).toBeVisible();
+  });
+
   test("Alt+P explains when no completed plan is available", async ({ page }) => {
     await mountAgent(page);
     publishCatalog();

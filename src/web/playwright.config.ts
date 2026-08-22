@@ -8,23 +8,15 @@ import { defineConfig, devices } from "@playwright/test";
 // Transport is a harness parameter, not a duplicated suite: the full functional suite runs on `headless`,
 // and only @cross / @remote tests also run on `remote`. See docs/specs/integration-testing-strategy.md.
 // `pnpm run e2e` builds dist first; CI builds it before the C# host and runs `e2e:ci`.
-// Every test is fully self-isolated — its own mkdtemp HOME, its own throwaway git workspace, and an
-// OS-assigned port — so they run in parallel with no shared state. The per-test cost is dominated by the
-// dotnet host (+ fake-claude pane) spawn; concurrency across cores is the only lever on that, so workers
-// scale with the machine (a fraction of cores, leaving headroom for each test's 2-3 child dotnet processes).
+// Every test is fully self-isolated — its own mkdtemp HOME, throwaway git workspace, and OS-assigned port.
+// The suite is deliberately serialized because each worker owns a browser plus up to three dotnet processes;
+// competing workers make measured paint and full-stack timing assertions describe scheduler contention.
 export default defineConfig({
   testDir: "./e2e",
   fullyParallel: true,
-  // Each functional test spawns a real dotnet host (+ fake-claude + browser); the remote project adds a
-  // Weavie.Runner + a worker, so a single remote test is ~3 dotnet processes. `workers` is GLOBAL across
-  // projects, so it bounds how many of these heavy stacks run at once. Playwright's default heuristic is 50%
-  // of cores precisely because a worker that spawns child processes needs the other cores for them: at 50%
-  // on a 4-core runner, each of the 2 workers gets ~2 cores for its host/worker/browser. 75% oversubscribed
-  // that — three heavy stacks fighting over four cores starved each other and the fake→hook→MCP→render
-  // round-trip missed its assertion budget (the root cause behind retries). The hosted macOS/Windows runners
-  // are slower and oversubscribed, so serialize there (each test gets the whole box). Trade-off: 50% on Linux
-  // is ~4.3m vs ~3.5m at 75%, but it's deterministic with no retries instead of masking the contention.
-  workers: process.platform === "linux" ? "50%" : 1,
+  // Each worker owns a browser plus up to three dotnet processes. Serial execution gives measured paint and
+  // full-stack timing assertions the runner instead of letting another browser deschedule them mid-sample.
+  workers: 1,
   forbidOnly: Boolean(process.env.CI),
   // No retries: the flakiness was runner-resource contention (fixed by right-sizing `workers` above), not a
   // real defect, so a green run must stand on its own rather than being rescued by a re-run.

@@ -518,6 +518,8 @@ export function requestBranches(backendId: string): Promise<string[]> {
 export interface BranchPreviewResult {
   branch: string;
   error: string | null;
+  /** The prompt named no specific task yet, so the composer keeps listening instead of settling on a name. */
+  needsMoreDetail: boolean;
 }
 
 export interface EncodedImageAttachment {

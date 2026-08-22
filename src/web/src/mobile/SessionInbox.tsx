@@ -180,19 +180,20 @@ export function SessionInbox(props: {
   const submitNew = async (): Promise<void> => {
     const text = prompt().trim();
     const images = attachments();
-    if (
-      submitting() !== null ||
-      branchPreview().branch.trim().length === 0 ||
-      images.some((attachment) => attachment.status !== "ready")
-    ) {
+    if (submitting() !== null || images.some((attachment) => attachment.status !== "ready")) {
       return;
     }
-    branchActions?.cancel();
     setSubmitting("new");
+    // Starting is the last word on the prompt, so it names the branch now if nothing has landed yet.
+    const branch = (await branchActions?.resolve()) ?? "";
+    if (branch.length === 0) {
+      setSubmitting(null);
+      return;
+    }
     if (
       await props.onCreate(
         {
-          branch: branchPreview().branch.trim(),
+          branch,
           base: base(),
           existing: false,
           prompt: text,
@@ -252,14 +253,24 @@ export function SessionInbox(props: {
     }
   };
 
+  // A name in the field is enough on its own — a session needs no prompt; without one there has to be
+  // something left to name the branch from.
+  const named = (): boolean => {
+    const preview = branchPreview();
+    return (
+      preview.branch.trim().length > 0 ||
+      ((prompt().trim().length > 0 || attachments().length > 0) && preview.status !== "error")
+    );
+  };
+
   const canStart = (): boolean => {
     const images = attachments();
     return (
       submitting() === null &&
+      named() &&
       agentProviders(backendId()).some(
         (provider) => provider.id === providerId() && provider.available,
       ) &&
-      branchPreview().branch.trim().length > 0 &&
       images.every((attachment) => attachment.status === "ready")
     );
   };
@@ -367,6 +378,19 @@ export function SessionInbox(props: {
             onSubmit={(event) => {
               event.preventDefault();
               void submitNew();
+            }}
+            // Focus landing elsewhere in the composer means the draft is done; leaving it entirely
+            // (closing Sessions) must not spend a query on a draft nobody submitted, and landing on the
+            // branch field means the user is naming it themselves.
+            onFocusOut={(event) => {
+              const next = event.relatedTarget;
+              if (
+                next instanceof Element &&
+                event.currentTarget.contains(next) &&
+                next.closest(".session-composer-branch") === null
+              ) {
+                branchActions?.flush();
+              }
             }}
           >
             <textarea

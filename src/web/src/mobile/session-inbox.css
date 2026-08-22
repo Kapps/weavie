@@ -206,7 +206,7 @@
 
 .session-composer-branch {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 6px 10px;
   padding: 7px 12px;
@@ -259,6 +259,27 @@
 
 .session-composer-branch input:focus {
   border-color: var(--accent);
+}
+
+.session-composer-resuggest {
+  display: flex;
+  min-width: 36px;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg);
+  color: var(--dim);
+}
+
+.session-composer-resuggest:disabled {
+  opacity: 0.5;
+}
+
+.app.compact .session-composer-resuggest {
+  min-width: 44px;
+  min-height: 44px;
 }
 
 .session-composer-branch small {

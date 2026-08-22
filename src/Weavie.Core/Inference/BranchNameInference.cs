@@ -18,8 +18,11 @@ public sealed record BranchNameInferenceInput {
 
 /// <summary>The structured model proposal for a branch.</summary>
 public sealed record BranchNameInferenceOutput {
-	/// <summary>The complete proposed branch name, including any convention-derived prefix.</summary>
+	/// <summary>The complete proposed branch name, including any convention-derived prefix; empty when <see cref="NeedsMoreDetail"/>.</summary>
 	public required string Branch { get; init; }
+
+	/// <summary>Whether the input is still too vague to name a branch for, leaving the caller to ask again once the user has written more.</summary>
+	public required bool NeedsMoreDetail { get; init; }
 }
 
 /// <summary>The branch-name prompt and strict serialization contracts.</summary>
@@ -27,7 +30,9 @@ public static class BranchNameInference {
 	private const int MaxImages = 4;
 	private const string Instructions = "Infer the repository's branch-naming convention from the supplied branch "
 		+ "names and propose one complete branch name for the task described by the text and attached images. Do not "
-		+ "invent a ticket, username, team, or prefix unsupported by the examples.";
+		+ "invent a ticket, username, team, or prefix unsupported by the examples. When the input names no specific "
+		+ "task — too short, too vague, or an unfinished thought — set needsMoreDetail and leave branch empty rather "
+		+ "than guessing.";
 
 	/// <summary>The resource policy for an automatic branch-name query.</summary>
 	public static InferenceQueryOptions QueryOptions { get; } = new() {

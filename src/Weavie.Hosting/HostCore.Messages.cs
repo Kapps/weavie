@@ -265,7 +265,7 @@ public sealed partial class HostCore {
 		CancellationToken ct) {
 		var source = SourceSlot(message.SourceId);
 		if (!string.IsNullOrWhiteSpace(message.SourceId) && source is null) {
-			return Task.FromResult(new BranchPreviewResult(string.Empty, "The source session no longer exists."));
+			return Task.FromResult(BranchPreviewResult.Failed("The source session no longer exists."));
 		}
 
 		return PreviewBranchNameAsync(

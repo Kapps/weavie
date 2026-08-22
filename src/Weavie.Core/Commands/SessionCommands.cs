@@ -25,6 +25,9 @@ public static class SessionCommands {
 	/// <summary>Pastes the local clipboard into the focused new-session composer; <c>Ctrl+V</c> / <c>⌘V</c>.</summary>
 	public const string PasteNewSession = "weavie.session.pasteNew";
 
+	/// <summary>Re-runs the new-session composer's branch suggestion against the prompt as it now reads. Unbound.</summary>
+	public const string ResuggestBranch = "weavie.session.resuggestBranch";
+
 	/// <summary>Opens the pull-request picker (check out a PR's branch as a session) in the UI; <c>$mod+Shift+r</c>.</summary>
 	public const string OpenPr = "weavie.pr.open";
 
@@ -112,6 +115,20 @@ public static class SessionCommands {
 			Aliases = ["paste", "paste clipboard", "paste image", "paste into new session"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+v", When = "newSessionPromptFocused && !browserShell" }],
 			KeybindingsActiveInModal = true,
+			ShowInPalette = false,
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = ResuggestBranch,
+			SharedExecutionLane = NewSessionInputExecutionLane,
+			Title = "Suggest Branch Name Again",
+			RunsIn = CommandLocation.Web,
+			Owner = CommandOwner.Client,
+			Category = "Session",
+			Description = "Re-run the new-session composer's branch suggestion against the prompt as it now reads, "
+				+ "replacing the current suggested or typed name. The composer suggests once on its own; this is how "
+				+ "the user asks for another.",
+			Aliases = ["resuggest branch", "rename branch suggestion", "suggest branch again", "new branch name"],
 			ShowInPalette = false,
 		});
 

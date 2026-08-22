@@ -1,6 +1,13 @@
 import type { BranchPreviewResult, EncodedImageAttachment } from "../bridge";
 
-export const BRANCH_PREVIEW_DEBOUNCE_MS = 500;
+/** How long the prompt must sit unchanged before the composer spends a query on it. */
+export const BRANCH_PREVIEW_IDLE_MS = 1200;
+
+/**
+ * Words a prompt needs before an automatic query is worth its process spawn. Attached images do not count
+ * toward it — an image carries no task description on its own. A flush ignores the gate entirely.
+ */
+export const BRANCH_PREVIEW_MIN_WORDS = 16;
 
 export interface BranchPreviewContext {
   backendId: string;
@@ -9,7 +16,13 @@ export interface BranchPreviewContext {
   providerId: string;
 }
 
-export type BranchPreviewStatus = "idle" | "waiting" | "loading" | "ready" | "error";
+export type BranchPreviewStatus =
+  | "idle"
+  | "waiting"
+  | "loading"
+  | "needsDetail"
+  | "ready"
+  | "error";
 
 export interface BranchPreviewState {
   branch: string;
@@ -50,11 +63,26 @@ const sameAttachments = (
     );
   });
 
-/** Owns one debounced, cancellable branch preview without allowing stale or automatic writes over user input. */
+const retargeted = (previous: BranchPreviewContext | null, next: BranchPreviewContext): boolean =>
+  previous !== null &&
+  (previous.backendId !== next.backendId || previous.providerId !== next.providerId);
+
+const worthQuerying = (context: BranchPreviewContext): boolean =>
+  context.prompt.split(/\s+/).filter((word) => word.length > 0).length >= BRANCH_PREVIEW_MIN_WORDS;
+
+/**
+ * Owns one branch suggestion per composed prompt: it queries once the prompt is worth naming and settles
+ * there, so typing on never re-spends a query. Only a prompt the model calls too vague stays open, and only
+ * {@link refresh} re-runs a name the user can already see.
+ */
 export class NewSessionBranchPreview {
+  private claimed = false;
   private context: BranchPreviewContext | null = null;
   private controller: AbortController | null = null;
   private generation = 0;
+  private pending: Promise<void> | null = null;
+  private queried: BranchPreviewContext | null = null;
+  private settled = false;
   private state: BranchPreviewState = { branch: "", error: null, manual: false, status: "idle" };
   private timer: ReturnType<typeof setTimeout> | null = null;
 
@@ -64,22 +92,32 @@ export class NewSessionBranchPreview {
   ) {}
 
   update(context: BranchPreviewContext | null): void {
-    if (sameContext(this.context, context)) {
+    const previous = this.context;
+    if (sameContext(previous, context)) {
       return;
     }
 
     this.context = context;
-    this.invalidate();
     if (this.state.manual) {
       return;
     }
+    if (context === null) {
+      this.invalidate();
+      this.settled = false;
+      this.publish({ branch: "", error: null, manual: false, status: "idle" });
+      return;
+    }
+    // A name is inferred from one repository's conventions and checked against its branches, so a different
+    // host or provider has to name the draft again; a query already in flight answers this one closely
+    // enough, and re-arms itself if the model disagrees.
+    if (retargeted(previous, context)) {
+      this.settled = false;
+    } else if (this.claimed || this.settled || this.controller !== null) {
+      return;
+    }
 
-    this.publish({
-      branch: "",
-      error: null,
-      manual: false,
-      status: context === null ? "idle" : "waiting",
-    });
+    this.invalidate();
+    this.publish({ branch: "", error: null, manual: false, status: "waiting" });
     this.schedule();
   }
 
@@ -90,6 +128,7 @@ export class NewSessionBranchPreview {
       return;
     }
 
+    this.settled = false;
     this.publish({
       branch: "",
       error: null,
@@ -99,78 +138,156 @@ export class NewSessionBranchPreview {
     this.schedule();
   }
 
+  /** Starts the pending query now: focus left the prompt, so no further typing is coming. */
+  flush(): void {
+    if (this.frozen || this.controller !== null || this.context === null) {
+      return;
+    }
+    if (sameContext(this.queried, this.context)) {
+      return;
+    }
+    if (this.timer !== null) {
+      clearTimeout(this.timer);
+      this.timer = null;
+    }
+    this.run();
+  }
+
+  /** Settles on the name to create the session with, querying immediately when none has landed yet. */
+  async resolve(): Promise<string> {
+    // A query answering an older draft settles nothing: keep asking until one answers the draft being submitted.
+    this.flush();
+    while (this.pending !== null) {
+      await this.pending;
+      this.flush();
+    }
+
+    const branch = this.state.branch.trim();
+    if (branch.length === 0 && !this.state.manual) {
+      this.publish({
+        branch: "",
+        error: this.state.error ?? this.unnamed(),
+        manual: false,
+        status: "error",
+      });
+    }
+    return branch;
+  }
+
+  /** Re-runs the suggestion on demand, discarding the settled name or the one the user typed. */
+  refresh(): void {
+    if (this.context === null) {
+      return;
+    }
+
+    this.invalidate();
+    this.settled = false;
+    this.run();
+  }
+
+  /** The user moved into the branch field: it is theirs to name, so nothing automatic may write over it. */
+  claim(): void {
+    this.claimed = true;
+    this.invalidate();
+  }
+
+  /** They left the field. An empty one still needs a name, so the draft becomes nameable again. */
+  release(): void {
+    this.claimed = false;
+    if (!this.state.manual) {
+      this.schedule();
+    }
+  }
+
   cancel(): void {
     this.invalidate();
   }
 
   reset(): void {
     this.context = null;
+    this.settled = false;
     this.invalidate();
     this.publish({ branch: "", error: null, manual: false, status: "idle" });
   }
 
+  /** Why a submission has no name to use, at the moment it asked for one. */
+  private unnamed(): string {
+    return this.context === null
+      ? "the host that would name it is offline."
+      : "the prompt doesn't describe a specific task yet.";
+  }
+
+  private get frozen(): boolean {
+    return this.claimed || this.state.manual || this.settled;
+  }
+
   private schedule(): void {
-    const context = this.context;
-    if (context === null || this.state.manual) {
+    // Re-asking the question already answered would only spend the same query on the same prompt.
+    if (this.context === null || this.frozen || sameContext(this.queried, this.context)) {
+      return;
+    }
+    if (!worthQuerying(this.context)) {
       return;
     }
 
-    const generation = this.generation;
-    this.timer = setTimeout(() => {
-      this.timer = null;
-      const controller = new AbortController();
-      this.controller = controller;
-      this.publish({ branch: "", error: null, manual: false, status: "loading" });
-      void this.request(context, controller.signal).then(
-        (result) => {
-          if (!this.isCurrent(generation, context, controller)) {
-            return;
-          }
-          this.controller = null;
-          this.publish({
-            branch: result.branch,
-            error: result.error,
-            manual: false,
-            status: result.error === null ? "ready" : "error",
-          });
-        },
-        (error: unknown) => {
-          if (!this.isCurrent(generation, context, controller)) {
-            return;
-          }
-          this.controller = null;
-          this.publish({
-            branch: "",
-            error: error instanceof Error ? error.message : String(error),
-            manual: false,
-            status: "error",
-          });
-        },
-      );
-    }, BRANCH_PREVIEW_DEBOUNCE_MS);
+    this.timer = setTimeout(() => this.run(), BRANCH_PREVIEW_IDLE_MS);
   }
 
-  private isCurrent(
-    generation: number,
-    context: BranchPreviewContext,
-    controller: AbortController,
-  ): boolean {
-    return (
-      generation === this.generation &&
-      !this.state.manual &&
-      this.controller === controller &&
-      sameContext(this.context, context)
+  private run(): void {
+    const context = this.context;
+    if (context === null) {
+      return;
+    }
+
+    this.timer = null;
+    this.queried = context;
+    const generation = this.generation;
+    const controller = new AbortController();
+    this.controller = controller;
+    this.publish({ branch: "", error: null, manual: false, status: "loading" });
+    this.pending = this.request(context, controller.signal).then(
+      (result) => this.land(generation, controller, result),
+      (error: unknown) =>
+        this.land(generation, controller, {
+          branch: "",
+          error: error instanceof Error ? error.message : String(error),
+          needsMoreDetail: false,
+        }),
     );
+  }
+
+  private land(generation: number, controller: AbortController, result: BranchPreviewResult): void {
+    if (generation !== this.generation || this.state.manual || this.controller !== controller) {
+      return;
+    }
+
+    this.controller = null;
+    this.pending = null;
+    if (result.needsMoreDetail) {
+      this.publish({ branch: "", error: null, manual: false, status: "needsDetail" });
+      this.schedule();
+      return;
+    }
+
+    this.settled = true;
+    this.publish({
+      branch: result.branch,
+      error: result.error,
+      manual: false,
+      status: result.error === null ? "ready" : "error",
+    });
   }
 
   private invalidate(): void {
     this.generation++;
+    this.queried = null;
     if (this.timer !== null) {
       clearTimeout(this.timer);
       this.timer = null;
     }
     this.controller?.abort();
     this.controller = null;
+    this.pending = null;
   }
 
   private publish(state: BranchPreviewState): void {

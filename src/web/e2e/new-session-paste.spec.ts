@@ -108,6 +108,8 @@ test("desktop image paste participates in preview and submit while text remains 
       `data:image/png;base64,${PNG_B64}`,
     );
     const branch = inbox.getByRole("textbox", { name: "Branch for the new session" });
+    // An image carries no words, so it earns no automatic query; leaving the prompt is what names it.
+    await inbox.getByRole("combobox", { name: "Branch starting point" }).focus();
     await expect(branch).toHaveValue("bug/image-only-task");
     expect(branchPreviews[0]).toMatchObject({
       sourceId: "main",
@@ -129,8 +131,6 @@ test("desktop image paste participates in preview and submit while text remains 
 
     clipboardImage = { mime: "image/png", dataB64: PNG_B64 };
     clipboardText = "";
-    // The typed name has to replace a landed suggestion, so wait for one rather than race it.
-    await expect(branch).toHaveValue("bug/image-only-task");
     await branch.fill("bug/native-image-paste");
     await prompt.focus();
     const invocation = host.waitForHost("request", "sessions", "invoke");

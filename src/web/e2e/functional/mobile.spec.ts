@@ -158,15 +158,18 @@ test.use({
   },
 });
 
+const NAMEABLE_DRAFT =
+  "the mobile branch inference field should fill itself from the prompt the user has just written here";
+const VAGUE_DRAFT =
+  "something in the mobile inbox is not right and it would be good if someone looked at it";
+
 test.describe("configured branch inference", () => {
   test.use({ inference: "success", automaticInference: true });
 
   test("fills the compact branch field with the inferred name", async ({ page }) => {
     const inbox = page.locator(".session-inbox");
     await inbox.getByRole("combobox", { name: "Agent provider" }).selectOption("claude");
-    await inbox
-      .getByRole("textbox", { name: "Prompt for a new session" })
-      .fill("Fix mobile branch inference");
+    await inbox.getByRole("textbox", { name: "Prompt for a new session" }).fill(NAMEABLE_DRAFT);
 
     await expect(inbox.getByRole("textbox", { name: "Branch for the new session" })).toHaveValue(
       "fix/mobile-branch-inference",
@@ -182,12 +185,12 @@ test.describe("vague branch inference", () => {
     const inbox = page.locator(".session-inbox");
     await inbox.getByRole("combobox", { name: "Agent provider" }).selectOption("claude");
     const composer = inbox.getByRole("textbox", { name: "Prompt for a new session" });
-    await composer.fill("fix the bug");
+    await composer.fill(VAGUE_DRAFT);
 
     const branch = inbox.getByRole("textbox", { name: "Branch for the new session" });
     await expect(branch).toHaveAttribute("placeholder", "Say more, or type a name");
 
-    await composer.fill("fix the bug in the review pane");
+    await composer.fill(`${VAGUE_DRAFT} when the compact branch field is used`);
     await expect(branch).toHaveValue("fix/mobile-branch-inference");
     await expect(inbox.getByRole("alert")).toHaveCount(0);
   });
@@ -199,9 +202,7 @@ test.describe("re-suggesting a branch", () => {
   test("replaces a typed name when asked for another suggestion", async ({ page }) => {
     const inbox = page.locator(".session-inbox");
     await inbox.getByRole("combobox", { name: "Agent provider" }).selectOption("claude");
-    await inbox
-      .getByRole("textbox", { name: "Prompt for a new session" })
-      .fill("Fix mobile branch inference");
+    await inbox.getByRole("textbox", { name: "Prompt for a new session" }).fill(NAMEABLE_DRAFT);
 
     const branch = inbox.getByRole("textbox", { name: "Branch for the new session" });
     await expect(branch).toHaveValue("fix/mobile-branch-inference");
@@ -218,9 +219,7 @@ test.describe("failed branch inference", () => {
   test("leaves the branch blank and requires manual input", async ({ page }) => {
     const inbox = page.locator(".session-inbox");
     await inbox.getByRole("combobox", { name: "Agent provider" }).selectOption("claude");
-    await inbox
-      .getByRole("textbox", { name: "Prompt for a new session" })
-      .fill("Fix mobile branch inference");
+    await inbox.getByRole("textbox", { name: "Prompt for a new session" }).fill(NAMEABLE_DRAFT);
 
     const branch = inbox.getByRole("textbox", { name: "Branch for the new session" });
     await expect(branch).toHaveValue("");
@@ -245,9 +244,7 @@ test.describe("automatic inference permission", () => {
 
     const inbox = page.locator(".session-inbox");
     await inbox.getByRole("combobox", { name: "Agent provider" }).selectOption("claude");
-    await inbox
-      .getByRole("textbox", { name: "Prompt for a new session" })
-      .fill("Fix mobile branch inference");
+    await inbox.getByRole("textbox", { name: "Prompt for a new session" }).fill(NAMEABLE_DRAFT);
 
     await expect(inbox.getByRole("textbox", { name: "Branch for the new session" })).toHaveValue(
       "fix/mobile-branch-inference",
@@ -653,6 +650,9 @@ test("compact session inbox creates, resumes, and switches existing surfaces", a
   const startButton = inbox.getByRole("button", { name: "Start", exact: true });
   const branch = inbox.getByRole("textbox", { name: "Branch for the new session" });
   await expect(branch).toHaveValue("");
+  // A draft this short earns no automatic query, so leaving the prompt is what attempts the name.
+  await newSessionPrompt.focus();
+  await inbox.getByRole("combobox", { name: "Session location" }).focus();
   await expect(inbox.getByRole("alert")).toHaveText(
     "Branch suggestion failed: Ad-hoc inference is disabled. Type a branch to continue.",
   );

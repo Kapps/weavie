@@ -18,7 +18,7 @@ if (args.Contains("--print", StringComparer.Ordinal)) {
 	string? mode = Environment.GetEnvironmentVariable("WEAVIE_FAKE_CLAUDE_INFERENCE");
 	bool vague = mode == "needsDetail"
 		&& Draft(await Console.In.ReadToEndAsync().ConfigureAwait(false))
-			.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).Length < 5;
+			.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).Length < 20;
 	if (mode is "success" or "needsDetail") {
 		Console.Out.WriteLine("{\"is_error\":false,\"session_id\":\"fake-inference\","
 			+ "\"structured_output\":{\"branch\":" + (vague ? "\"\"" : "\"fix/mobile-branch-inference\"")
@@ -50,13 +50,13 @@ return 0;
 
 // Reads the draft an inference query carries out of its JSON input block.
 static string Draft(string stdin) {
-	const string Key = "\"prompt\":\"";
-	int start = stdin.IndexOf(Key, StringComparison.Ordinal);
+	const string key = "\"prompt\":\"";
+	int start = stdin.IndexOf(key, StringComparison.Ordinal);
 	if (start < 0) {
 		return string.Empty;
 	}
 
-	int value = start + Key.Length;
+	int value = start + key.Length;
 	int end = stdin.IndexOf('"', value);
 	return end < 0 ? string.Empty : stdin[value..end];
 }

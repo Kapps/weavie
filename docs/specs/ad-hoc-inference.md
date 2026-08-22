@@ -154,9 +154,10 @@ sequenceDiagram
 
 ## First consumer: branch naming
 
-The shared Sessions composer spends one host-scoped preview request per draft. It asks once the draft carries at
-least three words (or any image) and has been idle for 1200 ms, and it settles there: growing the prompt afterwards
-never buys a second name. Leaving the prompt field or pressing Start asks immediately for a draft that has not been
+The shared Sessions composer spends one host-scoped preview request per draft. It asks once the draft's text
+carries at least sixteen words and has been idle for 1200 ms, and it settles there: growing the prompt afterwards
+never buys a second name. Attached images do not count toward that gate — an image carries no task description on
+its own, and neither does an opening clause like “there's a bug where”. Leaving the prompt field or pressing Start asks immediately for a draft that has not been
 asked about yet, so submission never races the idle window. When “Current session” is selected, the request carries
 that exact slot; “Main branch” needs no live session.
 The host sends the text prompt, up to four exact validated images totaling at most 20 MB, the source checkout's
@@ -198,8 +199,8 @@ answer arrives. It is not a hidden agent loop and never mutates the workspace.
 ### Branch-name preview
 
 The proving slice resolves a repository-specific convention that deterministic slugification cannot infer. Once a
-session's text or image input is worth naming and has gone idle, Weavie asks the selected provider for a branch name
-using that input, the current branch, and twenty most recent local branches. This lets examples such as
+session's text is long enough to describe a task and has gone idle, Weavie asks the selected provider for a branch
+name using that input, the current branch, and twenty most recent local branches. This lets examples such as
 `kapps/fix-webm` and `bug/webm-fails-to-load` emerge from each repository's own history without teaching Weavie a
 global prefix convention.
 

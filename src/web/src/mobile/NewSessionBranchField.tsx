@@ -108,6 +108,8 @@ export function NewSessionBranchField(props: {
         placeholder={placeholder()}
         value={state().branch}
         onInput={(event) => preview.edit(event.currentTarget.value)}
+        onFocus={() => preview.claim()}
+        onBlur={() => preview.release()}
       />
       <button
         type="button"

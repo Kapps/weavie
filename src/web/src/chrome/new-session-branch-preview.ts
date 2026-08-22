@@ -3,8 +3,11 @@ import type { BranchPreviewResult, EncodedImageAttachment } from "../bridge";
 /** How long the prompt must sit unchanged before the composer spends a query on it. */
 export const BRANCH_PREVIEW_IDLE_MS = 1200;
 
-/** Words a prompt needs before an automatic query is worth its process spawn; a flush ignores it. */
-export const BRANCH_PREVIEW_MIN_WORDS = 3;
+/**
+ * Words a prompt needs before an automatic query is worth its process spawn. Attached images do not count
+ * toward it — an image carries no task description on its own. A flush ignores the gate entirely.
+ */
+export const BRANCH_PREVIEW_MIN_WORDS = 16;
 
 export interface BranchPreviewContext {
   backendId: string;
@@ -65,7 +68,6 @@ const retargeted = (previous: BranchPreviewContext | null, next: BranchPreviewCo
   (previous.backendId !== next.backendId || previous.providerId !== next.providerId);
 
 const worthQuerying = (context: BranchPreviewContext): boolean =>
-  context.attachments.length > 0 ||
   context.prompt.split(/\s+/).filter((word) => word.length > 0).length >= BRANCH_PREVIEW_MIN_WORDS;
 
 /**
@@ -74,6 +76,7 @@ const worthQuerying = (context: BranchPreviewContext): boolean =>
  * {@link refresh} re-runs a name the user can already see.
  */
 export class NewSessionBranchPreview {
+  private claimed = false;
   private context: BranchPreviewContext | null = null;
   private controller: AbortController | null = null;
   private generation = 0;
@@ -109,7 +112,7 @@ export class NewSessionBranchPreview {
     // enough, and re-arms itself if the model disagrees.
     if (retargeted(previous, context)) {
       this.settled = false;
-    } else if (this.settled || this.controller !== null) {
+    } else if (this.claimed || this.settled || this.controller !== null) {
       return;
     }
 
@@ -182,6 +185,20 @@ export class NewSessionBranchPreview {
     this.run();
   }
 
+  /** The user moved into the branch field: it is theirs to name, so nothing automatic may write over it. */
+  claim(): void {
+    this.claimed = true;
+    this.invalidate();
+  }
+
+  /** They left the field. An empty one still needs a name, so the draft becomes nameable again. */
+  release(): void {
+    this.claimed = false;
+    if (!this.state.manual) {
+      this.schedule();
+    }
+  }
+
   cancel(): void {
     this.invalidate();
   }
@@ -201,7 +218,7 @@ export class NewSessionBranchPreview {
   }
 
   private get frozen(): boolean {
-    return this.state.manual || this.settled;
+    return this.claimed || this.state.manual || this.settled;
   }
 
   private schedule(): void {

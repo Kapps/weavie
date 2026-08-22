@@ -23,6 +23,13 @@ const deferred = <T>(): Deferred<T> => {
   return { promise, resolve, reject };
 };
 
+const DRAFT = "the WebM video in the review pane fails to load whenever the diff is reopened twice";
+const GROWN = `${DRAFT} after a reconnect`;
+const SHORT = "WebM fails to load";
+const VAGUE =
+  "something is broken somewhere in the app and it would be good if someone could look at it";
+const VAGUE_GROWN = `${VAGUE} in the review pane`;
+
 const context = (prompt: string): BranchPreviewContext => ({
   backendId: "local",
   prompt,
@@ -60,16 +67,16 @@ describe("NewSessionBranchPreview", () => {
       (state) => states.push(state),
     );
 
-    preview.update(context("WebM fails"));
+    preview.update(context(SHORT));
     await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS * 2);
     expect(requests).toEqual([]);
 
-    preview.update(context("WebM fails to load"));
+    preview.update(context(DRAFT));
     await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS - 1);
     expect(requests).toEqual([]);
     await vi.advanceTimersByTimeAsync(1);
 
-    expect(requests).toEqual([context("WebM fails to load")]);
+    expect(requests).toEqual([context(DRAFT)]);
     expect(states.at(-1)).toEqual({
       branch: "bug/webm-fails-to-load",
       error: null,
@@ -92,11 +99,11 @@ describe("NewSessionBranchPreview", () => {
       },
     );
 
-    preview.update(context("WebM fails to load"));
+    preview.update(context(DRAFT));
     await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS);
     expect(requests).toHaveLength(1);
 
-    preview.update(context("WebM fails to load in the review pane"));
+    preview.update(context(GROWN));
     await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS * 4);
     preview.flush();
     await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS);
@@ -120,9 +127,9 @@ describe("NewSessionBranchPreview", () => {
       },
     );
 
-    preview.update(context("WebM fails to load"));
+    preview.update(context(DRAFT));
     await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS);
-    preview.update(context("WebM fails to load in review"));
+    preview.update(context(GROWN));
     await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS * 2);
 
     expect(calls).toHaveLength(1);
@@ -146,7 +153,7 @@ describe("NewSessionBranchPreview", () => {
       },
     );
 
-    preview.update(context("fix the bug"));
+    preview.update(context(VAGUE));
     await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS);
     expect(state?.status).toBe("needsDetail");
 
@@ -154,7 +161,7 @@ describe("NewSessionBranchPreview", () => {
     await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS * 4);
     expect(requests).toHaveLength(1);
 
-    preview.update(context("fix the bug in the review pane"));
+    preview.update(context(VAGUE_GROWN));
     await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS);
     expect(requests).toHaveLength(2);
     expect(state).toEqual({
@@ -179,13 +186,13 @@ describe("NewSessionBranchPreview", () => {
       },
     );
 
-    preview.update(context("WebM broken"));
+    preview.update(context(SHORT));
     await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS * 2);
     expect(requests).toEqual([]);
 
     preview.flush();
     await Promise.resolve();
-    expect(requests).toEqual([context("WebM broken")]);
+    expect(requests).toEqual([context(SHORT)]);
     expect(state?.branch).toBe("bug/webm");
   });
 
@@ -200,7 +207,7 @@ describe("NewSessionBranchPreview", () => {
       () => {},
     );
 
-    preview.update(context("WebM fails to load"));
+    preview.update(context(DRAFT));
     expect(await preview.resolve()).toBe("bug/webm-fails-to-load");
     expect(requests).toHaveLength(1);
 
@@ -224,17 +231,17 @@ describe("NewSessionBranchPreview", () => {
       },
     );
 
-    preview.update(context("fix the bug"));
+    preview.update(context(VAGUE));
     await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS);
     expect(calls).toHaveLength(1);
 
-    preview.update(context("fix the bug in the review pane"));
+    preview.update(context(VAGUE_GROWN));
     const submission = preview.resolve();
     calls[0]!.result.resolve(MORE_DETAIL);
     await vi.advanceTimersByTimeAsync(0);
 
     expect(calls).toHaveLength(2);
-    expect(calls[1]!.context.prompt).toBe("fix the bug in the review pane");
+    expect(calls[1]!.context.prompt).toBe(VAGUE_GROWN);
     calls[1]!.result.resolve(named("bug/review-pane"));
     expect(await submission).toBe("bug/review-pane");
     expect(state?.status).toBe("ready");
@@ -254,11 +261,11 @@ describe("NewSessionBranchPreview", () => {
       },
     );
 
-    preview.update(context("WebM fails to load"));
+    preview.update(context(DRAFT));
     await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS);
     expect(state?.branch).toBe("local/webm-fails-to-load");
 
-    preview.update({ ...context("WebM fails to load"), backendId: "remote-1" });
+    preview.update({ ...context(DRAFT), backendId: "remote-1" });
     await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS);
 
     expect(requests).toHaveLength(2);
@@ -275,7 +282,7 @@ describe("NewSessionBranchPreview", () => {
       },
     );
 
-    preview.update(context("fix the bug"));
+    preview.update(context(VAGUE));
     await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS);
 
     expect(await preview.resolve()).toBe("");
@@ -298,11 +305,11 @@ describe("NewSessionBranchPreview", () => {
       },
     );
 
-    preview.update(context("WebM fails to load"));
+    preview.update(context(DRAFT));
     await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS);
     expect(state?.branch).toBe("bug/first-guess");
 
-    preview.update(context("WebM fails to load in the review pane"));
+    preview.update(context(GROWN));
     await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS);
     expect(state?.branch).toBe("bug/first-guess");
 
@@ -331,7 +338,7 @@ describe("NewSessionBranchPreview", () => {
       },
     );
 
-    preview.update(imageContext("shot"));
+    preview.update({ ...imageContext("shot"), prompt: DRAFT });
     await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS);
     preview.edit("mine/typed-name");
     expect(state?.manual).toBe(true);
@@ -352,6 +359,32 @@ describe("NewSessionBranchPreview", () => {
     });
   });
 
+  it("stops naming the field once the user moves into it, and resumes if they leave it empty", async () => {
+    vi.useFakeTimers();
+    const requests: BranchPreviewContext[] = [];
+    let state: BranchPreviewState | undefined;
+    const preview = new NewSessionBranchPreview(
+      async (request) => {
+        requests.push(request);
+        return named("bug/automatic-name");
+      },
+      (next) => {
+        state = next;
+      },
+    );
+
+    preview.update(context(DRAFT));
+    preview.claim();
+    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS * 3);
+    expect(requests).toEqual([]);
+    expect(state?.branch).toBe("");
+
+    preview.release();
+    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS);
+    expect(requests).toHaveLength(1);
+    expect(state?.branch).toBe("bug/automatic-name");
+  });
+
   it("lets manual input win until the field is explicitly cleared", async () => {
     vi.useFakeTimers();
     const calls: BranchPreviewContext[] = [];
@@ -366,9 +399,9 @@ describe("NewSessionBranchPreview", () => {
       },
     );
 
-    preview.update(context("first prompt here"));
+    preview.update(context(DRAFT));
     preview.edit("mine/fix-webm");
-    preview.update({ ...context("second prompt here"), providerId: "claude" });
+    preview.update({ ...context(GROWN), providerId: "claude" });
     await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS);
     expect(calls).toEqual([]);
     expect(state).toEqual({
@@ -383,7 +416,7 @@ describe("NewSessionBranchPreview", () => {
     expect(calls).toHaveLength(1);
     expect(calls[0]).toEqual({
       backendId: "local",
-      prompt: "second prompt here",
+      prompt: GROWN,
       attachments: [],
       providerId: "claude",
     });
@@ -402,7 +435,7 @@ describe("NewSessionBranchPreview", () => {
       },
     );
 
-    preview.update(context("fix it now"));
+    preview.update(context(DRAFT));
     await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS);
     expect(state).toEqual({
       branch: "",
@@ -438,7 +471,7 @@ describe("NewSessionBranchPreview", () => {
       },
     );
 
-    preview.update(context("fix it now"));
+    preview.update(context(DRAFT));
     await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS);
 
     expect(state).toEqual({
@@ -448,7 +481,7 @@ describe("NewSessionBranchPreview", () => {
       status: "error",
     });
 
-    preview.update(context("fix it now please"));
+    preview.update(context(GROWN));
     await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS * 2);
     expect(requests).toHaveLength(1);
   });

@@ -180,11 +180,7 @@ export function SessionInbox(props: {
   const submitNew = async (): Promise<void> => {
     const text = prompt().trim();
     const images = attachments();
-    if (
-      submitting() !== null ||
-      (text.length === 0 && images.length === 0) ||
-      images.some((attachment) => attachment.status !== "ready")
-    ) {
+    if (submitting() !== null || images.some((attachment) => attachment.status !== "ready")) {
       return;
     }
     setSubmitting("new");
@@ -257,16 +253,24 @@ export function SessionInbox(props: {
     }
   };
 
-  const canStart = (): boolean => {
-    const images = attachments();
+  // A name in the field is enough on its own — a session needs no prompt; without one there has to be
+  // something left to name the branch from.
+  const named = (): boolean => {
     const preview = branchPreview();
     return (
+      preview.branch.trim().length > 0 ||
+      ((prompt().trim().length > 0 || attachments().length > 0) && preview.status !== "error")
+    );
+  };
+
+  const canStart = (): boolean => {
+    const images = attachments();
+    return (
       submitting() === null &&
-      (prompt().trim().length > 0 || images.length > 0) &&
+      named() &&
       agentProviders(backendId()).some(
         (provider) => provider.id === providerId() && provider.available,
       ) &&
-      (preview.branch.trim().length > 0 || preview.status !== "error") &&
       images.every((attachment) => attachment.status === "ready")
     );
   };
@@ -376,9 +380,15 @@ export function SessionInbox(props: {
               void submitNew();
             }}
             // Focus landing elsewhere in the composer means the draft is done; leaving it entirely
-            // (closing Sessions) must not spend a query on a draft nobody submitted.
+            // (closing Sessions) must not spend a query on a draft nobody submitted, and landing on the
+            // branch field means the user is naming it themselves.
             onFocusOut={(event) => {
-              if (event.currentTarget.contains(event.relatedTarget as Node | null)) {
+              const next = event.relatedTarget;
+              if (
+                next instanceof Element &&
+                event.currentTarget.contains(next) &&
+                next.closest(".session-composer-branch") === null
+              ) {
                 branchActions?.flush();
               }
             }}

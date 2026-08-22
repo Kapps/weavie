@@ -14,6 +14,9 @@ test.beforeAll(() => {
   }
 });
 
+const BRANCH_INFERENCE_DRAFT =
+  "branch inference fails for this desktop draft and the composer has to ask the user to name it";
+
 test.describe("session-addressed WebSocket transport", () => {
   let host: MockHost;
 
@@ -190,7 +193,7 @@ test.describe("session-addressed WebSocket transport", () => {
     await draft.focus();
 
     const preview = host.waitForHost("request", "sessionCreation", "previewBranch");
-    await draft.fill("Fix branch inference");
+    await draft.fill(BRANCH_INFERENCE_DRAFT);
     const request = await preview;
     expect(request.payload).toMatchObject({
       sourceId: "main",
@@ -215,7 +218,7 @@ test.describe("session-addressed WebSocket transport", () => {
     await expect(modal).toBeHidden();
     await expect(add).toBeFocused();
     await add.click();
-    await expect(draft).toHaveValue("Fix branch inference");
+    await expect(draft).toHaveValue(BRANCH_INFERENCE_DRAFT);
 
     await close.focus();
     await page.keyboard.press("Shift+Tab");

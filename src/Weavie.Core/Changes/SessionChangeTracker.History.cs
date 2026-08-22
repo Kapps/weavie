@@ -32,7 +32,7 @@ public sealed partial class SessionChangeTracker {
 		get { lock (_gate) { return _redoStack.Count > 0; } }
 	}
 
-	/// <summary>Undoes the most recent still-reversible action of either kind (the toolbar's Undo button).</summary>
+	/// <summary>Undoes the most recent still-reversible action of any kind (the toolbar's Undo button).</summary>
 	public ReviewHistoryResult UndoLast() => Reverse(null);
 
 	/// <summary>Undoes the most recent still-reversible keep — re-pending its hunk(s). See <see cref="Reverse"/>.</summary>
@@ -198,10 +198,11 @@ public sealed partial class SessionChangeTracker {
 		return paths;
 	}
 
-	// Whether a keep/revert action mutates disk. Keeps only advance the review baseline; reverts rewrite the file.
+	// Keeps only advance the review baseline; reverts and revisions rewrite the file.
 	private enum ReviewActionKind {
 		Keep,
 		Revert,
+		Revise,
 	}
 
 	// One file's full review state at a point in time. Disk fields are populated only for disk-mutating (revert)

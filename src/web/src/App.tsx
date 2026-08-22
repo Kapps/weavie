@@ -119,6 +119,7 @@ import {
   zoomedEmbed,
 } from "./editor/preview/embed-zoom";
 import { canPreview } from "./editor/preview/preview-registry";
+import { RevisePrompt } from "./editor/RevisePrompt";
 import { SaveAsPrompt } from "./editor/SaveAsPrompt";
 // Registers the per-session editor restore listener before the host's sync response; the
 // store otherwise lives only in the later editor chunk, so the push would arrive with no listener. Also
@@ -585,6 +586,19 @@ export default function App(): JSX.Element {
       req.resolve(name);
     }
   };
+  const [reviseReq, setReviseReq] = createSignal<{
+    lineCount: number;
+    resolve: (instruction: string | null) => void;
+  } | null>(null);
+  const promptRevision = (lineCount: number): Promise<string | null> =>
+    new Promise<string | null>((resolve) => setReviseReq({ lineCount, resolve }));
+  const settleRevision = (instruction: string | null): void => {
+    const req = reviseReq();
+    if (req !== null) {
+      setReviseReq(null);
+      req.resolve(instruction);
+    }
+  };
   // The right-click menu for the editor body + terminal panes (the tab strip / rail own their own).
   const [contextMenu, setContextMenu] = createSignal<ContextMenuState | null>(null);
   const fileIndex = (): string[] => selectedFileIndex().files;
@@ -613,6 +627,7 @@ export default function App(): JSX.Element {
     confirmDiscard,
     confirm,
     promptScratchName,
+    promptRevision,
   });
   // Find-in-files results open through the editor controller (preview tab, cursor on the match's column).
   setSearchOpener((match, focus) => editor.openMatch(match.path, match.line, match.column, focus));
@@ -1468,6 +1483,7 @@ export default function App(): JSX.Element {
       registerCommand(CommandIds.acceptChange, () => editor.inline.accept()),
       registerCommand(CommandIds.rejectChange, () => editor.inline.reject()),
       registerCommand(CommandIds.undoChange, () => editor.inline.undo()),
+      registerCommand(CommandIds.reviseSelection, () => editor.reviseSelection()),
       registerCommand(CommandIds.keepFile, () => editor.inline.keepFile()),
       registerCommand(CommandIds.revertFile, () => editor.inline.revertFile()),
       registerCommand(CommandIds.keepAll, () => editor.inline.keepAll()),
@@ -2020,6 +2036,15 @@ export default function App(): JSX.Element {
             suggestedName={req().suggestedName}
             onSave={(name) => settleScratchName(name)}
             onCancel={() => settleScratchName(null)}
+          />
+        )}
+      </Show>
+      <Show when={reviseReq()}>
+        {(req) => (
+          <RevisePrompt
+            lineCount={req().lineCount}
+            onRevise={(instruction) => settleRevision(instruction)}
+            onCancel={() => settleRevision(null)}
           />
         )}
       </Show>

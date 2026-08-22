@@ -9,9 +9,11 @@ using Weavie.Core.Editor;
 using Weavie.Core.FileActivity;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Hooks;
+using Weavie.Core.Inference;
 using Weavie.Core.Layout;
 using Weavie.Core.Lsp;
 using Weavie.Core.Mcp;
+using Weavie.Core.Revise;
 using Weavie.Core.Sessions;
 using Weavie.Core.Theming;
 using Weavie.Core.Workspaces;
@@ -65,6 +67,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 		KeybindingStore keybindings,
 		ThemeOverridesStore themeOverrides,
 		CorrectionCorpus corrections,
+		IInferenceService inference,
 		IPtyLauncher ptyLauncher,
 		IAgentProvider agentProvider,
 		HostRuntimeInfo runtime,
@@ -82,6 +85,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 		ArgumentNullException.ThrowIfNull(keybindings);
 		ArgumentNullException.ThrowIfNull(themeOverrides);
 		ArgumentNullException.ThrowIfNull(corrections);
+		ArgumentNullException.ThrowIfNull(inference);
 		ArgumentNullException.ThrowIfNull(ptyLauncher);
 		ArgumentNullException.ThrowIfNull(agentProvider);
 		ArgumentNullException.ThrowIfNull(runtime);
@@ -162,6 +166,8 @@ public sealed partial class HostSession : IAsyncDisposable {
 		// See docs/specs/learn-from-corrections.md.
 		Corrections = new CorrectionRecorder(corrections);
 		Changes.Corrected += Corrections.Record;
+		// Isolated in-place revision of a bounded region, published as in-flight on this session's bus.
+		Revise = new ReviseService(inference, Changes, new SessionReviseSurface(this));
 		var eventRouter = new AgentEventRouter(Changes, ObservedMode, Status);
 		Events = eventRouter;
 		var agentDiffPresenter = new PermissionModeDiffPresenter(DiffPresenter, ObservedMode);
@@ -487,6 +493,9 @@ public sealed partial class HostSession : IAsyncDisposable {
 
 	/// <summary>Appends the user's corrections (editor saves over an agent hunk, and reverts) into the workspace's shared ring.</summary>
 	public CorrectionRecorder Corrections { get; }
+
+	/// <summary>Runs this session's in-place revisions against its own agent and worktree.</summary>
+	public ReviseService Revise { get; }
 
 	/// <summary>The event sink provider integrations feed — the router fanning to tracker/mode/status.</summary>
 	public IAgentEventSink Events { get; }

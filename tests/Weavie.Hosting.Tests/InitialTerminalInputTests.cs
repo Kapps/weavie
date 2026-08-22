@@ -119,6 +119,7 @@ public sealed class InitialTerminalInputTests : IDisposable {
 			new KeybindingStore(commandRegistry, Path.Combine(_dir, "keybindings.json"), enableWatcher: false),
 			new ThemeOverridesStore(new LocalFileSystem(), Path.Combine(_dir, "theme-overrides.json")),
 			new CorrectionCorpus(new LocalFileSystem(), Path.Combine(_dir, "corrections.jsonl")),
+			UnusedInferenceService.Instance,
 			_launcher,
 			provider,
 			new HostRuntimeInfo(HostTransport.Local, Managed: false, "test"),

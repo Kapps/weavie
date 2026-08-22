@@ -466,6 +466,7 @@ public sealed partial class HostCore {
 				_keybindings,
 				_themeOverrides,
 				_corrections,
+				_inference,
 				_platform.PtyLauncher,
 				provider,
 				_runtime,

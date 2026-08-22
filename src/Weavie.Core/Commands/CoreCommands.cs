@@ -170,6 +170,9 @@ public static class CoreCommands {
 	/// <summary>Jumps to the previous change hunk in the inline diff.</summary>
 	public const string PrevChange = "weavie.diff.prevChange";
 
+	/// <summary>Revises the selected lines in place against an instruction the user types.</summary>
+	public const string ReviseSelection = "weavie.revise.selection";
+
 	/// <summary>Keeps the current change: a proposed edit (default-mode openDiff) or, in post-turn review, the current hunk (mark reviewed + advance).</summary>
 	public const string AcceptChange = "weavie.diff.accept";
 
@@ -1093,6 +1096,17 @@ public static class CoreCommands {
 			Description = "Jump to the next change in the inline diff.",
 			Aliases = ["next change", "next diff", "next hunk", "go to next change"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "ctrl+$mod+Down", When = "!terminalFocused" }],
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = ReviseSelection,
+			Title = "Revise Selection",
+			RunsIn = CommandLocation.Web,
+			Category = "Editor",
+			Description = "Rewrite the selected lines in place against an instruction you type. The selection is "
+				+ "tinted while the model works, and the edit is one undo step.",
+			Aliases = ["revise", "rewrite selection", "shorten comment", "reword"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+alt+r", When = "!terminalFocused" }],
 		});
 
 		registry.Register(new CommandDefinition {

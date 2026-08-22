@@ -55,16 +55,21 @@ export function agentProviders(backendId: string): AgentDefaults["providers"] {
 }
 
 /** Remember the provider just chosen as that host's default. */
-export function setDefaultAgentProvider(backendId: string, providerId: string): void {
-  setByBackend((previous) => {
-    const next = new Map(previous);
-    const current = next.get(backendId);
-    if (current !== undefined) {
-      next.set(backendId, { ...current, defaultProvider: providerId });
-    }
-    return next;
-  });
-  hostConnection(backendId)?.host.feature("agentDefaults").publish("setProvider", { providerId });
+export async function setDefaultAgentProvider(
+  backendId: string,
+  providerId: string,
+): Promise<void> {
+  const connection = hostConnection(backendId);
+  if (connection === undefined) {
+    throw new Error(`Agent backend '${backendId}' is not connected.`);
+  }
+  const defaults = await connection.host
+    .feature("agentDefaults")
+    .request<AgentDefaults, { providerId: string }>("setProvider", { providerId });
+  if (defaults.defaultProvider !== providerId) {
+    throw new Error(`The host rejected agent provider '${providerId}'.`);
+  }
+  setByBackend((previous) => new Map(previous).set(backendId, defaults));
 }
 
 registerHostFeature((connection) => {

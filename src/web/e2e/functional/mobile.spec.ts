@@ -609,7 +609,10 @@ test("compact session inbox creates, resumes, and switches existing surfaces", a
   await newSessionPrompt.fill("Improve mobile navigation");
   await pasteImage(newSessionPrompt, PNG_B64);
   await expect(inbox.locator(".agent-attachment img")).toBeVisible();
-  await inbox.getByRole("combobox", { name: "Agent provider" }).selectOption("fake-acp");
+  const provider = inbox.getByRole("combobox", { name: "Agent provider" });
+  await provider.selectOption("fake-acp");
+  await expect(provider).toBeDisabled();
+  await expect(provider).toBeEnabled();
   const startButton = inbox.getByRole("button", { name: "Start", exact: true });
   const branch = inbox.getByRole("textbox", { name: "Branch for the new session" });
   await expect(branch).toHaveValue("");

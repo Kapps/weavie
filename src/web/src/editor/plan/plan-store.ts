@@ -14,6 +14,7 @@ interface SessionPlans {
 
 const plans = new WeakMap<ClientSession, SessionPlans>();
 
+// Creating on read, not just on write, lets a reader subscribe before the first plan arrives.
 function plansFor(session: ClientSession): SessionPlans {
   const existing = plans.get(session);
   if (existing !== undefined) {
@@ -43,5 +44,5 @@ export function agentPlan(
   session: ClientSession | null,
   path: string,
 ): AgentPlanDocument | undefined {
-  return session === null ? undefined : plans.get(session)?.read()[path];
+  return session === null ? undefined : plansFor(session).read()[path];
 }

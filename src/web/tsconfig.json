@@ -22,5 +22,5 @@
     "allowJs": false,
     "noEmit": true
   },
-  "include": ["src", "vite.config.ts", "vitest.config.ts"]
+  "include": ["src", "__mocks__", "vite.config.ts", "vitest.config.ts"]
 }

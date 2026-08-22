@@ -106,6 +106,7 @@ export const CommandIds = {
   toggleWindow: "weavie.window.toggle",
   nextChange: "weavie.diff.nextChange",
   prevChange: "weavie.diff.prevChange",
+  reviseSelection: "weavie.revise.selection",
   acceptChange: "weavie.diff.accept",
   rejectChange: "weavie.diff.reject",
   undoChange: "weavie.diff.undo",

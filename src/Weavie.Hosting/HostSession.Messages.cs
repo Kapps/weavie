@@ -286,8 +286,13 @@ public sealed partial class HostSession {
 		string error) =>
 		Bus.Feature("agent").Publish("submissionState", new { id, attachmentIds, status, error });
 
-	private void Notify(string message) =>
-		_notificationMessages.Publish("show", new { level = "warn", message });
+	/// <summary>Shows a toast on this session's clients.</summary>
+	/// <param name="level">The toast level (<c>info</c>, <c>warn</c>, <c>error</c>).</param>
+	/// <param name="message">The text shown to the user.</param>
+	public void Notify(string level, string message) =>
+		_notificationMessages.Publish("show", new { level, message });
+
+	private void Notify(string message) => Notify("warn", message);
 
 	private sealed record EmptyMessage;
 

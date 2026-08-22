@@ -101,6 +101,11 @@ public sealed partial class HostCore {
 			async (message, ct) => ToWireResult(
 				await AddPrCommentAsync(session, message, ct).ConfigureAwait(false)));
 
+		session.Bus.Feature("revise").Handle<ReviseStartMessage>("start", (message, _) => {
+			StartRevise(session, message);
+			return Task.CompletedTask;
+		});
+
 		var files = session.Bus.Feature("files");
 		files.Handle<EmptySessionMessage, string[]>(
 			"refs",

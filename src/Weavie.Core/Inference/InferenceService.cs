@@ -198,9 +198,11 @@ public sealed class InferenceService : IInferenceService {
 	private static void ValidateQuery<TResponse>(
 		JsonTypeInfo<TResponse> responseType,
 		InferenceQueryOptions options) {
+		// Image bounds may be zero — a text-only query accepts no images — but a query with no prompt, no output,
+		// or no time is malformed.
 		if (options.MaxPromptBytes <= 0
-			|| options.MaxImageCount <= 0
-			|| options.MaxImageBytes <= 0
+			|| options.MaxImageCount < 0
+			|| options.MaxImageBytes < 0
 			|| options.MaxOutputBytes <= 0
 			|| options.TimeBudget <= TimeSpan.Zero) {
 			throw new ArgumentException("Inference query bounds must be positive.", nameof(options));

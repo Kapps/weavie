@@ -32,6 +32,8 @@ namespace Weavie.Hosting.Tests;
 /// </summary>
 internal sealed class TestHost : IAsyncDisposable {
 	internal const string TestPageId = "test-page";
+	internal const string TestAuthorName = "Weavie Test";
+	internal const string TestAuthorEmail = "test@weavie.dev";
 	private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 	private readonly string _tempRoot;
 	private readonly HostServices _services;
@@ -270,9 +272,12 @@ internal sealed class TestHost : IAsyncDisposable {
 		string repo = Path.Combine(tempRoot, "repo");
 		Directory.CreateDirectory(repo);
 		RunGit(repo, "init", "--quiet", "-b", "main");
+		RunGit(repo, "config", "user.email", TestAuthorEmail);
+		RunGit(repo, "config", "user.name", TestAuthorName);
+		RunGit(repo, "config", "commit.gpgsign", "false");
 		File.WriteAllText(Path.Combine(repo, "readme.txt"), "hello\n");
 		RunGit(repo, "add", "-A");
-		RunGit(repo, "-c", "user.email=test@weavie.dev", "-c", "user.name=Weavie Test", "-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "initial");
+		RunGit(repo, "commit", "--quiet", "-m", "initial");
 		prepareRepo(repo);
 
 		EnsureRelayBinary();

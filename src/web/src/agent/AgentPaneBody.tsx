@@ -114,7 +114,17 @@ export function AgentPaneBody(props: {
     onChange: (_instance, sync) => virtualizerChanged(sync),
     overscan: 4,
     scrollToFn: (offset, options, instance) => {
-      virtualizerScroll(offset + (options.adjustments ?? 0));
+      // A measurement correction is a relative shift, and the offset it carries is the virtualizer's
+      // cached scroll position — one `scroll` event stale while the pane is moving. Writing that back
+      // absolutely discards every pixel scrolled since, costing a frame of motion per newly measured
+      // row; apply it against the live position instead.
+      if (options.adjustments !== undefined && body !== undefined) {
+        const top = body.scrollTop + options.adjustments;
+        body.scrollTop = top;
+        virtualizerScroll(top);
+        return;
+      }
+      virtualizerScroll(offset);
       elementScroll(offset, options, instance);
     },
     useAnimationFrameWithResizeObserver: true,

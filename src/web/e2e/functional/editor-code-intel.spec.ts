@@ -48,6 +48,8 @@ test("editor right-click menu lists the code-intelligence actions above the clip
     "Find All References",
     "Rename Symbol",
     "—separator—",
+    "Revise Selection",
+    "—separator—",
     "Cut",
     "Copy",
     "Paste",

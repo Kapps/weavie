@@ -1107,9 +1107,10 @@ export default function App(): JSX.Element {
                   entries: [
                     { commandId: CommandIds.editorGoToDefinition },
                     { commandId: CommandIds.editorPeekDefinition },
-                    { commandId: CommandIds.reviseSelection },
                     { commandId: CommandIds.editorGoToReferences },
                     { commandId: CommandIds.editorRename },
+                    { kind: "separator" },
+                    { commandId: CommandIds.reviseSelection },
                     { kind: "separator" },
                     { commandId: CommandIds.editorCut },
                     { commandId: CommandIds.editorCopy },

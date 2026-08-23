@@ -14,6 +14,13 @@ public static class WorkspacePaths {
 	/// <summary>True if <paramref name="segment"/> is one of the ignored directory names (case-insensitive).</summary>
 	public static bool IsIgnoredSegment(string segment) => IgnoredSet.Contains(segment);
 
+	/// <summary>
+	/// True if <paramref name="fullPath"/> is a file whose contents decide which paths the workspace contains,
+	/// so editing it redefines the inventory rather than just changing one file.
+	/// </summary>
+	public static bool IsIgnoreRuleFile(string fullPath) =>
+		Path.GetFileName(fullPath.AsSpan()).Equals(".gitignore", StringComparison.OrdinalIgnoreCase);
+
 	/// <summary>True if any path segment of <paramref name="fullPath"/> is an ignored directory name.</summary>
 	public static bool HasIgnoredSegment(string fullPath) {
 		foreach (string segment in fullPath.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)) {

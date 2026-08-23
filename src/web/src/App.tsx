@@ -863,7 +863,7 @@ export default function App(): JSX.Element {
       return Promise.resolve(false);
     }
     const commit = beginClientSelection();
-    beginSessionSelection(session.backendId, session.id);
+    const endSelection = beginSessionSelection(session.backendId, session.id);
     flushEditorSession();
     return editor
       .flushDirty()
@@ -894,7 +894,8 @@ export default function App(): JSX.Element {
       .catch((error: unknown) => {
         addToast("error", error instanceof Error ? error.message : String(error));
         return false;
-      });
+      })
+      .finally(endSelection);
   };
 
   const openSession = (session: RailSession): Promise<boolean> => {

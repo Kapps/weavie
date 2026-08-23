@@ -186,7 +186,8 @@ const merged = createMemo<RailSession[]>(() => {
         backendId,
         isLocal,
         locationName: backendName(backendId),
-        active: selected === chip.owner,
+        // Dormant slots have no owner, so guard the null case: with nothing selected they'd all read active.
+        active: chip.owner !== null && selected === chip.owner,
         pending: pending.has(pendingKey(backendId, chip.id)),
         offline,
       });
@@ -203,9 +204,19 @@ export function findSession(backendId: string, id: string): RailSession | undefi
   return merged().find((s) => s.backendId === backendId && s.id === id);
 }
 
-/** Highlights a requested target while dirty editor state is flushed before selection commits. */
-export function beginSessionSelection(backendId: string, id: string): void {
-  setPendingSelection({ backendId, id });
+/**
+ * Highlights a requested target while dirty editor state is flushed before selection commits. The returned
+ * dispose drops that highlight once the switch settles — a switch that never commits (superseded, failed)
+ * would otherwise leave the rail, and the cycling that steps from it, pointing at a session nobody is on.
+ */
+export function beginSessionSelection(backendId: string, id: string): () => void {
+  const intent = { backendId, id };
+  setPendingSelection(intent);
+  return () => {
+    if (pendingSelection() === intent) {
+      setPendingSelection(null);
+    }
+  };
 }
 
 /** The rail's working set: every local session, plus promoted remotes (tagged with their agent hue). */
@@ -225,21 +236,16 @@ export const railSessions = createMemo<RailSession[]>(() => {
 /**
  * The rail chip a next/prev step over `list` (LOADED chips only) should land on for `delta` (±1, wrapping), or
  * null when there's nothing to move to. With no active chip — e.g. deleting the focused session leaves the page
- * bound to a backend with no docked chip — any single chip is a valid recovery target (near end: first for next,
- * last for prev), so Ctrl+Tab / Ctrl+Shift+Tab recover focus instead of dead-keying.
+ * bound to a backend with no docked chip, or a switch to a dormant one is mid-flight — cycling recovers to the
+ * near end (first for next, last for prev), skipping the session already on screen so a step is never a no-op.
  */
 export function stepRailTarget(list: RailSession[], delta: number): RailSession | null {
   const current = list.findIndex((s) => s.active);
-  if (list.length < (current < 0 ? 1 : 2)) {
-    return null;
+  if (current >= 0) {
+    return list.length < 2 ? null : (list[(current + delta + list.length) % list.length] ?? null);
   }
-  let index: number;
-  if (current < 0) {
-    index = delta < 0 ? list.length - 1 : 0;
-  } else {
-    index = (current + delta + list.length) % list.length;
-  }
-  return list[index] ?? null;
+  const onScreen = selectedSession();
+  return (delta < 0 ? [...list].reverse() : list).find((s) => s.owner !== onScreen) ?? null;
 }
 
 /** Every registered remote agent and its sessions, for the cloud panel (connected first, offline faded). */

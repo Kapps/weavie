@@ -212,3 +212,28 @@ test("deleting the workspace session keeps its checkout and creates a replacemen
   await expect(page.locator(".toast", { hasText: "was deleted." })).toHaveCount(1);
   expect(await readFile(join(weavie.workspace, "hello.ts"), "utf8")).toContain("greet");
 });
+
+// Ctrl+Tab / Ctrl+Shift+Tab must step exactly one chip per press. Two sessions can't catch a step that walks
+// from a stale origin — next and prev are the same hop there — so this cycles three, both ways, through a wrap.
+test("keyboard session cycling steps one chip per press in both directions", async ({ page }) => {
+  const chips = page.locator(".session-chip");
+  await createSession(page, { branch: "e2e/cycle-second", provider: "claude" });
+  await createSession(page, { branch: "e2e/cycle-third", provider: "claude" });
+  await expect(chips).toHaveCount(3);
+
+  // Cycling is gated on the editor not holding focus, so park focus in the shell pane.
+  const shell = page.locator('.terminal-surface[data-kind="terminal:shell"]');
+  await shell.locator(".pane-head").click();
+  const slots = await chips.evaluateAll((rail) =>
+    rail.map((chip) => (chip as HTMLElement).dataset.sessionSlot ?? ""),
+  );
+  const expectActive = (slot: string): Promise<void> =>
+    expect(page.locator(".session-chip.active")).toHaveAttribute("data-session-slot", slot);
+
+  let index = slots.indexOf(await activeSessionSlot(page));
+  for (const delta of [1, 1, 1, -1, -1, -1]) {
+    await page.keyboard.press(delta > 0 ? "Control+Tab" : "Control+Shift+Tab");
+    index = (index + delta + slots.length) % slots.length;
+    await expectActive(slots[index] as string);
+  }
+});

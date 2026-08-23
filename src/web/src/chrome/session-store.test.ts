@@ -1,4 +1,4 @@
-import { createSignal } from "solid-js";
+import { createRoot, createSignal } from "solid-js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ClientSession, HostConnection } from "../bridge";
 import type { SessionCatalogEntry } from "../messaging/host-connection";
@@ -239,5 +239,33 @@ describe("stepRailTarget", () => {
     const list = [chip("a", false), chip("b", false), chip("c", false)];
     expect(store.stepRailTarget(list, 1)?.id).toBe("a");
     expect(store.stepRailTarget(list, -1)?.id).toBe("c");
+  });
+
+  // The double-press: with the highlight off the cycle list (a switch to a dormant chip mid-flight), recovering
+  // to the near end handed back the session already on screen, so the first Ctrl+Tab only repaired the highlight.
+  it("skips the session already on screen when recovering", () => {
+    const onScreen = { ...chip("main", false), owner: session("local", "main").client };
+    expect(store.stepRailTarget([onScreen, chip("b", false), chip("c", false)], 1)?.id).toBe("b");
+    expect(store.stepRailTarget([chip("b", false), chip("c", false), onScreen], -1)?.id).toBe("c");
+    expect(store.stepRailTarget([onScreen], 1)).toBeNull();
+    expect(store.stepRailTarget([onScreen], -1)).toBeNull();
+  });
+});
+
+describe("beginSessionSelection", () => {
+  it("drops the optimistic highlight when its switch settles, leaving a newer one alone", () => {
+    createRoot((dispose) => {
+      deliverCatalog("local", ["main", "second", "third"]);
+      const endSecond = store.beginSessionSelection("local", "second");
+      expect(store.railSessions().find((s) => s.active)?.id).toBe("second");
+
+      const endThird = store.beginSessionSelection("local", "third");
+      endSecond();
+      expect(store.railSessions().find((s) => s.active)?.id).toBe("third");
+
+      endThird();
+      expect(store.railSessions().find((s) => s.active)?.id).toBe("main");
+      dispose();
+    });
   });
 });

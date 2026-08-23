@@ -72,12 +72,15 @@ public sealed partial class WorkspaceInventory {
 
 	internal void TrackNonRepositoryFile(string path) {
 		string relative = Path.GetRelativePath(Root, path);
+		bool changed;
 		lock (_knownFilesLock) {
 			RecordMutation(NonRepositoryMutationKind.TrackFile, relative, string.Empty);
-			ApplyTrackFile(relative);
+			changed = ApplyTrackFile(relative);
 		}
 
-		Changed?.Invoke();
+		if (changed) {
+			Changed?.Invoke();
+		}
 	}
 
 	internal void TrackNonRepositoryDirectory(string path) {
@@ -182,9 +185,11 @@ public sealed partial class WorkspaceInventory {
 		}
 	}
 
-	private void ApplyTrackFile(string file) {
-		_knownNonRepositoryFiles.Add(file);
+	/// <summary>Tracks <paramref name="file"/>, reporting whether the inventory learned a path it lacked.</summary>
+	private bool ApplyTrackFile(string file) {
+		bool added = _knownNonRepositoryFiles.Add(file);
 		AddParentDirectories(file);
+		return added;
 	}
 
 	private void ApplyForgetTree(string root, List<string>? removed) {

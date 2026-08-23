@@ -11,16 +11,16 @@ public sealed partial class HostCore {
 		string? prompt,
 		IReadOnlyList<NewSessionAttachment> attachments,
 		string agentProviderId,
+		InferenceInvocationOrigin origin,
 		CancellationToken ct) {
 		if (!ValidateBranchPreviewAttachments(attachments, out string attachmentError)) {
-			return new BranchPreviewResult(string.Empty, attachmentError);
+			return BranchPreviewResult.Failed(attachmentError);
 		}
 		if (!TryDecodeInitialInput(prompt, attachments, out var initialInput, out string inputError)) {
-			return new BranchPreviewResult(string.Empty, inputError);
+			return BranchPreviewResult.Failed(inputError);
 		}
 		if (initialInput is null) {
-			return new BranchPreviewResult(
-				string.Empty,
+			return BranchPreviewResult.Failed(
 				"Type a prompt or attach an image before requesting a branch suggestion.");
 		}
 
@@ -35,7 +35,7 @@ public sealed partial class HostCore {
 				RecentBranches = await git.ListRecentBranchesAsync(sourceRoot, 20, ct).ConfigureAwait(false),
 			};
 		} catch (GitException ex) {
-			return new BranchPreviewResult(string.Empty, $"Couldn't read repository branch information: {ex.Message}");
+			return BranchPreviewResult.Failed($"Couldn't read repository branch information: {ex.Message}");
 		}
 
 		// The branch is named before its session exists, so the request is owned by the workspace it forks from.
@@ -51,34 +51,38 @@ public sealed partial class HostCore {
 				})],
 			},
 			BranchNameInference.ResponseType,
-			BranchNameInference.QueryOptions,
+			BranchNameInference.QueryOptions with { Origin = origin },
 			ct).ConfigureAwait(false);
 		if (result is InferenceFailure<BranchNameInferenceOutput> failure) {
-			return new BranchPreviewResult(string.Empty, failure.Detail);
+			return BranchPreviewResult.Failed(failure.Detail);
 		}
 
 		if (result is not InferenceSuccess<BranchNameInferenceOutput> success) {
 			throw new InvalidOperationException("Branch inference returned an unknown result type.");
 		}
 
+		if (success.Value.NeedsMoreDetail) {
+			return BranchPreviewResult.MoreDetail;
+		}
+
 		string proposed = success.Value.Branch.Trim();
 		if (proposed.Length == 0) {
-			return new BranchPreviewResult(string.Empty, "The inference provider returned an empty branch name.");
+			return BranchPreviewResult.Failed("The inference provider returned an empty branch name.");
 		}
 		if (taken.Contains(proposed)) {
-			return new BranchPreviewResult(string.Empty, "The suggested branch name is already in use.");
+			return BranchPreviewResult.Failed("The suggested branch name is already in use.");
 		}
 
 		try {
 			if (!await git.IsValidBranchNameAsync(sourceRoot, proposed, ct).ConfigureAwait(false)) {
-				return new BranchPreviewResult(string.Empty, "The suggested branch name isn't valid.");
+				return BranchPreviewResult.Failed("The suggested branch name isn't valid.");
 			}
 
 			return await git.BranchExistsAsync(sourceRoot, proposed, ct).ConfigureAwait(false)
-				? new BranchPreviewResult(string.Empty, "The suggested branch name already exists.")
-				: new BranchPreviewResult(proposed, null);
+				? BranchPreviewResult.Failed("The suggested branch name already exists.")
+				: BranchPreviewResult.Named(proposed);
 		} catch (GitException ex) {
-			return new BranchPreviewResult(string.Empty, $"Couldn't validate the suggested branch name: {ex.Message}");
+			return BranchPreviewResult.Failed($"Couldn't validate the suggested branch name: {ex.Message}");
 		}
 	}
 

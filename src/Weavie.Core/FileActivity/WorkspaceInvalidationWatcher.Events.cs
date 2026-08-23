@@ -23,6 +23,8 @@ public sealed partial class WorkspaceInvalidationWatcher {
 		SignalRefresh();
 	}
 
+	// A content write can't add or remove an inventoried path, so only an ignore-rule edit re-enumerates;
+	// non-repository tracking signals through the inventory's own Changed event when it learns a path.
 	private void OnChanged(FileSystemEventArgs e) {
 		if (!Volatile.Read(ref _isRepository)) {
 			if (Directory.Exists(e.FullPath) || WorkspacePaths.HasIgnoredSegment(e.FullPath)) {
@@ -31,11 +33,13 @@ public sealed partial class WorkspaceInvalidationWatcher {
 
 			_inventory.TrackNonRepositoryFile(e.FullPath);
 			Record(e.FullPath, FileInvalidationKind.Changed);
-		} else {
-			RecordKnown(e.FullPath, FileInvalidationKind.Changed);
+			return;
 		}
 
-		SignalRefresh();
+		RecordKnown(e.FullPath, FileInvalidationKind.Changed);
+		if (WorkspacePaths.IsIgnoreRuleFile(e.FullPath)) {
+			SignalRefresh();
+		}
 	}
 
 	private void OnDeleted(FileSystemEventArgs e) {

@@ -13,6 +13,22 @@ public sealed class WorkspaceInventoryTests : IDisposable {
 	}
 
 	[Fact]
+	public void TrackNonRepositoryFile_ReportsOnlyAPathTheInventoryLacked() {
+		// The workspace watcher re-enumerates whenever the inventory reports a change, so re-reporting a path
+		// it already holds would re-derive the whole workspace on every write.
+		var inventory = new WorkspaceInventory(_root, _ => Task.FromResult<IReadOnlyList<string>?>(null));
+		int reported = 0;
+		inventory.Changed += () => Interlocked.Increment(ref reported);
+		string path = Path.Combine(_root, "notes.md");
+
+		inventory.TrackNonRepositoryFile(path);
+		inventory.TrackNonRepositoryFile(path);
+		inventory.TrackNonRepositoryFile(path);
+
+		Assert.Equal(1, reported);
+	}
+
+	[Fact]
 	public async Task Refresh_DerivesOnlyParentsOfGitFiles() {
 		var inventory = new WorkspaceInventory(
 			_root,

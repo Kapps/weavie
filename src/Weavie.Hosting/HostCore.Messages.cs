@@ -2,6 +2,7 @@ using System.Text.Json;
 using Weavie.AcpDistribution;
 using Weavie.Core.Commands;
 using Weavie.Core.Git;
+using Weavie.Core.Inference;
 using Weavie.Core.Layout;
 using Weavie.Core.Remote;
 using Weavie.Core.Search;
@@ -110,11 +111,11 @@ public sealed partial class HostCore {
 			return Task.CompletedTask;
 		});
 
-		_messages.Host.Feature("agentDefaults").Handle<AgentProviderMessage>(
+		_messages.Host.Feature("agentDefaults").Handle<AgentProviderMessage, JsonElement>(
 			"setProvider",
 			(message, _) => {
 				RememberDefaultProvider(message.ProviderId);
-				return Task.CompletedTask;
+				return Task.FromResult(ParseJsonElement(BuildAgentDefaults()));
 			});
 
 		var acpRegistry = _messages.Host.Feature("acpRegistry");
@@ -265,7 +266,7 @@ public sealed partial class HostCore {
 		CancellationToken ct) {
 		var source = SourceSlot(message.SourceId);
 		if (!string.IsNullOrWhiteSpace(message.SourceId) && source is null) {
-			return Task.FromResult(new BranchPreviewResult(string.Empty, "The source session no longer exists."));
+			return Task.FromResult(BranchPreviewResult.Failed("The source session no longer exists."));
 		}
 
 		return PreviewBranchNameAsync(
@@ -273,6 +274,9 @@ public sealed partial class HostCore {
 			message.Prompt,
 			message.Attachments,
 			message.AgentProviderId,
+			message.UserInitiated
+				? InferenceInvocationOrigin.UserInitiated
+				: InferenceInvocationOrigin.Automatic,
 			ct);
 	}
 

@@ -16,6 +16,7 @@ import {
 import { PAGE_EPOCH } from "../messaging/page-epoch";
 import { notify } from "../notify/notify";
 import { LspStartError, openLspChannel } from "./lsp-bridge-transport";
+import { describeError, isCancellation } from "./lsp-errors";
 import type { WeavieLspConfig, WeavieLspServer } from "./types";
 import { createWeavieLanguageClient } from "./weavie-language-client";
 
@@ -38,9 +39,6 @@ let channelSeq = 0;
 // Backends told (once per page instance, before their first lsp/start) to drop channels from earlier epochs —
 // a fresh page owns none, so without the reset every reload leaks one live server per language.
 const epochReset = new WeakSet<ClientSession>();
-// Servers whose document symbols already failed once this page — the toast fires once, not per refresh.
-const symbolFailureWarned = new Set<string>();
-
 function keyFor(owner: ClientSession, serverId: string): string {
   return `${owner.connection.id}\n${owner.address.slot}\n${owner.address.incarnation}\n${serverId}`;
 }
@@ -73,10 +71,6 @@ export function pruneSession(owner: ClientSession): void {
       pool.delete(key);
     }
   }
-}
-
-function describeError(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
 }
 
 // A glob that scopes a client's providers to its own worktree. Uses the SAME base normalization as the
@@ -265,29 +259,23 @@ function connect(key: string, params: EnsureClientParams, attempt: number): void
             configuration: (params) => params.items.map(() => settings),
           },
           // A malformed symbol from the server (e.g. an empty name, which the protocol converter rejects with
-          // "name must not be falsy") must degrade to no outline for that file — not storm window.error on every
-          // breadcrumb/outline refresh. Warned once per server; each occurrence still logs.
+          // "name must not be falsy") reaches the log naming the server — the raw rejection alone surfaces as an
+          // anonymous window.error. Each consumer decides what to do with it; Go to Symbol reports it.
           provideDocumentSymbols: async (document, token, next) => {
             try {
               return await next(document, token);
             } catch (err) {
-              // Routine request cancellation (rethrown by handleFailedRequest as the vscode shim's
-              // CancellationError, whose stable marker is name === "Canceled") is not a malformed response.
-              if (err instanceof Error && err.name === "Canceled") {
-                throw err;
+              if (!isCancellation(err)) {
+                log("error", `lsp: ${server.id} document symbols failed: ${describeError(err)}`);
               }
-              log("error", `lsp: ${server.id} document symbols failed: ${describeError(err)}`);
-              if (!symbolFailureWarned.has(server.id)) {
-                symbolFailureWarned.add(server.id);
-                notify(
-                  "warn",
-                  `${server.id} returned document symbols Weavie couldn't read; the outline is unavailable for the affected file.`,
-                );
-              }
-              return [];
+              throw err;
             }
           },
         },
+        // A failed initialize is the pool's to report: without this handler the client both raises its own error
+        // message and logs one, per attempt, on top of the notice below. `false` means "don't retry" — the client
+        // stops and rethrows, so start() still rejects into fail().
+        initializationFailedHandler: () => false,
         // The client itself stays passive on errors; recovery is the host-supervised reconnect above.
         errorHandler: {
           error: () => ({ action: ErrorAction.Continue, handled: true }),

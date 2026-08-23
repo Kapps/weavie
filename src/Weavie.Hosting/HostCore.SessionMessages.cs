@@ -217,9 +217,16 @@ public sealed partial class HostCore {
 		string? SourceId,
 		string? Prompt,
 		IReadOnlyList<NewSessionAttachment> Attachments,
-		string AgentProviderId);
+		string AgentProviderId,
+		bool UserInitiated);
 
-	private sealed record BranchPreviewResult(string Branch, string? Error);
+	private sealed record BranchPreviewResult(string Branch, string? Error, bool NeedsMoreDetail) {
+		public static BranchPreviewResult MoreDetail { get; } = new(string.Empty, null, true);
+
+		public static BranchPreviewResult Named(string branch) => new(branch, null, false);
+
+		public static BranchPreviewResult Failed(string error) => new(string.Empty, error, false);
+	}
 
 	private sealed record EditorSessionMessage(JsonElement Session);
 

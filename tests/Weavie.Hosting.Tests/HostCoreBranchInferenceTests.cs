@@ -15,7 +15,7 @@ public sealed class HostCoreBranchInferenceTests {
 	public async Task Preview_UsesSelectedProviderAndValidatedUtilityProposalWithRepositoryContext(
 		string agentProviderId) {
 		var inference = new BranchInferenceStub(new InferenceSuccess<BranchNameInferenceOutput> {
-			Value = new BranchNameInferenceOutput { Branch = "bug/webm-fails-to-load" },
+			Value = new BranchNameInferenceOutput { Branch = "bug/webm-fails-to-load", NeedsMoreDetail = false },
 			Receipt = Receipt(),
 		});
 		await using var host = await TestHost.StartAsync(repo => {
@@ -40,7 +40,7 @@ public sealed class HostCoreBranchInferenceTests {
 	[Fact]
 	public async Task ImageOnlyPreview_PassesTheExactDecodedImageToInference() {
 		var inference = new BranchInferenceStub(new InferenceSuccess<BranchNameInferenceOutput> {
-			Value = new BranchNameInferenceOutput { Branch = "bug/screenshot-layout" },
+			Value = new BranchNameInferenceOutput { Branch = "bug/screenshot-layout", NeedsMoreDetail = false },
 			Receipt = Receipt(),
 		});
 		await using var host = await TestHost.StartAsync(_ => { }, _ => inference);
@@ -61,7 +61,7 @@ public sealed class HostCoreBranchInferenceTests {
 	[Fact]
 	public async Task InvalidImage_FailsBeforeInference() {
 		var inference = new BranchInferenceStub(new InferenceSuccess<BranchNameInferenceOutput> {
-			Value = new BranchNameInferenceOutput { Branch = "should-not-run" },
+			Value = new BranchNameInferenceOutput { Branch = "should-not-run", NeedsMoreDetail = false },
 			Receipt = Receipt(),
 		});
 		await using var host = await TestHost.StartAsync(_ => { }, _ => inference);
@@ -80,7 +80,7 @@ public sealed class HostCoreBranchInferenceTests {
 	[Fact]
 	public async Task TooManyImages_FailBeforeInferenceOrDecoding() {
 		var inference = new BranchInferenceStub(new InferenceSuccess<BranchNameInferenceOutput> {
-			Value = new BranchNameInferenceOutput { Branch = "should-not-run" },
+			Value = new BranchNameInferenceOutput { Branch = "should-not-run", NeedsMoreDetail = false },
 			Receipt = Receipt(),
 		});
 		await using var host = await TestHost.StartAsync(_ => { }, _ => inference);
@@ -125,6 +125,35 @@ public sealed class HostCoreBranchInferenceTests {
 		Assert.Equal(1, inference.Calls);
 	}
 
+	[Fact]
+	public async Task Resuggesting_IsUserInitiatedSoTheAutomaticPolicyDoesNotGateIt() {
+		var inference = new BranchInferenceStub(new InferenceSuccess<BranchNameInferenceOutput> {
+			Value = new BranchNameInferenceOutput { Branch = "bug/asked-again", NeedsMoreDetail = false },
+			Receipt = Receipt(),
+		});
+		await using var host = await TestHost.StartAsync(_ => { }, _ => inference);
+
+		var result = await ResuggestAsync(host, "WebM files fail to load", "claude");
+
+		Assert.Equal("bug/asked-again", result.Branch);
+		Assert.Equal(InferenceInvocationOrigin.UserInitiated, inference.Origin);
+	}
+
+	[Fact]
+	public async Task VagueProposal_AsksForMoreDetailWithoutAnError() {
+		var inference = new BranchInferenceStub(new InferenceSuccess<BranchNameInferenceOutput> {
+			Value = new BranchNameInferenceOutput { Branch = string.Empty, NeedsMoreDetail = true },
+			Receipt = Receipt(),
+		});
+		await using var host = await TestHost.StartAsync(_ => { }, _ => inference);
+
+		var result = await PreviewAsync(host, "fix the bug", "claude");
+
+		Assert.Empty(result.Branch);
+		Assert.Null(result.Error);
+		Assert.True(result.NeedsMoreDetail);
+	}
+
 	[Theory]
 	[InlineData("", "The inference provider returned an empty branch name.")]
 	[InlineData(" ", "The inference provider returned an empty branch name.")]
@@ -135,7 +164,7 @@ public sealed class HostCoreBranchInferenceTests {
 	[InlineData("foo.lock/bar", "The suggested branch name isn't valid.")]
 	public async Task InvalidOrCollidingProposal_ReportsItsReason(string proposed, string error) {
 		var inference = new BranchInferenceStub(new InferenceSuccess<BranchNameInferenceOutput> {
-			Value = new BranchNameInferenceOutput { Branch = proposed },
+			Value = new BranchNameInferenceOutput { Branch = proposed, NeedsMoreDetail = false },
 			Receipt = Receipt(),
 		});
 		await using var host = await TestHost.StartAsync(_ => { }, _ => inference);
@@ -149,7 +178,7 @@ public sealed class HostCoreBranchInferenceTests {
 	[Fact]
 	public async Task OmittedBranch_IsRejectedWithoutInference() {
 		var inference = new BranchInferenceStub(new InferenceSuccess<BranchNameInferenceOutput> {
-			Value = new BranchNameInferenceOutput { Branch = "should-not-run" },
+			Value = new BranchNameInferenceOutput { Branch = "should-not-run", NeedsMoreDetail = false },
 			Receipt = Receipt(),
 		});
 		await using var host = await TestHost.StartAsync(_ => { }, _ => inference);
@@ -168,7 +197,7 @@ public sealed class HostCoreBranchInferenceTests {
 	[Fact]
 	public async Task MissingSource_DoesNotFallBackToTheWorkspaceCheckout() {
 		var inference = new BranchInferenceStub(new InferenceSuccess<BranchNameInferenceOutput> {
-			Value = new BranchNameInferenceOutput { Branch = "should-not-run" },
+			Value = new BranchNameInferenceOutput { Branch = "should-not-run", NeedsMoreDetail = false },
 			Receipt = Receipt(),
 		});
 		await using var host = await TestHost.StartAsync(_ => { }, _ => inference);
@@ -227,23 +256,41 @@ public sealed class HostCoreBranchInferenceTests {
 	private static Task<BranchPreview> PreviewAsync(TestHost host, string prompt, string agentProviderId) =>
 		PreviewWithAttachmentsAsync(host, prompt, agentProviderId, []);
 
-	private static async Task<BranchPreview> PreviewWithAttachmentsAsync(
+	private static Task<BranchPreview> ResuggestAsync(TestHost host, string prompt, string agentProviderId) =>
+		RequestPreviewAsync(host, prompt, agentProviderId, [], userInitiated: true);
+
+	private static Task<BranchPreview> PreviewWithAttachmentsAsync(
 		TestHost host,
 		string prompt,
 		string agentProviderId,
-		IReadOnlyList<NewSessionAttachment> attachments) {
+		IReadOnlyList<NewSessionAttachment> attachments) =>
+		RequestPreviewAsync(host, prompt, agentProviderId, attachments, userInitiated: false);
+
+	private static async Task<BranchPreview> RequestPreviewAsync(
+		TestHost host,
+		string prompt,
+		string agentProviderId,
+		IReadOnlyList<NewSessionAttachment> attachments,
+		bool userInitiated) {
 		var result = await host.HostRequestAsync<JsonElement>(
 			"sessionCreation",
 			"previewBranch",
-			new { sourceId = host.WorkspaceSession.SlotId, prompt, attachments, agentProviderId });
+			new {
+				sourceId = host.WorkspaceSession.SlotId,
+				prompt,
+				attachments,
+				agentProviderId,
+				userInitiated,
+			});
 		return new BranchPreview(
 			result.GetProperty("branch").GetString()!,
 			result.GetProperty("error").ValueKind == JsonValueKind.Null
 				? null
-				: result.GetProperty("error").GetString());
+				: result.GetProperty("error").GetString(),
+			result.GetProperty("needsMoreDetail").GetBoolean());
 	}
 
-	private sealed record BranchPreview(string Branch, string? Error);
+	private sealed record BranchPreview(string Branch, string? Error, bool NeedsMoreDetail);
 
 	private static InferenceReceipt Receipt() => new() {
 		ProviderId = "test",
@@ -276,7 +323,8 @@ public sealed class HostCoreBranchInferenceTests {
 			CancellationToken ct) {
 			ct.ThrowIfCancellationRequested();
 			Assert.Same(BranchNameInference.ResponseType, responseType);
-			Assert.Same(BranchNameInference.QueryOptions, options);
+			// The origin varies with who asked; every declared bound must still be the feature's own.
+			Assert.Equal(BranchNameInference.QueryOptions with { Origin = options.Origin }, options);
 			Calls++;
 			AgentProviderId = owner.AgentProviderId;
 			Workspace = owner.Workspace;

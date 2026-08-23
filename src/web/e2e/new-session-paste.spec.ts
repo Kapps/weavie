@@ -41,7 +41,11 @@ test("desktop image paste participates in preview and submit while text remains 
     );
     host.onHost("request", "sessionCreation", "previewBranch", (request) => {
       branchPreviews.push(request.payload);
-      host.respond(request, { branch: "bug/image-only-task", error: null });
+      host.respond(request, {
+        branch: "bug/image-only-task",
+        error: null,
+        needsMoreDetail: false,
+      });
     });
 
     await page.setViewportSize({ width: 1200, height: 800 });
@@ -104,6 +108,8 @@ test("desktop image paste participates in preview and submit while text remains 
       `data:image/png;base64,${PNG_B64}`,
     );
     const branch = inbox.getByRole("textbox", { name: "Branch for the new session" });
+    // An image carries no words, so it earns no automatic query; leaving the prompt is what names it.
+    await inbox.getByRole("combobox", { name: "Branch starting point" }).focus();
     await expect(branch).toHaveValue("bug/image-only-task");
     expect(branchPreviews[0]).toMatchObject({
       sourceId: "main",

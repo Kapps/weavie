@@ -1,7 +1,11 @@
 import { createEffect, createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js";
 import { AgentAttachmentStrip } from "../agent/AgentAttachmentStrip";
 import { backendPhase, connectedBackends, requestBranches, selectedSession } from "../bridge";
-import { agentProviders, defaultAgentProvider } from "../chrome/agent-default";
+import {
+  agentProviders,
+  defaultAgentProvider,
+  setDefaultAgentProvider,
+} from "../chrome/agent-default";
 import { ContextMenu, type ContextMenuState } from "../chrome/ContextMenu";
 import type { BranchPreviewState } from "../chrome/new-session-branch-preview";
 import { sessionMenuAt } from "../chrome/session-menu";
@@ -34,7 +38,6 @@ export interface NewSessionSeed {
 export function SessionInbox(props: {
   sessions: RailSession[];
   initialBackendId: string;
-  initialProviderId: string;
   active: boolean;
   compact: boolean;
   onOpen: (session: RailSession) => Promise<boolean>;
@@ -43,7 +46,8 @@ export function SessionInbox(props: {
 }): JSX.Element {
   const [prompt, setPrompt] = createSignal("");
   const [backendId, setBackendId] = createSignal(props.initialBackendId);
-  const [providerId, setProviderId] = createSignal(props.initialProviderId);
+  const [providerId, setProviderId] = createSignal(defaultAgentProvider(props.initialBackendId));
+  const [savingProvider, setSavingProvider] = createSignal(false);
   const [base, setBase] = createSignal<"source" | "main">("source");
   const [existingBranch, setExistingBranch] = createSignal("");
   const [branches, setBranches] = createSignal<string[]>([]);
@@ -63,7 +67,7 @@ export function SessionInbox(props: {
   let promptInput!: HTMLTextAreaElement;
   let wasActive = false;
   let previousBackendId = props.initialBackendId;
-  let previousProviderId = props.initialProviderId;
+  let providerChosen = false;
 
   // Touch chrome has no rail, so the list is where a session is managed. The gesture lives on the list, not on
   // a row: rows are rebuilt on every catalog tick, which would drop a hold in progress. Desktop opts out — the
@@ -90,26 +94,48 @@ export function SessionInbox(props: {
   });
 
   const selectBackend = (id: string): void => {
+    if (id === backendId()) {
+      return;
+    }
+    providerChosen = false;
     setBackendId(id);
     setProviderId(defaultAgentProvider(id));
   };
 
+  const selectProvider = (id: string): void => {
+    const selectedBackend = backendId();
+    providerChosen = true;
+    setProviderId(id);
+    setSavingProvider(true);
+    void setDefaultAgentProvider(selectedBackend, id)
+      .catch((error: unknown) => {
+        if (backendId() === selectedBackend && providerId() === id) {
+          providerChosen = false;
+          setProviderId(defaultAgentProvider(selectedBackend));
+        }
+        notify(
+          "warn",
+          `Couldn't save the agent selection: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      })
+      .finally(() => setSavingProvider(false));
+  };
+
+  createEffect(() => {
+    const savedProvider = defaultAgentProvider(backendId());
+    if (!providerChosen) {
+      setProviderId(savedProvider);
+    }
+  });
+
   createEffect(() => {
     const active = props.active;
     const initialBackendId = props.initialBackendId;
-    const initialProviderId = props.initialProviderId;
-    if (
-      active &&
-      (!wasActive ||
-        initialBackendId !== previousBackendId ||
-        initialProviderId !== previousProviderId)
-    ) {
-      setBackendId(initialBackendId);
-      setProviderId(initialProviderId);
+    if (active && (!wasActive || initialBackendId !== previousBackendId)) {
+      selectBackend(initialBackendId);
     }
     wasActive = active;
     previousBackendId = initialBackendId;
-    previousProviderId = initialProviderId;
   });
 
   createEffect(() => {
@@ -154,19 +180,20 @@ export function SessionInbox(props: {
   const submitNew = async (): Promise<void> => {
     const text = prompt().trim();
     const images = attachments();
-    if (
-      submitting() !== null ||
-      branchPreview().branch.trim().length === 0 ||
-      images.some((attachment) => attachment.status !== "ready")
-    ) {
+    if (submitting() !== null || images.some((attachment) => attachment.status !== "ready")) {
       return;
     }
-    branchActions?.cancel();
     setSubmitting("new");
+    // Starting is the last word on the prompt, so it names the branch now if nothing has landed yet.
+    const branch = (await branchActions?.resolve()) ?? "";
+    if (branch.length === 0) {
+      setSubmitting(null);
+      return;
+    }
     if (
       await props.onCreate(
         {
-          branch: branchPreview().branch.trim(),
+          branch,
           base: base(),
           existing: false,
           prompt: text,
@@ -226,14 +253,24 @@ export function SessionInbox(props: {
     }
   };
 
+  // A name in the field is enough on its own — a session needs no prompt; without one there has to be
+  // something left to name the branch from.
+  const named = (): boolean => {
+    const preview = branchPreview();
+    return (
+      preview.branch.trim().length > 0 ||
+      ((prompt().trim().length > 0 || attachments().length > 0) && preview.status !== "error")
+    );
+  };
+
   const canStart = (): boolean => {
     const images = attachments();
     return (
       submitting() === null &&
+      named() &&
       agentProviders(backendId()).some(
         (provider) => provider.id === providerId() && provider.available,
       ) &&
-      branchPreview().branch.trim().length > 0 &&
       images.every((attachment) => attachment.status === "ready")
     );
   };
@@ -288,7 +325,8 @@ export function SessionInbox(props: {
       <select
         aria-label={providerLabel}
         value={providerId()}
-        onChange={(event) => setProviderId(event.currentTarget.value)}
+        disabled={savingProvider()}
+        onChange={(event) => selectProvider(event.currentTarget.value)}
       >
         <For each={agentProviders(backendId())}>
           {(provider) => (
@@ -340,6 +378,19 @@ export function SessionInbox(props: {
             onSubmit={(event) => {
               event.preventDefault();
               void submitNew();
+            }}
+            // Focus landing elsewhere in the composer means the draft is done; leaving it entirely
+            // (closing Sessions) must not spend a query on a draft nobody submitted, and landing on the
+            // branch field means the user is naming it themselves.
+            onFocusOut={(event) => {
+              const next = event.relatedTarget;
+              if (
+                next instanceof Element &&
+                event.currentTarget.contains(next) &&
+                next.closest(".session-composer-branch") === null
+              ) {
+                branchActions?.flush();
+              }
             }}
           >
             <textarea

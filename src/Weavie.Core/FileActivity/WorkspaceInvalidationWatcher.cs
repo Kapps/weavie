@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Threading.Channels;
 using Weavie.Core.Workspaces;
 
@@ -14,6 +15,7 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 	private readonly WorkspaceInventory _inventory;
 	private readonly Action<IReadOnlyList<FileInvalidation>> _onChanges;
 	private readonly Action<string> _log;
+	private readonly Func<TimeSpan, CancellationToken, Task> _delay;
 	private readonly TimeSpan _debounce;
 	private readonly ConcurrentDictionary<string, FileInvalidationKind> _pending = new(PathComparer);
 	private readonly IWorkspaceDirectoryWatchSet _directoryWatchers;
@@ -49,6 +51,7 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 			onChanges,
 			log,
 			debounceMs,
+			Task.Delay,
 			path => new FileSystemWatcher(path),
 			usePlatformWatcher: true) { }
 
@@ -57,12 +60,14 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 		Action<IReadOnlyList<FileInvalidation>> onChanges,
 		Action<string> log,
 		int debounceMs,
+		Func<TimeSpan, CancellationToken, Task> delay,
 		Func<string, FileSystemWatcher> createWatcher)
 		: this(
 			inventory,
 			onChanges,
 			log,
 			debounceMs,
+			delay,
 			createWatcher,
 			usePlatformWatcher: false) { }
 
@@ -71,11 +76,13 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 		Action<IReadOnlyList<FileInvalidation>> onChanges,
 		Action<string> log,
 		int debounceMs,
+		Func<TimeSpan, CancellationToken, Task> delay,
 		Func<string, FileSystemWatcher> createWatcher,
 		bool usePlatformWatcher) {
 		ArgumentNullException.ThrowIfNull(inventory);
 		ArgumentNullException.ThrowIfNull(onChanges);
 		ArgumentNullException.ThrowIfNull(log);
+		ArgumentNullException.ThrowIfNull(delay);
 		ArgumentNullException.ThrowIfNull(createWatcher);
 		if (debounceMs < 0) {
 			throw new ArgumentOutOfRangeException(nameof(debounceMs));
@@ -84,6 +91,7 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 		_inventory = inventory;
 		_onChanges = onChanges;
 		_log = log;
+		_delay = delay;
 		_debounce = TimeSpan.FromMilliseconds(debounceMs);
 		_directoryWatchers = usePlatformWatcher && OperatingSystem.IsLinux()
 			? new LinuxWorkspaceDirectoryWatchSet(OnCreated, OnChanged, OnDeleted, OnRenamed, OnError)
@@ -109,8 +117,8 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 	public Task Ready => _ready.Task;
 
 	/// <summary>
-	/// Loads the inventory asynchronously, then watches its directories until cancelled or stopped. Every
-	/// refresh is driven by an observed event — an idle workspace costs nothing. Throws when the authoritative
+	/// Loads the inventory asynchronously, then watches its directories until cancelled or stopped. Only an
+	/// event that can change which paths the workspace contains re-enumerates it. Throws when the authoritative
 	/// inventory or platform watcher fails.
 	/// </summary>
 	public async Task RunAsync(CancellationToken ct) {
@@ -136,15 +144,20 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 
 			_inventory.Changed += SignalRefresh;
 			try {
+				var cooldown = Task.CompletedTask;
 				await RefreshAsync(initial: true, runCt).ConfigureAwait(false);
 				_ready.TrySetResult();
 				while (await _refreshSignals.Reader.WaitToReadAsync(runCt).ConfigureAwait(false)) {
-					while (_refreshSignals.Reader.TryRead(out _)) { }
+					// A watcher failure is fatal and reported before the cooldown, which only paces re-enumeration.
 					if (Interlocked.Exchange(ref _watcherFailure, null) is { } failure) {
 						throw new IOException("Workspace file watching failed.", failure);
 					}
 
+					await cooldown.ConfigureAwait(false);
+					while (_refreshSignals.Reader.TryRead(out _)) { }
+					long started = Stopwatch.GetTimestamp();
 					await RefreshAsync(initial: false, runCt).ConfigureAwait(false);
+					cooldown = _delay(CooldownAfter(Stopwatch.GetElapsedTime(started)), runCt);
 				}
 			} finally {
 				_inventory.Changed -= SignalRefresh;
@@ -188,6 +201,9 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 		}
 		_stopping.Dispose();
 	}
+
+	// Spacing re-enumerations by the previous pass keeps a burst (a checkout, an install) under half this loop.
+	private TimeSpan CooldownAfter(TimeSpan lastRefresh) => lastRefresh > _debounce ? lastRefresh : _debounce;
 
 	private async Task RefreshAsync(bool initial, CancellationToken ct) {
 		var snapshot = await _inventory.RefreshAsync(ct).ConfigureAwait(false);

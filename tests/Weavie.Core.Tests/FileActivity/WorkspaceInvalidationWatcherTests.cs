@@ -7,13 +7,15 @@ using Xunit;
 namespace Weavie.Core.Tests;
 
 /// <summary>
-/// Generic workspace observation: reports every inventoried file kind and installs only flat watches from the
-/// authoritative inventory.
+/// Generic workspace observation: reports every inventoried file kind, installs only flat watches from the
+/// authoritative inventory, and re-enumerates that inventory only for events that can change which paths it
+/// contains — an editor autosave writing one tracked file must never re-derive the whole workspace.
 /// </summary>
 public sealed class WorkspaceInvalidationWatcherTests : IDisposable {
 	private readonly string _dir = Path.Combine(Path.GetTempPath(), $"weavie-watch-{Guid.NewGuid():N}");
 	private readonly ConcurrentBag<FileInvalidation> _changes = [];
 	private readonly HashSet<string> _inventoryFiles = new(StringComparer.Ordinal);
+	private int _loads;
 
 	public WorkspaceInvalidationWatcherTests() {
 		Directory.CreateDirectory(_dir);
@@ -22,7 +24,10 @@ public sealed class WorkspaceInvalidationWatcherTests : IDisposable {
 	private async Task<WatcherLease> NewWatcherAsync() {
 		var inventory = new WorkspaceInventory(
 			_dir,
-			_ => Task.FromResult<IReadOnlyList<string>?>([.. _inventoryFiles]));
+			_ => {
+				Interlocked.Increment(ref _loads);
+				return Task.FromResult<IReadOnlyList<string>?>([.. _inventoryFiles]);
+			});
 		var watcher = new WorkspaceInvalidationWatcher(
 			inventory,
 			batch => {
@@ -32,6 +37,7 @@ public sealed class WorkspaceInvalidationWatcherTests : IDisposable {
 			},
 			_ => { },
 			debounceMs: 80,
+			Task.Delay,
 			path => new FileSystemWatcher(path));
 		var run = watcher.RunAsync(CancellationToken.None);
 		await watcher.Ready;
@@ -66,6 +72,102 @@ public sealed class WorkspaceInvalidationWatcherTests : IDisposable {
 	}
 
 	[Fact]
+	public async Task ContentChangeOnATrackedFileDoesNotReEnumerateTheWorkspace() {
+		string path = Path.Combine(_dir, "a.ts");
+		Track("a.ts");
+		await File.WriteAllTextAsync(path, "export const x = 0;\n");
+		await using var watcher = await NewWatcherAsync();
+		int afterStart = Volatile.Read(ref _loads);
+
+		// What an editor autosave does, at the rate typing produces one.
+		for (int i = 1; i <= 5; i++) {
+			await File.WriteAllTextAsync(path, $"export const x = {i};\n");
+			await Task.Delay(120);
+		}
+
+		Assert.True(await WaitForAsync(() => HasChange("a.ts")), "expected a change for a.ts");
+		Assert.Equal(afterStart, Volatile.Read(ref _loads));
+	}
+
+	[Fact]
+	public async Task IgnoreRuleChangeReEnumeratesTheWorkspace() {
+		string path = Path.Combine(_dir, ".gitignore");
+		Track(".gitignore");
+		await File.WriteAllTextAsync(path, "dist/\n");
+		await using var watcher = await NewWatcherAsync();
+		int afterStart = Volatile.Read(ref _loads);
+
+		await File.WriteAllTextAsync(path, "dist/\nbuild/\n");
+
+		Assert.True(
+			await WaitForAsync(() => Volatile.Read(ref _loads) > afterStart),
+			"expected an edited ignore rule to re-enumerate the workspace");
+	}
+
+	[Fact]
+	public async Task FileCreationReEnumeratesTheWorkspace() {
+		Track("a.ts");
+		await using var watcher = await NewWatcherAsync();
+		int afterStart = Volatile.Read(ref _loads);
+
+		Track("created.ts");
+		await File.WriteAllTextAsync(Path.Combine(_dir, "created.ts"), "export {};\n");
+
+		Assert.True(await WaitForAsync(() => HasChange("created.ts")), "expected a change for created.ts");
+		Assert.True(
+			Volatile.Read(ref _loads) > afterStart,
+			"expected a created path to re-enumerate the workspace");
+	}
+
+	[Fact]
+	public async Task ConsecutiveReEnumerationsWaitOutThePreviousPass() {
+		var cooldowns = new ConcurrentQueue<TimeSpan>();
+		var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		int loads = 0;
+		var inventory = new WorkspaceInventory(
+			_dir,
+			async _ => {
+				if (Interlocked.Increment(ref loads) == 2) {
+					await release.Task;
+				}
+
+				return (IReadOnlyList<string>?)[.. _inventoryFiles];
+			});
+		var watcher = new WorkspaceInvalidationWatcher(
+			inventory,
+			_ => { },
+			_ => { },
+			debounceMs: 20,
+			(cooldown, _) => {
+				cooldowns.Enqueue(cooldown);
+				return Task.CompletedTask;
+			},
+			path => new FileSystemWatcher(path));
+		var run = watcher.RunAsync(CancellationToken.None);
+		await watcher.Ready;
+
+		// A creation opens a second pass, held open long enough that only the pass duration — never the
+		// debounce — can explain the cooldown it asks for. The hold is measured rather than assumed: it sits
+		// wholly inside the pass, so the pass is at least that long however the timer rounds.
+		Track("first.ts");
+		await File.WriteAllTextAsync(Path.Combine(_dir, "first.ts"), "export {};\n");
+		Assert.True(await WaitForAsync(() => Volatile.Read(ref loads) >= 2), "expected the creation to start a refresh");
+		long heldFrom = Stopwatch.GetTimestamp();
+		await Task.Delay(200);
+		var held = Stopwatch.GetElapsedTime(heldFrom);
+		release.SetResult();
+
+		Assert.True(await WaitForAsync(() => !cooldowns.IsEmpty), "expected a cooldown after the refresh");
+		Assert.True(cooldowns.TryPeek(out var requested));
+		Assert.True(
+			requested >= held,
+			$"expected the cooldown to cover the {held.TotalMilliseconds}ms pass, got {requested.TotalMilliseconds}ms");
+
+		await watcher.StopAsync();
+		await run;
+	}
+
+	[Fact]
 	public async Task ReportsEveryFileKind() {
 		Track("notes.md");
 		await using var watcher = await NewWatcherAsync();
@@ -87,6 +189,7 @@ public sealed class WorkspaceInvalidationWatcherTests : IDisposable {
 			},
 			_ => { },
 			debounceMs: 20,
+			Task.Delay,
 			path => new FileSystemWatcher(path));
 		var run = watcher.RunAsync(CancellationToken.None);
 		await watcher.Ready;
@@ -139,6 +242,7 @@ public sealed class WorkspaceInvalidationWatcherTests : IDisposable {
 			_ => { },
 			_ => { },
 			debounceMs: 1,
+			Task.Delay,
 			path => {
 				paths.Add(path);
 				var created = new FileSystemWatcher(path);
@@ -172,6 +276,7 @@ public sealed class WorkspaceInvalidationWatcherTests : IDisposable {
 			_ => { },
 			_ => { },
 			debounceMs: 1,
+			Task.Delay,
 			path => {
 				watched.Add(path);
 				return new FileSystemWatcher(path);
@@ -203,6 +308,7 @@ public sealed class WorkspaceInvalidationWatcherTests : IDisposable {
 			},
 			_ => { },
 			debounceMs: 20,
+			Task.Delay,
 			path => {
 				watched.Add(path);
 				return new FileSystemWatcher(path);
@@ -237,6 +343,7 @@ public sealed class WorkspaceInvalidationWatcherTests : IDisposable {
 			},
 			_ => { },
 			debounceMs: 20,
+			Task.Delay,
 			path => {
 				watched.Add(path);
 				return new FileSystemWatcher(path);
@@ -274,6 +381,7 @@ public sealed class WorkspaceInvalidationWatcherTests : IDisposable {
 			},
 			_ => { },
 			debounceMs: 20,
+			Task.Delay,
 			path => new FileSystemWatcher(path));
 		var run = watcher.RunAsync(CancellationToken.None);
 		await watcher.Ready;
@@ -311,6 +419,7 @@ public sealed class WorkspaceInvalidationWatcherTests : IDisposable {
 			_ => { },
 			_ => { },
 			debounceMs: 1,
+			Task.Delay,
 			path => new FileSystemWatcher(path));
 		var run = watcher.RunAsync(CancellationToken.None);
 		await started.Task;
@@ -332,6 +441,7 @@ public sealed class WorkspaceInvalidationWatcherTests : IDisposable {
 			},
 			_ => { },
 			debounceMs: 30_000,
+			Task.Delay,
 			path => new FileSystemWatcher(path));
 		watcher.Record(Path.Combine(_dir, "pending.md"), FileInvalidationKind.Changed);
 
@@ -352,6 +462,7 @@ public sealed class WorkspaceInvalidationWatcherTests : IDisposable {
 			},
 			_ => { },
 			debounceMs: 1,
+			Task.Delay,
 			path => new FileSystemWatcher(path));
 		var run = watcher.RunAsync(CancellationToken.None);
 		await watcher.Ready;

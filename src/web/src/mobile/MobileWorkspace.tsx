@@ -16,7 +16,6 @@ export function MobileWorkspace(props: {
   inboxActive: boolean;
   sessions: RailSession[];
   initialBackendId: string;
-  initialProviderId: string;
   onOpen: (session: RailSession) => Promise<boolean>;
   onCreate: (seed: NewSessionSeed, backendId: string, providerId: string) => Promise<boolean>;
   onManageAcp: (backendId: string) => void;
@@ -43,7 +42,6 @@ export function MobileWorkspace(props: {
           compact={props.compact}
           sessions={props.sessions}
           initialBackendId={props.initialBackendId}
-          initialProviderId={props.initialProviderId}
           onOpen={props.onOpen}
           onCreate={props.onCreate}
           onManageAcp={props.onManageAcp}

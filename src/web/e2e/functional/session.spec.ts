@@ -3,6 +3,7 @@ import { join } from "node:path";
 import {
   activeSessionSlot,
   createSession,
+  openFile,
   runCommand,
   waitForSessionSwitch,
 } from "../harness/actions";
@@ -236,4 +237,34 @@ test("keyboard session cycling steps one chip per press in both directions", asy
     index = (index + delta + slots.length) % slots.length;
     await expectActive(slots[index] as string);
   }
+});
+
+// Ctrl+Tab is the editor's "next file" while the editor holds focus, and session cycling everywhere else.
+// With one file open the editor has no tab to step to, so the press has to reach cycling instead of dying
+// between the two — the dead key that made switching sessions take a second press.
+test("Ctrl+Tab reaches session cycling when the focused editor has no other tab", async ({
+  page,
+}) => {
+  await createSession(page, { branch: "e2e/editor-chord", provider: "claude" });
+  await expect(page.locator(".session-chip")).toHaveCount(2);
+  const editor = page.locator('.editor-surface[data-kind="editor"]');
+  await openFile(page, "hello.ts");
+  await page.locator(".monaco-editor .view-lines").click();
+  await expect(editor).toHaveClass(/\bactive\b/);
+  await expect(page.locator(".editor-tab")).toHaveCount(1);
+
+  const before = await activeSessionSlot(page);
+  await page.keyboard.press("Control+Tab");
+  await waitForSessionSwitch(page, before);
+
+  // A second file gives the editor somewhere to go, so the chord is its own again: the file changes and the
+  // session doesn't.
+  await openFile(page, "hello.ts");
+  await openFile(page, "notes.txt");
+  await page.locator(".monaco-editor .view-lines").click();
+  await expect(editor).toHaveClass(/\bactive\b/);
+  const session = await activeSessionSlot(page);
+  await page.keyboard.press("Control+Tab");
+  await expect(page.locator(".editor-tab.active .editor-tab-label")).toHaveText("hello.ts");
+  expect(await activeSessionSlot(page)).toBe(session);
 });

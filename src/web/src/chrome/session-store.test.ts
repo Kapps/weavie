@@ -1,4 +1,4 @@
-import { createRoot, createSignal } from "solid-js";
+import { createSignal } from "solid-js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ClientSession, HostConnection } from "../bridge";
 import type { SessionCatalogEntry } from "../messaging/host-connection";
@@ -7,9 +7,9 @@ import type { RailSession } from "./session-store";
 vi.mock("solid-js", () => import(["solid-js", "dist/solid.js"].join("/")));
 
 // NOTE: the store's working-set views (`sessions`, `railSessions`, `remoteAgentRows`) are module-scope Solid
-// memos. Outside a render root they never track their sources, so they can't be exercised in this pure-node
-// env — that reactive behaviour is covered by the Playwright e2e suite (e2e/functional/session.spec.ts).
-// `claudeStatus` is a plain signal, so its host-sync gating IS unit-testable here.
+// memos, exercised here by delivering catalogs and reading them back. What this env can't reach is the app's
+// side of a switch (focus, panes, the host round-trip) — that lives in the Playwright suite
+// (e2e/functional/session.spec.ts).
 
 const harness = vi.hoisted(() => ({
   hostInstallers: [] as Array<(connection: HostConnection) => undefined | (() => void)>,
@@ -241,12 +241,15 @@ describe("stepRailTarget", () => {
     expect(store.stepRailTarget(list, -1)?.id).toBe("c");
   });
 
-  // The double-press: with the highlight off the cycle list (a switch to a dormant chip mid-flight), recovering
-  // to the near end handed back the session already on screen, so the first Ctrl+Tab only repaired the highlight.
-  it("skips the session already on screen when recovering", () => {
+  // The double-press: with the highlight off the cycle list (a switch to a dormant chip mid-flight), the step
+  // used to start at the near end — handing back the session already on screen, or stepping away from it
+  // backwards. It starts at the session on screen instead, so every press moves one chip the way it was asked.
+  it("steps from the session on screen when no chip is highlighted", () => {
     const onScreen = { ...chip("main", false), owner: session("local", "main").client };
     expect(store.stepRailTarget([onScreen, chip("b", false), chip("c", false)], 1)?.id).toBe("b");
-    expect(store.stepRailTarget([chip("b", false), chip("c", false), onScreen], -1)?.id).toBe("c");
+    expect(store.stepRailTarget([chip("b", false), onScreen, chip("c", false)], 1)?.id).toBe("c");
+    expect(store.stepRailTarget([chip("b", false), onScreen, chip("c", false)], -1)?.id).toBe("b");
+    expect(store.stepRailTarget([chip("b", false), chip("c", false), onScreen], 1)?.id).toBe("b");
     expect(store.stepRailTarget([onScreen], 1)).toBeNull();
     expect(store.stepRailTarget([onScreen], -1)).toBeNull();
   });
@@ -254,18 +257,15 @@ describe("stepRailTarget", () => {
 
 describe("beginSessionSelection", () => {
   it("drops the optimistic highlight when its switch settles, leaving a newer one alone", () => {
-    createRoot((dispose) => {
-      deliverCatalog("local", ["main", "second", "third"]);
-      const endSecond = store.beginSessionSelection("local", "second");
-      expect(store.railSessions().find((s) => s.active)?.id).toBe("second");
+    deliverCatalog("local", ["main", "second", "third"]);
+    const endSecond = store.beginSessionSelection("local", "second");
+    expect(store.railSessions().find((s) => s.active)?.id).toBe("second");
 
-      const endThird = store.beginSessionSelection("local", "third");
-      endSecond();
-      expect(store.railSessions().find((s) => s.active)?.id).toBe("third");
+    const endThird = store.beginSessionSelection("local", "third");
+    endSecond();
+    expect(store.railSessions().find((s) => s.active)?.id).toBe("third");
 
-      endThird();
-      expect(store.railSessions().find((s) => s.active)?.id).toBe("main");
-      dispose();
-    });
+    endThird();
+    expect(store.railSessions().find((s) => s.active)?.id).toBe("main");
   });
 });

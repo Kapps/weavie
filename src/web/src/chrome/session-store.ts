@@ -235,17 +235,20 @@ export const railSessions = createMemo<RailSession[]>(() => {
 
 /**
  * The rail chip a next/prev step over `list` (LOADED chips only) should land on for `delta` (±1, wrapping), or
- * null when there's nothing to move to. With no active chip — e.g. deleting the focused session leaves the page
- * bound to a backend with no docked chip, or a switch to a dormant one is mid-flight — cycling recovers to the
- * near end (first for next, last for prev), skipping the session already on screen so a step is never a no-op.
+ * null when there's nothing to move to. A step originates at the highlighted chip, else at the session on
+ * screen — so a switch still in flight to a chip off this list (a dormant one loading) can't make the step a
+ * no-op or send it backwards. With neither here — deleting the focused session leaves the page bound to a
+ * backend with no docked chip — it recovers to the near end (first for next, last for prev).
  */
 export function stepRailTarget(list: RailSession[], delta: number): RailSession | null {
-  const current = list.findIndex((s) => s.active);
-  if (current >= 0) {
-    return list.length < 2 ? null : (list[(current + delta + list.length) % list.length] ?? null);
-  }
   const onScreen = selectedSession();
-  return (delta < 0 ? [...list].reverse() : list).find((s) => s.owner !== onScreen) ?? null;
+  const active = list.findIndex((s) => s.active);
+  const from =
+    active >= 0 || onScreen === null ? active : list.findIndex((s) => s.owner === onScreen);
+  if (from >= 0) {
+    return list.length < 2 ? null : (list[(from + delta + list.length) % list.length] ?? null);
+  }
+  return (delta < 0 ? list[list.length - 1] : list[0]) ?? null;
 }
 
 /** Every registered remote agent and its sessions, for the cloud panel (connected first, offline faded). */

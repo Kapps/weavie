@@ -32,6 +32,20 @@ public sealed record WorktreeChangeStatus(
 /// <param name="Removed">Lines removed relative to HEAD.</param>
 public sealed record GitDiffLineCounts(int Added, int Removed);
 
+/// <summary>The commit identity Git is configured to author with in a repository.</summary>
+/// <param name="Name">The configured <c>user.name</c>, or an empty string when unset.</param>
+/// <param name="Email">The configured <c>user.email</c>, or an empty string when unset.</param>
+public sealed record GitIdentity(string Name, string Email);
+
+/// <summary>
+/// Recent local branches seen from the configured identity's perspective, so branch-naming conventions can be
+/// learned from the user's own history rather than the whole team's.
+/// </summary>
+/// <param name="Author">Who Git commits as in this repository.</param>
+/// <param name="Mine">Branches whose tip commit <paramref name="Author"/> wrote, newest first.</param>
+/// <param name="Others">The remaining branches, newest first.</param>
+public sealed record RecentBranches(GitIdentity Author, IReadOnlyList<string> Mine, IReadOnlyList<string> Others);
+
 /// <summary>The branch and dirty state reported by one porcelain-v2 Git status probe.</summary>
 /// <param name="Branch">The checked-out branch, or null when HEAD is detached.</param>
 /// <param name="Dirty">Whether Git reports any tracked or untracked worktree change.</param>
@@ -62,9 +76,10 @@ public interface IGitService {
 	Task<IReadOnlyList<string>> ListBranchesAsync(string directory, CancellationToken ct = default);
 
 	/// <summary>
-	/// Up to <paramref name="limit"/> local branch names ordered by their tip's committer date, newest first.
+	/// Up to <paramref name="limit"/> branch names per group — local and remote-tracking, each name once — ordered
+	/// by their tip's committer date and split by whether the configured identity authored that tip.
 	/// </summary>
-	Task<IReadOnlyList<string>> ListRecentBranchesAsync(string directory, int limit, CancellationToken ct = default);
+	Task<RecentBranches> ListRecentBranchesAsync(string directory, int limit, CancellationToken ct = default);
 
 	/// <summary>
 	/// Every ref a diff can name — local branches then remote-tracking branches (e.g. <c>main</c>,

@@ -161,7 +161,9 @@ its own, and neither does an opening clause like “there's a bug where”. Leav
 asked about yet, so submission never races the idle window. When “Current session” is selected, the request carries
 that exact slot; “Main branch” needs no live session.
 The host sends the text prompt, up to four exact validated images totaling at most 20 MB, the source checkout's
-current branch, and up to twenty local branches ordered by tip committer date. An image-only draft is valid input.
+current branch, the repository's configured commit identity, and up to twenty branches per group ordered by tip
+committer date — local and remote-tracking, each name once, split into the ones that identity authored and the rest.
+An image-only draft is valid input.
 The owner is the source workspace and the provider already selected in the composer — the branch is named before
 its session exists — and only `Utility` is permitted. An over-budget draft takes the same visible failure path as a
 provider rejection.
@@ -202,9 +204,16 @@ answer arrives. It is not a hidden agent loop and never mutates the workspace.
 
 The proving slice resolves a repository-specific convention that deterministic slugification cannot infer. Once a
 session's text is long enough to describe a task and has gone idle, Weavie asks the selected provider for a branch
-name using that input, the current branch, and twenty most recent local branches. This lets examples such as
+name using that input, the current branch, and the most recent local branches. This lets examples such as
 `kapps/fix-webm` and `bug/webm-fails-to-load` emerge from each repository's own history without teaching Weavie a
 global prefix convention.
+
+The user's own conventions lead: branches whose tip commit the configured `user.email` authored are presented as
+theirs, and a repository where everyone else's branches dominate cannot drown them out — other authors' branches are
+read only when the user has none. Remote-tracking refs count, minus the remote they live on, so a fresh clone still
+sees the user's own history. The configured name and email travel with them, so a convention that carries a
+per-author segment gets the requesting user's own segment rather than a copy of whoever committed last. Weavie never
+composes a prefix itself; an author segment appears only when the examples already show one.
 
 The suggestion populates the editable branch field before session creation. One draft costs one query — never a
 query per keystroke, per pause, or per discarded partial prompt — and creation waits for that query only when it has

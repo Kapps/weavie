@@ -31,6 +31,39 @@ public sealed class GitServiceTests {
 		Assert.Empty(GitService.ParsePorcelainList(string.Empty));
 
 	[Fact]
+	public void ParseRecentBranches_SplitsTheConfiguredAuthorsBranchesFromTheRest() {
+		string sample = "refs/heads/kapps/fix-webm\t<me@weavie.dev>\n"
+			+ "refs/heads/team/inbox\t<other@example.com>\n"
+			+ "refs/heads/main\t<ME@weavie.dev>\n";
+
+		var recent = GitService.ParseRecentBranches(sample, new GitIdentity("Me", "me@weavie.dev"), 20);
+
+		Assert.Equal(["kapps/fix-webm", "main"], recent.Mine);
+		Assert.Equal(["team/inbox"], recent.Others);
+	}
+
+	[Fact]
+	public void ParseRecentBranches_DropsTheRemoteFromTrackingRefsAndNamesEachBranchOnce() {
+		string sample = "refs/remotes/origin/HEAD\t<other@example.com>\n"
+			+ "refs/remotes/origin/kapps/fix-webm\t<me@weavie.dev>\n"
+			+ "refs/heads/kapps/fix-webm\t<me@weavie.dev>\n"
+			+ "refs/remotes/upstream/team/inbox\t<other@example.com>\n";
+
+		var recent = GitService.ParseRecentBranches(sample, new GitIdentity("Me", "me@weavie.dev"), 20);
+
+		Assert.Equal(["kapps/fix-webm"], recent.Mine);
+		Assert.Equal(["team/inbox"], recent.Others);
+	}
+
+	[Fact]
+	public void ParseRecentBranches_UnsetIdentityOwnsNothingAndTheLimitAppliesPerGroup() {
+		string sample = "refs/heads/a\t<me@weavie.dev>\nrefs/heads/b\t<me@weavie.dev>\nrefs/heads/c\t<other@example.com>\n";
+
+		Assert.Empty(GitService.ParseRecentBranches(sample, new GitIdentity("", ""), 20).Mine);
+		Assert.Equal(["a"], GitService.ParseRecentBranches(sample, new GitIdentity("Me", "me@weavie.dev"), 1).Mine);
+	}
+
+	[Fact]
 	public void ParseNumstat_ParsesCountsAndPaths_BinaryAsZero() {
 		string sample = "12\t3\tsrc/a.ts\n0\t7\tdocs/b.md\n-\t-\timg/logo.png\n";
 

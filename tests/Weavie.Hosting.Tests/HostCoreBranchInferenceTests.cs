@@ -38,6 +38,46 @@ public sealed class HostCoreBranchInferenceTests {
 	}
 
 	[Fact]
+	public async Task Preview_SeparatesTheUsersOwnBranchesFromOtherAuthors() {
+		var inference = new BranchInferenceStub(new InferenceSuccess<BranchNameInferenceOutput> {
+			Value = new BranchNameInferenceOutput { Branch = "kapps/webm-fails-to-load", NeedsMoreDetail = false },
+			Receipt = Receipt(),
+		});
+		await using var host = await TestHost.StartAsync(repo => {
+			TestHost.RunGit(repo, "checkout", "--quiet", "-b", "teammate/inbox-polish");
+			TestHost.RunGit(repo, "-c", "user.email=teammate@example.com", "-c", "user.name=Teammate",
+				"commit", "--quiet", "--allow-empty", "-m", "theirs");
+			TestHost.RunGit(repo, "checkout", "--quiet", "-b", "kapps/prior-fix", "main");
+			TestHost.RunGit(repo, "commit", "--quiet", "--allow-empty", "-m", "mine");
+			TestHost.RunGit(repo, "checkout", "--quiet", "main");
+		}, _ => inference);
+
+		var result = await PreviewAsync(host, "WebM files fail to load", "claude");
+
+		Assert.Equal("kapps/webm-fails-to-load", result.Branch);
+		Assert.Contains(
+			$"\"authorName\":\"{TestHost.TestAuthorName}\"",
+			inference.Prompt,
+			StringComparison.Ordinal);
+		Assert.Contains(
+			$"\"authorEmail\":\"{TestHost.TestAuthorEmail}\"",
+			inference.Prompt,
+			StringComparison.Ordinal);
+		string mine = ArrayField(inference.Prompt!, "myRecentBranches");
+		Assert.Contains("kapps/prior-fix", mine, StringComparison.Ordinal);
+		Assert.Contains("main", mine, StringComparison.Ordinal);
+		Assert.DoesNotContain("teammate/inbox-polish", mine, StringComparison.Ordinal);
+		Assert.Equal("[\"teammate/inbox-polish\"]", ArrayField(inference.Prompt!, "otherRecentBranches"));
+	}
+
+	private static string ArrayField(string prompt, string field) {
+		int start = prompt.IndexOf($"\"{field}\":[", StringComparison.Ordinal);
+		Assert.InRange(start, 0, prompt.Length);
+		start += field.Length + 3;
+		return prompt[start..(prompt.IndexOf(']', start) + 1)];
+	}
+
+	[Fact]
 	public async Task ImageOnlyPreview_PassesTheExactDecodedImageToInference() {
 		var inference = new BranchInferenceStub(new InferenceSuccess<BranchNameInferenceOutput> {
 			Value = new BranchNameInferenceOutput { Branch = "bug/screenshot-layout", NeedsMoreDetail = false },

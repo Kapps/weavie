@@ -29,10 +29,14 @@ public sealed partial class HostCore {
 		BranchNameInferenceInput input;
 		try {
 			taken = await TakenBranchNamesAsync(ct).ConfigureAwait(false);
+			var recent = await git.ListRecentBranchesAsync(sourceRoot, 20, ct).ConfigureAwait(false);
 			input = new BranchNameInferenceInput {
 				Prompt = initialInput.Text,
 				CurrentBranch = await git.GetCurrentBranchAsync(sourceRoot, ct).ConfigureAwait(false) ?? string.Empty,
-				RecentBranches = await git.ListRecentBranchesAsync(sourceRoot, 20, ct).ConfigureAwait(false),
+				AuthorName = recent.Author.Name,
+				AuthorEmail = recent.Author.Email,
+				MyRecentBranches = recent.Mine,
+				OtherRecentBranches = recent.Others,
 			};
 		} catch (GitException ex) {
 			return BranchPreviewResult.Failed($"Couldn't read repository branch information: {ex.Message}");

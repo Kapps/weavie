@@ -507,7 +507,7 @@ public sealed class WorktreeManagerTests {
 			Task.FromResult<IReadOnlyList<string>>([.. Branches]);
 
 		public Task<RecentBranches> ListRecentBranchesAsync(string directory, int limit, CancellationToken ct = default) =>
-			Task.FromResult(new RecentBranches(new GitIdentity("Fake", "fake@weavie.dev"), [.. Branches.Take(limit)], []));
+			Task.FromResult(new RecentBranches("fake@weavie.dev", [.. Branches.Take(limit)], []));
 
 		public Task<IReadOnlyList<string>> ListRefsAsync(string directory, CancellationToken ct = default) =>
 			Task.FromResult<IReadOnlyList<string>>([.. Branches]);

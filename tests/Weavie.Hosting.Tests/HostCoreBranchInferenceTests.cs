@@ -38,7 +38,7 @@ public sealed class HostCoreBranchInferenceTests {
 	}
 
 	[Fact]
-	public async Task Preview_SeparatesTheUsersOwnBranchesFromOtherAuthors() {
+	public async Task Preview_LearnsFromTheUsersOwnBranchesInsteadOfOtherAuthors() {
 		var inference = new BranchInferenceStub(new InferenceSuccess<BranchNameInferenceOutput> {
 			Value = new BranchNameInferenceOutput { Branch = "kapps/webm-fails-to-load", NeedsMoreDetail = false },
 			Receipt = Receipt(),
@@ -55,26 +55,33 @@ public sealed class HostCoreBranchInferenceTests {
 		var result = await PreviewAsync(host, "WebM files fail to load", "claude");
 
 		Assert.Equal("kapps/webm-fails-to-load", result.Branch);
-		Assert.Contains(
-			$"\"authorName\":\"{TestHost.TestAuthorName}\"",
-			inference.Prompt,
-			StringComparison.Ordinal);
-		Assert.Contains(
-			$"\"authorEmail\":\"{TestHost.TestAuthorEmail}\"",
-			inference.Prompt,
-			StringComparison.Ordinal);
-		string mine = ArrayField(inference.Prompt!, "myRecentBranches");
-		Assert.Contains("kapps/prior-fix", mine, StringComparison.Ordinal);
-		Assert.Contains("main", mine, StringComparison.Ordinal);
-		Assert.DoesNotContain("teammate/inbox-polish", mine, StringComparison.Ordinal);
-		Assert.Equal("[\"teammate/inbox-polish\"]", ArrayField(inference.Prompt!, "otherRecentBranches"));
+		var input = InputJson(inference.Prompt!);
+		Assert.Equal(TestHost.TestAuthorEmail, input.GetProperty("authorEmail").GetString());
+		string[] mine = Branches(input, "myRecentBranches");
+		Assert.Contains("kapps/prior-fix", mine);
+		Assert.Contains("main", mine);
+		Assert.DoesNotContain("teammate/inbox-polish", mine);
+		Assert.Empty(Branches(input, "otherRecentBranches"));
 	}
 
-	private static string ArrayField(string prompt, string field) {
-		int start = prompt.IndexOf($"\"{field}\":[", StringComparison.Ordinal);
-		Assert.InRange(start, 0, prompt.Length);
-		start += field.Length + 3;
-		return prompt[start..(prompt.IndexOf(']', start) + 1)];
+	[Fact]
+	public async Task Preview_ReadsOtherAuthorsBranchesOnlyWhenTheUserHasNone() {
+		var inference = new BranchInferenceStub(new InferenceSuccess<BranchNameInferenceOutput> {
+			Value = new BranchNameInferenceOutput { Branch = "newcomer/webm-fails", NeedsMoreDetail = false },
+			Receipt = Receipt(),
+		});
+		await using var host = await TestHost.StartAsync(repo => {
+			TestHost.RunGit(repo, "branch", "teammate/inbox-polish");
+			TestHost.RunGit(repo, "config", "user.email", "newcomer@example.com");
+		}, _ => inference);
+
+		var result = await PreviewAsync(host, "WebM files fail to load", "claude");
+
+		Assert.Equal("newcomer/webm-fails", result.Branch);
+		var input = InputJson(inference.Prompt!);
+		Assert.Equal("newcomer@example.com", input.GetProperty("authorEmail").GetString());
+		Assert.Empty(Branches(input, "myRecentBranches"));
+		Assert.Contains("teammate/inbox-polish", Branches(input, "otherRecentBranches"));
 	}
 
 	[Fact]
@@ -292,6 +299,16 @@ public sealed class HostCoreBranchInferenceTests {
 
 		Assert.Null(host.Core.SessionForTest("fix-webm"));
 	}
+
+	private static JsonElement InputJson(string prompt) {
+		const string marker = "Input JSON:\n";
+		int start = prompt.IndexOf(marker, StringComparison.Ordinal);
+		Assert.InRange(start, 0, prompt.Length);
+		return JsonDocument.Parse(prompt[(start + marker.Length)..]).RootElement.Clone();
+	}
+
+	private static string[] Branches(JsonElement input, string field) =>
+		[.. input.GetProperty(field).EnumerateArray().Select(branch => branch.GetString()!)];
 
 	private static Task<BranchPreview> PreviewAsync(TestHost host, string prompt, string agentProviderId) =>
 		PreviewWithAttachmentsAsync(host, prompt, agentProviderId, []);

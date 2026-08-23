@@ -12,16 +12,13 @@ public sealed record BranchNameInferenceInput {
 	/// <summary>The branch checked out in the session that requested the new worktree, or an empty string.</summary>
 	public required string CurrentBranch { get; init; }
 
-	/// <summary>The requesting user's configured Git name, or an empty string when unset.</summary>
-	public required string AuthorName { get; init; }
-
 	/// <summary>The requesting user's configured Git email, or an empty string when unset.</summary>
 	public required string AuthorEmail { get; init; }
 
 	/// <summary>Up to twenty of the user's own branch names, newest commit first.</summary>
 	public required IReadOnlyList<string> MyRecentBranches { get; init; }
 
-	/// <summary>Up to twenty branch names written by other authors, newest commit first.</summary>
+	/// <summary>Up to twenty branch names written by other authors, empty unless the user has none of their own.</summary>
 	public required IReadOnlyList<string> OtherRecentBranches { get; init; }
 }
 
@@ -39,12 +36,11 @@ public static class BranchNameInference {
 	private const int MaxImages = 4;
 	private const string Instructions = "Infer the repository's branch-naming convention from the supplied branch "
 		+ "names and propose one complete branch name for the task described by the text and attached images. "
-		+ "myRecentBranches are the requesting user's own branches: follow the convention they show, and read "
-		+ "otherRecentBranches only when the user has none. When the convention puts an author segment in the name, "
-		+ "write the requesting user's own identity there rather than copying another author's. Do not invent a "
-		+ "ticket, username, team, or prefix unsupported by the examples. When the input names no specific task — "
-		+ "too short, too vague, or an unfinished thought — set needsMoreDetail and leave branch empty rather than "
-		+ "guessing.";
+		+ "myRecentBranches are the requesting user's own branches; otherRecentBranches is populated only when the "
+		+ "user has none. Where the examples put an author segment in the name, that segment is the requesting "
+		+ "user's own: write the local part of authorEmail rather than copying another author's. Do not invent a "
+		+ "ticket, team, or prefix the examples don't show. When the input names no specific task — too short, too "
+		+ "vague, or an unfinished thought — set needsMoreDetail and leave branch empty rather than guessing.";
 
 	/// <summary>The resource policy for an automatic branch-name query.</summary>
 	public static InferenceQueryOptions QueryOptions { get; } = new() {

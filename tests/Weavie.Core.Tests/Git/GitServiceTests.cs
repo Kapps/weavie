@@ -36,7 +36,7 @@ public sealed class GitServiceTests {
 			+ "refs/heads/team/inbox\t<other@example.com>\n"
 			+ "refs/heads/main\t<ME@weavie.dev>\n";
 
-		var recent = GitService.ParseRecentBranches(sample, new GitIdentity("Me", "me@weavie.dev"), 20);
+		var recent = GitService.ParseRecentBranches(sample, "me@weavie.dev", 20);
 
 		Assert.Equal(["kapps/fix-webm", "main"], recent.Mine);
 		Assert.Equal(["team/inbox"], recent.Others);
@@ -49,7 +49,7 @@ public sealed class GitServiceTests {
 			+ "refs/heads/kapps/fix-webm\t<me@weavie.dev>\n"
 			+ "refs/remotes/upstream/team/inbox\t<other@example.com>\n";
 
-		var recent = GitService.ParseRecentBranches(sample, new GitIdentity("Me", "me@weavie.dev"), 20);
+		var recent = GitService.ParseRecentBranches(sample, "me@weavie.dev", 20);
 
 		Assert.Equal(["kapps/fix-webm"], recent.Mine);
 		Assert.Equal(["team/inbox"], recent.Others);
@@ -59,8 +59,8 @@ public sealed class GitServiceTests {
 	public void ParseRecentBranches_UnsetIdentityOwnsNothingAndTheLimitAppliesPerGroup() {
 		string sample = "refs/heads/a\t<me@weavie.dev>\nrefs/heads/b\t<me@weavie.dev>\nrefs/heads/c\t<other@example.com>\n";
 
-		Assert.Empty(GitService.ParseRecentBranches(sample, new GitIdentity("", ""), 20).Mine);
-		Assert.Equal(["a"], GitService.ParseRecentBranches(sample, new GitIdentity("Me", "me@weavie.dev"), 1).Mine);
+		Assert.Empty(GitService.ParseRecentBranches(sample, string.Empty, 20).Mine);
+		Assert.Equal(["a"], GitService.ParseRecentBranches(sample, "me@weavie.dev", 1).Mine);
 	}
 
 	[Fact]

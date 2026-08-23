@@ -32,19 +32,14 @@ public sealed record WorktreeChangeStatus(
 /// <param name="Removed">Lines removed relative to HEAD.</param>
 public sealed record GitDiffLineCounts(int Added, int Removed);
 
-/// <summary>The commit identity Git is configured to author with in a repository.</summary>
-/// <param name="Name">The configured <c>user.name</c>, or an empty string when unset.</param>
-/// <param name="Email">The configured <c>user.email</c>, or an empty string when unset.</param>
-public sealed record GitIdentity(string Name, string Email);
-
 /// <summary>
-/// Recent local branches seen from the configured identity's perspective, so branch-naming conventions can be
-/// learned from the user's own history rather than the whole team's.
+/// Recent branches seen from the configured author's perspective, so branch-naming conventions can be learned from
+/// the user's own history rather than the whole team's.
 /// </summary>
-/// <param name="Author">Who Git commits as in this repository.</param>
-/// <param name="Mine">Branches whose tip commit <paramref name="Author"/> wrote, newest first.</param>
+/// <param name="AuthorEmail">The repository's configured <c>user.email</c>, or an empty string when unset.</param>
+/// <param name="Mine">Branches whose tip commit <paramref name="AuthorEmail"/> wrote, newest first.</param>
 /// <param name="Others">The remaining branches, newest first.</param>
-public sealed record RecentBranches(GitIdentity Author, IReadOnlyList<string> Mine, IReadOnlyList<string> Others);
+public sealed record RecentBranches(string AuthorEmail, IReadOnlyList<string> Mine, IReadOnlyList<string> Others);
 
 /// <summary>The branch and dirty state reported by one porcelain-v2 Git status probe.</summary>
 /// <param name="Branch">The checked-out branch, or null when HEAD is detached.</param>

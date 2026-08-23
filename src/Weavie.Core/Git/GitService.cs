@@ -64,7 +64,7 @@ public sealed partial class GitService : IGitService {
 		CancellationToken ct = default) {
 		ArgumentException.ThrowIfNullOrEmpty(directory);
 		ArgumentOutOfRangeException.ThrowIfNegativeOrZero(limit);
-		var author = await GetIdentityAsync(directory, ct).ConfigureAwait(false);
+		string authorEmail = await GetAuthorEmailAsync(directory, ct).ConfigureAwait(false);
 		var result = await RunCheckedAsync(directory, [
 			"for-each-ref",
 			"--sort=-committerdate",
@@ -72,28 +72,29 @@ public sealed partial class GitService : IGitService {
 			"refs/heads",
 			"refs/remotes",
 		], ct).ConfigureAwait(false);
-		return ParseRecentBranches(result.StdOut, author, limit);
+		return ParseRecentBranches(result.StdOut, authorEmail, limit);
 	}
 
 	/// <summary>
-	/// Splits <c>%(refname)%09%(authoremail)</c> lines into the branches <paramref name="author"/> wrote and the
-	/// rest, keeping up to <paramref name="limit"/> of each in the order git listed them.
+	/// Splits <c>%(refname)%09%(authoremail)</c> lines into the branches <paramref name="authorEmail"/> wrote and
+	/// the rest, keeping up to <paramref name="limit"/> of each in the order git listed them. A remote-tracking ref
+	/// teaches the same convention as a local one, so it contributes its branch name without the remote.
 	/// </summary>
-	public static RecentBranches ParseRecentBranches(string refLines, GitIdentity author, int limit) {
+	public static RecentBranches ParseRecentBranches(string refLines, string authorEmail, int limit) {
 		List<string> mine = [];
 		List<string> others = [];
 		var seen = new HashSet<string>(StringComparer.Ordinal);
 		foreach (string line in refLines.Replace("\r", "", StringComparison.Ordinal)
 			.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)) {
 			int tab = line.IndexOf('\t', StringComparison.Ordinal);
-			if (tab < 0 || !TryBranchName(line[..tab], out string branch) || !seen.Add(branch)) {
+			if (tab < 0 || !TryParseRef(line[..tab], out _, out string branch) || !seen.Add(branch)) {
 				continue;
 			}
 
 			// The tip commit's author is the only per-branch identity one for-each-ref pass exposes, so a branch
 			// forked but never committed on reads as its base commit's author.
 			string email = line[(tab + 1)..].Trim('<', '>');
-			var group = author.Email.Length > 0 && email.Equals(author.Email, StringComparison.OrdinalIgnoreCase)
+			var group = authorEmail.Length > 0 && email.Equals(authorEmail, StringComparison.OrdinalIgnoreCase)
 				? mine
 				: others;
 			if (group.Count < limit) {
@@ -101,18 +102,19 @@ public sealed partial class GitService : IGitService {
 			}
 		}
 
-		return new RecentBranches(author, mine, others);
+		return new RecentBranches(authorEmail, mine, others);
 	}
 
-	// A remote-tracking ref teaches the same convention as a local one, so it contributes its branch name without
-	// the remote it lives on; a remote's symbolic HEAD is an alias rather than a branch.
-	private static bool TryBranchName(string refName, out string branch) {
+	// refs/heads/x → ("", "x"); refs/remotes/origin/x → ("origin", "x"). A remote's symbolic HEAD is an alias rather
+	// than a branch; a real branch ending in HEAD (origin/feature/HEAD) keeps its deeper path and stays.
+	private static bool TryParseRef(string refName, out string remote, out string branch) {
+		remote = string.Empty;
+		branch = string.Empty;
 		if (refName.StartsWith(HeadsPrefix, StringComparison.Ordinal)) {
 			branch = refName[HeadsPrefix.Length..];
 			return branch.Length > 0;
 		}
 
-		branch = string.Empty;
 		if (!refName.StartsWith(RemotesPrefix, StringComparison.Ordinal)) {
 			return false;
 		}
@@ -122,18 +124,20 @@ public sealed partial class GitService : IGitService {
 			return false;
 		}
 
+		remote = refName[RemotesPrefix.Length..slash];
 		branch = refName[(slash + 1)..];
 		return branch.Length > 0 && branch != "HEAD";
 	}
 
-	private async Task<GitIdentity> GetIdentityAsync(string directory, CancellationToken ct) => new(
-		await ConfigValueAsync(directory, "user.name", ct).ConfigureAwait(false),
-		await ConfigValueAsync(directory, "user.email", ct).ConfigureAwait(false));
-
-	// Unset config exits non-zero; an unset identity is a fact about the repository, not a failure.
-	private async Task<string> ConfigValueAsync(string directory, string key, CancellationToken ct) {
-		var result = await RunAsync(directory, ["config", "--get", key], ct).ConfigureAwait(false);
-		return result.ExitCode == 0 ? result.StdOut.Trim() : string.Empty;
+	private static async Task<string> GetAuthorEmailAsync(string directory, CancellationToken ct) {
+		var result = await RunAsync(directory, ["config", "--get", "user.email"], ct).ConfigureAwait(false);
+		// Only exit 1 means the key is unset — a fact about the repository. Any other failure is a real one.
+		return result.ExitCode switch {
+			0 => result.StdOut.Trim(),
+			1 => string.Empty,
+			_ => throw new GitException(
+				$"git config --get user.email failed (exit {result.ExitCode}): {result.StdErr.Trim()}"),
+		};
 	}
 
 	/// <inheritdoc/>
@@ -144,17 +148,8 @@ public sealed partial class GitService : IGitService {
 		var refs = new List<string>();
 		foreach (string line in result.StdOut.Replace("\r", "", StringComparison.Ordinal)
 			.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)) {
-			if (line.StartsWith(HeadsPrefix, StringComparison.Ordinal)) {
-				refs.Add(line[HeadsPrefix.Length..]);
-			} else if (line.StartsWith(RemotesPrefix, StringComparison.Ordinal)) {
-				string name = line[RemotesPrefix.Length..];
-				// Skip a remote's symbolic HEAD — exactly "<remote>/HEAD", no deeper slash — an alias, not a branch.
-				// A real branch that merely ends in HEAD (e.g. origin/feature/HEAD) has a deeper slash, so it stays.
-				bool isRemoteHead = name.EndsWith("/HEAD", StringComparison.Ordinal)
-					&& !name[..^"/HEAD".Length].Contains('/', StringComparison.Ordinal);
-				if (!isRemoteHead) {
-					refs.Add(name);
-				}
+			if (TryParseRef(line, out string remote, out string branch)) {
+				refs.Add(remote.Length == 0 ? branch : remote + "/" + branch);
 			}
 		}
 

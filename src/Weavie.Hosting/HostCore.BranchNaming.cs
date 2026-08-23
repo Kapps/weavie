@@ -33,10 +33,10 @@ public sealed partial class HostCore {
 			input = new BranchNameInferenceInput {
 				Prompt = initialInput.Text,
 				CurrentBranch = await git.GetCurrentBranchAsync(sourceRoot, ct).ConfigureAwait(false) ?? string.Empty,
-				AuthorName = recent.Author.Name,
-				AuthorEmail = recent.Author.Email,
+				AuthorEmail = recent.AuthorEmail,
 				MyRecentBranches = recent.Mine,
-				OtherRecentBranches = recent.Others,
+				// The user's own conventions lead, so a team's branches inform the name only when they have none.
+				OtherRecentBranches = recent.Mine.Count > 0 ? [] : recent.Others,
 			};
 		} catch (GitException ex) {
 			return BranchPreviewResult.Failed($"Couldn't read repository branch information: {ex.Message}");

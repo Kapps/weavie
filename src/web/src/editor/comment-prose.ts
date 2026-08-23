@@ -187,6 +187,13 @@ export function createCommentProse(
     // re-anchors the viewport mid-teardown. The rebuilt content is the same height, so restoring scrollTop
     // undoes the transient.
     const scrollTop = editor.getScrollTop();
+    // The same teardown can momentarily size/position the hidden textarea Monaco uses for keyboard input out
+    // from under the caret, dropping its focus (seen on CI: a click that extends a selection into a block —
+    // the raw path below, not openBlockInline's own explicit refocus — landed correctly but left the editor
+    // permanently unfocused, https://github.com/Kapps/weavie/actions/runs/32616592610/job/97139307788, 2026-08-23
+    // 04:12 UTC). Restore it whenever the rebuild was the one that dropped it, never when focus already lived
+    // elsewhere.
+    const hadFocus = editor.hasTextFocus();
     clearRender();
     const model = editor.getModel();
     if (mode === "none" || !isFileModel(model) || deps.isBlocked(model.uri.toString())) {
@@ -195,6 +202,9 @@ export function createCommentProse(
       lastRawKey = "";
       hiddenEditor.setHiddenAreas([], HIDDEN_AREAS_SOURCE);
       editor.setScrollTop(scrollTop);
+      if (hadFocus) {
+        editor.focus();
+      }
       return;
     }
 
@@ -248,6 +258,9 @@ export function createCommentProse(
 
     // Undo any scroll Monaco shifted while zones were torn down and rebuilt above (see the pin at the top).
     editor.setScrollTop(scrollTop);
+    if (hadFocus) {
+      editor.focus();
+    }
     lastRawKey = raw.join(",");
   };
 

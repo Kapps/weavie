@@ -105,6 +105,9 @@ test("a selection reaching into a comment block leaves it raw", async ({ weavie,
   const before = await anchor(page);
 
   // Select from the code above the first comment to the code below it (shift-click, the mouse path).
+  // Flaked on macOS CI 2026-08-23 04:12 UTC (run 32616592610, job 97139307788): this click's own re-render
+  // dropped editor focus and never restored it, timing out the awaitEditorFocus below. Fixed at the source in
+  // comment-prose.ts's render(), which now restores focus whenever its own DOM rebuild is what dropped it.
   await page.locator(".view-line", { hasText: "return a + b" }).click({ modifiers: ["Shift"] });
 
   // The block the selection reaches into goes raw with its text visibly highlighted; the other stays prose.

@@ -325,44 +325,24 @@ public sealed partial class SessionChangeTracker {
 		List<CorrectionEdit> edits;
 		RevertHunkOutcome outcome;
 		lock (_gate) {
-			string currentRaw = _current.GetValueOrDefault(path, ReadOrEmpty(path));
-			var currentLines = SplitLines(currentRaw);
-			var diskLines = SplitLines(ReadOrEmpty(path));
-			// currentRange + guardText are in the live-model (== disk) space the web diffed, so guard against disk
-			// directly; then map the range into _current space (which omits the user's non-agent edits) so the
-			// review-side revert below rewrites only the agent's lines and preserves the user's untouched ones.
-			if (!TryGetSlice(diskLines, currentRange, out var guardedSlice)
-				|| !string.Equals(string.Join("\n", guardedSlice), guardText, StringComparison.Ordinal)) {
-				return RevertHunkOutcome.GuardMismatch;
-			}
-
-			var currentInCurrent = MapActualRangeToCurrent(path, currentRange);
-			if (!TryGetSlice(currentLines, currentInCurrent, out _)) {
-				return RevertHunkOutcome.GuardMismatch;
-			}
-
 			var baselineLines = SplitLines(_reviewBaseline.GetValueOrDefault(path, string.Empty));
-			if (!TryGetSlice(baselineLines, baselineRange, out var replacement)) {
+			if (!TryGetSlice(baselineLines, baselineRange, out var replacement)
+				|| TrySplice(path, currentRange, guardText, replacement) is not { } spliced) {
 				return RevertHunkOutcome.GuardMismatch;
 			}
-
-			var newLines = new List<string>(currentLines);
-			newLines.RemoveRange(currentInCurrent.Start - 1, currentInCurrent.EndExclusive - currentInCurrent.Start);
-			newLines.InsertRange(currentInCurrent.Start - 1, replacement);
-			string newContent = JoinLines(newLines, currentRaw);
 
 			// The rejected hunk is the correction: the agent's lines out, the baseline's back in.
-			edits = CorrectionsForRevert(path, currentInCurrent, baselineRange);
+			edits = CorrectionsForRevert(path, spliced.CurrentRange, baselineRange);
 			var before = Capture(path, withDisk: true);
 			// Reverting the last hunk of a created file returns it to non-existence — delete and forget it.
-			string diskContent = ApplyReviewChange(path, currentRaw, newContent);
+			string diskContent = ApplyReviewChange(path, spliced.CurrentRaw, spliced.NewContent);
 			if (diskContent.Length == 0 && _createdSinceBaseline.Contains(path)) {
 				_fileSystem.DeleteFile(path);
 				Forget(path);
 				outcome = RevertHunkOutcome.Deleted;
 			} else {
 				_fileSystem.WriteAllText(path, diskContent);
-				_current[path] = newContent;
+				_current[path] = spliced.NewContent;
 				outcome = RevertHunkOutcome.Reverted;
 			}
 
@@ -736,6 +716,31 @@ public sealed partial class SessionChangeTracker {
 		slice = lines.GetRange(range.Start - 1, range.EndExclusive - range.Start);
 		return true;
 	}
+
+	// `range` + `guardText` are in the live-model (== disk) space the web diffed, so guard against disk directly;
+	// the range then maps into _current space (which omits the user's non-agent edits) so the splice rewrites only
+	// the agent's lines. Null on any guard or bounds failure, so no caller writes against a stale request.
+	private SplicedContent? TrySplice(string path, LineRange range, string guardText, IReadOnlyList<string> replacement) {
+		if (!TryGetSlice(SplitLines(ReadOrEmpty(path)), range, out var guarded)
+			|| !string.Equals(string.Join("\n", guarded), guardText, StringComparison.Ordinal)) {
+			return null;
+		}
+
+		string currentRaw = _current.GetValueOrDefault(path, ReadOrEmpty(path));
+		var currentLines = SplitLines(currentRaw);
+		var inCurrent = MapActualRangeToCurrent(path, range);
+		if (!TryGetSlice(currentLines, inCurrent, out _)) {
+			return null;
+		}
+
+		var newLines = new List<string>(currentLines);
+		newLines.RemoveRange(inCurrent.Start - 1, inCurrent.EndExclusive - inCurrent.Start);
+		newLines.InsertRange(inCurrent.Start - 1, replacement);
+		return new SplicedContent(currentRaw, JoinLines(newLines, currentRaw), inCurrent);
+	}
+
+	// A guarded splice's inputs and result: the pre-change content, the spliced content, and the range in _current space.
+	private readonly record struct SplicedContent(string CurrentRaw, string NewContent, LineRange CurrentRange);
 
 	private IReadOnlyList<string> ExtractEditPaths(AgentMutation mutation) {
 		var paths = new List<string>();

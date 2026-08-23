@@ -1,0 +1,32 @@
+/* A region being revised: a soft pulsing wash plus a pill counting elapsed seconds. */
+.weavie-revising {
+  background: color-mix(in srgb, var(--accent, #6a8fc4) 14%, transparent);
+  animation: weavie-revising-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes weavie-revising-pulse {
+  0%,
+  100% {
+    background: color-mix(in srgb, var(--accent, #6a8fc4) 10%, transparent);
+  }
+  50% {
+    background: color-mix(in srgb, var(--accent, #6a8fc4) 22%, transparent);
+  }
+}
+
+.weavie-revising-pill {
+  margin-left: 0.75rem;
+  padding: 0 0.5em;
+  border-radius: 0.75em;
+  white-space: nowrap;
+  font-family: var(--font-chrome-family);
+  font-size: var(--font-metadata-size);
+  color: var(--dim, #8a8a8a);
+  background: color-mix(in srgb, var(--accent, #6a8fc4) 18%, var(--bg, #1e1e1e));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weavie-revising {
+    animation: none;
+  }
+}

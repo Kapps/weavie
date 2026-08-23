@@ -37,6 +37,7 @@ import { mediaTypeOf } from "./media/media-types";
 import { createNavHistory, type NavHistory } from "./nav-history";
 import { setAgentPlan } from "./plan/plan-store";
 import { REVEAL_SCROLL } from "./reveal-scroll";
+import type { ReviseMarks, ReviseRegion } from "./revise-marks";
 import {
   type ActivateResult,
   activateTabFor,
@@ -80,6 +81,8 @@ export interface EditorControllerDeps {
   /** Prompt in-app for a scratch buffer's save name on a browser-served host (no native Save-As dialog);
    * resolves the chosen workspace-relative name, or null if cancelled. */
   promptScratchName: (suggestedName: string) => Promise<string | null>;
+  /** Ask what to do to the selected lines; resolves the instruction, or null if cancelled. */
+  promptRevision: (lineCount: number) => Promise<string | null>;
 }
 
 /** One changed file in the post-turn review set: path, line counts, and the 1-based line of its first change. */
@@ -180,6 +183,8 @@ export interface NavActions {
 }
 
 export interface EditorController {
+  /** Revise the selected lines: prompt for an instruction, then hand the region to the host. */
+  reviseSelection(): void;
   /** Loads the editor chunk and brings up the editor in `container`; fades the splash when settled. */
   start(container: HTMLElement): void;
   /** Opens a file (preview tab when `preview`), replaying once the editor chunk has loaded (last wins). */
@@ -239,6 +244,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   let inlineDiff: InlineDiff | undefined;
   let commentProse: CommentProse | undefined;
   let gitBlame: GitBlameController | undefined;
+  let reviseMarks: ReviseMarks | undefined;
   // Captured from the dynamic inline-diff import in start(); used by the show-diff handler, which can
   // only fire once the editor host (and thus this import) is up.
   let firstChangedLine: ((original: string, modified: string) => number) | undefined;
@@ -835,11 +841,12 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         host = created;
         // inline-diff + comment-prose pull Monaco; import them here (the chunk is already loaded by the
         // editor host above) so they stay off the first-paint entry chunk.
-        const [diff, prose, symbolMod, blame] = await Promise.all([
+        const [diff, prose, symbolMod, blame, marks] = await Promise.all([
           import("./inline-diff"),
           import("./comment-prose"),
           import("../symbols/symbol-source"),
           import("./git-blame"),
+          import("./revise-marks"),
         ]);
         symbolSource = symbolMod.createSymbolSource(created.editor);
         firstChangedLine = diff.firstChangedLine;
@@ -869,6 +876,14 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         // Suspended over a model with a live inline diff so a collapsed comment never hides a changed line.
         commentProse = prose.createCommentProse(created.editor, {
           isBlocked: (uri) => inlineDiff?.hasDiffForUri(uri) ?? false,
+        });
+        reviseMarks = marks.createReviseMarks(created.editor, {
+          activePath: () => {
+            const current = created.editor.getModel();
+            return current === null || current.uri.scheme !== SESSION_FILE_SCHEME
+              ? null
+              : sessionUriHostPath(current.uri);
+          },
         });
         gitBlame = blame.createGitBlame(created.editor);
         const session = selectedSession();
@@ -1361,6 +1376,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     const editor = session.feature("editor");
     const review = session.feature("review");
     const files = session.feature("files");
+    const revise = session.feature("revise");
     const cleanups = [
       editor.handle<Record<string, never>, { session: EditorSession }>("flush", async () => {
         flushEditorSessionFor(session);
@@ -1408,6 +1424,14 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       review.on<TurnDiff>("diff", (message) => setTurnDiffFor(session, message)),
       review.on<ReviewComments>("comments", (message) => setReviewCommentsFor(session, message)),
       review.on("reset", () => resetReviewFor(session)),
+      revise.on<{ regions: ReviseRegion[] }>("state", ({ regions }) =>
+        reviseMarks?.set(session, regions),
+      ),
+      // The host asks before it writes: only this page knows whether the buffer is dirty or the region moved.
+      revise.handle<{ id: number }, { ok: boolean; reason: string }>("confirm", ({ id }) => {
+        const refusal = reviseMarks?.verify(session, id) ?? null;
+        return { ok: refusal === null, reason: refusal ?? "" };
+      }),
       review.on<ReviewHistory>("history", (history) => {
         stateFor(session).history = history;
         renderReviewState(session);
@@ -1534,6 +1558,47 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     openWebTab,
     openSourceTab,
     focusEditor: focusEditorSurface,
+    reviseSelection: () => {
+      const session = selectedSession();
+      const model = host?.editor.getModel();
+      const selection = host?.editor.getSelection();
+      if (
+        session === null ||
+        model == null ||
+        selection == null ||
+        model.uri.scheme !== SESSION_FILE_SCHEME
+      ) {
+        return;
+      }
+      const startLine = selection.startLineNumber;
+      // A selection ending at column 1 stops before that line, so the line isn't part of the region.
+      const endLine =
+        selection.endColumn === 1 && selection.endLineNumber > startLine
+          ? selection.endLineNumber - 1
+          : selection.endLineNumber;
+      // Line content joined with \n: the host splices line ranges and compares its guard the same way, so a
+      // CRLF file must not send the model's \r\n back.
+      const originalText = model
+        .getLinesContent()
+        .slice(startLine - 1, endLine)
+        .join("\n");
+      const path = sessionUriHostPath(model.uri);
+      void deps.promptRevision(endLine - startLine + 1).then((instruction) => {
+        if (instruction === null) {
+          return;
+        }
+        // Flush the pending save first, so the host's guard reads the same content the editor shows.
+        afterFlush(session, path, () =>
+          session.feature("revise").publish("start", {
+            path,
+            startLine,
+            endLineExclusive: endLine + 1,
+            originalText,
+            instruction,
+          }),
+        );
+      });
+    },
     selectionText: () => {
       const selection = host?.editor.getSelection();
       const model = host?.editor.getModel();
@@ -1621,6 +1686,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       }
       commentProse?.dispose();
       gitBlame?.dispose();
+      reviseMarks?.dispose();
       inlineDiff?.dispose();
       host?.dispose();
       offSelection();

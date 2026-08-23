@@ -17,7 +17,7 @@ public sealed class SessionSlot {
 	/// <summary>The directory a <see cref="HostSession"/> is (or would be) rooted at.</summary>
 	public required string WorktreePath { get; init; }
 
-	/// <summary>Whether Weavie owns and may remove this checkout.</summary>
+	/// <summary>Whether this checkout lives in Weavie's managed worktrees directory.</summary>
 	public required bool ManagedCheckout { get; init; }
 
 	/// <summary>The provider this session uses. Existing sessions default to Claude.</summary>

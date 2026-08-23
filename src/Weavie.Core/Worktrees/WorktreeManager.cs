@@ -161,6 +161,26 @@ public sealed class WorktreeManager {
 		return result;
 	}
 
+	/// <summary>
+	/// Reads git's constraints on removing the checkout at <paramref name="path"/>. Git lists the repository's
+	/// main working tree first and refuses to remove it or a locked worktree, so a caller can say no up front
+	/// instead of half-deleting a session whose checkout survives.
+	/// </summary>
+	public async Task<WorktreeRemoval> InspectRemovalAsync(string path, CancellationToken ct) {
+		ArgumentException.ThrowIfNullOrEmpty(path);
+		var worktrees = await _git.ListWorktreesAsync(_repositoryRoot, ct).ConfigureAwait(false);
+		string normalized = Normalize(path);
+		var entry = worktrees.FirstOrDefault(worktree => PathComparer.Equals(Normalize(worktree.Path), normalized));
+		return new WorktreeRemoval {
+			Exists = entry is { IsPrunable: false },
+			IsMainCheckout = entry is not null
+				&& worktrees[0] is { IsBare: false } main
+				&& PathComparer.Equals(Normalize(main.Path), normalized),
+			IsLocked = entry?.IsLocked ?? false,
+			IsDetached = entry?.IsDetached ?? false,
+		};
+	}
+
 	/// <summary>Repairs metadata for an existing checkout whose owned directory proves Weavie created it.</summary>
 	public void RecoverOwnedRecord(WorktreeStatus status, string agentProviderId) {
 		ArgumentNullException.ThrowIfNull(status);
@@ -202,8 +222,11 @@ public sealed class WorktreeManager {
 				throw new WorktreeDirtyException(path);
 			}
 
-			// Teardown while the tree still exists; best-effort (a non-zero exit is surfaced, not aborting), past the dirty guard.
-			await _provisioner.RunTeardownAsync(path, ct).ConfigureAwait(false);
+			// Teardown while the tree still exists; best-effort (a non-zero exit is surfaced, not aborting), past the
+			// dirty guard. Only where setup ran: a discovered checkout Weavie never provisioned gets no teardown.
+			if (record is not null || IsWithinWorktreesDir(normalized)) {
+				await _provisioner.RunTeardownAsync(path, ct).ConfigureAwait(false);
+			}
 
 			if (IsWithinWorktreesDir(normalized)) {
 				await RemoveOwnedWorktreeAsync(path, normalized, ct).ConfigureAwait(false);

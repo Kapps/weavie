@@ -943,6 +943,8 @@ export default function App(): JSX.Element {
     label: string;
     removesCheckout: boolean;
     state: DeleteSessionState;
+    worktreePath: string;
+    branchless: boolean;
     changedFiles: string[];
     changedCount: number;
     backendId: string;
@@ -971,6 +973,8 @@ export default function App(): JSX.Element {
           state?: DeleteSessionState;
           label?: string;
           removesCheckout?: boolean;
+          worktreePath?: string;
+          branchless?: boolean;
           changedFiles: string[];
           changedCount: number;
         }
@@ -981,6 +985,8 @@ export default function App(): JSX.Element {
       label: info?.label ?? id,
       removesCheckout: info?.removesCheckout === true,
       state: info?.state ?? "clean",
+      worktreePath: info?.worktreePath ?? "",
+      branchless: info?.branchless === true,
       changedFiles,
       changedCount: info?.changedCount ?? changedFiles.length,
       backendId,
@@ -992,11 +998,12 @@ export default function App(): JSX.Element {
       return;
     }
     setDeleteReq(null);
-    // A dirty worktree (untracked or modified) needs force, or git refuses the removal.
+    // A dirty worktree (untracked or modified) needs force, or git refuses the removal; so does a branchless
+    // one, whose commits the removal discards.
     const result = await dispatchCommand(CommandIds.deleteSession, {
       id: req.id,
       backendId: req.backendId,
-      force: req.state !== "clean",
+      force: req.state !== "clean" || req.branchless,
     });
     if (!result.ok) {
       addToast("warn", result.error ?? "Couldn't delete the session.");
@@ -2053,6 +2060,8 @@ export default function App(): JSX.Element {
             label={req().label}
             removesCheckout={req().removesCheckout}
             state={req().state}
+            worktreePath={req().worktreePath}
+            branchless={req().branchless}
             changedFiles={req().changedFiles}
             changedCount={req().changedCount}
             onConfirm={confirmDeleteSession}

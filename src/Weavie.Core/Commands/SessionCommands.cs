@@ -58,7 +58,7 @@ public static class SessionCommands {
 	/// <summary>Unloads the invoking session, or the <c>id</c> arg, into a dormant chip while keeping its worktree.</summary>
 	public const string UnloadSession = "weavie.session.unload";
 
-	/// <summary>Deletes the invoking session, or the <c>id</c> arg. Weavie-owned worktrees are removed; user-owned checkouts are preserved.</summary>
+	/// <summary>Deletes the invoking session, or the <c>id</c> arg. Its worktree is removed, branch kept; the workspace's own checkout is preserved.</summary>
 	public const string DeleteSession = "weavie.session.delete";
 
 	/// <summary>Opens the interactive delete confirmation in the UI (arg <c>id</c>; defaults to the selected session).</summary>
@@ -291,9 +291,10 @@ public static class SessionCommands {
 			Title = "Delete Session",
 			RunsIn = CommandLocation.Core,
 			Category = "Session",
-			Description = "Delete the invoking session, or the session named by 'id'. A Weavie-owned git worktree is "
-				+ "removed but its branch is kept; a user-owned checkout is never removed. Refuses to remove a managed "
-				+ "worktree with uncommitted changes unless 'force' is true. With "
+			Description = "Delete the invoking session, or the session named by 'id'. The git worktree it sits on is "
+				+ "removed but its branch is kept, whoever created that worktree; only the workspace's own checkout is "
+				+ "kept. Refuses the repository's main checkout and a locked worktree outright, and refuses a worktree "
+				+ "with uncommitted changes or no branch unless 'force' is true. With "
 				+ "'classify' true it deletes nothing and instead returns the worktree's state (clean/untracked/modified) "
 				+ "for a confirm prompt. This is the programmatic entry (for agents); the interactive UI uses "
 				+ "'Delete Session…' (weavie.session.deletePrompt).",

@@ -57,6 +57,30 @@ public sealed class WorktreeIntegrationTests : IDisposable {
 	}
 
 	[Fact]
+	public async Task InspectRemoval_ReportsGitsRefusalsAndBranchlessCheckouts() {
+		var manager = NewManager();
+		var record = await manager.CreateAsync("feature", "main", "acp");
+		string locked = Path.Combine(_root, "locked");
+		RunGit(_repo, "worktree", "add", locked, "-b", "locked-branch");
+		RunGit(_repo, "worktree", "lock", locked);
+
+		var main = await manager.InspectRemovalAsync(_repo, CancellationToken.None);
+		var feature = await manager.InspectRemovalAsync(record.Path, CancellationToken.None);
+		var lockedRemoval = await manager.InspectRemovalAsync(locked, CancellationToken.None);
+		RunGit(record.Path, "checkout", "--detach");
+		var detached = await manager.InspectRemovalAsync(record.Path, CancellationToken.None);
+
+		Assert.True(main.IsMainCheckout);
+		Assert.False(feature.IsMainCheckout);
+		Assert.True(feature.Exists);
+		Assert.False(feature.IsDetached);
+		Assert.True(lockedRemoval.IsLocked);
+		Assert.False(feature.IsLocked);
+		Assert.True(detached.IsDetached);
+		Assert.False((await manager.InspectRemovalAsync(Path.Combine(_root, "nope"), CancellationToken.None)).Exists);
+	}
+
+	[Fact]
 	public async Task DirtyWorktree_RemovalGuarded() {
 		var manager = NewManager();
 		var record = await manager.CreateAsync("wip", "main", "acp");

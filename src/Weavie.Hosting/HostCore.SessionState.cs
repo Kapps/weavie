@@ -35,7 +35,7 @@ public sealed partial class HostCore {
 		foreach (var item in _sessionStore.Items) {
 			var slot = _sessions.Find(item.Id.Value)
 				?? _sessions.Slots.FirstOrDefault(candidate => PathsEqual(candidate.WorktreePath, item.WorktreePath));
-			if (slot is null && !item.ManagedCheckout && PathsEqual(item.WorktreePath, WorkspaceRoot)) {
+			if (slot is null && IsWorkspaceCheckout(item.ManagedCheckout, item.WorktreePath)) {
 				slot = new SessionSlot {
 					Id = item.Id.Value,
 					Label = _workspaceSessionLabel,

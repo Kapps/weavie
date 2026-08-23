@@ -61,11 +61,28 @@ jobs:
 
       # The remote control plane. Its publish stages the Weavie.Headless worker into worker/,
       # propagating RID + self-contained, so this single bundle is the full runner + headless deploy.
+      #
+      # Flake, 2026-08-16 18:22 UTC: https://github.com/Kapps/weavie/actions/runs/31964391535/job/95207193113
+      # NativeAOT's ILC crashed compiling weavie-hook-relay ("Code generation failed for method
+      # System.AppContext.OnUnhandledException(object)") — a transient ILC internal error, not a code
+      # defect: the identical commit published clean on retry nine minutes later. Retrying the publish
+      # on failure.
       - name: Publish runner bundle into the managed layout
-        run: >
-          dotnet publish src/Weavie.Runner/Weavie.Runner.csproj -c Release -r linux-x64
-          --self-contained -p:PublishReadyToRun=true
-          -o layout/versions/${{ github.run_number }}
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            if dotnet publish src/Weavie.Runner/Weavie.Runner.csproj -c Release -r linux-x64 \
+              --self-contained -p:PublishReadyToRun=true \
+              -o layout/versions/${{ github.run_number }}; then
+              break
+            fi
+            if [[ $attempt == 3 ]]; then
+              echo "dotnet publish failed after $attempt attempts" >&2
+              exit 1
+            fi
+            echo "dotnet publish failed (attempt $attempt), retrying..." >&2
+            sleep 5
+          done
 
       # A tarball (not upload-artifact's zip) so executable bits and the current symlink survive.
       - name: Package layout tarball

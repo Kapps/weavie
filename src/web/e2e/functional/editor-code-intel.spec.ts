@@ -30,7 +30,7 @@ test("editor right-click menu lists the code-intelligence actions above the clip
   await expect(menu).toBeVisible();
 
   // The full ordered structure: each row as its visible label, each separator as a sentinel — so the exact
-  // grouping (three intel rows, sep, clipboard trio, sep, palette) is pinned, not just membership.
+  // grouping (four intel rows, sep, clipboard trio, sep, palette) is pinned, not just membership.
   const structure = await menu.evaluate((el) =>
     [...el.children]
       .map((c) =>
@@ -45,6 +45,7 @@ test("editor right-click menu lists the code-intelligence actions above the clip
   expect(structure).toEqual([
     "Go to Definition",
     "Peek Definition",
+    "Revise Selection",
     "Find All References",
     "Rename Symbol",
     "—separator—",
@@ -60,6 +61,9 @@ test("editor right-click menu lists the code-intelligence actions above the clip
     menu.locator(".context-menu-item", { hasText: label }).locator(".context-menu-keys");
   await expect(keysOf("Go to Definition")).toHaveText("F12");
   await expect(keysOf("Peek Definition")).toHaveText("Alt+F12");
+  await expect(keysOf("Revise Selection")).toHaveText(
+    process.platform === "darwin" ? "⌘+Alt+E" : "Ctrl+Alt+E",
+  );
   await expect(keysOf("Find All References")).toHaveText("Shift+F12");
   await expect(keysOf("Rename Symbol")).toHaveText("F2");
 });

@@ -187,6 +187,10 @@ export function createCommentProse(
     // re-anchors the viewport mid-teardown. The rebuilt content is the same height, so restoring scrollTop
     // undoes the transient.
     const scrollTop = editor.getScrollTop();
+    // changeViewZones/setHiddenAreas below can blur the editor's hidden textarea as a side effect of the DOM
+    // rebuild (observed: a shift-click selection reaching into a comment block never regained focus). Restore
+    // it only if the editor already held it, so this never steals focus the rebuild didn't take.
+    const hadFocus = editor.hasTextFocus();
     clearRender();
     const model = editor.getModel();
     if (mode === "none" || !isFileModel(model) || deps.isBlocked(model.uri.toString())) {
@@ -195,6 +199,9 @@ export function createCommentProse(
       lastRawKey = "";
       hiddenEditor.setHiddenAreas([], HIDDEN_AREAS_SOURCE);
       editor.setScrollTop(scrollTop);
+      if (hadFocus) {
+        editor.focus();
+      }
       return;
     }
 
@@ -248,6 +255,9 @@ export function createCommentProse(
 
     // Undo any scroll Monaco shifted while zones were torn down and rebuilt above (see the pin at the top).
     editor.setScrollTop(scrollTop);
+    if (hadFocus) {
+      editor.focus();
+    }
     lastRawKey = raw.join(",");
   };
 

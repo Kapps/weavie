@@ -30,13 +30,15 @@ public sealed partial class HostCore {
 		try {
 			taken = await TakenBranchNamesAsync(ct).ConfigureAwait(false);
 			var recent = await git.ListRecentBranchesAsync(sourceRoot, 20, ct).ConfigureAwait(false);
+			string? defaultBranch = await git.ResolveDefaultBranchAsync(sourceRoot, ct).ConfigureAwait(false);
+			var mine = NamingExamples(recent.Mine, defaultBranch);
 			input = new BranchNameInferenceInput {
 				Prompt = initialInput.Text,
 				CurrentBranch = await git.GetCurrentBranchAsync(sourceRoot, ct).ConfigureAwait(false) ?? string.Empty,
 				AuthorEmail = recent.AuthorEmail,
-				MyRecentBranches = recent.Mine,
+				MyRecentBranches = mine,
 				// The user's own conventions lead, so a team's branches inform the name only when they have none.
-				OtherRecentBranches = recent.Mine.Count > 0 ? [] : recent.Others,
+				OtherRecentBranches = mine.Count > 0 ? [] : NamingExamples(recent.Others, defaultBranch),
 			};
 		} catch (GitException ex) {
 			return BranchPreviewResult.Failed($"Couldn't read repository branch information: {ex.Message}");
@@ -89,6 +91,11 @@ public sealed partial class HostCore {
 			return BranchPreviewResult.Failed($"Couldn't validate the suggested branch name: {ex.Message}");
 		}
 	}
+
+	// The default branch is nobody's naming example: it teaches no convention, so authoring its tip is not the user
+	// having branches of their own.
+	private static IReadOnlyList<string> NamingExamples(IReadOnlyList<string> branches, string? defaultBranch) =>
+		[.. branches.Where(branch => branch != defaultBranch)];
 
 	private static bool ValidateBranchPreviewAttachments(
 		IReadOnlyList<NewSessionAttachment> attachments,

@@ -161,9 +161,9 @@ its own, and neither does an opening clause like “there's a bug where”. Leav
 asked about yet, so submission never races the idle window. When “Current session” is selected, the request carries
 that exact slot; “Main branch” needs no live session.
 The host sends the text prompt, up to four exact validated images totaling at most 20 MB, the source checkout's
-current branch, the repository's configured `user.email`, and up to twenty branches per group ordered by tip
-committer date — local and remote-tracking, each name once, split into the ones that identity authored and the rest.
-An image-only draft is valid input.
+current branch, the repository's configured `user.email`, and up to twenty branches ordered by tip committer date —
+local and remote-tracking, each name once, minus the default branch — that identity authored, plus the ones it did
+not only when it authored none. An image-only draft is valid input.
 The owner is the source workspace and the provider already selected in the composer — the branch is named before
 its session exists — and only `Utility` is permitted. An over-budget draft takes the same visible failure path as a
 provider rejection.
@@ -211,7 +211,9 @@ global prefix convention.
 The user's own conventions lead: branches whose tip commit the configured `user.email` authored are presented as
 theirs, and a repository where everyone else's branches dominate cannot drown them out — other authors' branches are
 withheld entirely unless the user has none, so imitating a teammate is impossible rather than merely discouraged.
-Remote-tracking refs count, minus the remote they live on, so a fresh clone still sees the user's own history. The
+The default branch is nobody's example and counts for neither side, so a user whose only authored tip is `main`
+still sees the team's conventions. Remote-tracking refs count, minus the remote they live on, so a fresh clone still
+sees the user's own history. The
 configured email travels with them, so a convention whose examples carry a per-author segment gets the requesting
 user's own segment rather than a copy of whoever committed last. Weavie never composes a prefix itself; an author
 segment appears only where the examples already show one.

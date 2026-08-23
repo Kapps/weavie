@@ -59,29 +59,31 @@ public sealed class HostCoreBranchInferenceTests {
 		Assert.Equal(TestHost.TestAuthorEmail, input.GetProperty("authorEmail").GetString());
 		string[] mine = Branches(input, "myRecentBranches");
 		Assert.Contains("kapps/prior-fix", mine);
-		Assert.Contains("main", mine);
+		Assert.DoesNotContain("main", mine);
 		Assert.DoesNotContain("teammate/inbox-polish", mine);
 		Assert.Empty(Branches(input, "otherRecentBranches"));
 	}
 
 	[Fact]
-	public async Task Preview_ReadsOtherAuthorsBranchesOnlyWhenTheUserHasNone() {
+	public async Task Preview_ReadsOtherAuthorsBranchesWhenTheUserAuthoredOnlyTheDefaultBranch() {
 		var inference = new BranchInferenceStub(new InferenceSuccess<BranchNameInferenceOutput> {
-			Value = new BranchNameInferenceOutput { Branch = "newcomer/webm-fails", NeedsMoreDetail = false },
+			Value = new BranchNameInferenceOutput { Branch = "kapps/webm-fails", NeedsMoreDetail = false },
 			Receipt = Receipt(),
 		});
 		await using var host = await TestHost.StartAsync(repo => {
-			TestHost.RunGit(repo, "branch", "teammate/inbox-polish");
-			TestHost.RunGit(repo, "config", "user.email", "newcomer@example.com");
+			TestHost.RunGit(repo, "checkout", "--quiet", "-b", "teammate/inbox-polish");
+			TestHost.RunGit(repo, "-c", "user.email=teammate@example.com", "-c", "user.name=Teammate",
+				"commit", "--quiet", "--allow-empty", "-m", "theirs");
+			TestHost.RunGit(repo, "checkout", "--quiet", "main");
 		}, _ => inference);
 
 		var result = await PreviewAsync(host, "WebM files fail to load", "claude");
 
-		Assert.Equal("newcomer/webm-fails", result.Branch);
+		Assert.Equal("kapps/webm-fails", result.Branch);
 		var input = InputJson(inference.Prompt!);
-		Assert.Equal("newcomer@example.com", input.GetProperty("authorEmail").GetString());
+		Assert.Equal(TestHost.TestAuthorEmail, input.GetProperty("authorEmail").GetString());
 		Assert.Empty(Branches(input, "myRecentBranches"));
-		Assert.Contains("teammate/inbox-polish", Branches(input, "otherRecentBranches"));
+		Assert.Equal(["teammate/inbox-polish"], Branches(input, "otherRecentBranches"));
 	}
 
 	[Fact]

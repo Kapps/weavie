@@ -38,7 +38,8 @@ public static class BranchNameInference {
 		+ "names and propose one complete branch name for the task described by the text and attached images. "
 		+ "myRecentBranches are the requesting user's own branches; otherRecentBranches is populated only when the "
 		+ "user has none. Where the examples put an author segment in the name, that segment is the requesting "
-		+ "user's own: write the local part of authorEmail rather than copying another author's. Do not invent a "
+		+ "user's own: write the local part of authorEmail — minus a forge no-reply address's leading numeric id and "
+		+ "'+' — rather than copying another author's. Do not invent a "
 		+ "ticket, team, or prefix the examples don't show. When the input names no specific task — too short, too "
 		+ "vague, or an unfinished thought — set needsMoreDetail and leave branch empty rather than guessing.";
 

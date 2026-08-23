@@ -212,7 +212,8 @@ public sealed partial class HostCore {
 		string? SourceId,
 		string? Prompt,
 		IReadOnlyList<NewSessionAttachment> Attachments,
-		string AgentProviderId);
+		string AgentProviderId,
+		bool UserInitiated);
 
 	private sealed record BranchPreviewResult(string Branch, string? Error, bool NeedsMoreDetail) {
 		public static BranchPreviewResult MoreDetail { get; } = new(string.Empty, null, true);

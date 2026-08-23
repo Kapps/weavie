@@ -126,6 +126,20 @@ public sealed class HostCoreBranchInferenceTests {
 	}
 
 	[Fact]
+	public async Task Resuggesting_IsUserInitiatedSoTheAutomaticPolicyDoesNotGateIt() {
+		var inference = new BranchInferenceStub(new InferenceSuccess<BranchNameInferenceOutput> {
+			Value = new BranchNameInferenceOutput { Branch = "bug/asked-again", NeedsMoreDetail = false },
+			Receipt = Receipt(),
+		});
+		await using var host = await TestHost.StartAsync(_ => { }, _ => inference);
+
+		var result = await ResuggestAsync(host, "WebM files fail to load", "claude");
+
+		Assert.Equal("bug/asked-again", result.Branch);
+		Assert.Equal(InferenceInvocationOrigin.UserInitiated, inference.Origin);
+	}
+
+	[Fact]
 	public async Task VagueProposal_AsksForMoreDetailWithoutAnError() {
 		var inference = new BranchInferenceStub(new InferenceSuccess<BranchNameInferenceOutput> {
 			Value = new BranchNameInferenceOutput { Branch = string.Empty, NeedsMoreDetail = true },
@@ -242,15 +256,32 @@ public sealed class HostCoreBranchInferenceTests {
 	private static Task<BranchPreview> PreviewAsync(TestHost host, string prompt, string agentProviderId) =>
 		PreviewWithAttachmentsAsync(host, prompt, agentProviderId, []);
 
-	private static async Task<BranchPreview> PreviewWithAttachmentsAsync(
+	private static Task<BranchPreview> ResuggestAsync(TestHost host, string prompt, string agentProviderId) =>
+		RequestPreviewAsync(host, prompt, agentProviderId, [], userInitiated: true);
+
+	private static Task<BranchPreview> PreviewWithAttachmentsAsync(
 		TestHost host,
 		string prompt,
 		string agentProviderId,
-		IReadOnlyList<NewSessionAttachment> attachments) {
+		IReadOnlyList<NewSessionAttachment> attachments) =>
+		RequestPreviewAsync(host, prompt, agentProviderId, attachments, userInitiated: false);
+
+	private static async Task<BranchPreview> RequestPreviewAsync(
+		TestHost host,
+		string prompt,
+		string agentProviderId,
+		IReadOnlyList<NewSessionAttachment> attachments,
+		bool userInitiated) {
 		var result = await host.HostRequestAsync<JsonElement>(
 			"sessionCreation",
 			"previewBranch",
-			new { sourceId = host.WorkspaceSession.SlotId, prompt, attachments, agentProviderId });
+			new {
+				sourceId = host.WorkspaceSession.SlotId,
+				prompt,
+				attachments,
+				agentProviderId,
+				userInitiated,
+			});
 		return new BranchPreview(
 			result.GetProperty("branch").GetString()!,
 			result.GetProperty("error").ValueKind == JsonValueKind.Null
@@ -292,7 +323,8 @@ public sealed class HostCoreBranchInferenceTests {
 			CancellationToken ct) {
 			ct.ThrowIfCancellationRequested();
 			Assert.Same(BranchNameInference.ResponseType, responseType);
-			Assert.Same(BranchNameInference.QueryOptions, options);
+			// The origin varies with who asked; every declared bound must still be the feature's own.
+			Assert.Equal(BranchNameInference.QueryOptions with { Origin = options.Origin }, options);
 			Calls++;
 			AgentProviderId = owner.AgentProviderId;
 			Workspace = owner.Workspace;

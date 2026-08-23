@@ -34,12 +34,13 @@ export function NewSessionBranchField(props: {
   });
   const online = (): boolean => backendPhase(props.backendId) === "online";
   const preview = new NewSessionBranchPreview(
-    (context, signal) =>
+    (context, userInitiated, signal) =>
       requestBranchPreview(
         context.backendId,
         context.prompt,
         context.attachments,
         context.providerId,
+        userInitiated,
         signal,
       ),
     (next) => {

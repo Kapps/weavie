@@ -33,6 +33,7 @@ export interface BranchPreviewState {
 
 type PreviewRequest = (
   context: BranchPreviewContext,
+  userInitiated: boolean,
   signal: AbortSignal,
 ) => Promise<BranchPreviewResult>;
 
@@ -150,7 +151,7 @@ export class NewSessionBranchPreview {
       clearTimeout(this.timer);
       this.timer = null;
     }
-    this.run();
+    this.run(false);
   }
 
   /** Settles on the name to create the session with, querying immediately when none has landed yet. */
@@ -182,7 +183,8 @@ export class NewSessionBranchPreview {
 
     this.invalidate();
     this.settled = false;
-    this.run();
+    // Asking for another name is the explicit action itself, so it is not the composer's automatic work.
+    this.run(true);
   }
 
   /** The user moved into the branch field: it is theirs to name, so nothing automatic may write over it. */
@@ -230,10 +232,10 @@ export class NewSessionBranchPreview {
       return;
     }
 
-    this.timer = setTimeout(() => this.run(), BRANCH_PREVIEW_IDLE_MS);
+    this.timer = setTimeout(() => this.run(false), BRANCH_PREVIEW_IDLE_MS);
   }
 
-  private run(): void {
+  private run(userInitiated: boolean): void {
     const context = this.context;
     if (context === null) {
       return;
@@ -245,7 +247,7 @@ export class NewSessionBranchPreview {
     const controller = new AbortController();
     this.controller = controller;
     this.publish({ branch: "", error: null, manual: false, status: "loading" });
-    this.pending = this.request(context, controller.signal).then(
+    this.pending = this.request(context, userInitiated, controller.signal).then(
       (result) => this.land(generation, controller, result),
       (error: unknown) =>
         this.land(generation, controller, {

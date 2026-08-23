@@ -174,7 +174,9 @@ user must type a branch, and Start stays disabled until they do. The editable fi
 submits.
 
 Manual branch input and a settled name both stop automatic work; `weavie.session.resuggestBranch` — the field's
-control, unbound by default — is how the user asks for another name and replaces either. A query already in flight
+control, unbound by default — is how the user asks for another name and replaces either. That click is the explicit
+action, so it runs as `UserInitiated` and `inference.allowAutomatic` does not gate it; every other trigger in the
+composer is the application's own work and stays `Automatic`. A query already in flight
 runs to completion rather than restarting under continued typing, and the client never lets a stale response or an
 automatic result overwrite manual input. A transport failure leaves the field blank and editable and shows that
 preview is unavailable.

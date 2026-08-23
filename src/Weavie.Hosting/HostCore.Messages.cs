@@ -2,6 +2,7 @@ using System.Text.Json;
 using Weavie.AcpDistribution;
 using Weavie.Core.Commands;
 using Weavie.Core.Git;
+using Weavie.Core.Inference;
 using Weavie.Core.Layout;
 using Weavie.Core.Remote;
 using Weavie.Core.Search;
@@ -273,6 +274,9 @@ public sealed partial class HostCore {
 			message.Prompt,
 			message.Attachments,
 			message.AgentProviderId,
+			message.UserInitiated
+				? InferenceInvocationOrigin.UserInitiated
+				: InferenceInvocationOrigin.Automatic,
 			ct);
 	}
 

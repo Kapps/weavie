@@ -11,6 +11,7 @@ public sealed partial class HostCore {
 		string? prompt,
 		IReadOnlyList<NewSessionAttachment> attachments,
 		string agentProviderId,
+		InferenceInvocationOrigin origin,
 		CancellationToken ct) {
 		if (!ValidateBranchPreviewAttachments(attachments, out string attachmentError)) {
 			return BranchPreviewResult.Failed(attachmentError);
@@ -50,7 +51,7 @@ public sealed partial class HostCore {
 				})],
 			},
 			BranchNameInference.ResponseType,
-			BranchNameInference.QueryOptions,
+			BranchNameInference.QueryOptions with { Origin = origin },
 			ct).ConfigureAwait(false);
 		if (result is InferenceFailure<BranchNameInferenceOutput> failure) {
 			return BranchPreviewResult.Failed(failure.Detail);

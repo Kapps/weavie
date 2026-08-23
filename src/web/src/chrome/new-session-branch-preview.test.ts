@@ -117,7 +117,7 @@ describe("NewSessionBranchPreview", () => {
     const calls: Array<{ result: Deferred<BranchPreviewResult>; signal: AbortSignal }> = [];
     let state: BranchPreviewState | undefined;
     const preview = new NewSessionBranchPreview(
-      (_request, signal) => {
+      (_request, _userInitiated, signal) => {
         const result = deferred<BranchPreviewResult>();
         calls.push({ result, signal });
         return result.promise;
@@ -294,6 +294,26 @@ describe("NewSessionBranchPreview", () => {
     });
   });
 
+  it("asks as the user only when the user asked, and as the composer otherwise", async () => {
+    vi.useFakeTimers();
+    const origins: boolean[] = [];
+    const preview = new NewSessionBranchPreview(
+      async (_request, userInitiated) => {
+        origins.push(userInitiated);
+        return named("bug/webm-fails-to-load");
+      },
+      () => {},
+    );
+
+    preview.update(context(DRAFT));
+    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS);
+    expect(origins).toEqual([false]);
+
+    preview.refresh();
+    await Promise.resolve();
+    expect(origins).toEqual([false, true]);
+  });
+
   it("re-runs a settled suggestion only when asked to", async () => {
     vi.useFakeTimers();
     const branches = ["bug/first-guess", "bug/second-guess"];
@@ -328,7 +348,7 @@ describe("NewSessionBranchPreview", () => {
     const calls: Array<{ result: Deferred<BranchPreviewResult>; signal: AbortSignal }> = [];
     let state: BranchPreviewState | undefined;
     const preview = new NewSessionBranchPreview(
-      (_request, signal) => {
+      (_request, _userInitiated, signal) => {
         const result = deferred<BranchPreviewResult>();
         calls.push({ result, signal });
         return result.promise;

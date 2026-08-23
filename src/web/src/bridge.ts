@@ -533,6 +533,7 @@ export function requestBranchPreview(
   prompt: string,
   attachments: readonly EncodedImageAttachment[],
   agentProviderId: string,
+  userInitiated: boolean,
   signal: AbortSignal,
 ): Promise<BranchPreviewResult> {
   const connection = hostConnection(backendId);
@@ -546,6 +547,7 @@ export function requestBranchPreview(
           prompt,
           attachments,
           agentProviderId,
+          userInitiated,
         },
         signal,
       );

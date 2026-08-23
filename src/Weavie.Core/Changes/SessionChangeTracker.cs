@@ -21,6 +21,8 @@ public sealed partial class SessionChangeTracker {
 	private readonly string _workspaceRoot;
 	private readonly Func<string, bool> _isInScope;
 	private readonly object _gate = new();
+	// Rendered turn summaries, memoized on the texts they were diffed from and rebuilt from the live set.
+	private Dictionary<string, TurnChangeSummary> _summaries = new(PathComparer);
 	private readonly Dictionary<string, string> _baseline = new(PathComparer);
 	private readonly Dictionary<string, string> _current = new(PathComparer);
 	// Each file's last-reviewed content; advanced only on keep-all (AcceptTurn) or a per-hunk revert, not on a
@@ -639,20 +641,49 @@ public sealed partial class SessionChangeTracker {
 	/// </summary>
 	public IReadOnlyList<FileChange> TurnChanges() {
 		lock (_gate) {
-			var changes = new List<FileChange>();
-			foreach (var (path, accepted) in _acceptedAnchor) {
-				if (_current.TryGetValue(path, out string? current) && !string.Equals(accepted, current, StringComparison.Ordinal)) {
-					changes.Add(new FileChange {
-						Path = path,
-						AcceptedBaselineText = accepted,
-						BaselineText = _reviewBaseline.GetValueOrDefault(path, accepted),
-						CurrentText = current,
-					});
+			return TurnChangesLocked();
+		}
+	}
+
+	/// <summary>
+	/// Every turn change with the counts the review navigator renders. Each file's summary is memoized on the
+	/// exact texts it was diffed from, so re-reading the set after one file changes costs one file's diff rather
+	/// than the whole turn's — this is read on every editor save.
+	/// </summary>
+	public IReadOnlyList<TurnChangeSummary> TurnChangeSummaries() {
+		lock (_gate) {
+			var live = new Dictionary<string, TurnChangeSummary>(PathComparer);
+			var summaries = new List<TurnChangeSummary>();
+			foreach (var change in TurnChangesLocked()) {
+				if (!_summaries.TryGetValue(change.Path, out var summary) || !summary.Describes(change)) {
+					summary = TurnChangeSummary.For(change);
 				}
+
+				live[change.Path] = summary;
+				summaries.Add(summary);
 			}
 
-			return changes;
+			// Rebuilt from the live set, so a file that left the turn takes its retained text with it.
+			_summaries = live;
+			return summaries;
 		}
+	}
+
+	// The turn change set. Caller holds _gate.
+	private List<FileChange> TurnChangesLocked() {
+		var changes = new List<FileChange>();
+		foreach (var (path, accepted) in _acceptedAnchor) {
+			if (_current.TryGetValue(path, out string? current) && !string.Equals(accepted, current, StringComparison.Ordinal)) {
+				changes.Add(new FileChange {
+					Path = path,
+					AcceptedBaselineText = accepted,
+					BaselineText = _reviewBaseline.GetValueOrDefault(path, accepted),
+					CurrentText = current,
+				});
+			}
+		}
+
+		return changes;
 	}
 
 	/// <summary>

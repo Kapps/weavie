@@ -106,11 +106,9 @@ public sealed partial class HostCore {
 		_sessions?.Slots.FirstOrDefault(IsWorkspaceCheckout)?.Session;
 
 	/// <summary>The workspace's own checkout, the one checkout a delete keeps: it is re-created, never rediscovered.</summary>
-	private bool IsWorkspaceCheckout(SessionSlot slot) =>
-		IsWorkspaceCheckout(slot.ManagedCheckout, slot.WorktreePath);
+	private bool IsWorkspaceCheckout(SessionSlot slot) => IsWorkspaceCheckout(slot.WorktreePath);
 
-	private bool IsWorkspaceCheckout(bool managedCheckout, string worktreePath) =>
-		!managedCheckout && PathsEqual(worktreePath, WorkspaceRoot);
+	private bool IsWorkspaceCheckout(string worktreePath) => PathsEqual(worktreePath, WorkspaceRoot);
 
 	/// <summary>Every loaded session's live backend, in catalog order.</summary>
 	private List<HostSession> LoadedSessions() {
@@ -225,7 +223,6 @@ public sealed partial class HostCore {
 			Id = id,
 			Label = _workspaceSessionLabel,
 			WorktreePath = WorkspaceRoot,
-			ManagedCheckout = false,
 			AgentProviderId = providerId,
 			Session = session,
 			EditorSession = EditorSession.Empty,
@@ -267,7 +264,6 @@ public sealed partial class HostCore {
 					Id = label,
 					Label = label,
 					WorktreePath = status.Path,
-					ManagedCheckout = status.IsManaged,
 					AgentProviderId = agentProviderId,
 					Session = null,
 					EditorSession = EditorSession.Empty,
@@ -1190,7 +1186,6 @@ public sealed partial class HostCore {
 					Id = branch,
 					Label = branch,
 					WorktreePath = record.Path,
-					ManagedCheckout = true,
 					AgentProviderId = agentProviderId,
 					Session = CreateSession(record.Path, agentProviderId, branch),
 					EditorSession = EditorSession.Empty,

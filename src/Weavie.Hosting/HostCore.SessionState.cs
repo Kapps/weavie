@@ -16,7 +16,6 @@ public sealed partial class HostCore {
 				Id = new SessionId(slot.Id),
 				Label = slot.Label,
 				WorktreePath = slot.WorktreePath,
-				ManagedCheckout = slot.ManagedCheckout,
 				Loaded = slot.Loaded,
 				AgentProviderId = slot.AgentProviderId,
 				EditorSession = slot.EditorSession,
@@ -35,12 +34,11 @@ public sealed partial class HostCore {
 		foreach (var item in _sessionStore.Items) {
 			var slot = _sessions.Find(item.Id.Value)
 				?? _sessions.Slots.FirstOrDefault(candidate => PathsEqual(candidate.WorktreePath, item.WorktreePath));
-			if (slot is null && IsWorkspaceCheckout(item.ManagedCheckout, item.WorktreePath)) {
+			if (slot is null && IsWorkspaceCheckout(item.WorktreePath)) {
 				slot = new SessionSlot {
 					Id = item.Id.Value,
 					Label = _workspaceSessionLabel,
 					WorktreePath = WorkspaceRoot,
-					ManagedCheckout = false,
 					AgentProviderId = item.AgentProviderId,
 					Session = null,
 					EditorSession = item.EditorSession,

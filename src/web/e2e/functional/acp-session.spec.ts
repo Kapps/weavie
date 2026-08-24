@@ -70,6 +70,34 @@ test("ACP controls and rich structured output stay native @cross", async ({ page
   await expect(tooltip).toContainText("62% used · approaching limit");
 });
 
+test("ACP task progress stays activity while plan documents remain openable", async ({ page }) => {
+  const surface = await createAcpSession(page, "acp-plan-distinction");
+  const composer = surface.locator("[data-agent-composer] textarea");
+
+  await composer.fill("rich");
+  await composer.press("Enter");
+
+  await expect(surface.locator(".agent-entry-message.agent-tone-assistant")).toContainText(
+    "rich response",
+  );
+  const activity = surface.locator(".agent-entry-activity").last();
+  await expect(activity).toContainText("1 progress");
+  await expect(surface.locator(".agent-entry-plan")).toHaveCount(0);
+  await expect(surface.getByRole("button", { name: "Open plan" })).toHaveCount(0);
+  await activity.locator("summary").click();
+  await expect(activity).toContainText("progress Task list");
+  await expect(activity).toContainText("Inspect");
+
+  await composer.fill("plan-document");
+  await composer.press("Enter");
+
+  const plan = surface.locator(".agent-entry-plan");
+  await expect(plan).toContainText("Ready to review in the editor");
+  await plan.getByRole("button", { name: "Open plan" }).click();
+  await expect(page.locator(".editor-plan")).toBeVisible();
+  await expect(page.locator(".editor-plan .agent-markdown")).toContainText("Implementation plan");
+});
+
 test("ACP steering and background completion return the session to idle @cross", async ({
   page,
 }) => {

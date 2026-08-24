@@ -54,7 +54,9 @@ public sealed partial class AcpAgentSession {
 			case "agent_thought_chunk": EmitContent(update, "thought-message-delta", "thought"); break;
 			case "tool_call": UpdateTool(update, initial: true); break;
 			case "tool_call_update": UpdateTool(update, initial: false); break;
-			case "plan": EmitPlan(update); break;
+			case "plan": EmitProgress(update); break;
+			case "plan_update": UpdatePlan(update); break;
+			case "plan_removed": RemovePlan(update); break;
 			case "available_commands_update": UpdateCommands(update); break;
 			case "current_mode_update": UpdateMode(update); break;
 			case "config_option_update": UpdateConfig(update); break;

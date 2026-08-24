@@ -103,6 +103,7 @@ public sealed partial class AcpAgentSession {
 				clientCapabilities = new {
 					auth = new { terminal = true },
 					fs = new { readTextFile = true, writeTextFile = true },
+					plan = new { },
 					terminal = true,
 					session = new { configOptions = new { boolean = new { } } },
 					elicitation = new { form = new { }, url = new { } },
@@ -155,6 +156,7 @@ public sealed partial class AcpAgentSession {
 					if (_disposed || _activeGeneration != generation) return;
 					_sessionId = null;
 					_turnNumber = 0;
+					_planTurns.Clear();
 				}
 				Emit(new AgentPaneMessage { Type = "transcript-reset", ProviderId = _definition.Id });
 			}
@@ -163,6 +165,7 @@ public sealed partial class AcpAgentSession {
 		JsonElement setup;
 		try {
 			if (sessionId is null) {
+				lock (_gate) _planTurns.Clear();
 				setup = await _connection.RequestAsync(
 					"session/new",
 					new {
@@ -190,6 +193,7 @@ public sealed partial class AcpAgentSession {
 						if (_disposed || _activeGeneration != generation) return;
 						_loadingTranscript = true;
 						_turnNumber = 0;
+						_planTurns.Clear();
 						_replayContentRole = null;
 						_loadedMessages.Clear();
 					}

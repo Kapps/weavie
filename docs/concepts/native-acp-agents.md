@@ -62,6 +62,11 @@ The client speaks ACP protocol version 1 over strict JSON-RPC framing. It uses c
 Unsupported optional capabilities stay absent from the UI; they do not create another session type. Malformed
 advertised data or protocol output fails the exact agent generation visibly.
 
+ACP's standard `plan` update is the agent's replaceable execution checklist, so Weavie renders it as progress
+activity rather than an openable document. Weavie advertises the separate plan-document capability: explicit
+`plan_update` notifications create or revise openable plan artifacts by provider plan id, while `plan_removed`
+retracts them. File-backed plans are snapshotted when received and must resolve to a local file inside the workspace.
+
 Agents mirror one mode axis in both `configOptions` and the legacy `modes` block. The configuration option owns
 that axis, because `session/set_config_option` is what writes it back; a legacy-only mode axis is written with
 `session/set_mode`. A tool may also embed a terminal the agent runs itself, so an embedded terminal id that

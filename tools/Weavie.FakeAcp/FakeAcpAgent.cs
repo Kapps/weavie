@@ -19,6 +19,7 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 	private bool _cancelFails;
 	private bool _authenticated;
 	private bool _expiredAuthentication;
+	private bool _supportsPlanUpdates;
 	private string? _sessionId;
 
 	public FakeAcpAgent() {
@@ -78,6 +79,12 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 		if (!parameters.TryGetProperty("protocolVersion", out var version) || version.GetInt32() != 1) {
 			throw new AcpAdapterException(-32600, "Fake ACP requires protocol version 1.", null);
 		}
+		_supportsPlanUpdates = parameters.TryGetProperty("clientCapabilities", out var capabilities)
+			&& capabilities.TryGetProperty("plan", out var plan)
+			&& plan.ValueKind == JsonValueKind.Object;
+		if (!_supportsPlanUpdates) {
+			throw new AcpAdapterException(-32600, "Fake ACP requires plan document support.", null);
+		}
 		var response = new JsonObject {
 			["protocolVersion"] = 1,
 			["agentInfo"] = new JsonObject { ["name"] = "weavie-fake-acp", ["version"] = "1" },
@@ -131,7 +138,8 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 				["messageId"] = "replayed-user-1",
 				["content"] = Text("prompt"),
 			});
-			ReplayPlan("first persisted plan");
+			ReplayProgress("first persisted progress");
+			PlanDocument("replayed-plan-1", "# First persisted plan");
 			Update(new JsonObject {
 				["sessionUpdate"] = "agent_message_chunk",
 				["messageId"] = "replayed-agent-1",
@@ -152,7 +160,8 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 				["messageId"] = "replayed-user-2",
 				["content"] = Text("second persisted prompt"),
 			});
-			ReplayPlan("second persisted plan");
+			ReplayProgress("second persisted progress");
+			PlanDocument("replayed-plan-2", "# Second persisted plan");
 			Update(new JsonObject {
 				["sessionUpdate"] = "agent_message_chunk",
 				["messageId"] = "replayed-agent-2",
@@ -239,7 +248,13 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 			return new JsonObject { ["stopReason"] = "refusal" };
 		} else if (text == "malformed-update") {
 			Connection().Notify("session/update", new JsonObject { ["sessionId"] = _sessionId });
-		} else if (text == "auth-expired" && !_expiredAuthentication) {
+		} else if (text == "plan-document") PlanDocument("live-plan", "# Implementation plan");
+		else if (text == "plan-revision") PlanDocument("live-plan", "# Revised implementation plan");
+		else if (text == "remove-plan") RemovePlan("live-plan");
+		else if (text == "item-plan-document") ItemPlanDocument();
+		else if (text == "file-plan-document") FilePlanDocument();
+		else if (text == "external-file-plan-document") ExternalFilePlanDocument();
+		else if (text == "auth-expired" && !_expiredAuthentication) {
 			_expiredAuthentication = true;
 			_authenticated = false;
 			throw new AcpAdapterException(-32000, "Fake credentials expired.", null);
@@ -806,13 +821,63 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 		return Setup();
 	}
 
-	private void ReplayPlan(string text) => Update(new JsonObject {
+	private void ReplayProgress(string text) => Update(new JsonObject {
 		["sessionUpdate"] = "plan",
 		["entries"] = new JsonArray(new JsonObject {
 			["content"] = text,
 			["status"] = "completed",
 			["priority"] = "medium",
 		}),
+	});
+
+	private void PlanDocument(string planId, string content) {
+		if (!_supportsPlanUpdates) throw new InvalidOperationException("The client did not advertise plan updates.");
+		Update(new JsonObject {
+			["sessionUpdate"] = "plan_update",
+			["plan"] = new JsonObject {
+				["type"] = "markdown",
+				["planId"] = planId,
+				["content"] = content,
+			},
+		});
+	}
+
+	private void ItemPlanDocument() => Update(new JsonObject {
+		["sessionUpdate"] = "plan_update",
+		["plan"] = new JsonObject {
+			["type"] = "items",
+			["planId"] = "item-plan",
+			["entries"] = new JsonArray(
+				new JsonObject { ["content"] = "Inspect", ["status"] = "completed", ["priority"] = "medium" },
+				new JsonObject { ["content"] = "Implement", ["status"] = "pending", ["priority"] = "high" }),
+		},
+	});
+
+	private void FilePlanDocument() {
+		string path = Path.Combine(Environment.CurrentDirectory, "file-plan.md");
+		File.WriteAllText(path, "# File plan");
+		Update(new JsonObject {
+			["sessionUpdate"] = "plan_update",
+			["plan"] = new JsonObject {
+				["type"] = "file",
+				["planId"] = "file-plan",
+				["uri"] = new Uri(path).AbsoluteUri,
+			},
+		});
+	}
+
+	private void ExternalFilePlanDocument() => Update(new JsonObject {
+		["sessionUpdate"] = "plan_update",
+		["plan"] = new JsonObject {
+			["type"] = "file",
+			["planId"] = "external-file-plan",
+			["uri"] = new Uri(Path.Combine(Environment.CurrentDirectory, "..", "outside-plan.md")).AbsoluteUri,
+		},
+	});
+
+	private void RemovePlan(string planId) => Update(new JsonObject {
+		["sessionUpdate"] = "plan_removed",
+		["planId"] = planId,
 	});
 
 	// Shipping agents mirror one mode axis in both configOptions and the legacy modes block.

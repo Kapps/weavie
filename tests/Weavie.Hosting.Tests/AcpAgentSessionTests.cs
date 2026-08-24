@@ -93,8 +93,9 @@ public sealed class AcpAgentSessionTests {
 		var edit = Assert.Single(messages, message => message.Type == "item-completed" && message.ItemId == "tool:edit");
 		Assert.Equal("sample.txt", Path.GetFileName(Assert.Single(edit.Locations!).Path));
 		Assert.Equal("new", Assert.Single(edit.Diffs!).NewText);
-		Assert.Contains(messages, message => message.ItemType == "plan"
+		Assert.Contains(messages, message => message.ItemType == "progress"
 			&& message.Text!.Contains("[~] Implement", StringComparison.Ordinal));
+		Assert.DoesNotContain(messages, message => message.ItemType == "plan");
 		var usage = fixture.Session.Snapshot;
 		Assert.Equal(new AgentContextWindowUsage(123, 4096), usage.ContextWindow);
 		var limit = Assert.Single(usage.Limits);
@@ -640,6 +641,93 @@ public sealed class AcpAgentSessionTests {
 	}
 
 	[Fact]
+	public async Task NativeSession_SeparatesProgressFromOpenablePlanDocuments() {
+		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
+		await fixture.StartAsync();
+
+		fixture.Submit("rich");
+		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed");
+		var progress = Assert.Single(fixture.Messages, message => message.ItemType == "progress");
+		Assert.Equal("progress:current", progress.ItemId);
+		Assert.Contains("[~] Implement", progress.Text, StringComparison.Ordinal);
+		Assert.DoesNotContain(fixture.Messages, message => message.ItemType == "plan");
+
+		fixture.Submit("plan-document");
+		var plan = await fixture.WaitForMessageAsync(message => message.ItemType == "plan");
+		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed" && message.TurnId == "2");
+
+		Assert.Equal("plan:live-plan", plan.ItemId);
+		Assert.Equal("# Implementation plan", plan.Text);
+	}
+
+	[Fact]
+	public async Task NativeSession_RevisesAndRemovesAPlanAtItsOriginalIdentity() {
+		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
+		await fixture.StartAsync();
+
+		fixture.Submit("plan-document");
+		var original = await fixture.WaitForMessageAsync(message => message.ItemId == "plan:live-plan");
+		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed");
+		fixture.Submit("plan-revision");
+		var revised = await fixture.WaitForMessageAsync(message => message.ItemId == "plan:live-plan"
+			&& message.Text == "# Revised implementation plan");
+		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed" && message.TurnId == "2");
+		fixture.Submit("remove-plan");
+		var removed = await fixture.WaitForMessageAsync(message => message.Type == "item-retracted"
+			&& message.ItemId == "plan:live-plan");
+
+		Assert.Equal(original.TurnId, revised.TurnId);
+		Assert.Equal(original.TurnId, removed.TurnId);
+	}
+
+	[Fact]
+	public async Task NativeSession_PreservesPlanIdentityAcrossResume() {
+		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
+		await fixture.StartAsync();
+
+		fixture.Submit("plan-document");
+		var original = await fixture.WaitForMessageAsync(message => message.ItemId == "plan:live-plan");
+		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed");
+		var oldStarts = fixture.Events.Values
+			.OfType<AgentSessionStarted>()
+			.ToHashSet(ReferenceEqualityComparer.Instance);
+		fixture.Session.Restart();
+		await fixture.Events.WaitForAsync(value => value is AgentSessionStarted started && !oldStarts.Contains(started));
+		fixture.Submit("remove-plan");
+		var removed = await fixture.WaitForMessageAsync(message => message.Type == "item-retracted"
+			&& message.ItemId == "plan:live-plan");
+
+		Assert.Equal(original.TurnId, removed.TurnId);
+	}
+
+	[Fact]
+	public async Task NativeSession_ReadsEveryAdvertisedPlanDocumentShape() {
+		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
+		await fixture.StartAsync();
+
+		fixture.Submit("item-plan-document");
+		var items = await fixture.WaitForMessageAsync(message => message.ItemId == "plan:item-plan");
+		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed");
+		fixture.Submit("file-plan-document");
+		var file = await fixture.WaitForMessageAsync(message => message.ItemId == "plan:file-plan");
+
+		Assert.Equal("- [x] Inspect\n- [ ] Implement", items.Text);
+		Assert.Equal("# File plan", file.Text);
+	}
+
+	[Fact]
+	public async Task NativeSession_RejectsAFilePlanOutsideTheWorkspace() {
+		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
+		await fixture.StartAsync();
+
+		fixture.Submit("external-file-plan-document");
+		var error = await fixture.WaitForMessageAsync(message => message.Type == "error");
+
+		Assert.Contains("outside", error.Text, StringComparison.OrdinalIgnoreCase);
+		Assert.DoesNotContain(fixture.Messages, message => message.ItemId == "plan:external-file-plan");
+	}
+
+	[Fact]
 	public async Task NativeSession_RetractsARefusedTurn() {
 		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
 		await fixture.StartAsync();
@@ -653,7 +741,7 @@ public sealed class AcpAgentSessionTests {
 		Assert.Contains(fixture.Messages, message => message.Type == "item-retracted"
 			&& message.ItemId == "thought:thought");
 		Assert.Contains(fixture.Messages, message => message.Type == "item-retracted"
-			&& message.ItemId == "plan:current");
+			&& message.ItemId == "progress:current");
 	}
 
 	[Fact]
@@ -823,11 +911,15 @@ public sealed class AcpAgentSessionTests {
 		Assert.Contains(snapshot, message => message.Type == "user-message" && message.Text == "first persisted prompt");
 		Assert.Contains(snapshot, message => message.Type == "user-message" && message.Text == "second persisted prompt");
 		Assert.Contains(snapshot, message => message.Type == "item-completed" && message.Text == "persisted transcript");
+		var progress = snapshot.Where(message => message.ItemType == "progress").ToArray();
+		Assert.Equal(2, progress.Length);
+		Assert.Contains(progress, message => message.Text!.Contains("first persisted progress", StringComparison.Ordinal));
+		Assert.Contains(progress, message => message.Text!.Contains("second persisted progress", StringComparison.Ordinal));
 		var plans = snapshot.Where(message => message.ItemType == "plan").ToArray();
 		Assert.Equal(2, plans.Length);
 		Assert.Equal(["1", "2"], plans.Select(message => message.TurnId));
-		Assert.Contains(plans, message => message.Text!.Contains("first persisted plan", StringComparison.Ordinal));
-		Assert.Contains(plans, message => message.Text!.Contains("second persisted plan", StringComparison.Ordinal));
+		Assert.Contains(plans, message => message.Text == "# First persisted plan");
+		Assert.Contains(plans, message => message.Text == "# Second persisted plan");
 		// The transcript still calls this one running, but the process that ran it is gone: it replays as an
 		// interrupted row, not a spinner nothing will ever resolve.
 		Assert.Contains(snapshot, message => message.Type == "item-completed"
@@ -845,10 +937,12 @@ public sealed class AcpAgentSessionTests {
 		Assert.Equal(
 			[
 				("1", "userMessage:replayed-user-1"),
-				("1", "plan:current"),
+				("1", "progress:current"),
+				("1", "plan:replayed-plan-1"),
 				("1", "agentMessage:replayed-agent-1"),
 				("2", "userMessage:replayed-user-2"),
-				("2", "plan:current"),
+				("2", "progress:current"),
+				("2", "plan:replayed-plan-2"),
 				("2", "agentMessage:replayed-agent-2"),
 				("2", "tool:replayed-finished"),
 				("2", "tool:replayed-background"),

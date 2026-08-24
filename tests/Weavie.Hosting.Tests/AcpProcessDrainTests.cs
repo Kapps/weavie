@@ -130,7 +130,7 @@ public sealed class AcpProcessDrainTests {
 
 		await Assert.ThrowsAsync<InvalidOperationException>(() => connection.RequestAsync(
 			"initialize",
-			new { protocolVersion = 1 },
+			new { protocolVersion = 1, clientCapabilities = new { plan = new { } } },
 			first.Generation,
 			CancellationToken.None));
 		await Assert.ThrowsAsync<InvalidOperationException>(() => connection.NotifyAsync(
@@ -139,7 +139,7 @@ public sealed class AcpProcessDrainTests {
 			first.Generation));
 		var initialized = await connection.RequestAsync(
 			"initialize",
-			new { protocolVersion = 1 },
+			new { protocolVersion = 1, clientCapabilities = new { plan = new { } } },
 			second.Generation,
 			CancellationToken.None);
 		Assert.Equal(1, initialized.GetProperty("protocolVersion").GetInt32());

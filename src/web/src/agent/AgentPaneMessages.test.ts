@@ -689,6 +689,29 @@ describe("toAgentTranscript", () => {
     expect(unavailable[0]).toMatchObject({ summary: "Plan is unavailable", actionMessage: null });
   });
 
+  it("keeps an ACP task-list update in activity instead of promoting it to a plan", () => {
+    const transcript = toAgentTranscript([
+      {
+        type: "item-completed",
+        providerId: "acp",
+        threadId: "thread-1",
+        turnId: "turn-1",
+        itemId: "progress:current",
+        itemType: "progress",
+        category: "progress",
+        summary: "Task list",
+        text: "- [x] Inspect\n- [~] Implement",
+        status: "updated",
+      },
+    ]);
+
+    expect(transcript).toHaveLength(1);
+    expect(transcript[0]).toMatchObject({ kind: "activity", actionMessage: null });
+    expect(transcript[0]?.details).toMatchObject([
+      { category: "progress", detailText: "- [x] Inspect\n- [~] Implement" },
+    ]);
+  });
+
   it("assigns a unique id to every entry and nested step (the reconcile key precondition)", () => {
     const transcript = toAgentTranscript([
       { type: "user-message", providerId: "acp", turnId: "t1", itemId: "u1", text: "q1" },

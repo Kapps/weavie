@@ -888,6 +888,14 @@ export default function App(): JSX.Element {
         closeSessions();
         if (compact()) {
           navigateMobileSurface(AGENT_PANE_KIND);
+          return true;
+        }
+        // A switch swaps which session's panes are on screen, leaving the caret on the element that just went
+        // away — the incoming pane paints itself active but takes no typing. Re-home focus to the same pane in
+        // the session now in front, so the pane that looks focused is the one that is.
+        const pane = activePane();
+        if (pane !== null) {
+          requestAnimationFrame(() => focusPane(pane));
         }
         return true;
       })
@@ -1722,7 +1730,22 @@ export default function App(): JSX.Element {
         setContext(key, value);
       }
     };
+    // Focus can leave a pane without landing anywhere — its element is replaced, or a click misses every
+    // focusable. Publish that as "nothing is focused" rather than keeping the departed pane's keys, which
+    // would route a chord (Ctrl+Tab) to a pane the user has left and paint it as still holding focus.
+    const onFocusOut = (): void => {
+      queueMicrotask(() => {
+        if (document.activeElement !== null && document.activeElement !== document.body) {
+          return;
+        }
+        setFocusedKind(null);
+        for (const [key, value] of Object.entries(paneFocusContext(null))) {
+          setContext(key, value);
+        }
+      });
+    };
     document.addEventListener("focusin", onFocusIn);
+    document.addEventListener("focusout", onFocusOut);
 
     onCleanup(() => {
       for (const timer of persistTimers.values()) {
@@ -1736,6 +1759,7 @@ export default function App(): JSX.Element {
         off();
       }
       document.removeEventListener("focusin", onFocusIn);
+      document.removeEventListener("focusout", onFocusOut);
       offSourceErrors();
       offViewBinding();
       editor.dispose();

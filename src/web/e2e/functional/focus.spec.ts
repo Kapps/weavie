@@ -85,5 +85,27 @@ test("creating a session focuses its agent while ordinary session switching does
   await page.keyboard.press("Control+Tab");
   await waitForSessionSwitch(page, forkedSlot);
   await expect(shell).toHaveClass(/\bactive\b/);
-  expect(await focusedKind(page)).not.toBe("terminal:claude");
+  // Focus travels with the switch into the same pane of the session now in front — it neither jumps to the
+  // agent nor is left behind on the outgoing session's pane.
+  await expect.poll(() => focusedKind(page)).toBe("terminal:shell");
+});
+
+// A switch swaps which session's panes are on screen. Focus has to travel with it: otherwise the caret stays
+// on the element that just went away (landing on nothing), so the incoming pane paints itself active while
+// typing goes nowhere — and the stale focus state routes Ctrl+Tab to a pane the user has already left.
+test("typing lands in the session a keyboard switch brings up, with no click first", async ({
+  page,
+}) => {
+  await createSession(page, { branch: "e2e/focus-carry-a", provider: "fake-acp" });
+  await createSession(page, { branch: "e2e/focus-carry-b", provider: "fake-acp" });
+  const composer = page.locator('[data-surface="structured-agent"] [data-agent-composer] textarea');
+  await composer.click();
+  await composer.fill("session b draft");
+
+  await page.keyboard.press("Control+Shift+Tab");
+  await expect(page.locator('.session-chip.active[title^="e2e/focus-carry-a —"]')).toBeVisible();
+  await page.keyboard.type("typed without clicking");
+
+  await expect(composer).toHaveValue("typed without clicking");
+  expect(await focusedKind(page)).toBe("terminal:claude");
 });

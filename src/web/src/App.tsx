@@ -1734,18 +1734,18 @@ export default function App(): JSX.Element {
       }
     };
     const onFocusIn = (event: FocusEvent): void => publishFocus(event.target as Element | null);
-    // Focus can leave an element and land nowhere — a control that finishes its job unmounts, or a click
-    // misses every focusable. Hand it back to the pane it left (still on screen, and not on compact, where
-    // focusing pops the keyboard), so that pane keeps taking typing and chords; publish the empty state only
-    // when there's no pane left to hold it. Checked a frame later, so a browser-driven move lands first.
+    // A control that finishes its job unmounts under the focus it holds, leaving the pane taking no typing and
+    // no chords. Hand focus back to that pane — only when the element really went away, so a press or drag that
+    // merely left focus behind stays the user's (and not on compact, where focusing pops the keyboard). What's
+    // left focusless publishes as such, a frame later so a browser-driven move lands first.
     const onFocusOut = (event: FocusEvent): void => {
-      const pane = (event.target as Element | null)?.closest("[data-kind]") ?? null;
+      const lost = event.target as Element | null;
+      const kind = focusedKind();
       requestAnimationFrame(() => {
         if (document.activeElement !== document.body) {
           return;
         }
-        const kind = pane?.isConnected === true ? pane.getAttribute("data-kind") : null;
-        if (kind !== null && !compact() && !hasTextSelection()) {
+        if (lost?.isConnected === false && kind !== null && !compact() && !hasTextSelection()) {
           focusPane(kind);
         }
         if (document.activeElement === document.body) {

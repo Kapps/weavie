@@ -98,6 +98,20 @@ export const test = base.extend<WeavieOptions & WeavieFixtures>({
         }
       });
       page.on("pageerror", (err) => consoleErrors.push(`[pageerror] ${String(err)}`));
+      // A stylesheet or chunk that never arrives (Windows runners fail one with `net::ERR_NO_BUFFER_SPACE`
+      // under socket pressure) leaves the app live but unstyled — `.app` loses its `height: 100%` and
+      // collapses to content height, so panes render a few pixels tall and elements are present-but-hidden.
+      // Every assertion after that fails somewhere unrelated, so record which load failed and say so.
+      const blockedLoads: string[] = [];
+      page.on("requestfailed", (request) => {
+        const kind = request.resourceType();
+        if (kind !== "stylesheet" && kind !== "script" && kind !== "document") {
+          return;
+        }
+        const failure = `${kind} ${request.url()} — ${request.failure()?.errorText ?? "failed"}`;
+        blockedLoads.push(failure);
+        consoleErrors.push(`[requestfailed] ${failure}`);
+      });
       const dumpDiagnostics = async (): Promise<void> => {
         const layout = await page
           .evaluate(() => {
@@ -214,6 +228,9 @@ export const test = base.extend<WeavieOptions & WeavieFixtures>({
         // The app removes the splash element once it has booted (layout + first session). Its disappearance
         // is the "app is interactive" signal — not a fixed sleep.
         await expect(page.locator("#splash")).toHaveCount(0, { timeout: 40_000 });
+        if (blockedLoads.length > 0) {
+          throw new Error(`the page booted without ${blockedLoads.join("; ")}`);
+        }
         if (dismissInferenceOffer && !automaticInference) {
           const offer = page.locator(".toast", {
             hasText: "Let Weavie use automatic inference",

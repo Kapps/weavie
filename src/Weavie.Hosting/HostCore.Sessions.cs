@@ -103,8 +103,12 @@ public sealed partial class HostCore {
 
 	/// <summary>Test seam for the ordinary session attached to the user-owned workspace checkout.</summary>
 	internal HostSession? WorkspaceSessionForTest =>
-		_sessions?.Slots.FirstOrDefault(slot =>
-			!slot.ManagedCheckout && PathsEqual(slot.WorktreePath, WorkspaceRoot))?.Session;
+		_sessions?.Slots.FirstOrDefault(IsWorkspaceCheckout)?.Session;
+
+	/// <summary>The workspace's own checkout, the one checkout a delete keeps: it is re-created, never rediscovered.</summary>
+	private bool IsWorkspaceCheckout(SessionSlot slot) => IsWorkspaceCheckout(slot.WorktreePath);
+
+	private bool IsWorkspaceCheckout(string worktreePath) => PathsEqual(worktreePath, WorkspaceRoot);
 
 	/// <summary>Every loaded session's live backend, in catalog order.</summary>
 	private List<HostSession> LoadedSessions() {
@@ -207,7 +211,7 @@ public sealed partial class HostCore {
 	private void EnsureWorkspaceSession() {
 		var sessions = _sessions
 			?? throw new InvalidOperationException("The session catalog is not initialized.");
-		if (sessions.Slots.Any(slot => !slot.ManagedCheckout && PathsEqual(slot.WorktreePath, WorkspaceRoot))) {
+		if (sessions.Slots.Any(IsWorkspaceCheckout)) {
 			return;
 		}
 
@@ -219,7 +223,6 @@ public sealed partial class HostCore {
 			Id = id,
 			Label = _workspaceSessionLabel,
 			WorktreePath = WorkspaceRoot,
-			ManagedCheckout = false,
 			AgentProviderId = providerId,
 			Session = session,
 			EditorSession = EditorSession.Empty,
@@ -261,7 +264,6 @@ public sealed partial class HostCore {
 					Id = label,
 					Label = label,
 					WorktreePath = status.Path,
-					ManagedCheckout = status.IsManaged,
 					AgentProviderId = agentProviderId,
 					Session = null,
 					EditorSession = EditorSession.Empty,
@@ -739,7 +741,7 @@ public sealed partial class HostCore {
 			return Task.FromResult(CommandResult.Failure("No such session."));
 		}
 
-		if (target.ManagedCheckout && _worktrees is not { }) {
+		if (!IsWorkspaceCheckout(target) && _worktrees is not { }) {
 			return Task.FromResult(CommandResult.Failure("This workspace isn't a git repository, so it has no worktree to delete."));
 		}
 
@@ -773,8 +775,9 @@ public sealed partial class HostCore {
 			// Check for uncommitted work BEFORE tearing anything down, so a blocked delete leaves the session
 			// untouched rather than unloading it as a side effect. Skip when the worktree is gone/half-removed
 			// (no .git) — nothing left to lose, and git can't answer git status there. A read-only git probe,
-			// so it needs no UI-thread marshaling.
-			if (target.ManagedCheckout && !force && IsLiveWorktree(worktreePath)
+			// so it needs no UI-thread marshaling. git states its own refusals (a main working tree, a locked
+			// worktree) when the removal runs.
+			if (!IsWorkspaceCheckout(target) && !force && IsLiveWorktree(worktreePath)
 				&& await new GitService().HasUncommittedChangesAsync(worktreePath, ct).ConfigureAwait(false)) {
 				return CommandResult.Failure(
 					$"Session '{label}' has uncommitted changes; deleting would discard them. Re-run with force to delete anyway.");
@@ -852,7 +855,7 @@ public sealed partial class HostCore {
 				await _ui.InvokeAsync(() => UnloadSlotAsync(target), admissionCancellation).ConfigureAwait(false);
 			}
 
-			if (target.ManagedCheckout) {
+			if (!IsWorkspaceCheckout(target)) {
 				// Settle before removal: Windows can lag on releasing the unloaded children's handles, and external
 				// scanners may briefly hold a lock. A short pause lets git's one-shot remove succeed instead of
 				// partial-failing and orphaning the directory (git deletes its own record mid-failure, unrecoverable).
@@ -875,9 +878,9 @@ public sealed partial class HostCore {
 				}
 				return Task.CompletedTask;
 			}, CancellationToken.None).ConfigureAwait(false);
-			Notify("info", target.ManagedCheckout
-				? $"Session '{label}' was deleted. Its branch was kept."
-				: $"Session '{label}' was deleted. Its checkout was kept.");
+			Notify("info", IsWorkspaceCheckout(target)
+				? $"Session '{label}' was deleted. Its checkout was kept."
+				: $"Session '{label}' was deleted. Its branch was kept.");
 			return CommandResult.Success();
 		} catch (WorktreeDirtyException) {
 			return CommandResult.Failure(
@@ -924,7 +927,7 @@ public sealed partial class HostCore {
 		string state = "clean";
 		IReadOnlyList<string> tracked = [];
 		IReadOnlyList<string> untracked = [];
-		if (target.ManagedCheckout && IsLiveWorktree(target.WorktreePath)) {
+		if (!IsWorkspaceCheckout(target) && IsLiveWorktree(target.WorktreePath)) {
 			try {
 				var status = await new GitService().GetChangeStateAsync(target.WorktreePath, ct).ConfigureAwait(false);
 				state = status.State switch {
@@ -945,7 +948,7 @@ public sealed partial class HostCore {
 		return CommandResult.Success(null, JsonSerializer.Serialize(new {
 			state,
 			label = target.Label,
-			removesCheckout = target.ManagedCheckout,
+			removesCheckout = !IsWorkspaceCheckout(target),
 			changedFiles = changed.Take(previewLimit).ToArray(),
 			changedCount = changed.Length,
 		}));
@@ -1082,8 +1085,7 @@ public sealed partial class HostCore {
 		// load the ordinary session already attached to that checkout.
 		try {
 			string? workspaceBranch = await new GitService().GetCurrentBranchAsync(WorkspaceRoot, ct).ConfigureAwait(false);
-			var workspaceSlot = _sessions?.Slots.FirstOrDefault(slot =>
-				!slot.ManagedCheckout && PathsEqual(slot.WorktreePath, WorkspaceRoot));
+			var workspaceSlot = _sessions?.Slots.FirstOrDefault(IsWorkspaceCheckout);
 			if (string.Equals(workspaceBranch, branch, StringComparison.Ordinal) && workspaceSlot is not null) {
 				if (ExistingSessionInputError(input) is { } error) {
 					return error;
@@ -1144,7 +1146,6 @@ public sealed partial class HostCore {
 					Id = branch,
 					Label = branch,
 					WorktreePath = record.Path,
-					ManagedCheckout = true,
 					AgentProviderId = agentProviderId,
 					Session = CreateSession(record.Path, agentProviderId, branch),
 					EditorSession = EditorSession.Empty,

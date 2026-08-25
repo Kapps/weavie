@@ -202,8 +202,11 @@ public sealed class WorktreeManager {
 				throw new WorktreeDirtyException(path);
 			}
 
-			// Teardown while the tree still exists; best-effort (a non-zero exit is surfaced, not aborting), past the dirty guard.
-			await _provisioner.RunTeardownAsync(path, ct).ConfigureAwait(false);
+			// Teardown while the tree still exists; best-effort (a non-zero exit is surfaced, not aborting), past the
+			// dirty guard. Only where setup ran: a discovered checkout Weavie never provisioned gets no teardown.
+			if (record is not null || IsWithinWorktreesDir(normalized)) {
+				await _provisioner.RunTeardownAsync(path, ct).ConfigureAwait(false);
+			}
 
 			if (IsWithinWorktreesDir(normalized)) {
 				await RemoveOwnedWorktreeAsync(path, normalized, ct).ConfigureAwait(false);

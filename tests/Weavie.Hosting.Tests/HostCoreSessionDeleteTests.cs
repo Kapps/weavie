@@ -585,6 +585,81 @@ public sealed class HostCoreSessionDeleteTests {
 		Assert.True(Directory.Exists(host.RepoRoot));
 	}
 
+	// Puts a checkout Weavie did not create on the rail: git creates it, reconcile discovers it at the next open.
+	private static async Task<string> DiscoverCheckoutAsync(TestHost host, Action<string> afterAdd) {
+		string checkout = Path.Combine(Path.GetDirectoryName(host.RepoRoot)!, "manual");
+		await host.RestartAsync(() => {
+			TestHost.RunGit(host.RepoRoot, "worktree", "add", checkout, "-b", "manual");
+			afterAdd(checkout);
+		});
+		return checkout;
+	}
+
+	// A checkout Weavie did not create — another workspace's worktree, an agent's, a hand-made one — is
+	// discovered onto the rail, so deleting it has to remove it; otherwise git keeps reporting it and the next
+	// open rediscovers the session forever.
+	[Fact]
+	public async Task DeletingADiscoveredCheckoutRemovesItsWorktreeForGood() {
+		await using var host = await TestHost.StartAsync();
+		string checkout = await DiscoverCheckoutAsync(host, static _ => { });
+		Assert.Contains("manual", SessionIds(host));
+
+		var result = await host.DeleteSessionAsync("manual", force: false, classify: false);
+
+		Assert.True(result.Ok, result.Error);
+		Assert.False(Directory.Exists(checkout));
+		await host.RestartAsync();
+		Assert.DoesNotContain("manual", SessionIds(host));
+	}
+
+	[Fact]
+	public async Task DeletingADiscoveredCheckoutWithChangesNeedsForce() {
+		await using var host = await TestHost.StartAsync();
+		string checkout = await DiscoverCheckoutAsync(
+			host,
+			static tree => File.WriteAllText(Path.Combine(tree, "readme.txt"), "edited\n"));
+
+		var blocked = await host.DeleteSessionAsync("manual", force: false, classify: false);
+
+		Assert.False(blocked.Ok);
+		Assert.Contains("uncommitted changes", blocked.Error);
+		Assert.True(Directory.Exists(checkout));
+		Assert.Contains("manual", SessionIds(host));
+
+		Assert.True((await host.DeleteSessionAsync("manual", force: true, classify: false)).Ok);
+		Assert.False(Directory.Exists(checkout));
+	}
+
+	[Fact]
+	public async Task ClassifyingADiscoveredCheckoutReportsTheRemovalAndItsState() {
+		await using var host = await TestHost.StartAsync();
+		await DiscoverCheckoutAsync(
+			host,
+			static tree => File.WriteAllText(Path.Combine(tree, "readme.txt"), "edited\n"));
+
+		var classification = await host.DeleteSessionAsync("manual", force: false, classify: true);
+
+		using var data = JsonDocument.Parse(classification.DataJson!);
+		Assert.True(data.RootElement.GetProperty("removesCheckout").GetBoolean());
+		Assert.Equal("modified", data.RootElement.GetProperty("state").GetString());
+	}
+
+	// Git refuses to remove a locked worktree even with force, so the delete fails in git's own words rather
+	// than dropping the session and leaving a checkout the next open rediscovers.
+	[Fact]
+	public async Task DeletingADiscoveredCheckoutIsRefusedWhenItsWorktreeIsLocked() {
+		await using var host = await TestHost.StartAsync();
+		string checkout = await DiscoverCheckoutAsync(host, static _ => { });
+		TestHost.RunGit(host.RepoRoot, "worktree", "lock", checkout);
+
+		var result = await host.DeleteSessionAsync("manual", force: true, classify: false);
+
+		Assert.False(result.Ok);
+		Assert.Contains("locked working tree", result.Error);
+		Assert.True(Directory.Exists(checkout));
+		Assert.Contains("manual", SessionIds(host));
+	}
+
 	[Fact]
 	public async Task RegistryLossDoesNotPreventDeletingTheOwnedCheckout() {
 		await using var host = await TestHost.StartAsync();

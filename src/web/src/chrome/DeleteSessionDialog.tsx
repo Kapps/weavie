@@ -6,8 +6,8 @@ import { ModalShell, modalSubmitKeys } from "./ModalShell";
 export type DeleteSessionState = "clean" | "untracked" | "modified";
 
 /**
- * The session-delete confirm. Managed checkout removal escalates with its state; deleting a session on a
- * user-owned checkout removes only the session. Enter confirms when allowed and Esc cancels.
+ * The session-delete confirm. Worktree removal escalates with the checkout's state; deleting the session on
+ * the workspace's own checkout removes only the session. Enter confirms when allowed and Esc cancels.
  */
 export function DeleteSessionDialog(props: {
   label: string;

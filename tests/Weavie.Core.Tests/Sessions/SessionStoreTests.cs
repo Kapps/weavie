@@ -18,7 +18,6 @@ public sealed class SessionStoreTests {
 		Id = new SessionId(id),
 		Label = label,
 		WorktreePath = "/wt/" + label,
-		ManagedCheckout = true,
 		Loaded = loaded,
 		AgentProviderId = "claude",
 		EditorSession = EditorSession.Empty,
@@ -121,6 +120,22 @@ public sealed class SessionStoreTests {
 
 		Assert.True(fs.FileExists(StorePath + ".bad"));
 		Assert.Empty(store.Items);
+	}
+
+	// A file a previous build wrote carries properties the store has since stopped reading; skipping them is
+	// what keeps a real session list from being reset on upgrade.
+	[Fact]
+	public void EntryCarryingAnUnreadProperty_LoadsInsteadOfResetting() {
+		var fs = new InMemoryFileSystem();
+		fs.WriteAllText(
+			StorePath,
+			"""{"version":3,"sessions":[{"id":"a","label":"a","worktreePath":"/wt/a","managedCheckout":true,"loaded":true,"agentProviderId":"claude","editorSession":{"open":[]}}]}""");
+
+		var store = new SessionStore(fs, StorePath);
+
+		Assert.False(fs.FileExists(StorePath + ".bad"));
+		Assert.Equal("a", store.Items.Single().Id.Value);
+		Assert.True(store.Items.Single().Loaded);
 	}
 
 	[Theory]

@@ -8,7 +8,7 @@ namespace Weavie.Core.Sessions;
 /// <summary>
 /// The per-workspace session overlay, persisted atomically to
 /// <c>~/.weavie/workspaces/&lt;id&gt;/sessions.json</c> so a reopen (including a worker auto-update restart) comes
-/// back with each slot's ownership, provider, loaded state, and editor state. Selection is client-owned. Git
+/// back with each slot's provider, loaded state, and editor state. Selection is client-owned. Git
 /// remains authoritative for the worktree set. The store also carries the last real shell-terminal size so a
 /// restored pre-spawn matches the reattaching xterm's width. A malformed file is backed up to
 /// <c>sessions.json.bad</c> and reset rather than throwing.
@@ -121,7 +121,6 @@ public sealed class SessionStore {
 			|| string.IsNullOrWhiteSpace(entry.Label)
 			|| string.IsNullOrWhiteSpace(entry.WorktreePath)
 			|| string.IsNullOrWhiteSpace(entry.AgentProviderId)
-			|| entry.ManagedCheckout is not { } managedCheckout
 			|| entry.Loaded is not { } loaded
 			|| entry.EditorSession is not { Open: not null } editorSession) {
 			throw new JsonException("Session entry is missing required version 3 data.");
@@ -131,7 +130,6 @@ public sealed class SessionStore {
 			Id = new SessionId(entry.Id),
 			Label = entry.Label,
 			WorktreePath = entry.WorktreePath,
-			ManagedCheckout = managedCheckout,
 			Loaded = loaded,
 			AgentProviderId = entry.AgentProviderId,
 			EditorSession = editorSession,
@@ -147,7 +145,6 @@ public sealed class SessionStore {
 				Id = s.Id.Value,
 				Label = s.Label,
 				WorktreePath = s.WorktreePath,
-				ManagedCheckout = s.ManagedCheckout,
 				Loaded = s.Loaded,
 				AgentProviderId = s.AgentProviderId,
 				EditorSession = s.EditorSession,
@@ -183,9 +180,6 @@ public sealed class SessionStore {
 
 		[JsonPropertyName("worktreePath")]
 		public string? WorktreePath { get; set; }
-
-		[JsonPropertyName("managedCheckout")]
-		public bool? ManagedCheckout { get; set; }
 
 		[JsonPropertyName("loaded")]
 		public bool? Loaded { get; set; }

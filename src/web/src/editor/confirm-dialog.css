@@ -128,16 +128,6 @@
   cursor: pointer;
 }
 
-/* The directory a delete removes, named in full so the confirm says what it destroys. */
-.confirm-path {
-  margin-top: 0.7em;
-  font-family: var(--font-content-family);
-  font-size: 0.9em;
-  font-weight: var(--font-content-weight);
-  color: var(--dim);
-  overflow-wrap: anywhere;
-}
-
 /* The named untracked files a delete would remove: a monospace, scrollable list with an "…and N more" tail. */
 .confirm-file-list {
   margin: 0.7em 0 0;

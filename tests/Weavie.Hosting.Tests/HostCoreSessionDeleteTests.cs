@@ -633,7 +633,7 @@ public sealed class HostCoreSessionDeleteTests {
 	[Fact]
 	public async Task ClassifyingADiscoveredCheckoutReportsTheRemovalAndItsState() {
 		await using var host = await TestHost.StartAsync();
-		string checkout = await DiscoverCheckoutAsync(
+		await DiscoverCheckoutAsync(
 			host,
 			static tree => File.WriteAllText(Path.Combine(tree, "readme.txt"), "edited\n"));
 
@@ -642,29 +642,6 @@ public sealed class HostCoreSessionDeleteTests {
 		using var data = JsonDocument.Parse(classification.DataJson!);
 		Assert.True(data.RootElement.GetProperty("removesCheckout").GetBoolean());
 		Assert.Equal("modified", data.RootElement.GetProperty("state").GetString());
-		Assert.False(data.RootElement.GetProperty("branchless").GetBoolean());
-		Assert.Equal(checkout, data.RootElement.GetProperty("worktreePath").GetString());
-	}
-
-	// git dropping its record is no proof of a branch either: the delete must not hand-delete the directory as
-	// though committed work were safe.
-	[Fact]
-	public async Task DeletingACheckoutGitNoLongerReportsNeedsForce() {
-		await using var host = await TestHost.StartAsync();
-		Assert.True((await host.CreateSessionAsync("feature")).Ok);
-		string checkout = host.Session("feature").WorkspaceRoot;
-		Directory.Delete(
-			Directory.GetDirectories(Path.Combine(host.RepoRoot, ".git", "worktrees")).Single(),
-			recursive: true);
-
-		var blocked = await host.DeleteSessionAsync("feature", force: false, classify: false);
-
-		Assert.False(blocked.Ok);
-		Assert.Contains("no branch keeping its commits", blocked.Error);
-		Assert.True(Directory.Exists(checkout));
-
-		Assert.True((await host.DeleteSessionAsync("feature", force: true, classify: false)).Ok);
-		Assert.False(Directory.Exists(checkout));
 	}
 
 	// Git refuses to remove a locked worktree even with force, so the delete fails in git's own words rather
@@ -681,33 +658,6 @@ public sealed class HostCoreSessionDeleteTests {
 		Assert.Contains("locked working tree", result.Error);
 		Assert.True(Directory.Exists(checkout));
 		Assert.Contains("manual", SessionIds(host));
-	}
-
-	// A detached checkout has no branch to keep its commits, so removing it orphans them: that costs force, and
-	// the toast must not claim a branch survived.
-	[Fact]
-	public async Task DeletingABranchlessCheckoutNeedsForceAndSaysNoBranchSurvived() {
-		await using var host = await TestHost.StartAsync();
-		string checkout = await DiscoverCheckoutAsync(
-			host,
-			static tree => TestHost.RunGit(tree, "checkout", "--detach"));
-		var classification = await host.DeleteSessionAsync("manual", force: false, classify: true);
-		using (var data = JsonDocument.Parse(classification.DataJson!)) {
-			Assert.True(data.RootElement.GetProperty("branchless").GetBoolean());
-		}
-
-		var blocked = await host.DeleteSessionAsync("manual", force: false, classify: false);
-
-		Assert.False(blocked.Ok);
-		Assert.Contains("no branch keeping its commits", blocked.Error);
-		Assert.True(Directory.Exists(checkout));
-
-		host.Bridge.Clear();
-		Assert.True((await host.DeleteSessionAsync("manual", force: true, classify: false)).Ok);
-		Assert.False(Directory.Exists(checkout));
-		Assert.Contains(
-			"Session 'manual' was deleted. Its checkout had no branch to keep.",
-			NotificationMessages(host));
 	}
 
 	[Fact]
@@ -745,9 +695,7 @@ public sealed class HostCoreSessionDeleteTests {
 			Assert.True(data.RootElement.GetProperty("removesCheckout").GetBoolean());
 		}
 
-		var blocked = await host.DeleteSessionAsync("detached", force: false, classify: false);
-		Assert.False(blocked.Ok);
-		var result = await host.DeleteSessionAsync("detached", force: true, classify: false);
+		var result = await host.DeleteSessionAsync("detached", force: false, classify: false);
 
 		Assert.True(result.Ok, result.Error);
 		Assert.False(Directory.Exists(checkout));

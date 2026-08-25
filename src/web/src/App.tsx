@@ -88,7 +88,7 @@ import {
 } from "./chrome/update-store";
 import { hostWindowFocused, windowMaximized } from "./chrome/window-state";
 import { writeClipboard } from "./clipboard";
-import { paneFocusContext, setContext } from "./commands/context";
+import { hasTextSelection, paneFocusContext, setContext } from "./commands/context";
 import { installDoubleShift } from "./commands/double-shift";
 import { keyHint } from "./commands/key-hint";
 import { formatKey, installKeybindings } from "./commands/keybindings";
@@ -662,7 +662,10 @@ export default function App(): JSX.Element {
       navigateMobileSurface(kind);
     }
     if (kind === "editor") {
-      editor.focusEditor();
+      // An empty editor renders an opaque overlay over Monaco, so focusing it would park the caret out of sight.
+      if (openTabs().length > 0) {
+        editor.focusEditor();
+      }
       return;
     }
     if (
@@ -682,18 +685,21 @@ export default function App(): JSX.Element {
     }
   };
 
-  onCleanup(
-    onSessionActivated(({ session, created }) => {
-      if (!created) {
-        return;
+  // Where focus goes when a session comes to the front: a new one starts in its agent, an ordinary switch keeps
+  // the pane the user was working in (compact navigates surfaces instead). Dropped if a newer switch has won.
+  const homeSessionFocus = (session: ClientSession, created: boolean): void => {
+    const pane = created ? AGENT_PANE_KIND : compact() ? null : activePane();
+    if (pane === null) {
+      return;
+    }
+    requestAnimationFrame(() => {
+      if (selectedSession() === session) {
+        focusPane(pane);
       }
-      requestAnimationFrame(() => {
-        if (selectedSession() === session) {
-          focusPane(AGENT_PANE_KIND);
-        }
-      });
-    }),
-  );
+    });
+  };
+
+  onCleanup(onSessionActivated(({ session, created }) => homeSessionFocus(session, created)));
 
   // Flip the active file between Source and Preview, only when its type can preview. Returns whether it acted,
   // so the command DECLINES (key falls through to the editor) on a non-previewable file.
@@ -883,20 +889,17 @@ export default function App(): JSX.Element {
           target = await waitForClientSession(session.backendId, resultAddress(loaded));
         }
         commit(target);
+        return target;
       })
-      .then(() => {
+      .then((activated) => {
         closeSessions();
         if (compact()) {
           navigateMobileSurface(AGENT_PANE_KIND);
-          return true;
         }
-        // A switch swaps which session's panes are on screen, leaving the caret on the element that just went
-        // away — the incoming pane paints itself active but takes no typing. Re-home focus to the same pane in
-        // the session now in front, so the pane that looks focused is the one that is.
-        const pane = activePane();
-        if (pane !== null) {
-          requestAnimationFrame(() => focusPane(pane));
-        }
+        // The swap leaves the caret on the outgoing session's pane, which is gone: without this the incoming
+        // pane paints itself active and takes no typing. Homed after closeSessions so the modal's own restore
+        // doesn't win the frame.
+        homeSessionFocus(activated, false);
         return true;
       })
       .catch((error: unknown) => {
@@ -1718,8 +1721,8 @@ export default function App(): JSX.Element {
 
     // Track which pane holds focus (by click, Ctrl+N, or tab) for the active highlight, and publish it as a
     // `when`-context key so command guards (e.g. terminalFocused) can read it.
-    const onFocusIn = (event: FocusEvent): void => {
-      const focus = paneFocusContext(event.target as HTMLElement | null);
+    const publishFocus = (element: Element | null): void => {
+      const focus = paneFocusContext(element);
       const kind = typeof focus.focusedPane === "string" ? focus.focusedPane : null;
       setFocusedKind(kind);
       // Remember the last real pane (survives focus moving to the omnibar / a dialog) as the fullscreen target.
@@ -1730,17 +1733,23 @@ export default function App(): JSX.Element {
         setContext(key, value);
       }
     };
-    // Focus can leave a pane without landing anywhere — its element is replaced, or a click misses every
-    // focusable. Publish that as "nothing is focused" rather than keeping the departed pane's keys, which
-    // would route a chord (Ctrl+Tab) to a pane the user has left and paint it as still holding focus.
-    const onFocusOut = (): void => {
-      queueMicrotask(() => {
-        if (document.activeElement !== null && document.activeElement !== document.body) {
+    const onFocusIn = (event: FocusEvent): void => publishFocus(event.target as Element | null);
+    // Focus can leave an element and land nowhere — a control that finishes its job unmounts, or a click
+    // misses every focusable. Hand it back to the pane it left (still on screen, and not on compact, where
+    // focusing pops the keyboard), so that pane keeps taking typing and chords; publish the empty state only
+    // when there's no pane left to hold it. Checked a frame later, so a browser-driven move lands first.
+    const onFocusOut = (event: FocusEvent): void => {
+      const pane = (event.target as Element | null)?.closest("[data-kind]") ?? null;
+      requestAnimationFrame(() => {
+        if (document.activeElement !== document.body) {
           return;
         }
-        setFocusedKind(null);
-        for (const [key, value] of Object.entries(paneFocusContext(null))) {
-          setContext(key, value);
+        const kind = pane?.isConnected === true ? pane.getAttribute("data-kind") : null;
+        if (kind !== null && !compact() && !hasTextSelection()) {
+          focusPane(kind);
+        }
+        if (document.activeElement === document.body) {
+          publishFocus(null);
         }
       });
     };

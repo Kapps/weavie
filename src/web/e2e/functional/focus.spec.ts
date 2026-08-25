@@ -104,8 +104,9 @@ test("typing lands in the session a keyboard switch brings up, with no click fir
 
   await page.keyboard.press("Control+Shift+Tab");
   await expect(page.locator('.session-chip.active[title^="e2e/focus-carry-a —"]')).toBeVisible();
+  // Focus lands a frame after the switch commits, so wait for it rather than racing the keystrokes past it.
+  await expect.poll(() => focusedKind(page)).toBe("terminal:claude");
   await page.keyboard.type("typed without clicking");
 
   await expect(composer).toHaveValue("typed without clicking");
-  expect(await focusedKind(page)).toBe("terminal:claude");
 });

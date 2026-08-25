@@ -4,20 +4,35 @@ using Weavie.Core.Agents;
 namespace Weavie.AgentClientProtocol;
 
 public sealed partial class AcpAgentSession {
-	private void EmitPlan(JsonElement update) {
+	private void EmitProgress(JsonElement update) {
 		string turnId = TurnIdForUpdate(userMessage: false);
-		const string itemId = "plan:current";
+		const string itemId = "progress:current";
 		if (!update.TryGetProperty("entries", out var entries) || entries.ValueKind != JsonValueKind.Array) {
 			throw new AcpProtocolException("An ACP plan update is missing entries.");
 		}
-		var lines = entries.EnumerateArray().Select(entry => {
+		PublishPane(new AgentPaneMessage {
+			Type = "item-completed",
+			ProviderId = _definition.Id,
+			ThreadId = SessionId(),
+			TurnId = turnId,
+			ItemId = itemId,
+			ItemType = "progress",
+			Category = "progress",
+			Summary = "Task list",
+			Text = FormatPlanEntries(entries, "plan"),
+			Status = "updated",
+		});
+	}
+
+	private static string FormatPlanEntries(JsonElement entries, string source) =>
+		string.Join('\n', entries.EnumerateArray().Select(entry => {
 			string status = RequiredString(entry, "status", "plan entry");
 			if (status is not ("pending" or "in_progress" or "completed")) {
-				throw new AcpProtocolException($"Unsupported ACP plan status '{status}'.");
+				throw new AcpProtocolException($"Unsupported ACP {source} status '{status}'.");
 			}
 			string priority = RequiredString(entry, "priority", "plan entry");
 			if (priority is not ("high" or "medium" or "low")) {
-				throw new AcpProtocolException($"Unsupported ACP plan priority '{priority}'.");
+				throw new AcpProtocolException($"Unsupported ACP {source} priority '{priority}'.");
 			}
 			string marker = status switch {
 				"completed" => "[x]",
@@ -25,20 +40,75 @@ public sealed partial class AcpAgentSession {
 				_ => "[ ]",
 			};
 			return $"- {marker} {RequiredString(entry, "content", "plan entry")}";
-		});
+		}));
+
+	private void UpdatePlan(JsonElement update) {
+		if (!update.TryGetProperty("plan", out var plan) || plan.ValueKind != JsonValueKind.Object) {
+			throw new AcpProtocolException("An ACP plan document update is missing its plan.");
+		}
+		string planId = RequiredString(plan, "planId", "plan document");
+		string turnId;
+		lock (_gate) {
+			if (!_planTurns.TryGetValue(planId, out turnId!)) {
+				turnId = TurnIdForUpdate(userMessage: false);
+				_planTurns.Add(planId, turnId);
+			}
+		}
 		PublishPane(new AgentPaneMessage {
 			Type = "item-completed",
 			ProviderId = _definition.Id,
 			ThreadId = SessionId(),
 			TurnId = turnId,
-			ItemId = itemId,
+			ItemId = PlanItemId(planId),
 			ItemType = "plan",
 			Category = "plan",
 			Summary = "Plan",
-			Text = string.Join('\n', lines),
+			Text = PlanText(plan),
 			Status = "updated",
 		});
 	}
+
+	private void RemovePlan(JsonElement update) {
+		string planId = RequiredString(update, "planId", "removed plan");
+		string? turnId;
+		lock (_gate) {
+			_planTurns.Remove(planId, out turnId);
+		}
+		if (turnId is null) return;
+		PublishPane(new AgentPaneMessage {
+			Type = "item-retracted",
+			ProviderId = _definition.Id,
+			ThreadId = SessionId(),
+			TurnId = turnId,
+			ItemId = PlanItemId(planId),
+			ItemType = "plan",
+			Category = "plan",
+			Status = "removed",
+		});
+	}
+
+	private string PlanText(JsonElement plan) => RequiredString(plan, "type", "plan document") switch {
+		"markdown" => RequiredString(plan, "content", "Markdown plan document"),
+		"items" => plan.TryGetProperty("entries", out var entries) && entries.ValueKind == JsonValueKind.Array
+			? FormatPlanEntries(entries, "plan document")
+			: throw new AcpProtocolException("An item plan document is missing entries."),
+		"file" => ReadPlanFile(RequiredString(plan, "uri", "file plan document")),
+		var type => throw new AcpProtocolException($"Unsupported ACP plan document type '{type}'."),
+	};
+
+	private string ReadPlanFile(string value) {
+		if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) || !uri.IsFile) {
+			throw new AcpProtocolException($"ACP file plan URI is not a local file: {value}");
+		}
+		try {
+			string path = _fileScope.ResolvePhysicalPath(uri.LocalPath, allowMissingLeaf: false);
+			return _context.FileSystem.ReadAllText(path);
+		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) {
+			throw new AcpProtocolException($"ACP file plan could not be read: {ex.Message}", ex);
+		}
+	}
+
+	private static string PlanItemId(string planId) => "plan:" + planId;
 
 	private void EmitSessionInfo(JsonElement update) {
 		if (OptionalString(update, "title") is { Length: > 0 } title) {

@@ -153,16 +153,26 @@ let compiled: {
   binding: ResolvedKeybinding;
 }[] = [];
 
+const isGuarded = (binding: ResolvedKeybinding): boolean => (binding.when ?? "").trim() !== "";
+
 function rebuild(): void {
   // Skip global bindings: the host registers them with the OS, so resolving them here too would double-fire
   // them while Weavie is focused.
-  compiled = getActiveKeybindingEntries()
+  const entries = getActiveKeybindingEntries()
     .filter(({ binding }) => binding.global !== true)
     .map(({ catalogBackendId, binding }) => ({
       catalogBackendId,
       chord: parseChord(binding.key),
       binding,
     }));
+  // A guarded binding is the narrower claim on a chord, so it gets the key first (resolution runs backwards)
+  // and an unguarded one catches it when that command declines — Ctrl+Tab cycles editor tabs while the editor
+  // holds focus, and sessions once it has no tab to step to. Partitioning is stable, so user bindings still
+  // win over defaults within each half.
+  compiled = [
+    ...entries.filter(({ binding }) => !isGuarded(binding)),
+    ...entries.filter(({ binding }) => isGuarded(binding)),
+  ];
 }
 
 /** Installs the capture-phase keybinding resolver; returns a teardown function. */

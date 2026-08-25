@@ -188,11 +188,10 @@ public static class SessionCommands {
 			Category = "Session",
 			Description = "Switch to the next session on the rail (wraps around).",
 			Aliases = ["next session", "switch to next session"],
-			// ctrl+Tab cycles sessions whenever the editor isn't focused — the exact complement of the editor's
-			// editorFocused next-tab binding, so the two never both match. !editorFocused (not terminalFocused)
-			// also fires on load, before a non-auto-focusing terminal has ever set terminalFocused. Literal ctrl
-			// (not $mod): Cmd+Tab is the OS app switcher. A per-binding guard keeps the command in the palette.
-			DefaultKeybindings = [new CommandKeybinding { Key = "ctrl+Tab", When = "!editorFocused" }],
+			// ctrl+Tab cycles sessions, unguarded: the editor's editorFocused next-tab binding is the narrower
+			// claim on the chord, so it takes the key while the editor holds focus and hands it back here when
+			// it has no tab to step to. Literal ctrl (not $mod): Cmd+Tab is the OS app switcher.
+			DefaultKeybindings = [new CommandKeybinding { Key = "ctrl+Tab" }],
 		});
 
 		registry.Register(new CommandDefinition {
@@ -202,8 +201,8 @@ public static class SessionCommands {
 			Category = "Session",
 			Description = "Switch to the previous session on the rail (wraps around).",
 			Aliases = ["previous session", "prev session", "switch to previous session"],
-			// Mirror of NextSession: ctrl+Shift+Tab cycles backward whenever the editor isn't focused.
-			DefaultKeybindings = [new CommandKeybinding { Key = "ctrl+Shift+Tab", When = "!editorFocused" }],
+			// Mirror of NextSession: ctrl+Shift+Tab cycles backward, behind the editor's prev-tab binding.
+			DefaultKeybindings = [new CommandKeybinding { Key = "ctrl+Shift+Tab" }],
 		});
 
 		registry.Register(new CommandDefinition {

@@ -81,21 +81,20 @@ public sealed class SessionCommandsTests {
 		Assert.True(registry.TryGet(SessionCommands.NextSession, out var next));
 		Assert.True(registry.TryGet(SessionCommands.PrevSession, out var prev));
 
-		// ctrl+Tab / ctrl+Shift+Tab are the editor's tab chords under editorFocused; here they cycle sessions
-		// whenever the editor isn't focused (!editorFocused — the exact complement, so the two never collide;
-		// it also fires on load, before any pane takes focus). Literal ctrl (not $mod) keeps them off macOS's
-		// Cmd+Tab. The guard sits on the binding (not the command) so a command-level When can't hide
-		// Next/Previous Session from the palette while the editor or omnibar holds focus.
+		// ctrl+Tab / ctrl+Shift+Tab are the editor's tab chords under editorFocused. Cycling claims them
+		// unguarded so the chord reaches sessions both when the editor isn't focused and when it is but has no
+		// tab to step to — a guard here (the old !editorFocused complement) made that press a dead key. Literal
+		// ctrl (not $mod) keeps them off macOS's Cmd+Tab.
 		Assert.Null(next!.When);
 		Assert.Null(prev!.When);
 
 		var nextBinding = Assert.Single(next.DefaultKeybindings);
 		Assert.Equal("ctrl+Tab", nextBinding.Key);
-		Assert.Equal("!editorFocused", nextBinding.When);
+		Assert.Null(nextBinding.When);
 
 		var prevBinding = Assert.Single(prev.DefaultKeybindings);
 		Assert.Equal("ctrl+Shift+Tab", prevBinding.Key);
-		Assert.Equal("!editorFocused", prevBinding.When);
+		Assert.Null(prevBinding.When);
 	}
 
 	[Fact]

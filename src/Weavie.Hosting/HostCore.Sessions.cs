@@ -758,17 +758,14 @@ public sealed partial class HostCore {
 			ct);
 	}
 
-	// Git refuses to remove the repository's main working tree or a locked worktree. Say so instead of removing
-	// the session anyway: its checkout would survive and the next open would rediscover the session.
-	private static CommandResult? UnremovableRefusal(WorktreeRemoval removal, string label) {
-		if (removal.IsMainCheckout) {
-			return CommandResult.Failure(
-				$"Session '{label}' is on the repository's main checkout, which git can't remove.");
+	// Nothing keeps this checkout's commits when it has no branch: a detached HEAD, or a checkout git can no
+	// longer answer for. Removing it leaves them unreachable, so the delete costs force either way.
+	private static async Task<bool> IsBranchlessAsync(string worktreePath, CancellationToken ct) {
+		try {
+			return await new GitService().GetCurrentBranchAsync(worktreePath, ct).ConfigureAwait(false) is null;
+		} catch (GitException) {
+			return true;
 		}
-
-		return removal.IsLocked
-			? CommandResult.Failure($"Session '{label}' has a locked worktree; unlock it before deleting the session.")
-			: null;
 	}
 
 	private async Task<CommandResult> DeleteSessionAfterValidationAsync(
@@ -790,15 +787,9 @@ public sealed partial class HostCore {
 			// untouched rather than unloading it as a side effect. Skip when the worktree is gone/half-removed
 			// (no .git) — nothing left to lose, and git can't answer git status there. Read-only git probes, so
 			// they need no UI-thread marshaling.
+			// git itself refuses the repository's main working tree and a locked worktree, in its own words.
 			if (!IsWorkspaceCheckout(target) && IsLiveWorktree(worktreePath)) {
-				var removal = await _worktrees!.InspectRemovalAsync(worktreePath, ct).ConfigureAwait(false);
-				if (UnremovableRefusal(removal, label) is { } refusal) {
-					return refusal;
-				}
-
-				// Nothing keeps this checkout's commits — it is detached, or git no longer reports the worktree at
-				// all, which is no proof of a branch either. Removing it leaves those commits unreachable.
-				branchless = removal.IsDetached || !removal.Exists;
+				branchless = await IsBranchlessAsync(worktreePath, ct).ConfigureAwait(false);
 				if (branchless && !force) {
 					return CommandResult.Failure(
 						$"Session '{label}' has no branch keeping its commits, so deleting it would leave them unreachable. Re-run with force to delete anyway.");
@@ -959,14 +950,9 @@ public sealed partial class HostCore {
 		IReadOnlyList<string> tracked = [];
 		IReadOnlyList<string> untracked = [];
 		bool branchless = false;
-		if (!IsWorkspaceCheckout(target) && _worktrees is { } worktrees && IsLiveWorktree(target.WorktreePath)) {
+		if (!IsWorkspaceCheckout(target) && IsLiveWorktree(target.WorktreePath)) {
 			try {
-				var removal = await worktrees.InspectRemovalAsync(target.WorktreePath, ct).ConfigureAwait(false);
-				if (UnremovableRefusal(removal, target.Label) is { } refusal) {
-					return refusal;
-				}
-
-				branchless = removal.IsDetached || !removal.Exists;
+				branchless = await IsBranchlessAsync(target.WorktreePath, ct).ConfigureAwait(false);
 				var status = await new GitService().GetChangeStateAsync(target.WorktreePath, ct).ConfigureAwait(false);
 				state = status.State switch {
 					WorktreeChangeState.UntrackedOnly => "untracked",

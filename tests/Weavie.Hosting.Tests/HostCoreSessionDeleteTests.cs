@@ -667,8 +667,8 @@ public sealed class HostCoreSessionDeleteTests {
 		Assert.False(Directory.Exists(checkout));
 	}
 
-	// Git refuses to remove a locked worktree, so the delete says so rather than dropping the session and
-	// leaving a checkout the next open rediscovers.
+	// Git refuses to remove a locked worktree even with force, so the delete fails in git's own words rather
+	// than dropping the session and leaving a checkout the next open rediscovers.
 	[Fact]
 	public async Task DeletingADiscoveredCheckoutIsRefusedWhenItsWorktreeIsLocked() {
 		await using var host = await TestHost.StartAsync();
@@ -676,11 +676,9 @@ public sealed class HostCoreSessionDeleteTests {
 		TestHost.RunGit(host.RepoRoot, "worktree", "lock", checkout);
 
 		var result = await host.DeleteSessionAsync("manual", force: true, classify: false);
-		var classification = await host.DeleteSessionAsync("manual", force: false, classify: true);
 
 		Assert.False(result.Ok);
-		Assert.Contains("locked worktree", result.Error);
-		Assert.False(classification.Ok);
+		Assert.Contains("locked working tree", result.Error);
 		Assert.True(Directory.Exists(checkout));
 		Assert.Contains("manual", SessionIds(host));
 	}

@@ -4,7 +4,11 @@
 
 /** The slice of a Monaco text model the specs read. */
 export interface ModelHandle {
-  uri: unknown;
+  uri: {
+    path: string;
+    fragment: string;
+    with(change: { path: string; fragment: string }): unknown;
+  };
   getLineContent(line: number): string;
   getLineCount(): number;
 }

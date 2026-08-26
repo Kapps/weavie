@@ -707,8 +707,13 @@ a.agent-entry-media {
   white-space: nowrap;
 }
 
-.agent-activity-step pre {
+.agent-activity-step > pre,
+.agent-activity-step > .agent-entry-rich-content {
   grid-column: 2 / -1;
+  min-width: 0;
+}
+
+.agent-activity-step pre {
   margin: 0;
   white-space: pre-wrap;
   color: var(--dim);

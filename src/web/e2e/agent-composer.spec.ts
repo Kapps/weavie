@@ -352,6 +352,59 @@ test.describe("ACP composer", () => {
       });
   });
 
+  test("expanded tool history keeps rich output beneath the full-width step label", async ({
+    page,
+  }) => {
+    await mountAgent(page);
+    publishPane(userMessage("inspect the workspace"));
+    for (const index of [1, 2]) {
+      publishPane(
+        paneMessage({
+          type: "item-completed",
+          turnId: "tool-history-turn",
+          itemId: `tool-${index}`,
+          itemType: "tool",
+          category: "read",
+          status: "completed",
+          summary: `read file ${index}`,
+          content: [
+            {
+              type: "text",
+              text: `tool output ${index} ${"content ".repeat(40)}`,
+            },
+          ],
+        }),
+      );
+    }
+
+    const activity = page.locator(".agent-entry-activity", { hasText: "2 reads" });
+    await activity.getByText("history 2", { exact: true }).click();
+    const step = activity.locator(".agent-activity-step").first();
+    const geometry = await step.evaluate((element) => {
+      const bounds = element.getBoundingClientRect();
+      const label = element.querySelector(".agent-step-label")?.getBoundingClientRect();
+      const rich = element.querySelector(".agent-entry-rich-content")?.getBoundingClientRect();
+      if (label === undefined || rich === undefined) {
+        throw new Error("Expanded history step is incomplete");
+      }
+      return {
+        labelBottom: label.bottom,
+        labelLeft: label.left,
+        labelWidth: label.width,
+        richLeft: rich.left,
+        richRight: rich.right,
+        richTop: rich.top,
+        stepRight: bounds.right,
+        stepWidth: bounds.width,
+      };
+    });
+
+    expect(geometry.labelWidth).toBeGreaterThan(geometry.stepWidth / 2);
+    expect(geometry.richTop).toBeGreaterThanOrEqual(geometry.labelBottom - 1);
+    expect(Math.abs(geometry.richLeft - geometry.labelLeft)).toBeLessThanOrEqual(1);
+    expect(Math.abs(geometry.richRight - geometry.stepRight)).toBeLessThanOrEqual(1);
+  });
+
   test("mouse clicks return to the prompt without taking text selection or response-field focus", async ({
     page,
   }) => {

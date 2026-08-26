@@ -647,6 +647,8 @@ test("compact session inbox creates, resumes, and switches existing surfaces", a
   await provider.selectOption("fake-acp");
   await expect(provider).toBeDisabled();
   await expect(provider).toBeEnabled();
+  await expect(provider).toHaveValue("fake-acp");
+  await expect(inbox.getByRole("combobox", { name: "Open with" })).toHaveValue("fake-acp");
   const startButton = inbox.getByRole("button", { name: "Start", exact: true });
   const branch = inbox.getByRole("textbox", { name: "Branch for the new session" });
   await expect(branch).toHaveValue("");

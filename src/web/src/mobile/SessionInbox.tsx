@@ -324,7 +324,6 @@ export function SessionInbox(props: {
       </select>
       <select
         aria-label={providerLabel}
-        value={providerId()}
         disabled={savingProvider()}
         onChange={(event) => selectProvider(event.currentTarget.value)}
       >
@@ -332,6 +331,7 @@ export function SessionInbox(props: {
           {(provider) => (
             <option
               value={provider.id}
+              selected={provider.id === providerId()}
               disabled={!provider.available}
               title={provider.unavailableReason ?? provider.name}
             >

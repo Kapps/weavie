@@ -13,9 +13,9 @@ public sealed class WorkspaceBackend {
 	public required string WorkspaceRoot { get; init; }
 
 	/// <summary>
-	/// The port the worker headless listens on. Mutable: <c>AllocatePort()</c>'s bind-then-release is inherently
-	/// racy under concurrent runners, so <see cref="HeadlessLauncher"/> reassigns it before a restart when the
-	/// prior attempt's port collided with another process's bind — unless <see cref="PortIsPinned"/>.
+	/// The port the worker headless listens on. Mutable: <c>AllocatePort()</c>'s bind-then-release is a
+	/// reservation, not a hold, so <see cref="HeadlessLauncher"/> repicks it before a launch that would find
+	/// another listener already on it — unless <see cref="PortIsPinned"/>.
 	/// </summary>
 	public required int Port { get; set; }
 
@@ -24,6 +24,7 @@ public sealed class WorkspaceBackend {
 	/// must survive worker restarts unchanged) — the launcher must never reassign it on a bind conflict.
 	/// </summary>
 	public required bool PortIsPinned { get; init; }
+
 
 	/// <summary>The token gating the worker's bridge.</summary>
 	public required string Token { get; init; }

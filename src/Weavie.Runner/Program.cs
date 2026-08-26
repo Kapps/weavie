@@ -70,6 +70,13 @@ app.Use(async (context, next) => {
 
 ControlApi.Map(app, backends, options, front, updateStatus);
 
+// Bind before reserving the worker's port: --port 0 asks the OS for one at bind, and a port already
+// reserved for the worker is exactly what it could hand this listener instead — after which the runner
+// health-probes itself, is refused by its own token gate, and crash-loops the worker on a port it can
+// never have. Binding first also makes the control-plane URL carry the port actually bound.
+await app.StartAsync().ConfigureAwait(false);
+int controlPort = new Uri(app.Urls.First()).Port;
+
 // Start the workspace backend eagerly so the first connection is ready.
 var backend = backends.Ensure();
 
@@ -80,11 +87,6 @@ if (updater is { } activePoller) {
 } else {
 	Log("[update] auto-update off — pass --auto-update to enable");
 }
-
-// Bind before printing the ready lines so the control-plane URL carries the port actually bound
-// (--port 0 asks the OS for one at bind, so parallel runners can never race each other for it).
-await app.StartAsync().ConfigureAwait(false);
-int controlPort = new Uri(app.Urls.First()).Port;
 
 Console.WriteLine($"[weavie-runner] worker headless: {options.HeadlessPath} (port {backend.Port})");
 Console.WriteLine($"[weavie-runner] control plane: {front.RegisterUrl(controlPort)}");

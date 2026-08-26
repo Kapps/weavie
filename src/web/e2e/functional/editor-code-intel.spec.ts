@@ -1,6 +1,7 @@
 import type { Page } from "@playwright/test";
 import { clickIntoEditor, openFile } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
+import type { WeavieWindow } from "../harness/weavie-window";
 
 // Regression (feat/find-references): the editor right-click menu had lost its code-intelligence actions,
 // leaving only Cut / Copy / Paste / Command Palette. The menu carries the code-intelligence commands ABOVE
@@ -95,4 +96,49 @@ test("the code-intelligence commands are discoverable in the palette with their 
   await expectCommand(">peek", "Peek Definition", "Navigation", "Alt+F12");
   await expectCommand(">references", "Find All References", "Navigation", "Shift+F12");
   await expectCommand(">rename", "Rename Symbol", "Editor", "F2");
+});
+
+test("go to definition marks its preview tab as the omnibar's current file", async ({ page }) => {
+  await focusEditor(page);
+  await page.evaluate(() => {
+    const monaco = (window as WeavieWindow).__WEAVIE_MONACO__;
+    if (monaco === undefined) {
+      throw new Error("monaco handle not available");
+    }
+    monaco.languages.registerDefinitionProvider("*", {
+      provideDefinition: (model) => {
+        const prefix = "weavie-session:";
+        const owner = JSON.parse(decodeURIComponent(model.uri.fragment.slice(prefix.length))) as {
+          hostPath: string;
+        };
+        owner.hostPath = owner.hostPath.replace(/hello\.ts$/, "notes.txt");
+        return [
+          {
+            uri: model.uri.with({
+              path: model.uri.path.replace(/hello\.ts$/, "notes.txt"),
+              fragment: `${prefix}${encodeURIComponent(JSON.stringify(owner))}`,
+            }),
+            range: {
+              startLineNumber: 1,
+              startColumn: 1,
+              endLineNumber: 1,
+              endColumn: 5,
+            },
+          },
+        ];
+      },
+    });
+  });
+
+  await page.locator(".view-line", { hasText: "const message = greet" }).click();
+  await page.keyboard.press("F12");
+
+  const preview = page.locator(".editor-tab.preview.active", { hasText: "notes.txt" });
+  await expect(preview).toBeVisible();
+  await expect(page.locator(".editor")).toHaveAttribute("data-active-file", /notes\.txt$/);
+
+  const input = page.locator(".tb-omnibar-input");
+  await input.click();
+  await input.fill("notes");
+  await expect(page.locator(".tb-omnibar-row.current", { hasText: "notes.txt" })).toBeVisible();
 });

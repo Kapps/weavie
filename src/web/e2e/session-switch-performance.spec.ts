@@ -176,11 +176,26 @@ test("long transcripts switch as a measured virtual window", async ({ page }) =>
     const body = page.locator(".agent-body");
     await expect(page.getByText("FIRST_799", { exact: true })).toBeVisible({ timeout: 60_000 });
     expect(await rows.count()).toBeLessThan(40);
-    await expect
-      .poll(() =>
-        body.evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight),
-      )
-      .toBeLessThanOrEqual(1);
+    // 2026-08-26: flaked on main (31px short of bottom after the 15s expect timeout, under CI's
+    // 2-worker contention): https://github.com/Kapps/weavie/actions/runs/32932949305/job/98068842727
+    // The app's own bottom-correction (AgentPaneScroll.onVirtualizerChange) chases convergence one
+    // requestAnimationFrame at a time as the virtualizer keeps mounting/measuring rows, so how many
+    // real frames that takes is unbounded under contention even though the sequence always
+    // terminates. Waiting on a wall-clock `expect.poll` timeout races that convergence instead of
+    // waiting for it; wait for the frame-driven read to stabilize instead, matching the settle idiom
+    // already used below by `settledViewportAnchor`.
+    const scrollRemainder = () =>
+      body.evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight);
+    let remainder = await scrollRemainder();
+    let settledFrames = 0;
+    while (settledFrames < 2 || remainder > 1) {
+      await page.evaluate(
+        () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+      );
+      const next = await scrollRemainder();
+      settledFrames = next === remainder ? settledFrames + 1 : 0;
+      remainder = next;
+    }
 
     const measureSwitch = (label: string, marker: string): Promise<number> =>
       page.evaluate(

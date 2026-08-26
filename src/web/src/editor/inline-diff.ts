@@ -1031,8 +1031,8 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     ),
   ];
 
-  // The scope dropdown: a `Scope: <X> ▾` toggle over an "Apply to…" menu whose items set the sticky scope the
-  // Keep / Revert buttons act on, with per-item counts naming each scope's reach.
+  // The scope dropdown: a `Scope: <X> ▾` toggle over a Keep / Revert menu whose items set the sticky scope,
+  // with per-item counts naming each scope's reach.
   const buildScopePicker = (options: InlineDiffOptions): HTMLElement => {
     const scope = currentScope;
     const wrap = document.createElement("div");
@@ -1052,7 +1052,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     );
     const head = document.createElement("div");
     head.className = "weavie-inline-scope-head";
-    head.textContent = "Apply to…";
+    head.textContent = "Keep / Revert…";
     menu.appendChild(head);
     const addItem = (value: ReviewScope, label: string, count: number | undefined): void => {
       const item = makeButton(

@@ -21,6 +21,14 @@ const TWO_HUNKS =
 
 const read = (workspace: string, rel: string): string => readFileSync(join(workspace, rel), "utf8");
 
+const fourHunks = (): string => {
+  const lines = Array.from({ length: 160 }, (_, i) => `// line ${i + 1}`);
+  for (const line of [2, 40, 80, 120]) {
+    lines[line - 1] += " EDITED";
+  }
+  return `${lines.join("\n")}\n`;
+};
+
 // The live applied toolbar carries the scope picker; the parked navigator doesn't — so this asserts "a live
 // review is rendered over the active file" specifically (not just any toolbar).
 const SCOPE = ".weavie-inline-scope";
@@ -31,6 +39,27 @@ const KEEP = ".weavie-inline-pending-keep"; // the inline ✓ keep beside a brig
 const REVERT = ".weavie-inline-pending-revert"; // the inline ✕ revert beside a bright pending hunk
 const HIST_UNDO = ".weavie-inline-hist"; // the toolbar's ↶ Undo (first) / ↷ Redo history buttons
 const TOOLBAR = ".weavie-inline-toolbar";
+
+const decorationCount = (
+  page: import("@playwright/test").Page,
+  className: string,
+): Promise<number> =>
+  page.evaluate(
+    (name) =>
+      (
+        window as Window & {
+          __WEAVIE_EDITOR__?: {
+            getModel(): {
+              getAllDecorations(): { options: { className: string | null } }[];
+            } | null;
+          };
+        }
+      ).__WEAVIE_EDITOR__
+        ?.getModel()
+        ?.getAllDecorations()
+        .filter((decoration) => decoration.options.className === name).length ?? 0,
+    className,
+  );
 
 // Land the caret on the first hunk deterministically (next-change from the top of the file), so a per-hunk
 // keep/revert acts on a known hunk regardless of where the file opened.
@@ -375,6 +404,50 @@ test.describe("applied review — scope picker (keep whole file)", () => {
     await expect(page.locator(ADDED)).toHaveCount(0);
     await expect(page.locator(ACCEPTED)).toHaveCount(0);
     await expect(page.locator(TOOLBAR)).toHaveCount(0);
+  });
+});
+
+test.describe("applied review — file scope from a later change", () => {
+  const changed = fourHunks();
+  test.use({ fakeScript: { steps: [...appliedEdit("long.ts", changed)] } });
+
+  test("keeping the file from change 4 preserves its already-applied bytes and fades every hunk", async ({
+    page,
+    weavie,
+  }) => {
+    await openFile(page, "long.ts");
+    await focusFirstHunk(page);
+    const counter = page.locator(".weavie-inline-stack-sub");
+    await expect(counter).toContainText("change 1/4");
+    for (let i = 0; i < 3; i++) {
+      await page.keyboard.press(navChord("ArrowDown"));
+    }
+    await expect(counter).toContainText("change 4/4");
+
+    // Applied review observes edits that are already in the live file. Keep changes review state, not bytes.
+    expect(read(weavie.workspace, "long.ts")).toBe(changed);
+
+    await page.locator(".weavie-inline-scope-btn").click();
+    await page.locator(".weavie-inline-scope-item", { hasText: "This file" }).click();
+    await page.locator(".weavie-inline-accept").click();
+
+    await expect.poll(() => decorationCount(page, "weavie-inline-added")).toBe(0);
+    await expect.poll(() => decorationCount(page, "weavie-inline-accepted")).toBe(4);
+    expect(read(weavie.workspace, "long.ts")).toBe(changed);
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            (
+              window as Window & {
+                __WEAVIE_EDITOR__?: { getModel(): { getValue(): string } | null };
+              }
+            ).__WEAVIE_EDITOR__
+              ?.getModel()
+              ?.getValue() ?? null,
+        ),
+      )
+      .toBe(changed);
   });
 });
 

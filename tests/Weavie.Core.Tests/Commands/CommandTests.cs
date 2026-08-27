@@ -272,6 +272,15 @@ public sealed class CommandTests {
 	}
 
 	[Fact]
+	public void ToggleAgentCommandOutput_UsesTheFocusedAgentBinding() {
+		var command = CoreCommands.CreateRegistry().Require(CoreCommands.ToggleAgentCommandOutput);
+
+		Assert.Equal(CommandLocation.Web, command.RunsIn);
+		Assert.Equal("alt+o", Assert.Single(command.DefaultKeybindings).Key);
+		Assert.Equal("agentFocused && agentCommandOutputAvailable", command.When);
+	}
+
+	[Fact]
 	public void ToggleAgentMermaidPreview_UsesTheFocusedAgentBinding() {
 		var command = CoreCommands.CreateRegistry().Require(CoreCommands.ToggleAgentMermaidPreview);
 

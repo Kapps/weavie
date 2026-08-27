@@ -1,5 +1,5 @@
 import { writeFile } from "node:fs/promises";
-import { test as base, expect } from "@playwright/test";
+import { test as base, expect, type Route } from "@playwright/test";
 import { type FakeInference, fakeClaudeBuilt } from "./fake-claude";
 import { fakeAcpProgram, programExists } from "./test-programs";
 import { headlessBuilt, launchHeadless, type WeavieHost } from "./weavie-host";
@@ -224,10 +224,58 @@ export const test = base.extend<WeavieOptions & WeavieFixtures>({
         if (connect.status() !== 302) {
           throw new Error(`workspace connect failed (${connect.status()})`);
         }
+        // Windows CI runners occasionally drop one boot-time document/script/stylesheet load with
+        // `net::ERR_NO_BUFFER_SPACE` — a transient Winsock buffer exhaustion on the runner, not an app
+        // or test defect (see e912b8c, which added the blockedLoads diagnostic below). Retry the
+        // underlying fetch a few times so a one-off OS hiccup doesn't fail the boot; scoped to the boot
+        // navigation only, so a later in-test load still fails for real.
+        // Flaked 2026-08-27 07:04 UTC on media.spec.ts "switching between a text tab and a media tab
+        // keeps both healthy" (Windows shard 4/6) —
+        // https://github.com/Kapps/weavie/actions/runs/33047702739/job/98436223300 — added this retry.
+        // Chromium can hand the same in-flight request to the route handler a second time (its own
+        // internal retry on a reused connection) after the first call already resolved it — resolving
+        // twice throws "Route is already handled", which is benign here: the request's fate was already
+        // decided by the first call.
+        const resolveOnce = async (settle: () => Promise<void>): Promise<void> => {
+          try {
+            await settle();
+          } catch (error) {
+            if (!(error instanceof Error) || !error.message.includes("already handled")) {
+              throw error;
+            }
+          }
+        };
+        const retryBootLoad = async (route: Route): Promise<void> => {
+          const kind = route.request().resourceType();
+          if (kind !== "script" && kind !== "stylesheet" && kind !== "document") {
+            await resolveOnce(() => route.continue());
+            return;
+          }
+          // Only the fetch itself is retried, and fulfill is called at most once — a route resolves via
+          // exactly one of continue/fulfill/abort, so retrying fulfill (which can partially resolve the
+          // route before throwing) would hit "Route is already handled".
+          let response: Awaited<ReturnType<Route["fetch"]>> | undefined;
+          for (let attempt = 1; attempt <= 3; attempt++) {
+            try {
+              response = await route.fetch();
+              break;
+            } catch {
+              if (attempt === 3) {
+                await resolveOnce(() => route.continue());
+                return;
+              }
+            }
+          }
+          await resolveOnce(() =>
+            route.fulfill({ response: response as NonNullable<typeof response> }),
+          );
+        };
+        await page.route("**/*", retryBootLoad);
         await page.goto(host.url, { waitUntil: "domcontentloaded" });
         // The app removes the splash element once it has booted (layout + first session). Its disappearance
         // is the "app is interactive" signal — not a fixed sleep.
         await expect(page.locator("#splash")).toHaveCount(0, { timeout: 40_000 });
+        await page.unroute("**/*", retryBootLoad);
         if (blockedLoads.length > 0) {
           throw new Error(`the page booted without ${blockedLoads.join("; ")}`);
         }

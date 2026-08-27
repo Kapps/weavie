@@ -182,6 +182,10 @@ test.describe(() => {
 
 // A text file and a media file coexist: switching between them swaps the overlay in and out without
 // disturbing the Monaco working copy underneath.
+// Flaked 2026-08-27 07:04 UTC (Windows shard 4/6) on a boot-time `net::ERR_NO_BUFFER_SPACE` resource
+// load, not this test's own logic — https://github.com/Kapps/weavie/actions/runs/33047702739/job/98436223300.
+// Root-caused to Windows CI socket exhaustion during page boot; fixed with a scoped retry in the
+// `weavie` fixture's boot navigation (harness/fixtures.ts).
 test("switching between a text tab and a media tab keeps both healthy", async ({ page }) => {
   await openFile(page, "hello.ts");
   await openFile(page, "pixel.png");

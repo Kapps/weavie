@@ -50,7 +50,7 @@ public static class BranchNameInference {
 		MaxImageCount = MaxImages,
 		MaxImageBytes = MaxImages * PastedImageMedia.MaxBytes,
 		MaxOutputBytes = 4 * 1024,
-		TimeBudget = TimeSpan.FromSeconds(8),
+		TimeBudget = TimeSpan.FromSeconds(24),
 	};
 
 	/// <summary>The strict branch-name response shape.</summary>

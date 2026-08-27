@@ -30,6 +30,7 @@ public sealed class HostCoreBranchInferenceTests {
 		Assert.Equal(agentProviderId, inference.AgentProviderId);
 		Assert.Equal(InferenceModelCategory.Utility, inference.Category);
 		Assert.Equal(InferenceInvocationOrigin.Automatic, inference.Origin);
+		Assert.Equal(TimeSpan.FromSeconds(24), BranchNameInference.QueryOptions.TimeBudget);
 		Assert.Contains("\"prompt\":\"WebM files fail to load\"", inference.Prompt, StringComparison.Ordinal);
 		Assert.Contains("\"currentBranch\":\"main\"", inference.Prompt, StringComparison.Ordinal);
 		Assert.Contains("bug/prior-failure", inference.Prompt, StringComparison.Ordinal);

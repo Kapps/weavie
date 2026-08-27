@@ -270,7 +270,16 @@ export const test = base.extend<WeavieOptions & WeavieFixtures>({
           const offer = page.locator(".toast", {
             hasText: "Let Weavie use automatic inference",
           });
-          await expect(offer).toBeVisible();
+          // The offer is sent over the WS "hello" round-trip right at boot, so this is genuine host-boot +
+          // notify latency, not app logic — same class of hosted-runner slowness budgeted for elsewhere
+          // (playwright.config.ts's `expect.timeout`, mock-host.ts's `waitFor`). Flaked 2026-08-27 21:51 UTC
+          // on diff-review.spec.ts's "oversized files stay responsive" (Windows shard 3/6), missing the
+          // already-elevated 30s `expect.timeout` near the tail of a long serial run —
+          // https://github.com/Kapps/weavie/actions/runs/33118628245/job/98683675084 — widened this one
+          // assertion to match mock-host.ts's own precedent for the same failure class.
+          await expect(offer).toBeVisible({
+            timeout: process.platform === "linux" ? 15_000 : 45_000,
+          });
           await offer.getByRole("button", { name: "Dismiss" }).click();
           await expect(offer).toHaveCount(0);
         }

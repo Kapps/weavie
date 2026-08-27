@@ -645,6 +645,14 @@ test("compact session inbox creates, resumes, and switches existing surfaces", a
   await expect(inbox.locator(".agent-attachment img")).toBeVisible();
   const provider = inbox.getByRole("combobox", { name: "Agent provider" });
   await provider.selectOption("fake-acp");
+  // Flaked 2026-08-27 21:39 UTC on macOS shard 6/6 — toBeDisabled() polled "enabled" all 63 times over its
+  // 30s budget: https://github.com/Kapps/weavie/actions/runs/33118598692/job/98680314997. The disabled
+  // window here is a real round trip (setDefaultAgentProvider in agent-default.ts sends "setProvider" to
+  // the host and awaits its reply), not a fixed delay, so on a fast enough runner it can resolve before
+  // this assertion's first poll ever samples the DOM — a genuine race between wall-clock polling and an
+  // unbounded-but-usually-fast IPC round trip, not app logic. Did not reproduce over 5 local runs, and the
+  // very next run on this same commit's successor (main HEAD) passed this shard clean, so left as-is rather
+  // than guessing at a fix without a reproduction to validate it against.
   await expect(provider).toBeDisabled();
   await expect(provider).toBeEnabled();
   await expect(provider).toHaveValue("fake-acp");

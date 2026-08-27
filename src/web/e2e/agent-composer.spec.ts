@@ -177,6 +177,12 @@ const catalog = {
     agentCommand("weavie.agent.jumpToLatest", "Jump to Latest Agent Activity", "agentFocused", [
       "alt+down",
     ]),
+    agentCommand(
+      "weavie.agent.toggleCommandOutput",
+      "Toggle Agent Command Output",
+      "agentFocused && agentCommandOutputAvailable",
+      ["alt+o"],
+    ),
     agentCommand("weavie.agent.openPlan", "Open Agent Plan", "agentFocused", ["alt+p"]),
     agentCommand("weavie.agent.togglePlanMode", "Toggle Agent Plan Mode", "agentFocused", [
       "shift+tab",
@@ -202,6 +208,11 @@ const catalog = {
     { key: "escape", command: "weavie.agent.interrupt", when: "agentFocused" },
     { key: "alt+up", command: "weavie.agent.jumpToTurn", when: turnNavigationWhen },
     { key: "alt+down", command: "weavie.agent.jumpToLatest", when: "agentFocused" },
+    {
+      key: "alt+o",
+      command: "weavie.agent.toggleCommandOutput",
+      when: "agentFocused && agentCommandOutputAvailable",
+    },
     { key: "alt+p", command: "weavie.agent.openPlan", when: "agentFocused" },
     { key: "shift+tab", command: "weavie.agent.togglePlanMode", when: "agentFocused" },
     { key: "alt+y", command: "weavie.agent.approve", when: approvalWhen },
@@ -403,6 +414,77 @@ test.describe("ACP composer", () => {
     expect(geometry.richTop).toBeGreaterThanOrEqual(geometry.labelBottom - 1);
     expect(Math.abs(geometry.richLeft - geometry.labelLeft)).toBeLessThanOrEqual(1);
     expect(Math.abs(geometry.richRight - geometry.stepRight)).toBeLessThanOrEqual(1);
+  });
+
+  test("expanded history hides long command output until the user asks for it", async ({
+    page,
+  }) => {
+    await mountAgent(page);
+    publishCatalog();
+    publishPane(userMessage("run the noisy command"));
+    publishPane(
+      paneMessage({
+        type: "item-completed",
+        turnId: "command-output-turn",
+        itemId: "command-output-1",
+        itemType: "commandExecution",
+        status: "completed",
+        summary: "pnpm test --reporter verbose",
+        text: `${"command output line\n".repeat(5_000)}COMMAND_OUTPUT_END`,
+        content: [{ type: "text", text: "RICH_COMMAND_OUTPUT" }],
+      }),
+    );
+
+    const activity = page.locator(".agent-entry-activity", { hasText: "ran 1 command" });
+    await activity.getByText("history", { exact: true }).click();
+    const step = activity.locator(".agent-activity-step");
+    await expect(
+      step.getByText("command pnpm test --reporter verbose", { exact: true }),
+    ).toBeVisible();
+    const disclosure = step.locator(".agent-command-output-details");
+    const toggle = disclosure.getByText("show output", { exact: true });
+    await expect(toggle).toHaveAttribute("title", "Show command output (Alt+O)");
+    await expect(disclosure.locator(".agent-command-output")).toHaveCount(0);
+    await expect(step).not.toContainText("COMMAND_OUTPUT_END");
+    await expect(step).not.toContainText("RICH_COMMAND_OUTPUT");
+
+    await toggle.click();
+    const output = disclosure.locator(".agent-command-output");
+    await expect(output).toBeVisible();
+    await expect(output).toContainText("COMMAND_OUTPUT_END");
+    await expect(output).toContainText("RICH_COMMAND_OUTPUT");
+    const hide = disclosure.getByText("hide output", { exact: true });
+    await expect(hide).toHaveAttribute("title", "Hide command output (Alt+O)");
+
+    await hide.focus();
+    await page.keyboard.press("Alt+O");
+    await expect(disclosure.locator(".agent-command-output")).toHaveCount(0);
+
+    publishPane(
+      paneMessage({
+        type: "item-completed",
+        turnId: "command-output-turn",
+        itemId: "later-answer",
+        itemType: "agentMessage",
+        status: "completed",
+        text: `${"later response line\n".repeat(500)}LATER_RESPONSE_END`,
+      }),
+    );
+    await expect(page.getByText("LATER_RESPONSE_END", { exact: false })).toBeAttached();
+    const composer = page.locator("[data-agent-composer] textarea");
+    await composer.focus();
+    await page.keyboard.press("Alt+ArrowDown");
+    await expect(disclosure).toHaveCount(1);
+    await expect
+      .poll(async () => {
+        const body = await page.locator(".agent-body").boundingBox();
+        const command = await disclosure.boundingBox();
+        return body !== null && command !== null && command.y + command.height <= body.y;
+      })
+      .toBe(true);
+    await composer.focus();
+    await page.keyboard.press("Alt+O");
+    await expect(disclosure.locator(".agent-command-output")).toHaveCount(0);
   });
 
   test("mouse clicks return to the prompt without taking text selection or response-field focus", async ({

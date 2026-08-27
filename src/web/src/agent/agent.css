@@ -656,7 +656,8 @@ a.agent-entry-media {
   color: var(--dim);
 }
 
-.agent-activity-details summary {
+.agent-activity-details > summary,
+.agent-command-output-details > summary {
   display: inline-flex;
   gap: 4px;
   color: color-mix(in srgb, var(--dim) 78%, transparent);
@@ -664,15 +665,18 @@ a.agent-entry-media {
   list-style: none;
 }
 
-.agent-activity-details summary::-webkit-details-marker {
+.agent-activity-details > summary::-webkit-details-marker,
+.agent-command-output-details > summary::-webkit-details-marker {
   display: none;
 }
 
-.agent-activity-details summary::before {
+.agent-activity-details > summary::before,
+.agent-command-output-details > summary::before {
   content: ">";
 }
 
-.agent-activity-details[open] summary::before {
+.agent-activity-details[open] > summary::before,
+.agent-command-output-details[open] > summary::before {
   content: "v";
 }
 
@@ -710,6 +714,16 @@ a.agent-entry-media {
 .agent-activity-step > pre,
 .agent-activity-step > .agent-entry-rich-content {
   grid-column: 2 / -1;
+  min-width: 0;
+}
+
+.agent-command-output-details {
+  grid-column: 2 / -1;
+  min-width: 0;
+}
+
+.agent-command-output,
+.agent-command-output > .agent-entry-rich-content {
   min-width: 0;
 }
 

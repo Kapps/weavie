@@ -92,6 +92,9 @@ public static class CoreCommands {
 	/// <summary>Jumps to the latest structured-agent activity and resumes following it.</summary>
 	public const string AgentJumpToLatest = "weavie.agent.jumpToLatest";
 
+	/// <summary>Toggles output for the focused or newest command in expanded structured-agent history.</summary>
+	public const string ToggleAgentCommandOutput = "weavie.agent.toggleCommandOutput";
+
 	/// <summary>Toggles the focused or newest Mermaid block in structured-agent output; bound to <c>Alt+M</c>.</summary>
 	public const string ToggleAgentMermaidPreview = "weavie.agent.toggleMermaidPreview";
 
@@ -783,6 +786,19 @@ public static class CoreCommands {
 			Aliases = ["jump to latest", "latest activity", "scroll to bottom", "follow agent"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "alt+down" }],
 			When = "agentFocused",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = ToggleAgentCommandOutput,
+			Title = "Toggle Agent Command Output",
+			RunsIn = CommandLocation.Web,
+			Category = "Agent",
+			Description = "Show or hide output for the focused command in expanded agent history, or the newest "
+				+ "visible command when none is focused.",
+			Aliases = ["show command output", "hide command output", "toggle command output", "command history output"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "alt+o" }],
+			When = "agentFocused && agentCommandOutputAvailable",
+			ArgsSchemaJson = "{\"outputId\":{\"type\":\"string\",\"description\":\"Visible command output disclosure to toggle; omit to use the focused or newest one\"}}",
 		});
 
 		registry.Register(new CommandDefinition {

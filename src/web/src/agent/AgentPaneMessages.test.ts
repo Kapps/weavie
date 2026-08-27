@@ -133,6 +133,7 @@ describe("toAgentTranscript", () => {
         detailText: null,
         id: "cmd-1",
         label: "command git status",
+        outputIsCommand: true,
         status: "completed",
         tone: "muted",
       },
@@ -178,7 +179,40 @@ describe("toAgentTranscript", () => {
       },
     ]);
 
-    expect(transcript[0]?.details[0]?.detailText).toBe("src/App.cs: trailing whitespace");
+    expect(transcript[0]?.details[0]).toMatchObject({
+      detailText: "src/App.cs: trailing whitespace",
+      outputIsCommand: true,
+    });
+  });
+
+  it("requires an explicit reveal for provider command categories but not ordinary tool output", () => {
+    const transcript = toAgentTranscript([
+      {
+        type: "item-completed",
+        providerId: "acp",
+        itemId: "execute-1",
+        itemType: "tool",
+        category: "execute",
+        summary: "run tests",
+        text: "test output",
+        status: "completed",
+      },
+      {
+        type: "item-completed",
+        providerId: "acp",
+        itemId: "read-1",
+        itemType: "tool",
+        category: "read",
+        summary: "source file",
+        text: "file contents",
+        status: "completed",
+      },
+    ]);
+
+    expect(transcript[0]?.details).toMatchObject([
+      { category: "execute", detailText: "test output", outputIsCommand: true },
+      { category: "read", detailText: "file contents", outputIsCommand: false },
+    ]);
   });
 
   it("shows a failed turn even when no separate error notification arrived", () => {

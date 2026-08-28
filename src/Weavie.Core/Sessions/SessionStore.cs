@@ -93,27 +93,51 @@ public sealed class SessionStore {
 		}
 	}
 
+	/// <summary>Strictly reads one session document without repairing or writing to its source.</summary>
+	public static SessionStoreSnapshot ReadSnapshot(IFileSystem fileSystem, string path) {
+		ArgumentNullException.ThrowIfNull(fileSystem);
+		ArgumentException.ThrowIfNullOrEmpty(path);
+		if (!fileSystem.FileExists(path)) {
+			throw new FileNotFoundException("The session snapshot does not exist.", path);
+		}
+		return ParseSnapshot(fileSystem.ReadAllText(path));
+	}
+
+	/// <summary>Atomically writes a complete, already-projected session snapshot.</summary>
+	public static void WriteSnapshot(IFileSystem fileSystem, string path, SessionStoreSnapshot snapshot) {
+		ArgumentNullException.ThrowIfNull(fileSystem);
+		ArgumentException.ThrowIfNullOrEmpty(path);
+		ArgumentNullException.ThrowIfNull(snapshot);
+		fileSystem.WriteAllTextAtomic(path, SerializeSnapshot(snapshot));
+	}
+
 	private List<SessionDescriptor> LoadLocked() =>
 		JsonStoreFile.Load<List<SessionDescriptor>>(
 			_fileSystem,
 			FilePath,
 			text => {
-				var document = JsonSerializer.Deserialize<SessionsDocument>(text, JsonOptions)
-					?? throw new JsonException("Session document was empty.");
-				if (document.Version != 3) {
-					throw new JsonException($"Unsupported session document version {document.Version}.");
-				}
-				var entries = document.Sessions
-					?? throw new JsonException("Session document has no sessions array.");
-				var parsedEntries = entries.Select(ParseEntry).ToList();
-
-				_shellCols = document.ShellCols;
-				_shellRows = document.ShellRows;
-
-				return parsedEntries;
+				var snapshot = ParseSnapshot(text);
+				_shellCols = snapshot.ShellColumns;
+				_shellRows = snapshot.ShellRows;
+				return [.. snapshot.Items];
 			},
 			static () => [],
 			Log);
+
+	private static SessionStoreSnapshot ParseSnapshot(string text) {
+		var document = JsonSerializer.Deserialize<SessionsDocument>(text, JsonOptions)
+			?? throw new JsonException("Session document was empty.");
+		if (document.Version != 3) {
+			throw new JsonException($"Unsupported session document version {document.Version}.");
+		}
+		var entries = document.Sessions
+			?? throw new JsonException("Session document has no sessions array.");
+		return new SessionStoreSnapshot {
+			Items = [.. entries.Select(ParseEntry)],
+			ShellColumns = document.ShellCols,
+			ShellRows = document.ShellRows,
+		};
+	}
 
 	private static SessionDescriptor ParseEntry(SessionEntry? entry) {
 		if (entry is null
@@ -137,25 +161,33 @@ public sealed class SessionStore {
 	}
 
 	private void PersistLocked() {
-		var document = new SessionsDocument {
-			Version = 3,
-			ShellCols = _shellCols,
-			ShellRows = _shellRows,
-			Sessions = [.. _items.Select(s => new SessionEntry {
-				Id = s.Id.Value,
-				Label = s.Label,
-				WorktreePath = s.WorktreePath,
-				Loaded = s.Loaded,
-				AgentProviderId = s.AgentProviderId,
-				EditorSession = s.EditorSession,
-			})],
-		};
 		JsonStoreFile.Persist(
 			_fileSystem,
 			FilePath,
-			JsonSerializer.Serialize(document, JsonOptions),
+			SerializeSnapshot(new SessionStoreSnapshot {
+				Items = _items,
+				ShellColumns = _shellCols,
+				ShellRows = _shellRows,
+			}),
 			Log);
 	}
+
+	private static string SerializeSnapshot(SessionStoreSnapshot snapshot) =>
+		JsonSerializer.Serialize(new SessionsDocument {
+			Version = 3,
+			ShellCols = snapshot.ShellColumns,
+			ShellRows = snapshot.ShellRows,
+			Sessions = [.. snapshot.Items.Select(ToEntry)],
+		}, JsonOptions);
+
+	private static SessionEntry ToEntry(SessionDescriptor session) => new() {
+		Id = session.Id.Value,
+		Label = session.Label,
+		WorktreePath = session.WorktreePath,
+		Loaded = session.Loaded,
+		AgentProviderId = session.AgentProviderId,
+		EditorSession = session.EditorSession,
+	};
 
 	private sealed class SessionsDocument {
 		[JsonPropertyName("version")]

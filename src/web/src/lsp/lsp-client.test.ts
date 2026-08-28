@@ -137,6 +137,8 @@ vi.mock("monaco-languageclient", () => ({
       runtime.clients.push(this.record);
     }
 
+    registerFeature(): void {}
+
     start(): Promise<void> {
       return Promise.resolve();
     }

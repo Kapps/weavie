@@ -146,6 +146,55 @@ That view binding is not a collaborative-editor protocol or an input authorizati
 session messages remain owner-addressed. True simultaneous collaborative editing would require its own
 authoritative-buffer and input-arbitration design.
 
+## Browser preview of a worktree
+
+`Weavie.WorktreeServe` runs the current checkout as a temporary browser-accessible Weavie without involving the
+installed, auto-updating runner:
+
+```bash
+dotnet run --project tools/Weavie.WorktreeServe
+```
+
+The tool downloads and verifies the repo-pinned Node.js release into the user cache when needed, installs the pinned
+web dependencies, publishes the current web and Headless sources together, launches one direct `Weavie.Headless` on
+an OS-assigned loopback port, and exposes it through a foreground Tailscale Serve process. It prints one
+`https://…/index.html#token=…` URL; opening that link exchanges the fragment token for the normal host-only cookie
+and immediately removes the token from browser history.
+
+The public HTTPS port defaults to `10000`, the tailnet's preview port; `--https-port <port>` selects another port
+the tailnet permits, except for `443` and `8443`, which are always reserved for the runner. The loopback port remains
+random. The launcher refuses an occupied Tailscale port, holds an exclusive per-port lock, and never runs
+`tailscale serve off` or `reset`. Its foreground Serve route belongs to its exact CLI process and disappears with
+it, leaving the runner's routes untouched.
+
+The current checkout selects the production session to preview, while Headless opens the repository's primary
+worktree so its workspace identity and session catalog match the installed runner. Before each launch, the tool
+strictly reads production state and projects its safe configuration into a per-source-checkout `WEAVIE_ROOT` under
+`~/.weavie-previews/worktree-serve`. The exact matching session keeps its label, editor state, and agent provider and
+is the only production session marked loaded. Other production sessions remain visible but unloaded. A missing
+session, duplicate path match, malformed state document, or unavailable provider fails the launch rather than
+choosing a default provider.
+
+The projection includes global and workspace settings, keybindings, themes, ACP controls, and independently copied
+ACP launch recipes and binary packages. It deliberately excludes agent conversation associations, Codex and Claude
+conversation stores, the production worktree registry, remote-agent credentials, logs, scratch data, and internals.
+Normal process credentials remain those of the remote user account through `HOME`, `CODEX_HOME`, and
+`CLAUDE_CONFIG_DIR`; the tool does not copy or synthesize credentials. Preview-created sessions and worktrees stay in
+the preview store and remain reusable, while refreshed production-derived metadata can never overwrite the runner's
+store. Every preview root carries an ownership marker, and the launcher accepts only a new empty directory or a root
+it previously claimed. It also rejects overlap in either direction with the production store, source checkout, or
+served workspace. A state-root lock prevents two preview hosts from mutating it concurrently. To choose another
+persistent preview-only root, pass:
+
+```bash
+dotnet run --project tools/Weavie.WorktreeServe -- --state-root ~/.weavie-preview
+```
+
+`--workspace <path>` selects a different checkout and its exact production session while still building Weavie from
+the current source checkout. Preview state isolation does not make repository files read-only: edits and git actions
+still operate on the selected repository and its worktrees. Ctrl+C stops the foreground Serve route before stopping
+Headless and removing generated build files.
+
 ## Durability boundary
 
 Loaded sessions and their processes live on the worker independently of which page is selected. A reconnect

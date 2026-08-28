@@ -1,3 +1,4 @@
+using Weavie.Core.Remote;
 using Weavie.Runner;
 
 var (options, optionsError) = RunnerOptions.Resolve(args);

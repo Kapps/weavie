@@ -232,7 +232,7 @@ function connect(key: string, params: EnsureClientParams, attempt: number): void
 
   const startClient = (): void => {
     const settings = server.settings ?? {};
-    client = createWeavieLanguageClient({
+    const options: Parameters<typeof createWeavieLanguageClient>[0] = {
       name: `Weavie ${server.id} language client`,
       clientOptions: {
         // Scope providers to this worktree so a warm client from another session never answers for this one's
@@ -283,7 +283,8 @@ function connect(key: string, params: EnsureClientParams, attempt: number): void
         },
       },
       messageTransports: { reader: channel.reader, writer: channel.writer },
-    });
+    };
+    client = createWeavieLanguageClient(options, channelId);
 
     // start() rejects when the server faults on initialize (e.g. csharp-ls with no resolvable SDK). Route that
     // through the same reconnect/give-up path as a server exit instead of leaking an unhandled rejection.

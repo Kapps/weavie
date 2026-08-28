@@ -10,9 +10,13 @@
 # is stable across these releases). 0.25.x also closes GHSA-67mh-4wv8-2f99 (dev server SSRF).
 # dompurify is pulled transitively by the monaco-vscode quickaccess override; pin a patched release to
 # close the XSS / prototype-pollution advisories affecting <=3.3.x.
+# patchedDependencies: vscode-languageclient converts nested LSP commands through Weavie's exact-client aliases;
+# see docs/specs/lsp-over-bridge.md.
 allowBuilds:
   '@biomejs/biome': true
   esbuild: true
 overrides:
   esbuild: 0.25.12
   dompurify: 3.4.12
+patchedDependencies:
+  vscode-languageclient@9.0.1: patches/vscode-languageclient@9.0.1.patch

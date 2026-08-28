@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Text.Encodings.Web;
 using Microsoft.AspNetCore.Http;
 
@@ -23,14 +24,17 @@ public static class TokenConnectPage {
 		context.Response.ContentType = "text/html; charset=utf-8";
 		context.Response.Headers.CacheControl = "no-store";
 		context.Response.Headers["Referrer-Policy"] = "no-referrer";
+		string scriptNonce = Convert.ToBase64String(RandomNumberGenerator.GetBytes(18));
 		context.Response.Headers.ContentSecurityPolicy =
-			"default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
+			$"default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-{scriptNonce}'; img-src 'self'; "
+			+ "form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
 		string error = invalidToken
 			? "<p class=\"error\" role=\"alert\">That token was not accepted.</p>"
 			: string.Empty;
 		string icon = string.IsNullOrEmpty(iconUrl)
 			? string.Empty
 			: $"<img src=\"{HtmlEncoder.Default.Encode(iconUrl)}\" width=\"48\" height=\"48\" alt=\"\">";
+		string encodedNonce = HtmlEncoder.Default.Encode(scriptNonce);
 		await context.Response.WriteAsync(
 			$$"""
 			<!doctype html>
@@ -69,6 +73,15 @@ public static class TokenConnectPage {
 			    </form>
 			    {{error}}
 			  </main>
+			  <script nonce="{{encodedNonce}}">
+			    const token = new URLSearchParams(location.hash.slice(1)).get("token");
+			    if (token !== null) {
+			      history.replaceState(null, "", location.pathname + location.search);
+			      const input = document.querySelector("input[name=token]");
+			      input.value = token;
+			      input.form.requestSubmit();
+			    }
+			  </script>
 			</body>
 			</html>
 			""",

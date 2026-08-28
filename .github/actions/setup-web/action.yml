@@ -10,6 +10,6 @@ runs:
         package_json_file: src/web/package.json
     - uses: actions/setup-node@v4
       with:
-        node-version: 22
+        node-version-file: .node-version
         cache: pnpm
         cache-dependency-path: src/web/pnpm-lock.yaml

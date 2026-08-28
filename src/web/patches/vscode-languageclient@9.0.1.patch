@@ -1,0 +1,102 @@
+diff --git a/lib/common/client.d.ts b/lib/common/client.d.ts
+index 7e0f1211edce68016a2ecce23a24701590e78567..493a7a44a983c5c229141b3888e0f45b42476577 100644
+--- a/lib/common/client.d.ts
++++ b/lib/common/client.d.ts
+@@ -250,6 +250,10 @@ export type LanguageClientOptions = {
+         code2Protocol: c2p.URIConverter;
+         protocol2Code: p2c.URIConverter;
+     };
++    commandIdConverters: {
++        code2Protocol: c2p.CommandIdConverter;
++        protocol2Code: p2c.CommandIdConverter;
++    };
+     workspaceFolder?: VWorkspaceFolder;
+     connectionOptions?: {
+         cancellationStrategy?: CancellationStrategy;
+diff --git a/lib/common/client.js b/lib/common/client.js
+index e49c166a72b82b877b67b18075f6731f415186ae..83a7e70a55e038987923ae37d719fee8c05abc91 100644
+--- a/lib/common/client.js
++++ b/lib/common/client.js
+@@ -264,8 +264,8 @@ class BaseLanguageClient {
+                 }
+             },
+         };
+-        this._c2p = c2p.createConverter(clientOptions.uriConverters ? clientOptions.uriConverters.code2Protocol : undefined);
+-        this._p2c = p2c.createConverter(clientOptions.uriConverters ? clientOptions.uriConverters.protocol2Code : undefined, this._clientOptions.markdown.isTrusted, this._clientOptions.markdown.supportHtml);
++        this._c2p = c2p.createConverter(clientOptions.uriConverters ? clientOptions.uriConverters.code2Protocol : undefined, clientOptions.commandIdConverters.code2Protocol);
++        this._p2c = p2c.createConverter(clientOptions.uriConverters ? clientOptions.uriConverters.protocol2Code : undefined, this._clientOptions.markdown.isTrusted, this._clientOptions.markdown.supportHtml, clientOptions.commandIdConverters.protocol2Code);
+         this._syncedDocuments = new Map();
+         this.registerBuiltinFeatures();
+     }
+diff --git a/lib/common/codeConverter.d.ts b/lib/common/codeConverter.d.ts
+index 67405bc4e78015c323b30770eaa51fc8c0f5f88d..d1b206b2dc0310779ee52a00f4598673b301c2e9 100644
+--- a/lib/common/codeConverter.d.ts
++++ b/lib/common/codeConverter.d.ts
+@@ -75,4 +75,7 @@ export interface Converter {
+ export interface URIConverter {
+     (value: code.Uri): string;
+ }
+-export declare function createConverter(uriConverter?: URIConverter): Converter;
++export interface CommandIdConverter {
++    (value: string): string;
++}
++export declare function createConverter(uriConverter: URIConverter | undefined, commandIdConverter: CommandIdConverter): Converter;
+diff --git a/lib/common/codeConverter.js b/lib/common/codeConverter.js
+index bf328cd7fa1d0d99336fddd62a89252c6a9cf1ef..dae253ed0b62087fa227bf3328d13194daec4044 100644
+--- a/lib/common/codeConverter.js
++++ b/lib/common/codeConverter.js
+@@ -26,7 +26,7 @@ var InsertReplaceRange;
+     }
+     InsertReplaceRange.is = is;
+ })(InsertReplaceRange || (InsertReplaceRange = {}));
+-function createConverter(uriConverter) {
++function createConverter(uriConverter, commandIdConverter) {
+     const nullConverter = (value) => value.toString();
+     const _uriConverter = uriConverter || nullConverter;
+     function asUri(value) {
+@@ -659,7 +659,7 @@ function createConverter(uriConverter) {
+             textDocument: asTextDocumentIdentifier(document), position: asPosition(position) };
+     }
+     function asCommand(item) {
+-        let result = proto.Command.create(item.title, item.command);
++        let result = proto.Command.create(item.title, commandIdConverter(item.command));
+         if (item.arguments) {
+             result.arguments = item.arguments;
+         }
+diff --git a/lib/common/protocolConverter.d.ts b/lib/common/protocolConverter.d.ts
+index 3d65ec63b3d92acba89affe7cd1e1cf6054f9c34..c127a3295b8d3891664abd00d4af3a2989a060bf 100644
+--- a/lib/common/protocolConverter.d.ts
++++ b/lib/common/protocolConverter.d.ts
+@@ -162,6 +162,9 @@ export interface Converter {
+ export interface URIConverter {
+     (value: string): code.Uri;
+ }
++export interface CommandIdConverter {
++    (value: string): string;
++}
+ export declare function createConverter(uriConverter: URIConverter | undefined, trustMarkdown: boolean | {
+     readonly enabledCommands: readonly string[];
+-}, supportHtml: boolean): Converter;
++}, supportHtml: boolean, commandIdConverter: CommandIdConverter): Converter;
+diff --git a/lib/common/protocolConverter.js b/lib/common/protocolConverter.js
+index 1710bd9f1fefa3fd645b979891f036dbee1db4ff..faee4a6a187d56549d5a8b1f97fff35d6135f85d 100644
+--- a/lib/common/protocolConverter.js
++++ b/lib/common/protocolConverter.js
+@@ -27,7 +27,7 @@ var CodeBlock;
+     }
+     CodeBlock.is = is;
+ })(CodeBlock || (CodeBlock = {}));
+-function createConverter(uriConverter, trustMarkdown, supportHtml) {
++function createConverter(uriConverter, trustMarkdown, supportHtml, commandIdConverter) {
+     const nullConverter = (value) => code.Uri.parse(value);
+     const _uriConverter = uriConverter || nullConverter;
+     function asUri(value) {
+@@ -626,7 +626,7 @@ function createConverter(uriConverter, trustMarkdown, supportHtml) {
+         }
+     }
+     function asCommand(item) {
+-        let result = { title: item.title, command: item.command };
++        let result = { title: item.title, command: commandIdConverter(item.command) };
+         if (item.arguments) {
+             result.arguments = item.arguments;
+         }

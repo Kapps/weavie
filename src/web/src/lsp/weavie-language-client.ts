@@ -23,6 +23,14 @@ import {
 } from "vscode-languageclient";
 import { notify } from "../notify/notify";
 import { describeError, isCancellation } from "./lsp-errors";
+import {
+  SessionCommandScope,
+  SessionExecuteCommandFeature,
+} from "./session-execute-command-feature";
+
+type UnscopedLanguageClientOptions = Omit<MonacoLanguageClientOptions, "clientOptions"> & {
+  clientOptions: Omit<MonacoLanguageClientOptions["clientOptions"], "commandIdConverters">;
+};
 
 // The requests a user invokes and waits on a result from, mapped to the action's user-facing name. Everything
 // else (highlighting, lenses, diagnostics, completion) is background enrichment the editor re-runs constantly,
@@ -48,6 +56,21 @@ const userInvokedRequests = new Map<string, string>([
 ]);
 
 class WeavieLanguageClient extends MonacoLanguageClient {
+  constructor(options: MonacoLanguageClientOptions, commandScope: SessionCommandScope) {
+    super(options);
+    super.registerFeature(new SessionExecuteCommandFeature(this, commandScope));
+  }
+
+  override registerFeature(feature: Parameters<MonacoLanguageClient["registerFeature"]>[0]): void {
+    if (
+      "registrationType" in feature &&
+      feature.registrationType.method === ExecuteCommandRequest.method
+    ) {
+      return;
+    }
+    super.registerFeature(feature);
+  }
+
   override stop(...args: [] | [number]): Promise<void> {
     // Upstream calls stop() while an initialization failure is still Starting, where its own stop throws.
     // The closing transport cleans a failed start; only a fully running client needs protocol shutdown.
@@ -87,7 +110,18 @@ class WeavieLanguageClient extends MonacoLanguageClient {
 
 /** Creates a language client that toasts only the failures of requests the user invoked; the rest are logged. */
 export function createWeavieLanguageClient(
-  options: MonacoLanguageClientOptions,
+  options: UnscopedLanguageClientOptions,
+  commandNamespace: string,
 ): MonacoLanguageClient {
-  return new WeavieLanguageClient(options);
+  const commandScope = new SessionCommandScope(commandNamespace);
+  return new WeavieLanguageClient(
+    {
+      ...options,
+      clientOptions: {
+        ...options.clientOptions,
+        commandIdConverters: commandScope.converters,
+      },
+    },
+    commandScope,
+  );
 }

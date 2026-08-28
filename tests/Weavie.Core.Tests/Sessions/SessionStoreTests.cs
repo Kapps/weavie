@@ -122,6 +122,33 @@ public sealed class SessionStoreTests {
 		Assert.Empty(store.Items);
 	}
 
+	[Fact]
+	public void Strict_snapshot_read_rejects_malformed_state_without_repairing_it() {
+		var fs = new InMemoryFileSystem();
+		fs.WriteAllText(StorePath, "{ broken ");
+
+		Assert.Throws<JsonException>(() => SessionStore.ReadSnapshot(fs, StorePath));
+
+		Assert.Equal("{ broken ", fs.ReadAllText(StorePath));
+		Assert.False(fs.FileExists(StorePath + ".bad"));
+	}
+
+	[Fact]
+	public void Strict_snapshot_write_round_trips_the_complete_document() {
+		var fs = new InMemoryFileSystem();
+		SessionStore.WriteSnapshot(fs, StorePath, new SessionStoreSnapshot {
+			Items = [Descriptor("aaaa", "a", loaded: true)],
+			ShellColumns = 160,
+			ShellRows = 48,
+		});
+
+		var snapshot = SessionStore.ReadSnapshot(fs, StorePath);
+
+		Assert.Equal("aaaa", Assert.Single(snapshot.Items).Id.Value);
+		Assert.Equal(160, snapshot.ShellColumns);
+		Assert.Equal(48, snapshot.ShellRows);
+	}
+
 	// A file a previous build wrote carries properties the store has since stopped reading; skipping them is
 	// what keeps a real session list from being reset on upgrade.
 	[Fact]

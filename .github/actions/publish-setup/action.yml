@@ -28,9 +28,9 @@ runs:
     - name: Set up Node
       uses: actions/setup-node@v4
       with:
-        # pnpm 11.x requires Node >= 22.13 (it loads the built-in node:sqlite module), so Node 20
-        # crashes setup-node's pnpm cache probe. Keep this at 22+.
-        node-version: 22
+        # pnpm 11.x requires Node >= 22.13 (it loads the built-in node:sqlite module), so use the
+        # repository-pinned release shared with the remote worktree launcher.
+        node-version-file: .node-version
         # No `cache: pnpm` — setup-node's cache always saves, and its key format is its own private
         # detail, so there is no restore-only form of it to use here.
 

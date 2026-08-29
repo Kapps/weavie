@@ -222,7 +222,7 @@ test("keyboard session cycling steps one chip per press in both directions", asy
   await createSession(page, { branch: "e2e/cycle-third", provider: "claude" });
   await expect(chips).toHaveCount(3);
 
-  // Cycling is gated on the editor not holding focus, so park focus in the shell pane.
+  // Park focus in the shell pane so the session binding owns the chord directly.
   const shell = page.locator('.terminal-surface[data-kind="terminal:shell"]');
   await shell.locator(".pane-head").click();
   const slots = await chips.evaluateAll((rail) =>

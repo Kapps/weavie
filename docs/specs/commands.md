@@ -347,11 +347,10 @@ Ctrl+1–9 needs no `when` (global). Context-key set grows with the command set.
 A guard can sit on the **command** (`CommandDefinition.When` — gates the keybinding *and* palette
 visibility) **or** on a single **binding** (`CommandKeybinding.When` — gates that chord only, never
 the palette; falls back to the command-level guard when null). The per-binding form lets one chord be
-focus-scoped while the command stays browsable in the palette: e.g. `weavie.session.next` binds
-`ctrl+Tab` with a per-binding `!editorFocused` guard (so the editor's own `ctrl+Tab` next-tab still
-wins under `editorFocused`, while session switching works from the terminal, the rail, and on load),
-yet "Next Session" is always listed in the palette. (Tab/index nav uses literal `ctrl` so it stays
-`Ctrl` on macOS — `$mod` there is `Cmd`, which owns `Cmd+Tab`.)
+focus-scoped while the command stays browsable in the palette: the guarded editor-tab `ctrl+Tab` binding
+gets the first claim while the editor is focused, then the unguarded session binding handles the same press
+when there is no editor tab to step to. (Tab/index nav uses literal `ctrl` so it stays `Ctrl` on macOS —
+`$mod` there is `Cmd`, which owns `Cmd+Tab`.)
 
 ## MCP tools (`listCommands` / `runCommand`)
 

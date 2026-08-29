@@ -3,12 +3,15 @@ using Weavie.Linux.Native;
 
 namespace Weavie.Linux;
 
-// WebKitGTK consumes Ctrl+Shift+Tab as reverse focus traversal before DOM keydown. Re-inject it into the same
-// web resolver that owns every effective/user-overridden binding and context guard.
+// WebKitGTK consumes Ctrl+Tab focus traversal before DOM keydown. Re-inject both directions into the web
+// resolver that owns every effective/user-overridden binding and context guard.
 internal sealed partial class WorkspaceHost {
 	private const uint IntentModifiers = Gdk.ShiftMask | Gdk.ControlMask | Gdk.AltMask
 		| Gdk.SuperMask | Gdk.HyperMask | Gdk.MetaMask;
 
+	private const string ForwardTabKeydown =
+		"window.dispatchEvent(new KeyboardEvent('keydown',{key:'Tab',code:'Tab',"
+		+ "ctrlKey:true,bubbles:true,cancelable:true}));";
 	private const string ReverseTabKeydown =
 		"window.dispatchEvent(new KeyboardEvent('keydown',{key:'ISO_Left_Tab',code:'Tab',"
 		+ "ctrlKey:true,shiftKey:true,bubbles:true,cancelable:true}));";
@@ -24,13 +27,23 @@ internal sealed partial class WorkspaceHost {
 	}
 
 	private int OnKeyPress(IntPtr controller, uint keyval, uint keycode, uint state, IntPtr userData) {
-		if ((state & IntentModifiers) != (Gdk.ControlMask | Gdk.ShiftMask)
-			|| keyval is not (Gdk.Tab or Gdk.IsoLeftTab)) {
+		string? keydown = TabKeydownScript(keyval, state);
+		if (keydown is null) {
 			return 0;
 		}
 
 		WebKit.webkit_web_view_evaluate_javascript(
-			_webView, ReverseTabKeydown, -1, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+			_webView, keydown, -1, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
 		return 1;
+	}
+
+	internal static string? TabKeydownScript(uint keyval, uint state) {
+		uint modifiers = state & IntentModifiers;
+		if (keyval is not (Gdk.Tab or Gdk.IsoLeftTab)
+			|| modifiers is not (Gdk.ControlMask or (Gdk.ControlMask | Gdk.ShiftMask))) {
+			return null;
+		}
+
+		return modifiers == Gdk.ControlMask ? ForwardTabKeydown : ReverseTabKeydown;
 	}
 }

@@ -136,3 +136,47 @@ test("scrolling back through never-measured history stays smooth", async ({ page
     await host.close();
   }
 });
+
+test("a wheel scroll does not resize the transcript under itself", async ({ page }) => {
+  const session = mockSession("wheel", "wheel", "acp");
+  const host = await MockHost.start({ distDir, sessions: [session] });
+  host.setAgentHistory(session.address, { generation: 1, pageSize: 5000, messages: transcript });
+
+  try {
+    await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
+    await host.waitUntilConnected();
+    const body = page.locator(".agent-body");
+    await expect(body).toBeVisible();
+    await expect(page.getByText("Answer 149", { exact: true })).toBeVisible();
+    await body.evaluate((element) => {
+      element.scrollTo({ top: element.scrollHeight });
+      element.scrollTop -= 200;
+    });
+    await expect(page.getByRole("button", { name: "Jump to latest" })).toBeVisible();
+
+    const height = (): Promise<number> =>
+      page.locator("[data-agent-transcript]").evaluate((element) => element.clientHeight);
+    const bounds = (await body.boundingBox())!;
+    await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+
+    // A wheel notch is an animation toward a target offset. Whatever the pane learns about row sizes
+    // while it is in flight must not move the content under it, or the animation is cancelled and the
+    // notch delivers a fraction of the scroll it was given.
+    const before = await height();
+    await page.mouse.wheel(0, -600);
+    const during = await page.evaluate(
+      () =>
+        new Promise<number>((resolve) =>
+          requestAnimationFrame(() =>
+            resolve(document.querySelector<HTMLElement>("[data-agent-transcript]")!.clientHeight),
+          ),
+        ),
+    );
+    expect(during).toBe(before);
+
+    // Held, not dropped: the sizes still land once the scroll comes to rest.
+    await expect.poll(height).not.toBe(before);
+  } finally {
+    await host.close();
+  }
+});

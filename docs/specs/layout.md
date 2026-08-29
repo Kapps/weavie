@@ -493,9 +493,9 @@ Decision: **`Ctrl+1..9` direct-jump to the N-th pane**, shipping first. Rational
 reasoning about geometry — and it's the muscle memory VS Code already trains (`Ctrl+number` = focus
 editor group), with near-zero conflict in shell/Monaco.
 
-- **`Ctrl+Tab` / `Ctrl+Shift+Tab` switch sessions** whenever the editor isn't focused (gated
-  `!editorFocused`, so they work from the terminal, the rail, and on load); when the editor is focused
-  the same chords cycle editor tabs.
+- **`Ctrl+Tab` / `Ctrl+Shift+Tab` cycle editor tabs** while the editor is focused and has another tab to
+  activate; otherwise they switch sessions. The Linux host captures both chords before WebKitGTK's native
+  focus traversal and re-injects them into the web keybinding resolver.
 - **Directional (arrow) navigation is deferred.** Every modifier+arrow combo collides with in-pane
   editing (`Ctrl+Arrow` = word-nav in both shell and Monaco; `Alt+Arrow` = Monaco move-line / mac
   word-nav; `Ctrl+[` is literally the ESC byte in a terminal). If/when added, the likely default is

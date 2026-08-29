@@ -1648,9 +1648,9 @@ export default function App(): JSX.Element {
         selectedSession()?.feature("review").publish("diffAgainst", { reference: "HEAD" });
         return true;
       }),
-      // Next / Previous Session (Ctrl+Tab / Ctrl+Shift+Tab, gated !editorFocused so the editor's own Ctrl+Tab
-      // still cycles tabs): cycle the rail, wrapping. stepSession returns false only when there's no chip to move
-      // to (empty rail, or a lone active chip), so the chord falls through.
+      // Next / Previous Session (Ctrl+Tab / Ctrl+Shift+Tab, behind the editor-focused tab bindings): cycle the
+      // rail, wrapping. stepSession returns false only when there's no chip to move to (empty rail, or a lone
+      // active chip), so the chord falls through.
       registerCommand(CommandIds.nextSession, () => stepSession(1)),
       registerCommand(CommandIds.prevSession, () => stepSession(-1)),
       // Focus Session (programmatic; the notification click-through): bring a session to the foreground by

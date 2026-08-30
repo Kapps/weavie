@@ -30,7 +30,7 @@ public static class StartupTips {
 			Id = "automatic-inference",
 			Lead = "Enable Automatic Inference",
 			CommandId = CoreCommands.EnableAutomaticInference,
-			Detail = "Weavie can use LLM inferrence for features such as branch name suggestions. This will consume tokens.",
+			Detail = "Weavie can use LLM inference for features such as branch name suggestions. This will consume tokens.",
 		},
 		new() {
 			Id = "revise-selection",

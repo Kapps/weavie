@@ -19,7 +19,7 @@ public sealed record NewSessionRequest {
 	/// <summary>The required branch (and worktree) name.</summary>
 	public string? Branch { get; init; }
 
-	/// <summary>The base to branch from: <c>"source"</c> (the invoking session's HEAD) or <c>"main"</c>; <c>null</c> means source. Ignored when <see cref="Existing"/> is set.</summary>
+	/// <summary>The base to branch from: <c>"main"</c> (the repository's default branch) or <c>"source"</c> (the invoking session's HEAD); <c>null</c> means main. Ignored when <see cref="Existing"/> is set.</summary>
 	public string? Base { get; init; }
 
 	/// <summary>Optional text in the new session's first agent input.</summary>

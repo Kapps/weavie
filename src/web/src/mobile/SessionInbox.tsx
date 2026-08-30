@@ -48,7 +48,7 @@ export function SessionInbox(props: {
   const [backendId, setBackendId] = createSignal(props.initialBackendId);
   const [providerId, setProviderId] = createSignal(defaultAgentProvider(props.initialBackendId));
   const [savingProvider, setSavingProvider] = createSignal(false);
-  const [base, setBase] = createSignal<"source" | "main">("source");
+  const [base, setBase] = createSignal<"source" | "main">("main");
   const [existingBranch, setExistingBranch] = createSignal("");
   const [branches, setBranches] = createSignal<string[]>([]);
   const [branchListError, setBranchListError] = createSignal("");
@@ -133,6 +133,7 @@ export function SessionInbox(props: {
     const initialBackendId = props.initialBackendId;
     if (active && (!wasActive || initialBackendId !== previousBackendId)) {
       selectBackend(initialBackendId);
+      setBase("main"); // A base pick is never carried into the next open.
     }
     wasActive = active;
     previousBackendId = initialBackendId;
@@ -422,13 +423,13 @@ export function SessionInbox(props: {
                   value={base()}
                   onChange={(event) => setBase(event.currentTarget.value as "source" | "main")}
                 >
+                  <option value="main">Main branch</option>
                   <option
                     value="source"
                     disabled={selectedSession()?.connection.id !== backendId()}
                   >
                     Current session
                   </option>
-                  <option value="main">Main branch</option>
                 </select>
               </label>
             </div>

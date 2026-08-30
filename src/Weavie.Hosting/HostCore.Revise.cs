@@ -18,12 +18,6 @@ public sealed partial class HostCore {
 			return;
 		}
 
-		// Every path-taking handler guards first: an unguarded path here would write anywhere on disk.
-		if (!BufferStore.IsWithinWorkspace(session.WorkspaceRoot, message.Path)) {
-			Notify(session, "warn", "That file is outside this session's workspace.");
-			return;
-		}
-
 		if (SlotFor(session) is not { } slot) {
 			Notify(session, "warn", "That session is no longer loaded.");
 			return;

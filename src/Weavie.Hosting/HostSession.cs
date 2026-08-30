@@ -115,7 +115,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 		// the prompt; wiped on unload so they never linger or reach the tree/git.
 		PastedImages = new PastedImageStore(fileSystem, pastedImagesDir);
 		AgentAttachments = new AgentAttachmentStore(PastedImages);
-		FileProvider = new FileProviderService(fileSystem, workspaceRoot, scratchDir);
+		FileProvider = new FileProviderService(fileSystem);
 		Inventory = new WorkspaceInventory(workspaceRoot);
 		FileActivity = new SessionFileActivity(
 			Inventory,
@@ -146,14 +146,14 @@ public sealed partial class HostSession : IAsyncDisposable {
 		// this session's agent what the user is looking at.
 		Editor = new EditorStore();
 
-		// Built before the IDE-MCP server so its EditLocationFor can back the hook bridge's edit jump-links. Scoped
-		// to the roots the file provider serves (worktree + scratch), so an edit the agent makes outside this
-		// session is never tracked and so never pushed as an unopenable diff.
+		// Built before the IDE-MCP server so its EditLocationFor can back the hook bridge's edit jump-links. Review
+		// covers this session's work — the worktree and its scratch buffers — so an agent edit to an unrelated file
+		// elsewhere on disk stays out of the turn diff. The editor can still open and save that file.
 		Changes = new SessionChangeTracker(
 			fileSystem,
 			FileActivity,
 			workspaceRoot,
-			path => BufferStore.IsWithinWorkspace(workspaceRoot, path) || BufferStore.IsWithinWorkspace(scratchDir, path));
+			path => PathBoundary.Contains(workspaceRoot, path) || PathBoundary.Contains(scratchDir, path));
 		// Mirrors the provider's edit mode (default/acceptEdits/plan), observed off the event stream — Weavie
 		// reflects it, never sets it. Drives the openDiff auto-keep + the post-turn review gating.
 		ObservedMode = new ObservedPermissionMode();
@@ -388,11 +388,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 		lock (_editorSessionGate) {
 			target.PublishJson(
 				"restore",
-				EditorSessionSerialization.BuildRestoreJson(
-					_editorSession,
-					FileSystem,
-					WorkspaceRoot,
-					log));
+				EditorSessionSerialization.BuildRestoreJson(_editorSession, FileSystem, log));
 		}
 	}
 

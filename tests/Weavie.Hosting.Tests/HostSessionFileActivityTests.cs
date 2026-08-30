@@ -55,7 +55,7 @@ public sealed class HostSessionFileActivityTests {
 			session,
 			"files",
 			"write",
-			new { path = Path.Combine(host.RepoRoot, "..", "outside.cs"), content = "no\n" });
+			new { path = host.RepoRoot, content = "no\n" });
 		await session.FileActivity.DrainAsync(CancellationToken.None);
 
 		Assert.False(response.GetProperty("ok").GetBoolean());

@@ -1483,24 +1483,15 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   interface ScratchSaveResult {
     scratchPath: string;
     savedPath: string;
-    reopen: boolean;
   }
 
   const applyScratchSave = (session: ClientSession, result: ScratchSaveResult): void => {
     if (result.savedPath === "") {
       return;
     }
-    if (result.reopen) {
-      const activation = convertScratchFor(session, result.scratchPath, result.savedPath);
-      if (activation !== null) {
-        void applyActive(session, activation);
-      }
-    } else {
-      const wasActive = activePathFor(session) === result.scratchPath;
-      const closed = closeTabFor(session, result.scratchPath);
-      if (closed !== null && wasActive) {
-        applyOrClear(session, closed.next);
-      }
+    const activation = convertScratchFor(session, result.scratchPath, result.savedPath);
+    if (activation !== null) {
+      void applyActive(session, activation);
     }
     host?.closeFile(session, result.scratchPath, true);
   };

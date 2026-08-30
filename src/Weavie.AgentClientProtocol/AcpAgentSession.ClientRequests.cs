@@ -79,7 +79,7 @@ public sealed partial class AcpAgentSession {
 	}
 
 	private object ReadTextFile(AcpClientRequest request) {
-		string path = AllowedPath(request.Parameters, allowMissingLeaf: false);
+		string path = RequestedPath(request.Parameters);
 		string content = _context.FileSystem.ReadAllText(path).Replace("\r\n", "\n", StringComparison.Ordinal);
 		int line = ReadOptionalNonNegativeInt(request.Parameters, "line") ?? 1;
 		int? limit = ReadOptionalNonNegativeInt(request.Parameters, "limit");
@@ -91,7 +91,7 @@ public sealed partial class AcpAgentSession {
 	}
 
 	private object WriteTextFile(AcpClientRequest request) {
-		string path = AllowedPath(request.Parameters, allowMissingLeaf: true);
+		string path = RequestedPath(request.Parameters);
 		string content = RequiredText(request.Parameters, "content", "fs/write_text_file request");
 		var mutation = new AgentMutation.File(path, null, ProvidesEditLocation: true);
 		Observe(new AgentToolStarting(mutation));
@@ -103,13 +103,12 @@ public sealed partial class AcpAgentSession {
 		return new { };
 	}
 
-	private string AllowedPath(JsonElement parameters, bool allowMissingLeaf) {
+	private static string RequestedPath(JsonElement parameters) {
 		string path = RequiredString(parameters, "path", "filesystem request");
-		try {
-			return _fileScope.ResolvePhysicalPath(path, allowMissingLeaf);
-		} catch (Exception ex) when (ex is UnauthorizedAccessException or IOException) {
-			throw new UnauthorizedAccessException($"ACP filesystem request is outside the workspace: {path}");
+		if (!Path.IsPathFullyQualified(path)) {
+			throw new AcpProtocolException($"An ACP filesystem path must be absolute: {path}");
 		}
+		return Path.GetFullPath(path);
 	}
 
 	private object RequestPermission(AcpClientRequest request, AcpClientRequestState state) {

@@ -2,6 +2,7 @@ using System.Text;
 using Weavie.Core.Agents;
 using Weavie.Core.Configuration;
 using Weavie.Core.Editor;
+using Weavie.Core.FileSystem;
 using Weavie.Core.Processes;
 using Weavie.Core.Terminal;
 using Weavie.Hosting.Messaging;
@@ -301,7 +302,7 @@ public sealed class TerminalController : IDisposable {
 	/// </summary>
 	public void OnCwdReported(string cwd) {
 		if (_workingDirectoryMode == AgentWorkingDirectoryMode.Fixed
-			|| !BufferStore.IsWithinWorkspace(Workspace, cwd)
+			|| !PathBoundary.Contains(Workspace, cwd)
 			|| !Directory.Exists(cwd)) {
 			return;
 		}

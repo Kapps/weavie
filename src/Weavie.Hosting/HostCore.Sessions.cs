@@ -487,9 +487,7 @@ public sealed partial class HostCore {
 			}
 
 			WireSession(session);
-			_mediaRoutes.Register(
-				session.Incarnation,
-				[session.WorkspaceRoot, session.Scratch.Directory, session.PastedImages.Directory]);
+			_mediaRoutes.Register(session.Incarnation);
 			return session;
 		} catch (Exception creationError) {
 			try {

@@ -101,8 +101,7 @@ public sealed partial class AcpAgentSession {
 			throw new AcpProtocolException($"ACP file plan URI is not a local file: {value}");
 		}
 		try {
-			string path = _fileScope.ResolvePhysicalPath(uri.LocalPath, allowMissingLeaf: false);
-			return _context.FileSystem.ReadAllText(path);
+			return _context.FileSystem.ReadAllText(Path.GetFullPath(uri.LocalPath));
 		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) {
 			throw new AcpProtocolException($"ACP file plan could not be read: {ex.Message}", ex);
 		}

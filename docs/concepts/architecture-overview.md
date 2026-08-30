@@ -119,7 +119,7 @@ The build is Vite, multi-page (`index.html` for the workspace, `welcome.html` fo
 copied to the host's `wwwroot`. Every workspace HostCore owns the same token-gated Kestrel server
 (`src/Weavie.Hosting/Web/WorkspaceHttpServer.cs`): native hosts bind it to an OS-assigned loopback port,
 while Headless supplies its configured local/remote binding. It serves the app, injects bootstrap globals,
-and streams confined workspace media with HTTP ranges. Native welcome windows may still use their app/WebView
+and streams workspace media with HTTP ranges. Native welcome windows may still use their app/WebView
 resource scheme because they have no workspace HostCore or file access.
 
 Images and videos do not ride the JSON bridge. Their elements load `/weavie-media` directly with the server
@@ -202,7 +202,7 @@ sequenceDiagram
 
 - The host publishes `editor.openFile` on the owning session (from a terminal `path:line` link, an MCP
   reveal, or editor
-  context) carrying path/line; `FileOpener` reads through the validated `FileProviderService.ReadIfAllowed`
+  context) carrying path/line; `FileOpener` gates the open on existence via `FileProviderService.CanRead`
   (`src/Weavie.Hosting/FileOpener.cs`).
 - The provider (`src/web/src/editor/host-file-provider.ts`) services Monaco's `stat`/`readFile`/`writeFile`
   as correlated `files.stat`/`files.read`/`files.write` requests on the model owner's `ClientSession`.

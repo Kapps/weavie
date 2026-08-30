@@ -10,6 +10,14 @@ import type { WeavieWindow } from "../harness/weavie-window";
 // selection that reaches into a block must therefore leave it raw: otherwise a select-all (or a shift-click
 // across a comment) highlights — and copies, or replaces — text the user cannot see. These drive the real
 // editor: keyboard/mouse selection against the rendered zones and Monaco's hidden areas.
+//
+// "leaves it raw" flaked again on Windows CI, 2026-08-30
+// (https://github.com/Kapps/weavie/actions/runs/33340241580/job/99334856962): same awaitEditorFocus timeout
+// as the 2026-08-23 macOS flake. That occurrence's own fix (comment-prose.ts restoring focus after its
+// render()) is on main and didn't stop this one — the actual cause is the double-shift gesture detector
+// treating a shift-click's own Shift down/up as a tap and stealing focus to the omnibar, root-caused and
+// fixed in double-shift.ts by this same PR (#666), which had been sitting unmerged since 2026-08-23. No
+// change made here beyond documenting the recurrence and rebasing/landing the existing fix.
 
 const DOC_SOURCE = [
   "export const first = 1;",

@@ -36,16 +36,21 @@ export function trackDocumentSelection(): () => void {
   };
 }
 
+// A search query is one line of ordinary text. Past this a highlight is a document the user grabbed — a
+// minified bundle line, a data URI — not something to grep the workspace for.
+const MAX_QUERY_LENGTH = 200;
+
 /**
  * The highlighted text to seed a content search with: the freshest live selection, trimmed. Null when
- * nothing is highlighted or that highlight spans lines — a multi-line query can't match a line-based grep,
- * and seeding an older pane's selection instead would search something the user isn't looking at.
+ * nothing is highlighted or that highlight isn't one searchable line — a multi-line or document-sized query
+ * can't match a line-based grep, and seeding an older pane's selection instead would search something the
+ * user isn't looking at.
  */
 export function selectedText(): string | null {
   for (const key of recent) {
     const text = (readers.get(key)?.() ?? "").trim();
     if (text !== "") {
-      return text.includes("\n") ? null : text;
+      return /[\r\n]/.test(text) || text.length > MAX_QUERY_LENGTH ? null : text;
     }
   }
   return null;

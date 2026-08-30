@@ -46,6 +46,21 @@ describe("selectedText", () => {
     expect(selectedText()).toBeNull();
   });
 
+  it("returns null for a carriage-return highlight", () => {
+    source("document", () => "greet\r\nfarewell");
+    expect(selectedText()).toBeNull();
+  });
+
+  it("returns null for a document-sized single line rather than grepping for it", () => {
+    source("document", () => "x".repeat(5_000_000));
+    expect(selectedText()).toBeNull();
+  });
+
+  it("still seeds a long-but-searchable line", () => {
+    source("document", () => "x".repeat(200));
+    expect(selectedText()).toBe("x".repeat(200));
+  });
+
   it("forgets a deregistered source", () => {
     source("editor", () => "greet");
     for (const off of cleanups.splice(0)) {

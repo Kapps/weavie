@@ -6,8 +6,8 @@ include/exclude globs, with match case / whole word / regex options.
 
 ## Interaction model
 
-- **Seed**: invoking Find in Files captures the single-line text the user has highlighted (if any) as the
-  query and searches immediately; the input is focused with its text selected, so typing replaces it.
+- **Seed**: invoking Find in Files captures the single-line text the user has highlighted (if any, up to 200
+  characters — past that a highlight is a document, not a query) as the query and searches immediately; the input is focused with its text selected, so typing replaces it.
   Re-invoking while open re-seeds/refocuses. No selection → the previous query is kept (module store, below).
   The highlight is read through `commands/selection.ts`: Monaco and each xterm register a live reader (their
   selections never reach the document) alongside the document tracker for plain content like the agent

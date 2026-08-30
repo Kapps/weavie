@@ -1,5 +1,8 @@
 import { type ClientSession, clientSessionAt } from "../bridge";
 import { uriHostPath } from "./fs-path";
+import { SESSION_FILE_SCHEME } from "./session-uri-scheme";
+
+export { SESSION_FILE_SCHEME } from "./session-uri-scheme";
 
 interface UriParts {
   scheme: string;
@@ -20,7 +23,6 @@ interface UriOwner {
   hostFragment: string;
 }
 
-export const SESSION_FILE_SCHEME = "weavie-file";
 const OWNER_PREFIX = "weavie-session:";
 const namespaces = new WeakMap<ClientSession, string>();
 let namespaceSequence = 0;

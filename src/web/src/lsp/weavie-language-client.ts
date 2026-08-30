@@ -1,4 +1,6 @@
+import type { URI } from "@codingame/monaco-vscode-api/vscode/vs/base/common/uri";
 import { MonacoLanguageClient, type MonacoLanguageClientOptions } from "monaco-languageclient";
+import type { DocumentFilter, DocumentSelector, RelativePattern } from "vscode";
 import {
   CallHierarchyIncomingCallsRequest,
   CallHierarchyOutgoingCallsRequest,
@@ -21,6 +23,7 @@ import {
   TypeHierarchySupertypesRequest,
   WorkspaceSymbolRequest,
 } from "vscode-languageclient";
+import { SESSION_FILE_SCHEME } from "../editor/session-uri-scheme";
 import { notify } from "../notify/notify";
 import { describeError, isCancellation } from "./lsp-errors";
 import {
@@ -56,9 +59,25 @@ const userInvokedRequests = new Map<string, string>([
 ]);
 
 class WeavieLanguageClient extends MonacoLanguageClient {
-  constructor(options: MonacoLanguageClientOptions, commandScope: SessionCommandScope) {
+  private scopedProtocol2CodeConverter: MonacoLanguageClient["protocol2CodeConverter"] | undefined;
+
+  constructor(
+    options: MonacoLanguageClientOptions,
+    commandScope: SessionCommandScope,
+    modelWorkspaceUri: URI,
+  ) {
     super(options);
+    const baseConverter = super.protocol2CodeConverter;
+    this.scopedProtocol2CodeConverter = {
+      ...baseConverter,
+      asDocumentSelector: (selector) =>
+        scopeDocumentSelector(baseConverter.asDocumentSelector(selector), modelWorkspaceUri),
+    };
     super.registerFeature(new SessionExecuteCommandFeature(this, commandScope));
+  }
+
+  override get protocol2CodeConverter(): MonacoLanguageClient["protocol2CodeConverter"] {
+    return this.scopedProtocol2CodeConverter ?? super.protocol2CodeConverter;
   }
 
   override registerFeature(feature: Parameters<MonacoLanguageClient["registerFeature"]>[0]): void {
@@ -108,10 +127,53 @@ class WeavieLanguageClient extends MonacoLanguageClient {
   }
 }
 
+function scopeDocumentSelector(
+  selector: DocumentSelector,
+  modelWorkspaceUri: URI,
+): DocumentSelector {
+  const filters = Array.isArray(selector) ? selector : [selector];
+  return filters.flatMap((filter): DocumentFilter[] => {
+    if (typeof filter === "string") {
+      return [scopedFilter(filter, undefined, modelWorkspaceUri)];
+    }
+    if (
+      filter.notebookType !== undefined ||
+      (filter.scheme !== undefined && filter.scheme !== "file" && filter.scheme !== "*")
+    ) {
+      return [];
+    }
+    return [
+      scopedFilter(
+        filter.language,
+        typeof filter.pattern === "string" ? filter.pattern : filter.pattern?.pattern,
+        modelWorkspaceUri,
+      ),
+    ];
+  });
+}
+
+function scopedFilter(
+  language: string | undefined,
+  pattern: string | undefined,
+  modelWorkspaceUri: URI,
+): DocumentFilter {
+  const relativePattern: RelativePattern = {
+    base: modelWorkspaceUri.fsPath,
+    baseUri: modelWorkspaceUri,
+    pattern: pattern ?? "**",
+  };
+  return {
+    ...(language === undefined ? {} : { language }),
+    scheme: SESSION_FILE_SCHEME,
+    pattern: relativePattern,
+  };
+}
+
 /** Creates a language client that toasts only the failures of requests the user invoked; the rest are logged. */
 export function createWeavieLanguageClient(
   options: UnscopedLanguageClientOptions,
   commandNamespace: string,
+  modelWorkspaceUri: URI,
 ): MonacoLanguageClient {
   const commandScope = new SessionCommandScope(commandNamespace);
   return new WeavieLanguageClient(
@@ -123,5 +185,6 @@ export function createWeavieLanguageClient(
       },
     },
     commandScope,
+    modelWorkspaceUri,
   );
 }

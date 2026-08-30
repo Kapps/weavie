@@ -1,6 +1,6 @@
 import { chmod, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { fakeClaudeProgram, programExists } from "./test-programs";
+import { fakeClaudeProgram, programExists, type TestProgram } from "./test-programs";
 
 export type FakeInference = "disabled" | "failure" | "needsDetail" | "success";
 
@@ -11,13 +11,22 @@ export function fakeClaudeBuilt(): boolean {
 // Weavie execs the claude.path setting as one executable, so wrap the resolved local DLL or packaged apphost
 // and point claude.path at it. WindowsPtyLauncher runs .cmd through cmd.exe; POSIX gets an exec'd shell script.
 export async function writeFakeClaudeWrapper(dir: string): Promise<string> {
-  const command = [fakeClaudeProgram.command, ...fakeClaudeProgram.args];
+  const name = process.platform === "win32" ? "fake-claude.cmd" : "fake-claude.sh";
+  return writeTestProgramWrapper(dir, name, fakeClaudeProgram, []);
+}
+
+export async function writeTestProgramWrapper(
+  dir: string,
+  name: string,
+  program: TestProgram,
+  extraArgs: string[],
+): Promise<string> {
+  const command = [program.command, ...program.args, ...extraArgs];
+  const wrapper = join(dir, name);
   if (process.platform === "win32") {
-    const wrapper = join(dir, "fake-claude.cmd");
     await writeFile(wrapper, `@${command.map((part) => `"${part}"`).join(" ")} %*\r\n`);
     return wrapper;
   }
-  const wrapper = join(dir, "fake-claude.sh");
   await writeFile(
     wrapper,
     `#!/bin/sh\nexec ${command.map((part) => JSON.stringify(part)).join(" ")} "$@"\n`,

@@ -2,6 +2,11 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Weavie.FakeAcp;
 
+if (args is ["lsp"]) {
+	await LspFake.RunAsync().ConfigureAwait(false);
+	return;
+}
+
 if (Environment.GetEnvironmentVariable("WEAVIE_FAKE_ACP_MODE") == "immediate-malformed") {
 	Console.Out.WriteLine("{");
 	Console.Out.Flush();

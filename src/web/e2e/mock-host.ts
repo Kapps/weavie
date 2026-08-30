@@ -126,6 +126,7 @@ const MOCK_AGENT_DEFAULTS = {
 
 export interface MockHostOptions {
   distDir: string;
+  buildNumber?: string;
   files?: Record<string, string>;
   sessions?: MockSession[];
   commandCatalog?: { commands: unknown[]; keybindings: unknown[] };
@@ -152,6 +153,7 @@ export class MockHost {
   private readonly media = new Map<string, Buffer>();
   private readonly distDir: string;
   private readonly commandCatalog: { commands: unknown[]; keybindings: unknown[] };
+  private readonly buildNumber: string;
   private readonly http: Server;
   private readonly wss: WebSocketServer;
   private readonly waiters: MessageWaiter[] = [];
@@ -182,9 +184,11 @@ export class MockHost {
     files: Record<string, string>,
     sessions: MockSession[],
     commandCatalog: { commands: unknown[]; keybindings: unknown[] },
+    buildNumber: string,
   ) {
     this.distDir = distDir;
     this.commandCatalog = commandCatalog;
+    this.buildNumber = buildNumber;
     this.files = new Map(Object.entries(files));
     this.sessions = sessions;
     this.http = createServer(
@@ -200,6 +204,7 @@ export class MockHost {
       options.files ?? {},
       options.sessions ?? [],
       options.commandCatalog ?? { commands: [], keybindings: [] },
+      options.buildNumber ?? "test",
     );
     await new Promise<void>((resolve) => host.http.listen(0, "127.0.0.1", resolve));
     const address = host.http.address();
@@ -777,7 +782,7 @@ export class MockHost {
   private hello() {
     return {
       hostIncarnation: "mock-host",
-      buildNumber: "test",
+      buildNumber: this.buildNumber,
       sessions: this.sessions,
       layout: DEFAULT_LAYOUT,
       remoteAgents: [],

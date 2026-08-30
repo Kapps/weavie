@@ -500,6 +500,10 @@ export default function App(): JSX.Element {
   const [openPrOpen, setOpenPrOpen] = createSignal(false);
   const [diffAgainstOpen, setDiffAgainstOpen] = createSignal(false);
   const sourceTokenPrompt = selectedSourceTokenPrompt;
+  const [buildMismatchDismissed, setBuildMismatchDismissed] = createSignal(false);
+  const visibleBuildMismatch = createMemo(() =>
+    buildMismatchDismissed() || activeBackendOffline() ? null : activeBackendBuildMismatch(),
+  );
   const [registerAgentOpen, setRegisterAgentOpen] = createSignal(false);
   const [acpRegistryOpen, setAcpRegistryOpen] = createSignal(false);
   const [acpRegistryBackendId, setAcpRegistryBackendId] = createSignal(LOCAL_BACKEND_ID);
@@ -1913,13 +1917,22 @@ export default function App(): JSX.Element {
               </span>
             </output>
           </Show>
-          <Show when={!activeBackendOffline() && activeBackendBuildMismatch()}>
+          <Show when={visibleBuildMismatch()}>
             {(mismatch) => (
               <output class="connection-banner connection-banner-error" role="alert">
                 <span>
                   {connectionLabel()} runs build {mismatch().backend} — this client is{" "}
                   {mismatch().client}. Sessions there won't work until both run the same build.
                 </span>
+                <button
+                  type="button"
+                  class="toast-close connection-banner-close"
+                  aria-label="Dismiss build mismatch warning"
+                  title="Dismiss build mismatch warning"
+                  onClick={() => setBuildMismatchDismissed(true)}
+                >
+                  ✕
+                </button>
               </output>
             )}
           </Show>

@@ -15,7 +15,7 @@ public sealed class SessionTaskScopeTests {
 			return Task.CompletedTask;
 		});
 
-		await running;
+		await running!;
 		await disposal;
 		Assert.False(completedInsideWork);
 	}
@@ -40,15 +40,16 @@ public sealed class SessionTaskScopeTests {
 		var firstDispose = scope.DisposeAsync().AsTask();
 		var secondDispose = scope.DisposeAsync().AsTask();
 		await Task.WhenAll(firstDispose, secondDispose);
-		await running;
+		await running!;
 		int lateCalls = 0;
-		await scope.Run(_ => {
+		var late = scope.Run(_ => {
 			lateCalls++;
 			return Task.CompletedTask;
 		});
 
 		Assert.True(scope.Stopping.IsCancellationRequested);
 		Assert.True(cancelled.Task.IsCompletedSuccessfully);
+		Assert.Null(late); // a closed scope admits nothing, so the caller can release what it held
 		Assert.Equal(0, lateCalls);
 		Assert.Empty(errors);
 	}

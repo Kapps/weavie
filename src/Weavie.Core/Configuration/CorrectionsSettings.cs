@@ -2,7 +2,7 @@ namespace Weavie.Core.Configuration;
 
 /// <summary>Registers the learn-from-corrections setting (<see cref="LearnThreshold"/>).</summary>
 public static class CorrectionsSettings {
-	/// <summary>How many recorded corrections it takes before the "teach Claude" card appears.</summary>
+	/// <summary>How many recorded corrections it takes before the learn-from-corrections card appears.</summary>
 	public const string LearnThreshold = "corrections.learnThreshold";
 
 	/// <summary>Registers <see cref="LearnThreshold"/> into <paramref name="registry"/>.</summary>
@@ -13,8 +13,9 @@ public static class CorrectionsSettings {
 			Key = LearnThreshold,
 			Kind = SettingKind.Int,
 			Description = "How many post-turn corrections (reverted hunks / hand-edits to the agent's output) "
-				+ "accumulate before the 'teach Claude from your corrections' card appears. The Learn From My "
-				+ "Corrections command works at any count; this only gates the nudge.",
+				+ "accumulate before the 'learn from your corrections' card appears. The Learn From My Corrections "
+				+ "command works at any count; this only gates the nudge. Either way the analysis runs at most "
+				+ "once every 24 hours.",
 			Aliases = ["learn threshold", "corrections threshold", "when to suggest learning", "correction nudge count"],
 			Apply = ApplyMode.Live,
 			Default = 10L,

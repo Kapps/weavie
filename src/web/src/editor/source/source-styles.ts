@@ -138,6 +138,9 @@ export const SOURCE_STYLES = `
 .wv-source .wv-bg-red { background: rgba(224,88,75,0.24); }
 /* The log viewer's dropped-lines marker (host-rendered html; see HostCore.Logs.cs). */
 .wv-source .wv-logs-note { color: var(--dim, #6f7884); margin: 0.4em 0; }
+/* The corrections analysis: its receipt/footer lines and each rule's supporting evidence (see HostCore.Learn.cs). */
+.wv-source .wv-learn-note { color: var(--dim, #6f7884); font-size: var(--font-metadata-size); margin: 0.4em 0; }
+.wv-source .wv-learn-evidence { color: var(--dim, #6f7884); font-size: var(--font-metadata-size); margin: 0.25em 0 0; }
 .wv-status {
   display: flex; align-items: center; justify-content: center; gap: 0.6em;
   min-height: 60vh; color: var(--dim, #6f7884);

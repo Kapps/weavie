@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Weavie.Core;
+using Weavie.Core.Corrections;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Mcp;
 using Weavie.Core.Suggestions;
@@ -23,7 +24,7 @@ public sealed partial class HostCore {
 		_suggestions = new SuggestionService(
 			_suggestionRegistry, _settings, fileSystem, WorkspaceRoot, dismissals,
 			TimeSpan.FromMilliseconds(500), PushSuggestions, () => RunAutoConfigProbe(fileSystem),
-			() => _corrections.Count);
+			() => new CorrectionsStatus(_corrections.Count, _learnSchedule.Ready));
 	}
 
 	// Fan the active suggestion set out to every client, like the session list.

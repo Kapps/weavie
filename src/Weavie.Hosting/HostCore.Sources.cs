@@ -109,11 +109,7 @@ public sealed partial class HostCore {
 		string target,
 		string sourceId,
 		CancellationToken ct) {
-		session.State.Set("sources", target, "loading", new {
-			target,
-			title = GuessSourceTitle(target),
-			sourceId,
-		});
+		SourceTab.Loading(session, target, GuessSourceTitle(target), sourceId);
 		SourceDoc doc;
 		try {
 			doc = await _sources.FetchAsync(target, ct).ConfigureAwait(false);
@@ -123,10 +119,7 @@ public sealed partial class HostCore {
 			// The spinner is already up, so EVERY failure must resolve it — not just the http/cancel set: a non-JSON
 			// 200 (proxy / captive-portal / incident HTML) throws JsonException deeper in, and this is fire-and-forget,
 			// so anything uncaught would leave the tab spinning forever. Surfaced loudly in the tab, never swallowed.
-			session.State.Set("sources", target, "error", new {
-				target,
-				message = ex.Message,
-			});
+			SourceTab.Error(session, target, ex.Message);
 			return;
 		}
 

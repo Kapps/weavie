@@ -1,4 +1,5 @@
 using Weavie.Core.Configuration;
+using Weavie.Core.Corrections;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Suggestions;
 using Xunit;
@@ -125,16 +126,24 @@ public sealed class SuggestionServiceTests : IDisposable {
 
 	[Fact]
 	public async Task CorrectionsBelowThreshold_LearnCardNotOffered() {
-		var harness = await StartAsync(EmptySettings(), NoManifest, static () => 9);
+		var harness = await StartAsync(EmptySettings(), NoManifest, static () => Ready(9));
 
 		Assert.DoesNotContain(LearnId, harness.ActiveIds());
 	}
 
 	[Fact]
 	public async Task CorrectionsAtThreshold_LearnCardOffered() {
-		var harness = await StartAsync(EmptySettings(), NoManifest, static () => 10);
+		var harness = await StartAsync(EmptySettings(), NoManifest, static () => Ready(10));
 
 		Assert.Contains(LearnId, harness.ActiveIds());
+	}
+
+	[Fact]
+	public async Task WhileAnAnalysisMayNotRun_LearnCardNotOffered() {
+		// The analysis is paced (one at a time, one a day), so the card must not offer what the command refuses.
+		var harness = await StartAsync(EmptySettings(), NoManifest, static () => new CorrectionsStatus(50, false));
+
+		Assert.DoesNotContain(LearnId, harness.ActiveIds());
 	}
 
 	[Fact]
@@ -142,7 +151,7 @@ public sealed class SuggestionServiceTests : IDisposable {
 		// Unlike the one-shot manifest probe, the ring's count changes over time — each Evaluate re-reads the
 		// supplier, so the card appears the moment an append crosses the (here raised) threshold.
 		int count = 4;
-		var harness = await StartAsync(SettingsWith("corrections.learnThreshold = 5"), NoManifest, () => count);
+		var harness = await StartAsync(SettingsWith("corrections.learnThreshold = 5"), NoManifest, () => Ready(count));
 		Assert.DoesNotContain(LearnId, harness.ActiveIds());
 
 		count = 5;
@@ -168,19 +177,23 @@ public sealed class SuggestionServiceTests : IDisposable {
 		StartAsync(settings, probe, new SuggestionDismissals(new InMemoryFileSystem(), "/state/suggestions.json"));
 
 	private static Task<Harness> StartAsync(SettingsStore settings, Func<bool> probe, SuggestionDismissals dismissals) =>
-		StartAsync(settings, probe, dismissals, FastProbe, static () => 0);
+		StartAsync(settings, probe, dismissals, FastProbe, static () => Ready(0));
 
 	private static Task<Harness> StartAsync(
 		SettingsStore settings, Func<bool> probe, SuggestionDismissals dismissals, TimeSpan probeTimeout) =>
-		StartAsync(settings, probe, dismissals, probeTimeout, static () => 0);
+		StartAsync(settings, probe, dismissals, probeTimeout, static () => Ready(0));
 
-	private static Task<Harness> StartAsync(SettingsStore settings, Func<bool> probe, Func<int> pendingCorrections) =>
+	private static Task<Harness> StartAsync(
+		SettingsStore settings, Func<bool> probe, Func<CorrectionsStatus> corrections) =>
 		StartAsync(settings, probe, new SuggestionDismissals(new InMemoryFileSystem(), "/state/suggestions.json"),
-			FastProbe, pendingCorrections);
+			FastProbe, corrections);
+
+	// A workspace that may analyze right now, so only the pending count decides the card.
+	private static CorrectionsStatus Ready(int pending) => new(pending, true);
 
 	private static async Task<Harness> StartAsync(
 		SettingsStore settings, Func<bool> probe, SuggestionDismissals dismissals, TimeSpan probeTimeout,
-		Func<int> pendingCorrections) {
+		Func<CorrectionsStatus> corrections) {
 		var pushes = new List<IReadOnlyList<SuggestionDefinition>>();
 		var first = new TaskCompletionSource();
 		var gate = new Lock();
@@ -194,7 +207,7 @@ public sealed class SuggestionServiceTests : IDisposable {
 
 		var service = new SuggestionService(
 			CoreSuggestions.CreateRegistry(), settings, new InMemoryFileSystem(), "/repo", dismissals, probeTimeout,
-			Push, probe, pendingCorrections);
+			Push, probe, corrections);
 		await first.Task.WaitAsync(TimeSpan.FromSeconds(5));
 		IReadOnlyList<string> ActiveIds() {
 			lock (gate) {

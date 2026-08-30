@@ -52,7 +52,7 @@ public sealed class WorkspaceBrowser {
 	}
 
 	// Case-sensitive off Windows: the browser is the only confinement guard run against a case-sensitive
-	// filesystem's real paths (the editor's IsWithinWorkspace deliberately folds case everywhere).
+	// filesystem's real paths (PathBoundary's default overload deliberately folds case everywhere).
 	private bool IsWithinRoot(string path) =>
 		PathBoundary.Contains(Root, path, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
 }

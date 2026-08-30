@@ -93,6 +93,34 @@ public sealed class SessionChangeTrackerTests {
 	}
 
 	[Fact]
+	public void RevertHunk_OutOfScopePath_LeavesTheFileUntouched() {
+		// The hunk guard is checked against disk, not the review baseline, so an untracked path whose guard text
+		// happens to match would otherwise splice the named lines out of any file the host can write.
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllText("/elsewhere/secrets.env", "keep\nDELETE_ME\nkeep\n");
+		var tracker = Tracker(fileSystem);
+
+		var outcome = tracker.RevertHunk(
+			"/elsewhere/secrets.env",
+			new LineRange(1, 1),
+			new LineRange(2, 3),
+			"DELETE_ME");
+
+		Assert.Equal(RevertHunkOutcome.GuardMismatch, outcome);
+		Assert.Equal("keep\nDELETE_ME\nkeep\n", fileSystem.ReadAllText("/elsewhere/secrets.env"));
+	}
+
+	[Fact]
+	public void KeepHunk_OutOfScopePath_IsNotAdmittedToReview() {
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllText("/elsewhere/secrets.env", "keep\nDELETE_ME\nkeep\n");
+		var tracker = Tracker(fileSystem);
+
+		Assert.False(tracker.KeepHunk("/elsewhere/secrets.env", new LineRange(1, 1), new LineRange(2, 3), "DELETE_ME"));
+		Assert.Null(tracker.Get("/elsewhere/secrets.env"));
+	}
+
+	[Fact]
 	public void RecordChange_ReportsFileChanged() {
 		var fileSystem = new InMemoryFileSystem();
 		fileSystem.WriteAllText("/w/a.txt", "x");

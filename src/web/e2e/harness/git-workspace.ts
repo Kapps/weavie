@@ -6,7 +6,7 @@ import { join } from "node:path";
 // Canonicalize a fresh temp dir. On macOS os.tmpdir() is under /var, a symlink to /private/var, and the
 // kernel resolves a process's cwd — so the fake claude's Directory.GetCurrentDirectory() (which backs
 // {{WORKSPACE}}) yields /private/var while the host holds the unresolved /var string, and change-tracking
-// path checks (IsWithinWorkspace) miss. Resolving at the source makes every layer agree; idempotent on
+// path checks (PathBoundary) miss. Resolving at the source makes every layer agree; idempotent on
 // Linux/Windows (no symlink), so it leaves those unaffected.
 async function makeTempDir(prefix: string): Promise<string> {
   return realpath(await mkdtemp(join(tmpdir(), prefix)));

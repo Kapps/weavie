@@ -26,7 +26,7 @@ public sealed class McpDiffPresenterTests {
 		var channel = bus.Feature("editor");
 		replayTarget = bus.BroadcastTarget.Feature("editor");
 		var fs = new InMemoryFileSystem();
-		var files = new FileProviderService(fs, "/ws", "/scratch");
+		var files = new FileProviderService(fs);
 		var opener = new FileOpener(
 			bridge.SessionViewFeature("view"),
 			bridge.SessionFeature("notifications"),

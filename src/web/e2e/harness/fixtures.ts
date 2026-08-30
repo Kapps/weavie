@@ -13,6 +13,7 @@ type WeavieOptions = {
   inference: FakeInference;
   automaticInference: boolean;
   dismissInferenceOffer: boolean;
+  dismissStartupTip: boolean;
   // Set via test.use to run page setup (e.g. addInitScript recorders) BEFORE the fixture's first
   // navigation — a test-body addInitScript would need a second full app boot (reload) to apply. Wrapped
   // in an object because Playwright special-cases bare function/array option values.
@@ -61,6 +62,7 @@ export const test = base.extend<WeavieOptions & WeavieFixtures>({
   inference: ["disabled", { option: true }],
   automaticInference: [false, { option: true }],
   dismissInferenceOffer: [true, { option: true }],
+  dismissStartupTip: [true, { option: true }],
   preNavigate: [null, { option: true }],
   prScenario: [false, { option: true }],
   notionDoc: [null, { option: true }],
@@ -72,6 +74,7 @@ export const test = base.extend<WeavieOptions & WeavieFixtures>({
         inference,
         automaticInference,
         dismissInferenceOffer,
+        dismissStartupTip,
         preNavigate,
         prScenario,
         notionDoc,
@@ -243,6 +246,34 @@ export const test = base.extend<WeavieOptions & WeavieFixtures>({
       };
 
       try {
+        if (dismissStartupTip) {
+          await page.addInitScript(() => {
+            const dismiss = (): boolean => {
+              const toast = [...document.querySelectorAll<HTMLElement>(".toast")].find((element) =>
+                element.textContent?.includes("Tip:"),
+              );
+              const button = toast?.querySelector<HTMLButtonElement>(".toast-close");
+              button?.click();
+              return button !== undefined;
+            };
+            const observe = (): void => {
+              if (dismiss()) {
+                return;
+              }
+              const observer = new MutationObserver(() => {
+                if (dismiss()) {
+                  observer.disconnect();
+                }
+              });
+              observer.observe(document.documentElement, { childList: true, subtree: true });
+            };
+            if (document.documentElement === null) {
+              document.addEventListener("DOMContentLoaded", observe, { once: true });
+            } else {
+              observe();
+            }
+          });
+        }
         if (preNavigate !== null) {
           await preNavigate.run(page);
         }

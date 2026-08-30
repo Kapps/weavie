@@ -48,7 +48,7 @@ public sealed class ScratchStore {
 	}
 
 	/// <summary>True when <paramref name="path"/> resolves inside this store's scratch directory.</summary>
-	public bool Owns(string path) => BufferStore.IsWithinWorkspace(Directory, path);
+	public bool Owns(string path) => PathBoundary.Contains(Directory, path);
 
 	/// <summary>Deletes a scratch file. Refuses paths outside the directory; a missing file is a no-op. Returns whether it deleted.</summary>
 	public bool Delete(string path) {

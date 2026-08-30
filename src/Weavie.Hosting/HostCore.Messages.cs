@@ -21,6 +21,7 @@ public sealed partial class HostCore {
 			(_, _) => Task.FromResult(new ResponseWithCompletion<HostHello>(
 				BuildHello(),
 				_ => {
+					OfferStartupTip();
 					OfferAutomaticInference();
 					return Task.CompletedTask;
 				})));

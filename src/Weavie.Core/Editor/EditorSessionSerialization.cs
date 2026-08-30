@@ -47,15 +47,13 @@ public static class EditorSessionSerialization {
 		}
 	}
 
-	/// <summary>Builds the bridge restore payload, dropping missing files and entries outside the session root.</summary>
+	/// <summary>Builds the bridge restore payload, dropping files that no longer exist.</summary>
 	public static string BuildRestoreJson(
 		EditorSession session,
 		IFileSystem fileSystem,
-		string workspaceRoot,
 		Action<string> log) {
 		ArgumentNullException.ThrowIfNull(session);
 		ArgumentNullException.ThrowIfNull(fileSystem);
-		ArgumentException.ThrowIfNullOrEmpty(workspaceRoot);
 		ArgumentNullException.ThrowIfNull(log);
 
 		var open = new List<object>();
@@ -64,13 +62,6 @@ public static class EditorSessionSerialization {
 			bool file = string.IsNullOrEmpty(entry.Kind) || entry.Kind == "file";
 			if (file && !fileSystem.FileExists(entry.Path)) {
 				log($"[editor-session] open file no longer exists; skipping {entry.Path}");
-				continue;
-			}
-
-			if (file
-				&& !entry.Scratch
-				&& !BufferStore.IsWithinWorkspace(workspaceRoot, entry.Path)) {
-				log($"[editor-session] open file is outside this session's workspace; skipping {entry.Path}");
 				continue;
 			}
 

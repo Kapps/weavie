@@ -20,7 +20,7 @@ public sealed class EditorSessionSerializationTests {
 		};
 
 		using var message = JsonDocument.Parse(
-			EditorSessionSerialization.BuildRestoreJson(session, fs, "/root", _ => { }));
+			EditorSessionSerialization.BuildRestoreJson(session, fs, _ => { }));
 		var restored = message.RootElement.GetProperty("session");
 		var entry = Assert.Single(restored.GetProperty("open").EnumerateArray());
 
@@ -30,7 +30,7 @@ public sealed class EditorSessionSerializationTests {
 	}
 
 	[Fact]
-	public void BuildRestoreJson_DropsMissingAndOutOfRootFiles() {
+	public void BuildRestoreJson_DropsMissingFilesAndKeepsOnesOutsideTheWorktree() {
 		var fs = new InMemoryFileSystem();
 		fs.WriteAllText("/root/in.ts", "x");
 		fs.WriteAllText("/elsewhere/foreign.ts", "y");
@@ -46,12 +46,12 @@ public sealed class EditorSessionSerializationTests {
 		};
 
 		using var message = JsonDocument.Parse(
-			EditorSessionSerialization.BuildRestoreJson(session, fs, "/root", _ => { }));
+			EditorSessionSerialization.BuildRestoreJson(session, fs, _ => { }));
 		var restored = message.RootElement.GetProperty("session");
 		var open = restored.GetProperty("open").EnumerateArray()
 			.Select(entry => entry.GetProperty("path").GetString()).ToList();
 
-		Assert.Equal(["/root/in.ts", "/scratch/untitled-1"], open);
-		Assert.Equal(JsonValueKind.Null, restored.GetProperty("active").ValueKind);
+		Assert.Equal(["/root/in.ts", "/elsewhere/foreign.ts", "/scratch/untitled-1"], open);
+		Assert.Equal("/elsewhere/foreign.ts", restored.GetProperty("active").GetString());
 	}
 }

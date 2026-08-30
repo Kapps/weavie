@@ -44,7 +44,7 @@ public sealed class McpDiffPresenter : IDiffPresenter {
 		ArgumentNullException.ThrowIfNull(proposal);
 		string id = $"diff-{Interlocked.Increment(ref _counter)}";
 		var tcs = new TaskCompletionSource<DiffOutcome>(TaskCreationOptions.RunContinuationsAsynchronously);
-		string original = _files.ReadIfAllowed(proposal.OldFilePath) ?? string.Empty;
+		string original = _files.ReadText(proposal.OldFilePath) ?? string.Empty;
 		var wire = new DiffWire(
 			id,
 			proposal.NewFilePath,

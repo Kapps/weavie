@@ -20,16 +20,12 @@ media, bridge, control, and unknown routes are default-deny; hashed static asset
 
 - the server token;
 - an exact currently loaded `HostSession.Id`;
-- a path inside that session's worktree, the workspace scratch directory, or that session's exact
-  pasted-image directory.
+- a passive-media content type — `image/*` (except `image/svg+xml`) or `video/*`.
 
-`WorkspaceFileScope` is also the file provider's confinement check, so HTTP and bridge-backed editor reads do
-not maintain competing validators. It uses normalized, case-insensitive path-boundary comparisons, rejects
-traversal and sibling-prefix paths, and intentionally follows an in-tree symlink under the trusted-repository
-model. Missing, unloaded, malformed, and out-of-scope requests all return 404.
-
-The common workspace-data parent is never a root. Scratch is shared deliberately because generated/untitled
-media is user-visible workspace state; pasted images are registered only at the exact session subdirectory.
+The route serves any path the editor can open, matching the bridge-backed file provider so the two do not
+maintain competing validators. The content-type gate is the security-relevant one: it stops active content
+(HTML, SVG) being served same-origin regardless of where the file lives. Missing, unloaded, malformed, and
+non-media requests all return 404.
 
 ## HTTP behavior
 

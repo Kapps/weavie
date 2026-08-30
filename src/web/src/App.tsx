@@ -102,6 +102,7 @@ import {
   onSessionActivated,
   registerCommand,
 } from "./commands/registry";
+import { selectedText, trackDocumentSelection } from "./commands/selection";
 import { CommandIds } from "./commands/types";
 import { BlamePopover } from "./editor/BlamePopover";
 import { blameTarget } from "./editor/blame-store";
@@ -1467,10 +1468,10 @@ export default function App(): JSX.Element {
       registerCommand(CommandIds.focusOmnibarCommands, () => focusOmnibar("command")),
       registerCommand(CommandIds.goToSymbol, () => focusOmnibar("docSymbol")),
       registerCommand(CommandIds.goToWorkspaceSymbol, () => focusOmnibar("wsSymbol")),
-      // Find in Files (Ctrl+Shift+F / palette): open the content-search panel seeded from the editor selection
-      // (re-invoking while open re-seeds + refocuses the input).
+      // Find in Files (Ctrl+Shift+F / palette): open the content-search panel seeded from whatever the user
+      // has highlighted — editor, agent transcript, or terminal (re-invoking while open re-seeds + refocuses).
       registerCommand(CommandIds.findInFiles, () => {
-        seedSearch(editor.selectionText());
+        seedSearch(selectedText());
         setSearchOpen(true);
       }),
       // The panel's option toggles (searchPanelFocused-gated chords; visible-panel-gated here so a palette run
@@ -1765,6 +1766,9 @@ export default function App(): JSX.Element {
     };
     document.addEventListener("focusin", onFocusIn);
     document.addEventListener("focusout", onFocusOut);
+    // Plain DOM highlights (agent transcript, panels) as a search-seed source; Monaco and each xterm register
+    // their own, since their selections never reach the document.
+    const offDocumentSelection = trackDocumentSelection();
 
     onCleanup(() => {
       for (const timer of persistTimers.values()) {
@@ -1779,6 +1783,7 @@ export default function App(): JSX.Element {
       }
       document.removeEventListener("focusin", onFocusIn);
       document.removeEventListener("focusout", onFocusOut);
+      offDocumentSelection();
       offSourceErrors();
       offViewBinding();
       editor.dispose();

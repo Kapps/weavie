@@ -35,24 +35,28 @@
          runs, so without this a boot failure is invisible (splash hangs forever, no log). This forwards
          uncaught errors to the host log until main.tsx installs the runtime handlers.
 
-         A failed fetch of the entry module or one of its static-import dependencies (transient network
-         blip; a browser fires `error` on the `<script type=module>` element itself when its graph fails
-         to load) leaves the splash up forever with nothing — the host-log forward above is a no-op
-         outside a native WebView, so a plain browser tab gets no recovery at all. Self-heal with one
-         bounded reload instead: a repeat failure (bad deploy, not a blip) still gives up rather than
-         reload-looping. 2026-08-16 07:16 UTC, run https://github.com/Kapps/weavie/actions/runs/31933442738/job/95132055144
+         A failed fetch of the entry module, one of its static-import dependencies, or the built stylesheet
+         `<link>` Vite injects into this head (transient network blip; a browser fires `error` on the failed
+         element itself) leaves the splash up forever, or the app up but unstyled — the host-log forward
+         above is a no-op outside a native WebView, so a plain browser tab gets no recovery at all. Self-heal
+         with one bounded reload instead: a repeat failure (bad deploy, not a blip) still gives up rather
+         than reload-looping. 2026-08-16 07:16 UTC, run https://github.com/Kapps/weavie/actions/runs/31933442738/job/95132055144
          — Windows e2e shard 1/6 timed out waiting for connection.hello because `preload-helper-*.js`
-         failed with net::ERR_NO_BUFFER_SPACE (confirmed root cause #4 in docs/specs/e2e-flake-analysis.md
-         — hosted-Windows-runner socket exhaustion; the 2026-07-31 fix there reduced the eager-preload
-         footprint but the OS-level exhaustion can still hit any boot request, just less often). This
-         reload is the actual fix for that class, in production and in this test alike.
+         failed with net::ERR_NO_BUFFER_SPACE (hosted-Windows-runner socket exhaustion; a 2026-07-31 fix
+         reduced the eager-preload footprint but the OS-level exhaustion can still hit any boot request,
+         just less often). This reload is the actual fix for that class, in production and in this test alike.
 
          2026-08-21 03:17 UTC, run https://github.com/Kapps/weavie/actions/runs/32442542060/job/96656628608
          — recurred once more (Windows e2e shard 1/6, chromium project, agent-composer.spec.ts:1048), same
          ERR_NO_BUFFER_SPACE signature but on `page.goto` itself (the entry page fetch, not a module-graph
          dependency) — a case this reload doesn't cover, since the module graph never starts loading if the
-         document fetch itself fails. This PR was rebased onto main and landed because of that recurrence;
-         see docs/specs/e2e-flake-analysis.md for the still-open entry-page-fetch case. -->
+         document fetch itself fails. This PR was rebased onto main and landed because of that recurrence.
+
+         2026-08-30 21:13 UTC, run https://github.com/Kapps/weavie/actions/runs/33335588143/job/99322235050
+         — same signature again (Windows e2e shard 3/6, headless project, diff-review.spec.ts:457), this
+         time on the built stylesheet `<link>` rather than a script — a case this reload didn't cover either,
+         since the retry below only matched `<script type=module>`. Widened to also match a failed
+         stylesheet `<link>`, below. -->
     <script>
       (() => {
         var RETRY_KEY = "weavie-boot-module-retry";
@@ -84,7 +88,12 @@
           var t = e.target;
           if (t && t !== window && t.tagName) {
             toHost("warn", `resource failed to load: ${t.src || t.href || t.tagName}`);
-            if (t.tagName === "SCRIPT" && t.type === "module") {
+            // Same reload-once self-heal as a failed module script (see head comment above) for a failed
+            // stylesheet `<link>`.
+            if (
+              (t.tagName === "SCRIPT" && t.type === "module") ||
+              (t.tagName === "LINK" && t.rel === "stylesheet")
+            ) {
               retryBootModule();
             }
           } else {

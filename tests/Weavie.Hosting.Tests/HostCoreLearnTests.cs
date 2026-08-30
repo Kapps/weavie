@@ -64,7 +64,10 @@ public sealed class HostCoreLearnTests {
 		Assert.Contains("The user keeps re-indenting.", html, StringComparison.Ordinal);
 		Assert.Contains("corrections 1 and 2", html, StringComparison.Ordinal);
 		// Weavie edits nothing, so the rules also arrive as one paste-ready block.
-		Assert.Contains("<pre>- Prefer &lt;em&gt;tabs&lt;/em&gt;\n</pre>", html, StringComparison.Ordinal);
+		Assert.Contains(
+			"<pre class=\"wv-learn-copy\">- Prefer &lt;em&gt;tabs&lt;/em&gt;\n</pre>",
+			html,
+			StringComparison.Ordinal);
 		// The model's own words reach an innerHTML sink, so its markup is text, not structure.
 		Assert.Contains("Prefer &lt;em&gt;tabs&lt;/em&gt;", html, StringComparison.Ordinal);
 		Assert.Equal(string.Empty, claude.WrittenText); // nothing is typed into the agent

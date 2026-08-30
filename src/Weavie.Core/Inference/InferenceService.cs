@@ -82,11 +82,17 @@ public sealed class InferenceService : IInferenceService {
 
 		ct.ThrowIfCancellationRequested();
 		if (!_settings.RequireBool(InferenceSettings.Enabled)) {
-			return Failure<TResponse>(InferenceFailureKind.Disabled, "Ad-hoc inference is disabled.");
+			// Naming the way out matters: the feature that asked shows this verbatim, and a bare "disabled" leaves
+			// the user who declined the startup offer with no next step.
+			return Failure<TResponse>(
+				InferenceFailureKind.Disabled,
+				"Ad-hoc inference is disabled. Run the Enable Automatic Inference command to turn it on.");
 		}
 		if (options.Origin == InferenceInvocationOrigin.Automatic
 			&& !_settings.RequireBool(InferenceSettings.AllowAutomatic)) {
-			return Failure<TResponse>(InferenceFailureKind.PolicyDenied, "Automatic inference is disabled.");
+			return Failure<TResponse>(
+				InferenceFailureKind.PolicyDenied,
+				"Automatic inference is disabled. Run the Enable Automatic Inference command to allow it.");
 		}
 		if (Encoding.UTF8.GetByteCount(input.Prompt) > options.MaxPromptBytes) {
 			return Failure<TResponse>(InferenceFailureKind.InputRejected, "The inference prompt exceeds its declared size limit.");

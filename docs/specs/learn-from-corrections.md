@@ -327,6 +327,10 @@ are replayed at the seam and the analysis text is never asserted. Coverage:
 - **`SessionTaskScope`** (Hosting) — a closed scope returns `null` from `Run` (admitting nothing), which is
   what lets a caller release the resource it was holding for that work.
 
+The journey is also recorded as a video tour (`src/web/e2e/tour/learn-corrections.tour.spec.ts`, run under
+`e2e/tour/video.config.ts`), which stubs `claude --print` inside the test's isolated `$HOME` rather than on any
+shared PATH. Tours are evidence, not a CI gate — the durable coverage is the list above.
+
 `HostSession` wires the recorder to the production event (`Changes.Corrected += Corrections.Record`), so the
 full-stack test drives the real capture seam (the `fs-write` handler) rather than a test-only re-plumb.
 

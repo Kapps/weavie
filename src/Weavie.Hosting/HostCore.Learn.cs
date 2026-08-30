@@ -149,7 +149,7 @@ public sealed partial class HostCore {
 
 		// Weavie never edits AGENTS.md, so the rules also come as one paste-ready block — otherwise acting on them
 		// means retyping each by hand out of the evidence list.
-		html.Append("</ol><h2>Copy into AGENTS.md</h2><pre>");
+		html.Append("</ol><h2>Copy into AGENTS.md</h2><pre class=\"wv-learn-copy\">");
 		foreach (var rule in lessons.Rules) {
 			html.Append("- ").Append(WebUtility.HtmlEncode(rule.Rule.ReplaceLineEndings(" "))).Append('\n');
 		}

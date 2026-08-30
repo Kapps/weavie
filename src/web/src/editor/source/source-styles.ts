@@ -141,6 +141,8 @@ export const SOURCE_STYLES = `
 /* The corrections analysis: its receipt/footer lines and each rule's supporting evidence (see HostCore.Learn.cs). */
 .wv-source .wv-learn-note { color: var(--dim, #6f7884); font-size: var(--font-metadata-size); margin: 0.4em 0; }
 .wv-source .wv-learn-evidence { color: var(--dim, #6f7884); font-size: var(--font-metadata-size); margin: 0.25em 0 0; }
+/* The paste-ready rules block holds prose, not code: it wraps rather than scrolling a rule off the pane. */
+.wv-source pre.wv-learn-copy { white-space: pre-wrap; overflow-wrap: anywhere; }
 .wv-status {
   display: flex; align-items: center; justify-content: center; gap: 0.6em;
   min-height: 60vh; color: var(--dim, #6f7884);

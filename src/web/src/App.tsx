@@ -163,6 +163,7 @@ import { useCompactMode } from "./mobile/useCompactMode";
 // Session-attention intake (sounds + OS notifications): module-load side effect, like the session store.
 import "./notifications/attention";
 import "./notifications/intake";
+import "./notifications/startup-tip";
 import { setNotifySink } from "./notify/notify";
 import { Suggestions } from "./notify/Suggestions";
 import { createToasts, Toasts } from "./notify/Toasts";

@@ -326,6 +326,11 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     if (selectedSession() !== session) {
       return Promise.resolve();
     }
+    const editorHost = host;
+    if (editorHost === undefined) {
+      // The store already owns this activation; start() rebinds it once the lazy editor host is ready.
+      return Promise.resolve();
+    }
     // An overlay tab has no Monaco model: leave the editor host untouched (App overlays it) and never read the
     // path as a file. Same for a media (image/video) file tab —
     // reading it as a working copy would decode binary as UTF-8 and autosave could write the mojibake back.
@@ -347,13 +352,11 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     }
     // If the file can't be read, the editor never swaps its model — close this tab rather than leave it active
     // over a stale/blank pane, and fall back to a surviving neighbor (or clear).
-    return (host?.show(session, result.path, result.placement) ?? Promise.resolve(false)).then(
-      (ok) => {
-        if (!ok) {
-          rollbackFailedOpen(session, result.path);
-        }
-      },
-    );
+    return editorHost.show(session, result.path, result.placement).then((ok) => {
+      if (!ok) {
+        rollbackFailedOpen(session, result.path);
+      }
+    });
   };
 
   // Drop a tab whose open failed (no working copy to release) and, if it was active, switch to its neighbor. A

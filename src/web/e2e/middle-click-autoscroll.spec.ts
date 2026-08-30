@@ -279,11 +279,18 @@ test("middle-clicking an editor tab closes it instead of starting an autoscroll"
 
     const tab = page.locator(".editor-tab", { hasText: "module-13.ts" });
     const origin = await paneOrigin(tab.locator(".editor-tab-main"));
+    // Deliberately don't wait for editor readiness: the active tab is valid while its lazy model is still loading.
     await page.mouse.click(origin.x, origin.y, { button: "middle" });
 
-    // The clicked tab going away is the whole assertion — this host doesn't model the editor's view list, so
-    // what happens to the OTHER tabs is its business, not the gesture's.
+    // The tab closes without arming autoscroll, and the editor finishes its asynchronous switch to the survivor.
     await expect(tab).toHaveCount(0);
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () => window.__WEAVIE_EDITOR__?.getModel()?.uri.path.endsWith("/module-12.ts") ?? false,
+        ),
+      )
+      .toBe(true);
     await expect(page.locator(".middle-click-autoscroll-origin")).toHaveCount(0);
     await expect(page.locator(".middle-click-autoscrolling")).toHaveCount(0);
   } finally {

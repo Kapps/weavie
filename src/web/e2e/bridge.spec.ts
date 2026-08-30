@@ -341,6 +341,53 @@ test.describe("session-addressed WebSocket transport", () => {
     }
   });
 
+  test("dismissing one remote's build mismatch warning does not hide another remote's", async ({
+    page,
+  }) => {
+    const localSession = mockSession("local", "local", "acp");
+    const remoteASession = mockSession("remote-a", "remote-a", "acp");
+    const remoteBSession = mockSession("remote-b", "remote-b", "acp");
+    host.setSessions([localSession]);
+    const remoteA = await MockHost.start({
+      distDir,
+      sessions: [remoteASession],
+      buildNumber: "build-a",
+    });
+    const remoteB = await MockHost.start({
+      distDir,
+      sessions: [remoteBSession],
+      buildNumber: "build-b",
+    });
+    try {
+      await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
+      await host.waitUntilConnected();
+      host.publishHost("remoteAgents", "changed", {
+        agents: [
+          { name: "devbox-a", url: remoteA.url, token: "runner-token" },
+          { name: "devbox-b", url: remoteB.url, token: "runner-token" },
+        ],
+      });
+      await remoteA.waitUntilConnected();
+      await remoteB.waitUntilConnected();
+      host.publishHost("rail", "changed", {
+        lastLocation: "local",
+        promoted: ["remote:devbox-a remote-a", "remote:devbox-b remote-b"],
+      });
+
+      const warning = page.locator(".connection-banner-error");
+      await page.locator('[data-session-slot="remote-a"]').click();
+      await expect(warning).toContainText("this client is test");
+      await warning.getByRole("button", { name: "Dismiss build mismatch warning" }).click();
+      await expect(warning).toHaveCount(0);
+
+      await page.locator('[data-session-slot="remote-b"]').click();
+      await expect(warning).toContainText("this client is test");
+    } finally {
+      await remoteA.close();
+      await remoteB.close();
+    }
+  });
+
   test("live fonts update normal DOM and session-owned source typography", async ({ page }) => {
     const session = mockSession("source", "source", "acp");
     host.setSessions([session]);

@@ -500,10 +500,15 @@ export default function App(): JSX.Element {
   const [openPrOpen, setOpenPrOpen] = createSignal(false);
   const [diffAgainstOpen, setDiffAgainstOpen] = createSignal(false);
   const sourceTokenPrompt = selectedSourceTokenPrompt;
-  const [buildMismatchDismissed, setBuildMismatchDismissed] = createSignal(false);
-  const visibleBuildMismatch = createMemo(() =>
-    buildMismatchDismissed() || activeBackendOffline() ? null : activeBackendBuildMismatch(),
-  );
+  const [dismissedBuildMismatch, setDismissedBuildMismatch] = createSignal<string | null>(null);
+  const visibleBuildMismatch = createMemo(() => {
+    if (activeBackendOffline()) return null;
+    const mismatch = activeBackendBuildMismatch();
+    if (mismatch === null) return null;
+    return dismissedBuildMismatch() === `${activeBackendId()}:${mismatch.backend}`
+      ? null
+      : mismatch;
+  });
   const [registerAgentOpen, setRegisterAgentOpen] = createSignal(false);
   const [acpRegistryOpen, setAcpRegistryOpen] = createSignal(false);
   const [acpRegistryBackendId, setAcpRegistryBackendId] = createSignal(LOCAL_BACKEND_ID);
@@ -1929,7 +1934,9 @@ export default function App(): JSX.Element {
                   class="toast-close connection-banner-close"
                   aria-label="Dismiss build mismatch warning"
                   title="Dismiss build mismatch warning"
-                  onClick={() => setBuildMismatchDismissed(true)}
+                  onClick={() =>
+                    setDismissedBuildMismatch(`${activeBackendId()}:${mismatch().backend}`)
+                  }
                 >
                   ✕
                 </button>

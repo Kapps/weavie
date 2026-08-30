@@ -304,6 +304,43 @@ test.describe("session-addressed WebSocket transport", () => {
     }
   });
 
+  test("a remote build mismatch warning can be dismissed", async ({ page }) => {
+    const localSession = mockSession("local", "local", "acp");
+    const remoteSession = mockSession("remote", "remote", "acp");
+    host.setSessions([localSession]);
+    const remote = await MockHost.start({
+      distDir,
+      sessions: [remoteSession],
+      buildNumber: "other-build",
+    });
+    try {
+      await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
+      await host.waitUntilConnected();
+      host.publishHost("remoteAgents", "changed", {
+        agents: [{ name: "devbox", url: remote.url, token: "runner-token" }],
+      });
+      await remote.waitUntilConnected();
+      host.publishHost("rail", "changed", {
+        lastLocation: "local",
+        promoted: ["remote:devbox remote"],
+      });
+      await page.locator(".session-chip.remote").click();
+
+      const warning = page.locator(".connection-banner-error");
+      await expect(warning).toContainText("this client is test");
+      const dismiss = warning.getByRole("button", { name: "Dismiss build mismatch warning" });
+      await expect(dismiss).toHaveAttribute("title", "Dismiss build mismatch warning");
+      await dismiss.click();
+      await expect(warning).toHaveCount(0);
+
+      await page.locator(".session-chip:not(.remote)").click();
+      await page.locator(".session-chip.remote").click();
+      await expect(warning).toHaveCount(0);
+    } finally {
+      await remote.close();
+    }
+  });
+
   test("live fonts update normal DOM and session-owned source typography", async ({ page }) => {
     const session = mockSession("source", "source", "acp");
     host.setSessions([session]);

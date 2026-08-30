@@ -4,7 +4,7 @@ import type { ResolvedKeybinding } from "./types";
 
 const commandState = vi.hoisted(() => ({
   entries: [] as Array<{ catalogBackendId: string; binding: ResolvedKeybinding }>,
-  run: vi.fn(() => true),
+  run: vi.fn((_backendId: string, _command: string, _args?: unknown) => true),
 }));
 
 // keybindings.ts pulls in the registry (and through it the window-coupled bridge) only for the resolver;
@@ -87,6 +87,61 @@ describe("keyboard resolver", () => {
     expect(commandState.run).toHaveBeenCalledWith("local", "weavie.session.prev", undefined);
     expect(preventDefault).toHaveBeenCalledOnce();
     expect(stopPropagation).toHaveBeenCalledOnce();
+    dispose();
+    vi.unstubAllGlobals();
+  });
+
+  // Ctrl+Tab belongs to the editor's tabs while it holds focus and to session cycling otherwise. The editor's
+  // guarded binding is tried first and, when it declines (nothing to step to), the chord reaches cycling —
+  // gating cycling on !editorFocused instead made that press a dead key.
+  it("hands a chord from the focus-guarded binding to the unguarded one when it declines", () => {
+    commandState.entries = [
+      {
+        catalogBackendId: "local",
+        binding: { key: "ctrl+Tab", command: "weavie.session.next", args: undefined },
+      },
+      {
+        catalogBackendId: "local",
+        binding: { key: "ctrl+Tab", command: "weavie.editor.nextTab", when: "editorFocused" },
+      },
+    ];
+    let keydown: ((event: KeyboardEvent) => void) | undefined;
+    vi.stubGlobal("window", {
+      addEventListener: (type: string, handler: (event: KeyboardEvent) => void) => {
+        if (type === "keydown") {
+          keydown = handler;
+        }
+      },
+      removeEventListener: vi.fn(),
+    });
+    const dispose = installKeybindings();
+    const press = (): void =>
+      keydown?.({
+        key: "Tab",
+        isComposing: false,
+        ctrlKey: true,
+        metaKey: false,
+        shiftKey: false,
+        altKey: false,
+        preventDefault: vi.fn(),
+        stopPropagation: vi.fn(),
+      } as unknown as KeyboardEvent);
+
+    // Editor focused with a tab to step to: it takes the chord and cycling never sees it.
+    setContext("editorFocused", true);
+    press();
+    expect(commandState.run.mock.calls).toEqual([["local", "weavie.editor.nextTab", undefined]]);
+
+    // Editor focused with nothing to step to: it declines and the same press cycles sessions.
+    commandState.run.mockClear();
+    commandState.run.mockImplementation((_backend, command) => command !== "weavie.editor.nextTab");
+    press();
+    expect(commandState.run.mock.calls).toEqual([
+      ["local", "weavie.editor.nextTab", undefined],
+      ["local", "weavie.session.next", undefined],
+    ]);
+
+    setContext("editorFocused", false);
     dispose();
     vi.unstubAllGlobals();
   });

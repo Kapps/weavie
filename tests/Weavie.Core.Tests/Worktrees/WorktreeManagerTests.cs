@@ -413,6 +413,23 @@ public sealed class WorktreeManagerTests {
 	}
 
 	[Fact]
+	public async Task Remove_DiscoveredCheckout_DoesNotRunTeardown() {
+		var registry = new WorktreeRegistry(new InMemoryFileSystem(), RegistryPath);
+		var git = new FakeGitService { DefaultBranch = "main" };
+		git.Worktrees.Add(new GitWorktree { Path = RepoRoot, Branch = "main", Head = "primary" });
+		string external = Path.Combine(Path.GetTempPath(), "weavie-wt-mgr-tests", "elsewhere");
+		git.Worktrees.Add(new GitWorktree { Path = external, Branch = "manual", Head = "m1" });
+		var provisioner = new RecordingProvisioner(onTeardown: null);
+		var manager = new WorktreeManager(git, registry, RepoRoot, WorktreesDir, provisioner);
+
+		await manager.RemoveAsync(external, deleteBranch: false, force: false);
+
+		// Setup never ran in a checkout Weavie didn't create, so teardown has nothing to undo there.
+		Assert.Empty(provisioner.TeardownPaths);
+		Assert.DoesNotContain(git.Worktrees, worktree => worktree.Path == external);
+	}
+
+	[Fact]
 	public async Task Remove_Dirty_WithoutForce_DoesNotRunTeardown() {
 		var registry = new WorktreeRegistry(new InMemoryFileSystem(), RegistryPath);
 		var git = new FakeGitService { DefaultBranch = "main" };
@@ -506,8 +523,8 @@ public sealed class WorktreeManagerTests {
 		public Task<IReadOnlyList<string>> ListBranchesAsync(string directory, CancellationToken ct = default) =>
 			Task.FromResult<IReadOnlyList<string>>([.. Branches]);
 
-		public Task<IReadOnlyList<string>> ListRecentBranchesAsync(string directory, int limit, CancellationToken ct = default) =>
-			Task.FromResult<IReadOnlyList<string>>([.. Branches.Take(limit)]);
+		public Task<RecentBranches> ListRecentBranchesAsync(string directory, int limit, CancellationToken ct = default) =>
+			Task.FromResult(new RecentBranches("fake@weavie.dev", [.. Branches.Take(limit)], []));
 
 		public Task<IReadOnlyList<string>> ListRefsAsync(string directory, CancellationToken ct = default) =>
 			Task.FromResult<IReadOnlyList<string>>([.. Branches]);

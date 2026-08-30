@@ -15,6 +15,7 @@ export interface AgentActivityStep {
   detailText: string | null;
   id: string;
   label: string;
+  outputIsCommand: boolean;
   status: string | null;
   tone: "failed" | "muted" | "pending" | "running";
 }

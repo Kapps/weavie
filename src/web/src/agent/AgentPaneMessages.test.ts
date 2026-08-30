@@ -133,6 +133,7 @@ describe("toAgentTranscript", () => {
         detailText: null,
         id: "cmd-1",
         label: "command git status",
+        outputIsCommand: true,
         status: "completed",
         tone: "muted",
       },
@@ -178,7 +179,40 @@ describe("toAgentTranscript", () => {
       },
     ]);
 
-    expect(transcript[0]?.details[0]?.detailText).toBe("src/App.cs: trailing whitespace");
+    expect(transcript[0]?.details[0]).toMatchObject({
+      detailText: "src/App.cs: trailing whitespace",
+      outputIsCommand: true,
+    });
+  });
+
+  it("requires an explicit reveal for provider command categories but not ordinary tool output", () => {
+    const transcript = toAgentTranscript([
+      {
+        type: "item-completed",
+        providerId: "acp",
+        itemId: "execute-1",
+        itemType: "tool",
+        category: "execute",
+        summary: "run tests",
+        text: "test output",
+        status: "completed",
+      },
+      {
+        type: "item-completed",
+        providerId: "acp",
+        itemId: "read-1",
+        itemType: "tool",
+        category: "read",
+        summary: "source file",
+        text: "file contents",
+        status: "completed",
+      },
+    ]);
+
+    expect(transcript[0]?.details).toMatchObject([
+      { category: "execute", detailText: "test output", outputIsCommand: true },
+      { category: "read", detailText: "file contents", outputIsCommand: false },
+    ]);
   });
 
   it("shows a failed turn even when no separate error notification arrived", () => {
@@ -687,6 +721,29 @@ describe("toAgentTranscript", () => {
       },
     ]);
     expect(unavailable[0]).toMatchObject({ summary: "Plan is unavailable", actionMessage: null });
+  });
+
+  it("keeps an ACP task-list update in activity instead of promoting it to a plan", () => {
+    const transcript = toAgentTranscript([
+      {
+        type: "item-completed",
+        providerId: "acp",
+        threadId: "thread-1",
+        turnId: "turn-1",
+        itemId: "progress:current",
+        itemType: "progress",
+        category: "progress",
+        summary: "Task list",
+        text: "- [x] Inspect\n- [~] Implement",
+        status: "updated",
+      },
+    ]);
+
+    expect(transcript).toHaveLength(1);
+    expect(transcript[0]).toMatchObject({ kind: "activity", actionMessage: null });
+    expect(transcript[0]?.details).toMatchObject([
+      { category: "progress", detailText: "- [x] Inspect\n- [~] Implement" },
+    ]);
   });
 
   it("assigns a unique id to every entry and nested step (the reconcile key precondition)", () => {

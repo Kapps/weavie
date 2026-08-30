@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { activeSessionSlot, createSession, waitForSessionSwitch } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 
@@ -25,7 +27,7 @@ test.describe("openDiff review", () => {
     fakeScript: { steps: [sleep, openDiff("// DIFF_MARKER kept\nexport const answer = 42;\n")] },
   });
 
-  test("keeping a proposed edit applies the change @cross", async ({ page }) => {
+  test("keeping a proposed edit applies the change @cross", async ({ page, weavie }) => {
     const keep = page.locator(".weavie-inline-accept");
     await expect(keep).toBeVisible({ timeout: 15_000 });
     await expect(page.locator(".weavie-inline-added").first()).toBeVisible();
@@ -34,6 +36,9 @@ test.describe("openDiff review", () => {
 
     await expect(page.locator(".weavie-inline-toolbar")).toHaveCount(0);
     await expect(page.locator(".monaco-editor .view-lines")).toContainText("DIFF_MARKER");
+    await expect
+      .poll(() => readFileSync(join(weavie.workspace, "hello.ts"), "utf8"))
+      .toContain("DIFF_MARKER");
   });
 });
 

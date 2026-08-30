@@ -1,18 +1,19 @@
 import { createSignal, For, type JSX, Show } from "solid-js";
+import { type DeleteSessionState, needsAcknowledgement } from "./delete-session-confirm";
 import { ModalShell, modalSubmitKeys } from "./ModalShell";
 
-// How dirty the session's worktree is (host git status), driving the confirm friction: clean = one click,
-// untracked = two-step confirm, modified = checkbox acknowledgement.
-export type DeleteSessionState = "clean" | "untracked" | "modified";
+export type { DeleteSessionState };
 
 /**
- * The session-delete confirm. Managed checkout removal escalates with its state; deleting a session on a
- * user-owned checkout removes only the session. Enter confirms when allowed and Esc cancels.
+ * The session-delete confirm. Worktree removal escalates with the checkout's state; deleting the session on the
+ * workspace's own checkout removes only the session. Enter confirms when allowed and Esc cancels.
  */
 export function DeleteSessionDialog(props: {
   label: string;
   removesCheckout: boolean;
   state: DeleteSessionState;
+  // Nothing keeps this checkout's commits — detached, or a worktree git no longer reports.
+  branchless: boolean;
   // The first few uncommitted paths a delete would discard, plus their total.
   changedFiles: string[];
   changedCount: number;
@@ -23,7 +24,8 @@ export function DeleteSessionDialog(props: {
   const [armed, setArmed] = createSignal(false);
   const [acknowledged, setAcknowledged] = createSignal(false);
 
-  const canConfirm = (): boolean => props.state !== "modified" || acknowledged();
+  const gated = (): boolean => needsAcknowledgement(props.state, props.branchless);
+  const canConfirm = (): boolean => !gated() || acknowledged();
 
   const confirm = (): void => {
     if (props.state === "untracked" && !armed()) {
@@ -54,8 +56,18 @@ export function DeleteSessionDialog(props: {
             when={props.removesCheckout}
             fallback={<>Remove session "{props.label}"? Its checkout and files remain on disk.</>}
           >
-            Remove the worktree for "{props.label}"? The branch is kept, so committed work is safe
-            and you can recreate a session on it later.
+            <Show
+              when={props.branchless}
+              fallback={
+                <>
+                  Remove the worktree for "{props.label}"? The branch is kept, so committed work is
+                  safe and you can recreate a session on it later.
+                </>
+              }
+            >
+              Remove the worktree for "{props.label}"? It has <strong>no branch</strong>, so the
+              commits made here are lost with it.
+            </Show>
           </Show>
         </Show>
         <Show when={props.state === "untracked"}>
@@ -69,6 +81,11 @@ export function DeleteSessionDialog(props: {
           <div>
             "{props.label}" has <strong>uncommitted changes</strong> that will be permanently lost
             when its worktree is removed. The branch keeps only committed work.
+          </div>
+        </Show>
+        <Show when={props.branchless && props.state !== "clean"}>
+          <div class="confirm-warn">
+            This checkout has <strong>no branch</strong>, so its commits are lost too.
           </div>
         </Show>
         <Show when={props.state !== "clean" && props.changedFiles.length > 0}>
@@ -86,19 +103,23 @@ export function DeleteSessionDialog(props: {
             Click confirm to delete the worktree and its untracked files.
           </div>
         </Show>
-        <Show when={props.state === "modified"}>
+        <Show when={gated()}>
           <label class="confirm-check">
             <input
               type="checkbox"
               checked={acknowledged()}
               onChange={(event) => setAcknowledged(event.currentTarget.checked)}
               ref={(el) => {
-                if (props.state === "modified") {
+                if (gated()) {
                   queueMicrotask(() => el.focus());
                 }
               }}
             />
-            <span>I understand all uncommitted changes will be removed</span>
+            <span>
+              {props.branchless
+                ? "I understand the commits made in this checkout will be lost"
+                : "I understand all uncommitted changes will be removed"}
+            </span>
           </label>
         </Show>
       </div>
@@ -111,7 +132,7 @@ export function DeleteSessionDialog(props: {
           class="confirm-btn confirm-btn-danger"
           disabled={!canConfirm()}
           ref={(el) => {
-            if (props.state !== "modified") {
+            if (!gated()) {
               queueMicrotask(() => el.focus());
             }
           }}

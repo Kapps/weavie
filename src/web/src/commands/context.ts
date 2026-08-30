@@ -14,6 +14,11 @@ export function setContext(key: string, value: ContextValue): void {
   context[key] = value;
 }
 
+/** Whether text is selected — a reading/copying gesture that focus restoration must not interrupt. */
+export function hasTextSelection(): boolean {
+  return document.getSelection()?.isCollapsed === false;
+}
+
 /** The focus-derived `when` keys for a focused element — which pane (by `[data-kind]`) holds focus. Shared by
  * the live focusin tracker and the palette's prior-focus snapshot so both classify focus identically. */
 export function paneFocusContext(el: Element | null): ContextOverrides {

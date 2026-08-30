@@ -392,6 +392,14 @@ function entryPlacement(open: EditorSessionEntry[], path: string | null): Activa
 
 export type Placement =
   | { line: number; column?: number; focus?: boolean }
+  | {
+      selection: {
+        startLineNumber: number;
+        startColumn: number;
+        endLineNumber: number;
+        endColumn: number;
+      };
+    }
   | { viewState: EditorViewState | null };
 
 export interface ActivateResult {

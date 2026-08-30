@@ -12,6 +12,7 @@ import {
   ITextModelService,
 } from "@codingame/monaco-vscode-api/services";
 import { type ClientSession, log, selectedSession } from "../bridge";
+import { noteSelectionChange, registerSelectionSource } from "../commands/selection";
 import { startLanguageServices } from "../lsp/lsp-client";
 import { installReferenceCommands } from "../lsp/reference-commands";
 import { installTestLenses } from "../tests/test-lens";
@@ -22,7 +23,7 @@ import { mediaTypeOf } from "./media/media-types";
 import { createEditor, monaco } from "./monaco-setup";
 import { leaveLine } from "./nav-history";
 import { REVEAL_SCROLL } from "./reveal-scroll";
-import { captureViewStateFor, editorSessionFor, openTabFor, promoteFor } from "./session-store";
+import { captureViewStateFor, editorSessionFor, type Placement, promoteFor } from "./session-store";
 import {
   hostUriString,
   SESSION_FILE_SCHEME,
@@ -60,16 +61,10 @@ function nextPaint(): Promise<void> {
 export interface EditorHost {
   readonly editor: monaco.editor.IStandaloneCodeEditor;
   /**
-   * Switches the editor to a file working copy; `placement` reveals a 1-based `line` (optionally at `column`;
-   * `focus: false` reveals without stealing focus) or restores the tab's saved view state. Resolves `true` when
-   * shown (or superseded by a newer open), `false` when unreadable — the host has already toasted, and the
-   * caller rolls its now-broken tab back.
+   * Switches the editor to a file working copy; `placement` reveals a line/selection or restores the tab's saved
+   * view state. Resolves `true` when shown (or superseded), `false` when unreadable so the caller can roll back.
    */
-  show(
-    session: ClientSession,
-    path: string,
-    placement: { line: number; column?: number; focus?: boolean } | { viewState: unknown },
-  ): Promise<boolean>;
+  show(session: ClientSession, path: string, placement: Placement): Promise<boolean>;
   /**
    * Closes a tab: flushes its pending save, then releases its refcounted working-copy reference (the only site
    * that disposes one, never dispose()). The caller must switch the editor off this model first. Pass `discard`
@@ -125,14 +120,19 @@ function isUserFileModel(model: monaco.editor.ITextModel): boolean {
 /**
  * Brings up the editor: initializes the VSCode services (must precede editor creation), creates the editor in
  * `container`, wires lazy per-language LSP. `onSaveError` / `onOpenError` surface a failed save / open as a
- * toast so neither strands silently. `onLeaveViewport` records the outgoing file's scrolled-to position as a
- * navigation point on a cross-file jump (see showFile), so Back returns there.
+ * toast so neither strands silently. The callbacks return viewport history and Monaco-initiated destinations to
+ * the controller, which owns navigation and tab state.
  */
 export async function createEditorHost(
   container: HTMLElement,
-  onSaveError?: (message: string) => void,
-  onOpenError?: (message: string) => void,
-  onLeaveViewport?: (loc: { session: ClientSession; path: string; line: number }) => void,
+  onSaveError: (message: string) => void,
+  onOpenError: (message: string) => void,
+  onLeaveViewport: (loc: { session: ClientSession; path: string; line: number }) => void,
+  onOpenEditor: (destination: {
+    session: ClientSession;
+    path: string;
+    selection: monaco.IRange | undefined;
+  }) => void,
 ): Promise<EditorHost> {
   await initEditorServices();
   const textModelService = await getService(ITextModelService);
@@ -233,6 +233,16 @@ export async function createEditorHost(
     }
   };
 
+  // The editor's selected text as a search-seed source — Monaco keeps its selection out of the DOM, so the
+  // document tracker never sees it.
+  const readSelection = (): string => {
+    const model = editor.getModel();
+    const selection = editor.getSelection();
+    return model === null || selection === null || selection.isEmpty()
+      ? ""
+      : model.getValueInRange(selection);
+  };
+
   // Every subscription is collected so dispose() tears them all down — including listeners on models that
   // outlive the widget, so a rebuilt host never stacks a second handler set on a surviving model.
   const disposables: monaco.IDisposable[] = [
@@ -242,6 +252,8 @@ export async function createEditorHost(
     editor.onDidChangeCursorSelection(updateStatus),
     editor.onDidChangeModel(updateStatus),
     editor.onDidChangeModel(reflectActiveFile),
+    { dispose: registerSelectionSource("editor", readSelection) },
+    editor.onDidChangeCursorSelection(() => noteSelectionChange("editor")),
     installAltClickPeek(editor),
   ];
 
@@ -322,7 +334,7 @@ export async function createEditorHost(
     const name = key.split("/").pop() ?? key;
     const message = `Couldn't save ${name}: ${String(error)}`;
     log("error", message);
-    onSaveError?.(message);
+    onSaveError(message);
   };
 
   const flushSave = (key: string): void => {
@@ -446,7 +458,6 @@ export async function createEditorHost(
     const top = visible[0];
     const bottom = visible[visible.length - 1];
     if (
-      onLeaveViewport !== undefined &&
       leaving !== null &&
       cursor !== null &&
       top !== undefined &&
@@ -511,18 +522,14 @@ export async function createEditorHost(
       }
       log("error", `open failed for ${uri.toString()}: ${String(error)}`);
       const name = uri.path.split("/").pop() ?? uri.path;
-      onOpenError?.(`Couldn't open ${name}: ${String(error)}`);
+      onOpenError(`Couldn't open ${name}: ${String(error)}`);
       return false;
     }
   };
 
-  const show = (
-    session: ClientSession,
-    path: string,
-    placement: { line: number; column?: number; focus?: boolean } | { viewState: unknown },
-  ): Promise<boolean> => {
+  const show = (session: ClientSession, path: string, placement: Placement): Promise<boolean> => {
     const resolved =
-      "line" in placement
+      "line" in placement || "selection" in placement
         ? placement
         : { viewState: placement.viewState as monaco.editor.ICodeEditorViewState | null };
     return showFile(sessionFileUri(session, path), resolved);
@@ -628,8 +635,8 @@ export async function createEditorHost(
 
   const flushDirty = (): Promise<void> => flushDirtyFor(null);
 
-  // Route the editor service's file-opens (go-to-def / peek / references) through the tab store as a preview
-  // open, then reveal the target range, so navigating reuses the one preview slot instead of piling up tabs.
+  // Hand editor-service file opens (go-to-def / references) to the controller, which owns tab activation and
+  // the selected-file notification. The host only translates the session URI back to its owning destination.
   setOpenEditorSink((uri, selection) => {
     // Only real files are working copies. The transient `weavie-review:` model has no file provider, so an
     // editor-service open of one (e.g. go-to-def while a review shows) is a no-op: it's already on screen via
@@ -642,8 +649,7 @@ export async function createEditorHost(
     if (session === undefined) {
       return;
     }
-    openTabFor(session, sessionUriHostPath(uri), { preview: true });
-    void showFile(uri, selection !== undefined ? { selection } : { line: 1 });
+    onOpenEditor({ session, path: sessionUriHostPath(uri), selection });
   });
 
   // Review uses a transient model per file path (one openDiff is live at a time). Tracked so endReview can

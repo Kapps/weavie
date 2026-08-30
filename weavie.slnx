@@ -20,11 +20,13 @@
     <Project Path="tests/Weavie.Linux.Tests/Weavie.Linux.Tests.csproj" />
     <Project Path="tests/Weavie.Remote.Tests/Weavie.Remote.Tests.csproj" />
     <Project Path="tests/Weavie.Runner.Tests/Weavie.Runner.Tests.csproj" />
+    <Project Path="tests/Weavie.WorktreeServe.Tests/Weavie.WorktreeServe.Tests.csproj" />
   </Folder>
   <Folder Name="/tools/">
     <Project Path="tools/Weavie.FakeAcp/Weavie.FakeAcp.csproj" />
     <Project Path="tools/Weavie.FakeClaude/Weavie.FakeClaude.csproj" />
     <Project Path="tools/Weavie.IdeHarness/Weavie.IdeHarness.csproj" />
     <Project Path="tools/Weavie.LspHarness/Weavie.LspHarness.csproj" />
+    <Project Path="tools/Weavie.WorktreeServe/Weavie.WorktreeServe.csproj" />
   </Folder>
 </Solution>

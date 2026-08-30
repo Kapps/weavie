@@ -16,9 +16,6 @@ public sealed record SessionDescriptor {
 	/// <summary>The session's working directory.</summary>
 	public required string WorktreePath { get; init; }
 
-	/// <summary>Whether Weavie owns and may remove this checkout.</summary>
-	public required bool ManagedCheckout { get; init; }
-
 	/// <summary>Whether this session had a live backend at last persist — the flag a reopen restores (loading + <c>--resume</c>ing it).</summary>
 	public required bool Loaded { get; init; }
 

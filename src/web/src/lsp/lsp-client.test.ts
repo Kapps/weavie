@@ -22,7 +22,7 @@ interface FakeUri {
   fragment: string;
   fsPath: string;
   hostPath: string;
-  owner: FakeSession;
+  owner?: FakeSession;
   toString(): string;
 }
 
@@ -34,7 +34,11 @@ interface FakeModel {
 
 interface ClientRecord {
   disposed: boolean;
-  selectors: Array<{ language: string; scheme: string; pattern: string }>;
+  selectors: Array<{
+    language?: string;
+    scheme?: string;
+    pattern?: string | { base: string; baseUri: FakeUri; pattern: string };
+  }>;
   workspaceUri: FakeUri;
   errorHandler: {
     error(): { action: number; handled: boolean };
@@ -109,6 +113,15 @@ vi.mock("monaco-editor", () => ({
     },
   },
   Uri: {
+    file: (path: string) => ({
+      scheme: "file",
+      authority: "",
+      path,
+      fragment: "",
+      fsPath: path,
+      hostPath: path,
+      toString: () => `file://${path}`,
+    }),
     parse: (value: string) => ({
       toString: () => value,
       hostPath: new URL(value).pathname,
@@ -119,6 +132,7 @@ vi.mock("monaco-editor", () => ({
 vi.mock("monaco-languageclient", () => ({
   MonacoLanguageClient: class {
     private readonly record: ClientRecord;
+    private readonly rawSelectors: ClientRecord["selectors"];
     state = 2;
 
     constructor(options: {
@@ -128,6 +142,7 @@ vi.mock("monaco-languageclient", () => ({
         errorHandler: ClientRecord["errorHandler"];
       };
     }) {
+      this.rawSelectors = options.clientOptions.documentSelector;
       this.record = {
         disposed: false,
         selectors: options.clientOptions.documentSelector,
@@ -137,7 +152,16 @@ vi.mock("monaco-languageclient", () => ({
       runtime.clients.push(this.record);
     }
 
+    get protocol2CodeConverter(): {
+      asDocumentSelector(selector: ClientRecord["selectors"]): ClientRecord["selectors"];
+    } {
+      return { asDocumentSelector: (selector) => selector };
+    }
+
+    registerFeature(): void {}
+
     start(): Promise<void> {
+      this.record.selectors = this.protocol2CodeConverter.asDocumentSelector(this.rawSelectors);
       return Promise.resolve();
     }
 
@@ -265,10 +289,14 @@ describe("session-owned language clients", () => {
 
     expect(runtime.channels.map((channel) => channel.owner)).toEqual([first, second]);
     expect(runtime.clients).toHaveLength(2);
-    const patterns = runtime.clients.map((client) => client.selectors[0]?.pattern);
-    expect(new Set(patterns).size).toBe(2);
-    expect(patterns).toContain("/sessions/a/repo/**");
-    expect(patterns).toContain("/sessions/b/repo/**");
+    const bases = runtime.clients.map((client) => {
+      const pattern = client.selectors[0]?.pattern;
+      return typeof pattern === "string" ? undefined : pattern?.base;
+    });
+    expect(new Set(bases).size).toBe(2);
+    expect(bases).toContain("/sessions/a/repo");
+    expect(bases).toContain("/sessions/b/repo");
+    expect(runtime.clients.map((client) => client.workspaceUri.fsPath)).toEqual(["/repo", "/repo"]);
   });
 
   it("retains config delivered before Monaco starts", async () => {

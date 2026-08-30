@@ -8,7 +8,7 @@ namespace Weavie.Core.Sessions;
 /// <summary>
 /// The per-workspace session overlay, persisted atomically to
 /// <c>~/.weavie/workspaces/&lt;id&gt;/sessions.json</c> so a reopen (including a worker auto-update restart) comes
-/// back with each slot's ownership, provider, loaded state, and editor state. Selection is client-owned. Git
+/// back with each slot's provider, loaded state, and editor state. Selection is client-owned. Git
 /// remains authoritative for the worktree set. The store also carries the last real shell-terminal size so a
 /// restored pre-spawn matches the reattaching xterm's width. A malformed file is backed up to
 /// <c>sessions.json.bad</c> and reset rather than throwing.
@@ -93,27 +93,51 @@ public sealed class SessionStore {
 		}
 	}
 
+	/// <summary>Strictly reads one session document without repairing or writing to its source.</summary>
+	public static SessionStoreSnapshot ReadSnapshot(IFileSystem fileSystem, string path) {
+		ArgumentNullException.ThrowIfNull(fileSystem);
+		ArgumentException.ThrowIfNullOrEmpty(path);
+		if (!fileSystem.FileExists(path)) {
+			throw new FileNotFoundException("The session snapshot does not exist.", path);
+		}
+		return ParseSnapshot(fileSystem.ReadAllText(path));
+	}
+
+	/// <summary>Atomically writes a complete, already-projected session snapshot.</summary>
+	public static void WriteSnapshot(IFileSystem fileSystem, string path, SessionStoreSnapshot snapshot) {
+		ArgumentNullException.ThrowIfNull(fileSystem);
+		ArgumentException.ThrowIfNullOrEmpty(path);
+		ArgumentNullException.ThrowIfNull(snapshot);
+		fileSystem.WriteAllTextAtomic(path, SerializeSnapshot(snapshot));
+	}
+
 	private List<SessionDescriptor> LoadLocked() =>
 		JsonStoreFile.Load<List<SessionDescriptor>>(
 			_fileSystem,
 			FilePath,
 			text => {
-				var document = JsonSerializer.Deserialize<SessionsDocument>(text, JsonOptions)
-					?? throw new JsonException("Session document was empty.");
-				if (document.Version != 3) {
-					throw new JsonException($"Unsupported session document version {document.Version}.");
-				}
-				var entries = document.Sessions
-					?? throw new JsonException("Session document has no sessions array.");
-				var parsedEntries = entries.Select(ParseEntry).ToList();
-
-				_shellCols = document.ShellCols;
-				_shellRows = document.ShellRows;
-
-				return parsedEntries;
+				var snapshot = ParseSnapshot(text);
+				_shellCols = snapshot.ShellColumns;
+				_shellRows = snapshot.ShellRows;
+				return [.. snapshot.Items];
 			},
 			static () => [],
 			Log);
+
+	private static SessionStoreSnapshot ParseSnapshot(string text) {
+		var document = JsonSerializer.Deserialize<SessionsDocument>(text, JsonOptions)
+			?? throw new JsonException("Session document was empty.");
+		if (document.Version != 3) {
+			throw new JsonException($"Unsupported session document version {document.Version}.");
+		}
+		var entries = document.Sessions
+			?? throw new JsonException("Session document has no sessions array.");
+		return new SessionStoreSnapshot {
+			Items = [.. entries.Select(ParseEntry)],
+			ShellColumns = document.ShellCols,
+			ShellRows = document.ShellRows,
+		};
+	}
 
 	private static SessionDescriptor ParseEntry(SessionEntry? entry) {
 		if (entry is null
@@ -121,7 +145,6 @@ public sealed class SessionStore {
 			|| string.IsNullOrWhiteSpace(entry.Label)
 			|| string.IsNullOrWhiteSpace(entry.WorktreePath)
 			|| string.IsNullOrWhiteSpace(entry.AgentProviderId)
-			|| entry.ManagedCheckout is not { } managedCheckout
 			|| entry.Loaded is not { } loaded
 			|| entry.EditorSession is not { Open: not null } editorSession) {
 			throw new JsonException("Session entry is missing required version 3 data.");
@@ -131,7 +154,6 @@ public sealed class SessionStore {
 			Id = new SessionId(entry.Id),
 			Label = entry.Label,
 			WorktreePath = entry.WorktreePath,
-			ManagedCheckout = managedCheckout,
 			Loaded = loaded,
 			AgentProviderId = entry.AgentProviderId,
 			EditorSession = editorSession,
@@ -139,26 +161,33 @@ public sealed class SessionStore {
 	}
 
 	private void PersistLocked() {
-		var document = new SessionsDocument {
-			Version = 3,
-			ShellCols = _shellCols,
-			ShellRows = _shellRows,
-			Sessions = [.. _items.Select(s => new SessionEntry {
-				Id = s.Id.Value,
-				Label = s.Label,
-				WorktreePath = s.WorktreePath,
-				ManagedCheckout = s.ManagedCheckout,
-				Loaded = s.Loaded,
-				AgentProviderId = s.AgentProviderId,
-				EditorSession = s.EditorSession,
-			})],
-		};
 		JsonStoreFile.Persist(
 			_fileSystem,
 			FilePath,
-			JsonSerializer.Serialize(document, JsonOptions),
+			SerializeSnapshot(new SessionStoreSnapshot {
+				Items = _items,
+				ShellColumns = _shellCols,
+				ShellRows = _shellRows,
+			}),
 			Log);
 	}
+
+	private static string SerializeSnapshot(SessionStoreSnapshot snapshot) =>
+		JsonSerializer.Serialize(new SessionsDocument {
+			Version = 3,
+			ShellCols = snapshot.ShellColumns,
+			ShellRows = snapshot.ShellRows,
+			Sessions = [.. snapshot.Items.Select(ToEntry)],
+		}, JsonOptions);
+
+	private static SessionEntry ToEntry(SessionDescriptor session) => new() {
+		Id = session.Id.Value,
+		Label = session.Label,
+		WorktreePath = session.WorktreePath,
+		Loaded = session.Loaded,
+		AgentProviderId = session.AgentProviderId,
+		EditorSession = session.EditorSession,
+	};
 
 	private sealed class SessionsDocument {
 		[JsonPropertyName("version")]
@@ -183,9 +212,6 @@ public sealed class SessionStore {
 
 		[JsonPropertyName("worktreePath")]
 		public string? WorktreePath { get; set; }
-
-		[JsonPropertyName("managedCheckout")]
-		public bool? ManagedCheckout { get; set; }
 
 		[JsonPropertyName("loaded")]
 		public bool? Loaded { get; set; }

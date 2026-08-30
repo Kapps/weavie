@@ -1,5 +1,7 @@
+using Weavie.Core.Changes;
 using Weavie.Core.FileActivity;
 using Weavie.Core.Lsp;
+using Weavie.Hosting.Messaging;
 
 namespace Weavie.Hosting;
 
@@ -44,15 +46,32 @@ public sealed partial class HostCore {
 			OnFailure);
 	}
 
-	private Task RefreshReviewAsync(HostSession session, string path, bool deleted) =>
-		InvokeForSessionAsync(() => {
-			// History before diff/changes — see HostCore.WebBridge.ApplyHistoryResult's doc comment on why.
-			PushReviewHistoryToWeb(session);
-			if (!deleted) {
-				PushTurnDiffToWeb(session, path);
+	private Task RefreshReviewAsync(HostSession session, string path, bool deleted) {
+		// Built on this consumer's own thread, never the dispatcher's: these payloads carry whole-file diffs, and
+		// the dispatcher is the thread the desktop hosts deliver the user's keystrokes on.
+		var payloads = ReviewPayloads.Build(session, path, deleted, ActiveReview(session)?.Label ?? string.Empty);
+		return InvokeForSessionAsync(() => payloads.PublishTo(session.Bus.BroadcastTarget));
+	}
+
+	// One save's review projection: the undo/redo state, the saved file's diff (absent when it was deleted or
+	// isn't in the turn), and the changed-file list. History before diff/changes — see
+	// HostCore.WebBridge.ApplyHistoryResult's doc comment on why.
+	private readonly record struct ReviewPayloads(string History, string? Diff, string Changes) {
+		public static ReviewPayloads Build(HostSession session, string path, bool deleted, string label) => new(
+			ChangeMessages.ReviewHistory(session.Changes),
+			deleted || session.Changes.GetTurn(path) is not { } turn ? null : ChangeMessages.TurnDiff(turn),
+			ChangeMessages.TurnChanges(session.Changes, label));
+
+		public void PublishTo(MessageTarget target) {
+			var review = target.Feature("review");
+			review.PublishJson("history", History);
+			if (Diff is not null) {
+				review.PublishJson("diff", Diff);
 			}
-			PushTurnChangesToWeb(session);
-		});
+
+			review.PublishJson("changes", Changes);
+		}
+	}
 
 	private Task FileActivityFailedAsync(HostSession session, FileActivityFailure failure) =>
 		InvokeForSessionAsync(

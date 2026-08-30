@@ -16,19 +16,12 @@ public static class ChangeMessages {
 	public static string TurnChanges(SessionChangeTracker tracker, string label) {
 		ArgumentNullException.ThrowIfNull(tracker);
 		ArgumentNullException.ThrowIfNull(label);
-		var files = tracker.TurnChanges().Select(change => {
-			// Count over the full span (accepted anchor → current) so a fully-kept (faded-only) file still reads as
-			// changed; land the walk on the first PENDING hunk, falling back to the first faded one.
-			var (added, removed) = LineDiff.Count(change.AcceptedBaselineText, change.CurrentText);
-			return new {
-				path = change.Path,
-				name = Path.GetFileName(change.Path),
-				added,
-				removed,
-				line = LineDiff.FirstChangedLine(change.BaselineText, change.CurrentText)
-					?? LineDiff.FirstChangedLine(change.AcceptedBaselineText, change.CurrentText)
-					?? 1,
-			};
+		var files = tracker.TurnChangeSummaries().Select(summary => new {
+			path = summary.Change.Path,
+			name = Path.GetFileName(summary.Change.Path),
+			added = summary.Added,
+			removed = summary.Removed,
+			line = summary.Line,
 		});
 		return JsonSerializer.Serialize(new { label, files });
 	}

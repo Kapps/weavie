@@ -69,6 +69,9 @@ internal sealed partial class WorkspaceHost : IWebSurface, IShellMenuActions {
 		WebKit.EnableNativeRefreshRate(settings);
 
 		Gtk.gtk_window_set_child(_window, _webView);
+		if (!Gtk.gtk_widget_grab_focus(_webView)) {
+			throw new InvalidOperationException("The Linux web view could not take keyboard focus.");
+		}
 		_hotkeys = new ApplicationHotkeys(
 			_services.CommandRegistry,
 			_services.Keybindings,

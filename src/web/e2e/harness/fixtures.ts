@@ -1,5 +1,5 @@
 import { writeFile } from "node:fs/promises";
-import { test as base, expect } from "@playwright/test";
+import { test as base, expect, type Page } from "@playwright/test";
 import { type FakeInference, fakeClaudeBuilt } from "./fake-claude";
 import { fakeAcpProgram, programExists } from "./test-programs";
 import { headlessBuilt, launchHeadless, type WeavieHost } from "./weavie-host";
@@ -40,6 +40,22 @@ type WeavieFixtures = {
 // docs/specs/integration-testing-strategy.md.
 // `weavie` is an auto fixture: every functional test boots a host and navigates the page, whether or not it
 // destructures the handle. Tests that need the host (workspace path, log) just add `weavie` to their args.
+// Chromium scopes touch emulation to the DevTools session that set it, and the context-level `hasTouch`
+// send at page init can land without taking effect — a macOS CI run emulated the viewport but left the
+// pointer fine, silently disabling every touch path the mobile project exercises. Owning it here, on a
+// session held open for the test, makes the capability a precondition instead of an assumption.
+async function establishTouchEmulation(page: Page): Promise<void> {
+  if (test.info().project.use.hasTouch !== true) {
+    return;
+  }
+  // Never detached: the emulation lasts only as long as the session that set it.
+  const session = await page.context().newCDPSession(page);
+  await session.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 1 });
+  if (!(await page.evaluate(() => matchMedia("(pointer: coarse)").matches))) {
+    throw new Error("touch emulation did not take: the page reports a fine pointer");
+  }
+}
+
 export const test = base.extend<WeavieOptions & WeavieFixtures>({
   fakeScript: [null, { option: true }],
   inference: ["disabled", { option: true }],
@@ -98,6 +114,33 @@ export const test = base.extend<WeavieOptions & WeavieFixtures>({
         }
       });
       page.on("pageerror", (err) => consoleErrors.push(`[pageerror] ${String(err)}`));
+      // A stylesheet or chunk that never arrives (Windows runners fail one with `net::ERR_NO_BUFFER_SPACE`
+      // under socket pressure) leaves the app live but unstyled — `.app` loses its `height: 100%` and
+      // collapses to content height, so panes render a few pixels tall and elements are present-but-hidden.
+      // Every assertion after that fails somewhere unrelated, so record which load failed and say so.
+      //
+      // 2026-08-26 13:08 UTC, run https://github.com/Kapps/weavie/actions/runs/32971314365/job/98186836481
+      // — a `main-*.js` ERR_NO_BUFFER_SPACE was recorded here, then the page booted anyway and the splash
+      // still disappeared: the trace showed two requests for that script 59ms apart, the second returning
+      // 200 — index.html's own boot-retry (`retryBootModule`) had already reloaded past the failure, but
+      // this list was never cleared across that reload, so the already-healed failure still failed the
+      // test. Only a load that never got resolved by the app's own retry should count, so the list is
+      // cleared on every main-frame navigation and only what's failed since the last one is judged.
+      let blockedLoads: string[] = [];
+      page.on("framenavigated", (frame) => {
+        if (frame === page.mainFrame()) {
+          blockedLoads = [];
+        }
+      });
+      page.on("requestfailed", (request) => {
+        const kind = request.resourceType();
+        if (kind !== "stylesheet" && kind !== "script" && kind !== "document") {
+          return;
+        }
+        const failure = `${kind} ${request.url()} — ${request.failure()?.errorText ?? "failed"}`;
+        blockedLoads.push(failure);
+        consoleErrors.push(`[requestfailed] ${failure}`);
+      });
       const dumpDiagnostics = async (): Promise<void> => {
         const layout = await page
           .evaluate(() => {
@@ -211,9 +254,13 @@ export const test = base.extend<WeavieOptions & WeavieFixtures>({
           throw new Error(`workspace connect failed (${connect.status()})`);
         }
         await page.goto(host.url, { waitUntil: "domcontentloaded" });
-        // The app removes the splash element once it has booted (layout + first session). Its disappearance
-        // is the "app is interactive" signal — not a fixed sleep.
+        // The app removes the splash element once it has booted (layout + first session). Its
+        // disappearance is the "app is interactive" signal — not a fixed sleep.
         await expect(page.locator("#splash")).toHaveCount(0, { timeout: 40_000 });
+        await establishTouchEmulation(page);
+        if (blockedLoads.length > 0) {
+          throw new Error(`the page booted without ${blockedLoads.join("; ")}`);
+        }
         if (dismissInferenceOffer && !automaticInference) {
           const offer = page.locator(".toast", {
             hasText: "Let Weavie use automatic inference",

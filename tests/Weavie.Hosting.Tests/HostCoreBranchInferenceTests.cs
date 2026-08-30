@@ -30,11 +30,61 @@ public sealed class HostCoreBranchInferenceTests {
 		Assert.Equal(agentProviderId, inference.AgentProviderId);
 		Assert.Equal(InferenceModelCategory.Utility, inference.Category);
 		Assert.Equal(InferenceInvocationOrigin.Automatic, inference.Origin);
+		Assert.Equal(TimeSpan.FromSeconds(24), BranchNameInference.QueryOptions.TimeBudget);
 		Assert.Contains("\"prompt\":\"WebM files fail to load\"", inference.Prompt, StringComparison.Ordinal);
 		Assert.Contains("\"currentBranch\":\"main\"", inference.Prompt, StringComparison.Ordinal);
 		Assert.Contains("bug/prior-failure", inference.Prompt, StringComparison.Ordinal);
 		Assert.Contains("feature/mobile-inbox", inference.Prompt, StringComparison.Ordinal);
 		Assert.Null(host.Core.SessionForTest("bug/webm-fails-to-load"));
+	}
+
+	[Fact]
+	public async Task Preview_LearnsFromTheUsersOwnBranchesInsteadOfOtherAuthors() {
+		var inference = new BranchInferenceStub(new InferenceSuccess<BranchNameInferenceOutput> {
+			Value = new BranchNameInferenceOutput { Branch = "kapps/webm-fails-to-load", NeedsMoreDetail = false },
+			Receipt = Receipt(),
+		});
+		await using var host = await TestHost.StartAsync(repo => {
+			TestHost.RunGit(repo, "checkout", "--quiet", "-b", "teammate/inbox-polish");
+			TestHost.RunGit(repo, "-c", "user.email=teammate@example.com", "-c", "user.name=Teammate",
+				"commit", "--quiet", "--allow-empty", "-m", "theirs");
+			TestHost.RunGit(repo, "checkout", "--quiet", "-b", "kapps/prior-fix", "main");
+			TestHost.RunGit(repo, "commit", "--quiet", "--allow-empty", "-m", "mine");
+			TestHost.RunGit(repo, "checkout", "--quiet", "main");
+		}, _ => inference);
+
+		var result = await PreviewAsync(host, "WebM files fail to load", "claude");
+
+		Assert.Equal("kapps/webm-fails-to-load", result.Branch);
+		var input = InputJson(inference.Prompt!);
+		Assert.Equal(TestHost.TestAuthorEmail, input.GetProperty("authorEmail").GetString());
+		string[] mine = Branches(input, "myRecentBranches");
+		Assert.Contains("kapps/prior-fix", mine);
+		Assert.DoesNotContain("main", mine);
+		Assert.DoesNotContain("teammate/inbox-polish", mine);
+		Assert.Empty(Branches(input, "otherRecentBranches"));
+	}
+
+	[Fact]
+	public async Task Preview_ReadsOtherAuthorsBranchesWhenTheUserAuthoredOnlyTheDefaultBranch() {
+		var inference = new BranchInferenceStub(new InferenceSuccess<BranchNameInferenceOutput> {
+			Value = new BranchNameInferenceOutput { Branch = "kapps/webm-fails", NeedsMoreDetail = false },
+			Receipt = Receipt(),
+		});
+		await using var host = await TestHost.StartAsync(repo => {
+			TestHost.RunGit(repo, "checkout", "--quiet", "-b", "teammate/inbox-polish");
+			TestHost.RunGit(repo, "-c", "user.email=teammate@example.com", "-c", "user.name=Teammate",
+				"commit", "--quiet", "--allow-empty", "-m", "theirs");
+			TestHost.RunGit(repo, "checkout", "--quiet", "main");
+		}, _ => inference);
+
+		var result = await PreviewAsync(host, "WebM files fail to load", "claude");
+
+		Assert.Equal("kapps/webm-fails", result.Branch);
+		var input = InputJson(inference.Prompt!);
+		Assert.Equal(TestHost.TestAuthorEmail, input.GetProperty("authorEmail").GetString());
+		Assert.Empty(Branches(input, "myRecentBranches"));
+		Assert.Equal(["teammate/inbox-polish"], Branches(input, "otherRecentBranches"));
 	}
 
 	[Fact]
@@ -252,6 +302,16 @@ public sealed class HostCoreBranchInferenceTests {
 
 		Assert.Null(host.Core.SessionForTest("fix-webm"));
 	}
+
+	private static JsonElement InputJson(string prompt) {
+		const string marker = "Input JSON:\n";
+		int start = prompt.IndexOf(marker, StringComparison.Ordinal);
+		Assert.InRange(start, 0, prompt.Length);
+		return JsonDocument.Parse(prompt[(start + marker.Length)..]).RootElement.Clone();
+	}
+
+	private static string[] Branches(JsonElement input, string field) =>
+		[.. input.GetProperty(field).EnumerateArray().Select(branch => branch.GetString()!)];
 
 	private static Task<BranchPreview> PreviewAsync(TestHost host, string prompt, string agentProviderId) =>
 		PreviewWithAttachmentsAsync(host, prompt, agentProviderId, []);

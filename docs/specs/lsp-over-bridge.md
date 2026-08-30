@@ -89,6 +89,14 @@ The pool removes a client when:
 A page-instance epoch lets the host reap channels orphaned by a reload. Session disposal remains the final
 owner: it kills and reaps every remaining server before the worktree may be removed.
 
+Language-server commands are process-global in Monaco even though language clients are session-owned. At the
+protocol-conversion boundary, Weavie replaces each command advertised by a server with an alias unique to that
+client's channel. Every command-bearing result and resolve request converts through that alias in both directions;
+the exact producing client is therefore retained until invocation while the server sees only its raw command id.
+Client-local commands remain unchanged. A reconnect uses a new channel namespace, so stale UI can never invoke
+the replacement client. Selection, active models, command arguments, and registration order are never routing
+inputs.
+
 ## Transport
 
 Native hosts carry the envelopes through their in-process bridge. Headless hosts carry the same envelopes
@@ -99,6 +107,9 @@ network service and inherits the bridge's TLS policy.
 
 - model-to-session routing uses the namespaced URI, never selection;
 - same-language clients answer only for their own session models;
+- duplicate server command ids receive distinct per-client aliases and execute only on their producing client;
+- aliases round-trip to raw ids through code-action, completion, CodeLens, and inlay-hint resolve requests;
+- reconnect teardown cannot remove or receive commands belonging to its replacement;
 - clients stay warm across selection changes;
 - removing or replacing a session disposes only that session's clients;
 - start/data/stop ordering is preserved;

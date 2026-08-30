@@ -1,3 +1,4 @@
+using Weavie.Core.Remote;
 using Xunit;
 
 namespace Weavie.Runner.Tests;
@@ -75,6 +76,10 @@ public sealed class TlsFrontTests {
 	}
 
 	private sealed class FakeTailscaleCli : ITailscaleCli {
+		public string Executable => "tailscale";
+
+		public IReadOnlyDictionary<string, string> ProcessEnvironment { get; } = new Dictionary<string, string>();
+
 		public List<string[]> Calls { get; } = [];
 
 		public TailscaleResult StatusResult { get; set; } = new(0, "{\"Self\":{\"DNSName\":\"box.tnet.ts.net.\"}}", "");

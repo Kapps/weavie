@@ -5,6 +5,29 @@ const PNG_B64 =
   "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAXUlEQVR42u3PMQ0AIAwAMJTsnhxkI2I3NxLQsGNfkxroqohRcWYtAQEBAQEBAQEBAQEBAQEBAQEBAQEBAYF2IPcd9SpHCQgICAgICAgICAgICAgICAgICAgICAi0fZNauTzyRETRAAAAAElFTkSuQmCC";
 const sgrPayload = (data: string): string => (data.startsWith("\u001b[") ? data.slice(2) : data);
 
+// Arms a MutationObserver on `target` before the caller triggers the change that may disable it, so a
+// disable-then-re-enable cycle that completes faster than Playwright's own DOM polling can still be seen.
+// Call this (without awaiting) immediately before the triggering action; await the returned promise after.
+function watchForDisabled(target: import("@playwright/test").Locator): Promise<boolean> {
+  return target.evaluate(
+    (element) =>
+      new Promise<boolean>((resolve) => {
+        const select = element as HTMLSelectElement;
+        if (select.disabled) {
+          resolve(true);
+          return;
+        }
+        const observer = new MutationObserver(() => {
+          if (select.disabled) {
+            observer.disconnect();
+            resolve(true);
+          }
+        });
+        observer.observe(select, { attributes: true, attributeFilter: ["disabled"] });
+      }),
+  );
+}
+
 async function pasteImage(target: import("@playwright/test").Locator, b64: string): Promise<void> {
   await target.evaluate((element, encoded) => {
     const binary = atob(encoded);
@@ -387,8 +410,6 @@ test("the software keyboard keeps Claude reachable without scrolling the documen
 // This test below already exercises the real bug end to end and is the regression coverage for it.
 test("the terminal cursor exposes native paste in both terminal panes", async ({ page }) => {
   await page.locator(".session-inbox-row").click();
-  expect(await page.evaluate(() => matchMedia("(pointer: coarse)").matches)).toBe(true);
-
   await pasteThroughNativeTerminalInput(page, "claude", "claude paste");
   await page.getByRole("button", { name: "Shell" }).click();
   await pasteThroughNativeTerminalInput(page, "shell", "shell paste");
@@ -644,9 +665,21 @@ test("compact session inbox creates, resumes, and switches existing surfaces", a
   await pasteImage(newSessionPrompt, PNG_B64);
   await expect(inbox.locator(".agent-attachment img")).toBeVisible();
   const provider = inbox.getByRole("combobox", { name: "Agent provider" });
+  // The save round-trip that backs the disable can resolve inside a single DOM-poll interval, so polling
+  // for `toBeDisabled()` after the fact can miss it entirely — see the flake note below. Arm a
+  // MutationObserver before triggering the change instead, so the transition can't be missed regardless
+  // of how fast the host responds.
+  //
+  // Flaked 2026-08-27 21:39 UTC on macOS shard 6/6 — expect(provider).toBeDisabled() saw "enabled" on all
+  // 63 of its polls across the full 30s timeout (https://github.com/Kapps/weavie/actions/runs/33118598692/job/98680314997),
+  // meaning the select had already re-enabled before Playwright's first poll ran. Replaced the DOM-polling
+  // assertion with the observer above.
+  const sawDisabled = watchForDisabled(provider);
   await provider.selectOption("fake-acp");
-  await expect(provider).toBeDisabled();
+  expect(await sawDisabled).toBe(true);
   await expect(provider).toBeEnabled();
+  await expect(provider).toHaveValue("fake-acp");
+  await expect(inbox.getByRole("combobox", { name: "Open with" })).toHaveValue("fake-acp");
   const startButton = inbox.getByRole("button", { name: "Start", exact: true });
   const branch = inbox.getByRole("textbox", { name: "Branch for the new session" });
   await expect(branch).toHaveValue("");

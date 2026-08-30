@@ -58,7 +58,7 @@ public static class SessionCommands {
 	/// <summary>Unloads the invoking session, or the <c>id</c> arg, into a dormant chip while keeping its worktree.</summary>
 	public const string UnloadSession = "weavie.session.unload";
 
-	/// <summary>Deletes the invoking session, or the <c>id</c> arg. Weavie-owned worktrees are removed; user-owned checkouts are preserved.</summary>
+	/// <summary>Deletes the invoking session, or the <c>id</c> arg. Its worktree is removed, branch kept; the workspace's own checkout is preserved.</summary>
 	public const string DeleteSession = "weavie.session.delete";
 
 	/// <summary>Opens the interactive delete confirmation in the UI (arg <c>id</c>; defaults to the selected session).</summary>
@@ -81,8 +81,8 @@ public static class SessionCommands {
 			Title = "New Session",
 			RunsIn = CommandLocation.Core,
 			Category = "Session",
-			Description = "Create a new session on its own git worktree + branch. 'branch' is required. 'base' is 'source' (the invoking session's HEAD; the "
-				+ "default) or 'main'. Set 'existing' true to instead check out an existing branch named by 'branch' "
+			Description = "Create a new session on its own git worktree + branch. 'branch' is required. 'base' is 'main' (the repository's "
+				+ "default branch; the default) or 'source' (the invoking session's HEAD). Set 'existing' true to instead check out an existing branch named by 'branch' "
 				+ "(no new branch; 'base' is ignored), switching to that session if one already exists. An optional "
 				+ "'prompt' and optional image 'attachments' are sent as the new session's first input. "
 				+ "'agentProviderId' is any provider advertised by the current host; "
@@ -188,11 +188,10 @@ public static class SessionCommands {
 			Category = "Session",
 			Description = "Switch to the next session on the rail (wraps around).",
 			Aliases = ["next session", "switch to next session"],
-			// ctrl+Tab cycles sessions whenever the editor isn't focused — the exact complement of the editor's
-			// editorFocused next-tab binding, so the two never both match. !editorFocused (not terminalFocused)
-			// also fires on load, before a non-auto-focusing terminal has ever set terminalFocused. Literal ctrl
-			// (not $mod): Cmd+Tab is the OS app switcher. A per-binding guard keeps the command in the palette.
-			DefaultKeybindings = [new CommandKeybinding { Key = "ctrl+Tab", When = "!editorFocused" }],
+			// ctrl+Tab cycles sessions, unguarded: the editor's editorFocused next-tab binding is the narrower
+			// claim on the chord, so it takes the key while the editor holds focus and hands it back here when
+			// it has no tab to step to. Literal ctrl (not $mod): Cmd+Tab is the OS app switcher.
+			DefaultKeybindings = [new CommandKeybinding { Key = "ctrl+Tab" }],
 		});
 
 		registry.Register(new CommandDefinition {
@@ -202,8 +201,8 @@ public static class SessionCommands {
 			Category = "Session",
 			Description = "Switch to the previous session on the rail (wraps around).",
 			Aliases = ["previous session", "prev session", "switch to previous session"],
-			// Mirror of NextSession: ctrl+Shift+Tab cycles backward whenever the editor isn't focused.
-			DefaultKeybindings = [new CommandKeybinding { Key = "ctrl+Shift+Tab", When = "!editorFocused" }],
+			// Mirror of NextSession: ctrl+Shift+Tab cycles backward, behind the editor's prev-tab binding.
+			DefaultKeybindings = [new CommandKeybinding { Key = "ctrl+Shift+Tab" }],
 		});
 
 		registry.Register(new CommandDefinition {
@@ -291,9 +290,10 @@ public static class SessionCommands {
 			Title = "Delete Session",
 			RunsIn = CommandLocation.Core,
 			Category = "Session",
-			Description = "Delete the invoking session, or the session named by 'id'. A Weavie-owned git worktree is "
-				+ "removed but its branch is kept; a user-owned checkout is never removed. Refuses to remove a managed "
-				+ "worktree with uncommitted changes unless 'force' is true. With "
+			Description = "Delete the invoking session, or the session named by 'id'. The git worktree it sits on is "
+				+ "removed but its branch is kept, whoever created that worktree; only the workspace's own checkout is "
+				+ "kept. Refuses the repository's main checkout and a locked worktree outright, and refuses a worktree "
+				+ "with uncommitted changes or no branch unless 'force' is true. With "
 				+ "'classify' true it deletes nothing and instead returns the worktree's state (clean/untracked/modified) "
 				+ "for a confirm prompt. This is the programmatic entry (for agents); the interactive UI uses "
 				+ "'Delete Session…' (weavie.session.deletePrompt).",

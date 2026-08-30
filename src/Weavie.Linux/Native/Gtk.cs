@@ -70,6 +70,10 @@ internal static partial class Gtk {
 	[LibraryImport(Lib)]
 	internal static partial void gtk_widget_add_controller(IntPtr widget, IntPtr controller);
 
+	[LibraryImport(Lib)]
+	[return: MarshalAs(UnmanagedType.Bool)]
+	internal static partial bool gtk_widget_grab_focus(IntPtr widget);
+
 	/// <summary>Creates an alert with no formatted message; <see cref="gtk_alert_dialog_set_message"/> supplies the text.</summary>
 	[LibraryImport(Lib)]
 	internal static partial IntPtr gtk_alert_dialog_new(IntPtr format);

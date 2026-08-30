@@ -1,7 +1,10 @@
 // The unit tests run in a node environment, where the real package's `vscode` import can't load. This is the one
 // stub of the protocol shapes our LSP units reason about: request method ids (verbatim) and the client enums.
 
-const request = (method: string): { method: string } => ({ method });
+const request = (method: string): { method: string; type: { method: string } } => ({
+  method,
+  type: { method },
+});
 
 export const CallHierarchyIncomingCallsRequest = request("callHierarchy/incomingCalls");
 export const CallHierarchyOutgoingCallsRequest = request("callHierarchy/outgoingCalls");

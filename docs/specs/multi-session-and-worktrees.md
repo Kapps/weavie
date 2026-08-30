@@ -14,7 +14,7 @@ present. Selection is not host state and never determines message routing.
 id             stable slot id
 label          branch/folder label
 worktreePath   workspace root for this slot
-managedCheckout whether Weavie may remove the checkout
+managedCheckout whether the checkout lives in Weavie's managed worktrees directory
 agentProvider  provider chosen for the session
 editorSession  persisted tab and view state
 session        live HostSession or null
@@ -42,7 +42,7 @@ Managed sessions are backed by git worktrees:
 - its branch is checked out once, under the workspace's managed worktree area;
 - agent, terminals, files, LSP, hooks, review state, and commands are rooted there;
 - the provider choice is stored with the worktree/session metadata;
-- reconciliation surfaces existing managed worktrees as dormant slots.
+- reconciliation surfaces every existing non-primary worktree as a dormant slot.
 
 Git remains authoritative about branches and worktrees. Weavie does not duplicate checkout state in the
 message protocol.
@@ -96,9 +96,12 @@ Unloading:
 5. keeps the worktree and branch.
 
 Deleting first classifies tracked and untracked changes. A non-forced dirty delete fails before teardown.
-After confirmation it unloads the backend, removes a managed worktree while keeping its branch, removes the
-slot, and publishes the catalog. Deleting an unmanaged session never removes its checkout. An empty catalog is
-immediately seeded with a fresh session on the workspace checkout.
+After confirmation it unloads the backend, removes the worktree the session sits on while keeping its branch —
+whoever created that worktree — removes the slot, and publishes the catalog. The workspace's own checkout is
+the one a delete keeps, since it is re-created rather than rediscovered. Git's own refusals are refusals here:
+the repository's main working tree and a locked worktree can't be removed, and a non-forced delete of a
+branchless checkout fails rather than orphaning its commits. An empty catalog is immediately seeded with a
+fresh session on the workspace checkout.
 
 ## Client model
 
@@ -176,6 +179,7 @@ Sharing a widget must not imply shared domain state.
 - selection changes neither host routing nor background processing;
 - unload drains all owned work and preserves the worktree;
 - dirty delete fails before unload; confirmed delete removes only the target;
+- a discovered checkout's delete removes its worktree; the main working tree and a locked one are refused;
 - background completion updates state and raises attention;
 - multiple hosts contribute sessions to one rail without sharing buses.
 

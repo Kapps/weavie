@@ -35,7 +35,7 @@ public static class CoreCommands {
 	/// <summary>Focuses the omnibar in workspace-symbol ("Go to Symbol in Workspace", #) mode.</summary>
 	public const string GoToWorkspaceSymbol = "weavie.omnibar.goToWorkspaceSymbol";
 
-	/// <summary>Opens the project-wide content-search ("find in files") panel, seeded from the editor selection.</summary>
+	/// <summary>Opens the project-wide content-search ("find in files") panel, seeded from the highlighted text.</summary>
 	public const string FindInFiles = "weavie.search.findInFiles";
 
 	/// <summary>Toggles the search panel's Match Case option; bound to <c>alt+c</c> while the panel is focused.</summary>
@@ -91,6 +91,9 @@ public static class CoreCommands {
 
 	/// <summary>Jumps to the latest structured-agent activity and resumes following it.</summary>
 	public const string AgentJumpToLatest = "weavie.agent.jumpToLatest";
+
+	/// <summary>Toggles output for the focused or newest command in expanded structured-agent history.</summary>
+	public const string ToggleAgentCommandOutput = "weavie.agent.toggleCommandOutput";
 
 	/// <summary>Toggles the focused or newest Mermaid block in structured-agent output; bound to <c>Alt+M</c>.</summary>
 	public const string ToggleAgentMermaidPreview = "weavie.agent.toggleMermaidPreview";
@@ -462,8 +465,9 @@ public static class CoreCommands {
 			Title = "Find in Files",
 			RunsIn = CommandLocation.Web,
 			Category = "Search",
-			Description = "Search the active session's workspace for text in file contents, seeded from the "
-				+ "editor selection. Supports match case / whole word / regex and include/exclude file globs; "
+			Description = "Search the active session's workspace for text in file contents, seeded from the text "
+				+ "highlighted anywhere (editor, agent transcript, or terminal). Supports match case / whole "
+				+ "word / regex and include/exclude file globs; "
 				+ "arrows preview each result, Enter jumps to it.",
 			Aliases = ["find in files", "search files", "search in files", "grep", "search project", "find text"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+f" }],
@@ -783,6 +787,19 @@ public static class CoreCommands {
 			Aliases = ["jump to latest", "latest activity", "scroll to bottom", "follow agent"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "alt+down" }],
 			When = "agentFocused",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = ToggleAgentCommandOutput,
+			Title = "Toggle Agent Command Output",
+			RunsIn = CommandLocation.Web,
+			Category = "Agent",
+			Description = "Show or hide output for the focused command in expanded agent history, or the newest "
+				+ "visible command when none is focused.",
+			Aliases = ["show command output", "hide command output", "toggle command output", "command history output"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "alt+o" }],
+			When = "agentFocused && agentCommandOutputAvailable",
+			ArgsSchemaJson = "{\"outputId\":{\"type\":\"string\",\"description\":\"Visible command output disclosure to toggle; omit to use the focused or newest one\"}}",
 		});
 
 		registry.Register(new CommandDefinition {

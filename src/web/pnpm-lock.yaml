@@ -8,6 +8,9 @@ overrides:
   esbuild: 0.25.12
   dompurify: 3.4.12
 
+patchedDependencies:
+  vscode-languageclient@9.0.1: 5a377b3e441ae6c9dee644a255cab9b4082afb951228301e6ef543d1ca013eeb
+
 importers:
 
   .:
@@ -98,7 +101,7 @@ importers:
         version: 8.2.0
       vscode-languageclient:
         specifier: 9.0.1
-        version: 9.0.1
+        version: 9.0.1(patch_hash=5a377b3e441ae6c9dee644a255cab9b4082afb951228301e6ef543d1ca013eeb)
     devDependencies:
       '@biomejs/biome':
         specifier: 2.5.2
@@ -3018,7 +3021,7 @@ snapshots:
       '@codingame/monaco-vscode-views-service-override': 25.1.2
       '@codingame/monaco-vscode-workbench-service-override': 25.1.2
       vscode: '@codingame/monaco-vscode-extension-api@25.1.2'
-      vscode-languageclient: 9.0.1
+      vscode-languageclient: 9.0.1(patch_hash=5a377b3e441ae6c9dee644a255cab9b4082afb951228301e6ef543d1ca013eeb)
       vscode-languageserver-protocol: 3.17.5
       vscode-ws-jsonrpc: 3.5.0
 
@@ -3230,7 +3233,7 @@ snapshots:
 
   vscode-jsonrpc@8.2.1: {}
 
-  vscode-languageclient@9.0.1:
+  vscode-languageclient@9.0.1(patch_hash=5a377b3e441ae6c9dee644a255cab9b4082afb951228301e6ef543d1ca013eeb):
     dependencies:
       minimatch: 5.1.9
       semver: 7.8.4

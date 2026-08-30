@@ -1,5 +1,6 @@
 import { type JSX, Show } from "solid-js";
 import { agentProviders } from "../chrome/agent-default";
+import { hasTextSelection } from "../commands/context";
 import { AgentPaneBody } from "./AgentPaneBody";
 import { AgentStatusLine } from "./AgentStatusLine";
 import { AgentWorkingStatus } from "./AgentWorkingStatus";
@@ -28,7 +29,6 @@ export function AgentPane(props: {
         ?.focus({ preventScroll: true });
     }
   };
-  const hasTextSelection = (): boolean => document.getSelection()?.isCollapsed === false;
 
   const focusPrompt = (event: MouseEvent): void => {
     if (event.button !== 0 || event.detail === 0) {

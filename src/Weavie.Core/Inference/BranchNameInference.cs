@@ -12,8 +12,14 @@ public sealed record BranchNameInferenceInput {
 	/// <summary>The branch checked out in the session that requested the new worktree, or an empty string.</summary>
 	public required string CurrentBranch { get; init; }
 
-	/// <summary>Up to twenty local branch names, newest commit first.</summary>
-	public required IReadOnlyList<string> RecentBranches { get; init; }
+	/// <summary>The requesting user's configured Git email, or an empty string when unset.</summary>
+	public required string AuthorEmail { get; init; }
+
+	/// <summary>Up to twenty of the user's own branch names, newest commit first.</summary>
+	public required IReadOnlyList<string> MyRecentBranches { get; init; }
+
+	/// <summary>Up to twenty branch names written by other authors, empty unless the user has none of their own.</summary>
+	public required IReadOnlyList<string> OtherRecentBranches { get; init; }
 }
 
 /// <summary>The structured model proposal for a branch.</summary>
@@ -29,10 +35,13 @@ public sealed record BranchNameInferenceOutput {
 public static class BranchNameInference {
 	private const int MaxImages = 4;
 	private const string Instructions = "Infer the repository's branch-naming convention from the supplied branch "
-		+ "names and propose one complete branch name for the task described by the text and attached images. Do not "
-		+ "invent a ticket, username, team, or prefix unsupported by the examples. When the input names no specific "
-		+ "task — too short, too vague, or an unfinished thought — set needsMoreDetail and leave branch empty rather "
-		+ "than guessing.";
+		+ "names and propose one complete branch name for the task described by the text and attached images. "
+		+ "myRecentBranches are the requesting user's own branches; otherRecentBranches is populated only when the "
+		+ "user has none. Where the examples put an author segment in the name, that segment is the requesting "
+		+ "user's own: write the local part of authorEmail — minus a forge no-reply address's leading numeric id and "
+		+ "'+' — rather than copying another author's. Do not invent a "
+		+ "ticket, team, or prefix the examples don't show. When the input names no specific task — too short, too "
+		+ "vague, or an unfinished thought — set needsMoreDetail and leave branch empty rather than guessing.";
 
 	/// <summary>The resource policy for an automatic branch-name query.</summary>
 	public static InferenceQueryOptions QueryOptions { get; } = new() {
@@ -41,7 +50,7 @@ public static class BranchNameInference {
 		MaxImageCount = MaxImages,
 		MaxImageBytes = MaxImages * PastedImageMedia.MaxBytes,
 		MaxOutputBytes = 4 * 1024,
-		TimeBudget = TimeSpan.FromSeconds(8),
+		TimeBudget = TimeSpan.FromSeconds(24),
 	};
 
 	/// <summary>The strict branch-name response shape.</summary>

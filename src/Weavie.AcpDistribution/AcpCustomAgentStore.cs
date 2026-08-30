@@ -29,6 +29,33 @@ internal sealed class AcpCustomAgentStore {
 			entry ?? throw new JsonException("Custom ACP agents cannot contain null entries."), ids))];
 	}
 
+	public void Save(IReadOnlyList<AcpLaunchSpec> agents) {
+		ArgumentNullException.ThrowIfNull(agents);
+		var profiles = agents.Select(agent => {
+			if (agent.Distribution != "custom" || agent.Version is not null) {
+				throw new JsonException($"ACP agent '{agent.Id}' is not a custom launch profile.");
+			}
+			return new Profile {
+				Id = agent.Id,
+				Name = agent.Name,
+				Command = agent.Command,
+				Arguments = [.. agent.Arguments],
+				Environment = agent.Environment.ToDictionary(
+					entry => entry.Key,
+					entry => (string?)entry.Value,
+					StringComparer.Ordinal),
+			};
+		}).ToArray();
+		var ids = new HashSet<string>(StringComparer.Ordinal);
+		foreach (var profile in profiles) {
+			_ = Build(profile, ids);
+		}
+		_fileSystem.WriteAllTextAtomic(_path, JsonSerializer.Serialize(new Document {
+			Version = 1,
+			Agents = profiles,
+		}, JsonOptions));
+	}
+
 	private static AcpLaunchSpec Build(Profile profile, HashSet<string> ids) {
 		string id = Require(profile.Id, "id");
 		if (!ids.Add(id)) throw new JsonException($"Custom ACP agent '{id}' is repeated.");

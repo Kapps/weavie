@@ -1,10 +1,11 @@
-import { For, type JSX, Match, Show, Switch } from "solid-js";
+import { type JSX, Match, Show, Switch } from "solid-js";
 import type { ClientSession } from "../bridge";
+import { ActivityDetails, AgentRichContent } from "./AgentActivityDetails";
 import { AgentMarkdown } from "./AgentMarkdown";
 import { ApprovalActions, AuthenticationActions, InputRequestActions } from "./AgentPaneActions";
 import { EditLocationActions, PlanActions } from "./AgentPaneEditActions";
 import { AgentLinkedText } from "./AgentPaneLinks";
-import type { AgentActivityStep, AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
+import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 import type { AgentSectionLabel } from "./pane-store";
 
 export function TranscriptEntry(props: {
@@ -135,116 +136,6 @@ function EntryActions(props: {
   );
 }
 
-function ActivityDetails(props: {
-  entry: AgentTranscriptEntry;
-  expanded: boolean;
-  onToggle: (open: boolean) => void;
-  session: ClientSession;
-  steps: AgentActivityStep[];
-}): JSX.Element {
-  return (
-    <details class="agent-activity-details" open={props.expanded}>
-      {/* biome-ignore lint/a11y/noStaticElementInteractions: summary is the native details control. */}
-      <summary
-        onClick={(event) => {
-          event.preventDefault();
-          props.onToggle(!props.expanded);
-        }}
-      >
-        {activityDetailsSummary(props.entry, props.entry.detailCount)}
-      </summary>
-      <Show when={props.expanded}>
-        <div class="agent-activity-list">
-          <For each={props.steps}>
-            {(step) => (
-              <div class={`agent-activity-step agent-step-${step.tone}`}>
-                <span class="agent-step-status">{step.status ?? "done"}</span>
-                <span class="agent-step-label">{step.label}</span>
-                <Show
-                  when={
-                    step.actionMessage?.type === "edit-location" ||
-                    (step.actionMessage?.locations?.length ?? 0) > 0 ||
-                    (step.actionMessage?.diffs?.length ?? 0) > 0
-                  }
-                >
-                  <span class="agent-step-actions">
-                    <Show when={step.actionMessage}>
-                      {(message) => (
-                        <EditLocationActions session={props.session} message={message()} />
-                      )}
-                    </Show>
-                  </span>
-                </Show>
-                <Show when={step.detailText !== null}>
-                  <pre>
-                    <AgentLinkedText session={props.session} text={step.detailText ?? ""} />
-                  </pre>
-                </Show>
-                <AgentRichContent message={step.actionMessage ?? null} session={props.session} />
-              </div>
-            )}
-          </For>
-        </div>
-      </Show>
-    </details>
-  );
-}
-
-function AgentRichContent(props: {
-  message: import("../bridge").AgentPaneUpdate | null;
-  session: ClientSession;
-}): JSX.Element {
-  return (
-    <For each={props.message?.content ?? []}>
-      {(content) => {
-        const source =
-          content.mediaData !== null && content.mediaData !== undefined
-            ? `data:${content.mediaType ?? "application/octet-stream"};base64,${content.mediaData}`
-            : null;
-        return (
-          <div class="agent-entry-rich-content">
-            <Show when={content.text !== null && content.text !== undefined}>
-              <pre class="agent-entry-text">
-                <AgentLinkedText session={props.session} text={content.text ?? ""} />
-              </pre>
-            </Show>
-            <Show when={source !== null && content.mediaType?.startsWith("image/")}>
-              <img
-                class="agent-entry-media"
-                src={source ?? ""}
-                alt={content.name ?? "Agent tool output"}
-              />
-            </Show>
-            <Show when={source !== null && !content.mediaType?.startsWith("image/")}>
-              <a
-                class="agent-entry-media"
-                href={source ?? ""}
-                download={content.name ?? "agent-tool-output"}
-              >
-                Download {content.name ?? "agent tool output"}
-              </a>
-            </Show>
-            <Show when={content.resourceUri}>
-              {(uri) => (
-                <pre class="agent-entry-resource">
-                  <AgentLinkedText
-                    session={props.session}
-                    text={
-                      content.name === undefined || content.name === null
-                        ? uri()
-                        : `${content.name} (${uri()})`
-                    }
-                  />
-                </pre>
-              )}
-            </Show>
-          </div>
-        );
-      }}
-    </For>
-  );
-}
-
 function AgentMedia(props: {
   message: import("../bridge").AgentPaneUpdate | null;
   session: ClientSession;
@@ -278,13 +169,6 @@ function AgentMedia(props: {
       </Show>
     </>
   );
-}
-
-function activityDetailsSummary(entry: AgentTranscriptEntry, count: number): string {
-  if (entry.label === "Edits") {
-    return `show ${count} edit${count === 1 ? "" : "s"}`;
-  }
-  return count === 1 ? "history" : `history ${count}`;
 }
 
 function entryLabel(entry: AgentTranscriptEntry): string {

@@ -182,11 +182,14 @@ export function createCommentProse(
   const isFileModel = (model: monaco.editor.ITextModel | null): model is monaco.editor.ITextModel =>
     model !== null && model.uri.scheme === SESSION_FILE_SCHEME;
 
-  const render = (): void => {
+  const render = (restoreMouseFocus: boolean): void => {
     // Pin the scroll across the rebuild: clearRender drops every zone to zero height first, so Monaco
     // re-anchors the viewport mid-teardown. The rebuilt content is the same height, so restoring scrollTop
     // undoes the transient.
     const scrollTop = editor.getScrollTop();
+    // A mouse selection is an editor-focus gesture even during the brief window before Monaco reports text
+    // focus. Preserve that intent across the DOM rebuild without stealing focus for programmatic selections.
+    const shouldRestoreFocus = restoreMouseFocus || editor.hasTextFocus();
     clearRender();
     const model = editor.getModel();
     if (mode === "none" || !isFileModel(model) || deps.isBlocked(model.uri.toString())) {
@@ -195,6 +198,9 @@ export function createCommentProse(
       lastRawKey = "";
       hiddenEditor.setHiddenAreas([], HIDDEN_AREAS_SOURCE);
       editor.setScrollTop(scrollTop);
+      if (shouldRestoreFocus) {
+        editor.focus();
+      }
       return;
     }
 
@@ -248,6 +254,9 @@ export function createCommentProse(
 
     // Undo any scroll Monaco shifted while zones were torn down and rebuilt above (see the pin at the top).
     editor.setScrollTop(scrollTop);
+    if (shouldRestoreFocus) {
+      editor.focus();
+    }
     lastRawKey = raw.join(",");
   };
 
@@ -258,14 +267,14 @@ export function createCommentProse(
     const scrollTop = editor.getScrollTop();
     adjusting = true;
     pendingExpand = startLine;
-    render();
+    render(false);
     const model = editor.getModel();
     const column = (model?.getLineFirstNonWhitespaceColumn(caretLine) ?? 1) || 1;
     editor.setPosition({ lineNumber: caretLine, column });
     // Re-render with the caret inside: the block now holds itself raw, and blocks the previous selection was
     // holding open re-collapse. render() stays the only writer of lastRawKey, so it always describes the screen.
     pendingExpand = undefined;
-    render();
+    render(false);
     editor.setScrollTop(scrollTop);
     editor.focus();
     adjusting = false;
@@ -286,7 +295,7 @@ export function createCommentProse(
     }
     rescanTimer = setTimeout(() => {
       rescanTimer = undefined;
-      render();
+      render(false);
     }, RESCAN_DEBOUNCE_MS);
   };
 
@@ -308,7 +317,7 @@ export function createCommentProse(
   // its near edge so editing costs one keypress; (2) the set of blocks the selection touches changed —
   // re-render so the ones left re-collapse and the ones reached stay raw. Reuses the last render's blocks
   // rather than re-scanning.
-  const onSelection = (): void => {
+  const onSelection = (event: monaco.editor.ICursorSelectionChangedEvent): void => {
     if (adjusting) {
       return;
     }
@@ -324,7 +333,7 @@ export function createCommentProse(
       }
     }
     if (selectedBlockStarts(cachedBlocks).join(",") !== lastRawKey) {
-      render();
+      render(event.source === "mouse");
     }
   };
 
@@ -333,25 +342,25 @@ export function createCommentProse(
     // an arrow step across a block in the new one.
     editor.onDidChangeModel(() => {
       lastCursorLine = undefined;
-      render();
+      render(false);
     }),
     editor.onDidChangeModelContent(scheduleRescan),
     // Selection rather than position: selecting to the caret's own side (e.g. select-all from the file's end)
     // moves no caret but still reaches into blocks.
     editor.onDidChangeCursorSelection(onSelection),
   ];
-  const offFonts = onFontsChanged(render);
+  const offFonts = onFontsChanged(() => render(false));
   const offOptions = onEditorOptionsChanged((options) => {
     if (options.commentProse !== mode) {
       mode = options.commentProse;
-      render();
+      render(false);
     }
   });
 
-  render();
+  render(false);
 
   return {
-    refresh: render,
+    refresh: () => render(false),
     dispose: () => {
       if (rescanTimer !== undefined) {
         clearTimeout(rescanTimer);

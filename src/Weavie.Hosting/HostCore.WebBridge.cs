@@ -201,8 +201,7 @@ public sealed partial class HostCore {
 	/// that path against whichever session is selected, so recency follows a file across worktrees.
 	/// </summary>
 	private void RecordRecentFile(HostSession session, ActiveEditor editor) {
-		// Recency is stored checkout-relative so it follows a file across worktrees; a file outside the
-		// checkout has no such path, so it stays out of the store rather than being recorded as "../..".
+		// A file outside the checkout has no checkout-relative path, so it stays out rather than becoming "../..".
 		if (!PathBoundary.Contains(session.WorkspaceRoot, editor.FilePath)) {
 			return;
 		}
@@ -728,8 +727,7 @@ public sealed partial class HostCore {
 
 	/// <summary>
 	/// Saves a scratch (untitled) buffer under a real name via the native Save-As dialog, deletes the temp, and
-	/// replies <c>scratch-saved</c>. <c>reopen</c> is true only for an in-workspace target (the editor can't edit
-	/// out-of-workspace files); replies cancelled when the host has no native dialog.
+	/// replies <c>scratch-saved</c>. Replies cancelled when the host has no native dialog.
 	/// </summary>
 	private async Task<ScratchSaveResult> SaveScratchAsAsync(
 		HostSession session,

@@ -2,7 +2,6 @@ using System.Collections.Concurrent;
 using System.Text;
 using System.Text.Json;
 using Weavie.Core.Agents;
-using Weavie.Core.Editor;
 using Weavie.Core.Sessions;
 
 namespace Weavie.AgentClientProtocol;

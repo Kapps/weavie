@@ -75,7 +75,7 @@ public sealed class FileOpener : IAsyncDisposable {
 
 		// A refusal toasts — the user clicked something (an omnibar row, a terminal link) and a silent drop
 		// reads as the app ignoring them.
-		Console.Error.WriteLine($"[weavie] reveal-file: refused or not found: {resolved}");
+		Console.Error.WriteLine($"[weavie] reveal-file: not found: {resolved}");
 		_notifications.Publish("show", new {
 			level = "warn",
 			message = $"Couldn't open {Path.GetFileName(resolved)} — it's missing or unreadable.",

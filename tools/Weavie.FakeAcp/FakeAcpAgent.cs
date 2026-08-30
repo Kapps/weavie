@@ -867,7 +867,9 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 	}
 
 	private void ExternalFilePlanDocument() {
-		string path = Path.GetFullPath(Path.Combine(Environment.CurrentDirectory, "..", "outside-plan.md"));
+		string directory = Directory.CreateDirectory(
+			Path.Combine(Environment.CurrentDirectory, "..", $"{Path.GetFileName(Environment.CurrentDirectory)}-external")).FullName;
+		string path = Path.Combine(directory, "outside-plan.md");
 		File.WriteAllText(path, "# Outside plan");
 		Update(new JsonObject {
 			["sessionUpdate"] = "plan_update",

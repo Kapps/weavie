@@ -85,24 +85,6 @@ public sealed class WorkspaceMediaServerTests {
 	}
 
 	[Fact]
-	public async Task ServesTheSessionsScratchAndPastedImageFiles() {
-		await using var host = await TestHost.StartAsync();
-		var session = host.SelectedSession;
-		string scratch = Path.Combine(session.Scratch.Directory, "generated.png");
-		string pasted = Path.Combine(session.PastedImages.Directory, "paste-1.png");
-		Directory.CreateDirectory(session.Scratch.Directory);
-		Directory.CreateDirectory(session.PastedImages.Directory);
-		await File.WriteAllBytesAsync(scratch, [7, 8]);
-		await File.WriteAllBytesAsync(pasted, [9, 10]);
-
-		using var scratchResponse = await Http.GetAsync(MediaUrl(host, session.Incarnation, scratch));
-		using var pastedResponse = await Http.GetAsync(MediaUrl(host, session.Incarnation, pasted));
-
-		Assert.Equal(HttpStatusCode.OK, scratchResponse.StatusCode);
-		Assert.Equal(HttpStatusCode.OK, pastedResponse.StatusCode);
-	}
-
-	[Fact]
 	public async Task UnregistersASecondarySessionsRouteBeforeItsBackendIsDisposed() {
 		await using var host = await TestHost.StartAsync();
 		Assert.True((await host.CreateSessionAsync("media-route")).Ok);

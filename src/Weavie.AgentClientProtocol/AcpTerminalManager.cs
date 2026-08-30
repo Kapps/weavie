@@ -2,7 +2,6 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
-using Weavie.Core.Editor;
 using Weavie.Core.Processes;
 
 namespace Weavie.AgentClientProtocol;
@@ -30,7 +29,7 @@ internal sealed class AcpTerminalManager : IAsyncDisposable {
 				? requestedCwd
 				: throw new AcpProtocolException("ACP terminal cwd must be a string.")
 			: _workspace;
-		cwd = Path.GetFullPath(cwd);
+		cwd = Path.GetFullPath(cwd, _workspace);
 		if (!Directory.Exists(cwd)) throw new DirectoryNotFoundException($"ACP terminal cwd does not exist: {cwd}");
 		string[] arguments = parameters.TryGetProperty("args", out var args)
 			? args.ValueKind == JsonValueKind.Array

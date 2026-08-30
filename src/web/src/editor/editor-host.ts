@@ -12,6 +12,7 @@ import {
   ITextModelService,
 } from "@codingame/monaco-vscode-api/services";
 import { type ClientSession, log, selectedSession } from "../bridge";
+import { noteSelectionChange, registerSelectionSource } from "../commands/selection";
 import { startLanguageServices } from "../lsp/lsp-client";
 import { installReferenceCommands } from "../lsp/reference-commands";
 import { installTestLenses } from "../tests/test-lens";
@@ -232,6 +233,16 @@ export async function createEditorHost(
     }
   };
 
+  // The editor's selected text as a search-seed source — Monaco keeps its selection out of the DOM, so the
+  // document tracker never sees it.
+  const readSelection = (): string => {
+    const model = editor.getModel();
+    const selection = editor.getSelection();
+    return model === null || selection === null || selection.isEmpty()
+      ? ""
+      : model.getValueInRange(selection);
+  };
+
   // Every subscription is collected so dispose() tears them all down — including listeners on models that
   // outlive the widget, so a rebuilt host never stacks a second handler set on a surviving model.
   const disposables: monaco.IDisposable[] = [
@@ -241,6 +252,8 @@ export async function createEditorHost(
     editor.onDidChangeCursorSelection(updateStatus),
     editor.onDidChangeModel(updateStatus),
     editor.onDidChangeModel(reflectActiveFile),
+    { dispose: registerSelectionSource("editor", readSelection) },
+    editor.onDidChangeCursorSelection(() => noteSelectionChange("editor")),
     installAltClickPeek(editor),
   ];
 

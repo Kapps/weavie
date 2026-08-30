@@ -5,6 +5,7 @@ import "@xterm/xterm/css/xterm.css";
 import { createEffect, type JSX, onCleanup, onMount } from "solid-js";
 import { type ClientSession, isBrowserHostedShell, log, type TermSession } from "../bridge";
 import { IS_MAC } from "../commands/keybindings";
+import { noteSelectionChange, registerSelectionSource } from "../commands/selection";
 import { currentEditorOptions, onEditorOptionsChanged } from "../editor-options";
 import { currentFonts, onFontsChanged } from "../fonts";
 import { currentXtermTheme, onXtermThemeChanged } from "../theme";
@@ -222,6 +223,10 @@ export function TerminalView(props: {
     // and note focus so the commands act on the terminal the user is in.
     const offRegister = registerTerminal(termKey, term, session, props.pane);
     const offClipboard = attachOsc52(term);
+    // This pane's selection as a search-seed source, read from xterm itself — the copy it mirrors into its
+    // hidden helper textarea is an implementation detail, not something to search from.
+    const offSelectionSource = registerSelectionSource(termKey, () => term.getSelection());
+    const selectionSub = term.onSelectionChange(() => noteSelectionChange(termKey));
     // Image paste (claude pane only): capture an image from the browser paste event → host scratch file → path
     // injected into claude. The shell has no use for it; a pasted path there would just try to run.
     const offImagePaste =
@@ -406,6 +411,8 @@ export function TerminalView(props: {
       offEditorOptions();
       offTheme();
       offRegister();
+      offSelectionSource();
+      selectionSub.dispose();
       offClipboard.dispose();
       offImagePaste();
       offCwd.dispose();

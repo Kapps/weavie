@@ -35,7 +35,7 @@ public static class CoreCommands {
 	/// <summary>Focuses the omnibar in workspace-symbol ("Go to Symbol in Workspace", #) mode.</summary>
 	public const string GoToWorkspaceSymbol = "weavie.omnibar.goToWorkspaceSymbol";
 
-	/// <summary>Opens the project-wide content-search ("find in files") panel, seeded from the editor selection.</summary>
+	/// <summary>Opens the project-wide content-search ("find in files") panel, seeded from the highlighted text.</summary>
 	public const string FindInFiles = "weavie.search.findInFiles";
 
 	/// <summary>Toggles the search panel's Match Case option; bound to <c>alt+c</c> while the panel is focused.</summary>
@@ -465,8 +465,9 @@ public static class CoreCommands {
 			Title = "Find in Files",
 			RunsIn = CommandLocation.Web,
 			Category = "Search",
-			Description = "Search the active session's workspace for text in file contents, seeded from the "
-				+ "editor selection. Supports match case / whole word / regex and include/exclude file globs; "
+			Description = "Search the active session's workspace for text in file contents, seeded from the text "
+				+ "highlighted anywhere (editor, agent transcript, or terminal). Supports match case / whole "
+				+ "word / regex and include/exclude file globs; "
 				+ "arrows preview each result, Enter jumps to it.",
 			Aliases = ["find in files", "search files", "search in files", "grep", "search project", "find text"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+f" }],

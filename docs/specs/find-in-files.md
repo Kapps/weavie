@@ -1,14 +1,18 @@
 # Find in Files
 
 Project-wide content search: a left-docked panel (`Ctrl/⌘+Shift+F`) over `git grep` on the active
-session's worktree. Seeded from the editor selection, steered entirely from the keyboard, filterable by
+session's worktree. Seeded from the highlighted text, steered entirely from the keyboard, filterable by
 include/exclude globs, with match case / whole word / regex options.
 
 ## Interaction model
 
-- **Seed**: invoking Find in Files captures the editor's single-line selection (if any) as the query and
-  searches immediately; the input is focused with its text selected, so typing replaces it. Re-invoking
-  while open re-seeds/refocuses. No selection → the previous query is kept (module store, below).
+- **Seed**: invoking Find in Files captures the single-line text the user has highlighted (if any) as the
+  query and searches immediately; the input is focused with its text selected, so typing replaces it.
+  Re-invoking while open re-seeds/refocuses. No selection → the previous query is kept (module store, below).
+  The highlight is read through `commands/selection.ts`: Monaco and each xterm register a live reader (their
+  selections never reach the document) alongside the document tracker for plain content like the agent
+  transcript, and the most recently changed source wins — so a highlight left in another pane never outranks
+  a fresh one.
 - **Preview vs commit**: `↑/↓` move the selection and *live-preview* the match — the editor reveals
   line:column in the reusable preview tab **without taking focus** (debounced ~120 ms so holding the key
   doesn't open every file it passes). `Enter` (or click) commits: same open, but focus moves to the editor.

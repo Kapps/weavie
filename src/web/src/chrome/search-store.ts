@@ -274,7 +274,7 @@ export function cycleHistory(dir: number): boolean {
 }
 
 /**
- * Seeds the panel from the editor selection (single-line text replaces the query and searches immediately;
+ * Seeds the panel from the highlighted text (single-line text replaces the query and searches immediately;
  * null keeps the prior query) and bumps the seed nonce so the panel focuses + selects its input.
  */
 export function seedSearch(text: string | null): void {

@@ -1,5 +1,5 @@
 import { writeFile } from "node:fs/promises";
-import { test as base, expect } from "@playwright/test";
+import { test as base, expect, type Page } from "@playwright/test";
 import { type FakeInference, fakeClaudeBuilt } from "./fake-claude";
 import { fakeAcpProgram, programExists } from "./test-programs";
 import { headlessBuilt, launchHeadless, type WeavieHost } from "./weavie-host";
@@ -40,6 +40,22 @@ type WeavieFixtures = {
 // docs/specs/integration-testing-strategy.md.
 // `weavie` is an auto fixture: every functional test boots a host and navigates the page, whether or not it
 // destructures the handle. Tests that need the host (workspace path, log) just add `weavie` to their args.
+// Chromium scopes touch emulation to the DevTools session that set it, and the context-level `hasTouch`
+// send at page init can land without taking effect — a macOS CI run emulated the viewport but left the
+// pointer fine, silently disabling every touch path the mobile project exercises. Owning it here, on a
+// session held open for the test, makes the capability a precondition instead of an assumption.
+async function establishTouchEmulation(page: Page): Promise<void> {
+  if (test.info().project.use.hasTouch !== true) {
+    return;
+  }
+  // Never detached: the emulation lasts only as long as the session that set it.
+  const session = await page.context().newCDPSession(page);
+  await session.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 1 });
+  if (!(await page.evaluate(() => matchMedia("(pointer: coarse)").matches))) {
+    throw new Error("touch emulation did not take: the page reports a fine pointer");
+  }
+}
+
 export const test = base.extend<WeavieOptions & WeavieFixtures>({
   fakeScript: [null, { option: true }],
   inference: ["disabled", { option: true }],
@@ -241,6 +257,7 @@ export const test = base.extend<WeavieOptions & WeavieFixtures>({
         // The app removes the splash element once it has booted (layout + first session). Its
         // disappearance is the "app is interactive" signal — not a fixed sleep.
         await expect(page.locator("#splash")).toHaveCount(0, { timeout: 40_000 });
+        await establishTouchEmulation(page);
         if (blockedLoads.length > 0) {
           throw new Error(`the page booted without ${blockedLoads.join("; ")}`);
         }

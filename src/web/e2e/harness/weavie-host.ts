@@ -3,12 +3,13 @@ import { existsSync, readFileSync } from "node:fs";
 import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { Agent, get as httpGet, type OutgoingHttpHeaders } from "node:http";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import {
   type FakeInference,
   type FakeStep,
   writeFakeClaudeWrapper,
   writeFakeScript,
+  writeTestProgramWrapper,
 } from "./fake-claude";
 import { createGitWorkspace, createPrWorkspace, removeWorkspace } from "./git-workspace";
 import { fakeAcpProgram, headlessProgram, programExists } from "./test-programs";
@@ -214,6 +215,16 @@ export async function prepareFake(options: LaunchOptions): Promise<FakeScaffold>
   const pr = options.pr ? await createPrWorkspace() : null;
   const workspace = pr?.dir ?? (await createGitWorkspace());
   const wrapper = await writeFakeClaudeWrapper(home);
+  const fakeBin = join(home, "bin");
+  await mkdir(fakeBin);
+  const fakeLspName = process.platform === "win32" ? "csharp-ls.cmd" : "csharp-ls";
+  await writeTestProgramWrapper(fakeBin, fakeLspName, fakeAcpProgram, ["lsp"]);
+  if (process.platform !== "win32") {
+    const profile = `export PATH=${JSON.stringify(fakeBin)}:$PATH\n`;
+    await Promise.all(
+      [".bash_profile", ".zprofile", ".zshrc"].map((name) => writeFile(join(home, name), profile)),
+    );
+  }
   const fakeLogPath = join(home, "fake-claude.log");
   const weavieRoot = join(home, ".weavie");
   await mkdir(join(weavieRoot, "acp"), { recursive: true });
@@ -234,6 +245,7 @@ export async function prepareFake(options: LaunchOptions): Promise<FakeScaffold>
   );
   const env: NodeJS.ProcessEnv = {
     HOME: home,
+    PATH: `${fakeBin}${delimiter}${process.env.PATH ?? ""}`,
     // Isolate Weavie's and Claude's on-disk config away from the developer's real home. $HOME alone doesn't do
     // this on Windows (the user-profile known folder ignores it), so pin the two roots explicitly: WEAVIE_ROOT
     // for ~/.weavie (settings, worktrees) and CLAUDE_CONFIG_DIR for ~/.claude (the IDE lock). Without it a run

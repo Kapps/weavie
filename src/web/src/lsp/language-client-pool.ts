@@ -6,13 +6,7 @@ import * as monaco from "monaco-editor";
 import type { MonacoLanguageClient } from "monaco-languageclient";
 import { CloseAction, ErrorAction, State } from "vscode-languageclient";
 import { type ClientSession, log } from "../bridge";
-import { worktreeMatchBase } from "../editor/fs-path";
-import {
-  hostUriString,
-  protocolUri,
-  SESSION_FILE_SCHEME,
-  sessionFileUri,
-} from "../editor/session-uri";
+import { hostUriString, protocolUri, sessionFileUri } from "../editor/session-uri";
 import { PAGE_EPOCH } from "../messaging/page-epoch";
 import { notify } from "../notify/notify";
 import { LspStartError, openLspChannel } from "./lsp-bridge-transport";
@@ -71,12 +65,6 @@ export function pruneSession(owner: ClientSession): void {
       pool.delete(key);
     }
   }
-}
-
-// A glob that scopes a client's providers to its own worktree. Uses the SAME base normalization as the
-// model→worktree mapping (worktreeMatchBase), so a file this client owns always matches its glob.
-function worktreePattern(owner: ClientSession, workspace: string): string {
-  return `${worktreeMatchBase(sessionFileUri(owner, workspace).fsPath)}/**`;
 }
 
 function connect(key: string, params: EnsureClientParams, attempt: number): void {
@@ -232,18 +220,20 @@ function connect(key: string, params: EnsureClientParams, attempt: number): void
 
   const startClient = (): void => {
     const settings = server.settings ?? {};
+    const modelWorkspaceUri = sessionFileUri(owner, config.workspace);
     const options: Parameters<typeof createWeavieLanguageClient>[0] = {
       name: `Weavie ${server.id} language client`,
       clientOptions: {
-        // Scope providers to this worktree so a warm client from another session never answers for this one's
-        // files (and vice-versa) — the structural guard against duplicate code actions across worktrees.
+        // Selectors are expressed in the server's URI space. createWeavieLanguageClient translates every
+        // static or dynamically registered selector onto this session's model namespace and worktree.
         documentSelector: server.languageIds.map((language) => ({
           language,
-          scheme: SESSION_FILE_SCHEME,
-          pattern: worktreePattern(owner, config.workspace),
+          scheme: "file",
         })),
         workspaceFolder: {
-          uri: sessionFileUri(owner, config.workspace),
+          // vscode-languageclient derives rootPath/rootUri directly from this URI without consulting its URI
+          // converter, so keep the workspace folder in the host/server URI space.
+          uri: monaco.Uri.file(config.workspace),
           name: "weavie",
           index: 0,
         },
@@ -284,7 +274,7 @@ function connect(key: string, params: EnsureClientParams, attempt: number): void
       },
       messageTransports: { reader: channel.reader, writer: channel.writer },
     };
-    client = createWeavieLanguageClient(options, channelId);
+    client = createWeavieLanguageClient(options, channelId, modelWorkspaceUri);
 
     // start() rejects when the server faults on initialize (e.g. csharp-ls with no resolvable SDK). Route that
     // through the same reconnect/give-up path as a server exit instead of leaking an unhandled rejection.

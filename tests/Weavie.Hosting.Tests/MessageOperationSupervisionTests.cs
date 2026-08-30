@@ -204,7 +204,16 @@ public sealed class MessageOperationSupervisionTests {
 	[Fact]
 	public async Task AfterResponseWorkRemainsUnderTheOriginalDeadline() {
 		var transport = new RecordingTransport();
-		var policy = new MessageExecutionPolicy(TimeSpan.FromMilliseconds(40), TimeSpan.FromMilliseconds(150));
+		// Flaked on main CI 2026-08-30 18:57 UTC (.NET tests, linux):
+		// https://github.com/Kapps/weavie/actions/runs/33329458838/job/99305301184 — LastFailure.Stage
+		// was "feature-queue" instead of "after-response". Root cause: the operation's watchdog starts
+		// in MessageOperationRegistry.Start before the request's `admitted` TaskCompletionSource is
+		// signaled; since that TCS uses RunContinuationsAsynchronously, resuming past `await admitted`
+		// (and thus reaching MarkStage("handler-dispatch")) is a genuine thread-pool-scheduled
+		// continuation, not inline execution. Under heavy parallel test-run contention that scheduling
+		// gap can exceed a 150 ms deadline before dispatch even begins. Not a regression in the
+		// watchdog itself. Widened to give real headroom over that scheduling gap.
+		var policy = new MessageExecutionPolicy(TimeSpan.FromMilliseconds(200), TimeSpan.FromMilliseconds(1500));
 		await using var router = new HostMessageRouter(
 			transport,
 			new InlineUiDispatcher(),

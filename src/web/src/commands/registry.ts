@@ -63,6 +63,7 @@ const handlers = new Map<string, CommandHandler>();
 const executionLanes = new Map<string, Promise<void>>();
 const changeSubscribers = new Set<() => void>();
 const sessionActivationSubscribers = new Set<(activation: SessionActivation) => void>();
+const terminalActivationSubscribers = new Set<(activation: TerminalActivation) => void>();
 
 registerHostFeature((connection) =>
   connection.isLocal
@@ -77,6 +78,11 @@ registerHostFeature((connection) =>
 export interface SessionActivation {
   session: ClientSession;
   created: boolean;
+}
+
+export interface TerminalActivation {
+  session: ClientSession;
+  terminalId: string;
 }
 
 function currentCatalog(): CommandCatalog {
@@ -269,6 +275,46 @@ export async function applySessionActivation(
   return session;
 }
 
+export async function applyTerminalActivation(
+  backendId: string,
+  result: CommandResult,
+): Promise<ClientSession | null> {
+  const data = result.data as
+    | {
+        activateTerminal?: unknown;
+        terminalId?: unknown;
+        address?: { slot?: unknown; incarnation?: unknown };
+      }
+    | undefined;
+  if (data?.activateTerminal !== true) {
+    return null;
+  }
+  if (typeof data.terminalId !== "string" || data.terminalId.length === 0) {
+    throw new Error("The command requested terminal activation without an exact terminal id.");
+  }
+  const address = data.address;
+  if (
+    address === undefined ||
+    typeof address.slot !== "string" ||
+    address.slot.length === 0 ||
+    typeof address.incarnation !== "string" ||
+    address.incarnation.length === 0
+  ) {
+    throw new Error(
+      "The command requested terminal activation without an exact live session address.",
+    );
+  }
+  const session = await waitForClientSession(backendId, {
+    slot: address.slot,
+    incarnation: address.incarnation,
+  });
+  const activation = { session, terminalId: data.terminalId };
+  for (const handler of terminalActivationSubscribers) {
+    handler(activation);
+  }
+  return session;
+}
+
 async function routeCoreCommand(
   command: CommandInfo,
   args: unknown,
@@ -300,6 +346,7 @@ async function routeCoreCommand(
         : invokeCommandOnBackend(target, command.id, routedArgs));
     if (result.ok) {
       await applySessionActivation(target, result, commit);
+      await applyTerminalActivation(target, result);
     }
     return result;
   };
@@ -320,6 +367,12 @@ export function onCommandsChanged(handler: () => void): () => void {
 export function onSessionActivated(handler: (activation: SessionActivation) => void): () => void {
   sessionActivationSubscribers.add(handler);
   return () => sessionActivationSubscribers.delete(handler);
+}
+
+/** Runs when a Core command asks the page to activate an exact terminal tab. */
+export function onTerminalActivated(handler: (activation: TerminalActivation) => void): () => void {
+  terminalActivationSubscribers.add(handler);
+  return () => terminalActivationSubscribers.delete(handler);
 }
 
 /**

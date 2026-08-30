@@ -13,6 +13,7 @@ namespace Weavie.Core.Tests;
 /// </summary>
 public sealed class SessionStoreTests {
 	private const string StorePath = "/weavie-session-tests/sessions.json";
+	private const string TerminalA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
 	private static SessionDescriptor Descriptor(string id, string label, bool loaded) => new() {
 		Id = new SessionId(id),
@@ -21,6 +22,7 @@ public sealed class SessionStoreTests {
 		Loaded = loaded,
 		AgentProviderId = "claude",
 		EditorSession = EditorSession.Empty,
+		ShellTerminals = [new ShellTerminalDescriptor { Id = new string(id[0], 32) }],
 	};
 
 	[Fact]
@@ -38,6 +40,7 @@ public sealed class SessionStoreTests {
 		Assert.True(reloaded.Items.Single(i => i.Id.Value == "aaaa").Loaded);
 		Assert.False(reloaded.Items.Single(i => i.Id.Value == "bbbb").Loaded);
 		Assert.Equal("acp", reloaded.Items.Single(i => i.Id.Value == "bbbb").AgentProviderId);
+		Assert.Equal(TerminalA, Assert.Single(reloaded.Items.Single(i => i.Id.Value == "aaaa").ShellTerminals).Id);
 		Assert.DoesNotContain("activeId", fs.ReadAllText(StorePath));
 	}
 
@@ -156,7 +159,7 @@ public sealed class SessionStoreTests {
 		var fs = new InMemoryFileSystem();
 		fs.WriteAllText(
 			StorePath,
-			"""{"version":3,"sessions":[{"id":"a","label":"a","worktreePath":"/wt/a","managedCheckout":true,"loaded":true,"agentProviderId":"claude","editorSession":{"open":[]}}]}""");
+			$$"""{"version":4,"sessions":[{"id":"a","label":"a","worktreePath":"/wt/a","managedCheckout":true,"loaded":true,"agentProviderId":"claude","editorSession":{"open":[]},"shellTerminals":["{{TerminalA}}"],"unread":true}]}""");
 
 		var store = new SessionStore(fs, StorePath);
 
@@ -166,12 +169,15 @@ public sealed class SessionStoreTests {
 	}
 
 	[Theory]
-	[InlineData("{\"version\":3,\"sessions\":[{\"id\":\"a\",\"label\":\"a\",\"worktreePath\":\"/wt/a\",\"managedCheckout\":true,\"loaded\":false,\"editorSession\":{\"open\":[]}}]}")]
-	[InlineData("{\"version\":3,\"sessions\":[{\"id\":\"a\",\"label\":\"a\",\"worktreePath\":\"/wt/a\",\"managedCheckout\":true,\"loaded\":false,\"agentProviderId\":\"claude\"}]}")]
-	[InlineData("{\"version\":3,\"shellCols\":200,\"shellRows\":50,\"sessions\":[null]}")]
-	[InlineData("{\"version\":3,\"sessions\":[{\"id\":\"a\",\"label\":\"a\",\"worktreePath\":\"/wt/a\",\"managedCheckout\":true,\"loaded\":false,\"agentProviderId\":\"claude\",\"editorSession\":{\"open\":null}}]}")]
-	[InlineData("{\"version\":3,\"sessions\":[{\"id\":\"a\",\"label\":\"a\",\"worktreePath\":\"/wt/a\",\"managedCheckout\":true,\"loaded\":false,\"agentProviderId\":\"claude\",\"editorSession\":{}}]}")]
-	public void IncompleteVersionThreeEntry_BacksUpAndResets(string json) {
+	[InlineData("{\"version\":4,\"sessions\":[{\"id\":\"a\",\"label\":\"a\",\"worktreePath\":\"/wt/a\",\"managedCheckout\":true,\"loaded\":false,\"editorSession\":{\"open\":[]},\"shellTerminals\":[\"one\"]}]}")]
+	[InlineData("{\"version\":4,\"sessions\":[{\"id\":\"a\",\"label\":\"a\",\"worktreePath\":\"/wt/a\",\"managedCheckout\":true,\"loaded\":false,\"agentProviderId\":\"claude\",\"shellTerminals\":[\"one\"]}]}")]
+	[InlineData("{\"version\":4,\"shellCols\":200,\"shellRows\":50,\"sessions\":[null]}")]
+	[InlineData("{\"version\":4,\"sessions\":[{\"id\":\"a\",\"label\":\"a\",\"worktreePath\":\"/wt/a\",\"managedCheckout\":true,\"loaded\":false,\"agentProviderId\":\"claude\",\"editorSession\":{\"open\":null},\"shellTerminals\":[\"one\"]}]}")]
+	[InlineData("{\"version\":4,\"sessions\":[{\"id\":\"a\",\"label\":\"a\",\"worktreePath\":\"/wt/a\",\"managedCheckout\":true,\"loaded\":false,\"agentProviderId\":\"claude\",\"editorSession\":{},\"shellTerminals\":[\"one\"]}]}")]
+	[InlineData("{\"version\":4,\"sessions\":[{\"id\":\"a\",\"label\":\"a\",\"worktreePath\":\"/wt/a\",\"managedCheckout\":true,\"loaded\":false,\"agentProviderId\":\"claude\",\"editorSession\":{\"open\":[]},\"shellTerminals\":[\"\"]}]}")]
+	[InlineData("{\"version\":4,\"sessions\":[{\"id\":\"a\",\"label\":\"a\",\"worktreePath\":\"/wt/a\",\"managedCheckout\":true,\"loaded\":false,\"agentProviderId\":\"claude\",\"editorSession\":{\"open\":[]},\"shellTerminals\":[\"../escape\"]}]}")]
+	[InlineData("{\"version\":4,\"sessions\":[{\"id\":\"a\",\"label\":\"a\",\"worktreePath\":\"/wt/a\",\"managedCheckout\":true,\"loaded\":false,\"agentProviderId\":\"claude\",\"editorSession\":{\"open\":[]},\"shellTerminals\":[\"one\",\"one\"]}]}")]
+	public void IncompleteVersionFourEntry_BacksUpAndResets(string json) {
 		var fs = new InMemoryFileSystem();
 		fs.WriteAllText(StorePath, json);
 

@@ -14,10 +14,9 @@ const focusedKind = (page: import("@playwright/test").Page): Promise<string | nu
     () => document.activeElement?.closest("[data-kind]")?.getAttribute("data-kind") ?? null,
   );
 
-// Regression: clicking a pane's chrome must move focus into that pane. The terminal head holds no focusable
-// element, so before the fix the click was a no-op — DOM focus stayed in the editor while the user believed
-// the terminal was selected, and their next keystroke went to Monaco. Pure frontend focus routing → headless.
-test("clicking the terminal head focuses the terminal, not the editor", async ({ page }) => {
+// Regression: clicking a pane's chrome must move focus into that pane. The shell tab activates its xterm;
+// otherwise DOM focus can stay in the editor and the next keystroke goes to Monaco.
+test("clicking the terminal tab focuses the terminal, not the editor", async ({ page }) => {
   const editor = page.locator('.editor-surface[data-kind="editor"]');
   const shell = page.locator('.terminal-surface[data-kind="terminal:shell"]');
 
@@ -26,8 +25,7 @@ test("clicking the terminal head focuses the terminal, not the editor", async ({
   await clickIntoEditor(page);
   await expect(editor).toHaveClass(/\bactive\b/);
 
-  // Click the terminal's head — the title bar, the natural "select this terminal" target.
-  await shell.locator(".pane-head").click();
+  await shell.locator(".shell-tab-main").click();
 
   // Focus moved: the terminal is highlighted, the editor isn't, and DOM focus is inside the terminal.
   await expect(shell).toHaveClass(/\bactive\b/);
@@ -37,14 +35,14 @@ test("clicking the terminal head focuses the terminal, not the editor", async ({
 
 // The behavioural half of the same bug: after selecting the terminal by its head, keystrokes must reach the
 // PTY and leave the editor untouched. Before the fix they were inserted into Monaco.
-test("typing after clicking the terminal head does not leak into the editor", async ({ page }) => {
+test("typing after clicking the terminal tab does not leak into the editor", async ({ page }) => {
   const viewLines = page.locator(".monaco-editor .view-lines").first();
 
   await openFile(page, "hello.ts");
   await clickIntoEditor(page);
   await page.keyboard.press("ControlOrMeta+Home");
 
-  await page.locator('.terminal-surface[data-kind="terminal:shell"] .pane-head').click();
+  await page.locator('.terminal-surface[data-kind="terminal:shell"] .shell-tab-main').click();
   await page.keyboard.type("focusXYZZY");
 
   // The editor never received the keystrokes — the marker is absent and the seeded source is intact.
@@ -54,11 +52,11 @@ test("typing after clicking the terminal head does not leak into the editor", as
 
 // Two stacked terminals: clicking the inactive one's head switches focus between them. Same root cause — the
 // head was an inert click target — and the main way a user moves between the claude and shell panes by mouse.
-test("clicking a second terminal's head switches focus between terminals", async ({ page }) => {
+test("clicking terminal chrome switches focus between agent and shell", async ({ page }) => {
   const claude = page.locator('.terminal-surface[data-kind="terminal:claude"]');
   const shell = page.locator('.terminal-surface[data-kind="terminal:shell"]');
 
-  await shell.locator(".pane-head").click();
+  await shell.locator(".shell-tab-main").click();
   await expect(shell).toHaveClass(/\bactive\b/);
   expect(await focusedKind(page)).toBe("terminal:shell");
 
@@ -73,14 +71,14 @@ test("creating a session focuses its agent while ordinary session switching does
 }) => {
   const shell = page.locator('.terminal-surface[data-kind="terminal:shell"]');
   const initialSlot = await activeSessionSlot(page);
-  await shell.locator(".pane-head").click();
+  await shell.locator(".shell-tab-main").click();
   expect(await focusedKind(page)).toBe("terminal:shell");
 
   await createSession(page, { branch: "e2e/session-focus", provider: "claude" });
   await waitForSessionSwitch(page, initialSlot);
   await expect.poll(() => focusedKind(page)).toBe("terminal:claude");
 
-  await shell.locator(".pane-head").click();
+  await shell.locator(".shell-tab-main").click();
   const forkedSlot = await activeSessionSlot(page);
   await page.keyboard.press("Control+Tab");
   await waitForSessionSwitch(page, forkedSlot);

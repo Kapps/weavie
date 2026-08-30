@@ -29,10 +29,7 @@ public sealed partial class HostCore {
 		session.Editor.Changed += editor => RecordRecentFile(session, editor);
 		session.Commands.WebInvoker = (id, args, ct) => InvokeWebCommandAsync(session, id, args, ct);
 		session.Commands.ClientInvoker = (id, args, ct) => InvokeClientCommandAsync(session, id, args, ct);
-		session.Commands.RegisterHandler(CoreCommands.ReopenTerminal, (_, _) => {
-			_ui.Post(() => session.Shell.Restart());
-			return Task.FromResult(CommandResult.Success("Reopened the terminal."));
-		});
+		RegisterShellTerminalHandlers(session);
 		session.Commands.RegisterHandler(CoreCommands.RestartAgent, (_, _) => {
 			_ui.Post(session.RestartAgent);
 			return Task.FromResult(CommandResult.Success("Restarted the agent."));
@@ -217,7 +214,8 @@ public sealed partial class HostCore {
 
 		string id = SessionId.New().Value;
 		string providerId = AvailableWorkspaceSessionProvider();
-		var session = CreateSession(WorkspaceRoot, providerId, id);
+		IReadOnlyList<ShellTerminalDescriptor> shellTerminals = [ShellTerminalDescriptor.New()];
+		var session = CreateSession(WorkspaceRoot, providerId, id, shellTerminals);
 		session.DisplayLabel = _workspaceSessionLabel;
 		var slot = new SessionSlot {
 			Id = id,
@@ -226,6 +224,7 @@ public sealed partial class HostCore {
 			AgentProviderId = providerId,
 			Session = session,
 			EditorSession = EditorSession.Empty,
+			ShellTerminals = shellTerminals,
 		};
 		sessions.Add(slot);
 		session.Scratch.GarbageCollect([]);
@@ -267,6 +266,7 @@ public sealed partial class HostCore {
 					AgentProviderId = agentProviderId,
 					Session = null,
 					EditorSession = EditorSession.Empty,
+					ShellTerminals = [ShellTerminalDescriptor.New()],
 				});
 			}
 
@@ -443,7 +443,11 @@ public sealed partial class HostCore {
 	};
 
 	/// <summary>Builds + wires a new <see cref="HostSession"/> rooted at <paramref name="cwd"/> (the live backend for a slot).</summary>
-	private HostSession CreateSession(string cwd, string agentProviderId, string slotId) {
+	private HostSession CreateSession(
+		string cwd,
+		string agentProviderId,
+		string slotId,
+		IReadOnlyList<ShellTerminalDescriptor> shellTerminals) {
 		var provider = _agentProviders.RequireAvailable(agentProviderId);
 		var address = new SessionAddress(slotId, Guid.NewGuid().ToString("n"));
 		var endpoint = _messages.OpenSession(address);
@@ -464,6 +468,11 @@ public sealed partial class HostCore {
 					Id,
 					WorkspaceId.ForPath(cwd).Value,
 					"agent-authentication"),
+				shellTerminals,
+				terminalId => WeaviePaths.WorkspaceTerminalLogFile(
+					Id,
+					WorkspaceId.ForPath(cwd).Value,
+					$"shell-{terminalId}"),
 				_commandRegistry,
 				_keybindings,
 				_themeOverrides,
@@ -476,14 +485,10 @@ public sealed partial class HostCore {
 				(userInitiated, accept) => TryAcceptInput(session!.SlotId, userInitiated, accept),
 				_sessionStore.RecordShellSize);
 
-			// Persist the shell scrollback (keyed by worktree path, stable across reloads) so a reattaching client
-			// replays a coherent screen. Shell only — claude resumes its own conversation.
-			session.Shell.ScrollbackLogPath =
-				WeaviePaths.WorkspaceTerminalLogFile(Id, WorkspaceId.ForPath(cwd).Value, "shell");
-			// Seed the shell's pre-spawn size from the last real terminal size so a background-restored child is born at
+			// Seed every shell's pre-spawn size from the last real terminal size so a background-restored child is born at
 			// the width its reattaching xterm will use — else its raw scrollback replays 80×24-wrapped and stacks garbled.
 			if (_sessionStore.ShellSize is { } shellSize) {
-				session.Shell.Resize(shellSize.Cols, shellSize.Rows);
+				session.Shells.SeedSize(shellSize.Cols, shellSize.Rows);
 			}
 
 			WireSession(session);
@@ -511,7 +516,11 @@ public sealed partial class HostCore {
 	/// </summary>
 	private void LoadSlot(SessionSlot slot) {
 		if (!slot.Loaded) {
-			slot.Session = CreateSession(slot.WorktreePath, slot.AgentProviderId, slot.Id);
+			slot.Session = CreateSession(
+				slot.WorktreePath,
+				slot.AgentProviderId,
+				slot.Id,
+				slot.ShellTerminals);
 			slot.Session.DisplayLabel = slot.Label;
 			slot.Session.EditorSession = slot.EditorSession;
 			slot.Session.Scratch.GarbageCollect(
@@ -538,7 +547,7 @@ public sealed partial class HostCore {
 			// Start Claude now even before its pane mounts (else it spawns on terminal ready); structured runtimes
 			// already started with their owned endpoint. The resize nudge on first mount repaints the live TUI.
 			session.Claude?.EnsureStarted();
-			session.Shell.EnsureStarted();
+			session.Shells.EnsureStarted();
 		} catch (Exception error) {
 			throw RollbackSessionLoad(slot, removeSlot: false, error: error);
 		}
@@ -1167,13 +1176,15 @@ public sealed partial class HostCore {
 		_ui.Post(() => {
 			SessionSlot? slot = null;
 			try {
+				IReadOnlyList<ShellTerminalDescriptor> shellTerminals = [ShellTerminalDescriptor.New()];
 				slot = new SessionSlot {
 					Id = branch,
 					Label = branch,
 					WorktreePath = record.Path,
 					AgentProviderId = agentProviderId,
-					Session = CreateSession(record.Path, agentProviderId, branch),
+					Session = CreateSession(record.Path, agentProviderId, branch, shellTerminals),
 					EditorSession = EditorSession.Empty,
+					ShellTerminals = shellTerminals,
 				};
 				sessions.Add(slot);
 				PushSessionList();

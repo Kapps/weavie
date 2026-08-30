@@ -348,7 +348,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 			CoreSettings.TerminalShell,
 			_ => _ui.Post(() => {
 				foreach (var session in LoadedSessions()) {
-					session.Shell.Restart();
+					session.Shells.Restart();
 				}
 			}));
 

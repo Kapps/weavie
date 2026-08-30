@@ -20,6 +20,7 @@ export interface MockSession {
   status: "starting" | "working" | "needsInput" | "idle" | "waiting" | "error";
   hue: number;
   monogram: string;
+  shellTerminals: string[];
 }
 
 export interface MockLiveSession extends MockSession {
@@ -66,6 +67,7 @@ export function mockSession(id: string, label: string, providerId: string): Mock
     status: "idle",
     hue: 200,
     monogram: label.slice(0, 1).toUpperCase(),
+    shellTerminals: [`${id}-shell`],
   };
 }
 
@@ -529,6 +531,16 @@ export class MockHost {
       message.feature === "lifecycle" &&
       message.name === "sync"
     ) {
+      const session = this.sessions.find(
+        (candidate) =>
+          candidate.address?.slot === message.session?.slot &&
+          candidate.address.incarnation === message.session?.incarnation,
+      );
+      if (session !== undefined) {
+        this.publishSession(message.session!, "terminal.shell", "catalog", {
+          terminals: session.shellTerminals.map((id) => ({ id })),
+        });
+      }
       this.respond(message, { ok: true });
       return;
     }

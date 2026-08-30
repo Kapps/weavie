@@ -85,9 +85,10 @@ per the no-buried-flags rule, any verbosity toggle lands as a **setting**, off b
 
 ## Adopters
 
-**Implemented — terminal panes** (`Weavie.Win` + `Weavie.Mac` `TerminalController`, both `claude` and
-`shell`): policy `Always`. A crash relaunches with backoff; the supervisor reuses the existing
-`term-reset` → `term-ready` → `Start` web handshake for intentional restarts (a `terminal.shell` change),
+**Implemented — terminal panes** (`TerminalController`, shared by every host): permanent agent panes use policy
+`Always`; closeable shell tabs use `Never` and retain their exit state until explicitly reopened. Agent crashes
+relaunch with backoff; the supervisor reuses the existing
+`term-reset` → `term-ready` → `Start` web handshake for intentional restarts (a `terminal.shell` setting change),
 and on a supervised restart writes a one-line `[weavie] … restarting…` notice into the pane via the normal
 `term-output` channel (no web-protocol change). A crash-loop trip prints a "stopped" notice and posts
 `term-exit`.

@@ -102,6 +102,10 @@
     min-width: 0;
   }
 
+  .app.compact .shell-tabs {
+    min-height: 36px;
+  }
+
   .app.compact .pane-footer {
     min-height: 32px;
     padding-inline: 10px;

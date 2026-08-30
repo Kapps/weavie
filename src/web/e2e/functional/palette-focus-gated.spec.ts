@@ -13,8 +13,8 @@ test("palette shows terminal-gated Copy for a pre-focused terminal (and hides Pa
   const box = page.locator(".tb-omnibar-box");
   const input = page.locator(".tb-omnibar-input");
 
-  // Focus a terminal pane — clicking its head lands DOM focus on the pane's xterm (terminalFocused = true).
-  await shell.locator(".pane-head").click();
+  // Focus a terminal pane — clicking its tab lands DOM focus on the pane's xterm (terminalFocused = true).
+  await shell.locator(".shell-tab-main").click();
   await expect(shell).toHaveClass(/\bactive\b/);
 
   // Open the palette (omnibar command mode); focus now sits in the omnibar input, not the terminal.

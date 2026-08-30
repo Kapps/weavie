@@ -12,7 +12,7 @@ message bus → a per-host seam. The same shape carries these actions:
 
 - The host `clipboard` feature carries `write` plus correlated `read` / `readImage` requests.
 - The host `platform.openUrl` event carries external links.
-- The owning session's `terminal.shell.cwd` event carries shell working-directory updates.
+- The owning session's `terminal.shell.<id>.cwd` event carries shell working-directory updates.
 - `IHostPlatform` supplies `WriteClipboard`, `ReadClipboard`, `ReadClipboardImage`, and
   `OpenExternalUrl` (real on desktop hosts, no-op on Headless/Test).
 
@@ -68,7 +68,7 @@ flowchart LR
   which is fine under the trusted-opened-repo model.)
 - **Title (OSC 0/2).** Web-only: `term.onTitleChange` updates the pane header; no host round-trip
   (the title is already in the web).
-- **cwd (OSC 7).** `term.parser.registerOscHandler(7, …)` posts `terminal.shell.cwd`; the shell pane's
+- **cwd (OSC 7).** `term.parser.registerOscHandler(7, …)` posts `terminal.shell.<id>.cwd`; the shell tab's
   `TerminalController` remembers it and relaunches there (Reopen Terminal lands where you were). The
   claude pane ignores it (it always runs in the IDE workspace). Best-effort — only shells configured
   to emit OSC 7 report it. **Security:** OSC 7 is untrusted terminal output, so the reported path is

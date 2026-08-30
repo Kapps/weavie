@@ -27,6 +27,7 @@ const env = vi.hoisted(() => ({
   selectionCandidates: [] as ClientSession[][],
   acceptSelection: true,
   activations: [] as Array<{ session: ClientSession; created: boolean }>,
+  terminalActivations: [] as Array<{ session: ClientSession; terminalId: string }>,
 }));
 
 vi.mock("../bridge", () => ({
@@ -154,6 +155,7 @@ env.selected = fakeSession("selected-slot", "selected-incarnation");
 const reg = await import("./registry");
 env.installHost?.("remote:r");
 reg.onSessionActivated((activation) => env.activations.push(activation));
+reg.onTerminalActivated((activation) => env.terminalActivations.push(activation));
 
 function cmd(id: string, runsIn: "web" | "core"): CommandInfo {
   return {
@@ -185,6 +187,7 @@ beforeEach(() => {
   env.selectedAddresses.length = 0;
   env.selectionCandidates.length = 0;
   env.activations.length = 0;
+  env.terminalActivations.length = 0;
   env.acceptSelection = true;
   env.coreResult = { ok: true, data: "core-ran" };
   env.selected = {
@@ -388,6 +391,29 @@ describe("dispatchCommand — core commands", () => {
 
     expect(env.selectedAddresses).toEqual([]);
     expect(env.selectionCandidates).toEqual([[]]);
+  });
+
+  it("activates the exact terminal requested by a successful command result", async () => {
+    setCatalog("local", [cmd("core.new-terminal", "core")]);
+    env.coreResult = {
+      ok: true,
+      data: {
+        address: { slot: "branch-a", incarnation: "incarnation-a" },
+        activateTerminal: true,
+        terminalId: "terminal-b",
+      },
+    };
+
+    await reg.dispatchCommand("core.new-terminal", { backendId: "remote:r" });
+
+    expect(env.selectedAddresses).toEqual([
+      {
+        backendId: "remote:r",
+        address: { slot: "branch-a", incarnation: "incarnation-a" },
+      },
+    ]);
+    expect(env.selectionCandidates).toEqual([[]]);
+    expect(env.terminalActivations).toEqual([{ session: env.selected, terminalId: "terminal-b" }]);
   });
 });
 

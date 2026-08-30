@@ -768,6 +768,9 @@ internal sealed class NoopTerminal : ITerminal {
 	/// <summary>Every write concatenated and UTF-8 decoded — for asserting injected text.</summary>
 	public string WrittenText => string.Concat(Writes.Select(System.Text.Encoding.UTF8.GetString));
 
+	/// <summary>Simulates the child process exiting.</summary>
+	public void Exit(int code) => Exited?.Invoke(code);
+
 	public void Start(TerminalStartInfo startInfo) {
 		_ = Output;
 		_ = Exited;

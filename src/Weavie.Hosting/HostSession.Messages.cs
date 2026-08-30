@@ -13,11 +13,9 @@ public sealed partial class HostSession {
 
 	private void WireMessages(
 		Func<bool> inputFrozen,
-		Action<bool, Action> acceptTerminalInput,
-		Action<int, int> shellResized) {
-		WireTerminalMessages(Bus.Feature("terminal.shell"), Shell, acceptTerminalInput, shellResized);
+		Action<bool, Action> acceptTerminalInput) {
 		if (Claude is { } agentTerminal) {
-			WireTerminalMessages(
+			_ = TerminalMessageWiring.Wire(
 				Bus.Feature("terminal.agent"),
 				agentTerminal,
 				acceptTerminalInput,
@@ -29,7 +27,7 @@ public sealed partial class HostSession {
 					return Task.CompletedTask;
 				});
 		} else if (Agent.AuthenticationTerminal is { } authenticationTerminal) {
-			WireTerminalMessages(
+			_ = TerminalMessageWiring.Wire(
 				Bus.Feature("terminal.agent"),
 				authenticationTerminal.Controller,
 				acceptTerminalInput,
@@ -115,31 +113,6 @@ public sealed partial class HostSession {
 			(message, _) => Task.FromResult(
 				DiffPresenter.Resolve(message.Id, message.Kept, message.FinalContents)));
 		WireAgentMessages(Bus.Feature("agent"), inputFrozen, acceptTerminalInput);
-	}
-
-	private static void WireTerminalMessages(
-		Messaging.MessageFeatureChannel messages,
-		TerminalController terminal,
-		Action<bool, Action> acceptInput,
-		Action<int, int> resized) {
-		messages.Handle<TerminalInputMessage>("input", (message, _) => {
-			byte[] data = Convert.FromBase64String(message.DataB64);
-			acceptInput(message.UserInitiated, () => terminal.Write(data));
-			return Task.CompletedTask;
-		});
-		messages.Handle<TerminalSizeMessage>("resize", (message, _) => {
-			terminal.Resize(message.Columns, message.Rows);
-			resized(message.Columns, message.Rows);
-			return Task.CompletedTask;
-		});
-		messages.HandleOwned<TerminalSizeMessage>("ready", (message, peer, _) => {
-			terminal.OnReady(messages.Target(peer), message.Columns, message.Rows);
-			return Task.CompletedTask;
-		});
-		messages.Handle<TerminalCwdMessage>("cwd", (message, _) => {
-			terminal.OnCwdReported(message.Cwd);
-			return Task.CompletedTask;
-		});
 	}
 
 	private void WireAgentMessages(
@@ -295,11 +268,6 @@ public sealed partial class HostSession {
 	private void Notify(string message) => Notify("warn", message);
 
 	private sealed record EmptyMessage;
-
-	private sealed record TerminalInputMessage(string DataB64, bool UserInitiated);
-	private sealed record TerminalSizeMessage(int Columns, int Rows);
-
-	private sealed record TerminalCwdMessage(string Cwd);
 
 	private sealed record ImagePasteMessage(string Mime, string DataB64);
 

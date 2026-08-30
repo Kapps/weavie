@@ -8,7 +8,8 @@ namespace Weavie.Core.Sessions;
 /// <summary>
 /// The per-workspace session overlay, persisted atomically to
 /// <c>~/.weavie/workspaces/&lt;id&gt;/sessions.json</c> so a reopen (including a worker auto-update restart) comes
-/// back with each slot's provider, loaded state, and editor state. Selection is client-owned. Git
+/// back with each slot's provider, loaded state, editor state, and ordered shell terminal IDs. Selection is
+/// client-owned. Git
 /// remains authoritative for the worktree set. The store also carries the last real shell-terminal size so a
 /// restored pre-spawn matches the reattaching xterm's width. A malformed file is backed up to
 /// <c>sessions.json.bad</c> and reset rather than throwing.
@@ -127,7 +128,7 @@ public sealed class SessionStore {
 	private static SessionStoreSnapshot ParseSnapshot(string text) {
 		var document = JsonSerializer.Deserialize<SessionsDocument>(text, JsonOptions)
 			?? throw new JsonException("Session document was empty.");
-		if (document.Version != 3) {
+		if (document.Version != 4) {
 			throw new JsonException($"Unsupported session document version {document.Version}.");
 		}
 		var entries = document.Sessions
@@ -146,8 +147,19 @@ public sealed class SessionStore {
 			|| string.IsNullOrWhiteSpace(entry.WorktreePath)
 			|| string.IsNullOrWhiteSpace(entry.AgentProviderId)
 			|| entry.Loaded is not { } loaded
-			|| entry.EditorSession is not { Open: not null } editorSession) {
-			throw new JsonException("Session entry is missing required version 3 data.");
+			|| entry.EditorSession is not { Open: not null } editorSession
+			|| entry.ShellTerminals is null) {
+			throw new JsonException("Session entry is missing required version 4 data.");
+		}
+		var shellTerminals = entry.ShellTerminals.Select(id => {
+			if (!ShellTerminalDescriptor.IsValidId(id)) {
+				throw new JsonException("A shell terminal id is not a lowercase GUID.");
+			}
+			return new ShellTerminalDescriptor { Id = id };
+		}).ToArray();
+		if (shellTerminals.Select(terminal => terminal.Id).Distinct(StringComparer.Ordinal).Count()
+			!= shellTerminals.Length) {
+			throw new JsonException("A session contains duplicate shell terminal ids.");
 		}
 
 		return new SessionDescriptor {
@@ -157,6 +169,7 @@ public sealed class SessionStore {
 			Loaded = loaded,
 			AgentProviderId = entry.AgentProviderId,
 			EditorSession = editorSession,
+			ShellTerminals = shellTerminals,
 		};
 	}
 
@@ -174,7 +187,7 @@ public sealed class SessionStore {
 
 	private static string SerializeSnapshot(SessionStoreSnapshot snapshot) =>
 		JsonSerializer.Serialize(new SessionsDocument {
-			Version = 3,
+			Version = 4,
 			ShellCols = snapshot.ShellColumns,
 			ShellRows = snapshot.ShellRows,
 			Sessions = [.. snapshot.Items.Select(ToEntry)],
@@ -187,6 +200,7 @@ public sealed class SessionStore {
 		Loaded = session.Loaded,
 		AgentProviderId = session.AgentProviderId,
 		EditorSession = session.EditorSession,
+		ShellTerminals = [.. session.ShellTerminals.Select(terminal => terminal.Id)],
 	};
 
 	private sealed class SessionsDocument {
@@ -221,5 +235,8 @@ public sealed class SessionStore {
 
 		[JsonPropertyName("editorSession")]
 		public EditorSession? EditorSession { get; set; }
+
+		[JsonPropertyName("shellTerminals")]
+		public List<string?>? ShellTerminals { get; set; }
 	}
 }

@@ -100,9 +100,11 @@ import {
   getKeybindings,
   onCommandsChanged,
   onSessionActivated,
+  onTerminalActivated,
   registerCommand,
+  runCommandWithFeedback,
 } from "./commands/registry";
-import { CommandIds } from "./commands/types";
+import { CommandIds, type CommandResult } from "./commands/types";
 import { BlamePopover } from "./editor/BlamePopover";
 import { blameTarget } from "./editor/blame-store";
 import { ConfirmDialog } from "./editor/ConfirmDialog";
@@ -169,6 +171,14 @@ import { createToasts, Toasts } from "./notify/Toasts";
 import { dismissSplash } from "./splash";
 import { mark } from "./startup-timing";
 import { installTerminalClipboardCommands } from "./terminal/host-clipboard";
+import { ShellTabStrip } from "./terminal/ShellTabStrip";
+import {
+  activeShellTerminalId,
+  selectShellTerminal,
+  shellTerminalCatalogReceived,
+  shellTerminals,
+  stepShellTerminal,
+} from "./terminal/shell-terminal-store";
 import { TerminalView } from "./terminal/TerminalView";
 import { openUrlExternal } from "./terminal/terminal-links";
 import { applyChromeTheme } from "./theme";
@@ -430,13 +440,24 @@ export default function App(): JSX.Element {
   });
   const sessionKey = (session: ClientSession): string =>
     `${session.connection.id}\0${session.address.slot}\0${session.address.incarnation}`;
-  const terminalPaneKey = (session: ClientSession, pane: string): string =>
-    `${sessionKey(session)}\0${pane}`;
+  const terminalPaneKey = (session: ClientSession, terminalId: string): string =>
+    `${sessionKey(session)}\0${terminalId}`;
   // Each loaded session's terminal panes register their focus fn here on mount; focusPane resolves the active
   // backend and session's entry. (The editor focuses via the controller directly.)
   const terminalFocus = new Map<string, () => void>();
   // The child-set terminal title (OSC 0/2), shown in the shell pane header (the agent pane keeps its fixed label).
   const [paneTitles, setPaneTitles] = createSignal<Record<string, string>>({});
+  const forgetTerminalPane = (key: string): void => {
+    terminalFocus.delete(key);
+    setPaneTitles((previous) => {
+      if (!(key in previous)) {
+        return previous;
+      }
+      const next = { ...previous };
+      delete next[key];
+      return next;
+    });
+  };
   // Whether the Ctrl+N pane-switch hint badges are shown (the editor.paneShortcutHints setting; live-updated).
   const [showPaneHints, setShowPaneHints] = createSignal(currentEditorOptions().paneShortcutHints);
 
@@ -648,13 +669,19 @@ export default function App(): JSX.Element {
     requestAnimationFrame(() => editor.start(editorContainer));
   };
 
-  // Liveness: the first terminal paint is the reveal trigger, but a launch can land with NO loaded terminal to
-  // paint — an all-dormant restore, or an offline remote backend — and then onFirstRender never fires. Once the
-  // host has supplied its catalog (sessionsReceived) and there is no selected-session terminal, bring the
-  // editor up so the shell still reveals. When terminals DO exist, their paint drives it (and reveals
-  // before the editor eval), so this stays out of the way — it only fires when there is nothing to jam.
+  // Liveness: terminal paint is the reveal trigger, but a structured agent plus an empty shell catalog has no
+  // TerminalView to paint. Wait for that exact catalog before starting the editor so an empty persisted set can
+  // reveal without racing the ordinary terminal-first path.
   createEffect(() => {
-    if (sessionsReceived() && terminalSessions().length === 0) {
+    const session = activeTermSession();
+    if (
+      sessionsReceived() &&
+      (terminalSessions().length === 0 ||
+        (session !== null &&
+          shellTerminalCatalogReceived(session) &&
+          !agentTerminalVisible() &&
+          shellTerminals(session).length === 0))
+    ) {
       startEditorOnce();
     }
   });
@@ -683,10 +710,18 @@ export default function App(): JSX.Element {
     }
     // Resolve the focusable xterm by the selected session id, so focus lands correctly regardless of
     // effect-flush timing on a switch.
-    const pane = paneOf(kind);
     const session = activeTermSession();
     if (session !== null) {
-      terminalFocus.get(terminalPaneKey(session, pane))?.();
+      const terminalId = kind === AGENT_PANE_KIND ? "claude" : activeShellTerminalId(session);
+      if (terminalId !== null) {
+        terminalFocus.get(terminalPaneKey(session, terminalId))?.();
+      } else if (kind === "terminal:shell") {
+        document
+          .querySelector<HTMLButtonElement>(
+            '.terminal-surface[data-kind="terminal:shell"] .shell-tab-new',
+          )
+          ?.focus();
+      }
     }
   };
 
@@ -705,6 +740,62 @@ export default function App(): JSX.Element {
   };
 
   onCleanup(onSessionActivated(({ session, created }) => homeSessionFocus(session, created)));
+  onCleanup(
+    onTerminalActivated(({ session, terminalId }) => {
+      if (!selectShellTerminal(session, terminalId)) {
+        return;
+      }
+      requestAnimationFrame(() => {
+        if (selectedSession() === session) {
+          focusPane("terminal:shell");
+        }
+      });
+    }),
+  );
+
+  const closeShellTerminal = async (session: ClientSession, id: string): Promise<void> => {
+    const invoke = (force: boolean): Promise<CommandResult> =>
+      session.feature("commands").request("invoke", {
+        id: CommandIds.closeTerminal,
+        args: { id, force },
+      });
+    const result = await invoke(false);
+    if (!result.ok) {
+      const busy = (result.data as { busy?: unknown } | undefined)?.busy === true;
+      if (!busy) {
+        throw new Error(result.error ?? "The terminal could not be closed.");
+      }
+      const approved = await confirm({
+        title: "Close terminal?",
+        body: "A command is still running in this terminal. Closing it will stop that command.",
+        confirmLabel: "Close Terminal",
+      });
+      if (!approved) {
+        return;
+      }
+      const forced = await invoke(true);
+      if (!forced.ok) {
+        throw new Error(forced.error ?? "The terminal could not be closed.");
+      }
+    }
+    requestAnimationFrame(() => {
+      if (selectedSession() === session) {
+        focusPane("terminal:shell");
+      }
+    });
+  };
+
+  const stepTerminal = (session: ClientSession, delta: -1 | 1): boolean => {
+    if (!stepShellTerminal(session, delta)) {
+      return false;
+    }
+    requestAnimationFrame(() => {
+      if (selectedSession() === session) {
+        focusPane("terminal:shell");
+      }
+    });
+    return true;
+  };
 
   // Flip the active file between Source and Preview, only when its type can preview. Returns whether it acted,
   // so the command DECLINES (key falls through to the editor) on a non-previewable file.
@@ -1252,14 +1343,15 @@ export default function App(): JSX.Element {
             <div class="pane-body">
               <For each={agentTerminalSessions()}>
                 {(session) => {
-                  const paneKey = terminalPaneKey(session, pane);
+                  const paneKey = terminalPaneKey(session, "claude");
                   const selected = (): boolean => selectedSession() === session;
-                  onCleanup(() => terminalFocus.delete(paneKey));
+                  onCleanup(() => forgetTerminalPane(paneKey));
                   return (
                     <div class="term-host" classList={{ hidden: !selected() }}>
                       <TerminalView
                         session={session}
                         pane={pane}
+                        terminalId="claude"
                         active={selected() && agentTerminalVisible()}
                         onFirstRender={() => {
                           dismissSplash();
@@ -1280,14 +1372,15 @@ export default function App(): JSX.Element {
         </div>
       );
     }
-    const pane = paneOf(kind);
-    // The shell pane shows the child-set title (cwd / running command) when it has one.
-    const paneTitle = (): string => {
-      const session = activeTermSession();
-      const title = session === null ? undefined : paneTitles()[terminalPaneKey(session, pane)];
-      return title !== undefined && title.length > 0 ? title : "Terminal";
+    const shellTitle = (session: ClientSession, id: string, index: number): string => {
+      const title = paneTitles()[terminalPaneKey(session, id)];
+      return title !== undefined && title.length > 0 ? title : `Terminal ${index + 1}`;
     };
-    const paneSessions = terminalSessions;
+    const selectTerminal = (session: ClientSession, id: string): void => {
+      if (selectShellTerminal(session, id)) {
+        requestAnimationFrame(() => focusPane("terminal:shell"));
+      }
+    };
     return (
       <div
         class="terminal-surface"
@@ -1295,43 +1388,62 @@ export default function App(): JSX.Element {
         data-kind={kind}
         data-surface="terminal"
       >
-        {/* The head holds no focusable element, so a bare click would blur to <body> and strand keystrokes;
-            preventDefault stops that and focusPane lands focus on this pane's xterm. The body (xterm) self-focuses. */}
-        <div
-          class="pane-head"
-          role="toolbar"
-          onMouseDown={(event) => {
-            event.preventDefault();
-            focusPane(kind);
+        <ShellTabStrip
+          terminals={() => shellTerminals(activeTermSession())}
+          activeId={() => activeShellTerminalId(activeTermSession())}
+          title={(terminal, index) => {
+            const session = activeTermSession();
+            return session === null
+              ? `Terminal ${index + 1}`
+              : shellTitle(session, terminal.id, index);
           }}
-        >
-          <span class="pane-label">{paneTitle()}</span>
-          <Show when={showPaneHints() && paneShortcut(numberOf(kind)) !== ""}>
-            <span class="pane-shortcut">{paneShortcut(numberOf(kind))}</span>
-          </Show>
-        </div>
+          trailing={
+            <Show when={showPaneHints() && paneShortcut(numberOf(kind)) !== ""}>
+              <span class="pane-shortcut">{paneShortcut(numberOf(kind))}</span>
+            </Show>
+          }
+          onSelect={(id) => {
+            const session = activeTermSession();
+            if (session !== null) {
+              selectTerminal(session, id);
+            }
+          }}
+          onClose={(id) => void runCommandWithFeedback(CommandIds.closeTerminalPrompt, { id })}
+          onNew={() => void runCommandWithFeedback(CommandIds.newTerminal)}
+        />
         <div class="pane-body">
-          {/* One live xterm per exact session incarnation, only the selected owner shown. */}
-          <For each={paneSessions()}>
+          {/* Every loaded tab retains its xterm and scrollback; only the selected session/tab is shown. */}
+          <For each={terminalSessions()}>
             {(session) => {
-              const paneKey = terminalPaneKey(session, pane);
-              const isActive = (): boolean => selectedSession() === session;
-              onCleanup(() => terminalFocus.delete(paneKey));
               return (
-                <div class="term-host" classList={{ hidden: !isActive() }}>
-                  <TerminalView
-                    session={session}
-                    pane={pane}
-                    active={isActive()}
-                    onFirstRender={() => {
-                      dismissSplash();
-                      startEditorOnce();
-                    }}
-                    onFocusReady={(focus) => terminalFocus.set(paneKey, focus)}
-                    onTitle={(title) => setPaneTitles((prev) => ({ ...prev, [paneKey]: title }))}
-                    onContextMenu={openTerminalContextMenu}
-                  />
-                </div>
+                <For each={shellTerminals(session)}>
+                  {(terminal) => {
+                    const paneKey = terminalPaneKey(session, terminal.id);
+                    const isActive = (): boolean =>
+                      selectedSession() === session &&
+                      activeShellTerminalId(session) === terminal.id;
+                    onCleanup(() => forgetTerminalPane(paneKey));
+                    return (
+                      <div class="term-host" classList={{ hidden: !isActive() }}>
+                        <TerminalView
+                          session={session}
+                          pane="shell"
+                          terminalId={terminal.id}
+                          active={isActive()}
+                          onFirstRender={() => {
+                            dismissSplash();
+                            startEditorOnce();
+                          }}
+                          onFocusReady={(focus) => terminalFocus.set(paneKey, focus)}
+                          onTitle={(title) =>
+                            setPaneTitles((prev) => ({ ...prev, [paneKey]: title }))
+                          }
+                          onContextMenu={openTerminalContextMenu}
+                        />
+                      </div>
+                    );
+                  }}
+                </For>
               );
             }}
           </For>
@@ -1389,16 +1501,21 @@ export default function App(): JSX.Element {
 
     const offViewBinding = registerViewFeature((session) => {
       const cleanups = [
-        session.feature("view").on<{ kind: string }>("focusPane", ({ kind }) => {
-          const active = document.activeElement;
-          const typingInOverlay =
-            active instanceof HTMLElement &&
-            !active.classList.contains("xterm-helper-textarea") &&
-            (active.tagName === "INPUT" || active.tagName === "TEXTAREA");
-          if (!typingInOverlay) {
-            focusPane(kind);
-          }
-        }),
+        session
+          .feature("view")
+          .on<{ kind: string; terminalId?: string }>("focusPane", ({ kind, terminalId }) => {
+            if (kind === "terminal:shell" && terminalId !== undefined) {
+              selectShellTerminal(session, terminalId);
+            }
+            const active = document.activeElement;
+            const typingInOverlay =
+              active instanceof HTMLElement &&
+              !active.classList.contains("xterm-helper-textarea") &&
+              (active.tagName === "INPUT" || active.tagName === "TEXTAREA");
+            if (!typingInOverlay) {
+              focusPane(kind);
+            }
+          }),
         session
           .feature("view")
           .on<{ query: string; line: number }>("focusOmnibar", ({ query, line }) =>
@@ -1463,6 +1580,25 @@ export default function App(): JSX.Element {
       registerCommand(CommandIds.toggleFileBrowser, () => toggleBrowser()),
       // Terminal copy/paste (act on the focused xterm, clipboard via the host); gated terminalFocused.
       installTerminalClipboardCommands(),
+      registerCommand(CommandIds.closeTerminalPrompt, (args, context) => {
+        const requested = (args as { id?: unknown } | undefined)?.id;
+        const id =
+          typeof requested === "string" ? requested : activeShellTerminalId(context.session);
+        if (context.session === null) {
+          return false;
+        }
+        if (id === null || id.length === 0) {
+          addToast("warn", "No shell terminal is open.");
+          return true;
+        }
+        return closeShellTerminal(context.session, id);
+      }),
+      registerCommand(CommandIds.nextTerminalTab, (_args, context) =>
+        context.session === null ? false : stepTerminal(context.session, 1),
+      ),
+      registerCommand(CommandIds.prevTerminalTab, (_args, context) =>
+        context.session === null ? false : stepTerminal(context.session, -1),
+      ),
       registerCommand(CommandIds.focusOmnibarFiles, () => focusOmnibar("file")),
       registerCommand(CommandIds.focusOmnibarCommands, () => focusOmnibar("command")),
       registerCommand(CommandIds.goToSymbol, () => focusOmnibar("docSymbol")),

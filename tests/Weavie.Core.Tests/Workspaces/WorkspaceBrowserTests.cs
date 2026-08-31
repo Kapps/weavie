@@ -6,7 +6,7 @@ namespace Weavie.Core.Tests;
 
 /// <summary>
 /// <see cref="WorkspaceBrowser"/>: directories-first ordering, listing a subdirectory by its returned
-/// path, absolute entry paths, clamping escape attempts to the root, and missing-directory failures.
+/// path, absolute entry paths, listing outside the root, and malformed/missing-directory failures.
 /// </summary>
 public sealed class WorkspaceBrowserTests {
 	private static WorkspaceBrowser NewBrowser(params string[] files) {
@@ -48,14 +48,20 @@ public sealed class WorkspaceBrowserTests {
 	}
 
 	[Fact]
-	public void List_EscapeAttempt_ClampsToRoot() {
-		// Files outside the root must never appear; escape attempts fall back to the root.
-		var browser = NewBrowser("/proj/readme.md", "/secret/passwords.txt");
+	public void List_PathOutsideTheRoot_ListsThatDirectory() {
+		// Open-by-path completes directories anywhere; a relative request still resolves against the root.
+		var browser = NewBrowser("/proj/readme.md", "/elsewhere/notes.md");
 
-		var entries = browser.List("../secret");
+		Assert.Equal(["notes.md"], browser.List("/elsewhere").Select(e => e.Name));
+		Assert.Equal(["notes.md"], browser.List("../elsewhere").Select(e => e.Name));
+		Assert.Equal(["readme.md"], browser.List(null).Select(e => e.Name));
+	}
 
-		Assert.DoesNotContain(entries, e => e.Name == "passwords.txt");
-		Assert.Contains(entries, e => e.Name == "readme.md");
+	[Fact]
+	public void List_MalformedPath_Throws() {
+		var browser = NewBrowser("/proj/readme.md");
+
+		Assert.ThrowsAny<ArgumentException>(() => browser.List("bad\0path"));
 	}
 
 	[Fact]

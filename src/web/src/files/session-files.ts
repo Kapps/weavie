@@ -4,6 +4,8 @@ import type { DirEntry, DirListings } from "./FileBrowser";
 
 interface FileIndex {
   root: string | null;
+  /** The host's home directory, so `~/…` in open-by-path expands against the host, not the browser. */
+  home: string | null;
   files: string[];
   pending: boolean;
 }
@@ -14,7 +16,7 @@ interface SessionFiles {
 }
 
 const EMPTY: SessionFiles = {
-  index: { root: null, files: [], pending: false },
+  index: { root: null, home: null, files: [], pending: false },
   listings: {},
 };
 const [states, setStates] = createSignal<Map<ClientSession, SessionFiles>>(new Map());
@@ -85,7 +87,7 @@ export function listSelectedDirectory(path: string): void {
 registerSessionFeature((session) => {
   setStates((previous) => new Map(previous).set(session, EMPTY));
   const files = session.feature("files");
-  const offIndex = files.on<{ root: string; files: string[]; pending?: boolean }>(
+  const offIndex = files.on<{ root: string; home?: string; files: string[]; pending?: boolean }>(
     "index",
     (message) => {
       update(session, (current) => {
@@ -95,6 +97,7 @@ registerSessionFeature((session) => {
         return {
           index: {
             root: message.root,
+            home: message.home ?? null,
             files: message.files,
             pending: message.pending === true,
           },

@@ -119,23 +119,6 @@ public sealed partial class HostCore {
 		}
 	}
 
-	// The web addresses files by absolute path; git wants them relative to the worktree it runs in. A path
-	// outside this session's worktree resolves to null rather than reaching git as an unanchored argument.
-	private static string? WorktreeRelativePath(HostSession session, string absolutePath) {
-		if (string.IsNullOrWhiteSpace(absolutePath)) {
-			return null;
-		}
-
-		string relative = Path.GetRelativePath(session.WorkspaceRoot, Path.GetFullPath(absolutePath))
-			.Replace('\\', '/');
-		return relative.Length == 0 || relative == ".." || relative.StartsWith("../", StringComparison.Ordinal)
-			? null
-			: relative;
-	}
-
-	private static string NotInWorktree(HostSession session, string path) =>
-		$"'{path}' isn't inside {session.WorkspaceRoot}.";
-
 	private sealed record FilePathRequest(string Path);
 
 	private sealed record CommitHunkRequest(string Path, string Sha, int Line);

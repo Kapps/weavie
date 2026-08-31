@@ -72,6 +72,21 @@ public sealed class HostCoreTestRunTests {
 	}
 
 	[Fact]
+	public async Task FileOutsideTheWorktree_NamesTheRealReason() {
+		// The editor opens files anywhere, but test rules are globs over checkout-relative paths — so say that
+		// rather than blaming the profile for not matching "../../notes.md".
+		await using var host = await TestHost.StartAsync(repo => WriteProfile(repo, Profile));
+		string file = Path.Combine(Path.GetDirectoryName(host.RepoRoot)!, "outside.md");
+		await File.WriteAllTextAsync(file, "x");
+
+		var result = await host.InvokeClientCommandAsync("weavie.tests.runFile", new { file });
+
+		Assert.False(result.Ok);
+		Assert.Contains("isn't inside", result.Error, StringComparison.Ordinal);
+		Assert.DoesNotContain("No test rule", result.Error, StringComparison.Ordinal);
+	}
+
+	[Fact]
 	public async Task UnmatchedFile_FailsLoudly() {
 		await using var host = await TestHost.StartAsync(repo => WriteProfile(repo, Profile));
 		string file = Path.Combine(host.RepoRoot, "notes.md");

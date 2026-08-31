@@ -56,6 +56,14 @@ export function isUnderRoot(path: string, root: string): boolean {
   return target === base || target.startsWith(`${base}/`);
 }
 
+/**
+ * Whether `path` lives outside the checkout. A null root means the file index hasn't arrived yet — unknown is
+ * not outside, so nothing is flagged before we can tell.
+ */
+export function isOutsideWorkspace(path: string, root: string | null): boolean {
+  return root !== null && !isUnderRoot(path, root);
+}
+
 /** The final path segment (file name) of a path, keeping its original casing. */
 export function basename(path: string): string {
   const parts = path.split(/[\\/]/).filter((part) => part.length > 0);

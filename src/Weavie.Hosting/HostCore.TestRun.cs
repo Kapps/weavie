@@ -44,7 +44,10 @@ public sealed partial class HostCore {
 			return CommandResult.Failure($"The test profile is invalid: {parseError}");
 		}
 
-		string relative = Path.GetRelativePath(session.WorkspaceRoot, file);
+		if (WorktreeRelativePath(session, file) is not { } relative) {
+			return CommandResult.Failure($"{NotInWorktree(session, file)} Test rules are checkout-relative.");
+		}
+
 		var rule = TestRuleMatcher.Match(profile, relative);
 		if (rule is null) {
 			return CommandResult.Failure($"No test rule in the profile matches {relative}.");

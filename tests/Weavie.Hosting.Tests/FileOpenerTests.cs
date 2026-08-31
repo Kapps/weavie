@@ -6,9 +6,9 @@ using Xunit;
 namespace Weavie.Hosting.Tests;
 
 /// <summary>
-/// <see cref="FileOpener"/> publishes state to its owning session bus without consulting client selection. The
-/// validated <see cref="FileProviderService"/> refuses out-of-workspace paths. Relative references recover by
-/// suffix match: one hit opens, several preload Go-to-File, and none toast.
+/// <see cref="FileOpener"/> publishes state to its owning session bus without consulting client selection. An
+/// open is gated on existence alone, wherever the file lives. Relative references recover by suffix match:
+/// one hit opens, several preload Go-to-File, and none toast.
 /// </summary>
 public sealed class FileOpenerTests {
 	// A real worktree root is always fully rooted; "/ws" is drive-relative on Windows, where Path.GetFullPath

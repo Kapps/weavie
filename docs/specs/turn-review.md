@@ -1,17 +1,24 @@
 # Reviewing auto-applied changes (post-turn review)
 
 Status: in progress
-Last updated: 2026-06-24
+Last updated: 2026-08-31
 
 A keyboard-first flow for reviewing what Claude changed during an autonomous turn in an **auto-apply
 mode** (`acceptEdits` / `bypassPermissions`). Claude runs a full turn without stopping to ask; when it
-finishes you walk the result inline, in the live editor, change-by-change and file-by-file. Doing
-nothing keeps the change — it was already written to disk.
+finishes you can either scan every diff in one unified overview or walk the result inline, in the live
+editor, change-by-change and file-by-file. Doing nothing keeps the change — it was already written to disk.
 
-There is **no separate review panel and no "show changes" list.** The review surface is the
-**hovering inline-diff toolbar** that already renders over the editor; review is the changes themselves,
-decorated in the files where they live, walked from that one toolbar. This builds directly on the
-hook-driven change tracker and the inline diff renderer that already exist. See
+The two review modes are projections over one Core-owned review board:
+
+- **Unified review** is a GitHub-style page with aggregate additions/deletions, the complete file list,
+  and contextual diff hunks for every file. It is optimized for breadth and file-level decisions.
+- **File review** is the hovering inline-diff toolbar over the live editor. It is optimized for depth:
+  syntax-aware code context, hunk navigation, comments, and line-level Keep/Revert.
+
+`weavie.review.toggleMode` (`$mod+Shift+u` by default) moves between them without creating a second
+review state. Entering unified mode requests any diffs not yet streamed by a PR/ref review; host
+re-emissions update both views. This builds directly on the hook-driven change tracker and the inline
+diff renderer that already exist. See
 [permission-modes-and-change-tracking.md](permission-modes-and-change-tracking.md) and
 [../concepts/hook-bridge.md](../concepts/hook-bridge.md) for the machinery this sits on.
 
@@ -61,7 +68,7 @@ key.
   not apply (the host suppresses the post-turn surface exactly as it suppresses `turn-diff` in
   `default`).
 
-## The one surface: the hovering inline toolbar
+## The file-focused surface: the hovering inline toolbar
 
 The inline-diff renderer (`src/web/src/editor/inline-diff.ts`) already paints a turn's applied changes
 in the live editor (added lines, removed ghosts, char-level highlights) with a small floating toolbar
@@ -116,7 +123,8 @@ editor is **never** auto-moved (mid-turn or at turn-end). Stepping in is always 
 pushes the review set live (after completed buffer saves and tracker-reported changes/deletions); the page decides to park or expand it
 purely from whether a changed file is in view — so there's no host-side `open` flag or auto-arm bookkeeping,
 and it's race-free across a session switch by construction (parking never touches the editor). The
-`weavie.review.open` command (palette) still jumps to the first change on demand.
+`weavie.review.open` command opens the unified overview; an invocation with `path` and `line` opens that
+exact location in file review.
 
 ## What already exists (reused, not rebuilt)
 
@@ -314,7 +322,8 @@ visibility, so the commands stay runnable from the palette regardless of focus.
 | `weavie.diff.undo` | _(palette-only)_ | **Revert all** — undo the whole set on disk (confirms; undoable) |
 | `weavie.review.nextFile` | `ctrl+$mod+Right` | next file in the review set (land on first change) |
 | `weavie.review.prevFile` | `ctrl+$mod+Left` | previous file in the review set |
-| `weavie.review.open` | _(palette-only)_ | open the first reviewed file at its first change |
+| `weavie.review.open` | _(palette-only)_ | open the unified overview; `path` + `line` opens file review |
+| `weavie.review.toggleMode` | `$mod+Shift+u` | switch between unified and file review |
 
 Navigation rides `ctrl+$mod`: plain Ctrl+arrows on Win/Linux, ⌃⌘+arrows on Mac — so ⌘+arrows keep their
 macOS line/document meaning even mid-review. On Win/Linux `Ctrl+Left/Right` override Monaco's
@@ -421,8 +430,12 @@ The session-changes "show changes" panel and the post-turn review panel (both fl
 - **Reverting a created file deletes it**, and the file may be open in a review tab. The delete goes out
   as an `fs-change` removal; the editor must close that tab cleanly (no "Unable to read file" toast) and
   the walk auto-advances.
-- **Binary / very large files.** The tracker is text-based already; the navigator inherits whatever the
-  inline diff does today.
+- **Large reviews.** The unified page virtualizes file sections with the same virtualizer as the agent
+  transcript and defers layout for off-screen row chunks. It has no line-count cutoff: a 4,000-line file
+  renders normally when the diff engine completes. An actual computation timeout is visible in that file
+  and directs the user to focused review. The inline Monaco presentation retains its explicit per-file
+  decoration boundary because thousands of editor decorations are a different cost from plain diff rows.
+- **Binary files.** The tracker is text-based already; both presentations inherit that boundary.
 
 ## Open questions
 

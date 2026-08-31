@@ -3,8 +3,8 @@ import { appliedEdit } from "../harness/review";
 
 // #125: when a turn lands changes but NO file is open, the inline parked navigator can't render (it lives in
 // the editor that isn't mounted at boot), so the editor empty-state pane is the only place the user can learn
-// Claude changed files. It must surface a "Review changes — N files" cue, and clicking it must step into the
-// review (open the first changed file). Boot leaves no file open, so the empty-state pane is showing.
+// Claude changed files. It must surface a "Review changes — N files" cue, and clicking it must open the
+// unified overview. Boot leaves no file open, so the empty-state pane is showing.
 
 const TWO_HUNKS =
   "export function greet(name: string): string {\n" +
@@ -23,7 +23,7 @@ test.describe("empty-state review cue (#125)", () => {
     },
   });
 
-  test("no file open: the cue counts the changed files and clicking it steps into review", async ({
+  test("no file open: the cue counts the changed files and opens unified review", async ({
     page,
   }) => {
     // Boot leaves no editor tab open, so the empty-state pane is showing — and the inline parked navigator
@@ -36,12 +36,11 @@ test.describe("empty-state review cue (#125)", () => {
     await expect(cue).toBeVisible({ timeout: 15_000 });
     await expect(cue).toContainText("Review changes — 2 files");
 
-    // Clicking it steps in: opens the first changed file (hello.ts) and the live applied toolbar takes over.
+    // Clicking it opens the all-files overview without manufacturing an editor tab.
     await cue.click();
-    await expect(page.locator(".editor-tab", { hasText: "hello.ts" })).toBeVisible();
-    await expect(page.locator(".weavie-inline-toolbar")).toBeVisible({ timeout: 15_000 });
-    // The empty pane is gone now that a file is open.
-    await expect(page.locator(".editor-empty")).toHaveCount(0);
+    await expect(page.locator(".unified-review")).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator(".unified-review-file")).toHaveCount(2);
+    await expect(page.locator(".editor-tab")).toHaveCount(0);
   });
 });
 

@@ -2,7 +2,6 @@
 // highlights, an action toolbar). The modified side is always the live model content, so the diff tracks edits
 // live. Owns only its decorations/zones/widget — never disposes the host-owned live model.
 
-import { linesDiffComputers } from "@codingame/monaco-vscode-api/vscode/vs/editor/common/diff/linesDiffComputers";
 import type { ClientSession, ReviewCommentInfo } from "../bridge";
 import { setContext } from "../commands/context";
 import { formatKey, IS_MAC } from "../commands/keybindings";
@@ -12,13 +11,14 @@ import { onFontsChanged } from "../fonts";
 import { reviewToModelLine } from "./diff-geometry";
 import { monaco } from "./monaco-setup";
 import { REVEAL_SCROLL } from "./reveal-scroll";
+import {
+  computeDiffLines,
+  diffTextTooLarge,
+  MAX_DIFF_CHARACTERS,
+  MAX_DIFF_LINES,
+  splitDiffLines,
+} from "./review/diff-computation";
 import { sessionFileUri } from "./session-uri";
-
-const DIFF_OPTIONS = {
-  ignoreTrimWhitespace: false,
-  maxComputationTimeMs: 1000,
-  computeMoves: false,
-} as const;
 
 // Debounce diff recompute so typing into a model under review (or a burst of working-copy reloads) doesn't
 // recompute + re-lay-out view zones on every keystroke.
@@ -26,10 +26,6 @@ const RECOMPUTE_DEBOUNCE_MS = 120;
 
 // Show change-position dots only up to this many hunks; above it the numeric `change j/M` carries position.
 const MAX_CHANGE_DOTS = 7;
-
-// Rendering thousands of lines creates enough Monaco decorations and DOM nodes to freeze the review UI.
-const MAX_DIFF_LINES = 2_000;
-const MAX_DIFF_CHARACTERS = 500_000;
 
 // Height of the "New file" header band shown above a wholly-new file's first line.
 const NEW_FILE_BADGE_HEIGHT = 24;
@@ -202,28 +198,6 @@ export interface ReviewHistoryState {
   canRedo: boolean;
 }
 
-// Split a string into lines the way a Monaco model does (so `original` lines line up with getLinesContent()).
-function splitLines(text: string): string[] {
-  return text.replace(/\r\n?/g, "\n").split("\n");
-}
-
-function textTooLarge(text: string): boolean {
-  if (text.length > MAX_DIFF_CHARACTERS) {
-    return true;
-  }
-  let lines = 1;
-  for (let i = 0; i < text.length; i++) {
-    const char = text.charCodeAt(i);
-    if (
-      (char === 10 || (char === 13 && text.charCodeAt(i + 1) !== 10)) &&
-      ++lines > MAX_DIFF_LINES
-    ) {
-      return true;
-    }
-  }
-  return false;
-}
-
 // A file carries a faded "accepted" band (kept-but-uncommitted hunks) iff its accepted anchor diverges from the
 // review baseline. Only meaningful in applied mode. A fully-kept file has no bright hunks but still shows this band.
 function hasFadedBand(options: InlineDiffOptions): boolean {
@@ -261,16 +235,13 @@ interface AcceptedHunk extends HunkUnkeep {
  * Uses the same diff machinery and anchor rule as `render`, so it matches where "next change" first lands.
  */
 export function firstChangedLine(original: string, modified: string): number {
-  if (textTooLarge(original) || textTooLarge(modified)) {
+  if (diffTextTooLarge(original) || diffTextTooLarge(modified)) {
     return 1;
   }
-  const result = linesDiffComputers
-    .getDefault()
-    .computeDiff(splitLines(original), splitLines(modified), DIFF_OPTIONS);
-  if (result.hitTimeout) {
+  const changes = computeDiffLines(splitDiffLines(original), splitDiffLines(modified));
+  if (changes === null) {
     return 1;
   }
-  const { changes } = result;
   const first = changes[0];
   return first === undefined ? 1 : Math.max(1, first.modified.startLineNumber);
 }
@@ -1325,22 +1296,21 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     if (
       model.getValueLength() > MAX_DIFF_CHARACTERS ||
       model.getLineCount() > MAX_DIFF_LINES ||
-      textTooLarge(options.original) ||
-      (options.claudeVersion !== undefined && textTooLarge(options.claudeVersion)) ||
-      (options.acceptedBaseline !== undefined && textTooLarge(options.acceptedBaseline))
+      diffTextTooLarge(options.original) ||
+      (options.claudeVersion !== undefined && diffTextTooLarge(options.claudeVersion)) ||
+      (options.acceptedBaseline !== undefined && diffTextTooLarge(options.acceptedBaseline))
     ) {
       renderTooLarge(uriString, options);
       return;
     }
 
-    const original = splitLines(options.original);
+    const original = splitDiffLines(options.original);
     const modified = model.getLinesContent();
-    const result = linesDiffComputers.getDefault().computeDiff(original, modified, DIFF_OPTIONS);
-    if (result.hitTimeout) {
+    const changes = computeDiffLines(original, modified);
+    if (changes === null) {
       renderTooLarge(uriString, options);
       return;
     }
-    const { changes } = result;
     // A fully-kept file has no bright (pending) hunks but still carries a faded accepted band — don't bail on it.
     if (changes.length === 0 && !hasFadedBand(options)) {
       return; // no net change and nothing kept — nothing to render
@@ -1354,14 +1324,12 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     // claudeVersion is omitted or the model still matches it.
     const userLines = new Set<number>();
     if (options.claudeVersion !== undefined) {
-      const userDiff = linesDiffComputers
-        .getDefault()
-        .computeDiff(splitLines(options.claudeVersion), modified, DIFF_OPTIONS);
-      if (userDiff.hitTimeout) {
+      const userDiff = computeDiffLines(splitDiffLines(options.claudeVersion), modified);
+      if (userDiff === null) {
         renderTooLarge(uriString, options);
         return;
       }
-      for (const change of userDiff.changes) {
+      for (const change of userDiff) {
         for (
           let ln = change.modified.startLineNumber;
           ln < change.modified.endLineNumberExclusive;
@@ -1450,15 +1418,12 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     // line via that diff, wash it faded green in place, and hang an inline ↶ undo beside it. The faded band is a
     // pure overlay: it never enters `hunks`, so ↑/↓ and Keep/Revert only ever touch the bright pending hunks.
     if (hasFadedBand(options) && options.acceptedBaseline !== undefined) {
-      const accepted = splitLines(options.acceptedBaseline);
-      const fadedDiff = linesDiffComputers
-        .getDefault()
-        .computeDiff(accepted, original, DIFF_OPTIONS);
-      if (fadedDiff.hitTimeout) {
+      const accepted = splitDiffLines(options.acceptedBaseline);
+      const fadedChanges = computeDiffLines(accepted, original);
+      if (fadedChanges === null) {
         renderTooLarge(uriString, options);
         return;
       }
-      const fadedChanges = fadedDiff.changes;
       for (const change of fadedChanges) {
         const reviewStart = change.modified.startLineNumber;
         const reviewEndExclusive = change.modified.endLineNumberExclusive;

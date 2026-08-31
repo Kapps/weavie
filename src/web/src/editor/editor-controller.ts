@@ -8,7 +8,6 @@ import {
   isBrowserHostedShell,
   log,
   onSelectedSession,
-  type ReviewCommentInfo,
   registerSessionFeature,
   selectedSession,
 } from "../bridge";
@@ -24,7 +23,7 @@ import type {
 } from "../symbols/symbol-match";
 import type { CommentProse } from "./comment-prose";
 import type { EditorHost } from "./editor-host";
-import { normalizePath, samePath } from "./fs-path";
+import { samePath } from "./fs-path";
 import type { GitBlameController } from "./git-blame";
 import type {
   HunkRevert,
@@ -37,6 +36,15 @@ import { mediaTypeOf } from "./media/media-types";
 import { createNavHistory, type NavHistory } from "./nav-history";
 import { setAgentPlan } from "./plan/plan-store";
 import { REVEAL_SCROLL } from "./reveal-scroll";
+import {
+  createReviewStore,
+  type ReviewComments,
+  type ReviewFile,
+  type ReviewFileDiff,
+  type ReviewHistory,
+  type ReviewOverview,
+  type ReviewPresentationMode,
+} from "./review/review-store";
 import type { ReviseMarks, ReviseRegion } from "./revise-marks";
 import {
   type ActivateResult,
@@ -85,38 +93,6 @@ export interface EditorControllerDeps {
   promptRevision: (lineCount: number) => Promise<string | null>;
 }
 
-/** One changed file in the post-turn review set: path, line counts, and the 1-based line of its first change. */
-export interface ReviewFile {
-  path: string;
-  name: string;
-  added: number;
-  removed: number;
-  line: number;
-}
-
-const MAX_REVIEW_FILES = 99;
-
-interface TurnDiff {
-  path: string;
-  name: string;
-  acceptedBaseline: string;
-  baseline: string;
-  current: string;
-}
-
-interface ReviewHistory {
-  canUndo: boolean;
-  canUndoKeep: boolean;
-  canUndoRevert: boolean;
-  canRedo: boolean;
-}
-
-interface ReviewComments {
-  number: number;
-  path: string;
-  comments: ReviewCommentInfo[];
-}
-
 interface DiffProposal {
   id: string;
   path: string;
@@ -129,22 +105,6 @@ interface SessionProposal extends DiffProposal {
   addedTab: boolean;
   priorActive: string | null;
 }
-
-interface SessionReviewState {
-  files: ReviewFile[];
-  label: string;
-  diffs: Map<string, TurnDiff>;
-  comments: Map<string, ReviewComments>;
-  history: ReviewHistory;
-  proposal: SessionProposal | null;
-}
-
-const EMPTY_HISTORY: ReviewHistory = {
-  canUndo: false,
-  canUndoKeep: false,
-  canUndoRevert: false,
-  canRedo: false,
-};
 
 /**
  * Tab operations exposed to commands and the tab strip. Targeted ops default to the active tab when `path` is
@@ -214,8 +174,8 @@ export interface EditorController {
   flushDirty(): Promise<void>;
   /** Flushes one exact session's editor state and dirty working copies before its backend is torn down. */
   flushSession(session: ClientSession): Promise<void>;
-  /** Open the first file in the review set landed on its first change (the manual "jump into review"). */
-  openFirstReviewFile(): boolean;
+  /** Open the review overview, or a specific file when a path is supplied. */
+  openReview(session: ClientSession, path: string | undefined, line: number | undefined): boolean;
   /**
    * Opens the blame popover for the cursor's line, or reports why that line has no commit behind it. False
    * only when no editor is mounted, so the command declines rather than appearing to do nothing.
@@ -228,6 +188,20 @@ export interface EditorController {
   /** How many files are pending post-turn review (reactive), so the empty-state pane can surface a review cue
    * when no file is open. */
   parkedReviewCount(): number;
+  readonly review: {
+    mode(): ReviewPresentationMode;
+    overview(): ReviewOverview;
+    toggleMode(session: ClientSession): boolean;
+    setCursor(session: ClientSession, path: string, line: number): void;
+    revert(session: ClientSession): boolean;
+    keepFile(session: ClientSession, path: string | undefined): boolean;
+    revertFile(session: ClientSession, path: string | undefined): boolean;
+    keepAll(session: ClientSession): boolean;
+    revertAll(session: ClientSession): boolean;
+    undoKeep(session: ClientSession): boolean;
+    undoRevert(session: ClientSession): boolean;
+    redo(session: ClientSession): boolean;
+  };
   readonly inline: InlineDiffActions;
   readonly tabs: TabActions;
   readonly nav: NavActions;
@@ -250,24 +224,10 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   // Disposables for the content/model listeners that feed activeContent (the live Preview text).
   let contentSubs: { dispose(): void }[] = [];
   let editorMounted = false;
-  const reviewStates = new WeakMap<ClientSession, SessionReviewState>();
+  const reviews = createReviewStore();
+  const reviewProposals = new WeakMap<ClientSession, SessionProposal>();
   const publishSelected = (feature: string, name: string, payload: unknown): void => {
     selectedSession()?.feature(feature).publish(name, payload);
-  };
-  const stateFor = (session: ClientSession): SessionReviewState => {
-    let state = reviewStates.get(session);
-    if (state === undefined) {
-      state = {
-        files: [],
-        label: "",
-        diffs: new Map(),
-        comments: new Map(),
-        history: EMPTY_HISTORY,
-        proposal: null,
-      };
-      reviewStates.set(session, state);
-    }
-    return state;
   };
   const rebindSession = async (session: ClientSession): Promise<void> => {
     const editorHost = host;
@@ -287,20 +247,6 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   const [activeContent, setActiveContent] = createSignal("");
   // Whether an inline openDiff review currently occupies the editor, so the Preview overlay suspends over it.
   const [reviewActive, setReviewActive] = createSignal(false);
-  // How many files are pending post-turn review, so the empty-state pane can surface a "review changes" cue
-  // when no file is open (the inline parked toolbar can't render without a mounted editor). See #125.
-  const [parkedReviewCount, setParkedReviewCount] = createSignal(0);
-  // Files Claude changed since the last review, in document order; drives the toolbar's ← / → file walk.
-  let reviewFiles: ReviewFile[] = [];
-  let reviewFilesTruncated = false;
-  // Names the review in the toolbar/parked subtitle ("PR #12", "vs main"); empty for a plain post-turn review.
-  // Carried on the turn-changes push (from the host's active DiffReview), so the applied surface always names
-  // what it's diffing against.
-  let reviewLabel = "";
-  // A PR file's review comments (+ the PR number to post replies against), keyed by normalized path. Merged into
-  // the applied diff so Comment/Reply coexist with Accept/Reject; a present entry (even empty) marks a PR file.
-  // Cleared on turn-reset / switch, then repopulated by the host's review-comments pushes.
-  const commentsByPath = new Map<string, { number: number; comments: ReviewCommentInfo[] }>();
   // The openDiff under inline review (at most one live, since openDiff blocks). `reviewUri` keys the transient
   // review model the inline diff is rendered over.
   let activeReview:
@@ -377,6 +323,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     if (selectedSession() !== session) {
       return false;
     }
+    reviews.leaveUnified(session);
     deps.onDestinationActivated();
     return true;
   };
@@ -471,11 +418,13 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     if (existing !== undefined) {
       return existing;
     }
-    const created = createNavHistory((loc) =>
-      selectedSession() !== session || host === undefined
-        ? Promise.resolve()
-        : applyActive(session, openTabFor(session, loc.path, { line: loc.line })),
-    );
+    const created = createNavHistory((loc) => {
+      if (selectedSession() !== session || host === undefined) {
+        return Promise.resolve();
+      }
+      activateDestinationFor(session);
+      return applyActive(session, openTabFor(session, loc.path, { line: loc.line }));
+    });
     navHistories.set(session, created);
     return created;
   };
@@ -513,6 +462,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   const openWebTab = (url: string): void => {
     const session = selectedSession();
     if (session !== null) {
+      activateDestinationFor(session);
       void applyActive(session, openTabFor(session, url, { kind: "web" }));
     }
   };
@@ -522,6 +472,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   const openSourceTab = (target: string): void => {
     const session = selectedSession();
     if (session !== null) {
+      activateDestinationFor(session);
       void applyActive(session, openTabFor(session, target, { kind: "source" }));
     }
   };
@@ -712,6 +663,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     }
     const result = activateTabFor(session, target.path);
     if (result !== null) {
+      activateDestinationFor(session);
       void applyActive(session, result);
     }
     return true;
@@ -743,6 +695,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       const session = selectedSession();
       const result = session === null ? null : activateTabFor(session, path);
       if (session !== null && result !== null) {
+        activateDestinationFor(session);
         void applyActive(session, result);
       }
     },
@@ -809,7 +762,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     if (!keep && review.addedTab) {
       dropReviewTabFor(review.session, review.path, review.priorActive);
     }
-    stateFor(review.session).proposal = null;
+    reviewProposals.delete(review.session);
     if (selectedSession() === review.session) {
       deps.onCurrentFileChanged(activePathFor(review.session));
     }
@@ -832,6 +785,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         ({ session, path, selection }) => {
           const result = openTabFor(session, path, { preview: true });
           result.placement = selection === undefined ? { line: 1 } : { selection };
+          activateDestinationFor(session);
           void applyActive(session, result);
         },
       ),
@@ -921,40 +875,72 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
 
   // Open a review file on its first change as a preview tab (so ← / → reuses one tab); re-requests its turn-diff
   // so applied markers render even if the push was missed.
-  const openReviewFile = (file: ReviewFile): void => {
-    const session = selectedSession();
-    if (session !== null) {
-      openFileFor(session, file.path, file.line, true);
-      session.feature("review").publish("showFile", { path: file.path });
+  const openReviewFile = (session: ClientSession, file: ReviewFile, line: number): void => {
+    if (selectedSession() !== session) {
+      return;
     }
+    reviews.enterFile(session, { path: file.path, line });
+    openFileFor(session, file.path, line, true);
+    session.feature("review").publish("showFile", { path: file.path });
+  };
+
+  const showUnifiedReview = (session: ClientSession): boolean => {
+    if (selectedSession() !== session) {
+      return false;
+    }
+    const state = reviews.board(session);
+    if (state.files.length === 0) {
+      return false;
+    }
+    let cursor = state.cursor;
+    if (state.mode === "file") {
+      const current = activePathFor(session);
+      const file = state.files.find(
+        (candidate) => current !== null && samePath(candidate.summary().path, current),
+      );
+      if (file !== undefined) {
+        const summary = file.summary();
+        cursor = {
+          path: summary.path,
+          line: host?.editor.getPosition()?.lineNumber ?? summary.line,
+        };
+      }
+    }
+    for (const path of reviews.enterUnified(session, cursor)) {
+      session.feature("review").publish("showFile", { path });
+    }
+    deps.onDestinationActivated();
+    return true;
   };
 
   // Monotonic revision of the published review set.
   let reviewRev = 0;
   // Reflect the review set onto the inline-diff's parked navigator: it surfaces (parked at "change 0", editor
   // untouched) whenever files are pending and none is in view, so review is visible the moment changes land —
-  // stepping in (a nav key) opens the first change. Called wherever reviewFiles changes.
-  const updateParkedReview = (): void => {
-    setParkedReviewCount(reviewFiles.length);
+  // stepping in (a nav key) opens the first change. Called wherever the review board changes.
+  const updateParkedReview = (session: ClientSession | null): void => {
+    const state = session === null ? null : reviews.board(session);
+    const files = state?.files.map((file) => file.summary()) ?? [];
+    const label = state?.label ?? "";
     // Publish the live review-walk set for e2e / diagnostics (read-only) — a failed PR-switch test attaches
     // exactly which files the navigator holds, so a leaked cross-PR mix is visible without walking it. `rev`
     // is a monotonic counter bumped on every change so a test can detect quiescence exactly (poll-sampling
     // the file list alone can miss a fast bounce during a rapid switch storm's push drain).
     reviewRev += 1;
     window.__WEAVIE_REVIEW__ = {
-      files: reviewFiles.map((file) => file.path),
-      label: reviewLabel,
+      files: files.map((file) => file.path),
+      label,
       rev: reviewRev,
     };
     inlineDiff?.setParkedReview(
-      reviewFiles.length > 0
+      files.length > 0
         ? {
-            fileCount: reviewFiles.length,
-            ...(reviewLabel !== "" ? { label: reviewLabel } : {}),
+            fileCount: files.length,
+            ...(label !== "" ? { label } : {}),
             stepIn: () => {
-              const first = reviewFiles[0];
-              if (first !== undefined) {
-                openReviewFile(first);
+              const first = files[0];
+              if (session !== null && first !== undefined) {
+                openReviewFile(session, first, first.line);
               }
             },
           }
@@ -970,11 +956,6 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       canUndoRevert: false,
       canRedo: false,
     });
-    reviewFiles = [];
-    reviewFilesTruncated = false;
-    reviewLabel = "";
-    commentsByPath.clear();
-    updateParkedReview();
     commentProse?.refresh();
   };
 
@@ -983,19 +964,21 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   // OUT of the set (a session switch's in-flight rebind briefly leaves a stale tab on screen) re-enters at the
   // first file — a nav key pressed at a live review toolbar must never silently no-op.
   const stepReviewFile = (delta: number): boolean => {
-    if (reviewFiles.length < 2) {
+    const session = selectedSession();
+    if (session === null) {
+      return false;
+    }
+    const files = reviews.board(session).files.map((file) => file.summary());
+    if (files.length < 2) {
       return false;
     }
     const current = activePath();
-    const idx = current === null ? -1 : reviewFiles.findIndex((f) => samePath(f.path, current));
-    const next =
-      idx === -1
-        ? reviewFiles[0]
-        : reviewFiles[(idx + delta + reviewFiles.length) % reviewFiles.length];
+    const idx = current === null ? -1 : files.findIndex((file) => samePath(file.path, current));
+    const next = idx === -1 ? files[0] : files[(idx + delta + files.length) % files.length];
     if (next === undefined) {
       return false;
     }
-    openReviewFile(next);
+    openReviewFile(session, next, next.line);
     return true;
   };
 
@@ -1003,13 +986,14 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   // review: open the next changed file (wrapping, on its first change) so the toolbar follows the review
   // instead of vanishing. Only called when more than one file remains; the kept/reverted file is skipped
   // since the host drops it from the review set right after.
-  const advanceToNextPendingFile = (fromPath: string): void => {
-    const idx = reviewFiles.findIndex((f) => samePath(f.path, fromPath));
+  const advanceToNextPendingFile = (session: ClientSession, fromPath: string): void => {
+    const files = reviews.board(session).files.map((file) => file.summary());
+    const idx = files.findIndex((file) => samePath(file.path, fromPath));
     const start = idx === -1 ? 0 : idx;
-    for (let step = 1; step <= reviewFiles.length; step++) {
-      const candidate = reviewFiles[(start + step) % reviewFiles.length];
+    for (let step = 1; step <= files.length; step++) {
+      const candidate = files[(start + step) % files.length];
       if (candidate !== undefined && !samePath(candidate.path, fromPath)) {
-        openReviewFile(candidate);
+        openReviewFile(session, candidate, candidate.line);
         return;
       }
     }
@@ -1059,6 +1043,23 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     afterFlush(session, path, () => session.feature("review").publish("keepFile", { path }));
   };
 
+  const pendingReviewFile = (
+    session: ClientSession,
+    path: string | undefined,
+  ): ReviewFile | null => {
+    const target = path ?? activePathFor(session);
+    const file = reviews
+      .board(session)
+      .files.find((candidate) => target !== null && samePath(candidate.summary().path, target));
+    const diff = file?.diff();
+    return file === undefined ||
+      diff === null ||
+      diff === undefined ||
+      diff.baseline === diff.current
+      ? null
+      : file.summary();
+  };
+
   // Revert every change in one file to its turn baseline on disk, after a confirm (the host restores the file
   // wholesale and re-emits its now-empty diff + the trimmed review set).
   const revertFile = (session: ClientSession, path: string): void => {
@@ -1079,7 +1080,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
 
   // Revert the whole turn (revert all), after a confirm — the host reverts every touched file to its baseline.
   const revertAllFor = (session: ClientSession): void => {
-    const count = stateFor(session).files.length;
+    const count = reviews.board(session).files.length;
     void deps
       .confirm({
         title: "Revert all changes?",
@@ -1093,14 +1094,42 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       });
   };
 
+  const tryRevertAll = (session: ClientSession): boolean => {
+    if (reviews.board(session).files.length === 0) {
+      return false;
+    }
+    revertAllFor(session);
+    return true;
+  };
+
+  const undoReview = (session: ClientSession, kind: "keep" | "revert"): boolean => {
+    const history = reviews.board(session).history;
+    if (kind === "keep" ? !history.canUndoKeep : !history.canUndoRevert) {
+      return false;
+    }
+    session.feature("review").publish("undo", { kind });
+    return true;
+  };
+
+  const redoReview = (session: ClientSession): boolean => {
+    if (!reviews.board(session).history.canRedo) {
+      return false;
+    }
+    session.feature("review").publish("redo", {});
+    return true;
+  };
+
   // The Comment/Reply actions for a PR file under review (nothing for a plain turn file), merged into the applied
   // diff so commenting coexists with Accept/Reject on the one toolbar. `number` is the PR to post against.
   const prCommentActions = (
     session: ClientSession,
     path: string,
   ): Pick<InlineDiffOptions, "comments" | "onAddComment" | "onReply"> => {
-    const pr = commentsByPath.get(normalizePath(path));
-    if (pr === undefined) {
+    const pr = reviews
+      .board(session)
+      .files.find((file) => samePath(file.summary().path, path))
+      ?.comments();
+    if (pr === null || pr === undefined) {
       return {};
     }
     return {
@@ -1176,20 +1205,22 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     });
   };
 
-  const renderTurnDiff = (session: ClientSession, message: TurnDiff): void => {
+  const renderTurnDiff = (session: ClientSession, message: ReviewFileDiff): void => {
+    const state = reviews.board(session);
+    const files = state.files.map((file) => file.summary());
     if (message.acceptedBaseline === message.current) {
       inlineDiff?.clear(session, message.path);
       commentProse?.refresh();
       const active = activePathFor(session);
-      if (active !== null && samePath(active, message.path) && reviewFiles.length > 1) {
-        advanceToNextPendingFile(message.path);
+      if (active !== null && samePath(active, message.path) && files.length > 1) {
+        advanceToNextPendingFile(session, message.path);
       }
       return;
     }
 
-    const index = reviewFiles.findIndex((file) => samePath(file.path, message.path));
+    const index = files.findIndex((file) => samePath(file.path, message.path));
     const fileNavigation =
-      reviewFiles.length > 1 && index !== -1
+      files.length > 1 && index !== -1
         ? {
             onPrevFile: (): void => {
               stepReviewFile(-1);
@@ -1198,7 +1229,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
               stepReviewFile(1);
             },
             fileIndex: index + 1,
-            fileCount: reviewFiles.length,
+            fileCount: files.length,
           }
         : {};
     inlineDiff?.set(session, message.path, {
@@ -1211,15 +1242,10 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       onRevertHunk: (hunk) => revertHunk(session, message.path, hunk),
       onRevertFile: () => revertFile(session, message.path),
       onUnkeepHunk: (hunk) => unkeepHunk(session, message.path, hunk),
-      ...(!reviewFilesTruncated
-        ? {
-            onKeepAll: () => session.feature("review").publish("accept", {}),
-            onUndo: () => revertAllFor(session),
-          }
-        : {}),
-      allActionsDisabled: reviewFilesTruncated,
+      onKeepAll: () => session.feature("review").publish("accept", {}),
+      onUndo: () => revertAllFor(session),
       fileLabel: message.name,
-      ...(reviewLabel !== "" ? { reviewLabel } : {}),
+      ...(state.label !== "" ? { reviewLabel: state.label } : {}),
       ...fileNavigation,
       ...prCommentActions(session, message.path),
     });
@@ -1230,95 +1256,72 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     if (selectedSession() !== session) {
       return;
     }
-    const state = stateFor(session);
+    const state = reviews.board(session);
+    const proposal = reviewProposals.get(session) ?? null;
     if (
       activeReview !== undefined &&
-      (activeReview.session !== session ||
-        state.proposal === null ||
-        activeReview.id !== state.proposal.id)
+      (activeReview.session !== session || proposal === null || activeReview.id !== proposal.id)
     ) {
       clearPresentedProposal();
     }
     resetPresentedReview();
-    reviewFiles = state.files.slice(0, MAX_REVIEW_FILES);
-    const reviewFileCount = Math.max(state.files.length, state.diffs.size);
-    reviewFilesTruncated = reviewFileCount > MAX_REVIEW_FILES;
-    reviewLabel = reviewFilesTruncated
-      ? `${state.label === "" ? "" : `${state.label} · `}showing ${MAX_REVIEW_FILES} of ${reviewFileCount}`
-      : state.label;
-    for (const [path, comments] of state.comments) {
-      commentsByPath.set(path, {
-        number: comments.number,
-        comments: comments.comments,
-      });
-    }
-    updateParkedReview();
+    updateParkedReview(session);
     inlineDiff?.setReviewHistory(state.history);
-    for (const diff of state.diffs.values()) {
-      renderTurnDiff(session, diff);
+    for (const file of state.files) {
+      const diff = file.diff();
+      if (diff !== null) {
+        renderTurnDiff(session, diff);
+      }
     }
-    if (state.proposal !== null) {
-      presentProposal(session, state.proposal);
+    if (proposal !== null) {
+      presentProposal(session, proposal);
     }
   };
 
   const setReviewFilesFor = (session: ClientSession, files: ReviewFile[], label: string): void => {
-    const state = stateFor(session);
-    const live = new Set(files.map((file) => normalizePath(file.path)));
-    for (const path of state.diffs.keys()) {
-      if (!live.has(path)) {
-        state.diffs.delete(path);
-      }
-    }
-    state.files = files;
-    state.label = label;
+    reviews.setFiles(session, files, label);
     renderReviewState(session);
   };
 
-  const setTurnDiffFor = (session: ClientSession, message: TurnDiff): void => {
-    const state = stateFor(session);
-    const path = normalizePath(message.path);
-    if (message.acceptedBaseline === message.current) {
-      state.diffs.delete(path);
-    } else {
-      state.diffs.set(path, message);
+  const setTurnDiffFor = (session: ClientSession, message: ReviewFileDiff): void => {
+    reviews.setDiff(session, message);
+    if (selectedSession() === session) {
+      renderTurnDiff(session, message);
     }
-    renderReviewState(session);
   };
 
   const setReviewCommentsFor = (session: ClientSession, message: ReviewComments): void => {
-    stateFor(session).comments.set(normalizePath(message.path), message);
-    renderReviewState(session);
+    const state = reviews.setComments(session, message);
+    if (selectedSession() !== session) {
+      return;
+    }
+    const diff = state.files.find((file) => samePath(file.summary().path, message.path))?.diff();
+    if (diff !== null && diff !== undefined) {
+      renderTurnDiff(session, diff);
+    }
   };
 
   const resetReviewFor = (session: ClientSession): void => {
-    const state = stateFor(session);
-    state.files = [];
-    state.label = "";
-    state.diffs.clear();
-    state.comments.clear();
-    state.history = EMPTY_HISTORY;
-    state.proposal = null;
+    reviews.reset(session);
+    reviewProposals.delete(session);
     renderReviewState(session);
   };
 
   const showProposal = (session: ClientSession, message: DiffProposal): void => {
-    const state = stateFor(session);
     const priorActive = activePathFor(session);
     const addedTab = !openTabsFor(session).some((tab) => samePath(tab.path, message.path));
-    state.proposal = { ...message, priorActive, addedTab };
+    reviewProposals.set(session, { ...message, priorActive, addedTab });
     openTabFor(session, message.path, {});
     activateDestinationFor(session);
     renderReviewState(session);
   };
 
   const closeProposal = (session: ClientSession, id: string): void => {
-    const state = stateFor(session);
-    const proposal = state.proposal;
+    const proposal = reviewProposals.get(session) ?? null;
     if (proposal === null || proposal.id !== id) {
       return;
     }
-    state.proposal = null;
+    reviewProposals.delete(session);
     if (activeReview?.session === session && activeReview.id === id) {
       clearPresentedProposal();
     }
@@ -1333,7 +1336,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
 
   const replaceProposals = (session: ClientSession, proposals: DiffProposal[]): void => {
     const next = proposals.at(-1);
-    const current = stateFor(session).proposal;
+    const current = reviewProposals.get(session) ?? null;
     if (next === undefined) {
       if (current !== null) {
         closeProposal(session, current.id);
@@ -1341,7 +1344,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       return;
     }
     if (current?.id === next.id) {
-      stateFor(session).proposal = { ...current, ...next };
+      reviewProposals.set(session, { ...current, ...next });
       renderReviewState(session);
       return;
     }
@@ -1355,15 +1358,11 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     session: ClientSession,
     changes: { path: string; kind: "updated" | "added" | "deleted" }[],
   ): void => {
-    const state = stateFor(session);
     for (const change of changes) {
       if (change.kind !== "deleted") {
         continue;
       }
-      const normalized = normalizePath(change.path);
-      state.files = state.files.filter((file) => !samePath(file.path, change.path));
-      state.diffs.delete(normalized);
-      state.comments.delete(normalized);
+      reviews.removeFile(session, change.path);
       const entry = openTabsFor(session).find((tab) => samePath(tab.path, change.path));
       if (entry === undefined) {
         continue;
@@ -1427,7 +1426,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       review.on<{ label: string; files: ReviewFile[] }>("changes", ({ label, files }) =>
         setReviewFilesFor(session, files, label),
       ),
-      review.on<TurnDiff>("diff", (message) => setTurnDiffFor(session, message)),
+      review.on<ReviewFileDiff>("diff", (message) => setTurnDiffFor(session, message)),
       review.on<ReviewComments>("comments", (message) => setReviewCommentsFor(session, message)),
       review.on("reset", () => resetReviewFor(session)),
       revise.on<{ regions: ReviseRegion[] }>("state", ({ regions }) =>
@@ -1439,8 +1438,10 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         return { ok: refusal === null, reason: refusal ?? "" };
       }),
       review.on<ReviewHistory>("history", (history) => {
-        stateFor(session).history = history;
-        renderReviewState(session);
+        const state = reviews.setHistory(session, history);
+        if (selectedSession() === session) {
+          inlineDiff?.setReviewHistory(state.history);
+        }
       }),
       files.on<{
         changes: { path: string; kind: "updated" | "added" | "deleted" }[];
@@ -1463,11 +1464,14 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
 
   const offSelection = onSelectedSession((session) => {
     if (!editorMounted) {
+      reviews.select(session);
       return;
     }
+    reviews.select(session);
     if (session === null) {
       clearPresentedProposal();
       resetPresentedReview();
+      updateParkedReview(null);
       host?.clear();
       deps.onCurrentFileChanged(null);
       return;
@@ -1601,6 +1605,8 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       if (session !== null) {
         if (focus) {
           activateDestinationFor(session);
+        } else {
+          reviews.leaveUnified(session);
         }
         void applyActive(
           session,
@@ -1620,18 +1626,91 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     save,
     flushDirty: () => host?.flushDirty() ?? Promise.resolve(),
     flushSession: (session) => host?.flushSession(session) ?? Promise.resolve(),
-    openFirstReviewFile: () => {
-      const first = reviewFiles[0];
-      if (first === undefined) {
+    openReview: (session, path, line) => {
+      if (selectedSession() !== session) {
         return false;
       }
-      openReviewFile(first);
+      if (path === undefined) {
+        return showUnifiedReview(session);
+      }
+      const view = reviews
+        .board(session)
+        .files.find((candidate) => samePath(candidate.summary().path, path));
+      if (view === undefined) {
+        return false;
+      }
+      const file = view.summary();
+      openReviewFile(session, file, line ?? file.line);
       return true;
     },
     showBlameAtCursor: () => gitBlame?.showAtCursor() ?? false,
     activeContent,
     reviewActive,
-    parkedReviewCount,
+    parkedReviewCount: reviews.count,
+    review: {
+      mode: reviews.mode,
+      overview: reviews.overview,
+      toggleMode: (session) => {
+        if (selectedSession() !== session) {
+          return false;
+        }
+        const state = reviews.board(session);
+        if (state.files.length === 0) {
+          return false;
+        }
+        if (state.mode === "file") {
+          return showUnifiedReview(session);
+        }
+        const cursor = state.cursor;
+        const cursorView = state.files.find(
+          (candidate) => cursor !== null && samePath(candidate.summary().path, cursor.path),
+        );
+        const view = cursorView ?? state.files[0];
+        if (view === undefined) {
+          return false;
+        }
+        const file = view.summary();
+        openReviewFile(
+          session,
+          file,
+          cursorView === undefined ? file.line : (cursor?.line ?? file.line),
+        );
+        return true;
+      },
+      setCursor: (session, path, line) => {
+        reviews.setCursor(session, { path, line });
+      },
+      revert: tryRevertAll,
+      keepFile: (session, path) => {
+        const file = pendingReviewFile(session, path);
+        if (file === null) {
+          return false;
+        }
+        keepFile(session, file.path);
+        return true;
+      },
+      revertFile: (session, path) => {
+        const file = pendingReviewFile(session, path);
+        if (file === null) {
+          return false;
+        }
+        revertFile(session, file.path);
+        return true;
+      },
+      keepAll: (session) => {
+        if (reviews.board(session).files.length === 0) {
+          return false;
+        }
+        session.feature("review").publish("accept", {});
+        return true;
+      },
+      revertAll: (session) => {
+        return tryRevertAll(session);
+      },
+      undoKeep: (session) => undoReview(session, "keep"),
+      undoRevert: (session) => undoReview(session, "revert"),
+      redo: redoReview,
+    },
     inline: {
       nextChange: () => inlineDiff?.nextChange() ?? false,
       prevChange: () => inlineDiff?.prevChange() ?? false,

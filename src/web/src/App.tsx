@@ -101,6 +101,7 @@ import {
   onCommandsChanged,
   onSessionActivated,
   registerCommand,
+  runCommandWithFeedback,
 } from "./commands/registry";
 import { selectedText, trackDocumentSelection } from "./commands/selection";
 import { CommandIds } from "./commands/types";
@@ -121,6 +122,7 @@ import {
 } from "./editor/preview/embed-zoom";
 import { canPreview } from "./editor/preview/preview-registry";
 import { RevisePrompt } from "./editor/RevisePrompt";
+import { reviewCommandBindings } from "./editor/review/review-commands";
 import { SaveAsPrompt } from "./editor/SaveAsPrompt";
 // Registers the per-session editor restore listener before the host's sync response; the
 // store otherwise lives only in the later editor chunk, so the push would arrive with no listener. Also
@@ -178,6 +180,7 @@ import { applyChromeTheme } from "./theme";
 const FileBrowser = lazy(() => import("./files/FileBrowser"));
 const PlanView = lazy(() => import("./editor/plan/PlanView"));
 const PreviewPane = lazy(() => import("./editor/preview/PreviewPane"));
+const UnifiedReview = lazy(() => import("./editor/review/UnifiedReview"));
 const SourceView = lazy(() => import("./editor/source/SourceView"));
 const SearchPanel = lazy(() =>
   import("./chrome/SearchPanel").then((m) => ({ default: m.SearchPanel })),
@@ -1106,10 +1109,23 @@ export default function App(): JSX.Element {
             activePath={activePath}
             actions={editor.tabs}
             trailing={
-              // Pane-switch badge: its own cell at the right of the tab bar (no longer floating over the tabs).
-              <Show when={showPaneHints() && paneShortcut(numberOf("editor")) !== ""}>
-                <span class="pane-shortcut">{paneShortcut(numberOf("editor"))}</span>
-              </Show>
+              <>
+                <Show when={editor.parkedReviewCount() > 0}>
+                  <button
+                    type="button"
+                    class="editor-review-toggle"
+                    aria-pressed={editor.review.mode() === "unified"}
+                    title={`${editor.review.mode() === "unified" ? "Switch to file review" : "View all changes"}${keyHint(CommandIds.reviewToggleMode)}`}
+                    onClick={() => void runCommandWithFeedback(CommandIds.reviewToggleMode)}
+                  >
+                    {editor.review.mode() === "unified" ? "File review" : "All changes"}
+                  </button>
+                </Show>
+                {/* Pane-switch badge: its own cell at the right of the tab bar. */}
+                <Show when={showPaneHints() && paneShortcut(numberOf("editor")) !== ""}>
+                  <span class="pane-shortcut">{paneShortcut(numberOf("editor"))}</span>
+                </Show>
+              </>
             }
           />
           <div class="editor-pane">
@@ -1197,11 +1213,24 @@ export default function App(): JSX.Element {
                 </Suspense>
               )}
             </Show>
+            <Show
+              when={editor.review.mode() === "unified" && editor.review.overview().files.length > 0}
+            >
+              <Suspense>
+                <UnifiedReview
+                  overview={editor.review.overview}
+                  session={selectedSession()!}
+                  onCursorChange={editor.review.setCursor}
+                />
+              </Suspense>
+            </Show>
           </div>
-          <EditorFooter
-            onOpenRecent={(path) => editor.openFile(path, 1)}
-            root={() => indexRoot() ?? ""}
-          />
+          <Show when={editor.review.mode() !== "unified"}>
+            <EditorFooter
+              onOpenRecent={(path) => editor.openFile(path, 1)}
+              root={() => indexRoot() ?? ""}
+            />
+          </Show>
         </div>
       );
     }
@@ -1501,31 +1530,10 @@ export default function App(): JSX.Element {
       ),
       registerCommand(CommandIds.sourceCommitEdit, () => activeSourceEditor()?.commit() ?? false),
       registerCommand(CommandIds.sourceCancelEdit, () => activeSourceEditor()?.cancel() ?? false),
-      // The floating diff toolbar buttons route through these same actions. Each returns whether it acted, so
-      // an unmatched keybinding (no active diff) falls through to the editor.
-      registerCommand(CommandIds.nextChange, () => editor.inline.nextChange()),
-      registerCommand(CommandIds.prevChange, () => editor.inline.prevChange()),
-      registerCommand(CommandIds.acceptChange, () => editor.inline.accept()),
-      registerCommand(CommandIds.rejectChange, () => editor.inline.reject()),
-      registerCommand(CommandIds.undoChange, () => editor.inline.undo()),
+      ...reviewCommandBindings(editor, selectedSession).map(([id, handler]) =>
+        registerCommand(id, handler),
+      ),
       registerCommand(CommandIds.reviseSelection, () => editor.reviseSelection()),
-      registerCommand(CommandIds.keepFile, () => editor.inline.keepFile()),
-      registerCommand(CommandIds.revertFile, () => editor.inline.revertFile()),
-      registerCommand(CommandIds.keepAll, () => editor.inline.keepAll()),
-      // Comment on the current line — only a PR file under review carries a comment surface, so this DECLINES
-      // (falls through) outside one.
-      registerCommand(CommandIds.reviewComment, () => editor.inline.comment()),
-      // Review undo/redo. The undo chords are type-split (Shift+Enter keep / Shift+Backspace revert) and decline
-      // (fall through) when there's nothing of that kind to undo; redo is palette/toolbar-only.
-      registerCommand(CommandIds.undoKeep, () => editor.inline.undoKeep()),
-      registerCommand(CommandIds.undoRevert, () => editor.inline.undoRevert()),
-      registerCommand(CommandIds.redoReview, () => editor.inline.redoReview()),
-      // Post-turn review (acceptEdits/bypass): drive the inline toolbar's file axis. next/prev DECLINE (fall
-      // through to the editor) when no multi-file review is active, so Ctrl+Left/Right keep Win/Linux word-nav
-      // outside one.
-      registerCommand(CommandIds.reviewOpen, () => editor.openFirstReviewFile()),
-      registerCommand(CommandIds.reviewNextFile, () => editor.inline.nextFile()),
-      registerCommand(CommandIds.reviewPrevFile, () => editor.inline.prevFile()),
       // Blame: opens the popover on the cursor's line, or says why that line has no commit behind it. Declines
       // only with no editor mounted, so the palette entry never looks like it silently did nothing.
       registerCommand(CommandIds.showBlame, () => editor.showBlameAtCursor()),

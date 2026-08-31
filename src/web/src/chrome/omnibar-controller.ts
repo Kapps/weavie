@@ -2,7 +2,7 @@
 // watches to open + focus itself in the requested mode.
 
 import { createSignal } from "solid-js";
-import { separatorFor } from "./path-query";
+import { pathSeed } from "./path-query";
 
 export type OmnibarMode = "file" | "command" | "docSymbol" | "wsSymbol";
 
@@ -42,5 +42,5 @@ export function focusOmnibarFileSearch(query: string, line: number): void {
  */
 export function focusOmnibarPath(root: string): void {
   nonce += 1;
-  setRequest({ mode: "file", query: root + separatorFor(root), line: 1, select: false, nonce });
+  setRequest({ mode: "file", query: pathSeed(root), line: 1, select: false, nonce });
 }

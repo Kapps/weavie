@@ -60,3 +60,20 @@ describe("parsePathQuery", () => {
     });
   });
 });
+
+describe("parsePathQuery filesystem roots", () => {
+  it("lists the drive root for a bare Windows drive, not the drive's current directory", () => {
+    const win = { root: "C:\\ws", home: null };
+    expect(parsePathQuery("C:\\a", win)).toEqual({ absolute: "C:\\a", dir: "C:\\", leaf: "a" });
+    expect(parsePathQuery("C:/a", win)).toEqual({ absolute: "C:/a", dir: "C:/", leaf: "a" });
+  });
+
+  it("stops at the filesystem root instead of popping past it", () => {
+    expect(parsePathQuery("../../..", { root: "/ws/repo", home: null })?.absolute).toBe("/");
+    expect(parsePathQuery("../..", { root: "C:\\ws\\repo", home: null })?.absolute).toBe("C:\\");
+  });
+
+  it("refuses ~ when the host reports no home directory", () => {
+    expect(parsePathQuery("~/notes.md", { root: "/ws", home: null })).toBeNull();
+  });
+});

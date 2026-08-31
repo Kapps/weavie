@@ -10,19 +10,18 @@ interface FileIndex {
   pending: boolean;
 }
 
-interface SessionFiles {
-  index: FileIndex;
-  listings: DirListings;
-}
+// The index and the directory listings are separate signals on purpose. Held together, every listing reply
+// invalidated readers of the index too — so a consumer deriving a request from the index (open-by-path) would
+// re-request on its own reply and never settle. Split, that whole class of loop can't be written.
+const EMPTY_INDEX: FileIndex = { root: null, home: null, files: [], pending: false };
+const [indexes, setIndexes] = createSignal<Map<ClientSession, FileIndex>>(new Map());
+const [listings, setListings] = createSignal<Map<ClientSession, DirListings>>(new Map());
 
-const EMPTY: SessionFiles = {
-  index: { root: null, home: null, files: [], pending: false },
-  listings: {},
-};
-const [states, setStates] = createSignal<Map<ClientSession, SessionFiles>>(new Map());
-
-function update(session: ClientSession, mutate: (current: SessionFiles) => SessionFiles): void {
-  setStates((previous) => {
+function updateListings(
+  session: ClientSession,
+  mutate: (current: DirListings) => DirListings,
+): void {
+  setListings((previous) => {
     const current = previous.get(session);
     if (current === undefined) {
       return previous;
@@ -33,13 +32,14 @@ function update(session: ClientSession, mutate: (current: SessionFiles) => Sessi
   });
 }
 
-function selectedState(): SessionFiles {
+export const selectedFileIndex = (): FileIndex => {
   const session = selectedSession();
-  return session === null ? EMPTY : (states().get(session) ?? EMPTY);
-}
-
-export const selectedFileIndex = (): FileIndex => selectedState().index;
-export const selectedDirectoryListings = (): DirListings => selectedState().listings;
+  return session === null ? EMPTY_INDEX : (indexes().get(session) ?? EMPTY_INDEX);
+};
+export const selectedDirectoryListings = (): DirListings => {
+  const session = selectedSession();
+  return session === null ? {} : (listings().get(session) ?? {});
+};
 
 export function revealSelectedFile(path: string, line: number, preview = false): void {
   selectedSession()?.feature("files").publish("reveal", { path, line, preview });
@@ -54,61 +54,65 @@ export function listSelectedDirectory(path: string): void {
   if (session === null) {
     return;
   }
-  if (states().get(session)?.listings[path]?.status === "loading") {
+  if (listings().get(session)?.[path]?.status === "loading") {
     return;
   }
-  update(session, (current) => ({
-    ...current,
-    listings: { ...current.listings, [path]: { status: "loading" } },
-  }));
+  updateListings(session, (current) => ({ ...current, [path]: { status: "loading" } }));
   void session
     .feature("files")
     .request<{ entries: DirEntry[] }, { path: string }>("listDirectory", { path })
     .then(({ entries }) => {
-      update(session, (current) => ({
+      updateListings(session, (current) => ({
         ...current,
-        listings: { ...current.listings, [path]: { status: "ready", entries } },
+        [path]: { status: "ready", entries },
       }));
     })
     .catch((error: unknown) => {
-      update(session, (current) => ({
+      updateListings(session, (current) => ({
         ...current,
-        listings: {
-          ...current.listings,
-          [path]: {
-            status: "error",
-            message: error instanceof Error ? error.message : String(error),
-          },
+        [path]: {
+          status: "error",
+          message: error instanceof Error ? error.message : String(error),
         },
       }));
     });
 }
 
 registerSessionFeature((session) => {
-  setStates((previous) => new Map(previous).set(session, EMPTY));
+  setIndexes((previous) => new Map(previous).set(session, EMPTY_INDEX));
+  setListings((previous) => new Map(previous).set(session, {}));
   const files = session.feature("files");
   const offIndex = files.on<{ root: string; home?: string; files: string[]; pending?: boolean }>(
     "index",
     (message) => {
-      update(session, (current) => {
-        if (message.pending === true && message.root === current.index.root) {
-          return current;
-        }
-        return {
-          index: {
-            root: message.root,
-            home: message.home ?? null,
-            files: message.files,
-            pending: message.pending === true,
-          },
-          listings: message.root === current.index.root ? current.listings : {},
-        };
-      });
+      const previousRoot = indexes().get(session)?.root ?? null;
+      if (message.pending === true && message.root === previousRoot) {
+        return;
+      }
+      setIndexes((previous) =>
+        previous.has(session)
+          ? new Map(previous).set(session, {
+              root: message.root,
+              // An empty profile path is no answer: `~` stays unresolvable rather than naming the root.
+              home: message.home === undefined || message.home === "" ? null : message.home,
+              files: message.files,
+              pending: message.pending === true,
+            })
+          : previous,
+      );
+      if (message.root !== previousRoot) {
+        updateListings(session, () => ({}));
+      }
     },
   );
   return () => {
     offIndex();
-    setStates((previous) => {
+    setIndexes((previous) => {
+      const next = new Map(previous);
+      next.delete(session);
+      return next;
+    });
+    setListings((previous) => {
       const next = new Map(previous);
       next.delete(session);
       return next;

@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { awaitEditorReady, openFile } from "../harness/actions";
@@ -14,27 +14,31 @@ test("an absolute path opens a file outside the worktree, and the footer says wh
   await awaitEditorReady(page);
 
   const outsideDir = await mkdtemp(join(tmpdir(), "weavie-outside-"));
-  const outside = join(outsideDir, "outside-notes.md");
-  await writeFile(outside, "# Outside the worktree\n");
+  try {
+    const outside = join(outsideDir, "outside-notes.md");
+    await writeFile(outside, "# Outside the worktree\n");
 
-  const omnibar = page.locator(".tb-omnibar input");
-  await omnibar.click();
-  await omnibar.fill(outside);
+    const omnibar = page.locator(".tb-omnibar input");
+    await omnibar.click();
+    await omnibar.fill(outside);
 
-  // The row source is the host's directory listing, so an entry appearing at all proves the host listed a
-  // directory outside the worktree.
-  const row = page.locator(".tb-omnibar-row", { hasText: "outside-notes.md" });
-  await expect(row).toBeVisible();
-  await row.click();
+    // The row source is the host's directory listing, so an entry appearing at all proves the host listed a
+    // directory outside the worktree.
+    const row = page.locator(".tb-omnibar-row", { hasText: "outside-notes.md" });
+    await expect(row).toBeVisible();
+    await row.click();
 
-  await expect(page.locator(".editor")).toHaveAttribute("data-active-file", /outside-notes\.md$/);
+    await expect(page.locator(".editor")).toHaveAttribute("data-active-file", /outside-notes\.md$/);
 
-  const chip = page.locator(".pane-footer .footer-outside-repo");
-  await expect(chip).toBeVisible();
-  await expect(chip).toHaveAttribute("title", /Blame, history and diff-against are unavailable/);
+    const chip = page.locator(".pane-footer .footer-outside-repo");
+    await expect(chip).toBeVisible();
+    await expect(chip).toHaveAttribute("title", /Blame, history and diff-against are unavailable/);
 
-  // The false-positive guard: a file inside the worktree must not be flagged.
-  await openFile(page, "hello.ts");
-  await expect(page.locator(".editor")).toHaveAttribute("data-active-file", /hello\.ts$/);
-  await expect(chip).toBeHidden();
+    // The false-positive guard: a file inside the worktree must not be flagged.
+    await openFile(page, "hello.ts");
+    await expect(page.locator(".editor")).toHaveAttribute("data-active-file", /hello\.ts$/);
+    await expect(chip).toBeHidden();
+  } finally {
+    await rm(outsideDir, { recursive: true, force: true });
+  }
 });

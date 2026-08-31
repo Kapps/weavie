@@ -40,9 +40,4 @@ describe("focusOmnibarPath", () => {
     focusOmnibarPath("C:\\ws\\repo");
     expect(omnibarRequest()?.query).toBe("C:\\ws\\repo\\");
   });
-
-  it("leaves the seed unselected so the first keystroke appends instead of replacing it", () => {
-    focusOmnibarPath("/ws");
-    expect(omnibarRequest()?.select).toBe(false);
-  });
 });

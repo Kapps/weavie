@@ -11,6 +11,14 @@ export function separatorFor(path: string): string {
   return path.includes("\\") && !path.includes("/") ? "\\" : "/";
 }
 
+/**
+ * The open-by-path seed for `root`: the directory itself, so the first keystroke appends rather than
+ * replacing. Empty when the root is unknown, which reads as an ordinary empty query.
+ */
+export function pathSeed(root: string): string {
+  return root === "" ? "" : root + separatorFor(root);
+}
+
 /** Whether `query` is shaped like a filesystem path, and so selects the omnibar's path mode. */
 export function looksLikePath(query: string): boolean {
   return PATH_SHAPE.test(query.trimStart());
@@ -49,10 +57,15 @@ export function parsePathQuery(
     ? { absolute, dir: context.root, leaf: absolute }
     : {
         absolute,
-        // Keep the separator for a root-level path ("/a" lists "/", not ""), drop it otherwise.
-        dir: absolute.slice(0, cut) === "" ? absolute.slice(0, cut + 1) : absolute.slice(0, cut),
+        dir: asDirectory(absolute.slice(0, cut), separatorFor(absolute)),
         leaf: absolute.slice(cut + 1),
       };
+}
+
+// A prefix that names a filesystem root needs its separator back to be a directory: "" is the POSIX root and
+// "C:" is a Windows drive, which without the separator means "the current directory on drive C" instead.
+function asDirectory(prefix: string, sep: string): string {
+  return prefix === "" || /^[A-Za-z]:$/.test(prefix) ? prefix + sep : prefix;
 }
 
 function expandHome(path: string, home: string | null): string | null {
@@ -76,7 +89,8 @@ function join(base: string, relative: string, sep: string): string {
       segments.push(segment);
     }
   }
-  // A trailing separator in the input is meaningful (list this directory), so preserve it.
+  // A trailing separator in the input is meaningful (list this directory), so preserve it. Popping past the
+  // filesystem root leaves a bare prefix, which asDirectory turns back into the root itself.
   const trailing = /[\\/]$/.test(relative) ? sep : "";
-  return segments.join(sep) + trailing;
+  return asDirectory(segments.join(sep), sep) + trailing;
 }

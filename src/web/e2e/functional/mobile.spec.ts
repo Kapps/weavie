@@ -538,12 +538,11 @@ test("a compact session row manages its session from a hold and its actions butt
   const manage = row.getByRole("button", { name: /^Manage / });
   await expect(row).toBeVisible();
 
-  const bounds = await row.boundingBox();
-  if (bounds === null) {
-    throw new Error("Missing session row bounds");
-  }
   const touch = await page.context().newCDPSession(page);
-  const point = { x: bounds.x + 60, y: bounds.y + bounds.height / 2 };
+  const point = await row.evaluate((element) => {
+    const bounds = element.getBoundingClientRect();
+    return { x: bounds.x + 60, y: bounds.y + bounds.height / 2 };
+  });
   const hold = async (): Promise<void> => {
     await touch.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [point] });
     await expect(menu).toBeVisible();

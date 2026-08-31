@@ -33,9 +33,6 @@ internal sealed class AppController : ApplicationContext {
 	private bool _exiting;
 
 	public AppController() {
-		// Dark chrome for any WinForms ToolStrip/context menu rendered process-wide.
-		AppMenu.UseDarkChrome();
-
 		// Tee the console into the in-app log viewer first, so every store's construction log below is captured too.
 		LogBuffer = LogBuffer.InstallConsoleCapture();
 		Notifications = new WindowsNotificationService();

@@ -105,6 +105,12 @@ public sealed partial class HostCore {
 		});
 	}
 
+	/// <summary>Pushes the app-global recent workspace list after another window reorders or prunes it.</summary>
+	private void PushRecentWorkspacesToWeb() =>
+		_messages.Host.Feature("recentWorkspaces").Publish("changed", new {
+			recents = _platform.Recents,
+		});
+
 	/// <summary>Pushes the persisted/reconciled layout document to the web app as a compact set-layout message.</summary>
 	private void PushLayoutToWeb() {
 		string documentJson = LayoutSerialization.SerializeCompact(_layout.Current);
@@ -557,22 +563,6 @@ public sealed partial class HostCore {
 	private static bool IsHttpUrl(string url) =>
 		Uri.TryCreate(url, UriKind.Absolute, out var uri)
 		&& (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
-
-	/// <summary>Asks the page to run a native-menu command against its exact current selection.</summary>
-	public void InvokeCommand(string id) => InvokeSelectedCommand(id, null);
-
-	/// <summary>Asks the page to run a native-menu command with JSON arguments against its exact selection.</summary>
-	public void InvokeCommand(string id, string? argsJson) => InvokeSelectedCommand(id, argsJson);
-
-	private void InvokeSelectedCommand(string id, string? argsJson) {
-		JsonElement? args = null;
-		if (!string.IsNullOrWhiteSpace(argsJson)) {
-			using var document = JsonDocument.Parse(argsJson);
-			args = document.RootElement.Clone();
-		}
-
-		_messages.Host.Feature("commands").Publish("runNative", new CommandRequest(id, args));
-	}
 
 	/// <summary>Surfaces a prior run's unhandled crash as a one-time toast pointing at the saved report.</summary>
 	private void SurfacePriorCrash() {

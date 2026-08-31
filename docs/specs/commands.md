@@ -1,7 +1,7 @@
 # Commands & keybindings
 
 Status: implemented (Core + Windows + macOS + Linux hosts + web)
-Last updated: 2026-08-14
+Last updated: 2026-08-31
 
 The third concrete instance of the
 [Claude-facing capability registry](../concepts/mcp-registry.md) (after settings and the layout
@@ -26,6 +26,7 @@ the *command id*:
 flowchart LR
     KB["keybinding<br/>(web keydown)"] --> ID
     PAL["command palette<br/>(omnibar ‹›)"] --> ID
+    MENU["application/context menus"] --> ID
     MCP["embedded Claude<br/>(mcp__weavie__runCommand)"] --> ID
     ID(["command id"]) --> H["the one handler"]
 ```
@@ -48,10 +49,25 @@ Converting it to a command fixes all three at once.
    a command reported as run actually ran (acked), never a silent claim of success.
 6. A foundation future plugins extend by contributing command declarations the same way.
 
+## Application menu
+
+The desktop and browser title bars render one curated application-menu tree from
+`src/web/src/chrome/application-menu.ts`. The tree owns only placement, separators, and submenu labels;
+command titles, availability, execution, and effective shortcuts still come from the active merged command
+catalog. Opening a menu snapshots the previously focused pane so a contextual row remains correctly enabled
+after focus moves into the menu. A catalog push or selected-backend change refreshes the displayed shortcuts,
+live context changes refresh enabled rows, and the host pushes recent-workspace changes into every existing
+window. Every row dispatches its command id through the same route as the palette.
+
+macOS keeps its AppKit-owned App/Edit/Window conventions in the system menu. Weavie command menus render in
+the same in-window web bar as Windows and Linux; duplicating them into `NSMenu` would lose the selected remote
+catalog and `when` context, and native key equivalents would intercept chords before the web resolver could
+decline them.
+
 ## Non-goals (deferred)
 
-- **Menus / context menus / toolbar buttons** as command triggers. The model supports them (they'd
-  invoke ids like everything else); no menu surface is built in this milestone.
+- **Toolbar buttons** as a comprehensively modeled surface. Existing command-backed buttons invoke ids like
+  every other trigger, but there is no catalog-driven toolbar-placement model.
 - **Command return values to Claude.** v1 commands are fire-and-act; `runCommand` reports
   *invoked / failed*, not a structured result payload. (The ack channel below leaves room for it.)
 - **Arg-prompting in the palette.** Palette runs no-arg (or fully-defaulted) commands; a command
@@ -217,10 +233,10 @@ flowchart TD
    `commands.run {id, args}` through that session's attached view → the web runs the handler with
    the same `ClientSession` owner → `InvokeAsync` returns the correlated outcome to Claude.
 
-`when` is evaluated **only** for keybinding activation and palette visibility — never for programmatic
-invocation (MCP / `commands.invoke`). This matches VS Code: `executeCommand` ignores `when`; the
-handler itself may no-op if its preconditions aren't met. So Claude can always run a command by name;
-the guard only governs *implicit* triggers.
+`when` is evaluated **only** for interactive availability — keybinding activation, palette visibility, and
+menu enablement — never for programmatic invocation (MCP / `commands.invoke`). This matches VS Code:
+`executeCommand` ignores `when`; the handler itself may no-op if its preconditions aren't met. So Claude can
+always run a command by name; the guard only governs *interactive* triggers.
 
 ## Keybindings
 

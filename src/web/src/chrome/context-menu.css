@@ -7,6 +7,8 @@
   position: fixed;
   z-index: 100;
   min-width: 12em;
+  max-height: calc(100vh - 8px);
+  overflow-y: auto;
   padding: 0.3em;
   background: var(--bar);
   border: 1px solid var(--border);
@@ -48,6 +50,15 @@
   background: var(--list-active-bg);
   color: var(--list-active-fg);
   outline: none;
+}
+.context-menu-item:disabled {
+  color: var(--dim);
+  cursor: default;
+}
+.context-menu-item:disabled:hover,
+.context-menu-item:disabled:focus {
+  background: transparent;
+  color: var(--dim);
 }
 .context-menu-keys {
   color: var(--dim);

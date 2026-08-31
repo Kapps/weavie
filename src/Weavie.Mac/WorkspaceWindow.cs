@@ -111,9 +111,6 @@ internal sealed partial class WorkspaceWindow : IWebSurface, IShellMenuActions {
 	/// <summary>The native window, so the controller can focus/raise it.</summary>
 	public NSWindow Window { get; }
 
-	/// <summary>Runs a Weavie command id against this window's core (a menu item targeting the front window).</summary>
-	public void InvokeCommand(string id) => _core.InvokeCommand(id);
-
 	/// <summary>Shows a transient notification in this window's page (e.g. a folder-not-found error).</summary>
 	public void Notify(string level, string message) => _core.Notify(level, message);
 

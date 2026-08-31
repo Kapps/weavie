@@ -674,7 +674,8 @@ internal sealed class TestPlatform : IHostPlatform {
 	public string ChromePlatform => "web";
 	public HostTransport Transport => HostTransport.Local;
 	public string? TitleBar => null;
-	public IReadOnlyList<string> Recents => [];
+	public IReadOnlyList<string> Recents { get; private set; } = [];
+	public event Action? RecentsChanged;
 	public IShellWindow? Window { get; set; }
 	public IShellMenuActions MenuActions { get; set; } = NoopShellMenuActions.Instance;
 	public IHostDialogs? Dialogs { get; set; }
@@ -699,6 +700,11 @@ internal sealed class TestPlatform : IHostPlatform {
 	public int? ClipboardReadThread { get; private set; }
 	public int? ClipboardImageReadThread { get; private set; }
 	public int? OpenUrlThread { get; private set; }
+
+	public void SetRecents(params string[] recents) {
+		Recents = recents;
+		RecentsChanged?.Invoke();
+	}
 
 	public void ToggleWindow() {
 		// no window in tests

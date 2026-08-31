@@ -180,6 +180,10 @@ export interface NavActions {
   back(): boolean;
   /** Go to the next location; false when there's nothing ahead. */
   forward(): boolean;
+  /** Whether a previous location is available (reactive). */
+  canBack(): boolean;
+  /** Whether a next location is available (reactive). */
+  canForward(): boolean;
 }
 
 export interface EditorController {
@@ -469,6 +473,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   // (openTab activates an already-open tab or opens it, then applyActive reveals the line) and returns its
   // settle promise, so nav history can suppress records until the swap lands.
   const navHistories = new WeakMap<ClientSession, NavHistory>();
+  const [navRevision, setNavRevision] = createSignal(0);
   const navHistoryFor = (session: ClientSession): NavHistory => {
     const existing = navHistories.get(session);
     if (existing !== undefined) {
@@ -503,6 +508,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       path: sessionUriHostPath(model.uri),
       line: position.lineNumber,
     });
+    setNavRevision((revision) => revision + 1);
   };
   const scheduleRecordNav = (): void => {
     if (navTimer !== undefined) {
@@ -1655,11 +1661,25 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     nav: {
       back: () => {
         const session = selectedSession();
-        return session !== null && navHistoryFor(session).back();
+        const acted = session !== null && navHistoryFor(session).back();
+        setNavRevision((revision) => revision + 1);
+        return acted;
       },
       forward: () => {
         const session = selectedSession();
-        return session !== null && navHistoryFor(session).forward();
+        const acted = session !== null && navHistoryFor(session).forward();
+        setNavRevision((revision) => revision + 1);
+        return acted;
+      },
+      canBack: () => {
+        navRevision();
+        const session = selectedSession();
+        return session !== null && navHistoryFor(session).canBack();
+      },
+      canForward: () => {
+        navRevision();
+        const session = selectedSession();
+        return session !== null && navHistoryFor(session).canForward();
       },
     },
     symbols,

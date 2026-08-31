@@ -33,6 +33,11 @@ internal sealed class HeadlessPlatform : IHostPlatform {
 
 	public IReadOnlyList<string> Recents => [];
 
+	public event Action? RecentsChanged {
+		add { }
+		remove { }
+	}
+
 	public IShellWindow? Window => null;
 
 	public IShellMenuActions MenuActions => NoopShellMenuActions.Instance;

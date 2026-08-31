@@ -1339,6 +1339,7 @@ public static class CoreCommands {
 			Description = "Jump into the post-turn review (acceptEdits/bypass mode) at the first changed file, "
 				+ "landed on its first change. Walk hunks with Next/Previous Change and files with Next/Previous File.",
 			Aliases = ["review changes", "review turn", "turn review", "review", "changed files"],
+			When = "reviewAvailable",
 		});
 
 		registry.Register(new CommandDefinition {
@@ -1551,6 +1552,7 @@ public static class CoreCommands {
 			Description = "Go back to the previous editor location (file + line) in the navigation history. "
 				+ "Also driven by the back mouse button.",
 			Aliases = ["go back", "navigate back", "back", "previous location", "go to previous location"],
+			When = "navigationBackAvailable",
 			DefaultKeybindings = [
 				new CommandKeybinding { Key = "alt+Left", When = "!terminalFocused" },
 				new CommandKeybinding { Key = "MouseBack" },
@@ -1565,6 +1567,7 @@ public static class CoreCommands {
 			Description = "Go forward to the next editor location (file + line) in the navigation history. "
 				+ "Also driven by the forward mouse button.",
 			Aliases = ["go forward", "navigate forward", "forward", "next location", "go to next location"],
+			When = "navigationForwardAvailable",
 			DefaultKeybindings = [
 				new CommandKeybinding { Key = "alt+Right", When = "!terminalFocused" },
 				new CommandKeybinding { Key = "MouseForward" },

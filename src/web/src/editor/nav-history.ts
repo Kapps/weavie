@@ -28,6 +28,10 @@ export interface NavHistory {
   back(): boolean;
   /** Step to the next location; false when there's nothing ahead. */
   forward(): boolean;
+  /** Whether a previous location is available. */
+  canBack(): boolean;
+  /** Whether a next location is available. */
+  canForward(): boolean;
 }
 
 // A same-file move shorter than this many lines updates the current entry in place rather than pushing a new
@@ -90,5 +94,7 @@ export function createNavHistory(navigateTo: (loc: NavLocation) => Promise<void>
     record,
     back: () => go(index - 1),
     forward: () => go(index + 1),
+    canBack: () => index > 0,
+    canForward: () => index >= 0 && index < entries.length - 1,
   };
 }

@@ -17,15 +17,23 @@ public static class InstanceClient {
 		ArgumentException.ThrowIfNullOrEmpty(weavieRoot);
 		ArgumentNullException.ThrowIfNull(paths);
 
+		// The whole exchange is bounded, not just the connect: an instance that accepts and then stalls would
+		// otherwise hang this launch forever, with no window and nothing said.
+		using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+		deadline.CancelAfter(TimeSpan.FromMilliseconds(InstanceProtocol.ExchangeTimeoutMs));
+		var token = deadline.Token;
 		try {
 			using var client = new NamedPipeClientStream(
 				".", InstanceProtocol.PipeName(weavieRoot), PipeDirection.InOut,
 				PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
-			await client.ConnectAsync(InstanceProtocol.ConnectTimeoutMs, ct).ConfigureAwait(false);
+			await client.ConnectAsync(InstanceProtocol.ConnectTimeoutMs, token).ConfigureAwait(false);
+			var request = new HandoffRequest(
+				paths,
+				Environment.GetEnvironmentVariable("XDG_ACTIVATION_TOKEN") ?? string.Empty);
 			await HookProtocol
-				.WriteFramedAsync(client, InstanceProtocol.EncodeRequest(paths), ct)
+				.WriteFramedAsync(client, InstanceProtocol.EncodeRequest(request), token)
 				.ConfigureAwait(false);
-			return await HookProtocol.ReadFramedAsync(client, ct).ConfigureAwait(false) is { } reply
+			return await HookProtocol.ReadFramedAsync(client, token).ConfigureAwait(false) is { } reply
 				? InstanceProtocol.DecodeReply(reply)
 				: new HandoffReply(false, string.Empty);
 		} catch (Exception ex) when (ex is TimeoutException or IOException or OperationCanceledException

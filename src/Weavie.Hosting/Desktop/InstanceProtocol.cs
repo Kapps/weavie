@@ -4,6 +4,14 @@ using System.Text.Json;
 
 namespace Weavie.Hosting.Desktop;
 
+/// <summary>What a launch is handing to the running instance.</summary>
+/// <param name="Paths">The paths the OS gave it.</param>
+/// <param name="ActivationToken">
+/// The compositor's activation token, owned by the launch that received the click; empty when there is none.
+/// Without it a Wayland compositor refuses the running window's raise.
+/// </param>
+public sealed record HandoffRequest(IReadOnlyList<string> Paths, string ActivationToken);
+
 /// <summary>What the running instance did with the paths a second launch handed it.</summary>
 /// <param name="Accepted">Whether the running instance opened them.</param>
 /// <param name="Root">The workspace the caller should boot into when it was declined; empty when accepted.</param>
@@ -19,6 +27,9 @@ public static class InstanceProtocol {
 	/// <summary>How long a second launch waits to reach a running instance before booting its own.</summary>
 	public const int ConnectTimeoutMs = 500;
 
+	/// <summary>How long the whole handover may take before a launch gives up and boots its own window.</summary>
+	public const int ExchangeTimeoutMs = 5_000;
+
 	/// <summary>The per-root pipe name. Short by construction: macOS caps a Unix socket path at 104 bytes.</summary>
 	public static string PipeName(string weavieRoot) {
 		ArgumentException.ThrowIfNullOrEmpty(weavieRoot);
@@ -26,17 +37,17 @@ public static class InstanceProtocol {
 		return $"weavie-open-{Convert.ToHexString(hash)[..16].ToLowerInvariant()}";
 	}
 
-	/// <summary>Serializes the paths a second launch is handing over.</summary>
-	public static byte[] EncodeRequest(IReadOnlyList<string> paths) {
-		ArgumentNullException.ThrowIfNull(paths);
-		return JsonSerializer.SerializeToUtf8Bytes(new HandoffRequest(paths));
+	/// <summary>Serializes what a second launch is handing over.</summary>
+	public static byte[] EncodeRequest(HandoffRequest request) {
+		ArgumentNullException.ThrowIfNull(request);
+		return JsonSerializer.SerializeToUtf8Bytes(request);
 	}
 
 	/// <summary>Reads a handover request, or null when the frame was not one.</summary>
-	public static IReadOnlyList<string>? DecodeRequest(byte[] payload) {
+	public static HandoffRequest? DecodeRequest(byte[] payload) {
 		ArgumentNullException.ThrowIfNull(payload);
 		try {
-			return JsonSerializer.Deserialize<HandoffRequest>(payload)?.Paths;
+			return JsonSerializer.Deserialize<HandoffRequest>(payload);
 		} catch (JsonException) {
 			return null;
 		}
@@ -55,5 +66,4 @@ public static class InstanceProtocol {
 		}
 	}
 
-	private sealed record HandoffRequest(IReadOnlyList<string> Paths);
 }

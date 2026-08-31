@@ -28,8 +28,8 @@ public sealed class InstanceHandoffTests {
 			TaskCreationOptions.RunContinuationsAsynchronously);
 		await using var server = new InstanceServer(
 			root,
-			paths => {
-				received.TrySetResult(paths);
+			request => {
+				received.TrySetResult(request.Paths);
 				return new HandoffReply(true, string.Empty);
 			},
 			_ => { });
@@ -92,6 +92,30 @@ public sealed class InstanceHandoffTests {
 		Assert.True(owner.TryStart());
 		Assert.False(second.TryStart());
 		Assert.Equal("owner", (await InstanceClient.OfferAsync(root, ["/tmp/a.ts"], CancellationToken.None)).Root);
+	}
+
+	[Fact]
+	public async Task TheActivationTokenTravelsWithTheHandover() {
+		// The launch that received the click owns the compositor's token; the running window needs it to raise.
+		string root = NewRoot();
+		Environment.SetEnvironmentVariable("XDG_ACTIVATION_TOKEN", "token-123");
+		try {
+			var seen = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+			await using var server = new InstanceServer(
+				root,
+				request => {
+					seen.TrySetResult(request.ActivationToken);
+					return new HandoffReply(true, string.Empty);
+				},
+				_ => { });
+			Assert.True(server.TryStart());
+
+			await InstanceClient.OfferAsync(root, ["/tmp/a.ts"], CancellationToken.None);
+
+			Assert.Equal("token-123", await seen.Task.WaitAsync(Timeout));
+		} finally {
+			Environment.SetEnvironmentVariable("XDG_ACTIVATION_TOKEN", null);
+		}
 	}
 
 	[Fact]

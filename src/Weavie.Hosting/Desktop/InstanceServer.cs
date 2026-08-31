@@ -12,7 +12,7 @@ public sealed class InstanceServer : IAsyncDisposable {
 	private const int MaxInstances = 4;
 
 	private readonly string _pipeName;
-	private readonly Func<IReadOnlyList<string>, HandoffReply> _handle;
+	private readonly Func<HandoffRequest, HandoffReply> _handle;
 	private readonly Action<string> _log;
 	private readonly string _lockPath;
 	private readonly CancellationTokenSource _cts = new();
@@ -23,7 +23,7 @@ public sealed class InstanceServer : IAsyncDisposable {
 	/// <param name="weavieRoot">The Weavie root the pipe name derives from.</param>
 	/// <param name="handle">Decides what happens to the handed-over paths; runs off the UI thread.</param>
 	/// <param name="log">Diagnostic log sink.</param>
-	public InstanceServer(string weavieRoot, Func<IReadOnlyList<string>, HandoffReply> handle, Action<string> log) {
+	public InstanceServer(string weavieRoot, Func<HandoffRequest, HandoffReply> handle, Action<string> log) {
 		ArgumentException.ThrowIfNullOrEmpty(weavieRoot);
 		ArgumentNullException.ThrowIfNull(handle);
 		ArgumentNullException.ThrowIfNull(log);
@@ -98,8 +98,8 @@ public sealed class InstanceServer : IAsyncDisposable {
 
 		HandoffReply reply;
 		try {
-			reply = InstanceProtocol.DecodeRequest(payload) is { } paths
-				? _handle(paths)
+			reply = InstanceProtocol.DecodeRequest(payload) is { } request
+				? _handle(request)
 				: new HandoffReply(false, string.Empty);
 		} catch (Exception ex) {
 			// Always answer: an unanswered caller silently boots a second app.

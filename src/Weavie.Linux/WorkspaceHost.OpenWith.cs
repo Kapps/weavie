@@ -18,8 +18,9 @@ internal sealed partial class WorkspaceHost {
 	}
 
 	// The workspace a launch path implies, or null to keep the ordinary reopen-last behavior.
-	private string? LaunchWorkspace() =>
-		_launchPaths.Count == 0 ? null : ResolveTarget(_launchPaths[0]).Root;
+	private string? LaunchWorkspace() => _launchPaths.Count == 0
+		? null
+		: OpenTargetResolver.Resolve(_launchPaths[0], [], new ToplevelCache().For(_launchPaths[0])).Root;
 
 	private void StartInstanceServer() {
 		var server = new InstanceServer(WeaviePaths.Root, HandleHandoff, Log);
@@ -35,41 +36,59 @@ internal sealed partial class WorkspaceHost {
 	}
 
 	// Runs off the pipe thread: decides with the shared policy, and marshals each open onto the main loop.
-	private HandoffReply HandleHandoff(IReadOnlyList<string> paths) {
+	private HandoffReply HandleHandoff(HandoffRequest request) {
+		var toplevel = new ToplevelCache();
 		var reply = DesktopHandoff.Offer(
-			paths,
+			request.Paths,
 			Volatile.Read(ref _core)?.WorkspaceRoot,
-			GitToplevel,
+			toplevel.For,
 			file => GtkMain.Invoke(() => _core?.RequestOpenPath(file)));
 		if (reply.Accepted) {
-			GtkMain.Invoke(() => ActivateWindow(null));
+			// The token belongs to the launch that received the click; without it the compositor refuses the raise.
+			string token = request.ActivationToken;
+			GtkMain.Invoke(() => ActivateWindow(token.Length == 0 ? null : token));
 		}
 
 		return reply;
 	}
 
-	private OpenTarget ResolveTarget(string path) =>
-		OpenTargetResolver.Resolve(path, _core is null ? [] : [_core.WorkspaceRoot], GitToplevel(path));
-
-	// A missing directory or an unavailable git means no repository, never a launch that dies before its window.
-	private static string? GitToplevel(string path) {
-		string? directory = Directory.Exists(path) ? path : Path.GetDirectoryName(Path.GetFullPath(path));
-		if (directory is null || !Directory.Exists(directory)) {
-			return null;
-		}
-
-		try {
-			return new GitService().FindToplevelAsync(directory).GetAwaiter().GetResult();
-		} catch (Exception ex) when (ex is GitException or IOException or UnauthorizedAccessException) {
-			return null;
+	private void OpenLaunchPaths() {
+		var toplevel = new ToplevelCache();
+		foreach (string path in _launchPaths) {
+			var target = OpenTargetResolver.Resolve(
+				path,
+				_core is null ? [] : [_core.WorkspaceRoot],
+				toplevel.For(path));
+			if (target.File is { } file) {
+				_core?.RequestOpenPath(file);
+			}
 		}
 	}
 
-	private void OpenLaunchPaths() {
-		foreach (string path in _launchPaths) {
-			if (ResolveTarget(path).File is { } file) {
-				_core?.RequestOpenPath(file);
+	// One `git rev-parse` per directory, not per path: a multi-file Open With is one selection, usually one
+	// folder. A missing directory or an unavailable git means no repository, never a dead launch.
+	private sealed class ToplevelCache {
+		private readonly Dictionary<string, string?> _byDirectory = new(StringComparer.Ordinal);
+
+		public string? For(string path) {
+			string? directory = Directory.Exists(path) ? path : Path.GetDirectoryName(Path.GetFullPath(path));
+			if (directory is null || !Directory.Exists(directory)) {
+				return null;
 			}
+
+			if (_byDirectory.TryGetValue(directory, out string? cached)) {
+				return cached;
+			}
+
+			string? toplevel;
+			try {
+				toplevel = new GitService().FindToplevelAsync(directory).GetAwaiter().GetResult();
+			} catch (Exception ex) when (ex is GitException or IOException or UnauthorizedAccessException) {
+				toplevel = null;
+			}
+
+			_byDirectory[directory] = toplevel;
+			return toplevel;
 		}
 	}
 }

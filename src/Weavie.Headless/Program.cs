@@ -57,7 +57,7 @@ await using var core = new HostCore(
 await core.StartAsync().ConfigureAwait(false);
 await using var instances = new InstanceServer(
 	WeaviePaths.Root,
-	paths => DesktopHandoff.Offer(paths, core.WorkspaceRoot, _ => null, core.RequestOpenPath),
+	request => DesktopHandoff.Offer(request.Paths, core.WorkspaceRoot, _ => null, core.RequestOpenPath),
 	message => Console.Error.WriteLine($"[weavie-headless] {message}"));
 instances.TryStart();
 Console.WriteLine($"[weavie-headless] workspace: {core.WorkspaceRoot}");

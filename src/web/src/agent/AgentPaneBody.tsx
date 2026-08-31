@@ -14,8 +14,8 @@ import { setContext } from "../commands/context";
 import { liveKeyLabel } from "../commands/keys-live";
 import { CommandIds } from "../commands/types";
 import { AgentComposer } from "./AgentComposer";
+import { estimateEntrySize } from "./AgentPaneEstimate";
 import { createAgentPaneScroll } from "./AgentPaneScroll";
-import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 import { AgentTranscript } from "./AgentTranscript";
 import { TranscriptEntry } from "./AgentTranscriptEntry";
 import type { AgentPaneModel } from "./pane-store";
@@ -75,6 +75,8 @@ export function AgentPaneBody(props: {
   let body: HTMLDivElement | undefined;
   let virtualizerChanged = (_sync: boolean): void => {};
   let virtualizerScroll = (_top: number): void => {};
+  let wheelScrolling = false;
+  let settleFrame: number | null = null;
   const stored = viewports.get(props.model);
   const saved = stored?.generation === props.model.generation() ? stored : undefined;
   const savedMeasurements = saved?.revision === props.model.revision() ? saved.measurements : [];
@@ -110,7 +112,15 @@ export function AgentPaneBody(props: {
     anchorTo: "end",
     initialMeasurementsCache: savedMeasurements,
     initialOffset: saved?.offset ?? 0,
-    measureElement: (element) => element.getBoundingClientRect().height,
+    measureElement: (element): number => {
+      const measured = element.getBoundingClientRect().height;
+      // A wheel notch is an animation toward a target offset. Resizing a row mid-flight rewrites the
+      // content height and the scroll position under it, which cancels the rest of that animation —
+      // so hold the size the layout already uses until the wheel settles.
+      return wheelScrolling
+        ? (virtualizer.measurementsCache[Number(element.dataset.index)]?.size ?? measured)
+        : measured;
+    },
     onChange: (_instance, sync) => virtualizerChanged(sync),
     overscan: 4,
     scrollToFn: (offset, options, instance) => {
@@ -169,6 +179,40 @@ export function AgentPaneBody(props: {
     });
   });
 
+  // The wheel settles when the offset stops moving, which is the animation's own end condition —
+  // there is no event for it that every engine we ship on fires. Applying the sizes held above then
+  // costs one correction, at rest, where nothing is in flight to disturb.
+  const releaseWhenSettled = (): void => {
+    const element = body;
+    if (element === undefined || settleFrame !== null) {
+      return;
+    }
+    let previous = element.scrollTop;
+    let stillFrames = 0;
+    const check = (): void => {
+      const top = element.scrollTop;
+      stillFrames = top === previous ? stillFrames + 1 : 0;
+      previous = top;
+      if (stillFrames < 2) {
+        settleFrame = requestAnimationFrame(check);
+        return;
+      }
+      settleFrame = null;
+      wheelScrolling = false;
+      // Applied here rather than by re-observing: holding a size above left the elements' own boxes
+      // untouched, so the ResizeObserver has nothing left to report.
+      for (const row of element.querySelectorAll<HTMLDivElement>(".agent-virtual-row")) {
+        virtualizer.resizeItem(Number(row.dataset.index), row.getBoundingClientRect().height);
+      }
+    };
+    settleFrame = requestAnimationFrame(check);
+  };
+  onCleanup(() => {
+    if (settleFrame !== null) {
+      cancelAnimationFrame(settleFrame);
+    }
+  });
+
   const updateScrollEdgeHover = (event: PointerEvent & { currentTarget: HTMLDivElement }): void => {
     const bounds = event.currentTarget.getBoundingClientRect();
     setScrollEdgeHovered(event.clientX >= bounds.right - scrollNavigationRevealWidth);
@@ -190,6 +234,10 @@ export function AgentPaneBody(props: {
           onPointerLeave={() => setScrollEdgeHovered(false)}
           onPointerMove={updateScrollEdgeHover}
           onScroll={scroll.onScroll}
+          onWheel={() => {
+            wheelScrolling = true;
+            releaseWhenSettled();
+          }}
         >
           <AgentTranscript
             agentTurnStartId={props.model.agentTurnStartId()}
@@ -288,15 +336,4 @@ function toggleMember(current: ReadonlySet<string>, entryId: string, included: b
     next.delete(entryId);
   }
   return next;
-}
-
-function estimateEntrySize(entry: AgentTranscriptEntry | undefined): number {
-  if (entry === undefined) {
-    return 48;
-  }
-  const contentLength = (entry.text?.length ?? 0) + (entry.summary?.length ?? 0);
-  const lineHeight = entry.tone === "assistant" ? 24 : 20;
-  const content = Math.max(1, Math.ceil(contentLength / 48)) * lineHeight;
-  const chrome = entry.kind === "message" && entry.tone === "assistant" ? 12 : 34;
-  return chrome + content;
 }

@@ -7,13 +7,13 @@ using Weavie.Linux.Native;
 // Before any GTK or graphics setup: a launch that only hands paths to the running instance must cost
 // nothing and exit, not boot a second app behind the first one's window.
 var launch = LaunchArguments.Parse(args);
-if (launch.Paths.Count > 0) {
-	var handoff = await InstanceClient.OfferAsync(WeaviePaths.Root, launch.Paths, CancellationToken.None);
-	if (handoff.Accepted) {
-		return 0;
-	}
+// Blocking, not awaited: an async entry point resumes on the thread pool, and everything below — gtk_init,
+// the web view, the main loop — must run on the process main thread.
+if (launch.Paths.Count > 0
+	&& InstanceClient.OfferAsync(WeaviePaths.Root, launch.Paths, CancellationToken.None)
+		.GetAwaiter().GetResult().Accepted) {
+	return 0;
 }
-
 
 LinuxGraphicsCompatibility.Apply();
 // Before GTK: the display-sync library only wins symbol resolution while libdrm is still unloaded.

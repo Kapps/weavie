@@ -57,17 +57,9 @@ await using var core = new HostCore(
 await core.StartAsync().ConfigureAwait(false);
 await using var instances = new InstanceServer(
 	WeaviePaths.Root,
-	paths => {
-		foreach (string path in paths) {
-			var target = OpenTargetResolver.Resolve(path, [core.WorkspaceRoot], toplevel: null);
-			if (target.File is { } file) {
-				core.RequestOpenPath(file, 1);
-			}
-		}
-		return new HandoffReply(true, string.Empty);
-	},
+	paths => DesktopHandoff.Offer(paths, core.WorkspaceRoot, _ => null, core.RequestOpenPath),
 	message => Console.Error.WriteLine($"[weavie-headless] {message}"));
-instances.Start();
+instances.TryStart();
 Console.WriteLine($"[weavie-headless] workspace: {core.WorkspaceRoot}");
 Console.WriteLine($"[weavie-headless] token {core.WorkspaceAccessToken}");
 Console.WriteLine($"[weavie-headless] open  {core.WorkspacePageUrl}  in a browser");

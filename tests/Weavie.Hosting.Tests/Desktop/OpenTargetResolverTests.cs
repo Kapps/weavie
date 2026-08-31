@@ -75,5 +75,37 @@ public sealed class OpenTargetResolverTests : IDisposable {
 		Assert.Equal(Path.Combine(repo, "src", "a.ts"), target.File);
 	}
 
+	[Fact]
+	public void EveryHandedOverPathMustBelongToTheOpenWorkspace() {
+		// One window shows one workspace, so a path from elsewhere is declined and its own window boots it —
+		// rather than being opened inside a workspace the first path chose.
+		string repo = Path.Combine(_root, "repo");
+		string elsewhere = Path.Combine(_root, "loose");
+
+		var reply = DesktopHandoff.Offer(
+			[Path.Combine(repo, "src", "a.ts"), Path.Combine(elsewhere, "b.ts")],
+			repo,
+			path => path.Contains("repo", StringComparison.Ordinal) ? repo : elsewhere,
+			_ => Assert.Fail("A declined handover must open nothing."));
+
+		Assert.False(reply.Accepted);
+		Assert.Equal(elsewhere, reply.Root);
+	}
+
+	[Fact]
+	public void PathsThatAllBelongAreOpened() {
+		string repo = Path.Combine(_root, "repo");
+		List<string> opened = [];
+
+		var reply = DesktopHandoff.Offer(
+			[Path.Combine(repo, "src", "a.ts"), Path.Combine(repo, "src", "b.ts")],
+			repo,
+			_ => repo,
+			opened.Add);
+
+		Assert.True(reply.Accepted);
+		Assert.Equal([Path.Combine(repo, "src", "a.ts"), Path.Combine(repo, "src", "b.ts")], opened);
+	}
+
 	public void Dispose() => Directory.Delete(_root, recursive: true);
 }

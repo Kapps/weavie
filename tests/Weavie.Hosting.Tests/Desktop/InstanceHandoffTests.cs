@@ -33,7 +33,7 @@ public sealed class InstanceHandoffTests {
 				return new HandoffReply(true, string.Empty);
 			},
 			_ => { });
-		server.Start();
+		Assert.True(server.TryStart());
 
 		var reply = await InstanceClient.OfferAsync(root, ["/tmp/a.ts"], CancellationToken.None);
 
@@ -45,7 +45,7 @@ public sealed class InstanceHandoffTests {
 	public async Task ADeclinedHandoverNamesTheWorkspaceTheCallerShouldBoot() {
 		string root = NewRoot();
 		await using var server = new InstanceServer(root, _ => new HandoffReply(false, "/repo"), _ => { });
-		server.Start();
+		Assert.True(server.TryStart());
 
 		var reply = await InstanceClient.OfferAsync(root, ["/repo/a.ts"], CancellationToken.None);
 
@@ -66,7 +66,7 @@ public sealed class InstanceHandoffTests {
 				return new HandoffReply(true, string.Empty);
 			},
 			_ => { });
-		server.Start();
+		Assert.True(server.TryStart());
 
 		Assert.True((await InstanceClient.OfferAsync(root, ["/tmp/a.ts"], CancellationToken.None)).Accepted);
 		Assert.True((await InstanceClient.OfferAsync(root, ["/tmp/b.ts"], CancellationToken.None)).Accepted);
@@ -81,5 +81,32 @@ public sealed class InstanceHandoffTests {
 		Assert.Equal(string.Empty, reply.Root);
 	}
 
-	private static string NewRoot() => Path.Combine(Path.GetTempPath(), $"weavie-instance-{Guid.NewGuid():N}");
+	[Fact]
+	public async Task OnlyOneInstanceServesARoot() {
+		// A second bind of the same name takes the endpoint over on Unix, so the first window would go deaf and
+		// every later double-click would cold-boot another app.
+		string root = NewRoot();
+		await using var owner = new InstanceServer(root, _ => new HandoffReply(true, "owner"), _ => { });
+		await using var second = new InstanceServer(root, _ => new HandoffReply(true, "second"), _ => { });
+
+		Assert.True(owner.TryStart());
+		Assert.False(second.TryStart());
+		Assert.Equal("owner", (await InstanceClient.OfferAsync(root, ["/tmp/a.ts"], CancellationToken.None)).Root);
+	}
+
+	[Fact]
+	public async Task AThrowingHandlerStillAnswers() {
+		// An unanswered caller silently boots a second app.
+		string root = NewRoot();
+		await using var server = new InstanceServer(root, _ => throw new InvalidOperationException("boom"), _ => { });
+		Assert.True(server.TryStart());
+
+		Assert.False((await InstanceClient.OfferAsync(root, ["/tmp/a.ts"], CancellationToken.None)).Accepted);
+	}
+
+	private static string NewRoot() {
+		string root = Path.Combine(Path.GetTempPath(), $"weavie-instance-{Guid.NewGuid():N}");
+		Directory.CreateDirectory(root);
+		return root;
+	}
 }

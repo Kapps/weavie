@@ -26,9 +26,6 @@ public static class CoreCommands {
 	/// <summary>Focuses the omnibar in file-search ("Go to File") mode.</summary>
 	public const string FocusOmnibarFiles = "weavie.omnibar.focusFiles";
 
-	/// <summary>Reveals a file in this session's editor, by absolute path.</summary>
-	public const string OpenFile = "weavie.file.open";
-
 	/// <summary>Focuses the omnibar seeded with the worktree path, to open a file by typing its path.</summary>
 	public const string OpenFileByPath = "weavie.omnibar.openPath";
 
@@ -448,20 +445,6 @@ public static class CoreCommands {
 			Description = "Focus the omnibar to quickly open a file by name.",
 			Aliases = ["go to file", "open file", "quick open", "find file"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+p" }],
-		});
-
-		// The open an OS "Open With" performs, once its window exists. Args-only and out of the palette: there
-		// is no path to type here, so Go to File and Open File by Path are the human-facing surfaces.
-		registry.Register(new CommandDefinition {
-			Id = OpenFile,
-			Title = "Open File",
-			RunsIn = CommandLocation.Core,
-			Category = "File",
-			Description = "Reveal a file in the editor by absolute path.",
-			Aliases = ["open file", "reveal file"],
-			ShowInPalette = false,
-			ArgsSchemaJson = "{\"path\":{\"type\":\"string\",\"description\":\"Absolute file path\"},"
-				+ "\"line\":{\"type\":\"integer\",\"minimum\":1,\"description\":\"1-based line to reveal\"}}",
 		});
 
 		// Open-by-path is reachable by typing a path shape (/, ~/, ../, C:\) into the omnibar; registered as a

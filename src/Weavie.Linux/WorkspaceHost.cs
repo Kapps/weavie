@@ -150,6 +150,7 @@ internal sealed partial class WorkspaceHost : IWebSurface, IShellMenuActions {
 
 	/// <summary>Persists geometry, tears down the core, and disposes the app stores; called after the main loop exits.</summary>
 	internal void Shutdown() {
+		StopInstanceServer();
 		DisposeHotkeys();
 		CloseWorkspace();
 		_notifications?.Dispose();

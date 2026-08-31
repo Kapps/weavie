@@ -22,46 +22,53 @@ internal sealed partial class WorkspaceHost {
 		_launchPaths.Count == 0 ? null : ResolveTarget(_launchPaths[0]).Root;
 
 	private void StartInstanceServer() {
-		_instanceServer = new InstanceServer(WeaviePaths.Root, HandleHandoff, Log);
-		_instanceServer.Start();
+		var server = new InstanceServer(WeaviePaths.Root, HandleHandoff, Log);
+		// Another window already serves this root; ours simply doesn't, rather than taking the endpoint from it.
+		if (server.TryStart()) {
+			_instanceServer = server;
+		}
 	}
 
-	// Runs off the UI thread: only decides, and marshals the open onto the main loop.
+	private void StopInstanceServer() {
+		_instanceServer?.DisposeAsync().AsTask().GetAwaiter().GetResult();
+		_instanceServer = null;
+	}
+
+	// Runs off the pipe thread: decides with the shared policy, and marshals each open onto the main loop.
 	private HandoffReply HandleHandoff(IReadOnlyList<string> paths) {
-		if (paths.Count == 0) {
-			return new HandoffReply(true, string.Empty);
+		var reply = DesktopHandoff.Offer(
+			paths,
+			Volatile.Read(ref _core)?.WorkspaceRoot,
+			GitToplevel,
+			file => GtkMain.Invoke(() => _core?.RequestOpenPath(file)));
+		if (reply.Accepted) {
+			GtkMain.Invoke(() => ActivateWindow(null));
 		}
 
-		var target = ResolveTarget(paths[0]);
-		if (_core is null || !string.Equals(target.Root, _core.WorkspaceRoot, StringComparison.Ordinal)) {
-			return new HandoffReply(false, target.Root);
-		}
-
-		foreach (string path in paths) {
-			var open = ResolveTarget(path);
-			if (open.File is { } file) {
-				GtkMain.Invoke(() => _core?.RequestOpenPath(file, 1));
-			}
-		}
-
-		GtkMain.Invoke(() => ActivateWindow(null));
-		return new HandoffReply(true, string.Empty);
+		return reply;
 	}
 
 	private OpenTarget ResolveTarget(string path) =>
 		OpenTargetResolver.Resolve(path, _core is null ? [] : [_core.WorkspaceRoot], GitToplevel(path));
 
+	// A missing directory or an unavailable git means no repository, never a launch that dies before its window.
 	private static string? GitToplevel(string path) {
 		string? directory = Directory.Exists(path) ? path : Path.GetDirectoryName(Path.GetFullPath(path));
-		return directory is null
-			? null
-			: new GitService().FindToplevelAsync(directory).GetAwaiter().GetResult();
+		if (directory is null || !Directory.Exists(directory)) {
+			return null;
+		}
+
+		try {
+			return new GitService().FindToplevelAsync(directory).GetAwaiter().GetResult();
+		} catch (Exception ex) when (ex is GitException or IOException or UnauthorizedAccessException) {
+			return null;
+		}
 	}
 
 	private void OpenLaunchPaths() {
 		foreach (string path in _launchPaths) {
 			if (ResolveTarget(path).File is { } file) {
-				_core?.RequestOpenPath(file, 1);
+				_core?.RequestOpenPath(file);
 			}
 		}
 	}

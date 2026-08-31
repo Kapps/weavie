@@ -26,8 +26,16 @@ test("a second launch hands its path to the running Weavie instead of booting an
         env: { ...process.env, WEAVIE_ROOT: join(weavie.home, ".weavie") },
         stdio: "ignore",
       });
-      child.on("error", reject);
-      child.on("exit", resolve);
+      // On regression it boots a whole host instead of handing over; kill it rather than orphan it.
+      const kill = setTimeout(() => child.kill("SIGKILL"), 20_000);
+      child.on("error", (error) => {
+        clearTimeout(kill);
+        reject(error);
+      });
+      child.on("exit", (code) => {
+        clearTimeout(kill);
+        resolve(code);
+      });
     });
 
     // Exit 0 without serving anything is the proof it handed over rather than starting a second app.

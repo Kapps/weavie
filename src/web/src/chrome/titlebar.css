@@ -50,22 +50,6 @@
   justify-content: flex-end;
 }
 
-.native-tb-btn {
-  appearance: none;
-  border: 1px solid transparent;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  padding: 3px 10px;
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-.native-tb-btn:hover {
-  /* Theme-adaptive subtle hover: a hint of the foreground over the bar, so it works on dark + light. */
-  background: color-mix(in srgb, var(--fg) 8%, transparent);
-}
-
 .tb-icon {
   display: flex;
   align-items: center;
@@ -139,10 +123,6 @@
   app-region: no-drag;
 }
 
-.tb-menu-item {
-  position: relative;
-}
-
 .tb-menu-label {
   background: transparent;
   border: none;
@@ -161,122 +141,6 @@
 .tb-menu-label:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
-}
-
-.tb-dropdown {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  z-index: 60;
-  min-width: 200px;
-  padding: 4px;
-  background: var(--bar);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
-}
-
-.tb-dropitem {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  width: 100%;
-  padding: 5px 10px;
-  border: none;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--fg);
-  font: inherit;
-  text-align: left;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.tb-dropitem:hover,
-.tb-dropitem:focus-visible {
-  background: var(--list-active-bg);
-  color: var(--list-active-fg);
-  outline: none;
-}
-
-/* The advertised shortcut, right-aligned in the row (keyboard-first); dims to match on hover/focus. */
-.tb-dropitem-keys {
-  color: var(--dim);
-  font-size: 0.9em;
-}
-.tb-dropitem:hover .tb-dropitem-keys,
-.tb-dropitem:focus-visible .tb-dropitem-keys {
-  color: color-mix(in srgb, var(--list-active-fg) 70%, transparent);
-}
-
-.tb-dropitem.disabled {
-  color: var(--dim);
-  pointer-events: none;
-}
-
-.tb-sep {
-  height: 1px;
-  margin: 4px 6px;
-  background: var(--border);
-}
-
-/* Open Recent flyout (pure-CSS hover submenu) */
-.has-submenu {
-  position: relative;
-}
-
-.tb-submenu {
-  display: none;
-  position: absolute;
-  top: -5px;
-  left: 100%;
-  min-width: 240px;
-  margin-left: 2px;
-  padding: 4px;
-  background: var(--bar);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
-}
-
-.has-submenu:hover .tb-submenu,
-.has-submenu:focus-within .tb-submenu {
-  display: block;
-}
-
-.has-submenu:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
-}
-
-.tb-submenu-arrow {
-  display: inline-flex;
-  align-items: center;
-  color: var(--dim);
-}
-
-.tb-submenu-arrow svg {
-  width: 1em;
-  height: 1em;
-}
-
-.tb-recent-leaf {
-  font-weight: 600;
-}
-
-.tb-recent-path {
-  color: var(--dim);
-  font-size: var(--font-hint-size);
-  margin-left: 16px;
-  max-width: 320px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.tb-dropitem:hover .tb-recent-path,
-.tb-dropitem:focus-visible .tb-recent-path {
-  color: color-mix(in srgb, var(--list-active-fg) 70%, transparent);
 }
 
 /* Window controls — fill the full bar height (no fixed px); width stays fixed (it's a horizontal hit area). */

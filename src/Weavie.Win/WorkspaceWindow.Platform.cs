@@ -27,6 +27,11 @@ internal sealed partial class WorkspaceWindow {
 
 	IReadOnlyList<string> IHostPlatform.Recents => _app.Recents.Items;
 
+	event Action? IHostPlatform.RecentsChanged {
+		add => _app.Recents.Changed += value;
+		remove => _app.Recents.Changed -= value;
+	}
+
 	IShellWindow? IHostPlatform.Window => this;
 
 	IShellMenuActions IHostPlatform.MenuActions => this;

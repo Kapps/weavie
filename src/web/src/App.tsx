@@ -663,6 +663,11 @@ export default function App(): JSX.Element {
     promptScratchName,
     promptRevision,
   });
+  createEffect(() => {
+    setContext("navigationBackAvailable", editor.nav.canBack());
+    setContext("navigationForwardAvailable", editor.nav.canForward());
+    setContext("reviewAvailable", editor.parkedReviewCount() > 0);
+  });
   // Find-in-files results open through the editor controller (preview tab, cursor on the match's column).
   setSearchOpener((match, focus) => editor.openMatch(match.path, match.line, match.column, focus));
 
@@ -1033,17 +1038,19 @@ export default function App(): JSX.Element {
 
   // Switch to the next/prev LOADED rail chip stepRailTarget picks (dormant and unreachable chips skipped);
   // false falls the keystroke through when there's nothing to move to.
+  const stepSessionCandidates = (): RailSession[] =>
+    railSessions().filter((session) => session.loaded && !session.offline);
   const stepSession = (delta: number): boolean => {
-    const target = stepRailTarget(
-      railSessions().filter((s) => s.loaded && !s.offline),
-      delta,
-    );
+    const target = stepRailTarget(stepSessionCandidates(), delta);
     if (target === null) {
       return false;
     }
     switchToSession(target);
     return true;
   };
+  createEffect(() =>
+    setContext("sessionStepAvailable", stepRailTarget(stepSessionCandidates(), 1) !== null),
+  );
 
   // A pending session delete, opened once weavie.session.delete (classify mode) returns the worktree state and
   // DeleteSessionDialog raises the matching confirm (clean / untracked / modified). `backendId` is the owning
@@ -1970,13 +1977,11 @@ export default function App(): JSX.Element {
       </Show>
       <Show when={MAC_TITLEBAR || LINUX_TITLEBAR}>
         <NativeTitleBar
-          platform={LINUX_TITLEBAR ? "linux" : "mac"}
           files={fileIndex()}
           filesPending={indexPending()}
           root={indexRoot()}
           currentFile={currentFile()}
           workspaceLabel={SHELL?.workspaceLabel ?? "weavie"}
-          recents={SHELL?.recents ?? []}
           onOpenFile={(path, line) => revealSelectedFile(path, line)}
           onRequestIndex={refreshSelectedFileIndex}
           symbols={editor.symbols}

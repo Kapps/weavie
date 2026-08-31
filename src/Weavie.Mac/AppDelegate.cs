@@ -72,10 +72,9 @@ public sealed partial class AppDelegate : NSApplicationDelegate {
 			ShowWelcome();
 		}
 
-		// The native menu bar; rebuilt on a deferred main-loop turn whenever recents change so File ▸ Open Recent
-		// stays current — opening a folder no longer relaunches the app, which used to rebuild it.
+		// AppKit owns only the platform-standard App/Edit/Window menus. Weavie's command menus are rendered in
+		// the shared web app bar, where the active catalog, context, and effective keybindings already live.
 		BuildMenu();
-		_recents.Changed += () => NSApplication.SharedApplication.BeginInvokeOnMainThread(BuildMenu);
 
 		// Global hotkeys (e.g. ctrl+` → toggle the front window): app-level, so a single registration covers every
 		// window instead of each window's core re-registering the same chord. Dispatches to the front window.
@@ -111,7 +110,7 @@ public sealed partial class AppDelegate : NSApplicationDelegate {
 		_services?.Settings.Dispose();
 	}
 
-	/// <summary>Records the window that just became key, so the global hotkey + menu commands target the front one.</summary>
+	/// <summary>Records the window that just became key, so the global toggle hotkey targets the front one.</summary>
 	internal void MarkActive(WorkspaceWindow window) => _lastActive = window;
 
 	/// <summary>Saves the closing window's geometry, drops it from the set, and disposes its core.</summary>
@@ -147,8 +146,7 @@ public sealed partial class AppDelegate : NSApplicationDelegate {
 		target.MakeKeyAndOrderFront(null);
 	}
 
-	// The front window (last to become key, else the most-recently-opened) — the target for menu commands and the
-	// global toggle hotkey.
+	// The front window (last to become key, else the most-recently-opened) — the global toggle-hotkey target.
 	private WorkspaceWindow? Frontmost =>
 		_lastActive is not null && _windows.Contains(_lastActive) ? _lastActive : _windows.LastOrDefault();
 
@@ -158,15 +156,9 @@ public sealed partial class AppDelegate : NSApplicationDelegate {
 		}
 	}
 
-	// File/View items dispatch the same Weavie command ids the keyboard + omnibar use (routed to the front window),
-	// with shortcuts read from the keybinding store. Open Recent reflects the recents at build time.
+	// Native App/Edit/Window conventions are process-wide; Weavie commands live in each window's shared web menu.
 	private void BuildMenu() =>
-		NSApplication.SharedApplication.MainMenu = MacAppMenu.Build(
-			runCommand: id => Frontmost?.InvokeCommand(id),
-			resolveChord: ResolveChord,
-			openFolder: OpenFolderInteractive,
-			openRecent: path => OpenOrFocus(path),
-			recents: _recents!.Items);
+		NSApplication.SharedApplication.MainMenu = MacAppMenu.Build();
 
 	private static void Log(string line) {
 		Console.WriteLine(line);

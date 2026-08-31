@@ -74,27 +74,26 @@ public sealed class SessionCommandsTests {
 	}
 
 	[Fact]
-	public void Register_NextPrevSession_BindTab_GatedTerminalFocused() {
+	public void Register_NextPrevSession_AdvertiseAvailabilityWithoutGuardingFallbackBindings() {
 		var registry = new CommandRegistry();
 		SessionCommands.Register(registry);
 
 		Assert.True(registry.TryGet(SessionCommands.NextSession, out var next));
 		Assert.True(registry.TryGet(SessionCommands.PrevSession, out var prev));
 
-		// ctrl+Tab / ctrl+Shift+Tab are the editor's tab chords under editorFocused. Cycling claims them
-		// unguarded so the chord reaches sessions both when the editor isn't focused and when it is but has no
-		// tab to step to — a guard here (the old !editorFocused complement) made that press a dead key. Literal
-		// ctrl (not $mod) keeps them off macOS's Cmd+Tab.
-		Assert.Null(next!.When);
-		Assert.Null(prev!.When);
+		// The command guard advertises whether the rail can step without changing the binding's focus behavior:
+		// ctrl+Tab can still fall through from a lone editor tab to a different session. Literal ctrl (not $mod)
+		// keeps the chord off macOS's Cmd+Tab.
+		Assert.Equal("sessionStepAvailable", next!.When);
+		Assert.Equal("sessionStepAvailable", prev!.When);
 
 		var nextBinding = Assert.Single(next.DefaultKeybindings);
 		Assert.Equal("ctrl+Tab", nextBinding.Key);
-		Assert.Null(nextBinding.When);
+		Assert.Equal(string.Empty, nextBinding.When);
 
 		var prevBinding = Assert.Single(prev.DefaultKeybindings);
 		Assert.Equal("ctrl+Shift+Tab", prevBinding.Key);
-		Assert.Null(prevBinding.When);
+		Assert.Equal(string.Empty, prevBinding.When);
 	}
 
 	[Fact]

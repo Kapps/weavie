@@ -1356,6 +1356,7 @@ public static class CoreCommands {
 			Description = "Open the unified overview of every pending review file and its diff. Pass path and line "
 				+ "to open that exact change in the file-focused review instead.",
 			Aliases = ["review changes", "review turn", "turn review", "review", "changed files"],
+			When = "reviewAvailable",
 			ArgsSchemaJson = "{\"path\":{\"type\":\"string\",\"description\":\"Review file to open; omit for the unified overview\"},\"line\":{\"type\":\"integer\",\"description\":\"1-based line to reveal with path\"}}",
 		});
 
@@ -1582,6 +1583,7 @@ public static class CoreCommands {
 			Description = "Go back to the previous editor location (file + line) in the navigation history. "
 				+ "Also driven by the back mouse button.",
 			Aliases = ["go back", "navigate back", "back", "previous location", "go to previous location"],
+			When = "navigationBackAvailable",
 			DefaultKeybindings = [
 				new CommandKeybinding { Key = "alt+Left", When = "!terminalFocused" },
 				new CommandKeybinding { Key = "MouseBack" },
@@ -1596,6 +1598,7 @@ public static class CoreCommands {
 			Description = "Go forward to the next editor location (file + line) in the navigation history. "
 				+ "Also driven by the forward mouse button.",
 			Aliases = ["go forward", "navigate forward", "forward", "next location", "go to next location"],
+			When = "navigationForwardAvailable",
 			DefaultKeybindings = [
 				new CommandKeybinding { Key = "alt+Right", When = "!terminalFocused" },
 				new CommandKeybinding { Key = "MouseForward" },

@@ -106,6 +106,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 	private Action? _onRailStateChanged;
 	private Action? _onSearchStateChanged;
 	private Action? _onAgentProvidersChanged;
+	private Action? _onRecentsChanged;
 	private IDisposable? _shellSettingSubscription;
 
 	/// <summary>
@@ -428,6 +429,10 @@ public sealed partial class HostCore : IAsyncDisposable {
 		_onSearchStateChanged = PushSearchStateToWeb;
 		_searchState.Changed += _onSearchStateChanged;
 
+		// Recent workspaces are app-global: opening/pruning one in any window refreshes every existing File menu.
+		_onRecentsChanged = PushRecentWorkspacesToWeb;
+		_platform.RecentsChanged += _onRecentsChanged;
+
 		_onAgentProvidersChanged = () =>
 			_messages.Host.Feature("settings").PublishJson("agent-defaults", BuildAgentDefaults());
 		_agentProviders.Changed += _onAgentProvidersChanged;
@@ -583,6 +588,11 @@ public sealed partial class HostCore : IAsyncDisposable {
 		if (_onAgentProvidersChanged is not null) {
 			_agentProviders.Changed -= _onAgentProvidersChanged;
 			_onAgentProvidersChanged = null;
+		}
+
+		if (_onRecentsChanged is not null) {
+			_platform.RecentsChanged -= _onRecentsChanged;
+			_onRecentsChanged = null;
 		}
 	}
 }

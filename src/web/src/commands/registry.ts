@@ -66,16 +66,6 @@ const changeSubscribers = new Set<() => void>();
 const sessionActivationSubscribers = new Set<(activation: SessionActivation) => void>();
 const terminalActivationSubscribers = new Set<(activation: TerminalActivation) => void>();
 
-registerHostFeature((connection) =>
-  connection.isLocal
-    ? connection.host
-        .feature("commands")
-        .on<{ id: string; args?: unknown }>("runNative", ({ id, args }) => {
-          void runCommandWithFeedback(id, args);
-        })
-    : undefined,
-);
-
 export interface SessionActivation {
   session: ClientSession;
   created: boolean;

@@ -6,4 +6,4 @@ Exec=Weavie
 Icon=io.github.kapps.weavie
 Categories=Development;IDE;
 Terminal=false
-NoDisplay=true
+MimeType=text/plain;inode/directory;

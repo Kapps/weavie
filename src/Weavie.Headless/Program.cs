@@ -1,9 +1,19 @@
 using System.Runtime.InteropServices;
+using Weavie.Core;
 using Weavie.Core.Configuration;
 using Weavie.Core.Mcp;
 using Weavie.Headless;
 using Weavie.Hosting;
+using Weavie.Hosting.Desktop;
 using Weavie.Hosting.Web;
+
+var launch = LaunchArguments.Parse(args);
+// A launch that only hands paths to the running host exits without building a Core graph — the same
+// handover the GUI hosts perform, so the harness exercises the real path.
+if (launch.Paths.Count > 0
+	&& (await InstanceClient.OfferAsync(WeaviePaths.Root, launch.Paths, CancellationToken.None)).Accepted) {
+	return 0;
+}
 
 string wwwroot = Path.Combine(AppContext.BaseDirectory, "wwwroot");
 int port = ResolvePort(args);
@@ -45,6 +55,11 @@ await using var core = new HostCore(
 	bridge);
 
 await core.StartAsync().ConfigureAwait(false);
+await using var instances = new InstanceServer(
+	WeaviePaths.Root,
+	request => DesktopHandoff.Offer(request.Paths, core.WorkspaceRoot, _ => null, core.RequestOpenPath),
+	message => Console.Error.WriteLine($"[weavie-headless] {message}"));
+instances.TryStart();
 Console.WriteLine($"[weavie-headless] workspace: {core.WorkspaceRoot}");
 Console.WriteLine($"[weavie-headless] token {core.WorkspaceAccessToken}");
 Console.WriteLine($"[weavie-headless] open  {core.WorkspacePageUrl}  in a browser");

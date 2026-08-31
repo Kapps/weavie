@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text;
 
 namespace Weavie.Linux.Hosting;
@@ -37,10 +38,28 @@ internal static class LinuxDesktopIdentity {
 		if (execLine < 0) {
 			throw new InvalidDataException("The Linux desktop entry shipped with Weavie has no Exec field.");
 		}
-		desktopEntry[execLine] = $"Exec={execValue}";
-		WriteIfChanged(
-			string.Join('\n', desktopEntry) + '\n',
-			Path.Combine(dataHome, "applications", DesktopFile));
+		// %U appends the paths the file manager passed; the field code sits outside the quoted executable,
+		// whose own % is escaped to %% by QuoteExec.
+		desktopEntry[execLine] = $"Exec={execValue} %U";
+		string applications = Path.Combine(dataHome, "applications");
+		if (WriteIfChanged(string.Join('\n', desktopEntry) + '\n', Path.Combine(applications, DesktopFile))) {
+			RefreshMimeCache(applications);
+		}
+	}
+
+	// GIO indexes application directories itself, but desktops reading mimeinfo.cache (KDE) only see a new
+	// MimeType= after the cache is rebuilt. The tool ships with the desktop, not with Weavie, so its absence is
+	// the environment's answer rather than a failure to report.
+	private static void RefreshMimeCache(string applicationsDirectory) {
+		try {
+			using var refresh = Process.Start(new ProcessStartInfo("update-desktop-database", [applicationsDirectory]) {
+				RedirectStandardOutput = true,
+				RedirectStandardError = true,
+			});
+			refresh?.WaitForExit(5_000);
+		} catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException) {
+			// No update-desktop-database on this system; GIO-based desktops index the directory without it.
+		}
 	}
 
 	private static void RequireBundledAsset(string path, string description) {
@@ -60,14 +79,15 @@ internal static class LinuxDesktopIdentity {
 		return true;
 	}
 
-	private static void WriteIfChanged(string content, string destination) {
+	private static bool WriteIfChanged(string content, string destination) {
 		if (File.Exists(destination)
 			&& string.Equals(File.ReadAllText(destination), content, StringComparison.Ordinal)) {
-			return;
+			return false;
 		}
 
 		Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
 		File.WriteAllText(destination, content);
+		return true;
 	}
 
 	private static string QuoteExec(string executable) {

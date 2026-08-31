@@ -79,11 +79,14 @@ internal sealed partial class WorkspaceHost : IWebSurface, IShellMenuActions {
 			ToggleWindow,
 			Log);
 
-		string? workspace = InitialWorkspace.Resolve(_services.Settings, _recents);
+		StartInstanceServer();
+		// A path the OS handed us decides the workspace; only without one does reopen-last apply.
+		string? workspace = LaunchWorkspace() ?? InitialWorkspace.Resolve(_services.Settings, _recents);
 		if (workspace is null) {
 			ShowWelcome();
 		} else {
 			OpenWorkspace(workspace);
+			OpenLaunchPaths();
 		}
 	}
 
@@ -147,6 +150,7 @@ internal sealed partial class WorkspaceHost : IWebSurface, IShellMenuActions {
 
 	/// <summary>Persists geometry, tears down the core, and disposes the app stores; called after the main loop exits.</summary>
 	internal void Shutdown() {
+		StopInstanceServer();
 		DisposeHotkeys();
 		CloseWorkspace();
 		_notifications?.Dispose();

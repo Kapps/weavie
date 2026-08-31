@@ -43,6 +43,9 @@ public interface IStructuredAgentSession : IAgentSession {
 	/// <summary>Restarts the structured runtime process.</summary>
 	void Restart();
 
+	/// <summary>Abandons the current provider conversation and starts a fresh one.</summary>
+	void StartNewConversation();
+
 	/// <summary>Selects one exact provider-advertised permission option.</summary>
 	void ResolvePermission(string requestId, string optionId);
 

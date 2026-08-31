@@ -21,7 +21,11 @@ export const IDLE_CURSOR: HistoryCursor = { cursor: null, stash: "" };
 export function submittedPrompts(messages: readonly AgentPaneUpdate[]): string[] {
   const prompts: string[] = [];
   for (const message of messages) {
-    if (message.type !== "user-message" && message.type !== "user-steer") {
+    if (
+      message.type !== "user-message" &&
+      message.type !== "user-command" &&
+      message.type !== "user-steer"
+    ) {
       continue;
     }
     const text = message.text?.trim();

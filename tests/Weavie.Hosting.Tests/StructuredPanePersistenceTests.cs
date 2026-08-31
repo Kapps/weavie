@@ -85,7 +85,7 @@ public sealed class StructuredPanePersistenceTests {
 			session,
 			"agent",
 			"submit",
-			new { id = "", prompt, attachmentIds = Array.Empty<string>(), skills = Array.Empty<string>() });
+			new { id = "", prompt, kind = "prompt", commandName = "", attachmentIds = Array.Empty<string>() });
 
 	// Weavie keeps no transcript cache: a provider that cannot replay its own conversation comes back empty
 	// rather than being handed a stale copy that looks live.
@@ -146,7 +146,7 @@ public sealed class StructuredPanePersistenceTests {
 			session,
 			"agent",
 			"submit",
-			new { id = "", prompt = "hello", attachmentIds = Array.Empty<string>(), skills = Array.Empty<string>() });
+			new { id = "", prompt = "hello", kind = "prompt", commandName = "", attachmentIds = Array.Empty<string>() });
 
 		host.Bridge.Clear();
 		await host.SessionRequestAsync<JsonElement>(session, "lifecycle", "sync", new { });
@@ -166,7 +166,7 @@ public sealed class StructuredPanePersistenceTests {
 			background,
 			"agent",
 			"submit",
-			new { id = "", prompt = "hello", attachmentIds = Array.Empty<string>(), skills = Array.Empty<string>() });
+			new { id = "", prompt = "hello", kind = "prompt", commandName = "", attachmentIds = Array.Empty<string>() });
 
 		Assert.Same(host.WorkspaceSession, host.SelectedSession);
 		Assert.True(HasPaneMessage(host.Bridge, background, "user-message", "hello"));
@@ -182,7 +182,7 @@ public sealed class StructuredPanePersistenceTests {
 			session,
 			"agent",
 			"submit",
-			new { id = "", prompt = "hello", attachmentIds = Array.Empty<string>(), skills = Array.Empty<string>() });
+			new { id = "", prompt = "hello", kind = "prompt", commandName = "", attachmentIds = Array.Empty<string>() });
 		host.SessionEvent(
 			session,
 			"agent",
@@ -190,8 +190,9 @@ public sealed class StructuredPanePersistenceTests {
 			new {
 				id = "",
 				prompt = FakeStructuredAgentProvider.ResetPrompt,
+				kind = "prompt",
+				commandName = "",
 				attachmentIds = Array.Empty<string>(),
-				skills = Array.Empty<string>(),
 			});
 
 		Assert.NotNull(host.Bridge.LastEvent(session.Address, "agent", "paneReset"));

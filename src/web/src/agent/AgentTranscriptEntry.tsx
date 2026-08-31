@@ -173,7 +173,7 @@ function AgentMedia(props: {
 
 function entryLabel(entry: AgentTranscriptEntry): string {
   if (entry.kind === "message" && entry.tone === "user") {
-    return entry.label === "Steer" ? "Steer" : "Prompt";
+    return entry.label === "Steer" || entry.label === "Command" ? entry.label : "Prompt";
   }
   switch (entry.label) {
     case "Interrupted":

@@ -34,6 +34,14 @@ public sealed partial class HostCore {
 			_ui.Post(session.RestartAgent);
 			return Task.FromResult(CommandResult.Success("Restarted the agent."));
 		});
+		session.Commands.RegisterHandler(CoreCommands.ClearAgentConversation, (_, _) => {
+			try {
+				session.StartNewAgentConversation();
+				return Task.FromResult(CommandResult.Success("Started a fresh agent conversation."));
+			} catch (Exception ex) when (ex is IOException or InvalidOperationException) {
+				return Task.FromResult(CommandResult.Failure(ex.Message));
+			}
+		});
 		// Restart-now for a pending update: the user's explicit choice to skip the drain gate (kills
 		// running shell jobs); fails cleanly when no update is pending.
 		session.Commands.RegisterHandler(CoreCommands.RestartForUpdate, (_, _) =>
@@ -1254,6 +1262,8 @@ public sealed partial class HostCore {
 		new() {
 			Id = Guid.NewGuid().ToString("n"),
 			Text = input.Text,
+			Kind = AgentTurnSubmissionKind.Prompt,
+			CommandName = string.Empty,
 			Attachments = [.. input.Attachments.Select(attachment => new AgentInputAttachment {
 				Id = attachment.Id,
 				Mime = attachment.Mime,

@@ -200,16 +200,28 @@ public sealed partial class AcpAgentSession {
 				Id = "agent:" + name,
 				Name = name,
 				Description = RequiredString(command, "description", "available command"),
-				InsertText = "/" + name + " ",
+				Kind = AgentSlashEntryKind.ProviderCommand,
+				InputHint = ReadCommandInput(command, name),
 			};
 		}).ToArray();
-		if (parsed.Select(command => command.Name).Distinct(StringComparer.Ordinal).Count() != parsed.Length) {
+		if (parsed.Select(command => command.Name).Distinct(StringComparer.OrdinalIgnoreCase).Count() != parsed.Length) {
 			throw new AcpProtocolException("ACP available commands repeat a name.");
 		}
 		lock (_gate) {
-			_commands = parsed;
+			_commands = [.. parsed.Where(command =>
+				!string.Equals(command.Name, "clear", StringComparison.OrdinalIgnoreCase))];
 		}
 		RaiseControls();
+	}
+
+	private static string? ReadCommandInput(JsonElement command, string name) {
+		if (!command.TryGetProperty("input", out var input) || input.ValueKind == JsonValueKind.Null) {
+			return null;
+		}
+		if (input.ValueKind != JsonValueKind.Object) {
+			throw new AcpProtocolException($"ACP available command '{name}' has invalid input metadata.");
+		}
+		return RequiredString(input, "hint", $"available command '{name}' input");
 	}
 
 	private void ReadConfigOptionsLocked(JsonElement config) {

@@ -232,11 +232,24 @@ public sealed partial class HostSession {
 			if (message.Prompt.Trim().Length == 0 && attachmentIds.Length == 0) {
 				throw new InvalidOperationException("Write a prompt or attach an image before running the agent.");
 			}
+			var kind = message.Kind switch {
+				"prompt" => AgentTurnSubmissionKind.Prompt,
+				"providerCommand" => AgentTurnSubmissionKind.ProviderCommand,
+				_ => throw new InvalidOperationException("Agent submissions require a recognized semantic kind."),
+			};
+			if (kind == AgentTurnSubmissionKind.Prompt && message.CommandName is { Length: > 0 }) {
+				throw new InvalidOperationException("An ordinary prompt cannot name a provider command.");
+			}
+			if (kind == AgentTurnSubmissionKind.ProviderCommand && attachmentIds.Length != 0) {
+				throw new InvalidOperationException("Provider commands cannot include attachments.");
+			}
 
 			var resolved = AgentAttachments.Resolve(attachmentIds);
 			agent.Submit(new AgentTurnSubmission {
 				Id = message.Id,
 				Text = message.Prompt,
+				Kind = kind,
+				CommandName = message.CommandName ?? string.Empty,
 				Attachments = resolved,
 			});
 			if (message.Id.Length > 0) {
@@ -313,5 +326,7 @@ public sealed partial class HostSession {
 	private sealed record AgentSubmitMessage(
 		string Id,
 		string Prompt,
+		string? Kind,
+		string? CommandName,
 		string[]? AttachmentIds);
 }

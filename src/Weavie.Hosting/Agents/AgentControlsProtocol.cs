@@ -27,8 +27,13 @@ internal static class AgentControlsProtocol {
 					id = entry.Id,
 					name = entry.Name,
 					description = entry.Description,
+					kind = entry.Kind switch {
+						AgentSlashEntryKind.WeavieCommand => "weavieCommand",
+						AgentSlashEntryKind.ProviderCommand => "providerCommand",
+						_ => throw new InvalidOperationException($"Unknown slash entry kind '{entry.Kind}'."),
+					},
 					commandId = entry.CommandId,
-					insertText = entry.InsertText,
+					inputHint = entry.InputHint,
 				}),
 			},
 		};

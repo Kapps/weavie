@@ -41,7 +41,7 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 		method switch {
 			"initialize" => Initialize(parameters),
 			"authenticate" => await AuthenticateAsync(ct).ConfigureAwait(false),
-			"session/new" => Open(parameters, "fake-session", replay: false),
+			"session/new" => Open(parameters, NewSessionId(), replay: false),
 			"session/load" => Open(
 				parameters,
 				AcpJson.RequiredString(parameters, "sessionId", method),
@@ -191,14 +191,40 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 		}
 		Update(new JsonObject {
 			["sessionUpdate"] = "available_commands_update",
-			["availableCommands"] = new JsonArray(new JsonObject {
-				["name"] = "compact",
-				["description"] = "Compact the fake transcript.",
-			}),
+			["availableCommands"] = new JsonArray(
+				new JsonObject {
+					["name"] = "compact",
+					["description"] = "Compact the fake transcript.",
+					["input"] = null,
+				},
+				new JsonObject {
+					["name"] = "review",
+					["description"] = "Review with a focus.",
+					["input"] = new JsonObject { ["hint"] = "<focus>" },
+				},
+				new JsonObject {
+					["name"] = "hold-command",
+					["description"] = "Hold an isolated command turn.",
+					["input"] = null,
+				},
+				new JsonObject {
+					["name"] = "clear",
+					["description"] = "A provider command the client must shadow.",
+					["input"] = null,
+				}),
 		});
 		var response = Setup();
 		response["sessionId"] = sessionId;
 		return response;
+	}
+
+	private static string NewSessionId() {
+		string path = Path.Combine(Environment.CurrentDirectory, "fake-session-sequence");
+		int sequence = File.Exists(path)
+			? int.Parse(File.ReadAllText(path), System.Globalization.CultureInfo.InvariantCulture) + 1
+			: 1;
+		File.WriteAllText(path, sequence.ToString(System.Globalization.CultureInfo.InvariantCulture));
+		return sequence == 1 ? "fake-session" : $"fake-session-{sequence}";
 	}
 
 	private async Task<JsonNode> AuthenticateAsync(CancellationToken ct) {
@@ -231,6 +257,21 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 		RequireSession(parameters);
 		var prompt = AcpJson.RequiredArray(parameters, "prompt", "session/prompt");
 		string text = PromptText(prompt);
+		if (text == "/compact") {
+			RequireIsolatedCommand(prompt, text);
+			File.WriteAllText(Path.Combine(Environment.CurrentDirectory, "compact-executed"), string.Empty);
+			Message("Compacting completed.");
+			return new JsonObject { ["stopReason"] = "end_turn" };
+		}
+		if (text.StartsWith("/review", StringComparison.Ordinal)) {
+			RequireIsolatedCommand(prompt, text);
+			Message("review command: " + text["/review".Length..].Trim());
+			return new JsonObject { ["stopReason"] = "end_turn" };
+		}
+		if (text == "/hold-command") {
+			RequireIsolatedCommand(prompt, text);
+			return await HoldAsync(ct).ConfigureAwait(false);
+		}
 		if (text is "hold" or "hold-cancel-error") {
 			_cancelFails = text == "hold-cancel-error";
 			return await HoldAsync(ct).ConfigureAwait(false);
@@ -283,7 +324,12 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 			File.WriteAllText(text["persist-probe:".Length..], "provider mutation");
 			Message("persistence failure did not stop the provider");
 		} else if (text is "context" or "context-after-reset") ContextResult(prompt, text);
+		else if (text == "identify-session") Message($"session: {_sessionId}");
 		else if (text == "control-state") Message($"control state: {_model}/{_mode}/{_fast}");
+		else if (text == "remove-commands") Update(new JsonObject {
+			["sessionUpdate"] = "available_commands_update",
+			["availableCommands"] = new JsonArray(),
+		});
 		else if (text == "echo-user") {
 			Update(new JsonObject {
 				["sessionUpdate"] = "user_message_chunk",
@@ -298,9 +344,26 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 		return new JsonObject { ["stopReason"] = "end_turn" };
 	}
 
+	private static void RequireIsolatedCommand(JsonElement prompt, string text) {
+		if (prompt.GetArrayLength() != 1) {
+			throw new AcpAdapterException(-32602, $"Command '{text}' included non-command prompt blocks.", null);
+		}
+		var block = prompt[0];
+		if (AcpJson.OptionalString(block, "type") != "text"
+			|| AcpJson.OptionalString(block, "text") != text) {
+			throw new AcpAdapterException(-32602, $"Command '{text}' was not one exact text block.", null);
+		}
+	}
+
 	private async Task<JsonNode> HoldAsync(CancellationToken ct) {
 		var completion = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
 		lock (_gate) _heldPrompt = completion;
+		File.WriteAllText(Path.Combine(Environment.CurrentDirectory, "hold-started"), string.Empty);
+		_ = Task.Run(async () => {
+			string release = Path.Combine(Environment.CurrentDirectory, "release-hold");
+			while (!File.Exists(release)) await Task.Delay(10, ct).ConfigureAwait(false);
+			completion.TrySetResult("released");
+		}, ct);
 		Update(new JsonObject {
 			["sessionUpdate"] = "tool_call",
 			["toolCallId"] = "hold",
@@ -331,7 +394,14 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 		string trigger = Path.Combine(Environment.CurrentDirectory, "release-restart-update");
 		_ = Task.Run(async () => {
 			while (!File.Exists(trigger)) await Task.Delay(10, ct).ConfigureAwait(false);
-			Message("stale update from replaced generation");
+			Update(new JsonObject {
+				["sessionUpdate"] = "available_commands_update",
+				["availableCommands"] = new JsonArray(new JsonObject {
+					["name"] = "stale-command",
+					["description"] = "Command from the replaced generation.",
+					["input"] = null,
+				}),
+			});
 			File.WriteAllText(Path.Combine(Environment.CurrentDirectory, "restart-update-sent"), string.Empty);
 		}, ct);
 		await Task.Delay(Timeout.InfiniteTimeSpan, ct).ConfigureAwait(false);
@@ -341,6 +411,10 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 	private JsonObject Steer(JsonElement parameters) {
 		RequireSession(parameters);
 		string text = PromptText(AcpJson.RequiredArray(parameters, "prompt", "_session/steering"));
+		if (text.StartsWith("/compact", StringComparison.Ordinal)
+			|| text.StartsWith("/review", StringComparison.Ordinal)) {
+			File.WriteAllText(Path.Combine(Environment.CurrentDirectory, "command-steered"), text);
+		}
 		if (text == "complete-url") {
 			Connection().Notify("elicitation/complete", new JsonObject {
 				["elicitationId"] = "fake-browser-login",

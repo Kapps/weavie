@@ -98,6 +98,8 @@ public sealed class InitialTerminalInputTests : IDisposable {
 		new() {
 			Id = "initial",
 			Text = text,
+			Kind = AgentTurnSubmissionKind.Prompt,
+			CommandName = string.Empty,
 			Attachments = attachments,
 		};
 

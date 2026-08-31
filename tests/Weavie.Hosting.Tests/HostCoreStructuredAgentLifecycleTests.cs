@@ -9,6 +9,32 @@ namespace Weavie.Hosting.Tests;
 [Collection(TestCollections.HostIntegration)]
 public sealed class HostCoreStructuredAgentLifecycleTests {
 	[Fact]
+	public async Task ClearConversationCommandTargetsTheOwningStructuredSession() {
+		await using var host = await TestHost.StartAsync();
+		var created = await host.InvokeCommandAsync(
+			host.WorkspaceSession.SlotId,
+			SessionCommands.NewSession,
+			new NewSessionRequest {
+				Branch = "structured-clear",
+				Base = "main",
+				AgentProviderId = "structured",
+			},
+			CancellationToken.None);
+		Assert.True(created.Ok, created.Error);
+		var session = host.Session("structured-clear");
+
+		var result = await host.InvokeCommandAsync(
+			session.SlotId,
+			CoreCommands.ClearAgentConversation,
+			new { },
+			CancellationToken.None);
+		await session.Agent.DrainPaneAsync(CancellationToken.None);
+
+		Assert.True(result.Ok, result.Error);
+		Assert.NotNull(host.Bridge.LastEvent(session.Address, "agent", "paneReset"));
+	}
+
+	[Fact]
 	public async Task NewStructuredSession_StartsWhenItsOwnedEndpointActivates() {
 		await using var host = await TestHost.StartAsync();
 		host.Settings.Set(AgentSettings.PaneCoalesceMs, JsonSerializer.SerializeToElement(0L));
@@ -39,8 +65,9 @@ public sealed class HostCoreStructuredAgentLifecycleTests {
 			new {
 				id = "first-turn",
 				prompt = "hello",
+				kind = "prompt",
+				commandName = "",
 				attachmentIds = Array.Empty<string>(),
-				skills = Array.Empty<string>(),
 			});
 
 		Assert.Contains(

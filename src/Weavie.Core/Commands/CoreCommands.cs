@@ -80,6 +80,9 @@ public static class CoreCommands {
 	/// <summary>Restarts the Claude pane in place (recovers a crashed / crash-looped Claude).</summary>
 	public const string RestartAgent = "weavie.agent.restart";
 
+	/// <summary>Starts a fresh conversation for the active structured agent.</summary>
+	public const string ClearAgentConversation = "weavie.agent.clearConversation";
+
 	/// <summary>Opens the ACP Registry manager.</summary>
 	public const string ManageAcpAgents = "weavie.agent.manageAcp";
 
@@ -729,6 +732,17 @@ public static class CoreCommands {
 			Category = "Agent",
 			Description = "Restart this session's agent in place — recovers it after a crash or once it has crashed repeatedly and stopped.",
 			Aliases = ["restart agent", "reopen agent", "relaunch agent", "agent crashed"],
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = ClearAgentConversation,
+			Title = "Start Fresh Agent Conversation",
+			RunsIn = CommandLocation.Core,
+			Category = "Agent",
+			Description = "Clear the transcript and start a new empty agent conversation in this workspace.",
+			Aliases = ["new conversation", "clear conversation", "clear agent", "agent clear"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "alt+Shift+c" }],
+			When = "agentFocused",
 		});
 
 		registry.Register(new CommandDefinition {

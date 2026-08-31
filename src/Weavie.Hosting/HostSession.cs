@@ -598,12 +598,22 @@ public sealed partial class HostSession : IAsyncDisposable {
 		Agent.Structured?.Restart();
 	}
 
+	/// <summary>Clears the native agent pane and starts a fresh provider conversation.</summary>
+	public void StartNewAgentConversation() {
+		if (Agent.Structured is not { } structured) {
+			throw new InvalidOperationException("This session does not use a native structured agent.");
+		}
+		structured.StartNewConversation();
+	}
+
 	/// <summary>Sends a prompt to the active agent using the provider's native input path.</summary>
 	public void SendAgentPrompt(string text) {
 		ArgumentNullException.ThrowIfNull(text);
 		SendAgentInput(new AgentTurnSubmission {
 			Id = Guid.NewGuid().ToString("n"),
 			Text = text,
+			Kind = AgentTurnSubmissionKind.Prompt,
+			CommandName = string.Empty,
 			Attachments = [],
 		});
 	}

@@ -218,8 +218,11 @@ public static class CoreCommands {
 	/// <summary>Opens the blame popover for the editor cursor's line; palette-only, no default keybinding.</summary>
 	public const string ShowBlame = "weavie.git.showBlame";
 
-	/// <summary>Jumps into the post-turn review (acceptEdits/bypass) at the first changed file; palette-only, no default keybinding.</summary>
+	/// <summary>Opens the unified review overview, or an explicitly addressed file and line.</summary>
 	public const string ReviewOpen = "weavie.review.open";
+
+	/// <summary>Switches between unified and file-focused review; bound to <c>$mod+Shift+u</c>.</summary>
+	public const string ReviewToggleMode = "weavie.review.toggleMode";
 
 	/// <summary>Walks to the next changed file in the review set; bound to <c>ctrl+$mod+Right</c>.</summary>
 	public const string ReviewNextFile = "weavie.review.nextFile";
@@ -1336,9 +1339,21 @@ public static class CoreCommands {
 			Title = "Review Changes",
 			RunsIn = CommandLocation.Web,
 			Category = "Review",
-			Description = "Jump into the post-turn review (acceptEdits/bypass mode) at the first changed file, "
-				+ "landed on its first change. Walk hunks with Next/Previous Change and files with Next/Previous File.",
+			Description = "Open the unified overview of every pending review file and its diff. Pass path and line "
+				+ "to open that exact change in the file-focused review instead.",
 			Aliases = ["review changes", "review turn", "turn review", "review", "changed files"],
+			ArgsSchemaJson = "{\"path\":{\"type\":\"string\",\"description\":\"Review file to open; omit for the unified overview\"},\"line\":{\"type\":\"integer\",\"description\":\"1-based line to reveal with path\"}}",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = ReviewToggleMode,
+			Title = "Toggle Review Mode",
+			RunsIn = CommandLocation.Web,
+			Category = "Review",
+			When = "reviewSetActive",
+			Description = "Switch seamlessly between the unified all-files review and the in-depth file review.",
+			Aliases = ["toggle review mode", "unified review", "file review", "review overview"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+u", When = "!terminalFocused" }],
 		});
 
 		registry.Register(new CommandDefinition {
@@ -1369,8 +1384,9 @@ public static class CoreCommands {
 			Title = "Keep File (Review)",
 			RunsIn = CommandLocation.Web,
 			Category = "Review",
-			Description = "Keep every change in the active file under review (mark them reviewed) and advance to the next file.",
+			Description = "Keep every change in the target review file (mark them reviewed); file review advances to the next file.",
 			Aliases = ["keep file", "keep this file", "accept file", "keep whole file"],
+			ArgsSchemaJson = "{\"path\":{\"type\":\"string\",\"description\":\"Review file to keep; omit for the active file\"}}",
 		});
 
 		registry.Register(new CommandDefinition {
@@ -1378,8 +1394,9 @@ public static class CoreCommands {
 			Title = "Revert File (Review)",
 			RunsIn = CommandLocation.Web,
 			Category = "Review",
-			Description = "Revert every change in the active file under review back to its turn baseline on disk (confirms first).",
+			Description = "Revert every change in the target review file back to its turn baseline on disk (confirms first).",
 			Aliases = ["revert file", "revert this file", "discard file", "undo file"],
+			ArgsSchemaJson = "{\"path\":{\"type\":\"string\",\"description\":\"Review file to revert; omit for the active file\"}}",
 		});
 
 		registry.Register(new CommandDefinition {

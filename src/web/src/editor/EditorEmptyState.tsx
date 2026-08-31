@@ -76,7 +76,7 @@ export function EditorEmptyState(props: { reviewCount: number }): JSX.Element {
                 Review changes — {props.reviewCount} file{props.reviewCount === 1 ? "" : "s"}
               </span>
               <span class="editor-empty-action-hint">
-                Claude changed files this turn. Step in to review.
+                See every changed file and diff in one view.
               </span>
             </span>
             {keysOf(CommandIds.reviewOpen) !== "" && (

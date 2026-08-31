@@ -663,7 +663,7 @@ test.describe("applied review — oversized files stay responsive", () => {
   });
 });
 
-test.describe("applied review — file navigation is bounded", () => {
+test.describe("applied review — every file remains reviewable", () => {
   test.use({
     fakeScript: {
       steps: Array.from({ length: 100 }, (_, index) =>
@@ -672,18 +672,27 @@ test.describe("applied review — file navigation is bounded", () => {
     },
   });
 
-  test("exposes at most 99 files to the review walk", async ({ page }) => {
+  test("does not truncate a large review set", async ({ page }) => {
     await openFile(page, "README.md");
 
     await expect
       .poll(() => page.evaluate(() => window.__WEAVIE_REVIEW__?.files.length ?? 0))
-      .toBe(99);
-    await expect(page.locator(".weavie-inline-stack-sub")).toContainText("showing 99 of 100");
+      .toBe(100);
+    await expect(page.locator(".weavie-inline-stack-sub")).toContainText("100 files");
 
     await openFile(page, "bulk-0.txt");
     await page.locator(".weavie-inline-scope-btn").click();
-    await expect(page.locator(".weavie-inline-scope-item", { hasText: "All files" })).toHaveCount(
-      0,
-    );
+    await expect(page.locator(".weavie-inline-scope-item", { hasText: "All files" })).toBeVisible();
+
+    await page.locator(".editor-review-toggle").click();
+    const overview = page.locator(".unified-review");
+    await expect(overview.locator(".unified-review-file-link")).toHaveCount(100);
+    expect(await overview.locator(".unified-review-file").count()).toBeLessThan(100);
+    await overview.locator(".unified-review-file-link").last().click();
+    await expect(
+      overview.locator(".unified-review-file-name", { hasText: "bulk-99.txt" }),
+    ).toBeVisible();
+    await overview.locator(".unified-review-action.mode").click();
+    await expect(page.locator(".editor-tab.active", { hasText: "bulk-99.txt" })).toBeVisible();
   });
 });

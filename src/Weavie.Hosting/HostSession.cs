@@ -63,6 +63,8 @@ public sealed partial class HostSession : IAsyncDisposable {
 		string scratchDir,
 		string pastedImagesDir,
 		string authenticationTerminalLogPath,
+		IReadOnlyList<string> shellTerminals,
+		Func<string, string> shellScrollbackPath,
 		CommandRegistry commandRegistry,
 		KeybindingStore keybindings,
 		ThemeOverridesStore themeOverrides,
@@ -81,6 +83,8 @@ public sealed partial class HostSession : IAsyncDisposable {
 		ArgumentException.ThrowIfNullOrEmpty(scratchDir);
 		ArgumentException.ThrowIfNullOrEmpty(pastedImagesDir);
 		ArgumentException.ThrowIfNullOrEmpty(authenticationTerminalLogPath);
+		ArgumentNullException.ThrowIfNull(shellTerminals);
+		ArgumentNullException.ThrowIfNull(shellScrollbackPath);
 		ArgumentNullException.ThrowIfNull(commandRegistry);
 		ArgumentNullException.ThrowIfNull(keybindings);
 		ArgumentNullException.ThrowIfNull(themeOverrides);
@@ -123,14 +127,15 @@ public sealed partial class HostSession : IAsyncDisposable {
 			watcherDebounceMs: 250);
 		Browser = new WorkspaceBrowser(fileSystem, workspaceRoot);
 		FileIndex = new WorkspaceFileIndex(fileSystem, workspaceRoot);
-		Shell = new TerminalController(
-			Bus.Feature("terminal.shell"),
-			"shell",
+		Shells = new ShellTerminalSet(
+			Bus,
 			settings,
 			ptyLauncher,
-			new ShellTerminalProcess(settings, workspaceRoot)) {
-			Workspace = workspaceRoot,
-		};
+			workspaceRoot,
+			shellTerminals,
+			shellScrollbackPath,
+			acceptTerminalInput,
+			shellResized);
 		FileOpener = new FileOpener(
 			View.Feature("view"),
 			_notificationMessages,
@@ -243,7 +248,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 			Agent.ReleaseHistoryReader(peer);
 			_ = Background.Run(_ => Lsp.DisconnectAsync(peer));
 		};
-		WireMessages(inputFrozen, acceptTerminalInput, shellResized);
+		WireMessages(inputFrozen, acceptTerminalInput);
 	}
 
 	/// <summary>This live backend incarnation.</summary>
@@ -349,8 +354,8 @@ public sealed partial class HostSession : IAsyncDisposable {
 	/// <summary>The selected provider session and its compatibility terminal.</summary>
 	public AgentSessionHost Agent { get; }
 
-	/// <summary>The plain shell terminal.</summary>
-	public TerminalController Shell { get; }
+	/// <summary>The session's ordered shell terminal tabs.</summary>
+	internal ShellTerminalSet Shells { get; }
 
 	/// <summary>Resolves a clicked <c>file:line</c> and pushes its contents to the editor.</summary>
 	public FileOpener FileOpener { get; }
@@ -638,7 +643,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 		await DisposeStepAsync(failures, () => Background.DisposeAsync().AsTask()).ConfigureAwait(false);
 		// Terminal disposal blocks until the PTY children exit (so a following worktree delete can't race a
 		// process still rooted there). Keep it off the calling UI thread.
-		await DisposeStepAsync(failures, () => Task.Run(() => Shell.Dispose())).ConfigureAwait(false);
+		await DisposeStepAsync(failures, () => Task.Run(() => Shells.Dispose())).ConfigureAwait(false);
 		await DisposeStepAsync(failures, () => Agent.DisposeAsync().AsTask()).ConfigureAwait(false);
 		await DisposeStepAsync(
 			failures,

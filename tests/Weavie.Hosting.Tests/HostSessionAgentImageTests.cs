@@ -3,6 +3,7 @@ using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
 using Weavie.Core.Layout;
 using Weavie.Core.Mcp;
+using Weavie.Core.Sessions;
 using Weavie.Core.Shell;
 using Weavie.Core.Theming;
 using Weavie.Hosting.Messaging;
@@ -119,6 +120,8 @@ public sealed class HostSessionAgentImageTests : IDisposable {
 			Path.Combine(_dir, "scratch"),
 			Path.Combine(_dir, "pasted"),
 			Path.Combine(_dir, "agent-pane.json"),
+			[ShellTerminalId.New()],
+			id => Path.Combine(_dir, $"shell-{id}.json"),
 			commandRegistry,
 			new KeybindingStore(commandRegistry, Path.Combine(_dir, "keybindings.json"), enableWatcher: false),
 			new ThemeOverridesStore(new Weavie.Core.FileSystem.LocalFileSystem(), Path.Combine(_dir, "theme-overrides.json")),

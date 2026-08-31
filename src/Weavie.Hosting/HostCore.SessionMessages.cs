@@ -176,7 +176,7 @@ public sealed partial class HostCore {
 		session.Claude?.ResyncPane(target.Feature("terminal.agent"));
 		session.Agent.ReplayState(target.Feature("agent"));
 		session.Agent.AuthenticationTerminal?.Controller.ResyncPane(target.Feature("terminal.agent"));
-		session.Shell.ResyncPane(target.Feature("terminal.shell"));
+		session.Shells.Resync(target);
 	}
 
 	private static CommandWireResult ToWireResult(CommandResult result) {

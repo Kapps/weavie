@@ -101,10 +101,15 @@ public sealed class HostCorePasteImageTests {
 	[Fact]
 	public async Task PasteImage_NamingTheShellPane_NeverWritesToTheShell() {
 		await using var host = await TestHost.StartAsync();
-		host.SelectedSession.Shell.EnsureStarted();
+		host.SelectedSession.Shells.Primary!.Controller.EnsureStarted();
 		var shellTerminal = Assert.Single(host.Platform.NoopLauncher.Created);
 
-		PasteImage(host, host.SelectedSession, "terminal.shell", "image/png", PngBytes);
+		PasteImage(
+			host,
+			host.SelectedSession,
+			ShellTerminalSet.FeatureName(host.SelectedSession.Shells.Primary!.Id),
+			"image/png",
+			PngBytes);
 
 		Assert.Equal(0, shellTerminal.WriteCount);
 	}

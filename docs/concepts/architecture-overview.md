@@ -112,7 +112,7 @@ All three surfaces live in the WebView and read their state over the bridge:
 | Surface | Renderer | Where state comes from |
 | --- | --- | --- |
 | Editor | **Monaco** (`monaco-editor` + `monaco-languageclient`), `src/web/src/editor/` | owning session's `files`, `editor`, `review`, and `lsp` features |
-| Terminals | **xterm.js** (`@xterm/xterm` 6.1 beta + fit/webgl addons), `src/web/src/terminal/TerminalView.tsx` | owning session's `terminal.agent` / `terminal.shell` features |
+| Terminals | **xterm.js** (`@xterm/xterm` 6.1 beta + fit/webgl addons), `src/web/src/terminal/TerminalView.tsx` | owning session's `terminal.agent` / `terminal.shell.<id>` features |
 | Chrome (rail, title bar, omnibar, menus, file browser) | **SolidJS** components, `src/web/src/chrome/`, `src/web/src/layout/` | host catalog plus session-owned status |
 
 The build is Vite, multi-page (`index.html` for the workspace, `welcome.html` for the empty state), output
@@ -153,14 +153,17 @@ sequenceDiagram
     Note over X: xterm renders (WebGL/DOM), locally
 ```
 
-- The `claude` and `shell` panes are spawned per session by `TerminalController`
-  (`src/Weavie.Hosting/TerminalController.cs`) under a `ProcessSupervisor` with `RestartPolicy.Always`
-  (see [process-supervisor](../specs/process-supervisor.md)). The OS-specific PTY is an injected
+- The `claude` pane and every shell tab are spawned per session by `TerminalController`
+  (`src/Weavie.Hosting/TerminalController.cs`) under a `ProcessSupervisor`. Permanent agent panes use
+  `RestartPolicy.Always`; closeable shell tabs use `RestartPolicy.Never` (see
+  [process-supervisor](../specs/process-supervisor.md) and
+  [multiple terminal tabs](../specs/multiple-terminal-tabs.md)). The OS-specific PTY is an injected
   `IPtyLauncher`; Windows uses hand-rolled **ConPTY** P/Invoke (`src/Weavie.Core/Terminal/WindowsConPtyTerminal.cs`).
   `claude` launches with its normal authentication environment (configured API key or stored OAuth) using the
   interactive TUI rather than `-p`/SDK.
-- Pane identity is the feature (`terminal.agent` or `terminal.shell`); session identity is the envelope
-  address. `TerminalController` receives an already-owned feature channel, so it cannot publish into another
+- Terminal identity is the feature (`terminal.agent` or `terminal.shell.<id>`); session identity is the
+  envelope address. `terminal.shell` carries the ordered shell-tab catalog. `TerminalController` receives
+  an already-owned feature channel, so it cannot publish into another
   pane or session. Every loaded session streams into its own retained xterm state, making selection a
   show/present operation rather than a replay or reroute.
 - The same `TerminalView` component renders both panes; they differ only by `pane` id and by keyboard

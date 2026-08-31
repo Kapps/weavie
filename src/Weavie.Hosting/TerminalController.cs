@@ -13,8 +13,8 @@ namespace Weavie.Hosting;
 /// Ties one provider-neutral child lifecycle to a real PTY and xterm.js pane over its session channel. The launch source
 /// owns executable, environment, cwd, capture, and restart-time state; the OS-specific half is an injected
 /// <see cref="IPtyLauncher"/>, so the controller is identical for agents and shells on every host. The child runs under a
-/// <see cref="ProcessSupervisor"/> with <see cref="RestartPolicy.Always"/> (a pane is a permanent fixture, so
-/// any exit relaunches it; only the crash-loop breaker leaves it stopped).
+/// <see cref="ProcessSupervisor"/> with a lifecycle-specific restart policy: permanent agent panes relaunch,
+/// while closeable shell/authentication tabs remain exited until the user reopens them.
 /// </summary>
 public sealed class TerminalController : IDisposable {
 	private readonly MessageFeatureChannel _messages;
@@ -115,6 +115,13 @@ public sealed class TerminalController : IDisposable {
 	/// supervisor's observer lane.
 	/// </summary>
 	public event Action<SupervisorStateChanged>? SupervisorChanged;
+
+	/// <summary>Whether this controller currently owns a live PTY child.</summary>
+	public bool IsRunning {
+		get {
+			lock (_gate) return _terminal is not null;
+		}
+	}
 
 	/// <summary>
 	/// Handles the page's terminal <c>ready</c> event for this pane (a session's xterm mounting). If the child isn't running
@@ -261,12 +268,12 @@ public sealed class TerminalController : IDisposable {
 	}
 
 	/// <summary>
-	/// Intentionally tears down the running child (no auto-restart) and asks the page to reset this pane
-	/// (which re-emits terminal <c>ready</c> → <see cref="OnReady(int,int)"/>), so a changed shell takes effect live.
+	/// Intentionally tears down the running child (no auto-restart) and asks the page to reset this pane;
+	/// its next terminal <c>ready</c> event starts a fresh child.
 	/// </summary>
 	public void Restart() {
 		_supervisor.Stop();
-		Console.WriteLine($"[weavie] terminal[{_pane}] restarting (setting changed)");
+		Console.WriteLine($"[weavie] terminal[{_pane}] restarting");
 		Console.Out.Flush();
 		// respawn=true: the child relaunches and re-establishes its modes, so the page does a full reset.
 		PostTermReset(respawn: true);
@@ -381,6 +388,7 @@ public sealed class TerminalController : IDisposable {
 		SupervisorChanged?.Invoke(change);
 		switch (change.State) {
 			case SupervisorState.Idle when change.ExitCode is int exitedCode:
+				StopTerminal();
 				PostExit(exitedCode);
 				break;
 			case SupervisorState.Failed when change.ExitCode is int failedCode:
@@ -399,13 +407,20 @@ public sealed class TerminalController : IDisposable {
 	public event Action<byte[]>? InputWritten;
 
 	/// <summary>Writes raw input bytes (keystrokes from xterm.js) to the PTY.</summary>
-	public void Write(byte[] data) {
+	public void Write(byte[] data) => _ = TryWrite(data);
+
+	/// <summary>Writes raw input bytes when a PTY child is live, returning whether the bytes were accepted.</summary>
+	public bool TryWrite(byte[] data) {
 		lock (_gate) {
-			_terminal?.Write(data);
+			if (_terminal is null) {
+				return false;
+			}
+			_terminal.Write(data);
 		}
 
 		_process.ObserveTerminalInput(data);
 		InputWritten?.Invoke(data);
+		return true;
 	}
 
 	/// <summary>

@@ -167,32 +167,6 @@
   white-space: nowrap;
 }
 
-/* Editor tab strip: chrome inside the editor pane (not a layout pane). Height is content-driven. A fixed
-   row — scroll buttons + trailing controls flank a scrollable track — so nothing overflows the strip. */
-.editor-tabs {
-  display: flex;
-  flex: 0 0 auto;
-  align-items: stretch;
-  overflow: hidden;
-  background: var(--bar);
-  border-bottom: 1px solid var(--border);
-}
-
-/* The horizontally-scrollable tab lane. The native scrollbar is hidden — the chevron buttons drive
-   scrolling (the mouse wheel still works). */
-.editor-tabs-track {
-  display: flex;
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: none;
-}
-
-.editor-tabs-track::-webkit-scrollbar {
-  display: none;
-}
-
 /* Left/right tab-scroll buttons occupying the strip's edges; rendered only when the tabs overflow, and
    dimmed when there's nothing further to reveal in that direction. */
 .editor-tab-scroll {
@@ -230,45 +204,13 @@
 }
 
 .editor-tab {
-  display: flex;
-  align-items: center;
   max-width: 16em;
-  border-right: 1px solid var(--border);
-  color: var(--dim);
-  user-select: none;
-}
-
-.editor-tab:hover {
-  color: var(--fg);
 }
 
 /* The clickable label area (activate / double-click promote / middle-click close / right-click menu). */
 .editor-tab-main {
-  display: flex;
-  align-items: center;
-  flex: 1 1 auto;
-  min-width: 0;
   gap: 0.5em;
-  padding: 0.4em 0.25em 0.4em 0.75em;
-  border: none;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
   white-space: nowrap;
-  cursor: pointer;
-}
-
-/* The active tab connects to the editor (matches its background) and carries the accent edge. */
-.editor-tab.active {
-  color: var(--fg);
-  background: var(--bg);
-  box-shadow: inset 0 0.15em 0 var(--accent);
-}
-
-.editor-tab-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .editor-tab.preview .editor-tab-label {
@@ -289,17 +231,9 @@
 }
 
 .editor-tab-close {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
   margin-right: 0.4em;
   padding: 0;
-  border: none;
-  border-radius: 3px;
-  background: transparent;
   color: inherit;
-  cursor: pointer;
-  opacity: 0;
 }
 
 .editor-tab:hover .editor-tab-close,
@@ -308,19 +242,12 @@
   opacity: 0.7;
 }
 
-.editor-tab-close:hover {
-  opacity: 1;
-  background: rgba(255, 255, 255, 0.1);
-}
-
 /* Keyboard focus reveals the otherwise-hidden close button and rings the tab controls, so tabbing through
    the strip is visible (the controls sit edge-to-edge, so the ring is inset to avoid clipping). */
 .editor-tab:focus-within .editor-tab-close,
 .editor-tab-close:focus-visible {
   opacity: 0.85;
 }
-.editor-tab-main:focus-visible,
-.editor-tab-close:focus-visible,
 .editor-tab-scroll:focus-visible,
 .editor-preview-toggle:focus-visible {
   outline: 2px solid var(--accent);

@@ -370,8 +370,8 @@ const and dispatched in `HandleToolCallAsync`, mirroring `listSettings`/`setSett
 ```jsonc
 // listCommands entry
 { "id": "weavie.terminal.reopen", "title": "Reopen Terminal",
-  "category": "Terminal", "description": "Restart the shell terminal pane.",
-  "aliases": ["reopen terminal", "restart shell"], "keybindings": ["ctrl+shift+t"] }
+  "category": "Terminal", "description": "Restart a shell terminal tab.",
+  "aliases": ["reopen terminal", "restart shell"], "keybindings": [] }
 ```
 
 ## The omnibar command palette
@@ -403,6 +403,10 @@ that already exist in the web:
 | `weavie.omnibar.focusFiles` | Web | `$mod+p` | yes | focus omnibar (Go to File) |
 | `weavie.omnibar.focusCommands` | Web | `$mod+shift+p` | yes | focus omnibar in `>` mode |
 | `weavie.terminal.reopen` | Core | — | yes | `TerminalController.Restart()` (exists) |
+| `weavie.terminal.new` | Core | `ctrl+shift+t` (shell-focused) | yes | create and activate a shell tab |
+| `weavie.terminal.closePrompt` | Web | `ctrl+shift+w` (shell-focused) | yes | close with a foreground-job confirmation |
+| `weavie.terminal.nextTab` | Web | `ctrl+tab` (shell-focused) | yes | cycle terminal tabs, then fall through to sessions |
+| `weavie.terminal.prevTab` | Web | `ctrl+shift+tab` (shell-focused) | yes | cycle terminal tabs, then fall through to sessions |
 | `weavie.window.toggle` | Core | `ctrl+\`` (**global**) | no | show/hide (toggle) the window from anywhere |
 
 Double-tapping **Shift** also triggers `weavie.omnibar.focusFiles` (Go to File), IntelliJ-style. This is a

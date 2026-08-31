@@ -245,6 +245,30 @@ public sealed class CommandTests {
 	}
 
 	[Fact]
+	public void ShellTerminalCommands_UseFocusedTabBindingsAndOneLifecycleLane() {
+		var registry = CoreCommands.CreateRegistry();
+		var reopen = registry.Require(CoreCommands.ReopenTerminal);
+		var create = registry.Require(CoreCommands.NewTerminal);
+		var close = registry.Require(CoreCommands.CloseTerminal);
+		var closePrompt = registry.Require(CoreCommands.CloseTerminalPrompt);
+		var next = registry.Require(CoreCommands.NextTerminalTab);
+		var previous = registry.Require(CoreCommands.PrevTerminalTab);
+
+		Assert.Equal(CommandLocation.Core, create.RunsIn);
+		Assert.Equal(CommandLocation.Core, close.RunsIn);
+		Assert.Equal(create.ExecutionLane, reopen.ExecutionLane);
+		Assert.Equal(create.ExecutionLane, close.ExecutionLane);
+		Assert.Equal("ctrl+Shift+t", Assert.Single(create.DefaultKeybindings).Key);
+		Assert.Equal("focusedPane == 'terminal:shell'", Assert.Single(create.DefaultKeybindings).When);
+		Assert.Equal("ctrl+Shift+w", Assert.Single(closePrompt.DefaultKeybindings).Key);
+		Assert.Equal("ctrl+Tab", Assert.Single(next.DefaultKeybindings).Key);
+		Assert.Equal("ctrl+Shift+Tab", Assert.Single(previous.DefaultKeybindings).Key);
+		Assert.All(
+			[closePrompt, next, previous],
+			command => Assert.Equal("focusedPane == 'terminal:shell'", command.When));
+	}
+
+	[Fact]
 	public void TogglePlanMode_UsesNativeShiftTabBinding() {
 		var command = CoreCommands.CreateRegistry().Require(CoreCommands.TogglePlanMode);
 

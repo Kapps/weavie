@@ -53,9 +53,17 @@ public sealed partial class HostCore {
 			return CommandResult.Failure($"No test rule in the profile matches {relative}.");
 		}
 
-		if (session.Shell.HasForegroundJob) {
+		var shell = session.Shells.Primary;
+		if (shell is null) {
+			return CommandResult.Failure("No shell terminal is open; create one and retry.");
+		}
+
+		if (shell.Controller.HasForegroundJob) {
 			Notify(session, "warn", "Tests not started: the shell is busy running a job.");
 			return CommandResult.Failure("The shell is busy running a job; wait for it to finish and retry.");
+		}
+		if (!shell.Controller.IsRunning) {
+			return CommandResult.Failure("The primary shell terminal has exited; reopen it and retry.");
 		}
 
 		var kind = testName is null ? TestCommandKind.RunFile : TestCommandKind.RunOne;
@@ -64,8 +72,13 @@ public sealed partial class HostCore {
 			return CommandResult.Failure(composeError);
 		}
 
-		session.Shell.Write(Encoding.UTF8.GetBytes(command + "\r"));
-		session.View.Feature("view").TryPublish("focusPane", new { kind = "terminal:shell" });
+		if (!shell.Controller.TryWrite(Encoding.UTF8.GetBytes(command + "\r"))) {
+			return CommandResult.Failure("The primary shell terminal exited before the tests could start; reopen it and retry.");
+		}
+		session.View.Feature("view").TryPublish("focusPane", new {
+			kind = "terminal:shell",
+			terminalId = shell.Id,
+		});
 
 		return CommandResult.Success($"Running: {command}");
 	}

@@ -59,8 +59,23 @@ public static class CoreCommands {
 	/// <summary>Jumps to the previous find-in-files result (opens it in the editor); bound to <c>Shift+F4</c>.</summary>
 	public const string SearchPrevResult = "weavie.search.prevResult";
 
-	/// <summary>Reopens (restarts) the shell terminal pane.</summary>
+	/// <summary>Reopens (restarts) an exact or primary shell terminal tab.</summary>
 	public const string ReopenTerminal = "weavie.terminal.reopen";
+
+	/// <summary>Creates a shell terminal tab in the invoking session.</summary>
+	public const string NewTerminal = "weavie.terminal.new";
+
+	/// <summary>Closes an exact shell terminal tab, optionally forcing a foreground job to stop.</summary>
+	public const string CloseTerminal = "weavie.terminal.close";
+
+	/// <summary>Interactively closes the focused shell terminal tab, confirming a foreground job.</summary>
+	public const string CloseTerminalPrompt = "weavie.terminal.closePrompt";
+
+	/// <summary>Activates the next shell terminal tab while the shell pane is focused.</summary>
+	public const string NextTerminalTab = "weavie.terminal.nextTab";
+
+	/// <summary>Activates the previous shell terminal tab while the shell pane is focused.</summary>
+	public const string PrevTerminalTab = "weavie.terminal.prevTab";
 
 	/// <summary>Restarts the Claude pane in place (recovers a crashed / crash-looped Claude).</summary>
 	public const string RestartAgent = "weavie.agent.restart";
@@ -635,11 +650,74 @@ public static class CoreCommands {
 
 		registry.Register(new CommandDefinition {
 			Id = ReopenTerminal,
+			SharedExecutionLane = "weavie.terminal.lifecycle",
 			Title = "Reopen Terminal",
 			RunsIn = CommandLocation.Core,
 			Category = "Terminal",
-			Description = "Restart the shell terminal pane (kills its scrollback and any running command).",
+			Description = "Restart a shell terminal tab (the exact 'id', or the session's primary terminal). Kills any running command.",
 			Aliases = ["reopen terminal", "restart shell", "reopen shell", "restart terminal"],
+			ArgsSchemaJson = "{\"id\":{\"type\":\"string\",\"description\":\"Exact terminal id; omit for the primary terminal\"}}",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = NewTerminal,
+			SharedExecutionLane = "weavie.terminal.lifecycle",
+			Title = "New Terminal",
+			RunsIn = CommandLocation.Core,
+			Category = "Terminal",
+			Description = "Create and activate a new shell terminal tab in this session.",
+			Aliases = ["new terminal", "new shell", "add terminal", "open terminal tab"],
+			DefaultKeybindings = [new CommandKeybinding {
+				Key = "ctrl+Shift+t",
+				When = "focusedPane == 'terminal:shell'",
+			}],
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = CloseTerminal,
+			SharedExecutionLane = "weavie.terminal.lifecycle",
+			Title = "Close Terminal",
+			RunsIn = CommandLocation.Core,
+			Category = "Terminal",
+			Description = "Close an exact shell terminal tab. A foreground job requires 'force': true.",
+			Aliases = ["close terminal", "close shell", "close terminal tab"],
+			ShowInPalette = false,
+			ArgsSchemaJson = "{\"id\":{\"type\":\"string\",\"description\":\"Exact terminal id; omit for the primary terminal\"},"
+				+ "\"force\":{\"type\":\"boolean\",\"description\":\"Stop a foreground job and close the terminal\"}}",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = CloseTerminalPrompt,
+			Title = "Close Terminal…",
+			RunsIn = CommandLocation.Web,
+			Category = "Terminal",
+			Description = "Close the focused shell terminal tab, confirming before stopping a foreground job.",
+			Aliases = ["close terminal", "close shell", "close terminal tab"],
+			When = "focusedPane == 'terminal:shell'",
+			DefaultKeybindings = [new CommandKeybinding { Key = "ctrl+Shift+w" }],
+			ArgsSchemaJson = "{\"id\":{\"type\":\"string\",\"description\":\"Exact terminal id; omit for the active terminal\"}}",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = NextTerminalTab,
+			Title = "Next Terminal",
+			RunsIn = CommandLocation.Web,
+			Category = "Terminal",
+			Description = "Activate the next shell terminal tab (wraps around).",
+			Aliases = ["next terminal", "next terminal tab", "next shell"],
+			When = "focusedPane == 'terminal:shell'",
+			DefaultKeybindings = [new CommandKeybinding { Key = "ctrl+Tab" }],
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = PrevTerminalTab,
+			Title = "Previous Terminal",
+			RunsIn = CommandLocation.Web,
+			Category = "Terminal",
+			Description = "Activate the previous shell terminal tab (wraps around).",
+			Aliases = ["previous terminal", "previous terminal tab", "previous shell"],
+			When = "focusedPane == 'terminal:shell'",
+			DefaultKeybindings = [new CommandKeybinding { Key = "ctrl+Shift+Tab" }],
 		});
 
 		// No default keybinding: a deliberate recovery action, not a hot path. Recovers an agent pane the

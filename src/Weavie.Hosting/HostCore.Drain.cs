@@ -150,7 +150,7 @@ public sealed partial class HostCore {
 					break;
 			}
 
-			if (session.Shell.HasForegroundJob) {
+			if (session.Shells.HasForegroundJob) {
 				holds.Add((label, "shell-job"));
 			}
 

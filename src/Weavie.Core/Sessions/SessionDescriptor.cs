@@ -24,4 +24,7 @@ public sealed record SessionDescriptor {
 
 	/// <summary>The editor tabs and view state restored when this session loads.</summary>
 	public required EditorSession EditorSession { get; init; }
+
+	/// <summary>The ordered shell terminal tabs restored with this session.</summary>
+	public required IReadOnlyList<string> ShellTerminals { get; init; }
 }

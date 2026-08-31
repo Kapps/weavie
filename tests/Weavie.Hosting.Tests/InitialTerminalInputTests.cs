@@ -115,6 +115,8 @@ public sealed class InitialTerminalInputTests : IDisposable {
 			Path.Combine(_dir, "scratch"),
 			Path.Combine(_dir, "pasted"),
 			Path.Combine(_dir, "agent-pane.json"),
+			[ShellTerminalId.New()],
+			id => Path.Combine(_dir, $"shell-{id}.json"),
 			commandRegistry,
 			new KeybindingStore(commandRegistry, Path.Combine(_dir, "keybindings.json"), enableWatcher: false),
 			new ThemeOverridesStore(new LocalFileSystem(), Path.Combine(_dir, "theme-overrides.json")),

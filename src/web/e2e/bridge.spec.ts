@@ -1129,28 +1129,56 @@ test.describe("session-addressed WebSocket transport", () => {
     host.setSessions([session]);
     await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
     await host.waitUntilConnected();
-    await host.waitForSession(session.address, "event", "terminal.shell", "ready");
+    const shellFeature = `terminal.shell.${session.shellTerminals[0]}`;
+    await host.waitForSession(session.address, "event", shellFeature, "ready");
 
-    host.publishSession(session.address, "terminal.shell", "output", {
+    host.publishSession(session.address, shellFeature, "output", {
       dataB64: Buffer.from("AB\x1b[6n").toString("base64"),
       replay: true,
     });
-    host.publishSession(session.address, "terminal.shell", "output", {
+    host.publishSession(session.address, shellFeature, "output", {
       dataB64: Buffer.from("WXYZ\x1b[6n").toString("base64"),
       replay: false,
     });
 
-    const input = await host.waitForSession(session.address, "event", "terminal.shell", "input");
+    const input = await host.waitForSession(session.address, "event", shellFeature, "input");
     const payload = input.payload as { dataB64: string };
     expect(Buffer.from(payload.dataB64, "base64").toString()).toBe("\x1b[1;7R");
     expect(
       host.received.filter(
         (message) =>
           message.scope === "session" &&
-          message.feature === "terminal.shell" &&
+          message.feature === shellFeature &&
           message.name === "input",
       ),
     ).toHaveLength(1);
+  });
+
+  test("an exact shell target activates its tab without stealing typing focus", async ({
+    page,
+  }) => {
+    const session = mockSession("main", "main", "claude");
+    session.shellTerminals = ["shell-a", "shell-b"];
+    host.setSessions([session]);
+    await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
+    await host.waitUntilConnected();
+    const tabs = page.locator(".shell-tab");
+    await expect(tabs).toHaveCount(2);
+    const input = page.locator("#terminal-activation-focus");
+    await page.evaluate(() => {
+      const element = document.createElement("input");
+      element.id = "terminal-activation-focus";
+      document.body.append(element);
+    });
+    await input.focus();
+
+    host.publishSession(session.address, "view", "focusPane", {
+      kind: "terminal:shell",
+      terminalId: "shell-b",
+    });
+
+    await expect(tabs.nth(1)).toHaveClass(/\bactive\b/);
+    await expect(input).toBeFocused();
   });
 
   test("stays silent in a plain browser with no host advertised", async ({ page }) => {

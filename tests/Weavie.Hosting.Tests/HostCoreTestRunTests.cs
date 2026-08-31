@@ -18,20 +18,39 @@ public sealed class HostCoreTestRunTests {
 	public async Task RunFile_ComposesCommand_IntoShellPane() {
 		await using var host = await TestHost.StartAsync(repo => WriteProfile(repo, Profile));
 		string file = Path.Combine(host.RepoRoot, "a.test.ts");
-		host.SelectedSession.Shell.EnsureStarted();
+		host.SelectedSession.Shells.Primary!.Controller.EnsureStarted();
 		var shell = Assert.Single(host.Platform.NoopLauncher.Created);
 
 		var result = await host.InvokeClientCommandAsync("weavie.tests.runFile", new { file });
 
 		Assert.True(result.Ok, result.Error);
 		Assert.Equal($"echo RUN '{file}'\r", shell.WrittenText);
+		var focus = host.Bridge.LastEvent(host.SelectedSession.Address, "view", "focusPane")!.Value;
+		Assert.Equal("terminal:shell", focus.GetProperty("kind").GetString());
+		Assert.Equal(host.SelectedSession.Shells.Primary!.Id, focus.GetProperty("terminalId").GetString());
+	}
+
+	[Fact]
+	public async Task ExitedPrimaryShell_FailsLoudly_AndWritesNothing() {
+		await using var host = await TestHost.StartAsync(repo => WriteProfile(repo, Profile));
+		string file = Path.Combine(host.RepoRoot, "a.test.ts");
+		host.SelectedSession.Shells.Primary!.Controller.EnsureStarted();
+		var shell = Assert.Single(host.Platform.NoopLauncher.Created);
+		shell.Exit(0);
+		await Wait.UntilAsync(() => !host.SelectedSession.Shells.Primary!.Controller.IsRunning);
+
+		var result = await host.InvokeClientCommandAsync("weavie.tests.runFile", new { file });
+
+		Assert.False(result.Ok);
+		Assert.Contains("exited", result.Error, StringComparison.Ordinal);
+		Assert.Equal(string.Empty, shell.WrittenText);
 	}
 
 	[Fact]
 	public async Task RunOne_ComposesQuotedName() {
 		await using var host = await TestHost.StartAsync(repo => WriteProfile(repo, Profile));
 		string file = Path.Combine(host.RepoRoot, "a.test.ts");
-		host.SelectedSession.Shell.EnsureStarted();
+		host.SelectedSession.Shells.Primary!.Controller.EnsureStarted();
 		var shell = Assert.Single(host.Platform.NoopLauncher.Created);
 
 		var result = await host.InvokeClientCommandAsync(
@@ -46,7 +65,7 @@ public sealed class HostCoreTestRunTests {
 	public async Task NoProfile_FailsLoudly_AndWritesNothing() {
 		await using var host = await TestHost.StartAsync(); // no test profile configured
 		string file = Path.Combine(host.RepoRoot, "a.test.ts");
-		host.SelectedSession.Shell.EnsureStarted();
+		host.SelectedSession.Shells.Primary!.Controller.EnsureStarted();
 		var shell = Assert.Single(host.Platform.NoopLauncher.Created);
 
 		var result = await host.InvokeClientCommandAsync("weavie.tests.runFile", new { file });
@@ -60,7 +79,7 @@ public sealed class HostCoreTestRunTests {
 	public async Task BusyShell_FailsLoudly_AndWritesNothing() {
 		await using var host = await TestHost.StartAsync(repo => WriteProfile(repo, Profile));
 		string file = Path.Combine(host.RepoRoot, "a.test.ts");
-		host.SelectedSession.Shell.EnsureStarted();
+		host.SelectedSession.Shells.Primary!.Controller.EnsureStarted();
 		var shell = Assert.Single(host.Platform.NoopLauncher.Created);
 		shell.HasForegroundJob = true;
 

@@ -153,6 +153,7 @@ export function createCommentProse(
   // an arrow step (see crossedBlock) — a block the selection left raw is walked line by line like any code.
   let collapsedStarts = new Set<number>();
   let rescanTimer: ReturnType<typeof setTimeout> | undefined;
+  let restoreFocusOnMouseUp = false;
 
   const clearRender = (): void => {
     if (zoneIds.length > 0) {
@@ -333,7 +334,9 @@ export function createCommentProse(
       }
     }
     if (selectedBlockStarts(cachedBlocks).join(",") !== lastRawKey) {
-      render(event.source === "mouse");
+      const fromMouse = event.source === "mouse";
+      restoreFocusOnMouseUp ||= fromMouse;
+      render(fromMouse);
     }
   };
 
@@ -348,6 +351,12 @@ export function createCommentProse(
     // Selection rather than position: selecting to the caret's own side (e.g. select-all from the file's end)
     // moves no caret but still reaches into blocks.
     editor.onDidChangeCursorSelection(onSelection),
+    editor.onMouseUp(() => {
+      if (restoreFocusOnMouseUp) {
+        restoreFocusOnMouseUp = false;
+        editor.focus();
+      }
+    }),
   ];
   const offFonts = onFontsChanged(() => render(false));
   const offOptions = onEditorOptionsChanged((options) => {

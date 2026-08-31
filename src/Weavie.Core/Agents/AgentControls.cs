@@ -43,10 +43,16 @@ public sealed record AgentControlAxis {
 
 }
 
-/// <summary>
-/// One slash-menu entry. <see cref="CommandId"/> dispatches a Weavie command; otherwise
-/// <see cref="InsertText"/> inserts the provider command into the composer.
-/// </summary>
+/// <summary>The semantic action owned by one slash-menu entry.</summary>
+public enum AgentSlashEntryKind {
+	/// <summary>A Weavie command handled by Core or the web client.</summary>
+	WeavieCommand,
+
+	/// <summary>A command from the provider's latest ACP command catalog.</summary>
+	ProviderCommand,
+}
+
+/// <summary>One typed slash-menu action.</summary>
 public sealed record AgentSlashEntry {
 	/// <summary>A stable id, unique within the menu.</summary>
 	public required string Id { get; init; }
@@ -57,12 +63,14 @@ public sealed record AgentSlashEntry {
 	/// <summary>A one-line description shown beside the name.</summary>
 	public required string Description { get; init; }
 
-	/// <summary>When set, selecting the entry dispatches this Weavie command.</summary>
+	/// <summary>Whether accepting the row dispatches Weavie or invokes the provider command.</summary>
+	public required AgentSlashEntryKind Kind { get; init; }
+
+	/// <summary>The command dispatched for a <see cref="AgentSlashEntryKind.WeavieCommand"/> entry.</summary>
 	public string? CommandId { get; init; }
 
-	/// <summary>When set, selecting the entry replaces the slash query with this text.</summary>
-	public string? InsertText { get; init; }
-
+	/// <summary>The provider's optional hint for the command's unstructured input.</summary>
+	public string? InputHint { get; init; }
 }
 
 /// <summary>The provider-neutral control + slash surface for one structured-agent session, pushed to the web.</summary>
@@ -72,4 +80,25 @@ public sealed record AgentControlState {
 
 	/// <summary>The slash-menu entries offered when the composer starts with a slash.</summary>
 	public required IReadOnlyList<AgentSlashEntry> Slash { get; init; }
+}
+
+/// <summary>Composes Weavie-owned actions with the provider's authoritative slash-command snapshot.</summary>
+public static class AgentControlCommands {
+	/// <summary>The client-owned command that abandons the current provider conversation and starts fresh.</summary>
+	public static AgentSlashEntry ClearConversation { get; } = new() {
+		Id = "weavie:clear",
+		Name = "clear",
+		Description = "Clear the transcript and start a fresh conversation",
+		Kind = AgentSlashEntryKind.WeavieCommand,
+		CommandId = Commands.CoreCommands.ClearAgentConversation,
+	};
+
+	/// <summary>Adds built-ins to one provider snapshot, with Weavie semantics winning name collisions.</summary>
+	public static IReadOnlyList<AgentSlashEntry> ComposeSlash(IReadOnlyList<AgentSlashEntry> providerCommands) {
+		ArgumentNullException.ThrowIfNull(providerCommands);
+		return [
+			ClearConversation,
+			.. providerCommands.Where(entry => !string.Equals(entry.Name, "clear", StringComparison.OrdinalIgnoreCase)),
+		];
+	}
 }

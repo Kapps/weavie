@@ -65,12 +65,13 @@ export function removeComposerAttachment(session: ClientSession, id: string): vo
   }
 }
 
-export function submitAgentTurn(session: ClientSession): boolean {
+export function submitAgentTurn(session: ClientSession, commandName: string | null): boolean {
   const state = stateFor(session);
+  const command = commandName !== null;
   if (
     state.submittingId !== null ||
-    state.attachments.some((attachment) => attachment.status !== "ready") ||
-    (state.draft.trim().length === 0 && state.attachments.length === 0)
+    (!command && state.attachments.some((attachment) => attachment.status !== "ready")) ||
+    (state.draft.trim().length === 0 && !command && state.attachments.length === 0)
   ) {
     return false;
   }
@@ -80,7 +81,9 @@ export function submitAgentTurn(session: ClientSession): boolean {
   publishAgent(session, "submit", {
     id,
     prompt: state.draft.trim(),
-    attachmentIds: state.attachments.map((attachment) => attachment.id),
+    kind: command ? "providerCommand" : "prompt",
+    commandName: commandName ?? "",
+    attachmentIds: command ? [] : state.attachments.map((attachment) => attachment.id),
   });
   return true;
 }

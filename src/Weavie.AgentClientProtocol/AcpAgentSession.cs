@@ -16,7 +16,6 @@ public sealed partial class AcpAgentSession : IStructuredAgentSession, IStructur
 	private readonly AcpJsonRpcConnection _connection;
 	private readonly AcpTerminalManager _terminals;
 	private readonly Lock _gate = new();
-	private readonly Lock _submissionDispatchGate = new();
 	private readonly Lock _turnTransitionGate = new();
 	private readonly LinkedList<AgentTurnSubmission> _pendingSubmissions = [];
 	private readonly Queue<AcpControlMutation> _controlMutations = [];
@@ -112,7 +111,7 @@ public sealed partial class AcpAgentSession : IStructuredAgentSession, IStructur
 			lock (_gate) {
 				return new AgentControlState {
 					Axes = [.. _controls.Values],
-					Slash = _commands,
+					Slash = AgentControlCommands.ComposeSlash(_commands),
 				};
 			}
 		}

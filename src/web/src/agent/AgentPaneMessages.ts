@@ -69,7 +69,7 @@ export function projectAgentTranscript(
     hasPreviousTurn = true;
     const startsUnknownTurn = turnKey === null || !knownTurns.has(turnKey);
     const startsTurn =
-      (message.type === "user-message" && startsUnknownTurn) ||
+      ((message.type === "user-message" || message.type === "user-command") && startsUnknownTurn) ||
       (message.type === "user-image" && !previousWasUserInput && startsUnknownTurn);
     previousWasUserInput = isUserInput(message);
     if (turnKey !== null) {
@@ -82,7 +82,7 @@ export function projectAgentTranscript(
         durable.turnStart = true;
       }
       entries.push(durable);
-      if (message.type === "user-message") {
+      if (message.type === "user-message" || message.type === "user-command") {
         activeTurn = message.turnId ?? `turn-${sequence}`;
       }
       sequence += 1;
@@ -222,6 +222,8 @@ function durableEntry(
       return entry(message, sequence, "message", "user", "Image", status);
     case "user-message":
       return entry(message, sequence, "message", "user", "You", null);
+    case "user-command":
+      return entry(message, sequence, "message", "user", "Command", null);
     case "user-steer":
       return entry(message, sequence, "message", "user", "Steer", null);
     case "warning":
@@ -451,6 +453,7 @@ function isUserMessage(entry: AgentTranscriptEntry): boolean {
 function isUserInput(message: AgentPaneUpdate): boolean {
   return (
     message.type === "user-message" ||
+    message.type === "user-command" ||
     message.type === "user-steer" ||
     message.type === "user-image"
   );

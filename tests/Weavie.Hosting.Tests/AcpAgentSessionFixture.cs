@@ -341,6 +341,16 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 	public void Submit(string text) => Session.Submit(new AgentTurnSubmission {
 		Id = Guid.NewGuid().ToString("N"),
 		Text = text,
+		Kind = AgentTurnSubmissionKind.Prompt,
+		CommandName = string.Empty,
+		Attachments = [],
+	});
+
+	public void SubmitCommand(string name, string text) => Session.Submit(new AgentTurnSubmission {
+		Id = Guid.NewGuid().ToString("N"),
+		Text = text,
+		Kind = AgentTurnSubmissionKind.ProviderCommand,
+		CommandName = name,
 		Attachments = [],
 	});
 

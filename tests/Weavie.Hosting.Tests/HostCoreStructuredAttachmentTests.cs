@@ -169,5 +169,5 @@ public sealed class HostCoreStructuredAttachmentTests {
 			session,
 			"agent",
 			"submit",
-			new { id, prompt, attachmentIds, skills = Array.Empty<string>() });
+			new { id, prompt, kind = "prompt", commandName = "", attachmentIds });
 }

@@ -9,9 +9,6 @@ public sealed partial class AcpAgentSession {
 	/// <inheritdoc/>
 	public void Submit(AgentTurnSubmission submission) {
 		ArgumentNullException.ThrowIfNull(submission);
-		if (submission.Text.Length == 0 && submission.Attachments.Count == 0) {
-			return;
-		}
 
 		lock (_gate) {
 			ObjectDisposedException.ThrowIf(_disposed, this);
@@ -19,6 +16,8 @@ public sealed partial class AcpAgentSession {
 				throw new InvalidOperationException(
 					$"{_definition.Name} cannot accept prompts until its failed ACP runtime is restarted.");
 			}
+			submission = NormalizeSubmissionLocked(submission);
+			if (submission.Text.Length == 0 && submission.Attachments.Count == 0) return;
 			_pendingSubmissions.AddLast(submission);
 		}
 		DispatchPendingSubmission();
@@ -37,7 +36,9 @@ public sealed partial class AcpAgentSession {
 				return;
 			}
 			sessionId = _sessionId ?? throw new InvalidOperationException("The ACP session is not ready.");
+			submission = _pendingSubmissions.First!.Value;
 			if (_promptActive) {
+				if (submission.Kind == AgentTurnSubmissionKind.ProviderCommand) return;
 				if (!_supportsSteering || _steering) return;
 				steer = true;
 				_steering = true;
@@ -46,7 +47,6 @@ public sealed partial class AcpAgentSession {
 				_waitingForBackground = false;
 				_turnNumber++;
 			}
-			submission = _pendingSubmissions.First!.Value;
 			_pendingSubmissions.RemoveFirst();
 			epoch = _submissionEpoch;
 		}
@@ -60,7 +60,7 @@ public sealed partial class AcpAgentSession {
 		long generation = 0;
 		try {
 			Task<JsonElement> request;
-			lock (_submissionDispatchGate) {
+			lock (_turnTransitionGate) {
 				lock (_gate) {
 					if (epoch != _submissionEpoch) return;
 					generation = _activeGeneration;
@@ -120,19 +120,19 @@ public sealed partial class AcpAgentSession {
 				if (epoch != _submissionEpoch) return;
 			}
 			Task<JsonElement> request;
-			lock (_submissionDispatchGate) {
+			lock (_turnTransitionGate) {
 				lock (_gate) {
 					if (epoch != _submissionEpoch) return;
 					generation = _activeGeneration;
 					guidanceSentBefore = _guidanceSent;
 				}
+				object[] prompt = BuildPrompt(submission);
 				try {
 					_sessions.Adopt(_definition.Id, _context.Workspace, sessionId, _turnNumber);
 				} catch (AcpSessionStoreException ex) {
 					_connection.TerminateGeneration(generation, ex.Message);
 					throw;
 				}
-				object[] prompt = BuildPrompt(submission);
 				Emit(new AgentPaneMessage {
 					Type = "turn-started",
 					ProviderId = _definition.Id,
@@ -141,7 +141,9 @@ public sealed partial class AcpAgentSession {
 					IsPrimaryThread = true,
 					StartedAtMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
 				});
-				EmitSubmitted(submission, "user-message");
+				EmitSubmitted(
+					submission,
+					submission.Kind == AgentTurnSubmissionKind.ProviderCommand ? "user-command" : "user-message");
 				Observe(new AgentPromptSubmitted(sessionId, submission.Text));
 				request = _connection.RequestAsync(
 					"session/prompt",
@@ -264,6 +266,14 @@ public sealed partial class AcpAgentSession {
 	}
 
 	private object[] BuildPrompt(AgentTurnSubmission submission) {
+		if (submission.Kind == AgentTurnSubmissionKind.ProviderCommand) {
+			lock (_gate) {
+				var command = ResolveProviderCommandLocked(submission.CommandName);
+				string text = CanonicalCommandText(submission.Text, command);
+				return [new { type = "text", text }];
+			}
+		}
+
 		var blocks = new List<object>();
 		bool includesGuidance = false;
 		if (submission.Text.Length > 0) {
@@ -303,6 +313,39 @@ public sealed partial class AcpAgentSession {
 		}
 
 		return [.. blocks];
+	}
+
+	private AgentTurnSubmission NormalizeSubmissionLocked(AgentTurnSubmission submission) {
+		if (submission.Kind == AgentTurnSubmissionKind.Prompt) {
+			if (submission.CommandName.Length != 0) {
+				throw new InvalidOperationException("An ordinary prompt cannot name a provider command.");
+			}
+			return submission;
+		}
+		if (submission.Kind != AgentTurnSubmissionKind.ProviderCommand) {
+			throw new InvalidOperationException($"Unknown agent submission kind '{submission.Kind}'.");
+		}
+		if (submission.Attachments.Count != 0) {
+			throw new InvalidOperationException("Provider commands cannot include attachments.");
+		}
+		var command = ResolveProviderCommandLocked(submission.CommandName);
+		return submission with { Text = CanonicalCommandText(submission.Text, command) };
+	}
+
+	private AgentSlashEntry ResolveProviderCommandLocked(string name) {
+		if (name.Length == 0) throw new InvalidOperationException("A provider command must include its name.");
+		return _commands.FirstOrDefault(command => string.Equals(command.Name, name, StringComparison.Ordinal))
+			?? throw new InvalidOperationException(
+				$"{_definition.Name} no longer advertises the '/{name}' command.");
+	}
+
+	private static string CanonicalCommandText(string text, AgentSlashEntry command) {
+		string prefix = "/" + command.Name;
+		if (!text.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+			|| text.Length > prefix.Length && !char.IsWhiteSpace(text[prefix.Length])) {
+			throw new InvalidOperationException($"The provider command text does not invoke '/{command.Name}'.");
+		}
+		return prefix + text[prefix.Length..];
 	}
 
 	private static object TextResource(string uri, string text) => new {
@@ -373,7 +416,7 @@ public sealed partial class AcpAgentSession {
 	/// <inheritdoc/>
 	public void Interrupt() {
 		string? sessionId;
-		lock (_submissionDispatchGate) {
+		lock (_turnTransitionGate) {
 			lock (_gate) {
 				_pendingSubmissions.Clear();
 				_submissionEpoch++;
@@ -401,15 +444,30 @@ public sealed partial class AcpAgentSession {
 	}
 
 	private void Restart(bool clearSubmissions) {
-		lock (_submissionDispatchGate) {
-			lock (_turnTransitionGate) {
-				TerminalizeForRestart(clearSubmissions);
-				_connection.Restart();
-			}
+		lock (_turnTransitionGate) {
+			TerminalizeForRestart(clearSubmissions, "ACP agent restarted.");
+			_connection.Restart();
 		}
 	}
 
-	private void TerminalizeForRestart(bool clearSubmissions) {
+	/// <inheritdoc/>
+	public void StartNewConversation() {
+		lock (_turnTransitionGate) {
+			_sessions.Clear(_definition.Id, _context.Workspace);
+			TerminalizeForRestart(clearSubmissions: true, "Started a fresh conversation.");
+			lock (_gate) {
+				_sessionId = null;
+				_openingSessionId = null;
+				_turnNumber = 0;
+				_guidanceSent = false;
+				_planTurns.Clear();
+			}
+			Emit(new AgentPaneMessage { Type = "transcript-reset", ProviderId = _definition.Id });
+			_connection.Restart();
+		}
+	}
+
+	private void TerminalizeForRestart(bool clearSubmissions, string summary) {
 		TerminalizedTool[] tools;
 		bool promptActive;
 		long generation;
@@ -440,7 +498,7 @@ public sealed partial class AcpAgentSession {
 				ThreadId = SessionId(),
 				TurnId = TurnId(),
 				Status = "cancelled",
-				Summary = "ACP agent restarted.",
+				Summary = summary,
 			});
 		}
 	}

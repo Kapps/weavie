@@ -138,6 +138,12 @@ internal sealed class FakeStructuredAgentProvider : IAgentProvider {
 			});
 		}
 
+		public void StartNewConversation() {
+			transcript.Clear();
+			_turns = 0;
+			PaneMessage?.Invoke(new AgentPaneMessage { Type = "transcript-reset", ProviderId = "structured" });
+		}
+
 		public void PrefillPrompt(string prompt) {
 		}
 

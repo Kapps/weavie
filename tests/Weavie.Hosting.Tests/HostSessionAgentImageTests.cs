@@ -100,6 +100,8 @@ public sealed class HostSessionAgentImageTests : IDisposable {
 		new() {
 			Id = "initial",
 			Text = text,
+			Kind = AgentTurnSubmissionKind.Prompt,
+			CommandName = string.Empty,
 			Attachments = attachments,
 		};
 
@@ -167,6 +169,8 @@ public sealed class HostSessionAgentImageTests : IDisposable {
 		public void Interrupt() => Interruptions++;
 
 		public void Restart() => Restarts++;
+
+		public void StartNewConversation() => throw new NotSupportedException();
 
 		public void ResolvePermission(string requestId, string optionId) { }
 

@@ -10,7 +10,7 @@ import { liveKeyLabel } from "../commands/keys-live";
 // filtered entries and reports the pick.
 export function AgentSlashMenu(props: {
   entries: AgentSlashEntry[];
-  onAccept: (entry: AgentSlashEntry) => void;
+  onAccept: (entry: AgentSlashEntry, execute: boolean) => void;
   onDismiss: () => void;
 }): JSX.Element {
   const [highlight, setHighlight] = createSignal(0);
@@ -40,7 +40,10 @@ export function AgentSlashMenu(props: {
       event.stopPropagation();
       const entry = entries[highlight()];
       if (entry !== undefined) {
-        props.onAccept(entry);
+        props.onAccept(
+          entry,
+          event.key === "Enter" && (entry.kind === "weavieCommand" || entry.inputHint === null),
+        );
       }
     } else if (event.key === "Escape") {
       event.preventDefault();
@@ -74,10 +77,13 @@ export function AgentSlashMenu(props: {
               onMouseEnter={() => setHighlight(index())}
               onPointerDown={(event) => {
                 event.preventDefault();
-                props.onAccept(entry);
+                props.onAccept(entry, entry.kind === "weavieCommand" || entry.inputHint === null);
               }}
             >
-              <span class="agent-slash-name">/{entry.name}</span>
+              <span class="agent-slash-name">
+                /{entry.name}
+                <Show when={entry.inputHint}>{(hint) => ` ${hint()}`}</Show>
+              </span>
               <span class="agent-slash-desc">{entry.description}</span>
               <Show when={entry.commandId === null ? "" : liveKeyLabel(entry.commandId)}>
                 {(key) => <span class="agent-slash-key">{key()}</span>}

@@ -76,25 +76,44 @@ const controls = {
     ],
     slash: [
       {
+        id: "weavie:clear",
+        name: "clear",
+        description: "Clear the transcript and start a fresh conversation",
+        kind: "weavieCommand",
+        commandId: "weavie.agent.clearConversation",
+        inputHint: null,
+      },
+      {
         id: "builtin:model",
         name: "model",
         description: "Switch the model, effort, or Fast Mode",
+        kind: "weavieCommand",
         commandId: "weavie.agent.selectModel",
-        insertText: null,
+        inputHint: null,
       },
       {
         id: "builtin:plan",
         name: "plan",
         description: "Toggle Plan mode",
+        kind: "weavieCommand",
         commandId: "weavie.agent.togglePlanMode",
-        insertText: null,
+        inputHint: null,
+      },
+      {
+        id: "agent:compact",
+        name: "compact",
+        description: "Compact the conversation.",
+        kind: "providerCommand",
+        commandId: null,
+        inputHint: null,
       },
       {
         id: "agent:review-pr",
         name: "review-pr",
         description: "Review a pull request.",
+        kind: "providerCommand",
         commandId: null,
-        insertText: "/review-pr ",
+        inputHint: "<pull request>",
       },
     ],
   },
@@ -171,6 +190,15 @@ const inputWhen = "agentFocused && agentInputPending";
 const turnNavigationWhen = "agentFocused && agentTurnNavigable";
 const catalog = {
   commands: [
+    {
+      ...agentCommand(
+        "weavie.agent.clearConversation",
+        "Start Fresh Agent Conversation",
+        "agentFocused",
+        ["alt+shift+c"],
+      ),
+      runsIn: "core" as const,
+    },
     agentCommand("weavie.agent.submit", "Submit Agent Prompt", "agentComposerFocused", ["enter"]),
     agentCommand("weavie.agent.interrupt", "Interrupt Agent Turn", "agentFocused", ["escape"]),
     agentCommand("weavie.agent.jumpToTurn", "Jump to Agent Turn", turnNavigationWhen, ["alt+up"]),
@@ -1281,7 +1309,8 @@ test.describe("ACP composer", () => {
 
     const menu = page.locator(".agent-slash-menu");
     await expect(menu).toBeVisible();
-    await expect(menu.locator(".agent-slash-option")).toHaveCount(3);
+    await expect(menu.locator(".agent-slash-option")).toHaveCount(5);
+    await expect(menu).toContainText("/clear");
     await expect(menu).toContainText("/model");
     await expect(menu).toContainText("/plan");
     await expect(menu).toContainText("/review-pr");
@@ -1294,6 +1323,50 @@ test.describe("ACP composer", () => {
     await expect(textarea).toHaveValue("/review-pr ");
     await expect(textarea).toBeFocused();
     await page.screenshot({ path: join(shotsDir, "05-provider-command.png") });
+  });
+
+  test("a no-input provider command submits with ACP command semantics", async ({ page }) => {
+    await mountAgent(page);
+
+    const textarea = page.locator("[data-agent-composer] textarea");
+    await textarea.fill("/compact");
+    await page.keyboard.press("Enter");
+
+    expect(await waitForAgentPayload("submit")).toMatchObject({
+      prompt: "/compact",
+      kind: "providerCommand",
+      commandName: "compact",
+      attachmentIds: [],
+    });
+  });
+
+  test("a manually typed /clear dispatches the Weavie command instead of an agent prompt", async ({
+    page,
+  }) => {
+    await mountAgent(page);
+    publishCatalog();
+
+    const before = host.received.length;
+    const request = host.waitForSession(
+      agentSession.address,
+      "request",
+      "commands",
+      "invoke",
+      before,
+    );
+    const textarea = page.locator("[data-agent-composer] textarea");
+    await textarea.fill("/clear");
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: "Run" }).click();
+
+    const invocation = await request;
+    expect(invocation.payload).toMatchObject({ id: "weavie.agent.clearConversation" });
+    expect(
+      host.received
+        .slice(before)
+        .some((message) => message.feature === "agent" && message.name === "submit"),
+    ).toBe(false);
+    host.respond(invocation, { ok: true, message: "Started fresh.", error: null });
   });
 
   test("clicking outside the composer dismisses the slash menu", async ({ page }) => {

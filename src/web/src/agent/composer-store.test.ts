@@ -94,7 +94,7 @@ describe("agent composer attachments", () => {
     store.setComposerDraft(session, "describe it");
 
     expect(store.captureAgentImagePaste(event, session)).toBe(true);
-    expect(store.submitAgentTurn(session)).toBe(false);
+    expect(store.submitAgentTurn(session, null)).toBe(false);
     await flushAsyncWork();
 
     const upload = bridge.posted.find(({ name }) => name === "uploadAttachment");
@@ -107,7 +107,7 @@ describe("agent composer attachments", () => {
       status: "ready",
       error: "",
     });
-    expect(store.submitAgentTurn(session)).toBe(true);
+    expect(store.submitAgentTurn(session, null)).toBe(true);
 
     const submission = bridge.posted.find(({ name }) => name === "submit");
     expect(submission).toMatchObject({
@@ -115,6 +115,8 @@ describe("agent composer attachments", () => {
       slot: "slot-a",
       payload: {
         prompt: "describe it",
+        kind: "prompt",
+        commandName: "",
         attachmentIds: [attachmentId],
       },
     });
@@ -125,7 +127,7 @@ describe("agent composer attachments", () => {
     const sent = owner("remote-c", "slot-c");
     store.setComposerDraft(kept, "keep me");
     store.setComposerDraft(sent, "send me");
-    expect(store.submitAgentTurn(sent)).toBe(true);
+    expect(store.submitAgentTurn(sent, null)).toBe(true);
     const submission = bridge.posted.find(({ name }) => name === "submit");
 
     deliver("remote-c", "slot-c", "submissionState", {
@@ -138,6 +140,31 @@ describe("agent composer attachments", () => {
     expect(store.composerState(sent).draft).toBe("");
     expect(store.composerState(kept).draft).toBe("keep me");
     expect([...drafts.values()]).toEqual(["keep me"]);
+  });
+
+  it("submits provider commands semantically while leaving staged attachments alone", async () => {
+    const session = owner("remote-command", "slot-command");
+    const event = pasteEvent(new Blob([new Uint8Array([1])], { type: "image/png" }));
+    store.setComposerDraft(session, "/compact");
+    expect(store.captureAgentImagePaste(event, session)).toBe(true);
+    await flushAsyncWork();
+
+    expect(store.submitAgentTurn(session, "compact")).toBe(true);
+    const submission = bridge.posted.find(({ name }) => name === "submit");
+    expect(submission?.payload).toMatchObject({
+      prompt: "/compact",
+      kind: "providerCommand",
+      commandName: "compact",
+      attachmentIds: [],
+    });
+
+    deliver("remote-command", "slot-command", "submissionState", {
+      id: submission?.payload.id,
+      attachmentIds: [],
+      status: "accepted",
+      error: "",
+    });
+    expect(store.composerState(session).attachments).toHaveLength(1);
   });
 
   it("restores a draft into a new session incarnation for the same backend and slot", () => {

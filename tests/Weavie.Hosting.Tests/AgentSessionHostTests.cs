@@ -626,6 +626,8 @@ public sealed class AgentSessionHostTests {
 
 		public void Restart() => throw new NotSupportedException();
 
+		public void StartNewConversation() => throw new NotSupportedException();
+
 		public void ResolvePermission(string requestId, string optionId) => throw new NotSupportedException();
 
 		public void ResolveInput(

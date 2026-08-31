@@ -59,6 +59,11 @@ The client speaks ACP protocol version 1 over strict JSON-RPC framing. It uses c
 - streaming messages and thoughts, structured tools, locations, diffs, plans, usage, and session metadata;
 - cancellation, plus `_session/steering` when the agent advertises that extension.
 
+Advertised slash commands retain their command identity through the web and host. ACP still invokes them through
+standard `session/prompt`, but the request contains exactly one canonical text block and waits for the active turn
+instead of using steering. This prevents embedded guidance, editor resources, or images from turning a command
+such as `/compact` into model-directed prose.
+
 Unsupported optional capabilities stay absent from the UI; they do not create another session type. Malformed
 advertised data or protocol output fails the exact agent generation visibly.
 
@@ -75,6 +80,11 @@ Weavie never created carries no client-side output rather than failing the sessi
 The generic idle condition is the absence of a primary prompt and live ACP tool calls. A prompt response may arrive
 while a tool remains active; the session stays Waiting until the tool completes. Runtime failure and explicit
 restart terminalize partial content and active tools so stale work cannot appear live.
+
+Runtime restart preserves the current ACP conversation and reconnects it. The Weavie-owned `/clear` action is a
+different lifecycle: it clears the exact persisted association, resets the pane and local turn state, and restarts
+without a session id so the replacement process must call `session/new`. Provider-owned history is abandoned, not
+deleted.
 
 **Only the current agent process can own live work.** `session/load` always replays into a freshly spawned agent, so
 a tool call the transcript still calls running died with the process that ran it — no terminal update can ever

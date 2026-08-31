@@ -166,13 +166,23 @@ export interface AgentControlAxis {
   options: AgentControlOption[];
 }
 
-export interface AgentSlashEntry {
+interface AgentSlashEntryBase {
   id: string;
   name: string;
   description: string;
-  commandId: string | null;
-  insertText: string | null;
 }
+
+export type AgentSlashEntry =
+  | (AgentSlashEntryBase & {
+      kind: "weavieCommand";
+      commandId: string;
+      inputHint: null;
+    })
+  | (AgentSlashEntryBase & {
+      kind: "providerCommand";
+      commandId: null;
+      inputHint: string | null;
+    });
 
 export interface AgentControlState {
   axes: AgentControlAxis[];

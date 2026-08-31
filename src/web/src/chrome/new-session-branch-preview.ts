@@ -37,18 +37,6 @@ type PreviewRequest = (
   signal: AbortSignal,
 ) => Promise<BranchPreviewResult>;
 
-const sameContext = (
-  left: BranchPreviewContext | null,
-  right: BranchPreviewContext | null,
-): boolean =>
-  left === right ||
-  (left !== null &&
-    right !== null &&
-    left.backendId === right.backendId &&
-    left.prompt === right.prompt &&
-    sameAttachments(left.attachments, right.attachments) &&
-    left.providerId === right.providerId);
-
 const sameAttachments = (
   left: readonly EncodedImageAttachment[],
   right: readonly EncodedImageAttachment[],
@@ -64,9 +52,24 @@ const sameAttachments = (
     );
   });
 
+const sameSuggestion = (
+  left: BranchPreviewContext | null,
+  right: BranchPreviewContext | null,
+): boolean =>
+  left === right ||
+  (left !== null &&
+    right !== null &&
+    left.backendId === right.backendId &&
+    left.prompt === right.prompt &&
+    sameAttachments(left.attachments, right.attachments));
+
+const sameContext = (
+  left: BranchPreviewContext | null,
+  right: BranchPreviewContext | null,
+): boolean => sameSuggestion(left, right) && left?.providerId === right?.providerId;
+
 const retargeted = (previous: BranchPreviewContext | null, next: BranchPreviewContext): boolean =>
-  previous !== null &&
-  (previous.backendId !== next.backendId || previous.providerId !== next.providerId);
+  previous !== null && previous.backendId !== next.backendId;
 
 const worthQuerying = (context: BranchPreviewContext): boolean =>
   context.prompt.split(/\s+/).filter((word) => word.length > 0).length >= BRANCH_PREVIEW_MIN_WORDS;
@@ -108,9 +111,11 @@ export class NewSessionBranchPreview {
       this.publish({ branch: "", error: null, manual: false, status: "idle" });
       return;
     }
-    // A name is inferred from one repository's conventions and checked against its branches, so a different
-    // host or provider has to name the draft again; a query already in flight answers this one closely
-    // enough, and re-arms itself if the model disagrees.
+    // Provider selection is launch context, so updating it never invalidates this suggestion.
+    if (sameSuggestion(previous, context)) {
+      return;
+    }
+    // A different host has different repository conventions and collisions, so it invalidates the name.
     if (retargeted(previous, context)) {
       this.settled = false;
     } else if (this.claimed || this.settled || this.controller !== null) {
@@ -144,7 +149,7 @@ export class NewSessionBranchPreview {
     if (this.frozen || this.controller !== null || this.context === null) {
       return;
     }
-    if (sameContext(this.queried, this.context)) {
+    if (sameSuggestion(this.queried, this.context)) {
       return;
     }
     if (this.timer !== null) {
@@ -225,7 +230,7 @@ export class NewSessionBranchPreview {
 
   private schedule(): void {
     // Re-asking the question already answered would only spend the same query on the same prompt.
-    if (this.context === null || this.frozen || sameContext(this.queried, this.context)) {
+    if (this.context === null || this.frozen || sameSuggestion(this.queried, this.context)) {
       return;
     }
     if (!worthQuerying(this.context)) {

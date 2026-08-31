@@ -21,6 +21,21 @@ function toAgentTranscript(messages: readonly AgentPaneUpdate[]) {
 }
 
 describe("toAgentTranscript", () => {
+  it("renders provider commands as command turns", () => {
+    const transcript = toAgentTranscript([
+      { type: "user-command", providerId: "acp", turnId: "1", text: "/compact" },
+      {
+        type: "item-completed",
+        providerId: "acp",
+        turnId: "1",
+        itemType: "agentMessage",
+        text: "Done",
+      },
+    ]);
+
+    expect(transcript[0]).toMatchObject({ label: "Command", text: "/compact", turnStart: true });
+  });
+
   it("summarizes a tool-heavy turn once after all steps are collected", () => {
     const summary = vi.spyOn(ProjectedAgentActivity.prototype, "summary");
     const materialize = vi.spyOn(ProjectedAgentActivity.prototype, "materialize");

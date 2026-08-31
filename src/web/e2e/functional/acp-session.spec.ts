@@ -30,6 +30,53 @@ test("new ACP session initializes and accepts its first prompt @cross", async ({
   );
 });
 
+test("ACP slash commands preserve provider command and fresh-conversation semantics", async ({
+  page,
+}) => {
+  const surface = await createAcpSession(page, "acp-slash-commands");
+  const composer = surface.locator("[data-agent-composer] textarea");
+
+  await composer.fill("identify-session");
+  await composer.press("Enter");
+  await expect(surface.locator(".agent-entry-message.agent-tone-assistant")).toContainText(
+    "session: fake-session",
+  );
+
+  await composer.fill("/");
+  const menu = surface.locator(".agent-slash-menu");
+  await expect(menu).toContainText("/compact");
+  await expect(menu).toContainText("/clear");
+
+  await composer.fill("/compact");
+  await composer.press("Enter");
+  const compact = surface.locator(".agent-entry-message.agent-tone-user", {
+    hasText: "/compact",
+  });
+  await expect(compact.locator(".agent-entry-label")).toHaveText("Command");
+  await expect(
+    surface.locator(".agent-entry-message.agent-tone-assistant", {
+      hasText: "Compacting completed.",
+    }),
+  ).toBeVisible();
+
+  await composer.fill("/clear");
+  await expect(menu).toBeVisible();
+  await composer.press("Escape");
+  await expect(menu).toBeHidden();
+  await composer.press("Enter");
+  await expect(surface.locator(".agent-entry")).toHaveCount(0);
+  await expect(surface.getByRole("button", { name: "Model Alpha" })).toBeVisible();
+
+  await composer.fill("identify-session");
+  await composer.press("Enter");
+  await expect(surface.locator(".agent-entry-message.agent-tone-assistant")).toContainText(
+    "session: fake-session-2",
+  );
+  await expect(surface.locator(".agent-entry-message.agent-tone-user")).toContainText(
+    "identify-session",
+  );
+});
+
 test("ACP controls and rich structured output stay native @cross", async ({ page }) => {
   const surface = await createAcpSession(page, "acp-rich-output");
 

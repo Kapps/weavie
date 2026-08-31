@@ -1,6 +1,7 @@
 import { expect, test } from "../harness/fixtures";
 
 test("application menus expose command shortcuts, submenus, and dispatch", async ({ page }) => {
+  const modifier = process.platform === "darwin" ? "⌘" : "Ctrl";
   const file = page.getByRole("menuitem", { name: "File", exact: true });
   await file.click();
   await file.click();
@@ -25,7 +26,7 @@ test("application menus expose command shortcuts, submenus, and dispatch", async
 
   const diffAgainst = page.getByRole("menuitem", { name: /^Diff Against…/ });
   await expect(diffAgainst).toBeVisible();
-  await expect(diffAgainst.locator(".context-menu-keys")).toHaveText("Ctrl+Shift+D");
+  await expect(diffAgainst.locator(".context-menu-keys")).toHaveText(`${modifier}+Shift+D`);
   await page.getByRole("menuitem", { name: "Diff Against HEAD", exact: true }).click();
   await expect(page.locator(".toast", { hasText: "No changes against 'HEAD'" })).toBeVisible({
     timeout: 30_000,
@@ -35,7 +36,7 @@ test("application menus expose command shortcuts, submenus, and dispatch", async
   await page.getByRole("menuitem", { name: "Appearance", exact: true }).click();
   const increase = page.getByRole("menuitem", { name: /^Increase Font Size/ });
   await expect(increase).toBeVisible();
-  await expect(increase.locator(".context-menu-keys")).toContainText("Ctrl+");
+  await expect(increase.locator(".context-menu-keys")).toContainText(`${modifier}+`);
 });
 
 test("application menu supports keyboard traversal across the top level", async ({ page }) => {

@@ -18,3 +18,34 @@ export function filterSlash(entries: readonly AgentSlashEntry[], query: string):
   const needle = query.toLowerCase();
   return entries.filter((entry) => entry.name.toLowerCase().includes(needle)).slice(0, 8);
 }
+
+/** The exact currently-advertised provider command invoked by a draft, including drafts with arguments. */
+export function providerCommandForDraft(
+  entries: readonly AgentSlashEntry[],
+  draft: string,
+): AgentSlashEntry | null {
+  const text = draft.trim();
+  if (!text.startsWith("/")) return null;
+  const boundary = text.search(/\s/);
+  const name = text.slice(1, boundary < 0 ? undefined : boundary);
+  return (
+    entries.find(
+      (entry) =>
+        entry.kind === "providerCommand" && entry.name.toLowerCase() === name.toLowerCase(),
+    ) ?? null
+  );
+}
+
+/** The exact Weavie slash action invoked by a draft; Weavie slash actions take no free-form input. */
+export function weavieCommandForDraft(
+  entries: readonly AgentSlashEntry[],
+  draft: string,
+): AgentSlashEntry | null {
+  const text = draft.trim();
+  return (
+    entries.find(
+      (entry) =>
+        entry.kind === "weavieCommand" && `/${entry.name}`.toLowerCase() === text.toLowerCase(),
+    ) ?? null
+  );
+}

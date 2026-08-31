@@ -1,4 +1,5 @@
 using Weavie.Core.Agents;
+using Weavie.Core.Commands;
 using Weavie.Core.Editor;
 using Weavie.Core.Sessions;
 using Xunit;
@@ -83,7 +84,13 @@ public sealed class AcpAgentSessionTests {
 		Assert.Equal(["Stable", "Preview"], model.Options.Select(option => option.Group));
 		Assert.Equal("false", Assert.Single(controls.Axes, axis => axis.Id == "fast").Value);
 		Assert.Equal("default", Assert.Single(controls.Axes, axis => axis.Id == "mode").Value);
-		Assert.Contains(controls.Slash, command => command.Name == "compact");
+		var clear = Assert.Single(controls.Slash, command => command.Name == "clear");
+		Assert.Equal(AgentSlashEntryKind.WeavieCommand, clear.Kind);
+		Assert.Equal(CoreCommands.ClearAgentConversation, clear.CommandId);
+		var compact = Assert.Single(controls.Slash, command => command.Name == "compact");
+		Assert.Equal(AgentSlashEntryKind.ProviderCommand, compact.Kind);
+		Assert.Null(compact.InputHint);
+		Assert.Equal("<focus>", Assert.Single(controls.Slash, command => command.Name == "review").InputHint);
 
 		fixture.Submit("rich");
 		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed");
@@ -105,6 +112,112 @@ public sealed class AcpAgentSessionTests {
 		Assert.Equal(DateTimeOffset.FromUnixTimeSeconds(4102444800), limit.ResetsAt);
 		Assert.Contains(messages, message => message.Type == "item-completed" && message.Text == "rich response");
 		Assert.Equal(SessionStatus.Idle, fixture.Events.Status.Status);
+	}
+
+	[Fact]
+	public async Task NativeSession_InvokesProviderCommandsAsOneIsolatedPromptBlock() {
+		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
+		await fixture.StartAsync();
+
+		fixture.SubmitCommand("compact", "/COMPACT");
+		await fixture.WaitForMessageAsync(message => message.Text == "Compacting completed.");
+		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed");
+
+		Assert.Contains(fixture.Messages, message => message.Type == "user-command" && message.Text == "/compact");
+		Assert.True(File.Exists(Path.Combine(fixture.Workspace, "compact-executed")));
+		fixture.Submit("context");
+		await fixture.WaitForMessageAsync(message => message.Text == "context:guidance=True;selection=False");
+	}
+
+	[Fact]
+	public async Task NativeSession_PreservesProviderCommandArguments() {
+		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
+		await fixture.StartAsync();
+
+		fixture.SubmitCommand("review", "/review focus on tests");
+		await fixture.WaitForMessageAsync(message => message.Text == "review command: focus on tests");
+		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed");
+	}
+
+	[Fact]
+	public async Task NativeSession_TreatsProviderInputHintsAsOptional() {
+		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
+		await fixture.StartAsync();
+
+		fixture.SubmitCommand("review", "/review");
+		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed");
+
+		Assert.Contains(fixture.Messages, message => message.Type == "user-command" && message.Text == "/review");
+	}
+
+	[Fact]
+	public async Task NativeSession_TracksProviderCommandsAsActiveTurns() {
+		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
+		await fixture.StartAsync();
+
+		fixture.SubmitCommand("hold-command", "/hold-command");
+		await Wait.UntilAsync(() => File.Exists(Path.Combine(fixture.Workspace, "hold-started")));
+
+		Assert.Equal(SessionStatus.Working, fixture.Events.Status.Status);
+		Assert.Contains(fixture.Events.Values, value =>
+			value is AgentPromptSubmitted { Prompt: "/hold-command" });
+
+		File.WriteAllText(Path.Combine(fixture.Workspace, "release-hold"), string.Empty);
+		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed");
+		Assert.Equal(SessionStatus.Idle, fixture.Events.Status.Status);
+	}
+
+	[Fact]
+	public async Task NativeSession_QueuesProviderCommandsUntilTheActiveTurnIsIdle() {
+		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
+		await fixture.StartAsync();
+
+		fixture.Submit("hold");
+		await Wait.UntilAsync(() => File.Exists(Path.Combine(fixture.Workspace, "hold-started")));
+		fixture.SubmitCommand("compact", "/compact");
+		File.WriteAllText(Path.Combine(fixture.Workspace, "release-hold"), string.Empty);
+		await fixture.WaitForMessageAsync(message => message.Text == "Compacting completed.");
+
+		Assert.False(File.Exists(Path.Combine(fixture.Workspace, "command-steered")));
+		Assert.Contains(fixture.Messages, message => message.Text == "steered: released");
+	}
+
+	[Fact]
+	public async Task NativeSession_RejectsACommandMissingFromTheLatestProviderSnapshot() {
+		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
+		await fixture.StartAsync();
+		fixture.Submit("remove-commands");
+		await fixture.WaitForControlsAsync(state => state.Slash.All(command => command.Name != "compact"));
+
+		var error = Assert.Throws<InvalidOperationException>(() =>
+			fixture.SubmitCommand("compact", "/compact"));
+
+		Assert.Contains("no longer advertises", error.Message, StringComparison.OrdinalIgnoreCase);
+	}
+
+	[Fact]
+	public async Task NativeSession_StartsAFreshProviderConversationAndResetsLocalState() {
+		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
+		await fixture.StartAsync();
+		fixture.Submit("hello");
+		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed");
+		Assert.Equal("fake-session", fixture.Sessions.Resolve("fake", fixture.Workspace));
+		var oldStarts = fixture.Events.Values
+			.OfType<AgentSessionStarted>()
+			.ToHashSet(ReferenceEqualityComparer.Instance);
+
+		fixture.Session.StartNewConversation();
+		await fixture.WaitForMessageAsync(message => message.Type == "transcript-reset");
+		await fixture.Events.WaitForAsync(value => value is AgentSessionStarted started && !oldStarts.Contains(started));
+		Assert.Null(fixture.Sessions.Resolve("fake", fixture.Workspace));
+		fixture.Submit("context-after-reset");
+		var response = await fixture.WaitForMessageAsync(message =>
+			message.Text == "context-after-reset:guidance=True;selection=False");
+
+		Assert.Equal("fake-session-2", response.ThreadId);
+		Assert.Equal("1", response.TurnId);
+		Assert.Equal("fake-session-2", fixture.Sessions.Resolve("fake", fixture.Workspace));
+		Assert.Single(fixture.Messages, message => message.Type == "transcript-reset");
 	}
 
 	[Fact]
@@ -477,6 +590,8 @@ public sealed class AcpAgentSessionTests {
 		fixture.Session.Submit(new AgentTurnSubmission {
 			Id = "image-submission",
 			Text = "image",
+			Kind = AgentTurnSubmissionKind.Prompt,
+			CommandName = string.Empty,
 			Attachments = [new AgentInputAttachment { Id = "image", Path = image, Mime = "image/png" }],
 		});
 		await fixture.WaitForMessageAsync(message => message.Type == "item-completed" && message.Text == "image=True");
@@ -1000,7 +1115,7 @@ public sealed class AcpAgentSessionTests {
 	}
 
 	[Fact]
-	public async Task NativeSession_RestartCannotDeadlockWithAConcurrentProviderUpdate() {
+	public async Task NativeSession_RestartCannotDeadlockWithAConcurrentProviderCommandUpdate() {
 		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
 		await fixture.StartAsync();
 		fixture.Submit("restart-update-race");
@@ -1015,12 +1130,13 @@ public sealed class AcpAgentSessionTests {
 		block.Release();
 		await restart.WaitAsync(TimeSpan.FromSeconds(10));
 		await fixture.Events.WaitForAsync(value => value is AgentSessionStarted { Source: "restart" });
+		var controls = await fixture.WaitForControlsAsync(state => state.Axes.Any(axis => axis.Id == "model"));
 
 		fixture.Submit("after concurrent restart");
 		await fixture.WaitForMessageAsync(message => message.Text == "echo: after concurrent restart");
 		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed" && message.TurnId == "2");
 
-		Assert.DoesNotContain(fixture.Messages, message => message.Text == "stale update from replaced generation");
+		Assert.DoesNotContain(controls.Slash, command => command.Name == "stale-command");
 		Assert.DoesNotContain(fixture.Messages, message => message.Type == "error");
 		Assert.Equal(SessionStatus.Idle, fixture.Events.Status.Status);
 	}

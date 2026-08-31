@@ -1,10 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { focusOmnibar, focusOmnibarFileSearch, omnibarRequest } from "./omnibar-controller";
+import {
+  focusOmnibar,
+  focusOmnibarFileSearch,
+  focusOmnibarPath,
+  omnibarRequest,
+} from "./omnibar-controller";
 
 describe("focusOmnibar", () => {
   it("records the requested mode with no preload", () => {
     focusOmnibar("file");
-    expect(omnibarRequest()).toMatchObject({ mode: "file", query: "", line: 1 });
+    expect(omnibarRequest()).toMatchObject({ mode: "file", query: "", line: 1, select: true });
     focusOmnibar("command");
     expect(omnibarRequest()?.mode).toBe("command");
   });
@@ -22,5 +27,22 @@ describe("focusOmnibarFileSearch", () => {
   it("carries the preload query and the link's line for a host-driven Go-to-File open", () => {
     focusOmnibarFileSearch("web/foo.ts", 42);
     expect(omnibarRequest()).toMatchObject({ mode: "file", query: "web/foo.ts", line: 42 });
+  });
+});
+
+describe("focusOmnibarPath", () => {
+  it("seeds the worktree root plus its separator, which reads as path mode", () => {
+    focusOmnibarPath("/ws/repo");
+    expect(omnibarRequest()).toMatchObject({ query: "/ws/repo/", select: false });
+  });
+
+  it("follows a Windows root's separator", () => {
+    focusOmnibarPath("C:\\ws\\repo");
+    expect(omnibarRequest()?.query).toBe("C:\\ws\\repo\\");
+  });
+
+  it("leaves the seed unselected so the first keystroke appends instead of replacing it", () => {
+    focusOmnibarPath("/ws");
+    expect(omnibarRequest()?.select).toBe(false);
   });
 });

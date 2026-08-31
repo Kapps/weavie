@@ -21,12 +21,19 @@ import {
   on,
   onCleanup,
   Show,
+  untrack,
 } from "solid-js";
 import { evaluateWhen, paneFocusContext } from "../commands/context";
 import { formatKey } from "../commands/keybindings";
 import { getCommands, onCommandsChanged, runCommandWithFeedback } from "../commands/registry";
 import { CommandIds, type CommandInfo } from "../commands/types";
 import { canonicalFsPath, samePath } from "../editor/fs-path";
+import type { DirEntry } from "../files/FileBrowser";
+import {
+  listSelectedDirectory,
+  selectedDirectoryListings,
+  selectedFileIndex,
+} from "../files/session-files";
 import type { FlatSymbol, SymbolActions } from "../symbols/symbol-match";
 import { createSymbolSearch } from "../symbols/symbol-search";
 import {
@@ -39,6 +46,7 @@ import {
 } from "./file-search";
 import { highlightSlice } from "./highlight";
 import { type OmnibarMode, omnibarRequest } from "./omnibar-controller";
+import { parsePathQuery, separatorFor } from "./path-query";
 import { recentFiles } from "./recent-files-store";
 
 // Max rows rendered at once — a safety cap so a giant workspace never mounts thousands of rows.
@@ -170,12 +178,16 @@ export function Omnibar(props: {
 
   // The active mode, chosen by the query's leading char: ">" palette, "@" this-file symbols, "#" workspace
   // symbols, empty → the file tree, otherwise the fuzzy file list.
-  type Mode = "command" | "docSymbol" | "wsSymbol" | "tree" | "search";
+  type Mode = "command" | "docSymbol" | "wsSymbol" | "tree" | "search" | "path";
+  const pathQuery = createMemo(() =>
+    parsePathQuery(query(), { root: props.root ?? "", home: selectedFileIndex().home }),
+  );
   const mode = createMemo<Mode>(() => {
     const q = query();
     if (q.startsWith(">")) return "command";
     if (q.startsWith("@")) return "docSymbol";
     if (q.startsWith("#")) return "wsSymbol";
+    if (pathQuery() !== null) return "path";
     return q.trim().length === 0 ? "tree" : "search";
   });
   const commandMode = (): boolean => mode() === "command";
@@ -183,7 +195,41 @@ export function Omnibar(props: {
   const searchMode = (): boolean => mode() === "search";
   const docSymbolMode = (): boolean => mode() === "docSymbol";
   const wsSymbolMode = (): boolean => mode() === "wsSymbol";
+  const pathMode = (): boolean => mode() === "path";
+  const pathSeed = (): string => {
+    const root = props.root ?? "";
+    return root === "" ? "" : root + separatorFor(root);
+  };
   const symbolMode = (): boolean => docSymbolMode() || wsSymbolMode();
+
+  // The directory is tracked as a string, and the request is untracked. Both matter: parsePathQuery reads the
+  // same store the listing writes to, and listSelectedDirectory reads it again to dedupe, so tracking either
+  // would make the reply re-trigger the request and pin the directory at "loading" forever.
+  const pathDir = createMemo(() => pathQuery()?.dir ?? null);
+  createEffect(() => {
+    const dir = pathDir();
+    if (dir !== null) {
+      untrack(() => listSelectedDirectory(dir));
+    }
+  });
+  const pathListing = () => {
+    const dir = pathDir();
+    return dir === null ? undefined : selectedDirectoryListings()[dir];
+  };
+  // A directory that can't be listed says why — an empty row list would read as an empty directory.
+  const pathError = (): string | null => {
+    const listing = pathListing();
+    return listing?.status === "error" ? listing.message : null;
+  };
+  const pathRows = createMemo<DirEntry[]>(() => {
+    const parsed = pathQuery();
+    const listing = pathListing();
+    if (parsed === null || listing?.status !== "ready") {
+      return [];
+    }
+    const leaf = parsed.leaf.toLowerCase();
+    return listing.entries.filter((entry) => entry.name.toLowerCase().startsWith(leaf));
+  });
 
   // One fuzzy finder over the file index, rebuilt only when the index changes.
   const fileFinder = createMemo(() => createFileFinder(rows()));
@@ -268,13 +314,15 @@ export function Omnibar(props: {
   });
 
   const activeLen = (): number =>
-    commandMode()
-      ? commandView().length
-      : symbolMode()
-        ? symbolView().length
-        : treeMode()
-          ? visibleRows().length
-          : view().length;
+    pathMode()
+      ? pathRows().length
+      : commandMode()
+        ? commandView().length
+        : symbolMode()
+          ? symbolView().length
+          : treeMode()
+            ? visibleRows().length
+            : view().length;
   const hiddenCount = (): number =>
     searchMode()
       ? Math.max(0, filtered().length - view().length)
@@ -390,8 +438,8 @@ export function Omnibar(props: {
         queueMicrotask(() => {
           inputRef.focus();
           // A preloaded query (an ambiguous link's recovery search) is selected so typing replaces it; a bare
-          // mode prefix (">") must never be, or the first keystroke would wipe it and exit the mode.
-          if (request.query !== "") {
+          // mode prefix (">") or an open-by-path seed must never be, or the first keystroke would wipe it.
+          if (request.select && request.query !== "") {
             inputRef.select();
           }
         });
@@ -448,6 +496,12 @@ export function Omnibar(props: {
     const focusMode = FOCUS_COMMAND_MODE[cmd.id];
     if (focusMode !== undefined) {
       setQuery(MODE_PREFIX[focusMode]);
+      setSelected(0);
+      return;
+    }
+    // Open-by-path re-aims in place too, but its seed is the worktree root rather than a static prefix.
+    if (cmd.id === CommandIds.openFileByPath) {
+      setQuery(pathSeed());
       setSelected(0);
       return;
     }
@@ -516,8 +570,22 @@ export function Omnibar(props: {
     scrollToSelected("nearest");
   };
 
+  const activatePathEntry = (entry: DirEntry | undefined): void => {
+    if (entry === undefined) {
+      return;
+    }
+    if (entry.isDir) {
+      setQuery(entry.path + separatorFor(entry.path));
+      setSelected(0);
+    } else {
+      openFile(entry.path);
+    }
+  };
+
   const activate = (): void => {
-    if (commandMode()) {
+    if (pathMode()) {
+      activatePathEntry(pathRows()[selected()]);
+    } else if (commandMode()) {
       runCommand(commandView()[selected()]?.cmd);
     } else if (symbolMode()) {
       activateSymbol(symbolView()[selected()]?.sym);
@@ -696,6 +764,57 @@ export function Omnibar(props: {
       </div>
       <Show when={open()}>
         <div class="tb-omnibar-pop" classList={{ symbol: symbolMode() }}>
+          <Show when={pathMode()}>
+            <Show
+              when={pathError()}
+              fallback={
+                <Show
+                  when={pathListing()?.status === "ready"}
+                  fallback={<div class="tb-omnibar-empty">Loading…</div>}
+                >
+                  <Show
+                    when={pathRows().length > 0}
+                    fallback={<div class="tb-omnibar-empty">No matching files</div>}
+                  >
+                    <div
+                      class="tb-omnibar-list"
+                      ref={listRef}
+                      id="tb-omnibar-listbox"
+                      role="listbox"
+                      aria-label="Files by path"
+                    >
+                      <For each={pathRows()}>
+                        {(entry, i) => (
+                          <button
+                            type="button"
+                            class="tb-omnibar-row"
+                            role="option"
+                            tabindex={-1}
+                            id={`tb-omnibar-opt-${i()}`}
+                            aria-selected={i() === selected()}
+                            classList={{ selected: i() === selected() }}
+                            onMouseDown={(e) => {
+                              // mousedown fires before the input's focusout closes the popover.
+                              e.preventDefault();
+                              setSelected(i());
+                              activatePathEntry(entry);
+                            }}
+                          >
+                            <span class="tb-row-leaf">
+                              {entry.name}
+                              {entry.isDir ? separatorFor(entry.path) : ""}
+                            </span>
+                          </button>
+                        )}
+                      </For>
+                    </div>
+                  </Show>
+                </Show>
+              }
+            >
+              {(message) => <div class="tb-omnibar-empty">{message()}</div>}
+            </Show>
+          </Show>
           <Show when={symbolMode()}>
             <Show
               when={symbolView().length > 0}
@@ -743,7 +862,7 @@ export function Omnibar(props: {
               </Show>
             </Show>
           </Show>
-          <Show when={!symbolMode()}>
+          <Show when={!symbolMode() && !pathMode()}>
             <Show
               when={!commandMode()}
               fallback={

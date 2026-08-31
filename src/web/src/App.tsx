@@ -45,7 +45,11 @@ import { gitStatus } from "./chrome/git-status-store";
 import { installMiddleClickAutoscroll } from "./chrome/middle-click-autoscroll";
 import { NativeTitleBar } from "./chrome/NativeTitleBar";
 import { OpenPrPrompt } from "./chrome/OpenPrPrompt";
-import { focusOmnibar, focusOmnibarFileSearch } from "./chrome/omnibar-controller";
+import {
+  focusOmnibar,
+  focusOmnibarFileSearch,
+  focusOmnibarPath,
+} from "./chrome/omnibar-controller";
 import { PaneFooter } from "./chrome/PaneFooter";
 import type { PopoverAnchor } from "./chrome/popover-position";
 import { pullRequestStatus } from "./chrome/pull-request-store";
@@ -1467,6 +1471,7 @@ export default function App(): JSX.Element {
       installTerminalClipboardCommands(),
       registerCommand(CommandIds.focusOmnibarFiles, () => focusOmnibar("file")),
       registerCommand(CommandIds.focusOmnibarCommands, () => focusOmnibar("command")),
+      registerCommand(CommandIds.openFileByPath, () => focusOmnibarPath(indexRoot() ?? "")),
       registerCommand(CommandIds.goToSymbol, () => focusOmnibar("docSymbol")),
       registerCommand(CommandIds.goToWorkspaceSymbol, () => focusOmnibar("wsSymbol")),
       // Find in Files (Ctrl+Shift+F / palette): open the content-search panel seeded from whatever the user

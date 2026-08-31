@@ -26,6 +26,9 @@ public static class CoreCommands {
 	/// <summary>Focuses the omnibar in file-search ("Go to File") mode.</summary>
 	public const string FocusOmnibarFiles = "weavie.omnibar.focusFiles";
 
+	/// <summary>Focuses the omnibar seeded with the worktree path, to open a file by typing its path.</summary>
+	public const string OpenFileByPath = "weavie.omnibar.openPath";
+
 	/// <summary>Focuses the omnibar in command-palette mode.</summary>
 	public const string FocusOmnibarCommands = "weavie.omnibar.focusCommands";
 
@@ -427,6 +430,18 @@ public static class CoreCommands {
 			Description = "Focus the omnibar to quickly open a file by name.",
 			Aliases = ["go to file", "open file", "quick open", "find file"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+p" }],
+		});
+
+		// Open-by-path is reachable by typing a path shape (/, ~/, ../, C:\) into the omnibar; registered as a
+		// command for palette discovery + Claude. No default chord — the shape entry already covers the keyboard
+		// path, and this only seeds the input with the worktree root so Backspace walks to a sibling.
+		registry.Register(new CommandDefinition {
+			Id = OpenFileByPath,
+			Title = "Open File by Path…",
+			RunsIn = CommandLocation.Web,
+			Category = "Navigation",
+			Description = "Focus the omnibar to open a file by typing its path, including outside this worktree.",
+			Aliases = ["open path", "open by path", "open absolute path", "open external file", "open file outside repo"],
 		});
 
 		registry.Register(new CommandDefinition {

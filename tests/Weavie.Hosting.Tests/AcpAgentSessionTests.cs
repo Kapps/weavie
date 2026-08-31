@@ -716,6 +716,21 @@ public sealed class AcpAgentSessionTests {
 	}
 
 	[Fact]
+	public async Task NativeSession_ResolvesARelativeToolLocationInsteadOfFailing() {
+		// A relative location used to fault the connection, ending the whole session over a jump link.
+		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
+		await fixture.StartAsync();
+
+		fixture.Submit("relative-location");
+		var tool = await fixture.WaitForMessageAsync(message => message.ItemId == "tool:relative");
+
+		string resolved = Assert.Single(tool.Locations!).Path;
+		Assert.True(Path.IsPathFullyQualified(resolved), resolved);
+		Assert.Equal("sample.txt", Path.GetFileName(resolved));
+		Assert.DoesNotContain(fixture.Messages, message => message.Type == "error");
+	}
+
+	[Fact]
 	public async Task NativeSession_ReadsAFilePlanOutsideTheWorkspace() {
 		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
 		await fixture.StartAsync();

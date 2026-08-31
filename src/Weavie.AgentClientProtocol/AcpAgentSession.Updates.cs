@@ -329,7 +329,7 @@ public sealed partial class AcpAgentSession {
 					blocks.Add(ReadToolContentBlock(block));
 					break;
 				case "diff":
-					string diffPath = RequiredAbsolutePath(item, "path", "tool diff");
+					string diffPath = ResolvedPath(item, "path", "tool diff");
 					diffs.Add(new AgentPaneDiff {
 						Path = diffPath,
 						OldText = OptionalString(item, "oldText"),
@@ -403,9 +403,9 @@ public sealed partial class AcpAgentSession {
 		}
 	}
 
-	private static IReadOnlyList<AgentPaneLocation> ReadLocations(JsonElement locations) =>
+	private IReadOnlyList<AgentPaneLocation> ReadLocations(JsonElement locations) =>
 		[.. locations.EnumerateArray().Select(location => new AgentPaneLocation {
-			Path = RequiredAbsolutePath(location, "path", "tool location"),
+			Path = ResolvedPath(location, "path", "tool location"),
 			Line = ReadLocationLine(location),
 		})];
 
@@ -417,11 +417,16 @@ public sealed partial class AcpAgentSession {
 		return number;
 	}
 
-	private static string RequiredAbsolutePath(JsonElement value, string property, string source) {
+	// A tool call names the files it touched so the pane can link to them. A relative name resolves against the
+	// agent's own working directory, which is this session's workspace — refusing it would fault the connection
+	// and end the session over a link.
+	private string ResolvedPath(JsonElement value, string property, string source) {
 		string path = RequiredString(value, property, source);
-		return Path.IsPathFullyQualified(path)
-			? path
-			: throw new AcpProtocolException($"The ACP {source} requires an absolute '{property}'.");
+		try {
+			return Path.GetFullPath(path, _context.Workspace);
+		} catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException) {
+			throw new AcpProtocolException($"The ACP {source} has an unusable '{property}': {path}.", ex);
+		}
 	}
 
 	private static AgentMutation Mutation(AcpToolState tool) {

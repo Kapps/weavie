@@ -242,6 +242,7 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 		else if (text == "prompt-failure") PromptFailure();
 		else if (text == "shared-message-id") SharedMessageId();
 		else if (text == "tool-content") ToolContent();
+		else if (text == "relative-location") RelativeLocation();
 		else if (text == "empty-diff") EmptyDiff();
 		else if (text == "refusal") {
 			RichUpdates();
@@ -865,6 +866,16 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 			},
 		});
 	}
+
+	// Real agents name a touched file relative to their working directory; the client resolves it.
+	private void RelativeLocation() => Update(new JsonObject {
+		["sessionUpdate"] = "tool_call",
+		["toolCallId"] = "relative",
+		["title"] = "Edit file",
+		["kind"] = "edit",
+		["status"] = "completed",
+		["locations"] = new JsonArray(new JsonObject { ["path"] = "sample.txt", ["line"] = 3 }),
+	});
 
 	private void ExternalFilePlanDocument() {
 		string directory = Directory.CreateDirectory(

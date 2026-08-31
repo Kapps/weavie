@@ -521,7 +521,8 @@ public sealed partial class HostSession : IAsyncDisposable {
 		$"{{\"workspace\":\"{JsonEncodedText.Encode(WorkspaceRoot)}\",\"servers\":{LspServersCatalogJson}}}";
 
 	/// <summary>
-	/// Lists <paramref name="requestedPath"/> within the session root for the requesting file browser.
+	/// Lists <paramref name="requestedPath"/> — absolute as itself, relative against the session root — for the
+	/// file browser and the omnibar's open-by-path completion.
 	/// </summary>
 	private DirectoryListingMessage ListDirectory(string requestedPath) =>
 		new([.. Browser.List(requestedPath).Select(

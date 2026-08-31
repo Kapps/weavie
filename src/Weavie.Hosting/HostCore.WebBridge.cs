@@ -142,12 +142,16 @@ public sealed partial class HostCore {
 		HostSession session,
 		bool invalidate,
 		MessageTarget target) {
+		// `home` anchors the omnibar's `~/…` open-by-path expansion against the *host's* profile, not the browser's.
+		object Payload(IReadOnlyList<string> files, bool pending) => new {
+			root = session.FileIndex.Root,
+			home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+			files,
+			pending,
+		};
+
 		if (invalidate) {
-			target.Feature("files").Publish("index", new {
-				root = session.FileIndex.Root,
-				files = Array.Empty<string>(),
-				pending = true,
-			});
+			target.Feature("files").Publish("index", Payload([], true));
 		}
 
 		_ = session.Background.Run(async ct => {
@@ -174,21 +178,13 @@ public sealed partial class HostCore {
 					}
 				}
 			} catch (Exception ex) when (ex is GitException or IOException or UnauthorizedAccessException) {
-				target.Feature("files").Publish("index", new {
-					root = session.FileIndex.Root,
-					files = Array.Empty<string>(),
-					pending = false,
-				});
+				target.Feature("files").Publish("index", Payload([], false));
 				Notify(session, "error", $"Couldn't load workspace files: {ex.Message}");
 				return;
 			}
 
 			ct.ThrowIfCancellationRequested();
-			target.Feature("files").Publish("index", new {
-				root = session.FileIndex.Root,
-				files,
-				pending = false,
-			});
+			target.Feature("files").Publish("index", Payload(files, false));
 		});
 	}
 

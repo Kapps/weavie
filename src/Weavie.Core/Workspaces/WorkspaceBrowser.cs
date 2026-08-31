@@ -6,8 +6,9 @@ namespace Weavie.Core.Workspaces;
 public readonly record struct BrowserEntry(string Name, string Path, bool IsDirectory);
 
 /// <summary>
-/// Lists directories for the contextual file browser, clamped inside one workspace root so the browser
-/// can't walk out (e.g. via <c>..</c>). Entries are sorted directories-first then by name.
+/// Lists directories for the file browser and the omnibar's open-by-path completion. <see cref="Root"/> is the
+/// base a relative request resolves against, not a fence — an absolute request lists that directory, matching
+/// the file provider, which serves any readable path. Entries are sorted directories-first then by name.
 /// </summary>
 public sealed class WorkspaceBrowser {
 	private readonly IFileSystem _fileSystem;
@@ -20,27 +21,19 @@ public sealed class WorkspaceBrowser {
 		Root = Path.GetFullPath(root);
 	}
 
-	/// <summary>The absolute workspace root the browser is scoped to.</summary>
+	/// <summary>The absolute workspace root a relative request resolves against.</summary>
 	public string Root { get; }
 
 	/// <summary>
-	/// Lists the immediate entries of <paramref name="requestedPath"/> (defaulting to the root, and clamped
-	/// inside it), directories first then files, each case-insensitive.
+	/// Lists the immediate entries of <paramref name="requestedPath"/> — absolute as itself, relative against
+	/// <see cref="Root"/>, empty as the root — directories first then files, each case-insensitive. A malformed
+	/// or missing directory throws, so the caller replies an error rather than an empty listing that reads as an
+	/// empty directory.
 	/// </summary>
 	public IReadOnlyList<BrowserEntry> List(string? requestedPath) {
-		string target;
-		try {
-			target = string.IsNullOrEmpty(requestedPath)
-				? Root
-				: Path.GetFullPath(Path.Combine(Root, requestedPath));
-		} catch (Exception ex) when (ex is ArgumentException or PathTooLongException or NotSupportedException) {
-			return []; // a malformed path has no listing — never throw past the caller's reply
-		}
-
-		if (!IsWithinRoot(target)) {
-			target = Root; // deny escape attempts (e.g. ../../) by falling back to the root
-		}
-
+		string target = string.IsNullOrEmpty(requestedPath)
+			? Root
+			: Path.GetFullPath(Path.Combine(Root, requestedPath));
 		if (!_fileSystem.DirectoryExists(target)) {
 			throw new DirectoryNotFoundException($"Directory not found: {target}");
 		}
@@ -50,9 +43,4 @@ public sealed class WorkspaceBrowser {
 			.ThenBy(entry => entry.Name, StringComparer.OrdinalIgnoreCase)
 			.Select(entry => new BrowserEntry(entry.Name, Path.Combine(target, entry.Name), entry.IsDirectory))];
 	}
-
-	// Case-sensitive off Windows: the browser is the only confinement guard run against a case-sensitive
-	// filesystem's real paths (PathBoundary's default overload deliberately folds case everywhere).
-	private bool IsWithinRoot(string path) =>
-		PathBoundary.Contains(Root, path, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
 }

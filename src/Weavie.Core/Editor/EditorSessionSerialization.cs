@@ -59,8 +59,7 @@ public static class EditorSessionSerialization {
 		var open = new List<object>();
 		var surviving = new HashSet<string>(StringComparer.Ordinal);
 		foreach (var entry in session.Open) {
-			bool file = string.IsNullOrEmpty(entry.Kind) || entry.Kind == "file";
-			if (file && !fileSystem.FileExists(entry.Path)) {
+			if (entry.IsFile && !fileSystem.FileExists(entry.Path)) {
 				log($"[editor-session] open file no longer exists; skipping {entry.Path}");
 				continue;
 			}

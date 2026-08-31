@@ -8,6 +8,9 @@ namespace Weavie.Core.Editor;
 /// verbatim. No file contents — disk is the source of truth and the web reopens each file as a working copy.
 /// </summary>
 public sealed record EditorSessionEntry {
+	/// <summary>Whether this tab is a plain workspace file rather than an overlay (web page, source, plan).</summary>
+	public bool IsFile => string.IsNullOrEmpty(Kind) || Kind == "file";
+
 	/// <summary>The native absolute path of the open file.</summary>
 	public required string Path { get; init; }
 

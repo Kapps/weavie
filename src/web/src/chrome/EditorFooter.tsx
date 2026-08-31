@@ -8,14 +8,14 @@ import { activePath } from "../editor/session-store";
 import { RecentFilesButton } from "./RecentFilesButton";
 
 // Every line maps to a gate that is genuinely off for a file outside the checkout: WorktreeRelativePath,
-// the LSP client's root, the worktree-scoped watcher, SessionChangeTracker's scope, the file index, and
-// TestRuleMatcher. The user opened this file deliberately, so this states facts rather than warning.
+// the LSP client's root, SessionChangeTracker's scope, the file index, and TestRuleMatcher. External edits
+// are NOT listed: ExternalFileWatcher watches open outside files, so they reload like any other. The user
+// opened this file deliberately, so this states facts rather than warning.
 const outsideRepoDetail = (root: string): string =>
   [
     `This file is outside ${root}.`,
     "Blame, history and diff-against are unavailable — it isn't in the repo.",
     "Completions, diagnostics and go-to-definition are off.",
-    "Weavie doesn't watch it, so an edit made elsewhere won't reload here.",
     "Agent changes to it aren't reviewed, and your edits aren't recorded as corrections.",
     "It isn't in Go to File or Recent Files, and test rules don't match it.",
   ].join("\n");

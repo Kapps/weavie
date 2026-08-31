@@ -39,13 +39,13 @@ public sealed partial class HostCore {
 		HostSession session,
 		string? argsJson,
 		CancellationToken ct) {
-		var (Result, Terminal) = await _ui.InvokeAsync(
+		var (result, terminal) = await _ui.InvokeAsync(
 			() => Task.FromResult(DetachShellTerminal(session, argsJson)),
 			ct).ConfigureAwait(false);
-		if (Terminal is not null) {
-			await Task.Run(Terminal.DisposePermanently).ConfigureAwait(false);
+		if (terminal is not null) {
+			await Task.Run(terminal.DisposePermanently).ConfigureAwait(false);
 		}
-		return Result;
+		return result;
 	}
 
 	private static (CommandResult Result, ShellTerminal? Terminal) DetachShellTerminal(

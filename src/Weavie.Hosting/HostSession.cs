@@ -121,6 +121,15 @@ public sealed partial class HostSession : IAsyncDisposable {
 			Inventory,
 			Tagged("[files]"),
 			watcherDebounceMs: 250);
+		// The workspace watcher covers the worktree recursively; files opened from anywhere else are watched
+		// one at a time, tracking the open tab set, so an edit made outside Weavie still reaches the buffer.
+		ExternalFiles = new ExternalFileWatcher(
+			fileSystem,
+			FileActivity,
+			Tagged("[files]"),
+			debounceMs: 250);
+		EditorSessionChanged += editorSession =>
+			ExternalFiles.Watch(FilesOutsideWorkspace(workspaceRoot, editorSession));
 		Browser = new WorkspaceBrowser(fileSystem, workspaceRoot);
 		FileIndex = new WorkspaceFileIndex(fileSystem, workspaceRoot);
 		Shell = new TerminalController(
@@ -325,6 +334,9 @@ public sealed partial class HostSession : IAsyncDisposable {
 	/// <summary>Orders this session's completed file activity and owned workspace invalidations.</summary>
 	public SessionFileActivity FileActivity { get; }
 
+	/// <summary>Watches the open files that sit outside this session's worktree, which the workspace watcher never sees.</summary>
+	public ExternalFileWatcher ExternalFiles { get; }
+
 	/// <summary>Owns this workspace's scratch (untitled-buffer) directory; New File creates a file here.</summary>
 	public ScratchStore Scratch { get; }
 
@@ -381,6 +393,19 @@ public sealed partial class HostSession : IAsyncDisposable {
 	}
 
 	internal event Action<EditorSession>? EditorSessionChanged;
+
+	/// <summary>
+	/// The open files the workspace watcher does not cover. Scratch buffers are excluded: Weavie owns them, and
+	/// its own autosave is the only writer.
+	/// </summary>
+	private static IReadOnlyList<string> FilesOutsideWorkspace(string workspaceRoot, EditorSession session) => [
+		.. session.Open
+			.Where(entry =>
+				!entry.Scratch
+				&& entry.Kind is null or "file"
+				&& !PathBoundary.Contains(workspaceRoot, entry.Path))
+			.Select(entry => entry.Path),
+	];
 
 	internal void ReplayEditor(MessageTargetFeature target, Action<string> log) {
 		ArgumentNullException.ThrowIfNull(target);
@@ -643,6 +668,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 		await DisposeStepAsync(
 			failures,
 			() => FileActivity.DrainAsync(CancellationToken.None)).ConfigureAwait(false);
+		await DisposeStepAsync(failures, () => Task.Run(ExternalFiles.Dispose)).ConfigureAwait(false);
 		await DisposeStepAsync(failures, () => FileActivity.DisposeAsync().AsTask()).ConfigureAwait(false);
 		await DisposeStepAsync(failures, () => FileOpener.DisposeAsync().AsTask()).ConfigureAwait(false);
 		await DisposeStepAsync(failures, () => Lsp.DisposeAsync().AsTask()).ConfigureAwait(false);

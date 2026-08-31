@@ -26,6 +26,9 @@ public static class CoreCommands {
 	/// <summary>Focuses the omnibar in file-search ("Go to File") mode.</summary>
 	public const string FocusOmnibarFiles = "weavie.omnibar.focusFiles";
 
+	/// <summary>Focuses the omnibar seeded with the worktree path, to open a file by typing its path.</summary>
+	public const string OpenFileByPath = "weavie.omnibar.openPath";
+
 	/// <summary>Focuses the omnibar in command-palette mode.</summary>
 	public const string FocusOmnibarCommands = "weavie.omnibar.focusCommands";
 
@@ -35,7 +38,7 @@ public static class CoreCommands {
 	/// <summary>Focuses the omnibar in workspace-symbol ("Go to Symbol in Workspace", #) mode.</summary>
 	public const string GoToWorkspaceSymbol = "weavie.omnibar.goToWorkspaceSymbol";
 
-	/// <summary>Opens the project-wide content-search ("find in files") panel, seeded from the editor selection.</summary>
+	/// <summary>Opens the project-wide content-search ("find in files") panel, seeded from the highlighted text.</summary>
 	public const string FindInFiles = "weavie.search.findInFiles";
 
 	/// <summary>Toggles the search panel's Match Case option; bound to <c>alt+c</c> while the panel is focused.</summary>
@@ -444,6 +447,18 @@ public static class CoreCommands {
 			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+p" }],
 		});
 
+		// Open-by-path is reachable by typing a path shape (/, ~/, ../, C:\) into the omnibar; registered as a
+		// command for palette discovery + Claude. No default chord — the shape entry already covers the keyboard
+		// path, and this only seeds the input with the worktree root so Backspace walks to a sibling.
+		registry.Register(new CommandDefinition {
+			Id = OpenFileByPath,
+			Title = "Open File by Path…",
+			RunsIn = CommandLocation.Web,
+			Category = "Navigation",
+			Description = "Focus the omnibar to open a file by typing its path, including outside this worktree.",
+			Aliases = ["open path", "open by path", "open absolute path", "open external file", "open file outside repo"],
+		});
+
 		registry.Register(new CommandDefinition {
 			Id = FocusOmnibarCommands,
 			Title = "Show All Commands",
@@ -480,8 +495,9 @@ public static class CoreCommands {
 			Title = "Find in Files",
 			RunsIn = CommandLocation.Web,
 			Category = "Search",
-			Description = "Search the active session's workspace for text in file contents, seeded from the "
-				+ "editor selection. Supports match case / whole word / regex and include/exclude file globs; "
+			Description = "Search the active session's workspace for text in file contents, seeded from the text "
+				+ "highlighted anywhere (editor, agent transcript, or terminal). Supports match case / whole "
+				+ "word / regex and include/exclude file globs; "
 				+ "arrows preview each result, Enter jumps to it.",
 			Aliases = ["find in files", "search files", "search in files", "grep", "search project", "find text"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+f" }],

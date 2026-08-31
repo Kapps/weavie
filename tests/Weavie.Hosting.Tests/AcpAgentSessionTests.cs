@@ -716,15 +716,14 @@ public sealed class AcpAgentSessionTests {
 	}
 
 	[Fact]
-	public async Task NativeSession_RejectsAFilePlanOutsideTheWorkspace() {
+	public async Task NativeSession_ReadsAFilePlanOutsideTheWorkspace() {
 		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
 		await fixture.StartAsync();
 
 		fixture.Submit("external-file-plan-document");
-		var error = await fixture.WaitForMessageAsync(message => message.Type == "error");
+		var plan = await fixture.WaitForMessageAsync(message => message.ItemId == "plan:external-file-plan");
 
-		Assert.Contains("outside", error.Text, StringComparison.OrdinalIgnoreCase);
-		Assert.DoesNotContain(fixture.Messages, message => message.ItemId == "plan:external-file-plan");
+		Assert.Equal("# Outside plan", plan.Text);
 	}
 
 	[Fact]

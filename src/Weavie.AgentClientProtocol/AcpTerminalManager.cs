@@ -2,22 +2,19 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
-using Weavie.Core.Editor;
 using Weavie.Core.Processes;
 
 namespace Weavie.AgentClientProtocol;
 
 internal sealed class AcpTerminalManager : IAsyncDisposable {
 	private readonly string _workspace;
-	private readonly WorkspaceFileScope _scope;
 	private readonly Action<string> _log;
 	private readonly ConcurrentDictionary<string, OwnedTerminal> _terminals = new(StringComparer.Ordinal);
 	private readonly ConcurrentDictionary<string, AcpTerminalOutput> _released = new(StringComparer.Ordinal);
 	private long _nextId;
 
-	public AcpTerminalManager(string workspace, WorkspaceFileScope scope, Action<string> log) {
+	public AcpTerminalManager(string workspace, Action<string> log) {
 		_workspace = workspace;
-		_scope = scope;
 		_log = log;
 	}
 
@@ -32,11 +29,7 @@ internal sealed class AcpTerminalManager : IAsyncDisposable {
 				? requestedCwd
 				: throw new AcpProtocolException("ACP terminal cwd must be a string.")
 			: _workspace;
-		try {
-			cwd = _scope.ResolvePhysicalPath(cwd, allowMissingLeaf: false);
-		} catch (Exception ex) when (ex is UnauthorizedAccessException or IOException) {
-			throw new UnauthorizedAccessException($"ACP terminal cwd is outside the workspace: {cwd}");
-		}
+		cwd = Path.GetFullPath(cwd, _workspace);
 		if (!Directory.Exists(cwd)) throw new DirectoryNotFoundException($"ACP terminal cwd does not exist: {cwd}");
 		string[] arguments = parameters.TryGetProperty("args", out var args)
 			? args.ValueKind == JsonValueKind.Array

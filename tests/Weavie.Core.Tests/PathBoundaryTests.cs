@@ -4,10 +4,10 @@ using Xunit;
 namespace Weavie.Core.Tests;
 
 /// <summary>
-/// The one path-containment primitive behind every confinement guard (workspace, scratch, worktrees, themes,
-/// the file browser). The adversarial cases (traversal, sibling prefix, UNC) are covered via
-/// <see cref="IsWithinWorkspaceTests"/>; these pin the bits unique to the primitive: the root-inclusive
-/// boundary and the case-sensitivity overload.
+/// The one path-containment primitive behind every "untrusted path → privileged operation" boundary that
+/// remains: archive extraction, worktree removal, theme includes, and the OSC 7 terminal cwd. These pin it
+/// against the escape classes an attacker would actually try, since a regression here silently re-opens those
+/// boundaries. Pure path math (no filesystem), so they isolate containment from any existence check.
 /// </summary>
 public sealed class PathBoundaryTests {
 	private static string Root => Path.Combine(Path.GetTempPath(), "weavie-pb");
@@ -31,6 +31,18 @@ public sealed class PathBoundaryTests {
 		Assert.False(PathBoundary.Contains(Root, upper, StringComparison.Ordinal));
 		Assert.True(PathBoundary.Contains(Root, Path.Combine(Root, "x"), StringComparison.Ordinal));
 	}
+
+	[Fact]
+	public void Contains_TraversalEscapingTheRoot_IsRejected() =>
+		Assert.False(PathBoundary.Contains(Root, Path.Combine(Root, "..", "evil", "a.cs")));
+
+	[Fact]
+	public void Contains_AbsolutePathOutsideTheRoot_IsRejected() =>
+		Assert.False(PathBoundary.Contains(Root, Path.Combine(Path.GetTempPath(), "weavie-elsewhere", "a.cs")));
+
+	[Fact]
+	public void Contains_UncPath_IsRejectedAgainstALocalRoot() =>
+		Assert.False(PathBoundary.Contains(Root, @"\\attacker\share\evil.exe"));
 
 	[Fact]
 	public void Contains_EmptyInputs_AreNotContained() {

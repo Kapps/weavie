@@ -45,7 +45,7 @@ public sealed class WorkspaceMediaServerTests {
 	}
 
 	[Fact]
-	public async Task RequiresTheServerTokenAndHidesEveryOutOfScopePathAsNotFound() {
+	public async Task RequiresTheServerTokenAndServesOnlyPassiveMediaForALoadedSession() {
 		await using var host = await TestHost.StartAsync();
 		string inside = Path.Combine(host.RepoRoot, "pixel.png");
 		string html = Path.Combine(host.RepoRoot, "page.html");
@@ -58,13 +58,10 @@ public sealed class WorkspaceMediaServerTests {
 		using var unauthorized = await Http.GetAsync(noToken);
 		Assert.Equal(HttpStatusCode.Unauthorized, unauthorized.StatusCode);
 
+		// Media outside the worktree streams like any other file — the editor can open it, so the pane shows it.
 		string outside = Path.Combine(Path.GetDirectoryName(host.RepoRoot)!, "outside.png");
 		await File.WriteAllBytesAsync(outside, [4, 5, 6]);
 		using var direct = await Http.GetAsync(MediaUrl(host, host.WorkspaceIncarnation, outside));
-		using var traversal = await Http.GetAsync(MediaUrl(
-			host,
-			host.WorkspaceIncarnation,
-			Path.Combine(host.RepoRoot, "..", Path.GetFileName(outside))));
 		using var wrongSession = await Http.GetAsync(MediaUrl(host, "not-loaded", inside));
 		using var wrongFileName = await Http.GetAsync(
 			MediaUrl(host, host.WorkspaceIncarnation, inside).Replace("/pixel.png?", "/other.png?", StringComparison.Ordinal));
@@ -74,35 +71,17 @@ public sealed class WorkspaceMediaServerTests {
 			+ $"&session={Uri.EscapeDataString(host.WorkspaceIncarnation)}&path=%00";
 		using var malformedPath = await Http.GetAsync(malformed);
 
-		Assert.Equal(HttpStatusCode.NotFound, direct.StatusCode);
-		Assert.Equal(HttpStatusCode.NotFound, traversal.StatusCode);
+		Assert.Equal(HttpStatusCode.OK, direct.StatusCode);
 		Assert.Equal(HttpStatusCode.NotFound, wrongSession.StatusCode);
 		Assert.Equal(HttpStatusCode.NotFound, wrongFileName.StatusCode);
 		Assert.Equal(HttpStatusCode.NotFound, activeHtml.StatusCode);
 		Assert.Equal(HttpStatusCode.NotFound, activeSvg.StatusCode);
 		Assert.Equal(HttpStatusCode.NotFound, malformedPath.StatusCode);
+		// Not a path rule: a file carrying no passive-media content type is never streamed, wherever it lives.
 		if (File.Exists("/etc/passwd")) {
 			using var systemFile = await Http.GetAsync(MediaUrl(host, host.WorkspaceIncarnation, "/etc/passwd"));
 			Assert.Equal(HttpStatusCode.NotFound, systemFile.StatusCode);
 		}
-	}
-
-	[Fact]
-	public async Task ExposesOnlyTheExactSessionsScratchAndPastedImageRoots() {
-		await using var host = await TestHost.StartAsync();
-		var session = host.SelectedSession;
-		string scratch = Path.Combine(session.Scratch.Directory, "generated.png");
-		string pasted = Path.Combine(session.PastedImages.Directory, "paste-1.png");
-		Directory.CreateDirectory(session.Scratch.Directory);
-		Directory.CreateDirectory(session.PastedImages.Directory);
-		await File.WriteAllBytesAsync(scratch, [7, 8]);
-		await File.WriteAllBytesAsync(pasted, [9, 10]);
-
-		using var scratchResponse = await Http.GetAsync(MediaUrl(host, session.Incarnation, scratch));
-		using var pastedResponse = await Http.GetAsync(MediaUrl(host, session.Incarnation, pasted));
-
-		Assert.Equal(HttpStatusCode.OK, scratchResponse.StatusCode);
-		Assert.Equal(HttpStatusCode.OK, pastedResponse.StatusCode);
 	}
 
 	[Fact]

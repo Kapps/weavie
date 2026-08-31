@@ -492,9 +492,7 @@ public sealed partial class HostCore {
 			}
 
 			WireSession(session);
-			_mediaRoutes.Register(
-				session.Incarnation,
-				[session.WorkspaceRoot, session.Scratch.Directory, session.PastedImages.Directory]);
+			_mediaRoutes.Register(session.Incarnation);
 			return session;
 		} catch (Exception creationError) {
 			try {
@@ -1339,21 +1337,31 @@ public sealed partial class HostCore {
 		string? baseSpec,
 		CancellationToken ct) {
 		var git = new GitService();
-		if (string.IsNullOrWhiteSpace(baseSpec)
-			|| string.Equals(baseSpec, "source", StringComparison.OrdinalIgnoreCase)) {
+		if (string.Equals(baseSpec, "source", StringComparison.OrdinalIgnoreCase)) {
 			if (source is null) {
-				throw new InvalidOperationException("Pick a source session or branch from main.");
+				throw new InvalidOperationException("There is no source session to branch from.");
 			}
 
 			return await git.GetHeadCommitAsync(source.WorktreePath, ct).ConfigureAwait(false);
 		}
 
-		if (string.Equals(baseSpec, "main", StringComparison.OrdinalIgnoreCase)) {
-			return await git.ResolveDefaultBranchAsync(WorkspaceRoot, ct).ConfigureAwait(false)
-				?? await git.GetHeadCommitAsync(WorkspaceRoot, ct).ConfigureAwait(false);
+		if (string.IsNullOrWhiteSpace(baseSpec)
+			|| string.Equals(baseSpec, "main", StringComparison.OrdinalIgnoreCase)) {
+			// origin's tip, read from FETCH_HEAD: the local ref is only as new as the last pull, and a
+			// single-branch clone's refspec never writes origin/<branch>.
+			string branch = await git.ResolveDefaultBranchAsync(WorkspaceRoot, ct).ConfigureAwait(false)
+				?? throw new InvalidOperationException("This repository has no default branch.");
+			if (await git.GetRemoteUrlAsync(WorkspaceRoot, "origin", ct).ConfigureAwait(false) is null) {
+				return branch;
+			}
+
+			await git.FetchAsync(WorkspaceRoot, "origin", branch, ct).ConfigureAwait(false);
+			return await git.ResolveCommitAsync(WorkspaceRoot, "FETCH_HEAD", ct).ConfigureAwait(false)
+				?? throw new InvalidOperationException($"origin has no '{branch}'.");
 		}
 
 		throw new InvalidOperationException($"Unknown session base '{baseSpec}'.");
 	}
+
 
 }

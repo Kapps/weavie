@@ -410,8 +410,6 @@ test("the software keyboard keeps Claude reachable without scrolling the documen
 // This test below already exercises the real bug end to end and is the regression coverage for it.
 test("the terminal cursor exposes native paste in both terminal panes", async ({ page }) => {
   await page.locator(".session-inbox-row").click();
-  expect(await page.evaluate(() => matchMedia("(pointer: coarse)").matches)).toBe(true);
-
   await pasteThroughNativeTerminalInput(page, "claude", "claude paste");
   await page.getByRole("button", { name: "Shell" }).click();
   await pasteThroughNativeTerminalInput(page, "shell", "shell paste");

@@ -2,7 +2,6 @@ using System.Collections.Concurrent;
 using System.Text;
 using System.Text.Json;
 using Weavie.Core.Agents;
-using Weavie.Core.Editor;
 using Weavie.Core.Sessions;
 
 namespace Weavie.AgentClientProtocol;
@@ -15,7 +14,6 @@ public sealed partial class AcpAgentSession : IStructuredAgentSession, IStructur
 	private readonly AcpControlStore _controlDefaults;
 	private readonly Action<string> _log;
 	private readonly AcpJsonRpcConnection _connection;
-	private readonly WorkspaceFileScope _fileScope;
 	private readonly AcpTerminalManager _terminals;
 	private readonly Lock _gate = new();
 	private readonly Lock _submissionDispatchGate = new();
@@ -87,8 +85,7 @@ public sealed partial class AcpAgentSession : IStructuredAgentSession, IStructur
 		_sessions = sessions;
 		_controlDefaults = controlDefaults;
 		_log = log;
-		_fileScope = new WorkspaceFileScope([context.Workspace]);
-		_terminals = new AcpTerminalManager(context.Workspace, _fileScope, log);
+		_terminals = new AcpTerminalManager(context.Workspace, log);
 		_connection = new AcpJsonRpcConnection(definition, context.Workspace, log);
 		_connection.ProcessStarted += OnProcessStarted;
 		_connection.ProcessStateChanged += change => Observe(new AgentProcessChanged(change));

@@ -447,6 +447,10 @@
   font-weight: 600;
 }
 
+.footer-outside-repo {
+  color: var(--dim);
+}
+
 .footer-glyph {
   color: var(--accent);
 }

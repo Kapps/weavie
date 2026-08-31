@@ -866,14 +866,20 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 		});
 	}
 
-	private void ExternalFilePlanDocument() => Update(new JsonObject {
-		["sessionUpdate"] = "plan_update",
-		["plan"] = new JsonObject {
-			["type"] = "file",
-			["planId"] = "external-file-plan",
-			["uri"] = new Uri(Path.Combine(Environment.CurrentDirectory, "..", "outside-plan.md")).AbsoluteUri,
-		},
-	});
+	private void ExternalFilePlanDocument() {
+		string directory = Directory.CreateDirectory(
+			Path.Combine(Environment.CurrentDirectory, "..", $"{Path.GetFileName(Environment.CurrentDirectory)}-external")).FullName;
+		string path = Path.Combine(directory, "outside-plan.md");
+		File.WriteAllText(path, "# Outside plan");
+		Update(new JsonObject {
+			["sessionUpdate"] = "plan_update",
+			["plan"] = new JsonObject {
+				["type"] = "file",
+				["planId"] = "external-file-plan",
+				["uri"] = new Uri(path).AbsoluteUri,
+			},
+		});
+	}
 
 	private void RemovePlan(string planId) => Update(new JsonObject {
 		["sessionUpdate"] = "plan_removed",

@@ -45,7 +45,11 @@ import { gitStatus } from "./chrome/git-status-store";
 import { installMiddleClickAutoscroll } from "./chrome/middle-click-autoscroll";
 import { NativeTitleBar } from "./chrome/NativeTitleBar";
 import { OpenPrPrompt } from "./chrome/OpenPrPrompt";
-import { focusOmnibar, focusOmnibarFileSearch } from "./chrome/omnibar-controller";
+import {
+  focusOmnibar,
+  focusOmnibarFileSearch,
+  focusOmnibarPath,
+} from "./chrome/omnibar-controller";
 import { PaneFooter } from "./chrome/PaneFooter";
 import type { PopoverAnchor } from "./chrome/popover-position";
 import { pullRequestStatus } from "./chrome/pull-request-store";
@@ -104,6 +108,7 @@ import {
   registerCommand,
   runCommandWithFeedback,
 } from "./commands/registry";
+import { selectedText, trackDocumentSelection } from "./commands/selection";
 import { CommandIds, type CommandResult } from "./commands/types";
 import { BlamePopover } from "./editor/BlamePopover";
 import { blameTarget } from "./editor/blame-store";
@@ -156,6 +161,7 @@ import { paneOrder } from "./layout/geometry";
 import { LayoutView } from "./layout/LayoutView";
 import { DEFAULT_LAYOUT_ROOT, layoutDocument, sendLayout } from "./layout/store";
 import type { LayoutNode } from "./layout/types";
+import { requireSessionAddress } from "./messaging/message-envelope";
 import type { MobileSurface, MobileSwipeDirection } from "./mobile/MobileSurfaceBar";
 import { MobileWorkspace } from "./mobile/MobileWorkspace";
 import { createMobileBackSwipe } from "./mobile/mobile-back-swipe";
@@ -165,7 +171,7 @@ import { useCompactMode } from "./mobile/useCompactMode";
 // Session-attention intake (sounds + OS notifications): module-load side effect, like the session store.
 import "./notifications/attention";
 import "./notifications/intake";
-import { requireSessionAddress } from "./messaging/message-envelope";
+import "./notifications/startup-tip";
 import { setNotifySink } from "./notify/notify";
 import { Suggestions } from "./notify/Suggestions";
 import { createToasts, Toasts } from "./notify/Toasts";
@@ -1592,12 +1598,13 @@ export default function App(): JSX.Element {
       ),
       registerCommand(CommandIds.focusOmnibarFiles, () => focusOmnibar("file")),
       registerCommand(CommandIds.focusOmnibarCommands, () => focusOmnibar("command")),
+      registerCommand(CommandIds.openFileByPath, () => focusOmnibarPath(indexRoot() ?? "")),
       registerCommand(CommandIds.goToSymbol, () => focusOmnibar("docSymbol")),
       registerCommand(CommandIds.goToWorkspaceSymbol, () => focusOmnibar("wsSymbol")),
-      // Find in Files (Ctrl+Shift+F / palette): open the content-search panel seeded from the editor selection
-      // (re-invoking while open re-seeds + refocuses the input).
+      // Find in Files (Ctrl+Shift+F / palette): open the content-search panel seeded from whatever the user
+      // has highlighted — editor, agent transcript, or terminal (re-invoking while open re-seeds + refocuses).
       registerCommand(CommandIds.findInFiles, () => {
-        seedSearch(editor.selectionText());
+        seedSearch(selectedText());
         setSearchOpen(true);
       }),
       // The panel's option toggles (searchPanelFocused-gated chords; visible-panel-gated here so a palette run
@@ -1892,6 +1899,9 @@ export default function App(): JSX.Element {
     };
     document.addEventListener("focusin", onFocusIn);
     document.addEventListener("focusout", onFocusOut);
+    // Plain DOM highlights (agent transcript, panels) as a search-seed source; Monaco and each xterm register
+    // their own, since their selections never reach the document.
+    const offDocumentSelection = trackDocumentSelection();
 
     onCleanup(() => {
       for (const timer of persistTimers.values()) {
@@ -1906,6 +1916,7 @@ export default function App(): JSX.Element {
       }
       document.removeEventListener("focusin", onFocusIn);
       document.removeEventListener("focusout", onFocusOut);
+      offDocumentSelection();
       offSourceErrors();
       offViewBinding();
       editor.dispose();

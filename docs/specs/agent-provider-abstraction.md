@@ -338,7 +338,7 @@ surface.
 | Hooks | All configured events, additive user-hook behavior, relay discovery, pipe isolation, fail-open relay behavior, and decisions are preserved. |
 | Permissions | The then-current allow-all setting, user deny precedence, edit-vs-tool axes, pass-through prompts, and NeedsInput recovery are preserved. |
 | Edit mode | Plan/default/accept-edits observation, auto-keep, pending-diff dismissal, and review gating are preserved. |
-| Changes | Pre-edit baseline, post-edit disk observation, multi-edit behavior, scratch/workspace confinement, per-turn reset, and edit locations are preserved. |
+| Changes | Pre-edit baseline, post-edit disk observation, multi-edit behavior, scratch/workspace review scoping, per-turn reset, and edit locations are preserved. |
 | Review | Blocking background openDiff, switch-in replay, keep/reject, undo/redo, per-file/turn actions, and session isolation are preserved. |
 | Status | Starting, Working, NeedsInput, Waiting, Idle, Error, notification classification, and rail updates are preserved. |
 | Sessions | Workspace/worktree creation, prompt seeding, load/unload/delete, restore, dormant sessions, commands, and per-session endpoints are preserved. |

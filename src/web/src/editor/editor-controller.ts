@@ -195,8 +195,6 @@ export interface EditorController {
   openSourceTab(target: string): void;
   /** Focuses the editor (for focus-pane). */
   focusEditor(): void;
-  /** The editor's current selection text for seeding a search: non-empty and single-line, else null. */
-  selectionText(): string | null;
   /**
    * Opens a find-in-files hit in the preview tab, landing the cursor at line:column. `focus: false` reveals
    * without stealing focus — the panel's live preview while arrowing through results.
@@ -1483,24 +1481,15 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   interface ScratchSaveResult {
     scratchPath: string;
     savedPath: string;
-    reopen: boolean;
   }
 
   const applyScratchSave = (session: ClientSession, result: ScratchSaveResult): void => {
     if (result.savedPath === "") {
       return;
     }
-    if (result.reopen) {
-      const activation = convertScratchFor(session, result.scratchPath, result.savedPath);
-      if (activation !== null) {
-        void applyActive(session, activation);
-      }
-    } else {
-      const wasActive = activePathFor(session) === result.scratchPath;
-      const closed = closeTabFor(session, result.scratchPath);
-      if (closed !== null && wasActive) {
-        applyOrClear(session, closed.next);
-      }
+    const activation = convertScratchFor(session, result.scratchPath, result.savedPath);
+    if (activation !== null) {
+      void applyActive(session, activation);
     }
     host?.closeFile(session, result.scratchPath, true);
   };
@@ -1606,19 +1595,6 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
           }),
         );
       });
-    },
-    selectionText: () => {
-      const selection = host?.editor.getSelection();
-      const model = host?.editor.getModel();
-      if (
-        selection == null ||
-        model == null ||
-        selection.isEmpty() ||
-        selection.startLineNumber !== selection.endLineNumber
-      ) {
-        return null;
-      }
-      return model.getValueInRange(selection);
     },
     openMatch: (path, line, column, focus) => {
       const session = selectedSession();

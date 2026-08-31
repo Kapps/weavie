@@ -81,8 +81,8 @@ public static class SessionCommands {
 			Title = "New Session",
 			RunsIn = CommandLocation.Core,
 			Category = "Session",
-			Description = "Create a new session on its own git worktree + branch. 'branch' is required. 'base' is 'source' (the invoking session's HEAD; the "
-				+ "default) or 'main'. Set 'existing' true to instead check out an existing branch named by 'branch' "
+			Description = "Create a new session on its own git worktree + branch. 'branch' is required. 'base' is 'main' (the repository's "
+				+ "default branch; the default) or 'source' (the invoking session's HEAD). Set 'existing' true to instead check out an existing branch named by 'branch' "
 				+ "(no new branch; 'base' is ignored), switching to that session if one already exists. An optional "
 				+ "'prompt' and optional image 'attachments' are sent as the new session's first input. "
 				+ "'agentProviderId' is any provider advertised by the current host; "

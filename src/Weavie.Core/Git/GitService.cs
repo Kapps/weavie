@@ -640,6 +640,7 @@ public sealed partial class GitService : IGitService {
 			StandardErrorEncoding = Encoding.UTF8,
 		};
 		info.Environment["LC_ALL"] = "C";
+		info.Environment["GIT_TERMINAL_PROMPT"] = "0"; // Weavie owns no terminal to answer a prompt on.
 		foreach (string arg in args) {
 			info.ArgumentList.Add(arg);
 		}

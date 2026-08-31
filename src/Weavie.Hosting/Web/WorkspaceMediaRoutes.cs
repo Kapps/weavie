@@ -1,18 +1,17 @@
 using System.Collections.Concurrent;
 using Microsoft.AspNetCore.StaticFiles;
-using Weavie.Core.Editor;
 
 namespace Weavie.Hosting.Web;
 
 /// <summary>Thread-safe, exact-session routing for streamed workspace media.</summary>
 public sealed class WorkspaceMediaRoutes {
 	private static readonly FileExtensionContentTypeProvider ContentTypes = new();
-	private readonly ConcurrentDictionary<string, WorkspaceFileScope> _sessions = new(StringComparer.Ordinal);
+	private readonly ConcurrentDictionary<string, byte> _sessions = new(StringComparer.Ordinal);
 
-	/// <summary>Registers the exact file roots exposed by a loaded session.</summary>
-	public void Register(string sessionId, IEnumerable<string> roots) {
+	/// <summary>Opens media serving for a loaded session.</summary>
+	public void Register(string sessionId) {
 		ArgumentException.ThrowIfNullOrEmpty(sessionId);
-		if (!_sessions.TryAdd(sessionId, new WorkspaceFileScope(roots))) {
+		if (!_sessions.TryAdd(sessionId, 0)) {
 			throw new InvalidOperationException($"Media route '{sessionId}' is already registered.");
 		}
 	}
@@ -20,18 +19,14 @@ public sealed class WorkspaceMediaRoutes {
 	/// <summary>Rejects new media requests for an unloaded session.</summary>
 	public void Unregister(string sessionId) => _sessions.TryRemove(sessionId, out _);
 
-	/// <summary>Opens a confined file for asynchronous range streaming, or returns null without revealing why.</summary>
+	/// <summary>Opens a file for asynchronous range streaming, or returns null without revealing why.</summary>
 	public MediaResource? Open(string sessionId, string path) {
-		if (!_sessions.TryGetValue(sessionId, out var scope)) {
+		if (!_sessions.ContainsKey(sessionId)) {
 			return null;
 		}
 
 		FileStream? stream = null;
 		try {
-			if (!scope.Contains(path)) {
-				return null;
-			}
-
 			string fullPath = Path.GetFullPath(path);
 			if (!ContentTypes.TryGetContentType(fullPath, out string? contentType)
 				|| !IsPassiveMedia(contentType)) {

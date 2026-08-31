@@ -322,8 +322,11 @@ public sealed partial class SessionChangeTracker {
 	/// <param name="currentRange">The hunk's range in the current file (1-based, end-exclusive).</param>
 	/// <param name="guardText">The exact current text of <paramref name="currentRange"/> as the web sees it.</param>
 	public RevertHunkOutcome RevertHunk(string path, LineRange baselineRange, LineRange currentRange, string guardText) {
-		path = NormalizePath(path);
 		ArgumentNullException.ThrowIfNull(guardText);
+		if (!TryScope(path, out path)) {
+			return RevertHunkOutcome.GuardMismatch;
+		}
+
 		List<CorrectionEdit> edits;
 		RevertHunkOutcome outcome;
 		lock (_gate) {
@@ -362,7 +365,10 @@ public sealed partial class SessionChangeTracker {
 	/// </summary>
 	/// <param name="path">Absolute file path.</param>
 	public RevertHunkOutcome RevertFile(string path) {
-		path = NormalizePath(path);
+		if (!TryScope(path, out path)) {
+			return RevertHunkOutcome.GuardMismatch;
+		}
+
 		List<CorrectionEdit> edits;
 		RevertHunkOutcome outcome;
 		lock (_gate) {
@@ -456,8 +462,11 @@ public sealed partial class SessionChangeTracker {
 	/// <param name="currentRange">The hunk's range in the current file (1-based, end-exclusive).</param>
 	/// <param name="guardText">The exact current text of <paramref name="currentRange"/> as the web sees it.</param>
 	public bool KeepHunk(string path, LineRange baselineRange, LineRange currentRange, string guardText) {
-		path = NormalizePath(path);
 		ArgumentNullException.ThrowIfNull(guardText);
+		if (!TryScope(path, out path)) {
+			return false;
+		}
+
 		lock (_gate) {
 			// currentRange + guardText are in the live-model (== disk) space the web diffed, so guard and take the
 			// kept lines straight from disk — never remap through _current, which omits the user's non-agent edits.
@@ -490,7 +499,10 @@ public sealed partial class SessionChangeTracker {
 	/// </summary>
 	/// <param name="path">Absolute file path.</param>
 	public void KeepFile(string path) {
-		path = NormalizePath(path);
+		if (!TryScope(path, out path)) {
+			return;
+		}
+
 		lock (_gate) {
 			if (!_current.ContainsKey(path)) {
 				return;
@@ -523,9 +535,12 @@ public sealed partial class SessionChangeTracker {
 	/// <param name="acceptedGuardText">The exact accepted-anchor text of <paramref name="acceptedRange"/> as the web sees it.</param>
 	/// <param name="guardText">The exact review-baseline text of <paramref name="reviewRange"/> as the web sees it.</param>
 	public bool UnkeepHunk(string path, LineRange acceptedRange, LineRange reviewRange, string acceptedGuardText, string guardText) {
-		path = NormalizePath(path);
 		ArgumentNullException.ThrowIfNull(acceptedGuardText);
 		ArgumentNullException.ThrowIfNull(guardText);
+		if (!TryScope(path, out path)) {
+			return false;
+		}
+
 		lock (_gate) {
 			string reviewRaw = _reviewBaseline.GetValueOrDefault(path, string.Empty);
 			var reviewLines = SplitLines(reviewRaw);
@@ -815,6 +830,14 @@ public sealed partial class SessionChangeTracker {
 	// workspace root when the event carries none — so a model-supplied partial path still lands on a real file.
 	private string Resolve(string path, string? cwd) =>
 		NormalizePath(Path.IsPathRooted(path) ? path : Path.GetFullPath(path, string.IsNullOrEmpty(cwd) ? _workspaceRoot : cwd));
+
+	// Every path-taking review action enters here. The guard text of a hunk revert is checked against disk, not
+	// against the review baseline, so an out-of-scope path with a matching guard would splice a file review never
+	// tracked — the scope predicate is enforced here rather than at each caller.
+	private bool TryScope(string path, out string normalized) {
+		normalized = NormalizePath(path);
+		return _isInScope(normalized);
+	}
 
 	private static string NormalizePath(string path) {
 		ArgumentException.ThrowIfNullOrEmpty(path);

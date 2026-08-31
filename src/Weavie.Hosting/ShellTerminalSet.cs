@@ -5,8 +5,7 @@ using Weavie.Hosting.Messaging;
 
 namespace Weavie.Hosting;
 
-/// <summary>An ordered, session-owned set of independently supervised shell terminal tabs.</summary>
-public sealed class ShellTerminalSet : IDisposable {
+internal sealed class ShellTerminalSet : IDisposable {
 	private readonly SessionMessageBus _bus;
 	private readonly MessageFeatureChannel _catalog;
 	private readonly SettingsStore _settings;
@@ -24,7 +23,7 @@ public sealed class ShellTerminalSet : IDisposable {
 		SettingsStore settings,
 		IPtyLauncher launcher,
 		string workspace,
-		IReadOnlyList<ShellTerminalDescriptor> descriptors,
+		IReadOnlyList<string> ids,
 		Func<string, string> scrollbackPath,
 		Action<bool, Action> acceptInput,
 		Action<int, int> resized) {
@@ -32,7 +31,7 @@ public sealed class ShellTerminalSet : IDisposable {
 		ArgumentNullException.ThrowIfNull(settings);
 		ArgumentNullException.ThrowIfNull(launcher);
 		ArgumentException.ThrowIfNullOrEmpty(workspace);
-		ArgumentNullException.ThrowIfNull(descriptors);
+		ArgumentNullException.ThrowIfNull(ids);
 		ArgumentNullException.ThrowIfNull(scrollbackPath);
 		ArgumentNullException.ThrowIfNull(acceptInput);
 		ArgumentNullException.ThrowIfNull(resized);
@@ -44,45 +43,37 @@ public sealed class ShellTerminalSet : IDisposable {
 		_scrollbackPath = scrollbackPath;
 		_acceptInput = acceptInput;
 		_resized = resized;
-		var ids = new HashSet<string>(StringComparer.Ordinal);
-		foreach (var descriptor in descriptors) {
-			if (descriptor is null || !ShellTerminalDescriptor.IsValidId(descriptor.Id) || !ids.Add(descriptor.Id)) {
-				throw new ArgumentException("Shell terminal IDs must be path-safe lowercase GUIDs and unique.", nameof(descriptors));
+		var unique = new HashSet<string>(StringComparer.Ordinal);
+		foreach (string id in ids) {
+			if (!ShellTerminalId.IsValid(id) || !unique.Add(id)) {
+				throw new ArgumentException("Shell terminal IDs must be path-safe lowercase GUIDs and unique.", nameof(ids));
 			}
-			_items.Add(Build(bus, descriptor));
+			_items.Add(Build(id));
 		}
-		PublishCatalog();
+		PublishCatalog(_catalog, SnapshotIds());
 	}
 
-	/// <summary>The ordered terminal tabs.</summary>
-	public IReadOnlyList<ShellTerminal> Items {
-		get {
-			lock (_gate) return [.. _items];
-		}
-	}
+	internal IReadOnlyList<ShellTerminal> Items => Snapshot();
 
-	/// <summary>The deterministic terminal used by non-view automation, or null when the shell pane is empty.</summary>
-	public ShellTerminal? Primary {
+	internal ShellTerminal? Primary {
 		get {
 			lock (_gate) return _items.FirstOrDefault();
 		}
 	}
 
-	/// <summary>Whether any terminal tab owns a foreground job.</summary>
-	public bool HasForegroundJob {
+	internal bool HasForegroundJob {
 		get {
 			lock (_gate) return _items.Any(item => item.Controller.HasForegroundJob);
 		}
 	}
 
-	internal event Action<IReadOnlyList<ShellTerminalDescriptor>>? Changed;
+	internal event Action<IReadOnlyList<string>>? Changed;
 
-	/// <summary>Creates, starts, and announces one new shell terminal tab.</summary>
-	public ShellTerminal Create() {
+	internal ShellTerminal Create() {
 		ShellTerminal terminal;
 		lock (_gate) {
 			ObjectDisposedException.ThrowIf(_disposed, this);
-			terminal = Build(_bus, ShellTerminalDescriptor.New());
+			terminal = Build(ShellTerminalId.New());
 			_items.Add(terminal);
 		}
 		PublishChanged();
@@ -90,19 +81,24 @@ public sealed class ShellTerminalSet : IDisposable {
 		return terminal;
 	}
 
-	/// <summary>Looks up an exact terminal id.</summary>
-	public ShellTerminal? Find(string id) {
-		ArgumentException.ThrowIfNullOrEmpty(id);
-		lock (_gate) return _items.FirstOrDefault(item => item.Id == id);
+	internal ShellTerminal? Resolve(string? id) {
+		lock (_gate) {
+			return id is null
+				? _items.FirstOrDefault()
+				: _items.FirstOrDefault(item => item.Id == id);
+		}
 	}
 
-	/// <summary>Removes one terminal unless it owns a foreground job and <paramref name="force"/> is false.</summary>
-	public ShellTerminalCloseResult DetachForClose(string id, bool force, out ShellTerminal? detached) {
-		ArgumentException.ThrowIfNullOrEmpty(id);
+	internal ShellTerminalCloseResult DetachForClose(
+		string? id,
+		bool force,
+		out ShellTerminal? detached) {
 		detached = null;
 		lock (_gate) {
 			ObjectDisposedException.ThrowIf(_disposed, this);
-			var found = _items.FirstOrDefault(item => item.Id == id);
+			var found = id is null
+				? _items.FirstOrDefault()
+				: _items.FirstOrDefault(item => item.Id == id);
 			if (found is null) {
 				return ShellTerminalCloseResult.NotFound;
 			}
@@ -117,42 +113,41 @@ public sealed class ShellTerminalSet : IDisposable {
 		return ShellTerminalCloseResult.Closed;
 	}
 
-	/// <summary>Starts every restored terminal without requiring a visible page.</summary>
-	public void EnsureStarted() {
-		foreach (var terminal in Items) {
+	internal void EnsureStarted() {
+		foreach (var terminal in Snapshot()) {
 			terminal.Controller.EnsureStarted();
 		}
 	}
 
-	/// <summary>Restarts every terminal so a changed shell setting takes effect.</summary>
-	public void Restart() {
-		foreach (var terminal in Items) {
+	internal void Restart() {
+		foreach (var terminal in Snapshot()) {
 			terminal.Controller.Restart();
 		}
 	}
 
 	internal void Resync(MessageTarget target) {
 		ArgumentNullException.ThrowIfNull(target);
-		ReplayCatalog(target.Feature("terminal.shell"));
-		foreach (var terminal in Items) {
+		var terminals = Snapshot();
+		PublishCatalog(target.Feature("terminal.shell"), [.. terminals.Select(terminal => terminal.Id)]);
+		foreach (var terminal in terminals) {
 			terminal.Controller.ResyncPane(target.Feature(FeatureName(terminal.Id)));
 		}
 	}
 
 	internal void SeedSize(int columns, int rows) {
-		foreach (var terminal in Items) {
+		foreach (var terminal in Snapshot()) {
 			terminal.Controller.Resize(columns, rows);
 		}
 	}
 
 	internal static string FeatureName(string id) => $"terminal.shell.{id}";
 
-	private ShellTerminal Build(SessionMessageBus bus, ShellTerminalDescriptor descriptor) {
-		var messages = bus.Feature(FeatureName(descriptor.Id));
-		string scrollbackPath = _scrollbackPath(descriptor.Id);
+	private ShellTerminal Build(string id) {
+		var messages = _bus.Feature(FeatureName(id));
+		string scrollbackPath = _scrollbackPath(id);
 		var controller = new TerminalController(
 			messages,
-			$"shell:{descriptor.Id}",
+			$"shell:{id}",
 			_settings,
 			_launcher,
 			new ShellTerminalProcess(_settings, _workspace),
@@ -161,25 +156,27 @@ public sealed class ShellTerminalSet : IDisposable {
 			ScrollbackLogPath = scrollbackPath,
 		};
 		return new ShellTerminal(
-			descriptor,
+			id,
 			controller,
 			TerminalMessageWiring.Wire(messages, controller, _acceptInput, _resized),
 			scrollbackPath);
 	}
 
-	private void PublishChanged() {
-		PublishCatalog();
-		Changed?.Invoke([.. Items.Select(item => item.Descriptor)]);
+	private ShellTerminal[] Snapshot() {
+		lock (_gate) return [.. _items];
 	}
 
-	private void PublishCatalog() => ReplayCatalog(_catalog);
+	private string[] SnapshotIds() => [.. Snapshot().Select(terminal => terminal.Id)];
 
-	private void ReplayCatalog(IMessageFeatureTarget target) =>
-		target.Publish("catalog", new {
-			terminals = Items.Select(item => new { id = item.Id }),
-		});
+	private void PublishChanged() {
+		string[] ids = SnapshotIds();
+		PublishCatalog(_catalog, ids);
+		Changed?.Invoke(ids);
+	}
 
-	/// <inheritdoc/>
+	private static void PublishCatalog(IMessageFeatureTarget target, IReadOnlyList<string> ids) =>
+		target.Publish("catalog", new { terminalIds = ids });
+
 	public void Dispose() {
 		ShellTerminal[] terminals;
 		lock (_gate) {
@@ -194,30 +191,24 @@ public sealed class ShellTerminalSet : IDisposable {
 	}
 }
 
-/// <summary>One shell tab's stable identity, supervised PTY, and exact message handlers.</summary>
-public sealed class ShellTerminal : IDisposable {
+internal sealed class ShellTerminal : IDisposable {
 	private IDisposable? _messages;
 	private readonly string _scrollbackPath;
 
 	internal ShellTerminal(
-		ShellTerminalDescriptor descriptor,
+		string id,
 		TerminalController controller,
 		IDisposable messages,
 		string scrollbackPath) {
-		Descriptor = descriptor;
+		Id = id;
 		Controller = controller;
 		_messages = messages;
 		_scrollbackPath = scrollbackPath;
 	}
 
-	/// <summary>The stable terminal descriptor.</summary>
-	public ShellTerminalDescriptor Descriptor { get; }
+	internal string Id { get; }
 
-	/// <summary>The stable terminal id.</summary>
-	public string Id => Descriptor.Id;
-
-	/// <summary>The terminal process controller.</summary>
-	public TerminalController Controller { get; }
+	internal TerminalController Controller { get; }
 
 	internal void DetachMessages() => Interlocked.Exchange(ref _messages, null)?.Dispose();
 
@@ -226,21 +217,14 @@ public sealed class ShellTerminal : IDisposable {
 		File.Delete(_scrollbackPath);
 	}
 
-	/// <inheritdoc/>
 	public void Dispose() {
 		DetachMessages();
 		Controller.Dispose();
 	}
 }
 
-/// <summary>The outcome of closing an exact shell terminal.</summary>
-public enum ShellTerminalCloseResult {
-	/// <summary>The terminal was removed.</summary>
+internal enum ShellTerminalCloseResult {
 	Closed,
-
-	/// <summary>No terminal has that id.</summary>
 	NotFound,
-
-	/// <summary>The terminal owns a foreground job and requires confirmation.</summary>
 	Busy,
 }

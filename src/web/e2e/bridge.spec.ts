@@ -1154,64 +1154,6 @@ test.describe("session-addressed WebSocket transport", () => {
     ).toHaveLength(1);
   });
 
-  test("shell tabs retain exact selection and cycle before sessions", async ({ page }) => {
-    const session = mockSession("main", "main", "claude");
-    session.shellTerminals = ["shell-a", "shell-b"];
-    host.setSessions([session]);
-    await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
-    await host.waitUntilConnected();
-    host.publishHost("commands", "catalog", {
-      commands: [
-        {
-          id: CommandIds.nextTerminalTab,
-          title: "Next Terminal",
-          runsIn: "web",
-          executionLane: CommandIds.nextTerminalTab,
-          scope: "session",
-          description: "Next terminal tab",
-          aliases: [],
-          showInPalette: true,
-          when: "focusedPane == 'terminal:shell'",
-          keys: ["ctrl+Tab"],
-        },
-        {
-          id: CommandIds.prevTerminalTab,
-          title: "Previous Terminal",
-          runsIn: "web",
-          executionLane: CommandIds.prevTerminalTab,
-          scope: "session",
-          description: "Previous terminal tab",
-          aliases: [],
-          showInPalette: true,
-          when: "focusedPane == 'terminal:shell'",
-          keys: ["ctrl+Shift+Tab"],
-        },
-      ],
-      keybindings: [
-        {
-          key: "ctrl+Tab",
-          command: CommandIds.nextTerminalTab,
-          when: "focusedPane == 'terminal:shell'",
-        },
-        {
-          key: "ctrl+Shift+Tab",
-          command: CommandIds.prevTerminalTab,
-          when: "focusedPane == 'terminal:shell'",
-        },
-      ],
-    });
-    const tabs = page.locator(".shell-tab");
-    await expect(tabs).toHaveCount(2);
-    await tabs.first().locator(".shell-tab-main").click();
-    await expect(tabs.first()).toHaveClass(/\bactive\b/);
-
-    await page.keyboard.press("Control+Tab");
-    await expect(tabs.nth(1)).toHaveClass(/\bactive\b/);
-
-    await page.keyboard.press("Control+Shift+Tab");
-    await expect(tabs.first()).toHaveClass(/\bactive\b/);
-  });
-
   test("an exact shell target activates its tab without stealing typing focus", async ({
     page,
   }) => {

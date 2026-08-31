@@ -63,7 +63,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 		string scratchDir,
 		string pastedImagesDir,
 		string authenticationTerminalLogPath,
-		IReadOnlyList<ShellTerminalDescriptor> shellTerminals,
+		IReadOnlyList<string> shellTerminals,
 		Func<string, string> shellScrollbackPath,
 		CommandRegistry commandRegistry,
 		KeybindingStore keybindings,
@@ -355,7 +355,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 	public AgentSessionHost Agent { get; }
 
 	/// <summary>The session's ordered shell terminal tabs.</summary>
-	public ShellTerminalSet Shells { get; }
+	internal ShellTerminalSet Shells { get; }
 
 	/// <summary>Resolves a clicked <c>file:line</c> and pushes its contents to the editor.</summary>
 	public FileOpener FileOpener { get; }

@@ -120,7 +120,7 @@ public sealed class HostSessionAgentImageTests : IDisposable {
 			Path.Combine(_dir, "scratch"),
 			Path.Combine(_dir, "pasted"),
 			Path.Combine(_dir, "agent-pane.json"),
-			[ShellTerminalDescriptor.New()],
+			[ShellTerminalId.New()],
 			id => Path.Combine(_dir, $"shell-{id}.json"),
 			commandRegistry,
 			new KeybindingStore(commandRegistry, Path.Combine(_dir, "keybindings.json"), enableWatcher: false),

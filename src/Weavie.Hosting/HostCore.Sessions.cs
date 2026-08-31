@@ -214,7 +214,7 @@ public sealed partial class HostCore {
 
 		string id = SessionId.New().Value;
 		string providerId = AvailableWorkspaceSessionProvider();
-		IReadOnlyList<ShellTerminalDescriptor> shellTerminals = [ShellTerminalDescriptor.New()];
+		IReadOnlyList<string> shellTerminals = [ShellTerminalId.New()];
 		var session = CreateSession(WorkspaceRoot, providerId, id, shellTerminals);
 		session.DisplayLabel = _workspaceSessionLabel;
 		var slot = new SessionSlot {
@@ -266,7 +266,7 @@ public sealed partial class HostCore {
 					AgentProviderId = agentProviderId,
 					Session = null,
 					EditorSession = EditorSession.Empty,
-					ShellTerminals = [ShellTerminalDescriptor.New()],
+					ShellTerminals = [ShellTerminalId.New()],
 				});
 			}
 
@@ -447,7 +447,7 @@ public sealed partial class HostCore {
 		string cwd,
 		string agentProviderId,
 		string slotId,
-		IReadOnlyList<ShellTerminalDescriptor> shellTerminals) {
+		IReadOnlyList<string> shellTerminals) {
 		var provider = _agentProviders.RequireAvailable(agentProviderId);
 		var address = new SessionAddress(slotId, Guid.NewGuid().ToString("n"));
 		var endpoint = _messages.OpenSession(address);
@@ -1176,7 +1176,7 @@ public sealed partial class HostCore {
 		_ui.Post(() => {
 			SessionSlot? slot = null;
 			try {
-				IReadOnlyList<ShellTerminalDescriptor> shellTerminals = [ShellTerminalDescriptor.New()];
+				IReadOnlyList<string> shellTerminals = [ShellTerminalId.New()];
 				slot = new SessionSlot {
 					Id = branch,
 					Label = branch,
@@ -1323,9 +1323,11 @@ public sealed partial class HostCore {
 			createdSession = true,
 		});
 
-	private static object LiveAddress(SessionSlot slot) {
-		var address = slot.Session?.Address
-			?? throw new InvalidOperationException("A dormant session has no live address.");
+	private static object LiveAddress(SessionSlot slot) => LiveAddress(
+		slot.Session ?? throw new InvalidOperationException("A dormant session has no live address."));
+
+	private static object LiveAddress(HostSession session) {
+		var address = session.Address;
 		return new {
 			slot = address.Slot,
 			incarnation = address.Incarnation,

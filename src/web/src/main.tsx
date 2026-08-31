@@ -10,6 +10,7 @@ import "./layout/layout.css";
 import "./agent/agent.css";
 import "./chrome/session-rail.css";
 import "./chrome/context-menu.css";
+import "./chrome/tabs.css";
 import "./editor/editor.css";
 import "./terminal/terminal.css";
 import "./editor/diff.css";

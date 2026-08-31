@@ -19,6 +19,7 @@ import {
   waitForClientSession,
 } from "../bridge";
 import { trackSessionCommand } from "../chrome/session-store";
+import { requireSessionAddress } from "../messaging/message-envelope";
 import { notify } from "../notify/notify";
 import { CommandIds, type CommandInfo, type CommandResult, type ResolvedKeybinding } from "./types";
 
@@ -83,6 +84,14 @@ export interface SessionActivation {
 export interface TerminalActivation {
   session: ClientSession;
   terminalId: string;
+}
+
+async function activationSession(
+  backendId: string,
+  data: { address?: unknown },
+  error: string,
+): Promise<ClientSession> {
+  return waitForClientSession(backendId, requireSessionAddress(data.address, error));
 }
 
 function currentCatalog(): CommandCatalog {
@@ -251,20 +260,11 @@ export async function applySessionActivation(
   if (data?.activateSession !== true) {
     return null;
   }
-  const address = data.address;
-  if (
-    address === undefined ||
-    typeof address.slot !== "string" ||
-    address.slot.length === 0 ||
-    typeof address.incarnation !== "string" ||
-    address.incarnation.length === 0
-  ) {
-    throw new Error("The command requested session activation without an exact live address.");
-  }
-  const session = await waitForClientSession(backendId, {
-    slot: address.slot,
-    incarnation: address.incarnation,
-  });
+  const session = await activationSession(
+    backendId,
+    data,
+    "The command requested session activation without an exact live address.",
+  );
   if (!commit(session)) {
     return null;
   }
@@ -292,22 +292,11 @@ export async function applyTerminalActivation(
   if (typeof data.terminalId !== "string" || data.terminalId.length === 0) {
     throw new Error("The command requested terminal activation without an exact terminal id.");
   }
-  const address = data.address;
-  if (
-    address === undefined ||
-    typeof address.slot !== "string" ||
-    address.slot.length === 0 ||
-    typeof address.incarnation !== "string" ||
-    address.incarnation.length === 0
-  ) {
-    throw new Error(
-      "The command requested terminal activation without an exact live session address.",
-    );
-  }
-  const session = await waitForClientSession(backendId, {
-    slot: address.slot,
-    incarnation: address.incarnation,
-  });
+  const session = await activationSession(
+    backendId,
+    data,
+    "The command requested terminal activation without an exact live session address.",
+  );
   const activation = { session, terminalId: data.terminalId };
   for (const handler of terminalActivationSubscribers) {
     handler(activation);

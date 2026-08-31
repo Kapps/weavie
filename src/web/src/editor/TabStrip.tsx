@@ -188,7 +188,7 @@ export function TabStrip(props: {
 
   return (
     <>
-      <div class="editor-tabs">
+      <div class="editor-tabs pane-tabs">
         {/* Scroll-left: the dedicated left edge, shown only when the tabs overflow. */}
         <Show when={overflow().left || overflow().right}>
           <button
@@ -203,11 +203,11 @@ export function TabStrip(props: {
             <ChevronLeft size={15} />
           </button>
         </Show>
-        <div class="editor-tabs-track" ref={track}>
+        <div class="editor-tabs-track pane-tabs-track" ref={track}>
           <For each={views()}>
             {(view) => (
               <div
-                class="editor-tab"
+                class="editor-tab pane-tab"
                 classList={{
                   active: active() === view.path,
                   preview: view.preview,
@@ -218,7 +218,7 @@ export function TabStrip(props: {
                 {/* data-middle-click claims the middle button (close) from the app's autoscroll. */}
                 <button
                   type="button"
-                  class="editor-tab-main"
+                  class="editor-tab-main pane-tab-main"
                   data-middle-click="close"
                   onClick={() => props.actions.activate(view.path)}
                   onDblClick={() => props.actions.promote(view.path)}
@@ -239,7 +239,9 @@ export function TabStrip(props: {
                   <Show when={view.kind === "plan"}>
                     <FileText size={13} class="editor-tab-icon" />
                   </Show>
-                  <span class="editor-tab-label">{tabLabel(view, props.session())}</span>
+                  <span class="editor-tab-label pane-tab-label">
+                    {tabLabel(view, props.session())}
+                  </span>
                   <Show when={view.dirty}>
                     <span class="editor-tab-dirty" role="img" aria-label="Unsaved changes">
                       *
@@ -248,7 +250,7 @@ export function TabStrip(props: {
                 </button>
                 <button
                   type="button"
-                  class="editor-tab-close"
+                  class="editor-tab-close pane-tab-close"
                   title={view.pinned ? "Unpin" : "Close"}
                   onClick={() => {
                     if (view.pinned) {

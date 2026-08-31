@@ -22,7 +22,7 @@ public sealed class SessionStoreTests {
 		Loaded = loaded,
 		AgentProviderId = "claude",
 		EditorSession = EditorSession.Empty,
-		ShellTerminals = [new ShellTerminalDescriptor { Id = new string(id[0], 32) }],
+		ShellTerminals = [new string(id[0], 32)],
 	};
 
 	[Fact]
@@ -40,7 +40,7 @@ public sealed class SessionStoreTests {
 		Assert.True(reloaded.Items.Single(i => i.Id.Value == "aaaa").Loaded);
 		Assert.False(reloaded.Items.Single(i => i.Id.Value == "bbbb").Loaded);
 		Assert.Equal("acp", reloaded.Items.Single(i => i.Id.Value == "bbbb").AgentProviderId);
-		Assert.Equal(TerminalA, Assert.Single(reloaded.Items.Single(i => i.Id.Value == "aaaa").ShellTerminals).Id);
+		Assert.Equal(TerminalA, Assert.Single(reloaded.Items.Single(i => i.Id.Value == "aaaa").ShellTerminals));
 		Assert.DoesNotContain("activeId", fs.ReadAllText(StorePath));
 	}
 
@@ -169,14 +169,14 @@ public sealed class SessionStoreTests {
 	}
 
 	[Theory]
-	[InlineData("{\"version\":4,\"sessions\":[{\"id\":\"a\",\"label\":\"a\",\"worktreePath\":\"/wt/a\",\"managedCheckout\":true,\"loaded\":false,\"editorSession\":{\"open\":[]},\"shellTerminals\":[\"one\"]}]}")]
-	[InlineData("{\"version\":4,\"sessions\":[{\"id\":\"a\",\"label\":\"a\",\"worktreePath\":\"/wt/a\",\"managedCheckout\":true,\"loaded\":false,\"agentProviderId\":\"claude\",\"shellTerminals\":[\"one\"]}]}")]
+	[InlineData("{\"version\":4,\"sessions\":[{\"id\":\"a\",\"label\":\"a\",\"worktreePath\":\"/wt/a\",\"managedCheckout\":true,\"loaded\":false,\"editorSession\":{\"open\":[]},\"shellTerminals\":[\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"]}]}")]
+	[InlineData("{\"version\":4,\"sessions\":[{\"id\":\"a\",\"label\":\"a\",\"worktreePath\":\"/wt/a\",\"managedCheckout\":true,\"loaded\":false,\"agentProviderId\":\"claude\",\"shellTerminals\":[\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"]}]}")]
 	[InlineData("{\"version\":4,\"shellCols\":200,\"shellRows\":50,\"sessions\":[null]}")]
-	[InlineData("{\"version\":4,\"sessions\":[{\"id\":\"a\",\"label\":\"a\",\"worktreePath\":\"/wt/a\",\"managedCheckout\":true,\"loaded\":false,\"agentProviderId\":\"claude\",\"editorSession\":{\"open\":null},\"shellTerminals\":[\"one\"]}]}")]
-	[InlineData("{\"version\":4,\"sessions\":[{\"id\":\"a\",\"label\":\"a\",\"worktreePath\":\"/wt/a\",\"managedCheckout\":true,\"loaded\":false,\"agentProviderId\":\"claude\",\"editorSession\":{},\"shellTerminals\":[\"one\"]}]}")]
+	[InlineData("{\"version\":4,\"sessions\":[{\"id\":\"a\",\"label\":\"a\",\"worktreePath\":\"/wt/a\",\"managedCheckout\":true,\"loaded\":false,\"agentProviderId\":\"claude\",\"editorSession\":{\"open\":null},\"shellTerminals\":[\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"]}]}")]
+	[InlineData("{\"version\":4,\"sessions\":[{\"id\":\"a\",\"label\":\"a\",\"worktreePath\":\"/wt/a\",\"managedCheckout\":true,\"loaded\":false,\"agentProviderId\":\"claude\",\"editorSession\":{},\"shellTerminals\":[\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"]}]}")]
 	[InlineData("{\"version\":4,\"sessions\":[{\"id\":\"a\",\"label\":\"a\",\"worktreePath\":\"/wt/a\",\"managedCheckout\":true,\"loaded\":false,\"agentProviderId\":\"claude\",\"editorSession\":{\"open\":[]},\"shellTerminals\":[\"\"]}]}")]
 	[InlineData("{\"version\":4,\"sessions\":[{\"id\":\"a\",\"label\":\"a\",\"worktreePath\":\"/wt/a\",\"managedCheckout\":true,\"loaded\":false,\"agentProviderId\":\"claude\",\"editorSession\":{\"open\":[]},\"shellTerminals\":[\"../escape\"]}]}")]
-	[InlineData("{\"version\":4,\"sessions\":[{\"id\":\"a\",\"label\":\"a\",\"worktreePath\":\"/wt/a\",\"managedCheckout\":true,\"loaded\":false,\"agentProviderId\":\"claude\",\"editorSession\":{\"open\":[]},\"shellTerminals\":[\"one\",\"one\"]}]}")]
+	[InlineData("{\"version\":4,\"sessions\":[{\"id\":\"a\",\"label\":\"a\",\"worktreePath\":\"/wt/a\",\"managedCheckout\":true,\"loaded\":false,\"agentProviderId\":\"claude\",\"editorSession\":{\"open\":[]},\"shellTerminals\":[\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"]}]}")]
 	public void IncompleteVersionFourEntry_BacksUpAndResets(string json) {
 		var fs = new InMemoryFileSystem();
 		fs.WriteAllText(StorePath, json);

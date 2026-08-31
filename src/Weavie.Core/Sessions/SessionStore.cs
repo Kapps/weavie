@@ -151,14 +151,13 @@ public sealed class SessionStore {
 			|| entry.ShellTerminals is null) {
 			throw new JsonException("Session entry is missing required version 4 data.");
 		}
-		var shellTerminals = entry.ShellTerminals.Select(id => {
-			if (!ShellTerminalDescriptor.IsValidId(id)) {
+		string[] shellTerminals = [.. entry.ShellTerminals.Select(id => {
+			if (!ShellTerminalId.IsValid(id)) {
 				throw new JsonException("A shell terminal id is not a lowercase GUID.");
 			}
-			return new ShellTerminalDescriptor { Id = id };
-		}).ToArray();
-		if (shellTerminals.Select(terminal => terminal.Id).Distinct(StringComparer.Ordinal).Count()
-			!= shellTerminals.Length) {
+			return id;
+		})];
+		if (shellTerminals.Distinct(StringComparer.Ordinal).Count() != shellTerminals.Length) {
 			throw new JsonException("A session contains duplicate shell terminal ids.");
 		}
 
@@ -200,7 +199,7 @@ public sealed class SessionStore {
 		Loaded = session.Loaded,
 		AgentProviderId = session.AgentProviderId,
 		EditorSession = session.EditorSession,
-		ShellTerminals = [.. session.ShellTerminals.Select(terminal => terminal.Id)],
+		ShellTerminals = [.. session.ShellTerminals],
 	};
 
 	private sealed class SessionsDocument {

@@ -26,5 +26,5 @@ public sealed record SessionDescriptor {
 	public required EditorSession EditorSession { get; init; }
 
 	/// <summary>The ordered shell terminal tabs restored with this session.</summary>
-	public required IReadOnlyList<ShellTerminalDescriptor> ShellTerminals { get; init; }
+	public required IReadOnlyList<string> ShellTerminals { get; init; }
 }

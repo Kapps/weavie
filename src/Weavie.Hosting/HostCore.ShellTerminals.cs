@@ -31,10 +31,7 @@ public sealed partial class HostCore {
 			JsonSerializer.Serialize(new {
 				activateTerminal = true,
 				terminalId = terminal.Id,
-				address = new {
-					slot = session.Address.Slot,
-					incarnation = session.Address.Incarnation,
-				},
+				address = LiveAddress(session),
 			}));
 	}
 
@@ -54,74 +51,65 @@ public sealed partial class HostCore {
 	private static (CommandResult Result, ShellTerminal? Terminal) DetachShellTerminal(
 		HostSession session,
 		string? argsJson) {
-		if (!TryTerminalArgs(argsJson, out string? id, out bool force, out string? error)) {
-			return (CommandResult.Failure(error!), null);
+		var args = ParseTerminalArgs(argsJson);
+		if (args.Error is not null) {
+			return (CommandResult.Failure(args.Error), null);
 		}
-		var terminal = string.IsNullOrEmpty(id) ? session.Shells.Primary : session.Shells.Find(id);
-		if (terminal is null) {
-			return (CommandResult.Failure(id is null
-				? "No shell terminal is open."
-				: $"No shell terminal has id '{id}'."), null);
-		}
-		return session.Shells.DetachForClose(terminal.Id, force, out var detached) switch {
+		return session.Shells.DetachForClose(args.Id, args.Force, out var detached) switch {
 			ShellTerminalCloseResult.Closed => (CommandResult.Success("Closed the terminal."), detached),
 			ShellTerminalCloseResult.Busy => (CommandResult.Failure(
 				"The terminal is running a foreground job.",
 				"{\"busy\":true}"), null),
-			_ => (CommandResult.Failure($"No shell terminal has id '{terminal.Id}'."), null),
+			_ => (CommandResult.Failure(MissingTerminal(args.Id)), null),
 		};
 	}
 
 	private static CommandResult ReopenShellTerminal(HostSession session, string? argsJson) {
-		if (!TryTerminalArgs(argsJson, out string? id, out _, out string? error)) {
-			return CommandResult.Failure(error!);
+		var args = ParseTerminalArgs(argsJson);
+		if (args.Error is not null) {
+			return CommandResult.Failure(args.Error);
 		}
-		var terminal = string.IsNullOrEmpty(id) ? session.Shells.Primary : session.Shells.Find(id);
+		var terminal = session.Shells.Resolve(args.Id);
 		if (terminal is null) {
-			return CommandResult.Failure(id is null
-				? "No shell terminal is open."
-				: $"No shell terminal has id '{id}'.");
+			return CommandResult.Failure(MissingTerminal(args.Id));
 		}
 		terminal.Controller.Restart();
 		return CommandResult.Success("Reopened the terminal.");
 	}
 
-	private static bool TryTerminalArgs(
-		string? argsJson,
-		out string? id,
-		out bool force,
-		out string? error) {
-		id = null;
-		force = false;
-		error = null;
+	private static TerminalArgs ParseTerminalArgs(string? argsJson) {
 		if (string.IsNullOrWhiteSpace(argsJson)) {
-			return true;
+			return new TerminalArgs(null, false, null);
 		}
 		try {
 			using var document = JsonDocument.Parse(argsJson);
 			var root = document.RootElement;
 			if (root.ValueKind != JsonValueKind.Object) {
-				error = "Terminal command arguments must be an object.";
-				return false;
+				return new TerminalArgs(null, false, "Terminal command arguments must be an object.");
 			}
+			string? id = null;
 			if (root.TryGetProperty("id", out var idElement)) {
 				if (idElement.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(idElement.GetString())) {
-					error = "Terminal id must be a non-empty string.";
-					return false;
+					return new TerminalArgs(null, false, "Terminal id must be a non-empty string.");
 				}
 				id = idElement.GetString();
 			}
+			bool force = false;
 			if (root.TryGetProperty("force", out var forceElement)) {
 				if (forceElement.ValueKind is not (JsonValueKind.True or JsonValueKind.False)) {
-					error = "Terminal force must be a boolean.";
-					return false;
+					return new TerminalArgs(null, false, "Terminal force must be a boolean.");
 				}
 				force = forceElement.GetBoolean();
 			}
-			return true;
+			return new TerminalArgs(id, force, null);
 		} catch (JsonException ex) {
-			error = $"Invalid terminal command arguments: {ex.Message}";
-			return false;
+			return new TerminalArgs(null, false, $"Invalid terminal command arguments: {ex.Message}");
 		}
 	}
+
+	private static string MissingTerminal(string? id) => id is null
+		? "No shell terminal is open."
+		: $"No shell terminal has id '{id}'.";
+
+	private sealed record TerminalArgs(string? Id, bool Force, string? Error);
 }

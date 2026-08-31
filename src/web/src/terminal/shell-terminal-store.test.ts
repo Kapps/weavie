@@ -19,12 +19,12 @@ function connect(): {
   catalog: (ids: string[]) => void;
   dispose: () => void;
 } {
-  let onCatalog = (_message: { terminals: Array<{ id: string }> }): void => {};
+  let onCatalog = (_message: { terminalIds: string[] }): void => {};
   const session = {
     feature: (name: string) => {
       expect(name).toBe("terminal.shell");
       return {
-        on: (event: string, handler: (message: { terminals: Array<{ id: string }> }) => void) => {
+        on: (event: string, handler: (message: { terminalIds: string[] }) => void) => {
           expect(event).toBe("catalog");
           onCatalog = handler;
           return () => {};
@@ -35,7 +35,7 @@ function connect(): {
   const cleanup = env.install?.(session);
   return {
     session,
-    catalog: (ids) => onCatalog({ terminals: ids.map((id) => ({ id })) }),
+    catalog: (ids) => onCatalog({ terminalIds: ids }),
     dispose: cleanup ?? (() => {}),
   };
 }
@@ -68,7 +68,7 @@ describe("shell terminal store", () => {
     connection.catalog(["a", "b", "c"]);
 
     expect(store.activeShellTerminalId(connection.session)).toBe("b");
-    expect(store.shellTerminals(connection.session).map(({ id }) => id)).toEqual(["a", "b", "c"]);
+    expect(store.shellTerminals(connection.session)).toEqual(["a", "b", "c"]);
   });
 
   it("selects the adjacent tab when the active terminal closes", () => {

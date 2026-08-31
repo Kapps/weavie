@@ -11,70 +11,27 @@
 }
 
 .shell-tabs {
-  display: flex;
-  flex: 0 0 auto;
-  align-items: stretch;
   min-width: 0;
-  overflow: hidden;
-  background: var(--bar);
-  border-bottom: 1px solid var(--border);
   user-select: none;
 }
 
-.shell-tabs-track {
-  display: flex;
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: none;
-}
-
-.shell-tabs-track::-webkit-scrollbar {
-  display: none;
-}
-
 .shell-tab {
-  display: flex;
   flex: 0 1 14em;
   min-width: 6em;
   max-width: 14em;
-  align-items: center;
-  color: var(--dim);
-  border-right: 1px solid var(--border);
-}
-
-.shell-tab:hover,
-.shell-tab.active {
-  color: var(--fg);
-}
-
-.shell-tab.active {
-  background: var(--bg);
-  box-shadow: inset 0 0.15em 0 var(--accent);
-}
-
-.shell-tab-main {
-  display: flex;
-  flex: 1 1 auto;
-  min-width: 0;
-  align-items: center;
-  padding: 0.4em 0.25em 0.4em 0.75em;
-  border: none;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
 }
 
 .shell-tab-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.shell-tab-close,
+.shell-tab-close {
+  flex: 0 0 auto;
+  margin-right: 0.35em;
+  padding: 0.1em;
+  color: var(--dim);
+}
+
 .shell-tab-new {
   display: inline-flex;
   flex: 0 0 auto;
@@ -84,13 +41,6 @@
   background: transparent;
   color: var(--dim);
   cursor: pointer;
-}
-
-.shell-tab-close {
-  margin-right: 0.35em;
-  padding: 0.1em;
-  border-radius: 3px;
-  opacity: 0;
 }
 
 .shell-tab:hover .shell-tab-close,
@@ -104,11 +54,6 @@
   color: var(--fg);
 }
 
-.shell-tab-close:hover {
-  background: rgba(255, 255, 255, 0.1);
-  opacity: 1;
-}
-
 .shell-tab-new {
   padding: 0 0.65em;
   border-right: 1px solid var(--border);
@@ -119,8 +64,6 @@
   margin: 0 6px;
 }
 
-.shell-tab-main:focus-visible,
-.shell-tab-close:focus-visible,
 .shell-tab-new:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -2px;

@@ -1,31 +1,23 @@
 import { createSignal } from "solid-js";
 import { type ClientSession, registerSessionFeature } from "../bridge";
 
-export interface ShellTerminalDescriptor {
-  id: string;
-}
-
 interface ShellTerminalState {
-  terminals: ShellTerminalDescriptor[];
+  terminals: string[];
   activeId: string | null;
 }
 
 const [states, setStates] = createSignal(new Map<ClientSession, ShellTerminalState>());
 
-function applyCatalog(session: ClientSession, terminals: ShellTerminalDescriptor[]): void {
-  if (
-    terminals.some((terminal) => terminal.id.length === 0) ||
-    new Set(terminals.map((terminal) => terminal.id)).size !== terminals.length
-  ) {
+function applyCatalog(session: ClientSession, terminals: string[]): void {
+  if (terminals.some((id) => id.length === 0) || new Set(terminals).size !== terminals.length) {
     throw new Error("The shell terminal catalog contains an invalid or duplicate id.");
   }
   const previous = states().get(session);
   const previousActive = previous?.activeId ?? null;
   let activeId = previousActive;
-  if (activeId === null || !terminals.some((terminal) => terminal.id === activeId)) {
-    const oldIndex =
-      previous?.terminals.findIndex((terminal) => terminal.id === previousActive) ?? -1;
-    activeId = terminals[Math.min(Math.max(oldIndex, 0), terminals.length - 1)]?.id ?? null;
+  if (activeId === null || !terminals.includes(activeId)) {
+    const oldIndex = previous?.terminals.indexOf(previousActive ?? "") ?? -1;
+    activeId = terminals[Math.min(Math.max(oldIndex, 0), terminals.length - 1)] ?? null;
   }
   setStates((current) => {
     const next = new Map(current);
@@ -37,8 +29,8 @@ function applyCatalog(session: ClientSession, terminals: ShellTerminalDescriptor
 registerSessionFeature((session) => {
   const offCatalog = session
     .feature("terminal.shell")
-    .on<{ terminals: ShellTerminalDescriptor[] }>("catalog", ({ terminals }) =>
-      applyCatalog(session, terminals),
+    .on<{ terminalIds: string[] }>("catalog", ({ terminalIds }) =>
+      applyCatalog(session, terminalIds),
     );
   return () => {
     offCatalog();
@@ -50,7 +42,7 @@ registerSessionFeature((session) => {
   };
 });
 
-export function shellTerminals(session: ClientSession | null): ShellTerminalDescriptor[] {
+export function shellTerminals(session: ClientSession | null): string[] {
   return session === null ? [] : (states().get(session)?.terminals ?? []);
 }
 
@@ -64,7 +56,7 @@ export function activeShellTerminalId(session: ClientSession | null): string | n
 
 export function selectShellTerminal(session: ClientSession, id: string): boolean {
   const current = states().get(session);
-  if (current === undefined || !current.terminals.some((terminal) => terminal.id === id)) {
+  if (current === undefined || !current.terminals.includes(id)) {
     return false;
   }
   if (current.activeId === id) {
@@ -83,7 +75,7 @@ export function stepShellTerminal(session: ClientSession, delta: -1 | 1): boolea
   if (state === undefined || state.terminals.length < 2) {
     return false;
   }
-  const index = state.terminals.findIndex((terminal) => terminal.id === state.activeId);
+  const index = state.terminals.indexOf(state.activeId ?? "");
   const next = (index + delta + state.terminals.length) % state.terminals.length;
-  return selectShellTerminal(session, state.terminals[next]?.id ?? "");
+  return selectShellTerminal(session, state.terminals[next] ?? "");
 }

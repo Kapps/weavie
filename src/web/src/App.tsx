@@ -165,6 +165,7 @@ import { useCompactMode } from "./mobile/useCompactMode";
 // Session-attention intake (sounds + OS notifications): module-load side effect, like the session store.
 import "./notifications/attention";
 import "./notifications/intake";
+import { requireSessionAddress } from "./messaging/message-envelope";
 import { setNotifySink } from "./notify/notify";
 import { Suggestions } from "./notify/Suggestions";
 import { createToasts, Toasts } from "./notify/Toasts";
@@ -872,17 +873,10 @@ export default function App(): JSX.Element {
 
   const resultAddress = (result: { data?: unknown }): { slot: string; incarnation: string } => {
     const address = (result.data as { address?: unknown } | undefined)?.address;
-    if (
-      address === null ||
-      typeof address !== "object" ||
-      typeof (address as { slot?: unknown }).slot !== "string" ||
-      (address as { slot: string }).slot.length === 0 ||
-      typeof (address as { incarnation?: unknown }).incarnation !== "string" ||
-      (address as { incarnation: string }).incarnation.length === 0
-    ) {
-      throw new Error("The session operation did not return an exact live address.");
-    }
-    return address as { slot: string; incarnation: string };
+    return requireSessionAddress(
+      address,
+      "The session operation did not return an exact live address.",
+    );
   };
 
   const createSessionAt = (
@@ -1391,11 +1385,9 @@ export default function App(): JSX.Element {
         <ShellTabStrip
           terminals={() => shellTerminals(activeTermSession())}
           activeId={() => activeShellTerminalId(activeTermSession())}
-          title={(terminal, index) => {
+          title={(id, index) => {
             const session = activeTermSession();
-            return session === null
-              ? `Terminal ${index + 1}`
-              : shellTitle(session, terminal.id, index);
+            return session === null ? `Terminal ${index + 1}` : shellTitle(session, id, index);
           }}
           trailing={
             <Show when={showPaneHints() && paneShortcut(numberOf(kind)) !== ""}>
@@ -1417,18 +1409,17 @@ export default function App(): JSX.Element {
             {(session) => {
               return (
                 <For each={shellTerminals(session)}>
-                  {(terminal) => {
-                    const paneKey = terminalPaneKey(session, terminal.id);
+                  {(id) => {
+                    const paneKey = terminalPaneKey(session, id);
                     const isActive = (): boolean =>
-                      selectedSession() === session &&
-                      activeShellTerminalId(session) === terminal.id;
+                      selectedSession() === session && activeShellTerminalId(session) === id;
                     onCleanup(() => forgetTerminalPane(paneKey));
                     return (
                       <div class="term-host" classList={{ hidden: !isActive() }}>
                         <TerminalView
                           session={session}
                           pane="shell"
-                          terminalId={terminal.id}
+                          terminalId={id}
                           active={isActive()}
                           onFirstRender={() => {
                             dismissSplash();

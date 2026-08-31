@@ -28,7 +28,7 @@ public sealed class SessionSlot {
 	public required EditorSession EditorSession { get; set; }
 
 	/// <summary>The ordered shell terminal tabs restored when this slot is loaded.</summary>
-	public required IReadOnlyList<ShellTerminalDescriptor> ShellTerminals { get; set; }
+	public required IReadOnlyList<string> ShellTerminals { get; set; }
 
 	/// <summary>True when the slot has a live backend.</summary>
 	public bool Loaded => Session is not null;

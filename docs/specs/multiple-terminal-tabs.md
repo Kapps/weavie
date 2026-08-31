@@ -30,7 +30,7 @@ flowchart LR
 
 ## Protocol
 
-- `terminal.shell/catalog` publishes `{ terminals: [{ id }] }` in display order.
+- `terminal.shell/catalog` publishes `{ terminalIds: string[] }` in display order.
 - Each terminal uses its exact `terminal.shell.<id>` feature for `ready`, `input`, `resize`, `cwd`,
   `output`, `exit`, and `reset`.
 - Session resync publishes the catalog before resyncing each exact terminal channel.

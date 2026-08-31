@@ -140,7 +140,7 @@ public sealed class PreviewStateBootstrapTests : IDisposable {
 			Loaded = loaded,
 			AgentProviderId = provider,
 			EditorSession = EditorSession.Empty,
-			ShellTerminals = [ShellTerminalDescriptor.New()],
+			ShellTerminals = [ShellTerminalId.New()],
 		};
 
 	private static void WriteInstalledAgents(string root, string id) => Write(

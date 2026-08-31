@@ -538,7 +538,7 @@ export class MockHost {
       );
       if (session !== undefined) {
         this.publishSession(message.session!, "terminal.shell", "catalog", {
-          terminals: session.shellTerminals.map((id) => ({ id })),
+          terminalIds: session.shellTerminals,
         });
       }
       this.respond(message, { ok: true });

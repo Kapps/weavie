@@ -97,8 +97,8 @@ export function TerminalView(props: {
   });
   const fit = new FitAddon();
   const encoder = new TextEncoder();
-  // Introspection key (e2e/diagnostics): session + exact terminal, so tabs and sessions never collide.
-  const termKey = `${session.connection.id}:${session.address.incarnation}:${props.terminalId}`;
+  // Introspection key (e2e/diagnostics): session + exact terminal, with the pane kept queryable.
+  const termKey = `${session.connection.id}:${session.address.incarnation}:${props.terminalId}:${props.pane}`;
 
   onMount(() => {
     term.loadAddon(fit);

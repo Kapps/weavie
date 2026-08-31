@@ -55,6 +55,9 @@ public interface IGitService {
 	/// <summary>True when <paramref name="directory"/> is inside a git work tree.</summary>
 	Task<bool> IsRepositoryAsync(string directory, CancellationToken ct = default);
 
+	/// <summary>The root of the worktree containing <paramref name="directory"/>, or null when it is in none.</summary>
+	Task<string?> FindToplevelAsync(string directory, CancellationToken ct = default);
+
 	/// <summary>The full commit SHA that <c>HEAD</c> resolves to in <paramref name="directory"/>.</summary>
 	Task<string> GetHeadCommitAsync(string directory, CancellationToken ct = default);
 

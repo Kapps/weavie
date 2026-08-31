@@ -80,7 +80,7 @@ public sealed class LinuxWaylandIdentityTests {
 			string bundledDesktopEntry = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, desktopFile));
 			string expectedDesktopEntry = bundledDesktopEntry.Replace(
 				"Exec=Weavie",
-				$"Exec=\"{Path.Combine(AppContext.BaseDirectory, "Weavie")}\"",
+				$"Exec=\"{Path.Combine(AppContext.BaseDirectory, "Weavie")}\" %U",
 				StringComparison.Ordinal);
 			Assert.Equal(
 				expectedDesktopEntry,

@@ -313,6 +313,7 @@ public sealed partial class HostCore {
 
 		Ready?.Invoke();
 		MarkAutoConfigPageReady();
+		MarkOpenPathPageReady();
 		SurfacePriorCrash();
 		SurfaceSessionStartupNotices();
 		if (_environmentImportFailure.Length > 0) {

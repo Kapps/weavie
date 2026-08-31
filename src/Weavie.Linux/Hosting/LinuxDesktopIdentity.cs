@@ -37,7 +37,9 @@ internal static class LinuxDesktopIdentity {
 		if (execLine < 0) {
 			throw new InvalidDataException("The Linux desktop entry shipped with Weavie has no Exec field.");
 		}
-		desktopEntry[execLine] = $"Exec={execValue}";
+		// %U appends the paths the file manager passed; the field code sits outside the quoted executable,
+		// whose own % is escaped to %% by QuoteExec.
+		desktopEntry[execLine] = $"Exec={execValue} %U";
 		WriteIfChanged(
 			string.Join('\n', desktopEntry) + '\n',
 			Path.Combine(dataHome, "applications", DesktopFile));

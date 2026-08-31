@@ -1,6 +1,19 @@
+using Weavie.Core;
+using Weavie.Hosting.Desktop;
 using Weavie.Linux;
 using Weavie.Linux.Hosting;
 using Weavie.Linux.Native;
+
+// Before any GTK or graphics setup: a launch that only hands paths to the running instance must cost
+// nothing and exit, not boot a second app behind the first one's window.
+var launch = LaunchArguments.Parse(args);
+if (launch.Paths.Count > 0) {
+	var handoff = await InstanceClient.OfferAsync(WeaviePaths.Root, launch.Paths, CancellationToken.None);
+	if (handoff.Accepted) {
+		return 0;
+	}
+}
+
 
 LinuxGraphicsCompatibility.Apply();
 // Before GTK: the display-sync library only wins symbol resolution while libdrm is still unloaded.
@@ -29,6 +42,7 @@ if (!GStreamer.HasAutoAudioSink()) {
 }
 
 var host = new WorkspaceHost();
+host.SetLaunchPaths(launch.Paths);
 host.Start();
 GtkMain.Run();
 host.Shutdown();

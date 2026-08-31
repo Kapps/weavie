@@ -70,7 +70,8 @@ public sealed record CommandKeybinding {
 	/// <summary>
 	/// Optional per-binding context-key guard overriding <see cref="CommandDefinition.When"/> for this chord
 	/// only and, unlike it, not gating palette visibility — so a chord can be focus-scoped while the command
-	/// stays in the palette. Null falls back to the command-level guard. See <see cref="ResolvedKeybinding.When"/>.
+	/// stays in the palette. Null falls back to the command-level guard; an empty string explicitly leaves the
+	/// chord unguarded. See <see cref="ResolvedKeybinding.When"/>.
 	/// </summary>
 	public string? When { get; init; }
 

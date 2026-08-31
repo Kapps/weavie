@@ -278,6 +278,16 @@ public sealed class CommandTests {
 	}
 
 	[Fact]
+	public void ToggleReviewMode_IsBoundAndReviewGated() {
+		var command = CoreCommands.CreateRegistry().Require(CoreCommands.ReviewToggleMode);
+
+		Assert.Equal(CommandLocation.Web, command.RunsIn);
+		Assert.Equal("$mod+Shift+u", Assert.Single(command.DefaultKeybindings).Key);
+		Assert.Equal("!terminalFocused", command.DefaultKeybindings[0].When);
+		Assert.Equal("reviewSetActive", command.When);
+	}
+
+	[Fact]
 	public void AgentJumpToTurn_RequiresANavigableAgentTurn() {
 		var command = CoreCommands.CreateRegistry().Require(CoreCommands.AgentJumpToTurn);
 

@@ -14,6 +14,7 @@ import "./chrome/tabs.css";
 import "./editor/editor.css";
 import "./terminal/terminal.css";
 import "./editor/diff.css";
+import "./editor/review/unified-review.css";
 import "./editor/comment-prose.css";
 import "./editor/revise.css";
 import "./editor/git-blame.css";

@@ -74,7 +74,7 @@ public sealed class SessionCommandsTests {
 	}
 
 	[Fact]
-	public void Register_NextPrevSession_BindTab_GatedTerminalFocused() {
+	public void Register_NextPrevSession_AdvertiseAvailabilityWithoutGuardingFallbackBindings() {
 		var registry = new CommandRegistry();
 		SessionCommands.Register(registry);
 
@@ -89,11 +89,11 @@ public sealed class SessionCommandsTests {
 
 		var nextBinding = Assert.Single(next.DefaultKeybindings);
 		Assert.Equal("ctrl+Tab", nextBinding.Key);
-		Assert.Null(nextBinding.When);
+		Assert.Equal(string.Empty, nextBinding.When);
 
 		var prevBinding = Assert.Single(prev.DefaultKeybindings);
 		Assert.Equal("ctrl+Shift+Tab", prevBinding.Key);
-		Assert.Null(prevBinding.When);
+		Assert.Equal(string.Empty, prevBinding.When);
 	}
 
 	[Fact]

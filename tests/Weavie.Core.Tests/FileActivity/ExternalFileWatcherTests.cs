@@ -6,9 +6,8 @@ using Xunit;
 namespace Weavie.Core.Tests;
 
 /// <summary>
-/// <see cref="ExternalFileWatcher"/> is what makes an edit to a file outside the checkout reach the open buffer.
-/// These drive the real filesystem, because the defect being prevented — nothing observing the file — only
-/// exists at the platform watcher.
+/// <see cref="ExternalFileWatcher"/> makes an edit to a file outside the checkout reach the open buffer. These
+/// drive the real filesystem, because what they pin — that something observes the file — only exists there.
 /// </summary>
 public sealed class ExternalFileWatcherTests : IDisposable {
 	private readonly string _root = Path.Combine(Path.GetTempPath(), $"weavie-external-{Guid.NewGuid():N}");
@@ -65,7 +64,61 @@ public sealed class ExternalFileWatcherTests : IDisposable {
 	}
 
 	[Fact]
-	public void DropsTheWatchWhenTheFileIsNoLongerOpen() {
+	public async Task StopsReportingAFileThatIsNoLongerOpen() {
+		string closed = Path.Combine(_root, "closed.md");
+		string open = Path.Combine(_root, "open.md");
+		await File.WriteAllTextAsync(closed, "x\n");
+		await File.WriteAllTextAsync(open, "x\n");
+		CapturingSink sink = new();
+		using var watcher = NewWatcher(sink);
+
+		watcher.Watch([closed, open]);
+		watcher.Watch([open]);
+		await File.WriteAllTextAsync(closed, "edited after closing\n");
+		await File.WriteAllTextAsync(open, "edited while open\n");
+
+		// The still-open file arriving proves the watch is live, so the closed one's absence is a real drop
+		// rather than the assertion running before any event landed.
+		object fact = await sink.Next.Task.WaitAsync(TimeSpan.FromSeconds(10));
+		Assert.Equal(open, Assert.IsType<Changed>(fact).Path);
+		Assert.DoesNotContain(closed, sink.Paths);
+	}
+
+	[Fact]
+	public void WatchesNothingUntilAFileOutsideTheCheckoutIsOpen() {
+		// Every session reconciles an empty set when it loads and most never open an outside file. Reconcile is
+		// what allocates the platform handle — on Linux an inotify instance, capped per user across every
+		// session on the machine — so the assertion is that it is never reached, not that no watch resulted.
+		RecordingWatchSet watchSet = new();
+		using var watcher = new ExternalFileWatcher(
+			new LocalFileSystem(),
+			new CapturingSink(),
+			Assert.Fail,
+			debounceMs: 10,
+			_ => watchSet);
+
+		watcher.Watch([]);
+
+		Assert.Equal(0, watchSet.Reconciles);
+	}
+
+	private sealed class RecordingWatchSet : IWorkspaceDirectoryWatchSet {
+		public int Reconciles { get; private set; }
+
+		public int Count => 0;
+
+		public bool Reconcile(IReadOnlyList<string> directories) {
+			Reconciles++;
+			return true;
+		}
+
+		public void EnsureWatching(string directory) { }
+
+		public void Dispose() { }
+	}
+
+	[Fact]
+	public void ReleasesWatchesAsFilesLeaveTheTabSet() {
 		string first = Path.Combine(_root, "a", "one.md");
 		string second = Path.Combine(_root, "b", "two.md");
 		Directory.CreateDirectory(Path.GetDirectoryName(first)!);
@@ -91,7 +144,7 @@ public sealed class ExternalFileWatcherTests : IDisposable {
 	}
 
 	private static ExternalFileWatcher NewWatcher(CapturingSink sink) =>
-		new(new LocalFileSystem(), sink, _ => { }, debounceMs: 10);
+		new(new LocalFileSystem(), sink, failure => Assert.Fail(failure), debounceMs: 10);
 
 	private sealed record Changed(string Path);
 

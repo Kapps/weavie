@@ -40,6 +40,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 	private PullRequestStatusMonitor? _pullRequestStatus;
 	private GitStatusMonitor? _gitStatus;
 	private string? _workspaceWatcherFailure;
+	private string? _externalWatcherFailure;
 	// The server catalog advertised to the page (ids + language ids + default settings) — identical for every
 	// session, so serialized once; LspConfigJson adds the per-session worktree root.
 	private static readonly string LspServersCatalogJson = JsonSerializer.Serialize(
@@ -121,12 +122,12 @@ public sealed partial class HostSession : IAsyncDisposable {
 			Inventory,
 			Tagged("[files]"),
 			watcherDebounceMs: 250);
-		// The workspace watcher covers the worktree recursively; files opened from anywhere else are watched
-		// one at a time, tracking the open tab set, so an edit made outside Weavie still reaches the buffer.
+		// The workspace watcher covers the worktree recursively; files open from anywhere else are watched one
+		// at a time, tracking the tab set.
 		ExternalFiles = new ExternalFileWatcher(
 			fileSystem,
 			FileActivity,
-			Tagged("[files]"),
+			ReportExternalFileWatchFailure,
 			debounceMs: 250);
 		EditorSessionChanged += editorSession =>
 			ExternalFiles.Watch(FilesOutsideWorkspace(workspaceRoot, editorSession));
@@ -289,8 +290,13 @@ public sealed partial class HostSession : IAsyncDisposable {
 	}
 
 	internal void ReplayWorkspaceWatcherFailure(MessageTarget target) {
-		if (Volatile.Read(ref _workspaceWatcherFailure) is { } message) {
-			target.Feature("notifications").Publish("show", new { level = "error", message });
+		foreach (string? message in new[] {
+			Volatile.Read(ref _workspaceWatcherFailure),
+			Volatile.Read(ref _externalWatcherFailure),
+		}) {
+			if (message is not null) {
+				target.Feature("notifications").Publish("show", new { level = "error", message });
+			}
 		}
 	}
 
@@ -395,17 +401,24 @@ public sealed partial class HostSession : IAsyncDisposable {
 	internal event Action<EditorSession>? EditorSessionChanged;
 
 	/// <summary>
-	/// The open files the workspace watcher does not cover. Scratch buffers are excluded: Weavie owns them, and
-	/// its own autosave is the only writer.
+	/// The open files the workspace watcher does not cover. Scratch buffers are excluded — they are Weavie's own
+	/// temp files, and the editor is the writer whose saves would echo back.
 	/// </summary>
 	private static IReadOnlyList<string> FilesOutsideWorkspace(string workspaceRoot, EditorSession session) => [
 		.. session.Open
 			.Where(entry =>
-				!entry.Scratch
-				&& entry.Kind is null or "file"
+				entry.IsFile
+				&& !entry.Scratch
 				&& !PathBoundary.Contains(workspaceRoot, entry.Path))
 			.Select(entry => entry.Path),
 	];
+
+	// Watching outside files is a promise the editor footer makes, so losing it reaches the user rather than a
+	// console line, and replays on reconnect like the workspace watcher's own failure.
+	private void ReportExternalFileWatchFailure(string message) {
+		Volatile.Write(ref _externalWatcherFailure, message);
+		_notificationMessages.Publish("show", new { level = "error", message });
+	}
 
 	internal void ReplayEditor(MessageTargetFeature target, Action<string> log) {
 		ArgumentNullException.ThrowIfNull(target);

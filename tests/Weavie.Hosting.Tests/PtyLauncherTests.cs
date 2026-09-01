@@ -27,6 +27,17 @@ public sealed class PtyLauncherTests {
 	}
 
 	[Fact]
+	public void Windows_CommandShim_EscapesNpmVersionCeilingsFromRedirection() {
+		var launch = Launch("npx.cmd", AgentExecutableMode.Direct) with {
+			Arguments = ["--yes", "@scope/agent@<=1.2.3"],
+		};
+
+		var resolved = new WindowsPtyLauncher().Resolve(launch);
+
+		Assert.Equal(["/d", "/s", "/v:off", "/c", "npx.cmd", "--yes", "@scope/agent@^<=1.2.3"], resolved.Arguments);
+	}
+
+	[Fact]
 	public void Posix_SearchPath_UsesTheSystemEnvironmentLauncherWithoutAShell() {
 		var resolved = new PosixPtyLauncher().Resolve(Launch("npx", AgentExecutableMode.SearchPath));
 

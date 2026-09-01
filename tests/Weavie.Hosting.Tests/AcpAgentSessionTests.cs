@@ -370,7 +370,7 @@ public sealed class AcpAgentSessionTests {
 		await fixture.WaitForMessageAsync(message => message.Type == "item-completed"
 			&& message.Text == "steered: new direction");
 		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed" && message.TurnId == "1");
-		Assert.Contains(fixture.Messages, message => message.Type == "user-steer" && message.Text == "new direction");
+		await fixture.WaitForMessageAsync(message => message.Type == "user-steer" && message.Text == "new direction");
 
 		fixture.Submit("background");
 		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed" && message.TurnId == "2");

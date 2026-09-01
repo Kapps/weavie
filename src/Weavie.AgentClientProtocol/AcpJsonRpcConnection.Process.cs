@@ -93,14 +93,9 @@ public sealed partial class AcpJsonRpcConnection {
 	}
 
 	private ProcessStartInfo BuildStartInfo() {
-		var invocation = AcpProcessInvocation.Resolve(_definition, _workingDirectory, []);
+		var invocation = AcpProcessInvocation.ResolveRedirectedProcess(_definition, _workingDirectory, []);
 		string command = invocation.Command;
 		var arguments = invocation.Arguments;
-		if (OperatingSystem.IsWindows() && _definition.Distribution == "npx") {
-			string commandLine = $"\"{command}\" {string.Join(' ', arguments)}";
-			command = AcpProcessInvocation.SystemCommandProcessor(Environment.SystemDirectory);
-			arguments = ["/d", "/s", "/v:off", "/c", commandLine];
-		}
 		var info = new ProcessStartInfo(command) {
 			WorkingDirectory = _workingDirectory,
 			RedirectStandardInput = true,

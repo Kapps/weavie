@@ -91,6 +91,9 @@ public sealed record HostServices {
 	/// <summary>Where <see cref="CrashReporter"/> rotates the report once surfaced (<c>~/.weavie/logs/previous-crash.log</c>).</summary>
 	public required string PreviousCrashFile { get; init; }
 
+	/// <summary>Where this run stamps how it ended, so a run that vanishes is still explained (see <see cref="ExitJournal"/>).</summary>
+	public required string ExitJournalFile { get; init; }
+
 	/// <summary>
 	/// Builds the standard single-process store set — settings + keybindings watched live, console logging
 	/// wired — for hosts that own exactly one workspace per process (Mac/Linux/Headless).
@@ -135,6 +138,7 @@ public sealed record HostServices {
 			LogBuffer = logBuffer,
 			LastCrashFile = WeaviePaths.LastCrashFile,
 			PreviousCrashFile = WeaviePaths.PreviousCrashFile,
+			ExitJournalFile = WeaviePaths.ExitJournalFile,
 		};
 	}
 

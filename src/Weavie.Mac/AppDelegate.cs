@@ -98,6 +98,10 @@ public sealed partial class AppDelegate : NSApplicationDelegate {
 
 	/// <summary>Tears down every still-open window's core, then disposes the app-level hotkeys and shared stores on exit.</summary>
 	public override void WillTerminate(NSNotification notification) {
+		// AppKit ends the app without the runtime seeing an exit, so the ending is stamped here — otherwise a
+		// quit is indistinguishable from being killed, which is the whole question when a window just vanishes.
+		ExitJournal.Record("terminated by AppKit");
+
 		foreach (var window in _windows.ToArray()) {
 			window.SaveWindowState();
 			window.DisposeCore();

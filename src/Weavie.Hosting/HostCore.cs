@@ -63,6 +63,9 @@ public sealed partial class HostCore : IAsyncDisposable {
 	// dir so concurrent test processes never race the real path (or each other) — see HostServices.
 	private readonly string _lastCrashFile;
 	private readonly string _previousCrashFile;
+	private readonly string _exitJournalFile;
+	// How the previous run ended when it never shut down, held from startup until a page can be told.
+	private string _priorUnfinishedRun = string.Empty;
 	// Lists open PRs for the Open-PR flow (GitHub by default; a static stub under the headless harness).
 	private readonly Weavie.Core.Review.IPullRequestProvider _pullRequests;
 	// Loads/posts a PR's review comments (same GitHub client, or the harness stub).
@@ -174,6 +177,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 		_logBuffer = services.LogBuffer;
 		_lastCrashFile = services.LastCrashFile;
 		_previousCrashFile = services.PreviousCrashFile;
+		_exitJournalFile = services.ExitJournalFile;
 		_pullRequests = services.PullRequests;
 		_reviewComments = services.ReviewComments;
 		_sources = services.Sources;
@@ -258,6 +262,13 @@ public sealed partial class HostCore : IAsyncDisposable {
 		// Record any unhandled background-thread exception to a crash log (and stderr) before the runtime tears
 		// down, so a hard exit leaves a trace instead of vanishing; surfaced as a toast on the next launch.
 		CrashReporter.Install(line => Log($"[crash] {line}"), _lastCrashFile);
+		// A crash reports itself; being stopped from outside does not, so the run also marks itself live and
+		// stamps how it ends. A marker still reading "running" is the only trace such an ending leaves. A
+		// runner-managed worker is exempt: its supervisor kills and restarts it by design, so an ending it never
+		// stamped is routine there rather than the anomaly this reports.
+		_priorUnfinishedRun = _runtime.Managed
+			? string.Empty
+			: ExitJournal.Start(line => Log($"[exit] {line}"), _exitJournalFile) ?? string.Empty;
 
 		// Any launch context can carry a truncated environment and a stingy open-file limit — a Finder .app or
 		// desktop entry via launchd, a headless host under a supervisor. Raise the descriptor limit so a second

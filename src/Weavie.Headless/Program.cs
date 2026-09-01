@@ -27,6 +27,8 @@ if (listen is null) {
 var dispatcher = new SerialUiDispatcher(ex => {
 	Console.Error.WriteLine($"[weavie-headless] dispatched action failed: {ex}");
 	Console.Error.Flush();
+	// FailFast runs no exit handler, so the ending is stamped here or it reads as a kill from outside.
+	ExitJournal.Record("failed: a dispatched UI action threw");
 	Environment.FailFast("weavie-headless: a dispatched UI action threw", ex);
 });
 var bridge = new WebSocketHostBridge();

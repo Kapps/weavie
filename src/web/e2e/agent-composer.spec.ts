@@ -1605,8 +1605,11 @@ test.describe("ACP composer", () => {
     const body = page.locator(".agent-body");
     const navigation = page.locator(".agent-scroll-nav");
     const latestButton = page.getByRole("button", { name: "Jump to latest", exact: true });
+    const distanceFromBottom = (): Promise<number> =>
+      body.evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight);
     await expect(page.locator(".agent-entry").first()).toBeVisible();
     await expect(latestButton).toHaveCount(0);
+    await expect.poll(distanceFromBottom).toBeLessThan(1);
 
     const bounds = await body.boundingBox();
     if (bounds === null) {
@@ -1618,21 +1621,14 @@ test.describe("ACP composer", () => {
         Number.parseFloat(getComputedStyle(element).lineHeight),
       );
       await page.mouse.wheel(0, -lineHeight * lines);
-      await expect
-        .poll(() =>
-          body.evaluate(
-            (element) => element.scrollHeight - element.scrollTop - element.clientHeight,
-          ),
-        )
-        .toBeGreaterThan(lineHeight * lines - 2);
+      await expect.poll(distanceFromBottom).toBeGreaterThan(lineHeight * lines - 2);
+      await expect.poll(distanceFromBottom).toBeLessThan(lineHeight * lines + 2);
     };
 
     await scrollLinesFromBottom(2.5);
     await expect(latestButton).toHaveCount(0);
     publishPane(userMessage("near-bottom follow check"));
-    await expect
-      .poll(() => body.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight))
-      .toBeLessThan(1);
+    await expect.poll(distanceFromBottom).toBeLessThan(1);
 
     await scrollLinesFromBottom(4);
     await expect(latestButton).toHaveCount(1);
@@ -1645,14 +1641,10 @@ test.describe("ACP composer", () => {
 
     await latestButton.click();
     await expect(latestButton).toHaveCount(0);
-    await expect
-      .poll(() => body.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight))
-      .toBeLessThan(1);
+    await expect.poll(distanceFromBottom).toBeLessThan(1);
     publishPane(userMessage("follow after jump to latest"));
     await expect(page.getByText("follow after jump to latest", { exact: true })).toBeVisible();
-    await expect
-      .poll(() => body.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight))
-      .toBeLessThan(1);
+    await expect.poll(distanceFromBottom).toBeLessThan(1);
   });
 
   // Flaked on main CI 2026-08-13 04:09 UTC (e2e (linux) / shard 2/6):

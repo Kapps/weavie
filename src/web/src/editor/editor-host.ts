@@ -87,6 +87,19 @@ export interface EditorHost {
   flushDirty(): Promise<void>;
   /** Flushes dirty working copies belonging to one exact session before that backend is torn down. */
   flushSession(session: ClientSession): Promise<void>;
+  /**
+   * Resolves a file's working copy for a secondary editor — the unified review's per-file diffs — on its own
+   * refcounted reference, so it never releases (or is released by) the tab holding the same file. Held until
+   * `releaseReviewCopies`, so scrolling the review in and out of a file doesn't re-read it from the host.
+   */
+  openReviewCopy(session: ClientSession, path: string): Promise<monaco.editor.ITextModel>;
+  /** Flushes and releases every review-held working copy (the unified review closed, or the session changed). */
+  releaseReviewCopies(): void;
+  /**
+   * The code editor holding keyboard focus — a unified-review section's, else the main pane. Menu-triggered
+   * actions (Copy/Cut/Paste) must act on what the user is actually typing in.
+   */
+  focusedEditor(): monaco.editor.ICodeEditor;
   /** Clears the editor to an empty pane (the last tab was closed). */
   clear(): void;
   /**
@@ -581,6 +594,52 @@ export async function createEditorHost(
     cancelPendingSave(sessionFileUri(session, path).toString());
   };
 
+  // Working copies held for the unified review's per-file editors, on references independent of the tabs'.
+  const reviewCopies = new Map<string, ModelRef>();
+  // Bumped on every release, so a reference that resolves after one is dropped instead of leaking into a map
+  // nothing will drain again.
+  let reviewGeneration = 0;
+
+  const openReviewCopy = async (
+    session: ClientSession,
+    path: string,
+  ): Promise<monaco.editor.ITextModel> => {
+    const uri = sessionFileUri(session, path);
+    const key = uri.toString();
+    const held = reviewCopies.get(key);
+    if (held !== undefined) {
+      return held.object.textEditorModel;
+    }
+    const generation = reviewGeneration;
+    const ref = await textModelService.createModelReference(uri);
+    const existing = reviewCopies.get(key);
+    if (existing !== undefined) {
+      // A concurrent open of the same file won the race; drop this one and share theirs.
+      ref.dispose();
+      return existing.object.textEditorModel;
+    }
+    if (generation !== reviewGeneration) {
+      // The review closed (or the session was rebound) while this resolved — nothing owns it now.
+      ref.dispose();
+      throw new Error("the review closed while this file was loading");
+    }
+    reviewCopies.set(key, ref);
+    attachSave(ref.object.textEditorModel);
+    return ref.object.textEditorModel;
+  };
+
+  const releaseReviewCopies = (): void => {
+    reviewGeneration += 1;
+    for (const [key, ref] of [...reviewCopies]) {
+      flushSave(key);
+      ref.dispose();
+      reviewCopies.delete(key);
+    }
+  };
+
+  const focusedEditor = (): monaco.editor.ICodeEditor =>
+    monaco.editor.getEditors().find((candidate) => candidate.hasTextFocus()) ?? editor;
+
   const clear = (): void => {
     snapshotViewState();
     openSeq += 1;
@@ -593,6 +652,7 @@ export async function createEditorHost(
     // A rebind to media/web/source/empty opens no successor model, so it must invalidate an older async text
     // open explicitly. The immutable binding check above also keeps its eventual reference out of this session.
     openSeq += 1;
+    releaseReviewCopies();
     for (const [key, ref] of [...refs]) {
       flushSave(key);
       ref.dispose();
@@ -611,7 +671,9 @@ export async function createEditorHost(
   // propagated so callers cannot release a model or tear down its backend after losing an edit.
   const flushDirtyFor = async (owner: ClientSession | null): Promise<void> => {
     const saves: Promise<void>[] = [];
-    for (const key of [...refs.keys()]) {
+    // Review sections hold their own references, so a file edited in the overview with no tab open is only
+    // reachable through reviewCopies — and this barrier is what a backend teardown awaits.
+    for (const key of new Set([...refs.keys(), ...reviewCopies.keys()])) {
       const uri = monaco.Uri.parse(key);
       if (owner !== null && sessionForUri(uri) !== owner) {
         continue;
@@ -759,8 +821,9 @@ export async function createEditorHost(
     for (const subscription of disposables) {
       subscription.dispose();
     }
+    releaseReviewCopies();
     editor.dispose();
-    // The model references are not disposed — they persist on window so the next host reattaches to the same
+    // The tab model references are not disposed — they persist on window so the next host reattaches to the same
     // working copies and the refcount never hits 0.
   };
 
@@ -808,6 +871,9 @@ export async function createEditorHost(
     flush,
     flushDirty,
     flushSession: (session) => flushDirtyFor(session),
+    openReviewCopy,
+    releaseReviewCopies,
+    focusedEditor,
     clear,
     rebindSession,
     beginReview,

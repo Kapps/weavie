@@ -11,9 +11,12 @@ editor, change-by-change and file-by-file. Doing nothing keeps the change — it
 The two review modes are projections over one Core-owned review board:
 
 - **Unified review** is a GitHub-style page with aggregate additions/deletions, the complete file list,
-  and contextual diff hunks for every file. It is optimized for breadth and file-level decisions.
-- **File review** is the hovering inline-diff toolbar over the live editor. It is optimized for depth:
-  syntax-aware code context, hunk navigation, comments, and line-level Keep/Revert.
+  and every file's diff. Each file section is a **real editor on that file's live working copy**, with the
+  unchanged regions collapsed into hidden areas — so a scan carries the same syntax and semantic
+  highlighting, LSP hovers/diagnostics/go-to-definition, completions and editing the file pane does. It is
+  optimized for breadth and file-level decisions.
+- **File review** is the hovering inline-diff toolbar over the live editor. It is optimized for depth: hunk
+  navigation, comments, and line-level Keep/Revert.
 
 `weavie.review.toggleMode` (`$mod+Shift+u` by default) moves between them without creating a second
 review state. Entering unified mode requests any diffs not yet streamed by a PR/ref review; host
@@ -431,10 +434,11 @@ The session-changes "show changes" panel and the post-turn review panel (both fl
   as an `fs-change` removal; the editor must close that tab cleanly (no "Unable to read file" toast) and
   the walk auto-advances.
 - **Large reviews.** The unified page virtualizes file sections with the same virtualizer as the agent
-  transcript and defers layout for off-screen row chunks. It has no line-count cutoff: a 4,000-line file
-  renders normally when the diff engine completes. An actual computation timeout is visible in that file
-  and directs the user to focused review. The inline Monaco presentation retains its explicit per-file
-  decoration boundary because thousands of editor decorations are a different cost from plain diff rows.
+  transcript, so only the sections on screen hold a live editor — a 100-file review never means 100 Monaco
+  instances. Collapsing the unchanged regions keeps each section proportional to what actually changed. It
+  has no line-count cutoff: a 4,000-line file renders normally when the diff engine completes. An actual
+  computation timeout leaves that file shown in full, uncollapsed and unmarked, with a notice. File review
+  keeps its own explicit per-file decoration boundary, since it paints the whole file at once.
 - **Binary files.** The tracker is text-based already; both presentations inherit that boundary.
 
 ## Open questions

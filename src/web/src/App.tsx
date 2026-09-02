@@ -1316,6 +1316,8 @@ export default function App(): JSX.Element {
                   overview={editor.review.overview}
                   session={selectedSession()!}
                   onCursorChange={editor.review.setCursor}
+                  openCopy={editor.review.openCopy}
+                  releaseCopies={editor.review.releaseCopies}
                 />
               </Suspense>
             </Show>

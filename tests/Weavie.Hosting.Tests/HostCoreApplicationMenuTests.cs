@@ -38,10 +38,10 @@ public sealed class HostCoreApplicationMenuTests {
 
 		menu.Activate(new ApplicationMenuActivation(7, "file/0"));
 
-		var (Peer, Json) = Assert.Single(host.Bridge.Sent, item => IsInvocation(item.Json));
-		Assert.Equal(new WebPeer(TestHost.TestPageId), Peer);
+		var (peer, json) = Assert.Single(host.Bridge.Sent, item => IsInvocation(item.Json));
+		Assert.Equal(new WebPeer(TestHost.TestPageId), peer);
 		Assert.DoesNotContain(host.Bridge.Broadcasts, IsInvocation);
-		Assert.True(MessageEnvelope.TryParse(Json, out var envelope));
+		Assert.True(MessageEnvelope.TryParse(json, out var envelope));
 		var activation = Assert.IsType<MessageEnvelope>(envelope).Payload;
 		Assert.Equal(7, activation.GetProperty("revision").GetInt64());
 		Assert.Equal("file/0", activation.GetProperty("token").GetString());

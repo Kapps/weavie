@@ -278,9 +278,8 @@ test("middle-clicking an editor tab closes it instead of starting an autoscroll"
     ).toBeGreaterThan(1);
 
     const tab = page.locator(".editor-tab", { hasText: "module-13.ts" });
-    const origin = await paneOrigin(tab.locator(".editor-tab-main"));
     // Deliberately don't wait for editor readiness: the active tab is valid while its lazy model is still loading.
-    await page.mouse.click(origin.x, origin.y, { button: "middle" });
+    await tab.locator(".editor-tab-main").click({ button: "middle" });
 
     // The tab closes without arming autoscroll, and the editor finishes its asynchronous switch to the survivor.
     await expect(tab).toHaveCount(0);

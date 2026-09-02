@@ -278,9 +278,14 @@ test("middle-clicking an editor tab closes it instead of starting an autoscroll"
     ).toBeGreaterThan(1);
 
     const tab = page.locator(".editor-tab", { hasText: "module-13.ts" });
-    const origin = await paneOrigin(tab.locator(".editor-tab-main"));
-    // Deliberately don't wait for editor readiness: the active tab is valid while its lazy model is still loading.
-    await page.mouse.click(origin.x, origin.y, { button: "middle" });
+    // Deliberately don't wait for editor readiness: the active tab is valid while its lazy model is still
+    // loading. Click through the locator (not a coordinate frozen by paneOrigin) so Playwright re-resolves the
+    // tab's position immediately before clicking — 14 concurrent lazy model loads can still shift tab layout
+    // at this point, and a stale coordinate lands off-target on a slower runner.
+    // Flaked on Windows CI (2026-09-02, run https://github.com/Kapps/weavie/actions/runs/33592205183): the
+    // click landed before the tab strip's layout settled, so the tab was still there 30s later. Fixed by
+    // switching to a locator click, which re-resolves the target position right before clicking.
+    await tab.locator(".editor-tab-main").click({ button: "middle" });
 
     // The tab closes without arming autoscroll, and the editor finishes its asynchronous switch to the survivor.
     await expect(tab).toHaveCount(0);

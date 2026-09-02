@@ -148,7 +148,6 @@ describe("toAgentTranscript", () => {
         detailText: null,
         id: "cmd-1",
         label: "command git status",
-        outputIsCommand: true,
         status: "completed",
         tone: "muted",
       },
@@ -196,11 +195,10 @@ describe("toAgentTranscript", () => {
 
     expect(transcript[0]?.details[0]).toMatchObject({
       detailText: "src/App.cs: trailing whitespace",
-      outputIsCommand: true,
     });
   });
 
-  it("requires an explicit reveal for provider command categories but not ordinary tool output", () => {
+  it("keeps every tool's output on the step, behind an explicit reveal", () => {
     const transcript = toAgentTranscript([
       {
         type: "item-completed",
@@ -225,8 +223,8 @@ describe("toAgentTranscript", () => {
     ]);
 
     expect(transcript[0]?.details).toMatchObject([
-      { category: "execute", detailText: "test output", outputIsCommand: true },
-      { category: "read", detailText: "file contents", outputIsCommand: false },
+      { category: "execute", detailText: "test output" },
+      { category: "read", detailText: "file contents" },
     ]);
   });
 

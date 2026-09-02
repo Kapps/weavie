@@ -1,9 +1,9 @@
 import { For, type JSX, Show } from "solid-js";
 import type { AgentPaneUpdate, ClientSession } from "../bridge";
-import { AgentCommandOutput } from "./AgentCommandOutput";
 import { EditLocationActions } from "./AgentPaneEditActions";
 import { AgentLinkedText } from "./AgentPaneLinks";
 import type { AgentActivityStep, AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
+import { AgentToolOutput } from "./AgentToolOutput";
 
 export function ActivityDetails(props: {
   entry: AgentTranscriptEntry;
@@ -39,17 +39,11 @@ export function ActivityDetails(props: {
                     </Show>
                   </span>
                 </Show>
-                {hasOutput(step) ? (
-                  step.outputIsCommand ? (
-                    <AgentCommandOutput
-                      renderOutput={() => (
-                        <ActivityStepOutput session={props.session} step={step} />
-                      )}
-                    />
-                  ) : (
-                    <ActivityStepOutput session={props.session} step={step} />
-                  )
-                ) : null}
+                <Show when={hasOutput(step)}>
+                  <AgentToolOutput
+                    renderOutput={() => <ActivityStepOutput session={props.session} step={step} />}
+                  />
+                </Show>
               </div>
             )}
           </For>

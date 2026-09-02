@@ -13,16 +13,16 @@ interface MountedDisclosure {
 const disclosures = new Map<string, MountedDisclosure>();
 const disclosuresByElement = new WeakMap<HTMLDetailsElement, MountedDisclosure>();
 
-export function AgentCommandOutput(props: { renderOutput: () => JSX.Element }): JSX.Element {
+export function AgentToolOutput(props: { renderOutput: () => JSX.Element }): JSX.Element {
   let details: HTMLDetailsElement | undefined;
-  const outputId = `agent-command-output-${createUniqueId()}`;
+  const outputId = `agent-tool-output-${createUniqueId()}`;
   const [expanded, setExpanded] = createSignal(false);
   const toggle = (): void => {
     setExpanded((current) => !current);
   };
   const title = (): string => {
-    const action = expanded() ? "Hide command output" : "Show command output";
-    const key = liveKeyLabel(CommandIds.toggleAgentCommandOutput);
+    const action = expanded() ? "Hide tool output" : "Show tool output";
+    const key = liveKeyLabel(CommandIds.toggleAgentToolOutput);
     return key === "" ? action : `${action} (${key})`;
   };
 
@@ -52,8 +52,8 @@ export function AgentCommandOutput(props: { renderOutput: () => JSX.Element }): 
 
   return (
     <details
-      class="agent-command-output-details"
-      data-agent-command-output
+      class="agent-tool-output-details"
+      data-agent-tool-output
       open={expanded()}
       ref={details}
     >
@@ -63,14 +63,14 @@ export function AgentCommandOutput(props: { renderOutput: () => JSX.Element }): 
         title={title()}
         onClick={(event) => {
           event.preventDefault();
-          void runCommandWithFeedback(CommandIds.toggleAgentCommandOutput, { outputId });
+          void runCommandWithFeedback(CommandIds.toggleAgentToolOutput, { outputId });
         }}
       >
         {expanded() ? "hide output" : "show output"}
       </summary>
       <Show when={expanded()} keyed>
         {(_expanded) => (
-          <div class="agent-command-output" id={outputId}>
+          <div class="agent-tool-output" id={outputId}>
             {props.renderOutput()}
           </div>
         )}
@@ -79,7 +79,7 @@ export function AgentCommandOutput(props: { renderOutput: () => JSX.Element }): 
   );
 }
 
-export function toggleAgentCommandOutput(args: unknown): boolean {
+export function toggleAgentToolOutput(args: unknown): boolean {
   const requested = (args as { outputId?: unknown } | undefined)?.outputId;
   if (requested !== undefined && typeof requested !== "string") {
     return false;
@@ -96,9 +96,7 @@ export function toggleAgentCommandOutput(args: unknown): boolean {
 }
 
 function focusedDisclosure(): MountedDisclosure | undefined {
-  const details = document.activeElement?.closest<HTMLDetailsElement>(
-    "[data-agent-command-output]",
-  );
+  const details = document.activeElement?.closest<HTMLDetailsElement>("[data-agent-tool-output]");
   return details === null || details === undefined ? undefined : disclosuresByElement.get(details);
 }
 
@@ -108,7 +106,7 @@ function newestActiveDisclosure(): MountedDisclosure | undefined {
     return undefined;
   }
   const elements = document.querySelectorAll<HTMLDetailsElement>(
-    ".agent-surface.active [data-agent-command-output]",
+    ".agent-surface.active [data-agent-tool-output]",
   );
   for (let index = elements.length - 1; index >= 0; index -= 1) {
     const details = elements.item(index);
@@ -129,7 +127,7 @@ function intersects(element: Element, viewport: Element): boolean {
 function publishAvailability(): void {
   const active = document.querySelector(".agent-surface.active");
   setContext(
-    "agentCommandOutputAvailable",
+    "agentToolOutputAvailable",
     active !== null &&
       [...disclosures.values()].some(
         (disclosure) => disclosure.visible && active.contains(disclosure.element),

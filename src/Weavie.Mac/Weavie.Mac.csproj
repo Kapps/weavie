@@ -28,6 +28,7 @@
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <ProjectReference Include="..\Weavie.Core\Weavie.Core.csproj" />
     <ProjectReference Include="..\Weavie.Hosting\Weavie.Hosting.csproj" />
+    <InternalsVisibleTo Include="Weavie.Mac.Tests" />
   </ItemGroup>
 
   <!-- Debug only: tell the host where the web sources live so it can launch the Vite dev server

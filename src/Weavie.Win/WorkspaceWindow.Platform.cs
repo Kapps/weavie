@@ -36,6 +36,8 @@ internal sealed partial class WorkspaceWindow {
 
 	IShellMenuActions IHostPlatform.MenuActions => this;
 
+	IApplicationMenu IHostPlatform.ApplicationMenu => NoopApplicationMenu.Instance;
+
 	IHostDialogs? IHostPlatform.Dialogs => _dialogs;
 
 	Weavie.Core.Sessions.ISystemNotificationChannel IHostPlatform.Notifications => _notifications;

@@ -1,127 +1,17 @@
 import { createEffect, createSignal, For, type JSX, on, onCleanup, Show, untrack } from "solid-js";
-import {
-  type ContextOverrides,
-  evaluateWhen,
-  onContextChanged,
-  paneFocusContext,
-} from "../commands/context";
-import { findCommand, onCommandsChanged } from "../commands/registry";
-import { CommandIds, type CommandInfo } from "../commands/types";
-import {
-  APPLICATION_MENUS,
-  type ApplicationMenuDefinition,
-  type ApplicationMenuEntry,
-} from "./application-menu";
-import {
-  ContextMenu,
-  type ContextMenuEntry,
-  type ContextMenuItem,
-  type ContextMenuState,
-} from "./ContextMenu";
+import { type ContextOverrides, onContextChanged, paneFocusContext } from "../commands/context";
+import { onCommandsChanged } from "../commands/registry";
+import { APPLICATION_MENUS, type ApplicationMenuDefinition } from "./application-menu";
+import { buildApplicationMenuEntries } from "./application-menu-model";
+import { ContextMenu, type ContextMenuState } from "./ContextMenu";
 import { recentWorkspaces } from "./recent-workspaces";
 
 interface OpenApplicationMenu extends ContextMenuState {
   id: string;
 }
 
-function leaf(path: string): string {
-  const parts = path.split(/[\\/]/).filter((part) => part.length > 0);
-  return parts.length > 0 ? (parts[parts.length - 1] as string) : path;
-}
-
-function commandInfo(id: string): CommandInfo {
-  const command = findCommand(id);
-  if (command === undefined) {
-    throw new Error(`Application menu references unknown command '${id}'.`);
-  }
-  return command;
-}
-
-function commandItem(
-  id: string,
-  context: ContextOverrides,
-  args?: unknown,
-  label?: string,
-  title?: string,
-): ContextMenuItem {
-  const command = commandInfo(id);
-  return {
-    commandId: id,
-    disabled: !evaluateWhen(command.when, context),
-    ...(args === undefined ? {} : { args }),
-    ...(label === undefined ? {} : { label }),
-    ...(title === undefined ? {} : { title }),
-  };
-}
-
-function normalize(entries: Array<ContextMenuEntry | null>): ContextMenuEntry[] {
-  const normalized: ContextMenuEntry[] = [];
-  for (const entry of entries) {
-    if (entry === null) {
-      continue;
-    }
-    if (entry.kind === "separator") {
-      if (normalized.length === 0 || normalized[normalized.length - 1]?.kind === "separator") {
-        continue;
-      }
-    }
-    normalized.push(entry);
-  }
-  if (normalized[normalized.length - 1]?.kind === "separator") {
-    normalized.pop();
-  }
-  return normalized;
-}
-
-function buildEntries(
-  definitions: ApplicationMenuEntry[],
-  recents: readonly string[],
-  platform: string,
-  context: ContextOverrides,
-): ContextMenuEntry[] {
-  return normalize(
-    definitions.map((definition): ContextMenuEntry | null => {
-      if (definition.kind === "separator") {
-        return { kind: "separator" };
-      }
-      if (definition.kind === "recentWorkspaces") {
-        const command = commandInfo(CommandIds.openRecentWorkspace);
-        if (!evaluateWhen(command.when, context)) {
-          return null;
-        }
-        return {
-          kind: "submenu",
-          label: command.title,
-          disabled: recents.length === 0,
-          entries: recents.map((path) =>
-            commandItem(CommandIds.openRecentWorkspace, context, { path }, leaf(path), path),
-          ),
-        };
-      }
-      if (definition.kind === "submenu") {
-        const entries = buildEntries(definition.entries, recents, platform, context);
-        return {
-          kind: "submenu",
-          label: definition.label,
-          entries,
-          disabled: entries.every((entry) => entry.kind === "separator" || entry.disabled === true),
-        };
-      }
-      if (definition.excludePlatforms?.includes(platform) === true) {
-        return null;
-      }
-      const command = commandInfo(definition.commandId);
-      if (command.when === "nativeShell" && !evaluateWhen(command.when, context)) {
-        return null;
-      }
-      return commandItem(definition.commandId, context);
-    }),
-  );
-}
-
 /**
- * The shared Windows/macOS/Linux/web application menu. Its placement tree is curated once; every row joins
- * to the active command catalog for its label, context, effective shortcut, and dispatch owner.
+ * The Windows/Linux/web application menu. macOS consumes the same resolved model through its AppKit bridge.
  */
 export function Menu(): JSX.Element {
   const platform = window.__WEAVIE_SHELL__?.platform ?? "web";
@@ -145,7 +35,12 @@ export function Menu(): JSX.Element {
       id: menu.id,
       x: rect.left,
       y: rect.bottom,
-      entries: buildEntries(menu.entries, recentWorkspaces(), platform, lastWorkspaceContext),
+      entries: buildApplicationMenuEntries(
+        menu.entries,
+        recentWorkspaces(),
+        platform,
+        lastWorkspaceContext,
+      ),
     });
   };
   const toggle = (menu: ApplicationMenuDefinition, button: HTMLButtonElement): void => {
@@ -202,7 +97,12 @@ export function Menu(): JSX.Element {
     if (current !== null && menu !== undefined) {
       setOpenMenu({
         ...current,
-        entries: buildEntries(menu.entries, recentWorkspaces(), platform, menuContext()),
+        entries: buildApplicationMenuEntries(
+          menu.entries,
+          recentWorkspaces(),
+          platform,
+          menuContext(),
+        ),
       });
     }
   };

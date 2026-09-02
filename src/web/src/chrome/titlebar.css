@@ -23,8 +23,8 @@
   color: var(--dim);
 }
 
-/* Native-frame app bar: the omnibar plus platform-appropriate menus/toggles, rendered below the OS title bar.
-   No draggable region or window controls — GTK/AppKit own both. */
+/* Native-frame app bar: the omnibar plus Linux's web menu, rendered below the OS title bar. AppKit owns the
+   macOS application menu as well as the window frame. */
 .native-titlebar {
   flex: 0 0 auto;
   display: flex;

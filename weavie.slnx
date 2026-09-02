@@ -18,6 +18,7 @@
     <Project Path="tests/Weavie.Headless.Tests/Weavie.Headless.Tests.csproj" />
     <Project Path="tests/Weavie.Hosting.Tests/Weavie.Hosting.Tests.csproj" />
     <Project Path="tests/Weavie.Linux.Tests/Weavie.Linux.Tests.csproj" />
+    <Project Path="tests/Weavie.Mac.Tests/Weavie.Mac.Tests.csproj" />
     <Project Path="tests/Weavie.Remote.Tests/Weavie.Remote.Tests.csproj" />
     <Project Path="tests/Weavie.Runner.Tests/Weavie.Runner.Tests.csproj" />
     <Project Path="tests/Weavie.WorktreeServe.Tests/Weavie.WorktreeServe.Tests.csproj" />

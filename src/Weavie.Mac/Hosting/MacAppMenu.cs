@@ -1,19 +1,55 @@
 using ObjCRuntime;
+using Weavie.Hosting;
 
 namespace Weavie.Mac.Hosting;
 
-/// <summary>
-/// Builds the macOS-owned App/Edit/Window menus. Weavie commands live in the shared web application menu so
-/// every platform reads the active command catalog, context, and effective keybindings through one renderer.
-/// </summary>
-internal static class MacAppMenu {
-	/// <summary>Builds the native menus whose behavior belongs to AppKit rather than to a Weavie command.</summary>
-	public static NSMenu Build() {
-		var menuBar = new NSMenu();
-		menuBar.AddItem(BuildAppMenu());
-		menuBar.AddItem(BuildEditMenu());
-		menuBar.AddItem(BuildWindowMenu());
-		return menuBar;
+/// <summary>Owns the process-wide AppKit menu and swaps in the key workspace window's resolved command menus.</summary>
+internal sealed partial class MacAppMenu {
+	private readonly DisplayOnlyKeyEquivalentDelegate _displayOnlyKeyEquivalents = new();
+	private MacAppMenuChannel? _active;
+
+	public MacAppMenu() {
+		Rebuild(null);
+	}
+
+	public NSMenu MainMenu { get; } = new();
+
+	public MacAppMenuChannel CreateChannel() => new(this);
+
+	internal void Activate(MacAppMenuChannel channel) {
+		_active = channel;
+		Rebuild(channel);
+	}
+
+	internal void Apply(MacAppMenuChannel channel) {
+		if (ReferenceEquals(_active, channel)) {
+			Rebuild(channel);
+		}
+	}
+
+	internal void Close(MacAppMenuChannel channel) {
+		if (!ReferenceEquals(_active, channel)) {
+			return;
+		}
+
+		_active = null;
+		Rebuild(null);
+	}
+
+	private void Rebuild(MacAppMenuChannel? channel) {
+		MainMenu.RemoveAllItems();
+		MainMenu.AddItem(BuildAppMenu());
+		if (channel is not null && channel.State is { Menus.Count: > 0 } state) {
+			for (int index = 0; index < state.Menus.Count; index++) {
+				MainMenu.AddItem(BuildDynamicMenu(state.Menus[index], state.Revision, channel));
+				if (index == 0) {
+					MainMenu.AddItem(BuildEditMenu());
+				}
+			}
+		} else {
+			MainMenu.AddItem(BuildEditMenu());
+		}
+		MainMenu.AddItem(BuildWindowMenu());
 	}
 
 	private static NSMenuItem BuildAppMenu() {
@@ -54,8 +90,14 @@ internal static class MacAppMenu {
 		return item;
 	}
 
-	private static NSMenuItem Submenu(string title, NSMenu submenu) {
-		var item = new NSMenuItem(title) { Submenu = submenu };
-		return item;
+	private static NSMenuItem Submenu(string title, NSMenu submenu) =>
+		new(title) { Submenu = submenu };
+
+	private sealed class DisplayOnlyKeyEquivalentDelegate : NSMenuDelegate {
+		public override bool HasKeyEquivalentForEvent(
+			NSMenu menu,
+			NSEvent theEvent,
+			Foundation.NSObject target,
+			Selector action) => false;
 	}
 }

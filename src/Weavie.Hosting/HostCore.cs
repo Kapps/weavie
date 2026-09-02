@@ -38,6 +38,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 	private readonly IWebTransportHub _bridge;
 	private readonly HostMessageRouter _messages;
 	private readonly MessageIngress _messageIngress;
+	private MessagePeer? _applicationMenuOwner;
 	private readonly string _hostIncarnation = Guid.NewGuid().ToString("n");
 	private readonly IUiDispatcher _ui;
 	private readonly SettingsStore _settings;
@@ -197,6 +198,8 @@ public sealed partial class HostCore : IAsyncDisposable {
 		_corrections.Changed += () => _suggestions?.Evaluate();
 		_http = new WorkspaceHttpServer(this, httpOptions, httpBridge, _mediaRoutes);
 		WireHostMessages();
+		_platform.ApplicationMenu.Activated += OnApplicationMenuActivated;
+		_messages.Host.PeerDisconnected += OnApplicationMenuPeerDisconnected;
 	}
 
 	// The last file recorded as recent, so the active-editor stream (which re-fires on every cursor move within a
@@ -518,6 +521,9 @@ public sealed partial class HostCore : IAsyncDisposable {
 
 		Attempt(() => _bridge.MessageReceived -= OnWebMessage);
 		Attempt(() => _bridge.PeerDisconnected -= OnWebPeerDisconnected);
+		Attempt(() => _platform.ApplicationMenu.Activated -= OnApplicationMenuActivated);
+		Attempt(() => _messages.Host.PeerDisconnected -= OnApplicationMenuPeerDisconnected);
+		Attempt(_platform.ApplicationMenu.Clear);
 		await AttemptAsync(() => _messageIngress.DisposeAsync().AsTask()).ConfigureAwait(false);
 		await AttemptAsync(() => _messages.Host.QuiesceAsync()).ConfigureAwait(false);
 		await AttemptAsync(DisposeSystemNotificationsAsync).ConfigureAwait(false);

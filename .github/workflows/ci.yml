@@ -138,6 +138,10 @@ jobs:
       - name: Build
         run: dotnet build ${{ matrix.project }} -c Debug --no-restore
 
+      - name: Test macOS application menu
+        if: matrix.name == 'macos'
+        run: dotnet run --project tests/Weavie.Mac.Tests/Weavie.Mac.Tests.csproj -c Debug --no-restore
+
       - name: Verify .NET formatting
         if: matrix.name == 'macos'
         run: dotnet format weavie.slnx --verify-no-changes --no-restore

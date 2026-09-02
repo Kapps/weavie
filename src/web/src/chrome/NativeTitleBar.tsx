@@ -3,9 +3,10 @@ import type { SymbolActions } from "../symbols/symbol-match";
 import { Menu } from "./Menu";
 import { Omnibar } from "./Omnibar";
 
-// The app bar below a native macOS/Linux window frame. Both use the shared command menu and omnibar while
-// the platform owns its window frame; macOS retains only its OS-standard App/Edit/Window system menus.
+// The app bar below a native macOS/Linux window frame. Linux keeps the web command menu; macOS presents it
+// in AppKit's system menu bar, so its in-window strip contains only the omnibar.
 export function NativeTitleBar(props: {
+  showApplicationMenu: boolean;
   files: string[];
   filesPending: boolean;
   root: string | null;
@@ -17,9 +18,7 @@ export function NativeTitleBar(props: {
 }): JSX.Element {
   return (
     <div class="native-titlebar">
-      <div class="native-tb-left">
-        <Menu />
-      </div>
+      <div class="native-tb-left">{props.showApplicationMenu && <Menu />}</div>
       <div class="tb-center">
         <Omnibar
           files={props.files}

@@ -42,6 +42,8 @@ internal sealed class HeadlessPlatform : IHostPlatform {
 
 	public IShellMenuActions MenuActions => NoopShellMenuActions.Instance;
 
+	public IApplicationMenu ApplicationMenu => NoopApplicationMenu.Instance;
+
 	public IHostDialogs? Dialogs => null;
 
 	public Weavie.Core.Sessions.ISystemNotificationChannel Notifications =>

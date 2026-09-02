@@ -6,7 +6,7 @@ namespace Weavie.Mac;
 
 // The macOS IHostPlatform seam, one per workspace window. The window owns the bridge + web view; the shared native
 // pieces (UI marshal, PTY launcher, dialogs, recents) come from the controller. AppKit owns the window frame and
-// standard system menus; the web app bar owns Weavie's command menu and omnibar.
+// application menu; the web app bar retains only the omnibar.
 internal sealed partial class WorkspaceWindow : IHostPlatform {
 	IWebTransportHub IHostPlatform.Bridge => _bridge;
 
@@ -33,6 +33,8 @@ internal sealed partial class WorkspaceWindow : IHostPlatform {
 	IShellWindow? IHostPlatform.Window => null;
 
 	IShellMenuActions IHostPlatform.MenuActions => this;
+
+	IApplicationMenu IHostPlatform.ApplicationMenu => _applicationMenu;
 
 	void IShellMenuActions.CloseWindow() => Window.PerformClose(null);
 

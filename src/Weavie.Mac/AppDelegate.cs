@@ -21,6 +21,7 @@ public sealed partial class AppDelegate : NSApplicationDelegate {
 	private MacDialogs? _dialogs;
 	private MacNotificationService? _notifications;
 	private ApplicationHotkeys? _hotkeys;
+	private MacAppMenu? _menu;
 	private WorkspaceWindow? _lastActive;
 	private WelcomeWindow? _welcome;
 
@@ -63,6 +64,8 @@ public sealed partial class AppDelegate : NSApplicationDelegate {
 			}
 		});
 		_dialogs = new MacDialogs();
+		_menu = new MacAppMenu();
+		NSApplication.SharedApplication.MainMenu = _menu.MainMenu;
 
 		// Reopen the last workspace (else the explicit `workspace` setting); with neither, show the welcome screen
 		// rather than silently opening the home directory.
@@ -71,10 +74,6 @@ public sealed partial class AppDelegate : NSApplicationDelegate {
 		if (firstWindow is null) {
 			ShowWelcome();
 		}
-
-		// AppKit owns only the platform-standard App/Edit/Window menus. Weavie's command menus are rendered in
-		// the shared web app bar, where the active catalog, context, and effective keybindings already live.
-		BuildMenu();
 
 		// Global hotkeys (e.g. ctrl+` → toggle the front window): app-level, so a single registration covers every
 		// window instead of each window's core re-registering the same chord. Dispatches to the front window.
@@ -110,8 +109,11 @@ public sealed partial class AppDelegate : NSApplicationDelegate {
 		_services?.Settings.Dispose();
 	}
 
-	/// <summary>Records the window that just became key, so the global toggle hotkey targets the front one.</summary>
-	internal void MarkActive(WorkspaceWindow window) => _lastActive = window;
+	/// <summary>Records the key window and selects its native command-menu snapshot.</summary>
+	internal void MarkActive(WorkspaceWindow window) {
+		_lastActive = window;
+		window.ActivateApplicationMenu();
+	}
 
 	/// <summary>Saves the closing window's geometry, drops it from the set, and disposes its core.</summary>
 	internal void OnWindowClosed(WorkspaceWindow window) {
@@ -122,6 +124,7 @@ public sealed partial class AppDelegate : NSApplicationDelegate {
 		}
 
 		window.DisposeCore();
+		_lastActive?.ActivateApplicationMenu();
 	}
 
 	/// <summary>
@@ -156,9 +159,9 @@ public sealed partial class AppDelegate : NSApplicationDelegate {
 		}
 	}
 
-	// Native App/Edit/Window conventions are process-wide; Weavie commands live in each window's shared web menu.
-	private void BuildMenu() =>
-		NSApplication.SharedApplication.MainMenu = MacAppMenu.Build();
+	internal MacAppMenuChannel CreateApplicationMenu() =>
+		(_menu ?? throw new InvalidOperationException("The macOS application menu is not initialized."))
+			.CreateChannel();
 
 	private static void Log(string line) {
 		Console.WriteLine(line);

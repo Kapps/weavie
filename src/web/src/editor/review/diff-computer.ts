@@ -27,6 +27,8 @@ interface ActiveSources {
   original: monaco.editor.ITextModel;
   claudeVersion: monaco.editor.ITextModel | undefined;
   acceptedBaseline: monaco.editor.ITextModel | undefined;
+  pending: number;
+  retired: boolean;
   faded: Promise<PairCalculation> | undefined;
   live:
     | {
@@ -43,6 +45,7 @@ let nextComputerId = 1;
 export class DiffComputer {
   private readonly id = nextComputerId++;
   private readonly worker = StandaloneServices.get(IEditorWorkerService);
+  private nextSourceSetId = 1;
   private active: ActiveSources | undefined;
 
   public compute(
@@ -56,7 +59,7 @@ export class DiffComputer {
       return active.live.calculation;
     }
 
-    const calculation = this.computeActive(active, liveModel);
+    const calculation = this.track(active, this.computeActive(active, liveModel));
     active.live = { model: liveModel, version, calculation };
     return calculation;
   }
@@ -76,21 +79,24 @@ export class DiffComputer {
       return this.active;
     }
     this.disposeActive();
-    const original = this.createSourceModel(sources.original, "original");
+    const sourceSetId = this.nextSourceSetId++;
+    const original = this.createSourceModel(sourceSetId, sources.original, "original");
     const claudeVersion =
       sources.claudeVersion === undefined
         ? undefined
-        : this.createSourceModel(sources.claudeVersion, "claude");
+        : this.createSourceModel(sourceSetId, sources.claudeVersion, "claude");
     const acceptedBaseline =
       sources.acceptedBaseline === undefined || sources.acceptedBaseline === sources.original
         ? undefined
-        : this.createSourceModel(sources.acceptedBaseline, "accepted");
+        : this.createSourceModel(sourceSetId, sources.acceptedBaseline, "accepted");
     this.active = {
       uri,
       values: sources,
       original,
       claudeVersion,
       acceptedBaseline,
+      pending: 0,
+      retired: false,
       faded: undefined,
       live: undefined,
     };
@@ -106,11 +112,15 @@ export class DiffComputer {
     );
   }
 
-  private createSourceModel(value: string, name: string): monaco.editor.ITextModel {
+  private createSourceModel(
+    sourceSetId: number,
+    value: string,
+    name: string,
+  ): monaco.editor.ITextModel {
     const uri = monaco.Uri.from({
       scheme: "weavie-inline-diff",
       authority: String(this.id),
-      path: `/${name}`,
+      path: `/${sourceSetId}/${name}`,
     });
     return monaco.editor.createModel(value, "plaintext", uri);
   }
@@ -129,7 +139,23 @@ export class DiffComputer {
         active.acceptedBaseline === undefined
           ? Promise.resolve<PairCalculation>({ status: "ready", changes: [] })
           : this.computePair(active.acceptedBaseline, active.original);
-      const [changes, userChanges, fadedChanges] = await Promise.all([primary, user, active.faded]);
+      const [changesResult, userChangesResult, fadedChangesResult] = await Promise.allSettled([
+        primary,
+        user,
+        active.faded,
+      ]);
+      if (changesResult.status === "rejected") {
+        return { status: "failed", error: changesResult.reason };
+      }
+      if (userChangesResult.status === "rejected") {
+        return { status: "failed", error: userChangesResult.reason };
+      }
+      if (fadedChangesResult.status === "rejected") {
+        return { status: "failed", error: fadedChangesResult.reason };
+      }
+      const changes = changesResult.value;
+      const userChanges = userChangesResult.value;
+      const fadedChanges = fadedChangesResult.value;
       if (
         changes.status === "timed-out" ||
         userChanges.status === "timed-out" ||
@@ -167,9 +193,33 @@ export class DiffComputer {
   }
 
   private disposeActive(): void {
-    this.active?.original.dispose();
-    this.active?.claudeVersion?.dispose();
-    this.active?.acceptedBaseline?.dispose();
+    const active = this.active;
     this.active = undefined;
+    if (active === undefined) {
+      return;
+    }
+    active.retired = true;
+    if (active.pending === 0) {
+      this.disposeSources(active);
+    }
+  }
+
+  private track(
+    active: ActiveSources,
+    calculation: Promise<DiffCalculation>,
+  ): Promise<DiffCalculation> {
+    active.pending++;
+    return calculation.finally(() => {
+      active.pending--;
+      if (active.retired && active.pending === 0) {
+        this.disposeSources(active);
+      }
+    });
+  }
+
+  private disposeSources(active: ActiveSources): void {
+    active.original.dispose();
+    active.claudeVersion?.dispose();
+    active.acceptedBaseline?.dispose();
   }
 }

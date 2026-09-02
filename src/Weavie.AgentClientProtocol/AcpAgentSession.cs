@@ -7,12 +7,17 @@ using Weavie.Core.Sessions;
 namespace Weavie.AgentClientProtocol;
 
 /// <summary>One worktree-scoped ACP conversation rendered in Weavie's native pane.</summary>
-public sealed partial class AcpAgentSession : IStructuredAgentSession, IStructuredAgentControls, IStructuredAgentUsage {
+public sealed partial class AcpAgentSession :
+	IStructuredAgentSession,
+	IStructuredAgentControls,
+	IStructuredAgentUsage,
+	IStructuredAgentSideConversations {
 	private readonly AgentSessionContext _context;
 	private readonly AcpAgentDefinition _definition;
 	private readonly AcpSessionStore _sessions;
 	private readonly AcpControlStore _controlDefaults;
 	private readonly Action<string> _log;
+	private readonly AcpSessionRole _role;
 	private readonly AcpJsonRpcConnection _connection;
 	private readonly AcpTerminalManager _terminals;
 	private readonly Lock _gate = new();
@@ -36,6 +41,7 @@ public sealed partial class AcpAgentSession : IStructuredAgentSession, IStructur
 	private string? _sessionId;
 	private string? _openingSessionId;
 	private long _turnNumber;
+	private long _sideProviderTurnOffset;
 	private long _activeGeneration;
 	private bool _ready;
 	private bool _started;
@@ -52,6 +58,7 @@ public sealed partial class AcpAgentSession : IStructuredAgentSession, IStructur
 	private string? _authenticationItemId;
 	private long _authenticationSequence;
 	private bool _supportsLoad;
+	private bool _supportsFork;
 	private bool _supportsResume;
 	private bool _supportsClose;
 	private bool _supportsImages;
@@ -73,7 +80,15 @@ public sealed partial class AcpAgentSession : IStructuredAgentSession, IStructur
 		AcpAgentDefinition definition,
 		AcpSessionStore sessions,
 		AcpControlStore controlDefaults,
-		Action<string> log) {
+		Action<string> log) : this(context, definition, sessions, controlDefaults, log, new PrimaryRole()) { }
+
+	private AcpAgentSession(
+		AgentSessionContext context,
+		AcpAgentDefinition definition,
+		AcpSessionStore sessions,
+		AcpControlStore controlDefaults,
+		Action<string> log,
+		AcpSessionRole role) {
 		ArgumentNullException.ThrowIfNull(context);
 		ArgumentNullException.ThrowIfNull(definition);
 		ArgumentNullException.ThrowIfNull(sessions);
@@ -84,6 +99,9 @@ public sealed partial class AcpAgentSession : IStructuredAgentSession, IStructur
 		_sessions = sessions;
 		_controlDefaults = controlDefaults;
 		_log = log;
+		_role = role;
+		_guidanceSent = role is SideRole sideRole && sideRole.GuidanceInherited;
+		_sideProviderTurnOffset = role is SideRole side ? side.Conversation.AnchorTurnNumber : 0;
 		_terminals = new AcpTerminalManager(context.Workspace, log);
 		_connection = new AcpJsonRpcConnection(definition, context.Workspace, log);
 		_connection.ProcessStarted += OnProcessStarted;
@@ -111,7 +129,9 @@ public sealed partial class AcpAgentSession : IStructuredAgentSession, IStructur
 			lock (_gate) {
 				return new AgentControlState {
 					Axes = [.. _controls.Values],
-					Slash = AgentControlCommands.ComposeSlash(_commands),
+					Slash = AgentControlCommands.ComposeSlash(
+						_commands,
+						_role is PrimaryRole && _supportsFork && _supportsLoad),
 				};
 			}
 		}
@@ -123,6 +143,9 @@ public sealed partial class AcpAgentSession : IStructuredAgentSession, IStructur
 	}
 
 	private void Emit(AgentPaneMessage message) {
+		var prepared = PreparePaneMessage(message);
+		if (prepared is null) return;
+		message = prepared;
 		if (message.TurnId is { Length: > 0 } turnId
 			&& message.ItemId is { Length: > 0 } itemId
 			&& message.Type is "agent-message-delta"
@@ -139,6 +162,7 @@ public sealed partial class AcpAgentSession : IStructuredAgentSession, IStructur
 	}
 
 	private void Observe(AgentEvent value) {
+		if (_role is SideRole && value is AgentProcessChanged or AgentSessionStarted or AgentRuntimeFailed) return;
 		var feedback = _context.Events.Observe(value);
 		foreach (string message in feedback.Messages) {
 			Emit(new AgentPaneMessage {
@@ -149,6 +173,43 @@ public sealed partial class AcpAgentSession : IStructuredAgentSession, IStructur
 			});
 		}
 	}
+
+	private AgentPaneMessage? PreparePaneMessage(AgentPaneMessage message) {
+		if (_role is not SideRole side) return message;
+		if (message.Type is "transcript-reset" or "draft") return null;
+		string? turnId = message.TurnId;
+		if (turnId is { Length: > 0 }
+			&& long.TryParse(turnId, System.Globalization.NumberStyles.None,
+				System.Globalization.CultureInfo.InvariantCulture, out long providerTurn)) {
+			if (providerTurn <= _sideProviderTurnOffset) {
+				return null;
+			}
+			turnId = (providerTurn - _sideProviderTurnOffset)
+				.ToString(System.Globalization.CultureInfo.InvariantCulture);
+		}
+		string? originalRequestId = message.RequestId;
+		string? requestId = originalRequestId is { Length: > 0 }
+			? SideRequestId(side.Conversation.ConversationId, originalRequestId)
+			: null;
+		string? itemId = message.ItemId;
+		if (requestId is not null) {
+			itemId = itemId == originalRequestId
+				? requestId
+				: itemId == "request:" + originalRequestId ? "request:" + requestId : itemId;
+		}
+		return message with {
+			ConversationId = side.Conversation.ConversationId,
+			AnchorTurnId = side.Conversation.AnchorTurnNumber.ToString(
+				System.Globalization.CultureInfo.InvariantCulture),
+			IsPrimaryThread = false,
+			TurnId = turnId,
+			RequestId = requestId,
+			ItemId = itemId,
+		};
+	}
+
+	private static string SideRequestId(string conversationId, string requestId) =>
+		conversationId + ":" + requestId;
 
 	private string? SessionId() {
 		lock (_gate) {
@@ -242,6 +303,7 @@ public sealed partial class AcpAgentSession : IStructuredAgentSession, IStructur
 			});
 		}
 		EmitFailure(error);
+		SignalSideTurnSettled();
 	}
 
 	private TerminalizedTool[] TerminalizeActiveToolsLocked(string status) {

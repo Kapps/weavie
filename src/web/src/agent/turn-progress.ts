@@ -1,5 +1,6 @@
 import type { AgentPaneUpdate } from "../bridge";
 import { type RequestKind, requestLifecycles } from "./AgentPaneMessageFormat";
+import { collectSideConversations, sideConversationState } from "./AgentPaneSideConversations";
 
 /**
  * Whether the pane's latest turn is still running (started with no completion yet). An interrupted turn
@@ -10,6 +11,15 @@ export function hasActiveTurn(messages: readonly AgentPaneUpdate[]): boolean {
   return (
     progress.primaryActive || progress.activeTools.size > 0 || progress.providerActive.size > 0
   );
+}
+
+/** Whether Interrupt has primary or side-conversation work to cancel. */
+export function hasInterruptibleActivity(messages: readonly AgentPaneUpdate[]): boolean {
+  if (hasActiveTurn(messages)) return true;
+  for (const conversation of collectSideConversations(messages).values()) {
+    if (sideConversationState(conversation).active) return true;
+  }
+  return false;
 }
 
 /**
@@ -47,11 +57,16 @@ function turnProgress(messages: readonly AgentPaneUpdate[]): TurnProgress {
         primaryStartedAt = null;
       }
     }
-    if (message.type === "background-state") {
+    if (isPrimary(message) && message.type === "background-state") {
       providerActive = new Set(message.itemIds ?? []);
       for (const id of providerActive) providerManaged.add(id);
     }
-    if (message.itemType === "tool" && message.itemId !== null && message.itemId !== undefined) {
+    if (
+      isPrimary(message) &&
+      message.itemType === "tool" &&
+      message.itemId !== null &&
+      message.itemId !== undefined
+    ) {
       if (message.type === "item-started") {
         activeTools.set(
           message.itemId,

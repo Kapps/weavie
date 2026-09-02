@@ -36,16 +36,29 @@ export function providerCommandForDraft(
   );
 }
 
-/** The exact Weavie slash action invoked by a draft; Weavie slash actions take no free-form input. */
+/** The exact Weavie slash action invoked by a draft, including its required free-form input when any. */
 export function weavieCommandForDraft(
   entries: readonly AgentSlashEntry[],
   draft: string,
 ): AgentSlashEntry | null {
   const text = draft.trim();
-  return (
+  if (!text.startsWith("/")) return null;
+  const boundary = text.search(/\s/);
+  const name = text.slice(1, boundary < 0 ? undefined : boundary);
+  const entry =
     entries.find(
-      (entry) =>
-        entry.kind === "weavieCommand" && `/${entry.name}`.toLowerCase() === text.toLowerCase(),
-    ) ?? null
-  );
+      (candidate) =>
+        candidate.kind === "weavieCommand" && candidate.name.toLowerCase() === name.toLowerCase(),
+    ) ?? null;
+  if (entry === null) return null;
+  const input = boundary < 0 ? "" : text.slice(boundary).trim();
+  return entry.inputName === null && input.length > 0 ? null : entry;
+}
+
+/** The free-form input following one exact Weavie slash command. */
+export function weavieCommandInput(entry: AgentSlashEntry, draft: string): string | null {
+  if (entry.kind !== "weavieCommand" || entry.inputName === null) return null;
+  const text = draft.trim();
+  const boundary = text.search(/\s/);
+  return boundary < 0 ? null : text.slice(boundary).trim() || null;
 }

@@ -145,6 +145,7 @@ public sealed partial class HostSession {
 		});
 		messages.Handle<AgentAuthMessage>("authenticate", (message, _) => {
 			Agent.Structured?.Authenticate(
+				message.RequestId,
 				message.MethodId,
 				message.Answers.ToDictionary(
 					entry => entry.Key,
@@ -173,6 +174,17 @@ public sealed partial class HostSession {
 		});
 		messages.Handle<AgentSubmitMessage>("submit", (message, _) => {
 			HandleAgentSubmit(message, inputFrozen);
+			return Task.CompletedTask;
+		});
+		messages.Handle<AgentSideReplyMessage>("replyAside", (message, _) => {
+			try {
+				if (inputFrozen()) throw new InvalidOperationException("Agent input is paused while Weavie restarts.");
+				var sideConversations = Agent.SideConversations
+					?? throw new InvalidOperationException("This agent does not support side conversations.");
+				sideConversations.ReplyAside(message.ConversationId, message.Prompt);
+			} catch (Exception ex) when (ex is ArgumentException or InvalidOperationException) {
+				Notify(ex.Message);
+			}
 			return Task.CompletedTask;
 		});
 		messages.Handle<OpenPlanMessage, bool>(
@@ -312,7 +324,10 @@ public sealed partial class HostSession {
 
 	private sealed record AgentDecisionMessage(string RequestId, string OptionId);
 
-	private sealed record AgentAuthMessage(string MethodId, Dictionary<string, string[]> Answers);
+	private sealed record AgentAuthMessage(
+		string RequestId,
+		string MethodId,
+		Dictionary<string, string[]> Answers);
 
 	private sealed record AgentInputMessage(
 		string RequestId,
@@ -329,4 +344,6 @@ public sealed partial class HostSession {
 		string? Kind,
 		string? CommandName,
 		string[]? AttachmentIds);
+
+	private sealed record AgentSideReplyMessage(string ConversationId, string Prompt);
 }

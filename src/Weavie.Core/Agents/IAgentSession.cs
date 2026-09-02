@@ -56,11 +56,23 @@ public interface IStructuredAgentSession : IAgentSession {
 		IReadOnlyDictionary<string, IReadOnlyList<string>> answers);
 
 	/// <summary>Starts one exact provider-advertised authentication method.</summary>
-	void Authenticate(string methodId, IReadOnlyDictionary<string, IReadOnlyList<string>> answers);
+	void Authenticate(
+		string requestId,
+		string methodId,
+		IReadOnlyDictionary<string, IReadOnlyList<string>> answers);
 
 	/// <summary>Raised when the provider has a structured pane state update for the web UI.</summary>
 	event Action<AgentPaneMessage> PaneMessage;
 
 	/// <summary>Raised when provider resume supplies a complete authoritative transcript replacement.</summary>
 	event Action<IReadOnlyList<AgentPaneMessage>> PaneSnapshot;
+}
+
+/// <summary>Context-preserving side conversations owned by one structured agent session.</summary>
+public interface IStructuredAgentSideConversations {
+	/// <summary>Forks the current context and asks a question outside the primary transcript.</summary>
+	void AskAside(string prompt);
+
+	/// <summary>Continues one exact side conversation without adding either message to the primary transcript.</summary>
+	void ReplyAside(string conversationId, string prompt);
 }

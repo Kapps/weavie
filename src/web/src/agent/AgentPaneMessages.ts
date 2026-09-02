@@ -8,6 +8,11 @@ import {
   normalizeText,
   requestLifecycles,
 } from "./AgentPaneMessageFormat";
+import {
+  collectSideConversations,
+  orderSideConversations,
+  sideConversationEntry,
+} from "./AgentPaneSideConversations";
 import type {
   AgentActivityStep,
   AgentTranscriptEntry,
@@ -31,7 +36,7 @@ export function toAgentTranscript(messages: readonly AgentPaneUpdate[]): AgentTr
 export function projectAgentTranscript(
   messages: readonly AgentPaneUpdate[],
 ): AgentTranscriptProjection {
-  const updates = coalesceStreaming(messages);
+  const updates = orderSideConversations(coalesceStreaming(messages));
   const resolved = collectResolved(messages);
   const reportedTurnErrors = new Set<string>();
   for (const message of messages) {
@@ -43,6 +48,8 @@ export function projectAgentTranscript(
     }
   }
   const entries: (AgentTranscriptEntry | MutableActivity)[] = [];
+  const sideConversations = collectSideConversations(updates);
+  const emittedSideConversations = new Set<string>();
   const activities = new Map<string, MutableActivity>();
   const knownTurns = new Set<string>();
   let activeTurn = "startup";
@@ -59,6 +66,19 @@ export function projectAgentTranscript(
   let hasPreviousActivity = false;
 
   for (const message of updates) {
+    if (message.conversationId) {
+      if (!emittedSideConversations.has(message.conversationId)) {
+        emittedSideConversations.add(message.conversationId);
+        entries.push(
+          sideConversationEntry(
+            sideConversations.get(message.conversationId) ?? [message],
+            (childMessages) => projectAgentTranscript(childMessages).entries,
+          ),
+        );
+        sequence += 1;
+      }
+      continue;
+    }
     const turnKey: string | null =
       hasPreviousTurn && message.threadId === previousThreadId && message.turnId === previousTurnId
         ? previousTurnKey
@@ -331,6 +351,10 @@ function stripMutable(entry: AgentTranscriptEntry | MutableActivity): AgentTrans
     summary: entry.summary,
     text: entry.text,
     tone: entry.tone,
+    ...(entry.asideActive === undefined ? {} : { asideActive: entry.asideActive }),
+    ...(entry.asideEntries === undefined ? {} : { asideEntries: entry.asideEntries }),
+    ...(entry.asideReplyable === undefined ? {} : { asideReplyable: entry.asideReplyable }),
+    ...(entry.conversationId === undefined ? {} : { conversationId: entry.conversationId }),
   };
 }
 

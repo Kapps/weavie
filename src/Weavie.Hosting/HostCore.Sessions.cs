@@ -42,6 +42,19 @@ public sealed partial class HostCore {
 				return Task.FromResult(CommandResult.Failure(ex.Message));
 			}
 		});
+		session.Commands.RegisterHandler(CoreCommands.AskAgentAside, (argsJson, _) => {
+			try {
+				if (session.Agent.SideConversations is not { } sideConversations) {
+					return Task.FromResult(CommandResult.Failure(
+						"This agent does not support context-preserving side conversations."));
+				}
+				string question = RequiredCommandString(argsJson, "question", "Ask Agent Aside");
+				sideConversations.AskAside(question);
+				return Task.FromResult(CommandResult.Success("Asked in a side conversation."));
+			} catch (Exception ex) when (ex is JsonException or ArgumentException or InvalidOperationException) {
+				return Task.FromResult(CommandResult.Failure(ex.Message));
+			}
+		});
 		// Restart-now for a pending update: the user's explicit choice to skip the drain gate (kills
 		// running shell jobs); fails cleanly when no update is pending.
 		session.Commands.RegisterHandler(CoreCommands.RestartForUpdate, (_, _) =>
@@ -90,6 +103,18 @@ public sealed partial class HostCore {
 				PushSessionList();
 			});
 		};
+	}
+
+	private static string RequiredCommandString(string? argsJson, string property, string command) {
+		if (string.IsNullOrWhiteSpace(argsJson)) throw new ArgumentException($"{command} requires '{property}'.");
+		using var document = JsonDocument.Parse(argsJson);
+		if (document.RootElement.ValueKind != JsonValueKind.Object
+			|| !document.RootElement.TryGetProperty(property, out var value)
+			|| value.ValueKind != JsonValueKind.String
+			|| value.GetString()?.Trim() is not { Length: > 0 } text) {
+			throw new ArgumentException($"{command} requires a non-empty '{property}'.");
+		}
+		return text;
 	}
 
 	private void PostForSession(HostSession session, Action action) {

@@ -55,6 +55,7 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 	public EditorStore Editor { get; }
 	public RecordingAgentEventSink Events { get; }
 	public string Workspace { get; }
+	public string FakeAcpStateDirectory => Path.Combine(Workspace, "weavie", "fake-acp-state");
 	public AgentLaunch? AuthenticationLaunch =>
 		(_authenticationTerminal as RecordingAuthenticationTerminal)?.Launch;
 
@@ -123,6 +124,17 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 		ExecutablePath("tools", "Weavie.FakeAcp", "weavie-fake-acp"),
 		new Dictionary<string, string>(StringComparer.Ordinal) {
 			["WEAVIE_FAKE_ACP_MODE"] = "agent-authentication",
+		},
+		allowAllPermissions: true,
+		persistedSessionId: null,
+		failSessionPersistence: false);
+
+	public static AcpAgentSessionFixture CreateSideHeldAuthenticationAdapter() => Create(
+		"fake",
+		"Side authentication ACP",
+		ExecutablePath("tools", "Weavie.FakeAcp", "weavie-fake-acp"),
+		new Dictionary<string, string>(StringComparer.Ordinal) {
+			["WEAVIE_FAKE_ACP_MODE"] = "side-held-authentication",
 		},
 		allowAllPermissions: true,
 		persistedSessionId: null,

@@ -83,6 +83,9 @@ public static class CoreCommands {
 	/// <summary>Starts a fresh conversation for the active structured agent.</summary>
 	public const string ClearAgentConversation = "weavie.agent.clearConversation";
 
+	/// <summary>Asks a context-preserving question outside the primary structured-agent transcript.</summary>
+	public const string AskAgentAside = "weavie.agent.askAside";
+
 	/// <summary>Opens the ACP Registry manager.</summary>
 	public const string ManageAcpAgents = "weavie.agent.manageAcp";
 
@@ -746,6 +749,18 @@ public static class CoreCommands {
 			Aliases = ["new conversation", "clear conversation", "clear agent", "agent clear"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "alt+Shift+c" }],
 			When = "agentFocused",
+		});
+
+		// The slash command is the compose surface; a no-argument palette row cannot collect the question.
+		registry.Register(new CommandDefinition {
+			Id = AskAgentAside,
+			Title = "Ask Agent Aside",
+			RunsIn = CommandLocation.Core,
+			Category = "Agent",
+			Description = "Fork the current agent context and ask a question without adding it to the primary conversation.",
+			Aliases = ["btw", "ask aside", "side question"],
+			ShowInPalette = false,
+			ArgsSchemaJson = "{\"question\":{\"type\":\"string\",\"description\":\"Question to ask in the forked context\"}}",
 		});
 
 		registry.Register(new CommandDefinition {

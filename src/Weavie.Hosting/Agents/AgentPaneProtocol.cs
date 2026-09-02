@@ -89,6 +89,8 @@ internal static class AgentPaneProtocol {
 		providerId = record.Message.ProviderId,
 		threadId = record.Message.ThreadId,
 		isPrimaryThread = record.Message.IsPrimaryThread,
+		conversationId = record.Message.ConversationId,
+		anchorTurnId = record.Message.AnchorTurnId,
 		turnId = record.Message.TurnId,
 		startedAtMs = record.Message.StartedAtMs,
 		itemId = record.Message.ItemId,

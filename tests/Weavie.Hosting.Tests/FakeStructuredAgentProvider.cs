@@ -162,7 +162,10 @@ internal sealed class FakeStructuredAgentProvider : IAgentProvider {
 			IReadOnlyDictionary<string, IReadOnlyList<string>> answers) {
 		}
 
-		public void Authenticate(string methodId, IReadOnlyDictionary<string, IReadOnlyList<string>> answers) {
+		public void Authenticate(
+			string requestId,
+			string methodId,
+			IReadOnlyDictionary<string, IReadOnlyList<string>> answers) {
 		}
 
 		public void SetControl(string axis, string value) {

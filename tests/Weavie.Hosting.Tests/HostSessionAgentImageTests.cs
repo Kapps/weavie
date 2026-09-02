@@ -179,7 +179,10 @@ public sealed class HostSessionAgentImageTests : IDisposable {
 			string action,
 			IReadOnlyDictionary<string, IReadOnlyList<string>> answers) { }
 
-		public void Authenticate(string methodId, IReadOnlyDictionary<string, IReadOnlyList<string>> answers) { }
+		public void Authenticate(
+			string requestId,
+			string methodId,
+			IReadOnlyDictionary<string, IReadOnlyList<string>> answers) { }
 
 		public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 	}

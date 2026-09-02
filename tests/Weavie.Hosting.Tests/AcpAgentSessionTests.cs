@@ -11,9 +11,10 @@ public sealed class AcpAgentSessionTests {
 	public async Task NativeSession_StopCancelsAuthenticationAndIgnoresLateSuccess() {
 		await using var fixture = AcpAgentSessionFixture.CreateHeldAuthenticationAdapter();
 		fixture.Session.Start();
-		await fixture.WaitForMessageAsync(message => message.Type == "authentication-requested");
+		var authentication = await fixture.WaitForMessageAsync(message => message.Type == "authentication-requested");
 
 		fixture.Session.Authenticate(
+			Assert.IsType<string>(authentication.RequestId),
 			"fake-login",
 			new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal));
 		await Wait.UntilAsync(() => File.Exists(Path.Combine(fixture.Workspace, "authentication-started")));
@@ -87,6 +88,10 @@ public sealed class AcpAgentSessionTests {
 		var clear = Assert.Single(controls.Slash, command => command.Name == "clear");
 		Assert.Equal(AgentSlashEntryKind.WeavieCommand, clear.Kind);
 		Assert.Equal(CoreCommands.ClearAgentConversation, clear.CommandId);
+		var btw = Assert.Single(controls.Slash, command => command.Name == "btw");
+		Assert.Equal(AgentSlashEntryKind.WeavieCommand, btw.Kind);
+		Assert.Equal(CoreCommands.AskAgentAside, btw.CommandId);
+		Assert.Equal("question", btw.InputName);
 		var compact = Assert.Single(controls.Slash, command => command.Name == "compact");
 		Assert.Equal(AgentSlashEntryKind.ProviderCommand, compact.Kind);
 		Assert.Null(compact.InputHint);
@@ -112,6 +117,239 @@ public sealed class AcpAgentSessionTests {
 		Assert.Equal(DateTimeOffset.FromUnixTimeSeconds(4102444800), limit.ResetsAt);
 		Assert.Contains(messages, message => message.Type == "item-completed" && message.Text == "rich response");
 		Assert.Equal(SessionStatus.Idle, fixture.Events.Status.Status);
+	}
+
+	[Fact]
+	public async Task NativeSession_ForksAndContinuesSideConversationWithoutPromptingPrimarySession() {
+		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
+		await fixture.StartAsync();
+		fixture.Submit("primary context");
+		await fixture.WaitForMessageAsync(message =>
+			message.Type == "turn-completed" && message.IsPrimaryThread is not false);
+
+		fixture.Session.AskAside("why this design?");
+		var marker = await fixture.WaitForMessageAsync(message => message.Type == "side-conversation-started");
+		string conversationId = Assert.IsType<string>(marker.ConversationId);
+		var answer = await fixture.WaitForMessageAsync(message =>
+			message.Type == "item-completed"
+			&& message.ConversationId == conversationId
+			&& message.Text == "echo: why this design?");
+
+		Assert.False(answer.IsPrimaryThread);
+		Assert.Equal(conversationId, answer.ConversationId);
+		Assert.Equal("1", answer.AnchorTurnId);
+		Assert.DoesNotContain(fixture.Messages, message =>
+			message.IsPrimaryThread == true && message.Text == "why this design?");
+
+		fixture.Session.ReplyAside(conversationId, "and the tradeoff?");
+		await fixture.WaitForMessageAsync(message =>
+			message.Type == "item-completed"
+			&& message.ConversationId == conversationId
+			&& message.TurnId == "2"
+			&& message.Text == "echo: and the tradeoff?");
+		await fixture.WaitForMessageAsync(message =>
+			message.Type == "turn-completed"
+			&& message.ConversationId == conversationId
+			&& message.TurnId == "2");
+		string fork = Assert.Single(File.ReadAllLines(Path.Combine(fixture.FakeAcpStateDirectory, "forks.log")));
+		string sideSessionId = fork[(fork.IndexOf("->", StringComparison.Ordinal) + 2)..];
+		string[] prompts = File.ReadAllLines(Path.Combine(fixture.FakeAcpStateDirectory, "prompts.log"));
+		Assert.Equal(3, prompts.Length);
+		Assert.StartsWith("fake-session:primary context", prompts[0], StringComparison.Ordinal);
+		Assert.All(prompts.Skip(1), prompt => Assert.StartsWith(sideSessionId + ":", prompt, StringComparison.Ordinal));
+		Assert.Equal(
+			sideSessionId,
+			Assert.Single(File.ReadAllLines(Path.Combine(fixture.FakeAcpStateDirectory, "loads.log"))));
+	}
+
+	[Fact]
+	public async Task NativeSession_QueuesIndependentSideConversations() {
+		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
+		await fixture.StartAsync();
+
+		fixture.Session.AskAside("first aside");
+		fixture.Session.AskAside("second aside");
+		var first = await fixture.WaitForMessageAsync(message =>
+			message.Type == "item-completed" && message.Text == "echo: first aside");
+		var second = await fixture.WaitForMessageAsync(message =>
+			message.Type == "item-completed" && message.Text == "echo: second aside");
+
+		Assert.NotEqual(first.ConversationId, second.ConversationId);
+		Assert.Equal(2, File.ReadAllLines(Path.Combine(fixture.FakeAcpStateDirectory, "forks.log")).Length);
+	}
+
+	[Fact]
+	public async Task NativeSession_SendsGuidanceWhenForkingAnEmptyPrimaryContext() {
+		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
+		await fixture.StartAsync();
+
+		fixture.Session.AskAside("context");
+		var answer = await fixture.WaitForMessageAsync(message =>
+			message.Type == "item-completed" && message.Text?.StartsWith("context:", StringComparison.Ordinal) == true);
+
+		Assert.Equal("context:guidance=True;selection=False", answer.Text);
+		Assert.NotNull(answer.ConversationId);
+	}
+
+	[Fact]
+	public async Task NativeSession_HidesBtwWhenForkOrLoadIsUnavailable() {
+		await using var fixture = AcpAgentSessionFixture.CreateMinimalCapabilitiesAdapter();
+		var controls = await fixture.StartAsync();
+
+		Assert.DoesNotContain(controls.Slash, command => command.Name == "btw");
+	}
+
+	[Fact]
+	public async Task NativeSession_RoutesSideConversationPermissionBackToItsChildRuntime() {
+		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: false, persistedSessionId: null);
+		await fixture.StartAsync();
+
+		fixture.Session.AskAside("permission");
+		var request = await fixture.WaitForMessageAsync(message =>
+			message.Type == "approval-requested" && message.ConversationId is not null);
+		fixture.Session.ResolvePermission(Assert.IsType<string>(request.RequestId), "allow-once");
+		var answer = await fixture.WaitForMessageAsync(message =>
+			message.Type == "item-completed" && message.Text == "permission: allow-once");
+
+		Assert.Equal(request.ConversationId, answer.ConversationId);
+		Assert.False(answer.IsPrimaryThread);
+	}
+
+	[Fact]
+	public async Task NativeSession_TracksSideConversationMutationsInTheOwningSession() {
+		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
+		await fixture.StartAsync();
+
+		fixture.Session.AskAside("rich");
+		var terminal = await fixture.WaitForMessageAsync(message =>
+			message.ConversationId is not null
+			&& message.Type is "turn-completed" or "side-conversation-failed");
+		Assert.True(
+			terminal.Type == "turn-completed",
+			$"Side turn ended as {terminal.Type}: {terminal.Summary ?? terminal.Text}");
+
+		var starting = Assert.Single(fixture.Events.Values.OfType<AgentToolStarting>());
+		Assert.IsType<AgentMutation.File>(starting.Mutation);
+		Assert.Single(fixture.Events.Values.OfType<AgentToolCompleted>());
+		Assert.Equal(SessionStatus.Idle, fixture.Events.Status.Status);
+	}
+
+	[Fact]
+	public async Task NativeSession_KeepsSideRuntimeUntilBackgroundWorkSettles() {
+		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
+		await fixture.StartAsync();
+
+		fixture.Session.AskAside("delayed-background");
+		var turn = await fixture.WaitForMessageAsync(message =>
+			message.Type == "turn-completed" && message.ConversationId is not null);
+		Assert.Equal(SessionStatus.Waiting, fixture.Events.Status.Status);
+		var answer = await fixture.WaitForMessageAsync(message =>
+			message.Type == "item-completed" && message.Text == "delayed background finished");
+		await Wait.UntilAsync(() => fixture.Events.Status.Status == SessionStatus.Idle);
+
+		Assert.Equal(turn.ConversationId, answer.ConversationId);
+	}
+
+	[Fact]
+	public async Task NativeSession_RoutesSideConversationAuthenticationByRequestIdentity() {
+		await using var fixture = AcpAgentSessionFixture.CreateAgentAuthenticationAdapter();
+		fixture.Session.Start();
+		var primaryAuthentication = await fixture.WaitForMessageAsync(message =>
+			message.Type == "authentication-requested" && message.ConversationId is null);
+		fixture.Session.Authenticate(
+			Assert.IsType<string>(primaryAuthentication.RequestId),
+			"fake-login",
+			new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal));
+		await fixture.WaitForControlsAsync(state => state.Axes.Count > 0);
+
+		fixture.Session.AskAside("authenticated aside");
+		var sideAuthentication = await fixture.WaitForMessageAsync(message =>
+			message.Type == "authentication-requested" && message.ConversationId is not null);
+		fixture.Session.Authenticate(
+			Assert.IsType<string>(sideAuthentication.RequestId),
+			"fake-login",
+			new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal));
+		var answer = await fixture.WaitForMessageAsync(message =>
+			message.Type == "item-completed" && message.Text == "echo: authenticated aside");
+
+		Assert.Equal(sideAuthentication.ConversationId, answer.ConversationId);
+	}
+
+	[Fact]
+	public async Task NativeSession_InterruptsSideLoadAuthenticationAndDispatchesPrimaryPrompt() {
+		await using var fixture = AcpAgentSessionFixture.CreateSideHeldAuthenticationAdapter();
+		await fixture.StartAsync();
+
+		fixture.Session.AskAside("authentication");
+		var authentication = await fixture.WaitForMessageAsync(message =>
+			message.Type == "authentication-requested" && message.ConversationId is not null);
+		fixture.Submit("after interruption");
+		fixture.Session.Interrupt();
+
+		var terminal = await fixture.WaitForMessageAsync(message =>
+			message.Type == "side-conversation-failed"
+			&& message.ConversationId == authentication.ConversationId);
+		var answer = await fixture.WaitForMessageAsync(message =>
+			message.Type == "item-completed" && message.Text == "echo: after interruption");
+
+		Assert.Equal(authentication.ConversationId, terminal.ConversationId);
+		Assert.NotEqual(false, answer.IsPrimaryThread);
+	}
+
+	[Fact]
+	public async Task NativeSession_InterruptsActiveSideBeforeDispatchingTheNextSide() {
+		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
+		await fixture.StartAsync();
+
+		fixture.Session.AskAside("hold");
+		fixture.Session.AskAside("next aside");
+		var held = await fixture.WaitForMessageAsync(message =>
+			message.Type == "item-started" && message.ItemId == "tool:hold" && message.ConversationId is not null);
+		fixture.Session.Interrupt();
+		var interrupted = await fixture.WaitForMessageAsync(message =>
+			message.Type == "turn-completed"
+			&& message.ConversationId == held.ConversationId
+			&& message.Status == "cancelled");
+		var next = await fixture.WaitForMessageAsync(message =>
+			message.Type == "item-completed" && message.Text == "echo: next aside");
+
+		Assert.Equal(held.ConversationId, interrupted.ConversationId);
+		Assert.NotEqual(held.ConversationId, next.ConversationId);
+	}
+
+	[Fact]
+	public async Task NativeSession_TerminalizesASideRuntimeThatCrashesWhileIdle() {
+		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
+		await fixture.StartAsync();
+
+		fixture.Session.AskAside("crash-when-released");
+		var completed = await fixture.WaitForMessageAsync(message =>
+			message.Type == "turn-completed" && message.ConversationId is not null);
+		File.WriteAllText(Path.Combine(fixture.Workspace, "release-crash"), string.Empty);
+		var terminal = await fixture.WaitForMessageAsync(message =>
+			message.Type == "side-conversation-failed"
+			&& message.ConversationId == completed.ConversationId);
+
+		Assert.Equal(completed.ConversationId, terminal.ConversationId);
+		var error = Assert.Throws<InvalidOperationException>(() =>
+			fixture.Session.ReplyAside(Assert.IsType<string>(completed.ConversationId), "still there?"));
+		Assert.Contains("no longer available", error.Message, StringComparison.OrdinalIgnoreCase);
+	}
+
+	[Fact]
+	public async Task NativeSession_NewConversationDetachesActiveSideRuntime() {
+		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
+		await fixture.StartAsync();
+		fixture.Session.AskAside("hold");
+		await fixture.WaitForMessageAsync(message =>
+			message.Type == "item-started" && message.ItemId == "tool:hold" && message.ConversationId is not null);
+
+		fixture.Session.StartNewConversation();
+		int reset = fixture.Messages.ToList().FindLastIndex(message => message.Type == "transcript-reset");
+		await fixture.WaitForControlsAsync(state => state.Axes.Count > 0);
+		await Task.Delay(250);
+
+		Assert.DoesNotContain(fixture.Messages.Skip(reset + 1), message => message.ConversationId is not null);
 	}
 
 	[Fact]
@@ -939,9 +1177,10 @@ public sealed class AcpAgentSessionTests {
 	public async Task NativeSession_AgentAuthenticationKeepsTheInitializedProcessAndRetriesSetup() {
 		await using var fixture = AcpAgentSessionFixture.CreateAgentAuthenticationAdapter();
 		fixture.Session.Start();
-		await fixture.WaitForMessageAsync(message => message.Type == "authentication-requested");
+		var authentication = await fixture.WaitForMessageAsync(message => message.Type == "authentication-requested");
 
 		fixture.Session.Authenticate(
+			Assert.IsType<string>(authentication.RequestId),
 			"fake-login",
 			new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal));
 		await fixture.WaitForControlsAsync(state => state.Axes.Count > 0);
@@ -955,9 +1194,10 @@ public sealed class AcpAgentSessionTests {
 	public async Task NativeSession_TerminalAuthenticationRunsTheDeclaredInvocationAndRestarts() {
 		await using var fixture = AcpAgentSessionFixture.CreateTerminalAuthenticationAdapter();
 		fixture.Session.Start();
-		await fixture.WaitForMessageAsync(message => message.Type == "authentication-requested");
+		var authentication = await fixture.WaitForMessageAsync(message => message.Type == "authentication-requested");
 
 		fixture.Session.Authenticate(
+			Assert.IsType<string>(authentication.RequestId),
 			"fake-terminal-login",
 			new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal));
 		await fixture.WaitForControlsAsync(state => state.Axes.Count > 0);
@@ -975,16 +1215,18 @@ public sealed class AcpAgentSessionTests {
 	public async Task NativeSession_ReauthenticatesAndRetriesAPromptOnTheSameSession() {
 		await using var fixture = AcpAgentSessionFixture.CreateAgentAuthenticationAdapter();
 		fixture.Session.Start();
-		await fixture.WaitForMessageAsync(message => message.Type == "authentication-requested");
+		var authentication = await fixture.WaitForMessageAsync(message => message.Type == "authentication-requested");
 		fixture.Session.Authenticate(
+			Assert.IsType<string>(authentication.RequestId),
 			"fake-login",
 			new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal));
 		await fixture.WaitForControlsAsync(state => state.Axes.Count > 0);
 
 		fixture.Submit("auth-expired");
-		await fixture.WaitForMessageAsync(message => message.Type == "authentication-requested"
+		authentication = await fixture.WaitForMessageAsync(message => message.Type == "authentication-requested"
 			&& fixture.Messages.Count(candidate => candidate.Type == "authentication-requested") == 2);
 		fixture.Session.Authenticate(
+			Assert.IsType<string>(authentication.RequestId),
 			"fake-login",
 			new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal));
 		var completed = await fixture.WaitForMessageAsync(message => message.Type == "turn-completed"

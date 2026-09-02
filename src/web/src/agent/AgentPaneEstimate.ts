@@ -18,6 +18,12 @@ export function estimateEntrySize(entry: AgentTranscriptEntry | undefined): numb
     return cached;
   }
   const prose = entry.kind === "message" && entry.tone === "assistant";
+  if (entry.kind === "aside") {
+    const size =
+      76 + (entry.asideEntries ?? []).reduce((sum, child) => sum + estimateEntrySize(child), 0);
+    estimates.set(entry, size);
+    return size;
+  }
   const size =
     (prose ? 12 : 34) +
     (entry.summary === null ? 0 : wrappedHeight(entry.summary)) +

@@ -195,6 +195,13 @@ export interface EditorController {
   readonly review: {
     mode(): ReviewPresentationMode;
     overview(): ReviewOverview;
+    /**
+     * Resolve a changed file's working copy for the unified review's per-file editor, on a reference
+     * independent of any tab's. Rejects when the editor host isn't up, so the section can say so.
+     */
+    openCopy(session: ClientSession, path: string): Promise<monaco.editor.ITextModel>;
+    /** Release every working copy the unified review holds (its surface unmounted). */
+    releaseCopies(): void;
     toggleMode(session: ClientSession): boolean;
     setCursor(session: ClientSession, path: string, line: number): void;
     revert(session: ClientSession): boolean;
@@ -794,6 +801,9 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         ({ session, path, selection }) => {
           const result = openTabFor(session, path, { preview: true });
           result.placement = selection === undefined ? { line: 1 } : { selection };
+          // A jump out of a unified-review section (go-to-definition, peek) lands in the file editor, which the
+          // overview would otherwise cover.
+          reviews.leaveUnified(session);
           activateDestinationFor(session);
           void applyActive(session, result);
         },
@@ -1627,8 +1637,9 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       if (host === undefined) {
         return false;
       }
-      host.editor.focus();
-      host.editor.trigger("weavie-menu", actionId, null);
+      const target = host.focusedEditor();
+      target.focus();
+      target.trigger("weavie-menu", actionId, null);
       return true;
     },
     newFile,
@@ -1659,6 +1670,11 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     review: {
       mode: reviews.mode,
       overview: reviews.overview,
+      openCopy: (session, path) =>
+        host === undefined
+          ? Promise.reject(new Error("the editor is still loading"))
+          : host.openReviewCopy(session, path),
+      releaseCopies: () => host?.releaseReviewCopies(),
       toggleMode: (session) => {
         if (selectedSession() !== session) {
           return false;

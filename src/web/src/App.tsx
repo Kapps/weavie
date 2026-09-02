@@ -10,8 +10,8 @@ import {
   Show,
   Suspense,
 } from "solid-js";
-import { toggleAgentCommandOutput } from "./agent/AgentCommandOutput";
 import { AgentPane } from "./agent/AgentPane";
+import { toggleAgentToolOutput } from "./agent/AgentToolOutput";
 import { toggleActiveAgentMermaid } from "./agent/agent-mermaid";
 import {
   type AgentPaneModel,
@@ -1316,6 +1316,8 @@ export default function App(): JSX.Element {
                   overview={editor.review.overview}
                   session={selectedSession()!}
                   onCursorChange={editor.review.setCursor}
+                  openCopy={editor.review.openCopy}
+                  releaseCopies={editor.review.releaseCopies}
                 />
               </Suspense>
             </Show>
@@ -1607,7 +1609,7 @@ export default function App(): JSX.Element {
         return true;
       }),
       registerCommand(CommandIds.toggleFullscreenPane, () => toggleFullscreen()),
-      registerCommand(CommandIds.toggleAgentCommandOutput, toggleAgentCommandOutput),
+      registerCommand(CommandIds.toggleAgentToolOutput, toggleAgentToolOutput),
       registerCommand(CommandIds.toggleAgentMermaidPreview, () => toggleActiveAgentMermaid()),
       registerCommand(CommandIds.toggleFileBrowser, () => toggleBrowser()),
       // Terminal copy/paste (act on the focused xterm, clipboard via the host); gated terminalFocused.

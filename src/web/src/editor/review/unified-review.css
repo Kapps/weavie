@@ -42,7 +42,6 @@
 
 .unified-review-kicker,
 .unified-review-files-title,
-.unified-review-patch-label,
 .unified-review-status {
   color: var(--dim);
   font-size: var(--font-metadata-size);
@@ -179,12 +178,12 @@
   width: 100%;
 }
 
+/* Positioned by `top` (never a transform) and unclipped, so Monaco's fixed suggest/hover widgets escape the
+   section and land where the caret is. */
 .unified-review-file {
   position: absolute;
-  top: 0;
   left: 0;
   width: 100%;
-  overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 7px;
   background: var(--bg);
@@ -193,6 +192,7 @@
 .unified-review-file-header {
   position: sticky;
   top: 0;
+  border-radius: 6px 6px 0 0;
   z-index: 2;
   min-height: 2.6em;
   padding: 0.45em 0.65em;
@@ -226,98 +226,20 @@
   font-size: var(--font-hint-size);
 }
 
-.unified-review-patch-label {
-  padding: 0.35em 0.75em;
-  border-bottom: 1px solid var(--border);
-  background: color-mix(in srgb, var(--bar) 70%, var(--bg));
-  font-weight: 650;
-  text-transform: uppercase;
-}
-
-.unified-review-patch {
-  overflow-x: auto;
-}
-
-.unified-review-patch.reviewed {
-  opacity: 0.62;
-}
-
-.unified-review-hunk + .unified-review-hunk {
-  border-top: 1px solid var(--border);
-}
-
-.unified-review-hunk-header {
-  display: block;
+/* Sized by its editor to the exact content height (review-editor.ts); the list does the scrolling. */
+.unified-review-editor {
   width: 100%;
-  padding: 0.35em 0.75em;
-  border: 0;
-  background: color-mix(in srgb, var(--accent) 8%, var(--bg));
-  color: var(--accent);
-  font-family: var(--font-content-family);
-  font-size: var(--font-metadata-size);
-  font-weight: var(--font-content-weight);
-  text-align: left;
-  cursor: pointer;
 }
 
-.unified-review-hunk-header:hover {
-  background: color-mix(in srgb, var(--accent) 14%, var(--bg));
+/* Round the last section corners on Monaco's own clip layer — never on an ancestor, which would trap the
+   fixed-position suggest/hover widgets. */
+.unified-review-editor .overflow-guard {
+  border-radius: 0 0 6px 6px;
 }
 
-.unified-review-row {
-  display: grid;
-  grid-template-columns: 3.4em 3.4em 1.4em minmax(max-content, 1fr);
-  width: max-content;
-  min-width: 100%;
-  min-height: 1.45em;
-  font-family: var(--font-content-family);
-  font-size: var(--font-content-size);
-  font-weight: var(--font-content-weight);
-  line-height: 1.45;
-}
-
-.unified-review-row-chunk {
-  content-visibility: auto;
-  contain-intrinsic-block-size: calc(80 * 1.45em);
-}
-
-.unified-review-row.added {
-  background: var(--diff-added-line, #2ea04314);
-}
-
-.unified-review-row.removed {
-  background: var(--diff-removed-line, #c47a7a21);
-}
-
-.unified-review-line-number {
-  padding: 0 0.55em;
-  border-right: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
-  color: var(--dim);
-  font-size: var(--font-metadata-size);
-  text-align: right;
-  user-select: none;
-}
-
-.unified-review-marker {
-  color: var(--dim);
-  text-align: center;
-  user-select: none;
-}
-
-.unified-review-row.added .unified-review-marker {
-  color: var(--diff-added, #5a9a6a);
-}
-
-.unified-review-row.removed .unified-review-marker {
-  color: var(--diff-removed, #c47a7a);
-}
-
-.unified-review-row code {
-  overflow: visible;
-  padding-right: 1em;
-  color: var(--fg);
-  font: inherit;
-  white-space: pre;
+/* The first line after a collapsed unchanged stretch, so a gap reads as a gap rather than as contiguous code. */
+.weavie-review-gap {
+  border-top: 1px dashed color-mix(in srgb, var(--border) 80%, var(--fg));
 }
 
 .unified-review-notice {

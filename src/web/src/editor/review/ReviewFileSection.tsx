@@ -1,62 +1,108 @@
-import { type Accessor, For, type JSX, Show } from "solid-js";
+import type { editor as MonacoEditor } from "monaco-editor";
+import { type Accessor, createEffect, createSignal, type JSX, onCleanup, Show } from "solid-js";
 import { keyHint } from "../../commands/key-hint";
 import { runCommandWithFeedback } from "../../commands/registry";
 import { CommandIds } from "../../commands/types";
-import { reviewToModelLine } from "../diff-geometry";
-import {
-  buildReviewDiffPatch,
-  type ReviewDiffPatch,
-  type ReviewDiffRow,
-} from "./review-diff-model";
+import { createReviewEditor, estimatedEditorHeight, type ReviewEditor } from "./review-editor";
 import type { ReviewFileDiff, ReviewFileView } from "./review-store";
 
-interface FilePatches {
-  pending: ReviewDiffPatch;
-  reviewed: ReviewDiffPatch;
+/** Whether a file still has anything to show: pending changes, or kept ones in its reviewed band. */
+function hasChanges(diff: ReviewFileDiff): boolean {
+  return diff.baseline !== diff.current || diff.acceptedBaseline !== diff.baseline;
 }
-
-const patchCache = new WeakMap<ReviewFileDiff, FilePatches>();
-const ROWS_PER_CHUNK = 80;
 
 export function ReviewFileSection(props: {
   displayPath: (path: string) => string;
   file: Accessor<ReviewFileView>;
   index: number;
   measure: (element: HTMLElement) => void;
+  openCopy: (path: string) => Promise<MonacoEditor.ITextModel>;
   style: string;
 }): JSX.Element {
   const summary = () => props.file().summary();
   const diff = () => props.file().diff();
-  const patches = (): FilePatches | null => {
+  const pending = (): boolean => {
     const value = diff();
-    if (value === null) {
-      return null;
+    return value !== null && value.baseline !== value.current;
+  };
+  const [diffNotice, setDiffNotice] = createSignal("");
+  const [openError, setOpenError] = createSignal("");
+
+  let article: HTMLElement | undefined;
+  let mount: HTMLDivElement | undefined;
+  let live: ReviewEditor | undefined;
+  let resolving = false;
+  let dropped = false;
+
+  const remeasure = (): void => {
+    if (article !== undefined) {
+      props.measure(article);
     }
-    const cached = patchCache.get(value);
-    if (cached !== undefined) {
-      return cached;
+  };
+
+  // Mount the file's diff editor once its texts arrive, then keep it painted from every later push. A file whose
+  // changes are gone drops the editor and reads as reviewed.
+  createEffect(() => {
+    const value = diff();
+    if (value === null || !hasChanges(value)) {
+      if (live !== undefined) {
+        live.dispose();
+        live = undefined;
+        mount?.style.removeProperty("height");
+        remeasure();
+      }
+      return;
     }
-    const created = {
-      pending: buildReviewDiffPatch(value.baseline, value.current),
-      reviewed: buildReviewDiffPatch(value.acceptedBaseline, value.baseline),
-    };
-    patchCache.set(value, created);
-    return created;
-  };
-  const openFile = (line: number): void => {
-    void runCommandWithFeedback(CommandIds.reviewOpen, { path: summary().path, line });
-  };
-  const firstLine = (): number => patches()?.pending.hunks[0]?.newLine ?? summary().line;
-  const pending = (): boolean => diff() !== null && diff()!.baseline !== diff()!.current;
-  const openReviewed = (line: number): void => {
-    openFile(reviewToModelLine(patches()?.pending.changes ?? [], line));
-  };
+    if (live !== undefined) {
+      live.update(value);
+      return;
+    }
+    if (resolving) {
+      return;
+    }
+    resolving = true;
+    void props.openCopy(value.path).then(
+      (model) => {
+        resolving = false;
+        const latest = diff();
+        if (dropped || mount === undefined || latest === null || !hasChanges(latest)) {
+          return;
+        }
+        live = createReviewEditor({
+          container: mount,
+          model,
+          diff: latest,
+          onHeight: remeasure,
+          onStatus: (status) =>
+            setDiffNotice(
+              status === "ready"
+                ? ""
+                : status === "timed-out"
+                  ? "Diff calculation timed out — the file is shown in full."
+                  : "Diff calculation failed — the file is shown in full.",
+            ),
+        });
+      },
+      (error: unknown) => {
+        resolving = false;
+        setOpenError(String(error));
+      },
+    );
+  });
+
+  onCleanup(() => {
+    dropped = true;
+    live?.dispose();
+  });
 
   return (
     <article
       class="unified-review-file"
       data-index={props.index}
-      ref={props.measure}
+      ref={(element) => {
+        article = element;
+        props.measure(element);
+      }}
       style={props.style}
     >
       <header class="unified-review-file-header">
@@ -64,7 +110,12 @@ export function ReviewFileSection(props: {
           type="button"
           class="unified-review-file-name"
           title={`Open this change in file review${keyHint(CommandIds.reviewOpen)}`}
-          onClick={() => openFile(firstLine())}
+          onClick={() =>
+            void runCommandWithFeedback(CommandIds.reviewOpen, {
+              path: summary().path,
+              line: summary().line,
+            })
+          }
         >
           {props.displayPath(summary().path)}
         </button>
@@ -72,7 +123,7 @@ export function ReviewFileSection(props: {
           <span class="unified-review-added">+{summary().added}</span>
           <span class="unified-review-removed">−{summary().removed}</span>
         </span>
-        <Show when={diff() !== null && pending()} fallback={<ReviewStatus file={props.file} />}>
+        <Show when={pending()} fallback={<ReviewStatus file={props.file} />}>
           <button
             type="button"
             class="unified-review-file-action keep"
@@ -95,34 +146,27 @@ export function ReviewFileSection(props: {
           </button>
         </Show>
       </header>
-      <Show when={patches()} fallback={<div class="unified-review-notice">Loading diff…</div>}>
-        {(loaded) => (
-          <>
-            <ReviewPatch
-              patch={loaded().pending}
-              label="Pending changes"
-              reviewed={false}
-              onOpen={openFile}
-            />
-            <ReviewPatch
-              patch={loaded().reviewed}
-              label="Reviewed changes"
-              reviewed={true}
-              onOpen={openReviewed}
-            />
-            <Show
-              when={
-                !loaded().pending.timedOut &&
-                !loaded().reviewed.timedOut &&
-                loaded().pending.hunks.length === 0 &&
-                loaded().reviewed.hunks.length === 0
-              }
-            >
-              <div class="unified-review-notice">No changes remain in this file.</div>
-            </Show>
-          </>
-        )}
+      <Show when={diffNotice() !== ""}>
+        <div class="unified-review-notice">{diffNotice()}</div>
       </Show>
+      <Show when={openError() !== ""}>
+        <div class="unified-review-notice">Couldn't open this file: {openError()}</div>
+      </Show>
+      <Show when={diff() === null}>
+        <div class="unified-review-notice">Loading diff…</div>
+      </Show>
+      <Show when={diff() !== null && !hasChanges(diff() as ReviewFileDiff)}>
+        <div class="unified-review-notice">No changes remain in this file.</div>
+      </Show>
+      <div
+        class="unified-review-editor"
+        ref={(element) => {
+          mount = element;
+          // Reserve the space the editor will take while its working copy resolves, so the list's offsets
+          // don't collapse and re-settle underneath the reader.
+          element.style.height = `${estimatedEditorHeight(summary().added, summary().removed)}px`;
+        }}
+      />
     </article>
   );
 }
@@ -132,71 +176,5 @@ function ReviewStatus(props: { file: Accessor<ReviewFileView> }): JSX.Element {
     <span class="unified-review-status">
       {props.file().diff() === null ? "Loading…" : "Reviewed"}
     </span>
-  );
-}
-
-function ReviewPatch(props: {
-  patch: ReviewDiffPatch;
-  label: string;
-  reviewed: boolean;
-  onOpen: (line: number) => void;
-}): JSX.Element {
-  return (
-    <Show when={props.patch.timedOut || props.patch.hunks.length > 0}>
-      <section class="unified-review-patch" classList={{ reviewed: props.reviewed === true }}>
-        <div class="unified-review-patch-label">{props.label}</div>
-        <Show
-          when={!props.patch.timedOut}
-          fallback={
-            <div class="unified-review-notice">
-              Diff calculation timed out. Open the file for focused review.
-            </div>
-          }
-        >
-          <For each={props.patch.hunks}>
-            {(hunk) => (
-              <div class="unified-review-hunk">
-                <button
-                  type="button"
-                  class="unified-review-hunk-header"
-                  title="Open this hunk in file review"
-                  onClick={() => props.onOpen(hunk.newLine)}
-                >
-                  {hunk.header}
-                </button>
-                <For each={chunkRows(hunk.rows)}>
-                  {(rows) => (
-                    <div class="unified-review-row-chunk">
-                      <For each={rows}>{(row) => <ReviewRow row={row} />}</For>
-                    </div>
-                  )}
-                </For>
-              </div>
-            )}
-          </For>
-        </Show>
-      </section>
-    </Show>
-  );
-}
-
-function chunkRows(rows: ReviewDiffRow[]): ReviewDiffRow[][] {
-  const chunks: ReviewDiffRow[][] = [];
-  for (let index = 0; index < rows.length; index += ROWS_PER_CHUNK) {
-    chunks.push(rows.slice(index, index + ROWS_PER_CHUNK));
-  }
-  return chunks;
-}
-
-function ReviewRow(props: { row: ReviewDiffRow }): JSX.Element {
-  const marker = (): string =>
-    props.row.kind === "added" ? "+" : props.row.kind === "removed" ? "−" : " ";
-  return (
-    <div class={`unified-review-row ${props.row.kind}`}>
-      <span class="unified-review-line-number">{props.row.oldLine ?? ""}</span>
-      <span class="unified-review-line-number">{props.row.newLine ?? ""}</span>
-      <span class="unified-review-marker">{marker()}</span>
-      <code>{props.row.text || " "}</code>
-    </div>
   );
 }

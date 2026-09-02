@@ -3,13 +3,13 @@ import { IEditorWorkerService } from "@codingame/monaco-vscode-api/services";
 import { monaco } from "../monaco-setup";
 import { DIFF_ALGORITHM, DIFF_OPTIONS, type DiffLineChange } from "./diff-computation";
 
-export interface InlineDiffSources {
+export interface DiffSources {
   original: string;
   claudeVersion: string | undefined;
   acceptedBaseline: string | undefined;
 }
 
-export type InlineDiffCalculation =
+export type DiffCalculation =
   | {
       status: "ready";
       changes: DiffLineChange[];
@@ -23,7 +23,7 @@ type PairCalculation = { status: "ready"; changes: DiffLineChange[] } | { status
 
 interface ActiveSources {
   uri: string;
-  values: InlineDiffSources;
+  values: DiffSources;
   original: monaco.editor.ITextModel;
   claudeVersion: monaco.editor.ITextModel | undefined;
   acceptedBaseline: monaco.editor.ITextModel | undefined;
@@ -32,24 +32,24 @@ interface ActiveSources {
     | {
         model: monaco.editor.ITextModel;
         version: number;
-        calculation: Promise<InlineDiffCalculation>;
+        calculation: Promise<DiffCalculation>;
       }
     | undefined;
 }
 
 let nextComputerId = 1;
 
-/** Computes inline-review geometry in Monaco's existing editor worker. */
-export class InlineDiffComputer {
+/** Computes review geometry in Monaco's existing editor worker. */
+export class DiffComputer {
   private readonly id = nextComputerId++;
   private readonly worker = StandaloneServices.get(IEditorWorkerService);
   private active: ActiveSources | undefined;
 
   public compute(
     uri: string,
-    sources: InlineDiffSources,
+    sources: DiffSources,
     liveModel: monaco.editor.ITextModel,
-  ): Promise<InlineDiffCalculation> {
+  ): Promise<DiffCalculation> {
     const active = this.activate(uri, sources);
     const version = liveModel.getVersionId();
     if (active.live?.model === liveModel && active.live.version === version) {
@@ -71,7 +71,7 @@ export class InlineDiffComputer {
     this.disposeActive();
   }
 
-  private activate(uri: string, sources: InlineDiffSources): ActiveSources {
+  private activate(uri: string, sources: DiffSources): ActiveSources {
     if (this.active !== undefined && this.matches(this.active, uri, sources)) {
       return this.active;
     }
@@ -97,7 +97,7 @@ export class InlineDiffComputer {
     return this.active;
   }
 
-  private matches(active: ActiveSources, uri: string, sources: InlineDiffSources): boolean {
+  private matches(active: ActiveSources, uri: string, sources: DiffSources): boolean {
     return (
       active.uri === uri &&
       active.values.original === sources.original &&
@@ -118,7 +118,7 @@ export class InlineDiffComputer {
   private async computeActive(
     active: ActiveSources,
     liveModel: monaco.editor.ITextModel,
-  ): Promise<InlineDiffCalculation> {
+  ): Promise<DiffCalculation> {
     try {
       const primary = this.computePair(active.original, liveModel);
       const user =

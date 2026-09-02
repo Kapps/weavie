@@ -1,10 +1,12 @@
 import { linesDiffComputers } from "@codingame/monaco-vscode-api/vscode/vs/editor/common/diff/linesDiffComputers";
 
-const DIFF_OPTIONS = {
+export const DIFF_OPTIONS = {
   ignoreTrimWhitespace: false,
   maxComputationTimeMs: 1000,
   computeMoves: false,
 } as const;
+
+export const DIFF_ALGORITHM = "legacy" as const;
 
 /** Split text into the same logical lines Monaco uses for its text models. */
 export function splitDiffLines(text: string): string[] {

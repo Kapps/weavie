@@ -2,7 +2,7 @@
 // highlights, an action toolbar). The modified side is always the live model content, so the diff tracks edits
 // live. Owns only its decorations/zones/widget — never disposes the host-owned live model.
 
-import type { ClientSession, ReviewCommentInfo } from "../bridge";
+import { type ClientSession, log, type ReviewCommentInfo } from "../bridge";
 import { setContext } from "../commands/context";
 import { formatKey, IS_MAC } from "../commands/keybindings";
 import { findCommand } from "../commands/registry";
@@ -12,6 +12,7 @@ import { reviewToModelLine } from "./diff-geometry";
 import { monaco } from "./monaco-setup";
 import { REVEAL_SCROLL } from "./reveal-scroll";
 import { computeDiffLines, splitDiffLines } from "./review/diff-computation";
+import { InlineDiffComputer } from "./review/inline-diff-computer";
 import { sessionFileUri } from "./session-uri";
 
 // Debounce diff recompute so typing into a model under review (or a burst of working-copy reloads) doesn't
@@ -240,6 +241,7 @@ export function firstChangedLine(original: string, modified: string): number {
 /** Creates an inline-diff controller bound to `editor`. */
 export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): InlineDiff {
   const diffs = new Map<string, InlineDiffOptions>();
+  const diffComputer = new InlineDiffComputer();
   let decorations: monaco.editor.IEditorDecorationsCollection | undefined;
   let zoneIds: string[] = [];
   // The floating action bar is a plain DOM child of the editor (not a Monaco overlay widget) so it sits above
@@ -247,6 +249,11 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
   let toolbarNode: HTMLElement | undefined;
   let renderedUri: string | undefined;
   let recomputeTimer: ReturnType<typeof setTimeout> | undefined;
+  let renderGeneration = 0;
+  let renderInFlight = false;
+  let renderQueued = false;
+  let computationPending = false;
+  let disposed = false;
   // The currently-rendered diff's options + hunks; the nav/action methods all operate on these.
   let currentOptions: InlineDiffOptions | undefined;
   let fallbackNavigation: InlineDiffOptions | undefined;
@@ -291,6 +298,27 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
   let zoneObservers: ResizeObserver[] = [];
   let composerObserver: ResizeObserver | undefined;
 
+  const clearControls = (): void => {
+    for (const widget of hunkWidgets) {
+      editor.removeContentWidget(widget);
+    }
+    hunkWidgets = [];
+    toolbarNode?.remove();
+    toolbarNode = undefined;
+    counterNode = undefined;
+    dotsNode = undefined;
+    scopeMenuNode = undefined;
+    scopeWrapNode = undefined;
+    undoButton = undefined;
+    redoButton = undefined;
+
+    showingParked = false;
+    computationPending = false;
+    currentOptions = undefined;
+    fallbackNavigation = undefined;
+    currentHunks = [];
+  };
+
   const clearRender = (): void => {
     decorations?.clear();
     decorations = undefined;
@@ -312,27 +340,14 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
       observer.disconnect();
     }
     zoneObservers = [];
-    for (const widget of hunkWidgets) {
-      editor.removeContentWidget(widget);
-    }
-    hunkWidgets = [];
-    toolbarNode?.remove();
-    toolbarNode = undefined;
-    counterNode = undefined;
-    dotsNode = undefined;
-    scopeMenuNode = undefined;
-    scopeWrapNode = undefined;
-    undoButton = undefined;
-    redoButton = undefined;
-
-    showingParked = false;
-    currentOptions = undefined;
-    fallbackNavigation = undefined;
-    currentHunks = [];
+    clearControls();
     renderedUri = undefined;
   };
 
-  const buildGhost = (lines: string[], faded: boolean): HTMLElement => {
+  const buildGhost = (
+    lines: string[],
+    faded: boolean,
+  ): { node: HTMLElement; onDomNodeTop: (top: number) => void } => {
     const node = document.createElement("div");
     // Faded variant: a removed line in an already-accepted hunk, dimmed to match its faded green counterpart.
     node.className = faded
@@ -347,8 +362,33 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     // Render tabs at the editor's tab width so a removed line's leading indentation lines up with the live
     // code, instead of CSS `tab-size`'s default of 8.
     node.style.tabSize = String(editor.getModel()?.getOptions().tabSize ?? 4);
-    node.textContent = lines.map((line) => (line.length === 0 ? " " : line)).join("\n");
-    return node;
+    node.dataset.lineCount = String(lines.length);
+    const content = document.createElement("div");
+    content.className = "weavie-inline-removed-content";
+    node.appendChild(content);
+    let renderedStart = -1;
+    let renderedEnd = -1;
+    const onDomNodeTop = (top: number): void => {
+      const overscan = 20;
+      const viewportHeight = editor.getLayoutInfo().height;
+      const start = Math.max(0, Math.floor(-top / fontInfo.lineHeight) - overscan);
+      const end = Math.min(
+        lines.length,
+        Math.max(0, Math.ceil((viewportHeight - top) / fontInfo.lineHeight) + overscan),
+      );
+      if (start === renderedStart && end === renderedEnd) {
+        return;
+      }
+      renderedStart = start;
+      renderedEnd = end;
+      content.style.transform = `translateY(${start * fontInfo.lineHeight}px)`;
+      content.textContent = lines
+        .slice(start, end)
+        .map((line) => (line.length === 0 ? " " : line))
+        .join("\n");
+    };
+    onDomNodeTop(0);
+    return { node, onDomNodeTop };
   };
 
   // The "New file" header band: a sans-serif green pill above a wholly-new file's first line, so an all-added
@@ -868,8 +908,11 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
       return runAction(options?.onAccept);
     }
     if (currentOptions === undefined) {
-      keepFile();
-      return true;
+      return currentScope === "change"
+        ? true
+        : currentScope === "file"
+          ? keepFile()
+          : runAction(options.onKeepAll);
     }
     const scope = currentScope;
     return scope === "change" ? keepHunk() : scope === "file" ? keepFile() : keepAll();
@@ -886,8 +929,11 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
       return runAction(options?.onReject);
     }
     if (currentOptions === undefined) {
-      revertFile();
-      return true;
+      return currentScope === "change"
+        ? true
+        : currentScope === "file"
+          ? revertFile()
+          : runAction(options.onUndo);
     }
     const scope = currentScope;
     return scope === "change" ? revertHunk() : scope === "file" ? revertFile() : undo();
@@ -1191,7 +1237,13 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     return bar;
   };
 
-  const renderTimedOut = (uriString: string, options: InlineDiffOptions): void => {
+  const renderUnavailable = (
+    uriString: string,
+    options: InlineDiffOptions,
+    message: string,
+    pending: boolean,
+  ): void => {
+    clearRender();
     fallbackNavigation = options;
     const fileKept = fileIsKept(options);
     const editorDom = editor.getDomNode();
@@ -1215,9 +1267,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
       }
       const warning = document.createElement("span");
       warning.className = "weavie-inline-stack-sub";
-      warning.textContent = fileKept
-        ? "File kept · diff calculation timed out"
-        : "Diff calculation timed out";
+      warning.textContent = fileKept ? `File kept · ${message.toLowerCase()}` : message;
       toolbarNode.appendChild(warning);
       if (multiFile) {
         toolbarNode.appendChild(
@@ -1262,11 +1312,11 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
       }
       editorDom.appendChild(toolbarNode);
     }
+    computationPending = pending;
     renderedUri = uriString;
   };
 
-  const render = (uriString: string): void => {
-    clearRender();
+  const render = async (uriString: string, generation: number): Promise<void> => {
     const model = editor.getModel();
     if (model === null || model.uri.toString() !== uriString) {
       return;
@@ -1275,17 +1325,42 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     if (options === undefined) {
       return;
     }
+    const version = model.getVersionId();
+    const calculation = await diffComputer.compute(
+      uriString,
+      {
+        original: options.original,
+        claudeVersion: options.claudeVersion,
+        acceptedBaseline: options.acceptedBaseline,
+      },
+      model,
+    );
+    if (
+      disposed ||
+      generation !== renderGeneration ||
+      editor.getModel() !== model ||
+      model.getVersionId() !== version ||
+      diffs.get(uriString) !== options
+    ) {
+      return;
+    }
+    if (calculation.status === "timed-out") {
+      renderUnavailable(uriString, options, "Diff calculation timed out", false);
+      return;
+    }
+    if (calculation.status === "failed") {
+      log("error", `inline diff calculation failed: ${String(calculation.error)}`);
+      renderUnavailable(uriString, options, "Diff calculation failed", false);
+      return;
+    }
+
+    clearRender();
     if (options.allActionsDisabled === true && currentScope === "all") {
       currentScope = "change";
     }
 
     const original = splitDiffLines(options.original);
-    const modified = model.getLinesContent();
-    const changes = computeDiffLines(original, modified);
-    if (changes === null) {
-      renderTimedOut(uriString, options);
-      return;
-    }
+    const changes = calculation.changes;
     // A fully-kept file has no bright (pending) hunks but still carries a faded accepted band — don't bail on it.
     if (changes.length === 0 && !hasFadedBand(options)) {
       return; // no net change and nothing kept — nothing to render
@@ -1298,20 +1373,13 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     // Lines the user typed (diff the live model against `claudeVersion`) render fainter. Empty when
     // claudeVersion is omitted or the model still matches it.
     const userLines = new Set<number>();
-    if (options.claudeVersion !== undefined) {
-      const userDiff = computeDiffLines(splitDiffLines(options.claudeVersion), modified);
-      if (userDiff === null) {
-        renderTimedOut(uriString, options);
-        return;
-      }
-      for (const change of userDiff) {
-        for (
-          let ln = change.modified.startLineNumber;
-          ln < change.modified.endLineNumberExclusive;
-          ln++
-        ) {
-          userLines.add(ln);
-        }
+    for (const change of calculation.userChanges) {
+      for (
+        let ln = change.modified.startLineNumber;
+        ln < change.modified.endLineNumberExclusive;
+        ln++
+      ) {
+        userLines.add(ln);
       }
     }
 
@@ -1409,12 +1477,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     // pure overlay: it never enters `hunks`, so ↑/↓ and Keep/Revert only ever touch the bright pending hunks.
     if (hasFadedBand(options) && options.acceptedBaseline !== undefined) {
       const accepted = splitDiffLines(options.acceptedBaseline);
-      const fadedChanges = computeDiffLines(accepted, original);
-      if (fadedChanges === null) {
-        renderTimedOut(uriString, options);
-        return;
-      }
-      for (const change of fadedChanges) {
+      for (const change of calculation.fadedChanges) {
         const reviewStart = change.modified.startLineNumber;
         const reviewEndExclusive = change.modified.endLineNumberExclusive;
         const modelStart = reviewToModelLine(changes, reviewStart);
@@ -1462,11 +1525,13 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
         );
       }
       for (const ghost of ghosts) {
+        const view = buildGhost(ghost.lines, ghost.faded === true);
         zoneIds.push(
           accessor.addZone({
             afterLineNumber: ghost.afterLineNumber,
             heightInLines: ghost.lines.length,
-            domNode: buildGhost(ghost.lines, ghost.faded === true),
+            domNode: view.node,
+            onDomNodeTop: view.onDomNodeTop,
           }),
         );
       }
@@ -1618,32 +1683,101 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     setContext("diffActive", active);
   };
 
+  const showUpdating = (uriString: string, options: InlineDiffOptions): void => {
+    if (computationPending && renderedUri === uriString && fallbackNavigation === options) {
+      return;
+    }
+    renderUnavailable(uriString, options, "Updating diff…", true);
+  };
+
+  const drainRender = async (): Promise<void> => {
+    if (renderInFlight || disposed) {
+      return;
+    }
+    renderInFlight = true;
+    try {
+      while (renderQueued && !disposed) {
+        renderQueued = false;
+        const model = editor.getModel();
+        const uriString = model?.uri.toString();
+        const options = uriString === undefined ? undefined : diffs.get(uriString);
+        if (model === null || uriString === undefined || options === undefined) {
+          continue;
+        }
+        const generation = renderGeneration;
+        try {
+          await render(uriString, generation);
+        } catch (error) {
+          if (
+            !disposed &&
+            generation === renderGeneration &&
+            editor.getModel() === model &&
+            diffs.get(uriString) === options
+          ) {
+            log("error", `inline diff rendering failed: ${String(error)}`);
+            renderUnavailable(uriString, options, "Diff calculation failed", false);
+          }
+        }
+      }
+    } finally {
+      renderInFlight = false;
+      if (renderQueued && !disposed) {
+        void drainRender();
+      }
+    }
+  };
+
+  const queueRender = (): void => {
+    renderQueued = true;
+    void drainRender();
+  };
+
   // Render the active model's diff if it has one; else park the navigator when a review set is pending; else clear.
   const renderActive = (): void => {
     syncDiffContext();
+    renderGeneration++;
     const model = editor.getModel();
-    if (model !== null && diffs.has(model.uri.toString())) {
-      render(model.uri.toString());
+    const uriString = model?.uri.toString();
+    const options = uriString === undefined ? undefined : diffs.get(uriString);
+    if (model !== null && uriString !== undefined && options !== undefined) {
+      showUpdating(uriString, options);
+      queueRender();
     } else if (parkedReview !== undefined && parkedReview.fileCount > 0) {
+      renderQueued = false;
+      diffComputer.dispose();
       renderParked();
     } else {
+      renderQueued = false;
+      diffComputer.dispose();
       clearRender();
     }
   };
 
   const scheduleRender = (): void => {
+    const model = editor.getModel();
+    const uriString = model?.uri.toString();
+    const options = uriString === undefined ? undefined : diffs.get(uriString);
+    if (model === null || uriString === undefined || options === undefined) {
+      return;
+    }
+    renderGeneration++;
+    showUpdating(uriString, options);
     if (recomputeTimer !== undefined) {
       clearTimeout(recomputeTimer);
     }
     recomputeTimer = setTimeout(() => {
       recomputeTimer = undefined;
-      renderActive();
+      queueRender();
     }, RECOMPUTE_DEBOUNCE_MS);
   };
 
   // View zones are lost on model swap — close any open composer (its zone is gone) and re-render the new model.
   const onModel = editor.onDidChangeModel(() => {
     closeNewComposer();
+    if (recomputeTimer !== undefined) {
+      clearTimeout(recomputeTimer);
+      recomputeTimer = undefined;
+    }
     renderActive();
   });
   const onContent = editor.onDidChangeModelContent(scheduleRender);
@@ -1685,11 +1819,12 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     syncDiffContext();
     const model = editor.getModel();
     if (model !== null && model.uri.toString() === key) {
-      render(key);
+      renderActive();
     }
   };
   const clearByUri = (key: string): void => {
     diffs.delete(key);
+    diffComputer.clear(key);
     syncDiffContext(); // an off-screen clear still changes whether any diff is active
     if (renderedUri === key) {
       renderActive(); // fall back to the parked navigator when a review set still remains
@@ -1707,6 +1842,9 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     clearByUri,
     clearAll() {
       diffs.clear();
+      renderGeneration++;
+      renderQueued = false;
+      diffComputer.dispose();
       currentScope = "change";
       parkedReview = undefined;
       closeNewComposer();
@@ -1740,6 +1878,10 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
       renderActive();
     },
     dispose() {
+      disposed = true;
+      renderGeneration++;
+      renderQueued = false;
+      diffComputer.dispose();
       if (recomputeTimer !== undefined) {
         clearTimeout(recomputeTimer);
       }

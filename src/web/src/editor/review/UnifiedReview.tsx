@@ -76,11 +76,6 @@ export function UnifiedReview(props: {
     overscan: 2,
     useAnimationFrameWithResizeObserver: true,
   });
-  createEffect(() => {
-    files().length;
-    props.overview().fullyLoaded();
-    virtualizer.measure();
-  });
   let restoredSession: ClientSession | undefined;
   createEffect(() => {
     const session = props.session;

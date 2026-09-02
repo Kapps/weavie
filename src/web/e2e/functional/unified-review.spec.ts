@@ -19,6 +19,14 @@ const HELLO =
 const sectionFor = (page: Page, name: string): Locator =>
   page.locator(".unified-review-file", { has: page.locator(`text=${name}`) });
 
+// The pixel gap between consecutive sections. The virtualizer lays them out at a fixed 20px; anything larger is
+// dead space from a row sitting on its pre-mount estimate instead of its measured height.
+const sectionGaps = (page: Page): Promise<number[]> =>
+  page.locator(".unified-review-file").evaluateAll((sections) => {
+    const rects = sections.map((el) => el.getBoundingClientRect()).sort((a, b) => a.top - b.top);
+    return rects.slice(1).map((rect, index) => Math.round(rect.top - rects[index].bottom));
+  });
+
 const distinctTokenClasses = (section: Locator): Promise<number> =>
   section
     .locator(".view-line [class*='mtk']")
@@ -93,6 +101,10 @@ test.describe("unified review mode", () => {
     });
     await expect(notes.locator(".weavie-inline-accepted").first()).toBeVisible();
     await expect(notes.locator(".unified-review-file-action.keep")).toHaveCount(0);
+
+    // The push that lands the keep must not throw away the measured section heights: doing so re-spaces every
+    // row below on its estimate and opens dead space that never heals.
+    await expect.poll(() => sectionGaps(page)).toEqual([20]);
   });
 
   // Completions are the feature the hand-rolled rows could never have: they need a real editor on the real

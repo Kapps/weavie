@@ -635,7 +635,11 @@ test.describe("applied review — large files stay responsive", () => {
       "5000",
     );
     await page.evaluate(() => window.__WEAVIE_EDITOR__?.setScrollTop(0));
-    await expect(page.locator(".weavie-inline-removed-content")).toContainText("old line 0");
+    const ghostContent = page.locator(".weavie-inline-removed-content");
+    const renderedGhostLines = () =>
+      ghostContent.evaluate((element) => (element.textContent ?? "").split("\n").length);
+    await expect(ghostContent).toContainText("old line 0");
+    await expect.poll(renderedGhostLines).toBeLessThan(100);
     await page.evaluate(() => {
       const editor = window.__WEAVIE_EDITOR__;
       const lineHeight = editor?.getOption(window.__WEAVIE_MONACO__.editor.EditorOption.lineHeight);
@@ -643,7 +647,8 @@ test.describe("applied review — large files stay responsive", () => {
         editor.setScrollTop((5_000 - 10) * lineHeight);
       }
     });
-    await expect(page.locator(".weavie-inline-removed-content")).toContainText("old line 4999");
+    await expect(ghostContent).toContainText("old line 4999");
+    await expect.poll(renderedGhostLines).toBeLessThan(100);
     await page.evaluate(() => window.__WEAVIE_EDITOR__?.revealLineInCenter(2_500));
 
     // The recompute debounce matures at 120ms. A second edit at 130ms lands while the worker owns the old

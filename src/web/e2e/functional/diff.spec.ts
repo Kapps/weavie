@@ -74,6 +74,9 @@ test.describe("change navigation", () => {
 
   test("the next-change control moves through the diff's hunks @cross", async ({ page }) => {
     await expect(page.locator(".weavie-inline-toolbar")).toBeVisible({ timeout: 15_000 });
+    await expect
+      .poll(() => page.evaluate(() => window.__WEAVIE_EDITOR__?.getPosition()?.lineNumber))
+      .toBe(2);
     // The editor caret jumps to each change as you navigate; its vertical position is the observable.
     const caretTop = () =>
       page

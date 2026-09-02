@@ -228,9 +228,6 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   let commentProse: CommentProse | undefined;
   let gitBlame: GitBlameController | undefined;
   let reviseMarks: ReviseMarks | undefined;
-  // Captured from the dynamic inline-diff import in start(); used by the show-diff handler, which can
-  // only fire once the editor host (and thus this import) is up.
-  let firstChangedLine: ((original: string, modified: string) => number) | undefined;
   let initTimer: number | undefined;
   // Disposables for the content/model listeners that feed activeContent (the live Preview text).
   let contentSubs: { dispose(): void }[] = [];
@@ -828,7 +825,6 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
           import("./revise-marks"),
         ]);
         symbolSource = symbolMod.createSymbolSource(created.editor);
-        firstChangedLine = diff.firstChangedLine;
         inlineDiff = diff.createInlineDiff(created.editor);
         // Review undo/redo is session-global (not tied to a file), so its post-callbacks are bound once. `kind`
         // targets the type-split chords; the generic Undo (toolbar) omits it.
@@ -1207,12 +1203,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     }
 
     clearPresentedProposal();
-    const reviewUri = editorHost.beginReview(
-      session,
-      proposal.path,
-      proposal.proposed,
-      firstChangedLine?.(proposal.original, proposal.proposed) ?? 1,
-    );
+    const reviewUri = editorHost.beginReview(session, proposal.path, proposal.proposed, 1);
     activeReview = { session, reviewUri, ...proposal };
     setReviewActive(true);
     inlineDiff?.setByUri(reviewUri, {

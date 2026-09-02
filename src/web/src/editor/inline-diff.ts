@@ -10,7 +10,6 @@ import { CommandIds } from "../commands/types";
 import { onFontsChanged } from "../fonts";
 import { monaco } from "./monaco-setup";
 import { REVEAL_SCROLL } from "./reveal-scroll";
-import { computeDiffLines, splitDiffLines } from "./review/diff-computation";
 import { DiffComputer } from "./review/diff-computer";
 import {
   type AcceptedDiffHunk,
@@ -185,19 +184,6 @@ function fileIsKept(options: InlineDiffOptions): boolean {
   );
 }
 
-/**
- * The 1-based modified-side line of the first change between `original` and `modified`, or 1 when identical.
- * Uses the same diff machinery and anchor rule as `render`, so it matches where "next change" first lands.
- */
-export function firstChangedLine(original: string, modified: string): number {
-  const changes = computeDiffLines(splitDiffLines(original), splitDiffLines(modified));
-  if (changes === null) {
-    return 1;
-  }
-  const first = changes[0];
-  return first === undefined ? 1 : Math.max(1, first.modified.startLineNumber);
-}
-
 /** Creates an inline-diff controller bound to `editor`. */
 export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): InlineDiff {
   const diffs = new Map<string, InlineDiffOptions>();
@@ -214,6 +200,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
   let renderQueued = false;
   let computationPending = false;
   let disposed = false;
+  const initialProposalReveals = new Set<string>();
   // The currently-rendered diff's options + hunks; the nav/action methods all operate on these.
   let currentOptions: InlineDiffOptions | undefined;
   let fallbackNavigation: InlineDiffOptions | undefined;
@@ -809,6 +796,9 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
       return runAction(options?.onAccept);
     }
     if (currentOptions === undefined) {
+      if (!computationPending) {
+        return keepFile();
+      }
       return currentScope === "change"
         ? true
         : currentScope === "file"
@@ -830,6 +820,9 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
       return runAction(options?.onReject);
     }
     if (currentOptions === undefined) {
+      if (!computationPending) {
+        return revertFile();
+      }
       return currentScope === "change"
         ? true
         : currentScope === "file"
@@ -1181,20 +1174,39 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
         );
       }
       if (options.mode === "applied" && !fileKept) {
-        toolbarNode.append(
-          makeButton(
-            "weavie-inline-accept",
-            "Keep",
-            withShortcut("Keep this file", CommandIds.keepFile),
-            () => runAction(options.onKeepFile),
-          ),
-          makeButton(
-            "weavie-inline-reject",
-            "Revert",
-            withShortcut("Revert this file", CommandIds.revertFile),
-            () => runAction(options.onRevertFile),
-          ),
+        const changePending = pending && currentScope === "change";
+        const allPending = pending && currentScope === "all";
+        const keep = makeButton(
+          "weavie-inline-accept",
+          changePending ? "Keep change" : allPending ? "Keep all" : "Keep file",
+          changePending
+            ? "Waiting for current change geometry"
+            : withShortcut(
+                allPending ? "Keep all changes" : "Keep this file",
+                CommandIds.acceptChange,
+              ),
+          () =>
+            runAction(
+              changePending ? undefined : allPending ? options.onKeepAll : options.onKeepFile,
+            ),
         );
+        const revert = makeButton(
+          "weavie-inline-reject",
+          changePending ? "Revert change" : allPending ? "Revert all" : "Revert file",
+          changePending
+            ? "Waiting for current change geometry"
+            : withShortcut(
+                allPending ? "Revert all changes" : "Revert this file",
+                CommandIds.rejectChange,
+              ),
+          () =>
+            runAction(
+              changePending ? undefined : allPending ? options.onUndo : options.onRevertFile,
+            ),
+        );
+        keep.disabled = changePending;
+        revert.disabled = changePending;
+        toolbarNode.append(keep, revert);
       } else if (options.mode === "review") {
         toolbarNode.append(
           makeButton(
@@ -1270,6 +1282,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     );
     // A fully-kept file has no bright (pending) hunks but still carries a faded accepted band — don't bail on it.
     if (markers.hunks.length === 0 && !hasFadedBand(options)) {
+      initialProposalReveals.delete(uriString);
       return; // no net change and nothing kept — nothing to render
     }
     const { acceptedHunks, hunks } = markers;
@@ -1287,6 +1300,10 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     currentOptions = options;
     currentHunks = hunks;
     showingParked = false;
+    if (initialProposalReveals.delete(uriString) && hunks[0] !== undefined) {
+      editor.revealLineInCenter(hunks[0].anchorLine, REVEAL_SCROLL);
+      editor.setPosition({ lineNumber: hunks[0].anchorLine, column: 1 });
+    }
     const editorDom = editor.getDomNode();
     if (editorDom !== null) {
       toolbarNode = buildToolbar(options);
@@ -1502,6 +1519,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     if (model === null || uriString === undefined || options === undefined) {
       return;
     }
+    initialProposalReveals.delete(uriString);
     renderGeneration++;
     showUpdating(uriString, options);
     if (recomputeTimer !== undefined) {
@@ -1525,7 +1543,13 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
   const onContent = editor.onDidChangeModelContent(scheduleRender);
   const offFonts = onFontsChanged(renderActive);
   // Live-update the applied toolbar's change counter + dots as the cursor walks hunks (no full re-render).
-  const onCursor = editor.onDidChangeCursorPosition(renderCounter);
+  const onCursor = editor.onDidChangeCursorPosition(() => {
+    const uri = editor.getModel()?.uri.toString();
+    if (uri !== undefined) {
+      initialProposalReveals.delete(uri);
+    }
+    renderCounter();
+  });
   // Manual scrolling moves the review position too (reviewLine follows the viewport once the cursor leaves
   // it), so the counter tracks scroll as well as cursor moves.
   const onScroll = editor.onDidScrollChange(renderCounter);
@@ -1557,6 +1581,9 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
   // Register/remove a diff keyed by an exact model URI string (the path-based set/clear convert a file path
   // to its file:// URI; the review path passes the transient model's URI).
   const setByUri = (key: string, options: InlineDiffOptions): void => {
+    if (!diffs.has(key) && options.mode === "review") {
+      initialProposalReveals.add(key);
+    }
     diffs.set(key, options);
     syncDiffContext();
     const model = editor.getModel();
@@ -1566,6 +1593,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
   };
   const clearByUri = (key: string): void => {
     diffs.delete(key);
+    initialProposalReveals.delete(key);
     diffComputer.clear(key);
     syncDiffContext(); // an off-screen clear still changes whether any diff is active
     if (renderedUri === key) {
@@ -1587,6 +1615,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
       renderGeneration++;
       renderQueued = false;
       diffComputer.dispose();
+      initialProposalReveals.clear();
       currentScope = "change";
       parkedReview = undefined;
       closeNewComposer();
@@ -1624,6 +1653,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
       renderGeneration++;
       renderQueued = false;
       diffComputer.dispose();
+      initialProposalReveals.clear();
       if (recomputeTimer !== undefined) {
         clearTimeout(recomputeTimer);
       }

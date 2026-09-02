@@ -312,6 +312,7 @@ export function AgentPaneBody(props: {
         compact={props.compact}
         history={props.model.history()}
         inputProtocol={props.inputProtocol}
+        interruptible={props.model.interruptible()}
         latestPlan={props.model.latestPlan()}
         pendingApprovalId={props.model.keyboardApprovalId()}
         pendingKind={props.model.pendingRequestKind()}

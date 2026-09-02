@@ -32,7 +32,7 @@ public sealed partial class AcpAgentSession {
 		long epoch = 0;
 		lock (_gate) {
 			if (!_ready || _authenticationPending || _cancelRequested || _pendingSubmissions.Count == 0
-				|| _steering && !_promptActive) {
+				|| _activeSideConversationId is not null || _steering && !_promptActive) {
 				return;
 			}
 			sessionId = _sessionId ?? throw new InvalidOperationException("The ACP session is not ready.");
@@ -108,7 +108,7 @@ public sealed partial class AcpAgentSession {
 				if (epoch == _submissionEpoch) _steering = false;
 				dispatch = epoch == _submissionEpoch && (!retryAsPrompt || !_promptActive);
 			}
-			if (dispatch) DispatchPendingSubmission();
+			if (dispatch) DispatchPendingWork();
 		}
 	}
 
@@ -128,7 +128,7 @@ public sealed partial class AcpAgentSession {
 				}
 				object[] prompt = BuildPrompt(submission);
 				try {
-					_sessions.Adopt(_definition.Id, _context.Workspace, sessionId, _turnNumber);
+					PersistTurn(sessionId);
 				} catch (AcpSessionStoreException ex) {
 					_connection.TerminateGeneration(generation, ex.Message);
 					throw;
@@ -138,7 +138,7 @@ public sealed partial class AcpAgentSession {
 					ProviderId = _definition.Id,
 					ThreadId = sessionId,
 					TurnId = TurnId(),
-					IsPrimaryThread = true,
+					IsPrimaryThread = _role is PrimaryRole,
 					StartedAtMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
 				});
 				EmitSubmitted(
@@ -174,6 +174,7 @@ public sealed partial class AcpAgentSession {
 					TurnId = turnId,
 					Status = stopReason,
 				});
+				if (!background) SignalSideTurnSettled();
 			}
 		} catch (Exception ex) when (ex is not OperationCanceledException) {
 			lock (_turnTransitionGate) {
@@ -227,6 +228,7 @@ public sealed partial class AcpAgentSession {
 						Summary = ex.Message,
 					});
 					if (!cancelled) EmitFailure(ex);
+					if (!background) SignalSideTurnSettled();
 				}
 			}
 		} finally {
@@ -242,12 +244,21 @@ public sealed partial class AcpAgentSession {
 					if (settled) {
 						Observe(new AgentTurnStopped(WillResume: false));
 						CompleteContentStreams();
+						SignalSideTurnSettled();
 					}
 					dispatch = true;
 				}
 			}
-			if (dispatch) DispatchPendingSubmission();
+			if (dispatch) DispatchPendingWork();
 		}
+	}
+
+	private void PersistTurn(string sessionId) {
+		if (_role is SideRole side) {
+			side.Conversation.LocalTurnNumber = Math.Max(0, _turnNumber - _sideProviderTurnOffset);
+			return;
+		}
+		_sessions.Adopt(_definition.Id, _context.Workspace, sessionId, _turnNumber);
 	}
 
 	private bool OwnsOperation(long generation, long epoch) {
@@ -415,6 +426,36 @@ public sealed partial class AcpAgentSession {
 
 	/// <inheritdoc/>
 	public void Interrupt() {
+		SideRuntime? activeSide = null;
+		string? interruptedFork = null;
+		lock (_turnTransitionGate) {
+			lock (_gate) {
+				if (_activeSideConversationId is { } sideId) {
+					if (!_sideRuntimes.TryGetValue(sideId, out activeSide)) {
+						interruptedFork = sideId;
+						_activeSideConversationId = null;
+					} else activeSide.Interrupting = true;
+				}
+			}
+			if (interruptedFork is not null) {
+				EmitSideFailure(
+					interruptedFork,
+					null,
+					new InvalidOperationException("Side conversation interrupted."));
+			}
+		}
+		if (activeSide is not null) {
+			try {
+				activeSide.Session.Interrupt();
+			} finally {
+				FinishSideInterruption(activeSide);
+			}
+			return;
+		}
+		if (interruptedFork is not null) {
+			DispatchPendingWork();
+			return;
+		}
 		string? sessionId;
 		lock (_turnTransitionGate) {
 			lock (_gate) {
@@ -431,8 +472,26 @@ public sealed partial class AcpAgentSession {
 					() => _connection.NotifyAsync("session/cancel", new { sessionId }, generation));
 			}
 		}
-		if (CancelPendingInteractions() && sessionId is null) {
+		bool interactionCancelled = CancelPendingInteractions();
+		if (interactionCancelled && sessionId is null && _role is SideRole) {
+			lock (_turnTransitionGate) {
+				FailRuntimeSerialized(new InvalidOperationException("Side conversation interrupted."));
+			}
+			return;
+		}
+		if (interactionCancelled && sessionId is null) {
 			Observe(new AgentTurnStopped(WillResume: false));
+		}
+		if (interactionCancelled) {
+			bool settled;
+			lock (_gate) {
+				settled = _role is SideRole
+					&& _ready
+					&& !_promptActive
+					&& !HasBackgroundWorkLocked()
+					&& _pendingSubmissions.Count == 0;
+			}
+			if (settled) SignalSideTurnSettled();
 		}
 	}
 
@@ -452,6 +511,10 @@ public sealed partial class AcpAgentSession {
 
 	/// <inheritdoc/>
 	public void StartNewConversation() {
+		if (_role is not PrimaryRole) {
+			throw new InvalidOperationException("Only the primary ACP conversation can be replaced.");
+		}
+		SideRuntime[] sideSessions;
 		lock (_turnTransitionGate) {
 			_sessions.Clear(_definition.Id, _context.Workspace);
 			TerminalizeForRestart(clearSubmissions: true, "Started a fresh conversation.");
@@ -461,10 +524,15 @@ public sealed partial class AcpAgentSession {
 				_turnNumber = 0;
 				_guidanceSent = false;
 				_planTurns.Clear();
+				_pendingSideSubmissions.Clear();
+				_activeSideConversationId = null;
+				sideSessions = [.. _sideRuntimes.Values];
+				_sideRuntimes.Clear();
 			}
 			Emit(new AgentPaneMessage { Type = "transcript-reset", ProviderId = _definition.Id });
 			_connection.Restart();
 		}
+		foreach (var side in sideSessions) DisposeSideRuntime(side);
 	}
 
 	private void TerminalizeForRestart(bool clearSubmissions, string summary) {

@@ -5,6 +5,7 @@ import {
   activeTurnStartedAt,
   formatElapsed,
   hasActiveTurn,
+  hasInterruptibleActivity,
   pendingApproval,
   pendingRequest,
 } from "./turn-progress";
@@ -62,6 +63,39 @@ describe("hasActiveTurn", () => {
         { ...message("item-completed", "background"), itemType: "tool", background: true },
       ]),
     ).toBe(false);
+  });
+});
+
+describe("hasInterruptibleActivity", () => {
+  const side = (type: string): AgentPaneUpdate => ({
+    type,
+    providerId: "acp",
+    conversationId: "aside-1",
+    isPrimaryThread: false,
+  });
+
+  it("tracks a fork before its child turn starts", () => {
+    expect(
+      hasInterruptibleActivity([{ ...side("side-conversation-started"), status: "forking" }]),
+    ).toBe(true);
+  });
+
+  it("tracks a text-only child turn without treating it as the primary turn", () => {
+    const updates = [
+      side("turn-started"),
+      { ...side("item-started"), itemId: "tool", itemType: "tool" },
+    ];
+    expect(hasActiveTurn(updates)).toBe(false);
+    expect(hasInterruptibleActivity(updates)).toBe(true);
+  });
+
+  it("tracks side authentication and ends when the side becomes terminal", () => {
+    const updates = [
+      { ...side("side-conversation-started"), status: "forking" },
+      { ...side("authentication-requested"), requestId: "aside-1:auth" },
+      side("side-conversation-failed"),
+    ];
+    expect(hasInterruptibleActivity(updates)).toBe(false);
   });
 });
 

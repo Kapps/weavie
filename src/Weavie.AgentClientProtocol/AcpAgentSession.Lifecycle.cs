@@ -18,6 +18,7 @@ public sealed partial class AcpAgentSession {
 
 	/// <inheritdoc/>
 	public async ValueTask DisposeAsync() {
+		SideRuntime[] sideSessions;
 		string? sessionId;
 		bool close;
 		long generation;
@@ -27,6 +28,10 @@ public sealed partial class AcpAgentSession {
 			}
 			_disposed = true;
 			_controlMutations.Clear();
+			_pendingSideSubmissions.Clear();
+			_activeSideConversationId = null;
+			sideSessions = [.. _sideRuntimes.Values];
+			_sideRuntimes.Clear();
 			sessionId = _sessionId;
 			close = _ready && _supportsClose && sessionId is not null;
 			generation = _activeGeneration;
@@ -44,6 +49,7 @@ public sealed partial class AcpAgentSession {
 		}
 
 		try {
+			foreach (var side in sideSessions) await side.Session.DisposeAsync().ConfigureAwait(false);
 			await _connection.DisposeAsync().ConfigureAwait(false);
 		} finally {
 			if (closeRequest is not null) {
@@ -56,7 +62,7 @@ public sealed partial class AcpAgentSession {
 			try {
 				await _terminals.DisposeAsync().ConfigureAwait(false);
 			} finally {
-				await _context.Registry.DisposeAsync().ConfigureAwait(false);
+				if (_role is PrimaryRole) await _context.Registry.DisposeAsync().ConfigureAwait(false);
 			}
 		}
 	}
@@ -135,7 +141,9 @@ public sealed partial class AcpAgentSession {
 			lock (_gate) {
 				if (_disposed || _activeGeneration != generation) return;
 				reconnecting = _sessionId is not null;
-				string? persisted = _sessionId ?? _sessions.Resolve(_definition.Id, _context.Workspace);
+				string? persisted = _sessionId ?? (_role is SideRole side
+					? side.Conversation.ProviderSessionId
+					: _sessions.Resolve(_definition.Id, _context.Workspace));
 				sessionId = persisted is not null && (_supportsLoad || _supportsResume)
 					? persisted
 					: null;
@@ -228,7 +236,15 @@ public sealed partial class AcpAgentSession {
 							if (!_disposed && _activeGeneration == generation) {
 								_loadingTranscript = false;
 								if (loaded) {
-									snapshot = [.. _loadedMessages];
+									if (_role is SideRole side) {
+										_sideProviderTurnOffset = Math.Max(
+											0,
+											_turnNumber - side.Conversation.LocalTurnNumber);
+									}
+									snapshot = [.. _loadedMessages
+										.Select(PreparePaneMessage)
+										.Where(message => message is not null)
+										.Select(message => message!)];
 								}
 								_loadedMessages.Clear();
 							}
@@ -273,7 +289,7 @@ public sealed partial class AcpAgentSession {
 			}
 			throw;
 		}
-		if (loadSession) {
+		if (loadSession && _role is PrimaryRole) {
 			_sessions.Adopt(
 				_definition.Id,
 				_context.Workspace,
@@ -376,6 +392,7 @@ public sealed partial class AcpAgentSession {
 	private void ReadCapabilities(JsonElement initialized) {
 		var capabilities = AcpCapabilities.Read(initialized);
 		_supportsLoad = AcpCapabilities.Boolean(capabilities, "loadSession");
+		_supportsFork = AcpCapabilities.HasObject(capabilities, "sessionCapabilities", "fork");
 		_supportsClose = AcpCapabilities.HasObject(capabilities, "sessionCapabilities", "close");
 		_supportsResume = AcpCapabilities.HasObject(capabilities, "sessionCapabilities", "resume");
 		_supportsImages = AcpCapabilities.Boolean(capabilities, "promptCapabilities", "image");

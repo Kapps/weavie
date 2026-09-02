@@ -7,6 +7,10 @@ public sealed partial class AcpAgentSession {
 	public void ResolvePermission(string requestId, string optionId) {
 		ArgumentException.ThrowIfNullOrEmpty(requestId);
 		ArgumentException.ThrowIfNullOrEmpty(optionId);
+		if (TrySideRequest(requestId, out var side)) {
+			side.Session.ResolvePermission(side.RequestId, optionId);
+			return;
+		}
 		if (!_pendingRequests.TryGetValue(requestId, out var pending) || pending.Kind != "permission") {
 			EmitStaleInteraction(requestId, "permission");
 			return;
@@ -40,6 +44,10 @@ public sealed partial class AcpAgentSession {
 		ArgumentException.ThrowIfNullOrEmpty(requestId);
 		ArgumentException.ThrowIfNullOrEmpty(action);
 		ArgumentNullException.ThrowIfNull(answers);
+		if (TrySideRequest(requestId, out var side)) {
+			side.Session.ResolveInput(side.RequestId, action, answers);
+			return;
+		}
 		if (action is not ("accept" or "decline" or "cancel")) {
 			EmitFailure(new AcpProtocolException($"Unsupported ACP elicitation action '{action}'."));
 			return;
@@ -72,9 +80,17 @@ public sealed partial class AcpAgentSession {
 	}
 
 	/// <inheritdoc/>
-	public void Authenticate(string methodId, IReadOnlyDictionary<string, IReadOnlyList<string>> answers) {
+	public void Authenticate(
+		string requestId,
+		string methodId,
+		IReadOnlyDictionary<string, IReadOnlyList<string>> answers) {
+		ArgumentException.ThrowIfNullOrEmpty(requestId);
 		ArgumentException.ThrowIfNullOrEmpty(methodId);
 		ArgumentNullException.ThrowIfNull(answers);
+		if (TrySideRequest(requestId, out var side)) {
+			side.Session.Authenticate(side.RequestId, methodId, answers);
+			return;
+		}
 		var method = _authMethods.FirstOrDefault(candidate =>
 			string.Equals(candidate.Id, methodId, StringComparison.Ordinal));
 		if (method is null) {
@@ -86,7 +102,9 @@ public sealed partial class AcpAgentSession {
 		bool opensSession;
 		CancellationTokenSource? cancellation = null;
 		lock (_gate) {
-			authenticate = _authenticationPending && !_authenticating;
+			authenticate = _authenticationPending
+				&& !_authenticating
+				&& string.Equals(_authenticationItemId, requestId, StringComparison.Ordinal);
 			generation = _activeGeneration;
 			opensSession = _authenticationOpensSession;
 			if (authenticate) {
@@ -96,7 +114,7 @@ public sealed partial class AcpAgentSession {
 			}
 		}
 		if (!authenticate) {
-			EmitStaleInteraction("authentication", "authentication");
+			EmitStaleInteraction(requestId, "authentication");
 			return;
 		}
 		var authenticationCancellation = cancellation!;

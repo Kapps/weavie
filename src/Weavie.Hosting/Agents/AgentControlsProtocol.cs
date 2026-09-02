@@ -34,6 +34,7 @@ internal static class AgentControlsProtocol {
 					},
 					commandId = entry.CommandId,
 					inputHint = entry.InputHint,
+					inputName = entry.InputName,
 				}),
 			},
 		};

@@ -25,7 +25,7 @@ export interface AgentTranscriptEntry {
   detailCount: number;
   details: AgentActivityStep[];
   id: string;
-  kind: "activity" | "message" | "notice" | "plan" | "request";
+  kind: "activity" | "aside" | "message" | "notice" | "plan" | "request";
   label: string;
   status: string | null;
   streaming: boolean;
@@ -33,4 +33,8 @@ export interface AgentTranscriptEntry {
   text: string | null;
   tone: AgentTranscriptTone;
   turnStart?: true;
+  asideActive?: boolean;
+  asideEntries?: AgentTranscriptEntry[];
+  asideReplyable?: boolean;
+  conversationId?: string;
 }

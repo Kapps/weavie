@@ -22,6 +22,7 @@ import {
   composerState,
   removeComposerAttachment,
   setComposerDraft,
+  setComposerError,
   submitAgentTurn,
   uploadAgentImage,
 } from "./composer-store";
@@ -32,7 +33,13 @@ import {
   recallNext,
   recallPrevious,
 } from "./prompt-history";
-import { filterSlash, providerCommandForDraft, slashQuery, weavieCommandForDraft } from "./slash";
+import {
+  filterSlash,
+  providerCommandForDraft,
+  slashQuery,
+  weavieCommandForDraft,
+  weavieCommandInput,
+} from "./slash";
 import { caretOnFirstVisualLine, caretOnLastVisualLine } from "./textarea-lines";
 import type { PendingRequestKind } from "./turn-progress";
 
@@ -41,6 +48,7 @@ export function AgentComposer(props: {
   compact: boolean;
   history: readonly string[];
   inputProtocol: number;
+  interruptible: boolean;
   latestPlan: AgentPlanIdentity | null;
   pendingApprovalId: string | null;
   pendingKind: PendingRequestKind | null;
@@ -52,7 +60,7 @@ export function AgentComposer(props: {
 }): JSX.Element {
   let textareaRef: HTMLTextAreaElement | undefined;
   const composer = createMemo(() => composerState(props.session));
-  const canInterrupt = createMemo(() => props.session !== null && props.turnActive);
+  const canInterrupt = createMemo(() => props.session !== null && props.interruptible);
 
   createEffect(() => setContext("agentApprovalPending", props.pendingKind === "approval"));
   createEffect(() => setContext("agentInputPending", props.pendingKind === "input"));
@@ -120,8 +128,14 @@ export function AgentComposer(props: {
       return;
     }
     if (entry.kind === "weavieCommand") {
-      setComposerDraft(session, "");
-      void runCommandWithFeedback(entry.commandId);
+      if (entry.inputName === null) {
+        setComposerDraft(session, "");
+        void runCommandWithFeedback(entry.commandId);
+      } else {
+        const draft = `/${entry.name} `;
+        setComposerDraft(session, draft);
+        placeCaretAfterDraftUpdate(draft, draft.length);
+      }
     } else {
       const draft = `/${entry.name}${entry.inputHint === null ? "" : " "}`;
       setComposerDraft(session, draft);
@@ -220,8 +234,20 @@ export function AgentComposer(props: {
     const slash = agentControlState(session).slash;
     const weavieCommand = weavieCommandForDraft(slash, composer().draft);
     if (weavieCommand?.kind === "weavieCommand") {
+      const input = weavieCommandInput(weavieCommand, composer().draft);
+      if (weavieCommand.inputName !== null && input === null) {
+        setComposerError(
+          session,
+          `${weavieCommand.name} requires ${weavieCommand.inputHint ?? "input"}.`,
+        );
+        return false;
+      }
+      const args =
+        weavieCommand.inputName === null || input === null
+          ? undefined
+          : { [weavieCommand.inputName]: input };
       setComposerDraft(session, "");
-      void runCommandWithFeedback(weavieCommand.commandId);
+      void runCommandWithFeedback(weavieCommand.commandId, args);
       setHistoryCursor(IDLE_CURSOR);
       return true;
     }

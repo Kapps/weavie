@@ -71,6 +71,9 @@ public sealed record AgentSlashEntry {
 
 	/// <summary>The provider's optional hint for the command's unstructured input.</summary>
 	public string? InputHint { get; init; }
+
+	/// <summary>The command argument populated from free-form input for a Weavie-owned entry.</summary>
+	public string? InputName { get; init; }
 }
 
 /// <summary>The provider-neutral control + slash surface for one structured-agent session, pushed to the web.</summary>
@@ -93,12 +96,29 @@ public static class AgentControlCommands {
 		CommandId = Commands.CoreCommands.ClearAgentConversation,
 	};
 
+	/// <summary>Asks a context-preserving question outside the primary provider transcript.</summary>
+	public static AgentSlashEntry AskAside { get; } = new() {
+		Id = "weavie:btw",
+		Name = "btw",
+		Description = "Ask from the current context without adding to the main conversation",
+		Kind = AgentSlashEntryKind.WeavieCommand,
+		CommandId = Commands.CoreCommands.AskAgentAside,
+		InputHint = "question",
+		InputName = "question",
+	};
+
 	/// <summary>Adds built-ins to one provider snapshot, with Weavie semantics winning name collisions.</summary>
-	public static IReadOnlyList<AgentSlashEntry> ComposeSlash(IReadOnlyList<AgentSlashEntry> providerCommands) {
+	public static IReadOnlyList<AgentSlashEntry> ComposeSlash(
+		IReadOnlyList<AgentSlashEntry> providerCommands,
+		bool supportsSideConversations) {
 		ArgumentNullException.ThrowIfNull(providerCommands);
 		return [
 			ClearConversation,
-			.. providerCommands.Where(entry => !string.Equals(entry.Name, "clear", StringComparison.OrdinalIgnoreCase)),
+			.. supportsSideConversations ? [AskAside] : Array.Empty<AgentSlashEntry>(),
+			.. providerCommands.Where(entry =>
+				!string.Equals(entry.Name, "clear", StringComparison.OrdinalIgnoreCase)
+				&& (!supportsSideConversations
+					|| !string.Equals(entry.Name, "btw", StringComparison.OrdinalIgnoreCase))),
 		];
 	}
 }

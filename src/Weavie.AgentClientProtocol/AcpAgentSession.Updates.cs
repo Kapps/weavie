@@ -259,6 +259,7 @@ public sealed partial class AcpAgentSession {
 			}
 		}
 		PublishTool(tool);
+		if (settled) SignalSideTurnSettled();
 		if (dispatchPending) DispatchPendingSubmission();
 	}
 

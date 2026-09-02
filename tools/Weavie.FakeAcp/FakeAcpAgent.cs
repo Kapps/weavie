@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Weavie.FakeAcp;
@@ -25,7 +26,8 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 	public FakeAcpAgent() {
 		_fakeMode = Environment.GetEnvironmentVariable("WEAVIE_FAKE_ACP_MODE");
 		_requiresAuthentication = _fakeMode is
-			"held-authentication" or "agent-authentication" or "terminal-authentication";
+			"held-authentication" or "agent-authentication" or "side-held-authentication"
+			or "terminal-authentication";
 	}
 
 	public Task TerminalFailure => _never.Task;
@@ -50,6 +52,7 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 				parameters,
 				AcpJson.RequiredString(parameters, "sessionId", method),
 				replay: false),
+			"session/fork" => Fork(parameters),
 			"session/close" => await CloseAsync(parameters, ct).ConfigureAwait(false),
 			"session/prompt" => await PromptAsync(parameters, ct).ConfigureAwait(false),
 			"session/set_mode" => SetMode(parameters),
@@ -110,6 +113,7 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 			["sessionCapabilities"] = new JsonObject {
 				["resume"] = new JsonObject(),
 				["close"] = new JsonObject(),
+				["fork"] = new JsonObject(),
 			},
 			["mcpCapabilities"] = new JsonObject { ["http"] = true, ["sse"] = false },
 		};
@@ -121,12 +125,18 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 			&& File.Exists(Path.Combine(Environment.CurrentDirectory, "terminal-authenticated"))) {
 			_authenticated = true;
 		}
-		if (_requiresAuthentication && !_authenticated) {
+		if (_requiresAuthentication && !_authenticated
+			&& (_fakeMode != "side-held-authentication" || replay)) {
 			throw new AcpAdapterException(-32000, "Sign in to the fake ACP agent.", null);
 		}
 		if (_fakeMode == "minimal-capabilities") RequireStdioMcp(parameters);
 		else RequireMcp(parameters);
 		_sessionId = sessionId;
+		if (replay) {
+			File.AppendAllText(
+				Path.Combine(Environment.CurrentDirectory, "loads.log"),
+				sessionId + Environment.NewLine);
+		}
 		if (replay && sessionId == "replay-session") {
 			Update(new JsonObject {
 				["sessionUpdate"] = "user_message_chunk",
@@ -189,6 +199,9 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 				["status"] = "in_progress",
 			});
 		}
+		if (replay && sessionId != "replay-session") {
+			ReplayTranscript(sessionId);
+		}
 		Update(new JsonObject {
 			["sessionUpdate"] = "available_commands_update",
 			["availableCommands"] = new JsonArray(
@@ -227,6 +240,21 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 		return sequence == 1 ? "fake-session" : $"fake-session-{sequence}";
 	}
 
+	private JsonObject Fork(JsonElement parameters) {
+		string source = AcpJson.RequiredString(parameters, "sessionId", "session/fork");
+		if (!string.Equals(source, _sessionId, StringComparison.Ordinal)) {
+			throw AcpAdapterException.InvalidParams("session/fork must target the active fake session.");
+		}
+		RequireMcp(parameters);
+		string sessionId = "fake-fork-" + NewSessionId();
+		string sourceTranscript = TranscriptPath(source);
+		if (File.Exists(sourceTranscript)) File.Copy(sourceTranscript, TranscriptPath(sessionId));
+		File.AppendAllText(
+			Path.Combine(Environment.CurrentDirectory, "forks.log"),
+			$"{source}->{sessionId}{Environment.NewLine}");
+		return new JsonObject { ["sessionId"] = sessionId };
+	}
+
 	private async Task<JsonNode> AuthenticateAsync(CancellationToken ct) {
 		if (!_requiresAuthentication) return new JsonObject();
 		if (_fakeMode == "agent-authentication") {
@@ -257,6 +285,9 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 		RequireSession(parameters);
 		var prompt = AcpJson.RequiredArray(parameters, "prompt", "session/prompt");
 		string text = PromptText(prompt);
+		File.AppendAllText(
+			Path.Combine(Environment.CurrentDirectory, "prompts.log"),
+			$"{_sessionId}:{text}{Environment.NewLine}");
 		if (text == "/compact") {
 			RequireIsolatedCommand(prompt, text);
 			File.WriteAllText(Path.Combine(Environment.CurrentDirectory, "compact-executed"), string.Empty);
@@ -279,7 +310,14 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 		if (text == "restart-update-race") return await RestartUpdateRaceAsync(ct).ConfigureAwait(false);
 		if (text == "rich") RichUpdates();
 		else if (text == "background") StartBackground();
-		else if (text == "finish-background") FinishBackground();
+		else if (text == "delayed-background") {
+			StartBackground();
+			_ = Task.Run(async () => {
+				await Task.Delay(TimeSpan.FromMilliseconds(200)).ConfigureAwait(false);
+				Message("delayed background finished");
+				FinishBackground();
+			});
+		} else if (text == "finish-background") FinishBackground();
 		else if (text == "prompt-failure") PromptFailure();
 		else if (text == "shared-message-id") SharedMessageId();
 		else if (text == "tool-content") ToolContent();
@@ -315,6 +353,7 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 		else if (text == "agent-terminal") AgentOwnedTerminal();
 		else if (text == "cancel-before-dispatch") await CancelBeforeDispatchAsync().ConfigureAwait(false);
 		else if (text == "terminal-failure") await TerminalFailureAsync(ct).ConfigureAwait(false);
+		else if (text == "crash-when-released") CrashWhenReleased();
 		else if (text.StartsWith("fs-empty:", StringComparison.Ordinal)) {
 			await FileSystemAsync(text[9..], string.Empty, ct).ConfigureAwait(false);
 		} else if (text.StartsWith("fs:", StringComparison.Ordinal)) {
@@ -340,9 +379,50 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 		} else if (text == "image") Message("image=" + prompt.EnumerateArray().Any(
 			  block => AcpJson.OptionalString(block, "type") == "image"));
 		else if (text == "crash") Environment.Exit(19);
-		else Message("echo: " + text);
+		else {
+			Message("echo: " + text);
+			RecordTranscriptTurn(text);
+		}
 		return new JsonObject { ["stopReason"] = "end_turn" };
 	}
+
+	private void RecordTranscriptTurn(string prompt) {
+		if (_sessionId is null) return;
+		File.AppendAllText(
+			TranscriptPath(_sessionId),
+			Convert.ToBase64String(Encoding.UTF8.GetBytes(prompt)) + Environment.NewLine);
+	}
+
+	private static void CrashWhenReleased() => _ = Task.Run(async () => {
+		string release = Path.Combine(Environment.CurrentDirectory, "release-crash");
+		while (!File.Exists(release)) {
+			await Task.Delay(TimeSpan.FromMilliseconds(10)).ConfigureAwait(false);
+		}
+		Environment.Exit(20);
+	});
+
+	private void ReplayTranscript(string sessionId) {
+		string path = TranscriptPath(sessionId);
+		if (!File.Exists(path)) return;
+		int turn = 0;
+		foreach (string encoded in File.ReadLines(path)) {
+			turn++;
+			string prompt = Encoding.UTF8.GetString(Convert.FromBase64String(encoded));
+			Update(new JsonObject {
+				["sessionUpdate"] = "user_message_chunk",
+				["messageId"] = $"fork-user-{turn}",
+				["content"] = Text(prompt),
+			});
+			Update(new JsonObject {
+				["sessionUpdate"] = "agent_message_chunk",
+				["messageId"] = $"fork-agent-{turn}",
+				["content"] = Text("echo: " + prompt),
+			});
+		}
+	}
+
+	private static string TranscriptPath(string sessionId) =>
+		Path.Combine(Environment.CurrentDirectory, $"session-transcript-{sessionId}.log");
 
 	private static void RequireIsolatedCommand(JsonElement prompt, string text) {
 		if (prompt.GetArrayLength() != 1) {

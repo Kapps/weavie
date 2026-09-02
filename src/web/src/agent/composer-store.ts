@@ -41,6 +41,10 @@ export function setComposerDraft(session: ClientSession, draft: string): void {
   update(session, (state) => ({ ...state, draft, error: null }));
 }
 
+export function setComposerError(session: ClientSession, error: string): void {
+  update(session, (state) => ({ ...state, error }));
+}
+
 export function captureAgentImagePaste(event: ClipboardEvent, session: ClientSession): boolean {
   const blobs = takePastedImages(event);
   for (const blob of blobs) {

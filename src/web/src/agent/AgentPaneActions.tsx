@@ -91,7 +91,10 @@ export function AuthenticationActions(props: {
   message: AgentPaneUpdate;
 }): JSX.Element {
   const authenticate = (methodId: string): boolean => {
-    props.session.feature("agent").publish("authenticate", { methodId, answers: {} });
+    const requestId = props.message.requestId;
+    if (requestId !== null && requestId !== undefined) {
+      props.session.feature("agent").publish("authenticate", { requestId, methodId, answers: {} });
+    }
     return true;
   };
   createEffect(() => {

@@ -9,6 +9,7 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 	private readonly TaskCompletionSource _never = new(TaskCreationOptions.RunContinuationsAsynchronously);
 	private readonly Lock _gate = new();
 	private readonly string? _fakeMode;
+	private readonly string _stateDirectory;
 	private readonly bool _requiresAuthentication;
 	private readonly bool _holdsClose =
 		Environment.GetEnvironmentVariable("WEAVIE_FAKE_ACP_MODE") == "held-close";
@@ -25,6 +26,10 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 
 	public FakeAcpAgent() {
 		_fakeMode = Environment.GetEnvironmentVariable("WEAVIE_FAKE_ACP_MODE");
+		string root = Environment.GetEnvironmentVariable("WEAVIE_ROOT")
+			?? throw new InvalidOperationException("WEAVIE_ROOT is required by the fake ACP agent.");
+		_stateDirectory = Path.Combine(root, "fake-acp-state");
+		Directory.CreateDirectory(_stateDirectory);
 		_requiresAuthentication = _fakeMode is
 			"held-authentication" or "agent-authentication" or "side-held-authentication"
 			or "terminal-authentication";
@@ -134,7 +139,7 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 		_sessionId = sessionId;
 		if (replay) {
 			File.AppendAllText(
-				Path.Combine(Environment.CurrentDirectory, "loads.log"),
+				StatePath("loads.log"),
 				sessionId + Environment.NewLine);
 		}
 		if (replay && sessionId == "replay-session") {
@@ -250,7 +255,7 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 		string sourceTranscript = TranscriptPath(source);
 		if (File.Exists(sourceTranscript)) File.Copy(sourceTranscript, TranscriptPath(sessionId));
 		File.AppendAllText(
-			Path.Combine(Environment.CurrentDirectory, "forks.log"),
+			StatePath("forks.log"),
 			$"{source}->{sessionId}{Environment.NewLine}");
 		return new JsonObject { ["sessionId"] = sessionId };
 	}
@@ -286,7 +291,7 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 		var prompt = AcpJson.RequiredArray(parameters, "prompt", "session/prompt");
 		string text = PromptText(prompt);
 		File.AppendAllText(
-			Path.Combine(Environment.CurrentDirectory, "prompts.log"),
+			StatePath("prompts.log"),
 			$"{_sessionId}:{text}{Environment.NewLine}");
 		if (text == "/compact") {
 			RequireIsolatedCommand(prompt, text);
@@ -421,8 +426,9 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 		}
 	}
 
-	private static string TranscriptPath(string sessionId) =>
-		Path.Combine(Environment.CurrentDirectory, $"session-transcript-{sessionId}.log");
+	private string TranscriptPath(string sessionId) => StatePath($"session-transcript-{sessionId}.log");
+
+	private string StatePath(string name) => Path.Combine(_stateDirectory, name);
 
 	private static void RequireIsolatedCommand(JsonElement prompt, string text) {
 		if (prompt.GetArrayLength() != 1) {

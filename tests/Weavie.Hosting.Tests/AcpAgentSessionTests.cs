@@ -151,13 +151,15 @@ public sealed class AcpAgentSessionTests {
 			message.Type == "turn-completed"
 			&& message.ConversationId == conversationId
 			&& message.TurnId == "2");
-		string fork = Assert.Single(File.ReadAllLines(Path.Combine(fixture.Workspace, "forks.log")));
+		string fork = Assert.Single(File.ReadAllLines(Path.Combine(fixture.FakeAcpStateDirectory, "forks.log")));
 		string sideSessionId = fork[(fork.IndexOf("->", StringComparison.Ordinal) + 2)..];
-		string[] prompts = File.ReadAllLines(Path.Combine(fixture.Workspace, "prompts.log"));
+		string[] prompts = File.ReadAllLines(Path.Combine(fixture.FakeAcpStateDirectory, "prompts.log"));
 		Assert.Equal(3, prompts.Length);
 		Assert.StartsWith("fake-session:primary context", prompts[0], StringComparison.Ordinal);
 		Assert.All(prompts.Skip(1), prompt => Assert.StartsWith(sideSessionId + ":", prompt, StringComparison.Ordinal));
-		Assert.Equal(sideSessionId, Assert.Single(File.ReadAllLines(Path.Combine(fixture.Workspace, "loads.log"))));
+		Assert.Equal(
+			sideSessionId,
+			Assert.Single(File.ReadAllLines(Path.Combine(fixture.FakeAcpStateDirectory, "loads.log"))));
 	}
 
 	[Fact]
@@ -173,7 +175,7 @@ public sealed class AcpAgentSessionTests {
 			message.Type == "item-completed" && message.Text == "echo: second aside");
 
 		Assert.NotEqual(first.ConversationId, second.ConversationId);
-		Assert.Equal(2, File.ReadAllLines(Path.Combine(fixture.Workspace, "forks.log")).Length);
+		Assert.Equal(2, File.ReadAllLines(Path.Combine(fixture.FakeAcpStateDirectory, "forks.log")).Length);
 	}
 
 	[Fact]

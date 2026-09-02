@@ -55,6 +55,7 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 	public EditorStore Editor { get; }
 	public RecordingAgentEventSink Events { get; }
 	public string Workspace { get; }
+	public string FakeAcpStateDirectory => Path.Combine(Workspace, "weavie", "fake-acp-state");
 	public AgentLaunch? AuthenticationLaunch =>
 		(_authenticationTerminal as RecordingAuthenticationTerminal)?.Launch;
 

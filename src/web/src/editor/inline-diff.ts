@@ -11,13 +11,7 @@ import { onFontsChanged } from "../fonts";
 import { reviewToModelLine } from "./diff-geometry";
 import { monaco } from "./monaco-setup";
 import { REVEAL_SCROLL } from "./reveal-scroll";
-import {
-  computeDiffLines,
-  diffTextTooLarge,
-  MAX_DIFF_CHARACTERS,
-  MAX_DIFF_LINES,
-  splitDiffLines,
-} from "./review/diff-computation";
+import { computeDiffLines, splitDiffLines } from "./review/diff-computation";
 import { sessionFileUri } from "./session-uri";
 
 // Debounce diff recompute so typing into a model under review (or a burst of working-copy reloads) doesn't
@@ -235,9 +229,6 @@ interface AcceptedHunk extends HunkUnkeep {
  * Uses the same diff machinery and anchor rule as `render`, so it matches where "next change" first lands.
  */
 export function firstChangedLine(original: string, modified: string): number {
-  if (diffTextTooLarge(original) || diffTextTooLarge(modified)) {
-    return 1;
-  }
   const changes = computeDiffLines(splitDiffLines(original), splitDiffLines(modified));
   if (changes === null) {
     return 1;
@@ -345,8 +336,8 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     const node = document.createElement("div");
     // Faded variant: a removed line in an already-accepted hunk, dimmed to match its faded green counterpart.
     node.className = faded
-      ? "weavie-inline-removed weavie-inline-removed-faded"
-      : "weavie-inline-removed";
+      ? "weavie-inline-removed weavie-inline-removed-line weavie-inline-removed-faded"
+      : "weavie-inline-removed weavie-inline-removed-line";
     // Use the resolved metrics, not the raw font setting: the view zone reserves `lines.length * lineHeight`
     // px, so the ghost rows must use that same line height or they overflow the zone.
     const fontInfo = editor.getOption(monaco.editor.EditorOption.fontInfo);
@@ -356,12 +347,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     // Render tabs at the editor's tab width so a removed line's leading indentation lines up with the live
     // code, instead of CSS `tab-size`'s default of 8.
     node.style.tabSize = String(editor.getModel()?.getOptions().tabSize ?? 4);
-    for (const line of lines) {
-      const row = document.createElement("div");
-      row.className = "weavie-inline-removed-line";
-      row.textContent = line.length === 0 ? " " : line;
-      node.appendChild(row);
-    }
+    node.textContent = lines.map((line) => (line.length === 0 ? " " : line)).join("\n");
     return node;
   };
 
@@ -1205,7 +1191,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     return bar;
   };
 
-  const renderTooLarge = (uriString: string, options: InlineDiffOptions): void => {
+  const renderTimedOut = (uriString: string, options: InlineDiffOptions): void => {
     fallbackNavigation = options;
     const fileKept = fileIsKept(options);
     const editorDom = editor.getDomNode();
@@ -1230,8 +1216,8 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
       const warning = document.createElement("span");
       warning.className = "weavie-inline-stack-sub";
       warning.textContent = fileKept
-        ? "File kept · diff too large to display"
-        : "Diff too large to display";
+        ? "File kept · diff calculation timed out"
+        : "Diff calculation timed out";
       toolbarNode.appendChild(warning);
       if (multiFile) {
         toolbarNode.appendChild(
@@ -1293,22 +1279,11 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
       currentScope = "change";
     }
 
-    if (
-      model.getValueLength() > MAX_DIFF_CHARACTERS ||
-      model.getLineCount() > MAX_DIFF_LINES ||
-      diffTextTooLarge(options.original) ||
-      (options.claudeVersion !== undefined && diffTextTooLarge(options.claudeVersion)) ||
-      (options.acceptedBaseline !== undefined && diffTextTooLarge(options.acceptedBaseline))
-    ) {
-      renderTooLarge(uriString, options);
-      return;
-    }
-
     const original = splitDiffLines(options.original);
     const modified = model.getLinesContent();
     const changes = computeDiffLines(original, modified);
     if (changes === null) {
-      renderTooLarge(uriString, options);
+      renderTimedOut(uriString, options);
       return;
     }
     // A fully-kept file has no bright (pending) hunks but still carries a faded accepted band — don't bail on it.
@@ -1326,7 +1301,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     if (options.claudeVersion !== undefined) {
       const userDiff = computeDiffLines(splitDiffLines(options.claudeVersion), modified);
       if (userDiff === null) {
-        renderTooLarge(uriString, options);
+        renderTimedOut(uriString, options);
         return;
       }
       for (const change of userDiff) {
@@ -1344,6 +1319,25 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     const ghosts: { afterLineNumber: number; lines: string[]; faded?: boolean }[] = [];
     const hunks: Hunk[] = [];
     const acceptedHunks: AcceptedHunk[] = [];
+    const addLineDecoration = (
+      startLine: number,
+      endLineExclusive: number,
+      className: string | null,
+      gutterClassName: string,
+    ): void => {
+      deltas.push({
+        range: new monaco.Range(startLine, 1, endLineExclusive - 1, 1),
+        options: {
+          isWholeLine: true,
+          className,
+          linesDecorationsClassName: gutterClassName,
+          overviewRuler: {
+            color: { id: "editorOverviewRuler.addedForeground" },
+            position: monaco.editor.OverviewRulerLane.Left,
+          },
+        },
+      });
+    };
 
     for (const change of changes) {
       hunks.push({
@@ -1354,33 +1348,29 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
         currentEndExclusive: change.modified.endLineNumberExclusive,
       });
       if (!change.modified.isEmpty) {
-        // Per-line so a block mixing Claude's lines with the user's tweaks paints each in its own shade. A new file
-        // skips the wash + char overlay (isNewFile) — only the continuous gutter edge marks it.
-        for (
-          let ln = change.modified.startLineNumber;
-          ln < change.modified.endLineNumberExclusive;
-          ln++
-        ) {
-          const fromUser = userLines.has(ln);
-          deltas.push({
-            range: new monaco.Range(ln, 1, ln, 1),
-            options: {
-              isWholeLine: true,
-              className: isNewFile ? null : fromUser ? "weavie-inline-user" : "weavie-inline-added",
-              linesDecorationsClassName: isNewFile
-                ? "weavie-inline-added-gutter"
-                : fromUser
-                  ? "weavie-inline-user-gutter"
-                  : "weavie-inline-added-gutter",
-              overviewRuler: {
-                // Standard VS Code added-marker id so the ruler tracks the theme; the added/user shade
-                // distinction is carried by the in-editor line wash, not the ruler.
-                color: { id: "editorOverviewRuler.addedForeground" },
-                position: monaco.editor.OverviewRulerLane.Left,
-              },
-            },
-          });
+        // One Monaco range covers every consecutive line with the same shade; mixed user/Claude blocks split only
+        // where ownership changes. A new file needs one continuous gutter range and no wash.
+        let segmentStart = change.modified.startLineNumber;
+        let fromUser = !isNewFile && userLines.has(segmentStart);
+        for (let ln = segmentStart + 1; ln < change.modified.endLineNumberExclusive; ln++) {
+          const nextFromUser = !isNewFile && userLines.has(ln);
+          if (nextFromUser !== fromUser) {
+            addLineDecoration(
+              segmentStart,
+              ln,
+              fromUser ? "weavie-inline-user" : isNewFile ? null : "weavie-inline-added",
+              fromUser ? "weavie-inline-user-gutter" : "weavie-inline-added-gutter",
+            );
+            segmentStart = ln;
+            fromUser = nextFromUser;
+          }
         }
+        addLineDecoration(
+          segmentStart,
+          change.modified.endLineNumberExclusive,
+          fromUser ? "weavie-inline-user" : isNewFile ? null : "weavie-inline-added",
+          fromUser ? "weavie-inline-user-gutter" : "weavie-inline-added-gutter",
+        );
         if (!isNewFile) {
           for (const inner of change.innerChanges ?? []) {
             const r = inner.modifiedRange;
@@ -1421,27 +1411,20 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
       const accepted = splitDiffLines(options.acceptedBaseline);
       const fadedChanges = computeDiffLines(accepted, original);
       if (fadedChanges === null) {
-        renderTooLarge(uriString, options);
+        renderTimedOut(uriString, options);
         return;
       }
       for (const change of fadedChanges) {
         const reviewStart = change.modified.startLineNumber;
         const reviewEndExclusive = change.modified.endLineNumberExclusive;
         const modelStart = reviewToModelLine(changes, reviewStart);
-        for (let i = 0; i < reviewEndExclusive - reviewStart; i++) {
-          const ln = modelStart + i;
-          deltas.push({
-            range: new monaco.Range(ln, 1, ln, 1),
-            options: {
-              isWholeLine: true,
-              className: "weavie-inline-accepted",
-              linesDecorationsClassName: "weavie-inline-accepted-gutter",
-              overviewRuler: {
-                color: { id: "editorOverviewRuler.addedForeground" },
-                position: monaco.editor.OverviewRulerLane.Left,
-              },
-            },
-          });
+        if (reviewEndExclusive > reviewStart) {
+          addLineDecoration(
+            modelStart,
+            modelStart + reviewEndExclusive - reviewStart,
+            "weavie-inline-accepted",
+            "weavie-inline-accepted-gutter",
+          );
         }
         if (!change.original.isEmpty) {
           ghosts.push({

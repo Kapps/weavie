@@ -43,10 +43,16 @@ export function UnifiedReview(props: {
     return workspace === undefined ? path : repoRelativePath(workspace, path);
   };
   const files = (): ReviewFileView[] => props.overview().files;
+  // Distinguishes rows across a session switch: two sessions can share a changed path (package.json,
+  // index.ts, …), and the row key must change when the owning session does.
+  const sessionKey = (): string =>
+    `${props.session.address.slot}\0${props.session.address.incarnation}`;
   const rows = () => virtualizer.getVirtualItems();
-  // Rows are keyed by file path, never by the virtualizer's item objects: a re-measure rebuilds every one of
-  // those, and a reference-keyed <For> would tear down each section's live editor — losing focus, caret and
-  // undo history in the very file being typed in.
+  // Rows are keyed by session + file path, never by the virtualizer's item objects: a re-measure rebuilds
+  // every one of those, and a reference-keyed <For> would tear down each section's live editor — losing
+  // focus, caret and undo history in the very file being typed in. Folding the session into the key still
+  // forces a remount when the active session changes, so a switch never leaves a section's live editor
+  // painting a different session's diff onto the outgoing session's model.
   const rowKeys = (): string[] => rows().map((row) => String(row.key));
   const virtualizer = createVirtualizer<HTMLElement, HTMLElement>({
     get count() {
@@ -58,7 +64,10 @@ export function UnifiedReview(props: {
         ? 120
         : SECTION_HEADER_HEIGHT + estimatedEditorHeight(file.added, file.removed);
     },
-    getItemKey: (index) => files()[index]?.summary().path ?? index,
+    getItemKey: (index) => {
+      const path = files()[index]?.summary().path;
+      return path === undefined ? index : `${sessionKey()}\0${path}`;
+    },
     getScrollElement: () => scroller ?? null,
     gap: 20,
     measureElement: (element) => element.getBoundingClientRect().height,
@@ -188,7 +197,12 @@ export function UnifiedReview(props: {
             <For each={rowKeys()}>
               {(key) => {
                 const row = () => rows().find((candidate) => String(candidate.key) === key);
-                const file = () => files().find((entry) => entry.summary().path === key);
+                // The key carries the owning session, not just the path — recover the file by the
+                // virtualizer's index into the current session's list instead of matching on path.
+                const file = () => {
+                  const index = row()?.index;
+                  return index === undefined ? undefined : files()[index];
+                };
                 onCleanup(() => virtualizer.measureElement(null));
                 return (
                   <Show when={file()}>

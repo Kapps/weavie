@@ -31,7 +31,7 @@ public interface IHostPlatform {
 	/// <summary>Current recent workspace paths for File ▸ Open Recent (empty when unsupported).</summary>
 	IReadOnlyList<string> Recents { get; }
 
-	/// <summary>Raised after <see cref="Recents"/> changes so existing windows refresh their shared web menu.</summary>
+	/// <summary>Raised after <see cref="Recents"/> changes so existing windows refresh their application menu.</summary>
 	event Action? RecentsChanged;
 
 	/// <summary>The OS window primitives the web title bar drives, or <c>null</c> when the host uses native chrome.</summary>
@@ -39,6 +39,9 @@ public interface IHostPlatform {
 
 	/// <summary>The native application/workspace actions driven by a web File menu.</summary>
 	IShellMenuActions MenuActions { get; }
+
+	/// <summary>The native application-menu surface, or an explicit no-op where menus remain web-rendered.</summary>
+	IApplicationMenu ApplicationMenu { get; }
 
 	/// <summary>The native modal file dialogs, or <c>null</c> when the host has no native UI.</summary>
 	IHostDialogs? Dialogs { get; }

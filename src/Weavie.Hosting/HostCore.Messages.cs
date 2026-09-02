@@ -155,6 +155,14 @@ public sealed partial class HostCore {
 			async (message, ct) => ToWireResult(
 				await InvokeClientCommandOnHostAsync(message, ct).ConfigureAwait(false)));
 
+		_messages.Host.Feature("applicationMenu").HandleOwned<ApplicationMenuState>(
+			"state",
+			(message, peer, _) => {
+				_applicationMenuOwner = peer;
+				_platform.ApplicationMenu.Apply(message);
+				return Task.CompletedTask;
+			});
+
 		var window = _messages.Host.Feature("window");
 		window.Handle<JsonElement>("control", (message, _) => {
 			_shell?.HandleWindowControl(message);
@@ -171,6 +179,19 @@ public sealed partial class HostCore {
 				return Task.CompletedTask;
 			}, ct)));
 	}
+
+	private void OnApplicationMenuActivated(ApplicationMenuActivation activation) {
+		if (_applicationMenuOwner is { } owner) {
+			_messages.Host.Feature("applicationMenu").Target(owner).Publish("invoke", activation);
+		}
+	}
+
+	private void OnApplicationMenuPeerDisconnected(MessagePeer peer) => _ui.Post(() => {
+		if (ReferenceEquals(_applicationMenuOwner, peer)) {
+			_applicationMenuOwner = null;
+			_platform.ApplicationMenu.Clear();
+		}
+	});
 
 	private async Task<CommandResult> InvokeHostSessionCommandAsync(
 		CommandRequest message,

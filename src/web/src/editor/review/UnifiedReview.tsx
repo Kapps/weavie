@@ -1,18 +1,26 @@
 import { createVirtualizer } from "@tanstack/solid-virtual";
 import { Check, FileCode2, Files, RotateCcw } from "lucide-solid";
-import { createEffect, createSignal, For, type JSX, onCleanup, onMount } from "solid-js";
+import type { editor as MonacoEditor } from "monaco-editor";
+import { createEffect, createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js";
 import type { ClientSession } from "../../bridge";
 import { keyHint } from "../../commands/key-hint";
 import { runCommandWithFeedback } from "../../commands/registry";
 import { CommandIds } from "../../commands/types";
 import { repoRelativePath, samePath } from "../fs-path";
 import { ReviewFileSection } from "./ReviewFileSection";
+import { estimatedEditorHeight } from "./review-editor";
 import type { ReviewFileView, ReviewOverview } from "./review-store";
+
+// The section header's fixed height, so an unmounted section reserves the same space its editor will fill.
+const SECTION_HEADER_HEIGHT = 42;
 
 export function UnifiedReview(props: {
   overview: () => ReviewOverview;
   session: ClientSession;
   onCursorChange: (session: ClientSession, path: string, line: number) => void;
+  /** Resolve a changed file's working copy for its section editor; released when this surface unmounts. */
+  openCopy: (session: ClientSession, path: string) => Promise<MonacoEditor.ITextModel>;
+  releaseCopies: () => void;
 }): JSX.Element {
   let scroller: HTMLElement | undefined;
   let sidebarSelection = true;
@@ -27,19 +35,28 @@ export function UnifiedReview(props: {
   const [visibleFile, setVisibleFile] = createSignal(initialIndex());
 
   onMount(() => scroller?.focus());
+  // The per-file editors hold their own working-copy references; this surface owns their lifetime.
+  onCleanup(() => props.releaseCopies());
 
   const displayPath = (path: string): string => {
     const workspace = props.session.state.lsp.current?.workspace;
     return workspace === undefined ? path : repoRelativePath(workspace, path);
   };
   const files = (): ReviewFileView[] => props.overview().files;
+  const rows = () => virtualizer.getVirtualItems();
+  // Rows are keyed by file path, never by the virtualizer's item objects: a re-measure rebuilds every one of
+  // those, and a reference-keyed <For> would tear down each section's live editor — losing focus, caret and
+  // undo history in the very file being typed in.
+  const rowKeys = (): string[] => rows().map((row) => String(row.key));
   const virtualizer = createVirtualizer<HTMLElement, HTMLElement>({
     get count() {
       return files().length;
     },
     estimateSize: (index) => {
       const file = files()[index]?.summary();
-      return file === undefined ? 120 : 130 + (file.added + file.removed) * 24;
+      return file === undefined
+        ? 120
+        : SECTION_HEADER_HEIGHT + estimatedEditorHeight(file.added, file.removed);
     },
     getItemKey: (index) => files()[index]?.summary().path ?? index,
     getScrollElement: () => scroller ?? null,
@@ -58,11 +75,6 @@ export function UnifiedReview(props: {
     },
     overscan: 2,
     useAnimationFrameWithResizeObserver: true,
-  });
-  createEffect(() => {
-    files().length;
-    props.overview().fullyLoaded();
-    virtualizer.measure();
   });
   let restoredSession: ClientSession | undefined;
   createEffect(() => {
@@ -173,24 +185,30 @@ export function UnifiedReview(props: {
           onWheel={followViewport}
         >
           <div class="unified-review-virtual-list" style={`height:${virtualizer.getTotalSize()}px`}>
-            <For each={virtualizer.getVirtualItems()}>
-              {(row) => {
-                const file = (): ReviewFileView => files()[row.index]!;
+            <For each={rowKeys()}>
+              {(key) => {
+                const row = () => rows().find((candidate) => String(candidate.key) === key);
+                const file = () => files().find((entry) => entry.summary().path === key);
                 onCleanup(() => virtualizer.measureElement(null));
                 return (
-                  <ReviewFileSection
-                    displayPath={displayPath}
-                    file={file}
-                    index={row.index}
-                    measure={(element) =>
-                      queueMicrotask(() => {
-                        if (element.isConnected) {
-                          virtualizer.measureElement(element);
+                  <Show when={file()}>
+                    {(view) => (
+                      <ReviewFileSection
+                        displayPath={displayPath}
+                        file={view}
+                        index={row()?.index ?? 0}
+                        openCopy={(path) => props.openCopy(props.session, path)}
+                        measure={(element) =>
+                          queueMicrotask(() => {
+                            if (element.isConnected) {
+                              virtualizer.measureElement(element);
+                            }
+                          })
                         }
-                      })
-                    }
-                    style={`transform:translateY(${row.start}px)`}
-                  />
+                        style={`top:${row()?.start ?? 0}px`}
+                      />
+                    )}
+                  </Show>
                 );
               }}
             </For>

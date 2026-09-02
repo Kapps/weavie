@@ -4,6 +4,7 @@
 // at creation and subscribe via onEditorOptionsChanged() for live updates.
 
 import { type EditorOptionsSpec, hostInjected, registerHostFeature } from "./bridge";
+import { DEFAULT_EDITOR_OPTIONS } from "./editor-options-defaults";
 
 export type { EditorOptionsSpec };
 
@@ -14,38 +15,10 @@ declare global {
   }
 }
 
-// Plain-browser dev fallback (a missing value throws in the shipped app; see hostInjected). Mirrors the
-// host's defaults in Core's EditorSettings, including Monaco's standard 300ms hover delay.
-const DEFAULT_OPTIONS: EditorOptionsSpec = {
-  inlayHints: "on",
-  minimap: false,
-  bracketPairColorization: true,
-  smoothScrolling: true,
-  cursorSmoothCaretAnimation: "off",
-  renderWhitespace: "none",
-  scrollBeyondLastLine: true,
-  mouseWheelScrollSensitivity: 1,
-  fastScrollSensitivity: 5,
-  middleClickAutoscroll: true,
-  wordWrap: "off",
-  lineNumbers: "on",
-  cursorBlinking: "blink",
-  renderLineHighlight: "line",
-  stickyScroll: true,
-  fontLigatures: false,
-  indentGuides: true,
-  hoverDelay: 300,
-  suggestExpandDocs: true,
-  commentProse: "documentation",
-  paneShortcutHints: true,
-  videoAutoplay: true,
-  gitBlame: "currentLine",
-};
-
 let current: EditorOptionsSpec = hostInjected(
   "__WEAVIE_EDITOR_OPTIONS__",
   window.__WEAVIE_EDITOR_OPTIONS__,
-  DEFAULT_OPTIONS,
+  DEFAULT_EDITOR_OPTIONS,
 );
 
 const subscribers = new Set<(options: EditorOptionsSpec) => void>();

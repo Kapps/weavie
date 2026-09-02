@@ -44,6 +44,7 @@ import { EditorFooter } from "./chrome/EditorFooter";
 import { gitStatus } from "./chrome/git-status-store";
 import { installMiddleClickAutoscroll } from "./chrome/middle-click-autoscroll";
 import { NativeTitleBar } from "./chrome/NativeTitleBar";
+import { installNativeApplicationMenu } from "./chrome/native-application-menu";
 import { OpenPrPrompt } from "./chrome/OpenPrPrompt";
 import {
   focusOmnibar,
@@ -1316,6 +1317,8 @@ export default function App(): JSX.Element {
                   overview={editor.review.overview}
                   session={selectedSession()!}
                   onCursorChange={editor.review.setCursor}
+                  openCopy={editor.review.openCopy}
+                  releaseCopies={editor.review.releaseCopies}
                 />
               </Suspense>
             </Show>
@@ -1872,6 +1875,7 @@ export default function App(): JSX.Element {
     // Double-tapping Shift mirrors $mod+P (Go to File) — a gesture the chord resolver can't express.
     const offDoubleShift = installDoubleShift(() => dispatchCommand(CommandIds.focusOmnibarFiles));
     const offAutoscroll = installMiddleClickAutoscroll();
+    const offNativeApplicationMenu = installNativeApplicationMenu();
 
     // A browser tab can't read the clipboard programmatically, so terminal Paste (a clipboard read) is gated
     // off it in the command catalog — Ctrl+V there falls through to xterm's native paste instead. Session-static.
@@ -1925,6 +1929,7 @@ export default function App(): JSX.Element {
       offKeybindings();
       offDoubleShift();
       offAutoscroll();
+      offNativeApplicationMenu();
       for (const off of offCommands) {
         off();
       }
@@ -1977,6 +1982,7 @@ export default function App(): JSX.Element {
       </Show>
       <Show when={MAC_TITLEBAR || LINUX_TITLEBAR}>
         <NativeTitleBar
+          showApplicationMenu={LINUX_TITLEBAR}
           files={fileIndex()}
           filesPending={indexPending()}
           root={indexRoot()}

@@ -20,6 +20,7 @@ namespace Weavie.Mac;
 internal sealed partial class WorkspaceWindow : IWebSurface, IShellMenuActions {
 	private readonly AppDelegate _app;
 	private readonly HostBridge _bridge = new();
+	private readonly MacAppMenuChannel _applicationMenu;
 	private readonly HostCore _core;
 	private readonly WKWebView _webView;
 	private readonly SystemNotificationChannel _notifications;
@@ -37,6 +38,7 @@ internal sealed partial class WorkspaceWindow : IWebSurface, IShellMenuActions {
 		ArgumentException.ThrowIfNullOrEmpty(workspace);
 		_app = app;
 		_notifications = app.Notifications.CreateChannel();
+		_applicationMenu = app.CreateApplicationMenu();
 
 		string resourcePath = NSBundle.MainBundle.ResourcePath
 			?? throw new InvalidOperationException("No bundle resource path.");
@@ -154,11 +156,14 @@ internal sealed partial class WorkspaceWindow : IWebSurface, IShellMenuActions {
 			_core.DisposeAsync().AsTask().GetAwaiter().GetResult();
 		} finally {
 			_notifications.Dispose();
+			_applicationMenu.Dispose();
 		}
 #if DEBUG
 		_devBringUp?.Dispose(); // kills the Vite dev server this window spawned; a reused one is left alone
 #endif
 	}
+
+	internal void ActivateApplicationMenu() => _applicationMenu.Activate();
 
 	private void PushWindowState() =>
 		_core.PushWindowState(Window.IsZoomed, Window.IsKeyWindow && !Window.IsMiniaturized);

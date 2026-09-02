@@ -137,12 +137,17 @@ function connect(key: string, params: EnsureClientParams, attempt: number): void
       notify(
         "error",
         `${server.id} language intelligence is unavailable (${reason}). Check that its language server is installed and on PATH.`,
+        key,
       );
       return;
     }
     // First failure of a streak: a self-dismissing warn so the user sees the hiccup immediately.
     if (nextAttempt === 1) {
-      notify("warn", `${server.id} language intelligence interrupted (${reason}); reconnecting…`);
+      notify(
+        "warn",
+        `${server.id} language intelligence interrupted (${reason}); reconnecting…`,
+        key,
+      );
     }
     const delayMs = Math.min(1000 * 2 ** (nextAttempt - 1), 15_000);
     log(

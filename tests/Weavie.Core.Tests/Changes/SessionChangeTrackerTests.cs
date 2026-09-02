@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Weavie.Core.Agents;
 using Weavie.Core.Changes;
 using Weavie.Core.FileActivity;
 using Weavie.Core.FileSystem;
@@ -59,6 +60,25 @@ public sealed class SessionChangeTrackerTests {
 		var change = Assert.Single(tracker.Changes());
 		Assert.Equal("", change.BaselineText);
 		Assert.Equal("hello\n", change.CurrentText);
+	}
+
+	[Fact]
+	public void Observe_OverlappingInsertionsAtTheSameBoundary_PreservesBothChanges() {
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllText("/w/a.txt", "head\ntail\n");
+		var tracker = Tracker(fileSystem);
+		var mutation = new AgentMutation.File("/w/a.txt", Cwd: null, ProvidesEditLocation: true);
+
+		tracker.Observe(new AgentToolStarting(mutation));
+		fileSystem.WriteAllText("/w/a.txt", "head\nfirst\ntail\n");
+		tracker.Observe(new AgentToolCompleted(mutation));
+
+		fileSystem.WriteAllText("/w/a.txt", "head\ntail\n");
+		tracker.Observe(new AgentToolStarting(mutation));
+		fileSystem.WriteAllText("/w/a.txt", "head\nsecond\ntail\n");
+		tracker.Observe(new AgentToolCompleted(mutation));
+
+		Assert.Equal("head\nfirst\nsecond\ntail\n", tracker.GetTurn("/w/a.txt")!.CurrentText);
 	}
 
 	[Fact]

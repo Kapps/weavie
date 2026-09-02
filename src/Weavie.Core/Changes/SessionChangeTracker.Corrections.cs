@@ -368,8 +368,12 @@ public sealed partial class SessionChangeTracker {
 	private static bool ContainsRange(LineRange outer, LineRange inner) =>
 		outer.Start <= inner.Start && inner.EndExclusive <= outer.EndExclusive;
 
-	private static LineRange MapRange(LineRange range, IReadOnlyList<LineHunk> hunks) =>
-		new(MapBoundary(range.Start, hunks, endBias: false), MapBoundary(range.EndExclusive, hunks, endBias: true));
+	private static LineRange MapRange(LineRange range, IReadOnlyList<LineHunk> hunks) {
+		int start = MapBoundary(range.Start, hunks, endBias: false);
+		return range.Start == range.EndExclusive
+			? new LineRange(start, start)
+			: new LineRange(start, MapBoundary(range.EndExclusive, hunks, endBias: true));
+	}
 
 	private static int MapBoundary(int boundary, IReadOnlyList<LineHunk> hunks, bool endBias) {
 		int delta = 0;

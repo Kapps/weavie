@@ -191,6 +191,16 @@ internal sealed class TestHost : IAsyncDisposable {
 	public static TestHost CreateUnstarted(IUiDispatcher dispatcher) =>
 		Create(_ => { }, new StaticPullRequestProvider([], []), dispatcher);
 
+	/// <summary>Builds an unstarted host over a test-controlled native application menu.</summary>
+	public static TestHost CreateUnstarted(IApplicationMenu applicationMenu) =>
+		Create(
+			_ => { },
+			new StaticPullRequestProvider([], []),
+			new InlineUiDispatcher(),
+			NoopSystemNotificationChannel.Instance,
+			static settings => InferenceComposition.CreateDisabled(settings),
+			platform => platform.ApplicationMenu = applicationMenu);
+
 	private static TestHost Create(Action<string> prepareRepo, IPullRequestProvider pullRequests) =>
 		Create(prepareRepo, pullRequests, new InlineUiDispatcher());
 
@@ -678,6 +688,7 @@ internal sealed class TestPlatform : IHostPlatform {
 	public event Action? RecentsChanged;
 	public IShellWindow? Window { get; set; }
 	public IShellMenuActions MenuActions { get; set; } = NoopShellMenuActions.Instance;
+	public IApplicationMenu ApplicationMenu { get; set; } = NoopApplicationMenu.Instance;
 	public IHostDialogs? Dialogs { get; set; }
 	public ISystemNotificationChannel Notifications { get; set; } = NoopSystemNotificationChannel.Instance;
 

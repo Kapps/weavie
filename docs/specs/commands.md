@@ -51,18 +51,23 @@ Converting it to a command fixes all three at once.
 
 ## Application menu
 
-The desktop and browser title bars render one curated application-menu tree from
+The browser, Windows, and Linux title bars render one curated application-menu tree from
 `src/web/src/chrome/application-menu.ts`. The tree owns only placement, separators, and submenu labels;
 command titles, availability, execution, and effective shortcuts still come from the active merged command
-catalog. Opening a menu snapshots the previously focused pane so a contextual row remains correctly enabled
-after focus moves into the menu. A catalog push or selected-backend change refreshes the displayed shortcuts,
-live context changes refresh enabled rows, and the host pushes recent-workspace changes into every existing
-window. Every row dispatches its command id through the same route as the palette.
+catalog. Opening a web menu snapshots the previously focused pane so a contextual row remains correctly
+enabled after focus moves into the menu. A catalog push or selected-backend change refreshes the displayed
+shortcuts, live context changes refresh enabled rows, and the host pushes recent-workspace changes into every
+existing window. Every row dispatches its command id through the same route as the palette.
 
-macOS keeps its AppKit-owned App/Edit/Window conventions in the system menu. Weavie command menus render in
-the same in-window web bar as Windows and Linux; duplicating them into `NSMenu` would lose the selected remote
-catalog and `when` context, and native key equivalents would intercept chords before the web resolver could
-decline them.
+macOS renders the resolved File/Go/View/Diff/Run tree in AppKit's system menu bar, alongside its native
+App/Edit/Window conventions. The page publishes a snapshot containing the selected local/remote catalog's
+titles, `when` availability, effective keybindings, recents, and opaque activation tokens through `HostCore`;
+the key workspace window's native channel owns the process-wide menu. A mouse selection sends the token back
+to that page and enters the normal web command dispatcher, preserving web handlers and remote ownership.
+Dynamic `NSMenuItem` key equivalents are display-only: every generated menu's delegate declines key-equivalent
+handling, so AppKit advertises the live shortcut without intercepting it. The existing capture-phase web
+resolver still owns the keystroke, including guarded-binding precedence and handlers that decline to the next
+binding or focused editor/terminal.
 
 ## Non-goals (deferred)
 

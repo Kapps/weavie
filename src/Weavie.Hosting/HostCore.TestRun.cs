@@ -52,6 +52,9 @@ public sealed partial class HostCore {
 		if (rule is null) {
 			return CommandResult.Failure($"No test rule in the profile matches {relative}.");
 		}
+		if (testName is null && rule.RunFile is null) {
+			return CommandResult.Failure($"The test runner cannot target every test in {relative}; run an individual test instead.");
+		}
 
 		var shell = session.Shells.Primary;
 		if (shell is null) {

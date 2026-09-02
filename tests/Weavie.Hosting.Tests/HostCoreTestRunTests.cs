@@ -13,6 +13,8 @@ namespace Weavie.Hosting.Tests;
 public sealed class HostCoreTestRunTests {
 	private const string Profile =
 		"test.profile = '[{\"glob\":\"**/*.test.ts\",\"symbol\":\"^(?:it|test)\\\\(\",\"runOne\":\"echo RUN ${file} -t ${name}\",\"runFile\":\"echo RUN ${file}\"}]'\n";
+	private const string IndividualOnlyProfile =
+		"test.profile = '[{\"glob\":\"**/*.rs\",\"symbol\":\"^test\",\"runOne\":\"cargo test ${name}\"}]'\n";
 
 	[Fact]
 	public async Task RunFile_ComposesCommand_IntoShellPane() {
@@ -114,6 +116,18 @@ public sealed class HostCoreTestRunTests {
 
 		Assert.False(result.Ok);
 		Assert.Contains("No test rule", result.Error, StringComparison.Ordinal);
+	}
+
+	[Fact]
+	public async Task RunFileWithoutAFileCommand_FailsBeforeOpeningAShell() {
+		await using var host = await TestHost.StartAsync(repo => WriteProfile(repo, IndividualOnlyProfile));
+		string file = Path.Combine(host.RepoRoot, "src", "lib.rs");
+
+		var result = await host.InvokeClientCommandAsync("weavie.tests.runFile", new { file });
+
+		Assert.False(result.Ok);
+		Assert.Contains("cannot target every test", result.Error, StringComparison.Ordinal);
+		Assert.Empty(host.Platform.NoopLauncher.Created);
 	}
 
 	private static void WriteProfile(string repo, string profileLine) {

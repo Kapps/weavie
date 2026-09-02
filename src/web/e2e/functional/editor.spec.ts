@@ -2,6 +2,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { clickIntoEditor, openFile, typeInEditor } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
+import type { WeavieWindow } from "../harness/weavie-window";
 
 // Omnibar → open a file → Monaco renders it with syntax highlighting. Highlighting is observed via Monaco's
 // tokenization classes (`.mtk<n>` spans) in the rendered view lines — proof tokens were produced, not just
@@ -15,6 +16,33 @@ test("omnibar opens a file and Monaco highlights it", async ({ page }) => {
     .locator(".monaco-editor .view-lines [class*='mtk']")
     .evaluateAll((els) => Array.from(new Set(els.map((el) => el.className))));
   expect(tokenClasses.length).toBeGreaterThan(1);
+});
+
+test("curated Python and Rust keep their language ids and shared-scope highlighting", async ({
+  page,
+  weavie,
+}) => {
+  const files = [
+    ["sample.py", "python", "def greet(name: str) -> str:\n    return f'Hello {name}'\n"],
+    ["sample.rs", "rust", 'pub fn greet(name: &str) -> String { format!("Hello {name}") }\n'],
+    ["sample.bzl", "python", 'def greet(name):\n    return "Hello %s" % name\n'],
+  ] as const;
+
+  for (const [name, languageId, source] of files) {
+    await writeFile(join(weavie.workspace, name), source);
+    await openFile(page, name);
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          (window as WeavieWindow).__WEAVIE_EDITOR__?.getModel()?.getLanguageId(),
+        ),
+      )
+      .toBe(languageId);
+    const tokenClasses = await page
+      .locator(".monaco-editor .view-lines [class*='mtk']")
+      .evaluateAll((elements) => new Set(elements.map((element) => element.className)).size);
+    expect(tokenClasses).toBeGreaterThan(1);
+  }
 });
 
 // Clicking into the editor must not scroll the file out of view. Monaco sizes `.view-lines` to the whole

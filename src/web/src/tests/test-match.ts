@@ -77,6 +77,15 @@ export function innermostHitAt(
     .sort((a, b) => lineSpan(a.fullRange) - lineSpan(b.fullRange))[0];
 }
 
+/** Selects an individual test, the whole file, or no runnable target for the cursor position. */
+export function testRunTargetAt(
+  hits: TestHit[],
+  position: { lineNumber: number; column: number },
+  runFile: string | undefined,
+): TestHit | "file" | undefined {
+  return innermostHitAt(hits, position) ?? (runFile === undefined ? undefined : "file");
+}
+
 function containsByLine(
   range: SymbolRange,
   position: { lineNumber: number; column: number },

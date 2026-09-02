@@ -31,8 +31,8 @@ public sealed record DetectionContext {
 /// couldn't be identified (a gap the workspace-setup card is left to hand to Claude).
 /// </summary>
 public sealed record PresetResult {
-	/// <summary>The package-restore shell command (e.g. <c>pnpm install</c>), relative to <see cref="DetectionContext.MarkerDirectory"/>.</summary>
-	public required string SetupCommand { get; init; }
+	/// <summary>The package-restore shell command relative to <see cref="DetectionContext.MarkerDirectory"/>, or <see langword="null"/> when none can be derived.</summary>
+	public required string? SetupCommand { get; init; }
 
 	/// <summary>The derived test rules (raw templates; the detector cd-wraps them). Empty when no runner was recognized.</summary>
 	public required IReadOnlyList<TestRule> TestRules { get; init; }

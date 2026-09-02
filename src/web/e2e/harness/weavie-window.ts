@@ -11,6 +11,7 @@ export interface ModelHandle {
   };
   getLineContent(line: number): string;
   getLineCount(): number;
+  getLanguageId(): string;
 }
 
 /** The slice of the live Monaco editor (window.__WEAVIE_EDITOR__) the specs drive. */

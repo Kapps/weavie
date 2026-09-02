@@ -152,8 +152,6 @@ function activityStep(message: AgentPaneUpdate, category: string): AgentActivity
     detailText: normalizeText(message.text),
     id: activityStepId(message, category),
     label: normalized === null ? category : `${category} ${normalized}`,
-    outputIsCommand:
-      message.itemType === "commandExecution" || category === "command" || category === "execute",
     status: activityStatus(message),
     tone: activityTone(message),
   };

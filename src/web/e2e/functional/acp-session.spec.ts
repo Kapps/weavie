@@ -132,8 +132,10 @@ test("ACP task progress stays activity while plan documents remain openable", as
   await expect(surface.locator(".agent-entry-plan")).toHaveCount(0);
   await expect(surface.getByRole("button", { name: "Open plan" })).toHaveCount(0);
   await activity.locator("summary").click();
-  await expect(activity).toContainText("progress Task list");
-  await expect(activity).toContainText("Inspect");
+  const progress = activity.locator(".agent-activity-step", { hasText: "progress Task list" });
+  await expect(progress).not.toContainText("Inspect");
+  await progress.getByText("show output", { exact: true }).click();
+  await expect(progress.locator(".agent-tool-output")).toContainText("Inspect");
 
   await composer.fill("plan-document");
   await composer.press("Enter");

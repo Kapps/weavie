@@ -400,7 +400,6 @@ function editStep(entry: AgentTranscriptEntry): AgentActivityStep {
     detailText: null,
     id: `${entry.id}:edit`,
     label: entry.text ?? entry.summary ?? "edit",
-    outputIsCommand: false,
     status: null,
     tone: "muted",
   };

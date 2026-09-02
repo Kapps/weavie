@@ -206,9 +206,9 @@ const catalog = {
       "alt+down",
     ]),
     agentCommand(
-      "weavie.agent.toggleCommandOutput",
-      "Toggle Agent Command Output",
-      "agentFocused && agentCommandOutputAvailable",
+      "weavie.agent.toggleToolOutput",
+      "Toggle Agent Tool Output",
+      "agentFocused && agentToolOutputAvailable",
       ["alt+o"],
     ),
     agentCommand("weavie.agent.openPlan", "Open Agent Plan", "agentFocused", ["alt+p"]),
@@ -238,8 +238,8 @@ const catalog = {
     { key: "alt+down", command: "weavie.agent.jumpToLatest", when: "agentFocused" },
     {
       key: "alt+o",
-      command: "weavie.agent.toggleCommandOutput",
-      when: "agentFocused && agentCommandOutputAvailable",
+      command: "weavie.agent.toggleToolOutput",
+      when: "agentFocused && agentToolOutputAvailable",
     },
     { key: "alt+p", command: "weavie.agent.openPlan", when: "agentFocused" },
     { key: "shift+tab", command: "weavie.agent.togglePlanMode", when: "agentFocused" },
@@ -395,6 +395,7 @@ test.describe("ACP composer", () => {
     page,
   }) => {
     await mountAgent(page);
+    publishCatalog();
     publishPane(userMessage("inspect the workspace"));
     for (const index of [1, 2]) {
       publishPane(
@@ -419,6 +420,7 @@ test.describe("ACP composer", () => {
     const activity = page.locator(".agent-entry-activity", { hasText: "2 reads" });
     await activity.getByText("history 2", { exact: true }).click();
     const step = activity.locator(".agent-activity-step").first();
+    await step.getByText("show output", { exact: true }).click();
     const geometry = await step.evaluate((element) => {
       const bounds = element.getBoundingClientRect();
       const label = element.querySelector(".agent-step-label")?.getBoundingClientRect();
@@ -469,24 +471,24 @@ test.describe("ACP composer", () => {
     await expect(
       step.getByText("command pnpm test --reporter verbose", { exact: true }),
     ).toBeVisible();
-    const disclosure = step.locator(".agent-command-output-details");
+    const disclosure = step.locator(".agent-tool-output-details");
     const toggle = disclosure.getByText("show output", { exact: true });
-    await expect(toggle).toHaveAttribute("title", "Show command output (Alt+O)");
-    await expect(disclosure.locator(".agent-command-output")).toHaveCount(0);
+    await expect(toggle).toHaveAttribute("title", "Show tool output (Alt+O)");
+    await expect(disclosure.locator(".agent-tool-output")).toHaveCount(0);
     await expect(step).not.toContainText("COMMAND_OUTPUT_END");
     await expect(step).not.toContainText("RICH_COMMAND_OUTPUT");
 
     await toggle.click();
-    const output = disclosure.locator(".agent-command-output");
+    const output = disclosure.locator(".agent-tool-output");
     await expect(output).toBeVisible();
     await expect(output).toContainText("COMMAND_OUTPUT_END");
     await expect(output).toContainText("RICH_COMMAND_OUTPUT");
     const hide = disclosure.getByText("hide output", { exact: true });
-    await expect(hide).toHaveAttribute("title", "Hide command output (Alt+O)");
+    await expect(hide).toHaveAttribute("title", "Hide tool output (Alt+O)");
 
     await hide.focus();
     await page.keyboard.press("Alt+O");
-    await expect(disclosure.locator(".agent-command-output")).toHaveCount(0);
+    await expect(disclosure.locator(".agent-tool-output")).toHaveCount(0);
 
     publishPane(
       paneMessage({
@@ -512,7 +514,75 @@ test.describe("ACP composer", () => {
       .toBe(true);
     await composer.focus();
     await page.keyboard.press("Alt+O");
-    await expect(disclosure.locator(".agent-command-output")).toHaveCount(0);
+    await expect(disclosure.locator(".agent-tool-output")).toHaveCount(0);
+  });
+
+  test("expanded history hides read and file-change output behind the same reveal", async ({
+    page,
+  }) => {
+    await mountAgent(page);
+    publishCatalog();
+    publishPane(userMessage("look at the file"));
+    publishPane(
+      paneMessage({
+        type: "item-completed",
+        turnId: "tool-output-turn",
+        itemId: "read-1",
+        itemType: "tool",
+        category: "read",
+        status: "completed",
+        summary: "src/App.tsx",
+        text: `${"file line\n".repeat(2_000)}READ_OUTPUT_END`,
+      }),
+    );
+    publishPane(
+      paneMessage({
+        type: "item-completed",
+        turnId: "tool-output-turn",
+        itemId: "write-1",
+        itemType: "fileChange",
+        status: "completed",
+        summary: "src/App.tsx",
+        text: `${"written line\n".repeat(2_000)}WRITE_OUTPUT_END`,
+      }),
+    );
+
+    const activity = page.locator(".agent-entry-activity");
+    await activity.getByText("history 2", { exact: true }).click();
+    const read = activity.locator(".agent-activity-step", { hasText: "read src/App.tsx" });
+    const write = activity.locator(".agent-activity-step", { hasText: "edit src/App.tsx" });
+    await expect(read.locator(".agent-tool-output")).toHaveCount(0);
+    await expect(write.locator(".agent-tool-output")).toHaveCount(0);
+    await expect(activity).not.toContainText("READ_OUTPUT_END");
+    await expect(activity).not.toContainText("WRITE_OUTPUT_END");
+
+    await read.getByText("show output", { exact: true }).click();
+    await expect(read.locator(".agent-tool-output")).toContainText("READ_OUTPUT_END");
+    await expect(write.locator(".agent-tool-output")).toHaveCount(0);
+  });
+
+  test("a failed step shows why it failed without a click", async ({ page }) => {
+    await mountAgent(page);
+    publishCatalog();
+    publishPane(userMessage("run the failing command"));
+    publishPane(
+      paneMessage({
+        type: "item-completed",
+        turnId: "failed-turn",
+        itemId: "failed-1",
+        itemType: "commandExecution",
+        status: "failed",
+        summary: "pnpm test",
+        text: "FAILURE_REASON",
+      }),
+    );
+
+    const activity = page.locator(".agent-entry-activity");
+    await activity.getByText("history", { exact: true }).click();
+    const step = activity.locator(".agent-activity-step");
+    await expect(step.locator(".agent-tool-output")).toContainText("FAILURE_REASON");
+    await step.getByText("hide output", { exact: true }).click();
+    await expect(step.locator(".agent-tool-output")).toHaveCount(0);
   });
 
   test("mouse clicks return to the prompt without taking text selection or response-field focus", async ({

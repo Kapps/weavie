@@ -711,12 +711,6 @@ a.agent-entry-media {
   white-space: nowrap;
 }
 
-.agent-activity-step > pre,
-.agent-activity-step > .agent-entry-rich-content {
-  grid-column: 2 / -1;
-  min-width: 0;
-}
-
 .agent-tool-output-details {
   grid-column: 2 / -1;
   min-width: 0;

@@ -561,6 +561,30 @@ test.describe("ACP composer", () => {
     await expect(write.locator(".agent-tool-output")).toHaveCount(0);
   });
 
+  test("a failed step shows why it failed without a click", async ({ page }) => {
+    await mountAgent(page);
+    publishCatalog();
+    publishPane(userMessage("run the failing command"));
+    publishPane(
+      paneMessage({
+        type: "item-completed",
+        turnId: "failed-turn",
+        itemId: "failed-1",
+        itemType: "commandExecution",
+        status: "failed",
+        summary: "pnpm test",
+        text: "FAILURE_REASON",
+      }),
+    );
+
+    const activity = page.locator(".agent-entry-activity");
+    await activity.getByText("history", { exact: true }).click();
+    const step = activity.locator(".agent-activity-step");
+    await expect(step.locator(".agent-tool-output")).toContainText("FAILURE_REASON");
+    await step.getByText("hide output", { exact: true }).click();
+    await expect(step.locator(".agent-tool-output")).toHaveCount(0);
+  });
+
   test("mouse clicks return to the prompt without taking text selection or response-field focus", async ({
     page,
   }) => {

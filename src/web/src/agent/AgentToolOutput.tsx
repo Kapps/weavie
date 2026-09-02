@@ -13,10 +13,13 @@ interface MountedDisclosure {
 const disclosures = new Map<string, MountedDisclosure>();
 const disclosuresByElement = new WeakMap<HTMLDetailsElement, MountedDisclosure>();
 
-export function AgentToolOutput(props: { renderOutput: () => JSX.Element }): JSX.Element {
+export function AgentToolOutput(props: {
+  renderOutput: () => JSX.Element;
+  startExpanded: boolean;
+}): JSX.Element {
   let details: HTMLDetailsElement | undefined;
   const outputId = `agent-tool-output-${createUniqueId()}`;
-  const [expanded, setExpanded] = createSignal(false);
+  const [expanded, setExpanded] = createSignal(props.startExpanded);
   const toggle = (): void => {
     setExpanded((current) => !current);
   };

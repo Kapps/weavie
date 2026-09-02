@@ -198,7 +198,7 @@ describe("toAgentTranscript", () => {
     });
   });
 
-  it("keeps every tool's output on the step, behind an explicit reveal", () => {
+  it("keeps a provider category and its output on the step", () => {
     const transcript = toAgentTranscript([
       {
         type: "item-completed",

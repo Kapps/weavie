@@ -42,6 +42,7 @@ export function ActivityDetails(props: {
                 <Show when={hasOutput(step)}>
                   <AgentToolOutput
                     renderOutput={() => <ActivityStepOutput session={props.session} step={step} />}
+                    startExpanded={step.tone === "failed"}
                   />
                 </Show>
               </div>

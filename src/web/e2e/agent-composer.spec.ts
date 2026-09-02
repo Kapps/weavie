@@ -82,6 +82,7 @@ const controls = {
         kind: "weavieCommand",
         commandId: "weavie.agent.clearConversation",
         inputHint: null,
+        inputName: null,
       },
       {
         id: "builtin:model",
@@ -90,6 +91,7 @@ const controls = {
         kind: "weavieCommand",
         commandId: "weavie.agent.selectModel",
         inputHint: null,
+        inputName: null,
       },
       {
         id: "builtin:plan",
@@ -98,6 +100,7 @@ const controls = {
         kind: "weavieCommand",
         commandId: "weavie.agent.togglePlanMode",
         inputHint: null,
+        inputName: null,
       },
       {
         id: "agent:compact",
@@ -106,6 +109,7 @@ const controls = {
         kind: "providerCommand",
         commandId: null,
         inputHint: null,
+        inputName: null,
       },
       {
         id: "agent:review-pr",
@@ -114,6 +118,7 @@ const controls = {
         kind: "providerCommand",
         commandId: null,
         inputHint: "<pull request>",
+        inputName: null,
       },
     ],
   },

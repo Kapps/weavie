@@ -17,7 +17,7 @@ public static class TestSettings {
 			Description = "This workspace's test profile: a JSON array of rules that map test files to run "
 				+ "commands, so Weavie shows run buttons on test blocks without knowing any framework. Each rule is "
 				+ "{ \"glob\": file glob, \"symbol\": regex over a symbol name (first capture = test name), "
-				+ "\"runOne\": command template, \"runFile\": command template, optional \"nameSeparator\" (joins "
+				+ "\"runOne\": command template, optional \"runFile\": command template, optional \"nameSeparator\" (joins "
 				+ "nested names, default space), optional \"header\": regex over a symbol's attribute/annotation "
 				+ "lines }. Templates support ${file}, ${fileDir} (absolute paths), ${fileName} (base name, no "
 				+ "extension) and ${name} (runOne only). The "

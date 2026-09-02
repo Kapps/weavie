@@ -7,6 +7,7 @@ import {
   type IExtensionManifest,
   registerExtension,
 } from "@codingame/monaco-vscode-api/extensions";
+import * as monaco from "monaco-editor";
 import { GENERIC_CONFIGURATION_PATH, genericConfigurationUrl } from "./generic-config";
 import { grammarUrlByName } from "./grammar-assets";
 import { buildBroadCatalog } from "./grammar-catalog";
@@ -29,7 +30,10 @@ export function registerBroadGrammars(): void {
   }
   registered = true;
 
-  for (const grammar of buildBroadCatalog()) {
+  const claimedExtensions = new Set(
+    monaco.languages.getLanguages().flatMap((language) => language.extensions ?? []),
+  );
+  for (const grammar of buildBroadCatalog(claimedExtensions)) {
     const grammarUrl = grammarUrlByName[grammar.name];
     if (grammarUrl === undefined) {
       continue; // catalog entry without a bundled grammar file (shouldn't happen)
@@ -46,12 +50,14 @@ export function registerBroadGrammars(): void {
       contributes: {
         languages: [
           {
-            id: grammar.name,
+            id: grammar.languageId,
             extensions: [...grammar.extensions],
-            configuration: GENERIC_CONFIGURATION_PATH,
+            ...(grammar.registerGrammar ? { configuration: GENERIC_CONFIGURATION_PATH } : {}),
           },
         ],
-        grammars: [{ language: grammar.name, scopeName: grammar.scopeName, path: grammarPath }],
+        grammars: grammar.registerGrammar
+          ? [{ language: grammar.languageId, scopeName: grammar.scopeName, path: grammarPath }]
+          : [],
       },
       // Declarative-only: no `main`, so no extension-host JS runs.
     } as unknown as IExtensionManifest;
@@ -60,9 +66,11 @@ export function registerBroadGrammars(): void {
       system: true,
     });
     const registerFileUrl = registration.registerFileUrl as RegisterFileUrl;
-    registerFileUrl(grammarPath, grammarUrl, { mimeType: "application/json" });
-    registerFileUrl(GENERIC_CONFIGURATION_PATH, genericConfigurationUrl, {
-      mimeType: "application/json",
-    });
+    if (grammar.registerGrammar) {
+      registerFileUrl(grammarPath, grammarUrl, { mimeType: "application/json" });
+      registerFileUrl(GENERIC_CONFIGURATION_PATH, genericConfigurationUrl, {
+        mimeType: "application/json",
+      });
+    }
   }
 }

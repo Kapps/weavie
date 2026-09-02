@@ -49,10 +49,27 @@ public sealed class TestProfileTests {
 
 	[Fact]
 	public void MissingRequiredField_Fails_NamingFieldAndIndex() {
-		const string json = """[{ "glob": "*.ts", "symbol": "x", "runOne": "a" }]"""; // no runFile
+		const string json = """[{ "glob": "*.ts", "symbol": "x" }]"""; // no runOne
+		Assert.False(TestProfile.TryParse(json, out _, out string error));
+		Assert.Contains("runOne", error, StringComparison.Ordinal);
+		Assert.Contains("[0]", error, StringComparison.Ordinal);
+	}
+
+	[Fact]
+	public void RunFileMayBeOmitted_WhenRunnerCannotTargetAFile() {
+		const string json = """[{ "glob": "**/*.rs", "symbol": "x", "runOne": "cargo test ${name}" }]""";
+
+		Assert.True(TestProfile.TryParse(json, out var profile, out string error), error);
+		Assert.Null(Assert.Single(profile.Rules).RunFile);
+		Assert.DoesNotContain("runFile", TestProfile.Serialize(profile.Rules), StringComparison.Ordinal);
+	}
+
+	[Fact]
+	public void EmptyRunFileFails_WhenPresent() {
+		const string json = """[{ "glob": "*.ts", "symbol": "x", "runOne": "a", "runFile": "" }]""";
+
 		Assert.False(TestProfile.TryParse(json, out _, out string error));
 		Assert.Contains("runFile", error, StringComparison.Ordinal);
-		Assert.Contains("[0]", error, StringComparison.Ordinal);
 	}
 
 	[Fact]

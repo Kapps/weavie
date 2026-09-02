@@ -5,8 +5,8 @@ namespace Weavie.Core.Workspaces;
 
 /// <summary>
 /// The built-in <see cref="WorkspacePreset"/> catalog — the curated, hardcoded knowledge that lets Weavie
-/// configure a workspace's setup command and test profile without a model call. TS/C#/Go today; Rust/Python
-/// next. Mirrors <c>LanguageServerCatalog</c>. See <c>docs/concepts/workspace-autoconfig.md</c>.
+/// configure a workspace's setup command and test profile without a model call. Mirrors
+/// <c>LanguageServerCatalog</c>. See <c>docs/concepts/workspace-autoconfig.md</c>.
 /// </summary>
 public static class WorkspacePresetCatalog {
 	/// <summary>TypeScript / JavaScript — detected by <c>package.json</c>; package manager and test runner read from the manifest.</summary>
@@ -34,11 +34,33 @@ public static class WorkspacePresetCatalog {
 	};
 
 	/// <summary>
+	/// Python — detected by modern project/package manifests; lockfiles choose the environment manager and
+	/// explicit pytest dependency/configuration selects the test profile.
+	/// </summary>
+	public static WorkspacePreset Python { get; } = new() {
+		Id = "python",
+		DisplayName = "Python",
+		Markers = [
+			"pyproject.toml", "uv.lock", "poetry.lock", "Pipfile", "Pipfile.lock", "requirements.txt",
+			"requirements-dev.txt", "setup.py", "setup.cfg", "pytest.ini", "tox.ini",
+		],
+		Detect = PythonWorkspacePreset.Detect,
+	};
+
+	/// <summary>Rust — detected by <c>Cargo.toml</c>; dependencies and tests both run through Cargo.</summary>
+	public static WorkspacePreset Rust { get; } = new() {
+		Id = "rust",
+		DisplayName = "Rust",
+		Markers = ["Cargo.toml"],
+		Detect = DetectRust,
+	};
+
+	/// <summary>
 	/// All built-in presets, in catalog order — the order their contributions are unioned. Root-solution
 	/// languages first (a repo's .NET restore before a sub-package's install reads most naturally); test-rule
 	/// globs are disjoint by extension, so order never affects which rule a file matches.
 	/// </summary>
-	public static IReadOnlyList<WorkspacePreset> All { get; } = [CSharp, TypeScript, Go];
+	public static IReadOnlyList<WorkspacePreset> All { get; } = [CSharp, TypeScript, Go, Python, Rust];
 
 	private static PresetResult DetectTypeScript(DetectionContext ctx) {
 		string pm = PackageManager(ctx);
@@ -109,6 +131,26 @@ public static class WorkspacePresetCatalog {
 			RunOne = "go test ${fileDir} -run '^${name}$'",
 			RunFile = "go test ${fileDir}",
 		}],
+	};
+
+	private static PresetResult DetectRust(DetectionContext ctx) => new() {
+		SetupCommand = "cargo fetch",
+		TestRules = [
+			new TestRule {
+				Glob = "**/tests/*.rs",
+				Symbol = "^(\\w+)$",
+				RunOne = "cargo test --test ${fileName} ${name}",
+				RunFile = "cargo test --test ${fileName}",
+				Header = "#\\[(?:\\w+::)*test(?:\\s*\\([^\\]]*\\))?\\]",
+			},
+			new TestRule {
+				Glob = "**/*.rs",
+				Symbol = "^(\\w+)$",
+				RunOne = "cargo test ${name}",
+				RunFile = null,
+				Header = "#\\[(?:\\w+::)*test(?:\\s*\\([^\\]]*\\))?\\]",
+			},
+		],
 	};
 
 	// Package manager from lockfiles in the manifest directory (most-specific wins); npm is the baseline that

@@ -73,6 +73,15 @@ public sealed class TestCommandComposerTests {
 	}
 
 	[Fact]
+	public void MissingRunFileTemplate_FailsLoudly() {
+		var rule = new TestRule { Glob = "**/*.rs", Symbol = "x", RunOne = "cargo test ${name}", RunFile = null };
+
+		Assert.False(TestCommandComposer.TryCompose(
+			rule, TestCommandKind.RunFile, "/r/lib.rs", null, ShellQuoting.Posix, out _, out string error));
+		Assert.Contains("does not define", error, StringComparison.Ordinal);
+	}
+
+	[Fact]
 	public void UnknownPlaceholder_Fails() {
 		var rule = Rule("vitest ${bogus}", "vitest ${bogus}");
 		Assert.False(TestCommandComposer.TryCompose(

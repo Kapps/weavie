@@ -44,8 +44,34 @@ public static class LanguageServerCatalog {
 		DefaultSettingsJson = "{\"semanticTokens\":true}",
 	};
 
+	/// <summary>
+	/// Python. Served by <c>basedpyright-langserver</c> over stdio (bring-your-own, on <c>PATH</c>); unlike stock
+	/// Pyright, it implements the semantic-token capability required by Weavie's editor.
+	/// </summary>
+	public static LanguageServerDescriptor Python { get; } = new() {
+		Id = "python",
+		DisplayName = "Python",
+		LanguageIds = ["python"],
+		FileExtensions = [".py", ".rpy", ".pyw", ".cpy", ".gyp", ".gypi", ".pyi", ".ipy", ".pyt"],
+		Candidates = [new("basedpyright-langserver", ["--stdio"])],
+		RootMarkers = [
+			"pyproject.toml", "uv.lock", "poetry.lock", "Pipfile", "Pipfile.lock", "requirements.txt",
+			"requirements-dev.txt", "setup.py", "setup.cfg", "pytest.ini", "tox.ini", ".git",
+		],
+	};
+
+	/// <summary>Rust. Served by <c>rust-analyzer</c> over stdio (bring-your-own, on PATH).</summary>
+	public static LanguageServerDescriptor Rust { get; } = new() {
+		Id = "rust",
+		DisplayName = "Rust",
+		LanguageIds = ["rust"],
+		FileExtensions = [".rs"],
+		Candidates = [new("rust-analyzer", [])],
+		RootMarkers = ["rust-project.json", "Cargo.toml", ".git"],
+	};
+
 	/// <summary>All built-in recipes, in catalog order.</summary>
-	public static IReadOnlyList<LanguageServerDescriptor> All { get; } = [TypeScript, CSharp, Go];
+	public static IReadOnlyList<LanguageServerDescriptor> All { get; } = [TypeScript, CSharp, Go, Python, Rust];
 
 	/// <summary>Every served extension across all recipes — the LSP invalidation projection filter.</summary>
 	public static IReadOnlySet<string> WatchedExtensions { get; } =

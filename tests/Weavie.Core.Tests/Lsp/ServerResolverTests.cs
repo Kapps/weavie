@@ -43,10 +43,13 @@ public sealed class ServerResolverTests {
 	}
 
 	[Fact]
-	public void Catalog_ResolvesTypeScriptByLanguageId() {
+	public void Catalog_ResolvesBuiltInLanguagesByLanguageId() {
 		Assert.NotNull(LanguageServerCatalog.ForLanguage("typescript"));
 		Assert.NotNull(LanguageServerCatalog.ForLanguage("javascriptreact"));
 		Assert.Equal("typescript", LanguageServerCatalog.ForServerId("typescript")?.Id);
-		Assert.Null(LanguageServerCatalog.ForLanguage("rust"));
+		Assert.Equal("python", LanguageServerCatalog.ForLanguage("python")?.Id);
+		Assert.Equal("rust", LanguageServerCatalog.ForLanguage("rust")?.Id);
+		Assert.Equal("basedpyright-langserver", Assert.Single(LanguageServerCatalog.Python.Candidates).Command);
+		Assert.Equal("rust-analyzer", Assert.Single(LanguageServerCatalog.Rust.Candidates).Command);
 	}
 }

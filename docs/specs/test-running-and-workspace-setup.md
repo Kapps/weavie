@@ -69,7 +69,8 @@ Each rule carries its own match *and* run knowledge, so multi-language repos are
 ```
 
 Rule fields: `glob` + `symbol` (regex over the symbol name; first capture = test name, no capture →
-whole name) select tests; `runOne`/`runFile` are the command templates; optional `nameSeparator`
+whole name) select tests; `runOne` is the individual-test command template and optional `runFile` is
+the exact-file command template (omit it when the runner cannot target a file); optional `nameSeparator`
 (default `" "`) joins captures along the ancestor symbol chain (nested `describe`s); optional
 `header` is a regex matched against the source slice between a symbol's `range.start` and
 `selectionRange.start` — the region that holds attributes/annotations/decorators (`[Fact]`, `@Test`)
@@ -89,7 +90,7 @@ placeholders; Claude derives each rule's globs and commands from the repo itself
 > **Superseded (planned).** The Claude-derived flow proved slow (~15 min) and inconsistent, so this
 > stance is reversed for the common case by
 > [built-in workspace auto-config](../concepts/workspace-autoconfig.md): a *curated, bounded* preset
-> catalog (TS/C#/Go) detects the language and writes these same two settings deterministically, in
+> catalog (TS/C#/Go/Python/Rust) detects the language and writes these same two settings deterministically, in
 > code, with zero tokens. The Claude flow above stays as the override / unsupported-language fallback.
 > This section reflects behavior until that lands.
 
@@ -229,6 +230,12 @@ documentation:
 - **gopls**: `TestXxx` functions are flat symbols named `TestAdds` etc. (`symbol: "^(Test\\w+)"`).
   Known limitation: `t.Run("subtest", …)` subtests do **not** appear as symbols, so subtests get no
   individual lens — the enclosing `TestXxx` lens and `runFile` cover them.
+- **BasedPyright 1.39.10**: with hierarchical document symbols enabled, a `TestMath` class contains its
+  `test_adds` method and a top-level `test_plain` function stays at the root. Names are bare identifiers,
+  validating the Python symbol regex and ` and `-joined pytest `-k` expression.
+- **rust-analyzer 0.3.3033**: function symbols have bare names; a test function's `range` starts at
+  `#[test]` / `#[tokio::test(...)]` while `selectionRange` covers the identifier. The header slice therefore
+  distinguishes both test forms from an unannotated helper.
 
 ## Resolved / open questions
 

@@ -36,6 +36,114 @@ public sealed class WorkspaceDetectorTests {
 	}
 
 	[Fact]
+	public void Python_UvPytest_SyncAndTestRule() {
+		var d = Detect(
+			("/repo/uv.lock", ""),
+			("/repo/pyproject.toml", "[project]\ndependencies = [\"pytest>=8\"]\n"));
+
+		Assert.Equal("uv sync", d.SetupCommand);
+		Assert.Equal(["Python"], d.ConfiguredLanguages);
+		var rule = OnlyRule(d);
+		Assert.Equal("**/{test_*.py,*_test.py}", rule.Glob);
+		Assert.Equal("^(Test\\w*|test_\\w+)$", rule.Symbol);
+		Assert.Equal("uv run pytest ${file} -k ${name}", rule.RunOne);
+		Assert.Equal("uv run pytest ${file}", rule.RunFile);
+		Assert.Equal(" and ", rule.NameSeparator);
+	}
+
+	[Fact]
+	public void Python_PoetryPytest_UsesPoetryEnvironment() {
+		var d = Detect(
+			("/repo/poetry.lock", ""),
+			("/repo/pyproject.toml", "[tool.poetry.group.test.dependencies]\npytest = \"^8\"\n"));
+
+		Assert.Equal("poetry install", d.SetupCommand);
+		Assert.Equal("poetry run pytest ${file}", OnlyRule(d).RunFile);
+	}
+
+	[Fact]
+	public void Python_PipenvPytest_UsesLockedEnvironment() {
+		var d = Detect(
+			("/repo/Pipfile.lock", "{}"),
+			("/repo/Pipfile", "[dev-packages]\npytest = \"*\"\n"));
+
+		Assert.Equal("pipenv sync --dev", d.SetupCommand);
+		Assert.Equal("pipenv run pytest ${file}", OnlyRule(d).RunFile);
+	}
+
+	[Fact]
+	public void Python_PytestConfigWithoutLock_WritesTestsButDoesNotGuessSetup() {
+		var d = Detect(("/repo/pyproject.toml", "[tool.pytest.ini_options]\naddopts = \"-q\"\n"));
+
+		Assert.Null(d.SetupCommand);
+		Assert.Equal(["Python"], d.ConfiguredLanguages);
+		string python = OperatingSystem.IsWindows() ? "py" : "python3";
+		Assert.Equal($"{python} -m pytest ${{file}}", OnlyRule(d).RunFile);
+	}
+
+	[Fact]
+	public void Python_NoKnownRunnerOrLockedManager_IsAGap() {
+		var d = Detect(("/repo/pyproject.toml", "[project]\nname = \"pytest\"\ndependencies = [\"requests\"]\n"));
+
+		Assert.True(d.HasManifest);
+		Assert.Null(d.SetupCommand);
+		Assert.Empty(d.TestRules);
+		Assert.Empty(d.ConfiguredLanguages);
+	}
+
+	[Fact]
+	public void Python_RequirementsPytest_DetectsRunnerWithoutTreatingPluginAsRunner() {
+		var pytest = Detect(("/repo/requirements.txt", "requests\npytest==8.3.0\n"));
+		var pluginOnly = Detect(("/repo/requirements.txt", "pytest-cov==5\n"));
+
+		string python = OperatingSystem.IsWindows() ? "py" : "python3";
+		Assert.Equal($"{python} -m pytest ${{file}}", OnlyRule(pytest).RunFile);
+		Assert.Empty(pluginOnly.TestRules);
+	}
+
+	[Theory]
+	[InlineData("pytest.ini", "[pytest]\naddopts = -q\n")]
+	[InlineData("setup.cfg", "[tool:pytest]\naddopts = -q\n")]
+	[InlineData("tox.ini", "[pytest]\naddopts = -q\n")]
+	public void Python_ClassicPytestConfig_DetectsRunner(string fileName, string content) {
+		var d = Detect(($"/repo/{fileName}", content));
+
+		Assert.True(d.HasManifest);
+		Assert.Equal(["Python"], d.ConfiguredLanguages);
+		Assert.Single(d.TestRules);
+	}
+
+	[Fact]
+	public void Python_ClassicSetupWithoutKnownRunner_ShowsFallbackGap() {
+		var d = Detect(("/repo/setup.py", "from setuptools import setup\n"));
+
+		Assert.True(d.HasManifest);
+		Assert.Null(d.SetupCommand);
+		Assert.Empty(d.TestRules);
+	}
+
+	[Fact]
+	public void Rust_CargoFetchAndTestRule() {
+		var d = Detect(("/repo/Cargo.toml", "[package]\nname = \"demo\"\n"));
+
+		Assert.Equal("cargo fetch", d.SetupCommand);
+		Assert.Equal(["Rust"], d.ConfiguredLanguages);
+		Assert.Collection(d.TestRules,
+			integration => {
+				Assert.Equal("**/tests/*.rs", integration.Glob);
+				Assert.Equal("cargo test --test ${fileName} ${name}", integration.RunOne);
+				Assert.Equal("cargo test --test ${fileName}", integration.RunFile);
+			},
+			unit => {
+				Assert.Equal("**/*.rs", unit.Glob);
+				Assert.Equal("^(\\w+)$", unit.Symbol);
+				Assert.Equal("cargo test ${name}", unit.RunOne);
+				Assert.Null(unit.RunFile);
+				Assert.Equal("#\\[(?:\\w+::)*test(?:\\s*\\([^\\]]*\\))?\\]", unit.Header);
+			});
+	}
+
+	[Fact]
 	public void TypeScript_Vitest_Pnpm() {
 		var d = Detect(
 			("/repo/pnpm-lock.yaml", ""),

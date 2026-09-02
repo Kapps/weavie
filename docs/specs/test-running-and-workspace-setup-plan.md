@@ -63,7 +63,7 @@ Gate: Core tests green.
 New folder `src/Weavie.Core/TestRunning/`:
 
 - `TestProfile.cs`: `TestRule` record — `required string Glob`, `required string Symbol`,
-  `required string RunOne`, `required string RunFile`, `string NameSeparator = " "` (init
+  `required string RunOne`, `required string? RunFile`, `string NameSeparator = " "` (init
   property), `string? Header` (optional rule *data*, not an optional param). `TestProfile.TryParse
   (string json, out TestProfile profile, out string error)` validates JSON shape, each regex
   compiles, glob non-empty. Distinguish parsed-empty (`[]`, valid, means "no tests") from unset.

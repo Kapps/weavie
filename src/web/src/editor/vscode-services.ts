@@ -24,6 +24,8 @@ import "@codingame/monaco-vscode-theme-defaults-default-extension";
 import "@codingame/monaco-vscode-typescript-basics-default-extension";
 import "@codingame/monaco-vscode-csharp-default-extension";
 import "@codingame/monaco-vscode-go-default-extension";
+import "@codingame/monaco-vscode-python-default-extension";
+import "@codingame/monaco-vscode-rust-default-extension";
 
 // Semantic-highlighting consumer. The feature that paints LSP tokens is normally built by a workbench
 // contribution on `onWillCreateCodeEditor`, which never fires for a standalone editor — so we construct it

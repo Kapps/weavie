@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, type Locator, type Page, test } from "@playwright/test";
-import { MockHost, mockSession } from "./mock-host";
+import { MockHost, mockEditorOptions, mockSession } from "./mock-host";
 
 const distDir = join(dirname(fileURLToPath(import.meta.url)), "..", "dist");
 
@@ -82,10 +82,11 @@ test("middle-click autoscrolls the agent transcript and responds live", async ({
 
     await page.mouse.click(origin.x, origin.y, { button: "middle" });
     await expect(body).toHaveClass(/middle-click-autoscrolling/);
-    host.publishHost("settings", "editorOptions", {
-      gitBlame: "off",
-      middleClickAutoscroll: false,
-    });
+    host.publishHost(
+      "settings",
+      "editorOptions",
+      mockEditorOptions({ middleClickAutoscroll: false }),
+    );
     await expect(body).not.toHaveClass(/middle-click-autoscrolling/);
     await page.mouse.click(origin.x, origin.y, { button: "middle" });
     await expect(body).not.toHaveClass(/middle-click-autoscrolling/);
@@ -196,6 +197,8 @@ test("middle-click autoscrolls any scrollable surface, not just the transcript",
 test("middle-click autoscrolls the editor and responds live", async ({ page }) => {
   const session = mockSession("editor-autoscroll", "editor-autoscroll", "acp");
   const host = await MockHost.start({ distDir, sessions: [session] });
+  const pageErrors: string[] = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
 
   try {
     host.files.set(
@@ -214,6 +217,13 @@ test("middle-click autoscrolls the editor and responds live", async ({ page }) =
     const editor = page.locator(".monaco-editor").first();
     await expect(editor).toBeVisible();
     await expect(page.locator(".monaco-editor .view-lines").first()).toContainText("line0 = 0");
+    expect(
+      await page.evaluate(() =>
+        Number.isFinite(
+          window.__WEAVIE_EDITOR__?.getRawOptions().mouseWheelScrollSensitivity ?? NaN,
+        ),
+      ),
+    ).toBe(true);
     const scrollTop = (): Promise<number> =>
       page.evaluate(() => window.__WEAVIE_EDITOR__?.getScrollTop() ?? -1);
     await expect.poll(scrollTop).toBe(0);
@@ -230,10 +240,11 @@ test("middle-click autoscrolls the editor and responds live", async ({ page }) =
     await page.keyboard.press("Escape");
     await expect(editor).not.toHaveClass(/scroll-editor-on-middle-click-editor/);
 
-    host.publishHost("settings", "editorOptions", {
-      gitBlame: "off",
-      middleClickAutoscroll: false,
-    });
+    host.publishHost(
+      "settings",
+      "editorOptions",
+      mockEditorOptions({ middleClickAutoscroll: false }),
+    );
     await expect
       .poll(() =>
         page.evaluate(() => window.__WEAVIE_EDITOR__?.getRawOptions().scrollOnMiddleClick),
@@ -241,6 +252,7 @@ test("middle-click autoscrolls the editor and responds live", async ({ page }) =
       .toBe(false);
     await page.mouse.click(origin.x, origin.y, { button: "middle" });
     await expect(editor).not.toHaveClass(/scroll-editor-on-middle-click-editor/);
+    expect(pageErrors).toEqual([]);
   } finally {
     await host.close();
   }

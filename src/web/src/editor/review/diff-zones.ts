@@ -31,11 +31,13 @@ export function addDiffZones(
     );
   }
   for (const ghost of markers.ghosts) {
+    const view = buildGhostLines(editor, ghost.lines, ghost.faded);
     ids.push(
       accessor.addZone({
         afterLineNumber: ghost.afterLineNumber,
         heightInLines: ghost.lines.length,
-        domNode: buildGhostLines(editor, ghost.lines, ghost.faded),
+        domNode: view.node,
+        onDomNodeTop: view.onDomNodeTop,
       }),
     );
   }
@@ -47,12 +49,12 @@ function buildGhostLines(
   editor: monaco.editor.ICodeEditor,
   lines: string[],
   faded: boolean,
-): HTMLElement {
+): { node: HTMLElement; onDomNodeTop: (top: number) => void } {
   const node = document.createElement("div");
   // Faded variant: a removed line in an already-accepted hunk, dimmed to match its faded green counterpart.
   node.className = faded
-    ? "weavie-inline-removed weavie-inline-removed-faded"
-    : "weavie-inline-removed";
+    ? "weavie-inline-removed weavie-inline-removed-line weavie-inline-removed-faded"
+    : "weavie-inline-removed weavie-inline-removed-line";
   // Use the resolved metrics, not the raw font setting: the view zone reserves `lines.length * lineHeight`
   // px, so the ghost rows must use that same line height or they overflow the zone.
   const fontInfo = editor.getOption(monaco.editor.EditorOption.fontInfo);
@@ -62,13 +64,33 @@ function buildGhostLines(
   // Render tabs at the editor's tab width so a removed line's leading indentation lines up with the live
   // code, instead of CSS `tab-size`'s default of 8.
   node.style.tabSize = String(editor.getModel()?.getOptions().tabSize ?? 4);
-  for (const line of lines) {
-    const row = document.createElement("div");
-    row.className = "weavie-inline-removed-line";
-    row.textContent = line.length === 0 ? " " : line;
-    node.appendChild(row);
-  }
-  return node;
+  node.dataset.lineCount = String(lines.length);
+  const content = document.createElement("div");
+  content.className = "weavie-inline-removed-content";
+  node.appendChild(content);
+  let renderedStart = -1;
+  let renderedEnd = -1;
+  const onDomNodeTop = (top: number): void => {
+    const overscan = 20;
+    const viewportHeight = editor.getLayoutInfo().height;
+    const start = Math.max(0, Math.floor(-top / fontInfo.lineHeight) - overscan);
+    const end = Math.min(
+      lines.length,
+      Math.max(0, Math.ceil((viewportHeight - top) / fontInfo.lineHeight) + overscan),
+    );
+    if (start === renderedStart && end === renderedEnd) {
+      return;
+    }
+    renderedStart = start;
+    renderedEnd = end;
+    content.style.transform = `translateY(${start * fontInfo.lineHeight}px)`;
+    content.textContent = lines
+      .slice(start, end)
+      .map((line) => (line.length === 0 ? " " : line))
+      .join("\n");
+  };
+  onDomNodeTop(0);
+  return { node, onDomNodeTop };
 }
 
 // The "New file" header band: a sans-serif green pill above a wholly-new file's first line, so an all-added

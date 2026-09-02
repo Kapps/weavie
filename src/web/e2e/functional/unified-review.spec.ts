@@ -114,6 +114,7 @@ test.describe("unified review mode", () => {
     await page.locator(".editor-empty-review").click();
     const hello = sectionFor(page, "hello.ts");
     await expect(hello.locator(".monaco-editor")).toBeVisible({ timeout: 15_000 });
+    await expect(hello.locator(".weavie-inline-added").first()).toBeVisible();
 
     await page.evaluate(() => {
       const monaco = (window as WeavieWindow).__WEAVIE_MONACO__;

@@ -23,20 +23,11 @@ const TOOL_HEAVY_SWITCH_BUDGET_MS = 350;
 // the other three samples in the same run were well under budget. Given its own budget with
 // headroom rather than widening the shared SWITCH_BUDGET_MS used by the warm-editor-state test.
 const LONG_TRANSCRIPT_SWITCH_BUDGET_MS = 1_500;
-// 2026-08-23: flaked on main (1041.2ms vs. the 1000ms SWITCH_BUDGET_MS) on the macOS CI runner:
-// https://github.com/Kapps/weavie/actions/runs/32610551690/job/97123123419
-// Mounting the terminal surface (this leg's target) is inherently heavier than the structured ACP
-// pane the other leg switches to: the run's own samples show acpToClaude at 578.6/539.3/1041.2ms
-// against claudeToACP's 68/62.5/42.9ms, so this leg already runs this test's warm-editor budget
-// far tighter than the other direction. The page snapshot captured at the failing assertion shows
-// "Lost connection to the Weavie host. Reconnecting…" — a genuine mid-sample WebSocket drop (the
-// same hosted-runner network-flakiness class as the Windows boot-fetch failures) landed during the
-// third sample and roughly doubled it, not a regression in the switch itself. Given its own budget
-// with headroom rather than widening the shared SWITCH_BUDGET_MS the low-cost claudeToACP leg uses.
-const TERMINAL_SWITCH_BUDGET_MS = 1_600;
 const CLAUDE_ACTIVE = "/workspace/claude/active.ts";
 const CLAUDE_LATE = "/workspace/claude/background.ts";
 const CLAUDE_OTHER = "/workspace/claude/other.ts";
+const CLAUDE_PREVIEW_A = "/workspace/claude/preview-a.ts";
+const CLAUDE_PREVIEW_B = "/workspace/claude/preview-b.ts";
 const ACP_OTHER = "/workspace/acp/notes.ts";
 const ACP_IMAGE = "/workspace/acp/pixel.png";
 
@@ -58,6 +49,12 @@ const acp: SessionFixture = {
   tabs: [ACP_OTHER, ACP_IMAGE],
   active: ACP_IMAGE,
   marker: null,
+};
+const warmClaude: SessionFixture = {
+  ...claude,
+  tabs: [...claude.tabs, CLAUDE_PREVIEW_B],
+  active: CLAUDE_PREVIEW_B,
+  marker: "CLAUDE_PREVIEW_B",
 };
 
 function restore(host: MockHost, fixture: SessionFixture): void {
@@ -102,6 +99,8 @@ test("warm session-owned editor state switches fully paint within budget", async
     files: {
       [CLAUDE_ACTIVE]: "export const value = 'CLAUDE_ACTIVE_MARKER';\n",
       [CLAUDE_OTHER]: "export const other = true;\n",
+      [CLAUDE_PREVIEW_A]: "export const value = 'CLAUDE_PREVIEW_A';\n",
+      [CLAUDE_PREVIEW_B]: "export const value = 'CLAUDE_PREVIEW_B';\n",
       [ACP_OTHER]: "export const note = true;\n",
     },
   });
@@ -117,15 +116,37 @@ test("warm session-owned editor state switches fully paint within budget", async
     });
     await expect(page.locator(".monaco-editor .view-lines").first()).toContainText(claude.marker);
 
+    host.publishSession(claude.catalog.address, "editor", "openFile", {
+      path: CLAUDE_PREVIEW_A,
+      line: 1,
+      preview: true,
+    });
+    await expect(page.locator(".monaco-editor .view-lines").first()).toContainText(
+      "CLAUDE_PREVIEW_A",
+    );
+    host.publishSession(claude.catalog.address, "editor", "openFile", {
+      path: CLAUDE_PREVIEW_B,
+      line: 1,
+      preview: true,
+    });
+    await expect(page.locator(".monaco-editor .view-lines").first()).toContainText(
+      warmClaude.marker,
+    );
+    const retained = await page.evaluate(() => [...(window.__WEAVIE_EDITOR_REFS__?.keys() ?? [])]);
+    expect(retained.some((key) => key.includes(CLAUDE_PREVIEW_A))).toBe(false);
+    expect(retained.some((key) => key.includes(CLAUDE_PREVIEW_B))).toBe(true);
+
+    // A warm switch is entirely client-owned: it must not depend on another host file read to repaint.
+    host.pauseFileProvider();
+
     const claudeToACP: number[] = [];
     const acpToClaude: number[] = [];
     for (let sample = 0; sample < 3; sample++) {
       claudeToACP.push(await measureSessionSwitch(page, expectation(acp)));
-      acpToClaude.push(await measureSessionSwitch(page, expectation(claude)));
+      acpToClaude.push(await measureSessionSwitch(page, expectation(warmClaude)));
     }
     const measurements = {
-      claudeToAcpBudgetMs: SWITCH_BUDGET_MS,
-      acpToClaudeBudgetMs: TERMINAL_SWITCH_BUDGET_MS,
+      budgetMs: SWITCH_BUDGET_MS,
       claudeToACP,
       acpToClaude,
     };
@@ -135,8 +156,80 @@ test("warm session-owned editor state switches fully paint within budget", async
     });
 
     expect(Math.max(...claudeToACP)).toBeLessThan(SWITCH_BUDGET_MS);
-    expect(Math.max(...acpToClaude)).toBeLessThan(TERMINAL_SWITCH_BUDGET_MS);
+    expect(Math.max(...acpToClaude)).toBeLessThan(SWITCH_BUDGET_MS);
+
+    await page.locator(`.session-chip[title^="${acp.catalog.label} —"]`).click();
+    await expect(page.locator(".editor-media img")).toHaveJSProperty("naturalWidth", 8);
+    expect(await page.evaluate(() => window.__WEAVIE_EDITOR_REFS__?.size)).toBe(2);
+    host.setSessions([acp.catalog]);
+    await expect.poll(() => page.evaluate(() => window.__WEAVIE_EDITOR_REFS__?.size)).toBe(0);
   } finally {
+    host.resumeFileProvider();
+    await host.close();
+  }
+});
+
+test("discarding a dirty scratch cancels its save before model reconciliation", async ({
+  page,
+}) => {
+  const scratch = "/scratch/Untitled-1";
+  const host = await MockHost.start({
+    distDir,
+    sessions: [claude.catalog],
+    files: { [scratch]: "" },
+  });
+
+  try {
+    await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
+    await host.waitUntilConnected();
+    host.publishSession(claude.catalog.address, "editor", "restore", {
+      session: {
+        active: scratch,
+        open: [{ path: scratch, viewState: null, scratch: true }],
+      },
+    });
+    await expect(page.locator(".editor")).toHaveAttribute("data-ready", "true", {
+      timeout: 60_000,
+    });
+    await expect(page.locator(".editor")).toHaveAttribute("data-active-file", scratch);
+
+    host.pauseFileProvider();
+    const checkpoint = host.checkpoint();
+    await page.evaluate(async () => {
+      const editor = (
+        window as Window & {
+          __WEAVIE_EDITOR__?: { getModel(): { setValue(value: string): void } | null };
+        }
+      ).__WEAVIE_EDITOR__;
+      editor?.getModel()?.setValue("SCRATCHEDIT");
+      document.querySelector<HTMLButtonElement>(".editor-tab-close")?.click();
+      await new Promise<void>((resolve) => {
+        const confirm = (): void => {
+          const button = document.querySelector<HTMLButtonElement>(".confirm-btn-primary");
+          if (button === null) {
+            requestAnimationFrame(confirm);
+            return;
+          }
+          button.click();
+          resolve();
+        };
+        confirm();
+      });
+      await new Promise((resolve) => setTimeout(resolve, 350));
+    });
+
+    await expect(page.locator(".editor-tab")).toHaveCount(0);
+    const afterClose = host.received.slice(checkpoint);
+    expect(
+      afterClose.some((message) => message.feature === "files" && message.name === "write"),
+    ).toBe(false);
+    expect(
+      afterClose.some(
+        (message) => message.feature === "editor" && message.name === "discardScratch",
+      ),
+    ).toBe(true);
+  } finally {
+    host.resumeFileProvider();
     await host.close();
   }
 });

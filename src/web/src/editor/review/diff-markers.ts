@@ -4,7 +4,7 @@
 
 import { reviewToModelLine } from "../diff-geometry";
 import { monaco } from "../monaco-setup";
-import { computeDiffLines, splitDiffLines } from "./diff-computation";
+import { type DiffLineChange, splitDiffLines } from "./diff-computation";
 
 /**
  * Coordinates + concurrency guard for reverting one hunk on disk. Ranges are 1-based, end-exclusive;
@@ -55,7 +55,7 @@ export interface GhostLines {
   faded: boolean;
 }
 
-/** The three text boundaries a diff is painted from. `modified` is always the live model's lines. */
+/** The three stable text boundaries a live model's diff is painted from. */
 export interface DiffMarkerTexts {
   /** The review baseline the live model is diffed against (the bright pending band). */
   original: string;
@@ -75,6 +75,13 @@ export interface DiffMarkers {
   isNewFile: boolean;
 }
 
+/** Monaco-worker results needed to turn the three review boundaries into paint geometry. */
+export interface DiffMarkerChanges {
+  changes: DiffLineChange[];
+  userChanges: DiffLineChange[];
+  fadedChanges: DiffLineChange[];
+}
+
 const ADDED_RULER = {
   // Standard VS Code added-marker id so the ruler tracks the theme; the added/user shade distinction is
   // carried by the in-editor line wash, not the ruler.
@@ -83,15 +90,13 @@ const ADDED_RULER = {
 } as const;
 
 /**
- * Computes the diff geometry of `modified` (the live model's lines) against the baselines in `texts`.
- * Returns null when the diff engine times out, so the caller can surface that instead of painting a partial diff.
+ * Builds paint geometry from Monaco-worker diff results. This work is linear and contains no diff computation.
  */
-export function computeDiffMarkers(texts: DiffMarkerTexts, modified: string[]): DiffMarkers | null {
+export function computeDiffMarkers(
+  texts: DiffMarkerTexts,
+  changes: DiffMarkerChanges,
+): DiffMarkers {
   const original = splitDiffLines(texts.original);
-  const changes = computeDiffLines(original, modified);
-  if (changes === null) {
-    return null;
-  }
   const isNewFile = texts.original.length === 0;
   const markers: DiffMarkers = {
     decorations: [],
@@ -104,7 +109,7 @@ export function computeDiffMarkers(texts: DiffMarkerTexts, modified: string[]): 
     texts.acceptedBaseline === undefined || texts.acceptedBaseline === texts.original
       ? undefined
       : texts.acceptedBaseline;
-  if (changes.length === 0 && acceptedBaseline === undefined) {
+  if (changes.changes.length === 0 && acceptedBaseline === undefined) {
     return markers; // no net change and nothing kept — nothing to paint
   }
 
@@ -112,11 +117,7 @@ export function computeDiffMarkers(texts: DiffMarkerTexts, modified: string[]): 
   // claudeVersion is omitted or the model still matches it.
   const userLines = new Set<number>();
   if (texts.claudeVersion !== undefined) {
-    const userDiff = computeDiffLines(splitDiffLines(texts.claudeVersion), modified);
-    if (userDiff === null) {
-      return null;
-    }
-    for (const change of userDiff) {
+    for (const change of changes.userChanges) {
       for (
         let ln = change.modified.startLineNumber;
         ln < change.modified.endLineNumberExclusive;
@@ -127,7 +128,24 @@ export function computeDiffMarkers(texts: DiffMarkerTexts, modified: string[]): 
     }
   }
 
-  for (const change of changes) {
+  const addLineDecoration = (
+    startLine: number,
+    endLineExclusive: number,
+    className: string | null,
+    gutterClassName: string,
+  ): void => {
+    markers.decorations.push({
+      range: new monaco.Range(startLine, 1, endLineExclusive - 1, 1),
+      options: {
+        isWholeLine: true,
+        className,
+        linesDecorationsClassName: gutterClassName,
+        overviewRuler: ADDED_RULER,
+      },
+    });
+  };
+
+  for (const change of changes.changes) {
     markers.hunks.push({
       anchorLine: Math.max(1, change.modified.startLineNumber),
       baselineStart: change.original.startLineNumber,
@@ -136,28 +154,29 @@ export function computeDiffMarkers(texts: DiffMarkerTexts, modified: string[]): 
       currentEndExclusive: change.modified.endLineNumberExclusive,
     });
     if (!change.modified.isEmpty) {
-      // Per-line so a block mixing the agent's lines with the user's tweaks paints each in its own shade. A new
-      // file skips the wash + char overlay (isNewFile) — only the continuous gutter edge marks it.
-      for (
-        let ln = change.modified.startLineNumber;
-        ln < change.modified.endLineNumberExclusive;
-        ln++
-      ) {
-        const fromUser = userLines.has(ln);
-        markers.decorations.push({
-          range: new monaco.Range(ln, 1, ln, 1),
-          options: {
-            isWholeLine: true,
-            className: isNewFile ? null : fromUser ? "weavie-inline-user" : "weavie-inline-added",
-            linesDecorationsClassName: isNewFile
-              ? "weavie-inline-added-gutter"
-              : fromUser
-                ? "weavie-inline-user-gutter"
-                : "weavie-inline-added-gutter",
-            overviewRuler: ADDED_RULER,
-          },
-        });
+      // One range covers every consecutive run with the same shade, bounding Monaco decoration allocations for
+      // large rewrites while still splitting where user-authored and agent-authored lines meet.
+      let segmentStart = change.modified.startLineNumber;
+      let fromUser = !isNewFile && userLines.has(segmentStart);
+      for (let line = segmentStart + 1; line < change.modified.endLineNumberExclusive; line++) {
+        const nextFromUser = !isNewFile && userLines.has(line);
+        if (nextFromUser !== fromUser) {
+          addLineDecoration(
+            segmentStart,
+            line,
+            fromUser ? "weavie-inline-user" : isNewFile ? null : "weavie-inline-added",
+            fromUser ? "weavie-inline-user-gutter" : "weavie-inline-added-gutter",
+          );
+          segmentStart = line;
+          fromUser = nextFromUser;
+        }
       }
+      addLineDecoration(
+        segmentStart,
+        change.modified.endLineNumberExclusive,
+        fromUser ? "weavie-inline-user" : isNewFile ? null : "weavie-inline-added",
+        fromUser ? "weavie-inline-user-gutter" : "weavie-inline-added-gutter",
+      );
       if (!isNewFile) {
         for (const inner of change.innerChanges ?? []) {
           const r = inner.modifiedRange;
@@ -197,24 +216,17 @@ export function computeDiffMarkers(texts: DiffMarkerTexts, modified: string[]): 
   // is a pure overlay: it never enters `hunks`, so navigation and Keep/Revert only touch bright pending hunks.
   if (acceptedBaseline !== undefined) {
     const accepted = splitDiffLines(acceptedBaseline);
-    const fadedChanges = computeDiffLines(accepted, original);
-    if (fadedChanges === null) {
-      return null;
-    }
-    for (const change of fadedChanges) {
+    for (const change of changes.fadedChanges) {
       const reviewStart = change.modified.startLineNumber;
       const reviewEndExclusive = change.modified.endLineNumberExclusive;
-      const modelStart = reviewToModelLine(changes, reviewStart);
-      for (let i = 0; i < reviewEndExclusive - reviewStart; i++) {
-        markers.decorations.push({
-          range: new monaco.Range(modelStart + i, 1, modelStart + i, 1),
-          options: {
-            isWholeLine: true,
-            className: "weavie-inline-accepted",
-            linesDecorationsClassName: "weavie-inline-accepted-gutter",
-            overviewRuler: ADDED_RULER,
-          },
-        });
+      const modelStart = reviewToModelLine(changes.changes, reviewStart);
+      if (reviewEndExclusive > reviewStart) {
+        addLineDecoration(
+          modelStart,
+          modelStart + reviewEndExclusive - reviewStart,
+          "weavie-inline-accepted",
+          "weavie-inline-accepted-gutter",
+        );
       }
       if (!change.original.isEmpty) {
         markers.ghosts.push({

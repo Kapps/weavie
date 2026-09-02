@@ -4,7 +4,9 @@
 // section reads as a diff instead of a whole file, and the editor is sized to its content so the review's own
 // list does all the scrolling.
 
+import { log } from "../../bridge";
 import { createEmbeddedEditor, monaco } from "../monaco-setup";
+import { DiffComputer } from "./diff-computer";
 import { computeDiffMarkers, type DiffMarkers } from "./diff-markers";
 import { addDiffZones, DIFF_RECOMPUTE_DEBOUNCE_MS } from "./diff-zones";
 import type { ReviewFileDiff } from "./review-store";
@@ -55,52 +57,33 @@ export interface ReviewEditor {
 /**
  * Mounts the diff editor for one review file in `container`, bound to `model` (the file's working copy).
  * `onHeight` fires whenever the rendered height changes, so the caller can re-measure its virtualized row;
- * `onTimedOut` reports whether the diff engine gave up, leaving the file shown plain and uncollapsed.
+ * `onStatus` reports whether the diff is ready or unavailable, leaving an unavailable file plain and uncollapsed.
  */
 export function createReviewEditor(options: {
   container: HTMLElement;
   model: monaco.editor.ITextModel;
   diff: ReviewFileDiff;
   onHeight: () => void;
-  onTimedOut: (timedOut: boolean) => void;
+  onStatus: (status: "ready" | "timed-out" | "failed") => void;
 }): ReviewEditor {
   const { container, model } = options;
   const editor = createEmbeddedEditor(container, model, EDITOR_OPTIONS) as CollapsingEditor;
+  const computer = new DiffComputer();
   const decorations = editor.createDecorationsCollection([]);
   let zoneIds: string[] = [];
   let current = options.diff;
   let height = 0;
   let timer: ReturnType<typeof setTimeout> | undefined;
-
-  const paint = (): void => {
-    const markers = computeDiffMarkers(
-      {
-        original: current.baseline,
-        acceptedBaseline: current.acceptedBaseline,
-        claudeVersion: current.current,
-      },
-      model.getLinesContent(),
-    );
-    editor.changeViewZones((accessor) => {
-      for (const id of zoneIds) {
-        accessor.removeZone(id);
-      }
-      zoneIds = markers === null ? [] : addDiffZones(editor, accessor, markers);
-    });
-    const collapsed = collapseUnchanged(markers, model.getLineCount());
-    decorations.set([...(markers?.decorations ?? []), ...collapsed.gapMarkers]);
-    editor.setHiddenAreas(collapsed.hidden, HIDDEN_AREAS_SOURCE);
-    options.onTimedOut(markers === null);
-  };
-
-  const repaint = (): void => {
-    if (timer !== undefined) {
-      clearTimeout(timer);
-    }
-    timer = setTimeout(paint, DIFF_RECOMPUTE_DEBOUNCE_MS);
-  };
+  let renderGeneration = 0;
+  let renderQueued = false;
+  let renderInFlight = false;
+  let painted = false;
+  let disposed = false;
 
   const measure = (): void => {
+    if (!painted) {
+      return;
+    }
     const next = editor.getContentHeight();
     if (next === height) {
       return;
@@ -110,16 +93,125 @@ export function createReviewEditor(options: {
     options.onHeight();
   };
 
-  const subscriptions = [model.onDidChangeContent(repaint), editor.onDidContentSizeChange(measure)];
-  paint();
-  measure();
+  const applyMarkers = (markers: DiffMarkers | null): void => {
+    editor.changeViewZones((accessor) => {
+      for (const id of zoneIds) {
+        accessor.removeZone(id);
+      }
+      zoneIds = markers === null ? [] : addDiffZones(editor, accessor, markers);
+    });
+    const collapsed = collapseUnchanged(markers, model.getLineCount());
+    decorations.set([...(markers?.decorations ?? []), ...collapsed.gapMarkers]);
+    editor.setHiddenAreas(collapsed.hidden, HIDDEN_AREAS_SOURCE);
+    painted = true;
+    measure();
+  };
+
+  const render = async (generation: number, diff: ReviewFileDiff): Promise<void> => {
+    const version = model.getVersionId();
+    const calculation = await computer.compute(
+      model.uri.toString(),
+      {
+        original: diff.baseline,
+        acceptedBaseline: diff.acceptedBaseline,
+        claudeVersion: diff.current,
+      },
+      model,
+    );
+    if (
+      disposed ||
+      generation !== renderGeneration ||
+      current !== diff ||
+      model.getVersionId() !== version
+    ) {
+      return;
+    }
+    if (calculation.status !== "ready") {
+      if (calculation.status === "failed") {
+        log("error", `unified review diff calculation failed: ${String(calculation.error)}`);
+      }
+      applyMarkers(null);
+      options.onStatus(calculation.status);
+      return;
+    }
+    applyMarkers(
+      computeDiffMarkers(
+        {
+          original: diff.baseline,
+          acceptedBaseline: diff.acceptedBaseline,
+          claudeVersion: diff.current,
+        },
+        calculation,
+      ),
+    );
+    options.onStatus("ready");
+  };
+
+  const drainRender = async (): Promise<void> => {
+    if (renderInFlight || disposed) {
+      return;
+    }
+    renderInFlight = true;
+    try {
+      while (renderQueued && !disposed) {
+        renderQueued = false;
+        const generation = renderGeneration;
+        const diff = current;
+        try {
+          await render(generation, diff);
+        } catch (error) {
+          if (!disposed && generation === renderGeneration && diff === current) {
+            log("error", `unified review rendering failed: ${String(error)}`);
+            applyMarkers(null);
+            options.onStatus("failed");
+          }
+        }
+      }
+    } finally {
+      renderInFlight = false;
+      if (renderQueued && !disposed) {
+        void drainRender();
+      }
+    }
+  };
+
+  const queueRender = (): void => {
+    renderQueued = true;
+    void drainRender();
+  };
+
+  const scheduleRender = (): void => {
+    renderGeneration++;
+    if (timer !== undefined) {
+      clearTimeout(timer);
+    }
+    timer = setTimeout(() => {
+      timer = undefined;
+      queueRender();
+    }, DIFF_RECOMPUTE_DEBOUNCE_MS);
+  };
+
+  const subscriptions = [
+    model.onDidChangeContent(scheduleRender),
+    editor.onDidContentSizeChange(measure),
+  ];
+  queueRender();
 
   return {
     update: (next: ReviewFileDiff) => {
       current = next;
-      paint();
+      renderGeneration++;
+      if (timer !== undefined) {
+        clearTimeout(timer);
+        timer = undefined;
+      }
+      queueRender();
     },
     dispose: () => {
+      disposed = true;
+      renderGeneration++;
+      renderQueued = false;
+      computer.dispose();
       if (timer !== undefined) {
         clearTimeout(timer);
       }

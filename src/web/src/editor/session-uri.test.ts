@@ -14,8 +14,14 @@ vi.mock("../bridge", () => ({
     runtime.sessions.get(`${backend}\0${address.slot}\0${address.incarnation}`),
 }));
 
-const { hostUriString, protocolUri, sessionFileUri, sessionForUri, sessionUriHostPath } =
-  await import("./session-uri");
+const {
+  hostUriString,
+  protocolUri,
+  sessionFileUri,
+  sessionForUri,
+  sessionOwnsUri,
+  sessionUriHostPath,
+} = await import("./session-uri");
 
 function session(backend: string, slot: string, incarnation: string): ClientSession {
   const value = {
@@ -36,7 +42,12 @@ describe("session file URIs", () => {
     expect(uri.scheme).toBe("weavie-file");
     expect(uri.path).toMatch(/^\/weavie-session-\d+\/worktree\/src\/app\.ts$/);
     expect(sessionForUri(uri)).toBe(owner);
+    expect(sessionOwnsUri(owner, uri)).toBe(true);
     expect(sessionUriHostPath(uri)).toBe("/worktree/src/app.ts");
+
+    runtime.sessions.clear();
+    expect(sessionForUri(uri)).toBeUndefined();
+    expect(sessionOwnsUri(owner, uri)).toBe(true);
   });
 
   it("gives equal host paths distinct model identities and restores protocol URIs exactly", () => {
@@ -46,6 +57,8 @@ describe("session file URIs", () => {
     const secondUri = sessionFileUri(second, "/worktree/app.ts");
 
     expect(firstUri.toString()).not.toBe(secondUri.toString());
+    expect(sessionOwnsUri(first, firstUri)).toBe(true);
+    expect(sessionOwnsUri(first, secondUri)).toBe(false);
     expect(sessionUriHostPath(firstUri)).toBe("/worktree/app.ts");
     expect(sessionUriHostPath(secondUri)).toBe("/worktree/app.ts");
 

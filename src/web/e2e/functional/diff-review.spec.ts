@@ -32,8 +32,8 @@ const fourHunks = (): string => {
 // The live applied toolbar carries the scope picker; the parked navigator doesn't — so this asserts "a live
 // review is rendered over the active file" specifically (not just any toolbar).
 const SCOPE = ".weavie-inline-scope";
-const ADDED = ".weavie-inline-added"; // one decoration per BRIGHT (pending) changed line → one per single-line hunk
-const ACCEPTED = ".weavie-inline-accepted"; // one decoration per FADED (kept-but-uncommitted) line
+const ADDED = ".weavie-inline-added"; // one decoration per consecutive BRIGHT (pending) styling run
+const ACCEPTED = ".weavie-inline-accepted"; // one decoration per consecutive FADED (kept) run
 const UNDO = ".weavie-inline-accepted-undo"; // the inline ↶ undo beside a faded hunk
 const KEEP = ".weavie-inline-pending-keep"; // the inline ✓ keep beside a bright pending hunk
 const REVERT = ".weavie-inline-pending-revert"; // the inline ✕ revert beside a bright pending hunk
@@ -609,57 +609,127 @@ test.describe("applied review — a new file is marked, not washed", () => {
   });
 });
 
-test.describe("applied review — oversized files stay responsive", () => {
+test.describe("applied review — large files stay responsive", () => {
+  const TYPING_HEARTBEAT_BUDGET_MS = 230;
+  const original = Array.from({ length: 5_000 }, (_, index) => `old line ${index}`).join("\n");
+  const modified = Array.from({ length: 5_000 }, (_, index) => `new line ${index}`).join("\n");
   test.use({
     fakeScript: {
       steps: [
-        ...appliedEdit("boundary.txt", `${"boundary\n".repeat(1_999)}boundary`),
-        ...appliedEdit("generated.txt", "generated\n".repeat(2_001)),
-        ...appliedEdit("notes.txt", "still reviewable\n"),
+        { op: "edit", path: "{{WORKSPACE}}/generated.txt", content: original },
+        ...appliedEdit("generated.txt", modified),
       ],
     },
   });
 
-  test("shows a file-level fallback instead of thousands of diff decorations", async ({ page }) => {
-    await openFile(page, "boundary.txt");
-    await expect(page.locator(SCOPE)).toBeVisible();
-
+  test("renders and reviews a 5,000-line rewrite with bounded editor allocations", async ({
+    page,
+  }) => {
     await openFile(page, "generated.txt");
-
-    await expect(page.locator(TOOLBAR)).toContainText("Diff too large to display");
-    await expect(page.locator(ADDED)).toHaveCount(0);
-    await expect(page.locator(".weavie-inline-accept")).toHaveCount(1);
-    await expect(page.locator(".weavie-inline-reject")).toHaveCount(1);
-    await expect(page.locator(SCOPE)).toHaveCount(0);
-    await expect(page.locator(".weavie-inline-file")).toHaveCount(2);
-
-    const originalText = await page.evaluate(() =>
-      window.__WEAVIE_EDITOR__?.getModel()?.getValue(),
+    await expect(page.locator(SCOPE)).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator(TOOLBAR)).not.toContainText("timed out");
+    await expect.poll(() => decorationCount(page, "weavie-inline-added")).toBe(1);
+    await expect(page.locator(".weavie-inline-removed-line")).toHaveCount(1);
+    await expect(page.locator(".weavie-inline-removed-line")).toHaveAttribute(
+      "data-line-count",
+      "5000",
     );
-    await page.keyboard.press("ControlOrMeta+Shift+Enter");
-    await page.keyboard.press("ControlOrMeta+Shift+Backspace");
-    expect(await page.evaluate(() => window.__WEAVIE_EDITOR__?.getModel()?.getValue())).toBe(
-      originalText,
-    );
-    await page.keyboard.press("ArrowDown");
-    await expect(page.locator(TOOLBAR)).toContainText("Diff too large to display");
+    await page.evaluate(() => window.__WEAVIE_EDITOR__?.setScrollTop(0));
+    const ghostContent = page.locator(".weavie-inline-removed-content");
+    const renderedGhostLines = () =>
+      ghostContent.evaluate((element) => (element.textContent ?? "").split("\n").length);
+    await expect(ghostContent).toContainText("old line 0");
+    await expect.poll(renderedGhostLines).toBeLessThan(100);
+    await page.evaluate(() => {
+      const editor = window.__WEAVIE_EDITOR__;
+      const lineHeight = editor?.getOption(window.__WEAVIE_MONACO__.editor.EditorOption.lineHeight);
+      if (editor !== undefined && lineHeight !== undefined) {
+        editor.setScrollTop((5_000 - 10) * lineHeight);
+      }
+    });
+    await expect(ghostContent).toContainText("old line 4999");
+    await expect.poll(renderedGhostLines).toBeLessThan(100);
+    await page.evaluate(() => window.__WEAVIE_EDITOR__?.revealLineInCenter(2_500));
 
-    await page.locator(".weavie-inline-file").last().click();
-    await expect(page.locator(".weavie-inline-stack-name")).toHaveText("notes.txt");
-
-    await page.locator(".weavie-inline-file").first().click();
-    await expect(page.locator(TOOLBAR)).toContainText("Diff too large to display");
+    // The recompute debounce matures at 120ms. A second edit at 130ms lands while the worker owns the old
+    // version; it must stay responsive, supersede that result, and render only the final text.
+    const typingPerformance = await page.evaluate(async () => {
+      const editor = window.__WEAVIE_EDITOR__;
+      const model = editor?.getModel();
+      if (editor === undefined || model === null || model === undefined) {
+        throw new Error("editor model not ready");
+      }
+      editor.focus();
+      const line = 2_500;
+      const column = model.getLineMaxColumn(line);
+      const started = performance.now();
+      editor.executeEdits("large-diff-typing", [
+        {
+          range: new window.__WEAVIE_MONACO__.Range(line, column, line, column),
+          text: " typed",
+        },
+      ]);
+      const editMs = performance.now() - started;
+      await new Promise((resolve) => setTimeout(resolve, 130));
+      const secondStarted = performance.now();
+      const secondColumn = model.getLineMaxColumn(line);
+      editor.executeEdits("large-diff-typing-latest", [
+        {
+          range: new window.__WEAVIE_MONACO__.Range(line, secondColumn, line, secondColumn),
+          text: "\nlatest line",
+        },
+      ]);
+      const secondEditMs = performance.now() - secondStarted;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      return { editMs, secondEditMs, heartbeatMs: performance.now() - started };
+    });
+    await test.info().attach("large-diff-typing-performance.json", {
+      body: Buffer.from(
+        JSON.stringify({ budgetMs: TYPING_HEARTBEAT_BUDGET_MS, ...typingPerformance }),
+      ),
+      contentType: "application/json",
+    });
+    expect(
+      typingPerformance.heartbeatMs,
+      `5,000-line diff recomputation blocked the typing heartbeat: ${JSON.stringify(typingPerformance)}`,
+    ).toBeLessThan(TYPING_HEARTBEAT_BUDGET_MS);
+    // Geometry is deliberately invalid while the newer worker request is pending. The change-scoped shortcut
+    // is consumed here and must not widen into Keep File.
     await page.keyboard.press("ControlOrMeta+Enter");
-    await expect(page.locator(TOOLBAR)).toContainText("File kept");
-    await expect(page.locator(".weavie-inline-accept")).toHaveCount(0);
-    await expect(page.locator(".weavie-inline-reject")).toHaveCount(0);
-    const keptText = await page.evaluate(() => window.__WEAVIE_EDITOR__?.getModel()?.getValue());
+    await expect(page.locator(SCOPE)).toBeVisible();
+    await expect.poll(() => decorationCount(page, "weavie-inline-added")).toBe(1);
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            window.__WEAVIE_EDITOR__
+              ?.getModel()
+              ?.getAllDecorations()
+              .find((decoration) => decoration.options.className === "weavie-inline-added")?.range
+              .endLineNumber,
+        ),
+      )
+      .toBe(5_001);
+    await expect
+      .poll(() => page.evaluate(() => window.__WEAVIE_EDITOR__?.getModel()?.getLineContent(2_500)))
+      .toBe("new line 2499 typed");
+    await expect
+      .poll(() => page.evaluate(() => window.__WEAVIE_EDITOR__?.getModel()?.getLineContent(2_501)))
+      .toBe("latest line");
+
+    await focusFirstHunk(page);
+    await page.keyboard.press("ControlOrMeta+Enter");
+    await expect.poll(() => decorationCount(page, "weavie-inline-added")).toBe(0);
+    await expect.poll(() => decorationCount(page, "weavie-inline-accepted")).toBe(1);
+    await expect(page.locator(HIST_UNDO).first()).toBeEnabled();
+    await page.keyboard.press("ControlOrMeta+Shift+Enter");
+    await expect.poll(() => decorationCount(page, "weavie-inline-added")).toBe(1);
+
     await page.keyboard.press("ControlOrMeta+Backspace");
-    expect(await page.evaluate(() => window.__WEAVIE_EDITOR__?.getModel()?.getValue())).toBe(
-      keptText,
-    );
-    await openFile(page, "notes.txt");
-    await expect(page.locator(".weavie-inline-stack-name")).toHaveText("notes.txt");
+    await expect(page.locator(TOOLBAR)).toHaveCount(0);
+    await expect
+      .poll(() => page.evaluate(() => window.__WEAVIE_EDITOR__?.getModel()?.getValue()))
+      .toBe(original);
   });
 });
 

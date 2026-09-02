@@ -25,7 +25,7 @@ export function ReviewFileSection(props: {
     const value = diff();
     return value !== null && value.baseline !== value.current;
   };
-  const [timedOut, setTimedOut] = createSignal(false);
+  const [diffNotice, setDiffNotice] = createSignal("");
   const [openError, setOpenError] = createSignal("");
 
   let article: HTMLElement | undefined;
@@ -73,7 +73,14 @@ export function ReviewFileSection(props: {
           model,
           diff: latest,
           onHeight: remeasure,
-          onTimedOut: setTimedOut,
+          onStatus: (status) =>
+            setDiffNotice(
+              status === "ready"
+                ? ""
+                : status === "timed-out"
+                  ? "Diff calculation timed out — the file is shown in full."
+                  : "Diff calculation failed — the file is shown in full.",
+            ),
         });
       },
       (error: unknown) => {
@@ -139,10 +146,8 @@ export function ReviewFileSection(props: {
           </button>
         </Show>
       </header>
-      <Show when={timedOut()}>
-        <div class="unified-review-notice">
-          Diff calculation timed out — the file is shown in full.
-        </div>
+      <Show when={diffNotice() !== ""}>
+        <div class="unified-review-notice">{diffNotice()}</div>
       </Show>
       <Show when={openError() !== ""}>
         <div class="unified-review-notice">Couldn't open this file: {openError()}</div>

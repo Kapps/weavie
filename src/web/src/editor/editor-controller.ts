@@ -57,6 +57,8 @@ import {
   dropReviewTabFor,
   editorSessionFor,
   flushEditorSessionFor,
+  isFileTab,
+  onEditorSessionChanged,
   openTabFor,
   openTabsFor,
   promoteFor,
@@ -228,10 +230,11 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   let commentProse: CommentProse | undefined;
   let gitBlame: GitBlameController | undefined;
   let reviseMarks: ReviseMarks | undefined;
-  // Captured from the dynamic inline-diff import in start(); used by the show-diff handler, which can
-  // only fire once the editor host (and thus this import) is up.
-  let firstChangedLine: ((original: string, modified: string) => number) | undefined;
   let initTimer: number | undefined;
+  let disposing = false;
+  const editorSessions = new Set<ClientSession>();
+  const pendingReconciliations = new Set<ClientSession>();
+  const pendingActivations = new WeakMap<ClientSession, Promise<void>>();
   // Disposables for the content/model listeners that feed activeContent (the live Preview text).
   let contentSubs: { dispose(): void }[] = [];
   let editorMounted = false;
@@ -240,19 +243,58 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   const publishSelected = (feature: string, name: string, payload: unknown): void => {
     selectedSession()?.feature(feature).publish(name, payload);
   };
-  const rebindSession = async (session: ClientSession): Promise<void> => {
-    const editorHost = host;
-    if (editorHost === undefined || selectedSession() !== session) {
+  const reconcileOpenFiles = (session: ClientSession): void => {
+    host?.reconcileSession(
+      session,
+      openTabsFor(session)
+        .filter(isFileTab)
+        .map((tab) => tab.path),
+    );
+  };
+  const scheduleReconciliation = (session: ClientSession): void => {
+    if (pendingReconciliations.has(session)) {
       return;
     }
-    clearPresentedProposal();
-    // rebindSession releases the outgoing model synchronously before its first await. Concurrent rebinds are
-    // latest-wins inside EditorHost, so selection can never leave an old session editable while a read settles.
-    await editorHost.rebindSession(session);
-    if (selectedSession() === session) {
-      deps.onCurrentFileChanged(activePath());
-      renderReviewState(session);
+    pendingReconciliations.add(session);
+    queueMicrotask(() => {
+      pendingReconciliations.delete(session);
+      if (
+        !disposing &&
+        editorSessions.has(session) &&
+        pendingActivations.get(session) === undefined
+      ) {
+        reconcileOpenFiles(session);
+      }
+    });
+  };
+  const trackActivation = (session: ClientSession, activation: Promise<void>): Promise<void> => {
+    pendingActivations.set(session, activation);
+    const settled = (): void => {
+      if (pendingActivations.get(session) === activation) {
+        pendingActivations.delete(session);
+        scheduleReconciliation(session);
+      }
+    };
+    void activation.then(settled, settled);
+    return activation;
+  };
+  const rebindSession = (session: ClientSession): Promise<void> => {
+    const editorHost = host;
+    if (editorHost === undefined || selectedSession() !== session) {
+      return Promise.resolve();
     }
+    clearPresentedProposal();
+    // rebindSession parks the outgoing model synchronously before its first await. Concurrent rebinds are
+    // latest-wins inside EditorHost, so selection can never leave an old session editable while a read settles.
+    return trackActivation(
+      session,
+      editorHost.rebindSession(session).then(() => {
+        if (selectedSession() === session) {
+          deps.onCurrentFileChanged(activePath());
+          renderReviewState(session);
+        }
+      }),
+    );
   };
   // The active file's working-copy text, kept live off the editor model so Preview renders edits/reloads.
   const [activeContent, setActiveContent] = createSignal("");
@@ -307,11 +349,14 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     }
     // If the file can't be read, the editor never swaps its model — close this tab rather than leave it active
     // over a stale/blank pane, and fall back to a surviving neighbor (or clear).
-    return editorHost.show(session, result.path, result.placement).then((ok) => {
-      if (!ok) {
-        rollbackFailedOpen(session, result.path);
-      }
-    });
+    return trackActivation(
+      session,
+      editorHost.show(session, result.path, result.placement).then((ok) => {
+        if (!ok) {
+          rollbackFailedOpen(session, result.path);
+        }
+      }),
+    );
   };
 
   // Drop a tab whose open failed (no working copy to release) and, if it was active, switch to its neighbor. A
@@ -818,6 +863,9 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     void Promise.race([editorReady, initDeadline])
       .then(async (created) => {
         host = created;
+        for (const session of editorSessions) {
+          reconcileOpenFiles(session);
+        }
         // inline-diff + comment-prose pull Monaco; import them here (the chunk is already loaded by the
         // editor host above) so they stay off the first-paint entry chunk.
         const [diff, prose, symbolMod, blame, marks] = await Promise.all([
@@ -828,7 +876,6 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
           import("./revise-marks"),
         ]);
         symbolSource = symbolMod.createSymbolSource(created.editor);
-        firstChangedLine = diff.firstChangedLine;
         inlineDiff = diff.createInlineDiff(created.editor);
         // Review undo/redo is session-global (not tied to a file), so its post-callbacks are bound once. `kind`
         // targets the type-split chords; the generic Undo (toolbar) omits it.
@@ -1207,12 +1254,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     }
 
     clearPresentedProposal();
-    const reviewUri = editorHost.beginReview(
-      session,
-      proposal.path,
-      proposal.proposed,
-      firstChangedLine?.(proposal.original, proposal.proposed) ?? 1,
-    );
+    const reviewUri = editorHost.beginReview(session, proposal.path, proposal.proposed, 1);
     activeReview = { session, reviewUri, ...proposal };
     setReviewActive(true);
     inlineDiff?.setByUri(reviewUri, {
@@ -1397,6 +1439,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   };
 
   const offSessionFeatures = registerSessionFeature((session) => {
+    editorSessions.add(session);
     const editor = session.feature("editor");
     const review = session.feature("review");
     const files = session.feature("files");
@@ -1465,6 +1508,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       files.on<{
         changes: { path: string; kind: "updated" | "added" | "deleted" }[];
       }>("changed", ({ changes }) => handleFileChanges(session, changes)),
+      onEditorSessionChanged(session, () => scheduleReconciliation(session)),
       session.state.editor.subscribe((restored) => {
         if (restored !== null && editorMounted && selectedSession() === session) {
           void rebindSession(session).catch((error: unknown) => {
@@ -1477,6 +1521,11 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     return () => {
       for (const cleanup of cleanups) {
         cleanup();
+      }
+      editorSessions.delete(session);
+      pendingReconciliations.delete(session);
+      if (!disposing) {
+        host?.reconcileSession(session, []);
       }
     };
   });
@@ -1779,6 +1828,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     },
     symbols,
     dispose: () => {
+      disposing = true;
       window.clearTimeout(initTimer);
       if (navTimer !== undefined) {
         clearTimeout(navTimer);

@@ -71,6 +71,15 @@ export function sessionForUri(uri: Pick<UriParts, "fragment">): ClientSession | 
       });
 }
 
+export function sessionOwnsUri(session: ClientSession, uri: Pick<UriParts, "fragment">): boolean {
+  const owner = uriOwner(uri);
+  return (
+    owner?.backend === session.connection.id &&
+    owner.slot === session.address.slot &&
+    owner.incarnation === session.address.incarnation
+  );
+}
+
 export function sessionUriHostPath(uri: Pick<UriParts, "authority" | "path" | "fragment">): string {
   const owner = uriOwner(uri);
   return uriHostPath({

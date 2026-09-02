@@ -29,6 +29,7 @@ import {
   SESSION_FILE_SCHEME,
   sessionFileUri,
   sessionForUri,
+  sessionOwnsUri,
   sessionUriHostPath,
 } from "./session-uri";
 import { initEditorServices, setOpenEditorSink } from "./vscode-services";
@@ -41,9 +42,8 @@ type ModelRef = Awaited<ReturnType<ITextModelService["createModelReference"]>>;
 // by the host file provider, and never the active editor — a review can't dirty or collide with the real file.
 const REVIEW_SCHEME = "weavie-review";
 
-// Open working copies must survive a Vite hot reload, which rebuilds the widget but not the global VSCode
-// services. Keep their model references alive on `window` so the new host re-adopts them and the refcount never
-// hits 0 (unsaved edits survive, no disk re-read). Dev-only.
+// Open working copies belong to their tabs across session switches. Keeping their references on `window` also
+// lets a Vite hot reload rebuild the widget without dropping unsaved edits or rereading from disk.
 declare global {
   interface Window {
     __WEAVIE_EDITOR_REFS__?: Map<string, ModelRef>;
@@ -104,9 +104,11 @@ export interface EditorHost {
   clear(): void;
   /**
    * Rebinds the editor to the (already-updated) session store after a switch: releases the previous session's
-   * working copies, then reopens the new active tab (non-active tabs reopen lazily).
+   * review copies, then reuses the new active tab's warm working copy (non-active tabs reopen lazily).
    */
   rebindSession(session: ClientSession): Promise<void>;
+  /** Releases working copies no longer owned by one of the session's open file tabs. */
+  reconcileSession(session: ClientSession, openPaths: readonly string[]): void;
   /**
    * Begins an inline review of an openDiff proposal in a transient model (the working copy is left untouched),
    * shows `proposed` revealed at 1-based `line`, and returns the model's URI so the caller renders the diff over it.
@@ -646,25 +648,33 @@ export async function createEditorHost(
     editor.setModel(null);
   };
 
-  // Release every open working copy (flush, drop reference, empty the editor). Used by rebindSession; unlike
-  // dispose() this releases the refs, since a session switch (not a hot reload) must tear the old models down.
-  const releaseAll = (): void => {
+  // Park the shared widget between session projections. Open tab references stay owned by their sessions, so a
+  // warm switch reuses the working copy without another host read.
+  const parkSession = (): void => {
     // A rebind to media/web/source/empty opens no successor model, so it must invalidate an older async text
     // open explicitly. The immutable binding check above also keeps its eventual reference out of this session.
     openSeq += 1;
     releaseReviewCopies();
-    for (const [key, ref] of [...refs]) {
-      flushSave(key);
-      ref.dispose();
-      refs.delete(key);
-      // Clear any lingering dirty flag (a model held back by the error gate stays dirty); the global dirty
-      // store isn't session-scoped, so an uncleared path would outlive the switch.
-      const session = sessionForUri(monaco.Uri.parse(key));
-      if (session !== undefined) {
-        setDirtyPath(session, sessionUriHostPath(monaco.Uri.parse(key)), false);
+    editor.setModel(null);
+  };
+
+  const reconcileSession = (session: ClientSession, openPaths: readonly string[]): void => {
+    const retained = new Set(openPaths.map((path) => sessionFileUri(session, path).toString()));
+    const activeModel = editor.getModel();
+    if (
+      activeModel !== null &&
+      activeModel.uri.scheme === SESSION_FILE_SCHEME &&
+      sessionOwnsUri(session, activeModel.uri) &&
+      !retained.has(activeModel.uri.toString())
+    ) {
+      clear();
+    }
+    for (const key of [...refs.keys()]) {
+      const uri = monaco.Uri.parse(key);
+      if (sessionOwnsUri(session, uri) && !retained.has(key)) {
+        closeFile(session, sessionUriHostPath(uri));
       }
     }
-    editor.setModel(null);
   };
 
   // Flush matching dirty working copies and resolve only when every write lands. A failure is surfaced and
@@ -853,7 +863,7 @@ export async function createEditorHost(
   };
 
   const rebindSession = async (session: ClientSession): Promise<void> => {
-    releaseAll();
+    parkSession();
     await restoreSession(session);
   };
 
@@ -866,6 +876,7 @@ export async function createEditorHost(
     editor,
     show,
     closeFile,
+    reconcileSession,
     contentOf,
     cancelSave,
     flush,

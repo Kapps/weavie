@@ -47,13 +47,12 @@ public sealed partial class AcpAgentSession {
 			if (_promptActive) {
 				if (!_supportsSteering || _steering) return;
 				// A provider command owns its own turn, so it waits here without holding back what steers past it.
-				submission = _pendingSubmissions.Take(pending => pending.Kind == AgentTurnSubmissionKind.Prompt);
+				submission = _pendingSubmissions.TakeFirst(pending => pending.Kind == AgentTurnSubmissionKind.Prompt);
 				if (submission is null) return;
 				steer = true;
 				_steering = true;
 			} else {
-				submission = _pendingSubmissions.Take(_ => true)
-					?? throw new InvalidOperationException("The ACP submission queue emptied under its own lock.");
+				submission = _pendingSubmissions.Dequeue();
 				_promptActive = true;
 				_waitingForBackground = false;
 				_turnNumber++;

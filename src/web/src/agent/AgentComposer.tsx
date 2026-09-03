@@ -17,7 +17,7 @@ import {
   planIdentityArgsSupplied,
   planIdentityFromArgs,
 } from "./agent-plan";
-import { agentQueuedSubmissions } from "./agent-queue-store";
+import { agentQueuedSubmissions, queuedSubmissionLabel } from "./agent-queue-store";
 import {
   captureAgentImagePaste,
   composerState,
@@ -387,7 +387,13 @@ export function AgentComposer(props: {
       <Show when={queued().length > 0}>
         <div class="agent-compose-queued">
           <span>Queued</span>
-          <For each={queued()}>{(submission) => <span>{submission.text}</span>}</For>
+          <For each={queued()}>
+            {(submission) => (
+              <span title={queuedSubmissionLabel(submission)}>
+                {queuedSubmissionLabel(submission)}
+              </span>
+            )}
+          </For>
         </div>
       </Show>
       <Show when={composer().attachments.length > 0}>

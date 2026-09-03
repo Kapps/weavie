@@ -194,9 +194,8 @@ export interface AgentControlState {
 }
 
 export interface AgentQueuedSubmission {
-  id: string;
   text: string;
-  kind: "prompt" | "providerCommand";
+  attachments: number;
 }
 
 export interface AgentContextWindowUsage {

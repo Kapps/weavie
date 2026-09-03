@@ -15,3 +15,9 @@ const queueFor = createSessionFeatureValue<
 export function agentQueuedSubmissions(session: ClientSession | null): AgentQueuedSubmission[] {
   return queueFor(session) ?? EMPTY;
 }
+
+/** What a waiting submission reads as: its text, or its image count when it carries only attachments. */
+export function queuedSubmissionLabel(submission: AgentQueuedSubmission): string {
+  if (submission.text.length > 0) return submission.text;
+  return submission.attachments === 1 ? "1 image" : `${submission.attachments} images`;
+}

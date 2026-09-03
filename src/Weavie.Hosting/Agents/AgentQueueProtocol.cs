@@ -8,13 +8,8 @@ internal static class AgentQueueProtocol {
 		ArgumentNullException.ThrowIfNull(queued);
 		return new {
 			queued = queued.Select(submission => new {
-				id = submission.Id,
 				text = submission.Text,
-				kind = submission.Kind switch {
-					AgentTurnSubmissionKind.Prompt => "prompt",
-					AgentTurnSubmissionKind.ProviderCommand => "providerCommand",
-					_ => throw new InvalidOperationException($"Unknown submission kind '{submission.Kind}'."),
-				},
+				attachments = submission.Attachments.Count,
 			}),
 		};
 	}

@@ -4,7 +4,7 @@ namespace Weavie.AgentClientProtocol;
 
 /// <summary>
 /// The accepted submissions one ACP session has not delivered yet, in delivery order. Every mutation bumps
-/// <see cref="Version"/>, so the session publishes the waiting set without any call site remembering to.
+/// <see cref="Version"/>, so a publisher delivers a changed queue exactly once and never republishes a stale one.
 /// </summary>
 internal sealed class AcpSubmissionQueue {
 	private readonly LinkedList<AgentTurnSubmission> _items = [];
@@ -27,8 +27,16 @@ internal sealed class AcpSubmissionQueue {
 		Version++;
 	}
 
+	/// <summary>Removes and returns the first waiting submission.</summary>
+	public AgentTurnSubmission Dequeue() {
+		var first = _items.First ?? throw new InvalidOperationException("The ACP submission queue is empty.");
+		_items.RemoveFirst();
+		Version++;
+		return first.Value;
+	}
+
 	/// <summary>Removes and returns the first submission <paramref name="deliverable"/> accepts, or null.</summary>
-	public AgentTurnSubmission? Take(Func<AgentTurnSubmission, bool> deliverable) {
+	public AgentTurnSubmission? TakeFirst(Func<AgentTurnSubmission, bool> deliverable) {
 		ArgumentNullException.ThrowIfNull(deliverable);
 		for (var node = _items.First; node is not null; node = node.Next) {
 			if (!deliverable(node.Value)) continue;

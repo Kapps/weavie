@@ -886,7 +886,7 @@ a.agent-entry-media {
   gap: 6px;
   align-items: center;
   min-width: 0;
-  color: var(--muted);
+  color: var(--dim);
   font-size: var(--font-metadata-size);
 }
 

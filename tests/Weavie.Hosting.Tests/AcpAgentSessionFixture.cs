@@ -342,26 +342,14 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 		}
 	}
 
-	public async Task<AgentControlState> WaitForControlsAsync(Func<AgentControlState, bool> predicate) {
-		ArgumentNullException.ThrowIfNull(predicate);
-		using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-		while (true) {
-			var state = await _controls.Reader.ReadAsync(timeout.Token).ConfigureAwait(false);
-			if (predicate(state)) return state;
-		}
-	}
+	public Task<AgentControlState> WaitForControlsAsync(Func<AgentControlState, bool> predicate) =>
+		ReadAsync(_controls.Reader, predicate);
 
-	public async Task<IReadOnlyList<AgentTurnSubmission>> WaitForQueueAsync(
-		Func<IReadOnlyList<AgentTurnSubmission>, bool> predicate) {
-		ArgumentNullException.ThrowIfNull(predicate);
-		using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-		while (true) {
-			var queued = await _queues.Reader.ReadAsync(timeout.Token).ConfigureAwait(false);
-			if (predicate(queued)) return queued;
-		}
-	}
+	public Task<IReadOnlyList<AgentTurnSubmission>> WaitForQueueAsync(
+		Func<IReadOnlyList<AgentTurnSubmission>, bool> predicate) => ReadAsync(_queues.Reader, predicate);
 
-	public Task<IReadOnlyList<AgentPaneMessage>> WaitForSnapshotAsync() => ReadAsync(_snapshots.Reader);
+	public Task<IReadOnlyList<AgentPaneMessage>> WaitForSnapshotAsync() =>
+		ReadAsync(_snapshots.Reader, _ => true);
 
 	public void Submit(string text) => Session.Submit(new AgentTurnSubmission {
 		Id = Guid.NewGuid().ToString("N"),
@@ -387,9 +375,13 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 		Directory.Delete(Workspace, recursive: true);
 	}
 
-	private static async Task<T> ReadAsync<T>(ChannelReader<T> reader) {
+	private static async Task<T> ReadAsync<T>(ChannelReader<T> reader, Func<T, bool> predicate) {
+		ArgumentNullException.ThrowIfNull(predicate);
 		using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-		return await reader.ReadAsync(timeout.Token).ConfigureAwait(false);
+		while (true) {
+			var value = await reader.ReadAsync(timeout.Token).ConfigureAwait(false);
+			if (predicate(value)) return value;
+		}
 	}
 
 	internal static string ExecutablePath(string topLevel, string project, string executable) {

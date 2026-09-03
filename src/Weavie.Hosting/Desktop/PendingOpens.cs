@@ -2,8 +2,8 @@ namespace Weavie.Hosting.Desktop;
 
 /// <summary>
 /// Paths waiting for a page that can receive them. A cold launch resolves its workspace from the path itself,
-/// so an open routinely arrives before anything is listening, and a broadcast with no client is dropped rather
-/// than buffered. Held here until both a page and a session exist.
+/// so an open routinely arrives before anything is listening, and a broadcast with no client is dropped
+/// rather than buffered.
 /// </summary>
 public sealed class PendingOpens {
 	private readonly Lock _gate = new();
@@ -25,14 +25,10 @@ public sealed class PendingOpens {
 		}
 	}
 
-	/// <summary>
-	/// Takes everything deliverable, or nothing when no page is attached yet. <paramref name="hasSession"/> is
-	/// the caller's answer to "is there something to open into" — false keeps the paths for the next drain, so a
-	/// slot that loads later still gets them.
-	/// </summary>
-	public IReadOnlyList<string> Drain(bool hasSession) {
+	/// <summary>Takes everything deliverable, or nothing while no page is attached yet.</summary>
+	public IReadOnlyList<string> Drain() {
 		lock (_gate) {
-			if (!_pageReady || !hasSession || _paths.Count == 0) {
+			if (!_pageReady || _paths.Count == 0) {
 				return [];
 			}
 

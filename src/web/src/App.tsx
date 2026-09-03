@@ -159,6 +159,7 @@ import {
   selectedDirectoryListings,
   selectedFileIndex,
 } from "./files/session-files";
+import "./files/open-path";
 import { paneOrder } from "./layout/geometry";
 import { LayoutView } from "./layout/LayoutView";
 import { DEFAULT_LAYOUT_ROOT, layoutDocument, sendLayout } from "./layout/store";

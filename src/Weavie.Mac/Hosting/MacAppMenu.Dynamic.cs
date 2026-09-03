@@ -121,7 +121,8 @@ internal sealed partial class MacAppMenu {
 		return false;
 	}
 
-	// The page owns keyboard dispatch: a row's key equivalent is a label, so AppKit must never match it.
+	// The page owns keyboard dispatch, so a row's key equivalent is a label AppKit must never match. The
+	// NSMenuDelegate hook for this crashes: its `id *`/`SEL *` out-params are bound by value.
 	private sealed class DisplayOnlyKeyEquivalentMenu : NSMenu {
 		public DisplayOnlyKeyEquivalentMenu(string title) : base(title) { }
 

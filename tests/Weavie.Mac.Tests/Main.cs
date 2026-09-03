@@ -36,9 +36,10 @@ False(currentFile.PerformKeyEquivalent(keyEvent), "dynamic key equivalent must r
 False(menu.MainMenu.PerformKeyEquivalent(keyEvent), "main-menu search must not match a dynamic row");
 Sequence([], secondActivations, "display-only key equivalent activation");
 
-// AppKit searches every menu for any unhandled key, not just ones a row binds.
+// The reported crash: Escape reaches the same search the moment the page stops consuming it.
 using var escapeEvent = KeyEvent((NSEventModifierMask)0, "\u001b", 53);
-False(menu.MainMenu.PerformKeyEquivalent(escapeEvent), "unbound key must not match a dynamic row");
+False(menu.MainMenu.PerformKeyEquivalent(escapeEvent), "main-menu search must not match an Escape row");
+Sequence([], secondActivations, "display-only Escape activation");
 
 // Control: an ordinary nested menu does match the same event through the same search, so the
 // assertions above measure the dynamic menus opting out, not an inert search.
@@ -66,6 +67,14 @@ static ApplicationMenuState State(long revision, string token) => new() {
 					Enabled = true,
 					Token = token,
 					Keys = ["$mod+k"],
+					Entries = [],
+				},
+				new ApplicationMenuEntry {
+					Kind = ApplicationMenuEntryKind.Command,
+					Label = "Close",
+					Enabled = true,
+					Token = $"{token}-escape",
+					Keys = ["escape"],
 					Entries = [],
 				},
 			],

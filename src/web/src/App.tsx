@@ -1192,6 +1192,10 @@ export default function App(): JSX.Element {
     });
   };
 
+  const fileReviewUnavailable = (): boolean =>
+    editor.review.mode() === "unified" &&
+    !editor.review.overview().files.some((file) => file.summary().currentExists);
+
   const renderPane = (kind: string): JSX.Element => {
     if (kind === "editor") {
       return (
@@ -1213,7 +1217,8 @@ export default function App(): JSX.Element {
                     type="button"
                     class="editor-review-toggle"
                     aria-pressed={editor.review.mode() === "unified"}
-                    title={`${editor.review.mode() === "unified" ? "Switch to file review" : "Switch to unified review"}${keyHint(CommandIds.reviewToggleMode)}`}
+                    disabled={fileReviewUnavailable()}
+                    title={`${fileReviewUnavailable() ? "File review unavailable — all changed files are deleted" : editor.review.mode() === "unified" ? "Switch to file review" : "Switch to unified review"}${keyHint(CommandIds.reviewToggleMode)}`}
                     onClick={() => void runCommandWithFeedback(CommandIds.reviewToggleMode)}
                   >
                     <Show when={editor.review.mode() === "unified"} fallback={<Files size={14} />}>
@@ -1315,23 +1320,29 @@ export default function App(): JSX.Element {
               )}
             </Show>
             <Show
-              when={editor.review.mode() === "unified" && editor.review.overview().files.length > 0}
+              when={
+                editor.review.mode() === "unified" && editor.review.overview().files.length > 0
+                  ? selectedSession()
+                  : null
+              }
+              keyed
             >
-              <Suspense>
-                <UnifiedReview
-                  overview={editor.review.overview}
-                  session={selectedSession()!}
-                  onCursorChange={editor.review.setCursor}
-                  onFileCollapsed={editor.review.setFileCollapsed}
-                  openCopy={editor.review.openCopy}
-                  releaseCopies={editor.review.releaseCopies}
-                />
-              </Suspense>
+              {(session) => (
+                <Suspense>
+                  <UnifiedReview
+                    overview={editor.review.overview}
+                    session={session}
+                    onCursorChange={editor.review.setCursor}
+                    onFileCollapsed={editor.review.setFileCollapsed}
+                    createCopyScope={editor.review.createCopyScope}
+                  />
+                </Suspense>
+              )}
             </Show>
           </div>
           <Show when={editor.review.mode() !== "unified"}>
             <EditorFooter
-              onOpenRecent={(path) => editor.openFile(path, 1)}
+              onOpenRecent={(path) => editor.openFile(path, undefined)}
               root={() => indexRoot() ?? ""}
             />
           </Show>
@@ -1559,8 +1570,8 @@ export default function App(): JSX.Element {
           }),
         session
           .feature("view")
-          .on<{ query: string; line: number }>("focusOmnibar", ({ query, line }) =>
-            focusOmnibarFileSearch(query, line),
+          .on<{ query: string; line: number | null }>("focusOmnibar", ({ query, line }) =>
+            focusOmnibarFileSearch(query, line ?? undefined),
           ),
       ];
       return () => {
@@ -2186,7 +2197,7 @@ export default function App(): JSX.Element {
             listings={dirListings()}
             currentFile={currentFile()}
             onExpand={listSelectedDirectory}
-            onOpen={(path) => revealSelectedFile(path, 1)}
+            onOpen={(path) => revealSelectedFile(path, undefined)}
             onClose={() => setBrowserOpen(false)}
           />
         </Suspense>

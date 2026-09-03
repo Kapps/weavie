@@ -56,7 +56,6 @@ public sealed class InferenceService : IInferenceService {
 		InferenceQueryOptions options,
 		CancellationToken ct) {
 		ArgumentNullException.ThrowIfNull(owner);
-		ArgumentException.ThrowIfNullOrWhiteSpace(owner.AgentProviderId);
 		ArgumentException.ThrowIfNullOrWhiteSpace(owner.Workspace);
 		ArgumentNullException.ThrowIfNull(input);
 		ArgumentNullException.ThrowIfNull(input.Images);
@@ -78,7 +77,6 @@ public sealed class InferenceService : IInferenceService {
 		ArgumentNullException.ThrowIfNull(responseType);
 		ArgumentNullException.ThrowIfNull(options);
 		ValidateQuery(responseType, options);
-		string agentProviderId = owner.AgentProviderId;
 
 		ct.ThrowIfCancellationRequested();
 		if (!_settings.RequireBool(InferenceSettings.Enabled)) {
@@ -106,6 +104,13 @@ public sealed class InferenceService : IInferenceService {
 			imageBytes += image.Bytes.Length;
 		}
 
+		string agentProviderId = _settings.RequireString(InferenceSettings.DefaultProvider);
+		var profile = new InferenceProviderProfile {
+			Model = _settings.RequireString(InferenceSettings.Model),
+			Effort = _settings.RequireString(InferenceSettings.Effort),
+			FastMode = ReadFastMode(_settings.RequireString(InferenceSettings.FastMode)),
+		};
+
 		IAgentProvider agentProvider;
 		try {
 			agentProvider = _agentProviders.RequireAvailable(agentProviderId);
@@ -128,6 +133,7 @@ public sealed class InferenceService : IInferenceService {
 		string schema = JsonSchemaExporter.GetJsonSchemaAsNode(responseType, SchemaOptions).ToJsonString();
 		var request = new InferenceProviderRequest {
 			Category = category,
+			Profile = profile,
 			Workspace = owner.Workspace,
 			Prompt = input.Prompt,
 			Images = input.Images,
@@ -213,6 +219,13 @@ public sealed class InferenceService : IInferenceService {
 				"Inference response metadata must disallow unmapped members and respect required constructor parameters.");
 		}
 	}
+
+	private static InferenceFastMode ReadFastMode(string value) => value switch {
+		"inherit" => InferenceFastMode.Inherit,
+		"on" => InferenceFastMode.On,
+		"off" => InferenceFastMode.Off,
+		_ => throw new InvalidOperationException($"Unknown inference Fast Mode setting '{value}'."),
+	};
 
 	private static InferenceFailure<T> Failure<T>(InferenceFailureKind kind, string detail) => new() {
 		Kind = kind,

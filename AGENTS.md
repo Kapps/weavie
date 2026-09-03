@@ -51,11 +51,11 @@ load it only when you need it.
   `worktree.setupCommand` + `test.profile` itself — deterministic, zero tokens, instant. The Claude
   setup flow is demoted to the override / unsupported-language fallback. Supersedes the "no bundled
   presets" stance. See [docs/concepts/workspace-autoconfig.md](docs/concepts/workspace-autoconfig.md).
-- **Typed ad-hoc inference** — isolated typed queries owned by the session that asks: the owner supplies both the
-  agent provider and the worktree the query runs in. Terminal Claude answers via `claude --print`; any ACP agent
-  answers via one transient process and one throwaway session, starved of tools by advertising no capabilities and
-  refusing every agent request. Weavie never picks the model — ACP exposes selectors but no cost semantics, so the
-  agent's own configuration stands. Strict typed JSON, one attempt, feature-owned failure handling. First consumer:
+- **Typed ad-hoc inference** — isolated typed queries owned by the session worktree and routed through the live
+  configured inference provider/profile. Terminal Claude answers via `claude --print`; any ACP agent
+  answers via one transient process and one throwaway session, starved of tools by advertising only typed boolean
+  configuration and refusing every agent request. Model/effort values remain provider-native and explicit; Weavie never guesses from
+  cost semantics. Strict typed JSON, one attempt, feature-owned failure handling. First consumer:
   convention-aware branch naming, which leaves the field blank for manual input when inference fails. See
   [docs/concepts/ad-hoc-inference.md](docs/concepts/ad-hoc-inference.md).
 - **Native ACP agents** — the native pane is one provider-neutral ACP client; registry distributions and custom

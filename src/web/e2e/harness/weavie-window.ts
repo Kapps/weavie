@@ -42,6 +42,10 @@ export interface EditorHandle {
   } | null;
   getDomNode(): { getBoundingClientRect(): { left: number; top: number } } | null;
   getLayoutInfo(): { width: number; height: number };
+  getScrollTop(): number;
+  setScrollTop(top: number): void;
+  getScrollHeight(): number;
+  getOption(option: number): number;
 }
 
 /** The slice of the monaco namespace (window.__WEAVIE_MONACO__) the specs use to mock LSP providers. */

@@ -11,12 +11,21 @@ public sealed record FileChange {
 	/// <summary>The file's latest content.</summary>
 	public required string CurrentText { get; init; }
 
+	/// <summary>Whether the baseline-side file exists, distinct from an absent file with empty content.</summary>
+	public required bool BaselineExists { get; init; }
+
+	/// <summary>Whether the current-side file exists, distinct from an existing empty file.</summary>
+	public required bool CurrentExists { get; init; }
+
 	/// <summary>
 	/// The file's content at the last keep-all (the review's "accepted anchor"), for the inline turn-review's
 	/// faded band (accepted anchor → review baseline). Only meaningful on the <see cref="SessionChangeTracker.GetTurn"/>
 	/// / <see cref="SessionChangeTracker.TurnChanges"/> triple; defaults to empty for the session-diff views.
 	/// </summary>
 	public string AcceptedBaselineText { get; init; } = string.Empty;
+
+	/// <summary>Whether the accepted-anchor file exists.</summary>
+	public bool AcceptedBaselineExists { get; init; } = true;
 }
 
 /// <summary>
@@ -45,5 +54,8 @@ public sealed record TurnChangeSummary(FileChange Change, int Added, int Removed
 	internal bool Describes(FileChange other) =>
 		ReferenceEquals(Change.AcceptedBaselineText, other.AcceptedBaselineText)
 		&& ReferenceEquals(Change.BaselineText, other.BaselineText)
-		&& ReferenceEquals(Change.CurrentText, other.CurrentText);
+		&& ReferenceEquals(Change.CurrentText, other.CurrentText)
+		&& Change.AcceptedBaselineExists == other.AcceptedBaselineExists
+		&& Change.BaselineExists == other.BaselineExists
+		&& Change.CurrentExists == other.CurrentExists;
 }

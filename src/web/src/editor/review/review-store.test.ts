@@ -9,6 +9,7 @@ const firstFile: ReviewFile = {
   added: 3,
   removed: 1,
   line: 4,
+  currentExists: true,
 };
 
 const secondFile: ReviewFile = {
@@ -17,6 +18,7 @@ const secondFile: ReviewFile = {
   added: 1,
   removed: 0,
   line: 8,
+  currentExists: true,
 };
 
 function diff(file: ReviewFile, baseline = "before", current = "after"): ReviewFileDiff {
@@ -24,8 +26,11 @@ function diff(file: ReviewFile, baseline = "before", current = "after"): ReviewF
     path: file.path,
     name: file.name,
     acceptedBaseline: baseline,
+    acceptedBaselineExists: true,
     baseline,
+    baselineExists: true,
     current,
+    currentExists: file.currentExists,
   };
 }
 
@@ -139,6 +144,25 @@ describe("review store", () => {
     });
   });
 
+  it("retains an empty-file diff whose existence changed", () => {
+    createRoot((dispose) => {
+      const store = createReviewStore();
+      const client = session();
+      const deleted = { ...firstFile, added: 0, removed: 0, currentExists: false };
+      store.select(client);
+      store.setFiles(client, [deleted], "vs HEAD");
+      store.setDiff(client, {
+        ...diff(deleted, "", ""),
+        acceptedBaselineExists: true,
+        baselineExists: true,
+      });
+
+      expect(store.overview().files[0]?.diff()).not.toBeNull();
+      expect(store.overview().hasPending()).toBe(true);
+      dispose();
+    });
+  });
+
   it("isolates mode, cursor, files, and counts by session", () => {
     createRoot((dispose) => {
       const store = createReviewStore();
@@ -179,7 +203,7 @@ describe("review store", () => {
       const client = session();
       store.setFiles(client, [firstFile, secondFile], "turn");
       store.enterUnified(client, { path: firstFile.path, line: 12 });
-      store.removeFile(client, firstFile.path);
+      store.setFiles(client, [secondFile], "turn");
 
       expect(store.board(client).cursor).toEqual({ path: secondFile.path, line: secondFile.line });
 

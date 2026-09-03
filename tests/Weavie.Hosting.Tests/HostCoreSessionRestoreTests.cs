@@ -203,6 +203,21 @@ public sealed class HostCoreSessionRestoreTests {
 	}
 
 	[Fact]
+	public async Task DefaultInferenceProviderCannotBeRemoved() {
+		var catalog = new RecordingAcpCatalog();
+		await using var host = await TestHost.StartAsync(catalog);
+		host.Settings.Set(
+			InferenceSettings.DefaultProvider,
+			JsonSerializer.SerializeToElement("structured"));
+
+		var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+			host.HostRequestAsync<JsonElement>("acpRegistry", "remove", new { id = "structured" }));
+
+		Assert.Contains("still referenced", error.Message, StringComparison.Ordinal);
+		Assert.Empty(catalog.Removed);
+	}
+
+	[Fact]
 	public async Task ReferencedCustomAcpProviderCannotBeRemovedByReload() {
 		var catalog = new RecordingAcpCatalog {
 			LaunchSpecs = [AcpLaunch("structured")],

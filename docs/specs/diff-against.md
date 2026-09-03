@@ -29,7 +29,7 @@ The turn-review engine (`SessionChangeTracker`) diffs each file's current disk c
 edits it (`CaptureBaseline`, off the hook stream). **Seed the baseline from a git ref instead** — the ref's
 merge-base with HEAD — and the entire Keep / Revert / keep-all / undo / faded-band machinery works unchanged.
 Because later Claude edits merely extend `_current` through the same hook path, **new-turn changes accumulate
-into the same set for free**. `SeedRefBaseline(path, refContent, diskContent, existedAtRef)` is the one new
+into the same set for free**. `SeedRefBaseline(path, refContent, diskContent, existedAtRef, existsOnDisk)` is the one new
 Core capability (it **overwrites** every baseline, so it composes with a racing `CaptureBaseline`).
 
 ## Semantics
@@ -39,12 +39,14 @@ Core capability (it **overwrites** every baseline, so it composes with a racing 
   from itself. A ref *ahead* of HEAD therefore shows nothing of the other side — never a reversed diff.
 - **Current = the working tree** — the changed-file list is `git diff --numstat <base>` **plus
   untracked-but-not-ignored files** as all-added entries (`IGitService.DiffWorktreeAsync`); a brand-new file
-  is an uncommitted change, so it is never silently absent. Each file at the base (`ShowFileAtRefAsync`;
-  empty when absent there) is seeded as its review baseline, its disk content as `current`.
+  is an uncommitted change, so it is never silently absent. Each file at the base (`ReadFileAtRefAsync`,
+  preserving absent versus empty) is seeded as its review baseline, its disk content as `current`.
 - **Keep / Revert act, exactly as a turn** — **Keep** advances the review baseline over the hunk (no disk
   write; it slides to the faded band with an inline `↶ undo`); **Revert** writes the ref content back over
   the hunk **on disk** (an uncommitted backout you then commit). Reverting the last hunk of a file added
-  since the ref **deletes** it. Keep-all / undo-all / the undo history are all the turn-review ones.
+  since the ref **deletes** it. A current-side deletion stays in the unified review as a read-only Monaco
+  snapshot from the tracked current text, so a rename's delete side and a true deletion never depend on a
+  warm working copy. Keep-all / undo-all / the undo history are all the turn-review ones.
 - **Arming commits any pending turn review.** Because the review shares the session's one tracker, arming a
   ref review snaps the board clean first (`AcceptTurn`) so a file the session already changed that now equals
   the ref leaves the walk, then seeds the ref diff. This is unreachable-in-practice for the real callers (a
@@ -64,7 +66,7 @@ flowchart LR
   DA["diff-against &lt;ref&gt;<br/>(PrNumber 0, local only)"] --> R
   R -->|SeedRefBaseline ×N| T[SessionChangeTracker]
   T -->|turn-changes · label + files| Web[inline-diff · applied mode]
-  T -->|get-turn-diff → turn-diff · accepted/baseline/current| Web
+  T -->|get-turn-diff → turn-diff · text + existence boundaries| Web
   R -->|review-comments · PR only| Web
   Web -->|keep-hunk / reject-hunk / … | T
 ```
@@ -99,8 +101,8 @@ composer is deferred until it moves to an app-level overlay outside the view-zon
 ## Testing
 
 - `DiffAgainstTests` (Weavie.Hosting.Tests): the flow end-to-end over a real temp repo — HEAD/parent diffs,
-  the `turn-diff` baseline/current pair, **a `revert-file` restoring the ref content on disk** (the
-  accept/reject unification), unknown ref, empty-diff retraction, merge-base semantics.
+  deleted and empty-file snapshots, **a `revert-file` restoring the ref content on disk** (the accept/reject
+  unification), unknown ref, empty-diff retraction, merge-base semantics.
 - `SessionChangeTrackerTests` (Weavie.Core.Tests): `SeedRefBaseline` reviews as an applied triple; Keep
   advances the baseline with no disk write; Revert writes the ref over the current lines (a created-vs-ref
   file's revert deletes it); both `CaptureBaseline`↔`SeedRefBaseline` race orderings accumulate.

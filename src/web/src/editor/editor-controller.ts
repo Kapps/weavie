@@ -22,7 +22,7 @@ import type {
   SymbolQuerySource,
 } from "../symbols/symbol-match";
 import type { CommentProse } from "./comment-prose";
-import type { EditorHost } from "./editor-host";
+import type { EditorHost, ReviewCopyScope } from "./editor-host";
 import { samePath } from "./fs-path";
 import type { GitBlameController } from "./git-blame";
 import type {
@@ -153,8 +153,11 @@ export interface EditorController {
   reviseSelection(): void;
   /** Loads the editor chunk and brings up the editor in `container`; fades the splash when settled. */
   start(container: HTMLElement): void;
-  /** Opens a file (preview tab when `preview`), replaying once the editor chunk has loaded (last wins). */
-  openFile(path: string, line: number, preview?: boolean): void;
+  /**
+   * Opens a file (preview tab when `preview`), replaying once the editor chunk has loaded (last wins).
+   * `line` reveals that line; `undefined` means no target, so an already-open tab keeps the user's position.
+   */
+  openFile(path: string, line: number | undefined, preview?: boolean): void;
   /** Opens an http(s) URL as a web (iframe) tab in the editor tab strip. */
   openWebTab(url: string): void;
   /** Opens a fetched source doc (Notion) as a source (shadow-root) tab in the editor tab strip, keyed by its target. */
@@ -197,13 +200,8 @@ export interface EditorController {
   readonly review: {
     mode(): ReviewPresentationMode;
     overview(): ReviewOverview;
-    /**
-     * Resolve a changed file's working copy for the unified review's per-file editor, on a reference
-     * independent of any tab's. Rejects when the editor host isn't up, so the section can say so.
-     */
-    openCopy(session: ClientSession, path: string): Promise<monaco.editor.ITextModel>;
-    /** Release every working copy the unified review holds (its surface unmounted). */
-    releaseCopies(): void;
+    /** Creates the model-reference scope owned by one mounted unified-review surface. */
+    createCopyScope(): ReviewCopyScope;
     toggleMode(session: ClientSession): boolean;
     toggleFileCollapsed(session: ClientSession, path: string | undefined): boolean;
     setCursor(session: ClientSession, path: string, line: number): void;
@@ -225,6 +223,30 @@ export interface EditorController {
   dispose(): void;
 }
 
+export function createDeferredReviewCopyScope(
+  hostReady: Promise<Pick<EditorHost, "createReviewCopyScope">>,
+): ReviewCopyScope {
+  let scope: ReviewCopyScope | undefined;
+  let disposed = false;
+  return {
+    open: async (session, path, current, currentExists) => {
+      if (disposed) {
+        throw new Error("the review closed while this file was loading");
+      }
+      const host = await hostReady;
+      if (disposed) {
+        throw new Error("the review closed while this file was loading");
+      }
+      scope ??= host.createReviewCopyScope();
+      return scope.open(session, path, current, currentExists);
+    },
+    dispose: () => {
+      disposed = true;
+      scope?.dispose();
+    },
+  };
+}
+
 export function createEditorController(deps: EditorControllerDeps): EditorController {
   // host + inlineDiff are set once the editor chunk loads and the editor is created (see start).
   let host: EditorHost | undefined;
@@ -234,6 +256,13 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   let reviseMarks: ReviseMarks | undefined;
   let initTimer: number | undefined;
   let disposing = false;
+  let resolveEditorHost!: (created: EditorHost) => void;
+  let rejectEditorHost!: (error: unknown) => void;
+  const editorHostReady = new Promise<EditorHost>((resolve, reject) => {
+    resolveEditorHost = resolve;
+    rejectEditorHost = reject;
+  });
+  void editorHostReady.catch(() => undefined);
   const editorSessions = new Set<ClientSession>();
   const pendingReconciliations = new Set<ClientSession>();
   const pendingActivations = new WeakMap<ClientSession, Promise<void>>();
@@ -392,17 +421,26 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   const openFileFor = (
     session: ClientSession,
     path: string,
-    line: number,
+    line: number | undefined,
     preview = false,
     scratch = false,
   ): void => {
-    const result = openTabFor(session, path, { line, preview, scratch });
+    const result = openTabFor(session, path, {
+      ...(line === undefined ? {} : { line }),
+      preview,
+      scratch,
+    });
     if (activateDestinationFor(session) && host !== undefined) {
       void applyActive(session, result).then(focusEditorSurface);
     }
   };
 
-  const openFile = (path: string, line: number, preview = false, scratch = false): void => {
+  const openFile = (
+    path: string,
+    line: number | undefined,
+    preview = false,
+    scratch = false,
+  ): void => {
     const session = selectedSession();
     if (session !== null) {
       openFileFor(session, path, line, preview, scratch);
@@ -673,7 +711,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       } else if (entry.kind === "source") {
         openSourceTab(entry.path);
       } else {
-        openFile(entry.path, 1);
+        openFile(entry.path, undefined);
       }
 
       return true;
@@ -865,6 +903,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     void Promise.race([editorReady, initDeadline])
       .then(async (created) => {
         host = created;
+        resolveEditorHost(created);
         for (const session of editorSessions) {
           reconcileOpenFiles(session);
         }
@@ -930,6 +969,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         mark("editor-ready");
       })
       .catch((error: unknown) => {
+        rejectEditorHost(error);
         log("error", `editor init failed: ${String(error)}`);
         // The pane is now dead (host stays undefined, every openFile silently queues), so tell the user
         // rather than leave a blank editor that swallows clicks.
@@ -945,6 +985,11 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   // so applied markers render even if the push was missed.
   const openReviewFile = (session: ClientSession, file: ReviewFile, line: number): void => {
     if (selectedSession() !== session) {
+      return;
+    }
+    if (!file.currentExists) {
+      reviews.setCursor(session, { path: file.path, line });
+      showUnifiedReview(session);
       return;
     }
     reviews.enterFile(session, { path: file.path, line });
@@ -1123,7 +1168,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     return file === undefined ||
       diff === null ||
       diff === undefined ||
-      diff.baseline === diff.current
+      (diff.baseline === diff.current && diff.baselineExists === diff.currentExists)
       ? null
       : file.summary();
   };
@@ -1271,7 +1316,10 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   const renderTurnDiff = (session: ClientSession, message: ReviewFileDiff): void => {
     const state = reviews.board(session);
     const files = state.files.map((file) => file.summary());
-    if (message.acceptedBaseline === message.current) {
+    if (
+      message.acceptedBaseline === message.current &&
+      message.acceptedBaselineExists === message.currentExists
+    ) {
       inlineDiff?.clear(session, message.path);
       commentProse?.refresh();
       const active = activePathFor(session);
@@ -1425,7 +1473,6 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       if (change.kind !== "deleted") {
         continue;
       }
-      reviews.removeFile(session, change.path);
       const entry = openTabsFor(session).find((tab) => samePath(tab.path, change.path));
       if (entry === undefined) {
         continue;
@@ -1454,14 +1501,14 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       }),
       editor.on<{
         path: string;
-        line: number;
+        line: number | null;
         preview?: boolean;
         scratch?: boolean;
       }>("openFile", (message) => {
         openFileFor(
           session,
           message.path,
-          message.line,
+          message.line ?? undefined,
           message.preview === true,
           message.scratch === true,
         );
@@ -1721,11 +1768,8 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     review: {
       mode: reviews.mode,
       overview: reviews.overview,
-      openCopy: (session, path) =>
-        host === undefined
-          ? Promise.reject(new Error("the editor is still loading"))
-          : host.openReviewCopy(session, path),
-      releaseCopies: () => host?.releaseReviewCopies(),
+      createCopyScope: () =>
+        host?.createReviewCopyScope() ?? createDeferredReviewCopyScope(editorHostReady),
       toggleMode: (session) => {
         if (selectedSession() !== session) {
           return false;
@@ -1739,9 +1783,13 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         }
         const cursor = state.cursor;
         const cursorView = state.files.find(
-          (candidate) => cursor !== null && samePath(candidate.summary().path, cursor.path),
+          (candidate) =>
+            candidate.summary().currentExists &&
+            cursor !== null &&
+            samePath(candidate.summary().path, cursor.path),
         );
-        const view = cursorView ?? state.files[0];
+        const view =
+          cursorView ?? state.files.find((candidate) => candidate.summary().currentExists);
         if (view === undefined) {
           return false;
         }

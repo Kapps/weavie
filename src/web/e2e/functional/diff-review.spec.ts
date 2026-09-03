@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { clickIntoEditor, openFile, runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
-import { navChord } from "../harness/navigator";
+import { navChord, walkToChangedFile } from "../harness/navigator";
 import { appliedEdit } from "../harness/review";
 
 // The POST-TURN review surface (applied changes), keep/revert/undo/redo, the parked navigator, and the
@@ -39,6 +39,7 @@ const KEEP = ".weavie-inline-pending-keep"; // the inline ✓ keep beside a brig
 const REVERT = ".weavie-inline-pending-revert"; // the inline ✕ revert beside a bright pending hunk
 const HIST_UNDO = ".weavie-inline-hist"; // the toolbar's ↶ Undo (first) / ↷ Redo history buttons
 const TOOLBAR = ".weavie-inline-toolbar";
+const KEEP_BTN = ".weavie-inline-toolbar .weavie-inline-accept"; // the toolbar's scope-driven Keep
 
 const decorationCount = (
   page: import("@playwright/test").Page,
@@ -366,6 +367,89 @@ test.describe("applied review — Shift+Enter never types into the file (regress
   });
 });
 
+test.describe("applied review — typing never tears the diff down (regression)", () => {
+  // long.ts is 160 seeded lines with hunks at 2/40/80/120 — long enough that the removed-line ghost zones
+  // hold real height above the caret, so losing them shows up as the document visibly moving.
+  test.use({ fakeScript: { steps: [...appliedEdit("long.ts", fourHunks())] } });
+
+  // The bug: a recompute repainted a bare "Updating diff…" bar — dropping every decoration, every removed-line
+  // ghost zone and the whole toolbar — and it fired on each keystroke AND on each 250ms autosave's re-pushed
+  // diff. With the zones gone the lines below them slide up, and the next render drops them back, so the text
+  // jumped under the caret several times a second.
+  test("edits keep the highlights and toolbar up, and never move the text under the caret", async ({
+    page,
+  }) => {
+    await openFile(page, "long.ts");
+    await expect(page.locator(SCOPE)).toBeVisible({ timeout: 15_000 });
+    await expect.poll(() => decorationCount(page, "weavie-inline-added")).toBe(4);
+
+    // Sit below the last hunk with room to spare, caret on line 140 (untouched by the agent). Line 125 is
+    // then the anchor: below all four ghost zones, above the edit, and clear of the viewport edges so no
+    // caret reveal can move it. Only losing a ghost zone can.
+    await page.evaluate(() => {
+      const editor = window.__WEAVIE_EDITOR__;
+      const lineHeight = editor?.getOption(window.__WEAVIE_MONACO__.editor.EditorOption.lineHeight);
+      if (editor === undefined || lineHeight === undefined) {
+        throw new Error("editor not ready");
+      }
+      editor.focus();
+      // setScrollTop, not revealLine — a reveal animates, and the probe below must start from a settled view.
+      editor.setScrollTop(100 * lineHeight);
+      editor.setPosition({ lineNumber: 140, column: 1 });
+    });
+
+    // Sample every frame. delay 150 > the 120ms recompute debounce, so each keystroke matures its own full
+    // recompute rather than one at the end, and the 250ms autosave re-pushes land in between.
+    await page.evaluate(() => {
+      const editor = window.__WEAVIE_EDITOR__;
+      // The anchor's offset in DOCUMENT space (viewport top + scroll), so ordinary scrolling cancels out and
+      // only a change in the zone heights ABOVE line 125 — i.e. the ghosts vanishing — can move it.
+      const anchorTop = (): number =>
+        (editor?.getScrolledVisiblePosition({ lineNumber: 125, column: 1 })?.top ?? Number.NaN) +
+        (editor?.getScrollTop() ?? 0);
+      const probe = { added: 99, toolbarMissing: 0, anchorMoved: 0, frames: 0 };
+      (window as Window & { __DIFF_PROBE__?: typeof probe }).__DIFF_PROBE__ = probe;
+      const from = anchorTop();
+      const tick = (): void => {
+        probe.frames++;
+        probe.added = Math.min(
+          probe.added,
+          (
+            editor?.getModel() as unknown as {
+              getAllDecorations(): { options: { className: string } }[];
+            }
+          )
+            ?.getAllDecorations()
+            .filter((decoration) => decoration.options.className === "weavie-inline-added")
+            .length ?? 0,
+        );
+        if (document.querySelector(".weavie-inline-scope") === null) {
+          probe.toolbarMissing++;
+        }
+        if (anchorTop() !== from) {
+          probe.anchorMoved++;
+        }
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+
+    // Line 140 is untouched by the agent, so this lands as a USER change (weavie-inline-user) below the
+    // anchor, without disturbing any pending hunk — and it's the deterministic "the recompute landed" signal.
+    await page.keyboard.type("// noted!!", { delay: 150 });
+    await expect(page.locator(".weavie-inline-user")).toHaveCount(1);
+    await expect.poll(() => decorationCount(page, "weavie-inline-added")).toBe(4);
+
+    const probe = await page.evaluate(
+      () => (window as Window & { __DIFF_PROBE__?: Record<string, number> }).__DIFF_PROBE__,
+    );
+    expect(probe?.frames, "the sampler never ran").toBeGreaterThan(10);
+    expect(probe?.added, "highlights were cleared mid-edit").toBe(4);
+    expect(probe?.toolbarMissing, "the review toolbar was replaced mid-edit").toBe(0);
+    expect(probe?.anchorMoved, "the document moved under the caret while typing").toBe(0);
+  });
+});
+
 test.describe("applied review — scope picker (keep whole file)", () => {
   test.use({ fakeScript: { steps: [...appliedEdit("hello.ts", TWO_HUNKS)] } });
 
@@ -609,6 +693,37 @@ test.describe("applied review — a new file is marked, not washed", () => {
   });
 });
 
+// A created file's whole content IS the change, so its first change is line 1. The review walk used to express
+// that as "open at line 1", which the tab store read as "no target" and answered with the tab's saved scroll —
+// landing the user wherever they last were in the file instead of on the change.
+test.describe("applied review — walking to a new file lands on its top", () => {
+  const LONG_NEW = `${Array.from({ length: 400 }, (_, i) => `export const v${i + 1} = ${i + 1};`).join("\n")}\n`;
+  test.use({
+    fakeScript: {
+      steps: [...appliedEdit("brand-new.ts", LONG_NEW), ...appliedEdit("hello.ts", TWO_HUNKS)],
+    },
+  });
+
+  test("stepping back to a created file reveals line 1, not the saved scroll", async ({ page }) => {
+    await openFile(page, "brand-new.ts");
+    await expect(page.locator(SCOPE)).toBeVisible({ timeout: 15_000 });
+
+    // Read deep into the new file, then leave it — the tab remembers this position.
+    await page.evaluate(() => {
+      window.__WEAVIE_EDITOR__?.setPosition({ lineNumber: 300, column: 1 });
+      window.__WEAVIE_EDITOR__?.revealLineInCenter(300);
+    });
+    await expect.poll(() => caretLine(page)).toBe(300);
+    await openFile(page, "hello.ts");
+    await expect(page.locator(".weavie-inline-stack-name")).toHaveText("hello.ts");
+
+    // Walk the review's file axis back onto the created file: it must open on its change (the top).
+    await walkToChangedFile(page, "brand-new.ts");
+    await expect.poll(() => caretLine(page)).toBe(1);
+    await expect.poll(() => page.evaluate(() => window.__WEAVIE_EDITOR__?.getScrollTop())).toBe(0);
+  });
+});
+
 test.describe("applied review — large files stay responsive", () => {
   const TYPING_HEARTBEAT_BUDGET_MS = 230;
   const original = Array.from({ length: 5_000 }, (_, index) => `old line ${index}`).join("\n");
@@ -693,8 +808,9 @@ test.describe("applied review — large files stay responsive", () => {
       typingPerformance.heartbeatMs,
       `5,000-line diff recomputation blocked the typing heartbeat: ${JSON.stringify(typingPerformance)}`,
     ).toBeLessThan(TYPING_HEARTBEAT_BUDGET_MS);
-    // Geometry is deliberately invalid while the newer worker request is pending. The change-scoped shortcut
-    // is consumed here and must not widen into Keep File.
+    // The hunk coordinates are a version behind while the newer worker request is pending, so Keep/Revert say
+    // so (dimmed) and the change-scoped shortcut is consumed without widening into Keep File.
+    await expect(page.locator(KEEP_BTN)).toBeDisabled();
     await page.keyboard.press("ControlOrMeta+Enter");
     await expect(page.locator(SCOPE)).toBeVisible();
     await expect.poll(() => decorationCount(page, "weavie-inline-added")).toBe(1);
@@ -718,6 +834,7 @@ test.describe("applied review — large files stay responsive", () => {
       .toBe("latest line");
 
     await focusFirstHunk(page);
+    await expect(page.locator(KEEP_BTN)).toBeEnabled(); // the recompute landed; coordinates are current again
     await page.keyboard.press("ControlOrMeta+Enter");
     await expect.poll(() => decorationCount(page, "weavie-inline-added")).toBe(0);
     await expect.poll(() => decorationCount(page, "weavie-inline-accepted")).toBe(1);

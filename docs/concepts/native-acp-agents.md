@@ -63,7 +63,9 @@ The client speaks ACP protocol version 1 over strict JSON-RPC framing. It uses c
 Advertised slash commands retain their command identity through the web and host. ACP still invokes them through
 standard `session/prompt`, but the request contains exactly one canonical text block and waits for the active turn
 instead of using steering. This prevents embedded guidance, editor resources, or images from turning a command
-such as `/compact` into model-directed prose.
+such as `/compact` into model-directed prose. A command waiting for its own turn never holds back the queue behind
+it: prompts submitted afterwards still steer the running turn. Everything still waiting is published to the
+composer as the authoritative queue, so a deferred command is visible rather than silent.
 
 Unsupported optional capabilities stay absent from the UI; they do not create another session type. Malformed
 advertised data or protocol output fails the exact agent generation visibly.

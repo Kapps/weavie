@@ -10,6 +10,7 @@ export interface ReviewFile {
   added: number;
   removed: number;
   line: number;
+  currentExists: boolean;
 }
 
 /** The three authoritative text boundaries needed by both review presentations. */
@@ -17,8 +18,11 @@ export interface ReviewFileDiff {
   path: string;
   name: string;
   acceptedBaseline: string;
+  acceptedBaselineExists: boolean;
   baseline: string;
+  baselineExists: boolean;
   current: string;
+  currentExists: boolean;
 }
 
 export interface ReviewComments {
@@ -101,7 +105,6 @@ export interface ReviewStore {
   setComments(session: ClientSession, comments: ReviewComments): SessionReviewBoard;
   setHistory(session: ClientSession, history: ReviewHistory): SessionReviewBoard;
   setFileCollapsed(session: ClientSession, path: string, collapsed: boolean): SessionReviewBoard;
-  removeFile(session: ClientSession, path: string): SessionReviewBoard;
   reset(session: ClientSession): SessionReviewBoard;
   enterUnified(session: ClientSession, cursor: ReviewCursor | null): string[];
   enterFile(session: ClientSession, cursor: ReviewCursor): void;
@@ -162,7 +165,10 @@ export function createReviewStore(): ReviewStore {
       hasPending: () =>
         state.files.some((file) => {
           const diff = file.diff();
-          return diff !== null && diff.baseline !== diff.current;
+          return (
+            diff !== null &&
+            (diff.baseline !== diff.current || diff.baselineExists !== diff.currentExists)
+          );
         }),
     });
     setContext("reviewSetActive", state.files.length > 0);
@@ -254,8 +260,11 @@ export function createReviewStore(): ReviewStore {
   const setDiff = (session: ClientSession, diff: ReviewFileDiff): SessionReviewBoard => {
     const state = board(session);
     const entry = ensureEntry(state, diff.path);
-    const pending = diff.baseline !== diff.current;
-    entry.diff = diff.acceptedBaseline === diff.current ? null : diff;
+    const pending = diff.baseline !== diff.current || diff.baselineExists !== diff.currentExists;
+    entry.diff =
+      diff.acceptedBaseline === diff.current && diff.acceptedBaselineExists === diff.currentExists
+        ? null
+        : diff;
     if (entry.pending === null || entry.pending !== pending) {
       entry.collapsed = !pending;
     }
@@ -291,15 +300,6 @@ export function createReviewStore(): ReviewStore {
     }
     return state;
   };
-
-  const removeFile = (session: ClientSession, path: string): SessionReviewBoard => {
-    const state = board(session);
-    const files = state.files
-      .map((file) => file.summary())
-      .filter((file) => !samePath(file.path, path));
-    return setFiles(session, files, state.label);
-  };
-
   const reset = (session: ClientSession): SessionReviewBoard => {
     const state = board(session);
     state.entries.clear();
@@ -367,7 +367,6 @@ export function createReviewStore(): ReviewStore {
     setComments,
     setHistory,
     setFileCollapsed,
-    removeFile,
     reset,
     enterUnified,
     enterFile,

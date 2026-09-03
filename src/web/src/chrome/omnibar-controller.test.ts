@@ -9,7 +9,12 @@ import {
 describe("focusOmnibar", () => {
   it("records the requested mode with no preload", () => {
     focusOmnibar("file");
-    expect(omnibarRequest()).toMatchObject({ mode: "file", query: "", line: 1, select: true });
+    expect(omnibarRequest()).toMatchObject({
+      mode: "file",
+      query: "",
+      line: undefined,
+      select: true,
+    });
     focusOmnibar("command");
     expect(omnibarRequest()?.mode).toBe("command");
   });

@@ -437,7 +437,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 
 	private void PublishEditorFileOpen(
 		string path,
-		int line,
+		int? line,
 		bool preview,
 		bool scratch) {
 		EditorSession next;
@@ -656,7 +656,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 	/// </summary>
 	public void OpenNewScratch() {
 		string path = Scratch.CreateNew();
-		FileOpener.Open(path, 1, preview: false, scratch: true);
+		FileOpener.Open(path, line: null, preview: false, scratch: true);
 	}
 
 	/// <summary>Reveals the exact completed agent plan in this session's editor channel.</summary>

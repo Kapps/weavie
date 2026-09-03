@@ -81,6 +81,10 @@ public sealed class McpSettingsToolsTests : IDisposable {
 		Assert.Contains("terminal.shell", keys);
 		Assert.Contains("workspace", keys);
 		Assert.Contains("claude.path", keys);
+		Assert.Contains(InferenceSettings.DefaultProvider, keys);
+		Assert.Contains(InferenceSettings.Model, keys);
+		Assert.Contains(InferenceSettings.Effort, keys);
+		Assert.Contains(InferenceSettings.FastMode, keys);
 	}
 
 	[Fact]

@@ -88,19 +88,17 @@ public sealed partial class HostCore {
 		_diffReviews[review.Worktree] = review;
 
 		var git = new GitService();
-		var seeds = new List<(string Absolute, string RefContent, string Disk, bool ExistedAtRef)>();
+		var seeds = new List<(string Absolute, GitFileSnapshot Baseline, WorktreeFileSnapshot Current)>();
 		try {
 			foreach (var change in changes) {
 				string absolute = Path.GetFullPath(Path.Combine(review.Worktree, change.Path));
-				// The file at the merge-base is the review baseline; a non-empty result means it existed there, so a
-				// revert of its last hunk truncates (an added-in-review file has an empty base ⇒ the revert deletes it).
-				string refContent = await git
-					.ShowFileAtRefAsync(review.Worktree, review.MergeBase, change.Path, ct)
+				var baseline = await git
+					.ReadFileAtRefAsync(review.Worktree, review.MergeBase, change.Path, ct)
 					.ConfigureAwait(false);
-				string disk = await ReadWorktreeAsync(absolute, ct).ConfigureAwait(false);
-				seeds.Add((absolute, refContent, disk, refContent.Length > 0));
+				var current = await ReadWorktreeAsync(absolute, ct).ConfigureAwait(false);
+				seeds.Add((absolute, baseline, current));
 			}
-		} catch (GitException ex) {
+		} catch (Exception ex) when (ex is GitException or IOException or UnauthorizedAccessException) {
 			Log($"[weavie] review '{review.Label}': diff failed: {ex.Message}");
 			Notify(session, "warn", $"Armed the review, but couldn't compute its diff: {ex.Message}");
 			return;
@@ -116,8 +114,13 @@ public sealed partial class HostCore {
 			// walk (it isn't in the ref diff, so
 			// it wouldn't be re-seeded). Snapping commits any pending turn review — see docs/specs/diff-against.md.
 			session.Changes.AcceptTurn();
-			foreach (var (absolute, refContent, disk, existed) in seeds) {
-				session.Changes.SeedRefBaseline(absolute, refContent, disk, existed);
+			foreach (var (absolute, baseline, current) in seeds) {
+				session.Changes.SeedRefBaseline(
+					absolute,
+					baseline.Content,
+					current.Content,
+					baseline.Exists,
+					current.Exists);
 			}
 
 			session.Bus.Feature("review").PublishJson("reset", ChangeMessages.TurnReset());
@@ -127,10 +130,15 @@ public sealed partial class HostCore {
 				return Task.CompletedTask;
 			}
 
-			string first = seeds[0].Absolute;
-			int line = session.Changes.GetTurn(first) is { } turn
-				? LineDiff.FirstChangedLine(turn.BaselineText, turn.CurrentText) ?? 1
-				: 1;
+			var firstSeed = seeds.FirstOrDefault(seed => seed.Current.Exists);
+			if (firstSeed == default) {
+				return Task.CompletedTask;
+			}
+
+			string first = firstSeed.Absolute;
+			int? line = session.Changes.GetTurn(first) is { } turn
+				? LineDiff.FirstChangedLine(turn.BaselineText, turn.CurrentText)
+				: null;
 			session.FileOpener.Open(first, line, preview: true, scratch: false);
 			PushReviewFileToWeb(session, first);
 			return Task.CompletedTask;
@@ -147,16 +155,13 @@ public sealed partial class HostCore {
 			? new GitService().DiffRefsAsync(review.Worktree, review.MergeBase, review.HeadRef, ct)
 			: new GitService().DiffWorktreeAsync(review.Worktree, review.MergeBase, ct);
 
-	/// <summary>Reads a worktree file's current content, treating a missing or unreadable file as empty (the current side of a diff).</summary>
-	private static async Task<string> ReadWorktreeAsync(string absolutePath, CancellationToken ct) {
-		try {
-			return File.Exists(absolutePath)
-				? await File.ReadAllTextAsync(absolutePath, ct).ConfigureAwait(false)
-				: string.Empty;
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			return string.Empty;
-		}
-	}
+	/// <summary>Reads a worktree file's current content while preserving absence as review data.</summary>
+	private static async Task<WorktreeFileSnapshot> ReadWorktreeAsync(string absolutePath, CancellationToken ct) =>
+		File.Exists(absolutePath)
+			? new WorktreeFileSnapshot(true, await File.ReadAllTextAsync(absolutePath, ct).ConfigureAwait(false))
+			: new WorktreeFileSnapshot(false, string.Empty);
+
+	private readonly record struct WorktreeFileSnapshot(bool Exists, string Content);
 
 	/// <summary>
 	/// Retracts the active review: commits the tracker's board so its seeded files leave the walk, then clears the

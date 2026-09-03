@@ -115,7 +115,6 @@ test("desktop image paste participates in preview and submit while text remains 
       sourceId: "main",
       prompt: "",
       attachments: [{ mime: "image/png", dataB64: PNG_B64 }],
-      agentProviderId: "claude",
     });
 
     await attachment.getByTitle("Remove attachment").click();

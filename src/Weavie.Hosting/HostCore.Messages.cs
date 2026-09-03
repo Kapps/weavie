@@ -295,7 +295,6 @@ public sealed partial class HostCore {
 			source?.WorktreePath ?? WorkspaceRoot,
 			message.Prompt,
 			message.Attachments,
-			message.AgentProviderId,
 			message.UserInitiated
 				? InferenceInvocationOrigin.UserInitiated
 				: InferenceInvocationOrigin.Automatic,

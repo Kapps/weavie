@@ -43,8 +43,8 @@ public sealed class AcpAgentProvider : IAgentProvider, IAgentInferenceProvider {
 
 	/// <inheritdoc/>
 	/// <remarks>
-	/// Both categories run the agent's own configured model. ACP exposes model and reasoning-level selectors but no
-	/// cost or capability semantics for their values, so Weavie reports the agent's choice instead of overriding it.
+	/// Explicit inference profile values select exact provider-advertised controls. Blank values retain the agent's
+	/// defaults because ACP does not assign portable cost or capability semantics to provider-native values.
 	/// </remarks>
 	public InferenceProviderInfo InferenceInfo { get; } = new() {
 		Categories = [InferenceModelCategory.Utility, InferenceModelCategory.Reasoning],

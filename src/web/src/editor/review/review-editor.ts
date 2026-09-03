@@ -62,12 +62,16 @@ export interface ReviewEditor {
 export function createReviewEditor(options: {
   container: HTMLElement;
   model: monaco.editor.ITextModel;
+  editable: boolean;
   diff: ReviewFileDiff;
   onHeight: () => void;
   onStatus: (status: "ready" | "timed-out" | "failed") => void;
 }): ReviewEditor {
   const { container, model } = options;
-  const editor = createEmbeddedEditor(container, model, EDITOR_OPTIONS) as CollapsingEditor;
+  const editor = createEmbeddedEditor(container, model, {
+    ...EDITOR_OPTIONS,
+    readOnly: !options.editable,
+  }) as CollapsingEditor;
   const computer = new DiffComputer();
   const decorations = editor.createDecorationsCollection([]);
   let zoneIds: string[] = [];

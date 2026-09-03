@@ -1,7 +1,7 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Locator, Page } from "@playwright/test";
-import { openFile } from "../harness/actions";
+import { openFile, runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { appliedEdit } from "../harness/review";
 import type { WeavieWindow } from "../harness/weavie-window";
@@ -293,6 +293,32 @@ test.describe("unified review mode — collapsed context", () => {
     await expect(section.locator(".view-line", { hasText: "line 100 — changed" })).toHaveCount(1);
     await expect(section.locator(".view-line", { hasText: "line 5" })).toHaveCount(0);
   });
+});
+
+test("a cold deleted file renders from its review snapshot instead of reading the missing path", async ({
+  page,
+  weavie,
+}) => {
+  await unlink(join(weavie.workspace, "notes.txt"));
+  await runCommand(page, "Diff Against HEAD");
+
+  const cue = page.locator(".editor-empty-review");
+  await expect(cue).toBeVisible({ timeout: 30_000 });
+  await cue.click();
+
+  const notes = sectionFor(page, "notes.txt");
+  await expect(notes.locator(".monaco-editor")).toBeVisible();
+  await expect(notes.locator(".weavie-inline-removed").first()).toBeVisible();
+  await expect(notes.locator(".unified-review-notice", { hasText: "Couldn't open" })).toHaveCount(
+    0,
+  );
+  await expect(notes.locator(".unified-review-file-name")).toHaveAttribute(
+    "title",
+    "Deleted file — review snapshot",
+  );
+  const mode = page.locator(".editor-review-toggle");
+  await expect(mode).toBeDisabled();
+  await expect(mode).toHaveAttribute("title", /File review unavailable.*\(/);
 });
 
 test.describe("unified review mode — large file", () => {

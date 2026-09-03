@@ -1,6 +1,5 @@
 import { createVirtualizer } from "@tanstack/solid-virtual";
 import { Check, RotateCcw } from "lucide-solid";
-import type { editor as MonacoEditor } from "monaco-editor";
 import {
   createEffect,
   createMemo,
@@ -21,6 +20,7 @@ import {
   pathTreeDirectoryKeys,
   visiblePathTreeRows,
 } from "../../files/path-tree";
+import type { ReviewCopyScope } from "../editor-host";
 import { normalizePath, repoRelativePath, samePath } from "../fs-path";
 import { ReviewFileSection } from "./ReviewFileSection";
 import { ReviewFileTree } from "./ReviewFileTree";
@@ -37,8 +37,7 @@ export function UnifiedReview(props: {
   onCursorChange: (session: ClientSession, path: string, line: number) => void;
   onFileCollapsed: (session: ClientSession, path: string, collapsed: boolean) => void;
   /** Resolve a changed file's working copy for its section editor; released when this surface unmounts. */
-  openCopy: (session: ClientSession, path: string) => Promise<MonacoEditor.ITextModel>;
-  releaseCopies: () => void;
+  createCopyScope: () => ReviewCopyScope;
 }): JSX.Element {
   let scroller: HTMLElement | undefined;
   let programmaticSelection = true;
@@ -53,7 +52,8 @@ export function UnifiedReview(props: {
   const [visibleFile, setVisibleFile] = createSignal(initialIndex());
 
   onMount(() => scroller?.focus());
-  onCleanup(() => props.releaseCopies());
+  const copies = props.createCopyScope();
+  onCleanup(() => copies.dispose());
 
   const displayPath = (path: string): string => {
     const workspace = props.session.state.lsp.current?.workspace;
@@ -259,7 +259,14 @@ export function UnifiedReview(props: {
                               displayPath={displayPath}
                               file={view}
                               index={item().index}
-                              openCopy={(path) => props.openCopy(props.session, path)}
+                              openCopy={(diff) =>
+                                copies.open(
+                                  props.session,
+                                  diff.path,
+                                  diff.current,
+                                  diff.currentExists,
+                                )
+                              }
                               measure={measure}
                               onFocus={() => {
                                 const summary = view().summary();

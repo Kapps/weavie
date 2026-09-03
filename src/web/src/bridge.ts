@@ -532,7 +532,6 @@ export function requestBranchPreview(
   backendId: string,
   prompt: string,
   attachments: readonly EncodedImageAttachment[],
-  agentProviderId: string,
   userInitiated: boolean,
   signal: AbortSignal,
 ): Promise<BranchPreviewResult> {
@@ -546,7 +545,6 @@ export function requestBranchPreview(
           sourceId: active?.connection.id === backendId ? active.address.slot : null,
           prompt,
           attachments,
-          agentProviderId,
           userInitiated,
         },
         signal,

@@ -34,7 +34,6 @@ const context = (prompt: string): BranchPreviewContext => ({
   backendId: "local",
   prompt,
   attachments: [],
-  providerId: "acp",
 });
 
 const imageContext = (dataB64: string): BranchPreviewContext => ({
@@ -137,85 +136,6 @@ describe("NewSessionBranchPreview", () => {
     calls[0]!.result.resolve(named("bug/webm-fails-to-load"));
     await Promise.resolve();
     expect(state?.branch).toBe("bug/webm-fails-to-load");
-  });
-
-  it("keeps an in-flight suggestion when the agent changes", async () => {
-    vi.useFakeTimers();
-    const calls: Array<{
-      context: BranchPreviewContext;
-      result: Deferred<BranchPreviewResult>;
-      signal: AbortSignal;
-    }> = [];
-    let state: BranchPreviewState | undefined;
-    const preview = new NewSessionBranchPreview(
-      (request, _userInitiated, signal) => {
-        const result = deferred<BranchPreviewResult>();
-        calls.push({ context: request, result, signal });
-        return result.promise;
-      },
-      (next) => {
-        state = next;
-      },
-    );
-
-    preview.update(context(DRAFT));
-    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS);
-    preview.update({ ...context(DRAFT), providerId: "claude" });
-
-    expect(calls).toHaveLength(1);
-    expect(calls[0]!.context.providerId).toBe("acp");
-    expect(calls[0]!.signal.aborted).toBe(false);
-
-    calls[0]!.result.resolve(named("bug/from-acp"));
-    await Promise.resolve();
-    expect(state?.branch).toBe("bug/from-acp");
-  });
-
-  it("keeps a completed suggestion when the agent changes", async () => {
-    vi.useFakeTimers();
-    const requests: BranchPreviewContext[] = [];
-    let state: BranchPreviewState | undefined;
-    const preview = new NewSessionBranchPreview(
-      async (request) => {
-        requests.push(request);
-        return named("bug/from-acp");
-      },
-      (next) => {
-        state = next;
-      },
-    );
-
-    preview.update(context(DRAFT));
-    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS);
-    preview.update({ ...context(DRAFT), providerId: "claude" });
-    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS * 2);
-
-    expect(requests).toHaveLength(1);
-    expect(state?.branch).toBe("bug/from-acp");
-  });
-
-  it("uses the changed agent when the draft needs another suggestion", async () => {
-    vi.useFakeTimers();
-    const requests: BranchPreviewContext[] = [];
-    const preview = new NewSessionBranchPreview(
-      async (request) => {
-        requests.push(request);
-        return request.prompt === VAGUE ? MORE_DETAIL : named("bug/review-pane");
-      },
-      () => {},
-    );
-
-    preview.update(context(VAGUE));
-    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS);
-    preview.update({ ...context(VAGUE), providerId: "claude" });
-    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS * 2);
-    expect(requests).toHaveLength(1);
-
-    preview.update({ ...context(VAGUE_GROWN), providerId: "claude" });
-    await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS);
-
-    expect(requests).toHaveLength(2);
-    expect(requests[1]!.providerId).toBe("claude");
   });
 
   it("keeps listening while the model says the prompt names no task yet", async () => {
@@ -500,7 +420,7 @@ describe("NewSessionBranchPreview", () => {
 
     preview.update(context(DRAFT));
     preview.edit("mine/fix-webm");
-    preview.update({ ...context(GROWN), providerId: "claude" });
+    preview.update(context(GROWN));
     await vi.advanceTimersByTimeAsync(BRANCH_PREVIEW_IDLE_MS);
     expect(calls).toEqual([]);
     expect(state).toEqual({
@@ -517,7 +437,6 @@ describe("NewSessionBranchPreview", () => {
       backendId: "local",
       prompt: GROWN,
       attachments: [],
-      providerId: "claude",
     });
     expect(state).toEqual({ branch: "automatic", error: null, manual: false, status: "ready" });
   });

@@ -9,7 +9,8 @@ export type OmnibarMode = "file" | "command" | "docSymbol" | "wsSymbol";
 const [request, setRequest] = createSignal<{
   mode: OmnibarMode;
   query: string;
-  line: number;
+  /** The 1-based line whatever file this session opens should reveal; undefined leaves the tab where it was. */
+  line: number | undefined;
   /** Whether the preloaded query is selected (replace-on-type) or left with the caret at its end. */
   select: boolean;
   nonce: number;
@@ -23,14 +24,14 @@ let nonce = 0;
 /** Asks the omnibar to open + focus in the given mode (file quick-open, command palette, or symbol search). */
 export function focusOmnibar(mode: OmnibarMode): void {
   nonce += 1;
-  setRequest({ mode, query: "", line: 1, select: true, nonce });
+  setRequest({ mode, query: "", line: undefined, select: true, nonce });
 }
 
 /**
  * Host-driven Go-to-File open for resolving an ambiguous file link: `query` preloads the input, selected so
  * typing replaces it, and `line` (the link's 1-based line) applies to whichever file this omnibar session opens.
  */
-export function focusOmnibarFileSearch(query: string, line: number): void {
+export function focusOmnibarFileSearch(query: string, line: number | undefined): void {
   nonce += 1;
   setRequest({ mode: "file", query, line, select: true, nonce });
 }
@@ -42,5 +43,5 @@ export function focusOmnibarFileSearch(query: string, line: number): void {
  */
 export function focusOmnibarPath(root: string): void {
   nonce += 1;
-  setRequest({ mode: "file", query: pathSeed(root), line: 1, select: false, nonce });
+  setRequest({ mode: "file", query: pathSeed(root), line: undefined, select: false, nonce });
 }

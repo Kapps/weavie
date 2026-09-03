@@ -290,9 +290,14 @@
   cursor: pointer;
 }
 
-.editor-review-toggle:hover,
-.editor-review-toggle[aria-pressed="true"] {
+.editor-review-toggle:not(:disabled):hover,
+.editor-review-toggle[aria-pressed="true"]:not(:disabled) {
   color: var(--accent);
+}
+
+.editor-review-toggle:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 .editor-review-toggle:focus-visible {

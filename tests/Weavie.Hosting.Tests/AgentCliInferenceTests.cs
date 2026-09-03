@@ -44,10 +44,36 @@ public sealed class AgentCliInferenceTests : IDisposable {
 		Assert.Contains("--no-session-persistence", runner.Request.Arguments);
 		Assert.DoesNotContain("--bare", runner.Request.Arguments);
 		Assert.DoesNotContain("--fallback-model", runner.Request.Arguments);
+		Assert.DoesNotContain("--settings", runner.Request.Arguments);
 		Assert.Empty(runner.Request.RemoveEnvironment);
 		Assert.Contains("fix webm", runner.Request.StandardInput, StringComparison.Ordinal);
 		Assert.Equal(_dir, runner.Request.WorkingDirectory);
 		Assert.Equal(1, runner.Calls);
+	}
+
+	[Theory]
+	[InlineData(InferenceFastMode.On, true)]
+	[InlineData(InferenceFastMode.Off, false)]
+	public async Task Claude_AppliesTheConfiguredModelEffortAndFastMode(
+		InferenceFastMode fastMode,
+		bool expectedFastMode) {
+		SetPath("claude.path", Path.Combine(_dir, "claude"));
+		var runner = new RecordingRunner((_, _) => Task.FromResult(new AgentCliProcessResult(
+			0,
+			"{\"is_error\":false,\"structured_output\":{\"branch\":\"bug/webm\"}}")));
+		var provider = Provider(runner);
+		var request = Request(InferenceModelCategory.Utility) with {
+			Profile = Profile("opus", "low", fastMode),
+		};
+
+		var result = Assert.IsType<InferenceProviderSuccess>(
+			await provider.QueryInferenceAsync(request, CancellationToken.None));
+
+		Assert.Equal("opus", result.ModelId);
+		Assert.Equal("opus", ValueAfter(runner.Request!.Arguments, "--model"));
+		Assert.Equal("low", ValueAfter(runner.Request.Arguments, "--effort"));
+		using var settings = JsonDocument.Parse(ValueAfter(runner.Request.Arguments, "--settings"));
+		Assert.Equal(expectedFastMode, settings.RootElement.GetProperty("fastMode").GetBoolean());
 	}
 
 	[Fact]
@@ -119,6 +145,7 @@ public sealed class AgentCliInferenceTests : IDisposable {
 
 	private InferenceProviderRequest Request(InferenceModelCategory category) => new() {
 		Category = category,
+		Profile = Profile(string.Empty, string.Empty, InferenceFastMode.Inherit),
 		Workspace = _dir,
 		Prompt = "Return one branch name.\n\n{\"prompt\":\"fix webm\"}",
 		Images = [],
@@ -126,6 +153,15 @@ public sealed class AgentCliInferenceTests : IDisposable {
 			+ "\"required\":[\"branch\"],\"additionalProperties\":false}",
 		MaxOutputBytes = 4096,
 	};
+
+	private static InferenceProviderProfile Profile(
+		string model,
+		string effort,
+		InferenceFastMode fastMode) => new() {
+			Model = model,
+			Effort = effort,
+			FastMode = fastMode,
+		};
 
 	private InferenceProviderRequest RequestWithImage(InferenceModelCategory category) {
 		var request = Request(category);

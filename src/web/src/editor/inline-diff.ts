@@ -128,6 +128,8 @@ export interface InlineDiff extends InlineDiffActions {
   setByUri(uri: string, options: InlineDiffOptions): void;
   /** Remove the diff registered by an exact model URI string (the review-model counterpart of clear). */
   clearByUri(uri: string): void;
+  /** Reconcile the applied-review paths for one exact owner without disturbing retained paint. */
+  retainApplied(session: ClientSession, paths: readonly string[]): void;
   /** Remove every registered diff. */
   clearAll(): void;
   /** Whether a diff is registered for an exact model URI string (so other features can suspend over it). */
@@ -187,6 +189,7 @@ function fileIsKept(options: InlineDiffOptions): boolean {
 /** Creates an inline-diff controller bound to `editor`. */
 export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): InlineDiff {
   const diffs = new Map<string, InlineDiffOptions>();
+  const appliedKeys = new Map<ClientSession, Set<string>>();
   const diffComputer = new DiffComputer();
   let decorations: monaco.editor.IEditorDecorationsCollection | undefined;
   let zoneIds: string[] = [];
@@ -270,7 +273,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     currentHunks = [];
   };
 
-  const clearRender = (): void => {
+  const clearPaint = (): void => {
     decorations?.clear();
     decorations = undefined;
     // NB: a new-comment composer is deliberately NOT closed here — a routine same-model re-render (a keep, the
@@ -291,6 +294,10 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
       observer.disconnect();
     }
     zoneObservers = [];
+  };
+
+  const clearRender = (): void => {
+    clearPaint();
     clearControls();
     renderedUri = undefined;
   };
@@ -437,11 +444,13 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     queueMicrotask(() => node.querySelector("textarea")?.focus());
   };
 
-  // Render each commented line's thread as a view zone below it (a PR file under review). Zones are tracked in zoneIds so the
-  // next render clears them.
-  const renderPrCommentZones = (
+  // Add each commented line's thread to the same zone transaction as the diff paint.
+  const addPrCommentZones = (
     model: monaco.editor.ITextModel,
     options: InlineDiffOptions,
+    accessor: monaco.editor.IViewZoneChangeAccessor,
+    nextZoneIds: string[],
+    nextZoneObservers: ResizeObserver[],
   ): void => {
     if (options.comments === undefined || options.comments.length === 0) {
       return;
@@ -452,18 +461,16 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
       group.push(comment);
       byLine.set(comment.line, group);
     }
-    editor.changeViewZones((accessor) => {
-      for (const [line, comments] of byLine) {
-        const clamped = Math.min(model.getLineCount(), Math.max(1, line));
-        const { id, observer } = addContentSizedZone(
-          accessor,
-          clamped,
-          buildCommentThread(comments, options),
-        );
-        zoneIds.push(id);
-        zoneObservers.push(observer);
-      }
-    });
+    for (const [line, comments] of byLine) {
+      const clamped = Math.min(model.getLineCount(), Math.max(1, line));
+      const { id, observer } = addContentSizedZone(
+        accessor,
+        clamped,
+        buildCommentThread(comments, options),
+      );
+      nextZoneIds.push(id);
+      nextZoneObservers.push(observer);
+    }
   };
 
   // A content widget hugging a hunk's first line, anchored EXACT at the line's end so it sits beside the code.
@@ -1239,6 +1246,37 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     renderedUri = uriString;
   };
 
+  const replacePaint = (
+    model: monaco.editor.ITextModel,
+    options: InlineDiffOptions,
+    markers: ReturnType<typeof computeDiffMarkers>,
+  ): void => {
+    if (decorations === undefined) {
+      decorations = editor.createDecorationsCollection(markers.decorations);
+    } else {
+      decorations.set(markers.decorations);
+    }
+
+    for (const observer of zoneObservers) {
+      observer.disconnect();
+    }
+    const previousZoneIds = zoneIds;
+    const nextZoneIds: string[] = [];
+    const nextZoneObservers: ResizeObserver[] = [];
+    editor.changeViewZones((accessor) => {
+      for (const id of previousZoneIds) {
+        accessor.removeZone(id);
+      }
+      nextZoneIds.push(...addDiffZones(editor, accessor, markers));
+      addPrCommentZones(model, options, accessor, nextZoneIds, nextZoneObservers);
+    });
+    if (previousZoneIds.length > 0) {
+      focusedComposers = 0;
+    }
+    zoneIds = nextZoneIds;
+    zoneObservers = nextZoneObservers;
+  };
+
   const render = async (uriString: string, generation: number): Promise<void> => {
     const model = editor.getModel();
     if (model === null || model.uri.toString() !== uriString) {
@@ -1277,7 +1315,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
       return;
     }
 
-    clearRender();
+    clearControls();
     if (options.allActionsDisabled === true && currentScope === "all") {
       currentScope = "change";
     }
@@ -1292,20 +1330,13 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     );
     // A fully-kept file has no bright (pending) hunks but still carries a faded accepted band — don't bail on it.
     if (markers.hunks.length === 0 && !hasFadedBand(options)) {
+      clearRender();
       initialProposalReveals.delete(uriString);
       return; // no net change and nothing kept — nothing to render
     }
     const { acceptedHunks, hunks } = markers;
 
-    decorations = editor.createDecorationsCollection(markers.decorations);
-    editor.changeViewZones((accessor) => {
-      zoneIds.push(...addDiffZones(editor, accessor, markers));
-    });
-
-    // Comment threads (a PR file under applied review); no-op for a plain turn file (no comments).
-    if (options.comments !== undefined) {
-      renderPrCommentZones(model, options);
-    }
+    replacePaint(model, options, markers);
 
     currentOptions = options;
     currentHunks = hunks;
@@ -1604,6 +1635,12 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     }
   };
   const clearByUri = (key: string): void => {
+    for (const [session, keys] of appliedKeys) {
+      keys.delete(key);
+      if (keys.size === 0) {
+        appliedKeys.delete(session);
+      }
+    }
     diffs.delete(key);
     initialProposalReveals.delete(key);
     diffComputer.clear(key);
@@ -1615,15 +1652,54 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
 
   return {
     set(session, path, options) {
-      setByUri(sessionFileUri(session, path).toString(), options);
+      const key = sessionFileUri(session, path).toString();
+      let keys = appliedKeys.get(session);
+      if (keys === undefined) {
+        keys = new Set<string>();
+        appliedKeys.set(session, keys);
+      }
+      keys.add(key);
+      setByUri(key, options);
     },
     clear(session, path) {
       clearByUri(sessionFileUri(session, path).toString());
     },
     setByUri,
     clearByUri,
+    retainApplied(session, paths) {
+      const keys = appliedKeys.get(session);
+      if (keys === undefined) {
+        return;
+      }
+      const retained = new Set(paths.map((path) => sessionFileUri(session, path).toString()));
+      const activeUri = editor.getModel()?.uri.toString();
+      let activeRemoved = false;
+      let changed = false;
+      for (const key of keys) {
+        if (retained.has(key)) {
+          continue;
+        }
+        keys.delete(key);
+        diffs.delete(key);
+        initialProposalReveals.delete(key);
+        diffComputer.clear(key);
+        activeRemoved ||= key === activeUri;
+        changed = true;
+      }
+      if (keys.size === 0) {
+        appliedKeys.delete(session);
+      }
+      if (!changed) {
+        return;
+      }
+      syncDiffContext();
+      if (activeRemoved) {
+        renderActive();
+      }
+    },
     clearAll() {
       diffs.clear();
+      appliedKeys.clear();
       renderGeneration++;
       renderQueued = false;
       diffComputer.dispose();

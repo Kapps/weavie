@@ -1028,6 +1028,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
 
   // Monotonic revision of the published review set.
   let reviewRev = 0;
+  let presentedReviewSession: ClientSession | null = null;
   // Reflect the review set onto the inline-diff's parked navigator: it surfaces (parked at "change 0", editor
   // untouched) whenever files are pending and none is in view, so review is visible the moment changes land —
   // stepping in (a nav key) opens the first change. Called wherever the review board changes.
@@ -1061,7 +1062,8 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     );
   };
 
-  const resetPresentedReview = (): void => {
+  const resetPresentedReview = (nextOwner: ClientSession | null): void => {
+    presentedReviewSession = nextOwner;
     inlineDiff?.clearAll();
     inlineDiff?.setReviewHistory({
       canUndo: false,
@@ -1070,6 +1072,12 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       canRedo: false,
     });
     commentProse?.refresh();
+  };
+
+  const ownPresentedReview = (session: ClientSession): void => {
+    if (presentedReviewSession !== session) {
+      resetPresentedReview(session);
+    }
   };
 
   // Step the file axis of the review walk: open the neighbour (wrapping) at its first change. Returns false
@@ -1367,6 +1375,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     if (selectedSession() !== session) {
       return;
     }
+    ownPresentedReview(session);
     const state = reviews.board(session);
     const proposal = reviewProposals.get(session) ?? null;
     if (
@@ -1375,18 +1384,21 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     ) {
       clearPresentedProposal();
     }
-    resetPresentedReview();
     updateParkedReview(session);
     inlineDiff?.setReviewHistory(state.history);
+    const retained: string[] = [];
     for (const file of state.files) {
       const diff = file.diff();
       if (diff !== null) {
+        retained.push(diff.path);
         renderTurnDiff(session, diff);
       }
     }
     if (proposal !== null) {
       presentProposal(session, proposal);
     }
+    inlineDiff?.retainApplied(session, retained);
+    commentProse?.refresh();
   };
 
   const setReviewFilesFor = (session: ClientSession, files: ReviewFile[], label: string): void => {
@@ -1413,6 +1425,9 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   };
 
   const resetReviewFor = (session: ClientSession): void => {
+    if (selectedSession() === session) {
+      resetPresentedReview(session);
+    }
     reviews.reset(session);
     reviewProposals.delete(session);
     renderReviewState(session);
@@ -1587,12 +1602,13 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     reviews.select(session);
     if (session === null) {
       clearPresentedProposal();
-      resetPresentedReview();
+      resetPresentedReview(null);
       updateParkedReview(null);
       host?.clear();
       deps.onCurrentFileChanged(null);
       return;
     }
+    ownPresentedReview(session);
     void rebindSession(session).catch((error: unknown) => {
       log("error", `editor session rebind failed: ${String(error)}`);
       deps.onOpenError(`Couldn't switch editor sessions: ${String(error)}`);

@@ -83,6 +83,11 @@ export function reviewCommandBindings(
       (_args, { session }) => selected(session) && editor.review.toggleMode(session),
     ],
     [
+      CommandIds.reviewToggleFile,
+      (args, { session }) =>
+        selected(session) && editor.review.toggleFileCollapsed(session, pathArg(args)),
+    ],
+    [
       CommandIds.reviewNextFile,
       (_args, { session }) => selected(session) && editor.inline.nextFile(),
     ],

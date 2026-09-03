@@ -53,6 +53,7 @@ describe("review store", () => {
       expect(store.overview().files[0]).toBe(firstView);
       expect(store.overview().files[1]).toBe(secondView);
       expect(firstView.diff()?.current).toBe("after");
+      expect(firstView.collapsed()).toBe(false);
       expect(secondView.diff()).toBeNull();
       expect(store.overview().fullyLoaded()).toBe(false);
       expect(store.overview().hasPending()).toBe(true);
@@ -61,6 +62,64 @@ describe("review store", () => {
 
       expect(store.overview().fullyLoaded()).toBe(true);
       expect(store.overview().hasPending()).toBe(true);
+      dispose();
+    });
+  });
+
+  it("preserves manual folds and follows authoritative keep transitions", () => {
+    createRoot((dispose) => {
+      const store = createReviewStore();
+      const client = session();
+      store.setFiles(client, [firstFile], "turn");
+      store.setDiff(client, diff(firstFile));
+      const view = store.board(client).files[0]!;
+
+      store.setFileCollapsed(client, firstFile.path, true);
+      store.setDiff(client, diff(firstFile, "before", "another pending version"));
+      expect(view.collapsed()).toBe(true);
+
+      store.setFileCollapsed(client, firstFile.path, false);
+      store.setDiff(client, {
+        ...diff(firstFile),
+        acceptedBaseline: "before",
+        baseline: "kept",
+        current: "kept",
+      });
+      expect(view.collapsed()).toBe(true);
+
+      store.setDiff(client, {
+        ...diff(firstFile),
+        acceptedBaseline: "before",
+        baseline: "kept",
+        current: "pending again",
+      });
+      expect(view.collapsed()).toBe(false);
+      dispose();
+    });
+  });
+
+  it("starts a file whose only diff is kept in its collapsed state", () => {
+    createRoot((dispose) => {
+      const store = createReviewStore();
+      const client = session();
+      store.setDiff(client, {
+        ...diff(firstFile),
+        acceptedBaseline: "before",
+        baseline: "kept",
+        current: "kept",
+      });
+      store.setFiles(client, [firstFile], "turn");
+
+      expect(store.board(client).files[0]?.collapsed()).toBe(true);
+
+      store.setFileCollapsed(client, firstFile.path, false);
+      store.setDiff(client, {
+        ...diff(firstFile),
+        acceptedBaseline: "before",
+        baseline: "kept",
+        current: "kept",
+      });
+      expect(store.board(client).files[0]?.collapsed()).toBe(false);
       dispose();
     });
   });
@@ -111,6 +170,9 @@ describe("review store", () => {
       const right = session();
       store.setFiles(left, [firstFile], "left");
       store.setFiles(right, [secondFile], "right");
+      store.setDiff(left, diff(firstFile));
+      store.setDiff(right, diff(secondFile));
+      store.setFileCollapsed(left, firstFile.path, true);
       store.enterUnified(left, { path: firstFile.path, line: 12 });
       store.enterUnified(right, { path: secondFile.path, line: 19 });
 
@@ -119,15 +181,18 @@ describe("review store", () => {
       expect(store.count()).toBe(1);
       expect(store.overview().label).toBe("left");
       expect(store.overview().cursor).toEqual({ path: firstFile.path, line: 12 });
+      expect(store.overview().files[0]?.collapsed()).toBe(true);
 
       store.select(right);
       expect(store.mode()).toBe("unified");
       expect(store.overview().files.map((file) => file.summary().path)).toEqual([secondFile.path]);
       expect(store.overview().cursor).toEqual({ path: secondFile.path, line: 19 });
+      expect(store.overview().files[0]?.collapsed()).toBe(false);
 
       store.select(left);
       expect(store.board(left).cursor).toEqual({ path: firstFile.path, line: 12 });
       expect(store.overview().files[0]?.summary().path).toBe(firstFile.path);
+      expect(store.overview().files[0]?.collapsed()).toBe(true);
       dispose();
     });
   });

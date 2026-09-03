@@ -17,6 +17,13 @@ import { CommandIds, type CommandInfo } from "../commands/types";
 import { canonicalFsPath, samePath } from "../editor/fs-path";
 import type { DirEntry } from "../files/FileBrowser";
 import {
+  buildPathTree,
+  type PathTreeNode,
+  type PathTreeRow,
+  pathAncestorKeys,
+  visiblePathTreeRows,
+} from "../files/path-tree";
+import {
   listSelectedDirectory,
   selectedDirectoryListings,
   selectedFileIndex,
@@ -31,7 +38,7 @@ import {
   type ScoredFile,
   splitPath,
 } from "./file-search";
-import { OmnibarResults, type ScoredCommand, type TreeNode, type TreeRow } from "./OmnibarResults";
+import { OmnibarResults, type ScoredCommand } from "./OmnibarResults";
 import { type OmnibarMode, omnibarRequest } from "./omnibar-controller";
 import { parsePathQuery, pathSeed, separatorFor } from "./path-query";
 import { recentFiles } from "./recent-files-store";
@@ -55,59 +62,6 @@ const FOCUS_COMMAND_MODE: Record<string, OmnibarMode> = {
   [CommandIds.goToSymbol]: "docSymbol",
   [CommandIds.goToWorkspaceSymbol]: "wsSymbol",
 };
-
-// Build a sorted tree (dirs first, then files, alpha) from the rows' relative paths, in one O(n) pass.
-function buildTree(rows: FileRow[]): TreeNode[] {
-  const root: TreeNode = { name: "", key: "", isDir: true, children: [] };
-  const dirs = new Map<string, TreeNode>([["", root]]);
-  for (const row of rows) {
-    const segs = row.rel.split("/");
-    let parent = root;
-    let prefix = "";
-    for (let i = 0; i < segs.length; i++) {
-      const seg = segs[i] ?? "";
-      const key = prefix === "" ? seg : `${prefix}/${seg}`;
-      if (i === segs.length - 1) {
-        parent.children?.push({ name: seg, key, isDir: false, abs: row.abs });
-      } else {
-        let dir = dirs.get(key);
-        if (dir === undefined) {
-          dir = { name: seg, key, isDir: true, children: [] };
-          dirs.set(key, dir);
-          parent.children?.push(dir);
-        }
-        parent = dir;
-      }
-      prefix = key;
-    }
-  }
-  sortChildren(root);
-  return root.children ?? [];
-}
-
-function sortChildren(node: TreeNode): void {
-  if (node.children === undefined) {
-    return;
-  }
-  node.children.sort((a, b) =>
-    a.isDir !== b.isDir ? (a.isDir ? -1 : 1) : a.name.localeCompare(b.name),
-  );
-  for (const child of node.children) {
-    sortChildren(child);
-  }
-}
-
-// The expansion keys for every ancestor directory of a relative path (excludes the file leaf itself).
-function ancestorKeys(rel: string): string[] {
-  const segs = rel.split("/");
-  const keys: string[] = [];
-  let prefix = "";
-  for (let i = 0; i < segs.length - 1; i++) {
-    prefix = prefix === "" ? (segs[i] ?? "") : `${prefix}/${segs[i]}`;
-    keys.push(prefix);
-  }
-  return keys;
-}
 
 // The center omnibar quick-open: file tree when the query is empty, fuzzy-ranked flat list when typing, and a
 // command palette when the query leads with ">". Focusing it asks the host for the file index.
@@ -233,26 +187,14 @@ export function Omnibar(props: {
   const symbolView = createMemo(() => symbolSearch.view().slice(0, VIEW_CAP));
 
   // The visible tree rows: a depth-first walk emitting a row only when all its ancestors are expanded.
-  const treeNodes = createMemo<TreeNode[]>(() => buildTree(rows()));
-  const visibleRows = createMemo<TreeRow[]>(() => {
+  const treeNodes = createMemo<PathTreeNode<string>[]>(() =>
+    buildPathTree(rows().map((row) => ({ path: row.rel, value: row.abs }))),
+  );
+  const visibleRows = createMemo<PathTreeRow<string>[]>(() => {
     if (!treeMode()) {
       return [];
     }
-    const exp = expanded();
-    const out: TreeRow[] = [];
-    const walk = (nodes: TreeNode[], depth: number): void => {
-      for (const node of nodes) {
-        out.push({ node, depth });
-        if (node.isDir && exp.has(node.key) && node.children !== undefined) {
-          walk(node.children, depth + 1);
-        }
-        if (out.length >= VIEW_CAP) {
-          return;
-        }
-      }
-    };
-    walk(treeNodes(), 0);
-    return out.slice(0, VIEW_CAP);
+    return visiblePathTreeRows(treeNodes(), expanded(), VIEW_CAP);
   });
 
   // The palette: visible commands whose `when` passes, fuzzy-ranked (with positions) over the text after ">".
@@ -315,7 +257,7 @@ export function Omnibar(props: {
     if (cf !== null) {
       const row = rows().find((r) => samePath(r.abs, cf));
       if (row !== undefined) {
-        setExpanded(new Set(ancestorKeys(row.rel)));
+        setExpanded(new Set(pathAncestorKeys(row.rel)));
       } else {
         revealed = false;
       }
@@ -323,7 +265,7 @@ export function Omnibar(props: {
     queueMicrotask(() => {
       const idx =
         cf !== null
-          ? visibleRows().findIndex((r) => r.node.abs !== undefined && samePath(r.node.abs, cf))
+          ? visibleRows().findIndex((r) => r.node.kind === "file" && samePath(r.node.value, cf))
           : -1;
       setSelected(idx >= 0 ? idx : 0);
       scrollToSelected("center");
@@ -510,7 +452,7 @@ export function Omnibar(props: {
       return;
     }
     if (dir === 1) {
-      if (cur.node.isDir && !expanded().has(cur.node.key)) {
+      if (cur.node.kind === "directory" && !expanded().has(cur.node.key)) {
         toggleDir(cur.node.key);
         return;
       }
@@ -523,7 +465,7 @@ export function Omnibar(props: {
       }
       setSelected(rowsV.length - 1);
     } else {
-      if (cur.node.isDir && expanded().has(cur.node.key)) {
+      if (cur.node.kind === "directory" && expanded().has(cur.node.key)) {
         toggleDir(cur.node.key);
         return;
       }
@@ -583,10 +525,10 @@ export function Omnibar(props: {
       if (r === undefined) {
         return;
       }
-      if (r.node.isDir) {
+      if (r.node.kind === "directory") {
         toggleDir(r.node.key);
       } else {
-        openFile(r.node.abs);
+        openFile(r.node.value);
       }
     } else {
       openFile(view()[selected()]?.row.abs);

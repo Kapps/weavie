@@ -1,4 +1,4 @@
-import { readFile, unlink } from "node:fs/promises";
+import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Locator, Page } from "@playwright/test";
 import { openFile, runCommand } from "../harness/actions";
@@ -58,8 +58,12 @@ test.describe("unified review mode", () => {
 
     const overview = page.locator(".unified-review");
     await expect(overview).toBeVisible();
-    await expect(overview.locator(".unified-review-heading")).toContainText("2 files changed");
-    await expect(overview.locator(".unified-review-file-link")).toHaveCount(2);
+    await expect(overview.locator(".unified-review-files-header")).toContainText("2 changed files");
+    await expect(overview.locator(".unified-review-tree-row.directory")).toHaveCount(0);
+    await expect(overview.locator(".unified-review-tree-row.file")).toHaveCount(2);
+    await expect(
+      overview.locator(".unified-review-tree-row.file", { hasText: "notes.txt" }),
+    ).toContainText(/\+\d+.*−\d+/);
     await expect(overview.locator(".unified-review-file")).toHaveCount(2);
 
     // The change is marked up in the editor itself (added band + removed ghost), not as hand-rolled rows.
@@ -72,16 +76,33 @@ test.describe("unified review mode", () => {
     // …and it is tokenized: several distinct token classes, not one flat default run.
     await expect.poll(() => distinctTokenClasses(hello), { timeout: 15_000 }).toBeGreaterThan(2);
 
+    const notes = sectionFor(page, "notes.txt");
+    const notesDisclosure = notes.locator(".unified-review-file-toggle");
+    await expect(notesDisclosure).toHaveAttribute("title", /Collapse notes\.txt.*Alt\+\[/);
+    await notesDisclosure.focus();
+    await page.keyboard.press("Alt+[");
+    await expect(notesDisclosure).toHaveAttribute("aria-expanded", "false");
+    await expect(hello.locator(".monaco-editor")).toBeVisible();
+    await notesDisclosure.click();
+
+    const disclosure = hello.locator(".unified-review-file-toggle");
+    await disclosure.click();
+    await expect(disclosure).toHaveAttribute("aria-expanded", "false");
+    await expect(hello.locator(".monaco-editor")).toHaveCount(0);
+    await disclosure.click();
+    await expect(hello.locator(".monaco-editor")).toBeVisible();
+
     await hello.locator(".unified-review-file-name").click();
     await expect(overview).toHaveCount(0);
     await expect(page.locator(".editor-tab", { hasText: "hello.ts" })).toBeVisible();
     await expect(page.locator(".weavie-inline-toolbar")).toBeVisible({ timeout: 15_000 });
 
     const mode = page.locator(".editor-review-toggle");
-    await expect(mode).toHaveText("All changes");
+    await expect(mode).toContainText("Unified review");
+    await expect(mode).toHaveAttribute("title", /Switch to unified review.*\(/);
     await mode.click();
     await expect(overview).toBeVisible();
-    await expect(mode).toHaveText("File review");
+    await expect(mode).toContainText("File review");
 
     await openFile(page, "README.md");
     await expect(overview).toHaveCount(0);
@@ -90,6 +111,7 @@ test.describe("unified review mode", () => {
 
   test("a file-level keep leaves the change in the faded reviewed band", async ({ page }) => {
     await page.locator(".editor-empty-review").click();
+    const overview = page.locator(".unified-review");
     const notes = sectionFor(page, "notes.txt");
     await expect(notes.locator(".unified-review-file-action.keep")).toBeVisible({
       timeout: 15_000,
@@ -100,8 +122,20 @@ test.describe("unified review mode", () => {
     await expect(notes.locator(".unified-review-status")).toHaveText("Reviewed", {
       timeout: 15_000,
     });
-    await expect(notes.locator(".weavie-inline-accepted").first()).toBeVisible();
+    await expect(notes.locator(".unified-review-file-toggle")).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+    await expect(notes.locator(".monaco-editor")).toHaveCount(0);
     await expect(notes.locator(".unified-review-file-action.keep")).toHaveCount(0);
+
+    await overview.locator(".unified-review-diffs").evaluate((element) => element.scrollTo(0, 0));
+    await overview.locator(".unified-review-tree-row.file", { hasText: "notes.txt" }).click();
+    await expect(notes.locator(".unified-review-file-toggle")).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    await expect(notes.locator(".weavie-inline-accepted").first()).toBeVisible();
 
     // The push that lands the keep must not throw away the measured section heights: doing so re-spaces every
     // row below on its estimate and opens dead space that never heals.
@@ -185,6 +219,57 @@ test.describe("unified review mode", () => {
   });
 });
 
+test.describe("unified review mode — file tree", () => {
+  test.use({
+    fakeScript: {
+      steps: [
+        { op: "waitFile", path: "{{WORKSPACE}}/.nested-ready" },
+        ...appliedEdit("src/hello.ts", HELLO),
+        ...appliedEdit("docs/notes.txt", "nested note\n"),
+      ],
+    },
+  });
+
+  test("groups nested files with diff sizes and collapsible folders", async ({ page, weavie }) => {
+    await mkdir(join(weavie.workspace, "src"));
+    await mkdir(join(weavie.workspace, "docs"));
+    await writeFile(join(weavie.workspace, ".nested-ready"), "ready\n");
+    await page.locator(".editor-empty-review").click();
+
+    const overview = page.locator(".unified-review");
+    await expect(overview.locator(".unified-review-tree-row.directory")).toHaveCount(2);
+    await expect(overview.locator(".unified-review-tree-row.file")).toHaveCount(2);
+    await expect(
+      overview.locator(".unified-review-tree-row.file", { hasText: "notes.txt" }),
+    ).toContainText(/\+\d+.*−\d+/);
+
+    const docsFolder = overview.locator(".unified-review-tree-row.directory", {
+      hasText: "docs",
+    });
+    const docsFile = overview.locator(".unified-review-tree-row.file", { hasText: "notes.txt" });
+    const srcFolder = overview.locator(".unified-review-tree-row.directory", { hasText: "src" });
+    const srcFile = overview.locator(".unified-review-tree-row.file", { hasText: "hello.ts" });
+    await docsFolder.focus();
+    await page.keyboard.press("ArrowRight");
+    await expect(docsFile).toBeFocused();
+    await page.keyboard.press("ArrowLeft");
+    await expect(docsFolder).toBeFocused();
+    await page.keyboard.press("ArrowLeft");
+    await expect(docsFolder).toHaveAttribute("aria-expanded", "false");
+    await expect(docsFile).toHaveCount(0);
+    await page.keyboard.press("ArrowDown");
+    await expect(srcFolder).toBeFocused();
+    await page.keyboard.press("ArrowRight");
+    await expect(srcFile).toBeFocused();
+    await page.keyboard.press("Home");
+    await expect(docsFolder).toBeFocused();
+    await page.keyboard.press("ArrowRight");
+    await expect(docsFolder).toHaveAttribute("aria-expanded", "true");
+    await page.keyboard.press("End");
+    await expect(srcFile).toBeFocused();
+  });
+});
+
 test.describe("unified review mode — collapsed context", () => {
   const untouched = Array.from({ length: 200 }, (_, index) => `line ${index}`).join("\n");
   const changed = untouched.replace("line 100", "line 100 — changed by the agent");
@@ -231,6 +316,9 @@ test("a cold deleted file renders from its review snapshot instead of reading th
     "title",
     "Deleted file — review snapshot",
   );
+  const mode = page.locator(".editor-review-toggle");
+  await expect(mode).toBeDisabled();
+  await expect(mode).toHaveAttribute("title", /File review unavailable.*\(/);
 });
 
 test.describe("unified review mode — large file", () => {
@@ -257,22 +345,33 @@ test.describe("unified review mode — large file", () => {
 
 test.describe("unified review mode — large file set", () => {
   const fileCount = 100;
+  const readyFile = ".large-review-ready";
   test.use({
     fakeScript: {
-      steps: Array.from({ length: fileCount }, (_, index) =>
-        appliedEdit(`review-${String(index).padStart(3, "0")}.txt`, `change ${index}\n`),
-      ).flat(),
+      steps: [
+        ...Array.from({ length: fileCount }, (_, index) =>
+          appliedEdit(`review-${String(index).padStart(3, "0")}.txt`, `change ${index}\n`),
+        ).flat(),
+        { op: "edit", path: `{{WORKSPACE}}/${readyFile}`, content: "ready\n" },
+      ],
     },
   });
 
   test("restores the exact file across a reverse mode toggle without mounting every editor", async ({
     page,
+    weavie,
   }) => {
+    test.slow();
+    await expect
+      .poll(() => readFile(join(weavie.workspace, readyFile), "utf8").catch(() => ""), {
+        timeout: 60_000,
+      })
+      .toBe("ready\n");
     await page.locator(".editor-empty-review").click();
     const overview = page.locator(".unified-review");
     const targetName = "review-099.txt";
-    const targetLink = overview.locator(".unified-review-file-link", { hasText: targetName });
-    await expect(overview.locator(".unified-review-file-link")).toHaveCount(fileCount);
+    const targetLink = overview.locator(".unified-review-tree-row.file", { hasText: targetName });
+    await expect(overview.locator(".unified-review-tree-row.file")).toHaveCount(fileCount);
 
     await targetLink.click();
     const targetSection = sectionFor(page, targetName);
@@ -290,10 +389,9 @@ test.describe("unified review mode — large file set", () => {
 
     await page.locator(".editor-review-toggle").click();
     await expect(overview).toBeVisible();
-    await expect(targetLink).toHaveClass(/active/);
     await expect(targetSection).toBeVisible();
 
-    await overview.locator(".unified-review-action.mode").click();
+    await page.locator(".editor-review-toggle").click();
     await expect(page.locator(".editor-tab.active", { hasText: targetName })).toBeVisible();
   });
 });

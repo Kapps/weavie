@@ -278,6 +278,9 @@
 
 .editor-review-toggle {
   flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
   padding: 0 0.7em;
   border: 0;
   border-left: 1px solid var(--border);
@@ -287,9 +290,14 @@
   cursor: pointer;
 }
 
-.editor-review-toggle:hover,
-.editor-review-toggle[aria-pressed="true"] {
+.editor-review-toggle:not(:disabled):hover,
+.editor-review-toggle[aria-pressed="true"]:not(:disabled) {
   color: var(--accent);
+}
+
+.editor-review-toggle:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 .editor-review-toggle:focus-visible {

@@ -10,19 +10,22 @@ editor, change-by-change and file-by-file. Doing nothing keeps the change — it
 
 The two review modes are projections over one Core-owned review board:
 
-- **Unified review** is a GitHub-style page with aggregate additions/deletions, the complete file list,
-  and every file's diff. Each existing file section is a **real editor on that file's live working copy**, with
-  the unchanged regions collapsed into hidden areas — so a scan carries the same syntax and semantic
-  highlighting, LSP hovers/diagnostics/go-to-definition, completions and editing the file pane does. A deleted
-  current-side file uses a read-only Monaco snapshot from the Core-owned review text because no working copy
-  exists. It is optimized for breadth and file-level decisions.
+- **Unified review** is a GitHub-style page with a full-width changed-file tree first, showing aggregate and
+  per-path additions/deletions, followed by every file's diff. Each file section is collapsible and is a
+  **real editor on that file's live working copy** while expanded, with unchanged regions collapsed into hidden
+  areas — so a scan carries the same syntax and semantic highlighting, LSP
+  hovers/diagnostics/go-to-definition, completions and editing the file pane does. It is optimized for breadth
+  and file-level decisions. Keeping a file collapses its section after Core confirms the new baseline; undoing
+  the keep expands it again. The section disclosure advertises the rebindable `alt+[` fold command, and the
+  file tree supports standard arrow-key navigation. A deleted current-side file uses a read-only Monaco
+  snapshot from the Core-owned review text because no working copy exists.
 - **File review** is the hovering inline-diff toolbar over the live editor. It is optimized for depth: hunk
   navigation, comments, and line-level Keep/Revert.
 
-`weavie.review.toggleMode` (`$mod+Shift+u` by default) moves between them without creating a second
-review state. Entering unified mode requests any diffs not yet streamed by a PR/ref review; host
-re-emissions update both views. This builds directly on the hook-driven change tracker and the inline
-diff renderer that already exist. See
+The persistent editor-tab-strip button and `weavie.review.toggleMode` (`$mod+Shift+u` by default) move
+between them without creating a second review state. Entering unified mode requests any diffs not yet
+streamed by a PR/ref review; host re-emissions update both views. This builds directly on the hook-driven
+change tracker and the inline diff renderer that already exist. See
 [permission-modes-and-change-tracking.md](permission-modes-and-change-tracking.md) and
 [../concepts/hook-bridge.md](../concepts/hook-bridge.md) for the machinery this sits on.
 
@@ -328,6 +331,7 @@ visibility, so the commands stay runnable from the palette regardless of focus.
 | `weavie.review.prevFile` | `ctrl+$mod+Left` | previous file in the review set |
 | `weavie.review.open` | _(palette-only)_ | open the unified overview; `path` + `line` opens file review |
 | `weavie.review.toggleMode` | `$mod+Shift+u` | switch between unified and file review |
+| `weavie.review.toggleFile` | `alt+[` | expand/collapse the current unified-review file |
 
 Navigation rides `ctrl+$mod`: plain Ctrl+arrows on Win/Linux, ⌃⌘+arrows on Mac — so ⌘+arrows keep their
 macOS line/document meaning even mid-review. On Win/Linux `Ctrl+Left/Right` override Monaco's
@@ -434,10 +438,12 @@ The session-changes "show changes" panel and the post-turn review panel (both fl
 - **Reverting a created file deletes it**, and the file may be open in a review tab. The delete goes out
   as an `fs-change` removal; the editor must close that tab cleanly (no "Unable to read file" toast) and
   the walk auto-advances.
-- **Large reviews.** The unified page virtualizes file sections with the same virtualizer as the agent
-  transcript, so only the sections on screen hold a live editor — a 100-file review never means 100 Monaco
-  instances. Collapsing the unchanged regions keeps each section proportional to what actually changed. It
-  has no line-count cutoff: a 4,000-line file renders normally when the diff engine completes. An actual
+- **Large reviews.** The top file tree and all diff sections share one scroll surface, and the page virtualizes
+  those sections with the same virtualizer as the agent transcript. The tree scrolls away instead of permanently
+  consuming vertical space, and only the sections on screen hold a live editor — a 100-file review never means
+  100 Monaco instances. Collapsing a file disposes its section editor; collapsing unchanged regions within an
+  expanded file keeps the section proportional to what actually changed. It has no line-count cutoff: a
+  4,000-line file renders normally when the diff engine completes. An actual
   computation timeout leaves that file shown in full, uncollapsed and unmarked, with a notice. File review
   keeps its own explicit per-file decoration boundary, since it paints the whole file at once.
 - **Binary files.** The tracker is text-based already; both presentations inherit that boundary.

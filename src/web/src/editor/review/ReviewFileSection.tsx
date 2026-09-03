@@ -1,3 +1,4 @@
+import { ChevronDown, ChevronRight } from "lucide-solid";
 import { type Accessor, createEffect, createSignal, type JSX, onCleanup, Show } from "solid-js";
 import { keyHint } from "../../commands/key-hint";
 import { runCommandWithFeedback } from "../../commands/registry";
@@ -21,11 +22,13 @@ export function ReviewFileSection(props: {
   file: Accessor<ReviewFileView>;
   index: number;
   measure: (element: HTMLElement) => void;
+  onFocus: () => void;
   openCopy: (diff: ReviewFileDiff) => Promise<ReviewCopy>;
   style: string;
 }): JSX.Element {
   const summary = () => props.file().summary();
   const diff = () => props.file().diff();
+  const collapsed = () => props.file().collapsed();
   const pending = (): boolean => {
     const value = diff();
     return (
@@ -33,105 +36,46 @@ export function ReviewFileSection(props: {
       (value.baseline !== value.current || value.baselineExists !== value.currentExists)
     );
   };
-  const [diffNotice, setDiffNotice] = createSignal("");
-  const [openError, setOpenError] = createSignal("");
+  const bodyId = (): string => `unified-review-file-body-${props.index}`;
 
   let article: HTMLElement | undefined;
-  let mount: HTMLDivElement | undefined;
-  let live: ReviewEditor | undefined;
-  let liveExists: boolean | undefined;
-  let resolution = 0;
-  let dropped = false;
-
   const remeasure = (): void => {
     if (article !== undefined) {
       props.measure(article);
     }
   };
-
-  // Mount the file's diff editor once its texts arrive, then keep it painted from every later push. A file whose
-  // changes are gone drops the editor and reads as reviewed.
   createEffect(() => {
-    const value = diff();
-    if (value === null || !hasChanges(value)) {
-      resolution += 1;
-      if (live !== undefined) {
-        live.dispose();
-        live = undefined;
-        liveExists = undefined;
-        mount?.style.removeProperty("height");
-        remeasure();
-      }
-      return;
-    }
-    if (live !== undefined && liveExists !== value.currentExists) {
-      resolution += 1;
-      live.dispose();
-      live = undefined;
-      liveExists = undefined;
-      if (mount !== undefined) {
-        mount.style.height = `${estimatedEditorHeight(summary().added, summary().removed)}px`;
-      }
-    }
-    if (live !== undefined) {
-      live.update(value);
-      return;
-    }
-    const token = ++resolution;
-    void props.openCopy(value).then(
-      (copy) => {
-        const latest = diff();
-        if (
-          dropped ||
-          token !== resolution ||
-          mount === undefined ||
-          latest === null ||
-          !hasChanges(latest)
-        ) {
-          return;
-        }
-        liveExists = latest.currentExists;
-        live = createReviewEditor({
-          container: mount,
-          model: copy.model,
-          editable: copy.editable,
-          diff: latest,
-          onHeight: remeasure,
-          onStatus: (status) =>
-            setDiffNotice(
-              status === "ready"
-                ? ""
-                : status === "timed-out"
-                  ? "Diff calculation timed out — the file is shown in full."
-                  : "Diff calculation failed — the file is shown in full.",
-            ),
-        });
-      },
-      (error: unknown) => {
-        if (!dropped && token === resolution) {
-          setOpenError(String(error));
-        }
-      },
-    );
-  });
-
-  onCleanup(() => {
-    dropped = true;
-    resolution += 1;
-    live?.dispose();
+    void collapsed();
+    queueMicrotask(remeasure);
   });
 
   return (
     <article
       class="unified-review-file"
+      classList={{ collapsed: collapsed() }}
       data-index={props.index}
       ref={(element) => {
         article = element;
         props.measure(element);
       }}
+      onFocusIn={props.onFocus}
       style={props.style}
     >
       <header class="unified-review-file-header">
+        <button
+          type="button"
+          class="unified-review-file-toggle"
+          title={`${collapsed() ? "Expand" : "Collapse"} ${props.displayPath(summary().path)}${keyHint(CommandIds.reviewToggleFile)}`}
+          aria-controls={bodyId()}
+          aria-expanded={!collapsed()}
+          onClick={() =>
+            void runCommandWithFeedback(CommandIds.reviewToggleFile, { path: summary().path })
+          }
+        >
+          <Show when={collapsed()} fallback={<ChevronDown />}>
+            <ChevronRight />
+          </Show>
+        </button>
         <Show
           when={summary().currentExists}
           fallback={
@@ -181,6 +125,103 @@ export function ReviewFileSection(props: {
           </button>
         </Show>
       </header>
+      <Show when={!collapsed()}>
+        <div id={bodyId()}>
+          <ReviewFileBody file={props.file} measure={remeasure} openCopy={props.openCopy} />
+        </div>
+      </Show>
+    </article>
+  );
+}
+
+function ReviewFileBody(props: {
+  file: Accessor<ReviewFileView>;
+  measure: () => void;
+  openCopy: (diff: ReviewFileDiff) => Promise<ReviewCopy>;
+}): JSX.Element {
+  const summary = () => props.file().summary();
+  const diff = () => props.file().diff();
+  const [diffNotice, setDiffNotice] = createSignal("");
+  const [openError, setOpenError] = createSignal("");
+
+  let mount: HTMLDivElement | undefined;
+  let live: ReviewEditor | undefined;
+  let liveExists: boolean | undefined;
+  let resolution = 0;
+  let dropped = false;
+
+  createEffect(() => {
+    const value = diff();
+    if (value === null || !hasChanges(value)) {
+      resolution += 1;
+      if (live !== undefined) {
+        live.dispose();
+        live = undefined;
+        liveExists = undefined;
+        mount?.style.removeProperty("height");
+        props.measure();
+      }
+      return;
+    }
+    if (live !== undefined && liveExists !== value.currentExists) {
+      resolution += 1;
+      live.dispose();
+      live = undefined;
+      liveExists = undefined;
+      if (mount !== undefined) {
+        mount.style.height = `${estimatedEditorHeight(summary().added, summary().removed)}px`;
+      }
+    }
+    if (live !== undefined) {
+      live.update(value);
+      return;
+    }
+    const token = ++resolution;
+    void props.openCopy(value).then(
+      (copy) => {
+        const latest = diff();
+        if (
+          dropped ||
+          token !== resolution ||
+          mount === undefined ||
+          latest === null ||
+          !hasChanges(latest)
+        ) {
+          return;
+        }
+        liveExists = latest.currentExists;
+        live = createReviewEditor({
+          container: mount,
+          model: copy.model,
+          editable: copy.editable,
+          diff: latest,
+          onHeight: props.measure,
+          onStatus: (status) =>
+            setDiffNotice(
+              status === "ready"
+                ? ""
+                : status === "timed-out"
+                  ? "Diff calculation timed out — the file is shown in full."
+                  : "Diff calculation failed — the file is shown in full.",
+            ),
+        });
+      },
+      (error: unknown) => {
+        if (!dropped && token === resolution) {
+          setOpenError(String(error));
+        }
+      },
+    );
+  });
+
+  onCleanup(() => {
+    dropped = true;
+    resolution += 1;
+    live?.dispose();
+  });
+
+  return (
+    <>
       <Show when={diffNotice() !== ""}>
         <div class="unified-review-notice">{diffNotice()}</div>
       </Show>
@@ -197,12 +238,10 @@ export function ReviewFileSection(props: {
         class="unified-review-editor"
         ref={(element) => {
           mount = element;
-          // Reserve the space the editor will take while its working copy resolves, so the list's offsets
-          // don't collapse and re-settle underneath the reader.
           element.style.height = `${estimatedEditorHeight(summary().added, summary().removed)}px`;
         }}
       />
-    </article>
+    </>
   );
 }
 

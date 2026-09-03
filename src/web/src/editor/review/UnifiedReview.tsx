@@ -1,28 +1,46 @@
 import { createVirtualizer } from "@tanstack/solid-virtual";
-import { Check, FileCode2, Files, RotateCcw } from "lucide-solid";
-import { createEffect, createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js";
+import { Check, RotateCcw } from "lucide-solid";
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  For,
+  type JSX,
+  onCleanup,
+  onMount,
+  Show,
+} from "solid-js";
 import type { ClientSession } from "../../bridge";
 import { keyHint } from "../../commands/key-hint";
 import { runCommandWithFeedback } from "../../commands/registry";
 import { CommandIds } from "../../commands/types";
+import {
+  buildPathTree,
+  type PathTreeNode,
+  pathTreeDirectoryKeys,
+  visiblePathTreeRows,
+} from "../../files/path-tree";
 import type { ReviewCopyScope } from "../editor-host";
-import { repoRelativePath, samePath } from "../fs-path";
+import { normalizePath, repoRelativePath, samePath } from "../fs-path";
 import { ReviewFileSection } from "./ReviewFileSection";
+import { ReviewFileTree } from "./ReviewFileTree";
 import { estimatedEditorHeight } from "./review-editor";
 import type { ReviewFileView, ReviewOverview } from "./review-store";
 
-// The section header's fixed height, so an unmounted section reserves the same space its editor will fill.
 const SECTION_HEADER_HEIGHT = 42;
+const TREE_HEADER_HEIGHT = 42;
+const TREE_ROW_HEIGHT = 28;
 
 export function UnifiedReview(props: {
   overview: () => ReviewOverview;
   session: ClientSession;
   onCursorChange: (session: ClientSession, path: string, line: number) => void;
+  onFileCollapsed: (session: ClientSession, path: string, collapsed: boolean) => void;
   /** Resolve a changed file's working copy for its section editor; released when this surface unmounts. */
   createCopyScope: () => ReviewCopyScope;
 }): JSX.Element {
   let scroller: HTMLElement | undefined;
-  let sidebarSelection = true;
+  let programmaticSelection = true;
   const initialIndex = (): number => {
     const cursor = props.overview().cursor;
     const index =
@@ -34,7 +52,6 @@ export function UnifiedReview(props: {
   const [visibleFile, setVisibleFile] = createSignal(initialIndex());
 
   onMount(() => scroller?.focus());
-  // The per-file editors hold their own working-copy references; this exact surface owns their lifetime.
   const copies = props.createCopyScope();
   onCleanup(() => copies.dispose());
 
@@ -43,40 +60,79 @@ export function UnifiedReview(props: {
     return workspace === undefined ? path : repoRelativePath(workspace, path);
   };
   const files = (): ReviewFileView[] => props.overview().files;
-  // Distinguishes rows across a session switch: two sessions can share a changed path (package.json,
-  // index.ts, …), and the row key must change when the owning session does.
   const sessionKey = (): string =>
     `${props.session.address.slot}\0${props.session.address.incarnation}`;
+  const treeNodes = createMemo<PathTreeNode<ReviewFileView>[]>(() =>
+    buildPathTree(files().map((file) => ({ path: displayPath(file.summary().path), value: file }))),
+  );
+
+  const collapsedDirectories = new WeakMap<ClientSession, Set<string>>();
+  const [treeRevision, setTreeRevision] = createSignal(0);
+  const collapsedDirectoriesFor = (session: ClientSession): Set<string> => {
+    let collapsed = collapsedDirectories.get(session);
+    if (collapsed === undefined) {
+      collapsed = new Set();
+      collapsedDirectories.set(session, collapsed);
+    }
+    return collapsed;
+  };
+  const expandedDirectories = createMemo<ReadonlySet<string>>(() => {
+    treeRevision();
+    const collapsed = collapsedDirectoriesFor(props.session);
+    return new Set(pathTreeDirectoryKeys(treeNodes()).filter((key) => !collapsed.has(key)));
+  });
+  const toggleDirectory = (key: string): void => {
+    const collapsed = collapsedDirectoriesFor(props.session);
+    if (collapsed.has(key)) {
+      collapsed.delete(key);
+    } else {
+      collapsed.add(key);
+    }
+    setTreeRevision((revision) => revision + 1);
+  };
+
+  const estimatedFileSize = (file: ReviewFileView): number => {
+    if (file.collapsed()) {
+      return SECTION_HEADER_HEIGHT;
+    }
+    const summary = file.summary();
+    return SECTION_HEADER_HEIGHT + estimatedEditorHeight(summary.added, summary.removed);
+  };
   const rows = () => virtualizer.getVirtualItems();
-  // Rows are keyed by session + file path, never by the virtualizer's item objects: a re-measure rebuilds
-  // every one of those, and a reference-keyed <For> would tear down each section's live editor — losing
-  // focus, caret and undo history in the very file being typed in. Folding the session into the key still
-  // forces a remount when the active session changes, so a switch never leaves a section's live editor
-  // painting a different session's diff onto the outgoing session's model.
   const rowKeys = (): string[] => rows().map((row) => String(row.key));
   const virtualizer = createVirtualizer<HTMLElement, HTMLElement>({
     get count() {
-      return files().length;
+      return files().length + 1;
     },
     estimateSize: (index) => {
-      const file = files()[index]?.summary();
-      return file === undefined
-        ? 120
-        : SECTION_HEADER_HEIGHT + estimatedEditorHeight(file.added, file.removed);
+      if (index === 0) {
+        const count = visiblePathTreeRows(
+          treeNodes(),
+          expandedDirectories(),
+          Number.POSITIVE_INFINITY,
+        ).length;
+        return TREE_HEADER_HEIGHT + count * TREE_ROW_HEIGHT;
+      }
+      const file = files()[index - 1];
+      return file === undefined ? 120 : estimatedFileSize(file);
     },
     getItemKey: (index) => {
-      const path = files()[index]?.summary().path;
+      if (index === 0) {
+        return `${sessionKey()}\0tree`;
+      }
+      const path = files()[index - 1]?.summary().path;
       return path === undefined ? index : `${sessionKey()}\0${path}`;
     },
     getScrollElement: () => scroller ?? null,
     gap: 20,
     measureElement: (element) => element.getBoundingClientRect().height,
     onChange: (instance) => {
-      if (sidebarSelection) {
+      if (programmaticSelection) {
         return;
       }
-      const index = instance.range?.startIndex;
-      const summary = index === undefined ? undefined : files()[index]?.summary();
+      const virtualIndex = instance.range?.startIndex;
+      const index = virtualIndex === undefined ? undefined : virtualIndex - 1;
+      const summary = index === undefined || index < 0 ? undefined : files()[index]?.summary();
       if (index !== undefined && summary !== undefined) {
         setVisibleFile(index);
         props.onCursorChange(props.session, summary.path, summary.line);
@@ -85,6 +141,22 @@ export function UnifiedReview(props: {
     overscan: 2,
     useAnimationFrameWithResizeObserver: true,
   });
+
+  let collapseSnapshot = new Map<string, boolean>();
+  createEffect(() => {
+    const next = new Map<string, boolean>();
+    files().forEach((file, index) => {
+      const key = `${sessionKey()}\0${normalizePath(file.summary().path)}`;
+      const collapsed = file.collapsed();
+      next.set(key, collapsed);
+      const previous = collapseSnapshot.get(key);
+      if (previous !== undefined && previous !== collapsed) {
+        virtualizer.resizeItem(index + 1, estimatedFileSize(file));
+      }
+    });
+    collapseSnapshot = next;
+  });
+
   let restoredSession: ClientSession | undefined;
   createEffect(() => {
     const session = props.session;
@@ -93,26 +165,40 @@ export function UnifiedReview(props: {
     }
     restoredSession = session;
     const index = initialIndex();
-    sidebarSelection = true;
+    const virtualIndex = props.overview().cursor === null ? 0 : index + 1;
+    programmaticSelection = true;
     setVisibleFile(index);
     queueMicrotask(() => {
       if (scroller?.isConnected === true) {
-        virtualizer.scrollToIndex(index, { align: "start" });
+        virtualizer.scrollToIndex(virtualIndex, { align: "start" });
       }
     });
   });
 
-  const scrollToFile = (index: number): void => {
-    const summary = files()[index]?.summary();
-    if (summary !== undefined) {
-      sidebarSelection = true;
-      setVisibleFile(index);
-      props.onCursorChange(props.session, summary.path, summary.line);
-      virtualizer.scrollToIndex(index, { align: "start" });
+  const setFileCollapsed = (file: ReviewFileView, collapsed: boolean): void => {
+    props.onFileCollapsed(props.session, file.summary().path, collapsed);
+  };
+  const scrollToFile = (file: ReviewFileView): void => {
+    const index = files().indexOf(file);
+    const summary = file.summary();
+    if (index < 0) {
+      return;
     }
+    setFileCollapsed(file, false);
+    programmaticSelection = true;
+    setVisibleFile(index);
+    props.onCursorChange(props.session, summary.path, summary.line);
+    queueMicrotask(() => virtualizer.scrollToIndex(index + 1, { align: "start" }));
   };
   const followViewport = (): void => {
-    sidebarSelection = false;
+    programmaticSelection = false;
+  };
+  const measure = (element: HTMLElement): void => {
+    queueMicrotask(() => {
+      if (element.isConnected) {
+        virtualizer.measureElement(element);
+      }
+    });
   };
 
   return (
@@ -120,13 +206,7 @@ export function UnifiedReview(props: {
       <header class="unified-review-header">
         <div class="unified-review-heading">
           <span class="unified-review-kicker">{props.overview().label || "Review"}</span>
-          <strong>
-            {files().length} file{files().length === 1 ? "" : "s"} changed
-          </strong>
-          <span class="unified-review-totals">
-            <span class="unified-review-added">+{props.overview().added}</span>
-            <span class="unified-review-removed">−{props.overview().removed}</span>
-          </span>
+          <strong>Unified review</strong>
         </div>
         <div class="unified-review-header-actions">
           <button
@@ -147,91 +227,77 @@ export function UnifiedReview(props: {
           >
             <RotateCcw size="1em" /> Revert pending
           </button>
-          <button
-            type="button"
-            class="unified-review-action mode"
-            disabled={!files().some((file) => file.summary().currentExists)}
-            title={`Switch to file review${keyHint(CommandIds.reviewToggleMode)}`}
-            onClick={() => void runCommandWithFeedback(CommandIds.reviewToggleMode)}
-          >
-            <FileCode2 size="1em" /> File review
-          </button>
         </div>
       </header>
 
-      <div class="unified-review-layout">
-        <aside class="unified-review-files" aria-label="Changed files">
-          <div class="unified-review-files-title">
-            <Files size="1em" /> Files
-          </div>
-          <For each={files()}>
-            {(file, index) => {
-              const summary = file.summary;
+      <main
+        class="unified-review-diffs"
+        ref={scroller}
+        tabIndex={-1}
+        onKeyDown={followViewport}
+        onPointerDown={followViewport}
+        onWheel={followViewport}
+      >
+        <div class="unified-review-virtual-list" style={`height:${virtualizer.getTotalSize()}px`}>
+          <For each={rowKeys()}>
+            {(key) => {
+              const row = () => rows().find((candidate) => String(candidate.key) === key);
+              const file = () => {
+                const index = row()?.index;
+                return index === undefined || index === 0 ? undefined : files()[index - 1];
+              };
+              onCleanup(() => virtualizer.measureElement(null));
               return (
-                <button
-                  type="button"
-                  class="unified-review-file-link"
-                  classList={{ active: visibleFile() === index() }}
-                  title={displayPath(summary().path)}
-                  onClick={() => scrollToFile(index())}
-                >
-                  <span>{displayPath(summary().path)}</span>
-                  <small>
-                    <span class="unified-review-added">+{summary().added}</span>
-                    <span class="unified-review-removed">−{summary().removed}</span>
-                  </small>
-                </button>
+                <Show when={row()}>
+                  {(item) => (
+                    <Show
+                      when={item().index === 0}
+                      fallback={
+                        <Show when={file()}>
+                          {(view) => (
+                            <ReviewFileSection
+                              displayPath={displayPath}
+                              file={view}
+                              index={item().index}
+                              openCopy={(diff) =>
+                                copies.open(
+                                  props.session,
+                                  diff.path,
+                                  diff.current,
+                                  diff.currentExists,
+                                )
+                              }
+                              measure={measure}
+                              onFocus={() => {
+                                const summary = view().summary();
+                                setVisibleFile(item().index - 1);
+                                props.onCursorChange(props.session, summary.path, summary.line);
+                              }}
+                              style={`top:${item().start}px`}
+                            />
+                          )}
+                        </Show>
+                      }
+                    >
+                      <ReviewFileTree
+                        expanded={expandedDirectories}
+                        index={0}
+                        measure={measure}
+                        nodes={treeNodes}
+                        onSelect={scrollToFile}
+                        onToggleDirectory={toggleDirectory}
+                        overview={props.overview}
+                        selectedPath={() => files()[visibleFile()]?.summary().path ?? null}
+                        style={`top:${item().start}px`}
+                      />
+                    </Show>
+                  )}
+                </Show>
               );
             }}
           </For>
-        </aside>
-
-        <main
-          class="unified-review-diffs"
-          ref={scroller}
-          tabIndex={-1}
-          onKeyDown={followViewport}
-          onPointerDown={followViewport}
-          onWheel={followViewport}
-        >
-          <div class="unified-review-virtual-list" style={`height:${virtualizer.getTotalSize()}px`}>
-            <For each={rowKeys()}>
-              {(key) => {
-                const row = () => rows().find((candidate) => String(candidate.key) === key);
-                // The key carries the owning session, not just the path — recover the file by the
-                // virtualizer's index into the current session's list instead of matching on path.
-                const file = () => {
-                  const index = row()?.index;
-                  return index === undefined ? undefined : files()[index];
-                };
-                onCleanup(() => virtualizer.measureElement(null));
-                return (
-                  <Show when={file()}>
-                    {(view) => (
-                      <ReviewFileSection
-                        displayPath={displayPath}
-                        file={view}
-                        index={row()?.index ?? 0}
-                        openCopy={(diff) =>
-                          copies.open(props.session, diff.path, diff.current, diff.currentExists)
-                        }
-                        measure={(element) =>
-                          queueMicrotask(() => {
-                            if (element.isConnected) {
-                              virtualizer.measureElement(element);
-                            }
-                          })
-                        }
-                        style={`top:${row()?.start ?? 0}px`}
-                      />
-                    )}
-                  </Show>
-                );
-              }}
-            </For>
-          </div>
-        </main>
-      </div>
+        </div>
+      </main>
     </section>
   );
 }

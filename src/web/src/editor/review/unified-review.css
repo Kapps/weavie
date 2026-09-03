@@ -30,6 +30,8 @@
 .unified-review-header-actions,
 .unified-review-file-header,
 .unified-review-file-stats,
+.unified-review-files-header,
+.unified-review-files-title,
 .unified-review-totals {
   display: flex;
   align-items: center;
@@ -41,7 +43,6 @@
 }
 
 .unified-review-kicker,
-.unified-review-files-title,
 .unified-review-status {
   color: var(--dim);
   font-size: var(--font-metadata-size);
@@ -98,47 +99,56 @@
   color: var(--diff-removed, #c47a7a);
 }
 
-.unified-review-action.mode {
-  color: var(--accent);
-}
-
-.unified-review-layout {
-  display: grid;
-  grid-template-columns: minmax(12em, 18em) minmax(0, 1fr);
-  align-items: start;
-  width: 100%;
-  max-width: 100rem;
-  min-height: 0;
-  margin: 0 auto;
-}
-
 .unified-review-files {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  overflow: auto;
-  padding: 1em 0.75em;
-  border-right: 1px solid var(--border);
+  position: absolute;
+  left: 0;
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg);
+}
+
+.unified-review-files-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  justify-content: space-between;
+  min-height: 2.6em;
+  padding: 0.45em 0.65em;
+  border-bottom: 1px solid var(--border);
+  border-radius: 6px 6px 0 0;
+  background: var(--bar);
 }
 
 .unified-review-files-title {
-  display: flex;
-  align-items: center;
-  gap: 0.4em;
-  padding: 0 0.5em 0.55em;
-  font-weight: 650;
-  text-transform: uppercase;
+  gap: 0.45em;
 }
 
-.unified-review-file-link {
+.unified-review-tree {
+  margin: 0;
+  padding: 0.35em 0 0.5em;
+  list-style: none;
+}
+
+.unified-review-tree-children {
+  min-inline-size: 0;
+  margin: 0;
+  border: 0;
+  padding: 0 0 0 1.05em;
+  list-style: none;
+}
+
+.unified-review-tree-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 0.75em;
+  gap: 0.3em;
   width: 100%;
-  padding: 0.45em 0.5em;
+  min-height: 1.75em;
+  padding-left: 0.65em;
+  padding-top: 0.2em;
+  padding-right: 0.65em;
+  padding-bottom: 0.2em;
   border: 0;
-  border-radius: 4px;
   background: transparent;
   color: var(--dim);
   font: inherit;
@@ -146,22 +156,51 @@
   cursor: pointer;
 }
 
-.unified-review-file-link:hover,
-.unified-review-file-link.active {
+.unified-review-tree-row:hover,
+.unified-review-tree-row.active {
   background: var(--list-active-bg);
   color: var(--fg);
 }
 
-.unified-review-file-link > span {
+.unified-review-tree-row:focus-visible,
+.unified-review-file-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.unified-review-tree-row.directory {
+  color: var(--fg);
+  font-weight: 650;
+}
+
+.unified-review-tree-twisty,
+.unified-review-tree-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 1em;
+  color: var(--dim);
+}
+
+.unified-review-tree-twisty svg,
+.unified-review-tree-icon svg {
+  width: 1em;
+  height: 1em;
+}
+
+.unified-review-tree-name {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.unified-review-file-link small {
-  display: flex;
+.unified-review-tree-row .unified-review-file-stats {
+  margin-left: auto;
+}
+
+.unified-review-file-stats {
   flex: none;
-  gap: 0.35em;
   font-size: var(--font-hint-size);
 }
 
@@ -170,6 +209,9 @@
   height: 100%;
   min-width: 0;
   overflow: auto;
+  width: 100%;
+  max-width: 100rem;
+  margin: 0 auto;
   padding: 1em;
 }
 
@@ -220,6 +262,36 @@
   color: var(--accent);
 }
 
+.unified-review-file-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 1.5em;
+  height: 1.5em;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--dim);
+  cursor: pointer;
+}
+
+.unified-review-file-toggle:hover {
+  background: var(--list-active-bg);
+  color: var(--fg);
+}
+
+.unified-review-file-toggle svg {
+  width: 1em;
+  height: 1em;
+}
+
+.unified-review-file.collapsed .unified-review-file-header {
+  border-bottom: 0;
+  border-radius: 6px;
+}
+
 .unified-review-file-action {
   padding: 0.2em 0.5em;
   background: transparent;
@@ -257,17 +329,6 @@
 
   .unified-review-header-actions {
     flex-wrap: wrap;
-  }
-
-  .unified-review-layout {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(6em, 10em) minmax(0, 1fr);
-  }
-
-  .unified-review-files {
-    height: auto;
-    border-right: 0;
-    border-bottom: 1px solid var(--border);
   }
 
   .unified-review-file-header {

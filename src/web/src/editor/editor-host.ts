@@ -16,6 +16,7 @@ import { noteSelectionChange, registerSelectionSource } from "../commands/select
 import { startLanguageServices } from "../lsp/lsp-client";
 import { installReferenceCommands } from "../lsp/reference-commands";
 import { installTestLenses } from "../tests/test-lens";
+import { activeEditorMessage } from "./active-editor-message";
 import { installAltClickPeek } from "./alt-click-peek";
 import { setDirtyPath } from "./dirty-store";
 import { setEditorStatus } from "./editor-status-store";
@@ -25,7 +26,6 @@ import { leaveLine } from "./nav-history";
 import { REVEAL_SCROLL } from "./reveal-scroll";
 import { captureViewStateFor, editorSessionFor, type Placement, promoteFor } from "./session-store";
 import {
-  hostUriString,
   SESSION_FILE_SCHEME,
   sessionFileUri,
   sessionForUri,
@@ -202,21 +202,7 @@ export async function createEditorHost(
       return;
     }
     const sel = editor.getSelection();
-    const text = sel !== null && !sel.isEmpty() ? model.getValueInRange(sel) : "";
-    // Monaco positions are 1-based; the IDE selection protocol is 0-based.
-    session.feature("editor").publish("activeChanged", {
-      uri: hostUriString(model.uri),
-      languageId: model.getLanguageId(),
-      text,
-      selection: {
-        start: {
-          line: (sel?.startLineNumber ?? 1) - 1,
-          character: (sel?.startColumn ?? 1) - 1,
-        },
-        end: { line: (sel?.endLineNumber ?? 1) - 1, character: (sel?.endColumn ?? 1) - 1 },
-        isEmpty: text.length === 0,
-      },
-    });
+    session.feature("editor").publish("activeChanged", activeEditorMessage(model, sel));
   };
   const scheduleEmitActiveEditor = (): void => {
     if (emitTimer !== undefined) {

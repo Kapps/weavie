@@ -566,12 +566,25 @@ public sealed partial class HostCore {
 
 	/// <summary>Surfaces a prior run's unhandled crash as a one-time toast pointing at the saved report.</summary>
 	private void SurfacePriorCrash() {
-		if (CrashReporter.TakePendingReport(_lastCrashFile, _previousCrashFile) is null) {
+		if (CrashReporter.TakePendingReport(_lastCrashFile, _previousCrashFile) is not null) {
+			// The crash is the better explanation of the same ending, so it also settles the unfinished marker
+			// this run inherited — a later hello must not replace this toast with the vaguer one.
+			_priorUnfinishedRun = string.Empty;
+			// Keyed so two windows handling `ready` at once collapse to a single toast (matches the malformed-settings notice).
+			Notify("error", $"Weavie exited unexpectedly last session. A crash report was saved to {_previousCrashFile}.", "prior-crash");
 			return;
 		}
 
-		// Keyed so two windows handling `ready` at once collapse to a single toast (matches the malformed-settings notice).
-		Notify("error", $"Weavie exited unexpectedly last session. A crash report was saved to {_previousCrashFile}.", "prior-crash");
+		// No crash, yet the last run never stamped an ending — the fingerprint of a stop nothing could observe.
+		// What ended it is exactly what isn't known, so the toast says that and points at the journal.
+		if (_priorUnfinishedRun.Length > 0) {
+			_priorUnfinishedRun = string.Empty;
+			Notify(
+				"error",
+				$"Weavie's last session ended without recording how it stopped, and left no crash report. "
+					+ $"Details for a bug report are in {_exitJournalFile}.",
+				"prior-crash");
+		}
 	}
 
 	/// <summary>Pushes a user-facing notification (rendered as a toast in the page).</summary>

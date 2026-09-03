@@ -611,6 +611,7 @@ internal sealed class TestHost : IAsyncDisposable {
 			// crash-report path, so their hello handshakes can't race each other's file rotation.
 			LastCrashFile = Path.Combine(tempRoot, "logs", "last-crash.log"),
 			PreviousCrashFile = Path.Combine(tempRoot, "logs", "previous-crash.log"),
+			ExitJournalFile = Path.Combine(tempRoot, "logs", "last-exit.log"),
 		};
 	}
 

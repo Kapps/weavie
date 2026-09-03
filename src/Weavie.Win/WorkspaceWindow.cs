@@ -99,6 +99,7 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow, IShellMenuAc
 			LogBuffer = _app.LogBuffer,
 			LastCrashFile = Weavie.Core.WeaviePaths.LastCrashFile,
 			PreviousCrashFile = Weavie.Core.WeaviePaths.PreviousCrashFile,
+			ExitJournalFile = Weavie.Core.WeaviePaths.ExitJournalFile,
 		}, workspaceRoot,
 		WorkspaceHttpServerOptions.Native(Path.Combine(AppContext.BaseDirectory, "wwwroot")),
 		UnavailableWorkspaceWebSocketBridge.Instance);

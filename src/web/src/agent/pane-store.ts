@@ -13,6 +13,7 @@ import {
 } from "./AgentInputDrafts";
 import { AgentPaneAccumulator } from "./AgentPaneAccumulator";
 import { type AgentPaneModel, createAgentPaneModel } from "./AgentPaneModel";
+import { clearAsideReplyState, clearAsideReplyStates } from "./aside-reply-store";
 import { setComposerDraft } from "./composer-store";
 
 export type { AgentPaneModel, AgentSectionLabel } from "./AgentPaneModel";
@@ -129,6 +130,9 @@ registerSessionFeature((session) => {
     if (message.type === "input-resolved") {
       clearAgentInputDraft(session, agentInputRequestKey(message));
     }
+    if (message.type === "side-conversation-failed" && message.conversationId) {
+      clearAsideReplyState(session, message.conversationId);
+    }
   };
   const applyNewDrafts = (messages: readonly AgentPaneUpdate[]): void => {
     let occurrence = 0;
@@ -177,6 +181,7 @@ registerSessionFeature((session) => {
     historyGeneration = null;
     historyRevision = null;
     appliedDrafts = 0;
+    clearAsideReplyStates(session);
     accumulator.reset("pane", () => model.reset());
     startHistory();
   }
@@ -195,6 +200,7 @@ registerSessionFeature((session) => {
     offReset();
     offHello();
     clearAgentInputDrafts(session);
+    clearAsideReplyStates(session);
     setModels((previous) => {
       const next = new Map(previous);
       next.delete(session);

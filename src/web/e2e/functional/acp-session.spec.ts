@@ -1,3 +1,4 @@
+import { activeSessionSlot, waitForSessionSwitch } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 
 async function createAcpSession(page: import("@playwright/test").Page, branch: string) {
@@ -75,6 +76,62 @@ test("ACP slash commands preserve provider command and fresh-conversation semant
   await expect(surface.locator(".agent-entry-message.agent-tone-user")).toContainText(
     "identify-session",
   );
+});
+
+test("an unfinished ACP side-reply survives a session switch", async ({ page }) => {
+  const initialSlot = await activeSessionSlot(page);
+  const surface = await createAcpSession(page, "acp-side-reply-draft");
+  const acpSlot = await activeSessionSlot(page);
+  const composer = surface.locator("[data-agent-composer] textarea");
+
+  await composer.fill("primary context");
+  await composer.press("Enter");
+  await expect(surface.locator(".agent-entry-message.agent-tone-assistant")).toContainText(
+    "echo: primary context",
+  );
+
+  await composer.fill("/btw Explain one detail aside");
+  await composer.press("Enter");
+  const aside = surface.locator(".agent-aside");
+  await expect(aside).toContainText("echo: Explain one detail aside");
+  await aside.getByRole("button", { name: "Reply", exact: true }).click();
+  const reply = aside.getByRole("textbox", { name: "Reply to BTW" });
+  await reply.fill("unfinished follow-up");
+
+  await page.locator(`.session-chip[data-session-slot="${initialSlot}"]`).click();
+  await waitForSessionSwitch(page, acpSlot);
+  await page.locator(`.session-chip[data-session-slot="${acpSlot}"]`).click();
+  await waitForSessionSwitch(page, initialSlot);
+
+  await expect(reply).toBeVisible();
+  await expect(reply).toHaveValue("unfinished follow-up");
+
+  await reply.press("Enter");
+  const followUp = aside.locator(".agent-entry-message.agent-tone-assistant", {
+    hasText: "echo: unfinished follow-up",
+  });
+  await expect(followUp).toHaveCount(1);
+  await expect(reply).toHaveCount(0);
+
+  await page.locator(`.session-chip[data-session-slot="${initialSlot}"]`).click();
+  await waitForSessionSwitch(page, acpSlot);
+  await page.locator(`.session-chip[data-session-slot="${acpSlot}"]`).click();
+  await waitForSessionSwitch(page, initialSlot);
+
+  await aside.getByRole("button", { name: "Reply", exact: true }).click();
+  await expect(reply).toHaveValue("");
+  await reply.fill("cancelled but recoverable");
+  await aside.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(reply).toHaveCount(0);
+
+  await page.locator(`.session-chip[data-session-slot="${initialSlot}"]`).click();
+  await waitForSessionSwitch(page, acpSlot);
+  await page.locator(`.session-chip[data-session-slot="${acpSlot}"]`).click();
+  await waitForSessionSwitch(page, initialSlot);
+
+  await expect(reply).toHaveCount(0);
+  await aside.getByRole("button", { name: "Reply", exact: true }).click();
+  await expect(reply).toHaveValue("cancelled but recoverable");
 });
 
 test("ACP controls and rich structured output stay native @cross", async ({ page }) => {

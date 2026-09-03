@@ -8,14 +8,15 @@ namespace Weavie.Hosting;
 /// Pushes a file open to the web to reveal at a line. Shared by clickable terminal file:line links and the
 /// MCP <c>openFile</c> tool; relative paths resolve against the workspace, absolute ones open wherever they
 /// point. A relative path that doesn't resolve is recovered by suffix match against the workspace index
-/// (see <see cref="OpenAsync(string,int,bool,bool)"/>).
+/// (see <see cref="OpenAsync(string,int?,bool,bool)"/>). A null line means "no target": an already-open tab
+/// keeps the user's scroll position instead of jumping.
 /// </summary>
 public sealed class FileOpener : IAsyncDisposable {
 	private readonly ViewFeatureChannel _view;
 	private readonly MessageFeatureChannel _notifications;
 	private readonly FileProviderService _files;
 	private readonly WorkspaceFileIndex _index;
-	private readonly Action<string, int, bool, bool> _openFile;
+	private readonly Action<string, int?, bool, bool> _openFile;
 	private readonly SessionTaskScope _background =
 		new(message => Console.Error.WriteLine($"[weavie] file opener: {message}"));
 
@@ -27,7 +28,7 @@ public sealed class FileOpener : IAsyncDisposable {
 		MessageFeatureChannel notifications,
 		FileProviderService files,
 		WorkspaceFileIndex index,
-		Action<string, int, bool, bool> openFile) {
+		Action<string, int?, bool, bool> openFile) {
 		ArgumentNullException.ThrowIfNull(view);
 		ArgumentNullException.ThrowIfNull(notifications);
 		ArgumentNullException.ThrowIfNull(files);
@@ -40,25 +41,26 @@ public sealed class FileOpener : IAsyncDisposable {
 		_openFile = openFile;
 	}
 
-	/// <summary>Runs <see cref="OpenAsync(string,int,bool,bool,CancellationToken)"/> in this opener's owned lifetime.</summary>
-	public void Open(string path, int line, bool preview, bool scratch) =>
+	/// <summary>Runs <see cref="OpenAsync(string,int?,bool,bool,CancellationToken)"/> in this opener's owned lifetime.</summary>
+	public void Open(string path, int? line, bool preview, bool scratch) =>
 		_ = _background.Run(ct => OpenAsync(path, line, preview, scratch, ct));
 
 	/// <summary>
 	/// Pushes an <c>open-file</c> so the web opens the file (Monaco working copy, or the media pane for
-	/// images/video) and reveals the 1-based line. No content rides along — the web reads disk through the fs
-	/// provider. <paramref name="preview"/> opens a reusable preview tab; <paramref name="scratch"/> marks an
+	/// images/video) and reveals the 1-based <paramref name="line"/>, or — when it is null — leaves an
+	/// already-open tab at the position the user left it. No content rides along — the web reads disk through
+	/// the fs provider. <paramref name="preview"/> opens a reusable preview tab; <paramref name="scratch"/> marks an
 	/// untitled buffer shown as "Untitled-N". A relative path that doesn't resolve (a link missing its leading
 	/// folders, or a bare filename) is suffix-matched against the workspace index: one hit opens it, several
 	/// open Go-to-File preloaded with the reference, none toasts (as does an unresolvable rooted path).
 	/// </summary>
-	public Task OpenAsync(string path, int line, bool preview, bool scratch) =>
+	public Task OpenAsync(string path, int? line, bool preview, bool scratch) =>
 		OpenAsync(path, line, preview, scratch, CancellationToken.None);
 
-	/// <summary>As <see cref="OpenAsync(string,int,bool,bool)"/>, cancelled with its owning operation.</summary>
+	/// <summary>As <see cref="OpenAsync(string,int?,bool,bool)"/>, cancelled with its owning operation.</summary>
 	public async Task OpenAsync(
 		string path,
-		int line,
+		int? line,
 		bool preview,
 		bool scratch,
 		CancellationToken ct) {
@@ -90,7 +92,7 @@ public sealed class FileOpener : IAsyncDisposable {
 	/// </summary>
 	private async Task<bool> TryOpenBySuffixAsync(
 		string path,
-		int line,
+		int? line,
 		bool preview,
 		bool scratch,
 		CancellationToken ct) {
@@ -117,7 +119,7 @@ public sealed class FileOpener : IAsyncDisposable {
 		if (matches.Count > 1) {
 			_view.TryPublish("focusOmnibar", new {
 				query = PathSuffixMatcher.Normalize(path),
-				line = Math.Max(1, line),
+				line = Clamp(line),
 			});
 			return true;
 		}
@@ -125,8 +127,10 @@ public sealed class FileOpener : IAsyncDisposable {
 		return false;
 	}
 
-	private void PostOpen(string path, int line, bool preview, bool scratch) =>
-		_openFile(path, Math.Max(1, line), preview, scratch);
+	private void PostOpen(string path, int? line, bool preview, bool scratch) =>
+		_openFile(path, Clamp(line), preview, scratch);
+
+	private static int? Clamp(int? line) => line is { } value ? Math.Max(1, value) : null;
 
 	/// <inheritdoc/>
 	public ValueTask DisposeAsync() => _background.DisposeAsync();

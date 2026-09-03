@@ -18,7 +18,7 @@ export function TitleBar(props: {
   root: string | null;
   currentFile: string | null;
   onWindowControl: (action: WindowControlAction) => void;
-  onOpenFile: (abs: string, line: number) => void;
+  onOpenFile: (abs: string, line: number | undefined) => void;
   onRequestIndex: () => void;
   symbols: SymbolActions;
 }): JSX.Element {

@@ -1,5 +1,6 @@
 import { For, type JSX } from "solid-js";
 import type { ClientSession } from "../bridge";
+import { revealFileIn } from "../files/reveal";
 import { refLinkPrefixFor } from "../terminal/ref-link-store";
 import { openUrlExternal } from "../terminal/terminal-links";
 import { type AgentTextPart, linkAgentText } from "./AgentPaneLinkify";
@@ -60,11 +61,7 @@ function AgentTextPartView(props: {
       href={`file://${part.path}`}
       onClick={(event) => {
         event.preventDefault();
-        props.session?.feature("files").publish("reveal", {
-          path: part.path,
-          line: part.line,
-          preview: false,
-        });
+        revealFileIn(props.session, part.path, part.line, false);
       }}
     >
       {part.text}

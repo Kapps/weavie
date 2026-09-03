@@ -77,7 +77,7 @@ public sealed class McpDiffPresenter : IDiffPresenter {
 	public Task OpenFileAsync(string filePath, bool preview, CancellationToken cancellationToken) =>
 		_fileOpener.OpenAsync(
 			filePath,
-			line: 1,
+			line: null,
 			preview: preview,
 			scratch: false,
 			cancellationToken);

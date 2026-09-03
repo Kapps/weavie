@@ -18,7 +18,7 @@ describe("native agent transcript links", () => {
 
   it("links absolute, relative, and Windows file locations", () => {
     expect(linkAgentText("/home/u/a.png src/web/App.tsx:36 C:\\src\\a.cs:7", false)).toEqual([
-      { kind: "file", text: "/home/u/a.png", path: "/home/u/a.png", line: 1 },
+      { kind: "file", text: "/home/u/a.png", path: "/home/u/a.png", line: undefined },
       { kind: "text", text: " " },
       { kind: "file", text: "src/web/App.tsx:36", path: "src/web/App.tsx", line: 36 },
       { kind: "text", text: " " },
@@ -33,6 +33,8 @@ describe("native agent transcript links", () => {
 
   it("reveals a bare path whose filename contains @", () => {
     const path = "src/web/e2e/.recordings/page@883bef3dba4a5a81116faeb690fc011f.webm";
-    expect(linkAgentText(path, false)).toEqual([{ kind: "file", text: path, path, line: 1 }]);
+    expect(linkAgentText(path, false)).toEqual([
+      { kind: "file", text: path, path, line: undefined },
+    ]);
   });
 });

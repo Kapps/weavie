@@ -10,6 +10,7 @@ import {
   LOCAL_BACKEND_ID,
 } from "../bridge";
 import { findContentLinks, parseFileReference } from "../content-links";
+import { revealFileIn } from "../files/reveal";
 import { refLinkPrefixFor } from "./ref-link-store";
 
 // A path with an extension, e.g. src/foo.ts or C:\src\foo.ts. An optional Windows drive prefix (C:\…)
@@ -31,7 +32,7 @@ function revealFile(session: ClientSession, matchText: string): void {
   // Split the trailing :line (or :line:col) from the RIGHT, so a Windows drive colon (C:\…) stays in the path.
   const { path, line } = parseFileReference(matchText);
   if (path.length > 0) {
-    session.feature("files").publish("reveal", { path, line, preview: false });
+    revealFileIn(session, path, line, false);
   }
 }
 
@@ -94,11 +95,12 @@ export function wireTerminalLinks(
         const url = new URL(uri);
         if (url.protocol === "file:") {
           const lineMatch = /(\d+)/.exec(url.hash);
-          session.feature("files").publish("reveal", {
-            path: decodeURIComponent(url.pathname),
-            line: lineMatch ? Number(lineMatch[1]) : 1,
-            preview: false,
-          });
+          revealFileIn(
+            session,
+            decodeURIComponent(url.pathname),
+            lineMatch ? Number(lineMatch[1]) : undefined,
+            false,
+          );
         } else if (url.protocol === "http:" || url.protocol === "https:") {
           openUrlExternal(uri);
         }

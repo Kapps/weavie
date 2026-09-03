@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Weavie.Core.Editor;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Workspaces;
@@ -69,6 +70,20 @@ public sealed class FileOpenerTests {
 		await opener.OpenAsync(path, line: 0, preview: false, scratch: false); // a 0/negative line must reveal line 1, not 0
 
 		Assert.Equal(1, bridge.LastEvent("editor", "openFile")!.Value.GetProperty("line").GetInt32());
+	}
+
+	[Fact]
+	public async Task NullLine_PublishesNoTarget() {
+		var (opener, bridge, fs) = New();
+		string path = Path.Combine(Workspace, "a.cs");
+		fs.WriteAllText(path, "hello");
+
+		// No target line: the web leaves an already-open tab where the user left it.
+		await opener.OpenAsync(path, line: null, preview: false, scratch: false);
+
+		Assert.Equal(
+			JsonValueKind.Null,
+			bridge.LastEvent("editor", "openFile")!.Value.GetProperty("line").ValueKind);
 	}
 
 	[Fact]

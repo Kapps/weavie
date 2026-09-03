@@ -119,7 +119,7 @@ export function Omnibar(props: {
   root: string | null;
   currentFile: string | null;
   workspaceLabel: string;
-  onOpenFile: (abs: string, line: number) => void;
+  onOpenFile: (abs: string, line: number | undefined) => void;
   onRequestIndex: () => void;
   // The editor's Go-to-Symbol surface (query + live preview/commit), used by the @ / # modes.
   symbols: SymbolActions;
@@ -138,7 +138,8 @@ export function Omnibar(props: {
 
   // The 1-based line an open from this omnibar session reveals — a host-driven request resolving an
   // ambiguous `file:line` link carries the link's line, applied to whichever candidate the user picks.
-  let pendingLine = 1;
+  // Undefined for a plain quick-open, which leaves an already-open tab where the user left it.
+  let pendingLine: number | undefined;
 
   // The command catalog, kept live as the host pushes keybinding/catalog changes.
   const [commandList, setCommandList] = createSignal<CommandInfo[]>(getCommands());
@@ -431,7 +432,7 @@ export function Omnibar(props: {
   const close = (): void => {
     setOpen(false);
     setQuery("");
-    pendingLine = 1;
+    pendingLine = undefined;
     restorePriorFocus();
   };
 
@@ -441,7 +442,7 @@ export function Omnibar(props: {
   const dismiss = (): void => {
     setOpen(false);
     setQuery("");
-    pendingLine = 1;
+    pendingLine = undefined;
     priorFocus = null;
   };
 

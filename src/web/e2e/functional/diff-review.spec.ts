@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { clickIntoEditor, openFile, runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
-import { navChord } from "../harness/navigator";
+import { navChord, walkToChangedFile } from "../harness/navigator";
 import { appliedEdit } from "../harness/review";
 
 // The POST-TURN review surface (applied changes), keep/revert/undo/redo, the parked navigator, and the
@@ -606,6 +606,37 @@ test.describe("applied review — a new file is marked, not washed", () => {
     await openFile(page, "hello.ts");
     await expect(page.locator(ADDED)).toHaveCount(2);
     await expect(page.locator(NEWFILE_TAG)).toHaveCount(0);
+  });
+});
+
+// A created file's whole content IS the change, so its first change is line 1. The review walk used to express
+// that as "open at line 1", which the tab store read as "no target" and answered with the tab's saved scroll —
+// landing the user wherever they last were in the file instead of on the change.
+test.describe("applied review — walking to a new file lands on its top", () => {
+  const LONG_NEW = `${Array.from({ length: 400 }, (_, i) => `export const v${i + 1} = ${i + 1};`).join("\n")}\n`;
+  test.use({
+    fakeScript: {
+      steps: [...appliedEdit("brand-new.ts", LONG_NEW), ...appliedEdit("hello.ts", TWO_HUNKS)],
+    },
+  });
+
+  test("stepping back to a created file reveals line 1, not the saved scroll", async ({ page }) => {
+    await openFile(page, "brand-new.ts");
+    await expect(page.locator(SCOPE)).toBeVisible({ timeout: 15_000 });
+
+    // Read deep into the new file, then leave it — the tab remembers this position.
+    await page.evaluate(() => {
+      window.__WEAVIE_EDITOR__?.setPosition({ lineNumber: 300, column: 1 });
+      window.__WEAVIE_EDITOR__?.revealLineInCenter(300);
+    });
+    await expect.poll(() => caretLine(page)).toBe(300);
+    await openFile(page, "hello.ts");
+    await expect(page.locator(".weavie-inline-stack-name")).toHaveText("hello.ts");
+
+    // Walk the review's file axis back onto the created file: it must open on its change (the top).
+    await walkToChangedFile(page, "brand-new.ts");
+    await expect.poll(() => caretLine(page)).toBe(1);
+    await expect.poll(() => page.evaluate(() => window.__WEAVIE_EDITOR__?.getScrollTop())).toBe(0);
   });
 });
 

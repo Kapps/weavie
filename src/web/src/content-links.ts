@@ -40,18 +40,19 @@ export function isFileLineReference(value: string): boolean {
   return FILE_LINE_EXACT.test(value);
 }
 
-export function parseFileReference(value: string): { path: string; line: number } {
+/** Splits a file reference into its path and its 1-based line — undefined when the reference carries none. */
+export function parseFileReference(value: string): { path: string; line: number | undefined } {
   if (value.startsWith("file:///")) {
     const url = new URL(value);
     const line = /\d+/.exec(url.hash)?.[0];
     return {
       path: decodeURIComponent(url.pathname),
-      line: line === undefined ? 1 : Number(line),
+      line: line === undefined ? undefined : Number(line),
     };
   }
   const match = TRAILING_LINE.exec(value);
   return match === null
-    ? { path: value, line: 1 }
+    ? { path: value, line: undefined }
     : { path: match[1] ?? "", line: Number(match.groups?.line) };
 }
 

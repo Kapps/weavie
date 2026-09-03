@@ -27,6 +27,7 @@ const review = {
   undoRevert: vi.fn(() => true),
   redo: vi.fn(() => true),
   toggleMode: vi.fn(() => true),
+  toggleFileCollapsed: vi.fn(() => true),
 };
 const openReview = vi.fn(() => true);
 const editor = { inline, review, openReview } as unknown as Pick<
@@ -69,6 +70,7 @@ describe("review command bindings", () => {
       CommandIds.reviewComment,
       CommandIds.reviewOpen,
       CommandIds.reviewToggleMode,
+      CommandIds.reviewToggleFile,
       CommandIds.reviewNextFile,
       CommandIds.reviewPrevFile,
     ];
@@ -78,12 +80,18 @@ describe("review command bindings", () => {
     }
     expect(openReview).not.toHaveBeenCalled();
     expect(review.toggleMode).not.toHaveBeenCalled();
+    expect(review.toggleFileCollapsed).not.toHaveBeenCalled();
     expect(Object.values(inline).every((action) => action.mock.calls.length === 0)).toBe(true);
   });
 
   it("opens the captured selected session at an exact file and line", async () => {
     expect(await run(CommandIds.reviewOpen, { path: "/left/one.ts", line: 17 }, left)).toBe(true);
     expect(openReview).toHaveBeenCalledWith(left, "/left/one.ts", 17);
+  });
+
+  it("toggles the addressed file fold for the selected session", async () => {
+    expect(await run(CommandIds.reviewToggleFile, { path: "/left/one.ts" }, left)).toBe(true);
+    expect(review.toggleFileCollapsed).toHaveBeenCalledWith(left, "/left/one.ts");
   });
 
   it("lets the selected presentation consume empty undo chords", async () => {

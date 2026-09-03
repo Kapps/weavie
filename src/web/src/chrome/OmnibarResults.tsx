@@ -15,24 +15,10 @@ import { formatKey } from "../commands/keybindings";
 import type { CommandInfo } from "../commands/types";
 import { samePath } from "../editor/fs-path";
 import type { DirEntry } from "../files/FileBrowser";
+import type { PathTreeRow } from "../files/path-tree";
 import type { FlatSymbol, ScoredSymbol } from "../symbols/symbol-match";
 import type { ScoredFile } from "./file-search";
 import { highlightSlice } from "./highlight";
-
-/** A node in the client-side file tree. `key` (the dir's relative path) is the expansion-state key. */
-export interface TreeNode {
-  name: string;
-  key: string;
-  isDir: boolean;
-  abs?: string;
-  children?: TreeNode[];
-}
-
-/** One rendered tree line: the node and how deep it sits. */
-export interface TreeRow {
-  node: TreeNode;
-  depth: number;
-}
 
 /** One command row: the command and the query positions to highlight in its title. */
 export interface ScoredCommand {
@@ -71,7 +57,7 @@ export function OmnibarResults(props: {
   onRunCommand: (command: CommandInfo) => void;
 
   fileRows: () => ScoredFile[];
-  treeRows: () => TreeRow[];
+  treeRows: () => PathTreeRow<string>[];
   expanded: () => Set<string>;
   onOpenFile: (absolute: string | undefined) => void;
   onToggleDir: (key: string) => void;
@@ -186,26 +172,26 @@ export function OmnibarResults(props: {
                   {...rowAttributes(i())}
                   class="tb-omnibar-row tb-tree-row"
                   classList={{
-                    dir: row.node.isDir,
+                    dir: row.node.kind === "directory",
                     selected: i() === props.selected(),
-                    current: isCurrent(row.node.abs),
+                    current: isCurrent(row.node.kind === "file" ? row.node.value : undefined),
                   }}
                   style={`padding-left: ${10 + row.depth * 14}px`}
                   onMouseDown={press(i(), () =>
-                    row.node.isDir
+                    row.node.kind === "directory"
                       ? props.onToggleDir(row.node.key)
-                      : props.onOpenFile(row.node.abs),
+                      : props.onOpenFile(row.node.value),
                   )}
                 >
                   <span class="tb-tree-twisty" aria-hidden="true">
-                    <Show when={row.node.isDir}>
+                    <Show when={row.node.kind === "directory"}>
                       <Show when={props.expanded().has(row.node.key)} fallback={<ChevronRight />}>
                         <ChevronDown />
                       </Show>
                     </Show>
                   </span>
                   <span class="tb-tree-icon" aria-hidden="true">
-                    <Show when={row.node.isDir} fallback={<FileIcon />}>
+                    <Show when={row.node.kind === "directory"} fallback={<FileIcon />}>
                       <Show when={props.expanded().has(row.node.key)} fallback={<Folder />}>
                         <FolderOpen />
                       </Show>

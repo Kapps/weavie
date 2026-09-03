@@ -756,13 +756,13 @@ test.describe("applied review — every file remains reviewable", () => {
 
     await page.locator(".editor-review-toggle").click();
     const overview = page.locator(".unified-review");
-    await expect(overview.locator(".unified-review-file-link")).toHaveCount(100);
+    await expect(overview.locator(".unified-review-tree-row.file")).toHaveCount(100);
     expect(await overview.locator(".unified-review-file").count()).toBeLessThan(100);
-    await overview.locator(".unified-review-file-link").last().click();
+    await overview.locator(".unified-review-tree-row.file").last().click();
     await expect(
       overview.locator(".unified-review-file-name", { hasText: "bulk-99.txt" }),
     ).toBeVisible();
-    await overview.locator(".unified-review-action.mode").click();
+    await page.locator(".editor-review-toggle").click();
     await expect(page.locator(".editor-tab.active", { hasText: "bulk-99.txt" })).toBeVisible();
   });
 });

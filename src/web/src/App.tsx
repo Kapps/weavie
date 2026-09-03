@@ -1,3 +1,4 @@
+import { FileCode2, Files } from "lucide-solid";
 import {
   createEffect,
   createMemo,
@@ -1212,10 +1213,13 @@ export default function App(): JSX.Element {
                     type="button"
                     class="editor-review-toggle"
                     aria-pressed={editor.review.mode() === "unified"}
-                    title={`${editor.review.mode() === "unified" ? "Switch to file review" : "View all changes"}${keyHint(CommandIds.reviewToggleMode)}`}
+                    title={`${editor.review.mode() === "unified" ? "Switch to file review" : "Switch to unified review"}${keyHint(CommandIds.reviewToggleMode)}`}
                     onClick={() => void runCommandWithFeedback(CommandIds.reviewToggleMode)}
                   >
-                    {editor.review.mode() === "unified" ? "File review" : "All changes"}
+                    <Show when={editor.review.mode() === "unified"} fallback={<Files size={14} />}>
+                      <FileCode2 size={14} />
+                    </Show>
+                    {editor.review.mode() === "unified" ? "File review" : "Unified review"}
                   </button>
                 </Show>
                 {/* Pane-switch badge: its own cell at the right of the tab bar. */}
@@ -1318,6 +1322,7 @@ export default function App(): JSX.Element {
                   overview={editor.review.overview}
                   session={selectedSession()!}
                   onCursorChange={editor.review.setCursor}
+                  onFileCollapsed={editor.review.setFileCollapsed}
                   openCopy={editor.review.openCopy}
                   releaseCopies={editor.review.releaseCopies}
                 />

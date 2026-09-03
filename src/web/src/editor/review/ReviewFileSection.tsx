@@ -1,3 +1,4 @@
+import { ChevronDown, ChevronRight } from "lucide-solid";
 import type { editor as MonacoEditor } from "monaco-editor";
 import { type Accessor, createEffect, createSignal, type JSX, onCleanup, Show } from "solid-js";
 import { keyHint } from "../../commands/key-hint";
@@ -16,96 +17,57 @@ export function ReviewFileSection(props: {
   file: Accessor<ReviewFileView>;
   index: number;
   measure: (element: HTMLElement) => void;
+  onFocus: () => void;
   openCopy: (path: string) => Promise<MonacoEditor.ITextModel>;
   style: string;
 }): JSX.Element {
   const summary = () => props.file().summary();
   const diff = () => props.file().diff();
+  const collapsed = () => props.file().collapsed();
   const pending = (): boolean => {
     const value = diff();
     return value !== null && value.baseline !== value.current;
   };
-  const [diffNotice, setDiffNotice] = createSignal("");
-  const [openError, setOpenError] = createSignal("");
+  const bodyId = (): string => `unified-review-file-body-${props.index}`;
 
   let article: HTMLElement | undefined;
-  let mount: HTMLDivElement | undefined;
-  let live: ReviewEditor | undefined;
-  let resolving = false;
-  let dropped = false;
-
   const remeasure = (): void => {
     if (article !== undefined) {
       props.measure(article);
     }
   };
-
-  // Mount the file's diff editor once its texts arrive, then keep it painted from every later push. A file whose
-  // changes are gone drops the editor and reads as reviewed.
   createEffect(() => {
-    const value = diff();
-    if (value === null || !hasChanges(value)) {
-      if (live !== undefined) {
-        live.dispose();
-        live = undefined;
-        mount?.style.removeProperty("height");
-        remeasure();
-      }
-      return;
-    }
-    if (live !== undefined) {
-      live.update(value);
-      return;
-    }
-    if (resolving) {
-      return;
-    }
-    resolving = true;
-    void props.openCopy(value.path).then(
-      (model) => {
-        resolving = false;
-        const latest = diff();
-        if (dropped || mount === undefined || latest === null || !hasChanges(latest)) {
-          return;
-        }
-        live = createReviewEditor({
-          container: mount,
-          model,
-          diff: latest,
-          onHeight: remeasure,
-          onStatus: (status) =>
-            setDiffNotice(
-              status === "ready"
-                ? ""
-                : status === "timed-out"
-                  ? "Diff calculation timed out — the file is shown in full."
-                  : "Diff calculation failed — the file is shown in full.",
-            ),
-        });
-      },
-      (error: unknown) => {
-        resolving = false;
-        setOpenError(String(error));
-      },
-    );
-  });
-
-  onCleanup(() => {
-    dropped = true;
-    live?.dispose();
+    void collapsed();
+    queueMicrotask(remeasure);
   });
 
   return (
     <article
       class="unified-review-file"
+      classList={{ collapsed: collapsed() }}
       data-index={props.index}
       ref={(element) => {
         article = element;
         props.measure(element);
       }}
+      onFocusIn={props.onFocus}
       style={props.style}
     >
       <header class="unified-review-file-header">
+        <button
+          type="button"
+          class="unified-review-file-toggle"
+          title={`${collapsed() ? "Expand" : "Collapse"} ${props.displayPath(summary().path)}${keyHint(CommandIds.reviewToggleFile)}`}
+          aria-controls={bodyId()}
+          aria-expanded={!collapsed()}
+          onClick={() =>
+            void runCommandWithFeedback(CommandIds.reviewToggleFile, { path: summary().path })
+          }
+        >
+          <Show when={collapsed()} fallback={<ChevronDown />}>
+            <ChevronRight />
+          </Show>
+        </button>
         <button
           type="button"
           class="unified-review-file-name"
@@ -146,6 +108,87 @@ export function ReviewFileSection(props: {
           </button>
         </Show>
       </header>
+      <Show when={!collapsed()}>
+        <div id={bodyId()}>
+          <ReviewFileBody file={props.file} measure={remeasure} openCopy={props.openCopy} />
+        </div>
+      </Show>
+    </article>
+  );
+}
+
+function ReviewFileBody(props: {
+  file: Accessor<ReviewFileView>;
+  measure: () => void;
+  openCopy: (path: string) => Promise<MonacoEditor.ITextModel>;
+}): JSX.Element {
+  const summary = () => props.file().summary();
+  const diff = () => props.file().diff();
+  const [diffNotice, setDiffNotice] = createSignal("");
+  const [openError, setOpenError] = createSignal("");
+
+  let mount: HTMLDivElement | undefined;
+  let live: ReviewEditor | undefined;
+  let resolving = false;
+  let dropped = false;
+
+  // Mount the file's diff editor once its texts arrive, then keep it painted from every later push. A file whose
+  // changes are gone drops the editor and reads as reviewed.
+  createEffect(() => {
+    const value = diff();
+    if (value === null || !hasChanges(value)) {
+      if (live !== undefined) {
+        live.dispose();
+        live = undefined;
+        mount?.style.removeProperty("height");
+        props.measure();
+      }
+      return;
+    }
+    if (live !== undefined) {
+      live.update(value);
+      return;
+    }
+    if (resolving) {
+      return;
+    }
+    resolving = true;
+    void props.openCopy(value.path).then(
+      (model) => {
+        resolving = false;
+        const latest = diff();
+        if (dropped || mount === undefined || latest === null || !hasChanges(latest)) {
+          return;
+        }
+        live = createReviewEditor({
+          container: mount,
+          model,
+          diff: latest,
+          onHeight: props.measure,
+          onStatus: (status) =>
+            setDiffNotice(
+              status === "ready"
+                ? ""
+                : status === "timed-out"
+                  ? "Diff calculation timed out — the file is shown in full."
+                  : "Diff calculation failed — the file is shown in full.",
+            ),
+        });
+      },
+      (error: unknown) => {
+        resolving = false;
+        setOpenError(String(error));
+      },
+    );
+  });
+
+  onCleanup(() => {
+    dropped = true;
+    live?.dispose();
+  });
+
+  return (
+    <>
       <Show when={diffNotice() !== ""}>
         <div class="unified-review-notice">{diffNotice()}</div>
       </Show>
@@ -167,7 +210,7 @@ export function ReviewFileSection(props: {
           element.style.height = `${estimatedEditorHeight(summary().added, summary().removed)}px`;
         }}
       />
-    </article>
+    </>
   );
 }
 

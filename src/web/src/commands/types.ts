@@ -126,6 +126,7 @@ export const CommandIds = {
   showBlame: "weavie.git.showBlame",
   reviewOpen: "weavie.review.open",
   reviewToggleMode: "weavie.review.toggleMode",
+  reviewToggleFile: "weavie.review.toggleFile",
   reviewNextFile: "weavie.review.nextFile",
   reviewPrevFile: "weavie.review.prevFile",
   keepFile: "weavie.review.keepFile",

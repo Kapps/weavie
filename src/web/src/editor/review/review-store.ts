@@ -53,6 +53,7 @@ export interface ReviewFileView {
   summary: Accessor<ReviewFile>;
   diff: Accessor<ReviewFileDiff | null>;
   comments: Accessor<ReviewComments | null>;
+  collapsed: Accessor<boolean>;
 }
 
 export interface ReviewOverview {
@@ -69,6 +70,8 @@ interface ReviewEntry {
   summary: ReviewFile | null;
   diff: ReviewFileDiff | null;
   comments: ReviewComments | null;
+  pending: boolean | null;
+  collapsed: boolean;
   view: ReviewFileView | null;
   touch: (() => void) | null;
 }
@@ -97,6 +100,7 @@ export interface ReviewStore {
   setDiff(session: ClientSession, diff: ReviewFileDiff): SessionReviewBoard;
   setComments(session: ClientSession, comments: ReviewComments): SessionReviewBoard;
   setHistory(session: ClientSession, history: ReviewHistory): SessionReviewBoard;
+  setFileCollapsed(session: ClientSession, path: string, collapsed: boolean): SessionReviewBoard;
   removeFile(session: ClientSession, path: string): SessionReviewBoard;
   reset(session: ClientSession): SessionReviewBoard;
   enterUnified(session: ClientSession, cursor: ReviewCursor | null): string[];
@@ -162,6 +166,7 @@ export function createReviewStore(): ReviewStore {
         }),
     });
     setContext("reviewSetActive", state.files.length > 0);
+    setContext("unifiedReviewActive", state.mode === "unified" && state.files.length > 0);
   };
 
   const ensureEntry = (state: MutableReviewBoard, path: string): ReviewEntry => {
@@ -174,6 +179,8 @@ export function createReviewStore(): ReviewStore {
       summary: null,
       diff: null,
       comments: null,
+      pending: null,
+      collapsed: false,
       view: null,
       touch: null,
     };
@@ -201,6 +208,10 @@ export function createReviewStore(): ReviewStore {
       comments: () => {
         revision();
         return entry.comments;
+      },
+      collapsed: () => {
+        revision();
+        return entry.collapsed;
       },
     };
     return entry.view;
@@ -243,7 +254,12 @@ export function createReviewStore(): ReviewStore {
   const setDiff = (session: ClientSession, diff: ReviewFileDiff): SessionReviewBoard => {
     const state = board(session);
     const entry = ensureEntry(state, diff.path);
+    const pending = diff.baseline !== diff.current;
     entry.diff = diff.acceptedBaseline === diff.current ? null : diff;
+    if (entry.pending === null || entry.pending !== pending) {
+      entry.collapsed = !pending;
+    }
+    entry.pending = pending;
     entry.touch?.();
     return state;
   };
@@ -259,6 +275,20 @@ export function createReviewStore(): ReviewStore {
   const setHistory = (session: ClientSession, history: ReviewHistory): SessionReviewBoard => {
     const state = board(session);
     state.history = history;
+    return state;
+  };
+
+  const setFileCollapsed = (
+    session: ClientSession,
+    path: string,
+    collapsed: boolean,
+  ): SessionReviewBoard => {
+    const state = board(session);
+    const entry = state.entries.get(normalizePath(path));
+    if (entry !== undefined && entry.collapsed !== collapsed) {
+      entry.collapsed = collapsed;
+      entry.touch?.();
+    }
     return state;
   };
 
@@ -291,6 +321,7 @@ export function createReviewStore(): ReviewStore {
       setOverview(emptyOverview());
       setCount(0);
       setContext("reviewSetActive", false);
+      setContext("unifiedReviewActive", false);
     } else {
       publish(session, board(session));
     }
@@ -335,6 +366,7 @@ export function createReviewStore(): ReviewStore {
     setDiff,
     setComments,
     setHistory,
+    setFileCollapsed,
     removeFile,
     reset,
     enterUnified,

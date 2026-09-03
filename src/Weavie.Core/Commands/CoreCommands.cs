@@ -230,6 +230,9 @@ public static class CoreCommands {
 	/// <summary>Switches between unified and file-focused review; bound to <c>$mod+Shift+u</c>.</summary>
 	public const string ReviewToggleMode = "weavie.review.toggleMode";
 
+	/// <summary>Expands or collapses the current file in unified review; bound to <c>alt+[</c>.</summary>
+	public const string ReviewToggleFile = "weavie.review.toggleFile";
+
 	/// <summary>Walks to the next changed file in the review set; bound to <c>ctrl+$mod+Right</c>.</summary>
 	public const string ReviewNextFile = "weavie.review.nextFile";
 
@@ -1384,6 +1387,18 @@ public static class CoreCommands {
 			Description = "Switch seamlessly between the unified all-files review and the in-depth file review.",
 			Aliases = ["toggle review mode", "unified review", "file review", "review overview"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+u", When = "!terminalFocused" }],
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = ReviewToggleFile,
+			Title = "Toggle Review File",
+			RunsIn = CommandLocation.Web,
+			Category = "Review",
+			When = "unifiedReviewActive && editorFocused",
+			Description = "Expand or collapse the current file's diff in unified review.",
+			Aliases = ["toggle review file", "collapse review file", "expand review file", "fold review file"],
+			ArgsSchemaJson = "{\"path\":{\"type\":\"string\",\"description\":\"Review file to toggle; omit for the current file\"}}",
+			DefaultKeybindings = [new CommandKeybinding { Key = "alt+[" }],
 		});
 
 		registry.Register(new CommandDefinition {

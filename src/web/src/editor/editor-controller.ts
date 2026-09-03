@@ -205,7 +205,9 @@ export interface EditorController {
     /** Release every working copy the unified review holds (its surface unmounted). */
     releaseCopies(): void;
     toggleMode(session: ClientSession): boolean;
+    toggleFileCollapsed(session: ClientSession, path: string | undefined): boolean;
     setCursor(session: ClientSession, path: string, line: number): void;
+    setFileCollapsed(session: ClientSession, path: string, collapsed: boolean): void;
     revert(session: ClientSession): boolean;
     keepFile(session: ClientSession, path: string | undefined): boolean;
     revertFile(session: ClientSession, path: string | undefined): boolean;
@@ -1751,8 +1753,27 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         );
         return true;
       },
+      toggleFileCollapsed: (session, path) => {
+        const state = reviews.board(session);
+        if (selectedSession() !== session || state.mode !== "unified") {
+          return false;
+        }
+        const cursor = state.cursor;
+        const view = state.files.find((candidate) =>
+          samePath(candidate.summary().path, path ?? cursor?.path ?? ""),
+        );
+        const target = view ?? (path === undefined ? state.files[0] : undefined);
+        if (target === undefined) {
+          return false;
+        }
+        reviews.setFileCollapsed(session, target.summary().path, !target.collapsed());
+        return true;
+      },
       setCursor: (session, path, line) => {
         reviews.setCursor(session, { path, line });
+      },
+      setFileCollapsed: (session, path, collapsed) => {
+        reviews.setFileCollapsed(session, path, collapsed);
       },
       revert: tryRevertAll,
       keepFile: (session, path) => {

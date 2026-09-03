@@ -80,6 +80,48 @@ async function dispatchPaneTouch(
   );
 }
 
+// PointerEvents, not TouchEvents, are what long-press.ts listens for — dispatch those directly rather than
+// routing through the browser's real touch-input pipeline (CDP's Input.dispatchTouchEvent), which on Windows
+// CI runners depends on the OS's own touch injection and delivers unreliably under load.
+async function dispatchPointer(
+  target: import("@playwright/test").Locator,
+  phase: "pointercancel" | "pointerdown" | "pointermove" | "pointerup",
+  point: { x: number; y: number },
+): Promise<void> {
+  await target.evaluate(
+    (element, event) => {
+      element.dispatchEvent(
+        new PointerEvent(event.phase, {
+          bubbles: true,
+          cancelable: true,
+          clientX: event.point.x,
+          clientY: event.point.y,
+          isPrimary: true,
+          pointerId: 1,
+          pointerType: "touch",
+        }),
+      );
+    },
+    { phase, point },
+  );
+}
+
+// A real touch's release synthesizes a "click" at the same point; dispatching PointerEvents directly (see
+// dispatchPointer) skips that browser-internal synthesis, so reproduce it explicitly where a test needs it.
+async function dispatchTouchClick(
+  target: import("@playwright/test").Locator,
+  point: { x: number; y: number },
+): Promise<void> {
+  await target.evaluate(
+    (element, clickPoint) => {
+      element.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true, ...clickPoint }),
+      );
+    },
+    { clientX: point.x, clientY: point.y },
+  );
+}
+
 async function terminalRows(
   page: import("@playwright/test").Page,
   pane: "claude" | "shell",
@@ -529,62 +571,46 @@ test("Claude Code accepts back swipes beside the screen edge, never on it", asyn
 
 // Touch chrome hides the session rail, so the inbox row is where a session is managed: hold it (the
 // stand-in for right-click) or tap its actions button, and the entries are the rail's own command rows.
+//
+// Flaked twice on windows-latest — 2026-09-03 01:54 UTC (run 33704819901, job 100492392393) and again
+// 2026-09-03 05:19 UTC (run 33717713961, job 100530992199,
+// https://github.com/Kapps/weavie/actions/runs/33717713961/job/100530992199): touchStart produced no
+// .context-menu even across a 3-attempt retry budget. Root cause: this drove the gesture through CDP's
+// Input.dispatchTouchEvent, asking Chromium's real touch-input pipeline — backed by the OS's own touch
+// injection on Windows — to synthesize the PointerEvents long-press.ts actually listens for; that pipeline is
+// unreliable in CI, unlike the raw TouchEvent dispatch `dispatchPaneTouch` already uses elsewhere in this
+// file. Fixed by dispatching the PointerEvents (and the click a real touch's release synthesizes) directly
+// via dispatchPointer/dispatchTouchClick, which drives the same listeners deterministically with no
+// OS/browser touch pipeline in the loop — no retry needed.
 test("a compact session row manages its session from a hold and its actions button", async ({
   page,
 }) => {
-  // Retrying a dropped touchStart (see the hold() comment below) can spend up to ~34s per hold() call across
-  // two calls in this test; test.slow() triples the overall timeout so that retry budget has room.
-  test.slow();
   const inbox = page.locator(".session-inbox");
   const row = inbox.locator(".session-inbox-row").first();
   const menu = page.locator(".context-menu");
   const manage = row.getByRole("button", { name: /^Manage / });
   await expect(row).toBeVisible();
 
-  const touch = await page.context().newCDPSession(page);
   const point = await row.evaluate((element) => {
     const bounds = element.getBoundingClientRect();
     return { x: bounds.x + 60, y: bounds.y + bounds.height / 2 };
   });
-  // Flaked on windows-latest 2026-09-03 01:54 UTC (run 33704819901, job 100492392393,
-  // https://github.com/Kapps/weavie/actions/runs/33704819901/job/100492392393): touchStart produced no
-  // .context-menu at all inside the full 30s expect.timeout, unrelated to the PR that surfaced it (a Mac
-  // crash-reporting change) — a hold that actually arms takes 500ms, so a genuine 30s stall would mean the
-  // renderer's main thread was starved for 60x that long, which points instead at the single CDP-synthesized
-  // touchStart getting dropped by the runner under contention rather than the app failing to open the menu.
-  // Retry the touchStart a few times before committing to the full-budget wait, so a dropped synthetic event
-  // doesn't fail the test outright.
-  const hold = async (): Promise<void> => {
-    for (let attempt = 0; ; attempt++) {
-      await touch.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [point] });
-      try {
-        await expect(menu).toBeVisible({ timeout: attempt < 2 ? 2_000 : 30_000 });
-        return;
-      } catch (error) {
-        if (attempt >= 2) {
-          throw error;
-        }
-        await touch.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
-      }
-    }
-  };
 
   // A press that drifts is the user scrolling the list, so it must never arm the menu. Only a real wait past
   // the hold deadline can prove "never opens" — an immediate assertion would pass before the timer fires.
-  await touch.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [point] });
+  await dispatchPointer(row, "pointerdown", point);
   for (const dy of [12, 30, 48]) {
-    await touch.send("Input.dispatchTouchEvent", {
-      type: "touchMove",
-      touchPoints: [{ x: point.x, y: point.y - dy }],
-    });
+    await dispatchPointer(row, "pointermove", { x: point.x, y: point.y - dy });
   }
   await page.waitForTimeout(800);
   await expect(menu).toHaveCount(0);
-  await touch.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  await dispatchPointer(row, "pointerup", point);
   await expect(inbox).toBeVisible();
 
-  await hold();
-  await touch.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  await dispatchPointer(row, "pointerdown", point);
+  await expect(menu).toBeVisible();
+  await dispatchPointer(row, "pointerup", point);
+  await dispatchTouchClick(row, point);
 
   // The click the release synthesizes lands on the menu that just appeared under the finger — it must not
   // run one of its rows, nor fall through to the row and open the session.
@@ -600,14 +626,12 @@ test("a compact session row manages its session from a hold and its actions butt
   await menu.locator(".context-menu-item", { hasText: "Unload session" }).click();
   await expect(row.locator(".session-inbox-state")).toHaveText("Unloaded");
 
-  // Sliding off the row before lifting cancels the touch, which synthesizes no click at all — so nothing may
-  // stay armed to eat the tap that follows.
-  await hold();
-  await touch.send("Input.dispatchTouchEvent", {
-    type: "touchMove",
-    touchPoints: [{ x: point.x, y: point.y + 60 }],
-  });
-  await touch.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  // Sliding off the row before lifting fires pointercancel, which explicitly disarms the click swallow — so
+  // nothing may stay armed to eat the tap that follows.
+  await dispatchPointer(row, "pointerdown", point);
+  await expect(menu).toBeVisible();
+  await dispatchPointer(row, "pointermove", { x: point.x, y: point.y + 60 });
+  await dispatchPointer(row, "pointercancel", point);
   await expect(menu.locator(".context-menu-item")).toHaveText(["Load session", "Delete…"]);
   await menu.locator(".context-menu-item", { hasText: "Load session" }).click();
   await expect(row.locator(".session-inbox-state")).not.toHaveText("Unloaded");

@@ -1,5 +1,5 @@
 import { writeFile } from "node:fs/promises";
-import { test as base, expect, type Page } from "@playwright/test";
+import { test as base, type CDPSession, expect, type Page } from "@playwright/test";
 import { type FakeInference, fakeClaudeBuilt } from "./fake-claude";
 import { fakeAcpProgram, programExists } from "./test-programs";
 import { headlessBuilt, launchHeadless, type WeavieHost } from "./weavie-host";
@@ -44,7 +44,10 @@ type WeavieFixtures = {
 // Chromium scopes touch emulation to the DevTools session that set it, and the context-level `hasTouch`
 // send at page init can land without taking effect — a macOS CI run emulated the viewport but left the
 // pointer fine, silently disabling every touch path the mobile project exercises. Owning it here, on a
-// session held open for the test, makes the capability a precondition instead of an assumption.
+// session held open for the test, makes the capability a precondition instead of an assumption. It's also
+// the only session a test may dispatch raw touch input on — see `touchSession` below.
+const touchSessions = new WeakMap<Page, CDPSession>();
+
 async function establishTouchEmulation(page: Page): Promise<void> {
   if (test.info().project.use.hasTouch !== true) {
     return;
@@ -55,6 +58,21 @@ async function establishTouchEmulation(page: Page): Promise<void> {
   if (!(await page.evaluate(() => matchMedia("(pointer: coarse)").matches))) {
     throw new Error("touch emulation did not take: the page reports a fine pointer");
   }
+  touchSessions.set(page, session);
+}
+
+// The one CDP session with touch emulation armed for `page` — the session a test must dispatch
+// `Input.dispatchTouchEvent` on for a gesture no plain `TouchEvent`/`PointerEvent` dispatch can produce
+// (e.g. one relying on the browser's own click-after-tap synthesis). A second, independently-opened CDP
+// session attached to the same target went silently inert for `Input.dispatchTouchEvent` on windows-latest
+// CI while this session held the target's touch emulation — see mobile.spec.ts's hold() for the flake this
+// traces back to.
+export function touchSession(page: Page): CDPSession {
+  const session = touchSessions.get(page);
+  if (session === undefined) {
+    throw new Error("no touch session for this page — is the project's `hasTouch` option set?");
+  }
+  return session;
 }
 
 export const test = base.extend<WeavieOptions & WeavieFixtures>({

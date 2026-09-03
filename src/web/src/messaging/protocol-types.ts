@@ -193,6 +193,11 @@ export interface AgentControlState {
   slash: AgentSlashEntry[];
 }
 
+export interface AgentQueuedSubmission {
+  text: string;
+  attachments: number;
+}
+
 export interface AgentContextWindowUsage {
   usedTokens: number;
   capacityTokens: number;

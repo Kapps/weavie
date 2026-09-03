@@ -879,6 +879,27 @@ a.agent-entry-media {
   line-height: 14px;
 }
 
+.agent-compose-queued {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+  color: var(--dim);
+  font-size: var(--font-metadata-size);
+}
+
+.agent-compose-queued span + span {
+  overflow: hidden;
+  max-width: 100%;
+  padding: 0 5px;
+  border: 1px solid var(--border);
+  color: var(--fg);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .agent-compose-error {
   grid-column: 1 / -1;
   color: var(--bad);

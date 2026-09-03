@@ -47,6 +47,10 @@ internal sealed class FakeStructuredAgentProvider : IAgentProvider {
 		public event Action<IReadOnlyList<AgentPaneMessage>>? PaneSnapshot;
 		public event Action<AgentControlState>? ControlStateChanged;
 
+		public event Action<IReadOnlyList<AgentTurnSubmission>>? QueuedSubmissionsChanged { add { } remove { } }
+
+		public IReadOnlyList<AgentTurnSubmission> QueuedSubmissions => [];
+
 		// Every replayable record the provider emits, so a reload can hand back the same conversation.
 		private void Emit(AgentPaneMessage message) {
 			transcript.Add(message);

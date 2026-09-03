@@ -421,6 +421,24 @@ public sealed class AcpAgentSessionTests {
 	}
 
 	[Fact]
+	public async Task NativeSession_SteersPastAQueuedProviderCommand() {
+		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
+		await fixture.StartAsync();
+
+		fixture.Submit("hold");
+		await Wait.UntilAsync(() => File.Exists(Path.Combine(fixture.Workspace, "hold-started")));
+		fixture.SubmitCommand("compact", "/compact");
+		await fixture.WaitForQueueAsync(queued => queued.Count == 1 && queued[0].Text == "/compact");
+
+		fixture.Submit("new direction");
+
+		await fixture.WaitForMessageAsync(message => message.Type == "user-steer" && message.Text == "new direction");
+		await fixture.WaitForMessageAsync(message => message.Text == "Compacting completed.");
+		await fixture.WaitForQueueAsync(queued => queued.Count == 0);
+		Assert.False(File.Exists(Path.Combine(fixture.Workspace, "command-steered")));
+	}
+
+	[Fact]
 	public async Task NativeSession_RejectsACommandMissingFromTheLatestProviderSnapshot() {
 		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
 		await fixture.StartAsync();

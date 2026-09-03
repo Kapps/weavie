@@ -5,6 +5,33 @@ import { registerCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 
 const turnStartAlignmentTolerance = 1;
+const bottomAlignmentTolerance = 1;
+export type FollowPosition = "bottom" | "near" | "detached";
+
+/** True when the viewport is at the latest content, allowing only sub-pixel layout rounding. */
+export function isAlignedToBottom(
+  scrollHeight: number,
+  scrollTop: number,
+  clientHeight: number,
+): boolean {
+  return scrollHeight - scrollTop - clientHeight <= bottomAlignmentTolerance;
+}
+
+export function followPositionForDistance(distance: number, threshold: number): FollowPosition {
+  return distance <= bottomAlignmentTolerance
+    ? "bottom"
+    : distance <= threshold
+      ? "near"
+      : "detached";
+}
+
+export function needsBottomCorrection(position: FollowPosition, aligned: boolean): boolean {
+  return position === "bottom" && !aligned;
+}
+
+export function followPositionAfterRevision(position: FollowPosition): FollowPosition {
+  return position === "detached" ? "detached" : "bottom";
+}
 
 export function createAgentPaneScroll(
   session: ClientSession,
@@ -13,12 +40,13 @@ export function createAgentPaneScroll(
   turnStartIndex: Accessor<number | null>,
   turnNavigable: Accessor<boolean>,
   revision: Accessor<number>,
-  initiallyFollowingLatest: boolean,
+  initialFollowPosition: FollowPosition,
 ) {
   let bottomCorrectionScheduled = false;
   let controllerScrolls: Array<{ top: number }> = [];
   let scrollScheduled = false;
-  const [followingLatest, setFollowingLatest] = createSignal(initiallyFollowingLatest);
+  const [followPosition, setFollowPosition] = createSignal(initialFollowPosition);
+  const followingLatest = (): boolean => followPosition() !== "detached";
   const [agentTurnStartAbove, setAgentTurnStartAbove] = createSignal(false);
 
   const followThreshold = (): number => {
@@ -28,12 +56,14 @@ export function createAgentPaneScroll(
       : Math.ceil(Number.parseFloat(getComputedStyle(element).lineHeight) * 3);
   };
 
-  const isNearBottom = (): boolean => {
+  const positionForGeometry = (): FollowPosition => {
     const element = body();
-    return (
-      element !== undefined &&
-      element.scrollHeight - element.scrollTop - element.clientHeight <= followThreshold()
-    );
+    return element === undefined
+      ? "detached"
+      : followPositionForDistance(
+          element.scrollHeight - element.scrollTop - element.clientHeight,
+          followThreshold(),
+        );
   };
 
   const updateAgentTurnStartPosition = (): void => {
@@ -66,12 +96,12 @@ export function createAgentPaneScroll(
     });
   };
 
-  const assign = (action: () => void, followsLatest: boolean): void => {
+  const assign = (action: () => void, position: FollowPosition): void => {
     const element = body();
     if (element === undefined) {
       return;
     }
-    setFollowingLatest(followsLatest);
+    setFollowPosition(position);
     action();
     noteControllerScroll(element.scrollTop);
     updateAgentTurnStartPosition();
@@ -83,7 +113,7 @@ export function createAgentPaneScroll(
       if (element !== undefined) {
         element.scrollTop = element.scrollHeight;
       }
-    }, true);
+    }, "bottom");
 
   const scrollToBottom = (): void => {
     if (scrollScheduled) {
@@ -92,7 +122,7 @@ export function createAgentPaneScroll(
     scrollScheduled = true;
     requestAnimationFrame(() => {
       scrollScheduled = false;
-      if (followingLatest()) {
+      if (followPosition() === "bottom") {
         assignBottom();
       }
     });
@@ -105,13 +135,16 @@ export function createAgentPaneScroll(
       return false;
     }
     const previous = element.scrollTop;
-    assign(() => virtualizer.scrollToIndex(index, { align: "start", behavior: "auto" }), false);
+    assign(
+      () => virtualizer.scrollToIndex(index, { align: "start", behavior: "auto" }),
+      "detached",
+    );
     setAgentTurnStartAbove(false);
     return Math.abs(element.scrollTop - previous) >= 1;
   };
 
   const jumpToLatest = (): boolean => {
-    if (followingLatest() && isNearBottom()) {
+    if (followingLatest() && positionForGeometry() !== "detached") {
       return false;
     }
     assignBottom();
@@ -131,17 +164,24 @@ export function createAgentPaneScroll(
       controllerScrolls.splice(assigned, 1);
     } else {
       controllerScrolls = [];
-      setFollowingLatest(isNearBottom());
+      setFollowPosition(positionForGeometry());
     }
     updateAgentTurnStartPosition();
   };
 
   const onVirtualizerChange = (sync: boolean): void => {
-    if (followingLatest() && !sync && !bottomCorrectionScheduled) {
+    if (followPosition() === "bottom" && !sync && !bottomCorrectionScheduled) {
       bottomCorrectionScheduled = true;
       requestAnimationFrame(() => {
         bottomCorrectionScheduled = false;
-        if (followingLatest() && !isNearBottom()) {
+        const element = body();
+        if (
+          element !== undefined &&
+          needsBottomCorrection(
+            followPosition(),
+            isAlignedToBottom(element.scrollHeight, element.scrollTop, element.clientHeight),
+          )
+        ) {
           assignBottom();
         }
       });
@@ -153,7 +193,9 @@ export function createAgentPaneScroll(
     on(
       revision,
       () => {
-        if (followingLatest()) {
+        const position = followPositionAfterRevision(followPosition());
+        setFollowPosition(position);
+        if (position === "bottom") {
           scrollToBottom();
         } else {
           updateAgentTurnStartPosition();
@@ -196,10 +238,12 @@ export function createAgentPaneScroll(
 
   return {
     agentTurnStartAbove,
+    followPosition,
     followingLatest,
     followIfNearBottom: (): void => {
-      if (isNearBottom()) {
-        setFollowingLatest(true);
+      const position = positionForGeometry();
+      if (position !== "detached") {
+        setFollowPosition(position);
       }
     },
     jumpToLatest,

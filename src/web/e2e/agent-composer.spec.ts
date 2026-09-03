@@ -1673,6 +1673,10 @@ test.describe("ACP composer", () => {
   // Pins the follow threshold and navigation: staying within three lines keeps following; scrolling farther up pauses it.
   test("scrolling beyond three lines shows jump-to-latest navigation", async ({ page }) => {
     await mountAgent(page);
+    const secondSession = mockSession("cx2", "other", "acp");
+    host.setSessions([agentSession, secondSession]);
+    await expect(page.locator(".session-chip")).toHaveCount(2);
+    host.publishSession(secondSession.address, "agent", "controls", controls);
     for (let i = 0; i < 40; i += 1) {
       publishPane(userMessage(`prompt ${i}\nwith\nseveral\nlines`));
     }
@@ -1695,6 +1699,14 @@ test.describe("ACP composer", () => {
       const lineHeight = await body.evaluate((element) =>
         Number.parseFloat(getComputedStyle(element).lineHeight),
       );
+      const currentBounds = await body.boundingBox();
+      if (currentBounds === null) {
+        throw new Error("agent body has no viewport");
+      }
+      await page.mouse.move(
+        currentBounds.x + currentBounds.width / 2,
+        currentBounds.y + currentBounds.height / 2,
+      );
       await page.mouse.wheel(0, -lineHeight * lines);
       await expect.poll(distanceFromBottom).toBeGreaterThan(lineHeight * lines - 2);
       await expect.poll(distanceFromBottom).toBeLessThan(lineHeight * lines + 2);
@@ -1702,7 +1714,35 @@ test.describe("ACP composer", () => {
 
     await scrollLinesFromBottom(2.5);
     await expect(latestButton).toHaveCount(0);
+    const nearDistance = await distanceFromBottom();
+    const otherSessionChip = page.locator('.session-chip[title^="other —"]');
+    const agentSessionChip = page.locator('.session-chip[title^="acp —"]');
+    await otherSessionChip.click();
+    await expect(otherSessionChip).toHaveClass(/active/);
+    await agentSessionChip.click();
+    await expect(agentSessionChip).toHaveClass(/active/);
+    await expect(page.locator(".agent-entry").first()).toBeVisible();
+    await expect.poll(distanceFromBottom).toBeGreaterThan(nearDistance - 2);
+    await expect.poll(distanceFromBottom).toBeLessThan(nearDistance + 2);
+    await expect(latestButton).toHaveCount(0);
+
+    await otherSessionChip.click();
+    await expect(otherSessionChip).toHaveClass(/active/);
     publishPane(userMessage("near-bottom follow check"));
+    const deliveryBarrier = host.requestSession(agentSession.address, "commands", "runClient", {
+      id: "weavie.test.deliveryBarrier",
+      args: null,
+    });
+    await expect(deliveryBarrier).resolves.toMatchObject({
+      payload: { ok: false, error: expect.stringContaining("not owned") },
+    });
+    await page.evaluate(
+      () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+    );
+    await expect(otherSessionChip).toHaveClass(/active/);
+    await agentSessionChip.click();
+    await expect(agentSessionChip).toHaveClass(/active/);
+    await expect(page.getByText("near-bottom follow check", { exact: true })).toBeVisible();
     await expect.poll(distanceFromBottom).toBeLessThan(1);
 
     await scrollLinesFromBottom(4);

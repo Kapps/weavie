@@ -15,14 +15,18 @@ import { liveKeyLabel } from "../commands/keys-live";
 import { CommandIds } from "../commands/types";
 import { AgentComposer } from "./AgentComposer";
 import { estimateEntrySize } from "./AgentPaneEstimate";
-import { createAgentPaneScroll } from "./AgentPaneScroll";
+import {
+  createAgentPaneScroll,
+  type FollowPosition,
+  followPositionAfterRevision,
+} from "./AgentPaneScroll";
 import { AgentTranscript } from "./AgentTranscript";
 import { TranscriptEntry } from "./AgentTranscriptEntry";
 import type { AgentPaneModel } from "./pane-store";
 
 interface ViewportSnapshot {
   expandedDetails: ReadonlySet<string>;
-  followingLatest: boolean;
+  followPosition: FollowPosition;
   generation: number;
   measurements: VirtualItem[];
   offset: number;
@@ -80,6 +84,10 @@ export function AgentPaneBody(props: {
   const stored = viewports.get(props.model);
   const saved = stored?.generation === props.model.generation() ? stored : undefined;
   const savedMeasurements = saved?.revision === props.model.revision() ? saved.measurements : [];
+  const initialFollowPosition =
+    saved === undefined || saved.revision === props.model.revision()
+      ? (saved?.followPosition ?? "bottom")
+      : followPositionAfterRevision(saved.followPosition);
   for (const id of saved?.expandedDetails ?? []) {
     props.model.setActivityExpanded(id, true);
   }
@@ -144,7 +152,7 @@ export function AgentPaneBody(props: {
     props.model.agentTurnStartIndex,
     turnNavigable,
     props.model.revision,
-    saved?.followingLatest ?? true,
+    initialFollowPosition,
   );
   virtualizerChanged = scroll.onVirtualizerChange;
   virtualizerScroll = scroll.noteControllerScroll;
@@ -170,7 +178,7 @@ export function AgentPaneBody(props: {
   onCleanup(() => {
     viewports.set(props.model, {
       expandedDetails: new Set(expandedDetails()),
-      followingLatest: scroll.followingLatest(),
+      followPosition: scroll.followPosition(),
       generation: props.model.generation(),
       measurements: virtualizer.takeSnapshot(),
       offset: body?.scrollTop ?? 0,

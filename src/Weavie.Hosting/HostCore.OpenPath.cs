@@ -7,7 +7,7 @@ namespace Weavie.Hosting;
 public sealed partial class HostCore {
 	private readonly PendingOpens _pendingOpens = new();
 
-	/// <summary>Asks the page to reveal <paramref name="path"/> in whichever session is selected.</summary>
+	/// <summary>Asks the page to reveal <paramref name="path"/> in a session that can serve it.</summary>
 	public void RequestOpenPath(string path) {
 		ArgumentException.ThrowIfNullOrEmpty(path);
 		_pendingOpens.Add(path);
@@ -21,8 +21,16 @@ public sealed partial class HostCore {
 	}
 
 	private void FlushPendingOpens() {
-		foreach (string path in _pendingOpens.Drain()) {
-			_messages.Host.Feature("files").Publish("openPath", new { path });
+		var pending = _pendingOpens.Drain();
+		if (pending.Count == 0) {
+			return;
+		}
+
+		// The page prefers the selected session, but that one can belong to a backend this file never reaches;
+		// this names the checkout to use instead, since only the host knows which slot that is.
+		string? fallbackSlot = _sessions?.Slots.FirstOrDefault(IsWorkspaceCheckout)?.Id;
+		foreach (string path in pending) {
+			_messages.Host.Feature("files").Publish("openPath", new { path, fallbackSlot });
 		}
 	}
 }

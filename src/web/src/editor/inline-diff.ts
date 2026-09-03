@@ -198,7 +198,8 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
   let renderGeneration = 0;
   let renderInFlight = false;
   let renderQueued = false;
-  let computationPending = false;
+  // The model version the rendered hunks were computed against; undefined when nothing is rendered.
+  let renderedVersion: number | undefined;
   let disposed = false;
   const initialProposalReveals = new Set<string>();
   // The currently-rendered diff's options + hunks; the nav/action methods all operate on these.
@@ -225,6 +226,8 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     canRedo: false,
   };
   let historyHandlers: ReviewHistoryHandlers | undefined;
+  // Every control whose action names a specific hunk, with the title it carries when it can act.
+  let scopeActions: { button: HTMLButtonElement; title: string }[] = [];
   let undoButton: HTMLButtonElement | undefined;
   let redoButton: HTMLButtonElement | undefined;
   // The parked-navigator summary (review set non-empty, no changed file in view) + whether it's the rendered
@@ -256,11 +259,12 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     dotsNode = undefined;
     scopeMenuNode = undefined;
     scopeWrapNode = undefined;
+    scopeActions = [];
     undoButton = undefined;
     redoButton = undefined;
 
     showingParked = false;
-    computationPending = false;
+    renderedVersion = undefined;
     currentOptions = undefined;
     fallbackNavigation = undefined;
     currentHunks = [];
@@ -525,17 +529,21 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     const dom = document.createElement("div");
     dom.className = "weavie-inline-pending-tag";
     dom.append(
-      makeButton(
-        "weavie-inline-pending-keep",
-        "✓ keep",
-        withShortcut("Keep this change", CommandIds.acceptChange),
-        () => keepHunkNow(hunk),
+      trackScopeAction(
+        makeButton(
+          "weavie-inline-pending-keep",
+          "✓ keep",
+          withShortcut("Keep this change", CommandIds.acceptChange),
+          () => keepHunkNow(hunk),
+        ),
       ),
-      makeButton(
-        "weavie-inline-pending-revert",
-        "✕ revert",
-        withShortcut("Revert this change", CommandIds.rejectChange),
-        () => revertHunkNow(hunk),
+      trackScopeAction(
+        makeButton(
+          "weavie-inline-pending-revert",
+          "✕ revert",
+          withShortcut("Revert this change", CommandIds.rejectChange),
+          () => revertHunkNow(hunk),
+        ),
       ),
     );
     return anchoredWidget(`weavie.pending.${index}`, model, hunk.anchorLine, dom);
@@ -631,6 +639,29 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     }
   };
 
+  // A per-hunk action needs coordinates that still match the live model, and they only do at the version the
+  // render was computed against — an edit since then (a keystroke while the recompute is in flight) moves
+  // every hunk after it, so keeping or reverting would act on the wrong lines.
+  const geometryStale = (): boolean =>
+    currentOptions !== undefined && renderedVersion !== editor.getModel()?.getVersionId();
+
+  const STALE_TITLE = "Waiting for the edited file's change geometry";
+
+  // Dim every per-hunk control while its coordinates are a version behind, and say why — the chords swallow
+  // themselves in that window, so the reason belongs where the user meets it.
+  const syncScopeButtons = (): void => {
+    const blocked = geometryStale();
+    for (const { button, title } of scopeActions) {
+      button.disabled = blocked;
+      button.title = blocked ? STALE_TITLE : title;
+    }
+  };
+
+  const trackScopeAction = (button: HTMLButtonElement): HTMLButtonElement => {
+    scopeActions.push({ button, title: button.title });
+    return button;
+  };
+
   // A hunk's live-model text plus its keep/revert coordinates — the payload (with concurrency guard) both post.
   const hunkPayload = (model: monaco.editor.ITextModel, hunk: DiffHunk): HunkRevert => ({
     baselineStart: hunk.baselineStart,
@@ -650,7 +681,12 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
   const keepHunkNow = (hunk: DiffHunk): void => {
     const options = currentOptions;
     const model = editor.getModel();
-    if (options?.mode !== "applied" || options.onKeepHunk === undefined || model === null) {
+    if (
+      options?.mode !== "applied" ||
+      options.onKeepHunk === undefined ||
+      model === null ||
+      geometryStale()
+    ) {
       return;
     }
     const remaining = currentHunks.filter((h) => h !== hunk);
@@ -667,7 +703,12 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
   const revertHunkNow = (hunk: DiffHunk): void => {
     const options = currentOptions;
     const model = editor.getModel();
-    if (options?.mode !== "applied" || options.onRevertHunk === undefined || model === null) {
+    if (
+      options?.mode !== "applied" ||
+      options.onRevertHunk === undefined ||
+      model === null ||
+      geometryStale()
+    ) {
       return;
     }
     // A faded band means kept hunks already exist; reverting the last bright hunk then leaves the file lingering
@@ -796,14 +837,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
       return runAction(options?.onAccept);
     }
     if (currentOptions === undefined) {
-      if (!computationPending) {
-        return keepFile();
-      }
-      return currentScope === "change"
-        ? true
-        : currentScope === "file"
-          ? keepFile()
-          : runAction(options.onKeepAll);
+      return keepFile(); // no geometry was rendered (timed out / failed): only whole-file Keep is meaningful
     }
     const scope = currentScope;
     return scope === "change" ? keepHunk() : scope === "file" ? keepFile() : keepAll();
@@ -820,14 +854,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
       return runAction(options?.onReject);
     }
     if (currentOptions === undefined) {
-      if (!computationPending) {
-        return revertFile();
-      }
-      return currentScope === "change"
-        ? true
-        : currentScope === "file"
-          ? revertFile()
-          : runAction(options.onUndo);
+      return revertFile(); // no geometry was rendered: only whole-file Revert is meaningful
     }
     const scope = currentScope;
     return scope === "change" ? revertHunk() : scope === "file" ? revertFile() : undo();
@@ -878,6 +905,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
       return;
     }
     currentScope = scope;
+    syncScopeButtons(); // the re-render is async; don't leave the old scope's blocked state up meanwhile
     renderActive();
   };
 
@@ -1045,22 +1073,24 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
         : scope === "file"
           ? "Revert this file"
           : `Revert ${allTarget}`;
-    bar.appendChild(
-      makeButton(
-        "weavie-inline-accept",
-        "Keep",
-        withShortcut(keepTip, CommandIds.acceptChange),
-        accept,
-      ),
+    const keep = makeButton(
+      "weavie-inline-accept",
+      "Keep",
+      withShortcut(keepTip, CommandIds.acceptChange),
+      accept,
     );
-    bar.appendChild(
-      makeButton(
-        "weavie-inline-reject",
-        "Revert",
-        withShortcut(revertTip, CommandIds.rejectChange),
-        reject,
-      ),
+    const revert = makeButton(
+      "weavie-inline-reject",
+      "Revert",
+      withShortcut(revertTip, CommandIds.rejectChange),
+      reject,
     );
+    // Only the change scope names a hunk; File / All changes act on coordinates an edit can't move.
+    if (scope === "change") {
+      trackScopeAction(keep);
+      trackScopeAction(revert);
+    }
+    bar.append(keep, revert);
     // A PR file also carries review comments, so Comment/Reply sit beside Keep/Revert on the one toolbar (a plain
     // turn file has no onAddComment, so no button).
     if (options.onAddComment !== undefined) {
@@ -1135,7 +1165,6 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     uriString: string,
     options: InlineDiffOptions,
     message: string,
-    pending: boolean,
   ): void => {
     clearRender();
     fallbackNavigation = options;
@@ -1174,39 +1203,21 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
         );
       }
       if (options.mode === "applied" && !fileKept) {
-        const changePending = pending && currentScope === "change";
-        const allPending = pending && currentScope === "all";
-        const keep = makeButton(
-          "weavie-inline-accept",
-          changePending ? "Keep change" : allPending ? "Keep all" : "Keep file",
-          changePending
-            ? "Waiting for current change geometry"
-            : withShortcut(
-                allPending ? "Keep all changes" : "Keep this file",
-                CommandIds.acceptChange,
-              ),
-          () =>
-            runAction(
-              changePending ? undefined : allPending ? options.onKeepAll : options.onKeepFile,
-            ),
+        // No hunk geometry to act on, so only the whole-file actions are offered.
+        toolbarNode.append(
+          makeButton(
+            "weavie-inline-accept",
+            "Keep file",
+            withShortcut("Keep this file", CommandIds.acceptChange),
+            () => runAction(options.onKeepFile),
+          ),
+          makeButton(
+            "weavie-inline-reject",
+            "Revert file",
+            withShortcut("Revert this file", CommandIds.rejectChange),
+            () => runAction(options.onRevertFile),
+          ),
         );
-        const revert = makeButton(
-          "weavie-inline-reject",
-          changePending ? "Revert change" : allPending ? "Revert all" : "Revert file",
-          changePending
-            ? "Waiting for current change geometry"
-            : withShortcut(
-                allPending ? "Revert all changes" : "Revert this file",
-                CommandIds.rejectChange,
-              ),
-          () =>
-            runAction(
-              changePending ? undefined : allPending ? options.onUndo : options.onRevertFile,
-            ),
-        );
-        keep.disabled = changePending;
-        revert.disabled = changePending;
-        toolbarNode.append(keep, revert);
       } else if (options.mode === "review") {
         toolbarNode.append(
           makeButton(
@@ -1225,7 +1236,6 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
       }
       editorDom.appendChild(toolbarNode);
     }
-    computationPending = pending;
     renderedUri = uriString;
   };
 
@@ -1258,12 +1268,12 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
       return;
     }
     if (calculation.status === "timed-out") {
-      renderUnavailable(uriString, options, "Diff calculation timed out", false);
+      renderUnavailable(uriString, options, "Diff calculation timed out");
       return;
     }
     if (calculation.status === "failed") {
       log("error", `inline diff calculation failed: ${String(calculation.error)}`);
-      renderUnavailable(uriString, options, "Diff calculation failed", false);
+      renderUnavailable(uriString, options, "Diff calculation failed");
       return;
     }
 
@@ -1299,6 +1309,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
 
     currentOptions = options;
     currentHunks = hunks;
+    renderedVersion = version;
     showingParked = false;
     if (initialProposalReveals.delete(uriString) && hunks[0] !== undefined) {
       editor.revealLineInCenter(hunks[0].anchorLine, REVEAL_SCROLL);
@@ -1442,13 +1453,6 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     setContext("diffActive", active);
   };
 
-  const showUpdating = (uriString: string, options: InlineDiffOptions): void => {
-    if (computationPending && renderedUri === uriString && fallbackNavigation === options) {
-      return;
-    }
-    renderUnavailable(uriString, options, "Updating diff…", true);
-  };
-
   const drainRender = async (): Promise<void> => {
     if (renderInFlight || disposed) {
       return;
@@ -1474,7 +1478,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
             diffs.get(uriString) === options
           ) {
             log("error", `inline diff rendering failed: ${String(error)}`);
-            renderUnavailable(uriString, options, "Diff calculation failed", false);
+            renderUnavailable(uriString, options, "Diff calculation failed");
           }
         }
       }
@@ -1499,7 +1503,9 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     const uriString = model?.uri.toString();
     const options = uriString === undefined ? undefined : diffs.get(uriString);
     if (model !== null && uriString !== undefined && options !== undefined) {
-      showUpdating(uriString, options);
+      if (renderedUri !== uriString) {
+        clearRender(); // what is on screen belongs to another file; nothing here to preserve
+      }
       queueRender();
     } else if (parkedReview !== undefined && parkedReview.fileCount > 0) {
       renderQueued = false;
@@ -1521,7 +1527,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     }
     initialProposalReveals.delete(uriString);
     renderGeneration++;
-    showUpdating(uriString, options);
+    syncScopeButtons();
     if (recomputeTimer !== undefined) {
       clearTimeout(recomputeTimer);
     }
@@ -1587,7 +1593,13 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     diffs.set(key, options);
     syncDiffContext();
     const model = editor.getModel();
-    if (model !== null && model.uri.toString() === key) {
+    if (model === null || model.uri.toString() !== key) {
+      return;
+    }
+    // The host re-emits this file's diff on every autosave, so mid-typing the pushes arrive at keystroke rate.
+    // Let the armed recompute pick the new options up rather than rendering per save; a push while nothing is
+    // pending (a keep, a fresh agent edit) still renders straight away.
+    if (renderedUri !== key || recomputeTimer === undefined) {
       renderActive();
     }
   };

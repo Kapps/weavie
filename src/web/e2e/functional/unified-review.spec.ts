@@ -345,17 +345,28 @@ test.describe("unified review mode — large file", () => {
 
 test.describe("unified review mode — large file set", () => {
   const fileCount = 100;
+  const readyFile = ".large-review-ready";
   test.use({
     fakeScript: {
-      steps: Array.from({ length: fileCount }, (_, index) =>
-        appliedEdit(`review-${String(index).padStart(3, "0")}.txt`, `change ${index}\n`),
-      ).flat(),
+      steps: [
+        ...Array.from({ length: fileCount }, (_, index) =>
+          appliedEdit(`review-${String(index).padStart(3, "0")}.txt`, `change ${index}\n`),
+        ).flat(),
+        { op: "edit", path: `{{WORKSPACE}}/${readyFile}`, content: "ready\n" },
+      ],
     },
   });
 
   test("restores the exact file across a reverse mode toggle without mounting every editor", async ({
     page,
+    weavie,
   }) => {
+    test.slow();
+    await expect
+      .poll(() => readFile(join(weavie.workspace, readyFile), "utf8").catch(() => ""), {
+        timeout: 60_000,
+      })
+      .toBe("ready\n");
     await page.locator(".editor-empty-review").click();
     const overview = page.locator(".unified-review");
     const targetName = "review-099.txt";

@@ -17,14 +17,14 @@ public sealed partial class HostCore {
 			return;
 		}
 
-		if (SlotFor(session) is not { } slot) {
+		if (SlotFor(session) is null) {
 			Notify(session, "warn", "That session is no longer loaded.");
 			return;
 		}
 
 		// A revision runs as long as the provider takes, so it never occupies the bus request lane.
 		_ = session.Background.Run(ct => session.Revise.RunAsync(
-			new InferenceOwner { AgentProviderId = slot.AgentProviderId, Workspace = session.WorkspaceRoot },
+			new InferenceOwner { Workspace = session.WorkspaceRoot },
 			[
 				new ReviseTarget {
 					Path = message.Path,

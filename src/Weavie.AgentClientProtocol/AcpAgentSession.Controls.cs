@@ -75,19 +75,10 @@ public sealed partial class AcpAgentSession {
 				new { sessionId, modeId = mutation.Value },
 				generation,
 				CancellationToken.None).ConfigureAwait(false);
-		} else if (control.Kind == "boolean") {
-			if (!bool.TryParse(mutation.Value, out bool boolean)) {
-				throw new AcpProtocolException($"'{mutation.Value}' is not a boolean ACP configuration value.");
-			}
-			result = await _connection.RequestAsync(
-				"session/set_config_option",
-				new { sessionId, configId = mutation.Axis, type = "boolean", value = boolean },
-				generation,
-				CancellationToken.None).ConfigureAwait(false);
 		} else {
 			result = await _connection.RequestAsync(
 				"session/set_config_option",
-				new { sessionId, configId = mutation.Axis, value = mutation.Value },
+				AcpConfigurationOptions.SetParameters(sessionId, control, mutation.Value),
 				generation,
 				CancellationToken.None).ConfigureAwait(false);
 		}
@@ -134,21 +125,13 @@ public sealed partial class AcpAgentSession {
 	}
 
 	private void ReadControlResultLocked(JsonElement result) {
-		if (!result.TryGetProperty("configOptions", out var options) || options.ValueKind != JsonValueKind.Array) {
-			throw new AcpProtocolException("The ACP configuration response is missing configOptions.");
-		}
-		ReplaceConfigOptionsLocked(options);
+		ReplaceConfigOptionsLocked(AcpConfigurationOptions.ReadRequired(
+			result, "The ACP configuration response is missing configOptions."));
 	}
 
 	private void ReadControlStateLocked(JsonElement setup) {
 		_controls.Clear();
-		if (setup.TryGetProperty("configOptions", out var config)
-			&& config.ValueKind != JsonValueKind.Null) {
-			if (config.ValueKind != JsonValueKind.Array) {
-				throw new AcpProtocolException("ACP configOptions must be an array when present.");
-			}
-			ReadConfigOptionsLocked(config);
-		}
+		foreach (var control in AcpConfigurationOptions.ReadIfPresent(setup)) _controls.Add(control.Id, control);
 		_configOwnsMode = _controls.ContainsKey("mode");
 		if (setup.TryGetProperty("modes", out var modes)) {
 			if (modes.ValueKind == JsonValueKind.Null) return;
@@ -160,19 +143,18 @@ public sealed partial class AcpAgentSession {
 	}
 
 	private void UpdateConfig(JsonElement update) {
-		if (!update.TryGetProperty("configOptions", out var config) || config.ValueKind != JsonValueKind.Array) {
-			throw new AcpProtocolException("An ACP config update is missing configOptions.");
-		}
+		var config = AcpConfigurationOptions.ReadRequired(
+			update, "An ACP config update is missing configOptions.");
 		lock (_gate) {
 			ReplaceConfigOptionsLocked(config);
 		}
 		RaiseControls();
 	}
 
-	private void ReplaceConfigOptionsLocked(JsonElement config) {
+	private void ReplaceConfigOptionsLocked(IReadOnlyList<AgentControlAxis> config) {
 		var legacyMode = _configOwnsMode ? null : _controls.GetValueOrDefault("mode");
 		_controls.Clear();
-		ReadConfigOptionsLocked(config);
+		foreach (var control in config) _controls.Add(control.Id, control);
 		_configOwnsMode = _controls.ContainsKey("mode");
 		if (!_configOwnsMode && legacyMode is not null) _controls.Add("mode", legacyMode);
 	}
@@ -223,81 +205,6 @@ public sealed partial class AcpAgentSession {
 		}
 		return RequiredString(input, "hint", $"available command '{name}' input");
 	}
-
-	private void ReadConfigOptionsLocked(JsonElement config) {
-		foreach (var option in config.EnumerateArray()) {
-			string id = RequiredString(option, "id", "session config option");
-			if (_controls.ContainsKey(id)) {
-				throw new AcpProtocolException($"ACP repeated session config option '{id}'.");
-			}
-			string kind = RequiredString(option, "type", "session config option");
-			string value;
-			IReadOnlyList<AgentControlOption> values;
-			if (kind == "boolean") {
-				if (!option.TryGetProperty("currentValue", out var current)
-					|| current.ValueKind is not (JsonValueKind.True or JsonValueKind.False)) {
-					throw new AcpProtocolException($"Boolean ACP config option '{id}' has no boolean currentValue.");
-				}
-				value = current.GetBoolean().ToString().ToLowerInvariant();
-				values = [
-					new AgentControlOption { Id = "true", Label = "On" },
-					new AgentControlOption { Id = "false", Label = "Off" },
-				];
-			} else if (kind == "select") {
-				value = RequiredString(option, "currentValue", "session config option");
-				if (!option.TryGetProperty("options", out var choices) || choices.ValueKind != JsonValueKind.Array) {
-					throw new AcpProtocolException($"Select ACP config option '{id}' has no options.");
-				}
-				values = ReadSelectOptions(id, choices);
-				if (values.All(choice => choice.Id != value)) {
-					throw new AcpProtocolException(
-						$"Select ACP config option '{id}' has unadvertised currentValue '{value}'.");
-				}
-			} else {
-				throw new AcpProtocolException($"Unsupported ACP config option type '{kind}'.");
-			}
-			_controls[id] = new AgentControlAxis {
-				Id = id,
-				Label = RequiredString(option, "name", "session config option"),
-				Description = OptionalString(option, "description"),
-				Category = OptionalString(option, "category"),
-				Kind = kind,
-				Value = value,
-				ValueLabel = values.FirstOrDefault(choice => choice.Id == value)?.Label ?? value,
-				Options = values,
-			};
-		}
-	}
-
-	private static IReadOnlyList<AgentControlOption> ReadSelectOptions(string configId, JsonElement choices) {
-		var entries = choices.EnumerateArray().ToArray();
-		bool grouped = entries.Length > 0 && entries.All(choice => choice.TryGetProperty("options", out _));
-		if (!grouped && entries.Any(choice => choice.TryGetProperty("options", out _))) {
-			throw new AcpProtocolException($"Select ACP config option '{configId}' mixes grouped and flat values.");
-		}
-		var values = grouped
-			? entries.SelectMany(group => {
-				RequiredString(group, "group", "session config group");
-				string name = RequiredString(group, "name", "session config group");
-				if (!group.TryGetProperty("options", out var options) || options.ValueKind != JsonValueKind.Array) {
-					throw new AcpProtocolException($"Select ACP config group '{name}' has no options.");
-				}
-				return options.EnumerateArray().Select(choice => SelectOption(choice, name));
-			})
-			: entries.Select(choice => SelectOption(choice, null));
-		var result = values.ToArray();
-		if (result.Select(option => option.Id).Distinct(StringComparer.Ordinal).Count() != result.Length) {
-			throw new AcpProtocolException($"Select ACP config option '{configId}' repeats a value id.");
-		}
-		return result;
-	}
-
-	private static AgentControlOption SelectOption(JsonElement choice, string? group) => new() {
-		Id = RequiredString(choice, "value", "session config value"),
-		Label = RequiredString(choice, "name", "session config value"),
-		Description = OptionalString(choice, "description"),
-		Group = group,
-	};
 
 	// Agents mirror one mode axis in both configOptions and the legacy modes block. The config option owns
 	// it, because session/set_config_option is what writes it back.

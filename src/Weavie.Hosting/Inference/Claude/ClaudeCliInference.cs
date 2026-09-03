@@ -33,7 +33,8 @@ internal sealed class ClaudeCliInference : IInferenceProvider {
 		InferenceProviderRequest request,
 		CancellationToken ct) {
 		ArgumentNullException.ThrowIfNull(request);
-		var profile = Profile(request.Category);
+		ArgumentNullException.ThrowIfNull(request.Profile);
+		var profile = Profile(request.Category, request.Profile);
 		string? imageDirectory = null;
 		try {
 			var imagePaths = new List<string>(request.Images.Count);
@@ -59,18 +60,7 @@ internal sealed class ClaudeCliInference : IInferenceProvider {
 			var result = await _processes.RunAsync(new AgentCliProcessRequest {
 				Command = command,
 				WorkingDirectory = Path.GetFullPath(request.Workspace),
-				Arguments = [
-					"--print",
-					"--safe-mode",
-					"--tools", "",
-					"--strict-mcp-config",
-					"--disable-slash-commands",
-					"--no-session-persistence",
-					"--output-format", "json",
-					"--json-schema", request.OutputSchemaJson,
-					"--model", profile.Model,
-					"--effort", profile.Effort,
-				],
+				Arguments = Arguments(request, profile),
 				PathEntries = [],
 				Environment = new Dictionary<string, string>(StringComparer.Ordinal),
 				RemoveEnvironment = [],
@@ -140,11 +130,40 @@ internal sealed class ClaudeCliInference : IInferenceProvider {
 			? value.GetString()
 			: null;
 
-	private static ClaudeProfile Profile(InferenceModelCategory category) => category switch {
-		InferenceModelCategory.Utility => new ClaudeProfile("haiku", "low"),
-		InferenceModelCategory.Reasoning => new ClaudeProfile("sonnet", "medium"),
-		_ => throw new ArgumentOutOfRangeException(nameof(category), category, "Unknown inference model category."),
-	};
+	private static IReadOnlyList<string> Arguments(InferenceProviderRequest request, ClaudeProfile profile) {
+		var arguments = new List<string> {
+			"--print",
+			"--safe-mode",
+			"--tools", "",
+			"--strict-mcp-config",
+			"--disable-slash-commands",
+			"--no-session-persistence",
+			"--output-format", "json",
+			"--json-schema", request.OutputSchemaJson,
+			"--model", profile.Model,
+			"--effort", profile.Effort,
+		};
+		if (request.Profile.FastMode != InferenceFastMode.Inherit) {
+			arguments.Add("--settings");
+			arguments.Add(JsonSerializer.Serialize(new {
+				fastMode = request.Profile.FastMode == InferenceFastMode.On,
+			}));
+		}
+		return arguments;
+	}
+
+	private static ClaudeProfile Profile(
+		InferenceModelCategory category,
+		InferenceProviderProfile configured) {
+		var categoryProfile = category switch {
+			InferenceModelCategory.Utility => new ClaudeProfile("haiku", "low"),
+			InferenceModelCategory.Reasoning => new ClaudeProfile("sonnet", "medium"),
+			_ => throw new ArgumentOutOfRangeException(nameof(category), category, "Unknown inference model category."),
+		};
+		return new ClaudeProfile(
+			configured.Model.Length == 0 ? categoryProfile.Model : configured.Model,
+			configured.Effort.Length == 0 ? categoryProfile.Effort : configured.Effort);
+	}
 
 	private sealed record ClaudeProfile(string Model, string Effort);
 }

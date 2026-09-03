@@ -198,7 +198,6 @@ test.describe("session-addressed WebSocket transport", () => {
     expect(request.payload).toMatchObject({
       sourceId: "main",
       attachments: [],
-      agentProviderId: "claude",
     });
     host.respond(request, {
       branch: "",

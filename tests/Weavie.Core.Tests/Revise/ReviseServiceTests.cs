@@ -14,7 +14,7 @@ namespace Weavie.Core.Tests;
 /// </summary>
 public sealed class ReviseServiceTests {
 	private const string Original = "// one\n// two\n// three";
-	private static readonly InferenceOwner Owner = new() { AgentProviderId = "claude", Workspace = "/w" };
+	private static readonly InferenceOwner Owner = new() { Workspace = "/w" };
 
 	private static SessionChangeTracker Staged(IFileSystem fileSystem) {
 		fileSystem.WriteAllText("/w/a.cs", "code\n");

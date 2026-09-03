@@ -14,6 +14,11 @@ internal static class InferenceFake {
 		string cwd = string.Empty;
 		string imageMime = string.Empty;
 		string imageData = string.Empty;
+		string model = "fake-model";
+		string effort = "medium";
+		bool fast = false;
+		bool booleanConfigOptions = false;
+		var mutations = new List<string>();
 		while (await Console.In.ReadLineAsync().ConfigureAwait(false) is { } line) {
 			if (line.Length == 0) continue;
 			using var document = JsonDocument.Parse(line);
@@ -27,6 +32,7 @@ internal static class InferenceFake {
 			var id = root.TryGetProperty("id", out var raw) ? JsonNode.Parse(raw.GetRawText()) : null;
 			switch (method) {
 				case "initialize":
+					booleanConfigOptions = SupportsBooleanConfigOptions(root);
 					var initialized = new JsonObject { ["protocolVersion"] = 1 };
 					if (variant != "no-image-capability") {
 						initialized["agentCapabilities"] = new JsonObject {
@@ -40,16 +46,24 @@ internal static class InferenceFake {
 					Probe();
 					Respond(id, new JsonObject {
 						["sessionId"] = "inference-session",
-						["configOptions"] = new JsonArray {
-							new JsonObject {
-								["id"] = "model",
-								["name"] = "Model",
-								["category"] = "model",
-								["type"] = "select",
-								["currentValue"] = "fake-model",
-								["options"] = new JsonArray(),
-							},
-						},
+						["configOptions"] = Configuration(
+							model, effort, fast, variant, booleanConfigOptions),
+					});
+					break;
+				case "session/set_config_option":
+					var parameters = root.GetProperty("params");
+					string configId = parameters.GetProperty("configId").GetString() ?? string.Empty;
+					if (configId == "model") model = parameters.GetProperty("value").GetString() ?? string.Empty;
+					else if (configId == "effort") effort = parameters.GetProperty("value").GetString() ?? string.Empty;
+					else if (configId is "fast" or "fast-mode") {
+						var value = parameters.GetProperty("value");
+						fast = value.ValueKind == JsonValueKind.True
+							|| value.ValueKind == JsonValueKind.String && value.GetString() == "on";
+					}
+					mutations.Add(configId);
+					Respond(id, new JsonObject {
+						["configOptions"] = Configuration(
+							model, effort, fast, variant, booleanConfigOptions),
 					});
 					break;
 				case "session/prompt":
@@ -58,7 +72,17 @@ internal static class InferenceFake {
 						imageMime = AcpJson.OptionalString(block, "mimeType") ?? string.Empty;
 						imageData = AcpJson.OptionalString(block, "data") ?? string.Empty;
 					}
-					Chunk(Reply(variant, cwd, refusedProbe, imageMime, imageData));
+					Chunk(Reply(
+						variant,
+						cwd,
+						refusedProbe,
+						imageMime,
+						imageData,
+						model,
+						effort,
+						fast,
+						booleanConfigOptions,
+						mutations));
 					Respond(id, new JsonObject {
 						["stopReason"] = variant == "refusal" ? "refusal" : "end_turn",
 						["usage"] = new JsonObject {
@@ -84,7 +108,12 @@ internal static class InferenceFake {
 		string cwd,
 		bool refusedProbe,
 		string imageMime,
-		string imageData) => variant switch {
+		string imageData,
+		string model,
+		string effort,
+		bool fast,
+		bool booleanConfigOptions,
+		IReadOnlyList<string> mutations) => variant switch {
 			"prose" => "Here you go!\n\n```json\n{\"branch\":\"feat/fenced\"}\n```",
 			"empty" => string.Empty,
 			// Valid JSON that is far past any sane output bound, to prove the client stops accumulating.
@@ -99,8 +128,75 @@ internal static class InferenceFake {
 				["branch"] = "feat/fake-branch",
 				["cwd"] = cwd,
 				["refusedProbe"] = refusedProbe,
+				["model"] = model,
+				["effort"] = effort,
+				["fast"] = fast,
+				["booleanConfigOptions"] = booleanConfigOptions,
+				["mutations"] = new JsonArray(mutations.Select(mutation => JsonValue.Create(mutation)).ToArray()),
 			}),
 		};
+
+	private static JsonArray Configuration(
+		string model,
+		string effort,
+		bool fast,
+		string variant,
+		bool booleanConfigOptions) {
+		var options = new JsonArray {
+			new JsonObject {
+				["id"] = "model",
+				["name"] = "Model",
+				["category"] = "model",
+				["type"] = "select",
+				["currentValue"] = model,
+				["options"] = new JsonArray(
+					new JsonObject {
+						["group"] = "available",
+						["name"] = "Available",
+						["options"] = new JsonArray(
+							new JsonObject { ["value"] = "fake-model", ["name"] = "Fake Model" },
+							new JsonObject { ["value"] = "opus", ["name"] = "Opus" }),
+					}),
+			},
+			new JsonObject {
+				["id"] = "effort",
+				["name"] = "Effort",
+				["category"] = "thought_level",
+				["type"] = "select",
+				["currentValue"] = effort,
+				["options"] = model == "opus"
+					? new JsonArray(
+						new JsonObject { ["value"] = "medium", ["name"] = "Medium" },
+						new JsonObject { ["value"] = "low", ["name"] = "Low" })
+					: new JsonArray(new JsonObject { ["value"] = "medium", ["name"] = "Medium" }),
+			},
+		};
+		if (variant != "no-fast") {
+			var fastOption = new JsonObject {
+				["id"] = variant == "select-fast-mode" ? "fast-mode" : "fast",
+				["name"] = "Fast",
+				["category"] = "model_config",
+			};
+			if (booleanConfigOptions && variant != "select-fast-mode") {
+				fastOption["type"] = "boolean";
+				fastOption["currentValue"] = fast;
+			} else {
+				fastOption["type"] = "select";
+				fastOption["currentValue"] = fast ? "on" : "off";
+				fastOption["options"] = new JsonArray(
+					new JsonObject { ["value"] = "on", ["name"] = "On" },
+					new JsonObject { ["value"] = "off", ["name"] = "Off" });
+			}
+			options.Add(fastOption);
+		}
+		return options;
+	}
+
+	private static bool SupportsBooleanConfigOptions(JsonElement request) =>
+		request.GetProperty("params").GetProperty("clientCapabilities")
+			.TryGetProperty("session", out var session)
+		&& session.TryGetProperty("configOptions", out var configOptions)
+		&& configOptions.TryGetProperty("boolean", out _);
 
 	private static void Probe() => Write(new JsonObject {
 		["jsonrpc"] = "2.0",

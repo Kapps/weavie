@@ -2,6 +2,7 @@ using Xunit;
 
 namespace Weavie.Hosting.Tests;
 
+[Collection(TestCollections.HostIntegration)]
 public sealed class HostCoreGitStatusTests {
 	[Fact]
 	public async Task GitMetadataAndFileActivityRefreshStatus() {

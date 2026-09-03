@@ -83,7 +83,7 @@ export default function SourceView(props: {
     } else {
       edit.reset();
     }
-    installEmbedZoomAndMermaid(content, () => gen === generation);
+    installEmbedZoomAndMermaid(content, props.session, () => gen === generation);
   };
 
   // Re-render on doc change (loading → ready/error, or a new doc) and on theme switch: mermaid bakes the theme into

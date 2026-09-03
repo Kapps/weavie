@@ -3,16 +3,17 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
+using Weavie.Core.Agents;
 using Weavie.Core.Inference;
 
 namespace Weavie.AgentClientProtocol;
 
 /// <summary>
 /// One isolated ACP query: a transient agent process, one throwaway session rooted at the owning worktree, and one
-/// prompt turn. The client advertises no capabilities and refuses every agent request, so the agent has no tools,
-/// no filesystem, and no MCP surface to reach for.
+/// prompt turn. The client advertises only typed boolean configuration and refuses every agent request, so the
+/// agent has no tools, filesystem, or MCP surface to reach for.
 /// </summary>
-internal sealed class AcpInferenceClient : IAsyncDisposable {
+internal sealed partial class AcpInferenceClient : IAsyncDisposable {
 	private static readonly Encoding Utf8NoBom = new UTF8Encoding(false);
 	private readonly AcpAgentDefinition _definition;
 	private readonly ConcurrentDictionary<long, TaskCompletionSource<JsonElement>> _pending = new();
@@ -94,9 +95,12 @@ internal sealed class AcpInferenceClient : IAsyncDisposable {
 		string model = _definition.Id;
 		_maxReplyBytes = request.MaxOutputBytes;
 		try {
+			ArgumentNullException.ThrowIfNull(request.Profile);
 			var initialized = await RequestAsync("initialize", new {
 				protocolVersion = 1,
-				clientCapabilities = new { },
+				clientCapabilities = new {
+					session = new { configOptions = new { boolean = new { } } },
+				},
 				clientInfo = new { name = "weavie", title = "Weavie", version = "1" },
 			}, ct).ConfigureAwait(false);
 			var capabilities = AcpCapabilities.Read(initialized);
@@ -114,7 +118,8 @@ internal sealed class AcpInferenceClient : IAsyncDisposable {
 			}, ct).ConfigureAwait(false);
 
 			string sessionId = RequiredString(setup, "sessionId");
-			model = CurrentModel(setup) ?? _definition.Id;
+			var configured = await ApplyProfileAsync(sessionId, setup, request.Profile, ct).ConfigureAwait(false);
+			model = CurrentModel(configured) ?? _definition.Id;
 
 			var turn = await RequestAsync("session/prompt", new {
 				sessionId,
@@ -144,6 +149,8 @@ internal sealed class AcpInferenceClient : IAsyncDisposable {
 		} catch (AcpAuthenticationRequiredException) {
 			return Failure(model, InferenceFailureKind.AuthenticationFailed,
 				$"The ACP agent '{_definition.Name}' requires authentication. Open a session with it to sign in.");
+		} catch (AcpInferenceProfileException ex) {
+			return Failure(model, InferenceFailureKind.NotConfigured, ex.Message);
 		} catch (AcpProtocolException ex) {
 			return Failure(model, InferenceFailureKind.ProviderUnavailable, ex.Message);
 		} catch (Exception ex) when (ex is IOException or InvalidOperationException) {
@@ -198,24 +205,9 @@ internal sealed class AcpInferenceClient : IAsyncDisposable {
 				? result
 				: 0;
 
-	// Observability only: the agent owns model selection, so Weavie reports what it chose rather than choosing.
-	private static string? CurrentModel(JsonElement setup) {
-		if (!setup.TryGetProperty("configOptions", out var options) || options.ValueKind != JsonValueKind.Array) {
-			return null;
-		}
-		foreach (var option in options.EnumerateArray()) {
-			if (option.ValueKind == JsonValueKind.Object
-				&& option.TryGetProperty("category", out var category)
-				&& category.ValueKind == JsonValueKind.String
-				&& category.GetString() == "model"
-				&& option.TryGetProperty("currentValue", out var current)
-				&& current.ValueKind == JsonValueKind.String) {
-				return current.GetString();
-			}
-		}
-
-		return null;
-	}
+	// The final configuration is authoritative: later control mutations may change the selected model.
+	private static string? CurrentModel(IReadOnlyList<AgentControlAxis> controls) =>
+		controls.FirstOrDefault(control => control.Category == "model")?.Value;
 
 	private static InferenceProviderFailure Failure(
 		string model,

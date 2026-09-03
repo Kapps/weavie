@@ -41,6 +41,80 @@ public sealed class AcpInferenceTests : IDisposable {
 	}
 
 	[Fact]
+	public async Task AppliesDependentModelEffortAndFastModeControlsBeforeThePrompt() {
+		var provider = Provider(
+			AcpAgentSessionFixture.ExecutablePath("tools", "Weavie.FakeAcp", "weavie-fake-acp"),
+			["inference", "ok"]);
+		var request = Request() with {
+			Profile = Profile("opus", "low", InferenceFastMode.On),
+		};
+
+		var result = Assert.IsType<InferenceProviderSuccess>(
+			await provider.QueryInferenceAsync(request, CancellationToken.None));
+
+		Assert.Equal("opus", result.ModelId);
+		using var output = JsonDocument.Parse(result.OutputJson);
+		Assert.Equal("opus", output.RootElement.GetProperty("model").GetString());
+		Assert.Equal("low", output.RootElement.GetProperty("effort").GetString());
+		Assert.True(output.RootElement.GetProperty("fast").GetBoolean());
+		Assert.True(output.RootElement.GetProperty("booleanConfigOptions").GetBoolean());
+		Assert.Equal(
+			["model", "effort", "fast"],
+			output.RootElement.GetProperty("mutations").EnumerateArray().Select(value => value.GetString()));
+	}
+
+	[Fact]
+	public async Task AppliesSelectFastModeFromTheAlternateShippedControlId() {
+		var provider = Provider(
+			AcpAgentSessionFixture.ExecutablePath("tools", "Weavie.FakeAcp", "weavie-fake-acp"),
+			["inference", "select-fast-mode"]);
+		var request = Request() with {
+			Profile = Profile(string.Empty, string.Empty, InferenceFastMode.On),
+		};
+
+		var result = Assert.IsType<InferenceProviderSuccess>(
+			await provider.QueryInferenceAsync(request, CancellationToken.None));
+
+		using var output = JsonDocument.Parse(result.OutputJson);
+		Assert.True(output.RootElement.GetProperty("fast").GetBoolean());
+		Assert.Equal(
+			["fast-mode"],
+			output.RootElement.GetProperty("mutations").EnumerateArray().Select(value => value.GetString()));
+	}
+
+	[Fact]
+	public async Task ExplicitUnavailableProfileFailsWithoutPromptingOrFallingBack() {
+		var provider = Provider(
+			AcpAgentSessionFixture.ExecutablePath("tools", "Weavie.FakeAcp", "weavie-fake-acp"),
+			["inference", "no-fast"]);
+		var request = Request() with {
+			Profile = Profile(string.Empty, string.Empty, InferenceFastMode.On),
+		};
+
+		var failure = Assert.IsType<InferenceProviderFailure>(
+			await provider.QueryInferenceAsync(request, CancellationToken.None));
+
+		Assert.Equal(InferenceFailureKind.NotConfigured, failure.Kind);
+		Assert.Contains("Fast Mode", failure.Detail, StringComparison.Ordinal);
+	}
+
+	[Fact]
+	public async Task UnadvertisedModelValueFailsWithoutProviderFallback() {
+		var provider = Provider(
+			AcpAgentSessionFixture.ExecutablePath("tools", "Weavie.FakeAcp", "weavie-fake-acp"),
+			["inference", "ok"]);
+		var request = Request() with {
+			Profile = Profile("missing-model", string.Empty, InferenceFastMode.Inherit),
+		};
+
+		var failure = Assert.IsType<InferenceProviderFailure>(
+			await provider.QueryInferenceAsync(request, CancellationToken.None));
+
+		Assert.Equal(InferenceFailureKind.NotConfigured, failure.Kind);
+		Assert.Contains("missing-model", failure.Detail, StringComparison.Ordinal);
+	}
+
+	[Fact]
 	public async Task SendsImagesAsNativeContentBlocks() {
 		var provider = Provider(
 			AcpAgentSessionFixture.ExecutablePath("tools", "Weavie.FakeAcp", "weavie-fake-acp"),
@@ -122,12 +196,22 @@ public sealed class AcpInferenceTests : IDisposable {
 
 	private InferenceProviderRequest Request() => new() {
 		Category = InferenceModelCategory.Utility,
+		Profile = Profile(string.Empty, string.Empty, InferenceFastMode.Inherit),
 		Workspace = _workspace,
 		Prompt = "Propose one branch name.",
 		Images = [],
 		OutputSchemaJson = "{\"type\":\"object\",\"properties\":{\"branch\":{\"type\":\"string\"}}}",
 		MaxOutputBytes = 4096,
 	};
+
+	private static InferenceProviderProfile Profile(
+		string model,
+		string effort,
+		InferenceFastMode fastMode) => new() {
+			Model = model,
+			Effort = effort,
+			FastMode = fastMode,
+		};
 
 	private InferenceProviderRequest RequestWithImage() => Request() with {
 		Images = [new InferenceInputImage { Mime = "image/png", Bytes = new byte[] { 1, 2, 3, 4 } }],

@@ -378,15 +378,19 @@ public sealed partial class HostCore {
 			_settings.RequireString(AgentSettings.DefaultProvider),
 			providerId,
 			StringComparison.Ordinal);
+		bool isInferenceDefault = string.Equals(
+			_settings.RequireString(InferenceSettings.DefaultProvider),
+			providerId,
+			StringComparison.Ordinal);
 		bool hasSession = _sessionStore.Items.Any(item =>
 			string.Equals(item.AgentProviderId, providerId, StringComparison.Ordinal))
 			|| _sessions?.Slots.Any(slot =>
 				string.Equals(slot.AgentProviderId, providerId, StringComparison.Ordinal)) == true;
 		bool hasWorktree = _worktrees?.Registry.Items.Any(item =>
 			string.Equals(item.AgentProviderId, providerId, StringComparison.Ordinal)) == true;
-		if (isDefault || hasSession || hasWorktree) {
+		if (isDefault || isInferenceDefault || hasSession || hasWorktree) {
 			throw new InvalidOperationException(
-				$"ACP agent '{providerId}' is still referenced by a session, worktree, or the default provider.");
+				$"ACP agent '{providerId}' is still referenced by a session, worktree, or default provider.");
 		}
 	}
 

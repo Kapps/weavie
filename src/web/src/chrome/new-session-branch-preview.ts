@@ -13,7 +13,6 @@ export interface BranchPreviewContext {
   backendId: string;
   prompt: string;
   attachments: readonly EncodedImageAttachment[];
-  providerId: string;
 }
 
 export type BranchPreviewStatus =
@@ -63,11 +62,6 @@ const sameSuggestion = (
     left.prompt === right.prompt &&
     sameAttachments(left.attachments, right.attachments));
 
-const sameContext = (
-  left: BranchPreviewContext | null,
-  right: BranchPreviewContext | null,
-): boolean => sameSuggestion(left, right) && left?.providerId === right?.providerId;
-
 const retargeted = (previous: BranchPreviewContext | null, next: BranchPreviewContext): boolean =>
   previous !== null && previous.backendId !== next.backendId;
 
@@ -97,7 +91,7 @@ export class NewSessionBranchPreview {
 
   update(context: BranchPreviewContext | null): void {
     const previous = this.context;
-    if (sameContext(previous, context)) {
+    if (sameSuggestion(previous, context)) {
       return;
     }
 
@@ -109,10 +103,6 @@ export class NewSessionBranchPreview {
       this.invalidate();
       this.settled = false;
       this.publish({ branch: "", error: null, manual: false, status: "idle" });
-      return;
-    }
-    // Provider selection is launch context, so updating it never invalidates this suggestion.
-    if (sameSuggestion(previous, context)) {
       return;
     }
     // A different host has different repository conventions and collisions, so it invalidates the name.

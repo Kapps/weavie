@@ -22,7 +22,6 @@ export function NewSessionBranchField(props: {
   attachments: readonly EncodedImageAttachment[];
   inputReady: boolean;
   prompt: string;
-  providerId: string;
   onChange: (state: BranchPreviewState) => void;
   register: (actions: NewSessionBranchActions) => void;
 }): JSX.Element {
@@ -39,7 +38,6 @@ export function NewSessionBranchField(props: {
         context.backendId,
         context.prompt,
         context.attachments,
-        context.providerId,
         userInitiated,
         signal,
       ),
@@ -75,7 +73,6 @@ export function NewSessionBranchField(props: {
             backendId: props.backendId,
             prompt,
             attachments: props.attachments,
-            providerId: props.providerId,
           }
         : null,
     );

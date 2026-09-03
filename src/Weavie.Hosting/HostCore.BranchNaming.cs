@@ -10,7 +10,6 @@ public sealed partial class HostCore {
 		string sourceRoot,
 		string? prompt,
 		IReadOnlyList<NewSessionAttachment> attachments,
-		string agentProviderId,
 		InferenceInvocationOrigin origin,
 		CancellationToken ct) {
 		if (!ValidateBranchPreviewAttachments(attachments, out string attachmentError)) {
@@ -45,7 +44,7 @@ public sealed partial class HostCore {
 		}
 
 		// The branch is named before its session exists, so the request is owned by the workspace it forks from.
-		var owner = new InferenceOwner { AgentProviderId = agentProviderId, Workspace = sourceRoot };
+		var owner = new InferenceOwner { Workspace = sourceRoot };
 		var result = await _inference.QueryAsync(
 			owner,
 			InferenceModelCategory.Utility,

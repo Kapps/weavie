@@ -442,7 +442,6 @@ export function SessionInbox(props: {
                 attachments().every((attachment) => attachment.status === "ready")
               }
               prompt={prompt()}
-              providerId={providerId()}
               onChange={setBranchPreview}
               register={(actions) => {
                 branchActions = actions;

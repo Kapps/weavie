@@ -31,19 +31,25 @@ Sequence([new ApplicationMenuActivation(1, "first")], firstActivations, "stale i
 Sequence([], secondActivations, "active window must not receive stale item");
 
 var currentFile = Submenu(menu.MainMenu.ItemAt(1), "second File menu");
-using var keyEvent = NSEvent.KeyEvent(
-	NSEventType.KeyDown,
-	CGPoint.Empty,
-	NSEventModifierMask.CommandKeyMask,
-	0,
-	0,
-	null,
-	"k",
-	"k",
-	false,
-	40) ?? throw new InvalidOperationException("Could not create the test key event.");
+using var keyEvent = KeyEvent(NSEventModifierMask.CommandKeyMask, "k", 40);
 False(currentFile.PerformKeyEquivalent(keyEvent), "dynamic key equivalent must remain display-only");
+False(menu.MainMenu.PerformKeyEquivalent(keyEvent), "main-menu search must not match a dynamic row");
 Sequence([], secondActivations, "display-only key equivalent activation");
+
+// The reported crash: Escape reaches the same search the moment the page stops consuming it.
+using var escapeEvent = KeyEvent((NSEventModifierMask)0, "\u001b", 53);
+False(menu.MainMenu.PerformKeyEquivalent(escapeEvent), "main-menu search must not match an Escape row");
+Sequence([], secondActivations, "display-only Escape activation");
+
+// Control: an ordinary nested menu does match the same event through the same search, so the
+// assertions above measure the dynamic menus opting out, not an inert search.
+bool controlFired = false;
+var controlMenu = new NSMenu("Control") { AutoEnablesItems = false };
+controlMenu.AddItem(new NSMenuItem("Command", "k", (_, _) => controlFired = true));
+var controlRoot = new NSMenu();
+controlRoot.AddItem(new NSMenuItem("Control") { Submenu = controlMenu });
+True(controlRoot.PerformKeyEquivalent(keyEvent), "plain nested key equivalent");
+True(controlFired, "plain nested key equivalent action");
 
 currentFile.PerformActionForItem(0);
 Sequence([new ApplicationMenuActivation(2, "second")], secondActivations, "mouse menu activation");
@@ -63,6 +69,14 @@ static ApplicationMenuState State(long revision, string token) => new() {
 					Keys = ["$mod+k"],
 					Entries = [],
 				},
+				new ApplicationMenuEntry {
+					Kind = ApplicationMenuEntryKind.Command,
+					Label = "Close",
+					Enabled = true,
+					Token = $"{token}-escape",
+					Keys = ["escape"],
+					Entries = [],
+				},
 			],
 		},
 		new ApplicationMenuDefinition { Label = "Go", Entries = [] },
@@ -72,11 +86,22 @@ static ApplicationMenuState State(long revision, string token) => new() {
 	],
 };
 
+static NSEvent KeyEvent(NSEventModifierMask modifiers, string characters, ushort code) =>
+	NSEvent.KeyEvent(
+		NSEventType.KeyDown, CGPoint.Empty, modifiers, 0, 0, null, characters, characters, false, code)
+	?? throw new InvalidOperationException("Could not create the test key event.");
+
 static NSMenuItem Item(NSMenu menu, nint index, string name) =>
 	menu.ItemAt(index) ?? throw new InvalidOperationException($"Missing {name}.");
 
 static NSMenu Submenu(NSMenuItem? item, string name) =>
 	item?.Submenu ?? throw new InvalidOperationException($"Missing {name}.");
+
+static void True(bool actual, string name) {
+	if (!actual) {
+		throw new InvalidOperationException($"Expected true for {name}.");
+	}
+}
 
 static void False(bool actual, string name) {
 	if (actual) {

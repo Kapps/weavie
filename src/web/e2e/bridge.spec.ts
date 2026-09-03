@@ -438,6 +438,87 @@ test.describe("session-addressed WebSocket transport", () => {
     await expect(page.locator(".session-chip.active")).toHaveAttribute("title", /^feature —/);
   });
 
+  test("a same-session editor restore retains a unified review copy that is still loading", async ({
+    page,
+  }) => {
+    test.slow();
+    const session = mockSession("main", "main", "claude");
+    const path = "/context.txt";
+    const baseline = "before\n";
+    const current = "after\n";
+    host.files.set(path, current);
+    host.setSessions([session]);
+    await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
+    await host.waitUntilConnected();
+    host.publishHost("commands", "catalog", {
+      commands: [
+        {
+          id: CommandIds.reviewOpen,
+          title: "Review Changes",
+          runsIn: "web",
+          owner: "client",
+          executionLane: "weavie.review",
+          scope: "session",
+          description: "Open the unified review.",
+          aliases: [],
+          showInPalette: true,
+          keys: [],
+        },
+      ],
+      keybindings: [],
+    });
+    await expect(page.locator(".editor")).toHaveAttribute("data-ready", "true", {
+      timeout: 60_000,
+    });
+
+    host.publishSession(session.address, "review", "changes", {
+      label: "Review",
+      files: [{ path, name: "context.txt", added: 1, removed: 1, line: 1, currentExists: true }],
+    });
+    host.publishSession(session.address, "review", "diff", {
+      path,
+      name: "context.txt",
+      acceptedBaseline: baseline,
+      acceptedBaselineExists: true,
+      baseline,
+      baselineExists: true,
+      current,
+      currentExists: true,
+    });
+    await expect(page.locator(".editor-empty-review")).toBeVisible();
+
+    host.pauseFileProvider();
+    const checkpoint = host.checkpoint();
+    await page.locator(".editor-empty-review").click();
+    await expect
+      .poll(() =>
+        host.received
+          .slice(checkpoint)
+          .some(
+            (message) =>
+              message.session?.slot === session.address.slot &&
+              message.session?.incarnation === session.address.incarnation &&
+              message.kind === "request" &&
+              message.feature === "files" &&
+              (message.name === "stat" || message.name === "read"),
+          ),
+      )
+      .toBe(true);
+
+    host.publishSession(session.address, "editor", "restore", {
+      session: {
+        active: null,
+        open: [{ path: "/restored.txt", viewState: null }],
+      },
+    });
+    await expect(page.locator(".editor-tab", { hasText: "restored.txt" })).toBeVisible();
+    host.resumeFileProvider();
+
+    const section = page.locator(".unified-review-file", { hasText: "context.txt" });
+    await expect(section.locator(".weavie-inline-added")).toBeVisible();
+    await expect(section).not.toContainText("Couldn't open this file");
+  });
+
   test("a background editor event updates its owner before that session is selected", async ({
     page,
   }) => {

@@ -1,3 +1,5 @@
+import { readdir } from "node:fs/promises";
+import { join } from "node:path";
 import { expect, test } from "../harness/fixtures";
 
 // Transport/provisioning behaviors that only exist on the remote path (Weavie.Runner → worker). Tagged
@@ -32,4 +34,13 @@ test("the bridge reconnects after a reload @remote", async ({ page }) => {
   await expect(page.locator("#splash")).toHaveCount(0, { timeout: 40_000 });
   await expect(page.locator(".session-inbox")).toBeHidden();
   await expect(page.locator(".layout-root")).toBeVisible();
+});
+
+// A remote worker serves a browser somewhere else, so it must not claim this machine's desktop handoff
+// endpoint: doing so swallowed every "Open With" on the machine running the worker — the desktop launch
+// handed its file to a window nobody was looking at, then exited without opening one.
+test("the worker leaves the desktop open-with endpoint unclaimed @remote", async ({ weavie }) => {
+  const entries = await readdir(join(weavie.home, ".weavie")).catch(() => [] as string[]);
+
+  expect(entries.filter((entry) => entry.endsWith(".owner"))).toEqual([]);
 });

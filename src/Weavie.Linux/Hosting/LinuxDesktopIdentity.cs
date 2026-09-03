@@ -21,6 +21,11 @@ internal static class LinuxDesktopIdentity {
 
 	internal static void EnsureInstalled(string appDirectory, string dataHome, string executable) {
 		string execValue = QuoteExec(executable);
+		string applications = Path.Combine(dataHome, "applications");
+		if (!MayClaim(Path.Combine(applications, DesktopFile), executable)) {
+			return;
+		}
+
 		string desktopSource = Path.Combine(appDirectory, DesktopFile);
 		string iconSource = Path.Combine(appDirectory, BundledIconFile);
 		RequireBundledAsset(desktopSource, "desktop entry");
@@ -41,7 +46,6 @@ internal static class LinuxDesktopIdentity {
 		// %U appends the paths the file manager passed; the field code sits outside the quoted executable,
 		// whose own % is escaped to %% by QuoteExec.
 		desktopEntry[execLine] = $"Exec={execValue} %U";
-		string applications = Path.Combine(dataHome, "applications");
 		if (WriteIfChanged(string.Join('\n', desktopEntry) + '\n', Path.Combine(applications, DesktopFile))) {
 			RefreshMimeCache(applications);
 		}
@@ -60,6 +64,46 @@ internal static class LinuxDesktopIdentity {
 		} catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException) {
 			// No update-desktop-database on this system; GIO-based desktops index the directory without it.
 		}
+	}
+
+	/// <summary>
+	/// Whether this build may own the user's desktop entry. An entry naming a different Weavie that still
+	/// exists belongs to that installation — a build run out of a source tree would otherwise take the file
+	/// association with it and leave the installed app unreachable from the desktop once the tree is gone.
+	/// </summary>
+	private static bool MayClaim(string installedEntry, string executable) {
+		if (!File.Exists(installedEntry)) {
+			return true;
+		}
+
+		string? claimed = File.ReadLines(installedEntry)
+			.FirstOrDefault(line => line.StartsWith("Exec=", StringComparison.Ordinal));
+		if (claimed is null) {
+			return true;
+		}
+
+		string path = UnquoteExec(claimed["Exec=".Length..]);
+		return path.Length == 0
+			|| !File.Exists(path)
+			|| string.Equals(path, Path.GetFullPath(executable), StringComparison.Ordinal);
+	}
+
+	// The inverse of QuoteExec for the one field we wrote: the quoted path, minus the trailing field code.
+	private static string UnquoteExec(string execValue) {
+		string value = execValue.Trim();
+		if (!value.StartsWith('"')) {
+			return value;
+		}
+
+		int closing = value.LastIndexOf('"');
+		return closing <= 0
+			? value
+			: value[1..closing]
+				.Replace("%%", "%", StringComparison.Ordinal)
+				.Replace("\\\\", "\\", StringComparison.Ordinal)
+				.Replace("\\\"", "\"", StringComparison.Ordinal)
+				.Replace("\\`", "`", StringComparison.Ordinal)
+				.Replace("\\$", "$", StringComparison.Ordinal);
 	}
 
 	private static void RequireBundledAsset(string path, string description) {

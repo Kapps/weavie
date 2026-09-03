@@ -1,3 +1,5 @@
+using Weavie.Core.Git;
+
 namespace Weavie.Hosting.Desktop;
 
 /// <summary>
@@ -37,5 +39,23 @@ public static class DesktopHandoff {
 		}
 
 		return new HandoffReply(true, string.Empty);
+	}
+
+	/// <summary>
+	/// The git worktree enclosing <paramref name="path"/>, or null when none does. A missing directory or an
+	/// unavailable git means no repository, never a launch that dies before showing a window.
+	/// </summary>
+	public static string? GitToplevel(string path) {
+		ArgumentException.ThrowIfNullOrEmpty(path);
+		string? directory = Directory.Exists(path) ? path : Path.GetDirectoryName(Path.GetFullPath(path));
+		if (directory is null || !Directory.Exists(directory)) {
+			return null;
+		}
+
+		try {
+			return new GitService().FindToplevelAsync(directory).GetAwaiter().GetResult();
+		} catch (Exception ex) when (ex is GitException or IOException or UnauthorizedAccessException) {
+			return null;
+		}
 	}
 }

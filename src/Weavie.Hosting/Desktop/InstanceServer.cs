@@ -1,4 +1,5 @@
 using System.IO.Pipes;
+using System.Net.Sockets;
 using Weavie.Core.Hooks;
 
 namespace Weavie.Hosting.Desktop;
@@ -14,6 +15,7 @@ public sealed class InstanceServer : IAsyncDisposable {
 	private readonly string _pipeName;
 	private readonly Func<HandoffRequest, HandoffReply> _handle;
 	private readonly Action<string> _log;
+	private readonly Func<string, NamedPipeServerStream> _openListener;
 	private readonly string _lockPath;
 	private readonly CancellationTokenSource _cts = new();
 	private FileStream? _ownership;
@@ -23,14 +25,23 @@ public sealed class InstanceServer : IAsyncDisposable {
 	/// <param name="weavieRoot">The Weavie root the pipe name derives from.</param>
 	/// <param name="handle">Decides what happens to the handed-over paths; runs off the UI thread.</param>
 	/// <param name="log">Diagnostic log sink.</param>
-	public InstanceServer(string weavieRoot, Func<HandoffRequest, HandoffReply> handle, Action<string> log) {
+	public InstanceServer(string weavieRoot, Func<HandoffRequest, HandoffReply> handle, Action<string> log)
+		: this(weavieRoot, handle, log, OpenListener) { }
+
+	internal InstanceServer(
+		string weavieRoot,
+		Func<HandoffRequest, HandoffReply> handle,
+		Action<string> log,
+		Func<string, NamedPipeServerStream> openListener) {
 		ArgumentException.ThrowIfNullOrEmpty(weavieRoot);
 		ArgumentNullException.ThrowIfNull(handle);
 		ArgumentNullException.ThrowIfNull(log);
+		ArgumentNullException.ThrowIfNull(openListener);
 		_pipeName = InstanceProtocol.PipeName(weavieRoot);
 		_lockPath = Path.Combine(weavieRoot, $"{_pipeName}.owner");
 		_handle = handle;
 		_log = log;
+		_openListener = openListener;
 	}
 
 	/// <summary>
@@ -54,20 +65,40 @@ public sealed class InstanceServer : IAsyncDisposable {
 			return false;
 		}
 
-		_acceptLoop = Task.WhenAll(
-			Enumerable.Range(0, MaxInstances).Select(_ => Task.Run(() => ServeAsync(_cts.Token))));
+		var listeners = new List<NamedPipeServerStream>(MaxInstances);
+		try {
+			for (int i = 0; i < MaxInstances; i++) {
+				listeners.Add(_openListener(_pipeName));
+			}
+		} catch (Exception ex) {
+			foreach (var listener in listeners) {
+				listener.Dispose();
+			}
+			_ownership.Dispose();
+			_ownership = null;
+			if (ex is IOException or UnauthorizedAccessException or SocketException) {
+				_log($"Opening files from the desktop is unavailable: {ex.Message}");
+				return false;
+			}
+			throw;
+		}
+
+		_acceptLoop = Task.WhenAll(listeners.Select(server => Task.Run(() => ServeAsync(server, _cts.Token))));
 		return true;
 	}
 
-	private async Task ServeAsync(CancellationToken ct) {
-		NamedPipeServerStream? server = null;
+	internal static NamedPipeServerStream OpenListener(string pipeName) =>
+		new(
+			pipeName, PipeDirection.InOut, MaxInstances, PipeTransmissionMode.Byte,
+			PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
+
+	private async Task ServeAsync(NamedPipeServerStream initialServer, CancellationToken ct) {
+		var server = (NamedPipeServerStream?)initialServer;
 		try {
 			while (!ct.IsCancellationRequested) {
 				if (server is null) {
 					try {
-						server = new NamedPipeServerStream(
-							_pipeName, PipeDirection.InOut, MaxInstances, PipeTransmissionMode.Byte,
-							PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
+						server = _openListener(_pipeName);
 					} catch (IOException ex) {
 						_log($"Opening files from the desktop is unavailable: {ex.Message}");
 						return;

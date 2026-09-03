@@ -873,7 +873,7 @@ public sealed class SessionChangeTrackerTests {
 		fileSystem.WriteAllText("/w/a.txt", "a\nB\nc\n"); // worktree (head) content
 		var tracker = Tracker(fileSystem);
 
-		tracker.SeedRefBaseline("/w/a.txt", refContent: "a\nb\nc\n", diskContent: "a\nB\nc\n", existedAtRef: true);
+		tracker.SeedRefBaseline("/w/a.txt", refContent: "a\nb\nc\n", diskContent: "a\nB\nc\n", existedAtRef: true, existsOnDisk: true);
 
 		var change = Assert.Single(tracker.TurnChanges());
 		Assert.Equal("a\nb\nc\n", change.AcceptedBaselineText); // accepted anchor == review baseline == ref
@@ -882,11 +882,67 @@ public sealed class SessionChangeTrackerTests {
 	}
 
 	[Fact]
+	public void SeedRefBaseline_DeletedCurrent_RemainsReviewableAndUndoRestoresAbsence() {
+		var fileSystem = new InMemoryFileSystem();
+		var tracker = Tracker(fileSystem);
+
+		tracker.SeedRefBaseline(
+			"/w/deleted.txt",
+			refContent: "before\n",
+			diskContent: string.Empty,
+			existedAtRef: true,
+			existsOnDisk: false);
+
+		var deleted = Assert.Single(tracker.TurnChanges());
+		Assert.False(deleted.CurrentExists);
+		Assert.Equal(RevertHunkOutcome.Reverted, tracker.RevertFile("/w/deleted.txt"));
+		Assert.True(fileSystem.FileExists("/w/deleted.txt"));
+		Assert.True(tracker.GetTurn("/w/deleted.txt")!.CurrentExists);
+
+		Assert.True(tracker.UndoLastRevert().Acted);
+		Assert.False(fileSystem.FileExists("/w/deleted.txt"));
+		Assert.False(Assert.Single(tracker.TurnChanges()).CurrentExists);
+	}
+
+	[Theory]
+	[InlineData(true, false, RevertHunkOutcome.Reverted)]
+	[InlineData(false, true, RevertHunkOutcome.Deleted)]
+	public void SeedRefBaseline_EmptyExistenceChange_CanBeKeptUndoneAndReverted(
+		bool existedAtRef,
+		bool existsOnDisk,
+		RevertHunkOutcome expectedRevert) {
+		var fileSystem = new InMemoryFileSystem();
+		if (existsOnDisk) {
+			fileSystem.WriteAllText("/w/empty.txt", string.Empty);
+		}
+		var tracker = Tracker(fileSystem);
+		tracker.SeedRefBaseline(
+			"/w/empty.txt",
+			refContent: string.Empty,
+			diskContent: string.Empty,
+			existedAtRef,
+			existsOnDisk);
+
+		var pending = Assert.Single(tracker.TurnChanges());
+		Assert.Equal(existedAtRef, pending.BaselineExists);
+		Assert.Equal(existsOnDisk, pending.CurrentExists);
+
+		tracker.KeepFile("/w/empty.txt");
+		Assert.Equal(existsOnDisk, Assert.Single(tracker.TurnChanges()).BaselineExists);
+		Assert.True(tracker.UndoLastKeep().Acted);
+		Assert.Equal(existedAtRef, Assert.Single(tracker.TurnChanges()).BaselineExists);
+
+		Assert.Equal(expectedRevert, tracker.RevertFile("/w/empty.txt"));
+		Assert.Equal(existedAtRef, fileSystem.FileExists("/w/empty.txt"));
+		Assert.Empty(tracker.TurnChanges());
+	}
+
+	[Fact]
 	public void SeedRefBaseline_KeepHunk_AdvancesBaselineWithoutTouchingDisk() {
 		var fileSystem = new InMemoryFileSystem();
 		fileSystem.WriteAllText("/w/a.txt", "a\nB\nc\n");
 		var tracker = Tracker(fileSystem);
-		tracker.SeedRefBaseline("/w/a.txt", "a\nb\nc\n", "a\nB\nc\n", existedAtRef: true);
+		tracker.SeedRefBaseline("/w/a.txt", "a\nb\nc\n", "a\nB\nc\n", existedAtRef: true, existsOnDisk: true);
 
 		// Accept the committed change (line 2): the review baseline advances over it, disk is never written.
 		Assert.True(tracker.KeepHunk("/w/a.txt", new LineRange(2, 3), new LineRange(2, 3), "B"));
@@ -905,7 +961,7 @@ public sealed class SessionChangeTrackerTests {
 		var fileSystem = new InMemoryFileSystem();
 		fileSystem.WriteAllText("/w/a.txt", "a\nB\nc\n");
 		var tracker = Tracker(fileSystem);
-		tracker.SeedRefBaseline("/w/a.txt", "a\nb\nc\n", "a\nB\nc\n", existedAtRef: true);
+		tracker.SeedRefBaseline("/w/a.txt", "a\nb\nc\n", "a\nB\nc\n", existedAtRef: true, existsOnDisk: true);
 
 		var outcome = tracker.RevertHunk("/w/a.txt", new LineRange(2, 3), new LineRange(2, 3), "B");
 
@@ -921,7 +977,7 @@ public sealed class SessionChangeTrackerTests {
 		var fileSystem = new InMemoryFileSystem();
 		fileSystem.WriteAllText("/w/added.txt", "new\nfile\n");
 		var tracker = Tracker(fileSystem);
-		tracker.SeedRefBaseline("/w/added.txt", refContent: "", diskContent: "new\nfile\n", existedAtRef: false);
+		tracker.SeedRefBaseline("/w/added.txt", refContent: "", diskContent: "new\nfile\n", existedAtRef: false, existsOnDisk: true);
 
 		// Whole content is one added hunk: empty baseline range, all three model lines (incl. the trailing empty).
 		var outcome = tracker.RevertHunk("/w/added.txt", new LineRange(1, 1), new LineRange(1, 4), "new\nfile\n");
@@ -939,7 +995,7 @@ public sealed class SessionChangeTrackerTests {
 		var fileSystem = new InMemoryFileSystem();
 		fileSystem.WriteAllText("/w/a.txt", "a\nB\nc\n"); // head as checked out
 		var tracker = Tracker(fileSystem);
-		tracker.SeedRefBaseline("/w/a.txt", "a\nb\nc\n", "a\nB\nc\n", existedAtRef: true);
+		tracker.SeedRefBaseline("/w/a.txt", "a\nb\nc\n", "a\nB\nc\n", existedAtRef: true, existsOnDisk: true);
 
 		tracker.CaptureBaseline("/w/a.txt"); // TryAdd → no-op on the ref-seeded baselines
 		fileSystem.WriteAllText("/w/a.txt", "a\nB\nC\n"); // Claude also changes line 3
@@ -965,7 +1021,7 @@ public sealed class SessionChangeTrackerTests {
 		tracker.RecordChange("/w/a.txt");
 		Assert.Equal("a\nB\nc\n", tracker.GetTurn("/w/a.txt")!.BaselineText); // only the edit shows against head
 
-		tracker.SeedRefBaseline("/w/a.txt", "a\nb\nc\n", "a\nB\nC\n", existedAtRef: true);
+		tracker.SeedRefBaseline("/w/a.txt", "a\nb\nc\n", "a\nB\nC\n", existedAtRef: true, existsOnDisk: true);
 
 		var change = tracker.GetTurn("/w/a.txt");
 		Assert.NotNull(change);
@@ -978,7 +1034,7 @@ public sealed class SessionChangeTrackerTests {
 		var fileSystem = new InMemoryFileSystem();
 		fileSystem.WriteAllText("/w/added.txt", "new\n");
 		var tracker = Tracker(fileSystem);
-		tracker.SeedRefBaseline("/w/added.txt", refContent: "", diskContent: "new\n", existedAtRef: false);
+		tracker.SeedRefBaseline("/w/added.txt", refContent: "", diskContent: "new\n", existedAtRef: false, existsOnDisk: true);
 		Assert.Single(tracker.TurnChanges());
 
 		tracker.AcceptTurn(); // keep-all: anchors snap to current, created-since-ref clears

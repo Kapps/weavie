@@ -100,6 +100,70 @@ public sealed class DiffAgainstTests {
 	}
 
 	[Fact]
+	public async Task DiffAgainstHead_DeletedFileIsReviewData_NotAnUnreadableEditorOpen() {
+		await using var host = await TestHost.StartAsync();
+		string path = Path.Combine(host.RepoRoot, "readme.txt");
+		File.Delete(path);
+		var session = host.SelectedSession;
+		host.Bridge.Clear();
+
+		host.SessionEvent(session, "review", "diffAgainst", new { reference = "HEAD" });
+
+		var changes = await Wait.ForAsync(() =>
+			host.Bridge.LastEvent(session.Address, "review", "changes"));
+		var file = Assert.Single(changes.GetProperty("files").EnumerateArray());
+		Assert.Equal(path, file.GetProperty("path").GetString());
+		Assert.False(file.GetProperty("currentExists").GetBoolean());
+		Assert.Null(host.Bridge.LastEvent(session.Address, "editor", "openFile"));
+
+		host.SessionEvent(session, "review", "showFile", new { path });
+		var diff = await Wait.ForAsync(() =>
+			host.Bridge.LastEvent(session.Address, "review", "diff"));
+		Assert.Equal("hello\n", diff.GetProperty("baseline").GetString());
+		Assert.Equal(string.Empty, diff.GetProperty("current").GetString());
+		Assert.False(diff.GetProperty("currentExists").GetBoolean());
+
+		host.Bridge.Clear();
+		host.SessionEvent(session, "review", "revertFile", new { path });
+		await Wait.UntilAsync(() => File.Exists(path));
+		host.Bridge.Clear();
+
+		host.SessionEvent(session, "review", "undo", new { kind = "revert" });
+		await Wait.UntilAsync(() => !File.Exists(path));
+		Assert.Null(host.Bridge.LastEvent(session.Address, "editor", "openFile"));
+	}
+
+	[Fact]
+	public async Task DiffAgainstHead_EmptyAddedAndDeletedFilesRemainActionable() {
+		await using var host = await TestHost.StartAsync(repo => {
+			File.WriteAllText(Path.Combine(repo, "empty-deleted.txt"), string.Empty);
+			Commit(repo, "empty baseline");
+		});
+		string deleted = Path.Combine(host.RepoRoot, "empty-deleted.txt");
+		string added = Path.Combine(host.RepoRoot, "empty-added.txt");
+		File.Delete(deleted);
+		File.WriteAllText(added, string.Empty);
+		var session = host.SelectedSession;
+
+		host.SessionEvent(session, "review", "diffAgainst", new { reference = "HEAD" });
+
+		var changes = await Wait.ForAsync(() =>
+			host.Bridge.LastEvent(session.Address, "review", "changes"));
+		var files = changes.GetProperty("files").EnumerateArray().ToList();
+		Assert.Equal(2, files.Count);
+		Assert.False(Assert.Single(files, file => file.GetProperty("name").GetString() == "empty-deleted.txt")
+			.GetProperty("currentExists").GetBoolean());
+		Assert.True(Assert.Single(files, file => file.GetProperty("name").GetString() == "empty-added.txt")
+			.GetProperty("currentExists").GetBoolean());
+
+		host.SessionEvent(session, "review", "revertAll", new { });
+		await session.FileActivity.DrainAsync(CancellationToken.None);
+		Assert.True(File.Exists(deleted));
+		Assert.Equal(string.Empty, File.ReadAllText(deleted));
+		Assert.False(File.Exists(added));
+	}
+
+	[Fact]
 	public async Task GetTurnDiff_ForAnUntrackedPath_IsDropped() {
 		await using var host = await TestHost.StartAsync();
 		File.WriteAllText(Path.Combine(host.RepoRoot, "readme.txt"), "hello\nworld\n");

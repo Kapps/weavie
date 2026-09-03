@@ -1,14 +1,19 @@
-import type { editor as MonacoEditor } from "monaco-editor";
 import { type Accessor, createEffect, createSignal, type JSX, onCleanup, Show } from "solid-js";
 import { keyHint } from "../../commands/key-hint";
 import { runCommandWithFeedback } from "../../commands/registry";
 import { CommandIds } from "../../commands/types";
+import type { ReviewCopy } from "../editor-host";
 import { createReviewEditor, estimatedEditorHeight, type ReviewEditor } from "./review-editor";
 import type { ReviewFileDiff, ReviewFileView } from "./review-store";
 
 /** Whether a file still has anything to show: pending changes, or kept ones in its reviewed band. */
 function hasChanges(diff: ReviewFileDiff): boolean {
-  return diff.baseline !== diff.current || diff.acceptedBaseline !== diff.baseline;
+  return (
+    diff.baseline !== diff.current ||
+    diff.baselineExists !== diff.currentExists ||
+    diff.acceptedBaseline !== diff.baseline ||
+    diff.acceptedBaselineExists !== diff.baselineExists
+  );
 }
 
 export function ReviewFileSection(props: {
@@ -16,14 +21,17 @@ export function ReviewFileSection(props: {
   file: Accessor<ReviewFileView>;
   index: number;
   measure: (element: HTMLElement) => void;
-  openCopy: (path: string) => Promise<MonacoEditor.ITextModel>;
+  openCopy: (diff: ReviewFileDiff) => Promise<ReviewCopy>;
   style: string;
 }): JSX.Element {
   const summary = () => props.file().summary();
   const diff = () => props.file().diff();
   const pending = (): boolean => {
     const value = diff();
-    return value !== null && value.baseline !== value.current;
+    return (
+      value !== null &&
+      (value.baseline !== value.current || value.baselineExists !== value.currentExists)
+    );
   };
   const [diffNotice, setDiffNotice] = createSignal("");
   const [openError, setOpenError] = createSignal("");
@@ -31,7 +39,8 @@ export function ReviewFileSection(props: {
   let article: HTMLElement | undefined;
   let mount: HTMLDivElement | undefined;
   let live: ReviewEditor | undefined;
-  let resolving = false;
+  let liveExists: boolean | undefined;
+  let resolution = 0;
   let dropped = false;
 
   const remeasure = (): void => {
@@ -45,32 +54,47 @@ export function ReviewFileSection(props: {
   createEffect(() => {
     const value = diff();
     if (value === null || !hasChanges(value)) {
+      resolution += 1;
       if (live !== undefined) {
         live.dispose();
         live = undefined;
+        liveExists = undefined;
         mount?.style.removeProperty("height");
         remeasure();
       }
       return;
     }
+    if (live !== undefined && liveExists !== value.currentExists) {
+      resolution += 1;
+      live.dispose();
+      live = undefined;
+      liveExists = undefined;
+      if (mount !== undefined) {
+        mount.style.height = `${estimatedEditorHeight(summary().added, summary().removed)}px`;
+      }
+    }
     if (live !== undefined) {
       live.update(value);
       return;
     }
-    if (resolving) {
-      return;
-    }
-    resolving = true;
-    void props.openCopy(value.path).then(
-      (model) => {
-        resolving = false;
+    const token = ++resolution;
+    void props.openCopy(value).then(
+      (copy) => {
         const latest = diff();
-        if (dropped || mount === undefined || latest === null || !hasChanges(latest)) {
+        if (
+          dropped ||
+          token !== resolution ||
+          mount === undefined ||
+          latest === null ||
+          !hasChanges(latest)
+        ) {
           return;
         }
+        liveExists = latest.currentExists;
         live = createReviewEditor({
           container: mount,
-          model,
+          model: copy.model,
+          editable: copy.editable,
           diff: latest,
           onHeight: remeasure,
           onStatus: (status) =>
@@ -84,14 +108,16 @@ export function ReviewFileSection(props: {
         });
       },
       (error: unknown) => {
-        resolving = false;
-        setOpenError(String(error));
+        if (!dropped && token === resolution) {
+          setOpenError(String(error));
+        }
       },
     );
   });
 
   onCleanup(() => {
     dropped = true;
+    resolution += 1;
     live?.dispose();
   });
 
@@ -106,19 +132,28 @@ export function ReviewFileSection(props: {
       style={props.style}
     >
       <header class="unified-review-file-header">
-        <button
-          type="button"
-          class="unified-review-file-name"
-          title={`Open this change in file review${keyHint(CommandIds.reviewOpen)}`}
-          onClick={() =>
-            void runCommandWithFeedback(CommandIds.reviewOpen, {
-              path: summary().path,
-              line: summary().line,
-            })
+        <Show
+          when={summary().currentExists}
+          fallback={
+            <span class="unified-review-file-name" title="Deleted file — review snapshot">
+              {props.displayPath(summary().path)}
+            </span>
           }
         >
-          {props.displayPath(summary().path)}
-        </button>
+          <button
+            type="button"
+            class="unified-review-file-name"
+            title={`Open this change in file review${keyHint(CommandIds.reviewOpen)}`}
+            onClick={() =>
+              void runCommandWithFeedback(CommandIds.reviewOpen, {
+                path: summary().path,
+                line: summary().line,
+              })
+            }
+          >
+            {props.displayPath(summary().path)}
+          </button>
+        </Show>
         <span class="unified-review-file-stats">
           <span class="unified-review-added">+{summary().added}</span>
           <span class="unified-review-removed">−{summary().removed}</span>

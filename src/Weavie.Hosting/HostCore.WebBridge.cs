@@ -362,6 +362,7 @@ public sealed partial class HostCore {
 
 		foreach (string path in result.Paths) {
 			if (session.Changes.GetTurn(path) is { } turn
+				&& turn.CurrentExists
 				&& (result.Line ?? LineDiff.FirstChangedLine(turn.BaselineText, turn.CurrentText)) is { } line) {
 				session.FileOpener.Open(path, line, preview: true, scratch: false);
 				return;

@@ -1311,17 +1311,23 @@ export default function App(): JSX.Element {
               )}
             </Show>
             <Show
-              when={editor.review.mode() === "unified" && editor.review.overview().files.length > 0}
+              when={
+                editor.review.mode() === "unified" && editor.review.overview().files.length > 0
+                  ? selectedSession()
+                  : null
+              }
+              keyed
             >
-              <Suspense>
-                <UnifiedReview
-                  overview={editor.review.overview}
-                  session={selectedSession()!}
-                  onCursorChange={editor.review.setCursor}
-                  openCopy={editor.review.openCopy}
-                  releaseCopies={editor.review.releaseCopies}
-                />
-              </Suspense>
+              {(session) => (
+                <Suspense>
+                  <UnifiedReview
+                    overview={editor.review.overview}
+                    session={session}
+                    onCursorChange={editor.review.setCursor}
+                    createCopyScope={editor.review.createCopyScope}
+                  />
+                </Suspense>
+              )}
             </Show>
           </div>
           <Show when={editor.review.mode() !== "unified"}>

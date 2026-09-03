@@ -11,10 +11,11 @@ editor, change-by-change and file-by-file. Doing nothing keeps the change — it
 The two review modes are projections over one Core-owned review board:
 
 - **Unified review** is a GitHub-style page with aggregate additions/deletions, the complete file list,
-  and every file's diff. Each file section is a **real editor on that file's live working copy**, with the
-  unchanged regions collapsed into hidden areas — so a scan carries the same syntax and semantic
-  highlighting, LSP hovers/diagnostics/go-to-definition, completions and editing the file pane does. It is
-  optimized for breadth and file-level decisions.
+  and every file's diff. Each existing file section is a **real editor on that file's live working copy**, with
+  the unchanged regions collapsed into hidden areas — so a scan carries the same syntax and semantic
+  highlighting, LSP hovers/diagnostics/go-to-definition, completions and editing the file pane does. A deleted
+  current-side file uses a read-only Monaco snapshot from the Core-owned review text because no working copy
+  exists. It is optimized for breadth and file-level decisions.
 - **File review** is the hovering inline-diff toolbar over the live editor. It is optimized for depth: hunk
   navigation, comments, and line-level Keep/Revert.
 
@@ -199,7 +200,7 @@ reloads the model without marking it dirty.
 **Reverting a created file deletes it.** A file created since the baseline has an empty baseline, so its
 whole content is one added hunk. Reverting it returns the file to its baseline state — which is
 *non-existent*, not empty — so the revert **deletes the file** rather than leaving a 0-byte file.
-Deletion keys off **existence at baseline, not emptiness** (a `_createdSinceBaseline` set the tracker
+Deletion keys off **existence at baseline, not emptiness** (a `_missingReviewBaseline` set the tracker
 records on first capture). Per-hunk, per-file (`revert-file`), and whole-set (`undo-turn`) reverts all
 route through `SessionChangeTracker.RevertFile`/`RevertHunk`, so the delete-vs-truncate rule is identical
 across the three.
@@ -346,8 +347,8 @@ Built in `ChangeMessages.cs` so both hosts emit identical payloads.
 
 | type | when | payload |
 |---|---|---|
-| `turn-changes` | review set updates / turn end, auto-apply modes only | `{ files: [{ path, name, added, removed, line }] }` (a file stays in the set while only faded hunks remain, until Keep-all or the next prompt commits them) |
-| `turn-diff` | per file, on change and after a keep/revert/un-keep | `{ path, name, acceptedBaseline, baseline, current }` — the (accepted anchor, review baseline, current) triple |
+| `turn-changes` | review set updates / turn end, auto-apply modes only | `{ files: [{ path, name, added, removed, line, currentExists }] }` (a file stays in the set while only faded hunks remain, until Keep-all or the next prompt commits them) |
+| `turn-diff` | per file, on change and after a keep/revert/un-keep | `{ path, name, acceptedBaseline, acceptedBaselineExists, baseline, baselineExists, current, currentExists }` — the three text-and-existence boundaries |
 | `turn-reset` | the whole set was committed (`accept-turn`) | `{}` |
 | `review-history` | after every review op + switch-in | `{ canUndo, canUndoKeep, canUndoRevert, canRedo }` |
 

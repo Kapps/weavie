@@ -1,6 +1,7 @@
 import { expect, it, vi } from "vitest";
 import type { ClientSession } from "../bridge";
 import type { EditorControllerDeps } from "./editor-controller";
+import type { EditorHost, ReviewCopyScope } from "./editor-host";
 
 const env = vi.hoisted(() => ({
   selected: null as ClientSession | null,
@@ -23,7 +24,10 @@ vi.mock("../bridge", () => ({
 }));
 
 vi.stubGlobal("location", { search: "" });
-const { createEditorController } = await import("./editor-controller");
+vi.stubGlobal("window", {});
+const { createDeferredReviewCopyScope, createEditorController } = await import(
+  "./editor-controller"
+);
 
 interface FakeFeature {
   handlers: Map<string, Array<(message: unknown) => void>>;
@@ -104,6 +108,7 @@ it("reverts an unfocused review board through its exact session", async () => {
     added: 1,
     removed: 1,
     line: 1,
+    currentExists: true,
   };
   const unloaded = {
     path: "/owner/lazy.ts",
@@ -111,14 +116,18 @@ it("reverts an unfocused review board through its exact session", async () => {
     added: 1,
     removed: 0,
     line: 2,
+    currentExists: true,
   };
   review.emit("changes", { label: "owner", files: [file, unloaded] });
   review.emit("diff", {
     path: file.path,
     name: file.name,
     acceptedBaseline: "before",
+    acceptedBaselineExists: true,
     baseline: "before",
+    baselineExists: true,
     current: "after",
+    currentExists: true,
   });
 
   expect(controller.review.revert(owner)).toBe(true);
@@ -126,4 +135,54 @@ it("reverts an unfocused review board through its exact session", async () => {
     expect(review.published).toContainEqual({ name: "revertAll", payload: {} }),
   );
   expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ title: "Revert all changes?" }));
+});
+
+it("keeps a deleted ref entry until the authoritative review change list removes it", () => {
+  const session = fakeSession("deleted-review");
+  env.selected = session;
+  const controller = createEditorController(dependencies(() => Promise.resolve(true)));
+  for (const install of env.installers) {
+    install(session);
+  }
+  const review = session.feature("review") as unknown as FakeFeature;
+  const files = session.feature("files") as unknown as FakeFeature;
+  const deleted = {
+    path: "/owner/deleted.ts",
+    name: "deleted.ts",
+    added: 0,
+    removed: 2,
+    line: 1,
+    currentExists: false,
+  };
+  review.emit("changes", { label: "vs HEAD", files: [deleted] });
+
+  files.emit("changed", { changes: [{ path: deleted.path, kind: "deleted" }] });
+
+  expect(controller.review.overview().files.map((file) => file.summary())).toEqual([deleted]);
+
+  review.emit("changes", { label: "vs HEAD", files: [] });
+  expect(controller.review.overview().files).toHaveLength(0);
+});
+
+it("upgrades an early unified-review scope when the editor host becomes ready", async () => {
+  let resolveHost!: (host: Pick<EditorHost, "createReviewCopyScope">) => void;
+  const hostReady = new Promise<Pick<EditorHost, "createReviewCopyScope">>((resolve) => {
+    resolveHost = resolve;
+  });
+  const realScope: ReviewCopyScope = {
+    open: async () => ({ model: {} as never, editable: true }),
+    dispose: vi.fn(),
+  };
+  const open = vi.spyOn(realScope, "open");
+  const deferred = createDeferredReviewCopyScope(hostReady);
+  const session = fakeSession("early-review");
+
+  const opening = deferred.open(session, "/work/review.ts", "current", true);
+  expect(open).not.toHaveBeenCalled();
+  resolveHost({ createReviewCopyScope: () => realScope });
+
+  await expect(opening).resolves.toMatchObject({ editable: true });
+  expect(open).toHaveBeenCalledWith(session, "/work/review.ts", "current", true);
+  deferred.dispose();
+  expect(realScope.dispose).toHaveBeenCalledOnce();
 });

@@ -1,11 +1,11 @@
 import { createVirtualizer } from "@tanstack/solid-virtual";
 import { Check, FileCode2, Files, RotateCcw } from "lucide-solid";
-import type { editor as MonacoEditor } from "monaco-editor";
 import { createEffect, createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js";
 import type { ClientSession } from "../../bridge";
 import { keyHint } from "../../commands/key-hint";
 import { runCommandWithFeedback } from "../../commands/registry";
 import { CommandIds } from "../../commands/types";
+import type { ReviewCopyScope } from "../editor-host";
 import { repoRelativePath, samePath } from "../fs-path";
 import { ReviewFileSection } from "./ReviewFileSection";
 import { estimatedEditorHeight } from "./review-editor";
@@ -19,8 +19,7 @@ export function UnifiedReview(props: {
   session: ClientSession;
   onCursorChange: (session: ClientSession, path: string, line: number) => void;
   /** Resolve a changed file's working copy for its section editor; released when this surface unmounts. */
-  openCopy: (session: ClientSession, path: string) => Promise<MonacoEditor.ITextModel>;
-  releaseCopies: () => void;
+  createCopyScope: () => ReviewCopyScope;
 }): JSX.Element {
   let scroller: HTMLElement | undefined;
   let sidebarSelection = true;
@@ -35,8 +34,9 @@ export function UnifiedReview(props: {
   const [visibleFile, setVisibleFile] = createSignal(initialIndex());
 
   onMount(() => scroller?.focus());
-  // The per-file editors hold their own working-copy references; this surface owns their lifetime.
-  onCleanup(() => props.releaseCopies());
+  // The per-file editors hold their own working-copy references; this exact surface owns their lifetime.
+  const copies = props.createCopyScope();
+  onCleanup(() => copies.dispose());
 
   const displayPath = (path: string): string => {
     const workspace = props.session.state.lsp.current?.workspace;
@@ -150,6 +150,7 @@ export function UnifiedReview(props: {
           <button
             type="button"
             class="unified-review-action mode"
+            disabled={!files().some((file) => file.summary().currentExists)}
             title={`Switch to file review${keyHint(CommandIds.reviewToggleMode)}`}
             onClick={() => void runCommandWithFeedback(CommandIds.reviewToggleMode)}
           >
@@ -211,7 +212,9 @@ export function UnifiedReview(props: {
                         displayPath={displayPath}
                         file={view}
                         index={row()?.index ?? 0}
-                        openCopy={(path) => props.openCopy(props.session, path)}
+                        openCopy={(diff) =>
+                          copies.open(props.session, diff.path, diff.current, diff.currentExists)
+                        }
                         measure={(element) =>
                           queueMicrotask(() => {
                             if (element.isConnected) {

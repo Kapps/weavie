@@ -445,13 +445,15 @@ public sealed partial class GitService : IGitService {
 	}
 
 	/// <inheritdoc/>
-	public async Task<string> ShowFileAtRefAsync(string repositoryDirectory, string reference, string path, CancellationToken ct = default) {
+	public async Task<GitFileSnapshot> ReadFileAtRefAsync(string repositoryDirectory, string reference, string path, CancellationToken ct = default) {
 		ArgumentException.ThrowIfNullOrEmpty(repositoryDirectory);
 		ArgumentException.ThrowIfNullOrEmpty(reference);
 		ArgumentException.ThrowIfNullOrEmpty(path);
-		// A non-zero exit means the file is absent at that ref (added in the PR) — an empty baseline, not an error.
+		// A non-zero exit means the file is absent at that ref (added in the PR), distinct from an existing empty file.
 		var result = await RunAsync(repositoryDirectory, ["show", $"{reference}:{path}"], ct).ConfigureAwait(false);
-		return result.ExitCode == 0 ? result.StdOut : string.Empty;
+		return result.ExitCode == 0
+			? new GitFileSnapshot(true, result.StdOut)
+			: new GitFileSnapshot(false, string.Empty);
 	}
 
 	/// <summary>

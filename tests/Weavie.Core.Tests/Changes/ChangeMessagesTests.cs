@@ -28,6 +28,7 @@ public sealed class ChangeMessagesTests {
 		Assert.Equal(1, file.GetProperty("added").GetInt32());
 		Assert.Equal(0, file.GetProperty("removed").GetInt32());
 		Assert.Equal(2, file.GetProperty("line").GetInt32()); // the appended line is the navigator's jump target
+		Assert.True(file.GetProperty("currentExists").GetBoolean());
 	}
 
 	[Fact]
@@ -35,8 +36,11 @@ public sealed class ChangeMessagesTests {
 		var change = new FileChange {
 			Path = "/w/dir/a.cs",
 			AcceptedBaselineText = "anchor",
+			AcceptedBaselineExists = true,
 			BaselineText = "before",
+			BaselineExists = true,
 			CurrentText = "after",
+			CurrentExists = true,
 		};
 
 		var root = Parse(ChangeMessages.TurnDiff(change));
@@ -44,8 +48,11 @@ public sealed class ChangeMessagesTests {
 		Assert.Equal("/w/dir/a.cs", root.GetProperty("path").GetString());
 		Assert.Equal("a.cs", root.GetProperty("name").GetString());
 		Assert.Equal("anchor", root.GetProperty("acceptedBaseline").GetString()); // faded band origin
+		Assert.True(root.GetProperty("acceptedBaselineExists").GetBoolean());
 		Assert.Equal("before", root.GetProperty("baseline").GetString());         // bright band origin (review baseline)
+		Assert.True(root.GetProperty("baselineExists").GetBoolean());
 		Assert.Equal("after", root.GetProperty("current").GetString());
+		Assert.True(root.GetProperty("currentExists").GetBoolean());
 	}
 
 	[Fact]

@@ -120,12 +120,15 @@ public sealed partial class SessionChangeTracker {
 			path,
 			tracked,
 			_baseline.GetValueOrDefault(path, string.Empty),
+			!_missingBaseline.Contains(path),
 			_current.GetValueOrDefault(path, string.Empty),
+			!_missingCurrent.Contains(path),
 			_reviewBaseline.GetValueOrDefault(path, string.Empty),
+			!_missingReviewBaseline.Contains(path),
 			_acceptedAnchor.GetValueOrDefault(path, string.Empty),
+			!_missingAcceptedAnchor.Contains(path),
 			_preEdit.GetValueOrDefault(path, string.Empty),
 			CloneProvenance(path),
-			_createdSinceBaseline.Contains(path),
 			onDisk,
 			onDisk ? _fileSystem.ReadAllText(path) : string.Empty);
 	}
@@ -135,16 +138,15 @@ public sealed partial class SessionChangeTracker {
 	private void RestoreState(PathState state, bool withDisk) {
 		if (state.Tracked) {
 			_baseline[state.Path] = state.Baseline;
+			SetMissing(_missingBaseline, state.Path, !state.BaselineExists);
 			_current[state.Path] = state.Current;
+			SetMissing(_missingCurrent, state.Path, !state.CurrentExists);
 			_reviewBaseline[state.Path] = state.ReviewBaseline;
+			SetMissing(_missingReviewBaseline, state.Path, !state.ReviewBaselineExists);
 			_acceptedAnchor[state.Path] = state.AcceptedAnchor;
+			SetMissing(_missingAcceptedAnchor, state.Path, !state.AcceptedAnchorExists);
 			_preEdit[state.Path] = state.PreEdit;
 			RestoreProvenance(state.Path, state.Provenance);
-			if (state.Created) {
-				_createdSinceBaseline.Add(state.Path);
-			} else {
-				_createdSinceBaseline.Remove(state.Path);
-			}
 		} else {
 			Forget(state.Path);
 		}
@@ -170,6 +172,8 @@ public sealed partial class SessionChangeTracker {
 			if (state.Tracked) {
 				if (!string.Equals(_current.GetValueOrDefault(state.Path, string.Empty), state.Current, StringComparison.Ordinal)
 					|| !string.Equals(_reviewBaseline.GetValueOrDefault(state.Path, string.Empty), state.ReviewBaseline, StringComparison.Ordinal)
+					|| _missingCurrent.Contains(state.Path) == state.CurrentExists
+					|| _missingReviewBaseline.Contains(state.Path) == state.ReviewBaselineExists
 					|| !ProvenanceEquals(CloneProvenance(state.Path), state.Provenance)) {
 					return false;
 				}
@@ -211,12 +215,15 @@ public sealed partial class SessionChangeTracker {
 		string Path,
 		bool Tracked,
 		string Baseline,
+		bool BaselineExists,
 		string Current,
+		bool CurrentExists,
 		string ReviewBaseline,
+		bool ReviewBaselineExists,
 		string AcceptedAnchor,
+		bool AcceptedAnchorExists,
 		string PreEdit,
 		ProvenanceFile? Provenance,
-		bool Created,
 		bool OnDisk,
 		string Disk);
 

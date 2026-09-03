@@ -2111,6 +2111,13 @@ export default function App(): JSX.Element {
             )}
           </Show>
         </div>
+        <Toasts
+          toasts={toasts()}
+          onDismiss={dismissToast}
+          isLeaving={isLeaving}
+          onPause={pauseToast}
+          onResume={resumeToast}
+        />
       </div>
       <Show when={openPrOpen()}>
         <OpenPrPrompt
@@ -2213,13 +2220,6 @@ export default function App(): JSX.Element {
           />
         </Suspense>
       </Show>
-      <Toasts
-        toasts={toasts()}
-        onDismiss={dismissToast}
-        isLeaving={isLeaving}
-        onPause={pauseToast}
-        onResume={resumeToast}
-      />
       <Suggestions
         items={suggestions()}
         onDismiss={(id, forever) =>

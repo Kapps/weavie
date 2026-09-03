@@ -2,31 +2,28 @@ import { For, type JSX, Show } from "solid-js";
 import type { AgentPaneUpdate, ClientSession } from "../bridge";
 import { liveKeyLabel } from "../commands/keys-live";
 import { CommandIds } from "../commands/types";
+import { revealFileIn } from "../files/reveal";
 import { planIdentity } from "./agent-plan";
 
 export function EditLocationActions(props: {
   session: ClientSession | null;
   message: AgentPaneUpdate;
 }): JSX.Element {
-  const targets = (): { path: string; line: number }[] => {
-    const resolved = new Map<string, { path: string; line: number }>();
+  const targets = (): { path: string; line: number | undefined }[] => {
+    const resolved = new Map<string, { path: string; line: number | undefined }>();
     for (const location of props.message.locations ?? []) {
-      resolved.set(location.path, { path: location.path, line: location.line ?? 1 });
+      resolved.set(location.path, { path: location.path, line: location.line ?? undefined });
     }
     for (const diff of props.message.diffs ?? []) {
       if (!resolved.has(diff.path)) {
-        resolved.set(diff.path, { path: diff.path, line: 1 });
+        resolved.set(diff.path, { path: diff.path, line: undefined });
       }
     }
     return [...resolved.values()];
   };
 
-  const review = (location: { path: string; line: number }): void => {
-    props.session?.feature("files").publish("reveal", {
-      path: location.path,
-      line: location.line,
-      preview: true,
-    });
+  const review = (location: { path: string; line: number | undefined }): void => {
+    revealFileIn(props.session, location.path, location.line, true);
   };
 
   return (

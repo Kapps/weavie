@@ -153,8 +153,11 @@ export interface EditorController {
   reviseSelection(): void;
   /** Loads the editor chunk and brings up the editor in `container`; fades the splash when settled. */
   start(container: HTMLElement): void;
-  /** Opens a file (preview tab when `preview`), replaying once the editor chunk has loaded (last wins). */
-  openFile(path: string, line: number, preview?: boolean): void;
+  /**
+   * Opens a file (preview tab when `preview`), replaying once the editor chunk has loaded (last wins).
+   * `line` reveals that line; `undefined` means no target, so an already-open tab keeps the user's position.
+   */
+  openFile(path: string, line: number | undefined, preview?: boolean): void;
   /** Opens an http(s) URL as a web (iframe) tab in the editor tab strip. */
   openWebTab(url: string): void;
   /** Opens a fetched source doc (Notion) as a source (shadow-root) tab in the editor tab strip, keyed by its target. */
@@ -390,17 +393,26 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   const openFileFor = (
     session: ClientSession,
     path: string,
-    line: number,
+    line: number | undefined,
     preview = false,
     scratch = false,
   ): void => {
-    const result = openTabFor(session, path, { line, preview, scratch });
+    const result = openTabFor(session, path, {
+      ...(line === undefined ? {} : { line }),
+      preview,
+      scratch,
+    });
     if (activateDestinationFor(session) && host !== undefined) {
       void applyActive(session, result).then(focusEditorSurface);
     }
   };
 
-  const openFile = (path: string, line: number, preview = false, scratch = false): void => {
+  const openFile = (
+    path: string,
+    line: number | undefined,
+    preview = false,
+    scratch = false,
+  ): void => {
     const session = selectedSession();
     if (session !== null) {
       openFileFor(session, path, line, preview, scratch);
@@ -671,7 +683,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       } else if (entry.kind === "source") {
         openSourceTab(entry.path);
       } else {
-        openFile(entry.path, 1);
+        openFile(entry.path, undefined);
       }
 
       return true;
@@ -1452,14 +1464,14 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       }),
       editor.on<{
         path: string;
-        line: number;
+        line: number | null;
         preview?: boolean;
         scratch?: boolean;
       }>("openFile", (message) => {
         openFileFor(
           session,
           message.path,
-          message.line,
+          message.line ?? undefined,
           message.preview === true,
           message.scratch === true,
         );

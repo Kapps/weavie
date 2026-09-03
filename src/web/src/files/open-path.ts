@@ -7,6 +7,7 @@ import {
   sessionForSlot,
 } from "../bridge";
 import { chooseOpenSlot } from "./open-target";
+import { revealFileIn } from "./reveal";
 
 // A path the OS handed a host — an "Open With", or `weavie <path>`. The host forwards it rather than opening
 // it itself, because the session the user is looking at may belong to a different backend than the one the
@@ -41,7 +42,7 @@ function flush(): void {
     // Selected first: the editor only activates a tab for the session in front, so an unselected target
     // would open the file where the user cannot see it.
     selectClientSession(session);
-    session.feature("files").publish("reveal", { path: open.path, line: 1, preview: false });
+    revealFileIn(session, open.path, undefined, false);
   }
 }
 

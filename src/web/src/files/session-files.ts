@@ -1,6 +1,7 @@
 import { createSignal } from "solid-js";
 import { type ClientSession, registerSessionFeature, selectedSession } from "../bridge";
 import type { DirEntry, DirListings } from "./FileBrowser";
+import { revealFileIn } from "./reveal";
 
 interface FileIndex {
   root: string | null;
@@ -41,8 +42,9 @@ export const selectedDirectoryListings = (): DirListings => {
   return session === null ? {} : (listings().get(session) ?? {});
 };
 
-export function revealSelectedFile(path: string, line: number, preview = false): void {
-  selectedSession()?.feature("files").publish("reveal", { path, line, preview });
+/** As {@link revealFileIn}, for whichever session is selected. */
+export function revealSelectedFile(path: string, line: number | undefined, preview = false): void {
+  revealFileIn(selectedSession(), path, line, preview);
 }
 
 export function refreshSelectedFileIndex(): void {

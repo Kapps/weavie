@@ -1326,7 +1326,7 @@ export default function App(): JSX.Element {
           </div>
           <Show when={editor.review.mode() !== "unified"}>
             <EditorFooter
-              onOpenRecent={(path) => editor.openFile(path, 1)}
+              onOpenRecent={(path) => editor.openFile(path, undefined)}
               root={() => indexRoot() ?? ""}
             />
           </Show>
@@ -1554,8 +1554,8 @@ export default function App(): JSX.Element {
           }),
         session
           .feature("view")
-          .on<{ query: string; line: number }>("focusOmnibar", ({ query, line }) =>
-            focusOmnibarFileSearch(query, line),
+          .on<{ query: string; line: number | null }>("focusOmnibar", ({ query, line }) =>
+            focusOmnibarFileSearch(query, line ?? undefined),
           ),
       ];
       return () => {
@@ -2181,7 +2181,7 @@ export default function App(): JSX.Element {
             listings={dirListings()}
             currentFile={currentFile()}
             onExpand={listSelectedDirectory}
-            onOpen={(path) => revealSelectedFile(path, 1)}
+            onOpen={(path) => revealSelectedFile(path, undefined)}
             onClose={() => setBrowserOpen(false)}
           />
         </Suspense>

@@ -128,9 +128,9 @@ public sealed partial class HostCore {
 			}
 
 			string first = seeds[0].Absolute;
-			int line = session.Changes.GetTurn(first) is { } turn
-				? LineDiff.FirstChangedLine(turn.BaselineText, turn.CurrentText) ?? 1
-				: 1;
+			int? line = session.Changes.GetTurn(first) is { } turn
+				? LineDiff.FirstChangedLine(turn.BaselineText, turn.CurrentText)
+				: null;
 			session.FileOpener.Open(first, line, preview: true, scratch: false);
 			PushReviewFileToWeb(session, first);
 			return Task.CompletedTask;

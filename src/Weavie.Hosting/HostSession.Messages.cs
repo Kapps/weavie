@@ -314,7 +314,7 @@ public sealed partial class HostSession {
 
 	private sealed record FileWriteMessage(string Path, string Content);
 
-	private sealed record RevealFileMessage(string Path, int Line, bool Preview);
+	private sealed record RevealFileMessage(string Path, int? Line, bool Preview);
 
 	private sealed record DiffResolutionMessage(string Id, bool Kept, string? FinalContents);
 

@@ -1,7 +1,16 @@
 import { createVirtualizer } from "@tanstack/solid-virtual";
 import { Check, FileCode2, Files, RotateCcw } from "lucide-solid";
 import type { editor as MonacoEditor } from "monaco-editor";
-import { createEffect, createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  For,
+  type JSX,
+  onCleanup,
+  onMount,
+  Show,
+} from "solid-js";
 import type { ClientSession } from "../../bridge";
 import { keyHint } from "../../commands/key-hint";
 import { runCommandWithFeedback } from "../../commands/registry";
@@ -47,6 +56,22 @@ export function UnifiedReview(props: {
   // index.ts, …), and the row key must change when the owning session does.
   const sessionKey = (): string =>
     `${props.session.address.slot}\0${props.session.address.incarnation}`;
+  // @tanstack/virtual-core caches its measurements against a shallow-equal snapshot of
+  // [count, paddingStart, scrollMargin, getItemKey, enabled, lanes, laneAssignmentMode, gap] — it never
+  // re-invokes getItemKey per row just because a value it *closes over* changed, only when one of those
+  // option slots itself changes. `count` stays the same across a session switch whenever both sessions
+  // have the same number of files (the common case: exactly one shared path), so folding the session into
+  // the string getItemKey returns is invisible to that cache. getItemKey itself is the tracked slot, so
+  // the fix is to make ITS OWN identity change: memoize the row-key function on sessionKey() so a session
+  // switch hands the virtualizer a genuinely new function, forcing it to recompute every row's key (and
+  // only then, not on every unrelated render).
+  const itemKey = createMemo(() => {
+    const owner = sessionKey();
+    return (index: number): string | number => {
+      const path = files()[index]?.summary().path;
+      return path === undefined ? index : `${owner}\0${path}`;
+    };
+  });
   const rows = () => virtualizer.getVirtualItems();
   // Rows are keyed by session + file path, never by the virtualizer's item objects: a re-measure rebuilds
   // every one of those, and a reference-keyed <For> would tear down each section's live editor — losing
@@ -64,9 +89,8 @@ export function UnifiedReview(props: {
         ? 120
         : SECTION_HEADER_HEIGHT + estimatedEditorHeight(file.added, file.removed);
     },
-    getItemKey: (index) => {
-      const path = files()[index]?.summary().path;
-      return path === undefined ? index : `${sessionKey()}\0${path}`;
+    get getItemKey() {
+      return itemKey();
     },
     getScrollElement: () => scroller ?? null,
     gap: 20,

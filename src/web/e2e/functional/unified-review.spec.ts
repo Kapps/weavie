@@ -1,8 +1,14 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Locator, Page } from "@playwright/test";
-import { openFile } from "../harness/actions";
+import {
+  activeSessionSlot,
+  createSession,
+  openFile,
+  waitForSessionSwitch,
+} from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
+import { sessionWorktrees } from "../harness/git-workspace";
 import { appliedEdit } from "../harness/review";
 import type { WeavieWindow } from "../harness/weavie-window";
 
@@ -173,6 +179,77 @@ test.describe("unified review mode", () => {
     await expect
       .poll(() => readFile(notesPath, "utf8").catch(() => ""), { timeout: 15_000 })
       .toContain(`${marker}-one\n${marker}-two`);
+  });
+});
+
+test.describe("unified review mode — cross-session isolation", () => {
+  const SHARED = "session content baseline\nline two\n";
+  test.use({
+    fakeScript: {
+      // The same script reruns for every claude spawn, so the fork below lands an edit at the identical
+      // relative path in its own worktree — the exact same-path-across-sessions shape the bug needed.
+      steps: [...appliedEdit("shared.txt", SHARED)],
+    },
+  });
+
+  // Regression for the cross-session model misroute: both sessions land a change at the same relative
+  // path and both sit in Unified Review without ever explicitly leaving it, so switching between them
+  // keeps App.tsx's `<Show when={mode() === "unified"}>` guard continuously true across the switch —
+  // only the session-folded row key (UnifiedReview's getItemKey) can force Solid's keyed <For> to
+  // unmount the shared "shared.txt" section instead of reusing its live editor for the new session.
+  test("switching sessions that share a changed path rebinds the section instead of reusing it @cross", async ({
+    page,
+    weavie,
+  }) => {
+    test.slow();
+    const chips = page.locator(".session-chip");
+
+    // Session A: enter unified review for shared.txt and never leave it.
+    await page.locator(".editor-empty-review").click();
+    await expect(page.locator(".unified-review")).toBeVisible();
+    let section = sectionFor(page, "shared.txt");
+    await expect(section.locator(".monaco-editor")).toBeVisible({ timeout: 15_000 });
+
+    // Fork session B (its own worktree); the same fake script lands the same-named change there.
+    const primarySlot = await activeSessionSlot(page);
+    await createSession(page, { branch: "e2e/unified-cross-session", provider: "claude" });
+    await expect(chips).toHaveCount(2);
+    const forkedSlot = await waitForSessionSwitch(page, primarySlot);
+
+    // Session B also enters unified review for the same path.
+    await page.locator(".editor-empty-review").click();
+    await expect(page.locator(".unified-review")).toBeVisible();
+    section = sectionFor(page, "shared.txt");
+    await expect(section.locator(".monaco-editor")).toBeVisible({ timeout: 15_000 });
+
+    const marker = `SESSION-B-MARKER-${Date.now()}`;
+    await section.locator(".view-line", { hasText: "session content baseline" }).click();
+    await page.keyboard.press("Home");
+    await page.keyboard.type(marker);
+
+    const [worktreeB] = sessionWorktrees(weavie.workspace);
+    const forkedFile = join(worktreeB, "shared.txt");
+    await expect
+      .poll(() => readFile(forkedFile, "utf8").catch(() => ""), { timeout: 15_000 })
+      .toContain(marker);
+
+    // Switch back to session A. Its board is still unified (nothing resets an outgoing session's
+    // mode), so the guard never toggles false across this switch — the fix is what has to force the
+    // remount here.
+    await chips.first().click();
+    await waitForSessionSwitch(page, forkedSlot);
+    await expect(page.locator(".unified-review")).toBeVisible();
+    section = sectionFor(page, "shared.txt");
+    await expect(section.locator(".monaco-editor")).toBeVisible({ timeout: 15_000 });
+
+    // Session A's own model must show its own baseline — never session B's marker.
+    await expect(section).not.toContainText(marker);
+    const primaryFile = join(weavie.workspace, "shared.txt");
+    await expect(readFile(primaryFile, "utf8")).resolves.not.toContain(marker);
+
+    // Session B's edit landed only in its own worktree.
+    const finalForked = await readFile(forkedFile, "utf8");
+    expect(finalForked).toContain(marker);
   });
 });
 

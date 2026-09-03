@@ -1,5 +1,4 @@
 using Weavie.Core;
-using Weavie.Core.Git;
 using Weavie.Hosting.Desktop;
 using Weavie.Linux.Native;
 
@@ -66,29 +65,22 @@ internal sealed partial class WorkspaceHost {
 	}
 
 	// One `git rev-parse` per directory, not per path: a multi-file Open With is one selection, usually one
-	// folder. A missing directory or an unavailable git means no repository, never a dead launch.
+	// folder.
 	private sealed class ToplevelCache {
 		private readonly Dictionary<string, string?> _byDirectory = new(StringComparer.Ordinal);
 
 		public string? For(string path) {
 			string? directory = Directory.Exists(path) ? path : Path.GetDirectoryName(Path.GetFullPath(path));
-			if (directory is null || !Directory.Exists(directory)) {
+			if (directory is null) {
 				return null;
 			}
 
-			if (_byDirectory.TryGetValue(directory, out string? cached)) {
-				return cached;
+			if (!_byDirectory.TryGetValue(directory, out string? cached)) {
+				cached = DesktopHandoff.GitToplevel(directory);
+				_byDirectory[directory] = cached;
 			}
 
-			string? toplevel;
-			try {
-				toplevel = new GitService().FindToplevelAsync(directory).GetAwaiter().GetResult();
-			} catch (Exception ex) when (ex is GitException or IOException or UnauthorizedAccessException) {
-				toplevel = null;
-			}
-
-			_byDirectory[directory] = toplevel;
-			return toplevel;
+			return cached;
 		}
 	}
 }

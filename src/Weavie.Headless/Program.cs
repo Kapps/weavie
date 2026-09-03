@@ -55,11 +55,20 @@ await using var core = new HostCore(
 	bridge);
 
 await core.StartAsync().ConfigureAwait(false);
+// Only a host serving this machine's own desktop claims the open-with endpoint. A remote worker serves a
+// browser somewhere else, and claiming it there swallows every "Open With" on the machine running the
+// worker: the desktop launch hands its file to a window nobody is looking at, then exits without one.
 await using var instances = new InstanceServer(
 	WeaviePaths.Root,
-	request => DesktopHandoff.Offer(request.Paths, core.WorkspaceRoot, _ => null, core.RequestOpenPath),
+	request => DesktopHandoff.Offer(
+		request.Paths,
+		core.WorkspaceRoot,
+		DesktopHandoff.GitToplevel,
+		core.RequestOpenPath),
 	message => Console.Error.WriteLine($"[weavie-headless] {message}"));
-instances.TryStart();
+if (transport is HostTransport.Local) {
+	instances.TryStart();
+}
 Console.WriteLine($"[weavie-headless] workspace: {core.WorkspaceRoot}");
 Console.WriteLine($"[weavie-headless] token {core.WorkspaceAccessToken}");
 Console.WriteLine($"[weavie-headless] open  {core.WorkspacePageUrl}  in a browser");

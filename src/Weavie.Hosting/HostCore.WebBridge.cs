@@ -4,6 +4,7 @@ using Weavie.Core.Changes;
 using Weavie.Core.Commands;
 using Weavie.Core.Editor;
 using Weavie.Core.FileActivity;
+using Weavie.Core.FileSystem;
 using Weavie.Core.Git;
 using Weavie.Core.Json;
 using Weavie.Core.Layout;
@@ -104,6 +105,12 @@ public sealed partial class HostCore {
 		});
 	}
 
+	/// <summary>Pushes the app-global recent workspace list after another window reorders or prunes it.</summary>
+	private void PushRecentWorkspacesToWeb() =>
+		_messages.Host.Feature("recentWorkspaces").Publish("changed", new {
+			recents = _platform.Recents,
+		});
+
 	/// <summary>Pushes the persisted/reconciled layout document to the web app as a compact set-layout message.</summary>
 	private void PushLayoutToWeb() {
 		string documentJson = LayoutSerialization.SerializeCompact(_layout.Current);
@@ -141,12 +148,16 @@ public sealed partial class HostCore {
 		HostSession session,
 		bool invalidate,
 		MessageTarget target) {
+		// `home` anchors the omnibar's `~/…` open-by-path expansion against the *host's* profile, not the browser's.
+		object Payload(IReadOnlyList<string> files, bool pending) => new {
+			root = session.FileIndex.Root,
+			home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+			files,
+			pending,
+		};
+
 		if (invalidate) {
-			target.Feature("files").Publish("index", new {
-				root = session.FileIndex.Root,
-				files = Array.Empty<string>(),
-				pending = true,
-			});
+			target.Feature("files").Publish("index", Payload([], true));
 		}
 
 		_ = session.Background.Run(async ct => {
@@ -173,21 +184,13 @@ public sealed partial class HostCore {
 					}
 				}
 			} catch (Exception ex) when (ex is GitException or IOException or UnauthorizedAccessException) {
-				target.Feature("files").Publish("index", new {
-					root = session.FileIndex.Root,
-					files = Array.Empty<string>(),
-					pending = false,
-				});
+				target.Feature("files").Publish("index", Payload([], false));
 				Notify(session, "error", $"Couldn't load workspace files: {ex.Message}");
 				return;
 			}
 
 			ct.ThrowIfCancellationRequested();
-			target.Feature("files").Publish("index", new {
-				root = session.FileIndex.Root,
-				files,
-				pending = false,
-			});
+			target.Feature("files").Publish("index", Payload(files, false));
 		});
 	}
 
@@ -200,7 +203,8 @@ public sealed partial class HostCore {
 	/// that path against whichever session is selected, so recency follows a file across worktrees.
 	/// </summary>
 	private void RecordRecentFile(HostSession session, ActiveEditor editor) {
-		if (!BufferStore.IsWithinWorkspace(session.WorkspaceRoot, editor.FilePath)) {
+		// A file outside the checkout has no checkout-relative path, so it stays out rather than becoming "../..".
+		if (!PathBoundary.Contains(session.WorkspaceRoot, editor.FilePath)) {
 			return;
 		}
 
@@ -314,17 +318,9 @@ public sealed partial class HostCore {
 	/// <summary>
 	/// Undoes the whole review set: reverts every changed file to its review baseline on disk and live-refreshes
 	/// the editor. The delete-vs-truncate rule lives in <see cref="SessionChangeTracker.RevertFile"/> (shared by
-	/// per-hunk/per-file/whole-set reverts); the host only keeps the workspace guard and the editor pushes.
+	/// per-hunk/per-file/whole-set reverts); the host only owns the editor pushes.
 	/// </summary>
 	private void UndoTurn(HostSession session) {
-		// Workspace-guard every file before touching disk: one path outside the worktree aborts the whole revert.
-		foreach (var change in session.Changes.TurnChanges()) {
-			if (!BufferStore.IsWithinWorkspace(session.WorkspaceRoot, change.Path)) {
-				Notify(session, "warn", $"Couldn't revert {Path.GetFileName(change.Path)}: path is outside the workspace.");
-				return;
-			}
-		}
-
 		try {
 			ApplyHistoryResult(session, session.Changes.RevertAll());
 		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
@@ -434,11 +430,6 @@ public sealed partial class HostCore {
 			return;
 		}
 
-		if (!BufferStore.IsWithinWorkspace(session.WorkspaceRoot, path)) {
-			Notify(session, "warn", $"Couldn't revert {Path.GetFileName(path)}: path is outside the workspace.");
-			return;
-		}
-
 		var baselineRange = new LineRange(JsonInt(root, "baselineStart"), JsonInt(root, "baselineEndExclusive"));
 		var currentRange = new LineRange(JsonInt(root, "currentStart"), JsonInt(root, "currentEndExclusive"));
 		string guardText = root.TryGetProperty("guardText", out var gEl) ? gEl.GetString() ?? string.Empty : string.Empty;
@@ -458,17 +449,12 @@ public sealed partial class HostCore {
 
 	/// <summary>
 	/// Reverts one file to its review baseline on disk — the file-scoped analogue of <see cref="UndoTurn"/>,
-	/// sharing <see cref="SessionChangeTracker.RevertFile"/>. Workspace-guards the path, refreshes the editor, and
-	/// re-emits the review set so the now-clean file leaves the ← / → walk.
+	/// sharing <see cref="SessionChangeTracker.RevertFile"/>. Refreshes the editor and re-emits the review set so
+	/// the now-clean file leaves the ← / → walk.
 	/// </summary>
 	private void RevertFile(HostSession session, JsonElement root) {
 		string path = root.GetStringOrEmpty("path");
 		if (string.IsNullOrEmpty(path)) {
-			return;
-		}
-
-		if (!BufferStore.IsWithinWorkspace(session.WorkspaceRoot, path)) {
-			Notify(session, "warn", $"Couldn't revert {Path.GetFileName(path)}: path is outside the workspace.");
 			return;
 		}
 
@@ -486,7 +472,7 @@ public sealed partial class HostCore {
 	/// </summary>
 	private void KeepHunk(HostSession session, JsonElement root) {
 		string path = root.GetStringOrEmpty("path");
-		if (string.IsNullOrEmpty(path) || !BufferStore.IsWithinWorkspace(session.WorkspaceRoot, path)) {
+		if (string.IsNullOrEmpty(path)) {
 			return;
 		}
 
@@ -512,7 +498,7 @@ public sealed partial class HostCore {
 	/// </summary>
 	private void KeepFile(HostSession session, JsonElement root) {
 		string path = root.GetStringOrEmpty("path");
-		if (string.IsNullOrEmpty(path) || !BufferStore.IsWithinWorkspace(session.WorkspaceRoot, path)) {
+		if (string.IsNullOrEmpty(path)) {
 			return;
 		}
 
@@ -532,7 +518,7 @@ public sealed partial class HostCore {
 	/// </summary>
 	private void UnkeepHunk(HostSession session, JsonElement root) {
 		string path = root.GetStringOrEmpty("path");
-		if (string.IsNullOrEmpty(path) || !BufferStore.IsWithinWorkspace(session.WorkspaceRoot, path)) {
+		if (string.IsNullOrEmpty(path)) {
 			return;
 		}
 
@@ -578,30 +564,27 @@ public sealed partial class HostCore {
 		Uri.TryCreate(url, UriKind.Absolute, out var uri)
 		&& (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
 
-	/// <summary>Asks the page to run a native-menu command against its exact current selection.</summary>
-	public void InvokeCommand(string id) => InvokeSelectedCommand(id, null);
-
-	/// <summary>Asks the page to run a native-menu command with JSON arguments against its exact selection.</summary>
-	public void InvokeCommand(string id, string? argsJson) => InvokeSelectedCommand(id, argsJson);
-
-	private void InvokeSelectedCommand(string id, string? argsJson) {
-		JsonElement? args = null;
-		if (!string.IsNullOrWhiteSpace(argsJson)) {
-			using var document = JsonDocument.Parse(argsJson);
-			args = document.RootElement.Clone();
-		}
-
-		_messages.Host.Feature("commands").Publish("runNative", new CommandRequest(id, args));
-	}
-
 	/// <summary>Surfaces a prior run's unhandled crash as a one-time toast pointing at the saved report.</summary>
 	private void SurfacePriorCrash() {
-		if (CrashReporter.TakePendingReport(_lastCrashFile, _previousCrashFile) is null) {
+		if (CrashReporter.TakePendingReport(_lastCrashFile, _previousCrashFile) is not null) {
+			// The crash is the better explanation of the same ending, so it also settles the unfinished marker
+			// this run inherited — a later hello must not replace this toast with the vaguer one.
+			_priorUnfinishedRun = string.Empty;
+			// Keyed so two windows handling `ready` at once collapse to a single toast (matches the malformed-settings notice).
+			Notify("error", $"Weavie exited unexpectedly last session. A crash report was saved to {_previousCrashFile}.", "prior-crash");
 			return;
 		}
 
-		// Keyed so two windows handling `ready` at once collapse to a single toast (matches the malformed-settings notice).
-		Notify("error", $"Weavie exited unexpectedly last session. A crash report was saved to {_previousCrashFile}.", "prior-crash");
+		// No crash, yet the last run never stamped an ending — the fingerprint of a stop nothing could observe.
+		// What ended it is exactly what isn't known, so the toast says that and points at the journal.
+		if (_priorUnfinishedRun.Length > 0) {
+			_priorUnfinishedRun = string.Empty;
+			Notify(
+				"error",
+				$"Weavie's last session ended without recording how it stopped, and left no crash report. "
+					+ $"Details for a bug report are in {_exitJournalFile}.",
+				"prior-crash");
+		}
 	}
 
 	/// <summary>Pushes a user-facing notification (rendered as a toast in the page).</summary>
@@ -743,8 +726,7 @@ public sealed partial class HostCore {
 
 	/// <summary>
 	/// Saves a scratch (untitled) buffer under a real name via the native Save-As dialog, deletes the temp, and
-	/// replies <c>scratch-saved</c>. <c>reopen</c> is true only for an in-workspace target (the editor can't edit
-	/// out-of-workspace files); replies cancelled when the host has no native dialog.
+	/// replies <c>scratch-saved</c>. Replies cancelled when the host has no native dialog.
 	/// </summary>
 	private async Task<ScratchSaveResult> SaveScratchAsAsync(
 		HostSession session,
@@ -755,74 +737,62 @@ public sealed partial class HostCore {
 		string suggested = root.TryGetProperty("suggestedName", out var nEl) ? nEl.GetString() ?? "Untitled" : "Untitled";
 
 		try {
-			// Default the dialog to the owning session's worktree, so saving from a worktree session lands there
-			// and the reopen check below recognizes it as in-workspace.
+			// Default the dialog to the owning session's worktree, so saving from a worktree session lands there.
 			string sessionRoot = Path.GetFullPath(session.WorkspaceRoot);
 			string? target = _platform.Dialogs is { } dialogs
 				? await dialogs.PickSaveAsPathAsync(suggested, sessionRoot, ct).ConfigureAwait(false)
 				: null;
 
 			if (string.IsNullOrEmpty(target)) {
-				return new ScratchSaveResult(scratchPath, string.Empty, false);
+				return new ScratchSaveResult(scratchPath, string.Empty);
 			}
 
 			try {
 				session.FileSystem.WriteAllText(target, content);
 			} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
 				Notify(session, "error", $"Couldn't save {Path.GetFileName(target)}: {ex.Message}");
-				return new ScratchSaveResult(scratchPath, string.Empty, false);
+				return new ScratchSaveResult(scratchPath, string.Empty);
 			}
 
-			bool reopen = BufferStore.IsWithinWorkspace(session.WorkspaceRoot, target);
-			if (reopen && session.FileSystem.TryGetStat(target, out var revision)) {
+			if (session.FileSystem.TryGetStat(target, out var revision)) {
 				session.FileActivity.ReportChanged(target, revision);
 			}
 			session.Scratch.Delete(scratchPath);
-			if (!reopen) {
-				Notify(session, "info", $"Saved {Path.GetFileName(target)} outside the workspace — it won't open in the editor.");
-			}
-
-			return new ScratchSaveResult(scratchPath, target, reopen);
+			return new ScratchSaveResult(scratchPath, target);
 		} catch (Exception ex) {
 			Notify(session, "error", $"Couldn't save the file: {ex.Message}");
-			return new ScratchSaveResult(scratchPath, string.Empty, false);
+			return new ScratchSaveResult(scratchPath, string.Empty);
 		}
 	}
 
 	/// <summary>
-	/// Saves a scratch buffer under an in-app-chosen workspace-relative <c>name</c> (browser-served host, no
-	/// native dialog), resolved under the owning session's worktree, then deletes the temp and replies
-	/// <c>scratch-saved</c>. Rejects a name that escapes the workspace.
+	/// Saves a scratch buffer under an in-app-chosen <c>name</c> (browser-served host, no native dialog),
+	/// resolved against the owning session's worktree, then deletes the temp and replies <c>scratch-saved</c>.
 	/// </summary>
 	private ScratchSaveResult SaveScratchNamed(HostSession session, JsonElement root) {
 		string scratchPath = root.GetStringOrEmpty("path");
 		string name = root.GetStringOrEmpty("name").Trim();
 		if (name.Length == 0) {
-			return new ScratchSaveResult(scratchPath, string.Empty, false);
+			return new ScratchSaveResult(scratchPath, string.Empty);
 		}
 
 		string content = root.GetStringOrEmpty("content");
 		string target = Path.GetFullPath(Path.Combine(Path.GetFullPath(session.WorkspaceRoot), name));
-		if (!BufferStore.IsWithinWorkspace(session.WorkspaceRoot, target)) {
-			Notify(session, "error", $"Can't save outside the workspace: {name}");
-			return new ScratchSaveResult(scratchPath, string.Empty, false);
-		}
-
 		try {
 			session.FileSystem.WriteAllText(target, content);
 		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
 			Notify(session, "error", $"Couldn't save {Path.GetFileName(target)}: {ex.Message}");
-			return new ScratchSaveResult(scratchPath, string.Empty, false);
+			return new ScratchSaveResult(scratchPath, string.Empty);
 		}
 
 		if (session.FileSystem.TryGetStat(target, out var revision)) {
 			session.FileActivity.ReportChanged(target, revision);
 		}
 		session.Scratch.Delete(scratchPath);
-		return new ScratchSaveResult(scratchPath, target, true);
+		return new ScratchSaveResult(scratchPath, target);
 	}
 
-	private sealed record ScratchSaveResult(string ScratchPath, string SavedPath, bool Reopen);
+	private sealed record ScratchSaveResult(string ScratchPath, string SavedPath);
 
 	/// <summary>Encodes a string as a JSON string literal (trim-safe; no reflection).</summary>
 	private static string JsonString(string value) => "\"" + JsonEncodedText.Encode(value) + "\"";

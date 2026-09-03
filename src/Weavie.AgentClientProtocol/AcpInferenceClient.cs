@@ -51,14 +51,9 @@ internal sealed class AcpInferenceClient : IAsyncDisposable {
 
 	private static AcpInferenceClient Start(AcpAgentDefinition definition, string workspace) {
 		string directory = Path.GetFullPath(workspace);
-		var invocation = AcpProcessInvocation.Resolve(definition, directory, []);
+		var invocation = AcpProcessInvocation.ResolveRedirectedProcess(definition, directory, []);
 		string command = invocation.Command;
 		var arguments = invocation.Arguments;
-		if (OperatingSystem.IsWindows() && definition.Distribution == "npx") {
-			string commandLine = $"\"{command}\" {string.Join(' ', arguments)}";
-			command = AcpProcessInvocation.SystemCommandProcessor(Environment.SystemDirectory);
-			arguments = ["/d", "/s", "/v:off", "/c", commandLine];
-		}
 
 		var info = new ProcessStartInfo(command) {
 			WorkingDirectory = directory,

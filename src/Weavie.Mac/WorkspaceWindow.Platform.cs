@@ -5,8 +5,8 @@ using Weavie.Hosting;
 namespace Weavie.Mac;
 
 // The macOS IHostPlatform seam, one per workspace window. The window owns the bridge + web view; the shared native
-// pieces (UI marshal, PTY launcher, dialogs, recents) come from the controller. Native NSWindow chrome + NSMenu, so
-// there's no web title bar driving the window (Window null), and global hotkeys are app-level.
+// pieces (UI marshal, PTY launcher, dialogs, recents) come from the controller. AppKit owns the window frame and
+// application menu; the web app bar retains only the omnibar.
 internal sealed partial class WorkspaceWindow : IHostPlatform {
 	IWebTransportHub IHostPlatform.Bridge => _bridge;
 
@@ -24,10 +24,17 @@ internal sealed partial class WorkspaceWindow : IHostPlatform {
 
 	IReadOnlyList<string> IHostPlatform.Recents => _app.Recents.Items;
 
-	// Native NSWindow chrome + NSMenu, so no web title bar drives the window.
+	event Action? IHostPlatform.RecentsChanged {
+		add => _app.Recents.Changed += value;
+		remove => _app.Recents.Changed -= value;
+	}
+
+	// AppKit owns window controls, so the shared web app bar never drives the native window.
 	IShellWindow? IHostPlatform.Window => null;
 
 	IShellMenuActions IHostPlatform.MenuActions => this;
+
+	IApplicationMenu IHostPlatform.ApplicationMenu => _applicationMenu;
 
 	void IShellMenuActions.CloseWindow() => Window.PerformClose(null);
 

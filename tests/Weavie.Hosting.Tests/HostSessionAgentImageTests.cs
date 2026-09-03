@@ -3,6 +3,7 @@ using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
 using Weavie.Core.Layout;
 using Weavie.Core.Mcp;
+using Weavie.Core.Sessions;
 using Weavie.Core.Shell;
 using Weavie.Core.Theming;
 using Weavie.Hosting.Messaging;
@@ -99,6 +100,8 @@ public sealed class HostSessionAgentImageTests : IDisposable {
 		new() {
 			Id = "initial",
 			Text = text,
+			Kind = AgentTurnSubmissionKind.Prompt,
+			CommandName = string.Empty,
 			Attachments = attachments,
 		};
 
@@ -119,6 +122,8 @@ public sealed class HostSessionAgentImageTests : IDisposable {
 			Path.Combine(_dir, "scratch"),
 			Path.Combine(_dir, "pasted"),
 			Path.Combine(_dir, "agent-pane.json"),
+			[ShellTerminalId.New()],
+			id => Path.Combine(_dir, $"shell-{id}.json"),
 			commandRegistry,
 			new KeybindingStore(commandRegistry, Path.Combine(_dir, "keybindings.json"), enableWatcher: false),
 			new ThemeOverridesStore(new Weavie.Core.FileSystem.LocalFileSystem(), Path.Combine(_dir, "theme-overrides.json")),
@@ -165,6 +170,8 @@ public sealed class HostSessionAgentImageTests : IDisposable {
 
 		public void Restart() => Restarts++;
 
+		public void StartNewConversation() => throw new NotSupportedException();
+
 		public void ResolvePermission(string requestId, string optionId) { }
 
 		public void ResolveInput(
@@ -172,7 +179,10 @@ public sealed class HostSessionAgentImageTests : IDisposable {
 			string action,
 			IReadOnlyDictionary<string, IReadOnlyList<string>> answers) { }
 
-		public void Authenticate(string methodId, IReadOnlyDictionary<string, IReadOnlyList<string>> answers) { }
+		public void Authenticate(
+			string requestId,
+			string methodId,
+			IReadOnlyDictionary<string, IReadOnlyList<string>> answers) { }
 
 		public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 	}

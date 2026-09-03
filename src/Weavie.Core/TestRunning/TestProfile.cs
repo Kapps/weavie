@@ -20,8 +20,11 @@ public sealed record TestRule {
 	/// <summary>Command template to run a single test — supports <c>${file}</c>, <c>${fileDir}</c>, <c>${name}</c>.</summary>
 	public required string RunOne { get; init; }
 
-	/// <summary>Command template to run every test in a file — supports <c>${file}</c>, <c>${fileDir}</c>, <c>${fileName}</c> (base name, no extension).</summary>
-	public required string RunFile { get; init; }
+	/// <summary>
+	/// Command template to run every test in a file — supports <c>${file}</c>, <c>${fileDir}</c>,
+	/// <c>${fileName}</c> (base name, no extension). <see langword="null"/> when the runner cannot target a file.
+	/// </summary>
+	public required string? RunFile { get; init; }
 
 	/// <summary>Separator joining captured names along the ancestor symbol chain (nested <c>describe</c>s). Defaults to a space.</summary>
 	public string NameSeparator { get; init; } = " ";
@@ -60,7 +63,9 @@ public sealed record TestProfile {
 				writer.WriteString("glob", rule.Glob);
 				writer.WriteString("symbol", rule.Symbol);
 				writer.WriteString("runOne", rule.RunOne);
-				writer.WriteString("runFile", rule.RunFile);
+				if (rule.RunFile is not null) {
+					writer.WriteString("runFile", rule.RunFile);
+				}
 				if (rule.NameSeparator != " ") {
 					writer.WriteString("nameSeparator", rule.NameSeparator);
 				}
@@ -135,7 +140,7 @@ public sealed record TestProfile {
 		if (!TryRequiredString(element, "glob", index, out string glob, out error)
 			|| !TryRequiredString(element, "symbol", index, out string symbol, out error)
 			|| !TryRequiredString(element, "runOne", index, out string runOne, out error)
-			|| !TryRequiredString(element, "runFile", index, out string runFile, out error)) {
+			|| !TryOptionalString(element, "runFile", index, out string? runFile, out error)) {
 			return false;
 		}
 
@@ -188,6 +193,28 @@ public sealed record TestProfile {
 		value = property.GetString()!;
 		if (string.IsNullOrEmpty(value)) {
 			error = $"test.profile[{index}].{name} must not be empty.";
+			return false;
+		}
+
+		return true;
+	}
+
+	private static bool TryOptionalString(
+		JsonElement element, string name, int index, out string? value, out string error) {
+		value = null;
+		error = string.Empty;
+		if (!element.TryGetProperty(name, out var property) || property.ValueKind == JsonValueKind.Null) {
+			return true;
+		}
+
+		if (property.ValueKind != JsonValueKind.String) {
+			error = $"test.profile[{index}].{name} must be a string or null.";
+			return false;
+		}
+
+		value = property.GetString();
+		if (string.IsNullOrEmpty(value)) {
+			error = $"test.profile[{index}].{name} must not be empty when set.";
 			return false;
 		}
 

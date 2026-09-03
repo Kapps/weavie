@@ -55,9 +55,16 @@ internal sealed class LinuxPlatform : IHostPlatform {
 
 	public IReadOnlyList<string> Recents => _recents.Items;
 
+	public event Action? RecentsChanged {
+		add => _recents.Changed += value;
+		remove => _recents.Changed -= value;
+	}
+
 	public IShellWindow? Window => null;
 
 	public IShellMenuActions MenuActions { get; }
+
+	public IApplicationMenu ApplicationMenu => NoopApplicationMenu.Instance;
 
 	public IHostDialogs? Dialogs => null;
 

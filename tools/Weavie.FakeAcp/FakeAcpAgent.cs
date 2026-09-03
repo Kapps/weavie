@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Weavie.FakeAcp;
@@ -8,6 +9,7 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 	private readonly TaskCompletionSource _never = new(TaskCreationOptions.RunContinuationsAsynchronously);
 	private readonly Lock _gate = new();
 	private readonly string? _fakeMode;
+	private readonly string _stateDirectory;
 	private readonly bool _requiresAuthentication;
 	private readonly bool _holdsClose =
 		Environment.GetEnvironmentVariable("WEAVIE_FAKE_ACP_MODE") == "held-close";
@@ -24,8 +26,13 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 
 	public FakeAcpAgent() {
 		_fakeMode = Environment.GetEnvironmentVariable("WEAVIE_FAKE_ACP_MODE");
+		string root = Environment.GetEnvironmentVariable("WEAVIE_ROOT")
+			?? throw new InvalidOperationException("WEAVIE_ROOT is required by the fake ACP agent.");
+		_stateDirectory = Path.Combine(root, "fake-acp-state");
+		Directory.CreateDirectory(_stateDirectory);
 		_requiresAuthentication = _fakeMode is
-			"held-authentication" or "agent-authentication" or "terminal-authentication";
+			"held-authentication" or "agent-authentication" or "side-held-authentication"
+			or "terminal-authentication";
 	}
 
 	public Task TerminalFailure => _never.Task;
@@ -41,7 +48,7 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 		method switch {
 			"initialize" => Initialize(parameters),
 			"authenticate" => await AuthenticateAsync(ct).ConfigureAwait(false),
-			"session/new" => Open(parameters, "fake-session", replay: false),
+			"session/new" => Open(parameters, NewSessionId(), replay: false),
 			"session/load" => Open(
 				parameters,
 				AcpJson.RequiredString(parameters, "sessionId", method),
@@ -50,6 +57,7 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 				parameters,
 				AcpJson.RequiredString(parameters, "sessionId", method),
 				replay: false),
+			"session/fork" => Fork(parameters),
 			"session/close" => await CloseAsync(parameters, ct).ConfigureAwait(false),
 			"session/prompt" => await PromptAsync(parameters, ct).ConfigureAwait(false),
 			"session/set_mode" => SetMode(parameters),
@@ -110,6 +118,7 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 			["sessionCapabilities"] = new JsonObject {
 				["resume"] = new JsonObject(),
 				["close"] = new JsonObject(),
+				["fork"] = new JsonObject(),
 			},
 			["mcpCapabilities"] = new JsonObject { ["http"] = true, ["sse"] = false },
 		};
@@ -121,12 +130,18 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 			&& File.Exists(Path.Combine(Environment.CurrentDirectory, "terminal-authenticated"))) {
 			_authenticated = true;
 		}
-		if (_requiresAuthentication && !_authenticated) {
+		if (_requiresAuthentication && !_authenticated
+			&& (_fakeMode != "side-held-authentication" || replay)) {
 			throw new AcpAdapterException(-32000, "Sign in to the fake ACP agent.", null);
 		}
 		if (_fakeMode == "minimal-capabilities") RequireStdioMcp(parameters);
 		else RequireMcp(parameters);
 		_sessionId = sessionId;
+		if (replay) {
+			File.AppendAllText(
+				StatePath("loads.log"),
+				sessionId + Environment.NewLine);
+		}
 		if (replay && sessionId == "replay-session") {
 			Update(new JsonObject {
 				["sessionUpdate"] = "user_message_chunk",
@@ -189,16 +204,60 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 				["status"] = "in_progress",
 			});
 		}
+		if (replay && sessionId != "replay-session") {
+			ReplayTranscript(sessionId);
+		}
 		Update(new JsonObject {
 			["sessionUpdate"] = "available_commands_update",
-			["availableCommands"] = new JsonArray(new JsonObject {
-				["name"] = "compact",
-				["description"] = "Compact the fake transcript.",
-			}),
+			["availableCommands"] = new JsonArray(
+				new JsonObject {
+					["name"] = "compact",
+					["description"] = "Compact the fake transcript.",
+					["input"] = null,
+				},
+				new JsonObject {
+					["name"] = "review",
+					["description"] = "Review with a focus.",
+					["input"] = new JsonObject { ["hint"] = "<focus>" },
+				},
+				new JsonObject {
+					["name"] = "hold-command",
+					["description"] = "Hold an isolated command turn.",
+					["input"] = null,
+				},
+				new JsonObject {
+					["name"] = "clear",
+					["description"] = "A provider command the client must shadow.",
+					["input"] = null,
+				}),
 		});
 		var response = Setup();
 		response["sessionId"] = sessionId;
 		return response;
+	}
+
+	private static string NewSessionId() {
+		string path = Path.Combine(Environment.CurrentDirectory, "fake-session-sequence");
+		int sequence = File.Exists(path)
+			? int.Parse(File.ReadAllText(path), System.Globalization.CultureInfo.InvariantCulture) + 1
+			: 1;
+		File.WriteAllText(path, sequence.ToString(System.Globalization.CultureInfo.InvariantCulture));
+		return sequence == 1 ? "fake-session" : $"fake-session-{sequence}";
+	}
+
+	private JsonObject Fork(JsonElement parameters) {
+		string source = AcpJson.RequiredString(parameters, "sessionId", "session/fork");
+		if (!string.Equals(source, _sessionId, StringComparison.Ordinal)) {
+			throw AcpAdapterException.InvalidParams("session/fork must target the active fake session.");
+		}
+		RequireMcp(parameters);
+		string sessionId = "fake-fork-" + NewSessionId();
+		string sourceTranscript = TranscriptPath(source);
+		if (File.Exists(sourceTranscript)) File.Copy(sourceTranscript, TranscriptPath(sessionId));
+		File.AppendAllText(
+			StatePath("forks.log"),
+			$"{source}->{sessionId}{Environment.NewLine}");
+		return new JsonObject { ["sessionId"] = sessionId };
 	}
 
 	private async Task<JsonNode> AuthenticateAsync(CancellationToken ct) {
@@ -231,6 +290,24 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 		RequireSession(parameters);
 		var prompt = AcpJson.RequiredArray(parameters, "prompt", "session/prompt");
 		string text = PromptText(prompt);
+		File.AppendAllText(
+			StatePath("prompts.log"),
+			$"{_sessionId}:{text}{Environment.NewLine}");
+		if (text == "/compact") {
+			RequireIsolatedCommand(prompt, text);
+			File.WriteAllText(Path.Combine(Environment.CurrentDirectory, "compact-executed"), string.Empty);
+			Message("Compacting completed.");
+			return new JsonObject { ["stopReason"] = "end_turn" };
+		}
+		if (text.StartsWith("/review", StringComparison.Ordinal)) {
+			RequireIsolatedCommand(prompt, text);
+			Message("review command: " + text["/review".Length..].Trim());
+			return new JsonObject { ["stopReason"] = "end_turn" };
+		}
+		if (text == "/hold-command") {
+			RequireIsolatedCommand(prompt, text);
+			return await HoldAsync(ct).ConfigureAwait(false);
+		}
 		if (text is "hold" or "hold-cancel-error") {
 			_cancelFails = text == "hold-cancel-error";
 			return await HoldAsync(ct).ConfigureAwait(false);
@@ -238,10 +315,18 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 		if (text == "restart-update-race") return await RestartUpdateRaceAsync(ct).ConfigureAwait(false);
 		if (text == "rich") RichUpdates();
 		else if (text == "background") StartBackground();
-		else if (text == "finish-background") FinishBackground();
+		else if (text == "delayed-background") {
+			StartBackground();
+			_ = Task.Run(async () => {
+				await Task.Delay(TimeSpan.FromMilliseconds(200)).ConfigureAwait(false);
+				Message("delayed background finished");
+				FinishBackground();
+			});
+		} else if (text == "finish-background") FinishBackground();
 		else if (text == "prompt-failure") PromptFailure();
 		else if (text == "shared-message-id") SharedMessageId();
 		else if (text == "tool-content") ToolContent();
+		else if (text == "relative-location") RelativeLocation();
 		else if (text == "empty-diff") EmptyDiff();
 		else if (text == "refusal") {
 			RichUpdates();
@@ -273,6 +358,7 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 		else if (text == "agent-terminal") AgentOwnedTerminal();
 		else if (text == "cancel-before-dispatch") await CancelBeforeDispatchAsync().ConfigureAwait(false);
 		else if (text == "terminal-failure") await TerminalFailureAsync(ct).ConfigureAwait(false);
+		else if (text == "crash-when-released") CrashWhenReleased();
 		else if (text.StartsWith("fs-empty:", StringComparison.Ordinal)) {
 			await FileSystemAsync(text[9..], string.Empty, ct).ConfigureAwait(false);
 		} else if (text.StartsWith("fs:", StringComparison.Ordinal)) {
@@ -282,7 +368,12 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 			File.WriteAllText(text["persist-probe:".Length..], "provider mutation");
 			Message("persistence failure did not stop the provider");
 		} else if (text is "context" or "context-after-reset") ContextResult(prompt, text);
+		else if (text == "identify-session") Message($"session: {_sessionId}");
 		else if (text == "control-state") Message($"control state: {_model}/{_mode}/{_fast}");
+		else if (text == "remove-commands") Update(new JsonObject {
+			["sessionUpdate"] = "available_commands_update",
+			["availableCommands"] = new JsonArray(),
+		});
 		else if (text == "echo-user") {
 			Update(new JsonObject {
 				["sessionUpdate"] = "user_message_chunk",
@@ -293,13 +384,72 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 		} else if (text == "image") Message("image=" + prompt.EnumerateArray().Any(
 			  block => AcpJson.OptionalString(block, "type") == "image"));
 		else if (text == "crash") Environment.Exit(19);
-		else Message("echo: " + text);
+		else {
+			Message("echo: " + text);
+			RecordTranscriptTurn(text);
+		}
 		return new JsonObject { ["stopReason"] = "end_turn" };
+	}
+
+	private void RecordTranscriptTurn(string prompt) {
+		if (_sessionId is null) return;
+		File.AppendAllText(
+			TranscriptPath(_sessionId),
+			Convert.ToBase64String(Encoding.UTF8.GetBytes(prompt)) + Environment.NewLine);
+	}
+
+	private static void CrashWhenReleased() => _ = Task.Run(async () => {
+		string release = Path.Combine(Environment.CurrentDirectory, "release-crash");
+		while (!File.Exists(release)) {
+			await Task.Delay(TimeSpan.FromMilliseconds(10)).ConfigureAwait(false);
+		}
+		Environment.Exit(20);
+	});
+
+	private void ReplayTranscript(string sessionId) {
+		string path = TranscriptPath(sessionId);
+		if (!File.Exists(path)) return;
+		int turn = 0;
+		foreach (string encoded in File.ReadLines(path)) {
+			turn++;
+			string prompt = Encoding.UTF8.GetString(Convert.FromBase64String(encoded));
+			Update(new JsonObject {
+				["sessionUpdate"] = "user_message_chunk",
+				["messageId"] = $"fork-user-{turn}",
+				["content"] = Text(prompt),
+			});
+			Update(new JsonObject {
+				["sessionUpdate"] = "agent_message_chunk",
+				["messageId"] = $"fork-agent-{turn}",
+				["content"] = Text("echo: " + prompt),
+			});
+		}
+	}
+
+	private string TranscriptPath(string sessionId) => StatePath($"session-transcript-{sessionId}.log");
+
+	private string StatePath(string name) => Path.Combine(_stateDirectory, name);
+
+	private static void RequireIsolatedCommand(JsonElement prompt, string text) {
+		if (prompt.GetArrayLength() != 1) {
+			throw new AcpAdapterException(-32602, $"Command '{text}' included non-command prompt blocks.", null);
+		}
+		var block = prompt[0];
+		if (AcpJson.OptionalString(block, "type") != "text"
+			|| AcpJson.OptionalString(block, "text") != text) {
+			throw new AcpAdapterException(-32602, $"Command '{text}' was not one exact text block.", null);
+		}
 	}
 
 	private async Task<JsonNode> HoldAsync(CancellationToken ct) {
 		var completion = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
 		lock (_gate) _heldPrompt = completion;
+		File.WriteAllText(Path.Combine(Environment.CurrentDirectory, "hold-started"), string.Empty);
+		_ = Task.Run(async () => {
+			string release = Path.Combine(Environment.CurrentDirectory, "release-hold");
+			while (!File.Exists(release)) await Task.Delay(10, ct).ConfigureAwait(false);
+			completion.TrySetResult("released");
+		}, ct);
 		Update(new JsonObject {
 			["sessionUpdate"] = "tool_call",
 			["toolCallId"] = "hold",
@@ -330,7 +480,14 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 		string trigger = Path.Combine(Environment.CurrentDirectory, "release-restart-update");
 		_ = Task.Run(async () => {
 			while (!File.Exists(trigger)) await Task.Delay(10, ct).ConfigureAwait(false);
-			Message("stale update from replaced generation");
+			Update(new JsonObject {
+				["sessionUpdate"] = "available_commands_update",
+				["availableCommands"] = new JsonArray(new JsonObject {
+					["name"] = "stale-command",
+					["description"] = "Command from the replaced generation.",
+					["input"] = null,
+				}),
+			});
 			File.WriteAllText(Path.Combine(Environment.CurrentDirectory, "restart-update-sent"), string.Empty);
 		}, ct);
 		await Task.Delay(Timeout.InfiniteTimeSpan, ct).ConfigureAwait(false);
@@ -340,6 +497,10 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 	private JsonObject Steer(JsonElement parameters) {
 		RequireSession(parameters);
 		string text = PromptText(AcpJson.RequiredArray(parameters, "prompt", "_session/steering"));
+		if (text.StartsWith("/compact", StringComparison.Ordinal)
+			|| text.StartsWith("/review", StringComparison.Ordinal)) {
+			File.WriteAllText(Path.Combine(Environment.CurrentDirectory, "command-steered"), text);
+		}
 		if (text == "complete-url") {
 			Connection().Notify("elicitation/complete", new JsonObject {
 				["elicitationId"] = "fake-browser-login",
@@ -866,14 +1027,30 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 		});
 	}
 
-	private void ExternalFilePlanDocument() => Update(new JsonObject {
-		["sessionUpdate"] = "plan_update",
-		["plan"] = new JsonObject {
-			["type"] = "file",
-			["planId"] = "external-file-plan",
-			["uri"] = new Uri(Path.Combine(Environment.CurrentDirectory, "..", "outside-plan.md")).AbsoluteUri,
-		},
+	// Real agents name a touched file relative to their working directory; the client resolves it.
+	private void RelativeLocation() => Update(new JsonObject {
+		["sessionUpdate"] = "tool_call",
+		["toolCallId"] = "relative",
+		["title"] = "Edit file",
+		["kind"] = "edit",
+		["status"] = "completed",
+		["locations"] = new JsonArray(new JsonObject { ["path"] = "sample.txt", ["line"] = 3 }),
 	});
+
+	private void ExternalFilePlanDocument() {
+		string directory = Directory.CreateDirectory(
+			Path.Combine(Environment.CurrentDirectory, "..", $"{Path.GetFileName(Environment.CurrentDirectory)}-external")).FullName;
+		string path = Path.Combine(directory, "outside-plan.md");
+		File.WriteAllText(path, "# Outside plan");
+		Update(new JsonObject {
+			["sessionUpdate"] = "plan_update",
+			["plan"] = new JsonObject {
+				["type"] = "file",
+				["planId"] = "external-file-plan",
+				["uri"] = new Uri(path).AbsoluteUri,
+			},
+		});
+	}
 
 	private void RemovePlan(string planId) => Update(new JsonObject {
 		["sessionUpdate"] = "plan_removed",

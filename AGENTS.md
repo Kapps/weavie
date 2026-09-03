@@ -47,7 +47,7 @@ load it only when you need it.
   `workspace.setup` nudge — have Claude configure the repo's worktree setup command + test profile. See
   [docs/concepts/suggestions.md](docs/concepts/suggestions.md).
 - **Built-in workspace auto-config** — when a workspace opens with its setup settings unset, Weavie
-  detects the language from a curated, hardcoded catalog (TS/C#/Go now; Rust/Python next) and writes
+  detects the language from a curated, hardcoded catalog (TS/C#/Go/Python/Rust) and writes
   `worktree.setupCommand` + `test.profile` itself — deterministic, zero tokens, instant. The Claude
   setup flow is demoted to the override / unsupported-language fallback. Supersedes the "no bundled
   presets" stance. See [docs/concepts/workspace-autoconfig.md](docs/concepts/workspace-autoconfig.md).
@@ -109,6 +109,14 @@ delegates so it works for both PTY children and `System.Diagnostics.Process`. Tr
   long after your task ends. Keep fakes under `temp/` and wire them through an isolated test settings store or
   `TerminalController.ResolveClaudeLaunch`, scoped to that test.
 
+## Pull requests
+
+- **Every completed repository change gets a pull request.** After finishing a feature, bug fix,
+  refactor, documentation update, or other change, commit it and open a PR for review as the normal
+  completion step.
+- **Opening a PR is not approval to ship it.** Never merge, squash, land, or otherwise ship a PR
+  without the user's explicit approval. Leave it open after checks pass and report its link.
+
 ## Custom agents
 
 Four project agents live in `.claude/agents/` — prefer them over reinventing their job inline:
@@ -120,12 +128,14 @@ Four project agents live in `.claude/agents/` — prefer them over reinventing t
   capabilities-as-commands, `ProcessSupervisor`) and returns a blueprint. Use it before building
   anything with real architectural surface.
 - **`weavie-tester`** — proves a change works by running the real app, exercising the scenarios a PR
-  should cover, and recording a `.webm` that **shows the feature in action** as evidence. **When
+  should cover, and recording a video that **shows the feature in action** as evidence. **When
   running in a remote (sandbox) environment, invoke it to validate any change before treating the work
   as done** — there it can build the host and drive the full stack; locally it's optional. **Always
-  relay the recorded video(s) to the user**: quote each `.webm` path it returns as a **repo-relative
-  path** (e.g. `src/web/e2e/.recordings/<clip>.webm`, not an absolute `/home/...` path) so Weavie
-  renders it as a clickable, viewable link — one path per line with a one-line label of what it shows.
+  transcode each recorded `.webm` to Linux-friendly H.264 MP4** with `ffmpeg -i <clip>.webm -c:v
+  libx264 -crf 20 -preset medium -pix_fmt yuv420p -movflags +faststart -c:a aac -b:a 128k
+  <clip>.mp4`. Relay each `.mp4` as a **repo-relative path** (e.g.
+  `src/web/e2e/.recordings/<clip>.mp4`, not an absolute `/home/...` path) so Weavie renders it as a
+  clickable, viewable link — one path per line with a one-line label of what it shows.
 - **`product-strategist`** — proposes features that fit the product thesis. Use it when deciding
   *what* to build, not *how*.
 

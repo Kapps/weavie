@@ -13,11 +13,9 @@ public sealed partial class HostSession {
 
 	private void WireMessages(
 		Func<bool> inputFrozen,
-		Action<bool, Action> acceptTerminalInput,
-		Action<int, int> shellResized) {
-		WireTerminalMessages(Bus.Feature("terminal.shell"), Shell, acceptTerminalInput, shellResized);
+		Action<bool, Action> acceptTerminalInput) {
 		if (Claude is { } agentTerminal) {
-			WireTerminalMessages(
+			_ = TerminalMessageWiring.Wire(
 				Bus.Feature("terminal.agent"),
 				agentTerminal,
 				acceptTerminalInput,
@@ -29,7 +27,7 @@ public sealed partial class HostSession {
 					return Task.CompletedTask;
 				});
 		} else if (Agent.AuthenticationTerminal is { } authenticationTerminal) {
-			WireTerminalMessages(
+			_ = TerminalMessageWiring.Wire(
 				Bus.Feature("terminal.agent"),
 				authenticationTerminal.Controller,
 				acceptTerminalInput,
@@ -117,31 +115,6 @@ public sealed partial class HostSession {
 		WireAgentMessages(Bus.Feature("agent"), inputFrozen, acceptTerminalInput);
 	}
 
-	private static void WireTerminalMessages(
-		Messaging.MessageFeatureChannel messages,
-		TerminalController terminal,
-		Action<bool, Action> acceptInput,
-		Action<int, int> resized) {
-		messages.Handle<TerminalInputMessage>("input", (message, _) => {
-			byte[] data = Convert.FromBase64String(message.DataB64);
-			acceptInput(message.UserInitiated, () => terminal.Write(data));
-			return Task.CompletedTask;
-		});
-		messages.Handle<TerminalSizeMessage>("resize", (message, _) => {
-			terminal.Resize(message.Columns, message.Rows);
-			resized(message.Columns, message.Rows);
-			return Task.CompletedTask;
-		});
-		messages.HandleOwned<TerminalSizeMessage>("ready", (message, peer, _) => {
-			terminal.OnReady(messages.Target(peer), message.Columns, message.Rows);
-			return Task.CompletedTask;
-		});
-		messages.Handle<TerminalCwdMessage>("cwd", (message, _) => {
-			terminal.OnCwdReported(message.Cwd);
-			return Task.CompletedTask;
-		});
-	}
-
 	private void WireAgentMessages(
 		Messaging.MessageFeatureChannel messages,
 		Func<bool> inputFrozen,
@@ -172,6 +145,7 @@ public sealed partial class HostSession {
 		});
 		messages.Handle<AgentAuthMessage>("authenticate", (message, _) => {
 			Agent.Structured?.Authenticate(
+				message.RequestId,
 				message.MethodId,
 				message.Answers.ToDictionary(
 					entry => entry.Key,
@@ -200,6 +174,17 @@ public sealed partial class HostSession {
 		});
 		messages.Handle<AgentSubmitMessage>("submit", (message, _) => {
 			HandleAgentSubmit(message, inputFrozen);
+			return Task.CompletedTask;
+		});
+		messages.Handle<AgentSideReplyMessage>("replyAside", (message, _) => {
+			try {
+				if (inputFrozen()) throw new InvalidOperationException("Agent input is paused while Weavie restarts.");
+				var sideConversations = Agent.SideConversations
+					?? throw new InvalidOperationException("This agent does not support side conversations.");
+				sideConversations.ReplyAside(message.ConversationId, message.Prompt);
+			} catch (Exception ex) when (ex is ArgumentException or InvalidOperationException) {
+				Notify(ex.Message);
+			}
 			return Task.CompletedTask;
 		});
 		messages.Handle<OpenPlanMessage, bool>(
@@ -259,11 +244,24 @@ public sealed partial class HostSession {
 			if (message.Prompt.Trim().Length == 0 && attachmentIds.Length == 0) {
 				throw new InvalidOperationException("Write a prompt or attach an image before running the agent.");
 			}
+			var kind = message.Kind switch {
+				"prompt" => AgentTurnSubmissionKind.Prompt,
+				"providerCommand" => AgentTurnSubmissionKind.ProviderCommand,
+				_ => throw new InvalidOperationException("Agent submissions require a recognized semantic kind."),
+			};
+			if (kind == AgentTurnSubmissionKind.Prompt && message.CommandName is { Length: > 0 }) {
+				throw new InvalidOperationException("An ordinary prompt cannot name a provider command.");
+			}
+			if (kind == AgentTurnSubmissionKind.ProviderCommand && attachmentIds.Length != 0) {
+				throw new InvalidOperationException("Provider commands cannot include attachments.");
+			}
 
 			var resolved = AgentAttachments.Resolve(attachmentIds);
 			agent.Submit(new AgentTurnSubmission {
 				Id = message.Id,
 				Text = message.Prompt,
+				Kind = kind,
+				CommandName = message.CommandName ?? string.Empty,
 				Attachments = resolved,
 			});
 			if (message.Id.Length > 0) {
@@ -296,11 +294,6 @@ public sealed partial class HostSession {
 
 	private sealed record EmptyMessage;
 
-	private sealed record TerminalInputMessage(string DataB64, bool UserInitiated);
-	private sealed record TerminalSizeMessage(int Columns, int Rows);
-
-	private sealed record TerminalCwdMessage(string Cwd);
-
 	private sealed record ImagePasteMessage(string Mime, string DataB64);
 
 	private sealed record LspStartMessage(string Server, string Channel);
@@ -331,7 +324,10 @@ public sealed partial class HostSession {
 
 	private sealed record AgentDecisionMessage(string RequestId, string OptionId);
 
-	private sealed record AgentAuthMessage(string MethodId, Dictionary<string, string[]> Answers);
+	private sealed record AgentAuthMessage(
+		string RequestId,
+		string MethodId,
+		Dictionary<string, string[]> Answers);
 
 	private sealed record AgentInputMessage(
 		string RequestId,
@@ -345,5 +341,9 @@ public sealed partial class HostSession {
 	private sealed record AgentSubmitMessage(
 		string Id,
 		string Prompt,
+		string? Kind,
+		string? CommandName,
 		string[]? AttachmentIds);
+
+	private sealed record AgentSideReplyMessage(string ConversationId, string Prompt);
 }

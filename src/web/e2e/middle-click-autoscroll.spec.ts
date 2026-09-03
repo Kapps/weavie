@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, type Locator, type Page, test } from "@playwright/test";
-import { MockHost, mockSession } from "./mock-host";
+import { MockHost, mockEditorOptions, mockSession } from "./mock-host";
 
 const distDir = join(dirname(fileURLToPath(import.meta.url)), "..", "dist");
 
@@ -82,10 +82,11 @@ test("middle-click autoscrolls the agent transcript and responds live", async ({
 
     await page.mouse.click(origin.x, origin.y, { button: "middle" });
     await expect(body).toHaveClass(/middle-click-autoscrolling/);
-    host.publishHost("settings", "editorOptions", {
-      gitBlame: "off",
-      middleClickAutoscroll: false,
-    });
+    host.publishHost(
+      "settings",
+      "editorOptions",
+      mockEditorOptions({ middleClickAutoscroll: false }),
+    );
     await expect(body).not.toHaveClass(/middle-click-autoscrolling/);
     await page.mouse.click(origin.x, origin.y, { button: "middle" });
     await expect(body).not.toHaveClass(/middle-click-autoscrolling/);
@@ -196,6 +197,8 @@ test("middle-click autoscrolls any scrollable surface, not just the transcript",
 test("middle-click autoscrolls the editor and responds live", async ({ page }) => {
   const session = mockSession("editor-autoscroll", "editor-autoscroll", "acp");
   const host = await MockHost.start({ distDir, sessions: [session] });
+  const pageErrors: string[] = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
 
   try {
     host.files.set(
@@ -214,6 +217,13 @@ test("middle-click autoscrolls the editor and responds live", async ({ page }) =
     const editor = page.locator(".monaco-editor").first();
     await expect(editor).toBeVisible();
     await expect(page.locator(".monaco-editor .view-lines").first()).toContainText("line0 = 0");
+    expect(
+      await page.evaluate(() =>
+        Number.isFinite(
+          window.__WEAVIE_EDITOR__?.getRawOptions().mouseWheelScrollSensitivity ?? NaN,
+        ),
+      ),
+    ).toBe(true);
     const scrollTop = (): Promise<number> =>
       page.evaluate(() => window.__WEAVIE_EDITOR__?.getScrollTop() ?? -1);
     await expect.poll(scrollTop).toBe(0);
@@ -230,10 +240,11 @@ test("middle-click autoscrolls the editor and responds live", async ({ page }) =
     await page.keyboard.press("Escape");
     await expect(editor).not.toHaveClass(/scroll-editor-on-middle-click-editor/);
 
-    host.publishHost("settings", "editorOptions", {
-      gitBlame: "off",
-      middleClickAutoscroll: false,
-    });
+    host.publishHost(
+      "settings",
+      "editorOptions",
+      mockEditorOptions({ middleClickAutoscroll: false }),
+    );
     await expect
       .poll(() =>
         page.evaluate(() => window.__WEAVIE_EDITOR__?.getRawOptions().scrollOnMiddleClick),
@@ -241,6 +252,7 @@ test("middle-click autoscrolls the editor and responds live", async ({ page }) =
       .toBe(false);
     await page.mouse.click(origin.x, origin.y, { button: "middle" });
     await expect(editor).not.toHaveClass(/scroll-editor-on-middle-click-editor/);
+    expect(pageErrors).toEqual([]);
   } finally {
     await host.close();
   }
@@ -278,12 +290,24 @@ test("middle-clicking an editor tab closes it instead of starting an autoscroll"
     ).toBeGreaterThan(1);
 
     const tab = page.locator(".editor-tab", { hasText: "module-13.ts" });
-    const origin = await paneOrigin(tab.locator(".editor-tab-main"));
-    await page.mouse.click(origin.x, origin.y, { button: "middle" });
+    // Deliberately don't wait for editor readiness: the active tab is valid while its lazy model is still
+    // loading. Click through the locator (not a coordinate frozen by paneOrigin) so Playwright re-resolves the
+    // tab's position immediately before clicking — 14 concurrent lazy model loads can still shift tab layout
+    // at this point, and a stale coordinate lands off-target on a slower runner.
+    // Flaked on Windows CI (2026-09-02, run https://github.com/Kapps/weavie/actions/runs/33592205183): the
+    // click landed before the tab strip's layout settled, so the tab was still there 30s later. Fixed by
+    // switching to a locator click, which re-resolves the target position right before clicking.
+    await tab.locator(".editor-tab-main").click({ button: "middle" });
 
-    // The clicked tab going away is the whole assertion — this host doesn't model the editor's view list, so
-    // what happens to the OTHER tabs is its business, not the gesture's.
+    // The tab closes without arming autoscroll, and the editor finishes its asynchronous switch to the survivor.
     await expect(tab).toHaveCount(0);
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () => window.__WEAVIE_EDITOR__?.getModel()?.uri.path.endsWith("/module-12.ts") ?? false,
+        ),
+      )
+      .toBe(true);
     await expect(page.locator(".middle-click-autoscroll-origin")).toHaveCount(0);
     await expect(page.locator(".middle-click-autoscrolling")).toHaveCount(0);
   } finally {

@@ -18,6 +18,11 @@ const steer = (text: string): AgentPaneUpdate => ({
   providerId: "acp",
   text,
 });
+const command = (text: string): AgentPaneUpdate => ({
+  type: "user-command",
+  providerId: "acp",
+  text,
+});
 
 describe("submittedPrompts", () => {
   it("collects user prompts and steers oldest-first, dropping blanks and adjacent dupes", () => {
@@ -27,9 +32,10 @@ describe("submittedPrompts", () => {
       user("  "),
       steer("second"),
       user("second"),
+      command("/compact"),
       user("third"),
     ];
-    expect(submittedPrompts(messages)).toEqual(["first", "second", "third"]);
+    expect(submittedPrompts(messages)).toEqual(["first", "second", "/compact", "third"]);
   });
 
   it("returns an empty list when nothing was submitted", () => {

@@ -22,6 +22,7 @@ import {
   composerState,
   removeComposerAttachment,
   setComposerDraft,
+  setComposerError,
   submitAgentTurn,
   uploadAgentImage,
 } from "./composer-store";
@@ -32,7 +33,13 @@ import {
   recallNext,
   recallPrevious,
 } from "./prompt-history";
-import { filterSlash, slashQuery } from "./slash";
+import {
+  filterSlash,
+  providerCommandForDraft,
+  slashQuery,
+  weavieCommandForDraft,
+  weavieCommandInput,
+} from "./slash";
 import { caretOnFirstVisualLine, caretOnLastVisualLine } from "./textarea-lines";
 import type { PendingRequestKind } from "./turn-progress";
 
@@ -41,6 +48,7 @@ export function AgentComposer(props: {
   compact: boolean;
   history: readonly string[];
   inputProtocol: number;
+  interruptible: boolean;
   latestPlan: AgentPlanIdentity | null;
   pendingApprovalId: string | null;
   pendingKind: PendingRequestKind | null;
@@ -52,7 +60,7 @@ export function AgentComposer(props: {
 }): JSX.Element {
   let textareaRef: HTMLTextAreaElement | undefined;
   const composer = createMemo(() => composerState(props.session));
-  const canInterrupt = createMemo(() => props.session !== null && props.turnActive);
+  const canInterrupt = createMemo(() => props.session !== null && props.interruptible);
 
   createEffect(() => setContext("agentApprovalPending", props.pendingKind === "approval"));
   createEffect(() => setContext("agentInputPending", props.pendingKind === "input"));
@@ -73,9 +81,11 @@ export function AgentComposer(props: {
         (state.draft.trim().length > 0 || props.pendingLegacyImageCount > 0)
       );
     }
+    if (props.session === null || state.submittingId !== null) return false;
+    const slash = agentControlState(props.session).slash;
+    if (weavieCommandForDraft(slash, state.draft) !== null) return true;
+    if (providerCommandForDraft(slash, state.draft) !== null) return true;
     return (
-      props.session !== null &&
-      state.submittingId === null &&
       state.attachments.every((attachment) => attachment.status === "ready") &&
       (state.draft.trim().length > 0 || state.attachments.length > 0)
     );
@@ -112,17 +122,25 @@ export function AgentComposer(props: {
     });
   };
 
-  const acceptSlash = (entry: AgentSlashEntry): void => {
+  const acceptSlash = (entry: AgentSlashEntry, execute: boolean): void => {
     const session = props.session;
     if (session === null) {
       return;
     }
-    if (entry.commandId !== null) {
-      setComposerDraft(session, "");
-      void runCommandWithFeedback(entry.commandId);
-    } else if (entry.insertText !== null) {
-      setComposerDraft(session, entry.insertText);
-      placeCaretAfterDraftUpdate(entry.insertText, entry.insertText.length);
+    if (entry.kind === "weavieCommand") {
+      if (entry.inputName === null) {
+        setComposerDraft(session, "");
+        void runCommandWithFeedback(entry.commandId);
+      } else {
+        const draft = `/${entry.name} `;
+        setComposerDraft(session, draft);
+        placeCaretAfterDraftUpdate(draft, draft.length);
+      }
+    } else {
+      const draft = `/${entry.name}${entry.inputHint === null ? "" : " "}`;
+      setComposerDraft(session, draft);
+      if (execute) submit();
+      else placeCaretAfterDraftUpdate(draft, draft.length);
     }
     setSlashDismissed(false);
     textareaRef?.focus();
@@ -213,6 +231,26 @@ export function AgentComposer(props: {
     if (!props.active || session === null) {
       return false;
     }
+    const slash = agentControlState(session).slash;
+    const weavieCommand = weavieCommandForDraft(slash, composer().draft);
+    if (weavieCommand?.kind === "weavieCommand") {
+      const input = weavieCommandInput(weavieCommand, composer().draft);
+      if (weavieCommand.inputName !== null && input === null) {
+        setComposerError(
+          session,
+          `${weavieCommand.name} requires ${weavieCommand.inputHint ?? "input"}.`,
+        );
+        return false;
+      }
+      const args =
+        weavieCommand.inputName === null || input === null
+          ? undefined
+          : { [weavieCommand.inputName]: input };
+      setComposerDraft(session, "");
+      void runCommandWithFeedback(weavieCommand.commandId, args);
+      setHistoryCursor(IDLE_CURSOR);
+      return true;
+    }
     if (props.inputProtocol < 2) {
       const state = composerState(session);
       if (state.draft.trim().length === 0 && props.pendingLegacyImageCount === 0) {
@@ -221,11 +259,14 @@ export function AgentComposer(props: {
       session.feature("agent").publish("submit", {
         id: "",
         prompt: state.draft.trim(),
+        kind: "prompt",
+        commandName: "",
         attachmentIds: [],
       });
       setComposerDraft(session, "");
-    } else if (!submitAgentTurn(session)) {
-      return false;
+    } else {
+      const command = providerCommandForDraft(slash, composer().draft);
+      if (!submitAgentTurn(session, command?.name ?? null)) return false;
     }
     setHistoryCursor(IDLE_CURSOR);
     props.onSubmitted();

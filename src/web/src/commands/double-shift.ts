@@ -1,6 +1,7 @@
 // Detects the "double-shift" gesture (tap + release Shift twice quickly, IntelliJ-style) and fires a
 // callback. Outside the keybinding resolver, which never matches a modifiers-only chord. Any other key or
-// modifier alongside Shift breaks the sequence. Capture-phase so a focused xterm/Monaco can't swallow it.
+// modifier alongside Shift, or a mouse gesture, breaks the sequence. Capture-phase so a focused
+// xterm/Monaco can't swallow it.
 
 import { evaluateWhen } from "./context";
 
@@ -52,12 +53,16 @@ export function installDoubleShift(onTrigger: () => void): () => void {
     lastTapAt = now;
   };
 
+  const onMouseDown = (): void => reset();
+
   window.addEventListener("keydown", onKeyDown, { capture: true });
   window.addEventListener("keyup", onKeyUp, { capture: true });
+  window.addEventListener("mousedown", onMouseDown, { capture: true });
   window.addEventListener("blur", reset);
   return () => {
     window.removeEventListener("keydown", onKeyDown, { capture: true });
     window.removeEventListener("keyup", onKeyUp, { capture: true });
+    window.removeEventListener("mousedown", onMouseDown, { capture: true });
     window.removeEventListener("blur", reset);
   };
 }

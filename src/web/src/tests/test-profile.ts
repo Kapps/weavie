@@ -9,7 +9,7 @@ export interface TestRule {
   glob: string;
   symbol: string;
   runOne: string;
-  runFile: string;
+  runFile?: string;
   nameSeparator: string;
   header?: string;
 }
@@ -60,13 +60,13 @@ export function parseProfile(json: string): TestRule[] {
       typeof entry?.glob === "string" &&
       typeof entry?.symbol === "string" &&
       typeof entry?.runOne === "string" &&
-      typeof entry?.runFile === "string"
+      (entry?.runFile === undefined || entry.runFile === null || typeof entry.runFile === "string")
     ) {
       result.push({
         glob: entry.glob,
         symbol: entry.symbol,
         runOne: entry.runOne,
-        runFile: entry.runFile,
+        runFile: typeof entry.runFile === "string" ? entry.runFile : undefined,
         nameSeparator: typeof entry.nameSeparator === "string" ? entry.nameSeparator : " ",
         header: typeof entry.header === "string" ? entry.header : undefined,
       });

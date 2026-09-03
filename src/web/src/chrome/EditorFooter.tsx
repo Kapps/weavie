@@ -1,10 +1,24 @@
-import { TriangleAlert } from "lucide-solid";
+import { FolderMinus, TriangleAlert } from "lucide-solid";
 import { type JSX, Show } from "solid-js";
 import { activeBackendPhase } from "../bridge";
 import { isDirtyPath } from "../editor/dirty-store";
 import { editorStatus } from "../editor/editor-status-store";
+import { activeFileOutsideWorkspace } from "../editor/file-scope";
 import { activePath } from "../editor/session-store";
 import { RecentFilesButton } from "./RecentFilesButton";
+
+// Every line maps to a gate that is genuinely off for a file outside the checkout: WorktreeRelativePath,
+// the LSP client's root, SessionChangeTracker's scope, the file index, and TestRuleMatcher. External edits
+// are NOT listed: ExternalFileWatcher watches open outside files, so they reload like any other. The user
+// opened this file deliberately, so this states facts rather than warning.
+const outsideRepoDetail = (root: string): string =>
+  [
+    `This file is outside ${root}.`,
+    "Blame, history and diff-against are unavailable — it isn't in the repo.",
+    "Completions, diagnostics and go-to-definition are off.",
+    "Agent changes to it aren't reviewed, and your edits aren't recorded as corrections.",
+    "It isn't in Go to File or Recent Files, and test rules don't match it.",
+  ].join("\n");
 
 /**
  * The editor pane's status bar: cursor position, selection size, unsaved state, line endings, and language on
@@ -30,6 +44,16 @@ export function EditorFooter(props: {
         )}
       </Show>
       <span class="footer-spacer" />
+      <Show when={activeFileOutsideWorkspace()}>
+        <span
+          class="footer-seg footer-outside-repo"
+          role="status"
+          title={outsideRepoDetail(props.root())}
+        >
+          <FolderMinus size={13} aria-hidden="true" />
+          Outside repo
+        </span>
+      </Show>
       <Show when={activeBackendPhase() === "reconnecting"}>
         <span
           class="footer-seg footer-network-problem"

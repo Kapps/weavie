@@ -3,7 +3,8 @@ namespace Weavie.LspHarness;
 /// <summary>
 /// A per-language test fixture for the LSP harness: a small source file with a deliberate type error (for
 /// diagnostics), positions to probe hover and completion, and any project files the server needs (tsconfig /
-/// .csproj / go.mod). Keyed by recipe id so one harness drives every language through the same bridge.
+/// .csproj / go.mod / pyproject.toml / Cargo.toml). Keyed by recipe id so one harness drives every language
+/// through the same bridge.
 /// </summary>
 internal sealed record LanguageProbe {
 	public required string LanguageId { get; init; }
@@ -13,12 +14,15 @@ internal sealed record LanguageProbe {
 	public required int HoverChar { get; init; }
 	public required int CompletionLine { get; init; }
 	public required int CompletionChar { get; init; }
+	public bool WaitForDiagnosticsBeforeRequests { get; init; }
 	public IReadOnlyDictionary<string, string> ProjectFiles { get; init; } = new Dictionary<string, string>();
 
 	public static LanguageProbe? For(string selector) => selector switch {
 		"typescript" => TypeScript,
 		"csharp" => CSharp,
 		"go" => Go,
+		"python" => Python,
+		"rust" => Rust,
 		_ => null,
 	};
 
@@ -92,6 +96,49 @@ internal sealed record LanguageProbe {
 		CompletionChar = 5, // after "fmt."
 		ProjectFiles = new Dictionary<string, string> {
 			["go.mod"] = "module weavieharness\n\ngo 1.21\n",
+		},
+	};
+
+	// `greeting` is a type error; `add` → hover; inside its body → completion.
+	private static LanguageProbe Python => new() {
+		LanguageId = "python",
+		MainFileName = "sample.py",
+		Source =
+			"def add(a: int, b: int) -> int:\n" + // 0
+			"    return a + b\n" +                 // 1
+			"\n" +                                  // 2
+			"greeting: int = \"hello\"\n" +       // 3  <- error
+			"\n" +                                  // 4
+			"class Point:\n" +                     // 5
+			"    x: int = 0\n",                     // 6
+		HoverLine = 0,
+		HoverChar = 5, // on "add"
+		CompletionLine = 1,
+		CompletionChar = 12, // inside the expression
+		ProjectFiles = new Dictionary<string, string> {
+			["pyproject.toml"] = "[tool.pyright]\ntypeCheckingMode = \"strict\"\n",
+		},
+	};
+
+	// `greeting` is a type error; `add` → hover; inside its body → completion.
+	private static LanguageProbe Rust => new() {
+		LanguageId = "rust",
+		MainFileName = "src/lib.rs",
+		Source =
+			"pub fn add(a: i32, b: i32) -> i32 {\n" + // 0
+			"    a + b\n" +                            // 1
+			"}\n" +                                   // 2
+			"\n" +                                     // 3
+			"pub fn broken() {\n" +                  // 4
+			"    let greeting: i32 = \"hello\";\n" + // 5  <- error
+			"}\n",                                    // 6
+		HoverLine = 0,
+		HoverChar = 8, // on "add"
+		CompletionLine = 1,
+		CompletionChar = 5, // after "a"
+		WaitForDiagnosticsBeforeRequests = true,
+		ProjectFiles = new Dictionary<string, string> {
+			["Cargo.toml"] = "[package]\nname = \"weavie-harness\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
 		},
 	};
 }

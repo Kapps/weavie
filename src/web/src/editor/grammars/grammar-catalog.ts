@@ -1,5 +1,5 @@
 // Joins each tm-grammars grammar with linguist-languages file extensions (keyed on TextMate scope) into the
-// languages registered with Monaco. Curated @codingame packs (TS/TSX, C#, Go) are excluded to avoid
+// languages registered with Monaco. Curated @codingame packs (TS/TSX, C#, Go, Python, Rust) are excluded to avoid
 // double-registration, since they ship full language-configuration and drive LSP selection.
 
 import type { Language } from "linguist-languages";
@@ -17,31 +17,30 @@ const linguistData = import.meta.glob<Language>(
 
 /** One language to register for broad highlighting: a tm-grammars grammar joined with its file extensions. */
 export interface BroadGrammar {
-  /** The tm-grammars grammar name (== file basename == the Monaco language id), e.g. "rust". */
+  /** The tm-grammars grammar name (and file basename), e.g. "rust". */
   readonly name: string;
+  /** Monaco language id the extensions resolve to; curated scopes reuse the package's existing id. */
+  readonly languageId: string;
   /** TextMate scope the grammar declares, e.g. "source.rust". */
   readonly scopeName: string;
   /** Human-readable name (for the Monaco language registration / pickers). */
   readonly displayName: string;
   /** File extensions (".rs" form) that resolve a model to this language. */
   readonly extensions: readonly string[];
+  /** Whether this entry owns and must register the grammar, rather than only contributing extensions. */
+  readonly registerGrammar: boolean;
 }
 
-// Scopes owned by the curated @codingame packs (see vscode-services.ts) — never re-register these.
-// JavaScript is intentionally not curated, so the broad loader fills that gap.
-const CURATED_SCOPES = new Set(["source.ts", "source.tsx", "source.cs", "source.go"]);
-// Curated extensions, pre-seeded so a curated language always wins ownership of its extension.
-const CURATED_EXTENSIONS = [
-  ".ts",
-  ".cts",
-  ".mts",
-  ".tsx",
-  ".cs",
-  ".csx",
-  ".cake",
-  ".go",
-  ".tsbuildinfo",
-];
+// Scopes whose grammar/config comes from a curated @codingame pack. Any additional Linguist extensions that
+// share one of these scopes are contributed to the existing language id without re-registering its grammar.
+const CURATED_SCOPE_LANGUAGES = new Map([
+  ["source.ts", "typescript"],
+  ["source.tsx", "typescriptreact"],
+  ["source.cs", "csharp"],
+  ["source.go", "go"],
+  ["source.python", "python"],
+  ["source.rust", "rust"],
+]);
 
 interface ScopeExtensions {
   readonly extensions: Set<string>;
@@ -51,7 +50,7 @@ interface ScopeExtensions {
  * Builds the broad-highlighting catalog: every non-curated tm-grammars grammar with a linguist extension
  * match. Extensions are de-duplicated first-wins (curated pre-seeded), so no two languages claim the same one.
  */
-export function buildBroadCatalog(): BroadGrammar[] {
+export function buildBroadCatalog(claimedExtensions: ReadonlySet<string>): BroadGrammar[] {
   // linguist: TextMate scope -> the union of file extensions of every language that maps to it.
   const byScope = new Map<string, ScopeExtensions>();
   for (const language of Object.values(linguistData)) {
@@ -69,12 +68,9 @@ export function buildBroadCatalog(): BroadGrammar[] {
     }
   }
 
-  const claimed = new Set<string>(CURATED_EXTENSIONS);
+  const claimed = new Set<string>(claimedExtensions);
   const catalog: BroadGrammar[] = [];
   for (const grammar of grammars) {
-    if (CURATED_SCOPES.has(grammar.scopeName)) {
-      continue;
-    }
     const linguist = byScope.get(grammar.scopeName);
     if (linguist === undefined) {
       continue; // no file extension -> a file could never resolve to it
@@ -88,9 +84,11 @@ export function buildBroadCatalog(): BroadGrammar[] {
     }
     catalog.push({
       name: grammar.name,
+      languageId: CURATED_SCOPE_LANGUAGES.get(grammar.scopeName) ?? grammar.name,
       scopeName: grammar.scopeName,
       displayName: grammar.displayName,
       extensions,
+      registerGrammar: !CURATED_SCOPE_LANGUAGES.has(grammar.scopeName),
     });
   }
   return catalog;

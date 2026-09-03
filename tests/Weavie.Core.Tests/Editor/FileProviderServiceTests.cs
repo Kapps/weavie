@@ -5,8 +5,8 @@ using Xunit;
 namespace Weavie.Core.Tests.Editor;
 
 /// <summary>
-/// <see cref="FileProviderService"/> confines text reads and writes to the workspace/scratch roots, and
-/// <see cref="FileProviderService.CanRead"/> gates opens without reading content.
+/// <see cref="FileProviderService"/> shapes text reads and writes for the bridge, and
+/// <see cref="FileProviderService.CanRead"/> gates opens on existence without reading content.
 /// </summary>
 public sealed class FileProviderServiceTests {
 	private static readonly string Workspace = OperatingSystem.IsWindows() ? @"C:\ws" : "/ws";
@@ -14,7 +14,7 @@ public sealed class FileProviderServiceTests {
 
 	private static (FileProviderService service, InMemoryFileSystem fs) New() {
 		var fs = new InMemoryFileSystem();
-		return (new FileProviderService(fs, Workspace, Scratch), fs);
+		return (new FileProviderService(fs), fs);
 	}
 
 	[Fact]
@@ -31,7 +31,7 @@ public sealed class FileProviderServiceTests {
 	}
 
 	[Fact]
-	public void CanRead_MatchesConfinementAndExistence() {
+	public void CanRead_TracksExistenceWhereverTheFileLives() {
 		var (service, fs) = New();
 		string inside = Path.Combine(Workspace, "a.cs");
 		string outside = OperatingSystem.IsWindows() ? @"C:\other\a.cs" : "/other/a.cs";
@@ -39,7 +39,18 @@ public sealed class FileProviderServiceTests {
 		fs.WriteAllText(outside, "x");
 
 		Assert.True(service.CanRead(inside));
-		Assert.False(service.CanRead(outside)); // exists, but out of workspace
-		Assert.False(service.CanRead(Path.Combine(Workspace, "ghost.cs"))); // in workspace, but missing
+		Assert.True(service.CanRead(outside)); // outside the worktree, but the user can still open it
+		Assert.False(service.CanRead(Path.Combine(Workspace, "ghost.cs")));
+	}
+
+	[Fact]
+	public void ReadAndWrite_ServeAPathOutsideTheWorktree() {
+		var (service, fs) = New();
+		string outside = OperatingSystem.IsWindows() ? @"C:\other\notes.md" : "/other/notes.md";
+		fs.WriteAllText(outside, "before");
+
+		Assert.Equal("before", service.Read(outside).Content);
+		Assert.True(service.Write(outside, "after").Ok);
+		Assert.Equal("after", service.ReadText(outside));
 	}
 }

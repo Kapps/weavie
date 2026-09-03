@@ -13,6 +13,8 @@ export interface ContextMenuItem {
   commandId: string;
   args?: unknown;
   label?: string;
+  title?: string;
+  disabled?: boolean;
   danger?: boolean;
 }
 
@@ -25,6 +27,7 @@ export interface ContextMenuSubmenu {
   kind: "submenu";
   label: string;
   entries: ContextMenuEntry[];
+  disabled?: boolean;
 }
 
 export type ContextMenuEntry = ContextMenuItem | ContextMenuSeparator | ContextMenuSubmenu;
@@ -69,7 +72,13 @@ function MenuPanel(props: {
   const [autoFocusChild, setAutoFocusChild] = createSignal(false);
 
   const rows = (): HTMLButtonElement[] =>
-    panelEl ? [...panelEl.querySelectorAll<HTMLButtonElement>(".context-menu-item")] : [];
+    panelEl
+      ? [
+          ...panelEl.querySelectorAll<HTMLButtonElement>(
+            ":scope > .context-menu-item:not(:disabled)",
+          ),
+        ]
+      : [];
 
   // The open fly-out as one value, so the render never reads a half-set (index without rect, or vice versa)
   // mid-update — both signals are folded here and the panel renders only when the whole thing is present.
@@ -77,7 +86,12 @@ function MenuPanel(props: {
     const index = openIndex();
     const rect = anchorRect();
     const entry = index === null ? undefined : props.entries[index];
-    if (rect === null || entry === undefined || entry.kind !== "submenu") {
+    if (
+      rect === null ||
+      entry === undefined ||
+      entry.kind !== "submenu" ||
+      entry.disabled === true
+    ) {
       return null;
     }
     return { entries: entry.entries, rect };
@@ -102,6 +116,9 @@ function MenuPanel(props: {
 
   const onKeyDown = (event: KeyboardEvent): void => {
     const list = rows();
+    if (list.length === 0) {
+      return;
+    }
     const current = list.indexOf(document.activeElement as HTMLButtonElement);
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
@@ -119,7 +136,10 @@ function MenuPanel(props: {
       const index = Number(row?.dataset.entryIndex);
       if (Number.isInteger(index) && props.entries[index]?.kind === "submenu") {
         event.preventDefault();
+        event.stopPropagation();
         openSubmenu(index, row, true);
+      } else if (props.onCloseSelf !== undefined) {
+        event.stopPropagation();
       }
     } else if (event.key === "ArrowLeft" && props.onCloseSelf !== undefined) {
       event.preventDefault();
@@ -186,11 +206,22 @@ function MenuPanel(props: {
             <button
               type="button"
               class="context-menu-item context-menu-submenu"
+              role="menuitem"
               data-entry-index={index()}
+              disabled={entry.disabled}
+              aria-disabled={entry.disabled}
               aria-haspopup="true"
               aria-expanded={openIndex() === index()}
-              onMouseEnter={(e) => openSubmenu(index(), e.currentTarget, false)}
-              onClick={(e) => openSubmenu(index(), e.currentTarget, true)}
+              onMouseEnter={(e) => {
+                if (entry.disabled !== true) {
+                  openSubmenu(index(), e.currentTarget, false);
+                }
+              }}
+              onClick={(e) => {
+                if (entry.disabled !== true) {
+                  openSubmenu(index(), e.currentTarget, true);
+                }
+              }}
             >
               <span>{entry.label}</span>
               <ChevronRight size={14} class="context-menu-chevron" />
@@ -199,9 +230,17 @@ function MenuPanel(props: {
             <button
               type="button"
               class={`context-menu-item${entry.danger ? " danger" : ""}`}
+              role="menuitem"
               data-entry-index={index()}
+              title={entry.title}
+              disabled={entry.disabled}
+              aria-disabled={entry.disabled}
               onMouseEnter={() => collapseSubmenu()}
-              onClick={() => run(entry)}
+              onClick={() => {
+                if (entry.disabled !== true) {
+                  void run(entry);
+                }
+              }}
             >
               <span>{labelOf(entry)}</span>
               <Show when={keysOf(entry)}>
@@ -236,7 +275,11 @@ function MenuPanel(props: {
  * positioned at the cursor, dismissed on outside-click / Escape / blur. Callers build the entries and own the
  * open signal. See docs/specs/commands.md.
  */
-export function ContextMenu(props: { menu: ContextMenuState; onClose: () => void }): JSX.Element {
+export function ContextMenu(props: {
+  menu: ContextMenuState;
+  onClose: () => void;
+  dismissInside?: string;
+}): JSX.Element {
   let stopModalListener = (): void => {};
   const onKeyDown = (event: KeyboardEvent): void => {
     if (event.key === "Escape") {
@@ -249,7 +292,7 @@ export function ContextMenu(props: { menu: ContextMenuState; onClose: () => void
       return;
     }
     stopModalListener = onModalOpened(props.onClose);
-    dismissOnOutsideInteraction(".context-menu", props.onClose);
+    dismissOnOutsideInteraction(props.dismissInside ?? ".context-menu", props.onClose);
     window.addEventListener("keydown", onKeyDown);
   });
   onCleanup(() => {

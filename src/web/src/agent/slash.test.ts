@@ -1,13 +1,70 @@
 import { describe, expect, it } from "vitest";
 import type { AgentSlashEntry } from "../bridge";
-import { filterSlash, slashQuery } from "./slash";
+import {
+  filterSlash,
+  providerCommandForDraft,
+  slashQuery,
+  weavieCommandForDraft,
+  weavieCommandInput,
+} from "./slash";
 
-const entry = (name: string): AgentSlashEntry => ({
+const entry = (name: string): Extract<AgentSlashEntry, { kind: "providerCommand" }> => ({
   id: name,
   name,
   description: name,
+  kind: "providerCommand",
   commandId: null,
-  insertText: name,
+  inputHint: null,
+  inputName: null,
+});
+
+describe("weavieCommandForDraft", () => {
+  const clear: AgentSlashEntry = {
+    id: "weavie:clear",
+    name: "clear",
+    description: "Clear",
+    kind: "weavieCommand",
+    commandId: "weavie.agent.clearConversation",
+    inputHint: null,
+    inputName: null,
+  };
+
+  it("matches only an exact client-owned slash action", () => {
+    expect(weavieCommandForDraft([clear], "/CLEAR")?.name).toBe("clear");
+    expect(weavieCommandForDraft([clear], "/clear now")).toBeNull();
+  });
+
+  it("requires and extracts free-form input for an argument-taking action", () => {
+    const btw: AgentSlashEntry = {
+      id: "weavie:btw",
+      name: "btw",
+      description: "Ask aside",
+      kind: "weavieCommand",
+      commandId: "weavie.agent.askAside",
+      inputHint: "question",
+      inputName: "question",
+    };
+
+    expect(weavieCommandForDraft([btw], "/btw")).toBe(btw);
+    expect(weavieCommandInput(btw, "/btw")).toBeNull();
+    expect(weavieCommandForDraft([btw], "/BTW   why this design?")).toBe(btw);
+    expect(weavieCommandInput(btw, "/btw   why this design?")).toBe("why this design?");
+  });
+});
+
+describe("providerCommandForDraft", () => {
+  const entries = [entry("compact"), entry("review")];
+
+  it("matches an exact advertised command with optional arguments", () => {
+    expect(providerCommandForDraft(entries, "/COMPACT")?.name).toBe("compact");
+    expect(providerCommandForDraft(entries, "  /compact  ")?.name).toBe("compact");
+    expect(providerCommandForDraft(entries, "/review focus on tests")?.name).toBe("review");
+  });
+
+  it("does not promote unknown or prefix text into a command", () => {
+    expect(providerCommandForDraft(entries, "/compactly")).toBeNull();
+    expect(providerCommandForDraft(entries, "explain /compact")).toBeNull();
+  });
 });
 
 describe("slashQuery", () => {

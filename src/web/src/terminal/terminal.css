@@ -10,6 +10,65 @@
   display: none;
 }
 
+.shell-tabs {
+  min-width: 0;
+  user-select: none;
+}
+
+.shell-tab {
+  flex: 0 1 14em;
+  min-width: 6em;
+  max-width: 14em;
+}
+
+.shell-tab-label {
+  white-space: nowrap;
+}
+
+.shell-tab-close {
+  flex: 0 0 auto;
+  margin-right: 0.35em;
+  padding: 0.1em;
+  color: var(--dim);
+}
+
+.shell-tab-new {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--dim);
+  cursor: pointer;
+}
+
+.shell-tab:hover .shell-tab-close,
+.shell-tab.active .shell-tab-close,
+.shell-tab:focus-within .shell-tab-close {
+  opacity: 0.75;
+}
+
+.shell-tab-close:hover,
+.shell-tab-new:hover {
+  color: var(--fg);
+}
+
+.shell-tab-new {
+  padding: 0 0.65em;
+  border-right: 1px solid var(--border);
+}
+
+.shell-tabs .pane-shortcut {
+  align-self: center;
+  margin: 0 6px;
+}
+
+.shell-tab-new:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
 .term {
   position: absolute;
   inset: 0;

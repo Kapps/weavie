@@ -486,6 +486,9 @@ public sealed class WorktreeManagerTests {
 
 		public Task<bool> IsRepositoryAsync(string directory, CancellationToken ct = default) => Task.FromResult(true);
 
+		public Task<string?> FindToplevelAsync(string directory, CancellationToken ct = default) =>
+			Task.FromResult<string?>(directory);
+
 		public Task<string> GetHeadCommitAsync(string directory, CancellationToken ct = default) => Task.FromResult("0000000");
 
 		public Task<string?> GetCurrentBranchAsync(string directory, CancellationToken ct = default) => Task.FromResult(DefaultBranch);

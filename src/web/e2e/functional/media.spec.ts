@@ -139,7 +139,7 @@ test("autoplaying video preserves terminal focus across keyboard session switche
   await expect(page.locator(".session-chip")).toHaveCount(2);
   const terminalSession = await waitForSessionSwitch(page, videoSession);
   const shell = page.locator('.terminal-surface[data-kind="terminal:shell"]');
-  await shell.locator(".pane-head").click();
+  await shell.locator(".shell-tab-main").click();
   await expect(shell).toHaveClass(/\bactive\b/);
 
   await page.keyboard.press("Control+Shift+Tab");

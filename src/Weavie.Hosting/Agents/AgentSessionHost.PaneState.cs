@@ -51,6 +51,10 @@ public sealed partial class AgentSessionHost {
 	private void RestorePaneSnapshot(IReadOnlyList<AgentPaneMessage> messages) {
 		ArgumentNullException.ThrowIfNull(messages);
 		lock (_paneGate) {
+			messages = [
+				.. messages.Where(message => message.ConversationId is null),
+				.. _paneMessages.Where(message => message.ConversationId is not null),
+			];
 			// Filling an empty pane is not a new epoch. A generation change tells every client its ordinals are
 			// void and it must re-fetch; restoring a transcript into a pane that holds nothing invalidates
 			// nothing, so the restore streams into the current generation instead.

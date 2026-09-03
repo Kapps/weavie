@@ -1,4 +1,5 @@
 using Weavie.Core.Agents;
+using Weavie.Core.Processes;
 using Weavie.Core.Terminal;
 
 namespace Weavie.Hosting;
@@ -24,7 +25,9 @@ public sealed class WindowsPtyLauncher : IPtyLauncher {
 		string ext = Path.GetExtension(launch.Command).ToLowerInvariant();
 		if (ext is ".cmd" or ".bat") {
 			string commandProcessor = Path.Combine(Environment.SystemDirectory, "cmd.exe");
-			return (commandProcessor, ["/d", "/s", "/v:off", "/c", launch.Command, .. launch.Arguments]);
+			return (commandProcessor,
+				["/d", "/s", "/v:off", "/c", launch.Command,
+				.. launch.Arguments.Select(WindowsCommandLine.EscapeInputRedirection)]);
 		}
 		return (launch.Command, launch.Arguments);
 	}

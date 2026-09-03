@@ -13,25 +13,46 @@ namespace Weavie.Hosting.Tests;
 public sealed class HostCoreTestRunTests {
 	private const string Profile =
 		"test.profile = '[{\"glob\":\"**/*.test.ts\",\"symbol\":\"^(?:it|test)\\\\(\",\"runOne\":\"echo RUN ${file} -t ${name}\",\"runFile\":\"echo RUN ${file}\"}]'\n";
+	private const string IndividualOnlyProfile =
+		"test.profile = '[{\"glob\":\"**/*.rs\",\"symbol\":\"^test\",\"runOne\":\"cargo test ${name}\"}]'\n";
 
 	[Fact]
 	public async Task RunFile_ComposesCommand_IntoShellPane() {
 		await using var host = await TestHost.StartAsync(repo => WriteProfile(repo, Profile));
 		string file = Path.Combine(host.RepoRoot, "a.test.ts");
-		host.SelectedSession.Shell.EnsureStarted();
+		host.SelectedSession.Shells.Primary!.Controller.EnsureStarted();
 		var shell = Assert.Single(host.Platform.NoopLauncher.Created);
 
 		var result = await host.InvokeClientCommandAsync("weavie.tests.runFile", new { file });
 
 		Assert.True(result.Ok, result.Error);
 		Assert.Equal($"echo RUN '{file}'\r", shell.WrittenText);
+		var focus = host.Bridge.LastEvent(host.SelectedSession.Address, "view", "focusPane")!.Value;
+		Assert.Equal("terminal:shell", focus.GetProperty("kind").GetString());
+		Assert.Equal(host.SelectedSession.Shells.Primary!.Id, focus.GetProperty("terminalId").GetString());
+	}
+
+	[Fact]
+	public async Task ExitedPrimaryShell_FailsLoudly_AndWritesNothing() {
+		await using var host = await TestHost.StartAsync(repo => WriteProfile(repo, Profile));
+		string file = Path.Combine(host.RepoRoot, "a.test.ts");
+		host.SelectedSession.Shells.Primary!.Controller.EnsureStarted();
+		var shell = Assert.Single(host.Platform.NoopLauncher.Created);
+		shell.Exit(0);
+		await Wait.UntilAsync(() => !host.SelectedSession.Shells.Primary!.Controller.IsRunning);
+
+		var result = await host.InvokeClientCommandAsync("weavie.tests.runFile", new { file });
+
+		Assert.False(result.Ok);
+		Assert.Contains("exited", result.Error, StringComparison.Ordinal);
+		Assert.Equal(string.Empty, shell.WrittenText);
 	}
 
 	[Fact]
 	public async Task RunOne_ComposesQuotedName() {
 		await using var host = await TestHost.StartAsync(repo => WriteProfile(repo, Profile));
 		string file = Path.Combine(host.RepoRoot, "a.test.ts");
-		host.SelectedSession.Shell.EnsureStarted();
+		host.SelectedSession.Shells.Primary!.Controller.EnsureStarted();
 		var shell = Assert.Single(host.Platform.NoopLauncher.Created);
 
 		var result = await host.InvokeClientCommandAsync(
@@ -46,7 +67,7 @@ public sealed class HostCoreTestRunTests {
 	public async Task NoProfile_FailsLoudly_AndWritesNothing() {
 		await using var host = await TestHost.StartAsync(); // no test profile configured
 		string file = Path.Combine(host.RepoRoot, "a.test.ts");
-		host.SelectedSession.Shell.EnsureStarted();
+		host.SelectedSession.Shells.Primary!.Controller.EnsureStarted();
 		var shell = Assert.Single(host.Platform.NoopLauncher.Created);
 
 		var result = await host.InvokeClientCommandAsync("weavie.tests.runFile", new { file });
@@ -60,7 +81,7 @@ public sealed class HostCoreTestRunTests {
 	public async Task BusyShell_FailsLoudly_AndWritesNothing() {
 		await using var host = await TestHost.StartAsync(repo => WriteProfile(repo, Profile));
 		string file = Path.Combine(host.RepoRoot, "a.test.ts");
-		host.SelectedSession.Shell.EnsureStarted();
+		host.SelectedSession.Shells.Primary!.Controller.EnsureStarted();
 		var shell = Assert.Single(host.Platform.NoopLauncher.Created);
 		shell.HasForegroundJob = true;
 
@@ -72,6 +93,21 @@ public sealed class HostCoreTestRunTests {
 	}
 
 	[Fact]
+	public async Task FileOutsideTheWorktree_NamesTheRealReason() {
+		// The editor opens files anywhere, but test rules are globs over checkout-relative paths — so say that
+		// rather than blaming the profile for not matching "../../notes.md".
+		await using var host = await TestHost.StartAsync(repo => WriteProfile(repo, Profile));
+		string file = Path.Combine(Path.GetDirectoryName(host.RepoRoot)!, "outside.md");
+		await File.WriteAllTextAsync(file, "x");
+
+		var result = await host.InvokeClientCommandAsync("weavie.tests.runFile", new { file });
+
+		Assert.False(result.Ok);
+		Assert.Contains("isn't inside", result.Error, StringComparison.Ordinal);
+		Assert.DoesNotContain("No test rule", result.Error, StringComparison.Ordinal);
+	}
+
+	[Fact]
 	public async Task UnmatchedFile_FailsLoudly() {
 		await using var host = await TestHost.StartAsync(repo => WriteProfile(repo, Profile));
 		string file = Path.Combine(host.RepoRoot, "notes.md");
@@ -80,6 +116,18 @@ public sealed class HostCoreTestRunTests {
 
 		Assert.False(result.Ok);
 		Assert.Contains("No test rule", result.Error, StringComparison.Ordinal);
+	}
+
+	[Fact]
+	public async Task RunFileWithoutAFileCommand_FailsBeforeOpeningAShell() {
+		await using var host = await TestHost.StartAsync(repo => WriteProfile(repo, IndividualOnlyProfile));
+		string file = Path.Combine(host.RepoRoot, "src", "lib.rs");
+
+		var result = await host.InvokeClientCommandAsync("weavie.tests.runFile", new { file });
+
+		Assert.False(result.Ok);
+		Assert.Contains("cannot target every test", result.Error, StringComparison.Ordinal);
+		Assert.Empty(host.Platform.NoopLauncher.Created);
 	}
 
 	private static void WriteProfile(string repo, string profileLine) {

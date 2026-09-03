@@ -245,12 +245,46 @@ public sealed class CommandTests {
 	}
 
 	[Fact]
+	public void ShellTerminalCommands_UseFocusedTabBindingsAndOneLifecycleLane() {
+		var registry = CoreCommands.CreateRegistry();
+		var reopen = registry.Require(CoreCommands.ReopenTerminal);
+		var create = registry.Require(CoreCommands.NewTerminal);
+		var close = registry.Require(CoreCommands.CloseTerminal);
+		var closePrompt = registry.Require(CoreCommands.CloseTerminalPrompt);
+		var next = registry.Require(CoreCommands.NextTerminalTab);
+		var previous = registry.Require(CoreCommands.PrevTerminalTab);
+
+		Assert.Equal(CommandLocation.Core, create.RunsIn);
+		Assert.Equal(CommandLocation.Core, close.RunsIn);
+		Assert.Equal(create.ExecutionLane, reopen.ExecutionLane);
+		Assert.Equal(create.ExecutionLane, close.ExecutionLane);
+		Assert.Equal("ctrl+Shift+t", Assert.Single(create.DefaultKeybindings).Key);
+		Assert.Equal("focusedPane == 'terminal:shell'", Assert.Single(create.DefaultKeybindings).When);
+		Assert.Equal("ctrl+Shift+w", Assert.Single(closePrompt.DefaultKeybindings).Key);
+		Assert.Equal("ctrl+Tab", Assert.Single(next.DefaultKeybindings).Key);
+		Assert.Equal("ctrl+Shift+Tab", Assert.Single(previous.DefaultKeybindings).Key);
+		Assert.All(
+			[closePrompt, next, previous],
+			command => Assert.Equal("focusedPane == 'terminal:shell'", command.When));
+	}
+
+	[Fact]
 	public void TogglePlanMode_UsesNativeShiftTabBinding() {
 		var command = CoreCommands.CreateRegistry().Require(CoreCommands.TogglePlanMode);
 
 		Assert.Equal(CommandLocation.Web, command.RunsIn);
 		Assert.Equal("shift+tab", Assert.Single(command.DefaultKeybindings).Key);
 		Assert.Equal("agentFocused && !agentSlashMenuOpen && !agentControlPickerOpen", command.When);
+	}
+
+	[Fact]
+	public void ToggleReviewMode_IsBoundAndReviewGated() {
+		var command = CoreCommands.CreateRegistry().Require(CoreCommands.ReviewToggleMode);
+
+		Assert.Equal(CommandLocation.Web, command.RunsIn);
+		Assert.Equal("$mod+Shift+u", Assert.Single(command.DefaultKeybindings).Key);
+		Assert.Equal("!terminalFocused", command.DefaultKeybindings[0].When);
+		Assert.Equal("reviewSetActive", command.When);
 	}
 
 	[Fact]
@@ -272,12 +306,12 @@ public sealed class CommandTests {
 	}
 
 	[Fact]
-	public void ToggleAgentCommandOutput_UsesTheFocusedAgentBinding() {
-		var command = CoreCommands.CreateRegistry().Require(CoreCommands.ToggleAgentCommandOutput);
+	public void ToggleAgentToolOutput_UsesTheFocusedAgentBinding() {
+		var command = CoreCommands.CreateRegistry().Require(CoreCommands.ToggleAgentToolOutput);
 
 		Assert.Equal(CommandLocation.Web, command.RunsIn);
 		Assert.Equal("alt+o", Assert.Single(command.DefaultKeybindings).Key);
-		Assert.Equal("agentFocused && agentCommandOutputAvailable", command.When);
+		Assert.Equal("agentFocused && agentToolOutputAvailable", command.When);
 	}
 
 	[Fact]

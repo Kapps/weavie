@@ -1,4 +1,4 @@
-import { type JSX, Match, Show, Switch } from "solid-js";
+import { createSignal, For, type JSX, Match, Show, Switch } from "solid-js";
 import type { ClientSession } from "../bridge";
 import { ActivityDetails, AgentRichContent } from "./AgentActivityDetails";
 import { AgentMarkdown } from "./AgentMarkdown";
@@ -17,6 +17,16 @@ export function TranscriptEntry(props: {
   sectionLabel: AgentSectionLabel | null;
   session: ClientSession;
 }): JSX.Element {
+  if (props.entry.kind === "aside") {
+    return (
+      <AsideEntry
+        entry={props.entry}
+        keyboardApprovalId={props.keyboardApprovalId}
+        keyboardInputId={props.keyboardInputId}
+        session={props.session}
+      />
+    );
+  }
   return (
     <article
       class={`agent-entry agent-entry-${props.entry.kind} agent-tone-${props.entry.tone}`}
@@ -78,6 +88,100 @@ export function TranscriptEntry(props: {
           session={props.session}
         />
       </div>
+    </article>
+  );
+}
+
+function AsideEntry(props: {
+  entry: AgentTranscriptEntry;
+  keyboardApprovalId: string | null;
+  keyboardInputId: string | null;
+  session: ClientSession;
+}): JSX.Element {
+  const [replying, setReplying] = createSignal(false);
+  const [draft, setDraft] = createSignal("");
+  const [expandedDetail, setExpandedDetail] = createSignal<string | null>(null);
+  let textarea: HTMLTextAreaElement | undefined;
+
+  const submit = (): void => {
+    const prompt = draft().trim();
+    if (prompt.length === 0 || !props.entry.conversationId) return;
+    props.session.feature("agent").publish("replyAside", {
+      conversationId: props.entry.conversationId,
+      prompt,
+    });
+    setDraft("");
+    setReplying(false);
+  };
+
+  return (
+    <article class="agent-aside" data-agent-aside={props.entry.conversationId}>
+      <header class="agent-aside-head">
+        <span>BTW</span>
+        <Show when={props.entry.status !== null}>
+          <small>{props.entry.status}</small>
+        </Show>
+      </header>
+      <div class="agent-aside-transcript">
+        <For each={props.entry.asideEntries ?? []}>
+          {(entry) => (
+            <TranscriptEntry
+              detailsExpanded={expandedDetail() === entry.id}
+              entry={entry}
+              keyboardApprovalId={props.keyboardApprovalId}
+              keyboardInputId={props.keyboardInputId}
+              onDetailsToggle={(open) => setExpandedDetail(open ? entry.id : null)}
+              sectionLabel={null}
+              session={props.session}
+            />
+          )}
+        </For>
+      </div>
+      <Show when={props.entry.asideReplyable !== false}>
+        <Show
+          when={replying()}
+          fallback={
+            <button
+              type="button"
+              class="agent-aside-reply-button"
+              disabled={props.entry.asideActive === true}
+              onClick={() => {
+                setReplying(true);
+                queueMicrotask(() => textarea?.focus());
+              }}
+            >
+              Reply
+            </button>
+          }
+        >
+          <div class="agent-aside-reply">
+            <textarea
+              ref={textarea}
+              aria-label="Reply to BTW"
+              rows={2}
+              value={draft()}
+              onInput={(event) => setDraft(event.currentTarget.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  setReplying(false);
+                } else if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  submit();
+                }
+              }}
+            />
+            <div class="agent-aside-reply-actions">
+              <button type="button" onClick={() => setReplying(false)}>
+                Cancel
+              </button>
+              <button type="button" disabled={draft().trim().length === 0} onClick={submit}>
+                Reply
+              </button>
+            </div>
+          </div>
+        </Show>
+      </Show>
     </article>
   );
 }
@@ -173,7 +277,7 @@ function AgentMedia(props: {
 
 function entryLabel(entry: AgentTranscriptEntry): string {
   if (entry.kind === "message" && entry.tone === "user") {
-    return entry.label === "Steer" ? "Steer" : "Prompt";
+    return entry.label === "Steer" || entry.label === "Command" ? entry.label : "Prompt";
   }
   switch (entry.label) {
     case "Interrupted":

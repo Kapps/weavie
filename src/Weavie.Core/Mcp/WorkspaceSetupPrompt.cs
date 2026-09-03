@@ -31,7 +31,8 @@ public static class WorkspaceSetupPrompt {
 			     - "symbol": a regex matched against an LSP document-symbol name; a match marks it a test, and
 			       the regex's first capture group (if any) is the test's name.
 			     - "runOne": a shell command template to run a single test.
-			     - "runFile": a shell command template to run every test in a file.
+			     - "runFile" (optional): a shell command template to run every test in exactly that file. Omit it
+			       when the runner cannot target a source file; Weavie then offers individual-test actions only.
 			     - "nameSeparator" (optional): joins the captured names down nested blocks into ${name};
 			       defaults to a single space. It must produce exactly what runOne's name filter expects, which
 			       differs per runner — so verify it, don't assume (e.g. vitest's `-t` matches the space-joined
@@ -42,7 +43,7 @@ public static class WorkspaceSetupPrompt {
 			   Templates support the placeholders ${file} and ${fileDir} (absolute paths) and, in "runOne",
 			   ${name} (the composed test name). Weavie shell-quotes every substitution.
 
-			   runOne/runFile run in the workspace's shell pane, whose shell is `terminal.shell` and may not be
+			   runOne and any runFile command run in the workspace's shell pane, whose shell is `terminal.shell` and may not be
 			   bash/POSIX — so keep them to plain external commands. Avoid shell operators (`&&`, `||`, `|`, `;`)
 			   unless you have confirmed that shell supports them; if a runner needs a build first, prefer
 			   pointing the rule at already-built output over chaining a build into the template.

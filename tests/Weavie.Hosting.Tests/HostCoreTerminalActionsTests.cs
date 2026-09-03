@@ -66,7 +66,7 @@ public sealed class HostCoreTerminalActionsTests {
 		// crash the network-exposed worker), and the host keeps handling subsequent messages.
 		host.SessionEvent(
 			host.WorkspaceSession,
-			"terminal.shell",
+			ShellTerminalSet.FeatureName(host.SelectedSession.Shells.Primary!.Id),
 			"input",
 			new { dataB64 = "!!! not base64 !!!" });
 		host.HostEvent("clipboard", "write", new { text = "still working" });

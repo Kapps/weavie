@@ -9,7 +9,7 @@ type WindowControlAction = "minimize" | "maximize-toggle" | "close";
 
 // The custom Windows title bar, drawn in-web over a frameless host window: logo + menus, omnibar, window
 // controls. The background is draggable via CSS `app-region: drag`; interactive regions opt out with
-// `no-drag`. Static config (recents, label) comes from `window.__WEAVIE_SHELL__`; live state arrives as props.
+// `no-drag`. Static config (label/build) comes from `window.__WEAVIE_SHELL__`; live state arrives as props.
 export function TitleBar(props: {
   maximized: boolean;
   focused: boolean;
@@ -23,7 +23,6 @@ export function TitleBar(props: {
   symbols: SymbolActions;
 }): JSX.Element {
   const shell = window.__WEAVIE_SHELL__;
-  const recents = (): string[] => shell?.recents ?? [];
   const label = (): string => shell?.workspaceLabel ?? "weavie";
   const build = (): string => shell?.buildNumber ?? "";
 
@@ -33,7 +32,7 @@ export function TitleBar(props: {
         <span class="tb-icon" aria-hidden="true">
           <WeavieIcon />
         </span>
-        <Menu recents={recents()} />
+        <Menu />
       </div>
 
       <div class="tb-center">

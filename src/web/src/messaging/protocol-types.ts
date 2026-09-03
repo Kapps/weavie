@@ -59,6 +59,8 @@ export interface AgentPaneUpdate {
   providerId: string;
   threadId?: string | null;
   isPrimaryThread?: boolean | null;
+  conversationId?: string | null;
+  anchorTurnId?: string | null;
   turnId?: string | null;
   startedAtMs?: number | null;
   itemId?: string | null;
@@ -166,13 +168,25 @@ export interface AgentControlAxis {
   options: AgentControlOption[];
 }
 
-export interface AgentSlashEntry {
+interface AgentSlashEntryBase {
   id: string;
   name: string;
   description: string;
-  commandId: string | null;
-  insertText: string | null;
 }
+
+export type AgentSlashEntry =
+  | (AgentSlashEntryBase & {
+      kind: "weavieCommand";
+      commandId: string;
+      inputHint: string | null;
+      inputName: string | null;
+    })
+  | (AgentSlashEntryBase & {
+      kind: "providerCommand";
+      commandId: null;
+      inputHint: string | null;
+      inputName: null;
+    });
 
 export interface AgentControlState {
   axes: AgentControlAxis[];

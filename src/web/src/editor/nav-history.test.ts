@@ -18,6 +18,8 @@ beforeEach(() => {
 
 describe("createNavHistory", () => {
   it("does not step when there is no history", () => {
+    expect(nav.canBack()).toBe(false);
+    expect(nav.canForward()).toBe(false);
     expect(nav.back()).toBe(false);
     expect(nav.forward()).toBe(false);
     expect(visited).toEqual([]);
@@ -25,10 +27,13 @@ describe("createNavHistory", () => {
 
   it("steps back and forward through recorded jumps", async () => {
     nav.record({ path: "/a.ts", line: 1 });
+    expect(nav.canBack()).toBe(false);
     nav.record({ path: "/b.ts", line: 1 });
+    expect(nav.canBack()).toBe(true);
     nav.record({ path: "/c.ts", line: 1 });
 
     expect(nav.back()).toBe(true);
+    expect(nav.canForward()).toBe(true);
     expect(visited.at(-1)).toEqual({ path: "/b.ts", line: 1 });
     await settle();
     expect(nav.back()).toBe(true);

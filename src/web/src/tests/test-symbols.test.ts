@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { collectTests, innermostHitAt, type SymbolNode, type TestHit } from "./test-match";
+import {
+  collectTests,
+  innermostHitAt,
+  type SymbolNode,
+  type TestHit,
+  testRunTargetAt,
+} from "./test-match";
 import type { TestRule } from "./test-profile";
 
 const RANGE = { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 1 };
@@ -61,6 +67,35 @@ describe("collectTests", () => {
     expect(names).toEqual(["Adds", "Subtracts"]);
   });
 
+  it("composes pytest class and method selectors as a -k expression", () => {
+    const symbols = [node("TestMath", [node("test_adds"), node("helper")]), node("test_plain")];
+    const r = rule({ symbol: "^(Test\\w*|test_\\w+)$", nameSeparator: " and " });
+
+    expect(collectTests(symbols, r, noHeader).map((h) => h.name)).toEqual([
+      "TestMath",
+      "TestMath and test_adds",
+      "test_plain",
+    ]);
+  });
+
+  it("selects Rust test attributes, including namespaced async test attributes", () => {
+    const symbols = [node("adds"), node("async_adds"), node("helper")];
+    const headers: Record<string, string> = {
+      adds: "#[test]\nfn ",
+      async_adds: '#[tokio::test(flavor = "multi_thread")]\nasync fn ',
+      helper: "fn ",
+    };
+    const r = rule({
+      symbol: "^(\\w+)$",
+      header: "#\\[(?:\\w+::)*test(?:\\s*\\([^\\]]*\\))?\\]",
+    });
+
+    expect(collectTests(symbols, r, (n) => headers[n.name] ?? "").map((h) => h.name)).toEqual([
+      "adds",
+      "async_adds",
+    ]);
+  });
+
   it("falls back to the whole symbol name when the regex has no capture group", () => {
     const names = collectTests([node("TestAdds")], rule({ symbol: "^Test\\w+" }), noHeader).map(
       (h) => h.name,
@@ -102,5 +137,12 @@ describe("innermostHitAt", () => {
 
   it("returns undefined when the cursor is in no test block", () => {
     expect(nameAt(20, 1)).toBeUndefined();
+  });
+
+  it("declines a file fallback when the runner cannot target the file", () => {
+    const position = { lineNumber: 20, column: 1 };
+
+    expect(testRunTargetAt(hits, position, undefined)).toBeUndefined();
+    expect(testRunTargetAt(hits, position, "run-file")).toBe("file");
   });
 });

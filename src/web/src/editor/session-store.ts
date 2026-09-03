@@ -5,7 +5,8 @@ import type { EditorSession, EditorSessionEntry, EditorViewState } from "./sessi
 
 const states = new WeakMap<ClientSession, OwnedEditorSession>();
 
-const isFileTab = (entry: EditorSessionEntry): boolean =>
+/** Whether the tab names a workspace file, rather than an overlay (web page, fetched source, plan). */
+export const isFileTab = (entry: EditorSessionEntry): boolean =>
   entry.kind !== "web" && entry.kind !== "source" && entry.kind !== "plan";
 
 function normalize(open: EditorSessionEntry[]): EditorSessionEntry[] {

@@ -38,6 +38,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 	private readonly IWebTransportHub _bridge;
 	private readonly HostMessageRouter _messages;
 	private readonly MessageIngress _messageIngress;
+	private MessagePeer? _applicationMenuOwner;
 	private readonly string _hostIncarnation = Guid.NewGuid().ToString("n");
 	private readonly IUiDispatcher _ui;
 	private readonly SettingsStore _settings;
@@ -63,6 +64,9 @@ public sealed partial class HostCore : IAsyncDisposable {
 	// dir so concurrent test processes never race the real path (or each other) — see HostServices.
 	private readonly string _lastCrashFile;
 	private readonly string _previousCrashFile;
+	private readonly string _exitJournalFile;
+	// How the previous run ended when it never shut down, held from startup until a page can be told.
+	private string _priorUnfinishedRun = string.Empty;
 	// Lists open PRs for the Open-PR flow (GitHub by default; a static stub under the headless harness).
 	private readonly Weavie.Core.Review.IPullRequestProvider _pullRequests;
 	// Loads/posts a PR's review comments (same GitHub client, or the harness stub).
@@ -106,6 +110,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 	private Action? _onRailStateChanged;
 	private Action? _onSearchStateChanged;
 	private Action? _onAgentProvidersChanged;
+	private Action? _onRecentsChanged;
 	private IDisposable? _shellSettingSubscription;
 
 	/// <summary>
@@ -173,6 +178,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 		_logBuffer = services.LogBuffer;
 		_lastCrashFile = services.LastCrashFile;
 		_previousCrashFile = services.PreviousCrashFile;
+		_exitJournalFile = services.ExitJournalFile;
 		_pullRequests = services.PullRequests;
 		_reviewComments = services.ReviewComments;
 		_sources = services.Sources;
@@ -196,6 +202,8 @@ public sealed partial class HostCore : IAsyncDisposable {
 		_corrections.Changed += () => _suggestions?.Evaluate();
 		_http = new WorkspaceHttpServer(this, httpOptions, httpBridge, _mediaRoutes);
 		WireHostMessages();
+		_platform.ApplicationMenu.Activated += OnApplicationMenuActivated;
+		_messages.Host.PeerDisconnected += OnApplicationMenuPeerDisconnected;
 	}
 
 	// The last file recorded as recent, so the active-editor stream (which re-fires on every cursor move within a
@@ -257,6 +265,13 @@ public sealed partial class HostCore : IAsyncDisposable {
 		// Record any unhandled background-thread exception to a crash log (and stderr) before the runtime tears
 		// down, so a hard exit leaves a trace instead of vanishing; surfaced as a toast on the next launch.
 		CrashReporter.Install(line => Log($"[crash] {line}"), _lastCrashFile);
+		// A crash reports itself; being stopped from outside does not, so the run also marks itself live and
+		// stamps how it ends. A marker still reading "running" is the only trace such an ending leaves. A
+		// runner-managed worker is exempt: its supervisor kills and restarts it by design, so an ending it never
+		// stamped is routine there rather than the anomaly this reports.
+		_priorUnfinishedRun = _runtime.Managed
+			? string.Empty
+			: ExitJournal.Start(line => Log($"[exit] {line}"), _exitJournalFile) ?? string.Empty;
 
 		// Any launch context can carry a truncated environment and a stingy open-file limit — a Finder .app or
 		// desktop entry via launchd, a headless host under a supervisor. Raise the descriptor limit so a second
@@ -348,7 +363,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 			CoreSettings.TerminalShell,
 			_ => _ui.Post(() => {
 				foreach (var session in LoadedSessions()) {
-					session.Shell.Restart();
+					session.Shells.Restart();
 				}
 			}));
 
@@ -427,6 +442,10 @@ public sealed partial class HostCore : IAsyncDisposable {
 		// Find-in-files UI state (options + globs + recent terms): same re-push-on-change.
 		_onSearchStateChanged = PushSearchStateToWeb;
 		_searchState.Changed += _onSearchStateChanged;
+
+		// Recent workspaces are app-global: opening/pruning one in any window refreshes every existing File menu.
+		_onRecentsChanged = PushRecentWorkspacesToWeb;
+		_platform.RecentsChanged += _onRecentsChanged;
 
 		_onAgentProvidersChanged = () =>
 			_messages.Host.Feature("settings").PublishJson("agent-defaults", BuildAgentDefaults());
@@ -513,6 +532,9 @@ public sealed partial class HostCore : IAsyncDisposable {
 
 		Attempt(() => _bridge.MessageReceived -= OnWebMessage);
 		Attempt(() => _bridge.PeerDisconnected -= OnWebPeerDisconnected);
+		Attempt(() => _platform.ApplicationMenu.Activated -= OnApplicationMenuActivated);
+		Attempt(() => _messages.Host.PeerDisconnected -= OnApplicationMenuPeerDisconnected);
+		Attempt(_platform.ApplicationMenu.Clear);
 		await AttemptAsync(() => _messageIngress.DisposeAsync().AsTask()).ConfigureAwait(false);
 		await AttemptAsync(() => _messages.Host.QuiesceAsync()).ConfigureAwait(false);
 		await AttemptAsync(DisposeSystemNotificationsAsync).ConfigureAwait(false);
@@ -583,6 +605,11 @@ public sealed partial class HostCore : IAsyncDisposable {
 		if (_onAgentProvidersChanged is not null) {
 			_agentProviders.Changed -= _onAgentProvidersChanged;
 			_onAgentProvidersChanged = null;
+		}
+
+		if (_onRecentsChanged is not null) {
+			_platform.RecentsChanged -= _onRecentsChanged;
+			_onRecentsChanged = null;
 		}
 	}
 }

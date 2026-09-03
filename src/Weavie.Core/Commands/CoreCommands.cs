@@ -26,6 +26,9 @@ public static class CoreCommands {
 	/// <summary>Focuses the omnibar in file-search ("Go to File") mode.</summary>
 	public const string FocusOmnibarFiles = "weavie.omnibar.focusFiles";
 
+	/// <summary>Focuses the omnibar seeded with the worktree path, to open a file by typing its path.</summary>
+	public const string OpenFileByPath = "weavie.omnibar.openPath";
+
 	/// <summary>Focuses the omnibar in command-palette mode.</summary>
 	public const string FocusOmnibarCommands = "weavie.omnibar.focusCommands";
 
@@ -35,7 +38,7 @@ public static class CoreCommands {
 	/// <summary>Focuses the omnibar in workspace-symbol ("Go to Symbol in Workspace", #) mode.</summary>
 	public const string GoToWorkspaceSymbol = "weavie.omnibar.goToWorkspaceSymbol";
 
-	/// <summary>Opens the project-wide content-search ("find in files") panel, seeded from the editor selection.</summary>
+	/// <summary>Opens the project-wide content-search ("find in files") panel, seeded from the highlighted text.</summary>
 	public const string FindInFiles = "weavie.search.findInFiles";
 
 	/// <summary>Toggles the search panel's Match Case option; bound to <c>alt+c</c> while the panel is focused.</summary>
@@ -56,11 +59,32 @@ public static class CoreCommands {
 	/// <summary>Jumps to the previous find-in-files result (opens it in the editor); bound to <c>Shift+F4</c>.</summary>
 	public const string SearchPrevResult = "weavie.search.prevResult";
 
-	/// <summary>Reopens (restarts) the shell terminal pane.</summary>
+	/// <summary>Reopens (restarts) an exact or primary shell terminal tab.</summary>
 	public const string ReopenTerminal = "weavie.terminal.reopen";
+
+	/// <summary>Creates a shell terminal tab in the invoking session.</summary>
+	public const string NewTerminal = "weavie.terminal.new";
+
+	/// <summary>Closes an exact shell terminal tab, optionally forcing a foreground job to stop.</summary>
+	public const string CloseTerminal = "weavie.terminal.close";
+
+	/// <summary>Interactively closes the focused shell terminal tab, confirming a foreground job.</summary>
+	public const string CloseTerminalPrompt = "weavie.terminal.closePrompt";
+
+	/// <summary>Activates the next shell terminal tab while the shell pane is focused.</summary>
+	public const string NextTerminalTab = "weavie.terminal.nextTab";
+
+	/// <summary>Activates the previous shell terminal tab while the shell pane is focused.</summary>
+	public const string PrevTerminalTab = "weavie.terminal.prevTab";
 
 	/// <summary>Restarts the Claude pane in place (recovers a crashed / crash-looped Claude).</summary>
 	public const string RestartAgent = "weavie.agent.restart";
+
+	/// <summary>Starts a fresh conversation for the active structured agent.</summary>
+	public const string ClearAgentConversation = "weavie.agent.clearConversation";
+
+	/// <summary>Asks a context-preserving question outside the primary structured-agent transcript.</summary>
+	public const string AskAgentAside = "weavie.agent.askAside";
 
 	/// <summary>Opens the ACP Registry manager.</summary>
 	public const string ManageAcpAgents = "weavie.agent.manageAcp";
@@ -92,8 +116,8 @@ public static class CoreCommands {
 	/// <summary>Jumps to the latest structured-agent activity and resumes following it.</summary>
 	public const string AgentJumpToLatest = "weavie.agent.jumpToLatest";
 
-	/// <summary>Toggles output for the focused or newest command in expanded structured-agent history.</summary>
-	public const string ToggleAgentCommandOutput = "weavie.agent.toggleCommandOutput";
+	/// <summary>Toggles output for the focused or newest tool call in expanded structured-agent history.</summary>
+	public const string ToggleAgentToolOutput = "weavie.agent.toggleToolOutput";
 
 	/// <summary>Toggles the focused or newest Mermaid block in structured-agent output; bound to <c>Alt+M</c>.</summary>
 	public const string ToggleAgentMermaidPreview = "weavie.agent.toggleMermaidPreview";
@@ -200,8 +224,11 @@ public static class CoreCommands {
 	/// <summary>Opens the blame popover for the editor cursor's line; palette-only, no default keybinding.</summary>
 	public const string ShowBlame = "weavie.git.showBlame";
 
-	/// <summary>Jumps into the post-turn review (acceptEdits/bypass) at the first changed file; palette-only, no default keybinding.</summary>
+	/// <summary>Opens the unified review overview, or an explicitly addressed file and line.</summary>
 	public const string ReviewOpen = "weavie.review.open";
+
+	/// <summary>Switches between unified and file-focused review; bound to <c>$mod+Shift+u</c>.</summary>
+	public const string ReviewToggleMode = "weavie.review.toggleMode";
 
 	/// <summary>Walks to the next changed file in the review set; bound to <c>ctrl+$mod+Right</c>.</summary>
 	public const string ReviewNextFile = "weavie.review.nextFile";
@@ -429,6 +456,18 @@ public static class CoreCommands {
 			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+p" }],
 		});
 
+		// Open-by-path is reachable by typing a path shape (/, ~/, ../, C:\) into the omnibar; registered as a
+		// command for palette discovery + Claude. No default chord — the shape entry already covers the keyboard
+		// path, and this only seeds the input with the worktree root so Backspace walks to a sibling.
+		registry.Register(new CommandDefinition {
+			Id = OpenFileByPath,
+			Title = "Open File by Path…",
+			RunsIn = CommandLocation.Web,
+			Category = "Navigation",
+			Description = "Focus the omnibar to open a file by typing its path, including outside this worktree.",
+			Aliases = ["open path", "open by path", "open absolute path", "open external file", "open file outside repo"],
+		});
+
 		registry.Register(new CommandDefinition {
 			Id = FocusOmnibarCommands,
 			Title = "Show All Commands",
@@ -465,8 +504,9 @@ public static class CoreCommands {
 			Title = "Find in Files",
 			RunsIn = CommandLocation.Web,
 			Category = "Search",
-			Description = "Search the active session's workspace for text in file contents, seeded from the "
-				+ "editor selection. Supports match case / whole word / regex and include/exclude file globs; "
+			Description = "Search the active session's workspace for text in file contents, seeded from the text "
+				+ "highlighted anywhere (editor, agent transcript, or terminal). Supports match case / whole "
+				+ "word / regex and include/exclude file globs; "
 				+ "arrows preview each result, Enter jumps to it.",
 			Aliases = ["find in files", "search files", "search in files", "grep", "search project", "find text"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+f" }],
@@ -619,11 +659,74 @@ public static class CoreCommands {
 
 		registry.Register(new CommandDefinition {
 			Id = ReopenTerminal,
+			SharedExecutionLane = "weavie.terminal.lifecycle",
 			Title = "Reopen Terminal",
 			RunsIn = CommandLocation.Core,
 			Category = "Terminal",
-			Description = "Restart the shell terminal pane (kills its scrollback and any running command).",
+			Description = "Restart a shell terminal tab (the exact 'id', or the session's primary terminal). Kills any running command.",
 			Aliases = ["reopen terminal", "restart shell", "reopen shell", "restart terminal"],
+			ArgsSchemaJson = "{\"id\":{\"type\":\"string\",\"description\":\"Exact terminal id; omit for the primary terminal\"}}",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = NewTerminal,
+			SharedExecutionLane = "weavie.terminal.lifecycle",
+			Title = "New Terminal",
+			RunsIn = CommandLocation.Core,
+			Category = "Terminal",
+			Description = "Create and activate a new shell terminal tab in this session.",
+			Aliases = ["new terminal", "new shell", "add terminal", "open terminal tab"],
+			DefaultKeybindings = [new CommandKeybinding {
+				Key = "ctrl+Shift+t",
+				When = "focusedPane == 'terminal:shell'",
+			}],
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = CloseTerminal,
+			SharedExecutionLane = "weavie.terminal.lifecycle",
+			Title = "Close Terminal",
+			RunsIn = CommandLocation.Core,
+			Category = "Terminal",
+			Description = "Close an exact shell terminal tab. A foreground job requires 'force': true.",
+			Aliases = ["close terminal", "close shell", "close terminal tab"],
+			ShowInPalette = false,
+			ArgsSchemaJson = "{\"id\":{\"type\":\"string\",\"description\":\"Exact terminal id; omit for the primary terminal\"},"
+				+ "\"force\":{\"type\":\"boolean\",\"description\":\"Stop a foreground job and close the terminal\"}}",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = CloseTerminalPrompt,
+			Title = "Close Terminal…",
+			RunsIn = CommandLocation.Web,
+			Category = "Terminal",
+			Description = "Close the focused shell terminal tab, confirming before stopping a foreground job.",
+			Aliases = ["close terminal", "close shell", "close terminal tab"],
+			When = "focusedPane == 'terminal:shell'",
+			DefaultKeybindings = [new CommandKeybinding { Key = "ctrl+Shift+w" }],
+			ArgsSchemaJson = "{\"id\":{\"type\":\"string\",\"description\":\"Exact terminal id; omit for the active terminal\"}}",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = NextTerminalTab,
+			Title = "Next Terminal",
+			RunsIn = CommandLocation.Web,
+			Category = "Terminal",
+			Description = "Activate the next shell terminal tab (wraps around).",
+			Aliases = ["next terminal", "next terminal tab", "next shell"],
+			When = "focusedPane == 'terminal:shell'",
+			DefaultKeybindings = [new CommandKeybinding { Key = "ctrl+Tab" }],
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = PrevTerminalTab,
+			Title = "Previous Terminal",
+			RunsIn = CommandLocation.Web,
+			Category = "Terminal",
+			Description = "Activate the previous shell terminal tab (wraps around).",
+			Aliases = ["previous terminal", "previous terminal tab", "previous shell"],
+			When = "focusedPane == 'terminal:shell'",
+			DefaultKeybindings = [new CommandKeybinding { Key = "ctrl+Shift+Tab" }],
 		});
 
 		// No default keybinding: a deliberate recovery action, not a hot path. Recovers an agent pane the
@@ -635,6 +738,29 @@ public static class CoreCommands {
 			Category = "Agent",
 			Description = "Restart this session's agent in place — recovers it after a crash or once it has crashed repeatedly and stopped.",
 			Aliases = ["restart agent", "reopen agent", "relaunch agent", "agent crashed"],
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = ClearAgentConversation,
+			Title = "Start Fresh Agent Conversation",
+			RunsIn = CommandLocation.Core,
+			Category = "Agent",
+			Description = "Clear the transcript and start a new empty agent conversation in this workspace.",
+			Aliases = ["new conversation", "clear conversation", "clear agent", "agent clear"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "alt+Shift+c" }],
+			When = "agentFocused",
+		});
+
+		// The slash command is the compose surface; a no-argument palette row cannot collect the question.
+		registry.Register(new CommandDefinition {
+			Id = AskAgentAside,
+			Title = "Ask Agent Aside",
+			RunsIn = CommandLocation.Core,
+			Category = "Agent",
+			Description = "Fork the current agent context and ask a question without adding it to the primary conversation.",
+			Aliases = ["btw", "ask aside", "side question"],
+			ShowInPalette = false,
+			ArgsSchemaJson = "{\"question\":{\"type\":\"string\",\"description\":\"Question to ask in the forked context\"}}",
 		});
 
 		registry.Register(new CommandDefinition {
@@ -789,16 +915,16 @@ public static class CoreCommands {
 		});
 
 		registry.Register(new CommandDefinition {
-			Id = ToggleAgentCommandOutput,
-			Title = "Toggle Agent Command Output",
+			Id = ToggleAgentToolOutput,
+			Title = "Toggle Agent Tool Output",
 			RunsIn = CommandLocation.Web,
 			Category = "Agent",
-			Description = "Show or hide output for the focused command in expanded agent history, or the newest "
-				+ "visible command when none is focused.",
-			Aliases = ["show command output", "hide command output", "toggle command output", "command history output"],
+			Description = "Show or hide output for the focused tool call in expanded agent history, or the newest "
+				+ "visible tool call when none is focused.",
+			Aliases = ["show tool output", "hide tool output", "toggle tool output", "command output", "history output"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "alt+o" }],
-			When = "agentFocused && agentCommandOutputAvailable",
-			ArgsSchemaJson = "{\"outputId\":{\"type\":\"string\",\"description\":\"Visible command output disclosure to toggle; omit to use the focused or newest one\"}}",
+			When = "agentFocused && agentToolOutputAvailable",
+			ArgsSchemaJson = "{\"outputId\":{\"type\":\"string\",\"description\":\"Visible tool output disclosure to toggle; omit to use the focused or newest one\"}}",
 		});
 
 		registry.Register(new CommandDefinition {
@@ -1242,9 +1368,22 @@ public static class CoreCommands {
 			Title = "Review Changes",
 			RunsIn = CommandLocation.Web,
 			Category = "Review",
-			Description = "Jump into the post-turn review (acceptEdits/bypass mode) at the first changed file, "
-				+ "landed on its first change. Walk hunks with Next/Previous Change and files with Next/Previous File.",
+			Description = "Open the unified overview of every pending review file and its diff. Pass path and line "
+				+ "to open that exact change in the file-focused review instead.",
 			Aliases = ["review changes", "review turn", "turn review", "review", "changed files"],
+			When = "reviewAvailable",
+			ArgsSchemaJson = "{\"path\":{\"type\":\"string\",\"description\":\"Review file to open; omit for the unified overview\"},\"line\":{\"type\":\"integer\",\"description\":\"1-based line to reveal with path\"}}",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = ReviewToggleMode,
+			Title = "Toggle Review Mode",
+			RunsIn = CommandLocation.Web,
+			Category = "Review",
+			When = "reviewSetActive",
+			Description = "Switch seamlessly between the unified all-files review and the in-depth file review.",
+			Aliases = ["toggle review mode", "unified review", "file review", "review overview"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+u", When = "!terminalFocused" }],
 		});
 
 		registry.Register(new CommandDefinition {
@@ -1275,8 +1414,9 @@ public static class CoreCommands {
 			Title = "Keep File (Review)",
 			RunsIn = CommandLocation.Web,
 			Category = "Review",
-			Description = "Keep every change in the active file under review (mark them reviewed) and advance to the next file.",
+			Description = "Keep every change in the target review file (mark them reviewed); file review advances to the next file.",
 			Aliases = ["keep file", "keep this file", "accept file", "keep whole file"],
+			ArgsSchemaJson = "{\"path\":{\"type\":\"string\",\"description\":\"Review file to keep; omit for the active file\"}}",
 		});
 
 		registry.Register(new CommandDefinition {
@@ -1284,8 +1424,9 @@ public static class CoreCommands {
 			Title = "Revert File (Review)",
 			RunsIn = CommandLocation.Web,
 			Category = "Review",
-			Description = "Revert every change in the active file under review back to its turn baseline on disk (confirms first).",
+			Description = "Revert every change in the target review file back to its turn baseline on disk (confirms first).",
 			Aliases = ["revert file", "revert this file", "discard file", "undo file"],
+			ArgsSchemaJson = "{\"path\":{\"type\":\"string\",\"description\":\"Review file to revert; omit for the active file\"}}",
 		});
 
 		registry.Register(new CommandDefinition {
@@ -1457,6 +1598,7 @@ public static class CoreCommands {
 			Description = "Go back to the previous editor location (file + line) in the navigation history. "
 				+ "Also driven by the back mouse button.",
 			Aliases = ["go back", "navigate back", "back", "previous location", "go to previous location"],
+			When = "navigationBackAvailable",
 			DefaultKeybindings = [
 				new CommandKeybinding { Key = "alt+Left", When = "!terminalFocused" },
 				new CommandKeybinding { Key = "MouseBack" },
@@ -1471,6 +1613,7 @@ public static class CoreCommands {
 			Description = "Go forward to the next editor location (file + line) in the navigation history. "
 				+ "Also driven by the forward mouse button.",
 			Aliases = ["go forward", "navigate forward", "forward", "next location", "go to next location"],
+			When = "navigationForwardAvailable",
 			DefaultKeybindings = [
 				new CommandKeybinding { Key = "alt+Right", When = "!terminalFocused" },
 				new CommandKeybinding { Key = "MouseForward" },

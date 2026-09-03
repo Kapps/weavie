@@ -18,7 +18,7 @@ developer review each of the changes and make edits in a fully featured editor w
 
 At this point, weavie is my daily driver and has been what I've used to develop the product.
 There are limitations though:
-- Currently only C#, JS/TS, and Go are supported. Rust and Python are planned to be added.
+- C#, JS/TS, Go, Python, and Rust have built-in editor, LSP, workspace-setup, and test support.
 - Claude Code (embedded TUI) and Codex (custom UI) are the only supported agents.
 - No plugin support — you can install vsix themes, but that's all.
 - Linux client support is untested. Headless support as a remote runner is supported, but I haven't tested running the weavie client itself on a Linux machine.

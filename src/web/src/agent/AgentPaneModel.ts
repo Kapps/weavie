@@ -12,6 +12,7 @@ import { submittedPrompts } from "./prompt-history";
 import {
   activeTurnStartedAt,
   hasActiveTurn,
+  hasInterruptibleActivity,
   type PendingRequestKind,
   pendingRequest,
 } from "./turn-progress";
@@ -24,6 +25,7 @@ export interface AgentPaneModel {
   readonly entries: AgentTranscriptEntry[];
   readonly generation: Accessor<number>;
   readonly history: Accessor<readonly string[]>;
+  readonly interruptible: Accessor<boolean>;
   readonly keyboardApprovalId: Accessor<string | null>;
   readonly keyboardInputId: Accessor<string | null>;
   readonly latestPlan: Accessor<AgentPlanIdentity | null>;
@@ -54,6 +56,7 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
   const [generation, setGeneration] = createSignal(0);
   const [revision, setRevision] = createSignal(0);
   const [turnActive, setTurnActive] = createSignal(false);
+  const [interruptible, setInterruptible] = createSignal(false);
   const [turnStartedAt, setTurnStartedAt] = createSignal<number | null>(null);
   const [pendingRequestKind, setPendingRequestKind] = createSignal<PendingRequestKind | null>(null);
   const [keyboardApprovalId, setKeyboardApprovalId] = createSignal<string | null>(null);
@@ -85,6 +88,7 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
     }
 
     const active = hasActiveTurn(updates);
+    const canInterrupt = hasInterruptibleActivity(updates);
     const request = pendingRequest(updates);
     const approvalId = request?.kind === "approval" ? request.requestId : null;
     const inputId = request?.kind === "input" ? request.requestId : null;
@@ -109,6 +113,7 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
     batch(() => {
       setEntries(reconcile(visible, { key: "id" }));
       setTurnActive(active);
+      setInterruptible(canInterrupt);
       setTurnStartedAt(activeTurnStartedAt(updates));
       setPendingRequestKind(request?.kind ?? null);
       setKeyboardApprovalId(approvalId);
@@ -174,6 +179,7 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
     entries,
     generation,
     history,
+    interruptible,
     keyboardApprovalId,
     keyboardInputId,
     latestPlan,
@@ -187,7 +193,9 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
     turnStartedAt,
     publish(updates, changes) {
       const activityChanged =
-        hasActiveTurn(updates) !== turnActive() || activeTurnStartedAt(updates) !== turnStartedAt();
+        hasActiveTurn(updates) !== turnActive() ||
+        hasInterruptibleActivity(updates) !== interruptible() ||
+        activeTurnStartedAt(updates) !== turnStartedAt();
       if (activityChanged || !projectActivityChanges(changes)) {
         project(updates);
       }

@@ -3,6 +3,8 @@ import { createServer, type Server } from "node:http";
 import { extname, join, normalize } from "node:path";
 import { type WebSocket, WebSocketServer } from "ws";
 import { basename } from "../src/editor/fs-path";
+import { DEFAULT_EDITOR_OPTIONS } from "../src/editor-options-defaults";
+import type { EditorOptionsSpec } from "../src/messaging/protocol-types";
 
 export interface SessionAddress {
   slot: string;
@@ -20,6 +22,7 @@ export interface MockSession {
   status: "starting" | "working" | "needsInput" | "idle" | "waiting" | "error";
   hue: number;
   monogram: string;
+  shellTerminals: string[];
 }
 
 export interface MockLiveSession extends MockSession {
@@ -66,6 +69,7 @@ export function mockSession(id: string, label: string, providerId: string): Mock
     status: "idle",
     hue: 200,
     monogram: label.slice(0, 1).toUpperCase(),
+    shellTerminals: [`${id}-shell`],
   };
 }
 
@@ -529,6 +533,16 @@ export class MockHost {
       message.feature === "lifecycle" &&
       message.name === "sync"
     ) {
+      const session = this.sessions.find(
+        (candidate) =>
+          candidate.address?.slot === message.session?.slot &&
+          candidate.address.incarnation === message.session?.incarnation,
+      );
+      if (session !== undefined) {
+        this.publishSession(message.session!, "terminal.shell", "catalog", {
+          terminalIds: session.shellTerminals,
+        });
+      }
       this.respond(message, { ok: true });
       return;
     }
@@ -889,6 +903,9 @@ function sameAddress(left: SessionAddress | null, right: SessionAddress | null):
 }
 
 const FONT_SPEC = { family: "monospace", size: 13, weight: "normal" };
+export function mockEditorOptions(overrides: Partial<EditorOptionsSpec>): EditorOptionsSpec {
+  return { ...DEFAULT_EDITOR_OPTIONS, gitBlame: "off", ...overrides };
+}
 const BOOTSTRAP_GLOBALS: Record<string, unknown> = {
   __WEAVIE_FONTS__: { editor: FONT_SPEC, terminal: FONT_SPEC },
   __WEAVIE_NOTIFICATIONS__: {
@@ -900,7 +917,7 @@ const BOOTSTRAP_GLOBALS: Record<string, unknown> = {
   },
   // The mock host serves no git feature, so blame is off here — otherwise every opened file would issue a
   // `git.blame` request nothing answers.
-  __WEAVIE_EDITOR_OPTIONS__: { gitBlame: "off", middleClickAutoscroll: true },
+  __WEAVIE_EDITOR_OPTIONS__: mockEditorOptions({}),
   __WEAVIE_THEME__: { mode: "system", light: { id: "weavie-light" }, dark: { id: "weavie-dark" } },
   __WEAVIE_COMMANDS__: [],
   __WEAVIE_KEYBINDINGS__: [],

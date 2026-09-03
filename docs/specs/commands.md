@@ -1,7 +1,7 @@
 # Commands & keybindings
 
 Status: implemented (Core + Windows + macOS + Linux hosts + web)
-Last updated: 2026-08-14
+Last updated: 2026-08-31
 
 The third concrete instance of the
 [Claude-facing capability registry](../concepts/mcp-registry.md) (after settings and the layout
@@ -26,6 +26,7 @@ the *command id*:
 flowchart LR
     KB["keybinding<br/>(web keydown)"] --> ID
     PAL["command palette<br/>(omnibar ‹›)"] --> ID
+    MENU["application/context menus"] --> ID
     MCP["embedded Claude<br/>(mcp__weavie__runCommand)"] --> ID
     ID(["command id"]) --> H["the one handler"]
 ```
@@ -48,10 +49,30 @@ Converting it to a command fixes all three at once.
    a command reported as run actually ran (acked), never a silent claim of success.
 6. A foundation future plugins extend by contributing command declarations the same way.
 
+## Application menu
+
+The browser, Windows, and Linux title bars render one curated application-menu tree from
+`src/web/src/chrome/application-menu.ts`. The tree owns only placement, separators, and submenu labels;
+command titles, availability, execution, and effective shortcuts still come from the active merged command
+catalog. Opening a web menu snapshots the previously focused pane so a contextual row remains correctly
+enabled after focus moves into the menu. A catalog push or selected-backend change refreshes the displayed
+shortcuts, live context changes refresh enabled rows, and the host pushes recent-workspace changes into every
+existing window. Every row dispatches its command id through the same route as the palette.
+
+macOS renders the resolved File/Go/View/Diff/Run tree in AppKit's system menu bar, alongside its native
+App/Edit/Window conventions. The page publishes a snapshot containing the selected local/remote catalog's
+titles, `when` availability, effective keybindings, recents, and opaque activation tokens through `HostCore`;
+the key workspace window's native channel owns the process-wide menu. A mouse selection sends the token back
+to that page and enters the normal web command dispatcher, preserving web handlers and remote ownership.
+Dynamic `NSMenuItem` key equivalents are display-only: every generated menu's delegate declines key-equivalent
+handling, so AppKit advertises the live shortcut without intercepting it. The existing capture-phase web
+resolver still owns the keystroke, including guarded-binding precedence and handlers that decline to the next
+binding or focused editor/terminal.
+
 ## Non-goals (deferred)
 
-- **Menus / context menus / toolbar buttons** as command triggers. The model supports them (they'd
-  invoke ids like everything else); no menu surface is built in this milestone.
+- **Toolbar buttons** as a comprehensively modeled surface. Existing command-backed buttons invoke ids like
+  every other trigger, but there is no catalog-driven toolbar-placement model.
 - **Command return values to Claude.** v1 commands are fire-and-act; `runCommand` reports
   *invoked / failed*, not a structured result payload. (The ack channel below leaves room for it.)
 - **Arg-prompting in the palette.** Palette runs no-arg (or fully-defaulted) commands; a command
@@ -217,10 +238,10 @@ flowchart TD
    `commands.run {id, args}` through that session's attached view → the web runs the handler with
    the same `ClientSession` owner → `InvokeAsync` returns the correlated outcome to Claude.
 
-`when` is evaluated **only** for keybinding activation and palette visibility — never for programmatic
-invocation (MCP / `commands.invoke`). This matches VS Code: `executeCommand` ignores `when`; the
-handler itself may no-op if its preconditions aren't met. So Claude can always run a command by name;
-the guard only governs *implicit* triggers.
+`when` is evaluated **only** for interactive availability — keybinding activation, palette visibility, and
+menu enablement — never for programmatic invocation (MCP / `commands.invoke`). This matches VS Code:
+`executeCommand` ignores `when`; the handler itself may no-op if its preconditions aren't met. So Claude can
+always run a command by name; the guard only governs *interactive* triggers.
 
 ## Keybindings
 
@@ -370,8 +391,8 @@ const and dispatched in `HandleToolCallAsync`, mirroring `listSettings`/`setSett
 ```jsonc
 // listCommands entry
 { "id": "weavie.terminal.reopen", "title": "Reopen Terminal",
-  "category": "Terminal", "description": "Restart the shell terminal pane.",
-  "aliases": ["reopen terminal", "restart shell"], "keybindings": ["ctrl+shift+t"] }
+  "category": "Terminal", "description": "Restart a shell terminal tab.",
+  "aliases": ["reopen terminal", "restart shell"], "keybindings": [] }
 ```
 
 ## The omnibar command palette
@@ -403,6 +424,10 @@ that already exist in the web:
 | `weavie.omnibar.focusFiles` | Web | `$mod+p` | yes | focus omnibar (Go to File) |
 | `weavie.omnibar.focusCommands` | Web | `$mod+shift+p` | yes | focus omnibar in `>` mode |
 | `weavie.terminal.reopen` | Core | — | yes | `TerminalController.Restart()` (exists) |
+| `weavie.terminal.new` | Core | `ctrl+shift+t` (shell-focused) | yes | create and activate a shell tab |
+| `weavie.terminal.closePrompt` | Web | `ctrl+shift+w` (shell-focused) | yes | close with a foreground-job confirmation |
+| `weavie.terminal.nextTab` | Web | `ctrl+tab` (shell-focused) | yes | cycle terminal tabs, then fall through to sessions |
+| `weavie.terminal.prevTab` | Web | `ctrl+shift+tab` (shell-focused) | yes | cycle terminal tabs, then fall through to sessions |
 | `weavie.window.toggle` | Core | `ctrl+\`` (**global**) | no | show/hide (toggle) the window from anywhere |
 
 Double-tapping **Shift** also triggers `weavie.omnibar.focusFiles` (Go to File), IntelliJ-style. This is a

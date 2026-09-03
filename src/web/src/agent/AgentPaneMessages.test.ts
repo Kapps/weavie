@@ -21,6 +21,181 @@ function toAgentTranscript(messages: readonly AgentPaneUpdate[]) {
 }
 
 describe("toAgentTranscript", () => {
+  it("renders provider commands as command turns", () => {
+    const transcript = toAgentTranscript([
+      { type: "user-command", providerId: "acp", turnId: "1", text: "/compact" },
+      {
+        type: "item-completed",
+        providerId: "acp",
+        turnId: "1",
+        itemType: "agentMessage",
+        text: "Done",
+      },
+    ]);
+
+    expect(transcript[0]).toMatchObject({ label: "Command", text: "/compact", turnStart: true });
+  });
+
+  it("groups a side conversation inline without mixing its turns into the primary transcript", () => {
+    const conversation = {
+      conversationId: "aside-1",
+      anchorTurnId: "1",
+      isPrimaryThread: false,
+    } as const;
+    const transcript = toAgentTranscript([
+      { type: "user-message", providerId: "acp", turnId: "1", text: "Main question" },
+      {
+        type: "item-completed",
+        providerId: "acp",
+        turnId: "1",
+        itemId: "main-answer",
+        itemType: "agentMessage",
+        text: "Main answer",
+      },
+      { type: "status", providerId: "acp", status: "working" },
+      {
+        type: "warning",
+        providerId: "acp",
+        turnId: "1",
+        itemId: "main-warning",
+        text: "Main tail",
+      },
+      { type: "user-message", providerId: "acp", turnId: "2", text: "Continue main" },
+      {
+        ...conversation,
+        type: "side-conversation-started",
+        providerId: "acp",
+        text: "Why?",
+        status: "forking",
+      },
+      {
+        ...conversation,
+        type: "user-message",
+        providerId: "acp",
+        threadId: "fork-1",
+        turnId: "1",
+        itemId: "aside-question",
+        text: "Why?",
+      },
+      {
+        ...conversation,
+        type: "item-completed",
+        providerId: "acp",
+        threadId: "fork-1",
+        turnId: "1",
+        itemId: "aside-answer",
+        itemType: "agentMessage",
+        text: "Because context matters.",
+      },
+      {
+        ...conversation,
+        type: "turn-completed",
+        providerId: "acp",
+        threadId: "fork-1",
+        turnId: "1",
+      },
+    ]);
+
+    expect(transcript.map((entry) => entry.kind)).toEqual([
+      "message",
+      "message",
+      "notice",
+      "aside",
+      "message",
+    ]);
+    expect(transcript[3]).toMatchObject({
+      conversationId: "aside-1",
+      asideActive: false,
+      asideReplyable: true,
+      status: null,
+    });
+    expect(transcript[3]?.asideEntries?.map((entry) => entry.text)).toEqual([
+      "Why?",
+      "Because context matters.",
+    ]);
+  });
+
+  it("keeps a side conversation active through background work and pending input", () => {
+    const conversation = {
+      conversationId: "aside-1",
+      anchorTurnId: "1",
+      isPrimaryThread: false,
+      providerId: "acp",
+      threadId: "fork-1",
+      turnId: "1",
+    } as const;
+    const background = toAgentTranscript([
+      { type: "user-message", providerId: "acp", turnId: "1", text: "Main question" },
+      { ...conversation, type: "side-conversation-started", text: "Why?", status: "ready" },
+      {
+        ...conversation,
+        type: "item-started",
+        itemId: "background",
+        itemType: "tool",
+        status: "in_progress",
+      },
+      { ...conversation, type: "turn-completed" },
+    ]);
+    const input = toAgentTranscript([
+      { type: "user-message", providerId: "acp", turnId: "1", text: "Main question" },
+      { ...conversation, type: "side-conversation-started", text: "Why?", status: "ready" },
+      { ...conversation, type: "turn-completed" },
+      {
+        ...conversation,
+        type: "authentication-requested",
+        itemId: "authentication:1",
+        requestId: "authentication:1",
+      },
+    ]);
+    const nonterminalError = toAgentTranscript([
+      { type: "user-message", providerId: "acp", turnId: "1", text: "Main question" },
+      { ...conversation, type: "side-conversation-started", text: "Why?", status: "ready" },
+      { ...conversation, type: "turn-started" },
+      { ...conversation, type: "error", text: "One operation failed" },
+    ]);
+
+    expect(background[1]).toMatchObject({ kind: "aside", asideActive: true });
+    expect(input[1]).toMatchObject({ kind: "aside", asideActive: true });
+    expect(nonterminalError[1]).toMatchObject({ kind: "aside", asideActive: true });
+  });
+
+  it("uses the latest side turn for recoverable failure and reply state", () => {
+    const conversation = {
+      conversationId: "aside-1",
+      anchorTurnId: "1",
+      isPrimaryThread: false,
+      providerId: "acp",
+      threadId: "fork-1",
+    } as const;
+    const recovered = toAgentTranscript([
+      { type: "user-message", providerId: "acp", turnId: "1", text: "Main question" },
+      { ...conversation, type: "side-conversation-started", text: "Why?", status: "forking" },
+      { ...conversation, type: "turn-started", turnId: "1" },
+      { ...conversation, type: "error", turnId: "1", text: "First attempt failed" },
+      { ...conversation, type: "turn-completed", turnId: "1", status: "failed" },
+      { ...conversation, type: "turn-started", turnId: "2" },
+      { ...conversation, type: "turn-completed", turnId: "2", status: "end_turn" },
+    ]);
+    const terminal = toAgentTranscript([
+      { type: "user-message", providerId: "acp", turnId: "1", text: "Main question" },
+      { ...conversation, type: "side-conversation-started", text: "Why?", status: "forking" },
+      { ...conversation, type: "side-conversation-failed", status: "failed" },
+    ]);
+
+    expect(recovered[1]).toMatchObject({
+      kind: "aside",
+      asideActive: false,
+      asideReplyable: true,
+      status: null,
+    });
+    expect(terminal[1]).toMatchObject({
+      kind: "aside",
+      asideActive: false,
+      asideReplyable: false,
+      status: "failed",
+    });
+  });
+
   it("summarizes a tool-heavy turn once after all steps are collected", () => {
     const summary = vi.spyOn(ProjectedAgentActivity.prototype, "summary");
     const materialize = vi.spyOn(ProjectedAgentActivity.prototype, "materialize");
@@ -133,7 +308,6 @@ describe("toAgentTranscript", () => {
         detailText: null,
         id: "cmd-1",
         label: "command git status",
-        outputIsCommand: true,
         status: "completed",
         tone: "muted",
       },
@@ -181,11 +355,10 @@ describe("toAgentTranscript", () => {
 
     expect(transcript[0]?.details[0]).toMatchObject({
       detailText: "src/App.cs: trailing whitespace",
-      outputIsCommand: true,
     });
   });
 
-  it("requires an explicit reveal for provider command categories but not ordinary tool output", () => {
+  it("keeps a provider category and its output on the step", () => {
     const transcript = toAgentTranscript([
       {
         type: "item-completed",
@@ -210,8 +383,8 @@ describe("toAgentTranscript", () => {
     ]);
 
     expect(transcript[0]?.details).toMatchObject([
-      { category: "execute", detailText: "test output", outputIsCommand: true },
-      { category: "read", detailText: "file contents", outputIsCommand: false },
+      { category: "execute", detailText: "test output" },
+      { category: "read", detailText: "file contents" },
     ]);
   });
 

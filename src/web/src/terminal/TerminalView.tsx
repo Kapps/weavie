@@ -5,6 +5,7 @@ import "@xterm/xterm/css/xterm.css";
 import { createEffect, type JSX, onCleanup, onMount } from "solid-js";
 import { type ClientSession, isBrowserHostedShell, log, type TermSession } from "../bridge";
 import { IS_MAC } from "../commands/keybindings";
+import { noteSelectionChange, registerSelectionSource } from "../commands/selection";
 import { currentEditorOptions, onEditorOptionsChanged } from "../editor-options";
 import { currentFonts, onFontsChanged } from "../fonts";
 import { currentXtermTheme, onXtermThemeChanged } from "../theme";
@@ -39,6 +40,8 @@ export function TerminalView(props: {
   // The exact live owner and pane this xterm is bound to.
   session: ClientSession;
   pane: TermSession;
+  // Stable identity within the pane. Agent terminals use "claude"; every shell tab uses its host-owned id.
+  terminalId: string;
   // Whether this is the visible session for its pane. Drives WebGL mount/dispose — one GPU context per
   // visible pane (one per session would blow the WebGL-context cap); a hidden pane keeps its buffer alive.
   active: boolean;
@@ -56,7 +59,9 @@ export function TerminalView(props: {
   // A pane belongs to the backend that created it. Capture that identity at mount so a cross-backend switch
   // cannot retarget late resize/ready/input callbacks to the newly active host while this pane unmounts.
   const session = props.session;
-  const messages = session.feature(props.pane === "shell" ? "terminal.shell" : "terminal.agent");
+  const messages = session.feature(
+    props.pane === "shell" ? `terminal.shell.${props.terminalId}` : "terminal.agent",
+  );
   let container!: HTMLDivElement;
   // Reports the URL currently under the pointer (set once links are wired in onMount), for the right-click menu.
   let hoveredUrl: () => string | undefined = () => undefined;
@@ -93,8 +98,8 @@ export function TerminalView(props: {
   });
   const fit = new FitAddon();
   const encoder = new TextEncoder();
-  // Introspection key (e2e/diagnostics): slot + pane, so two sessions' panes don't collide.
-  const termKey = `${session.connection.id}:${session.address.incarnation}:${props.pane}`;
+  // Introspection key (e2e/diagnostics): session + exact terminal, with the pane kept queryable.
+  const termKey = `${session.connection.id}:${session.address.incarnation}:${props.terminalId}:${props.pane}`;
 
   onMount(() => {
     term.loadAddon(fit);
@@ -222,6 +227,10 @@ export function TerminalView(props: {
     // and note focus so the commands act on the terminal the user is in.
     const offRegister = registerTerminal(termKey, term, session, props.pane);
     const offClipboard = attachOsc52(term);
+    // This pane's selection as a search-seed source, read from xterm itself — the copy it mirrors into its
+    // hidden helper textarea is an implementation detail, not something to search from.
+    const offSelectionSource = registerSelectionSource(termKey, () => term.getSelection());
+    const selectionSub = term.onSelectionChange(() => noteSelectionChange(termKey));
     // Image paste (claude pane only): capture an image from the browser paste event → host scratch file → path
     // injected into claude. The shell has no use for it; a pasted path there would just try to run.
     const offImagePaste =
@@ -406,6 +415,8 @@ export function TerminalView(props: {
       offEditorOptions();
       offTheme();
       offRegister();
+      offSelectionSource();
+      selectionSub.dispose();
       offClipboard.dispose();
       offImagePaste();
       offCwd.dispose();

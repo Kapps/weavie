@@ -14,6 +14,12 @@ public sealed record AgentPaneMessage {
 	/// <summary>Whether this update belongs to the session's primary thread, when reported.</summary>
 	public bool? IsPrimaryThread { get; init; }
 
+	/// <summary>The Weavie-owned conversation identity, when the update belongs to a nested conversation.</summary>
+	public string? ConversationId { get; init; }
+
+	/// <summary>The primary turn after which a nested conversation is rendered.</summary>
+	public string? AnchorTurnId { get; init; }
+
 	/// <summary>The current provider turn id, when known.</summary>
 	public string? TurnId { get; init; }
 

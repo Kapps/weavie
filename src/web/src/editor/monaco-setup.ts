@@ -18,14 +18,50 @@ import { wheelScrollSensitivity } from "./wheel-scroll-sensitivity";
 // Workers + the VSCode service substrate are wired in `vscode-services.ts` (initEditorServices), which must run
 // before any editor is created. TS/JS intelligence comes from a real LSP server (lsp/lsp-client.ts), not ts.worker.
 
+/**
+ * The main editor pane: starts with no document (empty pane until the host opens a file) and is the surface the
+ * editor service opens go-to-def / reveal-file targets into. File models open with a real `file://` URI so
+ * tsserver-family servers treat them as project files and publish diagnostics.
+ */
 export function createEditor(container: HTMLElement): monaco.editor.IStandaloneCodeEditor {
-  // Starts with no document (empty pane until the host opens a file). File models open with a real `file://`
-  // URI so tsserver-family servers treat them as project files and publish diagnostics. Typography + behavior
-  // are user settings, live-updated below.
+  const editor = buildEditor(container, null, {});
+
+  // The editor service opens go-to-def / reveal-file targets through this editor.
+  registerActiveEditor(editor);
+
+  // Publish the live editor for e2e / diagnostics introspection (read-only); a rebuild overwrites it. See
+  // global.d.ts.
+  window.__WEAVIE_EDITOR__ = editor;
+  // Publish the monaco namespace too, so e2e can register the LSP-backed providers (rename, code actions) the
+  // harness has no language server to supply — the only way to drive those UX paths deterministically.
+  window.__WEAVIE_MONACO__ = monaco;
+  return editor;
+}
+
+/**
+ * A secondary editor embedded in another surface (the unified review's per-file diffs). Same settings, fonts and
+ * language services as the main pane — `overrides` win over the user's editor settings and stay applied when
+ * those settings change — but it never becomes the editor service's target.
+ */
+export function createEmbeddedEditor(
+  container: HTMLElement,
+  model: monaco.editor.ITextModel,
+  overrides: monaco.editor.IEditorOptions,
+): monaco.editor.IStandaloneCodeEditor {
+  return buildEditor(container, model, overrides);
+}
+
+// The construction options + live font/settings wiring every weavie editor shares.
+function buildEditor(
+  container: HTMLElement,
+  model: monaco.editor.ITextModel | null,
+  overrides: monaco.editor.IEditorOptions,
+): monaco.editor.IStandaloneCodeEditor {
+  // Typography + behavior are user settings, live-updated below.
   const font = currentFonts().editor;
   const editorOptions = currentEditorOptions();
   const editor = monaco.editor.create(container, {
-    model: null,
+    model,
     // No `theme` here on purpose: the active theme is global and owned by the theme controller. Passing a
     // `theme` option re-calls setTheme and would clobber the active theme back to that value.
     fontSize: font.size,
@@ -44,6 +80,7 @@ export function createEditor(container: HTMLElement): monaco.editor.IStandaloneC
     lineDecorationsWidth: 6,
     // Editor behavior (minimap, inlay hints, word wrap, hover delay, …) — each a typed Weavie setting.
     ...toMonacoOptions(editorOptions),
+    ...overrides,
   });
   applySuggestExpandDocs(editorOptions.suggestExpandDocs);
 
@@ -68,20 +105,11 @@ export function createEditor(container: HTMLElement): monaco.editor.IStandaloneC
 
   // Apply live editor-option changes the same way fonts do.
   const offEditorOptions = onEditorOptionsChanged((next) => {
-    editor.updateOptions(toMonacoOptions(next));
+    editor.updateOptions({ ...toMonacoOptions(next), ...overrides });
     applySuggestExpandDocs(next.suggestExpandDocs);
   });
   editor.onDidDispose(offEditorOptions);
 
-  // The editor service opens go-to-def / reveal-file targets through this editor.
-  registerActiveEditor(editor);
-
-  // Publish the live editor for e2e / diagnostics introspection (read-only); a rebuild overwrites it. See
-  // global.d.ts.
-  window.__WEAVIE_EDITOR__ = editor;
-  // Publish the monaco namespace too, so e2e can register the LSP-backed providers (rename, code actions) the
-  // harness has no language server to supply — the only way to drive those UX paths deterministically.
-  window.__WEAVIE_MONACO__ = monaco;
   return editor;
 }
 

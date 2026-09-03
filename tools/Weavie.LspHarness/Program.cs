@@ -12,7 +12,7 @@ using Weavie.LspHarness;
 // socket), with an in-process LSP client standing in for monaco-languageclient, and verifies that diagnostics,
 // semantic tokens, hover, and completion are live on a real source file — deterministically CI-checkable.
 //   WEAVIE_LSP_SERVER     selector / language id (default "typescript")
-//   WEAVIE_LSP_WORKSPACE  workspace dir (default a fresh temp dir with a tsconfig + sample.ts)
+//   WEAVIE_LSP_WORKSPACE  workspace dir (default a fresh temp dir with the language probe's project files)
 
 string? selector = Environment.GetEnvironmentVariable("WEAVIE_LSP_SERVER");
 selector = string.IsNullOrEmpty(selector) ? "typescript" : selector;
@@ -44,10 +44,14 @@ if (workspaceIsTemp) {
 	workspace = Path.Combine(Path.GetTempPath(), $"weavie-lsp-harness-{descriptor.Id}");
 	Directory.CreateDirectory(workspace);
 	foreach (var (name, content) in probe.ProjectFiles) {
-		File.WriteAllText(Path.Combine(workspace, name), content);
+		string path = Path.Combine(workspace, name);
+		Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+		File.WriteAllText(path, content);
 	}
 
-	File.WriteAllText(Path.Combine(workspace, probe.MainFileName), probe.Source);
+	string mainFile = Path.Combine(workspace, probe.MainFileName);
+	Directory.CreateDirectory(Path.GetDirectoryName(mainFile)!);
+	File.WriteAllText(mainFile, probe.Source);
 }
 
 string samplePath = Path.Combine(workspace!, probe.MainFileName);
@@ -145,6 +149,11 @@ await client.NotifyAsync("textDocument/didOpen", new JsonObject {
 	},
 }, ct);
 
+JsonElement earlyDiagnostics = default;
+if (probe.WaitForDiagnosticsBeforeRequests) {
+	earlyDiagnostics = await client.WaitForDiagnosticsAsync(fileUri, TimeSpan.FromSeconds(60), ct);
+}
+
 // The requests below (semantic tokens, hover, completion) force the server to fully load the project, so we
 // issue them first and check the server-pushed diagnostics last, by which point they've arrived.
 
@@ -185,7 +194,9 @@ bool canPull = results.DiagnosticProvider || client.IsRegistered("textDocument/d
 results.DiagnosticProvider = canPull;
 try {
 	JsonElement diagnostics;
-	if (canPull) {
+	if (earlyDiagnostics.ValueKind == JsonValueKind.Array) {
+		diagnostics = earlyDiagnostics;
+	} else if (canPull) {
 		var report = await client.RequestAsync("textDocument/diagnostic",
 			new JsonObject { ["textDocument"] = new JsonObject { ["uri"] = fileUri } }, ct);
 		diagnostics = report.ValueKind == JsonValueKind.Object && report.TryGetProperty("items", out var items)

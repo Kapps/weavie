@@ -1,9 +1,19 @@
 using System.Runtime.InteropServices;
+using Weavie.Core;
 using Weavie.Core.Configuration;
 using Weavie.Core.Mcp;
 using Weavie.Headless;
 using Weavie.Hosting;
+using Weavie.Hosting.Desktop;
 using Weavie.Hosting.Web;
+
+var launch = LaunchArguments.Parse(args);
+// A launch that only hands paths to the running host exits without building a Core graph — the same
+// handover the GUI hosts perform, so the harness exercises the real path.
+if (launch.Paths.Count > 0
+	&& (await InstanceClient.OfferAsync(WeaviePaths.Root, launch.Paths, CancellationToken.None)).Accepted) {
+	return 0;
+}
 
 string wwwroot = Path.Combine(AppContext.BaseDirectory, "wwwroot");
 int port = ResolvePort(args);
@@ -17,6 +27,8 @@ if (listen is null) {
 var dispatcher = new SerialUiDispatcher(ex => {
 	Console.Error.WriteLine($"[weavie-headless] dispatched action failed: {ex}");
 	Console.Error.Flush();
+	// FailFast runs no exit handler, so the ending is stamped here or it reads as a kill from outside.
+	ExitJournal.Record("failed: a dispatched UI action threw");
 	Environment.FailFast("weavie-headless: a dispatched UI action threw", ex);
 });
 var bridge = new WebSocketHostBridge();
@@ -45,6 +57,20 @@ await using var core = new HostCore(
 	bridge);
 
 await core.StartAsync().ConfigureAwait(false);
+// Only a host serving this machine's own desktop claims the open-with endpoint. A remote worker serves a
+// browser somewhere else, and claiming it there swallows every "Open With" on the machine running the
+// worker: the desktop launch hands its file to a window nobody is looking at, then exits without one.
+await using var instances = new InstanceServer(
+	WeaviePaths.Root,
+	request => DesktopHandoff.Offer(
+		request.Paths,
+		core.WorkspaceRoot,
+		DesktopHandoff.GitToplevel,
+		core.RequestOpenPath),
+	message => Console.Error.WriteLine($"[weavie-headless] {message}"));
+if (transport is HostTransport.Local) {
+	instances.TryStart();
+}
 Console.WriteLine($"[weavie-headless] workspace: {core.WorkspaceRoot}");
 Console.WriteLine($"[weavie-headless] token {core.WorkspaceAccessToken}");
 Console.WriteLine($"[weavie-headless] open  {core.WorkspacePageUrl}  in a browser");

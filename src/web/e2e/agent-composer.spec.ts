@@ -76,25 +76,49 @@ const controls = {
     ],
     slash: [
       {
+        id: "weavie:clear",
+        name: "clear",
+        description: "Clear the transcript and start a fresh conversation",
+        kind: "weavieCommand",
+        commandId: "weavie.agent.clearConversation",
+        inputHint: null,
+        inputName: null,
+      },
+      {
         id: "builtin:model",
         name: "model",
         description: "Switch the model, effort, or Fast Mode",
+        kind: "weavieCommand",
         commandId: "weavie.agent.selectModel",
-        insertText: null,
+        inputHint: null,
+        inputName: null,
       },
       {
         id: "builtin:plan",
         name: "plan",
         description: "Toggle Plan mode",
+        kind: "weavieCommand",
         commandId: "weavie.agent.togglePlanMode",
-        insertText: null,
+        inputHint: null,
+        inputName: null,
+      },
+      {
+        id: "agent:compact",
+        name: "compact",
+        description: "Compact the conversation.",
+        kind: "providerCommand",
+        commandId: null,
+        inputHint: null,
+        inputName: null,
       },
       {
         id: "agent:review-pr",
         name: "review-pr",
         description: "Review a pull request.",
+        kind: "providerCommand",
         commandId: null,
-        insertText: "/review-pr ",
+        inputHint: "<pull request>",
+        inputName: null,
       },
     ],
   },
@@ -171,6 +195,15 @@ const inputWhen = "agentFocused && agentInputPending";
 const turnNavigationWhen = "agentFocused && agentTurnNavigable";
 const catalog = {
   commands: [
+    {
+      ...agentCommand(
+        "weavie.agent.clearConversation",
+        "Start Fresh Agent Conversation",
+        "agentFocused",
+        ["alt+shift+c"],
+      ),
+      runsIn: "core" as const,
+    },
     agentCommand("weavie.agent.submit", "Submit Agent Prompt", "agentComposerFocused", ["enter"]),
     agentCommand("weavie.agent.interrupt", "Interrupt Agent Turn", "agentFocused", ["escape"]),
     agentCommand("weavie.agent.jumpToTurn", "Jump to Agent Turn", turnNavigationWhen, ["alt+up"]),
@@ -178,9 +211,9 @@ const catalog = {
       "alt+down",
     ]),
     agentCommand(
-      "weavie.agent.toggleCommandOutput",
-      "Toggle Agent Command Output",
-      "agentFocused && agentCommandOutputAvailable",
+      "weavie.agent.toggleToolOutput",
+      "Toggle Agent Tool Output",
+      "agentFocused && agentToolOutputAvailable",
       ["alt+o"],
     ),
     agentCommand("weavie.agent.openPlan", "Open Agent Plan", "agentFocused", ["alt+p"]),
@@ -210,8 +243,8 @@ const catalog = {
     { key: "alt+down", command: "weavie.agent.jumpToLatest", when: "agentFocused" },
     {
       key: "alt+o",
-      command: "weavie.agent.toggleCommandOutput",
-      when: "agentFocused && agentCommandOutputAvailable",
+      command: "weavie.agent.toggleToolOutput",
+      when: "agentFocused && agentToolOutputAvailable",
     },
     { key: "alt+p", command: "weavie.agent.openPlan", when: "agentFocused" },
     { key: "shift+tab", command: "weavie.agent.togglePlanMode", when: "agentFocused" },
@@ -367,6 +400,7 @@ test.describe("ACP composer", () => {
     page,
   }) => {
     await mountAgent(page);
+    publishCatalog();
     publishPane(userMessage("inspect the workspace"));
     for (const index of [1, 2]) {
       publishPane(
@@ -391,6 +425,7 @@ test.describe("ACP composer", () => {
     const activity = page.locator(".agent-entry-activity", { hasText: "2 reads" });
     await activity.getByText("history 2", { exact: true }).click();
     const step = activity.locator(".agent-activity-step").first();
+    await step.getByText("show output", { exact: true }).click();
     const geometry = await step.evaluate((element) => {
       const bounds = element.getBoundingClientRect();
       const label = element.querySelector(".agent-step-label")?.getBoundingClientRect();
@@ -441,24 +476,24 @@ test.describe("ACP composer", () => {
     await expect(
       step.getByText("command pnpm test --reporter verbose", { exact: true }),
     ).toBeVisible();
-    const disclosure = step.locator(".agent-command-output-details");
+    const disclosure = step.locator(".agent-tool-output-details");
     const toggle = disclosure.getByText("show output", { exact: true });
-    await expect(toggle).toHaveAttribute("title", "Show command output (Alt+O)");
-    await expect(disclosure.locator(".agent-command-output")).toHaveCount(0);
+    await expect(toggle).toHaveAttribute("title", "Show tool output (Alt+O)");
+    await expect(disclosure.locator(".agent-tool-output")).toHaveCount(0);
     await expect(step).not.toContainText("COMMAND_OUTPUT_END");
     await expect(step).not.toContainText("RICH_COMMAND_OUTPUT");
 
     await toggle.click();
-    const output = disclosure.locator(".agent-command-output");
+    const output = disclosure.locator(".agent-tool-output");
     await expect(output).toBeVisible();
     await expect(output).toContainText("COMMAND_OUTPUT_END");
     await expect(output).toContainText("RICH_COMMAND_OUTPUT");
     const hide = disclosure.getByText("hide output", { exact: true });
-    await expect(hide).toHaveAttribute("title", "Hide command output (Alt+O)");
+    await expect(hide).toHaveAttribute("title", "Hide tool output (Alt+O)");
 
     await hide.focus();
     await page.keyboard.press("Alt+O");
-    await expect(disclosure.locator(".agent-command-output")).toHaveCount(0);
+    await expect(disclosure.locator(".agent-tool-output")).toHaveCount(0);
 
     publishPane(
       paneMessage({
@@ -484,7 +519,75 @@ test.describe("ACP composer", () => {
       .toBe(true);
     await composer.focus();
     await page.keyboard.press("Alt+O");
-    await expect(disclosure.locator(".agent-command-output")).toHaveCount(0);
+    await expect(disclosure.locator(".agent-tool-output")).toHaveCount(0);
+  });
+
+  test("expanded history hides read and file-change output behind the same reveal", async ({
+    page,
+  }) => {
+    await mountAgent(page);
+    publishCatalog();
+    publishPane(userMessage("look at the file"));
+    publishPane(
+      paneMessage({
+        type: "item-completed",
+        turnId: "tool-output-turn",
+        itemId: "read-1",
+        itemType: "tool",
+        category: "read",
+        status: "completed",
+        summary: "src/App.tsx",
+        text: `${"file line\n".repeat(2_000)}READ_OUTPUT_END`,
+      }),
+    );
+    publishPane(
+      paneMessage({
+        type: "item-completed",
+        turnId: "tool-output-turn",
+        itemId: "write-1",
+        itemType: "fileChange",
+        status: "completed",
+        summary: "src/App.tsx",
+        text: `${"written line\n".repeat(2_000)}WRITE_OUTPUT_END`,
+      }),
+    );
+
+    const activity = page.locator(".agent-entry-activity");
+    await activity.getByText("history 2", { exact: true }).click();
+    const read = activity.locator(".agent-activity-step", { hasText: "read src/App.tsx" });
+    const write = activity.locator(".agent-activity-step", { hasText: "edit src/App.tsx" });
+    await expect(read.locator(".agent-tool-output")).toHaveCount(0);
+    await expect(write.locator(".agent-tool-output")).toHaveCount(0);
+    await expect(activity).not.toContainText("READ_OUTPUT_END");
+    await expect(activity).not.toContainText("WRITE_OUTPUT_END");
+
+    await read.getByText("show output", { exact: true }).click();
+    await expect(read.locator(".agent-tool-output")).toContainText("READ_OUTPUT_END");
+    await expect(write.locator(".agent-tool-output")).toHaveCount(0);
+  });
+
+  test("a failed step shows why it failed without a click", async ({ page }) => {
+    await mountAgent(page);
+    publishCatalog();
+    publishPane(userMessage("run the failing command"));
+    publishPane(
+      paneMessage({
+        type: "item-completed",
+        turnId: "failed-turn",
+        itemId: "failed-1",
+        itemType: "commandExecution",
+        status: "failed",
+        summary: "pnpm test",
+        text: "FAILURE_REASON",
+      }),
+    );
+
+    const activity = page.locator(".agent-entry-activity");
+    await activity.getByText("history", { exact: true }).click();
+    const step = activity.locator(".agent-activity-step");
+    await expect(step.locator(".agent-tool-output")).toContainText("FAILURE_REASON");
+    await step.getByText("hide output", { exact: true }).click();
+    await expect(step.locator(".agent-tool-output")).toHaveCount(0);
   });
 
   test("mouse clicks return to the prompt without taking text selection or response-field focus", async ({
@@ -1281,7 +1384,8 @@ test.describe("ACP composer", () => {
 
     const menu = page.locator(".agent-slash-menu");
     await expect(menu).toBeVisible();
-    await expect(menu.locator(".agent-slash-option")).toHaveCount(3);
+    await expect(menu.locator(".agent-slash-option")).toHaveCount(5);
+    await expect(menu).toContainText("/clear");
     await expect(menu).toContainText("/model");
     await expect(menu).toContainText("/plan");
     await expect(menu).toContainText("/review-pr");
@@ -1294,6 +1398,50 @@ test.describe("ACP composer", () => {
     await expect(textarea).toHaveValue("/review-pr ");
     await expect(textarea).toBeFocused();
     await page.screenshot({ path: join(shotsDir, "05-provider-command.png") });
+  });
+
+  test("a no-input provider command submits with ACP command semantics", async ({ page }) => {
+    await mountAgent(page);
+
+    const textarea = page.locator("[data-agent-composer] textarea");
+    await textarea.fill("/compact");
+    await page.keyboard.press("Enter");
+
+    expect(await waitForAgentPayload("submit")).toMatchObject({
+      prompt: "/compact",
+      kind: "providerCommand",
+      commandName: "compact",
+      attachmentIds: [],
+    });
+  });
+
+  test("a manually typed /clear dispatches the Weavie command instead of an agent prompt", async ({
+    page,
+  }) => {
+    await mountAgent(page);
+    publishCatalog();
+
+    const before = host.received.length;
+    const request = host.waitForSession(
+      agentSession.address,
+      "request",
+      "commands",
+      "invoke",
+      before,
+    );
+    const textarea = page.locator("[data-agent-composer] textarea");
+    await textarea.fill("/clear");
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: "Run" }).click();
+
+    const invocation = await request;
+    expect(invocation.payload).toMatchObject({ id: "weavie.agent.clearConversation" });
+    expect(
+      host.received
+        .slice(before)
+        .some((message) => message.feature === "agent" && message.name === "submit"),
+    ).toBe(false);
+    host.respond(invocation, { ok: true, message: "Started fresh.", error: null });
   });
 
   test("clicking outside the composer dismisses the slash menu", async ({ page }) => {
@@ -1532,8 +1680,11 @@ test.describe("ACP composer", () => {
     const body = page.locator(".agent-body");
     const navigation = page.locator(".agent-scroll-nav");
     const latestButton = page.getByRole("button", { name: "Jump to latest", exact: true });
+    const distanceFromBottom = (): Promise<number> =>
+      body.evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight);
     await expect(page.locator(".agent-entry").first()).toBeVisible();
     await expect(latestButton).toHaveCount(0);
+    await expect.poll(distanceFromBottom).toBeLessThan(1);
 
     const bounds = await body.boundingBox();
     if (bounds === null) {
@@ -1545,21 +1696,14 @@ test.describe("ACP composer", () => {
         Number.parseFloat(getComputedStyle(element).lineHeight),
       );
       await page.mouse.wheel(0, -lineHeight * lines);
-      await expect
-        .poll(() =>
-          body.evaluate(
-            (element) => element.scrollHeight - element.scrollTop - element.clientHeight,
-          ),
-        )
-        .toBeGreaterThan(lineHeight * lines - 2);
+      await expect.poll(distanceFromBottom).toBeGreaterThan(lineHeight * lines - 2);
+      await expect.poll(distanceFromBottom).toBeLessThan(lineHeight * lines + 2);
     };
 
     await scrollLinesFromBottom(2.5);
     await expect(latestButton).toHaveCount(0);
     publishPane(userMessage("near-bottom follow check"));
-    await expect
-      .poll(() => body.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight))
-      .toBeLessThan(1);
+    await expect.poll(distanceFromBottom).toBeLessThan(1);
 
     await scrollLinesFromBottom(4);
     await expect(latestButton).toHaveCount(1);
@@ -1572,14 +1716,10 @@ test.describe("ACP composer", () => {
 
     await latestButton.click();
     await expect(latestButton).toHaveCount(0);
-    await expect
-      .poll(() => body.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight))
-      .toBeLessThan(1);
+    await expect.poll(distanceFromBottom).toBeLessThan(1);
     publishPane(userMessage("follow after jump to latest"));
     await expect(page.getByText("follow after jump to latest", { exact: true })).toBeVisible();
-    await expect
-      .poll(() => body.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight))
-      .toBeLessThan(1);
+    await expect.poll(distanceFromBottom).toBeLessThan(1);
   });
 
   // Flaked on main CI 2026-08-13 04:09 UTC (e2e (linux) / shard 2/6):

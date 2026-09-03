@@ -8,6 +8,11 @@ import {
   normalizeText,
   requestLifecycles,
 } from "./AgentPaneMessageFormat";
+import {
+  collectSideConversations,
+  orderSideConversations,
+  sideConversationEntry,
+} from "./AgentPaneSideConversations";
 import type {
   AgentActivityStep,
   AgentTranscriptEntry,
@@ -31,7 +36,7 @@ export function toAgentTranscript(messages: readonly AgentPaneUpdate[]): AgentTr
 export function projectAgentTranscript(
   messages: readonly AgentPaneUpdate[],
 ): AgentTranscriptProjection {
-  const updates = coalesceStreaming(messages);
+  const updates = orderSideConversations(coalesceStreaming(messages));
   const resolved = collectResolved(messages);
   const reportedTurnErrors = new Set<string>();
   for (const message of messages) {
@@ -43,6 +48,8 @@ export function projectAgentTranscript(
     }
   }
   const entries: (AgentTranscriptEntry | MutableActivity)[] = [];
+  const sideConversations = collectSideConversations(updates);
+  const emittedSideConversations = new Set<string>();
   const activities = new Map<string, MutableActivity>();
   const knownTurns = new Set<string>();
   let activeTurn = "startup";
@@ -59,6 +66,19 @@ export function projectAgentTranscript(
   let hasPreviousActivity = false;
 
   for (const message of updates) {
+    if (message.conversationId) {
+      if (!emittedSideConversations.has(message.conversationId)) {
+        emittedSideConversations.add(message.conversationId);
+        entries.push(
+          sideConversationEntry(
+            sideConversations.get(message.conversationId) ?? [message],
+            (childMessages) => projectAgentTranscript(childMessages).entries,
+          ),
+        );
+        sequence += 1;
+      }
+      continue;
+    }
     const turnKey: string | null =
       hasPreviousTurn && message.threadId === previousThreadId && message.turnId === previousTurnId
         ? previousTurnKey
@@ -69,7 +89,7 @@ export function projectAgentTranscript(
     hasPreviousTurn = true;
     const startsUnknownTurn = turnKey === null || !knownTurns.has(turnKey);
     const startsTurn =
-      (message.type === "user-message" && startsUnknownTurn) ||
+      ((message.type === "user-message" || message.type === "user-command") && startsUnknownTurn) ||
       (message.type === "user-image" && !previousWasUserInput && startsUnknownTurn);
     previousWasUserInput = isUserInput(message);
     if (turnKey !== null) {
@@ -82,7 +102,7 @@ export function projectAgentTranscript(
         durable.turnStart = true;
       }
       entries.push(durable);
-      if (message.type === "user-message") {
+      if (message.type === "user-message" || message.type === "user-command") {
         activeTurn = message.turnId ?? `turn-${sequence}`;
       }
       sequence += 1;
@@ -222,6 +242,8 @@ function durableEntry(
       return entry(message, sequence, "message", "user", "Image", status);
     case "user-message":
       return entry(message, sequence, "message", "user", "You", null);
+    case "user-command":
+      return entry(message, sequence, "message", "user", "Command", null);
     case "user-steer":
       return entry(message, sequence, "message", "user", "Steer", null);
     case "warning":
@@ -329,6 +351,10 @@ function stripMutable(entry: AgentTranscriptEntry | MutableActivity): AgentTrans
     summary: entry.summary,
     text: entry.text,
     tone: entry.tone,
+    ...(entry.asideActive === undefined ? {} : { asideActive: entry.asideActive }),
+    ...(entry.asideEntries === undefined ? {} : { asideEntries: entry.asideEntries }),
+    ...(entry.asideReplyable === undefined ? {} : { asideReplyable: entry.asideReplyable }),
+    ...(entry.conversationId === undefined ? {} : { conversationId: entry.conversationId }),
   };
 }
 
@@ -398,7 +424,6 @@ function editStep(entry: AgentTranscriptEntry): AgentActivityStep {
     detailText: null,
     id: `${entry.id}:edit`,
     label: entry.text ?? entry.summary ?? "edit",
-    outputIsCommand: false,
     status: null,
     tone: "muted",
   };
@@ -451,6 +476,7 @@ function isUserMessage(entry: AgentTranscriptEntry): boolean {
 function isUserInput(message: AgentPaneUpdate): boolean {
   return (
     message.type === "user-message" ||
+    message.type === "user-command" ||
     message.type === "user-steer" ||
     message.type === "user-image"
   );

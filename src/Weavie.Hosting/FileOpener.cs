@@ -6,11 +6,8 @@ namespace Weavie.Hosting;
 
 /// <summary>
 /// Pushes a file open to the web to reveal at a line. Shared by clickable terminal file:line links and the
-/// MCP <c>openFile</c> tool; relative paths resolve against the workspace. The gate goes through the
-/// session's <see cref="FileProviderService"/>, the one validated reader, so an open is confined to the
-/// worktree (+ scratch) by normalized path. (The opened repo is trusted: an in-tree symlink that resolves
-/// outside is still followed — confinement is by path string, not by the link target.) A relative path that
-/// doesn't resolve is recovered by suffix match against the workspace index
+/// MCP <c>openFile</c> tool; relative paths resolve against the workspace, absolute ones open wherever they
+/// point. A relative path that doesn't resolve is recovered by suffix match against the workspace index
 /// (see <see cref="OpenAsync(string,int,bool,bool)"/>).
 /// </summary>
 public sealed class FileOpener : IAsyncDisposable {
@@ -67,8 +64,6 @@ public sealed class FileOpener : IAsyncDisposable {
 		CancellationToken ct) {
 		ct.ThrowIfCancellationRequested();
 		string resolved = Path.IsPathRooted(path) ? path : Path.GetFullPath(Path.Combine(_index.Root, path));
-		// Validated gate: refused for a path outside the worktree (+ scratch) or missing, so a reveal-file /
-		// openFile is confined to the worktree by path (an in-tree symlink is followed — the repo is trusted).
 		if (_files.CanRead(resolved)) {
 			PostOpen(resolved, line, preview, scratch);
 			return;
@@ -80,18 +75,18 @@ public sealed class FileOpener : IAsyncDisposable {
 
 		// A refusal toasts — the user clicked something (an omnibar row, a terminal link) and a silent drop
 		// reads as the app ignoring them.
-		Console.Error.WriteLine($"[weavie] reveal-file: refused or not found: {resolved}");
+		Console.Error.WriteLine($"[weavie] reveal-file: not found: {resolved}");
 		_notifications.Publish("show", new {
 			level = "warn",
-			message = $"Couldn't open {Path.GetFileName(resolved)} — it's missing, unreadable, or outside this session's worktree.",
+			message = $"Couldn't open {Path.GetFileName(resolved)} — it's missing or unreadable.",
 		});
 	}
 
 	/// <summary>
 	/// The recovery for a relative reference that didn't resolve: suffix-match it against the workspace index
-	/// (off the calling thread — the walk can be slow on a big worktree). One hit re-opens through the
-	/// validated gate; several push <c>focus-omnibar</c> so the user picks from Go-to-File preloaded with the
-	/// reference. False (→ the caller toasts) for a rooted path, no match, or a failed walk.
+	/// (off the calling thread — the walk can be slow on a big worktree). One hit re-opens it; several push
+	/// <c>focus-omnibar</c> so the user picks from Go-to-File preloaded with the reference. False (→ the caller
+	/// toasts) for a rooted path, no match, or a failed walk.
 	/// </summary>
 	private async Task<bool> TryOpenBySuffixAsync(
 		string path,
@@ -114,7 +109,7 @@ public sealed class FileOpener : IAsyncDisposable {
 		}
 
 		if (matches.Count == 1) {
-			// Re-enter with the matched absolute path: the validated gate still decides (rooted, so no recursion).
+			// Re-enter with the matched absolute path (rooted, so no recursion).
 			await OpenAsync(matches[0], line, preview, scratch, ct).ConfigureAwait(false);
 			return true;
 		}

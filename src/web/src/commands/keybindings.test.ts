@@ -91,9 +91,8 @@ describe("keyboard resolver", () => {
     vi.unstubAllGlobals();
   });
 
-  // Ctrl+Tab belongs to the editor's tabs while it holds focus and to session cycling otherwise. The editor's
-  // guarded binding is tried first and, when it declines (nothing to step to), the chord reaches cycling —
-  // gating cycling on !editorFocused instead made that press a dead key.
+  // Ctrl+Tab belongs to editor tabs or terminal tabs while that pane holds focus, and to session cycling once
+  // the narrower command declines. Guarded bindings are tried before the unguarded session fallback.
   it("hands a chord from the focus-guarded binding to the unguarded one when it declines", () => {
     commandState.entries = [
       {
@@ -103,6 +102,14 @@ describe("keyboard resolver", () => {
       {
         catalogBackendId: "local",
         binding: { key: "ctrl+Tab", command: "weavie.editor.nextTab", when: "editorFocused" },
+      },
+      {
+        catalogBackendId: "local",
+        binding: {
+          key: "ctrl+Tab",
+          command: "weavie.terminal.nextTab",
+          when: "focusedPane == 'terminal:shell'",
+        },
       },
     ];
     let keydown: ((event: KeyboardEvent) => void) | undefined;
@@ -141,7 +148,27 @@ describe("keyboard resolver", () => {
       ["local", "weavie.session.next", undefined],
     ]);
 
+    // Shell focused with multiple terminal tabs: terminal cycling takes the chord.
+    commandState.run.mockClear();
+    commandState.run.mockImplementation(() => true);
     setContext("editorFocused", false);
+    setContext("focusedPane", "terminal:shell");
+    press();
+    expect(commandState.run.mock.calls).toEqual([["local", "weavie.terminal.nextTab", undefined]]);
+
+    // One terminal tab: terminal cycling declines and session cycling inherits the same chord.
+    commandState.run.mockClear();
+    commandState.run.mockImplementation(
+      (_backend, command) => command !== "weavie.terminal.nextTab",
+    );
+    press();
+    expect(commandState.run.mock.calls).toEqual([
+      ["local", "weavie.terminal.nextTab", undefined],
+      ["local", "weavie.session.next", undefined],
+    ]);
+
+    setContext("editorFocused", false);
+    setContext("focusedPane", null);
     dispose();
     vi.unstubAllGlobals();
   });

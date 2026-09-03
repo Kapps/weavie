@@ -14,7 +14,7 @@ public sealed class HostCoreDrainTests {
 	[Fact]
 	public async Task QuietHost_CommitsImmediately_AndFreezesInput() {
 		await using var host = await TestHost.StartAsync();
-		host.SelectedSession.Shell.EnsureStarted();
+		host.SelectedSession.Shells.Primary!.Controller.EnsureStarted();
 		var shellTerminal = Assert.Single(host.Platform.NoopLauncher.Created);
 
 		bool exited = false;
@@ -24,7 +24,7 @@ public sealed class HostCoreDrainTests {
 		Assert.NotNull(host.Bridge.LastEvent("updates", "restarting"));
 		host.SessionEvent(
 			host.WorkspaceSession,
-			"terminal.shell",
+			ShellTerminalSet.FeatureName(host.SelectedSession.Shells.Primary!.Id),
 			"input",
 			new { dataB64 = "aGk=", userInitiated = true });
 		Assert.Equal(0, shellTerminal.WriteCount);
@@ -33,10 +33,10 @@ public sealed class HostCoreDrainTests {
 	[Fact]
 	public async Task RecentTerminalInput_RenewsGraceAndCommitsAtTheBoundary() {
 		await using var host = await TestHost.StartAsync();
-		host.SelectedSession.Shell.EnsureStarted();
+		host.SelectedSession.Shells.Primary!.Controller.EnsureStarted();
 		void Type() => host.SessionEvent(
 			host.WorkspaceSession,
-			"terminal.shell",
+				ShellTerminalSet.FeatureName(host.SelectedSession.Shells.Primary!.Id),
 			"input",
 			new { dataB64 = "aGk=", userInitiated = true });
 
@@ -86,10 +86,10 @@ public sealed class HostCoreDrainTests {
 	[Fact]
 	public async Task TerminalGeneratedReply_DoesNotHoldTheAutomaticUpdate() {
 		await using var host = await TestHost.StartAsync();
-		host.SelectedSession.Shell.EnsureStarted();
+		host.SelectedSession.Shells.Primary!.Controller.EnsureStarted();
 		host.SessionEvent(
 			host.WorkspaceSession,
-			"terminal.shell",
+			ShellTerminalSet.FeatureName(host.SelectedSession.Shells.Primary!.Id),
 			"input",
 			new { dataB64 = "Gw==", userInitiated = false });
 
@@ -139,7 +139,7 @@ public sealed class HostCoreDrainTests {
 	public async Task ShellForegroundJob_HoldsDrain_UntilItEnds() {
 		await using var host = await TestHost.StartAsync();
 		var session = host.SelectedSession;
-		session.Shell.EnsureStarted();
+		session.Shells.Primary!.Controller.EnsureStarted();
 		var shellTerminal = Assert.Single(host.Platform.NoopLauncher.Created);
 		shellTerminal.HasForegroundJob = true;
 
@@ -207,11 +207,11 @@ public sealed class HostCoreDrainTests {
 	[Fact]
 	public async Task RestartNow_SkipsRecentInputAndFreezesMoreInput() {
 		await using var host = await TestHost.StartAsync();
-		host.SelectedSession.Shell.EnsureStarted();
+		host.SelectedSession.Shells.Primary!.Controller.EnsureStarted();
 		var shellTerminal = Assert.Single(host.Platform.NoopLauncher.Created);
 		host.SessionEvent(
 			host.WorkspaceSession,
-			"terminal.shell",
+			ShellTerminalSet.FeatureName(host.SelectedSession.Shells.Primary!.Id),
 			"input",
 			new { dataB64 = "aGk=", userInitiated = true });
 
@@ -222,7 +222,7 @@ public sealed class HostCoreDrainTests {
 		Assert.True(exited);
 		host.SessionEvent(
 			host.WorkspaceSession,
-			"terminal.shell",
+			ShellTerminalSet.FeatureName(host.SelectedSession.Shells.Primary!.Id),
 			"input",
 			new { dataB64 = "aGk=", userInitiated = true });
 		Assert.Equal(1, shellTerminal.WriteCount);

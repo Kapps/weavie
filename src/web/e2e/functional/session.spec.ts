@@ -224,7 +224,7 @@ test("keyboard session cycling steps one chip per press in both directions", asy
 
   // Park focus in the shell pane so the session binding owns the chord directly.
   const shell = page.locator('.terminal-surface[data-kind="terminal:shell"]');
-  await shell.locator(".pane-head").click();
+  await shell.locator(".shell-tab-main").click();
   const slots = await chips.evaluateAll((rail) =>
     rail.map((chip) => (chip as HTMLElement).dataset.sessionSlot ?? ""),
   );

@@ -17,6 +17,6 @@ allowBuilds:
   esbuild: true
 overrides:
   esbuild: 0.25.12
-  dompurify: 3.4.12
+  dompurify: 3.4.13
 patchedDependencies:
   vscode-languageclient@9.0.1: patches/vscode-languageclient@9.0.1.patch

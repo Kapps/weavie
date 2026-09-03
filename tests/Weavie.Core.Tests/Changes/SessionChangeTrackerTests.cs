@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Weavie.Core.Agents;
 using Weavie.Core.Changes;
 using Weavie.Core.FileActivity;
 using Weavie.Core.FileSystem;
@@ -62,6 +63,25 @@ public sealed class SessionChangeTrackerTests {
 	}
 
 	[Fact]
+	public void Observe_OverlappingInsertionsAtTheSameBoundary_PreservesBothChanges() {
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllText("/w/a.txt", "head\ntail\n");
+		var tracker = Tracker(fileSystem);
+		var mutation = new AgentMutation.File("/w/a.txt", Cwd: null, ProvidesEditLocation: true);
+
+		tracker.Observe(new AgentToolStarting(mutation));
+		fileSystem.WriteAllText("/w/a.txt", "head\nfirst\ntail\n");
+		tracker.Observe(new AgentToolCompleted(mutation));
+
+		fileSystem.WriteAllText("/w/a.txt", "head\ntail\n");
+		tracker.Observe(new AgentToolStarting(mutation));
+		fileSystem.WriteAllText("/w/a.txt", "head\nsecond\ntail\n");
+		tracker.Observe(new AgentToolCompleted(mutation));
+
+		Assert.Equal("head\nfirst\nsecond\ntail\n", tracker.GetTurn("/w/a.txt")!.CurrentText);
+	}
+
+	[Fact]
 	public void Observe_NonEditingTool_Ignored() {
 		var tracker = Tracker(new InMemoryFileSystem());
 		var bash = new HookRequest {
@@ -90,6 +110,34 @@ public sealed class SessionChangeTrackerTests {
 		Assert.Empty(tracker.Changes());
 		Assert.Empty(tracker.TurnChanges());
 		Assert.Null(tracker.Get("/elsewhere/memory.md"));
+	}
+
+	[Fact]
+	public void RevertHunk_OutOfScopePath_LeavesTheFileUntouched() {
+		// The hunk guard is checked against disk, not the review baseline, so an untracked path whose guard text
+		// happens to match would otherwise splice the named lines out of any file the host can write.
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllText("/elsewhere/secrets.env", "keep\nDELETE_ME\nkeep\n");
+		var tracker = Tracker(fileSystem);
+
+		var outcome = tracker.RevertHunk(
+			"/elsewhere/secrets.env",
+			new LineRange(1, 1),
+			new LineRange(2, 3),
+			"DELETE_ME");
+
+		Assert.Equal(RevertHunkOutcome.GuardMismatch, outcome);
+		Assert.Equal("keep\nDELETE_ME\nkeep\n", fileSystem.ReadAllText("/elsewhere/secrets.env"));
+	}
+
+	[Fact]
+	public void KeepHunk_OutOfScopePath_IsNotAdmittedToReview() {
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllText("/elsewhere/secrets.env", "keep\nDELETE_ME\nkeep\n");
+		var tracker = Tracker(fileSystem);
+
+		Assert.False(tracker.KeepHunk("/elsewhere/secrets.env", new LineRange(1, 1), new LineRange(2, 3), "DELETE_ME"));
+		Assert.Null(tracker.Get("/elsewhere/secrets.env"));
 	}
 
 	[Fact]

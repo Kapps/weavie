@@ -1,0 +1,277 @@
+.unified-review {
+  position: absolute;
+  inset: 0;
+  z-index: 12;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.unified-review:focus-visible {
+  outline: none;
+}
+
+.unified-review-header {
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1em;
+  min-height: 3.5em;
+  padding: 0.65em 1em;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bar) 94%, transparent);
+  backdrop-filter: blur(10px);
+}
+
+.unified-review-heading,
+.unified-review-header-actions,
+.unified-review-file-header,
+.unified-review-file-stats,
+.unified-review-totals {
+  display: flex;
+  align-items: center;
+  gap: 0.65em;
+}
+
+.unified-review-heading {
+  min-width: 0;
+}
+
+.unified-review-kicker,
+.unified-review-files-title,
+.unified-review-status {
+  color: var(--dim);
+  font-size: var(--font-metadata-size);
+}
+
+.unified-review-kicker {
+  padding-right: 0.7em;
+  border-right: 1px solid var(--border);
+}
+
+.unified-review-added {
+  color: var(--diff-added, #5a9a6a);
+}
+
+.unified-review-removed {
+  color: var(--diff-removed, #c47a7a);
+}
+
+.unified-review-action,
+.unified-review-file-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
+  padding: 0.35em 0.65em;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+
+.unified-review-action:hover,
+.unified-review-file-action:hover {
+  border-color: var(--accent);
+}
+
+.unified-review-action:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.unified-review-action:disabled:hover {
+  border-color: var(--border);
+}
+
+.unified-review-action.keep,
+.unified-review-file-action.keep {
+  color: var(--diff-added, #5a9a6a);
+}
+
+.unified-review-action.revert,
+.unified-review-file-action.revert {
+  color: var(--diff-removed, #c47a7a);
+}
+
+.unified-review-action.mode {
+  color: var(--accent);
+}
+
+.unified-review-layout {
+  display: grid;
+  grid-template-columns: minmax(12em, 18em) minmax(0, 1fr);
+  align-items: start;
+  width: 100%;
+  max-width: 100rem;
+  min-height: 0;
+  margin: 0 auto;
+}
+
+.unified-review-files {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: auto;
+  padding: 1em 0.75em;
+  border-right: 1px solid var(--border);
+}
+
+.unified-review-files-title {
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+  padding: 0 0.5em 0.55em;
+  font-weight: 650;
+  text-transform: uppercase;
+}
+
+.unified-review-file-link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75em;
+  width: 100%;
+  padding: 0.45em 0.5em;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--dim);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.unified-review-file-link:hover,
+.unified-review-file-link.active {
+  background: var(--list-active-bg);
+  color: var(--fg);
+}
+
+.unified-review-file-link > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.unified-review-file-link small {
+  display: flex;
+  flex: none;
+  gap: 0.35em;
+  font-size: var(--font-hint-size);
+}
+
+.unified-review-diffs {
+  position: relative;
+  height: 100%;
+  min-width: 0;
+  overflow: auto;
+  padding: 1em;
+}
+
+.unified-review-virtual-list {
+  position: relative;
+  width: 100%;
+}
+
+/* Positioned by `top` (never a transform) and unclipped, so Monaco's fixed suggest/hover widgets escape the
+   section and land where the caret is. */
+.unified-review-file {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg);
+}
+
+.unified-review-file-header {
+  position: sticky;
+  top: 0;
+  border-radius: 6px 6px 0 0;
+  z-index: 2;
+  min-height: 2.6em;
+  padding: 0.45em 0.65em;
+  border-bottom: 1px solid var(--border);
+  background: var(--bar);
+}
+
+.unified-review-file-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-weight: 650;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.unified-review-file-name:hover {
+  color: var(--accent);
+}
+
+.unified-review-file-action {
+  padding: 0.2em 0.5em;
+  background: transparent;
+  font-size: var(--font-hint-size);
+}
+
+/* Sized by its editor to the exact content height (review-editor.ts); the list does the scrolling. */
+.unified-review-editor {
+  width: 100%;
+}
+
+/* Round the last section corners on Monaco's own clip layer — never on an ancestor, which would trap the
+   fixed-position suggest/hover widgets. */
+.unified-review-editor .overflow-guard {
+  border-radius: 0 0 6px 6px;
+}
+
+/* The first line after a collapsed unchanged stretch, so a gap reads as a gap rather than as contiguous code. */
+.weavie-review-gap {
+  border-top: 1px dashed color-mix(in srgb, var(--border) 80%, var(--fg));
+}
+
+.unified-review-notice {
+  padding: 1.2em;
+  color: var(--dim);
+  font-size: var(--font-metadata-size);
+  text-align: center;
+}
+
+@media (max-width: 760px) {
+  .unified-review-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .unified-review-header-actions {
+    flex-wrap: wrap;
+  }
+
+  .unified-review-layout {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(6em, 10em) minmax(0, 1fr);
+  }
+
+  .unified-review-files {
+    height: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .unified-review-file-header {
+    top: 0;
+    flex-wrap: wrap;
+  }
+}

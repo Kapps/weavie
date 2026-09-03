@@ -3,7 +3,12 @@ import type { ClientSession } from "../bridge";
 import { canonicalFsPath } from "./fs-path";
 import { sessionUriHostParts, sessionUriParts } from "./session-uri-owner";
 
-export { SESSION_FILE_SCHEME, sessionForUri, sessionUriHostPath } from "./session-uri-owner";
+export {
+  SESSION_FILE_SCHEME,
+  sessionForUri,
+  sessionOwnsUri,
+  sessionUriHostPath,
+} from "./session-uri-owner";
 
 export function sessionFileUri(session: ClientSession, path: string): URI {
   return namespaceUri(session, URI.file(canonicalFsPath(path)));

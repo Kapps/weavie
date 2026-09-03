@@ -40,6 +40,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 	private PullRequestStatusMonitor? _pullRequestStatus;
 	private GitStatusMonitor? _gitStatus;
 	private string? _workspaceWatcherFailure;
+	private string? _externalWatcherFailure;
 	// The server catalog advertised to the page (ids + language ids + default settings) — identical for every
 	// session, so serialized once; LspConfigJson adds the per-session worktree root.
 	private static readonly string LspServersCatalogJson = JsonSerializer.Serialize(
@@ -63,6 +64,8 @@ public sealed partial class HostSession : IAsyncDisposable {
 		string scratchDir,
 		string pastedImagesDir,
 		string authenticationTerminalLogPath,
+		IReadOnlyList<string> shellTerminals,
+		Func<string, string> shellScrollbackPath,
 		CommandRegistry commandRegistry,
 		KeybindingStore keybindings,
 		ThemeOverridesStore themeOverrides,
@@ -81,6 +84,8 @@ public sealed partial class HostSession : IAsyncDisposable {
 		ArgumentException.ThrowIfNullOrEmpty(scratchDir);
 		ArgumentException.ThrowIfNullOrEmpty(pastedImagesDir);
 		ArgumentException.ThrowIfNullOrEmpty(authenticationTerminalLogPath);
+		ArgumentNullException.ThrowIfNull(shellTerminals);
+		ArgumentNullException.ThrowIfNull(shellScrollbackPath);
 		ArgumentNullException.ThrowIfNull(commandRegistry);
 		ArgumentNullException.ThrowIfNull(keybindings);
 		ArgumentNullException.ThrowIfNull(themeOverrides);
@@ -115,22 +120,32 @@ public sealed partial class HostSession : IAsyncDisposable {
 		// the prompt; wiped on unload so they never linger or reach the tree/git.
 		PastedImages = new PastedImageStore(fileSystem, pastedImagesDir);
 		AgentAttachments = new AgentAttachmentStore(PastedImages);
-		FileProvider = new FileProviderService(fileSystem, workspaceRoot, scratchDir);
+		FileProvider = new FileProviderService(fileSystem);
 		Inventory = new WorkspaceInventory(workspaceRoot);
 		FileActivity = new SessionFileActivity(
 			Inventory,
 			Tagged("[files]"),
 			watcherDebounceMs: 250);
+		// The workspace watcher covers the worktree recursively; files open from anywhere else are watched one
+		// at a time, tracking the tab set.
+		ExternalFiles = new ExternalFileWatcher(
+			fileSystem,
+			FileActivity,
+			ReportExternalFileWatchFailure,
+			debounceMs: 250);
+		EditorSessionChanged += editorSession =>
+			ExternalFiles.Watch(FilesOutsideWorkspace(workspaceRoot, editorSession));
 		Browser = new WorkspaceBrowser(fileSystem, workspaceRoot);
 		FileIndex = new WorkspaceFileIndex(fileSystem, workspaceRoot);
-		Shell = new TerminalController(
-			Bus.Feature("terminal.shell"),
-			"shell",
+		Shells = new ShellTerminalSet(
+			Bus,
 			settings,
 			ptyLauncher,
-			new ShellTerminalProcess(settings, workspaceRoot)) {
-			Workspace = workspaceRoot,
-		};
+			workspaceRoot,
+			shellTerminals,
+			shellScrollbackPath,
+			acceptTerminalInput,
+			shellResized);
 		FileOpener = new FileOpener(
 			View.Feature("view"),
 			_notificationMessages,
@@ -146,14 +161,14 @@ public sealed partial class HostSession : IAsyncDisposable {
 		// this session's agent what the user is looking at.
 		Editor = new EditorStore();
 
-		// Built before the IDE-MCP server so its EditLocationFor can back the hook bridge's edit jump-links. Scoped
-		// to the roots the file provider serves (worktree + scratch), so an edit the agent makes outside this
-		// session is never tracked and so never pushed as an unopenable diff.
+		// Built before the IDE-MCP server so its EditLocationFor can back the hook bridge's edit jump-links. Review
+		// covers this session's work — the worktree and its scratch buffers — so an agent edit to an unrelated file
+		// elsewhere on disk stays out of the turn diff. The editor can still open and save that file.
 		Changes = new SessionChangeTracker(
 			fileSystem,
 			FileActivity,
 			workspaceRoot,
-			path => BufferStore.IsWithinWorkspace(workspaceRoot, path) || BufferStore.IsWithinWorkspace(scratchDir, path));
+			path => PathBoundary.Contains(workspaceRoot, path) || PathBoundary.Contains(scratchDir, path));
 		// Mirrors the provider's edit mode (default/acceptEdits/plan), observed off the event stream — Weavie
 		// reflects it, never sets it. Drives the openDiff auto-keep + the post-turn review gating.
 		ObservedMode = new ObservedPermissionMode();
@@ -243,7 +258,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 			Agent.ReleaseHistoryReader(peer);
 			_ = Background.Run(_ => Lsp.DisconnectAsync(peer));
 		};
-		WireMessages(inputFrozen, acceptTerminalInput, shellResized);
+		WireMessages(inputFrozen, acceptTerminalInput);
 	}
 
 	/// <summary>This live backend incarnation.</summary>
@@ -280,8 +295,13 @@ public sealed partial class HostSession : IAsyncDisposable {
 	}
 
 	internal void ReplayWorkspaceWatcherFailure(MessageTarget target) {
-		if (Volatile.Read(ref _workspaceWatcherFailure) is { } message) {
-			target.Feature("notifications").Publish("show", new { level = "error", message });
+		foreach (string? message in new[] {
+			Volatile.Read(ref _workspaceWatcherFailure),
+			Volatile.Read(ref _externalWatcherFailure),
+		}) {
+			if (message is not null) {
+				target.Feature("notifications").Publish("show", new { level = "error", message });
+			}
 		}
 	}
 
@@ -325,6 +345,9 @@ public sealed partial class HostSession : IAsyncDisposable {
 	/// <summary>Orders this session's completed file activity and owned workspace invalidations.</summary>
 	public SessionFileActivity FileActivity { get; }
 
+	/// <summary>Watches the open files that sit outside this session's worktree, which the workspace watcher never sees.</summary>
+	public ExternalFileWatcher ExternalFiles { get; }
+
 	/// <summary>Owns this workspace's scratch (untitled-buffer) directory; New File creates a file here.</summary>
 	public ScratchStore Scratch { get; }
 
@@ -349,8 +372,8 @@ public sealed partial class HostSession : IAsyncDisposable {
 	/// <summary>The selected provider session and its compatibility terminal.</summary>
 	public AgentSessionHost Agent { get; }
 
-	/// <summary>The plain shell terminal.</summary>
-	public TerminalController Shell { get; }
+	/// <summary>The session's ordered shell terminal tabs.</summary>
+	internal ShellTerminalSet Shells { get; }
 
 	/// <summary>Resolves a clicked <c>file:line</c> and pushes its contents to the editor.</summary>
 	public FileOpener FileOpener { get; }
@@ -382,17 +405,33 @@ public sealed partial class HostSession : IAsyncDisposable {
 
 	internal event Action<EditorSession>? EditorSessionChanged;
 
+	/// <summary>
+	/// The open files the workspace watcher does not cover. Scratch buffers are excluded — they are Weavie's own
+	/// temp files, and the editor is the writer whose saves would echo back.
+	/// </summary>
+	private static IReadOnlyList<string> FilesOutsideWorkspace(string workspaceRoot, EditorSession session) => [
+		.. session.Open
+			.Where(entry =>
+				entry.IsFile
+				&& !entry.Scratch
+				&& !PathBoundary.Contains(workspaceRoot, entry.Path))
+			.Select(entry => entry.Path),
+	];
+
+	// Watching outside files is a promise the editor footer makes, so losing it reaches the user rather than a
+	// console line, and replays on reconnect like the workspace watcher's own failure.
+	private void ReportExternalFileWatchFailure(string message) {
+		Volatile.Write(ref _externalWatcherFailure, message);
+		_notificationMessages.Publish("show", new { level = "error", message });
+	}
+
 	internal void ReplayEditor(MessageTargetFeature target, Action<string> log) {
 		ArgumentNullException.ThrowIfNull(target);
 		ArgumentNullException.ThrowIfNull(log);
 		lock (_editorSessionGate) {
 			target.PublishJson(
 				"restore",
-				EditorSessionSerialization.BuildRestoreJson(
-					_editorSession,
-					FileSystem,
-					WorkspaceRoot,
-					log));
+				EditorSessionSerialization.BuildRestoreJson(_editorSession, FileSystem, log));
 		}
 	}
 
@@ -525,7 +564,8 @@ public sealed partial class HostSession : IAsyncDisposable {
 		$"{{\"workspace\":\"{JsonEncodedText.Encode(WorkspaceRoot)}\",\"servers\":{LspServersCatalogJson}}}";
 
 	/// <summary>
-	/// Lists <paramref name="requestedPath"/> within the session root for the requesting file browser.
+	/// Lists <paramref name="requestedPath"/> — absolute as itself, relative against the session root — for the
+	/// file browser and the omnibar's open-by-path completion.
 	/// </summary>
 	private DirectoryListingMessage ListDirectory(string requestedPath) =>
 		new([.. Browser.List(requestedPath).Select(
@@ -558,12 +598,22 @@ public sealed partial class HostSession : IAsyncDisposable {
 		Agent.Structured?.Restart();
 	}
 
+	/// <summary>Clears the native agent pane and starts a fresh provider conversation.</summary>
+	public void StartNewAgentConversation() {
+		if (Agent.Structured is not { } structured) {
+			throw new InvalidOperationException("This session does not use a native structured agent.");
+		}
+		structured.StartNewConversation();
+	}
+
 	/// <summary>Sends a prompt to the active agent using the provider's native input path.</summary>
 	public void SendAgentPrompt(string text) {
 		ArgumentNullException.ThrowIfNull(text);
 		SendAgentInput(new AgentTurnSubmission {
 			Id = Guid.NewGuid().ToString("n"),
 			Text = text,
+			Kind = AgentTurnSubmissionKind.Prompt,
+			CommandName = string.Empty,
 			Attachments = [],
 		});
 	}
@@ -641,11 +691,12 @@ public sealed partial class HostSession : IAsyncDisposable {
 		await DisposeStepAsync(failures, () => Background.DisposeAsync().AsTask()).ConfigureAwait(false);
 		// Terminal disposal blocks until the PTY children exit (so a following worktree delete can't race a
 		// process still rooted there). Keep it off the calling UI thread.
-		await DisposeStepAsync(failures, () => Task.Run(() => Shell.Dispose())).ConfigureAwait(false);
+		await DisposeStepAsync(failures, () => Task.Run(() => Shells.Dispose())).ConfigureAwait(false);
 		await DisposeStepAsync(failures, () => Agent.DisposeAsync().AsTask()).ConfigureAwait(false);
 		await DisposeStepAsync(
 			failures,
 			() => FileActivity.DrainAsync(CancellationToken.None)).ConfigureAwait(false);
+		await DisposeStepAsync(failures, () => Task.Run(ExternalFiles.Dispose)).ConfigureAwait(false);
 		await DisposeStepAsync(failures, () => FileActivity.DisposeAsync().AsTask()).ConfigureAwait(false);
 		await DisposeStepAsync(failures, () => FileOpener.DisposeAsync().AsTask()).ConfigureAwait(false);
 		await DisposeStepAsync(failures, () => Lsp.DisposeAsync().AsTask()).ConfigureAwait(false);

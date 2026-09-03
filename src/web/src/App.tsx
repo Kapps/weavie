@@ -10,8 +10,8 @@ import {
   Show,
   Suspense,
 } from "solid-js";
-import { toggleAgentCommandOutput } from "./agent/AgentCommandOutput";
 import { AgentPane } from "./agent/AgentPane";
+import { toggleAgentToolOutput } from "./agent/AgentToolOutput";
 import { toggleActiveAgentMermaid } from "./agent/agent-mermaid";
 import {
   type AgentPaneModel,
@@ -44,8 +44,13 @@ import { EditorFooter } from "./chrome/EditorFooter";
 import { gitStatus } from "./chrome/git-status-store";
 import { installMiddleClickAutoscroll } from "./chrome/middle-click-autoscroll";
 import { NativeTitleBar } from "./chrome/NativeTitleBar";
+import { installNativeApplicationMenu } from "./chrome/native-application-menu";
 import { OpenPrPrompt } from "./chrome/OpenPrPrompt";
-import { focusOmnibar, focusOmnibarFileSearch } from "./chrome/omnibar-controller";
+import {
+  focusOmnibar,
+  focusOmnibarFileSearch,
+  focusOmnibarPath,
+} from "./chrome/omnibar-controller";
 import { PaneFooter } from "./chrome/PaneFooter";
 import type { PopoverAnchor } from "./chrome/popover-position";
 import { pullRequestStatus } from "./chrome/pull-request-store";
@@ -100,9 +105,12 @@ import {
   getKeybindings,
   onCommandsChanged,
   onSessionActivated,
+  onTerminalActivated,
   registerCommand,
+  runCommandWithFeedback,
 } from "./commands/registry";
-import { CommandIds } from "./commands/types";
+import { selectedText, trackDocumentSelection } from "./commands/selection";
+import { CommandIds, type CommandResult } from "./commands/types";
 import { BlamePopover } from "./editor/BlamePopover";
 import { blameTarget } from "./editor/blame-store";
 import { ConfirmDialog } from "./editor/ConfirmDialog";
@@ -120,6 +128,7 @@ import {
 } from "./editor/preview/embed-zoom";
 import { canPreview } from "./editor/preview/preview-registry";
 import { RevisePrompt } from "./editor/RevisePrompt";
+import { reviewCommandBindings } from "./editor/review/review-commands";
 import { SaveAsPrompt } from "./editor/SaveAsPrompt";
 // Registers the per-session editor restore listener before the host's sync response; the
 // store otherwise lives only in the later editor chunk, so the push would arrive with no listener. Also
@@ -154,6 +163,7 @@ import { paneOrder } from "./layout/geometry";
 import { LayoutView } from "./layout/LayoutView";
 import { DEFAULT_LAYOUT_ROOT, layoutDocument, sendLayout } from "./layout/store";
 import type { LayoutNode } from "./layout/types";
+import { requireSessionAddress } from "./messaging/message-envelope";
 import type { MobileSurface, MobileSwipeDirection } from "./mobile/MobileSurfaceBar";
 import { MobileWorkspace } from "./mobile/MobileWorkspace";
 import { createMobileBackSwipe } from "./mobile/mobile-back-swipe";
@@ -163,12 +173,21 @@ import { useCompactMode } from "./mobile/useCompactMode";
 // Session-attention intake (sounds + OS notifications): module-load side effect, like the session store.
 import "./notifications/attention";
 import "./notifications/intake";
+import "./notifications/startup-tip";
 import { setNotifySink } from "./notify/notify";
 import { Suggestions } from "./notify/Suggestions";
 import { createToasts, Toasts } from "./notify/Toasts";
 import { dismissSplash } from "./splash";
 import { mark } from "./startup-timing";
 import { installTerminalClipboardCommands } from "./terminal/host-clipboard";
+import { ShellTabStrip } from "./terminal/ShellTabStrip";
+import {
+  activeShellTerminalId,
+  selectShellTerminal,
+  shellTerminalCatalogReceived,
+  shellTerminals,
+  stepShellTerminal,
+} from "./terminal/shell-terminal-store";
 import { TerminalView } from "./terminal/TerminalView";
 import { openUrlExternal } from "./terminal/terminal-links";
 import { applyChromeTheme } from "./theme";
@@ -176,6 +195,7 @@ import { applyChromeTheme } from "./theme";
 const FileBrowser = lazy(() => import("./files/FileBrowser"));
 const PlanView = lazy(() => import("./editor/plan/PlanView"));
 const PreviewPane = lazy(() => import("./editor/preview/PreviewPane"));
+const UnifiedReview = lazy(() => import("./editor/review/UnifiedReview"));
 const SourceView = lazy(() => import("./editor/source/SourceView"));
 const SearchPanel = lazy(() =>
   import("./chrome/SearchPanel").then((m) => ({ default: m.SearchPanel })),
@@ -430,13 +450,24 @@ export default function App(): JSX.Element {
   });
   const sessionKey = (session: ClientSession): string =>
     `${session.connection.id}\0${session.address.slot}\0${session.address.incarnation}`;
-  const terminalPaneKey = (session: ClientSession, pane: string): string =>
-    `${sessionKey(session)}\0${pane}`;
+  const terminalPaneKey = (session: ClientSession, terminalId: string): string =>
+    `${sessionKey(session)}\0${terminalId}`;
   // Each loaded session's terminal panes register their focus fn here on mount; focusPane resolves the active
   // backend and session's entry. (The editor focuses via the controller directly.)
   const terminalFocus = new Map<string, () => void>();
   // The child-set terminal title (OSC 0/2), shown in the shell pane header (the agent pane keeps its fixed label).
   const [paneTitles, setPaneTitles] = createSignal<Record<string, string>>({});
+  const forgetTerminalPane = (key: string): void => {
+    terminalFocus.delete(key);
+    setPaneTitles((previous) => {
+      if (!(key in previous)) {
+        return previous;
+      }
+      const next = { ...previous };
+      delete next[key];
+      return next;
+    });
+  };
   // Whether the Ctrl+N pane-switch hint badges are shown (the editor.paneShortcutHints setting; live-updated).
   const [showPaneHints, setShowPaneHints] = createSignal(currentEditorOptions().paneShortcutHints);
 
@@ -633,6 +664,11 @@ export default function App(): JSX.Element {
     promptScratchName,
     promptRevision,
   });
+  createEffect(() => {
+    setContext("navigationBackAvailable", editor.nav.canBack());
+    setContext("navigationForwardAvailable", editor.nav.canForward());
+    setContext("reviewAvailable", editor.parkedReviewCount() > 0);
+  });
   // Find-in-files results open through the editor controller (preview tab, cursor on the match's column).
   setSearchOpener((match, focus) => editor.openMatch(match.path, match.line, match.column, focus));
 
@@ -648,13 +684,19 @@ export default function App(): JSX.Element {
     requestAnimationFrame(() => editor.start(editorContainer));
   };
 
-  // Liveness: the first terminal paint is the reveal trigger, but a launch can land with NO loaded terminal to
-  // paint — an all-dormant restore, or an offline remote backend — and then onFirstRender never fires. Once the
-  // host has supplied its catalog (sessionsReceived) and there is no selected-session terminal, bring the
-  // editor up so the shell still reveals. When terminals DO exist, their paint drives it (and reveals
-  // before the editor eval), so this stays out of the way — it only fires when there is nothing to jam.
+  // Liveness: terminal paint is the reveal trigger, but a structured agent plus an empty shell catalog has no
+  // TerminalView to paint. Wait for that exact catalog before starting the editor so an empty persisted set can
+  // reveal without racing the ordinary terminal-first path.
   createEffect(() => {
-    if (sessionsReceived() && terminalSessions().length === 0) {
+    const session = activeTermSession();
+    if (
+      sessionsReceived() &&
+      (terminalSessions().length === 0 ||
+        (session !== null &&
+          shellTerminalCatalogReceived(session) &&
+          !agentTerminalVisible() &&
+          shellTerminals(session).length === 0))
+    ) {
       startEditorOnce();
     }
   });
@@ -683,10 +725,18 @@ export default function App(): JSX.Element {
     }
     // Resolve the focusable xterm by the selected session id, so focus lands correctly regardless of
     // effect-flush timing on a switch.
-    const pane = paneOf(kind);
     const session = activeTermSession();
     if (session !== null) {
-      terminalFocus.get(terminalPaneKey(session, pane))?.();
+      const terminalId = kind === AGENT_PANE_KIND ? "claude" : activeShellTerminalId(session);
+      if (terminalId !== null) {
+        terminalFocus.get(terminalPaneKey(session, terminalId))?.();
+      } else if (kind === "terminal:shell") {
+        document
+          .querySelector<HTMLButtonElement>(
+            '.terminal-surface[data-kind="terminal:shell"] .shell-tab-new',
+          )
+          ?.focus();
+      }
     }
   };
 
@@ -705,6 +755,62 @@ export default function App(): JSX.Element {
   };
 
   onCleanup(onSessionActivated(({ session, created }) => homeSessionFocus(session, created)));
+  onCleanup(
+    onTerminalActivated(({ session, terminalId }) => {
+      if (!selectShellTerminal(session, terminalId)) {
+        return;
+      }
+      requestAnimationFrame(() => {
+        if (selectedSession() === session) {
+          focusPane("terminal:shell");
+        }
+      });
+    }),
+  );
+
+  const closeShellTerminal = async (session: ClientSession, id: string): Promise<void> => {
+    const invoke = (force: boolean): Promise<CommandResult> =>
+      session.feature("commands").request("invoke", {
+        id: CommandIds.closeTerminal,
+        args: { id, force },
+      });
+    const result = await invoke(false);
+    if (!result.ok) {
+      const busy = (result.data as { busy?: unknown } | undefined)?.busy === true;
+      if (!busy) {
+        throw new Error(result.error ?? "The terminal could not be closed.");
+      }
+      const approved = await confirm({
+        title: "Close terminal?",
+        body: "A command is still running in this terminal. Closing it will stop that command.",
+        confirmLabel: "Close Terminal",
+      });
+      if (!approved) {
+        return;
+      }
+      const forced = await invoke(true);
+      if (!forced.ok) {
+        throw new Error(forced.error ?? "The terminal could not be closed.");
+      }
+    }
+    requestAnimationFrame(() => {
+      if (selectedSession() === session) {
+        focusPane("terminal:shell");
+      }
+    });
+  };
+
+  const stepTerminal = (session: ClientSession, delta: -1 | 1): boolean => {
+    if (!stepShellTerminal(session, delta)) {
+      return false;
+    }
+    requestAnimationFrame(() => {
+      if (selectedSession() === session) {
+        focusPane("terminal:shell");
+      }
+    });
+    return true;
+  };
 
   // Flip the active file between Source and Preview, only when its type can preview. Returns whether it acted,
   // so the command DECLINES (key falls through to the editor) on a non-previewable file.
@@ -781,17 +887,10 @@ export default function App(): JSX.Element {
 
   const resultAddress = (result: { data?: unknown }): { slot: string; incarnation: string } => {
     const address = (result.data as { address?: unknown } | undefined)?.address;
-    if (
-      address === null ||
-      typeof address !== "object" ||
-      typeof (address as { slot?: unknown }).slot !== "string" ||
-      (address as { slot: string }).slot.length === 0 ||
-      typeof (address as { incarnation?: unknown }).incarnation !== "string" ||
-      (address as { incarnation: string }).incarnation.length === 0
-    ) {
-      throw new Error("The session operation did not return an exact live address.");
-    }
-    return address as { slot: string; incarnation: string };
+    return requireSessionAddress(
+      address,
+      "The session operation did not return an exact live address.",
+    );
   };
 
   const createSessionAt = (
@@ -940,17 +1039,19 @@ export default function App(): JSX.Element {
 
   // Switch to the next/prev LOADED rail chip stepRailTarget picks (dormant and unreachable chips skipped);
   // false falls the keystroke through when there's nothing to move to.
+  const stepSessionCandidates = (): RailSession[] =>
+    railSessions().filter((session) => session.loaded && !session.offline);
   const stepSession = (delta: number): boolean => {
-    const target = stepRailTarget(
-      railSessions().filter((s) => s.loaded && !s.offline),
-      delta,
-    );
+    const target = stepRailTarget(stepSessionCandidates(), delta);
     if (target === null) {
       return false;
     }
     switchToSession(target);
     return true;
   };
+  createEffect(() =>
+    setContext("sessionStepAvailable", stepRailTarget(stepSessionCandidates(), 1) !== null),
+  );
 
   // A pending session delete, opened once weavie.session.delete (classify mode) returns the worktree state and
   // DeleteSessionDialog raises the matching confirm (clean / untracked / modified). `backendId` is the owning
@@ -1104,10 +1205,23 @@ export default function App(): JSX.Element {
             activePath={activePath}
             actions={editor.tabs}
             trailing={
-              // Pane-switch badge: its own cell at the right of the tab bar (no longer floating over the tabs).
-              <Show when={showPaneHints() && paneShortcut(numberOf("editor")) !== ""}>
-                <span class="pane-shortcut">{paneShortcut(numberOf("editor"))}</span>
-              </Show>
+              <>
+                <Show when={editor.parkedReviewCount() > 0}>
+                  <button
+                    type="button"
+                    class="editor-review-toggle"
+                    aria-pressed={editor.review.mode() === "unified"}
+                    title={`${editor.review.mode() === "unified" ? "Switch to file review" : "View all changes"}${keyHint(CommandIds.reviewToggleMode)}`}
+                    onClick={() => void runCommandWithFeedback(CommandIds.reviewToggleMode)}
+                  >
+                    {editor.review.mode() === "unified" ? "File review" : "All changes"}
+                  </button>
+                </Show>
+                {/* Pane-switch badge: its own cell at the right of the tab bar. */}
+                <Show when={showPaneHints() && paneShortcut(numberOf("editor")) !== ""}>
+                  <span class="pane-shortcut">{paneShortcut(numberOf("editor"))}</span>
+                </Show>
+              </>
             }
           />
           <div class="editor-pane">
@@ -1195,11 +1309,26 @@ export default function App(): JSX.Element {
                 </Suspense>
               )}
             </Show>
+            <Show
+              when={editor.review.mode() === "unified" && editor.review.overview().files.length > 0}
+            >
+              <Suspense>
+                <UnifiedReview
+                  overview={editor.review.overview}
+                  session={selectedSession()!}
+                  onCursorChange={editor.review.setCursor}
+                  openCopy={editor.review.openCopy}
+                  releaseCopies={editor.review.releaseCopies}
+                />
+              </Suspense>
+            </Show>
           </div>
-          <EditorFooter
-            onOpenRecent={(path) => editor.openFile(path, 1)}
-            root={() => indexRoot() ?? ""}
-          />
+          <Show when={editor.review.mode() !== "unified"}>
+            <EditorFooter
+              onOpenRecent={(path) => editor.openFile(path, 1)}
+              root={() => indexRoot() ?? ""}
+            />
+          </Show>
         </div>
       );
     }
@@ -1252,14 +1381,15 @@ export default function App(): JSX.Element {
             <div class="pane-body">
               <For each={agentTerminalSessions()}>
                 {(session) => {
-                  const paneKey = terminalPaneKey(session, pane);
+                  const paneKey = terminalPaneKey(session, "claude");
                   const selected = (): boolean => selectedSession() === session;
-                  onCleanup(() => terminalFocus.delete(paneKey));
+                  onCleanup(() => forgetTerminalPane(paneKey));
                   return (
                     <div class="term-host" classList={{ hidden: !selected() }}>
                       <TerminalView
                         session={session}
                         pane={pane}
+                        terminalId="claude"
                         active={selected() && agentTerminalVisible()}
                         onFirstRender={() => {
                           dismissSplash();
@@ -1280,14 +1410,15 @@ export default function App(): JSX.Element {
         </div>
       );
     }
-    const pane = paneOf(kind);
-    // The shell pane shows the child-set title (cwd / running command) when it has one.
-    const paneTitle = (): string => {
-      const session = activeTermSession();
-      const title = session === null ? undefined : paneTitles()[terminalPaneKey(session, pane)];
-      return title !== undefined && title.length > 0 ? title : "Terminal";
+    const shellTitle = (session: ClientSession, id: string, index: number): string => {
+      const title = paneTitles()[terminalPaneKey(session, id)];
+      return title !== undefined && title.length > 0 ? title : `Terminal ${index + 1}`;
     };
-    const paneSessions = terminalSessions;
+    const selectTerminal = (session: ClientSession, id: string): void => {
+      if (selectShellTerminal(session, id)) {
+        requestAnimationFrame(() => focusPane("terminal:shell"));
+      }
+    };
     return (
       <div
         class="terminal-surface"
@@ -1295,43 +1426,59 @@ export default function App(): JSX.Element {
         data-kind={kind}
         data-surface="terminal"
       >
-        {/* The head holds no focusable element, so a bare click would blur to <body> and strand keystrokes;
-            preventDefault stops that and focusPane lands focus on this pane's xterm. The body (xterm) self-focuses. */}
-        <div
-          class="pane-head"
-          role="toolbar"
-          onMouseDown={(event) => {
-            event.preventDefault();
-            focusPane(kind);
+        <ShellTabStrip
+          terminals={() => shellTerminals(activeTermSession())}
+          activeId={() => activeShellTerminalId(activeTermSession())}
+          title={(id, index) => {
+            const session = activeTermSession();
+            return session === null ? `Terminal ${index + 1}` : shellTitle(session, id, index);
           }}
-        >
-          <span class="pane-label">{paneTitle()}</span>
-          <Show when={showPaneHints() && paneShortcut(numberOf(kind)) !== ""}>
-            <span class="pane-shortcut">{paneShortcut(numberOf(kind))}</span>
-          </Show>
-        </div>
+          trailing={
+            <Show when={showPaneHints() && paneShortcut(numberOf(kind)) !== ""}>
+              <span class="pane-shortcut">{paneShortcut(numberOf(kind))}</span>
+            </Show>
+          }
+          onSelect={(id) => {
+            const session = activeTermSession();
+            if (session !== null) {
+              selectTerminal(session, id);
+            }
+          }}
+          onClose={(id) => void runCommandWithFeedback(CommandIds.closeTerminalPrompt, { id })}
+          onNew={() => void runCommandWithFeedback(CommandIds.newTerminal)}
+        />
         <div class="pane-body">
-          {/* One live xterm per exact session incarnation, only the selected owner shown. */}
-          <For each={paneSessions()}>
+          {/* Every loaded tab retains its xterm and scrollback; only the selected session/tab is shown. */}
+          <For each={terminalSessions()}>
             {(session) => {
-              const paneKey = terminalPaneKey(session, pane);
-              const isActive = (): boolean => selectedSession() === session;
-              onCleanup(() => terminalFocus.delete(paneKey));
               return (
-                <div class="term-host" classList={{ hidden: !isActive() }}>
-                  <TerminalView
-                    session={session}
-                    pane={pane}
-                    active={isActive()}
-                    onFirstRender={() => {
-                      dismissSplash();
-                      startEditorOnce();
-                    }}
-                    onFocusReady={(focus) => terminalFocus.set(paneKey, focus)}
-                    onTitle={(title) => setPaneTitles((prev) => ({ ...prev, [paneKey]: title }))}
-                    onContextMenu={openTerminalContextMenu}
-                  />
-                </div>
+                <For each={shellTerminals(session)}>
+                  {(id) => {
+                    const paneKey = terminalPaneKey(session, id);
+                    const isActive = (): boolean =>
+                      selectedSession() === session && activeShellTerminalId(session) === id;
+                    onCleanup(() => forgetTerminalPane(paneKey));
+                    return (
+                      <div class="term-host" classList={{ hidden: !isActive() }}>
+                        <TerminalView
+                          session={session}
+                          pane="shell"
+                          terminalId={id}
+                          active={isActive()}
+                          onFirstRender={() => {
+                            dismissSplash();
+                            startEditorOnce();
+                          }}
+                          onFocusReady={(focus) => terminalFocus.set(paneKey, focus)}
+                          onTitle={(title) =>
+                            setPaneTitles((prev) => ({ ...prev, [paneKey]: title }))
+                          }
+                          onContextMenu={openTerminalContextMenu}
+                        />
+                      </div>
+                    );
+                  }}
+                </For>
               );
             }}
           </For>
@@ -1389,16 +1536,21 @@ export default function App(): JSX.Element {
 
     const offViewBinding = registerViewFeature((session) => {
       const cleanups = [
-        session.feature("view").on<{ kind: string }>("focusPane", ({ kind }) => {
-          const active = document.activeElement;
-          const typingInOverlay =
-            active instanceof HTMLElement &&
-            !active.classList.contains("xterm-helper-textarea") &&
-            (active.tagName === "INPUT" || active.tagName === "TEXTAREA");
-          if (!typingInOverlay) {
-            focusPane(kind);
-          }
-        }),
+        session
+          .feature("view")
+          .on<{ kind: string; terminalId?: string }>("focusPane", ({ kind, terminalId }) => {
+            if (kind === "terminal:shell" && terminalId !== undefined) {
+              selectShellTerminal(session, terminalId);
+            }
+            const active = document.activeElement;
+            const typingInOverlay =
+              active instanceof HTMLElement &&
+              !active.classList.contains("xterm-helper-textarea") &&
+              (active.tagName === "INPUT" || active.tagName === "TEXTAREA");
+            if (!typingInOverlay) {
+              focusPane(kind);
+            }
+          }),
         session
           .feature("view")
           .on<{ query: string; line: number }>("focusOmnibar", ({ query, line }) =>
@@ -1458,19 +1610,39 @@ export default function App(): JSX.Element {
         return true;
       }),
       registerCommand(CommandIds.toggleFullscreenPane, () => toggleFullscreen()),
-      registerCommand(CommandIds.toggleAgentCommandOutput, toggleAgentCommandOutput),
+      registerCommand(CommandIds.toggleAgentToolOutput, toggleAgentToolOutput),
       registerCommand(CommandIds.toggleAgentMermaidPreview, () => toggleActiveAgentMermaid()),
       registerCommand(CommandIds.toggleFileBrowser, () => toggleBrowser()),
       // Terminal copy/paste (act on the focused xterm, clipboard via the host); gated terminalFocused.
       installTerminalClipboardCommands(),
+      registerCommand(CommandIds.closeTerminalPrompt, (args, context) => {
+        const requested = (args as { id?: unknown } | undefined)?.id;
+        const id =
+          typeof requested === "string" ? requested : activeShellTerminalId(context.session);
+        if (context.session === null) {
+          return false;
+        }
+        if (id === null || id.length === 0) {
+          addToast("warn", "No shell terminal is open.");
+          return true;
+        }
+        return closeShellTerminal(context.session, id);
+      }),
+      registerCommand(CommandIds.nextTerminalTab, (_args, context) =>
+        context.session === null ? false : stepTerminal(context.session, 1),
+      ),
+      registerCommand(CommandIds.prevTerminalTab, (_args, context) =>
+        context.session === null ? false : stepTerminal(context.session, -1),
+      ),
       registerCommand(CommandIds.focusOmnibarFiles, () => focusOmnibar("file")),
       registerCommand(CommandIds.focusOmnibarCommands, () => focusOmnibar("command")),
+      registerCommand(CommandIds.openFileByPath, () => focusOmnibarPath(indexRoot() ?? "")),
       registerCommand(CommandIds.goToSymbol, () => focusOmnibar("docSymbol")),
       registerCommand(CommandIds.goToWorkspaceSymbol, () => focusOmnibar("wsSymbol")),
-      // Find in Files (Ctrl+Shift+F / palette): open the content-search panel seeded from the editor selection
-      // (re-invoking while open re-seeds + refocuses the input).
+      // Find in Files (Ctrl+Shift+F / palette): open the content-search panel seeded from whatever the user
+      // has highlighted — editor, agent transcript, or terminal (re-invoking while open re-seeds + refocuses).
       registerCommand(CommandIds.findInFiles, () => {
-        seedSearch(editor.selectionText());
+        seedSearch(selectedText());
         setSearchOpen(true);
       }),
       // The panel's option toggles (searchPanelFocused-gated chords; visible-panel-gated here so a palette run
@@ -1499,31 +1671,10 @@ export default function App(): JSX.Element {
       ),
       registerCommand(CommandIds.sourceCommitEdit, () => activeSourceEditor()?.commit() ?? false),
       registerCommand(CommandIds.sourceCancelEdit, () => activeSourceEditor()?.cancel() ?? false),
-      // The floating diff toolbar buttons route through these same actions. Each returns whether it acted, so
-      // an unmatched keybinding (no active diff) falls through to the editor.
-      registerCommand(CommandIds.nextChange, () => editor.inline.nextChange()),
-      registerCommand(CommandIds.prevChange, () => editor.inline.prevChange()),
-      registerCommand(CommandIds.acceptChange, () => editor.inline.accept()),
-      registerCommand(CommandIds.rejectChange, () => editor.inline.reject()),
-      registerCommand(CommandIds.undoChange, () => editor.inline.undo()),
+      ...reviewCommandBindings(editor, selectedSession).map(([id, handler]) =>
+        registerCommand(id, handler),
+      ),
       registerCommand(CommandIds.reviseSelection, () => editor.reviseSelection()),
-      registerCommand(CommandIds.keepFile, () => editor.inline.keepFile()),
-      registerCommand(CommandIds.revertFile, () => editor.inline.revertFile()),
-      registerCommand(CommandIds.keepAll, () => editor.inline.keepAll()),
-      // Comment on the current line — only a PR file under review carries a comment surface, so this DECLINES
-      // (falls through) outside one.
-      registerCommand(CommandIds.reviewComment, () => editor.inline.comment()),
-      // Review undo/redo. The undo chords are type-split (Shift+Enter keep / Shift+Backspace revert) and decline
-      // (fall through) when there's nothing of that kind to undo; redo is palette/toolbar-only.
-      registerCommand(CommandIds.undoKeep, () => editor.inline.undoKeep()),
-      registerCommand(CommandIds.undoRevert, () => editor.inline.undoRevert()),
-      registerCommand(CommandIds.redoReview, () => editor.inline.redoReview()),
-      // Post-turn review (acceptEdits/bypass): drive the inline toolbar's file axis. next/prev DECLINE (fall
-      // through to the editor) when no multi-file review is active, so Ctrl+Left/Right keep Win/Linux word-nav
-      // outside one.
-      registerCommand(CommandIds.reviewOpen, () => editor.openFirstReviewFile()),
-      registerCommand(CommandIds.reviewNextFile, () => editor.inline.nextFile()),
-      registerCommand(CommandIds.reviewPrevFile, () => editor.inline.prevFile()),
       // Blame: opens the popover on the cursor's line, or says why that line has no commit behind it. Declines
       // only with no editor mounted, so the palette entry never looks like it silently did nothing.
       registerCommand(CommandIds.showBlame, () => editor.showBlameAtCursor()),
@@ -1724,6 +1875,7 @@ export default function App(): JSX.Element {
     // Double-tapping Shift mirrors $mod+P (Go to File) — a gesture the chord resolver can't express.
     const offDoubleShift = installDoubleShift(() => dispatchCommand(CommandIds.focusOmnibarFiles));
     const offAutoscroll = installMiddleClickAutoscroll();
+    const offNativeApplicationMenu = installNativeApplicationMenu();
 
     // A browser tab can't read the clipboard programmatically, so terminal Paste (a clipboard read) is gated
     // off it in the command catalog — Ctrl+V there falls through to xterm's native paste instead. Session-static.
@@ -1765,6 +1917,9 @@ export default function App(): JSX.Element {
     };
     document.addEventListener("focusin", onFocusIn);
     document.addEventListener("focusout", onFocusOut);
+    // Plain DOM highlights (agent transcript, panels) as a search-seed source; Monaco and each xterm register
+    // their own, since their selections never reach the document.
+    const offDocumentSelection = trackDocumentSelection();
 
     onCleanup(() => {
       for (const timer of persistTimers.values()) {
@@ -1774,11 +1929,13 @@ export default function App(): JSX.Element {
       offKeybindings();
       offDoubleShift();
       offAutoscroll();
+      offNativeApplicationMenu();
       for (const off of offCommands) {
         off();
       }
       document.removeEventListener("focusin", onFocusIn);
       document.removeEventListener("focusout", onFocusOut);
+      offDocumentSelection();
       offSourceErrors();
       offViewBinding();
       editor.dispose();
@@ -1825,13 +1982,12 @@ export default function App(): JSX.Element {
       </Show>
       <Show when={MAC_TITLEBAR || LINUX_TITLEBAR}>
         <NativeTitleBar
-          platform={LINUX_TITLEBAR ? "linux" : "mac"}
+          showApplicationMenu={LINUX_TITLEBAR}
           files={fileIndex()}
           filesPending={indexPending()}
           root={indexRoot()}
           currentFile={currentFile()}
           workspaceLabel={SHELL?.workspaceLabel ?? "weavie"}
-          recents={SHELL?.recents ?? []}
           onOpenFile={(path, line) => revealSelectedFile(path, line)}
           onRequestIndex={refreshSelectedFileIndex}
           symbols={editor.symbols}

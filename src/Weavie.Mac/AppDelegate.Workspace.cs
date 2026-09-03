@@ -5,14 +5,10 @@ using Weavie.Core.Workspaces;
 
 namespace Weavie.Mac;
 
-// Workspace + chrome wiring: the menu's keybinding-chord lookup and File ▸ Open Folder / Open Recent, which open a
-// new window (or focus the one already showing that folder).
+// Workspace opening shared by the welcome screen and the web File menu: open a new window, or focus the one
+// already showing that folder.
 public sealed partial class AppDelegate {
-	/// <summary>The effective chord for a command id (first non-global resolved binding), or null if unbound.</summary>
-	private string? ResolveChord(string commandId) =>
-		_services?.Keybindings.Resolved.FirstOrDefault(binding => binding.Command == commandId && !binding.Global)?.Key;
-
-	/// <summary>Shows the File ▸ Open Folder picker; the chosen folder opens in a new window via <see cref="OpenOrFocus"/>.</summary>
+	/// <summary>Shows the Open Folder picker; the chosen folder opens in a new window via <see cref="OpenOrFocus"/>.</summary>
 	internal void OpenFolderInteractive() {
 		var panel = NSOpenPanel.OpenPanel;
 		panel.Title = "Open Folder";

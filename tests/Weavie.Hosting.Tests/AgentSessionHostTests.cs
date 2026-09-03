@@ -379,6 +379,21 @@ public sealed class AgentSessionHostTests {
 	}
 
 	[Fact]
+	public async Task PrimarySnapshot_PreservesSideTranscript() {
+		await using var fixture = CreateFixture(static () => "slot-1", 0);
+		var (session, host) = (fixture.Session, fixture.Host);
+		session.Emit(Completed("old-primary", "old primary"));
+		session.Emit(SideCompleted("old-side", "old side"));
+		session.Replace([Completed("new-primary", "new primary")]);
+		await host.DrainPaneAsync(CancellationToken.None);
+
+		var history = await History(host);
+		Assert.DoesNotContain(history, message => message.GetProperty("itemId").GetString() == "old-primary");
+		Assert.Contains(history, message => message.GetProperty("itemId").GetString() == "new-primary");
+		Assert.Contains(history, message => message.GetProperty("itemId").GetString() == "old-side");
+	}
+
+	[Fact]
 	public async Task CompletedPlan_IsAvailableOnlyForItsExactCurrentIdentity() {
 		await using var fixture = CreateFixture(static () => "slot-1", 0);
 		var (session, host) = (fixture.Session, fixture.Host);
@@ -504,6 +519,13 @@ public sealed class AgentSessionHostTests {
 		Status = "completed",
 	};
 
+	private static AgentPaneMessage SideCompleted(string itemId, string text) => Completed(itemId, text) with {
+		ThreadId = "side-session",
+		ConversationId = "side-conversation",
+		AnchorTurnId = "turn",
+		IsPrimaryThread = false,
+	};
+
 	private static HostFixture CreateFixture(Func<string> slot, long paneCoalesceMs) =>
 		CreateFixture(slot, paneCoalesceMs, withAuthenticationTerminal: false);
 
@@ -626,6 +648,8 @@ public sealed class AgentSessionHostTests {
 
 		public void Restart() => throw new NotSupportedException();
 
+		public void StartNewConversation() => throw new NotSupportedException();
+
 		public void ResolvePermission(string requestId, string optionId) => throw new NotSupportedException();
 
 		public void ResolveInput(
@@ -634,7 +658,10 @@ public sealed class AgentSessionHostTests {
 			IReadOnlyDictionary<string, IReadOnlyList<string>> answers) =>
 			throw new NotSupportedException();
 
-		public void Authenticate(string methodId, IReadOnlyDictionary<string, IReadOnlyList<string>> answers) =>
+		public void Authenticate(
+			string requestId,
+			string methodId,
+			IReadOnlyDictionary<string, IReadOnlyList<string>> answers) =>
 			throw new NotSupportedException();
 
 		public ValueTask DisposeAsync() => ValueTask.CompletedTask;

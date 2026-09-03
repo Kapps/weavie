@@ -8,10 +8,23 @@ type ContextValue = string | boolean | null;
 export type ContextOverrides = Record<string, ContextValue>;
 
 const context: Record<string, ContextValue> = {};
+const changed = new Set<() => void>();
 
 /** Sets a context key (no-op if unchanged). */
 export function setContext(key: string, value: ContextValue): void {
+  if (context[key] === value) {
+    return;
+  }
   context[key] = value;
+  for (const listener of changed) {
+    listener();
+  }
+}
+
+/** Subscribes to live context changes so an open command surface can refresh availability in place. */
+export function onContextChanged(listener: () => void): () => void {
+  changed.add(listener);
+  return () => changed.delete(listener);
 }
 
 /** Whether text is selected — a reading/copying gesture that focus restoration must not interrupt. */

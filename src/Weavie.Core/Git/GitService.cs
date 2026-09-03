@@ -27,6 +27,15 @@ public sealed partial class GitService : IGitService {
 	}
 
 	/// <inheritdoc/>
+	public async Task<string?> FindToplevelAsync(string directory, CancellationToken ct = default) {
+		ArgumentException.ThrowIfNullOrEmpty(directory);
+		// git answers for linked worktrees and `.git`-file checkouts, which walking for a `.git` directory does not.
+		var result = await RunAsync(directory, ["rev-parse", "--show-toplevel"], ct).ConfigureAwait(false);
+		string toplevel = result.StdOut.Trim();
+		return result.ExitCode == 0 && toplevel.Length > 0 ? Path.GetFullPath(toplevel) : null;
+	}
+
+	/// <inheritdoc/>
 	public async Task<string> GetHeadCommitAsync(string directory, CancellationToken ct = default) {
 		ArgumentException.ThrowIfNullOrEmpty(directory);
 		var result = await RunCheckedAsync(directory, ["rev-parse", "HEAD"], ct).ConfigureAwait(false);

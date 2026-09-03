@@ -191,6 +191,16 @@ internal sealed class TestHost : IAsyncDisposable {
 	public static TestHost CreateUnstarted(IUiDispatcher dispatcher) =>
 		Create(_ => { }, new StaticPullRequestProvider([], []), dispatcher);
 
+	/// <summary>Builds an unstarted host over a test-controlled native application menu.</summary>
+	public static TestHost CreateUnstarted(IApplicationMenu applicationMenu) =>
+		Create(
+			_ => { },
+			new StaticPullRequestProvider([], []),
+			new InlineUiDispatcher(),
+			NoopSystemNotificationChannel.Instance,
+			static settings => InferenceComposition.CreateDisabled(settings),
+			platform => platform.ApplicationMenu = applicationMenu);
+
 	private static TestHost Create(Action<string> prepareRepo, IPullRequestProvider pullRequests) =>
 		Create(prepareRepo, pullRequests, new InlineUiDispatcher());
 
@@ -601,6 +611,7 @@ internal sealed class TestHost : IAsyncDisposable {
 			// crash-report path, so their hello handshakes can't race each other's file rotation.
 			LastCrashFile = Path.Combine(tempRoot, "logs", "last-crash.log"),
 			PreviousCrashFile = Path.Combine(tempRoot, "logs", "previous-crash.log"),
+			ExitJournalFile = Path.Combine(tempRoot, "logs", "last-exit.log"),
 		};
 	}
 
@@ -674,9 +685,11 @@ internal sealed class TestPlatform : IHostPlatform {
 	public string ChromePlatform => "web";
 	public HostTransport Transport => HostTransport.Local;
 	public string? TitleBar => null;
-	public IReadOnlyList<string> Recents => [];
+	public IReadOnlyList<string> Recents { get; private set; } = [];
+	public event Action? RecentsChanged;
 	public IShellWindow? Window { get; set; }
 	public IShellMenuActions MenuActions { get; set; } = NoopShellMenuActions.Instance;
+	public IApplicationMenu ApplicationMenu { get; set; } = NoopApplicationMenu.Instance;
 	public IHostDialogs? Dialogs { get; set; }
 	public ISystemNotificationChannel Notifications { get; set; } = NoopSystemNotificationChannel.Instance;
 
@@ -699,6 +712,11 @@ internal sealed class TestPlatform : IHostPlatform {
 	public int? ClipboardReadThread { get; private set; }
 	public int? ClipboardImageReadThread { get; private set; }
 	public int? OpenUrlThread { get; private set; }
+
+	public void SetRecents(params string[] recents) {
+		Recents = recents;
+		RecentsChanged?.Invoke();
+	}
 
 	public void ToggleWindow() {
 		// no window in tests
@@ -767,6 +785,9 @@ internal sealed class NoopTerminal : ITerminal {
 
 	/// <summary>Every write concatenated and UTF-8 decoded — for asserting injected text.</summary>
 	public string WrittenText => string.Concat(Writes.Select(System.Text.Encoding.UTF8.GetString));
+
+	/// <summary>Simulates the child process exiting.</summary>
+	public void Exit(int code) => Exited?.Invoke(code);
 
 	public void Start(TerminalStartInfo startInfo) {
 		_ = Output;

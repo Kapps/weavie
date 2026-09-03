@@ -11,6 +11,7 @@ export interface ModelHandle {
   };
   getLineContent(line: number): string;
   getLineCount(): number;
+  getLanguageId(): string;
 }
 
 /** The slice of the live Monaco editor (window.__WEAVIE_EDITOR__) the specs drive. */
@@ -45,7 +46,33 @@ export interface EditorHandle {
 
 /** The slice of the monaco namespace (window.__WEAVIE_MONACO__) the specs use to mock LSP providers. */
 export interface MonacoHandle {
+  editor: {
+    /** Every live code editor — the main pane plus any unified-review section editors. */
+    getEditors(): unknown[];
+  };
   languages: {
+    registerCompletionItemProvider(
+      selector: string,
+      provider: {
+        triggerCharacters: string[];
+        provideCompletionItems(
+          model: ModelHandle,
+          position: { lineNumber: number; column: number },
+        ): {
+          suggestions: {
+            label: string;
+            kind: number;
+            insertText: string;
+            range: {
+              startLineNumber: number;
+              startColumn: number;
+              endLineNumber: number;
+              endColumn: number;
+            };
+          }[];
+        };
+      },
+    ): unknown;
     registerDefinitionProvider(
       selector: string,
       provider: {

@@ -12,7 +12,7 @@ message bus → a per-host seam. The same shape carries these actions:
 
 - The host `clipboard` feature carries `write` plus correlated `read` / `readImage` requests.
 - The host `platform.openUrl` event carries external links.
-- The owning session's `terminal.shell.cwd` event carries shell working-directory updates.
+- The owning session's `terminal.shell.<id>.cwd` event carries shell working-directory updates.
 - `IHostPlatform` supplies `WriteClipboard`, `ReadClipboard`, `ReadClipboardImage`, and
   `OpenExternalUrl` (real on desktop hosts, no-op on Headless/Test).
 
@@ -61,18 +61,16 @@ flowchart LR
   the user clicks), so the host re-validates the scheme and passes only absolute `http`/`https` to the
   OS opener — never `file://`, a UNC path, or a custom scheme (a `ShellExecute`/handler RCE vector).
   The web filters too, but the host dispatch is the authoritative gate; it never trusts the renderer
-  alone. A `file:`/`file:line` link still reveals in Monaco, but that read (like every host-side file
-  open — reveal-file, MCP `openFile`, the openDiff baseline) goes through the one validated reader
-  (`FileProviderService.ReadIfAllowed`), so it's confined to the worktree (+ scratch) by normalized
-  path. (Confinement is by path string, not resolved link target — an in-tree symlink is followed,
-  which is fine under the trusted-opened-repo model.)
+  alone. A `file:`/`file:line` link reveals in Monaco through the shared reader
+  (`FileProviderService`), which opens any readable path — the worktree, scratch, or anywhere else
+  the link points.
 - **Title (OSC 0/2).** Web-only: `term.onTitleChange` updates the pane header; no host round-trip
   (the title is already in the web).
-- **cwd (OSC 7).** `term.parser.registerOscHandler(7, …)` posts `terminal.shell.cwd`; the shell pane's
+- **cwd (OSC 7).** `term.parser.registerOscHandler(7, …)` posts `terminal.shell.<id>.cwd`; the shell tab's
   `TerminalController` remembers it and relaunches there (Reopen Terminal lands where you were). The
   claude pane ignores it (it always runs in the IDE workspace). Best-effort — only shells configured
   to emit OSC 7 report it. **Security:** OSC 7 is untrusted terminal output, so the reported path is
-  confined to the session's worktree (`BufferStore.IsWithinWorkspace`) before it can become the
+  confined to the session's worktree (`PathBoundary.Contains`) before it can become the
   relaunched shell's working directory — it can't point the shell at an arbitrary directory; an
   out-of-workspace (or gone) path is ignored and reopen falls back to the workspace root.
 

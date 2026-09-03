@@ -47,7 +47,12 @@ public static partial class TestCommandComposer {
 		command = string.Empty;
 		error = string.Empty;
 
-		string template = kind == TestCommandKind.RunOne ? rule.RunOne : rule.RunFile;
+		if (kind == TestCommandKind.RunFile && rule.RunFile is null) {
+			error = "this test rule does not define a run-file command.";
+			return false;
+		}
+
+		string template = kind == TestCommandKind.RunOne ? rule.RunOne : rule.RunFile!;
 		string file = Quote(absoluteFilePath, quoting);
 		string fileDir = Quote(Path.GetDirectoryName(absoluteFilePath) ?? string.Empty, quoting);
 		string fileName = Quote(Path.GetFileNameWithoutExtension(absoluteFilePath), quoting);

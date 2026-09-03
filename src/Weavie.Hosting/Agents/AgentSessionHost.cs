@@ -77,6 +77,7 @@ public sealed partial class AgentSessionHost : IAsyncDisposable {
 			Usage = usage;
 			usage.UsageChanged += PublishUsage;
 		}
+		SideConversations = Session as IStructuredAgentSideConversations;
 	}
 
 	/// <summary>The selected provider identity.</summary>
@@ -99,6 +100,9 @@ public sealed partial class AgentSessionHost : IAsyncDisposable {
 
 	/// <summary>The provider's live context-window and usage-limit reporting, when it exposes it.</summary>
 	public IStructuredAgentUsage? Usage { get; }
+
+	/// <summary>The context-preserving side-conversation surface, when the structured agent supports it.</summary>
+	public IStructuredAgentSideConversations? SideConversations { get; }
 
 	internal AgentAuthenticationTerminal? AuthenticationTerminal { get; }
 

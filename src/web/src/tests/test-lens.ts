@@ -10,9 +10,11 @@ import { CommandIds } from "../commands/types";
 import { SESSION_FILE_SCHEME, sessionUriHostPath } from "../editor/session-uri";
 import { activeCodeEditor } from "../editor/vscode-services";
 import { currentWorkspaceRoot, onLanguageClientStarted } from "../lsp/lsp-client";
+import { notify } from "../notify/notify";
 import { globMatches } from "./glob";
+import { testRunTargetAt } from "./test-match";
 import { onTestProfileChanged, type TestRule, testRules } from "./test-profile";
-import { documentTestHits, innermostHitAt } from "./test-symbols";
+import { documentTestHits } from "./test-symbols";
 
 // An internal monaco command the lens click invokes; it forwards to the Core weavie.tests.run command.
 const LENS_COMMAND = "weavie.tests._runLens";
@@ -46,7 +48,7 @@ export function installTestLenses(): void {
         const file = sessionUriHostPath(model.uri);
         const hits = await documentTestHits(model, rule);
         const lenses: monaco.languages.CodeLens[] = [];
-        if (hits.length > 0) {
+        if (hits.length > 0 && rule.runFile !== undefined) {
           lenses.push({
             range: { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 1 },
             command: {
@@ -80,7 +82,7 @@ export function installTestLenses(): void {
   void lensCommand;
 }
 
-/** weavie.tests.runAtCursor: run the innermost test block containing the cursor (or the file if none). */
+/** weavie.tests.runAtCursor: run the innermost test, or the file when its rule supports exact-file runs. */
 export async function runTestAtCursor(): Promise<boolean> {
   // Prefer the focused editor, but fall back to the active one so this runs from the palette too (there the
   // omnibar input holds focus, not the editor) — acting on the editor's last cursor position.
@@ -95,8 +97,15 @@ export async function runTestAtCursor(): Promise<boolean> {
     return false;
   }
   const hits = await documentTestHits(model, rule);
-  const innermost = innermostHitAt(hits, position);
-  if (innermost === undefined) {
+  const target = testRunTargetAt(hits, position, rule.runFile);
+  if (target === undefined) {
+    notify(
+      "warn",
+      "This test runner cannot target every test in this file. Place the cursor inside an individual test.",
+    );
+    return true;
+  }
+  if (target === "file") {
     void runCommandWithFeedback(CommandIds.runTests, {
       file: sessionUriHostPath(model.uri),
     });
@@ -104,7 +113,7 @@ export async function runTestAtCursor(): Promise<boolean> {
   }
   void runCommandWithFeedback(CommandIds.runTests, {
     file: sessionUriHostPath(model.uri),
-    name: innermost.name,
+    name: target.name,
   });
   return true;
 }

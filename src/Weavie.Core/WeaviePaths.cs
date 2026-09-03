@@ -110,6 +110,9 @@ public static class WeaviePaths {
 	/// <summary>The prior run's crash report, rotated here once it's surfaced: <c>~/.weavie/logs/previous-crash.log</c>.</summary>
 	public static string PreviousCrashFile { get; } = Path.Combine(Logs, "previous-crash.log");
 
+	/// <summary>How the running session ends, stamped on the way out: <c>~/.weavie/logs/last-exit.log</c>.</summary>
+	public static string ExitJournalFile { get; } = Path.Combine(Logs, "last-exit.log");
+
 	/// <summary>
 	/// A named host-internal cache folder under <see cref="Internals"/>,
 	/// e.g. <c>Internal("webview2")</c> → <c>~/.weavie/internals/webview2</c>.

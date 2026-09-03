@@ -3,6 +3,25 @@ export interface SessionAddress {
   incarnation: string;
 }
 
+export function parseSessionAddress(value: unknown): SessionAddress | null {
+  return value !== null &&
+    typeof value === "object" &&
+    typeof (value as Partial<SessionAddress>).slot === "string" &&
+    (value as SessionAddress).slot.length > 0 &&
+    typeof (value as Partial<SessionAddress>).incarnation === "string" &&
+    (value as SessionAddress).incarnation.length > 0
+    ? (value as SessionAddress)
+    : null;
+}
+
+export function requireSessionAddress(value: unknown, error: string): SessionAddress {
+  const address = parseSessionAddress(value);
+  if (address === null) {
+    throw new Error(error);
+  }
+  return address;
+}
+
 export type MessageScope = "host" | "session";
 export type MessageKind = "event" | "request" | "response" | "cancel";
 
@@ -34,15 +53,7 @@ export function parseEnvelope(raw: string): MessageEnvelope | null {
     ) {
       return null;
     }
-    const session =
-      value.session !== null &&
-      typeof value.session === "object" &&
-      typeof value.session?.slot === "string" &&
-      value.session.slot.length > 0 &&
-      typeof value.session.incarnation === "string" &&
-      value.session.incarnation.length > 0
-        ? value.session
-        : null;
+    const session = parseSessionAddress(value.session);
     if (
       (value.scope === "host" && value.session !== null) ||
       (value.scope === "session" && session === null)

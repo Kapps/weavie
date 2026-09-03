@@ -6,7 +6,7 @@ settings:
 
 overrides:
   esbuild: 0.25.12
-  dompurify: 3.4.12
+  dompurify: 3.4.13
 
 patchedDependencies:
   vscode-languageclient@9.0.1: 5a377b3e441ae6c9dee644a255cab9b4082afb951228301e6ef543d1ca013eeb
@@ -39,6 +39,12 @@ importers:
       '@codingame/monaco-vscode-model-service-override':
         specifier: 25.1.2
         version: 25.1.2
+      '@codingame/monaco-vscode-python-default-extension':
+        specifier: 25.1.2
+        version: 25.1.2
+      '@codingame/monaco-vscode-rust-default-extension':
+        specifier: 25.1.2
+        version: 25.1.2
       '@codingame/monaco-vscode-textmate-service-override':
         specifier: 25.1.2
         version: 25.1.2
@@ -64,8 +70,8 @@ importers:
         specifier: 6.1.0-beta.288
         version: 6.1.0-beta.288
       dompurify:
-        specifier: 3.4.12
-        version: 3.4.12
+        specifier: 3.4.13
+        version: 3.4.13
       fzf:
         specifier: ^0.5.2
         version: 0.5.2
@@ -388,8 +394,14 @@ packages:
   '@codingame/monaco-vscode-monarch-service-override@25.1.2':
     resolution: {integrity: sha512-akyNHOJQRS7YHyk6kf0Encnkt+shlR+bIB84UJRUHFgSeF8s5gkDkQuFJph0YeUDWJWat+yBLUSZx2nHomdbHQ==}
 
+  '@codingame/monaco-vscode-python-default-extension@25.1.2':
+    resolution: {integrity: sha512-2W5pHtn2yOayGr7lcwQFNlbkyziaM7yK1Gq5cxFKXYgsReHTRAx+SN5xMachkms/mSnulH2rww+HbDW2zRHf0A==}
+
   '@codingame/monaco-vscode-quickaccess-service-override@25.1.2':
     resolution: {integrity: sha512-7IIrXnwHiF3w9d9p9kspEUz/LCibMLUztmRpGdZQfFtWBJw043q7rk8V1O42KdXr1hVg9IR5vfffwjy9nbiiUg==}
+
+  '@codingame/monaco-vscode-rust-default-extension@25.1.2':
+    resolution: {integrity: sha512-7FOdXtd2hqleG11OCcvjbpb2sweb8n0c+uPlg2gIyJrvuPdyX7+W2fgJQm+DtmfQN2+/LNeYz9EOxjBC43kL0w==}
 
   '@codingame/monaco-vscode-textmate-service-override@25.1.2':
     resolution: {integrity: sha512-AL0FtSQBW+1vtoXYQvUqB2hfWojpK73Kq/n6KuNXxjLF/XBJ5FpeeZDfrBfwhWPPoHuBTsaFUCQy4L8xQgbVlA==}
@@ -1159,8 +1171,8 @@ packages:
     resolution: {integrity: sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ==}
     engines: {node: '>=8'}
 
-  dompurify@3.4.12:
-    resolution: {integrity: sha512-zQvGet8Z2sWbQhCmfFz/T5QWH2oBmjnqK3qvOjaqaNLrLEF912WamU+ohnTp0TCep/MFVHpdJuCZEdFOdTnEFg==}
+  dompurify@3.4.13:
+    resolution: {integrity: sha512-2vmYIoqjze2d+kakP8S/nS5shfsl587kzwEjcGlTdiksUVgFHnFCsLYDVj/JNqJVOQZGSYBTmuycv0PodwmnMQ==}
 
   electron-to-chromium@1.5.375:
     resolution: {integrity: sha512-ZWP5eB4BVPW/ZYo9252hQZHZ5XavtsTgpbhcmMmRwymavC5AsLWQWBPaKMeNd2LW0KGby5HPXvj7+sr4ta5j/Q==}
@@ -1890,7 +1902,7 @@ snapshots:
       '@codingame/monaco-vscode-layout-service-override': 25.1.2
       '@codingame/monaco-vscode-quickaccess-service-override': 25.1.2
       '@vscode/iconv-lite-umd': 0.7.1
-      dompurify: 3.4.12
+      dompurify: 3.4.13
       jschardet: 3.1.4
       marked: 14.0.0
 
@@ -2032,7 +2044,15 @@ snapshots:
     dependencies:
       '@codingame/monaco-vscode-api': 25.1.2
 
+  '@codingame/monaco-vscode-python-default-extension@25.1.2':
+    dependencies:
+      '@codingame/monaco-vscode-api': 25.1.2
+
   '@codingame/monaco-vscode-quickaccess-service-override@25.1.2':
+    dependencies:
+      '@codingame/monaco-vscode-api': 25.1.2
+
+  '@codingame/monaco-vscode-rust-default-extension@25.1.2':
     dependencies:
       '@codingame/monaco-vscode-api': 25.1.2
 
@@ -2771,7 +2791,7 @@ snapshots:
 
   detect-libc@2.1.2: {}
 
-  dompurify@3.4.12:
+  dompurify@3.4.13:
     optionalDependencies:
       '@types/trusted-types': 2.0.7
 
@@ -2974,7 +2994,7 @@ snapshots:
       d3-sankey: 0.12.3
       dagre-d3-es: 7.0.14
       dayjs: 1.11.21
-      dompurify: 3.4.12
+      dompurify: 3.4.13
       es-toolkit: 1.50.0
       katex: 0.16.47
       khroma: 2.1.0

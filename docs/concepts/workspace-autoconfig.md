@@ -7,8 +7,8 @@ setup commands chain. The Claude-driven setup flow is demoted from the default t
 gap-filler* path. Detection is pure code, so it spends **zero tokens** and lands in milliseconds instead
 of ~15 minutes.
 
-Supported at v1: **TypeScript/JavaScript, C#, Go**. Rust and Python are the next entries — the catalog
-is built to grow one record at a time.
+Supported: **TypeScript/JavaScript, C#, Go, Python, and Rust**. The catalog is built to grow one record
+at a time.
 
 ## Why — reversing the "no presets" stance
 
@@ -27,7 +27,7 @@ That mechanism/knowledge split is elegant but the knowledge half is delivered ba
 - **Front-loaded onto every user.** It fires the first time you open essentially any repo — the worst
   possible first impression for a common case Weavie could just *know*.
 
-The escaped cost the old spec feared — maintaining a matrix — is real but **small and bounded**: three
+The escaped cost the old spec feared — maintaining a matrix — is real but **small and bounded**: five
 languages, each with a handful of common test libraries and one package-restore command. We're trading
 an unbounded per-repo model inference for a bounded, curated, testable table. **This concept supersedes
 the "No bundled framework presets" section of that spec** (the spec text should be updated when this
@@ -46,7 +46,7 @@ Detection produces the **same two settings** the Claude flow produces, so everyt
 | setting | scope | what detection fills |
 | --- | --- | --- |
 | `worktree.setupCommand` (`CoreSettings.cs`) | Workspace | the package-restore command (`pnpm install`, `dotnet restore`, `go mod download`) |
-| `test.profile` (`TestSettings.cs`, JSON array of `TestRule`) | Workspace | one rule per detected test convention — `glob` + `symbol`(+`header`) + `runOne`/`runFile` |
+| `test.profile` (`TestSettings.cs`, JSON array of `TestRule`) | Workspace | one rule per detected test convention — `glob` + `symbol`(+`header`) + `runOne` and optional exact-file `runFile` |
 
 Both are `SettingScope.Workspace`, persisted out-of-repo at `~/.weavie/workspaces/<id>/settings.toml`.
 The unset/`[]` distinction is preserved: detection writes concrete values on success and **leaves a
@@ -55,16 +55,14 @@ setting unset** when it can't derive one confidently (see *Graceful degradation*
 ## The preset catalog
 
 A curated list mirroring `LanguageServerCatalog` (`src/Weavie.Core/Lsp/LanguageServerCatalog.cs`), which
-**already classifies these same three languages by root marker** — the natural template and, ideally, a
-shared classifier. Each preset is a record: a set of root markers to detect it, plus functions that read
-the manifest content to refine the setup command and the test rules.
+classifies the same languages by root marker. Each preset is a record: a set of root markers to detect it,
+plus functions that read the manifest content to refine the setup command and the test rules.
 
 ```csharp
 public sealed record WorkspacePreset {
-    public required string Id { get; init; }                              // "typescript" | "csharp" | "go"
-    public required IReadOnlyList<string> RootMarkers { get; init; }      // "package.json", "*.csproj", "go.mod"
-    public required Func<DetectionContext, string> SetupCommand { get; init; }   // package restore
-    public required Func<DetectionContext, IReadOnlyList<TestRule>> TestRules { get; init; }
+    public required string Id { get; init; }                         // "typescript" | "python" | "rust" | …
+    public required IReadOnlyList<string> Markers { get; init; }     // "package.json", "pyproject.toml", …
+    public required Func<DetectionContext, PresetResult> Detect { get; init; }
 }
 ```
 
@@ -142,6 +140,29 @@ override is one click away.
 - **Test rules** (empirically verified in the parent spec): `glob: **/*_test.go`, `symbol: ^(Test\w+)`,
   `runOne: go test ${fileDir} -run '^${name}$'`, `runFile: go test ${fileDir}`.
 
+### Python — modern project and package manifests
+
+- **Markers** — modern project/lock manifests plus classic `setup.py`, `setup.cfg`, `pytest.ini`,
+  `tox.ini`, and requirements files.
+- **Setup command** — selected only from a lockfile that identifies the environment manager:
+  `uv.lock` → `uv sync`, `poetry.lock` → `poetry install`, `Pipfile.lock` → `pipenv sync --dev`.
+  A bare `pyproject.toml` or requirements file does not justify an unattended install into an unknown
+  Python environment, so setup remains unset. Unmanaged test commands use `python3 -m pytest` on
+  macOS/Linux and the `py` launcher on Windows.
+- **Test rules** — pytest must appear as a dependency or `[tool.pytest]` configuration. The manager
+  selects the runner (`uv run pytest`, `poetry run pytest`, `pipenv run pytest`, or the platform's
+  `python3 -m pytest` / `py -m pytest` launcher).
+  Files match `**/{test_*.py,*_test.py}` and symbols match `Test*` classes / `test_*` functions. Nested
+  class and method names join with ` and ` so pytest's `-k` expression scopes a single run.
+
+### Rust — marker `Cargo.toml`
+
+- **Setup command** — `cargo fetch`.
+- **Test rules** — Rust functions whose source header contains `#[test]` or a namespaced form such as
+  `#[tokio::test]`. Integration tests under `tests/` use `cargo test --test ${fileName}` for exact-file
+  runs. Unit tests use `cargo test ${name}` and omit `runFile`, because Cargo cannot target an arbitrary
+  unit-test source file; Weavie therefore offers only honest individual-test actions there.
+
 ## Detection & apply flow
 
 ```mermaid
@@ -178,7 +199,7 @@ write something but left a present language unconfigured:
 
 - **Language matched, runner unknown** (e.g. `package.json` with no vitest/jest/mocha) → write the other
   languages' rules + the install command, **flag the gap** → card offers Claude to finish the profile.
-- **Unsupported language** (Rust/Python today) → nothing matched → card → Claude flow, as it works now.
+- **Unsupported language** → nothing matched → card → Claude flow, as it works now.
 - **Many packages of one language** → best-effort single rule + root install; if the user finds it
   wrong, the card/override is there.
 
@@ -228,6 +249,9 @@ targeting a genuine gap rather than every fresh repo.
   when it doesn't. The exact, symbol-derived `${fileClass}` — the run-file lens reading the enclosing
   type(s) from the document symbols, incl. OR'd multi-class files — is a **scoped follow-up** (it touches
   the pure matcher in `test-match.ts`, not just data). Everything v1 ships reuses existing placeholders.
+- **Name filters are contains-matches.** Pytest `-k` and Cargo's positional filter can select another
+  test whose qualified name also contains the requested name. The commands stay usable without inventing
+  a module path the LSP symbol tree does not provide.
 
 ## Sequencing — why open-time detection lands in time
 
@@ -253,5 +277,3 @@ reads live.
   the LSP root markers (`.git`, `tsconfig.json`), and carry setup/test knowledge the LSP catalog has no
   business holding. Merging would couple two unrelated axes.
 - **Symbol-exact C# class scope.** The `${fileClass}` follow-up above.
-- **Rust / Python.** The next two presets — `Cargo.toml`/`cargo test` and
-  `pyproject.toml`/`pytest` — slot in as two more catalog records. Scoped as a follow-up.

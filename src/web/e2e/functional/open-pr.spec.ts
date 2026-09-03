@@ -31,6 +31,25 @@ test("opening a PR checks out its branch and pops up the diff navigator", async 
   await expect(page.locator(".toast-busy")).toHaveCount(0, { timeout: 20_000 });
   await expect(page.locator(".weavie-inline-newfile-tag")).toBeVisible();
 
+  // PR reviews initially stream only the first file's diff. Unified mode hydrates the complete authoritative
+  // file list through review.showFile, then returns to the same file-focused review without losing its tab.
+  const mode = page.locator(".editor-review-toggle");
+  await mode.click();
+  const overview = page.locator(".unified-review");
+  await expect(overview.locator(".unified-review-file")).toHaveCount(2);
+  await expect(
+    overview.locator(".unified-review-file-name", { hasText: "feature.ts" }),
+  ).toBeVisible();
+  await expect(
+    overview.locator(".unified-review-file-name", { hasText: "hello.ts" }),
+  ).toBeVisible();
+  await expect(overview.locator(".unified-review-notice", { hasText: "Loading" })).toHaveCount(0, {
+    timeout: 20_000,
+  });
+  await mode.click();
+  await expect(overview).toHaveCount(0);
+  await expect(toolbar).toBeVisible();
+
   // It's a two-file walk (feature.ts added, hello.ts modified): the stacked label names the current file and
   // ← / → moves between them.
   const label = page.locator(".weavie-inline-stack-name");

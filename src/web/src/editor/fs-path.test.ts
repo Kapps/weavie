@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   basename,
   canonicalFsPath,
+  isOutsideWorkspace,
   normalizePath,
   repoRelativePath,
   samePath,
@@ -120,5 +121,28 @@ describe("samePath", () => {
 
   it("distinguishes genuinely different files", () => {
     expect(samePath("c:/foo/a.ts", "c:/foo/b.ts")).toBe(false);
+  });
+});
+
+describe("isOutsideWorkspace", () => {
+  it("treats a file under the root as inside", () => {
+    expect(isOutsideWorkspace("/ws/src/a.ts", "/ws")).toBe(false);
+    expect(isOutsideWorkspace("/ws", "/ws")).toBe(false);
+  });
+
+  it("treats a file elsewhere as outside", () => {
+    expect(isOutsideWorkspace("/elsewhere/a.ts", "/ws")).toBe(true);
+  });
+
+  it("does not mistake a sibling sharing the root's prefix for a child", () => {
+    expect(isOutsideWorkspace("/ws-evil/a.ts", "/ws")).toBe(true);
+  });
+
+  it("folds separators and the drive letter the way the LSP root gate does", () => {
+    expect(isOutsideWorkspace("C:\\ws\\src\\a.ts", "c:/ws")).toBe(false);
+  });
+
+  it("reports unknown as inside, so nothing is flagged before the index arrives", () => {
+    expect(isOutsideWorkspace("/elsewhere/a.ts", null)).toBe(false);
   });
 });

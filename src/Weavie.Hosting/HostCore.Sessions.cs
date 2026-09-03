@@ -29,13 +29,31 @@ public sealed partial class HostCore {
 		session.Editor.Changed += editor => RecordRecentFile(session, editor);
 		session.Commands.WebInvoker = (id, args, ct) => InvokeWebCommandAsync(session, id, args, ct);
 		session.Commands.ClientInvoker = (id, args, ct) => InvokeClientCommandAsync(session, id, args, ct);
-		session.Commands.RegisterHandler(CoreCommands.ReopenTerminal, (_, _) => {
-			_ui.Post(() => session.Shell.Restart());
-			return Task.FromResult(CommandResult.Success("Reopened the terminal."));
-		});
+		RegisterShellTerminalHandlers(session);
 		session.Commands.RegisterHandler(CoreCommands.RestartAgent, (_, _) => {
 			_ui.Post(session.RestartAgent);
 			return Task.FromResult(CommandResult.Success("Restarted the agent."));
+		});
+		session.Commands.RegisterHandler(CoreCommands.ClearAgentConversation, (_, _) => {
+			try {
+				session.StartNewAgentConversation();
+				return Task.FromResult(CommandResult.Success("Started a fresh agent conversation."));
+			} catch (Exception ex) when (ex is IOException or InvalidOperationException) {
+				return Task.FromResult(CommandResult.Failure(ex.Message));
+			}
+		});
+		session.Commands.RegisterHandler(CoreCommands.AskAgentAside, (argsJson, _) => {
+			try {
+				if (session.Agent.SideConversations is not { } sideConversations) {
+					return Task.FromResult(CommandResult.Failure(
+						"This agent does not support context-preserving side conversations."));
+				}
+				string question = RequiredCommandString(argsJson, "question", "Ask Agent Aside");
+				sideConversations.AskAside(question);
+				return Task.FromResult(CommandResult.Success("Asked in a side conversation."));
+			} catch (Exception ex) when (ex is JsonException or ArgumentException or InvalidOperationException) {
+				return Task.FromResult(CommandResult.Failure(ex.Message));
+			}
 		});
 		// Restart-now for a pending update: the user's explicit choice to skip the drain gate (kills
 		// running shell jobs); fails cleanly when no update is pending.
@@ -85,6 +103,18 @@ public sealed partial class HostCore {
 				PushSessionList();
 			});
 		};
+	}
+
+	private static string RequiredCommandString(string? argsJson, string property, string command) {
+		if (string.IsNullOrWhiteSpace(argsJson)) throw new ArgumentException($"{command} requires '{property}'.");
+		using var document = JsonDocument.Parse(argsJson);
+		if (document.RootElement.ValueKind != JsonValueKind.Object
+			|| !document.RootElement.TryGetProperty(property, out var value)
+			|| value.ValueKind != JsonValueKind.String
+			|| value.GetString()?.Trim() is not { Length: > 0 } text) {
+			throw new ArgumentException($"{command} requires a non-empty '{property}'.");
+		}
+		return text;
 	}
 
 	private void PostForSession(HostSession session, Action action) {
@@ -217,7 +247,8 @@ public sealed partial class HostCore {
 
 		string id = SessionId.New().Value;
 		string providerId = AvailableWorkspaceSessionProvider();
-		var session = CreateSession(WorkspaceRoot, providerId, id);
+		IReadOnlyList<string> shellTerminals = [ShellTerminalId.New()];
+		var session = CreateSession(WorkspaceRoot, providerId, id, shellTerminals);
 		session.DisplayLabel = _workspaceSessionLabel;
 		var slot = new SessionSlot {
 			Id = id,
@@ -226,6 +257,7 @@ public sealed partial class HostCore {
 			AgentProviderId = providerId,
 			Session = session,
 			EditorSession = EditorSession.Empty,
+			ShellTerminals = shellTerminals,
 		};
 		sessions.Add(slot);
 		session.Scratch.GarbageCollect([]);
@@ -267,6 +299,7 @@ public sealed partial class HostCore {
 					AgentProviderId = agentProviderId,
 					Session = null,
 					EditorSession = EditorSession.Empty,
+					ShellTerminals = [ShellTerminalId.New()],
 				});
 			}
 
@@ -443,7 +476,11 @@ public sealed partial class HostCore {
 	};
 
 	/// <summary>Builds + wires a new <see cref="HostSession"/> rooted at <paramref name="cwd"/> (the live backend for a slot).</summary>
-	private HostSession CreateSession(string cwd, string agentProviderId, string slotId) {
+	private HostSession CreateSession(
+		string cwd,
+		string agentProviderId,
+		string slotId,
+		IReadOnlyList<string> shellTerminals) {
 		var provider = _agentProviders.RequireAvailable(agentProviderId);
 		var address = new SessionAddress(slotId, Guid.NewGuid().ToString("n"));
 		var endpoint = _messages.OpenSession(address);
@@ -464,6 +501,11 @@ public sealed partial class HostCore {
 					Id,
 					WorkspaceId.ForPath(cwd).Value,
 					"agent-authentication"),
+				shellTerminals,
+				terminalId => WeaviePaths.WorkspaceTerminalLogFile(
+					Id,
+					WorkspaceId.ForPath(cwd).Value,
+					$"shell-{terminalId}"),
 				_commandRegistry,
 				_keybindings,
 				_themeOverrides,
@@ -476,20 +518,14 @@ public sealed partial class HostCore {
 				(userInitiated, accept) => TryAcceptInput(session!.SlotId, userInitiated, accept),
 				_sessionStore.RecordShellSize);
 
-			// Persist the shell scrollback (keyed by worktree path, stable across reloads) so a reattaching client
-			// replays a coherent screen. Shell only — claude resumes its own conversation.
-			session.Shell.ScrollbackLogPath =
-				WeaviePaths.WorkspaceTerminalLogFile(Id, WorkspaceId.ForPath(cwd).Value, "shell");
-			// Seed the shell's pre-spawn size from the last real terminal size so a background-restored child is born at
+			// Seed every shell's pre-spawn size from the last real terminal size so a background-restored child is born at
 			// the width its reattaching xterm will use — else its raw scrollback replays 80×24-wrapped and stacks garbled.
 			if (_sessionStore.ShellSize is { } shellSize) {
-				session.Shell.Resize(shellSize.Cols, shellSize.Rows);
+				session.Shells.SeedSize(shellSize.Cols, shellSize.Rows);
 			}
 
 			WireSession(session);
-			_mediaRoutes.Register(
-				session.Incarnation,
-				[session.WorkspaceRoot, session.Scratch.Directory, session.PastedImages.Directory]);
+			_mediaRoutes.Register(session.Incarnation);
 			return session;
 		} catch (Exception creationError) {
 			try {
@@ -511,7 +547,11 @@ public sealed partial class HostCore {
 	/// </summary>
 	private void LoadSlot(SessionSlot slot) {
 		if (!slot.Loaded) {
-			slot.Session = CreateSession(slot.WorktreePath, slot.AgentProviderId, slot.Id);
+			slot.Session = CreateSession(
+				slot.WorktreePath,
+				slot.AgentProviderId,
+				slot.Id,
+				slot.ShellTerminals);
 			slot.Session.DisplayLabel = slot.Label;
 			slot.Session.EditorSession = slot.EditorSession;
 			slot.Session.Scratch.GarbageCollect(
@@ -538,7 +578,7 @@ public sealed partial class HostCore {
 			// Start Claude now even before its pane mounts (else it spawns on terminal ready); structured runtimes
 			// already started with their owned endpoint. The resize nudge on first mount repaints the live TUI.
 			session.Claude?.EnsureStarted();
-			session.Shell.EnsureStarted();
+			session.Shells.EnsureStarted();
 		} catch (Exception error) {
 			throw RollbackSessionLoad(slot, removeSlot: false, error: error);
 		}
@@ -1167,13 +1207,15 @@ public sealed partial class HostCore {
 		_ui.Post(() => {
 			SessionSlot? slot = null;
 			try {
+				IReadOnlyList<string> shellTerminals = [ShellTerminalId.New()];
 				slot = new SessionSlot {
 					Id = branch,
 					Label = branch,
 					WorktreePath = record.Path,
 					AgentProviderId = agentProviderId,
-					Session = CreateSession(record.Path, agentProviderId, branch),
+					Session = CreateSession(record.Path, agentProviderId, branch, shellTerminals),
 					EditorSession = EditorSession.Empty,
+					ShellTerminals = shellTerminals,
 				};
 				sessions.Add(slot);
 				PushSessionList();
@@ -1245,6 +1287,8 @@ public sealed partial class HostCore {
 		new() {
 			Id = Guid.NewGuid().ToString("n"),
 			Text = input.Text,
+			Kind = AgentTurnSubmissionKind.Prompt,
+			CommandName = string.Empty,
 			Attachments = [.. input.Attachments.Select(attachment => new AgentInputAttachment {
 				Id = attachment.Id,
 				Mime = attachment.Mime,
@@ -1312,9 +1356,11 @@ public sealed partial class HostCore {
 			createdSession = true,
 		});
 
-	private static object LiveAddress(SessionSlot slot) {
-		var address = slot.Session?.Address
-			?? throw new InvalidOperationException("A dormant session has no live address.");
+	private static object LiveAddress(SessionSlot slot) => LiveAddress(
+		slot.Session ?? throw new InvalidOperationException("A dormant session has no live address."));
+
+	private static object LiveAddress(HostSession session) {
+		var address = session.Address;
 		return new {
 			slot = address.Slot,
 			incarnation = address.Incarnation,

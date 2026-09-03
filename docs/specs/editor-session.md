@@ -126,7 +126,7 @@ already authoritative.
 
 - Missing sessions overlay: empty editor state for each newly discovered slot.
 - Malformed or superseded sessions overlay: back up as `.bad`, report it, and reset.
-- Missing/out-of-workspace restored entry: report and omit it.
+- Missing restored entry: report and omit it. An entry outside the worktree is restored like any other.
 - Dirty model save failure during unload/delete: fail the command and leave the session live.
 - Removed `ClientSession`: cancel its pending update and dispose its models/references.
 - Stale incarnation restore or file response: no matching client endpoint, so it is ignored.

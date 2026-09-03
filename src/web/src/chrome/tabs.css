@@ -1,0 +1,80 @@
+.pane-tabs {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: stretch;
+  overflow: hidden;
+  background: var(--bar);
+  border-bottom: 1px solid var(--border);
+}
+
+.pane-tabs-track {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+.pane-tabs-track::-webkit-scrollbar {
+  display: none;
+}
+
+.pane-tab {
+  display: flex;
+  align-items: center;
+  color: var(--dim);
+  border-right: 1px solid var(--border);
+  user-select: none;
+}
+
+.pane-tab:hover,
+.pane-tab.active {
+  color: var(--fg);
+}
+
+.pane-tab.active {
+  background: var(--bg);
+  box-shadow: inset 0 0.15em 0 var(--accent);
+}
+
+.pane-tab-main {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  align-items: center;
+  padding: 0.4em 0.25em 0.4em 0.75em;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.pane-tab-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pane-tab-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.pane-tab-close:hover {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.pane-tab-main:focus-visible,
+.pane-tab-close:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}

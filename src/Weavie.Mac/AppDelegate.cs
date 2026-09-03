@@ -21,6 +21,7 @@ public sealed partial class AppDelegate : NSApplicationDelegate {
 	private MacDialogs? _dialogs;
 	private MacNotificationService? _notifications;
 	private ApplicationHotkeys? _hotkeys;
+	private MacAppMenu? _menu;
 	private WorkspaceWindow? _lastActive;
 	private WelcomeWindow? _welcome;
 
@@ -63,6 +64,8 @@ public sealed partial class AppDelegate : NSApplicationDelegate {
 			}
 		});
 		_dialogs = new MacDialogs();
+		_menu = new MacAppMenu();
+		NSApplication.SharedApplication.MainMenu = _menu.MainMenu;
 
 		// Reopen the last workspace (else the explicit `workspace` setting); with neither, show the welcome screen
 		// rather than silently opening the home directory.
@@ -71,11 +74,6 @@ public sealed partial class AppDelegate : NSApplicationDelegate {
 		if (firstWindow is null) {
 			ShowWelcome();
 		}
-
-		// The native menu bar; rebuilt on a deferred main-loop turn whenever recents change so File ▸ Open Recent
-		// stays current — opening a folder no longer relaunches the app, which used to rebuild it.
-		BuildMenu();
-		_recents.Changed += () => NSApplication.SharedApplication.BeginInvokeOnMainThread(BuildMenu);
 
 		// Global hotkeys (e.g. ctrl+` → toggle the front window): app-level, so a single registration covers every
 		// window instead of each window's core re-registering the same chord. Dispatches to the front window.
@@ -99,6 +97,10 @@ public sealed partial class AppDelegate : NSApplicationDelegate {
 
 	/// <summary>Tears down every still-open window's core, then disposes the app-level hotkeys and shared stores on exit.</summary>
 	public override void WillTerminate(NSNotification notification) {
+		// AppKit ends the app without the runtime seeing an exit, so the ending is stamped here — otherwise a
+		// quit is indistinguishable from being killed, which is the whole question when a window just vanishes.
+		ExitJournal.Record("terminated by AppKit");
+
 		foreach (var window in _windows.ToArray()) {
 			window.SaveWindowState();
 			window.DisposeCore();
@@ -111,8 +113,11 @@ public sealed partial class AppDelegate : NSApplicationDelegate {
 		_services?.Settings.Dispose();
 	}
 
-	/// <summary>Records the window that just became key, so the global hotkey + menu commands target the front one.</summary>
-	internal void MarkActive(WorkspaceWindow window) => _lastActive = window;
+	/// <summary>Records the key window and selects its native command-menu snapshot.</summary>
+	internal void MarkActive(WorkspaceWindow window) {
+		_lastActive = window;
+		window.ActivateApplicationMenu();
+	}
 
 	/// <summary>Saves the closing window's geometry, drops it from the set, and disposes its core.</summary>
 	internal void OnWindowClosed(WorkspaceWindow window) {
@@ -123,6 +128,7 @@ public sealed partial class AppDelegate : NSApplicationDelegate {
 		}
 
 		window.DisposeCore();
+		_lastActive?.ActivateApplicationMenu();
 	}
 
 	/// <summary>
@@ -147,8 +153,7 @@ public sealed partial class AppDelegate : NSApplicationDelegate {
 		target.MakeKeyAndOrderFront(null);
 	}
 
-	// The front window (last to become key, else the most-recently-opened) — the target for menu commands and the
-	// global toggle hotkey.
+	// The front window (last to become key, else the most-recently-opened) — the global toggle-hotkey target.
 	private WorkspaceWindow? Frontmost =>
 		_lastActive is not null && _windows.Contains(_lastActive) ? _lastActive : _windows.LastOrDefault();
 
@@ -158,15 +163,9 @@ public sealed partial class AppDelegate : NSApplicationDelegate {
 		}
 	}
 
-	// File/View items dispatch the same Weavie command ids the keyboard + omnibar use (routed to the front window),
-	// with shortcuts read from the keybinding store. Open Recent reflects the recents at build time.
-	private void BuildMenu() =>
-		NSApplication.SharedApplication.MainMenu = MacAppMenu.Build(
-			runCommand: id => Frontmost?.InvokeCommand(id),
-			resolveChord: ResolveChord,
-			openFolder: OpenFolderInteractive,
-			openRecent: path => OpenOrFocus(path),
-			recents: _recents!.Items);
+	internal MacAppMenuChannel CreateApplicationMenu() =>
+		(_menu ?? throw new InvalidOperationException("The macOS application menu is not initialized."))
+			.CreateChannel();
 
 	private static void Log(string line) {
 		Console.WriteLine(line);

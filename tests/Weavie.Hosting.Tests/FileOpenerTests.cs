@@ -6,9 +6,9 @@ using Xunit;
 namespace Weavie.Hosting.Tests;
 
 /// <summary>
-/// <see cref="FileOpener"/> publishes state to its owning session bus without consulting client selection. The
-/// validated <see cref="FileProviderService"/> refuses out-of-workspace paths. Relative references recover by
-/// suffix match: one hit opens, several preload Go-to-File, and none toast.
+/// <see cref="FileOpener"/> publishes state to its owning session bus without consulting client selection. An
+/// open is gated on existence alone, wherever the file lives. Relative references recover by suffix match:
+/// one hit opens, several preload Go-to-File, and none toast.
 /// </summary>
 public sealed class FileOpenerTests {
 	// A real worktree root is always fully rooted; "/ws" is drive-relative on Windows, where Path.GetFullPath
@@ -19,7 +19,7 @@ public sealed class FileOpenerTests {
 	private static (FileOpener opener, FakeHostBridge bridge, InMemoryFileSystem fs) New() {
 		var bridge = new FakeHostBridge();
 		var fs = new InMemoryFileSystem();
-		var files = new FileProviderService(fs, Workspace, Scratch);
+		var files = new FileProviderService(fs);
 		return (
 			new FileOpener(
 				bridge.SessionViewFeature("view"),
@@ -170,13 +170,24 @@ public sealed class FileOpenerTests {
 	}
 
 	[Fact]
-	public async Task OutOfWorkspaceFile_IsRefused() {
+	public async Task FileOutsideTheWorktree_IsOpened() {
 		var (opener, bridge, fs) = New();
-		fs.WriteAllText("/etc/secret.txt", "top secret"); // exists on disk, but outside the worktree + scratch
+		string outside = OperatingSystem.IsWindows() ? @"C:\elsewhere\notes.md" : "/elsewhere/notes.md";
+		fs.WriteAllText(outside, "notes");
 
-		await opener.OpenAsync("/etc/secret.txt", line: 1, preview: false, scratch: false);
+		await opener.OpenAsync(outside, line: 1, preview: false, scratch: false);
 
-		Assert.Null(bridge.LastEvent("editor", "openFile")); // containment refuses it before any read → never revealed in the editor
+		Assert.NotNull(bridge.LastEvent("editor", "openFile"));
+		Assert.Null(bridge.LastEvent("notifications", "show"));
+	}
+
+	[Fact]
+	public async Task MissingFile_IsRefusedLoudly() {
+		var (opener, bridge, _) = New();
+
+		await opener.OpenAsync("/elsewhere/ghost.md", line: 1, preview: false, scratch: false);
+
+		Assert.Null(bridge.LastEvent("editor", "openFile"));
 		Assert.NotNull(bridge.LastEvent("notifications", "show")); // refused loudly, not silently ignored
 	}
 }

@@ -147,7 +147,7 @@ function acceptsBackSwipe(target: Element, startX: number): boolean {
     }
   }
   return (
-    target.closest(".pane-head, .editor-tabs") !== null ||
+    target.closest(".pane-head, .pane-tabs") !== null ||
     (startX <= TERMINAL_EDGE_LIMIT && target.closest(".terminal-surface") !== null) ||
     (target.closest(".agent-surface") !== null && target.closest("[data-agent-composer]") === null)
   );

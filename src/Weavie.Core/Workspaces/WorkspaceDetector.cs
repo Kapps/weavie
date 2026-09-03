@@ -18,7 +18,9 @@ public static class WorkspaceDetector {
 	};
 
 	private static readonly HashSet<string> ManifestNames = new(StringComparer.OrdinalIgnoreCase) {
-		"package.json", "pnpm-lock.yaml", "Cargo.toml", "go.mod", "go.work", "pyproject.toml", "Makefile",
+		"package.json", "pnpm-lock.yaml", "Cargo.toml", "go.mod", "go.work", "pyproject.toml", "uv.lock",
+		"poetry.lock", "Pipfile", "Pipfile.lock", "requirements.txt", "requirements-dev.txt", "setup.py",
+		"setup.cfg", "pytest.ini", "tox.ini", "Makefile",
 	};
 
 	private static readonly string[] ManifestExtensions = [".slnx", ".sln", ".csproj"];
@@ -150,6 +152,6 @@ public static class WorkspaceDetector {
 	private static TestRule CdWrapRule(string relativeDir, TestRule rule) =>
 		relativeDir == "." ? rule : rule with {
 			RunOne = CdWrap(relativeDir, rule.RunOne),
-			RunFile = CdWrap(relativeDir, rule.RunFile),
+			RunFile = rule.RunFile is null ? null : CdWrap(relativeDir, rule.RunFile),
 		};
 }

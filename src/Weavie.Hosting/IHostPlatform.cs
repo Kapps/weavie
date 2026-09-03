@@ -28,14 +28,20 @@ public interface IHostPlatform {
 	/// <summary>Title-bar mode the web should render (<c>custom</c>, <c>mac</c>, <c>linux</c>, or <c>null</c>).</summary>
 	string? TitleBar { get; }
 
-	/// <summary>Recent workspace paths for File ▸ Open Recent (a start-time snapshot; empty when unsupported).</summary>
+	/// <summary>Current recent workspace paths for File ▸ Open Recent (empty when unsupported).</summary>
 	IReadOnlyList<string> Recents { get; }
+
+	/// <summary>Raised after <see cref="Recents"/> changes so existing windows refresh their application menu.</summary>
+	event Action? RecentsChanged;
 
 	/// <summary>The OS window primitives the web title bar drives, or <c>null</c> when the host uses native chrome.</summary>
 	IShellWindow? Window { get; }
 
 	/// <summary>The native application/workspace actions driven by a web File menu.</summary>
 	IShellMenuActions MenuActions { get; }
+
+	/// <summary>The native application-menu surface, or an explicit no-op where menus remain web-rendered.</summary>
+	IApplicationMenu ApplicationMenu { get; }
 
 	/// <summary>The native modal file dialogs, or <c>null</c> when the host has no native UI.</summary>
 	IHostDialogs? Dialogs { get; }

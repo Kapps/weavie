@@ -130,10 +130,17 @@
    would shift the ghost text rightward, but the live (green) lines aren't shifted, so the deleted text
    has to start at the same x to line up column-for-column with the code it replaced. */
 .weavie-inline-removed {
+  position: relative;
   background: var(--diff-removed-line, #c47a7a21);
   box-shadow: inset 3px 0 0 var(--diff-removed, #c47a7a);
   white-space: pre;
   overflow: hidden;
+}
+
+.weavie-inline-removed-content {
+  position: absolute;
+  inset: 0 0 auto;
+  white-space: pre;
 }
 
 .weavie-inline-removed-line {

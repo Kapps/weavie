@@ -30,7 +30,8 @@ under `~/.weavie/acp/installations.json`:
 
 - `binary` downloads the current platform archive, verifies its SHA-256 digest, safely extracts it under
   `~/.weavie/acp/packages/`, and launches the declared binary;
-- `npx` launches the registry package with `npx --yes <package> ...`, avoiding an interactive first-run prompt;
+- `npx` launches with `npx --yes <package>@<=<registry-version> ...`, treating an exact registry version as
+  the approved ceiling so npm can select the newest release allowed by the user's release-age policy;
 - `uvx` launches the registry's exact `uvx <package> ...` recipe.
 
 Weavie ships no Node, npm, npx, Python, uv, or uvx runtime. Package-manager distributions use the user's PATH
@@ -59,13 +60,18 @@ The client speaks ACP protocol version 1 over strict JSON-RPC framing. It uses c
 - streaming messages and thoughts, structured tools, locations, diffs, plans, usage, and session metadata;
 - cancellation, plus `_session/steering` when the agent advertises that extension.
 
+Advertised slash commands retain their command identity through the web and host. ACP still invokes them through
+standard `session/prompt`, but the request contains exactly one canonical text block and waits for the active turn
+instead of using steering. This prevents embedded guidance, editor resources, or images from turning a command
+such as `/compact` into model-directed prose.
+
 Unsupported optional capabilities stay absent from the UI; they do not create another session type. Malformed
 advertised data or protocol output fails the exact agent generation visibly.
 
 ACP's standard `plan` update is the agent's replaceable execution checklist, so Weavie renders it as progress
 activity rather than an openable document. Weavie advertises the separate plan-document capability: explicit
 `plan_update` notifications create or revise openable plan artifacts by provider plan id, while `plan_removed`
-retracts them. File-backed plans are snapshotted when received and must resolve to a local file inside the workspace.
+retracts them. File-backed plans are snapshotted when received and must resolve to a local file.
 
 Agents mirror one mode axis in both `configOptions` and the legacy `modes` block. The configuration option owns
 that axis, because `session/set_config_option` is what writes it back; a legacy-only mode axis is written with
@@ -75,6 +81,11 @@ Weavie never created carries no client-side output rather than failing the sessi
 The generic idle condition is the absence of a primary prompt and live ACP tool calls. A prompt response may arrive
 while a tool remains active; the session stays Waiting until the tool completes. Runtime failure and explicit
 restart terminalize partial content and active tools so stale work cannot appear live.
+
+Runtime restart preserves the current ACP conversation and reconnects it. The Weavie-owned `/clear` action is a
+different lifecycle: it clears the exact persisted association, resets the pane and local turn state, and restarts
+without a session id so the replacement process must call `session/new`. Provider-owned history is abandoned, not
+deleted.
 
 **Only the current agent process can own live work.** `session/load` always replays into a freshly spawned agent, so
 a tool call the transcript still calls running died with the process that ran it — no terminal update can ever

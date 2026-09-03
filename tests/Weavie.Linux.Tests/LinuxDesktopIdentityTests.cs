@@ -68,6 +68,92 @@ public sealed class LinuxDesktopIdentityTests {
 		}
 	}
 
+	[Fact]
+	public void EnsureInstalled_PassesTheOpenedPathsAndStaysVisibleToTheChooser() {
+		// A file manager's "Open With" list filters on g_app_info_should_show, which hides a NoDisplay entry —
+		// and without %U the chosen paths never reach the process.
+		string root = Directory.CreateTempSubdirectory().FullName;
+		try {
+			string appDirectory = Path.Combine(root, "app");
+			string dataHome = Path.Combine(root, "data");
+			Directory.CreateDirectory(appDirectory);
+			File.WriteAllText(
+				Path.Combine(appDirectory, "io.github.kapps.weavie.desktop"),
+				"[Desktop Entry]\nExec=Weavie\nMimeType=text/plain;inode/directory;\n");
+			File.WriteAllBytes(Path.Combine(appDirectory, "weavie.png"), [1]);
+
+			LinuxDesktopIdentity.EnsureInstalled(appDirectory, dataHome, Path.Combine(appDirectory, "Weavie"));
+
+			string installed = File.ReadAllText(
+				Path.Combine(dataHome, "applications", "io.github.kapps.weavie.desktop"));
+			Assert.EndsWith(" %U", installed.Split('\n').Single(line => line.StartsWith("Exec=", StringComparison.Ordinal)), StringComparison.Ordinal);
+			Assert.Contains("MimeType=text/plain;inode/directory;", installed, StringComparison.Ordinal);
+			Assert.DoesNotContain("NoDisplay", installed, StringComparison.Ordinal);
+		} finally {
+			Directory.Delete(root, recursive: true);
+		}
+	}
+
+	[Fact]
+	public void EnsureInstalled_LeavesAnotherInstallationsEntryAlone() {
+		// A build run out of a source tree would otherwise take the file association with it, and leave the
+		// installed Weavie unreachable from the desktop once that tree is deleted.
+		string root = Directory.CreateTempSubdirectory().FullName;
+		try {
+			string appDirectory = Path.Combine(root, "app");
+			string dataHome = Path.Combine(root, "data");
+			Directory.CreateDirectory(appDirectory);
+			File.WriteAllText(
+				Path.Combine(appDirectory, "io.github.kapps.weavie.desktop"),
+				"[Desktop Entry]\nExec=Weavie\n");
+			File.WriteAllBytes(Path.Combine(appDirectory, "weavie.png"), [1]);
+
+			string installedDirectory = Path.Combine(root, "installed");
+			Directory.CreateDirectory(installedDirectory);
+			string installed = Path.Combine(installedDirectory, "Weavie");
+			File.WriteAllText(installed, "#!/bin/sh\n");
+			LinuxDesktopIdentity.EnsureInstalled(appDirectory, dataHome, installed);
+
+			LinuxDesktopIdentity.EnsureInstalled(
+				appDirectory, dataHome, Path.Combine(appDirectory, "Weavie"));
+
+			Assert.Contains(
+				installed,
+				File.ReadAllText(Path.Combine(dataHome, "applications", "io.github.kapps.weavie.desktop")),
+				StringComparison.Ordinal);
+		} finally {
+			Directory.Delete(root, recursive: true);
+		}
+	}
+
+	[Fact]
+	public void EnsureInstalled_ReclaimsAnEntryWhoseWeavieIsGone() {
+		string root = Directory.CreateTempSubdirectory().FullName;
+		try {
+			string appDirectory = Path.Combine(root, "app");
+			string dataHome = Path.Combine(root, "data");
+			Directory.CreateDirectory(appDirectory);
+			File.WriteAllText(
+				Path.Combine(appDirectory, "io.github.kapps.weavie.desktop"),
+				"[Desktop Entry]\nExec=Weavie\n");
+			File.WriteAllBytes(Path.Combine(appDirectory, "weavie.png"), [1]);
+			Directory.CreateDirectory(Path.Combine(dataHome, "applications"));
+			File.WriteAllText(
+				Path.Combine(dataHome, "applications", "io.github.kapps.weavie.desktop"),
+				"[Desktop Entry]\nExec=\"/gone/Weavie\" %U\n");
+
+			string current = Path.Combine(appDirectory, "Weavie");
+			LinuxDesktopIdentity.EnsureInstalled(appDirectory, dataHome, current);
+
+			Assert.Contains(
+				current,
+				File.ReadAllText(Path.Combine(dataHome, "applications", "io.github.kapps.weavie.desktop")),
+				StringComparison.Ordinal);
+		} finally {
+			Directory.Delete(root, recursive: true);
+		}
+	}
+
 	[Theory]
 	[InlineData("equals=Weavie")]
 	[InlineData("control\nWeavie")]

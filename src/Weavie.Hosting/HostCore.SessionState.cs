@@ -19,6 +19,7 @@ public sealed partial class HostCore {
 				Loaded = slot.Loaded,
 				AgentProviderId = slot.AgentProviderId,
 				EditorSession = slot.EditorSession,
+				ShellTerminals = slot.ShellTerminals,
 			})
 			.ToList();
 		_sessionStore.Save(sessions);
@@ -42,10 +43,12 @@ public sealed partial class HostCore {
 					AgentProviderId = item.AgentProviderId,
 					Session = null,
 					EditorSession = item.EditorSession,
+					ShellTerminals = item.ShellTerminals,
 				};
 				_sessions.Add(slot);
 			} else if (slot is { }) {
 				slot.EditorSession = item.EditorSession;
+				slot.ShellTerminals = item.ShellTerminals;
 			}
 
 			if (item.Loaded && slot is { }) {

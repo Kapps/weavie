@@ -10,7 +10,7 @@ public sealed class HostCoreAgentPlanTests {
 			session,
 			"agent",
 			"submit",
-			new { id = "", prompt, attachmentIds = Array.Empty<string>(), skills = Array.Empty<string>() });
+			new { id = "", prompt, kind = "prompt", commandName = "", attachmentIds = Array.Empty<string>() });
 
 	[Fact]
 	public async Task OpenAgentPlan_RoutesTheExactCompletedPlanThroughItsSessionsEditorChannel() {

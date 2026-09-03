@@ -56,7 +56,12 @@
          — same signature again (Windows e2e shard 3/6, headless project, diff-review.spec.ts:457), this
          time on the built stylesheet `<link>` rather than a script — a case this reload didn't cover either,
          since the retry below only matched `<script type=module>`. Widened to also match a failed
-         stylesheet `<link>`, below. -->
+         stylesheet `<link>`, below.
+
+         2026-09-02 05:37 UTC, run https://github.com/Kapps/weavie/actions/runs/33594733672/job/100136812541
+         — same stylesheet-link signature once more (Windows e2e shard 6/6, headless project,
+         startup-tip.spec.ts:5), on an unrelated PR — confirms this is still an open gap rather than fixed
+         upstream, so the widened match below is carried into this PR too. -->
     <script>
       (() => {
         var RETRY_KEY = "weavie-boot-module-retry";

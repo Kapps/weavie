@@ -1,3 +1,4 @@
+using System.Net.Sockets;
 using Weavie.Hosting.Desktop;
 using Xunit;
 
@@ -95,6 +96,48 @@ public sealed class InstanceHandoffTests {
 	}
 
 	[Fact]
+	public async Task TryStartDoesNotReturnUntilTheListenerPoolIsBound() {
+		string root = NewRoot();
+		using var entered = new ManualResetEventSlim();
+		using var release = new ManualResetEventSlim();
+		int opened = 0;
+		await using var server = new InstanceServer(
+			root,
+			_ => new HandoffReply(true, "owner"),
+			_ => { },
+			pipeName => {
+				if (Interlocked.Increment(ref opened) == 1) {
+					entered.Set();
+					release.Wait();
+				}
+				return InstanceServer.OpenListener(pipeName);
+			});
+
+		var starting = Task.Run(server.TryStart);
+		try {
+			Assert.True(entered.Wait(Timeout));
+			Assert.False(starting.IsCompleted);
+		} finally {
+			release.Set();
+		}
+
+		Assert.True(await starting.WaitAsync(Timeout));
+		Assert.Equal(4, opened);
+		Assert.Equal(
+			"owner",
+			(await InstanceClient.OfferAsync(root, ["/tmp/a.ts"], CancellationToken.None)).Root);
+	}
+
+	[Fact]
+	public async Task APartialListenerBindFailureAlwaysReleasesTheRoot() {
+		await AssertFailedStartReleasesRoot(new IOException("bind failed"), false);
+		await AssertFailedStartReleasesRoot(
+			new SocketException((int)SocketError.AddressAlreadyInUse),
+			false);
+		await AssertFailedStartReleasesRoot(new InvalidOperationException("unexpected"), true);
+	}
+
+	[Fact]
 	public async Task TheActivationTokenTravelsWithTheHandover() {
 		// The launch that received the click owns the compositor's token; the running window needs it to raise.
 		string root = NewRoot();
@@ -132,5 +175,35 @@ public sealed class InstanceHandoffTests {
 		string root = Path.Combine(Path.GetTempPath(), $"weavie-instance-{Guid.NewGuid():N}");
 		Directory.CreateDirectory(root);
 		return root;
+	}
+
+	private static async Task AssertFailedStartReleasesRoot(Exception failure, bool throws) {
+		string root = NewRoot();
+		int opened = 0;
+		await using var failed = new InstanceServer(
+			root,
+			_ => new HandoffReply(true, "failed"),
+			_ => { },
+			pipeName => Interlocked.Increment(ref opened) == 2
+				? throw failure
+				: InstanceServer.OpenListener(pipeName));
+		if (throws) {
+			Assert.Same(
+				failure,
+				Assert.Throws(failure.GetType(), () => {
+					failed.TryStart();
+				}));
+		} else {
+			Assert.False(failed.TryStart());
+		}
+
+		await using var replacement = new InstanceServer(
+			root,
+			_ => new HandoffReply(true, "replacement"),
+			_ => { });
+		Assert.True(replacement.TryStart());
+		Assert.Equal(
+			"replacement",
+			(await InstanceClient.OfferAsync(root, ["/tmp/a.ts"], CancellationToken.None)).Root);
 	}
 }

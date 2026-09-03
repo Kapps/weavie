@@ -4,14 +4,6 @@
     --mobile-nav-block-size: 60px;
   }
 
-  html,
-  body,
-  #root {
-    height: 100%;
-    overflow: hidden;
-    overscroll-behavior: none;
-  }
-
   .app.compact {
     position: absolute;
     top: var(--mobile-viewport-top, 0px);

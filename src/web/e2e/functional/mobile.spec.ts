@@ -1,5 +1,5 @@
 import { allowAutomaticInference } from "../harness/actions";
-import { expect, test } from "../harness/fixtures";
+import { expect, test, touchSession } from "../harness/fixtures";
 
 const PNG_B64 =
   "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAXUlEQVR42u3PMQ0AIAwAMJTsnhxkI2I3NxLQsGNfkxroqohRcWYtAQEBAQEBAQEBAQEBAQEBAQEBAQEBAYF2IPcd9SpHCQgICAgICAgICAgICAgICAgICAgICAi0fZNauTzyRETRAAAAAElFTkSuQmCC";
@@ -532,41 +532,28 @@ test("Claude Code accepts back swipes beside the screen edge, never on it", asyn
 test("a compact session row manages its session from a hold and its actions button", async ({
   page,
 }) => {
-  // Retrying a dropped touchStart (see the hold() comment below) can spend up to ~34s per hold() call across
-  // two calls in this test; test.slow() triples the overall timeout so that retry budget has room.
-  test.slow();
   const inbox = page.locator(".session-inbox");
   const row = inbox.locator(".session-inbox-row").first();
   const menu = page.locator(".context-menu");
   const manage = row.getByRole("button", { name: /^Manage / });
   await expect(row).toBeVisible();
 
-  const touch = await page.context().newCDPSession(page);
+  // Reuse the one CDP session `establishTouchEmulation` armed for touch: a second, independently-opened
+  // session issuing Input.dispatchTouchEvent against the same target went silently inert on windows-latest
+  // CI, twice — 2026-09-03 01:54 UTC (run 33704819901, job 100492392393) and 2026-09-03 05:14 UTC (run
+  // 33717713961, job 100530992199, https://github.com/Kapps/weavie/actions/runs/33717713961/job/100530992199).
+  // The first fix (retrying the touchStart) treated it as a single dropped event and still flaked the exact
+  // same way on the second occurrence — every touchStart in the test, including the very first one, produced
+  // no effect at all, which a single dropped event can't explain but a starved second CDP session can. See
+  // touchSession's doc comment in harness/fixtures.ts.
+  const touch = touchSession(page);
   const point = await row.evaluate((element) => {
     const bounds = element.getBoundingClientRect();
     return { x: bounds.x + 60, y: bounds.y + bounds.height / 2 };
   });
-  // Flaked on windows-latest 2026-09-03 01:54 UTC (run 33704819901, job 100492392393,
-  // https://github.com/Kapps/weavie/actions/runs/33704819901/job/100492392393): touchStart produced no
-  // .context-menu at all inside the full 30s expect.timeout, unrelated to the PR that surfaced it (a Mac
-  // crash-reporting change) — a hold that actually arms takes 500ms, so a genuine 30s stall would mean the
-  // renderer's main thread was starved for 60x that long, which points instead at the single CDP-synthesized
-  // touchStart getting dropped by the runner under contention rather than the app failing to open the menu.
-  // Retry the touchStart a few times before committing to the full-budget wait, so a dropped synthetic event
-  // doesn't fail the test outright.
   const hold = async (): Promise<void> => {
-    for (let attempt = 0; ; attempt++) {
-      await touch.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [point] });
-      try {
-        await expect(menu).toBeVisible({ timeout: attempt < 2 ? 2_000 : 30_000 });
-        return;
-      } catch (error) {
-        if (attempt >= 2) {
-          throw error;
-        }
-        await touch.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
-      }
-    }
+    await touch.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [point] });
+    await expect(menu).toBeVisible();
   };
 
   // A press that drifts is the user scrolling the list, so it must never arm the menu. Only a real wait past

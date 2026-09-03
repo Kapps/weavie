@@ -532,6 +532,9 @@ test("Claude Code accepts back swipes beside the screen edge, never on it", asyn
 test("a compact session row manages its session from a hold and its actions button", async ({
   page,
 }) => {
+  // Retrying a dropped touchStart (see the hold() comment below) can spend up to ~34s per hold() call across
+  // two calls in this test; test.slow() triples the overall timeout so that retry budget has room.
+  test.slow();
   const inbox = page.locator(".session-inbox");
   const row = inbox.locator(".session-inbox-row").first();
   const menu = page.locator(".context-menu");
@@ -543,9 +546,27 @@ test("a compact session row manages its session from a hold and its actions butt
     const bounds = element.getBoundingClientRect();
     return { x: bounds.x + 60, y: bounds.y + bounds.height / 2 };
   });
+  // Flaked on windows-latest 2026-09-03 01:54 UTC (run 33704819901, job 100492392393,
+  // https://github.com/Kapps/weavie/actions/runs/33704819901/job/100492392393): touchStart produced no
+  // .context-menu at all inside the full 30s expect.timeout, unrelated to the PR that surfaced it (a Mac
+  // crash-reporting change) — a hold that actually arms takes 500ms, so a genuine 30s stall would mean the
+  // renderer's main thread was starved for 60x that long, which points instead at the single CDP-synthesized
+  // touchStart getting dropped by the runner under contention rather than the app failing to open the menu.
+  // Retry the touchStart a few times before committing to the full-budget wait, so a dropped synthetic event
+  // doesn't fail the test outright.
   const hold = async (): Promise<void> => {
-    await touch.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [point] });
-    await expect(menu).toBeVisible();
+    for (let attempt = 0; ; attempt++) {
+      await touch.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [point] });
+      try {
+        await expect(menu).toBeVisible({ timeout: attempt < 2 ? 2_000 : 30_000 });
+        return;
+      } catch (error) {
+        if (attempt >= 2) {
+          throw error;
+        }
+        await touch.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+      }
+    }
   };
 
   // A press that drifts is the user scrolling the list, so it must never arm the menu. Only a real wait past

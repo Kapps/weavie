@@ -64,7 +64,8 @@ test.describe("unified review mode", () => {
 
     // The change is marked up in the editor itself (added band + removed ghost), not as hand-rolled rows.
     const hello = sectionFor(page, "hello.ts");
-    await expect(hello.locator(".monaco-editor")).toBeVisible({ timeout: 15_000 });
+    // See the 2026-09-03 flake note on the "completions" test below — same hardcoded-override defect.
+    await expect(hello.locator(".monaco-editor")).toBeVisible();
     await expect(hello.locator(".weavie-inline-added").first()).toBeVisible();
     await expect(overview.locator(".unified-review-notice", { hasText: "Loading" })).toHaveCount(0);
 
@@ -113,7 +114,14 @@ test.describe("unified review mode", () => {
   test("completions open inside a review section editor", async ({ page }) => {
     await page.locator(".editor-empty-review").click();
     const hello = sectionFor(page, "hello.ts");
-    await expect(hello.locator(".monaco-editor")).toBeVisible({ timeout: 15_000 });
+    // Flaked on windows-latest 2026-09-03 01:54 UTC (run 33704819901, job 100492392393,
+    // https://github.com/Kapps/weavie/actions/runs/33704819901/job/100492392393): the Monaco mount never
+    // became visible inside 15s under runner contention, unrelated to the PR that surfaced it (a Mac
+    // crash-reporting change). The 15s here was a hardcoded override that undercut playwright.config.ts's
+    // own platform-aware `expect.timeout` (30s on Windows/macOS, raised there for exactly this kind of
+    // full-stack mount latency) — every `.monaco-editor` wait in this file had the same override, so all
+    // four are dropped to let them inherit that budget instead of capping it back down to the Linux value.
+    await expect(hello.locator(".monaco-editor")).toBeVisible();
     await expect(hello.locator(".weavie-inline-added").first()).toBeVisible();
 
     await page.evaluate(() => {
@@ -160,7 +168,8 @@ test.describe("unified review mode", () => {
     test.slow();
     await page.locator(".editor-empty-review").click();
     const notes = sectionFor(page, "notes.txt");
-    await expect(notes.locator(".monaco-editor")).toBeVisible({ timeout: 15_000 });
+    // See the 2026-09-03 flake note on the "completions" test above — same hardcoded-override defect.
+    await expect(notes.locator(".monaco-editor")).toBeVisible();
 
     const marker = `edited-in-review-${Date.now()}`;
     await notes.locator(".view-line", { hasText: "a unified addition" }).click();
@@ -216,7 +225,8 @@ test.describe("unified review mode — large file", () => {
   test("renders a 4,000-line change without a presentation cutoff", async ({ page }) => {
     await page.locator(".editor-empty-review").click();
     const overview = page.locator(".unified-review");
-    await expect(overview.locator(".monaco-editor")).toBeVisible({ timeout: 15_000 });
+    // See the 2026-09-03 flake note on the "completions" test above — same hardcoded-override defect.
+    await expect(overview.locator(".monaco-editor")).toBeVisible();
     await expect(overview).not.toContainText("Diff calculation timed out");
     await expect(overview.locator(".view-line", { hasText: "line 3999" })).toHaveCount(1);
   });

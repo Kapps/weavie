@@ -154,6 +154,10 @@ public sealed class HostSessionAgentImageTests : IDisposable {
 		public event Action<AgentPaneMessage>? PaneMessage;
 		public event Action<IReadOnlyList<AgentPaneMessage>>? PaneSnapshot { add { } remove { } }
 
+		public event Action<IReadOnlyList<AgentTurnSubmission>>? QueuedSubmissionsChanged { add { } remove { } }
+
+		public IReadOnlyList<AgentTurnSubmission> QueuedSubmissions => [];
+
 		public List<AgentTurnSubmission> Submissions { get; } = [];
 
 		public int Interruptions { get; private set; }

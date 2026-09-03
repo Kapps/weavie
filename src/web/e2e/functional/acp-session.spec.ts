@@ -147,6 +147,33 @@ test("ACP task progress stays activity while plan documents remain openable", as
   await expect(page.locator(".editor-plan .agent-markdown")).toContainText("Implementation plan");
 });
 
+test("a slash command submitted mid-turn queues without blocking steering", async ({ page }) => {
+  const surface = await createAcpSession(page, "acp-queued-command");
+  const composer = surface.locator("[data-agent-composer] textarea");
+
+  await composer.fill("hold");
+  await composer.press("Enter");
+  await expect(surface.locator(".agent-working")).toBeVisible();
+
+  await composer.fill("/compact");
+  await composer.press("Enter");
+  await expect(surface.locator(".agent-compose-queued")).toContainText("/compact");
+
+  await composer.fill("steer past the queued command");
+  await composer.press("Enter");
+  await expect(
+    surface.locator(".agent-entry-message.agent-tone-assistant", {
+      hasText: "steered: steer past the queued command",
+    }),
+  ).toBeVisible();
+  await expect(
+    surface.locator(".agent-entry-message.agent-tone-assistant", {
+      hasText: "Compacting completed.",
+    }),
+  ).toBeVisible();
+  await expect(surface.locator(".agent-compose-queued")).toHaveCount(0);
+});
+
 test("ACP steering and background completion return the session to idle @cross", async ({
   page,
 }) => {

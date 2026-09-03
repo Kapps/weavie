@@ -18,7 +18,7 @@ public sealed partial class AcpAgentSession {
 			}
 			submission = NormalizeSubmissionLocked(submission);
 			if (submission.Text.Length == 0 && submission.Attachments.Count == 0) return;
-			_pendingSubmissions.AddLast(submission);
+			_pendingSubmissions.Enqueue(submission);
 		}
 		DispatchPendingSubmission();
 	}
@@ -26,33 +26,58 @@ public sealed partial class AcpAgentSession {
 	private void FlushPendingSubmissions() => DispatchPendingSubmission();
 
 	private void DispatchPendingSubmission() {
-		AgentTurnSubmission? submission = null;
-		string? sessionId = null;
+		try {
+			DeliverNextSubmission();
+		} finally {
+			PublishQueue();
+		}
+	}
+
+	private void DeliverNextSubmission() {
+		AgentTurnSubmission? submission;
+		string? sessionId;
 		bool steer = false;
-		long epoch = 0;
+		long epoch;
 		lock (_gate) {
 			if (!_ready || _authenticationPending || _cancelRequested || _pendingSubmissions.Count == 0
 				|| _activeSideConversationId is not null || _steering && !_promptActive) {
 				return;
 			}
 			sessionId = _sessionId ?? throw new InvalidOperationException("The ACP session is not ready.");
-			submission = _pendingSubmissions.First!.Value;
 			if (_promptActive) {
-				if (submission.Kind == AgentTurnSubmissionKind.ProviderCommand) return;
 				if (!_supportsSteering || _steering) return;
+				// A provider command owns its own turn, so it waits here without holding back what steers past it.
+				submission = _pendingSubmissions.Take(pending => pending.Kind == AgentTurnSubmissionKind.Prompt);
+				if (submission is null) return;
 				steer = true;
 				_steering = true;
 			} else {
+				submission = _pendingSubmissions.Take(_ => true)
+					?? throw new InvalidOperationException("The ACP submission queue emptied under its own lock.");
 				_promptActive = true;
 				_waitingForBackground = false;
 				_turnNumber++;
 			}
-			_pendingSubmissions.RemoveFirst();
 			epoch = _submissionEpoch;
 		}
 		Run(steer
 			? () => DeliverSteeringAsync(sessionId, submission, epoch)
 			: () => DeliverPromptAsync(sessionId, submission, epoch));
+	}
+
+	// Serialized so concurrent publishers cannot deliver an older queue after a newer one and leave the
+	// composer showing work that is already on its way to the provider.
+	private void PublishQueue() {
+		lock (_queuePublishGate) {
+			AgentTurnSubmission[]? waiting = null;
+			lock (_gate) {
+				if (_pendingSubmissions.Version != _publishedQueueVersion) {
+					_publishedQueueVersion = _pendingSubmissions.Version;
+					waiting = _pendingSubmissions.Snapshot();
+				}
+			}
+			if (waiting is not null) QueuedSubmissionsChanged?.Invoke(waiting);
+		}
 	}
 
 	private async Task DeliverSteeringAsync(string sessionId, AgentTurnSubmission submission, long epoch) {
@@ -84,7 +109,7 @@ public sealed partial class AcpAgentSession {
 						EmitSubmitted(submission, "user-steer");
 						break;
 					case "promptRequired":
-						lock (_gate) _pendingSubmissions.AddFirst(submission);
+						lock (_gate) _pendingSubmissions.Requeue(submission);
 						retryAsPrompt = true;
 						break;
 					case "startedNewTurn":
@@ -109,6 +134,7 @@ public sealed partial class AcpAgentSession {
 				dispatch = epoch == _submissionEpoch && (!retryAsPrompt || !_promptActive);
 			}
 			if (dispatch) DispatchPendingWork();
+			else PublishQueue();
 		}
 	}
 
@@ -187,7 +213,7 @@ public sealed partial class AcpAgentSession {
 						_promptActive = false;
 						_waitingForBackground = false;
 						_guidanceSent = guidanceSentBefore;
-						_pendingSubmissions.AddFirst(submission);
+						_pendingSubmissions.Requeue(submission);
 					}
 					ObserveTerminalizedTools(tools);
 					Observe(new AgentTurnStopped(WillResume: false));
@@ -472,6 +498,7 @@ public sealed partial class AcpAgentSession {
 					() => _connection.NotifyAsync("session/cancel", new { sessionId }, generation));
 			}
 		}
+		PublishQueue();
 		bool interactionCancelled = CancelPendingInteractions();
 		if (interactionCancelled && sessionId is null && _role is SideRole) {
 			lock (_turnTransitionGate) {
@@ -553,6 +580,7 @@ public sealed partial class AcpAgentSession {
 			tools = TerminalizeActiveToolsLocked("cancelled");
 		}
 		if (generation > 0) _terminals.ReleaseGeneration(generation);
+		PublishQueue();
 		ObserveTerminalizedTools(tools);
 		if (promptActive || tools.Length > 0) {
 			Observe(new AgentTurnStopped(WillResume: false));

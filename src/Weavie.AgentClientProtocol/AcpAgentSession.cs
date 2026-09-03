@@ -22,7 +22,8 @@ public sealed partial class AcpAgentSession :
 	private readonly AcpTerminalManager _terminals;
 	private readonly Lock _gate = new();
 	private readonly Lock _turnTransitionGate = new();
-	private readonly LinkedList<AgentTurnSubmission> _pendingSubmissions = [];
+	private readonly Lock _queuePublishGate = new();
+	private readonly AcpSubmissionQueue _pendingSubmissions = new();
 	private readonly Queue<AcpControlMutation> _controlMutations = [];
 	private readonly ConcurrentDictionary<string, AcpClientRequestState> _clientRequests = new(StringComparer.Ordinal);
 	private readonly ConcurrentDictionary<string, AcpPendingRequest> _pendingRequests = new(StringComparer.Ordinal);
@@ -43,6 +44,7 @@ public sealed partial class AcpAgentSession :
 	private long _turnNumber;
 	private long _sideProviderTurnOffset;
 	private long _activeGeneration;
+	private long _publishedQueueVersion;
 	private bool _ready;
 	private bool _started;
 	private bool _disposed;
@@ -118,10 +120,18 @@ public sealed partial class AcpAgentSession :
 	public event Action<IReadOnlyList<AgentPaneMessage>>? PaneSnapshot;
 
 	/// <inheritdoc/>
+	public event Action<IReadOnlyList<AgentTurnSubmission>>? QueuedSubmissionsChanged;
+
+	/// <inheritdoc/>
 	public event Action<AgentControlState>? ControlStateChanged;
 
 	/// <inheritdoc/>
 	public event Action<AgentUsageSnapshot>? UsageChanged;
+
+	/// <inheritdoc/>
+	public IReadOnlyList<AgentTurnSubmission> QueuedSubmissions {
+		get { lock (_gate) return _pendingSubmissions.Snapshot(); }
+	}
 
 	/// <inheritdoc/>
 	public AgentControlState ControlState {

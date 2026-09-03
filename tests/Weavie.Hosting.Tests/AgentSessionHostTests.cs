@@ -622,6 +622,10 @@ public sealed class AgentSessionHostTests {
 		public event Action<IReadOnlyList<AgentPaneMessage>>? PaneSnapshot;
 		public event Action<AgentUsageSnapshot>? UsageChanged;
 
+		public event Action<IReadOnlyList<AgentTurnSubmission>>? QueuedSubmissionsChanged { add { } remove { } }
+
+		public IReadOnlyList<AgentTurnSubmission> QueuedSubmissions => [];
+
 		public AgentUsageSnapshot Snapshot { get; private set; } = new(null, []);
 
 		public bool Started { get; private set; }

@@ -193,6 +193,12 @@ export interface AgentControlState {
   slash: AgentSlashEntry[];
 }
 
+export interface AgentQueuedSubmission {
+  id: string;
+  text: string;
+  kind: "prompt" | "providerCommand";
+}
+
 export interface AgentContextWindowUsage {
   usedTokens: number;
   capacityTokens: number;

@@ -61,8 +61,14 @@ public interface IStructuredAgentSession : IAgentSession {
 		string methodId,
 		IReadOnlyDictionary<string, IReadOnlyList<string>> answers);
 
+	/// <summary>The accepted submissions still waiting for the provider, in delivery order.</summary>
+	IReadOnlyList<AgentTurnSubmission> QueuedSubmissions { get; }
+
 	/// <summary>Raised when the provider has a structured pane state update for the web UI.</summary>
 	event Action<AgentPaneMessage> PaneMessage;
+
+	/// <summary>Raised whenever the waiting submission set changes, with the authoritative queue.</summary>
+	event Action<IReadOnlyList<AgentTurnSubmission>> QueuedSubmissionsChanged;
 
 	/// <summary>Raised when provider resume supplies a complete authoritative transcript replacement.</summary>
 	event Action<IReadOnlyList<AgentPaneMessage>> PaneSnapshot;

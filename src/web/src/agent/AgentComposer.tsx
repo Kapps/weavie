@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, type JSX, onCleanup, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
 import type { AgentSlashEntry, ClientSession } from "../bridge";
 import { readClipboardContent } from "../clipboard-read";
 import { setContext } from "../commands/context";
@@ -17,6 +17,7 @@ import {
   planIdentityArgsSupplied,
   planIdentityFromArgs,
 } from "./agent-plan";
+import { agentQueuedSubmissions } from "./agent-queue-store";
 import {
   captureAgentImagePaste,
   composerState,
@@ -60,6 +61,7 @@ export function AgentComposer(props: {
 }): JSX.Element {
   let textareaRef: HTMLTextAreaElement | undefined;
   const composer = createMemo(() => composerState(props.session));
+  const queued = createMemo(() => agentQueuedSubmissions(props.session));
   const canInterrupt = createMemo(() => props.session !== null && props.interruptible);
 
   createEffect(() => setContext("agentApprovalPending", props.pendingKind === "approval"));
@@ -381,6 +383,12 @@ export function AgentComposer(props: {
           turnActive={props.turnActive}
           turnStartedAt={props.turnStartedAt}
         />
+      </Show>
+      <Show when={queued().length > 0}>
+        <div class="agent-compose-queued">
+          <span>Queued</span>
+          <For each={queued()}>{(submission) => <span>{submission.text}</span>}</For>
+        </div>
       </Show>
       <Show when={composer().attachments.length > 0}>
         <AgentAttachmentStrip

@@ -21,6 +21,8 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 	private readonly Channel<IReadOnlyList<AgentPaneMessage>> _snapshots =
 		Channel.CreateUnbounded<IReadOnlyList<AgentPaneMessage>>();
 	private readonly Channel<AgentControlState> _controls = Channel.CreateUnbounded<AgentControlState>();
+	private readonly Channel<IReadOnlyList<AgentTurnSubmission>> _queues =
+		Channel.CreateUnbounded<IReadOnlyList<AgentTurnSubmission>>();
 	private readonly IAgentAuthenticationTerminal _authenticationTerminal;
 	private readonly Lock _messageGate = new();
 	private readonly List<AgentPaneMessage> _messages = [];
@@ -48,6 +50,7 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 		};
 		session.PaneSnapshot += snapshot => _snapshots.Writer.TryWrite(snapshot);
 		session.ControlStateChanged += state => _controls.Writer.TryWrite(state);
+		session.QueuedSubmissionsChanged += queued => _queues.Writer.TryWrite(queued);
 	}
 
 	public AcpAgentSession Session { get; }
@@ -345,6 +348,16 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 		while (true) {
 			var state = await _controls.Reader.ReadAsync(timeout.Token).ConfigureAwait(false);
 			if (predicate(state)) return state;
+		}
+	}
+
+	public async Task<IReadOnlyList<AgentTurnSubmission>> WaitForQueueAsync(
+		Func<IReadOnlyList<AgentTurnSubmission>, bool> predicate) {
+		ArgumentNullException.ThrowIfNull(predicate);
+		using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+		while (true) {
+			var queued = await _queues.Reader.ReadAsync(timeout.Token).ConfigureAwait(false);
+			if (predicate(queued)) return queued;
 		}
 	}
 

@@ -76,7 +76,7 @@ public sealed class InstanceServer : IAsyncDisposable {
 			}
 			_ownership.Dispose();
 			_ownership = null;
-			if (ex is IOException or UnauthorizedAccessException or SocketException) {
+			if (IsEndpointUnavailable(ex)) {
 				_log($"Opening files from the desktop is unavailable: {ex.Message}");
 				return false;
 			}
@@ -99,7 +99,7 @@ public sealed class InstanceServer : IAsyncDisposable {
 				if (server is null) {
 					try {
 						server = _openListener(_pipeName);
-					} catch (IOException ex) {
+					} catch (Exception ex) when (IsEndpointUnavailable(ex)) {
 						_log($"Opening files from the desktop is unavailable: {ex.Message}");
 						return;
 					}
@@ -121,6 +121,9 @@ public sealed class InstanceServer : IAsyncDisposable {
 			server?.Dispose();
 		}
 	}
+
+	private static bool IsEndpointUnavailable(Exception ex) =>
+		ex is IOException or UnauthorizedAccessException or SocketException;
 
 	private async Task HandleAsync(NamedPipeServerStream server, CancellationToken ct) {
 		if (await HookProtocol.ReadFramedAsync(server, ct).ConfigureAwait(false) is not { } payload) {

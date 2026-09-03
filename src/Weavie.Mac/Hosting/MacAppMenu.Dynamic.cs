@@ -4,7 +4,7 @@ using Weavie.Hosting;
 namespace Weavie.Mac.Hosting;
 
 internal sealed partial class MacAppMenu {
-	private NSMenuItem BuildDynamicMenu(
+	private static NSMenuItem BuildDynamicMenu(
 		ApplicationMenuDefinition definition,
 		long revision,
 		MacAppMenuChannel channel) {
@@ -15,7 +15,7 @@ internal sealed partial class MacAppMenu {
 		return Submenu(definition.Label, menu);
 	}
 
-	private NSMenuItem BuildDynamicEntry(
+	private static NSMenuItem BuildDynamicEntry(
 		ApplicationMenuEntry entry,
 		long revision,
 		MacAppMenuChannel channel) => entry.Kind switch {
@@ -39,7 +39,7 @@ internal sealed partial class MacAppMenu {
 		return item;
 	}
 
-	private NSMenuItem BuildSubmenu(
+	private static NSMenuItem BuildSubmenu(
 		ApplicationMenuEntry entry,
 		long revision,
 		MacAppMenuChannel channel) {
@@ -52,9 +52,8 @@ internal sealed partial class MacAppMenu {
 		return item;
 	}
 
-	private NSMenu DynamicMenu(string title) => new(title) {
+	private static NSMenu DynamicMenu(string title) => new DisplayOnlyKeyEquivalentMenu(title) {
 		AutoEnablesItems = false,
-		Delegate = _displayOnlyKeyEquivalents,
 	};
 
 	private static void ApplyFirstRepresentableKey(NSMenuItem item, IReadOnlyList<string> keys) {
@@ -120,5 +119,12 @@ internal sealed partial class MacAppMenu {
 			return true;
 		}
 		return false;
+	}
+
+	// The page owns keyboard dispatch: a row's key equivalent is a label, so AppKit must never match it.
+	private sealed class DisplayOnlyKeyEquivalentMenu : NSMenu {
+		public DisplayOnlyKeyEquivalentMenu(string title) : base(title) { }
+
+		public override bool PerformKeyEquivalent(NSEvent theEvent) => false;
 	}
 }

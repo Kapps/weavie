@@ -6,6 +6,7 @@ import { ApprovalActions, AuthenticationActions, InputRequestActions } from "./A
 import { EditLocationActions, PlanActions } from "./AgentPaneEditActions";
 import { AgentLinkedText } from "./AgentPaneLinks";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
+import { asideReplyState, setAsideReplyState } from "./aside-reply-store";
 import type { AgentSectionLabel } from "./pane-store";
 
 export function TranscriptEntry(props: {
@@ -98,20 +99,35 @@ function AsideEntry(props: {
   keyboardInputId: string | null;
   session: ClientSession;
 }): JSX.Element {
-  const [replying, setReplying] = createSignal(false);
-  const [draft, setDraft] = createSignal("");
+  const conversationId = props.entry.conversationId;
+  if (typeof conversationId !== "string" || conversationId.length === 0) {
+    throw new Error("An aside entry requires a conversation id.");
+  }
+  const saved = asideReplyState(props.session, conversationId);
+  const [replying, setReplying] = createSignal(saved.open);
+  const [draft, setDraft] = createSignal(saved.draft);
   const [expandedDetail, setExpandedDetail] = createSignal<string | null>(null);
   let textarea: HTMLTextAreaElement | undefined;
 
+  const updateDraft = (value: string): void => {
+    setDraft(value);
+    setAsideReplyState(props.session, conversationId, { draft: value, open: replying() });
+  };
+
+  const setReplyOpen = (open: boolean): void => {
+    setReplying(open);
+    setAsideReplyState(props.session, conversationId, { draft: draft(), open });
+  };
+
   const submit = (): void => {
     const prompt = draft().trim();
-    if (prompt.length === 0 || !props.entry.conversationId) return;
+    if (prompt.length === 0) return;
     props.session.feature("agent").publish("replyAside", {
-      conversationId: props.entry.conversationId,
+      conversationId,
       prompt,
     });
-    setDraft("");
-    setReplying(false);
+    updateDraft("");
+    setReplyOpen(false);
   };
 
   return (
@@ -146,7 +162,7 @@ function AsideEntry(props: {
               class="agent-aside-reply-button"
               disabled={props.entry.asideActive === true}
               onClick={() => {
-                setReplying(true);
+                setReplyOpen(true);
                 queueMicrotask(() => textarea?.focus());
               }}
             >
@@ -160,11 +176,11 @@ function AsideEntry(props: {
               aria-label="Reply to BTW"
               rows={2}
               value={draft()}
-              onInput={(event) => setDraft(event.currentTarget.value)}
+              onInput={(event) => updateDraft(event.currentTarget.value)}
               onKeyDown={(event) => {
                 if (event.key === "Escape") {
                   event.preventDefault();
-                  setReplying(false);
+                  setReplyOpen(false);
                 } else if (event.key === "Enter" && !event.shiftKey) {
                   event.preventDefault();
                   submit();
@@ -172,7 +188,7 @@ function AsideEntry(props: {
               }}
             />
             <div class="agent-aside-reply-actions">
-              <button type="button" onClick={() => setReplying(false)}>
+              <button type="button" onClick={() => setReplyOpen(false)}>
                 Cancel
               </button>
               <button type="button" disabled={draft().trim().length === 0} onClick={submit}>

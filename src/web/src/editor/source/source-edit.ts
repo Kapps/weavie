@@ -60,6 +60,7 @@ export class SourceEditController {
     this.markdown = markdown;
     this.content = content;
     this.focusedBlock = undefined;
+    setContext("sourceBlockFocused", false);
     const editKeys = findCommand(CommandIds.sourceEditBlock)?.keys ?? [];
     for (const el of content.querySelectorAll<HTMLElement>(".wv-editable")) {
       el.tabIndex = 0;
@@ -67,6 +68,9 @@ export class SourceEditController {
         editKeys.length > 0 ? `Edit block (${formatKey(editKeys[0] ?? "")})` : "Edit block";
     }
     content.addEventListener("focusin", (event) => {
+      if (active !== this) {
+        return;
+      }
       const el =
         event.target instanceof HTMLElement
           ? event.target.closest<HTMLElement>(".wv-editable")
@@ -77,6 +81,9 @@ export class SourceEditController {
     // Focus leaving the blocks entirely (another pane, the editor textarea) must drop the context key, or the
     // Edit Block chord would keep firing wherever the user types next.
     content.addEventListener("focusout", (event) => {
+      if (active !== this) {
+        return;
+      }
       const to =
         event.relatedTarget instanceof HTMLElement
           ? event.relatedTarget.closest(".wv-editable")
@@ -113,8 +120,8 @@ export class SourceEditController {
     this.focusedBlock = undefined;
     if (active === this) {
       active = undefined;
+      setContext("sourceBlockFocused", false);
     }
-    setContext("sourceBlockFocused", false);
   }
 
   /** True when the click landed inside the open editor box — the textarea owns it, nothing else should react. */
@@ -256,6 +263,7 @@ export class SourceEditController {
     // closeState (not closeAndRefocus): focus left deliberately — don't yank it back from where it went.
     textarea.addEventListener("focusout", () => {
       if (
+        active === this &&
         sourceEditState(this.session, this.target) === edit &&
         !edit.saving &&
         textarea.value === edit.original
@@ -270,7 +278,9 @@ export class SourceEditController {
     this.textarea = textarea;
     this.hint = hint;
     this.box = box;
-    setContext("sourceEditing", true);
+    if (active === this) {
+      setContext("sourceEditing", true);
+    }
 
     if (el.tagName === "LI") {
       const inline = [...el.childNodes].filter(
@@ -344,7 +354,9 @@ export class SourceEditController {
     this.textarea = undefined;
     this.hint = undefined;
     this.box = undefined;
-    setContext("sourceEditing", false);
+    if (active === this) {
+      setContext("sourceEditing", false);
+    }
   }
 
   // Tears down the editor DOM (restoring the block) and clears the edit state + context key.

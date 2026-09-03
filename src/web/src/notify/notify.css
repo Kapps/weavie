@@ -2,8 +2,8 @@
 
 /* Toasts: a top-center stack of transient notifications (e.g. a failed autosave or a session delete
    that couldn't complete), dropping in just below the title bar where the eye naturally lands. Above
-   every panel so a failure is never hidden behind the changes/browser overlays. Error toasts persist
-   until dismissed; warn/info fade on their own. */
+   ordinary panels so failures stay visible; an open chooser or exclusive overlay owns interaction above
+   them. Error toasts persist until dismissed; warn/info fade on their own. */
 .toasts {
   position: fixed;
   top: 48px; /* clear the 38px title bar */

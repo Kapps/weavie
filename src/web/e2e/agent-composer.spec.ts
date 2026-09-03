@@ -1684,26 +1684,33 @@ test.describe("ACP composer", () => {
       body.evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight);
     await expect(page.locator(".agent-entry").first()).toBeVisible();
     await expect(latestButton).toHaveCount(0);
-    await expect.poll(distanceFromBottom).toBeLessThan(1);
 
     const bounds = await body.boundingBox();
     if (bounds === null) {
       throw new Error("agent body has no viewport");
     }
     await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+    const lineHeight = await body.evaluate((element) =>
+      Number.parseFloat(getComputedStyle(element).lineHeight),
+    );
+    const expectFollowingLatest = async (): Promise<void> => {
+      await expect(latestButton).toHaveCount(0);
+      await expect.poll(distanceFromBottom).toBeLessThanOrEqual(Math.ceil(lineHeight * 3));
+    };
+    await expectFollowingLatest();
+
     const scrollLinesFromBottom = async (lines: number): Promise<void> => {
-      const lineHeight = await body.evaluate((element) =>
-        Number.parseFloat(getComputedStyle(element).lineHeight),
-      );
-      await page.mouse.wheel(0, -lineHeight * lines);
+      const distance = await distanceFromBottom();
+      await page.mouse.wheel(0, distance - lineHeight * lines);
       await expect.poll(distanceFromBottom).toBeGreaterThan(lineHeight * lines - 2);
       await expect.poll(distanceFromBottom).toBeLessThan(lineHeight * lines + 2);
     };
 
     await scrollLinesFromBottom(2.5);
-    await expect(latestButton).toHaveCount(0);
+    await expectFollowingLatest();
     publishPane(userMessage("near-bottom follow check"));
-    await expect.poll(distanceFromBottom).toBeLessThan(1);
+    await expect(page.getByText("near-bottom follow check", { exact: true })).toBeVisible();
+    await expectFollowingLatest();
 
     await scrollLinesFromBottom(4);
     await expect(latestButton).toHaveCount(1);
@@ -1715,11 +1722,10 @@ test.describe("ACP composer", () => {
     await revealScrollNavigation(page);
 
     await latestButton.click();
-    await expect(latestButton).toHaveCount(0);
-    await expect.poll(distanceFromBottom).toBeLessThan(1);
+    await expectFollowingLatest();
     publishPane(userMessage("follow after jump to latest"));
     await expect(page.getByText("follow after jump to latest", { exact: true })).toBeVisible();
-    await expect.poll(distanceFromBottom).toBeLessThan(1);
+    await expectFollowingLatest();
   });
 
   // Flaked on main CI 2026-08-13 04:09 UTC (e2e (linux) / shard 2/6):

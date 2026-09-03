@@ -76,9 +76,9 @@ sequenceDiagram
     participant UI
     participant H as owning HostSession
     participant N as host notifications
-    UI->>H: commands.invoke delete {id, classify:true}
-    H-->>UI: {ok:true, data:{state, label}}
-    UI->>H: commands.invoke delete {id, force:true}
+    UI->>H: commands.invoke delete {id, operation:"preview"}
+    H-->>UI: {ok:true, data:{revision, worktree, drafts}}
+    UI->>H: commands.invoke delete {id, operation:"confirm", revision, forceWorktree, discardDrafts}
     H-->>UI: {ok:true}
     H->>N: show delete completion
 ```

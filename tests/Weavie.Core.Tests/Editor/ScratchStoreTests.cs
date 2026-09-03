@@ -55,6 +55,73 @@ public sealed class ScratchStoreTests {
 	}
 
 	[Fact]
+	public void Owns_UsesThePlatformFileSystemCaseRules() {
+		var fs = new InMemoryFileSystem();
+		string parent = TempDir("scratch-case");
+		string directory = Path.Combine(parent, "Scratch");
+		var store = new ScratchStore(fs, directory);
+		string caseVariant = Path.Combine(parent, "scratch", "Untitled-1");
+
+		Assert.Equal(OperatingSystem.IsWindows(), store.Owns(caseVariant));
+	}
+
+	[Fact]
+	public void Inspect_ReportsEveryNonEmptyReferencedScratchIncludingWhitespace() {
+		var fs = new InMemoryFileSystem();
+		string dir = TempDir("scratch");
+		var store = new ScratchStore(fs, dir);
+		string empty = store.CreateNew();
+		string whitespace = store.CreateNew();
+		string text = store.CreateNew();
+		fs.WriteAllText(whitespace, " \n");
+		fs.WriteAllText(text, "keep this draft");
+
+		var snapshots = store.Inspect(new EditorSession {
+			Open = [
+				new EditorSessionEntry { Path = empty, Scratch = true },
+				new EditorSessionEntry { Path = whitespace, Scratch = true },
+				new EditorSessionEntry { Path = text, Scratch = true },
+				new EditorSessionEntry { Path = Path.Combine(dir, "ordinary.txt") },
+			],
+		});
+
+		Assert.Equal([whitespace, text], snapshots.Select(snapshot => snapshot.Path));
+		Assert.All(snapshots, snapshot => Assert.NotEmpty(snapshot.ContentHash));
+	}
+
+	[Fact]
+	public void Inspect_RejectsMissingAndOutsideScratchEntries() {
+		var fs = new InMemoryFileSystem();
+		string dir = TempDir("scratch");
+		var store = new ScratchStore(fs, dir);
+		string missing = Path.Combine(dir, "Untitled-1");
+		string outside = Path.Combine(TempDir("outside"), "Untitled-2");
+
+		Assert.Throws<FileNotFoundException>(() => store.Inspect(new EditorSession {
+			Open = [new EditorSessionEntry { Path = missing, Scratch = true }],
+		}));
+		Assert.Throws<InvalidDataException>(() => store.Inspect(new EditorSession {
+			Open = [new EditorSessionEntry { Path = outside, Scratch = true }],
+		}));
+	}
+
+	[Fact]
+	public void DeleteReferenced_RemovesOnlyOwnedScratchEntries() {
+		var fs = new InMemoryFileSystem();
+		string dir = TempDir("scratch");
+		var store = new ScratchStore(fs, dir);
+		string first = store.CreateNew();
+		string second = store.CreateNew();
+
+		store.DeleteReferenced(new EditorSession {
+			Open = [new EditorSessionEntry { Path = first, Scratch = true }],
+		});
+
+		Assert.False(fs.FileExists(first));
+		Assert.True(fs.FileExists(second));
+	}
+
+	[Fact]
 	public void GarbageCollect_DeletesUnreferenced_KeepsReferenced() {
 		var fs = new InMemoryFileSystem();
 		string dir = TempDir("scratch");

@@ -38,7 +38,7 @@ import {
 } from "./bridge";
 import { AcpRegistryModal } from "./chrome/AcpRegistryModal";
 import { ContextMenu, type ContextMenuEntry, type ContextMenuState } from "./chrome/ContextMenu";
-import { DeleteSessionDialog, type DeleteSessionState } from "./chrome/DeleteSessionDialog";
+import { DeleteSessionDialog } from "./chrome/DeleteSessionDialog";
 import { DiffAgainstPrompt } from "./chrome/DiffAgainstPrompt";
 import { EditorFooter } from "./chrome/EditorFooter";
 import { gitStatus } from "./chrome/git-status-store";
@@ -67,6 +67,7 @@ import {
   stepSearchResult,
   toggleSearchOption,
 } from "./chrome/search-store";
+import { createSessionDeleteController } from "./chrome/session-delete-controller";
 // Top-level import keeps the session store out of any hot-swapping component so the rail + selected-session
 // status survive HMR.
 import {
@@ -665,6 +666,10 @@ export default function App(): JSX.Element {
     promptScratchName,
     promptRevision,
   });
+  const sessionDelete = createSessionDeleteController({
+    editor,
+    onError: (message) => addToast("warn", message),
+  });
   createEffect(() => {
     setContext("navigationBackAvailable", editor.nav.canBack());
     setContext("navigationForwardAvailable", editor.nav.canForward());
@@ -1054,21 +1059,8 @@ export default function App(): JSX.Element {
     setContext("sessionStepAvailable", stepRailTarget(stepSessionCandidates(), 1) !== null),
   );
 
-  // A pending session delete, opened once weavie.session.delete (classify mode) returns the worktree state and
-  // DeleteSessionDialog raises the matching confirm (clean / untracked / modified). `backendId` is the owning
-  // host, so a remote session deleted from the cloud panel routes its classify + delete back to it.
-  const [deleteReq, setDeleteReq] = createSignal<{
-    id: string;
-    label: string;
-    removesCheckout: boolean;
-    state: DeleteSessionState;
-    branchless: boolean;
-    changedFiles: string[];
-    changedCount: number;
-    backendId: string;
-  } | null>(null);
-  // Interactive delete (rail menu / cloud panel / palette): no args targets the selected session. Classify the
-  // OWNING backend's worktree (weavie.session.delete with classify) to open the dialog at the right escalation.
+  // Interactive delete (rail menu / cloud panel / palette): no args targets the selected session. The controller
+  // keeps the exact owning backend and revision-bound host preview through save/discard/confirm.
   const promptDeleteSession = async (args: unknown): Promise<void> => {
     const a = args as { id?: string; backendId?: string } | undefined;
     const active = sessions().find((s) => s.active);
@@ -1077,53 +1069,7 @@ export default function App(): JSX.Element {
     if (id === undefined) {
       return;
     }
-    const result = await dispatchCommand(CommandIds.deleteSession, {
-      id,
-      backendId,
-      classify: true,
-    });
-    if (!result.ok) {
-      addToast("warn", result.error ?? "Couldn't check the session for changes.");
-      return;
-    }
-    const info = result.data as
-      | {
-          state?: DeleteSessionState;
-          label?: string;
-          removesCheckout?: boolean;
-          branchless?: boolean;
-          changedFiles: string[];
-          changedCount: number;
-        }
-      | undefined;
-    const changedFiles = info?.changedFiles ?? [];
-    setDeleteReq({
-      id,
-      label: info?.label ?? id,
-      removesCheckout: info?.removesCheckout === true,
-      state: info?.state ?? "clean",
-      branchless: info?.branchless === true,
-      changedFiles,
-      changedCount: info?.changedCount ?? changedFiles.length,
-      backendId,
-    });
-  };
-  const confirmDeleteSession = async (): Promise<void> => {
-    const req = deleteReq();
-    if (req === null) {
-      return;
-    }
-    setDeleteReq(null);
-    // A dirty worktree (untracked or modified) needs force, or git refuses the removal; so does a branchless
-    // one, whose commits the removal discards.
-    const result = await dispatchCommand(CommandIds.deleteSession, {
-      id: req.id,
-      backendId: req.backendId,
-      force: req.state !== "clean" || req.branchless,
-    });
-    if (!result.ok) {
-      addToast("warn", result.error ?? "Couldn't delete the session.");
-    }
+    await sessionDelete.open(id, backendId);
   };
 
   // Persist the layout after a user gesture (debounced). Skipped until the host's initial layout push, so we
@@ -1845,8 +1791,8 @@ export default function App(): JSX.Element {
         void openSession(target);
         return true;
       }),
-      // Interactive delete (rail menu / palette): opens the confirm dialog after the host classifies the
-      // worktree. The raw delete (weavie.session.delete) is the programmatic/MCP path.
+      // Interactive delete (rail menu / palette): opens the host's exact loss preview. The raw delete
+      // (weavie.session.delete) is the programmatic/MCP path.
       registerCommand(CommandIds.deleteSessionPrompt, promptDeleteSession),
       // Disconnect a remote agent (rail right-click): close its bridge + forget it (the registry is
       // client-side). Declines a missing/blank name.
@@ -2239,15 +2185,6 @@ export default function App(): JSX.Element {
           onCancel={() => setUrlPromptOpen(false)}
         />
       </Show>
-      <Show when={scratchNameReq()}>
-        {(req) => (
-          <SaveAsPrompt
-            suggestedName={req().suggestedName}
-            onSave={(name) => settleScratchName(name)}
-            onCancel={() => settleScratchName(null)}
-          />
-        )}
-      </Show>
       <Show when={reviseReq()}>
         {(req) => (
           <RevisePrompt
@@ -2257,17 +2194,30 @@ export default function App(): JSX.Element {
           />
         )}
       </Show>
-      <Show when={deleteReq()}>
+      <Show when={scratchNameReq() === null ? sessionDelete.request() : null}>
         {(req) => (
           <DeleteSessionDialog
+            revision={req().revision}
             label={req().label}
             removesCheckout={req().removesCheckout}
-            state={req().state}
-            branchless={req().branchless}
-            changedFiles={req().changedFiles}
-            changedCount={req().changedCount}
-            onConfirm={confirmDeleteSession}
-            onCancel={() => setDeleteReq(null)}
+            state={req().worktree.state}
+            branchless={req().worktree.branchless}
+            changedFiles={req().worktree.changedFiles}
+            changedCount={req().worktree.changedCount}
+            drafts={req().drafts}
+            busy={req().busy}
+            onConfirm={() => void sessionDelete.confirm()}
+            onSave={() => void sessionDelete.saveDrafts()}
+            onCancel={sessionDelete.cancel}
+          />
+        )}
+      </Show>
+      <Show when={scratchNameReq()}>
+        {(req) => (
+          <SaveAsPrompt
+            suggestedName={req().suggestedName}
+            onSave={(name) => settleScratchName(name)}
+            onCancel={() => settleScratchName(null)}
           />
         )}
       </Show>

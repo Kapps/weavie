@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using Weavie.Core.FileSystem;
 
 namespace Weavie.Core.Editor;
@@ -48,7 +50,10 @@ public sealed class ScratchStore {
 	}
 
 	/// <summary>True when <paramref name="path"/> resolves inside this store's scratch directory.</summary>
-	public bool Owns(string path) => PathBoundary.Contains(Directory, path);
+	public bool Owns(string path) => PathBoundary.Contains(
+		Directory,
+		path,
+		OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
 
 	/// <summary>Deletes a scratch file. Refuses paths outside the directory; a missing file is a no-op. Returns whether it deleted.</summary>
 	public bool Delete(string path) {
@@ -58,6 +63,42 @@ public sealed class ScratchStore {
 
 		_fileSystem.DeleteFile(path);
 		return true;
+	}
+
+	/// <summary>Inspects every scratch entry referenced by <paramref name="session"/>, failing on invalid state.</summary>
+	public IReadOnlyList<ScratchFileSnapshot> Inspect(EditorSession session) {
+		ArgumentNullException.ThrowIfNull(session);
+		var snapshots = new List<ScratchFileSnapshot>();
+		foreach (var entry in session.Open.Where(entry => entry.Scratch)) {
+			if (!Owns(entry.Path)) {
+				throw new InvalidDataException($"Scratch entry '{entry.Path}' is outside its owning store.");
+			}
+			if (!_fileSystem.FileExists(entry.Path)) {
+				throw new FileNotFoundException($"Scratch entry '{entry.Path}' does not exist.", entry.Path);
+			}
+
+			string content = _fileSystem.ReadAllText(entry.Path);
+			if (content.Length == 0) {
+				continue;
+			}
+			snapshots.Add(new ScratchFileSnapshot(
+				entry.Path,
+				Path.GetFileName(entry.Path),
+				Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(content)))));
+		}
+
+		return snapshots.OrderBy(snapshot => snapshot.Path, StringComparer.Ordinal).ToArray();
+	}
+
+	/// <summary>Deletes exactly the scratch entries referenced by <paramref name="session"/>.</summary>
+	public void DeleteReferenced(EditorSession session) {
+		ArgumentNullException.ThrowIfNull(session);
+		foreach (var entry in session.Open.Where(entry => entry.Scratch)) {
+			if (!Owns(entry.Path)) {
+				throw new InvalidDataException($"Scratch entry '{entry.Path}' is outside its owning store.");
+			}
+			Delete(entry.Path);
+		}
 	}
 
 	/// <summary>
@@ -94,3 +135,6 @@ public sealed class ScratchStore {
 		}
 	}
 }
+
+/// <summary>An exact non-empty scratch file snapshot used by destructive-operation admission.</summary>
+public sealed record ScratchFileSnapshot(string Path, string Name, string ContentHash);

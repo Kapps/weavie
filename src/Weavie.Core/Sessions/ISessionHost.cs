@@ -67,22 +67,13 @@ public interface ISessionHost {
 		CommandInvocationContext context,
 		CancellationToken ct = default);
 
-	/// <summary>
-	/// Deletes the session named by the required <paramref name="sessionId"/>: removes its git worktree but keeps
-	/// the branch. Refuses when the worktree has uncommitted changes unless <paramref name="force"/>. A blank id is
-	/// rejected — it must never fall back to the focused session, which may not be the caller's own (issue #217).
-	/// </summary>
-	Task<CommandResult> DeleteSessionAsync(
+	/// <summary>Returns the exact current loss set and revision required to confirm a session deletion.</summary>
+	Task<CommandResult> PreviewDeleteSessionAsync(string? sessionId, CancellationToken ct = default);
+
+	/// <summary>Deletes a session only when <paramref name="confirmation"/> still matches its exact loss set.</summary>
+	Task<CommandResult> ConfirmDeleteSessionAsync(
 		string? sessionId,
-		bool force,
+		DeleteSessionConfirmation confirmation,
 		CommandInvocationContext context,
 		CancellationToken ct = default);
-
-	/// <summary>
-	/// Classifies a session's worktree for the delete confirm without deleting anything: the result's
-	/// <see cref="CommandResult.DataJson"/> carries <c>{ state, label }</c> where <c>state</c> is
-	/// <c>clean</c>/<c>untracked</c>/<c>modified</c>, so the UI can escalate the confirmation. The interactive
-	/// delete classifies first, then deletes with <c>force</c> on confirm.
-	/// </summary>
-	Task<CommandResult> ClassifyDeleteAsync(string? sessionId, CancellationToken ct = default);
 }

@@ -68,7 +68,10 @@ receives the message, and it cannot invalidate work after admission.
 
 The one durable view interaction is teardown: unload/delete asks the exact attached editor view to
 save dirty models and return its final session snapshot. If no view is attached, the host-owned state
-is already sufficient. A save failure leaves the session live.
+is already sufficient. A save failure leaves the session live. Delete is a two-phase host admission:
+preview hashes the exact persisted scratch and Git loss set, while confirm repeats the flush and inspection
+under the lifecycle lane and accepts only the issued revision plus independent loss consent. Self-delete repeats
+that validation in its after-reply callback before destroying the message-bus owner.
 
 ## Execution
 

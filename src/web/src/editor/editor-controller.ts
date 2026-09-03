@@ -46,6 +46,7 @@ import {
   type ReviewPresentationMode,
 } from "./review/review-store";
 import type { ReviseMarks, ReviseRegion } from "./revise-marks";
+import { type ScratchSaveReply, saveStableScratch } from "./scratch-save-guard";
 import {
   type ActivateResult,
   activateTabFor,
@@ -173,6 +174,8 @@ export interface EditorController {
   newFile(): void;
   /** Save the active editor: a scratch buffer prompts for a name; a real file is already autosaved. */
   save(): boolean;
+  /** Saves one exact scratch buffer through its owning session, for normal Save and destructive preflights. */
+  saveScratchFor(session: ClientSession, path: string): Promise<ScratchSaveOutcome>;
   /**
    * Flushes every dirty working copy to the active backend and resolves once they land — called before a
    * cross-backend session switch so edits persist on their own host. Resolves immediately when unmounted.
@@ -222,6 +225,11 @@ export interface EditorController {
   readonly symbols: SymbolActions;
   dispose(): void;
 }
+
+export type ScratchSaveOutcome =
+  | { status: "saved"; savedPath: string }
+  | { status: "cancelled" }
+  | { status: "failed"; error: string };
 
 export function createEditorController(deps: EditorControllerDeps): EditorController {
   // host + inlineDiff are set once the editor chunk loads and the editor is created (see start).
@@ -560,7 +568,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     if (entry?.scratch !== true) {
       return false;
     }
-    return (host?.contentOf(session, path) ?? "").trim().length > 0;
+    return (host?.contentOf(session, path) ?? "").length > 0;
   };
 
   // The one guard every close path runs through: if any doomed tab is an unsaved scratch, confirm once before
@@ -1550,20 +1558,94 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     });
   });
 
-  interface ScratchSaveResult {
-    scratchPath: string;
-    savedPath: string;
-  }
-
-  const applyScratchSave = (session: ClientSession, result: ScratchSaveResult): void => {
-    if (result.savedPath === "") {
-      return;
+  const applyScratchSave = (
+    session: ClientSession,
+    path: string,
+    result: ScratchSaveReply,
+  ): ScratchSaveOutcome => {
+    if (result.scratchPath !== path) {
+      return { status: "failed", error: "The host replied for a different scratch file." };
+    }
+    if (result.status === "cancelled") {
+      return { status: "cancelled" };
+    }
+    if (result.status === "failed") {
+      return { status: "failed", error: result.error ?? "The scratch file could not be saved." };
+    }
+    if (result.status !== "saved" || result.savedPath === null || result.savedPath.length === 0) {
+      return { status: "failed", error: "The host returned an invalid scratch-save result." };
     }
     const activation = convertScratchFor(session, result.scratchPath, result.savedPath);
-    if (activation !== null) {
-      void applyActive(session, activation);
+    if (activation === null) {
+      return {
+        status: "failed",
+        error: `The scratch tab changed while saving. A copy was saved to ${result.savedPath}.`,
+      };
     }
+    void applyActive(session, activation);
     host?.closeFile(session, result.scratchPath, true);
+    return { status: "saved", savedPath: result.savedPath };
+  };
+
+  const changedDuringScratchSave = (savedPath: string | null): ScratchSaveOutcome => ({
+    status: "failed",
+    error:
+      savedPath === null
+        ? "The draft changed while preparing to save and remains open. Save it again."
+        : `The draft changed while saving. A copy was saved to ${savedPath}, and the newer draft remains open. Save it again.`,
+  });
+
+  const saveScratchFor = async (
+    session: ClientSession,
+    path: string,
+  ): Promise<ScratchSaveOutcome> => {
+    const entry = openTabsFor(session).find((tab) => tab.path === path);
+    if (entry?.scratch !== true) {
+      return { status: "failed", error: `${basename(path)} is not an open scratch file.` };
+    }
+    if (host === undefined) {
+      return { status: "failed", error: "The editor is not ready." };
+    }
+    const editorHost = host;
+
+    try {
+      if (isBrowserHostedShell() || !session.connection.isLocal) {
+        const name = await deps.promptScratchName(basename(path));
+        if (name === null) {
+          return { status: "cancelled" };
+        }
+        const guarded = await saveStableScratch(
+          () => editorHost.versionOf(session, path),
+          () => editorHost.flush(session, path),
+          () =>
+            session
+              .feature("editor")
+              .request<ScratchSaveReply, { path: string; name: string }>("saveScratchNamed", {
+                path,
+                name,
+              }),
+        );
+        return guarded.status === "changed"
+          ? changedDuringScratchSave(guarded.savedPath)
+          : applyScratchSave(session, path, guarded.reply);
+      }
+      const guarded = await saveStableScratch(
+        () => editorHost.versionOf(session, path),
+        () => editorHost.flush(session, path),
+        () =>
+          session
+            .feature("editor")
+            .request<ScratchSaveReply, { path: string; suggestedName: string }>("saveScratchAs", {
+              path,
+              suggestedName: basename(path),
+            }),
+      );
+      return guarded.status === "changed"
+        ? changedDuringScratchSave(guarded.savedPath)
+        : applyScratchSave(session, path, guarded.reply);
+    } catch (error) {
+      return { status: "failed", error: error instanceof Error ? error.message : String(error) };
+    }
   };
 
   // Ask the host to create a scratch buffer; it comes back as an open-file with `scratch: true`.
@@ -1571,8 +1653,8 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     selectedSession()?.feature("editor").publish("newScratch", {});
   };
 
-  // Save the active editor. A scratch buffer is sent to the host for a save-as dialog (autosave cancelled first
-  // so nothing re-creates the temp); a real file is already autosaved. Returns true either way.
+  // Save the active editor. A scratch buffer is flushed and version-guarded through Save As; a real file is
+  // already autosaved. Returns true either way.
   const save = (): boolean => {
     const session = selectedSession();
     const path = activePath();
@@ -1581,42 +1663,11 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     }
     const entry = openTabsFor(session).find((tab) => tab.path === path);
     if (entry?.scratch === true) {
-      // Only the native shell bound to its own local backend has a native Save-As dialog (save-scratch-as);
-      // otherwise prompt in-app for a name and send it for the host to resolve under the workspace.
-      if (isBrowserHostedShell() || !session.connection.isLocal) {
-        void deps.promptScratchName(basename(path)).then((name) => {
-          if (name === null) {
-            return;
-          }
-          host?.cancelSave(session, path);
-          void session
-            .feature("editor")
-            .request<ScratchSaveResult, { path: string; content: string; name: string }>(
-              "saveScratchNamed",
-              {
-                path,
-                content: host?.contentOf(session, path) ?? "",
-                name,
-              },
-            )
-            .then((result) => applyScratchSave(session, result))
-            .catch((error: unknown) => session.connection.reportError(error));
-        });
-      } else {
-        host?.cancelSave(session, path);
-        void session
-          .feature("editor")
-          .request<ScratchSaveResult, { path: string; content: string; suggestedName: string }>(
-            "saveScratchAs",
-            {
-              path,
-              content: host?.contentOf(session, path) ?? "",
-              suggestedName: basename(path),
-            },
-          )
-          .then((result) => applyScratchSave(session, result))
-          .catch((error: unknown) => session.connection.reportError(error));
-      }
+      void saveScratchFor(session, path).then((result) => {
+        if (result.status === "failed") {
+          deps.onSaveError(result.error);
+        }
+      });
     }
     return true;
   };
@@ -1693,6 +1744,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     },
     newFile,
     save,
+    saveScratchFor,
     flushDirty: () => host?.flushDirty() ?? Promise.resolve(),
     flushSession: (session) => host?.flushSession(session) ?? Promise.resolve(),
     openReview: (session, path, line) => {

@@ -1,4 +1,4 @@
-import { createSignal, For, type JSX, Show } from "solid-js";
+import { createEffect, createSignal, For, type JSX, Show } from "solid-js";
 import { type DeleteSessionState, needsAcknowledgement } from "./delete-session-confirm";
 import { ModalShell, modalSubmitKeys } from "./ModalShell";
 
@@ -9,6 +9,7 @@ export type { DeleteSessionState };
  * workspace's own checkout removes only the session. Enter confirms when allowed and Esc cancels.
  */
 export function DeleteSessionDialog(props: {
+  revision: string;
   label: string;
   removesCheckout: boolean;
   state: DeleteSessionState;
@@ -17,17 +18,35 @@ export function DeleteSessionDialog(props: {
   // The first few uncommitted paths a delete would discard, plus their total.
   changedFiles: string[];
   changedCount: number;
+  drafts: { path: string; name: string }[];
+  busy: boolean;
   onConfirm: () => void;
+  onSave: () => void;
   onCancel: () => void;
 }): JSX.Element {
   // untracked: armed by the first click, confirmed by the second. modified: gated on the acknowledgement box.
   const [armed, setArmed] = createSignal(false);
-  const [acknowledged, setAcknowledged] = createSignal(false);
+  const [worktreeAcknowledged, setWorktreeAcknowledged] = createSignal(false);
+  const [draftsAcknowledged, setDraftsAcknowledged] = createSignal(false);
 
-  const gated = (): boolean => needsAcknowledgement(props.state, props.branchless);
-  const canConfirm = (): boolean => !gated() || acknowledged();
+  createEffect(() => {
+    props.revision;
+    setArmed(false);
+    setWorktreeAcknowledged(false);
+    setDraftsAcknowledged(false);
+  });
+
+  const worktreeGated = (): boolean => needsAcknowledgement(props.state, props.branchless);
+  const draftsGated = (): boolean => props.drafts.length > 0;
+  const canConfirm = (): boolean =>
+    !props.busy &&
+    (!worktreeGated() || worktreeAcknowledged()) &&
+    (!draftsGated() || draftsAcknowledged());
 
   const confirm = (): void => {
+    if (props.busy) {
+      return;
+    }
     if (props.state === "untracked" && !armed()) {
       setArmed(true);
       return;
@@ -41,6 +60,9 @@ export function DeleteSessionDialog(props: {
   const confirmLabel = (): string => {
     if (props.state === "untracked") {
       return armed() ? "Confirm delete" : "Delete untracked files…";
+    }
+    if (props.drafts.length > 0) {
+      return "Discard drafts and delete";
     }
     return "Delete session";
   };
@@ -98,19 +120,29 @@ export function DeleteSessionDialog(props: {
             </Show>
           </ul>
         </Show>
+        <Show when={props.drafts.length > 0}>
+          <div class="confirm-warn">
+            The following <strong>unsaved files</strong> live outside the checkout and will be
+            permanently lost:
+          </div>
+          <ul class="confirm-file-list" data-testid="delete-session-drafts">
+            <For each={props.drafts}>{(draft) => <li>{draft.name}</li>}</For>
+          </ul>
+        </Show>
         <Show when={props.state === "untracked" && armed()}>
           <div class="confirm-warn">
             Click confirm to delete the worktree and its untracked files.
           </div>
         </Show>
-        <Show when={gated()}>
+        <Show when={worktreeGated()}>
           <label class="confirm-check">
             <input
               type="checkbox"
-              checked={acknowledged()}
-              onChange={(event) => setAcknowledged(event.currentTarget.checked)}
+              checked={worktreeAcknowledged()}
+              disabled={props.busy}
+              onChange={(event) => setWorktreeAcknowledged(event.currentTarget.checked)}
               ref={(el) => {
-                if (gated()) {
+                if (worktreeGated()) {
                   queueMicrotask(() => el.focus());
                 }
               }}
@@ -122,17 +154,48 @@ export function DeleteSessionDialog(props: {
             </span>
           </label>
         </Show>
+        <Show when={draftsGated()}>
+          <label class="confirm-check">
+            <input
+              type="checkbox"
+              checked={draftsAcknowledged()}
+              disabled={props.busy}
+              onChange={(event) => setDraftsAcknowledged(event.currentTarget.checked)}
+              ref={(el) => {
+                if (!worktreeGated()) {
+                  queueMicrotask(() => el.focus());
+                }
+              }}
+            />
+            <span>I understand the listed unsaved files will be discarded</span>
+          </label>
+        </Show>
       </div>
       <div class="confirm-actions">
-        <button type="button" class="confirm-btn" onClick={() => props.onCancel()}>
+        <button
+          type="button"
+          class="confirm-btn"
+          disabled={props.busy}
+          onClick={() => props.onCancel()}
+        >
           Cancel
         </button>
+        <Show when={props.drafts.length > 0}>
+          <button
+            type="button"
+            class="confirm-btn"
+            disabled={props.busy}
+            onClick={() => props.onSave()}
+          >
+            {props.drafts.length === 1 ? "Save file…" : "Save files…"}
+          </button>
+        </Show>
         <button
           type="button"
           class="confirm-btn confirm-btn-danger"
           disabled={!canConfirm()}
           ref={(el) => {
-            if (!gated()) {
+            if (!worktreeGated() && !draftsGated()) {
               queueMicrotask(() => el.focus());
             }
           }}

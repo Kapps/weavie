@@ -73,8 +73,8 @@ export interface EditorHost {
   closeFile(session: ClientSession, path: string, discard?: boolean): void;
   /** The current text of an open file's working copy (for a scratch save / discard check), or undefined. */
   contentOf(session: ClientSession, path: string): string | undefined;
-  /** Cancels a file's pending debounced save (so no autosave fires while a scratch save dialog is open). */
-  cancelSave(session: ClientSession, path: string): void;
+  /** The exact working-copy version, used to refuse a scratch conversion if it changes while saving. */
+  versionOf(session: ClientSession, path: string): number | undefined;
   /**
    * Flushes a file's pending debounced save and resolves once it lands, so a host action that reads the file
    * next (a per-hunk revert's guard) sees current content. No-op when not dirty.
@@ -578,6 +578,11 @@ export async function createEditorHost(
     return refs.get(key)?.object.textEditorModel.getValue();
   };
 
+  const versionOf = (session: ClientSession, path: string): number | undefined => {
+    const key = sessionFileUri(session, path).toString();
+    return refs.get(key)?.object.textEditorModel.getVersionId();
+  };
+
   // Flush a file's pending save and await it landing on disk. Used before a per-hunk revert so the host's
   // optimistic-concurrency guard reads current content, not a version the debounce hasn't written. No-op when clean.
   const flush = async (session: ClientSession, path: string): Promise<void> => {
@@ -588,12 +593,6 @@ export async function createEditorHost(
       return;
     }
     await textFileService.save(uri, { ignoreModifiedSince: true, ignoreErrorHandler: true });
-  };
-
-  // Cancel a file's pending debounced save. Called before opening the native scratch save dialog so an
-  // in-flight autosave can't re-create the temp file after the host has saved + deleted it.
-  const cancelSave = (session: ClientSession, path: string): void => {
-    cancelPendingSave(sessionFileUri(session, path).toString());
   };
 
   // Working copies held for the unified review's per-file editors, on references independent of the tabs'.
@@ -878,7 +877,7 @@ export async function createEditorHost(
     closeFile,
     reconcileSession,
     contentOf,
-    cancelSave,
+    versionOf,
     flush,
     flushDirty,
     flushSession: (session) => flushDirtyFor(session),

@@ -404,12 +404,22 @@ internal sealed class TestHost : IAsyncDisposable {
 		return result;
 	}
 
-	/// <summary>Deletes or classifies one exact slot through the selected session's command dispatcher.</summary>
-	public Task<CommandResult> DeleteSessionAsync(string slot, bool force, bool classify) =>
-		InvokeCommandAsync(
+	/// <summary>Previews one exact slot through the selected session's command dispatcher.</summary>
+	public Task<CommandResult> PreviewDeleteSessionAsync(string slot) => InvokeCommandAsync(
+		_selectedSlot,
+		SessionCommands.DeleteSession,
+		new { id = slot, operation = "preview" },
+		CancellationToken.None);
+
+	/// <summary>Confirms one exact preview through the selected session's command dispatcher.</summary>
+	public Task<CommandResult> ConfirmDeleteSessionAsync(
+		string slot,
+		string revision,
+		bool forceWorktree,
+		bool discardDrafts) => InvokeCommandAsync(
 			_selectedSlot,
 			SessionCommands.DeleteSession,
-			new { id = slot, force, classify },
+			new { id = slot, operation = "confirm", revision, forceWorktree, discardDrafts },
 			CancellationToken.None);
 
 	/// <summary>Performs the host hello and session sync sequence used by a real client connection.</summary>

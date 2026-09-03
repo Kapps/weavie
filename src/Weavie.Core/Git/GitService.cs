@@ -17,7 +17,13 @@ public sealed partial class GitService : IGitService {
 	// `.git/index.lock`, so this background/footer probe can never collide with a concurrent `git diff` or
 	// `git add` on the same repo (the index-lock race behind the diff-against CI flakes).
 	private static readonly string[] PorcelainStatusArgs = ["--no-optional-locks", "status", "--porcelain"];
-	private static readonly string[] PorcelainStatusZArgs = ["--no-optional-locks", "status", "--porcelain", "-z"];
+	private static readonly string[] PorcelainStatusZArgs = [
+		"--no-optional-locks",
+		"status",
+		"--porcelain",
+		"--untracked-files=all",
+		"-z",
+	];
 
 	/// <inheritdoc/>
 	public async Task<bool> IsRepositoryAsync(string directory, CancellationToken ct = default) {
@@ -302,7 +308,11 @@ public sealed partial class GitService : IGitService {
 		// -z NUL-separates entries and drops C-style path quoting. A rename/copy is followed by its bare source
 		// path, which is consumed with the status record rather than surfaced as a second changed file.
 		var result = await RunCheckedAsync(worktreeDirectory, PorcelainStatusZArgs, ct).ConfigureAwait(false);
-		string[] entries = result.StdOut.Split('\0', StringSplitOptions.RemoveEmptyEntries);
+		return ParseChangeState(result.StdOut);
+	}
+
+	private static WorktreeChangeStatus ParseChangeState(string porcelain) {
+		string[] entries = porcelain.Split('\0', StringSplitOptions.RemoveEmptyEntries);
 		var tracked = new List<string>();
 		var untracked = new List<string>();
 		for (int i = 0; i < entries.Length; i++) {

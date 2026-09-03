@@ -24,7 +24,7 @@ import { notify } from "../notify/notify";
 import { CommandIds, type CommandInfo, type CommandResult, type ResolvedKeybinding } from "./types";
 
 // Session-lifecycle commands the user waits on the session to answer: while one is in flight, the session's
-// chip shows a spinner (session-store's pending set). The delete's classify probe is excluded — it's a quick
+// chip shows a spinner (session-store's pending set). The delete's preview is excluded — it's a quick
 // read with no mutation, so it shouldn't flash a spinner.
 const SESSION_LIFECYCLE = new Set<string>([
   CommandIds.loadSession,
@@ -299,7 +299,7 @@ async function routeCoreCommand(
   args: unknown,
   catalogBackendId: string,
 ): Promise<CommandResult> {
-  const fields = args as { backendId?: unknown; id?: unknown; classify?: unknown } | undefined;
+  const fields = args as { backendId?: unknown; id?: unknown; operation?: unknown } | undefined;
   const backendId = fields?.backendId;
   const target =
     command.owner === "client"
@@ -329,8 +329,9 @@ async function routeCoreCommand(
     }
     return result;
   };
-  // A session-lifecycle op (not the delete's classify probe) flags its session as pending until it settles.
-  if (SESSION_LIFECYCLE.has(command.id) && trackedId !== undefined && fields?.classify !== true) {
+  // A mutating session-lifecycle op (not the delete preview) flags its session as pending until it settles.
+  const deletePreview = command.id === CommandIds.deleteSession && fields?.operation === "preview";
+  if (SESSION_LIFECYCLE.has(command.id) && trackedId !== undefined && !deletePreview) {
     return trackSessionCommand(target, trackedId, run);
   }
   return run();

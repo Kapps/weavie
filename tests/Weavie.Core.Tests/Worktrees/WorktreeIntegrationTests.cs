@@ -99,6 +99,40 @@ public sealed class WorktreeIntegrationTests : IDisposable {
 	}
 
 	[Fact]
+	public async Task DeletionSnapshotHashesNestedUntrackedContentExactly() {
+		var record = await NewManager().CreateAsync("delete-snapshot", "main", "acp");
+		string directory = Path.Combine(record.Path, "notes");
+		Directory.CreateDirectory(directory);
+		string file = Path.Combine(directory, "draft.bin");
+		File.WriteAllBytes(file, [0, 1, 2, 3]);
+
+		var first = await _git.GetDeletionSnapshotAsync(record.Path);
+		File.WriteAllBytes(file, [0, 1, 2, 4]);
+		var second = await _git.GetDeletionSnapshotAsync(record.Path);
+
+		Assert.Equal(["notes/draft.bin"], first.Changes.UntrackedFiles);
+		Assert.NotEqual(first.Fingerprint, second.Fingerprint);
+	}
+
+	[Fact]
+	public async Task DeletionSnapshotHashesADanglingUntrackedSymlink() {
+		if (OperatingSystem.IsWindows()) {
+			return;
+		}
+
+		var record = await NewManager().CreateAsync("delete-symlink", "main", "acp");
+		string link = Path.Combine(record.Path, "draft-link");
+		File.CreateSymbolicLink(link, "missing-first");
+		var first = await _git.GetDeletionSnapshotAsync(record.Path);
+		File.Delete(link);
+		File.CreateSymbolicLink(link, "missing-second");
+		var second = await _git.GetDeletionSnapshotAsync(record.Path);
+
+		Assert.Equal(["draft-link"], first.Changes.UntrackedFiles);
+		Assert.NotEqual(first.Fingerprint, second.Fingerprint);
+	}
+
+	[Fact]
 	public async Task GetChangeState_ListsStagedAddDeleteAndRenamePaths() {
 		File.WriteAllText(Path.Combine(_repo, "delete-me.txt"), "delete\n");
 		File.WriteAllText(Path.Combine(_repo, "rename-me.txt"), "rename\n");

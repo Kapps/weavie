@@ -118,14 +118,22 @@ public sealed partial class HostCore {
 	}
 
 	/// <summary>Applies editor state sent through its owning session bus.</summary>
-	private void HandleEditorSessionChanged(HostSession target, JsonElement sessionElement) {
-		if (!EditorSessionSerialization.TryDeserialize(sessionElement.GetRawText(), out var session, out string? error)
+	private bool TryHandleEditorSessionChanged(
+		HostSession target,
+		JsonElement sessionElement,
+		out string? error) {
+		if (!EditorSessionSerialization.TryDeserialize(
+			sessionElement.GetRawText(),
+			out var session,
+			out string? deserializeError)
 			|| session is null) {
-			Log($"[bridge] invalid editor session for {target.SlotId}: {error}");
-			return;
+			error = deserializeError;
+			return false;
 		}
 
 		target.EditorSession = session;
+		error = null;
+		return true;
 	}
 
 	/// <summary>
@@ -723,76 +731,6 @@ public sealed partial class HostCore {
 	/// <summary>The vsix picker for the install-from-file theme command, or <c>null</c> when the host has no native dialogs.</summary>
 	private VsixFilePicker? VsixPicker =>
 		_platform.Dialogs is { } dialogs ? dialogs.PickVsixFileAsync : null;
-
-	/// <summary>
-	/// Saves a scratch (untitled) buffer under a real name via the native Save-As dialog, deletes the temp, and
-	/// replies <c>scratch-saved</c>. Replies cancelled when the host has no native dialog.
-	/// </summary>
-	private async Task<ScratchSaveResult> SaveScratchAsAsync(
-		HostSession session,
-		JsonElement root,
-		CancellationToken ct) {
-		string scratchPath = root.TryGetProperty("path", out var pEl) ? pEl.GetString() ?? string.Empty : string.Empty;
-		string content = root.TryGetProperty("content", out var cEl) ? cEl.GetString() ?? string.Empty : string.Empty;
-		string suggested = root.TryGetProperty("suggestedName", out var nEl) ? nEl.GetString() ?? "Untitled" : "Untitled";
-
-		try {
-			// Default the dialog to the owning session's worktree, so saving from a worktree session lands there.
-			string sessionRoot = Path.GetFullPath(session.WorkspaceRoot);
-			string? target = _platform.Dialogs is { } dialogs
-				? await dialogs.PickSaveAsPathAsync(suggested, sessionRoot, ct).ConfigureAwait(false)
-				: null;
-
-			if (string.IsNullOrEmpty(target)) {
-				return new ScratchSaveResult(scratchPath, string.Empty);
-			}
-
-			try {
-				session.FileSystem.WriteAllText(target, content);
-			} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-				Notify(session, "error", $"Couldn't save {Path.GetFileName(target)}: {ex.Message}");
-				return new ScratchSaveResult(scratchPath, string.Empty);
-			}
-
-			if (session.FileSystem.TryGetStat(target, out var revision)) {
-				session.FileActivity.ReportChanged(target, revision);
-			}
-			session.Scratch.Delete(scratchPath);
-			return new ScratchSaveResult(scratchPath, target);
-		} catch (Exception ex) {
-			Notify(session, "error", $"Couldn't save the file: {ex.Message}");
-			return new ScratchSaveResult(scratchPath, string.Empty);
-		}
-	}
-
-	/// <summary>
-	/// Saves a scratch buffer under an in-app-chosen <c>name</c> (browser-served host, no native dialog),
-	/// resolved against the owning session's worktree, then deletes the temp and replies <c>scratch-saved</c>.
-	/// </summary>
-	private ScratchSaveResult SaveScratchNamed(HostSession session, JsonElement root) {
-		string scratchPath = root.GetStringOrEmpty("path");
-		string name = root.GetStringOrEmpty("name").Trim();
-		if (name.Length == 0) {
-			return new ScratchSaveResult(scratchPath, string.Empty);
-		}
-
-		string content = root.GetStringOrEmpty("content");
-		string target = Path.GetFullPath(Path.Combine(Path.GetFullPath(session.WorkspaceRoot), name));
-		try {
-			session.FileSystem.WriteAllText(target, content);
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			Notify(session, "error", $"Couldn't save {Path.GetFileName(target)}: {ex.Message}");
-			return new ScratchSaveResult(scratchPath, string.Empty);
-		}
-
-		if (session.FileSystem.TryGetStat(target, out var revision)) {
-			session.FileActivity.ReportChanged(target, revision);
-		}
-		session.Scratch.Delete(scratchPath);
-		return new ScratchSaveResult(scratchPath, target);
-	}
-
-	private sealed record ScratchSaveResult(string ScratchPath, string SavedPath);
 
 	/// <summary>Encodes a string as a JSON string literal (trim-safe; no reflection).</summary>
 	private static string JsonString(string value) => "\"" + JsonEncodedText.Encode(value) + "\"";

@@ -35,7 +35,9 @@ public sealed partial class HostCore {
 			"sessionChanged",
 			session.View.IsBound,
 			(message, _, _) => {
-				HandleEditorSessionChanged(session, message.Session);
+				if (!TryHandleEditorSessionChanged(session, message.Session, out string? error)) {
+					Log($"[bridge] invalid editor session for {session.SlotId}: {error}");
+				}
 				return Task.CompletedTask;
 			});
 		editor.Handle<EmptySessionMessage>("newScratch", (_, _) => {
@@ -268,15 +270,20 @@ public sealed partial class HostCore {
 			CancellationToken ct) =>
 			_core.UnloadSessionAsync(_source, TargetOrSource(sessionId), context, ct);
 
-		public Task<CommandResult> DeleteSessionAsync(
+		public Task<CommandResult> PreviewDeleteSessionAsync(string? sessionId, CancellationToken ct) =>
+			_core.PreviewDeleteSessionAsync(TargetOrSource(sessionId), ct);
+
+		public Task<CommandResult> ConfirmDeleteSessionAsync(
 			string? sessionId,
-			bool force,
+			DeleteSessionConfirmation confirmation,
 			CommandInvocationContext context,
 			CancellationToken ct) =>
-			_core.DeleteSessionAsync(_source, TargetOrSource(sessionId), force, context, ct);
-
-		public Task<CommandResult> ClassifyDeleteAsync(string? sessionId, CancellationToken ct) =>
-			_core.ClassifyDeleteAsync(TargetOrSource(sessionId), ct);
+			_core.ConfirmDeleteSessionAsync(
+				_source,
+				TargetOrSource(sessionId),
+				confirmation,
+				context,
+				ct);
 
 		private string TargetOrSource(string? sessionId) =>
 			string.IsNullOrWhiteSpace(sessionId) ? _source.SlotId : sessionId;

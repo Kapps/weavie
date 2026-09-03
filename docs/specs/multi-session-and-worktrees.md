@@ -95,13 +95,13 @@ Unloading:
 4. stops and reaps agent, terminal, LSP, watcher, MCP, and media resources;
 5. keeps the worktree and branch.
 
-Deleting first classifies tracked and untracked changes. A non-forced dirty delete fails before teardown.
-After confirmation it unloads the backend, removes the worktree the session sits on while keeping its branch —
-whoever created that worktree — removes the slot, and publishes the catalog. The workspace's own checkout is
-the one a delete keeps, since it is re-created rather than rediscovered. Git's own refusals are refusals here:
-the repository's main working tree and a locked worktree can't be removed, and a non-forced delete of a
-branchless checkout fails rather than orphaning its commits. An empty catalog is immediately seeded with a
-fresh session on the workspace checkout.
+Deleting first flushes the exact attached editor and previews a revision-bound snapshot of tracked, untracked,
+branch, commit, and non-empty scratch state. Confirmation must echo that revision and independently consent to
+worktree and scratch loss; changed state is refused before and immediately after teardown. An admitted delete
+unloads the backend, removes the worktree while keeping its branch, deletes only that session's referenced
+scratch files, removes the slot, and publishes the catalog. The workspace's own checkout is kept. Git's own
+refusals still apply: the repository's main working tree and a locked worktree cannot be removed. An empty
+catalog is immediately seeded with a fresh session on the workspace checkout.
 
 ## Client model
 

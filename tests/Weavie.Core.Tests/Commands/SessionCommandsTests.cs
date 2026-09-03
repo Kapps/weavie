@@ -183,40 +183,79 @@ public sealed class SessionCommandsTests {
 	}
 
 	[Fact]
-	public async Task Delete_ParsesId_AndForce() {
+	public async Task Delete_ConfirmParsesRevisionAndIndependentConsent() {
 		var (dispatcher, host) = NewWired();
 
-		await dispatcher.InvokeAsync(SessionCommands.DeleteSession, "{\"id\":\"abcd\",\"force\":true}", CancellationToken.None);
+		await dispatcher.InvokeAsync(
+			SessionCommands.DeleteSession,
+			"{\"operation\":\"confirm\",\"id\":\"abcd\",\"revision\":\"r1\",\"forceWorktree\":true,\"discardDrafts\":false}",
+			CancellationToken.None);
 
-		Assert.True(host.DeleteCalled);
+		Assert.True(host.ConfirmCalled);
 		Assert.Equal("abcd", host.LastDeletedId);
-		Assert.True(host.LastDeleteForce);
+		Assert.Equal(new DeleteSessionConfirmation {
+			Revision = "r1",
+			ForceWorktree = true,
+			DiscardDrafts = false,
+		}, host.LastConfirmation);
 	}
 
 	[Fact]
-	public async Task Delete_NoForce_DefaultsFalse_AndCoercesStringForce() {
-		var (dispatcher, host) = NewWired();
-
-		await dispatcher.InvokeAsync(SessionCommands.DeleteSession, "{\"id\":\"a\"}", CancellationToken.None);
-		Assert.False(host.LastDeleteForce);
-
-		// Embedded Claude sends scalars as JSON strings; "true" must coerce to a boolean.
-		await dispatcher.InvokeAsync(SessionCommands.DeleteSession, "{\"id\":\"a\",\"force\":\"true\"}", CancellationToken.None);
-		Assert.True(host.LastDeleteForce);
-	}
-
-	[Fact]
-	public async Task Delete_Classify_RoutesToClassify_NotDelete_AndReturnsPayload() {
+	public async Task Delete_ConfirmRequiresEveryConsentField() {
 		var (dispatcher, host) = NewWired();
 
 		var result = await dispatcher.InvokeAsync(
-			SessionCommands.DeleteSession, "{\"id\":\"abcd\",\"classify\":true}", CancellationToken.None);
+			SessionCommands.DeleteSession,
+			"{\"operation\":\"confirm\",\"id\":\"a\",\"revision\":\"r1\",\"forceWorktree\":false}",
+			CancellationToken.None);
 
-		Assert.True(host.ClassifyCalled);
-		Assert.Equal("abcd", host.LastClassifiedId);
-		Assert.False(host.DeleteCalled);
+		Assert.False(result.Ok);
+		Assert.Contains("discardDrafts", result.Error);
+		Assert.False(host.ConfirmCalled);
+	}
+
+	[Fact]
+	public async Task Delete_ConfirmRejectsStringConsentLookalikes() {
+		var (dispatcher, host) = NewWired();
+
+		var result = await dispatcher.InvokeAsync(
+			SessionCommands.DeleteSession,
+			"{\"operation\":\"confirm\",\"revision\":\"r1\",\"forceWorktree\":\"true\",\"discardDrafts\":false}",
+			CancellationToken.None);
+
+		Assert.False(result.Ok);
+		Assert.Contains("forceWorktree", result.Error);
+		Assert.False(host.ConfirmCalled);
+	}
+
+	[Theory]
+	[InlineData("{\"operation\":\"preview\",\"id\":\" \"}", "id")]
+	[InlineData("{\"operation\":\"confirm\",\"revision\":\"\",\"forceWorktree\":false,\"discardDrafts\":false}", "revision")]
+	public async Task Delete_RejectsBlankTargetAndRevision(string args, string field) {
+		var (dispatcher, host) = NewWired();
+
+		var result = await dispatcher.InvokeAsync(SessionCommands.DeleteSession, args, CancellationToken.None);
+
+		Assert.False(result.Ok);
+		Assert.Contains(field, result.Error);
+		Assert.False(host.PreviewCalled);
+		Assert.False(host.ConfirmCalled);
+	}
+
+	[Fact]
+	public async Task Delete_PreviewRoutesToPreviewAndReturnsPayload() {
+		var (dispatcher, host) = NewWired();
+
+		var result = await dispatcher.InvokeAsync(
+			SessionCommands.DeleteSession,
+			"{\"operation\":\"preview\",\"id\":\"abcd\"}",
+			CancellationToken.None);
+
+		Assert.True(host.PreviewCalled);
+		Assert.Equal("abcd", host.LastPreviewedId);
+		Assert.False(host.ConfirmCalled);
 		Assert.True(result.Ok);
-		Assert.Equal("{\"state\":\"clean\",\"label\":\"x\"}", result.DataJson);
+		Assert.Equal("{\"revision\":\"r1\"}", result.DataJson);
 	}
 
 	private static (CommandDispatcher Dispatcher, FakeSessionHost Host) NewWired() {
@@ -245,9 +284,9 @@ public sealed class SessionCommandsTests {
 
 		public string? LastDeletedId { get; private set; }
 
-		public bool LastDeleteForce { get; private set; }
+		public DeleteSessionConfirmation? LastConfirmation { get; private set; }
 
-		public bool DeleteCalled { get; private set; }
+		public bool ConfirmCalled { get; private set; }
 
 		public Task<CommandResult> NewSessionAsync(NewSessionRequest request, CancellationToken ct = default) {
 			LastNew = request;
@@ -278,25 +317,25 @@ public sealed class SessionCommandsTests {
 			return Task.FromResult(CommandResult.Success("unloaded"));
 		}
 
-		public Task<CommandResult> DeleteSessionAsync(
+		public Task<CommandResult> ConfirmDeleteSessionAsync(
 			string? sessionId,
-			bool force,
+			DeleteSessionConfirmation confirmation,
 			CommandInvocationContext context,
 			CancellationToken ct = default) {
-			DeleteCalled = true;
+			ConfirmCalled = true;
 			LastDeletedId = sessionId;
-			LastDeleteForce = force;
+			LastConfirmation = confirmation;
 			return Task.FromResult(CommandResult.Success("deleted"));
 		}
 
-		public bool ClassifyCalled { get; private set; }
+		public bool PreviewCalled { get; private set; }
 
-		public string? LastClassifiedId { get; private set; }
+		public string? LastPreviewedId { get; private set; }
 
-		public Task<CommandResult> ClassifyDeleteAsync(string? sessionId, CancellationToken ct = default) {
-			ClassifyCalled = true;
-			LastClassifiedId = sessionId;
-			return Task.FromResult(CommandResult.Success(null, "{\"state\":\"clean\",\"label\":\"x\"}"));
+		public Task<CommandResult> PreviewDeleteSessionAsync(string? sessionId, CancellationToken ct = default) {
+			PreviewCalled = true;
+			LastPreviewedId = sessionId;
+			return Task.FromResult(CommandResult.Success(null, "{\"revision\":\"r1\"}"));
 		}
 	}
 }

@@ -292,19 +292,19 @@ public static class SessionCommands {
 			Title = "Delete Session",
 			RunsIn = CommandLocation.Core,
 			Category = "Session",
-			Description = "Delete the invoking session, or the session named by 'id'. The git worktree it sits on is "
-				+ "removed but its branch is kept, whoever created that worktree; only the workspace's own checkout is "
-				+ "kept. Refuses the repository's main checkout and a locked worktree outright, and refuses a worktree "
-				+ "with uncommitted changes or no branch unless 'force' is true. With "
-				+ "'classify' true it deletes nothing and instead returns the worktree's state (clean/untracked/modified) "
-				+ "for a confirm prompt. This is the programmatic entry (for agents); the interactive UI uses "
-				+ "'Delete Session…' (weavie.session.deletePrompt).",
+			Description = "Preview or confirm deletion of the invoking session, or the session named by 'id'. Preview "
+				+ "returns an exact revision plus its worktree and unsaved-draft risks. Confirm must echo that revision and "
+				+ "separate forceWorktree/discardDrafts decisions; changed state is refused without tearing anything down. "
+				+ "The worktree branch is kept, and the workspace's own checkout is never removed. This is the programmatic "
+				+ "entry (for agents); the interactive UI uses 'Delete Session…' (weavie.session.deletePrompt).",
 			Aliases = ["delete session", "remove session", "delete worktree", "remove worktree", "discard session"],
 			// The human-facing entry is the guarded prompt (DeleteSessionPrompt); the raw delete stays reachable by Claude.
 			ShowInPalette = false,
-			ArgsSchemaJson = "{\"id\":{\"type\":\"string\",\"description\":\"Session id to delete; omit for the invoking session\"},"
-				+ "\"force\":{\"type\":\"boolean\",\"description\":\"Delete even if the worktree has uncommitted changes\"},"
-				+ "\"classify\":{\"type\":\"boolean\",\"description\":\"Don't delete; return the worktree state {state,label} for a confirm prompt\"}}",
+			ArgsSchemaJson = "{\"operation\":{\"type\":\"string\",\"enum\":[\"preview\",\"confirm\"]},"
+				+ "\"id\":{\"type\":\"string\",\"description\":\"Session id; omit for the invoking session\"},"
+				+ "\"revision\":{\"type\":\"string\",\"description\":\"Required preview revision for confirm\"},"
+				+ "\"forceWorktree\":{\"type\":\"boolean\",\"description\":\"Consent to current worktree risk\"},"
+				+ "\"discardDrafts\":{\"type\":\"boolean\",\"description\":\"Consent to discard previewed untitled drafts\"}}",
 		});
 
 		registry.Register(new CommandDefinition {
@@ -312,8 +312,8 @@ public static class SessionCommands {
 			Title = "Delete Session…",
 			RunsIn = CommandLocation.Web,
 			Category = "Session",
-			Description = "Open the delete confirmation for a session ('id', or the selected session): it classifies the "
-				+ "worktree and escalates the confirm when there are untracked files or uncommitted changes. The "
+			Description = "Open the delete confirmation for a session ('id', or the selected session): it previews the "
+				+ "worktree and unsaved drafts, then requires explicit consent for every current loss. The "
 				+ "interactive counterpart of weavie.session.delete.",
 			Aliases = ["delete session", "remove session", "delete worktree"],
 			ArgsSchemaJson = "{\"id\":{\"type\":\"string\",\"description\":\"Session id to delete; omit for the selected session\"}}",
@@ -367,13 +367,9 @@ public static class SessionCommands {
 			dispatcher.RegisterContextualHandler(
 				UnloadSession,
 				(argsJson, context, ct) => host.UnloadSessionAsync(GetString(argsJson, "id"), context, ct)),
-			dispatcher.RegisterContextualHandler(DeleteSession, (argsJson, context, ct) => GetBool(argsJson, "classify")
-				? host.ClassifyDeleteAsync(GetString(argsJson, "id"), ct)
-				: host.DeleteSessionAsync(
-					GetString(argsJson, "id"),
-					GetBool(argsJson, "force"),
-					context,
-					ct)),
+			dispatcher.RegisterContextualHandler(
+				DeleteSession,
+				(argsJson, context, ct) => DeleteSessionAsync(host, argsJson, context, ct)),
 		};
 
 		return new CompositeDisposable(registrations);
@@ -387,6 +383,27 @@ public static class SessionCommands {
 			return Task.FromResult(CommandResult.Failure($"Invalid new session arguments: {ex.Message}"));
 		}
 		return host.NewSessionAsync(request, ct);
+	}
+
+	private static Task<CommandResult> DeleteSessionAsync(
+		ISessionHost host,
+		string? argsJson,
+		CommandInvocationContext context,
+		CancellationToken ct) {
+		try {
+			var invocation = DeleteSessionProtocol.Parse(argsJson);
+			return invocation.Operation switch {
+				DeleteSessionOperation.Preview => host.PreviewDeleteSessionAsync(invocation.Id, ct),
+				DeleteSessionOperation.Confirm => host.ConfirmDeleteSessionAsync(
+					invocation.Id,
+					invocation.Confirmation!,
+					context,
+					ct),
+				_ => throw new InvalidOperationException("Unknown Delete Session operation."),
+			};
+		} catch (JsonException ex) {
+			return Task.FromResult(CommandResult.Failure($"Invalid Delete Session arguments: {ex.Message}"));
+		}
 	}
 
 	private static NewSessionRequest ParseNewSessionRequest(string? argsJson) {

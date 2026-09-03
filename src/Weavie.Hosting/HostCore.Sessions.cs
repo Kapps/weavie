@@ -491,7 +491,7 @@ public sealed partial class HostCore {
 				_settings,
 				_layout,
 				cwd,
-				Path.Combine(WeaviePaths.WorkspaceScratchDir(Id), WorkspaceId.ForPath(cwd).Value),
+				ScratchDirectoryFor(cwd),
 				// Pasted images go in a per-session subdir (keyed by worktree, like the scrollback log) so unloading
 				// one session's images never touches another's.
 				Path.Combine(WeaviePaths.WorkspacePastedImagesDir(Id), WorkspaceId.ForPath(cwd).Value),
@@ -760,120 +760,6 @@ public sealed partial class HostCore {
 		}
 	}
 
-	private Task<CommandResult> DeleteSessionAsync(
-		HostSession? source,
-		string? sessionId,
-		bool force,
-		CommandInvocationContext context,
-		CancellationToken ct) =>
-		RunSessionLifecycleAsync(
-			() => DeleteSessionCoreAsync(source, sessionId, force, context, ct),
-			ct);
-
-	private Task<CommandResult> DeleteSessionCoreAsync(
-		HostSession? source,
-		string? sessionId,
-		bool force,
-		CommandInvocationContext context,
-		CancellationToken ct) {
-		var target = string.IsNullOrWhiteSpace(sessionId) ? null : _sessions?.Find(sessionId);
-		if (target is null) {
-			return Task.FromResult(CommandResult.Failure("No such session."));
-		}
-
-		if (!IsWorkspaceCheckout(target) && _worktrees is not { }) {
-			return Task.FromResult(CommandResult.Failure("This workspace isn't a git repository, so it has no worktree to delete."));
-		}
-
-		string worktreePath = target.WorktreePath;
-		string label = target.Label;
-
-		return DeleteSessionAfterValidationAsync(
-			source,
-			target,
-			worktreePath,
-			label,
-			force,
-			context,
-			ct);
-	}
-
-	// Nothing keeps this checkout's commits when it has no branch: a detached HEAD, or a checkout git can no
-	// longer answer for. Removing it leaves them unreachable, so the delete costs force either way.
-	private static async Task<bool> IsBranchlessAsync(string worktreePath, CancellationToken ct) {
-		try {
-			return await new GitService().GetCurrentBranchAsync(worktreePath, ct).ConfigureAwait(false) is null;
-		} catch (GitException) {
-			return true;
-		}
-	}
-
-	private async Task<CommandResult> DeleteSessionAfterValidationAsync(
-		HostSession? source,
-		SessionSlot target,
-		string worktreePath,
-		string label,
-		bool force,
-		CommandInvocationContext context,
-		CancellationToken ct) {
-		bool branchless = false;
-		try {
-			if (target.Session is { } session
-				&& await FlushSessionViewAsync(session, ct).ConfigureAwait(false) is { } flushFailure) {
-				return flushFailure;
-			}
-
-			// Check what the delete would cost BEFORE tearing anything down, so a blocked delete leaves the session
-			// untouched rather than unloading it as a side effect. Skip when the worktree is gone/half-removed
-			// (no .git) — nothing left to lose, and git can't answer git status there. Read-only git probes, so
-			// they need no UI-thread marshaling.
-			// git itself refuses the repository's main working tree and a locked worktree, in its own words.
-			if (!IsWorkspaceCheckout(target) && IsLiveWorktree(worktreePath)) {
-				branchless = await IsBranchlessAsync(worktreePath, ct).ConfigureAwait(false);
-				if (branchless && !force) {
-					return CommandResult.Failure(
-						$"Session '{label}' has no branch keeping its commits, so deleting it would leave them unreachable. Re-run with force to delete anyway.");
-				}
-
-				if (!force && await new GitService().HasUncommittedChangesAsync(worktreePath, ct).ConfigureAwait(false)) {
-					return CommandResult.Failure(
-						$"Session '{label}' has uncommitted changes; deleting would discard them. Re-run with force to delete anyway.");
-				}
-			}
-		} catch (GitException ex) {
-			return CommandResult.Failure($"Couldn't delete session '{label}': {ex.Message}");
-		}
-
-		if (target.Session is { } targetSession && ReferenceEquals(targetSession, source)) {
-			context.AfterReply(ct => DeleteAfterReplyAsync(target, worktreePath, label, force, branchless, ct));
-			return CommandResult.Success();
-		}
-
-		return await DeleteAfterPreflightAsync(target, worktreePath, label, force, branchless, ct).ConfigureAwait(false);
-	}
-
-	private async Task DeleteAfterReplyAsync(
-		SessionSlot target,
-		string worktreePath,
-		string label,
-		bool force,
-		bool branchless,
-		CancellationToken ct) {
-		try {
-			var result = await RunSessionLifecycleAsync(
-				() => DeleteAfterPreflightAsync(target, worktreePath, label, force, branchless, ct),
-				ct).ConfigureAwait(false);
-			if (!result.Ok) {
-				Notify("error", result.Error ?? $"Couldn't delete session '{label}'.");
-			}
-		} catch (OperationCanceledException) when (ct.IsCancellationRequested) {
-			throw;
-		} catch (Exception ex) {
-			Notify("error", $"Couldn't delete session '{label}': {ex.Message}");
-			throw;
-		}
-	}
-
 	private async Task<CommandResult?> FlushSessionViewAsync(HostSession session, CancellationToken ct) {
 		try {
 			var result = await session.View.Feature("editor")
@@ -883,7 +769,10 @@ public sealed partial class HostCore {
 					ct)
 				.ConfigureAwait(false);
 			if (result is not null) {
-				HandleEditorSessionChanged(session, result.Session);
+				if (!TryHandleEditorSessionChanged(session, result.Session, out string? error)) {
+					return CommandResult.Failure(
+						$"Couldn't save the editor state for session '{session.DisplayLabel}': {error}");
+				}
 			}
 
 			return null;
@@ -892,65 +781,6 @@ public sealed partial class HostCore {
 		} catch (Exception ex) {
 			return CommandResult.Failure(
 				$"Couldn't save the editor state for session '{session.DisplayLabel}': {ex.Message}");
-		}
-	}
-
-	private async Task<CommandResult> DeleteAfterPreflightAsync(
-		SessionSlot target,
-		string worktreePath,
-		string label,
-		bool force,
-		bool branchless,
-		CancellationToken admissionCancellation) {
-		try {
-			if (!ReferenceEquals(_sessions?.Find(target.Id), target)) {
-				return CommandResult.Success($"Session '{label}' is already deleted.");
-			}
-
-			// Tear the live backend down first so no process holds the worktree dir, then remove the worktree
-			// (keeping the branch). The unload starts on the UI thread to mutate the slot and this method awaits
-			// its teardown from off it. Past the dirty guard deletion is deliberately uncancellable: self-delete
-			// tears down the endpoint that accepted the command, and git must not be interrupted mid-removal.
-			if (target.Loaded) {
-				await _ui.InvokeAsync(() => UnloadSlotAsync(target), admissionCancellation).ConfigureAwait(false);
-			}
-
-			if (!IsWorkspaceCheckout(target)) {
-				// Settle before removal: Windows can lag on releasing the unloaded children's handles, and external
-				// scanners may briefly hold a lock. A short pause lets git's one-shot remove succeed instead of
-				// partial-failing and orphaning the directory (git deletes its own record mid-failure, unrecoverable).
-				await Task.Delay(TimeSpan.FromSeconds(1), CancellationToken.None).ConfigureAwait(false);
-				await _worktrees!.RemoveAsync(
-					worktreePath,
-					deleteBranch: false,
-					force,
-					CancellationToken.None).ConfigureAwait(false);
-			}
-			// Back on the UI thread for the slot-set mutation + rail push (the awaits above left it), so the
-			// removal can't interleave with a concurrent switch reading the slot set.
-			await _ui.InvokeAsync(() => {
-				_sessions?.Remove(target);
-				if (_sessions?.Slots.Count == 0) {
-					EnsureWorkspaceSession();
-				} else {
-					PushSessionList();
-					PersistSessionState();
-				}
-				return Task.CompletedTask;
-			}, CancellationToken.None).ConfigureAwait(false);
-			Notify("info", (IsWorkspaceCheckout(target), branchless) switch {
-				(true, _) => $"Session '{label}' was deleted. Its checkout was kept.",
-				(false, true) => $"Session '{label}' was deleted. Its checkout had no branch to keep.",
-				_ => $"Session '{label}' was deleted. Its branch was kept.",
-			});
-			return CommandResult.Success();
-		} catch (WorktreeDirtyException) {
-			return CommandResult.Failure(
-				$"Session '{label}' has uncommitted changes; deleting would discard them. Re-run with force to delete anyway.");
-		} catch (WorktreeOrphanException ex) {
-			return CommandResult.Failure($"Couldn't delete session '{label}': {ex.Message}");
-		} catch (Exception ex) when (ex is GitException or IOException or UnauthorizedAccessException) {
-			return CommandResult.Failure($"Couldn't delete session '{label}': {ex.Message}");
 		}
 	}
 
@@ -974,49 +804,6 @@ public sealed partial class HostCore {
 		} finally {
 			_sessionLifecycle.Release();
 		}
-	}
-
-	private Task<CommandResult> ClassifyDeleteAsync(string? sessionId, CancellationToken ct) =>
-		RunSessionLifecycleAsync(() => ClassifyDeleteCoreAsync(sessionId, ct), ct);
-
-	private async Task<CommandResult> ClassifyDeleteCoreAsync(string? sessionId, CancellationToken ct) {
-		var target = string.IsNullOrWhiteSpace(sessionId) ? null : _sessions?.Find(sessionId);
-		if (target is null) {
-			return CommandResult.Failure("No such session.");
-		}
-
-		// A gone/half-removed worktree (no .git) can't be inspected and has nothing left to lose — classify clean.
-		string state = "clean";
-		IReadOnlyList<string> tracked = [];
-		IReadOnlyList<string> untracked = [];
-		bool branchless = false;
-		if (!IsWorkspaceCheckout(target) && IsLiveWorktree(target.WorktreePath)) {
-			try {
-				branchless = await IsBranchlessAsync(target.WorktreePath, ct).ConfigureAwait(false);
-				var status = await new GitService().GetChangeStateAsync(target.WorktreePath, ct).ConfigureAwait(false);
-				state = status.State switch {
-					WorktreeChangeState.UntrackedOnly => "untracked",
-					WorktreeChangeState.Modified => "modified",
-					_ => "clean",
-				};
-				tracked = status.TrackedFiles;
-				untracked = status.UntrackedFiles;
-			} catch (GitException ex) {
-				return CommandResult.Failure($"Couldn't check '{target.Label}' for changes: {ex.Message}");
-			}
-		}
-
-		// Name the first few changes the delete would discard; the dialog renders "…and N more" from the total.
-		const int previewLimit = 5;
-		string[] changed = [.. tracked.Concat(untracked).Order(StringComparer.Ordinal)];
-		return CommandResult.Success(null, JsonSerializer.Serialize(new {
-			state,
-			label = target.Label,
-			removesCheckout = !IsWorkspaceCheckout(target),
-			branchless,
-			changedFiles = changed.Take(previewLimit).ToArray(),
-			changedCount = changed.Length,
-		}));
 	}
 
 	/// <summary>Tears down a slot's live backend, leaving its worktree as a dormant catalog entry.</summary>

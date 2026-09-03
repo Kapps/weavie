@@ -53,7 +53,7 @@ All close paths pass through the editor controller:
 - Close All, Others, Left, and Right skip pinned tabs.
 - Closing the active tab chooses its nearest surviving neighbor.
 - A real file flushes pending autosave before its working-copy reference is disposed.
-- A non-empty scratch tab confirms discard before deleting its backing temp file.
+- A scratch tab with any content, including whitespace, confirms discard before deleting its backing temp file.
 
 Explicit close is the only operation that disposes a tab's working-copy reference. Component remount and HMR
 keep references so the session can re-adopt its models.
@@ -114,9 +114,17 @@ New File creates a real temp file under the session's workspace-specific scratch
 same file-provider, autosave, restore, and view-state pipeline while keeping the buffer outside the worktree,
 git, file index, and agent context.
 
-Saving a scratch buffer uses the session's `editor.saveScratchAs` or `saveScratchNamed` request. The host
-writes the chosen file, removes the temp, and returns a structured result. Discard uses
-`editor.discardScratch`. Session startup garbage-collects temp files not referenced by restored state.
+Saving a scratch buffer first flushes its exact working copy, then uses the owning session's
+`editor.saveScratchAs` or `saveScratchNamed` request. The host reads that owned temp file, writes the chosen
+destination, removes the temp, and returns a tagged saved/cancelled/failed result. Browser-chosen names are
+confined to the owning workspace. Discard uses `editor.discardScratch`. Session startup garbage-collects temp
+files not referenced by restored state.
+
+Session deletion is a separate revision-guarded lifecycle. Its host preview flushes the exact attached editor,
+hashes every referenced non-empty scratch file, and lists those drafts independently from Git risk. Confirming
+must echo that revision and explicitly consent to draft loss; any changed content or ownership invalidates the
+preview before teardown. Successful deletion removes only the target session's referenced scratch files, after
+the last fallible worktree-removal step. Unload preserves the same scratch state for reload.
 
 ## Commands
 

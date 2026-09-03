@@ -2,13 +2,16 @@ import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   activeSessionSlot,
+  clickIntoEditor,
   createSession,
   openFile,
   runCommand,
+  typeInEditor,
   waitForSessionSwitch,
 } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { sessionWorktrees } from "../harness/git-workspace";
+import type { WeavieWindow } from "../harness/weavie-window";
 
 // Session lifecycle through the rail + commands: create (fork a worktree session off the current one),
 // switch, unload, and reopen. Sessions and worktrees are a HostCore concern that differs structurally on
@@ -165,6 +168,94 @@ test("delete a session removes its chip @cross", async ({ page }) => {
     page.locator(".toast", { hasText: "was deleted. Its branch was kept." }),
   ).toHaveCount(1);
   await expect(page.locator(".toast", { hasText: "Deleting session" })).toHaveCount(0);
+});
+
+test("session deletion protects an unsaved scratch draft @cross", async ({ page }) => {
+  const canary = "UNSAVED SCRATCH CANARY — deleting this would be data loss";
+  await runCommand(page, "New File");
+  await clickIntoEditor(page);
+  await typeInEditor(page, canary);
+
+  await page.locator(".session-chip.active").click({ button: "right" });
+  await page.locator(".context-menu-item.danger", { hasText: "Delete" }).click();
+
+  const dialog = page.locator(".confirm-dialog");
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByTestId("delete-session-drafts")).toContainText("Untitled-1");
+  await expect(dialog).toContainText("unsaved files");
+  await expect(dialog.locator(".confirm-btn-danger")).toBeDisabled();
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+
+  await expect(dialog).toHaveCount(0);
+  await expect(page.locator(".editor-tab", { hasText: "Untitled-1" })).toBeVisible();
+  await expect(page.locator(".monaco-editor .view-lines")).toContainText(canary);
+
+  await page.locator(".session-chip.active").click({ button: "right" });
+  await page.locator(".context-menu-item.danger", { hasText: "Delete" }).click();
+  await dialog.locator(".confirm-check input").check();
+  await dialog.locator(".confirm-btn-danger").click();
+
+  await expect(dialog).toHaveCount(0);
+  await expect(page.locator(".editor-tab")).toHaveCount(0);
+  await expect(page.locator(".session-chip")).toHaveCount(1);
+});
+
+test("saving a protected draft preserves it across workspace-session deletion", async ({
+  page,
+  weavie,
+}) => {
+  const canary = "SAVE THIS SCRATCH BEFORE DELETING THE SESSION";
+  await runCommand(page, "New File");
+  await clickIntoEditor(page);
+  await typeInEditor(page, canary);
+
+  await page.locator(".session-chip.active").click({ button: "right" });
+  await page.locator(".context-menu-item.danger", { hasText: "Delete" }).click();
+  const deleteDialog = page.locator(".confirm-dialog", { hasText: "Delete session?" });
+  await deleteDialog.getByRole("button", { name: "Save file…" }).click();
+
+  const saveDialog = page.locator(".confirm-dialog", { hasText: "Save as" });
+  await expect(saveDialog).toBeVisible();
+  await saveDialog.locator("input").fill("saved-scratch.txt");
+  await saveDialog.getByRole("button", { name: /^Save/ }).click();
+
+  await expect(saveDialog).toHaveCount(0);
+  await expect(deleteDialog).toBeVisible();
+  await expect(deleteDialog).not.toContainText("unsaved files");
+  await expect(page.locator(".editor-tab", { hasText: "saved-scratch.txt" })).toBeVisible();
+  await deleteDialog.locator(".confirm-btn-danger").click();
+
+  await expect(deleteDialog).toHaveCount(0);
+  expect(await readFile(join(weavie.workspace, "saved-scratch.txt"), "utf8")).toBe(canary);
+});
+
+test("changing a draft invalidates an open deletion confirmation", async ({ page }) => {
+  await runCommand(page, "New File");
+  await clickIntoEditor(page);
+  await typeInEditor(page, "first draft");
+  await page.locator(".session-chip.active").click({ button: "right" });
+  await page.locator(".context-menu-item.danger", { hasText: "Delete" }).click();
+
+  const dialog = page.locator(".confirm-dialog", { hasText: "Delete session?" });
+  await dialog.locator(".confirm-check input").check();
+  await page.evaluate(() => {
+    const model = (window as WeavieWindow).__WEAVIE_EDITOR__?.getModel();
+    if (model === null || model === undefined) {
+      throw new Error("scratch model is not mounted");
+    }
+    model.setValue("changed while deletion was open");
+  });
+  await dialog.locator(".confirm-btn-danger").click();
+
+  await expect(dialog).toBeVisible();
+  await expect(
+    page.locator(".toast", { hasText: "changed while deletion was open" }),
+  ).toBeVisible();
+  await expect(dialog.locator(".confirm-check input")).not.toBeChecked();
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(page.locator(".monaco-editor .view-lines")).toContainText(
+    "changed while deletion was open",
+  );
 });
 
 test("delete confirmation names tracked and untracked work that will be lost @cross", async ({

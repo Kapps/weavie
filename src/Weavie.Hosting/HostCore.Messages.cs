@@ -206,13 +206,9 @@ public sealed partial class HostCore {
 				id,
 				new CommandInvocationContext(),
 				ct).ConfigureAwait(false),
-			SessionCommands.DeleteSession when args is { } deleteArgs
-				&& ReadBool(deleteArgs, "classify") =>
-					await ClassifyDeleteAsync(id, ct).ConfigureAwait(false),
-			SessionCommands.DeleteSession => await DeleteSessionAsync(
+			SessionCommands.DeleteSession => await InvokeDeleteSessionAsync(
 				null,
-				id,
-				ReadBool(args, "force"),
+				args,
 				new CommandInvocationContext(),
 				ct).ConfigureAwait(false),
 			_ => CommandResult.Failure($"'{message.Id}' is not a host-scoped session command."),

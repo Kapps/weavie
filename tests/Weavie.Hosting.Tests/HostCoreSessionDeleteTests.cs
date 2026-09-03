@@ -27,6 +27,21 @@ public sealed class HostCoreSessionDeleteTests {
 			.Select(json => MessageEnvelope.TryParse(json, out var envelope) ? envelope : null)
 			.LastOrDefault(envelope => envelope is not null && match(envelope));
 
+	private static string RevisionOf(CommandResult preview) {
+		Assert.True(preview.Ok, preview.Error);
+		using var data = JsonDocument.Parse(preview.DataJson!);
+		return data.RootElement.GetProperty("revision").GetString()!;
+	}
+
+	private static string OpenScratch(TestHost host, string slot, string content) {
+		var session = host.Session(slot);
+		session.OpenNewScratch();
+		string path = Assert.Single(session.EditorSession.Open).Path;
+		session.FileSystem.WriteAllText(path, content);
+		host.SessionEvent(session, "editor", "sessionChanged", new { session = session.EditorSession });
+		return path;
+	}
+
 	[Fact]
 	public async Task Delete_WithoutId_TargetsTheOwningSession() {
 		await using var host = await TestHost.StartAsync();
@@ -34,10 +49,20 @@ public sealed class HostCoreSessionDeleteTests {
 		Assert.Contains("feature", SessionIds(host));
 		host.Bridge.Clear();
 
+		var preview = await host.InvokeCommandAsync(
+			"feature",
+			SessionCommands.DeleteSession,
+			new { operation = "preview" },
+			CancellationToken.None);
 		var result = await host.InvokeCommandAsync(
 			"feature",
 			SessionCommands.DeleteSession,
-			new { },
+			new {
+				operation = "confirm",
+				revision = RevisionOf(preview),
+				forceWorktree = false,
+				discardDrafts = false,
+			},
 			CancellationToken.None);
 
 		Assert.True(result.Ok, result.Error);
@@ -52,11 +77,18 @@ public sealed class HostCoreSessionDeleteTests {
 	public async Task SelectedSessionRepliesBeforeDeletingItsOwnMessageBus() {
 		await using var host = await TestHost.StartAsync();
 		Assert.True((await host.CreateSessionAsync("feature")).Ok);
+		var preview = await host.InvokeClientCommandAsync(
+			SessionCommands.DeleteSession,
+			new { operation = "preview" });
 		host.Bridge.Clear();
-
 		var result = await host.InvokeClientCommandAsync(
 			SessionCommands.DeleteSession,
-			new { });
+			new {
+				operation = "confirm",
+				revision = RevisionOf(preview),
+				forceWorktree = false,
+				discardDrafts = false,
+			});
 
 		Assert.True(result.Ok, result.Error);
 		Assert.Null(result.Message);
@@ -79,7 +111,80 @@ public sealed class HostCoreSessionDeleteTests {
 	}
 
 	[Fact]
-	public async Task DeleteWaitingForEditorFlushDoesNotBlockAnotherSessionCommand() {
+	public async Task SelfDeleteRevalidatesChangesMadeAfterItsSuccessReply() {
+		await using var host = await TestHost.StartAsync();
+		Assert.True((await host.CreateSessionAsync("feature")).Ok);
+		var session = host.Session("feature");
+		string draft = OpenScratch(host, "feature", "previewed version");
+		var preview = await host.InvokeClientCommandAsync(
+			SessionCommands.DeleteSession,
+			new { operation = "preview" });
+		string revision = RevisionOf(preview);
+		host.Bridge.Clear();
+		var originalResponder = host.Bridge.RequestResponder;
+		int flushCount = 0;
+		MessageEnvelope? afterReplyFlush = null;
+		host.Bridge.RequestResponder = request => {
+			if (request is not { Feature: "editor", Name: "flush" }) {
+				return originalResponder?.Invoke(request);
+			}
+			if (Interlocked.Increment(ref flushCount) == 1) {
+				return originalResponder?.Invoke(request);
+			}
+			afterReplyFlush = request;
+			return null;
+		};
+
+		try {
+			host.Bridge.Receive(
+				new WebPeer(TestHost.TestPageId),
+				MessageEnvelope.SessionRequest(
+					session.Address,
+					"self-delete-stale",
+					"commands",
+					"invoke",
+					JsonSerializer.SerializeToElement(new {
+						id = SessionCommands.DeleteSession,
+						args = new {
+							operation = "confirm",
+							revision,
+							forceWorktree = false,
+							discardDrafts = true,
+						},
+					})).ToJson());
+
+			var response = await Wait.ForReferenceAsync(() => PostedEnvelope(
+				host,
+				envelope => envelope is { Kind: MessageKind.Response, RequestId: "self-delete-stale" }));
+			Assert.True(response.Payload.GetProperty("ok").GetBoolean());
+			await Wait.ForReferenceAsync(() => afterReplyFlush);
+			File.WriteAllText(draft, "changed after success reply");
+
+			var flushResponse = originalResponder?.Invoke(afterReplyFlush!);
+			Assert.NotNull(flushResponse);
+			host.Bridge.Receive(
+				new WebPeer(TestHost.TestPageId),
+				MessageEnvelope.Response(
+					afterReplyFlush!.Scope,
+					afterReplyFlush.Session,
+					afterReplyFlush.RequestId!,
+					afterReplyFlush.Feature,
+					afterReplyFlush.Name,
+					flushResponse.Payload,
+					flushResponse.Error).ToJson());
+			afterReplyFlush = null;
+			await Wait.UntilAsync(() => NotificationMessages(host)
+				.Any(message => message.Contains("changed while deletion was open", StringComparison.Ordinal)));
+		} finally {
+			host.Bridge.RequestResponder = originalResponder;
+		}
+
+		Assert.NotNull(host.Core.SessionForTest("feature"));
+		Assert.Equal("changed after success reply", File.ReadAllText(draft));
+	}
+
+	[Fact]
+	public async Task DeletePreviewWaitingForEditorFlushDoesNotBlockAnotherSessionCommand() {
 		await using var host = await TestHost.StartAsync();
 		Assert.True((await host.CreateSessionAsync("feature")).Ok);
 		var source = host.WorkspaceSession;
@@ -100,7 +205,7 @@ public sealed class HostCoreSessionDeleteTests {
 					"invoke",
 					JsonSerializer.SerializeToElement(new {
 						id = SessionCommands.DeleteSession,
-						args = new { id = "feature" },
+						args = new { id = "feature", operation = "preview" },
 					})).ToJson());
 			flush = await Wait.ForReferenceAsync(() => PostedEnvelope(
 				host,
@@ -149,7 +254,7 @@ public sealed class HostCoreSessionDeleteTests {
 	}
 
 	[Fact]
-	public async Task HostSessionCommandRoutingContinuesWhileDeleteWaitsForEditorFlush() {
+	public async Task HostSessionCommandRoutingContinuesWhileDeletePreviewWaitsForEditorFlush() {
 		await using var host = await TestHost.StartAsync();
 		Assert.True((await host.CreateSessionAsync("feature")).Ok);
 		var originalResponder = host.Bridge.RequestResponder;
@@ -170,7 +275,7 @@ public sealed class HostCoreSessionDeleteTests {
 					"invoke",
 					JsonSerializer.SerializeToElement(new {
 						id = SessionCommands.DeleteSession,
-						args = new { id = "feature" },
+						args = new { id = "feature", operation = "preview" },
 					})).ToJson());
 			flush = await Wait.ForReferenceAsync(() => PostedEnvelope(
 				host,
@@ -206,7 +311,7 @@ public sealed class HostCoreSessionDeleteTests {
 					"invoke",
 					JsonSerializer.SerializeToElement(new {
 						id = SessionCommands.DeleteSession,
-						args = new { id = "feature", classify = true },
+						args = new { id = "feature", operation = "preview" },
 					})).ToJson());
 			MessageHealthSnapshot? health = null;
 			for (int attempt = 0; attempt < 80; attempt++) {
@@ -255,6 +360,9 @@ public sealed class HostCoreSessionDeleteTests {
 		Assert.True((await host.CreateSessionAsync("feature")).Ok);
 		host.SelectWorkspaceSession();
 		var source = host.WorkspaceSession.Address;
+		var preview = await host.PreviewDeleteSessionAsync(source.Slot);
+		string revision = RevisionOf(preview);
+		host.Bridge.Clear();
 		var originalResponder = host.Bridge.RequestResponder;
 		MessageEnvelope? flush = null;
 		host.Bridge.RequestResponder = request =>
@@ -273,7 +381,13 @@ public sealed class HostCoreSessionDeleteTests {
 					"invoke",
 					JsonSerializer.SerializeToElement(new {
 						id = SessionCommands.DeleteSession,
-						args = new { id = source.Slot, force = true },
+						args = new {
+							id = source.Slot,
+							operation = "confirm",
+							revision,
+							forceWorktree = false,
+							discardDrafts = false,
+						},
 					})).ToJson());
 			flush = await Wait.ForReferenceAsync(() => PostedEnvelope(
 				host,
@@ -348,6 +462,12 @@ public sealed class HostCoreSessionDeleteTests {
 		Assert.True((await host.CreateSessionAsync("feature")).Ok);
 		var session = host.Session("feature");
 		string worktree = session.WorkspaceRoot;
+		var preview = await host.InvokeCommandAsync(
+			"feature",
+			SessionCommands.DeleteSession,
+			new { operation = "preview" },
+			CancellationToken.None);
+		string revision = RevisionOf(preview);
 		const string requestId = "self-delete-pending";
 		dispatcher.Pause();
 		host.Bridge.Receive(
@@ -359,7 +479,12 @@ public sealed class HostCoreSessionDeleteTests {
 				"invoke",
 				JsonSerializer.SerializeToElement(new {
 					id = SessionCommands.DeleteSession,
-					args = JsonSerializer.SerializeToElement(new { force = true }),
+					args = JsonSerializer.SerializeToElement(new {
+						operation = "confirm",
+						revision,
+						forceWorktree = true,
+						discardDrafts = true,
+					}),
 				})).ToJson());
 		await dispatcher.WaitForPostAsync().WaitAsync(TimeSpan.FromSeconds(2));
 		Assert.True(dispatcher.RunNext());
@@ -457,24 +582,267 @@ public sealed class HostCoreSessionDeleteTests {
 	}
 
 	[Fact]
-	public async Task Classify_WithoutId_UsesTheOwningSession() {
+	public async Task Preview_WithoutId_UsesTheOwningSession() {
 		await using var host = await TestHost.StartAsync();
 		Assert.True((await host.CreateSessionAsync("feature")).Ok);
 
 		var result = await host.InvokeCommandAsync(
 			"feature",
 			SessionCommands.DeleteSession,
-			new { classify = true },
+			new { operation = "preview" },
 			CancellationToken.None);
 
 		Assert.True(result.Ok, result.Error);
 	}
 
 	[Fact]
+	public async Task PreviewFlushesTheExactTargetAndReportsItsNonemptyDrafts() {
+		await using var host = await TestHost.StartAsync();
+		Assert.True((await host.CreateSessionAsync("feature")).Ok);
+		string featureDraft = OpenScratch(host, "feature", "feature draft");
+		OpenScratch(host, host.WorkspaceSession.SlotId, "workspace draft");
+		host.SelectWorkspaceSession();
+
+		var preview = await host.PreviewDeleteSessionAsync("feature");
+
+		Assert.True(preview.Ok, preview.Error);
+		using var data = JsonDocument.Parse(preview.DataJson!);
+		var draft = Assert.Single(data.RootElement.GetProperty("drafts").EnumerateArray());
+		Assert.Equal(featureDraft, draft.GetProperty("path").GetString());
+		Assert.Equal("Untitled-1", draft.GetProperty("name").GetString());
+	}
+
+	[Fact]
+	public async Task DeleteRequiresDraftConsentAndCleansOnlyTheTargetScratch() {
+		await using var host = await TestHost.StartAsync();
+		Assert.True((await host.CreateSessionAsync("feature")).Ok);
+		string featureDraft = OpenScratch(host, "feature", "feature draft");
+		string workspaceDraft = OpenScratch(host, host.WorkspaceSession.SlotId, "workspace draft");
+		host.SelectWorkspaceSession();
+		var preview = await host.PreviewDeleteSessionAsync("feature");
+
+		var blocked = await host.ConfirmDeleteSessionAsync(
+			"feature",
+			RevisionOf(preview),
+			forceWorktree: false,
+			discardDrafts: false);
+
+		Assert.False(blocked.Ok);
+		Assert.Contains("unsaved drafts", blocked.Error);
+		Assert.True(File.Exists(featureDraft));
+		Assert.Contains("feature", SessionIds(host));
+
+		var deleted = await host.ConfirmDeleteSessionAsync(
+			"feature",
+			RevisionOf(preview),
+			forceWorktree: false,
+			discardDrafts: true);
+
+		Assert.True(deleted.Ok, deleted.Error);
+		Assert.False(File.Exists(featureDraft));
+		Assert.True(File.Exists(workspaceDraft));
+		Assert.DoesNotContain("feature", SessionIds(host));
+	}
+
+	[Fact]
+	public async Task WorktreeAndDraftLossRequireIndependentConsent() {
+		await using var host = await TestHost.StartAsync();
+		Assert.True((await host.CreateSessionAsync("feature")).Ok);
+		string draft = OpenScratch(host, "feature", "feature draft");
+		File.WriteAllText(Path.Combine(host.Session("feature").WorkspaceRoot, "readme.txt"), "changed\n");
+		host.SelectWorkspaceSession();
+		var preview = await host.PreviewDeleteSessionAsync("feature");
+		string revision = RevisionOf(preview);
+
+		var worktreeBlocked = await host.ConfirmDeleteSessionAsync(
+			"feature",
+			revision,
+			forceWorktree: false,
+			discardDrafts: true);
+		var draftBlocked = await host.ConfirmDeleteSessionAsync(
+			"feature",
+			revision,
+			forceWorktree: true,
+			discardDrafts: false);
+
+		Assert.False(worktreeBlocked.Ok);
+		Assert.Contains("uncommitted changes", worktreeBlocked.Error);
+		Assert.False(draftBlocked.Ok);
+		Assert.Contains("unsaved drafts", draftBlocked.Error);
+		Assert.True(File.Exists(draft));
+		var deleted = await host.ConfirmDeleteSessionAsync(
+			"feature",
+			revision,
+			forceWorktree: true,
+			discardDrafts: true);
+		Assert.True(deleted.Ok, deleted.Error);
+		Assert.False(File.Exists(draft));
+	}
+
+	[Fact]
+	public async Task WorktreeRemovalFailureRetainsTheScratchAndSessionSlot() {
+		await using var host = await TestHost.StartAsync();
+		string worktree = await DiscoverCheckoutAsync(host, static _ => { });
+		var loaded = await host.HostRequestAsync<JsonElement>(
+			"sessions",
+			"invoke",
+			new { id = SessionCommands.LoadSession, args = new { id = "manual" } });
+		Assert.True(loaded.GetProperty("ok").GetBoolean());
+		string draft = OpenScratch(host, "manual", "must survive failed deletion");
+		TestHost.RunGit(host.RepoRoot, "worktree", "lock", worktree);
+		host.SelectWorkspaceSession();
+		var preview = await host.PreviewDeleteSessionAsync("manual");
+
+		var failed = await host.ConfirmDeleteSessionAsync(
+			"manual",
+			RevisionOf(preview),
+			forceWorktree: true,
+			discardDrafts: true);
+
+		Assert.False(failed.Ok);
+		Assert.Contains("locked working tree", failed.Error);
+		Assert.True(File.Exists(draft));
+		Assert.Contains("manual", SessionIds(host));
+	}
+
+	[Fact]
+	public async Task ChangedDraftRejectsAStaleConfirmationAndReturnsARefreshedPreview() {
+		await using var host = await TestHost.StartAsync();
+		Assert.True((await host.CreateSessionAsync("feature")).Ok);
+		string draft = OpenScratch(host, "feature", "first version");
+		host.SelectWorkspaceSession();
+		var preview = await host.PreviewDeleteSessionAsync("feature");
+		string revision = RevisionOf(preview);
+		File.WriteAllText(draft, "changed while dialog is open");
+
+		var stale = await host.ConfirmDeleteSessionAsync(
+			"feature",
+			revision,
+			forceWorktree: false,
+			discardDrafts: true);
+
+		Assert.False(stale.Ok);
+		Assert.Contains("changed while deletion was open", stale.Error);
+		Assert.True(File.Exists(draft));
+		Assert.Contains("feature", SessionIds(host));
+		using var refreshed = JsonDocument.Parse(stale.DataJson!);
+		Assert.NotEqual(revision, refreshed.RootElement.GetProperty("revision").GetString());
+	}
+
+	[Fact]
+	public async Task ChangedContentAtTheSameGitPathRejectsAStaleConfirmation() {
+		await using var host = await TestHost.StartAsync();
+		Assert.True((await host.CreateSessionAsync("feature")).Ok);
+		string file = Path.Combine(host.Session("feature").WorkspaceRoot, "readme.txt");
+		File.WriteAllText(file, "first changed version\n");
+		host.SelectWorkspaceSession();
+		var preview = await host.PreviewDeleteSessionAsync("feature");
+		File.WriteAllText(file, "second changed version\n");
+
+		var result = await host.ConfirmDeleteSessionAsync(
+			"feature",
+			RevisionOf(preview),
+			forceWorktree: true,
+			discardDrafts: false);
+
+		Assert.False(result.Ok);
+		Assert.Contains("changed while deletion was open", result.Error);
+		Assert.Equal("second changed version\n", File.ReadAllText(file));
+	}
+
+	[Fact]
+	public async Task StagingTheSameGitContentRejectsAStaleConfirmation() {
+		await using var host = await TestHost.StartAsync();
+		Assert.True((await host.CreateSessionAsync("feature")).Ok);
+		string worktree = host.Session("feature").WorkspaceRoot;
+		File.WriteAllText(Path.Combine(worktree, "readme.txt"), "changed\n");
+		host.SelectWorkspaceSession();
+		var preview = await host.PreviewDeleteSessionAsync("feature");
+		TestHost.RunGit(worktree, "add", "readme.txt");
+
+		var result = await host.ConfirmDeleteSessionAsync(
+			"feature",
+			RevisionOf(preview),
+			forceWorktree: true,
+			discardDrafts: false);
+
+		Assert.False(result.Ok);
+		Assert.Contains("changed while deletion was open", result.Error);
+		Assert.True(Directory.Exists(worktree));
+	}
+
+	[Fact]
+	public async Task SamePathGitChangeDuringFinalTeardownIsNotDiscarded() {
+		await using var host = await TestHost.StartAsync();
+		Assert.True((await host.CreateSessionAsync("feature")).Ok);
+		string worktree = host.Session("feature").WorkspaceRoot;
+		string file = Path.Combine(worktree, "readme.txt");
+		File.WriteAllText(file, "previewed version\n");
+		host.SelectWorkspaceSession();
+		var preview = await host.PreviewDeleteSessionAsync("feature");
+
+		var deleting = host.ConfirmDeleteSessionAsync(
+			"feature",
+			RevisionOf(preview),
+			forceWorktree: true,
+			discardDrafts: false);
+		await Wait.UntilAsync(() => host.Core.SessionForTest("feature") is null);
+		File.WriteAllText(file, "changed during teardown\n");
+		var result = await deleting;
+
+		Assert.False(result.Ok);
+		Assert.Contains("changed while deletion was open", result.Error);
+		Assert.Equal("changed during teardown\n", File.ReadAllText(file));
+		Assert.Contains("feature", SessionIds(host));
+	}
+
+	[Fact]
+	public async Task DraftChangedAfterUnloadIsNotDiscardedByTheConfirmedRevision() {
+		await using var host = await TestHost.StartAsync();
+		Assert.True((await host.CreateSessionAsync("feature")).Ok);
+		string draft = OpenScratch(host, "feature", "previewed version");
+		string worktree = host.Session("feature").WorkspaceRoot;
+		host.SelectWorkspaceSession();
+		var preview = await host.PreviewDeleteSessionAsync("feature");
+
+		var deleting = host.ConfirmDeleteSessionAsync(
+			"feature",
+			RevisionOf(preview),
+			forceWorktree: false,
+			discardDrafts: true);
+		await Wait.UntilAsync(() => host.Core.SessionForTest("feature") is null);
+		File.WriteAllText(draft, "changed during teardown");
+		var result = await deleting;
+
+		Assert.False(result.Ok);
+		Assert.Contains("changed while deletion was open", result.Error);
+		Assert.True(Directory.Exists(worktree));
+		Assert.Equal("changed during teardown", File.ReadAllText(draft));
+		Assert.Contains("feature", SessionIds(host));
+	}
+
+	[Fact]
+	public async Task DormantSessionPreviewUsesPersistedScratchState() {
+		await using var host = await TestHost.StartAsync();
+		Assert.True((await host.CreateSessionAsync("feature")).Ok);
+		string draft = OpenScratch(host, "feature", "survives unload");
+		host.SelectWorkspaceSession();
+		Assert.True((await host.UnloadSessionAsync("feature")).Ok);
+
+		var preview = await host.PreviewDeleteSessionAsync("feature");
+
+		Assert.True(preview.Ok, preview.Error);
+		using var data = JsonDocument.Parse(preview.DataJson!);
+		Assert.Equal(draft, Assert.Single(data.RootElement.GetProperty("drafts").EnumerateArray())
+			.GetProperty("path").GetString());
+		Assert.Null(host.Core.SessionForTest("feature"));
+	}
+
+	[Fact]
 	public async Task Delete_UnknownId_ReportsNoSuchSession() {
 		await using var host = await TestHost.StartAsync();
 
-		var result = await host.DeleteSessionAsync("no-such-branch", force: false, classify: false);
+		var result = await host.PreviewDeleteSessionAsync("no-such-branch");
 
 		Assert.False(result.Ok);
 		Assert.Contains("No such session", result.Error!);
@@ -487,8 +855,13 @@ public sealed class HostCoreSessionDeleteTests {
 		Assert.Contains("feature", SessionIds(host));
 		host.SelectWorkspaceSession();
 		host.Bridge.Clear();
+		var preview = await host.PreviewDeleteSessionAsync("feature");
 
-		var result = await host.DeleteSessionAsync("feature", force: false, classify: false);
+		var result = await host.ConfirmDeleteSessionAsync(
+			"feature",
+			RevisionOf(preview),
+			forceWorktree: false,
+			discardDrafts: false);
 
 		Assert.True(result.Ok, result.Error);
 		Assert.Null(result.Message);
@@ -515,10 +888,23 @@ public sealed class HostCoreSessionDeleteTests {
 		Assert.False(slot.GetProperty("loaded").GetBoolean());
 		Assert.True(Directory.Exists(host.RepoRoot));
 
+		var preview = await host.HostRequestAsync<JsonElement>(
+			"sessions",
+			"invoke",
+			new { id = SessionCommands.DeleteSession, args = new { id, operation = "preview" } });
 		var deleted = await host.HostRequestAsync<JsonElement>(
 			"sessions",
 			"invoke",
-			new { id = SessionCommands.DeleteSession, args = new { id } });
+			new {
+				id = SessionCommands.DeleteSession,
+				args = new {
+					id,
+					operation = "confirm",
+					revision = preview.GetProperty("data").GetProperty("revision").GetString(),
+					forceWorktree = false,
+					discardDrafts = false,
+				},
+			});
 		Assert.True(deleted.GetProperty("ok").GetBoolean());
 		var replacement = Assert.Single(host.Bridge.LastEvent("sessions", "catalog")!.Value.EnumerateArray());
 		Assert.NotEqual(id, replacement.GetProperty("id").GetString());
@@ -558,11 +944,15 @@ public sealed class HostCoreSessionDeleteTests {
 		await using var host = await TestHost.StartAsync();
 		string workspaceId = host.WorkspaceSession.SlotId;
 		Assert.True((await host.CreateSessionAsync("feature")).Ok);
-		var classification = await host.DeleteSessionAsync(workspaceId, force: false, classify: true);
+		var classification = await host.PreviewDeleteSessionAsync(workspaceId);
 		using var data = JsonDocument.Parse(classification.DataJson!);
 		Assert.False(data.RootElement.GetProperty("removesCheckout").GetBoolean());
 
-		var result = await host.DeleteSessionAsync(workspaceId, force: false, classify: false);
+		var result = await host.ConfirmDeleteSessionAsync(
+			workspaceId,
+			RevisionOf(classification),
+			forceWorktree: false,
+			discardDrafts: false);
 
 		Assert.True(result.Ok, result.Error);
 		Assert.DoesNotContain(workspaceId, SessionIds(host));
@@ -575,7 +965,12 @@ public sealed class HostCoreSessionDeleteTests {
 		await using var host = await TestHost.StartAsync();
 		string workspaceId = host.WorkspaceSession.SlotId;
 		Assert.True((await host.CreateSessionAsync("feature")).Ok);
-		Assert.True((await host.DeleteSessionAsync(workspaceId, force: false, classify: false)).Ok);
+		var preview = await host.PreviewDeleteSessionAsync(workspaceId);
+		Assert.True((await host.ConfirmDeleteSessionAsync(
+			workspaceId,
+			RevisionOf(preview),
+			forceWorktree: false,
+			discardDrafts: false)).Ok);
 
 		await host.RestartAsync();
 
@@ -603,8 +998,13 @@ public sealed class HostCoreSessionDeleteTests {
 		await using var host = await TestHost.StartAsync();
 		string checkout = await DiscoverCheckoutAsync(host, static _ => { });
 		Assert.Contains("manual", SessionIds(host));
+		var preview = await host.PreviewDeleteSessionAsync("manual");
 
-		var result = await host.DeleteSessionAsync("manual", force: false, classify: false);
+		var result = await host.ConfirmDeleteSessionAsync(
+			"manual",
+			RevisionOf(preview),
+			forceWorktree: false,
+			discardDrafts: false);
 
 		Assert.True(result.Ok, result.Error);
 		Assert.False(Directory.Exists(checkout));
@@ -618,15 +1018,25 @@ public sealed class HostCoreSessionDeleteTests {
 		string checkout = await DiscoverCheckoutAsync(
 			host,
 			static tree => File.WriteAllText(Path.Combine(tree, "readme.txt"), "edited\n"));
+		var preview = await host.PreviewDeleteSessionAsync("manual");
+		string revision = RevisionOf(preview);
 
-		var blocked = await host.DeleteSessionAsync("manual", force: false, classify: false);
+		var blocked = await host.ConfirmDeleteSessionAsync(
+			"manual",
+			revision,
+			forceWorktree: false,
+			discardDrafts: false);
 
 		Assert.False(blocked.Ok);
 		Assert.Contains("uncommitted changes", blocked.Error);
 		Assert.True(Directory.Exists(checkout));
 		Assert.Contains("manual", SessionIds(host));
 
-		Assert.True((await host.DeleteSessionAsync("manual", force: true, classify: false)).Ok);
+		Assert.True((await host.ConfirmDeleteSessionAsync(
+			"manual",
+			revision,
+			forceWorktree: true,
+			discardDrafts: false)).Ok);
 		Assert.False(Directory.Exists(checkout));
 	}
 
@@ -637,18 +1047,19 @@ public sealed class HostCoreSessionDeleteTests {
 			host,
 			static tree => File.WriteAllText(Path.Combine(tree, "readme.txt"), "edited\n"));
 
-		var classification = await host.DeleteSessionAsync("manual", force: false, classify: true);
+		var classification = await host.PreviewDeleteSessionAsync("manual");
 
 		using var data = JsonDocument.Parse(classification.DataJson!);
 		Assert.True(data.RootElement.GetProperty("removesCheckout").GetBoolean());
-		Assert.Equal("modified", data.RootElement.GetProperty("state").GetString());
-		Assert.False(data.RootElement.GetProperty("branchless").GetBoolean());
+		var worktree = data.RootElement.GetProperty("worktree");
+		Assert.Equal("modified", worktree.GetProperty("state").GetString());
+		Assert.False(worktree.GetProperty("branchless").GetBoolean());
 	}
 
-	// git dropping its record is no proof of a branch either: the delete must not hand-delete the directory as
-	// though committed work were safe.
+	// Git losing the worktree record makes both branch and uncommitted state unknowable. Deletion fails closed
+	// instead of treating an explicit branch-loss acknowledgement as consent to uninspected file loss.
 	[Fact]
-	public async Task DeletingACheckoutGitNoLongerReportsNeedsForce() {
+	public async Task DeletingACheckoutGitNoLongerReportsFailsClosed() {
 		await using var host = await TestHost.StartAsync();
 		Assert.True((await host.CreateSessionAsync("feature")).Ok);
 		string checkout = host.Session("feature").WorkspaceRoot;
@@ -656,14 +1067,11 @@ public sealed class HostCoreSessionDeleteTests {
 			Directory.GetDirectories(Path.Combine(host.RepoRoot, ".git", "worktrees")).Single(),
 			recursive: true);
 
-		var blocked = await host.DeleteSessionAsync("feature", force: false, classify: false);
+		var preview = await host.PreviewDeleteSessionAsync("feature");
 
-		Assert.False(blocked.Ok);
-		Assert.Contains("no branch keeping its commits", blocked.Error);
+		Assert.False(preview.Ok);
+		Assert.Contains("Couldn't inspect session", preview.Error);
 		Assert.True(Directory.Exists(checkout));
-
-		Assert.True((await host.DeleteSessionAsync("feature", force: true, classify: false)).Ok);
-		Assert.False(Directory.Exists(checkout));
 	}
 
 	// Git refuses to remove a locked worktree even with force, so the delete fails in git's own words rather
@@ -673,8 +1081,13 @@ public sealed class HostCoreSessionDeleteTests {
 		await using var host = await TestHost.StartAsync();
 		string checkout = await DiscoverCheckoutAsync(host, static _ => { });
 		TestHost.RunGit(host.RepoRoot, "worktree", "lock", checkout);
+		var preview = await host.PreviewDeleteSessionAsync("manual");
 
-		var result = await host.DeleteSessionAsync("manual", force: true, classify: false);
+		var result = await host.ConfirmDeleteSessionAsync(
+			"manual",
+			RevisionOf(preview),
+			forceWorktree: true,
+			discardDrafts: false);
 
 		Assert.False(result.Ok);
 		Assert.Contains("locked working tree", result.Error);
@@ -690,23 +1103,52 @@ public sealed class HostCoreSessionDeleteTests {
 		string checkout = await DiscoverCheckoutAsync(
 			host,
 			static tree => TestHost.RunGit(tree, "checkout", "--detach"));
-		var classification = await host.DeleteSessionAsync("manual", force: false, classify: true);
+		var classification = await host.PreviewDeleteSessionAsync("manual");
 		using (var data = JsonDocument.Parse(classification.DataJson!)) {
-			Assert.True(data.RootElement.GetProperty("branchless").GetBoolean());
+			Assert.True(data.RootElement.GetProperty("worktree").GetProperty("branchless").GetBoolean());
 		}
+		string revision = RevisionOf(classification);
 
-		var blocked = await host.DeleteSessionAsync("manual", force: false, classify: false);
+		var blocked = await host.ConfirmDeleteSessionAsync(
+			"manual",
+			revision,
+			forceWorktree: false,
+			discardDrafts: false);
 
 		Assert.False(blocked.Ok);
 		Assert.Contains("no branch keeping its commits", blocked.Error);
 		Assert.True(Directory.Exists(checkout));
 
 		host.Bridge.Clear();
-		Assert.True((await host.DeleteSessionAsync("manual", force: true, classify: false)).Ok);
+		Assert.True((await host.ConfirmDeleteSessionAsync(
+			"manual",
+			revision,
+			forceWorktree: true,
+			discardDrafts: false)).Ok);
 		Assert.False(Directory.Exists(checkout));
 		Assert.Contains(
 			"Session 'manual' was deleted. Its checkout had no branch to keep.",
 			NotificationMessages(host));
+	}
+
+	[Fact]
+	public async Task MovingADetachedHeadRejectsAStaleConfirmation() {
+		await using var host = await TestHost.StartAsync();
+		string checkout = await DiscoverCheckoutAsync(
+			host,
+			static tree => TestHost.RunGit(tree, "checkout", "--detach"));
+		var preview = await host.PreviewDeleteSessionAsync("manual");
+		TestHost.RunGit(checkout, "commit", "--quiet", "--allow-empty", "-m", "new detached commit");
+
+		var result = await host.ConfirmDeleteSessionAsync(
+			"manual",
+			RevisionOf(preview),
+			forceWorktree: true,
+			discardDrafts: false);
+
+		Assert.False(result.Ok);
+		Assert.Contains("changed while deletion was open", result.Error);
+		Assert.True(Directory.Exists(checkout));
 	}
 
 	[Fact]
@@ -717,12 +1159,16 @@ public sealed class HostCoreSessionDeleteTests {
 		string registry = WeaviePaths.WorkspaceWorktreesFile(WorkspaceId.ForPath(host.RepoRoot));
 
 		await host.RestartAsync(() => File.Delete(registry));
-		var classification = await host.DeleteSessionAsync("feature", force: false, classify: true);
+		var classification = await host.PreviewDeleteSessionAsync("feature");
 		using (var data = JsonDocument.Parse(classification.DataJson!)) {
 			Assert.True(data.RootElement.GetProperty("removesCheckout").GetBoolean());
 		}
 
-		var result = await host.DeleteSessionAsync("feature", force: false, classify: false);
+		var result = await host.ConfirmDeleteSessionAsync(
+			"feature",
+			RevisionOf(classification),
+			forceWorktree: false,
+			discardDrafts: false);
 
 		Assert.True(result.Ok, result.Error);
 		Assert.False(Directory.Exists(checkout));
@@ -739,14 +1185,23 @@ public sealed class HostCoreSessionDeleteTests {
 		string registry = WeaviePaths.WorkspaceWorktreesFile(WorkspaceId.ForPath(host.RepoRoot));
 
 		await host.RestartAsync(() => File.Delete(registry));
-		var classification = await host.DeleteSessionAsync("detached", force: false, classify: true);
+		var classification = await host.PreviewDeleteSessionAsync("detached");
 		using (var data = JsonDocument.Parse(classification.DataJson!)) {
 			Assert.True(data.RootElement.GetProperty("removesCheckout").GetBoolean());
 		}
+		string revision = RevisionOf(classification);
 
-		var blocked = await host.DeleteSessionAsync("detached", force: false, classify: false);
+		var blocked = await host.ConfirmDeleteSessionAsync(
+			"detached",
+			revision,
+			forceWorktree: false,
+			discardDrafts: false);
 		Assert.False(blocked.Ok);
-		var result = await host.DeleteSessionAsync("detached", force: true, classify: false);
+		var result = await host.ConfirmDeleteSessionAsync(
+			"detached",
+			revision,
+			forceWorktree: true,
+			discardDrafts: false);
 
 		Assert.True(result.Ok, result.Error);
 		Assert.False(Directory.Exists(checkout));
@@ -757,10 +1212,20 @@ public sealed class HostCoreSessionDeleteTests {
 		await using var host = await TestHost.StartAsync();
 		string deletedId = host.WorkspaceSession.SlotId;
 
+		var preview = await host.InvokeCommandAsync(
+			deletedId,
+			SessionCommands.DeleteSession,
+			new { operation = "preview" },
+			CancellationToken.None);
 		var result = await host.InvokeCommandAsync(
 			deletedId,
 			SessionCommands.DeleteSession,
-			new { },
+			new {
+				operation = "confirm",
+				revision = RevisionOf(preview),
+				forceWorktree = false,
+				discardDrafts = false,
+			},
 			CancellationToken.None);
 
 		Assert.True(result.Ok, result.Error);

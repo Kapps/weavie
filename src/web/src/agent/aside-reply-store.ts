@@ -1,4 +1,5 @@
 import type { ClientSession } from "../bridge";
+import { createSessionOwnedMap } from "../messaging/session-owned-state";
 
 export interface AsideReplyState {
   draft: string;
@@ -6,10 +7,10 @@ export interface AsideReplyState {
 }
 
 const EMPTY: AsideReplyState = { draft: "", open: false };
-const states = new WeakMap<ClientSession, Map<string, AsideReplyState>>();
+const states = createSessionOwnedMap<string, AsideReplyState>();
 
 export function asideReplyState(session: ClientSession, conversationId: string): AsideReplyState {
-  return states.get(session)?.get(conversationId) ?? EMPTY;
+  return states.get(session, conversationId) ?? EMPTY;
 }
 
 export function setAsideReplyState(
@@ -21,20 +22,13 @@ export function setAsideReplyState(
     clearAsideReplyState(session, conversationId);
     return;
   }
-  const sessionStates = states.get(session);
-  if (sessionStates === undefined) {
-    states.set(session, new Map([[conversationId, state]]));
-  } else {
-    sessionStates.set(conversationId, state);
-  }
+  states.set(session, conversationId, state);
 }
 
 export function clearAsideReplyState(session: ClientSession, conversationId: string): void {
-  const sessionStates = states.get(session);
-  sessionStates?.delete(conversationId);
-  if (sessionStates?.size === 0) states.delete(session);
+  states.delete(session, conversationId);
 }
 
 export function clearAsideReplyStates(session: ClientSession): void {
-  states.delete(session);
+  states.clear(session);
 }

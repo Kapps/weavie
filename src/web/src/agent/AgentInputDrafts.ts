@@ -1,5 +1,6 @@
 import { type Accessor, createSignal, type Setter } from "solid-js";
 import type { AgentInputQuestion, AgentPaneUpdate, ClientSession } from "../bridge";
+import { createSessionOwnedMap } from "../messaging/session-owned-state";
 import { paneItemIdentity } from "./AgentPaneIdentity";
 
 export type AgentInputAnswers = Record<string, string[]>;
@@ -9,7 +10,7 @@ interface AgentInputDraft {
   setAnswers: Setter<AgentInputAnswers>;
 }
 
-const drafts = new WeakMap<ClientSession, Map<string, AgentInputDraft>>();
+const drafts = createSessionOwnedMap<string, AgentInputDraft>();
 
 export function agentInputRequestKey(message: AgentPaneUpdate): string {
   return paneItemIdentity(message) ?? message.itemId ?? "";
@@ -20,31 +21,21 @@ export function agentInputDraft(
   requestKey: string,
   questions: readonly AgentInputQuestion[],
 ): AgentInputDraft {
-  let sessionDrafts = drafts.get(session);
-  if (sessionDrafts === undefined) {
-    sessionDrafts = new Map();
-    drafts.set(session, sessionDrafts);
-  }
-
-  let draft = sessionDrafts.get(requestKey);
+  let draft = drafts.get(session, requestKey);
   if (draft === undefined) {
     const [answers, setAnswers] = createSignal(defaultAnswers(questions));
     draft = { answers, setAnswers };
-    sessionDrafts.set(requestKey, draft);
+    drafts.set(session, requestKey, draft);
   }
   return draft;
 }
 
 export function clearAgentInputDrafts(session: ClientSession): void {
-  drafts.delete(session);
+  drafts.clear(session);
 }
 
 export function clearAgentInputDraft(session: ClientSession, requestKey: string): void {
-  const sessionDrafts = drafts.get(session);
-  sessionDrafts?.delete(requestKey);
-  if (sessionDrafts?.size === 0) {
-    drafts.delete(session);
-  }
+  drafts.delete(session, requestKey);
 }
 
 function defaultAnswers(questions: readonly AgentInputQuestion[]): AgentInputAnswers {

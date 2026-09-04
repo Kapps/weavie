@@ -1,6 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { ClientSession } from "../bridge";
 import { asideReplyState, clearAsideReplyStates, setAsideReplyState } from "./aside-reply-store";
+
+vi.mock("../bridge", () => ({ registerSessionFeature: () => () => {} }));
 
 const session = (): ClientSession => ({}) as ClientSession;
 

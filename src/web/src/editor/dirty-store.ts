@@ -1,16 +1,14 @@
-import { createMemo, createSignal } from "solid-js";
-import { type ClientSession, registerSessionFeature, selectedSession } from "../bridge";
+import { type ClientSession, selectedSession } from "../bridge";
+import { createSessionOwnedState } from "../messaging/session-owned-state";
 import { normalizePath } from "./fs-path";
 
-const [bySession, setBySession] = createSignal<Map<ClientSession, ReadonlySet<string>>>(new Map());
+const EMPTY = new Set<string>();
+const bySession = createSessionOwnedState<ReadonlySet<string>>(() => EMPTY);
 
-export const dirtyPaths = createMemo<ReadonlySet<string>>(() => {
-  const session = selectedSession();
-  return session === null ? new Set() : (bySession().get(session) ?? new Set());
-});
+export const dirtyPaths = (): ReadonlySet<string> => bySession.get(selectedSession()) ?? EMPTY;
 
 export function dirtyPathsFor(session: ClientSession): ReadonlySet<string> {
-  return bySession().get(session) ?? new Set();
+  return bySession.get(session) ?? EMPTY;
 }
 
 export function isDirtyPath(path: string): boolean {
@@ -19,7 +17,7 @@ export function isDirtyPath(path: string): boolean {
 
 export function setDirtyPath(session: ClientSession, path: string, isDirty: boolean): void {
   const key = normalizePath(path);
-  const current = bySession().get(session) ?? new Set<string>();
+  const current = bySession.get(session) ?? EMPTY;
   if (isDirty === current.has(key)) {
     return;
   }
@@ -29,21 +27,5 @@ export function setDirtyPath(session: ClientSession, path: string, isDirty: bool
   } else {
     files.delete(key);
   }
-  setBySession((previous) => {
-    const next = new Map(previous);
-    if (files.size === 0) {
-      next.delete(session);
-    } else {
-      next.set(session, files);
-    }
-    return next;
-  });
+  bySession.update(session, () => files);
 }
-
-registerSessionFeature((session) => () => {
-  setBySession((previous) => {
-    const next = new Map(previous);
-    next.delete(session);
-    return next;
-  });
-});

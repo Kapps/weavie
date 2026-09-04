@@ -1,6 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { ClientSession } from "../../messaging/host-connection";
 import { agentPlan, setAgentPlan } from "./plan-store";
+
+vi.mock("../../bridge", () => ({ registerSessionFeature: () => () => {} }));
 
 describe("agent plan store", () => {
   it("keeps one transient tab path per opaque host id while refreshing its document", () => {

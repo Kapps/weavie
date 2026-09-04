@@ -321,6 +321,11 @@ test.describe("ACP composer", () => {
   // wall-clock `expect.poll` timeout, which flaked here: 2026-09-03,
   // https://github.com/Kapps/weavie/actions/runs/33710321926/job/100508846088 ("Received: 47" after the full
   // Windows 30s expect.timeout — one row's height still short of settling).
+  // Recurred on main CI 2026-09-04 04:51 UTC, same wait-vs-poll race, on both
+  // e2e (linux) / shard (1/6) (https://github.com/Kapps/weavie/actions/runs/33838071761/job/100914906521,
+  // "Received: 25") and e2e (macos) / shard (1/6)
+  // (https://github.com/Kapps/weavie/actions/runs/33838071761/job/100914932032, "Received: 25") — the fix
+  // below (PR #732) was open but not yet merged when this build ran; merging it applies the same fix here.
   async function waitForBottom(page: Page, body: Locator): Promise<void> {
     for (;;) {
       const distance = await body.evaluate(

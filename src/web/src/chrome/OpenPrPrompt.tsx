@@ -1,5 +1,6 @@
 import { createEffect, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
 import { type PullRequestInfo, requestPullRequests, resolvePullRequest } from "../bridge";
+import { createListNavigation } from "../list-navigation";
 import { ModalShell, PromptActions, PromptButton } from "./ModalShell";
 import { type OpenPrTarget, parsePrRef } from "./pr-ref";
 
@@ -18,7 +19,6 @@ export function OpenPrPrompt(props: {
   const [results, setResults] = createSignal<PullRequestInfo[]>([]);
   const [loading, setLoading] = createSignal(true);
   const [query, setQuery] = createSignal("");
-  const [highlight, setHighlight] = createSignal(0);
 
   const [preview, setPreview] = createSignal<Preview | null>(null);
 
@@ -68,51 +68,31 @@ export function OpenPrPrompt(props: {
     onCleanup(() => clearTimeout(timer));
   });
 
-  createEffect(() => {
-    const count = results().length;
-    if (highlight() >= count) {
-      setHighlight(count === 0 ? 0 : count - 1);
-    }
-  });
-
   const openTarget = (target: OpenPrTarget | undefined): void => {
     if (target !== undefined) {
       props.onOpen(target, props.backendId);
     }
   };
-  const openResult = (pr: PullRequestInfo): void =>
-    openTarget({ number: pr.number, owner: "", repo: "" });
+  const targetOf = (pr: PullRequestInfo | undefined): OpenPrTarget | undefined =>
+    pr === undefined ? undefined : { number: pr.number, owner: "", repo: "" };
+  const nav = createListNavigation({
+    count: () => results().length,
+    edges: "wrap",
+    initialIndex: 0,
+    acceptKeys: ["Enter"],
+    onAccept: () => openTarget(selected()),
+    onDismiss: () => props.onCancel(),
+    stopPropagation: true,
+    clampIndex: true,
+  });
+  // A typed #N / URL beats the highlighted row: Enter opens it directly, list or not.
+  const selected = (): OpenPrTarget | undefined => directRef() ?? targetOf(results()[nav.index()]);
 
-  const onKeyDown = (event: KeyboardEvent): void => {
-    const list = results();
-    if (event.key === "ArrowDown" && list.length > 0) {
-      event.preventDefault();
-      event.stopPropagation();
-      setHighlight((h) => (h + 1) % list.length);
-    } else if (event.key === "ArrowUp" && list.length > 0) {
-      event.preventDefault();
-      event.stopPropagation();
-      setHighlight((h) => (h <= 0 ? list.length - 1 : h - 1));
-    } else if (event.key === "Enter") {
-      event.preventDefault();
-      event.stopPropagation();
-      const ref = directRef();
-      if (ref !== null) {
-        openTarget(ref);
-      } else {
-        openTarget(list[highlight()] && { number: list[highlight()]!.number, owner: "", repo: "" });
-      }
-    } else if (event.key === "Escape") {
-      event.preventDefault();
-      event.stopPropagation();
-      props.onCancel();
-    }
-  };
   return (
     <ModalShell
       labelledBy="open-pr-title"
       onDismiss={props.onCancel}
-      onKeyDown={onKeyDown}
+      onKeyDown={nav.onKeyDown}
       class="session-prompt"
     >
       <div class="confirm-title" id="open-pr-title">
@@ -132,7 +112,7 @@ export function OpenPrPrompt(props: {
           value={query()}
           onInput={(event) => {
             setQuery(event.currentTarget.value);
-            setHighlight(0);
+            nav.setIndex(0);
           }}
           ref={(el) => {
             queueMicrotask(() => el.focus());
@@ -185,11 +165,11 @@ export function OpenPrPrompt(props: {
               {(pr, i) => (
                 <li
                   class="session-prompt-suggestion"
-                  classList={{ active: i() === highlight() }}
+                  classList={{ active: i() === nav.index() }}
                   title={`Open #${pr.number}`}
                   onPointerDown={(event) => {
                     event.preventDefault();
-                    openResult(pr);
+                    openTarget(targetOf(pr));
                   }}
                 >
                   <span class="pr-suggestion-number">#{pr.number}</span>
@@ -214,16 +194,7 @@ export function OpenPrPrompt(props: {
           shortcut="Enter"
           title="Open the selected pull request (Enter)"
           disabled={directRef() === null && results().length === 0}
-          onClick={() =>
-            openTarget(
-              directRef() ??
-                (results()[highlight()] && {
-                  number: results()[highlight()]!.number,
-                  owner: "",
-                  repo: "",
-                }),
-            )
-          }
+          onClick={() => openTarget(selected())}
           primary
         />
       </PromptActions>

@@ -32,7 +32,7 @@ public sealed class McpDiffPresenterTests {
 			bridge.SessionFeature("notifications"),
 			files,
 			new WorkspaceFileIndex(fs, "/ws"),
-			(_, _, _, _) => { });
+			(_, _, _, _, _) => { });
 		return (new McpDiffPresenter(channel, files, opener, _ => { }), bridge);
 	}
 

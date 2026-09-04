@@ -1337,6 +1337,7 @@ export default function App(): JSX.Element {
                     session={session}
                     onCursorChange={editor.review.setCursor}
                     onFileCollapsed={editor.review.setFileCollapsed}
+                    bindNavigator={editor.review.bindNavigator}
                     createCopyScope={editor.review.createCopyScope}
                   />
                 </Suspense>

@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
-import { MockHost, mockSession } from "./mock-host";
+import { MockHost, mockEditorOptions, mockSession } from "./mock-host";
 
 // Scrolling back through history the pane has never measured used to stutter: the virtualizer answers each
 // first measurement with a scroll correction, and resolving that correction against its own cached offset
@@ -136,3 +136,142 @@ test("scrolling back through never-measured history stays smooth", async ({ page
     await host.close();
   }
 });
+
+test.use({
+  launchOptions: {
+    executablePath: process.env.WEAVIE_CHROMIUM,
+    args: ["--enable-smooth-scrolling"],
+  },
+});
+
+test.describe("native wheel scrolling", () => {
+  test.use({ viewport: { width: 1000, height: 800 } });
+
+  for (const smoothScrolling of [true, false]) {
+    test(`wheel notches preserve their distance without overlapping history rows (smooth=${smoothScrolling})`, async ({
+      page,
+    }) => {
+      const session = mockSession("wheel-scroll", "wheel-scroll", "acp");
+      const host = await MockHost.start({ distDir, sessions: [session] });
+      host.setAgentHistory(session.address, {
+        generation: 1,
+        pageSize: 5000,
+        messages: transcript.map((message) =>
+          message.type === "user-message" ? { ...message, text: message.text.repeat(4) } : message,
+        ),
+      });
+      try {
+        await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
+        await host.waitUntilConnected();
+        host.publishHost("settings", "editorOptions", mockEditorOptions({ smoothScrolling }));
+        const body = page.locator(".agent-body");
+        await expect(page.getByText("Answer 149", { exact: true })).toBeVisible();
+        await body.evaluate((element) => element.scrollTo({ top: element.scrollHeight }));
+        await page.waitForTimeout(500);
+        await body.hover();
+        const overlaps: number[] = [];
+        const distances: number[] = [];
+        const movingFrames: number[] = [];
+        for (let notch = 0; notch < 32; notch++) {
+          const anchor = await body.evaluate(readVisibleAnchor);
+          const sampling = body.evaluate(sampleWheelFrames);
+          await page.mouse.wheel(0, -120);
+          const sample = await sampling;
+          overlaps.push(sample.overlap);
+          movingFrames.push(sample.frames);
+          distances.push(await body.evaluate(anchorDistance, anchor));
+        }
+        const rapidAnchor = await body.evaluate(readVisibleAnchor);
+        const rapidSampling = body.evaluate(sampleWheelFrames);
+        for (let notch = 0; notch < 3; notch++) await page.mouse.wheel(0, -120);
+        overlaps.push((await rapidSampling).overlap);
+        const rapidDistance = await body.evaluate(anchorDistance, rapidAnchor);
+        expect(
+          Math.abs(rapidDistance - 360),
+          "rapid notches must retain accumulated distance",
+        ).toBeLessThanOrEqual(1);
+        const burstSampling = body.evaluate(sampleWheelFrames);
+        await page.mouse.wheel(0, -2000);
+        overlaps.push((await burstSampling).overlap);
+        expect(
+          Math.max(...overlaps),
+          "visible transcript rows must never paint over each other",
+        ).toBeLessThanOrEqual(1);
+        expect(
+          Math.max(...distances.map((distance) => Math.abs(distance - 120))),
+          "every notch must move visible content the requested 120 pixels",
+        ).toBeLessThanOrEqual(1);
+        if (smoothScrolling)
+          expect(Math.max(...movingFrames), "smooth scrolling must animate").toBeGreaterThan(3);
+        const latest = page.getByRole("button", { name: "Jump to latest", exact: true });
+        const bounds = await body.boundingBox();
+        if (bounds === null) throw new Error("Agent scroll pane has no bounds");
+        const clientWidth = await body.evaluate((element) => element.clientWidth);
+        await page.mouse.move(bounds.x + clientWidth - 20, bounds.y + bounds.height / 2);
+        await expect(page.locator(".agent-scroll-nav")).toHaveCSS("opacity", "1");
+        // Keep the pending wheel and navigation in one task so the animation cannot finish
+        // while Playwright waits for the button to become stable enough to click.
+        await body.evaluate((element) => {
+          element.dispatchEvent(
+            new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: -120 }),
+          );
+          const button = document.querySelector<HTMLButtonElement>(".agent-scroll-nav-latest");
+          if (button === null) throw new Error("Jump to latest is unavailable");
+          button.click();
+        });
+        await expect(latest).toBeHidden();
+        await page.waitForTimeout(200);
+        expect(
+          await body.evaluate(
+            (element) => element.scrollHeight - element.clientHeight - element.scrollTop,
+          ),
+        ).toBeLessThanOrEqual(1);
+      } finally {
+        await host.close();
+      }
+    });
+  }
+});
+
+async function sampleWheelFrames(
+  element: HTMLElement,
+): Promise<{ overlap: number; frames: number }> {
+  let overlap = 0;
+  const offsets = new Set<number>();
+  const start = performance.now();
+  while (performance.now() - start < 400) {
+    // ResizeObserver runs after animation callbacks but before paint; sample after rendering so
+    // intermediate layout that never reaches the screen is not counted as a visible overlap.
+    await new Promise<void>((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
+    offsets.add(element.scrollTop);
+    const viewport = element.getBoundingClientRect();
+    const rows = Array.from(element.querySelectorAll<HTMLElement>(".agent-virtual-row"))
+      .map((row) => row.getBoundingClientRect())
+      .filter((row) => row.bottom > viewport.top && row.top < viewport.bottom)
+      .sort((a, b) => a.top - b.top);
+    for (let index = 1; index < rows.length; index++) {
+      overlap = Math.max(overlap, rows[index - 1]!.bottom - rows[index]!.top);
+    }
+  }
+  return { overlap, frames: offsets.size };
+}
+
+function readVisibleAnchor(element: HTMLElement): { id: string; top: number } {
+  const viewport = element.getBoundingClientRect();
+  const row = Array.from(element.querySelectorAll<HTMLElement>(".agent-virtual-row")).find(
+    (candidate) => {
+      const bounds = candidate.getBoundingClientRect();
+      return bounds.bottom > viewport.top && bounds.top < viewport.bottom;
+    },
+  );
+  if (row === undefined) throw new Error("No visible transcript anchor");
+  return { id: row.dataset.transcriptEntry!, top: row.getBoundingClientRect().top };
+}
+
+function anchorDistance(element: HTMLElement, previous: { id: string; top: number }): number {
+  const row = Array.from(element.querySelectorAll<HTMLElement>(".agent-virtual-row")).find(
+    (candidate) => candidate.dataset.transcriptEntry === previous.id,
+  );
+  if (row === undefined) throw new Error("Wheel notches lost the visible transcript anchor");
+  return row.getBoundingClientRect().top - previous.top;
+}

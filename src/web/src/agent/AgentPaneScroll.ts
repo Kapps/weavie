@@ -15,9 +15,9 @@ export function createAgentPaneScroll(
   revision: Accessor<number>,
   initiallyFollowingLatest: boolean,
 ) {
-  let bottomCorrectionScheduled = false;
+  let chaseScheduled = false;
+  let lastChasedScrollHeight = -1;
   let controllerScrolls: Array<{ top: number }> = [];
-  let scrollScheduled = false;
   const [followingLatest, setFollowingLatest] = createSignal(initiallyFollowingLatest);
   const [agentTurnStartAbove, setAgentTurnStartAbove] = createSignal(false);
 
@@ -85,15 +85,28 @@ export function createAgentPaneScroll(
       }
     }, true);
 
+  // The virtualizer measures newly-revealed items asynchronously below the fold, so one
+  // `scrollTop = scrollHeight` assignment can fall short of the eventual bottom: later rounds keep
+  // growing `scrollHeight` after we've already caught up to what it reported at assignment time.
+  // Chase it across frames until the height holds steady instead of trusting any single pass — or the
+  // virtualizer's own notification — to be the last one.
   const scrollToBottom = (): void => {
-    if (scrollScheduled) {
+    if (chaseScheduled) {
       return;
     }
-    scrollScheduled = true;
+    chaseScheduled = true;
     requestAnimationFrame(() => {
-      scrollScheduled = false;
-      if (followingLatest()) {
+      chaseScheduled = false;
+      if (!followingLatest()) {
+        return;
+      }
+      if (!isNearBottom()) {
         assignBottom();
+      }
+      const height = body()?.scrollHeight ?? lastChasedScrollHeight;
+      if (height !== lastChasedScrollHeight) {
+        lastChasedScrollHeight = height;
+        scrollToBottom();
       }
     });
   };
@@ -137,14 +150,8 @@ export function createAgentPaneScroll(
   };
 
   const onVirtualizerChange = (sync: boolean): void => {
-    if (followingLatest() && !sync && !bottomCorrectionScheduled) {
-      bottomCorrectionScheduled = true;
-      requestAnimationFrame(() => {
-        bottomCorrectionScheduled = false;
-        if (followingLatest() && !isNearBottom()) {
-          assignBottom();
-        }
-      });
+    if (followingLatest() && !sync) {
+      scrollToBottom();
     }
     updateAgentTurnStartPosition();
   };

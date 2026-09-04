@@ -1671,6 +1671,13 @@ test.describe("ACP composer", () => {
   });
 
   // Pins the follow threshold and navigation: staying within three lines keeps following; scrolling farther up pauses it.
+  // Failed on main 2026-09-04 04:51 UTC on both linux and macos shard 1/6 (stuck 25px short of bottom,
+  // 15s timeout): https://github.com/Kapps/weavie/actions/runs/33838071761/job/100914906521 and
+  // .../job/100914932032. Root cause was a real race in AgentPaneScroll's bottom-follow convergence,
+  // not this test: `onVirtualizerChange`'s correction only re-armed off the virtualizer's own
+  // `sync`-tagged notification, which the virtualizer can swallow for the final below-the-fold
+  // measurement round while anchored to the end. Fixed by chasing `scrollHeight` across frames until
+  // it holds steady instead of trusting any single notification to be the last one (AgentPaneScroll.ts).
   test("scrolling beyond three lines shows jump-to-latest navigation", async ({ page }) => {
     await mountAgent(page);
     for (let i = 0; i < 40; i += 1) {

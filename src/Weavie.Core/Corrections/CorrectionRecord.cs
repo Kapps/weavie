@@ -31,3 +31,15 @@ public sealed record CorrectionRecord {
 	[JsonPropertyName("droppedFiles")]
 	public int DroppedFiles { get; init; }
 }
+
+/// <summary>
+/// One stored correction: the exact <see cref="CorrectionCorpus"/> line that holds it (the key a consumer removes
+/// it by) and its decoded record.
+/// </summary>
+public sealed record CorrectionEntry {
+	/// <summary>The verbatim ring line storing <see cref="Record"/>.</summary>
+	public required string Line { get; init; }
+
+	/// <summary>The decoded correction.</summary>
+	public required CorrectionRecord Record { get; init; }
+}

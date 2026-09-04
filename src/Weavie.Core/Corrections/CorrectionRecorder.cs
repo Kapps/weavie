@@ -61,7 +61,7 @@ public sealed class CorrectionRecorder {
 		if (chain is not null) {
 			string delta = CorrectionDiff.Unified(chain.Before, edit.After);
 			if (delta.Length == 0) {
-				_corpus.Remove(chain.Line);
+				_corpus.Remove([chain.Line]);
 				chains!.Remove(chain);
 			} else {
 				chain.After = edit.After;

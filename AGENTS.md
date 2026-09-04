@@ -64,10 +64,11 @@ load it only when you need it.
 - **Learn from corrections** — Weavie uniquely sees the user's *edit over the agent's output*, invisible to
   the model's transcript. Each correction is captured as a discrete event **at the moment the user acts** —
   an editor save that lands over an agent hunk, or a review-UI revert — gated to the lines the agent wrote
-  (never by scanning the tree). It rings those per-workspace and the palette command `Learn From My
-  Corrections` (`weavie.learn.fromCorrections`) prefills the corpus into the invoking session's agent to
-  propose `AGENTS.md` rules — Weavie stores the signal, Claude does the reasoning (no classifier in Core). A
-  contextual-suggestion card nudges once enough accumulate. See
+  (never by scanning the tree). It rings those per-workspace; the palette command `Learn From My
+  Corrections` (`weavie.learn.fromCorrections`) runs **one isolated typed inference query** over the ring and
+  opens the proposed `AGENTS.md` rules in a read-only tab — Weavie stores the signal, the model does the
+  reasoning (no classifier in Core). A contextual-suggestion card nudges once enough accumulate; the analysis
+  runs only on the user's click, at most once every 24 hours. See
   [docs/specs/learn-from-corrections.md](docs/specs/learn-from-corrections.md).
 
 ## Keyboard-first navigation

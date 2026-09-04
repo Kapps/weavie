@@ -78,6 +78,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 	private readonly SessionStore _sessionStore;
 	private readonly RecentFilesStore _recentFiles;
 	private readonly CorrectionCorpus _corrections;
+	private readonly LearnSchedule _learnSchedule;
 	private readonly WorkspaceMediaRoutes _mediaRoutes = new();
 	private readonly WorkspaceHttpServer _http;
 	// Every loaded or dormant session slot. Which one a page displays is client state and never appears here.
@@ -200,6 +201,11 @@ public sealed partial class HostCore : IAsyncDisposable {
 		_corrections = new CorrectionCorpus(new LocalFileSystem(), WeaviePaths.WorkspaceCorrectionsFile(Id));
 		_corrections.Log += Log;
 		_corrections.Changed += () => _suggestions?.Evaluate();
+		// The daily analysis interval also gates that card, so a run starting or stamping re-evaluates it too.
+		_learnSchedule = new LearnSchedule(
+			new LocalFileSystem(), WeaviePaths.WorkspaceLearnFile(Id), TimeProvider.System);
+		_learnSchedule.Log += Log;
+		_learnSchedule.Changed += () => _suggestions?.Evaluate();
 		_http = new WorkspaceHttpServer(this, httpOptions, httpBridge, _mediaRoutes);
 		WireHostMessages();
 		_platform.ApplicationMenu.Activated += OnApplicationMenuActivated;

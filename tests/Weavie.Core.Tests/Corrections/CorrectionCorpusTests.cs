@@ -66,34 +66,51 @@ public sealed class CorrectionCorpusTests {
 	}
 
 	[Fact]
-	public void Take_ReturnsAllOldestFirst_AndEmptiesThePersistedRing() {
+	public void Snapshot_ReturnsAllOldestFirst_AndRemovingThoseLinesEmptiesThePersistedRing() {
 		var fs = new InMemoryFileSystem();
 		var corpus = new CorrectionCorpus(fs, CorpusPath);
 		corpus.Append(Record("a", 10));
 		corpus.Append(Record("b", 10));
 
-		var taken = corpus.Take();
+		var snapshot = corpus.Snapshot();
+		corpus.Remove([.. snapshot.Select(entry => entry.Line)]);
 
-		Assert.Equal(["a", "b"], taken.Select(r => r.Prompt));
+		Assert.Equal(["a", "b"], snapshot.Select(entry => entry.Record.Prompt));
 		Assert.Equal(0, corpus.Count);
 		Assert.Empty(corpus.ReadAll());
 		Assert.Empty(new CorrectionCorpus(fs, CorpusPath).ReadAll()); // persisted empty
 	}
 
 	[Fact]
-	public void Take_EmptyRing_ReturnsEmpty_WithoutChangedEvent() {
+	public void Remove_ConsumesOnlyTheAnalyzedLines_LeavingOneAppendedMeanwhile() {
+		// The analysis-consume invariant: a correction recorded while the query ran is not in the snapshot, so
+		// consuming the snapshot can never drop it unanalyzed.
+		var corpus = new CorrectionCorpus(new InMemoryFileSystem(), CorpusPath);
+		corpus.Append(Record("analyzed", 10));
+		var snapshot = corpus.Snapshot();
+		corpus.Append(Record("meanwhile", 10));
+
+		corpus.Remove([.. snapshot.Select(entry => entry.Line)]);
+
+		Assert.Equal("meanwhile", Assert.Single(corpus.ReadAll()).Prompt);
+	}
+
+	[Fact]
+	public void Remove_EmptyRing_ChangesNothing_WithoutChangedEvent() {
 		var corpus = new CorrectionCorpus(new InMemoryFileSystem(), CorpusPath);
 		int changes = 0;
 		corpus.Changed += () => changes++;
 
-		Assert.Empty(corpus.Take());
+		corpus.Remove([]);
+
+		Assert.Equal(0, corpus.Count);
 		Assert.Equal(0, changes);
 	}
 
 	[Fact]
 	public void Append_StripsControlCharacters_KeepingNewlinesAndTabs() {
-		// A hostile file could smuggle a bracketed-paste terminator (ESC[201~) into its delta; the ring strips
-		// every control char except \n/\t so /learn's paste can never be escaped into typed PTY input.
+		// A hostile file could smuggle terminal control bytes into its delta; the ring strips every control char
+		// except \n/\t, so nothing it stores can carry an escape sequence into a prompt or a rendered tab.
 		var corpus = new CorrectionCorpus(new InMemoryFileSystem(), CorpusPath);
 		corpus.Append(new CorrectionRecord {
 			Prompt = "do \x1b[31mthings\x07",
@@ -141,7 +158,7 @@ public sealed class CorrectionCorpusTests {
 	public void Coalesce_WhenPreviousLineGone_AppendsFreshAndFiresChanged() {
 		var corpus = new CorrectionCorpus(new InMemoryFileSystem(), CorpusPath);
 		string first = corpus.Append(Record("a", 10));
-		corpus.Take(); // the entry /learn consumed the line the caller still holds
+		corpus.Remove([first]); // the analysis consumed the line the caller still holds
 		int changes = 0;
 		corpus.Changed += () => changes++;
 
@@ -159,7 +176,7 @@ public sealed class CorrectionCorpusTests {
 		int changes = 0;
 		corpus.Changed += () => changes++;
 
-		corpus.Remove(second);
+		corpus.Remove([second]);
 
 		Assert.Equal("keep", Assert.Single(corpus.ReadAll()).Prompt);
 		Assert.Equal(1, changes);
@@ -177,14 +194,14 @@ public sealed class CorrectionCorpusTests {
 	}
 
 	[Fact]
-	public void AppendAndTake_RaiseChanged() {
+	public void AppendAndRemove_RaiseChanged() {
 		var corpus = new CorrectionCorpus(new InMemoryFileSystem(), CorpusPath);
 		int changes = 0;
 		corpus.Changed += () => changes++;
 
-		corpus.Append(Record("a", 10)); // +1
-		corpus.Take(); // +1
-		corpus.Take(); // nothing left — no change, no event
+		string line = corpus.Append(Record("a", 10)); // +1
+		corpus.Remove([line]); // +1
+		corpus.Remove([line]); // already gone — no change, no event
 
 		Assert.Equal(2, changes);
 	}

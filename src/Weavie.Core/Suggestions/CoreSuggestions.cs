@@ -41,14 +41,16 @@ public static class CoreSuggestions {
 			],
 		});
 
-		// Offer /learn once enough post-turn corrections (reverted hunks / hand-edits over agent output)
-		// accumulate in the workspace ring. Self-regulating: /learn clears the ring, so the card vanishes
-		// until corrections build up again. "Yes" only PREFILLS the analysis prompt — no tokens until Enter.
+		// Offer the analysis once enough post-turn corrections (reverted hunks / hand-edits over agent output)
+		// accumulate in the workspace ring, and only when the daily interval allows one — the card never offers a
+		// run the command would refuse. Self-regulating: an analysis consumes the ring, so the card vanishes until
+		// corrections build up again. "Yes" is the only thing that spends tokens.
 		registry.Register(new SuggestionDefinition {
 			Id = "corrections.learn",
-			Title = "Teach Claude from your corrections?",
-			Body = "You've been correcting Claude's output — it can mine those reverts and edits for AGENTS.md rules.",
-			IsRelevant = ctx => ctx.PendingCorrectionCount >= ctx.Settings.RequireInt(CorrectionsSettings.LearnThreshold),
+			Title = "Learn from your corrections?",
+			Body = "You've been correcting the agent's output — Weavie can mine those reverts and edits for AGENTS.md rules and show you what it found.",
+			IsRelevant = ctx => ctx.Corrections.Ready
+				&& ctx.Corrections.Pending >= ctx.Settings.RequireInt(CorrectionsSettings.LearnThreshold),
 			Actions = [
 				new SuggestionAction {
 					Label = "Yes",

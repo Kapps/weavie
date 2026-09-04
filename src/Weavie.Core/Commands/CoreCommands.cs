@@ -1876,15 +1876,15 @@ public static class CoreCommands {
 		});
 
 		// Infrequent, reachable from the palette + the corrections.learn card — no default keybinding (like
-		// SetupWorkspace). Prefills only; the user reviews the analysis prompt and presses Enter.
+		// SetupWorkspace). Rate-limited to one analysis a day by LearnSchedule.
 		registry.Register(new CommandDefinition {
 			Id = LearnFromCorrections,
 			Title = "Learn From My Corrections",
 			RunsIn = CommandLocation.Core,
 			Category = "Workspace",
-			Description = "Have Claude mine the corrections you made to its output after its turns ended (reverted "
-				+ "hunks, hand-edits) and propose CLAUDE.md rules — prefilled into the invoking session for your "
-				+ "review, never auto-sent.",
+			Description = "Mine the corrections you made to the agent's output after its turns ended (reverted "
+				+ "hunks, hand-edits) for AGENTS.md rules, in one isolated model query, and open the proposed "
+				+ "rules in a read-only tab. At most one analysis every 24 hours.",
 			Aliases = ["learn from corrections", "teach claude", "mine corrections", "claude.md rules from reverts",
 				"learn from my edits", "learn"],
 		});

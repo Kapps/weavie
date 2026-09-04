@@ -1,4 +1,4 @@
-import { Logs } from "lucide-solid";
+import { GraduationCap, Logs } from "lucide-solid";
 import type { JSX } from "solid-js";
 import type { ClientSession } from "../../messaging/host-connection";
 import { NotionIcon } from "./NotionIcon";
@@ -8,6 +8,7 @@ import { sourceDoc } from "./source-store";
 const ICONS: Record<string, () => JSX.Element> = {
   notion: () => <NotionIcon size={13} class="editor-tab-icon" />,
   logs: () => <Logs size={13} class="editor-tab-icon" />,
+  corrections: () => <GraduationCap size={13} class="editor-tab-icon" />,
 };
 
 // The icon for a source tab, from its store entry's source id. No icon when the id is unknown or the entry is

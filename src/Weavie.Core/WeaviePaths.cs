@@ -168,6 +168,9 @@ public static class WeaviePaths {
 	/// </summary>
 	public static string WorkspaceCorrectionsFile(WorkspaceId id) => Path.Combine(WorkspaceDir(id), "corrections.jsonl");
 
+	/// <summary>A workspace's correction-analysis pacing stamp: <c>~/.weavie/workspaces/&lt;id&gt;/learn.json</c>.</summary>
+	public static string WorkspaceLearnFile(WorkspaceId id) => Path.Combine(WorkspaceDir(id), "learn.json");
+
 	/// <summary>
 	/// A workspace's persisted session set (the sessions and which was active):
 	/// <c>~/.weavie/workspaces/&lt;id&gt;/sessions.json</c>. Lets a workspace reopen with the same sessions

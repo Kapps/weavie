@@ -1,4 +1,5 @@
 using Weavie.Core.Configuration;
+using Weavie.Core.Corrections;
 using Weavie.Core.FileSystem;
 
 namespace Weavie.Core.Suggestions;
@@ -54,10 +55,11 @@ public sealed record SuggestionContext {
 	public required bool HasBuildManifest { get; init; }
 
 	/// <summary>
-	/// How many corrections the workspace's ring holds right now. Unlike the one-shot manifest probe this
-	/// changes over time, so <see cref="SuggestionService"/> reads it fresh from a supplier each evaluation.
+	/// The workspace's correction-learning state — pending count and daily-interval cooldown. Unlike the one-shot
+	/// manifest probe this changes over time, so <see cref="SuggestionService"/> reads it fresh from a supplier
+	/// each evaluation.
 	/// </summary>
-	public required int PendingCorrectionCount { get; init; }
+	public required CorrectionsStatus Corrections { get; init; }
 }
 
 /// <summary>

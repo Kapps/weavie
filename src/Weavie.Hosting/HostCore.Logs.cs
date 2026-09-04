@@ -26,13 +26,7 @@ public sealed partial class HostCore {
 		// snapshot is already in hand, so the tab arrives titled and populated with no `loading` state to resolve.
 		// State (not a bare publish) so a reconnecting client replays it into the still-open tab. Claude's
 		// plaintext channel is the DataJson tail below, so no `markdown` duplicate rides the bridge.
-		session.State.Set("sources", LogsTarget, "document", new {
-			target = LogsTarget,
-			title = LogsTitle,
-			html = LogsHtml(string.Join('\n', lines), dropped),
-			editedTime = "",
-			sourceId = LogsSourceId,
-		});
+		SourceTab.Html(session, LogsTarget, LogsTitle, LogsSourceId, LogsHtml(string.Join('\n', lines), dropped));
 		session.OpenEditorOverlay(LogsTarget, "source");
 
 		// Claude channel: the most-recent tail, with the omitted count surfaced so a truncation is never silent.

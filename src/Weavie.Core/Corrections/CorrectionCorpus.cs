@@ -7,20 +7,19 @@ namespace Weavie.Core.Corrections;
 /// <summary>
 /// The per-workspace ring of recorded corrections, persisted as JSONL (one <see cref="CorrectionRecord"/>
 /// per line, oldest first) at <c>~/.weavie/workspaces/&lt;id&gt;/corrections.jsonl</c>. Byte-capped because
-/// the whole ring feeds one <c>/learn</c> analysis and must fit the model's window: appending past
+/// the whole ring feeds one corrections analysis and must fit the model's window: appending past
 /// <see cref="MaxBytes"/> evicts whole oldest lines (the one sanctioned silent cap here — a best-effort
 /// learning corpus deliberately biased toward recent corrections), and per-entry ceilings keep one monster
 /// turn from evicting all history behind it. Shared by every session of the workspace; all members lock.
 /// </summary>
 public sealed class CorrectionCorpus {
-	/// <summary>The whole-ring byte cap — the /learn context budget, not user config.</summary>
+	/// <summary>The whole-ring byte cap — the analysis context budget, not user config.</summary>
 	public const int MaxBytes = 96 * 1024;
 
 	// One entry may take at most a quarter of the ring, so a single huge turn keeps ≥3 entries of history.
 	private const int MaxEntryBytes = MaxBytes / 4;
 	private const int MaxPromptBytes = 2 * 1024;
 	private const int MaxFileDeltaBytes = 8 * 1024;
-	private const string TruncationMarker = "…[truncated]";
 
 	private readonly IFileSystem _fileSystem;
 	private readonly Lock _gate = new();
@@ -46,7 +45,7 @@ public sealed class CorrectionCorpus {
 	/// <summary>Diagnostic log line — read/persist failures on the best-effort ring.</summary>
 	public event Action<string>? Log;
 
-	/// <summary>Raised after the ring's entry count changed — an <see cref="Append"/>, a fresh-appending <see cref="Coalesce"/>, a <see cref="Remove"/>, or a <see cref="Take"/> (fires outside the lock). An in-place <see cref="Coalesce"/> replace leaves the count unchanged and does not fire.</summary>
+	/// <summary>Raised after the ring's entry count changed — an <see cref="Append"/>, a fresh-appending <see cref="Coalesce"/>, or a <see cref="Remove"/> (fires outside the lock). An in-place <see cref="Coalesce"/> replace leaves the count unchanged and does not fire.</summary>
 	public event Action? Changed;
 
 	/// <summary>How many corrections the ring currently holds.</summary>
@@ -79,7 +78,7 @@ public sealed class CorrectionCorpus {
 	/// Replaces <paramref name="previousLine"/> (the line a prior <see cref="Append"/>/<see cref="Coalesce"/>
 	/// returned) with <paramref name="record"/> in place, so successive editor saves over one agent region evolve a
 	/// single entry instead of piling up intermediate ones. When that line is gone (evicted or already consumed by
-	/// <c>/learn</c>) this appends fresh. Returns the new stored line. Count is unchanged on a replace, so the nudge
+	/// an analysis) this appends fresh. Returns the new stored line. Count is unchanged on a replace, so the nudge
 	/// (which re-evaluates on <see cref="Changed"/>) is not disturbed per keystroke — only a fresh append fires it.
 	/// </summary>
 	/// <param name="record">The superseding correction.</param>
@@ -110,25 +109,36 @@ public sealed class CorrectionCorpus {
 	}
 
 	/// <summary>
-	/// Removes <paramref name="line"/> (a line a prior <see cref="Append"/>/<see cref="Coalesce"/> returned) when a
-	/// running correction was retyped back to the agent's own output, so nothing is left to learn from. A no-op when
-	/// the line is already gone.
+	/// Drops exactly <paramref name="lines"/> (lines a prior <see cref="Append"/>/<see cref="Coalesce"/> or
+	/// <see cref="Snapshot"/> returned) — a running correction retyped back to the agent's own output, or the
+	/// entries one analysis consumed. Removing by line rather than by count is what makes a correction appended
+	/// while an analysis ran survive it: it is not in the list, so it is never dropped unanalyzed. Lines already
+	/// gone are skipped.
 	/// </summary>
-	/// <param name="line">The line to drop.</param>
-	public void Remove(string line) {
-		ArgumentNullException.ThrowIfNull(line);
+	/// <param name="lines">The exact lines to drop.</param>
+	public void Remove(IReadOnlyList<string> lines) {
+		ArgumentNullException.ThrowIfNull(lines);
+		bool removed = false;
 		lock (_gate) {
-			int index = _lines.LastIndexOf(line);
-			if (index < 0) {
-				return;
+			foreach (string line in lines) {
+				int index = _lines.LastIndexOf(line);
+				if (index < 0) {
+					continue;
+				}
+
+				_bytes -= Encoding.UTF8.GetByteCount(_lines[index]) + 1;
+				_lines.RemoveAt(index);
+				removed = true;
 			}
 
-			_bytes -= Encoding.UTF8.GetByteCount(_lines[index]) + 1;
-			_lines.RemoveAt(index);
-			PersistLocked();
+			if (removed) {
+				PersistLocked();
+			}
 		}
 
-		Changed?.Invoke();
+		if (removed) {
+			Changed?.Invoke();
+		}
 	}
 
 	private void AddLocked(string line) {
@@ -146,46 +156,24 @@ public sealed class CorrectionCorpus {
 	}
 
 	/// <summary>The recorded corrections, oldest first.</summary>
-	public IReadOnlyList<CorrectionRecord> ReadAll() {
-		lock (_gate) {
-			var records = new List<CorrectionRecord>(_lines.Count);
-			foreach (string line in _lines) {
-				if (TryParse(line) is { } record) {
-					records.Add(record);
-				}
-			}
-
-			return records;
-		}
-	}
+	public IReadOnlyList<CorrectionRecord> ReadAll() => [.. Snapshot().Select(entry => entry.Record)];
 
 	/// <summary>
-	/// Atomically returns every recorded correction (oldest first) and empties the ring — the /learn consume
-	/// point. Read-and-clear under one lock so a correction another session appends mid-/learn is either
-	/// returned here (and analyzed) or lands afterward and stays in the ring; it can never be evicted between
-	/// a separate read and a positional clear. Returns empty (and raises nothing) when the ring is empty.
+	/// Every recorded correction, oldest first, each paired with the exact ring line that stores it — the analysis
+	/// read point. The lines come back so the caller can <see cref="Remove"/> precisely what it analyzed once the
+	/// analysis succeeds, leaving anything appended in the meantime in the ring.
 	/// </summary>
-	public IReadOnlyList<CorrectionRecord> Take() {
-		List<CorrectionRecord> records;
+	public IReadOnlyList<CorrectionEntry> Snapshot() {
 		lock (_gate) {
-			if (_lines.Count == 0) {
-				return [];
-			}
-
-			records = new List<CorrectionRecord>(_lines.Count);
+			var entries = new List<CorrectionEntry>(_lines.Count);
 			foreach (string line in _lines) {
 				if (TryParse(line) is { } record) {
-					records.Add(record);
+					entries.Add(new CorrectionEntry { Line = line, Record = record });
 				}
 			}
 
-			_lines.Clear();
-			_bytes = 0;
-			PersistLocked();
+			return entries;
 		}
-
-		Changed?.Invoke();
-		return records;
 	}
 
 	// Applies the per-entry ceilings: prompt and per-file delta byte caps, then whole-entry trimming that
@@ -193,9 +181,9 @@ public sealed class CorrectionCorpus {
 	// Everything is sanitized first, so the ring never stores control bytes (see Sanitize).
 	private static CorrectionRecord Bound(CorrectionRecord record) {
 		var files = record.Files
-			.Select(f => new CorrectionFile { Path = Sanitize(f.Path), Delta = TruncateUtf8(Sanitize(f.Delta), MaxFileDeltaBytes) })
+			.Select(f => new CorrectionFile { Path = Sanitize(f.Path), Delta = CorrectionText.TruncateUtf8(Sanitize(f.Delta), MaxFileDeltaBytes) })
 			.ToList();
-		var bounded = record with { Prompt = record.Prompt is { } p ? TruncateUtf8(Sanitize(p), MaxPromptBytes) : null, Files = files };
+		var bounded = record with { Prompt = record.Prompt is { } p ? CorrectionText.TruncateUtf8(Sanitize(p), MaxPromptBytes) : null, Files = files };
 		while (files.Count > 1 && Encoding.UTF8.GetByteCount(Serialize(bounded)) > MaxEntryBytes) {
 			files.RemoveAt(files.Count - 1);
 			bounded = bounded with { Files = files, DroppedFiles = record.Files.Count - files.Count };
@@ -206,16 +194,15 @@ public sealed class CorrectionCorpus {
 		for (int budget = MaxFileDeltaBytes / 2;
 			budget >= 256 && Encoding.UTF8.GetByteCount(Serialize(bounded)) > MaxEntryBytes;
 			budget /= 2) {
-			files[0] = files[0] with { Delta = TruncateUtf8(files[0].Delta, budget) };
+			files[0] = files[0] with { Delta = CorrectionText.TruncateUtf8(files[0].Delta, budget) };
 			bounded = bounded with { Files = files };
 		}
 
 		return bounded;
 	}
 
-	// The ring stores printable text plus \n and \t only: every other control char (C0/C1 incl. ESC, DEL, CR)
-	// is stripped at append, so corpus content replayed into /learn's bracketed paste can never carry an
-	// escape sequence that terminates the paste and turns the remainder into typed PTY input.
+	// The ring stores printable text plus \n and \t only: every other control char (C0/C1 incl. ESC, DEL, CR) is
+	// stripped at append, so a hostile file's bytes can never ride a delta into an analysis prompt or a rendered tab.
 	private static string Sanitize(string text) {
 		if (!text.Any(IsStripped)) {
 			return text;
@@ -231,30 +218,6 @@ public sealed class CorrectionCorpus {
 		return sb.ToString();
 
 		static bool IsStripped(char c) => char.IsControl(c) && c is not ('\n' or '\t');
-	}
-
-	// Cuts text to at most maxBytes of UTF-8 (never splitting a surrogate pair), marking the cut.
-	private static string TruncateUtf8(string text, int maxBytes) {
-		if (Encoding.UTF8.GetByteCount(text) <= maxBytes) {
-			return text;
-		}
-
-		int budget = maxBytes - Encoding.UTF8.GetByteCount(TruncationMarker);
-		int bytes = 0;
-		int end = 0;
-		for (int i = 0; i < text.Length;) {
-			bool pair = char.IsHighSurrogate(text[i]) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1]);
-			int size = pair ? 4 : Encoding.UTF8.GetByteCount(text, i, 1);
-			if (bytes + size > budget) {
-				break;
-			}
-
-			bytes += size;
-			i += pair ? 2 : 1;
-			end = i;
-		}
-
-		return text[..end] + TruncationMarker;
 	}
 
 	private static string Serialize(CorrectionRecord record) => JsonSerializer.Serialize(record);

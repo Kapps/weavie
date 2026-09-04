@@ -1,4 +1,5 @@
 using Weavie.Core.Configuration;
+using Weavie.Core.Corrections;
 using Weavie.Core.FileSystem;
 
 namespace Weavie.Core.Suggestions;
@@ -17,7 +18,7 @@ public sealed class SuggestionService {
 	private readonly SuggestionDismissals _dismissals;
 	private readonly Action<IReadOnlyList<SuggestionDefinition>> _push;
 	private readonly Func<bool> _probe;
-	private readonly Func<int> _pendingCorrections;
+	private readonly Func<CorrectionsStatus> _corrections;
 	private readonly TimeSpan _probeTimeout;
 	private readonly Lock _gate = new();
 	private readonly HashSet<string> _snoozed = new(StringComparer.Ordinal);
@@ -29,7 +30,7 @@ public sealed class SuggestionService {
 	/// Creates the service and kicks off the off-the-hot-path <paramref name="probe"/> — the host-supplied walk
 	/// that classifies + auto-configures the workspace and reports whether it carries a build manifest.
 	/// <paramref name="probeTimeout"/> bounds it, failing open (card shown) if it doesn't finish in time.
-	/// <paramref name="pendingCorrections"/> supplies the correction ring's live count per evaluation.
+	/// <paramref name="corrections"/> supplies the correction ring's live count and cooldown per evaluation.
 	/// </summary>
 	public SuggestionService(
 		SuggestionRegistry registry,
@@ -40,7 +41,7 @@ public sealed class SuggestionService {
 		TimeSpan probeTimeout,
 		Action<IReadOnlyList<SuggestionDefinition>> push,
 		Func<bool> probe,
-		Func<int> pendingCorrections) {
+		Func<CorrectionsStatus> corrections) {
 		ArgumentNullException.ThrowIfNull(registry);
 		ArgumentNullException.ThrowIfNull(settings);
 		ArgumentNullException.ThrowIfNull(fileSystem);
@@ -48,7 +49,7 @@ public sealed class SuggestionService {
 		ArgumentNullException.ThrowIfNull(dismissals);
 		ArgumentNullException.ThrowIfNull(push);
 		ArgumentNullException.ThrowIfNull(probe);
-		ArgumentNullException.ThrowIfNull(pendingCorrections);
+		ArgumentNullException.ThrowIfNull(corrections);
 		_registry = registry;
 		_settings = settings;
 		_fileSystem = fileSystem;
@@ -57,7 +58,7 @@ public sealed class SuggestionService {
 		_probeTimeout = probeTimeout;
 		_push = push;
 		_probe = probe;
-		_pendingCorrections = pendingCorrections;
+		_corrections = corrections;
 		_ = RunProbeAsync();
 	}
 
@@ -70,7 +71,7 @@ public sealed class SuggestionService {
 				Settings = _settings,
 				FileSystem = _fileSystem,
 				HasBuildManifest = _hasManifest,
-				PendingCorrectionCount = _pendingCorrections(),
+				Corrections = _corrections(),
 			};
 			active = [.. _registry.Definitions.Where(d =>
 				!_snoozed.Contains(d.Id) && !IsDismissed(d) && d.IsRelevant(context))];

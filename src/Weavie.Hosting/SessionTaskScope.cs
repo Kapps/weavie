@@ -17,13 +17,18 @@ internal sealed class SessionTaskScope : IAsyncDisposable {
 
 	public CancellationToken Stopping { get; }
 
-	public Task Run(Func<CancellationToken, Task> work) {
+	/// <summary>
+	/// Starts <paramref name="work"/> in this scope, returning its task — or <see langword="null"/> when the scope
+	/// is closed (the session is unloading) and admits nothing. Nothing runs in that case, so a caller holding a
+	/// resource for the work — a claimed slot, an open spinner — must release it rather than assume the work will.
+	/// </summary>
+	public Task? Run(Func<CancellationToken, Task> work) {
 		ArgumentNullException.ThrowIfNull(work);
 		var admitted = new TaskCompletionSource();
 		Task task;
 		lock (_gate) {
 			if (_closed) {
-				return Task.CompletedTask;
+				return null;
 			}
 
 			task = RunCoreAsync(work, admitted.Task);

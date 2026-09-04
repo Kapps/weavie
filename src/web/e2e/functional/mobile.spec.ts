@@ -475,15 +475,6 @@ test("touch scrolling and tapping a mouse-aware Claude prompt send valid input",
   await page.evaluate(() => new Promise(requestAnimationFrame));
   await dispatchPaneTouch(screen, "touchmove", { x, y: endY });
   await page.evaluate(() => new Promise(requestAnimationFrame));
-  await screen.evaluate((element) => {
-    const capture = (
-      element as Element & { __weavieTouchInput?: { dispose: () => void; input: string[] } }
-    ).__weavieTouchInput;
-    if (capture === undefined) {
-      throw new Error("Missing terminal input capture");
-    }
-    capture.input.length = 0;
-  });
   await dispatchPaneTouch(screen, "touchend", { x, y: endY });
   await page.evaluate(
     () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),

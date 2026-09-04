@@ -302,6 +302,15 @@ export const test = base.extend<WeavieOptions & WeavieFixtures>({
         if (connect.status() !== 302) {
           throw new Error(`workspace connect failed (${connect.status()})`);
         }
+        // 2026-09-04 11:50 UTC, windows shard 5/6, pr-comment-layout.spec.ts:
+        // https://github.com/Kapps/weavie/actions/runs/33869160511/job/101011765056 — this exact
+        // `page.goto` failed with `net::ERR_NO_BUFFER_SPACE`, before anything had loaded for the
+        // `blockedLoads`/retry handling below to apply to. Suspected same class of Windows loopback
+        // socket-buffer pressure as the post-boot resource-load failures this file already tracks (one
+        // OS-assigned port per test, hundreds of tests serially), but at a different call site with no
+        // in-app retry to fall back on. One occurrence isn't enough to confirm the mechanism or land a
+        // fix without guessing — not retried here (see docs/specs/e2e-flake-policy.md); watching for a
+        // repeat to pin down the actual cause before changing this call.
         await page.goto(host.url, { waitUntil: "domcontentloaded" });
         // The app removes the splash element once it has booted (layout + first session). Its
         // disappearance is the "app is interactive" signal — not a fixed sleep.

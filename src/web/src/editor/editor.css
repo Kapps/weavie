@@ -449,6 +449,10 @@
   background: var(--bg);
 }
 
+.editor-web[hidden] {
+  display: none;
+}
+
 .editor-web-frame {
   width: 100%;
   height: 100%;

@@ -1,5 +1,8 @@
+import { existsSync } from "node:fs";
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import type { Page } from "@playwright/test";
-import { runCommand } from "../harness/actions";
+import { activeSessionSlot, createSession, runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 
 // Click-to-edit write-back through the WHOLE stack (docs/specs/notion-writes.md): a click swaps a rendered block
@@ -38,6 +41,19 @@ async function openDoc(page: Page): Promise<ReturnType<Page["locator"]>> {
     timeout: 15_000,
   });
   return source;
+}
+
+function sourceGate(home: string, operation: "fetch" | "edit") {
+  const gateBase = join(home, "fake-notion.json");
+  return {
+    entered: `${gateBase}.${operation}-entered`,
+    release: `${gateBase}.${operation}-release`,
+  };
+}
+
+async function selectSession(page: Page, slot: string): Promise<void> {
+  await page.locator(`.session-chip[data-session-slot="${slot}"]`).click();
+  await expect(page.locator(".session-chip.active")).toHaveAttribute("data-session-slot", slot);
 }
 
 test.describe("editing", () => {
@@ -117,6 +133,69 @@ test.describe("editing", () => {
     await page.keyboard.press("Enter");
     await expect(source.locator(".wv-block-editor")).toHaveValue("Intro paragraph.");
   });
+
+  test("an unsaved block draft survives a session switch and clears after save", async ({
+    page,
+  }) => {
+    const ownerSlot = await activeSessionSlot(page);
+    await createSession(page, { branch: "e2e/source-draft-switch", provider: "claude" });
+    const otherSlot = await activeSessionSlot(page);
+    await selectSession(page, ownerSlot);
+
+    const source = await openDoc(page);
+    await source.locator("p", { hasText: "Intro paragraph." }).click();
+    await source.locator(".wv-block-editor").fill("Exact unfinished block draft.");
+
+    await selectSession(page, otherSlot);
+    await expect(page.locator(".editor-source")).toHaveCount(0);
+    await selectSession(page, ownerSlot);
+
+    const restored = page.locator(".editor-source");
+    const editor = restored.locator(".wv-block-editor");
+    await expect(editor).toBeVisible();
+    await expect(editor).toHaveValue("Exact unfinished block draft.");
+    await editor.press("Enter");
+    await expect(restored.locator("p", { hasText: "Exact unfinished block draft." })).toBeVisible();
+    await expect(editor).toHaveCount(0);
+
+    await selectSession(page, otherSlot);
+    await selectSession(page, ownerSlot);
+    await expect(page.locator(".editor-source .wv-block-editor")).toHaveCount(0);
+    await expect(
+      page.locator(".editor-source p", { hasText: "Exact unfinished block draft." }),
+    ).toBeVisible();
+  });
+});
+
+test.describe("loading edits", () => {
+  test.use({ notionDoc: { ...NOTION_DOC, holdFetchAt: 2 } });
+
+  test("a temporary reload of the same document retains its changed draft", async ({
+    page,
+    weavie,
+  }) => {
+    const source = await openDoc(page);
+    await source.locator("p", { hasText: "Intro paragraph." }).click();
+    await source.locator(".wv-block-editor").fill("Draft through a temporary loading state.");
+
+    await page.keyboard.press("ControlOrMeta+Shift+p");
+    const palette = page.locator(".tb-omnibar-box");
+    await expect(palette).toHaveClass(/\bopen\b/);
+    await page.locator(".tb-omnibar-input").fill(">Open URL");
+    await page.locator(".tb-omnibar-input").press("Enter");
+    const input = page.locator(".url-prompt-input");
+    await expect(input).toBeVisible();
+    await input.fill(PAGE_URL);
+    await input.press("Enter");
+
+    const gate = sourceGate(weavie.home, "fetch");
+    await expect.poll(() => existsSync(gate.entered)).toBe(true);
+    await expect(source.locator(".wv-status")).toHaveText("Loading…");
+    await writeFile(gate.release, "");
+    await expect(source.locator(".wv-block-editor")).toHaveValue(
+      "Draft through a temporary loading state.",
+    );
+  });
 });
 
 test.describe("stale edits", () => {
@@ -143,6 +222,36 @@ test.describe("stale edits", () => {
     await expect(source.locator("p", { hasText: "Intro paragraph." })).toBeVisible({
       timeout: 15_000,
     });
+  });
+});
+
+test.describe("background stale edits", () => {
+  test.use({ notionDoc: { ...NOTION_DOC, rejectEdits: true, holdEdit: true } });
+
+  test("a failed detached save restores its draft and inline error", async ({ page, weavie }) => {
+    const ownerSlot = await activeSessionSlot(page);
+    await createSession(page, { branch: "e2e/source-background-save", provider: "claude" });
+    const otherSlot = await activeSessionSlot(page);
+    await selectSession(page, ownerSlot);
+    const source = await openDoc(page);
+
+    await source.locator("p", { hasText: "Intro paragraph." }).click();
+    const editor = source.locator(".wv-block-editor");
+    await editor.fill("Detached save draft.");
+    await editor.press("Enter");
+    await expect(editor).toBeDisabled();
+    const gate = sourceGate(weavie.home, "edit");
+    await expect.poll(() => existsSync(gate.entered)).toBe(true);
+    await selectSession(page, otherSlot);
+
+    await writeFile(gate.release, "");
+    await expect(page.locator(".toast", { hasText: "Notion edit failed" })).toBeVisible();
+    await selectSession(page, ownerSlot);
+
+    const restored = page.locator(".editor-source");
+    await expect(restored.locator(".wv-block-editor")).toHaveValue("Detached save draft.");
+    await expect(restored.locator(".wv-block-editor")).toBeEnabled();
+    await expect(restored.locator(".wv-edit-error")).toContainText("changed in Notion");
   });
 });
 

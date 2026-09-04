@@ -1,5 +1,8 @@
 import { type ClientSession, registerSessionFeature, selectedSession } from "../../bridge";
-import { createSessionOwnedState } from "../../messaging/session-owned-state";
+import {
+  createSessionOwnedMap,
+  createSessionOwnedState,
+} from "../../messaging/session-owned-state";
 
 export interface SourceDocEntry {
   title: string;
@@ -26,9 +29,35 @@ export interface SourceEditError {
   stale: boolean;
 }
 
+interface SourceEditState {
+  markdown: string;
+  line: number;
+  draft: string;
+  original: string;
+  saving: boolean;
+  error: { message: string; stale: boolean } | undefined;
+}
+
 const documents = createSessionOwnedState<Record<string, SourceDocEntry>>(() => ({}));
 const tokenPrompts = createSessionOwnedState<SourceTokenPrompt | null>(() => null);
+const edits = createSessionOwnedMap<string, SourceEditState>();
 const editErrorListeners = new Set<(error: SourceEditError) => void>();
+
+export const sourceEditState = edits.get;
+export const keepSourceEdit = edits.set;
+export const discardSourceEdit = edits.delete;
+
+function failSourceEdit(
+  session: ClientSession,
+  target: string,
+  error: SourceEditState["error"],
+): void {
+  const edit = edits.get(session, target);
+  if (edit !== undefined) {
+    edit.saving = false;
+    edit.error = error;
+  }
+}
 
 function updateDocument(
   session: ClientSession,
@@ -152,6 +181,7 @@ registerSessionFeature((session) => {
     message: string;
     stale: boolean;
   }>("editError", ({ target, message, stale }) => {
+    failSourceEdit(session, target, { message, stale });
     for (const listener of editErrorListeners) {
       listener({ session, target, message, stale });
     }

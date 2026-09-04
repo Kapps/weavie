@@ -52,11 +52,18 @@ export function estimatedEditorHeight(added: number, removed: number): number {
 export interface ReviewEditor {
   update(diff: ReviewFileDiff): void;
   dispose(): void;
+  /** Whether the diff geometry has landed — until it has, `changeLines` can't answer for this file yet. */
+  painted(): boolean;
+  /** The anchor line of every change still pending review, in document order — the spots the walk stops at. */
+  changeLines(): number[];
+  /** `line`'s offset from the top of this editor, so the review's own list can scroll the spot into view. */
+  topForLine(line: number): number;
 }
 
 /**
  * Mounts the diff editor for one review file in `container`, bound to `model` (the file's working copy).
  * `onHeight` fires whenever the rendered height changes, so the caller can re-measure its virtualized row;
+ * `onPainted` whenever the diff geometry lands, so a queued walk can reveal a spot it couldn't resolve yet;
  * `onStatus` reports whether the diff is ready or unavailable, leaving an unavailable file plain and uncollapsed.
  */
 export function createReviewEditor(options: {
@@ -65,6 +72,7 @@ export function createReviewEditor(options: {
   editable: boolean;
   diff: ReviewFileDiff;
   onHeight: () => void;
+  onPainted: () => void;
   onStatus: (status: "ready" | "timed-out" | "failed") => void;
 }): ReviewEditor {
   const { container, model } = options;
@@ -82,6 +90,7 @@ export function createReviewEditor(options: {
   let renderQueued = false;
   let renderInFlight = false;
   let painted = false;
+  let markers: DiffMarkers | null = null;
   let disposed = false;
 
   const measure = (): void => {
@@ -97,18 +106,20 @@ export function createReviewEditor(options: {
     options.onHeight();
   };
 
-  const applyMarkers = (markers: DiffMarkers | null): void => {
+  const applyMarkers = (next: DiffMarkers | null): void => {
+    markers = next;
     editor.changeViewZones((accessor) => {
       for (const id of zoneIds) {
         accessor.removeZone(id);
       }
-      zoneIds = markers === null ? [] : addDiffZones(editor, accessor, markers);
+      zoneIds = next === null ? [] : addDiffZones(editor, accessor, next);
     });
-    const collapsed = collapseUnchanged(markers, model.getLineCount());
-    decorations.set([...(markers?.decorations ?? []), ...collapsed.gapMarkers]);
+    const collapsed = collapseUnchanged(next, model.getLineCount());
+    decorations.set([...(next?.decorations ?? []), ...collapsed.gapMarkers]);
     editor.setHiddenAreas(collapsed.hidden, HIDDEN_AREAS_SOURCE);
     painted = true;
     measure();
+    options.onPainted();
   };
 
   const render = async (generation: number, diff: ReviewFileDiff): Promise<void> => {
@@ -202,6 +213,10 @@ export function createReviewEditor(options: {
   queueRender();
 
   return {
+    painted: () => painted,
+    changeLines: () =>
+      markers === null ? [] : markers.hunks.map((hunk) => hunk.anchorLine).sort((a, b) => a - b),
+    topForLine: (line) => editor.getTopForLineNumber(line),
     update: (next: ReviewFileDiff) => {
       current = next;
       renderGeneration++;

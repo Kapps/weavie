@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 using Weavie.Core.Changes;
+using Weavie.Core.Editor;
 using Weavie.Core.Git;
 using Weavie.Core.Review;
 using Weavie.Hosting.Messaging;
@@ -139,7 +140,7 @@ public sealed partial class HostCore {
 			int? line = session.Changes.GetTurn(first) is { } turn
 				? LineDiff.FirstChangedLine(turn.BaselineText, turn.CurrentText)
 				: null;
-			session.FileOpener.Open(first, line, preview: true, scratch: false);
+			session.FileOpener.Open(first, line, preview: true, scratch: false, EditorOpenIntent.Reveal);
 			PushReviewFileToWeb(session, first);
 			return Task.CompletedTask;
 		}, ct).ConfigureAwait(false);

@@ -6,6 +6,7 @@ import { CommandIds } from "../../commands/types";
 import type { ReviewCopy } from "../editor-host";
 import { createReviewEditor, estimatedEditorHeight, type ReviewEditor } from "./review-editor";
 import type { ReviewFileDiff, ReviewFileView } from "./review-store";
+import type { ReviewSection, ReviewSectionRegistry } from "./review-walk";
 
 /** Whether a file still has anything to show: pending changes, or kept ones in its reviewed band. */
 function hasChanges(diff: ReviewFileDiff): boolean {
@@ -24,18 +25,12 @@ export function ReviewFileSection(props: {
   measure: (element: HTMLElement) => void;
   onFocus: () => void;
   openCopy: (diff: ReviewFileDiff) => Promise<ReviewCopy>;
+  register: ReviewSectionRegistry;
   style: string;
 }): JSX.Element {
   const summary = () => props.file().summary();
-  const diff = () => props.file().diff();
   const collapsed = () => props.file().collapsed();
-  const pending = (): boolean => {
-    const value = diff();
-    return (
-      value !== null &&
-      (value.baseline !== value.current || value.baselineExists !== value.currentExists)
-    );
-  };
+  const pending = () => props.file().pending();
   const bodyId = (): string => `unified-review-file-body-${props.index}`;
 
   let article: HTMLElement | undefined;
@@ -127,7 +122,12 @@ export function ReviewFileSection(props: {
       </header>
       <Show when={!collapsed()}>
         <div id={bodyId()}>
-          <ReviewFileBody file={props.file} measure={remeasure} openCopy={props.openCopy} />
+          <ReviewFileBody
+            file={props.file}
+            measure={remeasure}
+            openCopy={props.openCopy}
+            register={props.register}
+          />
         </div>
       </Show>
     </article>
@@ -138,6 +138,7 @@ function ReviewFileBody(props: {
   file: Accessor<ReviewFileView>;
   measure: () => void;
   openCopy: (diff: ReviewFileDiff) => Promise<ReviewCopy>;
+  register: ReviewSectionRegistry;
 }): JSX.Element {
   const summary = () => props.file().summary();
   const diff = () => props.file().diff();
@@ -150,6 +151,25 @@ function ReviewFileBody(props: {
   let resolution = 0;
   let dropped = false;
 
+  // The row this body belongs to is keyed by path, so it is fixed for the body's life — and reading it back out
+  // of the virtualized <Show> during teardown would be a stale read.
+  const path = summary().path;
+  // One handle for the body's whole life, answering from whatever editor is live right now. Published on every
+  // paint too, so a walk that arrived before the geometry existed can settle the moment it does.
+  const section: ReviewSection = {
+    element: () => mount,
+    painted: () => live?.painted() ?? false,
+    changeLines: () => live?.changeLines() ?? [],
+    topForLine: (line) => live?.topForLine(line) ?? 0,
+  };
+  const publish = (): void => props.register.set(path, section);
+  // A file whose diff has landed and holds nothing to show — including one kept all the way through, whose
+  // diff is null precisely because it is done.
+  const nothingLeft = (): boolean => {
+    const value = diff();
+    return props.file().loaded() && (value === null || !hasChanges(value));
+  };
+
   createEffect(() => {
     const value = diff();
     if (value === null || !hasChanges(value)) {
@@ -158,6 +178,7 @@ function ReviewFileBody(props: {
         live.dispose();
         live = undefined;
         liveExists = undefined;
+        publish();
         mount?.style.removeProperty("height");
         props.measure();
       }
@@ -168,6 +189,7 @@ function ReviewFileBody(props: {
       live.dispose();
       live = undefined;
       liveExists = undefined;
+      publish();
       if (mount !== undefined) {
         mount.style.height = `${estimatedEditorHeight(summary().added, summary().removed)}px`;
       }
@@ -196,6 +218,7 @@ function ReviewFileBody(props: {
           editable: copy.editable,
           diff: latest,
           onHeight: props.measure,
+          onPainted: publish,
           onStatus: (status) =>
             setDiffNotice(
               status === "ready"
@@ -205,6 +228,7 @@ function ReviewFileBody(props: {
                   : "Diff calculation failed — the file is shown in full.",
             ),
         });
+        publish();
       },
       (error: unknown) => {
         if (!dropped && token === resolution) {
@@ -218,6 +242,8 @@ function ReviewFileBody(props: {
     dropped = true;
     resolution += 1;
     live?.dispose();
+    live = undefined;
+    props.register.clear(path, section);
   });
 
   return (
@@ -228,10 +254,10 @@ function ReviewFileBody(props: {
       <Show when={openError() !== ""}>
         <div class="unified-review-notice">Couldn't open this file: {openError()}</div>
       </Show>
-      <Show when={diff() === null}>
+      <Show when={!props.file().loaded()}>
         <div class="unified-review-notice">Loading diff…</div>
       </Show>
-      <Show when={diff() !== null && !hasChanges(diff() as ReviewFileDiff)}>
+      <Show when={nothingLeft()}>
         <div class="unified-review-notice">No changes remain in this file.</div>
       </Show>
       <div
@@ -247,8 +273,6 @@ function ReviewFileBody(props: {
 
 function ReviewStatus(props: { file: Accessor<ReviewFileView> }): JSX.Element {
   return (
-    <span class="unified-review-status">
-      {props.file().diff() === null ? "Loading…" : "Reviewed"}
-    </span>
+    <span class="unified-review-status">{props.file().loaded() ? "Reviewed" : "Loading…"}</span>
   );
 }

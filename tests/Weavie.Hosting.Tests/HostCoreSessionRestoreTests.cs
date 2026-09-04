@@ -4,6 +4,7 @@ using Weavie.AcpDistribution;
 using Weavie.Core;
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
+using Weavie.Core.Editor;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Sessions;
 using Weavie.Core.Workspaces;
@@ -371,7 +372,8 @@ public sealed class HostCoreSessionRestoreTests {
 			path,
 			line: 1,
 			preview: false,
-			scratch: false);
+			scratch: false,
+			EditorOpenIntent.Navigation);
 		host.Bridge.Clear();
 		await host.ConnectAsync();
 

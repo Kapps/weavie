@@ -66,7 +66,7 @@ describe("review store", () => {
     });
   });
 
-  it("preserves manual folds and follows authoritative keep transitions", () => {
+  it("un-reviews a folded file when new changes land, and follows authoritative keep transitions", () => {
     createRoot((dispose) => {
       const store = createReviewStore();
       const client = session();
@@ -74,11 +74,15 @@ describe("review store", () => {
       store.setDiff(client, diff(firstFile));
       const view = store.board(client).files[0]!;
 
+      // A re-push of the same state leaves the fold the user made alone.
       store.setFileCollapsed(client, firstFile.path, true);
-      store.setDiff(client, diff(firstFile, "before", "another pending version"));
+      store.setDiff(client, diff(firstFile));
       expect(view.collapsed()).toBe(true);
 
-      store.setFileCollapsed(client, firstFile.path, false);
+      // Reviewed is a claim about one exact state: new content in the file reopens it for review.
+      store.setDiff(client, diff(firstFile, "before", "another pending version"));
+      expect(view.collapsed()).toBe(false);
+
       store.setDiff(client, {
         ...diff(firstFile),
         acceptedBaseline: "before",
@@ -120,6 +124,31 @@ describe("review store", () => {
         current: "kept",
       });
       expect(store.board(client).files[0]?.collapsed()).toBe(false);
+      dispose();
+    });
+  });
+
+  it("reports a fully kept file as loaded, not as still loading", () => {
+    createRoot((dispose) => {
+      const store = createReviewStore();
+      const client = session();
+      store.select(client);
+      store.setFiles(client, [firstFile], "turn");
+      const view = store.board(client).files[0]!;
+
+      expect(view.loaded()).toBe(false);
+      expect(store.overview().fullyLoaded()).toBe(false);
+
+      store.setDiff(client, {
+        ...diff(firstFile),
+        acceptedBaseline: "kept",
+        baseline: "kept",
+        current: "kept",
+      });
+
+      expect(view.diff()).toBeNull();
+      expect(view.loaded()).toBe(true);
+      expect(store.overview().fullyLoaded()).toBe(true);
       dispose();
     });
   });

@@ -80,6 +80,7 @@ public sealed class McpDiffPresenter : IDiffPresenter {
 			line: null,
 			preview: preview,
 			scratch: false,
+			EditorOpenIntent.Reveal,
 			cancellationToken);
 
 	/// <summary>Asks the webview to close the file's tab (the MCP <c>close_tab</c> tool).</summary>

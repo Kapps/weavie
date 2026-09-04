@@ -14,10 +14,13 @@ export function createAgentPaneScroll(
   turnNavigable: Accessor<boolean>,
   revision: Accessor<number>,
   initiallyFollowingLatest: boolean,
+  wheel: { cancel: () => void; isActive: () => boolean },
 ) {
   let bottomCorrectionScheduled = false;
   let controllerScrolls: Array<{ top: number }> = [];
   let scrollScheduled = false;
+  let viewportHeight = 0;
+  let viewportWidth = 0;
   const [followingLatest, setFollowingLatest] = createSignal(initiallyFollowingLatest);
   const [agentTurnStartAbove, setAgentTurnStartAbove] = createSignal(false);
 
@@ -71,6 +74,7 @@ export function createAgentPaneScroll(
     if (element === undefined) {
       return;
     }
+    wheel.cancel();
     setFollowingLatest(followsLatest);
     action();
     noteControllerScroll(element.scrollTop);
@@ -118,12 +122,23 @@ export function createAgentPaneScroll(
     return true;
   };
 
+  const onViewportResize = (): void => {
+    const height = body()?.clientHeight ?? 0;
+    const width = body()?.clientWidth ?? 0;
+    if (height === viewportHeight && width === viewportWidth) return;
+    viewportHeight = height;
+    viewportWidth = width;
+    if (followingLatest()) assignBottom();
+  };
+
   // Measurement anchoring also emits scroll events; every unowned scroll is the user's intent.
   const onScroll = (): void => {
     const element = body();
     if (element === undefined) {
       return;
     }
+    // A viewport resize can clamp scrollTop and emit scroll before ResizeObserver runs.
+    onViewportResize();
     const assigned = controllerScrolls.findIndex(
       (candidate) => Math.abs(candidate.top - element.scrollTop) < 1.5,
     );
@@ -131,7 +146,7 @@ export function createAgentPaneScroll(
       controllerScrolls.splice(assigned, 1);
     } else {
       controllerScrolls = [];
-      setFollowingLatest(isNearBottom());
+      setFollowingLatest(!wheel.isActive() && isNearBottom());
     }
     updateAgentTurnStartPosition();
   };
@@ -206,6 +221,15 @@ export function createAgentPaneScroll(
     jumpToTurn,
     noteControllerScroll,
     onScroll,
+    onWheelIntent: (): void => {
+      controllerScrolls = [];
+      setFollowingLatest(false);
+    },
+    onWheelSettled: (): void => {
+      setFollowingLatest(isNearBottom());
+      updateAgentTurnStartPosition();
+    },
+    onViewportResize,
     onVirtualizerChange,
   };
 }

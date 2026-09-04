@@ -12,10 +12,17 @@ namespace Weavie.Headless;
 internal sealed class FakeNotionSource : ISourceConnector {
 	private SourceDoc _doc; // mutable: UpdateAsync applies edits in-memory so a save round-trips like the real API
 	private readonly bool _rejectEdits;
+	private readonly int _holdFetchAt;
+	private readonly bool _holdEdit;
+	private readonly string _gateBase;
+	private int _fetchCount;
 
-	private FakeNotionSource(SourceDoc doc, bool rejectEdits) {
+	private FakeNotionSource(SourceDoc doc, bool rejectEdits, int holdFetchAt, bool holdEdit, string gateBase) {
 		_doc = doc;
 		_rejectEdits = rejectEdits;
+		_holdFetchAt = holdFetchAt;
+		_holdEdit = holdEdit;
+		_gateBase = gateBase;
 	}
 
 	/// <summary>Reads a <c>{ "title": …, "markdown": …, "editedTime": …, "truncated": …, "rejectEdits": … }</c>
@@ -26,7 +33,9 @@ internal sealed class FakeNotionSource : ISourceConnector {
 		var root = doc.RootElement;
 		bool truncated = root.TryGetProperty("truncated", out var t) && t.ValueKind == JsonValueKind.True;
 		bool rejectEdits = root.TryGetProperty("rejectEdits", out var r) && r.ValueKind == JsonValueKind.True;
-		return new FakeNotionSource(new SourceDoc(Str(root, "title"), Str(root, "markdown"), Str(root, "editedTime"), truncated, 0), rejectEdits);
+		int holdFetchAt = root.TryGetProperty("holdFetchAt", out var f) && f.TryGetInt32(out int value) ? value : 0;
+		bool holdEdit = root.TryGetProperty("holdEdit", out var h) && h.ValueKind == JsonValueKind.True;
+		return new FakeNotionSource(new SourceDoc(Str(root, "title"), Str(root, "markdown"), Str(root, "editedTime"), truncated, 0), rejectEdits, holdFetchAt, holdEdit, path);
 	}
 
 	private static string Str(JsonElement element, string name) =>
@@ -46,18 +55,35 @@ internal sealed class FakeNotionSource : ISourceConnector {
 			? Task.FromResult("Demo Workspace")
 			: Task.FromException<string>(new InvalidOperationException("Notion rejected the token — use a valid personal access token."));
 
-	public Task<SourceDoc> FetchAsync(string target, CancellationToken ct = default) => Task.FromResult(_doc);
+	public async Task<SourceDoc> FetchAsync(string target, CancellationToken ct = default) {
+		if (Interlocked.Increment(ref _fetchCount) == _holdFetchAt) {
+			await WaitForReleaseAsync("fetch", ct).ConfigureAwait(false);
+		}
+		return _doc;
+	}
 
 	// Enforces update_content's real contract — the op must match the document exactly once — and applies it to
 	// the in-memory doc, so the e2e can prove the web's uniqueness expansion against duplicated content.
-	public Task<SourceDoc> UpdateAsync(string target, string oldStr, string newStr, CancellationToken ct = default) {
+	public async Task<SourceDoc> UpdateAsync(string target, string oldStr, string newStr, CancellationToken ct = default) {
+		if (_holdEdit) {
+			await WaitForReleaseAsync("edit", ct).ConfigureAwait(false);
+		}
 		int first = _doc.Markdown.IndexOf(oldStr, StringComparison.Ordinal);
 		bool matchesOnce = first >= 0 && _doc.Markdown.IndexOf(oldStr, first + 1, StringComparison.Ordinal) < 0;
 		if (_rejectEdits || !matchesOnce) {
-			return Task.FromException<SourceDoc>(new SourceConflictException("The page changed in Notion since it was fetched."));
+			throw new SourceConflictException("The page changed in Notion since it was fetched.");
 		}
 
 		_doc = _doc with { Markdown = string.Concat(_doc.Markdown.AsSpan(0, first), newStr, _doc.Markdown.AsSpan(first + oldStr.Length)) };
-		return Task.FromResult(_doc);
+		return _doc;
+	}
+
+	private async Task WaitForReleaseAsync(string operation, CancellationToken ct) {
+		string entered = $"{_gateBase}.{operation}-entered";
+		string release = $"{_gateBase}.{operation}-release";
+		await File.WriteAllTextAsync(entered, string.Empty, ct).ConfigureAwait(false);
+		while (!File.Exists(release)) {
+			await Task.Delay(25, ct).ConfigureAwait(false);
+		}
 	}
 }

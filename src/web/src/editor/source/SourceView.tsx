@@ -29,8 +29,8 @@ export default function SourceView(props: {
 }): JSX.Element {
   let host!: HTMLDivElement;
   let root: ShadowRoot | undefined;
-  // Drives click-to-edit on the rendered blocks (source-edit.ts); adopted per render, torn down on unmount.
-  const edit = new SourceEditController();
+  // Drives click-to-edit on the rendered blocks (source-edit.ts); adopted per render, detached on unmount.
+  const edit = new SourceEditController(props.session, props.target());
   // Each render bumps the generation; the async mermaid pass re-checks it after every await so a diagram resolving
   // after a newer render (doc change / theme switch) is dropped instead of landing in stale DOM (mirrors PreviewPane).
   let generation = 0;
@@ -45,13 +45,13 @@ export default function SourceView(props: {
     body.className = "wv-source";
     const entry = props.doc();
     if (entry === undefined || entry.status === "loading") {
-      edit.reset();
+      edit.detach();
       body.append(statusNode("loading", "Loading…"));
       root.replaceChildren(style, body);
       return;
     }
     if (entry.status === "error") {
-      edit.reset();
+      edit.detach();
       body.append(statusNode("error", entry.message ?? "Couldn't open that source."));
       root.replaceChildren(style, body);
       return;
@@ -79,7 +79,7 @@ export default function SourceView(props: {
     root.replaceChildren(style, body);
     // Only markdown docs are editable (the log viewer's pre-rendered html has no source lines to write back).
     if (entry.markdown !== undefined) {
-      edit.attach(content, props.session, props.target(), entry.markdown);
+      edit.attach(content, entry.markdown);
     } else {
       edit.reset();
     }
@@ -153,7 +153,7 @@ export default function SourceView(props: {
   onMount(() => host.addEventListener("click", onClick, { capture: true }));
   onCleanup(() => {
     host.removeEventListener("click", onClick, { capture: true });
-    edit.reset();
+    edit.detach();
   });
 
   return <div class="editor-source" data-kind="editor" tabindex="0" ref={host} />;

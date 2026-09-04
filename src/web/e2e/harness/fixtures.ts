@@ -22,13 +22,16 @@ type WeavieOptions = {
   prScenario: boolean;
   // Set via test.use to stub the source connector with a canned Notion doc (WEAVIE_FAKE_NOTION), so a
   // notion.so open-target fetches + renders it deterministically. `truncated` shows the incomplete banner;
-  // `rejectEdits` makes every source-save-edit conflict (the stale-edit UX). Null in normal use.
+  // `rejectEdits` makes every source-save-edit conflict (the stale-edit UX); the hold options expose explicit
+  // entered/release files so tests can pause an operation without wall-clock races. Null in normal use.
   notionDoc: {
     title: string;
     markdown: string;
     editedTime?: string;
     truncated?: boolean;
     rejectEdits?: boolean;
+    holdFetchAt?: number;
+    holdEdit?: boolean;
   } | null;
 };
 

@@ -1,5 +1,6 @@
 import { type Accessor, createSignal, type Setter } from "solid-js";
 import type { ClientSession } from "../../messaging/host-connection";
+import { createSessionOwnedState } from "../../messaging/session-owned-state";
 
 export interface AgentPlanDocument {
   id: string;
@@ -12,19 +13,10 @@ interface SessionPlans {
   write: Setter<Record<string, AgentPlanDocument>>;
 }
 
-const plans = new WeakMap<ClientSession, SessionPlans>();
-
-// Creating on read, not just on write, lets a reader subscribe before the first plan arrives.
-function plansFor(session: ClientSession): SessionPlans {
-  const existing = plans.get(session);
-  if (existing !== undefined) {
-    return existing;
-  }
+const plans = createSessionOwnedState<SessionPlans>(() => {
   const [read, write] = createSignal<Record<string, AgentPlanDocument>>({});
-  const created = { read, write };
-  plans.set(session, created);
-  return created;
-}
+  return { read, write };
+});
 
 // Plans are session-owned documents: an opaque host id selects a stable tab within its owner. The host replays
 // their content on reconnect, while the content never enters the filesystem.
@@ -35,7 +27,7 @@ export function setAgentPlan(
   title: string,
   markdown: string,
 ): string {
-  const state = plansFor(session);
+  const state = plans.get(session)!;
   state.write((current) => ({ ...current, [path]: { id, title, markdown } }));
   return path;
 }
@@ -44,5 +36,5 @@ export function agentPlan(
   session: ClientSession | null,
   path: string,
 ): AgentPlanDocument | undefined {
-  return session === null ? undefined : plansFor(session).read()[path];
+  return plans.get(session)?.read()[path];
 }

@@ -1,4 +1,3 @@
-import { createSignal } from "solid-js";
 import {
   type AgentPaneHistoryFragment,
   type AgentPaneUpdate,
@@ -6,6 +5,7 @@ import {
   type ClientSession,
   registerSessionFeature,
 } from "../bridge";
+import { createSessionOwnedState } from "../messaging/session-owned-state";
 import {
   agentInputRequestKey,
   clearAgentInputDraft,
@@ -18,10 +18,8 @@ import { setComposerDraft } from "./composer-store";
 
 export type { AgentPaneModel, AgentSectionLabel } from "./AgentPaneModel";
 
-const [models, setModels] = createSignal(new Map<ClientSession, AgentPaneModel>());
-const [authenticationTerminals, setAuthenticationTerminals] = createSignal(
-  new Map<ClientSession, boolean>(),
-);
+const models = createSessionOwnedState(createAgentPaneModel);
+const authenticationTerminals = createSessionOwnedState(() => false);
 
 registerSessionFeature((session) => {
   const accumulator = new AgentPaneAccumulator(
@@ -71,8 +69,7 @@ registerSessionFeature((session) => {
       });
   };
 
-  const model = createAgentPaneModel(session);
-  setModels((previous) => new Map(previous).set(session, model));
+  const model = models.get(session)!;
 
   const offHello = session.connection.onHello(() => {
     historyComplete = false;
@@ -159,7 +156,7 @@ registerSessionFeature((session) => {
   const offAuthenticationTerminal = feature.on<{ active: boolean }>(
     "authenticationTerminal",
     ({ active }) => {
-      setAuthenticationTerminals((previous) => new Map(previous).set(session, active));
+      authenticationTerminals.update(session, () => active);
     },
   );
   const offBatch = feature.on<{ messages: AgentPaneWireUpdate[] }>("paneBatch", ({ messages }) => {
@@ -199,25 +196,13 @@ registerSessionFeature((session) => {
     offBatch();
     offReset();
     offHello();
-    clearAgentInputDrafts(session);
-    clearAsideReplyStates(session);
-    setModels((previous) => {
-      const next = new Map(previous);
-      next.delete(session);
-      return next;
-    });
-    setAuthenticationTerminals((previous) => {
-      const next = new Map(previous);
-      next.delete(session);
-      return next;
-    });
   };
 });
 
 export function agentPaneModel(session: ClientSession | null): AgentPaneModel | null {
-  return session === null ? null : (models().get(session) ?? null);
+  return models.get(session) ?? null;
 }
 
 export function agentAuthenticationTerminalActive(session: ClientSession | null): boolean {
-  return session !== null && authenticationTerminals().get(session) === true;
+  return authenticationTerminals.get(session) === true;
 }

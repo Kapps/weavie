@@ -46,8 +46,8 @@ export const WEAVIE_DARK: VsCodeColorTheme = {
 
     // ── Diff (inline change review + standalone diff editor) ────────────────────────────────────────
     // Dark, saturated green washes keep muted syntax (especially comments) legible when the layers stack.
-    "diffEditor.insertedLineBackground": "#2ea0431c",
-    "diffEditor.insertedTextBackground": "#2ea04330",
+    "diffEditor.insertedLineBackground": "#2ea04327",
+    "diffEditor.insertedTextBackground": "#2ea04343",
     "diffEditor.removedLineBackground": "#c47a7a21",
     "diffEditor.removedTextBackground": "#c47a7a3d",
     "editorWarning.foreground": "#e0b060",

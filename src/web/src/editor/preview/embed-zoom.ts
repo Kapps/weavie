@@ -3,6 +3,8 @@
 // buttons are built with plain DOM because both bodies are sanitized raw HTML, not JSX.
 
 import { createSignal } from "solid-js";
+import { type ClientSession, onSelectedSession, selectedSession } from "../../bridge";
+import { modalActive } from "../../chrome/modal-state";
 import { formatKey } from "../../commands/keybindings";
 import { findCommand } from "../../commands/registry";
 import { CommandIds } from "../../commands/types";
@@ -10,13 +12,19 @@ import { hydrateMermaid } from "./diagrams";
 
 /** The open lightbox: every zoomable embed in the active view plus the one being shown. */
 export interface EmbedZoomState {
+  /** Exact session whose rendered document owns `targets`. */
+  session: ClientSession;
   targets: HTMLElement[];
   index: number;
 }
 
 const [zoomedEmbed, setZoomedEmbed] = createSignal<EmbedZoomState | null>(null);
 
-/** The open lightbox state (null when closed); App gates EmbedLightbox on it. */
+onSelectedSession((session) => {
+  setZoomedEmbed((state) => (state !== null && state.session !== session ? null : state));
+});
+
+/** The open lightbox state (null when closed); the app-level lightbox controller observes it. */
 export { zoomedEmbed };
 
 /** Closes the lightbox. */
@@ -51,18 +59,22 @@ const MAGNIFIER_SVG =
  * Mermaid fences, dressing again once the diagram wrappers exist. `isCurrent` drops a hydration that
  * resolves after a newer render.
  */
-export function installEmbedZoomAndMermaid(root: HTMLElement, isCurrent: () => boolean): void {
-  installEmbedZoom(root);
+export function installEmbedZoomAndMermaid(
+  root: HTMLElement,
+  session: ClientSession,
+  isCurrent: () => boolean,
+): void {
+  installEmbedZoom(root, session);
   void hydrateMermaid(root, isCurrent).then(() => {
     if (isCurrent()) {
-      installEmbedZoom(root);
+      installEmbedZoom(root, session);
     }
   });
 }
 
 // Adds the hover magnifier to every embed under `root` that doesn't have one yet. Called per render
 // stage (images land synchronously, Mermaid diagrams hydrate later), so it skips already-dressed embeds.
-function installEmbedZoom(root: ParentNode): void {
+function installEmbedZoom(root: ParentNode, session: ClientSession): void {
   for (const target of zoomables(root)) {
     if (target.closest(".embed-zoom") !== null) {
       continue;
@@ -75,12 +87,16 @@ function installEmbedZoom(root: ParentNode): void {
       holder.append(target);
     }
     holder.classList.add("embed-zoom");
-    holder.append(zoomButton(root, target));
+    holder.append(zoomButton(root, target, session));
   }
 }
 
 // The magnifier button; its tooltip advertises the Zoom Embed keybinding from the live catalog.
-function zoomButton(root: ParentNode, target: HTMLElement): HTMLButtonElement {
+function zoomButton(
+  root: ParentNode,
+  target: HTMLElement,
+  session: ClientSession,
+): HTMLButtonElement {
   const button = document.createElement("button");
   button.type = "button";
   button.className = "embed-zoom-btn";
@@ -91,7 +107,7 @@ function zoomButton(root: ParentNode, target: HTMLElement): HTMLButtonElement {
   button.addEventListener("click", () => {
     // Re-collect at click time so diagrams hydrated after this button was installed are in the set.
     const targets = zoomables(root);
-    setZoomedEmbed({ targets, index: targets.indexOf(target) });
+    setZoomedEmbed({ session, targets, index: targets.indexOf(target) });
   });
   return button;
 }
@@ -106,14 +122,18 @@ export function zoomActiveEmbed(): boolean {
     stepEmbedZoom(1);
     return true;
   }
+  if (modalActive()) {
+    return false;
+  }
+  const session = selectedSession();
   const root =
     document.querySelector(".editor-preview-body") ??
     document.querySelector(".editor-source")?.shadowRoot ??
     null;
   const targets = root === null ? [] : zoomables(root);
-  if (targets.length === 0) {
+  if (session === null || targets.length === 0) {
     return false;
   }
-  setZoomedEmbed({ targets, index: 0 });
+  setZoomedEmbed({ session, targets, index: 0 });
   return true;
 }

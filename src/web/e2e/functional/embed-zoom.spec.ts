@@ -1,4 +1,11 @@
-import { clickIntoEditor, openFile, runCommand } from "../harness/actions";
+import {
+  activeSessionSlot,
+  clickIntoEditor,
+  createSession,
+  openFile,
+  runCommand,
+  waitForSessionSwitch,
+} from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { ZOOM_IMAGE_SRC } from "../harness/git-workspace";
 
@@ -102,6 +109,64 @@ test("the zoom chord declines in a plain Monaco view — no lightbox", async ({ 
   // Declined ⇒ nothing to await; a settle keeps a late-open from slipping past the count check.
   await page.waitForTimeout(400);
   await expect(page.locator(".embed-lightbox")).toHaveCount(0);
+});
+
+test("a lightbox blocks session shortcuts from changing the workspace behind it", async ({
+  page,
+}) => {
+  const ownerSlot = await activeSessionSlot(page);
+  await createSession(page, { branch: "e2e/embed-modal", provider: "claude" });
+  await expect(page.locator(".session-chip")).toHaveCount(2);
+  const otherSlot = await activeSessionSlot(page);
+  await page.locator(`.session-chip[data-session-slot="${ownerSlot}"]`).click();
+  await expect(page.locator(".session-chip.active")).toHaveAttribute(
+    "data-session-slot",
+    ownerSlot,
+  );
+
+  await openFile(page, "zoom.md");
+  await page.locator(".editor-preview-toggle").click();
+  const preview = page.locator(".editor-preview-body");
+  await expect(preview.locator("img")).toBeVisible();
+  await preview.locator("span.embed-zoom img").hover();
+  await preview.locator("span.embed-zoom .embed-zoom-btn").click();
+
+  const lightbox = page.locator(".embed-lightbox");
+  await expect(lightbox).toBeVisible();
+  await expect(lightbox).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(lightbox).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await expect(lightbox).toBeFocused();
+  await page.keyboard.press("Control+Shift+2");
+  await expect(page.locator(".session-chip.active")).toHaveAttribute(
+    "data-session-slot",
+    ownerSlot,
+  );
+  await expect(lightbox).toBeVisible();
+
+  await page.keyboard.press("Escape");
+  await expect(lightbox).toHaveCount(0);
+  await expect(preview.locator("span.embed-zoom .embed-zoom-btn")).toBeFocused();
+  await page.keyboard.press("Control+Shift+2");
+  await expect(page.locator(".session-chip.active")).toHaveAttribute(
+    "data-session-slot",
+    otherSlot,
+  );
+
+  await page.locator(`.session-chip[data-session-slot="${ownerSlot}"]`).click();
+  await expect(preview.locator("img")).toBeVisible();
+  await preview.locator("span.embed-zoom img").hover();
+  await preview.locator("span.embed-zoom .embed-zoom-btn").click();
+  await expect(lightbox).toBeFocused();
+
+  // Native notification activation reaches the same session-opening path without a key event. A direct DOM
+  // activation exercises that path despite the full-screen backdrop and must dismiss A's owned lightbox.
+  await page
+    .locator(`.session-chip[data-session-slot="${otherSlot}"]`)
+    .evaluate((chip: HTMLElement) => chip.click());
+  await waitForSessionSwitch(page, ownerSlot);
+  await expect(lightbox).toHaveCount(0);
 });
 
 test.describe("source docs", () => {

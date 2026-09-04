@@ -1,4 +1,5 @@
 import { createEffect, type JSX, onCleanup } from "solid-js";
+import type { ClientSession } from "../../bridge";
 import { onPreviewThemeChanged } from "../../theme/controller";
 import { preserveEditorFocusOnMount } from "../focus-on-mount";
 import { basename } from "../fs-path";
@@ -10,6 +11,7 @@ import { previewKindOf } from "./preview-registry";
 // Reads the live working-copy text through `content`, so the render tracks edits and reloads without a
 // re-toggle. SVG uses an <img>-hosted Blob URL so workspace scripts and styles never enter the app document.
 export default function PreviewPane(props: {
+  session: () => ClientSession;
   path: () => string;
   content: () => string;
   focusOnMount: boolean;
@@ -55,7 +57,7 @@ export default function PreviewPane(props: {
     body.classList.remove("editor-preview-svg");
     const gen = generation;
     body.replaceChildren(renderMarkdown(props.content()));
-    installEmbedZoomAndMermaid(body, () => gen === generation);
+    installEmbedZoomAndMermaid(body, props.session(), () => gen === generation);
   };
 
   createEffect(render);

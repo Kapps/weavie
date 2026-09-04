@@ -1742,6 +1742,7 @@ public static class CoreCommands {
 			Aliases = ["zoom embed", "zoom image", "zoom diagram", "enlarge image", "magnify", "lightbox"],
 			When = "editorFocused",
 			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+z" }],
+			KeybindingsActiveInModal = true,
 		});
 
 		// Font zoom (handlers wired in Core by FontCommands): step every size setting in effect — global font.size

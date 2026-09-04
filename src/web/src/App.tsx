@@ -850,14 +850,14 @@ export default function App(): JSX.Element {
 
   // The active file's path when it's previewable, in Preview mode, and not under inline review (which owns the
   // editor) — drives the Preview overlay; null otherwise.
-  const previewActivePath = createMemo<string | null>(() => {
+  const activePreviewBinding = createMemo(() => {
     const binding = activeTabBinding();
     return binding !== null &&
       binding.kind === "file" &&
       canPreview(binding.path) &&
       isPreviewMode(binding.path) &&
       !editor.reviewActive()
-      ? binding.path
+      ? binding
       : null;
   });
 
@@ -1270,14 +1270,17 @@ export default function App(): JSX.Element {
               <EditorEmptyState reviewCount={editor.parkedReviewCount()} />
             </Show>
             {/* Preview mode: render the active file over the still-mounted Monaco host. */}
-            <Show when={previewActivePath() !== null}>
-              <Suspense>
-                <PreviewPane
-                  path={() => previewActivePath() as string}
-                  content={() => editor.activeContent()}
-                  focusOnMount={focusedKind() === "editor"}
-                />
-              </Suspense>
+            <Show when={activePreviewBinding()}>
+              {(binding) => (
+                <Suspense>
+                  <PreviewPane
+                    session={() => binding().session}
+                    path={() => binding().path}
+                    content={() => editor.activeContent()}
+                    focusOnMount={focusedKind() === "editor"}
+                  />
+                </Suspense>
+              )}
             </Show>
             {/* A media (image/video) file tab: render it over the still-mounted Monaco host. */}
             <Show when={activeMediaBinding()} keyed>
@@ -2287,11 +2290,7 @@ export default function App(): JSX.Element {
           />
         )}
       </Show>
-      <Show when={zoomedEmbed()}>
-        {(state) => (
-          <EmbedLightbox state={state()} onStep={stepEmbedZoom} onClose={closeEmbedZoom} />
-        )}
-      </Show>
+      <EmbedLightbox state={zoomedEmbed} onStep={stepEmbedZoom} onClose={closeEmbedZoom} />
       {/* The blame popover for a clicked line annotation. Keyed so picking another line rebuilds it against
           the new target rather than leaving the previous commit's resources in place. */}
       <Show when={blameTarget()} keyed>

@@ -15,6 +15,4 @@
     <InternalsVisibleTo Include="Weavie.Core.Tests" />
   </ItemGroup>
 
-  <Import Project="../MacPty.targets" />
-
 </Project>

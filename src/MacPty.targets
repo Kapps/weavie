@@ -7,7 +7,7 @@
     <_MacPtyArch Condition="'$(_MacPtyArch)' == ''">-arch arm64 -arch x86_64</_MacPtyArch>
   </PropertyGroup>
 
-  <!-- Core's native assets flow through project references into every host and test, including publish. -->
+  <!-- Each PTY consumer owns its native assets; flat hosts and tests carry them into publish. -->
   <ItemGroup Condition="$([MSBuild]::IsOSPlatform('OSX')) And !$(TargetFramework.Contains('-macos'))">
     <None Include="$(_MacPtyDir)libweavie_pty.dylib" Link="libweavie_pty.dylib"
           CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />

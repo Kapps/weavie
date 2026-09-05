@@ -34,8 +34,8 @@ it does not establish that every reported macOS disappearance had this cause.
 ## Build and validation
 
 `src/MacPty.targets` produces both native assets for the shared macOS minimum version.
-Core project references carry them into flat hosts, tests, and publish outputs; the Mac host
-places them in its bundle. Missing assets fail at launch rather than selecting another backend.
+Mac, Headless, and the PTY test projects import that one build target. Each consumer owns
+its native assets in its output and publish directories; the Mac host places them in its bundle. Missing assets fail at launch rather than selecting another backend.
 
 macOS CI runs `tests/native/macos-pty.c` against the production native sources to verify session
 and controlling-terminal ownership, descriptor exclusion, signal reset, exact launch errors,

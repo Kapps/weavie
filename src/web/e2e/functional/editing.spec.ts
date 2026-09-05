@@ -1,4 +1,10 @@
-import { clickIntoEditor, openFile, runCommand, typeInEditor } from "../harness/actions";
+import {
+  clickIntoEditor,
+  openFile,
+  pressDocumentStart,
+  runCommand,
+  typeInEditor,
+} from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 
 // Text-editing journeys beyond the open→save→persist path in editor.spec.ts: Monaco-native undo/redo isn't
@@ -12,7 +18,7 @@ test("undo and redo work in the editor and aren't hijacked by diff keybindings",
   const viewLines = page.locator(".monaco-editor .view-lines");
 
   await viewLines.first().click();
-  await page.keyboard.press("ControlOrMeta+Home");
+  await pressDocumentStart(page);
   // A contiguous token is a single Monaco undo unit, so one undo removes exactly it.
   await page.keyboard.type("UNDOMARKER");
   await expect(viewLines).toContainText("UNDOMARKER");
@@ -28,12 +34,12 @@ test("undo and redo work in the editor and aren't hijacked by diff keybindings",
 test("edits in two tabs stay isolated across a tab switch", async ({ page }) => {
   await openFile(page, "hello.ts");
   await clickIntoEditor(page);
-  await page.keyboard.press("ControlOrMeta+Home");
+  await pressDocumentStart(page);
   await typeInEditor(page, "HELLOEDIT");
 
   await openFile(page, "notes.txt");
   await clickIntoEditor(page);
-  await page.keyboard.press("ControlOrMeta+Home");
+  await pressDocumentStart(page);
   await typeInEditor(page, "NOTESEDIT");
   await expect(page.locator(".monaco-editor .view-lines")).toContainText("NOTESEDIT");
 

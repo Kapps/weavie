@@ -216,3 +216,21 @@ export async function typeInEditor(page: Page, text: string): Promise<void> {
   await awaitEditorReady(page);
   await page.keyboard.type(text);
 }
+
+// Monaco binds "go to start/end of file" per platform, and its `mac` entry *replaces* the primary rather than
+// adding to it (`coreCommands.js`: cursorTop/cursorBottom), so ⌘Home and ⌘End are bound to nothing on macOS.
+// `ControlOrMeta+Home`/`+End` therefore silently no-ops there, leaving the caret wherever it was.
+const documentNavKeys =
+  process.platform === "darwin"
+    ? { start: "Meta+ArrowUp", end: "Meta+ArrowDown" }
+    : { start: "Control+Home", end: "Control+End" };
+
+/** Moves the caret to the start of the focused editor's document. */
+export function pressDocumentStart(page: Page): Promise<void> {
+  return page.keyboard.press(documentNavKeys.start);
+}
+
+/** Moves the caret to the end of the focused editor's document. */
+export function pressDocumentEnd(page: Page): Promise<void> {
+  return page.keyboard.press(documentNavKeys.end);
+}

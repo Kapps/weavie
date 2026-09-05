@@ -1,4 +1,4 @@
-import { clickIntoEditor, openFile, typeInEditor } from "../harness/actions";
+import { clickIntoEditor, openFile, pressDocumentEnd, typeInEditor } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 
 // Open a markdown file → edit it → toggle preview → the preview renders HTML reflecting the edited content
@@ -9,7 +9,7 @@ test("markdown preview renders edited content as HTML", async ({ page }) => {
 
   const heading = `Marker ${Date.now()}`;
   await clickIntoEditor(page);
-  await page.keyboard.press("ControlOrMeta+End");
+  await pressDocumentEnd(page);
   await typeInEditor(page, `\n\n# ${heading}\n`);
 
   await page.locator(".editor-preview-toggle").click();

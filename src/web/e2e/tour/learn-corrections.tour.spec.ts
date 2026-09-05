@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { clickIntoEditor, openFile, runCommand } from "../harness/actions";
+import { clickIntoEditor, openFile, pressDocumentStart, runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { appliedEdit } from "../harness/review";
 
@@ -143,7 +143,7 @@ test("three corrections fill the ring, the card offers /learn, Yes prefills the 
   await expect(page.locator(".weavie-inline-added").first()).toBeVisible({ timeout: 20_000 });
   await hold(page, 1200);
   await clickIntoEditor(page);
-  await page.keyboard.press("ControlOrMeta+Home");
+  await pressDocumentStart(page);
   await page.keyboard.press("End");
   await page.keyboard.type(" (reviewed)", { delay: 40 });
   await expect.poll(() => read("notes.txt"), { timeout: 20_000 }).toContain("(reviewed)"); // autosaved

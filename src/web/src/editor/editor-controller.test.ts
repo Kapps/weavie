@@ -186,3 +186,45 @@ it("upgrades an early unified-review scope when the editor host becomes ready", 
   deferred.dispose();
   expect(realScope.dispose).toHaveBeenCalledOnce();
 });
+
+it("holds unified review through the agent's reveals and hands it back after a proposal", () => {
+  const session = fakeSession("held-review");
+  env.selected = session;
+  const controller = createEditorController(dependencies(() => Promise.resolve(true)));
+  for (const install of env.installers) {
+    install(session);
+  }
+  const review = session.feature("review") as unknown as FakeFeature;
+  const editor = session.feature("editor") as unknown as FakeFeature;
+  const file = {
+    path: "/work/held.ts",
+    name: "held.ts",
+    added: 2,
+    removed: 0,
+    line: 3,
+    currentExists: true,
+  };
+  review.emit("changes", { label: "turn", files: [file] });
+  expect(controller.review.toggleMode(session)).toBe(true);
+  expect(controller.review.mode()).toBe("unified");
+
+  // The agent revealing a file lands behind the overview.
+  editor.emit("openFile", { path: "/work/other.ts", line: null, intent: "reveal" });
+  expect(controller.review.mode()).toBe("unified");
+
+  // A proposal is a gate, so it takes the pane — and gives it back when it closes.
+  editor.emit("showDiff", {
+    id: "diff-1",
+    path: "/work/held.ts",
+    tabName: "held.ts",
+    original: "before",
+    proposed: "after",
+  });
+  expect(controller.review.mode()).toBe("file");
+  editor.emit("closeDiff", { id: "diff-1" });
+  expect(controller.review.mode()).toBe("unified");
+
+  // The user navigating somewhere does leave it.
+  editor.emit("openFile", { path: "/work/other.ts", line: null, intent: "navigation" });
+  expect(controller.review.mode()).toBe("file");
+});

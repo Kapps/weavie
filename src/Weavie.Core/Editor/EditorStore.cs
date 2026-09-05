@@ -11,16 +11,14 @@ public readonly record struct EditorSelection(EditorPosition Start, EditorPositi
 /// <summary>The editor the user is currently looking at: file, language id, selection, and selected text.</summary>
 public sealed record ActiveEditor(string FilePath, string? LanguageId, string SelectedText, EditorSelection Selection) {
 	/// <summary>
-	/// Parses an <c>active-editor-changed</c> message, converting the file URI to a native path. Returns
-	/// <c>false</c> for a message without a usable file URI (e.g. an in-memory model).
+	/// Parses an <c>activeChanged</c> message. Returns <c>false</c> unless it names a fully-qualified native path.
 	/// </summary>
 	public static bool TryParse(JsonElement message, out ActiveEditor? editor) {
 		editor = null;
 		if (message.ValueKind != JsonValueKind.Object
-			|| !message.TryGetProperty("uri", out var uriElement)
-			|| uriElement.GetString() is not { Length: > 0 } uri
-			|| !TryUriToPath(uri, out string? path)
-			|| path is null) {
+			|| !message.TryGetProperty("path", out var pathElement)
+			|| pathElement.GetString() is not { Length: > 0 } path
+			|| !Path.IsPathFullyQualified(path)) {
 			return false;
 		}
 
@@ -52,21 +50,6 @@ public sealed record ActiveEditor(string FilePath, string? LanguageId, string Se
 		int line = position.TryGetProperty("line", out var l) && l.TryGetInt32(out int li) ? li : 0;
 		int character = position.TryGetProperty("character", out var c) && c.TryGetInt32(out int ci) ? ci : 0;
 		return new EditorPosition(line, character);
-	}
-
-	private static bool TryUriToPath(string uri, out string? path) {
-		path = null;
-		try {
-			var parsed = new Uri(uri);
-			if (!parsed.IsFile) {
-				return false;
-			}
-
-			path = parsed.LocalPath;
-			return true;
-		} catch (UriFormatException) {
-			return false;
-		}
 	}
 }
 

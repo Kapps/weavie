@@ -1,6 +1,9 @@
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import type { Locator, Page } from "@playwright/test";
 import { awaitEditorReady, awaitFontsSettled, createSession, openFile } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
+import { sessionWorktrees } from "../harness/git-workspace";
 
 // Find in Files journeys: seeding from the highlighted text (editor or agent transcript), arrow live-preview
 // vs Enter commit (cursor on the match's column), the match-option toggles + include/exclude globs on their
@@ -258,22 +261,37 @@ test("code results follow editor typography while search chrome stays compact", 
   await page.keyboard.press("ControlOrMeta+0");
 });
 
-test("a session switch clears stale results so stepping can't open the previous worktree", async ({
+test("a session switch applies the visible query to the destination worktree", async ({
   page,
+  weavie,
 }) => {
   await awaitEditorReady(page);
-  await openSearch(page);
-  await page.locator(".search-input").fill("greet");
-  await expect(page.locator(".search-row").first()).toBeVisible();
-
-  // Forking switches to a new session on its own worktree; the prior worktree's results (and any pending
-  // F4 target) must not survive, or stepping would open a path that routes into the wrong worktree.
   await createSession(page, { branch: "e2e/find-session-switch", provider: "claude" });
-  await expect(page.locator(".session-chip")).toHaveCount(2);
-  await expect(page.locator(".search-row")).toHaveCount(0);
-  // F4 with the cleared list is a no-op — no tab opens.
+  const [forkedWorktree] = sessionWorktrees(weavie.workspace);
+  if (forkedWorktree === undefined) {
+    throw new Error("forked session did not create a git worktree");
+  }
+  const token = "SESSION_SEARCH_CANARY";
+  await Promise.all([
+    writeFile(join(weavie.workspace, "alpha-search.txt"), `${token}\n`),
+    writeFile(join(forkedWorktree, "beta-search.txt"), `${token}\n`),
+  ]);
+
+  const chips = page.locator(".session-chip");
+  await expect(chips).toHaveCount(2);
+  await chips.first().click();
+  await openSearch(page);
+  await page.locator(".search-input").fill(token);
+  await expect(page.locator(".search-group-name", { hasText: "alpha-search.txt" })).toBeVisible();
+  await expect(page.locator(".search-group-name", { hasText: "beta-search.txt" })).toHaveCount(0);
+
+  await page.keyboard.press("Control+Tab");
+  await expect(chips.nth(1)).toHaveClass(/\bactive\b/);
+  await expect(page.locator(".search-input")).toHaveValue(token);
+  await expect(page.locator(".search-group-name", { hasText: "beta-search.txt" })).toBeVisible();
+  await expect(page.locator(".search-group-name", { hasText: "alpha-search.txt" })).toHaveCount(0);
   await page.keyboard.press("F4");
-  await expect(page.locator(".search-row")).toHaveCount(0);
+  await expect(page.locator(".editor")).toHaveAttribute("data-active-file", /beta-search\.txt$/);
 });
 
 test("seeds from a highlight in the agent transcript, over an older editor selection", async ({

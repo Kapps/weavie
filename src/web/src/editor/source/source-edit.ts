@@ -11,16 +11,13 @@ import { formatKey } from "../../commands/keybindings";
 import { findCommand } from "../../commands/registry";
 import { CommandIds } from "../../commands/types";
 import { blockSource, buildUpdateOp } from "./notion-edit";
-import { openSourceTarget, saveSourceEdit } from "./source-store";
-
-interface EditState {
-  line: number;
-  draft: string;
-  // The display text at open: an unchanged draft cancels on blur (a changed one stays — never a silent discard).
-  original: string;
-  saving: boolean;
-  error?: { message: string; stale: boolean } | undefined;
-}
+import {
+  discardSourceEdit,
+  keepSourceEdit,
+  openSourceTarget,
+  saveSourceEdit,
+  sourceEditState,
+} from "./source-store";
 
 // The controller mounted by the active SourceView; App.tsx routes commands + source-edit-error through it.
 let active: SourceEditController | undefined;
@@ -32,40 +29,38 @@ export function activeSourceEditor(): SourceEditController | undefined {
 
 /** Drives the in-place block editor inside one SourceView's shadow root (one instance per mounted view). */
 export class SourceEditController {
-  private session: ClientSession | undefined;
-  private target = "";
   private markdown = "";
   private content: HTMLElement | undefined;
-  private edit: EditState | undefined;
   private focusedBlock: HTMLElement | undefined;
   private textarea: HTMLTextAreaElement | undefined;
   private hint: HTMLElement | undefined;
   private box: HTMLElement | undefined;
   private restore: (() => void) | undefined;
 
+  constructor(
+    private readonly session: ClientSession,
+    private readonly target: string,
+  ) {}
+
   /**
    * Adopts a freshly rendered doc: decorates the editable blocks (tab stop + shortcut tooltip), re-mounts an
    * in-progress edit when the markdown is the same string it opened against, and closes it when it isn't —
    * including the refresh a successful save pushes, where focus returns to the edited block.
    */
-  attach(content: HTMLElement, session: ClientSession, target: string, markdown: string): void {
+  attach(content: HTMLElement, markdown: string): void {
     active = this;
-    const sameDoc =
-      session === this.session && target === this.target && markdown === this.markdown;
-    // The saved-edit refresh: same page, new content, while our save was resolving (same-target guard, or a
-    // different page arriving mid-save would grab focus on an unrelated block that shares the line index).
-    const savedLine =
-      session === this.session && target === this.target && !sameDoc && this.edit?.saving === true
-        ? this.edit.line
-        : undefined;
-    if (!sameDoc) {
-      this.closeState();
+    const edit = sourceEditState(this.session, this.target);
+    const sameDoc = edit?.markdown === markdown;
+    // The saved-edit refresh: new content arrived while our save was resolving.
+    const savedLine = edit !== undefined && !sameDoc && edit.saving ? edit.line : undefined;
+    this.unmountEditor();
+    if (edit !== undefined && !sameDoc) {
+      discardSourceEdit(this.session, this.target);
     }
-    this.session = session;
-    this.target = target;
     this.markdown = markdown;
     this.content = content;
     this.focusedBlock = undefined;
+    setContext("sourceBlockFocused", false);
     const editKeys = findCommand(CommandIds.sourceEditBlock)?.keys ?? [];
     for (const el of content.querySelectorAll<HTMLElement>(".wv-editable")) {
       el.tabIndex = 0;
@@ -73,6 +68,9 @@ export class SourceEditController {
         editKeys.length > 0 ? `Edit block (${formatKey(editKeys[0] ?? "")})` : "Edit block";
     }
     content.addEventListener("focusin", (event) => {
+      if (active !== this) {
+        return;
+      }
       const el =
         event.target instanceof HTMLElement
           ? event.target.closest<HTMLElement>(".wv-editable")
@@ -83,6 +81,9 @@ export class SourceEditController {
     // Focus leaving the blocks entirely (another pane, the editor textarea) must drop the context key, or the
     // Edit Block chord would keep firing wherever the user types next.
     content.addEventListener("focusout", (event) => {
+      if (active !== this) {
+        return;
+      }
       const to =
         event.relatedTarget instanceof HTMLElement
           ? event.relatedTarget.closest(".wv-editable")
@@ -92,8 +93,9 @@ export class SourceEditController {
         setContext("sourceBlockFocused", false);
       }
     });
-    if (this.edit !== undefined) {
-      const el = this.blockAt(this.edit.line);
+    const retained = sourceEditState(this.session, this.target);
+    if (retained !== undefined) {
+      const el = this.blockAt(retained.line);
       if (el !== undefined) {
         this.mount(el);
       } else {
@@ -104,14 +106,22 @@ export class SourceEditController {
     }
   }
 
-  /** Forgets any in-progress edit (a non-markdown doc or an unmount took the view). */
+  /** Forgets any in-progress edit because the target is no longer an editable markdown document. */
   reset(): void {
     this.closeState();
+    this.detach();
+  }
+
+  /** Detaches the rendered DOM while retaining an unsaved edit for this exact session and source target. */
+  detach(): void {
+    this.unmountEditor();
+    this.content = undefined;
+    this.markdown = "";
     this.focusedBlock = undefined;
     if (active === this) {
       active = undefined;
+      setContext("sourceBlockFocused", false);
     }
-    setContext("sourceBlockFocused", false);
   }
 
   /** True when the click landed inside the open editor box — the textarea owns it, nothing else should react. */
@@ -133,7 +143,10 @@ export class SourceEditController {
 
   /** Opens the editor on the focused block (the Edit Block command); false when there's nothing to edit. */
   editFocusedBlock(): boolean {
-    if (this.focusedBlock === undefined || this.edit !== undefined) {
+    if (
+      this.focusedBlock === undefined ||
+      sourceEditState(this.session, this.target) !== undefined
+    ) {
       return false;
     }
     this.open(this.focusedBlock);
@@ -146,7 +159,7 @@ export class SourceEditController {
    * terminal or palette must never fire a write to Notion.
    */
   commit(): boolean {
-    const edit = this.edit;
+    const edit = sourceEditState(this.session, this.target);
     if (edit === undefined || this.textarea === undefined || edit.saving || !this.editorFocused()) {
       return false;
     }
@@ -167,9 +180,7 @@ export class SourceEditController {
     if (this.hint !== undefined) {
       this.hint.textContent = "Saving…";
     }
-    if (this.session !== undefined) {
-      saveSourceEdit(this.session, this.target, op.oldStr, op.newStr);
-    }
+    saveSourceEdit(this.session, this.target, op.oldStr, op.newStr);
     return true;
   }
 
@@ -178,10 +189,11 @@ export class SourceEditController {
    * textarea owns focus, for the same reason as {@link commit} — Escape elsewhere is not the editor's.
    */
   cancel(): boolean {
-    if (this.edit === undefined || this.edit.saving || !this.editorFocused()) {
+    const edit = sourceEditState(this.session, this.target);
+    if (edit === undefined || edit.saving || !this.editorFocused()) {
       return false;
     }
-    this.closeAndRefocus(this.edit.line);
+    this.closeAndRefocus(edit.line);
     return true;
   }
 
@@ -191,10 +203,11 @@ export class SourceEditController {
    * write must reach the user wherever they are, never vanish).
    */
   showSaveError(target: string, message: string, stale: boolean): boolean {
-    if (target !== this.target || this.edit === undefined) {
+    const edit = sourceEditState(this.session, this.target);
+    if (target !== this.target || edit === undefined) {
       return false;
     }
-    this.edit.saving = false;
+    edit.saving = false;
     this.box?.classList.remove("wv-saving");
     if (this.textarea !== undefined) {
       this.textarea.disabled = false;
@@ -208,7 +221,7 @@ export class SourceEditController {
   }
 
   private open(el: HTMLElement): void {
-    if (this.edit !== undefined) {
+    if (sourceEditState(this.session, this.target) !== undefined) {
       return; // one block at a time — an unchanged editor cancels on blur before the click lands here
     }
     const line = Number(el.getAttribute("data-wv-line"));
@@ -216,15 +229,21 @@ export class SourceEditController {
       return;
     }
     const display = blockSource(this.markdown, line).display;
-    this.edit = { line, draft: display, original: display, saving: false };
-    setContext("sourceEditing", true);
+    keepSourceEdit(this.session, this.target, {
+      markdown: this.markdown,
+      line,
+      draft: display,
+      original: display,
+      saving: false,
+      error: undefined,
+    });
     this.mount(el);
   }
 
   // Builds the editor DOM for the current edit state and swaps it in at `el` (a list item keeps its nested
   // list visible — only the item's own inline content is stashed).
   private mount(el: HTMLElement): void {
-    const edit = this.edit;
+    const edit = sourceEditState(this.session, this.target);
     if (edit === undefined) {
       return;
     }
@@ -243,7 +262,12 @@ export class SourceEditController {
     // An untouched editor closes when focus leaves it; a changed draft stays put (never a silent discard).
     // closeState (not closeAndRefocus): focus left deliberately — don't yank it back from where it went.
     textarea.addEventListener("focusout", () => {
-      if (this.edit === edit && !edit.saving && textarea.value === edit.original) {
+      if (
+        active === this &&
+        sourceEditState(this.session, this.target) === edit &&
+        !edit.saving &&
+        textarea.value === edit.original
+      ) {
         this.closeState();
       }
     });
@@ -254,6 +278,9 @@ export class SourceEditController {
     this.textarea = textarea;
     this.hint = hint;
     this.box = box;
+    if (active === this) {
+      setContext("sourceEditing", true);
+    }
 
     if (el.tagName === "LI") {
       const inline = [...el.childNodes].filter(
@@ -286,7 +313,7 @@ export class SourceEditController {
   // Renders (or replaces) the inline error row under the textarea; stale adds the re-fetch escape hatch.
   private showError(error: { message: string; stale: boolean }): void {
     const box = this.box;
-    const edit = this.edit;
+    const edit = sourceEditState(this.session, this.target);
     if (box === undefined || edit === undefined) {
       return;
     }
@@ -302,9 +329,7 @@ export class SourceEditController {
       refetch.textContent = "Re-fetch page (discards this edit)";
       refetch.addEventListener("click", () => {
         this.closeState();
-        if (this.session !== undefined) {
-          openSourceTarget(this.session, this.target);
-        }
+        openSourceTarget(this.session, this.target);
       });
       row.append(refetch);
     }
@@ -323,15 +348,21 @@ export class SourceEditController {
     this.blockAt(line)?.focus();
   }
 
-  // Tears down the editor DOM (restoring the block) and clears the edit state + context key.
-  private closeState(): void {
+  private unmountEditor(): void {
     this.restore?.();
     this.restore = undefined;
     this.textarea = undefined;
     this.hint = undefined;
     this.box = undefined;
-    this.edit = undefined;
-    setContext("sourceEditing", false);
+    if (active === this) {
+      setContext("sourceEditing", false);
+    }
+  }
+
+  // Tears down the editor DOM (restoring the block) and clears the edit state + context key.
+  private closeState(): void {
+    this.unmountEditor();
+    discardSourceEdit(this.session, this.target);
   }
 
   private blockAt(line: number): HTMLElement | undefined {

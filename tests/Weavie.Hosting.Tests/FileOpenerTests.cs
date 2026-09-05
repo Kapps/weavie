@@ -27,10 +27,10 @@ public sealed class FileOpenerTests {
 				bridge.SessionFeature("notifications"),
 				files,
 				new WorkspaceFileIndex(fs, Workspace),
-				(path, line, preview, scratch) =>
+				(path, line, preview, scratch, intent) =>
 					bridge.SessionFeature("editor").Publish(
 						"openFile",
-						new { path, line, preview, scratch })),
+						new { path, line, preview, scratch, intent = intent.ToString() })),
 			bridge,
 			fs);
 	}
@@ -41,7 +41,7 @@ public sealed class FileOpenerTests {
 		string path = Path.Combine(Workspace, "a.cs");
 		fs.WriteAllText(path, "hello");
 
-		await opener.OpenAsync(path, line: 3, preview: false, scratch: false);
+		await opener.OpenAsync(path, line: 3, preview: false, scratch: false, EditorOpenIntent.Navigation);
 
 		var msg = bridge.LastEvent("editor", "openFile");
 		Assert.True(msg.HasValue);
@@ -56,7 +56,7 @@ public sealed class FileOpenerTests {
 		string path = Path.Combine(Workspace, "a.cs");
 		fs.WriteAllText(path, "hello");
 
-		await opener.OpenAsync(path, line: 1, preview: false, scratch: false);
+		await opener.OpenAsync(path, line: 1, preview: false, scratch: false, EditorOpenIntent.Navigation);
 
 		Assert.NotNull(bridge.LastEvent("editor", "openFile"));
 	}
@@ -67,7 +67,7 @@ public sealed class FileOpenerTests {
 		string path = Path.Combine(Workspace, "a.cs");
 		fs.WriteAllText(path, "hello");
 
-		await opener.OpenAsync(path, line: 0, preview: false, scratch: false); // a 0/negative line must reveal line 1, not 0
+		await opener.OpenAsync(path, line: 0, preview: false, scratch: false, EditorOpenIntent.Navigation); // a 0/negative line must reveal line 1, not 0
 
 		Assert.Equal(1, bridge.LastEvent("editor", "openFile")!.Value.GetProperty("line").GetInt32());
 	}
@@ -79,7 +79,7 @@ public sealed class FileOpenerTests {
 		fs.WriteAllText(path, "hello");
 
 		// No target line: the web leaves an already-open tab where the user left it.
-		await opener.OpenAsync(path, line: null, preview: false, scratch: false);
+		await opener.OpenAsync(path, line: null, preview: false, scratch: false, EditorOpenIntent.Navigation);
 
 		Assert.Equal(
 			JsonValueKind.Null,
@@ -91,7 +91,7 @@ public sealed class FileOpenerTests {
 		var (opener, bridge, fs) = New();
 		fs.WriteAllText(Path.Combine(Workspace, "a.cs"), "hello");
 
-		await opener.OpenAsync("a.cs", line: 1, preview: false, scratch: false); // relative → resolved under the workspace
+		await opener.OpenAsync("a.cs", line: 1, preview: false, scratch: false, EditorOpenIntent.Navigation); // relative → resolved under the workspace
 
 		Assert.Equal(Path.Combine(Workspace, "a.cs"), bridge.LastEvent("editor", "openFile")!.Value.GetProperty("path").GetString());
 	}
@@ -102,7 +102,7 @@ public sealed class FileOpenerTests {
 		string path = Path.Combine(Workspace, "a.cs");
 		fs.WriteAllText(path, "hello");
 
-		await opener.OpenAsync(path, line: 1, preview: true, scratch: true);
+		await opener.OpenAsync(path, line: 1, preview: true, scratch: true, EditorOpenIntent.Navigation);
 
 		var msg = bridge.LastEvent("editor", "openFile")!.Value;
 		Assert.True(msg.GetProperty("preview").GetBoolean());
@@ -117,7 +117,7 @@ public sealed class FileOpenerTests {
 			Path.Combine(Workspace, "ghost.cs"),
 			line: 1,
 			preview: false,
-			scratch: false);
+			scratch: false, EditorOpenIntent.Navigation);
 
 		Assert.Null(bridge.LastEvent("editor", "openFile")); // not found → no open-file, no crash
 		Assert.Contains("ghost.cs", bridge.LastEvent("notifications", "show")!.Value.GetProperty("message").GetString()); // …but the user hears why
@@ -128,7 +128,7 @@ public sealed class FileOpenerTests {
 		var (opener, bridge, fs) = New();
 		fs.WriteAllText(Path.Combine(Workspace, "src", "web", "foo.ts"), "");
 
-		await opener.OpenAsync("web/foo.ts", line: 7, preview: true, scratch: false);
+		await opener.OpenAsync("web/foo.ts", line: 7, preview: true, scratch: false, EditorOpenIntent.Navigation);
 
 		var msg = bridge.LastEvent("editor", "openFile")!.Value;
 		Assert.Equal(Path.Combine(Workspace, "src", "web", "foo.ts"), msg.GetProperty("path").GetString());
@@ -141,7 +141,7 @@ public sealed class FileOpenerTests {
 		var (opener, bridge, fs) = New();
 		fs.WriteAllText(Path.Combine(Workspace, "src", "deep", "unique.cs"), "");
 
-		await opener.OpenAsync("unique.cs", line: 1, preview: false, scratch: false);
+		await opener.OpenAsync("unique.cs", line: 1, preview: false, scratch: false, EditorOpenIntent.Navigation);
 
 		Assert.Equal(
 			Path.Combine(Workspace, "src", "deep", "unique.cs"),
@@ -154,7 +154,7 @@ public sealed class FileOpenerTests {
 		fs.WriteAllText(Path.Combine(Workspace, "a", "foo.ts"), "");
 		fs.WriteAllText(Path.Combine(Workspace, "b", "foo.ts"), "");
 
-		await opener.OpenAsync("./foo.ts", line: 12, preview: false, scratch: false);
+		await opener.OpenAsync("./foo.ts", line: 12, preview: false, scratch: false, EditorOpenIntent.Navigation);
 
 		Assert.Null(bridge.LastEvent("editor", "openFile")); // two candidates — never open one arbitrarily
 		Assert.Null(bridge.LastEvent("notifications", "show"));
@@ -167,7 +167,7 @@ public sealed class FileOpenerTests {
 	public async Task RelativePathWithNoSuffixMatch_ToastsAWarning() {
 		var (opener, bridge, _) = New();
 
-		await opener.OpenAsync("nowhere/ghost.cs", line: 1, preview: false, scratch: false);
+		await opener.OpenAsync("nowhere/ghost.cs", line: 1, preview: false, scratch: false, EditorOpenIntent.Navigation);
 
 		Assert.Null(bridge.LastEvent("editor", "openFile"));
 		Assert.Contains("ghost.cs", bridge.LastEvent("notifications", "show")!.Value.GetProperty("message").GetString());
@@ -179,7 +179,7 @@ public sealed class FileOpenerTests {
 		fs.WriteAllText(Path.Combine(Workspace, "a", "foo.ts"), "");
 		fs.WriteAllText(Path.Combine(Workspace, "b", "foo.ts"), "");
 
-		await opener.OpenAsync("foo.ts", line: 1, preview: false, scratch: false);
+		await opener.OpenAsync("foo.ts", line: 1, preview: false, scratch: false, EditorOpenIntent.Navigation);
 
 		Assert.NotNull(bridge.LastEvent("view", "focusOmnibar"));
 	}
@@ -190,7 +190,7 @@ public sealed class FileOpenerTests {
 		string outside = OperatingSystem.IsWindows() ? @"C:\elsewhere\notes.md" : "/elsewhere/notes.md";
 		fs.WriteAllText(outside, "notes");
 
-		await opener.OpenAsync(outside, line: 1, preview: false, scratch: false);
+		await opener.OpenAsync(outside, line: 1, preview: false, scratch: false, EditorOpenIntent.Navigation);
 
 		Assert.NotNull(bridge.LastEvent("editor", "openFile"));
 		Assert.Null(bridge.LastEvent("notifications", "show"));
@@ -200,7 +200,7 @@ public sealed class FileOpenerTests {
 	public async Task MissingFile_IsRefusedLoudly() {
 		var (opener, bridge, _) = New();
 
-		await opener.OpenAsync("/elsewhere/ghost.md", line: 1, preview: false, scratch: false);
+		await opener.OpenAsync("/elsewhere/ghost.md", line: 1, preview: false, scratch: false, EditorOpenIntent.Navigation);
 
 		Assert.Null(bridge.LastEvent("editor", "openFile"));
 		Assert.NotNull(bridge.LastEvent("notifications", "show")); // refused loudly, not silently ignored

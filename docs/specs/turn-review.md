@@ -1,7 +1,7 @@
 # Reviewing auto-applied changes (post-turn review)
 
 Status: in progress
-Last updated: 2026-08-31
+Last updated: 2026-09-04
 
 A keyboard-first flow for reviewing what Claude changed during an autonomous turn in an **auto-apply
 mode** (`acceptEdits` / `bypassPermissions`). Claude runs a full turn without stopping to ask; when it
@@ -15,15 +15,25 @@ The two review modes are projections over one Core-owned review board:
   **real editor on that file's live working copy** while expanded, with unchanged regions collapsed into hidden
   areas — so a scan carries the same syntax and semantic highlighting, LSP
   hovers/diagnostics/go-to-definition, completions and editing the file pane does. It is optimized for breadth
-  and file-level decisions. Keeping a file collapses its section after Core confirms the new baseline; undoing
-  the keep expands it again. The section disclosure advertises the rebindable `alt+[` fold command, and the
-  file tree supports standard arrow-key navigation. A deleted current-side file uses a read-only Monaco
-  snapshot from the Core-owned review text because no working copy exists.
+  and file-level decisions. A collapsed section *means reviewed*: keeping a file collapses it after Core
+  confirms the new baseline, and the fold is pinned to the exact state it was reviewed at — new content, or a
+  change coming back to pending, un-reviews the file and expands it again, because there is now something the
+  user hasn't seen. A re-push of the same state leaves the user's own fold alone. The section disclosure
+  advertises the rebindable `alt+[` fold command, and the file tree supports standard arrow-key navigation. A
+  deleted current-side file uses a read-only Monaco snapshot from the Core-owned review text because no working
+  copy exists.
 - **File review** is the hovering inline-diff toolbar over the live editor. It is optimized for depth: hunk
   navigation, comments, and line-level Keep/Revert.
 
 The persistent editor-tab-strip button and `weavie.review.toggleMode` (`$mod+Shift+u` by default) move
-between them without creating a second review state. Entering unified mode requests any diffs not yet
+between them without creating a second review state.
+
+**Unified review is a mode the user is in, not an overlay that anything can dismiss.** Every editor open the
+host pushes carries an `EditorOpenIntent`: `Navigation` (the user went somewhere — a terminal link, `Ctrl+N`)
+takes the pane and leaves review; `Reveal` (the agent's MCP `openFile`, a review action's own jump, arming a
+ref diff) opens the tab *behind* the overview and never evicts it. A `default`-mode `openDiff` proposal is the
+one exception — it is a gate the agent is blocked on, so it must be seen — and even there the mode is only
+**suspended**: resolving or closing the proposal hands the overview back. Entering unified mode requests any diffs not yet
 streamed by a PR/ref review; host re-emissions update both views. This builds directly on the hook-driven
 change tracker and the inline diff renderer that already exist. See
 [permission-modes-and-change-tracking.md](permission-modes-and-change-tracking.md) and
@@ -332,6 +342,13 @@ visibility, so the commands stay runnable from the palette regardless of focus.
 | `weavie.review.open` | _(palette-only)_ | open the unified overview; `path` + `line` opens file review |
 | `weavie.review.toggleMode` | `$mod+Shift+u` | switch between unified and file review |
 | `weavie.review.toggleFile` | `alt+[` | expand/collapse the current unified-review file |
+
+Every step of the walk — Next/Previous Change and Next/Previous File — is routed by the mode the session is
+reviewing on, so it acts on the surface the user is looking at. In file review it drives the inline toolbar; in
+unified review the mounted overview owns it and scrolls to the next change **inside** the page (expanding the
+section, landing on the hunk) rather than opening the file behind it. Change steps skip files with nothing
+pending; file steps visit every file. The unified header carries Prev/Next buttons for the same commands, since
+the inline navigator sits behind the overview.
 
 Navigation rides `ctrl+$mod`: plain Ctrl+arrows on Win/Linux, ⌃⌘+arrows on Mac — so ⌘+arrows keep their
 macOS line/document meaning even mid-review. On Win/Linux `Ctrl+Left/Right` override Monaco's

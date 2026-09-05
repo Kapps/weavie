@@ -151,7 +151,7 @@ import {
 } from "./editor/source/source-store";
 import { TabStrip } from "./editor/TabStrip";
 import { isPreviewMode, toggleViewMode } from "./editor/view-mode-store";
-import WebTabPane from "./editor/WebTabPane";
+import WebTabStack from "./editor/WebTabPane";
 import { currentEditorOptions, onEditorOptionsChanged } from "./editor-options";
 import {
   listSelectedDirectory,
@@ -483,6 +483,11 @@ export default function App(): JSX.Element {
         : [],
     ),
   );
+  const webTabSessions = createMemo<ClientSession[]>(() =>
+    sessions().flatMap((session) =>
+      session.loaded && session.owner !== null ? [session.owner] : [],
+    ),
+  );
   const agentTerminalSessions = createMemo<ClientSession[]>(() =>
     sessions().flatMap((session) =>
       session.loaded &&
@@ -656,7 +661,7 @@ export default function App(): JSX.Element {
     focusVisibleOverlay: () => {
       setActivePane("editor");
       const overlay = editorContainer?.parentElement?.querySelector<HTMLElement>(
-        ":scope > [data-kind='editor'][tabindex]",
+        ":scope > [data-kind='editor'][tabindex]:not([hidden])",
       );
       overlay?.focus();
       return document.activeElement === overlay;
@@ -869,12 +874,6 @@ export default function App(): JSX.Element {
       !editor.reviewActive()
       ? binding
       : null;
-  });
-
-  // The active tab's URL when it's a web (iframe) tab — drives the web overlay; null otherwise.
-  const activeWebUrl = createMemo<string | null>(() => {
-    const binding = activeTabBinding();
-    return binding?.kind === "web" ? binding.path : null;
   });
 
   const activeSourceBinding = createMemo(() => {
@@ -1292,10 +1291,8 @@ export default function App(): JSX.Element {
                 />
               )}
             </Show>
-            {/* A web tab: render its URL in an iframe over the still-mounted Monaco host. */}
-            <Show when={activeWebUrl() !== null}>
-              <WebTabPane url={() => activeWebUrl() as string} />
-            </Show>
+            {/* Activated web tabs retain their browsing contexts; only the selected session/tab is visible. */}
+            <WebTabStack sessions={webTabSessions} selectedSession={selectedSession} />
             {/* A source tab: render the fetched Notion doc as rich HTML in a shadow root over Monaco (or its
                 loading spinner / fetch error while it resolves). */}
             <Show when={activeSourceBinding()} keyed>
@@ -1337,6 +1334,7 @@ export default function App(): JSX.Element {
                     session={session}
                     onCursorChange={editor.review.setCursor}
                     onFileCollapsed={editor.review.setFileCollapsed}
+                    bindNavigator={editor.review.bindNavigator}
                     createCopyScope={editor.review.createCopyScope}
                   />
                 </Suspense>
@@ -1916,10 +1914,8 @@ export default function App(): JSX.Element {
       }
     };
     const onFocusIn = (event: FocusEvent): void => publishFocus(event.target as Element | null);
-    // A control that finishes its job unmounts under the focus it holds, leaving the pane taking no typing and
-    // no chords. Hand focus back to that pane — only when the element really went away, so a press or drag that
-    // merely left focus behind stays the user's (and not on compact, where focusing pops the keyboard). What's
-    // left focusless publishes as such, a frame later so a browser-driven move lands first.
+    // Recover pane focus when its focused control unmounts or hides; a frame lets a browser-driven move win.
+    // Ordinary blur stays untouched, and compact mode avoids unexpectedly reopening the software keyboard.
     const onFocusOut = (event: FocusEvent): void => {
       const lost = event.target as Element | null;
       const kind = focusedKind();
@@ -1927,7 +1923,9 @@ export default function App(): JSX.Element {
         if (document.activeElement !== document.body) {
           return;
         }
-        if (lost?.isConnected === false && kind !== null && !compact() && !hasTextSelection()) {
+        const unavailable =
+          lost !== null && (lost.isConnected === false || lost.closest("[hidden]") !== null);
+        if (unavailable && kind !== null && !compact() && !hasTextSelection()) {
           focusPane(kind);
         }
         if (document.activeElement === document.body) {

@@ -91,6 +91,7 @@ public sealed partial class HostSession {
 				message.Line,
 				message.Preview,
 				scratch: false,
+				EditorOpenIntent.Navigation,
 				ct));
 
 		var editor = Bus.Feature("editor");

@@ -5,6 +5,7 @@ import { formatKey } from "../commands/keybindings";
 import { findCommand, registerCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { canonicalFsPath } from "../editor/fs-path";
+import { createListNavigation } from "../list-navigation";
 import { createFileFinder, type FileRow, rankFiles, splitPath } from "./file-search";
 import { dismissOnOutsideInteraction } from "./popover-dismiss";
 import { recentFiles } from "./recent-files-store";
@@ -79,7 +80,6 @@ function RecentFilesMenu(props: {
   let panelEl: HTMLDivElement | undefined;
   let inputEl: HTMLInputElement | undefined;
   const [query, setQuery] = createSignal("");
-  const [selected, setSelected] = createSignal(0);
 
   // Empty query → the recent list in frecency order; a query → the omnibar's fuzzy ranking over the same set.
   const results = createMemo<FileRow[]>(() => {
@@ -94,36 +94,28 @@ function RecentFilesMenu(props: {
       .map((s) => s.row);
   });
 
-  // Keep the highlighted row in range as the results change, and scrolled into view.
-  const clampedIndex = createMemo(() => Math.min(selected(), Math.max(0, results().length - 1)));
-  const scrollSelectedIntoView = (): void => {
-    queueMicrotask(() =>
-      panelEl
-        ?.querySelectorAll<HTMLElement>(".recent-row")
-        [clampedIndex()]?.scrollIntoView({ block: "nearest" }),
-    );
-  };
-
-  const onKeyDown = (event: KeyboardEvent): void => {
-    const count = results().length;
-    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-      event.preventDefault();
-      if (count > 0) {
-        const step = event.key === "ArrowDown" ? 1 : -1;
-        setSelected((clampedIndex() + step + count) % count);
-        scrollSelectedIntoView();
-      }
-    } else if (event.key === "Enter") {
-      event.preventDefault();
-      const row = results()[clampedIndex()];
+  // clampIndex keeps the highlighted row in range as the results change; onMove keeps it scrolled into view.
+  const nav = createListNavigation({
+    count: () => results().length,
+    edges: "wrap",
+    initialIndex: 0,
+    acceptKeys: ["Enter"],
+    onAccept: (index) => {
+      const row = results()[index];
       if (row !== undefined) {
         props.onChoose(row.abs);
       }
-    } else if (event.key === "Escape") {
-      event.preventDefault();
-      props.onClose();
-    }
-  };
+    },
+    onDismiss: () => props.onClose(),
+    onMove: (index) =>
+      queueMicrotask(() =>
+        panelEl
+          ?.querySelectorAll<HTMLElement>(".recent-row")
+          [index]?.scrollIntoView({ block: "nearest" }),
+      ),
+    consumeEmptyArrows: true,
+    clampIndex: true,
+  });
 
   // Anchor to the toggle, right-aligned and opening UPWARD (the toggle is in the bottom status bar): pin the
   // panel's bottom just above the toggle so it grows up as the result list changes, and cap its height to the
@@ -178,9 +170,9 @@ function RecentFilesMenu(props: {
           autocomplete="off"
           onInput={(event) => {
             setQuery(event.currentTarget.value);
-            setSelected(0);
+            nav.setIndex(0);
           }}
-          onKeyDown={onKeyDown}
+          onKeyDown={nav.onKeyDown}
         />
         <div class="recent-list">
           <Show
@@ -196,9 +188,9 @@ function RecentFilesMenu(props: {
                 <button
                   type="button"
                   class="recent-row"
-                  classList={{ selected: index() === clampedIndex() }}
+                  classList={{ selected: index() === nav.index() }}
                   title={row.abs}
-                  onMouseMove={() => setSelected(index())}
+                  onMouseMove={() => nav.setIndex(index())}
                   onClick={() => props.onChoose(row.abs)}
                 >
                   <span class="recent-name">{row.leaf}</span>

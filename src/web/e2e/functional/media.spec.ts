@@ -1,4 +1,4 @@
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import WebSocket from "ws";
 import {
@@ -8,6 +8,7 @@ import {
   waitForSessionSwitch,
 } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
+import { persistedSessions } from "../harness/persisted-sessions";
 
 interface SessionAddress {
   slot: string;
@@ -63,25 +64,6 @@ async function selectedSessionAddress(
       }
     });
   });
-}
-
-// Every workspace's persisted session overlay concatenated ("" until the host has written one) — polled to
-// know the debounced editor-session change landed on disk before a reload, instead of sleeping past it.
-function persistedSessions(home: string): string {
-  const root = join(home, ".weavie", "workspaces");
-  try {
-    return readdirSync(root)
-      .map((id) => {
-        try {
-          return readFileSync(join(root, id, "sessions.json"), "utf8");
-        } catch {
-          return "";
-        }
-      })
-      .join("\n");
-  } catch {
-    return "";
-  }
 }
 
 // Open the seeded PNG → the media pane streams it from the authenticated workspace endpoint; naturalWidth

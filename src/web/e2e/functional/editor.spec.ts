@@ -18,6 +18,12 @@ test("omnibar opens a file and Monaco highlights it", async ({ page }) => {
   expect(tokenClasses.length).toBeGreaterThan(1);
 });
 
+// Failed on main 2026-09-04 11:47 UTC on macos shard 3/6 (`Expected: > 1, Received: 1`):
+// https://github.com/Kapps/weavie/actions/runs/33869160511/job/101011489774. Root cause: the curated
+// grammar's TextMate tokenization is applied asynchronously after the language id is set, so reading
+// `tokenClasses` once right after the language-id poll could catch the model before its first
+// tokenization pass landed. `awaitEditorLaidOut` (via `openFile`) only proves Monaco painted lines, not
+// that tokenization finished. Fixed by polling `tokenClasses` itself instead of reading it once.
 test("curated Python and Rust keep their language ids and shared-scope highlighting", async ({
   page,
   weavie,
@@ -38,10 +44,13 @@ test("curated Python and Rust keep their language ids and shared-scope highlight
         ),
       )
       .toBe(languageId);
-    const tokenClasses = await page
-      .locator(".monaco-editor .view-lines [class*='mtk']")
-      .evaluateAll((elements) => new Set(elements.map((element) => element.className)).size);
-    expect(tokenClasses).toBeGreaterThan(1);
+    await expect
+      .poll(() =>
+        page
+          .locator(".monaco-editor .view-lines [class*='mtk']")
+          .evaluateAll((elements) => new Set(elements.map((element) => element.className)).size),
+      )
+      .toBeGreaterThan(1);
   }
 });
 

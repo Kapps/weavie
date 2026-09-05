@@ -28,6 +28,7 @@ import {
   selectedDirectoryListings,
   selectedFileIndex,
 } from "../files/session-files";
+import { createListNavigation } from "../list-navigation";
 import type { FlatSymbol, SymbolActions } from "../symbols/symbol-match";
 import { createSymbolSearch } from "../symbols/symbol-search";
 import {
@@ -38,6 +39,7 @@ import {
   type ScoredFile,
   splitPath,
 } from "./file-search";
+import { onModalOpened } from "./modal-state";
 import { OmnibarResults, type ScoredCommand } from "./OmnibarResults";
 import { type OmnibarMode, omnibarRequest } from "./omnibar-controller";
 import { parsePathQuery, pathSeed, separatorFor } from "./path-query";
@@ -80,7 +82,22 @@ export function Omnibar(props: {
 }): JSX.Element {
   const [query, setQuery] = createSignal("");
   const [open, setOpen] = createSignal(false);
-  const [selected, setSelected] = createSignal(0);
+  const nav = createListNavigation({
+    count: () => activeLen(),
+    edges: "clamp",
+    initialIndex: 0,
+    acceptKeys: ["Enter"],
+    onAccept: () => activate(),
+    onDismiss: () => close(),
+    onMove: () => {
+      scrollToSelected("nearest");
+      previewSelected();
+    },
+    consumeEmptyArrows: true,
+  });
+  // Aliased: the selection is read and re-homed all through this file, not just by the keyboard.
+  const selected = nav.index;
+  const setSelected = nav.setIndex;
   const [expanded, setExpanded] = createSignal<Set<string>>(new Set());
   let inputRef!: HTMLInputElement;
   let rootRef!: HTMLDivElement;
@@ -387,6 +404,7 @@ export function Omnibar(props: {
     pendingLine = undefined;
     priorFocus = null;
   };
+  onCleanup(onModalOpened(dismiss));
 
   const openFile = (abs: string | undefined): void => {
     if (abs === undefined) {
@@ -548,28 +566,12 @@ export function Omnibar(props: {
   };
 
   const onKeyDown = (e: KeyboardEvent): void => {
-    if (e.key === "ArrowDown") {
+    if (nav.onKeyDown(e)) {
+      return;
+    }
+    if ((e.key === "ArrowRight" || e.key === "ArrowLeft") && treeMode()) {
       e.preventDefault();
-      setSelected((i) => Math.min(i + 1, activeLen() - 1));
-      scrollToSelected("nearest");
-      previewSelected();
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      setSelected((i) => Math.max(i - 1, 0));
-      scrollToSelected("nearest");
-      previewSelected();
-    } else if (e.key === "ArrowRight" && treeMode()) {
-      e.preventDefault();
-      treeMoveLevel(1);
-    } else if (e.key === "ArrowLeft" && treeMode()) {
-      e.preventDefault();
-      treeMoveLevel(-1);
-    } else if (e.key === "Enter") {
-      e.preventDefault();
-      activate();
-    } else if (e.key === "Escape") {
-      e.preventDefault();
-      close();
+      treeMoveLevel(e.key === "ArrowRight" ? 1 : -1);
     }
   };
 

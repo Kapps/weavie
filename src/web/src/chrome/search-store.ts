@@ -1,10 +1,6 @@
 import { createMemo, createSignal } from "solid-js";
-import {
-  type ClientSession,
-  onSelectedSession,
-  type SearchMatch,
-  selectedSession,
-} from "../bridge";
+import { onSelectedSession, type SearchMatch, selectedSession } from "../bridge";
+import { createSessionOwnedResource } from "../messaging/session-owned-state";
 import {
   groupByFile,
   moveSelection,
@@ -56,8 +52,21 @@ interface ActiveSearch {
   controller: AbortController;
   requested: { query: string; options: SearchOptions };
 }
-const requests = new WeakMap<ClientSession, ActiveSearch>();
-const resultsBySession = new WeakMap<ClientSession, SearchResult>();
+interface SessionSearchState {
+  request?: ActiveSearch;
+  result?: SearchResult;
+}
+const searches = createSessionOwnedResource<SessionSearchState>(
+  () => ({}),
+  (session, state) => {
+    state.request?.controller.abort();
+    if (selectedSession() === session) {
+      window.clearTimeout(debounceTimer);
+      window.clearTimeout(previewTimer);
+      projectResult(undefined);
+    }
+  },
+);
 // How results open in the editor — injected by App (the editor controller), like setNotifySink.
 let opener: (match: SearchMatch, focus: boolean) => void = () => {};
 
@@ -107,7 +116,10 @@ function projectResult(result: SearchResult | undefined): void {
 }
 
 onSelectedSession((session) => {
-  const active = session === null ? undefined : requests.get(session);
+  window.clearTimeout(debounceTimer);
+  window.clearTimeout(previewTimer);
+  const state = searches.get(session);
+  const active = state?.request;
   if (
     active !== undefined &&
     active.requested.query === query() &&
@@ -117,8 +129,15 @@ onSelectedSession((session) => {
     setPhase("searching");
     return;
   }
-  const result = session === null ? undefined : resultsBySession.get(session);
-  projectResult(result !== undefined && matchesDraft(result) ? result : undefined);
+  if (state?.result !== undefined && matchesDraft(state.result)) {
+    projectResult(state.result);
+  } else if (session !== null && query().length > 0) {
+    clearResults();
+    setPhase("searching");
+    runSearch();
+  } else {
+    projectResult(undefined);
+  }
 });
 
 /** Injects how a result opens in the editor (App wires the editor controller's openMatch). */
@@ -146,10 +165,15 @@ function runSearch(): void {
     setPhase("idle");
     return;
   }
-  requests.get(session)?.controller.abort();
+  const state = searches.get(session);
+  if (state === undefined) {
+    return;
+  }
+  state.request?.controller.abort();
   const controller = new AbortController();
   const request = { controller, requested };
-  requests.set(session, request);
+  state.request = request;
+  delete state.result;
   void session
     .feature("search")
     .request<
@@ -165,33 +189,33 @@ function runSearch(): void {
       // aborts+deletes this entry first) — don't also gate on matchesDraft() here: the host's setOptions
       // echo can land out of order and clobber options() with a stale snapshot, making a still-valid
       // response look stale and hanging the search forever (2026-08-07, search-persistence.spec.ts).
-      if (requests.get(session) !== request) {
+      if (searches.get(session)?.request !== request) {
         return;
       }
-      requests.delete(session);
+      delete state.request;
       const result: SearchResult = {
         matches: response.matches,
         truncated: response.truncated,
         error: response.error ?? null,
         applied: requested,
       };
-      resultsBySession.set(session, result);
+      state.result = result;
       if (selectedSession() === session) {
         projectResult(result);
       }
     })
     .catch((error: unknown) => {
-      if (controller.signal.aborted || requests.get(session) !== request) {
+      if (controller.signal.aborted || searches.get(session)?.request !== request) {
         return;
       }
-      requests.delete(session);
+      delete state.request;
       const result: SearchResult = {
         matches: [],
         truncated: false,
         error: error instanceof Error ? error.message : String(error),
         applied: requested,
       };
-      resultsBySession.set(session, result);
+      state.result = result;
       if (selectedSession() === session) {
         projectResult(result);
       }
@@ -202,9 +226,12 @@ function beginSearchIntent(): boolean {
   window.clearTimeout(previewTimer);
   const session = selectedSession();
   if (session !== null) {
-    requests.get(session)?.controller.abort();
-    requests.delete(session);
-    resultsBySession.delete(session);
+    const state = searches.get(session);
+    state?.request?.controller.abort();
+    if (state !== undefined) {
+      delete state.request;
+      delete state.result;
+    }
   }
   clearResults();
   if (query().length === 0) {

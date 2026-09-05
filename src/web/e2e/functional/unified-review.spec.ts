@@ -295,6 +295,52 @@ test.describe("unified review mode — collapsed context", () => {
   });
 });
 
+test.describe("unified review mode — the walk stays on the page", () => {
+  // Changes spread through a long file: enough collapsed hunks that the overview is taller than its viewport,
+  // so a step to the next change has somewhere to scroll to.
+  const spread = Array.from({ length: 600 }, (_, index) => `line ${index}`);
+  const changed = (index: number): boolean => index >= 10 && (index - 10) % 20 === 0;
+
+  test.use({
+    fakeScript: {
+      steps: [
+        { op: "edit", path: "{{WORKSPACE}}/walk.txt", content: `${spread.join("\n")}\n` },
+        ...appliedEdit(
+          "walk.txt",
+          `${spread
+            .map((line, index) => (changed(index) ? `${line} — changed` : line))
+            .join("\n")}\n`,
+        ),
+      ],
+    },
+  });
+
+  test("Next Change walks to the next change in the overview instead of opening the file", async ({
+    page,
+  }) => {
+    await page.locator(".editor-empty-review").click();
+    const overview = page.locator(".unified-review");
+    const section = sectionFor(page, "walk.txt");
+    await expect(section.locator(".weavie-inline-added").first()).toBeVisible({ timeout: 15_000 });
+
+    const scroller = overview.locator(".unified-review-diffs");
+    const offset = (): Promise<number> => scroller.evaluate((element) => element.scrollTop);
+    // The section has to be taller than the viewport, or a step would have nowhere to move.
+    await expect
+      .poll(() => scroller.evaluate((element) => element.scrollHeight - element.clientHeight))
+      .toBeGreaterThan(0);
+    await expect.poll(offset).toBe(0);
+
+    await overview.locator(".unified-review-action", { hasText: "Next" }).click();
+
+    // The walk moved the overview to the next change — it did NOT leave review for the file editor.
+    await expect.poll(offset, { timeout: 15_000 }).toBeGreaterThan(0);
+    await expect(overview).toBeVisible();
+    await expect(page.locator(".editor-tab.active", { hasText: "walk.txt" })).toHaveCount(0);
+    await expect(page.locator(".weavie-inline-toolbar")).toHaveCount(0);
+  });
+});
+
 test("a cold deleted file renders from its review snapshot instead of reading the missing path", async ({
   page,
   weavie,

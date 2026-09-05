@@ -1,12 +1,13 @@
 /* Toasts: top-center transient notification stack (Toasts.tsx). */
 
 /* Toasts: a top-center stack of transient notifications (e.g. a failed autosave or a session delete
-   that couldn't complete), dropping in just below the title bar where the eye naturally lands. Above
+   that couldn't complete), anchored below the pane's tab/header band. Above
    ordinary panels so failures stay visible; an open chooser or exclusive overlay owns interaction above
    them. Error toasts persist until dismissed; warn/info fade on their own. */
 .toasts {
-  position: fixed;
-  top: 48px; /* clear the 38px title bar */
+  --toast-safe-area-top: 0px;
+  position: absolute;
+  top: calc(48px + var(--toast-safe-area-top));
   left: 50%;
   transform: translateX(-50%);
   z-index: 80;

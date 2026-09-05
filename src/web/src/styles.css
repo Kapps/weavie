@@ -61,11 +61,8 @@ body,
   background: var(--bg);
 }
 
-/* Default the chrome UI font on <body> so anything portaled OUTSIDE .app — context menus, modal dialogs,
-   toasts are all mounted on <body> — inherits the chrome typeface instead of falling back to the WebView's
-   default serif. This is the global fix for the "portaled popovers render serif" gotcha; individual portaled
-   components no longer need to re-assert the font. .app re-states it for its own subtree, and code surfaces
-   (Monaco/xterm) set their own monospace, so neither is affected. */
+/* Default the chrome UI font on <body> so anything portaled outside .app — context menus and modal dialogs —
+   inherits it instead of the WebView's serif. .app re-states it; code surfaces set their own monospace. */
 body {
   font: var(--font-chrome-size) / 1.5 var(--font-chrome-family);
 }

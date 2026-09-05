@@ -11,8 +11,20 @@ test("startup shows one timed tip in the top-center toast surface @cross", async
 
   const position = await tip.evaluate((element) => {
     const bounds = element.getBoundingClientRect();
+    const paneChrome = Array.from(document.querySelectorAll(".pane-head, .pane-tabs"))
+      .map((chrome) => chrome.getBoundingClientRect())
+      .filter((chrome) => chrome.width > 0 && chrome.height > 0);
+    if (paneChrome.length === 0) {
+      throw new Error("visible pane chrome not rendered");
+    }
+    const top = Math.min(...paneChrome.map((chrome) => chrome.top));
     return {
       center: bounds.left + bounds.width / 2,
+      paneChromeBottom: Math.max(
+        ...paneChrome
+          .filter((chrome) => Math.abs(chrome.top - top) < 1)
+          .map((chrome) => chrome.bottom),
+      ),
       top: bounds.top,
       viewportCenter: window.innerWidth / 2,
       splashPresent: document.getElementById("splash") !== null,
@@ -20,6 +32,7 @@ test("startup shows one timed tip in the top-center toast surface @cross", async
   });
   expect(position.splashPresent).toBe(false);
   expect(Math.abs(position.center - position.viewportCenter)).toBeLessThan(2);
+  expect(position.top).toBeGreaterThanOrEqual(position.paneChromeBottom);
   expect(position.top).toBeLessThan(100);
 
   await page.mouse.move(0, 0);

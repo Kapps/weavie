@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
-import { openFile, runCommand } from "../harness/actions";
+import { clickIntoEditor, openFile, runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import type { EditorHandle, ModelHandle, WeavieWindow } from "../harness/weavie-window";
 
@@ -187,7 +187,11 @@ test.describe("annotating every run", () => {
 test("the cursor on a blank line is left unannotated", async ({ page }) => {
   await openFile(page, "hello.ts");
   await expect(page.locator(".weavie-blame")).toHaveCount(1);
-
+  // 2026-09-05, CI run 33942334105 (e2e macos shard 4/6): flaked on `getPosition()!.lineNumber` still
+  // reading line 1 after ControlOrMeta+End. openFile never focuses the editor — every sibling test that
+  // sends an editor keybinding right after it calls clickIntoEditor first; this one didn't, so the key
+  // landed nowhere under CI load. Added the same click.
+  await clickIntoEditor(page);
   await page.keyboard.press("ControlOrMeta+End");
   expect(
     await page.evaluate(() => {

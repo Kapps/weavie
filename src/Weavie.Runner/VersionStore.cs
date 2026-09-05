@@ -2,6 +2,7 @@ using System.Formats.Tar;
 using System.IO.Compression;
 using System.Text.Json;
 using Weavie.Core;
+using Weavie.Core.FileSystem;
 
 namespace Weavie.Runner;
 
@@ -242,11 +243,10 @@ public sealed class VersionStore {
 			return;
 		}
 
-		string target = Path.TrimEndingDirectorySeparator(Path.GetFullPath(link, _root));
-		string versions = Path.TrimEndingDirectorySeparator(Path.Combine(_root, "versions"));
+		string target = PathIdentity.Normalize(link, _root);
+		string versions = PathIdentity.Normalize(Path.Combine(_root, "versions"));
 		string buildName = Path.GetFileName(target);
-		var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
-		if (!string.Equals(Path.GetDirectoryName(target), versions, comparison)
+		if (!string.Equals(Path.GetDirectoryName(target), versions, PathIdentity.Comparison)
 			|| !int.TryParse(buildName, out int build)
 			|| !string.Equals(buildName, build.ToString(System.Globalization.CultureInfo.InvariantCulture), StringComparison.Ordinal)) {
 			throw new InvalidDataException($"managed runner selector points outside versions/<build>: {current} -> {link}");

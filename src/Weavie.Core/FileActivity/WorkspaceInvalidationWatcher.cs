@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Threading.Channels;
+using Weavie.Core.FileSystem;
 using Weavie.Core.Workspaces;
 
 namespace Weavie.Core.FileActivity;
@@ -10,14 +11,12 @@ namespace Weavie.Core.FileActivity;
 /// only inventoried paths; filtering for domain-specific consumers belongs in their projections.
 /// </summary>
 public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
-	private static readonly StringComparer PathComparer =
-		OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
 	private readonly WorkspaceInventory _inventory;
 	private readonly Action<IReadOnlyList<FileInvalidation>> _onChanges;
 	private readonly Action<string> _log;
 	private readonly Func<TimeSpan, CancellationToken, Task> _delay;
 	private readonly TimeSpan _debounce;
-	private readonly ConcurrentDictionary<string, FileInvalidationKind> _pending = new(PathComparer);
+	private readonly ConcurrentDictionary<string, FileInvalidationKind> _pending = new(PathIdentity.Comparer);
 	private readonly IWorkspaceDirectoryWatchSet _directoryWatchers;
 	private readonly Channel<bool> _refreshSignals = Channel.CreateBounded<bool>(new BoundedChannelOptions(1) {
 		FullMode = BoundedChannelFullMode.DropWrite,
@@ -110,7 +109,7 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 				OnDeleted,
 				OnRenamed,
 				OnError);
-		_files = new HashSet<string>(PathComparer);
+		_files = new HashSet<string>(PathIdentity.Comparer);
 	}
 
 	/// <summary>Completes when the initial inventory is loaded and platform watches are installed.</summary>
@@ -208,13 +207,13 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 	private async Task RefreshAsync(bool initial, CancellationToken ct) {
 		var snapshot = await _inventory.RefreshAsync(ct).ConfigureAwait(false);
 		Volatile.Write(ref _isRepository, snapshot.IsRepository);
-		var nextFiles = snapshot.Files.ToHashSet(PathComparer);
+		var nextFiles = snapshot.Files.ToHashSet(PathIdentity.Comparer);
 		if (!initial) {
-			foreach (string path in nextFiles.Except(_files, PathComparer)) {
+			foreach (string path in nextFiles.Except(_files, PathIdentity.Comparer)) {
 				Record(path, FileInvalidationKind.Created);
 			}
 
-			foreach (string path in _files.Except(nextFiles, PathComparer)) {
+			foreach (string path in _files.Except(nextFiles, PathIdentity.Comparer)) {
 				Record(path, FileInvalidationKind.Deleted);
 			}
 		}

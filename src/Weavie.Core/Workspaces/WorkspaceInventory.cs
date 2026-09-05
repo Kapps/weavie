@@ -1,3 +1,4 @@
+using Weavie.Core.FileSystem;
 using Weavie.Core.Git;
 
 namespace Weavie.Core.Workspaces;
@@ -18,15 +19,11 @@ internal readonly record struct WorkspaceFileMove(string OldPath, string NewPath
 /// walking the workspace. Refreshes are serialized so every consumer sees a complete snapshot.
 /// </summary>
 public sealed partial class WorkspaceInventory {
-	private static readonly StringComparer PathComparer =
-		OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
-	private static readonly StringComparison PathComparison =
-		OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
 	private readonly Func<CancellationToken, Task<IReadOnlyList<string>?>> _load;
 	private readonly SemaphoreSlim _refreshGate = new(1, 1);
 	private readonly Lock _knownFilesLock = new();
-	private readonly HashSet<string> _knownNonRepositoryFiles = new(PathComparer);
-	private readonly HashSet<string> _knownNonRepositoryDirectories = new(PathComparer);
+	private readonly HashSet<string> _knownNonRepositoryFiles = new(PathIdentity.Comparer);
+	private readonly HashSet<string> _knownNonRepositoryDirectories = new(PathIdentity.Comparer);
 	private bool? _isRepository;
 
 	/// <summary>Creates a Git-backed inventory rooted at <paramref name="root"/>.</summary>
@@ -78,17 +75,15 @@ public sealed partial class WorkspaceInventory {
 		bool isRepository,
 		IReadOnlyList<string> relativeFiles,
 		IReadOnlyList<string> relativeDirectories) {
-		var comparer = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
-		var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
-		var files = new HashSet<string>(comparer);
-		var directories = new HashSet<string>(comparer) { Root };
+		var files = new HashSet<string>(PathIdentity.Comparer);
+		var directories = new HashSet<string>(PathIdentity.Comparer) { Root };
 		string rootPrefix = Root.EndsWith(Path.DirectorySeparatorChar)
 			? Root
 			: Root + Path.DirectorySeparatorChar;
 
 		foreach (string relative in relativeFiles) {
 			string fullPath = WorkspacePaths.CanonicalFsPath(Path.GetFullPath(Path.Combine(Root, relative)));
-			if (!fullPath.StartsWith(rootPrefix, comparison)) {
+			if (!fullPath.StartsWith(rootPrefix, PathIdentity.Comparison)) {
 				throw new GitException($"Git returned a path outside the workspace: {relative}");
 			}
 
@@ -97,7 +92,7 @@ public sealed partial class WorkspaceInventory {
 				directory is not null;
 				directory = Path.GetDirectoryName(directory)) {
 				directory = WorkspacePaths.CanonicalFsPath(directory);
-				if (!directories.Add(directory) || comparer.Equals(directory, Root)) {
+				if (!directories.Add(directory) || PathIdentity.Comparer.Equals(directory, Root)) {
 					break;
 				}
 			}
@@ -105,7 +100,7 @@ public sealed partial class WorkspaceInventory {
 
 		foreach (string relative in relativeDirectories) {
 			string fullPath = WorkspacePaths.CanonicalFsPath(Path.GetFullPath(Path.Combine(Root, relative)));
-			if (!comparer.Equals(fullPath, Root) && !fullPath.StartsWith(rootPrefix, comparison)) {
+			if (!PathIdentity.Comparer.Equals(fullPath, Root) && !fullPath.StartsWith(rootPrefix, PathIdentity.Comparison)) {
 				throw new GitException($"Workspace inventory returned a path outside the workspace: {relative}");
 			}
 
@@ -113,9 +108,9 @@ public sealed partial class WorkspaceInventory {
 		}
 
 		var sortedFiles = files.ToList();
-		sortedFiles.Sort(comparer);
+		sortedFiles.Sort(PathIdentity.Comparer);
 		var sortedDirectories = directories.ToList();
-		sortedDirectories.Sort(comparer);
+		sortedDirectories.Sort(PathIdentity.Comparer);
 		return new WorkspaceInventorySnapshot(isRepository, sortedFiles, sortedDirectories);
 	}
 

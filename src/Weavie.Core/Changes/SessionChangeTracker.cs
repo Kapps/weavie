@@ -14,35 +14,33 @@ namespace Weavie.Core.Changes;
 /// </para>
 /// </summary>
 public sealed partial class SessionChangeTracker {
-	private static readonly StringComparer PathComparer =
-		OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
 	private readonly IFileSystem _fileSystem;
 	private readonly IFileActivitySink _fileActivity;
 	private readonly string _workspaceRoot;
 	private readonly Func<string, bool> _isInScope;
 	private readonly object _gate = new();
 	// Rendered turn summaries, memoized on the texts they were diffed from and rebuilt from the live set.
-	private Dictionary<string, TurnChangeSummary> _summaries = new(PathComparer);
-	private readonly Dictionary<string, string> _baseline = new(PathComparer);
-	private readonly HashSet<string> _missingBaseline = new(PathComparer);
-	private readonly Dictionary<string, string> _current = new(PathComparer);
+	private Dictionary<string, TurnChangeSummary> _summaries = new(PathIdentity.Comparer);
+	private readonly Dictionary<string, string> _baseline = new(PathIdentity.Comparer);
+	private readonly HashSet<string> _missingBaseline = new(PathIdentity.Comparer);
+	private readonly Dictionary<string, string> _current = new(PathIdentity.Comparer);
 	// Ref/PR reviews retain a deleted current-side path so its baseline can still be reviewed and restored. Live
 	// tool deletions are forgotten instead; only SeedRefBaseline adds entries here.
-	private readonly HashSet<string> _missingCurrent = new(PathComparer);
+	private readonly HashSet<string> _missingCurrent = new(PathIdentity.Comparer);
 	// Each file's last-reviewed content; advanced only on keep-all (AcceptTurn) or a per-hunk revert, not on a
 	// turn boundary, so the review set accumulates everything unacknowledged across turns (docs/specs/turn-review.md).
-	private readonly Dictionary<string, string> _reviewBaseline = new(PathComparer);
-	private readonly HashSet<string> _missingReviewBaseline = new(PathComparer);
+	private readonly Dictionary<string, string> _reviewBaseline = new(PathIdentity.Comparer);
+	private readonly HashSet<string> _missingReviewBaseline = new(PathIdentity.Comparer);
 	// Each file's content at the last commit point — keep-all (AcceptTurn) or a turn boundary (CommitAccepted).
 	// The faded "accepted" band is acceptedAnchor→reviewBaseline (kept-but-uncommitted): a kept hunk stays
 	// visible-but-faded with an inline undo until a commit clears it. See docs/specs/turn-review.md (Phase 2).
-	private readonly Dictionary<string, string> _acceptedAnchor = new(PathComparer);
-	private readonly HashSet<string> _missingAcceptedAnchor = new(PathComparer);
+	private readonly Dictionary<string, string> _acceptedAnchor = new(PathIdentity.Comparer);
+	private readonly HashSet<string> _missingAcceptedAnchor = new(PathIdentity.Comparer);
 	// Each file's content at the most recent edit's PreToolUse; diffed against post-edit in EditLocationFor.
-	private readonly Dictionary<string, string> _preEdit = new(PathComparer);
+	private readonly Dictionary<string, string> _preEdit = new(PathIdentity.Comparer);
 	// Non-text files never enter the diff dictionaries; their stat is enough to refresh an open media/editor
 	// surface when a workspace-wide tool changes them without serializing their contents.
-	private readonly Dictionary<string, FileStat> _nonText = new(PathComparer);
+	private readonly Dictionary<string, FileStat> _nonText = new(PathIdentity.Comparer);
 	/// <summary>Creates a tracker that reads files and reports their completed activity.</summary>
 	/// <param name="fileSystem">The session filesystem the tracker reads changed-file content through.</param>
 	/// <param name="fileActivity">The owning session's ordered file-activity sink.</param>
@@ -722,7 +720,7 @@ public sealed partial class SessionChangeTracker {
 	/// </summary>
 	public IReadOnlyList<TurnChangeSummary> TurnChangeSummaries() {
 		lock (_gate) {
-			var live = new Dictionary<string, TurnChangeSummary>(PathComparer);
+			var live = new Dictionary<string, TurnChangeSummary>(PathIdentity.Comparer);
 			var summaries = new List<TurnChangeSummary>();
 			foreach (var change in TurnChangesLocked()) {
 				if (!_summaries.TryGetValue(change.Path, out var summary) || !summary.Describes(change)) {

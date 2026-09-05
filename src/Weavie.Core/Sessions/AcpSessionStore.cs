@@ -40,7 +40,7 @@ public sealed class AcpSessionStore : JsonDocumentStore {
 		ArgumentException.ThrowIfNullOrEmpty(workingDirectory);
 		ArgumentException.ThrowIfNullOrEmpty(sessionId);
 		ArgumentOutOfRangeException.ThrowIfNegative(turnNumber);
-		string cwd = Normalize(workingDirectory);
+		string cwd = PathIdentity.Normalize(workingDirectory);
 		lock (Gate) {
 			EnsureAvailable();
 			var next = CloneItems();
@@ -67,7 +67,7 @@ public sealed class AcpSessionStore : JsonDocumentStore {
 	public void Clear(string providerId, string workingDirectory) {
 		ArgumentException.ThrowIfNullOrEmpty(providerId);
 		ArgumentException.ThrowIfNullOrEmpty(workingDirectory);
-		string cwd = Normalize(workingDirectory);
+		string cwd = PathIdentity.Normalize(workingDirectory);
 		lock (Gate) {
 			EnsureAvailable();
 			var next = CloneItems();
@@ -108,7 +108,7 @@ public sealed class AcpSessionStore : JsonDocumentStore {
 			}
 			string cwd;
 			try {
-				cwd = Normalize(item.Cwd);
+				cwd = PathIdentity.Normalize(item.Cwd);
 			} catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException) {
 				throw new JsonException("An ACP session cwd is invalid.", ex);
 			}
@@ -170,7 +170,7 @@ public sealed class AcpSessionStore : JsonDocumentStore {
 	private Entry? Find(string providerId, string workingDirectory) {
 		ArgumentException.ThrowIfNullOrEmpty(providerId);
 		ArgumentException.ThrowIfNullOrEmpty(workingDirectory);
-		string cwd = Normalize(workingDirectory);
+		string cwd = PathIdentity.Normalize(workingDirectory);
 		lock (Gate) {
 			EnsureAvailable();
 			return _items.FirstOrDefault(item => Matches(item, providerId, cwd));
@@ -189,13 +189,9 @@ public sealed class AcpSessionStore : JsonDocumentStore {
 	})];
 
 	private static bool Matches(Entry item, string providerId, string cwd) =>
-		string.Equals(item.ProviderId, providerId, StringComparison.Ordinal) && PathEquals(item.Cwd, cwd);
+		string.Equals(item.ProviderId, providerId, StringComparison.Ordinal) && PathIdentity.Equals(item.Cwd, cwd);
 
-	private static string Normalize(string path) =>
-		Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
 
-	private static bool PathEquals(string left, string right) =>
-		string.Equals(left, right, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
 
 	private sealed class Entry {
 		public required string ProviderId { get; init; }

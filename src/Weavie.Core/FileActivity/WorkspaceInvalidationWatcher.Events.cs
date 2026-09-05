@@ -1,3 +1,4 @@
+using Weavie.Core.FileSystem;
 using Weavie.Core.Workspaces;
 
 namespace Weavie.Core.FileActivity;
@@ -137,8 +138,7 @@ public sealed partial class WorkspaceInvalidationWatcher {
 		string prefix = canonical.EndsWith(Path.DirectorySeparatorChar)
 			? canonical
 			: canonical + Path.DirectorySeparatorChar;
-		var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
-		return [.. Volatile.Read(ref _files).Where(file => file.StartsWith(prefix, comparison))];
+		return [.. Volatile.Read(ref _files).Where(file => file.StartsWith(prefix, PathIdentity.Comparison))];
 	}
 
 	internal void Record(string fullPath, FileInvalidationKind kind) {

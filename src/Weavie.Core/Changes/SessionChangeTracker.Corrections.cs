@@ -1,3 +1,5 @@
+using Weavie.Core.FileSystem;
+
 namespace Weavie.Core.Changes;
 
 /// <summary>A correction captured at the user's action and attributed to the producing prompt.</summary>
@@ -12,7 +14,7 @@ public sealed record CorrectionEdit(string RelativePath, string Before, string A
 public sealed partial class SessionChangeTracker {
 	private string? _currentPrompt;
 	private long _nextOriginId;
-	private readonly Dictionary<string, ProvenanceFile> _provenance = new(PathComparer);
+	private readonly Dictionary<string, ProvenanceFile> _provenance = new(PathIdentity.Comparer);
 
 	/// <summary>Raised outside the tracker lock with one user's action-time corrections.</summary>
 	public event Action<IReadOnlyList<CorrectionEdit>>? Corrected;

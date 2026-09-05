@@ -138,7 +138,7 @@ public sealed partial class HostCore {
 	/// <summary>The workspace's own checkout, the one checkout a delete keeps: it is re-created, never rediscovered.</summary>
 	private bool IsWorkspaceCheckout(SessionSlot slot) => IsWorkspaceCheckout(slot.WorktreePath);
 
-	private bool IsWorkspaceCheckout(string worktreePath) => PathsEqual(worktreePath, WorkspaceRoot);
+	private bool IsWorkspaceCheckout(string worktreePath) => PathIdentity.Equals(worktreePath, WorkspaceRoot);
 
 	/// <summary>Every loaded session's live backend, in catalog order.</summary>
 	private List<HostSession> LoadedSessions() {
@@ -322,18 +322,12 @@ public sealed partial class HostCore {
 	private string? PersistedProviderFor(string slotId, string worktreePath) {
 		string? provider = _sessionStore.Items.FirstOrDefault(item =>
 			string.Equals(item.Id.Value, slotId, StringComparison.Ordinal)
-			|| PathsEqual(item.WorktreePath, worktreePath))?.AgentProviderId;
+			|| PathIdentity.Equals(item.WorktreePath, worktreePath))?.AgentProviderId;
 		return ProviderOrNull(provider);
 	}
 
 	private static string? ProviderOrNull(string? provider) =>
 		string.IsNullOrWhiteSpace(provider) ? null : provider.Trim();
-
-	private static bool PathsEqual(string a, string b) =>
-		string.Equals(
-			Path.GetFullPath(a).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
-			Path.GetFullPath(b).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
-			OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
 
 	/// <summary>
 	/// The provider for the workspace's own session, which Weavie opens on the user's behalf. The standing

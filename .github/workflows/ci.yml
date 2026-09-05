@@ -142,8 +142,9 @@ jobs:
         if: matrix.name == 'macos'
         run: |
           mkdir -p temp/macos-pty
-          clang -Wall -Wextra -Werror -O2 src/Weavie.Mac/native/weavie_pty_launcher.c -o temp/macos-pty/weavie-pty-launcher
-          clang -Wall -Wextra -Werror -O2 tests/native/macos-pty.c src/Weavie.Mac/native/weavie_pty.c -o temp/macos-pty/tests
+          mac_min=$(dotnet msbuild src/Weavie.Mac/Weavie.Mac.csproj -getProperty:WeavieMacOSMinimumVersion)
+          clang -Wall -Wextra -Werror -mmacosx-version-min="$mac_min" -O2 src/Weavie.Mac/native/weavie_pty_launcher.c -o temp/macos-pty/weavie-pty-launcher
+          clang -Wall -Wextra -Werror -mmacosx-version-min="$mac_min" -O2 tests/native/macos-pty.c src/Weavie.Mac/native/weavie_pty.c -o temp/macos-pty/tests
           "$PWD/temp/macos-pty/tests" "$PWD/temp/macos-pty/weavie-pty-launcher"
 
       - name: Test native macOS PTY lifecycle

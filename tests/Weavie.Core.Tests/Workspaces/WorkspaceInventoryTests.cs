@@ -24,10 +24,12 @@ public sealed class WorkspaceInventoryTests : IDisposable {
 		Assert.Equal(1, reported);
 	}
 
-	[Fact]
-	public async Task Refresh_DerivesOnlyParentsOfGitFiles() {
+	[Theory]
+	[InlineData(false)]
+	[InlineData(true)]
+	public async Task Refresh_DerivesOnlyParentsOfGitFiles(bool trailingSeparator) {
 		var inventory = new WorkspaceInventory(
-			_root.Path,
+			trailingSeparator ? _root.Path + Path.DirectorySeparatorChar : _root.Path,
 			_ => Task.FromResult<IReadOnlyList<string>?>([
 				Path.Combine("src", "feature", "file.ts"),
 				"README.md",
@@ -44,6 +46,13 @@ public sealed class WorkspaceInventoryTests : IDisposable {
 			}.Order(),
 			snapshot.Directories.Order());
 		Assert.Equal(2, snapshot.Files.Count);
+	}
+
+	[Fact]
+	public void BuildSnapshot_DeduplicatesDirectorySpellings() {
+		var inventory = new WorkspaceInventory(_root.Path);
+		var snapshot = inventory.BuildSnapshot(false, [], ["src", "src/", "src/.", "./"]);
+		Assert.Equal(new[] { _root.Path, _root.Combine("src") }.Order(), snapshot.Directories.Order());
 	}
 
 	[Fact]

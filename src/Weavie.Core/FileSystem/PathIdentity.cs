@@ -20,15 +20,8 @@ public static class PathIdentity {
 	/// <summary>Comparer for any dictionary or set keyed by a filesystem path.</summary>
 	public static StringComparer Comparer { get; } = new NormalizingPathComparer();
 
-	/// <summary>
-	/// Comparer for a hot path whose every value is already known canonical — produced by
-	/// <see cref="Normalize(string)"/> or an equivalent producer such as <c>WorkspacePaths.CanonicalFsPath</c>. Applies
-	/// only the platform case rule, skipping the renormalization <see cref="Comparer"/> repeats on every
-	/// comparison. Using this on a path that may not already be canonical reintroduces the case-rule bugs
-	/// <see cref="Comparer"/> exists to prevent — reach for <see cref="Comparer"/> unless the values are
-	/// provably canonical already.
-	/// </summary>
-	public static StringComparer CanonicalComparer { get; } = StringComparer.FromComparison(Comparison);
+	// Only for keys normalized before entering their collection.
+	internal static StringComparer CanonicalComparer { get; } = StringComparer.FromComparison(Comparison);
 
 	/// <summary>The canonical absolute form of <paramref name="path"/>, without a trailing separator.</summary>
 	public static string Normalize(string path) => Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));

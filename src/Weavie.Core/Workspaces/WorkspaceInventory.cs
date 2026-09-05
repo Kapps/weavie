@@ -34,7 +34,7 @@ public sealed partial class WorkspaceInventory {
 		Func<CancellationToken, Task<IReadOnlyList<string>?>> load) {
 		ArgumentException.ThrowIfNullOrEmpty(root);
 		ArgumentNullException.ThrowIfNull(load);
-		Root = WorkspacePaths.CanonicalFsPath(Path.GetFullPath(root));
+		Root = WorkspacePaths.CanonicalFsPath(PathIdentity.Normalize(root));
 		_load = load;
 	}
 
@@ -75,8 +75,6 @@ public sealed partial class WorkspaceInventory {
 		bool isRepository,
 		IReadOnlyList<string> relativeFiles,
 		IReadOnlyList<string> relativeDirectories) {
-		// Every path added below is already canonicalized via WorkspacePaths.CanonicalFsPath(Path.GetFullPath(...)),
-		// so the fast CanonicalComparer (no renormalization) is safe here.
 		var files = new HashSet<string>(PathIdentity.CanonicalComparer);
 		var directories = new HashSet<string>(PathIdentity.CanonicalComparer) { Root };
 		string rootPrefix = Root.EndsWith(Path.DirectorySeparatorChar)
@@ -84,7 +82,7 @@ public sealed partial class WorkspaceInventory {
 			: Root + Path.DirectorySeparatorChar;
 
 		foreach (string relative in relativeFiles) {
-			string fullPath = WorkspacePaths.CanonicalFsPath(Path.GetFullPath(Path.Combine(Root, relative)));
+			string fullPath = WorkspacePaths.CanonicalFsPath(PathIdentity.Normalize(relative, Root));
 			if (!fullPath.StartsWith(rootPrefix, PathIdentity.Comparison)) {
 				throw new GitException($"Git returned a path outside the workspace: {relative}");
 			}
@@ -101,7 +99,7 @@ public sealed partial class WorkspaceInventory {
 		}
 
 		foreach (string relative in relativeDirectories) {
-			string fullPath = WorkspacePaths.CanonicalFsPath(Path.GetFullPath(Path.Combine(Root, relative)));
+			string fullPath = WorkspacePaths.CanonicalFsPath(PathIdentity.Normalize(relative, Root));
 			if (!PathIdentity.CanonicalComparer.Equals(fullPath, Root) && !fullPath.StartsWith(rootPrefix, PathIdentity.Comparison)) {
 				throw new GitException($"Workspace inventory returned a path outside the workspace: {relative}");
 			}

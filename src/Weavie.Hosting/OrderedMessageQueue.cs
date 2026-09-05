@@ -2,7 +2,7 @@ using System.Collections.Concurrent;
 
 namespace Weavie.Hosting;
 
-internal sealed class OrderedMessageQueue(Action<Action> schedule, Action<string> send) : IDisposable {
+internal sealed class OrderedMessageQueue(Action<Action> schedule, Action<string> send, Action<Exception> failed) : IDisposable {
 	private readonly ConcurrentQueue<string> _messages = new();
 	private readonly object _lifecycle = new();
 	private int _scheduled;
@@ -27,7 +27,11 @@ internal sealed class OrderedMessageQueue(Action<Action> schedule, Action<string
 				}
 
 				if (Interlocked.CompareExchange(ref _scheduled, 1, 0) == 0) {
-					schedule(Drain);
+					try {
+						schedule(Drain);
+					} catch (Exception failure) when (Volatile.Read(ref _closed) == 0) {
+						Fail(failure);
+					}
 				}
 			}
 		}
@@ -42,7 +46,12 @@ internal sealed class OrderedMessageQueue(Action<Action> schedule, Action<string
 						return;
 					}
 
-					send(message);
+					try {
+						send(message);
+					} catch (Exception failure) {
+						Fail(failure);
+						return;
+					}
 				}
 			}
 
@@ -51,6 +60,14 @@ internal sealed class OrderedMessageQueue(Action<Action> schedule, Action<string
 				return;
 			}
 		}
+	}
+
+	private void Fail(Exception failure) {
+		if (Volatile.Read(ref _closed) != 0) {
+			return;
+		}
+		Dispose();
+		failed(failure);
 	}
 
 	public void Dispose() {

@@ -88,6 +88,35 @@ public sealed class ReviseServiceTests {
 	}
 
 	[Fact]
+	public async Task RunAsync_ConfirmThrows_ReportsFailureWithoutWriting() {
+		var fileSystem = new InMemoryFileSystem();
+		var surface = new FakeSurface { Confirm = () => throw new InvalidOperationException("editor probe failed") };
+		var service = new ReviseService(new FakeInference(() => Reply((1, "// short"))), Staged(fileSystem), surface);
+
+		Assert.Equal(ReviseOutcome.WriteFailed, Assert.Single(await Run(service, Target())).Outcome);
+		Assert.Equal("editor probe failed", Assert.Single(surface.Failures));
+		Assert.Equal(Original + "\ncode\n", fileSystem.ReadAllText("/w/a.cs"));
+		Assert.Empty(service.InFlight);
+		Assert.Empty(surface.Published[^1]);
+	}
+
+	[Fact]
+	public async Task RunAsync_CancelledDuringConfirmation_RetiresWithoutWritingOrReportingFailure() {
+		using var cancellation = new CancellationTokenSource();
+		var fileSystem = new InMemoryFileSystem();
+		var surface = new FakeSurface { Confirm = cancellation.Cancel };
+		var service = new ReviseService(new FakeInference(() => Reply((1, "// short"))), Staged(fileSystem), surface);
+
+		await Assert.ThrowsAnyAsync<OperationCanceledException>(() => service.RunAsync(
+			Owner, [Target()], "Shorten it.", InferenceInvocationOrigin.UserInitiated, cancellation.Token));
+
+		Assert.Equal(Original + "\ncode\n", fileSystem.ReadAllText("/w/a.cs"));
+		Assert.Empty(surface.Failures);
+		Assert.Empty(service.InFlight);
+		Assert.Empty(surface.Published[^1]);
+	}
+
+	[Fact]
 	public async Task RunAsync_OverlappingTarget_RefusedWithoutQuerying() {
 		var fileSystem = new InMemoryFileSystem();
 		var inference = new FakeInference(() => Reply((1, "// short")));
@@ -232,10 +261,14 @@ public sealed class ReviseServiceTests {
 
 		public string? Refusal { get; init; }
 
+		public Action Confirm { get; init; } = () => { };
+
 		public void Publish(IReadOnlyList<ReviseRegion> inFlight) => Published.Add(inFlight);
 
-		public Task<string?> ConfirmAsync(ReviseRegion region, CancellationToken cancellationToken) =>
-			Task.FromResult(Refusal);
+		public Task<string?> ConfirmAsync(ReviseRegion region, CancellationToken cancellationToken) {
+			Confirm();
+			return Task.FromResult(Refusal);
+		}
 
 		public void Failed(ReviseRegion region, string reason) => Failures.Add(reason);
 	}

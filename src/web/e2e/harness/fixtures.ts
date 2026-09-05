@@ -344,6 +344,13 @@ export const test = base.extend<WeavieOptions & WeavieFixtures>({
       } catch (error) {
         failures.push(error);
       }
+      const uiFailure = host
+        .log()
+        .split("\n")
+        .find((line) => line.includes("[ui] dispatched action failed:"));
+      if (uiFailure !== undefined) {
+        failures.push(new Error(`The host reported a failed UI action: ${uiFailure}`));
+      }
       if (failures.length > 0 || testInfo.status !== testInfo.expectedStatus) {
         await collectFailure(failures, dumpDiagnostics);
       }

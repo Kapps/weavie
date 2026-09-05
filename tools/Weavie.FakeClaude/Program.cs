@@ -16,10 +16,30 @@ if (args.Contains("--print", StringComparer.Ordinal)) {
 	// A "needsDetail" run answers the way the model does for a draft that names no task: vague until the
 	// draft the query carries grows past a handful of words.
 	string? mode = Environment.GetEnvironmentVariable("WEAVIE_FAKE_CLAUDE_INFERENCE");
+	string query = await Console.In.ReadToEndAsync().ConfigureAwait(false);
 	bool vague = mode == "needsDetail"
-		&& Draft(await Console.In.ReadToEndAsync().ConfigureAwait(false))
+		&& Draft(query)
 			.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).Length < 20;
 	if (mode is "success" or "needsDetail") {
+		const string boundary = "Input JSON:\n";
+		int inputStart = query.IndexOf(boundary, StringComparison.Ordinal);
+		if (inputStart >= 0) {
+			using var input = JsonDocument.Parse(query[(inputStart + boundary.Length)..]);
+			if (input.RootElement.TryGetProperty("regions", out var regions)) {
+				Console.Out.WriteLine(JsonSerializer.Serialize(new {
+					is_error = false,
+					session_id = "fake-inference",
+					structured_output = new {
+						regions = regions.EnumerateArray().Select(region => new {
+							id = region.GetProperty("id").GetInt32(),
+							text = "// revised by the fake",
+						}),
+					},
+				}));
+				return 0;
+			}
+		}
+
 		Console.Out.WriteLine("{\"is_error\":false,\"session_id\":\"fake-inference\","
 			+ "\"structured_output\":{\"branch\":" + (vague ? "\"\"" : "\"fix/mobile-branch-inference\"")
 			+ ",\"needsMoreDetail\":" + (vague ? "true" : "false") + "}}");

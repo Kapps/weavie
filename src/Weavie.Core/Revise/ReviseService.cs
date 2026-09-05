@@ -158,16 +158,17 @@ public sealed class ReviseService {
 			return Fail(region, ReviseOutcome.Unchanged, "the model returned it unchanged");
 		}
 
-		if (await _surface.ConfirmAsync(region, cancellationToken) is { } refusal) {
-			return Fail(region, ReviseOutcome.Declined, refusal);
-		}
-
 		try {
+			if (await _surface.ConfirmAsync(region, cancellationToken) is { } refusal) {
+				return Fail(region, ReviseOutcome.Declined, refusal);
+			}
+
+			cancellationToken.ThrowIfCancellationRequested();
 			return _changes.ApplyRevision(region.Path, region.Range, region.OriginalText, replacement) switch {
 				ReviseApplyOutcome.Applied => new ReviseResult(region, ReviseOutcome.Applied, string.Empty),
 				_ => Fail(region, ReviseOutcome.Changed, "the file changed while it was being revised"),
 			};
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+		} catch (Exception ex) when (ex is not OperationCanceledException) {
 			return Fail(region, ReviseOutcome.WriteFailed, ex.Message);
 		}
 	}

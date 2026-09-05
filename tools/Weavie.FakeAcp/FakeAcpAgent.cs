@@ -103,7 +103,7 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 		var response = new JsonObject {
 			["protocolVersion"] = 1,
 			["agentInfo"] = new JsonObject { ["name"] = "weavie-fake-acp", ["version"] = "1" },
-			["authMethods"] = _requiresAuthentication
+			["authMethods"] = _requiresAuthentication || _fakeMode == "held-fork-authentication"
 				? new JsonArray(TerminalAuthentication
 					? new JsonObject {
 						["id"] = "fake-terminal-login",
@@ -282,10 +282,13 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 			StatePath("forks.log"),
 			$"{source}->{sessionId}{Environment.NewLine}");
 		string started = Path.Combine(Environment.CurrentDirectory, "fork-started");
-		if (_fakeMode == "held-fork" && !File.Exists(started)) {
+		if (_fakeMode is "held-fork" or "held-fork-authentication" && !File.Exists(started)) {
 			File.WriteAllText(started, sessionId);
 			while (!File.Exists(Path.Combine(Environment.CurrentDirectory, "release-fork"))) {
 				await Task.Delay(TimeSpan.FromMilliseconds(10), ct).ConfigureAwait(false);
+			}
+			if (_fakeMode == "held-fork-authentication") {
+				throw new AcpAdapterException(-32000, "Sign in to open the fork.", null);
 			}
 			Connection().Notify("session/update", new JsonObject {
 				["sessionId"] = sessionId,

@@ -100,8 +100,8 @@ created it: transferring it to another process can conflict with the provider's 
 Each conversation owns a session endpoint bound to its provider identity and process generation. Endpoints
 address outgoing operations; callers cannot supply a session id. The connection dispatches incoming messages
 to the registered endpoint, including request-scoped elicitation through its originating request owner.
-Opening endpoints retain early messages until their owner attaches. Retired endpoints reject requests and
-discard late updates until their generation ends. Closing a side conversation leaves the connection running;
+The conversation owns its fork from startup, so early messages arrive directly at their owner.
+Retired endpoints reject requests and discard late updates until their generation ends. Closing a side conversation leaves the connection running;
 an unrecoverable runtime failure stops the shared process so failed work cannot continue invisibly.
 Replacing the process terminalizes all its side conversations.
 

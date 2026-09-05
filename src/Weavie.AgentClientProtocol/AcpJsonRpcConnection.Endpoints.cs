@@ -4,90 +4,54 @@ namespace Weavie.AgentClientProtocol;
 
 public sealed partial class AcpJsonRpcConnection {
 	private readonly Lock _endpointGate = new();
-	private readonly SemaphoreSlim _forkGate = new(1, 1);
-	private readonly Dictionary<(long Generation, string Id), AcpSessionEndpoint> _endpoints = [];
+	private readonly List<AcpSessionEndpoint> _endpoints = [];
 	private readonly Dictionary<(long Generation, string Id), AcpSessionEndpoint> _incomingOwners = [];
-	private readonly Dictionary<long, AcpSessionEndpoint> _openingEndpoints = [];
-
-	internal async Task<AcpSessionEndpoint> ForkEndpointAsync(AcpSessionEndpoint parent, object parameters, CancellationToken ct) {
-		await _forkGate.WaitAsync(ct).ConfigureAwait(false);
-		try {
-			parent.EnsureActive();
-			var child = OpenEndpoint(parent.Generation);
-			try {
-				// A sent creation owns its opening slot until the provider returns its identity or fails.
-				await RequestForEndpointAsync("session/fork", parameters, parent, child, CancellationToken.None).ConfigureAwait(false);
-				return child;
-			} catch {
-				child.Retire();
-				throw;
-			}
-		} finally {
-			_forkGate.Release();
-		}
-	}
 
 	private bool HasEndpoints(long generation) {
-		lock (_endpointGate) return _openingEndpoints.ContainsKey(generation)
-			|| _endpoints.Keys.Any(key => key.Generation == generation);
+		lock (_endpointGate) return _endpoints.Any(endpoint => endpoint.Generation == generation);
 	}
 
 	private void RetireEndpoints() {
 		AcpSessionEndpoint[] endpoints;
 		lock (_endpointGate) {
-			endpoints = [.. _endpoints.Values.Concat(_openingEndpoints.Values).Distinct()];
+			endpoints = [.. _endpoints];
 			_endpoints.Clear();
-			_openingEndpoints.Clear();
 			_incomingOwners.Clear();
 		}
 		foreach (var endpoint in endpoints) endpoint.Retire();
 	}
 
-	internal AcpSessionEndpoint OpenEndpoint(long generation) {
-		var endpoint = new AcpSessionEndpoint(this, generation);
+	internal AcpSessionEndpoint OpenEndpoint(long generation, string? sessionId,
+		Action<long, JsonElement> notification, Action<AcpClientRequest> request) {
+		var endpoint = new AcpSessionEndpoint(this, generation, notification, request);
 		lock (_endpointGate) {
-			if (!_openingEndpoints.TryAdd(generation, endpoint)) {
+			if (sessionId is null && _endpoints.Any(value => value.Generation == generation && value.SessionId is null && !value.Retired)) {
 				throw new InvalidOperationException("An ACP conversation is already opening.");
 			}
+			if (sessionId is not null) BindEndpoint(endpoint, sessionId);
+			_endpoints.Add(endpoint);
 		}
-		return endpoint;
-	}
-
-	internal AcpSessionEndpoint OpenEndpoint(long generation, string sessionId) {
-		var endpoint = new AcpSessionEndpoint(this, generation);
-		endpoint.Bind(sessionId);
 		return endpoint;
 	}
 
 	internal void BindEndpoint(AcpSessionEndpoint endpoint, string sessionId) {
 		lock (_endpointGate) {
-			var key = (endpoint.Generation, sessionId);
-			if (_endpoints.TryGetValue(key, out var owner) && !ReferenceEquals(owner, endpoint)) {
+			if (_endpoints.Any(owner => owner != endpoint && owner.Generation == endpoint.Generation && owner.SessionId == sessionId)) {
 				throw new AcpProtocolException($"ACP conversation '{sessionId}' already has an owner.");
 			}
-			_endpoints[key] = endpoint;
-			CancelOpeningEndpoint(endpoint);
-		}
-	}
-
-	internal void CancelOpeningEndpoint(AcpSessionEndpoint endpoint) {
-		lock (_endpointGate) {
-			if (_openingEndpoints.GetValueOrDefault(endpoint.Generation) == endpoint) {
-				_openingEndpoints.Remove(endpoint.Generation);
-			}
+			endpoint.SetIdentity(sessionId);
 		}
 	}
 
 	private AcpSessionEndpoint Endpoint(long generation, string sessionId) {
-		AcpSessionEndpoint opening;
 		lock (_endpointGate) {
-			if (_endpoints.TryGetValue((generation, sessionId), out var endpoint)) return endpoint;
-			if (!_openingEndpoints.TryGetValue(generation, out opening!)) {
-				throw new AcpProtocolException($"ACP addressed an unknown conversation '{sessionId}'.");
-			}
+			var endpoint = _endpoints.Find(value => value.Generation == generation && value.SessionId == sessionId);
+			if (endpoint is not null) return endpoint;
+			var opening = _endpoints.SingleOrDefault(value => value.Generation == generation && value.SessionId is null && !value.Retired)
+				?? throw new AcpProtocolException($"ACP addressed an unknown conversation '{sessionId}'.");
+			opening.Bind(sessionId);
+			return opening;
 		}
-		opening.Bind(sessionId);
-		return opening;
 	}
 
 	private void DispatchNotification(long generation, JsonElement notification) {

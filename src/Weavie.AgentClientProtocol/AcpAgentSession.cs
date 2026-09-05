@@ -21,7 +21,6 @@ public sealed partial class AcpAgentSession :
 	private readonly AcpSessionRole _role;
 	private readonly AcpJsonRpcConnection _connection;
 	private AcpSessionEndpoint? _endpoint;
-	private bool _endpointAttached;
 	private readonly AcpTerminalManager _terminals;
 	private readonly Lock _gate = new();
 	private readonly Lock _turnTransitionGate;
@@ -44,7 +43,6 @@ public sealed partial class AcpAgentSession :
 	private IReadOnlyList<AcpAuthMethod> _authMethods = [];
 	private string? _sessionId;
 	private System.Text.Json.JsonElement _initialization;
-	private string? _openingSessionId;
 	private long _turnNumber;
 	private long _sideProviderTurnOffset;
 	private long _activeGeneration;
@@ -255,7 +253,7 @@ public sealed partial class AcpAgentSession :
 
 	private string? SessionId() {
 		lock (_gate) {
-			return _sessionId ?? _openingSessionId;
+			return _sessionId ?? (_endpoint?.Generation == _activeGeneration ? _endpoint.SessionId : null);
 		}
 	}
 

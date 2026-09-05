@@ -454,21 +454,12 @@ public sealed partial class AcpAgentSession {
 	/// <inheritdoc/>
 	public void Interrupt() {
 		SideRuntime? activeSide = null;
-		string? interruptedFork = null;
 		lock (_turnTransitionGate) {
 			lock (_gate) {
 				if (_activeSideConversationId is { } sideId) {
-					if (!_sideRuntimes.TryGetValue(sideId, out activeSide)) {
-						interruptedFork = sideId;
-						_activeSideConversationId = null;
-					} else activeSide.Interrupting = true;
+					activeSide = _sideRuntimes[sideId];
+					activeSide.Interrupting = true;
 				}
-			}
-			if (interruptedFork is not null) {
-				EmitSideFailure(
-					interruptedFork,
-					null,
-					new InvalidOperationException("Side conversation interrupted."));
 			}
 		}
 		if (activeSide is not null) {
@@ -479,17 +470,13 @@ public sealed partial class AcpAgentSession {
 			}
 			return;
 		}
-		if (interruptedFork is not null) {
-			DispatchPendingWork();
-			return;
-		}
 		string? sessionId;
 		lock (_turnTransitionGate) {
 			lock (_gate) {
 				_pendingSubmissions.Clear();
 				_submissionEpoch++;
 				_cancelRequested = _promptActive || HasBackgroundWorkLocked();
-				sessionId = _sessionId ?? _openingSessionId;
+				sessionId = _ready ? SessionId() : null;
 			}
 			if (sessionId is not null) {
 				long generation;
@@ -503,6 +490,7 @@ public sealed partial class AcpAgentSession {
 		bool interactionCancelled = CancelPendingInteractions();
 		if (interactionCancelled && sessionId is null && _role is SideRole) {
 			lock (_turnTransitionGate) {
+				lock (_gate) if (_sessionOpening) return;
 				FailConversationSerialized(new InvalidOperationException("Side conversation interrupted."));
 			}
 			return;
@@ -550,7 +538,6 @@ public sealed partial class AcpAgentSession {
 			TerminalizeForRestart(clearSubmissions: true, "Started a fresh conversation.");
 			lock (_gate) {
 				_sessionId = null;
-				_openingSessionId = null;
 				_turnNumber = 0;
 				_guidanceSent = false;
 				_planTurns.Clear();

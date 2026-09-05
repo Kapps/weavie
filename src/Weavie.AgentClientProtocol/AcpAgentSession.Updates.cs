@@ -35,17 +35,7 @@ public sealed partial class AcpAgentSession {
 		}
 		string sessionId = OptionalString(parameters, "sessionId")
 			?? throw new AcpProtocolException("An ACP session/update notification is missing sessionId.");
-		lock (_gate) {
-			string? current = _sessionId ?? _openingSessionId;
-			if (current is null && _sessionOpening) {
-				_openingSessionId = sessionId;
-			} else if (current is null) {
-				throw new AcpProtocolException("ACP sent a session/update without an active session.");
-			} else if (!string.Equals(current, sessionId, StringComparison.Ordinal)) {
-				throw new AcpProtocolException(
-					$"ACP sent a session/update for '{sessionId}' while '{current}' is active.");
-			}
-		}
+		if (sessionId != Endpoint(_activeGeneration).SessionId) throw new AcpProtocolException("ACP update targets another conversation.");
 		string kind = RequiredString(update, "sessionUpdate", "session/update notification");
 		if (kind != "user_message_chunk") CloseReplayedUserMessage(null);
 		switch (kind) {

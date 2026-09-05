@@ -11,7 +11,10 @@ public sealed partial class AcpAgentSession {
 	private void RegisterClientRequest(AcpClientRequest request) {
 		AcpClientRequestState state;
 		lock (_turnTransitionGate) {
-			if (!OwnsGeneration(request.Generation)) return;
+			if (!OwnsGeneration(request.Generation)) {
+				_connection.RejectClosedRequest(request);
+				return;
+			}
 			state = new AcpClientRequestState(request);
 			if (!_clientRequests.TryAdd(request.Id, state)) {
 				state.Dispose();

@@ -134,6 +134,11 @@ test.describe("editing", () => {
     await expect(source.locator(".wv-block-editor")).toHaveValue("Intro paragraph.");
   });
 
+  // Flaked on macOS CI 2026-09-05 04:41 UTC (Enter never reached commit — the just-restored editor lost focus
+  // to preserveEditorFocusOnMount's host.focus() before the press landed):
+  // https://github.com/Kapps/weavie/actions/runs/33944125668/job/101248419807
+  // Fixed at the source in src/web/src/editor/focus-on-mount.ts (skip the steal when the shadow tree already
+  // owns focus) rather than here.
   test("an unsaved block draft survives a session switch and clears after save", async ({
     page,
   }) => {

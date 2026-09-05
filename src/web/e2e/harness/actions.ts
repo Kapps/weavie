@@ -1,4 +1,4 @@
-import { expect, type Locator, type Page } from "@playwright/test";
+import { type ElementHandle, expect, type Locator, type Page } from "@playwright/test";
 import { mediaTypeOf } from "../../src/editor/media/media-types";
 import type { WeavieWindow } from "./weavie-window";
 
@@ -64,12 +64,10 @@ export async function openFile(page: Page, name: string): Promise<void> {
   }
 }
 
-export async function clickOmnibarRowThroughToast(rows: Locator, toast: Locator): Promise<void> {
-  const toastElement = await toast.elementHandle();
-  if (toastElement === null) {
-    throw new Error("The toast must be attached.");
-  }
-  const covered = await rows.evaluateAll((elements, notification) => {
+type CoveredRow = { index: number; position: { x: number; y: number }; ownsHit: boolean };
+
+async function coveredRow(rows: Locator, toastElement: ElementHandle): Promise<CoveredRow | null> {
+  return rows.evaluateAll((elements, notification) => {
     const toastBounds = notification.getBoundingClientRect();
     for (const [index, element] of elements.entries()) {
       const rowBounds = element.getBoundingClientRect();
@@ -89,6 +87,23 @@ export async function clickOmnibarRowThroughToast(rows: Locator, toast: Locator)
     }
     return null;
   }, toastElement);
+}
+
+// 2026-09-05 06:31 UTC, run 33949509596 (macOS shard 1/3, https://github.com/Kapps/weavie/actions/runs/33949509596/job/101262845082):
+// "No omnibar result is covered by the toast." A single geometry read right as the first row becomes visible
+// can land mid a transient layout state (the toast animating in, a webfont swap reflowing row heights, the
+// result list still growing) where no row happens to overlap yet, even though the settled layout always has
+// one. Poll for a stable reading instead of trusting the first snapshot.
+export async function clickOmnibarRowThroughToast(rows: Locator, toast: Locator): Promise<void> {
+  const toastElement = await toast.elementHandle();
+  if (toastElement === null) {
+    throw new Error("The toast must be attached.");
+  }
+  let covered: CoveredRow | null = null;
+  await expect(async () => {
+    covered = await coveredRow(rows, toastElement);
+    expect(covered).not.toBeNull();
+  }).toPass({ timeout: 10_000 });
   await toastElement.dispose();
   if (covered === null) {
     throw new Error("No omnibar result is covered by the toast.");

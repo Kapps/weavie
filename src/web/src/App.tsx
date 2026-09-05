@@ -663,7 +663,7 @@ export default function App(): JSX.Element {
       const overlay = editorContainer?.parentElement?.querySelector<HTMLElement>(
         ":scope > [data-kind='editor'][tabindex]:not([hidden])",
       );
-      overlay?.focus();
+      if (document.activeElement !== overlay) overlay?.focus();
       return document.activeElement === overlay;
     },
     confirmDiscard,

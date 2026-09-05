@@ -181,10 +181,16 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 		return fixture;
 	}
 
-	public static AcpAgentSessionFixture CreateTerminalAuthenticationAdapter() {
+	public static AcpAgentSessionFixture CreateTerminalAuthenticationAdapter() =>
+		CreateTerminalAuthenticationAdapter("terminal-authentication");
+
+	public static AcpAgentSessionFixture CreateSideTerminalAuthenticationAdapter() =>
+		CreateTerminalAuthenticationAdapter("side-terminal-authentication");
+
+	private static AcpAgentSessionFixture CreateTerminalAuthenticationAdapter(string mode) {
 		string executable = ExecutablePath("tools", "Weavie.FakeAcp", "weavie-fake-acp");
 		var environment = new Dictionary<string, string>(StringComparer.Ordinal) {
-			["WEAVIE_FAKE_ACP_MODE"] = "terminal-authentication",
+			["WEAVIE_FAKE_ACP_MODE"] = mode,
 		};
 		return Create(
 			"fake",
@@ -207,6 +213,14 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 		allowAllPermissions: true,
 		persistedSessionId: null,
 		failSessionPersistence: false);
+
+	public static AcpAgentSessionFixture CreateHeldForkAdapter(bool authenticationRequired) => Create(
+		"fake", "Held fork ACP",
+		ExecutablePath("tools", "Weavie.FakeAcp", "weavie-fake-acp"),
+		new Dictionary<string, string>(StringComparer.Ordinal) {
+			["WEAVIE_FAKE_ACP_MODE"] = authenticationRequired ? "held-fork-authentication" : "held-fork",
+		},
+		allowAllPermissions: true, persistedSessionId: null, failSessionPersistence: false);
 
 	public static AcpAgentSessionFixture CreateNonLaunchingAdapter(out string executable) {
 		executable = Path.Combine(

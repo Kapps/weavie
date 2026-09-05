@@ -251,7 +251,7 @@ public sealed class AcpAgentSessionTests {
 	}
 
 	[Fact]
-	public async Task NativeSession_RoutesSideConversationAuthenticationByRequestIdentity() {
+	public async Task NativeSession_SharesAuthenticatedConnectionWithSideConversation() {
 		await using var fixture = AcpAgentSessionFixture.CreateAgentAuthenticationAdapter();
 		fixture.Session.Start();
 		var primaryAuthentication = await fixture.WaitForMessageAsync(message =>
@@ -263,16 +263,11 @@ public sealed class AcpAgentSessionTests {
 		await fixture.WaitForControlsAsync(state => state.Axes.Count > 0);
 
 		fixture.Session.AskAside("authenticated aside");
-		var sideAuthentication = await fixture.WaitForMessageAsync(message =>
-			message.Type == "authentication-requested" && message.ConversationId is not null);
-		fixture.Session.Authenticate(
-			Assert.IsType<string>(sideAuthentication.RequestId),
-			"fake-login",
-			new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal));
 		var answer = await fixture.WaitForMessageAsync(message =>
 			message.Type == "item-completed" && message.Text == "echo: authenticated aside");
 
-		Assert.Equal(sideAuthentication.ConversationId, answer.ConversationId);
+		Assert.NotNull(answer.ConversationId);
+		Assert.Single(fixture.Messages, message => message.Type == "authentication-requested");
 	}
 
 	[Fact]
@@ -1154,22 +1149,22 @@ public sealed class AcpAgentSessionTests {
 	}
 
 	[Fact]
-	public async Task NativeSession_ResetsAnUnresumableTranscriptBeforeCreatingANewSession() {
+	public async Task NativeSession_PreservesAnUnresumableTranscriptUntilExplicitlyCleared() {
 		await using var fixture = AcpAgentSessionFixture.CreateMinimalCapabilitiesAdapter();
 		fixture.Session.Start();
 		await fixture.Events.WaitForAsync(value => value is AgentSessionStarted);
 		fixture.Submit("hello");
 		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed");
 		Assert.NotNull(fixture.Sessions.Resolve("fake", fixture.Workspace));
-		var oldStarts = fixture.Events.Values
-			.OfType<AgentSessionStarted>()
-			.ToHashSet(ReferenceEqualityComparer.Instance);
-
 		fixture.Session.Restart();
-		await fixture.WaitForMessageAsync(message => message.Type == "transcript-reset");
-		await fixture.Events.WaitForAsync(value => value is AgentSessionStarted started && !oldStarts.Contains(started));
+		await fixture.WaitForMessageAsync(message => message.Type == "error"
+			&& message.Text!.Contains("cannot restore this conversation", StringComparison.Ordinal));
+		Assert.DoesNotContain(fixture.Messages, message => message.Type == "transcript-reset");
+		Assert.NotNull(fixture.Sessions.Resolve("fake", fixture.Workspace));
+		Assert.Throws<InvalidOperationException>(() => fixture.Submit("continue"));
 
-		Assert.Null(fixture.Sessions.Resolve("fake", fixture.Workspace));
+		fixture.Session.StartNewConversation();
+		await fixture.WaitForMessageAsync(message => message.Type == "transcript-reset");
 		fixture.Submit("context");
 		await fixture.WaitForMessageAsync(message => message.Type == "item-completed"
 			&& message.Text == "context:guidance=False;selection=False");

@@ -20,9 +20,10 @@ public sealed partial class AcpAgentSession :
 	private readonly Action<string> _log;
 	private readonly AcpSessionRole _role;
 	private readonly AcpJsonRpcConnection _connection;
+	private AcpSessionEndpoint? _endpoint;
 	private readonly AcpTerminalManager _terminals;
 	private readonly Lock _gate = new();
-	private readonly Lock _turnTransitionGate = new();
+	private readonly Lock _turnTransitionGate;
 	private readonly Lock _queuePublishGate = new();
 	private readonly AcpSubmissionQueue _pendingSubmissions = new();
 	private readonly Queue<AcpControlMutation> _controlMutations = [];
@@ -41,7 +42,7 @@ public sealed partial class AcpAgentSession :
 	private IReadOnlyList<AgentSlashEntry> _commands = [];
 	private IReadOnlyList<AcpAuthMethod> _authMethods = [];
 	private string? _sessionId;
-	private string? _openingSessionId;
+	private System.Text.Json.JsonElement _initialization;
 	private long _turnNumber;
 	private long _sideProviderTurnOffset;
 	private long _activeGeneration;
@@ -111,15 +112,20 @@ public sealed partial class AcpAgentSession :
 		_controlDefaults = controlDefaults;
 		_log = log;
 		_role = role;
+		_turnTransitionGate = role is SideRole owned ? owned.Owner._turnTransitionGate : new Lock();
 		_guidanceSent = role is SideRole sideRole && sideRole.GuidanceInherited;
 		_sideProviderTurnOffset = role is SideRole side ? side.Conversation.AnchorTurnNumber : 0;
 		_terminals = new AcpTerminalManager(context.Workspace, log);
-		_connection = new AcpJsonRpcConnection(ResolveDefinition, context.Workspace, log);
-		_connection.ProcessStarted += OnProcessStarted;
-		_connection.ProcessStateChanged += change => Observe(new AgentProcessChanged(change));
-		_connection.NotificationReceived += HandleNotification;
-		_connection.RequestReceived += RegisterClientRequest;
-		_connection.ProtocolFaulted += FailRuntime;
+		_connection = role is SideRole borrowed
+			? borrowed.Owner._connection
+			: new AcpJsonRpcConnection(ResolveDefinition, context.Workspace, log);
+		if (role is PrimaryRole) {
+			_connection.ProcessStarted += OnProcessStarted;
+			_connection.ProcessStateChanged += change => Observe(new AgentProcessChanged(change));
+			_connection.NotificationReceived += HandleNotification;
+			_connection.RequestReceived += RegisterClientRequest;
+			_connection.ProtocolFaulted += FailRuntime;
+		}
 	}
 
 	private AcpAgentDefinition ResolveDefinition() {
@@ -130,6 +136,11 @@ public sealed partial class AcpAgentSession :
 		}
 		_definition = definition;
 		return definition;
+	}
+
+	private AcpSessionEndpoint Endpoint(long generation) {
+		lock (_gate) return _endpoint is { } endpoint && endpoint.Generation == generation
+			? endpoint : throw new InvalidOperationException("The ACP conversation belongs to a previous process generation.");
 	}
 
 	/// <inheritdoc/>
@@ -242,7 +253,7 @@ public sealed partial class AcpAgentSession :
 
 	private string? SessionId() {
 		lock (_gate) {
-			return _sessionId ?? _openingSessionId;
+			return _sessionId ?? (_endpoint?.Generation == _activeGeneration ? _endpoint.SessionId : null);
 		}
 	}
 
@@ -292,6 +303,18 @@ public sealed partial class AcpAgentSession :
 	}
 
 	private void FailRuntimeSerialized(Exception error) {
+		if (_role is SideRole side && error is not AcpRequestException) {
+			long generation;
+			lock (_gate) generation = _activeGeneration;
+			if (generation > 0 && side.Owner.OwnsGeneration(generation)) {
+				side.Owner.FailRuntime(generation, error);
+				return;
+			}
+		}
+		FailConversationSerialized(error);
+	}
+
+	private void FailConversationSerialized(Exception error) {
 		TerminalizedTool[] tools;
 		bool promptActive;
 		long generation;
@@ -312,10 +335,13 @@ public sealed partial class AcpAgentSession :
 		}
 		if (generation > 0) {
 			_terminals.ReleaseGeneration(generation);
-			_connection.TerminateGeneration(
-				generation,
-				string.IsNullOrEmpty(error.Message) ? "ACP runtime failure." : error.Message);
+			if (_role is PrimaryRole) {
+				_connection.TerminateGeneration(
+					generation,
+					string.IsNullOrEmpty(error.Message) ? "ACP runtime failure." : error.Message);
+			}
 		}
+		FailSideRuntimes(error);
 		AbandonClientRequests();
 		ObserveTerminalizedTools(tools);
 		Observe(new AgentRuntimeFailed());

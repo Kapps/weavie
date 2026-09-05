@@ -27,10 +27,10 @@ public sealed partial class AcpAgentSession {
 		prompt = RequiredSidePrompt(prompt);
 		lock (_gate) {
 			ObjectDisposedException.ThrowIf(_disposed, this);
-			EnsureSideConversationSupport();
 			if (!_sideRuntimes.ContainsKey(conversationId)) {
 				throw new InvalidOperationException("That side conversation is no longer available.");
 			}
+			EnsureSideConversationSupport();
 			_pendingSideSubmissions.Enqueue(new SideSubmission(conversationId, prompt, Create: false));
 		}
 		DispatchPendingWork();
@@ -59,93 +59,61 @@ public sealed partial class AcpAgentSession {
 	}
 
 	private void DispatchPendingSideSubmission() {
-		SideSubmission? submission = null;
-		lock (_gate) {
-			if (_role is not PrimaryRole
-				|| !_ready
-				|| _promptActive
-				|| _pendingSubmissions.Count > 0
-				|| _activeSideConversationId is not null
-				|| _pendingSideSubmissions.Count == 0) {
-				return;
+		lock (_turnTransitionGate) {
+			SideSubmission submission;
+			lock (_gate) {
+				if (_role is not PrimaryRole
+					|| !_ready
+					|| _promptActive
+					|| _pendingSubmissions.Count > 0
+					|| _activeSideConversationId is not null
+					|| _pendingSideSubmissions.Count == 0) {
+					return;
+				}
+				submission = _pendingSideSubmissions.Dequeue();
+				_activeSideConversationId = submission.ConversationId;
 			}
-			submission = _pendingSideSubmissions.Dequeue();
-			_activeSideConversationId = submission.ConversationId;
+			DeliverSideSubmission(submission);
 		}
-		Run(() => DeliverSideSubmissionAsync(submission));
 	}
 
-	private async Task DeliverSideSubmissionAsync(SideSubmission submission) {
+	private void DeliverSideSubmission(SideSubmission submission) {
 		SideConversation? conversation = null;
 		try {
-			SideRuntime runtime;
-			if (submission.Create) {
-				string parentSessionId;
-				long generation;
-				bool guidanceInherited;
+			lock (_turnTransitionGate) {
+				SideRuntime runtime;
 				lock (_gate) {
-					parentSessionId = _sessionId
-						?? throw new InvalidOperationException("The primary ACP session is not ready.");
-					generation = _activeGeneration;
-					guidanceInherited = _guidanceSent;
-					conversation = new SideConversation(
-						submission.ConversationId,
-						ProviderSessionId: string.Empty,
-						_turnNumber,
-						submission.Prompt);
-				}
-				Emit(SideMarker(conversation, "forking"));
-				var result = await _connection.RequestAsync(
-					"session/fork",
-					new {
-						sessionId = parentSessionId,
-						cwd = Path.GetFullPath(_context.Workspace),
-						mcpServers = McpServers(),
-					},
-					generation,
-					CancellationToken.None).ConfigureAwait(false);
-				conversation = conversation with {
-					ProviderSessionId = RequiredString(result, "sessionId", "session/fork response"),
-				};
-				lock (_turnTransitionGate) {
-					lock (_gate) {
-						if (_disposed
-							|| _activeGeneration != generation
-							|| !string.Equals(_sessionId, parentSessionId, StringComparison.Ordinal)
-							|| !string.Equals(_activeSideConversationId, submission.ConversationId, StringComparison.Ordinal)) {
-							throw new InvalidOperationException("The primary conversation changed while its side conversation was forking.");
-						}
-						runtime = CreateSideRuntime(conversation, guidanceInherited);
+					if (_disposed || !_ready || _activeSideConversationId != submission.ConversationId) return;
+					if (submission.Create) {
+						conversation = new SideConversation(submission.ConversationId, _turnNumber, submission.Prompt);
+						runtime = CreateSideRuntime(conversation, _guidanceSent, _activeGeneration);
 						_sideRuntimes.Add(conversation.ConversationId, runtime);
-						runtime.SubmissionDelivered = true;
-					}
-					runtime.Session.Start();
-					runtime.Session.Submit(SideTurn(submission.Prompt));
-				}
-			} else {
-				lock (_turnTransitionGate) {
-					lock (_gate) {
+					} else {
 						runtime = _sideRuntimes.GetValueOrDefault(submission.ConversationId)
 							?? throw new InvalidOperationException("That side conversation is no longer available.");
 						conversation = runtime.Conversation;
-						runtime.SubmissionDelivered = true;
 					}
-					runtime.Session.Submit(SideTurn(submission.Prompt));
+					runtime.SubmissionDelivered = true;
 				}
+				if (submission.Create) {
+					Emit(SideMarker(conversation, "forking"));
+					runtime.Session.Start();
+				}
+				runtime.Session.Submit(SideTurn(submission.Prompt));
 			}
-		} catch (Exception ex) when (ex is not OperationCanceledException) {
+		} catch (Exception ex) {
 			FailSideSubmission(submission.ConversationId, conversation, ex);
 		}
 	}
 
-	private SideRuntime CreateSideRuntime(SideConversation conversation, bool guidanceInherited) {
+	private SideRuntime CreateSideRuntime(SideConversation conversation, bool guidanceInherited, long generation) {
 		var child = new AcpAgentSession(
 			_context,
 			_definitionSource,
 			_sessions,
 			_controlDefaults,
 			_log,
-			new SideRole(conversation, guidanceInherited));
+			new SideRole(conversation, guidanceInherited, this, generation));
 		var runtime = new SideRuntime(child, conversation);
 		child.PaneMessage += message => ForwardSideMessage(runtime, message);
 		child.SideTurnSettled += terminal => CompleteSideTurn(runtime, terminal);
@@ -174,11 +142,11 @@ public sealed partial class AcpAgentSession {
 
 	private abstract record AcpSessionRole;
 	private sealed record PrimaryRole : AcpSessionRole;
-	private sealed record SideRole(SideConversation Conversation, bool GuidanceInherited) : AcpSessionRole;
+	private sealed record SideRole(
+		SideConversation Conversation, bool GuidanceInherited, AcpAgentSession Owner, long Generation) : AcpSessionRole;
 	private sealed record SideSubmission(string ConversationId, string Prompt, bool Create);
 	private sealed record SideConversation(
 		string ConversationId,
-		string ProviderSessionId,
 		long AnchorTurnNumber,
 		string InitialPrompt) {
 		public long LocalTurnNumber { get; set; }

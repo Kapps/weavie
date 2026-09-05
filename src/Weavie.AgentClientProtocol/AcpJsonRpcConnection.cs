@@ -91,24 +91,25 @@ public sealed partial class AcpJsonRpcConnection : IAsyncDisposable {
 
 	/// <summary>Sends a request and returns its result.</summary>
 	public Task<JsonElement> RequestAsync(string method, object parameters, CancellationToken ct) =>
-		RequestAsync(method, parameters, expectedGeneration: null, sessionId: null, ct);
+		RequestAsync(method, parameters, expectedGeneration: null, owner: null, binds: null, ct);
 
 	internal Task<JsonElement> RequestAsync(
 		string method,
 		object parameters,
 		long expectedGeneration,
 		CancellationToken ct) =>
-		RequestAsync(method, parameters, (long?)expectedGeneration, sessionId: null, ct);
+		RequestAsync(method, parameters, (long?)expectedGeneration, owner: null, binds: null, ct);
 
-	internal Task<JsonElement> RequestForSessionAsync(
-		string method, object parameters, long generation, string? sessionId, CancellationToken ct) =>
-		RequestAsync(method, parameters, generation, sessionId, ct);
+	internal Task<JsonElement> RequestForEndpointAsync(
+		string method, object parameters, AcpSessionEndpoint owner, AcpSessionEndpoint? binds, CancellationToken ct) =>
+		RequestAsync(method, parameters, owner.Generation, owner, binds, ct);
 
 	private async Task<JsonElement> RequestAsync(
 		string method,
 		object parameters,
 		long? expectedGeneration,
-		string? sessionId,
+		AcpSessionEndpoint? owner,
+		AcpSessionEndpoint? binds,
 		CancellationToken ct) {
 		ArgumentException.ThrowIfNullOrEmpty(method);
 		ArgumentNullException.ThrowIfNull(parameters);
@@ -116,7 +117,7 @@ public sealed partial class AcpJsonRpcConnection : IAsyncDisposable {
 		long id = Interlocked.Increment(ref _nextRequestId);
 		var completion = new TaskCompletionSource<JsonElement>(TaskCreationOptions.RunContinuationsAsynchronously);
 		try {
-			await WriteRequestAsync(id, method, parameters, expectedGeneration, sessionId, completion).ConfigureAwait(false);
+			await WriteRequestAsync(id, method, parameters, expectedGeneration, owner, binds, completion).ConfigureAwait(false);
 		} catch {
 			_pending.TryRemove(id, out _);
 			throw;
@@ -202,6 +203,7 @@ public sealed partial class AcpJsonRpcConnection : IAsyncDisposable {
 				_processGeneration = 0;
 			}
 		}
+		RetireEndpoints();
 		if (process is null) {
 			return;
 		}
@@ -225,12 +227,10 @@ public sealed partial class AcpJsonRpcConnection : IAsyncDisposable {
 		string method,
 		object parameters,
 		long? expectedGeneration,
-		string? sessionId,
+		AcpSessionEndpoint? owner,
+		AcpSessionEndpoint? binds,
 		TaskCompletionSource<JsonElement> completion) {
-		var envelope = JsonSerializer.SerializeToElement(new { jsonrpc = "2.0", id, method, @params = parameters });
-		string line = envelope.GetRawText();
-		sessionId ??= envelope.GetProperty("params").TryGetProperty("sessionId", out var session)
-			? session.GetString() : null;
+		string line = JsonSerializer.Serialize(new { jsonrpc = "2.0", id, method, @params = parameters });
 		await _writeGate.WaitAsync().ConfigureAwait(false);
 		try {
 			Process process;
@@ -239,7 +239,7 @@ public sealed partial class AcpJsonRpcConnection : IAsyncDisposable {
 				if (expectedGeneration is { } expected && generation != expected) {
 					throw new InvalidOperationException("The ACP operation belongs to a previous process generation.");
 				}
-				if (!_pending.TryAdd(id, new PendingRequest(generation, completion, sessionId))) {
+				if (!_pending.TryAdd(id, new PendingRequest(generation, completion, owner, binds))) {
 					throw new InvalidOperationException($"ACP request id {id} is already pending.");
 				}
 			}
@@ -272,6 +272,7 @@ public sealed partial class AcpJsonRpcConnection : IAsyncDisposable {
 			}
 			await WriteLineAsync(process, line).ConfigureAwait(false);
 		} finally {
+			lock (_endpointGate) _incomingOwners.Remove((request.Generation, request.Id));
 			_writeGate.Release();
 		}
 	}
@@ -365,13 +366,6 @@ public sealed partial class AcpJsonRpcConnection : IAsyncDisposable {
 		}
 	}
 
-	internal bool TryGetRequestSession(JsonElement requestId, out string? sessionId) {
-		sessionId = null;
-		if (requestId.ValueKind != JsonValueKind.Number || !requestId.TryGetInt64(out long id)
-			|| !_pending.TryGetValue(id, out var pending)) return false;
-		sessionId = pending.SessionId;
-		return true;
-	}
-
-	private sealed record PendingRequest(long Generation, TaskCompletionSource<JsonElement> Completion, string? SessionId);
+	private sealed record PendingRequest(long Generation, TaskCompletionSource<JsonElement> Completion,
+		AcpSessionEndpoint? Owner, AcpSessionEndpoint? Binds);
 }

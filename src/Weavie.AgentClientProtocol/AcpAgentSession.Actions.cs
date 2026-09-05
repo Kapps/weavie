@@ -65,7 +65,7 @@ public sealed partial class AcpAgentSession {
 			epoch = _submissionEpoch;
 		}
 		Run(steer
-			? () => DeliverSteeringAsync(sessionId, submission, epoch)
+			? () => DeliverSteeringAsync(submission, epoch)
 			: () => DeliverPromptAsync(sessionId, submission, epoch));
 	}
 
@@ -84,7 +84,7 @@ public sealed partial class AcpAgentSession {
 		}
 	}
 
-	private async Task DeliverSteeringAsync(string sessionId, AgentTurnSubmission submission, long epoch) {
+	private async Task DeliverSteeringAsync(AgentTurnSubmission submission, long epoch) {
 		bool retryAsPrompt = false;
 		long generation = 0;
 		try {
@@ -95,14 +95,12 @@ public sealed partial class AcpAgentSession {
 					generation = _activeGeneration;
 				}
 				object[] prompt = BuildPrompt(submission);
-				request = _connection.RequestAsync(
+				request = Endpoint(generation).RequestAsync(
 					"_session/steering",
 					new {
-						sessionId,
 						prompt,
 						_meta = new { steering = new { idleBehavior = "promptRequired" } },
 					},
-					generation,
 					CancellationToken.None);
 			}
 			var result = await request.ConfigureAwait(false);
@@ -175,10 +173,9 @@ public sealed partial class AcpAgentSession {
 					submission,
 					submission.Kind == AgentTurnSubmissionKind.ProviderCommand ? "user-command" : "user-message");
 				Observe(new AgentPromptSubmitted(sessionId, submission.Text));
-				request = _connection.RequestAsync(
+				request = Endpoint(generation).RequestAsync(
 					"session/prompt",
-					new { sessionId, prompt },
-					generation,
+					new { prompt },
 					CancellationToken.None);
 			}
 			var result = await request.ConfigureAwait(false);
@@ -499,14 +496,14 @@ public sealed partial class AcpAgentSession {
 				lock (_gate) generation = _activeGeneration;
 				RunRuntime(
 					generation,
-					() => _connection.NotifyAsync("session/cancel", new { sessionId }, generation));
+					() => Endpoint(generation).NotifyAsync("session/cancel", new { }));
 			}
 		}
 		PublishQueue();
 		bool interactionCancelled = CancelPendingInteractions();
 		if (interactionCancelled && sessionId is null && _role is SideRole) {
 			lock (_turnTransitionGate) {
-				FailRuntimeSerialized(new InvalidOperationException("Side conversation interrupted."));
+				FailConversationSerialized(new InvalidOperationException("Side conversation interrupted."));
 			}
 			return;
 		}

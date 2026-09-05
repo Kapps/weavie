@@ -25,7 +25,6 @@ public sealed partial class AcpAgentSession {
 		SideRuntime[] sideSessions;
 		string? sessionId;
 		bool close;
-		long generation;
 		lock (_gate) {
 			if (_disposed) {
 				return;
@@ -38,19 +37,15 @@ public sealed partial class AcpAgentSession {
 			_sideRuntimes.Clear();
 			sessionId = _sessionId ?? (_role is SideRole fork ? fork.Conversation.ProviderSessionId : null);
 			close = (_ready || _role is SideRole) && _supportsClose && sessionId is not null;
-			generation = _role is SideRole borrowed ? borrowed.Generation : _activeGeneration;
 		}
 
 		CancelPendingInteractions();
 		AbandonClientRequests();
 		Task<JsonElement>? closeRequest = null;
 		if (close) {
-			closeRequest = _connection.RequestAsync(
-				"session/close",
-				new { sessionId },
-				generation,
-				CancellationToken.None);
+			closeRequest = _endpoint?.CloseAsync();
 		}
+		_endpoint?.Retire();
 
 		try {
 			var disposals = sideSessions.Select(side => side.Session.DisposeAsync().AsTask()).ToArray();
@@ -76,6 +71,8 @@ public sealed partial class AcpAgentSession {
 		lock (_turnTransitionGate) {
 			lock (_gate) {
 				_activeGeneration = process.Generation;
+				_endpoint = _role is SideRole side ? side.Endpoint : null;
+				_endpointAttached = false;
 				_ready = false;
 				_promptActive = false;
 				_steering = false;
@@ -97,7 +94,6 @@ public sealed partial class AcpAgentSession {
 				_replayContentRole = null;
 				_contextUsage = null;
 				_usageLimits.Clear();
-				_closedSideSessionIds.Clear();
 			}
 		}
 		CancelPendingInteractions();
@@ -144,6 +140,7 @@ public sealed partial class AcpAgentSession {
 		bool reconnecting;
 		bool resetTranscript;
 		bool loadSession;
+		bool attachEndpoint;
 		lock (_turnTransitionGate) {
 			lock (_gate) {
 				if (_disposed || _activeGeneration != generation) return;
@@ -162,12 +159,18 @@ public sealed partial class AcpAgentSession {
 				resetTranscript = persisted is not null && sessionId is null;
 				_openingSessionId = sessionId;
 				_sessionOpening = true;
+				_endpoint ??= sessionId is null
+					? _connection.OpenEndpoint(generation) : _connection.OpenEndpoint(generation, sessionId);
+				attachEndpoint = !_endpointAttached;
+				_endpointAttached = true;
 				if (sessionId is null) _guidanceSent = false;
 				else if (!loadSession) {
 					_turnNumber = _sessions.ResolveTurnNumber(_definition.Id, _context.Workspace);
 				}
 			}
 		}
+		if (attachEndpoint) Endpoint(generation).Attach(
+			HandleNotification, RegisterClientRequest, error => FailRuntime(generation, error));
 		if (resetTranscript) {
 			_sessions.Clear(_definition.Id, _context.Workspace);
 			lock (_turnTransitionGate) {
@@ -185,13 +188,11 @@ public sealed partial class AcpAgentSession {
 		try {
 			if (sessionId is null) {
 				lock (_gate) _planTurns.Clear();
-				setup = await _connection.RequestAsync(
-					"session/new",
+				setup = await Endpoint(generation).CreateAsync(
 					new {
 						cwd = Path.GetFullPath(_context.Workspace),
 						mcpServers = McpServers(),
 					},
-					generation,
 					CancellationToken.None).ConfigureAwait(false);
 				lock (_turnTransitionGate) {
 					lock (_gate) {
@@ -219,14 +220,12 @@ public sealed partial class AcpAgentSession {
 				}
 				bool loaded = false;
 				try {
-					setup = await _connection.RequestAsync(
+					setup = await Endpoint(generation).RequestAsync(
 						"session/load",
 						new {
-							sessionId,
 							cwd = Path.GetFullPath(_context.Workspace),
 							mcpServers = McpServers(),
 						},
-						generation,
 						CancellationToken.None).ConfigureAwait(false);
 					lock (_turnTransitionGate) {
 						TerminalizedTool[] interrupted;
@@ -265,14 +264,12 @@ public sealed partial class AcpAgentSession {
 					}
 				}
 			} else {
-				setup = await _connection.RequestAsync(
+				setup = await Endpoint(generation).RequestAsync(
 					"session/resume",
 					new {
-						sessionId,
 						cwd = Path.GetFullPath(_context.Workspace),
 						mcpServers = McpServers(),
 					},
-					generation,
 					CancellationToken.None).ConfigureAwait(false);
 				if (!OwnsGeneration(generation)) return;
 			}

@@ -35,7 +35,7 @@ public sealed partial class AcpJsonRpcConnection {
 					requestMethod.GetString() ?? string.Empty,
 					root.TryGetProperty("params", out requestParameters) ? requestParameters.Clone() : EmptyObject(),
 					generation);
-				return () => RequestReceived?.Invoke(request);
+				return () => DispatchRequest(request);
 			}
 
 			bool hasError = root.TryGetProperty("error", out var error);
@@ -53,10 +53,17 @@ public sealed partial class AcpJsonRpcConnection {
 				throw new AcpProtocolException("ACP responses must use the numeric id assigned by Weavie.");
 			}
 			var requestError = hasError ? AcpRequestException.From(error) : null;
-			if (_pending.TryRemove(id, out var pending)) {
+			if (_pending.TryGetValue(id, out var pending)) {
 				if (pending.Generation != generation) {
 					throw new AcpProtocolException($"ACP response {id} belongs to another process generation.");
 				}
+				if (requestError is null && pending.Binds is { } binds) {
+					if (!result.TryGetProperty("sessionId", out var boundId) || boundId.ValueKind != JsonValueKind.String) {
+						throw new AcpProtocolException("ACP session creation returned no sessionId.");
+					}
+					binds.Bind(boundId.GetString()!);
+				}
+				_pending.TryRemove(id, out _);
 				if (requestError is not null) pending.Completion.TrySetException(requestError);
 				else pending.Completion.TrySetResult(result.Clone());
 				return null;
@@ -80,7 +87,7 @@ public sealed partial class AcpJsonRpcConnection {
 			throw new AcpProtocolException("ACP notification params must be an object.");
 		}
 		var notification = root.Clone();
-		return () => NotificationReceived?.Invoke(generation, notification);
+		return () => DispatchNotification(generation, notification);
 	}
 
 }

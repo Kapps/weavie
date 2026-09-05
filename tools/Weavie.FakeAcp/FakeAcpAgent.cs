@@ -64,7 +64,7 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 				parameters,
 				AcpJson.RequiredString(parameters, "sessionId", method),
 				replay: false),
-			"session/fork" => Fork(parameters),
+			"session/fork" => await ForkAsync(parameters, ct).ConfigureAwait(false),
 			"session/close" => await CloseAsync(parameters, ct).ConfigureAwait(false),
 			"session/prompt" => await PromptAsync(parameters, ct).ConfigureAwait(false),
 			"session/set_mode" => SetMode(parameters),
@@ -268,7 +268,7 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 		return sequence == 1 ? "fake-session" : $"fake-session-{sequence}";
 	}
 
-	private JsonObject Fork(JsonElement parameters) {
+	private async Task<JsonObject> ForkAsync(JsonElement parameters, CancellationToken ct) {
 		string source = AcpJson.RequiredString(parameters, "sessionId", "session/fork");
 		if (!string.Equals(source, _sessionId, StringComparison.Ordinal)) {
 			throw AcpAdapterException.InvalidParams("session/fork must target the active fake session.");
@@ -281,6 +281,20 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 		File.AppendAllText(
 			StatePath("forks.log"),
 			$"{source}->{sessionId}{Environment.NewLine}");
+		string started = Path.Combine(Environment.CurrentDirectory, "fork-started");
+		if (_fakeMode == "held-fork" && !File.Exists(started)) {
+			File.WriteAllText(started, sessionId);
+			while (!File.Exists(Path.Combine(Environment.CurrentDirectory, "release-fork"))) {
+				await Task.Delay(TimeSpan.FromMilliseconds(10), ct).ConfigureAwait(false);
+			}
+			Connection().Notify("session/update", new JsonObject {
+				["sessionId"] = sessionId,
+				["update"] = new JsonObject {
+					["sessionUpdate"] = "agent_message_chunk",
+					["content"] = Text("early fork update"),
+				},
+			});
+		}
 		return new JsonObject { ["sessionId"] = sessionId };
 	}
 

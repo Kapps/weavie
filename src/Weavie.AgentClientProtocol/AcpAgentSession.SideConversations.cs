@@ -5,7 +5,6 @@ namespace Weavie.AgentClientProtocol;
 public sealed partial class AcpAgentSession {
 	private readonly Queue<SideSubmission> _pendingSideSubmissions = [];
 	private readonly Dictionary<string, SideRuntime> _sideRuntimes = new(StringComparer.Ordinal);
-	private readonly HashSet<string> _closedSideSessionIds = new(StringComparer.Ordinal);
 	private string? _activeSideConversationId;
 
 	/// <inheritdoc/>
@@ -78,6 +77,7 @@ public sealed partial class AcpAgentSession {
 
 	private async Task DeliverSideSubmissionAsync(SideSubmission submission) {
 		SideConversation? conversation = null;
+		AcpSessionEndpoint? unownedEndpoint = null;
 		try {
 			SideRuntime runtime;
 			if (submission.Create) {
@@ -96,17 +96,15 @@ public sealed partial class AcpAgentSession {
 						submission.Prompt);
 				}
 				Emit(SideMarker(conversation, "forking"));
-				var result = await _connection.RequestAsync(
-					"session/fork",
+				var endpoint = await Endpoint(generation).ForkAsync(
 					new {
-						sessionId = parentSessionId,
 						cwd = Path.GetFullPath(_context.Workspace),
 						mcpServers = McpServers(),
 					},
-					generation,
 					CancellationToken.None).ConfigureAwait(false);
+				unownedEndpoint = endpoint;
 				conversation = conversation with {
-					ProviderSessionId = RequiredString(result, "sessionId", "session/fork response"),
+					ProviderSessionId = endpoint.SessionId,
 				};
 				lock (_turnTransitionGate) {
 					lock (_gate) {
@@ -116,8 +114,9 @@ public sealed partial class AcpAgentSession {
 							|| !string.Equals(_activeSideConversationId, submission.ConversationId, StringComparison.Ordinal)) {
 							throw new InvalidOperationException("The primary conversation changed while its side conversation was forking.");
 						}
-						runtime = CreateSideRuntime(conversation, guidanceInherited);
+						runtime = CreateSideRuntime(conversation, guidanceInherited, endpoint);
 						_sideRuntimes.Add(conversation.ConversationId, runtime);
+						unownedEndpoint = null;
 						runtime.SubmissionDelivered = true;
 					}
 					runtime.Session.Start();
@@ -135,18 +134,26 @@ public sealed partial class AcpAgentSession {
 				}
 			}
 		} catch (Exception ex) when (ex is not OperationCanceledException) {
+			unownedEndpoint?.Retire();
 			FailSideSubmission(submission.ConversationId, conversation, ex);
+			if (unownedEndpoint is not null && OwnsGeneration(unownedEndpoint.Generation) && _supportsClose) {
+				try {
+					await unownedEndpoint.CloseAsync().ConfigureAwait(false);
+				} catch (Exception closeError) {
+					FailRuntime(unownedEndpoint.Generation, closeError);
+				}
+			}
 		}
 	}
 
-	private SideRuntime CreateSideRuntime(SideConversation conversation, bool guidanceInherited) {
+	private SideRuntime CreateSideRuntime(SideConversation conversation, bool guidanceInherited, AcpSessionEndpoint endpoint) {
 		var child = new AcpAgentSession(
 			_context,
 			_definitionSource,
 			_sessions,
 			_controlDefaults,
 			_log,
-			new SideRole(conversation, guidanceInherited, this, _activeGeneration));
+			new SideRole(conversation, guidanceInherited, this, endpoint));
 		var runtime = new SideRuntime(child, conversation);
 		child.PaneMessage += message => ForwardSideMessage(runtime, message);
 		child.SideTurnSettled += terminal => CompleteSideTurn(runtime, terminal);
@@ -176,7 +183,9 @@ public sealed partial class AcpAgentSession {
 	private abstract record AcpSessionRole;
 	private sealed record PrimaryRole : AcpSessionRole;
 	private sealed record SideRole(
-		SideConversation Conversation, bool GuidanceInherited, AcpAgentSession Owner, long Generation) : AcpSessionRole;
+		SideConversation Conversation, bool GuidanceInherited, AcpAgentSession Owner, AcpSessionEndpoint Endpoint) : AcpSessionRole {
+		public long Generation => Endpoint.Generation;
+	}
 	private sealed record SideSubmission(string ConversationId, string Prompt, bool Create);
 	private sealed record SideConversation(
 		string ConversationId,

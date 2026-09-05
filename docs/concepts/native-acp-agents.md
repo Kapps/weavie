@@ -97,9 +97,13 @@ deleted.
 
 Side conversations share the primary conversation's ACP process. The fork is loaded on the connection that
 created it: transferring it to another process can conflict with the provider's existing transcript writer.
-Each conversation owns its turn state and client requests; updates route by provider session id, and
-request-scoped elicitation routes by the originating request id. Closing or failing a side conversation never
-disposes the shared connection. Replacing the process terminalizes all its side conversations.
+Each conversation owns a session endpoint bound to its provider identity and process generation. Endpoints
+address outgoing operations; callers cannot supply a session id. The connection dispatches incoming messages
+to the registered endpoint, including request-scoped elicitation through its originating request owner.
+Opening endpoints retain early messages until their owner attaches. Retired endpoints reject requests and
+discard late updates until their generation ends. Closing a side conversation leaves the connection running;
+an unrecoverable runtime failure stops the shared process so failed work cannot continue invisibly.
+Replacing the process terminalizes all its side conversations.
 
 **Only the current conversation can own live work.** Primary `session/load` replays into a fresh process, while a
 side load replays a fork that owns none of the parent's tools. A tool still marked running in either transcript

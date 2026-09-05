@@ -122,11 +122,8 @@ public sealed partial class AcpAgentSession {
 			using (authenticationCancellation) {
 				try {
 					if (method.Type == "agent") {
-						await _connection.RequestForSessionAsync(
-							"authenticate",
-							new { methodId },
-							generation,
-							_role is SideRole side ? side.Conversation.ProviderSessionId : SessionId(),
+						await Endpoint(generation).AuthenticateAsync(
+							methodId,
 							authenticationCancellation.Token).ConfigureAwait(false);
 					} else {
 						var exit = await _context.AuthenticationTerminal.RunAsync(

@@ -20,6 +20,8 @@ public sealed partial class AcpAgentSession :
 	private readonly Action<string> _log;
 	private readonly AcpSessionRole _role;
 	private readonly AcpJsonRpcConnection _connection;
+	private AcpSessionEndpoint? _endpoint;
+	private bool _endpointAttached;
 	private readonly AcpTerminalManager _terminals;
 	private readonly Lock _gate = new();
 	private readonly Lock _turnTransitionGate;
@@ -122,8 +124,8 @@ public sealed partial class AcpAgentSession :
 		if (role is PrimaryRole) {
 			_connection.ProcessStarted += OnProcessStarted;
 			_connection.ProcessStateChanged += change => Observe(new AgentProcessChanged(change));
-			_connection.NotificationReceived += RouteNotification;
-			_connection.RequestReceived += RouteClientRequest;
+			_connection.NotificationReceived += HandleNotification;
+			_connection.RequestReceived += RegisterClientRequest;
 			_connection.ProtocolFaulted += FailRuntime;
 		}
 	}
@@ -136,6 +138,11 @@ public sealed partial class AcpAgentSession :
 		}
 		_definition = definition;
 		return definition;
+	}
+
+	private AcpSessionEndpoint Endpoint(long generation) {
+		lock (_gate) return _endpoint is { } endpoint && endpoint.Generation == generation
+			? endpoint : throw new InvalidOperationException("The ACP conversation belongs to a previous process generation.");
 	}
 
 	/// <inheritdoc/>
@@ -298,6 +305,18 @@ public sealed partial class AcpAgentSession :
 	}
 
 	private void FailRuntimeSerialized(Exception error) {
+		if (_role is SideRole side && error is not AcpRequestException) {
+			long generation;
+			lock (_gate) generation = _activeGeneration;
+			if (generation > 0 && side.Owner.OwnsGeneration(generation)) {
+				side.Owner.FailRuntime(generation, error);
+				return;
+			}
+		}
+		FailConversationSerialized(error);
+	}
+
+	private void FailConversationSerialized(Exception error) {
 		TerminalizedTool[] tools;
 		bool promptActive;
 		long generation;

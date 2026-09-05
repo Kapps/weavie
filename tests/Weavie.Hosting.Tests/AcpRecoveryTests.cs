@@ -4,9 +4,12 @@ namespace Weavie.Hosting.Tests;
 
 public sealed class AcpRecoveryTests {
 	[Fact]
-	public async Task MalformedSideUpdateDoesNotTerminateThePrimaryConversation() {
+	public async Task MalformedSideUpdateStopsSharedWorkAndExplicitContinuationPreservesThePrimary() {
 		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
 		await fixture.StartAsync();
+		fixture.Submit("primary context");
+		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed");
+		string? sessionId = fixture.Sessions.Resolve("fake", fixture.Workspace);
 		fixture.Session.AskAside("malformed-update");
 		await fixture.WaitForMessageAsync(message => message.Type == "side-conversation-failed");
 
@@ -15,7 +18,10 @@ public sealed class AcpRecoveryTests {
 			&& message.Text == "echo: primary still works");
 
 		Assert.Null(reply.ConversationId);
-		Assert.DoesNotContain(fixture.Events.Values, value => value is Weavie.Core.Agents.AgentRuntimeFailed);
+		Assert.Contains(fixture.Events.Values, value => value is Weavie.Core.Agents.AgentRuntimeFailed);
+		Assert.Equal(sessionId, fixture.Sessions.Resolve("fake", fixture.Workspace));
+		Assert.Single(File.ReadAllLines(Path.Combine(fixture.FakeAcpStateDirectory, "prompts.log")),
+			value => value.EndsWith(":malformed-update", StringComparison.Ordinal));
 	}
 
 	[Fact]

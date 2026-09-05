@@ -1,6 +1,7 @@
 import { ChevronDown, ChevronRight, File, Files, Folder, FolderOpen } from "lucide-solid";
 import { createEffect, createMemo, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
 import { type PathTreeNode, pathAncestorKeys, visiblePathTreeRows } from "../../files/path-tree";
+import { nextIndex } from "../../list-navigation";
 import { samePath } from "../fs-path";
 import type { ReviewFileView, ReviewOverview } from "./review-store";
 
@@ -83,10 +84,10 @@ export function ReviewFileTree(props: {
     let destination: string | undefined;
     switch (event.key) {
       case "ArrowDown":
-        destination = rows[Math.min(index + 1, rows.length - 1)]?.node.key;
+        destination = rows[nextIndex(index, 1, rows.length, "clamp")]?.node.key;
         break;
       case "ArrowUp":
-        destination = rows[Math.max(index - 1, 0)]?.node.key;
+        destination = rows[nextIndex(index, -1, rows.length, "clamp")]?.node.key;
         break;
       case "Home":
         destination = rows[0]?.node.key;

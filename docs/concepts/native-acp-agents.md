@@ -35,6 +35,9 @@ under `~/.weavie/acp/installations.json`:
   the approved ceiling so npm can select the newest release allowed by the user's release-age policy;
 - `uvx` launches the registry's exact `uvx <package> ...` recipe.
 
+Updating an installed provider leaves its running processes alone. `Restart Agent` resolves the latest installed
+launch recipe and resumes the existing provider session through that new process.
+
 Weavie ships no Node, npm, npx, Python, uv, or uvx runtime. Package-manager distributions use the user's PATH
 literally. If the selected runner is absent, process launch fails visibly in the native pane. When an agent offers
 multiple distributions, the user chooses one; Weavie does not silently change distribution kinds during install or

@@ -140,13 +140,8 @@ test.describe("editing", () => {
   // Fixed at the source in src/web/src/editor/focus-on-mount.ts (skip the steal when the shadow tree already
   // owns focus) rather than here.
   //
-  // Flaked again on macOS CI 2026-09-05 06:24 UTC, same symptom, different thief: homeSessionFocus's
-  // requestAnimationFrame-deferred focusPane("editor") (fired by onSessionActivated on the plain
-  // selectSession(ownerSlot) switch back) called focusVisibleOverlay, which stole focus from the just-restored
-  // block-editor textarea back onto the overlay host one frame later, racing this test's editor.press("Enter"):
-  // https://github.com/Kapps/weavie/actions/runs/33949266641/job/101261247197
-  // Fixed at the source in src/web/src/App.tsx's focusVisibleOverlay (skip the steal when the overlay's shadow
-  // tree already owns focus) rather than here.
+  // Flaked again 2026-09-05 06:24 UTC, same symptom, a different focus thief (App.tsx's focusVisibleOverlay,
+  // fixed there the same way): https://github.com/Kapps/weavie/actions/runs/33949266641/job/101261247197
   test("an unsaved block draft survives a session switch and clears after save", async ({
     page,
   }) => {

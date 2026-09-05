@@ -39,6 +39,7 @@ import { log } from "../bridge";
 import { notify } from "../notify/notify";
 import { currentMonacoTheme, onMonacoThemeChanged } from "../theme";
 import { applyMonacoTheme } from "../theme/monaco-theme";
+import { getClipboardServiceOverride } from "./clipboard-service";
 import { registerBroadGrammars } from "./grammars/register-broad-grammars";
 import { installHostFileProvider } from "./host-file-provider";
 import { getNotificationServiceOverride } from "./notification-service";
@@ -145,6 +146,7 @@ async function doInit(): Promise<void> {
     // Route Monaco's INotificationService (failed rename / code action) to Weavie toasts; the standalone
     // default only logs to the console, leaving a failed refactor invisible.
     ...getNotificationServiceOverride(),
+    ...getClipboardServiceOverride(),
   });
 
   // Construct the semantic-tokens feature (see its import note); its disposables hook long-lived services, so

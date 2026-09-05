@@ -94,7 +94,7 @@ import {
   updateRestarting,
 } from "./chrome/update-store";
 import { hostWindowFocused, windowMaximized } from "./chrome/window-state";
-import { writeClipboard } from "./clipboard";
+import { installClipboardTrimming, writeClipboard } from "./clipboard";
 import { hasTextSelection, paneFocusContext, setContext } from "./commands/context";
 import { installDoubleShift } from "./commands/double-shift";
 import { keyHint } from "./commands/key-hint";
@@ -1896,6 +1896,7 @@ export default function App(): JSX.Element {
       setShowPaneHints(options.paneShortcutHints),
     );
     const offKeybindings = installKeybindings();
+    const offClipboardTrimming = installClipboardTrimming();
     // Double-tapping Shift mirrors $mod+P (Go to File) — a gesture the chord resolver can't express.
     const offDoubleShift = installDoubleShift(() => dispatchCommand(CommandIds.focusOmnibarFiles));
     const offAutoscroll = installMiddleClickAutoscroll();
@@ -1951,6 +1952,7 @@ export default function App(): JSX.Element {
       }
       offEditorOptions();
       offKeybindings();
+      offClipboardTrimming();
       offDoubleShift();
       offAutoscroll();
       offNativeApplicationMenu();

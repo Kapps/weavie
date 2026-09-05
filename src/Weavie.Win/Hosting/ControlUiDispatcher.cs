@@ -23,7 +23,7 @@ internal sealed class ControlUiDispatcher : IUiDispatcher {
 			if (_control.InvokeRequired) {
 				_control.BeginInvoke(() => Run(action));
 			} else {
-				action();
+				Run(action);
 			}
 		}
 	}
@@ -37,7 +37,7 @@ internal sealed class ControlUiDispatcher : IUiDispatcher {
 	private void Run(Action action) {
 		lock (_gate) {
 			if (!_closed) {
-				action();
+				GuardedUiDispatcher.Run(action, WinUiFailure.Report);
 			}
 		}
 	}

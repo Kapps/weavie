@@ -10,14 +10,15 @@ test.use({ automaticInference: false, dismissInferenceOffer: false });
 test("offers and enables automatic inference on desktop", async ({ page }) => {
   expect(page.viewportSize()).toEqual({ width: 1280, height: 800 });
   await awaitEditorReady(page);
-  const offer = page.locator(".toast", { hasText: "Let Weavie use automatic inference" });
+  const offerText = "Let Weavie use automatic inference";
+  const offer = page.locator(".toast", { hasText: offerText });
   await expect(offer).toBeVisible();
   const input = page.locator(".tb-omnibar-input");
   await input.focus();
   await input.fill("e");
   const rows = page.locator(".tb-omnibar-row");
   await expect(rows.first()).toBeVisible();
-  await clickOmnibarRowThroughToast(rows, offer);
+  await clickOmnibarRowThroughToast(page, offerText);
   await expect(page.locator(".editor-tab")).toHaveCount(1);
 
   const tab = page.locator(".editor-tab.active");

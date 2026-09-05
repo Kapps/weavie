@@ -56,13 +56,13 @@ public sealed partial class AppDelegate : NSApplicationDelegate {
 		// Surfaces in File ▸ Open Recent + the omnibar shell config, and drives reopen-last + the welcome screen.
 		_recents = new RecentWorkspaces(new LocalFileSystem(), path: null);
 
-		Dispatcher = new DelegateUiDispatcher(action => {
+		Dispatcher = new GuardedUiDispatcher(new DelegateUiDispatcher(action => {
 			if (NSThread.IsMain) {
 				action();
 			} else {
 				NSApplication.SharedApplication.BeginInvokeOnMainThread(action);
 			}
-		});
+		}), MacUiFailure.Report);
 		_dialogs = new MacDialogs();
 		_menu = new MacAppMenu();
 		NSApplication.SharedApplication.MainMenu = _menu.MainMenu;

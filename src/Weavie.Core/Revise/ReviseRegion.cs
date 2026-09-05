@@ -52,7 +52,7 @@ public enum ReviseOutcome {
 	/// <summary>The query failed, so no region was revised.</summary>
 	QueryFailed,
 
-	/// <summary>Writing the file failed.</summary>
+	/// <summary>Confirming or writing the revision failed.</summary>
 	WriteFailed,
 }
 

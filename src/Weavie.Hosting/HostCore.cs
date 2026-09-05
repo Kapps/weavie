@@ -145,7 +145,11 @@ public sealed partial class HostCore : IAsyncDisposable {
 		// to the embedded claude so it knows whether it's a remote worker and on which build. See HostRuntimeInfo.
 		_runtime = HostRuntimeInfo.Resolve(platform.Transport, AppContext.BaseDirectory, BuildNumber);
 		_bridge = platform.Bridge;
-		_ui = platform.Dispatcher;
+		_ui = new GuardedUiDispatcher(platform.Dispatcher, failure => {
+			Log($"[ui] dispatched action failed: {failure}");
+			Notify("error", $"Weavie couldn't complete an internal action: {failure.Message}",
+				"ui-dispatch-failure", "View Logs", CoreCommands.ViewLogs, null);
+		});
 		_settings = services.Settings;
 		var messagePolicy = new MessageExecutionPolicy(
 			TimeSpan.FromSeconds(2),

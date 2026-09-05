@@ -146,6 +146,7 @@ public sealed class HostCoreSessionRestoreTests {
 		Assert.Null(host.Core.SessionForTest("branch-a"));
 		Assert.False(SessionById(host.Bridge, "branch-a").GetProperty("loaded").GetBoolean());
 		Assert.Empty(dispatcherErrors);
+		Assert.Empty(host.UiDispatchFailures);
 	}
 
 	[Fact]

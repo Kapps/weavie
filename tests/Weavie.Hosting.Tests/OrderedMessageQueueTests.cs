@@ -8,7 +8,7 @@ public sealed class OrderedMessageQueueTests {
 	public async Task MixedProducers_DrainOnceInEnqueueOrder() {
 		var scheduled = new ConcurrentQueue<Action>();
 		List<string> sent = [];
-		var queue = new OrderedMessageQueue(scheduled.Enqueue, sent.Add);
+		var queue = new OrderedMessageQueue(scheduled.Enqueue, sent.Add, failure => Assert.Fail(failure.ToString()));
 
 		await Task.Run(() => queue.Enqueue("background"));
 		queue.Enqueue("ui");
@@ -32,7 +32,7 @@ public sealed class OrderedMessageQueueTests {
 				sending.Set();
 				release.Wait();
 			}
-		});
+		}, failure => Assert.Fail(failure.ToString()));
 
 		queue.Enqueue("first");
 		var drain = Task.Run(scheduled.Dequeue());
@@ -49,7 +49,7 @@ public sealed class OrderedMessageQueueTests {
 	public void Dispose_DropsScheduledAndFutureMessages() {
 		var scheduled = new Queue<Action>();
 		List<string> sent = [];
-		var queue = new OrderedMessageQueue(scheduled.Enqueue, sent.Add);
+		var queue = new OrderedMessageQueue(scheduled.Enqueue, sent.Add, failure => Assert.Fail(failure.ToString()));
 
 		queue.Enqueue("scheduled-before-close");
 		queue.Dispose();
@@ -72,7 +72,7 @@ public sealed class OrderedMessageQueueTests {
 			scheduling.Set();
 			release.Wait();
 			scheduled.Enqueue(action);
-		}, sent.Add);
+		}, sent.Add, failure => Assert.Fail(failure.ToString()));
 
 		var enqueue = Task.Run(() => queue.Enqueue("during-close"));
 		scheduling.Wait();
@@ -107,7 +107,7 @@ public sealed class OrderedMessageQueueTests {
 			sending.Set();
 			release.Wait();
 			sent.Add(message);
-		});
+		}, failure => Assert.Fail(failure.ToString()));
 
 		queue.Enqueue("during-close");
 		var drain = Task.Run(scheduled.Dequeue());
@@ -130,6 +130,34 @@ public sealed class OrderedMessageQueueTests {
 		Assert.Null(disposeError);
 		Assert.Equal(["during-close"], sent);
 		queue.Enqueue("after-close");
+		Assert.Empty(scheduled);
+	}
+
+	[Theory]
+	[InlineData(false)]
+	[InlineData(true)]
+	public void FailedTransport_ClosesBacklogAndReportsOnce(bool schedulingFails) {
+		var scheduled = new Queue<Action>();
+		var failures = new List<Exception>();
+		var failure = new InvalidOperationException("transport failed");
+		int sends = 0;
+		var queue = new OrderedMessageQueue(action => {
+			if (schedulingFails) {
+				throw failure;
+			}
+			scheduled.Enqueue(action);
+		}, _ => {
+			sends++;
+			throw failure;
+		}, failures.Add);
+		queue.Enqueue("first");
+		queue.Enqueue("backlog");
+		if (!schedulingFails) {
+			scheduled.Dequeue()();
+		}
+		queue.Enqueue("after-failure");
+		Assert.Same(failure, Assert.Single(failures));
+		Assert.Equal(schedulingFails ? 0 : 1, sends);
 		Assert.Empty(scheduled);
 	}
 

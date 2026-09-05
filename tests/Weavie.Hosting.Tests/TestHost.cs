@@ -71,6 +71,9 @@ internal sealed class TestHost : IAsyncDisposable {
 	/// <summary>The host's settings store, for a test to tweak a setting before it creates a session.</summary>
 	public SettingsStore Settings => _services.Settings;
 
+	public IEnumerable<JsonElement> UiDispatchFailures => Bridge.PostedEvents("notifications", "show")
+		.Where(message => message.TryGetProperty("key", out var key) && key.GetString() == "ui-dispatch-failure");
+
 	/// <summary>Builds a temp git repo, starts a host, and connects one message-bus client.</summary>
 	public static Task<TestHost> StartAsync() => StartAsync(_ => { });
 
@@ -690,8 +693,12 @@ internal sealed class TestPlatform : IHostPlatform {
 	}
 
 	public void ToggleWindow() {
-		// no window in tests
+		if (ToggleWindowThrows) {
+			throw new InvalidOperationException("the window is gone");
+		}
 	}
+
+	public bool ToggleWindowThrows { get; set; }
 
 	public void ActivateWindow(string? activationToken) {
 		ActivationCount++;

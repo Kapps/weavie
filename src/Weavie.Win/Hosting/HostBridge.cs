@@ -11,16 +11,13 @@ namespace Weavie.Win.Hosting;
 /// </summary>
 public sealed class HostBridge : IWebTransportHub, IDisposable {
 	private CoreWebView2? _core;
-	private OrderedMessageQueue? _outbound;
+	private volatile OrderedMessageQueue? _outbound;
 
 	/// <summary>Raised with the raw JSON body of each inbound message (on the UI thread).</summary>
 	public event Action<WebPeer, string>? MessageReceived;
 
 	/// <inheritdoc/>
-	public event Action<WebPeer>? PeerDisconnected {
-		add { }
-		remove { }
-	}
+	public event Action<WebPeer>? PeerDisconnected;
 
 	/// <summary>Binds to the (already-initialized) WebView2 and starts listening for inbound web messages.</summary>
 	public void Attach(WebView2 webView) {
@@ -31,10 +28,24 @@ public sealed class HostBridge : IWebTransportHub, IDisposable {
 		_core = core;
 		_outbound = new OrderedMessageQueue(
 			action => webView.BeginInvoke(action),
-			core.PostWebMessageAsString);
+			core.PostWebMessageAsString,
+			failure => {
+				// Scheduling can fail on a producer thread; native unsubscription stays in UI-owned Dispose.
+				_outbound = null;
+				try {
+					PeerDisconnected?.Invoke(WebPeer.Native);
+				} catch (Exception disconnectFailure) {
+					failure = new AggregateException(failure, disconnectFailure);
+				}
+				WinUiFailure.Report(new InvalidOperationException(
+					"The editor connection failed. Close and reopen this window to reconnect.", failure));
+			});
 	}
 
 	private void OnWebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e) {
+		if (_outbound is null) {
+			return;
+		}
 		string body;
 		try {
 			body = e.TryGetWebMessageAsString();

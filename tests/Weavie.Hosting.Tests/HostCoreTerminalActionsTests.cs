@@ -1,4 +1,6 @@
 using System.Collections.Concurrent;
+using System.Text.Json;
+using Weavie.Core.Commands;
 using Weavie.Core.Shell;
 using Xunit;
 
@@ -109,7 +111,22 @@ public sealed class HostCoreTerminalActionsTests {
 		Assert.Equal(expectedThread, host.Platform.ClipboardImageReadThread);
 		Assert.Equal(expectedThread, host.Platform.OpenUrlThread);
 		Assert.All(window.Threads, thread => Assert.Equal(expectedThread, thread));
+		Assert.Empty(host.UiDispatchFailures);
 		Assert.Empty(errors);
+	}
+
+	[Fact]
+	public async Task FailedHostActionShowsActionableError() {
+		await using var host = await TestHost.StartAsync();
+		host.Platform.ToggleWindowThrows = true;
+		await host.HostRequestAsync<JsonElement>("commands", "invoke",
+			new { id = CoreCommands.ToggleWindow, args = (object?)null });
+		var toast = await Wait.ForAsync<JsonElement>(() => {
+			var found = host.UiDispatchFailures.FirstOrDefault();
+			return found.ValueKind == JsonValueKind.Object ? found : null;
+		});
+		Assert.Contains("the window is gone", toast.GetProperty("message").GetString(), StringComparison.Ordinal);
+		Assert.Equal("View Logs", toast.GetProperty("action").GetProperty("label").GetString());
 	}
 
 	[Fact]

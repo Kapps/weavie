@@ -11,11 +11,7 @@ using Xunit;
 namespace Weavie.Hosting.Tests;
 
 public sealed class AcpDistributionServiceTests : IDisposable {
-	private readonly string _root = Path.Combine(Path.GetTempPath(), "weavie-acp-distribution", Guid.NewGuid().ToString("N"));
-
-	public AcpDistributionServiceTests() {
-		Directory.CreateDirectory(_root);
-	}
+	private readonly TempDirectory _root = new("weavie-acp-distribution");
 
 	[Fact]
 	public async Task PackageDistributionsArePersistedAsLiteralCommands() {
@@ -67,7 +63,7 @@ public sealed class AcpDistributionServiceTests : IDisposable {
 	public void PosixInstallationsPersistLiteralNpxArgumentsWithWhitespace() {
 		if (OperatingSystem.IsWindows()) return;
 		var fileSystem = new InMemoryFileSystem();
-		var store = new AcpInstallationStore(fileSystem, Path.Combine(_root, "installed.json"));
+		var store = new AcpInstallationStore(fileSystem, _root.Combine("installed.json"));
 		var launch = new AcpLaunchSpec {
 			Id = "sample",
 			Name = "Sample",
@@ -86,7 +82,7 @@ public sealed class AcpDistributionServiceTests : IDisposable {
 	[Fact]
 	public void CustomProfilesUseExactPathCommandsAndEnvironment() {
 		var fileSystem = new InMemoryFileSystem();
-		fileSystem.WriteAllText(Path.Combine(_root, "custom.json"),
+		fileSystem.WriteAllText(_root.Combine("custom.json"),
 			"""
 			{"version":1,"agents":[{"id":"mine","name":"Mine","command":"my-acp","args":["serve"],"env":{"MODE":"acp"}}]}
 			""");
@@ -102,7 +98,7 @@ public sealed class AcpDistributionServiceTests : IDisposable {
 	[Fact]
 	public void CustomProfileReloadIsTransactional() {
 		var fileSystem = new InMemoryFileSystem();
-		string custom = Path.Combine(_root, "custom.json");
+		string custom = _root.Combine("custom.json");
 		fileSystem.WriteAllText(custom,
 			"""{"version":1,"agents":[{"id":"mine","name":"Mine","command":"mine","args":[],"env":{}}]}""");
 		var service = Service(fileSystem, new RegistryHandler(PackageRegistry("1.2.3")));
@@ -132,7 +128,7 @@ public sealed class AcpDistributionServiceTests : IDisposable {
 		var launch = Assert.Single(service.LaunchSpecs);
 		Assert.True(Path.IsPathFullyQualified(launch.Command));
 		Assert.Equal("agent", File.ReadAllText(launch.Command));
-		Assert.StartsWith(Path.Combine(_root, "packages", "sample", "1.2.3"), launch.Command);
+		Assert.StartsWith(_root.Combine("packages", "sample", "1.2.3"), launch.Command);
 	}
 
 	[Fact]
@@ -211,7 +207,7 @@ public sealed class AcpDistributionServiceTests : IDisposable {
 		await Assert.ThrowsAsync<InvalidDataException>(
 			() => service.InstallAsync("sample", "binary", CancellationToken.None));
 
-		Assert.False(File.Exists(Path.Combine(_root, "packages", "sample", "1.2.3", "escaped")));
+		Assert.False(File.Exists(_root.Combine("packages", "sample", "1.2.3", "escaped")));
 	}
 
 	[Theory]
@@ -223,13 +219,13 @@ public sealed class AcpDistributionServiceTests : IDisposable {
 
 		await Assert.ThrowsAsync<JsonException>(() => service.ListRegistryAsync(CancellationToken.None));
 
-		Assert.False(Directory.Exists(Path.Combine(_root, "outside")));
+		Assert.False(Directory.Exists(_root.Combine("outside")));
 	}
 
 	[Fact]
 	public async Task RemovingAnInstallationLeavesCustomProfilesUntouched() {
 		var fileSystem = new InMemoryFileSystem();
-		fileSystem.WriteAllText(Path.Combine(_root, "custom.json"),
+		fileSystem.WriteAllText(_root.Combine("custom.json"),
 			"""{"version":1,"agents":[{"id":"mine","name":"Mine","command":"mine","args":[],"env":{}}]}""");
 		var service = Service(fileSystem, new RegistryHandler(PackageRegistry("1.2.3")));
 		await service.InstallAsync("sample", "npx", CancellationToken.None);
@@ -245,9 +241,9 @@ public sealed class AcpDistributionServiceTests : IDisposable {
 			http,
 			new AcpRegistryClient(http, new Uri("https://registry.test/index.json")),
 			fileSystem,
-			Path.Combine(_root, "installations.json"),
-			Path.Combine(_root, "custom.json"),
-			Path.Combine(_root, "packages"));
+			_root.Combine("installations.json"),
+			_root.Combine("custom.json"),
+			_root.Combine("packages"));
 	}
 
 	private static string PackageRegistry(string version) => PackageRegistry(version, "sample");
@@ -349,7 +345,7 @@ public sealed class AcpDistributionServiceTests : IDisposable {
 	}
 
 	public void Dispose() {
-		if (Directory.Exists(_root)) Directory.Delete(_root, recursive: true);
+		_root.Dispose();
 		GC.SuppressFinalize(this);
 	}
 

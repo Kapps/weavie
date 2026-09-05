@@ -143,13 +143,8 @@ public sealed class GitServiceTests {
 
 	[Fact]
 	public async Task ListWorkspaceFiles_NonRepositoryReturnsNull() {
-		string directory = Path.Combine(Path.GetTempPath(), "weavie-non-repo-" + Guid.NewGuid().ToString("n"));
-		Directory.CreateDirectory(directory);
-		try {
-			Assert.Null(await new GitService().ListWorkspaceFilesAsync(directory));
-		} finally {
-			Directory.Delete(directory);
-		}
+		using var directory = new TempDirectory("weavie-non-repo");
+		Assert.Null(await new GitService().ListWorkspaceFilesAsync(directory.Path));
 	}
 
 	[Theory]

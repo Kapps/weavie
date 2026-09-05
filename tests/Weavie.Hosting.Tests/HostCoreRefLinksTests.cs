@@ -13,7 +13,7 @@ public sealed class HostCoreRefLinksTests {
 	[Fact]
 	public async Task RefLinkBase_PushesForgePullPrefix_ForAGitHubOrigin() {
 		await using var host = await TestHost.StartAsync(repo =>
-			TestHost.RunGit(repo, "remote", "add", "origin", "git@github.com:acme/demo.git"));
+			TempGitRepo.Run(repo, "remote", "add", "origin", "git@github.com:acme/demo.git"));
 
 		var msg = await Wait.ForAsync(() =>
 			host.Bridge.LastEvent(host.WorkspaceSession.Address, "git", "refLinkBase"));

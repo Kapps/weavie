@@ -12,22 +12,11 @@ namespace Weavie.Core.Tests;
 /// </summary>
 [Collection("Settings")]
 public sealed class SettingsStoreTests : IDisposable {
-	private readonly string _dir = Path.Combine(Path.GetTempPath(), "weavie-settings-tests", Guid.NewGuid().ToString("N"));
+	private readonly TempDirectory _dir = new("weavie-settings-tests");
 
-	public SettingsStoreTests() {
-		Directory.CreateDirectory(_dir);
-	}
+	public void Dispose() => _dir.Dispose();
 
-	public void Dispose() {
-		try {
-			Directory.Delete(_dir, recursive: true);
-		} catch (IOException) {
-			// A watcher may briefly hold the directory; a leaked temp dir is harmless.
-		} catch (UnauthorizedAccessException) {
-		}
-	}
-
-	private string FilePath => Path.Combine(_dir, "settings.toml");
+	private string FilePath => _dir.Combine("settings.toml");
 
 	private static SettingsRegistry ScalarRegistry() {
 		var registry = new SettingsRegistry();
@@ -59,13 +48,7 @@ public sealed class SettingsStoreTests : IDisposable {
 	// The overlay file RegisterWorkspace resolves for a workspace root.
 	private static string WorkspaceFile(string root) => Path.Combine(root, ".weavie", "settings.toml");
 
-	private string WorkspaceRoot {
-		get {
-			string root = Path.Combine(_dir, "repo");
-			Directory.CreateDirectory(root);
-			return root;
-		}
-	}
+	private string WorkspaceRoot => _dir.CreateDirectory("repo");
 
 	private static JsonElement Json(string raw) => JsonDocument.Parse(raw).RootElement.Clone();
 
@@ -554,7 +537,7 @@ public sealed class SettingsStoreTests : IDisposable {
 	[Fact]
 	public void Set_WorkspaceScopedKey_UsesTheInjectedOverlay_NeverUnderTheRepo() {
 		string root = WorkspaceRoot;
-		string overlay = Path.Combine(_dir, "out-of-repo", "settings.toml");
+		string overlay = _dir.Combine("out-of-repo", "settings.toml");
 		using var store = new SettingsStore(ScopedRegistry(), FilePath, enableWatcher: false, _ => overlay);
 		store.RegisterWorkspace(root);
 

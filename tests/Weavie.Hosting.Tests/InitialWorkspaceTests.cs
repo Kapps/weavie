@@ -46,45 +46,24 @@ public sealed class InitialWorkspaceTests {
 	}
 
 	private sealed class Harness : IDisposable {
-		private readonly string _settingsPath;
-		private readonly List<string> _dirs = [];
+		private readonly TempDirectory _temp = new("weavie-iw");
 
 		public Harness() {
-			_settingsPath = Path.Combine(Path.GetTempPath(), "weavie-iw-" + Guid.NewGuid().ToString("n") + ".toml");
-			Settings = CoreSettings.CreateStore(_settingsPath, enableWatcher: false);
-			Recents = new RecentWorkspaces(
-				new LocalFileSystem(),
-				Path.Combine(Path.GetTempPath(), "weavie-iw-recents-" + Guid.NewGuid().ToString("n") + ".json"));
+			Settings = CoreSettings.CreateStore(_temp.Combine("settings.toml"), enableWatcher: false);
+			Recents = new RecentWorkspaces(new LocalFileSystem(), _temp.Combine("recents.json"));
 		}
 
 		public SettingsStore Settings { get; }
 		public RecentWorkspaces Recents { get; }
 
-		public string MakeDir() {
-			string dir = Directory.CreateDirectory(
-				Path.Combine(Path.GetTempPath(), "weavie-iw-ws-" + Guid.NewGuid().ToString("n"))).FullName;
-			_dirs.Add(dir);
-			return dir;
-		}
+		public string MakeDir() => _temp.CreateDirectory("ws-" + Guid.NewGuid().ToString("n"));
 
 		public void SetWorkspace(string dir) =>
 			Settings.Set("workspace", JsonDocument.Parse("\"" + JsonEncodedText.Encode(dir) + "\"").RootElement.Clone());
 
 		public void Dispose() {
 			Settings.Dispose();
-			foreach (string dir in _dirs) {
-				try {
-					Directory.Delete(dir, recursive: true);
-				} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-					// best-effort temp cleanup
-				}
-			}
-
-			try {
-				File.Delete(_settingsPath);
-			} catch (IOException) {
-				// best-effort
-			}
+			_temp.Dispose();
 		}
 	}
 }

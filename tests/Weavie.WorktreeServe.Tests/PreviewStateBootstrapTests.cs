@@ -9,16 +9,16 @@ using Xunit;
 namespace Weavie.WorktreeServe.Tests;
 
 public sealed class PreviewStateBootstrapTests : IDisposable {
-	private readonly string _root = Directory.CreateTempSubdirectory("preview-state-bootstrap-tests-").FullName;
+	private readonly TempDirectory _root = new("preview-state-bootstrap-tests");
 	private readonly LocalFileSystem _fileSystem = new();
 
 	[Fact]
 	public void Refresh_projects_exact_session_provider_and_only_loads_the_current_checkout() {
-		string production = Directory.CreateDirectory(Path.Combine(_root, "production")).FullName;
-		string preview = Directory.CreateDirectory(Path.Combine(_root, "preview")).FullName;
-		string workspace = Directory.CreateDirectory(Path.Combine(_root, "repository")).FullName;
-		string current = Directory.CreateDirectory(Path.Combine(_root, "current-worktree")).FullName;
-		string other = Directory.CreateDirectory(Path.Combine(_root, "other-worktree")).FullName;
+		string production = _root.CreateDirectory("production");
+		string preview = _root.CreateDirectory("preview");
+		string workspace = _root.CreateDirectory("repository");
+		string current = _root.CreateDirectory("current-worktree");
+		string other = _root.CreateDirectory("other-worktree");
 		var workspaceId = WorkspaceId.ForPath(workspace);
 		WriteSessions(production, workspaceId, [
 			Descriptor("current", "current", current, loaded: false, "codex-acp"),
@@ -68,13 +68,13 @@ public sealed class PreviewStateBootstrapTests : IDisposable {
 
 	[Fact]
 	public void Refresh_requires_an_exact_production_session_before_writing_preview_configuration() {
-		string production = Directory.CreateDirectory(Path.Combine(_root, "production")).FullName;
-		string preview = Directory.CreateDirectory(Path.Combine(_root, "preview")).FullName;
-		string workspace = Directory.CreateDirectory(Path.Combine(_root, "repository")).FullName;
-		string current = Directory.CreateDirectory(Path.Combine(_root, "current-worktree")).FullName;
+		string production = _root.CreateDirectory("production");
+		string preview = _root.CreateDirectory("preview");
+		string workspace = _root.CreateDirectory("repository");
+		string current = _root.CreateDirectory("current-worktree");
 		var workspaceId = WorkspaceId.ForPath(workspace);
 		WriteSessions(production, workspaceId, [
-			Descriptor("other", "other", Path.Combine(_root, "other"), loaded: true, "claude"),
+			Descriptor("other", "other", _root.Combine("other"), loaded: true, "claude"),
 		]);
 		Write(Under(production, WeaviePaths.SettingsFile), "production");
 		Write(Under(preview, WeaviePaths.SettingsFile), "preview");
@@ -87,10 +87,10 @@ public sealed class PreviewStateBootstrapTests : IDisposable {
 
 	[Fact]
 	public void Refresh_rejects_an_unavailable_provider() {
-		string production = Directory.CreateDirectory(Path.Combine(_root, "production")).FullName;
-		string preview = Directory.CreateDirectory(Path.Combine(_root, "preview")).FullName;
-		string workspace = Directory.CreateDirectory(Path.Combine(_root, "repository")).FullName;
-		string current = Directory.CreateDirectory(Path.Combine(_root, "current-worktree")).FullName;
+		string production = _root.CreateDirectory("production");
+		string preview = _root.CreateDirectory("preview");
+		string workspace = _root.CreateDirectory("repository");
+		string current = _root.CreateDirectory("current-worktree");
 		var workspaceId = WorkspaceId.ForPath(workspace);
 		WriteSessions(production, workspaceId, [
 			Descriptor("current", "current", current, loaded: true, "missing-acp"),
@@ -104,10 +104,10 @@ public sealed class PreviewStateBootstrapTests : IDisposable {
 
 	[Fact]
 	public void Refresh_strictly_rejects_malformed_production_sessions_without_repairing_them() {
-		string production = Directory.CreateDirectory(Path.Combine(_root, "production")).FullName;
-		string preview = Directory.CreateDirectory(Path.Combine(_root, "preview")).FullName;
-		string workspace = Directory.CreateDirectory(Path.Combine(_root, "repository")).FullName;
-		string current = Directory.CreateDirectory(Path.Combine(_root, "current-worktree")).FullName;
+		string production = _root.CreateDirectory("production");
+		string preview = _root.CreateDirectory("preview");
+		string workspace = _root.CreateDirectory("repository");
+		string current = _root.CreateDirectory("current-worktree");
 		var workspaceId = WorkspaceId.ForPath(workspace);
 		string sessionsPath = Under(production, WeaviePaths.WorkspaceSessionsFile(workspaceId));
 		Write(sessionsPath, "{ broken ");
@@ -157,5 +157,5 @@ public sealed class PreviewStateBootstrapTests : IDisposable {
 		File.WriteAllText(path, contents);
 	}
 
-	public void Dispose() => Directory.Delete(_root, recursive: true);
+	public void Dispose() => _root.Dispose();
 }

@@ -13,23 +13,21 @@ namespace Weavie.Core.Tests;
 /// externally-created worktrees surfaced as untracked. Requires <c>git</c> on PATH.
 /// </summary>
 public sealed class WorktreeIntegrationTests : IDisposable {
-	private readonly string _root;
+	private readonly TempDirectory _root = new("weavie-git-it");
 	private readonly string _repo;
 	private readonly GitService _git = new();
 
 	public WorktreeIntegrationTests() {
-		_root = Path.Combine(Path.GetTempPath(), "weavie-git-it-" + Guid.NewGuid().ToString("n"));
-		_repo = Path.Combine(_root, "repo");
-		Directory.CreateDirectory(_repo);
-		RunGit(_repo, "init", "-b", "main");
+		_repo = _root.CreateDirectory("repo");
+		TempGitRepo.Init(_repo);
 		File.WriteAllText(Path.Combine(_repo, "readme.txt"), "hello\n");
-		RunGit(_repo, "add", "-A");
-		RunGit(_repo, "-c", "user.email=test@weavie.dev", "-c", "user.name=Weavie Test", "-c", "commit.gpgsign=false", "commit", "-m", "initial");
+		TempGitRepo.Run(_repo, "add", "-A");
+		TempGitRepo.Run(_repo, "commit", "-m", "initial");
 	}
 
 	private WorktreeManager NewManager() {
-		var registry = new WorktreeRegistry(new LocalFileSystem(), Path.Combine(_root, "worktrees.json"));
-		return new WorktreeManager(_git, registry, _repo, Path.Combine(_root, "worktrees"), NullWorktreeProvisioner.Instance);
+		var registry = new WorktreeRegistry(new LocalFileSystem(), _root.Combine("worktrees.json"));
+		return new WorktreeManager(_git, registry, _repo, _root.Combine("worktrees"), NullWorktreeProvisioner.Instance);
 	}
 
 	[Fact]
@@ -102,15 +100,15 @@ public sealed class WorktreeIntegrationTests : IDisposable {
 	public async Task GetChangeState_ListsStagedAddDeleteAndRenamePaths() {
 		File.WriteAllText(Path.Combine(_repo, "delete-me.txt"), "delete\n");
 		File.WriteAllText(Path.Combine(_repo, "rename-me.txt"), "rename\n");
-		RunGit(_repo, "add", "-A");
-		RunGit(_repo, "-c", "user.email=test@weavie.dev", "-c", "user.name=Weavie Test", "commit", "-m", "more files");
+		TempGitRepo.Run(_repo, "add", "-A");
+		TempGitRepo.Run(_repo, "commit", "-m", "more files");
 		var record = await NewManager().CreateAsync("staged-changes", "main", "acp");
 
 		File.WriteAllText(Path.Combine(record.Path, "readme.txt"), "edited\n");
 		File.Delete(Path.Combine(record.Path, "delete-me.txt"));
 		File.Move(Path.Combine(record.Path, "rename-me.txt"), Path.Combine(record.Path, "renamed.txt"));
 		File.WriteAllText(Path.Combine(record.Path, "staged-new.txt"), "new\n");
-		RunGit(record.Path, "add", "-A");
+		TempGitRepo.Run(record.Path, "add", "-A");
 
 		var status = await _git.GetChangeStateAsync(record.Path);
 
@@ -125,7 +123,7 @@ public sealed class WorktreeIntegrationTests : IDisposable {
 		var record = await manager.CreateAsync("ghost", "main", "acp");
 
 		// Remove out of band: git forgets it, the registry still has it.
-		RunGit(_repo, "worktree", "remove", record.Path);
+		TempGitRepo.Run(_repo, "worktree", "remove", record.Path);
 
 		var list = await manager.ListAsync();
 		var ghost = list.Single(s => s.Branch == "ghost");
@@ -141,7 +139,7 @@ public sealed class WorktreeIntegrationTests : IDisposable {
 	public async Task Attach_ExistingBranch_ChecksOutThatBranch() {
 		var manager = NewManager();
 		// A branch that exists but isn't checked out anywhere.
-		RunGit(_repo, "branch", "existing", "main");
+		TempGitRepo.Run(_repo, "branch", "existing", "main");
 
 		var record = await manager.AttachAsync("existing", "acp");
 
@@ -161,8 +159,8 @@ public sealed class WorktreeIntegrationTests : IDisposable {
 
 	[Fact]
 	public async Task ListBranches_ReturnsLocalBranches() {
-		RunGit(_repo, "branch", "alpha", "main");
-		RunGit(_repo, "branch", "beta", "main");
+		TempGitRepo.Run(_repo, "branch", "alpha", "main");
+		TempGitRepo.Run(_repo, "branch", "beta", "main");
 
 		var branches = await _git.ListBranchesAsync(_repo);
 
@@ -173,13 +171,13 @@ public sealed class WorktreeIntegrationTests : IDisposable {
 
 	[Fact]
 	public async Task ListRefs_IncludesRemoteTrackingBranches_MinusRemoteHead() {
-		RunGit(_repo, "branch", "alpha", "main");
-		string head = RunGitOut(_repo, "rev-parse", "main").Trim();
+		TempGitRepo.Run(_repo, "branch", "alpha", "main");
+		string head = TempGitRepo.Run(_repo, "rev-parse", "main").Trim();
 		// A remote-tracking branch + its symbolic HEAD, without a live remote — the state a fetch leaves behind.
-		RunGit(_repo, "update-ref", "refs/remotes/origin/master", head);
-		RunGit(_repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/master");
+		TempGitRepo.Run(_repo, "update-ref", "refs/remotes/origin/master", head);
+		TempGitRepo.Run(_repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/master");
 		// A real remote branch whose last segment is literally HEAD — a diff target, not a symbolic alias.
-		RunGit(_repo, "update-ref", "refs/remotes/origin/feature/HEAD", head);
+		TempGitRepo.Run(_repo, "update-ref", "refs/remotes/origin/feature/HEAD", head);
 
 		var refs = await _git.ListRefsAsync(_repo);
 
@@ -197,8 +195,8 @@ public sealed class WorktreeIntegrationTests : IDisposable {
 	[Fact]
 	public async Task ExternallyCreatedWorktree_SurfacedAsUntracked() {
 		var manager = NewManager();
-		string manualPath = Path.Combine(_root, "manual");
-		RunGit(_repo, "worktree", "add", "-b", "manual", manualPath, "main");
+		string manualPath = _root.Combine("manual");
+		TempGitRepo.Run(_repo, "worktree", "add", "-b", "manual", manualPath, "main");
 
 		var list = await manager.ListAsync();
 		var manual = list.Single(s => s.Branch == "manual");
@@ -213,7 +211,7 @@ public sealed class WorktreeIntegrationTests : IDisposable {
 
 		// Simulate a lock-induced half-removal: git's record is gone but the directory remains on disk with
 		// leftover files (the state a Windows file lock leaves behind), and the registry row survives.
-		RunGit(_repo, "worktree", "remove", "--force", record.Path);
+		TempGitRepo.Run(_repo, "worktree", "remove", "--force", record.Path);
 		Directory.CreateDirectory(record.Path);
 		File.WriteAllText(Path.Combine(record.Path, "leftover.txt"), "locked\n");
 
@@ -254,7 +252,7 @@ public sealed class WorktreeIntegrationTests : IDisposable {
 
 		// A directory OUTSIDE the worktree whose contents MUST survive the worktree's deletion — this stands in
 		// for the primary checkout that a worktree's node_modules is junctioned into during live testing.
-		string target = Path.Combine(_root, "precious");
+		string target = _root.Combine("precious");
 		Directory.CreateDirectory(target);
 		File.WriteAllText(Path.Combine(target, "keep.txt"), "do not delete\n");
 
@@ -269,32 +267,6 @@ public sealed class WorktreeIntegrationTests : IDisposable {
 		Assert.False(Directory.Exists(record.Path)); // worktree (and the junction entry) gone
 		Assert.True(Directory.Exists(target)); // the junction's TARGET survived — we never recursed through it
 		Assert.True(File.Exists(Path.Combine(target, "keep.txt")));
-	}
-
-	private static void RunGit(string workingDirectory, params string[] args) => RunGitOut(workingDirectory, args);
-
-	private static string RunGitOut(string workingDirectory, params string[] args) {
-		var info = new ProcessStartInfo {
-			FileName = "git",
-			WorkingDirectory = workingDirectory,
-			UseShellExecute = false,
-			RedirectStandardOutput = true,
-			RedirectStandardError = true,
-			CreateNoWindow = true,
-		};
-		foreach (string arg in args) {
-			info.ArgumentList.Add(arg);
-		}
-
-		using var process = Process.Start(info)!;
-		string output = process.StandardOutput.ReadToEnd();
-		string error = process.StandardError.ReadToEnd();
-		process.WaitForExit();
-		if (process.ExitCode != 0) {
-			throw new InvalidOperationException($"git {string.Join(' ', args)} failed (exit {process.ExitCode}): {error.Trim()}");
-		}
-
-		return output;
 	}
 
 	// Runs a cmd.exe builtin (e.g. `mklink /J` to create a junction, which needs no elevation). Windows-only.
@@ -321,27 +293,5 @@ public sealed class WorktreeIntegrationTests : IDisposable {
 		}
 	}
 
-	public void Dispose() {
-		try {
-			DeleteDirectoryRobust(_root);
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			// Best-effort temp cleanup; leftover temp dirs are harmless.
-		}
-	}
-
-	private static void DeleteDirectoryRobust(string directory) {
-		if (!Directory.Exists(directory)) {
-			return;
-		}
-
-		foreach (string file in Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories)) {
-			try {
-				File.SetAttributes(file, FileAttributes.Normal);
-			} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-				// Ignore; the recursive delete below will surface anything fatal.
-			}
-		}
-
-		Directory.Delete(directory, recursive: true);
-	}
+	public void Dispose() => _root.Dispose();
 }

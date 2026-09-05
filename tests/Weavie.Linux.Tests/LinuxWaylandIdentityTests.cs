@@ -10,9 +10,9 @@ public sealed class LinuxWaylandIdentityTests {
 	[Fact]
 	public async Task LinuxHost_PublishesTheDesktopAppIdToWayland() {
 		const string appId = "io.github.kapps.weavie";
-		string root = Directory.CreateTempSubdirectory("weavie-wayland-").FullName;
-		string runtime = Path.Combine(root, "runtime");
-		string dataHome = Path.Combine(root, "data");
+		using var root = new TempDirectory("weavie-wayland");
+		string runtime = root.Combine("runtime");
+		string dataHome = root.Combine("data");
 		Directory.CreateDirectory(
 			runtime,
 			UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
@@ -49,7 +49,7 @@ public sealed class LinuxWaylandIdentityTests {
 			appInfo.ArgumentList.Add(Path.Combine(AppContext.BaseDirectory, "Weavie"));
 			appInfo.Environment["XDG_RUNTIME_DIR"] = runtime;
 			appInfo.Environment["XDG_DATA_HOME"] = dataHome;
-			appInfo.Environment["WEAVIE_ROOT"] = Path.Combine(root, "weavie");
+			appInfo.Environment["WEAVIE_ROOT"] = root.Combine("weavie");
 			appInfo.Environment["WAYLAND_DISPLAY"] = socketName;
 			appInfo.Environment["GDK_BACKEND"] = "wayland";
 			appInfo.Environment["WAYLAND_DEBUG"] = "client";
@@ -93,7 +93,6 @@ public sealed class LinuxWaylandIdentityTests {
 		} finally {
 			await StopAsync(app);
 			await StopAsync(weston);
-			Directory.Delete(root, recursive: true);
 		}
 	}
 

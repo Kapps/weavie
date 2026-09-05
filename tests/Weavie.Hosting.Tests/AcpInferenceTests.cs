@@ -8,16 +8,9 @@ using Xunit;
 namespace Weavie.Hosting.Tests;
 
 public sealed class AcpInferenceTests : IDisposable {
-	private readonly string _workspace = Path.Combine(
-		Path.GetTempPath(),
-		"weavie-acp-inference-tests",
-		Guid.NewGuid().ToString("n"));
+	private readonly TempDirectory _workspace = new("weavie-acp-inference-tests");
 
-	public AcpInferenceTests() {
-		Directory.CreateDirectory(_workspace);
-	}
-
-	public void Dispose() => Directory.Delete(_workspace, recursive: true);
+	public void Dispose() => _workspace.Dispose();
 
 	[Fact]
 	public async Task RunsInTheOwningWorkspaceAndRefusesEveryAgentRequest() {
@@ -26,7 +19,7 @@ public sealed class AcpInferenceTests : IDisposable {
 		Assert.Equal("fake-model", result.ModelId);
 		using var output = JsonDocument.Parse(result.OutputJson);
 		Assert.Equal("feat/fake-branch", output.RootElement.GetProperty("branch").GetString());
-		Assert.Equal(Path.GetFullPath(_workspace), output.RootElement.GetProperty("cwd").GetString());
+		Assert.Equal(Path.GetFullPath(_workspace.Path), output.RootElement.GetProperty("cwd").GetString());
 		Assert.True(output.RootElement.GetProperty("refusedProbe").GetBoolean());
 	}
 
@@ -167,7 +160,7 @@ public sealed class AcpInferenceTests : IDisposable {
 
 	[Fact]
 	public async Task ReportsAMissingAgentBinaryAsNotConfigured() {
-		var provider = Provider(Path.Combine(_workspace, "does-not-exist"), []);
+		var provider = Provider(_workspace.Combine("does-not-exist"), []);
 
 		var failure = Assert.IsType<InferenceProviderFailure>(
 			await provider.QueryInferenceAsync(Request(), CancellationToken.None));
@@ -197,7 +190,7 @@ public sealed class AcpInferenceTests : IDisposable {
 	private InferenceProviderRequest Request() => new() {
 		Category = InferenceModelCategory.Utility,
 		Profile = Profile(string.Empty, string.Empty, InferenceFastMode.Inherit),
-		Workspace = _workspace,
+		Workspace = _workspace.Path,
 		Prompt = "Propose one branch name.",
 		Images = [],
 		OutputSchemaJson = "{\"type\":\"object\",\"properties\":{\"branch\":{\"type\":\"string\"}}}",

@@ -10,21 +10,14 @@ namespace Weavie.Core.Tests.Sources;
 /// prompt and the failure toasts.
 /// </summary>
 public sealed class SourceConnectorTests : IDisposable {
-	private readonly string _dir = Path.Combine(Path.GetTempPath(), "weavie-source-connector", Guid.NewGuid().ToString("N"));
+	private readonly TempDirectory _dir = new("weavie-source-connector");
 	private readonly SourceConnector _connector;
 
 	public SourceConnectorTests() {
-		Directory.CreateDirectory(_dir);
-		_connector = new SourceConnector([new NotionSource(new HttpClient())], id => Path.Combine(_dir, $"{id}.json"));
+		_connector = new SourceConnector([new NotionSource(new HttpClient())], id => _dir.Combine($"{id}.json"));
 	}
 
-	public void Dispose() {
-		try {
-			Directory.Delete(_dir, recursive: true);
-		} catch (IOException) {
-		} catch (UnauthorizedAccessException) {
-		}
-	}
+	public void Dispose() => _dir.Dispose();
 
 	[Fact]
 	public void SetupUrlFor_ReturnsTheSourcesTokenPage() =>

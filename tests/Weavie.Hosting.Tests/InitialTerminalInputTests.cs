@@ -21,21 +21,10 @@ namespace Weavie.Hosting.Tests;
 /// is never sent. Either way the prompt silently disappears, which is what injection cost us.
 /// </summary>
 public sealed class InitialTerminalInputTests : IDisposable {
-	private readonly string _dir = Path.Combine(
-		Path.GetTempPath(), "weavie-initial-terminal-input", Guid.NewGuid().ToString("N"));
+	private readonly TempDirectory _dir = new("weavie-initial-terminal-input");
 	private readonly ScriptablePtyLauncher _launcher = new();
 
-	public InitialTerminalInputTests() {
-		Directory.CreateDirectory(_dir);
-	}
-
-	public void Dispose() {
-		try {
-			Directory.Delete(_dir, recursive: true);
-		} catch (IOException) {
-		} catch (UnauthorizedAccessException) {
-		}
-	}
+	public void Dispose() => _dir.Dispose();
 
 	[Fact]
 	public void FirstTurn_IsClaudesOpeningPromptArgument() {
@@ -82,8 +71,8 @@ public sealed class InitialTerminalInputTests : IDisposable {
 
 	[Fact]
 	public async Task InitialInput_ReachesTheLaunch_AndIsNeverTypedAtThePane() {
-		using var settings = CoreSettings.CreateStore(Path.Combine(_dir, "settings.toml"), enableWatcher: false);
-		var provider = new FakeTerminalAgentProvider(_dir);
+		using var settings = CoreSettings.CreateStore(_dir.Combine("settings.toml"), enableWatcher: false);
+		var provider = new FakeTerminalAgentProvider(_dir.Path);
 		await using var session = CreateSession(settings, provider);
 
 		session.QueueInitialInput(Input("build the thing"));
@@ -112,17 +101,17 @@ public sealed class InitialTerminalInputTests : IDisposable {
 		var session = new HostSession(
 			endpoint,
 			settings,
-			new LayoutStore(new LocalFileSystem(), LayoutPanes.CreateRegistry(), Path.Combine(_dir, "layout.json")),
-			_dir,
-			Path.Combine(_dir, "scratch"),
-			Path.Combine(_dir, "pasted"),
-			Path.Combine(_dir, "agent-pane.json"),
+			new LayoutStore(new LocalFileSystem(), LayoutPanes.CreateRegistry(), _dir.Combine("layout.json")),
+			_dir.Path,
+			_dir.Combine("scratch"),
+			_dir.Combine("pasted"),
+			_dir.Combine("agent-pane.json"),
 			[ShellTerminalId.New()],
-			id => Path.Combine(_dir, $"shell-{id}.json"),
+			id => _dir.Combine($"shell-{id}.json"),
 			commandRegistry,
-			new KeybindingStore(commandRegistry, Path.Combine(_dir, "keybindings.json"), enableWatcher: false),
-			new ThemeOverridesStore(new LocalFileSystem(), Path.Combine(_dir, "theme-overrides.json")),
-			new CorrectionCorpus(new LocalFileSystem(), Path.Combine(_dir, "corrections.jsonl")),
+			new KeybindingStore(commandRegistry, _dir.Combine("keybindings.json"), enableWatcher: false),
+			new ThemeOverridesStore(new LocalFileSystem(), _dir.Combine("theme-overrides.json")),
+			new CorrectionCorpus(new LocalFileSystem(), _dir.Combine("corrections.jsonl")),
 			UnusedInferenceService.Instance,
 			_launcher,
 			provider,
@@ -137,15 +126,14 @@ public sealed class InitialTerminalInputTests : IDisposable {
 	/// <summary>The real Claude lifecycle over isolated in-memory stores, for launch-argument assertions.</summary>
 	private sealed class ClaudeLifecycleHarness : IDisposable {
 		private readonly SettingsStore _settings;
-		private readonly string _settingsPath;
+		private readonly TempDirectory _temp = new("weavie-first-turn");
 
 		public ClaudeLifecycleHarness() {
-			_settingsPath = Path.Combine(Path.GetTempPath(), "weavie-first-turn-" + Guid.NewGuid().ToString("n") + ".toml");
-			_settings = CoreSettings.CreateStore(_settingsPath, enableWatcher: false);
+			_settings = CoreSettings.CreateStore(_temp.Combine("settings.toml"), enableWatcher: false);
 			_settings.Set(CoreSettings.ClaudePath, JsonSerializer.SerializeToElement("claude"));
 			Agent = new ClaudeTerminalLifecycle(
 				_settings,
-				Path.Combine(Path.GetTempPath(), "weavie-first-turn-ws-" + Guid.NewGuid().ToString("n")),
+				_temp.Combine("workspace"),
 				new ClaudeSessionStore(new InMemoryFileSystem(), "/weavie/claude-sessions.json"),
 				new ClaudeTranscripts(new InMemoryFileSystem(), "/claude/projects"),
 				new ClaudeLaunchConfiguration {
@@ -160,11 +148,7 @@ public sealed class InitialTerminalInputTests : IDisposable {
 
 		public void Dispose() {
 			_settings.Dispose();
-			try {
-				File.Delete(_settingsPath);
-			} catch (IOException) {
-				// best-effort temp cleanup
-			}
+			_temp.Dispose();
 		}
 	}
 

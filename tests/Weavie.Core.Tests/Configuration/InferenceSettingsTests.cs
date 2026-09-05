@@ -4,14 +4,7 @@ using Xunit;
 namespace Weavie.Core.Tests;
 
 public sealed class InferenceSettingsTests : IDisposable {
-	private readonly string _dir = Path.Combine(
-		Path.GetTempPath(),
-		"weavie-inference-settings-tests",
-		Guid.NewGuid().ToString("n"));
-
-	public InferenceSettingsTests() {
-		Directory.CreateDirectory(_dir);
-	}
+	private readonly TempDirectory _dir = new("weavie-inference-settings-tests");
 
 	[Fact]
 	public void DefaultsSelectClaudeAndInheritItsProfile() {
@@ -39,7 +32,7 @@ public sealed class InferenceSettingsTests : IDisposable {
 		Assert.Equal("on", store.RequireString(InferenceSettings.FastMode));
 	}
 
-	private string FilePath => Path.Combine(_dir, "settings.toml");
+	private string FilePath => _dir.Combine("settings.toml");
 
-	public void Dispose() => Directory.Delete(_dir, recursive: true);
+	public void Dispose() => _dir.Dispose();
 }

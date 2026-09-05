@@ -17,4 +17,9 @@
     <ProjectReference Include="..\..\tools\Weavie.WorktreeServe\Weavie.WorktreeServe.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\Weavie.TestSupport\Weavie.TestSupport.csproj" />
+    <Using Include="Weavie.TestSupport" />
+  </ItemGroup>
+
 </Project>

@@ -533,24 +533,23 @@ public sealed class AgentSessionHostTests {
 		Func<string> slot,
 		long paneCoalesceMs,
 		bool withAuthenticationTerminal) {
-		string dir = Path.Combine(Path.GetTempPath(), "weavie-agent-host-tests", Guid.NewGuid().ToString("N"));
-		Directory.CreateDirectory(dir);
+		var dir = new TempDirectory("weavie-agent-host-tests");
 		var fileSystem = new InMemoryFileSystem();
-		var settings = CoreSettings.CreateStore(Path.Combine(dir, "settings.toml"), enableWatcher: false);
+		var settings = CoreSettings.CreateStore(dir.Combine("settings.toml"), enableWatcher: false);
 		settings.Set(AgentSettings.PaneCoalesceMs, JsonSerializer.SerializeToElement(paneCoalesceMs));
 		var commandRegistry = CoreCommands.CreateRegistry();
 		var bridge = new FakeHostBridge();
 		var registry = new CapabilityRegistryHost(
 			AgentSessionCredential.Create(),
 			FakeDiffPresenter.AlwaysKeep(),
-			[dir],
+			[dir.Path],
 			"weavie",
 			settings,
 			new LayoutStore(fileSystem, LayoutPanes.CreateRegistry(), "/layout.json"),
 			new EditorStore(),
 			exposeIdeTools: true,
 			new CommandDispatcher(commandRegistry),
-			new KeybindingStore(commandRegistry, Path.Combine(dir, "keybindings.json"), enableWatcher: false),
+			new KeybindingStore(commandRegistry, dir.Combine("keybindings.json"), enableWatcher: false),
 			new ThemeOverridesStore(fileSystem, "/theme-overrides.json"),
 			slot);
 		var session = new FakeStructuredSession();
@@ -560,14 +559,14 @@ public sealed class AgentSessionHostTests {
 				bridge.SessionFeature("terminal.agent"),
 					settings,
 					new NoopPtyLauncher(),
-					dir,
-					Path.Combine(dir, "authentication.scrollback"))
+					dir.Path,
+					dir.Combine("authentication.scrollback"))
 			: UnavailableAgentAuthenticationTerminal.Instance;
 		var host = new AgentSessionHost(
 			new FakeStructuredProvider(session),
 			new AgentSessionContext {
 				Settings = settings,
-				Workspace = dir,
+				Workspace = dir.Path,
 				FileSystem = fileSystem,
 				Registry = registry,
 				DiffPresenter = FakeDiffPresenter.AlwaysKeep(),
@@ -590,19 +589,20 @@ public sealed class AgentSessionHostTests {
 		AgentSessionHost host,
 		CapabilityRegistryHost registry,
 		SettingsStore settings,
-		string workspace) : IAsyncDisposable {
+		TempDirectory workspace) : IAsyncDisposable {
 		public FakeHostBridge Bridge => bridge;
 
 		public FakeStructuredSession Session => session;
 
 		public AgentSessionHost Host => host;
 
-		public string Workspace => workspace;
+		public string Workspace => workspace.Path;
 
 		public async ValueTask DisposeAsync() {
 			await host.DisposeAsync();
 			await registry.DisposeAsync();
 			settings.Dispose();
+			workspace.Dispose();
 		}
 	}
 

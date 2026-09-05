@@ -6,20 +6,16 @@ using Xunit;
 namespace Weavie.Core.Tests;
 
 public sealed class WorkspaceInventoryTests : IDisposable {
-	private readonly string _root = Path.Combine(Path.GetTempPath(), $"weavie-inventory-{Guid.NewGuid():N}");
-
-	public WorkspaceInventoryTests() {
-		Directory.CreateDirectory(_root);
-	}
+	private readonly TempDirectory _root = new("weavie-inventory");
 
 	[Fact]
 	public void TrackNonRepositoryFile_ReportsOnlyAPathTheInventoryLacked() {
 		// The workspace watcher re-enumerates whenever the inventory reports a change, so re-reporting a path
 		// it already holds would re-derive the whole workspace on every write.
-		var inventory = new WorkspaceInventory(_root, _ => Task.FromResult<IReadOnlyList<string>?>(null));
+		var inventory = new WorkspaceInventory(_root.Path, _ => Task.FromResult<IReadOnlyList<string>?>(null));
 		int reported = 0;
 		inventory.Changed += () => Interlocked.Increment(ref reported);
-		string path = Path.Combine(_root, "notes.md");
+		string path = _root.Combine("notes.md");
 
 		inventory.TrackNonRepositoryFile(path);
 		inventory.TrackNonRepositoryFile(path);
@@ -31,7 +27,7 @@ public sealed class WorkspaceInventoryTests : IDisposable {
 	[Fact]
 	public async Task Refresh_DerivesOnlyParentsOfGitFiles() {
 		var inventory = new WorkspaceInventory(
-			_root,
+			_root.Path,
 			_ => Task.FromResult<IReadOnlyList<string>?>([
 				Path.Combine("src", "feature", "file.ts"),
 				"README.md",
@@ -42,9 +38,9 @@ public sealed class WorkspaceInventoryTests : IDisposable {
 		Assert.True(snapshot.IsRepository);
 		Assert.Equal(
 			new[] {
-				_root,
-				Path.Combine(_root, "src"),
-				Path.Combine(_root, "src", "feature"),
+				_root.Path,
+				_root.Combine("src"),
+				_root.Combine("src", "feature"),
 			}.Order(),
 			snapshot.Directories.Order());
 		Assert.Equal(2, snapshot.Files.Count);
@@ -53,20 +49,20 @@ public sealed class WorkspaceInventoryTests : IDisposable {
 	[Fact]
 	public async Task Refresh_DistinguishesNonRepository() {
 		var inventory = new WorkspaceInventory(
-			_root,
+			_root.Path,
 			_ => Task.FromResult<IReadOnlyList<string>?>(null));
 
 		var snapshot = await inventory.RefreshAsync();
 
 		Assert.False(snapshot.IsRepository);
 		Assert.Empty(snapshot.Files);
-		Assert.Equal([_root], snapshot.Directories);
+		Assert.Equal([_root.Path], snapshot.Directories);
 	}
 
 	[Fact]
 	public async Task Refresh_RejectsPathOutsideWorkspace() {
 		var inventory = new WorkspaceInventory(
-			_root,
+			_root.Path,
 			_ => Task.FromResult<IReadOnlyList<string>?>([Path.Combine("..", "outside.ts")]));
 
 		await Assert.ThrowsAsync<GitException>(() => inventory.RefreshAsync());
@@ -75,36 +71,36 @@ public sealed class WorkspaceInventoryTests : IDisposable {
 	[Fact]
 	public async Task NonRepositoryMoveAndDeleteReconcileWholeTree() {
 		var inventory = new WorkspaceInventory(
-			_root,
+			_root.Path,
 			_ => Task.FromResult<IReadOnlyList<string>?>(null));
 		await inventory.RefreshAsync();
-		string oldFile = Path.Combine(_root, "old", "nested", "file.ts");
-		string newFile = Path.Combine(_root, "new", "nested", "file.ts");
+		string oldFile = _root.Combine("old", "nested", "file.ts");
+		string newFile = _root.Combine("new", "nested", "file.ts");
 		var seed = await inventory.BeginNonRepositorySeedAsync();
 		inventory.CompleteNonRepositorySeed(seed, [oldFile], []);
 
 		var moved = inventory.MoveNonRepositoryTree(
-			Path.Combine(_root, "old"),
-			Path.Combine(_root, "new"));
+			_root.Combine("old"),
+			_root.Combine("new"));
 
 		Assert.Equal([new WorkspaceFileMove(oldFile, newFile)], moved);
 		var afterMove = await inventory.RefreshAsync();
 		Assert.Contains(newFile, afterMove.Files);
 		Assert.DoesNotContain(oldFile, afterMove.Files);
 
-		Assert.Equal([newFile], inventory.ForgetNonRepositoryTree(Path.Combine(_root, "new")));
+		Assert.Equal([newFile], inventory.ForgetNonRepositoryTree(_root.Combine("new")));
 		Assert.Empty((await inventory.RefreshAsync()).Files);
 	}
 
 	[Fact]
 	public async Task NavigationSeedPreservesConcurrentWatcherFile() {
 		var inventory = new WorkspaceInventory(
-			_root,
+			_root.Path,
 			_ => Task.FromResult<IReadOnlyList<string>?>(null));
 		await inventory.RefreshAsync();
 		var seed = await inventory.BeginNonRepositorySeedAsync();
-		string createdDuringWalk = Path.Combine(_root, "during.ts");
-		string navigationSeed = Path.Combine(_root, "before.ts");
+		string createdDuringWalk = _root.Combine("during.ts");
+		string navigationSeed = _root.Combine("before.ts");
 		inventory.TrackNonRepositoryFile(createdDuringWalk);
 
 		inventory.CompleteNonRepositorySeed(seed, [navigationSeed], []);
@@ -117,10 +113,10 @@ public sealed class WorkspaceInventoryTests : IDisposable {
 	[Fact]
 	public async Task NavigationSeedPreservesConcurrentWatcherDeletion() {
 		var inventory = new WorkspaceInventory(
-			_root,
+			_root.Path,
 			_ => Task.FromResult<IReadOnlyList<string>?>(null));
 		await inventory.RefreshAsync();
-		string deletedDuringWalk = Path.Combine(_root, "deleted.ts");
+		string deletedDuringWalk = _root.Combine("deleted.ts");
 		var seed = await inventory.BeginNonRepositorySeedAsync();
 
 		inventory.ForgetNonRepositoryFile(deletedDuringWalk);
@@ -132,14 +128,14 @@ public sealed class WorkspaceInventoryTests : IDisposable {
 	[Fact]
 	public async Task FileIndexSnapshotPublishedAfterWatcherMutationReplay() {
 		var inventory = new WorkspaceInventory(
-			_root,
+			_root.Path,
 			_ => Task.FromResult<IReadOnlyList<string>?>(null));
 		await inventory.RefreshAsync();
-		string deletedDuringWalk = Path.Combine(_root, "deleted.ts");
-		string createdDuringWalk = Path.Combine(_root, "created.ts");
+		string deletedDuringWalk = _root.Combine("deleted.ts");
+		string createdDuringWalk = _root.Combine("created.ts");
 		var fileSystem = new InMemoryFileSystem();
 		fileSystem.WriteAllText(deletedDuringWalk, "");
-		var fileIndex = new WorkspaceFileIndex(fileSystem, _root);
+		var fileIndex = new WorkspaceFileIndex(fileSystem, _root.Path);
 		var seed = await inventory.BeginNonRepositorySeedAsync();
 		var navigation = fileIndex.ListSnapshot();
 
@@ -150,5 +146,5 @@ public sealed class WorkspaceInventoryTests : IDisposable {
 		Assert.Equal([createdDuringWalk], completed.Files);
 	}
 
-	public void Dispose() => Directory.Delete(_root, recursive: true);
+	public void Dispose() => _root.Dispose();
 }

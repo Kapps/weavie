@@ -16,8 +16,8 @@ public sealed class HostCoreBranchInferenceTests {
 			Receipt = Receipt(),
 		});
 		await using var host = await TestHost.StartAsync(repo => {
-			TestHost.RunGit(repo, "branch", "bug/prior-failure");
-			TestHost.RunGit(repo, "branch", "feature/mobile-inbox");
+			TempGitRepo.Run(repo, "branch", "bug/prior-failure");
+			TempGitRepo.Run(repo, "branch", "feature/mobile-inbox");
 		}, _ => inference);
 
 		var result = await PreviewAsync(host, "WebM files fail to load");
@@ -42,19 +42,19 @@ public sealed class HostCoreBranchInferenceTests {
 			Receipt = Receipt(),
 		});
 		await using var host = await TestHost.StartAsync(repo => {
-			TestHost.RunGit(repo, "checkout", "--quiet", "-b", "teammate/inbox-polish");
-			TestHost.RunGit(repo, "-c", "user.email=teammate@example.com", "-c", "user.name=Teammate",
+			TempGitRepo.Run(repo, "checkout", "--quiet", "-b", "teammate/inbox-polish");
+			TempGitRepo.Run(repo, "-c", "user.email=teammate@example.com", "-c", "user.name=Teammate",
 				"commit", "--quiet", "--allow-empty", "-m", "theirs");
-			TestHost.RunGit(repo, "checkout", "--quiet", "-b", "kapps/prior-fix", "main");
-			TestHost.RunGit(repo, "commit", "--quiet", "--allow-empty", "-m", "mine");
-			TestHost.RunGit(repo, "checkout", "--quiet", "main");
+			TempGitRepo.Run(repo, "checkout", "--quiet", "-b", "kapps/prior-fix", "main");
+			TempGitRepo.Run(repo, "commit", "--quiet", "--allow-empty", "-m", "mine");
+			TempGitRepo.Run(repo, "checkout", "--quiet", "main");
 		}, _ => inference);
 
 		var result = await PreviewAsync(host, "WebM files fail to load");
 
 		Assert.Equal("kapps/webm-fails-to-load", result.Branch);
 		var input = InputJson(inference.Prompt!);
-		Assert.Equal(TestHost.TestAuthorEmail, input.GetProperty("authorEmail").GetString());
+		Assert.Equal(TempGitRepo.AuthorEmail, input.GetProperty("authorEmail").GetString());
 		string[] mine = Branches(input, "myRecentBranches");
 		Assert.Contains("kapps/prior-fix", mine);
 		Assert.DoesNotContain("main", mine);
@@ -69,17 +69,17 @@ public sealed class HostCoreBranchInferenceTests {
 			Receipt = Receipt(),
 		});
 		await using var host = await TestHost.StartAsync(repo => {
-			TestHost.RunGit(repo, "checkout", "--quiet", "-b", "teammate/inbox-polish");
-			TestHost.RunGit(repo, "-c", "user.email=teammate@example.com", "-c", "user.name=Teammate",
+			TempGitRepo.Run(repo, "checkout", "--quiet", "-b", "teammate/inbox-polish");
+			TempGitRepo.Run(repo, "-c", "user.email=teammate@example.com", "-c", "user.name=Teammate",
 				"commit", "--quiet", "--allow-empty", "-m", "theirs");
-			TestHost.RunGit(repo, "checkout", "--quiet", "main");
+			TempGitRepo.Run(repo, "checkout", "--quiet", "main");
 		}, _ => inference);
 
 		var result = await PreviewAsync(host, "WebM files fail to load");
 
 		Assert.Equal("kapps/webm-fails", result.Branch);
 		var input = InputJson(inference.Prompt!);
-		Assert.Equal(TestHost.TestAuthorEmail, input.GetProperty("authorEmail").GetString());
+		Assert.Equal(TempGitRepo.AuthorEmail, input.GetProperty("authorEmail").GetString());
 		Assert.Empty(Branches(input, "myRecentBranches"));
 		Assert.Equal(["teammate/inbox-polish"], Branches(input, "otherRecentBranches"));
 	}

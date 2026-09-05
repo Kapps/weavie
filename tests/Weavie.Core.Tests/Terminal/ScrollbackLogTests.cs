@@ -10,23 +10,11 @@ namespace Weavie.Core.Tests;
 /// newline, a reopened log fading prior content, and an unwritable path disabling the log instead of throwing.
 /// </summary>
 public sealed class ScrollbackLogTests : IDisposable {
-	private readonly string _dir;
-	private readonly string _path;
+	private readonly TempDirectory _dir = new("weavie-scrollback-tests");
 
-	public ScrollbackLogTests() {
-		_dir = Path.Combine(Path.GetTempPath(), "weavie-scrollback-tests", Guid.NewGuid().ToString("n"));
-		_path = Path.Combine(_dir, "shell.log");
-	}
+	private string LogPath => _dir.Combine("shell.log");
 
-	public void Dispose() {
-		try {
-			if (Directory.Exists(_dir)) {
-				Directory.Delete(_dir, recursive: true);
-			}
-		} catch (IOException) {
-			// best-effort cleanup
-		}
-	}
+	public void Dispose() => _dir.Dispose();
 
 	private static byte[] Bytes(string s) => Encoding.UTF8.GetBytes(s);
 
@@ -34,13 +22,13 @@ public sealed class ScrollbackLogTests : IDisposable {
 
 	[Fact]
 	public void EmptyLog_BuildReplay_IsEmpty() {
-		using var log = new ScrollbackLog(_path, 4096);
+		using var log = new ScrollbackLog(LogPath, 4096);
 		Assert.Empty(log.BuildReplay());
 	}
 
 	[Fact]
 	public void FreshRun_ReplaysLiveBytesRaw_NoFade() {
-		using var log = new ScrollbackLog(_path, 4096);
+		using var log = new ScrollbackLog(LogPath, 4096);
 		log.MarkBoundary();              // boundary 0; nothing logged yet
 		log.Append(Bytes("hello\r\n"));
 
@@ -50,7 +38,7 @@ public sealed class ScrollbackLogTests : IDisposable {
 
 	[Fact]
 	public void Boundary_SplitsFadedHistoryFromLive() {
-		using var log = new ScrollbackLog(_path, 4096);
+		using var log = new ScrollbackLog(LogPath, 4096);
 		log.Append(Bytes("old-run\r\n")); // before the boundary
 		log.MarkBoundary();               // new process starts
 		log.Append(Bytes("new-run\r\n")); // live output
@@ -71,7 +59,7 @@ public sealed class ScrollbackLogTests : IDisposable {
 
 	[Fact]
 	public void FadedRegion_IsSanitized_DropsInnerEscapes() {
-		using var log = new ScrollbackLog(_path, 4096);
+		using var log = new ScrollbackLog(LogPath, 4096);
 		log.Append(Bytes("[31mred[0m\r\n")); // colored output before boundary
 		log.MarkBoundary();
 		log.Append(Bytes("live"));
@@ -105,13 +93,13 @@ public sealed class ScrollbackLogTests : IDisposable {
 	[Fact]
 	public void Append_PastTwiceCap_TrimsFrontAtNewline_StaysBounded() {
 		const int cap = 200;
-		using var log = new ScrollbackLog(_path, cap);
+		using var log = new ScrollbackLog(LogPath, cap);
 		// 100 lines × 10 bytes ≈ 1000 bytes >> 2*cap, forcing repeated trims.
 		for (int i = 0; i < 100; i++) {
 			log.Append(Bytes($"line-{i:0000}\n"));
 		}
 
-		long size = new FileInfo(_path).Length;
+		long size = new FileInfo(LogPath).Length;
 		Assert.True(size <= 2 * cap, $"file should stay within twice the cap ({2 * cap}), was {size}");
 
 		string remaining = Text(log.BuildReplay());
@@ -122,14 +110,14 @@ public sealed class ScrollbackLogTests : IDisposable {
 
 	[Fact]
 	public void Reopen_TreatsPriorContentAsFaded() {
-		using (var first = new ScrollbackLog(_path, 4096)) {
+		using (var first = new ScrollbackLog(LogPath, 4096)) {
 			first.MarkBoundary();
 			first.Append(Bytes("from-previous-boot\r\n"));
 		}
 
 		// A fresh log over the same path starts its boundary at the existing length,
 		// so prior content is faded until the next MarkBoundary.
-		using var reopened = new ScrollbackLog(_path, 4096);
+		using var reopened = new ScrollbackLog(LogPath, 4096);
 		string replay = Text(reopened.BuildReplay());
 
 		Assert.Contains("from-previous-boot", replay);
@@ -140,10 +128,7 @@ public sealed class ScrollbackLogTests : IDisposable {
 	[Fact]
 	public void UnwritablePath_DisablesLog_WithoutThrowing() {
 		// Parent path is a FILE, so creating it as a directory fails and the log disables itself.
-		Directory.CreateDirectory(_dir);
-		string fileAsParent = Path.Combine(_dir, "afile");
-		File.WriteAllText(fileAsParent, "x");
-		string bad = Path.Combine(fileAsParent, "shell.log");
+		string bad = Path.Combine(_dir.WriteFile("afile", "x"), "shell.log");
 
 		using var log = new ScrollbackLog(bad, 4096);
 		log.MarkBoundary();

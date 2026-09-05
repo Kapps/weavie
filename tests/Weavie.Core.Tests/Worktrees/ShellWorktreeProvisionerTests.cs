@@ -8,26 +8,16 @@ namespace Weavie.Core.Tests;
 /// success, surfaced non-zero failure, and the lifecycle events.
 /// </summary>
 public sealed class ShellWorktreeProvisionerTests : IDisposable {
-	private readonly string _dir = Path.Combine(Path.GetTempPath(), "weavie-prov-" + Guid.NewGuid().ToString("n"));
+	private readonly TempDirectory _dir = new("weavie-prov");
 
-	public ShellWorktreeProvisionerTests() {
-		Directory.CreateDirectory(_dir);
-	}
-
-	public void Dispose() {
-		try {
-			Directory.Delete(_dir, recursive: true);
-		} catch (IOException) {
-			// best-effort temp cleanup
-		}
-	}
+	public void Dispose() => _dir.Dispose();
 
 	[Fact]
 	public async Task EmptyCommand_IsNoOp() {
 		var provisioner = new ShellWorktreeProvisioner(() => "", () => "   ");
 
-		var setup = await provisioner.RunSetupAsync(_dir, CancellationToken.None);
-		var teardown = await provisioner.RunTeardownAsync(_dir, CancellationToken.None);
+		var setup = await provisioner.RunSetupAsync(_dir.Path, CancellationToken.None);
+		var teardown = await provisioner.RunTeardownAsync(_dir.Path, CancellationToken.None);
 
 		Assert.False(setup.Ran);
 		Assert.True(setup.Succeeded);
@@ -42,7 +32,7 @@ public sealed class ShellWorktreeProvisionerTests : IDisposable {
 		provisioner.Starting += e => started = e.Phase;
 		provisioner.Finished += e => finished = e.Result;
 
-		var result = await provisioner.RunSetupAsync(_dir, CancellationToken.None);
+		var result = await provisioner.RunSetupAsync(_dir.Path, CancellationToken.None);
 
 		Assert.True(result.Ran);
 		Assert.Equal(0, result.ExitCode);
@@ -56,7 +46,7 @@ public sealed class ShellWorktreeProvisionerTests : IDisposable {
 	public async Task NonZeroExit_IsSurfacedAsFailure() {
 		var provisioner = new ShellWorktreeProvisioner(() => "exit 3", () => "");
 
-		var result = await provisioner.RunSetupAsync(_dir, CancellationToken.None);
+		var result = await provisioner.RunSetupAsync(_dir.Path, CancellationToken.None);
 
 		Assert.True(result.Ran);
 		Assert.Equal(3, result.ExitCode);

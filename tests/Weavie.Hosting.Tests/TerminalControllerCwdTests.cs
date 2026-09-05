@@ -59,15 +59,14 @@ public sealed class TerminalControllerCwdTests {
 	/// <summary>A real shell-pane controller over a recording PTY launcher; temp worktree torn down on dispose.</summary>
 	private sealed class Harness : IDisposable {
 		private readonly SettingsStore _settings;
-		private readonly string _settingsPath;
+		private readonly TempDirectory _temp = new("weavie-tcwd");
 
 		public Harness() {
-			_settingsPath = Path.Combine(Path.GetTempPath(), "weavie-tcwd-" + Guid.NewGuid().ToString("n") + ".toml");
-			_settings = CoreSettings.CreateStore(_settingsPath, enableWatcher: false);
+			_settings = CoreSettings.CreateStore(_temp.Combine("settings.toml"), enableWatcher: false);
 			// Post output inline (no batching) so each emitted chunk is its own frame for these synchronous assertions.
 			_settings.Set("terminal.outputCoalesceMs", JsonSerializer.SerializeToElement(0L));
-			Workspace = Directory.CreateDirectory(
-				Path.Combine(Path.GetTempPath(), "weavie-tcwd-ws-" + Guid.NewGuid().ToString("n"))).FullName;
+			// A sibling "<name>-evil" lives beside it inside the same temp root; both go on dispose.
+			Workspace = _temp.CreateDirectory("ws");
 			Launcher = new RecordingPtyLauncher();
 			var bridge = new FakeHostBridge();
 			Controller = new TerminalController(
@@ -93,19 +92,7 @@ public sealed class TerminalControllerCwdTests {
 		public void Dispose() {
 			Controller.Dispose();
 			_settings.Dispose();
-			foreach (string dir in new[] { Workspace, Workspace + "-evil" }) {
-				try {
-					Directory.Delete(dir, recursive: true);
-				} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-					// best-effort temp cleanup
-				}
-			}
-
-			try {
-				File.Delete(_settingsPath);
-			} catch (IOException) {
-				// best-effort
-			}
+			_temp.Dispose();
 		}
 	}
 

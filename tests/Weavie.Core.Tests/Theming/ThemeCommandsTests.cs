@@ -12,26 +12,21 @@ namespace Weavie.Core.Tests;
 /// install isn't reached; install-from-file is covered only on its guard paths (no picker, missing file).
 /// </summary>
 public sealed class ThemeCommandsTests : IDisposable {
-	private readonly string _dir = Path.Combine(Path.GetTempPath(), "weavie-theme-commands-tests", Guid.NewGuid().ToString("N"));
+	private readonly TempDirectory _dir = new("weavie-theme-commands-tests");
 	private readonly SettingsStore _settings;
 	private readonly ThemeOverridesStore _overrides;
 	private readonly CommandDispatcher _dispatcher;
 
 	public ThemeCommandsTests() {
-		Directory.CreateDirectory(_dir);
-		_settings = CoreSettings.CreateStore(Path.Combine(_dir, "settings.toml"), enableWatcher: false);
-		_overrides = new ThemeOverridesStore(new InMemoryFileSystem(), Path.Combine(_dir, "theme-overrides.json"));
+		_settings = CoreSettings.CreateStore(_dir.Combine("settings.toml"), enableWatcher: false);
+		_overrides = new ThemeOverridesStore(new InMemoryFileSystem(), _dir.Combine("theme-overrides.json"));
 		_dispatcher = new CommandDispatcher(CoreCommands.CreateRegistry());
 		ThemeCommands.RegisterHandlers(_dispatcher, _settings, _overrides, pickVsixFile: null);
 	}
 
 	public void Dispose() {
 		_settings.Dispose();
-		try {
-			Directory.Delete(_dir, recursive: true);
-		} catch (IOException) {
-		} catch (UnauthorizedAccessException) {
-		}
+		_dir.Dispose();
 	}
 
 	private Task<CommandResult> Run(string id, string? argsJson = null) =>
@@ -136,7 +131,7 @@ public sealed class ThemeCommandsTests : IDisposable {
 
 	[Fact]
 	public async Task InstallFromFile_MissingFile_Fails() {
-		string missing = Path.Combine(_dir, "nope.vsix").Replace("\\", "\\\\", StringComparison.Ordinal);
+		string missing = _dir.Combine("nope.vsix").Replace("\\", "\\\\", StringComparison.Ordinal);
 		var result = await Run(CoreCommands.InstallThemeFromFile, $"{{\"path\":\"{missing}\"}}");
 		Assert.False(result.Ok);
 		Assert.Contains("Install from file failed", result.Error, StringComparison.Ordinal);

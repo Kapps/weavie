@@ -1,15 +1,27 @@
 using System.Diagnostics;
+using Weavie.Core.Processes;
 
 namespace Weavie.WorktreeServe;
 
 internal static class TransientCommand {
+	// Streams the child's output straight to this console instead of capturing it, so a long provisioning step
+	// reports progress while it runs.
 	public static async Task RunAsync(
 		string executable,
 		IReadOnlyList<string> args,
 		string workingDirectory,
 		IReadOnlyDictionary<string, string> environment,
 		CancellationToken cancellationToken) {
-		using var process = Create(executable, args, workingDirectory, environment, capture: false);
+		var info = new ProcessStartInfo(executable) { WorkingDirectory = workingDirectory, UseShellExecute = false };
+		foreach (string arg in args) {
+			info.ArgumentList.Add(arg);
+		}
+
+		foreach (var (name, value) in environment) {
+			info.Environment[name] = value;
+		}
+
+		using var process = new Process { StartInfo = info };
 		Console.WriteLine($"[worktree-serve] {executable} {string.Join(' ', args)}");
 		process.Start();
 		try {
@@ -30,49 +42,20 @@ internal static class TransientCommand {
 		IReadOnlyList<string> args,
 		string workingDirectory,
 		CancellationToken cancellationToken) {
-		using var process = Create(executable, args, workingDirectory, new Dictionary<string, string>(), capture: true);
-		process.Start();
-		var stdout = process.StandardOutput.ReadToEndAsync();
-		var stderr = process.StandardError.ReadToEndAsync();
-		try {
-			await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
-		} catch (OperationCanceledException) {
-			Kill(process);
-			await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
-			await Task.WhenAll(stdout, stderr).ConfigureAwait(false);
-			throw;
+		var result = await ProcessCapture.RunAsync(
+			new ProcessCaptureRequest { FileName = executable, Arguments = args, WorkingDirectory = workingDirectory },
+			cancellationToken).ConfigureAwait(false);
+		// Every captured command here is a precondition of serving the worktree, so neither outcome is recoverable.
+		if (result.StartFailure is { } failure) {
+			throw new InvalidOperationException($"'{executable} {string.Join(' ', args)}' could not start.", failure);
 		}
 
-		string output = await stdout.ConfigureAwait(false);
-		string error = await stderr.ConfigureAwait(false);
-		if (process.ExitCode != 0) {
+		if (result.ExitCode != 0) {
 			throw new InvalidOperationException(
-				$"'{executable} {string.Join(' ', args)}' exited with code {process.ExitCode}: {error.Trim()}");
+				$"'{executable} {string.Join(' ', args)}' exited with code {result.ExitCode}: {result.StdErr.Trim()}");
 		}
 
-		return output.Trim();
-	}
-
-	private static Process Create(
-		string executable,
-		IReadOnlyList<string> args,
-		string workingDirectory,
-		IReadOnlyDictionary<string, string> environment,
-		bool capture) {
-		var info = new ProcessStartInfo(executable) {
-			WorkingDirectory = workingDirectory,
-			RedirectStandardOutput = capture,
-			RedirectStandardError = capture,
-			UseShellExecute = false,
-		};
-		foreach (string arg in args) {
-			info.ArgumentList.Add(arg);
-		}
-		foreach (var (name, value) in environment) {
-			info.Environment[name] = value;
-		}
-
-		return new Process { StartInfo = info };
+		return result.StdOut.Trim();
 	}
 
 	private static void Kill(Process process) {

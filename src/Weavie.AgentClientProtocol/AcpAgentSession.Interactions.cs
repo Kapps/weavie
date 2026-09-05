@@ -122,10 +122,11 @@ public sealed partial class AcpAgentSession {
 			using (authenticationCancellation) {
 				try {
 					if (method.Type == "agent") {
-						await _connection.RequestAsync(
+						await _connection.RequestForSessionAsync(
 							"authenticate",
 							new { methodId },
 							generation,
+							_role is SideRole side ? side.Conversation.ProviderSessionId : SessionId(),
 							authenticationCancellation.Token).ConfigureAwait(false);
 					} else {
 						var exit = await _context.AuthenticationTerminal.RunAsync(
@@ -184,7 +185,8 @@ public sealed partial class AcpAgentSession {
 					});
 				}
 				if (method.Type == "terminal") {
-					Restart(clearSubmissions: false);
+					var owner = _role is SideRole side ? side.Owner : this;
+					owner.Restart(clearSubmissions: false);
 				} else if (opensSession) {
 					await OpenSessionAsync(generation).ConfigureAwait(false);
 				} else {

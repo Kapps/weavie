@@ -180,10 +180,16 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 		return fixture;
 	}
 
-	public static AcpAgentSessionFixture CreateTerminalAuthenticationAdapter() {
+	public static AcpAgentSessionFixture CreateTerminalAuthenticationAdapter() =>
+		CreateTerminalAuthenticationAdapter("terminal-authentication");
+
+	public static AcpAgentSessionFixture CreateSideTerminalAuthenticationAdapter() =>
+		CreateTerminalAuthenticationAdapter("side-terminal-authentication");
+
+	private static AcpAgentSessionFixture CreateTerminalAuthenticationAdapter(string mode) {
 		string executable = ExecutablePath("tools", "Weavie.FakeAcp", "weavie-fake-acp");
 		var environment = new Dictionary<string, string>(StringComparer.Ordinal) {
-			["WEAVIE_FAKE_ACP_MODE"] = "terminal-authentication",
+			["WEAVIE_FAKE_ACP_MODE"] = mode,
 		};
 		return Create(
 			"fake",

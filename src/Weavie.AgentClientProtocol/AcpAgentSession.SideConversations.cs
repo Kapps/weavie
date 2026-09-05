@@ -5,6 +5,7 @@ namespace Weavie.AgentClientProtocol;
 public sealed partial class AcpAgentSession {
 	private readonly Queue<SideSubmission> _pendingSideSubmissions = [];
 	private readonly Dictionary<string, SideRuntime> _sideRuntimes = new(StringComparer.Ordinal);
+	private readonly HashSet<string> _closedSideSessionIds = new(StringComparer.Ordinal);
 	private string? _activeSideConversationId;
 
 	/// <inheritdoc/>
@@ -27,10 +28,10 @@ public sealed partial class AcpAgentSession {
 		prompt = RequiredSidePrompt(prompt);
 		lock (_gate) {
 			ObjectDisposedException.ThrowIf(_disposed, this);
-			EnsureSideConversationSupport();
 			if (!_sideRuntimes.ContainsKey(conversationId)) {
 				throw new InvalidOperationException("That side conversation is no longer available.");
 			}
+			EnsureSideConversationSupport();
 			_pendingSideSubmissions.Enqueue(new SideSubmission(conversationId, prompt, Create: false));
 		}
 		DispatchPendingWork();
@@ -145,7 +146,7 @@ public sealed partial class AcpAgentSession {
 			_sessions,
 			_controlDefaults,
 			_log,
-			new SideRole(conversation, guidanceInherited));
+			new SideRole(conversation, guidanceInherited, this, _activeGeneration));
 		var runtime = new SideRuntime(child, conversation);
 		child.PaneMessage += message => ForwardSideMessage(runtime, message);
 		child.SideTurnSettled += terminal => CompleteSideTurn(runtime, terminal);
@@ -174,7 +175,8 @@ public sealed partial class AcpAgentSession {
 
 	private abstract record AcpSessionRole;
 	private sealed record PrimaryRole : AcpSessionRole;
-	private sealed record SideRole(SideConversation Conversation, bool GuidanceInherited) : AcpSessionRole;
+	private sealed record SideRole(
+		SideConversation Conversation, bool GuidanceInherited, AcpAgentSession Owner, long Generation) : AcpSessionRole;
 	private sealed record SideSubmission(string ConversationId, string Prompt, bool Create);
 	private sealed record SideConversation(
 		string ConversationId,

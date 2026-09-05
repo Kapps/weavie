@@ -134,6 +134,36 @@ test("an unfinished ACP side-reply survives a session switch", async ({ page }) 
   await expect(reply).toHaveValue("cancelled but recoverable");
 });
 
+test("BTW continues on its fork and returns control to the primary conversation", async ({
+  page,
+}) => {
+  const surface = await createAcpSession(page, "acp-shared-process");
+  const composer = surface.locator("[data-agent-composer] textarea");
+  await composer.fill("primary context");
+  await composer.press("Enter");
+  await expect(surface).toContainText("echo: primary context");
+
+  await composer.fill("/btw identify-session");
+  await composer.press("Enter");
+  const aside = surface.locator(".agent-aside");
+  await expect(aside).toContainText("session: fake-fork-fake-session-2");
+  await aside.getByRole("button", { name: "Reply", exact: true }).click();
+  const reply = aside.getByRole("textbox", { name: "Reply to BTW" });
+  await reply.fill("follow-up stays in the side conversation");
+  await reply.press("Enter");
+  await expect(aside).toContainText("echo: follow-up stays in the side conversation");
+
+  await composer.fill("identify-session");
+  await composer.press("Enter");
+  await expect(
+    surface.locator(".agent-entry-message.agent-tone-assistant", {
+      hasText: "session: fake-session",
+    }),
+  ).toBeVisible();
+  await expect(surface.locator(".agent-working")).toHaveCount(0);
+  await expect(surface.locator(".agent-tone-error")).toHaveCount(0);
+});
+
 test("ACP controls and rich structured output stay native @cross", async ({ page }) => {
   const surface = await createAcpSession(page, "acp-rich-output");
 

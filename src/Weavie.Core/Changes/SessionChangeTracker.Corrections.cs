@@ -276,17 +276,21 @@ public sealed partial class SessionChangeTracker {
 		}
 
 		string[] sourceLines = LineDiff.SplitLines(source);
-		var targetLines = LineDiff.SplitLines(target).ToList();
+		string[] targetLines = LineDiff.SplitLines(target);
 		var mapping = LineHunker.Hunks(sourceLines, targetLines);
 		var patches = changes
 			.Select(change => new ProjectedChange(MapRange(change.BeforeRange, mapping), change.AfterLines))
-			.OrderByDescending(change => change.Range.Start)
-			.ToList();
+			.OrderBy(change => change.Range.Start);
+		var result = new List<string>();
+		int cursor = 0;
 		foreach (var patch in patches) {
-			targetLines.RemoveRange(patch.Range.Start - 1, patch.Range.EndExclusive - patch.Range.Start);
-			targetLines.InsertRange(patch.Range.Start - 1, patch.AfterLines);
+			for (; cursor < patch.Range.Start - 1; cursor++) result.Add(targetLines[cursor]);
+			result.AddRange(patch.AfterLines);
+			// Distinct source edits can project onto the same review lines; consume their union once.
+			cursor = Math.Max(cursor, patch.Range.EndExclusive - 1);
 		}
-		return string.Join(target.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : "\n", targetLines);
+		for (; cursor < targetLines.Length; cursor++) result.Add(targetLines[cursor]);
+		return string.Join(target.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : "\n", result);
 	}
 
 	private string ApplyReviewChange(string path, string before, string after) {

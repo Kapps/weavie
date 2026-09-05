@@ -10,15 +10,20 @@ public sealed partial class AcpAgentSession {
 	public void Submit(AgentTurnSubmission submission) {
 		ArgumentNullException.ThrowIfNull(submission);
 
-		lock (_gate) {
-			ObjectDisposedException.ThrowIf(_disposed, this);
-			if (_runtimeFailed) {
-				throw new InvalidOperationException(
-					$"{_definition.Name} cannot accept prompts until its failed ACP runtime is restarted.");
+		lock (_turnTransitionGate) {
+			bool reconnect;
+			lock (_gate) {
+				ObjectDisposedException.ThrowIf(_disposed, this);
+				submission = NormalizeSubmissionLocked(submission);
+				if (submission.Text.Length == 0 && submission.Attachments.Count == 0) return;
+				reconnect = _runtimeFailed;
+				if (reconnect && _sessionId is not null && !_supportsLoad && !_supportsResume) {
+					throw new InvalidOperationException(
+						$"{_definition.Name} cannot restore this conversation. Start a new conversation to continue.");
+				}
+				_pendingSubmissions.Enqueue(submission);
 			}
-			submission = NormalizeSubmissionLocked(submission);
-			if (submission.Text.Length == 0 && submission.Attachments.Count == 0) return;
-			_pendingSubmissions.Enqueue(submission);
+			if (reconnect) Restart(clearSubmissions: false);
 		}
 		DispatchPendingSubmission();
 	}
@@ -530,7 +535,9 @@ public sealed partial class AcpAgentSession {
 
 	private void Restart(bool clearSubmissions) {
 		lock (_turnTransitionGate) {
+			if (_role is SideRole) throw new InvalidOperationException("Restart the owning primary conversation.");
 			TerminalizeForRestart(clearSubmissions, "ACP agent restarted.");
+			FailSideRuntimes(new InvalidOperationException("ACP agent restarted."));
 			_connection.Restart();
 		}
 	}

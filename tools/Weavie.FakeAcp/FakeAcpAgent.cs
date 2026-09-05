@@ -32,10 +32,17 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 		Directory.CreateDirectory(_stateDirectory);
 		_requiresAuthentication = _fakeMode is
 			"held-authentication" or "agent-authentication" or "side-held-authentication"
-			or "terminal-authentication";
+			or "terminal-authentication" or "side-terminal-authentication";
 	}
 
+	private bool TerminalAuthentication => _fakeMode is "terminal-authentication" or "side-terminal-authentication";
+
 	public Task TerminalFailure => _never.Task;
+
+	internal void CopyConnectionState(FakeAcpAgent source) {
+		_authenticated = source._authenticated;
+		_supportsPlanUpdates = source._supportsPlanUpdates;
+	}
 
 	public void Attach(AcpAgentConnection connection) =>
 		_connection = connection ?? throw new ArgumentNullException(nameof(connection));
@@ -97,7 +104,7 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 			["protocolVersion"] = 1,
 			["agentInfo"] = new JsonObject { ["name"] = "weavie-fake-acp", ["version"] = "1" },
 			["authMethods"] = _requiresAuthentication
-				? new JsonArray(_fakeMode == "terminal-authentication"
+				? new JsonArray(TerminalAuthentication
 					? new JsonObject {
 						["id"] = "fake-terminal-login",
 						["name"] = "Fake terminal login",
@@ -126,12 +133,19 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 	}
 
 	private JsonObject Open(JsonElement parameters, string sessionId, bool replay) {
-		if (_fakeMode == "terminal-authentication"
+		string ownerPath = StatePath(sessionId + ".owner");
+		if (File.Exists(ownerPath)) {
+			int owner = int.Parse(File.ReadAllText(ownerPath), System.Globalization.CultureInfo.InvariantCulture);
+			if (owner != Environment.ProcessId && IsProcessAlive(owner)) {
+				throw new AcpAdapterException(-32603, "Session already has an active writer in another process.", null);
+			}
+		}
+		if (TerminalAuthentication
 			&& File.Exists(Path.Combine(Environment.CurrentDirectory, "terminal-authenticated"))) {
 			_authenticated = true;
 		}
 		if (_requiresAuthentication && !_authenticated
-			&& (_fakeMode != "side-held-authentication" || replay)) {
+			&& (_fakeMode is not ("side-held-authentication" or "side-terminal-authentication") || replay)) {
 			throw new AcpAdapterException(-32000, "Sign in to the fake ACP agent.", null);
 		}
 		if (_fakeMode == "minimal-capabilities") RequireStdioMcp(parameters);
@@ -236,6 +250,15 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 		return response;
 	}
 
+	private static bool IsProcessAlive(int id) {
+		try {
+			using var process = System.Diagnostics.Process.GetProcessById(id);
+			return !process.HasExited;
+		} catch (ArgumentException) {
+			return false;
+		}
+	}
+
 	private static string NewSessionId() {
 		string path = Path.Combine(Environment.CurrentDirectory, "fake-session-sequence");
 		int sequence = File.Exists(path)
@@ -252,6 +275,7 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 		}
 		RequireMcp(parameters);
 		string sessionId = "fake-fork-" + NewSessionId();
+		File.WriteAllText(StatePath(sessionId + ".owner"), Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture));
 		string sourceTranscript = TranscriptPath(source);
 		if (File.Exists(sourceTranscript)) File.Copy(sourceTranscript, TranscriptPath(sessionId));
 		File.AppendAllText(

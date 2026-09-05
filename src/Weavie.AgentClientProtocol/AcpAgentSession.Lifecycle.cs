@@ -13,7 +13,11 @@ public sealed partial class AcpAgentSession {
 			}
 			_started = true;
 		}
-		_connection.Start();
+		if (_role is SideRole side) {
+			OnProcessStarted(new AcpProcessGeneration(side.Generation, 0));
+		} else {
+			_connection.Start();
+		}
 	}
 
 	/// <inheritdoc/>
@@ -32,9 +36,9 @@ public sealed partial class AcpAgentSession {
 			_activeSideConversationId = null;
 			sideSessions = [.. _sideRuntimes.Values];
 			_sideRuntimes.Clear();
-			sessionId = _sessionId;
-			close = _ready && _supportsClose && sessionId is not null;
-			generation = _activeGeneration;
+			sessionId = _sessionId ?? (_role is SideRole fork ? fork.Conversation.ProviderSessionId : null);
+			close = (_ready || _role is SideRole) && _supportsClose && sessionId is not null;
+			generation = _role is SideRole borrowed ? borrowed.Generation : _activeGeneration;
 		}
 
 		CancelPendingInteractions();
@@ -49,8 +53,9 @@ public sealed partial class AcpAgentSession {
 		}
 
 		try {
-			foreach (var side in sideSessions) await side.Session.DisposeAsync().ConfigureAwait(false);
-			await _connection.DisposeAsync().ConfigureAwait(false);
+			var disposals = sideSessions.Select(side => side.Session.DisposeAsync().AsTask()).ToArray();
+			if (_role is PrimaryRole) await _connection.DisposeAsync().ConfigureAwait(false);
+			await Task.WhenAll(disposals).ConfigureAwait(false);
 		} finally {
 			if (closeRequest is not null) {
 				try {
@@ -92,6 +97,7 @@ public sealed partial class AcpAgentSession {
 				_replayContentRole = null;
 				_contextUsage = null;
 				_usageLimits.Clear();
+				_closedSideSessionIds.Clear();
 			}
 		}
 		CancelPendingInteractions();
@@ -102,7 +108,7 @@ public sealed partial class AcpAgentSession {
 	}
 
 	private async Task InitializeGenerationAsync(AcpProcessGeneration process) {
-		var initialized = await _connection.RequestAsync(
+		var initialized = _role is SideRole side ? side.Owner._initialization : await _connection.RequestAsync(
 			"initialize",
 			new {
 				protocolVersion = 1,
@@ -125,6 +131,7 @@ public sealed partial class AcpAgentSession {
 		lock (_turnTransitionGate) {
 			lock (_gate) {
 				if (_disposed || _activeGeneration != process.Generation) return;
+				_initialization = initialized;
 				ReadCapabilities(initialized);
 				ReadAuthMethods(initialized);
 			}
@@ -141,6 +148,10 @@ public sealed partial class AcpAgentSession {
 			lock (_gate) {
 				if (_disposed || _activeGeneration != generation) return;
 				reconnecting = _sessionId is not null;
+				if (reconnecting && !_supportsLoad && !_supportsResume) {
+					throw new AcpProtocolException(
+						$"{_definition.Name} cannot restore this conversation. Start a new conversation to continue.");
+				}
 				string? persisted = _sessionId ?? (_role is SideRole side
 					? side.Conversation.ProviderSessionId
 					: _sessions.Resolve(_definition.Id, _context.Workspace));
@@ -222,8 +233,7 @@ public sealed partial class AcpAgentSession {
 						lock (_gate) {
 							if (_disposed || _activeGeneration != generation) return;
 							loaded = true;
-							// session/load always replays into a freshly spawned agent, so a tool the transcript
-							// still calls running died with the process that ran it and can never terminalize.
+							// Replayed tools belong to the previous process or the fork's parent, never this conversation.
 							interrupted = TerminalizeActiveToolsLocked("cancelled");
 						}
 						CompleteContentStreams();
@@ -318,7 +328,7 @@ public sealed partial class AcpAgentSession {
 			Observe(new AgentSessionStarted(reconnecting ? "restart" : "startup"));
 			RestoreSetupActivity();
 			RaiseControls();
-			FlushPendingSubmissions();
+			DispatchPendingWork();
 		}
 	}
 

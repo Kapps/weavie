@@ -57,6 +57,7 @@ public sealed partial class AcpAgentSession {
 
 	private bool RemoveSideRuntimeLocked(SideRuntime runtime) {
 		_sideRuntimes.Remove(runtime.Conversation.ConversationId);
+		_closedSideSessionIds.Add(runtime.Conversation.ProviderSessionId);
 		return true;
 	}
 

@@ -15,6 +15,13 @@ public readonly record struct AcpProcessGeneration(long Generation, int Attempt)
 
 /// <summary>A JSON-RPC error returned by an ACP agent.</summary>
 public sealed class AcpRequestException : InvalidOperationException {
+	internal AcpRequestException(string method, AcpRequestException error)
+		: base($"{method} failed ({error.Code}): {error.Message}"
+			+ (error.DataPayload is { } data ? $"\n{data.GetRawText()}" : string.Empty), error) {
+		Code = error.Code;
+		DataPayload = error.DataPayload;
+	}
+
 	private AcpRequestException(int code, string message, JsonElement? data) : base(message) {
 		Code = code;
 		DataPayload = data;

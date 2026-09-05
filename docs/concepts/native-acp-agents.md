@@ -20,7 +20,9 @@ integration. This keeps provider churn outside Weavie and makes provider differe
 capabilities rather than provider-specific host branches.
 
 Every ACP child is owned by `ProcessSupervisor` with `RestartPolicy.Never`. A launch failure or crash is a visible,
-terminal session error. Restart is an explicit user action; there is no hidden provider or transport fallback.
+terminal session error. An explicit restart or a new submitted prompt reconnects the failed runtime; the
+interrupted prompt is never resent. Reconnection preserves the conversation identity and fails visibly if the
+agent cannot restore it. Only the user's new prompt and previously unsent submissions are delivered afterward.
 
 ## Registry distributions
 
@@ -89,9 +91,15 @@ different lifecycle: it clears the exact persisted association, resets the pane 
 without a session id so the replacement process must call `session/new`. Provider-owned history is abandoned, not
 deleted.
 
-**Only the current agent process can own live work.** `session/load` always replays into a freshly spawned agent, so
-a tool call the transcript still calls running died with the process that ran it — no terminal update can ever
-arrive for it. Such a tool is recorded as cancelled when the replay ends, never counted as background work. Left
+Side conversations share the primary conversation's ACP process. The fork is loaded on the connection that
+created it: transferring it to another process can conflict with the provider's existing transcript writer.
+Each conversation owns its turn state and client requests; updates route by provider session id, and
+request-scoped elicitation routes by the originating request id. Closing or failing a side conversation never
+disposes the shared connection. Replacing the process terminalizes all its side conversations.
+
+**Only the current conversation can own live work.** Primary `session/load` replays into a fresh process, while a
+side load replays a fork that owns none of the parent's tools. A tool still marked running in either transcript
+is recorded as cancelled when replay ends, never counted as background work. Left
 live it would be unsettleable: Waiting has no other exit, so one interrupted tool would pin the session for the
 host's whole life and hold the update drain with it. The judgement happens once the replay is over rather than per
 update, because a finished tool replays as two frames whose first one is non-terminal. For the same reason

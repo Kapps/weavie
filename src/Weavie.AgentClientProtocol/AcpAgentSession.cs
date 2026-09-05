@@ -21,7 +21,7 @@ public sealed partial class AcpAgentSession :
 	private readonly AcpJsonRpcConnection _connection;
 	private readonly AcpTerminalManager _terminals;
 	private readonly Lock _gate = new();
-	private readonly Lock _turnTransitionGate = new();
+	private readonly Lock _turnTransitionGate;
 	private readonly Lock _queuePublishGate = new();
 	private readonly AcpSubmissionQueue _pendingSubmissions = new();
 	private readonly Queue<AcpControlMutation> _controlMutations = [];
@@ -40,6 +40,7 @@ public sealed partial class AcpAgentSession :
 	private IReadOnlyList<AgentSlashEntry> _commands = [];
 	private IReadOnlyList<AcpAuthMethod> _authMethods = [];
 	private string? _sessionId;
+	private System.Text.Json.JsonElement _initialization;
 	private string? _openingSessionId;
 	private long _turnNumber;
 	private long _sideProviderTurnOffset;
@@ -102,15 +103,20 @@ public sealed partial class AcpAgentSession :
 		_controlDefaults = controlDefaults;
 		_log = log;
 		_role = role;
+		_turnTransitionGate = role is SideRole owned ? owned.Owner._turnTransitionGate : new Lock();
 		_guidanceSent = role is SideRole sideRole && sideRole.GuidanceInherited;
 		_sideProviderTurnOffset = role is SideRole side ? side.Conversation.AnchorTurnNumber : 0;
 		_terminals = new AcpTerminalManager(context.Workspace, log);
-		_connection = new AcpJsonRpcConnection(definition, context.Workspace, log);
-		_connection.ProcessStarted += OnProcessStarted;
-		_connection.ProcessStateChanged += change => Observe(new AgentProcessChanged(change));
-		_connection.NotificationReceived += HandleNotification;
-		_connection.RequestReceived += RegisterClientRequest;
-		_connection.ProtocolFaulted += FailRuntime;
+		_connection = role is SideRole borrowed
+			? borrowed.Owner._connection
+			: new AcpJsonRpcConnection(definition, context.Workspace, log);
+		if (role is PrimaryRole) {
+			_connection.ProcessStarted += OnProcessStarted;
+			_connection.ProcessStateChanged += change => Observe(new AgentProcessChanged(change));
+			_connection.NotificationReceived += RouteNotification;
+			_connection.RequestReceived += RouteClientRequest;
+			_connection.ProtocolFaulted += FailRuntime;
+		}
 	}
 
 	/// <inheritdoc/>
@@ -293,10 +299,13 @@ public sealed partial class AcpAgentSession :
 		}
 		if (generation > 0) {
 			_terminals.ReleaseGeneration(generation);
-			_connection.TerminateGeneration(
-				generation,
-				string.IsNullOrEmpty(error.Message) ? "ACP runtime failure." : error.Message);
+			if (_role is PrimaryRole) {
+				_connection.TerminateGeneration(
+					generation,
+					string.IsNullOrEmpty(error.Message) ? "ACP runtime failure." : error.Message);
+			}
 		}
+		FailSideRuntimes(error);
 		AbandonClientRequests();
 		ObserveTerminalizedTools(tools);
 		Observe(new AgentRuntimeFailed());

@@ -24,8 +24,8 @@ public sealed class HostCorePullRequestStatusTests {
 		};
 		await using var host = await TestHost.StartAsync(
 			repo => {
-				TestHost.RunGit(repo, "remote", "add", "origin", "git@github.com:contributor/weavie.git");
-				TestHost.RunGit(repo, "remote", "add", "upstream", "git@github.com:Kapps/weavie.git");
+				TempGitRepo.Run(repo, "remote", "add", "origin", "git@github.com:contributor/weavie.git");
+				TempGitRepo.Run(repo, "remote", "add", "upstream", "git@github.com:Kapps/weavie.git");
 			},
 			[pullRequest]);
 
@@ -41,7 +41,7 @@ public sealed class HostCorePullRequestStatusTests {
 	[Fact]
 	public async Task Ready_DoesNotProbeAnUntrustedOriginHost() {
 		await using var host = await TestHost.StartAsync(
-			repo => TestHost.RunGit(repo, "remote", "add", "origin", "https://attacker.example/acme/demo.git"),
+			repo => TempGitRepo.Run(repo, "remote", "add", "origin", "https://attacker.example/acme/demo.git"),
 			Array.Empty<PullRequestSummary>());
 
 		var message = await Wait.ForAsync(() =>
@@ -55,7 +55,7 @@ public sealed class HostCorePullRequestStatusTests {
 	public async Task RequesterSync_QueuesBehindTheInFlightBroadcastLookupWithoutCancellingIt() {
 		var provider = new ConcurrentProvider();
 		await using var host = await TestHost.StartAsync(
-			repo => TestHost.RunGit(repo, "remote", "add", "origin", "git@github.com:Kapps/weavie.git"),
+			repo => TempGitRepo.Run(repo, "remote", "add", "origin", "git@github.com:Kapps/weavie.git"),
 			provider);
 		await provider.FirstStarted.Task;
 

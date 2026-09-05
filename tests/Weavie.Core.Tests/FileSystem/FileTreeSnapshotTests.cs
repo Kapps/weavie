@@ -4,14 +4,14 @@ using Xunit;
 namespace Weavie.Core.Tests;
 
 public sealed class FileTreeSnapshotTests : IDisposable {
-	private readonly string _root = Directory.CreateTempSubdirectory("file-tree-snapshot-tests-").FullName;
+	private readonly TempDirectory _root = new("file-tree-snapshot-tests");
 
 	[Fact]
 	public void Directory_snapshot_is_independent_and_replaces_stale_destination_files() {
-		string source = Directory.CreateDirectory(Path.Combine(_root, "source", "nested")).Parent!.FullName;
-		File.WriteAllText(Path.Combine(source, "nested", "value.txt"), "production");
-		string destinationRoot = Directory.CreateDirectory(Path.Combine(_root, "preview")).FullName;
-		string destination = Directory.CreateDirectory(Path.Combine(destinationRoot, "tree")).FullName;
+		string source = _root.CreateDirectory("source");
+		_root.WriteFile(Path.Combine("source", "nested", "value.txt"), "production");
+		string destinationRoot = _root.CreateDirectory("preview");
+		string destination = _root.CreateDirectory("preview", "tree");
 		File.WriteAllText(Path.Combine(destination, "stale.txt"), "stale");
 
 		FileTreeSnapshot.MirrorDirectory(source, destination, destinationRoot);
@@ -23,12 +23,12 @@ public sealed class FileTreeSnapshotTests : IDisposable {
 
 	[Fact]
 	public void Source_links_are_rejected_without_touching_the_destination() {
-		string target = Directory.CreateDirectory(Path.Combine(_root, "target")).FullName;
+		string target = _root.CreateDirectory("target");
 		File.WriteAllText(Path.Combine(target, "value.txt"), "production");
-		string source = Path.Combine(_root, "source-link");
+		string source = _root.Combine("source-link");
 		Directory.CreateSymbolicLink(source, target);
-		string destinationRoot = Directory.CreateDirectory(Path.Combine(_root, "preview")).FullName;
-		string destination = Directory.CreateDirectory(Path.Combine(destinationRoot, "tree")).FullName;
+		string destinationRoot = _root.CreateDirectory("preview");
+		string destination = _root.CreateDirectory("preview", "tree");
 		File.WriteAllText(Path.Combine(destination, "existing.txt"), "preview");
 
 		Assert.Throws<InvalidOperationException>(
@@ -39,10 +39,10 @@ public sealed class FileTreeSnapshotTests : IDisposable {
 
 	[Fact]
 	public void Destination_link_components_are_rejected_without_writing_through_them() {
-		string source = Directory.CreateDirectory(Path.Combine(_root, "source")).FullName;
+		string source = _root.CreateDirectory("source");
 		File.WriteAllText(Path.Combine(source, "value.txt"), "production");
-		string outside = Directory.CreateDirectory(Path.Combine(_root, "outside")).FullName;
-		string destinationRoot = Directory.CreateDirectory(Path.Combine(_root, "preview")).FullName;
+		string outside = _root.CreateDirectory("outside");
+		string destinationRoot = _root.CreateDirectory("preview");
 		Directory.CreateSymbolicLink(Path.Combine(destinationRoot, "linked"), outside);
 
 		Assert.Throws<InvalidOperationException>(() => FileTreeSnapshot.MirrorDirectory(
@@ -58,10 +58,9 @@ public sealed class FileTreeSnapshotTests : IDisposable {
 		if (OperatingSystem.IsWindows()) {
 			return;
 		}
-		string source = Path.Combine(_root, "tool");
-		File.WriteAllText(source, "tool");
+		string source = _root.WriteFile("tool", "tool");
 		File.SetUnixFileMode(source, UnixFileMode.UserRead | UnixFileMode.UserExecute);
-		string destinationRoot = Directory.CreateDirectory(Path.Combine(_root, "preview")).FullName;
+		string destinationRoot = _root.CreateDirectory("preview");
 		string destination = Path.Combine(destinationRoot, "tool");
 
 		FileTreeSnapshot.MirrorFile(source, destination, destinationRoot);
@@ -69,5 +68,5 @@ public sealed class FileTreeSnapshotTests : IDisposable {
 		Assert.Equal(File.GetUnixFileMode(source), File.GetUnixFileMode(destination));
 	}
 
-	public void Dispose() => Directory.Delete(_root, recursive: true);
+	public void Dispose() => _root.Dispose();
 }

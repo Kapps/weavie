@@ -7,8 +7,8 @@ public sealed class ApplicationHotkeysTests {
 	[Fact]
 	public void RegistersAndDispatchesThroughThePlatformRegistrar() {
 		var commands = CoreCommands.CreateRegistry();
-		string path = Path.Combine(Path.GetTempPath(), "weavie-app-hotkeys", Guid.NewGuid().ToString("N"), "keybindings.json");
-		using var keybindings = new KeybindingStore(commands, path, enableWatcher: false);
+		using var dir = new TempDirectory("weavie-app-hotkeys");
+		using var keybindings = new KeybindingStore(commands, dir.Combine("keybindings.json"), enableWatcher: false);
 		var registrar = new FakeRegistrar();
 		int toggles = 0;
 		var hotkeys = new ApplicationHotkeys(commands, keybindings, registrar, () => toggles++, _ => { });

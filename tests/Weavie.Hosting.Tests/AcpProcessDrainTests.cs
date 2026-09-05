@@ -7,23 +7,17 @@ namespace Weavie.Hosting.Tests;
 public sealed class AcpProcessDrainTests {
 	[Fact]
 	public void AcpConnection_ResolvesWindowsNpxFromPathWithoutConsultingTheWorkspace() {
-		string root = Path.Combine(Path.GetTempPath(), $"weavie-npx-path-{Guid.NewGuid():N}");
-		string workspace = Path.Combine(root, "workspace");
-		string trusted = Path.Combine(root, "trusted");
-		Directory.CreateDirectory(workspace);
-		Directory.CreateDirectory(trusted);
-		File.WriteAllText(Path.Combine(workspace, "npx.cmd"), "shadow");
-		string expected = Path.Combine(trusted, "npx.cmd");
-		File.WriteAllText(expected, "trusted");
-		try {
-			string resolved = AcpProcessInvocation.ResolveNpxOnPath(
-				string.Join(Path.PathSeparator, workspace, ".", trusted),
-				workspace);
+		using var root = new TempDirectory("weavie-npx-path");
+		string workspace = root.CreateDirectory("workspace");
+		string trusted = root.CreateDirectory("trusted");
+		root.WriteFile(Path.Combine("workspace", "npx.cmd"), "shadow");
+		string expected = root.WriteFile(Path.Combine("trusted", "npx.cmd"), "trusted");
 
-			Assert.Equal(expected, resolved);
-		} finally {
-			Directory.Delete(root, recursive: true);
-		}
+		string resolved = AcpProcessInvocation.ResolveNpxOnPath(
+			string.Join(Path.PathSeparator, workspace, ".", trusted),
+			workspace);
+
+		Assert.Equal(expected, resolved);
 	}
 
 	[Fact]
@@ -66,24 +60,20 @@ public sealed class AcpProcessDrainTests {
 
 	[Fact]
 	public async Task AcpConnection_SurfacesAnExecutableLaunchFailure() {
-		string executable = Path.Combine(Path.GetTempPath(), $"weavie-invalid-acp-{Guid.NewGuid():N}");
-		await File.WriteAllTextAsync(executable, "not an executable");
-		try {
-			var definition = Definition(executable, []);
-			await using var connection = new AcpJsonRpcConnection(
-				definition,
-				Directory.GetCurrentDirectory(),
-				_ => { });
-			var faulted = new TaskCompletionSource<Exception>(TaskCreationOptions.RunContinuationsAsynchronously);
-			connection.ProtocolFaulted += (_, error) => faulted.TrySetResult(error);
+		using var temp = new TempDirectory("weavie-invalid-acp");
+		string executable = temp.WriteFile("agent", "not an executable");
+		var definition = Definition(executable, []);
+		await using var connection = new AcpJsonRpcConnection(
+			definition,
+			Directory.GetCurrentDirectory(),
+			_ => { });
+		var faulted = new TaskCompletionSource<Exception>(TaskCreationOptions.RunContinuationsAsynchronously);
+		connection.ProtocolFaulted += (_, error) => faulted.TrySetResult(error);
 
-			connection.Start();
+		connection.Start();
 
-			var fault = await faulted.Task.WaitAsync(TimeSpan.FromSeconds(10));
-			Assert.Contains("could not start", fault.Message, StringComparison.OrdinalIgnoreCase);
-		} finally {
-			File.Delete(executable);
-		}
+		var fault = await faulted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+		Assert.Contains("could not start", fault.Message, StringComparison.OrdinalIgnoreCase);
 	}
 
 	[Fact]

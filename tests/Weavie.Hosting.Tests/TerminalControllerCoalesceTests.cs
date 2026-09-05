@@ -56,12 +56,10 @@ public sealed class TerminalControllerCoalesceTests {
 	private sealed class Harness : IDisposable {
 		private const long LongWindowMs = 600_000;
 		private readonly SettingsStore _settings;
-		private readonly string _root;
+		private readonly TempDirectory _root = new("weavie-coalesce");
 
 		public Harness(string session, bool withScrollback) {
-			_root = Directory.CreateDirectory(
-				Path.Combine(Path.GetTempPath(), "weavie-coalesce-" + Guid.NewGuid().ToString("n"))).FullName;
-			_settings = CoreSettings.CreateStore(Path.Combine(_root, "settings.toml"), enableWatcher: false);
+			_settings = CoreSettings.CreateStore(_root.Combine("settings.toml"), enableWatcher: false);
 			_settings.Set("terminal.outputCoalesceMs", JsonSerializer.SerializeToElement(LongWindowMs));
 			Launcher = new ScriptablePtyLauncher();
 			Controller = new TerminalController(
@@ -69,11 +67,11 @@ public sealed class TerminalControllerCoalesceTests {
 				session,
 				_settings,
 				Launcher,
-				new TestTerminalProcess(_root, AgentWorkingDirectoryMode.Fixed)) {
-				Workspace = _root,
+				new TestTerminalProcess(_root.Path, AgentWorkingDirectoryMode.Fixed)) {
+				Workspace = _root.Path,
 			};
 			if (withScrollback) {
-				Controller.ScrollbackLogPath = Path.Combine(_root, "scrollback.log");
+				Controller.ScrollbackLogPath = _root.Combine("scrollback.log");
 			}
 		}
 
@@ -84,11 +82,7 @@ public sealed class TerminalControllerCoalesceTests {
 		public void Dispose() {
 			Controller.Dispose();
 			_settings.Dispose();
-			try {
-				Directory.Delete(_root, recursive: true);
-			} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-				// best-effort temp cleanup
-			}
+			_root.Dispose();
 		}
 	}
 }

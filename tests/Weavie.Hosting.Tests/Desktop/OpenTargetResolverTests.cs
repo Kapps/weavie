@@ -8,16 +8,16 @@ namespace Weavie.Hosting.Tests;
 /// without a window, a git process, or a session.
 /// </summary>
 public sealed class OpenTargetResolverTests : IDisposable {
-	private readonly string _root = Path.Combine(Path.GetTempPath(), $"weavie-open-{Guid.NewGuid():N}");
+	private readonly TempDirectory _root = new("weavie-open");
 
 	public OpenTargetResolverTests() {
-		Directory.CreateDirectory(Path.Combine(_root, "repo", "src"));
-		Directory.CreateDirectory(Path.Combine(_root, "loose"));
+		_root.CreateDirectory("repo", "src");
+		_root.CreateDirectory("loose");
 	}
 
 	[Fact]
 	public void FileInsideAnOpenWorkspace_OpensThere() {
-		string repo = Path.Combine(_root, "repo");
+		string repo = _root.Combine("repo");
 		string file = Path.Combine(repo, "src", "a.ts");
 
 		var target = OpenTargetResolver.Resolve(file, [repo], toplevel: repo);
@@ -27,8 +27,8 @@ public sealed class OpenTargetResolverTests : IDisposable {
 
 	[Fact]
 	public void FileInAClosedRepository_OpensThatRepository() {
-		string repo = Path.Combine(_root, "repo");
-		string other = Path.Combine(_root, "loose");
+		string repo = _root.Combine("repo");
+		string other = _root.Combine("loose");
 		string file = Path.Combine(repo, "src", "a.ts");
 
 		var target = OpenTargetResolver.Resolve(file, [other], toplevel: repo);
@@ -39,8 +39,8 @@ public sealed class OpenTargetResolverTests : IDisposable {
 	[Fact]
 	public void FileInNoRepository_OpensInAnOpenWorkspaceAsAnOutsideFile() {
 		// The case the outside-the-checkout work made possible: no repo above /etc/hosts, but a window is open.
-		string repo = Path.Combine(_root, "repo");
-		string file = Path.Combine(_root, "loose", "notes.md");
+		string repo = _root.Combine("repo");
+		string file = _root.Combine("loose", "notes.md");
 
 		var target = OpenTargetResolver.Resolve(file, [repo], toplevel: null);
 
@@ -49,16 +49,16 @@ public sealed class OpenTargetResolverTests : IDisposable {
 
 	[Fact]
 	public void FileInNoRepositoryWithNothingOpen_TakesItsOwnDirectory() {
-		string file = Path.Combine(_root, "loose", "notes.md");
+		string file = _root.Combine("loose", "notes.md");
 
 		var target = OpenTargetResolver.Resolve(file, [], toplevel: null);
 
-		Assert.Equal(new OpenTarget(Path.Combine(_root, "loose"), file), target);
+		Assert.Equal(new OpenTarget(_root.Combine("loose"), file), target);
 	}
 
 	[Fact]
 	public void ADirectory_OpensAsItsOwnWorkspaceAndRevealsNothing() {
-		string repo = Path.Combine(_root, "repo");
+		string repo = _root.Combine("repo");
 
 		var target = OpenTargetResolver.Resolve(repo, [], toplevel: repo);
 
@@ -67,7 +67,7 @@ public sealed class OpenTargetResolverTests : IDisposable {
 
 	[Fact]
 	public void AnUnnormalizedPath_ResolvesBeforeItIsCompared() {
-		string repo = Path.Combine(_root, "repo");
+		string repo = _root.Combine("repo");
 		string file = Path.Combine(repo, "src", "..", "src", "a.ts");
 
 		var target = OpenTargetResolver.Resolve(file, [repo], toplevel: null);
@@ -79,8 +79,8 @@ public sealed class OpenTargetResolverTests : IDisposable {
 	public void EveryHandedOverPathMustBelongToTheOpenWorkspace() {
 		// One window shows one workspace, so a path from elsewhere is declined and its own window boots it —
 		// rather than being opened inside a workspace the first path chose.
-		string repo = Path.Combine(_root, "repo");
-		string elsewhere = Path.Combine(_root, "loose");
+		string repo = _root.Combine("repo");
+		string elsewhere = _root.Combine("loose");
 
 		var reply = DesktopHandoff.Offer(
 			[Path.Combine(repo, "src", "a.ts"), Path.Combine(elsewhere, "b.ts")],
@@ -94,7 +94,7 @@ public sealed class OpenTargetResolverTests : IDisposable {
 
 	[Fact]
 	public void PathsThatAllBelongAreOpened() {
-		string repo = Path.Combine(_root, "repo");
+		string repo = _root.Combine("repo");
 		List<string> opened = [];
 
 		var reply = DesktopHandoff.Offer(
@@ -107,5 +107,5 @@ public sealed class OpenTargetResolverTests : IDisposable {
 		Assert.Equal([Path.Combine(repo, "src", "a.ts"), Path.Combine(repo, "src", "b.ts")], opened);
 	}
 
-	public void Dispose() => Directory.Delete(_root, recursive: true);
+	public void Dispose() => _root.Dispose();
 }

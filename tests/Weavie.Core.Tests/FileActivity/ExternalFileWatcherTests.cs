@@ -10,15 +10,11 @@ namespace Weavie.Core.Tests;
 /// drive the real filesystem, because what they pin — that something observes the file — only exists there.
 /// </summary>
 public sealed class ExternalFileWatcherTests : IDisposable {
-	private readonly string _root = Path.Combine(Path.GetTempPath(), $"weavie-external-{Guid.NewGuid():N}");
-
-	public ExternalFileWatcherTests() {
-		Directory.CreateDirectory(_root);
-	}
+	private readonly TempDirectory _root = new("weavie-external");
 
 	[Fact]
 	public async Task ReportsAnEditMadeOutsideWeavie() {
-		string watched = Path.Combine(_root, "notes.md");
+		string watched = _root.Combine("notes.md");
 		await File.WriteAllTextAsync(watched, "before\n");
 		CapturingSink sink = new();
 		using var watcher = NewWatcher(sink);
@@ -33,7 +29,7 @@ public sealed class ExternalFileWatcherTests : IDisposable {
 
 	[Fact]
 	public async Task ReportsADeletion() {
-		string watched = Path.Combine(_root, "doomed.md");
+		string watched = _root.Combine("doomed.md");
 		await File.WriteAllTextAsync(watched, "x\n");
 		CapturingSink sink = new();
 		using var watcher = NewWatcher(sink);
@@ -47,8 +43,8 @@ public sealed class ExternalFileWatcherTests : IDisposable {
 
 	[Fact]
 	public async Task IgnoresASiblingItWasNotAskedToWatch() {
-		string watched = Path.Combine(_root, "watched.md");
-		string sibling = Path.Combine(_root, "sibling.md");
+		string watched = _root.Combine("watched.md");
+		string sibling = _root.Combine("sibling.md");
 		await File.WriteAllTextAsync(watched, "x\n");
 		CapturingSink sink = new();
 		using var watcher = NewWatcher(sink);
@@ -65,8 +61,8 @@ public sealed class ExternalFileWatcherTests : IDisposable {
 
 	[Fact]
 	public async Task StopsReportingAFileThatIsNoLongerOpen() {
-		string closed = Path.Combine(_root, "closed.md");
-		string open = Path.Combine(_root, "open.md");
+		string closed = _root.Combine("closed.md");
+		string open = _root.Combine("open.md");
 		await File.WriteAllTextAsync(closed, "x\n");
 		await File.WriteAllTextAsync(open, "x\n");
 		CapturingSink sink = new();
@@ -119,10 +115,8 @@ public sealed class ExternalFileWatcherTests : IDisposable {
 
 	[Fact]
 	public void ReleasesWatchesAsFilesLeaveTheTabSet() {
-		string first = Path.Combine(_root, "a", "one.md");
-		string second = Path.Combine(_root, "b", "two.md");
-		Directory.CreateDirectory(Path.GetDirectoryName(first)!);
-		Directory.CreateDirectory(Path.GetDirectoryName(second)!);
+		string first = Path.Combine(_root.CreateDirectory("a"), "one.md");
+		string second = Path.Combine(_root.CreateDirectory("b"), "two.md");
 		using var watcher = NewWatcher(new CapturingSink());
 
 		watcher.Watch([first, second]);
@@ -135,13 +129,7 @@ public sealed class ExternalFileWatcherTests : IDisposable {
 		Assert.Equal(0, watcher.WatchedDirectoryCount);
 	}
 
-	public void Dispose() {
-		try {
-			Directory.Delete(_root, recursive: true);
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			// A watcher handle can outlive the test on Windows; the temp root is disposable either way.
-		}
-	}
+	public void Dispose() => _root.Dispose();
 
 	private static ExternalFileWatcher NewWatcher(CapturingSink sink) =>
 		new(new LocalFileSystem(), sink, failure => Assert.Fail(failure), debounceMs: 10);

@@ -91,13 +91,12 @@ public sealed class TerminalControllerReattachTests {
 	/// <summary>A self-contained claude-pane controller over a scriptable PTY, torn down on dispose.</summary>
 	private sealed class Harness : IDisposable {
 		private readonly SettingsStore _settings;
-		private readonly string _settingsPath;
+		private readonly TempDirectory _temp = new("weavie-reattach");
 
 		public Harness() : this("claude") { }
 
 		public Harness(string session) {
-			_settingsPath = Path.Combine(Path.GetTempPath(), "weavie-reattach-" + Guid.NewGuid().ToString("n") + ".toml");
-			_settings = CoreSettings.CreateStore(_settingsPath, enableWatcher: false);
+			_settings = CoreSettings.CreateStore(_temp.Combine("settings.toml"), enableWatcher: false);
 			// Post output inline (no batching) so each emitted chunk is its own frame for these synchronous assertions.
 			_settings.Set("terminal.outputCoalesceMs", JsonSerializer.SerializeToElement(0L));
 			Bridge = new FakeHostBridge();
@@ -107,8 +106,8 @@ public sealed class TerminalControllerReattachTests {
 				session,
 				_settings,
 				Launcher,
-				new TestTerminalProcess(Path.GetTempPath(), AgentWorkingDirectoryMode.Fixed)) {
-				Workspace = Path.GetTempPath(),
+				new TestTerminalProcess(_temp.Path, AgentWorkingDirectoryMode.Fixed)) {
+				Workspace = _temp.Path,
 			};
 		}
 
@@ -119,11 +118,7 @@ public sealed class TerminalControllerReattachTests {
 		public void Dispose() {
 			Controller.Dispose();
 			_settings.Dispose();
-			try {
-				File.Delete(_settingsPath);
-			} catch (IOException) {
-				// best-effort temp cleanup
-			}
+			_temp.Dispose();
 		}
 	}
 }

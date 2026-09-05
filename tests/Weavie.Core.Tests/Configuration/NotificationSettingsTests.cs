@@ -10,22 +10,11 @@ namespace Weavie.Core.Tests;
 /// </summary>
 [Collection("Settings")]
 public sealed class NotificationSettingsTests : IDisposable {
-	private readonly string _dir =
-		Path.Combine(Path.GetTempPath(), "weavie-notification-tests", Guid.NewGuid().ToString("N"));
+	private readonly TempDirectory _dir = new("weavie-notification-tests");
 
-	public NotificationSettingsTests() {
-		Directory.CreateDirectory(_dir);
-	}
+	public void Dispose() => _dir.Dispose();
 
-	public void Dispose() {
-		try {
-			Directory.Delete(_dir, recursive: true);
-		} catch (IOException) {
-		} catch (UnauthorizedAccessException) {
-		}
-	}
-
-	private string FilePath => Path.Combine(_dir, "settings.toml");
+	private string FilePath => _dir.Combine("settings.toml");
 
 	private static SettingsRegistry Registry() {
 		var registry = new SettingsRegistry();
@@ -34,7 +23,7 @@ public sealed class NotificationSettingsTests : IDisposable {
 	}
 
 	private SettingsStore NewStore() =>
-		new(Registry(), FilePath, enableWatcher: false, _ => Path.Combine(_dir, "ws-settings.toml"));
+		new(Registry(), FilePath, enableWatcher: false, _ => _dir.Combine("ws-settings.toml"));
 
 	private static JsonElement Json(string raw) => JsonDocument.Parse(raw).RootElement.Clone();
 

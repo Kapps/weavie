@@ -589,7 +589,7 @@ public sealed class HostCoreSessionDeleteTests {
 	private static async Task<string> DiscoverCheckoutAsync(TestHost host, Action<string> afterAdd) {
 		string checkout = Path.Combine(Path.GetDirectoryName(host.RepoRoot)!, "manual");
 		await host.RestartAsync(() => {
-			TestHost.RunGit(host.RepoRoot, "worktree", "add", checkout, "-b", "manual");
+			TempGitRepo.Run(host.RepoRoot, "worktree", "add", checkout, "-b", "manual");
 			afterAdd(checkout);
 		});
 		return checkout;
@@ -672,7 +672,7 @@ public sealed class HostCoreSessionDeleteTests {
 	public async Task DeletingADiscoveredCheckoutIsRefusedWhenItsWorktreeIsLocked() {
 		await using var host = await TestHost.StartAsync();
 		string checkout = await DiscoverCheckoutAsync(host, static _ => { });
-		TestHost.RunGit(host.RepoRoot, "worktree", "lock", checkout);
+		TempGitRepo.Run(host.RepoRoot, "worktree", "lock", checkout);
 
 		var result = await host.DeleteSessionAsync("manual", force: true, classify: false);
 
@@ -689,7 +689,7 @@ public sealed class HostCoreSessionDeleteTests {
 		await using var host = await TestHost.StartAsync();
 		string checkout = await DiscoverCheckoutAsync(
 			host,
-			static tree => TestHost.RunGit(tree, "checkout", "--detach"));
+			static tree => TempGitRepo.Run(tree, "checkout", "--detach"));
 		var classification = await host.DeleteSessionAsync("manual", force: false, classify: true);
 		using (var data = JsonDocument.Parse(classification.DataJson!)) {
 			Assert.True(data.RootElement.GetProperty("branchless").GetBoolean());
@@ -735,7 +735,7 @@ public sealed class HostCoreSessionDeleteTests {
 		await using var host = await TestHost.StartAsync();
 		Assert.True((await host.CreateSessionAsync("detached")).Ok);
 		string checkout = host.Session("detached").WorkspaceRoot;
-		TestHost.RunGit(checkout, "checkout", "--detach");
+		TempGitRepo.Run(checkout, "checkout", "--detach");
 		string registry = WeaviePaths.WorkspaceWorktreesFile(WorkspaceId.ForPath(host.RepoRoot));
 
 		await host.RestartAsync(() => File.Delete(registry));

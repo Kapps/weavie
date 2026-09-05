@@ -10,13 +10,9 @@ namespace Weavie.Core.Tests;
 public sealed class ServerResolverTests {
 	[Fact]
 	public void FindOnPath_ReturnsExplicitPath_WhenItExists() {
-		string temp = Path.Combine(Path.GetTempPath(), $"weavie-resolver-{Guid.NewGuid():N}.exe");
-		File.WriteAllText(temp, "stub");
-		try {
-			Assert.Equal(temp, ServerResolver.FindOnPath(temp));
-		} finally {
-			File.Delete(temp);
-		}
+		using var temp = new TempDirectory("weavie-resolver");
+		string stub = temp.WriteFile("stub.exe", "stub");
+		Assert.Equal(stub, ServerResolver.FindOnPath(stub));
 	}
 
 	[Fact]

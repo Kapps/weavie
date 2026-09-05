@@ -17,19 +17,9 @@ public sealed class SuggestionServiceTests : IDisposable {
 	private static readonly Func<bool> ManifestPresent = () => true;
 	private static readonly Func<bool> NoManifest = () => false;
 
-	private readonly string _dir = Path.Combine(Path.GetTempPath(), "weavie-suggestion-tests", Guid.NewGuid().ToString("N"));
+	private readonly TempDirectory _dir = new("weavie-suggestion-tests");
 
-	public SuggestionServiceTests() {
-		Directory.CreateDirectory(_dir);
-	}
-
-	public void Dispose() {
-		try {
-			Directory.Delete(_dir, recursive: true);
-		} catch (IOException) {
-		} catch (UnauthorizedAccessException) {
-		}
-	}
+	public void Dispose() => _dir.Dispose();
 
 	[Fact]
 	public async Task ManifestPresent_Unconfigured_IsRelevant() {
@@ -152,12 +142,11 @@ public sealed class SuggestionServiceTests : IDisposable {
 	}
 
 	private SettingsStore EmptySettings() =>
-		new(CoreSettings.CreateRegistry(), Path.Combine(_dir, Guid.NewGuid().ToString("N") + ".toml"), enableWatcher: false, _ => Path.Combine(_dir, "ws-settings.toml"));
+		new(CoreSettings.CreateRegistry(), _dir.Combine(Guid.NewGuid().ToString("N") + ".toml"), enableWatcher: false, _ => _dir.Combine("ws-settings.toml"));
 
 	private SettingsStore SettingsWith(string toml) {
-		string path = Path.Combine(_dir, Guid.NewGuid().ToString("N") + ".toml");
-		File.WriteAllText(path, toml + "\n");
-		return new SettingsStore(CoreSettings.CreateRegistry(), path, enableWatcher: false, _ => Path.Combine(_dir, "ws-settings.toml"));
+		string path = _dir.WriteFile(Guid.NewGuid().ToString("N") + ".toml", toml + "\n");
+		return new SettingsStore(CoreSettings.CreateRegistry(), path, enableWatcher: false, _ => _dir.Combine("ws-settings.toml"));
 	}
 
 	// Generous probe timeout so a stub probe that returns immediately always wins the race — deterministic under

@@ -11,21 +11,11 @@ namespace Weavie.Core.Tests;
 /// </summary>
 [Collection("Settings")]
 public sealed class FontSettingsTests : IDisposable {
-	private readonly string _dir = Path.Combine(Path.GetTempPath(), "weavie-font-tests", Guid.NewGuid().ToString("N"));
+	private readonly TempDirectory _dir = new("weavie-font-tests");
 
-	public FontSettingsTests() {
-		Directory.CreateDirectory(_dir);
-	}
+	public void Dispose() => _dir.Dispose();
 
-	public void Dispose() {
-		try {
-			Directory.Delete(_dir, recursive: true);
-		} catch (IOException) {
-		} catch (UnauthorizedAccessException) {
-		}
-	}
-
-	private string FilePath => Path.Combine(_dir, "settings.toml");
+	private string FilePath => _dir.Combine("settings.toml");
 
 	private static SettingsRegistry Registry() {
 		var registry = new SettingsRegistry();
@@ -33,7 +23,7 @@ public sealed class FontSettingsTests : IDisposable {
 		return registry;
 	}
 
-	private SettingsStore NewStore() => new(Registry(), FilePath, enableWatcher: false, _ => Path.Combine(_dir, "ws-settings.toml"));
+	private SettingsStore NewStore() => new(Registry(), FilePath, enableWatcher: false, _ => _dir.Combine("ws-settings.toml"));
 
 	// The registered global default size, read from resolution instead of hardcoded — a change to the default
 	// const ripples here automatically, keeping these tests about inheritance rather than a magic number.

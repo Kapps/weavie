@@ -11,22 +11,14 @@ namespace Weavie.Core.Tests;
 /// </summary>
 [Collection("Settings")]
 public sealed class FontCommandsTests : IDisposable {
-	private readonly string _dir = Path.Combine(Path.GetTempPath(), "weavie-font-tests", Guid.NewGuid().ToString("N"));
-
-	public FontCommandsTests() {
-		Directory.CreateDirectory(_dir);
-	}
+	private readonly TempDirectory _dir = new("weavie-font-tests");
 
 	public void Dispose() {
 		Environment.SetEnvironmentVariable("WEAVIE_FONT_SIZE", null);
-		try {
-			Directory.Delete(_dir, recursive: true);
-		} catch (IOException) {
-		} catch (UnauthorizedAccessException) {
-		}
+		_dir.Dispose();
 	}
 
-	private string FilePath => Path.Combine(_dir, "settings.toml");
+	private string FilePath => _dir.Combine("settings.toml");
 
 	private static string WorkspaceFile(string root) => Path.Combine(root, ".weavie", "settings.toml");
 

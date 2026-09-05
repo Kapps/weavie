@@ -144,92 +144,70 @@ public sealed class WorktreeServeTests {
 
 	[Fact]
 	public void New_empty_state_root_is_claimed_and_can_be_reopened() {
-		string root = Path.Combine(Path.GetTempPath(), $"worktree-serve-claim-{Guid.NewGuid():N}");
-		try {
-			WorktreeServeApp.ClaimStateRoot(root);
-			WorktreeServeApp.ClaimStateRoot(root);
+		using var temp = new TempDirectory("worktree-serve-claim");
+		string root = temp.Combine("state"); // ClaimStateRoot must create it itself
 
-			Assert.Single(Directory.EnumerateFiles(root));
-		} finally {
-			if (Directory.Exists(root)) {
-				Directory.Delete(root, recursive: true);
-			}
-		}
+		WorktreeServeApp.ClaimStateRoot(root);
+		WorktreeServeApp.ClaimStateRoot(root);
+
+		Assert.Single(Directory.EnumerateFiles(root));
 	}
 
 	[Fact]
 	public void Existing_unowned_state_root_is_rejected_without_changing_it() {
-		string root = Directory.CreateTempSubdirectory("worktree-serve-unowned-state-").FullName;
-		string existing = Path.Combine(root, "settings.toml");
-		File.WriteAllText(existing, "production");
-		try {
-			Assert.Throws<InvalidOperationException>(() => WorktreeServeApp.ClaimStateRoot(root));
+		using var root = new TempDirectory("worktree-serve-unowned-state");
+		string existing = root.WriteFile("settings.toml", "production");
 
-			Assert.Equal("production", File.ReadAllText(existing));
-			Assert.Single(Directory.EnumerateFileSystemEntries(root));
-		} finally {
-			Directory.Delete(root, recursive: true);
-		}
+		Assert.Throws<InvalidOperationException>(() => WorktreeServeApp.ClaimStateRoot(root.Path));
+
+		Assert.Equal("production", File.ReadAllText(existing));
+		Assert.Single(Directory.EnumerateFileSystemEntries(root.Path));
 	}
 
 	[Fact]
 	public void State_root_cannot_overlap_source_or_workspace_paths() {
-		string root = Directory.CreateTempSubdirectory("worktree-serve-overlap-").FullName;
-		string source = Directory.CreateDirectory(Path.Combine(root, "source")).FullName;
-		try {
-			Assert.Throws<InvalidOperationException>(
-				() => WorktreeServeApp.RejectStateOverlap(Path.Combine(source, "preview"), [source]));
-			Assert.Throws<InvalidOperationException>(
-				() => WorktreeServeApp.RejectStateOverlap(root, [source]));
-		} finally {
-			Directory.Delete(root, recursive: true);
-		}
+		using var root = new TempDirectory("worktree-serve-overlap");
+		string source = root.CreateDirectory("source");
+
+		Assert.Throws<InvalidOperationException>(
+			() => WorktreeServeApp.RejectStateOverlap(Path.Combine(source, "preview"), [source]));
+		Assert.Throws<InvalidOperationException>(
+			() => WorktreeServeApp.RejectStateOverlap(root.Path, [source]));
 	}
 
 	[Fact]
 	public void Case_insensitive_filesystems_reject_production_state_aliases() {
-		string root = Directory.CreateTempSubdirectory("worktree-serve-case-test-").FullName;
-		try {
-			string lower = Path.Combine(root, ".weavie");
-			string upper = Path.Combine(root, ".WEAVIE", "workspaces");
-			Directory.CreateDirectory(lower);
-			Assert.Equal(
-				Directory.Exists(Path.Combine(root, ".WEAVIE")),
-				PhysicalPath.IsSameOrDescendant(upper, lower));
-		} finally {
-			Directory.Delete(root, recursive: true);
-		}
+		using var root = new TempDirectory("worktree-serve-case-test");
+		string lower = root.CreateDirectory(".weavie");
+		string upper = root.Combine(".WEAVIE", "workspaces");
+
+		Assert.Equal(
+			Directory.Exists(root.Combine(".WEAVIE")),
+			PhysicalPath.IsSameOrDescendant(upper, lower));
 	}
 
 	[Fact]
 	public void Case_distinct_directories_remain_distinct_when_the_volume_supports_them() {
-		string root = Directory.CreateTempSubdirectory("worktree-serve-case-sensitive-test-").FullName;
-		try {
-			string lower = Directory.CreateDirectory(Path.Combine(root, "state")).FullName;
-			string upper = Directory.CreateDirectory(Path.Combine(root, "STATE")).FullName;
-			if (Directory.EnumerateDirectories(root).Count() == 1) {
-				return;
-			}
-
-			Assert.False(PhysicalPath.Equal(lower, upper));
-			Assert.False(PhysicalPath.IsSameOrDescendant(lower, upper));
-		} finally {
-			Directory.Delete(root, recursive: true);
+		using var root = new TempDirectory("worktree-serve-case-sensitive-test");
+		string lower = root.CreateDirectory("state");
+		string upper = root.CreateDirectory("STATE");
+		if (Directory.EnumerateDirectories(root.Path).Count() == 1) {
+			return;
 		}
+
+		Assert.False(PhysicalPath.Equal(lower, upper));
+		Assert.False(PhysicalPath.IsSameOrDescendant(lower, upper));
 	}
 
 	[Fact]
 	public void Symlink_into_production_state_store_is_never_accepted_for_a_preview() {
-		string root = Directory.CreateTempSubdirectory("worktree-serve-state-test-").FullName;
-		string production = Directory.CreateDirectory(Path.Combine(root, "production")).FullName;
-		string workspace = Directory.CreateDirectory(Path.Combine(production, "workspaces", "existing")).FullName;
-		string alias = Path.Combine(root, "preview");
+		using var root = new TempDirectory("worktree-serve-state-test");
+		string production = root.CreateDirectory("production");
+		string workspace = root.CreateDirectory("production", "workspaces", "existing");
+		string alias = root.Combine("preview");
 		Directory.CreateSymbolicLink(alias, workspace);
-		try {
-			Assert.Throws<InvalidOperationException>(() => WorktreeServeApp.RejectProductionState(alias, production));
-		} finally {
-			Directory.Delete(root, recursive: true);
-		}
+
+		Assert.Throws<InvalidOperationException>(() => WorktreeServeApp.RejectProductionState(alias, production));
 	}
 
 	[Fact]

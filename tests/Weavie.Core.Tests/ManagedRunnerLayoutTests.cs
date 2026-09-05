@@ -10,15 +10,10 @@ namespace Weavie.Core.Tests;
 public sealed class ManagedRunnerLayoutTests {
 	[Fact]
 	public void RootContaining_FindsTheRootFromAWorkerBaseDir() {
-		string root = Path.Combine(Path.GetTempPath(), "weavie-layout-" + Guid.NewGuid().ToString("n"));
-		string workerDir = Path.Combine(root, "versions", "63", "worker");
-		Directory.CreateDirectory(workerDir);
-		try {
-			Assert.Equal(root, ManagedRunnerLayout.RootContaining(workerDir));
-			Assert.Null(ManagedRunnerLayout.RootContaining(Path.GetTempPath()));
-		} finally {
-			Directory.Delete(root, recursive: true);
-		}
+		using var root = new TempDirectory("weavie-layout");
+		string workerDir = root.CreateDirectory("versions", "63", "worker");
+		Assert.Equal(root.Path, ManagedRunnerLayout.RootContaining(workerDir));
+		Assert.Null(ManagedRunnerLayout.RootContaining(Path.GetTempPath()));
 	}
 
 	[Fact]

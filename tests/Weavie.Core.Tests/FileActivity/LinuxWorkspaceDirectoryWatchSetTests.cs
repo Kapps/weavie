@@ -5,11 +5,7 @@ using Xunit;
 namespace Weavie.Core.Tests;
 
 public sealed class LinuxWorkspaceDirectoryWatchSetTests : IDisposable {
-	private readonly string _root = Path.Combine(Path.GetTempPath(), $"weavie-inotify-{Guid.NewGuid():N}");
-
-	public LinuxWorkspaceDirectoryWatchSetTests() {
-		Directory.CreateDirectory(_root);
-	}
+	private readonly TempDirectory _root = new("weavie-inotify");
 
 	[Fact]
 	public async Task OneNativeInstanceWatchesManyFlatDirectories() {
@@ -17,11 +13,9 @@ public sealed class LinuxWorkspaceDirectoryWatchSetTests : IDisposable {
 			return;
 		}
 
-		var directories = new List<string> { _root };
+		var directories = new List<string> { _root.Path };
 		for (int i = 0; i < 300; i++) {
-			string directory = Path.Combine(_root, i.ToString());
-			Directory.CreateDirectory(directory);
-			directories.Add(directory);
+			directories.Add(_root.CreateDirectory(i.ToString()));
 		}
 
 		var created = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -48,11 +42,10 @@ public sealed class LinuxWorkspaceDirectoryWatchSetTests : IDisposable {
 			return;
 		}
 
-		string oldPath = Path.Combine(_root, "before");
-		string newPath = Path.Combine(_root, "after");
-		string oldNested = Path.Combine(oldPath, "nested");
+		string oldPath = _root.Combine("before");
+		string newPath = _root.Combine("after");
+		string oldNested = _root.CreateDirectory("before", "nested");
 		string newNested = Path.Combine(newPath, "nested");
-		Directory.CreateDirectory(oldNested);
 		var renamed = new TaskCompletionSource<(string OldPath, string NewPath)>(TaskCreationOptions.RunContinuationsAsynchronously);
 		var created = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
 		using var watches = new LinuxWorkspaceDirectoryWatchSet(
@@ -61,7 +54,7 @@ public sealed class LinuxWorkspaceDirectoryWatchSetTests : IDisposable {
 			_ => { },
 			(oldName, newName) => renamed.TrySetResult((oldName, newName)),
 			_ => { });
-		watches.Reconcile([_root, oldPath, oldNested]);
+		watches.Reconcile([_root.Path, oldPath, oldNested]);
 
 		Directory.Move(oldPath, newPath);
 
@@ -84,8 +77,8 @@ public sealed class LinuxWorkspaceDirectoryWatchSetTests : IDisposable {
 			(_, _) => { },
 			_ => { });
 
-		watches.Reconcile([_root, Path.Combine(_root, "gone")]);
-		watches.EnsureWatching(Path.Combine(_root, "also-gone"));
+		watches.Reconcile([_root.Path, _root.Combine("gone")]);
+		watches.EnsureWatching(_root.Combine("also-gone"));
 
 		Assert.Equal(1, watches.Count);
 	}
@@ -96,16 +89,12 @@ public sealed class LinuxWorkspaceDirectoryWatchSetTests : IDisposable {
 			return;
 		}
 
-		string firstPath = Path.Combine(_root, "first");
-		string secondPath = Path.Combine(_root, "second");
-		string outside = Path.Combine(Path.GetTempPath(), $"weavie-inotify-outside-{Guid.NewGuid():N}");
-		string firstOutside = Path.Combine(outside, "first");
-		string secondOutside = Path.Combine(outside, "second");
-		string trafficDirectory = Path.Combine(_root, "traffic");
-		Directory.CreateDirectory(firstPath);
-		Directory.CreateDirectory(secondPath);
-		Directory.CreateDirectory(outside);
-		Directory.CreateDirectory(trafficDirectory);
+		string firstPath = _root.CreateDirectory("first");
+		string secondPath = _root.CreateDirectory("second");
+		using var outside = new TempDirectory("weavie-inotify-outside");
+		string firstOutside = outside.Combine("first");
+		string secondOutside = outside.Combine("second");
+		string trafficDirectory = _root.CreateDirectory("traffic");
 		var deletedPaths = new ConcurrentDictionary<string, byte>(StringComparer.Ordinal);
 		var deleted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 		using var stopTraffic = new CancellationTokenSource();
@@ -122,7 +111,7 @@ public sealed class LinuxWorkspaceDirectoryWatchSetTests : IDisposable {
 				},
 				(_, _) => { },
 				_ => { });
-			watches.Reconcile([_root]);
+			watches.Reconcile([_root.Path]);
 
 			Directory.Move(firstPath, firstOutside);
 			Directory.Move(secondPath, secondOutside);
@@ -141,12 +130,8 @@ public sealed class LinuxWorkspaceDirectoryWatchSetTests : IDisposable {
 			if (traffic is not null) {
 				await traffic;
 			}
-
-			if (Directory.Exists(outside)) {
-				Directory.Delete(outside, recursive: true);
-			}
 		}
 	}
 
-	public void Dispose() => Directory.Delete(_root, recursive: true);
+	public void Dispose() => _root.Dispose();
 }

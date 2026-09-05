@@ -14,19 +14,9 @@ namespace Weavie.Core.Tests.Workspaces;
 public sealed class WorkspaceAutoConfigTests : IDisposable {
 	private const string Root = "/repo";
 
-	private readonly string _dir = Path.Combine(Path.GetTempPath(), "weavie-autoconfig-tests", Guid.NewGuid().ToString("N"));
+	private readonly TempDirectory _dir = new("weavie-autoconfig-tests");
 
-	public WorkspaceAutoConfigTests() {
-		Directory.CreateDirectory(_dir);
-	}
-
-	public void Dispose() {
-		try {
-			Directory.Delete(_dir, recursive: true);
-		} catch (IOException) {
-		} catch (UnauthorizedAccessException) {
-		}
-	}
+	public void Dispose() => _dir.Dispose();
 
 	private static readonly TestRule GoRule = new() {
 		Glob = "**/*_test.go",
@@ -36,9 +26,9 @@ public sealed class WorkspaceAutoConfigTests : IDisposable {
 	};
 
 	private SettingsStore NewStore() {
-		string wsFile = Path.Combine(_dir, Guid.NewGuid().ToString("N") + "-ws.toml");
+		string wsFile = _dir.Combine(Guid.NewGuid().ToString("N") + "-ws.toml");
 		return new SettingsStore(CoreSettings.CreateRegistry(),
-			Path.Combine(_dir, Guid.NewGuid().ToString("N") + ".toml"), enableWatcher: false, _ => wsFile);
+			_dir.Combine(Guid.NewGuid().ToString("N") + ".toml"), enableWatcher: false, _ => wsFile);
 	}
 
 	private static WorkspaceDetection Detection(string? setup, IReadOnlyList<TestRule> rules) => new() {

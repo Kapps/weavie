@@ -4,62 +4,35 @@ using Weavie.Core.FileSystem;
 
 namespace Weavie.Core.Sessions;
 
-/// <summary>Persists the ACP conversation associated with each provider and working directory.</summary>
-public sealed class AcpSessionStore {
+/// <summary>
+/// Persists the ACP conversation associated with each provider and working directory. Unlike the config
+/// stores, an unusable file is never reset or backed up: the failure is held and rethrown from the first use,
+/// so a corrupt file surfaces instead of silently abandoning the user's conversations.
+/// </summary>
+public sealed class AcpSessionStore : JsonDocumentStore {
 	private const int Version = 2;
 	private static readonly JsonSerializerOptions JsonOptions = new() {
 		WriteIndented = true,
 		UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
 	};
-	private readonly IFileSystem _fileSystem;
-	private readonly Lock _gate = new();
-	private readonly AcpSessionStoreException? _loadFailure;
-	private List<Entry> _items;
+
+	private AcpSessionStoreException? _loadFailure;
+	private List<Entry> _items = [];
 
 	/// <summary>Creates and loads the store at <paramref name="path"/>.</summary>
-	public AcpSessionStore(IFileSystem fileSystem, string path) {
-		ArgumentNullException.ThrowIfNull(fileSystem);
-		ArgumentException.ThrowIfNullOrEmpty(path);
-		_fileSystem = fileSystem;
-		FilePath = path;
-		try {
-			_items = Load();
-		} catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException) {
-			_items = [];
-			_loadFailure = new AcpSessionStoreException(
-				$"ACP session associations could not be loaded from '{path}': {ex.Message}",
-				ex);
-		}
+	/// <param name="fileSystem">The filesystem the associations persist through.</param>
+	/// <param name="path">The backing file.</param>
+	public AcpSessionStore(IFileSystem fileSystem, string path) : base(fileSystem, path) {
+		Load();
 	}
-
-	/// <summary>The file backing this store.</summary>
-	public string FilePath { get; }
 
 	/// <summary>Returns the provider session associated with the working directory, when any.</summary>
-	public string? Resolve(string providerId, string workingDirectory) {
-		ArgumentException.ThrowIfNullOrEmpty(providerId);
-		ArgumentException.ThrowIfNullOrEmpty(workingDirectory);
-		string cwd = Normalize(workingDirectory);
-		lock (_gate) {
-			EnsureAvailable();
-			return _items.FirstOrDefault(item =>
-				string.Equals(item.ProviderId, providerId, StringComparison.Ordinal)
-				&& PathEquals(item.Cwd, cwd))?.SessionId;
-		}
-	}
+	public string? Resolve(string providerId, string workingDirectory) =>
+		Find(providerId, workingDirectory)?.SessionId;
 
 	/// <summary>Returns the last locally allocated turn number for one provider conversation.</summary>
-	public long ResolveTurnNumber(string providerId, string workingDirectory) {
-		ArgumentException.ThrowIfNullOrEmpty(providerId);
-		ArgumentException.ThrowIfNullOrEmpty(workingDirectory);
-		string cwd = Normalize(workingDirectory);
-		lock (_gate) {
-			EnsureAvailable();
-			return _items.FirstOrDefault(item =>
-				string.Equals(item.ProviderId, providerId, StringComparison.Ordinal)
-				&& PathEquals(item.Cwd, cwd))?.TurnNumber ?? 0;
-		}
-	}
+	public long ResolveTurnNumber(string providerId, string workingDirectory) =>
+		Find(providerId, workingDirectory)?.TurnNumber ?? 0;
 
 	/// <summary>Atomically associates a provider session with the working directory.</summary>
 	public void Adopt(string providerId, string workingDirectory, string sessionId, long turnNumber) {
@@ -67,13 +40,11 @@ public sealed class AcpSessionStore {
 		ArgumentException.ThrowIfNullOrEmpty(workingDirectory);
 		ArgumentException.ThrowIfNullOrEmpty(sessionId);
 		ArgumentOutOfRangeException.ThrowIfNegative(turnNumber);
-		string cwd = Normalize(workingDirectory);
-		lock (_gate) {
+		string cwd = PathIdentity.Normalize(workingDirectory);
+		lock (Gate) {
 			EnsureAvailable();
 			var next = CloneItems();
-			var existing = next.FirstOrDefault(item =>
-				string.Equals(item.ProviderId, providerId, StringComparison.Ordinal)
-				&& PathEquals(item.Cwd, cwd));
+			var existing = next.FirstOrDefault(item => Matches(item, providerId, cwd));
 			if (existing is null) {
 				next.Add(new Entry {
 					ProviderId = providerId,
@@ -88,8 +59,7 @@ public sealed class AcpSessionStore {
 				existing.SessionId = sessionId;
 				existing.TurnNumber = turnNumber;
 			}
-			Persist(next);
-			_items = next;
+			Commit(next);
 		}
 	}
 
@@ -97,24 +67,20 @@ public sealed class AcpSessionStore {
 	public void Clear(string providerId, string workingDirectory) {
 		ArgumentException.ThrowIfNullOrEmpty(providerId);
 		ArgumentException.ThrowIfNullOrEmpty(workingDirectory);
-		string cwd = Normalize(workingDirectory);
-		lock (_gate) {
+		string cwd = PathIdentity.Normalize(workingDirectory);
+		lock (Gate) {
 			EnsureAvailable();
 			var next = CloneItems();
-			if (next.RemoveAll(item =>
-				string.Equals(item.ProviderId, providerId, StringComparison.Ordinal)
-				&& PathEquals(item.Cwd, cwd)) > 0) {
-				Persist(next);
-				_items = next;
+			if (next.RemoveAll(item => Matches(item, providerId, cwd)) > 0) {
+				Commit(next);
 			}
 		}
 	}
 
-	private List<Entry> Load() => !_fileSystem.FileExists(FilePath)
-		? []
-		: Deserialize(_fileSystem.ReadAllText(FilePath));
-
-	private static List<Entry> Deserialize(string text) {
+	/// <inheritdoc/>
+	protected override void Restore(string? text) {
+		_items = [];
+		if (text is null) return;
 		using var probe = JsonDocument.Parse(text);
 		if (probe.RootElement.ValueKind != JsonValueKind.Object
 			|| !probe.RootElement.TryGetProperty("version", out var format)
@@ -123,14 +89,13 @@ public sealed class AcpSessionStore {
 		}
 		// Weavie carries no document migrations, so another generation's associations are unreadable here and
 		// the next write takes the file over. Malformed data at this version still fails without a reset.
-		if (version != Version) return [];
+		if (version != Version) return;
 		var document = JsonSerializer.Deserialize<Document>(text, JsonOptions)
 			?? throw new JsonException("The ACP session document is empty.");
 		if (document.Sessions is null) {
 			throw new JsonException("The ACP session document requires a sessions array.");
 		}
 		var identities = new HashSet<string>(StringComparer.Ordinal);
-		var result = new List<Entry>();
 		foreach (var item in document.Sessions) {
 			if (item is null) {
 				throw new JsonException("ACP session documents cannot contain null entries.");
@@ -143,7 +108,7 @@ public sealed class AcpSessionStore {
 			}
 			string cwd;
 			try {
-				cwd = Normalize(item.Cwd);
+				cwd = PathIdentity.Normalize(item.Cwd);
 			} catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException) {
 				throw new JsonException("An ACP session cwd is invalid.", ex);
 			}
@@ -151,32 +116,64 @@ public sealed class AcpSessionStore {
 			if (!identities.Add(identity)) {
 				throw new JsonException("The ACP session document contains a duplicate provider and cwd.");
 			}
-			result.Add(new Entry {
+			_items.Add(new Entry {
 				ProviderId = item.ProviderId,
 				Cwd = cwd,
 				SessionId = item.SessionId,
 				TurnNumber = item.TurnNumber.Value,
 			});
 		}
-		return result;
 	}
 
-	private void Persist(IReadOnlyList<Entry> entries) {
-		var document = new Document {
+	/// <inheritdoc/>
+	protected override string Render() => JsonSerializer.Serialize(
+		new Document {
 			Version = Version,
-			Sessions = [.. entries.Select(item => new StoredEntry {
+			Sessions = [.. _items.Select(item => new StoredEntry {
 				ProviderId = item.ProviderId,
 				Cwd = item.Cwd,
 				SessionId = item.SessionId,
 				TurnNumber = item.TurnNumber,
 			})],
-		};
+		},
+		JsonOptions);
+
+	/// <inheritdoc/>
+	protected override void OnUnusable(string? text, Exception cause) {
+		ArgumentNullException.ThrowIfNull(cause);
+		Restore(null);
+		_loadFailure = new AcpSessionStoreException(
+			$"ACP session associations could not be loaded from '{FilePath}': {cause.Message}",
+			cause);
+	}
+
+	/// <inheritdoc/>
+	protected override void OnPersistFailed(Exception cause) {
+		ArgumentNullException.ThrowIfNull(cause);
+		throw new AcpSessionStoreException(
+			$"ACP session associations could not be persisted to '{FilePath}': {cause.Message}",
+			cause);
+	}
+
+	// The store only adopts state a write already accepted, so a failed persist leaves memory and disk agreeing.
+	private void Commit(List<Entry> next) {
+		var previous = _items;
+		_items = next;
 		try {
-			_fileSystem.WriteAllTextAtomic(FilePath, JsonSerializer.Serialize(document, JsonOptions));
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			throw new AcpSessionStoreException(
-				$"ACP session associations could not be persisted to '{FilePath}': {ex.Message}",
-				ex);
+			PersistLocked();
+		} catch (AcpSessionStoreException) {
+			_items = previous;
+			throw;
+		}
+	}
+
+	private Entry? Find(string providerId, string workingDirectory) {
+		ArgumentException.ThrowIfNullOrEmpty(providerId);
+		ArgumentException.ThrowIfNullOrEmpty(workingDirectory);
+		string cwd = PathIdentity.Normalize(workingDirectory);
+		lock (Gate) {
+			EnsureAvailable();
+			return _items.FirstOrDefault(item => Matches(item, providerId, cwd));
 		}
 	}
 
@@ -191,11 +188,10 @@ public sealed class AcpSessionStore {
 		TurnNumber = item.TurnNumber,
 	})];
 
-	private static string Normalize(string path) =>
-		Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+	private static bool Matches(Entry item, string providerId, string cwd) =>
+		string.Equals(item.ProviderId, providerId, StringComparison.Ordinal) && PathIdentity.Equals(item.Cwd, cwd);
 
-	private static bool PathEquals(string left, string right) =>
-		string.Equals(left, right, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+
 
 	private sealed class Entry {
 		public required string ProviderId { get; init; }

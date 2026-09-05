@@ -1,3 +1,4 @@
+using Weavie.Core.FileSystem;
 using Weavie.Core.Sessions;
 
 namespace Weavie.Hosting;
@@ -34,7 +35,7 @@ public sealed partial class HostCore {
 		var toLoad = new List<SessionSlot>();
 		foreach (var item in _sessionStore.Items) {
 			var slot = _sessions.Find(item.Id.Value)
-				?? _sessions.Slots.FirstOrDefault(candidate => PathsEqual(candidate.WorktreePath, item.WorktreePath));
+				?? _sessions.Slots.FirstOrDefault(candidate => PathIdentity.Equals(candidate.WorktreePath, item.WorktreePath));
 			if (slot is null && IsWorkspaceCheckout(item.WorktreePath)) {
 				slot = new SessionSlot {
 					Id = item.Id.Value,

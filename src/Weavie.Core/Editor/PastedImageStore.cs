@@ -45,9 +45,8 @@ public sealed class PastedImageStore {
 		ArgumentException.ThrowIfNullOrEmpty(path);
 		lock (_gate) {
 			string fullPath = Path.GetFullPath(path);
-			string root = Path.GetFullPath(Directory).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
-				+ Path.DirectorySeparatorChar;
-			if (!fullPath.StartsWith(root, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)) {
+			string root = PathIdentity.Normalize(Directory) + Path.DirectorySeparatorChar;
+			if (!fullPath.StartsWith(root, PathIdentity.Comparison)) {
 				throw new InvalidOperationException("Pasted image path is outside its session directory.");
 			}
 

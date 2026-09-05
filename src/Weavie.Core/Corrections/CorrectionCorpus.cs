@@ -12,7 +12,7 @@ namespace Weavie.Core.Corrections;
 /// learning corpus deliberately biased toward recent corrections), and per-entry ceilings keep one monster
 /// turn from evicting all history behind it. Shared by every session of the workspace; all members lock.
 /// </summary>
-public sealed class CorrectionCorpus {
+public sealed class CorrectionCorpus : JsonDocumentStore {
 	/// <summary>The whole-ring byte cap — the /learn context budget, not user config.</summary>
 	public const int MaxBytes = 96 * 1024;
 
@@ -22,29 +22,15 @@ public sealed class CorrectionCorpus {
 	private const int MaxFileDeltaBytes = 8 * 1024;
 	private const string TruncationMarker = "…[truncated]";
 
-	private readonly IFileSystem _fileSystem;
-	private readonly Lock _gate = new();
 	private readonly List<string> _lines = [];
 	private int _bytes;
 
 	/// <summary>Creates the corpus over <paramref name="path"/>, loading any persisted ring now.</summary>
 	/// <param name="fileSystem">The filesystem the ring persists through.</param>
 	/// <param name="path">The backing JSONL file.</param>
-	public CorrectionCorpus(IFileSystem fileSystem, string path) {
-		ArgumentNullException.ThrowIfNull(fileSystem);
-		ArgumentException.ThrowIfNullOrEmpty(path);
-		_fileSystem = fileSystem;
-		FilePath = path;
-		lock (_gate) {
-			LoadLocked();
-		}
+	public CorrectionCorpus(IFileSystem fileSystem, string path) : base(fileSystem, path) {
+		Load();
 	}
-
-	/// <summary>The file backing this ring.</summary>
-	public string FilePath { get; }
-
-	/// <summary>Diagnostic log line — read/persist failures on the best-effort ring.</summary>
-	public event Action<string>? Log;
 
 	/// <summary>Raised after the ring's entry count changed — an <see cref="Append"/>, a fresh-appending <see cref="Coalesce"/>, a <see cref="Remove"/>, or a <see cref="Take"/> (fires outside the lock). An in-place <see cref="Coalesce"/> replace leaves the count unchanged and does not fire.</summary>
 	public event Action? Changed;
@@ -52,7 +38,7 @@ public sealed class CorrectionCorpus {
 	/// <summary>How many corrections the ring currently holds.</summary>
 	public int Count {
 		get {
-			lock (_gate) {
+			lock (Gate) {
 				return _lines.Count;
 			}
 		}
@@ -67,7 +53,7 @@ public sealed class CorrectionCorpus {
 	public string Append(CorrectionRecord record) {
 		ArgumentNullException.ThrowIfNull(record);
 		string line = Serialize(Bound(record));
-		lock (_gate) {
+		lock (Gate) {
 			AddLocked(line);
 		}
 
@@ -89,7 +75,7 @@ public sealed class CorrectionCorpus {
 		ArgumentNullException.ThrowIfNull(previousLine);
 		string line = Serialize(Bound(record));
 		bool appended = false;
-		lock (_gate) {
+		lock (Gate) {
 			int index = _lines.LastIndexOf(previousLine);
 			if (index < 0) {
 				AddLocked(line);
@@ -117,7 +103,7 @@ public sealed class CorrectionCorpus {
 	/// <param name="line">The line to drop.</param>
 	public void Remove(string line) {
 		ArgumentNullException.ThrowIfNull(line);
-		lock (_gate) {
+		lock (Gate) {
 			int index = _lines.LastIndexOf(line);
 			if (index < 0) {
 				return;
@@ -131,6 +117,50 @@ public sealed class CorrectionCorpus {
 		Changed?.Invoke();
 	}
 
+	/// <summary>The recorded corrections, oldest first.</summary>
+	public IReadOnlyList<CorrectionRecord> ReadAll() {
+		lock (Gate) {
+			return Parse(_lines);
+		}
+	}
+
+	/// <summary>
+	/// Atomically returns every recorded correction (oldest first) and empties the ring — the /learn consume
+	/// point. Read-and-clear under one lock so a correction another session appends mid-/learn is either
+	/// returned here (and analyzed) or lands afterward and stays in the ring; it can never be evicted between
+	/// a separate read and a positional clear. Returns empty (and raises nothing) when the ring is empty.
+	/// </summary>
+	public IReadOnlyList<CorrectionRecord> Take() {
+		IReadOnlyList<CorrectionRecord> records;
+		lock (Gate) {
+			if (_lines.Count == 0) {
+				return [];
+			}
+
+			records = Parse(_lines);
+			_lines.Clear();
+			_bytes = 0;
+			PersistLocked();
+		}
+
+		Changed?.Invoke();
+		return records;
+	}
+
+	/// <inheritdoc/>
+	protected override void Restore(string? text) {
+		_lines.Clear();
+		_bytes = 0;
+		// A line that no longer parses is dropped from the best-effort ring rather than wedging it.
+		foreach (string line in (text ?? "").Split('\n').Where(line => line.Length > 0 && TryParse(line) is not null)) {
+			_lines.Add(line);
+			_bytes += Encoding.UTF8.GetByteCount(line) + 1;
+		}
+	}
+
+	/// <inheritdoc/>
+	protected override string Render() => _lines.Count == 0 ? string.Empty : string.Join('\n', _lines) + "\n";
+
 	private void AddLocked(string line) {
 		_lines.Add(line);
 		_bytes += Encoding.UTF8.GetByteCount(line) + 1;
@@ -143,49 +173,6 @@ public sealed class CorrectionCorpus {
 			_bytes -= Encoding.UTF8.GetByteCount(_lines[0]) + 1;
 			_lines.RemoveAt(0);
 		}
-	}
-
-	/// <summary>The recorded corrections, oldest first.</summary>
-	public IReadOnlyList<CorrectionRecord> ReadAll() {
-		lock (_gate) {
-			var records = new List<CorrectionRecord>(_lines.Count);
-			foreach (string line in _lines) {
-				if (TryParse(line) is { } record) {
-					records.Add(record);
-				}
-			}
-
-			return records;
-		}
-	}
-
-	/// <summary>
-	/// Atomically returns every recorded correction (oldest first) and empties the ring — the /learn consume
-	/// point. Read-and-clear under one lock so a correction another session appends mid-/learn is either
-	/// returned here (and analyzed) or lands afterward and stays in the ring; it can never be evicted between
-	/// a separate read and a positional clear. Returns empty (and raises nothing) when the ring is empty.
-	/// </summary>
-	public IReadOnlyList<CorrectionRecord> Take() {
-		List<CorrectionRecord> records;
-		lock (_gate) {
-			if (_lines.Count == 0) {
-				return [];
-			}
-
-			records = new List<CorrectionRecord>(_lines.Count);
-			foreach (string line in _lines) {
-				if (TryParse(line) is { } record) {
-					records.Add(record);
-				}
-			}
-
-			_lines.Clear();
-			_bytes = 0;
-			PersistLocked();
-		}
-
-		Changed?.Invoke();
-		return records;
 	}
 
 	// Applies the per-entry ceilings: prompt and per-file delta byte caps, then whole-entry trimming that
@@ -259,41 +246,14 @@ public sealed class CorrectionCorpus {
 
 	private static string Serialize(CorrectionRecord record) => JsonSerializer.Serialize(record);
 
+	private static IReadOnlyList<CorrectionRecord> Parse(List<string> lines) =>
+		[.. lines.Select(TryParse).OfType<CorrectionRecord>()];
+
 	private static CorrectionRecord? TryParse(string line) {
 		try {
 			return JsonSerializer.Deserialize<CorrectionRecord>(line);
 		} catch (JsonException) {
 			return null;
-		}
-	}
-
-	private void LoadLocked() {
-		if (!_fileSystem.FileExists(FilePath)) {
-			return;
-		}
-
-		string text;
-		try {
-			text = _fileSystem.ReadAllText(FilePath);
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			Log?.Invoke($"[corrections] could not read {FilePath}: {ex.Message}; starting empty");
-			return;
-		}
-
-		foreach (string line in text.Split('\n')) {
-			// A line that no longer parses is dropped from the best-effort ring rather than wedging it.
-			if (line.Length > 0 && TryParse(line) is not null) {
-				_lines.Add(line);
-				_bytes += Encoding.UTF8.GetByteCount(line) + 1;
-			}
-		}
-	}
-
-	private void PersistLocked() {
-		try {
-			_fileSystem.WriteAllTextAtomic(FilePath, _lines.Count == 0 ? string.Empty : string.Join('\n', _lines) + "\n");
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			Log?.Invoke($"[corrections] could not persist the ring: {ex.Message}");
 		}
 	}
 }

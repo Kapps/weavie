@@ -1,4 +1,5 @@
-import { createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js";
+import { For, type JSX, onCleanup, onMount, Show } from "solid-js";
+import { createListNavigation } from "../list-navigation";
 
 /** Existing branches containing the typed text (case-insensitive), minus an exact full match; capped. */
 export function branchSuggestions(branches: string[], typed: string): string[] {
@@ -24,36 +25,22 @@ export function BranchTypeahead(props: {
   onSubmit: (text: string, shiftKey: boolean, viaPick: boolean) => void;
   onCancel: () => void;
 }): JSX.Element {
-  const [highlight, setHighlight] = createSignal(-1);
   const suggestions = (): string[] => branchSuggestions(props.branches, props.value);
-
-  const onKeyDown = (event: KeyboardEvent): void => {
-    const list = suggestions();
-    if (event.key === "ArrowDown" && list.length > 0) {
-      event.preventDefault();
-      event.stopPropagation();
-      setHighlight((h) => (h + 1) % list.length);
-    } else if (event.key === "ArrowUp" && list.length > 0) {
-      event.preventDefault();
-      event.stopPropagation();
-      setHighlight((h) => (h <= 0 ? list.length - 1 : h - 1));
-    } else if (event.key === "Enter") {
-      event.preventDefault();
-      event.stopPropagation();
-      const picked = highlight() >= 0 && highlight() < list.length ? list[highlight()] : undefined;
-      if (picked !== undefined) {
-        props.onSubmit(picked, event.shiftKey, true);
-      } else {
-        props.onSubmit(props.value.trim(), event.shiftKey, false);
-      }
-    } else if (event.key === "Escape") {
-      event.preventDefault();
-      event.stopPropagation();
-      props.onCancel();
-    }
-  };
-  onMount(() => window.addEventListener("keydown", onKeyDown, { capture: true }));
-  onCleanup(() => window.removeEventListener("keydown", onKeyDown, { capture: true }));
+  // Starts with nothing highlighted (-1), which is what makes Enter submit the typed text until an arrow
+  // picks a suggestion.
+  const nav = createListNavigation({
+    count: () => suggestions().length,
+    edges: "wrap",
+    initialIndex: -1,
+    acceptKeys: ["Enter"],
+    onAccept: (index, event) => {
+      const picked = suggestions()[index];
+      props.onSubmit(picked ?? props.value.trim(), event.shiftKey, picked !== undefined);
+    },
+    onDismiss: () => props.onCancel(),
+  });
+  onMount(() => window.addEventListener("keydown", nav.onKeyDown, { capture: true }));
+  onCleanup(() => window.removeEventListener("keydown", nav.onKeyDown, { capture: true }));
 
   return (
     <>
@@ -67,14 +54,14 @@ export function BranchTypeahead(props: {
         aria-expanded={suggestions().length > 0}
         aria-controls={suggestions().length > 0 ? `${props.idPrefix}-suggestions` : undefined}
         aria-activedescendant={
-          highlight() >= 0 ? `${props.idPrefix}-opt-${highlight()}` : undefined
+          nav.index() >= 0 ? `${props.idPrefix}-opt-${nav.index()}` : undefined
         }
         spellcheck={false}
         autocomplete="off"
         value={props.value}
         onInput={(event) => {
           props.setValue(event.currentTarget.value);
-          setHighlight(-1);
+          nav.setIndex(-1);
         }}
         ref={(el) => {
           queueMicrotask(() => el.focus());
@@ -90,12 +77,13 @@ export function BranchTypeahead(props: {
           <For each={suggestions()}>
             {(name, i) => (
               <div
+                {...nav.row(i())}
                 class="session-prompt-suggestion"
                 role="option"
                 tabindex={-1}
                 id={`${props.idPrefix}-opt-${i()}`}
-                aria-selected={i() === highlight()}
-                classList={{ active: i() === highlight() }}
+                aria-selected={i() === nav.index()}
+                classList={{ active: i() === nav.index() }}
                 // pointerdown (not click) so picking a suggestion isn't lost to the input's blur, and
                 // preventDefault keeps focus in the field.
                 onPointerDown={(event) => {

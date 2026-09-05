@@ -1,6 +1,12 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { clickIntoEditor, openFile, typeInEditor } from "../harness/actions";
+import {
+  clickIntoEditor,
+  openFile,
+  pressDocumentEnd,
+  pressDocumentStart,
+  typeInEditor,
+} from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import type { WeavieWindow } from "../harness/weavie-window";
 
@@ -112,7 +118,7 @@ test("syntax highlighting survives typing new code (incremental re-tokenization)
 
   // Type a distinctive line AFTER first render, so its tokens come purely from the incremental re-tokenizer.
   await clickIntoEditor(page);
-  await page.keyboard.press("ControlOrMeta+End");
+  await pressDocumentEnd(page);
   await page.keyboard.type("\nconst added: number = 987654;");
 
   // Once the async worker re-tokenizes, the new line carries several distinct token classes (const / number
@@ -143,7 +149,7 @@ test("editing then saving persists to disk @cross", async ({ page, weavie }) => 
 
   const marker = `// edit-${Date.now()}\n`;
   await clickIntoEditor(page);
-  await page.keyboard.press("ControlOrMeta+Home");
+  await pressDocumentStart(page);
   await typeInEditor(page, marker);
 
   const tab = page.locator(".editor-tab", { hasText: "hello.ts" });

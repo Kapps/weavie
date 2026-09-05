@@ -16,24 +16,14 @@ namespace Weavie.Core.Tests;
 /// </summary>
 public sealed class McpLayoutToolsTests : IDisposable {
 	private const string Token = "0123456789abcdef0123456789abcdef";
-	private readonly string _dir = Path.Combine(Path.GetTempPath(), "weavie-mcp-layout-tests", Guid.NewGuid().ToString("N"));
+	private readonly TempDirectory _dir = new("weavie-mcp-layout-tests");
 
-	public McpLayoutToolsTests() {
-		Directory.CreateDirectory(_dir);
-	}
-
-	public void Dispose() {
-		try {
-			Directory.Delete(_dir, recursive: true);
-		} catch (IOException) {
-		} catch (UnauthorizedAccessException) {
-		}
-	}
+	public void Dispose() => _dir.Dispose();
 
 	private McpServer NewRegistryServer(LayoutStore layout) {
-		var settings = CoreSettings.CreateStore(Path.Combine(_dir, "settings.toml"), enableWatcher: false);
+		var settings = CoreSettings.CreateStore(_dir.Combine("settings.toml"), enableWatcher: false);
 		return TestMcp.Server(
-			Token, FakeDiffPresenter.AlwaysKeep(), [_dir], "weavie", settings, registryMode: true, layout: layout);
+			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], "weavie", settings, registryMode: true, layout: layout);
 	}
 
 	[Fact]

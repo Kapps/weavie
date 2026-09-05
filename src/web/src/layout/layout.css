@@ -4,6 +4,7 @@
 /* The body row below the title bar: the session rail on the left + the pane layout filling the rest. A
    real flex row (not an overlay) so the rail takes its own width and the panes start to its right. */
 .app-body {
+  position: relative;
   display: flex;
   flex: 1 1 auto;
   min-height: 0;

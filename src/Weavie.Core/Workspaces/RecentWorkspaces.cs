@@ -9,49 +9,39 @@ namespace Weavie.Core.Workspaces;
 /// Windows), persisted atomically to <c>~/.weavie/recents.json</c>. A malformed file is backed up to
 /// <c>recents.json.bad</c> and reset rather than throwing.
 /// </summary>
-public sealed class RecentWorkspaces {
+public sealed class RecentWorkspaces : JsonDocumentStore {
 	private const int MaxItems = 20;
 	private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
-	private readonly IFileSystem _fileSystem;
-	private readonly Lock _gate = new();
-	private readonly List<string> _items;
+	private List<string> _items = [];
 
 	/// <summary>Creates the store over <paramref name="path"/> (default <c>~/.weavie/recents.json</c>), loading it now.</summary>
-	public RecentWorkspaces(IFileSystem fileSystem, string? path) {
-		ArgumentNullException.ThrowIfNull(fileSystem);
-		_fileSystem = fileSystem;
-		FilePath = path ?? WeaviePaths.RecentsFile;
-		lock (_gate) {
-			_items = LoadLocked();
-		}
+	/// <param name="fileSystem">The filesystem the list persists through.</param>
+	/// <param name="path">The backing file, or <c>null</c> for the default.</param>
+	public RecentWorkspaces(IFileSystem fileSystem, string? path)
+		: base(fileSystem, path ?? WeaviePaths.RecentsFile) {
+		Load();
 	}
 
 	/// <summary>Raised (off the UI thread) after the list changes, so menus can refresh.</summary>
 	public event Action? Changed;
 
-	/// <summary>Diagnostic log line — read failures, malformed-file resets, persist failures.</summary>
-	public event Action<string>? Log;
-
-	/// <summary>The recents file backing this store.</summary>
-	public string FilePath { get; }
-
 	/// <summary>The recent workspace root paths, most-recent first. Snapshot copy; safe to enumerate.</summary>
 	public IReadOnlyList<string> Items {
-		get { lock (_gate) { return [.. _items]; } }
+		get { lock (Gate) { return [.. _items]; } }
 	}
 
 	/// <summary>The most-recently-opened workspace root, or <c>null</c> when there is no history.</summary>
 	public string? LastOpened {
-		get { lock (_gate) { return _items.Count > 0 ? _items[0] : null; } }
+		get { lock (Gate) { return _items.Count > 0 ? _items[0] : null; } }
 	}
 
 	/// <summary>Records <paramref name="rootPath"/> as the most-recently-opened workspace (moved to front, deduped, capped).</summary>
 	public void Add(string rootPath) {
 		ArgumentException.ThrowIfNullOrEmpty(rootPath);
 		string full = Path.GetFullPath(rootPath);
-		lock (_gate) {
-			_items.RemoveAll(p => PathsEqual(p, full));
+		lock (Gate) {
+			_items.RemoveAll(p => PathIdentity.Equals(p, full));
 			_items.Insert(0, full);
 			if (_items.Count > MaxItems) {
 				_items.RemoveRange(MaxItems, _items.Count - MaxItems);
@@ -68,8 +58,8 @@ public sealed class RecentWorkspaces {
 		ArgumentException.ThrowIfNullOrEmpty(rootPath);
 		string full = Path.GetFullPath(rootPath);
 		bool removed;
-		lock (_gate) {
-			removed = _items.RemoveAll(p => PathsEqual(p, full)) > 0;
+		lock (Gate) {
+			removed = _items.RemoveAll(p => PathIdentity.Equals(p, full)) > 0;
 			if (removed) {
 				PersistLocked();
 			}
@@ -80,31 +70,16 @@ public sealed class RecentWorkspaces {
 		}
 	}
 
-	private static bool PathsEqual(string a, string b) =>
-		string.Equals(
-			a.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
-			b.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
-			OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
-
-	private List<string> LoadLocked() =>
-		JsonStoreFile.Load<List<string>>(
-			_fileSystem,
-			FilePath,
-			text => {
-				var document = JsonSerializer.Deserialize<RecentsDocument>(text);
-				return document?.Recents is { } recents
-					? [.. recents.Where(p => !string.IsNullOrWhiteSpace(p))]
-					: [];
-			},
-			static () => [],
-			Log);
-
-	private void PersistLocked() {
-		string json = JsonSerializer.Serialize(
-			new RecentsDocument { Version = 1, Recents = _items },
-			JsonOptions);
-		JsonStoreFile.Persist(_fileSystem, FilePath, json, Log);
+	/// <inheritdoc/>
+	protected override void Restore(string? text) {
+		var document = text is null ? null : JsonSerializer.Deserialize<RecentsDocument>(text);
+		_items = document?.Recents is { } recents ? [.. recents.Where(p => !string.IsNullOrWhiteSpace(p))] : [];
 	}
+
+	/// <inheritdoc/>
+	protected override string Render() =>
+		JsonSerializer.Serialize(new RecentsDocument { Version = 1, Recents = _items }, JsonOptions);
+
 
 	private sealed class RecentsDocument {
 		[JsonPropertyName("version")]

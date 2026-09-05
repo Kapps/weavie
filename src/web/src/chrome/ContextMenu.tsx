@@ -3,6 +3,7 @@ import { createMemo, createSignal, For, type JSX, onCleanup, onMount, Show } fro
 import { Portal } from "solid-js/web";
 import { formatKey } from "../commands/keybindings";
 import { findCommand, runCommandWithFeedback } from "../commands/registry";
+import { nextIndex } from "../list-navigation";
 import { modalActive, onModalOpened } from "./modal-state";
 import { dismissOnOutsideInteraction } from "./popover-dismiss";
 
@@ -124,7 +125,7 @@ function MenuPanel(props: {
       event.preventDefault();
       const step = event.key === "ArrowDown" ? 1 : -1;
       const start = current < 0 ? (step === 1 ? -1 : 0) : current;
-      list[(start + step + list.length) % list.length]?.focus();
+      list[nextIndex(start, step, list.length, "wrap")]?.focus();
     } else if (event.key === "Home") {
       event.preventDefault();
       list[0]?.focus();

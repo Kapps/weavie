@@ -9,18 +9,16 @@ namespace Weavie.Remote.Tests;
 
 /// <summary>Launches a real network-exposed (remote-mode) <c>Weavie.Headless</c> worker once for the suite.</summary>
 public sealed class RemoteHeadlessFixture : IAsyncLifetime {
-	private readonly string _workspace =
-		Path.Combine(Path.GetTempPath(), "weavie-remote-tests", Guid.NewGuid().ToString("N"));
+	private readonly TempDirectory _workspace = new("weavie-remote-tests");
 
 	public HostHandle Host { get; private set; } = null!;
 
 	public async Task InitializeAsync() {
-		Directory.CreateDirectory(_workspace);
 		int port = Hosts.FreePort();
 		Host = await HostHandle.StartAsync(
 			Hosts.HeadlessDll,
 			["--remote", "--bind", "127.0.0.1", "--port", port.ToString(), "--token", Tokens.Correct,
-				"--workspace", _workspace, "--spawn-contract", WorkspaceControlProtocol.SpawnContract.ToString()],
+				"--workspace", _workspace.Path, "--spawn-contract", WorkspaceControlProtocol.SpawnContract.ToString()],
 			port,
 			readyMarker: "open  http://",
 			timeout: TimeSpan.FromSeconds(60));
@@ -28,11 +26,7 @@ public sealed class RemoteHeadlessFixture : IAsyncLifetime {
 
 	public async Task DisposeAsync() {
 		await Host.DisposeAsync();
-		try {
-			Directory.Delete(_workspace, recursive: true);
-		} catch (IOException) {
-		} catch (UnauthorizedAccessException) {
-		}
+		_workspace.Dispose();
 	}
 }
 
@@ -336,17 +330,15 @@ public sealed class HeadlessRemoteAuthTests(RemoteHeadlessFixture fixture) : ICl
 
 /// <summary>Launches a real token-gated LOCAL loopback headless once for the suite.</summary>
 public sealed class LocalHeadlessFixture : IAsyncLifetime {
-	private readonly string _workspace =
-		Path.Combine(Path.GetTempPath(), "weavie-local-tests", Guid.NewGuid().ToString("N"));
+	private readonly TempDirectory _workspace = new("weavie-local-tests");
 
 	public HostHandle Host { get; private set; } = null!;
 
 	public async Task InitializeAsync() {
-		Directory.CreateDirectory(_workspace);
 		int port = Hosts.FreePort();
 		Host = await HostHandle.StartAsync(
 			Hosts.HeadlessDll,
-			["--port", port.ToString(), "--workspace", _workspace],
+			["--port", port.ToString(), "--workspace", _workspace.Path],
 			port,
 			readyMarker: "open  http://",
 			timeout: TimeSpan.FromSeconds(60));
@@ -354,11 +346,7 @@ public sealed class LocalHeadlessFixture : IAsyncLifetime {
 
 	public async Task DisposeAsync() {
 		await Host.DisposeAsync();
-		try {
-			Directory.Delete(_workspace, recursive: true);
-		} catch (IOException) {
-		} catch (UnauthorizedAccessException) {
-		}
+		_workspace.Dispose();
 	}
 }
 

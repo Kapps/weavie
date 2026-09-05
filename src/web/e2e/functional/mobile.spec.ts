@@ -263,8 +263,38 @@ test.describe("automatic inference permission", () => {
   });
 
   test("allows inference from the notification before suggesting a branch", async ({ page }) => {
+    const app = page.locator(".app");
+    await app.evaluate((element) => {
+      (element as HTMLElement).style.setProperty("--mobile-pane-safe-area-top", "47px");
+    });
+    await page.getByRole("button", { name: "Code", exact: true }).click();
+    const offer = page.locator(".toast", { hasText: "Let Weavie use automatic inference" });
+    const geometry = await offer.evaluate((toast) => {
+      const paneChrome = Array.from(document.querySelectorAll(".pane-head, .pane-tabs"))
+        .map((chrome) => chrome.getBoundingClientRect())
+        .filter((chrome) => chrome.width > 0 && chrome.height > 0);
+      if (paneChrome.length === 0) {
+        throw new Error("mobile pane chrome not rendered");
+      }
+      const message = toast.querySelector<HTMLElement>(".toast-msg");
+      if (message === null) {
+        throw new Error("mobile toast message not rendered");
+      }
+      const toastBounds = toast.getBoundingClientRect();
+      return {
+        chromeBottom: Math.max(...paneChrome.map((chrome) => chrome.bottom)),
+        messageWidth: message.getBoundingClientRect().width,
+        toastTop: toastBounds.top,
+        toastWidth: toastBounds.width,
+        viewportWidth: window.innerWidth,
+      };
+    });
+    expect(geometry.toastTop).toBeGreaterThanOrEqual(geometry.chromeBottom);
+    expect(geometry.toastWidth).toBeGreaterThan(geometry.viewportWidth * 0.8);
+    expect(geometry.messageWidth).toBeGreaterThan(geometry.toastWidth / 3);
     await allowAutomaticInference(page);
 
+    await page.getByRole("button", { name: "Sessions", exact: true }).click();
     const inbox = page.locator(".session-inbox");
     await inbox.getByRole("combobox", { name: "Agent provider" }).selectOption("claude");
     await inbox.getByRole("textbox", { name: "Prompt for a new session" }).fill(NAMEABLE_DRAFT);

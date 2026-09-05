@@ -42,7 +42,7 @@ public sealed class ClaudeTranscripts : IClaudeTranscripts {
 		Path.Combine(_projectsDirectory, EncodeCwd(workingDirectory), sessionId + ".jsonl");
 
 	// Claude names a project's transcript folder after its launch cwd with every non-alphanumeric char → '-'. Trim
-	// a trailing separator first (as ClaudeSessionStore.Normalize does) so `…\weavie\` and `…\weavie` don't diverge
+	// a trailing separator first (as PathIdentity.Normalize does) so `…\weavie\` and `…\weavie` don't diverge
 	// into `…weavie-` vs `…weavie` — a mismatch would falsely report "no transcript" and re-create a live session.
 	private static string EncodeCwd(string cwd) {
 		string trimmed = cwd.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);

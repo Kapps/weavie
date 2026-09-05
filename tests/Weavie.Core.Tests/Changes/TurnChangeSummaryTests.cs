@@ -10,7 +10,7 @@ namespace Weavie.Core.Tests;
 /// whose text hasn't moved must not be diffed again — otherwise one save costs a diff of every file the agent
 /// touched, on the thread the desktop hosts deliver keystrokes on.
 /// </summary>
-public sealed class TurnChangeSummaryTests : IDisposable {
+public sealed class TurnChangeSummaryTests {
 	private readonly string _root = Path.Combine(Path.GetTempPath(), $"weavie-summary-{Guid.NewGuid():N}");
 	private readonly InMemoryFileSystem _fileSystem = new();
 	private readonly SessionChangeTracker _tracker;
@@ -85,11 +85,5 @@ public sealed class TurnChangeSummaryTests : IDisposable {
 		_tracker.RecordChange(path);
 		var summary = Assert.Single(_tracker.TurnChangeSummaries());
 		Assert.Equal(2, summary.Added);
-	}
-
-	public void Dispose() {
-		if (Directory.Exists(_root)) {
-			Directory.Delete(_root, recursive: true);
-		}
 	}
 }

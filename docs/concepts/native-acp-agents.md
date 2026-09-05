@@ -32,9 +32,13 @@ under `~/.weavie/acp/installations.json`:
 
 - `binary` downloads the current platform archive, verifies its SHA-256 digest, safely extracts it under
   `~/.weavie/acp/packages/`, and launches the declared binary;
-- `npx` launches with `npx --yes <package>@<=<registry-version> ...`, treating an exact registry version as
+- `npx` launches with `npx --yes --no-audit --no-fund --no-update-notifier --` followed by
+  `<package>@<=<registry-version> ...`, treating an exact registry version as
   the approved ceiling so npm can select the newest release allowed by the user's release-age policy;
 - `uvx` launches the registry's exact `uvx <package> ...` recipe.
+
+Updating an installed provider leaves its running processes alone. `Restart Agent` resolves the latest installed
+launch recipe and resumes the existing provider session through that new process.
 
 Weavie ships no Node, npm, npx, Python, uv, or uvx runtime. Package-manager distributions use the user's PATH
 literally. If the selected runner is absent, process launch fails visibly in the native pane. When an agent offers

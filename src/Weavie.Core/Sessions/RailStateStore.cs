@@ -10,59 +10,44 @@ namespace Weavie.Core.Sessions;
 /// settings.toml — it's runtime UI state the host owns on the web's behalf, so it stays off the Claude-facing
 /// settings surface. A malformed file is backed up to <c>rail-state.json.bad</c> and reset rather than throwing.
 /// </summary>
-public sealed class RailStateStore {
+public sealed class RailStateStore : JsonDocumentStore {
 	private const string DefaultLocation = "local";
 	private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
-	private readonly IFileSystem _fileSystem;
-	private readonly Lock _gate = new();
-	private string _lastLocation;
-	private List<string> _promoted;
+	private string _lastLocation = DefaultLocation;
+	private List<string> _promoted = [];
 	private (string BackendId, string Slot)? _selected;
 
 	/// <summary>Creates the store over <paramref name="path"/> (default <c>~/.weavie/rail-state.json</c>), loading it now.</summary>
-	public RailStateStore(IFileSystem fileSystem, string? path) {
-		ArgumentNullException.ThrowIfNull(fileSystem);
-		_fileSystem = fileSystem;
-		FilePath = path ?? WeaviePaths.RailStateFile;
-		lock (_gate) {
-			var document = LoadLocked();
-			_lastLocation = string.IsNullOrWhiteSpace(document.LastLocation) ? DefaultLocation : document.LastLocation;
-			_promoted = [.. document.Promoted.Where(k => !string.IsNullOrWhiteSpace(k)).Distinct(StringComparer.Ordinal)];
-			_selected = document.Selected is { BackendId.Length: > 0, Slot.Length: > 0 } selected
-				? (selected.BackendId, selected.Slot)
-				: null;
-		}
+	/// <param name="fileSystem">The filesystem the state persists through.</param>
+	/// <param name="path">The backing file, or <c>null</c> for the default.</param>
+	public RailStateStore(IFileSystem fileSystem, string? path)
+		: base(fileSystem, path ?? WeaviePaths.RailStateFile) {
+		Load();
 	}
 
 	/// <summary>Raised (off the UI thread) after the state changes, so each window re-pushes it to its page.</summary>
 	public event Action? Changed;
 
-	/// <summary>Diagnostic log line — read failures, malformed-file resets, persist failures.</summary>
-	public event Action<string>? Log;
-
-	/// <summary>The rail-state file backing this store.</summary>
-	public string FilePath { get; }
-
 	/// <summary>The backend id the last session was created on (<c>local</c> by default).</summary>
 	public string LastLocation {
-		get { lock (_gate) { return _lastLocation; } }
+		get { lock (Gate) { return _lastLocation; } }
 	}
 
 	/// <summary>The promoted remote-session keys (<c>"backendId id"</c>). Snapshot copy; safe to enumerate.</summary>
 	public IReadOnlyList<string> Promoted {
-		get { lock (_gate) { return [.. _promoted]; } }
+		get { lock (Gate) { return [.. _promoted]; } }
 	}
 
 	/// <summary>The last client-selected backend and stable session slot, or <c>null</c> before any selection.</summary>
 	public (string BackendId, string Slot)? Selected {
-		get { lock (_gate) { return _selected; } }
+		get { lock (Gate) { return _selected; } }
 	}
 
 	/// <summary>Records the backend a session was just created on. No-op (no write, no event) when unchanged.</summary>
 	public void SetLastLocation(string location) {
 		string next = string.IsNullOrWhiteSpace(location) ? DefaultLocation : location;
-		lock (_gate) {
+		lock (Gate) {
 			if (string.Equals(_lastLocation, next, StringComparison.Ordinal)) {
 				return;
 			}
@@ -78,7 +63,7 @@ public sealed class RailStateStore {
 	public void SetPromoted(IEnumerable<string> keys) {
 		ArgumentNullException.ThrowIfNull(keys);
 		var next = keys.Where(k => !string.IsNullOrWhiteSpace(k)).Distinct(StringComparer.Ordinal).ToList();
-		lock (_gate) {
+		lock (Gate) {
 			if (next.Count == _promoted.Count && next.All(_promoted.Contains)) {
 				return;
 			}
@@ -96,7 +81,7 @@ public sealed class RailStateStore {
 			return;
 		}
 
-		lock (_gate) {
+		lock (Gate) {
 			var next = (BackendId: backendId, Slot: slot);
 			if (_selected == next) {
 				return;
@@ -109,28 +94,27 @@ public sealed class RailStateStore {
 		Changed?.Invoke();
 	}
 
-	private Document LoadLocked() => JsonStoreFile.Load(
-		_fileSystem,
-		FilePath,
-		text => JsonSerializer.Deserialize<Document>(text) ?? new Document(),
-		static () => new Document(),
-		Log);
+	/// <inheritdoc/>
+	protected override void Restore(string? text) {
+		var document = (text is null ? null : JsonSerializer.Deserialize<Document>(text)) ?? new Document();
+		_lastLocation = string.IsNullOrWhiteSpace(document.LastLocation) ? DefaultLocation : document.LastLocation;
+		_promoted = [.. document.Promoted.Where(k => !string.IsNullOrWhiteSpace(k)).Distinct(StringComparer.Ordinal)];
+		_selected = document.Selected is { BackendId.Length: > 0, Slot.Length: > 0 } selected
+			? (selected.BackendId, selected.Slot)
+			: null;
+	}
 
-	private void PersistLocked() {
-		var document = new Document {
+	/// <inheritdoc/>
+	protected override string Render() => JsonSerializer.Serialize(
+		new Document {
 			Version = 2,
 			LastLocation = _lastLocation,
 			Promoted = _promoted,
 			Selected = _selected is { } selected
 				? new SelectionEntry { BackendId = selected.BackendId, Slot = selected.Slot }
 				: null,
-		};
-		JsonStoreFile.Persist(
-			_fileSystem,
-			FilePath,
-			JsonSerializer.Serialize(document, JsonOptions),
-			Log);
-	}
+		},
+		JsonOptions);
 
 	private sealed class Document {
 		[JsonPropertyName("version")]

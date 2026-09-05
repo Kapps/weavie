@@ -8,12 +8,11 @@ using Xunit;
 namespace Weavie.Hosting.Tests;
 
 public sealed class AgentCliInferenceTests : IDisposable {
-	private readonly string _dir = Path.Combine(Path.GetTempPath(), "weavie-cli-inference-tests", Guid.NewGuid().ToString("n"));
+	private readonly TempDirectory _dir = new("weavie-cli-inference-tests");
 	private readonly SettingsStore _settings;
 
 	public AgentCliInferenceTests() {
-		Directory.CreateDirectory(_dir);
-		_settings = CoreSettings.CreateStore(Path.Combine(_dir, "settings.toml"), enableWatcher: false);
+		_settings = CoreSettings.CreateStore(_dir.Combine("settings.toml"), enableWatcher: false);
 	}
 
 	[Theory]
@@ -23,7 +22,7 @@ public sealed class AgentCliInferenceTests : IDisposable {
 		InferenceModelCategory category,
 		string model,
 		string effort) {
-		SetPath("claude.path", Path.Combine(_dir, "claude"));
+		SetPath("claude.path", _dir.Combine("claude"));
 		var runner = new RecordingRunner((_, _) => Task.FromResult(new AgentCliProcessResult(
 			0,
 			"{\"is_error\":false,\"session_id\":\"session-1\","
@@ -47,7 +46,7 @@ public sealed class AgentCliInferenceTests : IDisposable {
 		Assert.DoesNotContain("--settings", runner.Request.Arguments);
 		Assert.Empty(runner.Request.RemoveEnvironment);
 		Assert.Contains("fix webm", runner.Request.StandardInput, StringComparison.Ordinal);
-		Assert.Equal(_dir, runner.Request.WorkingDirectory);
+		Assert.Equal(_dir.Path, runner.Request.WorkingDirectory);
 		Assert.Equal(1, runner.Calls);
 	}
 
@@ -57,7 +56,7 @@ public sealed class AgentCliInferenceTests : IDisposable {
 	public async Task Claude_AppliesTheConfiguredModelEffortAndFastMode(
 		InferenceFastMode fastMode,
 		bool expectedFastMode) {
-		SetPath("claude.path", Path.Combine(_dir, "claude"));
+		SetPath("claude.path", _dir.Combine("claude"));
 		var runner = new RecordingRunner((_, _) => Task.FromResult(new AgentCliProcessResult(
 			0,
 			"{\"is_error\":false,\"structured_output\":{\"branch\":\"bug/webm\"}}")));
@@ -78,7 +77,7 @@ public sealed class AgentCliInferenceTests : IDisposable {
 
 	[Fact]
 	public async Task Claude_RejectsAnEnvelopeWithoutStructuredOutput() {
-		SetPath("claude.path", Path.Combine(_dir, "claude"));
+		SetPath("claude.path", _dir.Combine("claude"));
 		var runner = new RecordingRunner((_, _) => Task.FromResult(
 			new AgentCliProcessResult(0, "{\"is_error\":false,\"result\":\"{\\\"branch\\\":\\\"wrong\\\"}\"}")));
 		var provider = Provider(runner);
@@ -92,7 +91,7 @@ public sealed class AgentCliInferenceTests : IDisposable {
 
 	[Fact]
 	public async Task Claude_MaterializesImagesBeforeThePromptAndDeletesThemAfterward() {
-		SetPath("claude.path", Path.Combine(_dir, "claude"));
+		SetPath("claude.path", _dir.Combine("claude"));
 		string? imagePath = null;
 		var runner = new RecordingRunner((request, _) => {
 			imagePath = request.StandardInput.Split('\n')[0];
@@ -112,7 +111,7 @@ public sealed class AgentCliInferenceTests : IDisposable {
 		Assert.IsType<InferenceProviderSuccess>(result);
 		Assert.NotNull(imagePath);
 		Assert.False(Directory.Exists(Path.GetDirectoryName(imagePath)));
-		string imageRoot = Path.Combine(_dir, "inference-images");
+		string imageRoot = _dir.Combine("inference-images");
 		Assert.True(Directory.Exists(imageRoot));
 		if (!OperatingSystem.IsWindows()) {
 			Assert.Equal(
@@ -123,7 +122,7 @@ public sealed class AgentCliInferenceTests : IDisposable {
 
 	[Fact]
 	public async Task CancellationPropagatesAndLeavesTheOwningWorkspaceIntact() {
-		SetPath("claude.path", Path.Combine(_dir, "claude"));
+		SetPath("claude.path", _dir.Combine("claude"));
 		var runner = new RecordingRunner((_, ct) => Task.FromCanceled<AgentCliProcessResult>(ct));
 		var provider = Provider(runner);
 		using var cancellation = new CancellationTokenSource();
@@ -132,8 +131,8 @@ public sealed class AgentCliInferenceTests : IDisposable {
 		await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
 			provider.QueryInferenceAsync(Request(InferenceModelCategory.Utility), cancellation.Token));
 
-		Assert.Equal(_dir, runner.Request!.WorkingDirectory);
-		Assert.True(Directory.Exists(_dir));
+		Assert.Equal(_dir.Path, runner.Request!.WorkingDirectory);
+		Assert.True(Directory.Exists(_dir.Path));
 		Assert.Equal(1, runner.Calls);
 	}
 
@@ -141,12 +140,12 @@ public sealed class AgentCliInferenceTests : IDisposable {
 		_settings.Set(key, JsonSerializer.SerializeToElement(value));
 
 	private ClaudeCliInference Provider(IAgentCliProcessRunner runner) =>
-		new(_settings, runner, Path.Combine(_dir, "inference-images"));
+		new(_settings, runner, _dir.Combine("inference-images"));
 
 	private InferenceProviderRequest Request(InferenceModelCategory category) => new() {
 		Category = category,
 		Profile = Profile(string.Empty, string.Empty, InferenceFastMode.Inherit),
-		Workspace = _dir,
+		Workspace = _dir.Path,
 		Prompt = "Return one branch name.\n\n{\"prompt\":\"fix webm\"}",
 		Images = [],
 		OutputSchemaJson = "{\"type\":\"object\",\"properties\":{\"branch\":{\"type\":\"string\"}},"
@@ -178,7 +177,7 @@ public sealed class AgentCliInferenceTests : IDisposable {
 
 	public void Dispose() {
 		_settings.Dispose();
-		Directory.Delete(_dir, recursive: true);
+		_dir.Dispose();
 	}
 
 	private sealed class RecordingRunner(
@@ -196,22 +195,17 @@ public sealed class AgentCliInferenceTests : IDisposable {
 }
 
 public sealed class AgentCliProcessRunnerTests : IDisposable {
-	private readonly string _dir = Path.Combine(Path.GetTempPath(), "weavie-cli-runner-tests", Guid.NewGuid().ToString("n"));
-
-	public AgentCliProcessRunnerTests() {
-		Directory.CreateDirectory(_dir);
-	}
+	private readonly TempDirectory _dir = new("weavie-cli-runner-tests");
 
 	[Fact]
 	public async Task CancellationKillsTheOneShotProcessAndPropagates() {
-		string script = Path.Combine(_dir, "hang.js");
-		File.WriteAllText(script, "process.stdin.resume(); setInterval(() => {}, 1000);");
+		string script = _dir.WriteFile("hang.js", "process.stdin.resume(); setInterval(() => {}, 1000);");
 		var runner = new AgentCliProcessRunner();
 		using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
 
 		await Assert.ThrowsAnyAsync<OperationCanceledException>(() => runner.RunAsync(new AgentCliProcessRequest {
 			Command = TestNode.Command,
-			WorkingDirectory = _dir,
+			WorkingDirectory = _dir.Path,
 			Arguments = [script],
 			PathEntries = [],
 			Environment = new Dictionary<string, string>(StringComparer.Ordinal),
@@ -235,7 +229,7 @@ public sealed class AgentCliProcessRunnerTests : IDisposable {
 
 		var result = await runner.RunAsync(new AgentCliProcessRequest {
 			Command = "/bin/sh",
-			WorkingDirectory = _dir,
+			WorkingDirectory = _dir.Path,
 			Arguments = ["-c", "exit 7"],
 			PathEntries = [],
 			Environment = new Dictionary<string, string>(StringComparer.Ordinal),
@@ -248,5 +242,5 @@ public sealed class AgentCliProcessRunnerTests : IDisposable {
 		Assert.Equal(7, result.ExitCode);
 	}
 
-	public void Dispose() => Directory.Delete(_dir, recursive: true);
+	public void Dispose() => _dir.Dispose();
 }

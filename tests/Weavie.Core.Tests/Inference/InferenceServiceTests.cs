@@ -10,12 +10,11 @@ using Xunit;
 namespace Weavie.Core.Tests.Inference;
 
 public sealed class InferenceServiceTests : IDisposable {
-	private readonly string _dir = Path.Combine(Path.GetTempPath(), "weavie-inference-tests", Guid.NewGuid().ToString("n"));
+	private readonly TempDirectory _dir = new("weavie-inference-tests");
 	private readonly SettingsStore _settings;
 
 	public InferenceServiceTests() {
-		Directory.CreateDirectory(_dir);
-		_settings = CoreSettings.CreateStore(Path.Combine(_dir, "settings.toml"), enableWatcher: false);
+		_settings = CoreSettings.CreateStore(_dir.Combine("settings.toml"), enableWatcher: false);
 	}
 
 	[Fact]
@@ -389,7 +388,7 @@ public sealed class InferenceServiceTests : IDisposable {
 
 	public void Dispose() {
 		_settings.Dispose();
-		Directory.Delete(_dir, recursive: true);
+		_dir.Dispose();
 	}
 
 	private sealed record TestInput {

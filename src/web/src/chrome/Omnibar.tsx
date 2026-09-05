@@ -28,6 +28,7 @@ import {
   selectedDirectoryListings,
   selectedFileIndex,
 } from "../files/session-files";
+import { createListNavigation } from "../list-navigation";
 import type { FlatSymbol, SymbolActions } from "../symbols/symbol-match";
 import { createSymbolSearch } from "../symbols/symbol-search";
 import {
@@ -38,6 +39,7 @@ import {
   type ScoredFile,
   splitPath,
 } from "./file-search";
+import { onModalOpened } from "./modal-state";
 import { OmnibarResults, type ScoredCommand } from "./OmnibarResults";
 import { type OmnibarMode, omnibarRequest } from "./omnibar-controller";
 import { parsePathQuery, pathSeed, separatorFor } from "./path-query";
@@ -80,11 +82,21 @@ export function Omnibar(props: {
 }): JSX.Element {
   const [query, setQuery] = createSignal("");
   const [open, setOpen] = createSignal(false);
-  const [selected, setSelected] = createSignal(0);
+  const nav = createListNavigation({
+    count: () => activeLen(),
+    edges: "clamp",
+    initialIndex: 0,
+    acceptKeys: ["Enter"],
+    onAccept: () => activate(),
+    onDismiss: () => close(),
+    onMove: () => previewSelected(),
+  });
+  // Aliased: the selection is read and re-homed all through this file, not just by the keyboard.
+  const selected = nav.index;
+  const setSelected = nav.setIndex;
   const [expanded, setExpanded] = createSignal<Set<string>>(new Set());
   let inputRef!: HTMLInputElement;
   let rootRef!: HTMLDivElement;
-  let listRef: HTMLDivElement | undefined;
 
   // Element focused when the omnibar opened; restored on close so the focusin-derived `when`-context
   // (editorFocused/terminalFocused) and editor-gated chords like Ctrl+Tab keep matching. See App's onFocusIn.
@@ -241,10 +253,6 @@ export function Omnibar(props: {
           ? Math.max(0, symbolSearch.view().length - symbolView().length)
           : 0;
 
-  const scrollToSelected = (block: ScrollLogicalPosition): void => {
-    (listRef?.children[selected()] as HTMLElement | undefined)?.scrollIntoView({ block });
-  };
-
   // True while an open tree-mode session still needs to center on the current file — the first reveal usually
   // runs against an empty `rows()`, so the later file-index arrival finishes it.
   const [pendingReveal, setPendingReveal] = createSignal(false);
@@ -268,7 +276,7 @@ export function Omnibar(props: {
           ? visibleRows().findIndex((r) => r.node.kind === "file" && samePath(r.node.value, cf))
           : -1;
       setSelected(idx >= 0 ? idx : 0);
-      scrollToSelected("center");
+      nav.reveal("center");
     });
     return revealed;
   };
@@ -311,7 +319,7 @@ export function Omnibar(props: {
           setPendingReveal(!focusCurrentInTree());
         } else {
           setSelected(0);
-          queueMicrotask(() => scrollToSelected("nearest"));
+          nav.reveal("nearest");
         }
       },
       { defer: true },
@@ -387,6 +395,7 @@ export function Omnibar(props: {
     pendingLine = undefined;
     priorFocus = null;
   };
+  onCleanup(onModalOpened(dismiss));
 
   const openFile = (abs: string | undefined): void => {
     if (abs === undefined) {
@@ -438,8 +447,6 @@ export function Omnibar(props: {
       }
       return next;
     });
-    // The visible list grew/shrank — keep the selection in range.
-    queueMicrotask(() => setSelected((i) => Math.min(i, Math.max(0, visibleRows().length - 1))));
   };
 
   // Left/Right move a full level at a time. Right: expand a collapsed dir, else skip to the next row at the
@@ -459,7 +466,7 @@ export function Omnibar(props: {
       for (let j = i + 1; j < rowsV.length; j++) {
         if ((rowsV[j]?.depth ?? 0) <= cur.depth) {
           setSelected(j);
-          scrollToSelected("nearest");
+          nav.reveal("nearest");
           return;
         }
       }
@@ -472,13 +479,13 @@ export function Omnibar(props: {
       for (let j = i - 1; j >= 0; j--) {
         if ((rowsV[j]?.depth ?? 0) < cur.depth) {
           setSelected(j);
-          scrollToSelected("nearest");
+          nav.reveal("nearest");
           return;
         }
       }
       setSelected(0);
     }
-    scrollToSelected("nearest");
+    nav.reveal("nearest");
   };
 
   const activatePathEntry = (entry: DirEntry | undefined): void => {
@@ -548,28 +555,12 @@ export function Omnibar(props: {
   };
 
   const onKeyDown = (e: KeyboardEvent): void => {
-    if (e.key === "ArrowDown") {
+    if (nav.onKeyDown(e)) {
+      return;
+    }
+    if ((e.key === "ArrowRight" || e.key === "ArrowLeft") && treeMode()) {
       e.preventDefault();
-      setSelected((i) => Math.min(i + 1, activeLen() - 1));
-      scrollToSelected("nearest");
-      previewSelected();
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      setSelected((i) => Math.max(i - 1, 0));
-      scrollToSelected("nearest");
-      previewSelected();
-    } else if (e.key === "ArrowRight" && treeMode()) {
-      e.preventDefault();
-      treeMoveLevel(1);
-    } else if (e.key === "ArrowLeft" && treeMode()) {
-      e.preventDefault();
-      treeMoveLevel(-1);
-    } else if (e.key === "Enter") {
-      e.preventDefault();
-      activate();
-    } else if (e.key === "Escape") {
-      e.preventDefault();
-      close();
+      treeMoveLevel(e.key === "ArrowRight" ? 1 : -1);
     }
   };
 
@@ -673,9 +664,7 @@ export function Omnibar(props: {
             mode={mode}
             selected={selected}
             onSelect={setSelected}
-            listRef={(element) => {
-              listRef = element;
-            }}
+            rowProps={nav.row}
             hiddenCount={hiddenCount}
             filesPending={props.filesPending}
             currentFile={props.currentFile}

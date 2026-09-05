@@ -1,3 +1,5 @@
+using Weavie.Core.FileSystem;
+
 namespace Weavie.Core.FileActivity;
 
 internal interface IWorkspaceDirectoryWatchSet : IDisposable {
@@ -33,8 +35,7 @@ internal sealed class FileSystemWorkspaceDirectoryWatchSet : IWorkspaceDirectory
 		_deleted = deleted;
 		_renamed = renamed;
 		_error = error;
-		var comparer = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
-		_watchers = new Dictionary<string, FileSystemWatcher>(comparer);
+		_watchers = new Dictionary<string, FileSystemWatcher>(PathIdentity.Comparer);
 	}
 
 	public int Count {
@@ -42,8 +43,7 @@ internal sealed class FileSystemWorkspaceDirectoryWatchSet : IWorkspaceDirectory
 	}
 
 	public bool Reconcile(IReadOnlyList<string> directories) {
-		var comparer = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
-		var desired = directories.ToHashSet(comparer);
+		var desired = directories.ToHashSet(PathIdentity.Comparer);
 		lock (_gate) {
 			if (_disposed) {
 				return false;

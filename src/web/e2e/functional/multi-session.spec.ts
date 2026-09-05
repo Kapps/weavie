@@ -5,6 +5,7 @@ import {
   clickIntoEditor,
   createSession,
   openFile,
+  pressDocumentStart,
   waitForSessionSwitch,
 } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
@@ -32,7 +33,7 @@ test("concurrent edits land in each session's own worktree and survive a switch 
   // Session one edits hello.ts in the workspace checkout.
   await openFile(page, "hello.ts");
   await clickIntoEditor(page);
-  await page.keyboard.press("ControlOrMeta+Home");
+  await pressDocumentStart(page);
   await page.keyboard.type("SESSIONONEMARKER");
   await saveActiveEditor(page);
 
@@ -43,7 +44,7 @@ test("concurrent edits land in each session's own worktree and survive a switch 
   await waitForSessionSwitch(page, primarySlot);
   await openFile(page, "hello.ts");
   await clickIntoEditor(page);
-  await page.keyboard.press("ControlOrMeta+Home");
+  await pressDocumentStart(page);
   await page.keyboard.type("SESSIONTWOMARKER");
   await saveActiveEditor(page);
 

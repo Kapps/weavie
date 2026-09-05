@@ -974,17 +974,12 @@ test.describe("applied review — every file remains reviewable", () => {
 
     await openFile(page, "bulk-0.txt");
     await page.locator(".weavie-inline-scope-btn").click();
-    await expect(page.locator(".weavie-inline-scope-item", { hasText: "All files" })).toBeVisible();
+    await page.locator(".weavie-inline-scope-item", { hasText: "All files" }).click();
+    await page.locator(".weavie-inline-accept").click();
 
-    await page.locator(".editor-review-toggle").click();
-    const overview = page.locator(".unified-review");
-    await expect(overview.locator(".unified-review-tree-row.file")).toHaveCount(100);
-    expect(await overview.locator(".unified-review-file").count()).toBeLessThan(100);
-    await overview.locator(".unified-review-tree-row.file").last().click();
-    await expect(
-      overview.locator(".unified-review-file-name", { hasText: "bulk-99.txt" }),
-    ).toBeVisible();
-    await page.locator(".editor-review-toggle").click();
-    await expect(page.locator(".editor-tab.active", { hasText: "bulk-99.txt" })).toBeVisible();
+    await expect
+      .poll(() => page.evaluate(() => window.__WEAVIE_REVIEW__?.files.length ?? -1))
+      .toBe(0);
+    await expect(page.locator(TOOLBAR)).toHaveCount(0);
   });
 });

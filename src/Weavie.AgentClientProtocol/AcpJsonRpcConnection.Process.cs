@@ -15,8 +15,13 @@ public sealed partial class AcpJsonRpcConnection {
 		}
 		Process? process = null;
 		try {
+			var definition = _currentDefinition()
+				?? throw new InvalidOperationException("The ACP agent definition is unavailable.");
+			if (!string.Equals(definition.Id, _providerId, StringComparison.Ordinal)) {
+				throw new InvalidOperationException("An ACP agent definition cannot change provider identity.");
+			}
 			process = new Process {
-				StartInfo = BuildStartInfo(),
+				StartInfo = BuildStartInfo(definition),
 				EnableRaisingEvents = false,
 			};
 			lock (_processGate) {
@@ -26,10 +31,10 @@ public sealed partial class AcpJsonRpcConnection {
 				_process = process;
 			}
 			if (!process.Start()) {
-				throw new InvalidOperationException($"ACP agent '{_definition.Name}' did not start.");
+				throw new InvalidOperationException($"ACP agent '{definition.Name}' did not start.");
 			}
 		} catch (Exception ex) {
-			var fault = new IOException($"ACP agent '{_definition.Name}' could not start.", ex);
+			var fault = new IOException($"ACP agent '{_providerName}' could not start.", ex);
 			bool accepted = false;
 			lock (_deliveryGate) {
 				lock (_processGate) {
@@ -92,8 +97,8 @@ public sealed partial class AcpJsonRpcConnection {
 		if (ownsProcess) process.Dispose();
 	}
 
-	private ProcessStartInfo BuildStartInfo() {
-		var invocation = AcpProcessInvocation.ResolveRedirectedProcess(_definition, _workingDirectory, []);
+	private ProcessStartInfo BuildStartInfo(AcpAgentDefinition definition) {
+		var invocation = AcpProcessInvocation.ResolveRedirectedProcess(definition, _workingDirectory, []);
 		string command = invocation.Command;
 		var arguments = invocation.Arguments;
 		var info = new ProcessStartInfo(command) {
@@ -110,7 +115,7 @@ public sealed partial class AcpJsonRpcConnection {
 		foreach (string argument in arguments) {
 			info.ArgumentList.Add(argument);
 		}
-		foreach (var entry in _definition.Environment) {
+		foreach (var entry in definition.Environment) {
 			info.Environment[entry.Key] = entry.Value;
 		}
 		return info;
@@ -153,10 +158,10 @@ public sealed partial class AcpJsonRpcConnection {
 	private async Task ReadStderrAsync(Process process) {
 		try {
 			while (await process.StandardError.ReadLineAsync().ConfigureAwait(false) is { } line) {
-				_log($"[acp:{_definition.Id}] {line}");
+				_log($"[acp:{_providerId}] {line}");
 			}
 		} catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException) {
-			_log($"[acp:{_definition.Id}] stderr closed: {ex.Message}");
+			_log($"[acp:{_providerId}] stderr closed: {ex.Message}");
 		}
 	}
 

@@ -4,39 +4,32 @@ using Weavie.Core.FileSystem;
 
 namespace Weavie.Core.Sessions;
 
-/// <summary>Persists opaque ACP control defaults by provider.</summary>
-public sealed class AcpControlStore {
+/// <summary>
+/// Persists opaque ACP control defaults by provider. Unlike the config stores, an unusable file is never reset
+/// or backed up: the failure is held and rethrown from the first use, so a provider never silently loses the
+/// controls the user accepted.
+/// </summary>
+public sealed class AcpControlStore : JsonDocumentStore {
 	private const int Version = 1;
 	private static readonly JsonSerializerOptions JsonOptions = new() {
 		WriteIndented = true,
 		UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
 	};
-	private readonly IFileSystem _fileSystem;
-	private readonly Lock _gate = new();
-	private readonly AcpControlStoreException? _loadFailure;
-	private Dictionary<string, Dictionary<string, string>> _providers;
+
+	private AcpControlStoreException? _loadFailure;
+	private Dictionary<string, Dictionary<string, string>> _providers = new(StringComparer.Ordinal);
 
 	/// <summary>Creates and loads the store at <paramref name="path"/>.</summary>
-	public AcpControlStore(IFileSystem fileSystem, string path) {
-		ArgumentNullException.ThrowIfNull(fileSystem);
-		ArgumentException.ThrowIfNullOrEmpty(path);
-		_fileSystem = fileSystem;
-		FilePath = path;
-		try {
-			_providers = Load();
-		} catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException) {
-			_providers = new(StringComparer.Ordinal);
-			_loadFailure = new AcpControlStoreException($"ACP control defaults could not be loaded from '{path}': {ex.Message}", ex);
-		}
+	/// <param name="fileSystem">The filesystem the defaults persist through.</param>
+	/// <param name="path">The backing file.</param>
+	public AcpControlStore(IFileSystem fileSystem, string path) : base(fileSystem, path) {
+		Load();
 	}
-
-	/// <summary>The file backing this store.</summary>
-	public string FilePath { get; }
 
 	/// <summary>Returns one provider's remembered opaque control values.</summary>
 	public IReadOnlyDictionary<string, string> Resolve(string providerId) {
 		ArgumentException.ThrowIfNullOrEmpty(providerId);
-		lock (_gate) {
+		lock (Gate) {
 			EnsureAvailable();
 			return _providers.TryGetValue(providerId, out var values)
 				? new Dictionary<string, string>(values, StringComparer.Ordinal)
@@ -49,14 +42,13 @@ public sealed class AcpControlStore {
 		ArgumentException.ThrowIfNullOrEmpty(providerId);
 		ArgumentException.ThrowIfNullOrEmpty(axis);
 		ArgumentException.ThrowIfNullOrEmpty(value);
-		lock (_gate) {
+		lock (Gate) {
 			EnsureAvailable();
 			var next = Clone();
 			if (!next.TryGetValue(providerId, out var values)) next.Add(providerId, values = new(StringComparer.Ordinal));
 			if (values.TryGetValue(axis, out string? current) && current == value) return;
 			values[axis] = value;
-			Persist(next);
-			_providers = next;
+			Commit(next);
 		}
 	}
 
@@ -65,7 +57,7 @@ public sealed class AcpControlStore {
 		ArgumentException.ThrowIfNullOrEmpty(providerId);
 		ArgumentException.ThrowIfNullOrEmpty(axis);
 		ArgumentException.ThrowIfNullOrEmpty(expectedValue);
-		lock (_gate) {
+		lock (Gate) {
 			EnsureAvailable();
 			var next = Clone();
 			if (!next.TryGetValue(providerId, out var values)
@@ -73,36 +65,56 @@ public sealed class AcpControlStore {
 				|| current != expectedValue) return;
 			values.Remove(axis);
 			if (values.Count == 0) next.Remove(providerId);
-			Persist(next);
-			_providers = next;
+			Commit(next);
 		}
 	}
 
-	private Dictionary<string, Dictionary<string, string>> Load() {
-		if (!_fileSystem.FileExists(FilePath)) return new(StringComparer.Ordinal);
-		using var probe = JsonDocument.Parse(_fileSystem.ReadAllText(FilePath));
+	/// <inheritdoc/>
+	protected override void Restore(string? text) {
+		_providers = new(StringComparer.Ordinal);
+		if (text is null) return;
+		using var probe = JsonDocument.Parse(text);
 		if (!probe.RootElement.TryGetProperty("version", out var format) || !format.TryGetInt32(out int version)) {
 			throw new JsonException("The ACP control document requires a numeric version.");
 		}
-		if (version != Version) return new(StringComparer.Ordinal);
+		if (version != Version) return;
 		var document = JsonSerializer.Deserialize<Document>(probe.RootElement.GetRawText(), JsonOptions)
 			?? throw new JsonException("The ACP control document is empty.");
-		var result = new Dictionary<string, Dictionary<string, string>>(StringComparer.Ordinal);
 		foreach (var provider in document.Providers ?? throw new JsonException("The ACP control document requires providers.")) {
 			if (string.IsNullOrEmpty(provider.Key) || provider.Value is null
 				|| provider.Value.Any(entry => string.IsNullOrEmpty(entry.Key) || string.IsNullOrEmpty(entry.Value))) {
 				throw new JsonException("ACP control providers, axes, and values must be non-empty.");
 			}
-			result.Add(provider.Key, new Dictionary<string, string>(provider.Value, StringComparer.Ordinal));
+			_providers.Add(provider.Key, new Dictionary<string, string>(provider.Value, StringComparer.Ordinal));
 		}
-		return result;
 	}
 
-	private void Persist(Dictionary<string, Dictionary<string, string>> providers) {
+	/// <inheritdoc/>
+	protected override string Render() =>
+		JsonSerializer.Serialize(new Document { Version = Version, Providers = _providers }, JsonOptions);
+
+	/// <inheritdoc/>
+	protected override void OnUnusable(string? text, Exception cause) {
+		ArgumentNullException.ThrowIfNull(cause);
+		Restore(null);
+		_loadFailure = new AcpControlStoreException($"ACP control defaults could not be loaded from '{FilePath}': {cause.Message}", cause);
+	}
+
+	/// <inheritdoc/>
+	protected override void OnPersistFailed(Exception cause) {
+		ArgumentNullException.ThrowIfNull(cause);
+		throw new AcpControlStoreException($"ACP control defaults could not be persisted to '{FilePath}': {cause.Message}", cause);
+	}
+
+	// The store only adopts state a write already accepted, so a failed persist leaves memory and disk agreeing.
+	private void Commit(Dictionary<string, Dictionary<string, string>> next) {
+		var previous = _providers;
+		_providers = next;
 		try {
-			_fileSystem.WriteAllTextAtomic(FilePath, JsonSerializer.Serialize(new Document { Version = Version, Providers = providers }, JsonOptions));
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			throw new AcpControlStoreException($"ACP control defaults could not be persisted to '{FilePath}': {ex.Message}", ex);
+			PersistLocked();
+		} catch (AcpControlStoreException) {
+			_providers = previous;
+			throw;
 		}
 	}
 

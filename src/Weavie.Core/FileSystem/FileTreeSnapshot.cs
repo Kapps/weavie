@@ -10,7 +10,7 @@ public static class FileTreeSnapshot {
 		string fullSource = Path.GetFullPath(source);
 		string fullDestination = Path.GetFullPath(destination);
 		string fullBoundary = Path.GetFullPath(destinationBoundary);
-		if (!PathBoundary.Contains(fullBoundary, fullDestination, PathComparison)) {
+		if (!PathBoundary.Contains(fullBoundary, fullDestination, PathIdentity.Comparison)) {
 			throw new InvalidOperationException($"Snapshot destination escapes its boundary: {fullDestination}");
 		}
 		EnsureUnlinkedDestinationPath(fullBoundary, Path.GetDirectoryName(fullDestination)!);
@@ -48,7 +48,7 @@ public static class FileTreeSnapshot {
 		string fullSource = Path.GetFullPath(source);
 		string fullDestination = Path.GetFullPath(destination);
 		string fullBoundary = Path.GetFullPath(destinationBoundary);
-		if (!PathBoundary.Contains(fullBoundary, fullDestination, PathComparison)) {
+		if (!PathBoundary.Contains(fullBoundary, fullDestination, PathIdentity.Comparison)) {
 			throw new InvalidOperationException($"Snapshot destination escapes its boundary: {fullDestination}");
 		}
 
@@ -73,8 +73,6 @@ public static class FileTreeSnapshot {
 			DeleteNoFollow(new DirectoryInfo(staging));
 		}
 	}
-
-	private static StringComparison PathComparison => PhysicalPath.Comparison;
 
 	private static void EnsureUnlinkedDestinationPath(string boundary, string directory) {
 		var boundaryInfo = new DirectoryInfo(boundary);

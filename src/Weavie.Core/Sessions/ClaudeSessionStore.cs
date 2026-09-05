@@ -24,29 +24,17 @@ public readonly record struct ClaudeLaunch(string SessionId, bool Resume);
 /// stale one made a relaunch re-create an id whose conversation still existed → "Session ID … is already in
 /// use"). A malformed file is backed up to <c>claude-sessions.json.bad</c> and reset.
 /// </summary>
-public sealed class ClaudeSessionStore {
+public sealed class ClaudeSessionStore : JsonDocumentStore {
 	private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
-	private readonly IFileSystem _fileSystem;
-	private readonly Lock _gate = new();
-	private readonly List<Entry> _items;
+	private List<Entry> _items = [];
 
 	/// <summary>Creates the store over <paramref name="path"/>, loading it now.</summary>
-	public ClaudeSessionStore(IFileSystem fileSystem, string path) {
-		ArgumentNullException.ThrowIfNull(fileSystem);
-		ArgumentException.ThrowIfNullOrEmpty(path);
-		_fileSystem = fileSystem;
-		FilePath = path;
-		lock (_gate) {
-			_items = LoadLocked();
-		}
+	/// <param name="fileSystem">The filesystem the ids persist through.</param>
+	/// <param name="path">The backing file.</param>
+	public ClaudeSessionStore(IFileSystem fileSystem, string path) : base(fileSystem, path) {
+		Load();
 	}
-
-	/// <summary>Diagnostic log line — read failures, malformed-file resets, persist failures.</summary>
-	public event Action<string>? Log;
-
-	/// <summary>The file backing this store.</summary>
-	public string FilePath { get; }
 
 	/// <summary>
 	/// Returns the stable Claude session id for <paramref name="workingDirectory"/>, minting and persisting one
@@ -55,8 +43,8 @@ public sealed class ClaudeSessionStore {
 	/// </summary>
 	public string Resolve(string workingDirectory) {
 		ArgumentException.ThrowIfNullOrEmpty(workingDirectory);
-		string key = Normalize(workingDirectory);
-		lock (_gate) {
+		string key = PathIdentity.Normalize(workingDirectory);
+		lock (Gate) {
 			var entry = Find(key);
 			if (entry is null) {
 				entry = new Entry { Key = key, Id = Guid.NewGuid().ToString() };
@@ -75,8 +63,8 @@ public sealed class ClaudeSessionStore {
 	/// </summary>
 	public void Forget(string workingDirectory) {
 		ArgumentException.ThrowIfNullOrEmpty(workingDirectory);
-		string key = Normalize(workingDirectory);
-		lock (_gate) {
+		string key = PathIdentity.Normalize(workingDirectory);
+		lock (Gate) {
 			if (RemoveLocked(key)) {
 				PersistLocked();
 			}
@@ -90,8 +78,8 @@ public sealed class ClaudeSessionStore {
 	/// </summary>
 	public void Clear(string workingDirectory) {
 		ArgumentException.ThrowIfNullOrEmpty(workingDirectory);
-		string key = Normalize(workingDirectory);
-		lock (_gate) {
+		string key = PathIdentity.Normalize(workingDirectory);
+		lock (Gate) {
 			if (RemoveLocked(key)) {
 				PersistLocked();
 			}
@@ -107,8 +95,8 @@ public sealed class ClaudeSessionStore {
 	public void Adopt(string workingDirectory, string sessionId) {
 		ArgumentException.ThrowIfNullOrEmpty(workingDirectory);
 		ArgumentException.ThrowIfNullOrEmpty(sessionId);
-		string key = Normalize(workingDirectory);
-		lock (_gate) {
+		string key = PathIdentity.Normalize(workingDirectory);
+		lock (Gate) {
 			var entry = Find(key);
 			if (entry is null) {
 				_items.Add(new Entry { Key = key, Id = sessionId });
@@ -123,44 +111,29 @@ public sealed class ClaudeSessionStore {
 		}
 	}
 
-	private Entry? Find(string key) => _items.FirstOrDefault(e => PathEquals(e.Key, key));
-
-	private bool RemoveLocked(string key) => _items.RemoveAll(e => PathEquals(e.Key, key)) > 0;
-
-	private static string Normalize(string path) =>
-		Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-
-	private static bool PathEquals(string a, string b) =>
-		string.Equals(a, b, OperatingSystem.IsLinux() ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase);
-
-	private List<Entry> LoadLocked() =>
-		JsonStoreFile.Load<List<Entry>>(
-			_fileSystem,
-			FilePath,
-			text => {
-				var document = JsonSerializer.Deserialize<Document>(text);
-				if (document?.Sessions is not { } entries) {
-					return [];
-				}
-
-				return [.. entries
+	/// <inheritdoc/>
+	protected override void Restore(string? text) {
+		var document = text is null ? null : JsonSerializer.Deserialize<Document>(text);
+		_items = document?.Sessions is not { } entries
+			? []
+			: [.. entries
 				.Where(e => !string.IsNullOrWhiteSpace(e.Cwd) && !string.IsNullOrWhiteSpace(e.Id))
 				.Select(e => new Entry { Key = e.Cwd, Id = e.Id })];
-			},
-			static () => [],
-			Log);
+	}
 
-	private void PersistLocked() {
-		var document = new Document {
+	/// <inheritdoc/>
+	protected override string Render() => JsonSerializer.Serialize(
+		new Document {
 			Version = 1,
 			Sessions = [.. _items.Select(e => new SessionEntry { Cwd = e.Key, Id = e.Id })],
-		};
-		JsonStoreFile.Persist(
-			_fileSystem,
-			FilePath,
-			JsonSerializer.Serialize(document, JsonOptions),
-			Log);
-	}
+		},
+		JsonOptions);
+
+	private Entry? Find(string key) => _items.FirstOrDefault(e => PathIdentity.Equals(e.Key, key));
+
+	private bool RemoveLocked(string key) => _items.RemoveAll(e => PathIdentity.Equals(e.Key, key)) > 0;
+
+
 
 	private sealed class Entry {
 		public required string Key { get; init; }

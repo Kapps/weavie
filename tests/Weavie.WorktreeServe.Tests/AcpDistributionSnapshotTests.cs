@@ -8,12 +8,12 @@ namespace Weavie.WorktreeServe.Tests;
 
 public sealed class AcpDistributionSnapshotTests : IDisposable {
 	private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
-	private readonly string _root = Directory.CreateTempSubdirectory("acp-distribution-snapshot-tests-").FullName;
+	private readonly TempDirectory _root = new("acp-distribution-snapshot-tests");
 
 	[Fact]
 	public void Binary_installations_are_independent_and_keep_their_executable_mode() {
-		string source = Directory.CreateDirectory(Path.Combine(_root, "production")).FullName;
-		string destination = Directory.CreateDirectory(Path.Combine(_root, "preview")).FullName;
+		string source = _root.CreateDirectory("production");
+		string destination = _root.CreateDirectory("preview");
 		string install = Directory.CreateDirectory(Path.Combine(
 			Under(source, WeaviePaths.AcpPackages),
 			"sample",
@@ -43,8 +43,8 @@ public sealed class AcpDistributionSnapshotTests : IDisposable {
 
 	[Fact]
 	public void Binary_installations_reject_links_without_materializing_a_catalog() {
-		string source = Directory.CreateDirectory(Path.Combine(_root, "production")).FullName;
-		string destination = Directory.CreateDirectory(Path.Combine(_root, "preview")).FullName;
+		string source = _root.CreateDirectory("production");
+		string destination = _root.CreateDirectory("preview");
 		string install = Directory.CreateDirectory(Path.Combine(
 			Under(source, WeaviePaths.AcpPackages),
 			"sample",
@@ -62,8 +62,8 @@ public sealed class AcpDistributionSnapshotTests : IDisposable {
 
 	[Fact]
 	public void Package_recipes_and_custom_agents_round_trip_without_copying_external_commands() {
-		string source = Directory.CreateDirectory(Path.Combine(_root, "production")).FullName;
-		string destination = Directory.CreateDirectory(Path.Combine(_root, "preview")).FullName;
+		string source = _root.CreateDirectory("production");
+		string destination = _root.CreateDirectory("preview");
 		WriteInstallations(source, [Launch("sample", "npx", "npx") with {
 			Arguments = ["--yes", "sample-acp@1.0.0"],
 		}]);
@@ -109,5 +109,5 @@ public sealed class AcpDistributionSnapshotTests : IDisposable {
 		File.WriteAllText(path, contents);
 	}
 
-	public void Dispose() => Directory.Delete(_root, recursive: true);
+	public void Dispose() => _root.Dispose();
 }

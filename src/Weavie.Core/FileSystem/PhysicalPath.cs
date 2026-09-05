@@ -2,12 +2,6 @@ namespace Weavie.Core.FileSystem;
 
 /// <summary>Canonical filesystem paths with existing links and on-disk casing resolved component by component.</summary>
 public static class PhysicalPath {
-	/// <summary>The platform's conservative filesystem path comparison.</summary>
-	public static StringComparison Comparison =>
-		OperatingSystem.IsWindows()
-			? StringComparison.OrdinalIgnoreCase
-			: StringComparison.Ordinal;
-
 	/// <summary>Normalizes <paramref name="path"/> and resolves every existing filesystem entry it traverses.</summary>
 	public static string Resolve(string path) {
 		ArgumentException.ThrowIfNullOrEmpty(path);
@@ -24,22 +18,22 @@ public static class PhysicalPath {
 				? entry.ResolveLinkTarget(returnFinalTarget: true)!.FullName
 				: candidate;
 		}
-		return Path.TrimEndingDirectorySeparator(Path.GetFullPath(current));
+		return PathIdentity.Normalize(current);
 	}
 
 	/// <summary>Whether two paths resolve to the same physical path under platform comparison semantics.</summary>
 	public static bool Equal(string left, string right) =>
-		string.Equals(Resolve(left), Resolve(right), Comparison);
+		string.Equals(Resolve(left), Resolve(right), PathIdentity.Comparison);
 
 	/// <summary>Whether <paramref name="path"/> is physically equal to or beneath <paramref name="root"/>.</summary>
 	public static bool IsSameOrDescendant(string path, string root) {
 		string candidate = Resolve(path);
 		string ancestor = Resolve(root);
-		if (string.Equals(candidate, ancestor, Comparison)) {
+		if (string.Equals(candidate, ancestor, PathIdentity.Comparison)) {
 			return true;
 		}
 		string prefix = Path.EndsInDirectorySeparator(ancestor) ? ancestor : ancestor + Path.DirectorySeparatorChar;
-		return candidate.StartsWith(prefix, Comparison);
+		return candidate.StartsWith(prefix, PathIdentity.Comparison);
 	}
 
 	private static string CanonicalEntry(string parent, string segment) {

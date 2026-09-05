@@ -1,4 +1,5 @@
 using System.Threading.Channels;
+using Weavie.Core.FileSystem;
 
 namespace Weavie.Hosting;
 
@@ -70,7 +71,7 @@ internal sealed class GitMetadataWatcher {
 		string refs = Path.Combine(commonDirectory, "refs");
 		if (Directory.Exists(refs)) {
 			watchers.Add(Create(refs, "*", includeSubdirectories: true, path => {
-				if (PathEquals(path, Volatile.Read(ref _currentRef))) {
+				if (Volatile.Read(ref _currentRef) is { } current && PathIdentity.Equals(path, current)) {
 					invalidate();
 				}
 			}));
@@ -103,15 +104,9 @@ internal sealed class GitMetadataWatcher {
 		Volatile.Write(
 			ref _currentRef,
 			head.StartsWith(prefix, StringComparison.Ordinal)
-				? Path.GetFullPath(head[prefix.Length..].Trim(), commonDirectory)
+				? PathIdentity.Normalize(head[prefix.Length..].Trim(), commonDirectory)
 				: null);
 	}
-
-	private static bool PathEquals(string path, string? other) =>
-		other is not null && string.Equals(
-			Path.GetFullPath(path),
-			other,
-			OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
 
 	private static string ResolvePointer(string path, string prefix, string relativeTo) {
 		string value = File.ReadAllText(path).Trim();

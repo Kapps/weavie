@@ -6,7 +6,6 @@
 // string (theme switch) re-mounts the editor with its draft; a different string closes it.
 
 import type { ClientSession } from "../../bridge";
-import { setContext } from "../../commands/context";
 import { formatKey } from "../../commands/keybindings";
 import { findCommand } from "../../commands/registry";
 import { CommandIds } from "../../commands/types";
@@ -67,23 +66,26 @@ export class SourceEditController {
         editKeys.length > 0 ? `Edit block (${formatKey(editKeys[0] ?? "")})` : "Edit block";
     }
     content.addEventListener("focusin", (event) => {
+      if (active !== this) {
+        return;
+      }
       const el =
         event.target instanceof HTMLElement
           ? event.target.closest<HTMLElement>(".wv-editable")
           : null;
       this.focusedBlock = el ?? undefined;
-      setContext("sourceBlockFocused", el !== null);
     });
-    // Focus leaving the blocks entirely (another pane, the editor textarea) must drop the context key, or the
-    // Edit Block chord would keep firing wherever the user types next.
+    // Focus leaving the blocks entirely (another pane, the editor textarea) drops the remembered block.
     content.addEventListener("focusout", (event) => {
+      if (active !== this) {
+        return;
+      }
       const to =
         event.relatedTarget instanceof HTMLElement
           ? event.relatedTarget.closest(".wv-editable")
           : null;
       if (to === null) {
         this.focusedBlock = undefined;
-        setContext("sourceBlockFocused", false);
       }
     });
     const retained = sourceEditState(this.session, this.target);
@@ -114,7 +116,6 @@ export class SourceEditController {
     if (active === this) {
       active = undefined;
     }
-    setContext("sourceBlockFocused", false);
   }
 
   /** True when the click landed inside the open editor box — the textarea owns it, nothing else should react. */
@@ -138,6 +139,7 @@ export class SourceEditController {
   editFocusedBlock(): boolean {
     if (
       this.focusedBlock === undefined ||
+      !this.blockFocused() ||
       sourceEditState(this.session, this.target) !== undefined
     ) {
       return false;
@@ -256,6 +258,7 @@ export class SourceEditController {
     // closeState (not closeAndRefocus): focus left deliberately — don't yank it back from where it went.
     textarea.addEventListener("focusout", () => {
       if (
+        active === this &&
         sourceEditState(this.session, this.target) === edit &&
         !edit.saving &&
         textarea.value === edit.original
@@ -270,8 +273,6 @@ export class SourceEditController {
     this.textarea = textarea;
     this.hint = hint;
     this.box = box;
-    setContext("sourceEditing", true);
-
     if (el.tagName === "LI") {
       const inline = [...el.childNodes].filter(
         (n) => !(n instanceof HTMLElement && n.classList.contains("wv-children")),
@@ -333,6 +334,11 @@ export class SourceEditController {
     return root instanceof ShadowRoot && root.activeElement === this.textarea;
   }
 
+  private blockFocused(): boolean {
+    const root = this.focusedBlock?.getRootNode();
+    return root instanceof ShadowRoot && root.activeElement === this.focusedBlock;
+  }
+
   private closeAndRefocus(line: number): void {
     this.closeState();
     this.blockAt(line)?.focus();
@@ -344,10 +350,9 @@ export class SourceEditController {
     this.textarea = undefined;
     this.hint = undefined;
     this.box = undefined;
-    setContext("sourceEditing", false);
   }
 
-  // Tears down the editor DOM (restoring the block) and clears the edit state + context key.
+  // Tears down the editor DOM (restoring the block) and clears the edit state.
   private closeState(): void {
     this.unmountEditor();
     discardSourceEdit(this.session, this.target);

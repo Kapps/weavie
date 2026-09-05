@@ -1,10 +1,12 @@
-namespace Weavie.Hosting.Tests;
+namespace Weavie.TestSupport;
 
-/// <summary>Polling wait for bridge assertions: retries a selector until it yields a value, else times out.</summary>
-internal static class Wait {
+/// <summary>Polling wait for asynchronous assertions: retries a condition or selector until it yields, else times out.</summary>
+public static class Wait {
+	/// <summary>Waits up to five seconds for <paramref name="condition"/> to hold.</summary>
 	public static Task UntilAsync(Func<bool> condition) =>
 		UntilAsync(condition, TimeSpan.FromSeconds(5));
 
+	/// <summary>Waits up to <paramref name="timeout"/> for <paramref name="condition"/> to hold.</summary>
 	public static async Task UntilAsync(Func<bool> condition, TimeSpan timeout) {
 		ArgumentNullException.ThrowIfNull(condition);
 		ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(timeout, TimeSpan.Zero);
@@ -23,27 +25,19 @@ internal static class Wait {
 		throw new TimeoutException("Condition was not met within the timeout.");
 	}
 
+	/// <summary>Waits for <paramref name="selector"/> to produce a value.</summary>
 	public static async Task<T> ForAsync<T>(Func<T?> selector) where T : struct {
-		for (int i = 0; i < 200; i++) {
-			if (selector() is { } value) {
-				return value;
-			}
-
-			await Task.Delay(25);
-		}
-
-		throw new TimeoutException("Condition was not met within the timeout.");
+		ArgumentNullException.ThrowIfNull(selector);
+		T? found = null;
+		await UntilAsync(() => (found = selector()) is not null);
+		return found!.Value;
 	}
 
+	/// <summary>Waits for <paramref name="selector"/> to produce a reference.</summary>
 	public static async Task<T> ForReferenceAsync<T>(Func<T?> selector) where T : class {
-		for (int i = 0; i < 200; i++) {
-			if (selector() is { } value) {
-				return value;
-			}
-
-			await Task.Delay(25);
-		}
-
-		throw new TimeoutException("Condition was not met within the timeout.");
+		ArgumentNullException.ThrowIfNull(selector);
+		T? found = null;
+		await UntilAsync(() => (found = selector()) is not null);
+		return found!;
 	}
 }

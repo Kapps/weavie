@@ -10,37 +10,25 @@ namespace Weavie.Core.Worktrees;
 /// that <see cref="WorktreeManager"/> reconciles against <c>git worktree list</c>. Atomic writes; a malformed
 /// file is backed up to <c>worktrees.json.bad</c> and reset rather than throwing.
 /// </summary>
-public sealed class WorktreeRegistry {
+public sealed class WorktreeRegistry : JsonDocumentStore {
 	private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
-	private readonly IFileSystem _fileSystem;
-	private readonly Lock _gate = new();
-	private readonly List<WorktreeRecord> _items;
+	private List<WorktreeRecord> _items = [];
 
 	/// <summary>Creates the registry over <paramref name="path"/>, loading it now.</summary>
-	public WorktreeRegistry(IFileSystem fileSystem, string path) {
-		ArgumentNullException.ThrowIfNull(fileSystem);
-		ArgumentException.ThrowIfNullOrEmpty(path);
-		_fileSystem = fileSystem;
-		FilePath = path;
-		lock (_gate) {
-			_items = LoadLocked();
-		}
+	/// <param name="fileSystem">The filesystem the registry persists through.</param>
+	/// <param name="path">The backing file.</param>
+	public WorktreeRegistry(IFileSystem fileSystem, string path) : base(fileSystem, path) {
+		Load();
 	}
 
 	/// <summary>Raised (off the UI thread) after the registry changes, so a worktree view can refresh.</summary>
 	public event Action? Changed;
 
-	/// <summary>Diagnostic log line — read failures, malformed-file resets, persist failures.</summary>
-	public event Action<string>? Log;
-
-	/// <summary>The file backing this registry.</summary>
-	public string FilePath { get; }
-
 	/// <summary>Snapshot of the recorded worktrees. Safe to enumerate.</summary>
 	public IReadOnlyList<WorktreeRecord> Items {
 		get {
-			lock (_gate) {
+			lock (Gate) {
 				return [.. _items];
 			}
 		}
@@ -49,8 +37,8 @@ public sealed class WorktreeRegistry {
 	/// <summary>Records <paramref name="record"/>, replacing any existing entry for the same path.</summary>
 	public void Add(WorktreeRecord record) {
 		ArgumentNullException.ThrowIfNull(record);
-		lock (_gate) {
-			_items.RemoveAll(r => PathsEqual(r.Path, record.Path));
+		lock (Gate) {
+			_items.RemoveAll(r => PathIdentity.Equals(r.Path, record.Path));
 			_items.Add(record);
 			PersistLocked();
 		}
@@ -62,8 +50,8 @@ public sealed class WorktreeRegistry {
 	public void Remove(string path) {
 		ArgumentException.ThrowIfNullOrEmpty(path);
 		bool removed;
-		lock (_gate) {
-			removed = _items.RemoveAll(r => PathsEqual(r.Path, path)) > 0;
+		lock (Gate) {
+			removed = _items.RemoveAll(r => PathIdentity.Equals(r.Path, path)) > 0;
 			if (removed) {
 				PersistLocked();
 			}
@@ -77,42 +65,37 @@ public sealed class WorktreeRegistry {
 	/// <summary>The recorded entry for <paramref name="path"/>, or <c>null</c>.</summary>
 	public WorktreeRecord? FindByPath(string path) {
 		ArgumentException.ThrowIfNullOrEmpty(path);
-		lock (_gate) {
-			return _items.FirstOrDefault(r => PathsEqual(r.Path, path));
+		lock (Gate) {
+			return _items.FirstOrDefault(r => PathIdentity.Equals(r.Path, path));
 		}
 	}
 
 	/// <summary>The recorded entry on <paramref name="branch"/>, or <c>null</c>.</summary>
 	public WorktreeRecord? FindByBranch(string branch) {
 		ArgumentException.ThrowIfNullOrEmpty(branch);
-		lock (_gate) {
+		lock (Gate) {
 			return _items.FirstOrDefault(r => string.Equals(r.Branch, branch, StringComparison.Ordinal));
 		}
 	}
 
-	private static bool PathsEqual(string a, string b) =>
-		string.Equals(
-			Path.GetFullPath(a).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
-			Path.GetFullPath(b).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
-			OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+	/// <inheritdoc/>
+	protected override void Restore(string? text) {
+		if (text is null) {
+			_items = [];
+			return;
+		}
 
-	private List<WorktreeRecord> LoadLocked() =>
-		JsonStoreFile.Load<List<WorktreeRecord>>(
-			_fileSystem,
-			FilePath,
-			text => {
-				var document = JsonSerializer.Deserialize<WorktreesDocument>(text);
-				if (document?.Version != 2 || document.Worktrees is not { } entries) {
-					throw new JsonException("Worktree document requires version 2 and a worktrees array.");
-				}
+		var document = JsonSerializer.Deserialize<WorktreesDocument>(text);
+		if (document?.Version != 2 || document.Worktrees is not { } entries) {
+			throw new JsonException("Worktree document requires version 2 and a worktrees array.");
+		}
 
-				return [.. entries.Select(ParseEntry)];
-			},
-			static () => [],
-			Log);
+		_items = [.. entries.Select(ParseEntry)];
+	}
 
-	private void PersistLocked() {
-		var document = new WorktreesDocument {
+	/// <inheritdoc/>
+	protected override string Render() => JsonSerializer.Serialize(
+		new WorktreesDocument {
 			Version = 2,
 			Worktrees = [.. _items.Select(r => new WorktreeEntry {
 				Branch = r.Branch,
@@ -121,13 +104,9 @@ public sealed class WorktreeRegistry {
 				CreatedAt = r.CreatedAtUtc,
 				AgentProviderId = r.AgentProviderId,
 			})],
-		};
-		JsonStoreFile.Persist(
-			_fileSystem,
-			FilePath,
-			JsonSerializer.Serialize(document, JsonOptions),
-			Log);
-	}
+		},
+		JsonOptions);
+
 
 	private static WorktreeRecord ParseEntry(WorktreeEntry entry) {
 		if (string.IsNullOrWhiteSpace(entry.Branch)

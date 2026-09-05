@@ -9,21 +9,11 @@ namespace Weavie.Core.Tests;
 /// the user turns it off.
 /// </summary>
 public sealed class PrSettingsTests : IDisposable {
-	private readonly string _dir = Path.Combine(Path.GetTempPath(), "weavie-pr-settings-tests", Guid.NewGuid().ToString("N"));
+	private readonly TempDirectory _dir = new("weavie-pr-settings-tests");
 
-	public PrSettingsTests() {
-		Directory.CreateDirectory(_dir);
-	}
+	public void Dispose() => _dir.Dispose();
 
-	public void Dispose() {
-		try {
-			Directory.Delete(_dir, recursive: true);
-		} catch (IOException) {
-		} catch (UnauthorizedAccessException) {
-		}
-	}
-
-	private string FilePath => Path.Combine(_dir, "settings.toml");
+	private string FilePath => _dir.Combine("settings.toml");
 
 	[Fact]
 	public void AutoReviewPrompt_IsBoolDefaultingOn() {

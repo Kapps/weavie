@@ -56,7 +56,7 @@ public static class AcpDistributionSnapshot {
 		if (!PathBoundary.Contains(
 			PhysicalPath.Resolve(sourceInstall),
 			PhysicalPath.Resolve(agent.Command),
-			PhysicalPath.Comparison)) {
+			PathIdentity.Comparison)) {
 			throw new JsonException($"ACP binary installation '{id}' escapes its package directory.");
 		}
 		string destinationInstall = Path.Combine(destinationPackages, relativeInstall);

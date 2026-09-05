@@ -12,25 +12,15 @@ using Xunit;
 namespace Weavie.Hosting.Tests;
 
 public sealed class HostSessionAgentImageTests : IDisposable {
-	private readonly string _dir = Path.Combine(Path.GetTempPath(), "weavie-host-session-image-tests", Guid.NewGuid().ToString("N"));
+	private readonly TempDirectory _dir = new("weavie-host-session-image-tests");
 
-	public HostSessionAgentImageTests() {
-		Directory.CreateDirectory(_dir);
-	}
-
-	public void Dispose() {
-		try {
-			Directory.Delete(_dir, recursive: true);
-		} catch (IOException) {
-		} catch (UnauthorizedAccessException) {
-		}
-	}
+	public void Dispose() => _dir.Dispose();
 
 	[Fact]
 	public async Task SendAgentPrompt_SubmitsAtomicInputToStructuredProvider() {
 		var structured = new RecordingStructuredSession();
 		var commandRegistry = CoreCommands.CreateRegistry();
-		using var settings = CoreSettings.CreateStore(Path.Combine(_dir, "settings.toml"), enableWatcher: false);
+		using var settings = CoreSettings.CreateStore(_dir.Combine("settings.toml"), enableWatcher: false);
 		await using var session = CreateSession(structured, settings, commandRegistry);
 
 		session.SendAgentPrompt("hello");
@@ -44,9 +34,9 @@ public sealed class HostSessionAgentImageTests : IDisposable {
 	public async Task InitialInput_WaitsForIdleAndSubmitsTextAndImagesExactlyOnce() {
 		var structured = new RecordingStructuredSession();
 		var commandRegistry = CoreCommands.CreateRegistry();
-		using var settings = CoreSettings.CreateStore(Path.Combine(_dir, "settings.toml"), enableWatcher: false);
+		using var settings = CoreSettings.CreateStore(_dir.Combine("settings.toml"), enableWatcher: false);
 		await using var session = CreateSession(structured, settings, commandRegistry);
-		string imagePath = Path.Combine(_dir, "initial.png");
+		string imagePath = _dir.Combine("initial.png");
 
 		session.QueueInitialInput(Input("start here", new AgentInputAttachment {
 			Id = "image-1",
@@ -71,7 +61,7 @@ public sealed class HostSessionAgentImageTests : IDisposable {
 	public async Task InitialInput_IsDiscardedWithSession() {
 		var structured = new RecordingStructuredSession();
 		var commandRegistry = CoreCommands.CreateRegistry();
-		using var settings = CoreSettings.CreateStore(Path.Combine(_dir, "settings.toml"), enableWatcher: false);
+		using var settings = CoreSettings.CreateStore(_dir.Combine("settings.toml"), enableWatcher: false);
 		var session = CreateSession(structured, settings, commandRegistry);
 		session.QueueInitialInput(Input("do not send"));
 
@@ -85,7 +75,7 @@ public sealed class HostSessionAgentImageTests : IDisposable {
 	public async Task RestartAgent_RestartsStructuredProvider() {
 		var structured = new RecordingStructuredSession();
 		var commandRegistry = CoreCommands.CreateRegistry();
-		using var settings = CoreSettings.CreateStore(Path.Combine(_dir, "settings.toml"), enableWatcher: false);
+		using var settings = CoreSettings.CreateStore(_dir.Combine("settings.toml"), enableWatcher: false);
 		await using var session = CreateSession(structured, settings, commandRegistry);
 
 		session.RestartAgent();
@@ -117,17 +107,17 @@ public sealed class HostSessionAgentImageTests : IDisposable {
 		var session = new HostSession(
 			endpoint,
 			settings,
-			new LayoutStore(new Weavie.Core.FileSystem.LocalFileSystem(), LayoutPanes.CreateRegistry(), Path.Combine(_dir, "layout.json")),
-			_dir,
-			Path.Combine(_dir, "scratch"),
-			Path.Combine(_dir, "pasted"),
-			Path.Combine(_dir, "agent-pane.json"),
+			new LayoutStore(new Weavie.Core.FileSystem.LocalFileSystem(), LayoutPanes.CreateRegistry(), _dir.Combine("layout.json")),
+			_dir.Path,
+			_dir.Combine("scratch"),
+			_dir.Combine("pasted"),
+			_dir.Combine("agent-pane.json"),
 			[ShellTerminalId.New()],
-			id => Path.Combine(_dir, $"shell-{id}.json"),
+			id => _dir.Combine($"shell-{id}.json"),
 			commandRegistry,
-			new KeybindingStore(commandRegistry, Path.Combine(_dir, "keybindings.json"), enableWatcher: false),
-			new ThemeOverridesStore(new Weavie.Core.FileSystem.LocalFileSystem(), Path.Combine(_dir, "theme-overrides.json")),
-			new Weavie.Core.Corrections.CorrectionCorpus(new Weavie.Core.FileSystem.LocalFileSystem(), Path.Combine(_dir, "corrections.jsonl")),
+			new KeybindingStore(commandRegistry, _dir.Combine("keybindings.json"), enableWatcher: false),
+			new ThemeOverridesStore(new Weavie.Core.FileSystem.LocalFileSystem(), _dir.Combine("theme-overrides.json")),
+			new Weavie.Core.Corrections.CorrectionCorpus(new Weavie.Core.FileSystem.LocalFileSystem(), _dir.Combine("corrections.jsonl")),
 			UnusedInferenceService.Instance,
 			new NoopPtyLauncher(),
 			new FakeStructuredProvider(structured),

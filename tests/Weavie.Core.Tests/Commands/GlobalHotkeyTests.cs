@@ -73,8 +73,8 @@ public sealed class GlobalHotkeyTests {
 		});
 
 		// Defaults only: nonexistent path, watcher off.
-		string path = Path.Combine(Path.GetTempPath(), "weavie-hotkey-tests", Guid.NewGuid().ToString("N"), "keybindings.json");
-		var store = new KeybindingStore(registry, path, enableWatcher: false);
+		using var temp = new TempDirectory("weavie-hotkey-tests");
+		var store = new KeybindingStore(registry, temp.Combine("keybindings.json"), enableWatcher: false);
 
 		var calls = new List<string>();
 		invoked = calls;

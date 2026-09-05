@@ -9,39 +9,29 @@ namespace Weavie.Core.Theming;
 /// stay with their theme across switches; each theme's ops are an ordered list applied at resolve time (undo =
 /// pop the last). Writes are atomic; a malformed file is backed up to <c>theme-overrides.json.bad</c> and reset.
 /// </summary>
-public sealed class ThemeOverridesStore {
+public sealed class ThemeOverridesStore : JsonDocumentStore {
 	private static readonly JsonSerializerOptions JsonOptions = new() {
 		WriteIndented = true,
 		DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
 	};
 
-	private readonly IFileSystem _fileSystem;
-	private readonly Lock _gate = new();
-	private readonly Dictionary<string, List<ThemeOverrideOp>> _overrides;
+	private Dictionary<string, List<ThemeOverrideOp>> _overrides = [];
 
 	/// <summary>Creates the store over <paramref name="path"/> (default <c>~/.weavie/theme-overrides.json</c>) and loads it.</summary>
-	public ThemeOverridesStore(IFileSystem fileSystem, string? path) {
-		ArgumentNullException.ThrowIfNull(fileSystem);
-		_fileSystem = fileSystem;
-		FilePath = path ?? WeaviePaths.ThemeOverridesFile;
-		lock (_gate) {
-			_overrides = LoadLocked();
-		}
+	/// <param name="fileSystem">The filesystem the overrides persist through.</param>
+	/// <param name="path">The backing file, or <c>null</c> for the default.</param>
+	public ThemeOverridesStore(IFileSystem fileSystem, string? path)
+		: base(fileSystem, path ?? WeaviePaths.ThemeOverridesFile) {
+		Load();
 	}
 
 	/// <summary>Raised (off the UI thread) after a theme's overrides change, carrying that theme's id.</summary>
 	public event Action<string>? Changed;
 
-	/// <summary>Diagnostic log line — read failures, malformed-file resets, persist failures.</summary>
-	public event Action<string>? Log;
-
-	/// <summary>The overrides file backing this store.</summary>
-	public string FilePath { get; }
-
 	/// <summary>The override ops for <paramref name="themeId"/>, in order (empty if none). Snapshot copy.</summary>
 	public IReadOnlyList<ThemeOverrideOp> Get(string themeId) {
 		ArgumentException.ThrowIfNullOrEmpty(themeId);
-		lock (_gate) {
+		lock (Gate) {
 			return _overrides.TryGetValue(themeId, out var ops) ? [.. ops] : [];
 		}
 	}
@@ -50,7 +40,7 @@ public sealed class ThemeOverridesStore {
 	public void Append(string themeId, ThemeOverrideOp op) {
 		ArgumentException.ThrowIfNullOrEmpty(themeId);
 		ArgumentNullException.ThrowIfNull(op);
-		lock (_gate) {
+		lock (Gate) {
 			if (!_overrides.TryGetValue(themeId, out var ops)) {
 				ops = [];
 				_overrides[themeId] = ops;
@@ -67,7 +57,7 @@ public sealed class ThemeOverridesStore {
 	public void SetOps(string themeId, IReadOnlyList<ThemeOverrideOp> ops) {
 		ArgumentException.ThrowIfNullOrEmpty(themeId);
 		ArgumentNullException.ThrowIfNull(ops);
-		lock (_gate) {
+		lock (Gate) {
 			if (ops.Count == 0) {
 				_overrides.Remove(themeId);
 			} else {
@@ -84,7 +74,7 @@ public sealed class ThemeOverridesStore {
 	public bool UndoLast(string themeId) {
 		ArgumentException.ThrowIfNullOrEmpty(themeId);
 		bool removed;
-		lock (_gate) {
+		lock (Gate) {
 			if (_overrides.TryGetValue(themeId, out var ops) && ops.Count > 0) {
 				ops.RemoveAt(ops.Count - 1);
 				if (ops.Count == 0) {
@@ -109,7 +99,7 @@ public sealed class ThemeOverridesStore {
 	public bool Clear(string themeId) {
 		ArgumentException.ThrowIfNullOrEmpty(themeId);
 		bool removed;
-		lock (_gate) {
+		lock (Gate) {
 			removed = _overrides.Remove(themeId);
 			if (removed) {
 				PersistLocked();
@@ -123,39 +113,21 @@ public sealed class ThemeOverridesStore {
 		return removed;
 	}
 
-	private Dictionary<string, List<ThemeOverrideOp>> LoadLocked() =>
-		JsonStoreFile.Load<Dictionary<string, List<ThemeOverrideOp>>>(
-			_fileSystem,
-			FilePath,
-			text => {
-				var document = JsonSerializer.Deserialize<OverridesDocument>(text, JsonOptions);
-				if (document?.Overrides is not { } map) {
-					return [];
-				}
-
-				var result = new Dictionary<string, List<ThemeOverrideOp>>();
-				foreach (var (themeId, ops) in map) {
-					if (!string.IsNullOrWhiteSpace(themeId) && ops is { Count: > 0 }) {
-						result[themeId] = [.. ops];
-					}
-				}
-
-				return result;
-			},
-			static () => [],
-			Log);
-
-	private void PersistLocked() {
-		var document = new OverridesDocument {
-			Version = 1,
-			Overrides = _overrides.ToDictionary(kv => kv.Key, kv => kv.Value),
-		};
-		JsonStoreFile.Persist(
-			_fileSystem,
-			FilePath,
-			JsonSerializer.Serialize(document, JsonOptions),
-			Log);
+	/// <inheritdoc/>
+	protected override void Restore(string? text) {
+		var document = text is null ? null : JsonSerializer.Deserialize<OverridesDocument>(text, JsonOptions);
+		_overrides = [];
+		foreach (var (themeId, ops) in document?.Overrides ?? []) {
+			if (!string.IsNullOrWhiteSpace(themeId) && ops is { Count: > 0 }) {
+				_overrides[themeId] = [.. ops];
+			}
+		}
 	}
+
+	/// <inheritdoc/>
+	protected override string Render() => JsonSerializer.Serialize(
+		new OverridesDocument { Version = 1, Overrides = _overrides.ToDictionary(kv => kv.Key, kv => kv.Value) },
+		JsonOptions);
 
 	private sealed class OverridesDocument {
 		[JsonPropertyName("version")]

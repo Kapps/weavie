@@ -11,21 +11,11 @@ namespace Weavie.Core.Tests;
 /// watcher-driven test that exercises the live malformed→last-good→recover transition.
 /// </summary>
 public sealed class KeybindingStoreTests : IDisposable {
-	private readonly string _dir = Path.Combine(Path.GetTempPath(), "weavie-keybinding-tests", Guid.NewGuid().ToString("N"));
+	private readonly TempDirectory _dir = new("weavie-keybinding-tests");
 
-	public KeybindingStoreTests() {
-		Directory.CreateDirectory(_dir);
-	}
+	public void Dispose() => _dir.Dispose();
 
-	public void Dispose() {
-		try {
-			Directory.Delete(_dir, recursive: true);
-		} catch (IOException) {
-		} catch (UnauthorizedAccessException) {
-		}
-	}
-
-	private string FilePath => Path.Combine(_dir, "keybindings.json");
+	private string FilePath => _dir.Combine("keybindings.json");
 
 	// One command with default bindings + args, one with none.
 	private static CommandRegistry TestRegistry() {

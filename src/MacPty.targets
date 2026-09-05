@@ -17,10 +17,10 @@
 
   <Target Name="BuildMacPty" BeforeTargets="CoreCompile;GetCopyToOutputDirectoryItems"
           Condition="$([MSBuild]::IsOSPlatform('OSX'))"
-          Inputs="$(_MacPtySource)weavie_pty.c;$(_MacPtySource)weavie_pty_launcher.c;$(MSBuildThisFileFullPath)"
+          Inputs="$(_MacPtySource)weavie_pty.c;$(_MacPtySource)weavie_pty_launcher.c;$(_MacPtySource)weavie_spawn.c;$(_MacPtySource)weavie_spawn.h;$(_MacPtySource)weavie_process.c;$(MSBuildThisFileFullPath)"
           Outputs="$(_MacPtyDir)libweavie_pty.dylib;$(_MacPtyDir)weavie-pty-launcher">
     <MakeDir Directories="$(_MacPtyDir)" />
-    <Exec Command="clang -Wall -Wextra -Werror -mmacosx-version-min=$(WeavieMacOSMinimumVersion) -dynamiclib -O2 $(_MacPtyArch) -o &quot;$(_MacPtyDir)libweavie_pty.dylib&quot; &quot;$(_MacPtySource)weavie_pty.c&quot;" />
+    <Exec Command="clang -Wall -Wextra -Werror -mmacosx-version-min=$(WeavieMacOSMinimumVersion) -dynamiclib -O2 $(_MacPtyArch) -o &quot;$(_MacPtyDir)libweavie_pty.dylib&quot; &quot;$(_MacPtySource)weavie_pty.c&quot; &quot;$(_MacPtySource)weavie_spawn.c&quot; &quot;$(_MacPtySource)weavie_process.c&quot;" />
     <Exec Command="clang -Wall -Wextra -Werror -mmacosx-version-min=$(WeavieMacOSMinimumVersion) -O2 $(_MacPtyArch) -o &quot;$(_MacPtyDir)weavie-pty-launcher&quot; &quot;$(_MacPtySource)weavie_pty_launcher.c&quot;" />
     <Exec Command="codesign --force --sign - &quot;$(_MacPtyDir)libweavie_pty.dylib&quot;" />
     <Exec Command="codesign --force --sign - &quot;$(_MacPtyDir)weavie-pty-launcher&quot;" />

@@ -37,7 +37,7 @@ public sealed class HeadlessLauncher {
 		ArgumentNullException.ThrowIfNull(backend);
 
 		ProcessSupervisor supervisor = null!;
-		Process? current = null;
+		OwnedProcess? current = null;
 
 		supervisor = new ProcessSupervisor(
 			name: "backend",
@@ -51,10 +51,7 @@ public sealed class HeadlessLauncher {
 				var process = Spawn(backend);
 				current = process;
 				// Report through this launch's handle so a later restart's exit can't be misattributed.
-				process.Exited += (_, _) => launch.NotifyExited(SafeExitCode(process));
-				process.Start();
-				process.BeginOutputReadLine();
-				process.BeginErrorReadLine();
+				_ = process.ObserveExitAsync(launch.NotifyExited);
 			},
 			stop: () => {
 				try {
@@ -109,7 +106,7 @@ public sealed class HeadlessLauncher {
 		}
 	}
 
-	private Process Spawn(WorkspaceBackend backend) {
+	private OwnedProcess Spawn(WorkspaceBackend backend) {
 		string workerPath = _workerPath();
 		bool isDll = workerPath.EndsWith(".dll", StringComparison.OrdinalIgnoreCase);
 		var info = new ProcessStartInfo {
@@ -137,23 +134,15 @@ public sealed class HeadlessLauncher {
 		info.ArgumentList.Add("--spawn-contract");
 		info.ArgumentList.Add(RunnerIdentity.SpawnContract.ToString());
 
-		var process = new Process { StartInfo = info, EnableRaisingEvents = true };
+		var process = OwnedProcess.Start(info);
 		static void Echo(string? line) {
 			if (line is not null) {
 				Console.WriteLine($"[backend] {line}");
 			}
 		}
 
-		process.OutputDataReceived += (_, e) => Echo(e.Data);
-		process.ErrorDataReceived += (_, e) => Echo(e.Data);
+		_ = process.DrainLinesAsync(Echo, Echo);
 		return process;
 	}
 
-	private static int SafeExitCode(Process process) {
-		try {
-			return process.ExitCode;
-		} catch (InvalidOperationException) {
-			return -1;
-		}
-	}
 }

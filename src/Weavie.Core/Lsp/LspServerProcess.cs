@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Threading.Channels;
+using Weavie.Core.Processes;
 
 namespace Weavie.Core.Lsp;
 
@@ -10,7 +11,7 @@ namespace Weavie.Core.Lsp;
 /// WebSocket-coupled bridge connection — it knows nothing about how frames reach the editor.
 /// </summary>
 internal sealed class LspServerProcess : ILspServerProcess {
-	private readonly Process _process;
+	private readonly OwnedProcess _process;
 	private readonly string _label;
 	private readonly Action<string> _log;
 	private readonly CancellationTokenSource _cts = new();
@@ -21,7 +22,7 @@ internal sealed class LspServerProcess : ILspServerProcess {
 	private int _exitedRaised;
 	private bool _disposed;
 
-	public LspServerProcess(Process process, string label, Action<string> log) {
+	public LspServerProcess(OwnedProcess process, string label, Action<string> log) {
 		ArgumentNullException.ThrowIfNull(process);
 		ArgumentNullException.ThrowIfNull(log);
 		_process = process;

@@ -9,19 +9,11 @@
 #include <signal.h>
 #include <spawn.h>
 #include <stdlib.h>
+#include "weavie_spawn.h"
 
 int weavie_set_winsize(int fd, unsigned short rows, unsigned short cols) {
 	struct winsize ws = { .ws_row = rows, .ws_col = cols };
 	return ioctl(fd, TIOCSWINSZ, &ws);
-}
-
-// Keep spawn-action sources above stdio and the launcher's status descriptor (3).
-static int own_fd(int fd) {
-	int owned = fcntl(fd, F_DUPFD_CLOEXEC, 4);
-	int error = errno;
-	close(fd);
-	errno = error;
-	return owned;
 }
 
 static int await_exec(int fd) {
@@ -54,14 +46,14 @@ int weavie_pty_spawn(const char *launcher,
 	pid_t pid = -1;
 	struct winsize ws = { .ws_row = rows, .ws_col = cols };
 	if (openpty(&master, &slave, NULL, NULL, &ws) != 0) return -errno;
-	master = own_fd(master);
+	master = weavie_own_fd(master);
 	if (master < 0) { error = errno; goto cleanup; }
-	slave = own_fd(slave);
+	slave = weavie_own_fd(slave);
 	if (slave < 0) { error = errno; goto cleanup; }
 	if (pipe(status) != 0) { error = errno; goto cleanup; }
-	status[0] = own_fd(status[0]);
+	status[0] = weavie_own_fd(status[0]);
 	if (status[0] < 0) { error = errno; goto cleanup; }
-	status[1] = own_fd(status[1]);
+	status[1] = weavie_own_fd(status[1]);
 	if (status[1] < 0) { error = errno; goto cleanup; }
 
 	size_t argc = 0;
@@ -71,33 +63,8 @@ int weavie_pty_spawn(const char *launcher,
 	args[0] = (char *)launcher;
 	for (size_t i = 0; i < argc; i++) args[i + 1] = argv[i];
 
-	posix_spawn_file_actions_t actions;
-	posix_spawnattr_t attr;
-	error = posix_spawn_file_actions_init(&actions);
-	if (error != 0) goto free_args;
-	error = posix_spawnattr_init(&attr);
-	if (error != 0) goto destroy_actions;
-
-	sigset_t defaults, mask;
-	sigfillset(&defaults);
-	sigemptyset(&mask);
-	if ((error = posix_spawnattr_setsigdefault(&attr, &defaults)) != 0) goto destroy_attr;
-	if ((error = posix_spawnattr_setsigmask(&attr, &mask)) != 0) goto destroy_attr;
-	if ((error = posix_spawnattr_setflags(&attr, POSIX_SPAWN_SETSID | POSIX_SPAWN_CLOEXEC_DEFAULT |
-		POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_SETSIGMASK)) != 0) goto destroy_attr;
-	for (int fd = 0; fd < 3; fd++) {
-		if ((error = posix_spawn_file_actions_adddup2(&actions, slave, fd)) != 0) goto destroy_attr;
-	}
-	if ((error = posix_spawn_file_actions_adddup2(&actions, status[1], 3)) != 0) goto destroy_attr;
-	if (cwd != NULL && cwd[0] != '\0' &&
-		(error = posix_spawn_file_actions_addchdir_np(&actions, cwd)) != 0) goto destroy_attr;
-	error = posix_spawn(&pid, launcher, &actions, &attr, args, envp);
-
-destroy_attr:
-	posix_spawnattr_destroy(&attr);
-destroy_actions:
-	posix_spawn_file_actions_destroy(&actions);
-free_args:
+	int fds[] = { slave, slave, slave, status[1] };
+	error = weavie_spawn_isolated(launcher, args, envp, cwd, fds, 4, &pid);
 	free(args);
 	if (error != 0) goto cleanup;
 	close(slave);

@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using Weavie.Core.Processes;
 using static Weavie.Core.Terminal.NativeMethods;
 
 namespace Weavie.Core.Terminal;
@@ -70,33 +71,24 @@ public sealed class PosixPtyTerminal : ITerminal {
 		var argvItems = new List<string>(1 + startInfo.Arguments.Count) { startInfo.Command };
 		argvItems.AddRange(startInfo.Arguments);
 
-		nint[] argv = ToUtf8PtrArray(argvItems);
-		nint[] envp = ToUtf8PtrArray(BuildEnvironment(startInfo));
-		var argvHandle = GCHandle.Alloc(argv, GCHandleType.Pinned);
-		var envpHandle = GCHandle.Alloc(envp, GCHandleType.Pinned);
-		try {
-			ushort cols = (ushort)Math.Clamp(startInfo.Columns, 1, ushort.MaxValue);
-			ushort rows = (ushort)Math.Clamp(startInfo.Rows, 1, ushort.MaxValue);
-			int rc = weavie_pty_spawn(
-				Path.Combine(AppContext.BaseDirectory, "weavie-pty-launcher"),
-				argvHandle.AddrOfPinnedObject(),
-				envpHandle.AddrOfPinnedObject(),
-				string.IsNullOrEmpty(startInfo.WorkingDirectory) ? null : startInfo.WorkingDirectory,
-				rows,
-				cols,
-				out int master,
-				out int pid);
-			if (rc != 0) {
-				throw new IOException($"weavie_pty_spawn('{startInfo.Command}') failed (errno {-rc}).");
-			}
-
-			return (master, pid);
-		} finally {
-			argvHandle.Free();
-			envpHandle.Free();
-			FreeUtf8PtrArray(argv);
-			FreeUtf8PtrArray(envp);
+		using var argv = new NativeUtf8Array(argvItems);
+		using var envp = new NativeUtf8Array(BuildEnvironment(startInfo));
+		ushort cols = (ushort)Math.Clamp(startInfo.Columns, 1, ushort.MaxValue);
+		ushort rows = (ushort)Math.Clamp(startInfo.Rows, 1, ushort.MaxValue);
+		int rc = weavie_pty_spawn(
+			Path.Combine(AppContext.BaseDirectory, "weavie-pty-launcher"),
+			argv.Pointer,
+			envp.Pointer,
+			string.IsNullOrEmpty(startInfo.WorkingDirectory) ? null : startInfo.WorkingDirectory,
+			rows,
+			cols,
+			out int master,
+			out int pid);
+		if (rc != 0) {
+			throw new IOException($"weavie_pty_spawn('{startInfo.Command}') failed (errno {-rc}).");
 		}
+
+		return (master, pid);
 	}
 
 	/// <summary>Linux: posix_openpt + posix_spawn with POSIX_SPAWN_SETSID.</summary>
@@ -159,29 +151,20 @@ public sealed class PosixPtyTerminal : ITerminal {
 			argvItems.AddRange(startInfo.Arguments);
 			var envItems = BuildEnvironment(startInfo);
 
-			nint[] argv = ToUtf8PtrArray(argvItems);
-			nint[] envp = ToUtf8PtrArray(envItems);
-			var argvHandle = GCHandle.Alloc(argv, GCHandleType.Pinned);
-			var envpHandle = GCHandle.Alloc(envp, GCHandleType.Pinned);
-			try {
-				int rc = posix_spawn(
-					out int pid,
-					startInfo.Command,
-					fileActions,
-					attr,
-					argvHandle.AddrOfPinnedObject(),
-					envpHandle.AddrOfPinnedObject());
-				if (rc != 0) {
-					throw new IOException($"posix_spawn('{startInfo.Command}') failed with code {rc}.");
-				}
-
-				return pid;
-			} finally {
-				argvHandle.Free();
-				envpHandle.Free();
-				FreeUtf8PtrArray(argv);
-				FreeUtf8PtrArray(envp);
+			using var argv = new NativeUtf8Array(argvItems);
+			using var envp = new NativeUtf8Array(envItems);
+			int rc = posix_spawn(
+				out int pid,
+				startInfo.Command,
+				fileActions,
+				attr,
+				argv.Pointer,
+				envp.Pointer);
+			if (rc != 0) {
+				throw new IOException($"posix_spawn('{startInfo.Command}') failed with code {rc}.");
 			}
+
+			return pid;
 		} finally {
 			posix_spawn_file_actions_destroy(fileActions);
 			posix_spawnattr_destroy(attr);
@@ -308,20 +291,4 @@ public sealed class PosixPtyTerminal : ITerminal {
 		}
 	}
 
-	private static IntPtr[] ToUtf8PtrArray(IReadOnlyList<string> items) {
-		nint[] array = new IntPtr[items.Count + 1];
-		for (int i = 0; i < items.Count; i++) {
-			array[i] = Marshal.StringToCoTaskMemUTF8(items[i]);
-		}
-		array[items.Count] = IntPtr.Zero;
-		return array;
-	}
-
-	private static void FreeUtf8PtrArray(IntPtr[] array) {
-		foreach (nint ptr in array) {
-			if (ptr != IntPtr.Zero) {
-				Marshal.FreeCoTaskMem(ptr);
-			}
-		}
-	}
 }

@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text;
+using Weavie.Core.Processes;
 using Weavie.Hosting.Agents;
 
 namespace Weavie.Hosting.Inference;
@@ -40,18 +41,9 @@ internal sealed class AgentCliProcessRunner : IAgentCliProcessRunner {
 	public async Task<AgentCliProcessResult> RunAsync(AgentCliProcessRequest request, CancellationToken ct) {
 		ArgumentNullException.ThrowIfNull(request);
 		ArgumentOutOfRangeException.ThrowIfNegativeOrZero(request.MaxCapturedStdoutBytes);
-		using var process = new Process {
-			StartInfo = AgentCliProcessStartInfo.Create(
-				request.Command,
-				request.WorkingDirectory,
-				request.Arguments,
-				request.PathEntries,
-				request.Environment,
-				request.RemoveEnvironment),
-		};
-		if (!process.Start()) {
-			throw new InvalidOperationException("The agent CLI did not start.");
-		}
+		using var process = OwnedProcess.Start(AgentCliProcessStartInfo.Create(
+			request.Command, request.WorkingDirectory, request.Arguments, request.PathEntries,
+			request.Environment, request.RemoveEnvironment));
 
 		var stdout = ReadAsync(
 			process.StandardOutput.BaseStream,
@@ -104,25 +96,18 @@ internal sealed class AgentCliProcessRunner : IAgentCliProcessRunner {
 		return capture ? Encoding.UTF8.GetString(output!.ToArray()) : string.Empty;
 	}
 
-	private static bool TryTerminate(Process process) {
+	private static bool TryTerminate(OwnedProcess process) {
 		try {
 			if (!process.HasExited) {
 				process.Kill(entireProcessTree: true);
 			}
 			return true;
-		} catch (Exception ex) when (ex is InvalidOperationException or NotSupportedException or System.ComponentModel.Win32Exception) {
-			try {
-				if (!process.HasExited) {
-					process.Kill();
-				}
-				return true;
-			} catch (Exception fallback) when (fallback is InvalidOperationException or NotSupportedException or System.ComponentModel.Win32Exception) {
-				return false;
-			}
+		} catch (InvalidOperationException) when (process.HasExited) {
+			return true;
 		}
 	}
 
-	private static async Task WaitForExitAsync(Process process) {
+	private static async Task WaitForExitAsync(OwnedProcess process) {
 		try {
 			await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
 		} catch (InvalidOperationException) {

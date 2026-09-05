@@ -144,16 +144,20 @@ jobs:
           mkdir -p temp/macos-pty
           mac_min=$(dotnet msbuild src/Weavie.Mac/Weavie.Mac.csproj -getProperty:WeavieMacOSMinimumVersion)
           clang -Wall -Wextra -Werror -mmacosx-version-min="$mac_min" -O2 src/Weavie.Mac/native/weavie_pty_launcher.c -o temp/macos-pty/weavie-pty-launcher
-          clang -Wall -Wextra -Werror -mmacosx-version-min="$mac_min" -O2 tests/native/macos-pty.c src/Weavie.Mac/native/weavie_pty.c -o temp/macos-pty/tests
+          clang -Wall -Wextra -Werror -mmacosx-version-min="$mac_min" -O2 tests/native/macos-pty.c src/Weavie.Mac/native/weavie_pty.c src/Weavie.Mac/native/weavie_spawn.c -o temp/macos-pty/tests
           "$PWD/temp/macos-pty/tests" "$PWD/temp/macos-pty/weavie-pty-launcher"
 
       - name: Test native macOS PTY lifecycle
         if: matrix.name == 'macos'
-        run: dotnet test tests/Weavie.Core.Tests/Weavie.Core.Tests.csproj -c Debug --filter FullyQualifiedName~PosixPtyTerminalTests
+        run: dotnet test tests/Weavie.Core.Tests/Weavie.Core.Tests.csproj -c Debug --filter "FullyQualifiedName~PosixPtyTerminalTests|FullyQualifiedName~OwnedProcessTests"
 
       - name: Test macOS application menu
         if: matrix.name == 'macos'
         run: dotnet run --project tests/Weavie.Mac.Tests/Weavie.Mac.Tests.csproj -c Debug --no-restore
+
+      - name: Test macOS GUI process-tree termination
+        if: matrix.name == 'macos'
+        run: python3 tests/native/macos-process-tree.py tests/Weavie.Mac.Tests/bin/Debug/net10.0-macos/osx-arm64/Weavie.Mac.Tests.app --control
 
       - name: Verify .NET formatting
         if: matrix.name == 'macos'

@@ -29,7 +29,9 @@ public sealed partial class HostCore {
 		session.State.Set("sources", LogsTarget, "document", new {
 			target = LogsTarget,
 			title = LogsTitle,
-			html = LogsHtml(string.Join('\n', lines), dropped),
+			html = (_logBuffer.PersistentFile.Length > 0 ? $"<div>Saved log: {WebUtility.HtmlEncode(_logBuffer.PersistentFile)}</div>" : string.Empty)
+				+ (_logBuffer.PersistenceFailure.Length > 0 ? $"<div>Log saving failed: {WebUtility.HtmlEncode(_logBuffer.PersistenceFailure)}</div>" : string.Empty)
+				+ LogsHtml(string.Join('\n', lines), dropped),
 			editedTime = "",
 			sourceId = LogsSourceId,
 		});
@@ -42,6 +44,8 @@ public sealed partial class HostCore {
 			log = string.Join('\n', lines.Skip(lines.Count - shown)),
 			shown,
 			omitted,
+			file = _logBuffer.PersistentFile,
+			persistenceFailure = _logBuffer.PersistenceFailure,
 		});
 		string omittedNote = omitted > 0 ? $", {omitted} earlier omitted" : string.Empty;
 		return CommandResult.Success($"Opened the Weavie logs ({shown} most-recent line(s){omittedNote}).", dataJson);

@@ -70,4 +70,6 @@
                       Overwrite="true" />
   </Target>
 
+  <Import Project="../MacPty.targets" />
+
 </Project>

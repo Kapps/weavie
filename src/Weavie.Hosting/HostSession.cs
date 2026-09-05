@@ -593,6 +593,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 
 	/// <summary>Restarts the active agent runtime when the provider supports process restart from Weavie.</summary>
 	public void RestartAgent() {
+		Console.WriteLine($"[session:{SlotId}] restarting agent");
 		if (Claude is not null) {
 			Claude.Restart();
 			return;
@@ -603,6 +604,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 
 	/// <summary>Clears the native agent pane and starts a fresh provider conversation.</summary>
 	public void StartNewAgentConversation() {
+		Console.WriteLine($"[session:{SlotId}] clearing agent conversation");
 		if (Agent.Structured is not { } structured) {
 			throw new InvalidOperationException("This session does not use a native structured agent.");
 		}
@@ -679,45 +681,4 @@ public sealed partial class HostSession : IAsyncDisposable {
 		Console.Out.Flush();
 	};
 
-	/// <inheritdoc/>
-	public ValueTask DisposeAsync() {
-		lock (_disposeGate) {
-			return new ValueTask(_disposeTask ??= DisposeCoreAsync());
-		}
-	}
-
-	private async Task DisposeCoreAsync() {
-		DiscardInitialInput();
-		var failures = new List<Exception>();
-		await DisposeStepAsync(failures, () => _endpoint.QuiesceAsync()).ConfigureAwait(false);
-		await DisposeStepAsync(failures, FileActivity.StopObservingAsync).ConfigureAwait(false);
-		await DisposeStepAsync(failures, () => Background.DisposeAsync().AsTask()).ConfigureAwait(false);
-		// Terminal disposal blocks until the PTY children exit (so a following worktree delete can't race a
-		// process still rooted there). Keep it off the calling UI thread.
-		await DisposeStepAsync(failures, () => Task.Run(() => Shells.Dispose())).ConfigureAwait(false);
-		await DisposeStepAsync(failures, () => Agent.DisposeAsync().AsTask()).ConfigureAwait(false);
-		await DisposeStepAsync(
-			failures,
-			() => FileActivity.DrainAsync(CancellationToken.None)).ConfigureAwait(false);
-		await DisposeStepAsync(failures, () => Task.Run(ExternalFiles.Dispose)).ConfigureAwait(false);
-		await DisposeStepAsync(failures, () => FileActivity.DisposeAsync().AsTask()).ConfigureAwait(false);
-		await DisposeStepAsync(failures, () => FileOpener.DisposeAsync().AsTask()).ConfigureAwait(false);
-		await DisposeStepAsync(failures, () => Lsp.DisposeAsync().AsTask()).ConfigureAwait(false);
-		await DisposeStepAsync(failures, () => {
-			PastedImages.Clear();
-			return Task.CompletedTask;
-		}).ConfigureAwait(false);
-		await DisposeStepAsync(failures, () => _endpoint.DisposeAsync().AsTask()).ConfigureAwait(false);
-		if (failures.Count > 0) {
-			throw new AggregateException(failures);
-		}
-	}
-
-	private static async Task DisposeStepAsync(List<Exception> failures, Func<Task> step) {
-		try {
-			await step().ConfigureAwait(false);
-		} catch (Exception ex) {
-			failures.Add(ex);
-		}
-	}
 }

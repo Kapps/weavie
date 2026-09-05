@@ -16,4 +16,6 @@
     <InternalsVisibleTo Include="Weavie.WorktreeServe.Tests" />
   </ItemGroup>
 
+  <Import Project="../../src/MacPty.targets" />
+
 </Project>

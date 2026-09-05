@@ -20,7 +20,7 @@ public sealed partial class AcpJsonRpcConnection : IAsyncDisposable {
 	private readonly Lock _deliveryGate = new();
 	private readonly SemaphoreSlim _writeGate = new(1, 1);
 	private readonly ProcessSupervisor _supervisor;
-	private Process? _process;
+	private OwnedProcess? _process;
 	private long _processGeneration;
 	private long _faultedGeneration;
 	private long _nextRequestId;
@@ -185,7 +185,7 @@ public sealed partial class AcpJsonRpcConnection : IAsyncDisposable {
 	}
 
 	private void StopProcess() {
-		Process? process;
+		OwnedProcess? process;
 		lock (_deliveryGate) {
 			lock (_processGate) {
 				process = _process;
@@ -220,7 +220,7 @@ public sealed partial class AcpJsonRpcConnection : IAsyncDisposable {
 		string line = JsonSerializer.Serialize(new { jsonrpc = "2.0", id, method, @params = parameters });
 		await _writeGate.WaitAsync().ConfigureAwait(false);
 		try {
-			Process process;
+			OwnedProcess process;
 			lock (_deliveryGate) {
 				process = RunningProcess(out long generation);
 				if (expectedGeneration is { } expected && generation != expected) {
@@ -250,7 +250,7 @@ public sealed partial class AcpJsonRpcConnection : IAsyncDisposable {
 		string line = JsonSerializer.Serialize(payload);
 		await _writeGate.WaitAsync().ConfigureAwait(false);
 		try {
-			Process process;
+			OwnedProcess process;
 			lock (_deliveryGate) {
 				process = RunningProcess(out long generation);
 				if (generation != request.Generation) {
@@ -266,7 +266,7 @@ public sealed partial class AcpJsonRpcConnection : IAsyncDisposable {
 	private async Task WriteLineAsync(string line, long? expectedGeneration) {
 		await _writeGate.WaitAsync().ConfigureAwait(false);
 		try {
-			Process process;
+			OwnedProcess process;
 			lock (_deliveryGate) {
 				process = RunningProcess(out long generation);
 				if (expectedGeneration is { } expected && generation != expected) {
@@ -279,12 +279,12 @@ public sealed partial class AcpJsonRpcConnection : IAsyncDisposable {
 		}
 	}
 
-	private static async Task WriteLineAsync(Process process, string line) {
+	private static async Task WriteLineAsync(OwnedProcess process, string line) {
 		await process.StandardInput.WriteLineAsync(line).ConfigureAwait(false);
 		await process.StandardInput.FlushAsync().ConfigureAwait(false);
 	}
 
-	private Process RunningProcess(out long generation) {
+	private OwnedProcess RunningProcess(out long generation) {
 		lock (_processGate) {
 			if (_disposed || _process is null || _process.HasExited) {
 				throw new InvalidOperationException("ACP agent is not running.");
@@ -344,7 +344,7 @@ public sealed partial class AcpJsonRpcConnection : IAsyncDisposable {
 
 	private static JsonElement EmptyObject() => JsonSerializer.SerializeToElement(new { });
 
-	private static int ReadExitCode(Process process) {
+	private static int ReadExitCode(OwnedProcess process) {
 		try {
 			return process.ExitCode;
 		} catch (Exception ex) when (ex is InvalidOperationException or ObjectDisposedException) {

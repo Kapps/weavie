@@ -13,26 +13,21 @@ public sealed partial class AcpJsonRpcConnection {
 				_processGeneration = generation;
 			}
 		}
-		Process? process = null;
+		OwnedProcess? process = null;
 		try {
 			var definition = _currentDefinition()
 				?? throw new InvalidOperationException("The ACP agent definition is unavailable.");
 			if (!string.Equals(definition.Id, _providerId, StringComparison.Ordinal)) {
 				throw new InvalidOperationException("An ACP agent definition cannot change provider identity.");
 			}
-			process = new Process {
-				StartInfo = BuildStartInfo(definition),
-				EnableRaisingEvents = false,
-			};
 			lock (_processGate) {
 				if (_processGeneration != generation) {
 					throw new InvalidOperationException("The ACP agent launch was stopped.");
 				}
+				process = OwnedProcess.Start(BuildStartInfo(definition));
 				_process = process;
 			}
-			if (!process.Start()) {
-				throw new InvalidOperationException($"ACP agent '{definition.Name}' did not start.");
-			}
+
 		} catch (Exception ex) {
 			var fault = new IOException($"ACP agent '{_providerName}' could not start.", ex);
 			bool accepted = false;
@@ -60,7 +55,7 @@ public sealed partial class AcpJsonRpcConnection {
 	}
 
 	private async Task ObserveProcessExitAsync(
-		Process process,
+		OwnedProcess process,
 		SupervisedLaunch launch,
 		long generation,
 		Task stdout,
@@ -121,7 +116,7 @@ public sealed partial class AcpJsonRpcConnection {
 		return info;
 	}
 
-	private async Task ReadStdoutAsync(Process process, SupervisedLaunch launch, long generation) {
+	private async Task ReadStdoutAsync(OwnedProcess process, SupervisedLaunch launch, long generation) {
 		try {
 			while (await process.StandardOutput.ReadLineAsync().ConfigureAwait(false) is { } line) {
 				if (line.Length == 0) {
@@ -155,7 +150,7 @@ public sealed partial class AcpJsonRpcConnection {
 		}
 	}
 
-	private async Task ReadStderrAsync(Process process) {
+	private async Task ReadStderrAsync(OwnedProcess process) {
 		try {
 			while (await process.StandardError.ReadLineAsync().ConfigureAwait(false) is { } line) {
 				_log($"[acp:{_providerId}] {line}");

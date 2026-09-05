@@ -567,6 +567,9 @@ public sealed partial class HostCore {
 
 	/// <summary>Surfaces a prior run's unhandled crash as a one-time toast pointing at the saved report.</summary>
 	private void SurfacePriorCrash() {
+		if (_logBuffer.PersistenceFailure.Length > 0) {
+			Notify("error", $"Weavie could not save logs to {_logBuffer.PersistentFile}: {_logBuffer.PersistenceFailure}", "log-saving-failed");
+		}
 		if (CrashReporter.TakePendingReport(_lastCrashFile, _previousCrashFile) is not null) {
 			// The crash is the better explanation of the same ending, so it also settles the unfinished marker
 			// this run inherited — a later hello must not replace this toast with the vaguer one.
@@ -576,15 +579,11 @@ public sealed partial class HostCore {
 			return;
 		}
 
-		// No crash, yet the last run never stamped an ending — the fingerprint of a stop nothing could observe.
-		// What ended it is exactly what isn't known, so the toast says that and points at the journal.
 		if (_priorUnfinishedRun.Length > 0) {
+			string reason = _priorUnfinishedRun.Split('\n')[0];
 			_priorUnfinishedRun = string.Empty;
-			Notify(
-				"error",
-				$"Weavie's last session ended without recording how it stopped, and left no crash report. "
-					+ $"Details for a bug report are in {_exitJournalFile}.",
-				"prior-crash");
+			Notify("error", $"Weavie's previous run ended unexpectedly: {reason}. "
+				+ $"Saved exit details and the console log location are in {ExitJournal.PreviousEvidenceFile}.", "prior-crash");
 		}
 	}
 

@@ -9,4 +9,6 @@
     <ProjectReference Include="..\..\src\Weavie.Core\Weavie.Core.csproj" />
   </ItemGroup>
 
+  <Import Project="../../src/MacPty.targets" />
+
 </Project>

@@ -24,6 +24,7 @@ public static class ExitJournal {
 	private static readonly Lock EndingGate = new();
 	private static bool _signalRecorded;
 	private static string _path = string.Empty;
+	private static string _logFile = string.Empty;
 
 	/// <summary>
 	/// Marks this run live and returns how the previous run ended, or <see langword="null"/> when it ended
@@ -31,7 +32,8 @@ public static class ExitJournal {
 	/// </summary>
 	/// <param name="log">Sink for a one-line note when the previous run's ending is recovered.</param>
 	/// <param name="journalPath">Where the marker lives.</param>
-	public static string? Start(Action<string> log, string journalPath) {
+	/// <param name="logFile">This run's persistent console log.</param>
+	public static string? Start(Action<string> log, string journalPath, string logFile) {
 		ArgumentNullException.ThrowIfNull(log);
 		ArgumentException.ThrowIfNullOrEmpty(journalPath);
 		if (Interlocked.Exchange(ref _installed, 1) != 0) {
@@ -39,13 +41,19 @@ public static class ExitJournal {
 		}
 
 		_path = journalPath;
+		_logFile = logFile;
 
 		string? unfinished = ReadUnfinishedRun(journalPath);
 		if (unfinished is not null) {
-			log($"previous run ended without shutting down: {unfinished}");
+			PreviousEvidenceFile = Path.ChangeExtension(journalPath, "previous.log");
+			if (!PreservePreviousRun(journalPath, PreviousEvidenceFile)) {
+				PreviousEvidenceFile = logFile;
+				log("could not preserve the previous exit journal; recovered contents follow in this run's log");
+			}
+			log($"previous run ended unexpectedly: {unfinished}");
 		}
 
-		if (!MarkRunning(journalPath)) {
+		if (!MarkRunning(journalPath, logFile)) {
 			log($"could not mark this run live at {journalPath}; its ending will not be explained");
 		}
 
@@ -72,7 +80,7 @@ public static class ExitJournal {
 		ArgumentException.ThrowIfNullOrEmpty(reason);
 		lock (EndingGate) {
 			if (!_signalRecorded && Volatile.Read(ref _path) is { Length: > 0 } path) {
-				MarkEnded(path, reason);
+				MarkEnded(path, reason, _logFile);
 			}
 		}
 	}
@@ -120,11 +128,23 @@ public static class ExitJournal {
 		}
 	}
 
-	internal static bool MarkRunning(string journalPath) =>
-		Write(journalPath, $"{LiveMarker} pid {Environment.ProcessId}, since {DateTimeOffset.Now:o}");
+	/// <summary>The preserved evidence for the unexpected prior run.</summary>
+	public static string PreviousEvidenceFile { get; private set; } = string.Empty;
 
-	internal static void MarkEnded(string journalPath, string reason) =>
-		Write(journalPath, $"{reason}: {DateTimeOffset.Now:o}");
+	internal static bool PreservePreviousRun(string journalPath, string previousPath) {
+		try {
+			File.Copy(journalPath, previousPath, overwrite: true);
+			return true;
+		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+			return false;
+		}
+	}
+
+	internal static bool MarkRunning(string journalPath, string logFile) =>
+		Write(journalPath, $"{LiveMarker} pid {Environment.ProcessId}, since {DateTimeOffset.Now:o}\nconsole log: {logFile}");
+
+	internal static void MarkEnded(string journalPath, string reason, string logFile) =>
+		Write(journalPath, $"{reason}: {DateTimeOffset.Now:o}\nconsole log: {logFile}");
 
 	private static bool Write(string journalPath, string entry) {
 		try {

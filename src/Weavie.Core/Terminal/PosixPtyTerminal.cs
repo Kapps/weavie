@@ -4,7 +4,7 @@ using static Weavie.Core.Terminal.NativeMethods;
 namespace Weavie.Core.Terminal;
 
 /// <summary>
-/// Real POSIX PTY (macOS + Linux): opens a master pseudo-terminal, launches the child (via <c>forkpty</c> on
+/// Real POSIX PTY (macOS + Linux): opens a master pseudo-terminal, launches the child (via a native launcher on
 /// macOS, <c>posix_spawn</c> on Linux), reads output on a background thread, and writes input to the master. The
 /// command must be an absolute path; callers launch a login shell that execs the real target so env/PATH resolve.
 /// </summary>
@@ -63,25 +63,10 @@ public sealed class PosixPtyTerminal : ITerminal {
 		}
 	}
 
-	/// <summary>
-	/// Opens a PTY and launches the child, returning the master fd and child pid. macOS uses the native
-	/// <c>weavie_pty_spawn</c> (forkpty) so the child gets a controlling terminal (interactive shells like nushell
-	/// require it), falling back to the managed posix_spawn path (Linux's path too) when the shim dylib is absent.
-	/// </summary>
-	private static (int Master, int Pid) OpenAndSpawn(TerminalStartInfo startInfo) {
-		if (OperatingSystem.IsMacOS()) {
-			try {
-				return SpawnViaForkpty(startInfo);
-			} catch (DllNotFoundException) {
-				// Shim dylib absent (tests outside the bundle) — fall through to the managed path.
-			}
-		}
+	private static (int Master, int Pid) OpenAndSpawn(TerminalStartInfo startInfo) =>
+		OperatingSystem.IsMacOS() ? SpawnViaLauncher(startInfo) : SpawnViaPosixSpawn(startInfo);
 
-		return SpawnViaPosixSpawn(startInfo);
-	}
-
-	/// <summary>macOS: forkpty + execve in the native shim, giving the child a controlling terminal.</summary>
-	private static (int Master, int Pid) SpawnViaForkpty(TerminalStartInfo startInfo) {
+	private static (int Master, int Pid) SpawnViaLauncher(TerminalStartInfo startInfo) {
 		var argvItems = new List<string>(1 + startInfo.Arguments.Count) { startInfo.Command };
 		argvItems.AddRange(startInfo.Arguments);
 
@@ -93,7 +78,7 @@ public sealed class PosixPtyTerminal : ITerminal {
 			ushort cols = (ushort)Math.Clamp(startInfo.Columns, 1, ushort.MaxValue);
 			ushort rows = (ushort)Math.Clamp(startInfo.Rows, 1, ushort.MaxValue);
 			int rc = weavie_pty_spawn(
-				startInfo.Command,
+				Path.Combine(AppContext.BaseDirectory, "weavie-pty-launcher"),
 				argvHandle.AddrOfPinnedObject(),
 				envpHandle.AddrOfPinnedObject(),
 				string.IsNullOrEmpty(startInfo.WorkingDirectory) ? null : startInfo.WorkingDirectory,
@@ -114,7 +99,7 @@ public sealed class PosixPtyTerminal : ITerminal {
 		}
 	}
 
-	/// <summary>Linux (and the macOS test fallback): posix_openpt + posix_spawn with POSIX_SPAWN_SETSID.</summary>
+	/// <summary>Linux: posix_openpt + posix_spawn with POSIX_SPAWN_SETSID.</summary>
 	private static (int Master, int Pid) SpawnViaPosixSpawn(TerminalStartInfo startInfo) {
 		int master = posix_openpt(O_RDWR | O_NOCTTY);
 		if (master < 0) {
@@ -122,11 +107,7 @@ public sealed class PosixPtyTerminal : ITerminal {
 		}
 
 		try {
-			// macOS gets this via POSIX_SPAWN_CLOEXEC_DEFAULT; Linux has no such flag, so mark the master
-			// close-on-exec explicitly to keep it from leaking into the spawned child.
-			if (!OperatingSystem.IsMacOS()) {
-				fcntl(master, F_SETFD, FD_CLOEXEC);
-			}
+			fcntl(master, F_SETFD, FD_CLOEXEC);
 
 			if (grantpt(master) != 0) {
 				throw new IOException($"grantpt failed (errno {Marshal.GetLastPInvokeError()}).");
@@ -172,13 +153,7 @@ public sealed class PosixPtyTerminal : ITerminal {
 			posix_spawn_file_actions_addopen(fileActions, 0, slavePath, O_RDWR, 0);
 			posix_spawn_file_actions_adddup2(fileActions, 0, 1);
 			posix_spawn_file_actions_adddup2(fileActions, 0, 2);
-			// POSIX_SPAWN_CLOEXEC_DEFAULT is Apple-only; on Linux the master is made close-on-exec in Start.
-			short spawnFlags = POSIX_SPAWN_SETSID;
-			if (OperatingSystem.IsMacOS()) {
-				spawnFlags |= POSIX_SPAWN_CLOEXEC_DEFAULT;
-			}
-
-			posix_spawnattr_setflags(attr, spawnFlags);
+			posix_spawnattr_setflags(attr, POSIX_SPAWN_SETSID);
 
 			var argvItems = new List<string>(1 + startInfo.Arguments.Count) { startInfo.Command };
 			argvItems.AddRange(startInfo.Arguments);
@@ -288,23 +263,13 @@ public sealed class PosixPtyTerminal : ITerminal {
 		SetWindowSize(_masterFd, rowCount, cols);
 	}
 
-	/// <summary>
-	/// Sets the pty's window size. macOS uses the native <c>weavie_set_winsize</c> shim because libc's variadic
-	/// <c>ioctl</c> can't be P/Invoked correctly on arm64-apple (the resize is silently dropped, blanking a TUI
-	/// like claude); falls back to managed <c>ioctl</c> elsewhere and when the shim dylib is absent.
-	/// </summary>
 	private static void SetWindowSize(int fd, ushort rows, ushort cols) {
 		if (OperatingSystem.IsMacOS()) {
-			try {
-				weavie_set_winsize(fd, rows, cols);
-				return;
-			} catch (DllNotFoundException) {
-				// The shim dylib isn't present (e.g. tests run outside the bundle); fall back to managed ioctl.
-			}
+			weavie_set_winsize(fd, rows, cols);
+		} else {
+			var ws = new Winsize { ws_row = rows, ws_col = cols };
+			ioctl(fd, TIOCSWINSZ, ref ws);
 		}
-
-		var ws = new Winsize { ws_row = rows, ws_col = cols };
-		ioctl(fd, TIOCSWINSZ, ref ws);
 	}
 
 	/// <inheritdoc/>

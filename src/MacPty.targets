@@ -1,0 +1,34 @@
+<Project>
+  <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('OSX'))">
+    <_MacPtyDir>$(MSBuildProjectDirectory)/$(BaseIntermediateOutputPath)$(Configuration)/$(TargetFramework)/$(RuntimeIdentifier)/native-pty/</_MacPtyDir>
+    <_MacPtySource>$(MSBuildThisFileDirectory)Weavie.Mac/native/</_MacPtySource>
+    <_MacPtyArch Condition="$(RuntimeIdentifier.EndsWith('-arm64'))">-arch arm64</_MacPtyArch>
+    <_MacPtyArch Condition="$(RuntimeIdentifier.EndsWith('-x64'))">-arch x86_64</_MacPtyArch>
+    <_MacPtyArch Condition="'$(_MacPtyArch)' == ''">-arch arm64 -arch x86_64</_MacPtyArch>
+  </PropertyGroup>
+
+  <!-- Core's native assets flow through project references into every host and test, including publish. -->
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('OSX')) And !$(TargetFramework.Contains('-macos'))">
+    <None Include="$(_MacPtyDir)libweavie_pty.dylib" Link="libweavie_pty.dylib"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="$(_MacPtyDir)weavie-pty-launcher" Link="weavie-pty-launcher"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <Target Name="BuildMacPty" BeforeTargets="CoreCompile;GetCopyToOutputDirectoryItems"
+          Condition="$([MSBuild]::IsOSPlatform('OSX'))"
+          Inputs="$(_MacPtySource)weavie_pty.c;$(_MacPtySource)weavie_pty_launcher.c;$(MSBuildThisFileFullPath)"
+          Outputs="$(_MacPtyDir)libweavie_pty.dylib;$(_MacPtyDir)weavie-pty-launcher">
+    <MakeDir Directories="$(_MacPtyDir)" />
+    <Exec Command="clang -Wall -Wextra -Werror -mmacosx-version-min=$(WeavieMacOSMinimumVersion) -dynamiclib -O2 $(_MacPtyArch) -o &quot;$(_MacPtyDir)libweavie_pty.dylib&quot; &quot;$(_MacPtySource)weavie_pty.c&quot;" />
+    <Exec Command="clang -Wall -Wextra -Werror -mmacosx-version-min=$(WeavieMacOSMinimumVersion) -O2 $(_MacPtyArch) -o &quot;$(_MacPtyDir)weavie-pty-launcher&quot; &quot;$(_MacPtySource)weavie_pty_launcher.c&quot;" />
+    <Exec Command="codesign --force --sign - &quot;$(_MacPtyDir)libweavie_pty.dylib&quot;" />
+    <Exec Command="codesign --force --sign - &quot;$(_MacPtyDir)weavie-pty-launcher&quot;" />
+  </Target>
+
+  <Target Name="BundleMacPty" AfterTargets="Build" DependsOnTargets="BuildMacPty"
+          Condition="$([MSBuild]::IsOSPlatform('OSX')) And $(TargetFramework.Contains('-macos'))">
+    <Copy SourceFiles="$(_MacPtyDir)libweavie_pty.dylib;$(_MacPtyDir)weavie-pty-launcher"
+          DestinationFolder="$(OutDir)$(AssemblyName).app/Contents/MonoBundle" SkipUnchangedFiles="true" />
+  </Target>
+</Project>

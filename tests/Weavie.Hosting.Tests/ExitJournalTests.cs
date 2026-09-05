@@ -28,6 +28,15 @@ public sealed class ExitJournalTests {
 	}
 
 	[Fact]
+	public void ASignalledRun_RemainsVisibleOnNextLaunch() {
+		string path = IsolatedPath();
+		ExitJournal.MarkRunning(path);
+		ExitJournal.MarkEnded(path, "signalled SIGTERM");
+
+		Assert.StartsWith("signalled SIGTERM:", ExitJournal.ReadUnfinishedRun(path), StringComparison.Ordinal);
+	}
+
+	[Fact]
 	public void ARunThatNeverEnded_ReadsBackAsUnfinished() {
 		string path = IsolatedPath();
 		ExitJournal.MarkRunning(path);

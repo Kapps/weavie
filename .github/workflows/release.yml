@@ -188,6 +188,7 @@ jobs:
             "$app/Contents/MacOS/Weavie"
             "$app/Contents/Resources/wwwroot/index.html"
             "$app/Contents/MonoBundle/libweavie_pty.dylib"
+            "$app/Contents/MonoBundle/weavie-pty-launcher"
             "$app/Contents/MonoBundle/weavie-hook-relay"
           )
           missing=0

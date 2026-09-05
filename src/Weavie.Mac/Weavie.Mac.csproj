@@ -7,7 +7,7 @@
     <AssemblyName>Weavie</AssemblyName>
     <!-- This machine is macOS 26; floor at 14.0 so modern (non-deprecated) AppKit APIs
          pass the CA1422 obsolete-API gate. -->
-    <SupportedOSPlatformVersion>14.0</SupportedOSPlatformVersion>
+    <SupportedOSPlatformVersion>$(WeavieMacOSMinimumVersion)</SupportedOSPlatformVersion>
     <!-- LibraryImport (objc_msgSend SPI for the WebKit refresh-rate feature flag) needs unsafe. -->
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <!-- Do NOT trim. Weavie.Core (de)serializes its own model types through the reflection-based
@@ -79,39 +79,7 @@
              Importance="high" Text="weavie: web assets not found at $(WebRoot)/dist — run 'pnpm run build' in src/web (or use the Debug Vite dev server) so the window has a UI to load." />
   </Target>
 
-  <!--
-    Compile the native PTY shim (libweavie_pty.dylib) into the app bundle next to the other native
-    libraries. weavie_pty.c issues the variadic TIOCSWINSZ ioctl that managed code cannot call
-    correctly on arm64-apple (see Weavie.Core/Terminal/NativeMethods.cs). Ad-hoc signed so it loads
-    inside the bundle. Only the live-resize path P/Invokes it; the open path uses openpty, so the unit
-    tests (which run outside the bundle) never need this dylib.
-
-    Build it for the SINGLE arch of the current RID, not a fat binary: a universal `dotnet publish`
-    runs one inner build per RID (osx-x64, osx-arm64) and then lipos the two .app bundles together. If
-    each slice already carried a fat dylib, lipo would find the same architecture in both inputs and
-    fail ("can't be in the same fat output file"). One arch per slice lets the SDK's lipo step produce
-    the universal dylib. When there's no RID (a plain single-arch build) fall back to a fat binary so
-    the .app still runs on either architecture.
-
-    This (with CopyWebAssets + the hook-relay co-location) fully populates the build .app at $(OutDir).
-    The GitHub Release ships THAT bundle (zipped) — see .github/workflows/release.yml: `dotnet publish`
-    for the macOS SDK emits a .pkg installer whose payload is staged from the publish item pipeline and
-    does NOT include these hand-copied files, so the workflow packages the complete $(OutDir) .app
-    directly and verifies it instead of shipping the (incomplete) .pkg.
-  -->
-  <Target Name="BuildPtyShim" AfterTargets="Build"
-          Inputs="$(MSBuildProjectDirectory)/native/weavie_pty.c"
-          Outputs="$(OutDir)$(AssemblyName).app/Contents/MonoBundle/libweavie_pty.dylib">
-    <PropertyGroup>
-      <PtyShimPath>$(OutDir)$(AssemblyName).app/Contents/MonoBundle/libweavie_pty.dylib</PtyShimPath>
-      <PtyClangArchArgs Condition="$(RuntimeIdentifier.EndsWith('-arm64'))">-arch arm64</PtyClangArchArgs>
-      <PtyClangArchArgs Condition="$(RuntimeIdentifier.EndsWith('-x64'))">-arch x86_64</PtyClangArchArgs>
-      <PtyClangArchArgs Condition="'$(PtyClangArchArgs)' == ''">-arch arm64 -arch x86_64</PtyClangArchArgs>
-    </PropertyGroup>
-    <Exec Command="clang -dynamiclib -O2 $(PtyClangArchArgs) -o &quot;$(PtyShimPath)&quot; &quot;$(MSBuildProjectDirectory)/native/weavie_pty.c&quot;" />
-    <Exec Command="codesign --force --sign - &quot;$(PtyShimPath)&quot;" />
-    <Message Importance="high" Text="weavie: built native PTY shim libweavie_pty.dylib ($(PtyClangArchArgs))" />
-  </Target>
+  <Import Project="../MacPty.targets" />
 
   <!-- Build + co-locate the standalone hook relay (into the .app's MonoBundle on macOS). -->
   <Import Project="..\HookRelay.targets" />

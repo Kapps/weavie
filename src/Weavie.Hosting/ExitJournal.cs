@@ -21,6 +21,8 @@ public static class ExitJournal {
 	// these would silently stop recording signals at the first GC — the very endings the journal exists to name.
 	private static readonly List<PosixSignalRegistration> Registrations = [];
 	private static int _installed;
+	private static readonly Lock EndingGate = new();
+	private static bool _signalRecorded;
 	private static string _path = string.Empty;
 
 	/// <summary>
@@ -50,7 +52,12 @@ public static class ExitJournal {
 		AppDomain.CurrentDomain.ProcessExit += (_, _) => Record("exited");
 		foreach (var signal in ObservableSignals) {
 			// Observed, never handled: the runtime's own disposition still applies, this only leaves the reason.
-			Registrations.Add(PosixSignalRegistration.Create(signal, context => Record($"signalled {context.Signal}")));
+			Registrations.Add(PosixSignalRegistration.Create(signal, context => {
+				lock (EndingGate) {
+					Record($"signalled {context.Signal}");
+					_signalRecorded = true;
+				}
+			}));
 		}
 
 		return unfinished;
@@ -63,20 +70,28 @@ public static class ExitJournal {
 	/// <param name="reason">What ended the run, in the words the next launch should show.</param>
 	public static void Record(string reason) {
 		ArgumentException.ThrowIfNullOrEmpty(reason);
-		if (Volatile.Read(ref _path) is { Length: > 0 } path) {
-			MarkEnded(path, reason);
+		lock (EndingGate) {
+			if (!_signalRecorded && Volatile.Read(ref _path) is { Length: > 0 } path) {
+				MarkEnded(path, reason);
+			}
 		}
 	}
 
 	/// <summary>The signal registrations this journal is holding open, so a test can pin that it still holds them.</summary>
 	internal static IReadOnlyList<PosixSignalRegistration> HeldRegistrations => Registrations;
 
-	/// <summary>The previous run's live marker when it never stamped an ending, else null.</summary>
+	/// <summary>The previous run's signal or unfinished live marker, else null.</summary>
 	internal static string? ReadUnfinishedRun(string journalPath) {
 		try {
 			if (!File.Exists(journalPath)
-				|| File.ReadAllText(journalPath).Trim() is not { Length: > 0 } previous
-				|| !previous.StartsWith(LiveMarker, StringComparison.Ordinal)) {
+				|| File.ReadAllText(journalPath).Trim() is not { Length: > 0 } previous) {
+				return null;
+			}
+
+			if (previous.StartsWith("signalled ", StringComparison.Ordinal)) {
+				return previous;
+			}
+			if (!previous.StartsWith(LiveMarker, StringComparison.Ordinal)) {
 				return null;
 			}
 

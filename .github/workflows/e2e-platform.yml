@@ -61,6 +61,13 @@ jobs:
           test -f "artifacts/e2e-bundle/fake-claude/Weavie.FakeClaude${{ inputs.suffix }}"
           test -f "artifacts/e2e-bundle/fake-acp/weavie-fake-acp${{ inputs.suffix }}"
 
+      - name: Verify macOS PTY assets
+        if: inputs.platform == 'macos'
+        shell: bash
+        run: |
+          test -f artifacts/e2e-bundle/runner/worker/libweavie_pty.dylib
+          test -x artifacts/e2e-bundle/runner/worker/weavie-pty-launcher
+
       - name: Upload test bundle
         uses: actions/upload-artifact@v4
         with:
@@ -116,6 +123,9 @@ jobs:
               .e2e-bundle/runner/worker/weavie-hook-relay \
               .e2e-bundle/fake-claude/Weavie.FakeClaude \
               .e2e-bundle/fake-acp/weavie-fake-acp
+          fi
+          if [[ "${{ runner.os }}" == macOS ]]; then
+            chmod +x .e2e-bundle/runner/worker/weavie-pty-launcher
           fi
           mkdir -p src/web/dist
           for attempt in 1 2 3; do

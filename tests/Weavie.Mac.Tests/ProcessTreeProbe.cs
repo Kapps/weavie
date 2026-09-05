@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Text.Json;
 using Weavie.Core.Processes;
@@ -7,11 +6,10 @@ using Weavie.Core.Processes;
 namespace Weavie.Mac.Tests;
 
 internal static class ProcessTreeProbe {
-	[RequiresUnreferencedCode("Calls System.Text.Json.JsonSerializer.Serialize<TValue>(TValue, JsonSerializerOptions)")]
 	internal static int Run(string mode, string resultPath) {
 		int host = Environment.ProcessId;
 		int hostGroup = Group(host);
-		File.WriteAllText(resultPath, JsonSerializer.Serialize(new { host, hostGroup, phase = "started" }));
+		WriteState(resultPath, "started", ("host", host), ("hostGroup", hostGroup));
 		if (hostGroup != host) {
 			throw new InvalidOperationException($"LaunchServices host {host} is not group leader ({hostGroup}).");
 		}
@@ -35,22 +33,14 @@ internal static class ProcessTreeProbe {
 			() => control.Kill(entireProcessTree: true), control.WaitForExit);
 	}
 
-	[RequiresUnreferencedCode("Calls System.Text.Json.JsonSerializer.Serialize<TValue>(TValue, JsonSerializerOptions)")]
 	private static int Terminate(string resultPath, int host, int hostGroup, bool owned,
 		int childId, TextReader output, Action kill, Action wait) {
 		int descendant = int.Parse(output.ReadLine()
 			?? throw new InvalidOperationException("Fixture exited before readiness."), CultureInfo.InvariantCulture);
 		int childGroup = Group(childId);
 		int descendantGroup = Group(descendant);
-		File.WriteAllText(resultPath, JsonSerializer.Serialize(new {
-			host,
-			hostGroup,
-			child = childId,
-			childGroup,
-			descendant,
-			descendantGroup,
-			phase = "killing",
-		}));
+		WriteState(resultPath, "killing", ("host", host), ("hostGroup", hostGroup),
+			("child", childId), ("childGroup", childGroup), ("descendant", descendant), ("descendantGroup", descendantGroup));
 		if (owned && (childGroup == hostGroup || descendantGroup != childGroup)) {
 			throw new InvalidOperationException("Owned process tree shares the GUI group or lost its descendant.");
 		}
@@ -63,16 +53,18 @@ internal static class ProcessTreeProbe {
 		if (!SpinWait.SpinUntil(() => Dead(descendant), TimeSpan.FromSeconds(5))) {
 			throw new InvalidOperationException($"Descendant {descendant} survived tree termination.");
 		}
-		File.WriteAllText(resultPath, JsonSerializer.Serialize(new {
-			host,
-			hostGroup,
-			child = childId,
-			childGroup,
-			descendant,
-			descendantGroup,
-			phase = "survived",
-		}));
+		WriteState(resultPath, "survived", ("host", host), ("hostGroup", hostGroup),
+			("child", childId), ("childGroup", childGroup), ("descendant", descendant), ("descendantGroup", descendantGroup));
 		return 0;
+	}
+
+	private static void WriteState(string path, string phase, params (string Name, int Value)[] fields) {
+		using var stream = File.Create(path);
+		using var json = new Utf8JsonWriter(stream);
+		json.WriteStartObject();
+		json.WriteString("phase", phase);
+		foreach (var (name, value) in fields) json.WriteNumber(name, value);
+		json.WriteEndObject();
 	}
 
 	private static int Group(int pid) => int.Parse(Ps(pid, "pgid="), CultureInfo.InvariantCulture);

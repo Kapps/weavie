@@ -43,7 +43,7 @@ public sealed class ClaudeSessionStore : JsonDocumentStore {
 	/// </summary>
 	public string Resolve(string workingDirectory) {
 		ArgumentException.ThrowIfNullOrEmpty(workingDirectory);
-		string key = Normalize(workingDirectory);
+		string key = PathIdentity.Normalize(workingDirectory);
 		lock (Gate) {
 			var entry = Find(key);
 			if (entry is null) {
@@ -63,7 +63,7 @@ public sealed class ClaudeSessionStore : JsonDocumentStore {
 	/// </summary>
 	public void Forget(string workingDirectory) {
 		ArgumentException.ThrowIfNullOrEmpty(workingDirectory);
-		string key = Normalize(workingDirectory);
+		string key = PathIdentity.Normalize(workingDirectory);
 		lock (Gate) {
 			if (RemoveLocked(key)) {
 				PersistLocked();
@@ -78,7 +78,7 @@ public sealed class ClaudeSessionStore : JsonDocumentStore {
 	/// </summary>
 	public void Clear(string workingDirectory) {
 		ArgumentException.ThrowIfNullOrEmpty(workingDirectory);
-		string key = Normalize(workingDirectory);
+		string key = PathIdentity.Normalize(workingDirectory);
 		lock (Gate) {
 			if (RemoveLocked(key)) {
 				PersistLocked();
@@ -95,7 +95,7 @@ public sealed class ClaudeSessionStore : JsonDocumentStore {
 	public void Adopt(string workingDirectory, string sessionId) {
 		ArgumentException.ThrowIfNullOrEmpty(workingDirectory);
 		ArgumentException.ThrowIfNullOrEmpty(sessionId);
-		string key = Normalize(workingDirectory);
+		string key = PathIdentity.Normalize(workingDirectory);
 		lock (Gate) {
 			var entry = Find(key);
 			if (entry is null) {
@@ -129,15 +129,11 @@ public sealed class ClaudeSessionStore : JsonDocumentStore {
 		},
 		JsonOptions);
 
-	private Entry? Find(string key) => _items.FirstOrDefault(e => PathEquals(e.Key, key));
+	private Entry? Find(string key) => _items.FirstOrDefault(e => PathIdentity.Equals(e.Key, key));
 
-	private bool RemoveLocked(string key) => _items.RemoveAll(e => PathEquals(e.Key, key)) > 0;
+	private bool RemoveLocked(string key) => _items.RemoveAll(e => PathIdentity.Equals(e.Key, key)) > 0;
 
-	private static string Normalize(string path) =>
-		Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
 
-	private static bool PathEquals(string a, string b) =>
-		string.Equals(a, b, OperatingSystem.IsLinux() ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase);
 
 	private sealed class Entry {
 		public required string Key { get; init; }

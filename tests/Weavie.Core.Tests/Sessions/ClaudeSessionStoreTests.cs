@@ -175,4 +175,44 @@ public sealed class ClaudeSessionStoreTests {
 		Assert.True(fs.FileExists(StorePath + ".bad"));
 		Assert.True(Guid.TryParse(store.Resolve(Cwd), out _)); // reset to empty, so the next launch mints fresh
 	}
+
+	[Fact]
+	public void Resolve_TrailingSeparator_ReturnsTheSameId() {
+		var fs = new InMemoryFileSystem();
+		var store = new ClaudeSessionStore(fs, StorePath);
+
+		Assert.Equal(store.Resolve(Cwd), store.Resolve(Cwd + Path.DirectorySeparatorChar));
+	}
+
+	[Fact]
+	public void RootWorkspace_KeepsItsOwnId() {
+		// Trimming every trailing separator turned the filesystem root into an empty key, which then collided
+		// with any other path that trimmed away to nothing.
+		string root = Path.GetPathRoot(Path.GetFullPath(Cwd))
+			?? throw new InvalidOperationException("The test filesystem has no root.");
+		var fs = new InMemoryFileSystem();
+		var store = new ClaudeSessionStore(fs, StorePath);
+		store.Adopt(root, "root-id");
+
+		var reloaded = new ClaudeSessionStore(fs, StorePath);
+
+		Assert.Equal("root-id", reloaded.Resolve(root));
+		Assert.NotEqual("root-id", reloaded.Resolve(Cwd));
+	}
+
+	[Fact]
+	public void CaseSensitiveHostsKeepDifferentlyCasedCwdsDistinct() {
+		if (OperatingSystem.IsWindows()) return;
+		// Claude's own transcript folder is named from the cwd with the case preserved, so the store must
+		// distinguish the same spellings its transcripts do.
+		var fs = new InMemoryFileSystem();
+		var store = new ClaudeSessionStore(fs, StorePath);
+		store.Adopt("/repo/Project", "upper-id");
+		store.Adopt("/repo/project", "lower-id");
+
+		var reloaded = new ClaudeSessionStore(fs, StorePath);
+
+		Assert.Equal("upper-id", reloaded.Resolve("/repo/Project"));
+		Assert.Equal("lower-id", reloaded.Resolve("/repo/project"));
+	}
 }

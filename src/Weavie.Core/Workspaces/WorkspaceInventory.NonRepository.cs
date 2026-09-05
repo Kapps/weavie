@@ -1,3 +1,5 @@
+using Weavie.Core.FileSystem;
+
 namespace Weavie.Core.Workspaces;
 
 /// <summary>Identifies one serialized non-repository navigation snapshot while watcher events continue.</summary>
@@ -144,9 +146,9 @@ public sealed partial class WorkspaceInventory {
 	}
 
 	private static bool IsWithin(string path, string root) =>
-		string.Equals(path, root, PathComparison)
-		|| path.StartsWith(root + Path.DirectorySeparatorChar, PathComparison)
-		|| path.StartsWith(root + Path.AltDirectorySeparatorChar, PathComparison);
+		string.Equals(path, root, PathIdentity.Comparison)
+		|| path.StartsWith(root + Path.DirectorySeparatorChar, PathIdentity.Comparison)
+		|| path.StartsWith(root + Path.AltDirectorySeparatorChar, PathIdentity.Comparison);
 
 	private static string Rebase(string path, string oldRoot, string newRoot) =>
 		newRoot + path[oldRoot.Length..];

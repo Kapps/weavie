@@ -9,16 +9,13 @@ namespace Weavie.Core.FileActivity;
 /// tracks open tabs. Changes enter the session's stream as the ordinary changed/deleted facts.
 /// </summary>
 public sealed class ExternalFileWatcher : IDisposable {
-	private static readonly StringComparer PathComparer =
-		OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
-
 	private readonly IFileSystem _fileSystem;
 	private readonly IFileActivitySink _sink;
 	private readonly Action<string> _onFailure;
 	private readonly TimeSpan _debounce;
 	private readonly IWorkspaceDirectoryWatchSet _directories;
-	private readonly ConcurrentDictionary<string, byte> _pending = new(PathComparer);
-	private readonly HashSet<string> _files = new(PathComparer);
+	private readonly ConcurrentDictionary<string, byte> _pending = new(PathIdentity.Comparer);
+	private readonly HashSet<string> _files = new(PathIdentity.Comparer);
 	private readonly Lock _gate = new();
 	private Timer? _debounceTimer;
 	private bool _disposed;
@@ -97,7 +94,7 @@ public sealed class ExternalFileWatcher : IDisposable {
 				.Select(Path.GetDirectoryName)
 				.OfType<string>()
 				.Where(directory => directory.Length > 0)
-				.Distinct(PathComparer)];
+				.Distinct(PathIdentity.Comparer)];
 			// Reconciling an empty set to an empty set still starts the platform watcher, and a session with no
 			// outside files open is the common case — so it would cost every session a native instance for nothing.
 			if (directories.Length == 0 && _directories.Count == 0) {

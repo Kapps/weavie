@@ -1,4 +1,5 @@
 import { writeFile } from "node:fs/promises";
+import { EOL } from "node:os";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
 import { clickIntoEditor, openFile } from "../harness/actions";
@@ -15,17 +16,18 @@ test("copy trims editor and input boundaries, preserving internal whitespace", a
   weavie,
 }) => {
   const text = "  first  word\n    second\n\n";
+  const expected = text.trim().replaceAll("\n", EOL);
   await writeFile(join(weavie.workspace, "notes.txt"), text);
   await openFile(page, "notes.txt");
   await clickIntoEditor(page);
   await page.keyboard.press("ControlOrMeta+a");
   await page.keyboard.press("ControlOrMeta+c");
-  await expect.poll(() => copiedText(page)).toBe(text.trim());
+  await expect.poll(() => copiedText(page)).toBe(expected);
 
   await page.evaluate(() => navigator.clipboard.writeText("before context-menu copy"));
   await page.locator(".monaco-editor .view-line").first().click({ button: "right" });
   await page.locator(".context-menu-item").filter({ hasText: /^Copy/ }).click();
-  await expect.poll(() => copiedText(page)).toBe(text.trim());
+  await expect.poll(() => copiedText(page)).toBe(expected);
 
   const input = page.locator(".tb-omnibar-input");
   for (const value of ["  input  words  ", "   "]) {

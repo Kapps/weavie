@@ -5,25 +5,16 @@ namespace Weavie.Hosting.Tests;
 
 public sealed class AcpProcessInvocationTests {
 	[Theory]
-	[InlineData("agent-package@1.2.3", "agent-package@<=1.2.3")]
-	[InlineData("@scope/agent-package@1.2.3-beta.1+build.2", "@scope/agent-package@<=1.2.3-beta.1+build.2")]
-	[InlineData("@scope/agent-package", "@scope/agent-package")]
-	[InlineData("agent-package@latest", "agent-package@latest")]
-	[InlineData("agent-package@^1.2.3", "agent-package@^1.2.3")]
-	[InlineData("agent-package@<=1.2.3", "agent-package@<=1.2.3")]
-	[InlineData("agent-package@1.2", "agent-package@1.2")]
-	[InlineData("agent-package@01.2.3", "agent-package@01.2.3")]
-	[InlineData("agent-package@1.2.3-01", "agent-package@1.2.3-01")]
-	public void ExactNpmVersionsBecomeRegistryCeilings(string packageSpec, string expected) =>
-		Assert.Equal(expected, AcpProcessInvocation.BoundNpmPackageSpec(packageSpec));
-
-	[Fact]
-	public void PersistedNpxRecipeDisablesAuxiliaryRequestsAndBoundsTheVersion() {
+	[InlineData("agent-package@1.2.3")]
+	[InlineData("@scope/agent@1.2.3-beta.1+build.2")]
+	[InlineData("@scope/agent@latest")]
+	[InlineData("@scope/agent@^1.2.3")]
+	public void NpxLaunchPreservesRegistryPackageAndDisablesReleaseAge(string packageSpec) {
 		var definition = new AcpAgentDefinition {
 			Id = "sample",
 			Name = "Sample",
 			Command = "npx",
-			Arguments = ["--yes", "@scope/agent@1.2.3", "--stdio"],
+			Arguments = ["--yes", packageSpec, "--stdio"],
 			Environment = new Dictionary<string, string>(StringComparer.Ordinal),
 			Distribution = "npx",
 		};
@@ -31,7 +22,7 @@ public sealed class AcpProcessInvocationTests {
 		var invocation = AcpProcessInvocation.Resolve(
 			definition,
 			Directory.GetCurrentDirectory(),
-			[],
+			["--login"],
 			windows: false,
 			pathValue: string.Empty);
 
@@ -42,19 +33,21 @@ public sealed class AcpProcessInvocationTests {
 				"--no-audit",
 				"--no-fund",
 				"--no-update-notifier",
+				"--min-release-age=0",
 				"--",
-				"@scope/agent@<=1.2.3",
+				packageSpec,
 				"--stdio",
+				"--login",
 			],
 			invocation.Arguments);
 	}
 
 	[Fact]
-	public void WindowsNpxEscapesTheGeneratedComparatorFromCmdRedirection() {
+	public void WindowsNpxWrapsTheExactPackageAndReleaseAgeOverride() {
 		string systemDirectory = Path.Combine(Path.GetTempPath(), "Windows", "System32");
 		var invocation = AcpProcessInvocation.WrapWindowsNpx(
 			@"C:\Program Files\node\npx.cmd",
-			["--yes", "--no-audit", "--no-fund", "--no-update-notifier", "--", "@scope/agent@<=1.2.3", "--stdio"],
+			["--yes", "--no-audit", "--no-fund", "--no-update-notifier", "--min-release-age=0", "--", "@scope/agent@1.2.3", "--stdio"],
 			systemDirectory);
 
 		Assert.Equal(Path.Combine(systemDirectory, "cmd.exe"), invocation.Command);
@@ -64,7 +57,7 @@ public sealed class AcpProcessInvocationTests {
 				"/s",
 				"/v:off",
 				"/c",
-				"\"C:\\Program Files\\node\\npx.cmd\" --yes --no-audit --no-fund --no-update-notifier -- @scope/agent@^<=1.2.3 --stdio",
+				"\"C:\\Program Files\\node\\npx.cmd\" --yes --no-audit --no-fund --no-update-notifier --min-release-age=0 -- @scope/agent@1.2.3 --stdio",
 			],
 			invocation.Arguments);
 	}

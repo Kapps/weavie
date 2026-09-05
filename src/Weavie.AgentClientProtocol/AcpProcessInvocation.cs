@@ -1,10 +1,9 @@
-using System.Text.RegularExpressions;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Processes;
 
 namespace Weavie.AgentClientProtocol;
 
-internal sealed partial record AcpProcessInvocation(string Command, IReadOnlyList<string> Arguments) {
+internal sealed record AcpProcessInvocation(string Command, IReadOnlyList<string> Arguments) {
 	public static AcpProcessInvocation Resolve(
 		AcpAgentDefinition definition,
 		string workingDirectory,
@@ -35,9 +34,9 @@ internal sealed partial record AcpProcessInvocation(string Command, IReadOnlyLis
 				"--no-audit",
 				"--no-fund",
 				"--no-update-notifier",
+				"--min-release-age=0",
 				"--",
-				BoundNpmPackageSpec(arguments[1]),
-				.. arguments[2..],
+				.. arguments[1..],
 			];
 		}
 		if (windows) {
@@ -54,15 +53,6 @@ internal sealed partial record AcpProcessInvocation(string Command, IReadOnlyLis
 		return OperatingSystem.IsWindows() && definition.Distribution == "npx"
 			? WrapWindowsNpx(invocation.Command, invocation.Arguments, Environment.SystemDirectory)
 			: invocation;
-	}
-
-	internal static string BoundNpmPackageSpec(string packageSpec) {
-		ArgumentNullException.ThrowIfNull(packageSpec);
-		int separator = packageSpec.LastIndexOf('@');
-		if (separator <= 0 || !ExactSemanticVersion().IsMatch(packageSpec.AsSpan(separator + 1))) {
-			return packageSpec;
-		}
-		return string.Concat(packageSpec.AsSpan(0, separator + 1), "<=", packageSpec.AsSpan(separator + 1));
 	}
 
 	internal static AcpProcessInvocation WrapWindowsNpx(
@@ -100,9 +90,4 @@ internal sealed partial record AcpProcessInvocation(string Command, IReadOnlyLis
 		ArgumentException.ThrowIfNullOrEmpty(systemDirectory);
 		return Path.Combine(Path.GetFullPath(systemDirectory), "cmd.exe");
 	}
-
-	[GeneratedRegex(
-		@"^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?:(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+(?:[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$",
-		RegexOptions.CultureInvariant)]
-	private static partial Regex ExactSemanticVersion();
 }

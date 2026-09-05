@@ -20,21 +20,22 @@ export function AgentControlPicker(props: { session: ClientSession | null }): JS
     }
     return agentControlState(props.session).axes.find((candidate) => candidate.id === id) ?? null;
   });
-  // clampIndex keeps the highlight in range when a host re-push shrinks the options while the picker is open.
   const nav = createListNavigation({
     count: () => axis()?.options.length ?? 0,
     edges: "wrap",
     initialIndex: 0,
     acceptKeys: ["Enter", "Tab"],
+    // An axis with no options has nothing to pick (index -1), so accepting just closes it rather than
+    // trapping the key on a dead popover.
     onAccept: (index) => {
-      const current = axis();
-      if (current !== null) {
-        pick(current.options[index]?.id ?? current.value);
+      const option = axis()?.options[index];
+      if (option === undefined) {
+        closeControlPicker();
+      } else {
+        pick(option.id);
       }
     },
     onDismiss: closeControlPicker,
-    stopPropagation: true,
-    clampIndex: true,
   });
 
   // Seed the highlight only when the picker opens or switches axes: a host re-push rebuilds the axes with
@@ -63,21 +64,14 @@ export function AgentControlPicker(props: { session: ClientSession | null }): JS
     closeControlPicker();
   };
 
-  // An axis with no options still dismisses, but leaves every other key to whatever is behind the picker.
-  const onKeyDown = (event: KeyboardEvent): void => {
-    if ((axis()?.options.length ?? 0) > 0 || event.key === "Escape") {
-      nav.onKeyDown(event);
-    }
-  };
-
   // Only listen while open, in capture phase so the pick beats the composer's own history/keydown handling.
   // Anything outside the picker and its status-line segment dismisses it — the segment owns its own toggle.
   createEffect(() => {
     if (axis() === null) {
       return;
     }
-    window.addEventListener("keydown", onKeyDown, { capture: true });
-    onCleanup(() => window.removeEventListener("keydown", onKeyDown, { capture: true }));
+    window.addEventListener("keydown", nav.onKeyDown, { capture: true });
+    onCleanup(() => window.removeEventListener("keydown", nav.onKeyDown, { capture: true }));
     dismissOnOutsideInteraction(".agent-control-picker, .agent-status-axis", closeControlPicker);
   });
 
@@ -92,12 +86,12 @@ export function AgentControlPicker(props: { session: ClientSession | null }): JS
           <For each={current().options}>
             {(option, index) => (
               <div
+                {...nav.row(index())}
                 class="agent-control-option"
                 role="option"
                 tabindex={-1}
                 aria-selected={option.id === current().value}
                 classList={{ active: index() === nav.index() }}
-                onMouseEnter={() => nav.setIndex(index())}
                 onPointerDown={(event) => {
                   event.preventDefault();
                   pick(option.id);

@@ -26,7 +26,8 @@ export function BranchTypeahead(props: {
   onCancel: () => void;
 }): JSX.Element {
   const suggestions = (): string[] => branchSuggestions(props.branches, props.value);
-  // Enter with nothing highlighted submits the typed text, so accept is not gated on having suggestions.
+  // Starts with nothing highlighted (-1), which is what makes Enter submit the typed text until an arrow
+  // picks a suggestion.
   const nav = createListNavigation({
     count: () => suggestions().length,
     edges: "wrap",
@@ -37,7 +38,6 @@ export function BranchTypeahead(props: {
       props.onSubmit(picked ?? props.value.trim(), event.shiftKey, picked !== undefined);
     },
     onDismiss: () => props.onCancel(),
-    stopPropagation: true,
   });
   onMount(() => window.addEventListener("keydown", nav.onKeyDown, { capture: true }));
   onCleanup(() => window.removeEventListener("keydown", nav.onKeyDown, { capture: true }));
@@ -77,6 +77,7 @@ export function BranchTypeahead(props: {
           <For each={suggestions()}>
             {(name, i) => (
               <div
+                {...nav.row(i())}
                 class="session-prompt-suggestion"
                 role="option"
                 tabindex={-1}

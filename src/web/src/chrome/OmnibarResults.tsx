@@ -16,6 +16,7 @@ import type { CommandInfo } from "../commands/types";
 import { samePath } from "../editor/fs-path";
 import type { DirEntry } from "../files/FileBrowser";
 import type { PathTreeRow } from "../files/path-tree";
+import type { ListRowProps } from "../list-navigation";
 import type { FlatSymbol, ScoredSymbol } from "../symbols/symbol-match";
 import type { ScoredFile } from "./file-search";
 import { highlightSlice } from "./highlight";
@@ -38,7 +39,8 @@ export function OmnibarResults(props: {
   mode: () => OmnibarResultMode;
   selected: () => number;
   onSelect: (index: number) => void;
-  listRef: (element: HTMLDivElement) => void;
+  /** The navigation's own per-row props: hover moves the highlight, and the row is scrollable-to. */
+  rowProps: (index: number) => ListRowProps;
   hiddenCount: () => number;
   filesPending: boolean;
   currentFile: string | null;
@@ -69,6 +71,7 @@ export function OmnibarResults(props: {
     run();
   };
   const rowAttributes = (index: number): JSX.ButtonHTMLAttributes<HTMLButtonElement> => ({
+    ...props.rowProps(index),
     type: "button",
     role: "option",
     tabindex: -1,
@@ -80,7 +83,6 @@ export function OmnibarResults(props: {
   const List = (listProps: { label: string; children: JSX.Element }): JSX.Element => (
     <div
       class="tb-omnibar-list"
-      ref={props.listRef}
       id="tb-omnibar-listbox"
       role="listbox"
       aria-label={listProps.label}

@@ -104,7 +104,6 @@ function RecentFilesMenu(props: {
     return state.hasHistory ? "No recent files in this checkout." : "No recent files yet.";
   };
 
-  // clampIndex keeps the highlighted row in range as the results change; onMove keeps it scrolled into view.
   const nav = createListNavigation({
     count: () => results().length,
     edges: "wrap",
@@ -117,14 +116,6 @@ function RecentFilesMenu(props: {
       }
     },
     onDismiss: () => props.onClose(),
-    onMove: (index) =>
-      queueMicrotask(() =>
-        panelEl
-          ?.querySelectorAll<HTMLElement>(".recent-row")
-          [index]?.scrollIntoView({ block: "nearest" }),
-      ),
-    consumeEmptyArrows: true,
-    clampIndex: true,
   });
 
   // Anchor to the toggle, right-aligned and opening UPWARD (the toggle is in the bottom status bar): pin the
@@ -192,11 +183,11 @@ function RecentFilesMenu(props: {
             <For each={results()}>
               {(row, index) => (
                 <button
+                  {...nav.row(index())}
                   type="button"
                   class="recent-row"
                   classList={{ selected: index() === nav.index() }}
                   title={row.abs}
-                  onMouseMove={() => nav.setIndex(index())}
                   onClick={() => props.onChoose(row.abs)}
                 >
                   <span class="recent-name">{row.leaf}</span>

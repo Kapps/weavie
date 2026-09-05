@@ -1,6 +1,4 @@
-using System.ComponentModel;
-using System.Diagnostics;
-using System.Text;
+using Weavie.Core.Processes;
 
 namespace Weavie.Core.Review;
 
@@ -33,20 +31,20 @@ public sealed class GitHubTokenSource : IGitHubTokenSource {
 
 	// `gh auth token` prints the CLI's stored token to stdout (exit 0), or errors when unauthenticated.
 	private static async Task<string?> TryGhAsync(CancellationToken ct) {
-		var (exit, stdout, _) = await RunAsync("gh", ["auth", "token"], stdin: null, ct).ConfigureAwait(false);
-		return exit == 0 && stdout.Trim() is { Length: > 0 } token ? token : null;
+		var result = await RunAsync("gh", ["auth", "token"], string.Empty, ct).ConfigureAwait(false);
+		return result.ExitCode == 0 && result.StdOut.Trim() is { Length: > 0 } token ? token : null;
 	}
 
 	// `git credential fill` consults the configured helper (osxkeychain / manager / libsecret) for github.com
 	// and prints `key=value` lines; the token is the `password`.
 	private static async Task<string?> TryGitCredentialAsync(CancellationToken ct) {
-		var (exit, stdout, _) = await RunAsync(
-			"git", ["credential", "fill"], stdin: $"protocol=https\nhost={Host}\n\n", ct).ConfigureAwait(false);
-		if (exit != 0) {
+		var result = await RunAsync(
+			"git", ["credential", "fill"], $"protocol=https\nhost={Host}\n\n", ct).ConfigureAwait(false);
+		if (result.ExitCode != 0) {
 			return null;
 		}
 
-		foreach (string line in stdout.Split('\n')) {
+		foreach (string line in result.StdOut.Split('\n')) {
 			if (line.StartsWith("password=", StringComparison.Ordinal)) {
 				string token = line["password=".Length..].Trim('\r', ' ');
 				return token.Length > 0 ? token : null;
@@ -56,36 +54,10 @@ public sealed class GitHubTokenSource : IGitHubTokenSource {
 		return null;
 	}
 
-	private static async Task<(int Exit, string StdOut, string StdErr)> RunAsync(
-		string file, IReadOnlyList<string> args, string? stdin, CancellationToken ct) {
-		var info = new ProcessStartInfo {
-			FileName = file,
-			RedirectStandardOutput = true,
-			RedirectStandardError = true,
-			RedirectStandardInput = stdin is not null,
-			UseShellExecute = false,
-			CreateNoWindow = true,
-			StandardOutputEncoding = Encoding.UTF8,
-		};
-		foreach (string arg in args) {
-			info.ArgumentList.Add(arg);
-		}
-
-		using var process = new Process { StartInfo = info };
-		try {
-			process.Start();
-		} catch (Win32Exception) {
-			return (-1, string.Empty, string.Empty); // tool not installed — fall through to the next source
-		}
-
-		if (stdin is not null) {
-			await process.StandardInput.WriteAsync(stdin.AsMemory(), ct).ConfigureAwait(false);
-			process.StandardInput.Close();
-		}
-
-		string stdout = await process.StandardOutput.ReadToEndAsync(ct).ConfigureAwait(false);
-		string stderr = await process.StandardError.ReadToEndAsync(ct).ConfigureAwait(false);
-		await process.WaitForExitAsync(ct).ConfigureAwait(false);
-		return (process.ExitCode, stdout, stderr);
-	}
+	// A tool that is not installed is this machine's answer for that source, not a failure — the -1 exit it comes
+	// back with simply falls through to the next one.
+	private static Task<ProcessCaptureResult> RunAsync(
+		string file, IReadOnlyList<string> args, string stdin, CancellationToken ct) =>
+		ProcessCapture.RunAsync(
+			new ProcessCaptureRequest { FileName = file, Arguments = args, StandardInput = stdin }, ct);
 }

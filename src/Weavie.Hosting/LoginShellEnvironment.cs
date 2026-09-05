@@ -1,5 +1,4 @@
-using System.Diagnostics;
-using System.Text;
+using Weavie.Core.Processes;
 
 namespace Weavie.Hosting;
 
@@ -12,6 +11,7 @@ namespace Weavie.Hosting;
 public static class LoginShellEnvironment {
 	private const string Begin = "__WEAVIE_ENV_BEGIN__";
 	private const string End = "__WEAVIE_ENV_END__";
+	private const int ProbeSeconds = 5;
 
 	// Transient session noise describing the probe subshell, not config worth propagating to children.
 	private static readonly HashSet<string> Skip = new(StringComparer.Ordinal) { "_", "SHLVL", "PWD", "OLDPWD" };
@@ -57,47 +57,29 @@ public static class LoginShellEnvironment {
 		$"Weavie could not read your shell environment: {shell} startup replaced the shell (an `exec` into another "
 		+ "shell) before Weavie's probe ran, so anything launched through it may open that shell instead.";
 
-	// `-i` is essential: vars usually live in the interactive rc (~/.zshrc), not the login profile (~/.zprofile).
 	private static async Task<string?> ReadLoginShellEnvAsync() {
 		string shell = LoginShell();
-		var psi = new ProcessStartInfo {
-			FileName = shell,
-			RedirectStandardOutput = true,
-			RedirectStandardError = true,
-			UseShellExecute = false,
-			CreateNoWindow = true,
-			StandardOutputEncoding = Encoding.UTF8,
-		};
-		psi.ArgumentList.Add("-l");
-		psi.ArgumentList.Add("-i");
-		psi.ArgumentList.Add("-c");
-		psi.ArgumentList.Add($"printf %s '{Begin}'; /usr/bin/env -0; printf %s '{End}'");
-
-		Process? process = null;
+		// Bound the probe so a shell that never finishes its rc files can't hang startup, and say so when it trips.
+		using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(ProbeSeconds));
 		try {
-			process = Process.Start(psi)
-				?? throw new InvalidOperationException($"{shell} did not start.");
+			var result = await ProcessCapture.RunAsync(
+				new ProcessCaptureRequest {
+					FileName = shell,
+					// `-i` is essential: vars usually live in the interactive rc (~/.zshrc), not the login profile (~/.zprofile).
+					Arguments = ["-l", "-i", "-c", $"printf %s '{Begin}'; /usr/bin/env -0; printf %s '{End}'"],
+				},
+				deadline.Token).ConfigureAwait(false);
+			if (result.StartFailure is { } failure) {
+				_failure = $"Weavie could not read your shell environment: {failure.Message}";
+				return null;
+			}
 
-			// Drain both pipes so a chatty rc file can't deadlock the child, and bound the probe so a bad shell can't hang startup.
-			using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-			var stdout = process.StandardOutput.ReadToEndAsync(cts.Token);
-			_ = process.StandardError.ReadToEndAsync(cts.Token);
-			await process.WaitForExitAsync(cts.Token).ConfigureAwait(false);
-			string? fenced = ExtractFenced(await stdout.ConfigureAwait(false));
+			string? fenced = ExtractFenced(result.StdOut);
 			_failure = fenced is null ? HijackedMessage(shell) : string.Empty;
 			return fenced;
 		} catch (OperationCanceledException) {
-			if (process is { HasExited: false }) {
-				process.Kill(entireProcessTree: true);
-			}
-
-			_failure = $"Weavie could not read your shell environment: {shell} startup did not finish within 5s.";
+			_failure = $"Weavie could not read your shell environment: {shell} startup did not finish within {ProbeSeconds}s.";
 			return null;
-		} catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException or IOException) {
-			_failure = $"Weavie could not read your shell environment: {ex.Message}";
-			return null;
-		} finally {
-			process?.Dispose();
 		}
 	}
 

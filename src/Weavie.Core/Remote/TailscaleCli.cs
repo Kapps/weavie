@@ -1,4 +1,4 @@
-using System.Diagnostics;
+using Weavie.Core.Processes;
 
 namespace Weavie.Core.Remote;
 
@@ -39,40 +39,24 @@ public sealed class TailscaleCli : ITailscaleCli {
 	/// <inheritdoc/>
 	public TailscaleResult Run(IReadOnlyList<string> args) {
 		ArgumentNullException.ThrowIfNull(args);
-		var info = new ProcessStartInfo(Executable) {
-			RedirectStandardOutput = true,
-			RedirectStandardError = true,
-			UseShellExecute = false,
-		};
-		foreach (string arg in args) {
-			info.ArgumentList.Add(arg);
-		}
-		foreach (var (name, value) in ProcessEnvironment) {
-			info.Environment[name] = value;
-		}
-
-		Process process;
+		using var deadline = new CancellationTokenSource(TimeoutMs);
 		try {
-			process = Process.Start(info) ?? throw new InvalidOperationException("tailscale did not start.");
-		} catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException) {
-			throw new InvalidOperationException($"could not run the Tailscale CLI ('{Executable}') — is Tailscale installed?", ex);
-		}
-		using (process) {
-			var stdout = process.StandardOutput.ReadToEndAsync();
-			var stderr = process.StandardError.ReadToEndAsync();
-			if (!process.WaitForExit(TimeoutMs)) {
-				try {
-					process.Kill(entireProcessTree: true);
-				} catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception) {
-				}
-
-				string captured = $"{stderr.GetAwaiter().GetResult()}{stdout.GetAwaiter().GetResult()}".Trim();
-				throw new InvalidOperationException(
-					$"'tailscale {string.Join(' ', args)}' did not return within {TimeoutMs / 1000}s — it may be waiting on a tailnet setting or input."
-					+ (captured.Length == 0 ? string.Empty : $"\n{captured}"));
-			}
-
-			return new TailscaleResult(process.ExitCode, stdout.GetAwaiter().GetResult(), stderr.GetAwaiter().GetResult());
+			var result = ProcessCapture.Run(
+				new ProcessCaptureRequest {
+					FileName = Executable,
+					Arguments = args,
+					Environment = ProcessEnvironment,
+				},
+				deadline.Token);
+			return result.StartFailure is { } failure
+				? throw new InvalidOperationException(
+					$"could not run the Tailscale CLI ('{Executable}') — is Tailscale installed?", failure)
+				: new TailscaleResult(result.ExitCode, result.StdOut, result.StdErr);
+		} catch (ProcessCanceledException ex) {
+			string captured = $"{ex.StdErr}{ex.StdOut}".Trim();
+			throw new InvalidOperationException(
+				$"'tailscale {string.Join(' ', args)}' did not return within {TimeoutMs / 1000}s — it may be waiting on a tailnet setting or input."
+				+ (captured.Length == 0 ? string.Empty : $"\n{captured}"));
 		}
 	}
 

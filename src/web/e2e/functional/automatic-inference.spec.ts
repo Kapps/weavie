@@ -17,6 +17,8 @@ test("offers and enables automatic inference on desktop", async ({ page }) => {
   await input.fill("e");
   const rows = page.locator(".tb-omnibar-row");
   await expect(rows.first()).toBeVisible();
+  // See clickOmnibarRowThroughToast's flake comment (actions.ts) for the 2026-09-05 macOS occurrence
+  // this test caught and the fix (poll for a settled overlap instead of trusting the first snapshot).
   await clickOmnibarRowThroughToast(rows, offer);
   await expect(page.locator(".editor-tab")).toHaveCount(1);
 

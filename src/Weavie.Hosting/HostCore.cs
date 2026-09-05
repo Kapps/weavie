@@ -271,7 +271,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 		// stamped is routine there rather than the anomaly this reports.
 		_priorUnfinishedRun = _runtime.Managed
 			? string.Empty
-			: ExitJournal.Start(line => Log($"[exit] {line}"), _exitJournalFile) ?? string.Empty;
+			: ExitJournal.Start(line => Log($"[exit] {line}"), _exitJournalFile, _logBuffer.PersistentFile) ?? string.Empty;
 
 		// Any launch context can carry a truncated environment and a stingy open-file limit — a Finder .app or
 		// desktop entry via launchd, a headless host under a supervisor. Raise the descriptor limit so a second

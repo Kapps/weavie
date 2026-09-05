@@ -24,4 +24,6 @@
     <Using Include="Weavie.TestSupport" />
   </ItemGroup>
 
+  <Import Project="../../src/MacPty.targets" />
+
 </Project>

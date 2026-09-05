@@ -5,6 +5,10 @@ using Weavie.Mac.Hosting;
 
 NSApplication.Init();
 
+if (args.Length == 2 && args[0] is "--owned-process-probe" or "--unisolated-process-probe") {
+	return Weavie.Mac.Tests.ProcessTreeProbe.Run(args[0], args[1]);
+}
+
 var menu = new MacAppMenu();
 using var first = menu.CreateChannel();
 using var second = menu.CreateChannel();

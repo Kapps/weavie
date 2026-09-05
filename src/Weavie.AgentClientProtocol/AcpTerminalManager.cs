@@ -144,7 +144,7 @@ internal sealed class AcpTerminal : IAsyncDisposable {
 	private readonly TaskCompletionSource _started = new(TaskCreationOptions.RunContinuationsAsynchronously);
 	private readonly TaskCompletionSource<AcpTerminalExit> _exit = new(TaskCreationOptions.RunContinuationsAsynchronously);
 	private readonly ProcessSupervisor _supervisor;
-	private Process? _process;
+	private OwnedProcess? _process;
 	private bool _truncated;
 
 	public AcpTerminal(
@@ -188,7 +188,7 @@ internal sealed class AcpTerminal : IAsyncDisposable {
 	public Task<AcpTerminalExit> WaitAsync(CancellationToken ct) => _exit.Task.WaitAsync(ct);
 
 	public void Kill() {
-		Process? process;
+		OwnedProcess? process;
 		lock (_gate) {
 			process = _process;
 		}
@@ -226,31 +226,15 @@ internal sealed class AcpTerminal : IAsyncDisposable {
 		};
 		foreach (string argument in _arguments) info.ArgumentList.Add(argument);
 		foreach (var entry in _environment) info.Environment[entry.Key] = entry.Value;
-		var process = new Process { StartInfo = info, EnableRaisingEvents = true };
-		process.Exited += (_, _) => {
-			int exitCode;
-			try {
-				exitCode = process.ExitCode;
-			} catch (InvalidOperationException) {
-				exitCode = -1;
-			}
-			var status = exitCode >= 0
-				? new AcpTerminalExit(exitCode, null)
-				: new AcpTerminalExit(null, "terminated");
-			processExited.TrySetResult(status);
-			launch.NotifyExited(exitCode);
-		};
-		try {
-			if (!process.Start()) {
-				throw new InvalidOperationException($"ACP terminal command '{_command}' did not start.");
-			}
-		} catch {
-			process.Dispose();
-			throw;
-		}
+		var process = OwnedProcess.Start(info);
 		lock (_gate) {
 			_process = process;
 		}
+		_ = process.ObserveExitAsync(exitCode => {
+			var status = new AcpTerminalExit(exitCode, null);
+			processExited.TrySetResult(status);
+			launch.NotifyExited(exitCode);
+		});
 		_started.TrySetResult();
 		var stdout = ReadAsync(process.StandardOutput);
 		var stderr = ReadAsync(process.StandardError);
@@ -303,7 +287,7 @@ internal sealed class AcpTerminal : IAsyncDisposable {
 	}
 
 	private void StopProcess() {
-		Process? process;
+		OwnedProcess? process;
 		lock (_gate) {
 			process = _process;
 			_process = null;

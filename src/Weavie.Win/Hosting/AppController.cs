@@ -34,7 +34,7 @@ internal sealed class AppController : ApplicationContext {
 
 	public AppController() {
 		// Tee the console into the in-app log viewer first, so every store's construction log below is captured too.
-		LogBuffer = LogBuffer.InstallConsoleCapture();
+		LogBuffer = LogBuffer.InstallConsoleCapture(WeaviePaths.HostLogFile);
 		Notifications = new WindowsNotificationService();
 
 		// User settings from ~/.weavie/settings.toml; the change hub windows react to (e.g. a shell change reopens

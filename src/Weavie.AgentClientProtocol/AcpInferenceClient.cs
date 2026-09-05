@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.Json;
 using Weavie.Core.Agents;
 using Weavie.Core.Inference;
+using Weavie.Core.Processes;
 
 namespace Weavie.AgentClientProtocol;
 
@@ -19,14 +20,14 @@ internal sealed partial class AcpInferenceClient : IAsyncDisposable {
 	private readonly ConcurrentDictionary<long, TaskCompletionSource<JsonElement>> _pending = new();
 	private readonly StringBuilder _reply = new();
 	private readonly Lock _replyGate = new();
-	private readonly Process _process;
+	private readonly OwnedProcess _process;
 	private long _nextId;
 	private int _replyBytes;
 	private int _maxReplyBytes = int.MaxValue;
 	private volatile bool _replyOverflowed;
 	private volatile bool _disposed;
 
-	private AcpInferenceClient(AcpAgentDefinition definition, Process process) {
+	private AcpInferenceClient(AcpAgentDefinition definition, OwnedProcess process) {
 		_definition = definition;
 		_process = process;
 	}
@@ -70,11 +71,7 @@ internal sealed partial class AcpInferenceClient : IAsyncDisposable {
 		foreach (string argument in arguments) info.ArgumentList.Add(argument);
 		foreach (var entry in definition.Environment) info.Environment[entry.Key] = entry.Value;
 
-		var process = new Process { StartInfo = info, EnableRaisingEvents = false };
-		if (!process.Start()) {
-			process.Dispose();
-			throw new InvalidOperationException($"ACP agent '{definition.Name}' did not start.");
-		}
+		var process = OwnedProcess.Start(info);
 
 		var client = new AcpInferenceClient(definition, process);
 		_ = client.ReadStdoutAsync();
@@ -83,7 +80,7 @@ internal sealed partial class AcpInferenceClient : IAsyncDisposable {
 	}
 
 	// Read stderr so a chatty agent cannot fill its pipe buffer and stall; inference never surfaces its content.
-	private static async Task DrainStderrAsync(Process process) {
+	private static async Task DrainStderrAsync(OwnedProcess process) {
 		try {
 			await process.StandardError.ReadToEndAsync().ConfigureAwait(false);
 		} catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException) {

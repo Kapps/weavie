@@ -21,16 +21,37 @@ public sealed class ExitJournalTests {
 	[Fact]
 	public void ARunThatStampedItsEnding_ReadsAsNothingToExplain() {
 		string path = IsolatedPath();
-		ExitJournal.MarkRunning(path);
-		ExitJournal.MarkEnded(path, "terminated by AppKit");
+		ExitJournal.MarkRunning(path, "run.log");
+		ExitJournal.MarkEnded(path, "terminated by AppKit", "run.log");
 
 		Assert.Null(ExitJournal.ReadUnfinishedRun(path));
 	}
 
 	[Fact]
+	public void ASignalledRun_RemainsVisibleOnNextLaunch() {
+		string path = IsolatedPath();
+		ExitJournal.MarkRunning(path, "run.log");
+		ExitJournal.MarkEnded(path, "signalled SIGTERM", "run.log");
+
+		Assert.StartsWith("signalled SIGTERM:", ExitJournal.ReadUnfinishedRun(path), StringComparison.Ordinal);
+	}
+
+	[Fact]
+	public void StartingAnotherRun_DoesNotOverwritePreservedExitEvidence() {
+		string current = IsolatedPath();
+		string previous = Path.ChangeExtension(current, "previous.log");
+		ExitJournal.MarkEnded(current, "signalled SIGHUP", "crashed-run.log");
+		Assert.True(ExitJournal.PreservePreviousRun(current, previous));
+		ExitJournal.MarkRunning(current, "new-run.log");
+		Assert.Contains("signalled SIGHUP", File.ReadAllText(previous), StringComparison.Ordinal);
+		Assert.Contains("crashed-run.log", File.ReadAllText(previous), StringComparison.Ordinal);
+		Assert.DoesNotContain("new-run.log", File.ReadAllText(previous), StringComparison.Ordinal);
+	}
+
+	[Fact]
 	public void ARunThatNeverEnded_ReadsBackAsUnfinished() {
 		string path = IsolatedPath();
-		ExitJournal.MarkRunning(path);
+		ExitJournal.MarkRunning(path, "run.log");
 
 		// Nothing stamped an ending, which is all a kill leaves behind — no exception, no report, no signal.
 		string? unfinished = ExitJournal.ReadUnfinishedRun(path);
@@ -56,13 +77,13 @@ public sealed class ExitJournalTests {
 		Directory.CreateDirectory(Path.GetDirectoryName(Path.GetDirectoryName(unwritable)!)!);
 		File.WriteAllText(Path.GetDirectoryName(unwritable)!, "not a directory");
 
-		Assert.False(ExitJournal.MarkRunning(unwritable));
+		Assert.False(ExitJournal.MarkRunning(unwritable, "run.log"));
 		Assert.Null(ExitJournal.ReadUnfinishedRun(unwritable));
 	}
 
 	[Fact]
 	public void AStartedJournal_KeepsItsSignalRegistrationsReachable() {
-		ExitJournal.Start(_ => { }, IsolatedPath());
+		ExitJournal.Start(_ => { }, IsolatedPath(), "run.log");
 
 		// A PosixSignalRegistration unregisters its handler when finalized, so dropping the return value would
 		// silently end the signal leg at the first collection — every signal would then read as an outside kill.

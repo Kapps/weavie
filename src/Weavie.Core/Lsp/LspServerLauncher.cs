@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text;
+using Weavie.Core.Processes;
 
 namespace Weavie.Core.Lsp;
 
@@ -28,8 +29,7 @@ public sealed class LspServerLauncher : ILspServerLauncher {
 			psi.ArgumentList.Add(arg);
 		}
 
-		var process = new Process { StartInfo = psi };
-		process.Start();
+		var process = OwnedProcess.Start(psi);
 		return new LspServerProcess(process, command.ServerPath, log);
 	}
 }

@@ -25,7 +25,7 @@ public sealed class WebDevServer : IDisposable {
 	// broken-dependency stack trace) instead of the host silently serving a stale bundle.
 	private readonly Queue<string> _recent = new();
 	private readonly ProcessSupervisor _supervisor;
-	private Process? _process;
+	private OwnedProcess? _process;
 	private int _port;
 	private string _probeUrl = string.Empty;
 
@@ -92,37 +92,21 @@ public sealed class WebDevServer : IDisposable {
 	/// <summary>Spawns a fresh Vite on this instance's port and wires its exit back to the supervisor. The
 	/// supervisor's <c>start</c> delegate; an exception here is treated by the supervisor as a failed launch.</summary>
 	private void StartProcess(SupervisedLaunch launch) {
-		var process = new Process {
-			StartInfo = new ProcessStartInfo {
-				// Spawn Vite directly, not via a pnpm/npm shim: the shim exits once Vite is up, severing the
-				// parent→child chain Kill(entireProcessTree) walks, so node(vite)/esbuild would orphan. --strictPort
-				// fails loud if the port was grabbed since we released it, rather than wandering.
-				FileName = "node",
-				Arguments = $"node_modules/vite/bin/vite.js --port {_port} --strictPort",
-				WorkingDirectory = _webDevRoot!,
-				UseShellExecute = false,
-				CreateNoWindow = true,
-				RedirectStandardOutput = true,
-				RedirectStandardError = true,
-			},
-			EnableRaisingEvents = true,
+		var info = new ProcessStartInfo {
+			FileName = "node",
+			WorkingDirectory = _webDevRoot!,
+			UseShellExecute = false,
+			CreateNoWindow = true,
+			RedirectStandardOutput = true,
+			RedirectStandardError = true,
 		};
-		process.OutputDataReceived += (_, e) => {
-			if (e.Data is not null) {
-				Emit(e.Data);
-			}
-		};
-		process.ErrorDataReceived += (_, e) => {
-			if (e.Data is not null) {
-				Emit(e.Data);
-			}
-		};
-		// Report through this launch's handle so a later restart's exit can't be misattributed (mirrors HeadlessLauncher).
-		process.Exited += (_, _) => launch.NotifyExited(SafeExitCode(process));
-		process.Start();
-		process.BeginOutputReadLine();
-		process.BeginErrorReadLine();
+		foreach (string argument in new[] { "node_modules/vite/bin/vite.js", "--port", _port.ToString(), "--strictPort" }) {
+			info.ArgumentList.Add(argument);
+		}
+		var process = OwnedProcess.Start(info);
 		_process = process;
+		_ = process.DrainLinesAsync(Emit, Emit);
+		_ = process.ObserveExitAsync(launch.NotifyExited);
 	}
 
 	/// <summary>Kills the current Vite tree. The supervisor's <c>stop</c> delegate; a safe no-op when idle.</summary>
@@ -135,7 +119,7 @@ public sealed class WebDevServer : IDisposable {
 		try {
 			if (!process.HasExited) {
 				process.Kill(entireProcessTree: true);
-				process.WaitForExit(3000);
+				process.WaitForExit();
 			}
 		} catch {
 			// Best-effort teardown — the host's kill-on-close Job Object reaps any survivor when the host exits.
@@ -189,13 +173,6 @@ public sealed class WebDevServer : IDisposable {
 		}
 	}
 
-	private static int SafeExitCode(Process process) {
-		try {
-			return process.HasExited ? process.ExitCode : -1;
-		} catch {
-			return -1;
-		}
-	}
 
 	/// <summary>Logs a line via the host's writer and keeps the last <see cref="RecentCap"/> lines for failure reports.</summary>
 	private void Emit(string line) {

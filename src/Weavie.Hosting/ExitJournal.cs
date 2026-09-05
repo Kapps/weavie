@@ -21,7 +21,10 @@ public static class ExitJournal {
 	// these would silently stop recording signals at the first GC — the very endings the journal exists to name.
 	private static readonly List<PosixSignalRegistration> Registrations = [];
 	private static int _installed;
+	private static readonly Lock EndingGate = new();
+	private static bool _signalRecorded;
 	private static string _path = string.Empty;
+	private static string _logFile = string.Empty;
 
 	/// <summary>
 	/// Marks this run live and returns how the previous run ended, or <see langword="null"/> when it ended
@@ -29,7 +32,8 @@ public static class ExitJournal {
 	/// </summary>
 	/// <param name="log">Sink for a one-line note when the previous run's ending is recovered.</param>
 	/// <param name="journalPath">Where the marker lives.</param>
-	public static string? Start(Action<string> log, string journalPath) {
+	/// <param name="logFile">This run's persistent console log.</param>
+	public static string? Start(Action<string> log, string journalPath, string logFile) {
 		ArgumentNullException.ThrowIfNull(log);
 		ArgumentException.ThrowIfNullOrEmpty(journalPath);
 		if (Interlocked.Exchange(ref _installed, 1) != 0) {
@@ -37,20 +41,31 @@ public static class ExitJournal {
 		}
 
 		_path = journalPath;
+		_logFile = logFile;
 
 		string? unfinished = ReadUnfinishedRun(journalPath);
 		if (unfinished is not null) {
-			log($"previous run ended without shutting down: {unfinished}");
+			PreviousEvidenceFile = Path.ChangeExtension(journalPath, "previous.log");
+			if (!PreservePreviousRun(journalPath, PreviousEvidenceFile)) {
+				PreviousEvidenceFile = logFile;
+				log("could not preserve the previous exit journal; recovered contents follow in this run's log");
+			}
+			log($"previous run ended unexpectedly: {unfinished}");
 		}
 
-		if (!MarkRunning(journalPath)) {
+		if (!MarkRunning(journalPath, logFile)) {
 			log($"could not mark this run live at {journalPath}; its ending will not be explained");
 		}
 
 		AppDomain.CurrentDomain.ProcessExit += (_, _) => Record("exited");
 		foreach (var signal in ObservableSignals) {
 			// Observed, never handled: the runtime's own disposition still applies, this only leaves the reason.
-			Registrations.Add(PosixSignalRegistration.Create(signal, context => Record($"signalled {context.Signal}")));
+			Registrations.Add(PosixSignalRegistration.Create(signal, context => {
+				lock (EndingGate) {
+					Record($"signalled {context.Signal}");
+					_signalRecorded = true;
+				}
+			}));
 		}
 
 		return unfinished;
@@ -63,20 +78,28 @@ public static class ExitJournal {
 	/// <param name="reason">What ended the run, in the words the next launch should show.</param>
 	public static void Record(string reason) {
 		ArgumentException.ThrowIfNullOrEmpty(reason);
-		if (Volatile.Read(ref _path) is { Length: > 0 } path) {
-			MarkEnded(path, reason);
+		lock (EndingGate) {
+			if (!_signalRecorded && Volatile.Read(ref _path) is { Length: > 0 } path) {
+				MarkEnded(path, reason, _logFile);
+			}
 		}
 	}
 
 	/// <summary>The signal registrations this journal is holding open, so a test can pin that it still holds them.</summary>
 	internal static IReadOnlyList<PosixSignalRegistration> HeldRegistrations => Registrations;
 
-	/// <summary>The previous run's live marker when it never stamped an ending, else null.</summary>
+	/// <summary>The previous run's signal or unfinished live marker, else null.</summary>
 	internal static string? ReadUnfinishedRun(string journalPath) {
 		try {
 			if (!File.Exists(journalPath)
-				|| File.ReadAllText(journalPath).Trim() is not { Length: > 0 } previous
-				|| !previous.StartsWith(LiveMarker, StringComparison.Ordinal)) {
+				|| File.ReadAllText(journalPath).Trim() is not { Length: > 0 } previous) {
+				return null;
+			}
+
+			if (previous.StartsWith("signalled ", StringComparison.Ordinal)) {
+				return previous;
+			}
+			if (!previous.StartsWith(LiveMarker, StringComparison.Ordinal)) {
 				return null;
 			}
 
@@ -105,11 +128,23 @@ public static class ExitJournal {
 		}
 	}
 
-	internal static bool MarkRunning(string journalPath) =>
-		Write(journalPath, $"{LiveMarker} pid {Environment.ProcessId}, since {DateTimeOffset.Now:o}");
+	/// <summary>The preserved evidence for the unexpected prior run.</summary>
+	public static string PreviousEvidenceFile { get; private set; } = string.Empty;
 
-	internal static void MarkEnded(string journalPath, string reason) =>
-		Write(journalPath, $"{reason}: {DateTimeOffset.Now:o}");
+	internal static bool PreservePreviousRun(string journalPath, string previousPath) {
+		try {
+			File.Copy(journalPath, previousPath, overwrite: true);
+			return true;
+		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+			return false;
+		}
+	}
+
+	internal static bool MarkRunning(string journalPath, string logFile) =>
+		Write(journalPath, $"{LiveMarker} pid {Environment.ProcessId}, since {DateTimeOffset.Now:o}\nconsole log: {logFile}");
+
+	internal static void MarkEnded(string journalPath, string reason, string logFile) =>
+		Write(journalPath, $"{reason}: {DateTimeOffset.Now:o}\nconsole log: {logFile}");
 
 	private static bool Write(string journalPath, string entry) {
 		try {

@@ -1,42 +1,39 @@
-// Tiny native shim for the two PTY operations managed code cannot do safely on Apple Silicon / macOS.
-//
-// (1) weavie_set_winsize — resize a tty. ioctl(fd, TIOCSWINSZ, &winsize) goes through libc's variadic
-//     ioctl (int ioctl(int, unsigned long, ...)); on arm64-apple variadic arguments are passed on the
-//     stack, but a fixed-signature P/Invoke hands the pointer in a register, so the kernel reads a
-//     garbage pointer and the resize is dropped (a full-screen TUI like claude stays blank at 0x0).
-//     C#'s only varargs syntax (__arglist) is rejected by CoreCLR on arm64. Issuing the ioctl from C
-//     lays the variadic call out correctly.
-//
-// (2) weavie_pty_spawn — launch a child in a fresh PTY whose slave is the child's CONTROLLING terminal.
-//     Interactive shells (nushell, fish, …) abort with "no TTY for interactive shell" without one. On
-//     macOS, unlike Linux, a session leader does NOT acquire the controlling tty merely by opening the
-//     slave after setsid — it needs ioctl(TIOCSCTTY), and there is no posix_spawn file-action for that.
-//     forkpty(3)'s login_tty() does setsid + TIOCSCTTY + dup the slave onto stdin/stdout/stderr in one
-//     shot. We can't call fork() from the managed runtime (only the calling thread survives the fork and
-//     almost nothing is async-signal-safe afterwards), so the fork+login_tty+exec sequence is issued
-//     here in C, where only async-signal-safe calls run between fork and exec.
+// macOS PTY operations stay native so variadic ioctl follows the Apple Silicon ABI.
 #include <sys/ioctl.h>
-#include <sys/types.h>
+#include <sys/wait.h>
 #include <termios.h>
 #include <util.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <signal.h>
+#include <spawn.h>
+#include <stdlib.h>
+#include "weavie_spawn.h"
 
 int weavie_set_winsize(int fd, unsigned short rows, unsigned short cols) {
-	struct winsize ws;
-	ws.ws_row = rows;
-	ws.ws_col = cols;
-	ws.ws_xpixel = 0;
-	ws.ws_ypixel = 0;
+	struct winsize ws = { .ws_row = rows, .ws_col = cols };
 	return ioctl(fd, TIOCSWINSZ, &ws);
 }
 
-// Spawns `path` (argv[0] should equal it; neither this nor posix_spawn searches PATH) in a new PTY,
-// with `envp` as the entire environment and `cwd` as the working directory (NULL/empty = inherit).
-// argv and envp are NULL-terminated char** arrays. On success returns 0 and writes the master fd and
-// child pid; on failure returns a negative errno and writes neither output.
-int weavie_pty_spawn(const char *path,
+static int await_exec(int fd) {
+	int error = 0;
+	size_t received = 0;
+	while (received < sizeof(error)) {
+		ssize_t count = read(fd, (char *)&error + received, sizeof(error) - received);
+		if (count < 0) {
+			if (errno == EINTR) continue;
+			return errno;
+		}
+		if (count == 0) return received == 0 ? 0 : EIO;
+		received += (size_t)count;
+	}
+	return error == 0 ? EIO : error;
+}
+
+// The host never forks: only a fresh executable may acquire the child's controlling terminal.
+// Returns a negative errno on failure; ownership transfers only on success.
+int weavie_pty_spawn(const char *launcher,
                      char *const argv[],
                      char *const envp[],
                      const char *cwd,
@@ -44,33 +41,49 @@ int weavie_pty_spawn(const char *path,
                      unsigned short cols,
                      int *out_master,
                      int *out_pid) {
-	struct winsize ws;
-	ws.ws_row = rows;
-	ws.ws_col = cols;
-	ws.ws_xpixel = 0;
-	ws.ws_ypixel = 0;
+	int master = -1, slave = -1, status[2] = { -1, -1 };
+	int error = 0;
+	pid_t pid = -1;
+	struct winsize ws = { .ws_row = rows, .ws_col = cols };
+	if (openpty(&master, &slave, NULL, NULL, &ws) != 0) return -errno;
+	master = weavie_own_fd(master);
+	if (master < 0) { error = errno; goto cleanup; }
+	slave = weavie_own_fd(slave);
+	if (slave < 0) { error = errno; goto cleanup; }
+	if (pipe(status) != 0) { error = errno; goto cleanup; }
+	status[0] = weavie_own_fd(status[0]);
+	if (status[0] < 0) { error = errno; goto cleanup; }
+	status[1] = weavie_own_fd(status[1]);
+	if (status[1] < 0) { error = errno; goto cleanup; }
 
-	int master = -1;
-	pid_t pid = forkpty(&master, NULL, NULL, &ws);
-	if (pid < 0) {
-		return -errno;
+	size_t argc = 0;
+	while (argv[argc] != NULL) argc++;
+	char **args = calloc(argc + 2, sizeof(char *));
+	if (args == NULL) { error = ENOMEM; goto cleanup; }
+	args[0] = (char *)launcher;
+	for (size_t i = 0; i < argc; i++) args[i + 1] = argv[i];
+
+	int fds[] = { slave, slave, slave, status[1] };
+	error = weavie_spawn_isolated(launcher, args, envp, cwd, fds, 4, &pid);
+	free(args);
+	if (error != 0) goto cleanup;
+	close(slave);
+	slave = -1;
+	close(status[1]);
+	status[1] = -1;
+	error = await_exec(status[0]);
+	if (error != 0) {
+		kill(pid, SIGKILL);
+		while (waitpid(pid, NULL, 0) < 0 && errno == EINTR) {}
+		goto cleanup;
 	}
-
-	if (pid == 0) {
-		// Child. forkpty already closed the master, called setsid(), made the slave our controlling
-		// terminal, and dup'd it onto stdin/stdout/stderr. Only chdir + exec remain — both
-		// async-signal-safe, the one constraint on the post-fork child.
-		if (cwd != NULL && cwd[0] != '\0' && chdir(cwd) != 0) {
-			_exit(127);
-		}
-		execve(path, argv, envp);
-		_exit(127); // exec failed
-	}
-
-	// Parent. Keep the master from leaking into any child we exec later (the next terminal); macOS's
-	// openpty does not set close-on-exec on it.
-	fcntl(master, F_SETFD, FD_CLOEXEC);
 	*out_master = master;
 	*out_pid = pid;
-	return 0;
+	master = -1;
+cleanup:
+	if (master >= 0) close(master);
+	if (slave >= 0) close(slave);
+	if (status[0] >= 0) close(status[0]);
+	if (status[1] >= 0) close(status[1]);
+	return -error;
 }

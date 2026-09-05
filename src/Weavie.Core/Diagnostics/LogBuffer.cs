@@ -13,9 +13,14 @@ public sealed class LogBuffer {
 	private readonly Queue<string> _lines;
 	private readonly Lock _gate = new();
 	private int _dropped;
+	private readonly ILogSink _sink;
+	private bool _failureReported;
 
 	/// <summary>Creates a ring holding the most recent <paramref name="capacity"/> lines.</summary>
-	public LogBuffer(int capacity) {
+	public LogBuffer(int capacity) : this(capacity, NoopLogSink.Instance) { }
+
+	internal LogBuffer(int capacity, ILogSink sink) {
+		_sink = sink;
 		ArgumentOutOfRangeException.ThrowIfNegativeOrZero(capacity);
 		_capacity = capacity;
 		_lines = new Queue<string>(capacity);
@@ -25,7 +30,12 @@ public sealed class LogBuffer {
 	public void Append(string line) {
 		ArgumentNullException.ThrowIfNull(line);
 		lock (_gate) {
+			_sink.Append(line);
 			_lines.Enqueue(line);
+			if (!_failureReported && _sink.Failure.Length > 0) {
+				_failureReported = true;
+				_lines.Enqueue($"[diagnostics] Could not save logs to {_sink.Path}: {_sink.Failure}");
+			}
 			while (_lines.Count > _capacity) {
 				_lines.Dequeue();
 				_dropped++;
@@ -40,6 +50,11 @@ public sealed class LogBuffer {
 		}
 	}
 
+	/// <summary>The current run's persistent console log, or empty for an in-memory test buffer.</summary>
+	public string PersistentFile => _sink.Path;
+	/// <summary>The failure preventing a complete persistent log, or empty when logging is healthy.</summary>
+	public string PersistenceFailure => _sink.Failure;
+
 	/// <summary>
 	/// Wraps <paramref name="inner"/> in a writer that mirrors every completed line into this buffer, then forwards
 	/// the write on unchanged — so a console still shows its output while this buffer keeps a copy.
@@ -51,8 +66,8 @@ public sealed class LogBuffer {
 	/// unchanged) and returns it. Call once, from a host entry point — never a test, since it mutates process-global
 	/// Console.
 	/// </summary>
-	public static LogBuffer InstallConsoleCapture() {
-		var buffer = new LogBuffer(DefaultCapacity);
+	public static LogBuffer InstallConsoleCapture(string path) {
+		var buffer = new LogBuffer(DefaultCapacity, new FileLogSink(path));
 		Console.SetOut(buffer.Tee(Console.Out));
 		Console.SetError(buffer.Tee(Console.Error));
 		return buffer;

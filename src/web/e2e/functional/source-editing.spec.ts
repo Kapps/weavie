@@ -139,6 +139,9 @@ test.describe("editing", () => {
   // https://github.com/Kapps/weavie/actions/runs/33944125668/job/101248419807
   // Fixed at the source in src/web/src/editor/focus-on-mount.ts (skip the steal when the shadow tree already
   // owns focus) rather than here.
+  //
+  // Flaked again 2026-09-05 06:24 UTC, same symptom, a different focus thief (App.tsx's focusVisibleOverlay,
+  // fixed there the same way): https://github.com/Kapps/weavie/actions/runs/33949266641/job/101261247197
   test("an unsaved block draft survives a session switch and clears after save", async ({
     page,
   }) => {

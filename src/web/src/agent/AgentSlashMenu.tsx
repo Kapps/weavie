@@ -29,7 +29,6 @@ export function AgentSlashMenu(props: {
       }
     },
     onDismiss: () => props.onDismiss(),
-    stopPropagation: true,
   });
   // A new filter (each keystroke) re-homes the highlight to the top.
   createEffect(() => {
@@ -56,12 +55,12 @@ export function AgentSlashMenu(props: {
         <For each={props.entries}>
           {(entry, index) => (
             <div
+              {...nav.row(index())}
               class="agent-slash-option"
               role="option"
               tabindex={-1}
               aria-selected={index() === nav.index()}
               classList={{ active: index() === nav.index() }}
-              onMouseEnter={() => nav.setIndex(index())}
               onPointerDown={(event) => {
                 event.preventDefault();
                 props.onAccept(entry, entry.kind === "weavieCommand" || entry.inputHint === null);

@@ -82,8 +82,6 @@ export function OpenPrPrompt(props: {
     acceptKeys: ["Enter"],
     onAccept: () => openTarget(selected()),
     onDismiss: () => props.onCancel(),
-    stopPropagation: true,
-    clampIndex: true,
   });
   // A typed #N / URL beats the highlighted row: Enter opens it directly, list or not.
   const selected = (): OpenPrTarget | undefined => directRef() ?? targetOf(results()[nav.index()]);
@@ -164,6 +162,7 @@ export function OpenPrPrompt(props: {
             <For each={results()}>
               {(pr, i) => (
                 <li
+                  {...nav.row(i())}
                   class="session-prompt-suggestion"
                   classList={{ active: i() === nav.index() }}
                   title={`Open #${pr.number}`}

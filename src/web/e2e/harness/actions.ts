@@ -64,11 +64,7 @@ export async function openFile(page: Page, name: string): Promise<void> {
   }
 }
 
-export async function clickOmnibarRowThroughToast(
-  page: Page,
-  rows: Locator,
-  toast: Locator,
-): Promise<void> {
+export async function clickOmnibarRowThroughToast(rows: Locator, toast: Locator): Promise<void> {
   const toastElement = await toast.elementHandle();
   if (toastElement === null) {
     throw new Error("The toast must be attached.");
@@ -82,7 +78,13 @@ export async function clickOmnibarRowThroughToast(
       const top = Math.max(rowBounds.top, toastBounds.top);
       const bottom = Math.min(rowBounds.bottom, toastBounds.bottom);
       if (right > left && bottom > top) {
-        return { center: { x: (left + right) / 2, y: (top + bottom) / 2 }, index };
+        const x = (left + right) / 2;
+        const y = (top + bottom) / 2;
+        return {
+          index,
+          position: { x: x - rowBounds.left, y: y - rowBounds.top },
+          ownsHit: document.elementFromPoint(x, y)?.closest(".tb-omnibar-row") === element,
+        };
       }
     }
     return null;
@@ -91,12 +93,8 @@ export async function clickOmnibarRowThroughToast(
   if (covered === null) {
     throw new Error("No omnibar result is covered by the toast.");
   }
-  const row = rows.nth(covered.index);
-  const ownsHit = await row.evaluate((element, center) => {
-    return document.elementFromPoint(center.x, center.y)?.closest(".tb-omnibar-row") === element;
-  }, covered.center);
-  expect(ownsHit).toBe(true);
-  await page.mouse.click(covered.center.x, covered.center.y);
+  expect(covered.ownsHit).toBe(true);
+  await rows.nth(covered.index).click({ position: covered.position });
 }
 
 // Wait until Monaco has actually drawn the file, not merely bound it. Two things can leave the editor holding
@@ -217,4 +215,22 @@ export async function clickIntoEditor(page: Page): Promise<void> {
 export async function typeInEditor(page: Page, text: string): Promise<void> {
   await awaitEditorReady(page);
   await page.keyboard.type(text);
+}
+
+// Monaco binds "go to start/end of file" per platform, and its `mac` entry *replaces* the primary rather than
+// adding to it (`coreCommands.js`: cursorTop/cursorBottom), so ⌘Home and ⌘End are bound to nothing on macOS.
+// `ControlOrMeta+Home`/`+End` therefore silently no-ops there, leaving the caret wherever it was.
+const documentNavKeys =
+  process.platform === "darwin"
+    ? { start: "Meta+ArrowUp", end: "Meta+ArrowDown" }
+    : { start: "Control+Home", end: "Control+End" };
+
+/** Moves the caret to the start of the focused editor's document. */
+export function pressDocumentStart(page: Page): Promise<void> {
+  return page.keyboard.press(documentNavKeys.start);
+}
+
+/** Moves the caret to the end of the focused editor's document. */
+export function pressDocumentEnd(page: Page): Promise<void> {
+  return page.keyboard.press(documentNavKeys.end);
 }

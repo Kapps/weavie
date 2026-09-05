@@ -41,7 +41,7 @@ public sealed class RecentWorkspaces : JsonDocumentStore {
 		ArgumentException.ThrowIfNullOrEmpty(rootPath);
 		string full = Path.GetFullPath(rootPath);
 		lock (Gate) {
-			_items.RemoveAll(p => PathsEqual(p, full));
+			_items.RemoveAll(p => PathIdentity.Equals(p, full));
 			_items.Insert(0, full);
 			if (_items.Count > MaxItems) {
 				_items.RemoveRange(MaxItems, _items.Count - MaxItems);
@@ -59,7 +59,7 @@ public sealed class RecentWorkspaces : JsonDocumentStore {
 		string full = Path.GetFullPath(rootPath);
 		bool removed;
 		lock (Gate) {
-			removed = _items.RemoveAll(p => PathsEqual(p, full)) > 0;
+			removed = _items.RemoveAll(p => PathIdentity.Equals(p, full)) > 0;
 			if (removed) {
 				PersistLocked();
 			}
@@ -80,11 +80,6 @@ public sealed class RecentWorkspaces : JsonDocumentStore {
 	protected override string Render() =>
 		JsonSerializer.Serialize(new RecentsDocument { Version = 1, Recents = _items }, JsonOptions);
 
-	private static bool PathsEqual(string a, string b) =>
-		string.Equals(
-			a.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
-			b.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
-			OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
 
 	private sealed class RecentsDocument {
 		[JsonPropertyName("version")]

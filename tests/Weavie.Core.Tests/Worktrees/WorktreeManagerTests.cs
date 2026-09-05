@@ -454,6 +454,75 @@ public sealed class WorktreeManagerTests : IDisposable {
 		}
 	}
 
+	[Fact]
+	public async Task List_RegistryRowCasedUnlikeGitsWorktree_IsReportedGone() {
+		if (OperatingSystem.IsWindows()) return;
+		var (manager, registry, git) = NewManager();
+		// git tracks ".../Feature" while the registry row points at ".../feature" — a different directory off
+		// Windows. Treating them as one checkout hid the row's worktree as still present, so it never pruned.
+		git.Worktrees.Add(new GitWorktree {
+			Path = Path.Combine(WorktreesDir, "Feature"),
+			Branch = "Feature",
+			Head = "a",
+		});
+		registry.Add(new WorktreeRecord {
+			Branch = "feature",
+			Path = Path.Combine(WorktreesDir, "feature"),
+			BaseRef = "main",
+			CreatedAtUtc = DateTimeOffset.UnixEpoch,
+			AgentProviderId = "acp",
+		});
+
+		var statuses = await manager.ListAsync();
+
+		Assert.False(statuses.Single(s => s.Branch == "feature").Exists);
+		Assert.True(statuses.Single(s => s.Branch == "Feature").Exists);
+	}
+
+	[Fact]
+	public async Task List_WorktreeCasedLikeTheRepoRoot_IsNotThePrimaryCheckout() {
+		if (OperatingSystem.IsWindows()) return;
+		var (manager, _, git) = NewManager();
+		// A distinct checkout whose path differs from the repo root only in case was reported as the primary
+		// one, which suppresses its dirty and merged probes and blocks removing it.
+		string shouty = Path.Combine(Path.GetTempPath(), "weavie-wt-mgr-tests", "REPO");
+		git.Worktrees.Add(new GitWorktree { Path = shouty, Branch = "feature", Head = "b" });
+
+		var statuses = await manager.ListAsync();
+
+		Assert.False(statuses.Single(s => s.Path == shouty).IsPrimary);
+		Assert.Equal(1, statuses.Count(s => s.IsPrimary));
+	}
+
+	[Fact]
+	public async Task Remove_DirectoryUnderACaseDifferingWorktreesDir_IsNotOurs_AndSurvives() {
+		if (OperatingSystem.IsWindows()) return;
+		var (manager, registry, _) = NewManager();
+		// The managed dir is ".../worktrees"; this path sits under ".../WORKTREES", a different directory off
+		// Windows. Judging it "ours" would hand-delete a tree Weavie never provisioned.
+		string foreignPath = Path.Combine(
+			Path.GetTempPath(), "weavie-wt-mgr-tests", "WORKTREES", "case-" + Guid.NewGuid().ToString("n"));
+		Directory.CreateDirectory(foreignPath);
+		try {
+			registry.Add(new WorktreeRecord {
+				Branch = "foreign",
+				Path = foreignPath,
+				BaseRef = "main",
+				CreatedAtUtc = DateTimeOffset.UnixEpoch,
+				AgentProviderId = "acp",
+			});
+
+			await Assert.ThrowsAsync<WorktreeOrphanException>(
+				() => manager.RemoveAsync(foreignPath, deleteBranch: false, force: true));
+
+			Assert.True(Directory.Exists(foreignPath));
+		} finally {
+			if (Directory.Exists(foreignPath)) {
+				Directory.Delete(foreignPath, recursive: true);
+			}
+		}
+	}
+
 	/// <summary>An in-memory <see cref="IGitService"/> with controllable branches, worktrees, dirty paths, and merge state.</summary>
 	private sealed class FakeGitService : IGitService {
 		public HashSet<string> Branches { get; } = new(StringComparer.Ordinal);
@@ -584,10 +653,6 @@ public sealed class WorktreeManagerTests : IDisposable {
 			return Task.CompletedTask;
 		}
 
-		private static bool PathEquals(string a, string b) =>
-			string.Equals(
-				Path.GetFullPath(a).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
-				Path.GetFullPath(b).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
-				StringComparison.OrdinalIgnoreCase);
+		private static bool PathEquals(string a, string b) => PathIdentity.Equals(a, b);
 	}
 }

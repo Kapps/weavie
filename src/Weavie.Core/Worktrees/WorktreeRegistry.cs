@@ -38,7 +38,7 @@ public sealed class WorktreeRegistry : JsonDocumentStore {
 	public void Add(WorktreeRecord record) {
 		ArgumentNullException.ThrowIfNull(record);
 		lock (Gate) {
-			_items.RemoveAll(r => PathsEqual(r.Path, record.Path));
+			_items.RemoveAll(r => PathIdentity.Equals(r.Path, record.Path));
 			_items.Add(record);
 			PersistLocked();
 		}
@@ -51,7 +51,7 @@ public sealed class WorktreeRegistry : JsonDocumentStore {
 		ArgumentException.ThrowIfNullOrEmpty(path);
 		bool removed;
 		lock (Gate) {
-			removed = _items.RemoveAll(r => PathsEqual(r.Path, path)) > 0;
+			removed = _items.RemoveAll(r => PathIdentity.Equals(r.Path, path)) > 0;
 			if (removed) {
 				PersistLocked();
 			}
@@ -66,7 +66,7 @@ public sealed class WorktreeRegistry : JsonDocumentStore {
 	public WorktreeRecord? FindByPath(string path) {
 		ArgumentException.ThrowIfNullOrEmpty(path);
 		lock (Gate) {
-			return _items.FirstOrDefault(r => PathsEqual(r.Path, path));
+			return _items.FirstOrDefault(r => PathIdentity.Equals(r.Path, path));
 		}
 	}
 
@@ -107,11 +107,6 @@ public sealed class WorktreeRegistry : JsonDocumentStore {
 		},
 		JsonOptions);
 
-	private static bool PathsEqual(string a, string b) =>
-		string.Equals(
-			Path.GetFullPath(a).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
-			Path.GetFullPath(b).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
-			OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
 
 	private static WorktreeRecord ParseEntry(WorktreeEntry entry) {
 		if (string.IsNullOrWhiteSpace(entry.Branch)

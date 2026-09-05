@@ -8,10 +8,6 @@ namespace Weavie.Core.Worktrees;
 /// enforced by the managed directory; the registry supplies metadata and is repaired when lost.
 /// </summary>
 public sealed class WorktreeManager {
-	// One OS-independent case-insensitive comparer: paths are compared only for identity and containment, Weavie
-	// never makes two worktrees differing only in case, and it matches git reporting the primary checkout's casing.
-	private static readonly StringComparer PathComparer = StringComparer.OrdinalIgnoreCase;
-
 	private readonly IGitService _git;
 	private readonly IWorktreeProvisioner _provisioner;
 	private readonly string _repositoryRoot;
@@ -58,7 +54,7 @@ public sealed class WorktreeManager {
 		await _git.AddWorktreeAsync(_repositoryRoot, path, branch, baseRef, ct).ConfigureAwait(false);
 		var record = new WorktreeRecord {
 			Branch = branch,
-			Path = Normalize(path),
+			Path = PathIdentity.Normalize(path),
 			BaseRef = baseRef,
 			CreatedAtUtc = DateTimeOffset.UtcNow,
 			AgentProviderId = agentProviderId,
@@ -86,7 +82,7 @@ public sealed class WorktreeManager {
 		await _git.AttachWorktreeAsync(_repositoryRoot, path, branch, ct).ConfigureAwait(false);
 		var record = new WorktreeRecord {
 			Branch = branch,
-			Path = Normalize(path),
+			Path = PathIdentity.Normalize(path),
 			// No distinct base; record the branch itself. Persisted bookkeeping only, nothing branches on it.
 			BaseRef = branch,
 			CreatedAtUtc = DateTimeOffset.UtcNow,
@@ -103,19 +99,19 @@ public sealed class WorktreeManager {
 	public async Task<IReadOnlyList<WorktreeStatus>> ListAsync(CancellationToken ct = default) {
 		var gitWorktrees = await _git.ListWorktreesAsync(_repositoryRoot, ct).ConfigureAwait(false);
 		string? defaultBranch = await _git.ResolveDefaultBranchAsync(_repositoryRoot, ct).ConfigureAwait(false);
-		string normalizedRoot = Normalize(_repositoryRoot);
+		string normalizedRoot = PathIdentity.Normalize(_repositoryRoot);
 
 		var result = new List<WorktreeStatus>();
-		var seen = new HashSet<string>(PathComparer);
+		var seen = new HashSet<string>(PathIdentity.Comparer);
 		foreach (var worktree in gitWorktrees) {
 			if (worktree.IsBare) {
 				continue;
 			}
 
-			string normalized = Normalize(worktree.Path);
+			string normalized = PathIdentity.Normalize(worktree.Path);
 			seen.Add(normalized);
 			var record = Registry.FindByPath(normalized);
-			bool isPrimary = PathComparer.Equals(normalized, normalizedRoot);
+			bool isPrimary = PathIdentity.Comparer.Equals(normalized, normalizedRoot);
 			bool isManaged = record is not null || (!isPrimary && IsWithinWorktreesDir(normalized));
 			bool exists = !worktree.IsPrunable;
 			bool isDirty = exists && !isPrimary && await _git.HasUncommittedChangesAsync(worktree.Path, ct).ConfigureAwait(false);
@@ -140,7 +136,7 @@ public sealed class WorktreeManager {
 		}
 
 		foreach (var record in Registry.Items) {
-			if (seen.Contains(Normalize(record.Path))) {
+			if (seen.Contains(PathIdentity.Normalize(record.Path))) {
 				continue;
 			}
 
@@ -165,7 +161,7 @@ public sealed class WorktreeManager {
 	public void RecoverOwnedRecord(WorktreeStatus status, string agentProviderId) {
 		ArgumentNullException.ThrowIfNull(status);
 		ArgumentException.ThrowIfNullOrEmpty(agentProviderId);
-		string normalized = Normalize(status.Path);
+		string normalized = PathIdentity.Normalize(status.Path);
 		if (Registry.FindByPath(normalized) is not null) {
 			return;
 		}
@@ -192,11 +188,11 @@ public sealed class WorktreeManager {
 	/// </summary>
 	public async Task RemoveAsync(string path, bool deleteBranch, bool force, CancellationToken ct = default) {
 		ArgumentException.ThrowIfNullOrEmpty(path);
-		string normalized = Normalize(path);
+		string normalized = PathIdentity.Normalize(path);
 		var record = Registry.FindByPath(normalized);
 
 		var gitWorktrees = await _git.ListWorktreesAsync(_repositoryRoot, ct).ConfigureAwait(false);
-		bool existsInGit = gitWorktrees.Any(w => PathComparer.Equals(Normalize(w.Path), normalized));
+		bool existsInGit = gitWorktrees.Any(w => PathIdentity.Comparer.Equals(PathIdentity.Normalize(w.Path), normalized));
 		if (existsInGit) {
 			if (!force && await _git.HasUncommittedChangesAsync(path, ct).ConfigureAwait(false)) {
 				throw new WorktreeDirtyException(path);
@@ -300,7 +296,7 @@ public sealed class WorktreeManager {
 	}
 
 	private async Task DeleteDirectoryWithRetryAsync(string dir, CancellationToken ct) {
-		string normalized = Normalize(dir);
+		string normalized = PathIdentity.Normalize(dir);
 		// Defense in depth for a destructive op: callers already guard, but never delete outside the worktrees dir.
 		if (!IsWithinWorktreesDir(normalized)) {
 			throw new InvalidOperationException(
@@ -357,8 +353,8 @@ public sealed class WorktreeManager {
 	// Weavie only places worktrees here, so a path inside it that git can't remove is safe to delete directly.
 	private bool IsWithinWorktreesDir(string normalizedPath) =>
 		// Strictly inside — never the worktrees dir itself, so this guard can't authorize deleting that root.
-		!PathComparer.Equals(normalizedPath, Normalize(_worktreesDir))
-		&& PathBoundary.Contains(_worktreesDir, normalizedPath);
+		!PathIdentity.Comparer.Equals(normalizedPath, PathIdentity.Normalize(_worktreesDir))
+		&& PathBoundary.Contains(_worktreesDir, normalizedPath, PathIdentity.Comparison);
 
 	// Whether git's failure is a transient OS file lock (worth retrying) rather than a real error; anything else is surfaced.
 	private static bool IsTransientFileLock(GitException ex) =>
@@ -380,7 +376,7 @@ public sealed class WorktreeManager {
 		int pruned = 0;
 		foreach (var status in statuses) {
 			if (!status.Exists && Registry.FindByPath(status.Path) is not null) {
-				Registry.Remove(Normalize(status.Path));
+				Registry.Remove(PathIdentity.Normalize(status.Path));
 				pruned++;
 			}
 		}
@@ -396,10 +392,10 @@ public sealed class WorktreeManager {
 
 	private string AllocatePath(string branch) {
 		string slug = Slugify(branch);
-		var taken = new HashSet<string>(Registry.Items.Select(r => Normalize(r.Path)), PathComparer);
+		var taken = new HashSet<string>(Registry.Items.Select(r => PathIdentity.Normalize(r.Path)), PathIdentity.Comparer);
 		string candidate = Path.Combine(_worktreesDir, slug);
 		int suffix = 2;
-		while (taken.Contains(Normalize(candidate)) || Directory.Exists(candidate)) {
+		while (taken.Contains(PathIdentity.Normalize(candidate)) || Directory.Exists(candidate)) {
 			candidate = Path.Combine(_worktreesDir, $"{slug}-{suffix}");
 			suffix++;
 		}
@@ -412,7 +408,4 @@ public sealed class WorktreeManager {
 		string slug = new string(chars).Trim('-', '.');
 		return slug.Length == 0 ? "session" : slug;
 	}
-
-	private static string Normalize(string path) =>
-		Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
 }

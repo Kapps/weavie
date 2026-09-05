@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
-import { openFile, runCommand } from "../harness/actions";
+import { openFile, pressDocumentEnd, runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import type { EditorHandle, ModelHandle, WeavieWindow } from "../harness/weavie-window";
 
@@ -187,14 +187,8 @@ test.describe("annotating every run", () => {
 test("the cursor on a blank line is left unannotated", async ({ page }) => {
   await openFile(page, "hello.ts");
   await expect(page.locator(".weavie-blame")).toHaveCount(1);
-  // 2026-09-05, CI runs 33942334105 and 33944469988 (both e2e macos shard 4/6): flaked on
-  // `getPosition()!.lineNumber` still reading line 1 after ControlOrMeta+End. openFile never focuses the
-  // editor itself. Clicking a `.view-line` (clickIntoEditor, as every sibling test does before a keybinding)
-  // did not fix it: this test synchronizes on the blame decoration landing first, and Monaco was still
-  // recycling that line's DOM node for the annotation at the moment of the click, so the click's target
-  // could already be detached. Focusing through the editor's own API sidesteps that node entirely.
-  await page.evaluate(() => (window as WeavieWindow).__WEAVIE_EDITOR__?.focus());
-  await page.keyboard.press("ControlOrMeta+End");
+
+  await pressDocumentEnd(page);
   expect(
     await page.evaluate(() => {
       const editor = (window as WeavieWindow).__WEAVIE_EDITOR__ as EditorHandle;

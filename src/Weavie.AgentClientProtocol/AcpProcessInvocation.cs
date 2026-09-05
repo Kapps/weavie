@@ -30,7 +30,15 @@ internal sealed partial record AcpProcessInvocation(string Command, IReadOnlyLis
 		string[] arguments = [.. definition.Arguments, .. additionalArguments];
 		if (definition.Distribution != "npx") return new AcpProcessInvocation(command, arguments);
 		if (arguments.Length >= 2 && arguments[0] == "--yes") {
-			arguments[1] = BoundNpmPackageSpec(arguments[1]);
+			arguments = [
+				"--yes",
+				"--no-audit",
+				"--no-fund",
+				"--no-update-notifier",
+				"--",
+				BoundNpmPackageSpec(arguments[1]),
+				.. arguments[2..],
+			];
 		}
 		if (windows) {
 			command = ResolveNpxOnPath(pathValue, workingDirectory);

@@ -30,7 +30,8 @@ under `~/.weavie/acp/installations.json`:
 
 - `binary` downloads the current platform archive, verifies its SHA-256 digest, safely extracts it under
   `~/.weavie/acp/packages/`, and launches the declared binary;
-- `npx` launches with `npx --yes <package>@<=<registry-version> ...`, treating an exact registry version as
+- `npx` launches with `npx --yes --no-audit --no-fund --no-update-notifier --` followed by
+  `<package>@<=<registry-version> ...`, treating an exact registry version as
   the approved ceiling so npm can select the newest release allowed by the user's release-age policy;
 - `uvx` launches the registry's exact `uvx <package> ...` recipe.
 

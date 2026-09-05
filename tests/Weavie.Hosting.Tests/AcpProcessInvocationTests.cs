@@ -18,7 +18,7 @@ public sealed class AcpProcessInvocationTests {
 		Assert.Equal(expected, AcpProcessInvocation.BoundNpmPackageSpec(packageSpec));
 
 	[Fact]
-	public void PersistedExactNpxRecipeResolvesToABoundedInvocation() {
+	public void PersistedNpxRecipeDisablesAuxiliaryRequestsAndBoundsTheVersion() {
 		var definition = new AcpAgentDefinition {
 			Id = "sample",
 			Name = "Sample",
@@ -36,7 +36,17 @@ public sealed class AcpProcessInvocationTests {
 			pathValue: string.Empty);
 
 		Assert.Equal("npx", invocation.Command);
-		Assert.Equal(["--yes", "@scope/agent@<=1.2.3", "--stdio"], invocation.Arguments);
+		Assert.Equal(
+			[
+				"--yes",
+				"--no-audit",
+				"--no-fund",
+				"--no-update-notifier",
+				"--",
+				"@scope/agent@<=1.2.3",
+				"--stdio",
+			],
+			invocation.Arguments);
 	}
 
 	[Fact]
@@ -44,12 +54,18 @@ public sealed class AcpProcessInvocationTests {
 		string systemDirectory = Path.Combine(Path.GetTempPath(), "Windows", "System32");
 		var invocation = AcpProcessInvocation.WrapWindowsNpx(
 			@"C:\Program Files\node\npx.cmd",
-			["--yes", "@scope/agent@<=1.2.3", "--stdio"],
+			["--yes", "--no-audit", "--no-fund", "--no-update-notifier", "--", "@scope/agent@<=1.2.3", "--stdio"],
 			systemDirectory);
 
 		Assert.Equal(Path.Combine(systemDirectory, "cmd.exe"), invocation.Command);
 		Assert.Equal(
-			["/d", "/s", "/v:off", "/c", "\"C:\\Program Files\\node\\npx.cmd\" --yes @scope/agent@^<=1.2.3 --stdio"],
+			[
+				"/d",
+				"/s",
+				"/v:off",
+				"/c",
+				"\"C:\\Program Files\\node\\npx.cmd\" --yes --no-audit --no-fund --no-update-notifier -- @scope/agent@^<=1.2.3 --stdio",
+			],
 			invocation.Arguments);
 	}
 }

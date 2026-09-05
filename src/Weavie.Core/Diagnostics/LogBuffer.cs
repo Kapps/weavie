@@ -34,7 +34,7 @@ public sealed class LogBuffer {
 			_lines.Enqueue(line);
 			if (!_failureReported && _sink.Failure.Length > 0) {
 				_failureReported = true;
-				_lines.Enqueue($"[diagnostics] Could not save logs to {_sink.Path}: {_sink.Failure}");
+				_lines.Enqueue($"[diagnostics] Persistent logging error for {_sink.Path}: {_sink.Failure}");
 			}
 			while (_lines.Count > _capacity) {
 				_lines.Dequeue();
@@ -52,7 +52,7 @@ public sealed class LogBuffer {
 
 	/// <summary>The current run's persistent console log, or empty for an in-memory test buffer.</summary>
 	public string PersistentFile => _sink.Path;
-	/// <summary>The failure preventing a complete persistent log, or empty when logging is healthy.</summary>
+	/// <summary>A failure saving or cleaning up persistent logs, or empty when logging is healthy.</summary>
 	public string PersistenceFailure => _sink.Failure;
 
 	/// <summary>

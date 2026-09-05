@@ -30,7 +30,7 @@ public sealed partial class HostCore {
 			target = LogsTarget,
 			title = LogsTitle,
 			html = (_logBuffer.PersistentFile.Length > 0 ? $"<div>Saved log: {WebUtility.HtmlEncode(_logBuffer.PersistentFile)}</div>" : string.Empty)
-				+ (_logBuffer.PersistenceFailure.Length > 0 ? $"<div>Log saving failed: {WebUtility.HtmlEncode(_logBuffer.PersistenceFailure)}</div>" : string.Empty)
+				+ (_logBuffer.PersistenceFailure.Length > 0 ? $"<div>Persistent logging error: {WebUtility.HtmlEncode(_logBuffer.PersistenceFailure)}</div>" : string.Empty)
 				+ LogsHtml(string.Join('\n', lines), dropped),
 			editedTime = "",
 			sourceId = LogsSourceId,

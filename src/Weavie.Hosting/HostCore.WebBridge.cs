@@ -568,7 +568,7 @@ public sealed partial class HostCore {
 	/// <summary>Surfaces a prior run's unhandled crash as a one-time toast pointing at the saved report.</summary>
 	private void SurfacePriorCrash() {
 		if (_logBuffer.PersistenceFailure.Length > 0) {
-			Notify("error", $"Weavie could not save logs to {_logBuffer.PersistentFile}: {_logBuffer.PersistenceFailure}", "log-saving-failed");
+			Notify("error", $"Persistent logging error for {_logBuffer.PersistentFile}: {_logBuffer.PersistenceFailure}", "log-saving-failed");
 		}
 		if (CrashReporter.TakePendingReport(_lastCrashFile, _previousCrashFile) is not null) {
 			// The crash is the better explanation of the same ending, so it also settles the unfinished marker

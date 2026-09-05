@@ -68,12 +68,12 @@ flowchart LR
 
 ## Keyboard surface
 
-Three commands (`CoreCommands.cs`, handled web-side; context keys `sourceBlockFocused` / `sourceEditing`):
-`weavie.source.editBlock` ("Edit Block", `Enter`, palette-visible), `weavie.source.commitEdit` (`Enter` while
-editing), `weavie.source.cancelEdit` (`Escape` while editing). Blocks get `tabindex` + a tooltip naming the
-effective key (read from the catalog, never hardcoded); the editor shows a hint row (`⏎ Save · Esc Cancel`).
-Tab walks blocks, Enter edits, Enter/Escape commit/cancel — the whole loop is keyboard-reachable; a click on a
-toggle heading still toggles (its heading edits from the keyboard).
+Three commands (`CoreCommands.cs`, handled web-side) use the focused element in the SourceView shadow root:
+`weavie.source.editBlock` ("Edit Block", `Enter`), `weavie.source.commitEdit` (`Enter` while
+editing), and `weavie.source.cancelEdit` (`Escape` while editing). Blocks get `tabindex` + a tooltip naming the
+effective key (read from the catalog, never hardcoded); the editor shows a hint row (`⏎ Save · Esc Cancel`). Tab
+walks blocks, Enter edits, Enter/Escape commit/cancel — the whole loop is keyboard-reachable; a click on a toggle
+heading still toggles (its heading edits from the keyboard).
 
 ## Testing
 

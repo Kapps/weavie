@@ -1903,8 +1903,8 @@ public static class CoreCommands {
 		});
 
 		// In-place Notion block editing (web-handled in source-edit.ts): Enter on a focused block opens the inline
-		// editor; Enter / Escape while editing save / cancel. Gated by the source-view context keys, so the plain
-		// chords stay free everywhere else. See docs/specs/notion-writes.md.
+		// editor; Enter / Escape while editing save / cancel. The handlers require actual shadow-DOM focus, so the
+		// plain chords stay free everywhere else. See docs/specs/notion-writes.md.
 		registry.Register(new CommandDefinition {
 			Id = SourceEditBlock,
 			Title = "Edit Block",
@@ -1913,7 +1913,7 @@ public static class CoreCommands {
 			Description = "Edit the focused block of the open Notion page in place; saving writes the change back to Notion.",
 			Aliases = ["edit block", "edit notion block", "edit source block", "edit notion page"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "Enter" }],
-			When = "sourceBlockFocused && !sourceEditing",
+			ShowInPalette = false,
 		});
 
 		registry.Register(new CommandDefinition {
@@ -1923,7 +1923,6 @@ public static class CoreCommands {
 			Category = "Source",
 			Description = "Save the in-progress Notion block edit back to the page.",
 			DefaultKeybindings = [new CommandKeybinding { Key = "Enter" }],
-			When = "sourceEditing",
 			ShowInPalette = false,
 		});
 
@@ -1934,7 +1933,6 @@ public static class CoreCommands {
 			Category = "Source",
 			Description = "Cancel the in-progress Notion block edit, restoring the rendered block.",
 			DefaultKeybindings = [new CommandKeybinding { Key = "Escape" }],
-			When = "sourceEditing",
 			ShowInPalette = false,
 		});
 

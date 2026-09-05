@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { CommandInfo } from "../src/commands/types";
 import { MockHost, mockSession } from "./mock-host";
 
@@ -313,6 +313,31 @@ test.describe("ACP composer", () => {
     const statusLine = page.locator(".agent-status-line");
     publishControls(controls);
     await expect(statusLine).toBeVisible();
+  }
+
+  // The app's own follow-to-bottom correction (AgentPaneScroll.onVirtualizerChange) chases convergence one
+  // requestAnimationFrame at a time as the virtualizer keeps mounting/measuring rows, so how many real frames
+  // it takes is unbounded under CI contention. Poll it frame-by-frame instead of racing it against a
+  // wall-clock `expect.poll` timeout, which flaked here: 2026-09-03,
+  // https://github.com/Kapps/weavie/actions/runs/33710321926/job/100508846088 ("Received: 47" after the full
+  // Windows 30s expect.timeout — one row's height still short of settling).
+  // Recurred on main CI 2026-09-04 04:51 UTC, same wait-vs-poll race, on both
+  // e2e (linux) / shard (1/6) (https://github.com/Kapps/weavie/actions/runs/33838071761/job/100914906521,
+  // "Received: 25") and e2e (macos) / shard (1/6)
+  // (https://github.com/Kapps/weavie/actions/runs/33838071761/job/100914932032, "Received: 25") — the fix
+  // below (PR #732) was open but not yet merged when this build ran; merging it applies the same fix here.
+  async function waitForBottom(page: Page, body: Locator): Promise<void> {
+    for (;;) {
+      const distance = await body.evaluate(
+        (element) => element.scrollHeight - element.scrollTop - element.clientHeight,
+      );
+      if (distance < 1) {
+        return;
+      }
+      await page.evaluate(
+        () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+      );
+    }
   }
 
   async function revealScrollNavigation(page: Page): Promise<void> {
@@ -675,8 +700,6 @@ test.describe("ACP composer", () => {
     const dock = page.locator("[data-agent-pending-request]");
     const response = dock.locator(".agent-input-request input");
     const body = page.locator(".agent-body");
-    const distanceFromBottom = (): Promise<number> =>
-      body.evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight);
     await expect(dock).toBeVisible();
     await expect(page.locator(".agent-empty")).toHaveCount(0);
     await expect(page.locator(".agent-body .agent-input-request")).toHaveCount(0);
@@ -736,11 +759,11 @@ test.describe("ACP composer", () => {
         ),
       )
       .toBe(0);
-    await expect.poll(distanceFromBottom).toBeLessThan(1);
+    await waitForBottom(page, body);
 
     publishPane(paneMessage({ type: "input-resolved", itemId: "input-draft", status: "resolved" }));
     await expect(dock).toHaveCount(0);
-    await expect.poll(distanceFromBottom).toBeLessThan(1);
+    await waitForBottom(page, body);
     await expect(page.getByRole("button", { name: "↓ Jump to latest", exact: true })).toHaveCount(
       0,
     );
@@ -1785,11 +1808,9 @@ test.describe("ACP composer", () => {
     const prompt = page.locator(".agent-entry.agent-tone-user", {
       hasText: "Explain the long result",
     });
-    const distanceFromBottom = (): Promise<number> =>
-      body.evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight);
 
     await expect(agentTurnStart).toContainText("Opening update before the final response.");
-    await expect.poll(distanceFromBottom).toBeLessThan(1);
+    await waitForBottom(page, body);
     await expect
       .poll(() =>
         agentTurnStart.evaluate(
@@ -1803,7 +1824,7 @@ test.describe("ACP composer", () => {
 
     await page.locator("[data-agent-composer] textarea").focus();
     await page.keyboard.press("Alt+ArrowUp");
-    await expect.poll(distanceFromBottom).toBeLessThan(1);
+    await waitForBottom(page, body);
     await expect(latestButton).toHaveCount(0);
 
     const continuation = "Followed output while the turn remains active.";
@@ -1818,11 +1839,11 @@ test.describe("ACP composer", () => {
       }),
     );
     await expect(page.getByText(continuation, { exact: true })).toBeVisible();
-    await expect.poll(distanceFromBottom).toBeLessThan(1);
+    await waitForBottom(page, body);
     await page.evaluate(() =>
       document.documentElement.style.setProperty("--terminal-font-size", "20px"),
     );
-    await expect.poll(distanceFromBottom).toBeLessThan(1);
+    await waitForBottom(page, body);
 
     publishPane(
       paneMessage({
@@ -1842,7 +1863,7 @@ test.describe("ACP composer", () => {
       "title",
       "Jump to the start of this agent turn (Alt+Up)",
     );
-    await expect.poll(distanceFromBottom).toBeLessThan(1);
+    await waitForBottom(page, body);
     await expect
       .poll(() =>
         body.evaluate((element) => {
@@ -1915,7 +1936,7 @@ test.describe("ACP composer", () => {
     await expect(latestButton).toHaveCount(1);
 
     await page.keyboard.press("Alt+ArrowDown");
-    await expect.poll(distanceFromBottom).toBeLessThan(1);
+    await waitForBottom(page, body);
     await expect(turnButton).toHaveCount(1);
 
     await page.keyboard.press("Alt+ArrowUp");
@@ -1932,7 +1953,7 @@ test.describe("ACP composer", () => {
     await expect(page.locator(".agent-empty")).toBeVisible();
     await expect(latestButton).toHaveCount(0);
     await expect(turnButton).toHaveCount(0);
-    await expect.poll(distanceFromBottom).toBeLessThan(1);
+    await waitForBottom(page, body);
   });
 
   test("Up/Down recall previously submitted prompts", async ({ page }) => {

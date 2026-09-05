@@ -39,6 +39,7 @@ import {
   type ScoredFile,
   splitPath,
 } from "./file-search";
+import { onModalOpened } from "./modal-state";
 import { OmnibarResults, type ScoredCommand } from "./OmnibarResults";
 import { type OmnibarMode, omnibarRequest } from "./omnibar-controller";
 import { parsePathQuery, pathSeed, separatorFor } from "./path-query";
@@ -403,6 +404,7 @@ export function Omnibar(props: {
     pendingLine = undefined;
     priorFocus = null;
   };
+  onCleanup(onModalOpened(dismiss));
 
   const openFile = (abs: string | undefined): void => {
     if (abs === undefined) {

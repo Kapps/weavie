@@ -269,6 +269,7 @@ export interface EditorOptionsSpec {
   paneShortcutHints: boolean;
   videoAutoplay: boolean;
   gitBlame: GitBlameMode;
+  spellCheck: boolean;
 }
 
 export type CommentProseMode = "none" | "documentation" | "multiline" | "all";

@@ -14,6 +14,8 @@ namespace Weavie.Core.Configuration;
 /// </para>
 /// </summary>
 public static class EditorSettings {
+	/// <summary>Checks visible prose for English spelling mistakes.</summary>
+	public const string SpellCheck = "editor.spellCheck";
 	/// <summary>Inline type/parameter-name hints (the greyed <c>: Type</c> / <c>name:</c> annotations).</summary>
 	public const string InlayHints = "editor.inlayHints";
 
@@ -85,6 +87,7 @@ public static class EditorSettings {
 
 	/// <summary>Every editor-option key — the host subscribes to all of them to re-push on any change.</summary>
 	public static readonly IReadOnlyList<string> Keys = [
+		SpellCheck,
 		InlayHints, Minimap, BracketPairColorization, SmoothScrolling, CursorSmoothCaretAnimation,
 		RenderWhitespace, ScrollBeyondLastLine, MouseWheelScrollSensitivity, FastScrollSensitivity,
 		MiddleClickAutoscroll, WordWrap, LineNumbers, CursorBlinking, RenderLineHighlight,
@@ -116,6 +119,7 @@ public static class EditorSettings {
 	/// <summary>Registers every editor-behavior setting into <paramref name="registry"/>.</summary>
 	public static void Register(SettingsRegistry registry) {
 		ArgumentNullException.ThrowIfNull(registry);
+		registry.Register(Toggle(SpellCheck, "Underline misspelled English words in prose, comments, and strings.", ["spelling", "spell check"], true));
 
 		registry.Register(new SettingDefinition {
 			Key = InlayHints,
@@ -240,6 +244,7 @@ public static class EditorSettings {
 	// misregistered setting throws rather than silently serializing a stale literal.
 	private static void WriteOptions(Utf8JsonWriter writer, SettingsStore store) {
 		writer.WriteStartObject();
+		writer.WriteBoolean("spellCheck", store.RequireBool(SpellCheck));
 		writer.WriteString("inlayHints", store.RequireString(InlayHints));
 		writer.WriteBoolean("minimap", store.RequireBool(Minimap));
 		writer.WriteBoolean("bracketPairColorization", store.RequireBool(BracketPairColorization));

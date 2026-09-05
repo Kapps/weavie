@@ -151,6 +151,8 @@ public sealed partial class HostCore : IAsyncDisposable {
 				"ui-dispatch-failure", "View Logs", CoreCommands.ViewLogs, null);
 		});
 		_settings = services.Settings;
+		_userDictionary = new(Path.Combine(Path.GetDirectoryName(_settings.FilePath)!, "dictionary.txt"), confined: false, watch: true);
+		_userDictionary.Changed += InvalidateSpelling;
 		var messagePolicy = new MessageExecutionPolicy(
 			TimeSpan.FromSeconds(2),
 			TimeSpan.FromSeconds(_settings.RequireInt(MessageSettings.OperationDeadlineSeconds)));
@@ -552,6 +554,8 @@ public sealed partial class HostCore : IAsyncDisposable {
 			await AttemptAsync(() => sessions.DisposeAsync().AsTask()).ConfigureAwait(false);
 		}
 
+		_userDictionary.Changed -= InvalidateSpelling;
+		_userDictionary.Dispose();
 		await AttemptAsync(() => _messages.DisposeAsync().AsTask()).ConfigureAwait(false);
 		await AttemptAsync(() => _http.DisposeAsync().AsTask()).ConfigureAwait(false);
 		if (failures.Count > 0) {

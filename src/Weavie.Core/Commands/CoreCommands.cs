@@ -9,6 +9,10 @@ namespace Weavie.Core.Commands;
 /// ones. See <c>docs/specs/commands.md</c>.
 /// </summary>
 public static class CoreCommands {
+	/// <summary>Adds the word at the editor cursor to the user dictionary.</summary>
+	public const string SpellAddUser = "weavie.spell.addUser";
+	/// <summary>Adds the word at the editor cursor to the project dictionary.</summary>
+	public const string SpellAddProject = "weavie.spell.addProject";
 	private const string AgentInputExecutionLane = "weavie.agent.input";
 	private const string FontExecutionLane = "weavie.font";
 	private const string TestExecutionLane = "weavie.tests.execution";
@@ -405,6 +409,17 @@ public static class CoreCommands {
 	/// <summary>Registers the built-in commands into <paramref name="registry"/>.</summary>
 	public static void Register(CommandRegistry registry) {
 		ArgumentNullException.ThrowIfNull(registry);
+		foreach (var (id, scope, key) in new[] { (SpellAddUser, "User", "$mod+alt+u"), (SpellAddProject, "Project", "$mod+alt+p") }) {
+			registry.Register(new CommandDefinition {
+				Id = id,
+				Title = $"Add Word to {scope} Dictionary",
+				RunsIn = CommandLocation.Web,
+				Category = "Editor",
+				Description = $"Remember the misspelled word at the cursor in the {scope.ToLowerInvariant()} dictionary.",
+				DefaultKeybindings = [new CommandKeybinding { Key = key }],
+				When = "editorFocused",
+			});
+		}
 
 		// ctrl+1..9 → focus the Nth pane. Literal ctrl (not $mod) to stay Ctrl on macOS, where Cmd+1..9 collides
 		// with app/window shortcuts. Keybinding-only; each default binding carries its own index argument.

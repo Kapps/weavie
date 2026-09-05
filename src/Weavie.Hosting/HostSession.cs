@@ -112,6 +112,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 
 		var fileSystem = new LocalFileSystem();
 		FileSystem = fileSystem;
+		ProjectDictionary = new(Path.Combine(workspaceRoot, ".weavie-words"), confined: true, watch: true);
 		// Scratch (untitled) buffers live in a per-workspace dir outside the workspace, so they never reach the
 		// file tree/index/git/agent. The file provider gets that dir as a second allowed root so the editor can
 		// read/write them as ordinary working copies.
@@ -338,6 +339,9 @@ public sealed partial class HostSession : IAsyncDisposable {
 
 	/// <summary>The session's filesystem, used to persist the editor's autosaved buffers to disk.</summary>
 	public IFileSystem FileSystem { get; }
+
+	/// <summary>The owning worktree's shareable spelling dictionary.</summary>
+	public Weavie.Core.Spelling.SpellDictionary ProjectDictionary { get; }
 
 	/// <summary>Serves the editor's host-backed <c>file://</c> provider through this session's files feature.</summary>
 	public FileProviderService FileProvider { get; }

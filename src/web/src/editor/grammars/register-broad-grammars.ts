@@ -56,7 +56,24 @@ export function registerBroadGrammars(): void {
           },
         ],
         grammars: grammar.registerGrammar
-          ? [{ language: grammar.languageId, scopeName: grammar.scopeName, path: grammarPath }]
+          ? [
+              {
+                language: grammar.languageId,
+                scopeName: grammar.scopeName,
+                path: grammarPath,
+                ...(grammar.languageId === "markdown"
+                  ? {
+                      embeddedLanguages: {
+                        "markup.fenced_code.block.markdown": "plaintext",
+                        "markup.raw.block.markdown": "plaintext",
+                        "markup.inline.raw.string.markdown": "plaintext",
+                        "markup.underline.link.markdown": "plaintext",
+                        "markup.underline.link.image.markdown": "plaintext",
+                      },
+                    }
+                  : {}),
+              },
+            ]
           : [],
       },
       // Declarative-only: no `main`, so no extension-host JS runs.

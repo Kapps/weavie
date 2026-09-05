@@ -79,6 +79,7 @@ public sealed partial class HostCore {
 		RegisterTestRunHandlers(session);
 		SessionCommands.RegisterHandlers(session.Commands, new BoundSessionHost(this, session));
 		WireCoreSessionMessages(session);
+		WireSpelling(session);
 
 		WireFileActivity(session);
 		session.Changes.AcceptedCommitted += paths => PostForSession(session, () => {

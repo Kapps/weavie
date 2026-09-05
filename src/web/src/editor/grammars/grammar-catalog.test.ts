@@ -2,6 +2,11 @@ import { describe, expect, it } from "vitest";
 import { buildBroadCatalog } from "./grammar-catalog";
 
 describe("buildBroadCatalog", () => {
+  it("joins Linguist Markdown extensions to the bundled VS Code Markdown grammar", () => {
+    const markdown = buildBroadCatalog(new Set()).find((entry) => entry.languageId === "markdown");
+    expect(markdown).toMatchObject({ scopeName: "text.html.markdown", registerGrammar: true });
+    expect(markdown?.extensions).toContain(".md");
+  });
   it("keeps shared Python-scope extensions on the curated Python language", () => {
     const catalog = buildBroadCatalog(new Set([".py", ".pyi", ".rs"]));
     const python = catalog.find((entry) => entry.scopeName === "source.python");

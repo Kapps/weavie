@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Weavie.Core.FileSystem;
 
 namespace Weavie.Core.Layout;
@@ -38,36 +39,28 @@ public sealed class LayoutValidationException : Exception {
 /// not notified). Writes are atomic; a malformed file is backed up to <c>layout.json.bad</c> and reset. See
 /// <c>docs/specs/layout.md</c>.
 /// </summary>
-public sealed class LayoutStore {
-	private readonly IFileSystem _fileSystem;
+public sealed class LayoutStore : JsonDocumentStore {
 	private readonly PaneRegistry _registry;
-	private readonly Lock _gate = new();
 	private LayoutDocument _current;
 
 	/// <summary>Creates a store over <paramref name="path"/> (default <c>~/.weavie/layout.json</c>), loading and reconciling now.</summary>
-	public LayoutStore(IFileSystem fileSystem, PaneRegistry registry, string? path) {
-		ArgumentNullException.ThrowIfNull(fileSystem);
+	/// <param name="fileSystem">The filesystem the document persists through.</param>
+	/// <param name="registry">The pane registry the document reconciles against.</param>
+	/// <param name="path">The backing file, or <c>null</c> for the default.</param>
+	public LayoutStore(IFileSystem fileSystem, PaneRegistry registry, string? path)
+		: base(fileSystem, path ?? WeaviePaths.LayoutFile) {
 		ArgumentNullException.ThrowIfNull(registry);
-		_fileSystem = fileSystem;
 		_registry = registry;
-		FilePath = path ?? WeaviePaths.LayoutFile;
-		lock (_gate) {
-			_current = LoadAndReconcileLocked();
-		}
+		_current = LayoutPanes.Default(registry);
+		Load();
 	}
 
 	/// <summary>Raised (off the UI thread) when the pane layout changes and the web should re-render.</summary>
 	public event Action<LayoutChange>? Changed;
 
-	/// <summary>Diagnostic log line — load failures, prunes, injections, and resets.</summary>
-	public event Action<string>? Log;
-
-	/// <summary>The layout file backing this store.</summary>
-	public string FilePath { get; }
-
 	/// <summary>The current reconciled document. Never null.</summary>
 	public LayoutDocument Current {
-		get { lock (_gate) { return _current; } }
+		get { lock (Gate) { return _current; } }
 	}
 
 	/// <summary>
@@ -78,7 +71,7 @@ public sealed class LayoutStore {
 	public LayoutResult SetPanes(LayoutNode root, string? focused, LayoutSource source) {
 		ArgumentNullException.ThrowIfNull(root);
 		LayoutChange change;
-		lock (_gate) {
+		lock (Gate) {
 			var unknown = UnknownKinds(root, _registry);
 			if (unknown.Count > 0) {
 				throw new LayoutValidationException($"unknown pane kind(s): {string.Join(", ", unknown)}");
@@ -89,10 +82,8 @@ public sealed class LayoutStore {
 			}
 
 			var candidate = _current with { Root = root, Focused = focused ?? _current.Focused };
-			var outcome = LayoutReconciler.Reconcile(candidate, _registry);
-			LogNotes(outcome.Notes);
-			_current = outcome.Document;
-			PersistLocked(_current);
+			Reconcile(candidate);
+			PersistLocked();
 			change = new LayoutChange(_current, source);
 		}
 
@@ -104,18 +95,15 @@ public sealed class LayoutStore {
 	public LayoutResult DismissPane(string kind, LayoutSource source) {
 		ArgumentException.ThrowIfNullOrEmpty(kind);
 		LayoutChange change;
-		lock (_gate) {
+		lock (Gate) {
 			var dismissed = _current.Dismissed.Contains(kind)
 				? _current.Dismissed
 				: [.. _current.Dismissed, kind];
 			var stripped = LayoutTree.Filter(
 				_current.Root,
 				pane => !string.Equals(pane.Kind, kind, StringComparison.Ordinal)) ?? _current.Root;
-			var candidate = _current with { Root = stripped, Dismissed = dismissed };
-			var outcome = LayoutReconciler.Reconcile(candidate, _registry);
-			LogNotes(outcome.Notes);
-			_current = outcome.Document;
-			PersistLocked(_current);
+			Reconcile(_current with { Root = stripped, Dismissed = dismissed });
+			PersistLocked();
 			change = new LayoutChange(_current, source);
 		}
 
@@ -128,13 +116,13 @@ public sealed class LayoutStore {
 	/// <see cref="Changed"/> — only the host cares about window bounds, and it is the caller.
 	/// </summary>
 	public void SetWindow(WindowState? window) {
-		lock (_gate) {
+		lock (Gate) {
 			if (_current.Window == window) {
 				return;
 			}
 
 			_current = _current with { Window = window };
-			PersistLocked(_current);
+			PersistLocked();
 		}
 	}
 
@@ -145,45 +133,40 @@ public sealed class LayoutStore {
 		return new Subscription(() => Changed -= handler);
 	}
 
-	private LayoutDocument LoadAndReconcileLocked() {
-		if (!_fileSystem.FileExists(FilePath)) {
-			var seeded = LayoutPanes.Default(_registry);
-			PersistLocked(seeded);
-			return seeded;
-		}
-
-		string text;
-		try {
-			text = _fileSystem.ReadAllText(FilePath);
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			Log?.Invoke($"[layout] could not read {FilePath}: {ex.Message}; using default");
-			return LayoutPanes.Default(_registry);
+	/// <inheritdoc/>
+	protected override void Restore(string? text) {
+		if (text is null) {
+			_current = LayoutPanes.Default(_registry);
+			return;
 		}
 
 		if (!LayoutSerialization.TryDeserialize(text, out var parsed, out string? error) || parsed is null) {
-			Log?.Invoke($"[layout] {FilePath} is malformed ({error}); backing up to layout.json.bad and resetting");
-			JsonStoreFile.BackupBad(_fileSystem, FilePath, text, Log);
-			var fresh = LayoutPanes.Default(_registry);
-			PersistLocked(fresh);
-			return fresh;
+			throw new JsonException(error);
 		}
 
-		var outcome = LayoutReconciler.Reconcile(parsed, _registry);
-		LogNotes(outcome.Notes);
-		if (outcome.Mutated) {
-			PersistLocked(outcome.Document);
+		if (Reconcile(parsed)) {
+			PersistLocked();
 		}
-
-		return outcome.Document;
 	}
 
-	private void PersistLocked(LayoutDocument document) =>
-		JsonStoreFile.Persist(_fileSystem, FilePath, LayoutSerialization.Serialize(document), Log);
+	/// <inheritdoc/>
+	protected override string Render() => LayoutSerialization.Serialize(_current);
 
-	private void LogNotes(IReadOnlyList<string> notes) {
-		foreach (string note in notes) {
-			Log?.Invoke($"[layout] {note}");
+	/// <summary>Seeds <c>layout.json</c> with the default layout, so the file always exists once a window opened.</summary>
+	protected override void Establish() {
+		Restore(null);
+		PersistLocked();
+	}
+
+	// Reconciles a candidate into the current document, reporting its notes; true when it changed the candidate.
+	private bool Reconcile(LayoutDocument candidate) {
+		var outcome = LayoutReconciler.Reconcile(candidate, _registry);
+		foreach (string note in outcome.Notes) {
+			Report(note);
 		}
+
+		_current = outcome.Document;
+		return outcome.Mutated;
 	}
 
 	private static List<string> UnknownKinds(LayoutNode node, PaneRegistry registry) {

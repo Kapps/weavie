@@ -14,35 +14,26 @@ public sealed record RecentFile(string Path, int Count, long LastOpenedTicks);
 /// without being discarded. Writes are atomic; a malformed file is backed up to <c>recent-files.json.bad</c> and
 /// reset.
 /// </summary>
-public sealed class RecentFilesStore {
+public sealed class RecentFilesStore : JsonDocumentStore {
 	// Cap on persisted entries: past this the lowest-frecency files are evicted so the file never grows unbounded.
 	private const int MaxEntries = 200;
 	// A file's visit weight halves this many days after its last open, so recency outweighs raw count without ever
 	// fully discarding a frequently-used file.
 	private const double HalfLifeDays = 3.0;
 
-	private readonly IFileSystem _fileSystem;
-	private readonly Lock _gate = new();
+	private static readonly JsonSerializerOptions JsonOptions = new() {
+		PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+		WriteIndented = true,
+	};
+
 	private readonly Dictionary<string, RecentFile> _byPath = new(StringComparer.Ordinal);
 
 	/// <summary>Creates a store over <paramref name="filePath"/>, loading the persisted list now.</summary>
-	public RecentFilesStore(IFileSystem fileSystem, string filePath) {
-		ArgumentNullException.ThrowIfNull(fileSystem);
-		ArgumentException.ThrowIfNullOrEmpty(filePath);
-		_fileSystem = fileSystem;
-		FilePath = filePath;
-		lock (_gate) {
-			foreach (var file in LoadLocked()) {
-				_byPath[file.Path] = file;
-			}
-		}
+	/// <param name="fileSystem">The filesystem the list persists through.</param>
+	/// <param name="filePath">The backing file.</param>
+	public RecentFilesStore(IFileSystem fileSystem, string filePath) : base(fileSystem, filePath) {
+		Load();
 	}
-
-	/// <summary>Diagnostic log line — load failures and malformed-file resets.</summary>
-	public event Action<string>? Log;
-
-	/// <summary>The recent-files file backing this store.</summary>
-	public string FilePath { get; }
 
 	/// <summary>Records a visit to <paramref name="path"/> at <paramref name="nowTicks"/> (UTC ticks), bumping its
 	/// count and recency, evicting the lowest-frecency overflow, and persisting atomically.</summary>
@@ -51,7 +42,7 @@ public sealed class RecentFilesStore {
 			return;
 		}
 
-		lock (_gate) {
+		lock (Gate) {
 			int count = _byPath.TryGetValue(path, out var existing) ? existing.Count + 1 : 1;
 			_byPath[path] = new RecentFile(path, count, nowTicks);
 			EvictLocked(nowTicks);
@@ -62,7 +53,7 @@ public sealed class RecentFilesStore {
 	/// <summary>The top <paramref name="count"/> paths by frecency at <paramref name="nowTicks"/>, most-relevant
 	/// first. The caller filters to files that still exist / are in the active index.</summary>
 	public IReadOnlyList<string> Top(int count, long nowTicks) {
-		lock (_gate) {
+		lock (Gate) {
 			return _byPath.Values
 				.OrderByDescending(file => Score(file, nowTicks))
 				.Take(count)
@@ -70,6 +61,27 @@ public sealed class RecentFilesStore {
 				.ToList();
 		}
 	}
+
+	/// <inheritdoc/>
+	protected override void Restore(string? text) {
+		_byPath.Clear();
+		if (text is null) {
+			return;
+		}
+
+		var parsed = JsonSerializer.Deserialize<PersistModel>(text, JsonOptions);
+		if (parsed is not { Version: 2, Files: { } files }) {
+			throw new JsonException("The document is not a version 2 recent-files list.");
+		}
+
+		foreach (var file in files.Where(file => !string.IsNullOrEmpty(file.Path))) {
+			_byPath[file.Path] = file;
+		}
+	}
+
+	/// <inheritdoc/>
+	protected override string Render() =>
+		JsonSerializer.Serialize(new PersistModel(2, [.. _byPath.Values]), JsonOptions);
 
 	// count * 0.5^(ageDays / halfLife): visit frequency, halved every HalfLifeDays since the last open.
 	private static double Score(RecentFile file, long nowTicks) {
@@ -90,34 +102,6 @@ public sealed class RecentFilesStore {
 			_byPath.Remove(path);
 		}
 	}
-
-	private IReadOnlyList<RecentFile> LoadLocked() =>
-		JsonStoreFile.Load<IReadOnlyList<RecentFile>>(
-			_fileSystem,
-			FilePath,
-			text => {
-				var parsed = JsonSerializer.Deserialize<PersistModel>(text, JsonOptions);
-				if (parsed is not { Version: 2, Files: { } files }) {
-					throw new JsonException("The document is not a version 2 recent-files list.");
-				}
-				return [.. files.Where(file => !string.IsNullOrEmpty(file.Path))];
-			},
-			static () => [],
-			Log);
-
-	private void PersistLocked() {
-		var model = new PersistModel(2, [.. _byPath.Values]);
-		JsonStoreFile.Persist(
-			_fileSystem,
-			FilePath,
-			JsonSerializer.Serialize(model, JsonOptions),
-			Log);
-	}
-
-	private static readonly JsonSerializerOptions JsonOptions = new() {
-		PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-		WriteIndented = true,
-	};
 
 	private sealed record PersistModel(int Version, IReadOnlyList<RecentFile> Files);
 }

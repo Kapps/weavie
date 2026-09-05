@@ -19,35 +19,25 @@ public readonly record struct RemoteAgent(string Name, string Url, string Token)
 /// it must stay off the Claude-facing settings surface. <see cref="Add"/> replaces any same-named agent
 /// (case-insensitive); a malformed file is backed up to <c>remote-agents.json.bad</c> and reset, not thrown.
 /// </summary>
-public sealed class RemoteAgentStore {
+public sealed class RemoteAgentStore : JsonDocumentStore {
 	private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
-	private readonly IFileSystem _fileSystem;
-	private readonly Lock _gate = new();
-	private readonly List<RemoteAgent> _items;
+	private List<RemoteAgent> _items = [];
 
 	/// <summary>Creates the store over <paramref name="path"/> (default <c>~/.weavie/remote-agents.json</c>), loading it now.</summary>
-	public RemoteAgentStore(IFileSystem fileSystem, string? path) {
-		ArgumentNullException.ThrowIfNull(fileSystem);
-		_fileSystem = fileSystem;
-		FilePath = path ?? WeaviePaths.RemoteAgentsFile;
-		lock (_gate) {
-			_items = LoadLocked();
-		}
+	/// <param name="fileSystem">The filesystem the registry persists through.</param>
+	/// <param name="path">The backing file, or <c>null</c> for the default.</param>
+	public RemoteAgentStore(IFileSystem fileSystem, string? path)
+		: base(fileSystem, path ?? WeaviePaths.RemoteAgentsFile) {
+		Load();
 	}
 
 	/// <summary>Raised (off the UI thread) after the registry changes, so each window re-pushes it to its page.</summary>
 	public event Action? Changed;
 
-	/// <summary>Diagnostic log line — read failures, malformed-file resets, persist failures.</summary>
-	public event Action<string>? Log;
-
-	/// <summary>The remote-agents file backing this store.</summary>
-	public string FilePath { get; }
-
 	/// <summary>The registered agents, in registration order. Snapshot copy; safe to enumerate.</summary>
 	public IReadOnlyList<RemoteAgent> Agents {
-		get { lock (_gate) { return [.. _items]; } }
+		get { lock (Gate) { return [.. _items]; } }
 	}
 
 	/// <summary>Registers <paramref name="agent"/>, replacing any existing agent of the same name. No-op for a blank name.</summary>
@@ -56,10 +46,10 @@ public sealed class RemoteAgentStore {
 			return;
 		}
 
-		lock (_gate) {
+		lock (Gate) {
 			_items.RemoveAll(a => NameEquals(a.Name, agent.Name));
 			_items.Add(agent);
-			PersistLocked();
+			PersistRestricted();
 		}
 
 		Changed?.Invoke();
@@ -68,10 +58,10 @@ public sealed class RemoteAgentStore {
 	/// <summary>Drops the agent named <paramref name="name"/> (case-insensitive). No-op if absent.</summary>
 	public void Remove(string name) {
 		bool removed;
-		lock (_gate) {
+		lock (Gate) {
 			removed = _items.RemoveAll(a => NameEquals(a.Name, name)) > 0;
 			if (removed) {
-				PersistLocked();
+				PersistRestricted();
 			}
 		}
 
@@ -80,37 +70,27 @@ public sealed class RemoteAgentStore {
 		}
 	}
 
-	private static bool NameEquals(string a, string b) => string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
-
-	private List<RemoteAgent> LoadLocked() =>
-		JsonStoreFile.Load<List<RemoteAgent>>(
-			_fileSystem,
-			FilePath,
-			text => {
-				var document = JsonSerializer.Deserialize<Document>(text);
-				if (document?.Agents is not { } entries) {
-					return [];
-				}
-
-				return [.. entries
+	/// <inheritdoc/>
+	protected override void Restore(string? text) {
+		var document = text is null ? null : JsonSerializer.Deserialize<Document>(text);
+		_items = document?.Agents is not { } entries
+			? []
+			: [.. entries
 				.Where(e => !string.IsNullOrWhiteSpace(e.Name) && !string.IsNullOrWhiteSpace(e.Url) && !string.IsNullOrWhiteSpace(e.Token))
 				.Select(e => new RemoteAgent(e.Name, e.Url, e.Token))];
-			},
-			static () => [],
-			Log);
+	}
 
-	private void PersistLocked() {
-		var document = new Document {
+	/// <inheritdoc/>
+	protected override string Render() => JsonSerializer.Serialize(
+		new Document {
 			Version = 1,
 			Agents = [.. _items.Select(a => new AgentEntry { Name = a.Name, Url = a.Url, Token = a.Token })],
-		};
-		JsonStoreFile.Persist(
-			_fileSystem,
-			FilePath,
-			JsonSerializer.Serialize(document, JsonOptions),
-			() => SecureFile.Restrict(FilePath),
-			Log);
-	}
+		},
+		JsonOptions);
+
+	private void PersistRestricted() => PersistLocked(() => SecureFile.Restrict(FilePath));
+
+	private static bool NameEquals(string a, string b) => string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
 
 	private sealed class Document {
 		[JsonPropertyName("version")]

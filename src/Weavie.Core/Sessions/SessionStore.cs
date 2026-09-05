@@ -14,40 +14,28 @@ namespace Weavie.Core.Sessions;
 /// restored pre-spawn matches the reattaching xterm's width. A malformed file is backed up to
 /// <c>sessions.json.bad</c> and reset rather than throwing.
 /// </summary>
-public sealed class SessionStore {
+public sealed class SessionStore : JsonDocumentStore {
 	private static readonly JsonSerializerOptions JsonOptions = new() {
 		PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
 		WriteIndented = true,
 	};
 
-	private readonly IFileSystem _fileSystem;
-	private readonly Lock _gate = new();
-	private List<SessionDescriptor> _items;
+	private List<SessionDescriptor> _items = [];
 	// Last real shell-terminal size (fitted, active-pane term-resize); 0 = never recorded. See ShellSize.
 	private int _shellCols;
 	private int _shellRows;
 
 	/// <summary>Creates the store over <paramref name="path"/>, loading it now.</summary>
-	public SessionStore(IFileSystem fileSystem, string path) {
-		ArgumentNullException.ThrowIfNull(fileSystem);
-		ArgumentException.ThrowIfNullOrEmpty(path);
-		_fileSystem = fileSystem;
-		FilePath = path;
-		lock (_gate) {
-			_items = LoadLocked();
-		}
+	/// <param name="fileSystem">The filesystem the overlay persists through.</param>
+	/// <param name="path">The backing file.</param>
+	public SessionStore(IFileSystem fileSystem, string path) : base(fileSystem, path) {
+		Load();
 	}
-
-	/// <summary>Diagnostic log line — read failures, malformed-file resets, persist failures.</summary>
-	public event Action<string>? Log;
-
-	/// <summary>The file backing this store.</summary>
-	public string FilePath { get; }
 
 	/// <summary>Snapshot of the persisted sessions. Safe to enumerate.</summary>
 	public IReadOnlyList<SessionDescriptor> Items {
 		get {
-			lock (_gate) {
+			lock (Gate) {
 				return [.. _items];
 			}
 		}
@@ -60,7 +48,7 @@ public sealed class SessionStore {
 	/// </summary>
 	public (int Cols, int Rows)? ShellSize {
 		get {
-			lock (_gate) {
+			lock (Gate) {
 				return _shellCols > 0 && _shellRows > 0 ? (_shellCols, _shellRows) : null;
 			}
 		}
@@ -71,7 +59,7 @@ public sealed class SessionStore {
 	/// <see cref="Flush"/> — not written per call, so a window-drag's resize storm doesn't thrash the file.
 	/// </summary>
 	public void RecordShellSize(int columns, int rows) {
-		lock (_gate) {
+		lock (Gate) {
 			_shellCols = columns;
 			_shellRows = rows;
 		}
@@ -80,7 +68,7 @@ public sealed class SessionStore {
 	/// <summary>Persists the current overlay (including the latest recorded shell size) without replacing it —
 	/// called at the graceful pre-restart / shutdown points so a resize since the last <see cref="Save"/> survives.</summary>
 	public void Flush() {
-		lock (_gate) {
+		lock (Gate) {
 			PersistLocked();
 		}
 	}
@@ -88,7 +76,7 @@ public sealed class SessionStore {
 	/// <summary>Replaces the whole loaded-session overlay and persists it.</summary>
 	public void Save(IReadOnlyList<SessionDescriptor> sessions) {
 		ArgumentNullException.ThrowIfNull(sessions);
-		lock (_gate) {
+		lock (Gate) {
 			_items = [.. sessions];
 			PersistLocked();
 		}
@@ -112,18 +100,20 @@ public sealed class SessionStore {
 		fileSystem.WriteAllTextAtomic(path, SerializeSnapshot(snapshot));
 	}
 
-	private List<SessionDescriptor> LoadLocked() =>
-		JsonStoreFile.Load<List<SessionDescriptor>>(
-			_fileSystem,
-			FilePath,
-			text => {
-				var snapshot = ParseSnapshot(text);
-				_shellCols = snapshot.ShellColumns;
-				_shellRows = snapshot.ShellRows;
-				return [.. snapshot.Items];
-			},
-			static () => [],
-			Log);
+	/// <inheritdoc/>
+	protected override void Restore(string? text) {
+		var snapshot = text is null ? null : ParseSnapshot(text);
+		_items = snapshot is null ? [] : [.. snapshot.Items];
+		_shellCols = snapshot?.ShellColumns ?? 0;
+		_shellRows = snapshot?.ShellRows ?? 0;
+	}
+
+	/// <inheritdoc/>
+	protected override string Render() => SerializeSnapshot(new SessionStoreSnapshot {
+		Items = _items,
+		ShellColumns = _shellCols,
+		ShellRows = _shellRows,
+	});
 
 	private static SessionStoreSnapshot ParseSnapshot(string text) {
 		var document = JsonSerializer.Deserialize<SessionsDocument>(text, JsonOptions)
@@ -170,18 +160,6 @@ public sealed class SessionStore {
 			EditorSession = editorSession,
 			ShellTerminals = shellTerminals,
 		};
-	}
-
-	private void PersistLocked() {
-		JsonStoreFile.Persist(
-			_fileSystem,
-			FilePath,
-			SerializeSnapshot(new SessionStoreSnapshot {
-				Items = _items,
-				ShellColumns = _shellCols,
-				ShellRows = _shellRows,
-			}),
-			Log);
 	}
 
 	private static string SerializeSnapshot(SessionStoreSnapshot snapshot) =>

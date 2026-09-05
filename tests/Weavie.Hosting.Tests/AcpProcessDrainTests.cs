@@ -146,6 +146,32 @@ public sealed class AcpProcessDrainTests {
 	}
 
 	[Fact]
+	public async Task AcpConnection_RestartResolvesTheCurrentLaunchDefinition() {
+		var definition = Definition(FakeExecutable(), []);
+		await using var connection = new AcpJsonRpcConnection(
+			() => definition,
+			Directory.GetCurrentDirectory(),
+			_ => { });
+		var started = Channel.CreateUnbounded<AcpProcessGeneration>();
+		connection.ProcessStarted += generation => started.Writer.TryWrite(generation);
+		connection.Start();
+		var first = await ReadGenerationAsync(started.Reader);
+		var firstInitialization = await InitializeAsync(connection, first.Generation);
+		Assert.True(firstInitialization.TryGetProperty("agentCapabilities", out _));
+
+		definition = definition with {
+			Environment = new Dictionary<string, string>(StringComparer.Ordinal) {
+				["WEAVIE_FAKE_ACP_MODE"] = "minimal-capabilities",
+			},
+		};
+		connection.Restart();
+		var second = await ReadGenerationAsync(started.Reader);
+		var secondInitialization = await InitializeAsync(connection, second.Generation);
+
+		Assert.False(secondInitialization.TryGetProperty("agentCapabilities", out _));
+	}
+
+	[Fact]
 	public async Task AcpConnection_PublishesStartedBeforeAnImmediateProtocolFault() {
 		var definition = new AcpAgentDefinition {
 			Id = "immediate-malformed",
@@ -182,6 +208,14 @@ public sealed class AcpProcessDrainTests {
 		using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
 		return await reader.ReadAsync(timeout.Token);
 	}
+
+	private static Task<System.Text.Json.JsonElement> InitializeAsync(
+		AcpJsonRpcConnection connection,
+		long generation) => connection.RequestAsync(
+		"initialize",
+		new { protocolVersion = 1, clientCapabilities = new { plan = new { } } },
+		generation,
+		CancellationToken.None);
 
 	private static AcpAgentDefinition Definition(string executable, IReadOnlyList<string> arguments) => new() {
 		Id = "drain",

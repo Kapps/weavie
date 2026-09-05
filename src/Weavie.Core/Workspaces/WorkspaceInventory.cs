@@ -75,8 +75,10 @@ public sealed partial class WorkspaceInventory {
 		bool isRepository,
 		IReadOnlyList<string> relativeFiles,
 		IReadOnlyList<string> relativeDirectories) {
-		var files = new HashSet<string>(PathIdentity.Comparer);
-		var directories = new HashSet<string>(PathIdentity.Comparer) { Root };
+		// Every path added below is already canonicalized via WorkspacePaths.CanonicalFsPath(Path.GetFullPath(...)),
+		// so the fast CanonicalComparer (no renormalization) is safe here.
+		var files = new HashSet<string>(PathIdentity.CanonicalComparer);
+		var directories = new HashSet<string>(PathIdentity.CanonicalComparer) { Root };
 		string rootPrefix = Root.EndsWith(Path.DirectorySeparatorChar)
 			? Root
 			: Root + Path.DirectorySeparatorChar;
@@ -92,7 +94,7 @@ public sealed partial class WorkspaceInventory {
 				directory is not null;
 				directory = Path.GetDirectoryName(directory)) {
 				directory = WorkspacePaths.CanonicalFsPath(directory);
-				if (!directories.Add(directory) || PathIdentity.Comparer.Equals(directory, Root)) {
+				if (!directories.Add(directory) || PathIdentity.CanonicalComparer.Equals(directory, Root)) {
 					break;
 				}
 			}
@@ -100,7 +102,7 @@ public sealed partial class WorkspaceInventory {
 
 		foreach (string relative in relativeDirectories) {
 			string fullPath = WorkspacePaths.CanonicalFsPath(Path.GetFullPath(Path.Combine(Root, relative)));
-			if (!PathIdentity.Comparer.Equals(fullPath, Root) && !fullPath.StartsWith(rootPrefix, PathIdentity.Comparison)) {
+			if (!PathIdentity.CanonicalComparer.Equals(fullPath, Root) && !fullPath.StartsWith(rootPrefix, PathIdentity.Comparison)) {
 				throw new GitException($"Workspace inventory returned a path outside the workspace: {relative}");
 			}
 
@@ -108,9 +110,9 @@ public sealed partial class WorkspaceInventory {
 		}
 
 		var sortedFiles = files.ToList();
-		sortedFiles.Sort(PathIdentity.Comparer);
+		sortedFiles.Sort(PathIdentity.CanonicalComparer);
 		var sortedDirectories = directories.ToList();
-		sortedDirectories.Sort(PathIdentity.Comparer);
+		sortedDirectories.Sort(PathIdentity.CanonicalComparer);
 		return new WorkspaceInventorySnapshot(isRepository, sortedFiles, sortedDirectories);
 	}
 

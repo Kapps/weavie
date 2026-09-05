@@ -8,7 +8,7 @@ import { canonicalFsPath } from "../editor/fs-path";
 import { createListNavigation } from "../list-navigation";
 import { createFileFinder, type FileRow, rankFiles, splitPath } from "./file-search";
 import { dismissOnOutsideInteraction } from "./popover-dismiss";
-import { recentFiles } from "./recent-files-store";
+import { recentFiles, recentFilesState } from "./recent-files-store";
 
 // How many rows the dropdown shows at once. The host remembers many more (top 50, frecency-ranked); the search
 // box filters across all of them, so a long history stays reachable without a long list.
@@ -93,6 +93,16 @@ function RecentFilesMenu(props: {
       .slice(0, MAX_ROWS)
       .map((s) => s.row);
   });
+  const emptyLabel = (): string => {
+    const state = recentFilesState();
+    if (state.loading) {
+      return "Loading files…";
+    }
+    if (query().trim().length > 0) {
+      return "No matching files.";
+    }
+    return state.hasHistory ? "No recent files in this checkout." : "No recent files yet.";
+  };
 
   // clampIndex keeps the highlighted row in range as the results change; onMove keeps it scrolled into view.
   const nav = createListNavigation({
@@ -174,14 +184,10 @@ function RecentFilesMenu(props: {
           }}
           onKeyDown={nav.onKeyDown}
         />
-        <div class="recent-list">
+        <div class="recent-list" aria-busy={recentFilesState().loading}>
           <Show
             when={results().length > 0}
-            fallback={
-              <div class="recent-empty">
-                {recentFiles().length === 0 ? "No recent files yet." : "No matching files."}
-              </div>
-            }
+            fallback={<div class="recent-empty">{emptyLabel()}</div>}
           >
             <For each={results()}>
               {(row, index) => (

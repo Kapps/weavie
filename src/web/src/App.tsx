@@ -663,7 +663,13 @@ export default function App(): JSX.Element {
       const overlay = editorContainer?.parentElement?.querySelector<HTMLElement>(
         ":scope > [data-kind='editor'][tabindex]:not([hidden])",
       );
-      overlay?.focus();
+      // A shadow-tree descendant that already owns focus (e.g. a block-editor textarea mid-draft, restored by
+      // SourceView's own mount) must keep it — stealing it back to the overlay host is how homeSessionFocus's
+      // rAF-deferred refocus on an ordinary session switch knocks a live keystroke off target (same class of
+      // bug preserveEditorFocusOnMount guards against for SourceView's own mount-time focus).
+      if (overlay?.shadowRoot?.activeElement == null) {
+        overlay?.focus();
+      }
       return document.activeElement === overlay;
     },
     confirmDiscard,

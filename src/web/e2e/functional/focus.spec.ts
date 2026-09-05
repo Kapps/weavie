@@ -3,6 +3,7 @@ import {
   clickIntoEditor,
   createSession,
   openFile,
+  pressDocumentStart,
   waitForSessionSwitch,
 } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
@@ -40,7 +41,7 @@ test("typing after clicking the terminal tab does not leak into the editor", asy
 
   await openFile(page, "hello.ts");
   await clickIntoEditor(page);
-  await page.keyboard.press("ControlOrMeta+Home");
+  await pressDocumentStart(page);
 
   await page.locator('.terminal-surface[data-kind="terminal:shell"] .shell-tab-main').click();
   await page.keyboard.type("focusXYZZY");

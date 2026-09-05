@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
-import { openFile, runCommand } from "../harness/actions";
+import { openFile, pressDocumentEnd, runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import type { EditorHandle, ModelHandle, WeavieWindow } from "../harness/weavie-window";
 
@@ -188,7 +188,7 @@ test("the cursor on a blank line is left unannotated", async ({ page }) => {
   await openFile(page, "hello.ts");
   await expect(page.locator(".weavie-blame")).toHaveCount(1);
 
-  await page.keyboard.press("ControlOrMeta+End");
+  await pressDocumentEnd(page);
   expect(
     await page.evaluate(() => {
       const editor = (window as WeavieWindow).__WEAVIE_EDITOR__ as EditorHandle;

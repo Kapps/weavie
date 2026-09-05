@@ -10,34 +10,22 @@ namespace Weavie.Core.Suggestions;
 /// <c>suggestions.json.bad</c> and reset rather than throwing. Snooze ("not now") is in-memory and lives in
 /// <see cref="SuggestionService"/>, not here — only the durable "don't ask again" is persisted.
 /// </summary>
-public sealed class SuggestionDismissals {
+public sealed class SuggestionDismissals : JsonDocumentStore {
 	private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
-	private readonly IFileSystem _fileSystem;
-	private readonly Lock _gate = new();
-	private readonly HashSet<string> _dismissed;
+	private HashSet<string> _dismissed = new(StringComparer.Ordinal);
 
 	/// <summary>Creates the store over <paramref name="path"/>, loading it now.</summary>
-	public SuggestionDismissals(IFileSystem fileSystem, string path) {
-		ArgumentNullException.ThrowIfNull(fileSystem);
-		ArgumentException.ThrowIfNullOrEmpty(path);
-		_fileSystem = fileSystem;
-		FilePath = path;
-		lock (_gate) {
-			_dismissed = LoadLocked();
-		}
+	/// <param name="fileSystem">The filesystem the dismissals persist through.</param>
+	/// <param name="path">The backing file.</param>
+	public SuggestionDismissals(IFileSystem fileSystem, string path) : base(fileSystem, path) {
+		Load();
 	}
-
-	/// <summary>Diagnostic log line — read failures, malformed-file resets, persist failures.</summary>
-	public event Action<string>? Log;
-
-	/// <summary>The file backing this store.</summary>
-	public string FilePath { get; }
 
 	/// <summary>Whether <paramref name="id"/> was dismissed forever in this workspace.</summary>
 	public bool IsDismissed(string id) {
 		ArgumentException.ThrowIfNullOrEmpty(id);
-		lock (_gate) {
+		lock (Gate) {
 			return _dismissed.Contains(id);
 		}
 	}
@@ -45,37 +33,24 @@ public sealed class SuggestionDismissals {
 	/// <summary>Records <paramref name="id"/> as dismissed forever and persists.</summary>
 	public void Add(string id) {
 		ArgumentException.ThrowIfNullOrEmpty(id);
-		lock (_gate) {
+		lock (Gate) {
 			if (_dismissed.Add(id)) {
 				PersistLocked();
 			}
 		}
 	}
 
-	private HashSet<string> LoadLocked() =>
-		JsonStoreFile.Load<HashSet<string>>(
-			_fileSystem,
-			FilePath,
-			text => {
-				var document = JsonSerializer.Deserialize<DismissalsDocument>(text);
-				return document?.Dismissed is { } ids
-					? new HashSet<string>(ids.Where(id => !string.IsNullOrWhiteSpace(id)), StringComparer.Ordinal)
-					: new HashSet<string>(StringComparer.Ordinal);
-			},
-			static () => new HashSet<string>(StringComparer.Ordinal),
-			Log);
-
-	private void PersistLocked() {
-		var document = new DismissalsDocument {
-			Version = 1,
-			Dismissed = [.. _dismissed],
-		};
-		JsonStoreFile.Persist(
-			_fileSystem,
-			FilePath,
-			JsonSerializer.Serialize(document, JsonOptions),
-			Log);
+	/// <inheritdoc/>
+	protected override void Restore(string? text) {
+		var document = text is null ? null : JsonSerializer.Deserialize<DismissalsDocument>(text);
+		_dismissed = new HashSet<string>(
+			document?.Dismissed?.Where(id => !string.IsNullOrWhiteSpace(id)) ?? [],
+			StringComparer.Ordinal);
 	}
+
+	/// <inheritdoc/>
+	protected override string Render() =>
+		JsonSerializer.Serialize(new DismissalsDocument { Version = 1, Dismissed = [.. _dismissed] }, JsonOptions);
 
 	private sealed class DismissalsDocument {
 		[JsonPropertyName("version")]

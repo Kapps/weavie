@@ -1,4 +1,4 @@
-import { expect, type Locator, type Page } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 import { mediaTypeOf } from "../../src/editor/media/media-types";
 import type { WeavieWindow } from "./weavie-window";
 
@@ -64,13 +64,15 @@ export async function openFile(page: Page, name: string): Promise<void> {
   }
 }
 
-export async function clickOmnibarRowThroughToast(rows: Locator, toast: Locator): Promise<void> {
-  const toastElement = await toast.elementHandle();
-  if (toastElement === null) {
-    throw new Error("The toast must be attached.");
-  }
-  const covered = await rows.evaluateAll((elements, notification) => {
+export async function clickOmnibarRowThroughToast(page: Page, toastText: string): Promise<void> {
+  // Query and measure in one turn: evaluateAll's captured row array can detach during a results refresh.
+  const covered = await page.evaluate((text) => {
+    const notification = [...document.querySelectorAll(".toast")].find((element) =>
+      element.textContent?.includes(text),
+    );
+    if (notification === undefined) throw new Error("The toast must be attached.");
     const toastBounds = notification.getBoundingClientRect();
+    const elements = document.querySelectorAll(".tb-omnibar-row");
     for (const [index, element] of elements.entries()) {
       const rowBounds = element.getBoundingClientRect();
       const left = Math.max(rowBounds.left, toastBounds.left);
@@ -88,13 +90,12 @@ export async function clickOmnibarRowThroughToast(rows: Locator, toast: Locator)
       }
     }
     return null;
-  }, toastElement);
-  await toastElement.dispose();
+  }, toastText);
   if (covered === null) {
     throw new Error("No omnibar result is covered by the toast.");
   }
   expect(covered.ownsHit).toBe(true);
-  await rows.nth(covered.index).click({ position: covered.position });
+  await page.locator(".tb-omnibar-row").nth(covered.index).click({ position: covered.position });
 }
 
 // Wait until Monaco has actually drawn the file, not merely bound it. Two things can leave the editor holding

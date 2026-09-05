@@ -5,23 +5,30 @@ using Xunit;
 namespace Weavie.Core.Tests;
 
 /// <summary>
-/// Editor-state store and the <c>active-editor-changed</c> parsing that feeds it: file-URI → native-path
-/// conversion, selection parsing, and the Changed notification.
+/// Editor-state store and the <c>activeChanged</c> parsing that feeds it: native paths, selection parsing,
+/// and the Changed notification.
 /// </summary>
 public sealed class EditorStoreTests {
 	private static JsonElement Parse(string json) => JsonDocument.Parse(json).RootElement;
+	private static string AbsolutePath(string name) => Path.GetFullPath(Path.Combine(Path.GetTempPath(), name));
 
 	[Fact]
-	public void TryParse_FileUri_ExtractsPathLanguageTextAndSelection() {
-		var message = Parse(
-			"""
-			{"type":"active-editor-changed","uri":"file:///C:/work/app/Program.cs","languageId":"csharp",
-			 "text":"var x = 1;","selection":{"start":{"line":3,"character":4},"end":{"line":3,"character":14},"isEmpty":false}}
-			""");
+	public void TryParse_NativePath_PreservesPathLanguageTextAndSelection() {
+		string path = AbsolutePath("Program.cs");
+		var message = JsonSerializer.SerializeToElement(new {
+			path,
+			languageId = "csharp",
+			text = "var x = 1;",
+			selection = new {
+				start = new { line = 3, character = 4 },
+				end = new { line = 3, character = 14 },
+				isEmpty = false,
+			},
+		});
 
 		Assert.True(ActiveEditor.TryParse(message, out var editor));
 		Assert.NotNull(editor);
-		Assert.Equal(new Uri("file:///C:/work/app/Program.cs").LocalPath, editor!.FilePath);
+		Assert.Equal(path, editor!.FilePath);
 		Assert.Equal("csharp", editor.LanguageId);
 		Assert.Equal("var x = 1;", editor.SelectedText);
 		Assert.Equal(new EditorPosition(3, 4), editor.Selection.Start);
@@ -31,11 +38,16 @@ public sealed class EditorStoreTests {
 
 	[Fact]
 	public void TryParse_CaretOnly_IsEmptySelection() {
-		var message = Parse(
-			"""
-			{"uri":"file:///C:/work/a.ts","languageId":"typescript","text":"",
-			 "selection":{"start":{"line":0,"character":0},"end":{"line":0,"character":0},"isEmpty":true}}
-			""");
+		var message = JsonSerializer.SerializeToElement(new {
+			path = AbsolutePath("a.ts"),
+			languageId = "typescript",
+			text = "",
+			selection = new {
+				start = new { line = 0, character = 0 },
+				end = new { line = 0, character = 0 },
+				isEmpty = true,
+			},
+		});
 
 		Assert.True(ActiveEditor.TryParse(message, out var editor));
 		Assert.Equal(string.Empty, editor!.SelectedText);
@@ -44,10 +56,21 @@ public sealed class EditorStoreTests {
 
 	[Fact]
 	public void TryParse_NoIsEmptyFlag_InfersFromRange() {
-		var caret = Parse(
-			"{\"uri\":\"file:///C:/a.cs\",\"selection\":{\"start\":{\"line\":2,\"character\":1},\"end\":{\"line\":2,\"character\":1}}}");
-		var range = Parse(
-			"{\"uri\":\"file:///C:/a.cs\",\"selection\":{\"start\":{\"line\":2,\"character\":1},\"end\":{\"line\":2,\"character\":5}}}");
+		string path = AbsolutePath("a.cs");
+		var caret = JsonSerializer.SerializeToElement(new {
+			path,
+			selection = new {
+				start = new { line = 2, character = 1 },
+				end = new { line = 2, character = 1 },
+			},
+		});
+		var range = JsonSerializer.SerializeToElement(new {
+			path,
+			selection = new {
+				start = new { line = 2, character = 1 },
+				end = new { line = 2, character = 5 },
+			},
+		});
 
 		Assert.True(ActiveEditor.TryParse(caret, out var caretEditor));
 		Assert.True(caretEditor!.Selection.IsEmpty);
@@ -76,15 +99,22 @@ public sealed class EditorStoreTests {
 	}
 
 	[Fact]
-	public void TryParse_NonFileUri_ReturnsFalse() {
-		var message = Parse("{\"uri\":\"inmemory://model/1\",\"languageId\":\"typescript\",\"text\":\"\"}");
+	public void TryParse_RelativePath_ReturnsFalse() {
+		var message = Parse("{\"path\":\"src/a.ts\",\"languageId\":\"typescript\",\"text\":\"\"}");
 		Assert.False(ActiveEditor.TryParse(message, out var editor));
 		Assert.Null(editor);
 	}
 
 	[Fact]
-	public void TryParse_MissingUri_ReturnsFalse() {
-		var message = Parse("{\"languageId\":\"csharp\",\"text\":\"\"}");
+	public void TryParse_UriWithoutPath_ReturnsFalse() {
+		var message = Parse("{\"uri\":\"file:///C:/work/a.ts\",\"languageId\":\"csharp\",\"text\":\"\"}");
+		Assert.False(ActiveEditor.TryParse(message, out var editor));
+		Assert.Null(editor);
+	}
+
+	[Fact]
+	public void TryParse_EmptyPath_ReturnsFalse() {
+		var message = Parse("{\"path\":\"\",\"languageId\":\"csharp\",\"text\":\"\"}");
 		Assert.False(ActiveEditor.TryParse(message, out var editor));
 		Assert.Null(editor);
 	}

@@ -58,9 +58,8 @@ class OwnedEditorSession {
     },
   ): ActivateResult {
     const current = this.readState() ?? { active: null, open: [] };
-    const line = opts.line ?? 1;
     const placement: Placement = {
-      line,
+      line: opts.line ?? 1,
       ...(opts.column === undefined ? {} : { column: opts.column }),
       ...(opts.focus === undefined ? {} : { focus: opts.focus }),
     };
@@ -73,12 +72,11 @@ class OwnedEditorSession {
           ? current.open.map((entry) => (entry === existing ? { ...entry, preview: false } : entry))
           : current.open;
       this.commit({ active: existing.path, open });
+      // A requested line always reveals — including line 1, a created file's whole diff. Only a positionless
+      // open (file tree, recents, Go-to-File) restores where the user last was in the tab.
       return {
         path: existing.path,
-        placement:
-          line > 1 || opts.column !== undefined
-            ? placement
-            : { viewState: existing.viewState ?? null },
+        placement: opts.line === undefined ? { viewState: existing.viewState ?? null } : placement,
       };
     }
 

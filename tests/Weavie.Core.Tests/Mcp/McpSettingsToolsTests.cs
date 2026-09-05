@@ -16,26 +16,16 @@ namespace Weavie.Core.Tests;
 [Collection("Settings")]
 public sealed class McpSettingsToolsTests : IDisposable {
 	private const string Token = "0123456789abcdef0123456789abcdef";
-	private readonly string _dir = Path.Combine(Path.GetTempPath(), "weavie-mcp-settings-tests", Guid.NewGuid().ToString("N"));
+	private readonly TempDirectory _dir = new("weavie-mcp-settings-tests");
 
-	public McpSettingsToolsTests() {
-		Directory.CreateDirectory(_dir);
-	}
+	public void Dispose() => _dir.Dispose();
 
-	public void Dispose() {
-		try {
-			Directory.Delete(_dir, recursive: true);
-		} catch (IOException) {
-		} catch (UnauthorizedAccessException) {
-		}
-	}
-
-	private string FilePath => Path.Combine(_dir, "settings.toml");
+	private string FilePath => _dir.Combine("settings.toml");
 
 	private SettingsStore NewStore() => CoreSettings.CreateStore(FilePath, enableWatcher: false);
 
 	private McpServer NewServer(SettingsStore store) =>
-		TestMcp.Server(Token, FakeDiffPresenter.AlwaysKeep(), [_dir], "weavie", store);
+		TestMcp.Server(Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], "weavie", store);
 
 	// A shell that validates on this machine — prefer nushell (the acceptance target) when present.
 	private static string PresentShell() {
@@ -81,6 +71,10 @@ public sealed class McpSettingsToolsTests : IDisposable {
 		Assert.Contains("terminal.shell", keys);
 		Assert.Contains("workspace", keys);
 		Assert.Contains("claude.path", keys);
+		Assert.Contains(InferenceSettings.DefaultProvider, keys);
+		Assert.Contains(InferenceSettings.Model, keys);
+		Assert.Contains(InferenceSettings.Effort, keys);
+		Assert.Contains(InferenceSettings.FastMode, keys);
 	}
 
 	[Fact]

@@ -1,5 +1,8 @@
-import { createSignal } from "solid-js";
 import { type ClientSession, registerSessionFeature, selectedSession } from "../../bridge";
+import {
+  createSessionOwnedMap,
+  createSessionOwnedState,
+} from "../../messaging/session-owned-state";
 
 export interface SourceDocEntry {
   title: string;
@@ -26,51 +29,60 @@ export interface SourceEditError {
   stale: boolean;
 }
 
-const [documents, setDocuments] = createSignal<Map<ClientSession, Record<string, SourceDocEntry>>>(
-  new Map(),
-);
-const [tokenPrompts, setTokenPrompts] = createSignal<Map<ClientSession, SourceTokenPrompt>>(
-  new Map(),
-);
+interface SourceEditState {
+  markdown: string;
+  line: number;
+  draft: string;
+  original: string;
+  saving: boolean;
+  error: { message: string; stale: boolean } | undefined;
+}
+
+const documents = createSessionOwnedState<Record<string, SourceDocEntry>>(() => ({}));
+const tokenPrompts = createSessionOwnedState<SourceTokenPrompt | null>(() => null);
+const edits = createSessionOwnedMap<string, SourceEditState>();
 const editErrorListeners = new Set<(error: SourceEditError) => void>();
+
+export const sourceEditState = edits.get;
+export const keepSourceEdit = edits.set;
+export const discardSourceEdit = edits.delete;
+
+function failSourceEdit(
+  session: ClientSession,
+  target: string,
+  error: SourceEditState["error"],
+): void {
+  const edit = edits.get(session, target);
+  if (edit !== undefined) {
+    edit.saving = false;
+    edit.error = error;
+  }
+}
 
 function updateDocument(
   session: ClientSession,
   target: string,
   update: (previous: SourceDocEntry | undefined) => SourceDocEntry,
 ): void {
-  setDocuments((previous) => {
-    const next = new Map(previous);
-    next.set(session, {
-      ...(previous.get(session) ?? {}),
-      [target]: update(previous.get(session)?.[target]),
-    });
-    return next;
-  });
+  documents.update(session, (previous) => ({
+    ...previous,
+    [target]: update(previous[target]),
+  }));
 }
 
 export function sourceDoc(
   session: ClientSession | null,
   target: string,
 ): SourceDocEntry | undefined {
-  return session === null ? undefined : documents().get(session)?.[target];
+  return documents.get(session)?.[target];
 }
 
 export function selectedSourceTokenPrompt(): SourceTokenPrompt | null {
-  const session = selectedSession();
-  return session === null ? null : (tokenPrompts().get(session) ?? null);
-}
-
-function clearSourceTokenPrompt(session: ClientSession): void {
-  setTokenPrompts((previous) => {
-    const next = new Map(previous);
-    next.delete(session);
-    return next;
-  });
+  return tokenPrompts.get(selectedSession()) ?? null;
 }
 
 export function dismissSourceTokenPrompt(session: ClientSession): void {
-  clearSourceTokenPrompt(session);
+  tokenPrompts.update(session, () => null);
   session.feature("sources").publish("dismissToken", {});
 }
 
@@ -112,11 +124,7 @@ registerSessionFeature((session) => {
   const offPrompt = source.on<{ sourceId: string; label: string }>(
     "promptToken",
     ({ sourceId, label }) => {
-      setTokenPrompts((previous) => {
-        const next = new Map(previous);
-        next.set(session, { session, sourceId, label });
-        return next;
-      });
+      tokenPrompts.update(session, () => ({ session, sourceId, label }));
     },
   );
   const offLoading = source.on<{
@@ -173,6 +181,7 @@ registerSessionFeature((session) => {
     message: string;
     stale: boolean;
   }>("editError", ({ target, message, stale }) => {
+    failSourceEdit(session, target, { message, stale });
     for (const listener of editErrorListeners) {
       listener({ session, target, message, stale });
     }
@@ -183,11 +192,5 @@ registerSessionFeature((session) => {
     offDocument();
     offError();
     offEditError();
-    setDocuments((previous) => {
-      const next = new Map(previous);
-      next.delete(session);
-      return next;
-    });
-    clearSourceTokenPrompt(session);
   };
 });

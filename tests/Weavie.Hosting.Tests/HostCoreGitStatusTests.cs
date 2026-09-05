@@ -2,13 +2,14 @@ using Xunit;
 
 namespace Weavie.Hosting.Tests;
 
+[Collection(TestCollections.HostIntegration)]
 public sealed class HostCoreGitStatusTests {
 	[Fact]
 	public async Task GitMetadataAndFileActivityRefreshStatus() {
 		await using var host = await TestHost.StartAsync(repo => {
 			File.WriteAllText(Path.Combine(repo, "readme.txt"), "replacement\nsecond\n");
 			File.WriteAllText(Path.Combine(repo, "untracked.txt"), "new file\n");
-			TestHost.RunGit(repo, "add", "readme.txt");
+			TempGitRepo.Run(repo, "add", "readme.txt");
 		});
 
 		await Wait.UntilAsync(() => HasCounts(host, 3, 1));
@@ -17,12 +18,7 @@ public sealed class HostCoreGitStatusTests {
 		Assert.Equal("main", latest.GetProperty("branch").GetString());
 		Assert.True(latest.GetProperty("dirty").GetBoolean());
 
-		TestHost.RunGit(
-			host.RepoRoot,
-			"-c", "user.email=test@weavie.dev",
-			"-c", "user.name=Weavie Test",
-			"-c", "commit.gpgsign=false",
-			"commit", "--quiet", "-m", "manual shell commit");
+		TempGitRepo.Run(host.RepoRoot, "commit", "--quiet", "-m", "manual shell commit");
 		await Wait.UntilAsync(() => HasCounts(host, 1, 0), TimeSpan.FromSeconds(15));
 
 		File.WriteAllText(Path.Combine(host.RepoRoot, "readme.txt"), "external edit\n");

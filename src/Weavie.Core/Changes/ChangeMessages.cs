@@ -22,6 +22,7 @@ public static class ChangeMessages {
 			added = summary.Added,
 			removed = summary.Removed,
 			line = summary.Line,
+			currentExists = summary.Change.CurrentExists,
 		});
 		return JsonSerializer.Serialize(new { label, files });
 	}
@@ -29,7 +30,8 @@ public static class ChangeMessages {
 	/// <summary>
 	/// One file's turn diff as the (accepted anchor, review baseline, current) triple for the inline editor diff:
 	/// review baseline → current is the bright pending band, accepted anchor → review baseline the faded accepted
-	/// band. <c>accepted == current</c> means "no markers"; <c>baseline == current</c> means "faded only".
+	/// band. Equal accepted/current text and existence means "no markers"; equal baseline/current state means
+	/// "faded only".
 	/// </summary>
 	public static string TurnDiff(FileChange change) {
 		ArgumentNullException.ThrowIfNull(change);
@@ -37,8 +39,11 @@ public static class ChangeMessages {
 			path = change.Path,
 			name = Path.GetFileName(change.Path),
 			acceptedBaseline = change.AcceptedBaselineText,
+			acceptedBaselineExists = change.AcceptedBaselineExists,
 			baseline = change.BaselineText,
+			baselineExists = change.BaselineExists,
 			current = change.CurrentText,
+			currentExists = change.CurrentExists,
 		});
 	}
 

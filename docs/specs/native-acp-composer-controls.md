@@ -62,7 +62,9 @@ across process and conversation lifetimes without teaching Weavie any provider-s
 The ACP agent advertises models, reasoning levels, fast mode, modes, commands, skills, and plugins. A provider
 command is validated against the latest complete command snapshot, queued until the primary prompt is idle, and
 sent through standard `session/prompt` as exactly one text block. It never goes through steering and never receives
-implicit Weavie guidance, editor context, or image blocks. Commands without input execute when accepted; commands
+implicit Weavie guidance, editor context, or image blocks. Waiting for a turn never blocks the composer: later
+prompts steer past a queued command, and the composer shows the host's queue above the input until each entry is
+delivered. Commands without input execute when accepted; commands
 with ACP input metadata stage the canonical invocation and show the provider's hint. Unknown `/name` text remains
 an ordinary prompt.
 

@@ -30,9 +30,13 @@ under `~/.weavie/acp/installations.json`:
 
 - `binary` downloads the current platform archive, verifies its SHA-256 digest, safely extracts it under
   `~/.weavie/acp/packages/`, and launches the declared binary;
-- `npx` launches with `npx --yes <package>@<=<registry-version> ...`, treating an exact registry version as
+- `npx` launches with `npx --yes --no-audit --no-fund --no-update-notifier --` followed by
+  `<package>@<=<registry-version> ...`, treating an exact registry version as
   the approved ceiling so npm can select the newest release allowed by the user's release-age policy;
 - `uvx` launches the registry's exact `uvx <package> ...` recipe.
+
+Updating an installed provider leaves its running processes alone. `Restart Agent` resolves the latest installed
+launch recipe and resumes the existing provider session through that new process.
 
 Weavie ships no Node, npm, npx, Python, uv, or uvx runtime. Package-manager distributions use the user's PATH
 literally. If the selected runner is absent, process launch fails visibly in the native pane. When an agent offers
@@ -63,7 +67,9 @@ The client speaks ACP protocol version 1 over strict JSON-RPC framing. It uses c
 Advertised slash commands retain their command identity through the web and host. ACP still invokes them through
 standard `session/prompt`, but the request contains exactly one canonical text block and waits for the active turn
 instead of using steering. This prevents embedded guidance, editor resources, or images from turning a command
-such as `/compact` into model-directed prose.
+such as `/compact` into model-directed prose. A command waiting for its own turn never holds back the queue behind
+it: prompts submitted afterwards still steer the running turn. Everything still waiting is published to the
+composer as the authoritative queue, so a deferred command is visible rather than silent.
 
 Unsupported optional capabilities stay absent from the UI; they do not create another session type. Malformed
 advertised data or protocol output fails the exact agent generation visibly.

@@ -7,25 +7,17 @@ namespace Weavie.Core.Tests.Inference;
 
 [Collection("Settings")]
 public sealed class InferenceCommandsTests : IDisposable {
-	private readonly string _dir = Path.Combine(
-		Path.GetTempPath(),
-		"weavie-inference-command-tests",
-		Guid.NewGuid().ToString("n"));
+	private readonly TempDirectory _dir = new("weavie-inference-command-tests");
 
 	public InferenceCommandsTests() {
 		Environment.SetEnvironmentVariable("WEAVIE_INFERENCE_ENABLED", null);
 		Environment.SetEnvironmentVariable("WEAVIE_INFERENCE_ALLOWAUTOMATIC", null);
-		Directory.CreateDirectory(_dir);
 	}
 
 	public void Dispose() {
 		Environment.SetEnvironmentVariable("WEAVIE_INFERENCE_ENABLED", null);
 		Environment.SetEnvironmentVariable("WEAVIE_INFERENCE_ALLOWAUTOMATIC", null);
-		try {
-			Directory.Delete(_dir, recursive: true);
-		} catch (IOException) {
-		} catch (UnauthorizedAccessException) {
-		}
+		_dir.Dispose();
 	}
 
 	[Fact]
@@ -90,7 +82,7 @@ public sealed class InferenceCommandsTests : IDisposable {
 		}
 
 		Environment.SetEnvironmentVariable("WEAVIE_INFERENCE_ALLOWAUTOMATIC", null);
-		using var reloaded = CoreSettings.CreateStore(Path.Combine(_dir, "settings.toml"), enableWatcher: false);
+		using var reloaded = CoreSettings.CreateStore(_dir.Combine("settings.toml"), enableWatcher: false);
 		Assert.True(reloaded.RequireBool(InferenceSettings.AllowAutomatic));
 		Assert.True(reloaded.RequireBool(InferenceSettings.Enabled));
 	}
@@ -106,7 +98,7 @@ public sealed class InferenceCommandsTests : IDisposable {
 	}
 
 	private (SettingsStore Settings, CommandDispatcher Commands) Harness() {
-		var settings = CoreSettings.CreateStore(Path.Combine(_dir, "settings.toml"), enableWatcher: false);
+		var settings = CoreSettings.CreateStore(_dir.Combine("settings.toml"), enableWatcher: false);
 		var commands = new CommandDispatcher(CoreCommands.CreateRegistry());
 		InferenceCommands.RegisterHandlers(commands, settings);
 		return (settings, commands);

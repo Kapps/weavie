@@ -1,6 +1,7 @@
-import { createEffect, createMemo, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
+import { createEffect, createMemo, For, type JSX, onCleanup, Show } from "solid-js";
 import type { AgentControlAxis, ClientSession } from "../bridge";
 import { dismissOnOutsideInteraction } from "../chrome/popover-dismiss";
+import { createListNavigation } from "../list-navigation";
 import {
   agentControlState,
   closeControlPicker,
@@ -12,13 +13,29 @@ import {
 // keyboard-navigable. AgentStatusLine owns the `agentControlPickerOpen` gate (whenever any picker is open) so the
 // composer's Enter/Escape commands stand down and this window handler drives selection instead.
 export function AgentControlPicker(props: { session: ClientSession | null }): JSX.Element {
-  const [highlight, setHighlight] = createSignal(0);
   const axis = createMemo<AgentControlAxis | null>(() => {
     const id = openControlAxis();
     if (id === null || props.session === null) {
       return null;
     }
     return agentControlState(props.session).axes.find((candidate) => candidate.id === id) ?? null;
+  });
+  const nav = createListNavigation({
+    count: () => axis()?.options.length ?? 0,
+    edges: "wrap",
+    initialIndex: 0,
+    acceptKeys: ["Enter", "Tab"],
+    // An axis with no options has nothing to pick (index -1), so accepting just closes it rather than
+    // trapping the key on a dead popover.
+    onAccept: (index) => {
+      const option = axis()?.options[index];
+      if (option === undefined) {
+        closeControlPicker();
+      } else {
+        pick(option.id);
+      }
+    },
+    onDismiss: closeControlPicker,
   });
 
   // Seed the highlight only when the picker opens or switches axes: a host re-push rebuilds the axes with
@@ -31,13 +48,11 @@ export function AgentControlPicker(props: { session: ClientSession | null }): JS
       return;
     }
     if (current.id === seededAxis) {
-      // A re-push can shrink the options while open; keep the highlight in range without re-seeding it.
-      setHighlight((index) => Math.min(index, Math.max(0, current.options.length - 1)));
       return;
     }
     seededAxis = current.id;
     const index = current.options.findIndex((option) => option.id === current.value);
-    setHighlight(index >= 0 ? index : 0);
+    nav.setIndex(index >= 0 ? index : 0);
   });
 
   const pick = (optionId: string): void => {
@@ -49,43 +64,14 @@ export function AgentControlPicker(props: { session: ClientSession | null }): JS
     closeControlPicker();
   };
 
-  const onKeyDown = (event: KeyboardEvent): void => {
-    const current = axis();
-    if (current === null || current.options.length === 0) {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        event.stopPropagation();
-        closeControlPicker();
-      }
-      return;
-    }
-    if (event.key === "ArrowDown") {
-      event.preventDefault();
-      event.stopPropagation();
-      setHighlight((index) => (index + 1) % current.options.length);
-    } else if (event.key === "ArrowUp") {
-      event.preventDefault();
-      event.stopPropagation();
-      setHighlight((index) => (index <= 0 ? current.options.length - 1 : index - 1));
-    } else if (event.key === "Enter" || event.key === "Tab") {
-      event.preventDefault();
-      event.stopPropagation();
-      pick(current.options[highlight()]?.id ?? current.value);
-    } else if (event.key === "Escape") {
-      event.preventDefault();
-      event.stopPropagation();
-      closeControlPicker();
-    }
-  };
-
   // Only listen while open, in capture phase so the pick beats the composer's own history/keydown handling.
   // Anything outside the picker and its status-line segment dismisses it — the segment owns its own toggle.
   createEffect(() => {
     if (axis() === null) {
       return;
     }
-    window.addEventListener("keydown", onKeyDown, { capture: true });
-    onCleanup(() => window.removeEventListener("keydown", onKeyDown, { capture: true }));
+    window.addEventListener("keydown", nav.onKeyDown, { capture: true });
+    onCleanup(() => window.removeEventListener("keydown", nav.onKeyDown, { capture: true }));
     dismissOnOutsideInteraction(".agent-control-picker, .agent-status-axis", closeControlPicker);
   });
 
@@ -100,12 +86,12 @@ export function AgentControlPicker(props: { session: ClientSession | null }): JS
           <For each={current().options}>
             {(option, index) => (
               <div
+                {...nav.row(index())}
                 class="agent-control-option"
                 role="option"
                 tabindex={-1}
                 aria-selected={option.id === current().value}
-                classList={{ active: index() === highlight() }}
-                onMouseEnter={() => setHighlight(index())}
+                classList={{ active: index() === nav.index() }}
                 onPointerDown={(event) => {
                   event.preventDefault();
                   pick(option.id);

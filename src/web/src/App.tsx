@@ -1,3 +1,4 @@
+import { FileCode2, Files } from "lucide-solid";
 import {
   createEffect,
   createMemo,
@@ -150,7 +151,7 @@ import {
 } from "./editor/source/source-store";
 import { TabStrip } from "./editor/TabStrip";
 import { isPreviewMode, toggleViewMode } from "./editor/view-mode-store";
-import WebTabPane from "./editor/WebTabPane";
+import WebTabStack from "./editor/WebTabPane";
 import { currentEditorOptions, onEditorOptionsChanged } from "./editor-options";
 import {
   listSelectedDirectory,
@@ -482,6 +483,11 @@ export default function App(): JSX.Element {
         : [],
     ),
   );
+  const webTabSessions = createMemo<ClientSession[]>(() =>
+    sessions().flatMap((session) =>
+      session.loaded && session.owner !== null ? [session.owner] : [],
+    ),
+  );
   const agentTerminalSessions = createMemo<ClientSession[]>(() =>
     sessions().flatMap((session) =>
       session.loaded &&
@@ -655,7 +661,7 @@ export default function App(): JSX.Element {
     focusVisibleOverlay: () => {
       setActivePane("editor");
       const overlay = editorContainer?.parentElement?.querySelector<HTMLElement>(
-        ":scope > [data-kind='editor'][tabindex]",
+        ":scope > [data-kind='editor'][tabindex]:not([hidden])",
       );
       overlay?.focus();
       return document.activeElement === overlay;
@@ -849,14 +855,14 @@ export default function App(): JSX.Element {
 
   // The active file's path when it's previewable, in Preview mode, and not under inline review (which owns the
   // editor) — drives the Preview overlay; null otherwise.
-  const previewActivePath = createMemo<string | null>(() => {
+  const activePreviewBinding = createMemo(() => {
     const binding = activeTabBinding();
     return binding !== null &&
       binding.kind === "file" &&
       canPreview(binding.path) &&
       isPreviewMode(binding.path) &&
       !editor.reviewActive()
-      ? binding.path
+      ? binding
       : null;
   });
 
@@ -868,12 +874,6 @@ export default function App(): JSX.Element {
       !editor.reviewActive()
       ? binding
       : null;
-  });
-
-  // The active tab's URL when it's a web (iframe) tab — drives the web overlay; null otherwise.
-  const activeWebUrl = createMemo<string | null>(() => {
-    const binding = activeTabBinding();
-    return binding?.kind === "web" ? binding.path : null;
   });
 
   const activeSourceBinding = createMemo(() => {
@@ -1191,6 +1191,10 @@ export default function App(): JSX.Element {
     });
   };
 
+  const fileReviewUnavailable = (): boolean =>
+    editor.review.mode() === "unified" &&
+    !editor.review.overview().files.some((file) => file.summary().currentExists);
+
   const renderPane = (kind: string): JSX.Element => {
     if (kind === "editor") {
       return (
@@ -1212,10 +1216,14 @@ export default function App(): JSX.Element {
                     type="button"
                     class="editor-review-toggle"
                     aria-pressed={editor.review.mode() === "unified"}
-                    title={`${editor.review.mode() === "unified" ? "Switch to file review" : "View all changes"}${keyHint(CommandIds.reviewToggleMode)}`}
+                    disabled={fileReviewUnavailable()}
+                    title={`${fileReviewUnavailable() ? "File review unavailable — all changed files are deleted" : editor.review.mode() === "unified" ? "Switch to file review" : "Switch to unified review"}${keyHint(CommandIds.reviewToggleMode)}`}
                     onClick={() => void runCommandWithFeedback(CommandIds.reviewToggleMode)}
                   >
-                    {editor.review.mode() === "unified" ? "File review" : "All changes"}
+                    <Show when={editor.review.mode() === "unified"} fallback={<Files size={14} />}>
+                      <FileCode2 size={14} />
+                    </Show>
+                    {editor.review.mode() === "unified" ? "File review" : "Unified review"}
                   </button>
                 </Show>
                 {/* Pane-switch badge: its own cell at the right of the tab bar. */}
@@ -1261,14 +1269,17 @@ export default function App(): JSX.Element {
               <EditorEmptyState reviewCount={editor.parkedReviewCount()} />
             </Show>
             {/* Preview mode: render the active file over the still-mounted Monaco host. */}
-            <Show when={previewActivePath() !== null}>
-              <Suspense>
-                <PreviewPane
-                  path={() => previewActivePath() as string}
-                  content={() => editor.activeContent()}
-                  focusOnMount={focusedKind() === "editor"}
-                />
-              </Suspense>
+            <Show when={activePreviewBinding()}>
+              {(binding) => (
+                <Suspense>
+                  <PreviewPane
+                    session={() => binding().session}
+                    path={() => binding().path}
+                    content={() => editor.activeContent()}
+                    focusOnMount={focusedKind() === "editor"}
+                  />
+                </Suspense>
+              )}
             </Show>
             {/* A media (image/video) file tab: render it over the still-mounted Monaco host. */}
             <Show when={activeMediaBinding()} keyed>
@@ -1280,10 +1291,8 @@ export default function App(): JSX.Element {
                 />
               )}
             </Show>
-            {/* A web tab: render its URL in an iframe over the still-mounted Monaco host. */}
-            <Show when={activeWebUrl() !== null}>
-              <WebTabPane url={() => activeWebUrl() as string} />
-            </Show>
+            {/* Activated web tabs retain their browsing contexts; only the selected session/tab is visible. */}
+            <WebTabStack sessions={webTabSessions} selectedSession={selectedSession} />
             {/* A source tab: render the fetched Notion doc as rich HTML in a shadow root over Monaco (or its
                 loading spinner / fetch error while it resolves). */}
             <Show when={activeSourceBinding()} keyed>
@@ -1311,22 +1320,30 @@ export default function App(): JSX.Element {
               )}
             </Show>
             <Show
-              when={editor.review.mode() === "unified" && editor.review.overview().files.length > 0}
+              when={
+                editor.review.mode() === "unified" && editor.review.overview().files.length > 0
+                  ? selectedSession()
+                  : null
+              }
+              keyed
             >
-              <Suspense>
-                <UnifiedReview
-                  overview={editor.review.overview}
-                  session={selectedSession()!}
-                  onCursorChange={editor.review.setCursor}
-                  openCopy={editor.review.openCopy}
-                  releaseCopies={editor.review.releaseCopies}
-                />
-              </Suspense>
+              {(session) => (
+                <Suspense>
+                  <UnifiedReview
+                    overview={editor.review.overview}
+                    session={session}
+                    onCursorChange={editor.review.setCursor}
+                    onFileCollapsed={editor.review.setFileCollapsed}
+                    bindNavigator={editor.review.bindNavigator}
+                    createCopyScope={editor.review.createCopyScope}
+                  />
+                </Suspense>
+              )}
             </Show>
           </div>
           <Show when={editor.review.mode() !== "unified"}>
             <EditorFooter
-              onOpenRecent={(path) => editor.openFile(path, 1)}
+              onOpenRecent={(path) => editor.openFile(path, undefined)}
               root={() => indexRoot() ?? ""}
             />
           </Show>
@@ -1554,8 +1571,8 @@ export default function App(): JSX.Element {
           }),
         session
           .feature("view")
-          .on<{ query: string; line: number }>("focusOmnibar", ({ query, line }) =>
-            focusOmnibarFileSearch(query, line),
+          .on<{ query: string; line: number | null }>("focusOmnibar", ({ query, line }) =>
+            focusOmnibarFileSearch(query, line ?? undefined),
           ),
       ];
       return () => {
@@ -1897,10 +1914,8 @@ export default function App(): JSX.Element {
       }
     };
     const onFocusIn = (event: FocusEvent): void => publishFocus(event.target as Element | null);
-    // A control that finishes its job unmounts under the focus it holds, leaving the pane taking no typing and
-    // no chords. Hand focus back to that pane — only when the element really went away, so a press or drag that
-    // merely left focus behind stays the user's (and not on compact, where focusing pops the keyboard). What's
-    // left focusless publishes as such, a frame later so a browser-driven move lands first.
+    // Recover pane focus when its focused control unmounts or hides; a frame lets a browser-driven move win.
+    // Ordinary blur stays untouched, and compact mode avoids unexpectedly reopening the software keyboard.
     const onFocusOut = (event: FocusEvent): void => {
       const lost = event.target as Element | null;
       const kind = focusedKind();
@@ -1908,7 +1923,9 @@ export default function App(): JSX.Element {
         if (document.activeElement !== document.body) {
           return;
         }
-        if (lost?.isConnected === false && kind !== null && !compact() && !hasTextSelection()) {
+        const unavailable =
+          lost !== null && (lost.isConnected === false || lost.closest("[hidden]") !== null);
+        if (unavailable && kind !== null && !compact() && !hasTextSelection()) {
           focusPane(kind);
         }
         if (document.activeElement === document.body) {
@@ -2094,6 +2111,13 @@ export default function App(): JSX.Element {
             )}
           </Show>
         </div>
+        <Toasts
+          toasts={toasts()}
+          onDismiss={dismissToast}
+          isLeaving={isLeaving}
+          onPause={pauseToast}
+          onResume={resumeToast}
+        />
       </div>
       <Show when={openPrOpen()}>
         <OpenPrPrompt
@@ -2181,7 +2205,7 @@ export default function App(): JSX.Element {
             listings={dirListings()}
             currentFile={currentFile()}
             onExpand={listSelectedDirectory}
-            onOpen={(path) => revealSelectedFile(path, 1)}
+            onOpen={(path) => revealSelectedFile(path, undefined)}
             onClose={() => setBrowserOpen(false)}
           />
         </Suspense>
@@ -2196,13 +2220,6 @@ export default function App(): JSX.Element {
           />
         </Suspense>
       </Show>
-      <Toasts
-        toasts={toasts()}
-        onDismiss={dismissToast}
-        isLeaving={isLeaving}
-        onPause={pauseToast}
-        onResume={resumeToast}
-      />
       <Suggestions
         items={suggestions()}
         onDismiss={(id, forever) =>
@@ -2271,11 +2288,7 @@ export default function App(): JSX.Element {
           />
         )}
       </Show>
-      <Show when={zoomedEmbed()}>
-        {(state) => (
-          <EmbedLightbox state={state()} onStep={stepEmbedZoom} onClose={closeEmbedZoom} />
-        )}
-      </Show>
+      <EmbedLightbox state={zoomedEmbed} onStep={stepEmbedZoom} onClose={closeEmbedZoom} />
       {/* The blame popover for a clicked line annotation. Keyed so picking another line rebuilds it against
           the new target rather than leaving the previous commit's resources in place. */}
       <Show when={blameTarget()} keyed>

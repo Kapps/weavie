@@ -1,6 +1,7 @@
-import { createSignal } from "solid-js";
 import { type ClientSession, registerSessionFeature, selectedSession } from "../bridge";
+import { createSessionOwnedState } from "../messaging/session-owned-state";
 import type { DirEntry, DirListings } from "./FileBrowser";
+import { revealFileIn } from "./reveal";
 
 interface FileIndex {
   root: string | null;
@@ -14,35 +15,26 @@ interface FileIndex {
 // invalidated readers of the index too — so a consumer deriving a request from the index (open-by-path) would
 // re-request on its own reply and never settle. Split, that whole class of loop can't be written.
 const EMPTY_INDEX: FileIndex = { root: null, home: null, files: [], pending: false };
-const [indexes, setIndexes] = createSignal<Map<ClientSession, FileIndex>>(new Map());
-const [listings, setListings] = createSignal<Map<ClientSession, DirListings>>(new Map());
+const indexes = createSessionOwnedState<FileIndex>(() => EMPTY_INDEX);
+const listings = createSessionOwnedState<DirListings>(() => ({}));
 
 function updateListings(
   session: ClientSession,
   mutate: (current: DirListings) => DirListings,
 ): void {
-  setListings((previous) => {
-    const current = previous.get(session);
-    if (current === undefined) {
-      return previous;
-    }
-    const next = new Map(previous);
-    next.set(session, mutate(current));
-    return next;
-  });
+  listings.update(session, mutate);
 }
 
 export const selectedFileIndex = (): FileIndex => {
-  const session = selectedSession();
-  return session === null ? EMPTY_INDEX : (indexes().get(session) ?? EMPTY_INDEX);
+  return indexes.get(selectedSession()) ?? EMPTY_INDEX;
 };
 export const selectedDirectoryListings = (): DirListings => {
-  const session = selectedSession();
-  return session === null ? {} : (listings().get(session) ?? {});
+  return listings.get(selectedSession()) ?? {};
 };
 
-export function revealSelectedFile(path: string, line: number, preview = false): void {
-  selectedSession()?.feature("files").publish("reveal", { path, line, preview });
+/** As {@link revealFileIn}, for whichever session is selected. */
+export function revealSelectedFile(path: string, line: number | undefined, preview = false): void {
+  revealFileIn(selectedSession(), path, line, preview);
 }
 
 export function refreshSelectedFileIndex(): void {
@@ -54,7 +46,7 @@ export function listSelectedDirectory(path: string): void {
   if (session === null) {
     return;
   }
-  if (listings().get(session)?.[path]?.status === "loading") {
+  if (listings.get(session)?.[path]?.status === "loading") {
     return;
   }
   updateListings(session, (current) => ({ ...current, [path]: { status: "loading" } }));
@@ -79,43 +71,25 @@ export function listSelectedDirectory(path: string): void {
 }
 
 registerSessionFeature((session) => {
-  setIndexes((previous) => new Map(previous).set(session, EMPTY_INDEX));
-  setListings((previous) => new Map(previous).set(session, {}));
   const files = session.feature("files");
   const offIndex = files.on<{ root: string; home?: string; files: string[]; pending?: boolean }>(
     "index",
     (message) => {
-      const previousRoot = indexes().get(session)?.root ?? null;
+      const previousRoot = indexes.get(session)?.root ?? null;
       if (message.pending === true && message.root === previousRoot) {
         return;
       }
-      setIndexes((previous) =>
-        previous.has(session)
-          ? new Map(previous).set(session, {
-              root: message.root,
-              // An empty profile path is no answer: `~` stays unresolvable rather than naming the root.
-              home: message.home === undefined || message.home === "" ? null : message.home,
-              files: message.files,
-              pending: message.pending === true,
-            })
-          : previous,
-      );
+      indexes.update(session, () => ({
+        root: message.root,
+        // An empty profile path is no answer: `~` stays unresolvable rather than naming the root.
+        home: message.home === undefined || message.home === "" ? null : message.home,
+        files: message.files,
+        pending: message.pending === true,
+      }));
       if (message.root !== previousRoot) {
         updateListings(session, () => ({}));
       }
     },
   );
-  return () => {
-    offIndex();
-    setIndexes((previous) => {
-      const next = new Map(previous);
-      next.delete(session);
-      return next;
-    });
-    setListings((previous) => {
-      const next = new Map(previous);
-      next.delete(session);
-      return next;
-    });
-  };
+  return offIndex;
 });

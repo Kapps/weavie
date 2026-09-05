@@ -230,6 +230,9 @@ public static class CoreCommands {
 	/// <summary>Switches between unified and file-focused review; bound to <c>$mod+Shift+u</c>.</summary>
 	public const string ReviewToggleMode = "weavie.review.toggleMode";
 
+	/// <summary>Expands or collapses the current file in unified review; bound to <c>alt+[</c>.</summary>
+	public const string ReviewToggleFile = "weavie.review.toggleFile";
+
 	/// <summary>Walks to the next changed file in the review set; bound to <c>ctrl+$mod+Right</c>.</summary>
 	public const string ReviewNextFile = "weavie.review.nextFile";
 
@@ -1387,6 +1390,18 @@ public static class CoreCommands {
 		});
 
 		registry.Register(new CommandDefinition {
+			Id = ReviewToggleFile,
+			Title = "Toggle Review File",
+			RunsIn = CommandLocation.Web,
+			Category = "Review",
+			When = "unifiedReviewActive && editorFocused",
+			Description = "Expand or collapse the current file's diff in unified review.",
+			Aliases = ["toggle review file", "collapse review file", "expand review file", "fold review file"],
+			ArgsSchemaJson = "{\"path\":{\"type\":\"string\",\"description\":\"Review file to toggle; omit for the current file\"}}",
+			DefaultKeybindings = [new CommandKeybinding { Key = "alt+[" }],
+		});
+
+		registry.Register(new CommandDefinition {
 			Id = ReviewNextFile,
 			Title = "Next File (Review)",
 			RunsIn = CommandLocation.Web,
@@ -1727,6 +1742,7 @@ public static class CoreCommands {
 			Aliases = ["zoom embed", "zoom image", "zoom diagram", "enlarge image", "magnify", "lightbox"],
 			When = "editorFocused",
 			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+z" }],
+			KeybindingsActiveInModal = true,
 		});
 
 		// Font zoom (handlers wired in Core by FontCommands): step every size setting in effect — global font.size
@@ -1887,8 +1903,8 @@ public static class CoreCommands {
 		});
 
 		// In-place Notion block editing (web-handled in source-edit.ts): Enter on a focused block opens the inline
-		// editor; Enter / Escape while editing save / cancel. Gated by the source-view context keys, so the plain
-		// chords stay free everywhere else. See docs/specs/notion-writes.md.
+		// editor; Enter / Escape while editing save / cancel. The handlers require actual shadow-DOM focus, so the
+		// plain chords stay free everywhere else. See docs/specs/notion-writes.md.
 		registry.Register(new CommandDefinition {
 			Id = SourceEditBlock,
 			Title = "Edit Block",
@@ -1897,7 +1913,7 @@ public static class CoreCommands {
 			Description = "Edit the focused block of the open Notion page in place; saving writes the change back to Notion.",
 			Aliases = ["edit block", "edit notion block", "edit source block", "edit notion page"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "Enter" }],
-			When = "sourceBlockFocused && !sourceEditing",
+			ShowInPalette = false,
 		});
 
 		registry.Register(new CommandDefinition {
@@ -1907,7 +1923,6 @@ public static class CoreCommands {
 			Category = "Source",
 			Description = "Save the in-progress Notion block edit back to the page.",
 			DefaultKeybindings = [new CommandKeybinding { Key = "Enter" }],
-			When = "sourceEditing",
 			ShowInPalette = false,
 		});
 
@@ -1918,7 +1933,6 @@ public static class CoreCommands {
 			Category = "Source",
 			Description = "Cancel the in-progress Notion block edit, restoring the rendered block.",
 			DefaultKeybindings = [new CommandKeybinding { Key = "Escape" }],
-			When = "sourceEditing",
 			ShowInPalette = false,
 		});
 

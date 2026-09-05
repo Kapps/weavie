@@ -8,16 +8,9 @@ using Xunit;
 namespace Weavie.Hosting.Tests;
 
 public sealed class AcpInferenceTests : IDisposable {
-	private readonly string _workspace = Path.Combine(
-		Path.GetTempPath(),
-		"weavie-acp-inference-tests",
-		Guid.NewGuid().ToString("n"));
+	private readonly TempDirectory _workspace = new("weavie-acp-inference-tests");
 
-	public AcpInferenceTests() {
-		Directory.CreateDirectory(_workspace);
-	}
-
-	public void Dispose() => Directory.Delete(_workspace, recursive: true);
+	public void Dispose() => _workspace.Dispose();
 
 	[Fact]
 	public async Task RunsInTheOwningWorkspaceAndRefusesEveryAgentRequest() {
@@ -26,7 +19,7 @@ public sealed class AcpInferenceTests : IDisposable {
 		Assert.Equal("fake-model", result.ModelId);
 		using var output = JsonDocument.Parse(result.OutputJson);
 		Assert.Equal("feat/fake-branch", output.RootElement.GetProperty("branch").GetString());
-		Assert.Equal(Path.GetFullPath(_workspace), output.RootElement.GetProperty("cwd").GetString());
+		Assert.Equal(Path.GetFullPath(_workspace.Path), output.RootElement.GetProperty("cwd").GetString());
 		Assert.True(output.RootElement.GetProperty("refusedProbe").GetBoolean());
 	}
 
@@ -38,6 +31,80 @@ public sealed class AcpInferenceTests : IDisposable {
 		Assert.Equal(2, result.Usage!.InputTokens);
 		Assert.Equal(26, result.Usage.OutputTokens);
 		Assert.Equal(4096, result.Usage.CachedInputTokens);
+	}
+
+	[Fact]
+	public async Task AppliesDependentModelEffortAndFastModeControlsBeforeThePrompt() {
+		var provider = Provider(
+			AcpAgentSessionFixture.ExecutablePath("tools", "Weavie.FakeAcp", "weavie-fake-acp"),
+			["inference", "ok"]);
+		var request = Request() with {
+			Profile = Profile("opus", "low", InferenceFastMode.On),
+		};
+
+		var result = Assert.IsType<InferenceProviderSuccess>(
+			await provider.QueryInferenceAsync(request, CancellationToken.None));
+
+		Assert.Equal("opus", result.ModelId);
+		using var output = JsonDocument.Parse(result.OutputJson);
+		Assert.Equal("opus", output.RootElement.GetProperty("model").GetString());
+		Assert.Equal("low", output.RootElement.GetProperty("effort").GetString());
+		Assert.True(output.RootElement.GetProperty("fast").GetBoolean());
+		Assert.True(output.RootElement.GetProperty("booleanConfigOptions").GetBoolean());
+		Assert.Equal(
+			["model", "effort", "fast"],
+			output.RootElement.GetProperty("mutations").EnumerateArray().Select(value => value.GetString()));
+	}
+
+	[Fact]
+	public async Task AppliesSelectFastModeFromTheAlternateShippedControlId() {
+		var provider = Provider(
+			AcpAgentSessionFixture.ExecutablePath("tools", "Weavie.FakeAcp", "weavie-fake-acp"),
+			["inference", "select-fast-mode"]);
+		var request = Request() with {
+			Profile = Profile(string.Empty, string.Empty, InferenceFastMode.On),
+		};
+
+		var result = Assert.IsType<InferenceProviderSuccess>(
+			await provider.QueryInferenceAsync(request, CancellationToken.None));
+
+		using var output = JsonDocument.Parse(result.OutputJson);
+		Assert.True(output.RootElement.GetProperty("fast").GetBoolean());
+		Assert.Equal(
+			["fast-mode"],
+			output.RootElement.GetProperty("mutations").EnumerateArray().Select(value => value.GetString()));
+	}
+
+	[Fact]
+	public async Task ExplicitUnavailableProfileFailsWithoutPromptingOrFallingBack() {
+		var provider = Provider(
+			AcpAgentSessionFixture.ExecutablePath("tools", "Weavie.FakeAcp", "weavie-fake-acp"),
+			["inference", "no-fast"]);
+		var request = Request() with {
+			Profile = Profile(string.Empty, string.Empty, InferenceFastMode.On),
+		};
+
+		var failure = Assert.IsType<InferenceProviderFailure>(
+			await provider.QueryInferenceAsync(request, CancellationToken.None));
+
+		Assert.Equal(InferenceFailureKind.NotConfigured, failure.Kind);
+		Assert.Contains("Fast Mode", failure.Detail, StringComparison.Ordinal);
+	}
+
+	[Fact]
+	public async Task UnadvertisedModelValueFailsWithoutProviderFallback() {
+		var provider = Provider(
+			AcpAgentSessionFixture.ExecutablePath("tools", "Weavie.FakeAcp", "weavie-fake-acp"),
+			["inference", "ok"]);
+		var request = Request() with {
+			Profile = Profile("missing-model", string.Empty, InferenceFastMode.Inherit),
+		};
+
+		var failure = Assert.IsType<InferenceProviderFailure>(
+			await provider.QueryInferenceAsync(request, CancellationToken.None));
+
+		Assert.Equal(InferenceFailureKind.NotConfigured, failure.Kind);
+		Assert.Contains("missing-model", failure.Detail, StringComparison.Ordinal);
 	}
 
 	[Fact]
@@ -93,7 +160,7 @@ public sealed class AcpInferenceTests : IDisposable {
 
 	[Fact]
 	public async Task ReportsAMissingAgentBinaryAsNotConfigured() {
-		var provider = Provider(Path.Combine(_workspace, "does-not-exist"), []);
+		var provider = Provider(_workspace.Combine("does-not-exist"), []);
 
 		var failure = Assert.IsType<InferenceProviderFailure>(
 			await provider.QueryInferenceAsync(Request(), CancellationToken.None));
@@ -122,12 +189,22 @@ public sealed class AcpInferenceTests : IDisposable {
 
 	private InferenceProviderRequest Request() => new() {
 		Category = InferenceModelCategory.Utility,
-		Workspace = _workspace,
+		Profile = Profile(string.Empty, string.Empty, InferenceFastMode.Inherit),
+		Workspace = _workspace.Path,
 		Prompt = "Propose one branch name.",
 		Images = [],
 		OutputSchemaJson = "{\"type\":\"object\",\"properties\":{\"branch\":{\"type\":\"string\"}}}",
 		MaxOutputBytes = 4096,
 	};
+
+	private static InferenceProviderProfile Profile(
+		string model,
+		string effort,
+		InferenceFastMode fastMode) => new() {
+			Model = model,
+			Effort = effort,
+			FastMode = fastMode,
+		};
 
 	private InferenceProviderRequest RequestWithImage() => Request() with {
 		Images = [new InferenceInputImage { Mime = "image/png", Bytes = new byte[] { 1, 2, 3, 4 } }],

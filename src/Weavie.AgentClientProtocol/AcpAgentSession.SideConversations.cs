@@ -141,7 +141,7 @@ public sealed partial class AcpAgentSession {
 	private SideRuntime CreateSideRuntime(SideConversation conversation, bool guidanceInherited) {
 		var child = new AcpAgentSession(
 			_context,
-			_definition,
+			_definitionSource,
 			_sessions,
 			_controlDefaults,
 			_log,

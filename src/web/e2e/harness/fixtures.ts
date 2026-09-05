@@ -1,5 +1,5 @@
 import { writeFile } from "node:fs/promises";
-import { test as base, expect, type Page } from "@playwright/test";
+import { test as base, type CDPSession, expect, type Page } from "@playwright/test";
 import { type FakeInference, fakeClaudeBuilt } from "./fake-claude";
 import { fakeAcpProgram, programExists } from "./test-programs";
 import { headlessBuilt, launchHeadless, type WeavieHost } from "./weavie-host";
@@ -22,13 +22,16 @@ type WeavieOptions = {
   prScenario: boolean;
   // Set via test.use to stub the source connector with a canned Notion doc (WEAVIE_FAKE_NOTION), so a
   // notion.so open-target fetches + renders it deterministically. `truncated` shows the incomplete banner;
-  // `rejectEdits` makes every source-save-edit conflict (the stale-edit UX). Null in normal use.
+  // `rejectEdits` makes every source-save-edit conflict (the stale-edit UX); the hold options expose explicit
+  // entered/release files so tests can pause an operation without wall-clock races. Null in normal use.
   notionDoc: {
     title: string;
     markdown: string;
     editedTime?: string;
     truncated?: boolean;
     rejectEdits?: boolean;
+    holdFetchAt?: number;
+    holdEdit?: boolean;
   } | null;
 };
 
@@ -44,7 +47,10 @@ type WeavieFixtures = {
 // Chromium scopes touch emulation to the DevTools session that set it, and the context-level `hasTouch`
 // send at page init can land without taking effect — a macOS CI run emulated the viewport but left the
 // pointer fine, silently disabling every touch path the mobile project exercises. Owning it here, on a
-// session held open for the test, makes the capability a precondition instead of an assumption.
+// session held open for the test, makes the capability a precondition instead of an assumption. It's also
+// the only session a test may dispatch raw touch input on — see `touchSession` below.
+const touchSessions = new WeakMap<Page, CDPSession>();
+
 async function establishTouchEmulation(page: Page): Promise<void> {
   if (test.info().project.use.hasTouch !== true) {
     return;
@@ -55,6 +61,21 @@ async function establishTouchEmulation(page: Page): Promise<void> {
   if (!(await page.evaluate(() => matchMedia("(pointer: coarse)").matches))) {
     throw new Error("touch emulation did not take: the page reports a fine pointer");
   }
+  touchSessions.set(page, session);
+}
+
+// The one CDP session with touch emulation armed for `page` — the session a test must dispatch
+// `Input.dispatchTouchEvent` on for a gesture no plain `TouchEvent`/`PointerEvent` dispatch can produce
+// (e.g. one relying on the browser's own click-after-tap synthesis). A second, independently-opened CDP
+// session attached to the same target went silently inert for `Input.dispatchTouchEvent` on windows-latest
+// CI while this session held the target's touch emulation — see mobile.spec.ts's hold() for the flake this
+// traces back to.
+export function touchSession(page: Page): CDPSession {
+  const session = touchSessions.get(page);
+  if (session === undefined) {
+    throw new Error("no touch session for this page — is the project's `hasTouch` option set?");
+  }
+  return session;
 }
 
 export const test = base.extend<WeavieOptions & WeavieFixtures>({
@@ -284,6 +305,15 @@ export const test = base.extend<WeavieOptions & WeavieFixtures>({
         if (connect.status() !== 302) {
           throw new Error(`workspace connect failed (${connect.status()})`);
         }
+        // 2026-09-04 11:50 UTC, windows shard 5/6, pr-comment-layout.spec.ts:
+        // https://github.com/Kapps/weavie/actions/runs/33869160511/job/101011765056 — this exact
+        // `page.goto` failed with `net::ERR_NO_BUFFER_SPACE`, before anything had loaded for the
+        // `blockedLoads`/retry handling below to apply to. Suspected same class of Windows loopback
+        // socket-buffer pressure as the post-boot resource-load failures this file already tracks (one
+        // OS-assigned port per test, hundreds of tests serially), but at a different call site with no
+        // in-app retry to fall back on. One occurrence isn't enough to confirm the mechanism or land a
+        // fix without guessing — not retried here (see docs/specs/e2e-flake-policy.md); watching for a
+        // repeat to pin down the actual cause before changing this call.
         await page.goto(host.url, { waitUntil: "domcontentloaded" });
         // The app removes the splash element once it has booted (layout + first session). Its
         // disappearance is the "app is interactive" signal — not a fixed sleep.

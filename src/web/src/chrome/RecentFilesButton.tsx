@@ -5,9 +5,10 @@ import { formatKey } from "../commands/keybindings";
 import { findCommand, registerCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { canonicalFsPath } from "../editor/fs-path";
+import { createListNavigation } from "../list-navigation";
 import { createFileFinder, type FileRow, rankFiles, splitPath } from "./file-search";
 import { dismissOnOutsideInteraction } from "./popover-dismiss";
-import { recentFiles } from "./recent-files-store";
+import { recentFiles, recentFilesState } from "./recent-files-store";
 
 // How many rows the dropdown shows at once. The host remembers many more (top 50, frecency-ranked); the search
 // box filters across all of them, so a long history stays reachable without a long list.
@@ -79,7 +80,6 @@ function RecentFilesMenu(props: {
   let panelEl: HTMLDivElement | undefined;
   let inputEl: HTMLInputElement | undefined;
   const [query, setQuery] = createSignal("");
-  const [selected, setSelected] = createSignal(0);
 
   // Empty query → the recent list in frecency order; a query → the omnibar's fuzzy ranking over the same set.
   const results = createMemo<FileRow[]>(() => {
@@ -93,37 +93,30 @@ function RecentFilesMenu(props: {
       .slice(0, MAX_ROWS)
       .map((s) => s.row);
   });
-
-  // Keep the highlighted row in range as the results change, and scrolled into view.
-  const clampedIndex = createMemo(() => Math.min(selected(), Math.max(0, results().length - 1)));
-  const scrollSelectedIntoView = (): void => {
-    queueMicrotask(() =>
-      panelEl
-        ?.querySelectorAll<HTMLElement>(".recent-row")
-        [clampedIndex()]?.scrollIntoView({ block: "nearest" }),
-    );
+  const emptyLabel = (): string => {
+    const state = recentFilesState();
+    if (state.loading) {
+      return "Loading files…";
+    }
+    if (query().trim().length > 0) {
+      return "No matching files.";
+    }
+    return state.hasHistory ? "No recent files in this checkout." : "No recent files yet.";
   };
 
-  const onKeyDown = (event: KeyboardEvent): void => {
-    const count = results().length;
-    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-      event.preventDefault();
-      if (count > 0) {
-        const step = event.key === "ArrowDown" ? 1 : -1;
-        setSelected((clampedIndex() + step + count) % count);
-        scrollSelectedIntoView();
-      }
-    } else if (event.key === "Enter") {
-      event.preventDefault();
-      const row = results()[clampedIndex()];
+  const nav = createListNavigation({
+    count: () => results().length,
+    edges: "wrap",
+    initialIndex: 0,
+    acceptKeys: ["Enter"],
+    onAccept: (index) => {
+      const row = results()[index];
       if (row !== undefined) {
         props.onChoose(row.abs);
       }
-    } else if (event.key === "Escape") {
-      event.preventDefault();
-      props.onClose();
-    }
-  };
+    },
+    onDismiss: () => props.onClose(),
+  });
 
   // Anchor to the toggle, right-aligned and opening UPWARD (the toggle is in the bottom status bar): pin the
   // panel's bottom just above the toggle so it grows up as the result list changes, and cap its height to the
@@ -178,27 +171,23 @@ function RecentFilesMenu(props: {
           autocomplete="off"
           onInput={(event) => {
             setQuery(event.currentTarget.value);
-            setSelected(0);
+            nav.setIndex(0);
           }}
-          onKeyDown={onKeyDown}
+          onKeyDown={nav.onKeyDown}
         />
-        <div class="recent-list">
+        <div class="recent-list" aria-busy={recentFilesState().loading}>
           <Show
             when={results().length > 0}
-            fallback={
-              <div class="recent-empty">
-                {recentFiles().length === 0 ? "No recent files yet." : "No matching files."}
-              </div>
-            }
+            fallback={<div class="recent-empty">{emptyLabel()}</div>}
           >
             <For each={results()}>
               {(row, index) => (
                 <button
+                  {...nav.row(index())}
                   type="button"
                   class="recent-row"
-                  classList={{ selected: index() === clampedIndex() }}
+                  classList={{ selected: index() === nav.index() }}
                   title={row.abs}
-                  onMouseMove={() => setSelected(index())}
                   onClick={() => props.onChoose(row.abs)}
                 >
                   <span class="recent-name">{row.leaf}</span>

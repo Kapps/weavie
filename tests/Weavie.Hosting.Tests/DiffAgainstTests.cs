@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using Xunit;
 
 namespace Weavie.Hosting.Tests;
@@ -100,6 +99,70 @@ public sealed class DiffAgainstTests {
 	}
 
 	[Fact]
+	public async Task DiffAgainstHead_DeletedFileIsReviewData_NotAnUnreadableEditorOpen() {
+		await using var host = await TestHost.StartAsync();
+		string path = Path.Combine(host.RepoRoot, "readme.txt");
+		File.Delete(path);
+		var session = host.SelectedSession;
+		host.Bridge.Clear();
+
+		host.SessionEvent(session, "review", "diffAgainst", new { reference = "HEAD" });
+
+		var changes = await Wait.ForAsync(() =>
+			host.Bridge.LastEvent(session.Address, "review", "changes"));
+		var file = Assert.Single(changes.GetProperty("files").EnumerateArray());
+		Assert.Equal(path, file.GetProperty("path").GetString());
+		Assert.False(file.GetProperty("currentExists").GetBoolean());
+		Assert.Null(host.Bridge.LastEvent(session.Address, "editor", "openFile"));
+
+		host.SessionEvent(session, "review", "showFile", new { path });
+		var diff = await Wait.ForAsync(() =>
+			host.Bridge.LastEvent(session.Address, "review", "diff"));
+		Assert.Equal("hello\n", diff.GetProperty("baseline").GetString());
+		Assert.Equal(string.Empty, diff.GetProperty("current").GetString());
+		Assert.False(diff.GetProperty("currentExists").GetBoolean());
+
+		host.Bridge.Clear();
+		host.SessionEvent(session, "review", "revertFile", new { path });
+		await Wait.UntilAsync(() => File.Exists(path));
+		host.Bridge.Clear();
+
+		host.SessionEvent(session, "review", "undo", new { kind = "revert" });
+		await Wait.UntilAsync(() => !File.Exists(path));
+		Assert.Null(host.Bridge.LastEvent(session.Address, "editor", "openFile"));
+	}
+
+	[Fact]
+	public async Task DiffAgainstHead_EmptyAddedAndDeletedFilesRemainActionable() {
+		await using var host = await TestHost.StartAsync(repo => {
+			File.WriteAllText(Path.Combine(repo, "empty-deleted.txt"), string.Empty);
+			Commit(repo, "empty baseline");
+		});
+		string deleted = Path.Combine(host.RepoRoot, "empty-deleted.txt");
+		string added = Path.Combine(host.RepoRoot, "empty-added.txt");
+		File.Delete(deleted);
+		File.WriteAllText(added, string.Empty);
+		var session = host.SelectedSession;
+
+		host.SessionEvent(session, "review", "diffAgainst", new { reference = "HEAD" });
+
+		var changes = await Wait.ForAsync(() =>
+			host.Bridge.LastEvent(session.Address, "review", "changes"));
+		var files = changes.GetProperty("files").EnumerateArray().ToList();
+		Assert.Equal(2, files.Count);
+		Assert.False(Assert.Single(files, file => file.GetProperty("name").GetString() == "empty-deleted.txt")
+			.GetProperty("currentExists").GetBoolean());
+		Assert.True(Assert.Single(files, file => file.GetProperty("name").GetString() == "empty-added.txt")
+			.GetProperty("currentExists").GetBoolean());
+
+		host.SessionEvent(session, "review", "revertAll", new { });
+		await session.FileActivity.DrainAsync(CancellationToken.None);
+		Assert.True(File.Exists(deleted));
+		Assert.Equal(string.Empty, File.ReadAllText(deleted));
+		Assert.False(File.Exists(added));
+	}
+
+	[Fact]
 	public async Task GetTurnDiff_ForAnUntrackedPath_IsDropped() {
 		await using var host = await TestHost.StartAsync();
 		File.WriteAllText(Path.Combine(host.RepoRoot, "readme.txt"), "hello\nworld\n");
@@ -109,17 +172,13 @@ public sealed class DiffAgainstTests {
 
 		// The seeded tracker only knows the review's files, so a diff request for a path it never seeded (a
 		// switch-race leftover, or a foreign file) resolves nothing and is dropped, never rendered.
-		string foreign = Path.Combine(Path.GetTempPath(), "weavie-foreign-" + Guid.NewGuid().ToString("n") + ".txt");
-		File.WriteAllText(foreign, "elsewhere\n");
-		try {
-			host.Bridge.Clear();
-			host.SessionEvent(session, "review", "showFile", new { path = foreign });
+		using var elsewhere = new TempDirectory("weavie-foreign");
+		string foreign = elsewhere.WriteFile("foreign.txt", "elsewhere\n");
+		host.Bridge.Clear();
+		host.SessionEvent(session, "review", "showFile", new { path = foreign });
 
-			await Task.Delay(300);
-			Assert.Null(host.Bridge.LastEvent(session.Address, "review", "diff"));
-		} finally {
-			File.Delete(foreign);
-		}
+		await Task.Delay(300);
+		Assert.Null(host.Bridge.LastEvent(session.Address, "review", "diff"));
 	}
 
 	[Fact]
@@ -166,10 +225,10 @@ public sealed class DiffAgainstTests {
 		// A branch one commit AHEAD of main: merge-base(topic, HEAD) == HEAD, so with a clean tree there is
 		// nothing on THIS side to review — never a reversed diff of the branch's own changes.
 		await using var host = await TestHost.StartAsync(repo => {
-			Git(repo, "checkout", "-q", "-b", "topic");
+			TempGitRepo.Run(repo, "checkout", "-q", "-b", "topic");
 			File.WriteAllText(Path.Combine(repo, "topic.txt"), "theirs\n");
 			Commit(repo, "topic work");
-			Git(repo, "checkout", "-q", "main");
+			TempGitRepo.Run(repo, "checkout", "-q", "main");
 		});
 		host.Bridge.Clear();
 		var session = host.SelectedSession;
@@ -182,20 +241,7 @@ public sealed class DiffAgainstTests {
 	}
 
 	private static void Commit(string cwd, string message) {
-		Git(cwd, "add", "-A");
-		Git(cwd, "-c", "user.email=test@weavie.dev", "-c", "user.name=Weavie Test", "-c", "commit.gpgsign=false", "commit", "-m", message);
-	}
-
-	private static void Git(string cwd, params string[] args) {
-		var psi = new ProcessStartInfo("git") { WorkingDirectory = cwd, RedirectStandardError = true, RedirectStandardOutput = true };
-		foreach (string arg in args) {
-			psi.ArgumentList.Add(arg);
-		}
-
-		using var process = Process.Start(psi) ?? throw new InvalidOperationException("git failed to start");
-		process.WaitForExit();
-		if (process.ExitCode != 0) {
-			throw new InvalidOperationException($"git {string.Join(' ', args)} failed: {process.StandardError.ReadToEnd()}");
-		}
+		TempGitRepo.Run(cwd, "add", "-A");
+		TempGitRepo.Run(cwd, "commit", "-m", message);
 	}
 }

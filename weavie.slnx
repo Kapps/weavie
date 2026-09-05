@@ -21,6 +21,7 @@
     <Project Path="tests/Weavie.Mac.Tests/Weavie.Mac.Tests.csproj" />
     <Project Path="tests/Weavie.Remote.Tests/Weavie.Remote.Tests.csproj" />
     <Project Path="tests/Weavie.Runner.Tests/Weavie.Runner.Tests.csproj" />
+    <Project Path="tests/Weavie.TestSupport/Weavie.TestSupport.csproj" />
     <Project Path="tests/Weavie.WorktreeServe.Tests/Weavie.WorktreeServe.Tests.csproj" />
   </Folder>
   <Folder Name="/tools/">

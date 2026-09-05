@@ -1,6 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { AgentInputQuestion, ClientSession } from "../bridge";
 import { agentInputDraft, clearAgentInputDraft } from "./AgentInputDrafts";
+
+vi.mock("../bridge", () => ({ registerSessionFeature: () => () => {} }));
 
 const questions: AgentInputQuestion[] = [
   {
@@ -51,5 +53,10 @@ describe("agent input drafts", () => {
     expect(agentInputDraft(session, "boolean", [booleanQuestion]).answers()).toEqual({
       enabled: ["false"],
     });
+  });
+
+  it("returns a transient draft after its session closes", () => {
+    const session = { closed: true } as ClientSession;
+    expect(agentInputDraft(session, "closed", questions).answers()).toEqual({ secret: [] });
   });
 });

@@ -309,6 +309,37 @@ public sealed class BackendManagerTests {
 	}
 
 	[Fact]
+	public void HealthMonitorState_TracksConsecutiveUnhealthyProbesUntilOneAnswersOk() {
+		var state = new WorkerHealthMonitorState();
+
+		Assert.Equal(1, state.ObserveUnhealthy());
+		Assert.Equal(2, state.ObserveUnhealthy());
+
+		state.ClearUnhealthyStreak();
+
+		Assert.Equal(1, state.ObserveUnhealthy());
+	}
+
+	[Fact]
+	public void HealthMonitorState_ResetsTheUnhealthyStreakOnANewGeneration() {
+		using var firstSupervisor = Supervisor();
+		using var secondSupervisor = Supervisor();
+		firstSupervisor.Start();
+		secondSupervisor.Start();
+		var first = Backend();
+		var second = Backend();
+		first.Supervisor = firstSupervisor;
+		second.Supervisor = secondSupervisor;
+		var state = new WorkerHealthMonitorState();
+		state.Observe(first, firstSupervisor, DateTimeOffset.UnixEpoch);
+		state.ObserveUnhealthy();
+
+		state.Observe(second, secondSupervisor, DateTimeOffset.UnixEpoch.AddMinutes(3));
+
+		Assert.Equal(1, state.ObserveUnhealthy());
+	}
+
+	[Fact]
 	public void HealthMonitorState_ResetsAcrossBackendsWhoseSupervisorsShareAGenerationNumber() {
 		using var firstSupervisor = Supervisor();
 		using var secondSupervisor = Supervisor();

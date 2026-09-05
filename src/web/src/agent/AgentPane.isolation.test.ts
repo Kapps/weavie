@@ -5,6 +5,8 @@ import { createAgentPaneModel } from "./AgentPaneModel";
 
 const transcriptCalls = vi.hoisted(() => vi.fn());
 
+vi.mock("../bridge", () => ({ registerSessionFeature: () => () => {} }));
+
 vi.mock("./AgentPaneMessages", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./AgentPaneMessages")>();
   return {

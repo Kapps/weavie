@@ -10,36 +10,30 @@ namespace Weavie.Runner.Tests;
 /// prunes superseded version dirs; a release tarball round-trips through <see cref="VersionStore.ExtractBundle"/>.
 /// </summary>
 public sealed class VersionStoreTests : IDisposable {
-	private readonly string _root = Path.Combine(Path.GetTempPath(), "weavie-versions-" + Guid.NewGuid().ToString("n"));
+	private readonly TempDirectory _root = new("weavie-versions");
 
-	public void Dispose() {
-		try {
-			Directory.Delete(_root, recursive: true);
-		} catch (IOException) {
-			// best-effort temp cleanup
-		}
-	}
+	public void Dispose() => _root.Dispose();
 
 	[Fact]
 	public void Open_AdoptsTheCurrentBuildFromAReleaseLayoutWithoutState() {
 		InstallVersion(100);
 		PointCurrentAt(100);
 
-		var store = VersionStore.OpenAt(_root, _ => { });
+		var store = VersionStore.OpenAt(_root.Path, _ => { });
 
 		Assert.Equal(100, store.StagedBuild);
-		Assert.Equal(100, VersionStore.OpenAt(_root, _ => { }).StagedBuild);
+		Assert.Equal(100, VersionStore.OpenAt(_root.Path, _ => { }).StagedBuild);
 	}
 
 	[Fact]
 	public void Open_ReconcilesStateToCurrentAfterAnInterruptedSelectorSwap() {
-		var store = VersionStore.OpenAt(_root, _ => { });
+		var store = VersionStore.OpenAt(_root.Path, _ => { });
 		store.Stage(new BundleManifest { BuildNumber = 100, SpawnContract = 1 }, MakeExtractedVersion(100), "sha256:aa");
 		store.MarkConfirmedGood(100);
 		InstallVersion(101);
 		PointCurrentAt(101);
 
-		var reopened = VersionStore.OpenAt(_root, _ => { });
+		var reopened = VersionStore.OpenAt(_root.Path, _ => { });
 
 		Assert.Equal(101, reopened.StagedBuild);
 		Assert.Equal(100, reopened.ConfirmedGoodBuild);
@@ -52,7 +46,7 @@ public sealed class VersionStoreTests : IDisposable {
 		string worker = Path.Combine(existing, "worker", "Weavie.Headless.dll");
 		File.WriteAllText(worker, "live");
 		string downloaded = MakeExtractedVersion(100);
-		var store = VersionStore.OpenAt(_root, _ => { });
+		var store = VersionStore.OpenAt(_root.Path, _ => { });
 
 		store.Stage(new BundleManifest { BuildNumber = 100, SpawnContract = 1 }, downloaded, "sha256:aa");
 
@@ -67,20 +61,20 @@ public sealed class VersionStoreTests : IDisposable {
 		string worker = Path.Combine(existing, "worker", "Weavie.Headless.dll");
 		File.WriteAllText(worker, "live");
 		string downloaded = MakeExtractedVersion(100);
-		var store = VersionStore.OpenAt(_root, _ => { });
+		var store = VersionStore.OpenAt(_root.Path, _ => { });
 
 		Assert.Throws<InvalidDataException>(() =>
 			store.Stage(new BundleManifest { BuildNumber = 100, SpawnContract = 2 }, downloaded, "sha256:aa"));
 		Assert.Equal("live", File.ReadAllText(worker));
 		Assert.Null(store.StagedBuild);
-		Assert.Null(new FileInfo(Path.Combine(_root, "current")).LinkTarget);
+		Assert.Null(new FileInfo(_root.Combine("current")).LinkTarget);
 	}
 
 	[Fact]
 	public void RecordStagedDigest_RejectsDifferentContentForTheSameBuild() {
 		InstallVersion(100);
 		PointCurrentAt(100);
-		var store = VersionStore.OpenAt(_root, _ => { });
+		var store = VersionStore.OpenAt(_root.Path, _ => { });
 
 		store.RecordStagedDigest(100, "sha256:aa");
 		store.RecordStagedDigest(100, "sha256:aa");
@@ -92,58 +86,56 @@ public sealed class VersionStoreTests : IDisposable {
 
 	[Fact]
 	public void Open_RejectsADanglingCurrentSelector() {
-		Directory.CreateDirectory(_root);
 		PointCurrentAt(100);
 
-		Assert.Throws<InvalidDataException>(() => VersionStore.OpenAt(_root, _ => { }));
+		Assert.Throws<InvalidDataException>(() => VersionStore.OpenAt(_root.Path, _ => { }));
 	}
 
 	[Fact]
 	public void Open_RejectsCurrentOutsideTheManagedVersionsDirectory() {
 		string outside = MakeExtractedVersion(100);
-		Directory.CreateDirectory(_root);
-		Directory.CreateSymbolicLink(Path.Combine(_root, "current"), outside);
+		Directory.CreateSymbolicLink(_root.Combine("current"), outside);
 
-		Assert.Throws<InvalidDataException>(() => VersionStore.OpenAt(_root, _ => { }));
+		Assert.Throws<InvalidDataException>(() => VersionStore.OpenAt(_root.Path, _ => { }));
 	}
 
 	[Fact]
 	public void Stage_FlipsCurrent_AndPersistsAcrossReopen() {
-		var store = VersionStore.OpenAt(_root, _ => { });
+		var store = VersionStore.OpenAt(_root.Path, _ => { });
 		store.Stage(new BundleManifest { BuildNumber = 100, SpawnContract = 1 }, MakeExtractedVersion(100), "sha256:aa");
 
 		Assert.Equal(100, store.StagedBuild);
 		Assert.True(store.IsKnownDigest("sha256:aa"));
-		string current = Path.Combine(_root, "current");
+		string current = _root.Combine("current");
 		Assert.Equal(Path.Combine("versions", "100"), new FileInfo(current).LinkTarget);
 		Assert.Equal(
-			Path.Combine(_root, "versions", "100", "worker", "Weavie.Headless.dll"),
+			_root.Combine("versions", "100", "worker", "Weavie.Headless.dll"),
 			store.ActiveWorkerPath());
 		Assert.Null(new FileInfo(current + ".new").LinkTarget);
 
 		// A fresh open (a restarted runner) reads the same state back from disk.
-		var reopened = VersionStore.OpenAt(_root, _ => { });
+		var reopened = VersionStore.OpenAt(_root.Path, _ => { });
 		Assert.Equal(100, reopened.StagedBuild);
 		Assert.True(reopened.IsKnownDigest("sha256:aa"));
 	}
 
 	[Fact]
 	public void Rollback_RestoresConfirmedGood_AndBlacklistsTheBadDigest() {
-		var store = VersionStore.OpenAt(_root, _ => { });
+		var store = VersionStore.OpenAt(_root.Path, _ => { });
 		store.Stage(new BundleManifest { BuildNumber = 100, SpawnContract = 1 }, MakeExtractedVersion(100), "sha256:aa");
 		store.MarkConfirmedGood(100);
 		store.Stage(new BundleManifest { BuildNumber = 101, SpawnContract = 1 }, MakeExtractedVersion(101), "sha256:bb");
 
 		Assert.Equal(100, store.RollbackToConfirmed(1).Build);
 		Assert.Equal(100, store.StagedBuild);
-		Assert.Equal(Path.Combine("versions", "100"), new FileInfo(Path.Combine(_root, "current")).LinkTarget);
+		Assert.Equal(Path.Combine("versions", "100"), new FileInfo(_root.Combine("current")).LinkTarget);
 		// The bad build is never retried, even by a restarted runner.
-		Assert.True(VersionStore.OpenAt(_root, _ => { }).IsKnownDigest("sha256:bb"));
+		Assert.True(VersionStore.OpenAt(_root.Path, _ => { }).IsKnownDigest("sha256:bb"));
 	}
 
 	[Fact]
 	public void Rollback_WithNothingConfirmed_ReturnsNull() {
-		var store = VersionStore.OpenAt(_root, _ => { });
+		var store = VersionStore.OpenAt(_root.Path, _ => { });
 		store.Stage(new BundleManifest { BuildNumber = 100, SpawnContract = 1 }, MakeExtractedVersion(100), "sha256:aa");
 		var (build, failure) = store.RollbackToConfirmed(1);
 		Assert.Null(build);
@@ -152,7 +144,7 @@ public sealed class VersionStoreTests : IDisposable {
 
 	[Fact]
 	public void Rollback_RefusesAConfirmedBuildFromAnotherContract() {
-		var store = VersionStore.OpenAt(_root, _ => { });
+		var store = VersionStore.OpenAt(_root.Path, _ => { });
 		store.Stage(new BundleManifest { BuildNumber = 100, SpawnContract = 1 }, MakeExtractedVersion(100, 1), "sha256:aa");
 		store.MarkConfirmedGood(100);
 		store.Stage(new BundleManifest { BuildNumber = 101, SpawnContract = 2 }, MakeExtractedVersion(101, 2), "sha256:bb");
@@ -161,38 +153,38 @@ public sealed class VersionStoreTests : IDisposable {
 
 		Assert.Null(build);
 		Assert.Contains("spawn contract 1", failure, StringComparison.Ordinal);
-		Assert.Equal(Path.Combine("versions", "101"), new FileInfo(Path.Combine(_root, "current")).LinkTarget);
+		Assert.Equal(Path.Combine("versions", "101"), new FileInfo(_root.Combine("current")).LinkTarget);
 	}
 
 	[Fact]
 	public void ConfirmingABuild_PrunesSupersededVersions() {
-		var store = VersionStore.OpenAt(_root, _ => { });
+		var store = VersionStore.OpenAt(_root.Path, _ => { });
 		store.Stage(new BundleManifest { BuildNumber = 100, SpawnContract = 1 }, MakeExtractedVersion(100), "sha256:aa");
 		store.MarkConfirmedGood(100);
 		store.Stage(new BundleManifest { BuildNumber = 101, SpawnContract = 1 }, MakeExtractedVersion(101), "sha256:bb");
 		store.MarkConfirmedGood(101);
 
-		Assert.False(Directory.Exists(Path.Combine(_root, "versions", "100")));
-		Assert.True(Directory.Exists(Path.Combine(_root, "versions", "101")));
+		Assert.False(Directory.Exists(_root.Combine("versions", "100")));
+		Assert.True(Directory.Exists(_root.Combine("versions", "101")));
 	}
 
 	[Fact]
 	public void ExtractBundle_RoundTripsTheReleaseTarball() {
 		// The exact shape the release workflow packages: versions/<N>/… plus a current symlink.
-		string layout = Path.Combine(_root, "layout");
+		string layout = _root.Combine("layout");
 		string versionDir = Path.Combine(layout, "versions", "247");
 		Directory.CreateDirectory(Path.Combine(versionDir, "worker"));
 		File.WriteAllText(Path.Combine(versionDir, "manifest.json"), """{ "buildNumber": 247, "spawnContract": 1 }""");
 		File.WriteAllText(Path.Combine(versionDir, "worker", "Weavie.Headless.dll"), "bin");
 		File.CreateSymbolicLink(Path.Combine(layout, "current"), Path.Combine("versions", "247"));
 
-		string tarball = Path.Combine(_root, "bundle.tar.gz");
+		string tarball = _root.Combine("bundle.tar.gz");
 		using (var file = File.Create(tarball))
 		using (var gzip = new GZipStream(file, CompressionMode.Compress)) {
 			TarFile.CreateFromDirectory(layout, gzip, includeBaseDirectory: false);
 		}
 
-		var (manifest, extractedDir) = VersionStore.ExtractBundle(tarball, Path.Combine(_root, "scratch"));
+		var (manifest, extractedDir) = VersionStore.ExtractBundle(tarball, _root.Combine("scratch"));
 		Assert.Equal(247, manifest.BuildNumber);
 		Assert.Equal(1, manifest.SpawnContract);
 		Assert.True(File.Exists(Path.Combine(extractedDir, "worker", "Weavie.Headless.dll")));
@@ -200,15 +192,15 @@ public sealed class VersionStoreTests : IDisposable {
 
 	[Fact]
 	public void ExtractBundle_WithoutManifest_Throws() {
-		string layout = Path.Combine(_root, "layout");
+		string layout = _root.Combine("layout");
 		Directory.CreateDirectory(Path.Combine(layout, "versions", "1"));
-		string tarball = Path.Combine(_root, "bundle.tar.gz");
+		string tarball = _root.Combine("bundle.tar.gz");
 		using (var file = File.Create(tarball))
 		using (var gzip = new GZipStream(file, CompressionMode.Compress)) {
 			TarFile.CreateFromDirectory(layout, gzip, includeBaseDirectory: false);
 		}
 
-		Assert.Throws<InvalidDataException>(() => VersionStore.ExtractBundle(tarball, Path.Combine(_root, "scratch")));
+		Assert.Throws<InvalidDataException>(() => VersionStore.ExtractBundle(tarball, _root.Combine("scratch")));
 	}
 
 	[Theory]
@@ -225,7 +217,7 @@ public sealed class VersionStoreTests : IDisposable {
 	private string MakeExtractedVersion(int build) => MakeExtractedVersion(build, 1);
 
 	private string MakeExtractedVersion(int build, int spawnContract) {
-		string dir = Path.Combine(_root, "extracted", Guid.NewGuid().ToString("n"), build.ToString());
+		string dir = _root.Combine("extracted", Guid.NewGuid().ToString("n"), build.ToString());
 		Directory.CreateDirectory(Path.Combine(dir, "worker"));
 		File.WriteAllText(Path.Combine(dir, "worker", "Weavie.Headless.dll"), "bin");
 		File.WriteAllText(
@@ -235,14 +227,14 @@ public sealed class VersionStoreTests : IDisposable {
 	}
 
 	private string InstallVersion(int build) {
-		string target = Path.Combine(_root, "versions", build.ToString());
+		string target = _root.Combine("versions", build.ToString());
 		Directory.CreateDirectory(Path.GetDirectoryName(target)!);
 		Directory.Move(MakeExtractedVersion(build), target);
 		return target;
 	}
 
 	private void PointCurrentAt(int build) {
-		string current = Path.Combine(_root, "current");
+		string current = _root.Combine("current");
 		if (new FileInfo(current).LinkTarget is not null) {
 			File.Delete(current);
 		}

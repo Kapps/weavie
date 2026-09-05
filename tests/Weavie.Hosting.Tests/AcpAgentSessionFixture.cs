@@ -15,18 +15,21 @@ using Weavie.Core.Theming;
 namespace Weavie.Hosting.Tests;
 
 internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
+	private readonly TempDirectory _directory;
 	private readonly SettingsStore _settings;
 	private readonly KeybindingStore _keybindings;
 	private readonly Channel<AgentPaneMessage> _pane = Channel.CreateUnbounded<AgentPaneMessage>();
 	private readonly Channel<IReadOnlyList<AgentPaneMessage>> _snapshots =
 		Channel.CreateUnbounded<IReadOnlyList<AgentPaneMessage>>();
 	private readonly Channel<AgentControlState> _controls = Channel.CreateUnbounded<AgentControlState>();
+	private readonly Channel<IReadOnlyList<AgentTurnSubmission>> _queues =
+		Channel.CreateUnbounded<IReadOnlyList<AgentTurnSubmission>>();
 	private readonly IAgentAuthenticationTerminal _authenticationTerminal;
 	private readonly Lock _messageGate = new();
 	private readonly List<AgentPaneMessage> _messages = [];
 
 	private AcpAgentSessionFixture(
-		string root,
+		TempDirectory directory,
 		SettingsStore settings,
 		KeybindingStore keybindings,
 		EditorStore editor,
@@ -34,7 +37,7 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 		AcpAgentSession session,
 		RecordingAgentEventSink events,
 		IAgentAuthenticationTerminal authenticationTerminal) {
-		Workspace = root;
+		_directory = directory;
 		_settings = settings;
 		_keybindings = keybindings;
 		Editor = editor;
@@ -48,14 +51,15 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 		};
 		session.PaneSnapshot += snapshot => _snapshots.Writer.TryWrite(snapshot);
 		session.ControlStateChanged += state => _controls.Writer.TryWrite(state);
+		session.QueuedSubmissionsChanged += queued => _queues.Writer.TryWrite(queued);
 	}
 
 	public AcpAgentSession Session { get; }
 	public AcpSessionStore Sessions { get; }
 	public EditorStore Editor { get; }
 	public RecordingAgentEventSink Events { get; }
-	public string Workspace { get; }
-	public string FakeAcpStateDirectory => Path.Combine(Workspace, "weavie", "fake-acp-state");
+	public string Workspace => _directory.Path;
+	public string FakeAcpStateDirectory => _directory.Combine("weavie", "fake-acp-state");
 	public AgentLaunch? AuthenticationLaunch =>
 		(_authenticationTerminal as RecordingAuthenticationTerminal)?.Launch;
 
@@ -250,41 +254,40 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 		string? persistedSessionId,
 		bool failSessionPersistence,
 		IAgentAuthenticationTerminal authenticationTerminal) {
-		string root = Path.Combine(Path.GetTempPath(), "weavie-acp-tests", Guid.NewGuid().ToString("N"));
-		Directory.CreateDirectory(root);
+		var directory = new TempDirectory("weavie-acp-tests");
 		var processEnvironment = new Dictionary<string, string>(environment, StringComparer.Ordinal) {
-			["WEAVIE_ROOT"] = Path.Combine(root, "weavie"),
+			["WEAVIE_ROOT"] = directory.Combine("weavie"),
 		};
 		var fileSystem = new LocalFileSystem();
-		var settings = CoreSettings.CreateStore(Path.Combine(root, "settings.toml"), enableWatcher: false);
+		var settings = CoreSettings.CreateStore(directory.Combine("settings.toml"), enableWatcher: false);
 		settings.Set(
 			AgentSettings.AllowAllPermissions,
 			JsonSerializer.SerializeToElement(allowAllPermissions));
 		var commandRegistry = CoreCommands.CreateRegistry();
 		var keybindings = new KeybindingStore(
 			commandRegistry,
-			Path.Combine(root, "keybindings.json"),
+			directory.Combine("keybindings.json"),
 			enableWatcher: false);
 		var editor = new EditorStore();
 		var registry = new CapabilityRegistryHost(
 			AgentSessionCredential.Create(),
 			FakeDiffPresenter.AlwaysKeep(),
-			[root],
+			[directory.Path],
 			"weavie-test",
 			settings,
-			new LayoutStore(fileSystem, LayoutPanes.CreateRegistry(), Path.Combine(root, "layout.json")),
+			new LayoutStore(fileSystem, LayoutPanes.CreateRegistry(), directory.Combine("layout.json")),
 			editor,
 			exposeIdeTools: true,
 			new CommandDispatcher(commandRegistry),
 			keybindings,
-			new ThemeOverridesStore(fileSystem, Path.Combine(root, "theme-overrides.json")),
+			new ThemeOverridesStore(fileSystem, directory.Combine("theme-overrides.json")),
 			static () => "test-session");
 		IFileSystem sessionFileSystem = failSessionPersistence
 			? new AtomicWriteFailureFileSystem(fileSystem)
 			: fileSystem;
-		var store = new AcpSessionStore(sessionFileSystem, Path.Combine(root, "acp-sessions.json"));
-		var controls = new AcpControlStore(sessionFileSystem, Path.Combine(root, "acp-controls.json"));
-		if (persistedSessionId is not null) store.Adopt(providerId, root, persistedSessionId, 0);
+		var store = new AcpSessionStore(sessionFileSystem, directory.Combine("acp-sessions.json"));
+		var controls = new AcpControlStore(sessionFileSystem, directory.Combine("acp-controls.json"));
+		if (persistedSessionId is not null) store.Adopt(providerId, directory.Path, persistedSessionId, 0);
 		var events = new RecordingAgentEventSink();
 		var definition = new AcpAgentDefinition {
 			Id = providerId,
@@ -297,7 +300,7 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 		var session = new AcpAgentSession(
 			new AgentSessionContext {
 				Settings = settings,
-				Workspace = root,
+				Workspace = directory.Path,
 				FileSystem = fileSystem,
 				Registry = registry,
 				DiffPresenter = FakeDiffPresenter.AlwaysKeep(),
@@ -312,7 +315,7 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 			controls,
 			events.Logs.Enqueue);
 		return new AcpAgentSessionFixture(
-			root,
+			directory,
 			settings,
 			keybindings,
 			editor,
@@ -339,16 +342,14 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 		}
 	}
 
-	public async Task<AgentControlState> WaitForControlsAsync(Func<AgentControlState, bool> predicate) {
-		ArgumentNullException.ThrowIfNull(predicate);
-		using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-		while (true) {
-			var state = await _controls.Reader.ReadAsync(timeout.Token).ConfigureAwait(false);
-			if (predicate(state)) return state;
-		}
-	}
+	public Task<AgentControlState> WaitForControlsAsync(Func<AgentControlState, bool> predicate) =>
+		ReadAsync(_controls.Reader, predicate);
 
-	public Task<IReadOnlyList<AgentPaneMessage>> WaitForSnapshotAsync() => ReadAsync(_snapshots.Reader);
+	public Task<IReadOnlyList<AgentTurnSubmission>> WaitForQueueAsync(
+		Func<IReadOnlyList<AgentTurnSubmission>, bool> predicate) => ReadAsync(_queues.Reader, predicate);
+
+	public Task<IReadOnlyList<AgentPaneMessage>> WaitForSnapshotAsync() =>
+		ReadAsync(_snapshots.Reader, _ => true);
 
 	public void Submit(string text) => Session.Submit(new AgentTurnSubmission {
 		Id = Guid.NewGuid().ToString("N"),
@@ -371,12 +372,16 @@ internal sealed class AcpAgentSessionFixture : IAsyncDisposable {
 		await _authenticationTerminal.DisposeAsync().ConfigureAwait(false);
 		_keybindings.Dispose();
 		_settings.Dispose();
-		Directory.Delete(Workspace, recursive: true);
+		_directory.Dispose();
 	}
 
-	private static async Task<T> ReadAsync<T>(ChannelReader<T> reader) {
+	private static async Task<T> ReadAsync<T>(ChannelReader<T> reader, Func<T, bool> predicate) {
+		ArgumentNullException.ThrowIfNull(predicate);
 		using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-		return await reader.ReadAsync(timeout.Token).ConfigureAwait(false);
+		while (true) {
+			var value = await reader.ReadAsync(timeout.Token).ConfigureAwait(false);
+			if (predicate(value)) return value;
+		}
 	}
 
 	internal static string ExecutablePath(string topLevel, string project, string executable) {

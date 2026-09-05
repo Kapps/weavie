@@ -188,10 +188,13 @@ test("the cursor on a blank line is left unannotated", async ({ page }) => {
   await openFile(page, "hello.ts");
   await expect(page.locator(".weavie-blame")).toHaveCount(1);
 
-  // Click column 1 of the file's blank line, so the caret lands on it the way a user's would.
-  const blank = (await page.evaluate(annotatedLines)).find((line) => line.text === "");
-  expect(blank).toBeDefined();
-  await page.mouse.click((blank?.left ?? 0) + 4, blank?.middle ?? 0);
+  await page.keyboard.press("ControlOrMeta+End");
+  expect(
+    await page.evaluate(() => {
+      const editor = (window as WeavieWindow).__WEAVIE_EDITOR__ as EditorHandle;
+      return editor.getModel()?.getLineContent(editor.getPosition()!.lineNumber);
+    }),
+  ).toBe("");
 
   await expect(page.locator(".weavie-blame")).toHaveCount(0);
 });

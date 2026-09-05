@@ -9,7 +9,9 @@ namespace Weavie.AgentClientProtocol;
 /// <summary>A strict bidirectional JSON-RPC 2.0 connection to one supervised ACP agent process.</summary>
 public sealed partial class AcpJsonRpcConnection : IAsyncDisposable {
 	private static readonly Encoding Utf8NoBom = new UTF8Encoding(false);
-	private readonly AcpAgentDefinition _definition;
+	private readonly Func<AcpAgentDefinition> _currentDefinition;
+	private readonly string _providerId;
+	private readonly string _providerName;
 	private readonly string _workingDirectory;
 	private readonly Action<string> _log;
 	private readonly ConcurrentDictionary<long, PendingRequest> _pending = new();
@@ -25,15 +27,26 @@ public sealed partial class AcpJsonRpcConnection : IAsyncDisposable {
 	private bool _disposed;
 
 	/// <summary>Creates a process connection rooted at <paramref name="workingDirectory"/>.</summary>
-	public AcpJsonRpcConnection(AcpAgentDefinition definition, string workingDirectory, Action<string> log) {
+	public AcpJsonRpcConnection(
+		AcpAgentDefinition definition,
+		string workingDirectory,
+		Action<string> log) : this(() => definition, workingDirectory, log) { }
+
+	internal AcpJsonRpcConnection(
+		Func<AcpAgentDefinition> definition,
+		string workingDirectory,
+		Action<string> log) {
 		ArgumentNullException.ThrowIfNull(definition);
 		ArgumentException.ThrowIfNullOrEmpty(workingDirectory);
 		ArgumentNullException.ThrowIfNull(log);
-		_definition = definition;
+		_currentDefinition = definition;
+		var initial = definition() ?? throw new InvalidOperationException("The ACP agent definition is unavailable.");
+		_providerId = initial.Id;
+		_providerName = initial.Name;
 		_workingDirectory = workingDirectory;
 		_log = log;
 		_supervisor = new ProcessSupervisor(
-			$"acp:{definition.Id}",
+			$"acp:{initial.Id}",
 			StartProcess,
 			StopProcess,
 			new SupervisionOptions {
@@ -41,7 +54,7 @@ public sealed partial class AcpJsonRpcConnection : IAsyncDisposable {
 				RequireExplicitHealth = true,
 				HealthyAfter = TimeSpan.Zero,
 			},
-			entry => _log($"[acp:{definition.Id}] {entry.Level}: {entry.Message}"),
+			entry => _log($"[acp:{initial.Id}] {entry.Level}: {entry.Message}"),
 			new SystemSupervisorClock());
 		_supervisor.StateChanged += change => ProcessStateChanged?.Invoke(change);
 	}
@@ -167,7 +180,7 @@ public sealed partial class AcpJsonRpcConnection : IAsyncDisposable {
 		try {
 			await NotifyAsync("$/cancel_request", new { requestId = id }, generation).ConfigureAwait(false);
 		} catch (Exception ex) when (ex is IOException or InvalidOperationException) {
-			_log($"[acp:{_definition.Id}] request cancellation could not be sent: {ex.Message}");
+			_log($"[acp:{_providerId}] request cancellation could not be sent: {ex.Message}");
 		}
 	}
 
@@ -189,7 +202,7 @@ public sealed partial class AcpJsonRpcConnection : IAsyncDisposable {
 				process.Kill(entireProcessTree: true);
 			}
 		} catch (Exception ex) when (ex is InvalidOperationException or NotSupportedException) {
-			_log($"[acp:{_definition.Id}] stop failed: {ex.Message}");
+			_log($"[acp:{_providerId}] stop failed: {ex.Message}");
 		} finally {
 			process.Dispose();
 		}

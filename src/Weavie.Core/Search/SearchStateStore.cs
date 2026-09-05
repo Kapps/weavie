@@ -21,41 +21,31 @@ public sealed record SearchState {
 /// (mirrors <see cref="Sessions.RailStateStore"/>). The current search term is deliberately NOT persisted —
 /// only the history is. A malformed file is backed up to <c>search-state.json.bad</c> and reset.
 /// </summary>
-public sealed class SearchStateStore {
+public sealed class SearchStateStore : JsonDocumentStore {
 	private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
-	private readonly IFileSystem _fileSystem;
-	private readonly Lock _gate = new();
-	private Document _doc;
+	private Document _doc = new();
 
 	/// <summary>Creates the store over <paramref name="path"/> (default <c>~/.weavie/search-state.json</c>), loading it now.</summary>
-	public SearchStateStore(IFileSystem fileSystem, string? path) {
-		ArgumentNullException.ThrowIfNull(fileSystem);
-		_fileSystem = fileSystem;
-		FilePath = path ?? WeaviePaths.SearchStateFile;
-		lock (_gate) {
-			_doc = LoadLocked();
-		}
+	/// <param name="fileSystem">The filesystem the state persists through.</param>
+	/// <param name="path">The backing file, or <c>null</c> for the default.</param>
+	public SearchStateStore(IFileSystem fileSystem, string? path)
+		: base(fileSystem, path ?? WeaviePaths.SearchStateFile) {
+		Load();
 	}
 
 	/// <summary>Raised (off the UI thread) after the state changes, so each window re-pushes it to its page.</summary>
 	public event Action? Changed;
 
-	/// <summary>Diagnostic log line — read failures, malformed-file resets, persist failures.</summary>
-	public event Action<string>? Log;
-
-	/// <summary>The search-state file backing this store.</summary>
-	public string FilePath { get; }
-
 	/// <summary>The persisted match options + globs + recent terms. Snapshot copy; safe to enumerate.</summary>
 	public SearchState Current {
-		get { lock (_gate) { return _doc.ToState(); } }
+		get { lock (Gate) { return _doc.ToState(); } }
 	}
 
 	/// <summary>Replaces the match options and include/exclude globs (never the recent terms). No-op when unchanged.</summary>
 	public void SetOptions(GrepOptions options) {
 		ArgumentNullException.ThrowIfNull(options);
-		lock (_gate) {
+		lock (Gate) {
 			if (_doc.ToState().Options == options) {
 				return;
 			}
@@ -70,7 +60,7 @@ public sealed class SearchStateStore {
 	/// <summary>Records <paramref name="term"/> as the most recent search (MRU, deduped, bounded). No-op when it doesn't change the list.</summary>
 	public void AddRecentTerm(string term) {
 		ArgumentNullException.ThrowIfNull(term);
-		lock (_gate) {
+		lock (Gate) {
 			var next = SearchHistory.Add(_doc.RecentTerms, term);
 			if (next.SequenceEqual(_doc.RecentTerms, StringComparer.Ordinal)) {
 				return;
@@ -83,20 +73,12 @@ public sealed class SearchStateStore {
 		Changed?.Invoke();
 	}
 
-	private Document LoadLocked() => JsonStoreFile.Load(
-		_fileSystem,
-		FilePath,
-		text => (JsonSerializer.Deserialize<Document>(text) ?? new Document()).Sanitized(),
-		static () => new Document(),
-		Log);
+	/// <inheritdoc/>
+	protected override void Restore(string? text) =>
+		_doc = (text is null ? null : JsonSerializer.Deserialize<Document>(text))?.Sanitized() ?? new Document();
 
-	private void PersistLocked() {
-		JsonStoreFile.Persist(
-			_fileSystem,
-			FilePath,
-			JsonSerializer.Serialize(_doc with { Version = 1 }, JsonOptions),
-			Log);
-	}
+	/// <inheritdoc/>
+	protected override string Render() => JsonSerializer.Serialize(_doc with { Version = 1 }, JsonOptions);
 
 	// The on-disk shape. Options are flattened (not a nested GrepOptions) so the JSON stays a flat, hand-editable
 	// document; excludeGitignored defaults true so a partial file keeps the sensible default.

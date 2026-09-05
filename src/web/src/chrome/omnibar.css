@@ -56,7 +56,7 @@
   top: calc(100% + 4px);
   left: 50%;
   transform: translateX(-50%);
-  z-index: 60;
+  z-index: 85;
   width: min(640px, 92vw);
   max-height: 45vh;
   display: flex;

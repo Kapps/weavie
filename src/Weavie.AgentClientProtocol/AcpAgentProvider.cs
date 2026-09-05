@@ -4,20 +4,33 @@ using Weavie.Core.Sessions;
 
 namespace Weavie.AgentClientProtocol;
 
-/// <summary>Creates native structured sessions for one immutable ACP agent profile.</summary>
+/// <summary>Creates native structured sessions for one installed ACP agent.</summary>
 public sealed class AcpAgentProvider : IAgentProvider, IAgentInferenceProvider {
-	private readonly AcpAgentDefinition _definition;
+	private readonly Func<AcpAgentDefinition> _currentDefinition;
 	private readonly AcpSessionStore _sessions;
 	private readonly AcpControlStore _controls;
 	private readonly Action<string> _log;
 
-	/// <summary>Creates a provider for <paramref name="definition"/>.</summary>
-	public AcpAgentProvider(AcpAgentDefinition definition, AcpSessionStore sessions, AcpControlStore controls, Action<string> log) {
+	/// <summary>Creates a provider for one fixed <paramref name="definition"/>.</summary>
+	public AcpAgentProvider(
+		AcpAgentDefinition definition,
+		AcpSessionStore sessions,
+		AcpControlStore controls,
+		Action<string> log) : this(definition, () => definition, sessions, controls, log) { }
+
+	/// <summary>Creates a provider whose new processes resolve through <paramref name="currentDefinition"/>.</summary>
+	public AcpAgentProvider(
+		AcpAgentDefinition definition,
+		Func<AcpAgentDefinition> currentDefinition,
+		AcpSessionStore sessions,
+		AcpControlStore controls,
+		Action<string> log) {
 		ArgumentNullException.ThrowIfNull(definition);
+		ArgumentNullException.ThrowIfNull(currentDefinition);
 		ArgumentNullException.ThrowIfNull(sessions);
 		ArgumentNullException.ThrowIfNull(controls);
 		ArgumentNullException.ThrowIfNull(log);
-		_definition = definition;
+		_currentDefinition = currentDefinition;
 		_sessions = sessions;
 		_controls = controls;
 		_log = log;
@@ -39,12 +52,12 @@ public sealed class AcpAgentProvider : IAgentProvider, IAgentInferenceProvider {
 
 	/// <inheritdoc/>
 	public IAgentSession CreateSession(AgentSessionContext context) =>
-		new AcpAgentSession(context, _definition, _sessions, _controls, _log);
+		new AcpAgentSession(context, _currentDefinition, _sessions, _controls, _log);
 
 	/// <inheritdoc/>
 	/// <remarks>
-	/// Both categories run the agent's own configured model. ACP exposes model and reasoning-level selectors but no
-	/// cost or capability semantics for their values, so Weavie reports the agent's choice instead of overriding it.
+	/// Explicit inference profile values select exact provider-advertised controls. Blank values retain the agent's
+	/// defaults because ACP does not assign portable cost or capability semantics to provider-native values.
 	/// </remarks>
 	public InferenceProviderInfo InferenceInfo { get; } = new() {
 		Categories = [InferenceModelCategory.Utility, InferenceModelCategory.Reasoning],
@@ -55,6 +68,6 @@ public sealed class AcpAgentProvider : IAgentProvider, IAgentInferenceProvider {
 		InferenceProviderRequest request,
 		CancellationToken ct) {
 		ArgumentNullException.ThrowIfNull(request);
-		return AcpInferenceClient.QueryAsync(_definition, request, ct);
+		return AcpInferenceClient.QueryAsync(_currentDefinition(), request, ct);
 	}
 }

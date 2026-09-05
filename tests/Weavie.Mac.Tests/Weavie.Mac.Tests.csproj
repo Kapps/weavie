@@ -11,4 +11,9 @@
     <ProjectReference Include="..\..\src\Weavie.Mac\Weavie.Mac.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\Weavie.TestSupport\Weavie.TestSupport.csproj" />
+    <Using Include="Weavie.TestSupport" />
+  </ItemGroup>
+
 </Project>

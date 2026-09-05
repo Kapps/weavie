@@ -15,24 +15,11 @@ import { formatKey } from "../commands/keybindings";
 import type { CommandInfo } from "../commands/types";
 import { samePath } from "../editor/fs-path";
 import type { DirEntry } from "../files/FileBrowser";
+import type { PathTreeRow } from "../files/path-tree";
+import type { ListRowProps } from "../list-navigation";
 import type { FlatSymbol, ScoredSymbol } from "../symbols/symbol-match";
 import type { ScoredFile } from "./file-search";
 import { highlightSlice } from "./highlight";
-
-/** A node in the client-side file tree. `key` (the dir's relative path) is the expansion-state key. */
-export interface TreeNode {
-  name: string;
-  key: string;
-  isDir: boolean;
-  abs?: string;
-  children?: TreeNode[];
-}
-
-/** One rendered tree line: the node and how deep it sits. */
-export interface TreeRow {
-  node: TreeNode;
-  depth: number;
-}
 
 /** One command row: the command and the query positions to highlight in its title. */
 export interface ScoredCommand {
@@ -52,7 +39,8 @@ export function OmnibarResults(props: {
   mode: () => OmnibarResultMode;
   selected: () => number;
   onSelect: (index: number) => void;
-  listRef: (element: HTMLDivElement) => void;
+  /** The navigation's own per-row props: hover moves the highlight, and the row is scrollable-to. */
+  rowProps: (index: number) => ListRowProps;
   hiddenCount: () => number;
   filesPending: boolean;
   currentFile: string | null;
@@ -71,7 +59,7 @@ export function OmnibarResults(props: {
   onRunCommand: (command: CommandInfo) => void;
 
   fileRows: () => ScoredFile[];
-  treeRows: () => TreeRow[];
+  treeRows: () => PathTreeRow<string>[];
   expanded: () => Set<string>;
   onOpenFile: (absolute: string | undefined) => void;
   onToggleDir: (key: string) => void;
@@ -83,6 +71,7 @@ export function OmnibarResults(props: {
     run();
   };
   const rowAttributes = (index: number): JSX.ButtonHTMLAttributes<HTMLButtonElement> => ({
+    ...props.rowProps(index),
     type: "button",
     role: "option",
     tabindex: -1,
@@ -94,7 +83,6 @@ export function OmnibarResults(props: {
   const List = (listProps: { label: string; children: JSX.Element }): JSX.Element => (
     <div
       class="tb-omnibar-list"
-      ref={props.listRef}
       id="tb-omnibar-listbox"
       role="listbox"
       aria-label={listProps.label}
@@ -186,26 +174,26 @@ export function OmnibarResults(props: {
                   {...rowAttributes(i())}
                   class="tb-omnibar-row tb-tree-row"
                   classList={{
-                    dir: row.node.isDir,
+                    dir: row.node.kind === "directory",
                     selected: i() === props.selected(),
-                    current: isCurrent(row.node.abs),
+                    current: isCurrent(row.node.kind === "file" ? row.node.value : undefined),
                   }}
                   style={`padding-left: ${10 + row.depth * 14}px`}
                   onMouseDown={press(i(), () =>
-                    row.node.isDir
+                    row.node.kind === "directory"
                       ? props.onToggleDir(row.node.key)
-                      : props.onOpenFile(row.node.abs),
+                      : props.onOpenFile(row.node.value),
                   )}
                 >
                   <span class="tb-tree-twisty" aria-hidden="true">
-                    <Show when={row.node.isDir}>
+                    <Show when={row.node.kind === "directory"}>
                       <Show when={props.expanded().has(row.node.key)} fallback={<ChevronRight />}>
                         <ChevronDown />
                       </Show>
                     </Show>
                   </span>
                   <span class="tb-tree-icon" aria-hidden="true">
-                    <Show when={row.node.isDir} fallback={<FileIcon />}>
+                    <Show when={row.node.kind === "directory"} fallback={<FileIcon />}>
                       <Show when={props.expanded().has(row.node.key)} fallback={<Folder />}>
                         <FolderOpen />
                       </Show>

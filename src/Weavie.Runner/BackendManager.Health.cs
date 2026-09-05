@@ -10,6 +10,13 @@ public sealed partial class BackendManager {
 	private static readonly TimeSpan HealthRequestDeadline = TimeSpan.FromSeconds(3);
 	private static readonly TimeSpan StartupDeadline = TimeSpan.FromMinutes(2);
 
+	// A worker mid-request (e.g. standing up a second session's PTY + IDE-MCP server) can starve the thread
+	// pool for one health-poll interval on a loaded CI runner without actually being stuck — its own message
+	// operations carry a much longer (60s default) deadline and report themselves as merely "busy". Requiring
+	// two consecutive misses before replacing the backend absorbs that one-off scheduling delay while still
+	// catching a genuinely wedged worker on the very next poll, 5s later.
+	private const int UnhealthyConfirmationThreshold = 2;
+
 	private readonly CancellationTokenSource _healthCancellation = new();
 	private readonly DiagnosticWorker _healthDiagnostics = new(message => {
 		Console.WriteLine($"[health] {message}");
@@ -63,12 +70,16 @@ public sealed partial class BackendManager {
 					var health = await ProbeHealthAsync(backend, _healthCancellation.Token).ConfigureAwait(false);
 					switch (health.State) {
 						case WorkerHealthState.Healthy:
+							state.ClearUnhealthyStreak();
 							supervisor.ReportHealthy(state.Generation);
 							break;
 						case WorkerHealthState.Busy:
+							state.ClearUnhealthyStreak();
 							break;
 						case WorkerHealthState.Unhealthy:
-							ReplaceUnhealthy(backend, state.Generation, health.Detail);
+							if (state.ObserveUnhealthy() >= UnhealthyConfirmationThreshold) {
+								ReplaceUnhealthy(backend, state.Generation, health.Detail);
+							}
 							break;
 					}
 				} catch (Exception ex) when (!_healthCancellation.IsCancellationRequested) {
@@ -228,6 +239,7 @@ internal sealed record WorkerHealth(WorkerHealthState State, string Detail);
 internal sealed class WorkerHealthMonitorState {
 	private WorkspaceBackend? _backend;
 	private ProcessSupervisor? _supervisor;
+	private int _unhealthyStreak;
 
 	public long Generation { get; private set; }
 
@@ -247,9 +259,16 @@ internal sealed class WorkerHealthMonitorState {
 		Generation = supervisor.Generation;
 		GenerationStarted = now;
 		Ready = false;
+		_unhealthyStreak = 0;
 	}
 
 	public void MarkReady() => Ready = true;
+
+	/// <summary>Records one unhealthy probe against this generation and returns the consecutive-miss count.</summary>
+	public int ObserveUnhealthy() => ++_unhealthyStreak;
+
+	/// <summary>Clears the consecutive-miss count — a healthy or merely-busy probe means the worker did answer.</summary>
+	public void ClearUnhealthyStreak() => _unhealthyStreak = 0;
 
 	public void Clear() {
 		_backend = null;
@@ -257,5 +276,6 @@ internal sealed class WorkerHealthMonitorState {
 		Generation = 0;
 		GenerationStarted = default;
 		Ready = false;
+		_unhealthyStreak = 0;
 	}
 }

@@ -212,7 +212,7 @@ describe("auto-link provider", () => {
     expect(posted).toContainEqual({
       type: "reveal-file",
       path: "src/web/src/terminal/terminal-links.ts",
-      line: 1,
+      line: null,
       preview: false,
     });
   });
@@ -243,7 +243,7 @@ describe("auto-link provider", () => {
     expect(oneLine("⏺ Bash(git status)").provide()).toEqual([]);
   });
 
-  it("links a bare path (separator, no :line, no wrapper) and reveals it at line 1", () => {
+  it("links a bare path (separator, no :line, no wrapper) and reveals it with no line", () => {
     const { provide } = oneLine("wrote src/web/e2e/.recordings/clip.webm just now");
     const links = provide();
     expect(links).toHaveLength(1);
@@ -252,7 +252,7 @@ describe("auto-link provider", () => {
     expect(posted).toContainEqual({
       type: "reveal-file",
       path: "src/web/e2e/.recordings/clip.webm",
-      line: 1,
+      line: null,
       preview: false,
     });
   });

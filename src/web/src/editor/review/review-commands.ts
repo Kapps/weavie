@@ -20,11 +20,11 @@ export function reviewCommandBindings(
   return [
     [
       CommandIds.nextChange,
-      (_args, { session }) => selected(session) && editor.inline.nextChange(),
+      (_args, { session }) => selected(session) && editor.review.step(session, "nextChange"),
     ],
     [
       CommandIds.prevChange,
-      (_args, { session }) => selected(session) && editor.inline.prevChange(),
+      (_args, { session }) => selected(session) && editor.review.step(session, "prevChange"),
     ],
     [CommandIds.acceptChange, (_args, { session }) => selected(session) && editor.inline.accept()],
     [CommandIds.rejectChange, (_args, { session }) => selected(session) && editor.inline.reject()],
@@ -83,12 +83,17 @@ export function reviewCommandBindings(
       (_args, { session }) => selected(session) && editor.review.toggleMode(session),
     ],
     [
+      CommandIds.reviewToggleFile,
+      (args, { session }) =>
+        selected(session) && editor.review.toggleFileCollapsed(session, pathArg(args)),
+    ],
+    [
       CommandIds.reviewNextFile,
-      (_args, { session }) => selected(session) && editor.inline.nextFile(),
+      (_args, { session }) => selected(session) && editor.review.step(session, "nextFile"),
     ],
     [
       CommandIds.reviewPrevFile,
-      (_args, { session }) => selected(session) && editor.inline.prevFile(),
+      (_args, { session }) => selected(session) && editor.review.step(session, "prevFile"),
     ],
   ];
 }

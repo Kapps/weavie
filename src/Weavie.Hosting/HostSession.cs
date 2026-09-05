@@ -437,13 +437,16 @@ public sealed partial class HostSession : IAsyncDisposable {
 
 	private void PublishEditorFileOpen(
 		string path,
-		int line,
+		int? line,
 		bool preview,
-		bool scratch) {
+		bool scratch,
+		EditorOpenIntent intent) {
 		EditorSession next;
 		lock (_editorSessionGate) {
 			next = RecordEditorOpenLocked(path, preview, scratch, kind: null);
-			_editorMessages.Publish("openFile", new { path, line, preview, scratch });
+			_editorMessages.Publish(
+				"openFile",
+				new { path, line, preview, scratch, intent = intent == EditorOpenIntent.Reveal ? "reveal" : "navigation" });
 		}
 
 		EditorSessionChanged?.Invoke(next);
@@ -656,7 +659,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 	/// </summary>
 	public void OpenNewScratch() {
 		string path = Scratch.CreateNew();
-		FileOpener.Open(path, 1, preview: false, scratch: true);
+		FileOpener.Open(path, line: null, preview: false, scratch: true, EditorOpenIntent.Navigation);
 	}
 
 	/// <summary>Reveals the exact completed agent plan in this session's editor channel.</summary>

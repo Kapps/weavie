@@ -13,22 +13,21 @@ namespace Weavie.Hosting.Tests;
 /// own injected crash-file paths instead of one process-wide static location.
 /// </summary>
 public sealed class CrashReporterTests {
-	private static (string LastCrashFile, string PreviousCrashFile) IsolatedPaths() {
-		string dir = Path.Combine(Path.GetTempPath(), "weavie-crash-reporter-tests-" + Guid.NewGuid().ToString("n"));
-		return (Path.Combine(dir, "last-crash.log"), Path.Combine(dir, "previous-crash.log"));
-	}
+	private static (string LastCrashFile, string PreviousCrashFile) IsolatedPaths(TempDirectory dir) =>
+		(dir.Combine("last-crash.log"), dir.Combine("previous-crash.log"));
 
 	[Fact]
 	public void TakePendingReport_ReturnsNull_WhenLastRunExitedCleanly() {
-		var (lastCrashFile, previousCrashFile) = IsolatedPaths();
+		using var dir = new TempDirectory("weavie-crash-reporter-tests");
+		var (lastCrashFile, previousCrashFile) = IsolatedPaths(dir);
 
 		Assert.Null(CrashReporter.TakePendingReport(lastCrashFile, previousCrashFile));
 	}
 
 	[Fact]
 	public void TakePendingReport_ReturnsReport_ThenRotatesSoItSurfacesOnce() {
-		var (lastCrashFile, previousCrashFile) = IsolatedPaths();
-		Directory.CreateDirectory(Path.GetDirectoryName(lastCrashFile)!);
+		using var dir = new TempDirectory("weavie-crash-reporter-tests");
+		var (lastCrashFile, previousCrashFile) = IsolatedPaths(dir);
 		File.WriteAllText(lastCrashFile, "boom\nat Worker()");
 
 		Assert.Equal("boom\nat Worker()", CrashReporter.TakePendingReport(lastCrashFile, previousCrashFile));

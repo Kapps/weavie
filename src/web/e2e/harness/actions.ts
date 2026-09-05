@@ -1,4 +1,4 @@
-import { expect, type Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 import { mediaTypeOf } from "../../src/editor/media/media-types";
 import type { WeavieWindow } from "./weavie-window";
 
@@ -62,6 +62,41 @@ export async function openFile(page: Page, name: string): Promise<void> {
     );
     await awaitEditorLaidOut(page);
   }
+}
+
+export async function clickOmnibarRowThroughToast(
+  page: Page,
+  rows: Locator,
+  toast: Locator,
+): Promise<void> {
+  const toastElement = await toast.elementHandle();
+  if (toastElement === null) {
+    throw new Error("The toast must be attached.");
+  }
+  const covered = await rows.evaluateAll((elements, notification) => {
+    const toastBounds = notification.getBoundingClientRect();
+    for (const [index, element] of elements.entries()) {
+      const rowBounds = element.getBoundingClientRect();
+      const left = Math.max(rowBounds.left, toastBounds.left);
+      const right = Math.min(rowBounds.right, toastBounds.right);
+      const top = Math.max(rowBounds.top, toastBounds.top);
+      const bottom = Math.min(rowBounds.bottom, toastBounds.bottom);
+      if (right > left && bottom > top) {
+        return { center: { x: (left + right) / 2, y: (top + bottom) / 2 }, index };
+      }
+    }
+    return null;
+  }, toastElement);
+  await toastElement.dispose();
+  if (covered === null) {
+    throw new Error("No omnibar result is covered by the toast.");
+  }
+  const row = rows.nth(covered.index);
+  const ownsHit = await row.evaluate((element, center) => {
+    return document.elementFromPoint(center.x, center.y)?.closest(".tb-omnibar-row") === element;
+  }, covered.center);
+  expect(ownsHit).toBe(true);
+  await page.mouse.click(covered.center.x, covered.center.y);
 }
 
 // Wait until Monaco has actually drawn the file, not merely bound it. Two things can leave the editor holding

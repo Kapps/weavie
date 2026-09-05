@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using Weavie.Core.Git;
 using Xunit;
 
@@ -6,69 +5,34 @@ namespace Weavie.Core.Tests;
 
 /// <summary>Proves the status-bar totals cover every change the HEAD review surfaces.</summary>
 public sealed class GitDiffLineCountsIntegrationTests : IDisposable {
-	private readonly string _repo;
+	private readonly TempGitRepo _repo = new("weavie-git-counts");
 
 	public GitDiffLineCountsIntegrationTests() {
-		_repo = Path.Combine(Path.GetTempPath(), "weavie-git-counts-" + Guid.NewGuid().ToString("n"));
-		Directory.CreateDirectory(_repo);
-		RunGit("init", "--quiet", "-b", "main");
-		File.WriteAllText(Path.Combine(_repo, "tracked.txt"), "original\n");
-		File.WriteAllText(Path.Combine(_repo, ".gitignore"), "ignored.txt\n");
-		RunGit("add", "-A");
-		Commit("initial");
+		_repo.Write("tracked.txt", "original\n");
+		_repo.Write(".gitignore", "ignored.txt\n");
+		_repo.Commit("initial");
 	}
 
 	[Fact]
 	public async Task HeadDiffCounts_IncludeTrackedAndUntrackedChangesAndClearWithTheWorktree() {
 		var git = new GitService();
-		File.WriteAllText(Path.Combine(_repo, "tracked.txt"), "replacement\nsecond\n");
-		string untracked = Path.Combine(_repo, "untracked.txt");
-		File.WriteAllText(untracked, "new file\n");
-		File.WriteAllText(Path.Combine(_repo, "ignored.txt"), "not a worktree change\n");
+		_repo.Write("tracked.txt", "replacement\nsecond\n");
+		string untracked = _repo.Write("untracked.txt", "new file\n");
+		_repo.Write("ignored.txt", "not a worktree change\n");
 
-		Assert.Equal(new GitDiffLineCounts(3, 1), await git.GetHeadDiffLineCountsAsync(_repo));
+		Assert.Equal(new GitDiffLineCounts(3, 1), await git.GetHeadDiffLineCountsAsync(_repo.Path));
 
-		RunGit("add", "tracked.txt");
-		Assert.Equal(new GitDiffLineCounts(3, 1), await git.GetHeadDiffLineCountsAsync(_repo));
+		_repo.Git("add", "tracked.txt");
+		Assert.Equal(new GitDiffLineCounts(3, 1), await git.GetHeadDiffLineCountsAsync(_repo.Path));
 
-		Commit("update");
-		Assert.Equal(new GitDiffLineCounts(1, 0), await git.GetHeadDiffLineCountsAsync(_repo));
+		// Commit only what is staged: the untracked file must stay a pending worktree change.
+		_repo.Git("commit", "--quiet", "-m", "update");
+		Assert.Equal(new GitDiffLineCounts(1, 0), await git.GetHeadDiffLineCountsAsync(_repo.Path));
 
 		File.Delete(untracked);
-		Assert.Equal(new GitDiffLineCounts(0, 0), await git.GetHeadDiffLineCountsAsync(_repo));
-		Assert.False(await git.HasUncommittedChangesAsync(_repo));
+		Assert.Equal(new GitDiffLineCounts(0, 0), await git.GetHeadDiffLineCountsAsync(_repo.Path));
+		Assert.False(await git.HasUncommittedChangesAsync(_repo.Path));
 	}
 
-	private void Commit(string message) =>
-		RunGit(
-			"-c", "user.email=test@weavie.dev",
-			"-c", "user.name=Weavie Test",
-			"-c", "commit.gpgsign=false",
-			"commit", "--quiet", "-m", message);
-
-	private void RunGit(params string[] args) {
-		var info = new ProcessStartInfo("git") {
-			WorkingDirectory = _repo,
-			UseShellExecute = false,
-			RedirectStandardError = true,
-		};
-		foreach (string arg in args) {
-			info.ArgumentList.Add(arg);
-		}
-
-		using var process = Process.Start(info) ?? throw new InvalidOperationException("git failed to start");
-		string error = process.StandardError.ReadToEnd();
-		process.WaitForExit();
-		if (process.ExitCode != 0) {
-			throw new InvalidOperationException($"git {string.Join(' ', args)} failed: {error.Trim()}");
-		}
-	}
-
-	public void Dispose() {
-		try {
-			Directory.Delete(_repo, recursive: true);
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			// Best-effort temp cleanup; a lingering handle may outlive the test briefly on Windows.
-		}
-	}
+	public void Dispose() => _repo.Dispose();
 }

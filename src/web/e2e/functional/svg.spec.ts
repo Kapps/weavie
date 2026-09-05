@@ -16,7 +16,8 @@ test("SVG preview renders the edited working copy without executing scripts", as
   await expect(image).toHaveJSProperty("naturalWidth", 240);
   await expect(image).toHaveJSProperty("naturalHeight", 120);
   expect(await page.evaluate(() => Reflect.has(window, "__weavieSvgScriptRan"))).toBe(false);
-  const beforeEdit = await image.screenshot();
+  const preview = page.locator(".editor-preview-svg");
+  const beforeEdit = await preview.screenshot();
 
   await toggle.click();
   await page.locator(".monaco-editor .view-line", { hasText: "</svg>" }).click();
@@ -26,5 +27,5 @@ test("SVG preview renders the edited working copy without executing scripts", as
 
   await toggle.click();
   await expect(image).toBeVisible();
-  expect(await image.screenshot()).not.toEqual(beforeEdit);
+  expect(await preview.screenshot()).not.toEqual(beforeEdit);
 });

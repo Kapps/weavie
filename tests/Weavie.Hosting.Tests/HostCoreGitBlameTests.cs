@@ -191,7 +191,7 @@ public sealed class HostCoreGitBlameTests {
 			repo => {
 				File.WriteAllText(Path.Combine(repo, "notes.md"), "alpha\n");
 				Commit(repo, "seed");
-				TestHost.RunGit(repo, "remote", "add", "origin", "https://github.com/kapps/weavie.git");
+				TempGitRepo.Run(repo, "remote", "add", "origin", "https://github.com/kapps/weavie.git");
 				sha = ReadHead(repo);
 				provider.PullRequestsByCommit[sha] = 42;
 			},
@@ -213,7 +213,7 @@ public sealed class HostCoreGitBlameTests {
 		await using var host = await TestHost.StartAsync(repo => {
 			File.WriteAllText(Path.Combine(repo, "notes.md"), "alpha\n");
 			Commit(repo, "seed");
-			TestHost.RunGit(repo, "remote", "add", "origin", "https://github.com/kapps/weavie.git");
+			TempGitRepo.Run(repo, "remote", "add", "origin", "https://github.com/kapps/weavie.git");
 			sha = ReadHead(repo);
 		});
 
@@ -228,15 +228,9 @@ public sealed class HostCoreGitBlameTests {
 		history.GetProperty("commits").EnumerateArray().Select(c => c.GetProperty("summary").GetString());
 
 	private static void Commit(string repo, string message) {
-		TestHost.RunGit(repo, "add", "-A");
-		TestHost.RunGit(
-			repo,
-			"-c", "user.email=test@weavie.dev",
-			"-c", "user.name=Weavie Test",
-			"-c", "commit.gpgsign=false",
-			"commit", "--quiet", "-m", message);
+		TempGitRepo.Run(repo, "add", "-A");
+		TempGitRepo.Run(repo, "commit", "--quiet", "-m", message);
 	}
 
-	private static string ReadHead(string repo) =>
-		File.ReadAllText(Path.Combine(repo, ".git", "refs", "heads", "main")).Trim();
+	private static string ReadHead(string repo) => TempGitRepo.Run(repo, "rev-parse", "HEAD").Trim();
 }

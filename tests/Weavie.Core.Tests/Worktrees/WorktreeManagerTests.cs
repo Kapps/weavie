@@ -10,12 +10,17 @@ namespace Weavie.Core.Tests;
 /// registry: managed/primary/orphan/untracked, dirty/merged, the dirty-removal guard, and reconcile
 /// pruning. Uses a <see cref="FakeGitService"/> for deterministic logic without a real repository.
 /// </summary>
-public sealed class WorktreeManagerTests {
+public sealed class WorktreeManagerTests : IDisposable {
 	private const string RegistryPath = "/weavie-wt-mgr-tests/worktrees.json";
-	private static readonly string RepoRoot = Path.Combine(Path.GetTempPath(), "weavie-wt-mgr-tests", "repo");
-	private static readonly string WorktreesDir = Path.Combine(Path.GetTempPath(), "weavie-wt-mgr-tests", "worktrees");
+	private readonly TempDirectory _temp = new("weavie-wt-mgr-tests");
 
-	private static (WorktreeManager Manager, WorktreeRegistry Registry, FakeGitService Git) NewManager() {
+	private string RepoRoot => _temp.Combine("repo");
+
+	private string WorktreesDir => _temp.Combine("worktrees");
+
+	public void Dispose() => _temp.Dispose();
+
+	private (WorktreeManager Manager, WorktreeRegistry Registry, FakeGitService Git) NewManager() {
 		var registry = new WorktreeRegistry(new InMemoryFileSystem(), RegistryPath);
 		var git = new FakeGitService { DefaultBranch = "main" };
 		git.Worktrees.Add(new GitWorktree { Path = RepoRoot, Branch = "main", Head = "primary" });
@@ -284,59 +289,45 @@ public sealed class WorktreeManagerTests {
 	[Fact]
 	public async Task Remove_OwnedWorktree_ClearsContentsKeepingGit_ThenLetsGitFinalize() {
 		var (manager, registry, git) = NewManager();
-		string wtPath = Path.Combine(WorktreesDir, "owned-" + Guid.NewGuid().ToString("n"));
-		Directory.CreateDirectory(wtPath);
+		string wtPath = _temp.CreateDirectory("worktrees", "owned-" + Guid.NewGuid().ToString("n"));
 		File.WriteAllText(Path.Combine(wtPath, ".git"), "gitdir: ../repo/.git/worktrees/owned\n");
 		File.WriteAllText(Path.Combine(wtPath, "leftover.txt"), "x");
 		Directory.CreateDirectory(Path.Combine(wtPath, "sub"));
 		File.WriteAllText(Path.Combine(wtPath, "sub", "nested.txt"), "y");
 		var clearedAtRemove = new List<string>();
-		try {
-			git.Worktrees.Add(new GitWorktree { Path = wtPath, Branch = "owned", Head = "o1" });
-			registry.Add(new WorktreeRecord { Branch = "owned", Path = wtPath, BaseRef = "main", CreatedAtUtc = DateTimeOffset.UnixEpoch, AgentProviderId = "acp" });
-			// Capture the on-disk state at the moment git is asked to finalize: the working tree must be cleared
-			// down to just the .git link so git's removal runs against an empty tree (no lock race).
-			git.OnRemoveWorktree = p => clearedAtRemove.AddRange(Directory.EnumerateFileSystemEntries(p).Select(Path.GetFileName)!);
+		git.Worktrees.Add(new GitWorktree { Path = wtPath, Branch = "owned", Head = "o1" });
+		registry.Add(new WorktreeRecord { Branch = "owned", Path = wtPath, BaseRef = "main", CreatedAtUtc = DateTimeOffset.UnixEpoch, AgentProviderId = "acp" });
+		// Capture the on-disk state at the moment git is asked to finalize: the working tree must be cleared
+		// down to just the .git link so git's removal runs against an empty tree (no lock race).
+		git.OnRemoveWorktree = p => clearedAtRemove.AddRange(Directory.EnumerateFileSystemEntries(p).Select(Path.GetFileName)!);
 
-			await manager.RemoveAsync(wtPath, deleteBranch: false, force: false);
+		await manager.RemoveAsync(wtPath, deleteBranch: false, force: false);
 
-			Assert.Equal([".git"], clearedAtRemove); // only the git link survived our clear; git then removed it
-			Assert.False(Directory.Exists(wtPath)); // git (the fake) finalized the removal
-			Assert.Null(registry.FindByBranch("owned"));
-		} finally {
-			if (Directory.Exists(wtPath)) {
-				Directory.Delete(wtPath, recursive: true);
-			}
-		}
+		Assert.Equal([".git"], clearedAtRemove); // only the git link survived our clear; git then removed it
+		Assert.False(Directory.Exists(wtPath)); // git (the fake) finalized the removal
+		Assert.Null(registry.FindByBranch("owned"));
 	}
 
 	[Fact]
 	public async Task Remove_OwnedWorktree_GitStillFailsAfterClearing_DeletesRemainingDirectory() {
 		var (manager, registry, git) = NewManager();
-		string wtPath = Path.Combine(WorktreesDir, "broken-" + Guid.NewGuid().ToString("n"));
-		Directory.CreateDirectory(wtPath);
+		string wtPath = _temp.CreateDirectory("worktrees", "broken-" + Guid.NewGuid().ToString("n"));
 		File.WriteAllText(Path.Combine(wtPath, ".git"), "gitdir: nowhere\n");
 		File.WriteAllText(Path.Combine(wtPath, "leftover.txt"), "x");
-		try {
-			git.Worktrees.Add(new GitWorktree { Path = wtPath, Branch = "broken", Head = "b1" });
-			registry.Add(new WorktreeRecord { Branch = "broken", Path = wtPath, BaseRef = "main", CreatedAtUtc = DateTimeOffset.UnixEpoch, AgentProviderId = "acp" });
-			// git can't finalize even against the cleared tree (a pre-broken .git linkage): not a transient lock,
-			// so no retry — we delete the remaining directory ourselves rather than leak it.
-			git.RemoveWorktreeFailures.Enqueue(new GitException("git worktree remove failed (exit 128): fatal: validation failed, cannot remove working tree: '.git' does not exist"));
-			var logs = new List<string>();
-			manager.Log += logs.Add;
+		git.Worktrees.Add(new GitWorktree { Path = wtPath, Branch = "broken", Head = "b1" });
+		registry.Add(new WorktreeRecord { Branch = "broken", Path = wtPath, BaseRef = "main", CreatedAtUtc = DateTimeOffset.UnixEpoch, AgentProviderId = "acp" });
+		// git can't finalize even against the cleared tree (a pre-broken .git linkage): not a transient lock,
+		// so no retry — we delete the remaining directory ourselves rather than leak it.
+		git.RemoveWorktreeFailures.Enqueue(new GitException("git worktree remove failed (exit 128): fatal: validation failed, cannot remove working tree: '.git' does not exist"));
+		var logs = new List<string>();
+		manager.Log += logs.Add;
 
-			await manager.RemoveAsync(wtPath, deleteBranch: false, force: true);
+		await manager.RemoveAsync(wtPath, deleteBranch: false, force: true);
 
-			Assert.False(Directory.Exists(wtPath)); // remaining directory deleted directly
-			Assert.Null(registry.FindByBranch("broken"));
-			Assert.DoesNotContain(logs, l => l.Contains("retrying", StringComparison.Ordinal)); // not retried as a transient lock
-			Assert.Contains(logs, l => l.Contains("deleting the remaining directory directly", StringComparison.Ordinal));
-		} finally {
-			if (Directory.Exists(wtPath)) {
-				Directory.Delete(wtPath, recursive: true);
-			}
-		}
+		Assert.False(Directory.Exists(wtPath)); // remaining directory deleted directly
+		Assert.Null(registry.FindByBranch("broken"));
+		Assert.DoesNotContain(logs, l => l.Contains("retrying", StringComparison.Ordinal)); // not retried as a transient lock
+		Assert.Contains(logs, l => l.Contains("deleting the remaining directory directly", StringComparison.Ordinal));
 	}
 
 	[Fact]
@@ -344,7 +335,7 @@ public sealed class WorktreeManagerTests {
 		var (manager, registry, git) = NewManager();
 		// A worktree git tracks but that lives OUTSIDE the managed worktrees dir (e.g. one a user created by
 		// hand). Weavie must not clear or delete a directory it doesn't own — git's failure surfaces instead.
-		string externalPath = Path.Combine(Path.GetTempPath(), "weavie-wt-mgr-tests", "external-" + Guid.NewGuid().ToString("n"));
+		string externalPath = _temp.Combine("external-" + Guid.NewGuid().ToString("n"));
 		git.Worktrees.Add(new GitWorktree { Path = externalPath, Branch = "external", Head = "e1" });
 		registry.Add(new WorktreeRecord { Branch = "external", Path = externalPath, BaseRef = "main", CreatedAtUtc = DateTimeOffset.UnixEpoch, AgentProviderId = "acp" });
 		git.RemoveWorktreeFailures.Enqueue(new GitException("git worktree remove failed (exit 128): fatal: 'external' is not a working tree"));
@@ -358,20 +349,13 @@ public sealed class WorktreeManagerTests {
 		var (manager, registry, git) = NewManager();
 		// git no longer tracks the path, yet a directory remains at it — and it lives OUTSIDE the managed
 		// worktrees dir. Weavie must surface it rather than delete a directory it doesn't own.
-		string externalPath = Path.Combine(Path.GetTempPath(), "weavie-wt-mgr-tests", "orphan-" + Guid.NewGuid().ToString("n"));
-		Directory.CreateDirectory(externalPath);
-		try {
-			registry.Add(new WorktreeRecord { Branch = "orphan", Path = externalPath, BaseRef = "main", CreatedAtUtc = DateTimeOffset.UnixEpoch, AgentProviderId = "acp" });
+		string externalPath = _temp.CreateDirectory("orphan-" + Guid.NewGuid().ToString("n"));
+		registry.Add(new WorktreeRecord { Branch = "orphan", Path = externalPath, BaseRef = "main", CreatedAtUtc = DateTimeOffset.UnixEpoch, AgentProviderId = "acp" });
 
-			await Assert.ThrowsAsync<WorktreeOrphanException>(() => manager.RemoveAsync(externalPath, deleteBranch: false, force: true));
+		await Assert.ThrowsAsync<WorktreeOrphanException>(() => manager.RemoveAsync(externalPath, deleteBranch: false, force: true));
 
-			Assert.True(Directory.Exists(externalPath)); // never deleted — it's outside the managed dir
-			Assert.NotNull(registry.FindByBranch("orphan")); // registry row not dropped on the surfaced failure
-		} finally {
-			if (Directory.Exists(externalPath)) {
-				Directory.Delete(externalPath, recursive: true);
-			}
-		}
+		Assert.True(Directory.Exists(externalPath)); // never deleted — it's outside the managed dir
+		Assert.NotNull(registry.FindByBranch("orphan")); // registry row not dropped on the surfaced failure
 	}
 
 	[Fact]
@@ -417,7 +401,7 @@ public sealed class WorktreeManagerTests {
 		var registry = new WorktreeRegistry(new InMemoryFileSystem(), RegistryPath);
 		var git = new FakeGitService { DefaultBranch = "main" };
 		git.Worktrees.Add(new GitWorktree { Path = RepoRoot, Branch = "main", Head = "primary" });
-		string external = Path.Combine(Path.GetTempPath(), "weavie-wt-mgr-tests", "elsewhere");
+		string external = _temp.Combine("elsewhere");
 		git.Worktrees.Add(new GitWorktree { Path = external, Branch = "manual", Head = "m1" });
 		var provisioner = new RecordingProvisioner(onTeardown: null);
 		var manager = new WorktreeManager(git, registry, RepoRoot, WorktreesDir, provisioner);
@@ -507,7 +491,7 @@ public sealed class WorktreeManagerTests {
 		public Task<IReadOnlyList<DiffFileChange>> DiffWorktreeAsync(string repositoryDirectory, string baseRef, CancellationToken ct = default) =>
 			Task.FromResult<IReadOnlyList<DiffFileChange>>([]);
 
-		public Task<string> ShowFileAtRefAsync(string repositoryDirectory, string reference, string path, CancellationToken ct = default) => Task.FromResult(string.Empty);
+		public Task<GitFileSnapshot> ReadFileAtRefAsync(string repositoryDirectory, string reference, string path, CancellationToken ct = default) => Task.FromResult(new GitFileSnapshot(false, string.Empty));
 
 		public Task<GitBlame> BlameFileAsync(string worktreeDirectory, string path, CancellationToken ct = default) =>
 			Task.FromResult(GitBlame.Empty);

@@ -12,7 +12,7 @@ export function NativeTitleBar(props: {
   root: string | null;
   currentFile: string | null;
   workspaceLabel: string;
-  onOpenFile: (abs: string, line: number) => void;
+  onOpenFile: (abs: string, line: number | undefined) => void;
   onRequestIndex: () => void;
   symbols: SymbolActions;
 }): JSX.Element {

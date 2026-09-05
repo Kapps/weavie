@@ -4,15 +4,8 @@
     --mobile-nav-block-size: 60px;
   }
 
-  html,
-  body,
-  #root {
-    height: 100%;
-    overflow: hidden;
-    overscroll-behavior: none;
-  }
-
   .app.compact {
+    --mobile-pane-safe-area-top: env(safe-area-inset-top);
     position: absolute;
     top: var(--mobile-viewport-top, 0px);
     right: 0;
@@ -42,7 +35,7 @@
     position: relative;
     grid-area: 1 / 1;
     min-height: 0;
-    padding-top: env(safe-area-inset-top);
+    padding-top: var(--mobile-pane-safe-area-top);
     overflow: hidden;
   }
 
@@ -120,14 +113,24 @@
     justify-content: center;
   }
 
-  .app.compact.mobile-inbox .toasts {
-    inset: auto 12px calc(12px + var(--mobile-nav-block-size));
+  .app.compact .toasts {
+    right: 12px;
+    left: 12px;
     max-width: none;
     transform: none;
     align-items: stretch;
   }
 
-  .app.compact.mobile-inbox .toast {
+  .app.compact:not(.mobile-inbox) .toasts {
+    --toast-safe-area-top: var(--mobile-pane-safe-area-top);
+  }
+
+  .app.compact.mobile-inbox .toasts {
+    top: auto;
+    bottom: calc(12px + var(--mobile-nav-block-size));
+  }
+
+  .app.compact .toast {
     width: 100%;
   }
 

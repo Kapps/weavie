@@ -1,6 +1,4 @@
-using System.ComponentModel;
-using System.Diagnostics;
-using System.Text;
+using Weavie.Core.Processes;
 
 namespace Weavie.Core.Worktrees;
 
@@ -51,41 +49,26 @@ public sealed class ShellWorktreeProvisioner : IWorktreeProvisioner {
 	}
 
 	private static async Task<WorktreeCommandResult> ExecuteAsync(string command, string worktreePath, CancellationToken ct) {
-		var info = new ProcessStartInfo {
-			FileName = OperatingSystem.IsWindows() ? "cmd.exe" : "/bin/sh",
-			WorkingDirectory = worktreePath,
-			RedirectStandardOutput = true,
-			RedirectStandardError = true,
-			UseShellExecute = false,
-			CreateNoWindow = true,
-			StandardOutputEncoding = Encoding.UTF8,
-			StandardErrorEncoding = Encoding.UTF8,
-		};
-		info.ArgumentList.Add(OperatingSystem.IsWindows() ? "/c" : "-c");
-		info.ArgumentList.Add(command);
-
-		using var process = new Process { StartInfo = info };
-		try {
-			process.Start();
-		} catch (Win32Exception ex) {
-			// Shell couldn't start: surface a failed run, not a throw, so setup can't crash session creation nor teardown block removal.
-			return new WorktreeCommandResult {
+		bool windows = OperatingSystem.IsWindows();
+		var result = await ProcessCapture.RunAsync(
+			new ProcessCaptureRequest {
+				FileName = windows ? "cmd.exe" : "/bin/sh",
+				Arguments = [windows ? "/c" : "-c", command],
+				WorkingDirectory = worktreePath,
+			},
+			ct).ConfigureAwait(false);
+		// A shell that couldn't start is a failed run, not a throw, so setup can't crash session creation nor teardown block removal.
+		return result.StartFailure is { } failure
+			? new WorktreeCommandResult {
 				Ran = true,
 				ExitCode = -1,
-				StdErr = $"Unable to start the shell to run the command: {ex.Message}",
+				StdErr = $"Unable to start the shell to run the command: {failure.Message}",
+			}
+			: new WorktreeCommandResult {
+				Ran = true,
+				ExitCode = result.ExitCode,
+				StdOut = result.StdOut,
+				StdErr = result.StdErr,
 			};
-		}
-
-		var stdoutTask = process.StandardOutput.ReadToEndAsync(ct);
-		var stderrTask = process.StandardError.ReadToEndAsync(ct);
-		await process.WaitForExitAsync(ct).ConfigureAwait(false);
-		string stdout = await stdoutTask.ConfigureAwait(false);
-		string stderr = await stderrTask.ConfigureAwait(false);
-		return new WorktreeCommandResult {
-			Ran = true,
-			ExitCode = process.ExitCode,
-			StdOut = stdout,
-			StdErr = stderr,
-		};
 	}
 }

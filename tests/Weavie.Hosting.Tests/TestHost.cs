@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Text.Json;
 using Weavie.AcpDistribution;
 using Weavie.Core.Agents;
@@ -32,17 +31,15 @@ namespace Weavie.Hosting.Tests;
 /// </summary>
 internal sealed class TestHost : IAsyncDisposable {
 	internal const string TestPageId = "test-page";
-	internal const string TestAuthorName = "Weavie Test";
-	internal const string TestAuthorEmail = "test@weavie.dev";
 	private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
-	private readonly string _tempRoot;
+	private readonly TempDirectory _temp;
 	private readonly HostServices _services;
 	private readonly Dictionary<SessionAddress, JsonElement> _clientEditorSessions = [];
 	private long _requestSequence;
 	private string _selectedSlot = string.Empty;
 
-	private TestHost(string tempRoot, string repoRoot, HostServices services, FakeHostBridge bridge, TestPlatform platform, HostCore core, ManualTimeProvider time, StubHttpMessageHandler sourceHttp, string sourcesDir) {
-		_tempRoot = tempRoot;
+	private TestHost(TempDirectory temp, string repoRoot, HostServices services, FakeHostBridge bridge, TestPlatform platform, HostCore core, ManualTimeProvider time, StubHttpMessageHandler sourceHttp, string sourcesDir) {
+		_temp = temp;
 		RepoRoot = repoRoot;
 		_services = services;
 		Bridge = bridge;
@@ -278,16 +275,12 @@ internal sealed class TestHost : IAsyncDisposable {
 		Func<SettingsStore, IInferenceService> inferenceFor,
 		IAcpAgentCatalog acpAgents,
 		Action<TestPlatform> configurePlatform) {
-		string tempRoot = Path.Combine(Path.GetTempPath(), "weavie-host-it-" + Guid.NewGuid().ToString("n"));
-		string repo = Path.Combine(tempRoot, "repo");
-		Directory.CreateDirectory(repo);
-		RunGit(repo, "init", "--quiet", "-b", "main");
-		RunGit(repo, "config", "user.email", TestAuthorEmail);
-		RunGit(repo, "config", "user.name", TestAuthorName);
-		RunGit(repo, "config", "commit.gpgsign", "false");
+		var temp = new TempDirectory("weavie-host-it");
+		string repo = temp.CreateDirectory("repo");
+		TempGitRepo.Init(repo);
 		File.WriteAllText(Path.Combine(repo, "readme.txt"), "hello\n");
-		RunGit(repo, "add", "-A");
-		RunGit(repo, "commit", "--quiet", "-m", "initial");
+		TempGitRepo.Run(repo, "add", "-A");
+		TempGitRepo.Run(repo, "commit", "--quiet", "-m", "initial");
 		prepareRepo(repo);
 
 		EnsureRelayBinary();
@@ -295,8 +288,8 @@ internal sealed class TestHost : IAsyncDisposable {
 		LoginShellEnvironment.MarkImported();
 
 		var sourceHttp = new StubHttpMessageHandler();
-		string sourcesDir = Path.Combine(tempRoot, "sources");
-		var services = IsolatedServices(tempRoot, sourceHttp, sourcesDir, pullRequests, inferenceFor, acpAgents);
+		string sourcesDir = temp.Combine("sources");
+		var services = IsolatedServices(temp.Path, sourceHttp, sourcesDir, pullRequests, inferenceFor, acpAgents);
 		var bridge = new FakeHostBridge();
 		var platform = new TestPlatform(bridge, dispatcher) { Notifications = notifications };
 		configurePlatform(platform);
@@ -305,10 +298,10 @@ internal sealed class TestHost : IAsyncDisposable {
 			platform,
 			services,
 			repo,
-			WorkspaceHttpServerOptions.Native(Path.Combine(tempRoot, "wwwroot")),
+			WorkspaceHttpServerOptions.Native(temp.Combine("wwwroot")),
 			UnavailableWorkspaceWebSocketBridge.Instance,
 			time);
-		return new TestHost(tempRoot, repo, services, bridge, platform, core, time, sourceHttp, sourcesDir);
+		return new TestHost(temp, repo, services, bridge, platform, core, time, sourceHttp, sourcesDir);
 	}
 
 	/// <summary>The workspace-checkout session's incarnation, used by media URLs.</summary>
@@ -565,7 +558,7 @@ internal sealed class TestHost : IAsyncDisposable {
 			Platform,
 			_services,
 			RepoRoot,
-			WorkspaceHttpServerOptions.Native(Path.Combine(_tempRoot, "wwwroot")),
+			WorkspaceHttpServerOptions.Native(_temp.Combine("wwwroot")),
 			UnavailableWorkspaceWebSocketBridge.Instance,
 			Time);
 		await Core.StartAsync().ConfigureAwait(false);
@@ -634,33 +627,11 @@ internal sealed class TestHost : IAsyncDisposable {
 		}
 	}
 
-	internal static void RunGit(string cwd, params string[] args) {
-		ProcessStartInfo psi = new("git") {
-			WorkingDirectory = cwd,
-			UseShellExecute = false,
-		};
-		foreach (string arg in args) {
-			psi.ArgumentList.Add(arg);
-		}
-
-		using var process = Process.Start(psi) ?? throw new InvalidOperationException("git failed to start");
-		process.WaitForExit();
-		if (process.ExitCode != 0) {
-			throw new InvalidOperationException($"git {string.Join(' ', args)} failed with exit code {process.ExitCode}.");
-		}
-	}
-
 	public async ValueTask DisposeAsync() {
 		await Core.DisposeAsync().ConfigureAwait(false);
 		_services.Keybindings.Dispose();
 		_services.Settings.Dispose();
-		try {
-			Directory.Delete(_tempRoot, recursive: true);
-		} catch (IOException) {
-			// Best-effort temp cleanup; a lingering handle on Windows just leaves a temp dir behind.
-		} catch (UnauthorizedAccessException) {
-			// ditto
-		}
+		_temp.Dispose();
 	}
 }
 

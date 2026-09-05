@@ -1,6 +1,6 @@
-import { createSignal } from "solid-js";
 import { type ClientSession, registerSessionFeature } from "../bridge";
 import { persistSessionDraft, sessionDraft } from "../messaging/session-drafts";
+import { createSessionOwnedResource } from "../messaging/session-owned-state";
 import { agentImageError, encodeAgentImage, takePastedImages } from "./pasted-images";
 
 export type AgentAttachmentStatus = "reading" | "transferring" | "ready" | "failed";
@@ -26,9 +26,14 @@ const EMPTY: AgentComposerState = {
   submittingId: null,
   error: null,
 };
-const [states, setStates] = createSignal(new Map<ClientSession, AgentComposerState>());
 let sequence = 0;
 const DRAFT_KIND = "agent-composer";
+const states = createSessionOwnedResource(
+  (session): AgentComposerState => ({ ...EMPTY, draft: sessionDraft(session, DRAFT_KIND) }),
+  (_session, state) => {
+    for (const attachment of state.attachments) revoke(attachment);
+  },
+);
 
 const nextId = (prefix: string): string =>
   `${prefix}-${Date.now().toString(36)}-${(++sequence).toString(36)}`;
@@ -214,14 +219,6 @@ registerSessionFeature((session) => {
   return () => {
     offAttachment();
     offSubmission();
-    for (const attachment of stateFor(session).attachments) {
-      revoke(attachment);
-    }
-    setStates((previous) => {
-      const next = new Map(previous);
-      next.delete(session);
-      return next;
-    });
   };
 });
 
@@ -265,16 +262,16 @@ function update(
   apply: (state: AgentComposerState) => AgentComposerState,
 ): void {
   if (!session.closed) {
-    const next = apply(stateFor(session));
-    setStates((current) => new Map(current).set(session, next));
-    persistSessionDraft(session, DRAFT_KIND, next.draft);
+    states.update(session, (current) => {
+      const next = apply(current);
+      persistSessionDraft(session, DRAFT_KIND, next.draft);
+      return next;
+    });
   }
 }
 
 function stateFor(session: ClientSession): AgentComposerState {
-  return session.closed
-    ? EMPTY
-    : (states().get(session) ?? { ...EMPTY, draft: sessionDraft(session, DRAFT_KIND) });
+  return states.get(session) ?? EMPTY;
 }
 
 function revoke(attachment: AgentComposerAttachment): void {

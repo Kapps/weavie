@@ -1,6 +1,7 @@
 import { createEffect, createSignal, For, type JSX, on, onCleanup, Show, untrack } from "solid-js";
 import { type ContextOverrides, onContextChanged, paneFocusContext } from "../commands/context";
 import { onCommandsChanged } from "../commands/registry";
+import { nextIndex } from "../list-navigation";
 import { APPLICATION_MENUS, type ApplicationMenuDefinition } from "./application-menu";
 import { buildApplicationMenuEntries } from "./application-menu-model";
 import { ContextMenu, type ContextMenuState } from "./ContextMenu";
@@ -54,13 +55,12 @@ export function Menu(): JSX.Element {
       open(menu, button);
     }
   };
-  const switchMenu = (step: number): void => {
+  const switchMenu = (step: 1 | -1): void => {
     const current = APPLICATION_MENUS.findIndex((menu) => menu.id === openMenu()?.id);
     if (current < 0) {
       return;
     }
-    const menu =
-      APPLICATION_MENUS[(current + step + APPLICATION_MENUS.length) % APPLICATION_MENUS.length];
+    const menu = APPLICATION_MENUS[nextIndex(current, step, APPLICATION_MENUS.length, "wrap")];
     const button = menu === undefined ? undefined : menuButtons.get(menu.id);
     if (menu !== undefined && button !== undefined) {
       open(menu, button);
@@ -151,9 +151,7 @@ export function Menu(): JSX.Element {
                 event.preventDefault();
                 const step = event.key === "ArrowLeft" ? -1 : 1;
                 const next =
-                  APPLICATION_MENUS[
-                    (index() + step + APPLICATION_MENUS.length) % APPLICATION_MENUS.length
-                  ];
+                  APPLICATION_MENUS[nextIndex(index(), step, APPLICATION_MENUS.length, "wrap")];
                 if (next !== undefined) {
                   menuButtons.get(next.id)?.focus();
                 }

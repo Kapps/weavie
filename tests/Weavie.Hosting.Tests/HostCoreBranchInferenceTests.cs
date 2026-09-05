@@ -9,25 +9,22 @@ using Xunit;
 namespace Weavie.Hosting.Tests;
 
 public sealed class HostCoreBranchInferenceTests {
-	[Theory]
-	[InlineData("claude")]
-	[InlineData("structured")]
-	public async Task Preview_UsesSelectedProviderAndValidatedUtilityProposalWithRepositoryContext(
-		string agentProviderId) {
+	[Fact]
+	public async Task Preview_UsesOwningWorkspaceAndValidatedUtilityProposalWithRepositoryContext() {
 		var inference = new BranchInferenceStub(new InferenceSuccess<BranchNameInferenceOutput> {
 			Value = new BranchNameInferenceOutput { Branch = "bug/webm-fails-to-load", NeedsMoreDetail = false },
 			Receipt = Receipt(),
 		});
 		await using var host = await TestHost.StartAsync(repo => {
-			TestHost.RunGit(repo, "branch", "bug/prior-failure");
-			TestHost.RunGit(repo, "branch", "feature/mobile-inbox");
+			TempGitRepo.Run(repo, "branch", "bug/prior-failure");
+			TempGitRepo.Run(repo, "branch", "feature/mobile-inbox");
 		}, _ => inference);
 
-		var result = await PreviewAsync(host, "WebM files fail to load", agentProviderId);
+		var result = await PreviewAsync(host, "WebM files fail to load");
 
 		Assert.Equal("bug/webm-fails-to-load", result.Branch);
 		Assert.Null(result.Error);
-		Assert.Equal(agentProviderId, inference.AgentProviderId);
+		Assert.Equal(host.RepoRoot, inference.Workspace);
 		Assert.Equal(InferenceModelCategory.Utility, inference.Category);
 		Assert.Equal(InferenceInvocationOrigin.Automatic, inference.Origin);
 		Assert.Equal(TimeSpan.FromSeconds(24), BranchNameInference.QueryOptions.TimeBudget);
@@ -45,19 +42,19 @@ public sealed class HostCoreBranchInferenceTests {
 			Receipt = Receipt(),
 		});
 		await using var host = await TestHost.StartAsync(repo => {
-			TestHost.RunGit(repo, "checkout", "--quiet", "-b", "teammate/inbox-polish");
-			TestHost.RunGit(repo, "-c", "user.email=teammate@example.com", "-c", "user.name=Teammate",
+			TempGitRepo.Run(repo, "checkout", "--quiet", "-b", "teammate/inbox-polish");
+			TempGitRepo.Run(repo, "-c", "user.email=teammate@example.com", "-c", "user.name=Teammate",
 				"commit", "--quiet", "--allow-empty", "-m", "theirs");
-			TestHost.RunGit(repo, "checkout", "--quiet", "-b", "kapps/prior-fix", "main");
-			TestHost.RunGit(repo, "commit", "--quiet", "--allow-empty", "-m", "mine");
-			TestHost.RunGit(repo, "checkout", "--quiet", "main");
+			TempGitRepo.Run(repo, "checkout", "--quiet", "-b", "kapps/prior-fix", "main");
+			TempGitRepo.Run(repo, "commit", "--quiet", "--allow-empty", "-m", "mine");
+			TempGitRepo.Run(repo, "checkout", "--quiet", "main");
 		}, _ => inference);
 
-		var result = await PreviewAsync(host, "WebM files fail to load", "claude");
+		var result = await PreviewAsync(host, "WebM files fail to load");
 
 		Assert.Equal("kapps/webm-fails-to-load", result.Branch);
 		var input = InputJson(inference.Prompt!);
-		Assert.Equal(TestHost.TestAuthorEmail, input.GetProperty("authorEmail").GetString());
+		Assert.Equal(TempGitRepo.AuthorEmail, input.GetProperty("authorEmail").GetString());
 		string[] mine = Branches(input, "myRecentBranches");
 		Assert.Contains("kapps/prior-fix", mine);
 		Assert.DoesNotContain("main", mine);
@@ -72,17 +69,17 @@ public sealed class HostCoreBranchInferenceTests {
 			Receipt = Receipt(),
 		});
 		await using var host = await TestHost.StartAsync(repo => {
-			TestHost.RunGit(repo, "checkout", "--quiet", "-b", "teammate/inbox-polish");
-			TestHost.RunGit(repo, "-c", "user.email=teammate@example.com", "-c", "user.name=Teammate",
+			TempGitRepo.Run(repo, "checkout", "--quiet", "-b", "teammate/inbox-polish");
+			TempGitRepo.Run(repo, "-c", "user.email=teammate@example.com", "-c", "user.name=Teammate",
 				"commit", "--quiet", "--allow-empty", "-m", "theirs");
-			TestHost.RunGit(repo, "checkout", "--quiet", "main");
+			TempGitRepo.Run(repo, "checkout", "--quiet", "main");
 		}, _ => inference);
 
-		var result = await PreviewAsync(host, "WebM files fail to load", "claude");
+		var result = await PreviewAsync(host, "WebM files fail to load");
 
 		Assert.Equal("kapps/webm-fails", result.Branch);
 		var input = InputJson(inference.Prompt!);
-		Assert.Equal(TestHost.TestAuthorEmail, input.GetProperty("authorEmail").GetString());
+		Assert.Equal(TempGitRepo.AuthorEmail, input.GetProperty("authorEmail").GetString());
 		Assert.Empty(Branches(input, "myRecentBranches"));
 		Assert.Equal(["teammate/inbox-polish"], Branches(input, "otherRecentBranches"));
 	}
@@ -98,7 +95,6 @@ public sealed class HostCoreBranchInferenceTests {
 		var result = await PreviewWithAttachmentsAsync(
 			host,
 			string.Empty,
-			"structured",
 			[new NewSessionAttachment { Id = "image-1", Mime = "image/png", DataB64 = "AQIDBA==" }]);
 
 		Assert.Equal("bug/screenshot-layout", result.Branch);
@@ -119,7 +115,6 @@ public sealed class HostCoreBranchInferenceTests {
 		var result = await PreviewWithAttachmentsAsync(
 			host,
 			string.Empty,
-			"structured",
 			[new NewSessionAttachment { Id = "image-1", Mime = "text/plain", DataB64 = "AQ==" }]);
 
 		Assert.Empty(result.Branch);
@@ -142,7 +137,7 @@ public sealed class HostCoreBranchInferenceTests {
 			})
 			.ToArray();
 
-		var result = await PreviewWithAttachmentsAsync(host, string.Empty, "structured", attachments);
+		var result = await PreviewWithAttachmentsAsync(host, string.Empty, attachments);
 
 		Assert.Empty(result.Branch);
 		Assert.Contains("up to", result.Error, StringComparison.Ordinal);
@@ -168,7 +163,7 @@ public sealed class HostCoreBranchInferenceTests {
 		});
 		await using var host = await TestHost.StartAsync(_ => { }, _ => inference);
 
-		var result = await PreviewAsync(host, "WebM files fail to load", "claude");
+		var result = await PreviewAsync(host, "WebM files fail to load");
 
 		Assert.Empty(result.Branch);
 		Assert.Equal("The selected provider failed.", result.Error);
@@ -183,7 +178,7 @@ public sealed class HostCoreBranchInferenceTests {
 		});
 		await using var host = await TestHost.StartAsync(_ => { }, _ => inference);
 
-		var result = await ResuggestAsync(host, "WebM files fail to load", "claude");
+		var result = await ResuggestAsync(host, "WebM files fail to load");
 
 		Assert.Equal("bug/asked-again", result.Branch);
 		Assert.Equal(InferenceInvocationOrigin.UserInitiated, inference.Origin);
@@ -197,7 +192,7 @@ public sealed class HostCoreBranchInferenceTests {
 		});
 		await using var host = await TestHost.StartAsync(_ => { }, _ => inference);
 
-		var result = await PreviewAsync(host, "fix the bug", "claude");
+		var result = await PreviewAsync(host, "fix the bug");
 
 		Assert.Empty(result.Branch);
 		Assert.Null(result.Error);
@@ -219,7 +214,7 @@ public sealed class HostCoreBranchInferenceTests {
 		});
 		await using var host = await TestHost.StartAsync(_ => { }, _ => inference);
 
-		var result = await PreviewAsync(host, "Fix WebM", "claude");
+		var result = await PreviewAsync(host, "Fix WebM");
 
 		Assert.Empty(result.Branch);
 		Assert.Equal(error, result.Error);
@@ -259,7 +254,6 @@ public sealed class HostCoreBranchInferenceTests {
 				sourceId = "missing",
 				prompt = "Fix WebM",
 				attachments = Array.Empty<object>(),
-				agentProviderId = "claude",
 			});
 
 		Assert.Equal(string.Empty, result.GetProperty("branch").GetString());
@@ -286,7 +280,6 @@ public sealed class HostCoreBranchInferenceTests {
 					sourceId = host.WorkspaceSession.SlotId,
 					prompt = "Fix WebM",
 					attachments = Array.Empty<object>(),
-					agentProviderId = "structured",
 				})).ToJson());
 		await inference.Started.Task;
 
@@ -313,23 +306,21 @@ public sealed class HostCoreBranchInferenceTests {
 	private static string[] Branches(JsonElement input, string field) =>
 		[.. input.GetProperty(field).EnumerateArray().Select(branch => branch.GetString()!)];
 
-	private static Task<BranchPreview> PreviewAsync(TestHost host, string prompt, string agentProviderId) =>
-		PreviewWithAttachmentsAsync(host, prompt, agentProviderId, []);
+	private static Task<BranchPreview> PreviewAsync(TestHost host, string prompt) =>
+		PreviewWithAttachmentsAsync(host, prompt, []);
 
-	private static Task<BranchPreview> ResuggestAsync(TestHost host, string prompt, string agentProviderId) =>
-		RequestPreviewAsync(host, prompt, agentProviderId, [], userInitiated: true);
+	private static Task<BranchPreview> ResuggestAsync(TestHost host, string prompt) =>
+		RequestPreviewAsync(host, prompt, [], userInitiated: true);
 
 	private static Task<BranchPreview> PreviewWithAttachmentsAsync(
 		TestHost host,
 		string prompt,
-		string agentProviderId,
 		IReadOnlyList<NewSessionAttachment> attachments) =>
-		RequestPreviewAsync(host, prompt, agentProviderId, attachments, userInitiated: false);
+		RequestPreviewAsync(host, prompt, attachments, userInitiated: false);
 
 	private static async Task<BranchPreview> RequestPreviewAsync(
 		TestHost host,
 		string prompt,
-		string agentProviderId,
 		IReadOnlyList<NewSessionAttachment> attachments,
 		bool userInitiated) {
 		var result = await host.HostRequestAsync<JsonElement>(
@@ -339,7 +330,6 @@ public sealed class HostCoreBranchInferenceTests {
 				sourceId = host.WorkspaceSession.SlotId,
 				prompt,
 				attachments,
-				agentProviderId,
 				userInitiated,
 			});
 		return new BranchPreview(
@@ -364,8 +354,6 @@ public sealed class HostCoreBranchInferenceTests {
 
 		public InferenceModelCategory Category { get; private set; }
 
-		public string? AgentProviderId { get; private set; }
-
 		public string? Workspace { get; private set; }
 
 		public InferenceInvocationOrigin Origin { get; private set; }
@@ -386,7 +374,6 @@ public sealed class HostCoreBranchInferenceTests {
 			// The origin varies with who asked; every declared bound must still be the feature's own.
 			Assert.Equal(BranchNameInference.QueryOptions with { Origin = options.Origin }, options);
 			Calls++;
-			AgentProviderId = owner.AgentProviderId;
 			Workspace = owner.Workspace;
 			Category = category;
 			Origin = options.Origin;

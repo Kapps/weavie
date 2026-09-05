@@ -1,5 +1,5 @@
 import { allowAutomaticInference } from "../harness/actions";
-import { expect, test } from "../harness/fixtures";
+import { expect, test, touchSession } from "../harness/fixtures";
 
 const PNG_B64 =
   "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAXUlEQVR42u3PMQ0AIAwAMJTsnhxkI2I3NxLQsGNfkxroqohRcWYtAQEBAQEBAQEBAQEBAQEBAQEBAQEBAYF2IPcd9SpHCQgICAgICAgICAgICAgICAgICAgICAi0fZNauTzyRETRAAAAAElFTkSuQmCC";
@@ -263,8 +263,38 @@ test.describe("automatic inference permission", () => {
   });
 
   test("allows inference from the notification before suggesting a branch", async ({ page }) => {
+    const app = page.locator(".app");
+    await app.evaluate((element) => {
+      (element as HTMLElement).style.setProperty("--mobile-pane-safe-area-top", "47px");
+    });
+    await page.getByRole("button", { name: "Code", exact: true }).click();
+    const offer = page.locator(".toast", { hasText: "Let Weavie use automatic inference" });
+    const geometry = await offer.evaluate((toast) => {
+      const paneChrome = Array.from(document.querySelectorAll(".pane-head, .pane-tabs"))
+        .map((chrome) => chrome.getBoundingClientRect())
+        .filter((chrome) => chrome.width > 0 && chrome.height > 0);
+      if (paneChrome.length === 0) {
+        throw new Error("mobile pane chrome not rendered");
+      }
+      const message = toast.querySelector<HTMLElement>(".toast-msg");
+      if (message === null) {
+        throw new Error("mobile toast message not rendered");
+      }
+      const toastBounds = toast.getBoundingClientRect();
+      return {
+        chromeBottom: Math.max(...paneChrome.map((chrome) => chrome.bottom)),
+        messageWidth: message.getBoundingClientRect().width,
+        toastTop: toastBounds.top,
+        toastWidth: toastBounds.width,
+        viewportWidth: window.innerWidth,
+      };
+    });
+    expect(geometry.toastTop).toBeGreaterThanOrEqual(geometry.chromeBottom);
+    expect(geometry.toastWidth).toBeGreaterThan(geometry.viewportWidth * 0.8);
+    expect(geometry.messageWidth).toBeGreaterThan(geometry.toastWidth / 3);
     await allowAutomaticInference(page);
 
+    await page.getByRole("button", { name: "Sessions", exact: true }).click();
     const inbox = page.locator(".session-inbox");
     await inbox.getByRole("combobox", { name: "Agent provider" }).selectOption("claude");
     await inbox.getByRole("textbox", { name: "Prompt for a new session" }).fill(NAMEABLE_DRAFT);
@@ -475,15 +505,6 @@ test("touch scrolling and tapping a mouse-aware Claude prompt send valid input",
   await page.evaluate(() => new Promise(requestAnimationFrame));
   await dispatchPaneTouch(screen, "touchmove", { x, y: endY });
   await page.evaluate(() => new Promise(requestAnimationFrame));
-  await screen.evaluate((element) => {
-    const capture = (
-      element as Element & { __weavieTouchInput?: { dispose: () => void; input: string[] } }
-    ).__weavieTouchInput;
-    if (capture === undefined) {
-      throw new Error("Missing terminal input capture");
-    }
-    capture.input.length = 0;
-  });
   await dispatchPaneTouch(screen, "touchend", { x, y: endY });
   await page.evaluate(
     () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
@@ -538,7 +559,15 @@ test("a compact session row manages its session from a hold and its actions butt
   const manage = row.getByRole("button", { name: /^Manage / });
   await expect(row).toBeVisible();
 
-  const touch = await page.context().newCDPSession(page);
+  // Reuse the one CDP session `establishTouchEmulation` armed for touch: a second, independently-opened
+  // session issuing Input.dispatchTouchEvent against the same target went silently inert on windows-latest
+  // CI, twice — 2026-09-03 01:54 UTC (run 33704819901, job 100492392393) and 2026-09-03 05:14 UTC (run
+  // 33717713961, job 100530992199, https://github.com/Kapps/weavie/actions/runs/33717713961/job/100530992199).
+  // The first fix (retrying the touchStart) treated it as a single dropped event and still flaked the exact
+  // same way on the second occurrence — every touchStart in the test, including the very first one, produced
+  // no effect at all, which a single dropped event can't explain but a starved second CDP session can. See
+  // touchSession's doc comment in harness/fixtures.ts.
+  const touch = touchSession(page);
   const point = await row.evaluate((element) => {
     const bounds = element.getBoundingClientRect();
     return { x: bounds.x + 60, y: bounds.y + bounds.height / 2 };

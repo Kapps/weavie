@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ClientSession } from "../bridge";
 
 const bridge = vi.hoisted(() => ({
-  installer: undefined as ((session: ClientSession) => undefined | (() => void)) | undefined,
+  installers: new Set<(session: ClientSession) => undefined | (() => void)>(),
   sessions: new Map<
     string,
     {
@@ -31,7 +31,7 @@ vi.stubGlobal("window", {
 
 vi.mock("../bridge", () => ({
   registerSessionFeature: (installer: (session: ClientSession) => undefined | (() => void)) => {
-    bridge.installer = installer;
+    bridge.installers.add(installer);
     return () => {};
   },
 }));
@@ -52,6 +52,7 @@ function ensureSession(
   }
   const handlers = new Map<string, (payload: Record<string, unknown>) => void>();
   const client = {
+    closed: false,
     connection: { id: backendId },
     address: { slot, incarnation: `${slot}-incarnation-${++bridge.nextIncarnation}` },
     feature: (feature: string) => ({
@@ -66,7 +67,7 @@ function ensureSession(
   } as unknown as ClientSession;
   const session = { client, handlers };
   bridge.sessions.set(key, session);
-  bridge.installer?.(client);
+  for (const install of bridge.installers) install(client);
   return session;
 }
 

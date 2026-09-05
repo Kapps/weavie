@@ -1,6 +1,4 @@
-using System.ComponentModel;
-using System.Diagnostics;
-using System.Text;
+using Weavie.Core.Processes;
 
 namespace Weavie.Core.Git;
 
@@ -445,13 +443,15 @@ public sealed partial class GitService : IGitService {
 	}
 
 	/// <inheritdoc/>
-	public async Task<string> ShowFileAtRefAsync(string repositoryDirectory, string reference, string path, CancellationToken ct = default) {
+	public async Task<GitFileSnapshot> ReadFileAtRefAsync(string repositoryDirectory, string reference, string path, CancellationToken ct = default) {
 		ArgumentException.ThrowIfNullOrEmpty(repositoryDirectory);
 		ArgumentException.ThrowIfNullOrEmpty(reference);
 		ArgumentException.ThrowIfNullOrEmpty(path);
-		// A non-zero exit means the file is absent at that ref (added in the PR) — an empty baseline, not an error.
+		// A non-zero exit means the file is absent at that ref (added in the PR), distinct from an existing empty file.
 		var result = await RunAsync(repositoryDirectory, ["show", $"{reference}:{path}"], ct).ConfigureAwait(false);
-		return result.ExitCode == 0 ? result.StdOut : string.Empty;
+		return result.ExitCode == 0
+			? new GitFileSnapshot(true, result.StdOut)
+			: new GitFileSnapshot(false, string.Empty);
 	}
 
 	/// <summary>
@@ -624,7 +624,8 @@ public sealed partial class GitService : IGitService {
 		}
 	}
 
-	private static async Task<GitResult> RunCheckedAsync(string workingDirectory, IReadOnlyList<string> args, CancellationToken ct) {
+	private static async Task<ProcessCaptureResult> RunCheckedAsync(
+		string workingDirectory, IReadOnlyList<string> args, CancellationToken ct) {
 		var result = await RunAsync(workingDirectory, args, ct).ConfigureAwait(false);
 		if (result.ExitCode != 0) {
 			throw new GitException($"git {string.Join(' ', args)} failed (exit {result.ExitCode}): {result.StdErr.Trim()}");
@@ -633,41 +634,28 @@ public sealed partial class GitService : IGitService {
 		return result;
 	}
 
-	private static async Task<GitResult> RunAsync(string workingDirectory, IReadOnlyList<string> args, CancellationToken ct) {
+	private static async Task<ProcessCaptureResult> RunAsync(
+		string workingDirectory, IReadOnlyList<string> args, CancellationToken ct) {
 		if (!Directory.Exists(workingDirectory)) {
 			throw new GitException($"Git working directory does not exist: {workingDirectory}");
 		}
 
-		var info = new ProcessStartInfo {
-			FileName = "git",
-			WorkingDirectory = workingDirectory,
-			RedirectStandardOutput = true,
-			RedirectStandardError = true,
-			UseShellExecute = false,
-			CreateNoWindow = true,
-			StandardOutputEncoding = Encoding.UTF8,
-			StandardErrorEncoding = Encoding.UTF8,
-		};
-		info.Environment["LC_ALL"] = "C";
-		info.Environment["GIT_TERMINAL_PROMPT"] = "0"; // Weavie owns no terminal to answer a prompt on.
-		foreach (string arg in args) {
-			info.ArgumentList.Add(arg);
+		var result = await ProcessCapture.RunAsync(
+			new ProcessCaptureRequest {
+				FileName = "git",
+				Arguments = args,
+				WorkingDirectory = workingDirectory,
+				Environment = new Dictionary<string, string>(StringComparer.Ordinal) {
+					["LC_ALL"] = "C",
+					["GIT_TERMINAL_PROMPT"] = "0", // Weavie owns no terminal to answer a prompt on.
+				},
+			},
+			ct).ConfigureAwait(false);
+		// Weavie cannot work without git, so a missing or unrunnable one is fatal wherever it is asked for.
+		if (result.StartFailure is { } failure) {
+			throw new GitException($"Unable to start 'git' from '{workingDirectory}': {failure.Message}", failure);
 		}
 
-		using var process = new Process { StartInfo = info };
-		try {
-			process.Start();
-		} catch (Win32Exception ex) {
-			throw new GitException($"Unable to start 'git' from '{workingDirectory}': {ex.Message}", ex);
-		}
-
-		var stdoutTask = process.StandardOutput.ReadToEndAsync(ct);
-		var stderrTask = process.StandardError.ReadToEndAsync(ct);
-		await process.WaitForExitAsync(ct).ConfigureAwait(false);
-		string stdout = await stdoutTask.ConfigureAwait(false);
-		string stderr = await stderrTask.ConfigureAwait(false);
-		return new GitResult(process.ExitCode, stdout, stderr);
+		return result;
 	}
-
-	private readonly record struct GitResult(int ExitCode, string StdOut, string StdErr);
 }

@@ -24,23 +24,25 @@ public sealed partial class SessionChangeTracker {
 	// Rendered turn summaries, memoized on the texts they were diffed from and rebuilt from the live set.
 	private Dictionary<string, TurnChangeSummary> _summaries = new(PathComparer);
 	private readonly Dictionary<string, string> _baseline = new(PathComparer);
+	private readonly HashSet<string> _missingBaseline = new(PathComparer);
 	private readonly Dictionary<string, string> _current = new(PathComparer);
+	// Ref/PR reviews retain a deleted current-side path so its baseline can still be reviewed and restored. Live
+	// tool deletions are forgotten instead; only SeedRefBaseline adds entries here.
+	private readonly HashSet<string> _missingCurrent = new(PathComparer);
 	// Each file's last-reviewed content; advanced only on keep-all (AcceptTurn) or a per-hunk revert, not on a
 	// turn boundary, so the review set accumulates everything unacknowledged across turns (docs/specs/turn-review.md).
 	private readonly Dictionary<string, string> _reviewBaseline = new(PathComparer);
+	private readonly HashSet<string> _missingReviewBaseline = new(PathComparer);
 	// Each file's content at the last commit point — keep-all (AcceptTurn) or a turn boundary (CommitAccepted).
 	// The faded "accepted" band is acceptedAnchor→reviewBaseline (kept-but-uncommitted): a kept hunk stays
 	// visible-but-faded with an inline undo until a commit clears it. See docs/specs/turn-review.md (Phase 2).
 	private readonly Dictionary<string, string> _acceptedAnchor = new(PathComparer);
+	private readonly HashSet<string> _missingAcceptedAnchor = new(PathComparer);
 	// Each file's content at the most recent edit's PreToolUse; diffed against post-edit in EditLocationFor.
 	private readonly Dictionary<string, string> _preEdit = new(PathComparer);
 	// Non-text files never enter the diff dictionaries; their stat is enough to refresh an open media/editor
 	// surface when a workspace-wide tool changes them without serializing their contents.
 	private readonly Dictionary<string, FileStat> _nonText = new(PathComparer);
-	// Files absent on disk when their review baseline was captured, so reverting their last hunk deletes rather
-	// than leaves a 0-byte file. Keys off existence-at-baseline, not emptiness.
-	private readonly HashSet<string> _createdSinceBaseline = new(PathComparer);
-
 	/// <summary>Creates a tracker that reads files and reports their completed activity.</summary>
 	/// <param name="fileSystem">The session filesystem the tracker reads changed-file content through.</param>
 	/// <param name="fileActivity">The owning session's ordered file-activity sink.</param>
@@ -121,19 +123,23 @@ public sealed partial class SessionChangeTracker {
 
 	/// <summary>
 	/// Keep-all: advances every review baseline AND accepted anchor to current content, clearing every inline
-	/// marker (bright pending and faded accepted alike). The session diff (vs the session baseline) is kept, and
-	/// nothing counts as "created since baseline" any more.
+	/// marker (bright pending and faded accepted alike). The session diff (vs the session baseline) is kept.
 	/// </summary>
 	public void AcceptTurn() {
 		lock (_gate) {
 			_reviewBaseline.Clear();
+			_missingReviewBaseline.Clear();
 			_acceptedAnchor.Clear();
+			_missingAcceptedAnchor.Clear();
 			foreach (var (path, content) in _current) {
 				_reviewBaseline[path] = content;
 				_acceptedAnchor[path] = content; // commit point: the faded band collapses to nothing
+				if (_missingCurrent.Contains(path)) {
+					_missingReviewBaseline.Add(path);
+					_missingAcceptedAnchor.Add(path);
+				}
 			}
 
-			_createdSinceBaseline.Clear();
 			_provenance.Clear();
 			// Keep-all is the commit point — accepted changes are locked in, so the undo history resets here.
 			_undoStack.Clear();
@@ -147,8 +153,15 @@ public sealed partial class SessionChangeTracker {
 		List<string>? committed = null;
 		lock (_gate) {
 			foreach (var (path, baseline) in _reviewBaseline) {
-				if (!string.Equals(_acceptedAnchor.GetValueOrDefault(path, baseline), baseline, StringComparison.Ordinal)) {
+				bool reviewMissing = _missingReviewBaseline.Contains(path);
+				if (!string.Equals(_acceptedAnchor.GetValueOrDefault(path, baseline), baseline, StringComparison.Ordinal)
+					|| _missingAcceptedAnchor.Contains(path) != reviewMissing) {
 					_acceptedAnchor[path] = baseline;
+					if (reviewMissing) {
+						_missingAcceptedAnchor.Add(path);
+					} else {
+						_missingAcceptedAnchor.Remove(path);
+					}
 					(committed ??= []).Add(path);
 				}
 			}
@@ -188,12 +201,16 @@ public sealed partial class SessionChangeTracker {
 
 	private void CaptureBaselineLocked(string path, string content, bool existed) {
 		CaptureProvenanceBaseline(path, content);
-		_baseline.TryAdd(path, content);
+		if (_baseline.TryAdd(path, content) && !existed) {
+			_missingBaseline.Add(path);
+		}
 		if (_reviewBaseline.TryAdd(path, content) && !existed) {
-			_createdSinceBaseline.Add(path);
+			_missingReviewBaseline.Add(path);
 		}
 
-		_acceptedAnchor.TryAdd(path, content); // seeded == reviewBaseline; diverges only as hunks are kept
+		if (_acceptedAnchor.TryAdd(path, content) && !existed) {
+			_missingAcceptedAnchor.Add(path);
+		}
 		_preEdit[path] = content;
 	}
 
@@ -216,6 +233,7 @@ public sealed partial class SessionChangeTracker {
 				Forget(path);
 			} else {
 				ignoredNonText = false;
+				_missingCurrent.Remove(path);
 				if (_nonText.Remove(path)) {
 					// A binary baseline cannot support a safe line-level reject; refresh the now-text file without review.
 					reviewRemoved = false;
@@ -223,13 +241,17 @@ public sealed partial class SessionChangeTracker {
 				} else {
 					reviewRemoved = false;
 					nonTextChanged = false;
-					_baseline.TryAdd(path, string.Empty);
+					if (_baseline.TryAdd(path, string.Empty)) {
+						_missingBaseline.Add(path);
+					}
 					// First review-touch with no prior CaptureBaseline: the file appeared this session, so it didn't exist at baseline.
 					if (_reviewBaseline.TryAdd(path, string.Empty)) {
-						_createdSinceBaseline.Add(path);
+						_missingReviewBaseline.Add(path);
 					}
 
-					_acceptedAnchor.TryAdd(path, string.Empty);
+					if (_acceptedAnchor.TryAdd(path, string.Empty)) {
+						_missingAcceptedAnchor.Add(path);
+					}
 					string before = _preEdit.GetValueOrDefault(path, _current.GetValueOrDefault(path, string.Empty));
 					string reviewCurrent = _current.GetValueOrDefault(path, before);
 					_current[path] = RecordAgentProvenance(path, before, content, reviewCurrent);
@@ -261,7 +283,13 @@ public sealed partial class SessionChangeTracker {
 	/// Whether the file existed at the ref; <see langword="false"/> marks it created-since-baseline, so reverting its
 	/// last hunk deletes it rather than leaving a 0-byte file.
 	/// </param>
-	public void SeedRefBaseline(string path, string refContent, string diskContent, bool existedAtRef) {
+	/// <param name="existsOnDisk">Whether the current-side file exists, distinct from an existing empty file.</param>
+	public void SeedRefBaseline(
+		string path,
+		string refContent,
+		string diskContent,
+		bool existedAtRef,
+		bool existsOnDisk) {
 		path = NormalizePath(path);
 		ArgumentNullException.ThrowIfNull(refContent);
 		ArgumentNullException.ThrowIfNull(diskContent);
@@ -271,12 +299,15 @@ public sealed partial class SessionChangeTracker {
 			_acceptedAnchor[path] = refContent;
 			_current[path] = diskContent;
 			_preEdit[path] = diskContent;
-			SeedProvenance(path, diskContent);
-			if (existedAtRef) {
-				_createdSinceBaseline.Remove(path);
+			if (existsOnDisk) {
+				_missingCurrent.Remove(path);
 			} else {
-				_createdSinceBaseline.Add(path);
+				_missingCurrent.Add(path);
 			}
+			SeedProvenance(path, diskContent);
+			SetMissing(_missingBaseline, path, !existedAtRef);
+			SetMissing(_missingReviewBaseline, path, !existedAtRef);
+			SetMissing(_missingAcceptedAnchor, path, !existedAtRef);
 		}
 	}
 
@@ -288,7 +319,7 @@ public sealed partial class SessionChangeTracker {
 		lock (_gate) {
 			// Snapshot keys first: Forget mutates _current while we iterate.
 			foreach (string path in new List<string>(_current.Keys)) {
-				if (!_fileSystem.FileExists(path)) {
+				if (!_missingCurrent.Contains(path) && !_fileSystem.FileExists(path)) {
 					Forget(path);
 					(removed ??= []).Add(path);
 				}
@@ -339,15 +370,16 @@ public sealed partial class SessionChangeTracker {
 			// The rejected hunk is the correction: the agent's lines out, the baseline's back in.
 			edits = CorrectionsForRevert(path, spliced.CurrentRange, baselineRange);
 			var before = Capture(path, withDisk: true);
-			// Reverting the last hunk of a created file returns it to non-existence — delete and forget it.
+			// Reverting the last hunk to an absent baseline returns it to non-existence.
 			string diskContent = ApplyReviewChange(path, spliced.CurrentRaw, spliced.NewContent);
-			if (diskContent.Length == 0 && _createdSinceBaseline.Contains(path)) {
+			if (diskContent.Length == 0 && _missingReviewBaseline.Contains(path)) {
 				_fileSystem.DeleteFile(path);
 				Forget(path);
 				outcome = RevertHunkOutcome.Deleted;
 			} else {
 				_fileSystem.WriteAllText(path, diskContent);
 				_current[path] = spliced.NewContent;
+				_missingCurrent.Remove(path);
 				outcome = RevertHunkOutcome.Reverted;
 			}
 
@@ -396,7 +428,9 @@ public sealed partial class SessionChangeTracker {
 		lock (_gate) {
 			var paths = new List<string>();
 			foreach (var (path, baseline) in _reviewBaseline) {
-				if (_current.TryGetValue(path, out string? current) && !string.Equals(baseline, current, StringComparison.Ordinal)) {
+				if (_current.TryGetValue(path, out string? current)
+					&& (!string.Equals(baseline, current, StringComparison.Ordinal)
+						|| _missingReviewBaseline.Contains(path) != _missingCurrent.Contains(path))) {
 					paths.Add(path);
 				}
 			}
@@ -439,7 +473,7 @@ public sealed partial class SessionChangeTracker {
 		string baseline = _reviewBaseline.GetValueOrDefault(path, string.Empty);
 		string current = _current.GetValueOrDefault(path, string.Empty);
 		string diskContent = ApplyReviewChange(path, current, baseline);
-		if (diskContent.Length == 0 && _createdSinceBaseline.Contains(path)) {
+		if (_missingReviewBaseline.Contains(path)) {
 			_fileSystem.DeleteFile(path);
 			Forget(path);
 			_fileActivity.ReportDeleted(path);
@@ -448,6 +482,7 @@ public sealed partial class SessionChangeTracker {
 
 		_fileSystem.WriteAllText(path, diskContent);
 		_current[path] = baseline;
+		_missingCurrent.Remove(path);
 		ReportCurrentState(path);
 		return RevertHunkOutcome.Reverted;
 	}
@@ -487,6 +522,9 @@ public sealed partial class SessionChangeTracker {
 			baselineLines.RemoveRange(baselineRange.Start - 1, baselineRange.EndExclusive - baselineRange.Start);
 			baselineLines.InsertRange(baselineRange.Start - 1, currentSlice);
 			_reviewBaseline[path] = JoinLines(baselineLines, baselineRaw.Length > 0 ? baselineRaw : diskRaw);
+			if (string.Equals(_reviewBaseline[path], _current.GetValueOrDefault(path, string.Empty), StringComparison.Ordinal)) {
+				SetMissing(_missingReviewBaseline, path, _missingCurrent.Contains(path));
+			}
 			SetPending(path, currentRange, false);
 			Record(ReviewActionKind.Keep, touchesDisk: false, currentRange.Start, [before], [path]);
 			return true;
@@ -511,9 +549,11 @@ public sealed partial class SessionChangeTracker {
 			var before = Capture(path, withDisk: false);
 			string current = _current[path];
 			_reviewBaseline[path] = current;
+			bool existenceChanged = _missingReviewBaseline.Contains(path) != _missingCurrent.Contains(path);
+			SetMissing(_missingReviewBaseline, path, _missingCurrent.Contains(path));
 			SetAllPending(path, false);
 			// No-op keep (already at baseline) records nothing, so its undo wouldn't surprise with an empty step.
-			if (!string.Equals(before.ReviewBaseline, current, StringComparison.Ordinal)) {
+			if (!string.Equals(before.ReviewBaseline, current, StringComparison.Ordinal) || existenceChanged) {
 				Record(ReviewActionKind.Keep, touchesDisk: false, line: null, [before], [path]);
 			}
 		}
@@ -558,6 +598,9 @@ public sealed partial class SessionChangeTracker {
 			reviewLines.RemoveRange(reviewRange.Start - 1, reviewRange.EndExclusive - reviewRange.Start);
 			reviewLines.InsertRange(reviewRange.Start - 1, replacement);
 			_reviewBaseline[path] = JoinLines(reviewLines, reviewRaw); // disk + _current untouched — the hunk just goes bright again
+			if (string.Equals(_reviewBaseline[path], _acceptedAnchor.GetValueOrDefault(path, string.Empty), StringComparison.Ordinal)) {
+				SetMissing(_missingReviewBaseline, path, _missingAcceptedAnchor.Contains(path));
+			}
 			foreach (var hunk in LineHunker.Hunks(
 				LineDiff.SplitLines(_reviewBaseline[path]),
 				LineDiff.SplitLines(_current.GetValueOrDefault(path, string.Empty)))) {
@@ -569,12 +612,15 @@ public sealed partial class SessionChangeTracker {
 
 	// Drops a path from every tracked set after the file was deleted on revert. Caller holds _gate.
 	private void Forget(string path) {
+		_missingBaseline.Remove(path);
 		_current.Remove(path);
+		_missingCurrent.Remove(path);
 		_baseline.Remove(path);
 		_reviewBaseline.Remove(path);
+		_missingReviewBaseline.Remove(path);
 		_acceptedAnchor.Remove(path);
+		_missingAcceptedAnchor.Remove(path);
 		_preEdit.Remove(path);
-		_createdSinceBaseline.Remove(path);
 		_provenance.Remove(path);
 	}
 
@@ -625,8 +671,15 @@ public sealed partial class SessionChangeTracker {
 			var changes = new List<FileChange>();
 			foreach (var (path, current) in _current) {
 				string baseline = _baseline.GetValueOrDefault(path, string.Empty);
-				if (!string.Equals(baseline, current, StringComparison.Ordinal)) {
-					changes.Add(new FileChange { Path = path, BaselineText = baseline, CurrentText = current });
+				if (!string.Equals(baseline, current, StringComparison.Ordinal)
+					|| _missingBaseline.Contains(path) != _missingCurrent.Contains(path)) {
+					changes.Add(new FileChange {
+						Path = path,
+						BaselineText = baseline,
+						CurrentText = current,
+						BaselineExists = !_missingBaseline.Contains(path),
+						CurrentExists = !_missingCurrent.Contains(path),
+					});
 				}
 			}
 			return changes;
@@ -645,12 +698,14 @@ public sealed partial class SessionChangeTracker {
 				Path = path,
 				BaselineText = _baseline.GetValueOrDefault(path, string.Empty),
 				CurrentText = current,
+				BaselineExists = !_missingBaseline.Contains(path),
+				CurrentExists = !_missingCurrent.Contains(path),
 			};
 		}
 	}
 
 	/// <summary>
-	/// The inline review diff set: every file whose current content differs from its accepted anchor — so a
+	/// The inline review diff set: every file whose current state differs from its accepted anchor — so a
 	/// fully-kept-but-uncommitted file (review baseline == current, but accepted anchor still behind) STAYS in the
 	/// set to carry its faded band, until keep-all snaps the anchor to current and drops it.
 	/// </summary>
@@ -688,12 +743,17 @@ public sealed partial class SessionChangeTracker {
 	private List<FileChange> TurnChangesLocked() {
 		var changes = new List<FileChange>();
 		foreach (var (path, accepted) in _acceptedAnchor) {
-			if (_current.TryGetValue(path, out string? current) && !string.Equals(accepted, current, StringComparison.Ordinal)) {
+			if (_current.TryGetValue(path, out string? current)
+				&& (!string.Equals(accepted, current, StringComparison.Ordinal)
+					|| _missingAcceptedAnchor.Contains(path) != _missingCurrent.Contains(path))) {
 				changes.Add(new FileChange {
 					Path = path,
 					AcceptedBaselineText = accepted,
 					BaselineText = _reviewBaseline.GetValueOrDefault(path, accepted),
 					CurrentText = current,
+					AcceptedBaselineExists = !_missingAcceptedAnchor.Contains(path),
+					BaselineExists = !_missingReviewBaseline.Contains(path),
+					CurrentExists = !_missingCurrent.Contains(path),
 				});
 			}
 		}
@@ -704,7 +764,7 @@ public sealed partial class SessionChangeTracker {
 	/// <summary>
 	/// The change for <paramref name="path"/> as the (accepted anchor, review baseline, current) triple, or
 	/// <see langword="null"/> if the file isn't tracked. Any pair may be equal — the caller treats accepted ==
-	/// current as "no markers", review baseline == current as "no pending hunks (faded only)".
+	/// current in text and existence as "no markers", and the same review/current state as "faded only".
 	/// </summary>
 	/// <param name="path">Absolute file path.</param>
 	public FileChange? GetTurn(string path) {
@@ -719,7 +779,18 @@ public sealed partial class SessionChangeTracker {
 				AcceptedBaselineText = _acceptedAnchor.GetValueOrDefault(path, baseline),
 				BaselineText = baseline,
 				CurrentText = current,
+				AcceptedBaselineExists = !_missingAcceptedAnchor.Contains(path),
+				BaselineExists = !_missingReviewBaseline.Contains(path),
+				CurrentExists = !_missingCurrent.Contains(path),
 			};
+		}
+	}
+
+	private static void SetMissing(HashSet<string> missing, string path, bool value) {
+		if (value) {
+			missing.Add(path);
+		} else {
+			missing.Remove(path);
 		}
 	}
 

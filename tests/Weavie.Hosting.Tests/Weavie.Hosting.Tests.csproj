@@ -36,4 +36,9 @@
     <Copy SourceFiles="@(_McpProxyOutput)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
   </Target>
 
+  <ItemGroup>
+    <ProjectReference Include="..\Weavie.TestSupport\Weavie.TestSupport.csproj" />
+    <Using Include="Weavie.TestSupport" />
+  </ItemGroup>
+
 </Project>

@@ -46,6 +46,11 @@ public sealed record RecentBranches(string AuthorEmail, IReadOnlyList<string> Mi
 /// <param name="Dirty">Whether Git reports any tracked or untracked worktree change.</param>
 public sealed record GitStatusSummary(string? Branch, bool Dirty);
 
+/// <summary>A file's content and existence at one Git ref, preserving the empty-file/absent distinction.</summary>
+/// <param name="Exists">Whether the path exists at the ref.</param>
+/// <param name="Content">The file content, empty for both an empty and an absent file.</param>
+public sealed record GitFileSnapshot(bool Exists, string Content);
+
 /// <summary>
 /// The git operations Weavie's worktree-per-session feature needs, behind an interface so the worktree
 /// manager can be unit-tested against a fake. The real <see cref="GitService"/> shells out to <c>git</c>.
@@ -172,10 +177,10 @@ public interface IGitService {
 	Task<IReadOnlyList<DiffFileChange>> DiffRefsAsync(string repositoryDirectory, string fromRef, string toRef, CancellationToken ct = default);
 
 	/// <summary>
-	/// The contents of <paramref name="path"/> at <paramref name="reference"/> (<c>git show ref:path</c>), or the
-	/// empty string when the file doesn't exist there — the diff baseline for a PR file (empty ⇒ added in the PR).
+	/// The contents and existence of <paramref name="path"/> at <paramref name="reference"/>
+	/// (<c>git show ref:path</c>) — the diff baseline for a PR file.
 	/// </summary>
-	Task<string> ShowFileAtRefAsync(string repositoryDirectory, string reference, string path, CancellationToken ct = default);
+	Task<GitFileSnapshot> ReadFileAtRefAsync(string repositoryDirectory, string reference, string path, CancellationToken ct = default);
 
 	/// <summary>
 	/// Blames <paramref name="path"/> (worktree-relative) against the working tree, so lines edited but not yet

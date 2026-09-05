@@ -13,7 +13,8 @@ public sealed partial class AcpAgentSession :
 	IStructuredAgentUsage,
 	IStructuredAgentSideConversations {
 	private readonly AgentSessionContext _context;
-	private readonly AcpAgentDefinition _definition;
+	private readonly Func<AcpAgentDefinition> _definitionSource;
+	private AcpAgentDefinition _definition;
 	private readonly AcpSessionStore _sessions;
 	private readonly AcpControlStore _controlDefaults;
 	private readonly Action<string> _log;
@@ -22,7 +23,8 @@ public sealed partial class AcpAgentSession :
 	private readonly AcpTerminalManager _terminals;
 	private readonly Lock _gate = new();
 	private readonly Lock _turnTransitionGate = new();
-	private readonly LinkedList<AgentTurnSubmission> _pendingSubmissions = [];
+	private readonly Lock _queuePublishGate = new();
+	private readonly AcpSubmissionQueue _pendingSubmissions = new();
 	private readonly Queue<AcpControlMutation> _controlMutations = [];
 	private readonly ConcurrentDictionary<string, AcpClientRequestState> _clientRequests = new(StringComparer.Ordinal);
 	private readonly ConcurrentDictionary<string, AcpPendingRequest> _pendingRequests = new(StringComparer.Ordinal);
@@ -43,6 +45,7 @@ public sealed partial class AcpAgentSession :
 	private long _turnNumber;
 	private long _sideProviderTurnOffset;
 	private long _activeGeneration;
+	private long _publishedQueueVersion;
 	private bool _ready;
 	private bool _started;
 	private bool _disposed;
@@ -80,11 +83,18 @@ public sealed partial class AcpAgentSession :
 		AcpAgentDefinition definition,
 		AcpSessionStore sessions,
 		AcpControlStore controlDefaults,
+		Action<string> log) : this(context, () => definition, sessions, controlDefaults, log, new PrimaryRole()) { }
+
+	internal AcpAgentSession(
+		AgentSessionContext context,
+		Func<AcpAgentDefinition> definition,
+		AcpSessionStore sessions,
+		AcpControlStore controlDefaults,
 		Action<string> log) : this(context, definition, sessions, controlDefaults, log, new PrimaryRole()) { }
 
 	private AcpAgentSession(
 		AgentSessionContext context,
-		AcpAgentDefinition definition,
+		Func<AcpAgentDefinition> definition,
 		AcpSessionStore sessions,
 		AcpControlStore controlDefaults,
 		Action<string> log,
@@ -95,7 +105,8 @@ public sealed partial class AcpAgentSession :
 		ArgumentNullException.ThrowIfNull(controlDefaults);
 		ArgumentNullException.ThrowIfNull(log);
 		_context = context;
-		_definition = definition;
+		_definitionSource = definition;
+		_definition = definition() ?? throw new InvalidOperationException("The ACP agent definition is unavailable.");
 		_sessions = sessions;
 		_controlDefaults = controlDefaults;
 		_log = log;
@@ -103,12 +114,22 @@ public sealed partial class AcpAgentSession :
 		_guidanceSent = role is SideRole sideRole && sideRole.GuidanceInherited;
 		_sideProviderTurnOffset = role is SideRole side ? side.Conversation.AnchorTurnNumber : 0;
 		_terminals = new AcpTerminalManager(context.Workspace, log);
-		_connection = new AcpJsonRpcConnection(definition, context.Workspace, log);
+		_connection = new AcpJsonRpcConnection(ResolveDefinition, context.Workspace, log);
 		_connection.ProcessStarted += OnProcessStarted;
 		_connection.ProcessStateChanged += change => Observe(new AgentProcessChanged(change));
 		_connection.NotificationReceived += HandleNotification;
 		_connection.RequestReceived += RegisterClientRequest;
 		_connection.ProtocolFaulted += FailRuntime;
+	}
+
+	private AcpAgentDefinition ResolveDefinition() {
+		var definition = _definitionSource()
+			?? throw new InvalidOperationException("The ACP agent definition is unavailable.");
+		if (!string.Equals(definition.Id, _definition.Id, StringComparison.Ordinal)) {
+			throw new InvalidOperationException("An ACP agent definition cannot change provider identity.");
+		}
+		_definition = definition;
+		return definition;
 	}
 
 	/// <inheritdoc/>
@@ -118,10 +139,18 @@ public sealed partial class AcpAgentSession :
 	public event Action<IReadOnlyList<AgentPaneMessage>>? PaneSnapshot;
 
 	/// <inheritdoc/>
+	public event Action<IReadOnlyList<AgentTurnSubmission>>? QueuedSubmissionsChanged;
+
+	/// <inheritdoc/>
 	public event Action<AgentControlState>? ControlStateChanged;
 
 	/// <inheritdoc/>
 	public event Action<AgentUsageSnapshot>? UsageChanged;
+
+	/// <inheritdoc/>
+	public IReadOnlyList<AgentTurnSubmission> QueuedSubmissions {
+		get { lock (_gate) return _pendingSubmissions.Snapshot(); }
+	}
 
 	/// <inheritdoc/>
 	public AgentControlState ControlState {

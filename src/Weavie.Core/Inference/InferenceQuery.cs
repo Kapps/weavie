@@ -4,13 +4,9 @@ using System.Text.Json.Serialization.Metadata;
 namespace Weavie.Core.Inference;
 
 /// <summary>
-/// The session whose agent and worktree run one inference query. Inference is never routed independently of the
-/// work it is about: the owner supplies both the provider and the working directory.
+/// The session whose worktree owns one inference query. Provider selection comes from the live inference settings.
 /// </summary>
 public sealed record InferenceOwner {
-	/// <summary>The owning session's agent provider id.</summary>
-	public required string AgentProviderId { get; init; }
-
 	/// <summary>The owning worktree root, used verbatim as the query's working directory.</summary>
 	public required string Workspace { get; init; }
 }

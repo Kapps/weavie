@@ -128,6 +128,8 @@ export interface InlineDiff extends InlineDiffActions {
   setByUri(uri: string, options: InlineDiffOptions): void;
   /** Remove the diff registered by an exact model URI string (the review-model counterpart of clear). */
   clearByUri(uri: string): void;
+  /** Reconcile the applied-review paths for one exact owner without disturbing retained paint. */
+  retainApplied(session: ClientSession, paths: readonly string[]): void;
   /** Remove every registered diff. */
   clearAll(): void;
   /** Whether a diff is registered for an exact model URI string (so other features can suspend over it). */
@@ -187,6 +189,7 @@ function fileIsKept(options: InlineDiffOptions): boolean {
 /** Creates an inline-diff controller bound to `editor`. */
 export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): InlineDiff {
   const diffs = new Map<string, InlineDiffOptions>();
+  const appliedKeys = new Map<ClientSession, Set<string>>();
   const diffComputer = new DiffComputer();
   let decorations: monaco.editor.IEditorDecorationsCollection | undefined;
   let zoneIds: string[] = [];
@@ -198,7 +201,8 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
   let renderGeneration = 0;
   let renderInFlight = false;
   let renderQueued = false;
-  let computationPending = false;
+  // The model version the rendered hunks were computed against; undefined when nothing is rendered.
+  let renderedVersion: number | undefined;
   let disposed = false;
   const initialProposalReveals = new Set<string>();
   // The currently-rendered diff's options + hunks; the nav/action methods all operate on these.
@@ -225,6 +229,8 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     canRedo: false,
   };
   let historyHandlers: ReviewHistoryHandlers | undefined;
+  // Every control whose action names a specific hunk, with the title it carries when it can act.
+  let scopeActions: { button: HTMLButtonElement; title: string }[] = [];
   let undoButton: HTMLButtonElement | undefined;
   let redoButton: HTMLButtonElement | undefined;
   // The parked-navigator summary (review set non-empty, no changed file in view) + whether it's the rendered
@@ -256,17 +262,18 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     dotsNode = undefined;
     scopeMenuNode = undefined;
     scopeWrapNode = undefined;
+    scopeActions = [];
     undoButton = undefined;
     redoButton = undefined;
 
     showingParked = false;
-    computationPending = false;
+    renderedVersion = undefined;
     currentOptions = undefined;
     fallbackNavigation = undefined;
     currentHunks = [];
   };
 
-  const clearRender = (): void => {
+  const clearPaint = (): void => {
     decorations?.clear();
     decorations = undefined;
     // NB: a new-comment composer is deliberately NOT closed here — a routine same-model re-render (a keep, the
@@ -287,6 +294,10 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
       observer.disconnect();
     }
     zoneObservers = [];
+  };
+
+  const clearRender = (): void => {
+    clearPaint();
     clearControls();
     renderedUri = undefined;
   };
@@ -433,11 +444,13 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     queueMicrotask(() => node.querySelector("textarea")?.focus());
   };
 
-  // Render each commented line's thread as a view zone below it (a PR file under review). Zones are tracked in zoneIds so the
-  // next render clears them.
-  const renderPrCommentZones = (
+  // Add each commented line's thread to the same zone transaction as the diff paint.
+  const addPrCommentZones = (
     model: monaco.editor.ITextModel,
     options: InlineDiffOptions,
+    accessor: monaco.editor.IViewZoneChangeAccessor,
+    nextZoneIds: string[],
+    nextZoneObservers: ResizeObserver[],
   ): void => {
     if (options.comments === undefined || options.comments.length === 0) {
       return;
@@ -448,18 +461,16 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
       group.push(comment);
       byLine.set(comment.line, group);
     }
-    editor.changeViewZones((accessor) => {
-      for (const [line, comments] of byLine) {
-        const clamped = Math.min(model.getLineCount(), Math.max(1, line));
-        const { id, observer } = addContentSizedZone(
-          accessor,
-          clamped,
-          buildCommentThread(comments, options),
-        );
-        zoneIds.push(id);
-        zoneObservers.push(observer);
-      }
-    });
+    for (const [line, comments] of byLine) {
+      const clamped = Math.min(model.getLineCount(), Math.max(1, line));
+      const { id, observer } = addContentSizedZone(
+        accessor,
+        clamped,
+        buildCommentThread(comments, options),
+      );
+      nextZoneIds.push(id);
+      nextZoneObservers.push(observer);
+    }
   };
 
   // A content widget hugging a hunk's first line, anchored EXACT at the line's end so it sits beside the code.
@@ -525,17 +536,21 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     const dom = document.createElement("div");
     dom.className = "weavie-inline-pending-tag";
     dom.append(
-      makeButton(
-        "weavie-inline-pending-keep",
-        "✓ keep",
-        withShortcut("Keep this change", CommandIds.acceptChange),
-        () => keepHunkNow(hunk),
+      trackScopeAction(
+        makeButton(
+          "weavie-inline-pending-keep",
+          "✓ keep",
+          withShortcut("Keep this change", CommandIds.acceptChange),
+          () => keepHunkNow(hunk),
+        ),
       ),
-      makeButton(
-        "weavie-inline-pending-revert",
-        "✕ revert",
-        withShortcut("Revert this change", CommandIds.rejectChange),
-        () => revertHunkNow(hunk),
+      trackScopeAction(
+        makeButton(
+          "weavie-inline-pending-revert",
+          "✕ revert",
+          withShortcut("Revert this change", CommandIds.rejectChange),
+          () => revertHunkNow(hunk),
+        ),
       ),
     );
     return anchoredWidget(`weavie.pending.${index}`, model, hunk.anchorLine, dom);
@@ -631,6 +646,29 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     }
   };
 
+  // A per-hunk action needs coordinates that still match the live model, and they only do at the version the
+  // render was computed against — an edit since then (a keystroke while the recompute is in flight) moves
+  // every hunk after it, so keeping or reverting would act on the wrong lines.
+  const geometryStale = (): boolean =>
+    currentOptions !== undefined && renderedVersion !== editor.getModel()?.getVersionId();
+
+  const STALE_TITLE = "Waiting for the edited file's change geometry";
+
+  // Dim every per-hunk control while its coordinates are a version behind, and say why — the chords swallow
+  // themselves in that window, so the reason belongs where the user meets it.
+  const syncScopeButtons = (): void => {
+    const blocked = geometryStale();
+    for (const { button, title } of scopeActions) {
+      button.disabled = blocked;
+      button.title = blocked ? STALE_TITLE : title;
+    }
+  };
+
+  const trackScopeAction = (button: HTMLButtonElement): HTMLButtonElement => {
+    scopeActions.push({ button, title: button.title });
+    return button;
+  };
+
   // A hunk's live-model text plus its keep/revert coordinates — the payload (with concurrency guard) both post.
   const hunkPayload = (model: monaco.editor.ITextModel, hunk: DiffHunk): HunkRevert => ({
     baselineStart: hunk.baselineStart,
@@ -650,7 +688,12 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
   const keepHunkNow = (hunk: DiffHunk): void => {
     const options = currentOptions;
     const model = editor.getModel();
-    if (options?.mode !== "applied" || options.onKeepHunk === undefined || model === null) {
+    if (
+      options?.mode !== "applied" ||
+      options.onKeepHunk === undefined ||
+      model === null ||
+      geometryStale()
+    ) {
       return;
     }
     const remaining = currentHunks.filter((h) => h !== hunk);
@@ -667,7 +710,12 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
   const revertHunkNow = (hunk: DiffHunk): void => {
     const options = currentOptions;
     const model = editor.getModel();
-    if (options?.mode !== "applied" || options.onRevertHunk === undefined || model === null) {
+    if (
+      options?.mode !== "applied" ||
+      options.onRevertHunk === undefined ||
+      model === null ||
+      geometryStale()
+    ) {
       return;
     }
     // A faded band means kept hunks already exist; reverting the last bright hunk then leaves the file lingering
@@ -796,14 +844,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
       return runAction(options?.onAccept);
     }
     if (currentOptions === undefined) {
-      if (!computationPending) {
-        return keepFile();
-      }
-      return currentScope === "change"
-        ? true
-        : currentScope === "file"
-          ? keepFile()
-          : runAction(options.onKeepAll);
+      return keepFile(); // no geometry was rendered (timed out / failed): only whole-file Keep is meaningful
     }
     const scope = currentScope;
     return scope === "change" ? keepHunk() : scope === "file" ? keepFile() : keepAll();
@@ -820,14 +861,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
       return runAction(options?.onReject);
     }
     if (currentOptions === undefined) {
-      if (!computationPending) {
-        return revertFile();
-      }
-      return currentScope === "change"
-        ? true
-        : currentScope === "file"
-          ? revertFile()
-          : runAction(options.onUndo);
+      return revertFile(); // no geometry was rendered: only whole-file Revert is meaningful
     }
     const scope = currentScope;
     return scope === "change" ? revertHunk() : scope === "file" ? revertFile() : undo();
@@ -878,6 +912,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
       return;
     }
     currentScope = scope;
+    syncScopeButtons(); // the re-render is async; don't leave the old scope's blocked state up meanwhile
     renderActive();
   };
 
@@ -1045,22 +1080,24 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
         : scope === "file"
           ? "Revert this file"
           : `Revert ${allTarget}`;
-    bar.appendChild(
-      makeButton(
-        "weavie-inline-accept",
-        "Keep",
-        withShortcut(keepTip, CommandIds.acceptChange),
-        accept,
-      ),
+    const keep = makeButton(
+      "weavie-inline-accept",
+      "Keep",
+      withShortcut(keepTip, CommandIds.acceptChange),
+      accept,
     );
-    bar.appendChild(
-      makeButton(
-        "weavie-inline-reject",
-        "Revert",
-        withShortcut(revertTip, CommandIds.rejectChange),
-        reject,
-      ),
+    const revert = makeButton(
+      "weavie-inline-reject",
+      "Revert",
+      withShortcut(revertTip, CommandIds.rejectChange),
+      reject,
     );
+    // Only the change scope names a hunk; File / All changes act on coordinates an edit can't move.
+    if (scope === "change") {
+      trackScopeAction(keep);
+      trackScopeAction(revert);
+    }
+    bar.append(keep, revert);
     // A PR file also carries review comments, so Comment/Reply sit beside Keep/Revert on the one toolbar (a plain
     // turn file has no onAddComment, so no button).
     if (options.onAddComment !== undefined) {
@@ -1135,7 +1172,6 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     uriString: string,
     options: InlineDiffOptions,
     message: string,
-    pending: boolean,
   ): void => {
     clearRender();
     fallbackNavigation = options;
@@ -1174,39 +1210,21 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
         );
       }
       if (options.mode === "applied" && !fileKept) {
-        const changePending = pending && currentScope === "change";
-        const allPending = pending && currentScope === "all";
-        const keep = makeButton(
-          "weavie-inline-accept",
-          changePending ? "Keep change" : allPending ? "Keep all" : "Keep file",
-          changePending
-            ? "Waiting for current change geometry"
-            : withShortcut(
-                allPending ? "Keep all changes" : "Keep this file",
-                CommandIds.acceptChange,
-              ),
-          () =>
-            runAction(
-              changePending ? undefined : allPending ? options.onKeepAll : options.onKeepFile,
-            ),
+        // No hunk geometry to act on, so only the whole-file actions are offered.
+        toolbarNode.append(
+          makeButton(
+            "weavie-inline-accept",
+            "Keep file",
+            withShortcut("Keep this file", CommandIds.acceptChange),
+            () => runAction(options.onKeepFile),
+          ),
+          makeButton(
+            "weavie-inline-reject",
+            "Revert file",
+            withShortcut("Revert this file", CommandIds.rejectChange),
+            () => runAction(options.onRevertFile),
+          ),
         );
-        const revert = makeButton(
-          "weavie-inline-reject",
-          changePending ? "Revert change" : allPending ? "Revert all" : "Revert file",
-          changePending
-            ? "Waiting for current change geometry"
-            : withShortcut(
-                allPending ? "Revert all changes" : "Revert this file",
-                CommandIds.rejectChange,
-              ),
-          () =>
-            runAction(
-              changePending ? undefined : allPending ? options.onUndo : options.onRevertFile,
-            ),
-        );
-        keep.disabled = changePending;
-        revert.disabled = changePending;
-        toolbarNode.append(keep, revert);
       } else if (options.mode === "review") {
         toolbarNode.append(
           makeButton(
@@ -1225,8 +1243,38 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
       }
       editorDom.appendChild(toolbarNode);
     }
-    computationPending = pending;
     renderedUri = uriString;
+  };
+
+  const replacePaint = (
+    model: monaco.editor.ITextModel,
+    options: InlineDiffOptions,
+    markers: ReturnType<typeof computeDiffMarkers>,
+  ): void => {
+    if (decorations === undefined) {
+      decorations = editor.createDecorationsCollection(markers.decorations);
+    } else {
+      decorations.set(markers.decorations);
+    }
+
+    for (const observer of zoneObservers) {
+      observer.disconnect();
+    }
+    const previousZoneIds = zoneIds;
+    const nextZoneIds: string[] = [];
+    const nextZoneObservers: ResizeObserver[] = [];
+    editor.changeViewZones((accessor) => {
+      for (const id of previousZoneIds) {
+        accessor.removeZone(id);
+      }
+      nextZoneIds.push(...addDiffZones(editor, accessor, markers));
+      addPrCommentZones(model, options, accessor, nextZoneIds, nextZoneObservers);
+    });
+    if (previousZoneIds.length > 0) {
+      focusedComposers = 0;
+    }
+    zoneIds = nextZoneIds;
+    zoneObservers = nextZoneObservers;
   };
 
   const render = async (uriString: string, generation: number): Promise<void> => {
@@ -1258,16 +1306,16 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
       return;
     }
     if (calculation.status === "timed-out") {
-      renderUnavailable(uriString, options, "Diff calculation timed out", false);
+      renderUnavailable(uriString, options, "Diff calculation timed out");
       return;
     }
     if (calculation.status === "failed") {
       log("error", `inline diff calculation failed: ${String(calculation.error)}`);
-      renderUnavailable(uriString, options, "Diff calculation failed", false);
+      renderUnavailable(uriString, options, "Diff calculation failed");
       return;
     }
 
-    clearRender();
+    clearControls();
     if (options.allActionsDisabled === true && currentScope === "all") {
       currentScope = "change";
     }
@@ -1282,23 +1330,17 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     );
     // A fully-kept file has no bright (pending) hunks but still carries a faded accepted band — don't bail on it.
     if (markers.hunks.length === 0 && !hasFadedBand(options)) {
+      clearRender();
       initialProposalReveals.delete(uriString);
       return; // no net change and nothing kept — nothing to render
     }
     const { acceptedHunks, hunks } = markers;
 
-    decorations = editor.createDecorationsCollection(markers.decorations);
-    editor.changeViewZones((accessor) => {
-      zoneIds.push(...addDiffZones(editor, accessor, markers));
-    });
-
-    // Comment threads (a PR file under applied review); no-op for a plain turn file (no comments).
-    if (options.comments !== undefined) {
-      renderPrCommentZones(model, options);
-    }
+    replacePaint(model, options, markers);
 
     currentOptions = options;
     currentHunks = hunks;
+    renderedVersion = version;
     showingParked = false;
     if (initialProposalReveals.delete(uriString) && hunks[0] !== undefined) {
       editor.revealLineInCenter(hunks[0].anchorLine, REVEAL_SCROLL);
@@ -1442,13 +1484,6 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     setContext("diffActive", active);
   };
 
-  const showUpdating = (uriString: string, options: InlineDiffOptions): void => {
-    if (computationPending && renderedUri === uriString && fallbackNavigation === options) {
-      return;
-    }
-    renderUnavailable(uriString, options, "Updating diff…", true);
-  };
-
   const drainRender = async (): Promise<void> => {
     if (renderInFlight || disposed) {
       return;
@@ -1474,7 +1509,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
             diffs.get(uriString) === options
           ) {
             log("error", `inline diff rendering failed: ${String(error)}`);
-            renderUnavailable(uriString, options, "Diff calculation failed", false);
+            renderUnavailable(uriString, options, "Diff calculation failed");
           }
         }
       }
@@ -1499,7 +1534,9 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     const uriString = model?.uri.toString();
     const options = uriString === undefined ? undefined : diffs.get(uriString);
     if (model !== null && uriString !== undefined && options !== undefined) {
-      showUpdating(uriString, options);
+      if (renderedUri !== uriString) {
+        clearRender(); // what is on screen belongs to another file; nothing here to preserve
+      }
       queueRender();
     } else if (parkedReview !== undefined && parkedReview.fileCount > 0) {
       renderQueued = false;
@@ -1521,7 +1558,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     }
     initialProposalReveals.delete(uriString);
     renderGeneration++;
-    showUpdating(uriString, options);
+    syncScopeButtons();
     if (recomputeTimer !== undefined) {
       clearTimeout(recomputeTimer);
     }
@@ -1587,11 +1624,23 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     diffs.set(key, options);
     syncDiffContext();
     const model = editor.getModel();
-    if (model !== null && model.uri.toString() === key) {
+    if (model === null || model.uri.toString() !== key) {
+      return;
+    }
+    // The host re-emits this file's diff on every autosave, so mid-typing the pushes arrive at keystroke rate.
+    // Let the armed recompute pick the new options up rather than rendering per save; a push while nothing is
+    // pending (a keep, a fresh agent edit) still renders straight away.
+    if (renderedUri !== key || recomputeTimer === undefined) {
       renderActive();
     }
   };
   const clearByUri = (key: string): void => {
+    for (const [session, keys] of appliedKeys) {
+      keys.delete(key);
+      if (keys.size === 0) {
+        appliedKeys.delete(session);
+      }
+    }
     diffs.delete(key);
     initialProposalReveals.delete(key);
     diffComputer.clear(key);
@@ -1603,15 +1652,54 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
 
   return {
     set(session, path, options) {
-      setByUri(sessionFileUri(session, path).toString(), options);
+      const key = sessionFileUri(session, path).toString();
+      let keys = appliedKeys.get(session);
+      if (keys === undefined) {
+        keys = new Set<string>();
+        appliedKeys.set(session, keys);
+      }
+      keys.add(key);
+      setByUri(key, options);
     },
     clear(session, path) {
       clearByUri(sessionFileUri(session, path).toString());
     },
     setByUri,
     clearByUri,
+    retainApplied(session, paths) {
+      const keys = appliedKeys.get(session);
+      if (keys === undefined) {
+        return;
+      }
+      const retained = new Set(paths.map((path) => sessionFileUri(session, path).toString()));
+      const activeUri = editor.getModel()?.uri.toString();
+      let activeRemoved = false;
+      let changed = false;
+      for (const key of keys) {
+        if (retained.has(key)) {
+          continue;
+        }
+        keys.delete(key);
+        diffs.delete(key);
+        initialProposalReveals.delete(key);
+        diffComputer.clear(key);
+        activeRemoved ||= key === activeUri;
+        changed = true;
+      }
+      if (keys.size === 0) {
+        appliedKeys.delete(session);
+      }
+      if (!changed) {
+        return;
+      }
+      syncDiffContext();
+      if (activeRemoved) {
+        renderActive();
+      }
+    },
     clearAll() {
       diffs.clear();
+      appliedKeys.clear();
       renderGeneration++;
       renderQueued = false;
       diffComputer.dispose();

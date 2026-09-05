@@ -276,20 +276,39 @@
   color: var(--accent);
 }
 
+/* Entry point to unified review. Reads as a live, pressable control at rest — a dimmed one is indistinguishable
+   from a disabled one, and this is the affordance that teaches the mode exists. */
 .editor-review-toggle {
   flex: 0 0 auto;
-  padding: 0 0.7em;
-  border: 0;
-  border-left: 1px solid var(--border);
-  background: var(--bar);
-  color: var(--dim);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  margin: 0 0.45em;
+  padding: 0.2em 0.7em;
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--border));
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--fg);
   font: inherit;
   cursor: pointer;
 }
 
-.editor-review-toggle:hover,
-.editor-review-toggle[aria-pressed="true"] {
+.editor-review-toggle:not(:disabled):hover {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.editor-review-toggle[aria-pressed="true"]:not(:disabled) {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 26%, transparent);
   color: var(--accent);
+}
+
+.editor-review-toggle:disabled {
+  border-color: var(--border);
+  background: transparent;
+  color: var(--dim);
+  cursor: default;
 }
 
 .editor-review-toggle:focus-visible {
@@ -428,6 +447,10 @@
   inset: 0;
   z-index: 4;
   background: var(--bg);
+}
+
+.editor-web[hidden] {
+  display: none;
 }
 
 .editor-web-frame {

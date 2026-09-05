@@ -10,6 +10,7 @@ export interface ReviewFile {
   added: number;
   removed: number;
   line: number;
+  currentExists: boolean;
 }
 
 /** The three authoritative text boundaries needed by both review presentations. */
@@ -17,8 +18,11 @@ export interface ReviewFileDiff {
   path: string;
   name: string;
   acceptedBaseline: string;
+  acceptedBaselineExists: boolean;
   baseline: string;
+  baselineExists: boolean;
   current: string;
+  currentExists: boolean;
 }
 
 export interface ReviewComments {
@@ -43,6 +47,12 @@ export const EMPTY_REVIEW_HISTORY: ReviewHistory = {
 
 export type ReviewPresentationMode = "file" | "unified";
 
+/** One step of the review walk. Its surface — unified overview or file review — owns what a step means. */
+export type ReviewStep = "nextChange" | "prevChange" | "nextFile" | "prevFile";
+
+/** The mounted unified surface's own walk, so a review chord moves the overview instead of opening a file. */
+export type UnifiedReviewNavigator = Record<ReviewStep, () => boolean>;
+
 export interface ReviewCursor {
   path: string;
   line: number;
@@ -53,6 +63,11 @@ export interface ReviewFileView {
   summary: Accessor<ReviewFile>;
   diff: Accessor<ReviewFileDiff | null>;
   comments: Accessor<ReviewComments | null>;
+  collapsed: Accessor<boolean>;
+  /** Whether the host has pushed this file's diff yet — a fully reviewed file has no diff but is loaded. */
+  loaded: Accessor<boolean>;
+  /** Whether anything in this file still needs review. The authoritative answer; never re-derive it. */
+  pending: Accessor<boolean>;
 }
 
 export interface ReviewOverview {
@@ -69,8 +84,19 @@ interface ReviewEntry {
   summary: ReviewFile | null;
   diff: ReviewFileDiff | null;
   comments: ReviewComments | null;
+  pending: boolean | null;
+  collapsed: boolean;
+  /** This file's last pushed state, so "reviewed" can be pinned to the exact thing the user reviewed. */
+  signature: string;
+  /** The signature the file was marked reviewed at; null while it still needs review. */
+  reviewedAt: string | null;
   view: ReviewFileView | null;
   touch: (() => void) | null;
+}
+
+/** Identifies exactly what a file presents for review: its content, its existence, and whether it's pending. */
+function reviewSignature(diff: ReviewFileDiff, pending: boolean): string {
+  return `${pending ? "1" : "0"}\0${diff.currentExists ? "1" : "0"}\0${diff.current}`;
 }
 
 export interface SessionReviewBoard {
@@ -97,7 +123,7 @@ export interface ReviewStore {
   setDiff(session: ClientSession, diff: ReviewFileDiff): SessionReviewBoard;
   setComments(session: ClientSession, comments: ReviewComments): SessionReviewBoard;
   setHistory(session: ClientSession, history: ReviewHistory): SessionReviewBoard;
-  removeFile(session: ClientSession, path: string): SessionReviewBoard;
+  setFileCollapsed(session: ClientSession, path: string, collapsed: boolean): SessionReviewBoard;
   reset(session: ClientSession): SessionReviewBoard;
   enterUnified(session: ClientSession, cursor: ReviewCursor | null): string[];
   enterFile(session: ClientSession, cursor: ReviewCursor): void;
@@ -154,14 +180,11 @@ export function createReviewStore(): ReviewStore {
       added: state.added,
       removed: state.removed,
       cursor: state.cursor,
-      fullyLoaded: () => state.files.every((file) => file.diff() !== null),
-      hasPending: () =>
-        state.files.some((file) => {
-          const diff = file.diff();
-          return diff !== null && diff.baseline !== diff.current;
-        }),
+      fullyLoaded: () => state.files.every((file) => file.loaded()),
+      hasPending: () => state.files.some((file) => file.pending()),
     });
     setContext("reviewSetActive", state.files.length > 0);
+    setContext("unifiedReviewActive", state.mode === "unified" && state.files.length > 0);
   };
 
   const ensureEntry = (state: MutableReviewBoard, path: string): ReviewEntry => {
@@ -174,6 +197,10 @@ export function createReviewStore(): ReviewStore {
       summary: null,
       diff: null,
       comments: null,
+      pending: null,
+      collapsed: false,
+      signature: "",
+      reviewedAt: null,
       view: null,
       touch: null,
     };
@@ -201,6 +228,18 @@ export function createReviewStore(): ReviewStore {
       comments: () => {
         revision();
         return entry.comments;
+      },
+      collapsed: () => {
+        revision();
+        return entry.collapsed;
+      },
+      loaded: () => {
+        revision();
+        return entry.pending !== null;
+      },
+      pending: () => {
+        revision();
+        return entry.pending === true;
       },
     };
     return entry.view;
@@ -243,7 +282,27 @@ export function createReviewStore(): ReviewStore {
   const setDiff = (session: ClientSession, diff: ReviewFileDiff): SessionReviewBoard => {
     const state = board(session);
     const entry = ensureEntry(state, diff.path);
-    entry.diff = diff.acceptedBaseline === diff.current ? null : diff;
+    const pending = diff.baseline !== diff.current || diff.baselineExists !== diff.currentExists;
+    entry.diff =
+      diff.acceptedBaseline === diff.current && diff.acceptedBaselineExists === diff.currentExists
+        ? null
+        : diff;
+    // "Reviewed" is a claim about one exact state: anything new in the file un-reviews it, because there is now
+    // something the user hasn't seen. A file with nothing left pending is reviewed at whatever it now holds.
+    const signature = reviewSignature(diff, pending);
+    const moved = entry.signature !== signature;
+    if (entry.reviewedAt !== null && entry.reviewedAt !== signature) {
+      entry.collapsed = false;
+      entry.reviewedAt = null;
+    }
+    entry.signature = signature;
+    // Only the transition into "nothing left pending" folds a file away; a redundant re-push of the same state
+    // must not undo a fold the user deliberately opened.
+    if (!pending && moved) {
+      entry.collapsed = true;
+      entry.reviewedAt = signature;
+    }
+    entry.pending = pending;
     entry.touch?.();
     return state;
   };
@@ -262,14 +321,20 @@ export function createReviewStore(): ReviewStore {
     return state;
   };
 
-  const removeFile = (session: ClientSession, path: string): SessionReviewBoard => {
+  const setFileCollapsed = (
+    session: ClientSession,
+    path: string,
+    collapsed: boolean,
+  ): SessionReviewBoard => {
     const state = board(session);
-    const files = state.files
-      .map((file) => file.summary())
-      .filter((file) => !samePath(file.path, path));
-    return setFiles(session, files, state.label);
+    const entry = state.entries.get(normalizePath(path));
+    if (entry !== undefined && entry.collapsed !== collapsed) {
+      entry.collapsed = collapsed;
+      entry.reviewedAt = collapsed ? entry.signature : null;
+      entry.touch?.();
+    }
+    return state;
   };
-
   const reset = (session: ClientSession): SessionReviewBoard => {
     const state = board(session);
     state.entries.clear();
@@ -291,6 +356,7 @@ export function createReviewStore(): ReviewStore {
       setOverview(emptyOverview());
       setCount(0);
       setContext("reviewSetActive", false);
+      setContext("unifiedReviewActive", false);
     } else {
       publish(session, board(session));
     }
@@ -303,7 +369,7 @@ export function createReviewStore(): ReviewStore {
       state.cursor = cursor;
     }
     publish(session, state);
-    return state.files.filter((file) => file.diff() === null).map((file) => file.summary().path);
+    return state.files.filter((file) => !file.loaded()).map((file) => file.summary().path);
   };
 
   const enterFile = (session: ClientSession, cursor: ReviewCursor): void => {
@@ -335,7 +401,7 @@ export function createReviewStore(): ReviewStore {
     setDiff,
     setComments,
     setHistory,
-    removeFile,
+    setFileCollapsed,
     reset,
     enterUnified,
     enterFile,

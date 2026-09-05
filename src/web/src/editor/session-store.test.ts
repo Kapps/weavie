@@ -125,6 +125,12 @@ describe("openTab", () => {
     expect(res).toEqual({ path: "/a.ts", placement: { viewState: { scroll: 9 } } });
   });
 
+  it("reveals an explicit line 1 in an already-open tab (a created file's whole diff)", () => {
+    seed([{ path: "/new.ts", viewState: { scroll: 9 } }], "/new.ts");
+    const res = store.openTab("/new.ts", { line: 1 });
+    expect(res).toEqual({ path: "/new.ts", placement: { line: 1 } });
+  });
+
   it("keeps a scratch buffer as a persistent tab, never a preview", () => {
     seed([], null);
     store.openTab("/tmp/Untitled-1", { preview: true, scratch: true });

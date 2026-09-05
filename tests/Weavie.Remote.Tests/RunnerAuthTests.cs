@@ -7,15 +7,12 @@ namespace Weavie.Remote.Tests;
 
 /// <summary>Launches a real <c>Weavie.Runner</c> once for the suite (workspace need not be a git repo for auth probing).</summary>
 public sealed class RunnerFixture : IAsyncLifetime {
-	private readonly string _workspace =
-		Path.Combine(Path.GetTempPath(), "weavie-runner-tests", Guid.NewGuid().ToString("N"));
+	private readonly TempDirectory _workspace = new("weavie-runner-tests");
 
 	public HostHandle Host { get; private set; } = null!;
 
-	public async Task InitializeAsync() {
-		Directory.CreateDirectory(_workspace);
-		Host = await StartRunnerAsync(_workspace, Tokens.Correct, workerPort: null);
-	}
+	public async Task InitializeAsync() =>
+		Host = await StartRunnerAsync(_workspace.Path, Tokens.Correct, workerPort: null);
 
 	internal static async Task<HostHandle> StartRunnerAsync(string workspace, string token, int? workerPort) {
 		int port;
@@ -47,15 +44,7 @@ public sealed class RunnerFixture : IAsyncLifetime {
 
 	public async Task DisposeAsync() {
 		await Host.DisposeAsync();
-		DeleteWorkspace(_workspace);
-	}
-
-	internal static void DeleteWorkspace(string workspace) {
-		try {
-			Directory.Delete(workspace, recursive: true);
-		} catch (IOException) {
-		} catch (UnauthorizedAccessException) {
-		}
+		_workspace.Dispose();
 	}
 
 	private static async Task WaitForWorkerAsync(HostHandle host, string token) {
@@ -174,29 +163,21 @@ public sealed class RunnerAuthTests(RunnerFixture fixture) : IClassFixture<Runne
 
 	[Fact]
 	public async Task Installed_worker_cookie_survives_a_runner_restart() {
-		string workspace = Path.Combine(
-			Path.GetTempPath(),
-			"weavie-runner-restart-tests",
-			Guid.NewGuid().ToString("N"));
-		Directory.CreateDirectory(workspace);
+		using var workspace = new TempDirectory("weavie-runner-restart-tests");
 		int workerPort = Hosts.FreePort();
 		var cookies = new CookieContainer();
 		using var handler = new HttpClientHandler { AllowAutoRedirect = false, CookieContainer = cookies };
 		using var client = new HttpClient(handler);
-		try {
-			Uri workerUrl;
-			await using (var first = await RunnerFixture.StartRunnerAsync(workspace, Tokens.Correct, workerPort)) {
-				workerUrl = await ConnectBrowserAsync(client, first.BaseUrl);
-				Assert.Equal(workerPort, workerUrl.Port);
-			}
+		Uri workerUrl;
+		await using (var first = await RunnerFixture.StartRunnerAsync(workspace.Path, Tokens.Correct, workerPort)) {
+			workerUrl = await ConnectBrowserAsync(client, first.BaseUrl);
+			Assert.Equal(workerPort, workerUrl.Port);
+		}
 
-			await using (await RunnerFixture.StartRunnerAsync(workspace, Tokens.Correct, workerPort)) {
-				using var app = await client.GetAsync(workerUrl);
-				Assert.Equal(HttpStatusCode.OK, app.StatusCode);
-				Assert.DoesNotContain("Workspace token", await app.Content.ReadAsStringAsync());
-			}
-		} finally {
-			RunnerFixture.DeleteWorkspace(workspace);
+		await using (await RunnerFixture.StartRunnerAsync(workspace.Path, Tokens.Correct, workerPort)) {
+			using var app = await client.GetAsync(workerUrl);
+			Assert.Equal(HttpStatusCode.OK, app.StatusCode);
+			Assert.DoesNotContain("Workspace token", await app.Content.ReadAsStringAsync());
 		}
 	}
 

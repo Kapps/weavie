@@ -65,6 +65,7 @@ public sealed partial class AgentSessionHost : IAsyncDisposable {
 			Structured = structuredSession;
 			structuredSession.PaneMessage += PublishPaneMessage;
 			structuredSession.PaneSnapshot += RestorePaneSnapshot;
+			structuredSession.QueuedSubmissionsChanged += PublishQueuedSubmissions;
 		} else {
 			throw new InvalidOperationException($"Provider '{Provider.Id}' returned an unsupported agent session.");
 		}
@@ -117,6 +118,7 @@ public sealed partial class AgentSessionHost : IAsyncDisposable {
 		if (Structured is { } structured) {
 			structured.PaneMessage -= PublishPaneMessage;
 			structured.PaneSnapshot -= RestorePaneSnapshot;
+			structured.QueuedSubmissionsChanged -= PublishQueuedSubmissions;
 		}
 		if (Controls is { } controls) {
 			controls.ControlStateChanged -= PublishControlState;
@@ -145,6 +147,7 @@ public sealed partial class AgentSessionHost : IAsyncDisposable {
 
 		ReplayControls(messages);
 		ReplayUsage(messages);
+		messages.Publish("queue", AgentQueueProtocol.Message(Structured.QueuedSubmissions));
 	}
 
 	/// <summary>Replays the current control state, so a (re)connecting web view shows the live model/approvals/sandbox.</summary>
@@ -167,6 +170,9 @@ public sealed partial class AgentSessionHost : IAsyncDisposable {
 
 	private void PublishControlState(AgentControlState state) =>
 		_messages.Publish("controls", AgentControlsProtocol.Message(state));
+
+	private void PublishQueuedSubmissions(IReadOnlyList<AgentTurnSubmission> queued) =>
+		_messages.Publish("queue", AgentQueueProtocol.Message(queued));
 
 	private void PublishUsage(AgentUsageSnapshot usage) =>
 		_messages.Publish("usage", AgentUsageProtocol.Message(usage));

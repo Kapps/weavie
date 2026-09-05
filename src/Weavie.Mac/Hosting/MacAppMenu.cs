@@ -5,7 +5,6 @@ namespace Weavie.Mac.Hosting;
 
 /// <summary>Owns the process-wide AppKit menu and swaps in the key workspace window's resolved command menus.</summary>
 internal sealed partial class MacAppMenu {
-	private readonly DisplayOnlyKeyEquivalentDelegate _displayOnlyKeyEquivalents = new();
 	private MacAppMenuChannel? _active;
 
 	public MacAppMenu() {
@@ -92,12 +91,4 @@ internal sealed partial class MacAppMenu {
 
 	private static NSMenuItem Submenu(string title, NSMenu submenu) =>
 		new(title) { Submenu = submenu };
-
-	private sealed class DisplayOnlyKeyEquivalentDelegate : NSMenuDelegate {
-		public override bool HasKeyEquivalentForEvent(
-			NSMenu menu,
-			NSEvent theEvent,
-			Foundation.NSObject target,
-			Selector action) => false;
-	}
 }

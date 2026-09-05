@@ -121,20 +121,19 @@ public sealed class TerminalControllerResumeTests {
 	/// <summary>A self-contained controller + scriptable PTY + isolated stores over an in-memory transcript tree.</summary>
 	private sealed class Harness : IDisposable {
 		private readonly SettingsStore _settings;
-		private readonly string _settingsPath;
+		private readonly TempDirectory _temp = new("weavie-tc");
 		private readonly InMemoryFileSystem _fs = new();
 		private readonly ClaudeTranscripts _transcripts;
 
 		public Harness() {
-			_settingsPath = Path.Combine(Path.GetTempPath(), "weavie-tc-" + Guid.NewGuid().ToString("n") + ".toml");
-			_settings = CoreSettings.CreateStore(_settingsPath, enableWatcher: false);
+			_settings = CoreSettings.CreateStore(_temp.Combine("settings.toml"), enableWatcher: false);
 			// Post output inline (no batching) so each emitted chunk is its own frame for these synchronous assertions.
 			_settings.Set("terminal.outputCoalesceMs", JsonSerializer.SerializeToElement(0L));
 			Bridge = new FakeHostBridge();
 			Store = new ClaudeSessionStore(new InMemoryFileSystem(), "/weavie-tc/claude-sessions.json");
 			_transcripts = new ClaudeTranscripts(_fs, "/claude/projects");
 			Launcher = new ScriptablePtyLauncher();
-			Workspace = Path.Combine(Path.GetTempPath(), "weavie-tc-ws-" + Guid.NewGuid().ToString("n"));
+			Workspace = _temp.Combine("workspace");
 			Agent = new ClaudeTerminalLifecycle(
 				_settings,
 				Workspace,
@@ -179,11 +178,7 @@ public sealed class TerminalControllerResumeTests {
 		public void Dispose() {
 			Controller.Dispose();
 			_settings.Dispose();
-			try {
-				File.Delete(_settingsPath);
-			} catch (IOException) {
-				// best-effort temp cleanup
-			}
+			_temp.Dispose();
 		}
 	}
 }

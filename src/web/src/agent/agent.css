@@ -109,6 +109,7 @@
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
+  overflow-anchor: none;
   overscroll-behavior-x: none;
   padding: 0;
   background:
@@ -877,6 +878,27 @@ a.agent-entry-media {
   color: var(--fg);
   background: color-mix(in srgb, var(--bg) 88%, transparent);
   line-height: 14px;
+}
+
+.agent-compose-queued {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+  color: var(--dim);
+  font-size: var(--font-metadata-size);
+}
+
+.agent-compose-queued span + span {
+  overflow: hidden;
+  max-width: 100%;
+  padding: 0 5px;
+  border: 1px solid var(--border);
+  color: var(--fg);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .agent-compose-error {

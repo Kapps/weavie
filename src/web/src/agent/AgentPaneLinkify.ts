@@ -3,7 +3,7 @@ import { findContentLinks, parseFileReference } from "../content-links";
 export type AgentTextPart =
   | { kind: "text"; text: string }
   | { kind: "url"; text: string; target: string }
-  | { kind: "file"; text: string; path: string; line: number }
+  | { kind: "file"; text: string; path: string; line: number | undefined }
   | { kind: "ref"; text: string; number: string };
 
 // Renders the shared link grammar (findContentLinks) as parts for the SolidJS plain-text pane, splicing

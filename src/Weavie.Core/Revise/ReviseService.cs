@@ -42,7 +42,7 @@ public sealed class ReviseService {
 	/// Revises every target against <paramref name="instruction"/> in one query, returning each one's outcome. A
 	/// target overlapping a region already in flight is refused before the query runs.
 	/// </summary>
-	/// <param name="owner">The session whose agent and worktree answer the query.</param>
+	/// <param name="owner">The session whose worktree owns the query.</param>
 	/// <param name="targets">The regions to revise.</param>
 	/// <param name="instruction">What to do to every region's text.</param>
 	/// <param name="origin">Whether a person initiated this revision.</param>

@@ -4,6 +4,7 @@ using Weavie.AcpDistribution;
 using Weavie.Core;
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
+using Weavie.Core.Editor;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Sessions;
 using Weavie.Core.Workspaces;
@@ -203,6 +204,21 @@ public sealed class HostCoreSessionRestoreTests {
 	}
 
 	[Fact]
+	public async Task DefaultInferenceProviderCannotBeRemoved() {
+		var catalog = new RecordingAcpCatalog();
+		await using var host = await TestHost.StartAsync(catalog);
+		host.Settings.Set(
+			InferenceSettings.DefaultProvider,
+			JsonSerializer.SerializeToElement("structured"));
+
+		var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+			host.HostRequestAsync<JsonElement>("acpRegistry", "remove", new { id = "structured" }));
+
+		Assert.Contains("still referenced", error.Message, StringComparison.Ordinal);
+		Assert.Empty(catalog.Removed);
+	}
+
+	[Fact]
 	public async Task ReferencedCustomAcpProviderCannotBeRemovedByReload() {
 		var catalog = new RecordingAcpCatalog {
 			LaunchSpecs = [AcpLaunch("structured")],
@@ -356,7 +372,8 @@ public sealed class HostCoreSessionRestoreTests {
 			path,
 			line: 1,
 			preview: false,
-			scratch: false);
+			scratch: false,
+			EditorOpenIntent.Navigation);
 		host.Bridge.Clear();
 		await host.ConnectAsync();
 

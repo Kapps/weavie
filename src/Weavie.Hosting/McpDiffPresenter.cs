@@ -77,9 +77,10 @@ public sealed class McpDiffPresenter : IDiffPresenter {
 	public Task OpenFileAsync(string filePath, bool preview, CancellationToken cancellationToken) =>
 		_fileOpener.OpenAsync(
 			filePath,
-			line: 1,
+			line: null,
 			preview: preview,
 			scratch: false,
+			EditorOpenIntent.Reveal,
 			cancellationToken);
 
 	/// <summary>Asks the webview to close the file's tab (the MCP <c>close_tab</c> tool).</summary>

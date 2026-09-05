@@ -288,6 +288,15 @@ public sealed class CommandTests {
 	}
 
 	[Fact]
+	public void ToggleReviewFile_IsBoundAndUnifiedReviewGated() {
+		var command = CoreCommands.CreateRegistry().Require(CoreCommands.ReviewToggleFile);
+
+		Assert.Equal(CommandLocation.Web, command.RunsIn);
+		Assert.Equal("alt+[", Assert.Single(command.DefaultKeybindings).Key);
+		Assert.Equal("unifiedReviewActive && editorFocused", command.When);
+	}
+
+	[Fact]
 	public void AgentJumpToTurn_RequiresANavigableAgentTurn() {
 		var command = CoreCommands.CreateRegistry().Require(CoreCommands.AgentJumpToTurn);
 

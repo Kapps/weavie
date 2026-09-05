@@ -46,6 +46,8 @@ export interface LaunchOptions {
     editedTime?: string;
     truncated?: boolean;
     rejectEdits?: boolean;
+    holdFetchAt?: number;
+    holdEdit?: boolean;
   };
 }
 

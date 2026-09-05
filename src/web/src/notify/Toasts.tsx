@@ -168,9 +168,8 @@ export function createToasts(): {
   };
 }
 
-// A top-center stack of dismissible toasts below the title bar. Self-contained (no editor/layout coupling)
-// so it can overlay any pane. Timed toasts drain a background fill over their lifetime (notify.css) and
-// pause it — plus the dismiss timer — while hovered, so the content can be read or copied without a race.
+// A top-center stack of dismissible toasts below the pane's tab/header band. Timed toasts drain a
+// background fill over their lifetime and pause it with the timer while hovered.
 export function Toasts(props: {
   toasts: Toast[];
   onDismiss: (id: number) => void;

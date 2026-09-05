@@ -3,6 +3,7 @@ import type { ClientSession } from "../bridge";
 import { type ContentLinkKind, findContentLinks, parseFileReference } from "../content-links";
 import { hydrateMermaid } from "../editor/preview/diagrams";
 import { createMarkdownRenderer } from "../editor/preview/markdown-renderer";
+import { revealFileIn } from "../files/reveal";
 import { refLinkPrefixFor } from "../terminal/ref-link-store";
 import { openUrlExternal } from "../terminal/terminal-links";
 import { onPreviewThemeChanged } from "../theme/controller";
@@ -105,7 +106,7 @@ function activate(anchor: HTMLAnchorElement, session: ClientSession | null): voi
       return;
     case "file": {
       const { path, line } = parseFileReference(target);
-      session?.feature("files").publish("reveal", { path, line, preview: true });
+      revealFileIn(session, path, line, true);
       return;
     }
     default:

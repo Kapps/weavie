@@ -19,28 +19,18 @@ namespace Weavie.Core.Tests;
 [Collection("Settings")]
 public sealed class RegistryMcpTests : IDisposable {
 	private const string Token = "abcdef0123456789abcdef0123456789";
-	private readonly string _dir = Path.Combine(Path.GetTempPath(), "weavie-registry-tests", Guid.NewGuid().ToString("N"));
+	private readonly TempDirectory _dir = new("weavie-registry-tests");
 
-	public RegistryMcpTests() {
-		Directory.CreateDirectory(_dir);
-	}
-
-	public void Dispose() {
-		try {
-			Directory.Delete(_dir, recursive: true);
-		} catch (IOException) {
-		} catch (UnauthorizedAccessException) {
-		}
-	}
+	public void Dispose() => _dir.Dispose();
 
 	private SettingsStore NewStore() =>
-		CoreSettings.CreateStore(Path.Combine(_dir, "settings.toml"), enableWatcher: false);
+		CoreSettings.CreateStore(_dir.Combine("settings.toml"), enableWatcher: false);
 
 	[Fact]
 	public async Task RegistryMode_AdvertisesOnlySettingsTools() {
 		using var store = NewStore();
 		await using var server = TestMcp.Server(
-			Token, FakeDiffPresenter.AlwaysKeep(), [_dir], "weavie", store, registryMode: true);
+			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], "weavie", store, registryMode: true);
 		int port = server.Start();
 		using var ws = await ConnectBearerAsync(port, Token);
 
@@ -62,12 +52,12 @@ public sealed class RegistryMcpTests : IDisposable {
 		using var store = NewStore();
 		var editor = new EditorStore();
 		editor.SetActive(new ActiveEditor(
-			Path.Combine(_dir, "a.cs"),
+			_dir.Combine("a.cs"),
 			"csharp",
 			"selected",
 			new EditorSelection(new EditorPosition(3, 1), new EditorPosition(3, 9), IsEmpty: false)));
 		await using var server = TestMcp.Server(
-			Token, FakeDiffPresenter.AlwaysKeep(), [_dir], "weavie", store, registryMode: true,
+			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], "weavie", store, registryMode: true,
 			exposeIdeTools: true, editor: editor);
 		int port = server.Start();
 
@@ -92,7 +82,7 @@ public sealed class RegistryMcpTests : IDisposable {
 	public async Task CurrentSession_Advertised_AndReturnsProvidedId() {
 		using var store = NewStore();
 		await using var server = TestMcp.Server(
-			Token, FakeDiffPresenter.AlwaysKeep(), [_dir], "weavie", store, registryMode: true,
+			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], "weavie", store, registryMode: true,
 			currentSessionId: () => "feat/my-branch");
 		int port = server.Start();
 		using var ws = await ConnectBearerAsync(port, Token);
@@ -114,7 +104,7 @@ public sealed class RegistryMcpTests : IDisposable {
 	public async Task RegistryMode_BearerAuth_AcceptsCorrect_RejectsWrong() {
 		using var store = NewStore();
 		await using var server = TestMcp.Server(
-			Token, FakeDiffPresenter.AlwaysKeep(), [_dir], "weavie", store, registryMode: true);
+			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], "weavie", store, registryMode: true);
 		int port = server.Start();
 
 		await Assert.ThrowsAsync<WebSocketException>(() => ConnectBearerAsync(port, "wrong-token"));
@@ -125,9 +115,9 @@ public sealed class RegistryMcpTests : IDisposable {
 	[Fact]
 	public async Task RegistryMode_ThemeTools_AdvertiseQueriesAndEditors_NotVerbs() {
 		using var store = NewStore();
-		var overrides = new ThemeOverridesStore(new InMemoryFileSystem(), Path.Combine(_dir, "theme-overrides.json"));
+		var overrides = new ThemeOverridesStore(new InMemoryFileSystem(), _dir.Combine("theme-overrides.json"));
 		await using var server = TestMcp.Server(
-			Token, FakeDiffPresenter.AlwaysKeep(), [_dir], "weavie", store, registryMode: true, themeOverrides: overrides);
+			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], "weavie", store, registryMode: true, themeOverrides: overrides);
 		int port = server.Start();
 		using var ws = await ConnectBearerAsync(port, Token);
 
@@ -153,7 +143,7 @@ public sealed class RegistryMcpTests : IDisposable {
 	public async Task RegistryMode_SetSetting_OverBearer_Persists() {
 		using var store = NewStore();
 		await using var server = TestMcp.Server(
-			Token, FakeDiffPresenter.AlwaysKeep(), [_dir], "weavie", store, registryMode: true);
+			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], "weavie", store, registryMode: true);
 		int port = server.Start();
 		using var ws = await ConnectBearerAsync(port, Token);
 
@@ -169,9 +159,9 @@ public sealed class RegistryMcpTests : IDisposable {
 	[Fact]
 	public async Task ApplyThemeTransform_AmountOfOne_IsAccepted() {
 		using var store = NewStore();
-		var overrides = new ThemeOverridesStore(new InMemoryFileSystem(), Path.Combine(_dir, "theme-overrides.json"));
+		var overrides = new ThemeOverridesStore(new InMemoryFileSystem(), _dir.Combine("theme-overrides.json"));
 		await using var server = TestMcp.Server(
-			Token, FakeDiffPresenter.AlwaysKeep(), [_dir], "weavie", store, registryMode: true, themeOverrides: overrides);
+			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], "weavie", store, registryMode: true, themeOverrides: overrides);
 		int port = server.Start();
 		using var ws = await ConnectBearerAsync(port, Token);
 
@@ -191,9 +181,9 @@ public sealed class RegistryMcpTests : IDisposable {
 	[Fact]
 	public async Task SetThemeOverride_AcceptsKnownFontStyle_RejectsUnknown() {
 		using var store = NewStore();
-		var overrides = new ThemeOverridesStore(new InMemoryFileSystem(), Path.Combine(_dir, "theme-overrides.json"));
+		var overrides = new ThemeOverridesStore(new InMemoryFileSystem(), _dir.Combine("theme-overrides.json"));
 		await using var server = TestMcp.Server(
-			Token, FakeDiffPresenter.AlwaysKeep(), [_dir], "weavie", store, registryMode: true, themeOverrides: overrides);
+			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], "weavie", store, registryMode: true, themeOverrides: overrides);
 		int port = server.Start();
 		using var ws = await ConnectBearerAsync(port, Token);
 
@@ -211,24 +201,24 @@ public sealed class RegistryMcpTests : IDisposable {
 	[Fact]
 	public void RegistryMode_RequiresStore() {
 		Assert.Throws<ArgumentNullException>(() => TestMcp.Server(
-			Token, FakeDiffPresenter.AlwaysKeep(), [_dir], "weavie", settings: null, registryMode: true));
+			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], "weavie", settings: null, registryMode: true));
 	}
 
 	[Fact]
 	public void RegistryMode_WithIdeTools_RequiresEditorStore() {
 		using var store = NewStore();
 		Assert.Throws<ArgumentNullException>(() => TestMcp.Server(
-			Token, FakeDiffPresenter.AlwaysKeep(), [_dir], "weavie", store, registryMode: true, exposeIdeTools: true));
+			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], "weavie", store, registryMode: true, exposeIdeTools: true));
 	}
 
 	[Fact]
 	public async Task ClaudeIntegration_WritesPortScopedRegistryConfig() {
 		using var store = NewStore();
-		await using var registry = TestMcp.Registry(Token, FakeDiffPresenter.AlwaysKeep(), [_dir], store);
+		await using var registry = TestMcp.Registry(Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], store);
 		await using var ide = new Weavie.Core.Agents.Claude.ClaudeIdeIntegration(
 			registry,
 			FakeDiffPresenter.AlwaysKeep(),
-			[_dir],
+			[_dir.Path],
 			"weavie",
 			store,
 			new EditorStore(),
@@ -250,7 +240,7 @@ public sealed class RegistryMcpTests : IDisposable {
 	public async Task RegistryMode_Initialize_AdvertisesPromptsCapability() {
 		using var store = NewStore();
 		await using var server = TestMcp.Server(
-			Token, FakeDiffPresenter.AlwaysKeep(), [_dir], "weavie", store, registryMode: true);
+			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], "weavie", store, registryMode: true);
 		int port = server.Start();
 		using var ws = await ConnectBearerAsync(port, Token);
 
@@ -264,7 +254,7 @@ public sealed class RegistryMcpTests : IDisposable {
 	public async Task RegistryMode_ListsAndGetsWorkspaceSetupPrompt() {
 		using var store = NewStore();
 		await using var server = TestMcp.Server(
-			Token, FakeDiffPresenter.AlwaysKeep(), [_dir], "weavie", store, registryMode: true);
+			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], "weavie", store, registryMode: true);
 		int port = server.Start();
 		using var ws = await ConnectBearerAsync(port, Token);
 
@@ -286,7 +276,7 @@ public sealed class RegistryMcpTests : IDisposable {
 	public async Task RegistryMode_GetUnknownPrompt_Errors() {
 		using var store = NewStore();
 		await using var server = TestMcp.Server(
-			Token, FakeDiffPresenter.AlwaysKeep(), [_dir], "weavie", store, registryMode: true);
+			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], "weavie", store, registryMode: true);
 		int port = server.Start();
 		using var ws = await ConnectBearerAsync(port, Token);
 
@@ -298,7 +288,7 @@ public sealed class RegistryMcpTests : IDisposable {
 	[Fact]
 	public async Task IdeMode_ListsNoPrompts() {
 		await using var server = TestMcp.Server(
-			Token, FakeDiffPresenter.AlwaysKeep(), [_dir], "weavie", settings: null, registryMode: false);
+			Token, FakeDiffPresenter.AlwaysKeep(), [_dir.Path], "weavie", settings: null, registryMode: false);
 		int port = server.Start();
 		using var ws = await ConnectBearerAsync(port, Token);
 

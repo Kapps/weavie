@@ -1,5 +1,6 @@
 import { createSignal } from "solid-js";
-import { type ClientSession, registerSessionFeature } from "../bridge";
+import type { ClientSession } from "../bridge";
+import { createSessionOwnedResource } from "./session-owned-state";
 
 /** Owns one pushed feature value per live session, including automatic cleanup when that session closes. */
 export function createSessionFeatureValue<TMessage, TValue>(
@@ -7,19 +8,15 @@ export function createSessionFeatureValue<TMessage, TValue>(
   eventName: string,
   select: (message: TMessage) => TValue,
 ): (session: ClientSession | null) => TValue | null {
-  const [values, setValues] = createSignal(new Map<ClientSession, TValue>());
-  registerSessionFeature((session) => {
-    const off = session.feature(featureName).on<TMessage>(eventName, (message) => {
-      setValues((previous) => new Map(previous).set(session, select(message)));
-    });
-    return () => {
-      off();
-      setValues((previous) => {
-        const next = new Map(previous);
-        next.delete(session);
-        return next;
+  const values = createSessionOwnedResource(
+    (session) => {
+      const [read, write] = createSignal<TValue | null>(null);
+      const stop = session.feature(featureName).on<TMessage>(eventName, (message) => {
+        write(() => select(message));
       });
-    };
-  });
-  return (session) => (session === null || session.closed ? null : (values().get(session) ?? null));
+      return [read, stop] as const;
+    },
+    (_session, [, stop]) => stop(),
+  );
+  return (session) => values.get(session)?.[0]() ?? null;
 }

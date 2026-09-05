@@ -17,10 +17,18 @@ import { CommandIds, type CommandInfo } from "../commands/types";
 import { canonicalFsPath, samePath } from "../editor/fs-path";
 import type { DirEntry } from "../files/FileBrowser";
 import {
+  buildPathTree,
+  type PathTreeNode,
+  type PathTreeRow,
+  pathAncestorKeys,
+  visiblePathTreeRows,
+} from "../files/path-tree";
+import {
   listSelectedDirectory,
   selectedDirectoryListings,
   selectedFileIndex,
 } from "../files/session-files";
+import { createListNavigation } from "../list-navigation";
 import type { FlatSymbol, SymbolActions } from "../symbols/symbol-match";
 import { createSymbolSearch } from "../symbols/symbol-search";
 import {
@@ -31,7 +39,8 @@ import {
   type ScoredFile,
   splitPath,
 } from "./file-search";
-import { OmnibarResults, type ScoredCommand, type TreeNode, type TreeRow } from "./OmnibarResults";
+import { onModalOpened } from "./modal-state";
+import { OmnibarResults, type ScoredCommand } from "./OmnibarResults";
 import { type OmnibarMode, omnibarRequest } from "./omnibar-controller";
 import { parsePathQuery, pathSeed, separatorFor } from "./path-query";
 import { recentFiles } from "./recent-files-store";
@@ -56,59 +65,6 @@ const FOCUS_COMMAND_MODE: Record<string, OmnibarMode> = {
   [CommandIds.goToWorkspaceSymbol]: "wsSymbol",
 };
 
-// Build a sorted tree (dirs first, then files, alpha) from the rows' relative paths, in one O(n) pass.
-function buildTree(rows: FileRow[]): TreeNode[] {
-  const root: TreeNode = { name: "", key: "", isDir: true, children: [] };
-  const dirs = new Map<string, TreeNode>([["", root]]);
-  for (const row of rows) {
-    const segs = row.rel.split("/");
-    let parent = root;
-    let prefix = "";
-    for (let i = 0; i < segs.length; i++) {
-      const seg = segs[i] ?? "";
-      const key = prefix === "" ? seg : `${prefix}/${seg}`;
-      if (i === segs.length - 1) {
-        parent.children?.push({ name: seg, key, isDir: false, abs: row.abs });
-      } else {
-        let dir = dirs.get(key);
-        if (dir === undefined) {
-          dir = { name: seg, key, isDir: true, children: [] };
-          dirs.set(key, dir);
-          parent.children?.push(dir);
-        }
-        parent = dir;
-      }
-      prefix = key;
-    }
-  }
-  sortChildren(root);
-  return root.children ?? [];
-}
-
-function sortChildren(node: TreeNode): void {
-  if (node.children === undefined) {
-    return;
-  }
-  node.children.sort((a, b) =>
-    a.isDir !== b.isDir ? (a.isDir ? -1 : 1) : a.name.localeCompare(b.name),
-  );
-  for (const child of node.children) {
-    sortChildren(child);
-  }
-}
-
-// The expansion keys for every ancestor directory of a relative path (excludes the file leaf itself).
-function ancestorKeys(rel: string): string[] {
-  const segs = rel.split("/");
-  const keys: string[] = [];
-  let prefix = "";
-  for (let i = 0; i < segs.length - 1; i++) {
-    prefix = prefix === "" ? (segs[i] ?? "") : `${prefix}/${segs[i]}`;
-    keys.push(prefix);
-  }
-  return keys;
-}
-
 // The center omnibar quick-open: file tree when the query is empty, fuzzy-ranked flat list when typing, and a
 // command palette when the query leads with ">". Focusing it asks the host for the file index.
 export function Omnibar(props: {
@@ -119,18 +75,28 @@ export function Omnibar(props: {
   root: string | null;
   currentFile: string | null;
   workspaceLabel: string;
-  onOpenFile: (abs: string, line: number) => void;
+  onOpenFile: (abs: string, line: number | undefined) => void;
   onRequestIndex: () => void;
   // The editor's Go-to-Symbol surface (query + live preview/commit), used by the @ / # modes.
   symbols: SymbolActions;
 }): JSX.Element {
   const [query, setQuery] = createSignal("");
   const [open, setOpen] = createSignal(false);
-  const [selected, setSelected] = createSignal(0);
+  const nav = createListNavigation({
+    count: () => activeLen(),
+    edges: "clamp",
+    initialIndex: 0,
+    acceptKeys: ["Enter"],
+    onAccept: () => activate(),
+    onDismiss: () => close(),
+    onMove: () => previewSelected(),
+  });
+  // Aliased: the selection is read and re-homed all through this file, not just by the keyboard.
+  const selected = nav.index;
+  const setSelected = nav.setIndex;
   const [expanded, setExpanded] = createSignal<Set<string>>(new Set());
   let inputRef!: HTMLInputElement;
   let rootRef!: HTMLDivElement;
-  let listRef: HTMLDivElement | undefined;
 
   // Element focused when the omnibar opened; restored on close so the focusin-derived `when`-context
   // (editorFocused/terminalFocused) and editor-gated chords like Ctrl+Tab keep matching. See App's onFocusIn.
@@ -138,7 +104,8 @@ export function Omnibar(props: {
 
   // The 1-based line an open from this omnibar session reveals — a host-driven request resolving an
   // ambiguous `file:line` link carries the link's line, applied to whichever candidate the user picks.
-  let pendingLine = 1;
+  // Undefined for a plain quick-open, which leaves an already-open tab where the user left it.
+  let pendingLine: number | undefined;
 
   // The command catalog, kept live as the host pushes keybinding/catalog changes.
   const [commandList, setCommandList] = createSignal<CommandInfo[]>(getCommands());
@@ -232,26 +199,14 @@ export function Omnibar(props: {
   const symbolView = createMemo(() => symbolSearch.view().slice(0, VIEW_CAP));
 
   // The visible tree rows: a depth-first walk emitting a row only when all its ancestors are expanded.
-  const treeNodes = createMemo<TreeNode[]>(() => buildTree(rows()));
-  const visibleRows = createMemo<TreeRow[]>(() => {
+  const treeNodes = createMemo<PathTreeNode<string>[]>(() =>
+    buildPathTree(rows().map((row) => ({ path: row.rel, value: row.abs }))),
+  );
+  const visibleRows = createMemo<PathTreeRow<string>[]>(() => {
     if (!treeMode()) {
       return [];
     }
-    const exp = expanded();
-    const out: TreeRow[] = [];
-    const walk = (nodes: TreeNode[], depth: number): void => {
-      for (const node of nodes) {
-        out.push({ node, depth });
-        if (node.isDir && exp.has(node.key) && node.children !== undefined) {
-          walk(node.children, depth + 1);
-        }
-        if (out.length >= VIEW_CAP) {
-          return;
-        }
-      }
-    };
-    walk(treeNodes(), 0);
-    return out.slice(0, VIEW_CAP);
+    return visiblePathTreeRows(treeNodes(), expanded(), VIEW_CAP);
   });
 
   // The palette: visible commands whose `when` passes, fuzzy-ranked (with positions) over the text after ">".
@@ -298,10 +253,6 @@ export function Omnibar(props: {
           ? Math.max(0, symbolSearch.view().length - symbolView().length)
           : 0;
 
-  const scrollToSelected = (block: ScrollLogicalPosition): void => {
-    (listRef?.children[selected()] as HTMLElement | undefined)?.scrollIntoView({ block });
-  };
-
   // True while an open tree-mode session still needs to center on the current file — the first reveal usually
   // runs against an empty `rows()`, so the later file-index arrival finishes it.
   const [pendingReveal, setPendingReveal] = createSignal(false);
@@ -314,7 +265,7 @@ export function Omnibar(props: {
     if (cf !== null) {
       const row = rows().find((r) => samePath(r.abs, cf));
       if (row !== undefined) {
-        setExpanded(new Set(ancestorKeys(row.rel)));
+        setExpanded(new Set(pathAncestorKeys(row.rel)));
       } else {
         revealed = false;
       }
@@ -322,10 +273,10 @@ export function Omnibar(props: {
     queueMicrotask(() => {
       const idx =
         cf !== null
-          ? visibleRows().findIndex((r) => r.node.abs !== undefined && samePath(r.node.abs, cf))
+          ? visibleRows().findIndex((r) => r.node.kind === "file" && samePath(r.node.value, cf))
           : -1;
       setSelected(idx >= 0 ? idx : 0);
-      scrollToSelected("center");
+      nav.reveal("center");
     });
     return revealed;
   };
@@ -368,7 +319,7 @@ export function Omnibar(props: {
           setPendingReveal(!focusCurrentInTree());
         } else {
           setSelected(0);
-          queueMicrotask(() => scrollToSelected("nearest"));
+          nav.reveal("nearest");
         }
       },
       { defer: true },
@@ -431,7 +382,7 @@ export function Omnibar(props: {
   const close = (): void => {
     setOpen(false);
     setQuery("");
-    pendingLine = 1;
+    pendingLine = undefined;
     restorePriorFocus();
   };
 
@@ -441,9 +392,10 @@ export function Omnibar(props: {
   const dismiss = (): void => {
     setOpen(false);
     setQuery("");
-    pendingLine = 1;
+    pendingLine = undefined;
     priorFocus = null;
   };
+  onCleanup(onModalOpened(dismiss));
 
   const openFile = (abs: string | undefined): void => {
     if (abs === undefined) {
@@ -495,8 +447,6 @@ export function Omnibar(props: {
       }
       return next;
     });
-    // The visible list grew/shrank — keep the selection in range.
-    queueMicrotask(() => setSelected((i) => Math.min(i, Math.max(0, visibleRows().length - 1))));
   };
 
   // Left/Right move a full level at a time. Right: expand a collapsed dir, else skip to the next row at the
@@ -509,33 +459,33 @@ export function Omnibar(props: {
       return;
     }
     if (dir === 1) {
-      if (cur.node.isDir && !expanded().has(cur.node.key)) {
+      if (cur.node.kind === "directory" && !expanded().has(cur.node.key)) {
         toggleDir(cur.node.key);
         return;
       }
       for (let j = i + 1; j < rowsV.length; j++) {
         if ((rowsV[j]?.depth ?? 0) <= cur.depth) {
           setSelected(j);
-          scrollToSelected("nearest");
+          nav.reveal("nearest");
           return;
         }
       }
       setSelected(rowsV.length - 1);
     } else {
-      if (cur.node.isDir && expanded().has(cur.node.key)) {
+      if (cur.node.kind === "directory" && expanded().has(cur.node.key)) {
         toggleDir(cur.node.key);
         return;
       }
       for (let j = i - 1; j >= 0; j--) {
         if ((rowsV[j]?.depth ?? 0) < cur.depth) {
           setSelected(j);
-          scrollToSelected("nearest");
+          nav.reveal("nearest");
           return;
         }
       }
       setSelected(0);
     }
-    scrollToSelected("nearest");
+    nav.reveal("nearest");
   };
 
   const activatePathEntry = (entry: DirEntry | undefined): void => {
@@ -582,10 +532,10 @@ export function Omnibar(props: {
       if (r === undefined) {
         return;
       }
-      if (r.node.isDir) {
+      if (r.node.kind === "directory") {
         toggleDir(r.node.key);
       } else {
-        openFile(r.node.abs);
+        openFile(r.node.value);
       }
     } else {
       openFile(view()[selected()]?.row.abs);
@@ -605,28 +555,12 @@ export function Omnibar(props: {
   };
 
   const onKeyDown = (e: KeyboardEvent): void => {
-    if (e.key === "ArrowDown") {
+    if (nav.onKeyDown(e)) {
+      return;
+    }
+    if ((e.key === "ArrowRight" || e.key === "ArrowLeft") && treeMode()) {
       e.preventDefault();
-      setSelected((i) => Math.min(i + 1, activeLen() - 1));
-      scrollToSelected("nearest");
-      previewSelected();
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      setSelected((i) => Math.max(i - 1, 0));
-      scrollToSelected("nearest");
-      previewSelected();
-    } else if (e.key === "ArrowRight" && treeMode()) {
-      e.preventDefault();
-      treeMoveLevel(1);
-    } else if (e.key === "ArrowLeft" && treeMode()) {
-      e.preventDefault();
-      treeMoveLevel(-1);
-    } else if (e.key === "Enter") {
-      e.preventDefault();
-      activate();
-    } else if (e.key === "Escape") {
-      e.preventDefault();
-      close();
+      treeMoveLevel(e.key === "ArrowRight" ? 1 : -1);
     }
   };
 
@@ -730,9 +664,7 @@ export function Omnibar(props: {
             mode={mode}
             selected={selected}
             onSelect={setSelected}
-            listRef={(element) => {
-              listRef = element;
-            }}
+            rowProps={nav.row}
             hiddenCount={hiddenCount}
             filesPending={props.filesPending}
             currentFile={props.currentFile}

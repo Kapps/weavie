@@ -1,7 +1,7 @@
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Locator, Page } from "@playwright/test";
-import { openFile } from "../harness/actions";
+import { openFile, runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { appliedEdit } from "../harness/review";
 import type { WeavieWindow } from "../harness/weavie-window";
@@ -58,18 +58,39 @@ test.describe("unified review mode", () => {
 
     const overview = page.locator(".unified-review");
     await expect(overview).toBeVisible();
-    await expect(overview.locator(".unified-review-heading")).toContainText("2 files changed");
-    await expect(overview.locator(".unified-review-file-link")).toHaveCount(2);
+    await expect(overview.locator(".unified-review-files-header")).toContainText("2 changed files");
+    await expect(overview.locator(".unified-review-tree-row.directory")).toHaveCount(0);
+    await expect(overview.locator(".unified-review-tree-row.file")).toHaveCount(2);
+    await expect(
+      overview.locator(".unified-review-tree-row.file", { hasText: "notes.txt" }),
+    ).toContainText(/\+\d+.*−\d+/);
     await expect(overview.locator(".unified-review-file")).toHaveCount(2);
 
     // The change is marked up in the editor itself (added band + removed ghost), not as hand-rolled rows.
     const hello = sectionFor(page, "hello.ts");
-    await expect(hello.locator(".monaco-editor")).toBeVisible({ timeout: 15_000 });
+    // See the 2026-09-03 flake note on the "completions" test below — same hardcoded-override defect.
+    await expect(hello.locator(".monaco-editor")).toBeVisible();
     await expect(hello.locator(".weavie-inline-added").first()).toBeVisible();
     await expect(overview.locator(".unified-review-notice", { hasText: "Loading" })).toHaveCount(0);
 
     // …and it is tokenized: several distinct token classes, not one flat default run.
     await expect.poll(() => distinctTokenClasses(hello), { timeout: 15_000 }).toBeGreaterThan(2);
+
+    const notes = sectionFor(page, "notes.txt");
+    const notesDisclosure = notes.locator(".unified-review-file-toggle");
+    await expect(notesDisclosure).toHaveAttribute("title", /Collapse notes\.txt.*Alt\+\[/);
+    await notesDisclosure.focus();
+    await page.keyboard.press("Alt+[");
+    await expect(notesDisclosure).toHaveAttribute("aria-expanded", "false");
+    await expect(hello.locator(".monaco-editor")).toBeVisible();
+    await notesDisclosure.click();
+
+    const disclosure = hello.locator(".unified-review-file-toggle");
+    await disclosure.click();
+    await expect(disclosure).toHaveAttribute("aria-expanded", "false");
+    await expect(hello.locator(".monaco-editor")).toHaveCount(0);
+    await disclosure.click();
+    await expect(hello.locator(".monaco-editor")).toBeVisible();
 
     await hello.locator(".unified-review-file-name").click();
     await expect(overview).toHaveCount(0);
@@ -77,10 +98,11 @@ test.describe("unified review mode", () => {
     await expect(page.locator(".weavie-inline-toolbar")).toBeVisible({ timeout: 15_000 });
 
     const mode = page.locator(".editor-review-toggle");
-    await expect(mode).toHaveText("All changes");
+    await expect(mode).toContainText("Unified review");
+    await expect(mode).toHaveAttribute("title", /Switch to unified review.*\(/);
     await mode.click();
     await expect(overview).toBeVisible();
-    await expect(mode).toHaveText("File review");
+    await expect(mode).toContainText("File review");
 
     await openFile(page, "README.md");
     await expect(overview).toHaveCount(0);
@@ -89,6 +111,7 @@ test.describe("unified review mode", () => {
 
   test("a file-level keep leaves the change in the faded reviewed band", async ({ page }) => {
     await page.locator(".editor-empty-review").click();
+    const overview = page.locator(".unified-review");
     const notes = sectionFor(page, "notes.txt");
     await expect(notes.locator(".unified-review-file-action.keep")).toBeVisible({
       timeout: 15_000,
@@ -99,8 +122,20 @@ test.describe("unified review mode", () => {
     await expect(notes.locator(".unified-review-status")).toHaveText("Reviewed", {
       timeout: 15_000,
     });
-    await expect(notes.locator(".weavie-inline-accepted").first()).toBeVisible();
+    await expect(notes.locator(".unified-review-file-toggle")).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+    await expect(notes.locator(".monaco-editor")).toHaveCount(0);
     await expect(notes.locator(".unified-review-file-action.keep")).toHaveCount(0);
+
+    await overview.locator(".unified-review-diffs").evaluate((element) => element.scrollTo(0, 0));
+    await overview.locator(".unified-review-tree-row.file", { hasText: "notes.txt" }).click();
+    await expect(notes.locator(".unified-review-file-toggle")).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    await expect(notes.locator(".weavie-inline-accepted").first()).toBeVisible();
 
     // The push that lands the keep must not throw away the measured section heights: doing so re-spaces every
     // row below on its estimate and opens dead space that never heals.
@@ -113,7 +148,14 @@ test.describe("unified review mode", () => {
   test("completions open inside a review section editor", async ({ page }) => {
     await page.locator(".editor-empty-review").click();
     const hello = sectionFor(page, "hello.ts");
-    await expect(hello.locator(".monaco-editor")).toBeVisible({ timeout: 15_000 });
+    // Flaked on windows-latest 2026-09-03 01:54 UTC (run 33704819901, job 100492392393,
+    // https://github.com/Kapps/weavie/actions/runs/33704819901/job/100492392393): the Monaco mount never
+    // became visible inside 15s under runner contention, unrelated to the PR that surfaced it (a Mac
+    // crash-reporting change). The 15s here was a hardcoded override that undercut playwright.config.ts's
+    // own platform-aware `expect.timeout` (30s on Windows/macOS, raised there for exactly this kind of
+    // full-stack mount latency) — every `.monaco-editor` wait in this file had the same override, so all
+    // four are dropped to let them inherit that budget instead of capping it back down to the Linux value.
+    await expect(hello.locator(".monaco-editor")).toBeVisible();
     await expect(hello.locator(".weavie-inline-added").first()).toBeVisible();
 
     await page.evaluate(() => {
@@ -160,7 +202,8 @@ test.describe("unified review mode", () => {
     test.slow();
     await page.locator(".editor-empty-review").click();
     const notes = sectionFor(page, "notes.txt");
-    await expect(notes.locator(".monaco-editor")).toBeVisible({ timeout: 15_000 });
+    // See the 2026-09-03 flake note on the "completions" test above — same hardcoded-override defect.
+    await expect(notes.locator(".monaco-editor")).toBeVisible();
 
     const marker = `edited-in-review-${Date.now()}`;
     await notes.locator(".view-line", { hasText: "a unified addition" }).click();
@@ -173,6 +216,57 @@ test.describe("unified review mode", () => {
     await expect
       .poll(() => readFile(notesPath, "utf8").catch(() => ""), { timeout: 15_000 })
       .toContain(`${marker}-one\n${marker}-two`);
+  });
+});
+
+test.describe("unified review mode — file tree", () => {
+  test.use({
+    fakeScript: {
+      steps: [
+        { op: "waitFile", path: "{{WORKSPACE}}/.nested-ready" },
+        ...appliedEdit("src/hello.ts", HELLO),
+        ...appliedEdit("docs/notes.txt", "nested note\n"),
+      ],
+    },
+  });
+
+  test("groups nested files with diff sizes and collapsible folders", async ({ page, weavie }) => {
+    await mkdir(join(weavie.workspace, "src"));
+    await mkdir(join(weavie.workspace, "docs"));
+    await writeFile(join(weavie.workspace, ".nested-ready"), "ready\n");
+    await page.locator(".editor-empty-review").click();
+
+    const overview = page.locator(".unified-review");
+    await expect(overview.locator(".unified-review-tree-row.directory")).toHaveCount(2);
+    await expect(overview.locator(".unified-review-tree-row.file")).toHaveCount(2);
+    await expect(
+      overview.locator(".unified-review-tree-row.file", { hasText: "notes.txt" }),
+    ).toContainText(/\+\d+.*−\d+/);
+
+    const docsFolder = overview.locator(".unified-review-tree-row.directory", {
+      hasText: "docs",
+    });
+    const docsFile = overview.locator(".unified-review-tree-row.file", { hasText: "notes.txt" });
+    const srcFolder = overview.locator(".unified-review-tree-row.directory", { hasText: "src" });
+    const srcFile = overview.locator(".unified-review-tree-row.file", { hasText: "hello.ts" });
+    await docsFolder.focus();
+    await page.keyboard.press("ArrowRight");
+    await expect(docsFile).toBeFocused();
+    await page.keyboard.press("ArrowLeft");
+    await expect(docsFolder).toBeFocused();
+    await page.keyboard.press("ArrowLeft");
+    await expect(docsFolder).toHaveAttribute("aria-expanded", "false");
+    await expect(docsFile).toHaveCount(0);
+    await page.keyboard.press("ArrowDown");
+    await expect(srcFolder).toBeFocused();
+    await page.keyboard.press("ArrowRight");
+    await expect(srcFile).toBeFocused();
+    await page.keyboard.press("Home");
+    await expect(docsFolder).toBeFocused();
+    await page.keyboard.press("ArrowRight");
+    await expect(docsFolder).toHaveAttribute("aria-expanded", "true");
+    await page.keyboard.press("End");
+    await expect(srcFile).toBeFocused();
   });
 });
 
@@ -201,6 +295,78 @@ test.describe("unified review mode — collapsed context", () => {
   });
 });
 
+test.describe("unified review mode — the walk stays on the page", () => {
+  // Changes spread through a long file: enough collapsed hunks that the overview is taller than its viewport,
+  // so a step to the next change has somewhere to scroll to.
+  const spread = Array.from({ length: 600 }, (_, index) => `line ${index}`);
+  const changed = (index: number): boolean => index >= 10 && (index - 10) % 20 === 0;
+
+  test.use({
+    fakeScript: {
+      steps: [
+        { op: "edit", path: "{{WORKSPACE}}/walk.txt", content: `${spread.join("\n")}\n` },
+        ...appliedEdit(
+          "walk.txt",
+          `${spread
+            .map((line, index) => (changed(index) ? `${line} — changed` : line))
+            .join("\n")}\n`,
+        ),
+      ],
+    },
+  });
+
+  test("Next Change walks to the next change in the overview instead of opening the file", async ({
+    page,
+  }) => {
+    await page.locator(".editor-empty-review").click();
+    const overview = page.locator(".unified-review");
+    const section = sectionFor(page, "walk.txt");
+    await expect(section.locator(".weavie-inline-added").first()).toBeVisible({ timeout: 15_000 });
+
+    const scroller = overview.locator(".unified-review-diffs");
+    const offset = (): Promise<number> => scroller.evaluate((element) => element.scrollTop);
+    // The section has to be taller than the viewport, or a step would have nowhere to move.
+    await expect
+      .poll(() => scroller.evaluate((element) => element.scrollHeight - element.clientHeight))
+      .toBeGreaterThan(0);
+    await expect.poll(offset).toBe(0);
+
+    await overview.locator(".unified-review-action", { hasText: "Next" }).click();
+
+    // The walk moved the overview to the next change — it did NOT leave review for the file editor.
+    await expect.poll(offset, { timeout: 15_000 }).toBeGreaterThan(0);
+    await expect(overview).toBeVisible();
+    await expect(page.locator(".editor-tab.active", { hasText: "walk.txt" })).toHaveCount(0);
+    await expect(page.locator(".weavie-inline-toolbar")).toHaveCount(0);
+  });
+});
+
+test("a cold deleted file renders from its review snapshot instead of reading the missing path", async ({
+  page,
+  weavie,
+}) => {
+  await unlink(join(weavie.workspace, "notes.txt"));
+  await runCommand(page, "Diff Against HEAD");
+
+  const cue = page.locator(".editor-empty-review");
+  await expect(cue).toBeVisible({ timeout: 30_000 });
+  await cue.click();
+
+  const notes = sectionFor(page, "notes.txt");
+  await expect(notes.locator(".monaco-editor")).toBeVisible();
+  await expect(notes.locator(".weavie-inline-removed").first()).toBeVisible();
+  await expect(notes.locator(".unified-review-notice", { hasText: "Couldn't open" })).toHaveCount(
+    0,
+  );
+  await expect(notes.locator(".unified-review-file-name")).toHaveAttribute(
+    "title",
+    "Deleted file — review snapshot",
+  );
+  const mode = page.locator(".editor-review-toggle");
+  await expect(mode).toBeDisabled();
+  await expect(mode).toHaveAttribute("title", /File review unavailable.*\(/);
+});
+
 test.describe("unified review mode — large file", () => {
   test.use({
     fakeScript: {
@@ -216,7 +382,8 @@ test.describe("unified review mode — large file", () => {
   test("renders a 4,000-line change without a presentation cutoff", async ({ page }) => {
     await page.locator(".editor-empty-review").click();
     const overview = page.locator(".unified-review");
-    await expect(overview.locator(".monaco-editor")).toBeVisible({ timeout: 15_000 });
+    // See the 2026-09-03 flake note on the "completions" test above — same hardcoded-override defect.
+    await expect(overview.locator(".monaco-editor")).toBeVisible();
     await expect(overview).not.toContainText("Diff calculation timed out");
     await expect(overview.locator(".view-line", { hasText: "line 3999" })).toHaveCount(1);
   });
@@ -224,22 +391,33 @@ test.describe("unified review mode — large file", () => {
 
 test.describe("unified review mode — large file set", () => {
   const fileCount = 100;
+  const readyFile = ".large-review-ready";
   test.use({
     fakeScript: {
-      steps: Array.from({ length: fileCount }, (_, index) =>
-        appliedEdit(`review-${String(index).padStart(3, "0")}.txt`, `change ${index}\n`),
-      ).flat(),
+      steps: [
+        ...Array.from({ length: fileCount }, (_, index) =>
+          appliedEdit(`review-${String(index).padStart(3, "0")}.txt`, `change ${index}\n`),
+        ).flat(),
+        { op: "edit", path: `{{WORKSPACE}}/${readyFile}`, content: "ready\n" },
+      ],
     },
   });
 
   test("restores the exact file across a reverse mode toggle without mounting every editor", async ({
     page,
+    weavie,
   }) => {
+    test.slow();
+    await expect
+      .poll(() => readFile(join(weavie.workspace, readyFile), "utf8").catch(() => ""), {
+        timeout: 60_000,
+      })
+      .toBe("ready\n");
     await page.locator(".editor-empty-review").click();
     const overview = page.locator(".unified-review");
     const targetName = "review-099.txt";
-    const targetLink = overview.locator(".unified-review-file-link", { hasText: targetName });
-    await expect(overview.locator(".unified-review-file-link")).toHaveCount(fileCount);
+    const targetLink = overview.locator(".unified-review-tree-row.file", { hasText: targetName });
+    await expect(overview.locator(".unified-review-tree-row.file")).toHaveCount(fileCount);
 
     await targetLink.click();
     const targetSection = sectionFor(page, targetName);
@@ -257,10 +435,9 @@ test.describe("unified review mode — large file set", () => {
 
     await page.locator(".editor-review-toggle").click();
     await expect(overview).toBeVisible();
-    await expect(targetLink).toHaveClass(/active/);
     await expect(targetSection).toBeVisible();
 
-    await overview.locator(".unified-review-action.mode").click();
+    await page.locator(".editor-review-toggle").click();
     await expect(page.locator(".editor-tab.active", { hasText: targetName })).toBeVisible();
   });
 });

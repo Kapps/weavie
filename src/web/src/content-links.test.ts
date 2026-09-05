@@ -67,8 +67,8 @@ describe("parseFileReference", () => {
     expect(parseFileReference("a.ts:4:2-9:8")).toEqual({ path: "a.ts", line: 4 });
   });
 
-  it("defaults a bare path to its first line", () => {
-    expect(parseFileReference("src/main.ts")).toEqual({ path: "src/main.ts", line: 1 });
+  it("leaves a bare path without a line, so an open tab keeps the user's position", () => {
+    expect(parseFileReference("src/main.ts")).toEqual({ path: "src/main.ts", line: undefined });
   });
 
   it("decodes file URIs and reads their line fragment", () => {

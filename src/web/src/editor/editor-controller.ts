@@ -22,7 +22,7 @@ import type {
   SymbolQuerySource,
 } from "../symbols/symbol-match";
 import type { CommentProse } from "./comment-prose";
-import type { EditorHost } from "./editor-host";
+import type { EditorHost, ReviewCopyScope } from "./editor-host";
 import { samePath } from "./fs-path";
 import type { GitBlameController } from "./git-blame";
 import type {
@@ -39,11 +39,14 @@ import { REVEAL_SCROLL } from "./reveal-scroll";
 import {
   createReviewStore,
   type ReviewComments,
+  type ReviewCursor,
   type ReviewFile,
   type ReviewFileDiff,
   type ReviewHistory,
   type ReviewOverview,
   type ReviewPresentationMode,
+  type ReviewStep,
+  type UnifiedReviewNavigator,
 } from "./review/review-store";
 import type { ReviseMarks, ReviseRegion } from "./revise-marks";
 import {
@@ -95,6 +98,12 @@ export interface EditorControllerDeps {
   promptRevision: (lineCount: number) => Promise<string | null>;
 }
 
+/**
+ * Why the editor pane is being given a destination — the wire value the host stamps on every open it pushes.
+ * "navigation" is the user going somewhere and takes the pane; "reveal" lands behind a review they are in.
+ */
+type EditorOpenIntent = "navigation" | "reveal";
+
 interface DiffProposal {
   id: string;
   path: string;
@@ -106,6 +115,8 @@ interface DiffProposal {
 interface SessionProposal extends DiffProposal {
   addedTab: boolean;
   priorActive: string | null;
+  /** The session was in unified review when this gate took the pane, so resolving it returns there. */
+  priorUnified: boolean;
 }
 
 /**
@@ -153,8 +164,11 @@ export interface EditorController {
   reviseSelection(): void;
   /** Loads the editor chunk and brings up the editor in `container`; fades the splash when settled. */
   start(container: HTMLElement): void;
-  /** Opens a file (preview tab when `preview`), replaying once the editor chunk has loaded (last wins). */
-  openFile(path: string, line: number, preview?: boolean): void;
+  /**
+   * Opens a file (preview tab when `preview`), replaying once the editor chunk has loaded (last wins).
+   * `line` reveals that line; `undefined` means no target, so an already-open tab keeps the user's position.
+   */
+  openFile(path: string, line: number | undefined, preview?: boolean): void;
   /** Opens an http(s) URL as a web (iframe) tab in the editor tab strip. */
   openWebTab(url: string): void;
   /** Opens a fetched source doc (Notion) as a source (shadow-root) tab in the editor tab strip, keyed by its target. */
@@ -197,15 +211,16 @@ export interface EditorController {
   readonly review: {
     mode(): ReviewPresentationMode;
     overview(): ReviewOverview;
-    /**
-     * Resolve a changed file's working copy for the unified review's per-file editor, on a reference
-     * independent of any tab's. Rejects when the editor host isn't up, so the section can say so.
-     */
-    openCopy(session: ClientSession, path: string): Promise<monaco.editor.ITextModel>;
-    /** Release every working copy the unified review holds (its surface unmounted). */
-    releaseCopies(): void;
+    /** Creates the model-reference scope owned by one mounted unified-review surface. */
+    createCopyScope(): ReviewCopyScope;
+    /** Hands the mounted unified surface its session's review walk; the returned callback unbinds it. */
+    bindNavigator(session: ClientSession, navigator: UnifiedReviewNavigator): () => void;
+    /** Walks one step of the review, on whichever surface the session is reviewing on. */
+    step(session: ClientSession, step: ReviewStep): boolean;
     toggleMode(session: ClientSession): boolean;
+    toggleFileCollapsed(session: ClientSession, path: string | undefined): boolean;
     setCursor(session: ClientSession, path: string, line: number): void;
+    setFileCollapsed(session: ClientSession, path: string, collapsed: boolean): void;
     revert(session: ClientSession): boolean;
     keepFile(session: ClientSession, path: string | undefined): boolean;
     revertFile(session: ClientSession, path: string | undefined): boolean;
@@ -215,12 +230,37 @@ export interface EditorController {
     undoRevert(session: ClientSession): boolean;
     redo(session: ClientSession): boolean;
   };
-  readonly inline: InlineDiffActions;
+  /** The inline diff's own actions. Review *navigation* is not here — it routes by mode through `review.step`. */
+  readonly inline: Omit<InlineDiffActions, ReviewStep>;
   readonly tabs: TabActions;
   readonly nav: NavActions;
   /** The omnibar's Go-to-Symbol surface: query document/workspace symbols and live-preview/commit the jump. */
   readonly symbols: SymbolActions;
   dispose(): void;
+}
+
+export function createDeferredReviewCopyScope(
+  hostReady: Promise<Pick<EditorHost, "createReviewCopyScope">>,
+): ReviewCopyScope {
+  let scope: ReviewCopyScope | undefined;
+  let disposed = false;
+  return {
+    open: async (session, path, current, currentExists) => {
+      if (disposed) {
+        throw new Error("the review closed while this file was loading");
+      }
+      const host = await hostReady;
+      if (disposed) {
+        throw new Error("the review closed while this file was loading");
+      }
+      scope ??= host.createReviewCopyScope();
+      return scope.open(session, path, current, currentExists);
+    },
+    dispose: () => {
+      disposed = true;
+      scope?.dispose();
+    },
+  };
 }
 
 export function createEditorController(deps: EditorControllerDeps): EditorController {
@@ -232,6 +272,13 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   let reviseMarks: ReviseMarks | undefined;
   let initTimer: number | undefined;
   let disposing = false;
+  let resolveEditorHost!: (created: EditorHost) => void;
+  let rejectEditorHost!: (error: unknown) => void;
+  const editorHostReady = new Promise<EditorHost>((resolve, reject) => {
+    resolveEditorHost = resolve;
+    rejectEditorHost = reject;
+  });
+  void editorHostReady.catch(() => undefined);
   const editorSessions = new Set<ClientSession>();
   const pendingReconciliations = new Set<ClientSession>();
   const pendingActivations = new WeakMap<ClientSession, Promise<void>>();
@@ -378,11 +425,15 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     }
   };
 
-  const activateDestinationFor = (session: ClientSession): boolean => {
+  // Unified review is a mode the user is in, not an overlay: only a destination they navigated to leaves it.
+  // The agent's own reveals — MCP openFile, a review action's jump — land behind the overview instead.
+  const activateDestinationFor = (session: ClientSession, intent: EditorOpenIntent): boolean => {
     if (selectedSession() !== session) {
       return false;
     }
-    reviews.leaveUnified(session);
+    if (intent === "navigation") {
+      reviews.leaveUnified(session);
+    }
     deps.onDestinationActivated();
     return true;
   };
@@ -390,20 +441,30 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   const openFileFor = (
     session: ClientSession,
     path: string,
-    line: number,
-    preview = false,
-    scratch = false,
+    line: number | undefined,
+    preview: boolean,
+    scratch: boolean,
+    intent: EditorOpenIntent,
   ): void => {
-    const result = openTabFor(session, path, { line, preview, scratch });
-    if (activateDestinationFor(session) && host !== undefined) {
+    const result = openTabFor(session, path, {
+      ...(line === undefined ? {} : { line }),
+      preview,
+      scratch,
+    });
+    if (activateDestinationFor(session, intent) && host !== undefined) {
       void applyActive(session, result).then(focusEditorSurface);
     }
   };
 
-  const openFile = (path: string, line: number, preview = false, scratch = false): void => {
+  const openFile = (
+    path: string,
+    line: number | undefined,
+    preview = false,
+    scratch = false,
+  ): void => {
     const session = selectedSession();
     if (session !== null) {
-      openFileFor(session, path, line, preview, scratch);
+      openFileFor(session, path, line, preview, scratch, "navigation");
     }
   };
 
@@ -448,7 +509,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       return;
     }
     if (isActiveFile(sym.path)) {
-      activateDestinationFor(session);
+      activateDestinationFor(session, "navigation");
       host.editor.setSelection(sym.range);
       host.editor.revealRangeInCenterIfOutsideViewport(sym.range, REVEAL_SCROLL);
       host.editor.focus();
@@ -482,7 +543,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       if (selectedSession() !== session || host === undefined) {
         return Promise.resolve();
       }
-      activateDestinationFor(session);
+      activateDestinationFor(session, "navigation");
       return applyActive(session, openTabFor(session, loc.path, { line: loc.line }));
     });
     navHistories.set(session, created);
@@ -523,7 +584,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   const openWebTab = (url: string): void => {
     const session = selectedSession();
     if (session !== null) {
-      activateDestinationFor(session);
+      activateDestinationFor(session, "navigation");
       void applyActive(session, openTabFor(session, url, { kind: "web" }));
     }
   };
@@ -533,7 +594,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   const openSourceTab = (target: string): void => {
     const session = selectedSession();
     if (session !== null) {
-      activateDestinationFor(session);
+      activateDestinationFor(session, "navigation");
       void applyActive(session, openTabFor(session, target, { kind: "source" }));
     }
   };
@@ -671,7 +732,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       } else if (entry.kind === "source") {
         openSourceTab(entry.path);
       } else {
-        openFile(entry.path, 1);
+        openFile(entry.path, undefined);
       }
 
       return true;
@@ -724,7 +785,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     }
     const result = activateTabFor(session, target.path);
     if (result !== null) {
-      activateDestinationFor(session);
+      activateDestinationFor(session, "navigation");
       void applyActive(session, result);
     }
     return true;
@@ -756,7 +817,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       const session = selectedSession();
       const result = session === null ? null : activateTabFor(session, path);
       if (session !== null && result !== null) {
-        activateDestinationFor(session);
+        activateDestinationFor(session, "navigation");
         void applyActive(session, result);
       }
     },
@@ -823,9 +884,13 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     if (!keep && review.addedTab) {
       dropReviewTabFor(review.session, review.path, review.priorActive);
     }
+    const proposal = reviewProposals.get(review.session) ?? null;
     reviewProposals.delete(review.session);
     if (selectedSession() === review.session) {
       deps.onCurrentFileChanged(activePathFor(review.session));
+    }
+    if (proposal !== null) {
+      restoreSuspendedReview(review.session, proposal);
     }
     review.session.feature("editor").publish("resolveDiff", {
       id: review.id,
@@ -848,8 +913,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
           result.placement = selection === undefined ? { line: 1 } : { selection };
           // A jump out of a unified-review section (go-to-definition, peek) lands in the file editor, which the
           // overview would otherwise cover.
-          reviews.leaveUnified(session);
-          activateDestinationFor(session);
+          activateDestinationFor(session, "navigation");
           void applyActive(session, result);
         },
       ),
@@ -863,6 +927,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     void Promise.race([editorReady, initDeadline])
       .then(async (created) => {
         host = created;
+        resolveEditorHost(created);
         for (const session of editorSessions) {
           reconcileOpenFiles(session);
         }
@@ -928,6 +993,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         mark("editor-ready");
       })
       .catch((error: unknown) => {
+        rejectEditorHost(error);
         log("error", `editor init failed: ${String(error)}`);
         // The pane is now dead (host stays undefined, every openFile silently queues), so tell the user
         // rather than leave a blank editor that swallows clicks.
@@ -945,9 +1011,26 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     if (selectedSession() !== session) {
       return;
     }
+    if (!file.currentExists) {
+      reviews.setCursor(session, { path: file.path, line });
+      showUnifiedReview(session);
+      return;
+    }
     reviews.enterFile(session, { path: file.path, line });
-    openFileFor(session, file.path, line, true);
+    openFileFor(session, file.path, line, true, false, "navigation");
     session.feature("review").publish("showFile", { path: file.path });
+  };
+
+  // Puts the session's own board into unified mode and asks for the diffs it still needs. Session-scoped by
+  // construction: the store publishes to the page only when this session is the selected one.
+  const enterUnifiedFor = (session: ClientSession, cursor: ReviewCursor | null): boolean => {
+    if (reviews.board(session).files.length === 0) {
+      return false;
+    }
+    for (const path of reviews.enterUnified(session, cursor)) {
+      session.feature("review").publish("showFile", { path });
+    }
+    return true;
   };
 
   const showUnifiedReview = (session: ClientSession): boolean => {
@@ -972,8 +1055,8 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         };
       }
     }
-    for (const path of reviews.enterUnified(session, cursor)) {
-      session.feature("review").publish("showFile", { path });
+    if (!enterUnifiedFor(session, cursor)) {
+      return false;
     }
     deps.onDestinationActivated();
     return true;
@@ -981,6 +1064,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
 
   // Monotonic revision of the published review set.
   let reviewRev = 0;
+  let presentedReviewSession: ClientSession | null = null;
   // Reflect the review set onto the inline-diff's parked navigator: it surfaces (parked at "change 0", editor
   // untouched) whenever files are pending and none is in view, so review is visible the moment changes land —
   // stepping in (a nav key) opens the first change. Called wherever the review board changes.
@@ -1014,7 +1098,8 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     );
   };
 
-  const resetPresentedReview = (): void => {
+  const resetPresentedReview = (nextOwner: ClientSession | null): void => {
+    presentedReviewSession = nextOwner;
     inlineDiff?.clearAll();
     inlineDiff?.setReviewHistory({
       canUndo: false,
@@ -1023,6 +1108,24 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       canRedo: false,
     });
     commentProse?.refresh();
+  };
+
+  const ownPresentedReview = (session: ClientSession): void => {
+    if (presentedReviewSession !== session) {
+      resetPresentedReview(session);
+    }
+  };
+
+  // The mounted unified surface, so a review step walks the overview's own sections instead of opening files.
+  const unifiedNavigators = new WeakMap<ClientSession, UnifiedReviewNavigator>();
+
+  // One step of the review walk, routed to whichever surface the session is reviewing on. In unified mode the
+  // overview owns every step — a review chord moves through the changes on screen and never opens a file.
+  const stepReview = (session: ClientSession, step: ReviewStep): boolean => {
+    if (reviews.board(session).mode !== "unified") {
+      return inlineDiff?.[step]() ?? false;
+    }
+    return unifiedNavigators.get(session)?.[step]() ?? false;
   };
 
   // Step the file axis of the review walk: open the neighbour (wrapping) at its first change. Returns false
@@ -1053,7 +1156,11 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   // instead of vanishing. Only called when more than one file remains; the kept/reverted file is skipped
   // since the host drops it from the review set right after.
   const advanceToNextPendingFile = (session: ClientSession, fromPath: string): void => {
-    const files = reviews.board(session).files.map((file) => file.summary());
+    const state = reviews.board(session);
+    if (state.mode === "unified") {
+      return;
+    }
+    const files = state.files.map((file) => file.summary());
     const idx = files.findIndex((file) => samePath(file.path, fromPath));
     const start = idx === -1 ? 0 : idx;
     for (let step = 1; step <= files.length; step++) {
@@ -1121,7 +1228,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     return file === undefined ||
       diff === null ||
       diff === undefined ||
-      diff.baseline === diff.current
+      (diff.baseline === diff.current && diff.baselineExists === diff.currentExists)
       ? null
       : file.summary();
   };
@@ -1269,7 +1376,10 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   const renderTurnDiff = (session: ClientSession, message: ReviewFileDiff): void => {
     const state = reviews.board(session);
     const files = state.files.map((file) => file.summary());
-    if (message.acceptedBaseline === message.current) {
+    if (
+      message.acceptedBaseline === message.current &&
+      message.acceptedBaselineExists === message.currentExists
+    ) {
       inlineDiff?.clear(session, message.path);
       commentProse?.refresh();
       const active = activePathFor(session);
@@ -1317,6 +1427,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     if (selectedSession() !== session) {
       return;
     }
+    ownPresentedReview(session);
     const state = reviews.board(session);
     const proposal = reviewProposals.get(session) ?? null;
     if (
@@ -1325,18 +1436,21 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     ) {
       clearPresentedProposal();
     }
-    resetPresentedReview();
     updateParkedReview(session);
     inlineDiff?.setReviewHistory(state.history);
+    const retained: string[] = [];
     for (const file of state.files) {
       const diff = file.diff();
       if (diff !== null) {
+        retained.push(diff.path);
         renderTurnDiff(session, diff);
       }
     }
     if (proposal !== null) {
       presentProposal(session, proposal);
     }
+    inlineDiff?.retainApplied(session, retained);
+    commentProse?.refresh();
   };
 
   const setReviewFilesFor = (session: ClientSession, files: ReviewFile[], label: string): void => {
@@ -1363,18 +1477,34 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   };
 
   const resetReviewFor = (session: ClientSession): void => {
+    if (selectedSession() === session) {
+      resetPresentedReview(session);
+    }
     reviews.reset(session);
     reviewProposals.delete(session);
     renderReviewState(session);
   };
 
+  // A proposal is a gate the agent is blocked on, so — unlike the agent's own reveals — it does take the pane
+  // from a unified review. The mode is only suspended: resolving the gate hands the overview back.
   const showProposal = (session: ClientSession, message: DiffProposal): void => {
     const priorActive = activePathFor(session);
     const addedTab = !openTabsFor(session).some((tab) => samePath(tab.path, message.path));
-    reviewProposals.set(session, { ...message, priorActive, addedTab });
+    const priorUnified =
+      reviews.board(session).mode === "unified" ||
+      (reviewProposals.get(session)?.priorUnified ?? false);
+    reviewProposals.set(session, { ...message, priorActive, addedTab, priorUnified });
     openTabFor(session, message.path, {});
-    activateDestinationFor(session);
+    activateDestinationFor(session, "navigation");
     renderReviewState(session);
+  };
+
+  // Hands the overview back to the board a resolved proposal borrowed the pane from. Runs whether or not that
+  // session is on screen — a proposal that closes while the user is in another session must not lose the mode.
+  const restoreSuspendedReview = (session: ClientSession, proposal: SessionProposal): void => {
+    if (proposal.priorUnified) {
+      enterUnifiedFor(session, reviews.board(session).cursor);
+    }
   };
 
   const closeProposal = (session: ClientSession, id: string): void => {
@@ -1393,6 +1523,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       deps.onCurrentFileChanged(activePathFor(session));
       renderReviewState(session);
     }
+    restoreSuspendedReview(session, proposal);
   };
 
   const replaceProposals = (session: ClientSession, proposals: DiffProposal[]): void => {
@@ -1423,7 +1554,6 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       if (change.kind !== "deleted") {
         continue;
       }
-      reviews.removeFile(session, change.path);
       const entry = openTabsFor(session).find((tab) => samePath(tab.path, change.path));
       if (entry === undefined) {
         continue;
@@ -1452,16 +1582,18 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       }),
       editor.on<{
         path: string;
-        line: number;
+        line: number | null;
         preview?: boolean;
         scratch?: boolean;
+        intent: EditorOpenIntent;
       }>("openFile", (message) => {
         openFileFor(
           session,
           message.path,
-          message.line,
+          message.line ?? undefined,
           message.preview === true,
           message.scratch === true,
+          message.intent,
         );
       }),
       editor.on<{ id: string; path: string; title: string; markdown: string }>(
@@ -1474,7 +1606,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         "openOverlay",
         ({ path, kind }) => {
           const result = openTabFor(session, path, { kind });
-          if (activateDestinationFor(session)) {
+          if (activateDestinationFor(session, "navigation")) {
             void applyActive(session, result).then(focusEditorSurface);
           }
         },
@@ -1538,12 +1670,13 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     reviews.select(session);
     if (session === null) {
       clearPresentedProposal();
-      resetPresentedReview();
+      resetPresentedReview(null);
       updateParkedReview(null);
       host?.clear();
       deps.onCurrentFileChanged(null);
       return;
     }
+    ownPresentedReview(session);
     void rebindSession(session).catch((error: unknown) => {
       log("error", `editor session rebind failed: ${String(error)}`);
       deps.onOpenError(`Couldn't switch editor sessions: ${String(error)}`);
@@ -1672,7 +1805,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       const session = selectedSession();
       if (session !== null) {
         if (focus) {
-          activateDestinationFor(session);
+          activateDestinationFor(session, "navigation");
         } else {
           reviews.leaveUnified(session);
         }
@@ -1719,11 +1852,17 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     review: {
       mode: reviews.mode,
       overview: reviews.overview,
-      openCopy: (session, path) =>
-        host === undefined
-          ? Promise.reject(new Error("the editor is still loading"))
-          : host.openReviewCopy(session, path),
-      releaseCopies: () => host?.releaseReviewCopies(),
+      createCopyScope: () =>
+        host?.createReviewCopyScope() ?? createDeferredReviewCopyScope(editorHostReady),
+      bindNavigator: (session, navigator) => {
+        unifiedNavigators.set(session, navigator);
+        return () => {
+          if (unifiedNavigators.get(session) === navigator) {
+            unifiedNavigators.delete(session);
+          }
+        };
+      },
+      step: stepReview,
       toggleMode: (session) => {
         if (selectedSession() !== session) {
           return false;
@@ -1737,9 +1876,13 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         }
         const cursor = state.cursor;
         const cursorView = state.files.find(
-          (candidate) => cursor !== null && samePath(candidate.summary().path, cursor.path),
+          (candidate) =>
+            candidate.summary().currentExists &&
+            cursor !== null &&
+            samePath(candidate.summary().path, cursor.path),
         );
-        const view = cursorView ?? state.files[0];
+        const view =
+          cursorView ?? state.files.find((candidate) => candidate.summary().currentExists);
         if (view === undefined) {
           return false;
         }
@@ -1751,8 +1894,27 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         );
         return true;
       },
+      toggleFileCollapsed: (session, path) => {
+        const state = reviews.board(session);
+        if (selectedSession() !== session || state.mode !== "unified") {
+          return false;
+        }
+        const cursor = state.cursor;
+        const view = state.files.find((candidate) =>
+          samePath(candidate.summary().path, path ?? cursor?.path ?? ""),
+        );
+        const target = view ?? (path === undefined ? state.files[0] : undefined);
+        if (target === undefined) {
+          return false;
+        }
+        reviews.setFileCollapsed(session, target.summary().path, !target.collapsed());
+        return true;
+      },
       setCursor: (session, path, line) => {
         reviews.setCursor(session, { path, line });
+      },
+      setFileCollapsed: (session, path, collapsed) => {
+        reviews.setFileCollapsed(session, path, collapsed);
       },
       revert: tryRevertAll,
       keepFile: (session, path) => {
@@ -1786,10 +1948,6 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       redo: redoReview,
     },
     inline: {
-      nextChange: () => inlineDiff?.nextChange() ?? false,
-      prevChange: () => inlineDiff?.prevChange() ?? false,
-      nextFile: () => inlineDiff?.nextFile() ?? false,
-      prevFile: () => inlineDiff?.prevFile() ?? false,
       accept: () => inlineDiff?.accept() ?? false,
       reject: () => inlineDiff?.reject() ?? false,
       undo: () => inlineDiff?.undo() ?? false,

@@ -48,17 +48,24 @@ public static class AgentProviderComposition {
 					"ACP agents",
 					"The ACP provider id 'claude' is reserved by the terminal provider.")];
 			}
-			providers.Add(new AcpAgentProvider(new AcpAgentDefinition {
-				Id = launch.Id,
-				Name = launch.Name,
-				Command = launch.Command,
-				Arguments = launch.Arguments,
-				Environment = launch.Environment,
-				Distribution = launch.Distribution,
-			}, sessions, controls, Console.WriteLine));
+			providers.Add(new AcpAgentProvider(
+				Definition(launch),
+				() => Definition(catalog.LaunchSpecs.Single(candidate => candidate.Id == launch.Id)),
+				sessions,
+				controls,
+				Console.WriteLine));
 		}
 		return providers;
 	}
+
+	private static AcpAgentDefinition Definition(AcpLaunchSpec launch) => new() {
+		Id = launch.Id,
+		Name = launch.Name,
+		Command = launch.Command,
+		Arguments = launch.Arguments,
+		Environment = launch.Environment,
+		Distribution = launch.Distribution,
+	};
 
 	private sealed class UnavailableProvider : IAgentProvider {
 		public UnavailableProvider(string id, string name, string reason) {

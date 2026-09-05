@@ -18,7 +18,9 @@ internal sealed class NoopLogSink : ILogSink {
 internal sealed class FileLogSink : ILogSink, IDisposable {
 	private readonly StreamWriter? _writer;
 
-	public FileLogSink(string path) {
+	public FileLogSink(string path) : this(path, HostLogRetention.Prune) { }
+
+	internal FileLogSink(string path, Action<string> cleanup) {
 		Path = path;
 		try {
 			Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path)!);
@@ -27,6 +29,13 @@ internal sealed class FileLogSink : ILogSink, IDisposable {
 			_writer = new StreamWriter(new FileStream(path, options), new UTF8Encoding(false)) { AutoFlush = true };
 		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
 			Failure = ex.Message;
+		}
+		if (_writer is not null) {
+			try {
+				cleanup(System.IO.Path.GetDirectoryName(path)!);
+			} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+				Failure = $"Could not clean up completed host logs: {ex.Message}";
+			}
 		}
 	}
 

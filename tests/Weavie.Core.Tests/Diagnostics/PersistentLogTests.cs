@@ -24,7 +24,7 @@ public sealed class PersistentLogTests {
 		var buffer = new LogBuffer(10, sink);
 		buffer.Append("still running");
 		Assert.NotEmpty(buffer.PersistenceFailure);
-		Assert.Contains(buffer.Snapshot().Lines, line => line.Contains("Could not save logs", StringComparison.Ordinal));
+		Assert.Contains(buffer.Snapshot().Lines, line => line.Contains("Persistent logging error", StringComparison.Ordinal));
 		Assert.Contains("still running", buffer.Snapshot().Lines);
 		File.Delete(parent);
 	}

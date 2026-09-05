@@ -111,7 +111,8 @@ public static class WeaviePaths {
 	public static string PreviousCrashFile { get; } = Path.Combine(Logs, "previous-crash.log");
 
 	/// <summary>A unique console log for this host process, preserved across subsequent launches.</summary>
-	public static string HostLogFile { get; } = Path.Combine(Logs, $"host-{DateTime.UtcNow:yyyyMMdd-HHmmss-fffffff}-{Environment.ProcessId}.log");
+	public static string HostLogFile { get; } = Path.Combine(Logs,
+		$"{Diagnostics.HostLogRetention.Prefix}{DateTime.UtcNow.ToString(Diagnostics.HostLogRetention.TimestampFormat, System.Globalization.CultureInfo.InvariantCulture)}-{Environment.ProcessId}.log");
 
 	/// <summary>How the running session ends, stamped on the way out: <c>~/.weavie/logs/last-exit.log</c>.</summary>
 	public static string ExitJournalFile { get; } = Path.Combine(Logs, "last-exit.log");

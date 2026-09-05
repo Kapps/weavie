@@ -100,6 +100,7 @@ public sealed record HostServices {
 	/// </summary>
 	public static HostServices CreateDefault() {
 		// Install the console tee first so every store's construction log below lands in the in-app log viewer too.
+		HostLogRetention.Prune(WeaviePaths.Logs);
 		var logBuffer = LogBuffer.InstallConsoleCapture(WeaviePaths.HostLogFile);
 		var settings = CoreSettings.CreateStore(filePath: null, enableWatcher: true);
 		settings.Log += Log;

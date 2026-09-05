@@ -34,6 +34,7 @@ internal sealed class AppController : ApplicationContext {
 
 	public AppController() {
 		// Tee the console into the in-app log viewer first, so every store's construction log below is captured too.
+		HostLogRetention.Prune(WeaviePaths.Logs);
 		LogBuffer = LogBuffer.InstallConsoleCapture(WeaviePaths.HostLogFile);
 		Notifications = new WindowsNotificationService();
 

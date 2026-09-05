@@ -6,6 +6,7 @@ vi.mock("../editor-options", () => ({
   currentEditorOptions: () => ({ spellCheck: true }),
   onEditorOptionsChanged: () => () => {},
 }));
+vi.mock("../commands/registry", () => ({ findCommand: () => ({ keys: ["ctrl+shift+f8"] }) }));
 vi.mock("../notify/notify", () => ({ notify: vi.fn() }));
 vi.mock("./session-uri-owner", () => ({
   SESSION_FILE_SCHEME: "session",

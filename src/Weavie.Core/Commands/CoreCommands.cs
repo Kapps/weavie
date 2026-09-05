@@ -9,7 +9,11 @@ namespace Weavie.Core.Commands;
 /// ones. See <c>docs/specs/commands.md</c>.
 /// </summary>
 public static class CoreCommands {
-	/// <summary>Adds the word at the editor cursor to the user dictionary.</summary>
+	/// <summary>Downloads and selects the backend spelling dictionary.</summary>
+	public const string SpellSetLocale = "weavie.spell.setLocale";
+	/// <summary>Opens spelling suggestions or applies a chosen correction.</summary>
+	public const string SpellCorrect = "weavie.spell.correct";
+	/// <summary>Adds the current word to the user dictionary.</summary>
 	public const string SpellAddUser = "weavie.spell.addUser";
 	/// <summary>Adds the word at the editor cursor to the project dictionary.</summary>
 	public const string SpellAddProject = "weavie.spell.addProject";
@@ -420,6 +424,25 @@ public static class CoreCommands {
 				When = "editorFocused",
 			});
 		}
+
+		registry.Register(new CommandDefinition {
+			Id = SpellSetLocale,
+			Title = "Set Spelling Locale",
+			RunsIn = CommandLocation.Core,
+			Category = "Editor",
+			Description = "Download and select a spelling dictionary on this backend. Defaults to US English (en-US). Omit locale to list available locale codes; ask the agent to select one.",
+			ArgsSchemaJson = """{"locale":{"type":"string","description":"Dictionary locale code, e.g. en-US, en-GB, fr, de. Omit to list available codes."}}""",
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+alt+l" }],
+		});
+		registry.Register(new CommandDefinition {
+			Id = SpellCorrect,
+			Title = "Correct Spelling",
+			RunsIn = CommandLocation.Web,
+			Category = "Editor",
+			Description = "Show spelling suggestions for the underlined word at the cursor.",
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+alt+s" }],
+			When = "editorFocused",
+		});
 
 		// ctrl+1..9 → focus the Nth pane. Literal ctrl (not $mod) to stay Ctrl on macOS, where Cmd+1..9 collides
 		// with app/window shortcuts. Keybinding-only; each default binding carries its own index argument.

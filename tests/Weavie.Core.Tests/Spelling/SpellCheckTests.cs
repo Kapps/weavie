@@ -13,7 +13,7 @@ public sealed class SpellCheckTests : IDisposable {
 
 	[Fact]
 	public void ChecksExactUtf16RangesAndUnionsDictionaries() {
-		var result = SpellChecker.Check(
+		var result = SpellChecker.Check(SpellChecker.English.Value,
 			[new(4, 7, "😀 This isn't misspelled, but teh is. Weavie Frobulator https://zztypo.test `zzcode` user@zzmail.test")],
 			new HashSet<string>(["weavie"], StringComparer.OrdinalIgnoreCase),
 			new HashSet<string>(["Frobulator"], StringComparer.OrdinalIgnoreCase),
@@ -38,6 +38,16 @@ public sealed class SpellCheckTests : IDisposable {
 	}
 
 	[Fact]
+	public void CustomWordsUnifyCanonicalAccentsAndApostrophes() {
+		using var dictionary = new SpellDictionary(Path.Combine(_directory, "words"), confined: true, watch: false);
+		dictionary.Add("Weávíe’s");
+		dictionary.Add("Wea\u0301vi\u0301e's");
+		Assert.Single(dictionary.Words);
+		Assert.Empty(SpellChecker.Check(SpellChecker.English.Value,
+			[new(1, 0, "Wea\u0301vi\u0301e’s Weávíe's")], dictionary.Words, Empty, CancellationToken.None));
+	}
+
+	[Fact]
 	public void InvalidDictionaryAndFailedWritesAreVisible() {
 		string path = Path.Combine(_directory, "words");
 		File.WriteAllText(path, "not one word\n");
@@ -53,7 +63,7 @@ public sealed class SpellCheckTests : IDisposable {
 	public void CancelledChecksDoNotReturnPartialResults() {
 		using var cancelled = new CancellationTokenSource();
 		cancelled.Cancel();
-		Assert.Throws<OperationCanceledException>(() => SpellChecker.Check(
+		Assert.Throws<OperationCanceledException>(() => SpellChecker.Check(SpellChecker.English.Value,
 			[new(1, 0, "teh teh teh")], Empty, Empty, cancelled.Token));
 	}
 

@@ -14,8 +14,10 @@ namespace Weavie.Core.Configuration;
 /// </para>
 /// </summary>
 public static class EditorSettings {
-	/// <summary>Checks visible prose for English spelling mistakes.</summary>
+	/// <summary>Checks visible prose for spelling mistakes.</summary>
 	public const string SpellCheck = "editor.spellCheck";
+	/// <summary>The backend spelling dictionary selected through Set Spelling Locale.</summary>
+	public const string SpellCheckLocale = "editor.spellCheckLocale";
 	/// <summary>Inline type/parameter-name hints (the greyed <c>: Type</c> / <c>name:</c> annotations).</summary>
 	public const string InlayHints = "editor.inlayHints";
 
@@ -119,7 +121,15 @@ public static class EditorSettings {
 	/// <summary>Registers every editor-behavior setting into <paramref name="registry"/>.</summary>
 	public static void Register(SettingsRegistry registry) {
 		ArgumentNullException.ThrowIfNull(registry);
-		registry.Register(Toggle(SpellCheck, "Underline misspelled English words in prose, comments, and strings.", ["spelling", "spell check"], true));
+		registry.Register(Toggle(SpellCheck, "Underline misspelled words in prose, comments, and strings.", ["spelling", "spell check"], true));
+
+		registry.Register(new SettingDefinition {
+			Key = SpellCheckLocale,
+			Kind = SettingKind.String,
+			Default = "en-US",
+			Apply = ApplyMode.Live,
+			Description = "Spelling dictionary on this backend. Use weavie.spell.setLocale to download and select a locale; US English is bundled.",
+		});
 
 		registry.Register(new SettingDefinition {
 			Key = InlayHints,

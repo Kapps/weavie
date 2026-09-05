@@ -52,6 +52,33 @@ public sealed class SettingsStoreTests : IDisposable {
 
 	private static JsonElement Json(string raw) => JsonDocument.Parse(raw).RootElement.Clone();
 
+	[Theory]
+	[InlineData(false)]
+	[InlineData(true)]
+	public void FailedWritesPreserveLiveValuesAndCannotLeakIntoLaterCommits(bool clear) {
+		File.WriteAllText(FilePath, "t.str = \"keep\"\n");
+		using var store = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: false, WorkspaceFile);
+		var changes = new List<SettingChange>();
+		store.SettingChanged += changes.Add;
+		string backup = FilePath + ".original";
+		File.Move(FilePath, backup);
+		Directory.CreateDirectory(FilePath);
+		var failure = Record.Exception(() => {
+			if (clear) store.Clear("t.str");
+			else store.Set("t.str", Json("\"failed\""));
+		});
+		Assert.True(failure is IOException or UnauthorizedAccessException, failure?.ToString());
+		Assert.Equal("keep", store.RequireString("t.str"));
+		Assert.Empty(changes);
+		Directory.Delete(FilePath);
+		File.Move(backup, FilePath);
+		store.Set("t.flag", Json("true"));
+		Assert.Equal("t.flag", Assert.Single(changes).Key);
+		using var reloaded = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: false, WorkspaceFile);
+		Assert.Equal("keep", reloaded.RequireString("t.str"));
+		Assert.True(reloaded.RequireBool("t.flag"));
+	}
+
 	[Fact]
 	public void Resolution_Precedence_EnvBeatsFileBeatsDefault() {
 		File.WriteAllText(FilePath, "t.str = \"from-file\"\n");

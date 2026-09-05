@@ -11,7 +11,7 @@ import {
   registerSessionFeature,
   selectedSession,
 } from "../bridge";
-import type { ContextMenuEntry } from "../chrome/ContextMenu";
+import type { ContextMenuState } from "../chrome/ContextMenu";
 import { dismissSplash } from "../splash";
 import { mark } from "../startup-timing";
 // Type-only (erased at build): the symbol query surface's monaco glue is dynamically imported in start(), so it
@@ -203,7 +203,8 @@ export interface EditorController {
    * only when no editor is mounted, so the command declines rather than appearing to do nothing.
    */
   showBlameAtCursor(): boolean;
-  spellingMenuAt(x: number, y: number): ContextMenuEntry[];
+  spellingMenuAt(x: number, y: number): ContextMenuState;
+  correctSpelling(args: unknown): ContextMenuState | null;
   addSpellingWord(scope: "user" | "project", args: unknown): Promise<void>;
   /** The active file's current working-copy text (reactive), for the Preview overlay; "" when none. */
   activeContent(): string;
@@ -1853,7 +1854,8 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       return true;
     },
     showBlameAtCursor: () => gitBlame?.showAtCursor() ?? false,
-    spellingMenuAt: (x, y) => spelling?.menuAt(x, y) ?? [],
+    spellingMenuAt: (x, y) => spelling?.menuAt(x, y) ?? { x, y, entries: [] },
+    correctSpelling: (args) => spelling?.correct(args) ?? null,
     addSpellingWord: (scope, args) => spelling?.add(scope, args) ?? Promise.resolve(),
     activeContent,
     reviewActive,

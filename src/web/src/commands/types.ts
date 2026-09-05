@@ -115,6 +115,7 @@ export const CommandIds = {
   toggleWindow: "weavie.window.toggle",
   nextChange: "weavie.diff.nextChange",
   prevChange: "weavie.diff.prevChange",
+  spellCorrect: "weavie.spell.correct",
   spellAddUser: "weavie.spell.addUser",
   spellAddProject: "weavie.spell.addProject",
   reviseSelection: "weavie.revise.selection",

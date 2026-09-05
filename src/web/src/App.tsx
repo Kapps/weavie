@@ -1250,11 +1250,11 @@ export default function App(): JSX.Element {
                   return;
                 }
                 event.preventDefault();
+                const spelling = editor.spellingMenuAt(event.clientX, event.clientY);
                 setContextMenu({
-                  x: event.clientX,
-                  y: event.clientY,
+                  ...spelling,
                   entries: [
-                    ...editor.spellingMenuAt(event.clientX, event.clientY),
+                    ...spelling.entries,
                     { commandId: CommandIds.editorGoToDefinition },
                     { commandId: CommandIds.editorPeekDefinition },
                     { commandId: CommandIds.editorGoToReferences },
@@ -1703,6 +1703,10 @@ export default function App(): JSX.Element {
       // Blame: opens the popover on the cursor's line, or says why that line has no commit behind it. Declines
       // only with no editor mounted, so the palette entry never looks like it silently did nothing.
       registerCommand(CommandIds.showBlame, () => editor.showBlameAtCursor()),
+      registerCommand(CommandIds.spellCorrect, (args) => {
+        const menu = editor.correctSpelling(args);
+        if (menu !== null) setContextMenu(menu);
+      }),
       registerCommand(CommandIds.spellAddUser, (args) => editor.addSpellingWord("user", args)),
       registerCommand(CommandIds.spellAddProject, (args) =>
         editor.addSpellingWord("project", args),

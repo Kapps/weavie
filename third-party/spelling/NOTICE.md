@@ -7,3 +7,8 @@ The unmodified en_US.aff and en_US.dic resources come from LibreOffice/dictionar
 commit 32b006a2c22a4ac7e8ed3f03346f7b3d85a970a4, directory en/:
 https://github.com/LibreOffice/dictionaries/tree/32b006a2c22a4ac7e8ed3f03346f7b3d85a970a4/en.
 See English-LICENSE.txt for the word-list copyright notices and permissions.
+
+Additional dictionaries are downloaded on request from wooorm/dictionaries at
+commit 8cfea406b505e4d7df52d5a19bce525df98c54ab:
+https://github.com/wooorm/dictionaries/tree/8cfea406b505e4d7df52d5a19bce525df98c54ab/dictionaries.
+Each downloaded dictionary is cached together with its original `license` file.

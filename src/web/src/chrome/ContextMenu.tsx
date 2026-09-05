@@ -1,5 +1,14 @@
 import { ChevronRight } from "lucide-solid";
-import { createMemo, createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  For,
+  type JSX,
+  onCleanup,
+  onMount,
+  Show,
+} from "solid-js";
 import { Portal } from "solid-js/web";
 import { formatKey } from "../commands/keybindings";
 import { findCommand, runCommandWithFeedback } from "../commands/registry";
@@ -17,6 +26,7 @@ export interface ContextMenuItem {
   title?: string;
   disabled?: boolean;
   danger?: boolean;
+  hideKeys?: boolean;
 }
 
 export interface ContextMenuSeparator {
@@ -39,11 +49,13 @@ export interface ContextMenuState {
   y: number;
   header?: string;
   entries: ContextMenuEntry[];
+  loadEntries?: (signal: AbortSignal) => Promise<ContextMenuEntry[]>;
 }
 
 const labelOf = (item: ContextMenuItem): string =>
   item.label ?? findCommand(item.commandId)?.title ?? item.commandId;
 const keysOf = (item: ContextMenuItem): string => {
+  if (item.hideKeys) return "";
   const keys = findCommand(item.commandId)?.keys ?? [];
   return keys.length > 0 ? keys.map(formatKey).join(" / ") : "";
 };
@@ -67,7 +79,7 @@ function MenuPanel(props: {
   onCloseSelf?: () => void;
 }): JSX.Element {
   let panelEl: HTMLDivElement | undefined;
-  const [openIndex, setOpenIndex] = createSignal<number | null>(null);
+  const [openEntry, setOpenEntry] = createSignal<ContextMenuSubmenu | null>(null);
   const [opener, setOpener] = createSignal<HTMLButtonElement | null>(null);
   const [anchorRect, setAnchorRect] = createSignal<DOMRect | null>(null);
   const [autoFocusChild, setAutoFocusChild] = createSignal(false);
@@ -81,16 +93,14 @@ function MenuPanel(props: {
         ]
       : [];
 
-  // The open fly-out as one value, so the render never reads a half-set (index without rect, or vice versa)
-  // mid-update — both signals are folded here and the panel renders only when the whole thing is present.
+  // Keep the open entry stable when asynchronous rows are inserted ahead of its opener.
   const openFlyout = createMemo(() => {
-    const index = openIndex();
     const rect = anchorRect();
-    const entry = index === null ? undefined : props.entries[index];
+    const entry = openEntry();
     if (
       rect === null ||
-      entry === undefined ||
-      entry.kind !== "submenu" ||
+      entry === null ||
+      !props.entries.includes(entry) ||
       entry.disabled === true
     ) {
       return null;
@@ -103,10 +113,11 @@ function MenuPanel(props: {
     // The panel has already clamped, so the row's rect is final — capture it to anchor the fly-out.
     setAnchorRect(row.getBoundingClientRect());
     setAutoFocusChild(viaKeyboard);
-    setOpenIndex(index);
+    const entry = props.entries[index];
+    if (entry?.kind === "submenu") setOpenEntry(entry);
   };
   const collapseSubmenu = (): void => {
-    setOpenIndex(null);
+    setOpenEntry(null);
     setAnchorRect(null);
   };
   const closeSubmenu = (): void => {
@@ -171,7 +182,16 @@ function MenuPanel(props: {
     panelEl.style.top = `${y}px`;
   };
 
+  createEffect(clampToViewport);
+
   onMount(() => {
+    const observer = new ResizeObserver(() => {
+      clampToViewport();
+      const row = opener();
+      if (openEntry() !== null && row !== null) setAnchorRect(row.getBoundingClientRect());
+    });
+    if (panelEl !== undefined) observer.observe(panelEl);
+    onCleanup(() => observer.disconnect());
     queueMicrotask(() => {
       clampToViewport();
       if (props.autoFocus) {
@@ -212,7 +232,7 @@ function MenuPanel(props: {
               disabled={entry.disabled}
               aria-disabled={entry.disabled}
               aria-haspopup="true"
-              aria-expanded={openIndex() === index()}
+              aria-expanded={openEntry() === entry}
               onMouseEnter={(e) => {
                 if (entry.disabled !== true) {
                   openSubmenu(index(), e.currentTarget, false);
@@ -281,6 +301,31 @@ export function ContextMenu(props: {
   onClose: () => void;
   dismissInside?: string;
 }): JSX.Element {
+  const [entries, setEntries] = createSignal<ContextMenuEntry[]>([]);
+  createEffect(() => {
+    const menu = props.menu;
+    const pending = new AbortController();
+    onCleanup(() => pending.abort());
+    setEntries(menu.entries);
+    if (menu.loadEntries !== undefined) {
+      setEntries([
+        { commandId: "", label: "Loading suggestions…", disabled: true },
+        ...menu.entries,
+      ]);
+      void menu.loadEntries(pending.signal).then(
+        (loaded) => {
+          if (!pending.signal.aborted) setEntries([...loaded, ...menu.entries]);
+        },
+        (error: unknown) => {
+          if (!pending.signal.aborted)
+            setEntries([
+              { commandId: "", label: `Suggestions failed: ${String(error)}`, disabled: true },
+              ...menu.entries,
+            ]);
+        },
+      );
+    }
+  });
   let stopModalListener = (): void => {};
   const onKeyDown = (event: KeyboardEvent): void => {
     if (event.key === "Escape") {
@@ -304,7 +349,7 @@ export function ContextMenu(props: {
   return (
     <Portal>
       <MenuPanel
-        entries={props.menu.entries}
+        entries={entries()}
         x={props.menu.x}
         y={props.menu.y}
         header={props.menu.header}

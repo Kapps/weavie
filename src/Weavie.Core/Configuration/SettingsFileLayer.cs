@@ -64,11 +64,11 @@ internal sealed class SettingsFileLayer : IDisposable {
 		return false;
 	}
 
-	/// <summary>Sets <paramref name="definition"/>'s key = <paramref name="coerced"/> in the document, updating every
-	/// existing entry in place or appending a new key self-documented with the definition's description. Rebuilds the model.</summary>
+	/// <summary>Sets <paramref name="definition"/>'s key = <paramref name="coerced"/> atomically, preserving existing
+	/// comments or appending a new key self-documented with the definition's description.</summary>
 	public void SetValue(SettingDefinition definition, object? coerced) {
-		var document = _file.Value;
-		var existing = FindEntries(definition.Key);
+		var document = Toml.Parse(_file.Value.Syntax.ToString());
+		var existing = FindEntries(document, definition.Key);
 		if (existing.Count > 0) {
 			// Update every form the key appears in — root dotted and nested under a hand-written [table] header —
 			// so a table entry can't keep shadowing the write. A fresh value node per entry: nodes are single-parent.
@@ -83,23 +83,23 @@ internal sealed class SettingsFileLayer : IDisposable {
 					new SyntaxTrivia(TokenKind.NewLine, "\n"),
 				],
 			};
-			document.Syntax.KeyValues.Add(keyValue);
+			document.KeyValues.Add(keyValue);
 		}
 
-		document.Model = document.Syntax.ToModel();
+		SaveAtomic(document);
 	}
 
 	// Removes every user entry for `key` — the root-level dotted form and entries nested under a
 	// hand-edited [table] header. An emptied table header is left in place: pruning it risks dropping comments.
 	public bool RemoveKey(string key) {
-		var document = _file.Value;
-		var matches = FindEntries(key);
+		var document = Toml.Parse(_file.Value.Syntax.ToString());
+		var matches = FindEntries(document, key);
 		foreach (var (owner, node) in matches) {
 			owner.RemoveChild(node);
 		}
 
 		if (matches.Count > 0) {
-			document.Model = document.Syntax.ToModel();
+			SaveAtomic(document);
 		}
 
 		return matches.Count > 0;
@@ -107,8 +107,7 @@ internal sealed class SettingsFileLayer : IDisposable {
 
 	// Every entry for a dotted key, in both forms it can appear in — a root-level dotted key and an entry
 	// nested under a [table] header — paired with the list that owns it (for removal).
-	private List<(SyntaxList<KeyValueSyntax> Owner, KeyValueSyntax Node)> FindEntries(string key) {
-		var documentSyntax = _file.Value.Syntax;
+	private static List<(SyntaxList<KeyValueSyntax> Owner, KeyValueSyntax Node)> FindEntries(DocumentSyntax documentSyntax, string key) {
 		var matches = new List<(SyntaxList<KeyValueSyntax>, KeyValueSyntax)>();
 		foreach (var keyValue in documentSyntax.KeyValues) {
 			if (keyValue.Key is { } keySyntax && string.Equals(DottedKeyName(keySyntax), key, StringComparison.Ordinal)) {
@@ -134,7 +133,12 @@ internal sealed class SettingsFileLayer : IDisposable {
 	}
 
 	/// <summary>Writes the document to disk atomically (temp file + replace), creating the directory if needed.</summary>
-	public void SaveAtomic() => FileSystem.WriteAllTextAtomic(FilePath, _file.Value.Syntax.ToString());
+	private void SaveAtomic(DocumentSyntax syntax) {
+		var model = syntax.ToModel();
+		FileSystem.WriteAllTextAtomic(FilePath, syntax.ToString());
+		_file.Value.Syntax = syntax;
+		_file.Value.Model = model;
+	}
 
 	public void Dispose() => _file.Dispose();
 
@@ -203,7 +207,7 @@ internal sealed class SettingsFileLayer : IDisposable {
 			Model = model;
 		}
 
-		internal DocumentSyntax Syntax { get; }
+		internal DocumentSyntax Syntax { get; set; }
 
 		internal TomlTable Model { get; set; }
 	}

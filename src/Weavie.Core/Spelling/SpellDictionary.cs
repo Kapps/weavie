@@ -41,6 +41,7 @@ public sealed class SpellDictionary : IDisposable {
 		if (!SpellChecker.IsWord(word)) {
 			throw new ArgumentException("Choose a single word to add to the dictionary.", nameof(word));
 		}
+		word = SpellChecker.Normalize(word);
 		lock (_gate) {
 			var words = Load(_file.Path);
 			if (!words.Contains(word)) {
@@ -75,7 +76,7 @@ public sealed class SpellDictionary : IDisposable {
 			if (!SpellChecker.IsWord(line)) {
 				throw new InvalidDataException($"Dictionary '{path}' must contain one word per line.");
 			}
-			words.Add(line);
+			words.Add(SpellChecker.Normalize(line));
 		}
 		return words;
 	}

@@ -110,8 +110,11 @@ public static class WeaviePaths {
 	/// <summary>The prior run's crash report, rotated here once it's surfaced: <c>~/.weavie/logs/previous-crash.log</c>.</summary>
 	public static string PreviousCrashFile { get; } = Path.Combine(Logs, "previous-crash.log");
 
+	/// <summary>Filename prefix shared by every <see cref="HostLogFile"/>, so <see cref="Diagnostics.HostLogRetention"/> can find this run's siblings.</summary>
+	public const string HostLogPrefix = "host-";
+
 	/// <summary>A unique console log for this host process, preserved across subsequent launches.</summary>
-	public static string HostLogFile { get; } = Path.Combine(Logs, $"host-{DateTime.UtcNow:yyyyMMdd-HHmmss-fffffff}-{Environment.ProcessId}.log");
+	public static string HostLogFile { get; } = Path.Combine(Logs, $"{HostLogPrefix}{DateTime.UtcNow:yyyyMMdd-HHmmss-fffffff}-{Environment.ProcessId}.log");
 
 	/// <summary>How the running session ends, stamped on the way out: <c>~/.weavie/logs/last-exit.log</c>.</summary>
 	public static string ExitJournalFile { get; } = Path.Combine(Logs, "last-exit.log");

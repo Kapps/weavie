@@ -1,8 +1,9 @@
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { expect, test } from "@playwright/test";
+import { expect } from "@playwright/test";
 import { PIXEL_RED } from "./harness/git-workspace";
+import { test } from "./harness/network-fixtures";
 import { measureSessionSwitch, type SessionSwitchExpectation } from "./harness/session-switch";
 import { MockHost, type MockSession, mockSession } from "./mock-host";
 

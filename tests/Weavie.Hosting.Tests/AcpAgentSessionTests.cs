@@ -228,9 +228,10 @@ public sealed class AcpAgentSessionTests {
 			terminal.Type == "turn-completed",
 			$"Side turn ended as {terminal.Type}: {terminal.Summary ?? terminal.Text}");
 
-		var starting = Assert.Single(fixture.Events.Values.OfType<AgentToolStarting>());
+		var sideEvents = fixture.Events.Values.OfType<AgentConversationEvent>().Select(value => value.Value);
+		var starting = Assert.Single(sideEvents.OfType<AgentToolStarting>());
 		Assert.IsType<AgentMutation.File>(starting.Mutation);
-		Assert.Single(fixture.Events.Values.OfType<AgentToolCompleted>());
+		Assert.Single(sideEvents.OfType<AgentToolCompleted>());
 		Assert.Equal(SessionStatus.Idle, fixture.Events.Status.Status);
 	}
 
@@ -276,21 +277,21 @@ public sealed class AcpAgentSessionTests {
 	}
 
 	[Fact]
-	public async Task NativeSession_InterruptsSideLoadAuthenticationAndDispatchesPrimaryPrompt() {
+	public async Task NativeSession_PrimaryPromptRunsDuringSideLoadAuthentication() {
 		await using var fixture = AcpAgentSessionFixture.CreateSideHeldAuthenticationAdapter();
 		await fixture.StartAsync();
 
 		fixture.Session.AskAside("authentication");
 		var authentication = await fixture.WaitForMessageAsync(message =>
 			message.Type == "authentication-requested" && message.ConversationId is not null);
-		fixture.Submit("after interruption");
+		fixture.Submit("during authentication");
+		var answer = await fixture.WaitForMessageAsync(message => message.Type == "turn-completed"
+			&& message.ConversationId is null);
 		fixture.Session.Interrupt();
 
 		var terminal = await fixture.WaitForMessageAsync(message =>
 			message.Type == "side-conversation-failed"
 			&& message.ConversationId == authentication.ConversationId);
-		var answer = await fixture.WaitForMessageAsync(message =>
-			message.Type == "item-completed" && message.Text == "echo: after interruption");
 
 		Assert.Equal(authentication.ConversationId, terminal.ConversationId);
 		Assert.NotEqual(false, answer.IsPrimaryThread);
@@ -300,11 +301,18 @@ public sealed class AcpAgentSessionTests {
 	public async Task NativeSession_InterruptsActiveSideBeforeDispatchingTheNextSide() {
 		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
 		await fixture.StartAsync();
+		fixture.Submit("hold");
+		await fixture.WaitForMessageAsync(message =>
+			message.Type == "item-started" && message.ItemId == "tool:hold" && message.ConversationId is null);
 
 		fixture.Session.AskAside("hold");
 		fixture.Session.AskAside("next aside");
 		var held = await fixture.WaitForMessageAsync(message =>
 			message.Type == "item-started" && message.ItemId == "tool:hold" && message.ConversationId is not null);
+		fixture.Session.Interrupt();
+		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed"
+			&& message.ConversationId is null && message.Status == "cancelled");
+		Assert.Equal(SessionStatus.Working, fixture.Events.Status.Status);
 		fixture.Session.Interrupt();
 		var interrupted = await fixture.WaitForMessageAsync(message =>
 			message.Type == "turn-completed"

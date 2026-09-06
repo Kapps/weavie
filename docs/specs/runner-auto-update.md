@@ -5,7 +5,7 @@
 The runner (`src/Weavie.Runner`) is a long-lived daemon on a dedicated box. Today it runs whatever
 build it was started from, forever; getting a new version means SSH-ing in, rebuilding, and
 restarting by hand. This spec makes the **worker** (`Weavie.Headless`, the process that actually
-changes day-to-day) auto-update from CI builds of green `main`, while the **runner itself stays on
+changes day-to-day) auto-update from the selected stable or latest channel, while the **runner itself stays on
 its version until restarted** — deliberately.
 
 ## Design principle: update the workers, not the updater
@@ -44,31 +44,26 @@ sequenceDiagram
     Note over W2: claude sessions resume via ClaudeSessionStore
 ```
 
-## Version identity: the existing build number
+## Version identity and release channels
 
-Builds are already versioned: `Directory.Build.props` stamps `VersionPrefix =
-0.1.$(GITHUB_RUN_NUMBER)`, `HostCore.BuildNumber` (`src/Weavie.Hosting/HostCore.cs:238`) reads it
-(and throws if missing), and it reaches the web bootstrap as `__WEAVIE_SHELL__.buildNumber`. That
-number is the update system's **single identity** end to end: the `versions/<N>/` directory key,
-the poll comparison, the skew check, and the client-reload signal. It is monotonic, which makes
-"newer" and `minRunnerVersion` plain integer comparisons — no SHA ordering, no semver ceremony.
-The web bundle needs no version of its own: the page and its assets are served by the same worker
-that injects `buildNumber`, so the bootstrap value *is* the bundle's version marker.
+`Directory.Build.props` stamps the public `VersionPrefix` separately from the integer `BuildNumber`.
+The informational identity is `major.minor.patch.build` (for example `0.2.1.1507`), shown by the host
+and injected into `__WEAVIE_SHELL__.buildNumber`. The integer build remains the `versions/<N>/`
+directory key and update ordering identity; public minor/major bumps never reset it.
+The web bootstrap comes from the same worker that serves its assets.
 
-## Update source: rolling prerelease per green `main` commit
+The [release strategy](releases.md) defines source selection, public-version bumps, validation,
+GitHub Releases, and channel promotion. The runner supports `--auto-update [stable|latest]`:
 
-`.github/workflows/release.yml` builds the exact payload: the `runner` job
-publishes `Weavie.Runner` with `Weavie.Headless` staged into `worker/` and the web `dist` bundled —
-one artifact is the complete deploy. The release contract is:
-
-- **Trigger on green `main`**: build `workflow_run.head_sha`, the exact push commit that passed CI.
-  Main CI and complete release workflows keep their active run and coalesce newer pushes into one
-  latest pending successor, so frequent merges cannot starve the rolling release.
-- **Publish as a rolling GitHub prerelease** (tag `main-latest`, assets replaced each run) rather
-  than an Actions artifact: release assets are fetchable with a plain bearer token (or anonymously
-  on a public repo) and carry a `digest` in the API response; Actions artifacts need the Actions API
-  and expire. The runner and all three desktop archives build before one write-privileged final job
-  replaces the release through a draft, so a failed platform build leaves the prior release intact.
+- Omitted flag: updates off. Bare flag: stable.
+- Stable resolves the `stable` annotated-version pointer and downloads that immutable `vX.Y.Z`
+  release's runner bundle. Only manual releases advance stable after all platform checks pass.
+- Latest downloads the rolling `main-latest` prerelease, which contains Linux desktop and runner
+  archives after green main CI. It also supports manually selected main-history sources.
+- Both channels use `release.yml`'s run number as one shared build sequence. Selecting a channel
+  with an older build does not downgrade; status explains that it is waiting for a newer release.
+- `.github/workflows/release.yml` publishes `Weavie.Runner` with `Weavie.Headless` staged into
+  `worker/` and web `dist` bundled. One artifact is the complete deploy.
 - The bundle carries a small `manifest.json`: `{ buildNumber, spawnContract }`, written by the
   publish itself (an MSBuild target — CI never hand-assembles it). `spawnContract` is a generation
   integer declared once (`SpawnContractVersion` in `Directory.Build.props`) and compiled into both
@@ -273,7 +268,7 @@ client never carries that decision across reconnects because the next worker may
 
 Runner CLI/env surface, matching the existing `RunnerOptions` pattern (args → env → default):
 
-- `--auto-update` / `WEAVIE_RUNNER_AUTO_UPDATE=1` — off by default.
+- `--auto-update [stable|latest]` — omitted: off; bare flag: stable; explicit channel: that feed.
 - `--github-token` / `WEAVIE_RUNNER_GITHUB_TOKEN` — required for a private repo; anonymous
   otherwise.
 

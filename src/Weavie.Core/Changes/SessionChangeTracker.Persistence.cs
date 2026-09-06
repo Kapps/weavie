@@ -17,7 +17,7 @@ public sealed partial class SessionChangeTracker {
 		SynchronizeHistory(external: true, except: null);
 		_persistence.Save(JsonSerializer.Serialize(new ReviewSnapshot(
 			_workspaceRoot, [.. _baseline.Keys.Select(path => Capture(path, withDisk: false))],
-			_undoStack, _redoStack, _review, _nextOriginId, _nextActionId, _currentPrompt)));
+			_undoStack, _redoStack, _review, _nextOriginId, _nextActionId, _conversationPrompts)));
 	}
 
 	private void RestoreCheckpoint() {
@@ -26,7 +26,7 @@ public sealed partial class SessionChangeTracker {
 		try {
 			var saved = JsonSerializer.Deserialize<ReviewSnapshot>(document)
 				?? throw new JsonException("The review document is empty.");
-			if (!PathIdentity.Equals(saved.Root, _workspaceRoot) || saved.Files is null || saved.Undo is null || saved.Redo is null
+			if (!PathIdentity.Equals(saved.Root, _workspaceRoot) || saved.Files is null || saved.Undo is null || saved.Redo is null || saved.Prompts is null
 				|| saved.Review is { } review && !PathIdentity.Equals(review.Worktree, _workspaceRoot))
 				throw new JsonException("The review does not belong to this worktree.");
 			foreach (var file in saved.Files) {
@@ -59,7 +59,7 @@ public sealed partial class SessionChangeTracker {
 			_review = saved.Review;
 			_nextOriginId = saved.NextOriginId;
 			_nextActionId = saved.NextActionId;
-			_currentPrompt = saved.Prompt;
+			foreach (var (conversation, prompt) in saved.Prompts) _conversationPrompts.Add(conversation, prompt);
 			ReconcileReviewDisk();
 		} catch (Exception error) when (error is JsonException or ArgumentException) {
 			throw new IOException("The saved review could not be restored; its document was left untouched.", error);
@@ -93,5 +93,5 @@ public sealed partial class SessionChangeTracker {
 	}
 
 	private sealed record ReviewSnapshot(string Root, PathState[] Files, List<ReviewAction> Undo,
-		List<ReviewAction> Redo, ReviewContext? Review, long NextOriginId, long NextActionId, string? Prompt);
+		List<ReviewAction> Redo, ReviewContext? Review, long NextOriginId, long NextActionId, Dictionary<string, string?> Prompts);
 }

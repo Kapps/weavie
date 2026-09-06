@@ -351,7 +351,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 		_settings,
 		[.. _agentProviders.Providers.Select(provider => provider.Info)]);
 
-	/// <summary>The app's build identity (SemVer with the build number as patch, e.g. <c>0.1.247</c>), stamped at build time.</summary>
+	/// <summary>The app's build identity (public version plus internal build number, e.g. <c>0.2.1.1507</c>), stamped at build time.</summary>
 	public static string BuildNumber =>
 		typeof(HostCore).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
 		?? throw new InvalidOperationException("Weavie.Hosting has no AssemblyInformationalVersion — the build-stamp target did not run.");

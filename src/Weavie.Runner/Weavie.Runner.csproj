@@ -59,7 +59,7 @@
       <_WorkerSelfContained Condition="'$(SelfContained)' != ''">--self-contained $(SelfContained)</_WorkerSelfContained>
     </PropertyGroup>
     <Message Importance="high" Text="weavie: publishing Weavie.Headless worker -> $(_WorkerOut)" />
-    <Exec Command="dotnet publish &quot;$(_WorkerProj)&quot; -c $(Configuration) $(_WorkerRid) $(_WorkerSelfContained) -o &quot;$(_WorkerOut)&quot; --nologo" />
+    <Exec Command="dotnet publish &quot;$(_WorkerProj)&quot; -c $(Configuration) $(_WorkerRid) $(_WorkerSelfContained) -p:PublicVersion=$(PublicVersion) -p:BuildNumber=$(BuildNumber) -o &quot;$(_WorkerOut)&quot; --nologo" />
   </Target>
 
   <!-- The bundle manifest the auto-updater reads before applying a downloaded build.

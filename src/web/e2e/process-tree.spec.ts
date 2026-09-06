@@ -2,7 +2,8 @@ import { type ChildProcess, spawn } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect, test } from "@playwright/test";
+import { expect } from "@playwright/test";
+import { test } from "./harness/network-fixtures";
 import { killProcessTree } from "./harness/weavie-host";
 
 test("Windows process-tree shutdown rejects an exited root with a surviving child", async () => {

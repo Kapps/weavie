@@ -63,8 +63,6 @@ public sealed partial class AcpAgentSession {
 		lock (_gate) {
 			if (_role is not PrimaryRole
 				|| !_ready
-				|| _promptActive
-				|| _pendingSubmissions.Count > 0
 				|| _activeSideConversationId is not null
 				|| _pendingSideSubmissions.Count == 0) {
 				return;
@@ -140,7 +138,7 @@ public sealed partial class AcpAgentSession {
 
 	private SideRuntime CreateSideRuntime(SideConversation conversation, bool guidanceInherited) {
 		var child = new AcpAgentSession(
-			_context,
+			_context with { Events = new SideEventSink(this, conversation.ConversationId) },
 			_definitionSource,
 			_sessions,
 			_controlDefaults,

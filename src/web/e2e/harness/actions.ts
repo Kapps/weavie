@@ -129,20 +129,25 @@ export async function awaitEditorLaidOut(page: Page): Promise<void> {
     .toBe(0);
 }
 
+export async function openCommandPalette(page: Page): Promise<void> {
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".tb-omnibar-box")).not.toHaveClass(/\bopen\b/);
+  await page.keyboard.press("ControlOrMeta+Shift+p");
+  await expect(page.locator(".tb-omnibar-box")).toHaveClass(/\bopen\b/, { timeout: 1000 });
+  await expect(page.locator(".tb-omnibar-input")).toBeFocused();
+}
+
+export async function openSearch(page: Page): Promise<void> {
+  await page.keyboard.press("ControlOrMeta+Shift+f");
+  await expect(page.locator(".search-panel")).toBeVisible({ timeout: 1000 });
+  await expect(page.locator(".search-input")).toBeFocused();
+}
+
 // Run a command through the command palette (Show All Commands), matching by title text. Exercises the
 // same keyboard path a user would: $mod+Shift+p, type, Enter on the first match.
 export async function runCommand(page: Page, title: string): Promise<void> {
   const box = page.locator(".tb-omnibar-box");
-  // Ensure the palette is closed first, so the open shortcut doesn't toggle a still-open palette shut
-  // (it stays open briefly after a prior command runs).
-  await page.keyboard.press("Escape");
-  await expect(box).not.toHaveClass(/\bopen\b/);
-  // Open it — retried because a focused pane (xterm/Monaco) occasionally swallows the first chord under
-  // load, so the keypress doesn't reach the global handler.
-  await expect(async () => {
-    await page.keyboard.press("ControlOrMeta+Shift+p");
-    await expect(box).toHaveClass(/\bopen\b/, { timeout: 1000 });
-  }).toPass({ timeout: 10_000 });
+  await openCommandPalette(page);
   // Command mode is signalled by a leading ">"; keep it on the filled value (a bare fill would drop to
   // file search).
   await page.locator(".tb-omnibar-input").fill(`>${title}`);

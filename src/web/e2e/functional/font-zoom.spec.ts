@@ -1,4 +1,4 @@
-import { openFile, runCommand } from "../harness/actions";
+import { openCommandPalette, openFile, runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 
 // Reads the rendered editor font size: Monaco stamps `font-size` onto each `.view-line`, so the computed
@@ -72,11 +72,7 @@ test("zooming via the keybindings does not spawn empty toasts", async ({ page })
 // The commands must be discoverable in the palette under the View category — that's the keyboard-first
 // discovery path the issue asked for.
 test("font-size commands appear in the palette under View", async ({ page }) => {
-  const box = page.locator(".tb-omnibar-box");
-  await expect(async () => {
-    await page.keyboard.press("ControlOrMeta+Shift+p");
-    await expect(box).toHaveClass(/\bopen\b/, { timeout: 1000 });
-  }).toPass({ timeout: 10_000 });
+  await openCommandPalette(page);
   await page.locator(".tb-omnibar-input").fill(">font size");
 
   for (const title of ["Increase Font Size", "Decrease Font Size", "Reset Font Size"]) {

@@ -41,6 +41,7 @@ import { AcpRegistryModal } from "./chrome/AcpRegistryModal";
 import { ContextMenu, type ContextMenuEntry, type ContextMenuState } from "./chrome/ContextMenu";
 import { DeleteSessionDialog, type DeleteSessionState } from "./chrome/DeleteSessionDialog";
 import { DiffAgainstPrompt } from "./chrome/DiffAgainstPrompt";
+import { DeferredFocus } from "./chrome/deferred-focus";
 import { EditorFooter } from "./chrome/EditorFooter";
 import { gitStatus } from "./chrome/git-status-store";
 import { installMiddleClickAutoscroll } from "./chrome/middle-click-autoscroll";
@@ -249,6 +250,19 @@ function mobileTransitionStyle(transition: MobileTransition | null): string | un
 }
 
 export default function App(): JSX.Element {
+  const deferredFocus = new DeferredFocus(
+    selectedSession,
+    {
+      request: (callback) => requestAnimationFrame(callback),
+      cancel: (handle) => cancelAnimationFrame(handle),
+    },
+    window,
+  );
+  createEffect(() => {
+    selectedSession();
+    deferredFocus.invalidate();
+  });
+  onCleanup(() => deferredFocus.dispose());
   let editorContainer!: HTMLDivElement;
   const compact = useCompactMode();
   const mobileVisualViewportStyle = createMobileVisualViewportStyle(compact);
@@ -726,6 +740,7 @@ export default function App(): JSX.Element {
   });
 
   const focusPane = (kind: string): void => {
+    deferredFocus.invalidate();
     // Mark it active first: in fullscreen this synchronously makes its slot the visible one (the others are
     // display:none), so the focus call below lands on an on-screen element rather than a hidden one.
     setActivePane(kind);
@@ -764,35 +779,35 @@ export default function App(): JSX.Element {
     }
   };
 
-  // Where focus goes when a session comes to the front: a new one starts in its agent, an ordinary switch keeps
-  // the pane the user was working in (compact navigates surfaces instead). Dropped if a newer switch has won.
-  const homeSessionFocus = (session: ClientSession, created: boolean): void => {
-    const pane = created ? AGENT_PANE_KIND : compact() ? null : activePane();
-    if (pane === null) {
+  // Dismiss Sessions before focusing its destination: the modal makes the pane area inert.
+  const presentSession = (session: ClientSession, created: boolean): void => {
+    if (selectedSession() !== session) {
       return;
     }
-    requestAnimationFrame(() => {
-      if (selectedSession() === session) {
-        focusPane(pane);
-      }
-    });
+    const pane = created ? AGENT_PANE_KIND : compact() ? null : activePane();
+    closeSessions();
+    if (compact()) {
+      navigateMobileSurface(AGENT_PANE_KIND);
+    }
+    if (pane !== null) {
+      focusPane(pane);
+    }
   };
 
-  onCleanup(onSessionActivated(({ session, created }) => homeSessionFocus(session, created)));
+  onCleanup(onSessionActivated(({ session, created }) => presentSession(session, created)));
   onCleanup(
     onTerminalActivated(({ session, terminalId }) => {
       if (!selectShellTerminal(session, terminalId)) {
         return;
       }
-      requestAnimationFrame(() => {
-        if (selectedSession() === session) {
-          focusPane("terminal:shell");
-        }
-      });
+      if (selectedSession() === session) {
+        focusPane("terminal:shell");
+      }
     }),
   );
 
   const closeShellTerminal = async (session: ClientSession, id: string): Promise<void> => {
+    let restoreFocus = deferredFocus.capture(session);
     const invoke = (force: boolean): Promise<CommandResult> =>
       session.feature("commands").request("invoke", {
         id: CommandIds.closeTerminal,
@@ -812,27 +827,20 @@ export default function App(): JSX.Element {
       if (!approved) {
         return;
       }
+      restoreFocus = deferredFocus.capture(session);
       const forced = await invoke(true);
       if (!forced.ok) {
         throw new Error(forced.error ?? "The terminal could not be closed.");
       }
     }
-    requestAnimationFrame(() => {
-      if (selectedSession() === session) {
-        focusPane("terminal:shell");
-      }
-    });
+    restoreFocus(() => focusPane("terminal:shell"));
   };
 
   const stepTerminal = (session: ClientSession, delta: -1 | 1): boolean => {
     if (!stepShellTerminal(session, delta)) {
       return false;
     }
-    requestAnimationFrame(() => {
-      if (selectedSession() === session) {
-        focusPane("terminal:shell");
-      }
-    });
+    focusPane("terminal:shell");
     return true;
   };
 
@@ -932,11 +940,6 @@ export default function App(): JSX.Element {
         if (!result.ok) {
           throw new Error(result.error ?? "The session could not be created.");
         }
-        if (compact()) {
-          navigateMobileSurface(AGENT_PANE_KIND);
-        } else {
-          closeSessions();
-        }
         return true;
       })
       .catch((error: unknown) => {
@@ -1014,14 +1017,7 @@ export default function App(): JSX.Element {
         return target;
       })
       .then((activated) => {
-        closeSessions();
-        if (compact()) {
-          navigateMobileSurface(AGENT_PANE_KIND);
-        }
-        // The swap leaves the caret on the outgoing session's pane, which is gone: without this the incoming
-        // pane paints itself active and takes no typing. Homed after closeSessions so the modal's own restore
-        // doesn't win the frame.
-        homeSessionFocus(activated, false);
+        presentSession(activated, false);
         return true;
       })
       .catch((error: unknown) => {
@@ -1035,11 +1031,11 @@ export default function App(): JSX.Element {
     if (!session.active) {
       return switchToSession(session);
     }
-    closeSessions();
-    if (compact()) {
-      navigateMobileSurface(AGENT_PANE_KIND);
+    const active = selectedSession();
+    if (active !== null) {
+      presentSession(active, false);
     }
-    return Promise.resolve(true);
+    return Promise.resolve(active !== null);
   };
 
   // A backend's human name for connection messages ("the host" for the local headless link).
@@ -1460,7 +1456,7 @@ export default function App(): JSX.Element {
     };
     const selectTerminal = (session: ClientSession, id: string): void => {
       if (selectShellTerminal(session, id)) {
-        requestAnimationFrame(() => focusPane("terminal:shell"));
+        focusPane("terminal:shell");
       }
     };
     return (
@@ -1972,7 +1968,7 @@ export default function App(): JSX.Element {
     const onFocusOut = (event: FocusEvent): void => {
       const lost = event.target as Element | null;
       const kind = focusedKind();
-      requestAnimationFrame(() => {
+      deferredFocus.schedule(selectedSession(), () => {
         if (document.activeElement !== document.body) {
           return;
         }

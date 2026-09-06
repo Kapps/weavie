@@ -77,10 +77,16 @@ public sealed partial class SessionChangeTracker {
 	/// </summary>
 	public void Observe(AgentEvent value) {
 		ArgumentNullException.ThrowIfNull(value);
+		string conversationId = value is AgentConversationEvent side ? side.ConversationId : string.Empty;
+		if (value is AgentConversationEvent scoped) value = scoped.Value;
+		if (value is AgentConversationRemoved removed) {
+			lock (_gate) _conversationPrompts.Remove(removed.ConversationId);
+			return;
+		}
 
 		if (value is AgentPromptSubmitted submitted) {
 			lock (_gate) {
-				_currentPrompt = submitted.Prompt;
+				_conversationPrompts[conversationId] = submitted.Prompt;
 			}
 
 			return;
@@ -111,7 +117,7 @@ public sealed partial class SessionChangeTracker {
 			}
 		} else if (value is AgentToolCompleted) {
 			foreach (string path in paths) {
-				RecordChange(path);
+				RecordChange(path, conversationId);
 			}
 		}
 	}
@@ -173,7 +179,9 @@ public sealed partial class SessionChangeTracker {
 
 	/// <summary>Records <paramref name="path"/>'s latest content (baselining to empty if it appeared this session).</summary>
 	/// <param name="path">Absolute file path.</param>
-	public void RecordChange(string path) {
+	public void RecordChange(string path) => RecordChange(path, string.Empty);
+
+	private void RecordChange(string path, string conversationId) {
 		path = NormalizePath(path);
 		bool reviewRemoved;
 		bool nonTextChanged;
@@ -211,7 +219,7 @@ public sealed partial class SessionChangeTracker {
 					}
 					string before = _preEdit.GetValueOrDefault(path, _current.GetValueOrDefault(path, string.Empty));
 					string reviewCurrent = _current.GetValueOrDefault(path, before);
-					_current[path] = RecordAgentProvenance(path, before, content, reviewCurrent);
+					_current[path] = RecordAgentProvenance(path, before, content, reviewCurrent, _conversationPrompts.GetValueOrDefault(conversationId));
 				}
 			}
 			Checkpoint();

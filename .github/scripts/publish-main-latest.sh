@@ -2,8 +2,8 @@
 set -euo pipefail
 
 publish_main_latest() {
-  if [ "$#" -ne 6 ]; then
-    echo "usage: publish-main-latest.sh BUILT STAGING API_URL REPOSITORY RUN_NUMBER ASSET_DIR" >&2
+  if [ "$#" -ne 7 ]; then
+    echo "usage: publish-main-latest.sh BUILT STAGING API_URL REPOSITORY RUN_NUMBER ASSET_DIR AUTOMATIC" >&2
     return 2
   fi
 
@@ -13,6 +13,8 @@ publish_main_latest() {
   local repository=$4
   local run_number=$5
   local asset_dir=$6
+  local automatic=$7
+  [[ "$automatic" == true || "$automatic" == false ]] || return 2
   local response
   local api="$api_url/repos/$repository"
   response=$(mktemp)
@@ -113,11 +115,10 @@ publish_main_latest() {
   gh release create "$staging" --draft --prerelease \
     --target "$built" \
     --title "main latest (build $run_number)" \
-    --notes "Rolling prerelease of green main ($built), build $run_number. weavie-runner-linux-x64.tar.gz is the runner+worker bundle consumed by weavie-runner --auto-update (extract into ~/.weavie/runner and launch current/Weavie.Runner); the weavie-{linux,win,osx}-* archives are downloadable app binaries. See docs/specs/runner-auto-update.md." \
+    --notes "Rolling prerelease of green main ($built), build $run_number. weavie-runner-linux-x64.tar.gz is the runner+worker bundle consumed by weavie-runner --auto-update latest (extract into ~/.weavie/runner and launch current/Weavie.Runner); weavie-linux-x64.tar.gz is the Linux desktop app. Stable releases include Windows and macOS. See docs/specs/runner-auto-update.md." \
     "$asset_dir/weavie-runner-linux-x64.tar.gz" \
     "$asset_dir/weavie-linux-x64.tar.gz" \
-    "$asset_dir/weavie-win-x64.zip" \
-    "$asset_dir/weavie-osx-arm64.zip"
+    "$asset_dir/release-plan.json"
 
   local main
   local main_relation
@@ -135,10 +136,11 @@ publish_main_latest() {
       ;;
   esac
 
+  local status
+  if [[ "$automatic" == true ]]; then
   local current
   local published_relation
   local relation
-  local status
   status=$(api_status "$api/git/ref/tags/main-latest")
   case "$status" in
     200)
@@ -192,6 +194,8 @@ publish_main_latest() {
     404) ;;
     *) cat "$response"; echo "::error::Tag lookup failed with HTTP $status"; exit 1 ;;
   esac
+
+  fi
 
   status=$(api_status "$api/releases/tags/main-latest")
   case "$status" in

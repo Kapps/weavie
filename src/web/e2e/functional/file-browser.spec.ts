@@ -7,7 +7,6 @@ test("@cross open file browser follows external directory and file changes", asy
   page,
   weavie,
 }) => {
-  test.slow();
   const path = (name: string) => join(weavie.workspace, name);
   const row = (name: string) => page.locator(".browser-row", { hasText: name });
   await writeFile(path(".gitignore"), "live-folder/\nrenamed-folder/\n");

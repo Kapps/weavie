@@ -121,7 +121,7 @@ public static class EditorSettings {
 	/// <summary>Registers every editor-behavior setting into <paramref name="registry"/>.</summary>
 	public static void Register(SettingsRegistry registry) {
 		ArgumentNullException.ThrowIfNull(registry);
-		registry.Register(Toggle(SpellCheck, "Underline misspelled words in prose, comments, and strings.", ["spelling", "spell check"], true));
+		registry.Register(Toggle(SpellCheck, "Underline misspelled words in identifiers, prose, comments, and strings.", ["spelling", "spell check"], true));
 
 		registry.Register(new SettingDefinition {
 			Key = SpellCheckLocale,

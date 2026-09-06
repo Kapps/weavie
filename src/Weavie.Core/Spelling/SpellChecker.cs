@@ -4,13 +4,13 @@ using WeCantSpell.Hunspell;
 
 namespace Weavie.Core.Spelling;
 
-/// <summary>A prose span at a zero-based UTF-16 offset in its editor line.</summary>
-public sealed record SpellSpan(int Line, int Offset, string Text);
+/// <summary>A prose or identifier span at a zero-based UTF-16 offset in its editor line.</summary>
+public sealed record SpellSpan(int Line, int Offset, string Text, bool Identifier);
 
 /// <summary>A misspelled word's exact editor location.</summary>
 public sealed record Misspelling(int Line, int Offset, string Word);
 
-/// <summary>Stateless spelling checks over editor-supplied prose.</summary>
+/// <summary>Stateless spelling checks over editor-supplied prose and identifiers.</summary>
 public static partial class SpellChecker {
 	internal static readonly Lazy<WordList> English = new(() => {
 		var assembly = typeof(SpellChecker).Assembly;
@@ -29,7 +29,7 @@ public static partial class SpellChecker {
 		var results = new List<Misspelling>();
 		var checkedWords = new Dictionary<string, bool>(StringComparer.Ordinal);
 		foreach (var span in spans) {
-			foreach (Match match in Tokens().Matches(span.Text)) {
+			foreach (Match match in (span.Identifier ? IdentifierWords() : Tokens()).Matches(span.Text)) {
 				ct.ThrowIfCancellationRequested();
 				string word = match.Value;
 				if (!IsWord(word)) continue;
@@ -57,6 +57,9 @@ public static partial class SpellChecker {
 
 	[GeneratedRegex(@"\A\p{L}[\p{L}\p{M}]*(?:['’]\p{L}[\p{L}\p{M}]*)*\z", RegexOptions.NonBacktracking)]
 	private static partial Regex Word();
+
+	[GeneratedRegex(@"\p{Lu}+(?=\p{Lu}\p{Ll}|[^\p{L}\p{M}]|$)|\p{Lu}?[\p{Ll}\p{M}]+|\p{Lu}+|\p{L}[\p{L}\p{M}]*")]
+	private static partial Regex IdentifierWords();
 
 	// Consume links, paths, and inline code as units so their components are not flagged as prose.
 	[GeneratedRegex(@"https?://\S+|\S+[@/\\]\S*|`[^`]*`|[\p{L}\p{M}\p{N}_]+(?:['’][\p{L}\p{M}\p{N}_]+)*", RegexOptions.NonBacktracking)]

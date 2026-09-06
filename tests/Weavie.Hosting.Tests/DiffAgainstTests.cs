@@ -52,11 +52,12 @@ public sealed class DiffAgainstTests {
 
 		host.SessionEvent(session, "review", "revertFile", new { path });
 
-		// The reverted file leaves the walk (its turn-changes carries no files), pushed AFTER the disk write, so
-		// observing it means the backout already landed on disk.
+		// The row retains its rejected proposal, but no pending additions or removals.
 		var changes = await Wait.ForAsync(() =>
 			host.Bridge.LastEvent(session.Address, "review", "changes"));
-		Assert.Empty(changes.GetProperty("files").EnumerateArray());
+		var rejected = Assert.Single(changes.GetProperty("files").EnumerateArray());
+		Assert.Equal(0, rejected.GetProperty("added").GetInt32());
+		Assert.Equal(0, rejected.GetProperty("removed").GetInt32());
 		Assert.Equal("hello\n", File.ReadAllText(path)); // backed out to the ref on disk
 	}
 

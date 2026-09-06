@@ -30,6 +30,7 @@ namespace Weavie.Hosting;
 /// injected <see cref="IPtyLauncher"/>; a <c>HostCore</c> owns a set of exact-addressed session buses.
 /// </summary>
 public sealed partial class HostSession : IAsyncDisposable {
+	internal object? ReviewArm { get; set; }
 	private readonly SessionEndpoint _endpoint;
 	private readonly MessageFeatureChannel _editorMessages;
 	private readonly MessageFeatureChannel _notificationMessages;
@@ -98,6 +99,11 @@ public sealed partial class HostSession : IAsyncDisposable {
 		ArgumentNullException.ThrowIfNull(acceptTerminalInput);
 		ArgumentNullException.ThrowIfNull(shellResized);
 
+		var fileSystem = new LocalFileSystem();
+		string reviewDirectory = Path.Combine(Core.WeaviePaths.WorkspaceDir(WorkspaceId.ForPath(workspaceRoot)), "review");
+		SecureFile.CreateDirectory(reviewDirectory);
+		var reviewPersistence = new ReviewPersistence(fileSystem, Path.Combine(reviewDirectory, "state.json"));
+
 		_endpoint = endpoint;
 		Background = new SessionTaskScope(Tagged("[session]"));
 		State = new SessionState(Bus);
@@ -110,8 +116,17 @@ public sealed partial class HostSession : IAsyncDisposable {
 		// commands.invoke requests both route here. Core wires the WebInvoker + Core handlers once the session exists.
 		Commands = new CommandDispatcher(commandRegistry);
 
-		var fileSystem = new LocalFileSystem();
 		FileSystem = fileSystem;
+		Inventory = new WorkspaceInventory(workspaceRoot);
+		FileActivity = new SessionFileActivity(Inventory, Tagged("[files]"), watcherDebounceMs: 250);
+		try {
+			Changes = new SessionChangeTracker(fileSystem, FileActivity, workspaceRoot,
+				path => PathBoundary.Contains(workspaceRoot, path) || PathBoundary.Contains(scratchDir, path),
+				reviewPersistence);
+		} catch {
+			FileActivity.DisposeAsync().AsTask().GetAwaiter().GetResult();
+			throw;
+		}
 		ProjectDictionary = new(Path.Combine(workspaceRoot, ".weavie-words"), confined: true, watch: true);
 		// Scratch (untitled) buffers live in a per-workspace dir outside the workspace, so they never reach the
 		// file tree/index/git/agent. The file provider gets that dir as a second allowed root so the editor can
@@ -122,11 +137,6 @@ public sealed partial class HostSession : IAsyncDisposable {
 		PastedImages = new PastedImageStore(fileSystem, pastedImagesDir);
 		AgentAttachments = new AgentAttachmentStore(PastedImages);
 		FileProvider = new FileProviderService(fileSystem);
-		Inventory = new WorkspaceInventory(workspaceRoot);
-		FileActivity = new SessionFileActivity(
-			Inventory,
-			Tagged("[files]"),
-			watcherDebounceMs: 250);
 		// Explicit file and directory observation follows open tabs and cached listings, never a workspace walk.
 		ObservedPaths = new ObservedPathWatcher(
 			fileSystem,
@@ -161,14 +171,6 @@ public sealed partial class HostSession : IAsyncDisposable {
 		// this session's agent what the user is looking at.
 		Editor = new EditorStore();
 
-		// Built before the IDE-MCP server so its EditLocationFor can back the hook bridge's edit jump-links. Review
-		// covers this session's work — the worktree and its scratch buffers — so an agent edit to an unrelated file
-		// elsewhere on disk stays out of the turn diff. The editor can still open and save that file.
-		Changes = new SessionChangeTracker(
-			fileSystem,
-			FileActivity,
-			workspaceRoot,
-			path => PathBoundary.Contains(workspaceRoot, path) || PathBoundary.Contains(scratchDir, path));
 		// Mirrors the provider's edit mode (default/acceptEdits/plan), observed off the event stream — Weavie
 		// reflects it, never sets it. Drives the openDiff auto-keep + the post-turn review gating.
 		ObservedMode = new ObservedPermissionMode();

@@ -207,13 +207,14 @@ public sealed class SessionChangeTrackerTests {
 		Assert.Equal("a0\n", aChange!.BaselineText);
 		Assert.Equal("a1\n", aChange.CurrentText);
 
-		// Keep-all clears the whole set in one action.
+		// Keep-all marks the whole set reviewed without discarding its decisions.
 		tracker.AcceptTurn();
-		Assert.Empty(tracker.TurnChanges());
+		Assert.Equal(2, tracker.TurnChanges().Count);
+		Assert.All(tracker.TurnChanges(), change => Assert.Equal(change.CurrentText, change.BaselineText));
 	}
 
 	[Fact]
-	public void AcceptTurn_ClearsTurnDiffButKeepsSessionDiff() {
+	public void AcceptTurn_PreservesReviewedBandAndSessionDiff() {
 		var fileSystem = new InMemoryFileSystem();
 		fileSystem.WriteAllText("/w/a.txt", "v0\n");
 		var tracker = Tracker(fileSystem);
@@ -223,7 +224,9 @@ public sealed class SessionChangeTrackerTests {
 
 		tracker.AcceptTurn();
 
-		Assert.Empty(tracker.TurnChanges());
+		var reviewed = Assert.Single(tracker.TurnChanges());
+		Assert.Equal("v0\n", reviewed.AcceptedBaselineText);
+		Assert.Equal(reviewed.CurrentText, reviewed.BaselineText);
 		Assert.Single(tracker.Changes()); // session diff (v0 -> v1) survives
 	}
 
@@ -561,7 +564,7 @@ public sealed class SessionChangeTrackerTests {
 
 		Assert.Equal(RevertHunkOutcome.Deleted, outcome);
 		Assert.False(fileSystem.FileExists("/w/new.txt")); // deleted, not truncated to 0 bytes
-		Assert.Empty(tracker.TurnChanges()); // dropped from the review set
+		Assert.Equal("hello\nworld\n", Assert.Single(tracker.GetTurn("/w/new.txt")!.Rejected).Text);
 	}
 
 	[Fact]
@@ -620,7 +623,11 @@ public sealed class SessionChangeTrackerTests {
 
 		Assert.Equal("a0\n", fileSystem.ReadAllText("/w/a.txt"));
 		Assert.False(fileSystem.FileExists("/w/new.txt"));
-		Assert.Empty(tracker.TurnChanges()); // both reverted out
+		Assert.Equal(2, tracker.TurnChanges().Count);
+		Assert.All(tracker.TurnChanges(), change => {
+			Assert.Equal(change.BaselineText, change.CurrentText);
+			Assert.Single(tracker.GetTurn(change.Path)!.Rejected);
+		});
 	}
 
 	[Fact]
@@ -683,7 +690,7 @@ public sealed class SessionChangeTrackerTests {
 	}
 
 	[Fact]
-	public void KeepHunk_LastHunk_StaysFadedInReviewSetUntilKeepAll() {
+	public void KeepHunk_LastHunk_StaysFadedAfterKeepAll() {
 		var fileSystem = new InMemoryFileSystem();
 		fileSystem.WriteAllText("/w/a.txt", "a\nb\n");
 		var tracker = Tracker(fileSystem);
@@ -692,7 +699,7 @@ public sealed class SessionChangeTrackerTests {
 		tracker.RecordChange("/w/a.txt");
 
 		// Keeping the file's one hunk advances the review baseline to current (no more pending hunks), but the
-		// file STAYS in the set as a faded accepted band (accepted anchor still behind) until keep-all commits it.
+		// file stays in the set as a faded accepted band.
 		Assert.True(tracker.KeepHunk("/w/a.txt", new LineRange(2, 3), new LineRange(2, 3), "B"));
 
 		var faded = Assert.Single(tracker.TurnChanges());
@@ -702,11 +709,11 @@ public sealed class SessionChangeTrackerTests {
 		Assert.Single(tracker.Changes());                   // session diff (b -> B) survives
 
 		tracker.AcceptTurn();
-		Assert.Empty(tracker.TurnChanges()); // keep-all snaps the anchor to current — the faded band clears
+		Assert.Equal(faded.AcceptedBaselineText, Assert.Single(tracker.TurnChanges()).AcceptedBaselineText);
 	}
 
 	[Fact]
-	public void KeepFile_AdvancesWholeBaseline_StaysFadedUntilKeepAll() {
+	public void KeepFile_AdvancesWholeBaseline_StaysFadedAfterKeepAll() {
 		var fileSystem = new InMemoryFileSystem();
 		fileSystem.WriteAllText("/w/a.txt", "a\nb\nc\n");
 		var tracker = Tracker(fileSystem);
@@ -716,7 +723,7 @@ public sealed class SessionChangeTrackerTests {
 
 		tracker.KeepFile("/w/a.txt");
 
-		// Every hunk is now faded-accepted (review baseline == current), but the file stays in the set until keep-all.
+		// Every hunk is faded-accepted (review baseline == current), and remains part of the review.
 		var faded = Assert.Single(tracker.TurnChanges());
 		Assert.Equal("a\nb\nc\n", faded.AcceptedBaselineText);
 		Assert.Equal("A\nb\nC\n", faded.BaselineText);
@@ -724,7 +731,7 @@ public sealed class SessionChangeTrackerTests {
 		Assert.Single(tracker.Changes());    // session diff survives
 
 		tracker.AcceptTurn();
-		Assert.Empty(tracker.TurnChanges());
+		Assert.Equal(faded.AcceptedBaselineText, Assert.Single(tracker.TurnChanges()).AcceptedBaselineText);
 	}
 
 	[Fact]
@@ -820,7 +827,7 @@ public sealed class SessionChangeTrackerTests {
 		Assert.Equal("/w/new.txt", Assert.IsType<FileDeleted>(Assert.Single(activity.Facts)).Path);
 		Assert.Empty(tracker.TurnChanges());         // gone from the review walk
 		Assert.Empty(tracker.Changes());             // and from the session diff
-		Assert.Null(tracker.GetTurn("/w/new.txt"));  // dropped from tracking entirely
+		Assert.False(tracker.GetTurn("/w/new.txt")!.CurrentExists); // retained for future decisions and recreation
 	}
 
 	[Fact]
@@ -842,10 +849,7 @@ public sealed class SessionChangeTrackerTests {
 	}
 
 	[Fact]
-	public void Observe_ExistingFileDeletedByBash_LeavesReviewSet() {
-		// A file that existed at baseline and was edited this turn, then deleted by a Bash rm: it can't be rendered
-		// inline (nothing on disk to open), so the post-tool deletion check drops it rather than stranding
-		// ← / → on it.
+	public void Observe_ExistingFileDeletedByBash_RemainsAReviewableDeletion() {
 		var fileSystem = new InMemoryFileSystem();
 		fileSystem.WriteAllText("/w/a.txt", "a0\n");
 		var activity = new CapturingFileActivitySink();
@@ -861,8 +865,12 @@ public sealed class SessionChangeTrackerTests {
 		tracker.Observe(Bash(HookEventKind.PostToolUse, "rm /w/a.txt"));
 
 		Assert.Equal("/w/a.txt", Assert.IsType<FileDeleted>(Assert.Single(activity.Facts)).Path);
-		Assert.Empty(tracker.TurnChanges());
-		Assert.Empty(tracker.Changes());
+		var deletion = Assert.Single(tracker.TurnChanges());
+		Assert.False(deletion.CurrentExists);
+		Assert.Equal("a0\n", deletion.BaselineText);
+		Assert.Single(tracker.Changes());
+		Assert.Equal(RevertHunkOutcome.Reverted, tracker.RevertFile("/w/a.txt"));
+		Assert.Equal("a0\n", fileSystem.ReadAllText("/w/a.txt"));
 	}
 
 	[Fact]
@@ -934,7 +942,9 @@ public sealed class SessionChangeTrackerTests {
 
 		Assert.Equal(expectedRevert, tracker.RevertFile("/w/empty.txt"));
 		Assert.Equal(existedAtRef, fileSystem.FileExists("/w/empty.txt"));
-		Assert.Empty(tracker.TurnChanges());
+		var rejected = Assert.Single(tracker.TurnChanges());
+		Assert.Equal(rejected.BaselineExists, rejected.CurrentExists);
+		Assert.Single(tracker.GetTurn(rejected.Path)!.Rejected);
 	}
 
 	[Fact]
@@ -967,7 +977,7 @@ public sealed class SessionChangeTrackerTests {
 
 		Assert.Equal(RevertHunkOutcome.Reverted, outcome);
 		Assert.Equal("a\nb\nc\n", fileSystem.ReadAllText("/w/a.txt")); // backed out to the ref on disk
-		Assert.Empty(tracker.TurnChanges());                          // nothing left pending
+		Assert.Equal("B", Assert.Single(tracker.GetTurn("/w/a.txt")!.Rejected).Text);
 	}
 
 	[Fact]
@@ -984,7 +994,7 @@ public sealed class SessionChangeTrackerTests {
 
 		Assert.Equal(RevertHunkOutcome.Deleted, outcome);
 		Assert.False(fileSystem.FileExists("/w/added.txt"));
-		Assert.Empty(tracker.TurnChanges());
+		Assert.Equal("new\nfile\n", Assert.Single(tracker.GetTurn("/w/added.txt")!.Rejected).Text);
 	}
 
 	[Fact]
@@ -1030,16 +1040,18 @@ public sealed class SessionChangeTrackerTests {
 	}
 
 	[Fact]
-	public void SeedRefBaseline_AcceptTurn_ClearsSeededSetKeepsSessionDiff() {
+	public void SeedRefBaseline_AcceptTurn_PreservesReviewedSetAndSessionDiff() {
 		var fileSystem = new InMemoryFileSystem();
 		fileSystem.WriteAllText("/w/added.txt", "new\n");
 		var tracker = Tracker(fileSystem);
 		tracker.SeedRefBaseline("/w/added.txt", refContent: "", diskContent: "new\n", existedAtRef: false, existsOnDisk: true);
 		Assert.Single(tracker.TurnChanges());
 
-		tracker.AcceptTurn(); // keep-all: anchors snap to current, created-since-ref clears
+		tracker.AcceptTurn();
 
-		Assert.Empty(tracker.TurnChanges());     // review board cleared
+		var reviewed = Assert.Single(tracker.TurnChanges());
+		Assert.False(reviewed.AcceptedBaselineExists);
+		Assert.Equal("new\n", reviewed.BaselineText);
 		Assert.Single(tracker.Changes());        // session diff (ref "" → head "new\n") survives
 	}
 }

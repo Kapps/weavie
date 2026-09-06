@@ -1,7 +1,12 @@
 import { createSignal } from "solid-js";
 import { type ClientSession, registerSessionFeature, selectedSession } from "../bridge";
 import { samePath } from "./fs-path";
-import type { EditorSession, EditorSessionEntry, EditorViewState } from "./session-types";
+import type {
+  EditorSession,
+  EditorSessionEntry,
+  EditorViewState,
+  ReviewResume,
+} from "./session-types";
 
 const states = new WeakMap<ClientSession, OwnedEditorSession>();
 
@@ -40,7 +45,7 @@ class OwnedEditorSession {
 
   restore(session: EditorSession): void {
     this.cancelPending();
-    const next = { active: session.active, open: normalize(session.open) };
+    const next = { ...session, open: normalize(session.open) };
     this.writeState(next);
     this.emitOpenEditors(next);
     this.notifyStructure();
@@ -267,7 +272,13 @@ class OwnedEditorSession {
     return () => this.structureListeners.delete(listener);
   }
 
+  captureReview(review: ReviewResume): void {
+    const current = this.readState();
+    if (current !== null) this.commit({ ...current, review });
+  }
+
   private commit(next: EditorSession): void {
+    next = { review: this.readState()?.review ?? null, ...next };
     const structureChanged = structureKey(next) !== this.lastStructure;
     this.writeState(next);
     this.cancelPending();
@@ -289,6 +300,7 @@ class OwnedEditorSession {
     this.publish("sessionChanged", {
       session: {
         active,
+        review: session.review,
         open: session.open.map((entry) => ({
           path: entry.path,
           ...(entry.kind == null ? {} : { kind: entry.kind }),
@@ -511,6 +523,8 @@ export const promoteFor = (owner: ClientSession, path: string): void =>
   stateFor(owner)?.promote(path);
 export const captureViewState = (path: string, viewState: EditorViewState | null): void =>
   selectedState()?.captureViewState(path, viewState);
+export const captureReviewFor = (owner: ClientSession, review: ReviewResume): void =>
+  stateFor(owner)?.captureReview(review);
 export const captureViewStateFor = (
   owner: ClientSession,
   path: string,

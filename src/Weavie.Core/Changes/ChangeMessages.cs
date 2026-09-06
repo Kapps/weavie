@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 
 namespace Weavie.Core.Changes;
@@ -44,6 +46,8 @@ public static class ChangeMessages {
 			baselineExists = change.BaselineExists,
 			current = change.CurrentText,
 			currentExists = change.CurrentExists,
+			revision = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(change.CurrentText))),
+			rejected = change.Rejected.Select(rejected => new { text = rejected.Text, stale = rejected.Stale }),
 		});
 	}
 

@@ -52,8 +52,7 @@ inverts what the two actions mean:
 - **Keep = advance the review baseline + fade the hunk.** No disk write — the change is already there — but
   not a no-op: it advances **Core's** review baseline over the kept change so the hunk leaves the *bright
   pending* band. It does **not** vanish: it stays visible as a **faded "accepted" band** — proof it was
-  kept, still recoverable — with an inline **↶ undo** beside it, until **Keep-all** or the **next prompt**
-  commits it. See [The faded "accepted" band](#the-faded-accepted-band-keep-fades-a-hunk-it-doesnt-hide-it).
+  kept, still recoverable — with an inline **↶ undo** beside it, across turns and restarts. See [The faded "accepted" band](#the-faded-accepted-band-keep-fades-a-hunk-it-doesnt-hide-it).
 - **Do nothing = keep, but unreviewed.** Whatever you don't touch stays on disk *and stays in the
   review set* (see [Accumulate](#accumulate-the-baseline-is-last-reviewed-not-turn-start)).
 
@@ -62,7 +61,7 @@ The asymmetry (revert mutates the file; keep only advances the baseline) is the 
 ## Accumulate: the baseline is "last reviewed", not "turn start"
 
 The review set is **everything Claude changed that you haven't acknowledged yet** — not just the most
-recent turn. A change leaves the set **only** by an explicit Keep / Keep-all or a Revert; doing nothing
+recent turn. A change leaves the pending band **only** by an explicit Keep / Keep-all or a Revert; doing nothing
 keeps it *unreviewed*, and it persists across as many turns as you like. Fire three quick prompts in a
 bypass workflow, then walk the accumulated set once.
 
@@ -70,8 +69,7 @@ Mechanically this means the diff baseline is each file's **last-reviewed content
 on Keep/Revert — *not* a per-turn reset. This is simpler than a per-turn model (one baseline that
 advances on review, instead of a reset every prompt) and it is the only model that doesn't force a
 review gate between turns. The cost is review *debt* that can pile up, so it must never be invisible —
-the toolbar's presence and its file counter are the debt indicator, and **Keep-all** clears it in one
-key.
+the toolbar's presence and its file counter are the debt indicator, and **Keep-all** settles the pending band without discarding review history.
 
 > This reverses the earlier "not acting auto-confirms at the next turn" framing, which only makes sense
 > in a turn-scoped model. If a turn-scoped option is ever wanted, "submitting a new prompt keeps the
@@ -234,31 +232,20 @@ baseline instead of the *baseline* lines into the file:
    write), then re-emit `turn-diff` — now review-baseline-equals-current over that region, so the hunk
    leaves the *bright* band and reappears *faded* (`accepted anchor → review baseline`, see below).
 3. The web reveals the next bright hunk; when the file's last bright hunk is kept, review baseline equals
-   current (no pending hunks) but the file **stays** in `turn-changes` carrying its faded band — it only
-   drops out when the **accepted anchor** catches up, at Keep-all or the next turn start.
+   current (no pending hunks), and the file stays in the review set carrying its faded band.
 
-**Keep file** (`keep-file { path }`) advances the whole file's review baseline to current in one step, so
-the entire file goes faded; **Keep-all** (`accept-turn`) advances *both* the review baseline and the
-accepted anchor for every file — the commit point that clears every marker (bright and faded). The
-accumulate baseline is exactly the union of kept content, and because it lives in Core it is identical on
-every session the file is viewed from.
+**Keep file** and **Keep-all** advance the relevant review baselines to current as one reversible
+decision. Neither advances the accepted anchor.
 
 ### The faded "accepted" band: Keep fades a hunk, it doesn't hide it
 
-A kept hunk that simply *disappeared* gave no proof it had been accepted and no in-place way back. So Core
-keeps a **third** per-file content alongside the review baseline: the **accepted anchor**, the file's
-content at the last Keep-all, advanced **only** by Keep-all. With it, each file splits into two bands:
+The accepted anchor retains the original review content:
 
-- **Pending (bright green)** = `review baseline → current` — Claude's still-unreviewed changes.
-- **Accepted (faded green)** = `accepted anchor → review baseline` — hunks you've kept but not yet
-  committed.
+- **Pending (bright)** = review baseline → current.
+- **Kept (faded)** = accepted anchor → review baseline.
 
-A Keep advances the review baseline over the hunk, so the hunk slides from the bright band into the faded
-band; **Keep-all** advances the accepted anchor to current, collapsing the faded band to nothing (the
-commit point). The faded band is **turn-scoped**, unlike the pending set: submitting a new prompt
-(`UserPromptSubmit`, the turn-start boundary) advances every accepted anchor to its review baseline —
-implicitly committing whatever was kept, so accepted changes disappear from the diff view when a new turn
-starts. Only the *unreviewed* debt accumulates across turns; keep-proof does not.
+Both bands survive new prompts, Keep-all, PR opening, unload, and restart. New edits over kept
+regions become pending; earlier decisions never silently approve later proposals.
 
 **Inline ↶ undo (un-keep).** Each faded hunk carries an inline **↶ undo** beside it (and `Ctrl+Shift+Enter`
 un-keeps the most-recent keep via the [history](#undoredo)). It posts `unkeep-hunk { path, acceptedStart,
@@ -281,40 +268,23 @@ inline-undo overlay — the nav and Keep/Revert only ever touch bright pending h
 
 ## Undo/redo
 
-Every keep and revert is **undoable**, so review is forgiving — a misfire (or the old "Ctrl+Backspace in
-Claude reverted a hunk" footgun) is one keystroke from recovery. The history lives in
-`SessionChangeTracker` (per session, so it survives switches like the baselines do) as a stack of
-mementos: each keep/revert snapshots the affected paths' full review state — plus the on-disk content for
-reverts, which mutate the file — so the action can be **reversed** (undo) or **re-applied** (redo)
-uniformly.
+Keep, reject, revise, and their set-wide actions are reversible. Core retains local text/provenance
+deltas, not whole-file undo snapshots. Unrelated edits transport decision coordinates. Overlapping
+external edits invalidate undo visibly; ambiguous repeated text is never used to guess a target.
+Reversible overlapping decisions retain only the endpoint offsets needed to undo the covering action.
 
-- **Undo keep** (`$mod+Shift+Enter`) rolls the review baseline back over the kept hunk, so it returns to
-  the pending set. No disk write (keep never wrote).
-- **Undo revert** (`$mod+Shift+Backspace`) rewrites the reverted change back to disk (re-creating a file a
-  revert deleted). The chords are **type-split** — Shift+Enter only undoes keeps, Shift+Backspace only
-  reverts — while the toolbar's single **Undo** button reverses the most recent of either kind.
-- **Redo** (toolbar / palette, no key) re-applies the most recently undone action.
-- A `!terminalFocused` guard + an availability check let an undo chord **decline** (fall through) when
-  there's nothing of that kind to undo.
-- An undo/redo **lands the editor on the change it acted on**: a per-hunk action records its current-side
-  line in the history (`ReviewHistoryResult.Line`, still valid because an action only reverses while the
-  file's current content is unchanged) and the host opens the file there; a file/set action opens the
-  first affected file at its first pending hunk.
+The worktree owns one atomically saved review document, using `JsonDocumentStore` under an owner-only
+directory. It contains the existing text boundaries, provenance, decisions, undo/redo, and PR/ref
+identity. Restore validates the document and reconciles only already-tracked paths; it never writes
+saved content over disk. Corruption and save failures surface rather than silently clearing a review.
 
-Undo is **guarded**: an action is reversible only while the paths it touched still match its post-action
-snapshot. A newer edit to the same file blocks the out-of-order undo (a toast, not a clobber) — the same
-optimistic-concurrency stance as the per-hunk guard.
+Rejected proposal text remains visible in the unified review, including rejected created files.
+Undo rejection restores only the relevant region, preserving unrelated edits and line endings.
 
-**Commits clear the history.** Keep-all advances every review baseline to current *and clears the history* —
-accepted changes are locked in, so there's nothing to undo past a commit. The **turn boundary** is the other
-commit: when a new prompt commits a non-empty faded band, the history clears with it (a stale keep/revert
-snapshot could otherwise restore an old anchor and resurrect committed hunks). A boundary with nothing kept
-is a no-op and leaves the history alone.
-
-The host bridges this with two messages (`review-undo` carrying an optional `kind`, `review-redo`) and
-re-pushes a `review-history { canUndo, canUndoKeep, canUndoRevert, canRedo }` after every review op so the
-toolbar's Undo/Redo buttons and the chords' decline stay in sync. `RevertAll` (Revert-all) is a single
-undoable step covering the whole set, not a per-file loop.
+Editor-session persistence carries mode, cursor, and collapsed-file metadata with content fingerprints,
+not source text. Reopening the same PR preserves decisions and the original comparison anchor,
+refreshes comments, and admits new changes as pending. First attaching a PR can extend the baseline
+through disjoint regions; a conflicting extension leaves the current review intact and reports why.
 
 ## Commands & keybindings
 
@@ -335,7 +305,7 @@ visibility, so the commands stay runnable from the palette regardless of focus.
 | `weavie.review.redo` | _(palette/toolbar)_ | **Redo** the most recently undone keep/revert |
 | `weavie.review.keepFile` | _(palette + scope picker)_ | **Keep file** (= Keep at scope "File") |
 | `weavie.review.revertFile` | _(palette + scope picker)_ | **Revert file** (= Revert at scope "File"; confirms) |
-| `weavie.review.keepAll` | _(palette-only)_ | **Keep all** — the commit point; clears the marks + undo history |
+| `weavie.review.keepAll` | _(palette-only)_ | **Keep all** — one reversible decision; preserves faded marks and history |
 | `weavie.diff.undo` | _(palette-only)_ | **Revert all** — undo the whole set on disk (confirms; undoable) |
 | `weavie.review.nextFile` | `ctrl+$mod+Right` | next file in the review set (land on first change) |
 | `weavie.review.prevFile` | `ctrl+$mod+Left` | previous file in the review set |
@@ -368,7 +338,7 @@ Built in `ChangeMessages.cs` so both hosts emit identical payloads.
 
 | type | when | payload |
 |---|---|---|
-| `turn-changes` | review set updates / turn end, auto-apply modes only | `{ files: [{ path, name, added, removed, line, currentExists }] }` (a file stays in the set while only faded hunks remain, until Keep-all or the next prompt commits them) |
+| `turn-changes` | review set updates / turn end, auto-apply modes only | `{ files: [{ path, name, added, removed, line, currentExists }] }` (a file stays in the set while only faded hunks remain, across turns and restarts) |
 | `turn-diff` | per file, on change and after a keep/revert/un-keep | `{ path, name, acceptedBaseline, acceptedBaselineExists, baseline, baselineExists, current, currentExists }` — the three text-and-existence boundaries |
 | `turn-reset` | the whole set was committed (`accept-turn`) | `{}` |
 | `review-history` | after every review op + switch-in | `{ canUndo, canUndoKeep, canUndoRevert, canRedo }` |
@@ -383,7 +353,7 @@ Built in `ChangeMessages.cs` so both hosts emit identical payloads.
 | `reject-hunk` | user reverts a hunk | `{ path, baselineStart, baselineEndExclusive, currentStart, currentEndExclusive, guardText }` |
 | `keep-file` | user keeps a whole file | `{ path }` → host advances its baseline to current (reuses `SessionChangeTracker.KeepFile`) |
 | `revert-file` | user reverts a whole file | `{ path }` → host restores it to baseline (reuses `SessionChangeTracker.RevertFile`) |
-| `accept-turn` | Keep-all (commit; clears history) | `{}` |
+| `accept-turn` | Keep-all (one reversible decision) | `{}` |
 | `undo-turn` | Revert-all (one undoable step via `SessionChangeTracker.RevertAll`) | `{}` |
 | `review-undo` | undo the last keep / revert (or generic) | `{ kind?: "keep" \| "revert" }` |
 | `review-redo` | redo the last undone action | `{}` |

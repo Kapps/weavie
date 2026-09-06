@@ -1,4 +1,6 @@
-import { createMemo, For, type JSX, onCleanup } from "solid-js";
+import { createEffect, createMemo, createSignal, For, type JSX, onCleanup } from "solid-js";
+import { floatingPanelLevel } from "../chrome/floating-panels";
+import { notify } from "../notify/notify";
 import {
   computeRects,
   computeSplitters,
@@ -6,11 +8,10 @@ import {
   type SplitterInfo,
   setBoundary,
 } from "./geometry";
-import type { LayoutNode } from "./types";
+import { type LayoutNode, PANE_KINDS } from "./types";
 
 // Pane kinds are singletons in v1, so slots are a stable, never-reordered list — surfaces are repositioned,
 // not remounted (a remount would wipe terminal scrollback / editor state). The tree drives geometry only.
-const KINDS = ["terminal:claude", "terminal:shell", "editor"] as const;
 
 function slotStyle(rect: Rect | undefined): string {
   if (rect === undefined) {
@@ -28,11 +29,13 @@ function handleStyle(splitter: SplitterInfo): string {
 export function LayoutView(props: {
   root: LayoutNode;
   renderPane: (kind: string) => JSX.Element;
-  onResize: (root: LayoutNode) => void;
+  floating: (kind: string) => boolean;
+  onResize: (expected: LayoutNode, root: LayoutNode) => Promise<void>;
 }): JSX.Element {
   let container!: HTMLDivElement;
-  const rects = createMemo(() => computeRects(props.root));
-  const splitters = createMemo(() => computeSplitters(props.root));
+  const [preview, setPreview] = createSignal<LayoutNode | null>(null);
+  const rects = createMemo(() => computeRects(preview() ?? props.root));
+  const splitters = createMemo(() => computeSplitters(preview() ?? props.root));
 
   // Tears down the in-flight drag's window listeners; set while a drag is active so a new drag, a stray
   // pointerup, OR an unmount mid-drag can all remove them (the window listeners would otherwise outlive the
@@ -42,6 +45,8 @@ export function LayoutView(props: {
   const startDrag = (splitter: SplitterInfo, event: PointerEvent): void => {
     event.preventDefault();
     endDrag?.(); // never stack two drags
+    setPreview(null);
+    const expected = props.root;
     const onMove = (move: PointerEvent): void => {
       const box = container.getBoundingClientRect();
       const pct =
@@ -49,25 +54,60 @@ export function LayoutView(props: {
           ? ((move.clientX - box.left) / box.width) * 100
           : ((move.clientY - box.top) / box.height) * 100;
       const fraction = (pct - splitter.axisStart) / (splitter.axisSize || 1);
-      props.onResize(setBoundary(props.root, splitter.path, splitter.index, fraction));
+      setPreview(setBoundary(expected, splitter.path, splitter.index, fraction));
     };
-    const onUp = (): void => endDrag?.();
+    const onUp = (): void => {
+      const root = preview();
+      endDrag?.();
+      if (root !== null) {
+        setPreview(root);
+        void props.onResize(expected, root).catch((error: unknown) => {
+          if (preview() === root) setPreview(null);
+          notify("warn", String(error));
+        });
+      }
+    };
     endDrag = (): void => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onCancel);
+      window.removeEventListener("keydown", onKey, true);
+      setPreview(null);
       endDrag = null;
+    };
+    const onCancel = (): void => endDrag?.();
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      endDrag?.();
     };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onCancel);
+    window.addEventListener("keydown", onKey, true);
   };
 
   onCleanup(() => endDrag?.());
+  createEffect(() => {
+    props.root;
+    endDrag?.();
+    setPreview(null);
+  });
 
   return (
     <div class="layout-root" ref={container}>
-      <For each={KINDS}>
+      <For each={PANE_KINDS}>
         {(kind) => (
-          <div class="pane-slot" style={slotStyle(rects().get(kind))}>
+          <div
+            class="pane-slot"
+            classList={{ "floating-slot": props.floating(kind) }}
+            style={
+              props.floating(kind)
+                ? `z-index:${floatingPanelLevel(kind)}`
+                : slotStyle(rects().get(kind))
+            }
+          >
             {props.renderPane(kind)}
           </div>
         )}

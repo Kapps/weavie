@@ -1,5 +1,5 @@
-import { ChevronDown, ChevronRight, File, Folder, FolderOpen, X } from "lucide-solid";
-import { createEffect, createSignal, For, type JSX, Match, onMount, Show, Switch } from "solid-js";
+import { ChevronDown, ChevronRight, File, Folder, FolderOpen } from "lucide-solid";
+import { createEffect, createSignal, For, type JSX, Match, Show, Switch } from "solid-js";
 import { normalizePath, samePath } from "../editor/fs-path";
 
 // One directory entry the host returned: leaf name, absolute path, and whether it's a folder.
@@ -21,11 +21,6 @@ export type DirListings = Record<string, DirectoryState>;
 // uriHostPath spelling, so a separator/case-sensitive match would never hit on Windows.
 function isAncestorPath(dir: string, file: string | null): boolean {
   return file !== null && normalizePath(file).startsWith(`${normalizePath(dir)}/`);
-}
-
-function leafName(path: string): string {
-  const parts = path.split(/[\\/]/).filter((p) => p.length > 0);
-  return parts.length > 0 ? parts[parts.length - 1]! : path;
 }
 
 // A single tree row + (when open) its children. Folders toggle and lazily request their listing on first
@@ -155,7 +150,7 @@ function Directory(props: {
   );
 }
 
-// The contextual file browser: a fixed overlay (not a layout pane) rooted at the session's workspace
+// The contextual file browser content, rooted at the session's workspace
 // directory, sitting above the editor and pane tree. Folders expand lazily; clicking a file opens it.
 export default function FileBrowser(props: {
   root: string;
@@ -163,34 +158,9 @@ export default function FileBrowser(props: {
   currentFile: string | null;
   onExpand: (path: string) => void;
   onOpen: (path: string) => void;
-  onClose: () => void;
 }): JSX.Element {
-  let closeButton: HTMLButtonElement | undefined;
-  // Escape closes the panel (matching the omnibar/dialogs). Scoped to the panel — focus is moved into it on
-  // open — so it never hijacks the editor's own Escape (suggestions, etc.).
-  const onKeyDown = (e: KeyboardEvent): void => {
-    if (e.key === "Escape") {
-      e.preventDefault();
-      props.onClose();
-    }
-  };
-  onMount(() => closeButton?.focus());
   return (
-    <div class="browser-panel" role="group" onKeyDown={onKeyDown}>
-      <div class="browser-head">
-        <span class="browser-title" title={props.root}>
-          {leafName(props.root)}
-        </span>
-        <button
-          type="button"
-          class="browser-close"
-          title="Close (Esc)"
-          ref={closeButton}
-          onClick={() => props.onClose()}
-        >
-          <X />
-        </button>
-      </div>
+    <div class="browser-panel" role="group">
       <div class="browser-body">
         <Directory
           path={props.root}

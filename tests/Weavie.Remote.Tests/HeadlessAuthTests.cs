@@ -236,19 +236,19 @@ public sealed class HeadlessRemoteAuthTests(RemoteHeadlessFixture fixture) : ICl
 			root => IsEnvelope(root, "host", "response", "connection", "hello", "hello-second"),
 			cts.Token);
 
-		// A valid layout edit is a host event. The LayoutStore change publishes layout.state, which must reach
+		// A valid layout edit is a host request. The LayoutStore change publishes layout.state, which must reach
 		// both physical peers even though only the second issued the mutation.
-		var layout = firstResponse.GetProperty("payload").GetProperty("layout").Clone();
+		var layoutRoot = firstResponse.GetProperty("payload").GetProperty("layout").GetProperty("root").Clone();
 		await SendTextAsync(
 			second,
 			JsonSerializer.Serialize(new {
 				scope = "host",
 				session = (object?)null,
-				kind = "event",
-				requestId = (string?)null,
+				kind = "request",
+				requestId = "resize-broadcast",
 				feature = "layout",
-				name = "changed",
-				payload = new { document = layout },
+				name = "resize",
+				payload = new { expected = layoutRoot, root = layoutRoot },
 				error = (string?)null,
 			}),
 			cts.Token);

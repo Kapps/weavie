@@ -4,11 +4,14 @@ using System.Text.Json.Serialization;
 namespace Weavie.Core.Layout;
 
 /// <summary>Orientation of a <see cref="SplitNode"/>: children laid out left-to-right or top-to-bottom.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<SplitDirection>))]
 public enum SplitDirection {
 	/// <summary>Children arranged horizontally, left to right.</summary>
+	[JsonStringEnumMemberName("row")]
 	Row,
 
 	/// <summary>Children arranged vertically, top to bottom.</summary>
+	[JsonStringEnumMemberName("column")]
 	Column,
 }
 
@@ -41,6 +44,9 @@ public sealed record PaneNode : LayoutNode {
 
 	/// <summary>The registered pane kind (e.g. <c>editor</c>, <c>terminal:claude</c>).</summary>
 	public required string Kind { get; init; }
+
+	/// <summary>Whether the pane is hidden while retaining its position and split weights.</summary>
+	public bool Hidden { get; init; }
 }
 
 /// <summary>Native window geometry: restore bounds plus whether the window is maximized. Host-owned.</summary>

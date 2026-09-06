@@ -1,7 +1,4 @@
-/* Contextual file browser: floating toggle + left-docked tree panel (FileBrowser.tsx). */
-
-/* Contextual file browser: a floating "Files" button (bottom-left) + a left-docked tree panel rooted at
-   the workspace. Fixed over the app, independent of the pane layout — mirrors the changes overlay. */
+/* Workspace file tree and its launcher. */
 .browser-toggle {
   position: fixed;
   left: 14px;
@@ -21,60 +18,16 @@
   opacity: 1;
 }
 
-.browser-toggle:focus-visible,
-.browser-close:focus-visible {
+.browser-toggle:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
 .browser-panel {
-  position: fixed;
-  top: 0;
-  left: 0;
-  bottom: 0;
-  z-index: 41;
-  width: min(360px, 70vw);
   display: flex;
   flex-direction: column;
-  background: var(--bg);
-  border-right: 1px solid var(--border);
-  box-shadow: 8px 0 24px rgba(0, 0, 0, 0.4);
-}
-
-.browser-head {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 12px;
-  background: var(--bar);
-  border-bottom: 1px solid var(--border);
-}
-
-.browser-title {
-  color: var(--accent);
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.browser-close {
-  display: inline-flex;
-  align-items: center;
-  background: transparent;
-  color: var(--dim);
-  border: none;
-  cursor: pointer;
-}
-
-.browser-close svg {
-  width: 1.15em;
-  height: 1.15em;
-}
-
-.browser-close:hover {
-  color: var(--fg);
+  flex: 1;
+  min-height: 0;
 }
 
 .browser-body {

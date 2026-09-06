@@ -1,5 +1,5 @@
-// Resolves keydowns against the resolved keybindings via one capture-phase listener (so a chord wins over a
-// focused xterm/Monaco), preventDefaulting only when a binding matches AND its handler consumes the event.
+// Resolves ordinary bindings in capture (ahead of xterm/Monaco), and floating dismissal in bubble (after local
+// cancellation). Only a matching binding whose handler consumes the event prevents its default action.
 // Single-chord matching only; multi-stroke sequences are not handled. The back/forward mouse buttons are
 // bindable too (the MouseBack / MouseForward key tokens), resolved from mousedown the same way — with the one
 // difference that those two buttons are always cancelled, matched or not, because the webview's default action
@@ -11,7 +11,7 @@ import {
   onCommandsChanged,
   runForKeybindingFromCatalog,
 } from "./registry";
-import type { ResolvedKeybinding } from "./types";
+import { CommandIds, type ResolvedKeybinding } from "./types";
 
 /** Whether the runtime is macOS — used to resolve `$mod` and platform-specific key handling. */
 export const IS_MAC =
@@ -175,13 +175,13 @@ function rebuild(): void {
   ];
 }
 
-/** Installs the capture-phase keybinding resolver; returns a teardown function. */
+/** Installs command resolution and post-control floating dismissal; returns a teardown function. */
 export function installKeybindings(): () => void {
   rebuild();
   const offChanged = onCommandsChanged(rebuild);
 
-  const onKeyDown = (event: KeyboardEvent): void => {
-    if (event.isComposing) {
+  const resolveKeyDown = (event: KeyboardEvent, dismissal: boolean): void => {
+    if (event.isComposing || event.defaultPrevented) {
       return;
     }
     // Last-match-first so a user binding wins over a default for the same key.
@@ -191,17 +191,22 @@ export function installKeybindings(): () => void {
         continue;
       }
       const { catalogBackendId, chord, binding } = entry;
+      if ((binding.command === CommandIds.closeFloatingPanel) !== dismissal) continue;
       if (!matches(chord, event) || !bindingEnabled(binding)) {
         continue;
       }
       if (runForKeybindingFromCatalog(catalogBackendId, binding.command, binding.args)) {
         event.preventDefault();
-        event.stopPropagation();
+        if (dismissal) event.stopImmediatePropagation();
+        else event.stopPropagation();
         return;
       }
       // The command declined (e.g. no pane at that index) — let the keystroke fall through.
     }
   };
+  const onKeyDown = (event: KeyboardEvent): void => resolveKeyDown(event, false);
+  // Target handlers (including Monaco) own cancellation before a floating surface owns dismissal.
+  const onDismiss = (event: KeyboardEvent): void => resolveKeyDown(event, true);
 
   // The back/forward mouse buttons fire mousedown/mouseup/auxclick; cancelling all three stops whichever
   // phase an engine would navigate on. Unlike keydown, they're cancelled even when no binding consumes the
@@ -239,11 +244,13 @@ export function installKeybindings(): () => void {
     }
   };
 
+  window.addEventListener("keydown", onDismiss);
   window.addEventListener("keydown", onKeyDown, { capture: true });
   window.addEventListener("mousedown", onMouseDown, { capture: true });
   window.addEventListener("mouseup", suppressNavButtons, { capture: true });
   window.addEventListener("auxclick", suppressNavButtons, { capture: true });
   return () => {
+    window.removeEventListener("keydown", onDismiss);
     window.removeEventListener("keydown", onKeyDown, { capture: true });
     window.removeEventListener("mousedown", onMouseDown, { capture: true });
     window.removeEventListener("mouseup", suppressNavButtons, { capture: true });

@@ -633,7 +633,10 @@ test("WebM video opens inline in the compact editor", async ({ page }) => {
   await page.getByRole("button", { name: "Code", exact: true }).click();
   await page.getByRole("button", { name: "Files" }).click();
   await page.locator(".browser-row", { hasText: "clip.webm" }).click();
-  await page.getByTitle("Close (Esc)").click();
+  await page
+    .locator('.tool-panel[data-tool="files"]')
+    .getByRole("button", { name: /^Close/ })
+    .click();
 
   const video = page.locator(".editor-media video");
   await expect(video).toBeVisible();
@@ -775,7 +778,9 @@ test("compact session inbox creates, resumes, and switches existing surfaces", a
   await expect(page.locator(".editor-surface")).toBeVisible();
   await page.getByRole("button", { name: "Files" }).click();
   const fileRow = page.locator(".browser-row", { hasText: "hello.ts" });
-  const browserClose = page.getByTitle("Close (Esc)");
+  const browserClose = page
+    .locator('.tool-panel[data-tool="files"]')
+    .getByRole("button", { name: /^Close/ });
   const [fileRowBox, browserCloseBox] = await Promise.all([
     fileRow.boundingBox(),
     browserClose.boundingBox(),

@@ -58,9 +58,13 @@ public sealed partial class HostCore {
 			return Task.CompletedTask;
 		});
 
-		_messages.Host.Feature("layout").Handle<JsonElement>("changed", (message, _) => {
-			HandleLayoutChanged(message);
-			return Task.CompletedTask;
+		_messages.Host.Feature("layout").Handle<ToolLayoutMessage, bool>("tool", (message, _) => {
+			_layout.ChangeTool(message.Kind, message.Action);
+			return Task.FromResult(true);
+		});
+		_messages.Host.Feature("layout").Handle<LayoutResizeMessage, bool>("resize", (message, _) => {
+			_layout.Resize(message.Expected, message.Root);
+			return Task.FromResult(true);
 		});
 
 		_messages.Host.Feature("suggestions").Handle<SuggestionDismissal>("dismiss", (message, _) => {

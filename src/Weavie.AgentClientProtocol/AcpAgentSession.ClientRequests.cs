@@ -268,7 +268,8 @@ public sealed partial class AcpAgentSession {
 				"cancelled",
 				pending.Kind == "permission",
 				pending.ThreadId,
-				pending.TurnId);
+				pending.TurnId,
+				answers: null);
 		}
 	}
 
@@ -285,7 +286,8 @@ public sealed partial class AcpAgentSession {
 					"cancelled",
 					pending.Kind == "permission",
 					pending.ThreadId,
-					pending.TurnId);
+					pending.TurnId,
+					answers: null);
 			}
 		}
 		_urlElicitations.Clear();

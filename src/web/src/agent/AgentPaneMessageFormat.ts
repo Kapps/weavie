@@ -3,7 +3,7 @@ import { paneItemIdentity } from "./AgentPaneIdentity";
 
 export function displayStatus(
   message: AgentPaneUpdate,
-  resolved: ReadonlyMap<string, string>,
+  resolved: ReadonlyMap<string, RequestResolution>,
 ): string | null {
   if (message.type === "edit-location") {
     return null;
@@ -11,7 +11,9 @@ export function displayStatus(
 
   if (hasItemId(message)) {
     const key = paneItemIdentity(message);
-    return (key === null ? undefined : resolved.get(key)) ?? normalizeStatus(message.status);
+    return (
+      (key === null ? undefined : resolved.get(key)?.status) ?? normalizeStatus(message.status)
+    );
   }
 
   return normalizeStatus(message.status);
@@ -57,14 +59,20 @@ export function isResolutionMessage(message: AgentPaneUpdate): boolean {
 
 export type RequestKind = "approval" | "authentication" | "input";
 
+/** How a request ended: its normalized status and the answers the user submitted, when any. */
+export interface RequestResolution {
+  readonly status: string;
+  readonly answers: Record<string, string[]> | null;
+}
+
 export interface RequestLifecycle {
   /** Thread+turn+item-scoped pane identity — the key a resolution matches its request on. */
   readonly key: string;
   /** The request's own itemId, used to answer it. */
   readonly requestId: string;
   readonly kind: RequestKind;
-  /** null while the request is open; the normalized status once its matching resolution arrives. */
-  readonly resolvedStatus: string | null;
+  /** null while the request is open; how it ended once its matching resolution arrives. */
+  readonly resolution: RequestResolution | null;
 }
 
 // A Map, not an object literal, so a message type like "toString" can't match through the prototype chain.
@@ -82,7 +90,7 @@ const REQUEST_KIND = new Map<string, RequestKind>([
 export function requestLifecycles(messages: readonly AgentPaneUpdate[]): RequestLifecycle[] {
   const byKey = new Map<
     string,
-    { requestId: string; kind: RequestKind; resolvedStatus: string | null }
+    { requestId: string; kind: RequestKind; resolution: RequestResolution | null }
   >();
   for (const message of messages) {
     if (!hasItemId(message)) {
@@ -98,7 +106,7 @@ export function requestLifecycles(messages: readonly AgentPaneUpdate[]): Request
         if (message.requestId === null || message.requestId === undefined) {
           throw new Error(`${message.type} is missing its provider request id.`);
         }
-        byKey.set(key, { requestId: message.requestId, kind, resolvedStatus: null });
+        byKey.set(key, { requestId: message.requestId, kind, resolution: null });
       }
     } else if (isResolutionMessage(message)) {
       const record = byKey.get(key);
@@ -106,9 +114,12 @@ export function requestLifecycles(messages: readonly AgentPaneUpdate[]): Request
       // no matching request is inert — no card carries its key, so nothing looks it up.
       if (
         record !== undefined &&
-        (record.resolvedStatus === null || record.resolvedStatus === "resolved")
+        (record.resolution === null || record.resolution.status === "resolved")
       ) {
-        record.resolvedStatus = normalizeStatus(message.status) ?? "resolved";
+        record.resolution = {
+          status: normalizeStatus(message.status) ?? "resolved",
+          answers: message.answers ?? null,
+        };
       }
     }
   }

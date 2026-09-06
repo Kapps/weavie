@@ -6,7 +6,8 @@
 .agent-body-wrap {
   position: relative;
   display: flex;
-  flex: 1 1 auto;
+  /* Basis 0, so the transcript takes what is left over and a docked request keeps its own height. */
+  flex: 1 1 0;
   min-height: 0;
   min-width: 0;
   overflow: hidden;
@@ -134,9 +135,9 @@
   position: relative;
   z-index: 1;
   box-sizing: border-box;
-  flex: 0 0 auto;
+  /* Sized to the prompt itself, and the only item that yields when the composer grows. */
+  flex: 0 1 auto;
   min-height: 0;
-  max-height: 45%;
   overflow: auto;
   padding: 6px 8px;
   border-top: 1px solid var(--border);
@@ -705,13 +706,12 @@ a.agent-entry-media {
   color: var(--warn);
 }
 
-.agent-activity-details {
+.agent-disclosure {
   margin-top: 3px;
   color: var(--dim);
 }
 
-.agent-activity-details > summary,
-.agent-tool-output-details > summary {
+.agent-disclosure > summary {
   display: inline-flex;
   gap: 4px;
   color: color-mix(in srgb, var(--dim) 78%, transparent);
@@ -719,18 +719,15 @@ a.agent-entry-media {
   list-style: none;
 }
 
-.agent-activity-details > summary::-webkit-details-marker,
-.agent-tool-output-details > summary::-webkit-details-marker {
+.agent-disclosure > summary::-webkit-details-marker {
   display: none;
 }
 
-.agent-activity-details > summary::before,
-.agent-tool-output-details > summary::before {
+.agent-disclosure > summary::before {
   content: ">";
 }
 
-.agent-activity-details[open] > summary::before,
-.agent-tool-output-details[open] > summary::before {
+.agent-disclosure[open] > summary::before {
   content: "v";
 }
 
@@ -800,8 +797,73 @@ a.agent-entry-media {
   color: var(--dim);
 }
 
-.agent-input-question input,
-.agent-input-question select {
+.agent-input-choices {
+  display: grid;
+  gap: 1px;
+}
+
+.agent-input-choice {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: baseline;
+  gap: 6px;
+  padding: 2px 4px;
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+label.agent-input-choice:hover {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.agent-input-choice small {
+  grid-column: 2;
+}
+
+.agent-input-review {
+  display: grid;
+  gap: 5px;
+  margin-top: 3px;
+  padding-left: 10px;
+  border-left: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  color: var(--dim);
+}
+
+.agent-input-reviewed-question {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.agent-input-reviewed-prompt {
+  color: color-mix(in srgb, var(--fg) 76%, var(--dim));
+  overflow-wrap: break-word;
+}
+
+.agent-input-review .agent-input-choice {
+  cursor: default;
+}
+
+.agent-input-reviewed-answer,
+.agent-input-review .agent-input-choice small {
+  color: var(--dim);
+}
+
+.agent-input-review .agent-input-choice::before {
+  color: var(--dim);
+  content: "\25cb";
+}
+
+.agent-input-review .agent-input-choice.chosen {
+  color: var(--fg);
+}
+
+.agent-input-review .agent-input-choice.chosen::before {
+  color: var(--accent);
+  content: "\25cf";
+}
+
+.agent-input-question input:not([type="radio"], [type="checkbox"]) {
   color: var(--fg);
   background: var(--bg);
   border: 1px solid var(--border);

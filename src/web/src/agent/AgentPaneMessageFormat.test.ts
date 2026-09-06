@@ -15,7 +15,7 @@ describe("requestLifecycles", () => {
         key: JSON.stringify([null, null, "a1"]),
         requestId: "a1",
         kind: "approval",
-        resolvedStatus: null,
+        resolution: null,
       },
     ]);
   });
@@ -25,7 +25,7 @@ describe("requestLifecycles", () => {
       msg({ type: "approval-requested", itemId: "a1" }),
       msg({ type: "approval-resolved", itemId: "a1", status: "acceptForSession" }),
     ]);
-    expect(record?.resolvedStatus).toBe("accepted for session");
+    expect(record?.resolution).toEqual({ status: "accepted for session", answers: null });
   });
 
   it("prefers a decision status over a bare resolved mirror, in either order", () => {
@@ -39,8 +39,8 @@ describe("requestLifecycles", () => {
       msg({ type: "approval-resolved", itemId: "a1", status: "resolved" }),
       msg({ type: "approval-resolved", itemId: "a1", status: "accept" }),
     ]);
-    expect(decisionFirst[0]?.resolvedStatus).toBe("accepted");
-    expect(mirrorFirst[0]?.resolvedStatus).toBe("accepted");
+    expect(decisionFirst[0]?.resolution?.status).toBe("accepted");
+    expect(mirrorFirst[0]?.resolution?.status).toBe("accepted");
   });
 
   it("scopes a resolution to its own thread when itemIds collide across threads", () => {
@@ -49,7 +49,15 @@ describe("requestLifecycles", () => {
       msg({ type: "approval-requested", threadId: "sub", itemId: "same" }),
       msg({ type: "approval-resolved", threadId: "sub", itemId: "same", status: "accept" }),
     ]);
-    expect(records.map((r) => r.resolvedStatus)).toEqual([null, "accepted"]);
+    expect(records.map((r) => r.resolution?.status ?? null)).toEqual([null, "accepted"]);
+  });
+
+  it("carries the submitted answers on an accepted input resolution", () => {
+    const [record] = requestLifecycles([
+      msg({ type: "input-requested", itemId: "q1" }),
+      msg({ type: "input-resolved", itemId: "q1", status: "accepted", answers: { q1: ["one"] } }),
+    ]);
+    expect(record?.resolution).toEqual({ status: "accepted", answers: { q1: ["one"] } });
   });
 
   it("ignores a resolution with no matching request (inert, carries no card)", () => {

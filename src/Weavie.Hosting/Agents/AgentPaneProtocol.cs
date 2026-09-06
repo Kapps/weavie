@@ -121,6 +121,7 @@ internal static class AgentPaneProtocol {
 				description = option.Description,
 			}),
 		}),
+		answers = record.Message.Answers,
 		actions = record.Message.Actions?.Select(action => new {
 			id = action.Id,
 			label = action.Label,

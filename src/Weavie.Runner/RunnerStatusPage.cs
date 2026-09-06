@@ -117,12 +117,12 @@ internal static class RunnerStatusPage {
 	}
 
 	private static string UpdateLine(UpdateStatus update) {
-		string line = $"Runner {update.RunnerBuild}" + (update.Enabled ? string.Empty : " · auto-update off");
+		string line = $"Runner {update.RunnerBuild}" + (update.Enabled ? $" · auto-update {update.Channel}" : " · auto-update off");
 		if (update.Enabled && update.Staged is { } staged) {
 			line += $" · staged build {staged}";
 		}
 
-		if (update.Enabled && update.Phase != "idle") {
+		if (update.Enabled && (update.Phase != "idle" || !string.IsNullOrEmpty(update.Detail))) {
 			line += $" · {update.Phase}" + (string.IsNullOrEmpty(update.Detail) ? string.Empty : $": {update.Detail}");
 		}
 

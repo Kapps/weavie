@@ -5,43 +5,15 @@ using Weavie.Core;
 
 namespace Weavie.Runner;
 
-/// <summary>A point-in-time view of the updater for the runner status page (built even when updates are off).</summary>
-public sealed record UpdateStatus {
-	/// <summary>Whether <c>--auto-update</c> is on.</summary>
-	public required bool Enabled { get; init; }
-
-	/// <summary>The runner's own build identity.</summary>
-	public required string RunnerBuild { get; init; }
-
-	/// <summary>The staged (current-symlink) build, when a managed version exists.</summary>
-	public int? Staged { get; init; }
-
-	/// <summary>The last build confirmed serving.</summary>
-	public int? Confirmed { get; init; }
-
-	/// <summary>
-	/// What the updater is doing: <c>idle</c>, <c>updating</c>, <c>rolled-back</c>, <c>failed</c>,
-	/// or <c>error</c>.
-	/// </summary>
-	public required string Phase { get; init; }
-
-	/// <summary>Human detail for the phase (the hold, the error, the rollback), when there is one.</summary>
-	public string? Detail { get; init; }
-
-	/// <summary>True when the runner executes an older version dir than <c>current</c> — a restart applies it.</summary>
-	public bool RunnerBehind { get; init; }
-}
-
 /// <summary>
-/// Polls the rolling <c>main-latest</c> prerelease for a newer runner bundle, stages it into the
+/// Polls the selected release channel for a newer runner bundle, stages it into the
 /// <see cref="VersionStore"/> (digest-verified, spawn-contract-checked), and asks the
 /// <see cref="BackendManager"/> to drain-and-swap the worker. The runner itself keeps executing its
 /// version; only a restart picks the staged one up. See docs/specs/runner-auto-update.md.
 /// </summary>
 public sealed class UpdatePoller : IDisposable {
 	private static readonly TimeSpan PollInterval = TimeSpan.FromMinutes(15);
-	private const string ReleaseTag = "main-latest";
-	private const string ReleaseApi = "https://api.github.com/repos/Kapps/weavie/releases/tags/" + ReleaseTag;
+	private readonly UpdateChannel _channel;
 	private const string AssetName = "weavie-runner-linux-x64.tar.gz";
 
 	private readonly VersionStore _store;
@@ -62,6 +34,7 @@ public sealed class UpdatePoller : IDisposable {
 		ArgumentNullException.ThrowIfNull(store);
 		ArgumentNullException.ThrowIfNull(backends);
 		ArgumentNullException.ThrowIfNull(log);
+		_channel = options.UpdateChannel;
 		_store = store;
 		_backends = backends;
 		_log = log;
@@ -75,7 +48,7 @@ public sealed class UpdatePoller : IDisposable {
 
 	/// <summary>Starts the update loop: reconcile a boot mid-update, then poll now and every 15 minutes.</summary>
 	public void Start() => _ = Task.Run(async () => {
-		_log($"enabled — runner build {RunnerIdentity.BuildNumber}, polling {ReleaseTag} every {PollInterval.TotalMinutes:0}m");
+		_log($"enabled — runner build {RunnerIdentity.BuildNumber}, polling {_channel.ToString().ToLowerInvariant()} every {PollInterval.TotalMinutes:0}m");
 		if (_store.StagedBuild is { } staged && staged != _store.ConfirmedGoodBuild) {
 			await GuardedAsync(() => _backends.ConfirmStagedWorkerAsync(_store, SetPhase, _stop.Token)).ConfigureAwait(false);
 		}
@@ -110,6 +83,7 @@ public sealed class UpdatePoller : IDisposable {
 		lock (_statusGate) {
 			return new UpdateStatus {
 				Enabled = true,
+				Channel = _channel.ToString().ToLowerInvariant(),
 				RunnerBuild = RunnerIdentity.BuildNumber,
 				Staged = _store.StagedBuild,
 				Confirmed = _store.ConfirmedGoodBuild,
@@ -128,18 +102,15 @@ public sealed class UpdatePoller : IDisposable {
 	};
 
 	private async Task PollOnceAsync(CancellationToken ct) {
-		using var response = await _http.GetAsync(ReleaseApi, ct).ConfigureAwait(false);
-		if (response.StatusCode == System.Net.HttpStatusCode.NotFound) {
-			// No main-latest release published yet — nothing to update from; the next poll re-checks.
-			SetPhase("idle", "no main-latest release published yet");
+		using var release = await UpdateFeed.ReadAsync(_http, _channel, ct).ConfigureAwait(false);
+		if (release is null) {
+			SetPhase("idle", $"no {_channel.ToString().ToLowerInvariant()} release published yet");
 			return;
 		}
 
-		response.EnsureSuccessStatusCode();
-		using var release = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false));
 		var asset = FindAsset(release.RootElement);
 		if (asset is not { } found) {
-			SetPhase("error", $"main-latest has no {AssetName} asset");
+			SetPhase("error", $"{_channel.ToString().ToLowerInvariant()} has no {AssetName} asset");
 			return;
 		}
 
@@ -170,7 +141,7 @@ public sealed class UpdatePoller : IDisposable {
 			var (manifest, versionDir) = VersionStore.ExtractBundle(tarball, Path.Combine(scratch, "x"));
 			switch (ClassifyCandidate(manifest, _store.StagedBuild)) {
 				case UpdateCandidateDisposition.Older:
-					Skip(found.Digest, "idle", null);
+					Skip(found.Digest, "idle", $"{_channel.ToString().ToLowerInvariant()} build {manifest.BuildNumber} is older than installed build {_store.StagedBuild}; waiting for a newer release");
 					return;
 				case UpdateCandidateDisposition.ContractMismatch:
 					Skip(found.Digest, "error",
@@ -212,14 +183,18 @@ public sealed class UpdatePoller : IDisposable {
 	}
 
 	private (string Url, string Digest)? FindAsset(JsonElement release) {
-		if (!release.TryGetProperty("assets", out var assets)) {
+		if (release.ValueKind != JsonValueKind.Object || !release.TryGetProperty("assets", out var assets)
+			|| assets.ValueKind != JsonValueKind.Array) {
 			return null;
 		}
 
 		foreach (var asset in assets.EnumerateArray()) {
-			if (asset.GetProperty("name").GetString() == AssetName) {
-				string? url = asset.GetProperty("browser_download_url").GetString();
-				string? digest = asset.TryGetProperty("digest", out var d) ? d.GetString() : null;
+			if (asset.ValueKind == JsonValueKind.Object && asset.TryGetProperty("name", out var name)
+				&& name.ValueKind == JsonValueKind.String && name.GetString() == AssetName) {
+				string? url = asset.TryGetProperty("browser_download_url", out var u) && u.ValueKind == JsonValueKind.String
+					? u.GetString() : null;
+				string? digest = asset.TryGetProperty("digest", out var d) && d.ValueKind == JsonValueKind.String
+					? d.GetString() : null;
 				if (url is null || digest is null) {
 					return null;
 				}

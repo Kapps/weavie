@@ -86,7 +86,7 @@ var backend = backends.Ensure();
 if (updater is { } activePoller) {
 	activePoller.Start();
 } else {
-	Log("[update] auto-update off — pass --auto-update to enable");
+	Log("[update] auto-update off — pass --auto-update [stable|latest] to enable (default: stable)");
 }
 
 Console.WriteLine($"[weavie-runner] worker headless: {options.HeadlessPath} (port {backend.Port})");

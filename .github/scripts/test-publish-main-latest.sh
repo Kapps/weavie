@@ -50,6 +50,7 @@ run_case() {
   local main_sha=$6
   local fail_edit=$7
   local expected_status=$8
+  local automatic=$9
   local case_dir
   case_dir=$(mktemp -d)
   local operations="$case_dir/operations"
@@ -221,7 +222,8 @@ run_case() {
       https://api.github.test \
       acme/weavie \
       77 \
-      release-assets
+      release-assets \
+      "$automatic"
   ) >"$output" 2>&1
   local actual_status=$?
   set -e
@@ -237,7 +239,7 @@ run_case() {
     fresh)
       assert_order "$operations" CREATE_STAGING CREATE_MAIN_TAG PUBLISH_RELEASE
       ;;
-    replace)
+    replace|manual-older)
       assert_order "$operations" \
         CREATE_STAGING DELETE_MAIN_RELEASE UPDATE_MAIN_TAG PUBLISH_RELEASE
       ;;
@@ -272,10 +274,11 @@ run_case() {
   rm -rf "$case_dir"
 }
 
-run_case fresh 0 none 0 0 builtsha 0 0
-run_case replace 1 oldsha 1 0 builtsha 0 0
-run_case publish-failure 0 none 0 0 builtsha 1 1
-run_case repair-orphan 1 builtsha 0 0 builtsha 0 0
-run_case already-published 1 builtsha 1 0 builtsha 0 0
-run_case retry-abandoned-draft 0 none 0 1 builtsha 0 0
-run_case stale-orphan 1 newsha 0 0 newsha 0 1
+run_case fresh 0 none 0 0 builtsha 0 0 true
+run_case replace 1 oldsha 1 0 builtsha 0 0 true
+run_case publish-failure 0 none 0 0 builtsha 1 1 true
+run_case repair-orphan 1 builtsha 0 0 builtsha 0 0 true
+run_case already-published 1 builtsha 1 0 builtsha 0 0 true
+run_case retry-abandoned-draft 0 none 0 1 builtsha 0 0 true
+run_case stale-orphan 1 newsha 0 0 newsha 0 1 true
+run_case manual-older 1 newsha 1 0 newsha 0 0 false

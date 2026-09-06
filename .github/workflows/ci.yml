@@ -5,15 +5,45 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        required: true
+        type: string
+      full:
+        required: true
+        type: boolean
 
 concurrency:
-  group: ci-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.ref }}
+  group: ci-${{ (inputs.ref || github.event_name == 'workflow_dispatch') && github.run_id || github.ref }}
   cancel-in-progress: ${{ github.event_name != 'push' || github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read
 
 jobs:
+  platforms:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.ref || github.sha }}
+      - id: matrix
+        env:
+          FULL: ${{ inputs.full || false }}
+        run: |
+          python3 - <<'PYTHON'
+          import json, os
+          from pathlib import Path
+          platforms = json.loads(Path('.github/platforms.json').read_text())
+          matrix = {'platform': [p for p in platforms if os.environ['FULL'] == 'true' or p['name'] == 'linux']}
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f'matrix={json.dumps(matrix)}\n')
+          PYTHON
+
   web_checks:
     name: web checks
     runs-on: ubuntu-latest
@@ -23,9 +53,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+          ref: ${{ inputs.ref || github.sha }}
 
       - name: Test rolling release publisher
-        run: bash .github/scripts/test-publish-main-latest.sh
+        run: |
+          bash .github/scripts/test-publish-main-latest.sh
+          python3 -m unittest discover -s .github/scripts -p 'test_*.py'
 
       - uses: ./.github/actions/setup-web
 
@@ -52,6 +85,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+          ref: ${{ inputs.ref || github.sha }}
       - uses: ./.github/actions/setup-dotnet
 
       # libdrm's headers describe the structs the display-sync library rewrites; libwebkitgtk-6.0-4 pulls
@@ -67,6 +101,9 @@ jobs:
             pkg-config \
             wayland-utils \
             weston
+
+      - name: Verify .NET formatting
+        run: python3 .github/scripts/format-dotnet.py --verify-no-changes
 
       - name: Test Core
         run: dotnet test tests/Weavie.Core.Tests/Weavie.Core.Tests.csproj -c Debug
@@ -91,33 +128,22 @@ jobs:
         run: dotnet test tests/Weavie.Remote.Tests/Weavie.Remote.Tests.csproj -c Debug
 
   native_build:
-    name: native build (${{ matrix.name }})
-    runs-on: ${{ matrix.os }}
+    needs: platforms
+    name: native build (${{ matrix.platform.name }})
+    runs-on: ${{ matrix.platform.os }}
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - name: linux
-            os: ubuntu-latest
-            project: src/Weavie.Linux/Weavie.Linux.csproj
-            restore: src/Weavie.Linux/Weavie.Linux.csproj
-          - name: macos
-            os: macos-26
-            project: src/Weavie.Mac/Weavie.Mac.csproj
-            restore: weavie.slnx
-          - name: windows
-            os: windows-latest
-            project: src/Weavie.Win/Weavie.Win.csproj
-            restore: src/Weavie.Win/Weavie.Win.csproj
+      matrix: ${{ fromJSON(needs.platforms.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+          ref: ${{ inputs.ref || github.sha }}
       - uses: ./.github/actions/setup-dotnet
 
       # The Linux host compiles its display-sync library against libdrm's headers.
       - name: Install Linux native build dependencies
-        if: matrix.name == 'linux'
+        if: matrix.platform.name == 'linux'
         run: |
           sudo apt-get update
           sudo apt-get install --no-install-recommends libdrm-dev pkg-config
@@ -125,21 +151,21 @@ jobs:
       # net10.0-macos follows Xcode's SDK and workload versions. Select the newest real bundle before
       # restoring the one solution-wide format workspace that can evaluate every platform project.
       - name: Select latest Xcode
-        if: matrix.name == 'macos'
+        if: matrix.platform.name == 'macos'
         run: sudo xcode-select -s "$(find /Applications -maxdepth 1 -name 'Xcode_*.app' -type d | sort -V | tail -1)"
 
       - name: Restore macOS workload
-        if: matrix.name == 'macos'
+        if: matrix.platform.name == 'macos'
         run: dotnet workload restore weavie.slnx
 
       - name: Restore
-        run: dotnet restore ${{ matrix.restore }}
+        run: dotnet restore ${{ matrix.platform.restore }}
 
       - name: Build
-        run: dotnet build ${{ matrix.project }} -c Debug --no-restore
+        run: dotnet build ${{ matrix.platform.project }} -c Debug --no-restore
 
       - name: Test macOS native process isolation
-        if: matrix.name == 'macos'
+        if: matrix.platform.name == 'macos'
         run: |
           mkdir -p temp/macos-pty
           mac_min=$(dotnet msbuild src/Weavie.Mac/Weavie.Mac.csproj -getProperty:WeavieMacOSMinimumVersion)
@@ -148,41 +174,30 @@ jobs:
           "$PWD/temp/macos-pty/tests" "$PWD/temp/macos-pty/weavie-pty-launcher"
 
       - name: Test native macOS PTY lifecycle
-        if: matrix.name == 'macos'
+        if: matrix.platform.name == 'macos'
         run: dotnet test tests/Weavie.Core.Tests/Weavie.Core.Tests.csproj -c Debug --filter "FullyQualifiedName~PosixPtyTerminalTests|FullyQualifiedName~OwnedProcessTests"
 
       - name: Test macOS application menu
-        if: matrix.name == 'macos'
+        if: matrix.platform.name == 'macos'
         run: dotnet run --project tests/Weavie.Mac.Tests/Weavie.Mac.Tests.csproj -c Debug --no-restore
 
       - name: Test macOS GUI process-tree termination
-        if: matrix.name == 'macos'
+        if: matrix.platform.name == 'macos'
         run: python3 tests/native/macos-process-tree.py tests/Weavie.Mac.Tests/bin/Debug/net10.0-macos/osx-arm64/Weavie.Mac.Tests.app --control
 
       - name: Verify .NET formatting
-        if: matrix.name == 'macos'
+        if: matrix.platform.name == 'macos'
         run: dotnet format weavie.slnx --verify-no-changes --no-restore
 
   e2e:
+    needs: platforms
     name: e2e (${{ matrix.platform.name }})
     strategy:
       fail-fast: false
-      matrix:
-        platform:
-          - name: linux
-            os: ubuntu-latest
-            rid: linux-x64
-            suffix: ""
-          - name: macos
-            os: macos-26
-            rid: osx-arm64
-            suffix: ""
-          - name: windows
-            os: windows-latest
-            rid: win-x64
-            suffix: .exe
+      matrix: ${{ fromJSON(needs.platforms.outputs.matrix) }}
     uses: ./.github/workflows/e2e-platform.yml
     with:
+      ref: ${{ inputs.ref || github.sha }}
       platform: ${{ matrix.platform.name }}
       os: ${{ matrix.platform.os }}
       rid: ${{ matrix.platform.rid }}

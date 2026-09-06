@@ -30,11 +30,11 @@
     <!-- Deterministic, clean output -->
     <Deterministic>true</Deterministic>
 
-    <!-- Build identity: fixed SemVer major.minor with the CI build number as the incremental patch (e.g. 0.1.247).
-         Local builds have no build number, so the patch is 0. Shown read-only as the title-bar badge. -->
-    <BuildNumber Condition="'$(BuildNumber)' == '' and '$(GITHUB_RUN_NUMBER)' != ''">$(GITHUB_RUN_NUMBER)</BuildNumber>
+    <!-- Public release version and build identity are independent; only release.yml allocates shipped builds. -->
+    <PublicVersion Condition="'$(PublicVersion)' == ''">0.1.0</PublicVersion>
     <BuildNumber Condition="'$(BuildNumber)' == ''">0</BuildNumber>
-    <VersionPrefix>0.1.$(BuildNumber)</VersionPrefix>
+    <VersionPrefix>$(PublicVersion)</VersionPrefix>
+    <InformationalVersion>$(PublicVersion).$(BuildNumber)</InformationalVersion>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
 
     <!-- Runner⟷worker spawn contract generation (argv + control endpoints). Bump when that contract

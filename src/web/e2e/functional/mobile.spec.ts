@@ -554,32 +554,33 @@ test("a compact session row manages its session from a hold and its actions butt
   page,
 }) => {
   const inbox = page.locator(".session-inbox");
-  const row = inbox.locator(".session-inbox-row").first();
+  const rowSelector = ".session-inbox .session-inbox-row";
+  const row = page.locator(rowSelector).first();
   const menu = page.locator(".context-menu");
   const manage = row.getByRole("button", { name: /^Manage / });
   await expect(row).toBeVisible();
 
-  // Reuse the one CDP session `establishTouchEmulation` armed for touch: a second, independently-opened
-  // session issuing Input.dispatchTouchEvent against the same target went silently inert on windows-latest
-  // CI, twice — 2026-09-03 01:54 UTC (run 33704819901, job 100492392393) and 2026-09-03 05:14 UTC (run
-  // 33717713961, job 100530992199, https://github.com/Kapps/weavie/actions/runs/33717713961/job/100530992199).
-  // The first fix (retrying the touchStart) treated it as a single dropped event and still flaked the exact
-  // same way on the second occurrence — every touchStart in the test, including the very first one, produced
-  // no effect at all, which a single dropped event can't explain but a starved second CDP session can. See
-  // touchSession's doc comment in harness/fixtures.ts.
   const touch = touchSession(page);
-  const point = await row.evaluate((element) => {
-    const bounds = element.getBoundingClientRect();
-    return { x: bounds.x + 60, y: bounds.y + bounds.height / 2 };
-  });
-  const hold = async (): Promise<void> => {
+  const startTouch = async () => {
+    // Query and measure together: catalog updates replace rows, and each gesture can move the list.
+    const point = await page.evaluate((selector) => {
+      const element = document.querySelector(selector);
+      if (element === null) throw new Error("No session row to touch");
+      const bounds = element.getBoundingClientRect();
+      return { x: bounds.x + 60, y: bounds.y + bounds.height / 2 };
+    }, rowSelector);
     await touch.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [point] });
+    return point;
+  };
+  const hold = async () => {
+    const point = await startTouch();
     await expect(menu).toBeVisible();
+    return point;
   };
 
   // A press that drifts is the user scrolling the list, so it must never arm the menu. Only a real wait past
   // the hold deadline can prove "never opens" — an immediate assertion would pass before the timer fires.
-  await touch.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [point] });
+  const point = await startTouch();
   for (const dy of [12, 30, 48]) {
     await touch.send("Input.dispatchTouchEvent", {
       type: "touchMove",
@@ -610,10 +611,10 @@ test("a compact session row manages its session from a hold and its actions butt
 
   // Sliding off the row before lifting cancels the touch, which synthesizes no click at all — so nothing may
   // stay armed to eat the tap that follows.
-  await hold();
+  const heldPoint = await hold();
   await touch.send("Input.dispatchTouchEvent", {
     type: "touchMove",
-    touchPoints: [{ x: point.x, y: point.y + 60 }],
+    touchPoints: [{ x: heldPoint.x, y: heldPoint.y + 60 }],
   });
   await touch.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
   await expect(menu.locator(".context-menu-item")).toHaveText(["Load session", "Delete…"]);

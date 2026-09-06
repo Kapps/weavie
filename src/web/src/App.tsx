@@ -161,10 +161,13 @@ import {
   selectedFileIndex,
 } from "./files/session-files";
 import "./files/open-path";
+import { closeFloatingPanel } from "./chrome/floating-panels";
 import { paneOrder } from "./layout/geometry";
 import { LayoutView } from "./layout/LayoutView";
-import { DEFAULT_LAYOUT_ROOT, layoutDocument, sendLayout } from "./layout/store";
-import type { LayoutNode } from "./layout/types";
+import { DEFAULT_LAYOUT_ROOT, layoutDocument, resizeLayout } from "./layout/store";
+import { ToolPanel } from "./layout/ToolPanel";
+import { createToolPanels } from "./layout/tool-panels";
+import { isTool, type LayoutNode } from "./layout/types";
 import { requireSessionAddress } from "./messaging/message-envelope";
 import type { MobileSurface, MobileSwipeDirection } from "./mobile/MobileSurfaceBar";
 import { MobileWorkspace } from "./mobile/MobileWorkspace";
@@ -264,9 +267,8 @@ export default function App(): JSX.Element {
     host.feature("window").publish("menu", path === undefined ? { action } : { action, path });
     return true;
   };
-  // The live pane layout tree: default-seeded, replaced by the host's persisted push, updated optimistically
-  // during a splitter drag.
-  const [layoutRoot, setLayoutRoot] = createSignal<LayoutNode>(DEFAULT_LAYOUT_ROOT);
+  // The selected host owns the tree; LayoutView owns only an in-flight resize preview.
+  const layoutRoot = (): LayoutNode => layoutDocument()?.root ?? DEFAULT_LAYOUT_ROOT;
   // The pane that currently has keyboard focus (tracked from focusin), for the active highlight.
   const [focusedKind, setFocusedKind] = createSignal<string | null>(null);
   // Whether the active pane is fullscreened (fills the whole pane area; the session rail stays). Pure
@@ -390,7 +392,7 @@ export default function App(): JSX.Element {
   });
   // Pane kinds in DFS order; index + 1 is the pane's Ctrl+N number. Always the REAL layout, so the numbers
   // stay stable in fullscreen.
-  const paneNumbers = createMemo(() => paneOrder(layoutRoot()));
+  const paneNumbers = createMemo(() => paneOrder(layoutRoot()).filter((kind) => !isTool(kind)));
   const numberOf = (kind: string): number => paneNumbers().indexOf(kind) + 1;
   // Pane-switch badges show the effective focusPaneByIndex binding for their index (user-overridable in
   // keybindings.json), never a hardcoded key; empty when unbound. The version signal re-resolves them when
@@ -570,9 +572,15 @@ export default function App(): JSX.Element {
     }
   });
   const dirListings = selectedDirectoryListings;
-  const [browserOpen, setBrowserOpen] = createSignal(false);
-  // Whether the find-in-files (content search) panel is open; the weavie.search.findInFiles command toggles it.
-  const [searchOpen, setSearchOpen] = createSignal(false);
+  const toolPanels = createToolPanels({
+    backendId: activeBackendId,
+    root: layoutRoot,
+    compact,
+    revealDock: () => setFullscreen(false),
+    restoreFocus: () => focusPane(activePane() ?? "editor"),
+  });
+  const browserOpen = (): boolean => toolPanels.visible("files");
+  const searchOpen = (): boolean => toolPanels.visible("search");
   // Whether the "Open URL" prompt (web-tab address) is open.
   const [urlPromptOpen, setUrlPromptOpen] = createSignal(false);
   // The file currently shown in the editor, tracked so the browser can highlight + reveal it.
@@ -1132,39 +1140,9 @@ export default function App(): JSX.Element {
     }
   };
 
-  // Persist the layout after a user gesture (debounced). Skipped until the host's initial layout push, so we
-  // never overwrite the saved state with the default before it loads.
-  const persistTimers = new Map<string, number>();
-  const persistRoot = (root: LayoutNode): void => {
-    const backendId = activeBackendId();
-    const base = layoutDocument();
-    if (base === null) {
-      return;
-    }
-    window.clearTimeout(persistTimers.get(backendId));
-    persistTimers.set(
-      backendId,
-      window.setTimeout(() => {
-        persistTimers.delete(backendId);
-        sendLayout(backendId, { ...base, root });
-      }, 400),
-    );
+  const onLayoutResize = async (expected: LayoutNode, root: LayoutNode): Promise<void> => {
+    await resizeLayout(activeBackendId(), expected, root);
   };
-
-  // A splitter drag: show the new sizes immediately, persist on a debounce.
-  const onLayoutResize = (root: LayoutNode): void => {
-    setLayoutRoot(root);
-    persistRoot(root);
-  };
-
-  // Apply the host-pushed layout (startup restore + any later host/MCP change). The resize handler is
-  // gesture-driven, so a pushed layout never echoes back into a save.
-  createEffect(() => {
-    const doc = layoutDocument();
-    if (doc !== null) {
-      setLayoutRoot(doc.root);
-    }
-  });
 
   // Renders each stable pane slot. Agent terminals stay mounted; structured sessions share one selected tree.
   const openTerminalContextMenu = (event: MouseEvent, url: string | undefined): void => {
@@ -1202,6 +1180,35 @@ export default function App(): JSX.Element {
     !editor.review.overview().files.some((file) => file.summary().currentExists);
 
   const renderPane = (kind: string): JSX.Element => {
+    if (isTool(kind)) {
+      const [mounted, setMounted] = createSignal(false);
+      createEffect(() => {
+        if (toolPanels.visible(kind)) setMounted(true);
+      });
+      return (
+        <Show when={mounted()}>
+          <ToolPanel
+            kind={kind}
+            title={kind === "files" ? "File Browser" : "Find in Files"}
+            panels={toolPanels}
+          >
+            <Suspense>
+              <Show when={kind === "files"} fallback={<SearchPanel visible={searchOpen()} />}>
+                <Show when={indexRoot() !== null}>
+                  <FileBrowser
+                    root={indexRoot()!}
+                    listings={dirListings()}
+                    currentFile={currentFile()}
+                    onExpand={listSelectedDirectory}
+                    onOpen={(path) => revealSelectedFile(path, undefined)}
+                  />
+                </Show>
+              </Show>
+            </Suspense>
+          </ToolPanel>
+        </Show>
+      );
+    }
     if (kind === "editor") {
       return (
         <div
@@ -1516,7 +1523,9 @@ export default function App(): JSX.Element {
   };
 
   const toggleBrowser = (): void => {
-    setBrowserOpen((open) => !open);
+    void (
+      browserOpen() && !fullscreen() ? toolPanels.close("files") : toolPanels.open("files")
+    ).catch((error: unknown) => addToast("warn", String(error)));
   };
 
   // Fullscreen the active pane (Toggle Fullscreen Pane command). Entering with nothing focused yet lands on
@@ -1638,6 +1647,13 @@ export default function App(): JSX.Element {
       registerCommand(CommandIds.toggleAgentToolOutput, toggleAgentToolOutput),
       registerCommand(CommandIds.toggleAgentMermaidPreview, () => toggleActiveAgentMermaid()),
       registerCommand(CommandIds.toggleFileBrowser, () => toggleBrowser()),
+      registerCommand(CommandIds.dockFileBrowser, () => toolPanels.toggleDock("files")),
+      registerCommand(CommandIds.dockSearch, () => toolPanels.toggleDock("search")),
+      registerCommand(CommandIds.closeFloatingPanel, closeFloatingPanel),
+      registerCommand(CommandIds.closeToolPanel, () => {
+        const kind = document.activeElement?.closest("[data-tool]")?.getAttribute("data-tool");
+        return kind != null && isTool(kind) ? toolPanels.close(kind) : false;
+      }),
       // Terminal copy/paste (act on the focused xterm, clipboard via the host); gated terminalFocused.
       installTerminalClipboardCommands(),
       registerCommand(CommandIds.closeTerminalPrompt, (args, context) => {
@@ -1668,7 +1684,7 @@ export default function App(): JSX.Element {
       // has highlighted — editor, agent transcript, or terminal (re-invoking while open re-seeds + refocuses).
       registerCommand(CommandIds.findInFiles, () => {
         seedSearch(selectedText());
-        setSearchOpen(true);
+        return toolPanels.open("search");
       }),
       // The panel's option toggles (searchPanelFocused-gated chords; visible-panel-gated here so a palette run
       // with the panel closed falls through instead of flipping hidden state).
@@ -1956,9 +1972,6 @@ export default function App(): JSX.Element {
     const offDocumentSelection = trackDocumentSelection();
 
     onCleanup(() => {
-      for (const timer of persistTimers.values()) {
-        window.clearTimeout(timer);
-      }
       offEditorOptions();
       offKeybindings();
       offClipboardTrimming();
@@ -2088,7 +2101,12 @@ export default function App(): JSX.Element {
           on:touchend={mobileBackSwipe.onTouchEnd}
           on:touchcancel={mobileBackSwipe.onTouchCancel}
         >
-          <LayoutView root={displayRoot()} renderPane={renderPane} onResize={onLayoutResize} />
+          <LayoutView
+            root={displayRoot()}
+            renderPane={renderPane}
+            onResize={onLayoutResize}
+            floating={(kind) => isTool(kind) && toolPanels.floating(kind)}
+          />
           <Show when={fullscreen() && !compact()}>
             <button
               type="button"
@@ -2211,31 +2229,14 @@ export default function App(): JSX.Element {
         )}
       </Show>
       <Show when={indexRoot() !== null && !HAS_TITLEBAR}>
-        <button type="button" class="browser-toggle" onClick={toggleBrowser}>
+        <button
+          type="button"
+          class="browser-toggle"
+          onClick={toggleBrowser}
+          title={`Files${keyHint(CommandIds.toggleFileBrowser)}`}
+        >
           Files
         </button>
-      </Show>
-      <Show when={browserOpen() && indexRoot() !== null}>
-        <Suspense>
-          <FileBrowser
-            root={indexRoot()!}
-            listings={dirListings()}
-            currentFile={currentFile()}
-            onExpand={listSelectedDirectory}
-            onOpen={(path) => revealSelectedFile(path, undefined)}
-            onClose={() => setBrowserOpen(false)}
-          />
-        </Suspense>
-      </Show>
-      <Show when={searchOpen()}>
-        <Suspense>
-          <SearchPanel
-            onClose={() => {
-              setSearchOpen(false);
-              editor.focusEditor();
-            }}
-          />
-        </Suspense>
       </Show>
       <Suggestions
         items={suggestions()}

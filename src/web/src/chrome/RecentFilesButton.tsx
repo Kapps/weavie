@@ -137,13 +137,6 @@ function RecentFilesMenu(props: {
     panelEl.style.maxHeight = `${anchor.top - margin - 2}px`;
   };
 
-  // Escape is handled on the input while it holds focus; this backstops a Tab that moved focus onto a row.
-  const onWindowKeyDown = (event: KeyboardEvent): void => {
-    if (event.key === "Escape") {
-      props.onClose();
-    }
-  };
-
   onMount(() => {
     const toggle = document.querySelector(".footer-recent-toggle");
     queueMicrotask(() => {
@@ -154,8 +147,7 @@ function RecentFilesMenu(props: {
     });
     // The toggle counts as inside: its own onClick closes the menu, so the two don't race.
     dismissOnOutsideInteraction(".recent-menu, .footer-recent-toggle", props.onClose);
-    window.addEventListener("keydown", onWindowKeyDown);
-    onCleanup(() => window.removeEventListener("keydown", onWindowKeyDown));
+    onCleanup(registerFloatingPanel("recent-files", props.onClose, "popover").dispose);
   });
 
   return (
@@ -203,3 +195,5 @@ function RecentFilesMenu(props: {
     </Portal>
   );
 }
+
+import { registerFloatingPanel } from "./floating-panels";

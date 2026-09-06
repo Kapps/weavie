@@ -77,11 +77,8 @@ export function Menu(): JSX.Element {
     if (openMenu() === null) {
       return;
     }
-    if (event.key === "Escape") {
-      const button = menuButtons.get(openMenu()?.id ?? "");
-      close();
-      button?.focus();
-    } else if (event.key === "ArrowLeft") {
+    if (event.defaultPrevented) return;
+    if (event.key === "ArrowLeft") {
       event.preventDefault();
       switchMenu(-1);
     } else if (event.key === "ArrowRight") {
@@ -162,9 +159,16 @@ export function Menu(): JSX.Element {
           </button>
         )}
       </For>
-      <Show when={openMenu()} keyed>
-        {(menu) => (
-          <ContextMenu menu={menu} dismissInside=".context-menu, .tb-menu" onClose={close} />
+      <Show when={openMenu()?.id} keyed>
+        {(id) => (
+          <ContextMenu
+            menu={openMenu()!}
+            dismissInside=".context-menu, .tb-menu"
+            onClose={(reason) => {
+              close();
+              if (reason === "dismiss") menuButtons.get(id)?.focus();
+            }}
+          />
         )}
       </Show>
     </div>

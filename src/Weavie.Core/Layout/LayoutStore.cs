@@ -72,23 +72,24 @@ public sealed class LayoutStore : JsonDocumentStore {
 		ArgumentNullException.ThrowIfNull(root);
 		LayoutChange change;
 		lock (Gate) {
-			var unknown = UnknownKinds(root, _registry);
-			if (unknown.Count > 0) {
-				throw new LayoutValidationException($"unknown pane kind(s): {string.Join(", ", unknown)}");
-			}
-
-			if (!HasPane(root)) {
-				throw new LayoutValidationException("layout must contain at least one pane");
-			}
-
-			var candidate = _current with { Root = root, Focused = focused ?? _current.Focused };
-			Reconcile(candidate);
-			PersistLocked();
-			change = new LayoutChange(_current, source);
+			change = SetPanesLocked(root, focused, source);
 		}
 
 		Changed?.Invoke(change);
 		return new LayoutResult(true, "layout updated");
+	}
+
+	private LayoutChange SetPanesLocked(LayoutNode root, string? focused, LayoutSource source) {
+		var unknown = UnknownKinds(root, _registry);
+		if (unknown.Count > 0) {
+			throw new LayoutValidationException($"unknown pane kind(s): {string.Join(", ", unknown)}");
+		}
+		if (!HasPane(root)) {
+			throw new LayoutValidationException("layout must contain at least one pane");
+		}
+		Reconcile(_current with { Root = root, Focused = focused ?? _current.Focused });
+		PersistLocked();
+		return new LayoutChange(_current, source);
 	}
 
 	/// <summary>Records that the user explicitly closed pane <paramref name="kind"/>: removes it and tombstones it so it isn't reinjected.</summary>
@@ -109,6 +110,30 @@ public sealed class LayoutStore : JsonDocumentStore {
 
 		Changed?.Invoke(change);
 		return new LayoutResult(true, $"closed {kind}");
+	}
+
+	/// <summary>Applies an optional tool's presentation change to the current layout.</summary>
+	public void ChangeTool(string kind, string action) {
+		LayoutChange change;
+		lock (Gate) {
+			Reconcile(_current with { Root = ToolLayout.Apply(_current.Root, kind, action) });
+			PersistLocked();
+			change = new LayoutChange(_current, LayoutSource.User);
+		}
+		Changed?.Invoke(change);
+	}
+
+	/// <summary>Commits a resize only if its source layout is still current.</summary>
+	public void Resize(LayoutNode expected, LayoutNode root) {
+		LayoutChange change;
+		lock (Gate) {
+			if (JsonSerializer.Serialize(expected, LayoutSerialization.Options)
+				!= JsonSerializer.Serialize(_current.Root, LayoutSerialization.Options)) {
+				throw new LayoutValidationException("The layout changed during the resize. Please drag again.");
+			}
+			change = SetPanesLocked(root, null, LayoutSource.User);
+		}
+		Changed?.Invoke(change);
 	}
 
 	/// <summary>

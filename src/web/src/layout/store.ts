@@ -1,6 +1,6 @@
 import { createMemo, createSignal } from "solid-js";
 import { hostConnection, registerHostFeature, selectedSession } from "../bridge";
-import type { LayoutDocument, LayoutNode } from "./types";
+import type { LayoutDocument, LayoutNode, ToolKind } from "./types";
 
 // The default layout (mirrors Weavie.Core.Layout's seeded default): a left column stacking the agent and
 // shell terminals beside the editor, 40/60. Shown until the host pushes the persisted layout.
@@ -49,7 +49,24 @@ export const layoutDocument = createMemo<LayoutDocument | null>(
   () => documents().get(selectedSession()?.connection.id ?? "") ?? null,
 );
 
-/** Sends an updated layout to the backend that owned the user gesture. */
-export function sendLayout(backendId: string, doc: LayoutDocument): void {
-  hostConnection(backendId)?.host.feature("layout").publish("changed", { document: doc });
+/** Commits a resize to the backend that owned the gesture. */
+export async function resizeLayout(
+  backendId: string,
+  expected: LayoutNode,
+  root: LayoutNode,
+): Promise<void> {
+  const connection = hostConnection(backendId);
+  if (connection === undefined) throw new Error("The layout's backend is disconnected.");
+  await connection.host.feature("layout").request("resize", { expected, root });
+}
+
+/** Changes tool presentation through the layout's owning host. */
+export async function changeTool(
+  backendId: string,
+  kind: ToolKind,
+  action: "dock" | "float" | "show" | "hide",
+): Promise<void> {
+  const connection = hostConnection(backendId);
+  if (connection === undefined) throw new Error("The layout's backend is disconnected.");
+  await connection.host.feature("layout").request("tool", { kind, action });
 }

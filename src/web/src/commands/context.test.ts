@@ -69,10 +69,19 @@ describe("evaluateWhen", () => {
 });
 
 describe("paneFocusContext", () => {
+  it("keeps Close Tool Panel enabled in the palette's prior-focus snapshot", () => {
+    const tool = { getAttribute: () => "files" };
+    const input = {
+      closest: (selector: string) => (selector === "[data-tool]" ? tool : null),
+    } as unknown as Element;
+    setContext("focusedTool", null);
+    expect(evaluateWhen("focusedTool", paneFocusContext(input))).toBe(true);
+  });
   it("keeps the legacy agent pane kind while classifying a structured surface", () => {
     const input = elementInPane("terminal:claude", "structured-agent", false);
 
     expect(paneFocusContext(input)).toEqual({
+      focusedTool: null,
       focusedPane: "terminal:claude",
       editorFocused: false,
       terminalFocused: false,
@@ -91,6 +100,7 @@ describe("paneFocusContext", () => {
     const pane = elementInPane("terminal:claude", "terminal", false);
 
     expect(paneFocusContext(pane)).toEqual({
+      focusedTool: null,
       focusedPane: "terminal:claude",
       editorFocused: false,
       terminalFocused: true,
@@ -106,6 +116,12 @@ function elementInPane(kind: string, surface: string, inComposer: boolean): Elem
   } as Element;
   return {
     closest: (selector: string) =>
-      selector === "[data-agent-composer]" ? (inComposer ? pane : null) : pane,
+      selector === "[data-tool]"
+        ? null
+        : selector === "[data-agent-composer]"
+          ? inComposer
+            ? pane
+            : null
+          : pane,
   } as unknown as Element;
 }

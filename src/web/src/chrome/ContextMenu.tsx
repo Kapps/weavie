@@ -298,7 +298,7 @@ function MenuPanel(props: {
  */
 export function ContextMenu(props: {
   menu: ContextMenuState;
-  onClose: () => void;
+  onClose: (reason: "dismiss" | "close") => void;
   dismissInside?: string;
 }): JSX.Element {
   const [entries, setEntries] = createSignal<ContextMenuEntry[]>([]);
@@ -327,23 +327,21 @@ export function ContextMenu(props: {
     }
   });
   let stopModalListener = (): void => {};
-  const onKeyDown = (event: KeyboardEvent): void => {
-    if (event.key === "Escape") {
-      props.onClose();
-    }
-  };
   onMount(() => {
     if (modalActive()) {
-      props.onClose();
+      props.onClose("close");
       return;
     }
-    stopModalListener = onModalOpened(props.onClose);
-    dismissOnOutsideInteraction(props.dismissInside ?? ".context-menu", props.onClose);
-    window.addEventListener("keydown", onKeyDown);
+    stopModalListener = onModalOpened(() => props.onClose("close"));
+    dismissOnOutsideInteraction(props.dismissInside ?? ".context-menu", () =>
+      props.onClose("close"),
+    );
+    onCleanup(
+      registerFloatingPanel("context-menu", () => props.onClose("dismiss"), "popover").dispose,
+    );
   });
   onCleanup(() => {
     stopModalListener();
-    window.removeEventListener("keydown", onKeyDown);
   });
 
   return (
@@ -354,8 +352,10 @@ export function ContextMenu(props: {
         y={props.menu.y}
         header={props.menu.header}
         autoFocus
-        closeAll={props.onClose}
+        closeAll={() => props.onClose("close")}
       />
     </Portal>
   );
 }
+
+import { registerFloatingPanel } from "./floating-panels";

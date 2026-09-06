@@ -69,6 +69,49 @@ describe("computeSplitters", () => {
 });
 
 describe("setBoundary", () => {
+  it("resizes visible neighbours across a hidden leaf without changing its saved weight", () => {
+    const root: LayoutNode = {
+      type: "split",
+      dir: "row",
+      weights: [0.2, 0.3, 0.5],
+      children: [
+        { type: "pane", id: "files", kind: "files" },
+        { type: "pane", id: "search", kind: "search", hidden: true },
+        { type: "pane", id: "editor", kind: "editor" },
+      ],
+    };
+    expect(computeSplitters(root)).toHaveLength(1);
+    const next = setBoundary(root, [], 0, 0.5) as Extract<LayoutNode, { type: "split" }>;
+    expect(next.weights).toEqual([0.35, 0.3, 0.35000000000000003]);
+    expect(computeRects(next).has("search")).toBe(false);
+    expect(computeRects(next).get("files")?.w).toBeCloseTo(50);
+  });
+
+  it("collapses an entirely hidden tool column without losing nested splitter paths", () => {
+    const primary = tree();
+    const root: LayoutNode = {
+      type: "split",
+      dir: "row",
+      weights: [0.2, 0.8],
+      children: [
+        {
+          type: "split",
+          dir: "column",
+          weights: [0.6, 0.4],
+          children: [
+            { type: "pane", id: "files", kind: "files", hidden: true },
+            { type: "pane", id: "search", kind: "search", hidden: true },
+          ],
+        },
+        primary,
+      ],
+    };
+    expect(computeRects(root)).toEqual(computeRects(primary));
+    expect(computeSplitters(root).map((splitter) => splitter.path)).toEqual([[1, 0], [1]]);
+    const resized = setBoundary(root, [1], 0, 0.3);
+    expect(computeRects(resized).get("editor")?.w).toBeCloseTo(70);
+    expect((resized as Extract<LayoutNode, { type: "split" }>).children[0]).toBe(root.children[0]);
+  });
   it("moves a split's boundary to the requested fraction, preserving the weight total", () => {
     const next = setBoundary(tree(), [], 0, 0.3) as Extract<LayoutNode, { type: "split" }>;
     expect(next.weights[0]).toBeCloseTo(0.3);

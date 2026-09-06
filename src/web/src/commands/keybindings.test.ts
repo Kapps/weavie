@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { setContext } from "./context";
-import type { ResolvedKeybinding } from "./types";
+import { CommandIds, type ResolvedKeybinding } from "./types";
 
 const commandState = vi.hoisted(() => ({
   entries: [] as Array<{ catalogBackendId: string; binding: ResolvedKeybinding }>,
@@ -53,6 +53,58 @@ describe("formatKey (non-mac)", () => {
 });
 
 describe("keyboard resolver", () => {
+  it("dismisses in bubble only, and yields to a control that canceled the event", () => {
+    commandState.entries = [
+      {
+        catalogBackendId: "local",
+        binding: {
+          key: "Escape",
+          command: CommandIds.closeFloatingPanel,
+          when: "floatingPanelOpen",
+        },
+      },
+    ];
+    commandState.run.mockReturnValue(true);
+    setContext("floatingPanelOpen", true);
+    const listeners = new Map<boolean, (event: KeyboardEvent) => void>();
+    vi.stubGlobal("window", {
+      addEventListener: (
+        type: string,
+        handler: (event: KeyboardEvent) => void,
+        options: { capture: boolean } | undefined,
+      ) => {
+        if (type === "keydown") listeners.set(options?.capture === true, handler);
+      },
+      removeEventListener: vi.fn(),
+    });
+    const dispose = installKeybindings();
+    const event = {
+      key: "Escape",
+      isComposing: false,
+      defaultPrevented: false,
+      ctrlKey: false,
+      metaKey: false,
+      shiftKey: false,
+      altKey: false,
+      preventDefault: vi.fn(),
+      stopImmediatePropagation: vi.fn(),
+    };
+    listeners.get(true)?.(event as unknown as KeyboardEvent);
+    expect(commandState.run).not.toHaveBeenCalled();
+    event.defaultPrevented = true;
+    listeners.get(false)?.(event as unknown as KeyboardEvent);
+    expect(commandState.run).not.toHaveBeenCalled();
+    event.defaultPrevented = false;
+    listeners.get(false)?.(event as unknown as KeyboardEvent);
+    expect(commandState.run).toHaveBeenCalledWith(
+      "local",
+      CommandIds.closeFloatingPanel,
+      undefined,
+    );
+    expect(event.stopImmediatePropagation).toHaveBeenCalledOnce();
+    dispose();
+    vi.unstubAllGlobals();
+  });
   it("normalizes GTK's ISO_Left_Tab key for Ctrl+Shift+Tab bindings", () => {
     commandState.entries = [
       {

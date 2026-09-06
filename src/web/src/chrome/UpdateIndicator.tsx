@@ -1,4 +1,4 @@
-import { createEffect, createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { keyHint } from "../commands/key-hint";
 import { runCommandWithFeedback } from "../commands/registry";
@@ -38,13 +38,10 @@ export function UpdateIndicator(): JSX.Element {
   };
   // The chip counts as inside: its own onClick toggles the card, so the two don't race.
   dismissOnOutsideInteraction(".update-card, .update-chip", () => setOpen(false));
-  const onKeyDown = (event: KeyboardEvent): void => {
-    if (event.key === "Escape") {
-      setOpen(false);
-    }
-  };
-  onMount(() => window.addEventListener("keydown", onKeyDown));
-  onCleanup(() => window.removeEventListener("keydown", onKeyDown));
+  createEffect(() => {
+    if (open())
+      onCleanup(registerFloatingPanel("update-details", () => setOpen(false), "popover").dispose);
+  });
 
   return (
     <Show when={!updateRestarting() && updatePending()}>
@@ -104,3 +101,5 @@ export function UpdateIndicator(): JSX.Element {
     </Show>
   );
 }
+
+import { registerFloatingPanel } from "./floating-panels";

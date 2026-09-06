@@ -42,14 +42,9 @@ export function RemoteAgentsPanel(props: {
       props.onClose();
     }
   };
-  const onKeyDown = (event: KeyboardEvent): void => {
-    if (event.key === "Escape") {
-      props.onClose();
-    }
-  };
   onMount(() => {
     window.addEventListener("pointerdown", onPointerDown);
-    window.addEventListener("keydown", onKeyDown);
+    onCleanup(registerFloatingPanel("remote-agents", props.onClose, "popover").dispose);
     window.addEventListener("resize", positionPanel);
     panelObserver = new ResizeObserver(positionPanel);
     panelObserver.observe(panel);
@@ -57,7 +52,6 @@ export function RemoteAgentsPanel(props: {
   });
   onCleanup(() => {
     window.removeEventListener("pointerdown", onPointerDown);
-    window.removeEventListener("keydown", onKeyDown);
     window.removeEventListener("resize", positionPanel);
     panelObserver.disconnect();
   });
@@ -165,3 +159,5 @@ export function RemoteAgentsPanel(props: {
     </>
   );
 }
+
+import { registerFloatingPanel } from "./floating-panels";

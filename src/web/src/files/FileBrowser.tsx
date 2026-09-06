@@ -1,5 +1,14 @@
 import { ChevronDown, ChevronRight, File, Folder, FolderOpen } from "lucide-solid";
-import { createEffect, createSignal, For, type JSX, Match, Show, Switch } from "solid-js";
+import {
+  createEffect,
+  createSignal,
+  For,
+  type JSX,
+  Match,
+  onCleanup,
+  Show,
+  Switch,
+} from "solid-js";
 import type { ClientSession } from "../bridge";
 import { normalizePath, samePath } from "../editor/fs-path";
 import { BrowserFilter } from "./BrowserFilter";
@@ -32,6 +41,7 @@ function Node(props: {
   listings: DirListings;
   currentFile: string | null;
   onExpand: (path: string) => void;
+  onCollapse: (path: string) => void;
   onOpen: (path: string) => void;
 }): JSX.Element {
   const [open, setOpen] = createSignal(
@@ -87,6 +97,7 @@ function Node(props: {
             listings={props.listings}
             currentFile={props.currentFile}
             onExpand={props.onExpand}
+            onCollapse={props.onCollapse}
             onOpen={props.onOpen}
           />
         </div>
@@ -101,8 +112,13 @@ function Directory(props: {
   listings: DirListings;
   currentFile: string | null;
   onExpand: (path: string) => void;
+  onCollapse: (path: string) => void;
   onOpen: (path: string) => void;
 }): JSX.Element {
+  // Mounted exactly while this directory's listing is visible (this node open, and every ancestor open) —
+  // torn down the moment that stops, whether this node collapsed or an ancestor did. Either way the listing
+  // is no longer shown, so the host's watch for it is no longer earning its keep.
+  onCleanup(() => props.onCollapse(props.path));
   const state = (): DirectoryState | undefined => props.listings[props.path];
   const error = (): Extract<DirectoryState, { status: "error" }> | undefined => {
     const current = state();
@@ -138,6 +154,7 @@ function Directory(props: {
                   listings={props.listings}
                   currentFile={props.currentFile}
                   onExpand={props.onExpand}
+                  onCollapse={props.onCollapse}
                   onOpen={props.onOpen}
                 />
               )}
@@ -166,6 +183,7 @@ export default function FileBrowser(props: {
   listings: DirListings;
   currentFile: string | null;
   onExpand: (path: string) => void;
+  onCollapse: (path: string) => void;
   onOpen: (path: string) => void;
 }): JSX.Element {
   return (
@@ -186,6 +204,7 @@ export default function FileBrowser(props: {
           listings={props.listings}
           currentFile={props.currentFile}
           onExpand={props.onExpand}
+          onCollapse={props.onCollapse}
           onOpen={props.onOpen}
         />
       </BrowserFilter>

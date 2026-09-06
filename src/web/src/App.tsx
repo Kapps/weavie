@@ -160,6 +160,7 @@ import {
   revealSelectedFile,
   selectedDirectoryListings,
   selectedFileIndex,
+  unlistSelectedDirectory,
 } from "./files/session-files";
 import "./files/open-path";
 import { closeFloatingPanel } from "./chrome/floating-panels";
@@ -1208,6 +1209,7 @@ export default function App(): JSX.Element {
                     listings={dirListings()}
                     currentFile={currentFile()}
                     onExpand={listSelectedDirectory}
+                    onCollapse={unlistSelectedDirectory}
                     onOpen={(path) => revealSelectedFile(path, undefined)}
                   />
                 </Show>

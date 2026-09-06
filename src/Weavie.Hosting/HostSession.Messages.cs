@@ -84,6 +84,10 @@ public sealed partial class HostSession {
 		files.Handle<FilePathMessage, DirectoryListingMessage>(
 			"listDirectory",
 			(message, _) => Task.FromResult(ListDirectory(message.Path)));
+		files.Handle<FilePathMessage>("unwatchDirectory", (message, _) => {
+			ObservedPaths.UnwatchDirectory(Browser.Resolve(message.Path));
+			return Task.CompletedTask;
+		});
 		files.Handle<RevealFileMessage>(
 			"reveal",
 			(message, ct) => FileOpener.OpenAsync(

@@ -81,6 +81,27 @@ public sealed class ObservedPathWatcher : IDisposable {
 	}
 
 	/// <summary>
+	/// Drops a directory listing this session no longer displays (the file browser collapsed it), so it stops
+	/// costing a watch and no longer inflates every future reconcile. A no-op past disposal or for a directory
+	/// that was never listed (or has already been dropped).
+	/// </summary>
+	public void UnwatchDirectory(string directory) {
+		lock (_gate) {
+			if (_disposed) {
+				return;
+			}
+
+			string path = Path.TrimEndingDirectorySeparator(Path.GetFullPath(directory));
+			if (!_listedDirectories.Remove(path)) {
+				return;
+			}
+
+			_pending.TryRemove(path, out _);
+			ReconcileWatchesLocked();
+		}
+	}
+
+	/// <summary>
 	/// Observes exactly <paramref name="files"/>, dropping watches and pending reports for the rest. Called
 	/// whenever the open tab set changes, so a closed file stops costing a watch.
 	/// </summary>
@@ -100,24 +121,30 @@ public sealed class ObservedPathWatcher : IDisposable {
 				_pending.TryRemove(stale, out _);
 			}
 
-			string[] directories = [.. _files
-				.Select(Path.GetDirectoryName)
-				.OfType<string>()
-				.Where(directory => directory.Length > 0)
-				.Concat(_listedDirectories)
-				.Distinct(PathIdentity.Comparer)];
-			// Reconciling an empty set to an empty set still starts the platform watcher, and a session with no
-			// outside files open is the common case — so it would cost every session a native instance for nothing.
-			if (directories.Length == 0 && _directories.Count == 0) {
-				return;
-			}
+			ReconcileWatchesLocked();
+		}
+	}
 
-			try {
-				_directories.Reconcile(directories);
-			} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-				// Contained: Watch runs from an event whose other subscribers persist the session.
-				_onFailure($"Can't watch opened files and directory listings: {ex.Message}");
-			}
+	// Recomputes the desired watch set (open files' parents + listed directories) and reconciles it. Called
+	// under `_gate` whenever either input — open files or listed directories — changes.
+	private void ReconcileWatchesLocked() {
+		string[] directories = [.. _files
+			.Select(Path.GetDirectoryName)
+			.OfType<string>()
+			.Where(directory => directory.Length > 0)
+			.Concat(_listedDirectories)
+			.Distinct(PathIdentity.Comparer)];
+		// Reconciling an empty set to an empty set still starts the platform watcher, and a session with no
+		// outside files open is the common case — so it would cost every session a native instance for nothing.
+		if (directories.Length == 0 && _directories.Count == 0) {
+			return;
+		}
+
+		try {
+			_directories.Reconcile(directories);
+		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+			// Contained: this runs from an event whose other subscribers persist the session.
+			_onFailure($"Can't watch opened files and directory listings: {ex.Message}");
 		}
 	}
 

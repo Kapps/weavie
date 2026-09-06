@@ -132,16 +132,8 @@ public sealed partial class HostCore {
 		HostSession session,
 		bool invalidate,
 		MessageTarget target) {
-		// `home` anchors the omnibar's `~/…` open-by-path expansion against the *host's* profile, not the browser's.
-		object Payload(IReadOnlyList<string> files, bool pending) => new {
-			root = session.FileIndex.Root,
-			home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-			files,
-			pending,
-		};
-
 		if (invalidate) {
-			target.Feature("files").Publish("index", Payload([], true));
+			target.Feature("files").Publish("index", FileIndexPayload(session, [], pending: true));
 		}
 
 		_ = session.Background.Run(async ct => {
@@ -170,17 +162,42 @@ public sealed partial class HostCore {
 						}
 					}
 				} catch (Exception ex) when (ex is GitException or IOException or UnauthorizedAccessException) {
-					target.Feature("files").Publish("index", Payload([], false));
+					target.Feature("files").Publish("index", FileIndexPayload(session, [], pending: false));
 					Notify(session, "error", $"Couldn't load workspace files: {ex.Message}");
 					return;
 				}
 
 				ct.ThrowIfCancellationRequested();
-				target.Feature("files").Publish("index", Payload(files, false));
+				target.Feature("files").Publish("index", FileIndexPayload(session, files, pending: false));
 			} finally {
 				session.FileIndexGate.Release();
 			}
 		});
+	}
+
+	// `home` anchors the omnibar's `~/…` open-by-path expansion against the *host's* profile, not the browser's.
+	private static object FileIndexPayload(HostSession session, IReadOnlyList<string> files, bool pending) => new {
+		root = session.FileIndex.Root,
+		home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+		files,
+		pending,
+	};
+
+	/// <summary>
+	/// Publishes one session's file index from the inventory's already-current Git snapshot instead of forcing
+	/// another reload — used only by a consumer of the watcher's own invalidation fact, which fired *because*
+	/// that watcher just refreshed this same inventory via Git. A non-repository snapshot skips the seeding
+	/// dance <see cref="PushFileIndexToWeb(HostSession, bool)"/> does, so that path still reloads through it.
+	/// </summary>
+	private void PushCachedFileIndexToWeb(HostSession session) {
+		if (session.Inventory.LastSnapshot is not { IsRepository: true } inventory) {
+			PushFileIndexToWeb(session, false);
+			return;
+		}
+
+		session.Bus.BroadcastTarget.Feature("files").Publish(
+			"index",
+			FileIndexPayload(session, inventory.Files, pending: false));
 	}
 
 	// How many recent files to push: enough to power the recency tiebreak across a working set, of which the

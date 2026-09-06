@@ -830,7 +830,6 @@ public static class CoreCommands {
 			RunsIn = CommandLocation.Web,
 			Category = "Agent",
 			Description = "Reload this session's conversation history without restarting its agent.",
-			DefaultKeybindings = [new CommandKeybinding { Key = "alt+Shift+r" }],
 			When = "agentFocused",
 		});
 

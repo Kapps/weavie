@@ -322,9 +322,12 @@ public sealed partial class HostCore : IAsyncDisposable {
 	/// The same-origin page bootstrap: resolved fonts, editor options, theme, command catalog, keybindings, and
 	/// shell config. Call after <see cref="StartAsync"/>.
 	/// </summary>
-	public string BuildBootstrap() {
+	public string BuildBootstrap() => BuildBootstrap(new Uri(_http.MediaBaseUrl).PathAndQuery);
+
+	private string BuildBootstrap(string resourceBase) {
 		return
-			string.Concat(LiveSettingGroups.Select(g => $"window.{g.Global} = {g.Build(_settings)};"))
+			$"window.__WEAVIE_RESOURCE_BASE__ = {JsonSerializer.Serialize(resourceBase)};"
+			+ string.Concat(LiveSettingGroups.Select(g => $"window.{g.Global} = {g.Build(_settings)};"))
 			+ $"window.__WEAVIE_AGENT__ = {BuildAgentDefaults()};"
 			+ $"window.__WEAVIE_THEME__ = {ThemeJson.Build(_settings, _themeOverrides, Log)};"
 			+ BuildTestProfileScript()
@@ -334,8 +337,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 	}
 
 	internal string BuildCrossOriginBootstrap() =>
-		$"window.__WEAVIE_RESOURCE_BASE__ = {JsonSerializer.Serialize(_http.TransportMediaBaseUrl)};"
-		+ BuildBootstrap();
+		BuildBootstrap(_http.TransportMediaBaseUrl);
 
 	// Live settings groups: each is injected pre-navigation as window.{Global} and re-pushed as its
 	// event name when any of its Keys changes. One row per group — the bootstrap and the change handler

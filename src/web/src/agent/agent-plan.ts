@@ -11,8 +11,8 @@ export function planIdentity(message: AgentPaneUpdate): AgentPlanIdentity | null
     !isIdentifier(message.threadId) ||
     !isIdentifier(message.turnId) ||
     !isIdentifier(message.itemId) ||
-    typeof message.text !== "string" ||
-    message.text.trim().length === 0
+    (message.bodyDeferred !== true &&
+      (typeof message.text !== "string" || message.text.trim().length === 0))
   ) {
     return null;
   }

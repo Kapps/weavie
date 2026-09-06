@@ -304,7 +304,8 @@ function entry(
 }
 
 function actionMessage(message: AgentPaneUpdate): AgentPaneUpdate | null {
-  return message.type === "approval-requested" ||
+  return message.bodyDeferred === true ||
+    message.type === "approval-requested" ||
     message.type === "authentication-requested" ||
     message.type === "edit-location" ||
     message.type === "input-requested" ||

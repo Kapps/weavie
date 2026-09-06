@@ -6,6 +6,7 @@ import {
   type HistoryItemBuffer,
   isAgentPaneWireUpdate,
   mergeHistoryRecords,
+  preferPaneRecord,
 } from "./AgentPaneHistoryAccumulator";
 import { paneItemIdentity } from "./AgentPaneIdentity";
 
@@ -97,6 +98,30 @@ export class AgentPaneAccumulator {
 
     const completed = mergeHistoryRecords(source.history, source.buffers, incoming);
 
+    this.publishHistory(slot, source, completed, completeRead, publish);
+  }
+
+  hydrate(slot: string, message: AgentPaneWireUpdate, publish: Publish): void {
+    const source = this.slots.get(slot);
+    if (source?.generation !== message.generation) return;
+    const existing = source.messages.find(
+      (value): value is AgentPaneWireUpdate =>
+        isAgentPaneWireUpdate(value) && value.ordinal === message.ordinal,
+    );
+    if (!preferPaneRecord(message, existing)) return;
+    if (preferPaneRecord(message, source.history.records.get(message.ordinal))) {
+      source.history.records.set(message.ordinal, message);
+    }
+    this.publishHistory(slot, source, [message], true, publish);
+  }
+
+  private publishHistory(
+    slot: string,
+    source: SlotState,
+    completed: AgentPaneWireUpdate[],
+    completeRead: boolean,
+    publish: Publish,
+  ): void {
     if (
       completeRead &&
       source.historyInitialized &&
@@ -117,7 +142,7 @@ export class AgentPaneAccumulator {
     for (const message of [...source.history.records.values(), ...retained]) {
       if (isAgentPaneWireUpdate(message)) {
         const existing = byOrdinal.get(message.ordinal);
-        if (existing === undefined || message.revision > existing.revision) {
+        if (preferPaneRecord(message, existing)) {
           byOrdinal.set(message.ordinal, message);
         }
       }
@@ -126,7 +151,7 @@ export class AgentPaneAccumulator {
     const history = source.history;
     this.slots.delete(slot);
     const state = this.state(slot);
-    state.generation = generation;
+    state.generation = source.generation;
     state.history = history;
     state.historyInitialized = true;
     for (const message of [...byOrdinal.values()].sort(

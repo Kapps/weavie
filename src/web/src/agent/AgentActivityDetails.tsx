@@ -1,5 +1,6 @@
 import { For, type JSX, Show } from "solid-js";
 import type { AgentPaneUpdate, ClientSession } from "../bridge";
+import { AgentDeferredBody } from "./AgentDeferredBody";
 import { Disclosure } from "./AgentDisclosure";
 import { EditLocationActions } from "./AgentPaneEditActions";
 import { AgentLinkedText } from "./AgentPaneLinks";
@@ -54,19 +55,23 @@ function ActivityStepOutput(props: {
   step: AgentActivityStep;
 }): JSX.Element {
   return (
-    <>
+    <AgentDeferredBody message={props.step.actionMessage ?? null} session={props.session}>
       <Show when={props.step.detailText !== null}>
         <pre>
           <AgentLinkedText session={props.session} text={props.step.detailText ?? ""} />
         </pre>
       </Show>
       <AgentRichContent message={props.step.actionMessage ?? null} session={props.session} />
-    </>
+    </AgentDeferredBody>
   );
 }
 
 function hasOutput(step: AgentActivityStep): boolean {
-  return step.detailText !== null || (step.actionMessage?.content?.length ?? 0) > 0;
+  return (
+    step.actionMessage?.bodyDeferred === true ||
+    step.detailText !== null ||
+    (step.actionMessage?.content?.length ?? 0) > 0
+  );
 }
 
 function hasReviewTarget(step: AgentActivityStep): boolean {

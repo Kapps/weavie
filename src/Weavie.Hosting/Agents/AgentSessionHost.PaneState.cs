@@ -84,7 +84,7 @@ public sealed partial class AgentSessionHost {
 		var snapshot = new List<AgentPaneRecord>(afterRevision is null ? _paneMessages.Count : 0);
 		for (int index = 0; index < _paneMessages.Count; index++) {
 			if (afterRevision is null || _paneRevisions[index] > afterRevision) {
-				snapshot.Add(SnapshotRecordAtLocked(index));
+				snapshot.Add(SnapshotRecordAtLocked(index).Outline());
 			}
 		}
 

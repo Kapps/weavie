@@ -65,14 +65,25 @@ public sealed class StructuredPanePersistenceTests {
 			cursor = next.ValueKind == JsonValueKind.Null ? null : next.Clone();
 		} while (cursor is not null);
 
-		return [.. fragments
+		var messages = fragments
 			.GroupBy(fragment => (
 				fragment.GetProperty("generation").GetInt64(),
 				fragment.GetProperty("ordinal").GetInt64(),
 				fragment.GetProperty("revision").GetInt64()))
 			.Select(group => JsonDocument.Parse(
 				string.Concat(group.Select(fragment => fragment.GetProperty("json").GetString())))
-				.RootElement.Clone())];
+				.RootElement.Clone()).ToArray();
+		for (int index = 0; index < messages.Length; index++) {
+			var message = messages[index];
+			if (message.GetProperty("bodyDeferred").GetBoolean()) {
+				messages[index] = await host.SessionRequestAsync<JsonElement>(
+					session, "agent", "historyBody", new {
+						generation = message.GetProperty("generation").GetInt64(),
+						ordinal = message.GetProperty("ordinal").GetInt64(),
+					});
+			}
+		}
+		return messages;
 	}
 
 	private static bool Contains(JsonElement[] messages, string type, string text) =>

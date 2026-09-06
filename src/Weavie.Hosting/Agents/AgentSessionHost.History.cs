@@ -8,6 +8,16 @@ public sealed partial class AgentSessionHost {
 	private const int HistoryPageEnvelopeReserveBytes = 1024;
 	private const int HistoryPageContentBytes = HistoryPageTargetBytes - HistoryPageEnvelopeReserveBytes;
 
+	internal AgentPaneRecord ReadHistoryBody(AgentPaneHistoryBody request) {
+		lock (_paneGate) {
+			int index = _paneOrdinals.BinarySearch(request.Ordinal);
+			if (request.Generation != _paneGeneration || index < 0) {
+				throw new InvalidOperationException("The agent transcript body identity is invalid.");
+			}
+			return SnapshotRecordAtLocked(index);
+		}
+	}
+
 	internal Task<AgentPaneHistoryPage> ReadHistoryPageAsync(
 		AgentPaneHistoryCursor? cursor,
 		CancellationToken ct) =>

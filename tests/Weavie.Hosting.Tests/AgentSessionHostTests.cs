@@ -14,7 +14,7 @@ using Xunit;
 
 namespace Weavie.Hosting.Tests;
 
-public sealed class AgentSessionHostTests {
+public sealed partial class AgentSessionHostTests {
 	[Fact]
 	public async Task StructuredUsage_IsPublishedAndReplayedForItsOwningSession() {
 		await using var fixture = CreateFixture(static () => "slot-1", 0);
@@ -198,12 +198,12 @@ public sealed class AgentSessionHostTests {
 	}
 
 	[Fact]
-	public async Task Oversized_history_record_is_fragmented_within_the_page_budget() {
+	public async Task Oversized_active_history_record_is_fragmented_within_the_page_budget() {
 		await using var fixture = CreateFixture(static () => "slot-1", 0);
 		var (session, host) = (fixture.Session, fixture.Host);
 		string text = string.Concat(Enumerable.Repeat("snowman ☃ emoji 😀 quote \\\"\n", 20_000));
 
-		session.Emit(Completed("oversized", text));
+		session.Emit(Completed("oversized", text) with { Type = "agent-message-delta" });
 		await host.DrainPaneAsync(CancellationToken.None);
 		var pages = await HistoryPages(host);
 		AgentPaneFragment[] fragments = [.. pages.SelectMany(page => page.Messages)];
@@ -460,7 +460,7 @@ public sealed class AgentSessionHostTests {
 		var item = Assert.Single(await History(host), message =>
 			message.GetProperty("itemId").GetString() == "task");
 
-		Assert.Equal("authoritative", item.GetProperty("text").GetString());
+		Assert.Equal("authoritative", ReadBody(host, item).GetProperty("text").GetString());
 		Assert.Equal("failed", item.GetProperty("status").GetString());
 	}
 

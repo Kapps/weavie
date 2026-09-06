@@ -57,6 +57,7 @@ export interface AgentProviderInfo {
 }
 
 export interface AgentPaneUpdate {
+  bodyDeferred?: boolean;
   type: string;
   providerId: string;
   threadId?: string | null;

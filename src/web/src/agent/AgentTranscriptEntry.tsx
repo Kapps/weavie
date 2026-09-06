@@ -1,6 +1,7 @@
 import { createSignal, For, type JSX, Match, Show, Switch } from "solid-js";
 import type { ClientSession } from "../bridge";
 import { ActivityDetails, AgentRichContent } from "./AgentActivityDetails";
+import { AgentDeferredBody } from "./AgentDeferredBody";
 import { ResolvedInputSummary } from "./AgentInputSummary";
 import { AgentMarkdown } from "./AgentMarkdown";
 import { ApprovalActions, AuthenticationActions, InputRequestActions } from "./AgentPaneActions";
@@ -55,25 +56,30 @@ export function TranscriptEntry(props: {
             <AgentLinkedText session={props.session} text={props.entry.summary ?? ""} />
           </div>
         </Show>
-        <Show when={props.entry.text !== null}>
-          <Show
-            when={props.entry.kind === "message" && props.entry.tone === "assistant"}
-            fallback={
-              <pre class="agent-entry-text">
-                <AgentLinkedText session={props.session} text={props.entry.text ?? ""} />
-              </pre>
-            }
-          >
-            <AgentMarkdown
-              cacheKey={props.entry}
-              content={props.entry.text ?? ""}
-              renderMermaid={!props.entry.streaming}
-              session={props.session}
-            />
+        <AgentDeferredBody
+          message={props.entry.kind === "plan" ? null : props.entry.actionMessage}
+          session={props.session}
+        >
+          <Show when={props.entry.text !== null}>
+            <Show
+              when={props.entry.kind === "message" && props.entry.tone === "assistant"}
+              fallback={
+                <pre class="agent-entry-text">
+                  <AgentLinkedText session={props.session} text={props.entry.text ?? ""} />
+                </pre>
+              }
+            >
+              <AgentMarkdown
+                cacheKey={props.entry}
+                content={props.entry.text ?? ""}
+                renderMermaid={!props.entry.streaming}
+                session={props.session}
+              />
+            </Show>
           </Show>
-        </Show>
-        <AgentMedia message={props.entry.actionMessage} session={props.session} />
-        <AgentRichContent message={props.entry.actionMessage} session={props.session} />
+          <AgentMedia message={props.entry.actionMessage} session={props.session} />
+          <AgentRichContent message={props.entry.actionMessage} session={props.session} />
+        </AgentDeferredBody>
         <Show when={props.entry.detailCount > 0}>
           <ActivityDetails
             entry={props.entry}

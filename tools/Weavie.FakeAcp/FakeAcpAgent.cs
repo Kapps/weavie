@@ -326,6 +326,7 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 		else if (text == "prompt-failure") PromptFailure();
 		else if (text == "shared-message-id") SharedMessageId();
 		else if (text == "tool-content") ToolContent();
+		else if (text == "large-history") LargeHistory();
 		else if (text == "relative-location") RelativeLocation();
 		else if (text == "empty-diff") EmptyDiff();
 		else if (text == "refusal") {
@@ -582,6 +583,27 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 				["content"] = Text(text),
 			});
 		}
+	}
+
+	private void LargeHistory() {
+		Update(new JsonObject {
+			["sessionUpdate"] = "tool_call",
+			["toolCallId"] = "large-history-output",
+			["title"] = "Archived diagnostic output",
+			["kind"] = "edit",
+			["status"] = "completed",
+			["content"] = new JsonArray(Content(Text(
+				"ARCHIVED_TOOL_BODY\n" + string.Concat(Enumerable.Repeat("Diagnostic result: all checks passed.\n", 28_000))
+				+ "ARCHIVED_TOOL_END")), new JsonObject {
+					["type"] = "diff",
+					["path"] = Path.Combine(Environment.CurrentDirectory, "hello.txt"),
+					["oldText"] = "before",
+					["newText"] = "after",
+				}),
+		});
+		Message("ARCHIVED_ASSISTANT_BODY\n\n"
+			+ string.Concat(Enumerable.Repeat("The archived investigation explains this result. ", 6_500))
+			+ "\n\nARCHIVED_ASSISTANT_END");
 	}
 
 	private void ToolContent() {

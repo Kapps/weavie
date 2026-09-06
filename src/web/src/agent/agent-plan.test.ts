@@ -40,6 +40,11 @@ describe("agent plan identity", () => {
     expect(requestedPlan({}, [plan("usable")])).toBeNull();
     expect(latestCompletedPlan([{ ...plan("plan-1"), turnId: null }])).toBeNull();
     expect(latestCompletedPlan([{ ...plan("plan-2"), text: "  " }])).toBeNull();
+    expect(latestCompletedPlan([{ ...plan("deferred"), text: null, bodyDeferred: true }])).toEqual({
+      threadId: "thread-1",
+      turnId: "turn-1",
+      itemId: "deferred",
+    });
     expect(latestCompletedPlan([plan("usable"), { ...plan("blank"), text: " " }])).toEqual({
       threadId: "thread-1",
       turnId: "turn-1",

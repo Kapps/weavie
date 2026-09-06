@@ -83,6 +83,7 @@ internal static class AgentPaneProtocol {
 		generation = record.Generation,
 		ordinal = record.Ordinal,
 		revision = record.Revision,
+		bodyDeferred = record.BodyDeferred,
 		textOffset = 0,
 		textLength = record.Message.Text?.Length ?? 0,
 		type = record.Message.Type,
@@ -166,7 +167,32 @@ internal sealed record AgentPaneRecord(
 	long Generation,
 	long Ordinal,
 	long Revision,
-	AgentPaneMessage Message);
+	AgentPaneMessage Message) {
+	public bool BodyDeferred { get; init; }
+
+	public AgentPaneRecord Outline() {
+		if (Message.Type == "item-completed"
+			&& !(Message.ItemType == "plan" && string.IsNullOrWhiteSpace(Message.Text))
+			&& (!string.IsNullOrEmpty(Message.Text) || Message.Content is { Count: > 0 }
+				|| Message.Diffs is { Count: > 0 } || !string.IsNullOrEmpty(Message.MediaData))) {
+			return this with {
+				BodyDeferred = true,
+				Message = Message with {
+					Text = null,
+					Content = null,
+					Diffs = null,
+					MediaData = null,
+					Locations = (Message.Locations ?? [])
+						.Concat((Message.Diffs ?? []).Select(diff => new AgentPaneLocation { Path = diff.Path }))
+						.DistinctBy(location => location.Path).ToArray(),
+				},
+			};
+		}
+		return Message.Type == "user-image" && !string.IsNullOrEmpty(Message.MediaData)
+			? this with { BodyDeferred = true, Message = Message with { MediaData = null } }
+			: this;
+	}
+}
 
 internal sealed record AgentPaneFragment(
 	AgentPaneRecord Record,
@@ -185,6 +211,8 @@ internal sealed record AgentPaneHistoryRequest(
 	long? KnownRevision);
 
 internal sealed record AgentPaneHistoryClose(string ReadId);
+
+internal sealed record AgentPaneHistoryBody(long Generation, long Ordinal);
 
 internal sealed record AgentPaneHistoryPage(
 	string ReadId,

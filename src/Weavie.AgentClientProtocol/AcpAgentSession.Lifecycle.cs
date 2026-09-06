@@ -13,7 +13,11 @@ public sealed partial class AcpAgentSession {
 			}
 			_started = true;
 		}
-		_connection.Start();
+		if (_role is SideRole side) {
+			OnProcessStarted(new AcpProcessGeneration(side.Generation, 0));
+		} else {
+			_connection.Start();
+		}
 	}
 
 	/// <inheritdoc/>
@@ -21,7 +25,6 @@ public sealed partial class AcpAgentSession {
 		SideRuntime[] sideSessions;
 		string? sessionId;
 		bool close;
-		long generation;
 		lock (_gate) {
 			if (_disposed) {
 				return;
@@ -32,25 +35,22 @@ public sealed partial class AcpAgentSession {
 			_activeSideConversationId = null;
 			sideSessions = [.. _sideRuntimes.Values];
 			_sideRuntimes.Clear();
-			sessionId = _sessionId;
-			close = _ready && _supportsClose && sessionId is not null;
-			generation = _activeGeneration;
+			sessionId = _endpoint?.SessionId;
+			close = (_ready || _role is SideRole) && _supportsClose && sessionId is not null;
 		}
 
 		CancelPendingInteractions();
 		AbandonClientRequests();
 		Task<JsonElement>? closeRequest = null;
 		if (close) {
-			closeRequest = _connection.RequestAsync(
-				"session/close",
-				new { sessionId },
-				generation,
-				CancellationToken.None);
+			closeRequest = _endpoint?.CloseAsync();
 		}
+		_endpoint?.Retire();
 
 		try {
-			foreach (var side in sideSessions) await side.Session.DisposeAsync().ConfigureAwait(false);
-			await _connection.DisposeAsync().ConfigureAwait(false);
+			var disposals = sideSessions.Select(side => side.Session.DisposeAsync().AsTask()).ToArray();
+			if (_role is PrimaryRole) await _connection.DisposeAsync().ConfigureAwait(false);
+			await Task.WhenAll(disposals).ConfigureAwait(false);
 		} finally {
 			if (closeRequest is not null) {
 				try {
@@ -71,6 +71,7 @@ public sealed partial class AcpAgentSession {
 		lock (_turnTransitionGate) {
 			lock (_gate) {
 				_activeGeneration = process.Generation;
+				_endpoint = null;
 				_ready = false;
 				_promptActive = false;
 				_steering = false;
@@ -102,7 +103,7 @@ public sealed partial class AcpAgentSession {
 	}
 
 	private async Task InitializeGenerationAsync(AcpProcessGeneration process) {
-		var initialized = await _connection.RequestAsync(
+		var initialized = _role is SideRole side ? side.Owner._initialization : await _connection.RequestAsync(
 			"initialize",
 			new {
 				protocolVersion = 1,
@@ -125,6 +126,7 @@ public sealed partial class AcpAgentSession {
 		lock (_turnTransitionGate) {
 			lock (_gate) {
 				if (_disposed || _activeGeneration != process.Generation) return;
+				_initialization = initialized;
 				ReadCapabilities(initialized);
 				ReadAuthMethods(initialized);
 			}
@@ -141,17 +143,21 @@ public sealed partial class AcpAgentSession {
 			lock (_gate) {
 				if (_disposed || _activeGeneration != generation) return;
 				reconnecting = _sessionId is not null;
-				string? persisted = _sessionId ?? (_role is SideRole side
-					? side.Conversation.ProviderSessionId
+				if (reconnecting && !_supportsLoad && !_supportsResume) {
+					throw new AcpProtocolException(
+						$"{_definition.Name} cannot restore this conversation. Start a new conversation to continue.");
+				}
+				string? persisted = _sessionId ?? (_role is SideRole
+					? _endpoint?.SessionId
 					: _sessions.Resolve(_definition.Id, _context.Workspace));
 				sessionId = persisted is not null && (_supportsLoad || _supportsResume)
 					? persisted
 					: null;
 				loadSession = sessionId is not null && _supportsLoad && (!reconnecting || !_supportsResume);
 				resetTranscript = persisted is not null && sessionId is null;
-				_openingSessionId = sessionId;
 				_sessionOpening = true;
-				if (sessionId is null) _guidanceSent = false;
+				_endpoint ??= _connection.OpenEndpoint(generation, sessionId, HandleNotification, RegisterClientRequest);
+				if (sessionId is null && _role is PrimaryRole) _guidanceSent = false;
 				else if (!loadSession) {
 					_turnNumber = _sessions.ResolveTurnNumber(_definition.Id, _context.Workspace);
 				}
@@ -172,29 +178,24 @@ public sealed partial class AcpAgentSession {
 
 		JsonElement setup;
 		try {
+			if (_role is SideRole fork && sessionId is null) {
+				await Endpoint(generation).ForkFromAsync(fork.Owner.Endpoint(generation), new {
+					cwd = Path.GetFullPath(_context.Workspace),
+					mcpServers = McpServers(),
+				}).ConfigureAwait(false);
+				if (!OwnsGeneration(generation)) return;
+				sessionId = Endpoint(generation).SessionId;
+				loadSession = true;
+			}
 			if (sessionId is null) {
 				lock (_gate) _planTurns.Clear();
-				setup = await _connection.RequestAsync(
-					"session/new",
+				setup = await Endpoint(generation).CreateAsync(
 					new {
 						cwd = Path.GetFullPath(_context.Workspace),
 						mcpServers = McpServers(),
-					},
-					generation,
-					CancellationToken.None).ConfigureAwait(false);
-				lock (_turnTransitionGate) {
-					lock (_gate) {
-						if (_disposed || _activeGeneration != generation) return;
-						string createdSessionId = RequiredString(setup, "sessionId", "session/new response");
-						if (_openingSessionId is { } announced
-							&& !string.Equals(announced, createdSessionId, StringComparison.Ordinal)) {
-							throw new AcpProtocolException(
-								$"session/new announced '{announced}' but returned '{createdSessionId}'.");
-						}
-						_openingSessionId = createdSessionId;
-						sessionId = createdSessionId;
-					}
-				}
+					}).ConfigureAwait(false);
+				if (!OwnsGeneration(generation)) return;
+				sessionId = Endpoint(generation).SessionId;
 			} else if (loadSession) {
 				lock (_turnTransitionGate) {
 					lock (_gate) {
@@ -208,22 +209,19 @@ public sealed partial class AcpAgentSession {
 				}
 				bool loaded = false;
 				try {
-					setup = await _connection.RequestAsync(
+					setup = await Endpoint(generation).RequestAsync(
 						"session/load",
 						new {
-							sessionId,
 							cwd = Path.GetFullPath(_context.Workspace),
 							mcpServers = McpServers(),
 						},
-						generation,
 						CancellationToken.None).ConfigureAwait(false);
 					lock (_turnTransitionGate) {
 						TerminalizedTool[] interrupted;
 						lock (_gate) {
 							if (_disposed || _activeGeneration != generation) return;
 							loaded = true;
-							// session/load always replays into a freshly spawned agent, so a tool the transcript
-							// still calls running died with the process that ran it and can never terminalize.
+							// Replayed tools belong to the previous process or the fork's parent, never this conversation.
 							interrupted = TerminalizeActiveToolsLocked("cancelled");
 						}
 						CompleteContentStreams();
@@ -255,14 +253,12 @@ public sealed partial class AcpAgentSession {
 					}
 				}
 			} else {
-				setup = await _connection.RequestAsync(
+				setup = await Endpoint(generation).RequestAsync(
 					"session/resume",
 					new {
-						sessionId,
 						cwd = Path.GetFullPath(_context.Workspace),
 						mcpServers = McpServers(),
 					},
-					generation,
 					CancellationToken.None).ConfigureAwait(false);
 				if (!OwnsGeneration(generation)) return;
 			}
@@ -270,9 +266,9 @@ public sealed partial class AcpAgentSession {
 			lock (_turnTransitionGate) {
 				lock (_gate) {
 					if (_disposed || _activeGeneration != generation) return;
-					_openingSessionId = null;
 					_sessionOpening = false;
 				}
+				if (SettleInterruptedSideOpening()) return;
 				if (!_connection.ReportHealthy(generation)) {
 					throw new AcpProtocolException("The ACP authentication generation is no longer current.");
 				}
@@ -283,7 +279,6 @@ public sealed partial class AcpAgentSession {
 			lock (_turnTransitionGate) {
 				lock (_gate) {
 					if (_disposed || _activeGeneration != generation) return;
-					_openingSessionId = null;
 					_sessionOpening = false;
 				}
 			}
@@ -301,7 +296,6 @@ public sealed partial class AcpAgentSession {
 			lock (_gate) {
 				if (_disposed || _activeGeneration != generation) return;
 				_sessionId = sessionId;
-				_openingSessionId = null;
 				_sessionOpening = false;
 				ReadControlStateLocked(setup);
 			}
@@ -312,14 +306,21 @@ public sealed partial class AcpAgentSession {
 				if (_disposed || _activeGeneration != generation) return;
 				_ready = true;
 			}
+			if (SettleInterruptedSideOpening()) return;
 			if (!_connection.ReportHealthy(generation)) {
 				throw new AcpProtocolException("The initialized ACP generation is no longer current.");
 			}
 			Observe(new AgentSessionStarted(reconnecting ? "restart" : "startup"));
 			RestoreSetupActivity();
 			RaiseControls();
-			FlushPendingSubmissions();
+			DispatchPendingWork();
 		}
+	}
+
+	private bool SettleInterruptedSideOpening() {
+		lock (_gate) if (_role is not SideRole || _pendingSubmissions.Count > 0) return false;
+		FailConversationSerialized(new InvalidOperationException("Side conversation interrupted."));
+		return true;
 	}
 
 	// A freshly opened session owns no running tool call — the generation reset cleared them and a replayed one

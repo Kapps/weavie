@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using Weavie.Core.FileSystem;
 
 namespace Weavie.Core.Changes;
@@ -12,9 +13,9 @@ namespace Weavie.Core.Changes;
 public sealed record CorrectionEdit(string RelativePath, string Before, string After, string? Prompt, long OriginId, bool Continuable);
 
 public sealed partial class SessionChangeTracker {
-	private readonly Dictionary<string, string?> _conversationPrompts = new(StringComparer.Ordinal);
+	private readonly TrackedMap<string?> _conversationPrompts;
 	private long _nextOriginId;
-	private readonly Dictionary<string, ProvenanceFile> _provenance = new(PathIdentity.Comparer);
+	private readonly TrackedMap<ProvenanceFile> _provenance;
 
 	/// <summary>Raised outside the tracker lock with one user's action-time corrections.</summary>
 	public event Action<IReadOnlyList<CorrectionEdit>>? Corrected;
@@ -57,7 +58,7 @@ public sealed partial class SessionChangeTracker {
 				}
 			}
 
-			RebaseProvenance(provenance, content, attributed);
+			_provenance[path] = RebaseProvenance(provenance, content, attributed);
 			if (attributed.Count == 0) {
 				Checkpoint();
 				return CapturedHandEdit.None;
@@ -72,7 +73,7 @@ public sealed partial class SessionChangeTracker {
 
 	private void CaptureProvenanceBaseline(string path, string content) {
 		if (_provenance.TryGetValue(path, out var provenance)) {
-			RebaseProvenance(provenance, content, []);
+			_provenance[path] = RebaseProvenance(provenance, content, []);
 		} else {
 			_provenance[path] = ProvenanceFile.Empty(content);
 		}
@@ -83,7 +84,7 @@ public sealed partial class SessionChangeTracker {
 			provenance = ProvenanceFile.Empty(before);
 			_provenance[path] = provenance;
 		} else if (!string.Equals(provenance.Text, before, StringComparison.Ordinal)) {
-			RebaseProvenance(provenance, before, []);
+			provenance = RebaseProvenance(provenance, before, []);
 		}
 
 		var origin = new AgentOrigin(prompt, true, ++_nextOriginId);
@@ -92,11 +93,12 @@ public sealed partial class SessionChangeTracker {
 			.Select(hunk => new AttributedChange(hunk.BeforeRange, hunk.AfterRange, Lines(afterLines, hunk.AfterRange), origin))
 			.ToList();
 		string updated = ApplyChanges(before, reviewCurrent, changes);
-		RebaseProvenance(provenance, after, changes);
+		_provenance[path] = RebaseProvenance(provenance, after, changes);
 		return updated;
 	}
 
-	private static void RebaseProvenance(ProvenanceFile provenance, string content, IReadOnlyList<AttributedChange> changes) {
+	private static ProvenanceFile RebaseProvenance(ProvenanceFile provenance, string content, IReadOnlyList<AttributedChange> changes) {
+		if (provenance.Text == content && changes.Count == 0) return provenance;
 		string previous = provenance.Text;
 		string[] beforeLines = LineDiff.SplitLines(previous);
 		string[] afterLines = LineDiff.SplitLines(content);
@@ -139,20 +141,22 @@ public sealed partial class SessionChangeTracker {
 				origins[i] = change.Origin;
 			}
 			if (change.AfterRange.Start == change.AfterRange.EndExclusive) {
-				AddGap(gaps, change.AfterRange.Start - 1, new DeletedSegment(change.Origin, Lines(beforeLines, change.BeforeRange)));
+				AddGap(gaps, change.AfterRange.Start - 1, new DeletedSegment(change.Origin, [.. Lines(beforeLines, change.BeforeRange)]));
 			}
 		}
 
-		provenance.Text = content;
-		provenance.Lines = origins;
-		provenance.DeletedAtGap = gaps;
+		return new() {
+			Text = content,
+			Lines = [.. origins],
+			DeletedAtGap = gaps.ToImmutableDictionary(pair => pair.Key, pair => pair.Value.ToImmutableList())
+		};
 	}
 
 	private static AgentOrigin? EligibleOrigin(ProvenanceFile provenance, LineHunk hunk) {
 		if (hunk.BeforeRange.Start == hunk.BeforeRange.EndExclusive) {
 			int gap = hunk.BeforeRange.Start - 1;
-			if (gap > 0 && gap < provenance.Lines.Count
-				&& !(gap == provenance.Lines.Count - 1 && LineDiff.SplitLines(provenance.Text)[^1].Length == 0)
+			if (gap > 0 && gap < provenance.Lines.Length
+				&& !(gap == provenance.Lines.Length - 1 && LineDiff.SplitLines(provenance.Text)[^1].Length == 0)
 				&& provenance.Lines[gap - 1] is { Pending: true } left
 				&& provenance.Lines[gap] is { Pending: true } right
 				&& left.Id == right.Id) {
@@ -292,7 +296,7 @@ public sealed partial class SessionChangeTracker {
 	}
 
 	private void CommitReviewProvenance(string path) {
-		if (_provenance.TryGetValue(path, out var provenance)) RebaseProvenance(provenance, ReadOrEmpty(path), []);
+		if (_provenance.TryGetValue(path, out var provenance)) _provenance[path] = RebaseProvenance(provenance, ReadOrEmpty(path), []);
 	}
 
 	private string ApplyReviewChange(string path, string before, string after) {
@@ -407,20 +411,15 @@ public sealed partial class SessionChangeTracker {
 	// <paramref name="actual"/> is in provenance.Text (== disk) space, which is how provenance.Lines is indexed.
 	// Callers holding a _current-space range map it through MapCurrentRangeToActual first.
 	private void SetPending(string path, LineRange actual, bool pending) {
-		if (!_provenance.TryGetValue(path, out var provenance)) {
-			return;
-		}
-		for (int i = actual.Start - 1; i < actual.EndExclusive - 1 && i < provenance.Lines.Count; i++) {
-			if (provenance.Lines[i] is { } origin) {
-				provenance.Lines[i] = origin with { Pending = pending };
-			}
-		}
-		foreach (int gap in provenance.DeletedAtGap.Keys.ToList()) {
-			if (actual.Start - 1 <= gap && gap <= actual.EndExclusive - 1) {
-				provenance.DeletedAtGap[gap] = [.. provenance.DeletedAtGap[gap]
-					.Select(segment => segment with { Origin = segment.Origin with { Pending = pending } })];
-			}
-		}
+		if (!_provenance.TryGetValue(path, out var provenance)) return;
+		var lines = provenance.Lines.ToBuilder();
+		for (int i = actual.Start - 1; i < actual.EndExclusive - 1 && i < lines.Count; i++)
+			if (lines[i] is { } origin) lines[i] = origin with { Pending = pending };
+		var gaps = provenance.DeletedAtGap.ToBuilder();
+		foreach (var (gap, segments) in provenance.DeletedAtGap)
+			if (actual.Start - 1 <= gap && gap <= actual.EndExclusive - 1)
+				gaps[gap] = [.. segments.Select(segment => segment with { Origin = segment.Origin with { Pending = pending } })];
+		_provenance[path] = provenance with { Lines = lines.ToImmutable(), DeletedAtGap = gaps.ToImmutable() };
 	}
 
 	private LineRange MapCurrentRangeToActual(string path, LineRange currentRange) {
@@ -442,48 +441,13 @@ public sealed partial class SessionChangeTracker {
 	}
 
 	private void SetAllPending(string path, bool pending) {
-		if (!_provenance.TryGetValue(path, out var provenance)) {
-			return;
-		}
-		for (int i = 0; i < provenance.Lines.Count; i++) {
-			if (provenance.Lines[i] is { } origin) {
-				provenance.Lines[i] = origin with { Pending = pending };
-			}
-		}
-		foreach (int gap in provenance.DeletedAtGap.Keys.ToList()) {
-			provenance.DeletedAtGap[gap] = [.. provenance.DeletedAtGap[gap]
-				.Select(segment => segment with { Origin = segment.Origin with { Pending = pending } })];
-		}
+		if (_provenance.TryGetValue(path, out var provenance))
+			SetPending(path, new(1, provenance.Lines.Length + 1), pending);
 	}
-
-	private void PurgeAcceptedProvenance() {
-		foreach (var provenance in _provenance.Values) {
-			for (int i = 0; i < provenance.Lines.Count; i++) {
-				if (provenance.Lines[i] is { Pending: false }) {
-					provenance.Lines[i] = null;
-				}
-			}
-			foreach (int gap in provenance.DeletedAtGap.Keys.ToList()) {
-				provenance.DeletedAtGap[gap].RemoveAll(segment => !segment.Origin.Pending);
-				if (provenance.DeletedAtGap[gap].Count == 0) {
-					provenance.DeletedAtGap.Remove(gap);
-				}
-			}
-		}
-	}
-
-	private ProvenanceFile? CloneProvenance(string path) =>
-		_provenance.TryGetValue(path, out var provenance) ? provenance.Clone() : null;
-
-	private static bool ProvenanceEquals(ProvenanceFile? left, ProvenanceFile? right) =>
-		left is null ? right is null : left.EqualsState(right);
 
 	private void RestoreProvenance(string path, ProvenanceFile? provenance) {
-		if (provenance is null) {
-			_provenance.Remove(path);
-		} else {
-			_provenance[path] = provenance.Clone();
-		}
+		if (provenance is null) _provenance.Remove(path);
+		else _provenance[path] = provenance;
 	}
 
 	private static void AddGap(Dictionary<int, List<DeletedSegment>> gaps, int gap, DeletedSegment segment) {
@@ -511,36 +475,19 @@ public sealed partial class SessionChangeTracker {
 	}
 
 	private sealed record AgentOrigin(string? Prompt, bool Pending, long Id);
-	private sealed record DeletedSegment(AgentOrigin Origin, List<string> Lines);
+	private sealed record DeletedSegment(AgentOrigin Origin, ImmutableList<string> Lines);
 	private sealed record SegmentMatch(DeletedSegment Segment, int DeletedStart, int InsertedStart, int Count);
 
-	private sealed class ProvenanceFile {
-		public required string Text { get; set; }
-		public required List<AgentOrigin?> Lines { get; set; }
-		public required Dictionary<int, List<DeletedSegment>> DeletedAtGap { get; set; }
+	private sealed record ProvenanceFile {
+		public required string Text { get; init; }
+		public required ImmutableArray<AgentOrigin?> Lines { get; init; }
+		public required ImmutableDictionary<int, ImmutableList<DeletedSegment>> DeletedAtGap { get; init; }
 
 		public static ProvenanceFile Empty(string text) => new() {
 			Text = text,
 			Lines = [.. Enumerable.Repeat<AgentOrigin?>(null, LineDiff.SplitLines(text).Length)],
 			DeletedAtGap = [],
 		};
-
-		public ProvenanceFile Clone() => new() {
-			Text = Text,
-			Lines = [.. Lines],
-			DeletedAtGap = DeletedAtGap.ToDictionary(
-				pair => pair.Key,
-				pair => pair.Value.Select(segment => segment with { Lines = [.. segment.Lines] }).ToList()),
-		};
-
-		public bool EqualsState(ProvenanceFile? other) => other is not null
-			&& string.Equals(Text, other.Text, StringComparison.Ordinal)
-			&& Lines.SequenceEqual(other.Lines)
-			&& DeletedAtGap.Count == other.DeletedAtGap.Count
-			&& DeletedAtGap.All(pair => other.DeletedAtGap.TryGetValue(pair.Key, out var values)
-				&& pair.Value.Count == values.Count
-				&& pair.Value.Zip(values).All(pair => pair.First.Origin == pair.Second.Origin
-					&& pair.First.Lines.SequenceEqual(pair.Second.Lines)));
 	}
 
 	private sealed record AttributedChange(

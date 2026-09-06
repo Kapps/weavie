@@ -17,6 +17,8 @@
     <!-- Settings storage: TOML parse/serialize with a comment-preserving syntax tree (MIT). Held on the 0.x
          line: 1.0 dropped the Toml.Parse facade + DocumentSyntax.ToModel() bridge that SettingsFileLayer's
          comment-preserving read/write path is built on, so 2.x is a settings-persistence rewrite, not a bump. -->
+    <PackageVersion Include="Microsoft.Data.Sqlite" Version="10.0.10" />
+    <PackageVersion Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.13" />
     <PackageVersion Include="Tomlyn" Version="0.20.0" />
     <PackageVersion Include="WeCantSpell.Hunspell" Version="7.0.1" />
     <PackageVersion Include="SharpCompress" Version="0.50.4" />

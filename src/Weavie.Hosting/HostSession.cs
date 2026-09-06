@@ -102,7 +102,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 		var fileSystem = new LocalFileSystem();
 		string reviewDirectory = Path.Combine(Core.WeaviePaths.WorkspaceDir(WorkspaceId.ForPath(workspaceRoot)), "review");
 		SecureFile.CreateDirectory(reviewDirectory);
-		var reviewPersistence = new ReviewPersistence(fileSystem, Path.Combine(reviewDirectory, "state.json"));
+		var reviewPersistence = new ReviewPersistence(Path.Combine(reviewDirectory, "state.db"));
 
 		_endpoint = endpoint;
 		Background = new SessionTaskScope(Tagged("[session]"));

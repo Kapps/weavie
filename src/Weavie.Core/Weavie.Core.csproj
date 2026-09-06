@@ -8,6 +8,7 @@
 
   <ItemGroup>
     <!-- TOML store for user settings (comment-preserving DocumentSyntax round-trip). -->
+    <PackageReference Include="Microsoft.Data.Sqlite" />
     <PackageReference Include="Tomlyn" />
     <PackageReference Include="WeCantSpell.Hunspell" />
   </ItemGroup>

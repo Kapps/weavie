@@ -27,12 +27,12 @@ public sealed class SessionChangeTrackerPersistenceTests {
 		var tracker = Tracker(files, persistence);
 		tracker.Observe(new AgentConversationEvent("side", new AgentPromptSubmitted(null, "Side prompt")));
 		Edit(tracker, files, "proposal\n");
-		Assert.True(JsonNode.Parse(persistence.Read()!)!["Prompts"]!.AsObject().ContainsKey("side"));
+		Assert.True(persistence.Read().ContainsKey("prompt:side"));
 
 		tracker.Observe(new AgentConversationRemoved("side"));
-		Assert.False(JsonNode.Parse(persistence.Read()!)!["Prompts"]!.AsObject().ContainsKey("side"));
+		Assert.False(persistence.Read().ContainsKey("prompt:side"));
 		Tracker(files, persistence).KeepFile(File);
-		Assert.False(JsonNode.Parse(persistence.Read()!)!["Prompts"]!.AsObject().ContainsKey("side"));
+		Assert.False(persistence.Read().ContainsKey("prompt:side"));
 	}
 
 	[Fact]
@@ -162,10 +162,10 @@ public sealed class SessionChangeTrackerPersistenceTests {
 		var files = new InMemoryFileSystem();
 		files.WriteAllText(File, "user text\n");
 		var persistence = new MemoryReviewPersistence();
-		persistence.Save("{invalid");
+		persistence.Save(new Dictionary<string, string?> { ["metadata"] = "{invalid" });
 
 		Assert.Throws<IOException>(() => Tracker(files, persistence));
-		Assert.Equal("{invalid", persistence.Read());
+		Assert.Equal("{invalid", persistence.Read()["metadata"]);
 		Assert.Equal("user text\n", files.ReadAllText(File));
 	}
 
@@ -218,14 +218,15 @@ public sealed class SessionChangeTrackerPersistenceTests {
 		var tracker = Tracker(files, persistence);
 		Edit(tracker, files, "proposal\n");
 		tracker.RevertFile(File);
-		var document = JsonNode.Parse(persistence.Read()!)!;
-		var patch = document["Undo"]![0]!["Patches"]!.AsArray().First(item => item!["BeforeOrigins"] is not null)!;
+		string key = persistence.Read().Keys.Single(key => key.StartsWith("history-patches:", StringComparison.Ordinal));
+		var document = JsonNode.Parse(persistence.Read()[key])!;
+		var patch = document["Patches"]!.AsArray().First(item => item!["BeforeOrigins"] is not null)!;
 		patch["BeforeOrigins"]!["Lines"] = null;
 		string corrupted = document.ToJsonString();
-		persistence.Save(corrupted);
+		persistence.Save(new Dictionary<string, string?> { [key] = corrupted });
 
 		Assert.Throws<IOException>(() => Tracker(files, persistence));
-		Assert.Equal(corrupted, persistence.Read());
+		Assert.Equal(corrupted, persistence.Read()[key]);
 		Assert.Equal("old\n", files.ReadAllText(File));
 	}
 
@@ -254,10 +255,10 @@ public sealed class SessionChangeTrackerPersistenceTests {
 	private sealed class FailingPersistence : IReviewPersistence {
 		private readonly MemoryReviewPersistence _memory = new();
 		public bool Fail { get; set; }
-		public string? Read() => _memory.Read();
-		public void Save(string document) {
+		public IReadOnlyDictionary<string, string> Read() => _memory.Read();
+		public void Save(IReadOnlyDictionary<string, string?> changes) {
 			if (Fail) throw new IOException("Test checkpoint denied");
-			_memory.Save(document);
+			_memory.Save(changes);
 		}
 	}
 }

@@ -21,20 +21,20 @@ public sealed partial class SessionChangeTracker {
 	private readonly object _gate = new();
 	// Rendered turn summaries, memoized on the texts they were diffed from and rebuilt from the live set.
 	private Dictionary<string, TurnChangeSummary> _summaries = new(PathIdentity.Comparer);
-	private readonly Dictionary<string, string> _baseline = new(PathIdentity.Comparer);
-	private readonly HashSet<string> _missingBaseline = new(PathIdentity.Comparer);
-	private readonly Dictionary<string, string> _current = new(PathIdentity.Comparer);
+	private readonly TrackedMap<string> _baseline;
+	private readonly TrackedSet _missingBaseline;
+	private readonly TrackedMap<string> _current;
 	// Absence is review data, including rejected creations and observed deletions.
-	private readonly HashSet<string> _missingCurrent = new(PathIdentity.Comparer);
+	private readonly TrackedSet _missingCurrent;
 	// Each file's last-reviewed content; advanced only on keep-all (AcceptTurn) or a per-hunk revert, not on a
 	// turn boundary, so the review set accumulates everything unacknowledged across turns (docs/specs/turn-review.md).
-	private readonly Dictionary<string, string> _reviewBaseline = new(PathIdentity.Comparer);
-	private readonly HashSet<string> _missingReviewBaseline = new(PathIdentity.Comparer);
+	private readonly TrackedMap<string> _reviewBaseline;
+	private readonly TrackedSet _missingReviewBaseline;
 	// The review's original anchor: keeps advance the review baseline, never this boundary.
-	private readonly Dictionary<string, string> _acceptedAnchor = new(PathIdentity.Comparer);
-	private readonly HashSet<string> _missingAcceptedAnchor = new(PathIdentity.Comparer);
+	private readonly TrackedMap<string> _acceptedAnchor;
+	private readonly TrackedSet _missingAcceptedAnchor;
 	// Each file's content at the most recent edit's PreToolUse; diffed against post-edit in EditLocationFor.
-	private readonly Dictionary<string, string> _preEdit = new(PathIdentity.Comparer);
+	private readonly TrackedMap<string> _preEdit;
 	// Binary contents are never stored; an earlier text review remains retained but unavailable.
 	private readonly Dictionary<string, FileStat> _nonText = new(PathIdentity.Comparer);
 	/// <summary>Creates a tracker that reads files and reports their completed activity.</summary>
@@ -68,6 +68,19 @@ public sealed partial class SessionChangeTracker {
 		_fileActivity = fileActivity;
 		_workspaceRoot = NormalizePath(workspaceRoot);
 		_isInScope = isInScope;
+		_baseline = new(PathIdentity.Comparer, FileChanged);
+		_current = new(PathIdentity.Comparer, FileChanged);
+		_reviewBaseline = new(PathIdentity.Comparer, FileChanged);
+		_acceptedAnchor = new(PathIdentity.Comparer, FileChanged);
+		_preEdit = new(PathIdentity.Comparer, FileChanged);
+		_missingBaseline = new(PathIdentity.Comparer, FileChanged);
+		_missingCurrent = new(PathIdentity.Comparer, FileChanged);
+		_missingReviewBaseline = new(PathIdentity.Comparer, FileChanged);
+		_missingAcceptedAnchor = new(PathIdentity.Comparer, FileChanged);
+		_provenance = new(PathIdentity.Comparer, FileChanged);
+		_conversationPrompts = new(StringComparer.Ordinal, key => _dirtyPrompts.Add(key));
+		_undoStack = new(this, true);
+		_redoStack = new(this, false);
 		_persistence = persistence;
 		RestoreCheckpoint();
 	}
@@ -592,8 +605,8 @@ public sealed partial class SessionChangeTracker {
 	}
 
 	private void SuspendReview(string path) {
-		foreach (var action in _undoStack.Concat(_redoStack))
-			foreach (var patch in action.Patches.Where(patch => PathIdentity.Equals(patch.Path, path))) patch.Stale = true;
+		foreach (var action in HistoryFor(path))
+			action.ReplacePatches(path, [.. action.PatchesFor(path).Select(patch => patch with { Stale = true })]);
 	}
 
 	/// <summary>
@@ -762,7 +775,7 @@ public sealed partial class SessionChangeTracker {
 		}
 	}
 
-	private static void SetMissing(HashSet<string> missing, string path, bool value) {
+	private static void SetMissing(TrackedSet missing, string path, bool value) {
 		if (value) {
 			missing.Add(path);
 		} else {

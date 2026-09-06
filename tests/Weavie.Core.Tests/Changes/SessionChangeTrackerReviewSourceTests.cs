@@ -75,7 +75,7 @@ public sealed class SessionChangeTrackerReviewSourceTests {
 		tracker.RecordChange(File);
 		tracker.KeepFile(File);
 		var before = tracker.GetTurn(File);
-		string? document = persistence.Read();
+		var document = persistence.Read();
 		string other = Path.Combine(Root, "other.txt");
 		files.WriteAllText(other, "new file\n");
 

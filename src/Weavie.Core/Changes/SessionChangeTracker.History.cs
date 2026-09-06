@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using Weavie.Core.FileSystem;
 
 namespace Weavie.Core.Changes;
@@ -8,9 +9,9 @@ public sealed partial class SessionChangeTracker {
 		.SelectMany(action => action.Patches.Where(patch => patch.Part == ReviewPart.Current && PathIdentity.Equals(patch.Path, path))
 			.Select(patch => new RejectedChange(string.Join(patch.BeforeEol, patch.Before), action.Patches.Any(candidate => candidate.Stale))))
 		.ToArray();
-	private readonly List<ReviewAction> _undoStack = [];
-	private readonly List<ReviewAction> _redoStack = [];
-	private readonly Dictionary<string, PathState> _historyHeads = new(PathIdentity.Comparer);
+	private readonly HistoryStack _undoStack;
+	private readonly HistoryStack _redoStack;
+	private readonly Dictionary<string, HistoryHead> _historyHeads = new(PathIdentity.Comparer);
 	private long _nextActionId;
 
 	/// <summary>Whether a kept decision is available to undo.</summary>
@@ -33,7 +34,7 @@ public sealed partial class SessionChangeTracker {
 		lock (_gate) return ApplyHistory(_undoStack, _redoStack, kind, undo: true);
 	}
 
-	private ReviewHistoryResult ApplyHistory(List<ReviewAction> source, List<ReviewAction> destination, ReviewActionKind? kind, bool undo) {
+	private ReviewHistoryResult ApplyHistory(HistoryStack source, HistoryStack destination, ReviewActionKind? kind, bool undo) {
 		ReconcileReviewDisk();
 		bool found = false;
 		foreach (var action in source.AsEnumerable().Reverse().ToArray()) {
@@ -43,7 +44,7 @@ public sealed partial class SessionChangeTracker {
 				|| _undoStack.Where(other => !ReferenceEquals(other, action)).SelectMany(other => other.Patches)
 					.Any(cover => cover.Boundaries.Any(boundary => boundary.PatchId == patch.Id && boundary.Covered)))) continue;
 			string[] paths = [.. action.Patches.Select(patch => patch.Path).Distinct(PathIdentity.Comparer)];
-			var reversed = action with { Patches = [] };
+			var reversed = new ReviewAction(action.Id, action.Kind, action.TouchesDisk, action.Line, []);
 			try {
 				foreach (string path in paths) {
 					var patches = action.Patches.Where(patch => PathIdentity.Equals(patch.Path, path)).ToList();
@@ -68,22 +69,24 @@ public sealed partial class SessionChangeTracker {
 						foreach (var patch in group.OrderBy(patch => patch.Range.Start)) {
 							int length = (undo ? patch.Before : patch.After).Length;
 							int oldLength = Length(patch.Range);
-							patch.Range = new(patch.Range.Start + shift, patch.Range.Start + shift + length);
+							var range = new LineRange(patch.Range.Start + shift, patch.Range.Start + shift + length);
+							int index = patches.IndexOf(patch);
+							patches[index] = patch with { Range = range };
 							shift += length - oldLength;
 						}
 					}
 					SynchronizeHistory(external: false, except: action);
 					if (undo) RestoreBoundaries(patches);
-					action.Patches.RemoveAll(patch => PathIdentity.Equals(patch.Path, path));
-					reversed.Patches.AddRange(patches);
+					action.RemovePatches(path);
+					reversed.ReplacePatches(path, [.. patches]);
 					if (!destination.Contains(reversed)) destination.Add(reversed);
-					if (action.Patches.Count == 0) source.Remove(action);
+					if (action.PatchCount == 0) source.Remove(action);
 					Checkpoint();
 					if (action.TouchesDisk) ReportCurrentState(path);
 				}
 			} catch {
 				// A multi-file action retains its successfully written prefix even when a later path fails.
-				if (action.Patches.Count > 0 && reversed.Patches.Count > 0) action.Id = ++_nextActionId;
+				if (action.PatchCount > 0 && reversed.PatchCount > 0) action.Id = ++_nextActionId;
 				Checkpoint();
 				throw;
 			}
@@ -146,7 +149,7 @@ public sealed partial class SessionChangeTracker {
 			}
 		}
 		SynchronizeHistory(external: false, except: null);
-		if (patches.Count > 0) _undoStack.Add(new(++_nextActionId, kind, touchesDisk, line, patches));
+		if (patches.Count > 0) _undoStack.Add(new(++_nextActionId, kind, touchesDisk, line, [.. patches]));
 		_redoStack.Clear();
 		Checkpoint();
 	}
@@ -160,15 +163,33 @@ public sealed partial class SessionChangeTracker {
 	private readonly record struct TextValue(string Text, bool Exists);
 	private enum ReviewPart { Review, Current, Disk }
 	private enum ReviewActionKind { Keep, Revert, Revise }
-	private sealed record ReviewAction(long ActionId, ReviewActionKind Kind, bool TouchesDisk, int? Line, List<ReviewPatch> Patches) {
-		public long Id { get; set; } = ActionId;
+	private sealed class ReviewAction(long actionId, ReviewActionKind kind, bool touchesDisk, int? line, ImmutableList<ReviewPatch> patches) {
+		private readonly Dictionary<string, ImmutableList<ReviewPatch>> _patches = patches
+			.GroupBy(patch => patch.Path, PathIdentity.Comparer).ToDictionary(group => group.Key, group => group.ToImmutableList(), PathIdentity.Comparer);
+		public event Action<ReviewAction, string?>? Changed;
+		public ReviewActionKind Kind { get; } = kind;
+		public bool TouchesDisk { get; } = touchesDisk;
+		public int? Line { get; } = line;
+		public long Id { get; set { field = value; Changed?.Invoke(this, null); } } = actionId;
+		public int PatchCount => _patches.Values.Sum(group => group.Count);
+		public IEnumerable<string> Paths => _patches.Keys;
+		public IEnumerable<ReviewPatch> Patches => _patches.Values.SelectMany(group => group);
+		public ImmutableList<ReviewPatch> PatchesFor(string path) => _patches.GetValueOrDefault(path, []);
+		public void ReplacePatches(string path, ImmutableList<ReviewPatch> patches) {
+			if (PatchesFor(path).SequenceEqual(patches)) return;
+			if (patches.Count == 0) _patches.Remove(path);
+			else _patches[path] = patches;
+			Changed?.Invoke(this, path);
+		}
+		public void RemovePatches(string path) => ReplacePatches(path, []);
 	}
+
 	private sealed record ReviewPatch(string Path, ReviewPart Part, LineRange InitialRange, string[] Before, string[] After,
 		bool BeforeExists, bool AfterExists, OriginSlice? BeforeOrigins, OriginSlice? AfterOrigins) {
-		public LineRange Range { get; set; } = InitialRange;
+		public LineRange Range { get; init; } = InitialRange;
 		public long Id { get; init; }
 		public List<BoundaryRestore> Boundaries { get; init; } = [];
-		public bool Stale { get; set; }
+		public bool Stale { get; init; }
 		public string BeforeEol { get; init; } = "\n";
 		public string AfterEol { get; init; } = "\n";
 	}

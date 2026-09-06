@@ -229,23 +229,22 @@ test.describe("applied review — accepted band fades (kept, not vanished) + inl
     await expect(page.locator(ACCEPTED)).toHaveCount(0);
   });
 
-  test("keep-all clears both the pending and the faded accepted band", async ({ page }) => {
+  test("keep-all retains existing kept decisions and fades the remaining pending changes", async ({
+    page,
+  }) => {
     await openFile(page, "hello.ts");
     await focusFirstHunk(page);
     await page.keyboard.press("ControlOrMeta+Enter"); // keep hunk 1 → it fades, leaving one pending + one accepted
     await expect(page.locator(ACCEPTED)).toHaveCount(1);
 
-    // Keep-all is the commit point: the accepted anchor snaps to current, so EVERY marker clears (bright + faded).
     await runCommand(page, "Keep All Changes");
     await expect(page.locator(ADDED)).toHaveCount(0);
-    await expect(page.locator(ACCEPTED)).toHaveCount(0);
-    await expect(page.locator(TOOLBAR)).toHaveCount(0);
+    await expect(page.locator(ACCEPTED)).toHaveCount(2);
+    await expect(page.locator(TOOLBAR)).toBeVisible();
   });
 });
 
-test.describe("applied review — a new turn commits the faded accepted band", () => {
-  // The fake pauses after its edits until the test signals (waitFile), then submits a new prompt — the
-  // UserPromptSubmit hook is the turn-start boundary that implicitly commits whatever was kept.
+test.describe("applied review — a new turn preserves the faded accepted band", () => {
   const SIGNAL = ".weavie-e2e-turn-signal";
   test.use({
     fakeScript: {
@@ -253,11 +252,12 @@ test.describe("applied review — a new turn commits the faded accepted band", (
         ...appliedEdit("hello.ts", TWO_HUNKS),
         { op: "waitFile", path: `{{WORKSPACE}}/${SIGNAL}` },
         { op: "hook", request: { hook_event_name: "UserPromptSubmit" } },
+        { op: "edit", path: "{{WORKSPACE}}/.weavie-e2e-turn-started", content: "" },
       ],
     },
   });
 
-  test("kept hunks disappear from the diff at the next prompt; pending ones stay", async ({
+  test("kept and pending hunks survive the next prompt with their undo actions", async ({
     page,
     weavie,
   }) => {
@@ -267,11 +267,13 @@ test.describe("applied review — a new turn commits the faded accepted band", (
     await expect(page.locator(ACCEPTED)).toHaveCount(1);
     await expect(page.locator(ADDED)).toHaveCount(1);
 
-    // Signal the fake to submit its next prompt: the turn boundary commits the kept hunk out of the view.
     writeFileSync(join(weavie.workspace, SIGNAL), "");
-    await expect(page.locator(ACCEPTED)).toHaveCount(0); // the faded band is gone — committed
-    await expect(page.locator(UNDO)).toHaveCount(0); // and its inline ↶ undo with it
-    await expect(page.locator(ADDED)).toHaveCount(1); // the unreviewed hunk still accumulates
+    await expect.poll(() => weavie.fakeLog()).toContain(".weavie-e2e-turn-started");
+    await expect(page.locator(ACCEPTED)).toHaveCount(1);
+    await expect(page.locator(UNDO)).toHaveCount(1);
+    await expect(page.locator(ADDED)).toHaveCount(1);
+    await page.locator(UNDO).click();
+    await expect(page.locator(ADDED)).toHaveCount(2);
   });
 });
 
@@ -471,10 +473,7 @@ test.describe("applied review — scope picker (keep whole file)", () => {
     await expect(page.locator(UNDO)).toHaveCount(2);
   });
 
-  // A single-file review has no ← / → file axis, so "All files" reads as "All changes" — but it must still be
-  // offered, because keep-all is the only toolbar scope that commits the review and closes the navigator.
-  // Without it a one-file review could only ever be faded (kept-but-uncommitted), never dismissed.
-  test("with scope = All changes, one Keep commits the single-file review and closes the toolbar", async ({
+  test("with scope = All changes, one Keep reviews every hunk without closing the review", async ({
     page,
   }) => {
     await openFile(page, "hello.ts");
@@ -484,10 +483,9 @@ test.describe("applied review — scope picker (keep whole file)", () => {
     await page.locator(".weavie-inline-scope-item", { hasText: "All changes" }).click();
     await page.locator(".weavie-inline-accept").click();
 
-    // Committed: every marker (bright + faded) clears and the toolbar leaves — the review is fully closed.
     await expect(page.locator(ADDED)).toHaveCount(0);
-    await expect(page.locator(ACCEPTED)).toHaveCount(0);
-    await expect(page.locator(TOOLBAR)).toHaveCount(0);
+    await expect(page.locator(ACCEPTED)).toHaveCount(2);
+    await expect(page.locator(TOOLBAR)).toBeVisible();
   });
 });
 
@@ -553,18 +551,20 @@ test.describe("parked navigator — surfaces without moving the editor", () => {
   });
 });
 
-test.describe("applied review — keep-all commits the set", () => {
+test.describe("applied review — keep-all is reversible", () => {
   test.use({ fakeScript: { steps: [...appliedEdit("hello.ts", TWO_HUNKS)] } });
 
-  test("keep-all clears the review surface", async ({ page }) => {
+  test("undo keep-all restores every pending hunk", async ({ page }) => {
     await openFile(page, "hello.ts");
     await expect(page.locator(ADDED)).toHaveCount(2);
 
-    // Keep-all via the palette (the commit point): the marks clear and the toolbar leaves.
     await runCommand(page, "Keep All Changes");
 
     await expect(page.locator(ADDED)).toHaveCount(0);
-    await expect(page.locator(TOOLBAR)).toHaveCount(0);
+    await expect(page.locator(ACCEPTED)).toHaveCount(2);
+    await expect(page.locator(HIST_UNDO).first()).toBeEnabled();
+    await runCommand(page, "Undo Keep (Review)");
+    await expect(page.locator(ADDED)).toHaveCount(2);
   });
 });
 
@@ -979,7 +979,10 @@ test.describe("applied review — every file remains reviewable", () => {
 
     await expect
       .poll(() => page.evaluate(() => window.__WEAVIE_REVIEW__?.files.length ?? -1))
-      .toBe(0);
-    await expect(page.locator(TOOLBAR)).toHaveCount(0);
+      .toBe(100);
+    await expect(page.locator(".weavie-inline-pending-keep")).toHaveCount(0);
+    await expect(page.locator(HIST_UNDO).first()).toBeEnabled();
+    await runCommand(page, "Undo Keep (Review)");
+    await expect(page.locator(".weavie-inline-pending-keep")).toHaveCount(1);
   });
 });

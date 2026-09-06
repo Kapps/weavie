@@ -59,10 +59,12 @@ public sealed partial class SessionChangeTracker {
 
 			RebaseProvenance(provenance, content, attributed);
 			if (attributed.Count == 0) {
+				Checkpoint();
 				return CapturedHandEdit.None;
 			}
 
 			_current[path] = ApplyChanges(previousText, reviewCurrent, attributed);
+			Checkpoint();
 		}
 
 		return new CapturedHandEdit(() => RaiseCorrected(edits));
@@ -93,8 +95,6 @@ public sealed partial class SessionChangeTracker {
 		RebaseProvenance(provenance, after, changes);
 		return updated;
 	}
-
-	private void SeedProvenance(string path, string content) => _provenance[path] = ProvenanceFile.Empty(content);
 
 	private static void RebaseProvenance(ProvenanceFile provenance, string content, IReadOnlyList<AttributedChange> changes) {
 		string previous = provenance.Text;
@@ -291,6 +291,10 @@ public sealed partial class SessionChangeTracker {
 		return string.Join(target.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : "\n", targetLines);
 	}
 
+	private void CommitReviewProvenance(string path) {
+		if (_provenance.TryGetValue(path, out var provenance)) RebaseProvenance(provenance, ReadOrEmpty(path), []);
+	}
+
 	private string ApplyReviewChange(string path, string before, string after) {
 		if (!_provenance.TryGetValue(path, out var provenance)) {
 			return after;
@@ -301,7 +305,6 @@ public sealed partial class SessionChangeTracker {
 			.Select(hunk => new AttributedChange(hunk.BeforeRange, hunk.AfterRange, Lines(afterLines, hunk.AfterRange), marker))
 			.ToList();
 		string actual = ApplyChanges(before, provenance.Text, changes);
-		RebaseProvenance(provenance, actual, []);
 		return actual;
 	}
 

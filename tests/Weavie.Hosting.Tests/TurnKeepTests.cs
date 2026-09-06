@@ -139,7 +139,7 @@ public sealed class TurnKeepTests {
 	}
 
 	[Fact]
-	public async Task NewPrompt_CommitsFadedBand_AndRePushesReviewState() {
+	public async Task NewPrompt_PreservesFadedBandAndUndoWithoutResetPushes() {
 		await using var host = await TestHost.StartAsync();
 		var session = host.SelectedSession;
 		string path = Path.Combine(host.RepoRoot, "readme.txt");
@@ -151,23 +151,18 @@ public sealed class TurnKeepTests {
 		Assert.Single(session.Changes.TurnChanges()); // kept: faded band only
 
 		host.Bridge.Clear();
-		// A new prompt (the UserPromptSubmit hook) commits the accepted band: the file leaves the diff view.
 		session.Changes.Observe(new Weavie.Core.Hooks.HookRequest {
 			Event = Weavie.Core.Hooks.HookEventKind.UserPromptSubmit,
 			ToolName = string.Empty,
 			ToolInputJson = "{}",
 		});
 
-		Assert.Empty(session.Changes.TurnChanges());
-		var files = host.Bridge.LastEvent(session.Address, "review", "changes");
-		Assert.NotNull(files);
-		Assert.Empty(files!.Value.GetProperty("files").EnumerateArray()); // the trimmed (now empty) review set
-		var diff = host.Bridge.LastEvent(session.Address, "review", "diff");
-		Assert.NotNull(diff); // the file's inline markers clear: accepted == current
-		Assert.Equal(diff!.Value.GetProperty("current").GetString(), diff.Value.GetProperty("acceptedBaseline").GetString());
-		var history = host.Bridge.LastEvent(session.Address, "review", "history");
-		Assert.NotNull(history); // the commit cleared the undo history
-		Assert.False(history!.Value.GetProperty("canUndo").GetBoolean());
+		var reviewed = Assert.Single(session.Changes.TurnChanges());
+		Assert.Equal("hello\n", reviewed.AcceptedBaselineText);
+		Assert.Equal("hello\nworld\n", reviewed.BaselineText);
+		Assert.True(session.Changes.CanUndoKeep);
+		Assert.Null(host.Bridge.LastEvent(session.Address, "review", "changes"));
+		Assert.Null(host.Bridge.LastEvent(session.Address, "review", "history"));
 	}
 
 	[Fact]

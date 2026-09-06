@@ -24,22 +24,18 @@ public sealed partial class SessionChangeTracker {
 	private readonly Dictionary<string, string> _baseline = new(PathIdentity.Comparer);
 	private readonly HashSet<string> _missingBaseline = new(PathIdentity.Comparer);
 	private readonly Dictionary<string, string> _current = new(PathIdentity.Comparer);
-	// Ref/PR reviews retain a deleted current-side path so its baseline can still be reviewed and restored. Live
-	// tool deletions are forgotten instead; only SeedRefBaseline adds entries here.
+	// Absence is review data, including rejected creations and observed deletions.
 	private readonly HashSet<string> _missingCurrent = new(PathIdentity.Comparer);
 	// Each file's last-reviewed content; advanced only on keep-all (AcceptTurn) or a per-hunk revert, not on a
 	// turn boundary, so the review set accumulates everything unacknowledged across turns (docs/specs/turn-review.md).
 	private readonly Dictionary<string, string> _reviewBaseline = new(PathIdentity.Comparer);
 	private readonly HashSet<string> _missingReviewBaseline = new(PathIdentity.Comparer);
-	// Each file's content at the last commit point — keep-all (AcceptTurn) or a turn boundary (CommitAccepted).
-	// The faded "accepted" band is acceptedAnchor→reviewBaseline (kept-but-uncommitted): a kept hunk stays
-	// visible-but-faded with an inline undo until a commit clears it. See docs/specs/turn-review.md (Phase 2).
+	// The review's original anchor: keeps advance the review baseline, never this boundary.
 	private readonly Dictionary<string, string> _acceptedAnchor = new(PathIdentity.Comparer);
 	private readonly HashSet<string> _missingAcceptedAnchor = new(PathIdentity.Comparer);
 	// Each file's content at the most recent edit's PreToolUse; diffed against post-edit in EditLocationFor.
 	private readonly Dictionary<string, string> _preEdit = new(PathIdentity.Comparer);
-	// Non-text files never enter the diff dictionaries; their stat is enough to refresh an open media/editor
-	// surface when a workspace-wide tool changes them without serializing their contents.
+	// Binary contents are never stored; an earlier text review remains retained but unavailable.
 	private readonly Dictionary<string, FileStat> _nonText = new(PathIdentity.Comparer);
 	/// <summary>Creates a tracker that reads files and reports their completed activity.</summary>
 	/// <param name="fileSystem">The session filesystem the tracker reads changed-file content through.</param>
@@ -55,7 +51,15 @@ public sealed partial class SessionChangeTracker {
 		IFileSystem fileSystem,
 		IFileActivitySink fileActivity,
 		string workspaceRoot,
-		Func<string, bool> isInScope) {
+		Func<string, bool> isInScope) : this(fileSystem, fileActivity, workspaceRoot, isInScope, new MemoryReviewPersistence()) { }
+
+	/// <summary>Creates and restores a worktree's durable review before admitting agent edits.</summary>
+	public SessionChangeTracker(
+		IFileSystem fileSystem,
+		IFileActivitySink fileActivity,
+		string workspaceRoot,
+		Func<string, bool> isInScope,
+		IReviewPersistence persistence) {
 		ArgumentNullException.ThrowIfNull(fileSystem);
 		ArgumentNullException.ThrowIfNull(fileActivity);
 		ArgumentException.ThrowIfNullOrEmpty(workspaceRoot);
@@ -64,25 +68,21 @@ public sealed partial class SessionChangeTracker {
 		_fileActivity = fileActivity;
 		_workspaceRoot = NormalizePath(workspaceRoot);
 		_isInScope = isInScope;
+		_persistence = persistence;
+		RestoreCheckpoint();
 	}
 
 	/// <summary>
-	/// Raised with the paths whose faded accepted band was just committed at a turn boundary (see
-	/// <see cref="Observe"/>), so the host can re-push the trimmed review set, each path's diff, and the
-	/// (now cleared) undo history.
-	/// </summary>
-	public event Action<IReadOnlyList<string>>? AcceptedCommitted;
-
-	/// <summary>
-	/// Folds provider events into the change set. Direct mutations capture and record their paths; prompt boundaries
-	/// commit accepted hunks. Unenumerated shell and tool side-effects are not discovered by scanning the workspace.
+	/// Accumulates provider-reported edits without changing earlier review decisions at prompt boundaries.
 	/// </summary>
 	public void Observe(AgentEvent value) {
 		ArgumentNullException.ThrowIfNull(value);
 		string conversationId = value is AgentConversationEvent side ? side.ConversationId : string.Empty;
 		if (value is AgentConversationEvent scoped) value = scoped.Value;
 		if (value is AgentConversationRemoved removed) {
-			lock (_gate) _conversationPrompts.Remove(removed.ConversationId);
+			lock (_gate) {
+				if (_conversationPrompts.Remove(removed.ConversationId)) Checkpoint();
+			}
 			return;
 		}
 
@@ -91,7 +91,6 @@ public sealed partial class SessionChangeTracker {
 				_conversationPrompts[conversationId] = submitted.Prompt;
 			}
 
-			if (conversationId.Length == 0) CommitAccepted();
 			return;
 		}
 
@@ -99,7 +98,7 @@ public sealed partial class SessionChangeTracker {
 			return;
 		}
 
-		// Reconcile deletions before recording this tool's edit, so a Bash rm/mv drops the vanished file first.
+		// Workspace-wide tools can delete an already-tracked path without reporting it explicitly.
 		if (value is AgentToolCompleted) {
 			ReconcileDeletions();
 		}
@@ -125,61 +124,21 @@ public sealed partial class SessionChangeTracker {
 		}
 	}
 
-	/// <summary>
-	/// Keep-all: advances every review baseline AND accepted anchor to current content, clearing every inline
-	/// marker (bright pending and faded accepted alike). The session diff (vs the session baseline) is kept.
-	/// </summary>
+	/// <summary>Keeps all pending changes as one reversible decision; the review remains available.</summary>
 	public void AcceptTurn() {
 		lock (_gate) {
-			_reviewBaseline.Clear();
-			_missingReviewBaseline.Clear();
-			_acceptedAnchor.Clear();
-			_missingAcceptedAnchor.Clear();
-			foreach (var (path, content) in _current) {
-				_reviewBaseline[path] = content;
-				_acceptedAnchor[path] = content; // commit point: the faded band collapses to nothing
-				if (_missingCurrent.Contains(path)) {
-					_missingReviewBaseline.Add(path);
-					_missingAcceptedAnchor.Add(path);
-				}
+			ReconcileReviewDisk();
+			var paths = _current.Keys.Where(path => !_nonText.ContainsKey(path) && (_reviewBaseline.GetValueOrDefault(path) != _current[path]
+				|| _missingReviewBaseline.Contains(path) != _missingCurrent.Contains(path))).ToList();
+			if (paths.Count == 0) { Checkpoint(); return; }
+			var before = paths.ConvertAll(path => Capture(path, withDisk: true));
+			foreach (string path in paths) {
+				_reviewBaseline[path] = _current[path];
+				SetMissing(_missingReviewBaseline, path, _missingCurrent.Contains(path));
+				SetAllPending(path, false);
 			}
-
-			_provenance.Clear();
-			// Keep-all is the commit point — accepted changes are locked in, so the undo history resets here.
-			_undoStack.Clear();
-			_redoStack.Clear();
+			Record(ReviewActionKind.Keep, touchesDisk: false, line: null, before);
 		}
-	}
-
-	// Turn-start commit: each accepted anchor advances to its review baseline (faded band collapses, pending stays).
-	// The history clears too — undoing a stale keep/revert would restore an old anchor, resurrecting committed hunks.
-	private void CommitAccepted() {
-		List<string>? committed = null;
-		lock (_gate) {
-			foreach (var (path, baseline) in _reviewBaseline) {
-				bool reviewMissing = _missingReviewBaseline.Contains(path);
-				if (!string.Equals(_acceptedAnchor.GetValueOrDefault(path, baseline), baseline, StringComparison.Ordinal)
-					|| _missingAcceptedAnchor.Contains(path) != reviewMissing) {
-					_acceptedAnchor[path] = baseline;
-					if (reviewMissing) {
-						_missingAcceptedAnchor.Add(path);
-					} else {
-						_missingAcceptedAnchor.Remove(path);
-					}
-					(committed ??= []).Add(path);
-				}
-			}
-
-			if (committed is null) {
-				return;
-			}
-
-			PurgeAcceptedProvenance();
-			_undoStack.Clear();
-			_redoStack.Clear();
-		}
-
-		AcceptedCommitted?.Invoke(committed);
 	}
 
 	/// <summary>Snapshots <paramref name="path"/>'s current content as its session + review baseline, once.</summary>
@@ -191,7 +150,7 @@ public sealed partial class SessionChangeTracker {
 			// deletes rather than truncates a file that didn't yet exist.
 			bool existed = _fileSystem.FileExists(path);
 			if (!TryReadOrEmpty(path, out string content)) {
-				Forget(path);
+				SuspendReview(path);
 				if (existed && _fileSystem.TryGetStat(path, out var stat)) {
 					_nonText.TryAdd(path, stat);
 				}
@@ -216,6 +175,8 @@ public sealed partial class SessionChangeTracker {
 			_missingAcceptedAnchor.Add(path);
 		}
 		_preEdit[path] = content;
+		if (_current.TryAdd(path, content)) SetMissing(_missingCurrent, path, !existed);
+		Checkpoint();
 	}
 
 	/// <summary>Records <paramref name="path"/>'s latest content (baselining to empty if it appeared this session).</summary>
@@ -236,7 +197,7 @@ public sealed partial class SessionChangeTracker {
 				if (stat.Exists) {
 					_nonText[path] = stat;
 				}
-				Forget(path);
+				SuspendReview(path);
 			} else {
 				ignoredNonText = false;
 				_missingCurrent.Remove(path);
@@ -263,6 +224,7 @@ public sealed partial class SessionChangeTracker {
 					_current[path] = RecordAgentProvenance(path, before, content, reviewCurrent, _conversationPrompts.GetValueOrDefault(conversationId));
 				}
 			}
+			Checkpoint();
 		}
 
 		if (!ignoredNonText || nonTextChanged || reviewRemoved) {
@@ -271,16 +233,7 @@ public sealed partial class SessionChangeTracker {
 	}
 
 	/// <summary>
-	/// Seeds <paramref name="path"/>'s review state from a git ref instead of disk-at-first-edit, so a ref diff (a
-	/// PR's base→head, or "diff against &lt;ref&gt;") reviews through the same engine as a turn: session + review
-	/// baseline + accepted anchor all = <paramref name="refContent"/>, current + pre-edit = <paramref name="diskContent"/>.
-	/// Records no undo history or file activity — the host pushes the newly armed review directly.
-	/// <para>
-	/// Overwrites (not <c>TryAdd</c>) every baseline: if a live Claude edit already seeded a disk baseline for this
-	/// file, that baseline is corrected back to the ref while its current content is kept, so the committed diff and
-	/// the new edit accumulate into one bright band. Composes with <see cref="CaptureBaseline"/>'s <c>TryAdd</c>,
-	/// which then no-ops on the already-seeded keys.
-	/// </para>
+	/// Extends one file's review to a ref baseline, preserving existing non-overlapping decisions.
 	/// </summary>
 	/// <param name="path">Absolute file path (inside the worktree, so it satisfies the tracker's scope).</param>
 	/// <param name="refContent">The file's content at the diff ref — the baseline the current file is diffed against.</param>
@@ -300,33 +253,23 @@ public sealed partial class SessionChangeTracker {
 		ArgumentNullException.ThrowIfNull(refContent);
 		ArgumentNullException.ThrowIfNull(diskContent);
 		lock (_gate) {
-			_baseline[path] = refContent;
-			_reviewBaseline[path] = refContent;
-			_acceptedAnchor[path] = refContent;
-			_current[path] = diskContent;
-			_preEdit[path] = diskContent;
-			if (existsOnDisk) {
-				_missingCurrent.Remove(path);
-			} else {
-				_missingCurrent.Add(path);
-			}
-			SeedProvenance(path, diskContent);
-			SetMissing(_missingBaseline, path, !existedAtRef);
-			SetMissing(_missingReviewBaseline, path, !existedAtRef);
-			SetMissing(_missingAcceptedAnchor, path, !existedAtRef);
+			RestoreState(PrepareSeed(new(path, refContent, diskContent, existedAtRef, existsOnDisk)));
+			SynchronizeHistory(external: false, except: null);
+			Checkpoint();
 		}
 	}
 
 	/// <summary>
-	/// Drops any recorded file that no longer exists on disk and reports each completed deletion.
+	/// Retains missing files as review data and reports each completed deletion.
 	/// </summary>
 	private void ReconcileDeletions() {
 		List<string>? removed = null;
 		lock (_gate) {
-			// Snapshot keys first: Forget mutates _current while we iterate.
 			foreach (string path in new List<string>(_current.Keys)) {
 				if (!_missingCurrent.Contains(path) && !_fileSystem.FileExists(path)) {
-					Forget(path);
+					_current[path] = string.Empty;
+					_missingCurrent.Add(path);
+					CommitReviewProvenance(path);
 					(removed ??= []).Add(path);
 				}
 			}
@@ -337,6 +280,7 @@ public sealed partial class SessionChangeTracker {
 					(removed ??= []).Add(path);
 				}
 			}
+			if (removed is not null) Checkpoint();
 		}
 
 		if (removed is null) {
@@ -367,6 +311,7 @@ public sealed partial class SessionChangeTracker {
 		List<CorrectionEdit> edits;
 		RevertHunkOutcome outcome;
 		lock (_gate) {
+			ReconcileReviewDisk();
 			var baselineLines = SplitLines(_reviewBaseline.GetValueOrDefault(path, string.Empty));
 			if (!TryGetSlice(baselineLines, baselineRange, out var replacement)
 				|| TrySplice(path, currentRange, guardText, replacement) is not { } spliced) {
@@ -380,7 +325,8 @@ public sealed partial class SessionChangeTracker {
 			string diskContent = ApplyReviewChange(path, spliced.CurrentRaw, spliced.NewContent);
 			if (diskContent.Length == 0 && _missingReviewBaseline.Contains(path)) {
 				_fileSystem.DeleteFile(path);
-				Forget(path);
+				_current[path] = string.Empty;
+				_missingCurrent.Add(path);
 				outcome = RevertHunkOutcome.Deleted;
 			} else {
 				_fileSystem.WriteAllText(path, diskContent);
@@ -389,7 +335,8 @@ public sealed partial class SessionChangeTracker {
 				outcome = RevertHunkOutcome.Reverted;
 			}
 
-			Record(ReviewActionKind.Revert, touchesDisk: true, currentRange.Start, [before], [path]);
+			CommitReviewProvenance(path);
+			Record(ReviewActionKind.Revert, touchesDisk: true, currentRange.Start, [before]);
 			ReportCurrentState(path);
 		}
 
@@ -410,14 +357,15 @@ public sealed partial class SessionChangeTracker {
 		List<CorrectionEdit> edits;
 		RevertHunkOutcome outcome;
 		lock (_gate) {
-			if (!_reviewBaseline.ContainsKey(path)) {
+			ReconcileReviewDisk();
+			if (_nonText.ContainsKey(path) || !_reviewBaseline.ContainsKey(path)) {
 				return RevertHunkOutcome.GuardMismatch;
 			}
 
 			edits = RevertCorrections(path);
 			var before = Capture(path, withDisk: true);
 			outcome = RevertFileLocked(path);
-			Record(ReviewActionKind.Revert, touchesDisk: true, line: null, [before], [path]);
+			Record(ReviewActionKind.Revert, touchesDisk: true, line: null, [before]);
 		}
 
 		RaiseCorrected(edits);
@@ -432,9 +380,10 @@ public sealed partial class SessionChangeTracker {
 		List<CorrectionEdit> edits;
 		ReviewHistoryResult result;
 		lock (_gate) {
+			ReconcileReviewDisk();
 			var paths = new List<string>();
 			foreach (var (path, baseline) in _reviewBaseline) {
-				if (_current.TryGetValue(path, out string? current)
+				if (!_nonText.ContainsKey(path) && _current.TryGetValue(path, out string? current)
 					&& (!string.Equals(baseline, current, StringComparison.Ordinal)
 						|| _missingReviewBaseline.Contains(path) != _missingCurrent.Contains(path))) {
 					paths.Add(path);
@@ -451,11 +400,15 @@ public sealed partial class SessionChangeTracker {
 			}
 
 			var before = paths.ConvertAll(p => Capture(p, withDisk: true));
-			foreach (string path in paths) {
-				RevertFileLocked(path);
+			int completed = 0;
+			try {
+				foreach (string path in paths) {
+					RevertFileLocked(path);
+					completed++;
+				}
+			} finally {
+				Record(ReviewActionKind.Revert, touchesDisk: true, line: null, before.Take(completed).ToArray());
 			}
-
-			Record(ReviewActionKind.Revert, touchesDisk: true, line: null, before, paths);
 			result = ReviewHistoryResult.Done(true, paths, null);
 		}
 
@@ -481,7 +434,9 @@ public sealed partial class SessionChangeTracker {
 		string diskContent = ApplyReviewChange(path, current, baseline);
 		if (_missingReviewBaseline.Contains(path)) {
 			_fileSystem.DeleteFile(path);
-			Forget(path);
+			_current[path] = string.Empty;
+			_missingCurrent.Add(path);
+			CommitReviewProvenance(path);
 			_fileActivity.ReportDeleted(path);
 			return RevertHunkOutcome.Deleted;
 		}
@@ -489,6 +444,7 @@ public sealed partial class SessionChangeTracker {
 		_fileSystem.WriteAllText(path, diskContent);
 		_current[path] = baseline;
 		_missingCurrent.Remove(path);
+		CommitReviewProvenance(path);
 		ReportCurrentState(path);
 		return RevertHunkOutcome.Reverted;
 	}
@@ -511,6 +467,8 @@ public sealed partial class SessionChangeTracker {
 		lock (_gate) {
 			// currentRange + guardText are in the live-model (== disk) space the web diffed, so guard and take the
 			// kept lines straight from disk — never remap through _current, which omits the user's non-agent edits.
+			ReconcileReviewDisk();
+			if (_nonText.ContainsKey(path)) return false;
 			string diskRaw = ReadOrEmpty(path);
 			var diskLines = SplitLines(diskRaw);
 			if (!TryGetSlice(diskLines, currentRange, out var currentSlice)
@@ -532,7 +490,7 @@ public sealed partial class SessionChangeTracker {
 				SetMissing(_missingReviewBaseline, path, _missingCurrent.Contains(path));
 			}
 			SetPending(path, currentRange, false);
-			Record(ReviewActionKind.Keep, touchesDisk: false, currentRange.Start, [before], [path]);
+			Record(ReviewActionKind.Keep, touchesDisk: false, currentRange.Start, [before]);
 			return true;
 		}
 	}
@@ -548,7 +506,8 @@ public sealed partial class SessionChangeTracker {
 		}
 
 		lock (_gate) {
-			if (!_current.ContainsKey(path)) {
+			ReconcileReviewDisk();
+			if (_nonText.ContainsKey(path) || !_current.ContainsKey(path)) {
 				return;
 			}
 
@@ -560,8 +519,8 @@ public sealed partial class SessionChangeTracker {
 			SetAllPending(path, false);
 			// No-op keep (already at baseline) records nothing, so its undo wouldn't surprise with an empty step.
 			if (!string.Equals(before.ReviewBaseline, current, StringComparison.Ordinal) || existenceChanged) {
-				Record(ReviewActionKind.Keep, touchesDisk: false, line: null, [before], [path]);
-			}
+				Record(ReviewActionKind.Keep, touchesDisk: false, line: null, [before]);
+			} else Checkpoint();
 		}
 	}
 
@@ -612,11 +571,13 @@ public sealed partial class SessionChangeTracker {
 				LineDiff.SplitLines(_current.GetValueOrDefault(path, string.Empty)))) {
 				SetPending(path, MapCurrentRangeToActual(path, hunk.AfterRange), true);
 			}
+			SynchronizeHistory(external: false, except: null);
+			Checkpoint();
 			return true;
 		}
 	}
 
-	// Drops a path from every tracked set after the file was deleted on revert. Caller holds _gate.
+	// Removes a path while restoring an untracked state. Caller holds _gate.
 	private void Forget(string path) {
 		_missingBaseline.Remove(path);
 		_current.Remove(path);
@@ -628,6 +589,11 @@ public sealed partial class SessionChangeTracker {
 		_missingAcceptedAnchor.Remove(path);
 		_preEdit.Remove(path);
 		_provenance.Remove(path);
+	}
+
+	private void SuspendReview(string path) {
+		foreach (var action in _undoStack.Concat(_redoStack))
+			foreach (var patch in action.Patches.Where(patch => PathIdentity.Equals(patch.Path, path))) patch.Stale = true;
 	}
 
 	/// <summary>
@@ -749,9 +715,11 @@ public sealed partial class SessionChangeTracker {
 	private List<FileChange> TurnChangesLocked() {
 		var changes = new List<FileChange>();
 		foreach (var (path, accepted) in _acceptedAnchor) {
+			if (_nonText.ContainsKey(path)) continue;
 			if (_current.TryGetValue(path, out string? current)
 				&& (!string.Equals(accepted, current, StringComparison.Ordinal)
-					|| _missingAcceptedAnchor.Contains(path) != _missingCurrent.Contains(path))) {
+					|| _missingAcceptedAnchor.Contains(path) != _missingCurrent.Contains(path)
+					|| RejectedFor(path).Count > 0)) {
 				changes.Add(new FileChange {
 					Path = path,
 					AcceptedBaselineText = accepted,
@@ -776,12 +744,14 @@ public sealed partial class SessionChangeTracker {
 	public FileChange? GetTurn(string path) {
 		path = NormalizePath(path);
 		lock (_gate) {
+			if (_nonText.ContainsKey(path)) return null;
 			if (!_reviewBaseline.TryGetValue(path, out string? baseline) || !_current.TryGetValue(path, out string? current)) {
 				return null;
 			}
 
 			return new FileChange {
 				Path = path,
+				Rejected = RejectedFor(path),
 				AcceptedBaselineText = _acceptedAnchor.GetValueOrDefault(path, baseline),
 				BaselineText = baseline,
 				CurrentText = current,
@@ -844,7 +814,7 @@ public sealed partial class SessionChangeTracker {
 	// the range then maps into _current space (which omits the user's non-agent edits) so the splice rewrites only
 	// the agent's lines. Null on any guard or bounds failure, so no caller writes against a stale request.
 	private SplicedContent? TrySplice(string path, LineRange range, string guardText, IReadOnlyList<string> replacement) {
-		if (!TryGetSlice(SplitLines(ReadOrEmpty(path)), range, out var guarded)
+		if (_nonText.ContainsKey(path) || !TryGetSlice(SplitLines(ReadOrEmpty(path)), range, out var guarded)
 			|| !string.Equals(string.Join("\n", guarded), guardText, StringComparison.Ordinal)) {
 			return null;
 		}

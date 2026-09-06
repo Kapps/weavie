@@ -76,6 +76,6 @@ public static class EditorSessionSerialization {
 		}
 
 		string? active = session.Active is { } path && surviving.Contains(path) ? path : null;
-		return JsonSerializer.Serialize(new { session = new { active, open } }, MessageOptions);
+		return JsonSerializer.Serialize(new { session = new { active, open, review = session.Review } }, MessageOptions);
 	}
 }

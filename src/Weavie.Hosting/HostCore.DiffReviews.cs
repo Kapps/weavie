@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Text.Json;
 using Weavie.Core.Changes;
 using Weavie.Core.Editor;
@@ -14,8 +13,6 @@ namespace Weavie.Hosting;
 // tracker from the merge-base and let keep/revert + accumulating new-turn edits flow through the shared
 // turn-changes / turn-diff messages. See docs/specs/diff-against.md.
 public sealed partial class HostCore {
-	// Each worktree's armed review survives unloading/reloading its live session. Arming another replaces it.
-	private readonly ConcurrentDictionary<string, DiffReview> _diffReviews = new(StringComparer.Ordinal);
 
 	/// <summary>
 	/// Arms a "diff against &lt;ref&gt;" review on its owning session: resolves the ref to a commit, diffs the
@@ -34,7 +31,7 @@ public sealed partial class HostCore {
 
 		string worktree = session.WorkspaceRoot;
 		var git = new GitService();
-		DiffReview review;
+		ReviewContext review;
 		IReadOnlyList<DiffFileChange> changes;
 		try {
 			if (await git.ResolveCommitAsync(worktree, reference, ct).ConfigureAwait(false) is not { } target) {
@@ -48,7 +45,9 @@ public sealed partial class HostCore {
 				return;
 			}
 
-			review = new DiffReview(0, $"vs {reference}", string.Empty, mergeBase, head, null, worktree);
+			review = new ReviewContext(0, $"vs {reference}", string.Empty, mergeBase, head, null, worktree);
+			if (session.Changes.Review is { } existing && existing.SameSource(review))
+				review = review with { MergeBase = existing.MergeBase };
 			changes = await ComputeReviewChangesAsync(review, ct).ConfigureAwait(false);
 		} catch (GitException ex) {
 			Notify(session, "warn", $"Couldn't diff against '{reference}': {ex.Message}");
@@ -56,18 +55,16 @@ public sealed partial class HostCore {
 		}
 
 		if (changes.Count == 0) {
-			// Nothing to review: answer where the user is (a toast), and retract any prior review so a stale walk
-			// can't sit under the "no changes" answer. Retracting commits the tracker's board — but an empty diff
-			// means the worktree equals the ref, so there are no pending edits to lose.
+			// An empty Git diff does not discard saved rejection receipts.
 			Notify(session, "info", $"No changes against '{reference}'.");
-			if (_diffReviews.TryRemove(worktree, out _)) {
-				RetractActiveReview(session);
-			}
-
-			return;
+			if (session.Changes.Review is null) return;
 		}
 
-		await SeedAndArmReviewAsync(review, session, changes, ct).ConfigureAwait(false);
+		try {
+			await SeedAndArmReviewAsync(review, session, changes, ct).ConfigureAwait(false);
+		} catch (Exception ex) when (ex is GitException or IOException or UnauthorizedAccessException or InvalidOperationException) {
+			Notify(session, "warn", $"Couldn't open the review: {ex.Message}");
+		}
 	}
 
 	/// <summary>
@@ -79,14 +76,13 @@ public sealed partial class HostCore {
 	/// session usable.
 	/// </summary>
 	private async Task SeedAndArmReviewAsync(
-		DiffReview review,
+		ReviewContext review,
 		HostSession session,
 		IReadOnlyList<DiffFileChange> changes,
 		CancellationToken ct) {
-		// Record the review up front so a rapid re-arm (a second diff-against / PR open) replaces it here; the
-		// guarded post below then sees a different ActiveReview() and bails, so a stale arm can't seed onto the
-		// now-active review.
-		_diffReviews[review.Worktree] = review;
+		object arm = new();
+		session.ReviewArm = arm;
+		bool resuming = session.Changes.Review is not null;
 
 		var git = new GitService();
 		var seeds = new List<(string Absolute, GitFileSnapshot Baseline, WorktreeFileSnapshot Current)>();
@@ -101,33 +97,24 @@ public sealed partial class HostCore {
 			}
 		} catch (Exception ex) when (ex is GitException or IOException or UnauthorizedAccessException) {
 			Log($"[weavie] review '{review.Label}': diff failed: {ex.Message}");
-			Notify(session, "warn", $"Armed the review, but couldn't compute its diff: {ex.Message}");
-			return;
+			throw;
 		}
 
 		// Seed + arm atomically: a newer review may replace this one while its git reads are running.
 		await _ui.InvokeAsync(() => {
-			if (!ReferenceEquals(ActiveReview(session), review)) {
+			if (!ReferenceEquals(session.ReviewArm, arm)) {
 				return Task.CompletedTask;
 			}
 
-			// Snap the tracker's board clean so a file the session already changed that now equals the ref leaves the
-			// walk (it isn't in the ref diff, so
-			// it wouldn't be re-seeded). Snapping commits any pending turn review — see docs/specs/diff-against.md.
-			session.Changes.AcceptTurn();
-			foreach (var (absolute, baseline, current) in seeds) {
-				session.Changes.SeedRefBaseline(
-					absolute,
-					baseline.Content,
-					current.Content,
-					baseline.Exists,
-					current.Exists);
-			}
+			string[] priorPaths = [.. session.Changes.TurnChanges().Select(change => change.Path)];
+			session.Changes.ArmReview(review, seeds.Select(seed => new ReviewSeed(seed.Absolute,
+				seed.Baseline.Content, seed.Current.Content, seed.Baseline.Exists, seed.Current.Exists)).ToArray());
 
-			session.Bus.Feature("review").PublishJson("reset", ChangeMessages.TurnReset());
 			PushTurnChangesToWeb(session);
 			PushReviewHistoryToWeb(session);
-			if (seeds.Count == 0) {
+			foreach (string path in priorPaths.Union(session.Changes.TurnChanges().Select(change => change.Path)))
+				PushReviewFileToWeb(session, path);
+			if (resuming || seeds.Count == 0) {
 				return Task.CompletedTask;
 			}
 
@@ -148,7 +135,7 @@ public sealed partial class HostCore {
 
 	/// <summary>The changed-file list for <paramref name="review"/> — the file axis of the diff walk.</summary>
 	private static Task<IReadOnlyList<DiffFileChange>> ComputeReviewChangesAsync(
-		DiffReview review,
+		ReviewContext review,
 		CancellationToken ct) =>
 		// A PR diffs merge-base → its committed head; a local "diff against" diffs merge-base → the working
 		// tree, so uncommitted edits are part of the review (its per-file "current" is the disk file either way).
@@ -163,26 +150,6 @@ public sealed partial class HostCore {
 			: new WorktreeFileSnapshot(false, string.Empty);
 
 	private readonly record struct WorktreeFileSnapshot(bool Exists, string Content);
-
-	/// <summary>
-	/// Retracts the active review: commits the tracker's board so its seeded files leave the walk, then clears the
-	/// web markers and pushes the (now empty) review set. Called when a re-diff finds nothing to review.
-	/// </summary>
-	private void RetractActiveReview(HostSession session) {
-		PostForSession(session, () => {
-			// Bail if a new review armed between the caller's TryRemove and this post — else AcceptTurn() would
-			// snap the freshly-seeded anchors, dropping the new review from the walk. ActiveReview() is null when
-			// the removal still stands (nothing re-armed), which is exactly when the retract should proceed.
-			if (ActiveReview(session) is not null) {
-				return;
-			}
-
-			session.Changes.AcceptTurn();
-			session.Bus.Feature("review").PublishJson("reset", ChangeMessages.TurnReset());
-			PushTurnChangesToWeb(session);
-			PushReviewHistoryToWeb(session);
-		});
-	}
 
 	/// <summary>
 	/// Renders one review file: its comments (a PR only — a local ref has no forge behind it) then its inline diff,
@@ -209,7 +176,7 @@ public sealed partial class HostCore {
 	/// </summary>
 	private static void PushReviewCommentsToWeb(
 		HostSession session,
-		DiffReview review,
+		ReviewContext review,
 		string absolutePath) =>
 		PushReviewCommentsToWeb(
 			review,
@@ -217,7 +184,7 @@ public sealed partial class HostCore {
 			session.Bus.BroadcastTarget);
 
 	private static void PushReviewCommentsToWeb(
-		DiffReview review,
+		ReviewContext review,
 		string absolutePath,
 		MessageTarget target) {
 		if (review.PrNumber == 0) {
@@ -242,14 +209,5 @@ public sealed partial class HostCore {
 		});
 	}
 
-	private DiffReview? ActiveReview(HostSession session) =>
-		_diffReviews.TryGetValue(session.WorkspaceRoot, out var review) ? review : null;
-
-	// A session's armed review: what seeding the tracker + posting comments needs — the merge-base to diff against
-	// and the worktree it's checked out in. A pull request (PrNumber > 0, HeadRef the committed head, Repo the forge
-	// repo, Comments loaded) or a local "diff against <ref>" (PrNumber 0, no forge). Label names it in the UI.
-	private sealed record DiffReview(int PrNumber, string Label, string HeadRef, string MergeBase, string HeadSha, RepoRef? Repo, string Worktree) {
-		/// <summary>The review's forge comments, refreshed on arm and after each post; empty for a local ref diff.</summary>
-		public List<ReviewComment> Comments { get; } = [];
-	}
+	private static ReviewContext? ActiveReview(HostSession session) => session.Changes.Review;
 }

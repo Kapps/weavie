@@ -72,18 +72,21 @@ public sealed class TurnChangeSummaryTests {
 	}
 
 	[Fact]
-	public void AFileLeavingTheTurnIsSummarizedAfreshWhenItReturns() {
+	public void ARejectedFileIsSummarizedAfreshWhenNewChangesArrive() {
 		string path = Change("a.ts", "one\n", "one\ntwo\n");
 		_ = _tracker.TurnChangeSummaries();
 
-		// Keep-all empties the turn, so the memo has nothing to hold.
-		_tracker.AcceptTurn();
-		Assert.Empty(_tracker.TurnChangeSummaries());
+		Assert.Equal(RevertHunkOutcome.Reverted, _tracker.RevertFile(path));
+		var rejected = Assert.Single(_tracker.TurnChangeSummaries());
+		Assert.Equal(0, rejected.Added);
+		Assert.Equal(0, rejected.Removed);
+		Assert.Single(_tracker.GetTurn(path)!.Rejected);
 
 		_tracker.CaptureBaseline(path);
-		_fileSystem.WriteAllText(path, "one\ntwo\nthree\nfour\n");
+		_fileSystem.WriteAllText(path, "one\nthree\nfour\n");
 		_tracker.RecordChange(path);
 		var summary = Assert.Single(_tracker.TurnChangeSummaries());
+		Assert.NotSame(rejected, summary);
 		Assert.Equal(2, summary.Added);
 	}
 }

@@ -44,9 +44,9 @@ public sealed partial class HostCore {
 		session.FileActivity.Subscribe(
 			"review presentation",
 			fact => fact switch {
-				BufferSaved saved => RefreshReviewAsync(session, saved.Path, deleted: false),
-				FileChanged changed => RefreshReviewAsync(session, changed.Path, deleted: false),
-				FileDeleted deleted => RefreshReviewAsync(session, deleted.Path, deleted: true),
+				BufferSaved saved => RefreshReviewAsync(session, saved.Path),
+				FileChanged changed => RefreshReviewAsync(session, changed.Path),
+				FileDeleted deleted => RefreshReviewAsync(session, deleted.Path),
 				_ => Task.CompletedTask,
 			},
 			OnFailure);
@@ -57,10 +57,10 @@ public sealed partial class HostCore {
 			OnFailure);
 	}
 
-	private Task RefreshReviewAsync(HostSession session, string path, bool deleted) {
+	private Task RefreshReviewAsync(HostSession session, string path) {
 		// Built on this consumer's own thread, never the dispatcher's: these payloads carry whole-file diffs, and
 		// the dispatcher is the thread the desktop hosts deliver the user's keystrokes on.
-		var payloads = ReviewPayloads.Build(session, path, deleted, ActiveReview(session)?.Label ?? string.Empty);
+		var payloads = ReviewPayloads.Build(session, path, ActiveReview(session)?.Label ?? string.Empty);
 		return InvokeForSessionAsync(() => payloads.PublishTo(session.Bus.BroadcastTarget));
 	}
 
@@ -68,9 +68,9 @@ public sealed partial class HostCore {
 	// isn't in the turn), and the changed-file list. History before diff/changes — see
 	// HostCore.WebBridge.ApplyHistoryResult's doc comment on why.
 	private readonly record struct ReviewPayloads(string History, string? Diff, string Changes) {
-		public static ReviewPayloads Build(HostSession session, string path, bool deleted, string label) => new(
+		public static ReviewPayloads Build(HostSession session, string path, string label) => new(
 			ChangeMessages.ReviewHistory(session.Changes),
-			deleted || session.Changes.GetTurn(path) is not { } turn ? null : ChangeMessages.TurnDiff(turn),
+			session.Changes.GetTurn(path) is not { } turn ? null : ChangeMessages.TurnDiff(turn),
 			ChangeMessages.TurnChanges(session.Changes, label));
 
 		public void PublishTo(MessageTarget target) {

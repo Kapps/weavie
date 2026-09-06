@@ -47,24 +47,23 @@ Core capability (it **overwrites** every baseline, so it composes with a racing 
   since the ref **deletes** it. A current-side deletion stays in the unified review as a read-only Monaco
   snapshot from the tracked current text, so a rename's delete side and a true deletion never depend on a
   warm working copy. Keep-all / undo-all / the undo history are all the turn-review ones.
-- **Arming commits any pending turn review.** Because the review shares the session's one tracker, arming a
-  ref review snaps the board clean first (`AcceptTurn`) so a file the session already changed that now equals
-  the ref leaves the walk, then seeds the ref diff. This is unreachable-in-practice for the real callers (a
-  PR session is review-only; a "vs HEAD" arm with pending edits shows those edits *as* the diff), but it is
-  the deliberate consequence of one shared engine.
+- **Arming preserves decisions.** First attachment extends the existing baseline through disjoint regions;
+  overlap with kept changes reports a conflict without resetting the board. Reopening the same source
+  retains its original anchor and reconciles new disk changes as pending. Empty Git diffs do not erase
+  rejected proposals or undo history.
 
 ## The shared review-diff surface
 
-`HostCore.DiffReviews.cs` owns the one review-per-session record (`DiffReview`, keyed by worktree — its
-merge-base, label, and, for a PR, forge repo + comments). Both producers **seed the session's change
+`SessionChangeTracker` owns the durable `ReviewContext` (merge-base, label, and forge identity); comments
+are refreshed independently by the host. Both producers **seed the session's change
 tracker** and then ride the shared turn-review messages; keep/revert need **no** review-specific host code
 (the existing `keep-hunk` / `reject-hunk` / … act on `session.Changes`):
 
 ```mermaid
 flowchart LR
-  PR["open-pr flow<br/>(PrNumber > 0, forge comments)"] --> R[DiffReview · per worktree]
+  PR["open-pr flow<br/>(PrNumber > 0, forge comments)"] --> R[ReviewContext · per worktree]
   DA["diff-against &lt;ref&gt;<br/>(PrNumber 0, local only)"] --> R
-  R -->|SeedRefBaseline ×N| T[SessionChangeTracker]
+  R -->|ArmReview| T[SessionChangeTracker]
   T -->|turn-changes · label + files| Web[inline-diff · applied mode]
   T -->|get-turn-diff → turn-diff · text + existence boundaries| Web
   R -->|review-comments · PR only| Web

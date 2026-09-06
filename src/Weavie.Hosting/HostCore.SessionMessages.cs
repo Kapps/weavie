@@ -55,7 +55,7 @@ public sealed partial class HostCore {
 
 		var review = session.Bus.Feature("review");
 		review.Handle<EmptySessionMessage>("accept", (_, _) => {
-			AcceptTurn(session);
+			RunReviewAction(session, () => AcceptTurn(session));
 			return Task.CompletedTask;
 		});
 		review.Handle<EmptySessionMessage>("revertAll", (_, _) => {
@@ -67,11 +67,11 @@ public sealed partial class HostCore {
 			return Task.CompletedTask;
 		});
 		review.Handle<JsonElement>("keepHunk", (message, _) => {
-			KeepHunk(session, message);
+			RunReviewAction(session, () => KeepHunk(session, message));
 			return Task.CompletedTask;
 		});
 		review.Handle<JsonElement>("unkeepHunk", (message, _) => {
-			UnkeepHunk(session, message);
+			RunReviewAction(session, () => UnkeepHunk(session, message));
 			return Task.CompletedTask;
 		});
 		review.Handle<JsonElement>("revertFile", (message, _) => {
@@ -79,7 +79,7 @@ public sealed partial class HostCore {
 			return Task.CompletedTask;
 		});
 		review.Handle<JsonElement>("keepFile", (message, _) => {
-			KeepFile(session, message);
+			RunReviewAction(session, () => KeepFile(session, message));
 			return Task.CompletedTask;
 		});
 		review.Handle<JsonElement>("undo", (message, _) => {

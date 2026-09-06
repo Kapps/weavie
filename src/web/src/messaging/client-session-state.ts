@@ -3,8 +3,7 @@ import type { EditorSession } from "../editor/session-types";
 import type { WeavieLspConfig } from "../lsp/types";
 import type { MessageBus } from "./message-bus";
 
-type EditorSessionWire = {
-  active: string | null;
+type EditorSessionWire = Omit<EditorSession, "open"> & {
   open: (Omit<EditorSession["open"][number], "kind"> & {
     kind?: EditorSession["open"][number]["kind"] | null;
   })[];
@@ -44,7 +43,7 @@ export class ClientSessionState {
   constructor(bus: MessageBus) {
     bus.feature("editor").on<{ session: EditorSessionWire }>("restore", ({ session }) =>
       this.editor.set({
-        active: session.active,
+        ...session,
         open: session.open.map((entry) => {
           const { kind, ...rest } = entry;
           return kind == null ? rest : { ...rest, kind };

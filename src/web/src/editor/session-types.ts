@@ -24,4 +24,11 @@ export interface EditorSessionEntry {
 export interface EditorSession {
   active: string | null;
   open: EditorSessionEntry[];
+  review?: ReviewResume | null;
+}
+
+export interface ReviewResume {
+  mode: "file" | "unified";
+  cursor: { path: string; line: number } | null;
+  files: Record<string, { collapsed: boolean; signature: string; reviewedAt: string | null }>;
 }

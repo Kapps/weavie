@@ -82,14 +82,6 @@ public sealed partial class HostCore {
 		WireSpelling(session);
 
 		WireFileActivity(session);
-		session.Changes.AcceptedCommitted += paths => PostForSession(session, () => {
-			// History before diff/changes — see HostCore.WebBridge.ApplyHistoryResult's doc comment on why.
-			PushReviewHistoryToWeb(session);
-			PushTurnChangesToWeb(session);
-			foreach (string path in paths) {
-				PushTurnDiffToWeb(session, path);
-			}
-		});
 		WireAttention(session);
 		session.Status.Changed += status => {
 			session.PullRequestStatus.UpdateStatus(status);
@@ -526,6 +518,15 @@ public sealed partial class HostCore {
 			}
 
 			WireSession(session);
+			if (session.Changes.Review is { PrNumber: > 0 } review) {
+				_ = session.Background.Run(async ct => {
+					await RefreshCommentsAsync(review, ct).ConfigureAwait(false);
+					PostForSession(session, () => {
+						if (ReferenceEquals(ActiveReview(session), review))
+							foreach (var change in session.Changes.TurnChanges()) PushReviewFileToWeb(session, change.Path);
+					});
+				});
+			}
 			_mediaRoutes.Register(session.Incarnation);
 			return session;
 		} catch (Exception creationError) {

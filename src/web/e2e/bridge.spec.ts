@@ -268,13 +268,21 @@ test.describe("session-addressed WebSocket transport", () => {
         agentProviderId: "claude",
       },
     });
+    const opened = mockSession("opened-branch", "release/new-since-open", "claude");
+    host.setSessions([session, opened]);
     host.respond(openRequest, {
       ok: true,
       message: null,
       error: null,
-      data: { address: session.address },
+      data: {
+        id: opened.id,
+        address: opened.address,
+        activateSession: true,
+        createdSession: true,
+      },
     });
     await expect(inbox).toBeHidden();
+    await expect(activeChip).toHaveAttribute("data-session-slot", opened.id);
   });
 
   test("session destination switches to the selected backend's provider catalog", async ({

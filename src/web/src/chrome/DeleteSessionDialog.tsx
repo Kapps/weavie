@@ -5,12 +5,11 @@ import { ModalShell, modalSubmitKeys } from "./ModalShell";
 export type { DeleteSessionState };
 
 /**
- * The session-delete confirm. Worktree removal escalates with the checkout's state; deleting the session on the
- * workspace's own checkout removes only the session. Enter confirms when allowed and Esc cancels.
+ * The session-delete confirm. Worktree removal escalates with the checkout's state. Enter confirms when allowed
+ * and Esc cancels.
  */
 export function DeleteSessionDialog(props: {
   label: string;
-  removesCheckout: boolean;
   state: DeleteSessionState;
   // Nothing keeps this checkout's commits — detached, or a worktree git no longer reports.
   branchless: boolean;
@@ -53,21 +52,16 @@ export function DeleteSessionDialog(props: {
       <div class="confirm-body">
         <Show when={props.state === "clean"}>
           <Show
-            when={props.removesCheckout}
-            fallback={<>Remove session "{props.label}"? Its checkout and files remain on disk.</>}
+            when={props.branchless}
+            fallback={
+              <>
+                Remove the worktree for "{props.label}"? The branch is kept, so committed work is
+                safe and you can recreate a session on it later.
+              </>
+            }
           >
-            <Show
-              when={props.branchless}
-              fallback={
-                <>
-                  Remove the worktree for "{props.label}"? The branch is kept, so committed work is
-                  safe and you can recreate a session on it later.
-                </>
-              }
-            >
-              Remove the worktree for "{props.label}"? It has <strong>no branch</strong>, so the
-              commits made here are lost with it.
-            </Show>
+            Remove the worktree for "{props.label}"? It has <strong>no branch</strong>, so the
+            commits made here are lost with it.
           </Show>
         </Show>
         <Show when={props.state === "untracked"}>

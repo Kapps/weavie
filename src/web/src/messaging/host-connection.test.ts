@@ -20,6 +20,7 @@ const entry = (id: string, session: SessionAddress): SessionCatalogEntry => ({
   status: "idle",
   hue: 0,
   monogram: id.slice(0, 1),
+  workspaceCheckout: false,
 });
 
 const hello = (hostIncarnation: string, sessions: SessionCatalogEntry[]): HostHello => ({

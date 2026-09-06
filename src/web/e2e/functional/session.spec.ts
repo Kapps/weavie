@@ -193,24 +193,25 @@ test("delete confirmation names tracked and untracked work that will be lost @cr
   await expect(dialog.locator(".confirm-btn-danger")).toBeDisabled();
 });
 
-test("deleting the workspace session keeps its checkout and creates a replacement", async ({
-  page,
-  weavie,
-}) => {
+// Weavie doesn't own the directory the user opened, so the session on it is a permanent rail fixture: it
+// offers unload but never delete, and deleting everything else leaves it standing.
+test("the workspace session cannot be deleted", async ({ page, weavie }) => {
   const chips = page.locator(".session-chip");
-  const deletedId = await activeSessionSlot(page);
+  const workspaceId = await activeSessionSlot(page);
+  await createSession(page, { branch: "e2e/session-survivor", provider: "claude" });
+  await expect(chips).toHaveCount(2);
 
   await chips.first().click({ button: "right" });
-  await page.locator(".context-menu-item.danger", { hasText: "Delete" }).click();
+  const menu = page.locator(".context-menu");
+  await expect(menu.locator(".context-menu-item")).toHaveText(["Unload session"]);
+  await page.keyboard.press("Escape");
 
-  const dialog = page.locator(".confirm-dialog");
-  await expect(dialog).toContainText("Its checkout and files remain on disk.");
-  await expect(dialog).not.toContainText("Remove the worktree");
-  await dialog.locator(".confirm-btn-danger").click();
+  await chips.nth(1).click({ button: "right" });
+  await page.locator(".context-menu-item.danger", { hasText: "Delete" }).click();
+  await page.locator(".confirm-dialog .confirm-btn-danger").click();
 
   await expect(chips).toHaveCount(1);
-  await expect(chips.first()).not.toHaveAttribute("data-session-slot", deletedId);
-  await expect(page.locator(".toast", { hasText: "was deleted." })).toHaveCount(1);
+  await expect(chips.first()).toHaveAttribute("data-session-slot", workspaceId);
   expect(await readFile(join(weavie.workspace, "hello.ts"), "utf8")).toContain("greet");
 });
 

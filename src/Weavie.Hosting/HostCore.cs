@@ -301,8 +301,8 @@ public sealed partial class HostCore : IAsyncDisposable {
 			_shell = new ShellController(window);
 		}
 
-		// Reconcile checkouts first, then restore per-slot runtime/editor state and ensure the workspace checkout
-		// has a convenient session when none was persisted for it.
+		// Reconcile checkouts first, then restore per-slot runtime/editor state and re-establish the invariant
+		// session on the workspace checkout.
 		_worktrees = isRepo ? BuildWorktreeManager(git) : null;
 		_sessions = new SessionManager(_worktrees);
 		await ReconcileWorktreesOnOpenAsync().ConfigureAwait(false);

@@ -29,6 +29,8 @@ export interface SessionChip {
   status: SessionStatusName;
   hue: number;
   monogram: string;
+  /** The session on the workspace's own checkout — a catalog invariant, so it offers no delete. */
+  workspaceCheckout: boolean;
 }
 
 export type AttentionKindName = "turnComplete" | "needsInput" | "failed";

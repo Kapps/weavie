@@ -16,7 +16,7 @@ public sealed partial class SessionChangeTracker {
 		if (_restoring) return;
 		SynchronizeHistory(external: true, except: null);
 		_persistence.Save(JsonSerializer.Serialize(new ReviewSnapshot(
-			_workspaceRoot, [.. _baseline.Keys.Select(path => Capture(path, withDisk: false))],
+			_workspaceRoot, [.. _baseline.Keys.Select(path => Capture(path, withDisk: false, includeProvenance: true))],
 			_undoStack, _redoStack, _review, _nextOriginId, _nextActionId, _conversationPrompts)));
 	}
 

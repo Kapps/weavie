@@ -47,7 +47,7 @@ public sealed partial class SessionChangeTracker {
 			try {
 				foreach (string path in paths) {
 					var patches = action.Patches.Where(patch => PathIdentity.Equals(patch.Path, path)).ToList();
-					var state = Capture(path, withDisk: true);
+					var state = Capture(path, withDisk: true, includeProvenance: true);
 					var values = patches.GroupBy(patch => patch.Part).ToDictionary(group => group.Key,
 						group => ApplyPatches(Value(state, group.Key), [.. group], undo));
 					if (action.TouchesDisk && values.TryGetValue(ReviewPart.Disk, out var disk)) {
@@ -97,7 +97,7 @@ public sealed partial class SessionChangeTracker {
 	}
 
 	private bool PatchHolds(ReviewPatch patch, bool undo) {
-		var live = Value(Capture(patch.Path, withDisk: true), patch.Part);
+		var live = Value(Capture(patch.Path, withDisk: true, includeProvenance: false), patch.Part);
 		return live.Exists == (undo ? patch.AfterExists : patch.BeforeExists)
 			&& TryGetSlice(TextLines(live), patch.Range, out var slice)
 			&& slice.SequenceEqual(undo ? patch.After : patch.Before);
@@ -116,7 +116,7 @@ public sealed partial class SessionChangeTracker {
 	private void Record(ReviewActionKind kind, bool touchesDisk, int? line, IReadOnlyList<PathState> before) {
 		var patches = new List<ReviewPatch>();
 		foreach (var previous in before) {
-			var current = Capture(previous.Path, withDisk: true);
+			var current = Capture(previous.Path, withDisk: true, includeProvenance: true);
 			foreach (var part in new[] { ReviewPart.Review, ReviewPart.Current, ReviewPart.Disk }) {
 				if (part == ReviewPart.Disk && !touchesDisk) continue;
 				var from = Value(previous, part);

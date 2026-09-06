@@ -2,7 +2,9 @@ namespace Weavie.Core.Changes;
 
 public sealed partial class SessionChangeTracker {
 	// One checkpoint per path; actions retain only their changed regions.
-	private PathState Capture(string path, bool withDisk) {
+	// includeProvenance skips the per-line provenance deep clone for callers that only read the Review/Current/Disk
+	// text triple (Value()) — that clone is O(file length) and pointless when Provenance is never read back.
+	private PathState Capture(string path, bool withDisk, bool includeProvenance) {
 		bool tracked = _current.ContainsKey(path) || _reviewBaseline.ContainsKey(path) || _baseline.ContainsKey(path);
 		bool onDisk = withDisk ? _fileSystem.FileExists(path) : tracked && !_missingCurrent.Contains(path);
 		return new PathState(
@@ -17,7 +19,7 @@ public sealed partial class SessionChangeTracker {
 			_acceptedAnchor.GetValueOrDefault(path, string.Empty),
 			!_missingAcceptedAnchor.Contains(path),
 			_preEdit.GetValueOrDefault(path, string.Empty),
-			CloneProvenance(path),
+			includeProvenance ? CloneProvenance(path) : null,
 			onDisk,
 			onDisk ? withDisk ? _fileSystem.ReadAllText(path) : _provenance.GetValueOrDefault(path)?.Text ?? _current.GetValueOrDefault(path, string.Empty) : string.Empty);
 	}

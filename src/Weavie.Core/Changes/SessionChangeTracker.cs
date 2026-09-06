@@ -131,7 +131,7 @@ public sealed partial class SessionChangeTracker {
 			var paths = _current.Keys.Where(path => !_nonText.ContainsKey(path) && (_reviewBaseline.GetValueOrDefault(path) != _current[path]
 				|| _missingReviewBaseline.Contains(path) != _missingCurrent.Contains(path))).ToList();
 			if (paths.Count == 0) { Checkpoint(); return; }
-			var before = paths.ConvertAll(path => Capture(path, withDisk: true));
+			var before = paths.ConvertAll(path => Capture(path, withDisk: true, includeProvenance: true));
 			foreach (string path in paths) {
 				_reviewBaseline[path] = _current[path];
 				SetMissing(_missingReviewBaseline, path, _missingCurrent.Contains(path));
@@ -320,7 +320,7 @@ public sealed partial class SessionChangeTracker {
 
 			// The rejected hunk is the correction: the agent's lines out, the baseline's back in.
 			edits = CorrectionsForRevert(path, spliced.CurrentRange, baselineRange);
-			var before = Capture(path, withDisk: true);
+			var before = Capture(path, withDisk: true, includeProvenance: true);
 			// Reverting the last hunk to an absent baseline returns it to non-existence.
 			string diskContent = ApplyReviewChange(path, spliced.CurrentRaw, spliced.NewContent);
 			if (diskContent.Length == 0 && _missingReviewBaseline.Contains(path)) {
@@ -363,7 +363,7 @@ public sealed partial class SessionChangeTracker {
 			}
 
 			edits = RevertCorrections(path);
-			var before = Capture(path, withDisk: true);
+			var before = Capture(path, withDisk: true, includeProvenance: true);
 			outcome = RevertFileLocked(path);
 			Record(ReviewActionKind.Revert, touchesDisk: true, line: null, [before]);
 		}
@@ -399,7 +399,7 @@ public sealed partial class SessionChangeTracker {
 				edits.AddRange(RevertCorrections(path));
 			}
 
-			var before = paths.ConvertAll(p => Capture(p, withDisk: true));
+			var before = paths.ConvertAll(p => Capture(p, withDisk: true, includeProvenance: true));
 			int completed = 0;
 			try {
 				foreach (string path in paths) {
@@ -482,7 +482,7 @@ public sealed partial class SessionChangeTracker {
 				return false;
 			}
 
-			var before = Capture(path, withDisk: false);
+			var before = Capture(path, withDisk: false, includeProvenance: true);
 			baselineLines.RemoveRange(baselineRange.Start - 1, baselineRange.EndExclusive - baselineRange.Start);
 			baselineLines.InsertRange(baselineRange.Start - 1, currentSlice);
 			_reviewBaseline[path] = JoinLines(baselineLines, baselineRaw.Length > 0 ? baselineRaw : diskRaw);
@@ -511,7 +511,7 @@ public sealed partial class SessionChangeTracker {
 				return;
 			}
 
-			var before = Capture(path, withDisk: false);
+			var before = Capture(path, withDisk: false, includeProvenance: true);
 			string current = _current[path];
 			_reviewBaseline[path] = current;
 			bool existenceChanged = _missingReviewBaseline.Contains(path) != _missingCurrent.Contains(path);

@@ -30,7 +30,7 @@ public sealed partial class SessionChangeTracker {
 
 	private void SynchronizeHistory(bool external, ReviewAction? except) {
 		foreach (string path in _historyHeads.Keys.Union(_baseline.Keys, PathIdentity.Comparer).ToArray()) {
-			var current = Capture(path, withDisk: false);
+			var current = Capture(path, withDisk: false, includeProvenance: false);
 			if (_historyHeads.TryGetValue(path, out var previous)) {
 				foreach (var part in new[] { ReviewPart.Review, ReviewPart.Current, ReviewPart.Disk }) {
 					var before = Value(previous, part);

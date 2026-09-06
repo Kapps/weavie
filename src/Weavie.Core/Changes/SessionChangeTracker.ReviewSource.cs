@@ -20,7 +20,7 @@ public sealed partial class SessionChangeTracker {
 	private PathState PrepareSeed(ReviewSeed seed) {
 		string path = NormalizePath(seed.Path);
 		if (!_isInScope(path)) throw new ArgumentException("The review file is outside this session.");
-		var state = Capture(path, withDisk: false);
+		var state = Capture(path, withDisk: false, includeProvenance: true);
 		if (!state.Tracked) return new(path, true, seed.Baseline, seed.BaselineExists, seed.Current, seed.CurrentExists,
 			seed.Baseline, seed.BaselineExists, seed.Baseline, seed.BaselineExists, seed.Current,
 			ProvenanceFile.Empty(seed.Current), seed.CurrentExists, seed.Current);

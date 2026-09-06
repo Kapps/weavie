@@ -36,7 +36,7 @@ public sealed partial class SessionChangeTracker {
 				return ReviseApplyOutcome.GuardMismatch;
 			}
 
-			var before = Capture(path, withDisk: true);
+			var before = Capture(path, withDisk: true, includeProvenance: true);
 			_fileSystem.WriteAllText(path, ApplyReviewChange(path, spliced.CurrentRaw, spliced.NewContent));
 			_current[path] = spliced.NewContent;
 			CommitReviewProvenance(path);

@@ -57,7 +57,6 @@ export interface AgentProviderInfo {
 }
 
 export interface AgentPaneUpdate {
-  bodyDeferred?: boolean;
   type: string;
   providerId: string;
   threadId?: string | null;
@@ -110,8 +109,6 @@ export interface AgentPaneLocation {
 
 export interface AgentPaneDiff {
   path: string;
-  oldText: string | null;
-  newText: string;
 }
 
 export interface AgentPaneWireUpdate extends AgentPaneUpdate {

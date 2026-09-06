@@ -260,55 +260,6 @@ describe("AgentPaneAccumulator", () => {
     expect(snapshots[1]?.[99]?.text).toBe("message-100");
   });
 
-  it("hydrates an outline without losing concurrent paging or refetching cached bodies", () => {
-    const accumulator = new AgentPaneAccumulator((callback) => callback());
-    let messages: AgentPaneUpdate[] = [];
-    const publish = (value: AgentPaneUpdate[]): void => {
-      messages = value;
-    };
-    const outline = { ...wireUpdate(1, 2, 2, ""), bodyDeferred: true };
-    accumulator.mergeHistory("slot-1", 1, history(outline), false, publish);
-    accumulator.hydrate("slot-1", wireUpdate(1, 2, 2, "loaded body"), publish);
-    accumulator.mergeHistory("slot-1", 1, history(wireUpdate(1, 1, 1, "older")), true, publish);
-    expect(messages.map((message) => message.text)).toEqual(["older", "loaded body"]);
-    accumulator.mergeHistory("slot-1", 1, history(outline), true, publish);
-    expect(messages.map((message) => message.text)).toEqual(["older", "loaded body"]);
-    accumulator.mergeHistory("slot-1", 1, history({ ...outline, revision: 3 }), true, publish);
-    expect(messages[1]?.bodyDeferred).toBe(true);
-    accumulator.hydrate("slot-1", wireUpdate(1, 2, 3, "updated body"), publish);
-    expect(messages[1]?.text).toBe("updated body");
-  });
-
-  it("discards late bodies after a newer live revision, reset, or session removal", () => {
-    const accumulator = new AgentPaneAccumulator((callback) => callback());
-    let messages: AgentPaneUpdate[] = [];
-    const publish = (value: AgentPaneUpdate[]): void => {
-      messages = value;
-    };
-    accumulator.mergeHistory(
-      "slot-1",
-      1,
-      history({ ...wireUpdate(1, 1, 1, ""), bodyDeferred: true }),
-      true,
-      publish,
-    );
-    accumulator.ingest("slot-1", wireUpdate(1, 1, 2, "live replacement"), publish);
-    accumulator.hydrate("slot-1", wireUpdate(1, 1, 1, "stale body"), publish);
-    expect(messages[0]?.text).toBe("live replacement");
-    accumulator.reset("slot-1", publish);
-    accumulator.hydrate("slot-1", wireUpdate(1, 1, 2, "removed body"), publish);
-    expect(messages).toEqual([]);
-    accumulator.mergeHistory(
-      "slot-1",
-      2,
-      history(wireUpdate(2, 1, 1, "new generation")),
-      true,
-      publish,
-    );
-    accumulator.hydrate("slot-1", wireUpdate(1, 1, 2, "old generation"), publish);
-    expect(messages[0]?.text).toBe("new generation");
-  });
-
   it("does not republish an unchanged completed history baseline", () => {
     const accumulator = new AgentPaneAccumulator((callback) => callback());
     const snapshots: AgentPaneUpdate[][] = [];

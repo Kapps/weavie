@@ -132,8 +132,6 @@ public sealed partial class HostSession {
 			Agent.ReleaseHistoryReader(peer, message.ReadId);
 			return Task.CompletedTask;
 		});
-		messages.Handle<AgentPaneHistoryBody, object>("historyBody", (message, _) =>
-			Task.FromResult(AgentPaneProtocol.Message(Agent.ReadHistoryBody(message))));
 		messages.Handle<EmptyMessage>("interrupt", (_, _) => {
 			Agent.Structured?.Interrupt();
 			return Task.CompletedTask;

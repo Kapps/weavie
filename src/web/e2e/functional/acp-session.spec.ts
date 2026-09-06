@@ -1,5 +1,8 @@
-import { activeSessionSlot, waitForSessionSwitch } from "../harness/actions";
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { activeSessionSlot, expectRevealed, waitForSessionSwitch } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
+import { sessionWorktrees } from "../harness/git-workspace";
 
 async function createAcpSession(page: import("@playwright/test").Page, branch: string) {
   await page.locator(".session-rail-add").click();
@@ -154,8 +157,12 @@ test("ACP side replies survive session switches and run alongside the primary tu
   await expect(aside.getByRole("button", { name: "Reply", exact: true })).toBeEnabled();
 });
 
-test("ACP controls and rich structured output stay native @cross", async ({ page }) => {
+test("ACP controls and rich structured output stay native @cross", async ({ page, weavie }) => {
   const surface = await createAcpSession(page, "acp-rich-output");
+  await writeFile(
+    join(sessionWorktrees(weavie.workspace)[0]!, "sample.txt"),
+    "one\ntwo\nthree\nfour\nfive\nsix\nnew\n",
+  );
 
   await surface.getByRole("button", { name: "Model Alpha" }).click();
   await surface.getByRole("option", { name: "Beta" }).click();
@@ -192,6 +199,17 @@ test("ACP controls and rich structured output stay native @cross", async ({ page
   // The agent also reported a weekly window at 0.62 utilization through Claude's _meta extension.
   await expect(tooltip).toContainText("Weekly limit");
   await expect(tooltip).toContainText("62% used · approaching limit");
+
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await expect(surface).toContainText("rich response");
+  await activity.locator("summary").click();
+  const edit = activity.locator(".agent-activity-step", { hasText: "Edit file" });
+  await expect(edit.getByText("show output", { exact: true })).toHaveCount(0);
+  await edit.getByRole("button", { name: "Review edit" }).click();
+  await expectRevealed(page, "sample.txt", 7);
+  const progress = activity.locator(".agent-activity-step", { hasText: "progress Task list" });
+  await progress.getByText("show output", { exact: true }).click();
+  await expect(progress.locator(".agent-tool-output")).toContainText("Inspect");
 });
 
 test("ACP task progress stays activity while plan documents remain openable", async ({ page }) => {

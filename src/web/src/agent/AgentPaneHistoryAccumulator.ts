@@ -39,24 +39,11 @@ export function mergeHistoryRecords(
   });
   for (const message of completed) {
     const existing = state.records.get(message.ordinal);
-    if (preferPaneRecord(message, existing)) {
+    if (existing === undefined || message.revision > existing.revision) {
       state.records.set(message.ordinal, message);
     }
   }
   return completed;
-}
-
-export function preferPaneRecord(
-  incoming: AgentPaneWireUpdate,
-  existing: AgentPaneWireUpdate | undefined,
-): boolean {
-  return (
-    existing === undefined ||
-    incoming.revision > existing.revision ||
-    (incoming.revision === existing.revision &&
-      existing.bodyDeferred === true &&
-      incoming.bodyDeferred !== true)
-  );
 }
 
 function assemble(

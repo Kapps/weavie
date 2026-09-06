@@ -65,16 +65,6 @@ that completed its prior read supplies the generation and global mutation revisi
 only records changed after that revision, or an empty page when the transcript is unchanged. A generation change
 returns the complete replacement.
 
-History pages carry the complete timeline outline, including prompts, lifecycle events, and interactive
-controls. Completed message bodies and image data are marked `bodyDeferred` and omitted from the outline.
-Visible narrative entries and expanded tool output request `agent.historyBody` by generation and ordinal;
-the host returns that record's current revision. Live records and active text deltas remain complete.
-
-Body hydration uses the same revision merge as history and live updates. At equal revisions, a complete body
-wins over its outline, so reconnect preserves bodies already loaded. Newer revisions supersede older bodies;
-stale generations and late body responses cannot overwrite newer live content. Failed body requests appear
-inline where the content belongs.
-
 ## Provider hydration
 
 ACP `session/load` is the only source of history produced outside this process. While load is active,

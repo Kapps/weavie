@@ -12,7 +12,6 @@ import {
   clearAgentInputDrafts,
 } from "./AgentInputDrafts";
 import { AgentPaneAccumulator } from "./AgentPaneAccumulator";
-import { isAgentPaneWireUpdate } from "./AgentPaneHistoryAccumulator";
 import { type AgentPaneModel, createAgentPaneModel } from "./AgentPaneModel";
 import { clearAsideReplyState, clearAsideReplyStates } from "./aside-reply-store";
 import { setComposerDraft } from "./composer-store";
@@ -21,7 +20,6 @@ export type { AgentPaneModel, AgentSectionLabel } from "./AgentPaneModel";
 
 const models = createSessionOwnedState(createAgentPaneModel);
 const authenticationTerminals = createSessionOwnedState(() => false);
-const bodyLoaders = new WeakMap<ClientSession, (message: AgentPaneWireUpdate) => Promise<void>>();
 
 registerSessionFeature((session) => {
   const accumulator = new AgentPaneAccumulator(
@@ -36,43 +34,6 @@ registerSessionFeature((session) => {
   let historyGeneration: number | null = null;
   let historyReadId: string | null = null;
   let historyRevision: number | null = null;
-  let bodyAbort = new AbortController();
-  const bodyRequests = new Map<string, Promise<void>>();
-  const resetBodyRequests = (): void => {
-    bodyAbort.abort();
-    bodyAbort = new AbortController();
-    bodyRequests.clear();
-  };
-  bodyLoaders.set(session, (message) => {
-    const key = `${message.generation}:${message.ordinal}:${message.revision}`;
-    const existing = bodyRequests.get(key);
-    if (existing !== undefined) return existing;
-    const request = feature
-      .request<AgentPaneWireUpdate, { generation: number; ordinal: number }>(
-        "historyBody",
-        {
-          generation: message.generation,
-          ordinal: message.ordinal,
-        },
-        bodyAbort.signal,
-      )
-      .then((body) => {
-        if (
-          !isAgentPaneWireUpdate(body) ||
-          body.bodyDeferred === true ||
-          body.generation !== message.generation ||
-          body.ordinal !== message.ordinal
-        ) {
-          throw new Error("Received an invalid agent message body.");
-        }
-        accumulator.hydrate("pane", body, publish);
-      })
-      .finally(() => {
-        if (bodyRequests.get(key) === request) bodyRequests.delete(key);
-      });
-    bodyRequests.set(key, request);
-    return request;
-  });
 
   interface HistoryCursor {
     readId: string;
@@ -111,7 +72,6 @@ registerSessionFeature((session) => {
   const model = models.get(session)!;
 
   const offHello = session.connection.onHello(() => {
-    resetBodyRequests();
     historyComplete = false;
     historyAbort?.abort();
     historyAbort = null;
@@ -208,7 +168,6 @@ registerSessionFeature((session) => {
   // Re-fetch the transcript from the host, discarding every ordinal this client holds. Reached two ways: the
   // host announcing a reset, and a live record arriving from a newer generation, which says the same thing.
   function resyncPane(): void {
-    resetBodyRequests();
     historyAbort?.abort();
     historyAbort = null;
     if (historyReadId !== null) {
@@ -227,8 +186,6 @@ registerSessionFeature((session) => {
   const offReset = feature.on("paneReset", resyncPane);
   startHistory();
   return () => {
-    bodyAbort.abort();
-    bodyLoaders.delete(session);
     historyAbort?.abort();
     if (historyReadId !== null) {
       feature.publish("historyClose", { readId: historyReadId });
@@ -241,14 +198,6 @@ registerSessionFeature((session) => {
     offHello();
   };
 });
-
-export function loadAgentBody(session: ClientSession, message: AgentPaneUpdate): Promise<void> {
-  const load = bodyLoaders.get(session);
-  if (load === undefined || !isAgentPaneWireUpdate(message)) {
-    return Promise.reject(new Error("This agent message is no longer available."));
-  }
-  return load(message);
-}
 
 export function agentPaneModel(session: ClientSession | null): AgentPaneModel | null {
   return models.get(session) ?? null;

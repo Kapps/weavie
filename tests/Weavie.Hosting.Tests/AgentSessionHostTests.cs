@@ -14,7 +14,30 @@ using Xunit;
 
 namespace Weavie.Hosting.Tests;
 
-public sealed partial class AgentSessionHostTests {
+public sealed class AgentSessionHostTests {
+	[Fact]
+	public async Task Pane_wire_keeps_review_paths_and_output_without_transmitting_diff_contents() {
+		await using var fixture = CreateFixture(static () => "slot-1", 0);
+		fixture.Session.Emit(Completed("tool", "tool output") with {
+			ItemType = "tool",
+			Diffs = [new AgentPaneDiff { Path = "/file", OldText = "before", NewText = new('x', 14 * 1024 * 1024) }],
+			Locations = [new AgentPaneLocation { Path = "/file", Line = 10 }, new AgentPaneLocation { Path = "/file", Line = 42 }],
+			Content = [new AgentPaneContent { Type = "text", Text = "rich output" }],
+		});
+		await fixture.Host.DrainPaneAsync(CancellationToken.None);
+		var live = Assert.Single(fixture.Bridge.PostedEventsNamed("pane"));
+		var page = Assert.Single(await HistoryPages(fixture.Host));
+		Assert.True(JsonSerializer.SerializeToUtf8Bytes(AgentPaneProtocol.HistoryPage(page)).Length < 4096);
+		var history = Assert.Single(AssembleHistory([page]));
+		Assert.Equal(live.GetRawText(), history.GetRawText());
+		var diff = Assert.Single(history.GetProperty("diffs").EnumerateArray());
+		Assert.Equal("path", Assert.Single(diff.EnumerateObject()).Name);
+		Assert.Equal("/file", diff.GetProperty("path").GetString());
+		Assert.Equal("tool output", history.GetProperty("text").GetString());
+		Assert.Equal("rich output", Assert.Single(history.GetProperty("content").EnumerateArray()).GetProperty("text").GetString());
+		Assert.Equal(new long[] { 10, 42 }, history.GetProperty("locations").EnumerateArray().Select(location => location.GetProperty("line").GetInt64()));
+	}
+
 	[Fact]
 	public async Task StructuredUsage_IsPublishedAndReplayedForItsOwningSession() {
 		await using var fixture = CreateFixture(static () => "slot-1", 0);
@@ -198,12 +221,12 @@ public sealed partial class AgentSessionHostTests {
 	}
 
 	[Fact]
-	public async Task Oversized_active_history_record_is_fragmented_within_the_page_budget() {
+	public async Task Oversized_history_record_is_fragmented_within_the_page_budget() {
 		await using var fixture = CreateFixture(static () => "slot-1", 0);
 		var (session, host) = (fixture.Session, fixture.Host);
 		string text = string.Concat(Enumerable.Repeat("snowman ☃ emoji 😀 quote \\\"\n", 20_000));
 
-		session.Emit(Completed("oversized", text) with { Type = "agent-message-delta" });
+		session.Emit(Completed("oversized", text));
 		await host.DrainPaneAsync(CancellationToken.None);
 		var pages = await HistoryPages(host);
 		AgentPaneFragment[] fragments = [.. pages.SelectMany(page => page.Messages)];
@@ -460,7 +483,7 @@ public sealed partial class AgentSessionHostTests {
 		var item = Assert.Single(await History(host), message =>
 			message.GetProperty("itemId").GetString() == "task");
 
-		Assert.Equal("authoritative", ReadBody(host, item).GetProperty("text").GetString());
+		Assert.Equal("authoritative", item.GetProperty("text").GetString());
 		Assert.Equal("failed", item.GetProperty("status").GetString());
 	}
 

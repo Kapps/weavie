@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Weavie.Core;
+using Weavie.Core.Configuration;
 using Weavie.Core.Hooks;
 using Weavie.Core.Workspaces;
 using Xunit;
@@ -18,6 +19,7 @@ public sealed class HostCoreLearnTests {
 	[Fact]
 	public async Task CorrectionsAccumulate_CardSurfaces_AndLearnSeedsPrimaryClaude_ThenConsumesRing() {
 		await using var host = await TestHost.StartAsync();
+		host.Settings.Set(CorrectionsSettings.Enabled, JsonSerializer.SerializeToElement(true));
 		var session = host.SelectedSession;
 		session.Claude!.EnsureStarted();
 		var claude = Assert.Single(host.Platform.NoopLauncher.Created);
@@ -36,6 +38,21 @@ public sealed class HostCoreLearnTests {
 			}
 		}
 
+		string ringPath = WeaviePaths.WorkspaceCorrectionsFile(WorkspaceId.ForPath(host.RepoRoot));
+		string recorded = File.ReadAllText(ringPath);
+		host.Settings.Set(CorrectionsSettings.Enabled, JsonSerializer.SerializeToElement(false));
+		await WaitForSuggestionAsync(host, present: false);
+		Boundary(session, "disabled prompt");
+		AgentEdit(session, file, "disabled agent version\n");
+		await HandEditAsync(host, session, file, "disabled user version\n");
+		await session.FileActivity.DrainAsync(CancellationToken.None);
+		var disabled = await host.InvokeClientCommandAsync("weavie.learn.fromCorrections", new { });
+		Assert.False(disabled.Ok);
+		Assert.Contains("disabled", disabled.Error, StringComparison.OrdinalIgnoreCase);
+		Assert.Equal(recorded, File.ReadAllText(ringPath));
+		Assert.Equal(string.Empty, claude.WrittenText);
+		host.Settings.Set(CorrectionsSettings.Enabled, JsonSerializer.SerializeToElement(true));
+		await WaitForSuggestionAsync(host, present: true);
 		var result = await host.InvokeClientCommandAsync("weavie.learn.fromCorrections", new { });
 
 		string written = claude.WrittenText;
@@ -48,7 +65,6 @@ public sealed class HostCoreLearnTests {
 
 		Assert.True(result.Ok, result.Error);
 		// The read entries were consumed: the persisted ring is empty and the card withdrew.
-		string ringPath = WeaviePaths.WorkspaceCorrectionsFile(WorkspaceId.ForPath(host.RepoRoot));
 		Assert.Equal(string.Empty, File.ReadAllText(ringPath));
 		await WaitForSuggestionAsync(host, present: false);
 	}
@@ -56,6 +72,7 @@ public sealed class HostCoreLearnTests {
 	[Fact]
 	public async Task EmptyRing_LearnFailsLoudly_AndSeedsNothing() {
 		await using var host = await TestHost.StartAsync();
+		host.Settings.Set(CorrectionsSettings.Enabled, JsonSerializer.SerializeToElement(true));
 		host.SelectedSession.Claude!.EnsureStarted();
 		var claude = Assert.Single(host.Platform.NoopLauncher.Created);
 
@@ -64,6 +81,23 @@ public sealed class HostCoreLearnTests {
 		Assert.False(result.Ok);
 		Assert.Contains("No corrections recorded", result.Error, StringComparison.Ordinal);
 		Assert.Equal(string.Empty, claude.WrittenText);
+	}
+
+	[Fact]
+	public async Task DefaultDisabled_IgnoresCorrections_AndRejectsLearn() {
+		await using var host = await TestHost.StartAsync();
+		Assert.Equal(false, host.Settings.Resolve(CorrectionsSettings.Enabled).Value);
+		var session = host.SelectedSession;
+		string file = Path.Combine(host.RepoRoot, "app.cs");
+		Boundary(session, "default-disabled prompt");
+		AgentEdit(session, file, "agent version\n");
+		await HandEditAsync(host, session, file, "user version\n");
+		await session.FileActivity.DrainAsync(CancellationToken.None);
+		Assert.False(File.Exists(WeaviePaths.WorkspaceCorrectionsFile(WorkspaceId.ForPath(host.RepoRoot))));
+		await WaitForSuggestionAsync(host, present: false);
+		var result = await host.InvokeClientCommandAsync("weavie.learn.fromCorrections", new { });
+		Assert.False(result.Ok);
+		Assert.Contains("disabled", result.Error, StringComparison.OrdinalIgnoreCase);
 	}
 
 	private static void Boundary(HostSession session, string prompt) =>

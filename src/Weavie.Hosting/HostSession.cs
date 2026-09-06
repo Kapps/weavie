@@ -181,7 +181,9 @@ public sealed partial class HostSession : IAsyncDisposable {
 		// workspace's shared ring, one entry per action — captured at the moment they act, not at a boundary.
 		// See docs/specs/learn-from-corrections.md.
 		Corrections = new CorrectionRecorder(corrections);
-		Changes.Corrected += Corrections.Record;
+		Changes.Corrected += edits => {
+			if (settings.RequireBool(CorrectionsSettings.Enabled)) Corrections.Record(edits);
+		};
 		// Isolated in-place revision of a bounded region, published as in-flight on this session's bus.
 		Revise = new ReviseService(inference, Changes, new SessionReviseSurface(this));
 		var eventRouter = new AgentEventRouter(Changes, ObservedMode, Status);

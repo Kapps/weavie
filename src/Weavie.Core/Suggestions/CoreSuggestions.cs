@@ -48,7 +48,8 @@ public static class CoreSuggestions {
 			Id = "corrections.learn",
 			Title = "Teach Claude from your corrections?",
 			Body = "You've been correcting Claude's output — it can mine those reverts and edits for AGENTS.md rules.",
-			IsRelevant = ctx => ctx.PendingCorrectionCount >= ctx.Settings.RequireInt(CorrectionsSettings.LearnThreshold),
+			IsRelevant = ctx => ctx.Settings.RequireBool(CorrectionsSettings.Enabled)
+				&& ctx.PendingCorrectionCount >= ctx.Settings.RequireInt(CorrectionsSettings.LearnThreshold),
 			Actions = [
 				new SuggestionAction {
 					Label = "Yes",

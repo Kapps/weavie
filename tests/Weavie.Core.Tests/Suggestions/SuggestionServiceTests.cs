@@ -115,14 +115,18 @@ public sealed class SuggestionServiceTests : IDisposable {
 
 	[Fact]
 	public async Task CorrectionsBelowThreshold_LearnCardNotOffered() {
-		var harness = await StartAsync(EmptySettings(), NoManifest, static () => 9);
+		var harness = await StartAsync(SettingsWith("corrections.enabled = true"), NoManifest, static () => 9);
 
 		Assert.DoesNotContain(LearnId, harness.ActiveIds());
 	}
 
 	[Fact]
-	public async Task CorrectionsAtThreshold_LearnCardOffered() {
-		var harness = await StartAsync(EmptySettings(), NoManifest, static () => 10);
+	public async Task CorrectionsAtThreshold_LearnCardRequiresOptIn() {
+		var settings = EmptySettings();
+		var harness = await StartAsync(settings, NoManifest, static () => 10);
+		Assert.DoesNotContain(LearnId, harness.ActiveIds());
+		settings.Set(CorrectionsSettings.Enabled, System.Text.Json.JsonSerializer.SerializeToElement(true));
+		harness.Service.Evaluate();
 
 		Assert.Contains(LearnId, harness.ActiveIds());
 	}
@@ -132,7 +136,7 @@ public sealed class SuggestionServiceTests : IDisposable {
 		// Unlike the one-shot manifest probe, the ring's count changes over time — each Evaluate re-reads the
 		// supplier, so the card appears the moment an append crosses the (here raised) threshold.
 		int count = 4;
-		var harness = await StartAsync(SettingsWith("corrections.learnThreshold = 5"), NoManifest, () => count);
+		var harness = await StartAsync(SettingsWith("corrections.enabled = true\ncorrections.learnThreshold = 5"), NoManifest, () => count);
 		Assert.DoesNotContain(LearnId, harness.ActiveIds());
 
 		count = 5;

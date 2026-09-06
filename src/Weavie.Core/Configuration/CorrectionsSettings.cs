@@ -1,13 +1,25 @@
 namespace Weavie.Core.Configuration;
 
-/// <summary>Registers the learn-from-corrections setting (<see cref="LearnThreshold"/>).</summary>
+/// <summary>Registers the learn-from-corrections settings.</summary>
 public static class CorrectionsSettings {
+	/// <summary>Whether correction capture, learning, and its suggestion are enabled.</summary>
+	public const string Enabled = "corrections.enabled";
+
 	/// <summary>How many recorded corrections it takes before the "teach Claude" card appears.</summary>
 	public const string LearnThreshold = "corrections.learnThreshold";
 
-	/// <summary>Registers <see cref="LearnThreshold"/> into <paramref name="registry"/>.</summary>
+	/// <summary>Registers correction learning settings into <paramref name="registry"/>.</summary>
 	public static void Register(SettingsRegistry registry) {
 		ArgumentNullException.ThrowIfNull(registry);
+
+		registry.Register(new SettingDefinition {
+			Key = Enabled,
+			Kind = SettingKind.Bool,
+			Description = "Enable experimental correction capture and Learn From My Corrections. Disabled by default pending a full rework.",
+			Aliases = ["learn from my corrections", "correction learning"],
+			Apply = ApplyMode.Live,
+			Default = false,
+		});
 
 		registry.Register(new SettingDefinition {
 			Key = LearnThreshold,

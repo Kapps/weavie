@@ -36,6 +36,8 @@ const PROMPT_3 = "Rewrite the README intro";
 test.use({
   fakeScript: {
     steps: [
+      { op: "mcp", tool: "setSetting", args: { key: "corrections.enabled", value: true } },
+      { op: "mcp", tool: "setSetting", args: { key: "corrections.learnThreshold", value: 3 } },
       { op: "hook", request: { hook_event_name: "UserPromptSubmit", prompt: PROMPT_1 } },
       ...appliedEdit("hello.ts", HELLO_AGENT),
       { op: "waitFile", path: `{{WORKSPACE}}/${SIG_1}` },

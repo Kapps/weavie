@@ -45,12 +45,6 @@ public static class StartupTips {
 			Detail = "Unreviewed agent edits accumulate across turns; Keep and Revert are both undoable.",
 		},
 		new() {
-			Id = "learn-from-corrections",
-			Lead = "Run Learn From My Corrections",
-			CommandId = CoreCommands.LearnFromCorrections,
-			Detail = "Weavie remembers edits and reverts over agent-written lines and can turn repeated fixes into repository rules.",
-		},
-		new() {
 			Id = "agent-drives-weavie",
 			Lead = "Ask your agent to change Weavie itself",
 			Detail = "It can run Weavie commands and change settings directly from the chat.",

@@ -10,7 +10,7 @@ public sealed class StartupTipsTests {
 		var tips = StartupTips.All;
 		var commands = CoreCommands.CreateRegistry();
 
-		Assert.Equal(10, tips.Count);
+		Assert.Equal(9, tips.Count);
 		Assert.Equal(tips.Count, tips.Select(tip => tip.Id).Distinct(StringComparer.Ordinal).Count());
 		Assert.All(tips, tip => {
 			Assert.False(string.IsNullOrWhiteSpace(tip.Id));

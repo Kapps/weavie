@@ -1,7 +1,10 @@
 # Learn from corrections
 
-Status: implemented
-Last updated: 2026-07-12
+Status: disabled by default, pending a full rework
+Last updated: 2026-09-06
+
+`corrections.enabled` is an opt-in, live setting. When disabled, correction capture, the learning command,
+and its suggestion card are inactive. Existing saved corrections are retained.
 
 Weavie sits between the user and the embedded agent. When the user **edits the agent's output in the editor
 or reverts a hunk in the review UI**, that correction never enters the agent's transcript — so it is

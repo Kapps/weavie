@@ -66,7 +66,7 @@ export interface InlineDiffOptions {
    * baseline, so the kept hunk returns to the bright pending band (no disk write). Drives the inline ↶ undo.
    */
   onUnkeepHunk?: (hunk: HunkUnkeep) => void;
-  /** Applied mode — Keep-all: clear the whole accumulated review set in one action. */
+  /** Applied mode — Keep all pending changes as one reversible decision. */
   onKeepAll?: () => void;
   /** The file walk is truncated, so whole-review actions would reach unseen files. */
   allActionsDisabled?: boolean;

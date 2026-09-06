@@ -1516,8 +1516,7 @@ public static class CoreCommands {
 			Title = "Keep All Changes (Review)",
 			RunsIn = CommandLocation.Web,
 			Category = "Review",
-			Description = "Keep the whole accumulated review set in one action (the commit point — clears the marks "
-				+ "and the review undo history).",
+			Description = "Keep all pending changes as one reversible decision. Kept changes and review history remain available.",
 			Aliases = ["keep all", "keep all changes", "accept all", "accept turn", "keep everything"],
 		});
 

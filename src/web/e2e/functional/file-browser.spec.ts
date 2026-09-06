@@ -1,4 +1,4 @@
-import { mkdir, rename, rmdir, symlink, unlink, writeFile } from "node:fs/promises";
+import { mkdir, rename, rmdir, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
@@ -92,29 +92,40 @@ test.describe("file request completion", () => {
   let completedIndexes = 0;
   let failedListings = 0;
   let listingError = "";
+  let failingDirectory = "";
   test.use({
     preNavigate: {
       run: async (page) => {
-        page.on("websocket", (socket) =>
-          socket.on("framereceived", ({ payload }) => {
-            const message = JSON.parse(payload.toString());
+        await page.routeWebSocket("**/*", (socket) => {
+          const server = socket.connectToServer();
+          const listings = new Set<string>();
+          socket.onMessage((data) => {
+            const message = JSON.parse(data.toString());
+            if (
+              message.feature === "files" &&
+              message.name === "listDirectory" &&
+              message.payload.path === failingDirectory
+            )
+              listings.add(message.requestId);
+            server.send(data);
+          });
+          server.onMessage((data) => {
+            const message = JSON.parse(data.toString());
             if (
               message.feature === "files" &&
               message.name === "index" &&
               message.payload.pending === false
-            ) {
+            )
               completedIndexes += 1;
-            }
-            if (
-              message.feature === "files" &&
-              message.name === "listDirectory" &&
-              typeof message.error === "string"
-            ) {
-              failedListings += 1;
+            if (listings.delete(message.requestId)) {
+              expect(message.error).toBeNull();
+              message.error = `Cannot list directory: ${failingDirectory}`;
               listingError = message.error;
-            }
-          }),
-        );
+              failedListings += 1;
+              socket.send(JSON.stringify(message));
+            } else socket.send(data);
+          });
+        });
       },
     },
   });
@@ -123,18 +134,14 @@ test.describe("file request completion", () => {
     page,
     weavie,
   }) => {
-    const directory = join(weavie.home, "outside-workspace");
-    const alias = join(weavie.workspace, "temporarily-missing");
+    const directory = join(weavie.workspace, "unreadable-directory");
+    failingDirectory = directory;
     await mkdir(directory);
-    await symlink(directory, alias, "junction");
     await runCommand(page, "Toggle File Browser");
-    const row = page.locator(".browser-row", { hasText: "temporarily-missing" });
-    await expect(row).toBeVisible();
-    await rmdir(directory);
-    await row.click();
+    await page.locator(".browser-row", { hasText: "unreadable-directory" }).click();
     const error = page.locator(".browser-error");
     await expect(error).toBeVisible();
-    expect(listingError).toContain(alias);
+    expect(listingError).toContain(directory);
     await expect(error.locator("span")).toHaveText(listingError);
 
     const previous = failedListings;

@@ -1,6 +1,10 @@
 import { afterEach, expect, it, vi } from "vitest";
 
 const bridge = vi.hoisted(() => ({ request: vi.fn(), changed: () => {} }));
+const tokenization = vi.hoisted(() => ({ load: vi.fn() }));
+vi.mock("./spell-tokens", () => ({
+  spellingTokens: tokenization.load,
+}));
 vi.mock("../bridge", () => ({ registerSessionFeature: () => () => {} }));
 vi.mock("../editor-options", () => ({
   currentEditorOptions: () => ({ spellCheck: true }),
@@ -35,6 +39,7 @@ import { createSpellCheck } from "./spell-check";
 function fixture(text: string, start: number, end: number) {
   vi.useFakeTimers();
   bridge.request.mockReset();
+  tokenization.load.mockReset().mockResolvedValue([]);
   const set = vi.fn();
   const clear = vi.fn();
   let version = 1;
@@ -117,8 +122,26 @@ it("sends fully visible words without scanning offscreen portions of a wrapped l
   bridge.request.mockResolvedValue([]);
   await vi.advanceTimersByTimeAsync(250);
   expect(bridge.request.mock.calls[0]![1]).toEqual({
-    spans: [{ line: 1, offset: 70004, text: " visible " }],
+    spans: [{ line: 1, offset: 70004, text: " visible ", identifier: false }],
   });
+  spelling.dispose();
+});
+
+it("does not send a check for a model edited while its grammar was loading", async () => {
+  const { spelling, edit, set } = fixture("teh", 1, 4);
+  let ready: (value: []) => void = () => {};
+  tokenization.load.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        ready = resolve;
+      }),
+  );
+  await vi.advanceTimersByTimeAsync(250);
+  edit();
+  ready([]);
+  await Promise.resolve();
+  expect(bridge.request).not.toHaveBeenCalled();
+  expect(set).not.toHaveBeenCalled();
   spelling.dispose();
 });
 

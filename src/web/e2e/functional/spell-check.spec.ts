@@ -33,16 +33,13 @@ async function addWord(page: Page, text: string, scope: "User" | "Project"): Pro
   await expect(word(page, text)).toHaveCount(0);
 }
 
-test("spell check marks prose, comments and strings but leaves identifiers alone", async ({
-  page,
-  weavie,
-}) => {
+test("spell check marks identifiers, comments, strings and prose", async ({ page, weavie }) => {
   await writeFile(
     join(weavie.workspace, "hello.ts"),
     'const identifiertypoo = "stringtypoo";\n// commenttypoo\n',
   );
   await openFile(page, "hello.ts");
-  await expect(marks(page)).toHaveText(["stringtypoo", "commenttypoo"]);
+  await expect(marks(page)).toHaveText(["identifiertypoo", "stringtypoo", "commenttypoo"]);
   await writeFile(join(weavie.workspace, "notes.txt"), "The spelling is correct.\nprosetypoo\n");
   await openFile(page, "notes.txt");
   await expect(marks(page)).toHaveText(["prosetypoo"]);
@@ -52,6 +49,87 @@ test("spell check marks prose, comments and strings but leaves identifiers alone
   await page.keyboard.press("Shift+End");
   await page.keyboard.type("correct");
   await expect(marks(page)).toHaveCount(0);
+});
+
+test("C# declarations check class, constant, property, method, parameter and local names", async ({
+  page,
+  weavie,
+}) => {
+  await writeFile(
+    join(weavie.workspace, "Symbols.cs"),
+    [
+      "public class ClassTypoo {",
+      '  public const string DiagnoasticId = "WV0001";',
+      "  public int PropertyTypoo { get; set; }",
+      "  public int MethodTypoo(int parameterTypoo) {",
+      "    int localTypoo = 1;",
+      '    string message = "stringtypoo";',
+      "    // commenttypoo",
+      "    return 0;",
+      "  }",
+      "}",
+      "",
+    ].join("\n"),
+  );
+  await openFile(page, "Symbols.cs");
+  await expect(marks(page)).toHaveText([
+    "Typoo",
+    "Diagnoastic",
+    "Typoo",
+    "Typoo",
+    "Typoo",
+    "Typoo",
+    "stringtypoo",
+    "commenttypoo",
+  ]);
+});
+
+test("Python declarations check unclassified variables alongside scoped names and prose", async ({
+  page,
+  weavie,
+}) => {
+  await writeFile(
+    join(weavie.workspace, "symbols.py"),
+    [
+      "class ClassTypoo:",
+      "    def method_typoo(self, parameter_typoo):",
+      '        local_typoo = "stringtypoo"',
+      "        # commenttypoo",
+      "        return len([])",
+      "",
+    ].join("\n"),
+  );
+  await openFile(page, "symbols.py");
+  await expect(marks(page)).toHaveText([
+    "Typoo",
+    "typoo",
+    "typoo",
+    "typoo",
+    "stringtypoo",
+    "commenttypoo",
+  ]);
+});
+
+test("identifier corrections preserve camel case and snake case boundaries", async ({
+  page,
+  weavie,
+}) => {
+  const file = join(weavie.workspace, "hello.ts");
+  await writeFile(file, "const mispelledCount = 1;\nconst total_mispelled = 2;\n");
+  await openFile(page, "hello.ts");
+  await expect(marks(page)).toHaveText(["mispelled", "mispelled"]);
+  await word(page, "mispelled").first().click({ button: "right" });
+  await page.getByRole("menuitem", { name: /^misspelled(?:\s|$)/ }).click();
+  await expect(marks(page)).toHaveText(["mispelled"]);
+  await expect
+    .poll(() => readFile(file, "utf8"))
+    .toBe("const misspelledCount = 1;\nconst total_mispelled = 2;\n");
+  await word(page, "mispelled").click({ button: "right" });
+  await page.getByRole("menuitem", { name: /^misspelled(?:\s|$)/ }).click();
+  await expect(marks(page)).toHaveCount(0);
+  await expect
+    .poll(() => readFile(file, "utf8"))
+    .toBe("const misspelledCount = 1;\nconst total_misspelled = 2;\n");
 });
 
 test("dictionary menu persists user and project words and observes project edits", async ({
@@ -77,6 +155,51 @@ test("dictionary menu persists user and project words and observes project edits
   await expect(marks(page)).toHaveCount(0);
   await writeFile(userDictionary, "");
   await expect(marks(page)).toHaveText(["userwordtypoo", "userwordtypoo"]);
+});
+
+test("large code lines keep rendering while identifier grammar runs in a worker", async ({
+  page,
+  weavie,
+}) => {
+  await page.evaluate(() => {
+    window.Worker = new Proxy(window.Worker, {
+      construct(Target, args) {
+        const worker = Reflect.construct(Target, args) as Worker;
+        const frames = new Map<string, number>();
+        const heartbeat = (): void => {
+          for (const [request, count] of frames) frames.set(request, count + 1);
+          requestAnimationFrame(heartbeat);
+        };
+        if (String(args[0]).includes("spell-worker-entry")) {
+          requestAnimationFrame(heartbeat);
+          worker.postMessage = new Proxy(worker.postMessage, {
+            apply(post, owner, messages) {
+              const message = messages[0] as { method: string; req: string };
+              if (message.method === "$tokens") frames.set(message.req, 0);
+              return Reflect.apply(post, owner, messages);
+            },
+          });
+          worker.addEventListener("message", ({ data }) => {
+            const count = frames.get(data.seq);
+            if (count !== undefined) {
+              document.documentElement.dataset.spellWorkerFrames = String(count);
+              frames.delete(data.seq);
+            }
+          });
+        }
+        return worker;
+      },
+    });
+  });
+  await writeFile(
+    join(weavie.workspace, "large.ts"),
+    `const mispelledCount=0;${"const abc=0;".repeat(10_000)}\n`,
+  );
+  await openFile(page, "large.ts");
+  await expect(word(page, "mispelled")).toBeVisible();
+  expect(
+    await page.evaluate(() => Number(document.documentElement.dataset.spellWorkerFrames)),
+  ).toBeGreaterThan(0);
 });
 
 test("large files check only the visible viewport and refresh after scrolling", async ({

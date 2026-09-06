@@ -1,20 +1,13 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
-import { awaitEditorReady } from "../harness/actions";
+import { awaitEditorReady, openSearch } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 
 // The find-in-files panel persists its match mode, include/exclude globs, and recent-terms history host-side
 // (~/.weavie/search-state.json), but never the search term. These journeys prove the round-trip across a page
 // reload plus the Alt+Up history recall and the exclude-gitignored toggle. Real git grep over the seeded
 // workspace — deterministic, no claude involvement.
-
-async function openSearch(page: Page): Promise<void> {
-  await expect(async () => {
-    await page.keyboard.press("ControlOrMeta+Shift+f");
-    await expect(page.locator(".search-panel")).toBeVisible({ timeout: 1000 });
-  }).toPass({ timeout: 10_000 });
-}
 
 async function reload(page: Page): Promise<void> {
   await page.reload({ waitUntil: "domcontentloaded" });
@@ -34,15 +27,8 @@ test("options, globs, and recent terms persist across a reload — but not the q
   await page.keyboard.press("Alt+c");
   await expect(caseToggle).toHaveAttribute("aria-pressed", "true");
   await page.locator(".search-glob").nth(0).fill("*.ts");
-  // The row assertion below re-fills the query on each retry: the debounced git-grep round trip stalled
-  // past the default 30 s once on a loaded macOS runner (twice back to back, then clean on the next push),
-  // so retrying re-arms the debounce instead of just waiting longer on a single attempt.
-  // https://github.com/Kapps/weavie/actions/runs/31148196931/job/92773047174 (30 s timeout, 2026-08-07)
-  // https://github.com/Kapps/weavie/actions/runs/31148535789/job/92774602450 (30 s timeout, 2026-08-07)
-  await expect(async () => {
-    await input.fill("greet");
-    await expect(page.locator(".search-row").first()).toBeVisible({ timeout: 5_000 });
-  }).toPass({ timeout: 60_000 });
+  await input.fill("greet");
+  await expect(page.locator(".search-row").first()).toBeVisible({ timeout: 5_000 });
   await page.keyboard.press("Enter"); // commits "greet" into the recent-terms history
 
   await reload(page);

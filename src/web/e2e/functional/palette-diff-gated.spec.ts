@@ -1,4 +1,4 @@
-import { openFile } from "../harness/actions";
+import { openCommandPalette, openFile } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { appliedEdit } from "../harness/review";
 
@@ -30,13 +30,7 @@ const diffRow = (page: import("@playwright/test").Page, title: string) =>
     .filter({ has: page.locator(".tb-row-dir", { hasText: "Diff" }) });
 
 async function openPalette(page: import("@playwright/test").Page, query: string): Promise<void> {
-  const box = page.locator(".tb-omnibar-box");
-  await page.keyboard.press("Escape");
-  await expect(box).not.toHaveClass(/\bopen\b/);
-  await expect(async () => {
-    await page.keyboard.press("ControlOrMeta+Shift+p");
-    await expect(box).toHaveClass(/\bopen\b/, { timeout: 1000 });
-  }).toPass({ timeout: 10_000 });
+  await openCommandPalette(page);
   await page.locator(".tb-omnibar-input").fill(query);
 }
 

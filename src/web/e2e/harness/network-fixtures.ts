@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { mkdir, open, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { test as base } from "@playwright/test";
+import { test as base, type Request } from "@playwright/test";
 
 export const test = base.extend<{ networkDiagnostics: undefined }>({
   launchOptions: async ({ launchOptions }, use, workerInfo) => {
@@ -19,7 +19,7 @@ export const test = base.extend<{ networkDiagnostics: undefined }>({
     async ({ context }, use, testInfo) => {
       const failures: string[] = [];
       let snapshot: Promise<void> | undefined;
-      context.on("requestfailed", (request) => {
+      const onRequestFailed = (request: Request): void => {
         const error = request.failure()?.errorText ?? "unknown";
         failures.push(`${new Date().toISOString()} ${request.method()} ${request.url()} ${error}`);
         if (error !== "net::ERR_NO_BUFFER_SPACE" || snapshot !== undefined) {
@@ -63,10 +63,12 @@ export const test = base.extend<{ networkDiagnostics: undefined }>({
         })();
         // Observe immediately; teardown awaits and reports collection failures.
         snapshot.catch(() => {});
-      });
+      };
+      context.on("requestfailed", onRequestFailed);
       try {
         await use(undefined);
       } finally {
+        context.off("requestfailed", onRequestFailed);
         if (failures.length > 0) {
           await writeFile(testInfo.outputPath("network-failures.txt"), failures.join("\n"));
         }

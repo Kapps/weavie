@@ -1,4 +1,5 @@
-import { expect, test } from "@playwright/test";
+import { expect } from "@playwright/test";
+import { test } from "./harness/network-fixtures";
 import { launchRunner, runnerBuilt } from "./harness/weavie-runner";
 
 test.describe("runner browser entry", () => {

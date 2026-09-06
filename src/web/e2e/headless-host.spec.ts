@@ -2,8 +2,9 @@ import { type ChildProcess, spawn } from "node:child_process";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect, test } from "@playwright/test";
+import { expect } from "@playwright/test";
 import { openWorkspace, waitForWorkspace } from "./capture-workspace.mjs";
+import { test } from "./harness/network-fixtures";
 import { headlessProgram, programExists } from "./harness/test-programs";
 
 // End-to-end guard for the browser <-> WebSocket <-> Weavie.Core path: spawn the real built headless host,

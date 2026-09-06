@@ -1,7 +1,13 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Locator, Page } from "@playwright/test";
-import { awaitEditorReady, awaitFontsSettled, createSession, openFile } from "../harness/actions";
+import {
+  awaitEditorReady,
+  awaitFontsSettled,
+  createSession,
+  openFile,
+  openSearch,
+} from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { sessionWorktrees } from "../harness/git-workspace";
 
@@ -11,15 +17,6 @@ import { sessionWorktrees } from "../harness/git-workspace";
 // over the seeded workspace — deterministic, no claude involvement.
 
 import type { WeavieWindow } from "../harness/weavie-window";
-
-// Opens the search panel via its chord, retried like runCommand: a focused xterm/Monaco occasionally
-// swallows the first chord under load.
-async function openSearch(page: Page): Promise<void> {
-  await expect(async () => {
-    await page.keyboard.press("ControlOrMeta+Shift+f");
-    await expect(page.locator(".search-panel")).toBeVisible({ timeout: 1000 });
-  }).toPass({ timeout: 10_000 });
-}
 
 // The editor caret, read from the published handle.
 async function caret(page: Page): Promise<{ lineNumber: number; column: number } | null> {

@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test";
-import { clickIntoEditor, openFile } from "../harness/actions";
+import { clickIntoEditor, openCommandPalette, openFile } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import type { WeavieWindow } from "../harness/weavie-window";
 
@@ -71,13 +71,9 @@ test("the code-intelligence commands are discoverable in the palette with their 
   page,
 }) => {
   await focusEditor(page);
-  const box = page.locator(".tb-omnibar-box");
   const input = page.locator(".tb-omnibar-input");
 
-  await expect(async () => {
-    await page.keyboard.press("ControlOrMeta+Shift+p");
-    await expect(box).toHaveClass(/\bopen\b/, { timeout: 1000 });
-  }).toPass({ timeout: 10_000 });
+  await openCommandPalette(page);
 
   const expectCommand = async (
     query: string,

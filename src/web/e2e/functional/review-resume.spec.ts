@@ -1,13 +1,13 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Locator, Page } from "@playwright/test";
+import { type MessageEnvelope, parseEnvelope } from "../../src/messaging/message-envelope";
 import { openFile, runCommand } from "../harness/actions";
 import { writeFakeScript } from "../harness/fake-claude";
 import { expect, test } from "../harness/fixtures";
 import { appliedEdit } from "../harness/review";
 import type { HeadlessHost } from "../harness/weavie-host";
 import type { WeavieWindow } from "../harness/weavie-window";
-import { parseEnvelope, type MessageEnvelope } from "../../src/messaging/message-envelope";
 
 const prReplies = new WeakMap<Page, MessageEnvelope[]>();
 
@@ -71,9 +71,14 @@ test.describe("durable applied review", () => {
     await expect(page.locator(".weavie-inline-accepted")).toHaveCount(1);
     await page.locator(".editor-review-toggle").click();
     const hello = section(page, "hello.ts");
-    await expect(hello.locator(".unified-review-file-toggle")).toHaveAttribute("aria-expanded", "false");
+    await expect(hello.locator(".unified-review-file-toggle")).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
     await hello.locator(".unified-review-file-toggle").click();
-    await expect(hello.locator(".unified-review-rejection pre")).toHaveText("console.warn(message);");
+    await expect(hello.locator(".unified-review-rejection pre")).toHaveText(
+      "console.warn(message);",
+    );
     const notes = section(page, "notes.txt");
     await expect(notes.locator(".weavie-inline-added")).toBeVisible();
     await notes.locator(".unified-review-file-toggle").click();
@@ -134,14 +139,26 @@ test.describe("durable applied review", () => {
 });
 
 test.describe("durable pull-request review", () => {
-  test.use({ prScenario: true, preNavigate: { run: async (page) => {
-    const replies: MessageEnvelope[] = [];
-    prReplies.set(page, replies);
-    page.on("websocket", socket => socket.on("framereceived", frame => {
-      const message = parseEnvelope(frame.payload.toString());
-      if (message?.kind === "response" && message.feature === "pullRequests" && message.name === "open") replies.push(message);
-    }));
-  } } });
+  test.use({
+    prScenario: true,
+    preNavigate: {
+      run: async (page) => {
+        const replies: MessageEnvelope[] = [];
+        prReplies.set(page, replies);
+        page.on("websocket", (socket) =>
+          socket.on("framereceived", (frame) => {
+            const message = parseEnvelope(frame.payload.toString());
+            if (
+              message?.kind === "response" &&
+              message.feature === "pullRequests" &&
+              message.name === "open"
+            )
+              replies.push(message);
+          }),
+        );
+      },
+    },
+  });
 
   test("opening the same pull request retains its kept decision and undo", async ({ page }) => {
     await openPr(page);
@@ -162,7 +179,9 @@ test.describe("durable pull-request review", () => {
     );
     await hello.locator(".unified-review-file-name").click();
     await expect(page.locator(".weavie-inline-accepted")).toHaveCount(2);
-    await expect(page.locator(".weavie-pr-comment-body", { hasText: "Why change this greeting?" })).toBeVisible();
+    await expect(
+      page.locator(".weavie-pr-comment-body", { hasText: "Why change this greeting?" }),
+    ).toBeVisible();
     await runCommand(page, "Undo Keep (Review)");
     await expect(page.locator(".weavie-inline-added")).toHaveCount(2);
   });

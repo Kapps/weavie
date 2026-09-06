@@ -106,7 +106,7 @@ public sealed partial class HostCore {
 				return Task.CompletedTask;
 			}
 
-			var priorPaths = session.Changes.TurnChanges().Select(change => change.Path).ToArray();
+			string[] priorPaths = [.. session.Changes.TurnChanges().Select(change => change.Path)];
 			session.Changes.ArmReview(review, seeds.Select(seed => new ReviewSeed(seed.Absolute,
 				seed.Baseline.Content, seed.Current.Content, seed.Baseline.Exists, seed.Current.Exists)).ToArray());
 

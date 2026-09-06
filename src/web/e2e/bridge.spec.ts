@@ -853,12 +853,12 @@ test.describe("session-addressed WebSocket transport", () => {
     const historyBytes = Buffer.byteLength(JSON.stringify(pagedMessages));
     expect(historyBytes).toBeGreaterThan(12_000_000);
     expect(historyBytes).toBeLessThan(13_000_000);
-    const historyPageSize = 8;
-    const expectedHistoryPages = Math.ceil(pagedMessages.length / historyPageSize);
+    const historyBatchSize = 8;
+    const expectedHistoryBatches = Math.ceil(pagedMessages.length / historyBatchSize);
     host.setAgentHistory(session.address, {
       generation: 2,
       messages: pagedMessages,
-      batchSize: historyPageSize,
+      batchSize: historyBatchSize,
     });
     host.pauseAgentHistoryAfterBatches(1);
 
@@ -875,7 +875,7 @@ test.describe("session-addressed WebSocket transport", () => {
     await agentTab.click();
     await expect
       .poll(() => host.agentHistoryBatches.length - historyCheckpoint)
-      .toBe(expectedHistoryPages);
+      .toBe(expectedHistoryBatches);
     await expect(surface).toContainText("history page 570");
     await expect(surface).not.toContainText("retained before reconnect");
 
@@ -886,7 +886,7 @@ test.describe("session-addressed WebSocket transport", () => {
     host.setAgentHistory(session.address, {
       generation: 2,
       messages: [...pagedMessages, message("offline", "emitted while offline")],
-      batchSize: historyPageSize,
+      batchSize: historyBatchSize,
     });
     const catchUpCheckpoint = host.agentHistoryRequests.length;
     host.resumeHello();

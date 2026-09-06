@@ -30,13 +30,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-          ref: ${{ github.sha }}
-          fetch-depth: 0
-      - name: Authorize and check out release source
-        if: inputs.ref
-        env:
-          SOURCE_COMMIT: ${{ inputs.ref }}
-        run: python3 .github/scripts/checkout_release_source.py
+          ref: ${{ github.workflow_sha }}
       - id: matrix
         env:
           FULL: ${{ inputs.full || false }}
@@ -80,6 +74,7 @@ jobs:
           cache-write: ${{ !inputs.ref }}
 
       - name: Test rolling release publisher
+        working-directory: temp/workflow
         run: |
           bash .github/scripts/test-publish-main-latest.sh
           python3 -m unittest discover -s .github/scripts -p 'test_*.py'
@@ -134,7 +129,7 @@ jobs:
             weston
 
       - name: Verify .NET formatting
-        run: python3 .github/scripts/format-dotnet.py --verify-no-changes
+        run: python3 temp/workflow/.github/scripts/format-dotnet.py --verify-no-changes
 
       - name: Test Core
         run: dotnet test tests/Weavie.Core.Tests/Weavie.Core.Tests.csproj -c Debug

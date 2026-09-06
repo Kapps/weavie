@@ -7,7 +7,7 @@ import tempfile
 import xml.etree.ElementTree as ET
 
 
-root = Path(__file__).resolve().parents[2]
+root = Path.cwd()
 solution = ET.parse(root / "weavie.slnx")
 mac_sources = []
 for folder in solution.getroot():

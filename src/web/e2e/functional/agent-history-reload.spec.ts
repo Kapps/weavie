@@ -1,6 +1,53 @@
 import type { WebSocketRoute } from "@playwright/test";
-import { activeSessionSlot, createSession, runCommand } from "../harness/actions";
+import { activeSessionSlot, createSession, openCommandPalette } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
+
+test("bundled native bridge restores history from the host resource bootstrap", async ({
+  page,
+}) => {
+  await createSession(page, { branch: "native-history", provider: "fake-acp" });
+  const slot = await activeSessionSlot(page);
+  const composer = page.locator("[data-agent-composer] textarea");
+  const transcript = page.locator('[data-surface="structured-agent"]');
+  await composer.fill("restore this native conversation");
+  await composer.press("Enter");
+  await expect(transcript).toContainText("echo: restore this native conversation");
+
+  // Emulate the desktop message-handler seam, retaining the real host's bundled HTML bootstrap.
+  await page.addInitScript(() => {
+    const endpoint = new URL("/weavie-bridge", window.location.href);
+    endpoint.protocol = "ws:";
+    const socket = new WebSocket(endpoint);
+    const pending: string[] = [];
+    socket.onopen = () => {
+      for (const message of pending.splice(0)) socket.send(message);
+    };
+    socket.onmessage = (event) => window.__weavieReceive?.(event.data);
+    window.webkit = {
+      messageHandlers: {
+        weavie: {
+          postMessage: (message: string) => {
+            if (socket.readyState === WebSocket.OPEN) socket.send(message);
+            else pending.push(message);
+          },
+        },
+      },
+    };
+  });
+  const history = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return url.pathname === "/weavie-agent-history" && url.searchParams.get("slot") === slot;
+  });
+  await page.reload({ waitUntil: "domcontentloaded" });
+  const response = await history;
+  expect(response.status()).toBe(200);
+  expect(new URL(response.url()).searchParams.has("token")).toBe(false);
+  await expect(transcript).toContainText("echo: restore this native conversation");
+  await expect(page.locator(".toast-msg", { hasText: "History for" })).toHaveCount(0);
+  await composer.fill("native messaging still works");
+  await composer.press("Enter");
+  await expect(transcript).toContainText("echo: native messaging still works");
+});
 
 test("incomplete HTTP history can be reloaded while agent messaging stays connected @cross", async ({
   page,
@@ -32,6 +79,7 @@ test("incomplete HTTP history can be reloaded while agent messaging stays connec
   const failure = page.locator(".toast-msg", { hasText: "History for" });
   await expect(failure).toContainText("incomplete");
   await expect(failure).toContainText("Reload Agent History");
+  await expect(failure).not.toContainText("Alt+Shift+R");
   await expect(transcript).toContainText("echo: remember this response");
   await expect(page.locator(".footer-network-problem")).toHaveCount(0);
 
@@ -40,7 +88,12 @@ test("incomplete HTTP history can be reloaded while agent messaging stays connec
   await expect(transcript).toContainText("echo: messaging still works");
   expect(requests).toBe(1);
   await composer.focus();
-  await runCommand(page, "Reload Agent History");
+  await openCommandPalette(page);
+  await page.locator(".tb-omnibar-input").fill(">Reload Agent History");
+  const reload = page.locator(".tb-omnibar-row", { hasText: "Reload Agent History" });
+  await expect(reload).toBeVisible();
+  await expect(reload.locator(".tb-row-keys")).toHaveCount(0);
+  await page.locator(".tb-omnibar-input").press("Enter");
   await expect.poll(() => requests).toBe(2);
   await expect(failure).toHaveCount(0);
   await expect(transcript).toContainText("echo: remember this response");

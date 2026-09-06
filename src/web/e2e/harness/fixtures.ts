@@ -305,16 +305,28 @@ export const test = base.extend<WeavieOptions & WeavieFixtures>({
         if (connect.status() !== 302) {
           throw new Error(`workspace connect failed (${connect.status()})`);
         }
-        // 2026-09-04 11:50 UTC, windows shard 5/6, pr-comment-layout.spec.ts:
-        // https://github.com/Kapps/weavie/actions/runs/33869160511/job/101011765056 — this exact
-        // `page.goto` failed with `net::ERR_NO_BUFFER_SPACE`, before anything had loaded for the
-        // `blockedLoads`/retry handling below to apply to. Suspected same class of Windows loopback
-        // socket-buffer pressure as the post-boot resource-load failures this file already tracks (one
-        // OS-assigned port per test, hundreds of tests serially), but at a different call site with no
-        // in-app retry to fall back on. One occurrence isn't enough to confirm the mechanism or land a
-        // fix without guessing — not retried here (see docs/specs/e2e-flake-policy.md); watching for a
-        // repeat to pin down the actual cause before changing this call.
-        await page.goto(host.url, { waitUntil: "domcontentloaded" });
+        // Windows loopback sockets under sustained per-test churn (a fresh OS-assigned port every test,
+        // hundreds of tests per serial shard) intermittently refuse the entry-document connection with
+        // `net::ERR_NO_BUFFER_SPACE` — the same OS-level exhaustion `retryBootModule` in index.html already
+        // treats as recoverable-by-retry for post-boot script/stylesheet loads. This `page.goto` is the one
+        // boot step that mechanism can't cover (the document fetch itself, before any app JS exists to catch
+        // it), so it gets the same bounded single retry here: a second failure back-to-back is a real defect,
+        // not more transient pressure, so it's left to fail the test loudly rather than retried again.
+        //
+        // 2026-09-04 11:50 UTC, windows shard 5/6, pr-comment-layout.spec.ts, first occurrence:
+        // https://github.com/Kapps/weavie/actions/runs/33869160511/job/101011765056 — not retried pending a
+        // repeat to confirm the mechanism (see docs/specs/e2e-flake-policy.md).
+        // 2026-09-06 04:43 UTC, windows shard 3/3, revise.spec.ts, repeat at the same call site with the same
+        // signature: https://github.com/Kapps/weavie/actions/runs/34011560799/job/101428597624 — confirms
+        // the mechanism; this retry is the fix landed for it.
+        try {
+          await page.goto(host.url, { waitUntil: "domcontentloaded" });
+        } catch (error) {
+          if (!(error instanceof Error) || !error.message.includes("ERR_NO_BUFFER_SPACE")) {
+            throw error;
+          }
+          await page.goto(host.url, { waitUntil: "domcontentloaded" });
+        }
         // The app removes the splash element once it has booted (layout + first session). Its
         // disappearance is the "app is interactive" signal — not a fixed sleep.
         await expect(page.locator("#splash")).toHaveCount(0, { timeout: 40_000 });

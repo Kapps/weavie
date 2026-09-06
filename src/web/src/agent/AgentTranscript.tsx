@@ -35,11 +35,13 @@ export function AgentTranscript(props: {
         data-agent-transcript
         style={`height:${props.virtualizer.getTotalSize()}px`}
       >
-        <For each={props.virtualizer.getVirtualItems()}>
-          {(virtualRow) => {
-            const entry = (): AgentTranscriptEntry => props.entries[virtualRow.index]!;
+        <For each={props.virtualizer.getVirtualItems().map((row) => row.key)}>
+          {(key) => {
+            const virtualRow = () =>
+              props.virtualizer.getVirtualItems().find((row) => row.key === key)!;
+            const entry = (): AgentTranscriptEntry => props.entries[virtualRow().index]!;
             const previous = (): AgentTranscriptEntry | undefined =>
-              props.entries[virtualRow.index - 1];
+              props.entries[virtualRow().index - 1];
             onCleanup(() => props.virtualizer.measureElement(null));
             return (
               <div
@@ -50,10 +52,10 @@ export function AgentTranscript(props: {
                     entry().tone === "assistant" &&
                     previous()?.kind === "message" &&
                     previous()?.tone === "assistant",
-                  "agent-virtual-row-first": virtualRow.index === 0,
+                  "agent-virtual-row-first": virtualRow().index === 0,
                   "agent-virtual-row-user": entry().kind === "message" && entry().tone === "user",
                 }}
-                data-index={virtualRow.index}
+                data-index={virtualRow().index}
                 data-agent-turn-output-start={
                   entry().id === props.agentTurnStartId ? "" : undefined
                 }
@@ -65,7 +67,7 @@ export function AgentTranscript(props: {
                     }
                   })
                 }
-                style={`transform:translateY(${virtualRow.start}px)`}
+                style={`transform:translateY(${virtualRow().start}px)`}
               >
                 <TranscriptEntry
                   detailsExpanded={props.expandedDetails.has(entry().id)}

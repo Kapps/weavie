@@ -27,10 +27,11 @@ public sealed class AgentEventRouter : IAgentEventSink {
 	/// <inheritdoc/>
 	public AgentEventFeedback Observe(AgentEvent value) {
 		ArgumentNullException.ThrowIfNull(value);
+		var shared = value is AgentConversationEvent conversation ? conversation.Value : value;
 		_changes.Observe(value);
-		_mode.Observe(value);
+		if (value is not AgentConversationEvent) _mode.Observe(value);
 		_status.Observe(value);
-		var locations = _changes.EditLocationsFor(value);
+		var locations = _changes.EditLocationsFor(shared);
 		return locations.Count == 0
 			? AgentEventFeedback.None
 			: new AgentEventFeedback { Messages = locations };

@@ -28,6 +28,20 @@ public sealed class CorrectionRecorderTests {
 	}
 
 	[Fact]
+	public void ConcurrentSideEdit_PreservesBothProducingPrompts() {
+		Boundary("primary");
+		_tracker.Observe(new AgentConversationEvent("aside", new AgentPromptSubmitted("fork", "side")));
+		var mutation = new AgentMutation.File("side.cs", Cwd: null, ProvidesEditLocation: true);
+		_tracker.Observe(new AgentConversationEvent("aside", new AgentToolStarting(mutation)));
+		_fs.WriteAllText(Abs("side.cs"), "side line\n");
+		_tracker.Observe(new AgentConversationEvent("aside", new AgentToolCompleted(mutation)));
+		AgentEdit("primary.cs", "primary line\n");
+		HandEdit("side.cs", "user line\n");
+		HandEdit("primary.cs", "user line\n");
+		Assert.Equal(["side", "primary"], _corpus.ReadAll().Select(record => record.Prompt));
+	}
+
+	[Fact]
 	public void HandEditOverAgentHunk_RecordsDelta_AttributedToProducingPrompt() {
 		Boundary("make it fast");
 		AgentEdit("app.cs", "agent line\n");

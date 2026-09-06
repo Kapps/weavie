@@ -5,7 +5,9 @@ import { type MessageEnvelope, parseEnvelope } from "../../src/messaging/message
 import { activeSessionSlot, createSession } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 
-test("mobile resumes a loaded agent without transferring archived bodies @cross", async ({ page }) => {
+test("mobile resumes a loaded agent without transferring archived bodies @cross", async ({
+  page,
+}) => {
   await createSession(page, { branch: "lazy-history", provider: "fake-acp" });
   const slot = await activeSessionSlot(page);
   const surface = page.locator('[data-surface="structured-agent"]');

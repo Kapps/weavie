@@ -39,7 +39,7 @@ export function AgentTranscript(props: {
           {(key) => {
             const virtualRow = () =>
               props.virtualizer.getVirtualItems().find((row) => row.key === key)!;
-            const entry = (): AgentTranscriptEntry => props.entries[virtualRow().index]!;
+            const entry = props.entries[virtualRow().index]!;
             const previous = (): AgentTranscriptEntry | undefined =>
               props.entries[virtualRow().index - 1];
             onCleanup(() => props.virtualizer.measureElement(null));
@@ -48,18 +48,16 @@ export function AgentTranscript(props: {
                 class="agent-virtual-row"
                 classList={{
                   "agent-virtual-row-assistant-pair":
-                    entry().kind === "message" &&
-                    entry().tone === "assistant" &&
+                    entry.kind === "message" &&
+                    entry.tone === "assistant" &&
                     previous()?.kind === "message" &&
                     previous()?.tone === "assistant",
                   "agent-virtual-row-first": virtualRow().index === 0,
-                  "agent-virtual-row-user": entry().kind === "message" && entry().tone === "user",
+                  "agent-virtual-row-user": entry.kind === "message" && entry.tone === "user",
                 }}
                 data-index={virtualRow().index}
-                data-agent-turn-output-start={
-                  entry().id === props.agentTurnStartId ? "" : undefined
-                }
-                data-transcript-entry={entry().id}
+                data-agent-turn-output-start={entry.id === props.agentTurnStartId ? "" : undefined}
+                data-transcript-entry={entry.id}
                 ref={(element) =>
                   queueMicrotask(() => {
                     if (element.isConnected) {
@@ -70,12 +68,12 @@ export function AgentTranscript(props: {
                 style={`transform:translateY(${virtualRow().start}px)`}
               >
                 <TranscriptEntry
-                  detailsExpanded={props.expandedDetails.has(entry().id)}
-                  entry={entry()}
+                  detailsExpanded={props.expandedDetails.has(entry.id)}
+                  entry={entry}
                   keyboardApprovalId={props.keyboardApprovalId}
                   keyboardInputId={props.keyboardInputId}
-                  onDetailsToggle={(open) => props.onDetailsToggle(entry().id, open)}
-                  sectionLabel={props.sectionLabels.get(entry().id) ?? null}
+                  onDetailsToggle={(open) => props.onDetailsToggle(entry.id, open)}
+                  sectionLabel={props.sectionLabels.get(entry.id) ?? null}
                   session={props.session}
                 />
               </div>

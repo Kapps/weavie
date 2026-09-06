@@ -16,6 +16,7 @@ function railSession(over: Partial<RailSession>): RailSession {
     status: "idle",
     hue: 120,
     monogram: "FX",
+    workspaceCheckout: false,
     backendId: "local",
     locationName: "default",
     isLocal: true,
@@ -43,6 +44,14 @@ describe("sessionMenuEntries", () => {
       label: "Delete…",
       danger: true,
     });
+  });
+
+  it("offers no Delete for the session on the workspace's own checkout", () => {
+    const entries = sessionMenuEntries(railSession({ workspaceCheckout: true }), false);
+    expect(
+      entries.some((e) => "commandId" in e && e.commandId === CommandIds.deleteSessionPrompt),
+    ).toBe(false);
+    expect(entries[0]).toMatchObject({ commandId: CommandIds.unloadSession });
   });
 
   it("does not offer Remove from rail for a local session", () => {

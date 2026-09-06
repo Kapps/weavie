@@ -1,242 +1,177 @@
+using Weavie.Core.FileSystem;
+
 namespace Weavie.Core.Changes;
 
-/// <summary>
-/// The undo/redo history for review actions (keep/revert at hunk/file/all). Each keep or revert pushes a
-/// memento of the affected paths' full review state — plus on-disk content for reverts, which mutate the file —
-/// so the action can be reversed (undo) or re-applied (redo). Keep-all (<see cref="AcceptTurn"/>) is the commit
-/// point: it clears the history. Lives in the same <c>_gate</c> as the rest of the tracker. See
-/// <c>docs/specs/turn-review.md</c>.
-/// </summary>
 public sealed partial class SessionChangeTracker {
-	// Applied actions (oldest→newest) and the undone ones available to redo. A new keep/revert clears _redo.
+	private IReadOnlyList<RejectedChange> RejectedFor(string path) => _undoStack
+		.Where(action => action.Kind == ReviewActionKind.Revert)
+		.SelectMany(action => action.Patches.Where(patch => patch.Part == ReviewPart.Current && PathIdentity.Equals(patch.Path, path))
+			.Select(patch => new RejectedChange(string.Join(patch.BeforeEol, patch.Before), action.Patches.Any(candidate => candidate.Stale))))
+		.ToArray();
 	private readonly List<ReviewAction> _undoStack = [];
 	private readonly List<ReviewAction> _redoStack = [];
+	private readonly Dictionary<string, PathState> _historyHeads = new(PathIdentity.Comparer);
+	private long _nextActionId;
 
-	/// <summary>Whether there's a keep action to undo (drives Ctrl+Shift+Enter and the toolbar's Undo).</summary>
-	public bool CanUndoKeep {
-		get { lock (_gate) { return _undoStack.Exists(a => a.Kind == ReviewActionKind.Keep); } }
-	}
-
-	/// <summary>Whether there's a revert action to undo (drives Ctrl+Shift+Backspace and the toolbar's Undo).</summary>
-	public bool CanUndoRevert {
-		get { lock (_gate) { return _undoStack.Exists(a => a.Kind == ReviewActionKind.Revert); } }
-	}
-
-	/// <summary>Whether there's any action to undo (drives the toolbar's generic Undo button).</summary>
-	public bool CanUndo {
-		get { lock (_gate) { return _undoStack.Count > 0; } }
-	}
-
-	/// <summary>Whether there's an undone action to redo (drives the toolbar/palette Redo).</summary>
-	public bool CanRedo {
-		get { lock (_gate) { return _redoStack.Count > 0; } }
-	}
-
-	/// <summary>Undoes the most recent still-reversible action of any kind (the toolbar's Undo button).</summary>
+	/// <summary>Whether a kept decision is available to undo.</summary>
+	public bool CanUndoKeep { get { lock (_gate) return _undoStack.Exists(a => a.Kind == ReviewActionKind.Keep); } }
+	/// <summary>Whether a rejected decision is available to undo.</summary>
+	public bool CanUndoRevert { get { lock (_gate) return _undoStack.Exists(a => a.Kind == ReviewActionKind.Revert); } }
+	/// <summary>Whether the review has applied decisions.</summary>
+	public bool CanUndo { get { lock (_gate) return _undoStack.Count > 0; } }
+	/// <summary>Whether the review has undone decisions.</summary>
+	public bool CanRedo { get { lock (_gate) return _redoStack.Count > 0; } }
+	/// <summary>Undoes the newest applicable review decision.</summary>
 	public ReviewHistoryResult UndoLast() => Reverse(null);
-
-	/// <summary>Undoes the most recent still-reversible keep — re-pending its hunk(s). See <see cref="Reverse"/>.</summary>
+	/// <summary>Undoes the newest applicable keep.</summary>
 	public ReviewHistoryResult UndoLastKeep() => Reverse(ReviewActionKind.Keep);
-
-	/// <summary>Undoes the most recent still-reversible revert — restoring its change on disk. See <see cref="Reverse"/>.</summary>
+	/// <summary>Restores the newest applicable rejection without overwriting later edits.</summary>
 	public ReviewHistoryResult UndoLastRevert() => Reverse(ReviewActionKind.Revert);
-
-	/// <summary>
-	/// Re-applies the most recently undone action whose pre-action state still holds (a newer edit to the same
-	/// path blocks it). Moves it back onto the undo stack.
-	/// </summary>
-	public ReviewHistoryResult Redo() {
-		lock (_gate) {
-			for (int i = _redoStack.Count - 1; i >= 0; i--) {
-				var action = _redoStack[i];
-				if (!StateHolds(action.Before, action.TouchesDisk)) {
-					continue;
-				}
-
-				foreach (var state in action.After) {
-					RestoreState(state, action.TouchesDisk);
-				}
-
-				_redoStack.RemoveAt(i);
-				_undoStack.Add(action);
-				return ReviewHistoryResult.Done(action.TouchesDisk, Paths(action.After), action.Line);
-			}
-
-			return ReviewHistoryResult.Blocked(_redoStack.Count > 0);
-		}
-	}
-
-	/// <summary>
-	/// Undoes the newest action of <paramref name="kind"/> (any kind when null) whose post-action state still
-	/// holds (a newer edit to the same path blocks it, so an out-of-order undo can never clobber later work).
-	/// Restores its pre-action state — for a revert that means rewriting the file — and moves it onto the redo stack.
-	/// </summary>
+	/// <summary>Reapplies the newest applicable undone decision.</summary>
+	public ReviewHistoryResult Redo() { lock (_gate) return ApplyHistory(_redoStack, _undoStack, null, undo: false); }
 	private ReviewHistoryResult Reverse(ReviewActionKind? kind) {
-		lock (_gate) {
-			bool sawKind = false;
-			for (int i = _undoStack.Count - 1; i >= 0; i--) {
-				var action = _undoStack[i];
-				if (kind is { } want && action.Kind != want) {
-					continue;
-				}
-
-				sawKind = true;
-				if (!StateHolds(action.After, action.TouchesDisk)) {
-					continue; // a later action moved one of these paths; undoing this one out of order is unsafe
-				}
-
-				foreach (var state in action.Before) {
-					RestoreState(state, action.TouchesDisk);
-				}
-
-				_undoStack.RemoveAt(i);
-				_redoStack.Add(action);
-				return ReviewHistoryResult.Done(action.TouchesDisk, Paths(action.Before), action.Line);
-			}
-
-			return ReviewHistoryResult.Blocked(sawKind);
-		}
+		lock (_gate) return ApplyHistory(_undoStack, _redoStack, kind, undo: true);
 	}
 
-	// Records an undoable action; the caller (a mutator) supplies the pre-mutation snapshot, the current-side
-	// line it acted on (null for file/set scopes), and the paths it touched; this re-snapshots them
-	// post-mutation. Pushing a new action invalidates the redo stack. Holds _gate.
-	private void Record(ReviewActionKind kind, bool touchesDisk, int? line, IReadOnlyList<PathState> before, IReadOnlyList<string> paths) {
-		var after = new List<PathState>(paths.Count);
-		foreach (string path in paths) {
-			after.Add(Capture(path, touchesDisk));
+	private ReviewHistoryResult ApplyHistory(List<ReviewAction> source, List<ReviewAction> destination, ReviewActionKind? kind, bool undo) {
+		ReconcileReviewDisk();
+		bool found = false;
+		foreach (var action in source.AsEnumerable().Reverse().ToArray()) {
+			if (kind is { } wanted && action.Kind != wanted) continue;
+			found = true;
+			if (action.Patches.Any(patch => patch.Stale || !PatchHolds(patch, undo)
+				|| _undoStack.Where(other => !ReferenceEquals(other, action)).SelectMany(other => other.Patches)
+					.Any(cover => cover.Boundaries.Any(boundary => boundary.PatchId == patch.Id && boundary.Covered)))) continue;
+			string[] paths = [.. action.Patches.Select(patch => patch.Path).Distinct(PathIdentity.Comparer)];
+			var reversed = action with { Patches = [] };
+			try {
+				foreach (string path in paths) {
+					var patches = action.Patches.Where(patch => PathIdentity.Equals(patch.Path, path)).ToList();
+					var state = Capture(path, withDisk: true);
+					var values = patches.GroupBy(patch => patch.Part).ToDictionary(group => group.Key,
+						group => ApplyPatches(Value(state, group.Key), [.. group], undo));
+					if (action.TouchesDisk && values.TryGetValue(ReviewPart.Disk, out var disk)) {
+						if (disk.Exists) _fileSystem.WriteAllText(path, disk.Text);
+						else if (_fileSystem.FileExists(path)) _fileSystem.DeleteFile(path);
+					}
+					if (values.TryGetValue(ReviewPart.Current, out var current)) {
+						_current[path] = current.Text;
+						SetMissing(_missingCurrent, path, !current.Exists);
+					}
+					if (values.TryGetValue(ReviewPart.Review, out var review)) {
+						_reviewBaseline[path] = review.Text;
+						SetMissing(_missingReviewBaseline, path, !review.Exists);
+					}
+					RestorePatchOrigins(path, patches, undo);
+					foreach (var group in patches.GroupBy(patch => patch.Part)) {
+						int shift = 0;
+						foreach (var patch in group.OrderBy(patch => patch.Range.Start)) {
+							int length = (undo ? patch.Before : patch.After).Length;
+							int oldLength = Length(patch.Range);
+							patch.Range = new(patch.Range.Start + shift, patch.Range.Start + shift + length);
+							shift += length - oldLength;
+						}
+					}
+					SynchronizeHistory(external: false, except: action);
+					if (undo) RestoreBoundaries(patches);
+					action.Patches.RemoveAll(patch => PathIdentity.Equals(patch.Path, path));
+					reversed.Patches.AddRange(patches);
+					if (!destination.Contains(reversed)) destination.Add(reversed);
+					if (action.Patches.Count == 0) source.Remove(action);
+					Checkpoint();
+					if (action.TouchesDisk) ReportCurrentState(path);
+				}
+			} catch {
+				// A multi-file action retains its successfully written prefix even when a later path fails.
+				if (action.Patches.Count > 0 && reversed.Patches.Count > 0) action.Id = ++_nextActionId;
+				Checkpoint();
+				throw;
+			}
+			int? line = action.Line is null ? null : reversed.Patches
+				.Where(patch => patch.Part == ReviewPart.Disk)
+				.Select(patch => (int?)patch.Range.Start).FirstOrDefault();
+			return ReviewHistoryResult.Done(action.TouchesDisk, paths, line);
 		}
+		Checkpoint();
+		return ReviewHistoryResult.Blocked(found);
+	}
 
-		_undoStack.Add(new ReviewAction(kind, touchesDisk, line, before, after));
+	private bool PatchHolds(ReviewPatch patch, bool undo) {
+		var live = Value(Capture(patch.Path, withDisk: true), patch.Part);
+		return live.Exists == (undo ? patch.AfterExists : patch.BeforeExists)
+			&& TryGetSlice(TextLines(live), patch.Range, out var slice)
+			&& slice.SequenceEqual(undo ? patch.After : patch.Before);
+	}
+
+	private static TextValue ApplyPatches(TextValue live, List<ReviewPatch> patches, bool undo) {
+		var lines = TextLines(live);
+		foreach (var patch in patches.OrderByDescending(patch => patch.Range.Start)) {
+			lines.RemoveRange(patch.Range.Start - 1, Length(patch.Range));
+			lines.InsertRange(patch.Range.Start - 1, undo ? patch.Before : patch.After);
+		}
+		string eol = live.Text.Length > 0 ? live.Text : undo ? patches[0].BeforeEol : patches[0].AfterEol;
+		return new(JoinLines(lines, eol), undo ? patches[0].BeforeExists : patches[0].AfterExists);
+	}
+
+	private void Record(ReviewActionKind kind, bool touchesDisk, int? line, IReadOnlyList<PathState> before) {
+		var patches = new List<ReviewPatch>();
+		foreach (var previous in before) {
+			var current = Capture(previous.Path, withDisk: true);
+			foreach (var part in new[] { ReviewPart.Review, ReviewPart.Current, ReviewPart.Disk }) {
+				if (part == ReviewPart.Disk && !touchesDisk) continue;
+				var from = Value(previous, part);
+				var to = Value(current, part);
+				var hunks = from.Exists == to.Exists ? LineHunker.Hunks(TextLines(from), TextLines(to))
+					: [new LineHunk(new(1, TextLines(from).Count + 1), new(1, TextLines(to).Count + 1))];
+				foreach (var hunk in hunks) {
+					patches.Add(new(previous.Path, part, hunk.AfterRange,
+						[.. Lines(TextLines(from), hunk.BeforeRange)], [.. Lines(TextLines(to), hunk.AfterRange)],
+						from.Exists, to.Exists,
+						part == ReviewPart.Disk ? CaptureOrigins(previous.Provenance, hunk.BeforeRange) : null,
+						part == ReviewPart.Disk ? CaptureOrigins(current.Provenance, hunk.AfterRange) : null) {
+						Id = ++_nextActionId,
+						Boundaries = CaptureBoundaries(previous.Path, part, hunk.BeforeRange),
+						BeforeEol = from.Text.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : "\n",
+						AfterEol = to.Text.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : "\n",
+					});
+				}
+			}
+			// Keeping touches no disk, but its decision still belongs to the exact proposed region.
+			if (!touchesDisk) {
+				foreach (var patch in patches.Where(patch => patch.Path == previous.Path && patch.Part == ReviewPart.Review).ToArray()) {
+					var range = MapRange(patch.Range, LineHunker.Hunks(SplitLines(current.ReviewBaseline), SplitLines(current.Disk)));
+					string[] text = [.. Lines(SplitLines(current.Disk), range)];
+					patches.Add(new(previous.Path, ReviewPart.Disk, range, text, text, current.OnDisk, current.OnDisk, null, null) { Id = ++_nextActionId });
+				}
+			}
+		}
+		SynchronizeHistory(external: false, except: null);
+		if (patches.Count > 0) _undoStack.Add(new(++_nextActionId, kind, touchesDisk, line, patches));
 		_redoStack.Clear();
+		Checkpoint();
 	}
 
-	// Snapshots one path's full review-relevant state (and, for a disk-mutating action, the file's content +
-	// existence) so it can be restored verbatim. Holds _gate.
-	private PathState Capture(string path, bool withDisk) {
-		bool tracked = _current.ContainsKey(path) || _reviewBaseline.ContainsKey(path) || _baseline.ContainsKey(path);
-		bool onDisk = withDisk && _fileSystem.FileExists(path);
-		return new PathState(
-			path,
-			tracked,
-			_baseline.GetValueOrDefault(path, string.Empty),
-			!_missingBaseline.Contains(path),
-			_current.GetValueOrDefault(path, string.Empty),
-			!_missingCurrent.Contains(path),
-			_reviewBaseline.GetValueOrDefault(path, string.Empty),
-			!_missingReviewBaseline.Contains(path),
-			_acceptedAnchor.GetValueOrDefault(path, string.Empty),
-			!_missingAcceptedAnchor.Contains(path),
-			_preEdit.GetValueOrDefault(path, string.Empty),
-			CloneProvenance(path),
-			onDisk,
-			onDisk ? _fileSystem.ReadAllText(path) : string.Empty);
+	private static TextValue Value(PathState state, ReviewPart part) => part switch {
+		ReviewPart.Review => new(state.ReviewBaseline, state.ReviewBaselineExists),
+		ReviewPart.Current => new(state.Current, state.CurrentExists),
+		_ => new(state.Disk, state.OnDisk),
+	};
+	private static List<string> TextLines(TextValue value) => value.Exists ? SplitLines(value.Text) : [];
+	private readonly record struct TextValue(string Text, bool Exists);
+	private enum ReviewPart { Review, Current, Disk }
+	private enum ReviewActionKind { Keep, Revert, Revise }
+	private sealed record ReviewAction(long ActionId, ReviewActionKind Kind, bool TouchesDisk, int? Line, List<ReviewPatch> Patches) {
+		public long Id { get; set; } = ActionId;
 	}
-
-	// Restores a captured snapshot: the tracker dictionaries, and — for a disk-mutating action — the file's
-	// content (or its absence). An untracked snapshot forgets the path entirely. Holds _gate.
-	private void RestoreState(PathState state, bool withDisk) {
-		if (state.Tracked) {
-			_baseline[state.Path] = state.Baseline;
-			SetMissing(_missingBaseline, state.Path, !state.BaselineExists);
-			_current[state.Path] = state.Current;
-			SetMissing(_missingCurrent, state.Path, !state.CurrentExists);
-			_reviewBaseline[state.Path] = state.ReviewBaseline;
-			SetMissing(_missingReviewBaseline, state.Path, !state.ReviewBaselineExists);
-			_acceptedAnchor[state.Path] = state.AcceptedAnchor;
-			SetMissing(_missingAcceptedAnchor, state.Path, !state.AcceptedAnchorExists);
-			_preEdit[state.Path] = state.PreEdit;
-			RestoreProvenance(state.Path, state.Provenance);
-		} else {
-			Forget(state.Path);
-		}
-
-		if (!withDisk) {
-			return;
-		}
-
-		if (state.OnDisk) {
-			_fileSystem.WriteAllText(state.Path, state.Disk);
-			ReportCurrentState(state.Path);
-		} else if (_fileSystem.FileExists(state.Path)) {
-			_fileSystem.DeleteFile(state.Path);
-			_fileActivity.ReportDeleted(state.Path);
-		}
+	private sealed record ReviewPatch(string Path, ReviewPart Part, LineRange InitialRange, string[] Before, string[] After,
+		bool BeforeExists, bool AfterExists, OriginSlice? BeforeOrigins, OriginSlice? AfterOrigins) {
+		public LineRange Range { get; set; } = InitialRange;
+		public long Id { get; init; }
+		public List<BoundaryRestore> Boundaries { get; init; } = [];
+		public bool Stale { get; set; }
+		public string BeforeEol { get; init; } = "\n";
+		public string AfterEol { get; init; } = "\n";
 	}
-
-	// Whether every snapshot still matches the live state on the fields an action mutates (current content, the
-	// review baseline, and — for a disk action — the file on disk), so reversing it can't silently clobber a
-	// newer edit. Holds _gate.
-	private bool StateHolds(IReadOnlyList<PathState> states, bool withDisk) {
-		foreach (var state in states) {
-			if (state.Tracked) {
-				if (!string.Equals(_current.GetValueOrDefault(state.Path, string.Empty), state.Current, StringComparison.Ordinal)
-					|| !string.Equals(_reviewBaseline.GetValueOrDefault(state.Path, string.Empty), state.ReviewBaseline, StringComparison.Ordinal)
-					|| _missingCurrent.Contains(state.Path) == state.CurrentExists
-					|| _missingReviewBaseline.Contains(state.Path) == state.ReviewBaselineExists
-					|| !ProvenanceEquals(CloneProvenance(state.Path), state.Provenance)) {
-					return false;
-				}
-			} else if (_current.ContainsKey(state.Path)) {
-				return false;
-			}
-
-			if (withDisk) {
-				bool onDisk = _fileSystem.FileExists(state.Path);
-				if (onDisk != state.OnDisk
-					|| (onDisk && !string.Equals(_fileSystem.ReadAllText(state.Path), state.Disk, StringComparison.Ordinal))) {
-					return false;
-				}
-			}
-		}
-
-		return true;
-	}
-
-	private static IReadOnlyList<string> Paths(IReadOnlyList<PathState> states) {
-		var paths = new List<string>(states.Count);
-		foreach (var state in states) {
-			paths.Add(state.Path);
-		}
-
-		return paths;
-	}
-
-	// Keeps only advance the review baseline; reverts and revisions rewrite the file.
-	private enum ReviewActionKind {
-		Keep,
-		Revert,
-		Revise,
-	}
-
-	// One file's full review state at a point in time. Disk fields are populated only for disk-mutating (revert)
-	// actions; Tracked is false for a path absent from the tracker (a created file a revert deleted).
-	private sealed record PathState(
-		string Path,
-		bool Tracked,
-		string Baseline,
-		bool BaselineExists,
-		string Current,
-		bool CurrentExists,
-		string ReviewBaseline,
-		bool ReviewBaselineExists,
-		string AcceptedAnchor,
-		bool AcceptedAnchorExists,
-		string PreEdit,
-		ProvenanceFile? Provenance,
-		bool OnDisk,
-		string Disk);
-
-	// One undoable review action: the snapshot of every affected path before and after, so it can be reversed or
-	// re-applied uniformly. TouchesDisk decides whether restoring also rewrites the file. Line is the
-	// current-side line of the acted hunk (per-hunk actions only) — valid whenever the action is reversible,
-	// since StateHolds requires the current content unchanged.
-	private sealed record ReviewAction(
-		ReviewActionKind Kind,
-		bool TouchesDisk,
-		int? Line,
-		IReadOnlyList<PathState> Before,
-		IReadOnlyList<PathState> After);
 }
 
 /// <summary>

@@ -18,8 +18,7 @@ export default defineConfig({
   // full-stack timing assertions the runner instead of letting another browser deschedule them mid-sample.
   workers: 1,
   forbidOnly: Boolean(process.env.CI),
-  // No retries: the flakiness was runner-resource contention (fixed by right-sizing `workers` above), not a
-  // real defect, so a green run must stand on its own rather than being rescued by a re-run.
+  // A failed action must remain a failure; see docs/specs/e2e-flake-policy.md.
   retries: 0,
   // The `weavie` auto fixture (harness/fixtures.ts) budgets up to 40s for the host to boot and the splash
   // to clear — genuine dotnet-host + browser spawn latency, worse on the slower hosted Windows/macOS

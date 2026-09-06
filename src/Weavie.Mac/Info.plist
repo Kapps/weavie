@@ -6,10 +6,6 @@
 	<string>Weavie</string>
 	<key>CFBundleIdentifier</key>
 	<string>io.github.kapps.weavie</string>
-	<key>CFBundleShortVersionString</key>
-	<string>1.0</string>
-	<key>CFBundleVersion</key>
-	<string>1</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleInfoDictionaryVersion</key>

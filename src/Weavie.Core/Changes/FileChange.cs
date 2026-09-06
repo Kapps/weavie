@@ -2,6 +2,8 @@ namespace Weavie.Core.Changes;
 
 /// <summary>One file changed during the session: its content at first touch this session vs. now.</summary>
 public sealed record FileChange {
+	/// <summary>Rejected proposal text retained for this review.</summary>
+	public IReadOnlyList<RejectedChange> Rejected { get; init; } = [];
 	/// <summary>Absolute path of the changed file.</summary>
 	public required string Path { get; init; }
 
@@ -18,7 +20,7 @@ public sealed record FileChange {
 	public required bool CurrentExists { get; init; }
 
 	/// <summary>
-	/// The file's content at the last keep-all (the review's "accepted anchor"), for the inline turn-review's
+	/// The file's original review content (the "accepted anchor"), for the inline turn-review's
 	/// faded band (accepted anchor → review baseline). Only meaningful on the <see cref="SessionChangeTracker.GetTurn"/>
 	/// / <see cref="SessionChangeTracker.TurnChanges"/> triple; defaults to empty for the session-diff views.
 	/// </summary>
@@ -27,6 +29,9 @@ public sealed record FileChange {
 	/// <summary>Whether the accepted-anchor file exists.</summary>
 	public bool AcceptedBaselineExists { get; init; } = true;
 }
+
+/// <summary>A rejected region and whether subsequent edits prevent restoring it.</summary>
+public sealed record RejectedChange(string Text, bool Stale);
 
 /// <summary>
 /// A turn change plus the counts the review navigator renders, diffed once from the texts in

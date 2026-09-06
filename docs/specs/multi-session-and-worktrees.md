@@ -29,13 +29,14 @@ The catalog describes both loaded and dormant slots. Only loaded entries carry a
 
 ## Workspace and managed sessions
 
-On a workspace's first open, the host creates one ordinary loaded session for its user-owned checkout. Its
-label is usually the current branch (`main` in a typical new repository). If deleting a session leaves the
-catalog empty, the host creates a fresh workspace-checkout session for the same convenience. Deleting that slot
-while other slots remain is preserved across later opens.
+Every open ensures one ordinary session on the workspace's user-owned checkout. Its label is usually the
+current branch (`main` in a typical new repository). The slot is a catalog invariant: it is re-created whenever
+nothing covers that path, so the rail is never empty and the checkout the user opened is always reachable.
 
-This session has no routing or lifecycle privilege. It can be unloaded and deleted like any other session.
-Deleting it removes only the slot and runtime because Weavie does not own the checkout the user opened.
+This session has no routing privilege. It can be unloaded like any other session, and unload is its whole
+lifecycle: delete refuses it, with or without force. Weavie does not own that directory, so a delete would
+remove nothing on disk while stranding the one checkout it can never re-attach — git refuses a second worktree
+on a branch already checked out there.
 
 Managed sessions are backed by git worktrees:
 
@@ -95,13 +96,14 @@ Unloading:
 4. stops and reaps agent, terminal, LSP, watcher, MCP, and media resources;
 5. keeps the worktree and branch.
 
-Deleting first classifies tracked and untracked changes. A non-forced dirty delete fails before teardown.
-After confirmation it unloads the backend, removes the worktree the session sits on while keeping its branch —
-whoever created that worktree — removes the slot, and publishes the catalog. The workspace's own checkout is
-the one a delete keeps, since it is re-created rather than rediscovered. Git's own refusals are refusals here:
-the repository's main working tree and a locked worktree can't be removed, and a non-forced delete of a
-branchless checkout fails rather than orphaning its commits. An empty catalog is immediately seeded with a
-fresh session on the workspace checkout.
+Deleting first resolves the target, refusing an unknown id and the workspace's own checkout. It then classifies
+tracked and untracked changes; a non-forced dirty delete fails before teardown. After confirmation it unloads
+the backend, removes the worktree the session sits on while keeping its branch — whoever created that worktree
+— removes the slot, and publishes the catalog. Git's own refusals are refusals here: a locked worktree can't be
+removed, and a non-forced delete of a branchless checkout fails rather than orphaning its commits.
+
+The catalog publishes which entry is the workspace checkout, so the rail and the compact session list offer it
+no delete rather than advertising a click the host would refuse.
 
 ## Client model
 
@@ -169,8 +171,9 @@ Sharing a widget must not imply shared domain state.
 
 ## Required coverage
 
-- a workspace-checkout session is created when absent and has no lifecycle privilege;
-- deleting the final slot creates a fresh workspace-checkout session;
+- a workspace-checkout session is created whenever absent, including from state persisted without one;
+- deleting the workspace-checkout session is refused, with or without force, and it offers no delete in the UI;
+- deleting every other session leaves the workspace-checkout session standing;
 - host-scoped lifecycle commands work with no loaded session runtime;
 - loading reuses a slot but creates a new incarnation;
 - old-incarnation traffic is rejected;

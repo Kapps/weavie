@@ -9,7 +9,9 @@ import {
   Show,
   Switch,
 } from "solid-js";
+import type { ClientSession } from "../bridge";
 import { normalizePath, samePath } from "../editor/fs-path";
+import { BrowserFilter } from "./BrowserFilter";
 
 // One directory entry the host returned: leaf name, absolute path, and whether it's a folder.
 export interface DirEntry {
@@ -64,6 +66,8 @@ function Node(props: {
         type="button"
         classList={{
           "browser-row": true,
+          "file-tree-row": true,
+          dir: props.entry.isDir,
           active: props.currentFile !== null && samePath(props.currentFile, props.entry.path),
         }}
         title={props.entry.path}
@@ -76,14 +80,14 @@ function Node(props: {
             </Show>
           </Show>
         </span>
-        <span class="browser-icon">
+        <span class="browser-icon file-tree-icon">
           <Show when={props.entry.isDir} fallback={<File />}>
             <Show when={open()} fallback={<Folder />}>
               <FolderOpen />
             </Show>
           </Show>
         </span>
-        <span class="browser-name">{props.entry.name}</span>
+        <span class="browser-name file-tree-name">{props.entry.name}</span>
       </button>
       <Show when={props.entry.isDir && open()}>
         <div class="browser-children">
@@ -171,6 +175,11 @@ function Directory(props: {
 // directory, sitting above the editor and pane tree. Folders expand lazily; clicking a file opens it.
 export default function FileBrowser(props: {
   root: string;
+  session: ClientSession | null;
+  files: string[];
+  pending: boolean;
+  filterRequest: { session: ClientSession } | null;
+  onFilterRequestHandled: () => void;
   listings: DirListings;
   currentFile: string | null;
   onExpand: (path: string) => void;
@@ -179,7 +188,16 @@ export default function FileBrowser(props: {
 }): JSX.Element {
   return (
     <div class="browser-panel" role="group">
-      <div class="browser-body">
+      <BrowserFilter
+        root={props.root}
+        session={props.session}
+        files={props.files}
+        pending={props.pending}
+        request={props.filterRequest}
+        onRequestHandled={props.onFilterRequestHandled}
+        currentFile={props.currentFile}
+        onOpen={props.onOpen}
+      >
         <Directory
           path={props.root}
           emptyLabel="No files"
@@ -189,7 +207,7 @@ export default function FileBrowser(props: {
           onCollapse={props.onCollapse}
           onOpen={props.onOpen}
         />
-      </div>
+      </BrowserFilter>
     </div>
   );
 }

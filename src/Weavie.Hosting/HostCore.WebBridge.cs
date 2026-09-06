@@ -304,20 +304,17 @@ public sealed partial class HostCore {
 		}
 	}
 
-	/// <summary>
-	/// Keep-all: advances every tracked file's review baseline to current, clearing the page's inline markers and
-	/// pushing the now-empty review set so the ← / → file walk empties too (the debt-clearing action).
-	/// </summary>
+	private void RunReviewAction(HostSession session, Action action) {
+		try { action(); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+			Notify(session, "error", $"Couldn't save your review: {ex.Message}");
+		}
+	}
+
+	/// <summary>Keeps every pending change, retaining faded proof and undo history.</summary>
 	private void AcceptTurn(HostSession session) {
 		session.Changes.AcceptTurn();
-		// Keep-all commits the board: a local "diff against" review is done, so drop it — else its label would
-		// cling to the next plain turn. A PR review persists (its identity + comments outlive an equal tree).
-		if (ActiveReview(session) is { PrNumber: 0 }) {
-			_diffReviews.TryRemove(session.WorkspaceRoot, out _);
-		}
-
-		session.Bus.Feature("review").PublishJson("reset", ChangeMessages.TurnReset());
 		PushTurnChangesToWeb(session);
+		foreach (var file in session.Changes.TurnChangeSummaries()) PushTurnDiffToWeb(session, file.Change.Path);
 		PushReviewHistoryToWeb(session);
 	}
 

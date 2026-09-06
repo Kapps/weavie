@@ -94,7 +94,7 @@ public sealed partial class HostCore {
 			new NewSessionRequest {
 				Branch = headRef,
 				Existing = true,
-				Prompt = _settings.RequireBool(CoreSettings.PullRequestAutoReviewPrompt)
+				Prompt = _sessions?.Find(headRef) is null && _settings.RequireBool(CoreSettings.PullRequestAutoReviewPrompt)
 					? SeedPrompt(request.Number, pullRequest.Title, pullRequest.Url)
 					: null,
 			},
@@ -152,7 +152,9 @@ public sealed partial class HostCore {
 		}
 
 		var repo = await ResolveOriginRepoAsync(ct).ConfigureAwait(false);
-		var review = new DiffReview(number, $"PR #{number}", headRef, mergeBase, headSha, repo, worktree);
+		var review = new ReviewContext(number, $"PR #{number}", headRef, mergeBase, headSha, repo, worktree);
+		if (session.Changes.Review is { } existing && existing.SameSource(review))
+			review = review with { MergeBase = existing.MergeBase };
 		await RefreshCommentsAsync(review, ct).ConfigureAwait(false);
 		try {
 			await SeedAndArmReviewAsync(
@@ -162,7 +164,7 @@ public sealed partial class HostCore {
 				ct)
 				.ConfigureAwait(false);
 			return null;
-		} catch (GitException ex) {
+		} catch (Exception ex) when (ex is GitException or IOException or UnauthorizedAccessException or InvalidOperationException) {
 			return $"Opened PR #{number}, but couldn't compute its diff: {ex.Message}";
 		}
 	}
@@ -215,7 +217,7 @@ public sealed partial class HostCore {
 		return CommandResult.Success();
 	}
 
-	private async Task RefreshCommentsAsync(DiffReview review, CancellationToken ct) {
+	private async Task RefreshCommentsAsync(ReviewContext review, CancellationToken ct) {
 		if (review.Repo is not { } repo) {
 			return;
 		}
@@ -224,8 +226,7 @@ public sealed partial class HostCore {
 			var comments = await _reviewComments
 				.ListAsync(repo, review.PrNumber, ct)
 				.ConfigureAwait(false);
-			review.Comments.Clear();
-			review.Comments.AddRange(comments);
+			review.Comments = comments.ToArray();
 		} catch (Exception ex) when (ex is InvalidOperationException or HttpRequestException) {
 			Log($"[weavie] pr #{review.PrNumber}: couldn't load comments: {ex.Message}");
 		}

@@ -31,6 +31,11 @@ export interface WeavieHost {
   stop(): Promise<void>;
 }
 
+export interface HeadlessHost extends WeavieHost {
+  /** Restart the actual host process while retaining its isolated HOME and workspace. */
+  restart(): Promise<void>;
+}
+
 export interface LaunchOptions {
   fakeScript: FakeStep[] | null;
   inference: FakeInference;
@@ -293,7 +298,7 @@ export async function prepareFake(options: LaunchOptions): Promise<FakeScaffold>
 
 // Boots a real Weavie.Headless over the scaffold (browser → WSS → Weavie.Headless). Returns once the host
 // reports — and actually accepts on — the port it bound.
-export async function launchHeadless(options: LaunchOptions): Promise<WeavieHost> {
+export async function launchHeadless(options: LaunchOptions): Promise<HeadlessHost> {
   const fake = await prepareFake(options);
   const env: NodeJS.ProcessEnv = {
     ...process.env,
@@ -304,35 +309,55 @@ export async function launchHeadless(options: LaunchOptions): Promise<WeavieHost
   };
 
   let log = "";
-  const proc = spawn(headlessProgram.command, headlessProgram.args, {
-    env,
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  proc.stdout?.on("data", (chunk: Buffer) => {
-    log += chunk.toString("utf8");
-  });
-  proc.stderr?.on("data", (chunk: Buffer) => {
-    log += chunk.toString("utf8");
-  });
-
-  // The host prints the ready line only after its listener is bound and accepting, so the parsed port is
-  // connectable the moment it appears.
-  const port = await waitForPortLine(proc, () => log, /open\s+http:\/\/127\.0\.0\.1:(\d+)/, 40_000);
-  const token = log.match(/\[weavie-headless\] token ([^\s]+)/)?.[1];
-  if (token === undefined) {
-    throw new Error(`headless host did not advertise its workspace token:\n${log}`);
-  }
-  const url = `http://127.0.0.1:${port}/index.html`;
+  const start = async () => {
+    const offset = log.length;
+    const proc = spawn(headlessProgram.command, headlessProgram.args, {
+      env,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    proc.stdout?.on("data", (chunk: Buffer) => {
+      log += chunk.toString("utf8");
+    });
+    proc.stderr?.on("data", (chunk: Buffer) => {
+      log += chunk.toString("utf8");
+    });
+    const launchLog = () => log.slice(offset);
+    try {
+      const port = await waitForPortLine(
+        proc,
+        launchLog,
+        /open\s+http:\/\/127\.0\.0\.1:(\d+)/,
+        40_000,
+      );
+      const token = launchLog().match(/\[weavie-headless\] token ([^\s]+)/)?.[1];
+      if (token === undefined) {
+        throw new Error(`headless host did not advertise its workspace token:\n${launchLog()}`);
+      }
+      return { proc, token, url: `http://127.0.0.1:${port}/index.html` };
+    } catch (error) {
+      await killProcessTree(proc);
+      throw error;
+    }
+  };
+  let running = await start();
 
   return {
-    url,
-    token,
+    get url() {
+      return running.url;
+    },
+    get token() {
+      return running.token;
+    },
     workspace: fake.workspace,
     home: fake.home,
     log: () => log,
     fakeLog: fake.fakeLog,
+    async restart() {
+      await killProcessTree(running.proc);
+      running = await start();
+    },
     async stop() {
-      await killProcessTree(proc);
+      await killProcessTree(running.proc);
       await fake.cleanup();
     },
   };

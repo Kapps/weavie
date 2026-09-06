@@ -17,6 +17,15 @@ export function UnifiedReviewHeader(props: { overview: () => ReviewOverview }): 
         <button
           type="button"
           class="unified-review-action"
+          disabled={!props.overview().files.some((file) => (file.diff()?.rejected.length ?? 0) > 0)}
+          title={`Undo rejection${keyHint(CommandIds.undoRevert)}`}
+          onClick={() => void runCommandWithFeedback(CommandIds.undoRevert)}
+        >
+          <RotateCcw size="1em" /> Undo rejection
+        </button>
+        <button
+          type="button"
+          class="unified-review-action"
           title={`Previous change${keyHint(CommandIds.prevChange)}`}
           onClick={() => void runCommandWithFeedback(CommandIds.prevChange)}
         >

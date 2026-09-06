@@ -1,0 +1,32 @@
+[
+  {
+    "name": "linux",
+    "os": "ubuntu-latest",
+    "project": "src/Weavie.Linux/Weavie.Linux.csproj",
+    "restore": "src/Weavie.Linux/Weavie.Linux.csproj",
+    "rid": "linux-x64",
+    "suffix": "",
+    "extra": "--self-contained -p:PublishReadyToRun=true",
+    "asset": "weavie-linux-x64.tar.gz"
+  },
+  {
+    "name": "macos",
+    "os": "macos-26",
+    "project": "src/Weavie.Mac/Weavie.Mac.csproj",
+    "restore": "weavie.slnx",
+    "rid": "osx-arm64",
+    "suffix": "",
+    "extra": "",
+    "asset": "weavie-osx-arm64.zip"
+  },
+  {
+    "name": "windows",
+    "os": "windows-latest",
+    "project": "src/Weavie.Win/Weavie.Win.csproj",
+    "restore": "src/Weavie.Win/Weavie.Win.csproj",
+    "rid": "win-x64",
+    "suffix": ".exe",
+    "extra": "--self-contained -p:PublishReadyToRun=true",
+    "asset": "weavie-win-x64.zip"
+  }
+]

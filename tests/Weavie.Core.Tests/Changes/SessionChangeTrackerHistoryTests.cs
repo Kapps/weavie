@@ -150,7 +150,7 @@ public sealed class SessionChangeTrackerHistoryTests {
 	}
 
 	[Fact]
-	public void Undo_BlockedByNewerEditToSamePath_DoesNotClobber() {
+	public void UndoKeep_PreservesNewerUnrelatedEditToSamePath() {
 		var fileSystem = new InMemoryFileSystem();
 		var tracker = Changed(fileSystem, "/w/a.txt", "a\nb\n", "a\nB\n");
 		tracker.KeepHunk("/w/a.txt", new LineRange(2, 3), new LineRange(2, 3), "B");
@@ -161,12 +161,14 @@ public sealed class SessionChangeTrackerHistoryTests {
 
 		var result = tracker.UndoLastKeep();
 
-		Assert.False(result.Acted);
-		Assert.True(result.WasBlocked); // a newer edit is in the way, not "nothing to undo"
+		Assert.True(result.Acted);
+		Assert.False(result.TouchedDisk);
+		Assert.Equal("a\nB\nc\n", fileSystem.ReadAllText("/w/a.txt"));
+		Assert.Equal("a\nb\n", tracker.GetTurn("/w/a.txt")!.BaselineText);
 	}
 
 	[Fact]
-	public void AcceptTurn_IsTheCommitPoint_ClearsHistory() {
+	public void AcceptTurn_PreservesAlreadyKeptDecisionsAndHistory() {
 		var fileSystem = new InMemoryFileSystem();
 		var tracker = Changed(fileSystem, "/w/a.txt", "a\n", "A\n");
 		tracker.KeepHunk("/w/a.txt", new LineRange(1, 2), new LineRange(1, 2), "A");
@@ -174,9 +176,24 @@ public sealed class SessionChangeTrackerHistoryTests {
 
 		tracker.AcceptTurn();
 
-		Assert.False(tracker.CanUndoKeep);
+		Assert.True(tracker.CanUndoKeep);
 		Assert.False(tracker.CanRedo);
-		Assert.False(tracker.UndoLastKeep().Acted); // nothing left to undo past the commit
+		Assert.True(tracker.UndoLastKeep().Acted);
+		Assert.Equal("a\n", tracker.GetTurn("/w/a.txt")!.BaselineText);
+	}
+
+	[Fact]
+	public void AcceptTurn_IsOneReversibleKeepOfPendingChanges() {
+		var fileSystem = new InMemoryFileSystem();
+		var tracker = Changed(fileSystem, "/w/a.txt", "a\nb\n", "A\nB\n");
+		tracker.AcceptTurn();
+
+		Assert.Equal("A\nB\n", tracker.GetTurn("/w/a.txt")!.BaselineText);
+		Assert.Equal("a\nb\n", tracker.GetTurn("/w/a.txt")!.AcceptedBaselineText);
+		Assert.True(tracker.UndoLastKeep().Acted);
+		Assert.Equal("a\nb\n", tracker.GetTurn("/w/a.txt")!.BaselineText);
+		Assert.False(tracker.CanUndoKeep);
+		Assert.Equal("A\nB\n", fileSystem.ReadAllText("/w/a.txt"));
 	}
 
 	[Fact]
@@ -197,7 +214,11 @@ public sealed class SessionChangeTrackerHistoryTests {
 		Assert.True(reverted.Acted);
 		Assert.Equal("a\n", fileSystem.ReadAllText("/w/a.txt"));
 		Assert.Equal("b\n", fileSystem.ReadAllText("/w/b.txt"));
-		Assert.Empty(tracker.TurnChanges());
+		Assert.Equal(2, tracker.TurnChanges().Count);
+		Assert.All(tracker.TurnChanges(), change => {
+			Assert.Equal(change.BaselineText, change.CurrentText);
+			Assert.Single(tracker.GetTurn(change.Path)!.Rejected);
+		});
 
 		// A single undo restores both files at once.
 		Assert.True(tracker.UndoLastRevert().Acted);

@@ -1,0 +1,18 @@
+.file-tree-row .file-tree-icon {
+  color: var(--dim);
+}
+
+.file-tree-row.dir .file-tree-icon {
+  color: var(--accent);
+}
+
+.file-tree-row.dir .file-tree-name {
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: var(--font-hint-size);
+  opacity: 0.9;
+}
+
+.file-tree-row:not(.dir) .file-tree-name {
+  letter-spacing: 0.02em;
+}

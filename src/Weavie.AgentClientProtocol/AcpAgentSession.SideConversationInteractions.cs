@@ -102,8 +102,10 @@ public sealed partial class AcpAgentSession {
 		_sideRuntimes.TryGetValue(runtime.Conversation.ConversationId, out var current)
 		&& ReferenceEquals(current, runtime);
 
-	private void DisposeSideRuntime(SideRuntime runtime) =>
+	private void DisposeSideRuntime(SideRuntime runtime) {
+		_context.Events.Observe(new AgentConversationRemoved(runtime.Conversation.ConversationId));
 		Run(async () => await runtime.Session.DisposeAsync().ConfigureAwait(false));
+	}
 
 	private void EmitSideFailure(
 		string conversationId,
@@ -124,7 +126,6 @@ public sealed partial class AcpAgentSession {
 	}
 
 	private void PublishSideTerminal(SideConversation conversation) {
-		Observe(new AgentTurnStopped(WillResume: false));
 		Emit(new AgentPaneMessage {
 			Type = "side-conversation-failed",
 			ProviderId = _definition.Id,
@@ -147,6 +148,17 @@ public sealed partial class AcpAgentSession {
 		}
 		owner = null!;
 		return false;
+	}
+
+	private sealed class SideEventSink(AcpAgentSession owner, string conversationId) : IAgentEventSink {
+		public AgentEventFeedback Observe(AgentEvent value) {
+			lock (owner._turnTransitionGate) {
+				lock (owner._gate) {
+					if (!owner._sideRuntimes.ContainsKey(conversationId)) return AgentEventFeedback.None;
+				}
+				return owner._context.Events.Observe(new AgentConversationEvent(conversationId, value));
+			}
+		}
 	}
 
 	private sealed record SideRequestOwner(AcpAgentSession Session, string RequestId);

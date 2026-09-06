@@ -5,6 +5,12 @@ namespace Weavie.Core.Agents;
 /// <summary>A provider-neutral fact observed from an agent session.</summary>
 public abstract record AgentEvent;
 
+/// <summary>An event owned by one side conversation within the agent session.</summary>
+public sealed record AgentConversationEvent(string ConversationId, AgentEvent Value) : AgentEvent;
+
+/// <summary>A side conversation no longer owns activity in the agent session.</summary>
+public sealed record AgentConversationRemoved(string ConversationId) : AgentEvent;
+
 /// <summary>The agent session started or restarted.</summary>
 public sealed record AgentSessionStarted(string? Source) : AgentEvent;
 

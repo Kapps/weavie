@@ -12,6 +12,8 @@ public sealed class SessionStatusMachine {
 	private readonly Lock _gate = new();
 	private readonly Lock _deliveryGate = new();
 	private SessionStatus _status = SessionStatus.Starting;
+	private SessionStatus _primaryStatus = SessionStatus.Starting;
+	private readonly Dictionary<string, SessionStatus> _conversationStatuses = new(StringComparer.Ordinal);
 	private long _version;
 	private long _deliveredVersion;
 
@@ -30,7 +32,18 @@ public sealed class SessionStatusMachine {
 	/// <summary>Feeds a normalized agent event into the machine.</summary>
 	public void Observe(AgentEvent value) {
 		ArgumentNullException.ThrowIfNull(value);
-		Apply(current => current == SessionStatus.Error
+		Apply(() => {
+			if (value is AgentConversationEvent conversation) {
+				var current = _conversationStatuses.GetValueOrDefault(conversation.ConversationId, SessionStatus.Idle);
+				_conversationStatuses[conversation.ConversationId] = NextStatus(current, conversation.Value) ?? current;
+			} else if (value is AgentConversationRemoved removed) {
+				_conversationStatuses.Remove(removed.ConversationId);
+			} else _primaryStatus = NextStatus(_primaryStatus, value) ?? _primaryStatus;
+		});
+	}
+
+	private static SessionStatus? NextStatus(SessionStatus current, AgentEvent value) =>
+		current == SessionStatus.Error
 			&& value is not AgentSessionStarted
 			&& value is not AgentProcessChanged { Change.State: SupervisorState.Running }
 			? null
@@ -57,8 +70,7 @@ public sealed class SessionStatusMachine {
 					when current == SessionStatus.Error => SessionStatus.Starting,
 				AgentProcessChanged process => StatusForSupervisor(process.Change),
 				_ => null,
-			});
-	}
+			};
 
 	/// <summary>
 	/// Feeds the user's keystrokes into the claude pane — wire to the claude terminal's input stream. No hook
@@ -74,7 +86,9 @@ public sealed class SessionStatusMachine {
 			return;
 		}
 
-		Apply(current => current == SessionStatus.NeedsInput ? SessionStatus.Working : null);
+		Apply(() => {
+			if (_primaryStatus == SessionStatus.NeedsInput) _primaryStatus = SessionStatus.Working;
+		});
 	}
 
 	/// <summary>
@@ -112,17 +126,27 @@ public sealed class SessionStatusMachine {
 			_ => null,
 		};
 
-	private void Set(SessionStatus next) => Apply(_ => next);
+	private void Set(SessionStatus next) => Apply(() => _primaryStatus = next);
+
+	private SessionStatus AggregateStatus() {
+		if (_primaryStatus == SessionStatus.Error) return SessionStatus.Error;
+		foreach (var candidate in new[] { SessionStatus.NeedsInput, SessionStatus.Working, SessionStatus.Waiting, SessionStatus.Starting }) {
+			if (_primaryStatus == candidate || _conversationStatuses.ContainsValue(candidate)) return candidate;
+		}
+		return _primaryStatus;
+	}
 
 	// Runs the transition and the state swap under one lock, so a state-dependent rule (the idle notice) can't
 	// race a concurrent event between reading the status and writing its result. Delivery is version-stamped:
 	// when two transitions race (hook vs. supervisor vs. input threads), a notification that lost the race is
 	// dropped instead of delivered after the newer one, so handlers never end on a stale status.
-	private void Apply(Func<SessionStatus, SessionStatus?> transition) {
+	private void Apply(Action transition) {
 		SessionStatus next;
 		long version;
 		lock (_gate) {
-			if (transition(_status) is not { } candidate || candidate == _status) {
+			transition();
+			var candidate = AggregateStatus();
+			if (candidate == _status) {
 				return;
 			}
 

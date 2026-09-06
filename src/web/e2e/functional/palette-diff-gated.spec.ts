@@ -1,4 +1,4 @@
-import { openFile } from "../harness/actions";
+import { openCommandPalette, openFile } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { appliedEdit } from "../harness/review";
 
@@ -30,13 +30,7 @@ const diffRow = (page: import("@playwright/test").Page, title: string) =>
     .filter({ has: page.locator(".tb-row-dir", { hasText: "Diff" }) });
 
 async function openPalette(page: import("@playwright/test").Page, query: string): Promise<void> {
-  const box = page.locator(".tb-omnibar-box");
-  await page.keyboard.press("Escape");
-  await expect(box).not.toHaveClass(/\bopen\b/);
-  await expect(async () => {
-    await page.keyboard.press("ControlOrMeta+Shift+p");
-    await expect(box).toHaveClass(/\bopen\b/, { timeout: 1000 });
-  }).toPass({ timeout: 10_000 });
+  await openCommandPalette(page);
   await page.locator(".tb-omnibar-input").fill(query);
 }
 
@@ -60,7 +54,7 @@ test.describe("diff palette gating — no diff active", () => {
 test.describe("diff palette gating — diff active", () => {
   test.use({ fakeScript: { steps: [...appliedEdit("hello.ts", TWO_HUNKS)] } });
 
-  test("Diff commands appear once a review is active, and vanish again when it's cleared", async ({
+  test("Diff commands appear for pending changes and kept decisions remain undoable", async ({
     page,
   }) => {
     // Open the changed file: the applied review renders an inline diff over it → `diffActive` true.
@@ -72,15 +66,20 @@ test.describe("diff palette gating — diff active", () => {
       await expect(diffRow(page, title)).toHaveCount(1);
     }
 
-    // Commit the whole set with Keep All (a non-gated command) — the review surface clears, `diffActive` goes
-    // false, and the Diff commands drop back out of the palette.
     await openPalette(page, ">Keep All Changes");
     await page.locator(".tb-omnibar-input").press("Enter");
-    await expect(page.locator(".weavie-inline-toolbar")).toHaveCount(0);
+    await expect(page.locator(".weavie-inline-accepted")).toHaveCount(2);
+    await expect(page.locator(".weavie-inline-pending-keep")).toHaveCount(0);
+    await expect(page.locator(".weavie-inline-toolbar")).toBeVisible();
+
+    await openPalette(page, ">Undo Keep (Review)");
+    await expect(page.locator(".tb-omnibar-row", { hasText: "Undo Keep (Review)" })).toHaveCount(1);
+    await page.locator(".tb-omnibar-input").press("Enter");
+    await expect(page.locator(".weavie-inline-pending-keep")).toHaveCount(2);
 
     await openPalette(page, ">change");
     for (const title of DIFF_TITLES) {
-      await expect(diffRow(page, title)).toHaveCount(0);
+      await expect(diffRow(page, title)).toHaveCount(1);
     }
   });
 });

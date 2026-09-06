@@ -1,8 +1,9 @@
 import { existsSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { expect, type Locator, type Page, test } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 import type { CommandInfo } from "../src/commands/types";
+import { test } from "./harness/network-fixtures";
 import { MockHost, mockSession } from "./mock-host";
 
 // Drives the native ACP composer in a real browser against the mock host: it renders the structured agent
@@ -761,6 +762,22 @@ test.describe("ACP composer", () => {
       .toBe(0);
     await waitForBottom(page, body);
 
+    // A grown composer takes its room from the docked request, never from its own rows: the panel
+    // yields and scrolls, and the textarea plus every decision button stay inside the pane.
+    const surface = page.locator(".agent-surface");
+    await page.locator("[data-agent-composer] textarea").fill("line\n".repeat(12));
+    await expect
+      .poll(() =>
+        surface.evaluate((element) => {
+          const pane = element.getBoundingClientRect();
+          const rows = [...element.querySelectorAll("[data-agent-composer], .agent-compose")];
+          return rows.every((row) => row.getBoundingClientRect().bottom <= pane.bottom + 1);
+        }),
+      )
+      .toBe(true);
+    await expect(response).toHaveValue("Keep this answer");
+    await page.locator("[data-agent-composer] textarea").fill("");
+
     publishPane(paneMessage({ type: "input-resolved", itemId: "input-draft", status: "resolved" }));
     await expect(dock).toHaveCount(0);
     await waitForBottom(page, body);
@@ -802,7 +819,10 @@ test.describe("ACP composer", () => {
     );
 
     const request = page.locator(".agent-input-request");
-    await request.locator("select").selectOption(["one", "__weavie_custom_answer__"]);
+    await expect(request.getByText("First choice.", { exact: true })).toBeVisible();
+    await expect(request.getByText("Second choice.", { exact: true })).toBeVisible();
+    await request.getByRole("checkbox", { name: "One" }).check();
+    await request.getByRole("checkbox", { name: "Other" }).check();
     await request.locator('input[placeholder="Type another answer"]').fill("custom");
     await request.getByRole("button", { name: "Submit answers" }).click();
 
@@ -810,6 +830,66 @@ test.describe("ACP composer", () => {
       requestId: "input-multiple",
       answers: { choices: ["one", "custom"] },
     });
+  });
+
+  test("a resolved input request reopens its prompt, options, and answer", async ({ page }) => {
+    await mountAgent(page);
+    publishPane(
+      paneMessage({
+        type: "input-requested",
+        itemId: "input-review",
+        requestId: "input-review",
+        status: "pending",
+        questions: [
+          {
+            ...freeformQuestion,
+            id: "scope",
+            header: "Scope",
+            question: "How much of this should I build?",
+            options: [
+              { value: "all", label: "Everything", description: "Ship the whole feature." },
+              { value: "some", label: "Just the fix", description: "Only the reported bug." },
+              {
+                value: "spike",
+                label: "A throwaway spike",
+                description: "Enough to answer the question, then delete it.",
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    const dock = page.locator("[data-agent-pending-request]");
+    await expect(dock.getByText("Ship the whole feature.", { exact: true })).toBeVisible();
+    await dock.screenshot({ path: join(shotsDir, "15-input-request.png") });
+    await page.getByRole("radio", { name: "Everything" }).check();
+    await dock.getByRole("button", { name: "Submit answers" }).click();
+    expect(await waitForAgentPayload("input")).toMatchObject({
+      requestId: "input-review",
+      answers: { scope: ["all"] },
+    });
+    publishPane(
+      paneMessage({
+        type: "input-resolved",
+        itemId: "input-review",
+        status: "accepted",
+        answers: { scope: ["all"] },
+      }),
+    );
+
+    const resolved = page.locator(".agent-entry-request");
+    await expect(resolved.locator(".agent-entry-status")).toHaveText("accepted");
+    await expect(resolved.getByText("Ship the whole feature.")).toHaveCount(0);
+    await resolved.getByText("show prompt and options").click();
+    await expect(
+      resolved.getByText("How much of this should I build?", { exact: true }),
+    ).toBeVisible();
+    await expect(resolved.getByText("Ship the whole feature.", { exact: true })).toBeVisible();
+    await expect(resolved.getByText("Only the reported bug.", { exact: true })).toBeVisible();
+    await expect(resolved.locator(".agent-input-choice.chosen")).toHaveText(
+      "EverythingShip the whole feature.",
+    );
+    await resolved.screenshot({ path: join(shotsDir, "16-input-review.png") });
   });
 
   test("free-form arrays and untouched booleans return typed form values", async ({ page }) => {

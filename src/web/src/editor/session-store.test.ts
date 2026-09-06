@@ -150,6 +150,7 @@ describe("openTab", () => {
     expect(changed?.payload.session).toEqual({
       active: "agent-plan:1",
       open: [{ path: "agent-plan:1", kind: "plan", viewState: null }],
+      review: null,
     });
   });
 });

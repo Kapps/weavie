@@ -6,6 +6,7 @@ import {
   displayStatus,
   normalizeStatus,
   normalizeText,
+  type RequestResolution,
   requestLifecycles,
 } from "./AgentPaneMessageFormat";
 import {
@@ -193,11 +194,13 @@ function coalesceStreaming(messages: readonly AgentPaneUpdate[]): AgentPaneUpdat
   return output;
 }
 
-function collectResolved(messages: readonly AgentPaneUpdate[]): ReadonlyMap<string, string> {
-  const resolved = new Map<string, string>();
+function collectResolved(
+  messages: readonly AgentPaneUpdate[],
+): ReadonlyMap<string, RequestResolution> {
+  const resolved = new Map<string, RequestResolution>();
   for (const lifecycle of requestLifecycles(messages)) {
-    if (lifecycle.resolvedStatus !== null) {
-      resolved.set(lifecycle.key, lifecycle.resolvedStatus);
+    if (lifecycle.resolution !== null) {
+      resolved.set(lifecycle.key, lifecycle.resolution);
     }
   }
   return resolved;
@@ -205,7 +208,7 @@ function collectResolved(messages: readonly AgentPaneUpdate[]): ReadonlyMap<stri
 
 function durableEntry(
   message: AgentPaneUpdate,
-  resolved: ReadonlyMap<string, string>,
+  resolved: ReadonlyMap<string, RequestResolution>,
   reportedTurnErrors: ReadonlySet<string>,
   sequence: number,
 ): AgentTranscriptEntry | null {
@@ -221,8 +224,13 @@ function durableEntry(
       return entry(message, sequence, "notice", "error", "Error", status);
     case "goal":
       return entry(message, sequence, "notice", "system", "Goal", status);
-    case "input-requested":
-      return entry(message, sequence, "request", "pending", "Input", status);
+    case "input-requested": {
+      // The card renders the request as answered, so questions and answers travel as one object.
+      const key = paneItemIdentity(message);
+      const answers = key === null ? null : (resolved.get(key)?.answers ?? null);
+      const request = answers === null ? message : { ...message, answers };
+      return entry(request, sequence, "request", "pending", "Input", status);
+    }
     case "interrupted":
       return entry(message, sequence, "notice", "warning", "Interrupted", status);
     case "item-completed":

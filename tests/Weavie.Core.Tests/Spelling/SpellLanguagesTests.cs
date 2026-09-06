@@ -100,7 +100,7 @@ public sealed class SpellLanguagesTests : IDisposable {
 		using var data = JsonDocument.Parse(result.DataJson!);
 		Assert.Equal(["en-US", "fr"], data.RootElement.GetProperty("locales").EnumerateArray().Select(value => value.GetString()));
 		Assert.True((await languages.SetLocaleAsync("{\"locale\":\"fr\"}", CancellationToken.None)).Ok);
-		Assert.Empty(SpellChecker.Check(languages.Current, [new(1, 0, "e\u0301cole")], new HashSet<string>(), new HashSet<string>(), CancellationToken.None));
+		Assert.Empty(SpellChecker.Check(languages.Current, [new(1, 0, "e\u0301cole", false)], new HashSet<string>(), new HashSet<string>(), CancellationToken.None));
 	}
 
 	public void Dispose() => _directory.Dispose();

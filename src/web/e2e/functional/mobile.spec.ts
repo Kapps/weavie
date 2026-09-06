@@ -600,7 +600,8 @@ test("a compact session row manages its session from a hold and its actions butt
   await expect(menu).toBeVisible();
   await expect(page.locator(".confirm-dialog")).toHaveCount(0);
   await expect(inbox).toBeVisible();
-  await expect(menu.locator(".context-menu-item")).toHaveText(["Unload session", "Delete…"]);
+  // The only row here is the workspace's own checkout, which is never deletable — unload is its whole menu.
+  await expect(menu.locator(".context-menu-item")).toHaveText(["Unload session"]);
   const rowHeights = await menu
     .locator(".context-menu-item")
     .evaluateAll((items) => items.map((item) => item.getBoundingClientRect().height));
@@ -617,16 +618,14 @@ test("a compact session row manages its session from a hold and its actions butt
     touchPoints: [{ x: heldPoint.x, y: heldPoint.y + 60 }],
   });
   await touch.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
-  await expect(menu.locator(".context-menu-item")).toHaveText(["Load session", "Delete…"]);
+  await expect(menu.locator(".context-menu-item")).toHaveText(["Load session"]);
   await menu.locator(".context-menu-item", { hasText: "Load session" }).click();
   await expect(row.locator(".session-inbox-state")).not.toHaveText("Unloaded");
 
+  // The actions button opens the same command rows and runs them.
   await manage.click();
-  await menu.locator(".context-menu-item.danger", { hasText: "Delete" }).click();
-  const dialog = page.locator(".confirm-dialog");
-  await expect(dialog).toBeVisible();
-  await dialog.locator(".confirm-btn-danger").click();
-  await expect(page.locator(".toast", { hasText: "was deleted." })).toHaveCount(1);
+  await menu.locator(".context-menu-item", { hasText: "Unload session" }).click();
+  await expect(row.locator(".session-inbox-state")).toHaveText("Unloaded");
 });
 
 test("WebM video opens inline in the compact editor", async ({ page }) => {

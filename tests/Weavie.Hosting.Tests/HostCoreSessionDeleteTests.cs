@@ -1,6 +1,8 @@
 using System.Text.Json;
 using Weavie.Core;
 using Weavie.Core.Commands;
+using Weavie.Core.FileSystem;
+using Weavie.Core.Sessions;
 using Weavie.Core.Workspaces;
 using Weavie.Hosting.Messaging;
 using Xunit;
@@ -253,8 +255,8 @@ public sealed class HostCoreSessionDeleteTests {
 	public async Task NewSessionRejectsASourceDeletedWhileWaitingForTheLifecycleLane() {
 		await using var host = await TestHost.StartAsync();
 		Assert.True((await host.CreateSessionAsync("feature")).Ok);
-		host.SelectWorkspaceSession();
-		var source = host.WorkspaceSession.Address;
+		host.SelectSession("feature");
+		var source = host.Session("feature").Address;
 		var originalResponder = host.Bridge.RequestResponder;
 		MessageEnvelope? flush = null;
 		host.Bridge.RequestResponder = request =>
@@ -498,8 +500,9 @@ public sealed class HostCoreSessionDeleteTests {
 			NotificationMessages(host));
 	}
 
+	// Unload is the workspace session's only teardown: it releases the runtime while the slot stays on the rail.
 	[Fact]
-	public async Task WorkspaceSessionCanBeUnloadedThenDeletedWithoutTouchingTheCheckout() {
+	public async Task WorkspaceSessionCanBeUnloadedAndStaysOnTheRail() {
 		await using var host = await TestHost.StartAsync();
 		string id = host.WorkspaceSession.SlotId;
 
@@ -513,16 +516,6 @@ public sealed class HostCoreSessionDeleteTests {
 		var slot = host.Bridge.LastEvent("sessions", "catalog")!.Value
 			.EnumerateArray().Single(entry => entry.GetProperty("id").GetString() == id);
 		Assert.False(slot.GetProperty("loaded").GetBoolean());
-		Assert.True(Directory.Exists(host.RepoRoot));
-
-		var deleted = await host.HostRequestAsync<JsonElement>(
-			"sessions",
-			"invoke",
-			new { id = SessionCommands.DeleteSession, args = new { id } });
-		Assert.True(deleted.GetProperty("ok").GetBoolean());
-		var replacement = Assert.Single(host.Bridge.LastEvent("sessions", "catalog")!.Value.EnumerateArray());
-		Assert.NotEqual(id, replacement.GetProperty("id").GetString());
-		Assert.Contains(NotificationMessages(host), message => message.Contains("was deleted", StringComparison.Ordinal));
 		Assert.True(Directory.Exists(host.RepoRoot));
 	}
 
@@ -553,36 +546,53 @@ public sealed class HostCoreSessionDeleteTests {
 		Assert.NotNull(host.Core.SessionForTest(id));
 	}
 
+	// The workspace's own checkout always has a session — Weavie does not own that directory, so there is nothing
+	// to remove and no way back if the slot went away. Delete and its classify both refuse, even with force.
 	[Fact]
-	public async Task DeletingWorkspaceSessionKeepsTheCheckoutAndOtherSessions() {
+	public async Task DeletingWorkspaceSessionIsRefused() {
 		await using var host = await TestHost.StartAsync();
 		string workspaceId = host.WorkspaceSession.SlotId;
 		Assert.True((await host.CreateSessionAsync("feature")).Ok);
+
 		var classification = await host.DeleteSessionAsync(workspaceId, force: false, classify: true);
-		using var data = JsonDocument.Parse(classification.DataJson!);
-		Assert.False(data.RootElement.GetProperty("removesCheckout").GetBoolean());
+		Assert.False(classification.Ok);
+		Assert.Contains("workspace's own checkout", classification.Error!, StringComparison.Ordinal);
 
-		var result = await host.DeleteSessionAsync(workspaceId, force: false, classify: false);
+		var result = await host.DeleteSessionAsync(workspaceId, force: true, classify: false);
 
-		Assert.True(result.Ok, result.Error);
-		Assert.DoesNotContain(workspaceId, SessionIds(host));
+		Assert.False(result.Ok);
+		Assert.Contains("workspace's own checkout", result.Error!, StringComparison.Ordinal);
+		Assert.Contains(workspaceId, SessionIds(host));
 		Assert.Contains("feature", SessionIds(host));
 		Assert.True(Directory.Exists(host.RepoRoot));
 	}
 
+	// The invariant repairs state persisted before it existed: a workspace whose stored catalog covers only
+	// worktree sessions gets its checkout session back at the next open.
 	[Fact]
-	public async Task DeletedWorkspaceSessionDoesNotReturnOnRestartWhenAnotherSessionExists() {
+	public async Task WorkspaceSessionIsRestoredWhenThePersistedCatalogOmitsIt() {
 		await using var host = await TestHost.StartAsync();
 		string workspaceId = host.WorkspaceSession.SlotId;
 		Assert.True((await host.CreateSessionAsync("feature")).Ok);
-		Assert.True((await host.DeleteSessionAsync(workspaceId, force: false, classify: false)).Ok);
 
-		await host.RestartAsync();
+		await host.RestartAsync(() => DropPersistedSession(host, workspaceId));
 
-		Assert.DoesNotContain(workspaceId, SessionIds(host));
-		Assert.Equal(["feature"], SessionIds(host));
-		Assert.Equal("feature", host.SelectedSession.SlotId);
-		Assert.True(Directory.Exists(host.RepoRoot));
+		Assert.Contains("feature", SessionIds(host));
+		var restored = Assert.Single(
+			host.Bridge.LastEvent("sessions", "catalog")!.Value.EnumerateArray(),
+			entry => entry.GetProperty("workspaceCheckout").GetBoolean());
+		Assert.Equal("main", restored.GetProperty("label").GetString());
+		Assert.True(restored.GetProperty("loaded").GetBoolean());
+	}
+
+	// Removes one session from the on-disk catalog, standing in for state written before the invariant.
+	private static void DropPersistedSession(TestHost host, string slotId) {
+		var fileSystem = new LocalFileSystem();
+		string file = WeaviePaths.WorkspaceSessionsFile(WorkspaceId.ForPath(host.RepoRoot));
+		var snapshot = SessionStore.ReadSnapshot(fileSystem, file);
+		SessionStore.WriteSnapshot(fileSystem, file, snapshot with {
+			Items = [.. snapshot.Items.Where(item => item.Id.Value != slotId)],
+		});
 	}
 
 	// Puts a checkout Weavie did not create on the rail: git creates it, reconcile discovers it at the next open.
@@ -640,7 +650,6 @@ public sealed class HostCoreSessionDeleteTests {
 		var classification = await host.DeleteSessionAsync("manual", force: false, classify: true);
 
 		using var data = JsonDocument.Parse(classification.DataJson!);
-		Assert.True(data.RootElement.GetProperty("removesCheckout").GetBoolean());
 		Assert.Equal("modified", data.RootElement.GetProperty("state").GetString());
 		Assert.False(data.RootElement.GetProperty("branchless").GetBoolean());
 	}
@@ -717,11 +726,6 @@ public sealed class HostCoreSessionDeleteTests {
 		string registry = WeaviePaths.WorkspaceWorktreesFile(WorkspaceId.ForPath(host.RepoRoot));
 
 		await host.RestartAsync(() => File.Delete(registry));
-		var classification = await host.DeleteSessionAsync("feature", force: false, classify: true);
-		using (var data = JsonDocument.Parse(classification.DataJson!)) {
-			Assert.True(data.RootElement.GetProperty("removesCheckout").GetBoolean());
-		}
-
 		var result = await host.DeleteSessionAsync("feature", force: false, classify: false);
 
 		Assert.True(result.Ok, result.Error);
@@ -739,11 +743,6 @@ public sealed class HostCoreSessionDeleteTests {
 		string registry = WeaviePaths.WorkspaceWorktreesFile(WorkspaceId.ForPath(host.RepoRoot));
 
 		await host.RestartAsync(() => File.Delete(registry));
-		var classification = await host.DeleteSessionAsync("detached", force: false, classify: true);
-		using (var data = JsonDocument.Parse(classification.DataJson!)) {
-			Assert.True(data.RootElement.GetProperty("removesCheckout").GetBoolean());
-		}
-
 		var blocked = await host.DeleteSessionAsync("detached", force: false, classify: false);
 		Assert.False(blocked.Ok);
 		var result = await host.DeleteSessionAsync("detached", force: true, classify: false);
@@ -752,22 +751,19 @@ public sealed class HostCoreSessionDeleteTests {
 		Assert.False(Directory.Exists(checkout));
 	}
 
+	// Deleting every deletable session leaves the workspace checkout's, so the rail is never empty.
 	[Fact]
-	public async Task DeletingTheLastSessionCreatesAFreshWorkspaceSession() {
+	public async Task DeletingEveryOtherSessionLeavesTheWorkspaceSession() {
 		await using var host = await TestHost.StartAsync();
-		string deletedId = host.WorkspaceSession.SlotId;
+		string workspaceId = host.WorkspaceSession.SlotId;
+		Assert.True((await host.CreateSessionAsync("feature")).Ok);
 
-		var result = await host.InvokeCommandAsync(
-			deletedId,
-			SessionCommands.DeleteSession,
-			new { },
-			CancellationToken.None);
+		Assert.True((await host.DeleteSessionAsync("feature", force: false, classify: false)).Ok);
 
-		Assert.True(result.Ok, result.Error);
-		var replacement = Assert.Single(host.Bridge.LastEvent("sessions", "catalog")!.Value.EnumerateArray());
-		Assert.NotEqual(deletedId, replacement.GetProperty("id").GetString());
-		Assert.Equal("main", replacement.GetProperty("label").GetString());
-		Assert.True(replacement.GetProperty("loaded").GetBoolean());
-		Assert.True(Directory.Exists(host.RepoRoot));
+		var remaining = Assert.Single(host.Bridge.LastEvent("sessions", "catalog")!.Value.EnumerateArray());
+		Assert.Equal(workspaceId, remaining.GetProperty("id").GetString());
+		Assert.Equal("main", remaining.GetProperty("label").GetString());
+		Assert.True(remaining.GetProperty("loaded").GetBoolean());
+		Assert.True(remaining.GetProperty("workspaceCheckout").GetBoolean());
 	}
 }

@@ -301,8 +301,8 @@ public sealed partial class HostCore : IAsyncDisposable {
 			_shell = new ShellController(window);
 		}
 
-		// Reconcile checkouts first, then restore per-slot runtime/editor state and ensure the workspace checkout
-		// has a convenient session when none was persisted for it.
+		// Reconcile checkouts first, then restore per-slot runtime/editor state and re-establish the invariant
+		// session on the workspace checkout.
 		_worktrees = isRepo ? BuildWorktreeManager(git) : null;
 		_sessions = new SessionManager(_worktrees);
 		await ReconcileWorktreesOnOpenAsync().ConfigureAwait(false);
@@ -351,7 +351,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 		_settings,
 		[.. _agentProviders.Providers.Select(provider => provider.Info)]);
 
-	/// <summary>The app's build identity (SemVer with the build number as patch, e.g. <c>0.1.247</c>), stamped at build time.</summary>
+	/// <summary>The app's build identity (public version plus internal build number, e.g. <c>0.2.1.1507</c>), stamped at build time.</summary>
 	public static string BuildNumber =>
 		typeof(HostCore).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
 		?? throw new InvalidOperationException("Weavie.Hosting has no AssemblyInformationalVersion — the build-stamp target did not run.");

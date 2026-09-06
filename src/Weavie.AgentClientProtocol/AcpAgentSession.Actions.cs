@@ -40,7 +40,7 @@ public sealed partial class AcpAgentSession {
 		long epoch;
 		lock (_gate) {
 			if (!_ready || _authenticationPending || _cancelRequested || _pendingSubmissions.Count == 0
-				|| _activeSideConversationId is not null || _steering && !_promptActive) {
+				|| _steering && !_promptActive) {
 				return;
 			}
 			sessionId = _sessionId ?? throw new InvalidOperationException("The ACP session is not ready.");
@@ -455,7 +455,8 @@ public sealed partial class AcpAgentSession {
 		string? interruptedFork = null;
 		lock (_turnTransitionGate) {
 			lock (_gate) {
-				if (_activeSideConversationId is { } sideId) {
+				if (!_promptActive && !HasBackgroundWorkLocked() && !HasPendingInteractionLocked()
+					&& _activeSideConversationId is { } sideId) {
 					if (!_sideRuntimes.TryGetValue(sideId, out activeSide)) {
 						interruptedFork = sideId;
 						_activeSideConversationId = null;

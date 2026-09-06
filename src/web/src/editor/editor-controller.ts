@@ -55,6 +55,7 @@ import {
   activateTabFor,
   activePath,
   activePathFor,
+  captureReviewFor,
   closeManyFor,
   closeTabFor,
   convertScratchFor,
@@ -291,7 +292,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   // Disposables for the content/model listeners that feed activeContent (the live Preview text).
   let contentSubs: { dispose(): void }[] = [];
   let editorMounted = false;
-  const reviews = createReviewStore();
+  const reviews = createReviewStore(captureReviewFor);
   const reviewProposals = new WeakMap<ClientSession, SessionProposal>();
   const publishSelected = (feature: string, name: string, payload: unknown): void => {
     selectedSession()?.feature(feature).publish(name, payload);
@@ -1463,6 +1464,8 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
 
   const setReviewFilesFor = (session: ClientSession, files: ReviewFile[], label: string): void => {
     reviews.setFiles(session, files, label);
+    if (reviews.board(session).mode === "unified")
+      enterUnifiedFor(session, reviews.board(session).cursor);
     renderReviewState(session);
   };
 
@@ -1650,6 +1653,10 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       }>("changed", ({ changes }) => handleFileChanges(session, changes)),
       onEditorSessionChanged(session, () => scheduleReconciliation(session)),
       session.state.editor.subscribe((restored) => {
+        if (restored?.review != null) {
+          reviews.restore(session, restored.review);
+          if (restored.review.mode === "unified") enterUnifiedFor(session, restored.review.cursor);
+        }
         if (restored !== null && editorMounted && selectedSession() === session) {
           void rebindSession(session).catch((error: unknown) => {
             log("error", `editor session restore failed: ${String(error)}`);

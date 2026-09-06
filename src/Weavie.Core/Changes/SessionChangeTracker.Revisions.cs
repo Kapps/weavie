@@ -25,6 +25,7 @@ public sealed partial class SessionChangeTracker {
 		ArgumentNullException.ThrowIfNull(originalText);
 		ArgumentNullException.ThrowIfNull(replacement);
 		lock (_gate) {
+			ReconcileReviewDisk();
 			// A revision is offered on any selection, so the file may be one the agent never touched. Seed its
 			// review state first, or the write would land with no baseline and no way to review or revert it.
 			if (!_reviewBaseline.ContainsKey(path)) {
@@ -38,7 +39,8 @@ public sealed partial class SessionChangeTracker {
 			var before = Capture(path, withDisk: true);
 			_fileSystem.WriteAllText(path, ApplyReviewChange(path, spliced.CurrentRaw, spliced.NewContent));
 			_current[path] = spliced.NewContent;
-			Record(ReviewActionKind.Revise, touchesDisk: true, range.Start, [before], [path]);
+			CommitReviewProvenance(path);
+			Record(ReviewActionKind.Revise, touchesDisk: true, range.Start, [before]);
 			ReportCurrentState(path);
 		}
 

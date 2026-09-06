@@ -5,6 +5,8 @@
     <OutputType>Exe</OutputType>
     <!-- The shipped app is just "Weavie" (Weavie.app) — the per-OS shell is an implementation detail. -->
     <AssemblyName>Weavie</AssemblyName>
+    <ApplicationDisplayVersion>$(PublicVersion)</ApplicationDisplayVersion>
+    <ApplicationVersion>$(BuildNumber)</ApplicationVersion>
     <!-- This machine is macOS 26; floor at 14.0 so modern (non-deprecated) AppKit APIs
          pass the CA1422 obsolete-API gate. -->
     <SupportedOSPlatformVersion>$(WeavieMacOSMinimumVersion)</SupportedOSPlatformVersion>

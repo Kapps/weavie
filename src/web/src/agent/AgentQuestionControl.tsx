@@ -1,4 +1,4 @@
-import { createSignal, For, type JSX, Show } from "solid-js";
+import { createSignal, createUniqueId, For, type JSX, Show } from "solid-js";
 import type { AgentInputQuestion } from "../bridge";
 
 export function AgentQuestionControl(props: {
@@ -6,19 +6,7 @@ export function AgentQuestionControl(props: {
   values: string[];
   setValues: (values: string[]) => void;
 }): JSX.Element {
-  const otherValue = (): string => {
-    let value = "__weavie_custom_answer__";
-    while (props.question.options.some((option) => option.value === value)) {
-      value += "_";
-    }
-    return value;
-  };
   const single = (): string => props.values[0] ?? "";
-  const isAdvertised = (value: string): boolean =>
-    props.question.options.some((option) => option.value === value);
-  const initialCustom = props.values.find((value) => !isAdvertised(value)) ?? "";
-  const [custom, setCustom] = createSignal(props.question.allowsOther && initialCustom.length > 0);
-  const [customAnswer, setCustomAnswer] = createSignal(initialCustom);
   if (props.question.kind === "boolean") {
     return (
       <input
@@ -28,124 +16,29 @@ export function AgentQuestionControl(props: {
       />
     );
   }
-  if (props.question.kind === "array") {
-    if (props.question.options.length === 0) {
-      const values = (input: HTMLTextAreaElement): string[] =>
-        input.value.split(/\r?\n/).filter((value) => value.length > 0);
-      const validate = (input: HTMLTextAreaElement, count: number): void => {
-        const minimum = props.question.minimumLength ?? 0;
-        const maximum = props.question.maximumLength;
-        input.setCustomValidity(
-          count < minimum
-            ? `Enter at least ${minimum} value${minimum === 1 ? "" : "s"}.`
-            : maximum !== null && count > maximum
-              ? `Enter no more than ${maximum} value${maximum === 1 ? "" : "s"}.`
-              : "",
-        );
-      };
-      return (
-        <textarea
-          rows={Math.max(2, props.values.length)}
-          value={props.values.join("\n")}
-          placeholder="One value per line"
-          ref={(input) => validate(input, props.values.length)}
-          onInput={(event) => {
-            const next = values(event.currentTarget);
-            validate(event.currentTarget, next.length);
-            props.setValues(next);
-          }}
-        />
-      );
-    }
-    const advertisedValues = (): string[] => props.values.filter(isAdvertised);
-    return (
-      <>
-        <select
-          multiple
-          required={(props.question.minimumLength ?? 0) > 0}
-          onChange={(event) => {
-            const selected = [...event.currentTarget.selectedOptions].map((option) => option.value);
-            const includesOther = selected.includes(otherValue());
-            setCustom(includesOther);
-            props.setValues([
-              ...selected.filter((value) => value !== otherValue()),
-              ...(includesOther && customAnswer().length > 0 ? [customAnswer()] : []),
-            ]);
-          }}
-        >
-          <For each={props.question.options}>
-            {(option) => (
-              <option value={option.value} selected={props.values.includes(option.value)}>
-                {option.label}
-              </option>
-            )}
-          </For>
-          <For each={props.question.allowsOther ? [otherValue()] : []}>
-            {(value) => (
-              <option value={value} selected={custom()}>
-                Other
-              </option>
-            )}
-          </For>
-        </select>
-        <Show when={custom()}>
-          <input
-            type="text"
-            required={props.question.required}
-            value={customAnswer()}
-            placeholder="Type another answer"
-            onInput={(event) => {
-              const value = event.currentTarget.value;
-              setCustomAnswer(value);
-              props.setValues([...advertisedValues(), ...(value.length > 0 ? [value] : [])]);
-            }}
-          />
-        </Show>
-      </>
-    );
-  }
   if (props.question.options.length > 0) {
     return (
-      <>
-        <select
-          required={props.question.required}
-          value={custom() ? otherValue() : single()}
-          onChange={(event) => {
-            const isOther = event.currentTarget.selectedOptions[0]?.dataset.other === "true";
-            setCustom(isOther);
-            props.setValues(
-              isOther || event.currentTarget.value.length === 0 ? [] : [event.currentTarget.value],
-            );
-          }}
-        >
-          <option value="" disabled={props.question.required}>
-            {props.question.required ? "Choose an option" : "No selection"}
-          </option>
-          <For each={props.question.options}>
-            {(option) => <option value={option.value}>{option.label}</option>}
-          </For>
-          <For each={props.question.allowsOther ? [otherValue()] : []}>
-            {(value) => (
-              <option value={value} data-other="true">
-                Other
-              </option>
-            )}
-          </For>
-        </select>
-        <Show when={custom()}>
-          <input
-            type="text"
-            required={props.question.required}
-            value={single()}
-            placeholder="Type another answer"
-            onInput={(event) =>
-              props.setValues(
-                event.currentTarget.value.length > 0 ? [event.currentTarget.value] : [],
-              )
-            }
-          />
-        </Show>
-      </>
+      <ChoiceList question={props.question} setValues={props.setValues} values={props.values} />
+    );
+  }
+  if (props.question.kind === "array") {
+    const values = (input: HTMLTextAreaElement): string[] =>
+      input.value.split(/\r?\n/).filter((value) => value.length > 0);
+    const validate = (input: HTMLTextAreaElement, count: number): void => {
+      input.setCustomValidity(lengthValidity(props.question, count, "value"));
+    };
+    return (
+      <textarea
+        rows={Math.max(2, props.values.length)}
+        value={props.values.join("\n")}
+        placeholder="One value per line"
+        ref={(input) => validate(input, props.values.length)}
+        onInput={(event) => {
+          const next = values(event.currentTarget);
+          validate(event.currentTarget, next.length);
+          props.setValues(next);
+        }}
+      />
     );
   }
   const type = (): "email" | "url" | "date" | "number" | "text" => {
@@ -173,4 +66,125 @@ export function AgentQuestionControl(props: {
       }
     />
   );
+}
+
+/** Every advertised choice, with its own description, on screen — nothing folded behind a dropdown. */
+function ChoiceList(props: {
+  question: AgentInputQuestion;
+  values: string[];
+  setValues: (values: string[]) => void;
+}): JSX.Element {
+  const multiple = props.question.kind === "array";
+  const group = createUniqueId();
+  const isAdvertised = (value: string): boolean =>
+    props.question.options.some((option) => option.value === value);
+  const initialCustom = props.values.find((value) => !isAdvertised(value)) ?? "";
+  const [custom, setCustom] = createSignal(props.question.allowsOther && initialCustom.length > 0);
+  const [customAnswer, setCustomAnswer] = createSignal(initialCustom);
+  const advertised = (): string[] => props.values.filter(isAdvertised);
+  // Checkbox groups have no native minItems/maxItems, so the first box carries the group's validity.
+  let counted: HTMLInputElement | undefined;
+  const validate = (count: number): void => {
+    if (multiple) counted?.setCustomValidity(lengthValidity(props.question, count, "option"));
+  };
+
+  const commit = (chosen: string[], other: boolean, answer: string): void => {
+    const next = [...chosen, ...(other && answer.length > 0 ? [answer] : [])];
+    props.setValues(next);
+    validate(next.length);
+  };
+  const choose = (value: string, checked: boolean): void => {
+    if (!multiple) {
+      setCustom(false);
+      commit(checked ? [value] : [], false, customAnswer());
+      return;
+    }
+    commit(
+      checked ? [...advertised(), value] : advertised().filter((current) => current !== value),
+      custom(),
+      customAnswer(),
+    );
+  };
+  const chooseOther = (checked: boolean): void => {
+    setCustom(checked);
+    commit(multiple ? advertised() : [], checked, customAnswer());
+  };
+
+  return (
+    <div class="agent-input-choices">
+      <For each={props.question.options}>
+        {(option, index) => (
+          <label class="agent-input-choice">
+            <input
+              type={multiple ? "checkbox" : "radio"}
+              name={group}
+              value={option.value}
+              checked={props.values.includes(option.value)}
+              required={!multiple && props.question.required}
+              ref={(input) => {
+                if (index() === 0) {
+                  counted = input;
+                  validate(props.values.length);
+                }
+              }}
+              onChange={(event) => choose(option.value, event.currentTarget.checked)}
+            />
+            <span>{option.label}</span>
+            <Show when={option.description.length > 0}>
+              <small>{option.description}</small>
+            </Show>
+          </label>
+        )}
+      </For>
+      <Show when={!multiple && !props.question.required}>
+        <label class="agent-input-choice">
+          <input
+            type="radio"
+            name={group}
+            checked={props.values.length === 0 && !custom()}
+            onChange={() => {
+              setCustom(false);
+              commit([], false, customAnswer());
+            }}
+          />
+          <span>No selection</span>
+        </label>
+      </Show>
+      <Show when={props.question.allowsOther}>
+        <label class="agent-input-choice">
+          <input
+            type={multiple ? "checkbox" : "radio"}
+            name={group}
+            checked={custom()}
+            required={!multiple && props.question.required}
+            onChange={(event) => chooseOther(event.currentTarget.checked)}
+          />
+          <span>Other</span>
+        </label>
+        <Show when={custom()}>
+          <input
+            type="text"
+            required={props.question.required}
+            value={customAnswer()}
+            placeholder="Type another answer"
+            onInput={(event) => {
+              setCustomAnswer(event.currentTarget.value);
+              commit(multiple ? advertised() : [], true, event.currentTarget.value);
+            }}
+          />
+        </Show>
+      </Show>
+    </div>
+  );
+}
+
+function lengthValidity(question: AgentInputQuestion, count: number, noun: string): string {
+  const minimum = question.minimumLength ?? 0;
+  const maximum = question.maximumLength;
+  if (count < minimum) {
+    return `Enter at least ${minimum} ${noun}${minimum === 1 ? "" : "s"}.`;
+  }
+  return maximum !== null && count > maximum
+    ? `Enter no more than ${maximum} ${noun}${maximum === 1 ? "" : "s"}.`
+    : "";
 }

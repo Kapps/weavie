@@ -14,11 +14,32 @@ public sealed class SpellCheckTests : IDisposable {
 	[Fact]
 	public void ChecksExactUtf16RangesAndUnionsDictionaries() {
 		var result = SpellChecker.Check(SpellChecker.English.Value,
-			[new(4, 7, "😀 This isn't misspelled, but teh is. Weavie Frobulator https://zztypo.test `zzcode` user@zzmail.test")],
+			[new(4, 7, "😀 This isn't misspelled, but teh is. Weavie Frobulator https://zztypo.test `zzcode` user@zzmail.test", false)],
 			new HashSet<string>(["weavie"], StringComparer.OrdinalIgnoreCase),
 			new HashSet<string>(["Frobulator"], StringComparer.OrdinalIgnoreCase),
 			CancellationToken.None);
 		Assert.Equal([new Misspelling(4, 37, "teh")], result);
+	}
+
+	[Fact]
+	public void ChecksIdentifierWordsAtCamelAcronymUnderscoreAndDigitBoundaries() {
+		var result = SpellChecker.Check(SpellChecker.English.Value,
+			[new(2, 4, "DiagnoasticId", true), new(3, 2, "HTTPDiagnoastic_count_mispelled2Value", true),
+			 new(4, 1, "DIAGNOASTIC_ID", true), new(5, 0, "DiagnosticId_HTTP_count2Value", true)],
+			Empty, Empty, CancellationToken.None);
+		Assert.Equal([
+			new Misspelling(2, 4, "Diagnoastic"), new Misspelling(3, 6, "Diagnoastic"),
+			new Misspelling(3, 24, "mispelled"), new Misspelling(4, 1, "DIAGNOASTIC")
+		], result);
+	}
+
+	[Fact]
+	public void IdentifierPartsRespectCustomDictionariesWithoutChangingProseTokenRules() {
+		var result = SpellChecker.Check(SpellChecker.English.Value,
+			[new(1, 0, "WeavieFrobulatorCount", true), new(2, 0, "WV0001 snake_case https://zztypo.test `zzcode`", false)],
+			new HashSet<string>(["weavie"], StringComparer.OrdinalIgnoreCase),
+			new HashSet<string>(["frobulator"], StringComparer.OrdinalIgnoreCase), CancellationToken.None);
+		Assert.Empty(result);
 	}
 
 	[Fact]
@@ -44,7 +65,7 @@ public sealed class SpellCheckTests : IDisposable {
 		dictionary.Add("Wea\u0301vi\u0301e's");
 		Assert.Single(dictionary.Words);
 		Assert.Empty(SpellChecker.Check(SpellChecker.English.Value,
-			[new(1, 0, "Wea\u0301vi\u0301e’s Weávíe's")], dictionary.Words, Empty, CancellationToken.None));
+			[new(1, 0, "Wea\u0301vi\u0301e’s Weávíe's", false)], dictionary.Words, Empty, CancellationToken.None));
 	}
 
 	[Fact]
@@ -64,7 +85,7 @@ public sealed class SpellCheckTests : IDisposable {
 		using var cancelled = new CancellationTokenSource();
 		cancelled.Cancel();
 		Assert.Throws<OperationCanceledException>(() => SpellChecker.Check(SpellChecker.English.Value,
-			[new(1, 0, "teh teh teh")], Empty, Empty, cancelled.Token));
+			[new(1, 0, "teh teh teh", false)], Empty, Empty, cancelled.Token));
 	}
 
 	public void Dispose() => Directory.Delete(_directory, recursive: true);

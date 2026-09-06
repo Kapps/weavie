@@ -7,7 +7,14 @@ import { notify } from "../notify/notify";
 import { monaco } from "./monaco-setup";
 import { SESSION_FILE_SCHEME, sessionForUri } from "./session-uri-owner";
 import { createSpellingActions, type SpellingActions } from "./spell-actions";
-import { type Misspelling, type SpellSpan, type TokenizedModel, visibleProse } from "./spell-prose";
+import {
+  type Misspelling,
+  type SpellSpan,
+  spellingSpans,
+  type TokenizedModel,
+  visibleSpellRanges,
+} from "./spell-prose";
+import { spellingTokens } from "./spell-tokens";
 import "./spell-check.css";
 
 export interface SpellCheck extends SpellingActions {
@@ -35,12 +42,21 @@ export function createSpellCheck(editor: monaco.editor.IStandaloneCodeEditor): S
     if (session === undefined) {
       return;
     }
-    const spans = visibleProse(editor, model);
-    if (spans.length === 0) return;
     const pending = new AbortController();
     request = pending;
     const version = model.getVersionId();
     try {
+      const ranges = visibleSpellRanges(editor, model);
+      const tokens = await spellingTokens(model, ranges, pending.signal);
+      if (
+        pending.signal.aborted ||
+        model.isDisposed() ||
+        editor.getModel() !== model ||
+        model.getVersionId() !== version
+      )
+        return;
+      const spans = spellingSpans(model, ranges, tokens);
+      if (spans.length === 0) return;
       const result = await session
         .feature("spelling")
         .request<Misspelling[], { spans: SpellSpan[] }>("check", { spans }, pending.signal);
@@ -79,11 +95,14 @@ export function createSpellCheck(editor: monaco.editor.IStandaloneCodeEditor): S
     }
     clearTimeout(timer);
     request?.abort();
-    validity.abort();
-    validity = new AbortController();
     words = [];
     decorations.clear();
     timer = setTimeout(() => void check(), 250);
+  };
+  const invalidate = (): void => {
+    validity.abort();
+    validity = new AbortController();
+    schedule();
   };
   const at = (position: monaco.IPosition | null): Misspelling | undefined =>
     position === null
@@ -95,9 +114,9 @@ export function createSpellCheck(editor: monaco.editor.IStandaloneCodeEditor): S
             position.column <= offset + word.length + 1,
         );
   const subscriptions = [
-    editor.onDidChangeModel(schedule),
-    editor.onDidChangeModelContent(schedule),
-    editor.onDidChangeModelLanguage(schedule),
+    editor.onDidChangeModel(invalidate),
+    editor.onDidChangeModelContent(invalidate),
+    editor.onDidChangeModelLanguage(invalidate),
     (
       editor as monaco.editor.IStandaloneCodeEditor & {
         onDidChangeModelTokens(listener: () => void): monaco.IDisposable;
@@ -106,12 +125,12 @@ export function createSpellCheck(editor: monaco.editor.IStandaloneCodeEditor): S
     editor.onDidScrollChange(schedule),
     editor.onDidLayoutChange(schedule),
   ];
-  const offOptions = onEditorOptionsChanged(schedule);
+  const offOptions = onEditorOptionsChanged(invalidate);
   const offSessions = registerSessionFeature((session) =>
     session.feature("spelling").on("changed", () => {
       const model = editor.getModel();
       if (model !== null && sessionForUri(model.uri) === session) {
-        schedule();
+        invalidate();
       }
     }),
   );

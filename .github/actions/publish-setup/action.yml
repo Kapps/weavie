@@ -1,11 +1,7 @@
 # Shared toolchain for every publish job: .NET SDK, pnpm/Node, a restore-only NuGet cache, and the
 # web UI build (each shell embeds wwwroot; Weavie.Mac hard-errors without it).
 #
-# This deliberately does NOT reuse setup-dotnet/setup-web: those save caches, and this action runs in
-# release.yml, which checks out a caller-chosen ref (workflow_dispatch on any branch, a v* tag) and
-# then executes that ref's code — pnpm lifecycle scripts, MSBuild targets. A save here would write
-# that code's output into the cache scope every later privileged run restores from, so release only
-# ever reads entries that ci.yml populated from trusted main pushes.
+# Selected historical commits execute their own build code; publish jobs restore caches without saving them.
 name: publish setup
 description: .NET + pnpm/Node toolchain, restore-only NuGet cache, and the web UI build.
 

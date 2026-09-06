@@ -321,6 +321,18 @@
   text-align: center;
 }
 
+.unified-review-rejection {
+  padding: 1em;
+  color: var(--dim);
+  font-size: var(--font-metadata-size);
+}
+
+.unified-review-rejection pre {
+  font-family: var(--font-content-family);
+  font-size: var(--font-content-size);
+  white-space: pre-wrap;
+}
+
 @media (max-width: 760px) {
   .unified-review-header {
     align-items: flex-start;

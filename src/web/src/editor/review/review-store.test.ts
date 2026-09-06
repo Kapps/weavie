@@ -1,6 +1,7 @@
 import { createRoot } from "solid-js";
 import { describe, expect, it } from "vitest";
 import type { ClientSession } from "../../bridge";
+import type { ReviewResume } from "../session-types";
 import { createReviewStore, type ReviewFile, type ReviewFileDiff } from "./review-store";
 
 const firstFile: ReviewFile = {
@@ -23,6 +24,8 @@ const secondFile: ReviewFile = {
 
 function diff(file: ReviewFile, baseline = "before", current = "after"): ReviewFileDiff {
   return {
+    rejected: [],
+    revision: current,
     path: file.path,
     name: file.name,
     acceptedBaseline: baseline,
@@ -39,9 +42,43 @@ function session(): ClientSession {
 }
 
 describe("review store", () => {
+  it("resumes presentation from compact metadata, unfolding only when the file changes", () => {
+    createRoot((dispose) => {
+      const saved: ReviewResume[] = [];
+      const store = createReviewStore((_session, resume) => saved.push(resume));
+      const client = session();
+      const content = {
+        ...diff(firstFile, "old", "private source"),
+        revision: "content-fingerprint",
+      };
+      store.setFiles(client, [firstFile], "PR #1");
+      store.setDiff(client, content);
+      store.setFileCollapsed(client, firstFile.path, true);
+      store.enterUnified(client, { path: firstFile.path, line: 12 });
+      const resume = saved.at(-1)!;
+      expect(JSON.stringify(resume)).not.toContain("private source");
+
+      const restored = createReviewStore(() => {});
+      const freshClient = session();
+      restored.restore(freshClient, resume);
+      restored.setFiles(freshClient, [firstFile], "PR #1");
+      restored.setDiff(freshClient, content);
+      expect(restored.board(freshClient).mode).toBe("unified");
+      expect(restored.board(freshClient).cursor).toEqual(resume.cursor);
+      expect(restored.board(freshClient).files[0]!.collapsed()).toBe(true);
+      restored.setDiff(freshClient, {
+        ...content,
+        current: "new proposal",
+        revision: "new-fingerprint",
+      });
+      expect(restored.board(freshClient).files[0]!.collapsed()).toBe(false);
+      dispose();
+    });
+  });
+
   it("keeps one stable per-file projection while diff pushes update incrementally", () => {
     createRoot((dispose) => {
-      const store = createReviewStore();
+      const store = createReviewStore(() => {});
       const client = session();
       store.select(client);
       store.setFiles(client, [firstFile, secondFile], "vs main");
@@ -68,7 +105,7 @@ describe("review store", () => {
 
   it("un-reviews a folded file when new changes land, and follows authoritative keep transitions", () => {
     createRoot((dispose) => {
-      const store = createReviewStore();
+      const store = createReviewStore(() => {});
       const client = session();
       store.setFiles(client, [firstFile], "turn");
       store.setDiff(client, diff(firstFile));
@@ -104,7 +141,7 @@ describe("review store", () => {
 
   it("starts a file whose only diff is kept in its collapsed state", () => {
     createRoot((dispose) => {
-      const store = createReviewStore();
+      const store = createReviewStore(() => {});
       const client = session();
       store.setDiff(client, {
         ...diff(firstFile),
@@ -130,7 +167,7 @@ describe("review store", () => {
 
   it("reports a fully kept file as loaded, not as still loading", () => {
     createRoot((dispose) => {
-      const store = createReviewStore();
+      const store = createReviewStore(() => {});
       const client = session();
       store.select(client);
       store.setFiles(client, [firstFile], "turn");
@@ -155,7 +192,7 @@ describe("review store", () => {
 
   it("retains a diff or comments that arrive before the review file list", () => {
     createRoot((dispose) => {
-      const store = createReviewStore();
+      const store = createReviewStore(() => {});
       const client = session();
       const pushed = diff(firstFile);
       store.setDiff(client, pushed);
@@ -175,7 +212,7 @@ describe("review store", () => {
 
   it("retains an empty-file diff whose existence changed", () => {
     createRoot((dispose) => {
-      const store = createReviewStore();
+      const store = createReviewStore(() => {});
       const client = session();
       const deleted = { ...firstFile, added: 0, removed: 0, currentExists: false };
       store.select(client);
@@ -194,7 +231,7 @@ describe("review store", () => {
 
   it("isolates mode, cursor, files, and counts by session", () => {
     createRoot((dispose) => {
-      const store = createReviewStore();
+      const store = createReviewStore(() => {});
       const left = session();
       const right = session();
       store.setFiles(left, [firstFile], "left");
@@ -228,7 +265,7 @@ describe("review store", () => {
 
   it("repairs the cursor when a file disappears and resets the selected projection", () => {
     createRoot((dispose) => {
-      const store = createReviewStore();
+      const store = createReviewStore(() => {});
       const client = session();
       store.setFiles(client, [firstFile, secondFile], "turn");
       store.enterUnified(client, { path: firstFile.path, line: 12 });

@@ -1,6 +1,7 @@
 import { writeFile } from "node:fs/promises";
-import { test as base, type CDPSession, expect, type Page } from "@playwright/test";
+import { type CDPSession, expect, type Page } from "@playwright/test";
 import { type FakeInference, fakeClaudeBuilt } from "./fake-claude";
+import { test as base } from "./network-fixtures";
 import { fakeAcpProgram, programExists } from "./test-programs";
 import { headlessBuilt, launchHeadless, type WeavieHost } from "./weavie-host";
 import { launchRemote, runnerBuilt } from "./weavie-runner";
@@ -138,24 +139,8 @@ export const test = base.extend<WeavieOptions & WeavieFixtures>({
         }
       });
       page.on("pageerror", (err) => consoleErrors.push(`[pageerror] ${String(err)}`));
-      // A stylesheet or chunk that never arrives (Windows runners fail one with `net::ERR_NO_BUFFER_SPACE`
-      // under socket pressure) leaves the app live but unstyled — `.app` loses its `height: 100%` and
-      // collapses to content height, so panes render a few pixels tall and elements are present-but-hidden.
-      // Every assertion after that fails somewhere unrelated, so record which load failed and say so.
-      //
-      // 2026-08-26 13:08 UTC, run https://github.com/Kapps/weavie/actions/runs/32971314365/job/98186836481
-      // — a `main-*.js` ERR_NO_BUFFER_SPACE was recorded here, then the page booted anyway and the splash
-      // still disappeared: the trace showed two requests for that script 59ms apart, the second returning
-      // 200 — index.html's own boot-retry (`retryBootModule`) had already reloaded past the failure, but
-      // this list was never cleared across that reload, so the already-healed failure still failed the
-      // test. Only a load that never got resolved by the app's own retry should count, so the list is
-      // cleared on every main-frame navigation and only what's failed since the last one is judged.
-      let blockedLoads: string[] = [];
-      page.on("framenavigated", (frame) => {
-        if (frame === page.mainFrame()) {
-          blockedLoads = [];
-        }
-      });
+      // Preserve failed loads across navigations so a boot reload cannot hide a broken request.
+      const blockedLoads: string[] = [];
       page.on("requestfailed", (request) => {
         const kind = request.resourceType();
         if (kind !== "stylesheet" && kind !== "script" && kind !== "document") {
@@ -305,15 +290,6 @@ export const test = base.extend<WeavieOptions & WeavieFixtures>({
         if (connect.status() !== 302) {
           throw new Error(`workspace connect failed (${connect.status()})`);
         }
-        // 2026-09-04 11:50 UTC, windows shard 5/6, pr-comment-layout.spec.ts:
-        // https://github.com/Kapps/weavie/actions/runs/33869160511/job/101011765056 — this exact
-        // `page.goto` failed with `net::ERR_NO_BUFFER_SPACE`, before anything had loaded for the
-        // `blockedLoads`/retry handling below to apply to. Suspected same class of Windows loopback
-        // socket-buffer pressure as the post-boot resource-load failures this file already tracks (one
-        // OS-assigned port per test, hundreds of tests serially), but at a different call site with no
-        // in-app retry to fall back on. One occurrence isn't enough to confirm the mechanism or land a
-        // fix without guessing — not retried here (see docs/specs/e2e-flake-policy.md); watching for a
-        // repeat to pin down the actual cause before changing this call.
         await page.goto(host.url, { waitUntil: "domcontentloaded" });
         // The app removes the splash element once it has booted (layout + first session). Its
         // disappearance is the "app is interactive" signal — not a fixed sleep.

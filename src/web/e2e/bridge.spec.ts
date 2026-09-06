@@ -1,8 +1,9 @@
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { expect, test } from "@playwright/test";
+import { expect } from "@playwright/test";
 import { CommandIds } from "../src/commands/types";
+import { test } from "./harness/network-fixtures";
 import { MockHost, mockSession } from "./mock-host";
 
 const distDir = join(dirname(fileURLToPath(import.meta.url)), "..", "dist");
@@ -267,13 +268,21 @@ test.describe("session-addressed WebSocket transport", () => {
         agentProviderId: "claude",
       },
     });
+    const opened = mockSession("opened-branch", "release/new-since-open", "claude");
+    host.setSessions([session, opened]);
     host.respond(openRequest, {
       ok: true,
       message: null,
       error: null,
-      data: { address: session.address },
+      data: {
+        id: opened.id,
+        address: opened.address,
+        activateSession: true,
+        createdSession: true,
+      },
     });
     await expect(inbox).toBeHidden();
+    await expect(activeChip).toHaveAttribute("data-session-slot", opened.id);
   });
 
   test("session destination switches to the selected backend's provider catalog", async ({

@@ -78,22 +78,24 @@ test("ACP slash commands preserve provider command and fresh-conversation semant
   );
 });
 
-test("an unfinished ACP side-reply survives a session switch", async ({ page }) => {
+test("ACP side replies survive session switches and run alongside the primary turn", async ({
+  page,
+}) => {
   const initialSlot = await activeSessionSlot(page);
   const surface = await createAcpSession(page, "acp-side-reply-draft");
   const acpSlot = await activeSessionSlot(page);
   const composer = surface.locator("[data-agent-composer] textarea");
 
-  await composer.fill("primary context");
+  await composer.fill("hold");
   await composer.press("Enter");
-  await expect(surface.locator(".agent-entry-message.agent-tone-assistant")).toContainText(
-    "echo: primary context",
-  );
+  await expect(surface.locator(".agent-working")).toBeVisible();
 
   await composer.fill("/btw Explain one detail aside");
   await composer.press("Enter");
   const aside = surface.locator(".agent-aside");
   await expect(aside).toContainText("echo: Explain one detail aside");
+  await expect(surface.locator(".agent-working")).toBeVisible();
+  await expect(composer).toHaveAttribute("placeholder", "Steer the running turn…");
   await aside.getByRole("button", { name: "Reply", exact: true }).click();
   const reply = aside.getByRole("textbox", { name: "Reply to BTW" });
   await reply.fill("unfinished follow-up");
@@ -132,6 +134,24 @@ test("an unfinished ACP side-reply survives a session switch", async ({ page }) 
   await expect(reply).toHaveCount(0);
   await aside.getByRole("button", { name: "Reply", exact: true }).click();
   await expect(reply).toHaveValue("cancelled but recoverable");
+  await reply.fill("input-cancel");
+  await reply.press("Enter");
+  const cancel = aside.getByRole("button", { name: "Cancel", exact: true });
+  await expect(cancel).toBeVisible();
+  await expect(composer).toHaveAttribute("placeholder", "Steer the running turn…");
+
+  await composer.fill("finish while the side question waits");
+  await composer.press("Enter");
+  await expect(surface).toContainText("steered: finish while the side question waits");
+  await expect(surface.locator(".agent-working")).toHaveCount(0);
+  await expect(composer).toHaveAttribute(
+    "placeholder",
+    "Write a prompt — / for commands and skills",
+  );
+  await expect(cancel).toBeVisible();
+  await cancel.click();
+  await expect(aside).toContainText("input action: cancel");
+  await expect(aside.getByRole("button", { name: "Reply", exact: true })).toBeEnabled();
 });
 
 test("ACP controls and rich structured output stay native @cross", async ({ page }) => {

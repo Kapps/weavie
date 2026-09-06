@@ -1,22 +1,25 @@
-# Release: publish each native shell as a self-contained, startup-optimized build.
-#
-# Startup optimization = ReadyToRun (PublishReadyToRun): IL is precompiled to native so there's
-# little JIT work at launch. Native AOT is NOT usable here — WinForms (and WPF, which Weavie.Win
-# enables for the WebView2 control) and WebView2 rely on reflection/COM that AOT doesn't support —
-# so R2R + self-contained is the right lever. The publish output is a plain folder (no single-file
-# compression, which would decompress at launch and hurt cold start), packaged into one downloadable
-# archive per shell.
-#
-# Each shell publishes on its own OS (Weavie.Win needs Windows; Weavie.Mac needs the macOS workload).
-# On a v* tag or manual dispatch the archive is uploaded as a build artifact. On green main
-# (workflow_run) the runner and shell archives are published together to the rolling `main-latest`
-# prerelease consumed by `weavie-runner --auto-update`. See docs/specs/runner-auto-update.md.
 name: release
+run-name: ${{ github.event_name == 'workflow_dispatch' && format('Release {0} ({1}) from {2}', inputs.channel, inputs.bump, inputs.source || 'main-latest') || 'Build latest from green main' }}
 
 on:
   workflow_dispatch:
-  push:
-    tags: ["v*"]
+    inputs:
+      channel:
+        description: Release channel
+        required: true
+        type: choice
+        default: stable
+        options: [stable, latest]
+      bump:
+        description: Public version bump (stable only)
+        required: true
+        type: choice
+        default: patch
+        options: [patch, minor, major]
+      source:
+        description: Published build number or full commit SHA (blank uses main-latest)
+        required: false
+        type: string
   workflow_run:
     workflows: [ci]
     types: [completed]
@@ -24,132 +27,120 @@ on:
 permissions:
   contents: read
 
-# Serialize each complete rolling release; the pending slot coalesces newer green runs.
-# Tag and manual releases use unique run IDs.
+# Both channels share this workflow's build sequence; stable version allocation is serialized.
 concurrency:
-  group: >-
-    release-${{
-      github.event_name == 'workflow_run' &&
-      github.event.workflow_run.event == 'push' &&
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.head_branch == 'main' &&
-      'main-latest' || github.run_id
-    }}
+  group: release-${{ github.event_name == 'workflow_dispatch' && inputs.channel || 'latest' }}
   cancel-in-progress: false
 
 jobs:
-  runner:
-    name: runner bundle
-    # Only a PUSH-triggered ci success qualifies: workflow_run also fires for fork-PR ci runs, and a
-    # fork branch named "main" must never reach a contents:write job (it could rewrite the release
-    # feed the auto-updater trusts). Push events can only originate from this repo.
+  prepare:
     if: >-
-      github.event_name == 'workflow_run' &&
-      github.event.workflow_run.event == 'push' &&
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.head_branch == 'main'
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' &&
+       github.actor == github.repository_owner) ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-latest
+    outputs:
+      commit: ${{ steps.plan.outputs.commit }}
+      build: ${{ steps.plan.outputs.build }}
+      version: ${{ steps.plan.outputs.version }}
+      channel: ${{ steps.plan.outputs.channel }}
+      matrix: ${{ steps.plan.outputs.matrix }}
     steps:
-      # Build the exact trusted push commit that passed CI, never a newer unvalidated main tip.
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ github.workflow_sha }}
+      - name: Pin source and release version
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_CHANNEL: ${{ inputs.channel }}
+          RELEASE_BUMP: ${{ inputs.bump }}
+          RELEASE_SOURCE: ${{ inputs.source }}
+        run: python3 .github/scripts/release_plan.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-plan
+          path: release-plan.json
+          if-no-files-found: error
 
-      - name: Set up toolchain and build web app
-        uses: ./.github/actions/publish-setup
+  checks:
+    needs: prepare
+    if: github.event_name == 'workflow_dispatch'
+    uses: ./.github/workflows/ci.yml
+    with:
+      ref: ${{ needs.prepare.outputs.commit }}
+      full: ${{ needs.prepare.outputs.channel == 'stable' }}
 
-      # The remote control plane. Its publish stages the Weavie.Headless worker into worker/,
-      # propagating RID + self-contained, so this single bundle is the full runner + headless deploy.
-      #
-      # Flake, 2026-08-16 18:22 UTC: https://github.com/Kapps/weavie/actions/runs/31964391535/job/95207193113
-      # NativeAOT's ILC crashed compiling weavie-hook-relay ("Code generation failed for method
-      # System.AppContext.OnUnhandledException(object)") — a transient ILC internal error, not a code
-      # defect: the identical commit published clean on retry nine minutes later. Retrying the publish
-      # on failure.
-      - name: Publish runner bundle into the managed layout
-        shell: bash
+  runner:
+    name: runner bundle
+    needs: prepare
+    runs-on: ubuntu-latest
+    env:
+      PublicVersion: ${{ needs.prepare.outputs.version }}
+      BuildNumber: ${{ needs.prepare.outputs.build }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+          fetch-depth: 0
+      - &trusted-infrastructure
+        name: Check out trusted build infrastructure
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+          path: temp/workflow
+          sparse-checkout: .github
+      - name: Authorize and check out release source
+        env:
+          SOURCE_COMMIT: ${{ needs.prepare.outputs.commit }}
+        run: python3 temp/workflow/.github/scripts/checkout_release_source.py
+      - uses: ./temp/workflow/.github/actions/publish-setup
+      - name: Publish runner and worker
+        run: >-
+          dotnet publish src/Weavie.Runner/Weavie.Runner.csproj -c Release -r linux-x64
+          --self-contained -p:PublishReadyToRun=true -o layout/versions/$BuildNumber
+      - name: Package managed layout
         run: |
-          for attempt in 1 2 3; do
-            if dotnet publish src/Weavie.Runner/Weavie.Runner.csproj -c Release -r linux-x64 \
-              --self-contained -p:PublishReadyToRun=true \
-              -o layout/versions/${{ github.run_number }}; then
-              break
-            fi
-            if [[ $attempt == 3 ]]; then
-              echo "dotnet publish failed after $attempt attempts" >&2
-              exit 1
-            fi
-            echo "dotnet publish failed (attempt $attempt), retrying..." >&2
-            sleep 5
-          done
-
-      # A tarball (not upload-artifact's zip) so executable bits and the current symlink survive.
-      - name: Package layout tarball
-        run: |
-          ln -s versions/${{ github.run_number }} layout/current
+          ln -s "versions/$BuildNumber" layout/current
           tar -C layout -czf weavie-runner-linux-x64.tar.gz versions current
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: weavie-runner-linux-x64
           path: weavie-runner-linux-x64.tar.gz
           if-no-files-found: error
 
   publish:
-    name: publish (${{ matrix.name }})
-    # Tag/dispatch always; on workflow_run only for a green main PUSH (never a fork-PR ci run).
-    if: >-
-      github.event_name != 'workflow_run' ||
-        ( github.event.workflow_run.event == 'push' &&
-          github.event.workflow_run.conclusion == 'success' &&
-          github.event.workflow_run.head_branch == 'main' )
-    runs-on: ${{ matrix.os }}
+    name: package (${{ matrix.platform.name }})
+    needs: prepare
+    runs-on: ${{ matrix.platform.os }}
+    env:
+      PublicVersion: ${{ needs.prepare.outputs.version }}
+      BuildNumber: ${{ needs.prepare.outputs.build }}
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - name: linux-x64
-            os: ubuntu-latest
-            project: src/Weavie.Linux/Weavie.Linux.csproj
-            rid: linux-x64
-            # R2R + self-contained: native-precompiled, no machine .NET dependency.
-            extra: --self-contained -p:PublishReadyToRun=true
-            asset: weavie-linux-x64.tar.gz
-          - name: win-x64
-            os: windows-latest
-            project: src/Weavie.Win/Weavie.Win.csproj
-            rid: win-x64
-            extra: --self-contained -p:PublishReadyToRun=true
-            asset: weavie-win-x64.zip
-          - name: osx-arm64
-            # macOS 26 (Tahoe) image — ships Xcode 26, which net10.0-macos requires. See ci.yml.
-            os: macos-26
-            project: src/Weavie.Mac/Weavie.Mac.csproj
-            rid: osx-arm64
-            # net10.0-macos publishes a self-contained .app via the macos workload. Trimming is
-            # disabled in the csproj (PublishTrimmed=false): Weavie.Core's reflection-based
-            # System.Text.Json isn't trim-safe. R2R isn't the lever here, so it's left to the
-            # workload's Release defaults.
-            extra: ""
-            asset: weavie-osx-arm64.zip
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
     steps:
-      # Green-main releases build the exact trusted push commit that passed CI. Tag and manual
-      # releases check out their own ref.
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-          ref: >-
-            ${{ github.event_name == 'workflow_run' &&
-                github.event.workflow_run.head_sha || github.ref }}
-
+          ref: ${{ github.workflow_sha }}
+          fetch-depth: 0
+      - *trusted-infrastructure
+      - name: Authorize and check out release source
+        env:
+          SOURCE_COMMIT: ${{ needs.prepare.outputs.commit }}
+        run: python3 temp/workflow/.github/scripts/checkout_release_source.py
       - name: Set up toolchain and build web app
-        uses: ./.github/actions/publish-setup
+        uses: ./temp/workflow/.github/actions/publish-setup
 
       # The Linux host compiles its display-sync library against libdrm's headers.
       - name: Install Linux native build dependencies
-        if: matrix.name == 'linux-x64'
+        if: matrix.platform.name == 'linux'
         run: |
           sudo apt-get update
           sudo apt-get install --no-install-recommends libdrm-dev pkg-config
@@ -159,17 +150,17 @@ jobs:
       # runner, so select the newest installed one rather than a version pinned here that would
       # itself go stale the next time the workload's requirement moves. See ci.yml.
       - name: Select latest Xcode
-        if: matrix.name == 'osx-arm64'
+        if: matrix.platform.name == 'macos'
         run: sudo xcode-select -s "$(find /Applications -maxdepth 1 -name 'Xcode_*.app' -type d | sort -V | tail -1)"
 
       - name: Restore macOS workload
-        if: matrix.name == 'osx-arm64'
-        run: dotnet workload restore ${{ matrix.project }}
+        if: matrix.platform.name == 'macos'
+        run: dotnet workload restore ${{ matrix.platform.project }}
 
       - name: Publish
         run: >
-          dotnet publish ${{ matrix.project }} -c Release -r ${{ matrix.rid }}
-          ${{ matrix.extra }} -o artifacts/${{ matrix.name }}
+          dotnet publish ${{ matrix.platform.project }} -c Release -r ${{ matrix.platform.rid }}
+          ${{ matrix.platform.extra }} -o artifacts/${{ matrix.platform.name }}
 
       # The COMPLETE macOS bundle is the .app the build assembles at bin/ (populated by CopyWebAssets +
       # BuildPtyShim + the hook-relay co-location), NOT the .pkg `dotnet publish` emits — that .pkg
@@ -180,10 +171,10 @@ jobs:
       # still not Developer-ID-signed/notarized, so first launch is right-click > Open (or
       # `xattr -dr com.apple.quarantine Weavie.app`).
       - name: Package macOS app
-        if: matrix.name == 'osx-arm64'
+        if: matrix.platform.name == 'macos'
         shell: bash
         run: |
-          app="src/Weavie.Mac/bin/Release/net10.0-macos/${{ matrix.rid }}/Weavie.app"
+          app="src/Weavie.Mac/bin/Release/net10.0-macos/${{ matrix.platform.rid }}/Weavie.app"
           required=(
             "$app/Contents/MacOS/Weavie"
             "$app/Contents/Resources/wwwroot/index.html"
@@ -202,60 +193,54 @@ jobs:
           fi
           codesign --force --deep --sign - "$app"
           codesign --verify --deep --strict --verbose=2 "$app"
-          ditto -c -k --sequesterRsrc --keepParent "$app" "${{ matrix.asset }}"
+          ditto -c -k --sequesterRsrc --keepParent "$app" "${{ matrix.platform.asset }}"
 
       # tar (not zip) so the self-contained executable's +x bit survives download+extract on Linux.
       - name: Package Linux archive
-        if: matrix.name == 'linux-x64'
-        run: tar -C artifacts/${{ matrix.name }} -czf "${{ matrix.asset }}" .
+        if: matrix.platform.name == 'linux'
+        run: tar -C artifacts/${{ matrix.platform.name }} -czf "${{ matrix.platform.asset }}" .
 
       - name: Package Windows archive
-        if: matrix.name == 'win-x64'
+        if: matrix.platform.name == 'windows'
         shell: pwsh
-        run: Compress-Archive -Path artifacts/${{ matrix.name }}/* -DestinationPath "${{ matrix.asset }}"
+        run: Compress-Archive -Path artifacts/${{ matrix.platform.name }}/* -DestinationPath "${{ matrix.platform.asset }}"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: weavie-${{ matrix.name }}
-          path: ${{ matrix.asset }}
+          name: weavie-${{ matrix.platform.name }}
+          path: ${{ matrix.platform.asset }}
           if-no-files-found: error
 
-  main_latest:
-    name: main-latest prerelease
+  release:
+    name: publish release and advance channel
+    needs: [prepare, checks, runner, publish]
     if: >-
-      github.event_name == 'workflow_run' &&
-      github.event.workflow_run.event == 'push' &&
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.head_branch == 'main'
-    needs: [runner, publish]
+      always() && !cancelled() && needs.prepare.result == 'success' &&
+      needs.runner.result == 'success' && needs.publish.result == 'success' &&
+      (needs.checks.result == 'success' ||
+       (github.event_name == 'workflow_run' && needs.checks.result == 'skipped'))
     runs-on: ubuntu-latest
     permissions:
-      actions: read
       contents: write
+      actions: read
     steps:
-      - name: Download complete release
-        uses: actions/download-artifact@v4
+      # Privileged publication executes the workflow revision, never the selected build's scripts.
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+      - uses: actions/download-artifact@v4
         with:
           pattern: weavie-*
           path: release-assets
           merge-multiple: true
-
-      # Keep an incomplete replacement private if release creation or asset upload fails.
-      - name: Publish rolling prerelease
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-plan
+          path: release-assets
+      - name: Publish complete release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-        run: |
-          script="$RUNNER_TEMP/publish-main-latest.sh"
-          gh api \
-            --header "Accept: application/vnd.github.raw+json" \
-            "repos/${{ github.repository }}/contents/.github/scripts/publish-main-latest.sh?ref=${{ github.workflow_sha }}" \
-            >"$script"
-          bash "$script" \
-            "${{ github.event.workflow_run.head_sha }}" \
-            "main-latest-${{ github.run_id }}" \
-            "${{ github.api_url }}" \
-            "${{ github.repository }}" \
-            "${{ github.run_number }}" \
-            release-assets
+        run: python3 .github/scripts/publish_release.py

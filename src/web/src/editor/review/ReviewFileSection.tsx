@@ -1,5 +1,13 @@
 import { ChevronDown, ChevronRight } from "lucide-solid";
-import { type Accessor, createEffect, createSignal, type JSX, onCleanup, Show } from "solid-js";
+import {
+  type Accessor,
+  createEffect,
+  createSignal,
+  For,
+  type JSX,
+  onCleanup,
+  Show,
+} from "solid-js";
 import { keyHint } from "../../commands/key-hint";
 import { runCommandWithFeedback } from "../../commands/registry";
 import { CommandIds } from "../../commands/types";
@@ -128,6 +136,17 @@ export function ReviewFileSection(props: {
             openCopy={props.openCopy}
             register={props.register}
           />
+          <For each={props.file().diff()?.rejected}>
+            {(rejected) => (
+              <div class="unified-review-rejection">
+                <span>
+                  Rejected proposal
+                  {rejected.stale ? " — changed since rejection; undo unavailable" : ""}
+                </span>
+                <pre>{rejected.text || "(empty file)"}</pre>
+              </div>
+            )}
+          </For>
         </div>
       </Show>
     </article>

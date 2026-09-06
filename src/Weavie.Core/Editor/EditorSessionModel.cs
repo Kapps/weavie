@@ -43,6 +43,9 @@ public sealed record EditorSessionEntry {
 /// <c>docs/specs/editor-session.md</c>.
 /// </summary>
 public sealed record EditorSession {
+	/// <summary>The review presentation owned by this editor session.</summary>
+	public JsonElement? Review { get; init; }
+
 	/// <summary>The path of the file currently shown in the editor, or <c>null</c> when none is open.</summary>
 	public string? Active { get; init; }
 

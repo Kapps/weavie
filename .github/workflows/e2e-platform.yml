@@ -3,6 +3,12 @@ name: e2e platform
 on:
   workflow_call:
     inputs:
+      cache-write:
+        required: true
+        type: boolean
+      ref:
+        required: true
+        type: string
       platform:
         required: true
         type: string
@@ -29,8 +35,27 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - uses: ./.github/actions/setup-dotnet
-      - uses: ./.github/actions/setup-web
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - &trusted-infrastructure
+        name: Check out trusted build infrastructure
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+          path: temp/workflow
+          sparse-checkout: .github
+      - name: Authorize and check out release source
+        if: inputs.ref
+        env:
+          SOURCE_COMMIT: ${{ inputs.ref }}
+        run: python3 temp/workflow/.github/scripts/checkout_release_source.py
+      - uses: ./temp/workflow/.github/actions/setup-dotnet
+        with:
+          cache-write: ${{ inputs.cache-write }}
+      - uses: ./temp/workflow/.github/actions/setup-web
+        with:
+          cache-write: ${{ inputs.cache-write }}
 
       - name: Install web dependencies
         working-directory: src/web
@@ -95,7 +120,17 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - uses: ./.github/actions/setup-web
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - *trusted-infrastructure
+      - name: Authorize and check out release source
+        if: inputs.ref
+        env:
+          SOURCE_COMMIT: ${{ inputs.ref }}
+        run: python3 temp/workflow/.github/scripts/checkout_release_source.py
+      - uses: ./temp/workflow/.github/actions/setup-web
+        with:
+          cache-write: ${{ inputs.cache-write }}
 
       - name: Install web dependencies
         working-directory: src/web
@@ -141,6 +176,7 @@ jobs:
           done
 
       - name: Cache Playwright browsers
+        if: inputs.cache-write
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/.pw-browsers
@@ -230,7 +266,17 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - uses: ./.github/actions/setup-web
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - *trusted-infrastructure
+      - name: Authorize and check out release source
+        if: inputs.ref
+        env:
+          SOURCE_COMMIT: ${{ inputs.ref }}
+        run: python3 temp/workflow/.github/scripts/checkout_release_source.py
+      - uses: ./temp/workflow/.github/actions/setup-web
+        with:
+          cache-write: ${{ inputs.cache-write }}
 
       - name: Install web dependencies
         working-directory: src/web

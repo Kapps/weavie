@@ -119,15 +119,6 @@ export interface AgentPaneWireUpdate extends AgentPaneUpdate {
   textLength: number;
 }
 
-export interface AgentPaneHistoryFragment {
-  generation: number;
-  ordinal: number;
-  revision: number;
-  jsonOffset: number;
-  jsonLength: number;
-  json: string;
-}
-
 export interface AgentInputQuestion {
   id: string;
   header: string;

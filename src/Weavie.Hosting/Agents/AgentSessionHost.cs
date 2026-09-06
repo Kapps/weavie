@@ -14,8 +14,6 @@ public sealed partial class AgentSessionHost : IAsyncDisposable {
 	private readonly Dictionary<string, int> _paneItemIndexes = new(StringComparer.Ordinal);
 	private readonly HashSet<string> _paneActiveItems = new(StringComparer.Ordinal);
 	private readonly Dictionary<int, PaneDeltaBuffer> _paneDeltaBuffers = [];
-	private readonly Dictionary<object, HistoryRead> _historyReads = [];
-	private readonly object _directHistoryReader = new();
 	private readonly Lock _paneGate = new();
 	private readonly AgentPaneOutput _paneOutput;
 	private readonly IAgentAuthenticationTerminal _authenticationTerminal;

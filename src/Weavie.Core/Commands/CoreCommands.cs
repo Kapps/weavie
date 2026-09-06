@@ -103,6 +103,9 @@ public static class CoreCommands {
 	/// <summary>Starts a fresh conversation for the active structured agent.</summary>
 	public const string ClearAgentConversation = "weavie.agent.clearConversation";
 
+	/// <summary>Reloads this page's agent history without restarting the provider.</summary>
+	public const string ReloadAgentHistory = "weavie.agent.reloadHistory";
+
 	/// <summary>Asks a context-preserving question outside the primary structured-agent transcript.</summary>
 	public const string AskAgentAside = "weavie.agent.askAside";
 
@@ -818,6 +821,16 @@ public static class CoreCommands {
 			Description = "Clear the transcript and start a new empty agent conversation in this workspace.",
 			Aliases = ["new conversation", "clear conversation", "clear agent", "agent clear"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "alt+Shift+c" }],
+			When = "agentFocused",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = ReloadAgentHistory,
+			Title = "Reload Agent History",
+			RunsIn = CommandLocation.Web,
+			Category = "Agent",
+			Description = "Reload this session's conversation history without restarting its agent.",
+			DefaultKeybindings = [new CommandKeybinding { Key = "alt+Shift+r" }],
 			When = "agentFocused",
 		});
 

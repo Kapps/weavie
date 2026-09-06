@@ -254,12 +254,12 @@ test("long transcripts switch as a measured virtual window", async ({ page }) =>
   host.setAgentHistory(first.address, {
     generation: 1,
     messages: transcript("FIRST"),
-    pageSize: 400,
+    batchSize: 400,
   });
   host.setAgentHistory(second.address, {
     generation: 1,
     messages: transcript("SECOND"),
-    pageSize: 400,
+    batchSize: 400,
   });
 
   try {
@@ -401,12 +401,12 @@ test("tool-heavy transcripts switch through one preprojected structured pane", a
   host.setAgentHistory(first.address, {
     generation: 1,
     messages: transcript("first-turn", 10_000).messages,
-    pageSize: 1_000,
+    batchSize: 1_000,
   });
   host.setAgentHistory(second.address, {
     generation: 1,
     messages: transcript("second-turn", 15_000).messages,
-    pageSize: 1_000,
+    batchSize: 1_000,
   });
   try {
     await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
@@ -418,25 +418,13 @@ test("tool-heavy transcripts switch through one preprojected structured pane", a
     await expect(page.getByText("history 10000", { exact: true })).toBeVisible();
     expect(await page.locator(".toast-msg").allTextContents()).toEqual([]);
     await expect
-      .poll(() => {
-        const counts: Record<string, number> = {};
-        for (const message of host.received) {
-          if (
-            message.kind === "request" &&
-            message.scope === "session" &&
-            message.session !== null &&
-            message.feature === "agent" &&
-            message.name === "historyPage"
-          ) {
-            counts[message.session.slot] = (counts[message.session.slot] ?? 0) + 1;
-          }
-        }
-        return counts;
-      })
-      .toEqual({
-        [first.address.slot]: 11,
-        [second.address.slot]: 16,
-      });
+      .poll(() => host.agentHistoryRequests.map((address) => address.slot).sort())
+      .toEqual([first.address.slot, second.address.slot].sort());
+    await page.getByTitle(new RegExp(`^${second.label} —`)).click();
+    await expect(surface).toContainText("ran 15000 commands");
+    await expect(page.getByText("history 15000", { exact: true })).toBeVisible();
+    await page.getByTitle(new RegExp(`^${first.label} —`)).click();
+    await expect(surface).toContainText("ran 10000 commands");
     await page.evaluate(
       () =>
         new Promise<void>((resolve) =>
@@ -535,7 +523,7 @@ test("remounting a structured pane preserves the session-owned edited draft", as
   host.setAgentHistory(first.address, {
     generation: 1,
     messages,
-    pageSize: 100,
+    batchSize: 100,
   });
 
   try {
@@ -566,7 +554,7 @@ test("remounting a structured pane preserves the session-owned edited draft", as
     host.setAgentHistory(first.address, {
       generation: 2,
       messages: messages.slice(1),
-      pageSize: 100,
+      batchSize: 100,
     });
     host.publishSession(first.address, "agent", "paneReset", {});
     await expect(page.locator(".agent-activity-details")).not.toHaveAttribute("open", "");

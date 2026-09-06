@@ -34,7 +34,7 @@ async function openAutoscrollPane(
   const host = await MockHost.start({ distDir, sessions: [session] });
   host.setAgentHistory(session.address, {
     generation: 1,
-    pageSize: 100,
+    batchSize: 100,
     messages: Array.from({ length: 80 }, (_, index) => ({
       providerId: "codex",
       type: "item-completed",

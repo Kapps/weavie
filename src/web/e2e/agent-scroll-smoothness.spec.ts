@@ -59,7 +59,7 @@ const transcript = Array.from({ length: 150 }, (_, turn) => [
 test("scrolling back through never-measured history stays smooth", async ({ page }) => {
   const session = mockSession("scroll", "scroll", "acp");
   const host = await MockHost.start({ distDir, sessions: [session] });
-  host.setAgentHistory(session.address, { generation: 1, pageSize: 5000, messages: transcript });
+  host.setAgentHistory(session.address, { generation: 1, batchSize: 5000, messages: transcript });
 
   try {
     await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
@@ -156,7 +156,7 @@ test.describe("native wheel scrolling", () => {
       const host = await MockHost.start({ distDir, sessions: [session] });
       host.setAgentHistory(session.address, {
         generation: 1,
-        pageSize: 5000,
+        batchSize: 5000,
         messages: transcript.map((message) =>
           message.type === "user-message" ? { ...message, text: message.text.repeat(4) } : message,
         ),

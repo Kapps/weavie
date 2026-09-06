@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect } from "@playwright/test";
 import { test } from "./harness/network-fixtures";
-import { MockHost } from "./mock-host";
+import { MockHost, mockSession } from "./mock-host";
 
 const distDir = join(dirname(fileURLToPath(import.meta.url)), "..", "dist");
 
@@ -25,7 +25,27 @@ test.describe("native in-process bridge contract", () => {
   });
 
   test("round-trips the same host and exact-session envelopes as WebSocket", async ({ page }) => {
+    const session = {
+      ...mockSession("cx", "acp", "acp"),
+      address: { slot: "cx", incarnation: "cx-incarnation" },
+    };
+    host.setSessions([session]);
+    host.setAgentHistory(session.address, {
+      generation: 0,
+      batchSize: 64,
+      messages: [
+        {
+          type: "item-completed",
+          providerId: "acp",
+          itemId: "answer",
+          itemType: "agentMessage",
+          status: "completed",
+          text: "restored-from-history",
+        },
+      ],
+    });
     await page.addInitScript(() => {
+      window.__WEAVIE_RESOURCE_BASE__ = `${window.location.origin}/weavie-media`;
       interface Address {
         slot: string;
         incarnation: string;
@@ -135,42 +155,6 @@ test.describe("native in-process bridge contract", () => {
           message.name === "sync"
         ) {
           respond(message, { ok: true });
-        } else if (
-          message.kind === "request" &&
-          message.scope === "session" &&
-          message.feature === "agent" &&
-          message.name === "historyPage"
-        ) {
-          const record = {
-            generation: 0,
-            ordinal: 1,
-            revision: 1,
-            textOffset: 0,
-            textLength: 21,
-            type: "item-completed",
-            providerId: "acp",
-            itemId: "answer",
-            itemType: "agentMessage",
-            status: "completed",
-            text: "restored-from-history",
-          };
-          const json = JSON.stringify(record);
-          respond(message, {
-            generation: 0,
-            readId: "native-history",
-            revision: 1,
-            messages: [
-              {
-                generation: 0,
-                ordinal: 1,
-                revision: 1,
-                jsonOffset: 0,
-                jsonLength: json.length,
-                json,
-              },
-            ],
-            cursor: null,
-          });
         }
       };
 

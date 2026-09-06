@@ -817,7 +817,9 @@ test.describe("session-addressed WebSocket transport", () => {
     await expect(page.locator(".toast-msg")).toHaveCount(0);
   });
 
-  test("mobile history paging cannot block commands and reconnect catches up", async ({ page }) => {
+  test("mobile history streaming cannot block commands and reconnect catches up", async ({
+    page,
+  }) => {
     const session = mockSession("main", "main", "acp");
     const branches = ["main", "release/responsive-during-history"];
     host.onHost("request", "git", "branches", (request) => host.respond(request, branches));
@@ -833,7 +835,7 @@ test.describe("session-addressed WebSocket transport", () => {
     host.setAgentHistory(session.address, {
       generation: 1,
       messages: [message("retained", "retained before reconnect")],
-      pageSize: 100,
+      batchSize: 100,
     });
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
@@ -856,26 +858,13 @@ test.describe("session-addressed WebSocket transport", () => {
     host.setAgentHistory(session.address, {
       generation: 2,
       messages: pagedMessages,
-      pageSize: historyPageSize,
+      batchSize: historyPageSize,
     });
-    host.pauseAgentHistoryAfterResponses(1);
+    host.pauseAgentHistoryAfterBatches(1);
 
-    const checkpoint = host.checkpoint();
+    const historyCheckpoint = host.agentHistoryBatches.length;
     host.publishSession(session.address, "agent", "paneReset", {});
-    await expect
-      .poll(
-        () =>
-          host.received
-            .slice(checkpoint)
-            .filter(
-              (received) =>
-                received.kind === "request" &&
-                received.scope === "session" &&
-                received.feature === "agent" &&
-                received.name === "historyPage",
-            ).length,
-      )
-      .toBe(2);
+    await expect.poll(() => host.agentHistoryBatches.length - historyCheckpoint).toBe(1);
     const branchCheckpoint = host.checkpoint();
     await page.getByRole("button", { name: "Sessions", exact: true }).click();
     await host.waitForHost("request", "git", "branches", branchCheckpoint);
@@ -885,18 +874,7 @@ test.describe("session-addressed WebSocket transport", () => {
     host.resumeAgentHistory();
     await agentTab.click();
     await expect
-      .poll(
-        () =>
-          host.received
-            .slice(checkpoint)
-            .filter(
-              (received) =>
-                received.kind === "request" &&
-                received.scope === "session" &&
-                received.feature === "agent" &&
-                received.name === "historyPage",
-            ).length,
-      )
+      .poll(() => host.agentHistoryBatches.length - historyCheckpoint)
       .toBe(expectedHistoryPages);
     await expect(surface).toContainText("history page 570");
     await expect(surface).not.toContainText("retained before reconnect");
@@ -908,17 +886,11 @@ test.describe("session-addressed WebSocket transport", () => {
     host.setAgentHistory(session.address, {
       generation: 2,
       messages: [...pagedMessages, message("offline", "emitted while offline")],
-      pageSize: historyPageSize,
+      batchSize: historyPageSize,
     });
-    const catchUpCheckpoint = host.checkpoint();
+    const catchUpCheckpoint = host.agentHistoryRequests.length;
     host.resumeHello();
-    await host.waitForSession(
-      session.address,
-      "request",
-      "agent",
-      "historyPage",
-      catchUpCheckpoint,
-    );
+    await expect.poll(() => host.agentHistoryRequests.length).toBe(catchUpCheckpoint + 1);
     await expect(surface).toContainText("emitted while offline");
   });
 

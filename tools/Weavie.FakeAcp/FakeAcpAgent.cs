@@ -704,8 +704,16 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 						["title"] = "Choice",
 						["description"] = "Which value?",
 						["oneOf"] = new JsonArray(
-							new JsonObject { ["const"] = "one", ["title"] = "One" },
-							new JsonObject { ["const"] = "two", ["title"] = "Two" }),
+							new JsonObject {
+								["const"] = "one",
+								["title"] = "One",
+								["description"] = "The first value, described in its own words.",
+							},
+							new JsonObject {
+								["const"] = "two",
+								["title"] = "Two",
+								["description"] = "The second value, with a description of its own.",
+							}),
 					},
 				},
 				["required"] = new JsonArray("choice"),

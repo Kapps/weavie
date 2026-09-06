@@ -115,6 +115,22 @@ describe("toAgentTranscript", () => {
     ]);
   });
 
+  it("keeps BTW opened before the first primary turn above later primary messages", () => {
+    const transcript = toAgentTranscript([
+      {
+        type: "side-conversation-started",
+        providerId: "acp",
+        conversationId: "first-aside",
+        anchorTurnId: "0",
+        text: "Remember 3",
+      },
+      { type: "user-message", providerId: "acp", turnId: "1", text: "Primary begins" },
+    ]);
+
+    expect(transcript.map((entry) => entry.kind)).toEqual(["aside", "message"]);
+    expect(transcript[0]?.asideEntries?.[0]?.text).toBe("Remember 3");
+  });
+
   it("keeps a side conversation active through background work and pending input", () => {
     const conversation = {
       conversationId: "aside-1",

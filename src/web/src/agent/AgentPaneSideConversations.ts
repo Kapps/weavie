@@ -35,7 +35,8 @@ export function orderSideConversations(messages: readonly AgentPaneUpdate[]): Ag
     const turnId = primary[index]?.turnId;
     if (turnId) lastIndexByTurn.set(turnId, index);
   }
-  const result: AgentPaneUpdate[] = [];
+  const result: AgentPaneUpdate[] = (byAnchor.get("0") ?? []).flat();
+  byAnchor.delete("0");
   for (let index = 0; index < primary.length; index += 1) {
     const message = primary[index]!;
     result.push(message);

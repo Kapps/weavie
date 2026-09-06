@@ -55,7 +55,7 @@ export function AgentToolOutput(props: {
 
   return (
     <details
-      class="agent-tool-output-details"
+      class="agent-disclosure agent-tool-output-details"
       data-agent-tool-output
       open={expanded()}
       ref={details}

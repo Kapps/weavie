@@ -679,6 +679,9 @@ public sealed class AcpAgentSessionTests {
 		fixture.Session.ResolveInput(input.RequestId!, "accept", new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal) {
 			["choice"] = ["two"],
 		});
+		var answered = await fixture.WaitForMessageAsync(message => message.Type == "input-resolved");
+		// The resolution carries the answers so a reloaded pane can reopen what was asked and chosen.
+		Assert.Equal(["two"], answered.Answers!["choice"]);
 		await fixture.WaitForMessageAsync(message => message.Type == "item-completed"
 			&& message.Text == "input: two");
 		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed" && message.TurnId == "2");

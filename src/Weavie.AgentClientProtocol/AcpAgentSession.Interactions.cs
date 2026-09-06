@@ -33,7 +33,8 @@ public sealed partial class AcpAgentSession {
 			PermissionStatus(option),
 			permission: true,
 			pending.ThreadId,
-			pending.TurnId);
+			pending.TurnId,
+			answers: null);
 	}
 
 	/// <inheritdoc/>
@@ -76,7 +77,8 @@ public sealed partial class AcpAgentSession {
 			action == "accept" ? "accepted" : action,
 			permission: false,
 			pending.ThreadId,
-			pending.TurnId);
+			pending.TurnId,
+			action == "accept" ? answers : null);
 	}
 
 	/// <inheritdoc/>
@@ -237,7 +239,8 @@ public sealed partial class AcpAgentSession {
 				"cancelled",
 				pending.Kind == "permission",
 				pending.ThreadId,
-				pending.TurnId);
+				pending.TurnId,
+				answers: null);
 		}
 		bool cancelAuthentication;
 		bool requiresUserInput;
@@ -277,7 +280,8 @@ public sealed partial class AcpAgentSession {
 		string status,
 		bool permission,
 		string? threadId,
-		string turnId) {
+		string turnId,
+		IReadOnlyDictionary<string, IReadOnlyList<string>>? answers) {
 		bool requiresUserInput;
 		lock (_gate) {
 			_resolvedRequests.Add(requestId);
@@ -293,6 +297,7 @@ public sealed partial class AcpAgentSession {
 			ItemId = $"request:{requestId}",
 			RequestId = requestId,
 			Status = status,
+			Answers = answers,
 		});
 	}
 

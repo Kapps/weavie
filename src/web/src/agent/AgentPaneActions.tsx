@@ -272,9 +272,6 @@ export function InputRequestActions(props: {
               values={draft.answers()[question.id] ?? []}
               setValues={(values) => setAnswer(question.id, values)}
             />
-            <Show when={question.options.length > 0}>
-              <small>{question.options.map((option) => option.description).join(" ")}</small>
-            </Show>
           </fieldset>
         )}
       </For>

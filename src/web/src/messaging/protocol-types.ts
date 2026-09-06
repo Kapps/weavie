@@ -72,6 +72,7 @@ export interface AgentPaneUpdate {
   text?: string | null;
   status?: string | null;
   questions?: AgentInputQuestion[] | null;
+  answers?: Record<string, string[]> | null;
   actions?: AgentActionOption[] | null;
   locations?: AgentPaneLocation[] | null;
   diffs?: AgentPaneDiff[] | null;

@@ -1,6 +1,7 @@
 import { createSignal, For, type JSX, Match, Show, Switch } from "solid-js";
 import type { ClientSession } from "../bridge";
 import { ActivityDetails, AgentRichContent } from "./AgentActivityDetails";
+import { ResolvedInputSummary } from "./AgentInputSummary";
 import { AgentMarkdown } from "./AgentMarkdown";
 import { ApprovalActions, AuthenticationActions, InputRequestActions } from "./AgentPaneActions";
 import { EditLocationActions, PlanActions } from "./AgentPaneEditActions";
@@ -83,9 +84,11 @@ export function TranscriptEntry(props: {
           />
         </Show>
         <EntryActions
+          detailsExpanded={props.detailsExpanded}
           entry={props.entry}
           keyboardApprovalId={props.keyboardApprovalId}
           keyboardInputId={props.keyboardInputId}
+          onDetailsToggle={props.onDetailsToggle}
           session={props.session}
         />
       </div>
@@ -207,9 +210,11 @@ function showEntryHeader(entry: AgentTranscriptEntry): boolean {
 }
 
 function EntryActions(props: {
+  detailsExpanded: boolean;
   entry: AgentTranscriptEntry;
   keyboardApprovalId: string | null;
   keyboardInputId: string | null;
+  onDetailsToggle: (open: boolean) => void;
   session: ClientSession;
 }): JSX.Element {
   return (
@@ -237,6 +242,15 @@ function EntryActions(props: {
               answersToKeys={
                 props.keyboardInputId !== null && message().itemId === props.keyboardInputId
               }
+            />
+          </Match>
+          <Match
+            when={message().type === "input-requested" && (message().questions?.length ?? 0) > 0}
+          >
+            <ResolvedInputSummary
+              expanded={props.detailsExpanded}
+              message={message()}
+              onToggle={props.onDetailsToggle}
             />
           </Match>
           <Match when={message().type === "edit-location"}>

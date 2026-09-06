@@ -1,5 +1,6 @@
 import { For, type JSX, Show } from "solid-js";
 import type { AgentPaneUpdate, ClientSession } from "../bridge";
+import { Disclosure } from "./AgentDisclosure";
 import { EditLocationActions } from "./AgentPaneEditActions";
 import { AgentLinkedText } from "./AgentPaneLinks";
 import type { AgentActivityStep, AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
@@ -13,44 +14,38 @@ export function ActivityDetails(props: {
   steps: AgentActivityStep[];
 }): JSX.Element {
   return (
-    <details class="agent-activity-details" open={props.expanded}>
-      {/* biome-ignore lint/a11y/noStaticElementInteractions: summary is the native details control. */}
-      <summary
-        onClick={(event) => {
-          event.preventDefault();
-          props.onToggle(!props.expanded);
-        }}
-      >
-        {activityDetailsSummary(props.entry, props.entry.detailCount)}
-      </summary>
-      <Show when={props.expanded}>
-        <div class="agent-activity-list">
-          <For each={props.steps}>
-            {(step) => (
-              <div class={`agent-activity-step agent-step-${step.tone}`}>
-                <span class="agent-step-status">{step.status ?? "done"}</span>
-                <span class="agent-step-label">{step.label}</span>
-                <Show when={hasReviewTarget(step)}>
-                  <span class="agent-step-actions">
-                    <Show when={step.actionMessage}>
-                      {(message) => (
-                        <EditLocationActions session={props.session} message={message()} />
-                      )}
-                    </Show>
-                  </span>
-                </Show>
-                <Show when={hasOutput(step)}>
-                  <AgentToolOutput
-                    renderOutput={() => <ActivityStepOutput session={props.session} step={step} />}
-                    startExpanded={step.tone === "failed"}
-                  />
-                </Show>
-              </div>
-            )}
-          </For>
-        </div>
-      </Show>
-    </details>
+    <Disclosure
+      class="agent-activity-details"
+      label={activityDetailsSummary(props.entry, props.entry.detailCount)}
+      open={props.expanded}
+      onToggle={props.onToggle}
+    >
+      <div class="agent-activity-list">
+        <For each={props.steps}>
+          {(step) => (
+            <div class={`agent-activity-step agent-step-${step.tone}`}>
+              <span class="agent-step-status">{step.status ?? "done"}</span>
+              <span class="agent-step-label">{step.label}</span>
+              <Show when={hasReviewTarget(step)}>
+                <span class="agent-step-actions">
+                  <Show when={step.actionMessage}>
+                    {(message) => (
+                      <EditLocationActions session={props.session} message={message()} />
+                    )}
+                  </Show>
+                </span>
+              </Show>
+              <Show when={hasOutput(step)}>
+                <AgentToolOutput
+                  renderOutput={() => <ActivityStepOutput session={props.session} step={step} />}
+                  startExpanded={step.tone === "failed"}
+                />
+              </Show>
+            </div>
+          )}
+        </For>
+      </div>
+    </Disclosure>
   );
 }
 

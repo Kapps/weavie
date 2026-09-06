@@ -53,6 +53,9 @@ public sealed record AgentPaneMessage {
 	/// <summary>Normalized questions for an input request, when any.</summary>
 	public IReadOnlyList<AgentInputQuestion>? Questions { get; init; }
 
+	/// <summary>The answers submitted for an accepted input request, keyed by question id.</summary>
+	public IReadOnlyDictionary<string, IReadOnlyList<string>>? Answers { get; init; }
+
 	/// <summary>The exact provider-advertised actions for a permission, authentication, or elicitation request.</summary>
 	public IReadOnlyList<AgentActionOption>? Actions { get; init; }
 

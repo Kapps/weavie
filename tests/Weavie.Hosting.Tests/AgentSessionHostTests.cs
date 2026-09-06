@@ -285,6 +285,24 @@ public sealed class AgentSessionHostTests {
 			.GetString());
 	}
 
+	// The card reopens a resolved request from replayed history, so the answers have to survive the projection.
+	[Fact]
+	public async Task Replayed_history_keeps_the_answers_of_a_resolved_input_request() {
+		await using var fixture = CreateFixture(static () => "slot-1", 0);
+		var (session, host) = (fixture.Session, fixture.Host);
+		session.Emit(Completed("request:1", "answered") with {
+			Type = "input-resolved",
+			Status = "accepted",
+			Answers = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal) {
+				["choice"] = ["two"],
+			},
+		});
+		await host.DrainPaneAsync(CancellationToken.None);
+
+		var record = Assert.Single(AssembleHistory(await HistoryPages(host)));
+		Assert.Equal("two", record.GetProperty("answers").GetProperty("choice")[0].GetString());
+	}
+
 	[Fact]
 	public async Task Fragmented_history_read_keeps_one_immutable_revision_while_live_output_changes() {
 		await using var fixture = CreateFixture(static () => "slot-1", 0);

@@ -99,7 +99,7 @@ export interface PendingRequest {
 export function pendingRequest(messages: readonly AgentPaneUpdate[]): PendingRequest | null {
   let latest: PendingRequest | null = null;
   for (const lifecycle of requestLifecycles(messages)) {
-    if (lifecycle.resolvedStatus === null) {
+    if (lifecycle.resolution === null) {
       latest = {
         key: lifecycle.key,
         kind: lifecycle.kind,

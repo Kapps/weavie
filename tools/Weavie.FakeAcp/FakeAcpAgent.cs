@@ -1,7 +1,6 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using Weavie.FakeAcp;
 
 namespace Weavie.FakeAcp;
 
@@ -21,6 +20,7 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 	private bool _cancelFails;
 	private bool _authenticated;
 	private bool _expiredAuthentication;
+	private bool _prompted;
 	private bool _supportsPlanUpdates;
 	private string? _sessionId;
 
@@ -274,6 +274,9 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 			throw AcpAdapterException.InvalidParams("session/fork must target the active fake session.");
 		}
 		RequireMcp(parameters);
+		if (!_prompted && !File.Exists(TranscriptPath(source))) {
+			throw new AcpAdapterException(-32603, "No transcript exists for this session.", null);
+		}
 		string sessionId = "fake-fork-" + NewSessionId();
 		File.WriteAllText(StatePath(sessionId + ".owner"), Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture));
 		string sourceTranscript = TranscriptPath(source);
@@ -329,6 +332,7 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 
 	private async Task<JsonNode> PromptAsync(JsonElement parameters, CancellationToken ct) {
 		RequireSession(parameters);
+		_prompted = true;
 		var prompt = AcpJson.RequiredArray(parameters, "prompt", "session/prompt");
 		string text = PromptText(prompt);
 		File.AppendAllText(

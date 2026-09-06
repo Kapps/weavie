@@ -95,7 +95,9 @@ different lifecycle: it clears the exact persisted association, resets the pane 
 without a session id so the replacement process must call `session/new`. Provider-owned history is abandoned, not
 deleted.
 
-Side conversations share the primary conversation's ACP process. The fork is loaded on the connection that
+Side conversations share the primary conversation's ACP process and can run alongside its active turn.
+Before the primary has any turns, a side conversation starts with `session/new`: there is no history to fork,
+and providers may not have created a transcript yet. Otherwise, the fork is loaded on the connection that
 created it: transferring it to another process can conflict with the provider's existing transcript writer.
 Each conversation owns a session endpoint bound to its provider identity and process generation. Endpoints
 address outgoing operations; callers cannot supply a session id. The connection dispatches incoming messages

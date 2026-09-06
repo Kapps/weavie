@@ -158,7 +158,7 @@ public sealed partial class AcpAgentSession {
 				_sessionOpening = true;
 				_endpoint ??= _connection.OpenEndpoint(generation, sessionId, HandleNotification, RegisterClientRequest);
 				if (sessionId is null && _role is PrimaryRole) _guidanceSent = false;
-				else if (!loadSession) {
+				else if (!loadSession && _role is PrimaryRole) {
 					_turnNumber = _sessions.ResolveTurnNumber(_definition.Id, _context.Workspace);
 				}
 			}
@@ -178,7 +178,7 @@ public sealed partial class AcpAgentSession {
 
 		JsonElement setup;
 		try {
-			if (_role is SideRole fork && sessionId is null) {
+			if (_role is SideRole { Conversation.AnchorTurnNumber: > 0 } fork && sessionId is null) {
 				await Endpoint(generation).ForkFromAsync(fork.Owner.Endpoint(generation), new {
 					cwd = Path.GetFullPath(_context.Workspace),
 					mcpServers = McpServers(),

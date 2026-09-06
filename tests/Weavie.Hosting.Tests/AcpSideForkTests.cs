@@ -9,6 +9,8 @@ public sealed class AcpSideForkTests {
 	public async Task InterruptDuringForkIsolatesEarlyUpdatesAndAllowsTheNextAside(bool authenticationRequired) {
 		await using var fixture = AcpAgentSessionFixture.CreateHeldForkAdapter(authenticationRequired);
 		await fixture.StartAsync();
+		fixture.Submit("primary context");
+		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed");
 		fixture.Session.AskAside("interrupted side prompt");
 		var first = await fixture.WaitForMessageAsync(message => message.Type == "side-conversation-started");
 		await Wait.UntilAsync(() => File.Exists(Path.Combine(fixture.Workspace, "fork-started")));
@@ -26,7 +28,7 @@ public sealed class AcpSideForkTests {
 		Assert.DoesNotContain(fixture.Messages, message => message.Type == "authentication-requested");
 		Assert.DoesNotContain(fixture.Messages, message => message.Type == "side-conversation-failed"
 			&& message.ConversationId == answer.ConversationId);
-		string prompt = Assert.Single(File.ReadAllLines(Path.Combine(fixture.FakeAcpStateDirectory, "prompts.log")));
+		string prompt = Assert.Single(File.ReadAllLines(Path.Combine(fixture.FakeAcpStateDirectory, "prompts.log")).Skip(1));
 		Assert.EndsWith(":next side prompt", prompt, StringComparison.Ordinal);
 	}
 }

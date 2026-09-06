@@ -166,6 +166,8 @@ public sealed class AcpAgentSessionTests {
 	public async Task NativeSession_QueuesIndependentSideConversations() {
 		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
 		await fixture.StartAsync();
+		fixture.Submit("primary context");
+		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed");
 
 		fixture.Session.AskAside("first aside");
 		fixture.Session.AskAside("second aside");
@@ -178,17 +180,40 @@ public sealed class AcpAgentSessionTests {
 		Assert.Equal(2, File.ReadAllLines(Path.Combine(fixture.FakeAcpStateDirectory, "forks.log")).Length);
 	}
 
-	[Fact]
-	public async Task NativeSession_SendsGuidanceWhenForkingAnEmptyPrimaryContext() {
+	[Theory]
+	[InlineData(false)]
+	[InlineData(true)]
+	public async Task NativeSession_StartsAnEmptyAsideWithoutForkingAndKeepsItsRepliesSeparate(bool primaryAdvancesBeforeOpening) {
 		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
 		await fixture.StartAsync();
 
+		if (primaryAdvancesBeforeOpening) fixture.Session.PaneMessage += message => {
+			// The anchor is captured before the child starts; primary persistence can advance in that gap.
+			if (message.Type == "side-conversation-started") fixture.Sessions.Adopt("fake", fixture.Workspace, "fake-session", 1);
+		};
 		fixture.Session.AskAside("context");
 		var answer = await fixture.WaitForMessageAsync(message =>
 			message.Type == "item-completed" && message.Text?.StartsWith("context:", StringComparison.Ordinal) == true);
 
 		Assert.Equal("context:guidance=True;selection=False", answer.Text);
-		Assert.NotNull(answer.ConversationId);
+		Assert.Equal("1", answer.TurnId);
+		string conversationId = Assert.IsType<string>(answer.ConversationId);
+		fixture.Session.ReplyAside(conversationId, "follow-up");
+		var reply = await fixture.WaitForMessageAsync(message =>
+			message.Type == "item-completed" && message.Text == "echo: follow-up");
+		Assert.Equal(conversationId, reply.ConversationId);
+		Assert.Equal("2", reply.TurnId);
+		Assert.False(File.Exists(Path.Combine(fixture.FakeAcpStateDirectory, "forks.log")));
+		Assert.False(File.Exists(Path.Combine(fixture.FakeAcpStateDirectory, "loads.log")));
+
+		fixture.Submit("primary starts here");
+		var primary = await fixture.WaitForMessageAsync(message =>
+			message.Type == "item-completed" && message.Text == "echo: primary starts here");
+		Assert.Null(primary.ConversationId);
+		Assert.Equal("1", primary.TurnId);
+		Assert.Equal(
+			["fake-session-2:context", "fake-session-2:follow-up", "fake-session:primary starts here"],
+			File.ReadAllLines(Path.Combine(fixture.FakeAcpStateDirectory, "prompts.log")));
 	}
 
 	[Fact]
@@ -275,13 +300,15 @@ public sealed class AcpAgentSessionTests {
 	public async Task NativeSession_PrimaryPromptRunsDuringSideLoadAuthentication() {
 		await using var fixture = AcpAgentSessionFixture.CreateSideHeldAuthenticationAdapter();
 		await fixture.StartAsync();
+		fixture.Submit("primary context");
+		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed");
 
 		fixture.Session.AskAside("authentication");
 		var authentication = await fixture.WaitForMessageAsync(message =>
 			message.Type == "authentication-requested" && message.ConversationId is not null);
 		fixture.Submit("during authentication");
 		var answer = await fixture.WaitForMessageAsync(message => message.Type == "turn-completed"
-			&& message.ConversationId is null);
+			&& message.ConversationId is null && message.TurnId == "2");
 		fixture.Session.Interrupt();
 
 		var terminal = await fixture.WaitForMessageAsync(message =>

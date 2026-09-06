@@ -654,6 +654,9 @@ export default function App(): JSX.Element {
   const fileIndex = (): string[] => selectedFileIndex().files;
   const indexRoot = (): string | null => selectedFileIndex().root;
   const indexPending = (): boolean => selectedFileIndex().pending;
+  const [browserFilterRequest, setBrowserFilterRequest] = createSignal<{
+    session: ClientSession;
+  } | null>(null);
 
   // The Monaco editor + all diff/review orchestration; App feeds it host messages and commands.
   const editor = createEditorController({
@@ -1197,6 +1200,11 @@ export default function App(): JSX.Element {
                 <Show when={indexRoot() !== null}>
                   <FileBrowser
                     root={indexRoot()!}
+                    session={selectedSession()}
+                    files={fileIndex()}
+                    pending={indexPending()}
+                    filterRequest={browserFilterRequest()}
+                    onFilterRequestHandled={() => setBrowserFilterRequest(null)}
                     listings={dirListings()}
                     currentFile={currentFile()}
                     onExpand={listSelectedDirectory}
@@ -1647,6 +1655,15 @@ export default function App(): JSX.Element {
       registerCommand(CommandIds.toggleAgentToolOutput, toggleAgentToolOutput),
       registerCommand(CommandIds.toggleAgentMermaidPreview, () => toggleActiveAgentMermaid()),
       registerCommand(CommandIds.toggleFileBrowser, () => toggleBrowser()),
+      registerCommand(CommandIds.filterFileBrowser, async () => {
+        const session = selectedSession();
+        if (session === null) throw new Error("Select a session to filter files.");
+        await toolPanels.open("files");
+        if (selectedSession() === session) {
+          refreshSelectedFileIndex();
+          setBrowserFilterRequest({ session });
+        }
+      }),
       registerCommand(CommandIds.dockFileBrowser, () => toolPanels.toggleDock("files")),
       registerCommand(CommandIds.dockSearch, () => toolPanels.toggleDock("search")),
       registerCommand(CommandIds.closeFloatingPanel, closeFloatingPanel),

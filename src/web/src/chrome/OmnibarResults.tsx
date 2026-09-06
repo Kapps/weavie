@@ -172,7 +172,7 @@ export function OmnibarResults(props: {
               {(row, i) => (
                 <button
                   {...rowAttributes(i())}
-                  class="tb-omnibar-row tb-tree-row"
+                  class="tb-omnibar-row tb-tree-row file-tree-row"
                   classList={{
                     dir: row.node.kind === "directory",
                     selected: i() === props.selected(),
@@ -192,14 +192,14 @@ export function OmnibarResults(props: {
                       </Show>
                     </Show>
                   </span>
-                  <span class="tb-tree-icon" aria-hidden="true">
+                  <span class="tb-tree-icon file-tree-icon" aria-hidden="true">
                     <Show when={row.node.kind === "directory"} fallback={<FileIcon />}>
                       <Show when={props.expanded().has(row.node.key)} fallback={<Folder />}>
                         <FolderOpen />
                       </Show>
                     </Show>
                   </span>
-                  <span class="tb-row-leaf">{row.node.name}</span>
+                  <span class="tb-row-leaf file-tree-name">{row.node.name}</span>
                 </button>
               )}
             </For>

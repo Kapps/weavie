@@ -1,7 +1,56 @@
 import { mkdir, rename, rmdir, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { runCommand } from "../harness/actions";
+import { awaitEditorReady, runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
+
+test("Filter Files opens on first use, searches collapsed paths and preserves the tree", async ({
+  page,
+  weavie,
+}) => {
+  await mkdir(join(weavie.workspace, "filter-nested/deeper"), { recursive: true });
+  await mkdir(join(weavie.workspace, "filter-expanded"));
+  await writeFile(join(weavie.workspace, "filter-nested/deeper/Needle.txt"), "nested match");
+  await writeFile(join(weavie.workspace, "filter-expanded/retained.txt"), "expanded child");
+  await awaitEditorReady(page);
+  await expect(page.locator(".browser-panel")).toHaveCount(0);
+  await runCommand(page, "Filter Files");
+  const input = page.getByRole("combobox", { name: "Filter files by name or path" });
+  const filter = page.getByRole("button", { name: "Filter", exact: true });
+  const row = (name: string) => page.locator(".browser-row", { hasText: name });
+  await expect(input).toBeFocused();
+  await expect(filter).toHaveAttribute("title", /Ctrl\+Shift\+B|⌘\+Shift\+B/);
+  await row("filter-expanded").click();
+  await expect(row("retained.txt")).toBeVisible();
+  await expect(row("Needle.txt")).toHaveCount(0);
+
+  await input.fill("FILTER-NESTED/DEEPER");
+  const match = page.locator(".browser-filter-result");
+  await expect(match).toHaveCount(1);
+  await expect(match).toContainText("Needle.txt");
+  await expect(match).toContainText("filter-nested/deeper");
+  await input.fill("nEeDlE");
+  await expect(match).toHaveCount(1);
+  await input.press("ArrowDown");
+  await input.press("Enter");
+  await expect(page.locator(".editor")).toHaveAttribute("data-active-file", /[\\/]Needle\.txt$/);
+
+  await filter.click();
+  await expect(input).toBeFocused();
+  await input.fill("definitely-no-such-file");
+  await expect(page.locator(".browser-empty", { hasText: "No matching files" })).toBeVisible();
+  await expect(match).toHaveCount(0);
+  await input.press("Escape");
+  await expect(input).toHaveCount(0);
+  await expect(filter).toBeFocused();
+  await expect(row("retained.txt")).toBeVisible();
+  await expect(row("Needle.txt")).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".browser-panel")).toBeHidden();
+  await runCommand(page, "Toggle File Browser");
+  await expect(page.locator(".browser-panel")).toBeVisible();
+  await expect(input).toHaveCount(0);
+  await expect(filter).toHaveAttribute("aria-expanded", "false");
+});
 
 test("@cross open file browser follows external directory and file changes", async ({
   page,

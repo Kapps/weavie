@@ -1,8 +1,9 @@
 import { existsSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { expect, type Locator, type Page, test } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 import type { CommandInfo } from "../src/commands/types";
+import { test } from "./harness/network-fixtures";
 import { MockHost, mockSession } from "./mock-host";
 
 // Drives the native ACP composer in a real browser against the mock host: it renders the structured agent

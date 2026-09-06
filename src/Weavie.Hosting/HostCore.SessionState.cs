@@ -31,7 +31,6 @@ public sealed partial class HostCore {
 			return;
 		}
 
-		bool firstOpen = _sessionStore.Items.Count == 0;
 		var toLoad = new List<SessionSlot>();
 		foreach (var item in _sessionStore.Items) {
 			var slot = _sessions.Find(item.Id.Value)
@@ -69,8 +68,14 @@ public sealed partial class HostCore {
 			}
 		}
 
-		if (firstOpen || _sessions.Slots.Count == 0) {
+		// The workspace's own checkout always has a session; it is re-created whenever nothing covers it. A
+		// workspace with no available agent provider still opens, with its other sessions and the reason why.
+		try {
 			EnsureWorkspaceSession();
+		} catch (Exception error) {
+			_sessionStartupNotices.Add(
+				("error", $"Couldn't open a session on this workspace's own checkout: {Innermost(error).Message}"));
+			Log($"[sessions] ensuring the workspace-checkout session failed: {error}");
 		}
 	}
 

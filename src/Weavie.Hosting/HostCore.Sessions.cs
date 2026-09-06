@@ -136,7 +136,7 @@ public sealed partial class HostCore {
 	internal HostSession? WorkspaceSessionForTest =>
 		_sessions?.Slots.FirstOrDefault(IsWorkspaceCheckout)?.Session;
 
-	/// <summary>The workspace's own checkout, the one checkout a delete keeps: it is re-created, never rediscovered.</summary>
+	/// <summary>The workspace's own checkout: the catalog invariant Weavie always offers and delete always refuses.</summary>
 	private bool IsWorkspaceCheckout(SessionSlot slot) => IsWorkspaceCheckout(slot.WorktreePath);
 
 	private bool IsWorkspaceCheckout(string worktreePath) => PathIdentity.Equals(worktreePath, WorkspaceRoot);
@@ -424,7 +424,8 @@ public sealed partial class HostCore {
 					structured ? 2 : 0,
 					slot.Session is { } session ? StatusName(session.Status.Status) : "idle",
 					SessionIdentity.Hue(slot.Label),
-					SessionIdentity.Monogram(slot.Label));
+					SessionIdentity.Monogram(slot.Label),
+					IsWorkspaceCheckout(slot));
 			})
 			.ToArray()
 		?? [];
@@ -439,7 +440,8 @@ public sealed partial class HostCore {
 		int AgentInputProtocol,
 		string Status,
 		int Hue,
-		string Monogram);
+		string Monogram,
+		bool WorkspaceCheckout);
 
 	private async Task<string> ResolveWorkspaceSessionLabelAsync(GitService git, bool isRepo) {
 		try {
@@ -769,18 +771,35 @@ public sealed partial class HostCore {
 			() => DeleteSessionCoreAsync(source, sessionId, force, context, ct),
 			ct);
 
+	/// <summary>
+	/// Resolves a delete/classify target, refusing an unknown id and the workspace's own checkout — that slot is a
+	/// catalog invariant, since Weavie does not own the directory the user opened and always offers a session on
+	/// it. Unload releases its resources instead.
+	/// </summary>
+	private (SessionSlot? Target, CommandResult Refusal) DeletableTarget(string? sessionId) {
+		var target = string.IsNullOrWhiteSpace(sessionId) ? null : _sessions?.Find(sessionId);
+		if (target is null) {
+			return (null, CommandResult.Failure("No such session."));
+		}
+
+		return IsWorkspaceCheckout(target)
+			? (null, CommandResult.Failure(
+				$"'{target.Label}' is the workspace's own checkout, so it can't be deleted. Unload it instead."))
+			: (target, default);
+	}
+
 	private Task<CommandResult> DeleteSessionCoreAsync(
 		HostSession? source,
 		string? sessionId,
 		bool force,
 		CommandInvocationContext context,
 		CancellationToken ct) {
-		var target = string.IsNullOrWhiteSpace(sessionId) ? null : _sessions?.Find(sessionId);
+		var (target, refusal) = DeletableTarget(sessionId);
 		if (target is null) {
-			return Task.FromResult(CommandResult.Failure("No such session."));
+			return Task.FromResult(refusal);
 		}
 
-		if (!IsWorkspaceCheckout(target) && _worktrees is not { }) {
+		if (_worktrees is not { }) {
 			return Task.FromResult(CommandResult.Failure("This workspace isn't a git repository, so it has no worktree to delete."));
 		}
 
@@ -826,8 +845,8 @@ public sealed partial class HostCore {
 			// untouched rather than unloading it as a side effect. Skip when the worktree is gone/half-removed
 			// (no .git) — nothing left to lose, and git can't answer git status there. Read-only git probes, so
 			// they need no UI-thread marshaling.
-			// git itself refuses the repository's main working tree and a locked worktree, in its own words.
-			if (!IsWorkspaceCheckout(target) && IsLiveWorktree(worktreePath)) {
+			// git itself refuses a locked worktree, in its own words.
+			if (IsLiveWorktree(worktreePath)) {
 				branchless = await IsBranchlessAsync(worktreePath, ct).ConfigureAwait(false);
 				if (branchless && !force) {
 					return CommandResult.Failure(
@@ -914,34 +933,26 @@ public sealed partial class HostCore {
 				await _ui.InvokeAsync(() => UnloadSlotAsync(target), admissionCancellation).ConfigureAwait(false);
 			}
 
-			if (!IsWorkspaceCheckout(target)) {
-				// Settle before removal: Windows can lag on releasing the unloaded children's handles, and external
-				// scanners may briefly hold a lock. A short pause lets git's one-shot remove succeed instead of
-				// partial-failing and orphaning the directory (git deletes its own record mid-failure, unrecoverable).
-				await Task.Delay(TimeSpan.FromSeconds(1), CancellationToken.None).ConfigureAwait(false);
-				await _worktrees!.RemoveAsync(
-					worktreePath,
-					deleteBranch: false,
-					force,
-					CancellationToken.None).ConfigureAwait(false);
-			}
+			// Settle before removal: Windows can lag on releasing the unloaded children's handles, and external
+			// scanners may briefly hold a lock. A short pause lets git's one-shot remove succeed instead of
+			// partial-failing and orphaning the directory (git deletes its own record mid-failure, unrecoverable).
+			await Task.Delay(TimeSpan.FromSeconds(1), CancellationToken.None).ConfigureAwait(false);
+			await _worktrees!.RemoveAsync(
+				worktreePath,
+				deleteBranch: false,
+				force,
+				CancellationToken.None).ConfigureAwait(false);
 			// Back on the UI thread for the slot-set mutation + rail push (the awaits above left it), so the
 			// removal can't interleave with a concurrent switch reading the slot set.
 			await _ui.InvokeAsync(() => {
 				_sessions?.Remove(target);
-				if (_sessions?.Slots.Count == 0) {
-					EnsureWorkspaceSession();
-				} else {
-					PushSessionList();
-					PersistSessionState();
-				}
+				PushSessionList();
+				PersistSessionState();
 				return Task.CompletedTask;
 			}, CancellationToken.None).ConfigureAwait(false);
-			Notify("info", (IsWorkspaceCheckout(target), branchless) switch {
-				(true, _) => $"Session '{label}' was deleted. Its checkout was kept.",
-				(false, true) => $"Session '{label}' was deleted. Its checkout had no branch to keep.",
-				_ => $"Session '{label}' was deleted. Its branch was kept.",
-			});
+			Notify("info", branchless
+				? $"Session '{label}' was deleted. Its checkout had no branch to keep."
+				: $"Session '{label}' was deleted. Its branch was kept.");
 			return CommandResult.Success();
 		} catch (WorktreeDirtyException) {
 			return CommandResult.Failure(
@@ -979,9 +990,9 @@ public sealed partial class HostCore {
 		RunSessionLifecycleAsync(() => ClassifyDeleteCoreAsync(sessionId, ct), ct);
 
 	private async Task<CommandResult> ClassifyDeleteCoreAsync(string? sessionId, CancellationToken ct) {
-		var target = string.IsNullOrWhiteSpace(sessionId) ? null : _sessions?.Find(sessionId);
+		var (target, refusal) = DeletableTarget(sessionId);
 		if (target is null) {
-			return CommandResult.Failure("No such session.");
+			return refusal;
 		}
 
 		// A gone/half-removed worktree (no .git) can't be inspected and has nothing left to lose — classify clean.
@@ -989,7 +1000,7 @@ public sealed partial class HostCore {
 		IReadOnlyList<string> tracked = [];
 		IReadOnlyList<string> untracked = [];
 		bool branchless = false;
-		if (!IsWorkspaceCheckout(target) && IsLiveWorktree(target.WorktreePath)) {
+		if (IsLiveWorktree(target.WorktreePath)) {
 			try {
 				branchless = await IsBranchlessAsync(target.WorktreePath, ct).ConfigureAwait(false);
 				var status = await new GitService().GetChangeStateAsync(target.WorktreePath, ct).ConfigureAwait(false);
@@ -1011,7 +1022,6 @@ public sealed partial class HostCore {
 		return CommandResult.Success(null, JsonSerializer.Serialize(new {
 			state,
 			label = target.Label,
-			removesCheckout = !IsWorkspaceCheckout(target),
 			branchless,
 			changedFiles = changed.Take(previewLimit).ToArray(),
 			changedCount = changed.Length,

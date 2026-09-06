@@ -121,6 +121,7 @@ registerHostFeature((connection) =>
           status: entry.status,
           hue: entry.hue,
           monogram: entry.monogram,
+          workspaceCheckout: entry.workspaceCheckout,
         })),
       );
       return next;

@@ -158,6 +158,7 @@ function deliverCatalog(backendId: string, slots: string[]): void {
         status: "starting",
         hue: 0,
         monogram: slot.slice(0, 1),
+        workspaceCheckout: false,
       }) as SessionCatalogEntry,
   );
   for (const handler of connection(backendId).catalogs) {
@@ -207,6 +208,7 @@ const chip = (id: string, active: boolean): RailSession => ({
   status: "idle",
   hue: 0,
   monogram: id.slice(0, 1),
+  workspaceCheckout: false,
   backendId: "local",
   locationName: "default",
   isLocal: true,

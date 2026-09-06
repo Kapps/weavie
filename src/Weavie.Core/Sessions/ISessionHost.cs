@@ -69,7 +69,8 @@ public interface ISessionHost {
 
 	/// <summary>
 	/// Deletes the session named by the required <paramref name="sessionId"/>: removes its git worktree but keeps
-	/// the branch. Refuses when the worktree has uncommitted changes unless <paramref name="force"/>. A blank id is
+	/// the branch. Refuses when the worktree has uncommitted changes unless <paramref name="force"/>, and always
+	/// refuses the workspace's own checkout — that session is a catalog invariant. A blank id is
 	/// rejected — it must never fall back to the focused session, which may not be the caller's own (issue #217).
 	/// </summary>
 	Task<CommandResult> DeleteSessionAsync(

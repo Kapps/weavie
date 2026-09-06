@@ -54,13 +54,23 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ inputs.ref || github.sha }}
+      - &trusted-infrastructure
+        name: Check out trusted build infrastructure
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+          path: temp/workflow
+          sparse-checkout: .github
+
+      - uses: ./temp/workflow/.github/actions/setup-web
+        with:
+          cache-write: ${{ !inputs.ref }}
 
       - name: Test rolling release publisher
         run: |
           bash .github/scripts/test-publish-main-latest.sh
           python3 -m unittest discover -s .github/scripts -p 'test_*.py'
-
-      - uses: ./.github/actions/setup-web
 
       - name: Install dependencies
         working-directory: src/web
@@ -86,7 +96,10 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ inputs.ref || github.sha }}
-      - uses: ./.github/actions/setup-dotnet
+      - *trusted-infrastructure
+      - uses: ./temp/workflow/.github/actions/setup-dotnet
+        with:
+          cache-write: ${{ !inputs.ref }}
 
       # libdrm's headers describe the structs the display-sync library rewrites; libwebkitgtk-6.0-4 pulls
       # in the GTK 4 stack the host renders through.
@@ -139,7 +152,10 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ inputs.ref || github.sha }}
-      - uses: ./.github/actions/setup-dotnet
+      - *trusted-infrastructure
+      - uses: ./temp/workflow/.github/actions/setup-dotnet
+        with:
+          cache-write: ${{ !inputs.ref }}
 
       # The Linux host compiles its display-sync library against libdrm's headers.
       - name: Install Linux native build dependencies
@@ -197,6 +213,7 @@ jobs:
       matrix: ${{ fromJSON(needs.platforms.outputs.matrix) }}
     uses: ./.github/workflows/e2e-platform.yml
     with:
+      cache-write: ${{ !inputs.ref }}
       ref: ${{ inputs.ref || github.sha }}
       platform: ${{ matrix.platform.name }}
       os: ${{ matrix.platform.os }}

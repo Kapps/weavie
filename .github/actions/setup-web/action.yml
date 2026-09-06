@@ -1,5 +1,9 @@
 name: Set up web toolchain
 description: Install the repository pnpm and Node versions with the pnpm store cache.
+inputs:
+  cache-write:
+    description: Allow this job to save shared dependency caches
+    required: true
 runs:
   using: composite
   steps:
@@ -11,5 +15,5 @@ runs:
     - uses: actions/setup-node@v4
       with:
         node-version-file: .node-version
-        cache: pnpm
+        cache: ${{ inputs.cache-write == 'true' && 'pnpm' || '' }}
         cache-dependency-path: src/web/pnpm-lock.yaml

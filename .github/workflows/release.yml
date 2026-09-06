@@ -86,7 +86,15 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ needs.prepare.outputs.commit }}
-      - uses: ./.github/actions/publish-setup
+      - &trusted-infrastructure
+        name: Check out trusted build infrastructure
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+          path: temp/workflow
+          sparse-checkout: .github
+      - uses: ./temp/workflow/.github/actions/publish-setup
       - name: Publish runner and worker
         run: >-
           dotnet publish src/Weavie.Runner/Weavie.Runner.csproj -c Release -r linux-x64
@@ -116,8 +124,9 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ needs.prepare.outputs.commit }}
+      - *trusted-infrastructure
       - name: Set up toolchain and build web app
-        uses: ./.github/actions/publish-setup
+        uses: ./temp/workflow/.github/actions/publish-setup
 
       # The Linux host compiles its display-sync library against libdrm's headers.
       - name: Install Linux native build dependencies

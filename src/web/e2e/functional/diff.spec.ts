@@ -72,6 +72,12 @@ test.describe("change navigation", () => {
     "console.error(message);\n";
   test.use({ fakeScript: { steps: [sleep, openDiff(twoHunks)] } });
 
+  // 2026-09-06 01:24 UTC: flaked on the macOS shard — https://github.com/Kapps/weavie/actions/runs/34003547684/job/101406941253.
+  // Root cause: the assertion sampled the cursor DOM node's pixel `top`, comparing it against itself after
+  // navigating away and back — a fragile proxy that can read the same value on a legitimate wrap-around and
+  // races the async caret reveal on a slow runner. Fixed in Kapps/weavie#785 by reading the editor's actual
+  // line number instead and asserting the exact destinations (2 → 6 → 2), which is deterministic and needs
+  // no polling tolerance.
   test("the next-change control moves through the diff's hunks @cross", async ({ page }) => {
     await expect(page.locator(".weavie-inline-toolbar")).toBeVisible({ timeout: 15_000 });
     const caretLine = () =>

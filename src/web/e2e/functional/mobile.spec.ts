@@ -550,6 +550,12 @@ test("Claude Code accepts back swipes beside the screen edge, never on it", asyn
 
 // Touch chrome hides the session rail, so the inbox row is where a session is managed: hold it (the
 // stand-in for right-click) or tap its actions button, and the entries are the rail's own command rows.
+//
+// 2026-09-06 01:35 UTC: flaked on the windows shard — https://github.com/Kapps/weavie/actions/runs/34003547684/job/101407078440.
+// Root cause: the row's bounding rect was measured once up front and reused for every later touch, but a
+// catalog update (the earlier "Unload session" in this same test) replaces the row element and can move it,
+// so a stale point lands the touch on the wrong spot. Fixed in Kapps/weavie#785 by re-querying the row and
+// re-measuring its bounds immediately before each touch dispatch (`startTouch` below).
 test("a compact session row manages its session from a hold and its actions button", async ({
   page,
 }) => {

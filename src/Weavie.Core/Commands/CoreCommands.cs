@@ -31,6 +31,9 @@ public static class CoreCommands {
 	/// <summary>Shows/hides the workspace file browser.</summary>
 	public const string ToggleFileBrowser = "weavie.view.toggleFileBrowser";
 
+	/// <summary>Opens the file browser's filename and path filter.</summary>
+	public const string FilterFileBrowser = "weavie.files.filter";
+
 	/// <summary>Toggles whether File Browser stays docked.</summary>
 	public const string DockFileBrowser = "weavie.view.dockFileBrowser";
 	/// <summary>Toggles whether Find in Files stays docked.</summary>
@@ -458,6 +461,7 @@ public static class CoreCommands {
 		var focusBindings = new List<CommandKeybinding>(9);
 		foreach (var (id, title, key, when) in new[] {
 			(DockFileBrowser, "Toggle File Browser Stay Open", "$mod+alt+b", ""),
+			(FilterFileBrowser, "Filter Files", "$mod+shift+b", ""),
 			(DockSearch, "Toggle Find in Files Stay Open", "$mod+alt+f", ""),
 			(CloseFloatingPanel, "Close Floating Panel", "Escape", "floatingPanelOpen"),
 			(CloseToolPanel, "Close Tool Panel", "$mod+shift+w", "focusedTool"),

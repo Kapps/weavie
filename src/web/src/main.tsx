@@ -30,6 +30,7 @@ import "./chrome/search-panel.css";
 import "./layout/tool-panel.css";
 import "./chrome/titlebar.css";
 import "./chrome/omnibar.css";
+import "./files/file-tree.css";
 import "./chrome/resize-frame.css";
 import "./chrome/middle-click-autoscroll.css";
 import "./notify/notify.css";

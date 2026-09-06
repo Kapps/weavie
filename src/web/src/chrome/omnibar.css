@@ -160,29 +160,6 @@
   margin-right: 5px;
 }
 
-/* ── EXPERIMENT (omnibar variant 3 + caps names): accent outline folder glyphs ──────────────────
-   Folder names keep the all-caps section-label styling; the folder glyph is an unfilled outline in
-   the UI accent (--accent, teal). Files keep the default foreground.
-   Revert: delete this block + the `dir` class on .tb-tree-row in Omnibar.tsx. */
-
-/* Folder names: all-caps section-label styling, bright with generous tracking. */
-.tb-tree-row.dir .tb-row-leaf {
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  font-size: var(--font-hint-size);
-  opacity: 0.9;
-}
-
-/* File names: a little tracking so the dense camelCase doesn't read cramped. */
-.tb-tree-row:not(.dir) .tb-row-leaf {
-  letter-spacing: 0.02em;
-}
-
-/* Folder glyph: unfilled outline in the UI accent (teal) under the caps names. */
-.tb-tree-row.dir .tb-tree-icon {
-  color: var(--accent);
-}
-
 /* Symbol modes (@ / #): a kind glyph precedes the name; the container/file context is dimmed and flush right. */
 .tb-symbol-row {
   align-items: center;

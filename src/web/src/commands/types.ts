@@ -59,6 +59,7 @@ export const CommandIds = {
   focusPaneByIndex: "weavie.pane.focusByIndex",
   toggleFullscreenPane: "weavie.pane.toggleFullscreen",
   toggleFileBrowser: "weavie.view.toggleFileBrowser",
+  filterFileBrowser: "weavie.files.filter",
   dockFileBrowser: "weavie.view.dockFileBrowser",
   dockSearch: "weavie.view.dockSearch",
   closeFloatingPanel: "weavie.view.closeFloatingPanel",

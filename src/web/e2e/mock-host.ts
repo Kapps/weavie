@@ -904,7 +904,7 @@ function sameAddress(left: SessionAddress | null, right: SessionAddress | null):
 
 const FONT_SPEC = { family: "monospace", size: 13, weight: "normal" };
 export function mockEditorOptions(overrides: Partial<EditorOptionsSpec>): EditorOptionsSpec {
-  return { ...DEFAULT_EDITOR_OPTIONS, gitBlame: "off", ...overrides };
+  return { ...DEFAULT_EDITOR_OPTIONS, gitBlame: "off", spellCheck: false, ...overrides };
 }
 const BOOTSTRAP_GLOBALS: Record<string, unknown> = {
   __WEAVIE_FONTS__: { editor: FONT_SPEC, terminal: FONT_SPEC },
@@ -915,8 +915,7 @@ const BOOTSTRAP_GLOBALS: Record<string, unknown> = {
     soundPack: "weavie",
     gates: { turnComplete: true, needsInput: true, failed: true },
   },
-  // The mock host serves no git feature, so blame is off here — otherwise every opened file would issue a
-  // `git.blame` request nothing answers.
+  // Git and spelling use real Core services in functional tests; this transport-only host serves neither.
   __WEAVIE_EDITOR_OPTIONS__: mockEditorOptions({}),
   __WEAVIE_THEME__: { mode: "system", light: { id: "weavie-light" }, dark: { id: "weavie-dark" } },
   __WEAVIE_COMMANDS__: [],

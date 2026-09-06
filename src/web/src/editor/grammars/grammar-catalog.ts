@@ -54,7 +54,8 @@ export function buildBroadCatalog(claimedExtensions: ReadonlySet<string>): Broad
   // linguist: TextMate scope -> the union of file extensions of every language that maps to it.
   const byScope = new Map<string, ScopeExtensions>();
   for (const language of Object.values(linguistData)) {
-    const scope = language?.tmScope;
+    // Linguist and the VS Code Markdown grammar use different names for the same scope.
+    const scope = language?.tmScope === "text.md" ? "text.html.markdown" : language?.tmScope;
     if (scope === undefined || scope === "none" || !language.extensions?.length) {
       continue;
     }

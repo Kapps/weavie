@@ -11,6 +11,7 @@ import {
   registerSessionFeature,
   selectedSession,
 } from "../bridge";
+import type { ContextMenuState } from "../chrome/ContextMenu";
 import { dismissSplash } from "../splash";
 import { mark } from "../startup-timing";
 // Type-only (erased at build): the symbol query surface's monaco glue is dynamically imported in start(), so it
@@ -69,6 +70,7 @@ import {
 } from "./session-store";
 import type { EditorSession, EditorSessionEntry } from "./session-types";
 import { SESSION_FILE_SCHEME, sessionForUri, sessionUriHostPath } from "./session-uri-owner";
+import type { SpellCheck } from "./spell-check";
 
 // Only a genuine hang trips this, never a slow cold start: the editor chunk (~750KB of Monaco + workers) plus
 // vscode-services init can legitimately run tens of seconds on a loaded machine or across the remote worker hop
@@ -201,6 +203,9 @@ export interface EditorController {
    * only when no editor is mounted, so the command declines rather than appearing to do nothing.
    */
   showBlameAtCursor(): boolean;
+  spellingMenuAt(x: number, y: number): ContextMenuState;
+  correctSpelling(args: unknown): ContextMenuState | null;
+  addSpellingWord(scope: "user" | "project", args: unknown): Promise<void>;
   /** The active file's current working-copy text (reactive), for the Preview overlay; "" when none. */
   activeContent(): string;
   /** Whether an inline openDiff review is showing (reactive), so Preview suspends rather than hiding it. */
@@ -269,6 +274,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   let inlineDiff: InlineDiff | undefined;
   let commentProse: CommentProse | undefined;
   let gitBlame: GitBlameController | undefined;
+  let spelling: SpellCheck | undefined;
   let reviseMarks: ReviseMarks | undefined;
   let initTimer: number | undefined;
   let disposing = false;
@@ -933,12 +939,13 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         }
         // inline-diff + comment-prose pull Monaco; import them here (the chunk is already loaded by the
         // editor host above) so they stay off the first-paint entry chunk.
-        const [diff, prose, symbolMod, blame, marks] = await Promise.all([
+        const [diff, prose, symbolMod, blame, marks, spell] = await Promise.all([
           import("./inline-diff"),
           import("./comment-prose"),
           import("../symbols/symbol-source"),
           import("./git-blame"),
           import("./revise-marks"),
+          import("./spell-check"),
         ]);
         symbolSource = symbolMod.createSymbolSource(created.editor);
         inlineDiff = diff.createInlineDiff(created.editor);
@@ -977,6 +984,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
           },
         });
         gitBlame = blame.createGitBlame(created.editor);
+        spelling = spell.createSpellCheck(created.editor);
         const session = selectedSession();
         if (session !== null) {
           await rebindSession(session);
@@ -1846,6 +1854,9 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       return true;
     },
     showBlameAtCursor: () => gitBlame?.showAtCursor() ?? false,
+    spellingMenuAt: (x, y) => spelling?.menuAt(x, y) ?? { x, y, entries: [] },
+    correctSpelling: (args) => spelling?.correct(args) ?? null,
+    addSpellingWord: (scope, args) => spelling?.add(scope, args) ?? Promise.resolve(),
     activeContent,
     reviewActive,
     parkedReviewCount: reviews.count,
@@ -1996,6 +2007,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       }
       commentProse?.dispose();
       gitBlame?.dispose();
+      spelling?.dispose();
       reviseMarks?.dispose();
       inlineDiff?.dispose();
       host?.dispose();

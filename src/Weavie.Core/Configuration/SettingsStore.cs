@@ -222,7 +222,6 @@ public sealed class SettingsStore : IDisposable {
 			}
 
 			layer.SetValue(definition, coerced);
-			layer.SaveAtomic();
 			if (_enableWatcher) {
 				layer.Watch();
 			}
@@ -248,9 +247,6 @@ public sealed class SettingsStore : IDisposable {
 			}
 
 			bool removed = layer.RemoveKey(definition.Key);
-			if (removed) {
-				layer.SaveAtomic();
-			}
 
 			changes = RecomputeAndDiffLocked();
 			string? shadow = ResolveLocked(definition, workspaceRoot).Source == SettingSource.Environment ? definition.EnvVar : null;

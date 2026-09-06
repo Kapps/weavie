@@ -151,6 +151,9 @@ public sealed partial class HostCore : IAsyncDisposable {
 				"ui-dispatch-failure", "View Logs", CoreCommands.ViewLogs, null);
 		});
 		_settings = services.Settings;
+		_userDictionary = new(Path.Combine(Path.GetDirectoryName(_settings.FilePath)!, "dictionary.txt"), confined: false, watch: true);
+		_userDictionary.Changed += InvalidateSpelling;
+		_spellLanguages = new(_settings, _spellingHttp);
 		var messagePolicy = new MessageExecutionPolicy(
 			TimeSpan.FromSeconds(2),
 			TimeSpan.FromSeconds(_settings.RequireInt(MessageSettings.OperationDeadlineSeconds)));
@@ -374,6 +377,7 @@ public sealed partial class HostCore : IAsyncDisposable {
 		// Live settings groups + theme: re-push the resolved values so the web applies them in place.
 		// Broadcast marshals to the UI thread and the stores are thread-safe, so call it directly.
 		_onSettingChanged = change => {
+			if (change.Key == EditorSettings.SpellCheckLocale) InvalidateSpelling();
 			foreach (var (keys, eventName, _, build) in LiveSettingGroups) {
 				if (keys.Contains(change.Key)) {
 					_messages.Host.Feature("settings").PublishJson(eventName, build(_settings));
@@ -552,7 +556,11 @@ public sealed partial class HostCore : IAsyncDisposable {
 			await AttemptAsync(() => sessions.DisposeAsync().AsTask()).ConfigureAwait(false);
 		}
 
+		_userDictionary.Changed -= InvalidateSpelling;
+		_userDictionary.Dispose();
 		await AttemptAsync(() => _messages.DisposeAsync().AsTask()).ConfigureAwait(false);
+		_spellLanguages.Dispose();
+		_spellingHttp.Dispose();
 		await AttemptAsync(() => _http.DisposeAsync().AsTask()).ConfigureAwait(false);
 		if (failures.Count > 0) {
 			throw new AggregateException("One or more host shutdown operations failed.", failures);

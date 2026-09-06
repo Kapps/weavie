@@ -9,10 +9,14 @@
   <ItemGroup>
     <!-- TOML store for user settings (comment-preserving DocumentSyntax round-trip). -->
     <PackageReference Include="Tomlyn" />
+    <PackageReference Include="WeCantSpell.Hunspell" />
   </ItemGroup>
 
   <ItemGroup>
     <InternalsVisibleTo Include="Weavie.Core.Tests" />
+    <EmbeddedResource Include="Spelling/Resources/*" />
+    <Content Include="../../third-party/spelling/*" Link="third-party/spelling/%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

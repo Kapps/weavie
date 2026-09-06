@@ -74,27 +74,26 @@ test.describe("change navigation", () => {
 
   test("the next-change control moves through the diff's hunks @cross", async ({ page }) => {
     await expect(page.locator(".weavie-inline-toolbar")).toBeVisible({ timeout: 15_000 });
-    await expect
-      .poll(() => page.evaluate(() => window.__WEAVIE_EDITOR__?.getPosition()?.lineNumber))
-      .toBe(2);
-    // The editor caret jumps to each change as you navigate; its vertical position is the observable.
-    const caretTop = () =>
-      page
-        .locator(".monaco-editor .cursors-layer .cursor")
-        .first()
-        .evaluate((el) => Number.parseFloat((el as HTMLElement).style.top) || 0);
+    // The line the editor's cursor sits on — exactly what goToChange sets via editor.setPosition. Read that
+    // directly rather than the cursor DOM node's pixel `top`: a CodeLens/viewZone above the function can
+    // resolve asynchronously and shift every line's rendered offset, so two different hunks' pixel tops can
+    // land on the same value depending on when that zone's height changes relative to each click.
+    // 2026-09-06, flaked on macOS (https://github.com/Kapps/weavie/actions/runs/34003547684/job/101406941253):
+    // a delayed CodeLens zone above `function greet` shifted line heights between the two clicks below, so the
+    // pixel-top probe this test used to use read the same value after both — switched to the cursor's line.
+    const currentLine = () =>
+      page.evaluate(() => window.__WEAVIE_EDITOR__?.getPosition()?.lineNumber);
+    await expect.poll(currentLine).toBe(2);
 
     const next = page.locator(".weavie-inline-nav").nth(1); // ↓ next change
     await next.click();
-    // The caret jump to the first change is async (host round-trip → editor reveal), so poll until it lands
-    // rather than sampling once — a single read races the jump on a slow runner and sees the caret still at 0.
-    await expect.poll(caretTop).toBeGreaterThan(0);
-    const firstChange = await caretTop();
+    await expect.poll(currentLine).not.toBe(2);
+    const firstChange = await currentLine();
 
     await next.click();
-    // openDiff may already have revealed the first hunk before the toolbar becomes visible. In that case the
-    // first click lands on the second and the next click correctly wraps upward to the first.
-    await expect.poll(caretTop).not.toBe(firstChange);
+    // openDiff already reveals the first hunk before the toolbar becomes visible, so the first click above
+    // lands on the second hunk and this one wraps back up to the first.
+    await expect.poll(currentLine).not.toBe(firstChange);
   });
 });
 

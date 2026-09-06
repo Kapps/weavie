@@ -21,6 +21,21 @@ public sealed class SessionChangeTrackerPersistenceTests {
 	}
 
 	[Fact]
+	public void RemovedConversationPrompt_StaysRemovedAfterRestart() {
+		var files = new InMemoryFileSystem();
+		var persistence = new MemoryReviewPersistence();
+		var tracker = Tracker(files, persistence);
+		tracker.Observe(new AgentConversationEvent("side", new AgentPromptSubmitted(null, "Side prompt")));
+		Edit(tracker, files, "proposal\n");
+		Assert.True(JsonNode.Parse(persistence.Read()!)!["Prompts"]!.AsObject().ContainsKey("side"));
+
+		tracker.Observe(new AgentConversationRemoved("side"));
+		Assert.False(JsonNode.Parse(persistence.Read()!)!["Prompts"]!.AsObject().ContainsKey("side"));
+		Tracker(files, persistence).KeepFile(File);
+		Assert.False(JsonNode.Parse(persistence.Read()!)!["Prompts"]!.AsObject().ContainsKey("side"));
+	}
+
+	[Fact]
 	public void Restart_ResumesKeptRejectedAndAccumulatedPendingChanges() {
 		var files = new InMemoryFileSystem();
 		var persistence = new MemoryReviewPersistence();

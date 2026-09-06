@@ -48,9 +48,12 @@ public sealed partial class SessionChangeTracker {
 		var boundary = Extend(new(state.ReviewBaseline, state.ReviewBaselineExists));
 		var anchor = Extend(new(state.AcceptedAnchor, state.AcceptedAnchorExists));
 		return state with {
-			Baseline = seed.Baseline, BaselineExists = seed.BaselineExists,
-			ReviewBaseline = boundary.Text, ReviewBaselineExists = boundary.Exists,
-			AcceptedAnchor = anchor.Text, AcceptedAnchorExists = anchor.Exists,
+			Baseline = seed.Baseline,
+			BaselineExists = seed.BaselineExists,
+			ReviewBaseline = boundary.Text,
+			ReviewBaselineExists = boundary.Exists,
+			AcceptedAnchor = anchor.Text,
+			AcceptedAnchorExists = anchor.Exists,
 		};
 	}
 }

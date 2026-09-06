@@ -288,8 +288,7 @@ public sealed partial class HostCore {
 	}
 
 	private void RunReviewAction(HostSession session, Action action) {
-		try { action(); }
-		catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+		try { action(); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
 			Notify(session, "error", $"Couldn't save your review: {ex.Message}");
 		}
 	}

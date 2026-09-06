@@ -80,7 +80,9 @@ public sealed partial class SessionChangeTracker {
 		string conversationId = value is AgentConversationEvent side ? side.ConversationId : string.Empty;
 		if (value is AgentConversationEvent scoped) value = scoped.Value;
 		if (value is AgentConversationRemoved removed) {
-			lock (_gate) _conversationPrompts.Remove(removed.ConversationId);
+			lock (_gate) {
+				if (_conversationPrompts.Remove(removed.ConversationId)) Checkpoint();
+			}
 			return;
 		}
 

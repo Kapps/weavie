@@ -30,7 +30,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-          ref: ${{ inputs.ref || github.sha }}
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Authorize and check out release source
+        if: inputs.ref
+        env:
+          SOURCE_COMMIT: ${{ inputs.ref }}
+        run: python3 .github/scripts/checkout_release_source.py
       - id: matrix
         env:
           FULL: ${{ inputs.full || false }}
@@ -53,7 +59,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-          ref: ${{ inputs.ref || github.sha }}
+          ref: ${{ github.sha }}
+          fetch-depth: 0
       - &trusted-infrastructure
         name: Check out trusted build infrastructure
         uses: actions/checkout@v4
@@ -62,6 +69,11 @@ jobs:
           ref: ${{ github.workflow_sha }}
           path: temp/workflow
           sparse-checkout: .github
+      - name: Authorize and check out release source
+        if: inputs.ref
+        env:
+          SOURCE_COMMIT: ${{ inputs.ref }}
+        run: python3 temp/workflow/.github/scripts/checkout_release_source.py
 
       - uses: ./temp/workflow/.github/actions/setup-web
         with:
@@ -95,8 +107,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-          ref: ${{ inputs.ref || github.sha }}
+          ref: ${{ github.sha }}
+          fetch-depth: 0
       - *trusted-infrastructure
+      - name: Authorize and check out release source
+        if: inputs.ref
+        env:
+          SOURCE_COMMIT: ${{ inputs.ref }}
+        run: python3 temp/workflow/.github/scripts/checkout_release_source.py
       - uses: ./temp/workflow/.github/actions/setup-dotnet
         with:
           cache-write: ${{ !inputs.ref }}
@@ -151,8 +169,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-          ref: ${{ inputs.ref || github.sha }}
+          ref: ${{ github.sha }}
+          fetch-depth: 0
       - *trusted-infrastructure
+      - name: Authorize and check out release source
+        if: inputs.ref
+        env:
+          SOURCE_COMMIT: ${{ inputs.ref }}
+        run: python3 temp/workflow/.github/scripts/checkout_release_source.py
       - uses: ./temp/workflow/.github/actions/setup-dotnet
         with:
           cache-write: ${{ !inputs.ref }}
@@ -214,7 +238,7 @@ jobs:
     uses: ./.github/workflows/e2e-platform.yml
     with:
       cache-write: ${{ !inputs.ref }}
-      ref: ${{ inputs.ref || github.sha }}
+      ref: ${{ inputs.ref }}
       platform: ${{ matrix.platform.name }}
       os: ${{ matrix.platform.os }}
       rid: ${{ matrix.platform.rid }}

@@ -85,7 +85,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-          ref: ${{ needs.prepare.outputs.commit }}
+          ref: ${{ github.workflow_sha }}
+          fetch-depth: 0
       - &trusted-infrastructure
         name: Check out trusted build infrastructure
         uses: actions/checkout@v4
@@ -94,6 +95,10 @@ jobs:
           ref: ${{ github.workflow_sha }}
           path: temp/workflow
           sparse-checkout: .github
+      - name: Authorize and check out release source
+        env:
+          SOURCE_COMMIT: ${{ needs.prepare.outputs.commit }}
+        run: python3 temp/workflow/.github/scripts/checkout_release_source.py
       - uses: ./temp/workflow/.github/actions/publish-setup
       - name: Publish runner and worker
         run: >-
@@ -123,8 +128,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-          ref: ${{ needs.prepare.outputs.commit }}
+          ref: ${{ github.workflow_sha }}
+          fetch-depth: 0
       - *trusted-infrastructure
+      - name: Authorize and check out release source
+        env:
+          SOURCE_COMMIT: ${{ needs.prepare.outputs.commit }}
+        run: python3 temp/workflow/.github/scripts/checkout_release_source.py
       - name: Set up toolchain and build web app
         uses: ./temp/workflow/.github/actions/publish-setup
 

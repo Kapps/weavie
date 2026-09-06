@@ -59,10 +59,15 @@ publish the Linux desktop archive and runner bundle to the rolling `main-latest`
 A manual latest build runs Linux CI against its pinned source before publishing.
 
 Stable runs the same checks plus Windows/macOS native checks and E2E. Every checkout, including
-E2E bundle, shards, and report, uses the pinned source commit. The write-privileged final job runs
+E2E bundle, shards, and report, begins with the trusted workflow revision and full Git history.
+The trusted checkout helper requires a full SHA and verifies its ancestry against fetched
+`origin/main` before checking out any selected files, with Git hooks disabled. Unmerged PR
+commits are rejected independently at each checkout boundary. The write-privileged final job runs
 publisher code from the trusted workflow revision, with no credentials persisted in build checkouts.
 Setup actions also come from that trusted revision. Jobs validating selected release sources never
-save shared dependency or browser caches.
+save shared dependency or browser caches. Ordinary PR CI is a separate trust boundary: repository
+fork-workflow approval settings must require owner approval if external PR code must not run
+automatically. PR-modifiable workflow checks cannot enforce that repository-level policy.
 
 After all checks and packages pass, stable publication:
 

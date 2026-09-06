@@ -183,6 +183,13 @@ test("US spelling suggestions are requested on demand and corrections support un
   await expect.poll(() => readFile(file, "utf8")).toBe("A misspelled word.\ncolor colour\n");
   await page.keyboard.press("ControlOrMeta+z");
   await expect(word(page, "mispelled")).toBeVisible();
+  // 2026-09-06 05:40 UTC, macos shard 3/3: https://github.com/Kapps/weavie/actions/runs/34013989858/job/101434939087
+  // — this poll timed out at 30s (disk still held the post-correction "misspelled" content) even though the
+  // preceding DOM assertion above confirms Monaco's undo landed. First occurrence; the debounced-save path
+  // (editor-host.ts's flushSave, scheduled from model.onDidChangeContent) wasn't reproducible locally to pin
+  // down whether the undo's content-change event races textFileService's own dirty-tracking listener on that
+  // same event. Not touched here per docs/specs/e2e-flake-policy.md — watching for a repeat to confirm the
+  // mechanism before changing this test or the save path.
   await expect.poll(() => readFile(file, "utf8")).toBe("A mispelled word.\ncolor colour\n");
   expect(suggestions()).toHaveLength(1);
 

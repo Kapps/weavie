@@ -110,6 +110,7 @@ public sealed partial class WorkspaceHttpServer : IAsyncDisposable {
 			await context.Response.WriteAsync("weavie is starting").ConfigureAwait(false);
 		});
 		app.MapMethods("/weavie-media/{fileName}", [HttpMethods.Get, HttpMethods.Head], ServeMediaAsync);
+		app.MapGet("/weavie-agent-history", ServeAgentHistoryAsync);
 		if (_bridge.Available) {
 			app.Map("/weavie-bridge", ServeBridgeAsync);
 		}

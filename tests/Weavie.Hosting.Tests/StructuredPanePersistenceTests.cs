@@ -52,27 +52,14 @@ public sealed class StructuredPanePersistenceTests {
 	}
 
 	private static async Task<JsonElement[]> ReadHistoryAsync(TestHost host, HostSession session) {
-		var fragments = new List<JsonElement>();
-		JsonElement? cursor = null;
-		do {
-			var page = await host.SessionRequestAsync<JsonElement>(
-					session,
-					"agent",
-					"historyPage",
-					new { cursor, knownGeneration = (long?)null, knownRevision = (long?)null });
-			fragments.InsertRange(0, page.GetProperty("messages").EnumerateArray().Select(message => message.Clone()));
-			var next = page.GetProperty("cursor");
-			cursor = next.ValueKind == JsonValueKind.Null ? null : next.Clone();
-		} while (cursor is not null);
-
-		return [.. fragments
-			.GroupBy(fragment => (
-				fragment.GetProperty("generation").GetInt64(),
-				fragment.GetProperty("ordinal").GetInt64(),
-				fragment.GetProperty("revision").GetInt64()))
-			.Select(group => JsonDocument.Parse(
-				string.Concat(group.Select(fragment => fragment.GetProperty("json").GetString())))
-				.RootElement.Clone())];
+		using var client = new HttpClient();
+		string url = $"{host.Core.WorkspaceOrigin}/weavie-agent-history?token={host.Core.WorkspaceAccessToken}"
+			+ $"&slot={Uri.EscapeDataString(session.SlotId)}&incarnation={session.Incarnation}";
+		string body = await client.GetStringAsync(url);
+		return [.. body.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+			.Select(line => JsonSerializer.Deserialize<JsonElement>(line))
+			.SelectMany(batch => batch.GetProperty("messages").EnumerateArray())
+			.OrderBy(message => message.GetProperty("ordinal").GetInt64())];
 	}
 
 	private static bool Contains(JsonElement[] messages, string type, string text) =>

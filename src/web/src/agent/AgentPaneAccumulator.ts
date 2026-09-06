@@ -1,4 +1,4 @@
-import type { AgentPaneHistoryFragment, AgentPaneUpdate, AgentPaneWireUpdate } from "../bridge";
+import type { AgentPaneUpdate, AgentPaneWireUpdate } from "../bridge";
 import { isAgentPaneDelta } from "./AgentPaneDelta";
 import {
   type AgentPaneHistoryState,
@@ -68,14 +68,13 @@ export class AgentPaneAccumulator {
   }
 
   abandonHistory(slot: string): void {
-    this.slots.get(slot)?.history.fragments.clear();
     this.slots.get(slot)?.history.records.clear();
   }
 
   mergeHistory(
     slot: string,
     generation: number,
-    incoming: AgentPaneHistoryFragment[],
+    incoming: AgentPaneWireUpdate[],
     completeRead: boolean,
     publish: Publish,
   ): void {

@@ -141,19 +141,14 @@ export interface MockHostOptions {
 interface AgentHistoryState {
   generation: number;
   messages: Record<string, unknown>[];
-  pageSize: number;
-}
-
-interface AgentHistoryRead {
-  generation: number;
-  pageSize: number;
-  records: Array<{ message: Record<string, unknown>; ordinal: number; revision: number }>;
-  revision: number;
+  batchSize: number;
 }
 
 export class MockHost {
   readonly received: MessageEnvelope[] = [];
   readonly mediaRequests: Array<{ session: string; path: string; status: number }> = [];
+  readonly agentHistoryRequests: SessionAddress[] = [];
+  readonly agentHistoryBatches: SessionAddress[] = [];
   readonly files: Map<string, string>;
 
   private readonly media = new Map<string, Buffer>();
@@ -168,20 +163,17 @@ export class MockHost {
     handler: (message: MessageEnvelope) => void;
   }>();
   private readonly agentHistories = new Map<string, AgentHistoryState>();
-  private readonly agentHistoryReads = new Map<string, AgentHistoryRead>();
   private readonly agentItems = new Map<string, Map<string, number>>();
   private readonly agentOrdinals = new Map<string, number>();
   private readonly agentRevisions = new Map<string, number>();
-  private readonly pausedAgentHistoryRequests: MessageEnvelope[] = [];
+  private readonly pausedAgentHistory = new Set<() => void>();
   private readonly pausedFileRequests: MessageEnvelope[] = [];
   private socket: WebSocket | null = null;
   private sessions: MockSession[];
   private pendingHello: MessageEnvelope | null = null;
   private helloPaused = false;
   private fileProviderPaused = false;
-  private agentHistoryPauseAfterResponses: number | null = null;
-  private agentHistoryResponses = 0;
-  private agentHistoryReadSequence = 0;
+  private agentHistoryPauseAfterBatches: number | null = null;
   private requestSequence = 0;
   private port = 0;
 
@@ -265,16 +257,13 @@ export class MockHost {
     this.agentRevisions.set(key, history.messages.length);
   }
 
-  pauseAgentHistoryAfterResponses(responses: number): void {
-    this.agentHistoryPauseAfterResponses = responses;
-    this.agentHistoryResponses = 0;
+  pauseAgentHistoryAfterBatches(batches: number): void {
+    this.agentHistoryPauseAfterBatches = this.agentHistoryBatches.length + batches;
   }
 
   resumeAgentHistory(): void {
-    this.agentHistoryPauseAfterResponses = null;
-    for (const request of this.pausedAgentHistoryRequests.splice(0)) {
-      this.answerAgentHistory(request);
-    }
+    this.agentHistoryPauseAfterBatches = null;
+    for (const release of this.pausedAgentHistory) release();
   }
 
   publishHost(feature: string, name: string, payload: unknown): void {
@@ -489,7 +478,6 @@ export class MockHost {
   private onConnection(socket: WebSocket): void {
     this.socket = socket;
     socket.on("message", (data) => this.onMessage(String(data)));
-    socket.on("close", () => this.agentHistoryReads.clear());
   }
 
   private onMessage(raw: string): void {
@@ -548,113 +536,92 @@ export class MockHost {
       this.respond(message, { ok: true });
       return;
     }
-    if (
-      message.kind === "request" &&
-      message.scope === "session" &&
-      message.feature === "agent" &&
-      message.name === "historyPage"
-    ) {
-      this.answerAgentHistory(message);
-      return;
-    }
-    if (
-      message.kind === "event" &&
-      message.scope === "session" &&
-      message.feature === "agent" &&
-      message.name === "historyClose"
-    ) {
-      const readId = (message.payload as { readId?: unknown }).readId;
-      if (typeof readId === "string") {
-        this.agentHistoryReads.delete(readId);
-      }
-      return;
-    }
     this.answerFileProvider(message);
   }
 
-  private answerAgentHistory(request: MessageEnvelope): void {
-    if (request.session === null) {
-      return;
-    }
-    if (
-      this.agentHistoryPauseAfterResponses !== null &&
-      this.agentHistoryResponses >= this.agentHistoryPauseAfterResponses
-    ) {
-      this.pausedAgentHistoryRequests.push(request);
-      return;
-    }
-    this.agentHistoryResponses++;
-    const supplied = request.payload as {
-      cursor?: {
-        before?: number;
-        jsonBefore?: number | null;
-        readId?: string;
-      } | null;
-      knownGeneration?: number | null;
-      knownRevision?: number | null;
+  private async streamAgentHistory(
+    url: URL,
+    response: import("node:http").ServerResponse,
+  ): Promise<void> {
+    const address = {
+      slot: url.searchParams.get("slot") ?? "",
+      incarnation: url.searchParams.get("incarnation") ?? "",
     };
-    const readId = supplied.cursor?.readId ?? `history-${++this.agentHistoryReadSequence}`;
-    let read = this.agentHistoryReads.get(readId);
-    if (read === undefined) {
-      const current = this.agentHistories.get(this.addressKey(request.session)) ?? {
-        generation: 0,
-        messages: [],
-        pageSize: 100,
-      };
-      const revision = current.messages.length;
-      const afterRevision =
-        supplied.knownGeneration === current.generation ? (supplied.knownRevision ?? 0) : 0;
-      read = {
-        generation: current.generation,
-        pageSize: current.pageSize,
-        records: current.messages.flatMap((message, index) => {
-          const recordRevision = index + 1;
-          return recordRevision > afterRevision
-            ? [{ message, ordinal: recordRevision, revision: recordRevision }]
-            : [];
-        }),
-        revision,
-      };
-      this.agentHistoryReads.set(readId, read);
+    if (!this.sessions.some((session) => sameAddress(session.address, address))) {
+      response.writeHead(404).end("unknown session");
+      return;
     }
-    const before = supplied.cursor?.before ?? read.records.length;
-    const start = Math.max(0, before - read.pageSize);
-    const records = read.records.slice(start, before).map((record) => ({
-      ...record.message,
-      generation: read.generation,
-      ordinal: record.ordinal,
-      revision: record.revision,
-      textOffset: 0,
-      textLength: typeof record.message.text === "string" ? record.message.text.length : 0,
-    }));
-    const payload = {
-      generation: read.generation,
-      readId,
-      revision: read.revision,
-      messages: records.map((record) => {
-        const json = JSON.stringify(record);
-        return {
-          generation: record.generation,
-          ordinal: record.ordinal,
-          revision: record.revision,
-          jsonOffset: 0,
-          jsonLength: json.length,
-          json,
-        };
-      }),
-      cursor:
-        start === 0
-          ? null
-          : {
-              readId,
-              before: start,
-              jsonBefore: null,
+    this.agentHistoryRequests.push(address);
+    const state = this.agentHistories.get(this.addressKey(address)) ?? {
+      generation: 0,
+      messages: [],
+      batchSize: 64,
+    };
+    const after =
+      Number(url.searchParams.get("knownGeneration")) === state.generation
+        ? Number(url.searchParams.get("knownRevision"))
+        : 0;
+    const records = state.messages.flatMap((message, index) =>
+      index + 1 > after
+        ? [
+            {
+              ...message,
+              generation: state.generation,
+              ordinal: index + 1,
+              revision: index + 1,
+              textOffset: 0,
+              textLength: typeof message.text === "string" ? message.text.length : 0,
             },
+          ]
+        : [],
+    );
+    const baseline = {
+      generation: state.generation,
+      revision: state.messages.length,
+      count: records.length,
     };
-    if (payload.cursor === null) {
-      this.agentHistoryReads.delete(readId);
+    response.writeHead(200, {
+      "content-type": "application/x-ndjson",
+      "access-control-allow-origin": "*",
+    });
+    for (let before = records.length; before > 0; before -= state.batchSize) {
+      if (response.destroyed) return;
+      if (
+        this.agentHistoryPauseAfterBatches !== null &&
+        this.agentHistoryBatches.length >= this.agentHistoryPauseAfterBatches
+      ) {
+        await new Promise<void>((resolve) => {
+          const release = () => {
+            this.pausedAgentHistory.delete(release);
+            response.off("close", release);
+            resolve();
+          };
+          this.pausedAgentHistory.add(release);
+          response.once("close", release);
+        });
+      }
+      if (response.destroyed) return;
+      response.write(
+        `${JSON.stringify({
+          ...baseline,
+          messages: records.slice(Math.max(0, before - state.batchSize), before),
+          complete: false,
+        })}\n`,
+      );
+      this.agentHistoryBatches.push(address);
+      if (response.writableNeedDrain) {
+        await new Promise<void>((resolve) => {
+          const release = () => {
+            response.off("drain", release);
+            response.off("close", release);
+            resolve();
+          };
+          response.once("drain", release);
+          response.once("close", release);
+        });
+      }
     }
-    this.send(this.response(request, payload));
+    response.end(`${JSON.stringify({ ...baseline, messages: [], complete: true })}\n`);
   }
 
   private answerFileProvider(message: MessageEnvelope): void {
@@ -827,6 +794,10 @@ export class MockHost {
   ): Promise<void> {
     const request = new URL(rawUrl, this.url);
     const pathname = request.pathname;
+    if (pathname === "/weavie-agent-history") {
+      await this.streamAgentHistory(request, res);
+      return;
+    }
     if (pathname === "/backend") {
       const headers = {
         "access-control-allow-origin": "*",

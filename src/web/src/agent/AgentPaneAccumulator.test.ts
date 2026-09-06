@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { AgentPaneHistoryFragment, AgentPaneUpdate, AgentPaneWireUpdate } from "../bridge";
+import type { AgentPaneUpdate, AgentPaneWireUpdate } from "../bridge";
 import { AgentPaneAccumulator } from "./AgentPaneAccumulator";
 
 describe("AgentPaneAccumulator", () => {
@@ -357,21 +357,6 @@ describe("AgentPaneAccumulator", () => {
     expect(messages.map((message) => message.text)).toEqual(["abc"]);
   });
 
-  it("preserves a newer live delta while its older cumulative history is fragmented", () => {
-    const accumulator = new AgentPaneAccumulator((callback) => callback());
-    let messages: AgentPaneUpdate[] = [];
-    const publish = (value: AgentPaneUpdate[]): void => {
-      messages = value;
-    };
-
-    accumulator.ingest("slot-1", wireDelta(1, 1, 3, "c"), publish);
-    const [prefix, suffix] = splitHistory(wireDelta(1, 1, 2, "ab"));
-    accumulator.mergeHistory("slot-1", 1, [suffix], false, publish);
-    accumulator.mergeHistory("slot-1", 1, [prefix], true, publish);
-
-    expect(messages.map((message) => message.text)).toEqual(["abc"]);
-  });
-
   it("rejects a delayed live delta at the history revision", () => {
     const accumulator = new AgentPaneAccumulator((callback) => callback());
     let messages: AgentPaneUpdate[] = [];
@@ -398,36 +383,6 @@ describe("AgentPaneAccumulator", () => {
     expect(messages.map((message) => message.text)).toEqual(["abc"]);
   });
 
-  it("publishes a fragmented history record only after every text range arrives", () => {
-    const accumulator = new AgentPaneAccumulator((callback) => callback());
-    let messages: AgentPaneUpdate[] = [];
-    const publish = (value: AgentPaneUpdate[]): void => {
-      messages = value;
-    };
-
-    const [prefix, suffix] = splitHistory(wireUpdate(1, 1, 1, "abcd"));
-    accumulator.mergeHistory("slot-1", 1, [suffix], false, publish);
-    expect(messages).toEqual([]);
-    accumulator.mergeHistory("slot-1", 1, [prefix], true, publish);
-
-    expect(messages.map((message) => message.text)).toEqual(["abcd"]);
-  });
-
-  it("discards incomplete fragments when a newer record revision completes", () => {
-    const accumulator = new AgentPaneAccumulator((callback) => callback());
-    let messages: AgentPaneUpdate[] = [];
-    const publish = (value: AgentPaneUpdate[]): void => {
-      messages = value;
-    };
-
-    const [, oldSuffix] = splitHistory(wireUpdate(1, 1, 1, "abcd"));
-    accumulator.mergeHistory("slot-1", 1, [oldSuffix], false, publish);
-    const [prefix, suffix] = splitHistory(wireUpdate(1, 1, 2, "abcde"));
-    accumulator.mergeHistory("slot-1", 1, [suffix], false, publish);
-    accumulator.mergeHistory("slot-1", 1, [prefix], true, publish);
-
-    expect(messages.map((message) => message.text)).toEqual(["abcde"]);
-  });
   // A cold load races the pane's own history read against the provider's replay, which arrives as live records
   // in the same generation. Whichever lands first, the whole conversation has to survive.
   it("keeps a provider replay that lands after an empty history read", () => {
@@ -520,32 +475,6 @@ function wireKindDelta(
   };
 }
 
-function history(...messages: AgentPaneWireUpdate[]): AgentPaneHistoryFragment[] {
-  return messages.map((message) => fragment(message, JSON.stringify(message), 0));
-}
-
-function splitHistory(
-  message: AgentPaneWireUpdate,
-): [AgentPaneHistoryFragment, AgentPaneHistoryFragment] {
-  const json = JSON.stringify(message);
-  const offset = Math.floor(json.length / 2);
-  return [
-    fragment(message, json.slice(0, offset), 0),
-    fragment(message, json.slice(offset), offset),
-  ];
-}
-
-function fragment(
-  message: AgentPaneWireUpdate,
-  json: string,
-  jsonOffset: number,
-): AgentPaneHistoryFragment {
-  return {
-    generation: message.generation,
-    ordinal: message.ordinal,
-    revision: message.revision,
-    jsonOffset,
-    jsonLength: JSON.stringify(message).length,
-    json,
-  };
+function history(...messages: AgentPaneWireUpdate[]): AgentPaneWireUpdate[] {
+  return messages;
 }

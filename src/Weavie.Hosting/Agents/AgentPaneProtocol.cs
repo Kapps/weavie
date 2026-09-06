@@ -16,68 +16,26 @@ internal static class AgentPaneProtocol {
 		return new { messages = messages.Select(Body) };
 	}
 
-	public static object HistoryPage(AgentPaneHistoryPage page) {
-		ArgumentNullException.ThrowIfNull(page);
-		return new {
-			readId = page.ReadId,
-			generation = page.Generation,
-			revision = page.Revision,
-			messages = page.Messages.Select(FragmentBody),
-			cursor = page.Cursor is null ? null : new {
-				readId = page.Cursor.ReadId,
-				before = page.Cursor.Before,
-				jsonBefore = page.Cursor.JsonBefore,
-			},
-		};
-	}
-
-	public static string Serialize(AgentPaneRecord record) => JsonSerializer.Serialize(Body(record));
-
-	public static int Measure(AgentPaneFragment fragment) {
-		int bytes = MeasureEnvelope(fragment.Record, fragment.JsonOffset, fragment.JsonLength);
-		foreach (char value in fragment.Json) {
-			bytes += MeasureSerializedJsonCharacter(value);
+	internal static async Task WriteHistoryAsync(AgentPaneHistory history, Stream output, CancellationToken ct) {
+		const int batchSize = 64;
+		for (int end = history.Messages.Count; end > 0; end -= batchSize) {
+			int start = Math.Max(0, end - batchSize);
+			await WriteBatchAsync(history.Messages.Skip(start).Take(end - start), false).ConfigureAwait(false);
 		}
-		return bytes;
-	}
+		await WriteBatchAsync([], true).ConfigureAwait(false);
 
-	internal static int MeasureEnvelope(AgentPaneRecord record, int jsonOffset, int jsonLength) =>
-		FragmentSyntaxBytes
-		+ NumberLength(record.Generation)
-		+ NumberLength(record.Ordinal)
-		+ NumberLength(record.Revision)
-		+ NumberLength(jsonOffset)
-		+ NumberLength(jsonLength);
-
-	internal static int MeasureSerializedJsonCharacter(char value) => value switch {
-		'"' => 6,
-		'\\' => 2,
-		>= ' ' and <= '\u007f' => 1,
-		_ => throw new InvalidOperationException("Serialized agent history JSON must be ASCII and escaped."),
-	};
-
-	private static int NumberLength(long value) {
-		if (value == 0) {
-			return 1;
+		async Task WriteBatchAsync(IEnumerable<AgentPaneRecord> records, bool complete) {
+			await JsonSerializer.SerializeAsync(output, new {
+				generation = history.Generation,
+				revision = history.Revision,
+				count = history.Messages.Count,
+				messages = records.Select(Body),
+				complete,
+			}, cancellationToken: ct).ConfigureAwait(false);
+			await output.WriteAsync("\n"u8.ToArray(), ct).ConfigureAwait(false);
+			await output.FlushAsync(ct).ConfigureAwait(false);
 		}
-
-		int length = value < 0 ? 1 : 0;
-		ulong magnitude = value < 0 ? (ulong)(-(value + 1)) + 1 : (ulong)value;
-		while (magnitude > 0) {
-			length++;
-			magnitude /= 10;
-		}
-		return length;
 	}
-
-	private static readonly int FragmentSyntaxBytes =
-		"{\"generation\":".Length
-		+ ",\"ordinal\":".Length
-		+ ",\"revision\":".Length
-		+ ",\"jsonOffset\":".Length
-		+ ",\"jsonLength\":".Length
-		+ ",\"json\":\"".Length
-		+ "\"}".Length;
 
 	private static object Body(AgentPaneRecord record) => new {
 		generation = record.Generation,
@@ -150,14 +108,6 @@ internal static class AgentPaneProtocol {
 		resourceUri = record.Message.ResourceUri,
 	};
 
-	private static object FragmentBody(AgentPaneFragment fragment) => new {
-		generation = fragment.Record.Generation,
-		ordinal = fragment.Record.Ordinal,
-		revision = fragment.Record.Revision,
-		jsonOffset = fragment.JsonOffset,
-		jsonLength = fragment.JsonLength,
-		json = fragment.Json,
-	};
 }
 
 internal sealed record AgentPaneRecord(
@@ -166,27 +116,9 @@ internal sealed record AgentPaneRecord(
 	long Revision,
 	AgentPaneMessage Message);
 
-internal sealed record AgentPaneFragment(
-	AgentPaneRecord Record,
-	string Json,
-	int JsonOffset,
-	int JsonLength);
+internal sealed record AgentPaneHistoryRequest(long? KnownGeneration, long? KnownRevision);
 
-internal sealed record AgentPaneHistoryCursor(
-	string ReadId,
-	int Before,
-	int? JsonBefore);
-
-internal sealed record AgentPaneHistoryRequest(
-	AgentPaneHistoryCursor? Cursor,
-	long? KnownGeneration,
-	long? KnownRevision);
-
-internal sealed record AgentPaneHistoryClose(string ReadId);
-
-internal sealed record AgentPaneHistoryPage(
-	string ReadId,
+internal sealed record AgentPaneHistory(
 	long Generation,
 	long Revision,
-	IReadOnlyList<AgentPaneFragment> Messages,
-	AgentPaneHistoryCursor? Cursor);
+	IReadOnlyList<AgentPaneRecord> Messages);

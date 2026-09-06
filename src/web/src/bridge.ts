@@ -575,6 +575,18 @@ export function resolvePullRequest(
     : session.feature("pullRequests").request("resolve", target);
 }
 
+export function sessionResourceUrl(session: ClientSession, resource: string): URL {
+  const base = resourceBases()[session.connection.id];
+  if (base === undefined) {
+    throw new Error("The session resource origin is unavailable.");
+  }
+  const url = new URL(base, window.location.href);
+  url.pathname = resource;
+  url.searchParams.set("slot", session.address.slot);
+  url.searchParams.set("incarnation", session.address.incarnation);
+  return url;
+}
+
 export function mediaResourceUrl(
   session: ClientSession,
   path: string,

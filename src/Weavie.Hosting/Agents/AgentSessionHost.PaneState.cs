@@ -184,7 +184,6 @@ public sealed partial class AgentSessionHost {
 		_paneItemIndexes.Clear();
 		_paneActiveItems.Clear();
 		_paneDeltaBuffers.Clear();
-		_historyReads.Clear();
 		_nextPaneOrdinal = 0;
 		_nextPaneRevision = 0;
 	}

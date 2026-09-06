@@ -1,11 +1,18 @@
 import {
-  type AgentPaneHistoryFragment,
   type AgentPaneUpdate,
   type AgentPaneWireUpdate,
   type ClientSession,
-  registerSessionFeature,
+  sessionResourceUrl,
 } from "../bridge";
-import { createSessionOwnedState } from "../messaging/session-owned-state";
+import { keyHintInCatalog } from "../commands/key-hint";
+import { registerCommand } from "../commands/registry";
+import { CommandIds } from "../commands/types";
+import { readJsonStream } from "../messaging/json-stream";
+import {
+  createSessionOwnedResource,
+  createSessionOwnedState,
+} from "../messaging/session-owned-state";
+import { clearNotification, notify } from "../notify/notify";
 import {
   agentInputRequestKey,
   clearAgentInputDraft,
@@ -21,7 +28,12 @@ export type { AgentPaneModel, AgentSectionLabel } from "./AgentPaneModel";
 const models = createSessionOwnedState(createAgentPaneModel);
 const authenticationTerminals = createSessionOwnedState(() => false);
 
-registerSessionFeature((session) => {
+const histories = createSessionOwnedResource(createHistory, (_session, history) =>
+  history.dispose(),
+);
+
+function createHistory(session: ClientSession) {
+  const errorKey = `agent-history:${session.connection.id}:${session.address.incarnation}`;
   const accumulator = new AgentPaneAccumulator(
     (callback) => requestAnimationFrame(callback),
     // Deferred: the accumulator raises this while it is still writing the record that changed the generation,
@@ -32,21 +44,14 @@ registerSessionFeature((session) => {
   let historyAbort: AbortController | null = null;
   let historyComplete = false;
   let historyGeneration: number | null = null;
-  let historyReadId: string | null = null;
   let historyRevision: number | null = null;
 
-  interface HistoryCursor {
-    readId: string;
-    before: number;
-    jsonBefore: number | null;
-  }
-
-  interface HistoryPage {
+  interface HistorySnapshot {
     generation: number;
-    messages: AgentPaneHistoryFragment[];
-    readId: string;
     revision: number;
-    cursor: HistoryCursor | null;
+    count: number;
+    complete: boolean;
+    messages: AgentPaneWireUpdate[];
   }
 
   const startHistory = (): void => {
@@ -59,7 +64,11 @@ registerSessionFeature((session) => {
     void loadHistory(abort)
       .catch((error: unknown) => {
         if (!abort.signal.aborted) {
-          session.connection.reportError(error);
+          notify(
+            "error",
+            `History for ${session.address.slot} is incomplete: ${String(error)}. Use Reload Agent History${keyHintInCatalog(session.connection.id, CommandIds.reloadAgentHistory)} to retry.`,
+            errorKey,
+          );
         }
       })
       .finally(() => {
@@ -75,51 +84,48 @@ registerSessionFeature((session) => {
     historyComplete = false;
     historyAbort?.abort();
     historyAbort = null;
-    historyReadId = null;
     accumulator.abandonHistory("pane");
     startHistory();
   });
 
   async function loadHistory(abort: AbortController): Promise<void> {
-    let cursor: HistoryCursor | null = null;
-    do {
-      const page: HistoryPage = await feature.request<
-        HistoryPage,
-        {
-          cursor: HistoryCursor | null;
-          knownGeneration: number | null;
-          knownRevision: number | null;
-        }
-      >(
-        "historyPage",
-        {
-          cursor,
-          knownGeneration: cursor === null ? historyGeneration : null,
-          knownRevision: cursor === null ? historyRevision : null,
-        },
-        abort.signal,
-      );
-      if (abort.signal.aborted) {
-        feature.publish("historyClose", { readId: page.readId });
+    const url = sessionResourceUrl(session, "/weavie-agent-history");
+    if (historyGeneration !== null && historyRevision !== null) {
+      url.searchParams.set("knownGeneration", historyGeneration.toString());
+      url.searchParams.set("knownRevision", historyRevision.toString());
+    }
+    const response = await fetch(url, { signal: abort.signal });
+    let received = 0;
+    let baseline: HistorySnapshot | null = null;
+    for await (const batch of readJsonStream<HistorySnapshot>(response)) {
+      abort.signal.throwIfAborted();
+      const firstBatch = baseline === null;
+      if (
+        baseline !== null &&
+        (batch.generation !== baseline.generation ||
+          batch.revision !== baseline.revision ||
+          batch.count !== baseline.count)
+      ) {
+        throw new Error("History response changed its snapshot.");
+      }
+      baseline = batch;
+      received += batch.messages.length;
+      if (received > batch.count || (batch.complete && received !== batch.count)) {
+        throw new Error("History response has an incorrect record count.");
+      }
+      accumulator.mergeHistory("pane", batch.generation, batch.messages, batch.complete, publish);
+      if (batch.complete) {
+        historyGeneration = batch.generation;
+        historyRevision = batch.revision;
+        historyComplete = true;
+        clearNotification(errorKey);
         return;
       }
-      historyReadId = page.cursor?.readId ?? null;
-      accumulator.mergeHistory(
-        "pane",
-        page.generation,
-        page.messages,
-        page.cursor === null,
-        publish,
-      );
-      cursor = page.cursor;
-      if (cursor !== null) {
+      if (firstBatch) {
         await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-      } else {
-        historyGeneration = page.generation;
-        historyRevision = page.revision;
       }
-    } while (cursor !== null);
-    historyComplete = true;
+    }
+    throw new Error("History response ended before completion.");
   }
 
   let appliedDrafts = 0;
@@ -170,10 +176,6 @@ registerSessionFeature((session) => {
   function resyncPane(): void {
     historyAbort?.abort();
     historyAbort = null;
-    if (historyReadId !== null) {
-      feature.publish("historyClose", { readId: historyReadId });
-      historyReadId = null;
-    }
     historyComplete = false;
     historyGeneration = null;
     historyRevision = null;
@@ -185,18 +187,29 @@ registerSessionFeature((session) => {
 
   const offReset = feature.on("paneReset", resyncPane);
   startHistory();
-  return () => {
-    historyAbort?.abort();
-    if (historyReadId !== null) {
-      feature.publish("historyClose", { readId: historyReadId });
-      historyReadId = null;
-    }
-    offPane();
-    offAuthenticationTerminal();
-    offBatch();
-    offReset();
-    offHello();
+  return {
+    reload: () => {
+      historyAbort?.abort();
+      historyAbort = null;
+      historyComplete = false;
+      accumulator.abandonHistory("pane");
+      startHistory();
+    },
+    dispose: () => {
+      historyAbort?.abort();
+      clearNotification(errorKey);
+      offPane();
+      offAuthenticationTerminal();
+      offBatch();
+      offReset();
+      offHello();
+    },
   };
+}
+
+registerCommand(CommandIds.reloadAgentHistory, (_args, { session }) => {
+  if (session === null) return false;
+  histories.get(session)?.reload();
 });
 
 export function agentPaneModel(session: ClientSession | null): AgentPaneModel | null {

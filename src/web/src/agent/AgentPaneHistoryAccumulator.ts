@@ -1,4 +1,4 @@
-import type { AgentPaneHistoryFragment, AgentPaneUpdate, AgentPaneWireUpdate } from "../bridge";
+import type { AgentPaneUpdate, AgentPaneWireUpdate } from "../bridge";
 import { isAgentPaneDelta } from "./AgentPaneDelta";
 import { paneItemIdentity } from "./AgentPaneIdentity";
 
@@ -10,20 +10,12 @@ export interface HistoryItemBuffer {
   text: string;
 }
 
-interface FragmentBuffer {
-  parts: Map<number, string>;
-  jsonLength: number;
-  receivedLength: number;
-}
-
 export interface AgentPaneHistoryState {
-  fragments: Map<string, FragmentBuffer>;
   records: Map<number, AgentPaneWireUpdate>;
 }
 
 export function createAgentPaneHistoryState(): AgentPaneHistoryState {
   return {
-    fragments: new Map<string, FragmentBuffer>(),
     records: new Map<number, AgentPaneWireUpdate>(),
   };
 }
@@ -31,12 +23,9 @@ export function createAgentPaneHistoryState(): AgentPaneHistoryState {
 export function mergeHistoryRecords(
   state: AgentPaneHistoryState,
   buffers: ReadonlyMap<string, HistoryItemBuffer>,
-  incoming: AgentPaneHistoryFragment[],
+  incoming: AgentPaneWireUpdate[],
 ): AgentPaneWireUpdate[] {
-  const completed = incoming.flatMap((fragment) => {
-    const assembled = assemble(state, fragment);
-    return assembled === null ? [] : [mergeCumulativeDelta(buffers, assembled)];
-  });
+  const completed = incoming.map((message) => mergeCumulativeDelta(buffers, message));
   for (const message of completed) {
     const existing = state.records.get(message.ordinal);
     if (existing === undefined || message.revision > existing.revision) {
@@ -44,81 +33,6 @@ export function mergeHistoryRecords(
     }
   }
   return completed;
-}
-
-function assemble(
-  state: AgentPaneHistoryState,
-  message: AgentPaneHistoryFragment,
-): AgentPaneWireUpdate | null {
-  if (message.jsonOffset === 0 && message.json.length === message.jsonLength) {
-    dropFragments(state, message.ordinal, message.revision);
-    return parseHistoryRecord(message, message.json);
-  }
-  if (
-    message.jsonOffset < 0 ||
-    message.jsonLength < 0 ||
-    message.jsonOffset + message.json.length > message.jsonLength
-  ) {
-    throw new Error("Received an invalid agent history record fragment.");
-  }
-
-  const key = `${message.ordinal}:${message.revision}`;
-  let buffer = state.fragments.get(key);
-  if (buffer === undefined) {
-    buffer = {
-      parts: new Map<number, string>(),
-      jsonLength: message.jsonLength,
-      receivedLength: 0,
-    };
-    state.fragments.set(key, buffer);
-  } else if (buffer.jsonLength !== message.jsonLength) {
-    throw new Error("Received inconsistent agent history record fragments.");
-  }
-  const existing = buffer.parts.get(message.jsonOffset);
-  if (existing !== undefined && existing !== message.json) {
-    throw new Error("Received conflicting agent history record fragments.");
-  }
-  if (existing === undefined) {
-    buffer.parts.set(message.jsonOffset, message.json);
-    buffer.receivedLength += message.json.length;
-  }
-  if (buffer.receivedLength < buffer.jsonLength) {
-    return null;
-  }
-  if (buffer.receivedLength > buffer.jsonLength) {
-    throw new Error("Received overlapping agent history record fragments.");
-  }
-
-  const parts = [...buffer.parts].sort(([left], [right]) => left - right);
-  let offset = 0;
-  for (const [start, part] of parts) {
-    if (start !== offset) {
-      throw new Error("Received overlapping agent history record fragments.");
-    }
-    offset += part.length;
-  }
-  if (offset !== buffer.jsonLength) {
-    throw new Error("Received incomplete agent history record fragments.");
-  }
-
-  state.fragments.delete(key);
-  dropFragments(state, message.ordinal, message.revision);
-  return parseHistoryRecord(message, parts.map(([, part]) => part).join(""));
-}
-
-function dropFragments(
-  state: AgentPaneHistoryState,
-  ordinal: number,
-  throughRevision: number,
-): void {
-  for (const key of state.fragments.keys()) {
-    const separator = key.indexOf(":");
-    const fragmentOrdinal = Number(key.slice(0, separator));
-    const fragmentRevision = Number(key.slice(separator + 1));
-    if (fragmentOrdinal === ordinal && fragmentRevision <= throughRevision) {
-      state.fragments.delete(key);
-    }
-  }
 }
 
 function mergeCumulativeDelta(
@@ -170,22 +84,4 @@ export function isAgentPaneWireUpdate(message: AgentPaneUpdate): message is Agen
     "textLength" in message &&
     Number.isInteger(message.textLength)
   );
-}
-
-function parseHistoryRecord(fragment: AgentPaneHistoryFragment, json: string): AgentPaneWireUpdate {
-  const parsed: unknown = JSON.parse(json);
-  const candidate = parsed as AgentPaneUpdate;
-  if (
-    typeof parsed !== "object" ||
-    parsed === null ||
-    !isAgentPaneWireUpdate(candidate) ||
-    candidate.generation !== fragment.generation ||
-    candidate.ordinal !== fragment.ordinal ||
-    candidate.revision !== fragment.revision ||
-    candidate.textOffset !== 0 ||
-    candidate.textLength !== (candidate.text?.length ?? 0)
-  ) {
-    throw new Error("Received an invalid serialized agent history record.");
-  }
-  return candidate;
 }

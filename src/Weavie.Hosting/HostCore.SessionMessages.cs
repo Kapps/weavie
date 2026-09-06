@@ -162,6 +162,7 @@ public sealed partial class HostCore {
 	}
 
 	private void SyncSession(HostSession session, MessageTarget target) {
+		session.Agent.ReplayState(target.Feature("agent"));
 		session.ReplayEditor(target.Feature("editor"), line => Log(line));
 		session.ReplayWorkspaceWatcherFailure(target);
 		session.State.Replay(target);
@@ -174,7 +175,6 @@ public sealed partial class HostCore {
 		PushPullRequestStatus(session, target);
 		PushRefLinkBase(session, target);
 		session.Claude?.ResyncPane(target.Feature("terminal.agent"));
-		session.Agent.ReplayState(target.Feature("agent"));
 		session.Agent.AuthenticationTerminal?.Controller.ResyncPane(target.Feature("terminal.agent"));
 		session.Shells.Resync(target);
 	}

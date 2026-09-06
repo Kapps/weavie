@@ -74,27 +74,16 @@ test.describe("change navigation", () => {
 
   test("the next-change control moves through the diff's hunks @cross", async ({ page }) => {
     await expect(page.locator(".weavie-inline-toolbar")).toBeVisible({ timeout: 15_000 });
-    await expect
-      .poll(() => page.evaluate(() => window.__WEAVIE_EDITOR__?.getPosition()?.lineNumber))
-      .toBe(2);
-    // The editor caret jumps to each change as you navigate; its vertical position is the observable.
-    const caretTop = () =>
-      page
-        .locator(".monaco-editor .cursors-layer .cursor")
-        .first()
-        .evaluate((el) => Number.parseFloat((el as HTMLElement).style.top) || 0);
+    const caretLine = () =>
+      page.evaluate(() => window.__WEAVIE_EDITOR__?.getPosition()?.lineNumber);
+    await expect.poll(caretLine).toBe(2);
 
     const next = page.locator(".weavie-inline-nav").nth(1); // ↓ next change
     await next.click();
-    // The caret jump to the first change is async (host round-trip → editor reveal), so poll until it lands
-    // rather than sampling once — a single read races the jump on a slow runner and sees the caret still at 0.
-    await expect.poll(caretTop).toBeGreaterThan(0);
-    const firstChange = await caretTop();
+    await expect.poll(caretLine).toBe(6);
 
     await next.click();
-    // openDiff may already have revealed the first hunk before the toolbar becomes visible. In that case the
-    // first click lands on the second and the next click correctly wraps upward to the first.
-    await expect.poll(caretTop).not.toBe(firstChange);
+    await expect.poll(caretLine).toBe(2);
   });
 });
 

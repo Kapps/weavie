@@ -71,7 +71,7 @@ test("an open Go to File query follows external create, rename and delete", asyn
   await runCommand(page, "Toggle File Browser");
   await page.locator(".browser-row", { hasText: "empty-directory" }).click();
   await expect(page.locator(".browser-children .browser-empty")).toHaveText("Empty folder");
-  await page.locator(".browser-close").click();
+  await runCommand(page, "Toggle File Browser");
   await page.locator(".tb-omnibar-input").click();
   await page.locator(".tb-omnibar-input").fill("live-index");
   await expect(row("live-index")).toHaveCount(0);
@@ -89,27 +89,10 @@ test("an open Go to File query follows external create, rename and delete", asyn
   await expect(page.locator(".tb-omnibar-input")).toHaveValue("live-index");
 });
 
-test("a directory failure is distinct from empty and can be retried", async ({ page, weavie }) => {
-  const directory = join(weavie.home, "outside-workspace");
-  await mkdir(directory);
-  await symlink(directory, join(weavie.workspace, "temporarily-missing"), "junction");
-  await runCommand(page, "Toggle File Browser");
-  const row = page.locator(".browser-row", { hasText: "temporarily-missing" });
-  await expect(row).toBeVisible();
-
-  await rmdir(directory);
-  await row.click();
-  const error = page.locator(".browser-error");
-  await expect(error).toContainText("Directory not found");
-
-  await mkdir(directory);
-  await error.getByRole("button", { name: "Retry" }).click();
-  await expect(page.locator(".browser-children .browser-empty")).toHaveText("Empty folder");
-  await expect(error).toHaveCount(0);
-});
-
-test.describe("unbrowsed directory discovery", () => {
+test.describe("file request completion", () => {
   let completedIndexes = 0;
+  let failedListings = 0;
+  let listingError = "";
   test.use({
     preNavigate: {
       run: async (page) => {
@@ -123,10 +106,43 @@ test.describe("unbrowsed directory discovery", () => {
             ) {
               completedIndexes += 1;
             }
+            if (
+              message.feature === "files" &&
+              message.name === "listDirectory" &&
+              typeof message.error === "string"
+            ) {
+              failedListings += 1;
+              listingError = message.error;
+            }
           }),
         );
       },
     },
+  });
+
+  test("a directory failure is distinct from empty and Retry requests a fresh listing", async ({
+    page,
+    weavie,
+  }) => {
+    const directory = join(weavie.home, "outside-workspace");
+    const alias = join(weavie.workspace, "temporarily-missing");
+    await mkdir(directory);
+    await symlink(directory, alias, "junction");
+    await runCommand(page, "Toggle File Browser");
+    const row = page.locator(".browser-row", { hasText: "temporarily-missing" });
+    await expect(row).toBeVisible();
+    await rmdir(directory);
+    await row.click();
+    const error = page.locator(".browser-error");
+    await expect(error).toBeVisible();
+    expect(listingError).toContain(alias);
+    await expect(error.locator("span")).toHaveText(listingError);
+
+    const previous = failedListings;
+    await error.getByRole("button", { name: "Retry" }).click();
+    await expect.poll(() => failedListings).toBeGreaterThan(previous);
+    await expect(error.locator("span")).toHaveText(listingError);
+    await expect(page.locator(".browser-children .browser-empty")).toHaveCount(0);
   });
 
   test("Go to File discovers the first child after indexing an empty directory", async ({

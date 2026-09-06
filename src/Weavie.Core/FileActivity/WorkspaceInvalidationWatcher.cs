@@ -108,7 +108,8 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 				OnChanged,
 				OnDeleted,
 				OnRenamed,
-				OnError);
+				OnError,
+				recursive: false);
 		_files = new HashSet<string>(PathIdentity.Comparer);
 	}
 

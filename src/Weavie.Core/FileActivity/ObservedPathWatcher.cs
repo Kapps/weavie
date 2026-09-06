@@ -5,7 +5,7 @@ namespace Weavie.Core.FileActivity;
 
 /// <summary>
 /// Watches explicitly opened outside files and cached directory listings without walking the workspace.
-/// One flat watch per directory feeds the owning session's ordinary changed/deleted facts.
+/// Platform-owned directory watches feed the session's ordinary changed/deleted facts.
 /// </summary>
 public sealed class ObservedPathWatcher : IDisposable {
 	private readonly IFileSystem _fileSystem;
@@ -49,8 +49,7 @@ public sealed class ObservedPathWatcher : IDisposable {
 		_directories = createWatchSet(this);
 	}
 
-	// The flat watch sets the workspace watcher also picks between; only its recursive one is unusable here,
-	// because these files sit in unrelated directories rather than under one root.
+	// Windows uses minimal recursive roots: persistent descendant handles prevent ancestor renames.
 	private static IWorkspaceDirectoryWatchSet PlatformWatchSet(ObservedPathWatcher owner) =>
 		OperatingSystem.IsLinux()
 			? new LinuxWorkspaceDirectoryWatchSet(
@@ -65,7 +64,8 @@ public sealed class ObservedPathWatcher : IDisposable {
 				owner.OnTouched,
 				owner.OnTouched,
 				owner.OnRenamed,
-				owner.OnError);
+				owner.OnError,
+				recursive: OperatingSystem.IsWindows());
 
 	/// <summary>How many directories are currently watched.</summary>
 	public int WatchedDirectoryCount => _directories.Count;
@@ -74,7 +74,7 @@ public sealed class ObservedPathWatcher : IDisposable {
 	public void WatchDirectory(string directory) {
 		lock (_gate) {
 			ObjectDisposedException.ThrowIf(_disposed, this);
-			string path = Path.GetFullPath(directory);
+			string path = Path.TrimEndingDirectorySeparator(Path.GetFullPath(directory));
 			_directories.EnsureWatching(path);
 			_listedDirectories.Add(path);
 		}

@@ -6,10 +6,10 @@ using Xunit;
 namespace Weavie.Core.Tests;
 
 /// <summary>
-/// <see cref="ExternalFileWatcher"/> makes an edit to a file outside the checkout reach the open buffer. These
+/// <see cref="ObservedPathWatcher"/> makes an edit to a file outside the checkout reach the open buffer. These
 /// drive the real filesystem, because what they pin — that something observes the file — only exists there.
 /// </summary>
-public sealed class ExternalFileWatcherTests : IDisposable {
+public sealed class ObservedPathWatcherTests : IDisposable {
 	private readonly TempDirectory _root = new("weavie-external");
 
 	[Fact]
@@ -86,7 +86,7 @@ public sealed class ExternalFileWatcherTests : IDisposable {
 		// what allocates the platform handle — on Linux an inotify instance, capped per user across every
 		// session on the machine — so the assertion is that it is never reached, not that no watch resulted.
 		RecordingWatchSet watchSet = new();
-		using var watcher = new ExternalFileWatcher(
+		using var watcher = new ObservedPathWatcher(
 			new LocalFileSystem(),
 			new CapturingSink(),
 			Assert.Fail,
@@ -131,7 +131,20 @@ public sealed class ExternalFileWatcherTests : IDisposable {
 
 	public void Dispose() => _root.Dispose();
 
-	private static ExternalFileWatcher NewWatcher(CapturingSink sink) =>
+	[Fact]
+	public async Task ListedDirectoryRemainsWatchedWhenTheOpenFileSetChanges() {
+		CapturingSink sink = new();
+		using var watcher = NewWatcher(sink);
+		watcher.WatchDirectory(_root.Path);
+		watcher.Watch([]);
+		Assert.Equal(1, watcher.WatchedDirectoryCount);
+
+		Directory.CreateDirectory(_root.Combine("empty"));
+		object fact = await sink.Next.Task.WaitAsync(TimeSpan.FromSeconds(10));
+		Assert.Equal(_root.Path, Assert.IsType<Changed>(fact).Path);
+	}
+
+	private static ObservedPathWatcher NewWatcher(CapturingSink sink) =>
 		new(new LocalFileSystem(), sink, failure => Assert.Fail(failure), debounceMs: 10);
 
 	private sealed record Changed(string Path);

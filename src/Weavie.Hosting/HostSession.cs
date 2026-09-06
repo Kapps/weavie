@@ -40,7 +40,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 	private PullRequestStatusMonitor? _pullRequestStatus;
 	private GitStatusMonitor? _gitStatus;
 	private string? _workspaceWatcherFailure;
-	private string? _externalWatcherFailure;
+	private string? _observedPathsFailure;
 	// The server catalog advertised to the page (ids + language ids + default settings) — identical for every
 	// session, so serialized once; LspConfigJson adds the per-session worktree root.
 	private static readonly string LspServersCatalogJson = JsonSerializer.Serialize(
@@ -127,15 +127,14 @@ public sealed partial class HostSession : IAsyncDisposable {
 			Inventory,
 			Tagged("[files]"),
 			watcherDebounceMs: 250);
-		// The workspace watcher covers the worktree recursively; files open from anywhere else are watched one
-		// at a time, tracking the tab set.
-		ExternalFiles = new ExternalFileWatcher(
+		// Explicit file and directory observation follows open tabs and cached listings, never a workspace walk.
+		ObservedPaths = new ObservedPathWatcher(
 			fileSystem,
 			FileActivity,
-			ReportExternalFileWatchFailure,
+			ReportObservedPathsFailure,
 			debounceMs: 250);
 		EditorSessionChanged += editorSession =>
-			ExternalFiles.Watch(FilesOutsideWorkspace(workspaceRoot, editorSession));
+			ObservedPaths.Watch(FilesOutsideWorkspace(workspaceRoot, editorSession));
 		Browser = new WorkspaceBrowser(fileSystem, workspaceRoot);
 		FileIndex = new WorkspaceFileIndex(fileSystem, workspaceRoot);
 		Shells = new ShellTerminalSet(
@@ -300,7 +299,7 @@ public sealed partial class HostSession : IAsyncDisposable {
 	internal void ReplayWorkspaceWatcherFailure(MessageTarget target) {
 		foreach (string? message in new[] {
 			Volatile.Read(ref _workspaceWatcherFailure),
-			Volatile.Read(ref _externalWatcherFailure),
+			Volatile.Read(ref _observedPathsFailure),
 		}) {
 			if (message is not null) {
 				target.Feature("notifications").Publish("show", new { level = "error", message });
@@ -351,8 +350,8 @@ public sealed partial class HostSession : IAsyncDisposable {
 	/// <summary>Orders this session's completed file activity and owned workspace invalidations.</summary>
 	public SessionFileActivity FileActivity { get; }
 
-	/// <summary>Watches the open files that sit outside this session's worktree, which the workspace watcher never sees.</summary>
-	public ExternalFileWatcher ExternalFiles { get; }
+	/// <summary>Observes this session's open outside files and cached directory listings.</summary>
+	public ObservedPathWatcher ObservedPaths { get; }
 
 	/// <summary>Owns this workspace's scratch (untitled-buffer) directory; New File creates a file here.</summary>
 	public ScratchStore Scratch { get; }
@@ -368,6 +367,8 @@ public sealed partial class HostSession : IAsyncDisposable {
 
 	/// <summary>Flat recursive file list under the session root, for the omnibar "Go to File" quick-open.</summary>
 	public WorkspaceFileIndex FileIndex { get; }
+
+	internal SemaphoreSlim FileIndexGate { get; } = new(1, 1);
 
 	/// <summary>The session's authoritative Git-backed file and directory inventory.</summary>
 	public WorkspaceInventory Inventory { get; }
@@ -424,10 +425,9 @@ public sealed partial class HostSession : IAsyncDisposable {
 			.Select(entry => entry.Path),
 	];
 
-	// Watching outside files is a promise the editor footer makes, so losing it reaches the user rather than a
-	// console line, and replays on reconnect like the workspace watcher's own failure.
-	private void ReportExternalFileWatchFailure(string message) {
-		Volatile.Write(ref _externalWatcherFailure, message);
+	// Observation failures remain visible across reconnect, like the workspace watcher's own failure.
+	private void ReportObservedPathsFailure(string message) {
+		Volatile.Write(ref _observedPathsFailure, message);
 		_notificationMessages.Publish("show", new { level = "error", message });
 	}
 
@@ -576,9 +576,12 @@ public sealed partial class HostSession : IAsyncDisposable {
 	/// Lists <paramref name="requestedPath"/> — absolute as itself, relative against the session root — for the
 	/// file browser and the omnibar's open-by-path completion.
 	/// </summary>
-	private DirectoryListingMessage ListDirectory(string requestedPath) =>
-		new([.. Browser.List(requestedPath).Select(
+	private DirectoryListingMessage ListDirectory(string requestedPath) {
+		string path = Browser.Resolve(requestedPath);
+		ObservedPaths.WatchDirectory(path);
+		return new([.. Browser.List(path).Select(
 			entry => new DirectoryEntryMessage(entry.Name, entry.Path, entry.IsDirectory))]);
+	}
 
 	/// <summary>
 	/// Applies an editor <c>activeChanged</c> event from the page: updates the editor store, which pushes a

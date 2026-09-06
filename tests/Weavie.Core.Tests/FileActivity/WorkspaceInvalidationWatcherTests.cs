@@ -123,7 +123,7 @@ public sealed class WorkspaceInvalidationWatcherTests : IDisposable {
 		var inventory = new WorkspaceInventory(
 			_dir.Path,
 			async _ => {
-				if (Interlocked.Increment(ref loads) == 2) {
+				if (Interlocked.Increment(ref loads) == 3) {
 					await release.Task;
 				}
 
@@ -142,12 +142,12 @@ public sealed class WorkspaceInvalidationWatcherTests : IDisposable {
 		var run = watcher.RunAsync(CancellationToken.None);
 		await watcher.Ready;
 
-		// A creation opens a second pass, held open long enough that only the pass duration — never the
+		// A creation opens a refresh, held open long enough that only the pass duration — never the
 		// debounce — can explain the cooldown it asks for. The hold is measured rather than assumed: it sits
 		// wholly inside the pass, so the pass is at least that long however the timer rounds.
 		Track("first.ts");
 		await File.WriteAllTextAsync(_dir.Combine("first.ts"), "export {};\n");
-		Assert.True(await WaitForAsync(() => Volatile.Read(ref loads) >= 2), "expected the creation to start a refresh");
+		Assert.True(await WaitForAsync(() => Volatile.Read(ref loads) >= 3), "expected the creation to start a refresh");
 		long heldFrom = Stopwatch.GetTimestamp();
 		await Task.Delay(200);
 		var held = Stopwatch.GetElapsedTime(heldFrom);
@@ -159,6 +159,53 @@ public sealed class WorkspaceInvalidationWatcherTests : IDisposable {
 			requested >= held,
 			$"expected the cooldown to cover the {held.TotalMilliseconds}ms pass, got {requested.TotalMilliseconds}ms");
 
+		await watcher.StopAsync();
+		await run;
+	}
+
+	[Fact]
+	public async Task WatchesFirstFileInInitiallyEmptyDirectory() {
+		TempGitRepo.Init(_dir.Path);
+		_dir.CreateDirectory("empty", "nested");
+		var reported = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		string file = _dir.Combine("empty", "nested", "first.ts");
+		using var watcher = new WorkspaceInvalidationWatcher(
+			new WorkspaceInventory(_dir.Path),
+			batch => {
+				if (batch.Any(change => change.Path == file && change.Kind == FileInvalidationKind.Created)) reported.TrySetResult();
+			},
+			_ => { },
+			debounceMs: 1);
+		var run = watcher.RunAsync(CancellationToken.None);
+		await watcher.Ready;
+
+		await File.WriteAllTextAsync(file, "export {};");
+		await reported.Task.WaitAsync(TimeSpan.FromSeconds(5));
+		await watcher.StopAsync();
+		await run;
+	}
+
+	[Fact]
+	public async Task DiscoversFileCreatedBeforeDirectoryWatchIsArmed() {
+		bool created = false;
+		var reported = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		var inventory = new WorkspaceInventory(_dir.Path,
+			_ => Task.FromResult<IReadOnlyList<string>?>(created ? ["during.ts", "missing/file.ts"] : ["missing/file.ts"]));
+		using var watcher = new WorkspaceInvalidationWatcher(inventory,
+			batch => {
+				if (batch.Any(change => change.Path == _dir.Combine("during.ts"))) reported.TrySetResult();
+			},
+			_ => { }, 1, Task.Delay,
+			path => {
+				if (path == _dir.Path) {
+					File.WriteAllText(_dir.Combine("during.ts"), "");
+					created = true;
+				}
+				return new FileSystemWatcher(path);
+			});
+		var run = watcher.RunAsync(CancellationToken.None);
+		await watcher.Ready.WaitAsync(TimeSpan.FromSeconds(5));
+		await reported.Task.WaitAsync(TimeSpan.FromSeconds(5));
 		await watcher.StopAsync();
 		await run;
 	}
@@ -433,11 +480,13 @@ public sealed class WorkspaceInvalidationWatcherTests : IDisposable {
 			debounceMs: 30_000,
 			Task.Delay,
 			path => new FileSystemWatcher(path));
+		watcher.Record(_dir.Combine("pending.md"), FileInvalidationKind.Created);
 		watcher.Record(_dir.Combine("pending.md"), FileInvalidationKind.Changed);
 
 		await watcher.StopAsync();
 
 		Assert.True(HasChange("pending.md"));
+		Assert.Equal(FileInvalidationKind.Created, Assert.Single(_changes).Kind);
 	}
 
 	[Fact]

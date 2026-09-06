@@ -142,9 +142,9 @@ public sealed class GitServiceTests {
 	}
 
 	[Fact]
-	public async Task ListWorkspaceFiles_NonRepositoryReturnsNull() {
+	public async Task ListWorkspacePaths_NonRepositoryReturnsNull() {
 		using var directory = new TempDirectory("weavie-non-repo");
-		Assert.Null(await new GitService().ListWorkspaceFilesAsync(directory.Path));
+		Assert.Null(await new GitService().ListWorkspacePathsAsync(directory.Path));
 	}
 
 	[Theory]

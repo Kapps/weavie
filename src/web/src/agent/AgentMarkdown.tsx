@@ -1,11 +1,10 @@
 import { createEffect, type JSX, onCleanup, onMount } from "solid-js";
 import type { ClientSession } from "../bridge";
-import { type ContentLinkKind, findContentLinks, parseFileReference } from "../content-links";
+import { findContentLinks } from "../content-links";
+import { installContentNavigation } from "../content-navigation";
 import { hydrateMermaid } from "../editor/preview/diagrams";
 import { createMarkdownRenderer } from "../editor/preview/markdown-renderer";
-import { revealFileIn } from "../files/reveal";
 import { refLinkPrefixFor } from "../terminal/ref-link-store";
-import { openUrlExternal } from "../terminal/terminal-links";
 import { onPreviewThemeChanged } from "../theme/controller";
 import { installAgentMermaid } from "./agent-mermaid";
 
@@ -64,15 +63,14 @@ export function AgentMarkdown(props: {
   });
 
   onMount(() => {
-    const activateLink = (event: MouseEvent): void => {
-      const anchor = event.target instanceof Element ? event.target.closest("a") : null;
-      if (anchor instanceof HTMLAnchorElement) {
-        event.preventDefault();
-        activate(anchor, props.session);
-      }
-    };
-    host?.addEventListener("click", activateLink);
-    onCleanup(() => host?.removeEventListener("click", activateLink));
+    if (host !== undefined)
+      onCleanup(
+        installContentNavigation(
+          host,
+          () => props.session,
+          () => null,
+        ),
+      );
   });
 
   return <div class="agent-markdown" ref={host} />;
@@ -87,41 +85,6 @@ function renderCached(cacheKey: object, content: string, includeRefs: boolean): 
     renderedMarkdown.set(cacheKey, cached);
   }
   return cached.template.cloneNode(true) as HTMLElement;
-}
-
-function activate(anchor: HTMLAnchorElement, session: ClientSession | null): void {
-  const target = anchor.dataset.agentTarget ?? anchor.getAttribute("href") ?? "";
-  // A linkified span carries the kind the shared grammar already decided; re-deriving it from the text here
-  // would misread `processor.go:1654` as a `processor.go:` URI scheme. Only an authored href needs classifying.
-  switch (anchor.dataset.agentKind ?? classifyHref(target)) {
-    case "ref": {
-      const prefix = session === null ? null : refLinkPrefixFor(session);
-      if (prefix !== null) {
-        openUrlExternal(prefix + target.slice(1));
-      }
-      return;
-    }
-    case "url":
-      openUrlExternal(target);
-      return;
-    case "file": {
-      const { path, line } = parseFileReference(target);
-      revealFileIn(session, path, line, true);
-      return;
-    }
-    default:
-      return;
-  }
-}
-
-/** Classifies a link the markdown author wrote (as opposed to one linkify found), or null for an in-page jump. */
-function classifyHref(href: string): ContentLinkKind | null {
-  if (/^https?:\/\//i.test(href)) {
-    return "url";
-  }
-  // isSafeAgentLink already rejected every other scheme before this href reached the DOM, so what is left
-  // is a workspace path.
-  return href.length > 0 && !href.startsWith("#") ? "file" : null;
 }
 
 function linkifyText(root: HTMLElement, includeRefs: boolean): void {

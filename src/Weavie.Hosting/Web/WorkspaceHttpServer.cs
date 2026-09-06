@@ -72,6 +72,10 @@ public sealed partial class WorkspaceHttpServer : IAsyncDisposable {
 		builder.WebHost.UseUrls($"http://{bindHost}:{_options.Port}");
 		var app = builder.Build();
 		_app = app;
+		app.Use(async (context, next) => {
+			context.Response.Headers.ContentSecurityPolicy = "frame-ancestors 'none'";
+			await next(context).ConfigureAwait(false);
+		});
 		app.UseWebSockets(new WebSocketOptions {
 			KeepAliveInterval = TimeSpan.FromSeconds(30),
 			KeepAliveTimeout = TimeSpan.FromSeconds(30),

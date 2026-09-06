@@ -24,6 +24,11 @@ public sealed class WorkspaceBrowser {
 	/// <summary>The absolute workspace root a relative request resolves against.</summary>
 	public string Root { get; }
 
+	/// <summary>Resolves a listing's path against this browser's root.</summary>
+	public string Resolve(string? requestedPath) => string.IsNullOrEmpty(requestedPath)
+		? Root
+		: Path.GetFullPath(Path.Combine(Root, requestedPath));
+
 	/// <summary>
 	/// Lists the immediate entries of <paramref name="requestedPath"/> — absolute as itself, relative against
 	/// <see cref="Root"/>, empty as the root — directories first then files, each case-insensitive. A malformed
@@ -31,9 +36,7 @@ public sealed class WorkspaceBrowser {
 	/// empty directory.
 	/// </summary>
 	public IReadOnlyList<BrowserEntry> List(string? requestedPath) {
-		string target = string.IsNullOrEmpty(requestedPath)
-			? Root
-			: Path.GetFullPath(Path.Combine(Root, requestedPath));
+		string target = Resolve(requestedPath);
 		if (!_fileSystem.DirectoryExists(target)) {
 			throw new DirectoryNotFoundException($"Directory not found: {target}");
 		}

@@ -126,13 +126,13 @@ function Directory(props: {
           </div>
         )}
       </Match>
-      <Match when={ready()} keyed>
+      <Match when={ready()}>
         {(listing) => (
           <Show
-            when={listing.entries.length > 0}
+            when={listing().entries.length > 0}
             fallback={<div class="browser-empty">{props.emptyLabel}</div>}
           >
-            <For each={listing.entries}>
+            <For each={listing().entries}>
               {(entry) => (
                 <Node
                   entry={entry}

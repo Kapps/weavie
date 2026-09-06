@@ -6,7 +6,7 @@ namespace Weavie.Core.Workspaces;
 /// <summary>An authoritative workspace snapshot and the flat directories needed to observe its files.</summary>
 /// <param name="IsRepository">Whether Git supplied the snapshot.</param>
 /// <param name="Files">Canonical absolute paths for tracked and untracked, non-ignored files.</param>
-/// <param name="Directories">Canonical absolute parent directories from each file up to the workspace root.</param>
+/// <param name="Directories">Canonical absolute file ancestors and non-ignored directories, including empty ones.</param>
 public sealed record WorkspaceInventorySnapshot(
 	bool IsRepository,
 	IReadOnlyList<string> Files,
@@ -15,8 +15,8 @@ public sealed record WorkspaceInventorySnapshot(
 internal readonly record struct WorkspaceFileMove(string OldPath, string NewPath);
 
 /// <summary>
-/// Loads one workspace's tracked and untracked files from Git and derives their parent directories without
-/// walking the workspace. Refreshes are serialized so every consumer sees a complete snapshot.
+/// Loads one workspace's files and directories from Git, including empty non-ignored directories.
+/// Refreshes are serialized so every consumer sees a complete snapshot.
 /// </summary>
 public sealed partial class WorkspaceInventory {
 	private readonly Func<CancellationToken, Task<IReadOnlyList<string>?>> _load;
@@ -27,7 +27,7 @@ public sealed partial class WorkspaceInventory {
 	private bool? _isRepository;
 
 	/// <summary>Creates a Git-backed inventory rooted at <paramref name="root"/>.</summary>
-	public WorkspaceInventory(string root) : this(root, ct => new GitService().ListWorkspaceFilesAsync(root, ct)) { }
+	public WorkspaceInventory(string root) : this(root, ct => new GitService().ListWorkspacePathsAsync(root, ct)) { }
 
 	internal WorkspaceInventory(
 		string root,
@@ -51,12 +51,14 @@ public sealed partial class WorkspaceInventory {
 	public async Task<WorkspaceInventorySnapshot> RefreshAsync(CancellationToken ct = default) {
 		await _refreshGate.WaitAsync(ct).ConfigureAwait(false);
 		try {
-			var relativeFiles = _isRepository is false
+			var paths = _isRepository is false
 				? null
 				: await _load(ct).ConfigureAwait(false);
-			if (relativeFiles is not null) {
+			if (paths is not null) {
 				_isRepository = true;
-				return BuildSnapshot(isRepository: true, relativeFiles, []);
+				return BuildSnapshot(isRepository: true,
+					[.. paths.Where(path => !path.EndsWith('/'))],
+					[.. paths.Where(path => path.EndsWith('/'))]);
 			}
 
 			_isRepository = false;

@@ -1,5 +1,6 @@
 import { type ClientSession, registerSessionFeature, selectedSession } from "../bridge";
-import { createSessionOwnedState } from "../messaging/session-owned-state";
+import { normalizePath } from "../editor/fs-path";
+import { createSessionOwnedMap, createSessionOwnedState } from "../messaging/session-owned-state";
 import type { DirEntry, DirListings } from "./FileBrowser";
 import { revealFileIn } from "./reveal";
 
@@ -17,6 +18,7 @@ interface FileIndex {
 const EMPTY_INDEX: FileIndex = { root: null, home: null, files: [], pending: false };
 const indexes = createSessionOwnedState<FileIndex>(() => EMPTY_INDEX);
 const listings = createSessionOwnedState<DirListings>(() => ({}));
+const requests = createSessionOwnedMap<string, { again: boolean }>();
 
 function updateListings(
   session: ClientSession,
@@ -43,40 +45,85 @@ export function refreshSelectedFileIndex(): void {
 
 export function listSelectedDirectory(path: string): void {
   const session = selectedSession();
-  if (session === null) {
+  if (session !== null) listDirectory(session, path);
+}
+
+function listDirectory(session: ClientSession, path: string): void {
+  const pending = requests.get(session, path);
+  if (pending !== undefined) {
+    pending.again = true;
     return;
   }
-  if (listings.get(session)?.[path]?.status === "loading") {
-    return;
+  const request = { again: false };
+  requests.set(session, path, request);
+  if (listings.get(session)?.[path]?.status !== "ready") {
+    updateListings(session, (current) => ({ ...current, [path]: { status: "loading" } }));
   }
-  updateListings(session, (current) => ({ ...current, [path]: { status: "loading" } }));
-  void session
-    .feature("files")
-    .request<{ entries: DirEntry[] }, { path: string }>("listDirectory", { path })
-    .then(({ entries }) => {
-      updateListings(session, (current) => ({
-        ...current,
-        [path]: { status: "ready", entries },
-      }));
-    })
-    .catch((error: unknown) => {
-      updateListings(session, (current) => ({
-        ...current,
-        [path]: {
-          status: "error",
-          message: error instanceof Error ? error.message : String(error),
-        },
-      }));
-    });
+  void (async () => {
+    do {
+      request.again = false;
+      try {
+        const { entries } = await session
+          .feature("files")
+          .request<{ entries: DirEntry[] }, { path: string }>("listDirectory", { path });
+        if (request.again || session.closed) continue;
+        updateListings(session, (current) => {
+          const previous = current[path];
+          const known = new Map(
+            previous?.status === "ready"
+              ? previous.entries.map((entry) => [entry.path, entry])
+              : [],
+          );
+          return {
+            ...current,
+            [path]: {
+              status: "ready",
+              entries: entries.map((entry) => {
+                const old = known.get(entry.path);
+                return old?.name === entry.name && old.isDir === entry.isDir ? old : entry;
+              }),
+            },
+          };
+        });
+      } catch (error: unknown) {
+        if (!request.again)
+          updateListings(session, (current) => ({
+            ...current,
+            [path]: {
+              status: "error",
+              message: error instanceof Error ? error.message : String(error),
+            },
+          }));
+      }
+    } while (request.again && !session.closed);
+    requests.delete(session, path);
+  })();
 }
 
 registerSessionFeature((session) => {
   const files = session.feature("files");
+  const offChanged = files.on<{ changes: { path: string }[] }>("changed", ({ changes }) => {
+    const changed = changes.map((change) => normalizePath(change.path));
+    for (const path of Object.keys(listings.get(session) ?? {})) {
+      const directory = normalizePath(path);
+      if (
+        changed.some(
+          (change) =>
+            change === directory ||
+            change.startsWith(`${directory}/`) ||
+            directory.startsWith(`${change}/`),
+        )
+      ) {
+        listDirectory(session, path);
+      }
+    }
+  });
   const offIndex = files.on<{ root: string; home?: string; files: string[]; pending?: boolean }>(
     "index",
     (message) => {
       const previousRoot = indexes.get(session)?.root ?? null;
       if (message.pending === true && message.root === previousRoot) {
+        for (const path of Object.keys(listings.get(session) ?? {})) listDirectory(session, path);
         return;
       }
       indexes.update(session, () => ({
@@ -91,5 +138,8 @@ registerSessionFeature((session) => {
       }
     },
   );
-  return offIndex;
+  return () => {
+    offIndex();
+    offChanged();
+  };
 });

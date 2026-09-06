@@ -22,7 +22,7 @@ public sealed partial class HostSession {
 		await DisposeStepAsync(
 			failures, "file activity drain",
 			() => FileActivity.DrainAsync(CancellationToken.None)).ConfigureAwait(false);
-		await DisposeStepAsync(failures, "external file tracking", () => Task.Run(ExternalFiles.Dispose)).ConfigureAwait(false);
+		await DisposeStepAsync(failures, "observed paths", () => Task.Run(ObservedPaths.Dispose)).ConfigureAwait(false);
 		await DisposeStepAsync(failures, "file activity", () => FileActivity.DisposeAsync().AsTask()).ConfigureAwait(false);
 		await DisposeStepAsync(failures, "file opener", () => FileOpener.DisposeAsync().AsTask()).ConfigureAwait(false);
 		await DisposeStepAsync(failures, "language servers", () => Lsp.DisposeAsync().AsTask()).ConfigureAwait(false);
@@ -31,6 +31,7 @@ public sealed partial class HostSession {
 			return Task.CompletedTask;
 		}).ConfigureAwait(false);
 		ProjectDictionary.Dispose();
+		FileIndexGate.Dispose();
 		await DisposeStepAsync(failures, "message endpoint", () => _endpoint.DisposeAsync().AsTask()).ConfigureAwait(false);
 		if (failures.Count > 0) {
 			throw new AggregateException(failures);

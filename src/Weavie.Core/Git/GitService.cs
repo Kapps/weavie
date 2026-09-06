@@ -455,18 +455,34 @@ public sealed partial class GitService : IGitService {
 	}
 
 	/// <summary>
-	/// The workspace files git would surface — tracked plus untracked — with <c>.gitignore</c> (and the other
-	/// standard excludes: <c>.git/info/exclude</c>, the global excludesfile) honored, as repo-relative paths.
+	/// Tracked files, non-ignored untracked files, and non-ignored directories as workspace-relative paths.
+	/// Directory entries end in a slash, including empty directories needed for filesystem observation.
 	/// Returns <c>null</c> only when <paramref name="directory"/> isn't a git repository. Git launch failures
 	/// throw <see cref="GitException"/> so callers never mistake a broken inventory for a non-repository.
 	/// </summary>
-	public async Task<IReadOnlyList<string>?> ListWorkspaceFilesAsync(string directory, CancellationToken ct = default) {
+	public async Task<IReadOnlyList<string>?> ListWorkspacePathsAsync(string directory, CancellationToken ct = default) {
 		ArgumentException.ThrowIfNullOrEmpty(directory);
 		// -z keeps names with newlines safe; --exclude-standard applies the ignore rules; --cached is the
 		// tracked set and --others adds untracked-but-not-ignored files (so a brand-new file still opens).
 		var result = await RunAsync(directory, ["ls-files", "--cached", "--others", "--exclude-standard", "-z"], ct).ConfigureAwait(false);
 		if (result.ExitCode == 0) {
-			return result.StdOut.Split('\0', StringSplitOptions.RemoveEmptyEntries);
+			var paths = result.StdOut.Split('\0', StringSplitOptions.RemoveEmptyEntries).ToHashSet(StringComparer.Ordinal);
+			var depths = new SortedSet<int> { 0 };
+			while (depths.Count > 0) {
+				int depth = depths.Min;
+				depths.Remove(depth);
+				List<string> args = ["ls-files", "--others", "--directory", "--exclude-standard", "-z"];
+				// An explicit glob depth stops Git collapsing each untracked subtree to its root.
+				if (depth > 0) args.AddRange(["--", ":(glob)" + string.Concat(Enumerable.Repeat("*/", depth))]);
+				var directories = await RunAsync(directory, args, ct).ConfigureAwait(false);
+				if (directories.ExitCode != 0) {
+					throw new GitException($"git ls-files failed (exit {directories.ExitCode}): {directories.StdErr.Trim()}");
+				}
+				foreach (string path in directories.StdOut.Split('\0', StringSplitOptions.RemoveEmptyEntries)) {
+					if (path.EndsWith('/') && paths.Add(path)) depths.Add(path.Count(c => c == '/') + 1);
+				}
+			}
+			return [.. paths];
 		}
 
 		if (result.StdErr.Contains("not a git repository", StringComparison.OrdinalIgnoreCase)) {

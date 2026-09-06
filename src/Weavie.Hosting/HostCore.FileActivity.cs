@@ -21,6 +21,17 @@ public sealed partial class HostCore {
 			OnFailure);
 
 		session.FileActivity.Subscribe(
+			"file index projection",
+			fact => {
+				if (fact is FilesInvalidated invalidated && invalidated.Changes.Any(
+					change => change.Kind != FileInvalidationKind.Changed)) {
+					PushFileIndexToWeb(session, false);
+				}
+				return Task.CompletedTask;
+			},
+			OnFailure);
+
+		session.FileActivity.Subscribe(
 			"language server invalidation",
 			fact => {
 				if (fact is FilesInvalidated invalidated) {

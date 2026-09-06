@@ -161,36 +161,41 @@ public sealed partial class HostCore {
 		}
 
 		_ = session.Background.Run(async ct => {
-			IReadOnlyList<string> files;
+			await session.FileIndexGate.WaitAsync(ct).ConfigureAwait(false);
 			try {
-				var inventory = await session.Inventory.RefreshAsync(ct).ConfigureAwait(false);
-				if (inventory.IsRepository) {
-					files = inventory.Files;
-				} else {
-					var seed = await session.Inventory.BeginNonRepositorySeedAsync(ct).ConfigureAwait(false);
-					bool completed = false;
-					try {
-						var navigation = session.FileIndex.ListSnapshot();
-						var completedInventory = session.Inventory.CompleteNonRepositorySeed(
-							seed,
-							navigation.Files,
-							navigation.Directories);
-						files = completedInventory.Files;
-						completed = true;
-					} finally {
-						if (!completed) {
-							session.Inventory.CancelNonRepositorySeed(seed);
+				IReadOnlyList<string> files;
+				try {
+					var inventory = await session.Inventory.RefreshAsync(ct).ConfigureAwait(false);
+					if (inventory.IsRepository) {
+						files = inventory.Files;
+					} else {
+						var seed = await session.Inventory.BeginNonRepositorySeedAsync(ct).ConfigureAwait(false);
+						bool completed = false;
+						try {
+							var navigation = session.FileIndex.ListSnapshot();
+							var completedInventory = session.Inventory.CompleteNonRepositorySeed(
+								seed,
+								navigation.Files,
+								navigation.Directories);
+							files = completedInventory.Files;
+							completed = true;
+						} finally {
+							if (!completed) {
+								session.Inventory.CancelNonRepositorySeed(seed);
+							}
 						}
 					}
+				} catch (Exception ex) when (ex is GitException or IOException or UnauthorizedAccessException) {
+					target.Feature("files").Publish("index", Payload([], false));
+					Notify(session, "error", $"Couldn't load workspace files: {ex.Message}");
+					return;
 				}
-			} catch (Exception ex) when (ex is GitException or IOException or UnauthorizedAccessException) {
-				target.Feature("files").Publish("index", Payload([], false));
-				Notify(session, "error", $"Couldn't load workspace files: {ex.Message}");
-				return;
-			}
 
-			ct.ThrowIfCancellationRequested();
-			target.Feature("files").Publish("index", Payload(files, false));
+				ct.ThrowIfCancellationRequested();
+				target.Feature("files").Publish("index", Payload(files, false));
+			} finally {
+				session.FileIndexGate.Release();
+			}
 		});
 	}
 

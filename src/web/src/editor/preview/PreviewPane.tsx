@@ -1,5 +1,6 @@
-import { createEffect, type JSX, onCleanup } from "solid-js";
+import { createEffect, type JSX, onCleanup, onMount } from "solid-js";
 import type { ClientSession } from "../../bridge";
+import { installContentNavigation } from "../../content-navigation";
 import { onPreviewThemeChanged } from "../../theme/controller";
 import { preserveEditorFocusOnMount } from "../focus-on-mount";
 import { basename } from "../fs-path";
@@ -61,6 +62,7 @@ export default function PreviewPane(props: {
   };
 
   createEffect(render);
+  onMount(() => onCleanup(installContentNavigation(body, props.session, props.path)));
   preserveEditorFocusOnMount(
     () => host,
     () => props.focusOnMount,

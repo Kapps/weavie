@@ -59,8 +59,7 @@ internal sealed class FileSystemWorkspaceDirectoryWatchSet : IWorkspaceDirectory
 
 			foreach (string path in desired) {
 				if (!_watchers.ContainsKey(path)) {
-					TryAdd(path);
-					changed = true;
+					changed |= TryAdd(path);
 				}
 			}
 
@@ -76,12 +75,14 @@ internal sealed class FileSystemWorkspaceDirectoryWatchSet : IWorkspaceDirectory
 		}
 	}
 
-	private void TryAdd(string path) {
+	private bool TryAdd(string path) {
 		try {
 			_watchers.Add(path, Create(path));
+			return true;
 		} catch (DirectoryNotFoundException) {
 		} catch (ArgumentException) when (!Directory.Exists(path)) {
 		}
+		return false;
 	}
 
 	private FileSystemWatcher Create(string path) {

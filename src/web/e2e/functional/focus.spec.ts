@@ -4,8 +4,10 @@ import {
   createSession,
   openFile,
   pressDocumentStart,
+  runCommand,
   waitForSessionSwitch,
 } from "../harness/actions";
+import { withHeldAnimationFrames } from "../harness/animation-frames";
 import { expect, test } from "../harness/fixtures";
 
 // Which pane currently holds DOM focus, as the data-kind of the focused element's surface. This is the ground
@@ -75,9 +77,22 @@ test("creating a session focuses its agent while ordinary session switching does
   await shell.locator(".shell-tab-main").click();
   expect(await focusedKind(page)).toBe("terminal:shell");
 
-  await createSession(page, { branch: "e2e/session-focus", provider: "claude" });
-  await waitForSessionSwitch(page, initialSlot);
-  await expect.poll(() => focusedKind(page)).toBe("terminal:claude");
+  await runCommand(page, "Sessions");
+  const inbox = page.locator(".session-inbox");
+  await inbox.getByRole("combobox", { name: "Agent provider" }).selectOption("claude");
+  await inbox
+    .getByRole("textbox", { name: "Branch for the new session" })
+    .fill("e2e/session-focus");
+  const start = await inbox.getByRole("button", { name: "Start", exact: true }).boundingBox();
+  expect(start).not.toBeNull();
+  await withHeldAnimationFrames(page, async () => {
+    await page.mouse.click(start!.x + start!.width / 2, start!.y + start!.height / 2);
+    await waitForSessionSwitch(page, initialSlot);
+    await expect(inbox).toBeHidden();
+    await expect(
+      page.locator('[data-kind="terminal:claude"] .term-host:not(.hidden) .xterm-helper-textarea'),
+    ).toBeFocused();
+  });
 
   await shell.locator(".shell-tab-main").click();
   const forkedSlot = await activeSessionSlot(page);
@@ -101,11 +116,11 @@ test("typing lands in the session a keyboard switch brings up, with no click fir
   await composer.click();
   await composer.fill("session b draft");
 
-  await page.keyboard.press("Control+Shift+Tab");
-  await expect(page.locator('.session-chip.active[title^="e2e/focus-carry-a —"]')).toBeVisible();
-  // Focus lands a frame after the switch commits, so wait for it rather than racing the keystrokes past it.
-  await expect.poll(() => focusedKind(page)).toBe("terminal:claude");
-  await page.keyboard.type("typed without clicking");
-
-  await expect(composer).toHaveValue("typed without clicking");
+  await withHeldAnimationFrames(page, async () => {
+    await page.keyboard.press("Control+Shift+Tab");
+    await expect(page.locator('.session-chip.active[title^="e2e/focus-carry-a —"]')).toBeVisible();
+    await page.keyboard.type("typed without clicking");
+    await expect(composer).toHaveValue("typed without clicking");
+    await expect(composer).toBeFocused();
+  });
 });

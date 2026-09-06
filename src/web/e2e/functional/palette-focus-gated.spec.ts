@@ -1,4 +1,5 @@
-import { clickIntoEditor } from "../harness/actions";
+import { clickIntoEditor, openCommandPalette } from "../harness/actions";
+import { withHeldAnimationFrames } from "../harness/animation-frames";
 import { expect, test } from "../harness/fixtures";
 
 // Regression (#108): opening the command palette moves DOM focus to the omnibar input, which fired focusin
@@ -10,7 +11,6 @@ test("palette shows terminal-gated Copy for a pre-focused terminal (and hides Pa
   page,
 }) => {
   const shell = page.locator('.terminal-surface[data-kind="terminal:shell"]');
-  const box = page.locator(".tb-omnibar-box");
   const input = page.locator(".tb-omnibar-input");
 
   // Focus a terminal pane — clicking its tab lands DOM focus on the pane's xterm (terminalFocused = true).
@@ -18,10 +18,7 @@ test("palette shows terminal-gated Copy for a pre-focused terminal (and hides Pa
   await expect(shell).toHaveClass(/\bactive\b/);
 
   // Open the palette (omnibar command mode); focus now sits in the omnibar input, not the terminal.
-  await expect(async () => {
-    await page.keyboard.press("ControlOrMeta+Shift+p");
-    await expect(box).toHaveClass(/\bopen\b/, { timeout: 1000 });
-  }).toPass({ timeout: 10_000 });
+  await openCommandPalette(page);
   await input.fill(">copy");
 
   // The terminal-gated Copy command (When="terminalFocused") is visible — proven by both its row and the
@@ -50,7 +47,6 @@ test("palette shows terminal-gated Copy for a pre-focused terminal (and hides Pa
 test("palette hides terminal-gated Copy when the editor was focused before opening", async ({
   page,
 }) => {
-  const box = page.locator(".tb-omnibar-box");
   const input = page.locator(".tb-omnibar-input");
 
   // Open a file and click into Monaco so editorFocused (not terminalFocused) is the pre-open focus.
@@ -62,10 +58,7 @@ test("palette hides terminal-gated Copy when the editor was focused before openi
   await clickIntoEditor(page);
   await expect(page.locator('.editor-surface[data-kind="editor"]')).toHaveClass(/\bactive\b/);
 
-  await expect(async () => {
-    await page.keyboard.press("ControlOrMeta+Shift+p");
-    await expect(box).toHaveClass(/\bopen\b/, { timeout: 1000 });
-  }).toPass({ timeout: 10_000 });
+  await openCommandPalette(page);
   await input.fill(">copy");
 
   // No Terminal-category Copy row — the gate held.
@@ -74,4 +67,27 @@ test("palette hides terminal-gated Copy when the editor was focused before openi
       .locator(".tb-omnibar-row", { hasText: "Copy" })
       .filter({ has: page.locator(".tb-row-dir", { hasText: "Terminal" }) }),
   ).toHaveCount(0);
+});
+
+// Hold frames across a shell-tab selection and a newer keyboard command.
+test("a deferred terminal focus cannot close the command palette", async ({ page }) => {
+  const tab = page.locator('.terminal-surface[data-kind="terminal:shell"] .shell-tab-main');
+  const bounds = await tab.boundingBox();
+  expect(bounds).not.toBeNull();
+  await withHeldAnimationFrames(page, async (release) => {
+    await page.mouse.click(bounds!.x + bounds!.width / 2, bounds!.y + bounds!.height / 2);
+    const terminalInput = page.locator(
+      '.terminal-surface[data-kind="terminal:shell"] .xterm-helper-textarea',
+    );
+    await expect(terminalInput).toBeFocused();
+    await page.keyboard.press("x");
+    await expect(terminalInput).toBeFocused();
+    await page.keyboard.press("ControlOrMeta+Shift+p");
+    const input = page.locator(".tb-omnibar-input");
+    await expect(page.locator(".tb-omnibar-box")).toHaveClass(/\bopen\b/);
+    await expect(input).toBeFocused();
+    await release();
+    await expect(page.locator(".tb-omnibar-box")).toHaveClass(/\bopen\b/);
+    await expect(input).toBeFocused();
+  });
 });

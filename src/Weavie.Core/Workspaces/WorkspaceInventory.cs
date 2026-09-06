@@ -25,6 +25,7 @@ public sealed partial class WorkspaceInventory {
 	private readonly HashSet<string> _knownNonRepositoryFiles = new(PathIdentity.Comparer);
 	private readonly HashSet<string> _knownNonRepositoryDirectories = new(PathIdentity.Comparer);
 	private bool? _isRepository;
+	private WorkspaceInventorySnapshot? _lastSnapshot;
 
 	/// <summary>Creates a Git-backed inventory rooted at <paramref name="root"/>.</summary>
 	public WorkspaceInventory(string root) : this(root, ct => new GitService().ListWorkspacePathsAsync(root, ct)) { }
@@ -45,6 +46,13 @@ public sealed partial class WorkspaceInventory {
 	public event Action? Changed;
 
 	/// <summary>
+	/// The snapshot <see cref="RefreshAsync"/> most recently computed, or <c>null</c> before the first refresh.
+	/// A caller that already knows a refresh just completed (the watcher that triggered it) can read this
+	/// instead of forcing a redundant reload; every other caller should still call <see cref="RefreshAsync"/>.
+	/// </summary>
+	public WorkspaceInventorySnapshot? LastSnapshot => Volatile.Read(ref _lastSnapshot);
+
+	/// <summary>
 	/// Reloads the authoritative Git inventory. A non-repository snapshot contains paths already supplied by
 	/// navigation; Git execution failures throw rather than silently switching to a filesystem walk.
 	/// </summary>
@@ -54,20 +62,24 @@ public sealed partial class WorkspaceInventory {
 			var paths = _isRepository is false
 				? null
 				: await _load(ct).ConfigureAwait(false);
+			WorkspaceInventorySnapshot snapshot;
 			if (paths is not null) {
 				_isRepository = true;
-				return BuildSnapshot(isRepository: true,
+				snapshot = BuildSnapshot(isRepository: true,
 					[.. paths.Where(path => !path.EndsWith('/'))],
 					[.. paths.Where(path => path.EndsWith('/'))]);
+			} else {
+				_isRepository = false;
+				lock (_knownFilesLock) {
+					snapshot = BuildSnapshot(
+						isRepository: false,
+						[.. _knownNonRepositoryFiles],
+						[.. _knownNonRepositoryDirectories]);
+				}
 			}
 
-			_isRepository = false;
-			lock (_knownFilesLock) {
-				return BuildSnapshot(
-					isRepository: false,
-					[.. _knownNonRepositoryFiles],
-					[.. _knownNonRepositoryDirectories]);
-			}
+			Volatile.Write(ref _lastSnapshot, snapshot);
+			return snapshot;
 		} finally {
 			_refreshGate.Release();
 		}

@@ -144,6 +144,27 @@ public sealed class ObservedPathWatcherTests : IDisposable {
 		Assert.Equal(_root.Path, Assert.IsType<Changed>(fact).Path);
 	}
 
+	[Fact]
+	public void UnwatchDirectoryReleasesAListedDirectoryNoLongerShown() {
+		using var watcher = NewWatcher(new CapturingSink());
+		watcher.WatchDirectory(_root.Path);
+		Assert.Equal(1, watcher.WatchedDirectoryCount);
+
+		watcher.UnwatchDirectory(_root.Path);
+
+		Assert.Equal(0, watcher.WatchedDirectoryCount);
+	}
+
+	[Fact]
+	public void UnwatchDirectoryOfAnUnlistedDirectoryIsANoop() {
+		using var watcher = NewWatcher(new CapturingSink());
+		watcher.WatchDirectory(_root.Path);
+
+		watcher.UnwatchDirectory(_root.Combine("never-listed"));
+
+		Assert.Equal(1, watcher.WatchedDirectoryCount);
+	}
+
 	private static ObservedPathWatcher NewWatcher(CapturingSink sink) =>
 		new(new LocalFileSystem(), sink, failure => Assert.Fail(failure), debounceMs: 10);
 

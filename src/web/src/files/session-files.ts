@@ -48,6 +48,19 @@ export function listSelectedDirectory(path: string): void {
   if (session !== null) listDirectory(session, path);
 }
 
+/** Drops a directory's cached listing once the browser collapses it, and tells the host to stop watching it. */
+export function unlistSelectedDirectory(path: string): void {
+  const session = selectedSession();
+  if (session === null) return;
+  requests.delete(session, path);
+  updateListings(session, (current) => {
+    if (!(path in current)) return current;
+    const { [path]: _removed, ...rest } = current;
+    return rest;
+  });
+  session.feature("files").publish("unwatchDirectory", { path });
+}
+
 function listDirectory(session: ClientSession, path: string): void {
   const pending = requests.get(session, path);
   if (pending !== undefined) {

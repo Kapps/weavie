@@ -1,3 +1,4 @@
+using System.Text;
 using Weavie.Core.Processes;
 
 namespace Weavie.Core.Git;
@@ -467,20 +468,16 @@ public sealed partial class GitService : IGitService {
 		var result = await RunAsync(directory, ["ls-files", "--cached", "--others", "--exclude-standard", "-z"], ct).ConfigureAwait(false);
 		if (result.ExitCode == 0) {
 			var paths = result.StdOut.Split('\0', StringSplitOptions.RemoveEmptyEntries).ToHashSet(StringComparer.Ordinal);
-			var depths = new SortedSet<int> { 0 };
-			while (depths.Count > 0) {
-				int depth = depths.Min;
-				depths.Remove(depth);
-				List<string> args = ["ls-files", "--others", "--directory", "--exclude-standard", "-z"];
-				// An explicit glob depth stops Git collapsing each untracked subtree to its root.
-				if (depth > 0) args.AddRange(["--", ":(glob)" + string.Concat(Enumerable.Repeat("*/", depth))]);
-				var directories = await RunAsync(directory, args, ct).ConfigureAwait(false);
-				if (directories.ExitCode != 0) {
-					throw new GitException($"git ls-files failed (exit {directories.ExitCode}): {directories.StdErr.Trim()}");
-				}
-				foreach (string path in directories.StdOut.Split('\0', StringSplitOptions.RemoveEmptyEntries)) {
-					if (path.EndsWith('/') && paths.Add(path)) depths.Add(path.Count(c => c == '/') + 1);
-				}
+			// Empty non-ignored directories carry no files, so the listing above can't reveal them; git only
+			// exposes them via `--directory`, which collapses each fully-untracked subtree to its shallowest
+			// root. One level is peeled off per pass, scoped to just the roots found so far (never a repo-wide
+			// rescan) and batched into a single `git` call per pass regardless of how many roots are pending.
+			var frontier = await ListUntrackedDirectoriesAsync(directory, pathspecs: null, ct).ConfigureAwait(false);
+			foreach (string root in frontier) paths.Add(root);
+			while (frontier.Count > 0) {
+				string[] pathspecs = [.. frontier.Select(root => ":(glob)" + EscapeGlobPathspec(root) + "*/")];
+				frontier = await ListUntrackedDirectoriesAsync(directory, pathspecs, ct).ConfigureAwait(false);
+				frontier.RemoveWhere(nested => !paths.Add(nested));
 			}
 			return [.. paths];
 		}
@@ -490,6 +487,41 @@ public sealed partial class GitService : IGitService {
 		}
 
 		throw new GitException($"git ls-files failed (exit {result.ExitCode}): {result.StdErr.Trim()}");
+	}
+
+	// One level of untracked, non-ignored directories: unscoped (the whole worktree) when pathspecs is null/empty,
+	// or scoped to exactly the given roots' immediate children when not — never both at once.
+	private async Task<HashSet<string>> ListUntrackedDirectoriesAsync(string directory, string[]? pathspecs, CancellationToken ct) {
+		List<string> args = ["ls-files", "--others", "--directory", "--exclude-standard", "-z"];
+		if (pathspecs is { Length: > 0 }) {
+			args.Add("--");
+			args.AddRange(pathspecs);
+		}
+
+		var result = await RunAsync(directory, args, ct).ConfigureAwait(false);
+		if (result.ExitCode != 0) {
+			throw new GitException($"git ls-files failed (exit {result.ExitCode}): {result.StdErr.Trim()}");
+		}
+
+		return [.. result.StdOut.Split('\0', StringSplitOptions.RemoveEmptyEntries).Where(path => path.EndsWith('/'))];
+	}
+
+	private static readonly char[] GlobPathspecMetacharacters = ['\\', '?', '*', '['];
+
+	// Backslash-escapes fnmatch metacharacters so a directory name git just reported is matched back literally
+	// under `:(glob)` rather than reinterpreted as a wildcard (e.g. a folder literally named "[wip]").
+	private static string EscapeGlobPathspec(string pathSegment) {
+		if (pathSegment.IndexOfAny(GlobPathspecMetacharacters) < 0) {
+			return pathSegment;
+		}
+
+		var escaped = new StringBuilder(pathSegment.Length + 4);
+		foreach (char c in pathSegment) {
+			if (Array.IndexOf(GlobPathspecMetacharacters, c) >= 0) escaped.Append('\\');
+			escaped.Append(c);
+		}
+
+		return escaped.ToString();
 	}
 
 	/// <summary>

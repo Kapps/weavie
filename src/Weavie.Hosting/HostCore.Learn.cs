@@ -1,4 +1,5 @@
 using Weavie.Core.Commands;
+using Weavie.Core.Configuration;
 using Weavie.Core.Corrections;
 
 namespace Weavie.Hosting;
@@ -9,6 +10,10 @@ namespace Weavie.Hosting;
 // See docs/specs/learn-from-corrections.md.
 public sealed partial class HostCore {
 	private CommandResult RunLearn(HostSession session) {
+		if (!_settings.RequireBool(CorrectionsSettings.Enabled)) {
+			return CommandResult.Failure("Learn From My Corrections is disabled. Ask your agent to enable corrections.enabled to use it.");
+		}
+
 		// Peek (Count) before consuming so an empty ring fails WITHOUT draining.
 		if (_corrections.Count == 0) {
 			return CommandResult.Failure(

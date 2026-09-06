@@ -396,9 +396,8 @@ public sealed partial class HostCore : IAsyncDisposable {
 				ClearAutomaticInferenceOffer();
 			}
 
-			// Configuring the worktree setup command or the test profile can make the workspace-setup card vanish;
-			// re-evaluate the suggestions. A changed test profile also re-pushes it so run lenses refresh in place.
-			if (change.Key is CoreSettings.WorktreeSetupCommand or TestSettings.Profile) {
+			if (change.Key is CoreSettings.WorktreeSetupCommand or TestSettings.Profile
+				or CorrectionsSettings.Enabled or CorrectionsSettings.LearnThreshold) {
 				_suggestions?.Evaluate();
 			}
 

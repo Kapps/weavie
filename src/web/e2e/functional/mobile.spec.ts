@@ -573,6 +573,17 @@ test("a compact session row manages its session from a hold and its actions butt
     return { x: bounds.x + 60, y: bounds.y + bounds.height / 2 };
   });
   const hold = async (): Promise<void> => {
+    // A prior gesture's touchend resolving at the CDP protocol level doesn't guarantee the browser has
+    // finished routing it to the page — starting this touchstart before that settles risks it being
+    // coalesced into the outgoing gesture instead of raising a new pointerdown, so `long-press.ts`'s timer
+    // never arms. 2026-09-06, flaked on windows-latest (run
+    // https://github.com/Kapps/weavie/actions/runs/34003547684/job/101407078440): this touchstart, coming
+    // right after the drift gesture's touchend above with no browser tick between them, produced no
+    // pointerdown at all — added the settle tick this file already uses after dispatchPaneTouch's own
+    // touchend (see the double rAF below `screen`'s touchend a few tests down).
+    await page.evaluate(
+      () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+    );
     await touch.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [point] });
     await expect(menu).toBeVisible();
   };

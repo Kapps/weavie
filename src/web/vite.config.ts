@@ -94,6 +94,7 @@ export default defineConfig(({ command }) => ({
   // Debug instances each get their own isolated server instead of colliding on (and silently reusing) one fixed
   // 5173. No `port` is pinned here; strictPort keeps a bare `vite` run failing loud rather than wandering ports.
   server: {
+    headers: { "Content-Security-Policy": "frame-ancestors 'none'" },
     strictPort: true,
   },
   // Dev only: monaco-vscode-api's default-extension packages register their assets (theme JSON,

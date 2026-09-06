@@ -1,7 +1,10 @@
+import { onCleanup } from "solid-js";
 import { render } from "solid-js/web";
 import App from "./App";
 import { hostConnection, isBrowserHostedShell, LOCAL_BACKEND_ID, log } from "./bridge";
+import { installNavigationGuard } from "./navigation";
 import { mark } from "./startup-timing";
+import { openUrlExternal } from "./terminal/terminal-links";
 import "./fonts.css";
 // Chrome stylesheets, co-located with the components they style. Order is the cascade: base first, then
 // per-feature.
@@ -57,7 +60,10 @@ window.__WEAVIE_CLEAR_BOOT_ERROR_CAPTURE__?.();
 // Render the shell immediately. Monaco + its VSCode service layer load as a separate chunk from inside App,
 // so first paint doesn't wait on the multi-megabyte editor code. The splash stays up until App dismisses it
 // once the editor is ready.
-render(() => <App />, root);
+render(() => {
+  onCleanup(installNavigationGuard(document, openUrlExternal));
+  return <App />;
+}, root);
 
 const localConnection = hostConnection(LOCAL_BACKEND_ID);
 if (localConnection !== undefined && !isBrowserHostedShell()) {

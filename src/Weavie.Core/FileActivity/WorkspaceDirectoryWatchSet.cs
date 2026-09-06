@@ -18,6 +18,7 @@ internal sealed class FileSystemWorkspaceDirectoryWatchSet : IWorkspaceDirectory
 	private readonly Action<FileSystemEventArgs> _deleted;
 	private readonly Action<string, string> _renamed;
 	private readonly Action<Exception> _error;
+	private readonly bool _recursive;
 	private readonly Dictionary<string, FileSystemWatcher> _watchers;
 	private readonly Lock _gate = new();
 	private bool _disposed;
@@ -28,13 +29,15 @@ internal sealed class FileSystemWorkspaceDirectoryWatchSet : IWorkspaceDirectory
 		Action<FileSystemEventArgs> changed,
 		Action<FileSystemEventArgs> deleted,
 		Action<string, string> renamed,
-		Action<Exception> error) {
+		Action<Exception> error,
+		bool recursive) {
 		_create = create;
 		_created = created;
 		_changed = changed;
 		_deleted = deleted;
 		_renamed = renamed;
 		_error = error;
+		_recursive = recursive;
 		_watchers = new Dictionary<string, FileSystemWatcher>(PathIdentity.Comparer);
 	}
 
@@ -43,25 +46,25 @@ internal sealed class FileSystemWorkspaceDirectoryWatchSet : IWorkspaceDirectory
 	}
 
 	public bool Reconcile(IReadOnlyList<string> directories) {
-		var desired = directories.ToHashSet(PathIdentity.Comparer);
+		var desired = new HashSet<string>(PathIdentity.Comparer);
+		foreach (string path in directories.Select(path => Path.TrimEndingDirectorySeparator(Path.GetFullPath(path))).OrderBy(path => path.Length)) {
+			if (!desired.Any(root => Covers(root, path))) desired.Add(path);
+		}
 		lock (_gate) {
 			if (_disposed) {
 				return false;
 			}
 
 			bool changed = false;
+			// Arm replacement roots before releasing descendant handles that prevent Windows ancestor renames.
+			foreach (string path in desired) {
+				if (!_watchers.ContainsKey(path)) changed |= TryAdd(path);
+			}
 			foreach (string path in _watchers.Keys.Where(path => !desired.Contains(path)).ToArray()) {
 				_watchers.Remove(path, out var obsolete);
 				obsolete!.EnableRaisingEvents = false;
 				obsolete.Dispose();
 				changed = true;
-			}
-
-			foreach (string path in desired) {
-				if (!_watchers.ContainsKey(path)) {
-					TryAdd(path);
-					changed = true;
-				}
 			}
 
 			return changed;
@@ -70,24 +73,34 @@ internal sealed class FileSystemWorkspaceDirectoryWatchSet : IWorkspaceDirectory
 
 	public void EnsureWatching(string directory) {
 		lock (_gate) {
-			if (!_disposed && !_watchers.ContainsKey(directory)) {
-				TryAdd(directory);
-			}
+			if (!_disposed) Reconcile([.. _watchers.Keys, directory]);
 		}
 	}
 
-	private void TryAdd(string path) {
+	private bool Covers(string root, string path) {
+		if (PathIdentity.Comparer.Equals(root, path)) return true;
+		if (!_recursive || !PathBoundary.Contains(root, path, PathIdentity.Comparison)) return false;
+		for (var directory = new DirectoryInfo(path); !PathIdentity.Comparer.Equals(directory.FullName, root); directory = directory.Parent!) {
+			// Recursive native watches do not cross directory links; those need their own root.
+			if (directory.LinkTarget is not null) return false;
+		}
+		return true;
+	}
+
+	private bool TryAdd(string path) {
 		try {
 			_watchers.Add(path, Create(path));
+			return true;
 		} catch (DirectoryNotFoundException) {
 		} catch (ArgumentException) when (!Directory.Exists(path)) {
 		}
+		return false;
 	}
 
 	private FileSystemWatcher Create(string path) {
 		var watcher = _create(path);
 		try {
-			watcher.IncludeSubdirectories = false;
+			watcher.IncludeSubdirectories = _recursive;
 			watcher.NotifyFilter = NotifyFilters.FileName
 				| NotifyFilters.DirectoryName
 				| NotifyFilters.LastWrite

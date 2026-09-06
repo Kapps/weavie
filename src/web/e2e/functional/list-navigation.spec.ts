@@ -90,13 +90,9 @@ test("hovering an omnibar row moves the highlight, and Enter acts on the hovered
 
   const target = page.locator(".tb-omnibar-row").nth(2);
   const name = ((await target.locator(".tb-row-leaf").textContent()) ?? "").trim();
-  const box = await target.boundingBox();
-  if (box === null) {
-    throw new Error("the hover target row has no box");
-  }
-  // Two positions, because the highlight follows mousemove — a cursor that never moves must not steal it.
-  await page.mouse.move(box.x + 20, box.y + box.height / 2 - 1);
-  await page.mouse.move(box.x + 24, box.y + box.height / 2);
+  // Resolve the live row for each move: index refreshes can replace its DOM node.
+  await target.hover({ position: { x: 20, y: 5 } });
+  await target.hover({ position: { x: 24, y: 6 } });
   await expect.poll(async () => (await omnibarRow(page))?.address).toMatch(/:2$/);
 
   await input.press("Enter");

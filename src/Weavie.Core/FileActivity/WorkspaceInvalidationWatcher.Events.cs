@@ -148,7 +148,9 @@ public sealed partial class WorkspaceInvalidationWatcher {
 				return;
 			}
 
-			_pending[canonical] = kind;
+			if (kind != FileInvalidationKind.Changed || !_pending.ContainsKey(canonical)) {
+				_pending[canonical] = kind;
+			}
 			_debounceTimer?.Change(_debounce, Timeout.InfiniteTimeSpan);
 		}
 	}

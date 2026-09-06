@@ -1,5 +1,7 @@
+import { writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
+import { join } from "node:path";
 import {
   activeSessionSlot,
   createSession,
@@ -31,7 +33,8 @@ test.beforeAll(async () => {
     response.end(`<!doctype html>
       <title>Stateful form</title>
       <p id="load-count">Page loads: ${count}</p>
-      <label>Approval note <input aria-label="Approval note"></label>`);
+      <label>Approval note <input aria-label="Approval note"></label>
+      <button onclick="try { top.location.href='/form-escaped'; } catch (error) { this.textContent=error.name; }">Navigate top</button>`);
   });
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
@@ -58,6 +61,51 @@ async function openUrl(page: import("@playwright/test").Page, url: string): Prom
 function activeFrame(page: import("@playwright/test").Page) {
   return page.frameLocator(".editor-web:not([hidden]) iframe");
 }
+
+test("@cross Markdown preview links open externally without replacing the app", async ({
+  page,
+  weavie,
+}) => {
+  test.slow();
+  const url = `${origin}/form-markdown`;
+  await writeFile(
+    join(weavie.workspace, "README.md"),
+    `# Preview\n\n[Visit destination](${url})\n\n` +
+      `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="240" height="40"><a xlink:href="${url}"><text x="0" y="25">SVG destination</text></a></svg>\n\n` +
+      '<a href="missing%ZZ.txt">Malformed path</a>\n',
+  );
+  await openFile(page, "README.md");
+  await page.locator(".editor-preview-toggle").click();
+  const appUrl = page.url();
+  for (const link of [
+    page.getByRole("link", { name: "Visit destination" }),
+    page.locator(".editor-preview svg a"),
+  ]) {
+    const [popup] = await Promise.all([page.waitForEvent("popup"), link.click()]);
+    await expect(popup).toHaveURL(url);
+    await expect(popup.getByRole("textbox", { name: "Approval note" })).toBeVisible();
+    expect(await popup.evaluate(() => window.opener)).toBeNull();
+    await popup.close();
+  }
+  await page.getByRole("link", { name: "Malformed path" }).click();
+  await expect(page.locator(".toast", { hasText: "Could not open link:" })).toBeVisible();
+  await expect(page).toHaveURL(appUrl);
+  await expect(page.locator(".editor-tab.active")).toHaveText(/README\.md/);
+});
+
+test("embedded web content cannot navigate the app's top frame", async ({ page }) => {
+  const appUrl = page.url();
+  expect((await page.request.get(appUrl)).headers()["content-security-policy"]).toBe(
+    "frame-ancestors 'none'",
+  );
+  await openUrl(page, `${origin}/form-confined`);
+  const frame = activeFrame(page);
+  await frame.getByRole("button", { name: "Navigate top" }).click();
+  await expect(frame.getByRole("button", { name: "SecurityError" })).toBeVisible();
+  await expect(page).toHaveURL(appUrl);
+  await frame.getByRole("textbox", { name: "Approval note" }).fill("Still usable");
+  await expect(frame.getByRole("textbox", { name: "Approval note" })).toHaveValue("Still usable");
+});
 
 test("web tab retains its live page state across editor tabs until close", async ({ page }) => {
   const path = "/form-state";

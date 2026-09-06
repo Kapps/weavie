@@ -49,6 +49,27 @@ public sealed class WorkspaceInventoryTests : IDisposable {
 	}
 
 	[Fact]
+	public async Task GitInventoryIncludesNestedEmptyDirectoriesAndHonorsExcludes() {
+		TempGitRepo.Init(_root.Path);
+		_root.WriteFile(".gitignore", "ignored/\n");
+		_root.WriteFile("tracked/deep/source.cs", "");
+		TempGitRepo.Run(_root.Path, "add", ".");
+		_root.WriteFile("mixed/source.cs", "");
+		string empty = _root.CreateDirectory("mixed", "empty", "nested");
+		string deep = _root.CreateDirectory("tracked", "deep", "empty", "nested");
+		string special = _root.CreateDirectory("[literal] space", "empty");
+		string ignored = _root.CreateDirectory("ignored", "empty");
+		var snapshot = await new WorkspaceInventory(_root.Path).RefreshAsync();
+
+		Assert.Contains(empty, snapshot.Directories);
+		Assert.Contains(deep, snapshot.Directories);
+		Assert.Contains(special, snapshot.Directories);
+		Assert.DoesNotContain(ignored, snapshot.Directories);
+		Assert.DoesNotContain(_root.Combine(".git"), snapshot.Directories);
+		Assert.Equal(3, snapshot.Files.Count);
+	}
+
+	[Fact]
 	public void BuildSnapshot_DeduplicatesDirectorySpellings() {
 		var inventory = new WorkspaceInventory(_root.Path);
 		var snapshot = inventory.BuildSnapshot(false, [], ["src", "src/", "src/.", "./"]);

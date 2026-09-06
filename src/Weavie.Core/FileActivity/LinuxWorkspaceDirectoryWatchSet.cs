@@ -52,8 +52,7 @@ internal sealed partial class LinuxWorkspaceDirectoryWatchSet : IWorkspaceDirect
 
 			foreach (string path in desired) {
 				if (!_pathWatches.ContainsKey(path)) {
-					Add(path);
-					changed = true;
+					changed |= Add(path);
 				}
 			}
 
@@ -94,12 +93,12 @@ internal sealed partial class LinuxWorkspaceDirectoryWatchSet : IWorkspaceDirect
 		_reader.Start();
 	}
 
-	private void Add(string path) {
+	private bool Add(string path) {
 		int watch = inotify_add_watch(_inotifyFd, path, WatchMask);
 		if (watch < 0) {
 			int error = Marshal.GetLastPInvokeError();
 			if (error == NoSuchFileOrDirectory) {
-				return;
+				return false;
 			}
 
 			throw NativeFailure($"inotify_add_watch('{path}')", error);
@@ -111,6 +110,7 @@ internal sealed partial class LinuxWorkspaceDirectoryWatchSet : IWorkspaceDirect
 
 		_pathWatches[path] = watch;
 		_watchPaths[watch] = path;
+		return true;
 	}
 
 	private void Remove(string path) {

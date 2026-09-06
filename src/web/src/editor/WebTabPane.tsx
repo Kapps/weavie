@@ -61,7 +61,12 @@ function SessionWebTabs(props: {
             inert={!active()}
             tabindex={active() ? 0 : undefined}
           >
-            <iframe class="editor-web-frame" src={url} title="Web preview" />
+            <iframe
+              class="editor-web-frame"
+              src={url}
+              title="Web preview"
+              sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads allow-modals allow-presentation"
+            />
           </div>
         );
       }}

@@ -108,7 +108,8 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 				OnChanged,
 				OnDeleted,
 				OnRenamed,
-				OnError);
+				OnError,
+				recursive: false);
 		_files = new HashSet<string>(PathIdentity.Comparer);
 	}
 
@@ -205,23 +206,29 @@ public sealed partial class WorkspaceInvalidationWatcher : IDisposable {
 	private TimeSpan CooldownAfter(TimeSpan lastRefresh) => lastRefresh > _debounce ? lastRefresh : _debounce;
 
 	private async Task RefreshAsync(bool initial, CancellationToken ct) {
-		var snapshot = await _inventory.RefreshAsync(ct).ConfigureAwait(false);
-		Volatile.Write(ref _isRepository, snapshot.IsRepository);
-		var nextFiles = snapshot.Files.ToHashSet(PathIdentity.Comparer);
-		if (!initial) {
-			foreach (string path in nextFiles.Except(_files, PathIdentity.Comparer)) {
-				Record(path, FileInvalidationKind.Created);
+		bool watchesChanged;
+		do {
+			var snapshot = await _inventory.RefreshAsync(ct).ConfigureAwait(false);
+			Volatile.Write(ref _isRepository, snapshot.IsRepository);
+			var nextFiles = snapshot.Files.ToHashSet(PathIdentity.Comparer);
+			if (!initial) {
+				foreach (string path in nextFiles.Except(_files, PathIdentity.Comparer)) {
+					Record(path, FileInvalidationKind.Created);
+				}
+
+				foreach (string path in _files.Except(nextFiles, PathIdentity.Comparer)) {
+					Record(path, FileInvalidationKind.Deleted);
+				}
 			}
 
-			foreach (string path in _files.Except(nextFiles, PathIdentity.Comparer)) {
-				Record(path, FileInvalidationKind.Deleted);
+			Volatile.Write(ref _files, nextFiles);
+			watchesChanged = _directoryWatchers.Reconcile(snapshot.Directories);
+			if (watchesChanged) {
+				_log($"workspace watcher on {_inventory.Root} ({_directoryWatchers.Count} flat directories)");
 			}
-		}
-
-		Volatile.Write(ref _files, nextFiles);
-		if (_directoryWatchers.Reconcile(snapshot.Directories)) {
-			_log($"workspace watcher on {_inventory.Root} ({_directoryWatchers.Count} flat directories)");
-		}
+			initial = false;
+			// Snapshot after installing new watches so changes during discovery cannot fall into an unwatched gap.
+		} while (watchesChanged);
 	}
 
 	private void SignalRefresh() => _refreshSignals.Writer.TryWrite(true);

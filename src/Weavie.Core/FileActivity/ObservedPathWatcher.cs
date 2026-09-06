@@ -4,11 +4,10 @@ using Weavie.Core.FileSystem;
 namespace Weavie.Core.FileActivity;
 
 /// <summary>
-/// Watches the individual files the editor has open from outside its checkout, which the worktree-recursive
-/// workspace watcher never sees. One watch per containing directory, filtered to the exact files, so the cost
-/// tracks open tabs. Changes enter the session's stream as the ordinary changed/deleted facts.
+/// Watches explicitly opened outside files and cached directory listings without walking the workspace.
+/// Platform-owned directory watches feed the session's ordinary changed/deleted facts.
 /// </summary>
-public sealed class ExternalFileWatcher : IDisposable {
+public sealed class ObservedPathWatcher : IDisposable {
 	private readonly IFileSystem _fileSystem;
 	private readonly IFileActivitySink _sink;
 	private readonly Action<string> _onFailure;
@@ -16,6 +15,7 @@ public sealed class ExternalFileWatcher : IDisposable {
 	private readonly IWorkspaceDirectoryWatchSet _directories;
 	private readonly ConcurrentDictionary<string, byte> _pending = new(PathIdentity.Comparer);
 	private readonly HashSet<string> _files = new(PathIdentity.Comparer);
+	private readonly HashSet<string> _listedDirectories = new(PathIdentity.Comparer);
 	private readonly Lock _gate = new();
 	private Timer? _debounceTimer;
 	private bool _disposed;
@@ -25,19 +25,19 @@ public sealed class ExternalFileWatcher : IDisposable {
 	/// <param name="sink">The owning session's activity stream.</param>
 	/// <param name="onFailure">Surfaces a watch failure to the user; watching is silently over once it fires.</param>
 	/// <param name="debounceMs">How long to coalesce rapid changes to one file before reporting it.</param>
-	public ExternalFileWatcher(
+	public ObservedPathWatcher(
 		IFileSystem fileSystem,
 		IFileActivitySink sink,
 		Action<string> onFailure,
 		int debounceMs)
 		: this(fileSystem, sink, onFailure, debounceMs, PlatformWatchSet) { }
 
-	internal ExternalFileWatcher(
+	internal ObservedPathWatcher(
 		IFileSystem fileSystem,
 		IFileActivitySink sink,
 		Action<string> onFailure,
 		int debounceMs,
-		Func<ExternalFileWatcher, IWorkspaceDirectoryWatchSet> createWatchSet) {
+		Func<ObservedPathWatcher, IWorkspaceDirectoryWatchSet> createWatchSet) {
 		ArgumentNullException.ThrowIfNull(fileSystem);
 		ArgumentNullException.ThrowIfNull(sink);
 		ArgumentNullException.ThrowIfNull(onFailure);
@@ -49,9 +49,8 @@ public sealed class ExternalFileWatcher : IDisposable {
 		_directories = createWatchSet(this);
 	}
 
-	// The flat watch sets the workspace watcher also picks between; only its recursive one is unusable here,
-	// because these files sit in unrelated directories rather than under one root.
-	private static IWorkspaceDirectoryWatchSet PlatformWatchSet(ExternalFileWatcher owner) =>
+	// Windows uses minimal recursive roots: persistent descendant handles prevent ancestor renames.
+	private static IWorkspaceDirectoryWatchSet PlatformWatchSet(ObservedPathWatcher owner) =>
 		OperatingSystem.IsLinux()
 			? new LinuxWorkspaceDirectoryWatchSet(
 				owner.OnTouched,
@@ -65,10 +64,21 @@ public sealed class ExternalFileWatcher : IDisposable {
 				owner.OnTouched,
 				owner.OnTouched,
 				owner.OnRenamed,
-				owner.OnError);
+				owner.OnError,
+				recursive: OperatingSystem.IsWindows());
 
 	/// <summary>How many directories are currently watched.</summary>
 	public int WatchedDirectoryCount => _directories.Count;
+
+	/// <summary>Observes a cached directory listing for this session, including empty or outside directories.</summary>
+	public void WatchDirectory(string directory) {
+		lock (_gate) {
+			ObjectDisposedException.ThrowIf(_disposed, this);
+			string path = Path.TrimEndingDirectorySeparator(Path.GetFullPath(directory));
+			_directories.EnsureWatching(path);
+			_listedDirectories.Add(path);
+		}
+	}
 
 	/// <summary>
 	/// Observes exactly <paramref name="files"/>, dropping watches and pending reports for the rest. Called
@@ -86,7 +96,7 @@ public sealed class ExternalFileWatcher : IDisposable {
 				_files.Add(Path.GetFullPath(file));
 			}
 
-			foreach (string stale in _pending.Keys.Where(path => !_files.Contains(path))) {
+			foreach (string stale in _pending.Keys.Where(path => !_files.Contains(path) && !_listedDirectories.Contains(path))) {
 				_pending.TryRemove(stale, out _);
 			}
 
@@ -94,6 +104,7 @@ public sealed class ExternalFileWatcher : IDisposable {
 				.Select(Path.GetDirectoryName)
 				.OfType<string>()
 				.Where(directory => directory.Length > 0)
+				.Concat(_listedDirectories)
 				.Distinct(PathIdentity.Comparer)];
 			// Reconciling an empty set to an empty set still starts the platform watcher, and a session with no
 			// outside files open is the common case — so it would cost every session a native instance for nothing.
@@ -105,7 +116,7 @@ public sealed class ExternalFileWatcher : IDisposable {
 				_directories.Reconcile(directories);
 			} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
 				// Contained: Watch runs from an event whose other subscribers persist the session.
-				_onFailure($"Can't watch files opened from outside this workspace: {ex.Message}");
+				_onFailure($"Can't watch opened files and directory listings: {ex.Message}");
 			}
 		}
 	}
@@ -119,6 +130,7 @@ public sealed class ExternalFileWatcher : IDisposable {
 
 			_disposed = true;
 			_files.Clear();
+			_listedDirectories.Clear();
 			_pending.Clear();
 		}
 
@@ -127,19 +139,26 @@ public sealed class ExternalFileWatcher : IDisposable {
 	}
 
 	// A watched directory reports every file in it, so the filter is what makes this per-file.
-	private void OnTouched(FileSystemEventArgs e) => Touch(e.FullPath);
+	private void OnTouched(FileSystemEventArgs e) {
+		Touch(e.FullPath);
+		if (e.ChangeType != WatcherChangeTypes.Changed && Path.GetDirectoryName(e.FullPath) is { } parent) {
+			Touch(parent);
+		}
+	}
 
 	private void OnRenamed(string oldPath, string newPath) {
 		Touch(oldPath);
 		Touch(newPath);
+		if (Path.GetDirectoryName(oldPath) is { } oldParent) Touch(oldParent);
+		if (Path.GetDirectoryName(newPath) is { } newParent) Touch(newParent);
 	}
 
 	private void OnError(Exception error) =>
-		_onFailure($"Stopped watching files opened from outside this workspace: {error.Message}");
+		_onFailure($"Stopped watching opened files and directory listings: {error.Message}");
 
 	private void Touch(string path) {
 		lock (_gate) {
-			if (_disposed || !_files.Contains(path)) {
+			if (_disposed || (!_files.Contains(path) && !_listedDirectories.Contains(path))) {
 				return;
 			}
 
@@ -163,7 +182,7 @@ public sealed class ExternalFileWatcher : IDisposable {
 					continue;
 				}
 
-				if (_fileSystem.FileExists(path) && _fileSystem.TryGetStat(path, out var revision)) {
+				if (_fileSystem.TryGetStat(path, out var revision)) {
 					_sink.ReportChanged(path, revision);
 				} else {
 					_sink.ReportDeleted(path);

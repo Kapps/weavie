@@ -204,14 +204,17 @@ public sealed class VersionStoreTests : IDisposable {
 	}
 
 	[Theory]
-	[InlineData("0.1.247", 247)]
-	[InlineData("0.1.0", 0)]
-	public void ParseBuild_ReadsThePatchComponent(string identity, int expected) =>
+	[InlineData("0.2.1.247", 247)]
+	[InlineData("1.0.0.0", 0)]
+	public void ParseBuild_ReadsTheInternalBuildNumber(string identity, int expected) =>
 		Assert.Equal(expected, RunnerIdentity.ParseBuild(identity));
 
-	[Fact]
-	public void ParseBuild_RejectsANonNumericPatch() =>
-		Assert.Throws<FormatException>(() => RunnerIdentity.ParseBuild("0.1.abc"));
+	[Theory]
+	[InlineData("0.1.247")]
+	[InlineData("0.2.1.abc")]
+	[InlineData("0.2.1.-1")]
+	public void ParseBuild_RejectsInvalidIdentities(string identity) =>
+		Assert.Throws<FormatException>(() => RunnerIdentity.ParseBuild(identity));
 
 	// An extracted bundle dir as ExtractBundle would leave it, ready for Stage (which moves it).
 	private string MakeExtractedVersion(int build) => MakeExtractedVersion(build, 1);

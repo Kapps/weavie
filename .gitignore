@@ -90,3 +90,6 @@ tour.local.mjs
 !/temp/.gitkeep
 weavie.sln.DotSettings.user
 *.swp
+
+# Python release automation
+__pycache__/

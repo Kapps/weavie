@@ -29,14 +29,14 @@ There are limitations though:
 
 ### Client Setup
 
-1. Download the [latest tagged version](https://github.com/Kapps/weavie/releases/tag/main-latest) for your OS (no proper releases yet).
+1. Download the [latest stable release](https://github.com/Kapps/weavie/releases/latest) for your OS.
 2. On Linux, install GTK 3 and WebKitGTK 4.1 version 2.42 or newer.
 3. Run it. If you find that features like running tests or creating a worktree don't work out of the box for your repo, just ask Claude to set an appropriate one.
 
 ### Remote Runner Setup
 **Remote setup must use a VPN or Tailscale. DO NOT expose the headless server to the internet.** There's authentication, but aside from the authentication the remote code hasn't been properly looked at.
 
-1. Download the [latest tagged version](https://github.com/Kapps/weavie/releases/tag/main-latest) of the Runner
+1. Download the [latest stable release](https://github.com/Kapps/weavie/releases/latest) of the Runner
    - Prebuilt remote runner binaries are currently only provided for Linux.
 2. If using Tailscale, make sure to go into your admin console and enable Tailscale Serve.
 3. Run the runner with a stable generated token.
@@ -48,6 +48,12 @@ There are limitations though:
    - Example URL: `https://<servername>.tail<random>.ts.net`
    - Token must exactly match the one you used to start the Runner.
 6. Now when you launch a new session, you can select whether to run it locally or on this remote runner.
+
+Stable releases include Windows, macOS, Linux, and runner downloads. Linux development builds are
+available from [main-latest](https://github.com/Kapps/weavie/releases/tag/main-latest).
+Pass `--auto-update` (or `--auto-update stable`) to follow stable runner updates, or
+`--auto-update latest` to follow development builds. See [releasing Weavie](docs/specs/releases.md)
+for manual version bumps and choosing a source build or commit.
 
 ## Contributing / Reporting Issues
 

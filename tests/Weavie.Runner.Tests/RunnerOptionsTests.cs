@@ -97,4 +97,33 @@ public sealed class RunnerOptionsTests {
 	[Fact]
 	public void Misspelled_flag_surfaces_as_unknown() =>
 		Assert.Equal(new[] { "--autoupdate" }, RunnerOptions.UnknownArgs(Args("--autoupdate")));
+	[Theory]
+	[InlineData(new string[] { }, UpdateChannel.Off)]
+	[InlineData(new[] { "--auto-update" }, UpdateChannel.Stable)]
+	[InlineData(new[] { "--auto-update", "--port", "8801" }, UpdateChannel.Stable)]
+	[InlineData(new[] { "--auto-update", "stable" }, UpdateChannel.Stable)]
+	[InlineData(new[] { "--auto-update", "latest" }, UpdateChannel.Latest)]
+	public void AutoUpdateSelectsTheRequestedChannel(string[] args, UpdateChannel channel) {
+		var (options, error) = RunnerOptions.Resolve(Args(args));
+		Assert.Null(error);
+		Assert.NotNull(options);
+		Assert.Equal(channel, options.UpdateChannel);
+		Assert.Equal(channel != UpdateChannel.Off, options.AutoUpdate);
+	}
+
+	[Theory]
+	[InlineData("nightly")]
+	[InlineData("")]
+	public void InvalidUpdateChannelFailsAtStartup(string channel) {
+		var (options, error) = RunnerOptions.Resolve(Args("--auto-update", channel));
+		Assert.Null(options);
+		Assert.Contains("--auto-update", error);
+	}
+
+	[Fact]
+	public void DuplicateUpdateChannelFailsAtStartup() {
+		var (options, error) = RunnerOptions.Resolve(Args("--auto-update", "stable", "--auto-update", "latest"));
+		Assert.Null(options);
+		Assert.Contains("--auto-update", error);
+	}
 }

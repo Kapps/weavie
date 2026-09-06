@@ -123,7 +123,7 @@ public sealed class BackendManagerTests {
 	public async Task StrictWorkerStatus_ParsesBuildAndSpawnContract() {
 		using var http = new HttpClient(new StubHttpHandler(_ => new HttpResponseMessage(HttpStatusCode.OK) {
 			Content = new StringContent(
-				$$"""{"buildNumber":"0.1.42","spawnContract":{{RunnerIdentity.SpawnContract}},"draining":false}"""),
+				$$"""{"buildNumber":"0.2.1.42","spawnContract":{{RunnerIdentity.SpawnContract}},"draining":false}"""),
 		}));
 		await using var manager = new BackendManager(
 			Options(),
@@ -143,8 +143,8 @@ public sealed class BackendManagerTests {
 	[InlineData("{}")]
 	[InlineData("{\"buildNumber\":42}")]
 	[InlineData("{\"buildNumber\":\"broken\"}")]
-	[InlineData("{\"buildNumber\":\"0.1.42\"}")]
-	[InlineData("{\"buildNumber\":\"0.1.42\",\"spawnContract\":\"2\"}")]
+	[InlineData("{\"buildNumber\":\"0.2.1.42\"}")]
+	[InlineData("{\"buildNumber\":\"0.2.1.42\",\"spawnContract\":\"2\"}")]
 	public async Task MalformedWorkerStatus_IsAProtocolFailure(string body) {
 		using var http = new HttpClient(new StubHttpHandler(_ => new HttpResponseMessage(HttpStatusCode.OK) {
 			Content = new StringContent(body),
@@ -202,7 +202,7 @@ public sealed class BackendManagerTests {
 		supervisor.Start();
 		using var http = new HttpClient(new StubHttpHandler(_ => new HttpResponseMessage(HttpStatusCode.OK) {
 			Content = new StringContent(
-				$$"""{"buildNumber":"0.1.42","spawnContract":{{RunnerIdentity.SpawnContract - 1}}}"""),
+				$$"""{"buildNumber":"0.2.1.42","spawnContract":{{RunnerIdentity.SpawnContract - 1}}}"""),
 		}));
 		await using var manager = new BackendManager(
 			Options(),
@@ -223,7 +223,7 @@ public sealed class BackendManagerTests {
 			supervisor.ReportUnhealthy(supervisor.Generation, "replace during status request");
 			return new HttpResponseMessage(HttpStatusCode.OK) {
 				Content = new StringContent(
-					$$"""{"buildNumber":"0.1.42","spawnContract":{{RunnerIdentity.SpawnContract}}}"""),
+					$$"""{"buildNumber":"0.2.1.42","spawnContract":{{RunnerIdentity.SpawnContract}}}"""),
 			};
 		}));
 		await using var manager = new BackendManager(

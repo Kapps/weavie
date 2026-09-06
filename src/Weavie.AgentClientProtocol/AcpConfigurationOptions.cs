@@ -22,14 +22,20 @@ internal static class AcpConfigurationOptions {
 	}
 
 	public static object SetParameters(string sessionId, AgentControlAxis control, string value) {
+		var parameters = JsonSerializer.SerializeToNode(SetParameters(control, value))!;
+		parameters["sessionId"] = System.Text.Json.Nodes.JsonValue.Create(sessionId);
+		return parameters;
+	}
+
+	public static object SetParameters(AgentControlAxis control, string value) {
 		if (control.Options.All(option => option.Id != value)) {
 			throw new AcpProtocolException(
 				$"ACP no longer advertises '{value}' for the '{control.Id}' control.");
 		}
 		return control.Kind switch {
-			"select" => new { sessionId, configId = control.Id, value },
+			"select" => new { configId = control.Id, value },
 			"boolean" when bool.TryParse(value, out bool boolean) =>
-				new { sessionId, configId = control.Id, type = "boolean", value = boolean },
+				new { configId = control.Id, type = "boolean", value = boolean },
 			"boolean" => throw new AcpProtocolException($"'{value}' is not a boolean ACP configuration value."),
 			_ => throw new AcpProtocolException($"Unsupported ACP config option type '{control.Kind}'."),
 		};

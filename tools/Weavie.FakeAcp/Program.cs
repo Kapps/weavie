@@ -80,6 +80,6 @@ if (args is ["stdin-stall", var marker]) {
 	return;
 }
 
-var agent = new FakeAcpAgent();
+var agent = new FakeAcpSessions();
 var server = new AcpAgentServer(agent, Console.In, Console.Out, Console.Error);
 await server.RunAsync(CancellationToken.None).ConfigureAwait(false);

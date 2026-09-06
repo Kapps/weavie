@@ -11,7 +11,10 @@ public sealed partial class AcpAgentSession {
 	private void RegisterClientRequest(AcpClientRequest request) {
 		AcpClientRequestState state;
 		lock (_turnTransitionGate) {
-			if (!OwnsGeneration(request.Generation)) return;
+			if (!OwnsGeneration(request.Generation)) {
+				_connection.RejectClosedRequest(request);
+				return;
+			}
 			state = new AcpClientRequestState(request);
 			if (!_clientRequests.TryAdd(request.Id, state)) {
 				state.Dispose();
@@ -70,10 +73,10 @@ public sealed partial class AcpAgentSession {
 		if (!hasSession) {
 			return;
 		}
-		if (session.ValueKind != JsonValueKind.String || SessionId() is not { } current) {
+		if (session.ValueKind != JsonValueKind.String) {
 			throw new AcpProtocolException($"ACP request {request.Id} has no active session.");
 		}
-		if (!string.Equals(session.GetString(), current, StringComparison.Ordinal)) {
+		if (!string.Equals(session.GetString(), Endpoint(request.Generation).SessionId, StringComparison.Ordinal)) {
 			throw new AcpProtocolException($"ACP request {request.Id} targets another session.");
 		}
 	}

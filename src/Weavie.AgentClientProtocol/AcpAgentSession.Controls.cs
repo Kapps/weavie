@@ -55,7 +55,6 @@ public sealed partial class AcpAgentSession {
 
 	private async Task DeliverControlMutationAsync(AcpControlMutation mutation, long generation, bool persist) {
 		AgentControlAxis control;
-		string sessionId;
 		bool mode;
 		lock (_gate) {
 			if (_sessionId is null) return;
@@ -64,22 +63,19 @@ public sealed partial class AcpAgentSession {
 				throw new AcpProtocolException(
 					$"ACP no longer advertises '{mutation.Value}' for the '{mutation.Axis}' control.");
 			}
-			sessionId = _sessionId;
 			mode = mutation.Axis == "mode" && !_configOwnsMode;
 		}
 
 		JsonElement result;
 		if (mode) {
-			result = await _connection.RequestAsync(
+			result = await Endpoint(generation).RequestAsync(
 				"session/set_mode",
-				new { sessionId, modeId = mutation.Value },
-				generation,
+				new { modeId = mutation.Value },
 				CancellationToken.None).ConfigureAwait(false);
 		} else {
-			result = await _connection.RequestAsync(
+			result = await Endpoint(generation).RequestAsync(
 				"session/set_config_option",
-				AcpConfigurationOptions.SetParameters(sessionId, control, mutation.Value),
-				generation,
+				AcpConfigurationOptions.SetParameters(control, mutation.Value),
 				CancellationToken.None).ConfigureAwait(false);
 		}
 		lock (_turnTransitionGate) {

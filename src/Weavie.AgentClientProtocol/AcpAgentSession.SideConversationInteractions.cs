@@ -57,7 +57,16 @@ public sealed partial class AcpAgentSession {
 
 	private bool RemoveSideRuntimeLocked(SideRuntime runtime) {
 		_sideRuntimes.Remove(runtime.Conversation.ConversationId);
+		runtime.Session._endpoint?.Retire();
 		return true;
+	}
+
+	private void FailSideRuntimes(Exception error) {
+		SideRuntime[] sides;
+		lock (_gate) sides = [.. _sideRuntimes.Values];
+		foreach (var side in sides) {
+			lock (_turnTransitionGate) side.Session.FailConversationSerialized(error);
+		}
 	}
 
 	private void FinishSideInterruption(SideRuntime runtime) {

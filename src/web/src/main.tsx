@@ -27,6 +27,7 @@ import "./editor/preview/embed-zoom.css";
 import "./editor/preview/embed-lightbox.css";
 import "./files/files.css";
 import "./chrome/search-panel.css";
+import "./layout/tool-panel.css";
 import "./chrome/titlebar.css";
 import "./chrome/omnibar.css";
 import "./chrome/resize-frame.css";

@@ -31,6 +31,15 @@ public static class CoreCommands {
 	/// <summary>Shows/hides the workspace file browser.</summary>
 	public const string ToggleFileBrowser = "weavie.view.toggleFileBrowser";
 
+	/// <summary>Toggles whether File Browser stays docked.</summary>
+	public const string DockFileBrowser = "weavie.view.dockFileBrowser";
+	/// <summary>Toggles whether Find in Files stays docked.</summary>
+	public const string DockSearch = "weavie.view.dockSearch";
+	/// <summary>Closes the foremost floating panel after local cancellation.</summary>
+	public const string CloseFloatingPanel = "weavie.view.closeFloatingPanel";
+	/// <summary>Hides the focused tool panel while retaining its docking preference.</summary>
+	public const string CloseToolPanel = "weavie.view.closeToolPanel";
+
 	/// <summary>Focuses the omnibar in file-search ("Go to File") mode.</summary>
 	public const string FocusOmnibarFiles = "weavie.omnibar.focusFiles";
 
@@ -447,6 +456,22 @@ public static class CoreCommands {
 		// ctrl+1..9 → focus the Nth pane. Literal ctrl (not $mod) to stay Ctrl on macOS, where Cmd+1..9 collides
 		// with app/window shortcuts. Keybinding-only; each default binding carries its own index argument.
 		var focusBindings = new List<CommandKeybinding>(9);
+		foreach (var (id, title, key, when) in new[] {
+			(DockFileBrowser, "Toggle File Browser Stay Open", "$mod+alt+b", ""),
+			(DockSearch, "Toggle Find in Files Stay Open", "$mod+alt+f", ""),
+			(CloseFloatingPanel, "Close Floating Panel", "Escape", "floatingPanelOpen"),
+			(CloseToolPanel, "Close Tool Panel", "$mod+shift+w", "focusedTool"),
+		}) {
+			registry.Register(new CommandDefinition {
+				Id = id,
+				Title = title,
+				Description = title + ".",
+				RunsIn = CommandLocation.Web,
+				Category = "View",
+				When = when,
+				DefaultKeybindings = [new CommandKeybinding { Key = key }],
+			});
+		}
 		for (int i = 1; i <= 9; i++) {
 			string n = i.ToString(CultureInfo.InvariantCulture);
 			focusBindings.Add(new CommandKeybinding { Key = $"ctrl+{n}", ArgsJson = $"{{\"index\":{n}}}" });

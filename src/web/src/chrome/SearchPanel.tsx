@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight, Search, X } from "lucide-solid";
+import { ChevronDown, ChevronRight, Search } from "lucide-solid";
 import { createEffect, For, type JSX, on, onCleanup, Show } from "solid-js";
 import type { SearchMatch } from "../bridge";
 import { setContext } from "../commands/context";
@@ -27,22 +27,26 @@ function leafName(path: string): string {
 }
 
 /**
- * Project-wide content search (find in files): a left-docked panel over the module search store. The query
+ * Project-wide content search (find in files) over the session-owned search store. The query
  * seeds from the highlighted text; match case / whole word / regex toggle inline (their chords advertised via
  * the catalog); include/exclude globs filter paths. Arrows live-preview the selected match without leaving the
- * input, Enter commits (opens + focuses the editor), Esc closes. The selected session owns each search request.
+ * input, Enter commits (opens + focuses the editor). ToolPanel owns floating/docked presentation.
  */
-export function SearchPanel(props: { onClose: () => void }): JSX.Element {
+export function SearchPanel(props: { visible: boolean }): JSX.Element {
   let root!: HTMLDivElement;
   let input!: HTMLInputElement;
   let listRef: HTMLDivElement | undefined;
 
   // Focus + select the input on mount and on every re-seed (Ctrl+Shift+F while already open).
   createEffect(
-    on(s.seedNonce, () => {
-      input.focus();
-      input.select();
-    }),
+    on(
+      () => [s.seedNonce(), props.visible],
+      () => {
+        if (!props.visible) return;
+        input.focus();
+        input.select();
+      },
+    ),
   );
 
   // Keep the selected row in view — for arrows and F4 stepping alike.
@@ -61,12 +65,15 @@ export function SearchPanel(props: { onClose: () => void }): JSX.Element {
     commitCurrentTerm();
   });
 
-  const onKeyDown = (e: KeyboardEvent): void => {
-    if (e.key === "Escape") {
-      e.preventDefault();
-      props.onClose();
-      return;
+  createEffect(() => {
+    if (!props.visible) {
+      setContext("searchPanelFocused", false);
+      cancelPreview();
+      commitCurrentTerm();
     }
+  });
+
+  const onKeyDown = (e: KeyboardEvent): void => {
     // Arrows/Enter drive the result list only from the query input — in a glob field they're plain text
     // editing (Enter is a natural "apply", not "open the selected match").
     if ((e.target as HTMLElement).classList.contains("search-glob")) {
@@ -116,17 +123,6 @@ export function SearchPanel(props: { onClose: () => void }): JSX.Element {
         setContext("searchPanelFocused", root.contains(e.relatedTarget as Node | null))
       }
     >
-      <div class="search-head">
-        <span class="search-title">Search</span>
-        <button
-          type="button"
-          class="search-icon-btn"
-          title="Close (Esc)"
-          onClick={() => props.onClose()}
-        >
-          <X />
-        </button>
-      </div>
       <div class="search-input-row">
         <span class="search-input-icon" aria-hidden="true">
           <Search />

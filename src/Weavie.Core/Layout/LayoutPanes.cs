@@ -20,6 +20,12 @@ public static class LayoutPanes {
 	/// <summary>Pane kind for the plain shell terminal.</summary>
 	public const string TerminalShell = "terminal:shell";
 
+	/// <summary>Pane kind for the workspace file browser.</summary>
+	public const string Files = "files";
+
+	/// <summary>Pane kind for project-wide content search.</summary>
+	public const string Search = "search";
+
 	/// <summary>Builds a registry pre-loaded with the built-in pane kinds.</summary>
 	public static PaneRegistry CreateRegistry() {
 		var registry = new PaneRegistry();
@@ -34,6 +40,15 @@ public static class LayoutPanes {
 	/// <summary>Registers the built-in pane kinds into <paramref name="registry"/>.</summary>
 	public static void Register(PaneRegistry registry) {
 		ArgumentNullException.ThrowIfNull(registry);
+
+		foreach (string kind in new[] { Files, Search }) {
+			registry.Register(new PaneDefinition {
+				Kind = kind,
+				Description = kind == Files ? "File Browser." : "Find in Files.",
+				ShowByDefault = false,
+				DefaultAnchor = PaneAnchor.FarLeft,
+			});
+		}
 
 		registry.Register(new PaneDefinition {
 			Kind = Editor,

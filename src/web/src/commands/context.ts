@@ -39,6 +39,7 @@ export function paneFocusContext(el: Element | null): ContextOverrides {
   const kind = pane?.getAttribute("data-kind") ?? null;
   const surface = pane?.getAttribute("data-surface") ?? null;
   return {
+    focusedTool: el?.closest("[data-tool]")?.getAttribute("data-tool") ?? null,
     focusedPane: kind,
     editorFocused: surface === "editor" || (surface === null && kind === "editor"),
     terminalFocused:

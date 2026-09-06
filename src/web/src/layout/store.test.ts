@@ -82,7 +82,7 @@ function connection(backendId: string): {
           created.state = handler;
           return () => {};
         },
-        publish: (name: string, payload: Record<string, unknown>) => {
+        request: async (name: string, payload: Record<string, unknown>) => {
           posted.push({ backendId, feature, name, payload });
         },
       }),
@@ -148,16 +148,17 @@ describe("layout host ownership", () => {
     dispose();
   });
 
-  it("sends layout changes to the backend that owned the gesture", () => {
+  it("sends a resize and its source tree to the backend that owned the gesture", async () => {
     const changed = document(0.6);
-    store.sendLayout("remote:test", changed);
+    const original = document(0.4);
+    await store.resizeLayout("remote:test", original.root, changed.root);
 
     expect(posted).toEqual([
       {
         backendId: "remote:test",
         feature: "layout",
-        name: "changed",
-        payload: { document: changed },
+        name: "resize",
+        payload: { expected: original.root, root: changed.root },
       },
     ]);
   });

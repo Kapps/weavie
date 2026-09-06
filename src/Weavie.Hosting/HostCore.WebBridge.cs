@@ -46,24 +46,8 @@ public sealed partial class HostCore {
 		await _messageIngress.ProbeAsync(ct).ConfigureAwait(false);
 	}
 
-	/// <summary>Applies a layout the web sent (split/focus change) through the store, which validates + persists it.</summary>
-	private void HandleLayoutChanged(JsonElement root) {
-		if (!root.TryGetProperty("document", out var documentElement)) {
-			return;
-		}
-
-		if (!LayoutSerialization.TryDeserialize(documentElement.GetRawText(), out var document, out string? error)
-			|| document is null) {
-			Log($"[weavie] layout-changed: bad document ({error})");
-			return;
-		}
-
-		try {
-			_layout.SetPanes(document.Root, document.Focused, LayoutSource.User);
-		} catch (LayoutValidationException ex) {
-			Log($"[weavie] layout-changed rejected: {ex.Message}");
-		}
-	}
+	private sealed record ToolLayoutMessage(string Kind, string Action);
+	private sealed record LayoutResizeMessage(LayoutNode Expected, LayoutNode Root);
 
 	/// <summary>
 	/// Pushes the persisted remote-agent registry (with each runner's URL + token) so the page connects to each

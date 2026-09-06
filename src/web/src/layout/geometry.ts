@@ -13,7 +13,7 @@ export interface Rect {
 export interface SplitterInfo {
   dir: SplitDir; // "row" => vertical handle (col-resize); "column" => horizontal handle (row-resize)
   path: number[]; // child-index path from the root to the split node this handle belongs to
-  index: number; // the boundary between child[index] and child[index + 1]
+  index: number; // the boundary after child[index], skipping hidden siblings
   x: number; // handle position (%), a line along the split's cross-axis
   y: number;
   cross: number; // length of the handle along the cross-axis (%)
@@ -24,9 +24,17 @@ export interface SplitterInfo {
 const FULL: Rect = { x: 0, y: 0, w: 100, h: 100 };
 const MIN_FRACTION = 0.05;
 
-function weightSum(weights: number[]): number {
-  const total = weights.reduce((a, b) => a + b, 0);
+function weightSum(node: Extract<LayoutNode, { type: "split" }>): number {
+  const total = node.weights.reduce(
+    (sum, weight, i) =>
+      sum + (node.children[i] !== undefined && hasVisiblePane(node.children[i]) ? weight : 0),
+    0,
+  );
   return total > 0 ? total : 1;
+}
+
+function hasVisiblePane(node: LayoutNode): boolean {
+  return node.type === "pane" ? node.hidden !== true : node.children.some(hasVisiblePane);
 }
 
 function childRect(parent: Rect, dir: SplitDir, pos: number, size: number): Rect {
@@ -61,13 +69,14 @@ export function computeRects(root: LayoutNode): Map<string, Rect> {
 
 function walkRects(node: LayoutNode, rect: Rect, out: Map<string, Rect>): void {
   if (node.type === "pane") {
-    out.set(node.kind, rect);
+    if (!node.hidden) out.set(node.kind, rect);
     return;
   }
-  const total = weightSum(node.weights);
+  const total = weightSum(node);
   const span = node.dir === "row" ? rect.w : rect.h;
   let pos = node.dir === "row" ? rect.x : rect.y;
   node.children.forEach((child, i) => {
+    if (!hasVisiblePane(child)) return;
     const size = (span * (node.weights[i] ?? 1)) / total;
     walkRects(child, childRect(rect, node.dir, pos, size), out);
     pos += size;
@@ -85,15 +94,16 @@ function walkSplitters(node: LayoutNode, rect: Rect, path: number[], out: Splitt
   if (node.type !== "split") {
     return;
   }
-  const total = weightSum(node.weights);
+  const total = weightSum(node);
   const span = node.dir === "row" ? rect.w : rect.h;
   const axisStart = node.dir === "row" ? rect.x : rect.y;
   let pos = axisStart;
   node.children.forEach((child, i) => {
+    if (!hasVisiblePane(child)) return;
     const size = (span * (node.weights[i] ?? 1)) / total;
     walkSplitters(child, childRect(rect, node.dir, pos, size), [...path, i], out);
     pos += size;
-    if (i < node.children.length - 1) {
+    if (node.children.slice(i + 1).some(hasVisiblePane)) {
       out.push({
         dir: node.dir,
         path,
@@ -122,22 +132,25 @@ export function setBoundary(
     if (node.type !== "split") {
       return node;
     }
-    const total = weightSum(node.weights);
+    const next = node.children.findIndex((child, i) => i > index && hasVisiblePane(child));
+    if (next === -1) return node;
+    const total = weightSum(node);
     let cumulative = 0;
     for (let i = 0; i <= index; i++) {
-      cumulative += node.weights[i] ?? 0;
+      const child = node.children[i];
+      if (child !== undefined && hasVisiblePane(child)) cumulative += node.weights[i] ?? 0;
     }
     const target = Math.min(1, Math.max(0, fraction)) * total;
     const delta = target - cumulative;
     const a = (node.weights[index] ?? 0) + delta;
-    const b = (node.weights[index + 1] ?? 0) - delta;
+    const b = (node.weights[next] ?? 0) - delta;
     const min = total * MIN_FRACTION;
     if (a < min || b < min) {
       return node;
     }
     const weights = [...node.weights];
     weights[index] = a;
-    weights[index + 1] = b;
+    weights[next] = b;
     return { ...node, weights };
   });
 }

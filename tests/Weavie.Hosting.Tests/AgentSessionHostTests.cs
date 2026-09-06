@@ -16,6 +16,29 @@ namespace Weavie.Hosting.Tests;
 
 public sealed class AgentSessionHostTests {
 	[Fact]
+	public async Task Pane_wire_keeps_review_paths_and_output_without_transmitting_diff_contents() {
+		await using var fixture = CreateFixture(static () => "slot-1", 0);
+		fixture.Session.Emit(Completed("tool", "tool output") with {
+			ItemType = "tool",
+			Diffs = [new AgentPaneDiff { Path = "/file", OldText = "before", NewText = new('x', 14 * 1024 * 1024) }],
+			Locations = [new AgentPaneLocation { Path = "/file", Line = 10 }, new AgentPaneLocation { Path = "/file", Line = 42 }],
+			Content = [new AgentPaneContent { Type = "text", Text = "rich output" }],
+		});
+		await fixture.Host.DrainPaneAsync(CancellationToken.None);
+		var live = Assert.Single(fixture.Bridge.PostedEventsNamed("pane"));
+		var page = Assert.Single(await HistoryPages(fixture.Host));
+		Assert.True(JsonSerializer.SerializeToUtf8Bytes(AgentPaneProtocol.HistoryPage(page)).Length < 4096);
+		var history = Assert.Single(AssembleHistory([page]));
+		Assert.Equal(live.GetRawText(), history.GetRawText());
+		var diff = Assert.Single(history.GetProperty("diffs").EnumerateArray());
+		Assert.Equal("path", Assert.Single(diff.EnumerateObject()).Name);
+		Assert.Equal("/file", diff.GetProperty("path").GetString());
+		Assert.Equal("tool output", history.GetProperty("text").GetString());
+		Assert.Equal("rich output", Assert.Single(history.GetProperty("content").EnumerateArray()).GetProperty("text").GetString());
+		Assert.Equal(new long[] { 10, 42 }, history.GetProperty("locations").EnumerateArray().Select(location => location.GetProperty("line").GetInt64()));
+	}
+
+	[Fact]
 	public async Task StructuredUsage_IsPublishedAndReplayedForItsOwningSession() {
 		await using var fixture = CreateFixture(static () => "slot-1", 0);
 		var (bridge, session, host) = (fixture.Bridge, fixture.Session, fixture.Host);

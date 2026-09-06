@@ -133,8 +133,6 @@ internal static class AgentPaneProtocol {
 		}),
 		diffs = record.Message.Diffs?.Select(diff => new {
 			path = diff.Path,
-			oldText = diff.OldText,
-			newText = diff.NewText,
 		}),
 		content = record.Message.Content?.Select(content => new {
 			type = content.Type,

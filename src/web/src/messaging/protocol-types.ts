@@ -109,8 +109,6 @@ export interface AgentPaneLocation {
 
 export interface AgentPaneDiff {
   path: string;
-  oldText: string | null;
-  newText: string;
 }
 
 export interface AgentPaneWireUpdate extends AgentPaneUpdate {

@@ -17,7 +17,7 @@ public sealed partial class SessionChangeTracker {
 			_acceptedAnchor.GetValueOrDefault(path, string.Empty),
 			!_missingAcceptedAnchor.Contains(path),
 			_preEdit.GetValueOrDefault(path, string.Empty),
-			CloneProvenance(path),
+			_provenance.GetValueOrDefault(path),
 			onDisk,
 			onDisk ? withDisk ? _fileSystem.ReadAllText(path) : _provenance.GetValueOrDefault(path)?.Text ?? _current.GetValueOrDefault(path, string.Empty) : string.Empty);
 	}

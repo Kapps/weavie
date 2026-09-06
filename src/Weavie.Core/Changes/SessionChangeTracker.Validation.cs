@@ -14,7 +14,7 @@ public sealed partial class SessionChangeTracker {
 	private static bool ValidOrigins(OriginSlice? origins, int length) => origins is null
 		|| origins.Lines is not null && origins.Lines.Length <= length && ValidGaps(origins.Gaps, length);
 
-	private static bool ValidGaps(Dictionary<int, List<DeletedSegment>>? gaps, int length) => gaps is not null
+	private static bool ValidGaps<T>(IReadOnlyDictionary<int, T>? gaps, int length) where T : class, IReadOnlyList<DeletedSegment> => gaps is not null
 		&& gaps.All(pair => pair.Key >= 0 && pair.Key <= length && pair.Value is not null
 			&& pair.Value.All(segment => segment is not null && segment.Origin is not null && segment.Lines is not null
 				&& segment.Lines.All(line => line is not null)));

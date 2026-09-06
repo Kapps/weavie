@@ -131,6 +131,14 @@ test.describe("durable applied review", () => {
     await runCommand(page, "Undo Revert (Review)");
     await expect.poll(() => readFile(join(weavie.workspace, "hello.ts"), "utf8")).toBe(HELLO);
     await expect(page.locator(".weavie-inline-added")).toHaveCount(1);
+    await runCommand(page, "Redo Review Action");
+    await expect
+      .poll(() => readFile(join(weavie.workspace, "hello.ts"), "utf8"))
+      .toBe(HELLO.replace("console.warn", "console.log"));
+    await expect(page.locator(".weavie-inline-added")).toHaveCount(0);
+    await runCommand(page, "Undo Revert (Review)");
+    await expect.poll(() => readFile(join(weavie.workspace, "hello.ts"), "utf8")).toBe(HELLO);
+    await expect(page.locator(".weavie-inline-added")).toHaveCount(1);
     await page.locator(".weavie-inline-accepted-undo").click();
     await expect(page.locator(".weavie-inline-added")).toHaveCount(2);
     expect(await readFile(join(weavie.workspace, "notes.txt"), "utf8")).toBe(NOTES);

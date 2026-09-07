@@ -9,12 +9,12 @@ import { findCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { onFontsChanged } from "../fonts";
 import { monaco } from "./monaco-setup";
-import { REVEAL_SCROLL } from "./reveal-scroll";
 import { DiffComputer } from "./review/diff-computer";
 import {
   type AcceptedDiffHunk,
   computeDiffMarkers,
   type DiffHunk,
+  type DiffMarkers,
   type HunkRevert,
   type HunkUnkeep,
 } from "./review/diff-markers";
@@ -31,6 +31,11 @@ export type InlineDiffMode = "review" | "applied" | "view";
 // Which scope the applied-review toolbar's Keep / Revert buttons act on; sticky across files (reset only on a
 // turn-reset via clearAll).
 type ReviewScope = "change" | "file" | "all";
+
+/** The review scope stays shared across file and presentation switches. */
+export interface ReviewScopeState {
+  current: ReviewScope;
+}
 
 export interface InlineDiffOptions {
   /** The baseline/original text the live model is diffed against (the review baseline — the bright pending band). */
@@ -118,8 +123,35 @@ export interface InlineDiffActions {
   redoReview(): boolean;
 }
 
+/** Presentation hooks keep review actions shared while each surface owns its toolbar and scrolling. */
+export interface InlineDiffPresentation {
+  scope: ReviewScopeState;
+  parked(): boolean;
+  active(): boolean;
+  toolbarHost(): HTMLElement | null;
+  revealLine(line: number): void;
+  reviewLine(): number;
+  painted(markers: DiffMarkers | null): void;
+  /** Keeps geometry-induced scroll changes inside the owning presentation. */
+  updateGeometry(change: () => void): void;
+}
+
+/** Uses the cursor while it is visible; scrolling past it reviews the viewport's center. */
+export function inlineReviewLine(editor: monaco.editor.IStandaloneCodeEditor): number {
+  const cursor = editor.getPosition()?.lineNumber ?? 1;
+  const ranges = editor.getVisibleRanges();
+  if (
+    ranges.length === 0 ||
+    ranges.some((r) => r.startLineNumber <= cursor && cursor <= r.endLineNumber)
+  )
+    return cursor;
+  return Math.round((ranges[0]!.startLineNumber + ranges[ranges.length - 1]!.endLineNumber) / 2);
+}
+
 /** Per-editor inline-diff controller. Diffs are keyed by file path; only the editor's current model renders. */
 export interface InlineDiff extends InlineDiffActions {
+  /** Refresh the toolbar mount and command context after the active review surface changes. */
+  refreshPresentation(): void;
   /** Register (or replace) the diff for a file path; renders immediately if that file is the active model. */
   set(session: ClientSession, path: string, options: InlineDiffOptions): void;
   /** Remove the diff for a file path. */
@@ -150,6 +182,8 @@ export interface ParkedReview {
   /** Names the review in the parked subtitle ("PR #12", "vs main"); absent for the post-turn set. */
   label?: string;
   stepIn: () => void;
+  nextFile: () => void;
+  prevFile: () => void;
 }
 
 /** Session-global undo/redo handlers — review history isn't per-file, so these are bound once. */
@@ -187,7 +221,10 @@ function fileIsKept(options: InlineDiffOptions): boolean {
 }
 
 /** Creates an inline-diff controller bound to `editor`. */
-export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): InlineDiff {
+export function createInlineDiff(
+  editor: monaco.editor.IStandaloneCodeEditor,
+  presentation: InlineDiffPresentation,
+): InlineDiff {
   const diffs = new Map<string, InlineDiffOptions>();
   const appliedKeys = new Map<ClientSession, Set<string>>();
   const diffComputer = new DiffComputer();
@@ -213,7 +250,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
   // hunk, ↶ undo beside each faded accepted one — removed on every re-render.
   let hunkWidgets: monaco.editor.IContentWidget[] = [];
   // Which scope the Keep / Revert buttons act on; sticky across file switches, reset only on clearAll.
-  let currentScope: ReviewScope = "change";
+  let renderedScope = presentation.scope.current;
   // Live-updated applied-toolbar bits: the `file i/N · change j/M` subtitle + change dots, plus the scope
   // dropdown nodes (kept so one document listener can close it on an outside click).
   let counterNode: HTMLElement | undefined;
@@ -237,6 +274,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
   // surface right now, so the nav/Keep keys step in instead of acting on a (nonexistent) hunk.
   let parkedReview: ParkedReview | undefined;
   let showingParked = false;
+  let presentationParked = presentation.parked();
   // The transient "new comment" composer zone (a PR file under review), opened by the toolbar Comment button.
   // Closed on submit/cancel, a model swap (onModel), and clearAll — but NOT on a routine same-model re-render
   // (that would wipe a half-typed comment), so it survives a keep/faded-band/diff re-push while composing.
@@ -273,6 +311,9 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     currentHunks = [];
   };
 
+  const changeViewZones = (change: Parameters<typeof editor.changeViewZones>[0]): void =>
+    presentation.updateGeometry(() => editor.changeViewZones(change));
+
   const clearPaint = (): void => {
     decorations?.clear();
     decorations = undefined;
@@ -280,7 +321,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     // faded band, a fresh diff push) would otherwise wipe the half-typed comment. It's closed on submit/cancel,
     // a model swap (onModel), and clearAll instead.
     if (zoneIds.length > 0) {
-      editor.changeViewZones((accessor) => {
+      changeViewZones((accessor) => {
         for (const id of zoneIds) {
           accessor.removeZone(id);
         }
@@ -367,7 +408,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
         content.offsetHeight + parseFloat(style.marginTop) + parseFloat(style.marginBottom);
       if (height > 0 && Math.abs(height - zone.heightInPx) >= 1) {
         zone.heightInPx = height;
-        editor.changeViewZones((a) => a.layoutZone(id));
+        changeViewZones((a) => a.layoutZone(id));
       }
     });
     observer.observe(content);
@@ -409,7 +450,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     if (composerZoneId !== undefined) {
       const id = composerZoneId;
       composerZoneId = undefined;
-      editor.changeViewZones((accessor) => accessor.removeZone(id));
+      changeViewZones((accessor) => accessor.removeZone(id));
     }
   };
 
@@ -436,7 +477,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     cancel.addEventListener("click", closeNewComposer);
     composer.appendChild(cancel);
     node.appendChild(composer);
-    editor.changeViewZones((accessor) => {
+    changeViewZones((accessor) => {
       const { id, observer } = addContentSizedZone(accessor, line, node);
       composerZoneId = id;
       composerObserver = observer;
@@ -580,24 +621,12 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
 
   // Reveal a hunk's anchor line: center it, land the cursor there, focus the editor.
   const reveal = (line: number): void => {
-    editor.revealLineInCenter(line, REVEAL_SCROLL);
     editor.setPosition({ lineNumber: line, column: 1 });
     editor.focus();
+    presentation.revealLine(line);
   };
 
-  // The line the review position keys on: the cursor while it's in view, else the viewport's vertical
-  // center — so after a manual scroll the counter, per-hunk Keep/Revert, and ↑/↓ all track what's on screen.
-  const reviewLine = (): number => {
-    const cursor = editor.getPosition()?.lineNumber ?? 1;
-    const ranges = editor.getVisibleRanges();
-    if (
-      ranges.length === 0 ||
-      ranges.some((r) => r.startLineNumber <= cursor && cursor <= r.endLineNumber)
-    ) {
-      return cursor;
-    }
-    return Math.round((ranges[0]!.startLineNumber + ranges[ranges.length - 1]!.endLineNumber) / 2);
-  };
+  const reviewLine = presentation.reviewLine;
 
   // Jump to the previous/next change hunk (by anchor line), wrapping. Walks all hunks (so a kept one can be
   // revisited), unlike the Keep loop. False when there's no diff to navigate.
@@ -793,13 +822,13 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     composerFocused()
       ? false
       : showingParked
-        ? stepIn()
+        ? runAction(parkedReview?.nextFile)
         : runAction(fileOptions()?.onNextFile) || swallowFileNav();
   const prevFile = (): boolean =>
     composerFocused()
       ? false
       : showingParked
-        ? stepIn()
+        ? runAction(parkedReview?.prevFile)
         : runAction(fileOptions()?.onPrevFile) || swallowFileNav();
 
   // Per-file Keep (applied mode): the host advances the file's whole review baseline to current, dropping it
@@ -846,7 +875,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     if (currentOptions === undefined) {
       return keepFile(); // no geometry was rendered (timed out / failed): only whole-file Keep is meaningful
     }
-    const scope = currentScope;
+    const scope = presentation.scope.current;
     return scope === "change" ? keepHunk() : scope === "file" ? keepFile() : keepAll();
   };
   const reject = (): boolean => {
@@ -863,7 +892,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     if (currentOptions === undefined) {
       return revertFile(); // no geometry was rendered: only whole-file Revert is meaningful
     }
-    const scope = currentScope;
+    const scope = presentation.scope.current;
     return scope === "change" ? revertHunk() : scope === "file" ? revertFile() : undo();
   };
 
@@ -911,7 +940,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     if (currentOptions?.mode !== "applied") {
       return;
     }
-    currentScope = scope;
+    presentation.scope.current = scope;
     syncScopeButtons(); // the re-render is async; don't leave the old scope's blocked state up meanwhile
     renderActive();
   };
@@ -966,7 +995,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
   // The scope dropdown: a `Scope: <X> ▾` toggle over a Keep / Revert menu whose items set the sticky scope,
   // with per-item counts naming each scope's reach.
   const buildScopePicker = (options: InlineDiffOptions): HTMLElement => {
-    const scope = currentScope;
+    const scope = presentation.scope.current;
     const wrap = document.createElement("div");
     wrap.className = "weavie-inline-scope";
     scopeWrapNode = wrap;
@@ -1066,7 +1095,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
 
     // Keep / Revert always carry the plain chords (Ctrl+Enter / Ctrl+Backspace); accept/reject route to the
     // sticky scope, so the buttons and the keys stay in lockstep. Only the tooltip names the current scope.
-    const scope = currentScope;
+    const scope = presentation.scope.current;
     const allTarget = (options.fileCount ?? 1) > 1 ? "all files" : "all changes";
     const keepTip =
       scope === "change"
@@ -1173,10 +1202,13 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     options: InlineDiffOptions,
     message: string,
   ): void => {
-    clearRender();
-    fallbackNavigation = options;
+    presentation.updateGeometry(() => {
+      clearRender();
+      fallbackNavigation = options;
+      presentation.painted(null);
+    });
     const fileKept = fileIsKept(options);
-    const editorDom = editor.getDomNode();
+    const editorDom = presentation.toolbarHost();
     if (editorDom !== null) {
       toolbarNode = document.createElement("div");
       toolbarNode.className = "weavie-inline-toolbar";
@@ -1263,7 +1295,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     const previousZoneIds = zoneIds;
     const nextZoneIds: string[] = [];
     const nextZoneObservers: ResizeObserver[] = [];
-    editor.changeViewZones((accessor) => {
+    changeViewZones((accessor) => {
       for (const id of previousZoneIds) {
         accessor.removeZone(id);
       }
@@ -1315,64 +1347,70 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
       return;
     }
 
-    clearControls();
-    if (options.allActionsDisabled === true && currentScope === "all") {
-      currentScope = "change";
-    }
+    let initialLine: number | undefined;
+    presentation.updateGeometry(() => {
+      clearControls();
+      if (options.allActionsDisabled === true && presentation.scope.current === "all") {
+        presentation.scope.current = "change";
+      }
 
-    const markers = computeDiffMarkers(
-      {
-        original: options.original,
-        acceptedBaseline: hasFadedBand(options) ? options.acceptedBaseline : undefined,
-        claudeVersion: options.claudeVersion,
-      },
-      calculation,
-    );
-    // A fully-kept file has no bright (pending) hunks but still carries a faded accepted band — don't bail on it.
-    if (markers.hunks.length === 0 && !hasFadedBand(options)) {
-      clearRender();
-      initialProposalReveals.delete(uriString);
-      return; // no net change and nothing kept — nothing to render
-    }
-    const { acceptedHunks, hunks } = markers;
+      const markers = computeDiffMarkers(
+        {
+          original: options.original,
+          acceptedBaseline: hasFadedBand(options) ? options.acceptedBaseline : undefined,
+          claudeVersion: options.claudeVersion,
+        },
+        calculation,
+      );
+      // A fully-kept file has no bright (pending) hunks but still carries a faded accepted band — don't bail on it.
+      if (markers.hunks.length === 0 && !hasFadedBand(options)) {
+        clearRender();
+        presentation.painted(markers);
+        initialProposalReveals.delete(uriString);
+        return; // no net change and nothing kept — nothing to render
+      }
+      const { acceptedHunks, hunks } = markers;
 
-    replacePaint(model, options, markers);
+      replacePaint(model, options, markers);
 
-    currentOptions = options;
-    currentHunks = hunks;
-    renderedVersion = version;
-    showingParked = false;
-    if (initialProposalReveals.delete(uriString) && hunks[0] !== undefined) {
-      editor.revealLineInCenter(hunks[0].anchorLine, REVEAL_SCROLL);
-      editor.setPosition({ lineNumber: hunks[0].anchorLine, column: 1 });
-    }
-    const editorDom = editor.getDomNode();
-    if (editorDom !== null) {
+      currentOptions = options;
+      currentHunks = hunks;
+      renderedVersion = version;
+      showingParked = false;
+      if (initialProposalReveals.delete(uriString) && hunks[0] !== undefined) {
+        initialLine = hunks[0].anchorLine;
+      }
+      renderedScope = presentation.scope.current;
       toolbarNode = buildToolbar(options);
-      editorDom.appendChild(toolbarNode);
+      presentation.toolbarHost()?.appendChild(toolbarNode);
+      // The inline ✓ keep / ✕ revert widgets on each bright pending hunk (applied review only).
+      if (
+        options.mode === "applied" &&
+        options.onKeepHunk !== undefined &&
+        options.onRevertHunk !== undefined
+      ) {
+        hunks.forEach((hunk, index) => {
+          const widget = buildPendingWidget(hunk, index, model);
+          hunkWidgets.push(widget);
+          editor.addContentWidget(widget);
+        });
+      }
+      // The inline ↶ undo widgets (faded band only); no-op when there's no accepted band or no un-keep handler.
+      if (options.onUnkeepHunk !== undefined) {
+        const onUnkeep = options.onUnkeepHunk;
+        acceptedHunks.forEach((hunk, index) => {
+          const widget = buildUndoWidget(hunk, index, model, onUnkeep);
+          hunkWidgets.push(widget);
+          editor.addContentWidget(widget);
+        });
+      }
+      renderedUri = uriString;
+      presentation.painted(markers);
+    });
+    if (initialLine !== undefined) {
+      editor.setPosition({ lineNumber: initialLine, column: 1 });
+      presentation.revealLine(initialLine);
     }
-    // The inline ✓ keep / ✕ revert widgets on each bright pending hunk (applied review only).
-    if (
-      options.mode === "applied" &&
-      options.onKeepHunk !== undefined &&
-      options.onRevertHunk !== undefined
-    ) {
-      hunks.forEach((hunk, index) => {
-        const widget = buildPendingWidget(hunk, index, model);
-        hunkWidgets.push(widget);
-        editor.addContentWidget(widget);
-      });
-    }
-    // The inline ↶ undo widgets (faded band only); no-op when there's no accepted band or no un-keep handler.
-    if (options.onUnkeepHunk !== undefined) {
-      const onUnkeep = options.onUnkeepHunk;
-      acceptedHunks.forEach((hunk, index) => {
-        const widget = buildUndoWidget(hunk, index, model, onUnkeep);
-        hunkWidgets.push(widget);
-        editor.addContentWidget(widget);
-      });
-    }
-    renderedUri = uriString;
   };
 
   // The parked toolbar: the same bottom-center bar as a live review, sitting at "change 0" over whatever the
@@ -1380,7 +1418,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
   // still reflect the session history. Reuses the live toolbar's classes so stepping in is a seamless expand.
   const renderParked = (): void => {
     clearRender();
-    const editorDom = editor.getDomNode();
+    const editorDom = presentation.toolbarHost();
     if (editorDom === null || parkedReview === undefined) {
       return;
     }
@@ -1392,8 +1430,8 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
         makeButton(
           "weavie-inline-file",
           "←",
-          withShortcut("Review changes", CommandIds.reviewPrevFile),
-          stepIn,
+          withShortcut("Previous file", CommandIds.reviewPrevFile),
+          prevFile,
         ),
       );
     }
@@ -1413,8 +1451,8 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
         makeButton(
           "weavie-inline-file",
           "→",
-          withShortcut("Review changes", CommandIds.reviewNextFile),
-          stepIn,
+          withShortcut("Next file", CommandIds.reviewNextFile),
+          nextFile,
         ),
       );
     }
@@ -1477,6 +1515,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
   // for the active model, or a review set is pending (their chords step into it). Gates them out of the palette
   // otherwise — an empty workspace shouldn't lead with commands that silently no-op (#137).
   const syncDiffContext = (): void => {
+    if (!presentation.active()) return;
     const model = editor.getModel();
     const active =
       (model !== null && diffs.has(model.uri.toString())) ||
@@ -1492,6 +1531,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     try {
       while (renderQueued && !disposed) {
         renderQueued = false;
+        if (presentation.parked()) continue;
         const model = editor.getModel();
         const uriString = model?.uri.toString();
         const options = uriString === undefined ? undefined : diffs.get(uriString);
@@ -1533,7 +1573,13 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     const model = editor.getModel();
     const uriString = model?.uri.toString();
     const options = uriString === undefined ? undefined : diffs.get(uriString);
-    if (model !== null && uriString !== undefined && options !== undefined) {
+    presentationParked = presentation.parked();
+    renderedScope = presentation.scope.current;
+    if (presentationParked) {
+      renderQueued = false;
+      diffComputer.dispose();
+      renderParked();
+    } else if (model !== null && uriString !== undefined && options !== undefined) {
       if (renderedUri !== uriString) {
         clearRender(); // what is on screen belongs to another file; nothing here to preserve
       }
@@ -1550,6 +1596,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
   };
 
   const scheduleRender = (): void => {
+    if (presentation.parked()) return;
     const model = editor.getModel();
     const uriString = model?.uri.toString();
     const options = uriString === undefined ? undefined : diffs.get(uriString);
@@ -1651,6 +1698,23 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
   };
 
   return {
+    refreshPresentation() {
+      if (
+        renderedScope !== presentation.scope.current ||
+        presentationParked !== presentation.parked() ||
+        (toolbarNode === undefined && presentation.active())
+      ) {
+        renderActive();
+        return;
+      }
+      if (toolbarNode !== undefined) {
+        const mount = presentation.toolbarHost();
+        if (mount === null) toolbarNode.remove();
+        else mount.appendChild(toolbarNode);
+      }
+      syncDiffContext();
+      renderCounter();
+    },
     set(session, path, options) {
       const key = sessionFileUri(session, path).toString();
       let keys = appliedKeys.get(session);
@@ -1704,7 +1768,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
       renderQueued = false;
       diffComputer.dispose();
       initialProposalReveals.clear();
-      currentScope = "change";
+      presentation.scope.current = "change";
       parkedReview = undefined;
       closeNewComposer();
       clearRender();

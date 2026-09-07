@@ -50,12 +50,6 @@ export const EMPTY_REVIEW_HISTORY: ReviewHistory = {
 
 export type ReviewPresentationMode = "file" | "unified";
 
-/** One step of the review walk. Its surface — unified overview or file review — owns what a step means. */
-export type ReviewStep = "nextChange" | "prevChange" | "nextFile" | "prevFile";
-
-/** The mounted unified surface's own walk, so a review chord moves the overview instead of opening a file. */
-export type UnifiedReviewNavigator = Record<ReviewStep, () => boolean>;
-
 export interface ReviewCursor {
   path: string;
   line: number;
@@ -354,6 +348,7 @@ export function createReviewStore(
   const setHistory = (session: ClientSession, history: ReviewHistory): SessionReviewBoard => {
     const state = board(session);
     state.history = history;
+    publish(session, state);
     return state;
   };
 

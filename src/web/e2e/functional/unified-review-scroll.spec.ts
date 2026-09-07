@@ -83,11 +83,14 @@ test.describe("unified review mode — large replacement", () => {
     const section = page.locator(".unified-review-file");
     const scroller = page.locator(".unified-review-diffs");
     const ghost = section.locator(".weavie-inline-removed-content");
+    const toolbar = page.locator(".weavie-inline-toolbar");
     const renderedGhostLines = (): Promise<number> =>
       ghost.evaluate((element) => (element.textContent ?? "").split("\n").length);
     await expect(section.locator(".monaco-editor")).toBeVisible();
 
     for (const reviewed of [false, true]) {
+      await expect(toolbar).toHaveCount(1);
+      await expect(toolbar).toBeVisible();
       await scroller.evaluate((element) => element.scrollTo(0, 0));
       await expect(ghost).toContainText("old line 0");
       await expect.poll(renderedGhostLines).toBeLessThan(100);
@@ -120,12 +123,77 @@ test.describe("unified review mode — large replacement", () => {
       await expect.poll(renderedGhostLines).toBeLessThan(100);
 
       if (!reviewed) {
-        await section.locator(".unified-review-file-action.keep").click();
+        await toolbar.locator(".weavie-inline-accept").click();
         await expect(section.locator(".unified-review-status")).toHaveText("Reviewed");
         await expect(section.locator(".monaco-editor")).toHaveCount(0);
         await section.locator(".unified-review-file-toggle").click();
         await expect(section.locator(".monaco-editor")).toBeVisible();
       }
     }
+    await toolbar.locator(".weavie-inline-hist").first().click();
+    await expect(toolbar.locator(".weavie-inline-stack-sub")).toContainText("change 1/1");
+    await scroller.evaluate((element) => element.scrollTo(0, 0));
+    await expect(ghost).toContainText("old line 0");
+    await expect(section.locator(".weavie-inline-removed-faded")).toHaveCount(0);
+    await expect.poll(renderedGhostLines).toBeLessThan(100);
+    await expectBoundedEditor(section, scroller);
   });
 });
+
+test.describe("unified review mode — large separated changes", () => {
+  const baseline = Array.from({ length: lineCount }, (_, index) => `old line ${index}`);
+  const content = baseline
+    .map((line, index) => (index < 1_000 || index >= 3_000 ? `new line ${index}` : line))
+    .join("\n");
+  test.use({
+    fakeScript: {
+      steps: [
+        { op: "edit", path: "{{WORKSPACE}}/separated.txt", content: baseline.join("\n") },
+        ...appliedEdit("separated.txt", content),
+      ],
+    },
+  });
+
+  test("the normal toolbar navigates, keeps, undoes, and reverts the visible large change", async ({
+    page,
+    weavie,
+  }) => {
+    await page.locator(".editor-empty-review").click();
+    const section = page.locator(".unified-review-file");
+    const scroller = page.locator(".unified-review-diffs");
+    const toolbar = page.locator(".weavie-inline-toolbar");
+    const counter = toolbar.locator(".weavie-inline-stack-sub");
+    await expect(toolbar).toHaveCount(1);
+    await expect(counter).toContainText("change 1/2");
+    await toolbar.locator("button[title^='Next change']").click();
+    await expect(counter).toContainText("change 2/2");
+    await expectBoundedEditor(section, scroller);
+
+    await scroller.evaluate((element) => element.scrollTo(0, 0));
+    await expect(counter).toContainText("change 1/2");
+    await scroller.hover();
+    await page.mouse.wheel(0, 200_000);
+    await expect(counter).toContainText("change 2/2");
+    await expect(section.locator(".view-line", { hasText: "new line 3999" })).toBeInViewport();
+    await toolbar.locator(".weavie-inline-accept").click();
+    await expect(counter).toContainText("change 1/1");
+    await expect
+      .poll(() => readFile(join(weavie.workspace, "separated.txt"), "utf8"))
+      .toBe(content);
+    await toolbar.locator(".weavie-inline-hist").first().click();
+    await expect(counter).toContainText("change 2/2");
+
+    await scroller.evaluate((element) => element.scrollTo(0, element.scrollHeight));
+    await expect(counter).toContainText("change 2/2");
+    await toolbar.locator(".weavie-inline-reject").click();
+    await expect
+      .poll(() => readFile(join(weavie.workspace, "separated.txt"), "utf8"))
+      .toBe(baseline.map((line, index) => (index < 1_000 ? `new line ${index}` : line)).join("\n"));
+    await expect(counter).toContainText("change 1/1");
+    await expect(toolbar).toHaveCount(1);
+    await expectBoundedEditor(section, scroller);
+  });
+});
+
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";

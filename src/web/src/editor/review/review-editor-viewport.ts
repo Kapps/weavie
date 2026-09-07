@@ -7,7 +7,13 @@ export function createReviewEditorViewport(
   scroller: HTMLElement,
   header: HTMLElement,
   editor: monaco.editor.IStandaloneCodeEditor,
-): { layout(): void; update(change: () => void): void; dispose(): void } {
+): {
+  bounds(): { top: number; height: number };
+  layout(): void;
+  reveal(top: number): void;
+  update(change: () => void): void;
+  dispose(): void;
+} {
   let frame: number | undefined;
   let syncing = false;
 
@@ -50,11 +56,14 @@ export function createReviewEditorViewport(
   observer.observe(container);
   observer.observe(header);
   scroller.addEventListener("scroll", schedule, { passive: true });
+  const reveal = (top: number): void => {
+    scroller.scrollTop += container.getBoundingClientRect().top - bounds().top + top;
+    layout();
+  };
   // Keyboard/caret reveals still move the page; only viewport synchronization may scroll Monaco alone.
   const scroll = editor.onDidScrollChange((event) => {
     if (!syncing && event.scrollTopChanged) {
-      scroller.scrollTop += container.getBoundingClientRect().top - bounds().top + event.scrollTop;
-      layout();
+      reveal(event.scrollTop);
     }
   });
   const wheel = (event: WheelEvent): void => {
@@ -76,14 +85,17 @@ export function createReviewEditorViewport(
   mount.addEventListener("wheel", wheel, { passive: false });
   layout();
   return {
+    bounds,
     layout,
+    reveal,
     update: (change) => {
+      const wasSyncing = syncing;
       syncing = true;
       try {
         change();
         layout();
       } finally {
-        syncing = false;
+        syncing = wasSyncing;
       }
     },
     dispose: () => {

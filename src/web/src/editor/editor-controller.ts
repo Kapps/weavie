@@ -32,6 +32,7 @@ import type {
   InlineDiff,
   InlineDiffActions,
   InlineDiffOptions,
+  ReviewScopeState,
 } from "./inline-diff";
 import { mediaTypeOf } from "./media/media-types";
 import { createNavHistory, type NavHistory } from "./nav-history";
@@ -46,9 +47,8 @@ import {
   type ReviewHistory,
   type ReviewOverview,
   type ReviewPresentationMode,
-  type ReviewStep,
-  type UnifiedReviewNavigator,
 } from "./review/review-store";
+import type { UnifiedReviewSurface } from "./review/review-surface";
 import type { ReviseMarks, ReviseRegion } from "./revise-marks";
 import {
   type ActivateResult,
@@ -215,14 +215,20 @@ export interface EditorController {
    * when no file is open. */
   parkedReviewCount(): number;
   readonly review: {
+    scope: ReviewScopeState;
     mode(): ReviewPresentationMode;
     overview(): ReviewOverview;
     /** Creates the model-reference scope owned by one mounted unified-review surface. */
     createCopyScope(): ReviewCopyScope;
-    /** Hands the mounted unified surface its session's review walk; the returned callback unbinds it. */
-    bindNavigator(session: ClientSession, navigator: UnifiedReviewNavigator): () => void;
-    /** Walks one step of the review, on whichever surface the session is reviewing on. */
-    step(session: ClientSession, step: ReviewStep): boolean;
+    /** Binds the mounted surface for exact destinations and its active shared review controls. */
+    bindSurface(session: ClientSession, surface: UnifiedReviewSurface): () => void;
+    refreshControls(): void;
+    configureDiff(
+      session: ClientSession,
+      inline: InlineDiff,
+      uri: string,
+      diff: ReviewFileDiff,
+    ): void;
     toggleMode(session: ClientSession): boolean;
     toggleFileCollapsed(session: ClientSession, path: string | undefined): boolean;
     setCursor(session: ClientSession, path: string, line: number): void;
@@ -236,8 +242,8 @@ export interface EditorController {
     undoRevert(session: ClientSession): boolean;
     redo(session: ClientSession): boolean;
   };
-  /** The inline diff's own actions. Review *navigation* is not here — it routes by mode through `review.step`. */
-  readonly inline: Omit<InlineDiffActions, ReviewStep>;
+  /** Shared review actions targeting the active review presentation. */
+  readonly inline: InlineDiffActions;
   readonly tabs: TabActions;
   readonly nav: NavActions;
   /** The omnibar's Go-to-Symbol surface: query document/workspace symbols and live-preview/commit the jump. */
@@ -273,6 +279,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   // host + inlineDiff are set once the editor chunk loads and the editor is created (see start).
   let host: EditorHost | undefined;
   let inlineDiff: InlineDiff | undefined;
+  const reviewScope: ReviewScopeState = { current: "change" };
   let commentProse: CommentProse | undefined;
   let gitBlame: GitBlameController | undefined;
   let spelling: SpellCheck | undefined;
@@ -433,7 +440,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   };
 
   // Unified review is a mode the user is in, not an overlay: only a destination they navigated to leaves it.
-  // The agent's own reveals — MCP openFile, a review action's jump — land behind the overview instead.
+  // Reveals into the review set land in its section; unrelated destinations can open behind it.
   const activateDestinationFor = (session: ClientSession, intent: EditorOpenIntent): boolean => {
     if (selectedSession() !== session) {
       return false;
@@ -453,6 +460,16 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     scratch: boolean,
     intent: EditorOpenIntent,
   ): void => {
+    const state = reviews.board(session);
+    if (intent === "reveal" && state.mode === "unified") {
+      const file = state.files.find((candidate) => samePath(candidate.summary().path, path));
+      if (file !== undefined) {
+        const targetLine = line ?? file.summary().line;
+        reviews.setCursor(session, { path, line: targetLine });
+        unifiedSurfaces.get(session)?.reveal(path, targetLine);
+        return;
+      }
+    }
     const result = openTabFor(session, path, {
       ...(line === undefined ? {} : { line }),
       preview,
@@ -949,7 +966,21 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
           import("./spell-check"),
         ]);
         symbolSource = symbolMod.createSymbolSource(created.editor);
-        inlineDiff = diff.createInlineDiff(created.editor);
+        inlineDiff = diff.createInlineDiff(created.editor, {
+          scope: reviewScope,
+          parked: () => reviews.mode() === "unified",
+          active: () =>
+            reviews.mode() !== "unified" || selectedUnifiedSurface()?.actions() === undefined,
+          toolbarHost: () => {
+            if (reviews.mode() !== "unified") return created.editor.getDomNode();
+            const surface = selectedUnifiedSurface();
+            return surface?.actions() === undefined ? (surface?.toolbarHost() ?? null) : null;
+          },
+          revealLine: (line) => created.editor.revealLineInCenter(line, REVEAL_SCROLL),
+          reviewLine: () => diff.inlineReviewLine(created.editor),
+          painted: () => {},
+          updateGeometry: (change) => change(),
+        });
         // Review undo/redo is session-global (not tied to a file), so its post-callbacks are bound once. `kind`
         // targets the type-split chords; the generic Undo (toolbar) omits it.
         inlineDiff.bindHistory({
@@ -1091,16 +1122,29 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       label,
       rev: reviewRev,
     };
+    const stepIn = (): void => {
+      const cursor = state?.cursor;
+      const first =
+        state?.mode === "unified" && cursor !== null && cursor !== undefined
+          ? files.find((file) => samePath(file.path, cursor.path))
+          : files[0];
+      if (session !== null && first !== undefined) {
+        revealReviewFile(session, first, first.line);
+      }
+    };
     inlineDiff?.setParkedReview(
       files.length > 0
         ? {
             fileCount: files.length,
             ...(label !== "" ? { label } : {}),
-            stepIn: () => {
-              const first = files[0];
-              if (session !== null && first !== undefined) {
-                openReviewFile(session, first, first.line);
-              }
+            stepIn,
+            nextFile: () => {
+              if (state?.mode === "unified" && files.length > 1) stepReviewFile(1);
+              else stepIn();
+            },
+            prevFile: () => {
+              if (state?.mode === "unified" && files.length > 1) stepReviewFile(-1);
+              else stepIn();
             },
           }
         : undefined,
@@ -1125,16 +1169,25 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     }
   };
 
-  // The mounted unified surface, so a review step walks the overview's own sections instead of opening files.
-  const unifiedNavigators = new WeakMap<ClientSession, UnifiedReviewNavigator>();
-
-  // One step of the review walk, routed to whichever surface the session is reviewing on. In unified mode the
-  // overview owns every step — a review chord moves through the changes on screen and never opens a file.
-  const stepReview = (session: ClientSession, step: ReviewStep): boolean => {
-    if (reviews.board(session).mode !== "unified") {
-      return inlineDiff?.[step]() ?? false;
+  const unifiedSurfaces = new WeakMap<ClientSession, UnifiedReviewSurface>();
+  const selectedUnifiedSurface = (): UnifiedReviewSurface | undefined => {
+    const session = selectedSession();
+    return session === null ? undefined : unifiedSurfaces.get(session);
+  };
+  const activeReviewActions = (): InlineDiffActions | undefined => {
+    const session = selectedSession();
+    if (session !== null && reviews.board(session).mode === "unified") {
+      const surface = unifiedSurfaces.get(session);
+      return surface === undefined ? undefined : (surface.actions() ?? inlineDiff);
     }
-    return unifiedNavigators.get(session)?.[step]() ?? false;
+    return inlineDiff;
+  };
+  const revealReviewFile = (session: ClientSession, file: ReviewFile, line: number): void => {
+    if (reviews.board(session).mode === "unified") {
+      unifiedSurfaces.get(session)?.reveal(file.path, line);
+    } else {
+      openReviewFile(session, file, line);
+    }
   };
 
   // Step the file axis of the review walk: open the neighbour (wrapping) at its first change. Returns false
@@ -1150,13 +1203,15 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     if (files.length < 2) {
       return false;
     }
-    const current = activePath();
+    const state = reviews.board(session);
+    const current =
+      state.mode === "unified" ? (state.cursor?.path ?? files[0]?.path ?? null) : activePath();
     const idx = current === null ? -1 : files.findIndex((file) => samePath(file.path, current));
     const next = idx === -1 ? files[0] : files[(idx + delta + files.length) % files.length];
     if (next === undefined) {
       return false;
     }
-    openReviewFile(session, next, next.line);
+    revealReviewFile(session, next, next.line);
     return true;
   };
 
@@ -1166,16 +1221,13 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   // since the host drops it from the review set right after.
   const advanceToNextPendingFile = (session: ClientSession, fromPath: string): void => {
     const state = reviews.board(session);
-    if (state.mode === "unified") {
-      return;
-    }
     const files = state.files.map((file) => file.summary());
     const idx = files.findIndex((file) => samePath(file.path, fromPath));
     const start = idx === -1 ? 0 : idx;
     for (let step = 1; step <= files.length; step++) {
       const candidate = files[(start + step) % files.length];
       if (candidate !== undefined && !samePath(candidate.path, fromPath)) {
-        openReviewFile(session, candidate, candidate.line);
+        revealReviewFile(session, candidate, candidate.line);
         return;
       }
     }
@@ -1229,7 +1281,9 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     session: ClientSession,
     path: string | undefined,
   ): ReviewFile | null => {
-    const target = path ?? activePathFor(session);
+    const state = reviews.board(session);
+    const target =
+      path ?? (state.mode === "unified" ? (state.cursor?.path ?? null) : activePathFor(session));
     const file = reviews
       .board(session)
       .files.find((candidate) => target !== null && samePath(candidate.summary().path, target));
@@ -1382,22 +1436,12 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     });
   };
 
-  const renderTurnDiff = (session: ClientSession, message: ReviewFileDiff): void => {
+  const appliedReviewOptions = (
+    session: ClientSession,
+    message: ReviewFileDiff,
+  ): InlineDiffOptions => {
     const state = reviews.board(session);
     const files = state.files.map((file) => file.summary());
-    if (
-      message.acceptedBaseline === message.current &&
-      message.acceptedBaselineExists === message.currentExists
-    ) {
-      inlineDiff?.clear(session, message.path);
-      commentProse?.refresh();
-      const active = activePathFor(session);
-      if (active !== null && samePath(active, message.path) && files.length > 1) {
-        advanceToNextPendingFile(session, message.path);
-      }
-      return;
-    }
-
     const index = files.findIndex((file) => samePath(file.path, message.path));
     const fileNavigation =
       files.length > 1 && index !== -1
@@ -1412,7 +1456,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
             fileCount: files.length,
           }
         : {};
-    inlineDiff?.set(session, message.path, {
+    return {
       original: message.baseline,
       acceptedBaseline: message.acceptedBaseline,
       claudeVersion: message.current,
@@ -1428,7 +1472,27 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       ...(state.label !== "" ? { reviewLabel: state.label } : {}),
       ...fileNavigation,
       ...prCommentActions(session, message.path),
-    });
+    };
+  };
+
+  const renderTurnDiff = (session: ClientSession, message: ReviewFileDiff): void => {
+    const state = reviews.board(session);
+    const files = state.files.map((file) => file.summary());
+    if (
+      message.acceptedBaseline === message.current &&
+      message.acceptedBaselineExists === message.currentExists
+    ) {
+      inlineDiff?.clear(session, message.path);
+      commentProse?.refresh();
+      const active =
+        state.mode === "unified" ? (state.cursor?.path ?? null) : activePathFor(session);
+      if (active !== null && samePath(active, message.path) && files.length > 1) {
+        advanceToNextPendingFile(session, message.path);
+      }
+      return;
+    }
+
+    inlineDiff?.set(session, message.path, appliedReviewOptions(session, message));
     commentProse?.refresh();
   };
 
@@ -1868,19 +1932,31 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     reviewActive,
     parkedReviewCount: reviews.count,
     review: {
+      scope: reviewScope,
       mode: reviews.mode,
       overview: reviews.overview,
       createCopyScope: () =>
         host?.createReviewCopyScope() ?? createDeferredReviewCopyScope(editorHostReady),
-      bindNavigator: (session, navigator) => {
-        unifiedNavigators.set(session, navigator);
+      bindSurface: (session, surface) => {
+        unifiedSurfaces.set(session, surface);
+        inlineDiff?.refreshPresentation();
         return () => {
-          if (unifiedNavigators.get(session) === navigator) {
-            unifiedNavigators.delete(session);
-          }
+          if (unifiedSurfaces.get(session) === surface) unifiedSurfaces.delete(session);
+          inlineDiff?.refreshPresentation();
         };
       },
-      step: stepReview,
+      refreshControls: () => inlineDiff?.refreshPresentation(),
+      configureDiff: (session, inline, uri, message) => {
+        reviews.overview();
+        inline.bindHistory({
+          onUndoKeep: () => session.feature("review").publish("undo", { kind: "keep" }),
+          onUndoRevert: () => session.feature("review").publish("undo", { kind: "revert" }),
+          onUndoLast: () => session.feature("review").publish("undo", {}),
+          onRedo: () => session.feature("review").publish("redo", {}),
+        });
+        inline.setReviewHistory(reviews.board(session).history);
+        inline.setByUri(uri, appliedReviewOptions(session, message));
+      },
       toggleMode: (session) => {
         if (selectedSession() !== session) {
           return false;
@@ -1966,16 +2042,20 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       redo: redoReview,
     },
     inline: {
-      accept: () => inlineDiff?.accept() ?? false,
-      reject: () => inlineDiff?.reject() ?? false,
-      undo: () => inlineDiff?.undo() ?? false,
-      keepFile: () => inlineDiff?.keepFile() ?? false,
-      revertFile: () => inlineDiff?.revertFile() ?? false,
-      keepAll: () => inlineDiff?.keepAll() ?? false,
-      comment: () => inlineDiff?.comment() ?? false,
-      undoKeep: () => inlineDiff?.undoKeep() ?? false,
-      undoRevert: () => inlineDiff?.undoRevert() ?? false,
-      redoReview: () => inlineDiff?.redoReview() ?? false,
+      nextChange: () => activeReviewActions()?.nextChange() ?? false,
+      prevChange: () => activeReviewActions()?.prevChange() ?? false,
+      nextFile: () => activeReviewActions()?.nextFile() ?? false,
+      prevFile: () => activeReviewActions()?.prevFile() ?? false,
+      accept: () => activeReviewActions()?.accept() ?? false,
+      reject: () => activeReviewActions()?.reject() ?? false,
+      undo: () => activeReviewActions()?.undo() ?? false,
+      keepFile: () => activeReviewActions()?.keepFile() ?? false,
+      revertFile: () => activeReviewActions()?.revertFile() ?? false,
+      keepAll: () => activeReviewActions()?.keepAll() ?? false,
+      comment: () => activeReviewActions()?.comment() ?? false,
+      undoKeep: () => activeReviewActions()?.undoKeep() ?? false,
+      undoRevert: () => activeReviewActions()?.undoRevert() ?? false,
+      redoReview: () => activeReviewActions()?.redoReview() ?? false,
     },
     tabs,
     nav: {

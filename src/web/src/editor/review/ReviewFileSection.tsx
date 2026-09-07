@@ -4,11 +4,13 @@ import { keyHint } from "../../commands/key-hint";
 import { runCommandWithFeedback } from "../../commands/registry";
 import { CommandIds } from "../../commands/types";
 import type { ReviewCopy } from "../editor-host";
+import type { InlineDiff, ReviewScopeState } from "../inline-diff";
 import { ReviewFileBody } from "./ReviewFileBody";
 import type { ReviewFileDiff, ReviewFileView } from "./review-store";
-import type { ReviewSectionRegistry } from "./review-walk";
+import type { ReviewSectionRegistry } from "./review-surface";
 
 export function ReviewFileSection(props: {
+  scope: ReviewScopeState;
   displayPath: (path: string) => string;
   file: Accessor<ReviewFileView>;
   scroller: () => HTMLElement;
@@ -16,7 +18,11 @@ export function ReviewFileSection(props: {
   onEditorHeight: (height: number) => void;
   index: number;
   measure: (element: HTMLElement) => void;
-  onFocus: () => void;
+  onFocus: (line: number) => void;
+  active: () => boolean;
+  toolbarHost: () => HTMLElement | null;
+  configureDiff: (inline: InlineDiff, uri: string, diff: ReviewFileDiff) => void;
+  onReveal: () => void;
   openCopy: (diff: ReviewFileDiff) => Promise<ReviewCopy>;
   register: ReviewSectionRegistry;
   style: string;
@@ -47,7 +53,9 @@ export function ReviewFileSection(props: {
         article = element;
         props.measure(element);
       }}
-      onFocusIn={props.onFocus}
+      onFocusIn={() => {
+        if (!props.active()) props.onFocus(summary().line);
+      }}
       style={props.style}
     >
       <header class="unified-review-file-header" ref={header}>
@@ -119,13 +127,19 @@ export function ReviewFileSection(props: {
           <ReviewFileBody
             position={props.style}
             header={() => header}
+            scroller={props.scroller}
             editorHeight={props.editorHeight}
             onEditorHeight={props.onEditorHeight}
-            scroller={props.scroller}
+            scope={props.scope}
             file={props.file}
             measure={remeasure}
             openCopy={props.openCopy}
             register={props.register}
+            active={props.active}
+            toolbarHost={props.toolbarHost}
+            configureDiff={props.configureDiff}
+            onReveal={props.onReveal}
+            onCursor={props.onFocus}
           />
           <For each={props.file().diff()?.rejected}>
             {(rejected) => (

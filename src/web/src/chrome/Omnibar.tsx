@@ -24,7 +24,7 @@ import {
   visiblePathTreeRows,
 } from "../files/path-tree";
 import {
-  listSelectedDirectory,
+  acquireDirectory,
   selectedDirectoryListings,
   selectedFileIndex,
 } from "../files/session-files";
@@ -138,15 +138,13 @@ export function Omnibar(props: {
   const pathMode = (): boolean => mode() === "path";
   const symbolMode = (): boolean => docSymbolMode() || wsSymbolMode();
 
-  // Tracks the directory and the session, so switching sessions (which clears that session's listings)
-  // re-requests rather than waiting forever on a listing nobody will send. The request itself is untracked
-  // because it reads the listings store to dedupe, and tracking that would make a reply re-trigger it.
   const pathDir = createMemo(() => pathQuery()?.dir ?? null);
   createEffect(() => {
     const dir = pathDir();
     const session = selectedSession();
-    if (dir !== null && session !== null) {
-      untrack(() => listSelectedDirectory(dir));
+    if (open() && dir !== null && session !== null) {
+      const lease = untrack(() => acquireDirectory(session, dir));
+      onCleanup(lease.release);
     }
   });
   const pathListing = () => {

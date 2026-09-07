@@ -1,6 +1,7 @@
 import { type ClientSession, registerSessionFeature, selectedSession } from "../bridge";
 import { normalizePath } from "../editor/fs-path";
-import { createSessionOwnedMap, createSessionOwnedState } from "../messaging/session-owned-state";
+import { PAGE_EPOCH } from "../messaging/page-epoch";
+import { createSessionOwnedState } from "../messaging/session-owned-state";
 import type { DirEntry, DirListings } from "./FileBrowser";
 import { revealFileIn } from "./reveal";
 
@@ -18,7 +19,20 @@ interface FileIndex {
 const EMPTY_INDEX: FileIndex = { root: null, home: null, files: [], pending: false };
 const indexes = createSessionOwnedState<FileIndex>(() => EMPTY_INDEX);
 const listings = createSessionOwnedState<DirListings>(() => ({}));
-const requests = createSessionOwnedMap<string, { again: boolean }>();
+interface DirectorySubscription {
+  id: string;
+  path: string | null;
+  consumers: number;
+  request: { again: boolean } | null;
+}
+
+export interface DirectoryLease {
+  refresh(): void;
+  release(): void;
+}
+
+const directories = createSessionOwnedState(() => new Map<string, DirectorySubscription>());
+let directorySequence = 0;
 
 function updateListings(
   session: ClientSession,
@@ -43,32 +57,56 @@ export function refreshSelectedFileIndex(): void {
   selectedSession()?.feature("files").publish("refreshIndex", {});
 }
 
-export function listSelectedDirectory(path: string): void {
-  const session = selectedSession();
-  if (session !== null) listDirectory(session, path);
+/** Retains a listing and its watch until this session's last consumer releases it. */
+export function acquireDirectory(session: ClientSession, path: string): DirectoryLease {
+  const owned = directories.get(session);
+  if (owned === undefined) throw new Error("Cannot list a directory in a closed session.");
+  let subscription = owned.get(path);
+  if (subscription === undefined) {
+    subscription = {
+      id: `${PAGE_EPOCH}-directory-${++directorySequence}`,
+      path: null,
+      consumers: 0,
+      request: null,
+    };
+    owned.set(path, subscription);
+  }
+  const entry = subscription;
+  entry.consumers += 1;
+  if (entry.consumers === 1) listDirectory(session, path, entry);
+  let released = false;
+  return {
+    refresh: () => {
+      if (!released) listDirectory(session, path, entry);
+    },
+    release: () => {
+      if (released) return;
+      released = true;
+      entry.consumers -= 1;
+      if (entry.consumers > 0 || session.closed) return;
+      owned.delete(path);
+      session.feature("files").publish("unwatchDirectory", { subscriptionId: entry.id });
+      updateListings(session, (current) => {
+        const { [path]: _removed, ...rest } = current;
+        return rest;
+      });
+    },
+  };
 }
 
-/** Drops a directory's cached listing once the browser collapses it, and tells the host to stop watching it. */
-export function unlistSelectedDirectory(path: string): void {
-  const session = selectedSession();
-  if (session === null) return;
-  requests.delete(session, path);
-  updateListings(session, (current) => {
-    if (!(path in current)) return current;
-    const { [path]: _removed, ...rest } = current;
-    return rest;
-  });
-  session.feature("files").publish("unwatchDirectory", { path });
-}
-
-function listDirectory(session: ClientSession, path: string): void {
-  const pending = requests.get(session, path);
-  if (pending !== undefined) {
-    pending.again = true;
+function listDirectory(
+  session: ClientSession,
+  path: string,
+  subscription: DirectorySubscription,
+): void {
+  const current = () => !session.closed && directories.get(session)?.get(path) === subscription;
+  if (!current()) return;
+  if (subscription.request !== null) {
+    subscription.request.again = true;
     return;
   }
   const request = { again: false };
-  requests.set(session, path, request);
+  subscription.request = request;
   if (listings.get(session)?.[path]?.status !== "ready") {
     updateListings(session, (current) => ({ ...current, [path]: { status: "loading" } }));
   }
@@ -76,10 +114,15 @@ function listDirectory(session: ClientSession, path: string): void {
     do {
       request.again = false;
       try {
-        const { entries } = await session
+        const { entries, path: canonicalPath } = await session
           .feature("files")
-          .request<{ entries: DirEntry[] }, { path: string }>("listDirectory", { path });
-        if (request.again || session.closed) continue;
+          .request<{ path: string; entries: DirEntry[] }, { path: string; subscriptionId: string }>(
+            "listDirectory",
+            { path, subscriptionId: subscription.id },
+          );
+        if (!current()) return;
+        subscription.path = canonicalPath;
+        if (request.again) continue;
         updateListings(session, (current) => {
           const previous = current[path];
           const known = new Map(
@@ -99,6 +142,7 @@ function listDirectory(session: ClientSession, path: string): void {
           };
         });
       } catch (error: unknown) {
+        if (!current()) return;
         if (!request.again)
           updateListings(session, (current) => ({
             ...current,
@@ -108,26 +152,28 @@ function listDirectory(session: ClientSession, path: string): void {
             },
           }));
       }
-    } while (request.again && !session.closed);
-    requests.delete(session, path);
+    } while (request.again && current());
+    if (current()) subscription.request = null;
   })();
 }
 
 registerSessionFeature((session) => {
   const files = session.feature("files");
+  files.publish("reset", { pageEpoch: PAGE_EPOCH });
   const offChanged = files.on<{ changes: { path: string }[] }>("changed", ({ changes }) => {
     const changed = changes.map((change) => normalizePath(change.path));
-    for (const path of Object.keys(listings.get(session) ?? {})) {
-      const directory = normalizePath(path);
+    for (const [path, subscription] of directories.get(session) ?? []) {
+      const directory = subscription.path === null ? null : normalizePath(subscription.path);
       if (
         changed.some(
           (change) =>
+            directory === null ||
             change === directory ||
             change.startsWith(`${directory}/`) ||
             directory.startsWith(`${change}/`),
         )
       ) {
-        listDirectory(session, path);
+        listDirectory(session, path, subscription);
       }
     }
   });
@@ -136,7 +182,8 @@ registerSessionFeature((session) => {
     (message) => {
       const previousRoot = indexes.get(session)?.root ?? null;
       if (message.pending === true && message.root === previousRoot) {
-        for (const path of Object.keys(listings.get(session) ?? {})) listDirectory(session, path);
+        for (const [path, subscription] of directories.get(session) ?? [])
+          listDirectory(session, path, subscription);
         return;
       }
       indexes.update(session, () => ({
@@ -146,9 +193,6 @@ registerSessionFeature((session) => {
         files: message.files,
         pending: message.pending === true,
       }));
-      if (message.root !== previousRoot) {
-        updateListings(session, () => ({}));
-      }
     },
   );
   return () => {

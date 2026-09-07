@@ -57,5 +57,11 @@ The watcher starts only after `HostCore` registers every projection. Unload quie
 and flushes watcher admission, stops remaining file producers, drains activity while the bus and LSP are
 alive, and closes the session endpoint last. Selecting another session performs none of these steps.
 
+Directory listings have separate subscriptions owned by the requesting page and session. The browser and
+omnibar retain a listing while using it; the last release removes its cache and prevents pending responses
+from restoring it. The host shares native watches using `PathIdentity`, returns canonical paths for change
+matching, and releases a page's subscriptions on disconnect or page-epoch reset. A session or root change
+recreates the browser's listing owners without routing cleanup through the newly selected session.
+
 See [session-message-bus.md](session-message-bus.md) and
 [file-management-and-sessions.md](../specs/file-management-and-sessions.md).

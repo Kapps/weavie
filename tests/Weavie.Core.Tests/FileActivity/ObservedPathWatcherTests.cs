@@ -135,7 +135,7 @@ public sealed class ObservedPathWatcherTests : IDisposable {
 	public async Task ListedDirectoryRemainsWatchedWhenTheOpenFileSetChanges() {
 		CapturingSink sink = new();
 		using var watcher = NewWatcher(sink);
-		watcher.WatchDirectory(_root.Path);
+		watcher.WatchDirectory("listing", _root.Path);
 		watcher.Watch([]);
 		Assert.Equal(1, watcher.WatchedDirectoryCount);
 
@@ -147,10 +147,10 @@ public sealed class ObservedPathWatcherTests : IDisposable {
 	[Fact]
 	public void UnwatchDirectoryReleasesAListedDirectoryNoLongerShown() {
 		using var watcher = NewWatcher(new CapturingSink());
-		watcher.WatchDirectory(_root.Path);
+		watcher.WatchDirectory("listing", _root.Path);
 		Assert.Equal(1, watcher.WatchedDirectoryCount);
 
-		watcher.UnwatchDirectory(_root.Path);
+		watcher.UnwatchDirectory("listing");
 
 		Assert.Equal(0, watcher.WatchedDirectoryCount);
 	}
@@ -158,11 +158,66 @@ public sealed class ObservedPathWatcherTests : IDisposable {
 	[Fact]
 	public void UnwatchDirectoryOfAnUnlistedDirectoryIsANoop() {
 		using var watcher = NewWatcher(new CapturingSink());
-		watcher.WatchDirectory(_root.Path);
+		watcher.WatchDirectory("listing", _root.Path);
 
-		watcher.UnwatchDirectory(_root.Combine("never-listed"));
+		watcher.UnwatchDirectory("never-listed");
 
 		Assert.Equal(1, watcher.WatchedDirectoryCount);
+	}
+
+	[Fact]
+	public async Task ReleasingOneAliasPreservesAnotherSubscriptionsWatchAndEvents() {
+		CapturingSink sink = new();
+		using var watcher = NewWatcher(sink);
+		watcher.WatchDirectory("browser", _root.Path);
+		watcher.WatchDirectory("completion", Path.Combine(_root.Path, ".") + Path.DirectorySeparatorChar);
+
+		watcher.UnwatchDirectory("browser");
+		watcher.UnwatchDirectory("browser");
+		Assert.Equal(1, watcher.WatchedDirectoryCount);
+		watcher.Watch([]);
+
+		Directory.CreateDirectory(_root.Combine("empty"));
+		object fact = await sink.Next.Task.WaitAsync(TimeSpan.FromSeconds(10));
+		Assert.Equal(_root.Path, Assert.IsType<Changed>(fact).Path);
+
+		watcher.UnwatchDirectory("completion");
+		Assert.Equal(0, watcher.WatchedDirectoryCount);
+	}
+
+	[Fact]
+	public void RepeatedListingRequestsDoNotAcquireAdditionalSubscriptions() {
+		using var watcher = NewWatcher(new CapturingSink());
+		watcher.WatchDirectory("listing", _root.Path);
+		watcher.WatchDirectory("listing", Path.Combine(_root.Path, "."));
+
+		watcher.UnwatchDirectory("listing");
+
+		Assert.Equal(0, watcher.WatchedDirectoryCount);
+	}
+
+	[Fact]
+	public void SubscriptionCannotBeReboundToAnotherDirectory() {
+		using var watcher = NewWatcher(new CapturingSink());
+		watcher.WatchDirectory("listing", _root.Path);
+
+		Assert.Throws<InvalidOperationException>(() =>
+			watcher.WatchDirectory("listing", _root.CreateDirectory("other")));
+		Assert.Equal(1, watcher.WatchedDirectoryCount);
+		watcher.UnwatchDirectory("listing");
+		Assert.Equal(0, watcher.WatchedDirectoryCount);
+	}
+
+	[Fact]
+	public void ReleasingFinalListingPreservesOpenFilesWatch() {
+		using var watcher = NewWatcher(new CapturingSink());
+		watcher.WatchDirectory("listing", _root.Path);
+		watcher.Watch([_root.Combine("open.md")]);
+
+		watcher.UnwatchDirectory("listing");
+		Assert.Equal(1, watcher.WatchedDirectoryCount);
+		watcher.Watch([]);
+		Assert.Equal(0, watcher.WatchedDirectoryCount);
 	}
 
 	private static ObservedPathWatcher NewWatcher(CapturingSink sink) =>

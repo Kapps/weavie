@@ -292,10 +292,12 @@ export function createInlineDiff(
   const replaceToolbar = (next: HTMLElement | undefined): void => {
     const previous = toolbarNode;
     toolbarNode = next;
-    const host = presentation.toolbarHost();
-    if (next !== undefined && host !== null) {
-      if (previous?.parentElement === host) previous.replaceWith(next);
-      else host.appendChild(next);
+    if (next !== undefined) {
+      const host = presentation.toolbarHost();
+      if (host !== null) {
+        if (previous?.parentElement === host) previous.replaceWith(next);
+        else host.appendChild(next);
+      }
     }
     previous?.remove();
   };

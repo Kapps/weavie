@@ -102,16 +102,9 @@ export function ReviewFileBody(props: {
     const token = ++resolution;
     void props.openCopy(value).then(
       (copy) => {
+        if (dropped || token !== resolution || mount === undefined) return;
         const latest = diff();
-        if (
-          dropped ||
-          token !== resolution ||
-          mount === undefined ||
-          latest === null ||
-          !hasChanges(latest)
-        ) {
-          return;
-        }
+        if (latest === null || !hasChanges(latest)) return;
         liveExists = latest.currentExists;
         live = createReviewEditor({
           scope: props.scope,

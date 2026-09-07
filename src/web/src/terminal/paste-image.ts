@@ -1,6 +1,6 @@
 // Claude terminal image paste. Structured agents use the correlated composer attachment transport instead.
 
-import { agentImageError, encodeAgentImage, takePastedImages } from "../agent/pasted-images";
+import { agentImageBlob, encodeAgentImage, takePastedImages } from "../agent/pasted-images";
 import type { ClientSession } from "../bridge";
 import { notify } from "../notify/notify";
 
@@ -23,14 +23,19 @@ export function sendPastedImagesFromClipboard(
 }
 
 async function sendImage(blob: Blob, session: ClientSession): Promise<void> {
-  sendPastedImage(session, blob.type, await encodeAgentImage(blob));
+  try {
+    const image = await encodeAgentImage(blob);
+    if (!session.closed) {
+      session.feature("terminal.agent").publish("pasteImage", image);
+    }
+  } catch (error) {
+    notify(
+      "warn",
+      `Couldn't paste the image: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
 }
 
 export function sendPastedImage(session: ClientSession, mime: string, dataB64: string): void {
-  const error = agentImageError(mime, dataB64);
-  if (error !== null) {
-    notify("warn", `${error} Resize it and paste again.`);
-    return;
-  }
-  session.feature("terminal.agent").publish("pasteImage", { mime, dataB64 });
+  void sendImage(agentImageBlob(mime, dataB64), session);
 }

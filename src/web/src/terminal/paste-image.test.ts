@@ -23,6 +23,7 @@ function imageItem(mime: string, bytes: Uint8Array): DataTransferItem {
     type: mime,
     getAsFile: () => ({
       type: mime,
+      size: bytes.length,
       arrayBuffer: async () =>
         bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
     }),

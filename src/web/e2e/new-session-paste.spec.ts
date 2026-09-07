@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { expect } from "@playwright/test";
 import { CommandIds, type CommandInfo } from "../src/commands/types";
 import { test } from "./harness/network-fixtures";
+import { oversizedPng } from "./harness/pasted-image";
 import { MockHost, mockSession } from "./mock-host";
 
 const distDir = join(dirname(fileURLToPath(import.meta.url)), "..", "dist");
@@ -135,6 +136,7 @@ test("desktop image paste participates in preview and submit while text remains 
     await prompt.focus();
     const invocation = host.waitForHost("request", "sessions", "invoke");
     await page.keyboard.press("ControlOrMeta+V");
+    await expect(attachment).toHaveAttribute("title", "ready");
     await page.keyboard.press("Shift+Enter");
     expect((await invocation).payload).toMatchObject({
       id: CommandIds.newSession,
@@ -144,6 +146,61 @@ test("desktop image paste participates in preview and submit while text remains 
         attachments: [{ mime: "image/png", dataB64: PNG_B64 }],
       },
     });
+  } finally {
+    await host.close();
+  }
+});
+
+test("desktop encoded clipboard images are resized before branch preview", async ({ page }) => {
+  const host = await MockHost.start({ distDir });
+  try {
+    host.setSessions([mockSession("main", "main", "acp")]);
+    host.onHost("request", "git", "branches", (request) => host.respond(request, ["main"]));
+    const branchPreviews: Array<{ attachments: Array<{ mime: string; dataB64: string }> }> = [];
+    host.onHost("request", "sessionCreation", "previewBranch", (request) => {
+      branchPreviews.push(request.payload as (typeof branchPreviews)[number]);
+      host.respond(request, { branch: "fix/large-image", error: null, needsMoreDetail: false });
+    });
+    await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
+    await host.waitUntilConnected();
+    const dataB64 = await oversizedPng(page);
+    expect(Buffer.from(dataB64, "base64").length).toBeGreaterThan(5 * 1024 * 1024);
+    host.onHost("request", "clipboard", "readImage", (request) =>
+      host.respond(request, { mime: "image/png", dataB64 }),
+    );
+    const paste = command({
+      id: CommandIds.pasteNewSession,
+      title: "Paste Into New Session Prompt",
+      runsIn: "web",
+      owner: "client",
+      executionLane: "weavie.session.input",
+      scope: "session",
+      keys: ["$mod+v"],
+    });
+    host.publishHost("commands", "catalog", {
+      commands: [paste],
+      keybindings: [
+        { key: "$mod+v", command: paste.id, when: "newSessionPromptFocused", activeInModal: true },
+      ],
+    });
+    await page.locator(".session-rail-add").click();
+    const inbox = page.locator(".session-inbox");
+    await expect(inbox.getByRole("textbox", { name: "Prompt for a new session" })).toBeFocused();
+    await page.keyboard.press("ControlOrMeta+V");
+    await expect(inbox.locator(".agent-attachment")).toHaveAttribute("title", "ready");
+    await inbox.getByRole("combobox", { name: "Branch starting point" }).focus();
+    await expect(inbox.getByRole("textbox", { name: "Branch for the new session" })).toHaveValue(
+      "fix/large-image",
+    );
+    const image = branchPreviews[0].attachments[0];
+    expect(image.mime).toBe("image/png");
+    const converted = Buffer.from(image.dataB64, "base64");
+    expect(converted.length).toBeLessThan(5 * 1024 * 1024);
+    expect(converted.readUInt32BE(16)).toBeLessThan(1600);
+    await expect(inbox.locator(".agent-attachment img")).toHaveAttribute(
+      "src",
+      `data:image/png;base64,${image.dataB64}`,
+    );
   } finally {
     await host.close();
   }

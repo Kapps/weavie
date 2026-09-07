@@ -27,6 +27,7 @@ import {
   submitAgentTurn,
   uploadAgentImage,
 } from "./composer-store";
+import { agentImageBlob } from "./pasted-images";
 import {
   type HistoryCursor,
   type HistoryRecall,
@@ -198,12 +199,7 @@ export function AgentComposer(props: {
       const content = await readClipboardContent();
       if (content.kind === "image") {
         if (inputProtocol >= 2) {
-          uploadAgentImage(
-            session,
-            content.mime,
-            content.dataB64,
-            `data:${content.mime};base64,${content.dataB64}`,
-          );
+          uploadAgentImage(session, agentImageBlob(content.mime, content.dataB64));
         } else {
           sendPastedImage(session, content.mime, content.dataB64);
         }

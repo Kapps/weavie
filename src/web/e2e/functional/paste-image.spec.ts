@@ -1,6 +1,8 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { createAcpSession } from "../harness/acp-session";
 import { expect, test } from "../harness/fixtures";
+import { oversizedPng, pastePng } from "../harness/pasted-image";
 
 // Remote image paste into the claude pane. The deterministic C# tests inject `terminal.agent/pasteImage`
 // straight into HostCore, so they never exercise the ONE link that lives only in the browser: a real DOM
@@ -112,7 +114,14 @@ test("a real image-paste DOM event on the claude pane writes the bytes to a back
 
   await pasteInto(page, { kind: "image", b64: PNG_B64, mime: "image/png" });
 
-  // The browser capture fired exactly once on the owning session's agent-terminal feature.
+  // Encoding finishes asynchronously before the owned session event is published.
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => (window as unknown as { __PASTE_MSGS__: unknown[] }).__PASTE_MSGS__.length,
+      ),
+    )
+    .toBe(1);
   const msgs = await page.evaluate(
     () => (window as unknown as { __PASTE_MSGS__: Array<Record<string, string>> }).__PASTE_MSGS__,
   );
@@ -171,4 +180,40 @@ test("a text-only paste on the claude pane never publishes pasteImage (falls thr
   );
   expect(msgs).toHaveLength(0);
   expect(pastedPngs(weavie.home)).toHaveLength(0);
+});
+
+test("an oversized terminal image is resized and persisted below 5 MB", async ({
+  page,
+  weavie,
+}) => {
+  await expect(page.locator('.terminal-surface[data-kind="terminal:claude"] .term')).toBeVisible();
+  const input = await oversizedPng(page);
+  expect(Buffer.from(input, "base64").length).toBeGreaterThan(5 * 1024 * 1024);
+  await pasteInto(page, { kind: "image", b64: input, mime: "image/png" });
+  await expect.poll(() => pastedPngs(weavie.home).length).toBe(1);
+  const stored = readFileSync(pastedPngs(weavie.home)[0]);
+  expect(stored.length).toBeLessThan(5 * 1024 * 1024);
+  expect(stored.readUInt32BE(16)).toBeLessThan(1600);
+  expect(stored.readUInt32BE(20)).toBeLessThan(1200);
+  expect(stored.subarray(0, 8)).toEqual(Buffer.from("89504e470d0a1a0a", "hex"));
+});
+
+test("an oversized ACP composer image uploads successfully and can be sent", async ({ page }) => {
+  const surface = await createAcpSession(page, "image-upload");
+  const prompt = surface.locator(".agent-compose textarea");
+  await expect(prompt).toBeEnabled();
+  const input = await oversizedPng(page);
+  expect(Buffer.from(input, "base64").length).toBeGreaterThan(5 * 1024 * 1024);
+  await pastePng(prompt, input);
+  const attachment = surface.locator(".agent-attachment");
+  await expect(attachment).toHaveAttribute("title", "ready");
+  const encoded = (await attachment.locator("img").getAttribute("src")) as string;
+  expect(Buffer.from(encoded.split(",")[1], "base64").length).toBeLessThan(5 * 1024 * 1024);
+  await prompt.fill("Describe the uploaded image");
+  await surface.getByRole("button", { name: "Run", exact: true }).click();
+  await expect(attachment).toHaveCount(0);
+  await expect(prompt).toHaveValue("");
+  await expect(
+    surface.getByText("echo: Describe the uploaded image", { exact: true }),
+  ).toBeVisible();
 });

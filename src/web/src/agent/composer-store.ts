@@ -1,7 +1,7 @@
 import { type ClientSession, registerSessionFeature } from "../bridge";
 import { persistSessionDraft, sessionDraft } from "../messaging/session-drafts";
 import { createSessionOwnedResource } from "../messaging/session-owned-state";
-import { agentImageError, encodeAgentImage, takePastedImages } from "./pasted-images";
+import { encodeAgentImage, takePastedImages } from "./pasted-images";
 
 export type AgentAttachmentStatus = "reading" | "transferring" | "ready" | "failed";
 
@@ -53,7 +53,7 @@ export function setComposerError(session: ClientSession, error: string): void {
 export function captureAgentImagePaste(event: ClipboardEvent, session: ClientSession): boolean {
   const blobs = takePastedImages(event);
   for (const blob of blobs) {
-    beginBlobUpload(blob, session);
+    uploadAgentImage(session, blob);
   }
   return blobs.length > 0;
 }
@@ -97,27 +97,7 @@ export function submitAgentTurn(session: ClientSession, commandName: string | nu
   return true;
 }
 
-export function uploadAgentImage(
-  session: ClientSession,
-  mime: string,
-  dataB64: string,
-  previewUrl: string,
-): void {
-  const id = nextId("attachment");
-  const error = agentImageError(mime, dataB64);
-  addAttachment(session, {
-    id,
-    mime,
-    previewUrl,
-    status: error === null ? "transferring" : "failed",
-    error,
-  });
-  if (error === null) {
-    publishAgent(session, "uploadAttachment", { id, mime, dataB64 });
-  }
-}
-
-function beginBlobUpload(blob: Blob, session: ClientSession): void {
+export function uploadAgentImage(session: ClientSession, blob: Blob): void {
   const id = nextId("attachment");
   const previewUrl = URL.createObjectURL(blob);
   addAttachment(session, {
@@ -128,22 +108,18 @@ function beginBlobUpload(blob: Blob, session: ClientSession): void {
     error: null,
   });
   void encodeAgentImage(blob).then(
-    (dataB64) => {
+    ({ mime, dataB64 }) => {
       if (!hasAttachment(session, id)) {
         return;
       }
-      const error = agentImageError(blob.type, dataB64);
       patchAttachment(session, id, {
-        status: error === null ? "transferring" : "failed",
-        error,
+        mime,
+        previewUrl: `data:${mime};base64,${dataB64}`,
+        status: "transferring",
+        error: null,
       });
-      if (error === null) {
-        publishAgent(session, "uploadAttachment", {
-          id,
-          mime: blob.type,
-          dataB64,
-        });
-      }
+      URL.revokeObjectURL(previewUrl);
+      publishAgent(session, "uploadAttachment", { id, mime, dataB64 });
     },
     (error: unknown) => {
       if (!hasAttachment(session, id)) {
@@ -243,7 +219,7 @@ function addAttachment(session: ClientSession, attachment: AgentComposerAttachme
 function patchAttachment(
   session: ClientSession,
   id: string,
-  patch: Pick<AgentComposerAttachment, "status" | "error">,
+  patch: Partial<Pick<AgentComposerAttachment, "mime" | "previewUrl" | "status" | "error">>,
 ): void {
   update(session, (state) => ({
     ...state,

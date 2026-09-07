@@ -156,12 +156,10 @@ import { isPreviewMode, toggleViewMode } from "./editor/view-mode-store";
 import WebTabStack from "./editor/WebTabPane";
 import { currentEditorOptions, onEditorOptionsChanged } from "./editor-options";
 import {
-  listSelectedDirectory,
   refreshSelectedFileIndex,
   revealSelectedFile,
   selectedDirectoryListings,
   selectedFileIndex,
-  unlistSelectedDirectory,
 } from "./files/session-files";
 import "./files/open-path";
 import { closeFloatingPanel } from "./chrome/floating-panels";
@@ -1209,8 +1207,6 @@ export default function App(): JSX.Element {
                     onFilterRequestHandled={() => setBrowserFilterRequest(null)}
                     listings={dirListings()}
                     currentFile={currentFile()}
-                    onExpand={listSelectedDirectory}
-                    onCollapse={unlistSelectedDirectory}
                     onOpen={(path) => revealSelectedFile(path, undefined)}
                   />
                 </Show>
@@ -1551,15 +1547,6 @@ export default function App(): JSX.Element {
     setFullscreen((on) => !on);
   };
   const fullscreenKeyHint = (): string => keyHint(CommandIds.toggleFullscreenPane);
-
-  // When the browser is open and the selected session's root listing hasn't loaded, request it. Keyed on
-  // indexRoot(), so the browser follows client selection.
-  createEffect(() => {
-    const root = indexRoot();
-    if (browserOpen() && root !== null && dirListings()[root] === undefined) {
-      listSelectedDirectory(root);
-    }
-  });
 
   onMount(() => {
     // Apply the active theme to Weavie's chrome. The controller owns the active theme + override ops and

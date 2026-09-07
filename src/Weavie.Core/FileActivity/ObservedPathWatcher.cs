@@ -15,7 +15,8 @@ public sealed class ObservedPathWatcher : IDisposable {
 	private readonly IWorkspaceDirectoryWatchSet _directories;
 	private readonly ConcurrentDictionary<string, byte> _pending = new(PathIdentity.Comparer);
 	private readonly HashSet<string> _files = new(PathIdentity.Comparer);
-	private readonly HashSet<string> _listedDirectories = new(PathIdentity.Comparer);
+	private readonly Dictionary<string, string> _directorySubscriptions = new(StringComparer.Ordinal);
+	private readonly Dictionary<string, int> _listedDirectories = new(PathIdentity.Comparer);
 	private readonly Lock _gate = new();
 	private Timer? _debounceTimer;
 	private bool _disposed;
@@ -70,33 +71,45 @@ public sealed class ObservedPathWatcher : IDisposable {
 	/// <summary>How many directories are currently watched.</summary>
 	public int WatchedDirectoryCount => _directories.Count;
 
-	/// <summary>Observes a cached directory listing for this session, including empty or outside directories.</summary>
-	public void WatchDirectory(string directory) {
+	/// <summary>Observes a directory listing until its owning subscription is released.</summary>
+	public void WatchDirectory(string subscriptionId, string directory) {
+		ArgumentException.ThrowIfNullOrEmpty(subscriptionId);
 		lock (_gate) {
 			ObjectDisposedException.ThrowIf(_disposed, this);
-			string path = Path.TrimEndingDirectorySeparator(Path.GetFullPath(directory));
+			string path = PathIdentity.Normalize(directory);
+			bool subscribed = _directorySubscriptions.TryGetValue(subscriptionId, out string? existing);
+			if (subscribed && !PathIdentity.Equals(existing!, path)) {
+				throw new InvalidOperationException("A directory subscription cannot change its path.");
+			}
+
 			_directories.EnsureWatching(path);
-			_listedDirectories.Add(path);
+			if (subscribed) {
+				return;
+			}
+
+			_directorySubscriptions.Add(subscriptionId, path);
+			_listedDirectories.TryGetValue(path, out int count);
+			_listedDirectories[path] = count + 1;
 		}
 	}
 
-	/// <summary>
-	/// Drops a directory listing this session no longer displays (the file browser collapsed it), so it stops
-	/// costing a watch and no longer inflates every future reconcile. A no-op past disposal or for a directory
-	/// that was never listed (or has already been dropped).
-	/// </summary>
-	public void UnwatchDirectory(string directory) {
+	/// <summary>Releases one listing subscription, retaining watches still owned by other listings or files.</summary>
+	public void UnwatchDirectory(string subscriptionId) {
 		lock (_gate) {
-			if (_disposed) {
+			if (_disposed || !_directorySubscriptions.Remove(subscriptionId, out string? path)) {
 				return;
 			}
 
-			string path = Path.TrimEndingDirectorySeparator(Path.GetFullPath(directory));
-			if (!_listedDirectories.Remove(path)) {
+			int remaining = _listedDirectories[path] - 1;
+			if (remaining > 0) {
+				_listedDirectories[path] = remaining;
 				return;
 			}
 
-			_pending.TryRemove(path, out _);
+			_listedDirectories.Remove(path);
+			if (!_files.Contains(path)) {
+				_pending.TryRemove(path, out _);
+			}
 			ReconcileWatchesLocked();
 		}
 	}
@@ -117,7 +130,7 @@ public sealed class ObservedPathWatcher : IDisposable {
 				_files.Add(Path.GetFullPath(file));
 			}
 
-			foreach (string stale in _pending.Keys.Where(path => !_files.Contains(path) && !_listedDirectories.Contains(path))) {
+			foreach (string stale in _pending.Keys.Where(path => !_files.Contains(path) && !_listedDirectories.ContainsKey(path))) {
 				_pending.TryRemove(stale, out _);
 			}
 
@@ -132,7 +145,7 @@ public sealed class ObservedPathWatcher : IDisposable {
 			.Select(Path.GetDirectoryName)
 			.OfType<string>()
 			.Where(directory => directory.Length > 0)
-			.Concat(_listedDirectories)
+			.Concat(_listedDirectories.Keys)
 			.Distinct(PathIdentity.Comparer)];
 		// Reconciling an empty set to an empty set still starts the platform watcher, and a session with no
 		// outside files open is the common case — so it would cost every session a native instance for nothing.
@@ -157,6 +170,7 @@ public sealed class ObservedPathWatcher : IDisposable {
 
 			_disposed = true;
 			_files.Clear();
+			_directorySubscriptions.Clear();
 			_listedDirectories.Clear();
 			_pending.Clear();
 		}
@@ -185,7 +199,7 @@ public sealed class ObservedPathWatcher : IDisposable {
 
 	private void Touch(string path) {
 		lock (_gate) {
-			if (_disposed || (!_files.Contains(path) && !_listedDirectories.Contains(path))) {
+			if (_disposed || (!_files.Contains(path) && !_listedDirectories.ContainsKey(path))) {
 				return;
 			}
 

@@ -28,7 +28,7 @@ async function addWord(page: Page, text: string, scope: "User" | "Project"): Pro
   await word(page, text).first().click({ button: "right" });
   await page.getByRole("menuitem", { name: `Add “${text}” to Dictionary` }).hover();
   const action = page.getByRole("menuitem", { name: `${scope} Dictionary` });
-  await expect(action).toContainText(/Ctrl|⌘/);
+  await expect(action).toHaveText(`${scope} Dictionary`);
   await action.click();
   await expect(word(page, text)).toHaveCount(0);
 }

@@ -1351,11 +1351,14 @@ export default function App(): JSX.Element {
               {(session) => (
                 <Suspense>
                   <UnifiedReview
+                    scope={editor.review.scope}
                     overview={editor.review.overview}
                     session={session}
                     onCursorChange={editor.review.setCursor}
                     onFileCollapsed={editor.review.setFileCollapsed}
-                    bindNavigator={editor.review.bindNavigator}
+                    bindSurface={editor.review.bindSurface}
+                    configureDiff={editor.review.configureDiff}
+                    refreshControls={editor.review.refreshControls}
                     createCopyScope={editor.review.createCopyScope}
                   />
                 </Suspense>

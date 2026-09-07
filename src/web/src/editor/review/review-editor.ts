@@ -1,253 +1,131 @@
-// One changed file's diff in the unified review, rendered by a real Monaco editor bound to that file's live
-// working copy — so it carries the same syntax + semantic highlighting, LSP hovers/diagnostics/go-to-definition,
-// completions and editing as the file-review pane. Unchanged regions are collapsed into hidden areas so the
-// section reads as a diff instead of a whole file, and the editor is sized to its content so the review's own
-// list does all the scrolling.
-
-import { log } from "../../bridge";
+import {
+  createInlineDiff,
+  type InlineDiff,
+  type InlineDiffPresentation,
+  type ReviewScopeState,
+} from "../inline-diff";
 import { createEmbeddedEditor, monaco } from "../monaco-setup";
-import { DiffComputer } from "./diff-computer";
-import { computeDiffMarkers, type DiffMarkers } from "./diff-markers";
-import { addDiffZones, DIFF_RECOMPUTE_DEBOUNCE_MS } from "./diff-zones";
+import type { DiffMarkers } from "./diff-markers";
 import type { ReviewFileDiff } from "./review-store";
 
-// Unchanged lines kept either side of a change, matching the file-review reading distance.
 const CONTEXT_LINES = 3;
-
-// A section reserves its height from its line counts until the real editor reports one, so the virtualizer's
-// offsets don't collapse while models resolve. Nominal metrics — the editor overwrites them on first measure.
 const NOMINAL_LINE_HEIGHT = 19;
 const EDITOR_PADDING = 12;
-
-// setHiddenAreas is how VS Code's own diff editor collapses unchanged regions. It lives on the CodeEditorWidget
-// every standalone editor is, but isn't part of Monaco's published standalone typings. A private source token
-// keeps our collapsed regions from clobbering another contributor's, as comment-prose.ts does.
 const HIDDEN_AREAS_SOURCE = "weavie.review";
 type CollapsingEditor = monaco.editor.IStandaloneCodeEditor & {
   setHiddenAreas(ranges: monaco.IRange[], source: unknown): void;
 };
 
-const EDITOR_OPTIONS: monaco.editor.IEditorOptions = {
-  // The section is sized to its content, so the review list owns all scrolling: no internal scrollbar, and the
-  // wheel passes straight through to the list.
-  scrollBeyondLastLine: false,
-  scrollbar: { alwaysConsumeMouseWheel: false, vertical: "hidden" },
-  overviewRulerLanes: 0,
-  overviewRulerBorder: false,
-  hideCursorInOverviewRuler: true,
-  minimap: { enabled: false },
-  // Folding and sticky scroll drive hidden areas themselves and would replace the collapsed regions below.
-  folding: false,
-  stickyScroll: { enabled: false },
-  renderLineHighlightOnlyWhenFocus: true,
-  padding: { top: 6, bottom: 6 },
-};
-
-/** The height a section's editor reserves before it mounts: its changed lines plus the context around them. */
 export function estimatedEditorHeight(added: number, removed: number): number {
   return (added + removed + CONTEXT_LINES * 2) * NOMINAL_LINE_HEIGHT + EDITOR_PADDING;
 }
 
-/** A file's live diff editor. `update` repaints it from a fresh host push; `dispose` tears it down. */
 export interface ReviewEditor {
+  inline: InlineDiff;
+  reveal(line: number): void;
+  line(): number;
   update(diff: ReviewFileDiff): void;
   dispose(): void;
-  /** Whether the diff geometry has landed — until it has, `changeLines` can't answer for this file yet. */
-  painted(): boolean;
-  /** The anchor line of every change still pending review, in document order — the spots the walk stops at. */
-  changeLines(): number[];
-  /** `line`'s offset from the top of this editor, so the review's own list can scroll the spot into view. */
-  topForLine(line: number): number;
 }
 
-/**
- * Mounts the diff editor for one review file in `container`, bound to `model` (the file's working copy).
- * `onHeight` fires whenever the rendered height changes, so the caller can re-measure its virtualized row;
- * `onPainted` whenever the diff geometry lands, so a queued walk can reveal a spot it couldn't resolve yet;
- * `onStatus` reports whether the diff is ready or unavailable, leaving an unavailable file plain and uncollapsed.
- */
+/** The section owns sizing and collapsed context; InlineDiff owns all review rendering and actions. */
 export function createReviewEditor(options: {
+  scope: ReviewScopeState;
   container: HTMLElement;
   model: monaco.editor.ITextModel;
   editable: boolean;
   diff: ReviewFileDiff;
+  active: () => boolean;
+  toolbarHost: () => HTMLElement | null;
+  revealLine: (line: number, top: number) => void;
+  viewport: () => { top: number; bottom: number } | null;
+  configure: (inline: InlineDiff, uri: string, diff: ReviewFileDiff) => void;
   onHeight: () => void;
   onPainted: () => void;
-  onStatus: (status: "ready" | "timed-out" | "failed") => void;
+  onCursor: (line: number) => void;
 }): ReviewEditor {
   const { container, model } = options;
   const editor = createEmbeddedEditor(container, model, {
-    ...EDITOR_OPTIONS,
     readOnly: !options.editable,
+    scrollBeyondLastLine: false,
+    scrollbar: { alwaysConsumeMouseWheel: false, vertical: "hidden" },
+    overviewRulerLanes: 0,
+    overviewRulerBorder: false,
+    hideCursorInOverviewRuler: true,
+    minimap: { enabled: false },
+    folding: false,
+    stickyScroll: { enabled: false },
+    renderLineHighlightOnlyWhenFocus: true,
+    padding: { top: 6, bottom: 6 },
   }) as CollapsingEditor;
-  const computer = new DiffComputer();
-  const decorations = editor.createDecorationsCollection([]);
-  let zoneIds: string[] = [];
-  let current = options.diff;
+  const gaps = editor.createDecorationsCollection([]);
   let height = 0;
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  let renderGeneration = 0;
-  let renderQueued = false;
-  let renderInFlight = false;
   let painted = false;
-  let markers: DiffMarkers | null = null;
-  let disposed = false;
-
   const measure = (): void => {
-    if (!painted) {
-      return;
-    }
+    if (!painted) return;
     const next = editor.getContentHeight();
-    if (next === height) {
-      return;
-    }
+    if (height === next) return;
     height = next;
     container.style.height = `${next}px`;
     options.onHeight();
   };
-
-  const applyMarkers = (next: DiffMarkers | null): void => {
-    markers = next;
-    editor.changeViewZones((accessor) => {
-      for (const id of zoneIds) {
-        accessor.removeZone(id);
+  const presentation: InlineDiffPresentation = {
+    scope: options.scope,
+    parked: () => false,
+    active: options.active,
+    toolbarHost: options.toolbarHost,
+    revealLine: (line) => options.revealLine(line, editor.getTopForLineNumber(line)),
+    reviewLine: () => {
+      const cursor = editor.getPosition()?.lineNumber ?? 1;
+      const viewport = options.viewport();
+      if (viewport === null) return cursor;
+      const rect = container.getBoundingClientRect();
+      const top = Math.max(viewport.top, rect.top) - rect.top;
+      const bottom = Math.min(viewport.bottom, rect.bottom) - rect.top;
+      const cursorTop = editor.getTopForLineNumber(cursor);
+      if (cursorTop >= top && cursorTop < bottom) return cursor;
+      const center = (top + bottom) / 2;
+      let first = 1;
+      let last = model.getLineCount();
+      while (first < last) {
+        const middle = Math.ceil((first + last) / 2);
+        if (editor.getTopForLineNumber(middle) <= center) first = middle;
+        else last = middle - 1;
       }
-      zoneIds = next === null ? [] : addDiffZones(editor, accessor, next);
-    });
-    const collapsed = collapseUnchanged(next, model.getLineCount());
-    decorations.set([...(next?.decorations ?? []), ...collapsed.gapMarkers]);
-    editor.setHiddenAreas(collapsed.hidden, HIDDEN_AREAS_SOURCE);
-    painted = true;
-    measure();
-    options.onPainted();
-  };
-
-  const render = async (generation: number, diff: ReviewFileDiff): Promise<void> => {
-    const version = model.getVersionId();
-    const calculation = await computer.compute(
-      model.uri.toString(),
-      {
-        original: diff.baseline,
-        acceptedBaseline: diff.acceptedBaseline,
-        claudeVersion: diff.current,
-      },
-      model,
-    );
-    if (
-      disposed ||
-      generation !== renderGeneration ||
-      current !== diff ||
-      model.getVersionId() !== version
-    ) {
-      return;
-    }
-    if (calculation.status !== "ready") {
-      if (calculation.status === "failed") {
-        log("error", `unified review diff calculation failed: ${String(calculation.error)}`);
-      }
-      applyMarkers(null);
-      options.onStatus(calculation.status);
-      return;
-    }
-    applyMarkers(
-      computeDiffMarkers(
-        {
-          original: diff.baseline,
-          acceptedBaseline: diff.acceptedBaseline,
-          claudeVersion: diff.current,
-        },
-        calculation,
-      ),
-    );
-    options.onStatus("ready");
-  };
-
-  const drainRender = async (): Promise<void> => {
-    if (renderInFlight || disposed) {
-      return;
-    }
-    renderInFlight = true;
-    try {
-      while (renderQueued && !disposed) {
-        renderQueued = false;
-        const generation = renderGeneration;
-        const diff = current;
-        try {
-          await render(generation, diff);
-        } catch (error) {
-          if (!disposed && generation === renderGeneration && diff === current) {
-            log("error", `unified review rendering failed: ${String(error)}`);
-            applyMarkers(null);
-            options.onStatus("failed");
-          }
-        }
-      }
-    } finally {
-      renderInFlight = false;
-      if (renderQueued && !disposed) {
-        void drainRender();
-      }
-    }
-  };
-
-  const queueRender = (): void => {
-    renderQueued = true;
-    void drainRender();
-  };
-
-  const scheduleRender = (): void => {
-    renderGeneration++;
-    if (timer !== undefined) {
-      clearTimeout(timer);
-    }
-    timer = setTimeout(() => {
-      timer = undefined;
-      queueRender();
-    }, DIFF_RECOMPUTE_DEBOUNCE_MS);
-  };
-
-  const subscriptions = [
-    model.onDidChangeContent(scheduleRender),
-    editor.onDidContentSizeChange(measure),
-  ];
-  queueRender();
-
-  return {
-    painted: () => painted,
-    changeLines: () =>
-      markers === null ? [] : markers.hunks.map((hunk) => hunk.anchorLine).sort((a, b) => a - b),
-    topForLine: (line) => editor.getTopForLineNumber(line),
-    update: (next: ReviewFileDiff) => {
-      current = next;
-      renderGeneration++;
-      if (timer !== undefined) {
-        clearTimeout(timer);
-        timer = undefined;
-      }
-      queueRender();
+      return first;
     },
+    painted: (markers) => {
+      const collapsed = collapseUnchanged(markers, model.getLineCount());
+      gaps.set(collapsed.gapMarkers);
+      editor.setHiddenAreas(collapsed.hidden, HIDDEN_AREAS_SOURCE);
+      painted = true;
+      measure();
+      options.onPainted();
+    },
+  };
+  const inline = createInlineDiff(editor, presentation);
+  const subscriptions = [
+    editor.onDidContentSizeChange(measure),
+    editor.onDidChangeCursorPosition((event) => options.onCursor(event.position.lineNumber)),
+  ];
+  options.configure(inline, model.uri.toString(), options.diff);
+  return {
+    inline,
+    line: () => editor.getPosition()?.lineNumber ?? 1,
+    reveal: (line) => {
+      editor.setPosition({ lineNumber: line, column: 1 });
+      presentation.revealLine(line);
+    },
+    update: (diff) => options.configure(inline, model.uri.toString(), diff),
     dispose: () => {
-      disposed = true;
-      renderGeneration++;
-      renderQueued = false;
-      computer.dispose();
-      if (timer !== undefined) {
-        clearTimeout(timer);
-      }
-      for (const subscription of subscriptions) {
-        subscription.dispose();
-      }
-      // The model belongs to the editor host's review-copy pool — drop the widget only, never the model.
-      editor.setModel(null);
+      for (const subscription of subscriptions) subscription.dispose();
+      inline.dispose();
+      gaps.clear();
       editor.dispose();
     },
   };
 }
 
-/**
- * Hides every line more than `CONTEXT_LINES` from a change (bright or accepted), and marks the first line after
- * each collapsed stretch so a gap reads as a gap. A timed-out diff (null markers) collapses nothing.
- */
 function collapseUnchanged(
   markers: DiffMarkers | null,
   lineCount: number,

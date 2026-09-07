@@ -9,7 +9,7 @@ test("shell terminal tabs create, cycle, close, and recover from empty", async (
 
   await expect(tabs).toHaveCount(1);
   await shell.locator(".shell-tab-main").click();
-  await page.keyboard.press("Control+Shift+T");
+  await page.keyboard.press("ControlOrMeta+Shift+T");
   await expect(tabs).toHaveCount(2);
   await expect(tabs.nth(1)).toHaveClass(/\bactive\b/);
 
@@ -18,18 +18,18 @@ test("shell terminal tabs create, cycle, close, and recover from empty", async (
   await page.keyboard.press("Control+Shift+Tab");
   await expect(tabs.nth(1)).toHaveClass(/\bactive\b/);
 
-  await page.keyboard.press("Control+Shift+W");
+  await page.keyboard.press("ControlOrMeta+Shift+W");
   await expect(tabs).toHaveCount(1);
   await expect(activeTab).toHaveCount(1);
-  await page.keyboard.press("Control+Shift+W");
+  await page.keyboard.press("ControlOrMeta+Shift+W");
   await expect(tabs).toHaveCount(0);
   await expect(newTerminal).toBeFocused();
 
-  await page.keyboard.press("Control+Shift+W");
+  await page.keyboard.press("ControlOrMeta+Shift+W");
   await expect(page.locator(".toast", { hasText: "No shell terminal is open." })).toBeVisible();
   await expect(newTerminal).toBeFocused();
 
-  await page.keyboard.press("Control+Shift+T");
+  await page.keyboard.press("ControlOrMeta+Shift+T");
   await expect(tabs).toHaveCount(1);
   await expect(activeTab).toHaveCount(1);
 });
@@ -40,7 +40,7 @@ test("an empty persisted shell set boots with a structured agent", async ({ page
   const tabs = shell.locator(".shell-tab");
   await expect(tabs).toHaveCount(1);
   await shell.locator(".shell-tab-main").click();
-  await page.keyboard.press("Control+Shift+W");
+  await page.keyboard.press("ControlOrMeta+Shift+W");
   await expect(tabs).toHaveCount(0);
 
   await page.reload({ waitUntil: "domcontentloaded" });

@@ -112,11 +112,7 @@ function zoomButton(
   return button;
 }
 
-/**
- * The Zoom Embed command: opens the lightbox on the active preview's first embed, or advances an open
- * lightbox to the next one. Declines (false) when no view with an embed is showing, so the keybinding
- * falls through (in the Monaco editor the chord is redo on some platforms).
- */
+/** Opens the first preview embed or advances an open lightbox; declines when no embed is available. */
 export function zoomActiveEmbed(): boolean {
   if (zoomedEmbed() !== null) {
     stepEmbedZoom(1);

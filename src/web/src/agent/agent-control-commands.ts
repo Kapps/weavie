@@ -2,7 +2,16 @@ import type { AgentControlAxis } from "../bridge";
 import { CommandIds } from "../commands/types";
 
 export function agentControlCommand(axis: AgentControlAxis): string | null {
-  if (axis.id === "mode" || axis.category === "mode") return CommandIds.togglePlanMode;
+  if (
+    (axis.id === "mode" ||
+      axis.category === "mode" ||
+      axis.id === "collaboration_mode" ||
+      axis.category === "collaboration_mode") &&
+    axis.options.some((option) => option.id === "plan") &&
+    axis.options.some((option) => option.id !== "plan")
+  ) {
+    return CommandIds.togglePlanMode;
+  }
   if (axis.id === "fast") return CommandIds.toggleFastMode;
   if (axis.id === "model" || axis.category === "model") return CommandIds.selectModel;
   if (axis.id === "effort" || axis.id === "reasoning" || axis.category === "thought_level") {

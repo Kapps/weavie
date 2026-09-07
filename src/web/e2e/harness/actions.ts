@@ -160,9 +160,7 @@ export async function allowAutomaticInference(page: Page): Promise<void> {
   const offer = page.locator(".toast", { hasText: "Let Weavie use automatic inference" });
   await expect(offer).toBeVisible();
   await expect(offer).not.toHaveClass(/toast-timed/);
-  await expect(offer.getByRole("button", { name: /Allow/ })).toContainText(
-    /Ctrl\+Alt\+I|⌘\+Alt\+I/,
-  );
+  await expect(offer.getByRole("button", { name: "Allow", exact: true })).toHaveText("Allow");
   await offer.getByRole("button", { name: /Allow/ }).click();
   await expect(offer).toHaveCount(0);
   await expect(page.locator(".toast", { hasText: "Automatic inference enabled." })).toBeVisible();

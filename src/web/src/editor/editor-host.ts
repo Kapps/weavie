@@ -24,7 +24,13 @@ import { mediaTypeOf } from "./media/media-types";
 import { createEditor, monaco } from "./monaco-setup";
 import { leaveLine } from "./nav-history";
 import { REVEAL_SCROLL } from "./reveal-scroll";
-import { captureViewStateFor, editorSessionFor, type Placement, promoteFor } from "./session-store";
+import {
+  captureViewStateFor,
+  editorSessionFor,
+  type Placement,
+  pendingLineFor,
+  promoteFor,
+} from "./session-store";
 import {
   SESSION_FILE_SCHEME,
   sessionFileUri,
@@ -888,9 +894,16 @@ export async function createEditorHost(
     ) {
       return;
     }
-    await showFile(sessionFileUri(owner, entry.path), {
-      viewState: (entry.viewState ?? null) as monaco.editor.ICodeEditorViewState | null,
-    });
+    // A freshly opened tab has no captured viewState yet; fall back to the line an explicit reveal just asked
+    // for so a redundant rebind (e.g. session selection settling late after a reload) can't regress it to the
+    // file's top. A real viewState — captured the moment the user actually leaves the tab — always wins.
+    const pendingLine = entry.viewState === null ? pendingLineFor(owner, entry.path) : undefined;
+    await showFile(
+      sessionFileUri(owner, entry.path),
+      pendingLine === undefined
+        ? { viewState: (entry.viewState ?? null) as monaco.editor.ICodeEditorViewState | null }
+        : { line: pendingLine },
+    );
   };
 
   const rebindSession = async (session: ClientSession): Promise<void> => {

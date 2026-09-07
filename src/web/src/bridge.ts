@@ -332,7 +332,11 @@ function reconcileSessions(): void {
     commitSelection(fallback);
     return;
   }
-  if (active === null || !current.has(active)) {
+  // Before the local connection's hello lands, we don't yet know the persisted preferred selection — picking a
+  // default here would just be overwritten a moment later, and a client-side action (e.g. a reveal-at-line
+  // click) landing in that window can bind to a session this default selection is about to supersede, losing
+  // its intent. Wait for hello; restoreSelection reconciles again immediately once it knows the real preference.
+  if (localSelectionReady && (active === null || !current.has(active))) {
     commitSelection(defaultSession());
   }
 }

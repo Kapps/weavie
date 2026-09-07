@@ -95,14 +95,19 @@ different lifecycle: it clears the exact persisted association, resets the pane 
 without a session id so the replacement process must call `session/new`. Provider-owned history is abandoned, not
 deleted.
 
-Side conversations share the primary conversation's ACP process and can run alongside its active turn.
+Side conversations share the primary conversation's ACP process and run concurrently with one another and
+the primary turn. Each `/btw` immediately creates its own card and runtime; replies enter that runtime's
+submission queue. Collapsible cards retain independent drafts and history expansion. Interrupt stops the
+primary while it has work, otherwise all active side conversations.
 Before the primary has any turns, a side conversation starts with `session/new`: there is no history to fork,
 and providers may not have created a transcript yet. Otherwise, the fork is loaded on the connection that
 created it: transferring it to another process can conflict with the provider's existing transcript writer.
 Each conversation owns a session endpoint bound to its provider identity and process generation. Endpoints
 address outgoing operations; callers cannot supply a session id. The connection dispatches incoming messages
 to the registered endpoint, including request-scoped elicitation through its originating request owner.
-The conversation owns its fork from startup, so early messages arrive directly at their owner.
+The connection serializes only `session/new` and `session/fork` identity handshakes, assigning early
+unknown-session messages to the endpoint that owns that opening request. Authentication waits, loads, and
+prompts do not hold this opening gate. The conversation owns its fork from startup.
 Retired endpoints reject requests and discard late updates until their generation ends. Closing a side conversation leaves the connection running;
 an unrecoverable runtime failure stops the shared process so failed work cannot continue invisibly.
 Replacing the process terminalizes all its side conversations.

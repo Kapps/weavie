@@ -1,5 +1,5 @@
 import { type Accessor, batch, createSignal } from "solid-js";
-import { createStore, reconcile } from "solid-js/store";
+import { createStore, produce, reconcile } from "solid-js/store";
 import type { AgentPaneUpdate, ClientSession } from "../bridge";
 import { clearAgentInputDrafts } from "./AgentInputDrafts";
 import type { ProjectedAgentActivity } from "./AgentPaneActivitySummary";
@@ -47,7 +47,7 @@ export interface MutableAgentPaneModel extends AgentPaneModel {
 }
 
 interface ProjectedActivity {
-  entryIndex: number;
+  path: number[];
   projection: ProjectedAgentActivity;
 }
 
@@ -80,12 +80,12 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
         expandedActivities.delete(id);
       }
     }
-    for (const entry of projection.entries) {
+    visitEntries(projection.entries, (entry) => {
       const activity = projection.activities.get(entry.id);
       if (activity !== undefined && expandedActivities.has(entry.id)) {
         entry.details = activity.materialize();
       }
-    }
+    });
 
     const active = hasActiveTurn(updates);
     const canInterrupt = hasInterruptibleActivity(updates);
@@ -103,12 +103,10 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
       turnStartId === null ? null : visible.findIndex((entry) => entry.id === turnStartId);
     const labels = computeSectionLabels(visible, active);
     activities.clear();
-    for (const [entryIndex, entry] of visible.entries()) {
+    visitEntries(visible, (entry, path) => {
       const activity = projection.activities.get(entry.id);
-      if (activity !== undefined) {
-        activities.set(entry.id, { entryIndex, projection: activity });
-      }
-    }
+      if (activity !== undefined) activities.set(entry.id, { path, projection: activity });
+    });
 
     batch(() => {
       setEntries(reconcile(visible, { key: "id" }));
@@ -134,6 +132,7 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
   const projectActivityChanges = (changes: AgentPaneUpdate[]): boolean => {
     const mutations: Array<{ activity: ProjectedActivity; message: AgentPaneUpdate }> = [];
     for (const message of changes) {
+      if (message.conversationId) return false;
       if (message.turnId === null || message.turnId === undefined || message.turnId.length === 0) {
         return false;
       }
@@ -151,26 +150,37 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
     batch(() => {
       for (const { activity, message } of mutations) {
         const index = activity.projection.upsert(message);
-        setEntries(activity.entryIndex, "detailCount", activity.projection.count);
-        if (expandedActivities.has(entries[activity.entryIndex]!.id)) {
-          setEntries(
-            activity.entryIndex,
-            "details",
-            index,
-            activity.projection.materializeAt(index),
-          );
-        }
+        updateActivity(activity, (entry) => {
+          entry.detailCount = activity.projection.count;
+          if (expandedActivities.has(entry.id)) {
+            entry.details[index] = activity.projection.materializeAt(index);
+          }
+        });
         changedActivities.add(activity);
       }
       for (const activity of changedActivities) {
         const state = activity.projection.summary();
-        setEntries(activity.entryIndex, "summary", state.summary);
-        setEntries(activity.entryIndex, "status", state.status);
-        setEntries(activity.entryIndex, "tone", state.tone);
+        updateActivity(activity, (entry) => Object.assign(entry, state));
       }
       setRevision((value) => value + 1);
     });
     return true;
+  };
+
+  const updateActivity = (
+    activity: ProjectedActivity,
+    update: (entry: AgentTranscriptEntry) => void,
+  ): void => {
+    setEntries(
+      produce((draft) => {
+        let siblings = draft;
+        for (const [depth, index] of activity.path.entries()) {
+          const entry = siblings[index]!;
+          if (depth === activity.path.length - 1) update(entry);
+          else siblings = entry.asideEntries!;
+        }
+      }),
+    );
   };
 
   const model: MutableAgentPaneModel = {
@@ -214,13 +224,11 @@ export function createAgentPaneModel(session: ClientSession): MutableAgentPaneMo
       if (activity === undefined || expandedActivities.has(id) === expanded) {
         return;
       }
-      if (expanded) {
-        expandedActivities.add(id);
-        setEntries(activity.entryIndex, "details", activity.projection.materialize());
-      } else {
-        expandedActivities.delete(id);
-        setEntries(activity.entryIndex, "details", []);
-      }
+      if (expanded) expandedActivities.add(id);
+      else expandedActivities.delete(id);
+      updateActivity(activity, (entry) => {
+        entry.details = expanded ? activity.projection.materialize() : [];
+      });
     },
   };
   return model;
@@ -238,4 +246,18 @@ function countPendingLegacyImages(messages: readonly AgentPaneUpdate[]): number 
     }
   }
   return count;
+}
+
+function visitEntries(
+  entries: AgentTranscriptEntry[],
+  visit: (entry: AgentTranscriptEntry, path: number[]) => void,
+): void {
+  const walk = (siblings: AgentTranscriptEntry[], parent: number[]): void => {
+    siblings.forEach((entry, index) => {
+      const path = [...parent, index];
+      visit(entry, path);
+      if (entry.asideEntries !== undefined) walk(entry.asideEntries, path);
+    });
+  };
+  walk(entries, []);
 }

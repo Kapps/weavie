@@ -11,6 +11,7 @@ import {
   Show,
   Suspense,
 } from "solid-js";
+import { toggleAgentAside } from "./agent/AgentAsideEntry";
 import { AgentPane } from "./agent/AgentPane";
 import { toggleAgentToolOutput } from "./agent/AgentToolOutput";
 import { toggleActiveAgentMermaid } from "./agent/agent-mermaid";
@@ -1654,6 +1655,7 @@ export default function App(): JSX.Element {
         return true;
       }),
       registerCommand(CommandIds.toggleFullscreenPane, () => toggleFullscreen()),
+      registerCommand(CommandIds.toggleAgentAside, toggleAgentAside),
       registerCommand(CommandIds.toggleAgentToolOutput, toggleAgentToolOutput),
       registerCommand(CommandIds.toggleAgentMermaidPreview, () => toggleActiveAgentMermaid()),
       registerCommand(CommandIds.toggleFileBrowser, () => toggleBrowser()),

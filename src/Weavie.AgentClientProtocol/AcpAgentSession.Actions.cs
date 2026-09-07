@@ -135,7 +135,7 @@ public sealed partial class AcpAgentSession {
 				if (epoch == _submissionEpoch) _steering = false;
 				dispatch = epoch == _submissionEpoch && (!retryAsPrompt || !_promptActive);
 			}
-			if (dispatch) DispatchPendingWork();
+			if (dispatch) DispatchPendingSubmission();
 			else PublishQueue();
 		}
 	}
@@ -276,7 +276,7 @@ public sealed partial class AcpAgentSession {
 					dispatch = true;
 				}
 			}
-			if (dispatch) DispatchPendingWork();
+			if (dispatch) DispatchPendingSubmission();
 		}
 	}
 
@@ -453,23 +453,17 @@ public sealed partial class AcpAgentSession {
 
 	/// <inheritdoc/>
 	public void Interrupt() {
-		SideRuntime? activeSide = null;
+		SideRuntime[] activeSides;
 		lock (_turnTransitionGate) {
 			lock (_gate) {
-				if (!_promptActive && !HasBackgroundWorkLocked() && !HasPendingInteractionLocked()
-					&& _activeSideConversationId is { } sideId) {
-					activeSide = _sideRuntimes[sideId];
-					activeSide.Interrupting = true;
-				}
+				activeSides = !_promptActive && !HasBackgroundWorkLocked() && !HasPendingInteractionLocked()
+					? [.. _sideRuntimes.Values.Where(side => side.Session.HasWork())]
+					: [];
 			}
-		}
-		if (activeSide is not null) {
-			try {
-				activeSide.Session.Interrupt();
-			} finally {
-				FinishSideInterruption(activeSide);
+			if (activeSides.Length > 0) {
+				foreach (var side in activeSides) side.Session.Interrupt();
+				return;
 			}
-			return;
 		}
 		string? sessionId;
 		lock (_turnTransitionGate) {
@@ -542,8 +536,6 @@ public sealed partial class AcpAgentSession {
 				_turnNumber = 0;
 				_guidanceSent = false;
 				_planTurns.Clear();
-				_pendingSideSubmissions.Clear();
-				_activeSideConversationId = null;
 				sideSessions = [.. _sideRuntimes.Values];
 				_sideRuntimes.Clear();
 			}

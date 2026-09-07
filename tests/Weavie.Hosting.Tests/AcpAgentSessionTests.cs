@@ -163,7 +163,7 @@ public sealed class AcpAgentSessionTests {
 	}
 
 	[Fact]
-	public async Task NativeSession_QueuesIndependentSideConversations() {
+	public async Task NativeSession_StartsIndependentSideConversations() {
 		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
 		await fixture.StartAsync();
 		fixture.Submit("primary context");
@@ -320,7 +320,7 @@ public sealed class AcpAgentSessionTests {
 	}
 
 	[Fact]
-	public async Task NativeSession_InterruptsActiveSideBeforeDispatchingTheNextSide() {
+	public async Task NativeSession_InterruptsPrimaryBeforeAllConcurrentSides() {
 		await using var fixture = AcpAgentSessionFixture.Create(allowAllPermissions: true, persistedSessionId: null);
 		await fixture.StartAsync();
 		fixture.Submit("hold");
@@ -328,23 +328,25 @@ public sealed class AcpAgentSessionTests {
 			message.Type == "item-started" && message.ItemId == "tool:hold" && message.ConversationId is null);
 
 		fixture.Session.AskAside("hold");
-		fixture.Session.AskAside("next aside");
-		var held = await fixture.WaitForMessageAsync(message =>
+		var first = await fixture.WaitForMessageAsync(message =>
 			message.Type == "item-started" && message.ItemId == "tool:hold" && message.ConversationId is not null);
+		fixture.Session.AskAside("hold");
+		var second = await fixture.WaitForMessageAsync(message =>
+			message.Type == "item-started" && message.ItemId == "tool:hold"
+			&& message.ConversationId is not null && message.ConversationId != first.ConversationId);
 		fixture.Session.Interrupt();
 		await fixture.WaitForMessageAsync(message => message.Type == "turn-completed"
 			&& message.ConversationId is null && message.Status == "cancelled");
 		Assert.Equal(SessionStatus.Working, fixture.Events.Status.Status);
-		fixture.Session.Interrupt();
-		var interrupted = await fixture.WaitForMessageAsync(message =>
-			message.Type == "turn-completed"
-			&& message.ConversationId == held.ConversationId
-			&& message.Status == "cancelled");
-		var next = await fixture.WaitForMessageAsync(message =>
-			message.Type == "item-completed" && message.Text == "echo: next aside");
+		Assert.DoesNotContain(fixture.Messages, message =>
+			message.Type == "turn-completed" && message.ConversationId is not null);
 
-		Assert.Equal(held.ConversationId, interrupted.ConversationId);
-		Assert.NotEqual(held.ConversationId, next.ConversationId);
+		fixture.Session.Interrupt();
+		foreach (string? conversationId in new[] { first.ConversationId, second.ConversationId }) {
+			await fixture.WaitForMessageAsync(message => message.Type == "turn-completed"
+				&& message.ConversationId == conversationId && message.Status == "cancelled");
+		}
+		Assert.Equal(SessionStatus.Idle, fixture.Events.Status.Status);
 	}
 
 	[Fact]

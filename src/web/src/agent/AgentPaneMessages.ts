@@ -52,6 +52,7 @@ export function projectAgentTranscript(
   const sideConversations = collectSideConversations(updates);
   const emittedSideConversations = new Set<string>();
   const activities = new Map<string, MutableActivity>();
+  const sideActivities = new Map<string, ProjectedAgentActivity>();
   const knownTurns = new Set<string>();
   let activeTurn = "startup";
   let previousWasUserInput = false;
@@ -73,7 +74,11 @@ export function projectAgentTranscript(
         entries.push(
           sideConversationEntry(
             sideConversations.get(message.conversationId) ?? [message],
-            (childMessages) => projectAgentTranscript(childMessages).entries,
+            (childMessages) => {
+              const child = projectAgentTranscript(childMessages);
+              for (const [id, activity] of child.activities) sideActivities.set(id, activity);
+              return child.entries;
+            },
           ),
         );
         sequence += 1;
@@ -139,9 +144,13 @@ export function projectAgentTranscript(
   }
 
   return {
-    activities: new Map(
-      Array.from(activities.values(), (activity) => [activity.id, activity.projection]),
-    ),
+    activities: new Map([
+      ...sideActivities,
+      ...Array.from(activities.values(), (activity): [string, ProjectedAgentActivity] => [
+        activity.id,
+        activity.projection,
+      ]),
+    ]),
     entries: clusterTurnActivity(
       collapseEditLocations(entries.map((entry) => stripMutable(entry))),
     ),

@@ -31,8 +31,6 @@ public sealed partial class AcpAgentSession {
 			}
 			_disposed = true;
 			_controlMutations.Clear();
-			_pendingSideSubmissions.Clear();
-			_activeSideConversationId = null;
 			sideSessions = [.. _sideRuntimes.Values];
 			_sideRuntimes.Clear();
 			sessionId = _endpoint?.SessionId;
@@ -313,7 +311,7 @@ public sealed partial class AcpAgentSession {
 			Observe(new AgentSessionStarted(reconnecting ? "restart" : "startup"));
 			RestoreSetupActivity();
 			RaiseControls();
-			DispatchPendingWork();
+			DispatchPendingSubmission();
 		}
 	}
 

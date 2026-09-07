@@ -240,7 +240,7 @@ export function UnifiedReview(props: {
   };
 
   return (
-    <section class="unified-review" data-kind="editor" data-review-mode="unified" ref={toolbarHost}>
+    <section class="unified-review" data-kind="editor" data-review-mode="unified">
       <UnifiedReviewHeader overview={props.overview} />
 
       <main
@@ -327,6 +327,7 @@ export function UnifiedReview(props: {
           </For>
         </div>
       </main>
+      <footer class="unified-review-controls" ref={toolbarHost} />
     </section>
   );
 }

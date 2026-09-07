@@ -289,13 +289,22 @@ export function createInlineDiff(
   let zoneObservers: ResizeObserver[] = [];
   let composerObserver: ResizeObserver | undefined;
 
+  const replaceToolbar = (next: HTMLElement | undefined): void => {
+    const previous = toolbarNode;
+    toolbarNode = next;
+    const host = presentation.toolbarHost();
+    if (next !== undefined && host !== null) {
+      if (previous?.parentElement === host) previous.replaceWith(next);
+      else host.appendChild(next);
+    }
+    previous?.remove();
+  };
+
   const clearControls = (): void => {
     for (const widget of hunkWidgets) {
       editor.removeContentWidget(widget);
     }
     hunkWidgets = [];
-    toolbarNode?.remove();
-    toolbarNode = undefined;
     counterNode = undefined;
     dotsNode = undefined;
     scopeMenuNode = undefined;
@@ -337,10 +346,14 @@ export function createInlineDiff(
     zoneObservers = [];
   };
 
-  const clearRender = (): void => {
+  const clearRenderState = (): void => {
     clearPaint();
     clearControls();
     renderedUri = undefined;
+  };
+  const clearRender = (): void => {
+    clearRenderState();
+    replaceToolbar(undefined);
   };
 
   // A comment composer: a textarea + a submit button. onSubmit fires with the trimmed body (ignored when empty);
@@ -1203,22 +1216,22 @@ export function createInlineDiff(
     message: string,
   ): void => {
     presentation.updateGeometry(() => {
-      clearRender();
+      clearRenderState();
       fallbackNavigation = options;
       presentation.painted(null);
     });
     const fileKept = fileIsKept(options);
     const editorDom = presentation.toolbarHost();
     if (editorDom !== null) {
-      toolbarNode = document.createElement("div");
-      toolbarNode.className = "weavie-inline-toolbar";
+      const bar = document.createElement("div");
+      bar.className = "weavie-inline-toolbar";
       const multiFile =
         options.fileCount !== undefined &&
         options.fileCount > 1 &&
         options.onPrevFile !== undefined &&
         options.onNextFile !== undefined;
       if (multiFile) {
-        toolbarNode.appendChild(
+        bar.appendChild(
           makeButton(
             "weavie-inline-file",
             "←",
@@ -1230,9 +1243,9 @@ export function createInlineDiff(
       const warning = document.createElement("span");
       warning.className = "weavie-inline-stack-sub";
       warning.textContent = fileKept ? `File kept · ${message.toLowerCase()}` : message;
-      toolbarNode.appendChild(warning);
+      bar.appendChild(warning);
       if (multiFile) {
-        toolbarNode.appendChild(
+        bar.appendChild(
           makeButton(
             "weavie-inline-file",
             "→",
@@ -1243,7 +1256,7 @@ export function createInlineDiff(
       }
       if (options.mode === "applied" && !fileKept) {
         // No hunk geometry to act on, so only the whole-file actions are offered.
-        toolbarNode.append(
+        bar.append(
           makeButton(
             "weavie-inline-accept",
             "Keep file",
@@ -1258,7 +1271,7 @@ export function createInlineDiff(
           ),
         );
       } else if (options.mode === "review") {
-        toolbarNode.append(
+        bar.append(
           makeButton(
             "weavie-inline-accept",
             "Keep",
@@ -1273,7 +1286,9 @@ export function createInlineDiff(
           ),
         );
       }
-      editorDom.appendChild(toolbarNode);
+      replaceToolbar(bar);
+    } else {
+      replaceToolbar(undefined);
     }
     renderedUri = uriString;
   };
@@ -1381,8 +1396,7 @@ export function createInlineDiff(
         initialLine = hunks[0].anchorLine;
       }
       renderedScope = presentation.scope.current;
-      toolbarNode = buildToolbar(options);
-      presentation.toolbarHost()?.appendChild(toolbarNode);
+      replaceToolbar(buildToolbar(options));
       // The inline ✓ keep / ✕ revert widgets on each bright pending hunk (applied review only).
       if (
         options.mode === "applied" &&
@@ -1417,9 +1431,10 @@ export function createInlineDiff(
   // editor shows. Its nav + Keep step into the review (stepIn); Keep/Revert are inert until then; Undo/Redo
   // still reflect the session history. Reuses the live toolbar's classes so stepping in is a seamless expand.
   const renderParked = (): void => {
-    clearRender();
+    clearRenderState();
     const editorDom = presentation.toolbarHost();
     if (editorDom === null || parkedReview === undefined) {
+      replaceToolbar(undefined);
       return;
     }
     const bar = document.createElement("div");
@@ -1506,8 +1521,7 @@ export function createInlineDiff(
     );
     bar.append(undoButton, redoButton);
     syncHistoryButtons();
-    toolbarNode = bar;
-    editorDom.appendChild(bar);
+    replaceToolbar(bar);
     showingParked = true;
   };
 

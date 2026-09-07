@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import type { Locator } from "@playwright/test";
 import { expect, test } from "../harness/fixtures";
 import { appliedEdit } from "../harness/review";
@@ -19,9 +21,12 @@ async function expectUnobscuredLine(section: Locator, line: Locator): Promise<vo
   await expect
     .poll(async () => {
       const header = await section.locator(".unified-review-file-header").boundingBox();
+      const toolbar = await section.page().locator(".weavie-inline-toolbar").boundingBox();
       const bounds = await line.boundingBox();
-      if (header === null || bounds === null) throw new Error("review line or header is missing");
-      return bounds.y - header.y - header.height;
+      if (header === null || toolbar === null || bounds === null) {
+        throw new Error("review line, header, or toolbar is missing");
+      }
+      return Math.min(bounds.y - header.y - header.height, toolbar.y - bounds.y - bounds.height);
     })
     .toBeGreaterThanOrEqual(0);
 }
@@ -38,6 +43,7 @@ test.describe("unified review mode — large addition", () => {
 
   test("bounds rendering while keyboard navigation reaches both ends of a 4,000-line change", async ({
     page,
+    weavie,
   }) => {
     await page.locator(".editor-empty-review").click();
     const section = page.locator(".unified-review-file");
@@ -54,6 +60,32 @@ test.describe("unified review mode — large addition", () => {
       section.locator(".view-line", { hasText: "new line 3999" }),
     );
     await expectBoundedEditor(section, scroller);
+    await scroller.evaluate((element) => element.scrollTo(0, element.scrollHeight));
+    const bottomBeforeTyping = await scroller.evaluate((element) => element.scrollTop);
+    const revisionBeforeTyping = await page.evaluate(() => window.__WEAVIE_REVIEW__?.rev);
+    await page.keyboard.type(" edited at the end");
+    await expect
+      .poll(() => readFile(join(weavie.workspace, "large-review.txt"), "utf8"))
+      .toContain("new line 3999 edited at the end");
+    await expect
+      .poll(() => page.evaluate(() => window.__WEAVIE_REVIEW__?.rev))
+      .not.toBe(revisionBeforeTyping);
+    await expect
+      .poll(() =>
+        scroller.evaluate(
+          (element) => element.scrollHeight - element.clientHeight - element.scrollTop,
+        ),
+      )
+      .toBeLessThanOrEqual(1);
+    await expect
+      .poll(async () =>
+        Math.abs((await scroller.evaluate((element) => element.scrollTop)) - bottomBeforeTyping),
+      )
+      .toBeLessThanOrEqual(1);
+    await expectUnobscuredLine(
+      section,
+      section.locator(".view-line", { hasText: "new line 3999 edited at the end" }),
+    );
     await page.keyboard.press("ControlOrMeta+Home");
     await expectUnobscuredLine(section, firstLine);
     await expectBoundedEditor(section, scroller);
@@ -113,7 +145,10 @@ test.describe("unified review mode — large replacement", () => {
       await expect(ghost).toContainText("old line 3999");
       await expect.poll(renderedGhostLines).toBeLessThan(100);
       await scroller.evaluate((element) => element.scrollTo(0, element.scrollHeight));
-      await expect(section.locator(".view-line", { hasText: "new line 3999" })).toBeInViewport();
+      await expectUnobscuredLine(
+        section,
+        section.locator(".view-line", { hasText: "new line 3999" }),
+      );
       await expectBoundedEditor(section, scroller);
       if (reviewed) {
         await expect(section.locator(".weavie-inline-accepted").first()).toBeVisible();
@@ -174,7 +209,10 @@ test.describe("unified review mode — large separated changes", () => {
     await scroller.hover();
     await page.mouse.wheel(0, 200_000);
     await expect(counter).toContainText("change 2/2");
-    await expect(section.locator(".view-line", { hasText: "new line 3999" })).toBeInViewport();
+    await expectUnobscuredLine(
+      section,
+      section.locator(".view-line", { hasText: "new line 3999" }),
+    );
     await toolbar.locator(".weavie-inline-accept").click();
     await expect(counter).toContainText("change 1/1");
     await expect
@@ -194,6 +232,3 @@ test.describe("unified review mode — large separated changes", () => {
     await expectBoundedEditor(section, scroller);
   });
 });
-
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";

@@ -17,6 +17,12 @@ export interface ScoredFile {
   positions?: Set<number>;
 }
 
+/** Ranked candidates and the full number of matching paths, including those not precision-scored. */
+export interface FileSearchResult {
+  matches: ScoredFile[];
+  total: number;
+}
+
 // One file plus its lowercased `rel`, precomputed once so the per-keystroke pre-filter scans raw char codes
 // without re-lowercasing 100k strings on every query.
 interface Entry {
@@ -178,7 +184,7 @@ function dirDistance(dir: string, activeSegs: readonly string[]): number {
   return segs.length + activeSegs.length - 2 * common;
 }
 
-/// Fuzzy-ranks the finder's files against `query` (best-first, uncapped). `recent` is most-recent-first
+/// Fuzzy-ranks files into best-first candidates plus the full match count. `recent` is most-recent-first
 /// absolute paths; `currentDir` is the active file's directory (see {@link activeDir}), or null when nothing
 /// is open. Match quality stays primary; ties then break by where the match lands (filename-start beats
 /// mid-name beats directory-only), then by proximity to the active file, then recency, then path length — so
@@ -192,7 +198,7 @@ export function rankFiles(
   query: string,
   recent: readonly string[],
   currentDir: string | null,
-): ScoredFile[] {
+): FileSearchResult {
   const needle = query.toLowerCase();
   const matched: PreFiltered[] = [];
   let matchCount = 0;
@@ -224,7 +230,7 @@ export function rankFiles(
     currentDir === null ? null : currentDir.length === 0 ? [] : currentDir.toLowerCase().split("/");
   // Compute each tiebreak key once per match, then sort — not inside the comparator, which would recompute
   // leafOffset and canonicalFsPath O(n log n) times.
-  return fzf
+  const matches = fzf
     .find(query)
     .map((r) => ({
       row: r.item,
@@ -243,4 +249,5 @@ export function rankFiles(
         a.row.rel.length - b.row.rel.length,
     )
     .map(({ row, positions }) => ({ row, positions }));
+  return { matches, total: matchCount };
 }

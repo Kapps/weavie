@@ -2,8 +2,7 @@ import { Fzf } from "fzf";
 import { describe, expect, it } from "vitest";
 import { createFileFinder, type FileRow, rankFiles, splitPath } from "./file-search";
 
-// Well past the host's 20k index cap — the omnibar must stay snappy even if that ceiling is raised, and a
-// regression to scoring the whole index per keystroke (the old behaviour) shows up here as a blown budget.
+// A regression to precision-scoring the whole index per keystroke shows up as a blown budget.
 const INDEX_SIZE = 120_000;
 
 // A unique filename no synthetic path can collide with, so exact-ranking assertions have one right answer.
@@ -123,18 +122,24 @@ describe("omnibar file search over a huge workspace", () => {
     expect(perKeystroke).toBeLessThan(160);
   });
 
+  it("reports all broad-query matches beyond the precision-scored candidates", () => {
+    const result = rankFiles(finder, "s", [], null);
+    expect(result.total).toBe(rows.filter((row) => row.rel.toLowerCase().includes("s")).length);
+    expect(result.total).toBeGreaterThan(result.matches.length);
+  });
+
   it("ranks an exact filename match first", () => {
-    expect(rankFiles(finder, "zebraquokkawidget", [], null)[0]?.row.leaf).toBe(
+    expect(rankFiles(finder, "zebraquokkawidget", [], null).matches[0]?.row.leaf).toBe(
       "ZebraQuokkaWidget.ts",
     );
   });
 
   it("ranks a basename's camelCase initials first", () => {
-    expect(rankFiles(finder, "zqw", [], null)[0]?.row.leaf).toBe("ZebraQuokkaWidget.ts");
+    expect(rankFiles(finder, "zqw", [], null).matches[0]?.row.leaf).toBe("ZebraQuokkaWidget.ts");
   });
 
   it("returns nothing when the query is not a subsequence of any path", () => {
-    expect(rankFiles(finder, "qqzzxxjjww", [], null)).toHaveLength(0);
+    expect(rankFiles(finder, "qqzzxxjjww", [], null).matches).toHaveLength(0);
   });
 });
 
@@ -148,7 +153,7 @@ describe("proximity to the active file", () => {
   ];
   const finder = createFileFinder(rels.map((rel) => splitPath(`C:/proj/${rel}`, "C:/proj")));
   const dirsOf = (recent: readonly string[], currentDir: string | null): string[] =>
-    rankFiles(finder, "config", recent, currentDir).map((s) => s.row.dir);
+    rankFiles(finder, "config", recent, currentDir).matches.map((s) => s.row.dir);
 
   it("ranks the config beside the active file first", () => {
     expect(dirsOf([], "src/app")[0]).toBe("src/app");
@@ -175,5 +180,20 @@ describe("proximity to the active file", () => {
 
   it("compares folders case-insensitively", () => {
     expect(dirsOf([], "SRC/APP")[0]).toBe("src/app");
+  });
+});
+
+describe("file match counts", () => {
+  it("agrees with precision scoring for spaces, mixed case and fuzzy paths", () => {
+    const rows = ["src/My File.ts", "src/MyFile.ts", "src/Many Fine Files.ts", "src/other.ts"].map(
+      (rel) => splitPath(`/repo/${rel}`, "/repo"),
+    );
+    const finder = createFileFinder(rows);
+    const fzf = new Fzf(rows, { selector: (row) => row.rel, casing: "case-insensitive" });
+    for (const query of ["m f", "MY F", "s/mf", "MyFile", "missing"]) {
+      const result = rankFiles(finder, query, [], null);
+      expect(result.total, query).toBe(fzf.find(query).length);
+      expect(result.matches, query).toHaveLength(result.total);
+    }
   });
 });

@@ -1,17 +1,9 @@
 import { File, ListFilter, X } from "lucide-solid";
-import {
-  createEffect,
-  createMemo,
-  createSignal,
-  createUniqueId,
-  For,
-  type JSX,
-  on,
-  Show,
-} from "solid-js";
+import { createEffect, createSignal, createUniqueId, For, type JSX, on, Show } from "solid-js";
 import type { ClientSession } from "../bridge";
-import { splitPath } from "../chrome/file-search";
+import { createFileSearch } from "../chrome/create-file-search";
 import { highlightSlice } from "../chrome/highlight";
+import { recentFiles } from "../chrome/recent-files-store";
 import { liveKeyHint } from "../commands/keys-live";
 import { runCommandWithFeedback } from "../commands/registry";
 import { CommandIds } from "../commands/types";
@@ -34,23 +26,15 @@ export function BrowserFilter(props: {
   const listId = createUniqueId();
   const [filtering, setFiltering] = createSignal(false);
   const [query, setQuery] = createSignal("");
-  const needle = () => query().trim().replace(/\\/g, "/").toLowerCase();
-  const rows = createMemo(() => props.files.map((path) => splitPath(path, props.root)));
-  const matches = createMemo(() => {
-    const text = needle();
-    if (text.length === 0) return [];
-    return rows().flatMap((row) => {
-      const start = row.rel.toLowerCase().indexOf(text);
-      return start < 0
-        ? []
-        : [
-            {
-              row,
-              positions: new Set(Array.from({ length: text.length }, (_, index) => start + index)),
-            },
-          ];
-    });
+  const search = createFileSearch({
+    files: () => props.files,
+    root: () => props.root,
+    query,
+    recent: recentFiles,
+    currentFile: () => props.currentFile,
   });
+  const needle = search.query;
+  const matches = search.view;
   const dismiss = (): void => {
     setQuery("");
     setFiltering(false);
@@ -109,7 +93,7 @@ export function BrowserFilter(props: {
         </button>
         <Show when={needle().length > 0}>
           <span class="browser-filter-count" role="status">
-            {props.pending ? "Loading files…" : `${matches().length} matches`}
+            {props.pending ? "Loading files…" : `${search.total()} matches`}
           </span>
         </Show>
       </div>
@@ -134,6 +118,11 @@ export function BrowserFilter(props: {
           <button type="button" title="Clear filter (Esc)" onClick={dismiss}>
             <X size={14} />
           </button>
+        </div>
+      </Show>
+      <Show when={search.hiddenCount() > 0}>
+        <div class="browser-empty browser-filter-more" role="status">
+          +{search.hiddenCount()} more — type to filter
         </div>
       </Show>
       <div class="browser-body">

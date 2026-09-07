@@ -9,11 +9,7 @@ namespace Weavie.Hosting.Tests;
 public sealed class McpStdioProxyTests {
 	[Fact]
 	public async Task ProxyDispatchesRequestsWithoutHeadOfLineBlocking() {
-		int port = FreePort();
-		string url = $"http://127.0.0.1:{port}/";
-		using var listener = new HttpListener();
-		listener.Prefixes.Add(url);
-		listener.Start();
+		using var listener = StartListener(out string url);
 		using var process = StartProxy(url);
 
 		await process.StandardInput.WriteLineAsync("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"openDiff\"}");
@@ -33,13 +29,13 @@ public sealed class McpStdioProxyTests {
 		Assert.Equal(0, process.ExitCode);
 	}
 
+	// Flaked 2026-09-07 05:50 UTC on main (https://github.com/Kapps/weavie/actions/runs/34088142697):
+	// HttpListenerException "Address already in use" — the free port handed to HttpListener could be
+	// grabbed by something else between selection and bind. Fixed by retrying port selection on a
+	// bind conflict in StartListener() instead of failing the test.
 	[Fact]
 	public async Task ProxyCancelsHeldHttpRequestsWhenItsOwnerClosesStdin() {
-		int port = FreePort();
-		string url = $"http://127.0.0.1:{port}/";
-		using var listener = new HttpListener();
-		listener.Prefixes.Add(url);
-		listener.Start();
+		using var listener = StartListener(out string url);
 		using var process = StartProxy(url);
 
 		await process.StandardInput.WriteLineAsync("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"openDiff\"}");
@@ -73,6 +69,26 @@ public sealed class McpStdioProxyTests {
 		context.Response.ContentLength64 = response.Length;
 		await context.Response.OutputStream.WriteAsync(response);
 		context.Response.Close();
+	}
+
+	// HttpListener has no way to bind port 0 itself, so the free port it starts on is chosen via a
+	// throwaway TcpListener and handed off. That handoff has an unavoidable gap in which another
+	// process can grab the same port first, so retry with a fresh candidate on a bind conflict
+	// rather than letting that race fail the test outright.
+	private static HttpListener StartListener(out string url) {
+		for (int attempt = 0; ; attempt++) {
+			int port = FreePort();
+			string candidateUrl = $"http://127.0.0.1:{port}/";
+			var listener = new HttpListener();
+			listener.Prefixes.Add(candidateUrl);
+			try {
+				listener.Start();
+				url = candidateUrl;
+				return listener;
+			} catch (HttpListenerException) when (attempt < 4) {
+				listener.Close();
+			}
+		}
 	}
 
 	private static int FreePort() {

@@ -428,14 +428,13 @@ public static class CoreCommands {
 	/// <summary>Registers the built-in commands into <paramref name="registry"/>.</summary>
 	public static void Register(CommandRegistry registry) {
 		ArgumentNullException.ThrowIfNull(registry);
-		foreach (var (id, scope, key) in new[] { (SpellAddUser, "User", "$mod+alt+u"), (SpellAddProject, "Project", "$mod+alt+p") }) {
+		foreach (var (id, scope) in new[] { (SpellAddUser, "User"), (SpellAddProject, "Project") }) {
 			registry.Register(new CommandDefinition {
 				Id = id,
 				Title = $"Add Word to {scope} Dictionary",
 				RunsIn = CommandLocation.Web,
 				Category = "Editor",
 				Description = $"Remember the misspelled word at the cursor in the {scope.ToLowerInvariant()} dictionary.",
-				DefaultKeybindings = [new CommandKeybinding { Key = key }],
 				When = "editorFocused",
 			});
 		}
@@ -447,7 +446,6 @@ public static class CoreCommands {
 			Category = "Editor",
 			Description = "Download and select a spelling dictionary on this backend. Defaults to US English (en-US). Omit locale to list available locale codes; ask the agent to select one.",
 			ArgsSchemaJson = """{"locale":{"type":"string","description":"Dictionary locale code, e.g. en-US, en-GB, fr, de. Omit to list available codes."}}""",
-			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+alt+l" }],
 		});
 		registry.Register(new CommandDefinition {
 			Id = SpellCorrect,
@@ -462,12 +460,12 @@ public static class CoreCommands {
 		// ctrl+1..9 → focus the Nth pane. Literal ctrl (not $mod) to stay Ctrl on macOS, where Cmd+1..9 collides
 		// with app/window shortcuts. Keybinding-only; each default binding carries its own index argument.
 		var focusBindings = new List<CommandKeybinding>(9);
-		foreach (var (id, title, key, when) in new[] {
-			(DockFileBrowser, "Toggle File Browser Stay Open", "$mod+alt+b", ""),
-			(FilterFileBrowser, "Filter Files", "$mod+shift+b", ""),
-			(DockSearch, "Toggle Find in Files Stay Open", "$mod+alt+f", ""),
-			(CloseFloatingPanel, "Close Floating Panel", "Escape", "floatingPanelOpen"),
-			(CloseToolPanel, "Close Tool Panel", "$mod+shift+w", "focusedTool"),
+		foreach (var (id, title, keys, when) in new (string, string, string[], string)[] {
+			(DockFileBrowser, "Toggle File Browser Stay Open", [], ""),
+			(FilterFileBrowser, "Filter Files", ["$mod+shift+b"], ""),
+			(DockSearch, "Toggle Find in Files Stay Open", [], ""),
+			(CloseFloatingPanel, "Close Floating Panel", ["Escape"], "floatingPanelOpen"),
+			(CloseToolPanel, "Close Tool Panel", ["$mod+shift+w"], "focusedTool"),
 		}) {
 			registry.Register(new CommandDefinition {
 				Id = id,
@@ -476,7 +474,7 @@ public static class CoreCommands {
 				RunsIn = CommandLocation.Web,
 				Category = "View",
 				When = when,
-				DefaultKeybindings = [new CommandKeybinding { Key = key }],
+				DefaultKeybindings = [.. keys.Select(key => new CommandKeybinding { Key = key })],
 			});
 		}
 		for (int i = 1; i <= 9; i++) {
@@ -628,7 +626,6 @@ public static class CoreCommands {
 			Description = "Toggle whether Find in Files skips gitignored files (on by default).",
 			Aliases = ["exclude gitignored", "gitignore", "search ignored files", "include ignored"],
 			When = "searchPanelFocused",
-			DefaultKeybindings = [new CommandKeybinding { Key = "alt+g" }],
 		});
 
 		// Result stepping works from anywhere (no When): the handlers decline when there are no results, so the
@@ -750,7 +747,7 @@ public static class CoreCommands {
 			Description = "Create and activate a new shell terminal tab in this session.",
 			Aliases = ["new terminal", "new shell", "add terminal", "open terminal tab"],
 			DefaultKeybindings = [new CommandKeybinding {
-				Key = "ctrl+Shift+t",
+				Key = "$mod+Shift+t",
 				When = "focusedPane == 'terminal:shell'",
 			}],
 		});
@@ -776,7 +773,7 @@ public static class CoreCommands {
 			Description = "Close the focused shell terminal tab, confirming before stopping a foreground job.",
 			Aliases = ["close terminal", "close shell", "close terminal tab"],
 			When = "focusedPane == 'terminal:shell'",
-			DefaultKeybindings = [new CommandKeybinding { Key = "ctrl+Shift+w" }],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+w" }],
 			ArgsSchemaJson = "{\"id\":{\"type\":\"string\",\"description\":\"Exact terminal id; omit for the active terminal\"}}",
 		});
 
@@ -820,7 +817,6 @@ public static class CoreCommands {
 			Category = "Agent",
 			Description = "Clear the transcript and start a new empty agent conversation in this workspace.",
 			Aliases = ["new conversation", "clear conversation", "clear agent", "agent clear"],
-			DefaultKeybindings = [new CommandKeybinding { Key = "alt+Shift+c" }],
 			When = "agentFocused",
 		});
 
@@ -852,7 +848,6 @@ public static class CoreCommands {
 			Category = "Agent",
 			Description = "Install, update, or remove native agents from the official ACP Registry.",
 			Aliases = ["ACP registry", "install agent", "manage agents", "add ACP agent"],
-			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+a" }],
 			KeybindingsActiveInModal = true,
 		});
 
@@ -1155,7 +1150,6 @@ public static class CoreCommands {
 			Category = "Agent",
 			Description = "Dismiss the agent's pending input or browser request as cancelled.",
 			Aliases = ["cancel input", "dismiss question", "cancel browser request"],
-			DefaultKeybindings = [new CommandKeybinding { Key = "alt+shift+n" }],
 			When = "agentFocused && agentInputPending",
 		});
 
@@ -1177,7 +1171,6 @@ public static class CoreCommands {
 			Category = "Agent",
 			Description = "Start the first advertised method for the agent's pending authentication request.",
 			Aliases = ["authenticate agent", "sign in agent", "log in agent"],
-			DefaultKeybindings = [new CommandKeybinding { Key = "alt+a" }],
 			When = "agentFocused && agentAuthenticationPending",
 		});
 
@@ -1188,7 +1181,6 @@ public static class CoreCommands {
 			Category = "Agent",
 			Description = "Reload and validate installed and custom ACP launch definitions from disk.",
 			Aliases = ["reload acp agents", "refresh custom agents"],
-			DefaultKeybindings = [new CommandKeybinding { Key = "alt+r" }],
 			When = "acpRegistryOpen",
 		});
 
@@ -1788,7 +1780,6 @@ public static class CoreCommands {
 			Category = "Navigation",
 			Description = "Open the recent-files dropdown in the editor tab bar to reopen a recently-used file.",
 			Aliases = ["recent files", "open recent", "recently opened", "reopen recent file"],
-			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+e", When = "!terminalFocused" }],
 		});
 
 		// Toggle the active file between Source (Monaco) and a rendered Preview. Gated to
@@ -1819,7 +1810,6 @@ public static class CoreCommands {
 				+ "with an embed is showing.",
 			Aliases = ["zoom embed", "zoom image", "zoom diagram", "enlarge image", "magnify", "lightbox"],
 			When = "editorFocused",
-			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+z" }],
 			KeybindingsActiveInModal = true,
 		});
 

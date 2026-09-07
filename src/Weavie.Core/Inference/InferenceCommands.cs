@@ -18,7 +18,6 @@ public static class InferenceCommands {
 			Description = "Allow Weavie to make isolated automatic model calls for small product suggestions. "
 				+ "Calls use the selected provider when it exposes ad-hoc inference and may spend tokens.",
 			Aliases = ["automatic inference", "automatic AI suggestions", "AI branch names", "allow inference"],
-			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+alt+i" }],
 		});
 	}
 

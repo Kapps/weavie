@@ -88,12 +88,12 @@ public sealed class InferenceCommandsTests : IDisposable {
 	}
 
 	[Fact]
-	public void Catalog_AdvertisesTheOptInCommandAndShortcut() {
+	public void Catalog_AdvertisesTheOptInCommandWithoutADefaultShortcut() {
 		var command = CoreCommands.CreateRegistry().Require(CoreCommands.EnableAutomaticInference);
 
 		Assert.Equal(CommandLocation.Core, command.RunsIn);
 		Assert.Equal(CommandOwner.Client, command.Owner);
-		Assert.Equal("$mod+alt+i", Assert.Single(command.DefaultKeybindings).Key);
+		Assert.Empty(command.DefaultKeybindings);
 		Assert.True(command.ShowInPalette);
 	}
 

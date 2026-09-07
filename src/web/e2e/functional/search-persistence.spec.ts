@@ -42,7 +42,7 @@ test("options, globs, and recent terms persist across a reload — but not the q
   await expect(input).toHaveValue("greet");
 });
 
-test("Alt+G toggles searching gitignored files, advertising its binding", async ({
+test("searching gitignored files can be toggled without a default shortcut", async ({
   page,
   weavie,
 }) => {
@@ -59,13 +59,13 @@ test("Alt+G toggles searching gitignored files, advertising its binding", async 
   await awaitEditorReady(page);
   await openSearch(page);
   const gitignoreToggle = page.locator(".search-toggle").nth(3);
-  await expect(gitignoreToggle).toHaveAttribute("title", /Exclude gitignored files \(Alt\+G\)/);
+  await expect(gitignoreToggle).toHaveAttribute("title", "Exclude gitignored files");
   await expect(gitignoreToggle).toHaveAttribute("aria-pressed", "true"); // on by default
 
   await page.locator(".search-input").fill("zqx-ignored-hit");
   await expect(page.locator(".search-empty")).toContainText("No results");
 
-  await page.keyboard.press("Alt+g");
+  await gitignoreToggle.click();
   await expect(gitignoreToggle).toHaveAttribute("aria-pressed", "false");
   await expect(page.locator(".search-group-name").filter({ hasText: "buried.ts" })).toHaveCount(1);
 });

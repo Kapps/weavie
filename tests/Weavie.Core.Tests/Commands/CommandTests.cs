@@ -258,9 +258,9 @@ public sealed class CommandTests {
 		Assert.Equal(CommandLocation.Core, close.RunsIn);
 		Assert.Equal(create.ExecutionLane, reopen.ExecutionLane);
 		Assert.Equal(create.ExecutionLane, close.ExecutionLane);
-		Assert.Equal("ctrl+Shift+t", Assert.Single(create.DefaultKeybindings).Key);
+		Assert.Equal("$mod+Shift+t", Assert.Single(create.DefaultKeybindings).Key);
 		Assert.Equal("focusedPane == 'terminal:shell'", Assert.Single(create.DefaultKeybindings).When);
-		Assert.Equal("ctrl+Shift+w", Assert.Single(closePrompt.DefaultKeybindings).Key);
+		Assert.Equal("$mod+Shift+w", Assert.Single(closePrompt.DefaultKeybindings).Key);
 		Assert.Equal("ctrl+Tab", Assert.Single(next.DefaultKeybindings).Key);
 		Assert.Equal("ctrl+Shift+Tab", Assert.Single(previous.DefaultKeybindings).Key);
 		Assert.All(

@@ -40,8 +40,9 @@ under `~/.weavie/acp/installations.json`:
 Updating an installed provider leaves its running processes alone. `Restart Agent` resolves the latest installed
 launch recipe and resumes the existing provider session through that new process.
 
-Weavie ships no Node, npm, npx, Python, uv, or uvx runtime. Package-manager distributions use the user's PATH
-literally. If the selected runner is absent, process launch fails visibly in the native pane. When an agent offers
+Weavie ships no Node, npm, npx, Python, uv, or uvx runtime. On Unix, executable lookup uses the child's PATH,
+including the imported login-shell environment and launch-recipe overrides. If the selected runner is absent,
+process launch fails visibly in the native pane. When an agent offers
 multiple distributions, the user chooses one; Weavie does not silently change distribution kinds during install or
 update.
 

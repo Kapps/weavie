@@ -575,10 +575,10 @@ public sealed partial class HostSession : IAsyncDisposable {
 	/// Lists <paramref name="requestedPath"/> — absolute as itself, relative against the session root — for the
 	/// file browser and the omnibar's open-by-path completion.
 	/// </summary>
-	private DirectoryListingMessage ListDirectory(string requestedPath) {
-		string path = Browser.Resolve(requestedPath);
-		ObservedPaths.WatchDirectory(path);
-		return new([.. Browser.List(path).Select(
+	private DirectoryListingMessage ListDirectory(MessagePeer peer, string subscriptionId, string requestedPath) {
+		string path = PathIdentity.Normalize(Browser.Resolve(requestedPath));
+		DirectoryWatches(peer).Watch(subscriptionId, path);
+		return new(path, [.. Browser.List(path).Select(
 			entry => new DirectoryEntryMessage(entry.Name, entry.Path, entry.IsDirectory))]);
 	}
 

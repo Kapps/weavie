@@ -201,7 +201,7 @@ const catalog = {
         "weavie.agent.clearConversation",
         "Start Fresh Agent Conversation",
         "agentFocused",
-        ["alt+shift+c"],
+        [],
       ),
       runsIn: "core" as const,
     },
@@ -227,9 +227,7 @@ const catalog = {
     ]),
     agentCommand("weavie.agent.decline", "Decline Agent Request", approvalWhen, ["alt+n"]),
     agentCommand("weavie.agent.declineInput", "Decline Agent Input Request", inputWhen, ["alt+n"]),
-    agentCommand("weavie.agent.cancelInput", "Cancel Agent Input Request", inputWhen, [
-      "alt+shift+n",
-    ]),
+    agentCommand("weavie.agent.cancelInput", "Cancel Agent Input Request", inputWhen, []),
     agentCommand("weavie.agent.acceptInput", "Submit Agent Input", inputWhen, ["alt+enter"]),
     agentCommand("weavie.pr.openCurrent", "Open Current Pull Request", "pullRequestAvailable", [
       "$mod+shift+g",
@@ -253,7 +251,6 @@ const catalog = {
     { key: "alt+shift+y", command: "weavie.agent.approveForSession", when: approvalWhen },
     { key: "alt+n", command: "weavie.agent.decline", when: approvalWhen },
     { key: "alt+n", command: "weavie.agent.declineInput", when: inputWhen },
-    { key: "alt+shift+n", command: "weavie.agent.cancelInput", when: inputWhen },
     { key: "alt+enter", command: "weavie.agent.acceptInput", when: inputWhen },
     {
       key: "$mod+shift+g",
@@ -1010,7 +1007,7 @@ test.describe("ACP composer", () => {
     );
     await expect(form.getByRole("button", { name: "Cancel", exact: true })).toHaveAttribute(
       "title",
-      "Cancel request (Alt+Shift+N)",
+      "Cancel request",
     );
     await page.locator("[data-agent-composer] textarea").click();
     const formDecision = waitForAgentPayload("input");
@@ -1039,11 +1036,11 @@ test.describe("ACP composer", () => {
     await expect(decline).toHaveAttribute("title", "Decline request (Alt+N)");
     await expect(url.getByRole("button", { name: "Cancel", exact: true })).toHaveAttribute(
       "title",
-      "Cancel request (Alt+Shift+N)",
+      "Cancel request",
     );
     await page.locator("[data-agent-composer] textarea").click();
     const urlDecision = waitForAgentPayload("input", host.received.length);
-    await page.keyboard.press("Alt+Shift+n");
+    await url.getByRole("button", { name: "Cancel", exact: true }).click();
     expect(await urlDecision).toMatchObject({
       requestId: "url-decline",
       action: "cancel",

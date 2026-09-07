@@ -1,6 +1,6 @@
 import { type Accessor, createSignal } from "solid-js";
 import type { AgentAttachmentViewStatus } from "../agent/AgentAttachmentStrip";
-import { agentImageError, encodeAgentImage, takePastedImages } from "../agent/pasted-images";
+import { agentImageBlob, encodeAgentImage, takePastedImages } from "../agent/pasted-images";
 import type { EncodedImageAttachment } from "../bridge";
 
 export type NewSessionSeedAttachment = EncodedImageAttachment;
@@ -36,55 +36,48 @@ export function createNewSessionAttachments(): NewSessionAttachments {
     );
   };
 
-  const addEncodedImage = (mime: string, dataB64: string): void => {
-    const error = agentImageError(mime, dataB64);
+  const addBlob = (blob: Blob): void => {
+    const id = nextId();
+    const objectUrl = URL.createObjectURL(blob);
     setAttachments((current) => [
       ...current,
       {
-        id: nextId(),
-        mime,
-        dataB64,
-        previewUrl: `data:${mime};base64,${dataB64}`,
-        status: error === null ? "ready" : "failed",
-        error,
-        objectUrl: null,
+        id,
+        mime: blob.type,
+        dataB64: "",
+        previewUrl: objectUrl,
+        status: "reading",
+        error: null,
+        objectUrl,
       },
     ]);
+    void encodeAgentImage(blob).then(
+      ({ mime, dataB64 }) => {
+        URL.revokeObjectURL(objectUrl);
+        update(id, {
+          mime,
+          dataB64,
+          previewUrl: `data:${mime};base64,${dataB64}`,
+          objectUrl: null,
+          status: "ready",
+          error: null,
+        });
+      },
+      (error: unknown) => {
+        update(id, {
+          status: "failed",
+          error: error instanceof Error ? error.message : String(error),
+        });
+      },
+    );
+  };
+
+  const addEncodedImage = (mime: string, dataB64: string): void => {
+    addBlob(agentImageBlob(mime, dataB64));
   };
 
   const capturePaste = (event: ClipboardEvent): void => {
-    for (const blob of takePastedImages(event)) {
-      const id = nextId();
-      const objectUrl = URL.createObjectURL(blob);
-      setAttachments((current) => [
-        ...current,
-        {
-          id,
-          mime: blob.type,
-          dataB64: "",
-          previewUrl: objectUrl,
-          status: "reading",
-          error: null,
-          objectUrl,
-        },
-      ]);
-      void encodeAgentImage(blob).then(
-        (dataB64) => {
-          const error = agentImageError(blob.type, dataB64);
-          update(id, {
-            dataB64,
-            status: error === null ? "ready" : "failed",
-            error,
-          });
-        },
-        (error: unknown) => {
-          update(id, {
-            status: "failed",
-            error: error instanceof Error ? error.message : String(error),
-          });
-        },
-      );
-    }
+    for (const blob of takePastedImages(event)) addBlob(blob);
   };
 
   const remove = (id: string): void => {

@@ -34,7 +34,7 @@ int weavie_spawn_isolated(const char *path, char *const argv[], char *const envp
 	}
 	if (cwd != NULL && cwd[0] != '\0' &&
 		(error = posix_spawn_file_actions_addchdir_np(&actions, cwd)) != 0) goto destroy_attr;
-	error = posix_spawnp(pid, path, &actions, &attr, argv, envp);
+	error = posix_spawn(pid, path, &actions, &attr, argv, envp);
 destroy_attr:
 	posix_spawnattr_destroy(&attr);
 destroy_actions:

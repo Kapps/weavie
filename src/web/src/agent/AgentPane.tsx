@@ -31,7 +31,12 @@ export function AgentPane(props: {
   };
 
   const focusPrompt = (event: MouseEvent): void => {
-    if (event.button !== 0 || event.detail === 0) {
+    if (
+      !(event instanceof PointerEvent) ||
+      event.pointerType !== "mouse" ||
+      event.button !== 0 ||
+      event.detail === 0
+    ) {
       return;
     }
 
@@ -52,6 +57,7 @@ export function AgentPane(props: {
 
   const focusPromptFromDisabled = (event: PointerEvent): void => {
     if (
+      event.pointerType === "mouse" &&
       event.button === 0 &&
       event.target instanceof Element &&
       event.target.closest(":disabled") !== null &&

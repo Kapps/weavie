@@ -1,6 +1,6 @@
 import { ChevronDown, ChevronRight, File, Folder, FolderOpen } from "lucide-solid";
 import {
-  createEffect,
+  createMemo,
   createSignal,
   For,
   type JSX,
@@ -8,10 +8,12 @@ import {
   onCleanup,
   Show,
   Switch,
+  untrack,
 } from "solid-js";
 import type { ClientSession } from "../bridge";
 import { normalizePath, samePath } from "../editor/fs-path";
 import { BrowserFilter } from "./BrowserFilter";
+import { acquireDirectory } from "./session-files";
 
 // One directory entry the host returned: leaf name, absolute path, and whether it's a folder.
 export interface DirEntry {
@@ -40,18 +42,12 @@ function Node(props: {
   entry: DirEntry;
   listings: DirListings;
   currentFile: string | null;
-  onExpand: (path: string) => void;
-  onCollapse: (path: string) => void;
+  session: ClientSession;
   onOpen: (path: string) => void;
 }): JSX.Element {
   const [open, setOpen] = createSignal(
     props.entry.isDir && isAncestorPath(props.entry.path, props.currentFile),
   );
-  createEffect(() => {
-    if (props.entry.isDir && open() && props.listings[props.entry.path] === undefined) {
-      props.onExpand(props.entry.path);
-    }
-  });
   const onClick = (): void => {
     if (props.entry.isDir) {
       setOpen((v) => !v);
@@ -96,8 +92,7 @@ function Node(props: {
             emptyLabel="Empty folder"
             listings={props.listings}
             currentFile={props.currentFile}
-            onExpand={props.onExpand}
-            onCollapse={props.onCollapse}
+            session={props.session}
             onOpen={props.onOpen}
           />
         </div>
@@ -111,14 +106,11 @@ function Directory(props: {
   emptyLabel: string;
   listings: DirListings;
   currentFile: string | null;
-  onExpand: (path: string) => void;
-  onCollapse: (path: string) => void;
+  session: ClientSession;
   onOpen: (path: string) => void;
 }): JSX.Element {
-  // Mounted exactly while this directory's listing is visible (this node open, and every ancestor open) —
-  // torn down the moment that stops, whether this node collapsed or an ancestor did. Either way the listing
-  // is no longer shown, so the host's watch for it is no longer earning its keep.
-  onCleanup(() => props.onCollapse(props.path));
+  const lease = untrack(() => acquireDirectory(props.session, props.path));
+  onCleanup(lease.release);
   const state = (): DirectoryState | undefined => props.listings[props.path];
   const error = (): Extract<DirectoryState, { status: "error" }> | undefined => {
     const current = state();
@@ -135,7 +127,7 @@ function Directory(props: {
         {(failure) => (
           <div class="browser-error" role="alert">
             <span>{failure.message}</span>
-            <button type="button" onClick={() => props.onExpand(props.path)}>
+            <button type="button" onClick={lease.refresh}>
               Retry
             </button>
           </div>
@@ -153,8 +145,7 @@ function Directory(props: {
                   entry={entry}
                   listings={props.listings}
                   currentFile={props.currentFile}
-                  onExpand={props.onExpand}
-                  onCollapse={props.onCollapse}
+                  session={props.session}
                   onOpen={props.onOpen}
                 />
               )}
@@ -182,10 +173,19 @@ export default function FileBrowser(props: {
   onFilterRequestHandled: () => void;
   listings: DirListings;
   currentFile: string | null;
-  onExpand: (path: string) => void;
-  onCollapse: (path: string) => void;
   onOpen: (path: string) => void;
 }): JSX.Element {
+  const owner = createMemo(
+    () => {
+      const session = props.session;
+      return session === null ? null : { session, path: props.root };
+    },
+    null,
+    {
+      equals: (previous, next) =>
+        previous?.session === next?.session && previous?.path === next?.path,
+    },
+  );
   return (
     <div class="browser-panel" role="group">
       <BrowserFilter
@@ -198,15 +198,18 @@ export default function FileBrowser(props: {
         currentFile={props.currentFile}
         onOpen={props.onOpen}
       >
-        <Directory
-          path={props.root}
-          emptyLabel="No files"
-          listings={props.listings}
-          currentFile={props.currentFile}
-          onExpand={props.onExpand}
-          onCollapse={props.onCollapse}
-          onOpen={props.onOpen}
-        />
+        <Show when={owner()} keyed>
+          {(directory) => (
+            <Directory
+              path={directory.path}
+              session={directory.session}
+              emptyLabel="No files"
+              listings={props.listings}
+              currentFile={props.currentFile}
+              onOpen={props.onOpen}
+            />
+          )}
+        </Show>
       </BrowserFilter>
     </div>
   );

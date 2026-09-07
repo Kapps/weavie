@@ -1,6 +1,5 @@
 import {
   activeSessionSlot,
-  clickIntoEditor,
   createSession,
   openFile,
   runCommand,
@@ -9,13 +8,7 @@ import {
 import { expect, test } from "../harness/fixtures";
 import { ZOOM_IMAGE_SRC } from "../harness/git-workspace";
 
-// Zoomable preview embeds (embed-zoom.ts + EmbedLightbox): every image / rendered Mermaid diagram in the
-// Markdown preview and in a source doc gets a hover magnifier that opens a full-app lightbox; arrows step
-// between embeds, Escape/backdrop closes, and the `weavie.editor.zoomEmbed` command ($mod+Shift+z) opens or
-// advances it — but DECLINES in a plain Monaco view so the chord falls through (it's redo on some
-// platforms). Pure web-side feature, so headless-only.
-
-test("preview embeds zoom into the full-app lightbox (magnifier, arrows, Escape, $mod+Shift+z)", async ({
+test("preview embeds zoom into the full-app lightbox (magnifier, arrows, Escape, palette)", async ({
   page,
 }) => {
   // zoom.md is seeded with an image (first) and a mermaid fence (second) — see git-workspace.ts.
@@ -28,11 +21,10 @@ test("preview embeds zoom into the full-app lightbox (magnifier, arrows, Escape,
   await expect(preview.locator(".mermaid-rendered > svg")).toBeVisible({ timeout: 15_000 });
   await expect(preview.locator(".embed-zoom")).toHaveCount(2);
 
-  // Hover reveals the magnifier (it sits at opacity 0 until then) and its tooltip advertises the binding.
   const imgButton = preview.locator("span.embed-zoom .embed-zoom-btn");
   await preview.locator("span.embed-zoom img").hover();
   await expect(imgButton).toHaveCSS("opacity", "0.85");
-  await expect(imgButton).toHaveAttribute("title", /^Zoom \(.+\)$/);
+  await expect(imgButton).toHaveAttribute("title", "Zoom");
 
   // Click it: the lightbox portals to <body> and covers the ENTIRE viewport — over the terminal pane too.
   await imgButton.click();
@@ -57,11 +49,10 @@ test("preview embeds zoom into the full-app lightbox (magnifier, arrows, Escape,
   await page.keyboard.press("Escape");
   await expect(lightbox).toHaveCount(0);
 
-  // Keyboard path: with the preview focused, the chord opens on the first embed, and again advances.
   await page.locator(".editor-preview").click();
-  await page.keyboard.press("ControlOrMeta+Shift+z");
+  await runCommand(page, "Zoom Embed");
   await expect(count).toHaveText("1 / 2 (←/→)");
-  await page.keyboard.press("ControlOrMeta+Shift+z");
+  await page.keyboard.press("ArrowRight");
   await expect(count).toHaveText("2 / 2 (←/→)");
 
   // Wheel zooms toward the cursor: the transform layer scales, the hint shows the factor. The cursor
@@ -94,21 +85,6 @@ test("preview embeds zoom into the full-app lightbox (magnifier, arrows, Escape,
   await expect(lightbox).toBeVisible();
   await lightbox.click({ position: { x: 10, y: 10 } });
   await expect(lightbox).toHaveCount(0);
-});
-
-// Flaked 2026-07-14 00:45 UTC on Windows CI (test timeout of 30000ms exceeded while setting up "weavie",
-// #splash never cleared): https://github.com/Kapps/weavie/actions/runs/29296154331/job/86970001988
-// Not this test's fault — the shared `weavie` boot fixture (harness/fixtures.ts) budgets up to 40s for the
-// host to boot, longer than Playwright's 30s default test timeout, so a slow Windows boot can kill any test
-// before its body even starts. Fixed at the root in playwright.config.ts (raised the per-test timeout on
-// non-Linux runners) rather than marking this one test slow.
-test("the zoom chord declines in a plain Monaco view — no lightbox", async ({ page }) => {
-  await openFile(page, "hello.ts");
-  await clickIntoEditor(page);
-  await page.keyboard.press("ControlOrMeta+Shift+z");
-  // Declined ⇒ nothing to await; a settle keeps a late-open from slipping past the count check.
-  await page.waitForTimeout(400);
-  await expect(page.locator(".embed-lightbox")).toHaveCount(0);
 });
 
 test("a lightbox blocks session shortcuts from changing the workspace behind it", async ({

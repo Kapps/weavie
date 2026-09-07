@@ -15,6 +15,7 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 	private AcpAgentConnection? _connection;
 	private TaskCompletionSource<string>? _heldPrompt;
 	private string _mode = "default";
+	private string _permissionMode = "read-only";
 	private string _model = "alpha";
 	private bool _fast;
 	private bool _cancelFails;
@@ -1031,6 +1032,10 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 		} else if (id == "fast") _fast = value.GetBoolean();
 		else if (id == "mode" && _fakeMode == "mirrored-mode") {
 			_mode = value.GetString() ?? throw AcpAdapterException.InvalidParams("mode must be a string");
+		} else if (_fakeMode == "collaboration-mode" && id == "collaboration_mode") {
+			_mode = value.GetString() ?? throw AcpAdapterException.InvalidParams("collaboration_mode must be a string");
+		} else if (_fakeMode == "collaboration-mode" && id == "mode") {
+			_permissionMode = value.GetString() ?? throw AcpAdapterException.InvalidParams("mode must be a string");
 		} else throw AcpAdapterException.InvalidParams($"Unknown fake config '{id}'.");
 		return Setup();
 	}
@@ -1113,6 +1118,31 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 	// Shipping agents mirror one mode axis in both configOptions and the legacy modes block.
 	private JsonObject Setup() {
 		var setup = SetupCore();
+		if (_fakeMode == "collaboration-mode") {
+			setup.Remove("modes");
+			var options = (JsonArray)setup["configOptions"]!;
+			options.Insert(0, new JsonObject {
+				["id"] = "mode",
+				["name"] = "Permissions",
+				["category"] = "mode",
+				["type"] = "select",
+				["currentValue"] = _permissionMode,
+				["options"] = new JsonArray(
+					new JsonObject { ["value"] = "read-only", ["name"] = "Read Only" },
+					new JsonObject { ["value"] = "full-access", ["name"] = "Full Access" }),
+			});
+			options.Insert(1, new JsonObject {
+				["id"] = "collaboration_mode",
+				["name"] = "Collaboration Mode",
+				["category"] = "collaboration_mode",
+				["type"] = "select",
+				["currentValue"] = _mode,
+				["options"] = new JsonArray(
+					new JsonObject { ["value"] = "default", ["name"] = "Default" },
+					new JsonObject { ["value"] = "plan", ["name"] = "Plan" }),
+			});
+			return setup;
+		}
 		if (_fakeMode != "mirrored-mode") return setup;
 		((JsonArray)setup["configOptions"]!).Insert(0, new JsonObject {
 			["id"] = "mode",

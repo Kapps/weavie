@@ -24,29 +24,20 @@ import {
   visiblePathTreeRows,
 } from "../files/path-tree";
 import {
-  listSelectedDirectory,
+  acquireDirectory,
   selectedDirectoryListings,
   selectedFileIndex,
 } from "../files/session-files";
 import { createListNavigation } from "../list-navigation";
 import type { FlatSymbol, SymbolActions } from "../symbols/symbol-match";
 import { createSymbolSearch } from "../symbols/symbol-search";
-import {
-  activeDir,
-  createFileFinder,
-  type FileRow,
-  rankFiles,
-  type ScoredFile,
-  splitPath,
-} from "./file-search";
+import { createFileSearch, FILE_SEARCH_VIEW_CAP as VIEW_CAP } from "./create-file-search";
+import { splitPath } from "./file-search";
 import { onModalOpened } from "./modal-state";
 import { OmnibarResults, type ScoredCommand } from "./OmnibarResults";
 import { type OmnibarMode, omnibarRequest } from "./omnibar-controller";
 import { parsePathQuery, pathSeed, separatorFor } from "./path-query";
 import { recentFiles } from "./recent-files-store";
-
-// Max rows rendered at once — a safety cap so a giant workspace never mounts thousands of rows.
-const VIEW_CAP = 300;
 
 // The leading character that selects each mode (empty = the file tree/list).
 const MODE_PREFIX: Record<OmnibarMode, string> = {
@@ -111,11 +102,6 @@ export function Omnibar(props: {
   const [commandList, setCommandList] = createSignal<CommandInfo[]>(getCommands());
   onCleanup(onCommandsChanged(() => setCommandList(getCommands())));
 
-  const rows = createMemo<FileRow[]>(() => {
-    const root = props.root ?? "";
-    return props.files.map((abs) => splitPath(abs, root));
-  });
-
   // The active mode, chosen by the query's leading char: ">" palette, "@" this-file symbols, "#" workspace
   // symbols, empty → the file tree, otherwise the fuzzy file list.
   type Mode = "command" | "docSymbol" | "wsSymbol" | "tree" | "search" | "path";
@@ -138,15 +124,13 @@ export function Omnibar(props: {
   const pathMode = (): boolean => mode() === "path";
   const symbolMode = (): boolean => docSymbolMode() || wsSymbolMode();
 
-  // Tracks the directory and the session, so switching sessions (which clears that session's listings)
-  // re-requests rather than waiting forever on a listing nobody will send. The request itself is untracked
-  // because it reads the listings store to dedupe, and tracking that would make a reply re-trigger it.
   const pathDir = createMemo(() => pathQuery()?.dir ?? null);
   createEffect(() => {
     const dir = pathDir();
     const session = selectedSession();
-    if (dir !== null && session !== null) {
-      untrack(() => listSelectedDirectory(dir));
+    if (open() && dir !== null && session !== null) {
+      const lease = untrack(() => acquireDirectory(session, dir));
+      onCleanup(lease.release);
     }
   });
   const pathListing = () => {
@@ -169,23 +153,15 @@ export function Omnibar(props: {
   });
   const pathView = createMemo(() => pathRows().slice(0, VIEW_CAP));
 
-  // One fuzzy finder over the file index, rebuilt only when the index changes.
-  const fileFinder = createMemo(() => createFileFinder(rows()));
-
-  // The fuzzy-ranked file matches (search mode only; uncapped, best-first), carrying match positions.
-  const filtered = createMemo<ScoredFile[]>(() => {
-    if (!searchMode()) {
-      return [];
-    }
-    return rankFiles(
-      fileFinder(),
-      query().trim(),
-      recentFiles(),
-      activeDir(props.currentFile, props.root ?? ""),
-    );
+  const fileSearch = createFileSearch({
+    files: () => props.files,
+    root: () => props.root ?? "",
+    query: () => (searchMode() ? query() : ""),
+    recent: recentFiles,
+    currentFile: () => props.currentFile,
   });
-
-  const view = createMemo<ScoredFile[]>(() => filtered().slice(0, VIEW_CAP));
+  const rows = fileSearch.rows;
+  const view = fileSearch.view;
 
   // Symbol modes (@ / #): the editor sources + ranks the symbols; this omnibar only renders and navigates. Active
   // only while open and in a symbol mode. reloadKey (currentFile) forces a document-symbol refetch on a file swap.
@@ -248,7 +224,7 @@ export function Omnibar(props: {
     pathMode()
       ? Math.max(0, pathRows().length - pathView().length)
       : searchMode()
-        ? Math.max(0, filtered().length - view().length)
+        ? fileSearch.hiddenCount()
         : symbolMode()
           ? Math.max(0, symbolSearch.view().length - symbolView().length)
           : 0;

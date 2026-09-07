@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 using Weavie.Core.Agents;
@@ -10,6 +11,10 @@ namespace Weavie.Hosting;
 
 public sealed partial class HostSession {
 	private readonly OrderedAfterResponse _fileSaveCompletions = new();
+	private readonly ConditionalWeakTable<MessagePeer, DirectoryWatchSubscriptions> _directoryWatchOwners = [];
+
+	private DirectoryWatchSubscriptions DirectoryWatches(MessagePeer peer) =>
+		_directoryWatchOwners.GetValue(peer, _ => new DirectoryWatchSubscriptions(ObservedPaths));
 
 	private void WireMessages(
 		Func<bool> inputFrozen,
@@ -81,11 +86,16 @@ public sealed partial class HostSession {
 					return Task.CompletedTask;
 				})));
 			});
-		files.Handle<FilePathMessage, DirectoryListingMessage>(
+		Bus.PeerDisconnected += peer => DirectoryWatches(peer).Dispose();
+		files.HandleOwned<ListDirectoryMessage, DirectoryListingMessage>(
 			"listDirectory",
-			(message, _) => Task.FromResult(ListDirectory(message.Path)));
-		files.Handle<FilePathMessage>("unwatchDirectory", (message, _) => {
-			ObservedPaths.UnwatchDirectory(Browser.Resolve(message.Path));
+			(message, peer, _) => Task.FromResult(ListDirectory(peer, message.SubscriptionId, message.Path)));
+		files.HandleOwned<UnwatchDirectoryMessage>("unwatchDirectory", (message, peer, _) => {
+			DirectoryWatches(peer).Unwatch(message.SubscriptionId);
+			return Task.CompletedTask;
+		});
+		files.HandleOwned<ResetDirectoryWatchesMessage>("reset", (message, peer, _) => {
+			DirectoryWatches(peer).Reset(message.PageEpoch);
 			return Task.CompletedTask;
 		});
 		files.Handle<RevealFileMessage>(
@@ -304,10 +314,13 @@ public sealed partial class HostSession {
 	private sealed record LspResetMessage(string Epoch);
 
 	private sealed record FilePathMessage(string Path);
+	private sealed record ListDirectoryMessage(string SubscriptionId, string Path);
+	private sealed record UnwatchDirectoryMessage(string SubscriptionId);
+	private sealed record ResetDirectoryWatchesMessage(string PageEpoch);
 
 	private sealed record DirectoryEntryMessage(string Name, string Path, bool IsDir);
 
-	private sealed record DirectoryListingMessage(IReadOnlyList<DirectoryEntryMessage> Entries);
+	private sealed record DirectoryListingMessage(string Path, IReadOnlyList<DirectoryEntryMessage> Entries);
 
 	private sealed record FileWriteMessage(string Path, string Content);
 

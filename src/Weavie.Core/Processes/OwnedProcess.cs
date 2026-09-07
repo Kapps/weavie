@@ -23,9 +23,9 @@ public sealed partial class OwnedProcess : IDisposable {
 		if (info.UseShellExecute || !info.RedirectStandardOutput || !info.RedirectStandardError) {
 			throw new ArgumentException("Owned children require shell execution disabled and stdout/stderr redirected.", nameof(info));
 		}
-		var child = OperatingSystem.IsMacOS()
-			? StartMac(info)
-			: new OwnedProcess(Process.Start(info) ?? throw new IOException($"Could not start '{info.FileName}'."));
+		var child = OperatingSystem.IsWindows()
+			? new OwnedProcess(Process.Start(info) ?? throw new IOException($"Could not start '{info.FileName}'."))
+			: StartUnix(info);
 		Console.WriteLine($"[process] started host={Environment.ProcessId} child={child.Id} executable={info.FileName}");
 		return child;
 	}

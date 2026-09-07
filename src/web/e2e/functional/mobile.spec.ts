@@ -316,6 +316,58 @@ test("focusing the recent-files search keeps the app viewport fixed", async ({ p
   await expect(page.getByPlaceholder("Search recent files…")).toBeFocused();
 });
 
+test("touching the agent panel only focuses the composer when its input is tapped", async ({
+  page,
+}) => {
+  const inbox = page.locator(".session-inbox");
+  await inbox.getByRole("combobox", { name: "Agent provider" }).selectOption("fake-acp");
+  await inbox.getByRole("textbox", { name: "Prompt for a new session" }).fill("Check touch focus");
+  await inbox.getByRole("textbox", { name: "Branch for the new session" }).fill("bug/touch-focus");
+  await inbox.getByRole("button", { name: "Start", exact: true }).tap();
+
+  const surface = page.locator(".agent-surface");
+  const composer = surface.locator("[data-agent-composer] textarea");
+  await expect(surface).toContainText("echo: Check touch focus");
+  await composer.evaluate((element) => {
+    element.addEventListener("focus", () => {
+      const count = Number(element.getAttribute("data-test-focus-count"));
+      element.setAttribute("data-test-focus-count", String(count + 1));
+    });
+  });
+
+  for (const width of [390, 1280]) {
+    await test.step(`${width}px touch viewport`, async () => {
+      await page.setViewportSize({ width, height: 844 });
+      await composer.evaluate((element) => {
+        // Start with the keyboard dismissed, and catch even a transient focus during a tap.
+        (element as HTMLTextAreaElement).blur();
+        element.setAttribute("data-test-focus-count", "0");
+      });
+
+      await surface.getByText("echo: Check touch focus", { exact: true }).tap();
+      await surface.locator(".pane-label").tap();
+      const control = surface.locator(".agent-status-axis").first();
+      await control.tap();
+      await expect(surface.getByRole("listbox")).toBeVisible();
+      await control.tap();
+      await expect(surface.getByRole("listbox")).toHaveCount(0);
+      const run = surface.getByRole("button", { name: "Run", exact: true });
+      await expect(run).toBeDisabled();
+      await run.tap({ force: true });
+      await expect(composer).not.toBeFocused();
+      await expect(composer).toHaveAttribute("data-test-focus-count", "0");
+
+      await composer.tap();
+      await expect(composer).toBeFocused();
+      await page.keyboard.insertText(`Typed at ${width}px`);
+      await expect(composer).toHaveValue(`Typed at ${width}px`);
+      await run.tap();
+      await expect(surface).toContainText(`echo: Typed at ${width}px`);
+      await expect(composer).toHaveValue("");
+    });
+  }
+});
+
 test("the software keyboard keeps Claude reachable without scrolling the document", async ({
   page,
 }) => {

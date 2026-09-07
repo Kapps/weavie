@@ -70,11 +70,11 @@ export function AgentTranscript(props: {
                 style={`transform:translateY(${virtualRow().start}px)`}
               >
                 <TranscriptEntry
-                  detailsExpanded={props.expandedDetails.has(entry().id)}
+                  expandedDetails={props.expandedDetails}
                   entry={entry()}
                   keyboardApprovalId={props.keyboardApprovalId}
                   keyboardInputId={props.keyboardInputId}
-                  onDetailsToggle={(open) => props.onDetailsToggle(entry().id, open)}
+                  onDetailsToggle={props.onDetailsToggle}
                   sectionLabel={props.sectionLabels.get(entry().id) ?? null}
                   session={props.session}
                 />

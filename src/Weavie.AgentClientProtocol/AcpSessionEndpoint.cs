@@ -28,10 +28,10 @@ internal sealed class AcpSessionEndpoint(
 	internal Task<JsonElement> AuthenticateAsync(string methodId, CancellationToken ct) =>
 		connection.RequestForEndpointAsync("authenticate", Parameters(new { methodId }), this, null, ct);
 	internal Task<JsonElement> CreateAsync(object parameters) =>
-		connection.RequestForEndpointAsync("session/new", Parameters(parameters), this, this, CancellationToken.None);
+		connection.CreateForEndpointAsync("session/new", Parameters(parameters), this);
 	internal Task<JsonElement> ForkFromAsync(AcpSessionEndpoint parent, object parameters) {
 		ObjectDisposedException.ThrowIf(_retired, this);
-		return connection.RequestForEndpointAsync("session/fork", parent.Address(parameters), this, this, CancellationToken.None);
+		return connection.CreateForEndpointAsync("session/fork", parent.Address(parameters), this);
 	}
 	internal Task<JsonElement> CloseAsync() {
 		Retire();

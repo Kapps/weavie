@@ -1,0 +1,101 @@
+import { createAcpSession } from "../harness/acp-session";
+import { activeSessionSlot, waitForSessionSwitch } from "../harness/actions";
+import { expect, test } from "../harness/fixtures";
+
+test("multiple BTW threads overlap the primary and route independent replies", async ({ page }) => {
+  const surface = await createAcpSession(page, "acp-concurrent-sides");
+  const composer = surface.locator("[data-agent-composer] textarea");
+  await composer.fill("hold");
+  await composer.press("Enter");
+  await expect(composer).toHaveAttribute("placeholder", "Steer the running turn…");
+
+  await composer.fill("/btw input");
+  await composer.press("Enter");
+  const first = surface.locator(".agent-aside").nth(0);
+  await expect(first).toContainText("Choose a value");
+  await composer.fill("/btw input");
+  await composer.press("Enter");
+  const second = surface.locator(".agent-aside").nth(1);
+  await expect(second).toContainText("Choose a value");
+  await expect(composer).toHaveAttribute("placeholder", "Steer the running turn…");
+
+  await second.getByRole("radio", { name: "Two", exact: false }).check();
+  await second.getByRole("button", { name: "Submit answers", exact: true }).click();
+  await expect(second).toContainText("input: two");
+  await expect(first.getByRole("button", { name: "Submit answers", exact: true })).toBeVisible();
+  await second.getByRole("button", { name: "Reply", exact: true }).click();
+  const secondReply = second.getByRole("textbox", { name: "Reply to BTW" });
+  await secondReply.fill("identify-session");
+  await secondReply.press("Enter");
+  await expect(second).toContainText("session: fake-fork-fake-session-3");
+
+  await first.getByRole("radio", { name: "One", exact: false }).check();
+  await first.getByRole("button", { name: "Submit answers", exact: true }).click();
+  await expect(first).toContainText("input: one");
+  await expect(first).not.toContainText("input: two");
+  await expect(second).not.toContainText("input: one");
+  await first.getByRole("button", { name: "Reply", exact: true }).click();
+  const firstReply = first.getByRole("textbox", { name: "Reply to BTW" });
+  await firstReply.fill("identify-session");
+  await firstReply.press("Enter");
+  await expect(first).toContainText("session: fake-fork-fake-session-2");
+
+  await composer.fill("finish primary independently");
+  await composer.press("Enter");
+  await expect(surface).toContainText("steered: finish primary independently");
+  await expect(first).not.toContainText("steered:");
+  await expect(second).not.toContainText("steered:");
+  await expect(surface.locator(".agent-working")).toHaveCount(0);
+  await expect(surface.locator(".agent-tone-error")).toHaveCount(0);
+});
+
+test("BTW collapse and nested history expansion preserve per-thread state across session switches", async ({
+  page,
+}) => {
+  const initialSlot = await activeSessionSlot(page);
+  const surface = await createAcpSession(page, "acp-side-history");
+  const acpSlot = await activeSessionSlot(page);
+  const composer = surface.locator("[data-agent-composer] textarea");
+  await composer.fill("/btw rich");
+  await composer.press("Enter");
+  const aside = surface.locator(".agent-aside");
+  await expect(aside).toContainText("rich response");
+  const activity = aside.locator(".agent-entry-activity").first();
+  await activity.locator("summary").click();
+  const progress = activity.locator(".agent-activity-step", { hasText: "progress Task list" });
+  await progress.getByText("show output", { exact: true }).click();
+  await expect(progress.locator(".agent-tool-output")).toContainText("Inspect");
+  await aside.getByRole("button", { name: "Reply", exact: true }).click();
+  const reply = aside.getByRole("textbox", { name: "Reply to BTW" });
+  await reply.fill("draft belongs to this thread");
+
+  await aside.getByRole("button", { name: "Collapse BTW", exact: true }).click();
+  await expect(reply).toBeHidden();
+  await expect(progress).toBeHidden();
+  await aside.getByRole("button", { name: "Expand BTW", exact: true }).click();
+  await expect(reply).toHaveValue("draft belongs to this thread");
+  await expect(progress.locator(".agent-tool-output")).toContainText("Inspect");
+  await reply.focus();
+  await reply.press("Alt+b");
+  await expect(aside.getByRole("button", { name: "Expand BTW", exact: true })).toBeVisible();
+  await page.locator(`.session-chip[data-session-slot="${initialSlot}"]`).click();
+  await waitForSessionSwitch(page, acpSlot);
+  await page.locator(`.session-chip[data-session-slot="${acpSlot}"]`).click();
+  await waitForSessionSwitch(page, initialSlot);
+  await expect(aside.getByRole("button", { name: "Expand BTW", exact: true })).toBeVisible();
+  await aside.getByRole("button", { name: "Expand BTW", exact: true }).click();
+  await expect(reply).toHaveValue("draft belongs to this thread");
+  await expect(activity.locator("details").first()).toHaveAttribute("open", "");
+  await progress.getByText("show output", { exact: true }).click();
+  await expect(progress.locator(".agent-tool-output")).toContainText("Inspect");
+
+  await reply.fill("agent-terminal");
+  await reply.press("Enter");
+  await expect(aside).toContainText("agent terminal finished");
+  const commandActivity = aside.locator(".agent-entry-activity").last();
+  await commandActivity.locator("summary").click();
+  const command = commandActivity.locator(".agent-activity-step", { hasText: "echo hello" });
+  await command.getByText("show output", { exact: true }).click();
+  await expect(command.locator(".agent-tool-output")).toContainText("hello");
+  await expect(progress.locator(".agent-tool-output")).toContainText("Inspect");
+});

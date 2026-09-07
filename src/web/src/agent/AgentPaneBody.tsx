@@ -255,7 +255,7 @@ export function AgentPaneBody(props: {
             aria-label="Waiting for your response"
           >
             <TranscriptEntry
-              detailsExpanded={false}
+              expandedDetails={expandedDetails()}
               entry={props.model.pinnedRequest()!}
               keyboardApprovalId={props.model.keyboardApprovalId()}
               keyboardInputId={props.model.keyboardInputId()}

@@ -3,37 +3,44 @@ using Weavie.Core.Agents;
 namespace Weavie.AgentClientProtocol;
 
 public sealed partial class AcpAgentSession {
-	private readonly Queue<SideSubmission> _pendingSideSubmissions = [];
 	private readonly Dictionary<string, SideRuntime> _sideRuntimes = new(StringComparer.Ordinal);
-	private string? _activeSideConversationId;
 
 	/// <inheritdoc/>
 	public void AskAside(string prompt) {
 		prompt = RequiredSidePrompt(prompt);
-		lock (_gate) {
-			ObjectDisposedException.ThrowIf(_disposed, this);
-			EnsureSideConversationSupport();
-			_pendingSideSubmissions.Enqueue(new SideSubmission(
-				Guid.NewGuid().ToString("N"),
-				prompt,
-				Create: true));
+		lock (_turnTransitionGate) {
+			SideRuntime runtime;
+			lock (_gate) {
+				ObjectDisposedException.ThrowIf(_disposed, this);
+				EnsureSideConversationSupport();
+				var conversation = new SideConversation(Guid.NewGuid().ToString("N"), _turnNumber, prompt);
+				runtime = CreateSideRuntime(conversation, _guidanceSent, _activeGeneration);
+				_sideRuntimes.Add(conversation.ConversationId, runtime);
+			}
+			Emit(SideMarker(runtime.Conversation, "forking"));
+			try {
+				runtime.Session.Start();
+				runtime.Session.Submit(SideTurn(prompt));
+			} catch (Exception error) {
+				runtime.Session.FailConversationSerialized(error);
+			}
 		}
-		DispatchPendingWork();
 	}
 
 	/// <inheritdoc/>
 	public void ReplyAside(string conversationId, string prompt) {
 		ArgumentException.ThrowIfNullOrEmpty(conversationId);
 		prompt = RequiredSidePrompt(prompt);
-		lock (_gate) {
-			ObjectDisposedException.ThrowIf(_disposed, this);
-			if (!_sideRuntimes.ContainsKey(conversationId)) {
-				throw new InvalidOperationException("That side conversation is no longer available.");
+		lock (_turnTransitionGate) {
+			SideRuntime runtime;
+			lock (_gate) {
+				ObjectDisposedException.ThrowIf(_disposed, this);
+				runtime = _sideRuntimes.GetValueOrDefault(conversationId)
+					?? throw new InvalidOperationException("That side conversation is no longer available.");
+				EnsureSideConversationSupport();
 			}
-			EnsureSideConversationSupport();
-			_pendingSideSubmissions.Enqueue(new SideSubmission(conversationId, prompt, Create: false));
+			runtime.Session.Submit(SideTurn(prompt));
 		}
-		DispatchPendingWork();
 	}
 
 	private void EnsureSideConversationSupport() {
@@ -53,55 +60,9 @@ public sealed partial class AcpAgentSession {
 		return prompt;
 	}
 
-	private void DispatchPendingWork() {
-		DispatchPendingSubmission();
-		DispatchPendingSideSubmission();
-	}
-
-	private void DispatchPendingSideSubmission() {
-		lock (_turnTransitionGate) {
-			SideSubmission submission;
-			lock (_gate) {
-				if (_role is not PrimaryRole
-					|| !_ready
-					|| _activeSideConversationId is not null
-					|| _pendingSideSubmissions.Count == 0) {
-					return;
-				}
-				submission = _pendingSideSubmissions.Dequeue();
-				_activeSideConversationId = submission.ConversationId;
-			}
-			DeliverSideSubmission(submission);
-		}
-	}
-
-	private void DeliverSideSubmission(SideSubmission submission) {
-		SideConversation? conversation = null;
-		try {
-			lock (_turnTransitionGate) {
-				SideRuntime runtime;
-				lock (_gate) {
-					if (_disposed || !_ready || _activeSideConversationId != submission.ConversationId) return;
-					if (submission.Create) {
-						conversation = new SideConversation(submission.ConversationId, _turnNumber, submission.Prompt);
-						runtime = CreateSideRuntime(conversation, _guidanceSent, _activeGeneration);
-						_sideRuntimes.Add(conversation.ConversationId, runtime);
-					} else {
-						runtime = _sideRuntimes.GetValueOrDefault(submission.ConversationId)
-							?? throw new InvalidOperationException("That side conversation is no longer available.");
-						conversation = runtime.Conversation;
-					}
-					runtime.SubmissionDelivered = true;
-				}
-				if (submission.Create) {
-					Emit(SideMarker(conversation, "forking"));
-					runtime.Session.Start();
-				}
-				runtime.Session.Submit(SideTurn(submission.Prompt));
-			}
-		} catch (Exception ex) {
-			FailSideSubmission(submission.ConversationId, conversation, ex);
-		}
+	private bool HasWork() {
+		lock (_gate) return _sessionOpening || _pendingSubmissions.Count > 0 || _promptActive
+			|| HasBackgroundWorkLocked() || HasPendingInteractionLocked();
 	}
 
 	private SideRuntime CreateSideRuntime(SideConversation conversation, bool guidanceInherited, long generation) {
@@ -142,7 +103,6 @@ public sealed partial class AcpAgentSession {
 	private sealed record PrimaryRole : AcpSessionRole;
 	private sealed record SideRole(
 		SideConversation Conversation, bool GuidanceInherited, AcpAgentSession Owner, long Generation) : AcpSessionRole;
-	private sealed record SideSubmission(string ConversationId, string Prompt, bool Create);
 	private sealed record SideConversation(
 		string ConversationId,
 		long AnchorTurnNumber,
@@ -153,9 +113,5 @@ public sealed partial class AcpAgentSession {
 	private sealed class SideRuntime(AcpAgentSession session, SideConversation conversation) {
 		public SideConversation Conversation { get; } = conversation;
 		public AcpAgentSession Session { get; } = session;
-		public bool Interrupting { get; set; }
-		public bool SettlementPending { get; set; }
-		public bool SubmissionDelivered { get; set; }
-		public bool Terminal { get; set; }
 	}
 }

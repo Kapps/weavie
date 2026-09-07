@@ -139,6 +139,9 @@ public static class CoreCommands {
 	/// <summary>Jumps to the latest structured-agent activity and resumes following it.</summary>
 	public const string AgentJumpToLatest = "weavie.agent.jumpToLatest";
 
+	/// <summary>Toggles the focused or newest side conversation.</summary>
+	public const string ToggleAgentAside = "weavie.agent.toggleAside";
+
 	/// <summary>Toggles output for the focused or newest tool call in expanded structured-agent history.</summary>
 	public const string ToggleAgentToolOutput = "weavie.agent.toggleToolOutput";
 
@@ -993,6 +996,17 @@ public static class CoreCommands {
 			Description = "Jump to the latest agent activity and resume following new output.",
 			Aliases = ["jump to latest", "latest activity", "scroll to bottom", "follow agent"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "alt+down" }],
+			When = "agentFocused",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = ToggleAgentAside,
+			Title = "Toggle BTW Conversation",
+			RunsIn = CommandLocation.Web,
+			Category = "Agent",
+			Description = "Expand or collapse the focused side conversation, or the newest visible one.",
+			Aliases = ["collapse btw", "expand btw", "toggle side conversation"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "alt+b" }],
 			When = "agentFocused",
 		});
 

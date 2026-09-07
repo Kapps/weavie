@@ -4,6 +4,8 @@ namespace Weavie.AgentClientProtocol;
 
 public sealed partial class AcpJsonRpcConnection {
 	private readonly Lock _endpointGate = new();
+	private readonly SemaphoreSlim _openingGate = new(1, 1);
+	private AcpSessionEndpoint? _openingOwner;
 	private readonly List<AcpSessionEndpoint> _endpoints = [];
 	private readonly Dictionary<(long Generation, string Id), AcpSessionEndpoint> _incomingOwners = [];
 
@@ -25,13 +27,27 @@ public sealed partial class AcpJsonRpcConnection {
 		Action<long, JsonElement> notification, Action<AcpClientRequest> request) {
 		var endpoint = new AcpSessionEndpoint(this, generation, notification, request);
 		lock (_endpointGate) {
-			if (sessionId is null && _endpoints.Any(value => value.Generation == generation && value.SessionId is null && !value.Retired)) {
-				throw new InvalidOperationException("An ACP conversation is already opening.");
-			}
 			if (sessionId is not null) BindEndpoint(endpoint, sessionId);
 			_endpoints.Add(endpoint);
 		}
 		return endpoint;
+	}
+
+	internal async Task<JsonElement> CreateForEndpointAsync(
+		string method, object parameters, AcpSessionEndpoint endpoint) {
+		// ACP may send session traffic before returning its identity; the opening request owns that traffic.
+		await _openingGate.WaitAsync().ConfigureAwait(false);
+		try {
+			lock (_endpointGate) {
+				ObjectDisposedException.ThrowIf(endpoint.Retired, endpoint);
+				_openingOwner = endpoint;
+			}
+			return await RequestForEndpointAsync(
+				method, parameters, endpoint, endpoint, CancellationToken.None).ConfigureAwait(false);
+		} finally {
+			lock (_endpointGate) _openingOwner = null;
+			_openingGate.Release();
+		}
 	}
 
 	internal void BindEndpoint(AcpSessionEndpoint endpoint, string sessionId) {
@@ -47,8 +63,10 @@ public sealed partial class AcpJsonRpcConnection {
 		lock (_endpointGate) {
 			var endpoint = _endpoints.Find(value => value.Generation == generation && value.SessionId == sessionId);
 			if (endpoint is not null) return endpoint;
-			var opening = _endpoints.SingleOrDefault(value => value.Generation == generation && value.SessionId is null && !value.Retired)
-				?? throw new AcpProtocolException($"ACP addressed an unknown conversation '{sessionId}'.");
+			var opening = _openingOwner;
+			if (opening is null || opening.Generation != generation || opening.SessionId is not null) {
+				throw new AcpProtocolException($"ACP addressed an unknown conversation '{sessionId}'.");
+			}
 			opening.Bind(sessionId);
 			return opening;
 		}

@@ -3,6 +3,7 @@ import { setContext } from "../commands/context";
 import { liveKeyLabel } from "../commands/keys-live";
 import { runCommandWithFeedback } from "../commands/registry";
 import { CommandIds } from "../commands/types";
+import { intersectsViewport, newestVisibleAgentElement } from "./AgentViewport";
 
 interface MountedDisclosure {
   element: HTMLDetailsElement;
@@ -35,7 +36,7 @@ export function AgentToolOutput(props: {
     disclosures.set(outputId, disclosure);
     disclosuresByElement.set(element, disclosure);
     const viewport = element.closest(".agent-body");
-    disclosure.visible = viewport !== null && intersects(element, viewport);
+    disclosure.visible = viewport !== null && intersectsViewport(element, viewport);
     publishAvailability();
     const observer = new IntersectionObserver(
       ([entry]) => {
@@ -104,27 +105,8 @@ function focusedDisclosure(): MountedDisclosure | undefined {
 }
 
 function newestActiveDisclosure(): MountedDisclosure | undefined {
-  const body = document.querySelector<HTMLElement>(".agent-surface.active .agent-body");
-  if (body === null) {
-    return undefined;
-  }
-  const elements = document.querySelectorAll<HTMLDetailsElement>(
-    ".agent-surface.active [data-agent-tool-output]",
-  );
-  for (let index = elements.length - 1; index >= 0; index -= 1) {
-    const details = elements.item(index);
-    const disclosure = disclosuresByElement.get(details);
-    if (disclosure !== undefined && intersects(details, body)) {
-      return disclosure;
-    }
-  }
-  return undefined;
-}
-
-function intersects(element: Element, viewport: Element): boolean {
-  const bounds = element.getBoundingClientRect();
-  const visible = viewport.getBoundingClientRect();
-  return bounds.bottom > visible.top && bounds.top < visible.bottom;
+  const element = newestVisibleAgentElement<HTMLDetailsElement>("[data-agent-tool-output]");
+  return element === undefined ? undefined : disclosuresByElement.get(element);
 }
 
 function publishAvailability(): void {

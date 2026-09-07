@@ -85,6 +85,46 @@ describe("agent pane model isolation", () => {
     });
   });
 
+  it("expands each side history independently and preserves it as concurrent output arrives", () => {
+    createRoot((dispose) => {
+      const model = createAgentPaneModel({} as ClientSession);
+      const updates: AgentPaneUpdate[] = ["first", "second"].flatMap((conversationId) => [
+        {
+          type: "side-conversation-started",
+          providerId: "acp",
+          conversationId,
+          anchorTurnId: "0",
+          text: conversationId,
+        },
+        {
+          ...command("shared-item"),
+          conversationId,
+          threadId: conversationId,
+          text: `${conversationId} output`,
+        },
+      ]);
+      model.replace(updates);
+      const activity = (index: number) =>
+        model.entries[index]!.asideEntries!.find((entry) => entry.kind === "activity")!;
+      expect(activity(0).details).toEqual([]);
+      expect(activity(1).details).toEqual([]);
+      model.setActivityExpanded(activity(0).id, true);
+      expect(activity(0).details[0]?.detailText).toBe("first output");
+      expect(activity(1).details).toEqual([]);
+      model.setActivityExpanded(activity(1).id, true);
+      expect(activity(1).details[0]?.detailText).toBe("second output");
+      const next = { ...updates[1]!, text: "first updated output" };
+      updates[1] = next;
+      model.publish([...updates], [next]);
+      expect(activity(0).details[0]?.detailText).toBe("first updated output");
+      expect(activity(1).details[0]?.detailText).toBe("second output");
+      model.setActivityExpanded(activity(0).id, false);
+      expect(activity(0).details).toEqual([]);
+      expect(activity(1).details[0]?.detailText).toBe("second output");
+      dispose();
+    });
+  });
+
   it("keeps the latest remaining running step after a newer one completes incrementally", () => {
     createRoot((dispose) => {
       const model = createAgentPaneModel({} as ClientSession);

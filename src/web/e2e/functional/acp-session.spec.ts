@@ -1,20 +1,9 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { createAcpSession } from "../harness/acp-session";
 import { activeSessionSlot, expectRevealed, waitForSessionSwitch } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { sessionWorktrees } from "../harness/git-workspace";
-
-async function createAcpSession(page: import("@playwright/test").Page, branch: string) {
-  await page.locator(".session-rail-add").click();
-  const inbox = page.locator(".session-inbox");
-  await inbox.getByRole("combobox", { name: "Agent provider" }).selectOption("fake-acp");
-  await inbox.getByRole("textbox", { name: "Branch for the new session" }).fill(branch);
-  await inbox.getByRole("button", { name: "Start", exact: true }).click();
-  await expect(inbox).toBeHidden();
-
-  await expect(page.locator(`.session-chip.active[title^="${branch} —"]`)).toBeVisible();
-  return page.locator('[data-surface="structured-agent"]');
-}
 
 // The fresh-incarnation path is the invariant: no unload/reload is allowed between creation, control discovery,
 // and the first submitted turn. Both transports exercise the real HostCore and generic ACP process seam.

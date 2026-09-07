@@ -94,6 +94,7 @@ export const CommandIds = {
   agentInterrupt: "weavie.agent.interrupt",
   agentJumpToTurn: "weavie.agent.jumpToTurn",
   agentJumpToLatest: "weavie.agent.jumpToLatest",
+  toggleAgentAside: "weavie.agent.toggleAside",
   toggleAgentToolOutput: "weavie.agent.toggleToolOutput",
   toggleAgentMermaidPreview: "weavie.agent.toggleMermaidPreview",
   openAgentPlan: "weavie.agent.openPlan",

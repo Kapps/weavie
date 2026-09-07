@@ -16,11 +16,12 @@ import {
   pathTreeDirectoryKeys,
   visiblePathTreeRows,
 } from "../../files/path-tree";
+import { scrollVirtualElement } from "../../virtual-scroll";
 import type { ReviewCopyScope } from "../editor-host";
 import { normalizePath, repoRelativePath, samePath } from "../fs-path";
 import { ReviewFileSection } from "./ReviewFileSection";
 import { ReviewFileTree } from "./ReviewFileTree";
-import { estimatedEditorHeight } from "./review-editor";
+import { estimatedEditorHeight } from "./review-context";
 import type { ReviewFileView, ReviewOverview, UnifiedReviewNavigator } from "./review-store";
 import { createReviewWalk } from "./review-walk";
 import { UnifiedReviewHeader } from "./UnifiedReviewHeader";
@@ -91,12 +92,14 @@ export function UnifiedReview(props: {
     setTreeRevision((revision) => revision + 1);
   };
 
+  const editorHeights = new WeakMap<ReviewFileView, number>();
+  const editorHeight = (file: ReviewFileView): number =>
+    editorHeights.get(file) ?? estimatedEditorHeight(file.summary().added, file.summary().removed);
   const estimatedFileSize = (file: ReviewFileView): number => {
     if (file.collapsed()) {
       return SECTION_HEADER_HEIGHT;
     }
-    const summary = file.summary();
-    return SECTION_HEADER_HEIGHT + estimatedEditorHeight(summary.added, summary.removed);
+    return SECTION_HEADER_HEIGHT + editorHeight(file);
   };
   const rows = () => virtualizer.getVirtualItems();
   const rowKeys = (): string[] => rows().map((row) => String(row.key));
@@ -125,6 +128,7 @@ export function UnifiedReview(props: {
     },
     getScrollElement: () => scroller ?? null,
     gap: 20,
+    scrollToFn: scrollVirtualElement,
     measureElement: (element) => element.getBoundingClientRect().height,
     onChange: (instance) => {
       if (programmaticSelection) {
@@ -241,6 +245,9 @@ export function UnifiedReview(props: {
                         <Show when={file()}>
                           {(view) => (
                             <ReviewFileSection
+                              scroller={() => scroller!}
+                              editorHeight={() => editorHeight(view())}
+                              onEditorHeight={(height) => editorHeights.set(view(), height)}
                               displayPath={displayPath}
                               file={view}
                               index={item().index}

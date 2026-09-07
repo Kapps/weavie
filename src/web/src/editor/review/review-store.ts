@@ -419,8 +419,12 @@ export function createReviewStore(
   };
 
   const setCursor = (session: ClientSession, cursor: ReviewCursor): void => {
-    board(session).cursor = cursor;
-    save(session, board(session));
+    const state = board(session);
+    if (state.cursor?.line === cursor.line && samePath(state.cursor.path, cursor.path)) {
+      return;
+    }
+    state.cursor = cursor;
+    save(session, state);
   };
 
   const leaveUnified = (session: ClientSession): void => {

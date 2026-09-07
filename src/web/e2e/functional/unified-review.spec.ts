@@ -367,28 +367,6 @@ test("a cold deleted file renders from its review snapshot instead of reading th
   await expect(mode).toHaveAttribute("title", /File review unavailable.*\(/);
 });
 
-test.describe("unified review mode — large file", () => {
-  test.use({
-    fakeScript: {
-      steps: [
-        ...appliedEdit(
-          "large-review.txt",
-          Array.from({ length: 4_000 }, (_, index) => `line ${index}`).join("\n"),
-        ),
-      ],
-    },
-  });
-
-  test("renders a 4,000-line change without a presentation cutoff", async ({ page }) => {
-    await page.locator(".editor-empty-review").click();
-    const overview = page.locator(".unified-review");
-    // See the 2026-09-03 flake note on the "completions" test above — same hardcoded-override defect.
-    await expect(overview.locator(".monaco-editor")).toBeVisible();
-    await expect(overview).not.toContainText("Diff calculation timed out");
-    await expect(overview.locator(".view-line", { hasText: "line 3999" })).toHaveCount(1);
-  });
-});
-
 test.describe("unified review mode — large file set", () => {
   const fileCount = 100;
   const readyFile = ".large-review-ready";

@@ -209,6 +209,7 @@
   height: 100%;
   min-width: 0;
   overflow: auto;
+  overflow-anchor: none;
   width: 100%;
   max-width: 100rem;
   margin: 0 auto;
@@ -300,6 +301,13 @@
 
 /* Sized by its editor to the exact content height (review-editor.ts); the list does the scrolling. */
 .unified-review-editor {
+  position: relative;
+  width: 100%;
+}
+
+.unified-review-editor-viewport {
+  position: absolute;
+  left: 0;
   width: 100%;
 }
 

@@ -1,4 +1,4 @@
-import { createVirtualizer, elementScroll, type VirtualItem } from "@tanstack/solid-virtual";
+import { createVirtualizer, type VirtualItem } from "@tanstack/solid-virtual";
 import { ArrowDown, ArrowUp } from "lucide-solid";
 import {
   createEffect,
@@ -13,6 +13,7 @@ import {
 import { setContext } from "../commands/context";
 import { liveKeyLabel } from "../commands/keys-live";
 import { CommandIds } from "../commands/types";
+import { scrollVirtualElement } from "../virtual-scroll";
 import { AgentComposer } from "./AgentComposer";
 import { estimateEntrySize } from "./AgentPaneEstimate";
 import { createAgentPaneScroll } from "./AgentPaneScroll";
@@ -115,16 +116,7 @@ export function AgentPaneBody(props: {
     onChange: (_instance, sync) => virtualizerChanged(sync),
     overscan: 4,
     scrollToFn: (offset, options, instance) => {
-      // A correction is a relative shift, and `offset` is the virtualizer's cached position — one
-      // `scroll` event stale while the pane moves — so apply it against the live one.
-      if (options.adjustments !== undefined && body !== undefined) {
-        const top = body.scrollTop + options.adjustments;
-        body.scrollTop = top;
-        virtualizerScroll(top);
-        return;
-      }
-      virtualizerScroll(offset);
-      elementScroll(offset, options, instance);
+      virtualizerScroll(scrollVirtualElement(offset, options, instance));
     },
   });
   const wheel = createAgentPaneWheel(

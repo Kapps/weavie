@@ -16,12 +16,13 @@ import {
   pathTreeDirectoryKeys,
   visiblePathTreeRows,
 } from "../../files/path-tree";
+import { scrollVirtualElement } from "../../virtual-scroll";
 import type { ReviewCopyScope } from "../editor-host";
 import { normalizePath, repoRelativePath, samePath } from "../fs-path";
 import type { InlineDiff, ReviewScopeState } from "../inline-diff";
 import { ReviewFileSection } from "./ReviewFileSection";
 import { ReviewFileTree } from "./ReviewFileTree";
-import { estimatedEditorHeight } from "./review-editor";
+import { estimatedEditorHeight } from "./review-context";
 import type { ReviewFileDiff, ReviewFileView, ReviewOverview } from "./review-store";
 import { createReviewSurface, type UnifiedReviewSurface } from "./review-surface";
 import { UnifiedReviewHeader } from "./UnifiedReviewHeader";
@@ -114,12 +115,14 @@ export function UnifiedReview(props: {
     setTreeRevision((revision) => revision + 1);
   };
 
+  const editorHeights = new WeakMap<ReviewFileView, number>();
+  const editorHeight = (file: ReviewFileView): number =>
+    editorHeights.get(file) ?? estimatedEditorHeight(file.summary().added, file.summary().removed);
   const estimatedFileSize = (file: ReviewFileView): number => {
     if (file.collapsed()) {
       return SECTION_HEADER_HEIGHT;
     }
-    const summary = file.summary();
-    return SECTION_HEADER_HEIGHT + estimatedEditorHeight(summary.added, summary.removed);
+    return SECTION_HEADER_HEIGHT + editorHeight(file);
   };
   const rows = () => virtualizer.getVirtualItems();
   const rowKeys = (): string[] => rows().map((row) => String(row.key));
@@ -148,6 +151,7 @@ export function UnifiedReview(props: {
     },
     getScrollElement: () => scroller ?? null,
     gap: 20,
+    scrollToFn: scrollVirtualElement,
     measureElement: (element) => element.getBoundingClientRect().height,
     onChange: (instance) => {
       if (programmaticSelection) {
@@ -236,7 +240,7 @@ export function UnifiedReview(props: {
   };
 
   return (
-    <section class="unified-review" data-kind="editor" data-review-mode="unified" ref={toolbarHost}>
+    <section class="unified-review" data-kind="editor" data-review-mode="unified">
       <UnifiedReviewHeader overview={props.overview} />
 
       <main
@@ -266,6 +270,9 @@ export function UnifiedReview(props: {
                         <Show when={file()}>
                           {(view) => (
                             <ReviewFileSection
+                              scroller={() => scroller!}
+                              editorHeight={() => editorHeight(view())}
+                              onEditorHeight={(height) => editorHeights.set(view(), height)}
                               scope={props.scope}
                               displayPath={displayPath}
                               file={view}
@@ -276,25 +283,8 @@ export function UnifiedReview(props: {
                               configureDiff={(inline, uri, diff) =>
                                 props.configureDiff(props.session, inline, uri, diff)
                               }
-                              viewport={() => {
-                                const rect = scroller?.getBoundingClientRect();
-                                return rect === undefined
-                                  ? null
-                                  : { top: rect.top + SECTION_HEADER_HEIGHT, bottom: rect.bottom };
-                              }}
-                              revealLine={(element, top) => {
-                                if (scroller === undefined) return;
+                              onReveal={() => {
                                 programmaticSelection = true;
-                                scroller.scrollTo({
-                                  top: Math.max(
-                                    0,
-                                    element.getBoundingClientRect().top -
-                                      scroller.getBoundingClientRect().top +
-                                      scroller.scrollTop +
-                                      top -
-                                      SECTION_HEADER_HEIGHT,
-                                  ),
-                                });
                               }}
                               openCopy={(diff) =>
                                 copies.open(
@@ -337,6 +327,7 @@ export function UnifiedReview(props: {
           </For>
         </div>
       </main>
+      <footer class="unified-review-controls" ref={toolbarHost} />
     </section>
   );
 }

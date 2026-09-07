@@ -42,6 +42,22 @@ function session(): ClientSession {
 }
 
 describe("review store", () => {
+  it("persists cursor movement only when the review position changes", () => {
+    createRoot((dispose) => {
+      const saved: ReviewResume[] = [];
+      const store = createReviewStore((_session, resume) => saved.push(resume));
+      const client = session();
+      store.setFiles(client, [firstFile], "Review");
+      store.setCursor(client, { path: firstFile.path, line: 4 });
+      store.setCursor(client, { path: firstFile.path, line: 4 });
+      expect(saved).toHaveLength(1);
+      store.setCursor(client, { path: firstFile.path, line: 5 });
+      expect(saved).toHaveLength(2);
+      expect(saved.at(-1)?.cursor?.line).toBe(5);
+      dispose();
+    });
+  });
+
   it("resumes presentation from compact metadata, unfolding only when the file changes", () => {
     createRoot((dispose) => {
       const saved: ReviewResume[] = [];

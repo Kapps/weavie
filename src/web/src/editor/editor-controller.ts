@@ -979,6 +979,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
           revealLine: (line) => created.editor.revealLineInCenter(line, REVEAL_SCROLL),
           reviewLine: () => diff.inlineReviewLine(created.editor),
           painted: () => {},
+          updateGeometry: (change) => change(),
         });
         // Review undo/redo is session-global (not tied to a file), so its post-callbacks are bound once. `kind`
         // targets the type-split chords; the generic Undo (toolbar) omits it.

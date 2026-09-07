@@ -9,7 +9,6 @@ import { findCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { onFontsChanged } from "../fonts";
 import { monaco } from "./monaco-setup";
-import { REVEAL_SCROLL } from "./reveal-scroll";
 import { DiffComputer } from "./review/diff-computer";
 import {
   type AcceptedDiffHunk,
@@ -133,6 +132,8 @@ export interface InlineDiffPresentation {
   revealLine(line: number): void;
   reviewLine(): number;
   painted(markers: DiffMarkers | null): void;
+  /** Keeps geometry-induced scroll changes inside the owning presentation. */
+  updateGeometry(change: () => void): void;
 }
 
 /** Uses the cursor while it is visible; scrolling past it reviews the viewport's center. */
@@ -288,13 +289,24 @@ export function createInlineDiff(
   let zoneObservers: ResizeObserver[] = [];
   let composerObserver: ResizeObserver | undefined;
 
+  const replaceToolbar = (next: HTMLElement | undefined): void => {
+    const previous = toolbarNode;
+    toolbarNode = next;
+    if (next !== undefined) {
+      const host = presentation.toolbarHost();
+      if (host !== null) {
+        if (previous?.parentElement === host) previous.replaceWith(next);
+        else host.appendChild(next);
+      }
+    }
+    previous?.remove();
+  };
+
   const clearControls = (): void => {
     for (const widget of hunkWidgets) {
       editor.removeContentWidget(widget);
     }
     hunkWidgets = [];
-    toolbarNode?.remove();
-    toolbarNode = undefined;
     counterNode = undefined;
     dotsNode = undefined;
     scopeMenuNode = undefined;
@@ -310,6 +322,9 @@ export function createInlineDiff(
     currentHunks = [];
   };
 
+  const changeViewZones = (change: Parameters<typeof editor.changeViewZones>[0]): void =>
+    presentation.updateGeometry(() => editor.changeViewZones(change));
+
   const clearPaint = (): void => {
     decorations?.clear();
     decorations = undefined;
@@ -317,7 +332,7 @@ export function createInlineDiff(
     // faded band, a fresh diff push) would otherwise wipe the half-typed comment. It's closed on submit/cancel,
     // a model swap (onModel), and clearAll instead.
     if (zoneIds.length > 0) {
-      editor.changeViewZones((accessor) => {
+      changeViewZones((accessor) => {
         for (const id of zoneIds) {
           accessor.removeZone(id);
         }
@@ -333,10 +348,14 @@ export function createInlineDiff(
     zoneObservers = [];
   };
 
-  const clearRender = (): void => {
+  const clearRenderState = (): void => {
     clearPaint();
     clearControls();
     renderedUri = undefined;
+  };
+  const clearRender = (): void => {
+    clearRenderState();
+    replaceToolbar(undefined);
   };
 
   // A comment composer: a textarea + a submit button. onSubmit fires with the trimmed body (ignored when empty);
@@ -404,7 +423,7 @@ export function createInlineDiff(
         content.offsetHeight + parseFloat(style.marginTop) + parseFloat(style.marginBottom);
       if (height > 0 && Math.abs(height - zone.heightInPx) >= 1) {
         zone.heightInPx = height;
-        editor.changeViewZones((a) => a.layoutZone(id));
+        changeViewZones((a) => a.layoutZone(id));
       }
     });
     observer.observe(content);
@@ -446,7 +465,7 @@ export function createInlineDiff(
     if (composerZoneId !== undefined) {
       const id = composerZoneId;
       composerZoneId = undefined;
-      editor.changeViewZones((accessor) => accessor.removeZone(id));
+      changeViewZones((accessor) => accessor.removeZone(id));
     }
   };
 
@@ -473,7 +492,7 @@ export function createInlineDiff(
     cancel.addEventListener("click", closeNewComposer);
     composer.appendChild(cancel);
     node.appendChild(composer);
-    editor.changeViewZones((accessor) => {
+    changeViewZones((accessor) => {
       const { id, observer } = addContentSizedZone(accessor, line, node);
       composerZoneId = id;
       composerObserver = observer;
@@ -1198,21 +1217,23 @@ export function createInlineDiff(
     options: InlineDiffOptions,
     message: string,
   ): void => {
-    clearRender();
-    fallbackNavigation = options;
-    presentation.painted(null);
+    presentation.updateGeometry(() => {
+      clearRenderState();
+      fallbackNavigation = options;
+      presentation.painted(null);
+    });
     const fileKept = fileIsKept(options);
     const editorDom = presentation.toolbarHost();
     if (editorDom !== null) {
-      toolbarNode = document.createElement("div");
-      toolbarNode.className = "weavie-inline-toolbar";
+      const bar = document.createElement("div");
+      bar.className = "weavie-inline-toolbar";
       const multiFile =
         options.fileCount !== undefined &&
         options.fileCount > 1 &&
         options.onPrevFile !== undefined &&
         options.onNextFile !== undefined;
       if (multiFile) {
-        toolbarNode.appendChild(
+        bar.appendChild(
           makeButton(
             "weavie-inline-file",
             "←",
@@ -1224,9 +1245,9 @@ export function createInlineDiff(
       const warning = document.createElement("span");
       warning.className = "weavie-inline-stack-sub";
       warning.textContent = fileKept ? `File kept · ${message.toLowerCase()}` : message;
-      toolbarNode.appendChild(warning);
+      bar.appendChild(warning);
       if (multiFile) {
-        toolbarNode.appendChild(
+        bar.appendChild(
           makeButton(
             "weavie-inline-file",
             "→",
@@ -1237,7 +1258,7 @@ export function createInlineDiff(
       }
       if (options.mode === "applied" && !fileKept) {
         // No hunk geometry to act on, so only the whole-file actions are offered.
-        toolbarNode.append(
+        bar.append(
           makeButton(
             "weavie-inline-accept",
             "Keep file",
@@ -1252,7 +1273,7 @@ export function createInlineDiff(
           ),
         );
       } else if (options.mode === "review") {
-        toolbarNode.append(
+        bar.append(
           makeButton(
             "weavie-inline-accept",
             "Keep",
@@ -1267,7 +1288,9 @@ export function createInlineDiff(
           ),
         );
       }
-      editorDom.appendChild(toolbarNode);
+      replaceToolbar(bar);
+    } else {
+      replaceToolbar(undefined);
     }
     renderedUri = uriString;
   };
@@ -1289,7 +1312,7 @@ export function createInlineDiff(
     const previousZoneIds = zoneIds;
     const nextZoneIds: string[] = [];
     const nextZoneObservers: ResizeObserver[] = [];
-    editor.changeViewZones((accessor) => {
+    changeViewZones((accessor) => {
       for (const id of previousZoneIds) {
         accessor.removeZone(id);
       }
@@ -1341,73 +1364,79 @@ export function createInlineDiff(
       return;
     }
 
-    clearControls();
-    if (options.allActionsDisabled === true && presentation.scope.current === "all") {
-      presentation.scope.current = "change";
-    }
+    let initialLine: number | undefined;
+    presentation.updateGeometry(() => {
+      clearControls();
+      if (options.allActionsDisabled === true && presentation.scope.current === "all") {
+        presentation.scope.current = "change";
+      }
 
-    const markers = computeDiffMarkers(
-      {
-        original: options.original,
-        acceptedBaseline: hasFadedBand(options) ? options.acceptedBaseline : undefined,
-        claudeVersion: options.claudeVersion,
-      },
-      calculation,
-    );
-    // A fully-kept file has no bright (pending) hunks but still carries a faded accepted band — don't bail on it.
-    if (markers.hunks.length === 0 && !hasFadedBand(options)) {
-      clearRender();
+      const markers = computeDiffMarkers(
+        {
+          original: options.original,
+          acceptedBaseline: hasFadedBand(options) ? options.acceptedBaseline : undefined,
+          claudeVersion: options.claudeVersion,
+        },
+        calculation,
+      );
+      // A fully-kept file has no bright (pending) hunks but still carries a faded accepted band — don't bail on it.
+      if (markers.hunks.length === 0 && !hasFadedBand(options)) {
+        clearRender();
+        presentation.painted(markers);
+        initialProposalReveals.delete(uriString);
+        return; // no net change and nothing kept — nothing to render
+      }
+      const { acceptedHunks, hunks } = markers;
+
+      replacePaint(model, options, markers);
+
+      currentOptions = options;
+      currentHunks = hunks;
+      renderedVersion = version;
+      showingParked = false;
+      if (initialProposalReveals.delete(uriString) && hunks[0] !== undefined) {
+        initialLine = hunks[0].anchorLine;
+      }
+      renderedScope = presentation.scope.current;
+      replaceToolbar(buildToolbar(options));
+      // The inline ✓ keep / ✕ revert widgets on each bright pending hunk (applied review only).
+      if (
+        options.mode === "applied" &&
+        options.onKeepHunk !== undefined &&
+        options.onRevertHunk !== undefined
+      ) {
+        hunks.forEach((hunk, index) => {
+          const widget = buildPendingWidget(hunk, index, model);
+          hunkWidgets.push(widget);
+          editor.addContentWidget(widget);
+        });
+      }
+      // The inline ↶ undo widgets (faded band only); no-op when there's no accepted band or no un-keep handler.
+      if (options.onUnkeepHunk !== undefined) {
+        const onUnkeep = options.onUnkeepHunk;
+        acceptedHunks.forEach((hunk, index) => {
+          const widget = buildUndoWidget(hunk, index, model, onUnkeep);
+          hunkWidgets.push(widget);
+          editor.addContentWidget(widget);
+        });
+      }
+      renderedUri = uriString;
       presentation.painted(markers);
-      initialProposalReveals.delete(uriString);
-      return; // no net change and nothing kept — nothing to render
+    });
+    if (initialLine !== undefined) {
+      editor.setPosition({ lineNumber: initialLine, column: 1 });
+      presentation.revealLine(initialLine);
     }
-    const { acceptedHunks, hunks } = markers;
-
-    replacePaint(model, options, markers);
-
-    currentOptions = options;
-    currentHunks = hunks;
-    renderedVersion = version;
-    showingParked = false;
-    if (initialProposalReveals.delete(uriString) && hunks[0] !== undefined) {
-      editor.revealLineInCenter(hunks[0].anchorLine, REVEAL_SCROLL);
-      editor.setPosition({ lineNumber: hunks[0].anchorLine, column: 1 });
-    }
-    renderedScope = presentation.scope.current;
-    toolbarNode = buildToolbar(options);
-    presentation.toolbarHost()?.appendChild(toolbarNode);
-    // The inline ✓ keep / ✕ revert widgets on each bright pending hunk (applied review only).
-    if (
-      options.mode === "applied" &&
-      options.onKeepHunk !== undefined &&
-      options.onRevertHunk !== undefined
-    ) {
-      hunks.forEach((hunk, index) => {
-        const widget = buildPendingWidget(hunk, index, model);
-        hunkWidgets.push(widget);
-        editor.addContentWidget(widget);
-      });
-    }
-    // The inline ↶ undo widgets (faded band only); no-op when there's no accepted band or no un-keep handler.
-    if (options.onUnkeepHunk !== undefined) {
-      const onUnkeep = options.onUnkeepHunk;
-      acceptedHunks.forEach((hunk, index) => {
-        const widget = buildUndoWidget(hunk, index, model, onUnkeep);
-        hunkWidgets.push(widget);
-        editor.addContentWidget(widget);
-      });
-    }
-    renderedUri = uriString;
-    presentation.painted(markers);
   };
 
   // The parked toolbar: the same bottom-center bar as a live review, sitting at "change 0" over whatever the
   // editor shows. Its nav + Keep step into the review (stepIn); Keep/Revert are inert until then; Undo/Redo
   // still reflect the session history. Reuses the live toolbar's classes so stepping in is a seamless expand.
   const renderParked = (): void => {
-    clearRender();
+    clearRenderState();
     const editorDom = presentation.toolbarHost();
     if (editorDom === null || parkedReview === undefined) {
+      replaceToolbar(undefined);
       return;
     }
     const bar = document.createElement("div");
@@ -1494,8 +1523,7 @@ export function createInlineDiff(
     );
     bar.append(undoButton, redoButton);
     syncHistoryButtons();
-    toolbarNode = bar;
-    editorDom.appendChild(bar);
+    replaceToolbar(bar);
     showingParked = true;
   };
 

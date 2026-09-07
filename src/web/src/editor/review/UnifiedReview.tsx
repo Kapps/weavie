@@ -18,11 +18,12 @@ import {
 } from "../../files/path-tree";
 import type { ReviewCopyScope } from "../editor-host";
 import { normalizePath, repoRelativePath, samePath } from "../fs-path";
+import type { InlineDiff, ReviewScopeState } from "../inline-diff";
 import { ReviewFileSection } from "./ReviewFileSection";
 import { ReviewFileTree } from "./ReviewFileTree";
 import { estimatedEditorHeight } from "./review-editor";
-import type { ReviewFileView, ReviewOverview, UnifiedReviewNavigator } from "./review-store";
-import { createReviewWalk } from "./review-walk";
+import type { ReviewFileDiff, ReviewFileView, ReviewOverview } from "./review-store";
+import { createReviewSurface, type UnifiedReviewSurface } from "./review-surface";
 import { UnifiedReviewHeader } from "./UnifiedReviewHeader";
 
 const SECTION_HEADER_HEIGHT = 42;
@@ -30,16 +31,24 @@ const TREE_HEADER_HEIGHT = 42;
 const TREE_ROW_HEIGHT = 28;
 
 export function UnifiedReview(props: {
+  scope: ReviewScopeState;
   overview: () => ReviewOverview;
   session: ClientSession;
   onCursorChange: (session: ClientSession, path: string, line: number) => void;
   onFileCollapsed: (session: ClientSession, path: string, collapsed: boolean) => void;
-  /** Hands this surface's own review walk to the controller for as long as it is mounted. */
-  bindNavigator: (session: ClientSession, navigator: UnifiedReviewNavigator) => () => void;
+  bindSurface: (session: ClientSession, surface: UnifiedReviewSurface) => () => void;
+  refreshControls: () => void;
+  configureDiff: (
+    session: ClientSession,
+    inline: InlineDiff,
+    uri: string,
+    diff: ReviewFileDiff,
+  ) => void;
   /** Resolve a changed file's working copy for its section editor; released when this surface unmounts. */
   createCopyScope: () => ReviewCopyScope;
 }): JSX.Element {
   let scroller: HTMLElement | undefined;
+  let toolbarHost: HTMLElement | undefined;
   let programmaticSelection = true;
   const initialIndex = (): number => {
     const cursor = props.overview().cursor;
@@ -49,7 +58,21 @@ export function UnifiedReview(props: {
         : props.overview().files.findIndex((file) => samePath(file.summary().path, cursor.path));
     return Math.max(0, index);
   };
-  const [visibleFile, setVisibleFile] = createSignal(initialIndex());
+  const [selectedPath, setSelectedPath] = createSignal(
+    props.overview().files[initialIndex()]?.summary().path ?? null,
+  );
+  const visibleFile = (): number =>
+    Math.max(
+      0,
+      props
+        .overview()
+        .files.findIndex(
+          (file) => selectedPath() !== null && samePath(file.summary().path, selectedPath()!),
+        ),
+    );
+  const setVisibleFile = (index: number): void => {
+    setSelectedPath(props.overview().files[index]?.summary().path ?? null);
+  };
 
   onMount(() => scroller?.focus());
   const copies = props.createCopyScope();
@@ -135,7 +158,6 @@ export function UnifiedReview(props: {
       const summary = index === undefined || index < 0 ? undefined : files()[index]?.summary();
       if (index !== undefined && summary !== undefined) {
         setVisibleFile(index);
-        walk.anchor(summary.line);
         props.onCursorChange(props.session, summary.path, summary.line);
       }
     },
@@ -162,24 +184,24 @@ export function UnifiedReview(props: {
     props.onFileCollapsed(props.session, file.summary().path, collapsed);
   };
 
-  // The review walk lives beside this surface: it owns the section registry and the stepping, this component
-  // owns the virtualizer, the follow-mode flag and the selection it moves.
-  const walk = createReviewWalk(
-    {
-      files,
-      currentIndex: visibleFile,
-      select: (index, path, line) => {
-        programmaticSelection = true;
-        setVisibleFile(index);
-        props.onCursorChange(props.session, path, line);
-      },
-      expand: (file) => setFileCollapsed(file, false),
-      scroller: () => scroller,
-      scrollToIndex: (index) => virtualizer.scrollToIndex(index, { align: "start" }),
+  const surface = createReviewSurface({
+    toolbarHost: () => toolbarHost ?? null,
+    changed: props.refreshControls,
+    files,
+    currentIndex: visibleFile,
+    select: (index, path, line) => {
+      programmaticSelection = true;
+      setVisibleFile(index);
+      props.onCursorChange(props.session, path, line);
     },
-    SECTION_HEADER_HEIGHT,
-  );
-  createEffect(() => onCleanup(props.bindNavigator(props.session, walk)));
+    expand: (file) => setFileCollapsed(file, false),
+    scrollToIndex: (index) => virtualizer.scrollToIndex(index, { align: "start" }),
+  });
+  createEffect(() => onCleanup(props.bindSurface(props.session, surface)));
+  createEffect(() => {
+    visibleFile();
+    props.refreshControls();
+  });
 
   let restoredSession: ClientSession | undefined;
   createEffect(() => {
@@ -189,13 +211,15 @@ export function UnifiedReview(props: {
     }
     restoredSession = session;
     const index = initialIndex();
-    walk.anchor(props.overview().cursor?.line ?? 0);
     const virtualIndex = props.overview().cursor === null ? 0 : index + 1;
     programmaticSelection = true;
     setVisibleFile(index);
     queueMicrotask(() => {
       if (scroller?.isConnected === true) {
-        virtualizer.scrollToIndex(virtualIndex, { align: "start" });
+        const cursor = props.overview().cursor;
+        if (cursor === null || files()[index]?.collapsed())
+          virtualizer.scrollToIndex(virtualIndex, { align: "start" });
+        else surface.reveal(cursor.path, cursor.line);
       }
     });
   });
@@ -212,7 +236,7 @@ export function UnifiedReview(props: {
   };
 
   return (
-    <section class="unified-review" data-kind="editor" data-review-mode="unified">
+    <section class="unified-review" data-kind="editor" data-review-mode="unified" ref={toolbarHost}>
       <UnifiedReviewHeader overview={props.overview} />
 
       <main
@@ -222,6 +246,7 @@ export function UnifiedReview(props: {
         onKeyDown={followViewport}
         onPointerDown={followViewport}
         onWheel={followViewport}
+        onScroll={() => surface.refresh()}
       >
         <div class="unified-review-virtual-list" style={`height:${virtualizer.getTotalSize()}px`}>
           <For each={rowKeys()}>
@@ -241,10 +266,36 @@ export function UnifiedReview(props: {
                         <Show when={file()}>
                           {(view) => (
                             <ReviewFileSection
+                              scope={props.scope}
                               displayPath={displayPath}
                               file={view}
                               index={item().index}
-                              register={walk.sections}
+                              register={surface.sections}
+                              active={() => visibleFile() === item().index - 1}
+                              toolbarHost={() => toolbarHost ?? null}
+                              configureDiff={(inline, uri, diff) =>
+                                props.configureDiff(props.session, inline, uri, diff)
+                              }
+                              viewport={() => {
+                                const rect = scroller?.getBoundingClientRect();
+                                return rect === undefined
+                                  ? null
+                                  : { top: rect.top + SECTION_HEADER_HEIGHT, bottom: rect.bottom };
+                              }}
+                              revealLine={(element, top) => {
+                                if (scroller === undefined) return;
+                                programmaticSelection = true;
+                                scroller.scrollTo({
+                                  top: Math.max(
+                                    0,
+                                    element.getBoundingClientRect().top -
+                                      scroller.getBoundingClientRect().top +
+                                      scroller.scrollTop +
+                                      top -
+                                      SECTION_HEADER_HEIGHT,
+                                  ),
+                                });
+                              }}
                               openCopy={(diff) =>
                                 copies.open(
                                   props.session,
@@ -254,11 +305,10 @@ export function UnifiedReview(props: {
                                 )
                               }
                               measure={measure}
-                              onFocus={() => {
+                              onFocus={(line) => {
                                 const summary = view().summary();
                                 setVisibleFile(item().index - 1);
-                                walk.anchor(summary.line);
-                                props.onCursorChange(props.session, summary.path, summary.line);
+                                props.onCursorChange(props.session, summary.path, line);
                               }}
                               style={`top:${item().start}px`}
                             />
@@ -271,7 +321,9 @@ export function UnifiedReview(props: {
                         index={0}
                         measure={measure}
                         nodes={treeNodes}
-                        onSelect={walk.goToFile}
+                        onSelect={(file) =>
+                          surface.reveal(file.summary().path, file.summary().line)
+                        }
                         onToggleDirectory={toggleDirectory}
                         overview={props.overview}
                         selectedPath={() => files()[visibleFile()]?.summary().path ?? null}

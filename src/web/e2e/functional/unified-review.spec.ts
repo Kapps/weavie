@@ -183,7 +183,9 @@ test.describe("unified review mode", () => {
       });
     });
 
-    await hello.locator(".view-line", { hasText: "console.warn" }).click();
+    await hello
+      .locator(".view-line", { hasText: "console.warn" })
+      .click({ position: { x: 4, y: 4 } });
     await page.keyboard.press("End");
     await page.keyboard.type(".");
 
@@ -331,13 +333,42 @@ test.describe("unified review mode — the walk stays on the page", () => {
       .toBeGreaterThan(0);
     await expect.poll(offset).toBe(0);
 
-    await overview.locator(".unified-review-action", { hasText: "Next" }).click();
+    await overview.locator("button[title^='Next change']").click();
 
     // The walk moved the overview to the next change — it did NOT leave review for the file editor.
     await expect.poll(offset, { timeout: 15_000 }).toBeGreaterThan(0);
     await expect(overview).toBeVisible();
     await expect(page.locator(".editor-tab.active", { hasText: "walk.txt" })).toHaveCount(0);
-    await expect(page.locator(".weavie-inline-toolbar")).toHaveCount(0);
+    await expect(overview.locator(".weavie-inline-toolbar")).toBeVisible();
+  });
+
+  test("manual overview scrolling retargets Revert to the visible change", async ({
+    page,
+    weavie,
+  }) => {
+    await page.locator(".editor-empty-review").click();
+    const overview = page.locator(".unified-review");
+    const toolbar = overview.locator(".weavie-inline-toolbar");
+    const counter = toolbar.locator(".weavie-inline-stack-sub");
+    await expect(counter).toContainText("change 1/30");
+    const scroller = overview.locator(".unified-review-diffs");
+    await scroller.hover();
+    await page.mouse.wheel(0, 60000);
+    await expect
+      .poll(() =>
+        scroller.evaluate(
+          (element) => element.scrollHeight - element.clientHeight - element.scrollTop,
+        ),
+      )
+      .toBeLessThanOrEqual(1);
+    await expect(counter).not.toContainText("change 1/30");
+    const selected = Number((await counter.innerText()).match(/change (\d+)\/30/)?.[1]);
+    expect(selected).toBeGreaterThan(1);
+    const revertedLine = 10 + (selected - 1) * 20;
+    await toolbar.locator(".weavie-inline-reject").click();
+    const expected = `${spread.map((line, index) => (changed(index) && index !== revertedLine ? `${line} — changed` : line)).join("\n")}\n`;
+    await expect.poll(() => readFile(join(weavie.workspace, "walk.txt"), "utf8")).toBe(expected);
+    await expect(overview).toBeVisible();
   });
 });
 

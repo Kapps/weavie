@@ -256,6 +256,9 @@ public static class CoreCommands {
 	/// <summary>Switches between unified and file-focused review; bound to <c>$mod+Shift+u</c>.</summary>
 	public const string ReviewToggleMode = "weavie.review.toggleMode";
 
+	/// <summary>Accepts the remaining changes and finishes the diff review.</summary>
+	public const string ReviewClose = "weavie.review.close";
+
 	/// <summary>Expands or collapses the current file in unified review; bound to <c>alt+[</c>.</summary>
 	public const string ReviewToggleFile = "weavie.review.toggleFile";
 
@@ -1472,6 +1475,17 @@ public static class CoreCommands {
 			Description = "Switch seamlessly between the unified all-files review and the in-depth file review.",
 			Aliases = ["toggle review mode", "unified review", "file review", "review overview"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+u", When = "!terminalFocused" }],
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = ReviewClose,
+			Title = "Close Diff",
+			RunsIn = CommandLocation.Web,
+			Category = "Review",
+			When = "reviewClosable",
+			Description = "Accept the remaining changes and close the diff, clearing its review history.",
+			Aliases = ["close review", "finish review", "accept and close"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+alt+w", When = "!terminalFocused" }],
 		});
 
 		registry.Register(new CommandDefinition {

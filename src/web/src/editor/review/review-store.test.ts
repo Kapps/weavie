@@ -2,7 +2,12 @@ import { createRoot } from "solid-js";
 import { describe, expect, it } from "vitest";
 import type { ClientSession } from "../../bridge";
 import type { ReviewResume } from "../session-types";
-import { createReviewStore, type ReviewFile, type ReviewFileDiff } from "./review-store";
+import {
+  canCloseReview,
+  createReviewStore,
+  type ReviewFile,
+  type ReviewFileDiff,
+} from "./review-store";
 
 const firstFile: ReviewFile = {
   path: "/work/src/first.ts",
@@ -42,6 +47,27 @@ function session(): ClientSession {
 }
 
 describe("review store", () => {
+  it("persists an empty authoritative board while another session is selected", () => {
+    createRoot((dispose) => {
+      const saved: ReviewResume[] = [];
+      const store = createReviewStore((_session, resume) => saved.push(resume));
+      const client = session();
+      store.setFiles(client, [firstFile], "PR #1");
+      store.enterUnified(client, { path: firstFile.path, line: 12 });
+      store.setFileCollapsed(client, firstFile.path, true);
+      store.select(session());
+      store.setFiles(client, [], "PR #1");
+      expect(canCloseReview(store.board(client))).toBe(true);
+      store.setFiles(client, [], "");
+      expect(canCloseReview(store.board(client))).toBe(false);
+      expect(saved.at(-1)).toEqual({ mode: "file", cursor: null, files: {} });
+      store.select(client);
+      expect(store.mode()).toBe("file");
+      expect(store.count()).toBe(0);
+      dispose();
+    });
+  });
+
   it("persists cursor movement only when the review position changes", () => {
     createRoot((dispose) => {
       const saved: ReviewResume[] = [];

@@ -441,3 +441,18 @@ The session-changes "show changes" panel and the post-turn review panel (both fl
   the chosen trade for the 2D model; if it grates in practice, `Alt+Left/Right` is the fallback binding.
   On Mac the navigator is `⌃⌘+arrows` — unclaimed by the OS and text editing — so no steal exists there;
   bare Ctrl+arrows would be eaten by Mission Control/Spaces and bare `⌘+arrows` are line/document nav.
+
+## Closing a review
+
+Close Diff sits beside the mode toggle in both review presentations and is also a
+command with a default `$mod+Alt+W` binding. It accepts remaining changes at their
+current contents, clears the review source and decision history, and returns to
+the editor. Existing rejections stay applied; closing never rewrites files. Keep
+All remains a reversible review decision until Close Diff finishes the review.
+
+Completion advances the review and accepted boundaries in one persisted
+checkpoint. Session change tracking and correction provenance remain intact, and
+later agent edits start a fresh pending diff. Closing also works for a source with
+no remaining files. Session synchronization publishes the empty review so reloads
+and restarts clear any retained presentation. Explicitly opening a source again
+seeds a fresh diff against its requested base.

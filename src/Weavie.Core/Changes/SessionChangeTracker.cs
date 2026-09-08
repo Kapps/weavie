@@ -692,7 +692,7 @@ public sealed partial class SessionChangeTracker {
 	/// <summary>
 	/// The inline review diff set: every file whose current state differs from its accepted anchor — so a
 	/// fully-kept-but-uncommitted file (review baseline == current, but accepted anchor still behind) STAYS in the
-	/// set to carry its faded band, until keep-all snaps the anchor to current and drops it.
+	/// set to carry its faded band, until closing the review advances the anchor to current.
 	/// </summary>
 	public IReadOnlyList<FileChange> TurnChanges() {
 		lock (_gate) {

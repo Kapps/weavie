@@ -1,4 +1,4 @@
-import { FileCode2, Files } from "lucide-solid";
+import { FileCode2, Files, X } from "lucide-solid";
 import {
   createEffect,
   createMemo,
@@ -1234,7 +1234,7 @@ export default function App(): JSX.Element {
                 <Show when={editor.parkedReviewCount() > 0}>
                   <button
                     type="button"
-                    class="editor-review-toggle"
+                    class="editor-review-action editor-review-toggle"
                     aria-pressed={editor.review.mode() === "unified"}
                     disabled={fileReviewUnavailable()}
                     title={`${fileReviewUnavailable() ? "File review unavailable — all changed files are deleted" : editor.review.mode() === "unified" ? "Switch to file review" : "Switch to unified review"}${keyHint(CommandIds.reviewToggleMode)}`}
@@ -1244,6 +1244,16 @@ export default function App(): JSX.Element {
                       <FileCode2 size={14} />
                     </Show>
                     {editor.review.mode() === "unified" ? "File review" : "Unified review"}
+                  </button>
+                </Show>
+                <Show when={editor.review.canClose()}>
+                  <button
+                    type="button"
+                    class="editor-review-action editor-review-close"
+                    title={`Accept remaining changes and close diff${keyHint(CommandIds.reviewClose)}`}
+                    onClick={() => void runCommandWithFeedback(CommandIds.reviewClose)}
+                  >
+                    <X size={14} /> Close Diff
                   </button>
                 </Show>
                 {/* Pane-switch badge: its own cell at the right of the tab bar. */}

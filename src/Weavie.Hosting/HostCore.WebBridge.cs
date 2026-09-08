@@ -253,9 +253,7 @@ public sealed partial class HostCore {
 	/// </summary>
 	private void PushReviewStateToWeb(HostSession session, MessageTarget target) {
 		var changes = session.Changes.TurnChanges();
-		if (changes.Count > 0) {
-			PushTurnChangesToWeb(session, target);
-		}
+		PushTurnChangesToWeb(session, target);
 		foreach (var change in changes) {
 			PushReviewFileToWeb(session, change.Path, target);
 		}
@@ -308,6 +306,13 @@ public sealed partial class HostCore {
 		try { action(); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
 			Notify(session, "error", $"Couldn't save your review: {ex.Message}");
 		}
+	}
+
+	private void CloseReview(HostSession session) {
+		session.Changes.CloseReview();
+		session.ReviewArm = new object();
+		PushReviewHistoryToWeb(session);
+		PushTurnChangesToWeb(session);
 	}
 
 	/// <summary>Keeps every pending change, retaining faded proof and undo history.</summary>

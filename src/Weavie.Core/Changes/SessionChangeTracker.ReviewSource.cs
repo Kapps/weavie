@@ -3,6 +3,24 @@ using Weavie.Core.Review;
 namespace Weavie.Core.Changes;
 
 public sealed partial class SessionChangeTracker {
+	/// <summary>Finishes the review at its current contents, clearing its source and decision history.</summary>
+	public void CloseReview() {
+		lock (_gate) {
+			ReconcileReviewDisk();
+			foreach (var (path, current) in _current) {
+				_reviewBaseline[path] = current;
+				_acceptedAnchor[path] = current;
+				SetMissing(_missingReviewBaseline, path, _missingCurrent.Contains(path));
+				SetMissing(_missingAcceptedAnchor, path, _missingCurrent.Contains(path));
+				SetAllPending(path, false);
+			}
+			_undoStack.Clear();
+			_redoStack.Clear();
+			_review = null;
+			Checkpoint();
+		}
+	}
+
 	/// <summary>Attaches a PR/ref and extends its baseline without discarding existing review decisions.</summary>
 	public void ArmReview(ReviewContext review, IReadOnlyList<ReviewSeed> seeds) {
 		lock (_gate) {
@@ -24,6 +42,21 @@ public sealed partial class SessionChangeTracker {
 		if (!state.Tracked) return new(path, true, seed.Baseline, seed.BaselineExists, seed.Current, seed.CurrentExists,
 			seed.Baseline, seed.BaselineExists, seed.Baseline, seed.BaselineExists, seed.Current,
 			ProvenanceFile.Empty(seed.Current), seed.CurrentExists, seed.Current);
+		if (state.AcceptedAnchor == state.Current && state.AcceptedAnchorExists == state.CurrentExists
+			&& state.ReviewBaseline == state.Current && state.ReviewBaselineExists == state.CurrentExists
+			&& !HistoryFor(path).Any())
+			return state with {
+				Baseline = seed.Baseline,
+				BaselineExists = seed.BaselineExists,
+				Current = seed.Current,
+				CurrentExists = seed.CurrentExists,
+				Provenance = state.Provenance is { } provenance
+					? RebaseProvenance(provenance, seed.Current, []) : ProvenanceFile.Empty(seed.Current),
+				ReviewBaseline = seed.Baseline,
+				ReviewBaselineExists = seed.BaselineExists,
+				AcceptedAnchor = seed.Baseline,
+				AcceptedAnchorExists = seed.BaselineExists,
+			};
 		if (state.Baseline == seed.Baseline && state.BaselineExists == seed.BaselineExists) return state;
 
 		var from = new TextValue(state.Baseline, state.BaselineExists);

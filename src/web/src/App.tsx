@@ -679,8 +679,8 @@ export default function App(): JSX.Element {
     onOpenError: (message) => addToast("warn", message),
     onCurrentFileChanged: setCurrentFile,
     onDestinationActivated: () => {
+      setActivePane("editor");
       if (compact()) {
-        setActivePane("editor");
         drillMobileSurface("editor");
       }
     },

@@ -396,6 +396,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       mediaTypeOf(result.path) !== null
     ) {
       host?.clear();
+      deps.focusVisibleOverlay();
       return Promise.resolve(undefined);
     }
     // Don't clobber an in-progress review: the reviewed file is active, but the editor shows the transient

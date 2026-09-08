@@ -165,12 +165,12 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 			Update(new JsonObject {
 				["sessionUpdate"] = "user_message_chunk",
 				["messageId"] = "replayed-user-1",
-				["content"] = Text("promptweavie://instructions\n<cont"),
+				["content"] = Text("prompt"),
 			});
 			Update(new JsonObject {
 				["sessionUpdate"] = "user_message_chunk",
 				["messageId"] = "replayed-user-1",
-				["content"] = Text("ext ref=\"weavie://instructions\">\nhidden guidance\n</context>"),
+				["content"] = AssistantOnly(Text("hidden guidance chunk")),
 			});
 			ReplayProgress("first persisted progress");
 			PlanDocument("replayed-plan-1", "# First persisted plan");
@@ -182,17 +182,17 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 			Update(new JsonObject {
 				["sessionUpdate"] = "user_message_chunk",
 				["messageId"] = "replayed-guidance",
-				["content"] = Resource("weavie://instructions", "hidden guidance"),
+				["content"] = AssistantOnly(Resource("context://guidance", "hidden guidance")),
 			});
 			Update(new JsonObject {
 				["sessionUpdate"] = "user_message_chunk",
 				["messageId"] = "replayed-selection",
-				["content"] = Resource("file:///workspace/file.cs#selection", "hidden selection"),
+				["content"] = AssistantOnly(Resource("file:///workspace/file.cs", "hidden selection")),
 			});
 			Update(new JsonObject {
 				["sessionUpdate"] = "user_message_chunk",
-				["messageId"] = "replayed-flattened-selection",
-				["content"] = Text("[@file.cs#selection](file:///workspace/file.cs#selection)\n<context ref=\"file:///workspace/file.cs#selection\">\nhidden selection\n</context>"),
+				["messageId"] = "replayed-context-only",
+				["content"] = AssistantOnly(Text("hidden selection without markup")),
 			});
 			Update(new JsonObject {
 				["sessionUpdate"] = "user_message_chunk",
@@ -207,6 +207,15 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 					["mimeType"] = "image/png",
 					["data"] = "cGljdHVyZQ==",
 				},
+			});
+			Update(new JsonObject {
+				["sessionUpdate"] = "user_message_chunk",
+				["messageId"] = "replayed-user-2",
+				["content"] = AssistantOnly(new JsonObject {
+					["type"] = "image",
+					["mimeType"] = "image/jpeg",
+					["data"] = "hidden image",
+				}),
 			});
 			ReplayProgress("second persisted progress");
 			PlanDocument("replayed-plan-2", "# Second persisted plan");
@@ -477,16 +486,10 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 			using var document = JsonDocument.Parse(line);
 			var prompt = document.RootElement;
 			foreach (var block in prompt.EnumerateArray()) {
-				var content = JsonNode.Parse(block.GetRawText())!;
-				if (ResourceUri(block) is { } uri && block.GetProperty("resource").TryGetProperty("text", out var text)) {
-					string link = uri.StartsWith("file://", StringComparison.Ordinal)
-						? $"[@{uri[(uri.LastIndexOf('/') + 1)..]}]({uri})" : uri;
-					content = Text($"{link}\n<context ref=\"{uri}\">\n{text.GetString()}\n</context>");
-				}
 				Update(new JsonObject {
 					["sessionUpdate"] = "user_message_chunk",
 					["messageId"] = $"fork-user-{turn}",
-					["content"] = content,
+					["content"] = JsonNode.Parse(block.GetRawText()),
 				});
 			}
 			Update(new JsonObject {
@@ -639,6 +642,13 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 	}
 
 	private void SharedMessageId() {
+		foreach (string kind in new[] { "agent_thought_chunk", "agent_message_chunk" }) {
+			Update(new JsonObject {
+				["sessionUpdate"] = kind,
+				["messageId"] = "assistant-only-message",
+				["content"] = AssistantOnly(Text("hidden assistant content")),
+			});
+		}
 		foreach (string text in new[] { "deep ", "thought" }) {
 			Update(new JsonObject {
 				["sessionUpdate"] = "agent_thought_chunk",
@@ -668,6 +678,7 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 			["toolCallId"] = "content",
 			["status"] = "completed",
 			["content"] = new JsonArray(
+				Content(AssistantOnly(Text("hidden tool text"))),
 				Content(Text("tool text")),
 				Content(new JsonObject {
 					["type"] = "image",
@@ -1258,6 +1269,11 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 
 	private AcpAgentConnection Connection() =>
 		_connection ?? throw new InvalidOperationException("Fake ACP is not attached.");
+
+	private static JsonObject AssistantOnly(JsonObject content) {
+		content["annotations"] = new JsonObject { ["audience"] = new JsonArray("assistant") };
+		return content;
+	}
 
 	private static JsonObject Text(string value) => new() { ["type"] = "text", ["text"] = value };
 

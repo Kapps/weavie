@@ -139,10 +139,14 @@ sessions show the context circle alone until it exposes structured data.
 ACP session ids are stored by exact provider id and canonical workspace before the first prompt is sent. If that
 atomic write fails, the exact agent generation is terminated before it can do work. Provider transcripts remain
 provider-owned; Weavie's pane journal is rendering state. Loading asks a capable agent for its transcript and
-replaces the pane snapshot before accepting new turns. Replayed user messages are assembled before assigning their turns;
-Weavie-owned guidance and selection resources, including their flattened context envelopes, stay out of the pane.
-Context-only replay records create neither a row nor a turn. Malformed or unreadable association data at the current
-document version is never reset or overwritten. A document written at another version holds nothing this build can
+replaces the pane snapshot before accepting new turns. Replayed user messages are assembled before assigning their turns.
+Content visibility follows ACP's [`annotations.audience`](https://agentclientprotocol.com/protocol/v1/schema#annotations):
+Weavie's injected guidance and editor selections target only `assistant`; user, agent, thought, and tool content render
+when the audience includes `user` or is unspecified. Assistant-only replay records create neither a row nor a turn.
+Agents must preserve that metadata for replay filtering to work. Unannotated text remains visible, including XML;
+Weavie does not infer audience from resource URIs or an adapter's prompt serialization.
+
+Malformed or unreadable association data at the current document version is never reset or overwritten. A document written at another version holds nothing this build can
 read — Weavie carries no migrations — so it starts with no associations and the next write takes the file over.
 
 There is no legacy Codex wire, bundled private-provider adapter, protocol negotiation, or migration branch. Host

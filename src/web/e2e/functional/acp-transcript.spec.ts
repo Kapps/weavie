@@ -21,7 +21,7 @@ test.use({
   },
 });
 
-test("reopened ACP transcript hides injected context and preserves user XML", async ({
+test("reopened ACP transcript respects audiences and preserves unannotated user XML", async ({
   page,
   weavie,
 }) => {
@@ -32,7 +32,13 @@ test("reopened ACP transcript hides injected context and preserves user XML", as
   await page.keyboard.press("ControlOrMeta+a");
   await expect.poll(() => selectedEditors.has(page)).toBe(true);
 
-  const prompt = 'Keep my XML: <context ref="user://example">visible text</context>';
+  const prompt = [
+    "Keep my XML:",
+    "weavie://instructions",
+    '<context ref="weavie://instructions">',
+    "visible user text",
+    "</context>",
+  ].join("\n");
   const composer = surface.locator("[data-agent-composer] textarea");
   const userText = surface.locator(".agent-entry-message.agent-tone-user .agent-entry-text");
   await composer.fill(prompt);
@@ -44,9 +50,19 @@ test("reopened ACP transcript hides injected context and preserves user XML", as
     join(weavie.home, ".weavie", "fake-acp-state", "session-transcript-fake-session.log"),
     "utf8",
   );
-  expect(transcript).toContain("weavie://instructions");
-  expect(transcript).toContain("#selection");
-  expect(transcript).toContain("just plain text");
+  const blocks: {
+    annotations?: { audience: string[] };
+    resource?: { uri: string; text: string };
+  }[] = JSON.parse(transcript);
+  const context = blocks.filter((block) => block.resource !== undefined);
+  expect(context).toHaveLength(2);
+  expect(context.map((block) => block.annotations?.audience)).toEqual([
+    ["assistant"],
+    ["assistant"],
+  ]);
+  expect(context[0]?.resource?.uri).toBe("weavie://instructions");
+  expect(context[1]?.resource?.uri).toContain("#selection");
+  expect(context[1]?.resource?.text).toContain("just plain text");
 
   await runCommand(page, "Unload Session");
   const unloaded = page.locator('.session-chip.unloaded[title^="acp-transcript-context"]');
@@ -56,7 +72,7 @@ test("reopened ACP transcript hides injected context and preserves user XML", as
   await expect(surface.getByRole("button", { name: "Model Alpha" })).toBeVisible();
   await expect(surface.locator(".agent-tone-assistant")).toContainText("echo: Keep my XML:");
   await expect(userText).toHaveText(prompt);
-  await expect(surface).not.toContainText("weavie://instructions");
+  await expect(surface).not.toContainText("You are running embedded in Weavie");
   await expect(surface).not.toContainText("#selection");
   await expect(surface).not.toContainText("just plain text");
 

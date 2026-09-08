@@ -75,6 +75,7 @@ public sealed partial class AcpAgentSession {
 			BufferReplayedUserMessage(update, content);
 			return;
 		}
+		if (!AcpContentAnnotations.IsUserVisible(content)) return;
 		string turnId = TurnIdForUpdate(userMessage: false);
 		string id = $"{itemType}:{OptionalString(update, "messageId") ?? turnId}";
 		string? type = OptionalString(content, "type");
@@ -277,7 +278,7 @@ public sealed partial class AcpAgentSession {
 		foreach (var item in content.EnumerateArray()) {
 			switch (OptionalString(item, "type")) {
 				case "content" when item.TryGetProperty("content", out var block):
-					blocks.Add(ReadToolContentBlock(block));
+					if (AcpContentAnnotations.IsUserVisible(block)) blocks.Add(ReadToolContentBlock(block));
 					break;
 				case "diff":
 					string diffPath = ResolvedPath(item, "path", "tool diff");

@@ -331,8 +331,8 @@ public sealed partial class AcpAgentSession {
 		if (_supportsEmbeddedContext) {
 			lock (_gate) includesGuidance = !_guidanceSent;
 			if (includesGuidance) {
-				blocks.Add(TextResource(
-					AcpPromptContext.InstructionsUri,
+				blocks.Add(AssistantContext(
+					"weavie://instructions",
 					EmbeddedAgentGuidance.Compose(_context.Runtime)));
 			}
 			if (_context.Editor.Active is { } editor) {
@@ -343,7 +343,7 @@ public sealed partial class AcpAgentSession {
 					+ editor.SelectedText;
 				string path = Path.GetFullPath(editor.FilePath);
 				string uri = new UriBuilder(Uri.UriSchemeFile, string.Empty) { Path = path }.Uri.AbsoluteUri;
-				blocks.Add(TextResource(uri + "#selection", selection));
+				blocks.Add(AssistantContext(uri + "#selection", selection));
 			}
 		}
 		if (includesGuidance) {
@@ -386,8 +386,9 @@ public sealed partial class AcpAgentSession {
 		return prefix + text[prefix.Length..];
 	}
 
-	private static object TextResource(string uri, string text) => new {
+	private static object AssistantContext(string uri, string text) => new {
 		type = "resource",
+		annotations = new { audience = new[] { "assistant" } },
 		resource = new {
 			uri,
 			mimeType = "text/plain",

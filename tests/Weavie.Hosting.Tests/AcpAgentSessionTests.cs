@@ -1044,6 +1044,8 @@ public sealed class AcpAgentSessionTests {
 		Assert.Contains(fixture.Messages, message => message.ItemType == "agentMessage"
 			&& message.Type == "item-completed" && message.Text == "final answer");
 		Assert.DoesNotContain(fixture.Messages, message => message.Type == "error");
+		Assert.DoesNotContain(fixture.Messages, message => message.ItemId?.Contains("assistant-only-message", StringComparison.Ordinal) == true);
+
 	}
 
 	[Fact]

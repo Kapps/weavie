@@ -63,6 +63,7 @@ test.describe("close diff", () => {
       await openFile(page, "notes.txt");
       await expect(page.locator(".weavie-inline-added")).toBeVisible();
       await page.locator(".editor-review-toggle").click();
+      await expect(page.locator(".unified-review .weavie-inline-added")).toBeVisible();
       await runCommand(page, decision);
       if (decision === "Undo All Changes") {
         await page.getByRole("button", { name: "Revert all", exact: true }).click();
@@ -93,6 +94,22 @@ test("file review closes from the keyboard and the same comparison opens fresh",
   await runCommand(page, "Close Diff");
   await expectClosed(page);
   expect(await readFile(join(weavie.workspace, "notes.txt"), "utf8")).toBe(CHANGED);
+});
+
+test("a comparison with no remaining changed files still offers Close Diff", async ({
+  page,
+  weavie,
+}) => {
+  await writeFile(join(weavie.workspace, "notes.txt"), CHANGED);
+  await runCommand(page, "Diff Against HEAD");
+  await expect(page.locator(".weavie-inline-added")).toBeVisible();
+  await writeFile(join(weavie.workspace, "notes.txt"), ORIGINAL);
+  await runCommand(page, "Diff Against HEAD");
+  await expect(page.locator(".toast", { hasText: "No changes against 'HEAD'" })).toBeVisible();
+  await expect(page.locator(".editor-review-toggle")).toHaveCount(0);
+  await expect(page.locator(".editor-review-close")).toBeVisible();
+  await runCommand(page, "Close Diff");
+  await expectClosed(page);
 });
 
 test.describe("agent edits after closing", () => {

@@ -37,7 +37,7 @@ public sealed partial class AcpAgentSession {
 			?? throw new AcpProtocolException("An ACP session/update notification is missing sessionId.");
 		if (sessionId != Endpoint(_activeGeneration).SessionId) throw new AcpProtocolException("ACP update targets another conversation.");
 		string kind = RequiredString(update, "sessionUpdate", "session/update notification");
-		if (kind != "user_message_chunk") CloseReplayedUserMessage(null);
+		if (kind != "user_message_chunk") CloseReplayedUserMessage();
 		switch (kind) {
 			case "user_message_chunk": EmitContent(update, "user-message-delta", "userMessage"); break;
 			case "agent_message_chunk": EmitContent(update, "agent-message-delta", "agentMessage"); break;
@@ -72,16 +72,11 @@ public sealed partial class AcpAgentSession {
 			throw new AcpProtocolException("An ACP content update is missing its content block.");
 		}
 		if (itemType == "userMessage") {
-			lock (_gate) {
-				if (!_loadingTranscript) return;
-			}
-			if (IsInjectedContext(content)) return;
+			BufferReplayedUserMessage(update, content);
+			return;
 		}
-		string? advertisedId = OptionalString(update, "messageId");
-		string? advertisedKey = advertisedId is null ? null : $"{itemType}:{advertisedId}";
-		string turnId = TurnIdForContent(itemType, advertisedKey);
-		string id = advertisedKey ?? $"{itemType}:{turnId}";
-		if (itemType == "userMessage") CloseReplayedUserMessage(id);
+		string turnId = TurnIdForUpdate(userMessage: false);
+		string id = $"{itemType}:{OptionalString(update, "messageId") ?? turnId}";
 		string? type = OptionalString(content, "type");
 		string? text = type == "text" ? OptionalString(content, "text") : ResourceText(content);
 		AcpContentState state;
@@ -94,9 +89,6 @@ public sealed partial class AcpAgentSession {
 			state.MediaType ??= type is "image" or "audio" ? OptionalString(content, "mimeType") : null;
 			state.MediaData ??= type is "image" or "audio" ? OptionalString(content, "data") : null;
 			state.ResourceUri ??= OptionalString(content, "uri") ?? EmbeddedUri(content);
-		}
-		if (itemType == "userMessage") {
-			return;
 		}
 		var message = new AgentPaneMessage {
 			Type = deltaType,
@@ -113,28 +105,16 @@ public sealed partial class AcpAgentSession {
 		PublishPane(message);
 	}
 
-	// A replayed user prompt has no local submission to place it and no streamed delta holding its position, so it
-	// exists only once its stream ends. Close it as soon as the replay moves past it, or every prompt lands at the
-	// end of the load -- after the responses it asked for, and with the turn boundaries the pane derives from it.
-	private void CloseReplayedUserMessage(string? keepId) {
-		lock (_gate) {
-			if (!_loadingTranscript) return;
-		}
-		CompleteContentStreams(state => state.ItemType == "userMessage"
-			&& !string.Equals(state.Id, keepId, StringComparison.Ordinal));
-	}
-
-	private void CompleteContentStreams() => CompleteContentStreams(static _ => true);
-
-	private void CompleteContentStreams(Func<AcpContentState, bool> match) {
+	private void CompleteContentStreams() {
+		CloseReplayedUserMessage();
 		AcpContentState[] content;
 		lock (_gate) {
-			content = [.. _content.Values.Where(match)];
-			foreach (var state in content) _content.Remove(state.Id);
+			content = [.. _content.Values];
+			_content.Clear();
 		}
 		foreach (var state in content) {
 			PublishPane(new AgentPaneMessage {
-				Type = state.ItemType == "userMessage" ? "user-message" : "item-completed",
+				Type = "item-completed",
 				ProviderId = _definition.Id,
 				ThreadId = SessionId(),
 				TurnId = state.TurnId,
@@ -261,27 +241,7 @@ public sealed partial class AcpAgentSession {
 
 			if (userMessage) _turnNumber++;
 			else if (_turnNumber == 0) _turnNumber = 1;
-			_replayContentRole = userMessage ? "userMessage" : "other";
 
-			return _turnNumber.ToString(System.Globalization.CultureInfo.InvariantCulture);
-		}
-	}
-
-	private string TurnIdForContent(string itemType, string? messageId) {
-		lock (_gate) {
-			if (!_loadingTranscript) {
-				return _turnNumber.ToString(System.Globalization.CultureInfo.InvariantCulture);
-			}
-
-			if (itemType == "userMessage") {
-				bool newMessage = messageId is null
-					? _replayContentRole != "userMessage"
-					: !_content.ContainsKey(messageId);
-				if (newMessage) _turnNumber++;
-			} else if (_turnNumber == 0) {
-				_turnNumber = 1;
-			}
-			_replayContentRole = itemType;
 			return _turnNumber.ToString(System.Globalization.CultureInfo.InvariantCulture);
 		}
 	}
@@ -448,10 +408,5 @@ public sealed partial class AcpAgentSession {
 
 	private static string? EmbeddedUri(JsonElement content) =>
 		content.TryGetProperty("resource", out var resource) ? OptionalString(resource, "uri") : null;
-
-	private static bool IsInjectedContext(JsonElement content) =>
-		EmbeddedUri(content) is { } uri
-		&& (string.Equals(uri, "weavie://instructions", StringComparison.Ordinal)
-			|| uri.EndsWith("#selection", StringComparison.Ordinal));
 
 }

@@ -1,4 +1,3 @@
-using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -166,7 +165,12 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 			Update(new JsonObject {
 				["sessionUpdate"] = "user_message_chunk",
 				["messageId"] = "replayed-user-1",
-				["content"] = Text("prompt"),
+				["content"] = Text("promptweavie://instructions\n<cont"),
+			});
+			Update(new JsonObject {
+				["sessionUpdate"] = "user_message_chunk",
+				["messageId"] = "replayed-user-1",
+				["content"] = Text("ext ref=\"weavie://instructions\">\nhidden guidance\n</context>"),
 			});
 			ReplayProgress("first persisted progress");
 			PlanDocument("replayed-plan-1", "# First persisted plan");
@@ -187,8 +191,22 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 			});
 			Update(new JsonObject {
 				["sessionUpdate"] = "user_message_chunk",
+				["messageId"] = "replayed-flattened-selection",
+				["content"] = Text("[@file.cs#selection](file:///workspace/file.cs#selection)\n<context ref=\"file:///workspace/file.cs#selection\">\nhidden selection\n</context>"),
+			});
+			Update(new JsonObject {
+				["sessionUpdate"] = "user_message_chunk",
 				["messageId"] = "replayed-user-2",
 				["content"] = Text("second persisted prompt"),
+			});
+			Update(new JsonObject {
+				["sessionUpdate"] = "user_message_chunk",
+				["messageId"] = "replayed-user-2",
+				["content"] = new JsonObject {
+					["type"] = "image",
+					["mimeType"] = "image/png",
+					["data"] = "cGljdHVyZQ==",
+				},
 			});
 			ReplayProgress("second persisted progress");
 			PlanDocument("replayed-plan-2", "# Second persisted plan");
@@ -432,16 +450,14 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 		else if (text == "crash") Environment.Exit(19);
 		else {
 			Message("echo: " + text);
-			RecordTranscriptTurn(text);
+			RecordTranscriptTurn(prompt);
 		}
 		return new JsonObject { ["stopReason"] = "end_turn" };
 	}
 
-	private void RecordTranscriptTurn(string prompt) {
+	private void RecordTranscriptTurn(JsonElement prompt) {
 		if (_sessionId is null) return;
-		File.AppendAllText(
-			TranscriptPath(_sessionId),
-			Convert.ToBase64String(Encoding.UTF8.GetBytes(prompt)) + Environment.NewLine);
+		File.AppendAllText(TranscriptPath(_sessionId), JsonSerializer.Serialize(prompt) + Environment.NewLine);
 	}
 
 	private static void CrashWhenReleased() => _ = Task.Run(async () => {
@@ -456,18 +472,27 @@ internal sealed class FakeAcpAgent : IAcpAgent {
 		string path = TranscriptPath(sessionId);
 		if (!File.Exists(path)) return;
 		int turn = 0;
-		foreach (string encoded in File.ReadLines(path)) {
+		foreach (string line in File.ReadLines(path)) {
 			turn++;
-			string prompt = Encoding.UTF8.GetString(Convert.FromBase64String(encoded));
-			Update(new JsonObject {
-				["sessionUpdate"] = "user_message_chunk",
-				["messageId"] = $"fork-user-{turn}",
-				["content"] = Text(prompt),
-			});
+			using var document = JsonDocument.Parse(line);
+			var prompt = document.RootElement;
+			foreach (var block in prompt.EnumerateArray()) {
+				var content = JsonNode.Parse(block.GetRawText())!;
+				if (ResourceUri(block) is { } uri && block.GetProperty("resource").TryGetProperty("text", out var text)) {
+					string link = uri.StartsWith("file://", StringComparison.Ordinal)
+						? $"[@{uri[(uri.LastIndexOf('/') + 1)..]}]({uri})" : uri;
+					content = Text($"{link}\n<context ref=\"{uri}\">\n{text.GetString()}\n</context>");
+				}
+				Update(new JsonObject {
+					["sessionUpdate"] = "user_message_chunk",
+					["messageId"] = $"fork-user-{turn}",
+					["content"] = content,
+				});
+			}
 			Update(new JsonObject {
 				["sessionUpdate"] = "agent_message_chunk",
 				["messageId"] = $"fork-agent-{turn}",
-				["content"] = Text("echo: " + prompt),
+				["content"] = Text("echo: " + PromptText(prompt)),
 			});
 		}
 	}

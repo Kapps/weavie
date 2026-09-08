@@ -1333,7 +1333,9 @@ public sealed class AcpAgentSessionTests {
 		await fixture.StartAsync();
 		var snapshot = await snapshotTask;
 		Assert.Contains(snapshot, message => message.Type == "user-message" && message.Text == "first persisted prompt");
-		Assert.Contains(snapshot, message => message.Type == "user-message" && message.Text == "second persisted prompt");
+		var secondPrompt = Assert.Single(snapshot, message => message.Type == "user-message" && message.Text == "second persisted prompt");
+		Assert.Equal("image/png", secondPrompt.MediaType);
+		Assert.Equal("cGljdHVyZQ==", secondPrompt.MediaData);
 		Assert.Contains(snapshot, message => message.Type == "item-completed" && message.Text == "persisted transcript");
 		var progress = snapshot.Where(message => message.ItemType == "progress").ToArray();
 		Assert.Equal(2, progress.Length);

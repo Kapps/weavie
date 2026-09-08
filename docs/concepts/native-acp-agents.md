@@ -139,7 +139,9 @@ sessions show the context circle alone until it exposes structured data.
 ACP session ids are stored by exact provider id and canonical workspace before the first prompt is sent. If that
 atomic write fails, the exact agent generation is terminated before it can do work. Provider transcripts remain
 provider-owned; Weavie's pane journal is rendering state. Loading asks a capable agent for its transcript and
-replaces the pane snapshot before accepting new turns. Malformed or unreadable association data at the current
+replaces the pane snapshot before accepting new turns. Replayed user messages are assembled before assigning their turns;
+Weavie-owned guidance and selection resources, including their flattened context envelopes, stay out of the pane.
+Context-only replay records create neither a row nor a turn. Malformed or unreadable association data at the current
 document version is never reset or overwritten. A document written at another version holds nothing this build can
 read — Weavie carries no migrations — so it starts with no associations and the next write takes the file over.
 

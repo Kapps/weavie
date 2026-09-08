@@ -88,7 +88,7 @@ public sealed partial class AcpAgentSession {
 				_activeTools.Clear();
 				_content.Clear();
 				_turnItemIds.Clear();
-				_replayContentRole = null;
+				_replayedUserMessage = null;
 				_contextUsage = null;
 				_usageLimits.Clear();
 			}
@@ -201,7 +201,7 @@ public sealed partial class AcpAgentSession {
 						_loadingTranscript = true;
 						_turnNumber = 0;
 						_planTurns.Clear();
-						_replayContentRole = null;
+						_replayedUserMessage = null;
 						_loadedMessages.Clear();
 					}
 				}

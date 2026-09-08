@@ -36,7 +36,7 @@ public sealed partial class AcpAgentSession :
 	private readonly Dictionary<string, AcpContentState> _content = new(StringComparer.Ordinal);
 	private readonly Dictionary<string, string> _planTurns = new(StringComparer.Ordinal);
 	private readonly Dictionary<string, HashSet<string>> _turnItemIds = new(StringComparer.Ordinal);
-	private string? _replayContentRole;
+	private ReplayedUserMessage? _replayedUserMessage;
 	private readonly List<AgentPaneMessage> _loadedMessages = [];
 	private readonly Dictionary<string, AgentControlAxis> _controls = new(StringComparer.Ordinal);
 	private IReadOnlyList<AgentSlashEntry> _commands = [];

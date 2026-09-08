@@ -332,7 +332,7 @@ public sealed partial class AcpAgentSession {
 			lock (_gate) includesGuidance = !_guidanceSent;
 			if (includesGuidance) {
 				blocks.Add(TextResource(
-					"weavie://instructions",
+					AcpPromptContext.InstructionsUri,
 					EmbeddedAgentGuidance.Compose(_context.Runtime)));
 			}
 			if (_context.Editor.Active is { } editor) {

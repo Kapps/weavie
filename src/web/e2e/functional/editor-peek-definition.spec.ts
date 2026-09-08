@@ -1,13 +1,8 @@
 import type { Locator, Page } from "@playwright/test";
-import { awaitEditorLaidOut, clickIntoEditor, openFile } from "../harness/actions";
+import { awaitEditorLaidOut, clickIntoEditor, expectRevealed, openFile } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 
-// Alt+Click on a symbol peeks its definition inline — the same embedded window Find All References uses —
-// and Alt+F12 peeks at the cursor. The definition provider is mocked through __WEAVIE_MONACO__ (the harness
-// bundles no language server), so these pin Weavie's gesture + command wiring and the widget opening, not
-// LSP resolution. Where no provider can exist (plain text), the gesture must leave Monaco's built-in
-// alt+click multicursor untouched.
-
+// The harness definition provider pins gesture routing and the real peek widget, independently of LSP.
 import type { WeavieWindow } from "../harness/weavie-window";
 
 async function focusEditor(page: Page, name: string): Promise<void> {
@@ -66,20 +61,24 @@ async function altClick(word: Locator): Promise<void> {
   await word.click({ modifiers: ["Alt"] });
 }
 
-test("alt+click on a symbol opens the definition peek inline, and Escape closes it", async ({
+test("Mod+Alt+click on a symbol opens the definition peek inline, and Escape closes it", async ({
   page,
 }) => {
   await focusEditor(page, "hello.ts");
   await registerGreetDefinition(page);
 
-  await altClick(await wordToken(page, "const message = greet", "greet"));
+  await (await wordToken(page, "const message = greet", "greet")).click({
+    modifiers: ["ControlOrMeta", "Alt"],
+  });
   const peek = page.locator(".monaco-editor .peekview-widget");
   await expect(peek).toBeVisible();
   // The peek embeds its own editor showing the definition's file — the small window into the file.
   await expect(peek.locator(".monaco-editor").first()).toBeVisible();
+  await expectRevealed(page, "hello.ts", 5);
 
   await page.keyboard.press("Escape");
   await expect(peek).toHaveCount(0);
+  await expectRevealed(page, "hello.ts", 5);
 });
 
 test("Alt+F12 peeks the definition of the symbol at the cursor", async ({ page }) => {
@@ -89,6 +88,17 @@ test("Alt+F12 peeks the definition of the symbol at the cursor", async ({ page }
   await (await wordToken(page, "const message = greet", "greet")).click();
   await page.keyboard.press("Alt+F12");
   await expect(page.locator(".monaco-editor .peekview-widget")).toBeVisible();
+});
+
+test("alt+click on a definition-backed symbol adds a cursor without peeking", async ({ page }) => {
+  await focusEditor(page, "hello.ts");
+  await registerGreetDefinition(page);
+
+  await altClick(await wordToken(page, "const message = greet", "greet"));
+  await page.waitForFunction(
+    () => ((window as WeavieWindow).__WEAVIE_EDITOR__?.getSelections() ?? []).length === 2,
+  );
+  await expect(page.locator(".monaco-editor .peekview-widget")).toHaveCount(0);
 });
 
 test("alt+click without a definition provider leaves Monaco's multicursor gesture alone", async ({
@@ -136,5 +146,37 @@ test("alt+click during a multicursor session adds a cursor instead of peeking", 
   await page.waitForFunction(
     () => ((window as WeavieWindow).__WEAVIE_EDITOR__?.getSelections() ?? []).length === 3,
   );
+  await expect(page.locator(".monaco-editor .peekview-widget")).toHaveCount(0);
+});
+
+test("Mod+click on a symbol navigates to its definition", async ({ page }) => {
+  await focusEditor(page, "hello.ts");
+  await registerGreetDefinition(page);
+
+  await (await wordToken(page, "const message = greet", "greet")).click({
+    modifiers: ["ControlOrMeta"],
+  });
+  await expectRevealed(page, "hello.ts", 1);
+  await expect(page.locator(".monaco-editor .peekview-widget")).toHaveCount(0);
+});
+
+test("Mod+Alt drag away from a symbol and back does not peek", async ({ page }) => {
+  await focusEditor(page, "hello.ts");
+  await registerGreetDefinition(page);
+  const word = await wordToken(page, "const message = greet", "greet");
+  await word.hover();
+  const bounds = await word.boundingBox();
+  if (bounds === null) throw new Error("symbol has no bounds");
+  const x = bounds.x + bounds.width / 2;
+  const y = bounds.y + bounds.height / 2;
+  await page.keyboard.down("ControlOrMeta");
+  await page.keyboard.down("Alt");
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x + 60, y, { steps: 5 });
+  await page.mouse.move(x, y, { steps: 5 });
+  await page.mouse.up();
+  await page.keyboard.up("Alt");
+  await page.keyboard.up("ControlOrMeta");
   await expect(page.locator(".monaco-editor .peekview-widget")).toHaveCount(0);
 });

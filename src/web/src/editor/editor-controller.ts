@@ -434,7 +434,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   };
 
   const focusEditorSurface = (): void => {
-    if (!deps.focusVisibleOverlay()) {
+    if (!deps.focusVisibleOverlay() && reviews.mode() !== "unified") {
       host?.editor.focus();
     }
   };
@@ -940,6 +940,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
           activateDestinationFor(session, "navigation");
           void applyActive(session, result);
         },
+        () => reviews.mode() !== "unified",
       ),
     );
     const initDeadline = new Promise<never>((_, reject) => {

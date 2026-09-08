@@ -12,8 +12,11 @@ import {
   onEditorOptionsChanged,
 } from "../editor-options";
 import { currentFonts, onFontsChanged } from "../fonts";
+import { createActiveEditorContext } from "./active-editor-context";
 import { registerActiveEditor } from "./vscode-services";
 import { wheelScrollSensitivity } from "./wheel-scroll-sensitivity";
+
+export const editorContext = createActiveEditorContext();
 
 // Workers + the VSCode service substrate are wired in `vscode-services.ts` (initEditorServices), which must run
 // before any editor is created. TS/JS intelligence comes from a real LSP server (lsp/lsp-client.ts), not ts.worker.
@@ -83,6 +86,7 @@ function buildEditor(
     ...overrides,
   });
   applySuggestExpandDocs(editorOptions.suggestExpandDocs);
+  editorContext.register(editor);
 
   // Apply live font changes (Monaco re-lays out on updateOptions); drop the subscription with the editor.
   const offFonts = onFontsChanged((config) =>

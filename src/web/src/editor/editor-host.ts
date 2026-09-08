@@ -16,12 +16,11 @@ import { noteSelectionChange, registerSelectionSource } from "../commands/select
 import { startLanguageServices } from "../lsp/lsp-client";
 import { installReferenceCommands } from "../lsp/reference-commands";
 import { installTestLenses } from "../tests/test-lens";
-import { activeEditorMessage } from "./active-editor-message";
 import { installAltClickPeek } from "./alt-click-peek";
 import { setDirtyPath } from "./dirty-store";
 import { setEditorStatus } from "./editor-status-store";
 import { mediaTypeOf } from "./media/media-types";
-import { createEditor, monaco } from "./monaco-setup";
+import { createEditor, editorContext, monaco } from "./monaco-setup";
 import { leaveLine } from "./nav-history";
 import { REVEAL_SCROLL } from "./reveal-scroll";
 import { captureViewStateFor, editorSessionFor, type Placement, promoteFor } from "./session-store";
@@ -159,6 +158,7 @@ export async function createEditorHost(
     path: string;
     selection: monaco.IRange | undefined;
   }) => void,
+  isVisible: () => boolean,
 ): Promise<EditorHost> {
   await initEditorServices();
   const textModelService = await getService(ITextModelService);
@@ -189,30 +189,8 @@ export async function createEditorHost(
   // built-in handler can't consume.
   installReferenceCommands();
 
-  // Tell the host which file + selection is active so embedded Claude knows what the user is looking at.
-  // Debounced (cursor moves fire rapidly); the transient review model is suppressed — not a file being worked on.
-  let emitTimer: ReturnType<typeof setTimeout> | undefined;
-  const emitActiveEditor = (): void => {
-    const model = editor.getModel();
-    if (model === null || !isUserFileModel(model)) {
-      return;
-    }
-    const session = sessionForUri(model.uri);
-    if (session === undefined) {
-      return;
-    }
-    const sel = editor.getSelection();
-    session.feature("editor").publish("activeChanged", activeEditorMessage(model, sel));
-  };
-  const scheduleEmitActiveEditor = (): void => {
-    if (emitTimer !== undefined) {
-      clearTimeout(emitTimer);
-    }
-    emitTimer = setTimeout(emitActiveEditor, 150);
-  };
-
   // Drive the editor status footer (cursor/selection/EOL). Written synchronously — the footer wants immediate
-  // cursor feedback, unlike the debounced host emit above. Null when no real file model is showing.
+  // cursor feedback. Null when no real file model is showing.
   const updateStatus = (): void => {
     const model = editor.getModel();
     const position = editor.getPosition();
@@ -258,8 +236,6 @@ export async function createEditorHost(
   // Every subscription is collected so dispose() tears them all down — including listeners on models that
   // outlive the widget, so a rebuilt host never stacks a second handler set on a surviving model.
   const disposables: monaco.IDisposable[] = [
-    editor.onDidChangeModel(scheduleEmitActiveEditor),
-    editor.onDidChangeCursorSelection(scheduleEmitActiveEditor),
     // onDidChangeCursorSelection fires on every caret move too, so it covers both cursor and selection updates.
     editor.onDidChangeCursorSelection(updateStatus),
     editor.onDidChangeModel(updateStatus),
@@ -446,8 +422,7 @@ export async function createEditorHost(
   };
 
   // The single path that swaps the editor to a file working copy (open + restore differ only in `placement`).
-  // setModel fires onDidChangeModel, driving the active-editor notification and currentFile tracking by
-  // construction. Async opens use openSeq so the latest wins and a slow resolve can't clobber a newer open.
+  // Async opens use openSeq so the latest wins and a slow resolve can't clobber a newer open.
   let openSeq = 0;
   const showFile = async (
     uri: monaco.Uri,
@@ -515,16 +490,17 @@ export async function createEditorHost(
         editor.revealPositionInCenter(position, REVEAL_SCROLL);
         editor.setPosition(position);
         // focus: false = reveal only (the search panel's live preview keeps typing in its own input).
-        if (placement.focus !== false) {
+        if (placement.focus !== false && isVisible()) {
           editor.focus();
         }
       } else if ("selection" in placement) {
         editor.setSelection(placement.selection);
         editor.revealRangeInCenterIfOutsideViewport(placement.selection, REVEAL_SCROLL);
-        editor.focus();
+        if (isVisible()) editor.focus();
       } else if (placement.viewState !== null) {
         editor.restoreViewState(placement.viewState);
       }
+      if (isVisible()) editorContext.activate(editor);
       return true;
     } catch (error) {
       // A genuine read failure. If a newer open superseded this one, stay quiet — it owns the editor. Otherwise
@@ -848,9 +824,6 @@ export async function createEditorHost(
     // Best-effort flush of any pending edit before teardown (fire-and-forget).
     for (const key of [...saveTimers.keys()]) {
       flushSave(key);
-    }
-    if (emitTimer !== undefined) {
-      clearTimeout(emitTimer);
     }
     // Flush the active tab's view state synchronously (the debounced timer dies with teardown) so the rebuilt
     // host's restoreSession() reopens it precisely. The tab set already lives in the store.

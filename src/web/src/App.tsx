@@ -1363,12 +1363,10 @@ export default function App(): JSX.Element {
               )}
             </Show>
           </div>
-          <Show when={editor.review.mode() !== "unified"}>
-            <EditorFooter
-              onOpenRecent={(path) => editor.openFile(path, undefined)}
-              root={() => indexRoot() ?? ""}
-            />
-          </Show>
+          <EditorFooter
+            onOpenRecent={(path) => editor.openFile(path, undefined)}
+            root={() => indexRoot() ?? ""}
+          />
         </div>
       );
     }

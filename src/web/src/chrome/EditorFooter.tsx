@@ -4,7 +4,6 @@ import { activeBackendPhase } from "../bridge";
 import { isDirtyPath } from "../editor/dirty-store";
 import { editorStatus } from "../editor/editor-status-store";
 import { activeFileOutsideWorkspace } from "../editor/file-scope";
-import { activePath } from "../editor/session-store";
 import { RecentFilesButton } from "./RecentFilesButton";
 
 // Every line maps to a gate that is genuinely off for a file outside the checkout: WorktreeRelativePath,
@@ -30,8 +29,8 @@ export function EditorFooter(props: {
   root: () => string;
 }): JSX.Element {
   const isDirty = (): boolean => {
-    const path = activePath();
-    return path !== null && isDirtyPath(path);
+    const path = editorStatus()?.path;
+    return path !== undefined && isDirtyPath(path);
   };
   return (
     <div class="pane-footer">

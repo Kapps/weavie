@@ -3,7 +3,7 @@ import { noteSelectionChange, registerSelectionSource } from "../commands/select
 import { activeEditorMessage } from "./active-editor-message";
 import { activeEditor } from "./editor-instances";
 import { setEditorStatus } from "./editor-status-store";
-import { SESSION_FILE_SCHEME, sessionForUri } from "./session-uri-owner";
+import { SESSION_FILE_SCHEME, sessionForUri, sessionUriHostPath } from "./session-uri-owner";
 
 /** Publishes selection and status from the same document editor that receives commands. */
 export function installEditorSelection(editor: monaco.editor.IStandaloneCodeEditor): () => void {
@@ -45,6 +45,7 @@ export function installEditorSelection(editor: monaco.editor.IStandaloneCodeEdit
       selectionCount += model.getValueInRange(sel).length;
     }
     setEditorStatus({
+      path: sessionUriHostPath(model.uri),
       line: position.lineNumber,
       column: position.column,
       selectionCount,

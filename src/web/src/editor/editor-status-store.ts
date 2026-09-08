@@ -2,6 +2,7 @@ import { createSignal } from "solid-js";
 
 /** The active editor's cursor/selection/language/line-ending snapshot, rendered by the editor pane footer. */
 export interface EditorStatus {
+  path: string;
   /** 1-based cursor line. */
   line: number;
   /** 1-based cursor column. */

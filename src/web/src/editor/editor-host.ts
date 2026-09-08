@@ -12,14 +12,11 @@ import {
   ITextModelService,
 } from "@codingame/monaco-vscode-api/services";
 import { type ClientSession, log, selectedSession } from "../bridge";
-import { noteSelectionChange, registerSelectionSource } from "../commands/selection";
 import { startLanguageServices } from "../lsp/lsp-client";
 import { installReferenceCommands } from "../lsp/reference-commands";
 import { installTestLenses } from "../tests/test-lens";
-import { activeEditorMessage } from "./active-editor-message";
-import { installAltClickPeek } from "./alt-click-peek";
 import { setDirtyPath } from "./dirty-store";
-import { setEditorStatus } from "./editor-status-store";
+import { activeEditor } from "./editor-instances";
 import { mediaTypeOf } from "./media/media-types";
 import { createEditor, monaco } from "./monaco-setup";
 import { leaveLine } from "./nav-history";
@@ -107,10 +104,9 @@ export interface EditorHost {
   /** Creates one model-reference scope owned by a mounted unified-review surface. */
   createReviewCopyScope(): ReviewCopyScope;
   /**
-   * The code editor holding keyboard focus — a unified-review section's, else the main pane. Menu-triggered
-   * actions (Copy/Cut/Paste) must act on what the user is actually typing in.
+   * The last focused document editor, retained while a menu or prompt owns keyboard focus.
    */
-  focusedEditor(): monaco.editor.ICodeEditor;
+  activeEditor(): monaco.editor.ICodeEditor | null;
   /** Clears the editor to an empty pane (the last tab was closed). */
   clear(): void;
   /**
@@ -189,49 +185,6 @@ export async function createEditorHost(
   // built-in handler can't consume.
   installReferenceCommands();
 
-  // Tell the host which file + selection is active so embedded Claude knows what the user is looking at.
-  // Debounced (cursor moves fire rapidly); the transient review model is suppressed — not a file being worked on.
-  let emitTimer: ReturnType<typeof setTimeout> | undefined;
-  const emitActiveEditor = (): void => {
-    const model = editor.getModel();
-    if (model === null || !isUserFileModel(model)) {
-      return;
-    }
-    const session = sessionForUri(model.uri);
-    if (session === undefined) {
-      return;
-    }
-    const sel = editor.getSelection();
-    session.feature("editor").publish("activeChanged", activeEditorMessage(model, sel));
-  };
-  const scheduleEmitActiveEditor = (): void => {
-    if (emitTimer !== undefined) {
-      clearTimeout(emitTimer);
-    }
-    emitTimer = setTimeout(emitActiveEditor, 150);
-  };
-
-  // Drive the editor status footer (cursor/selection/EOL). Written synchronously — the footer wants immediate
-  // cursor feedback, unlike the debounced host emit above. Null when no real file model is showing.
-  const updateStatus = (): void => {
-    const model = editor.getModel();
-    const position = editor.getPosition();
-    if (model === null || !isUserFileModel(model) || position === null) {
-      setEditorStatus(null);
-      return;
-    }
-    let selectionCount = 0;
-    for (const sel of editor.getSelections() ?? []) {
-      selectionCount += model.getValueInRange(sel).length;
-    }
-    setEditorStatus({
-      line: position.lineNumber,
-      column: position.column,
-      selectionCount,
-      eol: model.getEndOfLineSequence() === monaco.editor.EndOfLineSequence.CRLF ? "CRLF" : "LF",
-    });
-  };
-
   // Reflect the SETTLED active model onto the container as data-active-file — the only signal for WHICH file the
   // editor is actually showing now. The tab's active state and the optimistic currentFile both flip before the
   // async model swap (a host round-trip) lands, so neither can stand in for it. Drives e2e waits and doubles as
@@ -245,29 +198,7 @@ export async function createEditorHost(
     }
   };
 
-  // The editor's selected text as a search-seed source — Monaco keeps its selection out of the DOM, so the
-  // document tracker never sees it.
-  const readSelection = (): string => {
-    const model = editor.getModel();
-    const selection = editor.getSelection();
-    return model === null || selection === null || selection.isEmpty()
-      ? ""
-      : model.getValueInRange(selection);
-  };
-
-  // Every subscription is collected so dispose() tears them all down — including listeners on models that
-  // outlive the widget, so a rebuilt host never stacks a second handler set on a surviving model.
-  const disposables: monaco.IDisposable[] = [
-    editor.onDidChangeModel(scheduleEmitActiveEditor),
-    editor.onDidChangeCursorSelection(scheduleEmitActiveEditor),
-    // onDidChangeCursorSelection fires on every caret move too, so it covers both cursor and selection updates.
-    editor.onDidChangeCursorSelection(updateStatus),
-    editor.onDidChangeModel(updateStatus),
-    editor.onDidChangeModel(reflectActiveFile),
-    { dispose: registerSelectionSource("editor", readSelection) },
-    editor.onDidChangeCursorSelection(() => noteSelectionChange("editor")),
-    installAltClickPeek(editor),
-  ];
+  const disposables: monaco.IDisposable[] = [editor.onDidChangeModel(reflectActiveFile)];
 
   // Mirror each working copy's dirty state into the dirty store so the tab strip shows an unsaved `*` (the error
   // gate below can hold a flush back). Seed from in-memory models (covers a hot reload), then track changes.
@@ -670,9 +601,6 @@ export async function createEditorHost(
     }
   };
 
-  const focusedEditor = (): monaco.editor.ICodeEditor =>
-    monaco.editor.getEditors().find((candidate) => candidate.hasTextFocus()) ?? editor;
-
   const clear = (): void => {
     snapshotViewState();
     openSeq += 1;
@@ -849,9 +777,6 @@ export async function createEditorHost(
     for (const key of [...saveTimers.keys()]) {
       flushSave(key);
     }
-    if (emitTimer !== undefined) {
-      clearTimeout(emitTimer);
-    }
     // Flush the active tab's view state synchronously (the debounced timer dies with teardown) so the rebuilt
     // host's restoreSession() reopens it precisely. The tab set already lives in the store.
     if (viewStateTimer !== undefined) {
@@ -914,7 +839,7 @@ export async function createEditorHost(
     flushDirty,
     flushSession: (session) => flushDirtyFor(session),
     createReviewCopyScope,
-    focusedEditor,
+    activeEditor,
     clear,
     rebindSession,
     beginReview,

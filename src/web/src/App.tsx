@@ -1253,38 +1253,36 @@ export default function App(): JSX.Element {
               </>
             }
           />
-          <div class="editor-pane">
-            <div
-              class="editor"
-              role="application"
-              ref={editorContainer}
-              onContextMenu={(event) => {
-                // Only when a document is mounted — the empty-state pane has no selection to act on.
-                if (openTabs().length === 0) {
-                  return;
-                }
-                event.preventDefault();
-                const spelling = editor.spellingMenuAt(event.clientX, event.clientY);
-                setContextMenu({
-                  ...spelling,
-                  entries: [
-                    ...spelling.entries,
-                    { commandId: CommandIds.editorGoToDefinition },
-                    { commandId: CommandIds.editorPeekDefinition },
-                    { commandId: CommandIds.editorGoToReferences },
-                    { commandId: CommandIds.editorRename },
-                    { kind: "separator" },
-                    { commandId: CommandIds.reviseSelection },
-                    { kind: "separator" },
-                    { commandId: CommandIds.editorCut },
-                    { commandId: CommandIds.editorCopy },
-                    { commandId: CommandIds.editorPaste },
-                    { kind: "separator" },
-                    { commandId: CommandIds.focusOmnibarCommands, label: "Command Palette" },
-                  ],
-                });
-              }}
-            />
+          <div
+            class="editor-pane"
+            role="application"
+            onContextMenu={(event) => {
+              if (!(event.target instanceof Element)) return;
+              const target = editor.contextTarget(event.target);
+              if (target === null) return;
+              event.preventDefault();
+              const spelling = editor.spellingMenuAt(event.clientX, event.clientY);
+              setContextMenu({
+                ...spelling,
+                entries: [
+                  ...spelling.entries,
+                  { commandId: CommandIds.editorGoToDefinition },
+                  { commandId: CommandIds.editorPeekDefinition },
+                  { commandId: CommandIds.editorGoToReferences },
+                  { commandId: CommandIds.editorRename, disabled: target.readOnly },
+                  { kind: "separator" },
+                  { commandId: CommandIds.reviseSelection, disabled: target.readOnly },
+                  { kind: "separator" },
+                  { commandId: CommandIds.editorCut, disabled: target.readOnly },
+                  { commandId: CommandIds.editorCopy },
+                  { commandId: CommandIds.editorPaste, disabled: target.readOnly },
+                  { kind: "separator" },
+                  { commandId: CommandIds.focusOmnibarCommands, label: "Command Palette" },
+                ],
+              });
+            }}
+          >
+            <div class="editor" ref={editorContainer} />
             {/* No file open: cover the blank Monaco host with an identity + keyboard-first starter actions. */}
             <Show when={openTabs().length === 0}>
               <EditorEmptyState reviewCount={editor.parkedReviewCount()} />

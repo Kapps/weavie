@@ -12,6 +12,7 @@ import {
   onEditorOptionsChanged,
 } from "../editor-options";
 import { currentFonts, onFontsChanged } from "../fonts";
+import { registerEditor, trackEditorFocus } from "./editor-instances";
 import { registerActiveEditor } from "./vscode-services";
 import { wheelScrollSensitivity } from "./wheel-scroll-sensitivity";
 
@@ -24,7 +25,9 @@ import { wheelScrollSensitivity } from "./wheel-scroll-sensitivity";
  * tsserver-family servers treat them as project files and publish diagnostics.
  */
 export function createEditor(container: HTMLElement): monaco.editor.IStandaloneCodeEditor {
+  const tracking = monaco.editor.onDidCreateEditor(trackEditorFocus);
   const editor = buildEditor(container, null, {});
+  editor.onDidDispose(() => tracking.dispose());
 
   // The editor service opens go-to-def / reveal-file targets through this editor.
   registerActiveEditor(editor);
@@ -110,6 +113,7 @@ function buildEditor(
   });
   editor.onDidDispose(offEditorOptions);
 
+  registerEditor(editor);
   return editor;
 }
 

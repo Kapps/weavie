@@ -23,9 +23,10 @@ import type {
   SymbolQuerySource,
 } from "../symbols/symbol-match";
 import type { CommentProse } from "./comment-prose";
+import type { EditorFeatures } from "./editor-features";
 import type { EditorHost, ReviewCopyScope } from "./editor-host";
+import { editorAtElement } from "./editor-instances";
 import { samePath } from "./fs-path";
-import type { GitBlameController } from "./git-blame";
 import type {
   HunkRevert,
   HunkUnkeep,
@@ -49,7 +50,7 @@ import {
   type ReviewPresentationMode,
 } from "./review/review-store";
 import type { UnifiedReviewSurface } from "./review/review-surface";
-import type { ReviseMarks, ReviseRegion } from "./revise-marks";
+import type { ReviseRegion } from "./revise-marks";
 import {
   type ActivateResult,
   activateTabFor,
@@ -71,7 +72,6 @@ import {
 } from "./session-store";
 import type { EditorSession, EditorSessionEntry } from "./session-types";
 import { SESSION_FILE_SCHEME, sessionForUri, sessionUriHostPath } from "./session-uri-owner";
-import type { SpellCheck } from "./spell-check";
 
 // Only a genuine hang trips this, never a slow cold start: the editor chunk (~750KB of Monaco + workers) plus
 // vscode-services init can legitimately run tens of seconds on a loaded machine or across the remote worker hop
@@ -204,6 +204,7 @@ export interface EditorController {
    * only when no editor is mounted, so the command declines rather than appearing to do nothing.
    */
   showBlameAtCursor(): boolean;
+  contextTarget(element: Element): { readOnly: boolean } | null;
   spellingMenuAt(x: number, y: number): ContextMenuState;
   correctSpelling(args: unknown): ContextMenuState | null;
   addSpellingWord(scope: "user" | "project", args: unknown): Promise<void>;
@@ -281,9 +282,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   let inlineDiff: InlineDiff | undefined;
   const reviewScope: ReviewScopeState = { current: "change" };
   let commentProse: CommentProse | undefined;
-  let gitBlame: GitBlameController | undefined;
-  let spelling: SpellCheck | undefined;
-  let reviseMarks: ReviseMarks | undefined;
+  let features: EditorFeatures | undefined;
   let initTimer: number | undefined;
   let disposing = false;
   let resolveEditorHost!: (created: EditorHost) => void;
@@ -957,13 +956,11 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         }
         // inline-diff + comment-prose pull Monaco; import them here (the chunk is already loaded by the
         // editor host above) so they stay off the first-paint entry chunk.
-        const [diff, prose, symbolMod, blame, marks, spell] = await Promise.all([
+        const [diff, prose, symbolMod, sharedFeatures] = await Promise.all([
           import("./inline-diff"),
           import("./comment-prose"),
           import("../symbols/symbol-source"),
-          import("./git-blame"),
-          import("./revise-marks"),
-          import("./spell-check"),
+          import("./editor-features"),
         ]);
         symbolSource = symbolMod.createSymbolSource(created.editor);
         inlineDiff = diff.createInlineDiff(created.editor, {
@@ -1007,16 +1004,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         commentProse = prose.createCommentProse(created.editor, {
           isBlocked: (uri) => inlineDiff?.hasDiffForUri(uri) ?? false,
         });
-        reviseMarks = marks.createReviseMarks(created.editor, {
-          activePath: () => {
-            const current = created.editor.getModel();
-            return current === null || current.uri.scheme !== SESSION_FILE_SCHEME
-              ? null
-              : sessionUriHostPath(current.uri);
-          },
-        });
-        gitBlame = blame.createGitBlame(created.editor);
-        spelling = spell.createSpellCheck(created.editor);
+        features = sharedFeatures.createEditorFeatures();
         const session = selectedSession();
         if (session !== null) {
           await rebindSession(session);
@@ -1699,11 +1687,11 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       review.on<ReviewComments>("comments", (message) => setReviewCommentsFor(session, message)),
       review.on("reset", () => resetReviewFor(session)),
       revise.on<{ regions: ReviseRegion[] }>("state", ({ regions }) =>
-        reviseMarks?.set(session, regions),
+        features?.setRegions(session, regions),
       ),
       // The host asks before it writes: only this page knows whether the buffer is dirty or the region moved.
       revise.handle<{ id: number }, { ok: boolean; reason: string }>("confirm", ({ id }) => {
-        const refusal = reviseMarks?.verify(session, id) ?? null;
+        const refusal = features?.verifyRevision(session, id) ?? null;
         return { ok: refusal === null, reason: refusal ?? "" };
       }),
       review.on<ReviewHistory>("history", (history) => {
@@ -1833,6 +1821,13 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     return true;
   };
 
+  const commandEditor = (): monaco.editor.ICodeEditor | null => {
+    const target = host?.activeEditor();
+    if (target == null) return null;
+    const unified = target.getContainerDomNode().closest(".unified-review") !== null;
+    return unified === (reviews.mode() === "unified") ? target : null;
+  };
+
   return {
     start,
     openFile,
@@ -1840,13 +1835,15 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     openSourceTab,
     focusEditor: focusEditorSurface,
     reviseSelection: () => {
-      const session = selectedSession();
-      const model = host?.editor.getModel();
-      const selection = host?.editor.getSelection();
+      const target = commandEditor();
+      const model = target?.getModel();
+      const selection = target?.getSelection();
+      const session = model == null ? undefined : sessionForUri(model.uri);
       if (
-        session === null ||
+        session === undefined ||
         model == null ||
         selection == null ||
+        target?.getRawOptions().readOnly === true ||
         model.uri.scheme !== SESSION_FILE_SCHEME
       ) {
         return;
@@ -1898,7 +1895,8 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       if (host === undefined) {
         return false;
       }
-      const target = host.focusedEditor();
+      const target = commandEditor();
+      if (target == null) return false;
       target.focus();
       target.trigger("weavie-menu", actionId, null);
       return true;
@@ -1924,10 +1922,17 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       openReviewFile(session, file, line ?? file.line);
       return true;
     },
-    showBlameAtCursor: () => gitBlame?.showAtCursor() ?? false,
-    spellingMenuAt: (x, y) => spelling?.menuAt(x, y) ?? { x, y, entries: [] },
-    correctSpelling: (args) => spelling?.correct(args) ?? null,
-    addSpellingWord: (scope, args) => spelling?.add(scope, args) ?? Promise.resolve(),
+    contextTarget: (element) => {
+      const target = editorAtElement(element);
+      if (target === null || target.getModel() === null) return null;
+      target.focus();
+      return { readOnly: target.getRawOptions().readOnly === true };
+    },
+    showBlameAtCursor: () => features?.active()?.blame.showAtCursor() ?? false,
+    spellingMenuAt: (x, y) => features?.active()?.spelling.menuAt(x, y) ?? { x, y, entries: [] },
+    correctSpelling: (args) => features?.active()?.spelling.correct(args) ?? null,
+    addSpellingWord: (scope, args) =>
+      features?.active()?.spelling.add(scope, args) ?? Promise.resolve(),
     activeContent,
     reviewActive,
     parkedReviewCount: reviews.count,
@@ -2093,9 +2098,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         sub.dispose();
       }
       commentProse?.dispose();
-      gitBlame?.dispose();
-      spelling?.dispose();
-      reviseMarks?.dispose();
+      features?.dispose();
       inlineDiff?.dispose();
       host?.dispose();
       offSelection();

@@ -3,9 +3,10 @@
 // streaming — so elapsed time is the only honest signal. The decoration also anchors the write: Monaco moves it
 // with the text, so `verify` compares what the region holds NOW against what the host captured.
 import * as monaco from "monaco-editor";
-import { type ClientSession, selectedSession } from "../bridge";
+import type { ClientSession } from "../bridge";
 import { dirtyPathsFor } from "./dirty-store";
 import { normalizePath } from "./fs-path";
+import { SESSION_FILE_SCHEME, sessionForUri, sessionUriHostPath } from "./session-uri-owner";
 
 /** One region the host is currently revising. */
 export interface ReviseRegion {
@@ -16,14 +17,37 @@ export interface ReviseRegion {
   originalText: string;
 }
 
-export interface ReviseMarksDeps {
-  /** The host path of the editor's current model, or null when it isn't a session file. */
-  activePath: () => string | null;
+/** One session-owned revision state shared by every view of its working copies. */
+export function createReviseState() {
+  const bySession = new Map<ClientSession, ReviseRegion[]>();
+  const startedAt = new Map<ReviseRegion, number>();
+  return {
+    regions: (session: ClientSession): ReviseRegion[] => bySession.get(session) ?? [],
+    elapsed: (region: ReviseRegion): string =>
+      `Revising… ${Math.max(0, Math.round((Date.now() - startedAt.get(region)!) / 1000))}s`,
+    set: (session: ClientSession, regions: ReviseRegion[]): void => {
+      const previous = bySession.get(session) ?? [];
+      for (const region of regions) {
+        const existing = previous.find((candidate) => candidate.id === region.id);
+        startedAt.set(region, existing === undefined ? Date.now() : startedAt.get(existing)!);
+      }
+      for (const region of previous) {
+        if (!regions.includes(region)) startedAt.delete(region);
+      }
+      if (regions.length === 0) bySession.delete(session);
+      else bySession.set(session, regions);
+    },
+    dispose: (): void => {
+      bySession.clear();
+      startedAt.clear();
+    },
+  };
 }
 
+type ReviseState = ReturnType<typeof createReviseState>;
+
 export interface ReviseMarks {
-  /** Replaces `session`'s in-flight set. Regions render only while that session is the selected one. */
-  set(session: ClientSession, regions: ReviseRegion[]): void;
+  refresh(): void;
   /** Null when region `id` of `session` may be written, else the reason it must not. */
   verify(session: ClientSession, id: number): string | null;
   dispose(): void;
@@ -38,19 +62,10 @@ interface Rendered {
 
 export function createReviseMarks(
   editor: monaco.editor.IStandaloneCodeEditor,
-  deps: ReviseMarksDeps,
+  state: ReviseState,
 ): ReviseMarks {
-  // Regions arrive on every loaded session's bus, so they are kept per session and only the selected session's
-  // are rendered; one shared set would let another session's retire wipe this one's tint.
-  const bySession = new Map<ClientSession, ReviseRegion[]>();
   let rendered: Rendered[] = [];
   let ticker: ReturnType<typeof setInterval> | undefined;
-  const startedAt = new Map<ClientSession, Map<number, number>>();
-
-  const elapsed = (session: ClientSession, id: number): string => {
-    const started = startedAt.get(session)?.get(id) ?? Date.now();
-    return `Revising… ${Math.max(0, Math.round((Date.now() - started) / 1000))}s`;
-  };
 
   const teardown = (): void => {
     for (const entry of rendered) {
@@ -66,14 +81,15 @@ export function createReviseMarks(
 
   const render = (): void => {
     teardown();
-    const session = selectedSession();
     const model = editor.getModel();
-    const active = deps.activePath();
-    if (session === null || model === null || active === null) {
+    if (model === null || model.uri.scheme !== SESSION_FILE_SCHEME) return;
+    const session = sessionForUri(model.uri);
+    const active = sessionUriHostPath(model.uri);
+    if (session === undefined) {
       return;
     }
 
-    for (const region of bySession.get(session) ?? []) {
+    for (const region of state.regions(session)) {
       if (normalizePath(region.path) !== normalizePath(active)) {
         continue;
       }
@@ -91,7 +107,7 @@ export function createReviseMarks(
       ]);
       const pill = document.createElement("span");
       pill.className = "weavie-revising-pill";
-      pill.textContent = elapsed(session, region.id);
+      pill.textContent = state.elapsed(region);
       const widget: monaco.editor.IContentWidget = {
         getId: () => `weavie.revising.${region.id}`,
         getDomNode: () => pill,
@@ -112,7 +128,7 @@ export function createReviseMarks(
     if (rendered.length > 0) {
       ticker = setInterval(() => {
         for (const entry of rendered) {
-          entry.pill.textContent = elapsed(session, entry.region.id);
+          entry.pill.textContent = state.elapsed(entry.region);
         }
       }, 1000);
     }
@@ -120,36 +136,13 @@ export function createReviseMarks(
 
   // A model swap must re-render, or the pill stays anchored over whatever file is now showing and `verify`
   // reads a decoration belonging to the previous model.
-  const modelListener = editor.onDidChangeModel(() => render());
+  const modelListener = editor.onDidChangeModel(render);
+  render();
 
   return {
-    set(session: ClientSession, regions: ReviseRegion[]): void {
-      if (regions.length === 0) {
-        bySession.delete(session);
-      } else {
-        bySession.set(session, regions);
-      }
-      const live = new Set(regions.map((region) => region.id));
-      const started = startedAt.get(session) ?? new Map<number, number>();
-      for (const id of [...started.keys()]) {
-        if (!live.has(id)) {
-          started.delete(id);
-        }
-      }
-      for (const region of regions) {
-        if (!started.has(region.id)) {
-          started.set(region.id, Date.now());
-        }
-      }
-      if (started.size === 0) {
-        startedAt.delete(session);
-      } else {
-        startedAt.set(session, started);
-      }
-      render();
-    },
+    refresh: render,
     verify(session: ClientSession, id: number): string | null {
-      const region = (bySession.get(session) ?? []).find((candidate) => candidate.id === id);
+      const region = state.regions(session).find((candidate) => candidate.id === id);
       if (region === undefined) {
         return "the revision is no longer tracked";
       }
@@ -162,7 +155,7 @@ export function createReviseMarks(
 
       const entry = rendered.find((candidate) => candidate.region.id === id);
       const model = editor.getModel();
-      if (session !== selectedSession() || entry === undefined || model === null) {
+      if (entry === undefined || model === null || sessionForUri(model.uri) !== session) {
         return null; // Not on screen: nothing here can contradict the host's own content guard.
       }
 
@@ -181,8 +174,6 @@ export function createReviseMarks(
         : "the region changed while it was being revised";
     },
     dispose(): void {
-      bySession.clear();
-      startedAt.clear();
       modelListener.dispose();
       teardown();
     },

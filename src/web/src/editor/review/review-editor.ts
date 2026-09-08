@@ -1,3 +1,6 @@
+import type { ClientSession } from "../../bridge";
+import { editorContexts } from "../editor-context";
+import { connectTextEditor } from "../editor-contributions";
 import {
   createInlineDiff,
   type InlineDiff,
@@ -5,6 +8,7 @@ import {
   type ReviewScopeState,
 } from "../inline-diff";
 import { createEmbeddedEditor, type monaco } from "../monaco-setup";
+import type { NavLocation } from "../nav-history";
 import { collapseUnchanged } from "./review-context";
 import { createReviewEditorViewport } from "./review-editor-viewport";
 import type { ReviewFileDiff } from "./review-store";
@@ -15,6 +19,9 @@ type CollapsingEditor = monaco.editor.IStandaloneCodeEditor & {
 };
 
 export interface ReviewEditor {
+  capture(): NavLocation;
+  restore(location: NavLocation): void;
+  focus(): void;
   layout(): void;
   inline: InlineDiff;
   reveal(line: number): void;
@@ -25,6 +32,7 @@ export interface ReviewEditor {
 
 /** The section owns sizing and collapsed context; InlineDiff owns all review rendering and actions. */
 export function createReviewEditor(options: {
+  session: ClientSession;
   scope: ReviewScopeState;
   container: HTMLElement;
   scroller: HTMLElement;
@@ -117,6 +125,40 @@ export function createReviewEditor(options: {
       options.onPainted();
     },
   };
+  const capture = (): NavLocation => {
+    const line = presentation.reviewLine();
+    return {
+      kind: "review",
+      path: options.diff.path,
+      line,
+      viewState: editor.saveViewState(),
+      anchor: {
+        line,
+        offset:
+          viewport.bounds().top -
+          container.getBoundingClientRect().top -
+          editor.getTopForLineNumber(line),
+      },
+    };
+  };
+  const restore = (location: NavLocation): void => {
+    viewport.update(() => {
+      if (location.viewState != null) editor.restoreViewState(location.viewState);
+      else editor.setPosition({ lineNumber: location.line, column: 1 });
+    });
+    const anchor = location.anchor;
+    viewport.reveal(
+      editor.getTopForLineNumber(anchor?.line ?? location.line) + (anchor?.offset ?? 0),
+    );
+  };
+  const binding = connectTextEditor({
+    session: options.session,
+    kind: "review",
+    editor,
+    model,
+    capture,
+    restore,
+  });
   const inline = createInlineDiff(editor, presentation);
   const subscriptions = [
     editor.onDidContentSizeChange(measure),
@@ -124,6 +166,12 @@ export function createReviewEditor(options: {
   ];
   options.configure(inline, model.uri.toString(), options.diff);
   return {
+    capture,
+    restore,
+    focus: () => {
+      editorContexts.activate(binding.connection);
+      editor.focus();
+    },
     layout: viewport.layout,
     inline,
     line: () => editor.getPosition()?.lineNumber ?? 1,
@@ -133,6 +181,7 @@ export function createReviewEditor(options: {
     },
     update: (diff) => options.configure(inline, model.uri.toString(), diff),
     dispose: () => {
+      binding.dispose();
       for (const subscription of subscriptions) subscription.dispose();
       viewport.dispose();
       inline.dispose();

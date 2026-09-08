@@ -16,16 +16,13 @@ import { dismissSplash } from "../splash";
 import { mark } from "../startup-timing";
 // Type-only (erased at build): the symbol query surface's monaco glue is dynamically imported in start(), so it
 // stays in the lazily loaded editor chunk rather than the first-paint entry chunk.
-import type {
-  FlatSymbol,
-  SymbolActions,
-  SymbolQueryResult,
-  SymbolQuerySource,
-} from "../symbols/symbol-match";
+import type { SymbolActions } from "../symbols/symbol-match";
 import type { CommentProse } from "./comment-prose";
+import { editorContexts, type TextEditorConnection } from "./editor-context";
 import type { EditorHost, ReviewCopyScope } from "./editor-host";
+import { createEditorNavigation } from "./editor-navigation";
+import { createEditorSymbols, noEditorSymbols } from "./editor-symbols";
 import { samePath } from "./fs-path";
-import type { GitBlameController } from "./git-blame";
 import type {
   HunkRevert,
   HunkUnkeep,
@@ -35,7 +32,6 @@ import type {
   ReviewScopeState,
 } from "./inline-diff";
 import { mediaTypeOf } from "./media/media-types";
-import { createNavHistory, type NavHistory } from "./nav-history";
 import { setAgentPlan } from "./plan/plan-store";
 import { REVEAL_SCROLL } from "./reveal-scroll";
 import {
@@ -70,8 +66,7 @@ import {
   togglePinFor,
 } from "./session-store";
 import type { EditorSession, EditorSessionEntry } from "./session-types";
-import { SESSION_FILE_SCHEME, sessionForUri, sessionUriHostPath } from "./session-uri-owner";
-import type { SpellCheck } from "./spell-check";
+import { SESSION_FILE_SCHEME, sessionUriHostPath } from "./session-uri-owner";
 
 // Only a genuine hang trips this, never a slow cold start: the editor chunk (~750KB of Monaco + workers) plus
 // vscode-services init can legitimately run tens of seconds on a loaded machine or across the remote worker hop
@@ -105,7 +100,7 @@ export interface EditorControllerDeps {
  * Why the editor pane is being given a destination — the wire value the host stamps on every open it pushes.
  * "navigation" is the user going somewhere and takes the pane; "reveal" lands behind a review they are in.
  */
-type EditorOpenIntent = "navigation" | "reveal";
+type EditorOpenIntent = "navigation" | "reveal" | "restore";
 
 interface DiffProposal {
   id: string;
@@ -153,9 +148,9 @@ export interface TabActions {
 /** Back/forward navigation through visited editor locations, exposed to the Go Back / Go Forward commands. */
 export interface NavActions {
   /** Go to the previous location; false when there's nothing behind (so the keybinding falls through). */
-  back(): boolean;
+  back(session: ClientSession): boolean;
   /** Go to the next location; false when there's nothing ahead. */
-  forward(): boolean;
+  forward(session: ClientSession): boolean;
   /** Whether a previous location is available (reactive). */
   canBack(): boolean;
   /** Whether a next location is available (reactive). */
@@ -164,7 +159,7 @@ export interface NavActions {
 
 export interface EditorController {
   /** Revise the selected lines: prompt for an instruction, then hand the region to the host. */
-  reviseSelection(): void;
+  reviseSelection(connection: TextEditorConnection, selection: monaco.Selection): void;
   /** Loads the editor chunk and brings up the editor in `container`; fades the splash when settled. */
   start(container: HTMLElement): void;
   /**
@@ -185,7 +180,6 @@ export interface EditorController {
   openMatch(path: string, line: number, column: number, focus: boolean): void;
   /** Focuses the editor and triggers a Monaco action by id (e.g. the editor right-click Copy/Cut/Paste);
    * false when no editor is mounted. */
-  triggerAction(actionId: string): boolean;
   /** New File: asks the host to create a scratch buffer, which comes back as an open-file with `scratch`. */
   newFile(): void;
   /** Save the active editor: a scratch buffer prompts for a name; a real file is already autosaved. */
@@ -247,7 +241,7 @@ export interface EditorController {
   readonly tabs: TabActions;
   readonly nav: NavActions;
   /** The omnibar's Go-to-Symbol surface: query document/workspace symbols and live-preview/commit the jump. */
-  readonly symbols: SymbolActions;
+  readonly symbols: () => SymbolActions;
   dispose(): void;
 }
 
@@ -281,8 +275,6 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   let inlineDiff: InlineDiff | undefined;
   const reviewScope: ReviewScopeState = { current: "change" };
   let commentProse: CommentProse | undefined;
-  let gitBlame: GitBlameController | undefined;
-  let spelling: SpellCheck | undefined;
   let reviseMarks: ReviseMarks | undefined;
   let initTimer: number | undefined;
   let disposing = false;
@@ -295,7 +287,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   void editorHostReady.catch(() => undefined);
   const editorSessions = new Set<ClientSession>();
   const pendingReconciliations = new Set<ClientSession>();
-  const pendingActivations = new WeakMap<ClientSession, Promise<void>>();
+  const pendingActivations = new WeakMap<ClientSession, Promise<unknown>>();
   // Disposables for the content/model listeners that feed activeContent (the live Preview text).
   let contentSubs: { dispose(): void }[] = [];
   let editorMounted = false;
@@ -328,7 +320,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       }
     });
   };
-  const trackActivation = (session: ClientSession, activation: Promise<void>): Promise<void> => {
+  const trackActivation = <T>(session: ClientSession, activation: Promise<T>): Promise<T> => {
     pendingActivations.set(session, activation);
     const settled = (): void => {
       if (pendingActivations.get(session) === activation) {
@@ -349,7 +341,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     // latest-wins inside EditorHost, so selection can never leave an old session editable while a read settles.
     return trackActivation(
       session,
-      editorHost.rebindSession(session).then(() => {
+      editorHost.rebindSession(session, navigation.signal(session)).then(() => {
         if (selectedSession() === session) {
           deps.onCurrentFileChanged(activePath());
           renderReviewState(session);
@@ -380,14 +372,17 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   // Translate "active tab changed" → "swap the editor's model": the tab store owns the set, the host owns Monaco.
   // Resolves once the (async) model swap has settled — nav history awaits this to know when a back/forward step
   // has landed, so don't drop the return value: mid-swap the editor still reports the old file (see nav-history).
-  const applyActive = (session: ClientSession, result: ActivateResult): Promise<void> => {
+  const applyActive = (
+    session: ClientSession,
+    result: ActivateResult,
+  ): Promise<TextEditorConnection | undefined> => {
     if (selectedSession() !== session) {
-      return Promise.resolve();
+      return Promise.resolve(undefined);
     }
     const editorHost = host;
     if (editorHost === undefined) {
       // The store already owns this activation; start() rebinds it once the lazy editor host is ready.
-      return Promise.resolve();
+      return Promise.resolve(undefined);
     }
     // An overlay tab has no Monaco model: leave the editor host untouched (App overlays it) and never read the
     // path as a file. Same for a media (image/video) file tab —
@@ -401,22 +396,23 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       mediaTypeOf(result.path) !== null
     ) {
       host?.clear();
-      return Promise.resolve();
+      return Promise.resolve(undefined);
     }
     // Don't clobber an in-progress review: the reviewed file is active, but the editor shows the transient
     // review model; re-showing the working copy would drop the diff. resolveReview → endReview restores it.
     if (activeReview !== undefined && samePath(activeReview.path, result.path)) {
-      return Promise.resolve();
+      return Promise.resolve(undefined);
     }
     // If the file can't be read, the editor never swaps its model — close this tab rather than leave it active
     // over a stale/blank pane, and fall back to a surviving neighbor (or clear).
     return trackActivation(
       session,
-      editorHost.show(session, result.path, result.placement).then((ok) => {
-        if (!ok) {
-          rollbackFailedOpen(session, result.path);
-        }
-      }),
+      editorHost
+        .show(session, result.path, result.placement, navigation.signal(session))
+        .then((shown) => {
+          if (shown.kind === "failed") rollbackFailedOpen(session, result.path);
+          return shown.kind === "shown" ? shown.connection : undefined;
+        }),
     );
   };
 
@@ -435,8 +431,21 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
 
   const focusEditorSurface = (): void => {
     if (!deps.focusVisibleOverlay()) {
-      host?.editor.focus();
+      const session = selectedSession();
+      if (session !== null) {
+        if (reviews.board(session).mode === "unified") unifiedSurfaces.get(session)?.focus();
+        else editorContexts.get(session)?.editor.focus();
+      }
     }
+  };
+
+  const focusActivatedEditor = (connection: TextEditorConnection | undefined): void => {
+    if (
+      connection !== undefined &&
+      selectedSession() === connection.session &&
+      editorContexts.live(connection)
+    )
+      connection.editor.focus();
   };
 
   // Unified review is a mode the user is in, not an overlay: only a destination they navigated to leaves it.
@@ -445,7 +454,8 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     if (selectedSession() !== session) {
       return false;
     }
-    if (intent === "navigation") {
+    if (intent !== "reveal") {
+      if (intent === "navigation") navigation.depart(session);
       reviews.leaveUnified(session);
     }
     deps.onDestinationActivated();
@@ -476,7 +486,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       scratch,
     });
     if (activateDestinationFor(session, intent) && host !== undefined) {
-      void applyActive(session, result).then(focusEditorSurface);
+      void applyActive(session, result).then(focusActivatedEditor);
     }
   };
 
@@ -493,115 +503,109 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   };
 
   // The document/workspace symbol query surface (monaco glue), captured once the editor chunk loads in start().
-  let symbolSource: SymbolQuerySource | undefined;
-  // The active editor's scroll/cursor captured before the first preview reveal, restored if the user dismisses
-  // Go-to-Symbol without committing. Undefined when no preview is in flight.
-  let previewReturn: monaco.editor.ICodeEditorViewState | null | undefined;
-
-  const isActiveFile = (path: string): boolean => samePath(path, activePath() ?? "");
-
-  // Reveal + select a symbol in place in the REAL editor as the omnibar selection moves, but only when it lives in
-  // the file already showing — document-symbol (@) rows, and the occasional workspace (#) hit in the current file.
-  // A symbol in another file reveals only on commit: opening files just to skim whole-repo results would churn the
-  // editor more than it helps. The first reveal snapshots the view so cancelPreview can restore it.
-  const previewSymbol = (sym: FlatSymbol): void => {
-    if (host === undefined || !isActiveFile(sym.path)) {
-      return;
-    }
-    if (previewReturn === undefined) {
-      previewReturn = host.editor.saveViewState();
-    }
-    host.editor.setSelection(sym.range);
-    host.editor.revealRangeInCenterIfOutsideViewport(sym.range, REVEAL_SCROLL);
-  };
-
-  // Dismissed without choosing: restore the pre-preview scroll/cursor.
-  const cancelPreview = (): void => {
-    const viewState = previewReturn;
-    previewReturn = undefined;
-    if (viewState != null && host !== undefined) {
-      host.editor.restoreViewState(viewState);
-    }
-  };
-
-  // Committed: keep the jump. Re-reveal in place, or open the file as a real (non-preview) tab so it sticks. Self
-  // sufficient — works whether or not a preview fired (Enter on an unarrowed selection still lands).
-  const commitPreview = (sym: FlatSymbol): void => {
-    previewReturn = undefined;
+  const displayedText = (): TextEditorConnection | undefined => {
     const session = selectedSession();
-    if (host === undefined || session === null) {
-      return;
-    }
-    if (isActiveFile(sym.path)) {
-      activateDestinationFor(session, "navigation");
-      host.editor.setSelection(sym.range);
-      host.editor.revealRangeInCenterIfOutsideViewport(sym.range, REVEAL_SCROLL);
-      host.editor.focus();
-    } else {
-      openFile(sym.path, sym.range.startLineNumber);
-    }
+    return session === null ? undefined : editorContexts.get(session);
+  };
+  const symbols = (): SymbolActions => {
+    const connection = displayedText();
+    const origin = connection?.capture();
+    if (connection === undefined || origin === undefined) return noEditorSymbols;
+    const { session } = connection;
+    return createEditorSymbols({
+      connection,
+      origin,
+      suspendHistory: () => navHistoryFor(session).suspend(),
+      commit: (origin, symbol) => {
+        if (selectedSession() !== session) return;
+        navigation.depart(session);
+        navigation.record(session, origin);
+        if (samePath(origin.path, symbol.path)) {
+          connection.editor.setSelection(symbol.range);
+          connection.editor.revealRangeInCenterIfOutsideViewport(symbol.range, REVEAL_SCROLL);
+          connection.editor.focus();
+          const destination = connection.capture();
+          if (destination !== undefined) navHistoryFor(session).push(destination);
+        } else
+          openFileFor(
+            session,
+            symbol.path,
+            symbol.range.startLineNumber,
+            false,
+            false,
+            "navigation",
+          );
+      },
+    });
   };
 
-  const noSymbols = (): Promise<SymbolQueryResult> =>
-    Promise.resolve({ providerAvailable: false, items: [] });
-  const symbols: SymbolActions = {
-    documentSymbols: () => symbolSource?.documentSymbols() ?? noSymbols(),
-    workspaceSymbols: (query, signal) =>
-      symbolSource?.workspaceSymbols(query, signal) ?? noSymbols(),
-    preview: previewSymbol,
-    cancelPreview,
-    commitPreview,
-  };
-
-  // Browser-style back/forward over visited editor locations. navigateTo reuses the open/activate path
-  // (openTab activates an already-open tab or opens it, then applyActive reveals the line) and returns its
-  // settle promise, so nav history can suppress records until the swap lands.
-  const navHistories = new WeakMap<ClientSession, NavHistory>();
   const [navRevision, setNavRevision] = createSignal(0);
-  const navHistoryFor = (session: ClientSession): NavHistory => {
-    const existing = navHistories.get(session);
-    if (existing !== undefined) {
-      return existing;
-    }
-    const created = createNavHistory((loc) => {
-      if (selectedSession() !== session || host === undefined) {
-        return Promise.resolve();
+  const surfaceWaiters = new Map<ClientSession, Set<(surface: UnifiedReviewSurface) => void>>();
+  const waitForReviewSurface = (
+    session: ClientSession,
+    signal: AbortSignal,
+  ): Promise<UnifiedReviewSurface> => {
+    const mounted = unifiedSurfaces.get(session);
+    if (mounted !== undefined) return Promise.resolve(mounted);
+    return new Promise((resolve, reject) => {
+      const waiters = surfaceWaiters.get(session) ?? new Set();
+      surfaceWaiters.set(session, waiters);
+      const complete = (surface: UnifiedReviewSurface): void => {
+        cleanup();
+        queueMicrotask(() => resolve(surface));
+      };
+      const cancel = (): void => {
+        cleanup();
+        reject(new DOMException("Navigation cancelled", "AbortError"));
+      };
+      const cleanup = (): void => {
+        waiters.delete(complete);
+        signal.removeEventListener("abort", cancel);
+      };
+      waiters.add(complete);
+      if (signal.aborted) cancel();
+      else signal.addEventListener("abort", cancel, { once: true });
+    });
+  };
+  const navigation = createEditorNavigation({
+    capture: (session) =>
+      selectedSession() !== session
+        ? undefined
+        : reviews.board(session).mode === "unified"
+          ? unifiedSurfaces.get(session)?.capture()
+          : editorContexts.get(session)?.capture(),
+    restore: async (session, location, signal) => {
+      signal.throwIfAborted();
+      if (selectedSession() !== session)
+        throw new DOMException("Editor view detached", "AbortError");
+      if (location.kind === "review") {
+        if (!enterUnifiedFor(session, { path: location.path, line: location.line })) {
+          throw new Error("This review is no longer available.");
+        }
+        const surface = await waitForReviewSurface(session, signal);
+        signal.throwIfAborted();
+        await surface.restore(location, signal);
+      } else {
+        activateDestinationFor(session, "restore");
+        const result = openTabFor(session, location.path, { line: location.line });
+        if (location.viewState != null) result.placement = { viewState: location.viewState };
+        const destination = await applyActive(session, result);
+        signal.throwIfAborted();
+        if (destination === undefined || !editorContexts.live(destination))
+          throw new Error("The file navigation was superseded.");
+        if (selectedSession() === session) destination.editor.focus();
       }
-      activateDestinationFor(session, "navigation");
-      return applyActive(session, openTabFor(session, loc.path, { line: loc.line }));
-    });
-    navHistories.set(session, created);
-    return created;
-  };
-
-  // Record where the editor settles (active file + cursor line) as a navigation point, debounced like the
-  // view-state snapshot so only the resting position is logged — not the brief top-of-file the editor sits at
-  // mid-swap before a reveal. Only real file models: overlay (web/source) tabs and the transient review model
-  // aren't navigable locations.
-  let navTimer: ReturnType<typeof setTimeout> | undefined;
-  const recordNavLocation = (): void => {
-    const model = host?.editor.getModel();
-    const position = host?.editor.getPosition();
-    if (model == null || position == null || model.uri.scheme !== SESSION_FILE_SCHEME) {
-      return;
-    }
-    const session = sessionForUri(model.uri);
-    if (session === undefined) {
-      return;
-    }
-    // uriHostPath, not fsPath: a back-navigation re-opens this path as a tab, which must stay host-native.
-    navHistoryFor(session).record({
-      path: sessionUriHostPath(model.uri),
-      line: position.lineNumber,
-    });
-    setNavRevision((revision) => revision + 1);
-  };
-  const scheduleRecordNav = (): void => {
-    if (navTimer !== undefined) {
-      clearTimeout(navTimer);
-    }
-    navTimer = setTimeout(recordNavLocation, 150);
-  };
+    },
+    changed: () => setNavRevision((revision) => revision + 1),
+    failed: (_session, error) =>
+      deps.onOpenError(`Couldn't restore editor location: ${String(error)}`),
+  });
+  const navHistoryFor = navigation.history;
+  const offEditorLocations = editorContexts.onChange((connection) => {
+    const location = connection.capture();
+    if (location !== undefined)
+      navigation.schedule(connection.session, location, connection.signal);
+  });
 
   // Open an http(s) URL as a web (iframe) tab. No Monaco model / working copy — App renders an iframe over the
   // editor host when this tab is active. Independent of the editor chunk, so it works before Monaco is up.
@@ -931,14 +935,31 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         container,
         deps.onSaveError,
         deps.onOpenError,
-        ({ session, path, line }) => navHistoryFor(session).record({ path, line }),
-        ({ session, path, selection }) => {
+        async ({ session, path, selection, source }) => {
+          navigation.depart(session);
+          const origin = source.capture();
+          if (origin !== undefined) navigation.record(session, origin);
+          if (origin !== undefined && samePath(origin.path, path)) {
+            if (selection !== undefined) {
+              source.editor.setSelection(selection);
+              source.editor.revealRangeInCenterIfOutsideViewport(selection, REVEAL_SCROLL);
+            }
+            source.editor.focus();
+            const destination = source.capture();
+            if (destination !== undefined) navHistoryFor(session).push(destination);
+            setNavRevision((revision) => revision + 1);
+            return source;
+          }
           const result = openTabFor(session, path, { preview: true });
           result.placement = selection === undefined ? { line: 1 } : { selection };
           // A jump out of a unified-review section (go-to-definition, peek) lands in the file editor, which the
           // overview would otherwise cover.
           activateDestinationFor(session, "navigation");
-          void applyActive(session, result);
+          const destination = await applyActive(session, result);
+          if (destination === undefined || !editorContexts.live(destination)) return undefined;
+          const location = destination.capture();
+          if (location !== undefined) navigation.record(session, location);
+          return destination;
         },
       ),
     );
@@ -957,15 +978,11 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         }
         // inline-diff + comment-prose pull Monaco; import them here (the chunk is already loaded by the
         // editor host above) so they stay off the first-paint entry chunk.
-        const [diff, prose, symbolMod, blame, marks, spell] = await Promise.all([
+        const [diff, prose, marks] = await Promise.all([
           import("./inline-diff"),
           import("./comment-prose"),
-          import("../symbols/symbol-source"),
-          import("./git-blame"),
           import("./revise-marks"),
-          import("./spell-check"),
         ]);
-        symbolSource = symbolMod.createSymbolSource(created.editor);
         inlineDiff = diff.createInlineDiff(created.editor, {
           scope: reviewScope,
           parked: () => reviews.mode() === "unified",
@@ -997,26 +1014,15 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
           created.editor.onDidChangeModelContent(() => syncContent()),
           created.editor.onDidChangeModel(() => {
             syncContent();
-            scheduleRecordNav();
           }),
           // A cursor jump (or a model swap's reveal) records a navigation point for back/forward.
-          created.editor.onDidChangeCursorPosition(() => scheduleRecordNav()),
         ];
         syncContent();
         // Suspended over a model with a live inline diff so a collapsed comment never hides a changed line.
         commentProse = prose.createCommentProse(created.editor, {
           isBlocked: (uri) => inlineDiff?.hasDiffForUri(uri) ?? false,
         });
-        reviseMarks = marks.createReviseMarks(created.editor, {
-          activePath: () => {
-            const current = created.editor.getModel();
-            return current === null || current.uri.scheme !== SESSION_FILE_SCHEME
-              ? null
-              : sessionUriHostPath(current.uri);
-          },
-        });
-        gitBlame = blame.createGitBlame(created.editor);
-        spelling = spell.createSpellCheck(created.editor);
+        reviseMarks = marks.sharedReviseMarks;
         const session = selectedSession();
         if (session !== null) {
           await rebindSession(session);
@@ -1056,6 +1062,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       showUnifiedReview(session);
       return;
     }
+    navigation.depart(session);
     reviews.enterFile(session, { path: file.path, line });
     openFileFor(session, file.path, line, true, false, "navigation");
     session.feature("review").publish("showFile", { path: file.path });
@@ -1095,6 +1102,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         };
       }
     }
+    navigation.depart(session);
     if (!enterUnifiedFor(session, cursor)) {
       return false;
     }
@@ -1644,6 +1652,9 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   };
 
   const offSessionFeatures = registerSessionFeature((session) => {
+    const offContext = editorContexts.own(session, () =>
+      reviews.board(session).mode === "unified" ? "review" : "file",
+    );
     editorSessions.add(session);
     const editor = session.feature("editor");
     const review = session.feature("review");
@@ -1682,7 +1693,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         ({ path, kind }) => {
           const result = openTabFor(session, path, { kind });
           if (activateDestinationFor(session, "navigation")) {
-            void applyActive(session, result).then(focusEditorSurface);
+            void applyActive(session, result).then(focusActivatedEditor);
           }
         },
       ),
@@ -1733,6 +1744,8 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       for (const cleanup of cleanups) {
         cleanup();
       }
+      offContext();
+      navigation.detach(session);
       editorSessions.delete(session);
       pendingReconciliations.delete(session);
       if (!disposing) {
@@ -1741,7 +1754,11 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     };
   });
 
+  let presentedSession: ClientSession | null = selectedSession();
   const offSelection = onSelectedSession((session) => {
+    if (presentedSession !== null && presentedSession !== session)
+      navigation.detach(presentedSession);
+    presentedSession = session;
     if (!editorMounted) {
       reviews.select(session);
       return;
@@ -1839,10 +1856,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     openWebTab,
     openSourceTab,
     focusEditor: focusEditorSurface,
-    reviseSelection: () => {
-      const session = selectedSession();
-      const model = host?.editor.getModel();
-      const selection = host?.editor.getSelection();
+    reviseSelection: ({ session, model }, selection) => {
       if (
         session === null ||
         model == null ||
@@ -1886,6 +1900,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         if (focus) {
           activateDestinationFor(session, "navigation");
         } else {
+          navigation.depart(session);
           reviews.leaveUnified(session);
         }
         void applyActive(
@@ -1893,15 +1908,6 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
           openTabFor(session, path, { line, column, focus, preview: true }),
         );
       }
-    },
-    triggerAction: (actionId) => {
-      if (host === undefined) {
-        return false;
-      }
-      const target = host.focusedEditor();
-      target.focus();
-      target.trigger("weavie-menu", actionId, null);
-      return true;
     },
     newFile,
     save,
@@ -1924,10 +1930,11 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       openReviewFile(session, file, line ?? file.line);
       return true;
     },
-    showBlameAtCursor: () => gitBlame?.showAtCursor() ?? false,
-    spellingMenuAt: (x, y) => spelling?.menuAt(x, y) ?? { x, y, entries: [] },
-    correctSpelling: (args) => spelling?.correct(args) ?? null,
-    addSpellingWord: (scope, args) => spelling?.add(scope, args) ?? Promise.resolve(),
+    showBlameAtCursor: () => displayedText()?.blame.showAtCursor() ?? false,
+    spellingMenuAt: (x, y) => displayedText()?.spelling.menuAt(x, y) ?? { x, y, entries: [] },
+    correctSpelling: (args) => displayedText()?.spelling.correct(args) ?? null,
+    addSpellingWord: (scope, args) =>
+      displayedText()?.spelling.add(scope, args) ?? Promise.resolve(),
     activeContent,
     reviewActive,
     parkedReviewCount: reviews.count,
@@ -1939,6 +1946,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         host?.createReviewCopyScope() ?? createDeferredReviewCopyScope(editorHostReady),
       bindSurface: (session, surface) => {
         unifiedSurfaces.set(session, surface);
+        for (const complete of surfaceWaiters.get(session) ?? []) complete(surface);
         inlineDiff?.refreshPresentation();
         return () => {
           if (unifiedSurfaces.get(session) === surface) unifiedSurfaces.delete(session);
@@ -2059,14 +2067,15 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     },
     tabs,
     nav: {
-      back: () => {
-        const session = selectedSession();
+      back: (session) => {
+        if (selectedSession() !== session) return false;
+        navigation.capture(session);
         const acted = session !== null && navHistoryFor(session).back();
         setNavRevision((revision) => revision + 1);
         return acted;
       },
-      forward: () => {
-        const session = selectedSession();
+      forward: (session) => {
+        if (selectedSession() !== session) return false;
         const acted = session !== null && navHistoryFor(session).forward();
         setNavRevision((revision) => revision + 1);
         return acted;
@@ -2086,15 +2095,12 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     dispose: () => {
       disposing = true;
       window.clearTimeout(initTimer);
-      if (navTimer !== undefined) {
-        clearTimeout(navTimer);
-      }
+      navigation.dispose();
+      offEditorLocations();
       for (const sub of contentSubs) {
         sub.dispose();
       }
       commentProse?.dispose();
-      gitBlame?.dispose();
-      spelling?.dispose();
       reviseMarks?.dispose();
       inlineDiff?.dispose();
       host?.dispose();

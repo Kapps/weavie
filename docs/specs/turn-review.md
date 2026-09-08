@@ -26,7 +26,9 @@ The two review modes are projections over one Core-owned review board:
   navigation, comments, and line-level Keep/Revert.
 
 The persistent editor-tab-strip button and `weavie.review.toggleMode` (`$mod+Shift+u` by default) move
-between them without creating a second review state.
+between them without creating a second review state. Both participate in
+[owned editor surfaces](../concepts/editor-surfaces.md): navigation restores the presentation, selection,
+and reading position, and text commands retain the exact session/model connection they captured.
 
 **Unified review is a mode the user is in, not an overlay that anything can dismiss.** Every editor open the
 host pushes carries an `EditorOpenIntent`: `Navigation` (the user went somewhere — a terminal link, `Ctrl+N`)

@@ -189,6 +189,7 @@ export function UnifiedReview(props: {
   };
 
   const surface = createReviewSurface({
+    focus: () => scroller?.focus(),
     toolbarHost: () => toolbarHost ?? null,
     changed: props.refreshControls,
     files,
@@ -201,6 +202,7 @@ export function UnifiedReview(props: {
     expand: (file) => setFileCollapsed(file, false),
     scrollToIndex: (index) => virtualizer.scrollToIndex(index, { align: "start" }),
   });
+  onCleanup(() => surface.dispose());
   createEffect(() => onCleanup(props.bindSurface(props.session, surface)));
   createEffect(() => {
     visibleFile();
@@ -270,6 +272,7 @@ export function UnifiedReview(props: {
                         <Show when={file()}>
                           {(view) => (
                             <ReviewFileSection
+                              session={props.session}
                               scroller={() => scroller!}
                               editorHeight={() => editorHeight(view())}
                               onEditorHeight={(height) => editorHeights.set(view(), height)}

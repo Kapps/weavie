@@ -450,3 +450,13 @@ export function createReviewStore(
     leaveUnified,
   };
 }
+
+/** Whether a file still has anything to show: pending changes, or kept ones in its reviewed band. */
+export function hasReviewChanges(diff: ReviewFileDiff): boolean {
+  return (
+    diff.baseline !== diff.current ||
+    diff.baselineExists !== diff.currentExists ||
+    diff.acceptedBaseline !== diff.baseline ||
+    diff.acceptedBaselineExists !== diff.baselineExists
+  );
+}

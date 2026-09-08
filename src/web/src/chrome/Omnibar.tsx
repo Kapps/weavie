@@ -12,7 +12,7 @@ import {
 } from "solid-js";
 import { selectedSession } from "../bridge";
 import { evaluateWhen, paneFocusContext } from "../commands/context";
-import { getCommands, onCommandsChanged, runCommandWithFeedback } from "../commands/registry";
+import { captureCommandRunner, getCommands, onCommandsChanged } from "../commands/registry";
 import { CommandIds, type CommandInfo } from "../commands/types";
 import { canonicalFsPath, samePath } from "../editor/fs-path";
 import type { DirEntry } from "../files/FileBrowser";
@@ -69,7 +69,7 @@ export function Omnibar(props: {
   onOpenFile: (abs: string, line: number | undefined) => void;
   onRequestIndex: () => void;
   // The editor's Go-to-Symbol surface (query + live preview/commit), used by the @ / # modes.
-  symbols: SymbolActions;
+  symbols: () => SymbolActions;
 }): JSX.Element {
   const [query, setQuery] = createSignal("");
   const [open, setOpen] = createSignal(false);
@@ -92,6 +92,8 @@ export function Omnibar(props: {
   // Element focused when the omnibar opened; restored on close so the focusin-derived `when`-context
   // (editorFocused/terminalFocused) and editor-gated chords like Ctrl+Tab keep matching. See App's onFocusIn.
   let priorFocus: HTMLElement | null = null;
+  let runCapturedCommand = captureCommandRunner();
+  let capturedSymbols = props.symbols();
 
   // The 1-based line an open from this omnibar session reveals — a host-driven request resolving an
   // ambiguous `file:line` link carries the link's line, applied to whichever candidate the user picks.
@@ -170,7 +172,13 @@ export function Omnibar(props: {
       !open() ? null : docSymbolMode() ? "docSymbol" : wsSymbolMode() ? "wsSymbol" : null,
     query: () => query().slice(1),
     reloadKey: () => props.currentFile,
-    symbols: props.symbols,
+    symbols: {
+      documentSymbols: () => capturedSymbols.documentSymbols(),
+      workspaceSymbols: (query, signal) => capturedSymbols.workspaceSymbols(query, signal),
+      preview: (symbol) => capturedSymbols.preview(symbol),
+      commitPreview: (symbol) => capturedSymbols.commitPreview(symbol),
+      cancelPreview: () => capturedSymbols.cancelPreview(),
+    },
   });
   const symbolView = createMemo(() => symbolSearch.view().slice(0, VIEW_CAP));
 
@@ -307,7 +315,7 @@ export function Omnibar(props: {
   createEffect(
     on(symbolMode, (isSymbol, wasSymbol) => {
       if (wasSymbol && !isSymbol) {
-        props.symbols.cancelPreview();
+        capturedSymbols.cancelPreview();
       }
     }),
   );
@@ -319,6 +327,10 @@ export function Omnibar(props: {
       (request) => {
         if (request === null) {
           return;
+        }
+        if (!open()) {
+          runCapturedCommand = captureCommandRunner();
+          capturedSymbols = props.symbols();
         }
         setQuery(MODE_PREFIX[request.mode] + request.query);
         pendingLine = request.line;
@@ -401,7 +413,7 @@ export function Omnibar(props: {
       setSelected(0);
       return;
     }
-    void runCommandWithFeedback(cmd.id);
+    void runCapturedCommand(cmd.id, undefined);
     close();
   };
 
@@ -409,7 +421,7 @@ export function Omnibar(props: {
     if (sym === undefined) {
       return;
     }
-    props.symbols.commitPreview(sym);
+    capturedSymbols.commitPreview(sym);
     close();
   };
 
@@ -525,7 +537,7 @@ export function Omnibar(props: {
     if (symbolMode()) {
       const sym = symbolView()[selected()]?.sym;
       if (sym !== undefined) {
-        props.symbols.preview(sym);
+        capturedSymbols.preview(sym);
       }
     }
   };
@@ -621,6 +633,10 @@ export function Omnibar(props: {
           value={query()}
           onInput={(e) => setQuery(e.currentTarget.value)}
           onFocus={(e) => {
+            if (!open()) {
+              runCapturedCommand = captureCommandRunner();
+              capturedSymbols = props.symbols();
+            }
             // Remember the element we're stealing focus from so close can hand it back. Ignore a target
             // inside the omnibar itself so re-entry never overwrites it.
             const from = e.relatedTarget as HTMLElement | null;

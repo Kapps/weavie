@@ -1,21 +1,13 @@
 import { type Accessor, createEffect, createSignal, type JSX, onCleanup, Show } from "solid-js";
+import type { ClientSession } from "../../bridge";
 import type { ReviewCopy } from "../editor-host";
 import type { InlineDiff, ReviewScopeState } from "../inline-diff";
 import { createReviewEditor, type ReviewEditor } from "./review-editor";
-import type { ReviewFileDiff, ReviewFileView } from "./review-store";
+import { hasReviewChanges, type ReviewFileDiff, type ReviewFileView } from "./review-store";
 import type { ReviewSectionRegistry } from "./review-surface";
 
-/** Whether a file still has anything to show: pending changes, or kept ones in its reviewed band. */
-function hasChanges(diff: ReviewFileDiff): boolean {
-  return (
-    diff.baseline !== diff.current ||
-    diff.baselineExists !== diff.currentExists ||
-    diff.acceptedBaseline !== diff.baseline ||
-    diff.acceptedBaselineExists !== diff.baselineExists
-  );
-}
-
 export function ReviewFileBody(props: {
+  session: ClientSession;
   position: string;
   header: () => HTMLElement;
   scope: ReviewScopeState;
@@ -75,12 +67,13 @@ export function ReviewFileBody(props: {
   // diff is null precisely because it is done.
   const nothingLeft = (): boolean => {
     const value = diff();
-    return props.file().loaded() && (value === null || !hasChanges(value));
+    return props.file().loaded() && (value === null || !hasReviewChanges(value));
   };
 
   createEffect(() => {
     const value = diff();
-    if (value === null || !hasChanges(value)) {
+    if (value === null || !hasReviewChanges(value)) {
+      if (props.file().loaded()) props.register.empty(path);
       resolution += 1;
       if (live !== undefined) {
         disposeEditor();
@@ -104,9 +97,10 @@ export function ReviewFileBody(props: {
       (copy) => {
         if (dropped || token !== resolution || mount === undefined) return;
         const latest = diff();
-        if (latest === null || !hasChanges(latest)) return;
+        if (latest === null || !hasReviewChanges(latest)) return;
         liveExists = latest.currentExists;
         live = createReviewEditor({
+          session: props.session,
           scope: props.scope,
           container: mount,
           scroller: props.scroller(),
@@ -130,6 +124,7 @@ export function ReviewFileBody(props: {
       (error: unknown) => {
         if (!dropped && token === resolution) {
           setOpenError(String(error));
+          props.register.failed(path, error);
         }
       },
     );

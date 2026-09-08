@@ -118,6 +118,7 @@ import { BlamePopover } from "./editor/BlamePopover";
 import { blameTarget } from "./editor/blame-store";
 import { ConfirmDialog } from "./editor/ConfirmDialog";
 import { EditorEmptyState } from "./editor/EditorEmptyState";
+import { registerEditorCommands } from "./editor/editor-command-bindings";
 import { createEditorController } from "./editor/editor-controller";
 import { basename, repoRelativePath } from "./editor/fs-path";
 import MediaPane from "./editor/media/MediaPane";
@@ -1726,18 +1727,7 @@ export default function App(): JSX.Element {
       ...reviewCommandBindings(editor, selectedSession).map(([id, handler]) =>
         registerCommand(id, handler),
       ),
-      registerCommand(CommandIds.reviseSelection, () => editor.reviseSelection()),
-      // Blame: opens the popover on the cursor's line, or says why that line has no commit behind it. Declines
-      // only with no editor mounted, so the palette entry never looks like it silently did nothing.
-      registerCommand(CommandIds.showBlame, () => editor.showBlameAtCursor()),
-      registerCommand(CommandIds.spellCorrect, (args) => {
-        const menu = editor.correctSpelling(args);
-        if (menu !== null) setContextMenu(menu);
-      }),
-      registerCommand(CommandIds.spellAddUser, (args) => editor.addSpellingWord("user", args)),
-      registerCommand(CommandIds.spellAddProject, (args) =>
-        editor.addSpellingWord("project", args),
-      ),
+      registerEditorCommands(editor, setContextMenu),
       // Editor tabs. Targeted commands take an optional `path` (the context menu's right-clicked tab; keyboard
       // / palette omit it for the active tab). next/prev return whether they stepped, so Ctrl+Tab falls
       // through to the editor with <2 tabs.
@@ -1754,8 +1744,6 @@ export default function App(): JSX.Element {
       registerCommand(CommandIds.reopenClosed, () => editor.tabs.reopenClosed()),
       // Back / forward through visited editor locations (Alt+Left/Right + the back/forward mouse buttons). Each
       // returns whether it stepped, so the chord falls through to the editor when there's no history that way.
-      registerCommand(CommandIds.navBack, () => editor.nav.back()),
-      registerCommand(CommandIds.navForward, () => editor.nav.forward()),
       // Copy the target tab's name / repo-relative / absolute path to the clipboard (the tab menu's Copy
       // submenu; palette / Claude act on the active tab). Decline when there's no target so the chord/row
       // falls through rather than copying nothing.
@@ -1769,36 +1757,11 @@ export default function App(): JSX.Element {
         }),
       ),
       registerCommand(CommandIds.copyTabPath, (args) => copyTabPath(args, (path) => path)),
-      // Editor clipboard (the right-click menu): trigger Monaco's own actions so the native chords stay Monaco's.
-      registerCommand(CommandIds.editorCopy, () =>
-        editor.triggerAction("editor.action.clipboardCopyAction"),
-      ),
-      registerCommand(CommandIds.editorCut, () =>
-        editor.triggerAction("editor.action.clipboardCutAction"),
-      ),
-      registerCommand(CommandIds.editorPaste, () =>
-        editor.triggerAction("editor.action.clipboardPasteAction"),
-      ),
-      // Code intelligence (right-click menu + F12 / Shift+F12 / F2): trigger Monaco's own actions, whose LSP
-      // providers do the work. triggerAction returns false with no editor mounted, so the chord falls through.
-      registerCommand(CommandIds.editorGoToDefinition, () =>
-        editor.triggerAction("editor.action.revealDefinition"),
-      ),
-      registerCommand(CommandIds.editorPeekDefinition, () =>
-        editor.triggerAction("editor.action.peekDefinition"),
-      ),
-      registerCommand(CommandIds.editorGoToReferences, () =>
-        editor.triggerAction("editor.action.goToReferences"),
-      ),
-      registerCommand(CommandIds.editorRename, () => editor.triggerAction("editor.action.rename")),
       // New File (scratch buffer) + Save (scratch → name prompt; real file already autosaved).
       registerCommand(CommandIds.newFile, () => editor.newFile()),
       registerCommand(CommandIds.saveFile, () => editor.save()),
       registerCommand(CommandIds.toggleEditorPreview, () => toggleActivePreview()),
       registerCommand(CommandIds.zoomEmbed, () => zoomActiveEmbed()),
-      registerCommand(CommandIds.runTestAtCursor, async () => {
-        await (await import("./tests/test-lens")).runTestAtCursor();
-      }),
       // Workspace/window menu commands always target the page-serving host, even while a remote session is active.
       registerCommand(CommandIds.openFolder, () =>
         NATIVE_SHELL ? publishMenuAction("open-folder") : false,

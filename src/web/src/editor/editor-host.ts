@@ -1,3 +1,5 @@
+import { ICodeEditorService } from "@codingame/monaco-vscode-api/vscode/vs/editor/browser/services/codeEditorService.service";
+import type { TextEditorConnection } from "./editor-context";
 // Monaco + the monaco-vscode-api service layer are the heaviest code in the app, so this module is dynamically
 // imported (App.tsx onMount) into a chunk that loads after the shell paints. The shell reaches everything
 // Monaco-touching through the EditorHost handle.
@@ -12,17 +14,14 @@ import {
   ITextModelService,
 } from "@codingame/monaco-vscode-api/services";
 import { type ClientSession, log, selectedSession } from "../bridge";
-import { noteSelectionChange, registerSelectionSource } from "../commands/selection";
 import { startLanguageServices } from "../lsp/lsp-client";
 import { installReferenceCommands } from "../lsp/reference-commands";
 import { installTestLenses } from "../tests/test-lens";
-import { activeEditorMessage } from "./active-editor-message";
-import { installAltClickPeek } from "./alt-click-peek";
 import { setDirtyPath } from "./dirty-store";
-import { setEditorStatus } from "./editor-status-store";
+import { editorContexts } from "./editor-context";
+import { connectTextEditor } from "./editor-contributions";
 import { mediaTypeOf } from "./media/media-types";
 import { createEditor, monaco } from "./monaco-setup";
-import { leaveLine } from "./nav-history";
 import { REVEAL_SCROLL } from "./reveal-scroll";
 import { captureViewStateFor, editorSessionFor, type Placement, promoteFor } from "./session-store";
 import {
@@ -32,7 +31,7 @@ import {
   sessionOwnsUri,
   sessionUriHostPath,
 } from "./session-uri";
-import { initEditorServices, setOpenEditorSink } from "./vscode-services";
+import { initEditorServices } from "./vscode-services";
 
 // A resolved, refcounted model reference held for an open file. Disposing it drops a refcount; the model is
 // freed only when no reference remains, so a feature's transient createModelReference never frees ours.
@@ -74,14 +73,24 @@ function nextPaint(): Promise<void> {
   });
 }
 
+export type EditorShowResult =
+  | { kind: "shown"; connection: TextEditorConnection }
+  | { kind: "superseded" }
+  | { kind: "failed" };
+
 /** The live editor, plus the operations the shell drives it with (open a file, review a diff, tear down). */
 export interface EditorHost {
   readonly editor: monaco.editor.IStandaloneCodeEditor;
   /**
    * Switches the editor to a file working copy; `placement` reveals a line/selection or restores the tab's saved
-   * view state. Resolves `true` when shown (or superseded), `false` when unreadable so the caller can roll back.
+   * view state. Returns the exact mounted connection, or an explicit superseded/failed outcome.
    */
-  show(session: ClientSession, path: string, placement: Placement): Promise<boolean>;
+  show(
+    session: ClientSession,
+    path: string,
+    placement: Placement,
+    signal: AbortSignal,
+  ): Promise<EditorShowResult>;
   /**
    * Closes a tab: flushes its pending save, then releases its refcounted working-copy reference (the only site
    * that disposes one, never dispose()). The caller must switch the editor off this model first. Pass `discard`
@@ -106,18 +115,13 @@ export interface EditorHost {
   flushSession(session: ClientSession): Promise<void>;
   /** Creates one model-reference scope owned by a mounted unified-review surface. */
   createReviewCopyScope(): ReviewCopyScope;
-  /**
-   * The code editor holding keyboard focus — a unified-review section's, else the main pane. Menu-triggered
-   * actions (Copy/Cut/Paste) must act on what the user is actually typing in.
-   */
-  focusedEditor(): monaco.editor.ICodeEditor;
   /** Clears the editor to an empty pane (the last tab was closed). */
   clear(): void;
   /**
    * Rebinds the editor to the (already-updated) session store after a switch: releases the previous session's
    * review copies, then reuses the new active tab's warm working copy (non-active tabs reopen lazily).
    */
-  rebindSession(session: ClientSession): Promise<void>;
+  rebindSession(session: ClientSession, signal: AbortSignal): Promise<void>;
   /** Releases working copies no longer owned by one of the session's open file tabs. */
   reconcileSession(session: ClientSession, openPaths: readonly string[]): void;
   /**
@@ -153,12 +157,12 @@ export async function createEditorHost(
   container: HTMLElement,
   onSaveError: (message: string) => void,
   onOpenError: (message: string) => void,
-  onLeaveViewport: (loc: { session: ClientSession; path: string; line: number }) => void,
   onOpenEditor: (destination: {
     session: ClientSession;
     path: string;
     selection: monaco.IRange | undefined;
-  }) => void,
+    source: TextEditorConnection;
+  }) => Promise<TextEditorConnection | undefined>,
 ): Promise<EditorHost> {
   await initEditorServices();
   const textModelService = await getService(ITextModelService);
@@ -189,46 +193,32 @@ export async function createEditorHost(
   // built-in handler can't consume.
   installReferenceCommands();
 
-  // Tell the host which file + selection is active so embedded Claude knows what the user is looking at.
-  // Debounced (cursor moves fire rapidly); the transient review model is suppressed — not a file being worked on.
-  let emitTimer: ReturnType<typeof setTimeout> | undefined;
-  const emitActiveEditor = (): void => {
+  let textBinding: ReturnType<typeof connectTextEditor> | undefined;
+  const bindModel = (): void => {
+    textBinding?.dispose();
+    textBinding = undefined;
     const model = editor.getModel();
-    if (model === null || !isUserFileModel(model)) {
-      return;
-    }
+    if (model === null) return;
     const session = sessionForUri(model.uri);
-    if (session === undefined) {
-      return;
-    }
-    const sel = editor.getSelection();
-    session.feature("editor").publish("activeChanged", activeEditorMessage(model, sel));
-  };
-  const scheduleEmitActiveEditor = (): void => {
-    if (emitTimer !== undefined) {
-      clearTimeout(emitTimer);
-    }
-    emitTimer = setTimeout(emitActiveEditor, 150);
-  };
-
-  // Drive the editor status footer (cursor/selection/EOL). Written synchronously — the footer wants immediate
-  // cursor feedback, unlike the debounced host emit above. Null when no real file model is showing.
-  const updateStatus = (): void => {
-    const model = editor.getModel();
-    const position = editor.getPosition();
-    if (model === null || !isUserFileModel(model) || position === null) {
-      setEditorStatus(null);
-      return;
-    }
-    let selectionCount = 0;
-    for (const sel of editor.getSelections() ?? []) {
-      selectionCount += model.getValueInRange(sel).length;
-    }
-    setEditorStatus({
-      line: position.lineNumber,
-      column: position.column,
-      selectionCount,
-      eol: model.getEndOfLineSequence() === monaco.editor.EndOfLineSequence.CRLF ? "CRLF" : "LF",
+    if (session === undefined) return;
+    textBinding = connectTextEditor({
+      session,
+      kind: "file",
+      editor,
+      model,
+      capture: () =>
+        !isUserFileModel(model)
+          ? undefined
+          : {
+              kind: "file",
+              path: sessionUriHostPath(model.uri),
+              line: editor.getPosition()?.lineNumber ?? 1,
+              viewState: editor.saveViewState(),
+            },
+      restore: (location) => {
+        if (location.viewState != null) editor.restoreViewState(location.viewState);
+        else editor.setPosition({ lineNumber: location.line, column: 1 });
+      },
     });
   };
 
@@ -245,28 +235,10 @@ export async function createEditorHost(
     }
   };
 
-  // The editor's selected text as a search-seed source — Monaco keeps its selection out of the DOM, so the
-  // document tracker never sees it.
-  const readSelection = (): string => {
-    const model = editor.getModel();
-    const selection = editor.getSelection();
-    return model === null || selection === null || selection.isEmpty()
-      ? ""
-      : model.getValueInRange(selection);
-  };
-
-  // Every subscription is collected so dispose() tears them all down — including listeners on models that
-  // outlive the widget, so a rebuilt host never stacks a second handler set on a surviving model.
   const disposables: monaco.IDisposable[] = [
-    editor.onDidChangeModel(scheduleEmitActiveEditor),
-    editor.onDidChangeCursorSelection(scheduleEmitActiveEditor),
-    // onDidChangeCursorSelection fires on every caret move too, so it covers both cursor and selection updates.
-    editor.onDidChangeCursorSelection(updateStatus),
-    editor.onDidChangeModel(updateStatus),
+    editor.onDidChangeModel(bindModel),
     editor.onDidChangeModel(reflectActiveFile),
-    { dispose: registerSelectionSource("editor", readSelection) },
-    editor.onDidChangeCursorSelection(() => noteSelectionChange("editor")),
-    installAltClickPeek(editor),
+    { dispose: () => textBinding?.dispose() },
   ];
 
   // Mirror each working copy's dirty state into the dirty store so the tab strip shows an unsaved `*` (the error
@@ -455,49 +427,23 @@ export async function createEditorHost(
       | { line: number; column?: number; focus?: boolean }
       | { selection: monaco.IRange }
       | { viewState: monaco.editor.ICodeEditorViewState | null },
-  ): Promise<boolean> => {
+    signal: AbortSignal,
+  ): Promise<EditorShowResult> => {
     const owner = sessionForUri(uri);
-    if (owner === undefined || selectedSession() !== owner) {
-      return true;
+    if (signal.aborted || owner === undefined || selectedSession() !== owner) {
+      return { kind: "superseded" };
     }
     // Snapshot the outgoing tab's position before swapping away (data-only store write; never loops back).
     snapshotViewState();
-    // On a cross-file jump, if the user scrolled the outgoing cursor off-screen, record where they were looking
-    // as a nav point first (else Back skips it) — read before setModel, while the outgoing scroll is still live.
-    const leaving = editor.getModel();
-    const cursor = editor.getPosition();
-    const visible = editor.getVisibleRanges();
-    const top = visible[0];
-    const bottom = visible[visible.length - 1];
-    if (
-      leaving !== null &&
-      cursor !== null &&
-      top !== undefined &&
-      bottom !== undefined &&
-      isUserFileModel(leaving) &&
-      leaving.uri.toString() !== uri.toString()
-    ) {
-      const line = leaveLine(cursor.lineNumber, top.startLineNumber, bottom.endLineNumber);
-      if (line !== undefined) {
-        const session = sessionForUri(leaving.uri);
-        if (session !== undefined) {
-          onLeaveViewport({
-            session,
-            path: sessionUriHostPath(leaving.uri),
-            line,
-          });
-        }
-      }
-    }
     const token = ++openSeq;
     try {
       const resolved = await resolveRef(uri);
       let ref = resolved.ref;
-      if (token !== openSeq || selectedSession() !== owner) {
+      if (signal.aborted || token !== openSeq || selectedSession() !== owner) {
         if (resolved.owned) {
           ref.dispose();
         }
-        return true; // superseded by a newer open — that open owns the editor; not this tab's failure
+        return { kind: "superseded" };
       }
       if (resolved.owned) {
         const existing = refs.get(uri.toString());
@@ -525,26 +471,32 @@ export async function createEditorHost(
       } else if (placement.viewState !== null) {
         editor.restoreViewState(placement.viewState);
       }
-      return true;
+      if (textBinding === undefined) throw new Error("The opened file has no editor connection.");
+      return { kind: "shown", connection: textBinding.connection };
     } catch (error) {
       // A genuine read failure. If a newer open superseded this one, stay quiet — it owns the editor. Otherwise
       // error loudly: the model never swapped, so without this the tab would sit blank with no signal.
-      if (token !== openSeq) {
-        return true;
+      if (signal.aborted || token !== openSeq) {
+        return { kind: "superseded" };
       }
       log("error", `open failed for ${uri.toString()}: ${String(error)}`);
       const name = uri.path.split("/").pop() ?? uri.path;
       onOpenError(`Couldn't open ${name}: ${String(error)}`);
-      return false;
+      return { kind: "failed" };
     }
   };
 
-  const show = (session: ClientSession, path: string, placement: Placement): Promise<boolean> => {
+  const show = (
+    session: ClientSession,
+    path: string,
+    placement: Placement,
+    signal: AbortSignal,
+  ): Promise<EditorShowResult> => {
     const resolved =
       "line" in placement || "selection" in placement
         ? placement
         : { viewState: placement.viewState as monaco.editor.ICodeEditorViewState | null };
-    return showFile(sessionFileUri(session, path), resolved);
+    return showFile(sessionFileUri(session, path), resolved, signal);
   };
 
   // Close a tab: flush any pending save, then release the refcounted reference (only site that disposes one;
@@ -670,9 +622,6 @@ export async function createEditorHost(
     }
   };
 
-  const focusedEditor = (): monaco.editor.ICodeEditor =>
-    monaco.editor.getEditors().find((candidate) => candidate.hasTextFocus()) ?? editor;
-
   const clear = (): void => {
     snapshotViewState();
     openSeq += 1;
@@ -738,22 +687,36 @@ export async function createEditorHost(
 
   const flushDirty = (): Promise<void> => flushDirtyFor(null);
 
-  // Hand editor-service file opens (go-to-def / references) to the controller, which owns tab activation and
-  // the selected-file notification. The host only translates the session URI back to its owning destination.
-  setOpenEditorSink((uri, selection) => {
-    // Only real files are working copies. The transient `weavie-review:` model has no file provider, so an
-    // editor-service open of one (e.g. go-to-def while a review shows) is a no-op: it's already on screen via
-    // beginReview and must never become a tab or working copy.
-    if (uri.scheme !== SESSION_FILE_SCHEME) {
-      return;
-    }
-    // uriHostPath, not fsPath: the tab path is persisted host-side, so it must be host-native, not client-OS.
-    const session = sessionForUri(uri);
-    if (session === undefined) {
-      return;
-    }
-    onOpenEditor({ session, path: sessionUriHostPath(uri), selection });
-  });
+  const codeEditors = await getService(ICodeEditorService);
+  disposables.push(
+    codeEditors.registerCodeEditorOpenHandler(async (input, source) => {
+      if (source === null || input.resource.scheme !== SESSION_FILE_SCHEME) return null;
+      const connection = editorContexts.fromEditor(source);
+      if (connection === undefined) return null;
+      if (!sessionOwnsUri(connection.session, input.resource)) return null;
+      const session = connection.session;
+      if (selectedSession() !== session) return null;
+      const destination = await onOpenEditor({
+        session,
+        source: connection,
+        path: sessionUriHostPath(input.resource),
+        selection:
+          input.options?.selection === undefined
+            ? undefined
+            : {
+                startLineNumber: input.options.selection.startLineNumber,
+                startColumn: input.options.selection.startColumn,
+                endLineNumber:
+                  input.options.selection.endLineNumber ?? input.options.selection.startLineNumber,
+                endColumn: input.options.selection.endColumn ?? input.options.selection.startColumn,
+              },
+      });
+      if (selectedSession() !== session) return null;
+      return destination !== undefined && editorContexts.live(destination)
+        ? destination.editor
+        : null;
+    }),
+  );
 
   // Review uses a transient model per file path (one openDiff is live at a time). Tracked so endReview can
   // read its final content and dispose it.
@@ -849,9 +812,6 @@ export async function createEditorHost(
     for (const key of [...saveTimers.keys()]) {
       flushSave(key);
     }
-    if (emitTimer !== undefined) {
-      clearTimeout(emitTimer);
-    }
     // Flush the active tab's view state synchronously (the debounced timer dies with teardown) so the rebuilt
     // host's restoreSession() reopens it precisely. The tab set already lives in the store.
     if (viewStateTimer !== undefined) {
@@ -871,7 +831,7 @@ export async function createEditorHost(
   // Restore the editor on every fresh widget build (relaunch, Ctrl+R, hot reload); the session store is already
   // seeded (from disk on `ready` or carried across the hot-swap). Reopens the active file via showFile,
   // re-adopting a surviving working copy rather than re-reading. Non-active entries reopen lazily.
-  const restoreSession = async (owner: ClientSession): Promise<void> => {
+  const restoreSession = async (owner: ClientSession, signal: AbortSignal): Promise<void> => {
     const session = editorSessionFor(owner);
     if (session === null || session.active === null) {
       return;
@@ -888,14 +848,18 @@ export async function createEditorHost(
     ) {
       return;
     }
-    await showFile(sessionFileUri(owner, entry.path), {
-      viewState: (entry.viewState ?? null) as monaco.editor.ICodeEditorViewState | null,
-    });
+    await showFile(
+      sessionFileUri(owner, entry.path),
+      {
+        viewState: (entry.viewState ?? null) as monaco.editor.ICodeEditorViewState | null,
+      },
+      signal,
+    );
   };
 
-  const rebindSession = async (session: ClientSession): Promise<void> => {
+  const rebindSession = async (session: ClientSession, signal: AbortSignal): Promise<void> => {
     parkSession();
-    await restoreSession(session);
+    await restoreSession(session, signal);
   };
 
   // Wait for Monaco's first paint before resolving, so the caller (which fades the splash on resolution)
@@ -914,7 +878,6 @@ export async function createEditorHost(
     flushDirty,
     flushSession: (session) => flushDirtyFor(session),
     createReviewCopyScope,
-    focusedEditor,
     clear,
     rebindSession,
     beginReview,

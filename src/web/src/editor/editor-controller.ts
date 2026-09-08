@@ -526,7 +526,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
           connection.editor.revealRangeInCenterIfOutsideViewport(symbol.range, REVEAL_SCROLL);
           connection.editor.focus();
           const destination = connection.capture();
-          if (destination !== undefined) navHistoryFor(session).push(destination);
+          if (destination !== undefined) navigation.push(session, destination);
         } else
           openFileFor(
             session,
@@ -947,7 +947,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
             }
             source.editor.focus();
             const destination = source.capture();
-            if (destination !== undefined) navHistoryFor(session).push(destination);
+            if (destination !== undefined) navigation.push(session, destination);
             setNavRevision((revision) => revision + 1);
             return source;
           }

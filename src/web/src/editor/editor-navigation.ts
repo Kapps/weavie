@@ -50,14 +50,22 @@ export function createEditorNavigation(options: {
     }
     return value;
   };
-  const record = (session: ClientSession, location: NavLocation): void => {
+  const commit = (
+    session: ClientSession,
+    location: NavLocation,
+    method: "record" | "push",
+  ): void => {
     cancelRecord(session);
-    history(session).record(location);
+    history(session)[method](location);
     options.changed();
   };
+  const record = (session: ClientSession, location: NavLocation): void =>
+    commit(session, location, "record");
   return {
     history,
     record,
+    push: (session: ClientSession, location: NavLocation): void =>
+      commit(session, location, "push"),
     signal: (session: ClientSession): AbortSignal =>
       AbortSignal.any([session.signal, operationFor(session).signal]),
     schedule(session: ClientSession, location: NavLocation, signal: AbortSignal): void {

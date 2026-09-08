@@ -5,6 +5,34 @@ import type { NavLocation } from "./nav-history";
 
 afterEach(() => vi.useRealTimers());
 
+it("an explicit same-file jump discards cursor snapshots captured before its reveal settled", async () => {
+  vi.useFakeTimers();
+  const owner = { signal: new AbortController().signal } as ClientSession;
+  const origin: NavLocation = {
+    kind: "review",
+    path: "/review.ts",
+    line: 80,
+    anchor: { line: 80, offset: 0 },
+  };
+  const intermediate: NavLocation = { ...origin, anchor: { line: 80, offset: 4 } };
+  const destination: NavLocation = { ...origin, line: 1, anchor: { line: 1, offset: 0 } };
+  const restore = vi.fn(async () => {});
+  const navigation = createEditorNavigation({
+    capture: () => destination,
+    restore,
+    changed: () => {},
+    failed: () => {},
+  });
+  navigation.record(owner, origin);
+  navigation.schedule(owner, intermediate, owner.signal);
+  navigation.push(owner, destination);
+  await vi.runAllTimersAsync();
+  navigation.capture(owner);
+  navigation.history(owner).back();
+  expect(restore).toHaveBeenLastCalledWith(owner, origin, expect.any(AbortSignal));
+  navigation.dispose();
+});
+
 function fixture() {
   const owner = { signal: new AbortController().signal } as ClientSession;
   const origin: NavLocation = { kind: "review", path: "/review.ts", line: 80 };

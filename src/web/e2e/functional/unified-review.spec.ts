@@ -211,6 +211,9 @@ test.describe("unified review mode", () => {
     await notes.locator(".view-line", { hasText: "a unified addition" }).click();
     await page.keyboard.press("End");
     await page.keyboard.type(`${marker}-one`);
+    // Enter must insert a line, rather than accept a pending word completion.
+    await page.keyboard.press("Escape");
+    await expect(notes.locator(".suggest-widget.visible")).toBeHidden();
     await page.keyboard.press("Enter");
     await page.keyboard.type(`${marker}-two`);
 

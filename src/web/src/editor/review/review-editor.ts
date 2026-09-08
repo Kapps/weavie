@@ -76,9 +76,13 @@ export function createReviewEditor(options: {
   );
   const gaps = editor.createDecorationsCollection([]);
   let height = 0;
-  let painted = false;
+  // Keeps the section's real DOM height — and so the viewport's scroll-clamp bound in
+  // review-editor-viewport.ts — matched to Monaco's actual content height as soon as it's known, rather
+  // than waiting on the diff to paint. Waiting left the section sized to its rough pre-paint estimate
+  // (estimatedEditorHeight), which could still be shorter than Monaco's real content height when a
+  // keyboard/caret reveal fired, permanently capping how far it could scroll (e.g. Ctrl+End could never
+  // reach a large diff's last lines).
   const measure = (): void => {
-    if (!painted) return;
     const next = editor.getContentHeight();
     if (height === next) return;
     height = next;
@@ -118,7 +122,6 @@ export function createReviewEditor(options: {
         const collapsed = collapseUnchanged(markers, model.getLineCount());
         gaps.set(collapsed.gapMarkers);
         editor.setHiddenAreas(collapsed.hidden, HIDDEN_AREAS_SOURCE);
-        painted = true;
         measure();
       });
       options.onPainted();
@@ -162,6 +165,9 @@ export function createReviewEditor(options: {
     editor.onDidContentSizeChange(measure),
     editor.onDidChangeCursorPosition((event) => options.onCursor(event.position.lineNumber)),
   ];
+  // Monaco already knows the model's content height as soon as it's attached, ahead of any content-size
+  // event this subscription (registered after that attach) could observe.
+  measure();
   options.configure(inline, model.uri.toString(), options.diff);
   return {
     capture,

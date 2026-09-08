@@ -32,6 +32,22 @@ async function expectUnobscuredLine(section: Locator, line: Locator): Promise<vo
     .toBeGreaterThanOrEqual(0);
 }
 
+// Failed on main 2026-09-08 17:26 UTC on windows-latest (checks / e2e (windows) / shard 3/3), a manually
+// triggered release build: https://github.com/Kapps/weavie/actions/runs/34253590020/job/102167346902 —
+// "bounds rendering..." timed out waiting for line 3999 to enter the viewport after ControlOrMeta+End; the
+// error-context dump showed rendering frozen around line 3450. Root cause: the review section's mount div
+// stayed sized to `estimatedEditorHeight`'s rough pre-paint guess until the diff finished painting, so on a
+// slow run that guess could still be shorter than Monaco's real content height when Ctrl+End fired — and
+// the scroll-clamp in review-editor-viewport.ts's `layout()` used that DOM height as its bound, permanently
+// capping the reveal short of the real end since nothing re-targeted it once the section resized later. Not
+// a test/timing issue — a genuine race, reproduced locally under CPU throttling (`taskset -c 0`, 3/5 runs)
+// and confirmed fixed (0/20 recurrences, same throttle) by having `measure()` in review-editor.ts sync the
+// section's real height from Monaco's content height as soon as it's known, instead of waiting on paint.
+// Known trade-off: any diff with collapsible unchanged context now briefly reports its full, uncollapsed
+// height to the outer virtualized file list (reflowing rows below it) before painting collapses it back
+// down. A narrower, reveal-only grow-on-demand alternative was tried twice to avoid that but broke
+// cross-file hunk navigation (unified-review-navigation.spec.ts) in ways not fully root-caused; reverted in
+// favor of this simpler, fully-verified fix.
 test.describe("Review Changes tab — large addition", () => {
   test.use({
     fakeScript: {

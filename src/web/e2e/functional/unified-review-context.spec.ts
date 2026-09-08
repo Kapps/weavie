@@ -145,7 +145,14 @@ test("unified diff clicks and selections become the agent's current editor conte
     await page.locator(".editor-review-toggle").click();
     await expect(page.locator(".unified-review")).toHaveCount(0);
     await openFile(page, "hello.ts");
-    await page.keyboard.press("Control+3");
+    for (const toast of await page
+      .locator(".toast", { hasText: "typescript language intelligence is unavailable" })
+      .all()) {
+      await toast.locator(".toast-close").click();
+    }
+    await page
+      .locator(".editor .view-line", { hasText: "export const answer = 42;" })
+      .click({ position: { x: 80, y: 9 } });
     await expect(
       page.locator(".editor").getByRole("textbox", { name: "Editor content" }),
     ).toBeFocused();

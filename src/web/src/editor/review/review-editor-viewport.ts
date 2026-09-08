@@ -15,6 +15,7 @@ export function createReviewEditorViewport(
   dispose(): void;
 } {
   let frame: number | undefined;
+  let pendingRevealTop: number | undefined;
   let syncing = false;
 
   const bounds = (): { top: number; height: number } => {
@@ -47,6 +48,11 @@ export function createReviewEditorViewport(
     if (frame === undefined) {
       frame = requestAnimationFrame(() => {
         frame = undefined;
+        if (pendingRevealTop !== undefined) {
+          const top = pendingRevealTop;
+          pendingRevealTop = undefined;
+          scroller.scrollTop += container.getBoundingClientRect().top - bounds().top + top;
+        }
         layout();
       });
     }
@@ -61,9 +67,14 @@ export function createReviewEditorViewport(
     layout();
   };
   // Keyboard/caret reveals still move the page; only viewport synchronization may scroll Monaco alone.
+  // Deferred a frame rather than applied inline: Monaco fires this mid-dispatch of its own reveal command, and
+  // calling back into setScrollTop/render synchronously from there is reentrant — occasionally leaving Monaco's
+  // own render pass and ours racing under CI-runner scheduling pressure. See the flake note in
+  // unified-review-scroll.spec.ts.
   const scroll = editor.onDidScrollChange((event) => {
     if (!syncing && event.scrollTopChanged) {
-      reveal(event.scrollTop);
+      pendingRevealTop = event.scrollTop;
+      schedule();
     }
   });
   const wheel = (event: WheelEvent): void => {

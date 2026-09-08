@@ -54,6 +54,14 @@ test.describe("unified review mode — large addition", () => {
     const firstLine = section.locator(".view-line", { hasText: /^new\sline\s0\s/ });
     await firstLine.click({ position: { x: 10, y: 10 } });
 
+    // Flaked on windows-latest 2026-09-08 17:12 UTC (run 34253590020, job 102167346902,
+    // https://github.com/Kapps/weavie/actions/runs/34253590020/job/102167346902): "new line 3999" never
+    // rendered within the 30s viewport wait after Ctrl+End, on the same commit a push-triggered CI run had
+    // just passed in full — a timing-only failure, not a code change between the two runs. Root cause:
+    // review-editor-viewport.ts's onDidScrollChange handler called back into Monaco (setScrollTop, render)
+    // synchronously from inside Monaco's own dispatch of its Ctrl+End reveal, a reentrant call that can race
+    // Monaco's own pending render under CI-runner scheduling pressure. Fixed by deferring that reveal to the
+    // next animation frame instead of applying it inline.
     await page.keyboard.press("ControlOrMeta+End");
     await expectUnobscuredLine(
       section,

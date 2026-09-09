@@ -59,10 +59,6 @@ export function createEditorContexts() {
     live,
     displayed,
     activate,
-    isCurrent(connection: TextEditorConnection): boolean {
-      const state = owners.get(connection.session);
-      return state?.current.get(state.active()!) === connection;
-    },
     openMenu(connection: TextEditorConnection, x: number, y: number): void {
       if (displayed(connection)) owner(connection.session).openMenu(connection, x, y);
     },

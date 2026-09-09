@@ -801,6 +801,7 @@ test.describe("session-addressed WebSocket transport", () => {
     host.setSessions([session]);
     await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
     await host.waitUntilConnected();
+    await expect(page.locator(".editor-surface .pane-footer")).toBeVisible();
     await expect(page.locator(".footer-network-problem")).toHaveCount(0);
 
     const checkpoint = host.checkpoint();

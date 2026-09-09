@@ -1938,10 +1938,31 @@ test.describe("ACP composer", () => {
     await expectFollowingLatest();
 
     const scrollLinesFromBottom = async (lines: number): Promise<void> => {
-      const distance = await distanceFromBottom();
-      await page.mouse.wheel(0, distance - lineHeight * lines);
-      await expect.poll(distanceFromBottom).toBeGreaterThan(lineHeight * lines - 2);
-      await expect.poll(distanceFromBottom).toBeLessThan(lineHeight * lines + 2);
+      // Following latest can snap back on virtualizer idle; observe the wheel movement before it does.
+      const movement = await body.evaluateHandle((element) => {
+        let furthest = 0;
+        const observe = (): void => {
+          furthest = Math.max(
+            furthest,
+            element.scrollHeight - element.scrollTop - element.clientHeight,
+          );
+        };
+        element.addEventListener("scroll", observe);
+        return {
+          distance: () => furthest,
+          dispose: () => element.removeEventListener("scroll", observe),
+        };
+      });
+      try {
+        const distance = await distanceFromBottom();
+        await page.mouse.wheel(0, distance - lineHeight * lines);
+        const furthest = (): Promise<number> => movement.evaluate((sample) => sample.distance());
+        await expect.poll(furthest).toBeGreaterThan(lineHeight * lines - 2);
+        await expect.poll(furthest).toBeLessThan(lineHeight * lines + 2);
+      } finally {
+        await movement.evaluate((sample) => sample.dispose());
+        await movement.dispose();
+      }
     };
 
     await scrollLinesFromBottom(2.5);

@@ -153,7 +153,7 @@ export function inlineReviewLine(editor: monaco.editor.IStandaloneCodeEditor): n
 }
 
 /** Per-editor inline-diff controller. Diffs are keyed by file path; only the editor's current model renders. */
-export interface InlineDiff extends InlineDiffActions {
+export interface InlineDiff {
   captureActions(): InlineDiffActions;
   /** Refresh the toolbar mount and command context after the active review surface changes. */
   refreshPresentation(): void;
@@ -895,27 +895,19 @@ export function createInlineDiff(
   // case the undo chords are meaningful and must consume the key rather than type into the editor.
   const reviewUp = (): boolean =>
     parkedReview !== undefined || fileOptions()?.mode === "applied" || history.canUndo;
-  const undoKeep = (): boolean => {
-    if (!reviewUp()) {
-      return false;
-    }
-    if (history.canUndoKeep) {
-      runAction(historyHandlers?.onUndoKeep);
-    }
-    return true;
-  };
-  const undoRevert = (): boolean => {
-    if (!reviewUp()) {
-      return false;
-    }
-    if (history.canUndoRevert) {
-      runAction(historyHandlers?.onUndoRevert);
-    }
-    return true;
+  const captureHistoryActions = () => {
+    const handlers = historyHandlers;
+    return {
+      undoKeep: (): boolean =>
+        reviewUp() && (history.canUndoKeep ? runAction(handlers?.onUndoKeep) : true),
+      undoRevert: (): boolean =>
+        reviewUp() && (history.canUndoRevert ? runAction(handlers?.onUndoRevert) : true),
+      redoReview: (): boolean => history.canRedo && runAction(handlers?.onRedo),
+    };
   };
   const undoLast = (): boolean =>
     history.canUndo ? runAction(historyHandlers?.onUndoLast) : false;
-  const redoReview = (): boolean => (history.canRedo ? runAction(historyHandlers?.onRedo) : false);
+  const redoReview = (): boolean => captureHistoryActions().redoReview();
 
   // Dim/enable the toolbar's Undo/Redo buttons to match availability (cheap — no full re-render).
   const syncHistoryButtons = (): void => {
@@ -1606,7 +1598,7 @@ export function createInlineDiff(
     }
   };
 
-  const actions: InlineDiffActions = {
+  const actions = {
     nextChange,
     prevChange,
     nextFile,
@@ -1618,9 +1610,6 @@ export function createInlineDiff(
     revertFile,
     keepAll,
     comment,
-    undoKeep,
-    undoRevert,
-    redoReview,
   };
   return {
     captureActions() {
@@ -1629,7 +1618,7 @@ export function createInlineDiff(
       const options = currentOptions;
       const line = reviewLine();
       const scope = presentation.scope.current;
-      return Object.fromEntries(
+      const locationActions = Object.fromEntries(
         Object.entries(actions).map(([name, action]) => [
           name,
           () => {
@@ -1645,7 +1634,8 @@ export function createInlineDiff(
             return action();
           },
         ]),
-      ) as unknown as InlineDiffActions;
+      );
+      return { ...locationActions, ...captureHistoryActions() } as InlineDiffActions;
     },
     refreshPresentation() {
       if (
@@ -1723,7 +1713,6 @@ export function createInlineDiff(
       syncDiffContext();
     },
     hasDiffForUri: (uri) => diffs.has(uri),
-    ...actions,
     bindHistory(handlers) {
       historyHandlers = handlers;
     },

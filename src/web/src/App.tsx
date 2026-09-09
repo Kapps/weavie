@@ -1203,12 +1203,10 @@ export default function App(): JSX.Element {
             </Show>
             <TabContent sessions={editorSessions} controller={editor} />
           </div>
-          <Show when={activeTabBinding() !== undefined && isFileTab(activeTabBinding()!.entry)}>
-            <EditorFooter
-              onOpenRecent={(path) => editor.openFile(path, undefined)}
-              root={() => indexRoot() ?? ""}
-            />
-          </Show>
+          <EditorFooter
+            onOpenRecent={(path) => editor.openFile(path, undefined)}
+            root={() => indexRoot() ?? ""}
+          />
         </div>
       );
     }

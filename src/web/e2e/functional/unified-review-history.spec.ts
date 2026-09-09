@@ -148,9 +148,26 @@ for (const invocation of ["keyboard", "palette", "context menu"] as const) {
       page.locator(".unified-review .view-line", { hasText: "review departure" }),
     ).toBeInViewport();
 
-    await runCommand(page, "Go Forward");
+    await page.keyboard.press("ControlOrMeta+Shift+p");
+    await page.locator(".tb-omnibar-input").fill(">Go Forward");
+    await page.locator(".tb-omnibar-input").press("Enter");
     await expect(page.locator(".unified-review")).toHaveCount(0);
     await expectRevealed(page, "hello.ts", 1);
+    await page.locator(".editor-tab", { hasText: "Review Changes" }).click();
+    await expect(
+      page.locator(".unified-review .view-line", { hasText: "review departure" }),
+    ).toBeInViewport();
+    await expect.poll(() => reviewState(page)).toEqual(departure);
+    await page.locator(".editor-tab", { hasText: "notes.txt" }).click();
+    await expect(page.locator(".editor-tab.active")).toContainText("notes.txt");
+    await page.locator(".editor-tab", { hasText: "Review Changes" }).click();
+    await expect(
+      page.locator(".unified-review .view-line", { hasText: "review departure" }),
+    ).toBeInViewport();
+    await expect.poll(() => reviewState(page)).toEqual(departure);
+    await expect(
+      page.locator(".unified-review").getByRole("textbox", { name: "Editor content" }).last(),
+    ).toBeFocused();
   });
 }
 

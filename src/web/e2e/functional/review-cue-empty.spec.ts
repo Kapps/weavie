@@ -36,11 +36,13 @@ test.describe("empty-state review cue (#125)", () => {
     await expect(cue).toBeVisible({ timeout: 15_000 });
     await expect(cue).toContainText("Review changes — 2 files");
 
-    // Clicking it opens the all-files overview without manufacturing an editor tab.
+    // The overview owns the only tab; individual files stay inside it.
     await cue.click();
     await expect(page.locator(".unified-review")).toBeVisible({ timeout: 15_000 });
     await expect(page.locator(".unified-review-file")).toHaveCount(2);
-    await expect(page.locator(".editor-tab")).toHaveCount(0);
+    await expect(page.locator(".editor-tab")).toHaveCount(1);
+    await expect(page.locator(".editor-tab.active")).toContainText("Review Changes");
+    await expect(page.locator(".editor-empty")).toHaveCount(0);
   });
 });
 

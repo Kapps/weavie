@@ -5,7 +5,7 @@ import { createSymbolSource } from "../symbols/symbol-source";
 import { activeEditorMessage } from "./active-editor-message";
 import { installAltClickPeek } from "./alt-click-peek";
 import { editorContexts, type TextEditorConnection } from "./editor-context";
-import { setEditorStatus } from "./editor-status-store";
+import { clearEditorStatus, setEditorStatus } from "./editor-status-store";
 import { createGitBlame } from "./git-blame";
 import type { TextLocation } from "./nav-history";
 import { sharedReviseMarks } from "./revise-marks";
@@ -47,7 +47,7 @@ export function connectTextEditor(options: {
     }
     const position = editor.getPosition();
     if (selectedSession() === session && position !== null) {
-      setEditorStatus({
+      setEditorStatus(connection, {
         line: position.lineNumber,
         column: position.column,
         selectionCount: (editor.getSelections() ?? []).reduce(
@@ -78,8 +78,7 @@ export function connectTextEditor(options: {
   return {
     connection,
     dispose: () => {
-      if (editorContexts.isCurrent(connection) && selectedSession() === session)
-        setEditorStatus(null);
+      clearEditorStatus(connection);
       lifetime.abort();
       unregister();
       offRevise();
